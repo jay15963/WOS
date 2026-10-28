@@ -1,7 +1,7 @@
 // Runtime world: tile queries, collision, chunked object lists, GPU field textures.
 
 import { boxBlur, clamp } from '../engine/noise.js';
-import { G } from './worldgen.js';
+import { G, BIOMES } from './worldgen.js';
 
 export const CHUNK = 16;
 export const FR = 4; // field texture resolution per tile
@@ -131,6 +131,13 @@ export class World {
     }
   }
 
+  // biome name at a world point (see worldgen BIOMES)
+  biomeAt(x, y) {
+    const tx = Math.floor(x), ty = Math.floor(y);
+    if (!this.inBounds(tx, ty) || !this.biome) return 'mountain';
+    return BIOMES[this.biome[this.idx(tx, ty)]];
+  }
+
   // Compute smooth fields at FR x resolution for tile rect (with margin), write back the rect.
   _buildFields(x0, y0, x1, y1) {
     const W = this.W, H = this.H, M = 6;
@@ -140,6 +147,7 @@ export class World {
     // tile-level helpers inside window
     const dIn = new Float32Array(tw * th);   // depth inside rock (tiles)
     const dW = new Float32Array(tw * th);    // distance to water (tiles)
+    const dOut = new Float32Array(tw * th);  // distance to rock from outside (tiles)
     {
       // simple chamfer within window
       const INF = 99;
@@ -147,6 +155,7 @@ export class World {
         const i = this.idx(wx0 + x, wy0 + y);
         dIn[y * tw + x] = this.rock[i] ? INF : 0;
         dW[y * tw + x] = this.water[i] ? 0 : INF;
+        dOut[y * tw + x] = this.rock[i] ? 0 : INF;
       }
       const pass = (a) => {
         for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
@@ -162,47 +171,58 @@ export class World {
           a[i] = v;
         }
       };
-      pass(dIn); pass(dW);
+      pass(dIn); pass(dW); pass(dOut);
+    }
+    // rock proximity (1x, field2.A): 0 at rock .. 1 at >= 4 tiles
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      const v = dOut[(ty - wy0) * tw + (tx - wx0)];
+      this.field2[this.idx(tx, ty) * 4 + 3] = clamp(Math.round((v / 4) * 255), 0, 255);
     }
     const sw = tw * FR, sh = th * FR, S = sw * sh;
     const rockM = new Float32Array(S), height = new Float32Array(S), wat = new Float32Array(S), wet = new Float32Array(S);
-    const tileVal = (arr, tx, ty) => arr[clamp(ty, 0, th - 1) * tw + clamp(tx, 0, tw - 1)];
-    const bil = (arr, fx, fy) => {
-      const ix = Math.floor(fx), iy = Math.floor(fy), ux = fx - ix, uy = fy - iy;
-      const a = tileVal(arr, ix, iy), b = tileVal(arr, ix + 1, iy), c = tileVal(arr, ix, iy + 1), d = tileVal(arr, ix + 1, iy + 1);
-      return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy;
-    };
     const hTile = new Float32Array(tw * th), wetTile = new Float32Array(tw * th);
     for (let i = 0; i < tw * th; i++) {
-      hTile[i] = clamp((dIn[i] - 0.5) / 4.5, 0, 1);
+      // massif height: rises over ~7 tiles inside the rock (ridges along the medial axis)
+      const d = Math.max(0, dIn[i] - 0.5);
+      hTile[i] = clamp(1 - Math.exp(-d / 3.2), 0, 1);
       wetTile[i] = dW[i] === 0 ? 1 : clamp(1 - (dW[i] - 1) / 2.5, 0, 1);
     }
-    for (let sy = 0; sy < sh; sy++) for (let sx = 0; sx < sw; sx++) {
-      const tx = Math.floor(sx / FR), ty = Math.floor(sy / FR);
-      const ti = this.idx(wx0 + tx, wy0 + ty);
-      const s = sy * sw + sx;
-      rockM[s] = this.rock[ti] ? 1 : 0;
-      const wv = this.water[ti];
-      wat[s] = wv === 2 ? 1 : wv === 1 ? 0.55 : 0;
-      const fx = (sx + 0.5) / FR - 0.5, fy = (sy + 0.5) / FR - 0.5;
-      height[s] = bil(hTile, fx, fy);
-      wet[s] = bil(wetTile, fx, fy);
+    // per sub-sample column/row bilinear setup (tile centers at k + 0.5)
+    const cx0 = new Int32Array(sw), cx1 = new Int32Array(sw), cux = new Float32Array(sw);
+    for (let sx = 0; sx < sw; sx++) {
+      const fx = (sx + 0.5) / FR - 0.5, ix = Math.floor(fx);
+      cx0[sx] = clamp(ix, 0, tw - 1); cx1[sx] = clamp(ix + 1, 0, tw - 1); cux[sx] = fx - ix;
+    }
+    for (let sy = 0; sy < sh; sy++) {
+      const fy = (sy + 0.5) / FR - 0.5, iy = Math.floor(fy), uy = fy - iy;
+      const r0 = clamp(iy, 0, th - 1) * tw, r1 = clamp(iy + 1, 0, th - 1) * tw;
+      const ty = (sy / FR) | 0, trow = (wy0 + ty) * W + wx0, srow = sy * sw;
+      for (let sx = 0; sx < sw; sx++) {
+        const ti = trow + ((sx / FR) | 0), s = srow + sx;
+        rockM[s] = this.rock[ti];
+        const wv = this.water[ti];
+        wat[s] = wv === 2 ? 1 : wv === 1 ? 0.55 : 0;
+        const a0 = cx0[sx], a1 = cx1[sx], ux = cux[sx];
+        const ha = hTile[r0 + a0] + (hTile[r0 + a1] - hTile[r0 + a0]) * ux;
+        const hb = hTile[r1 + a0] + (hTile[r1 + a1] - hTile[r1 + a0]) * ux;
+        height[s] = ha + (hb - ha) * uy;
+        const ea = wetTile[r0 + a0] + (wetTile[r0 + a1] - wetTile[r0 + a0]) * ux;
+        const eb = wetTile[r1 + a0] + (wetTile[r1 + a1] - wetTile[r1 + a0]) * ux;
+        wet[s] = ea + (eb - ea) * uy;
+      }
     }
     const r1 = boxBlur(boxBlur(rockM, sw, sh, 2), sw, sh, 2);
     const h1 = boxBlur(height, sw, sh, 3);
     const w1 = boxBlur(boxBlur(wat, sw, sh, 3), sw, sh, 3);
     const e1 = boxBlur(wet, sw, sh, 2);
     // write back only the requested rect
-    const FW = W * FR;
-    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-      for (let ky = 0; ky < FR; ky++) for (let kx = 0; kx < FR; kx++) {
-        const sx = (tx - wx0) * FR + kx, sy = (ty - wy0) * FR + ky;
-        const s = sy * sw + sx;
+    const FW = W * FR, F = this.field;
+    for (let ty = y0; ty <= y1; ty++) for (let ky = 0; ky < FR; ky++) {
+      const sy = (ty - wy0) * FR + ky;
+      for (let tx = x0; tx <= x1; tx++) for (let kx = 0; kx < FR; kx++) {
+        const s = sy * sw + (tx - wx0) * FR + kx;
         const o = ((ty * FR + ky) * FW + (tx * FR + kx)) * 4;
-        this.field[o] = clamp(r1[s] * 255, 0, 255);
-        this.field[o + 1] = clamp(h1[s] * 255, 0, 255);
-        this.field[o + 2] = clamp(w1[s] * 255, 0, 255);
-        this.field[o + 3] = clamp(e1[s] * 255, 0, 255);
+        F[o] = r1[s] * 255; F[o + 1] = h1[s] * 255; F[o + 2] = w1[s] * 255; F[o + 3] = e1[s] * 255;
       }
     }
   }

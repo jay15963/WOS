@@ -26,8 +26,18 @@ Rodar localmente: `python -m http.server 5173 --bind 127.0.0.1` → http://local
 Texturas do mundo (src/world/world.js):
 - `tileData` RGBA 1×: R ground id, G random, B tipo de rocha regional (1..4), A minério.
 - `field` RGBA 4×/tile, linear: R máscara de rocha, G altura da rocha, B profundidade da água, A umidade da margem.
-- `field2` RGBA 1×, linear: R exuberância (grama), GB direção do fluxo do rio, A livre.
+- `field2` RGBA 1×, linear: R exuberância (grama), GB direção do fluxo do rio, A proximidade de rocha (0 = rocha, 1 = ≥ 4 tiles).
+- Texturas de chão (src/world/terrainTex.js): array 512², camadas 0..7 chão, 8..11 rochas; RGB = cor, **A = altura**
+  (mistura por altura entre tipos, poças, relevo dinâmico nas rochas). Cache em IndexedDB (chave = hash do código).
 - Mudanças em runtime: `world.mineRock(tx,ty)` já recalcula e marca `world.dirty`; o jogo re-envia a região.
+- Uniforms extras: `env.extra = { uNome: número | [..] }` é aplicado genericamente aos shaders de terreno e post.
+
+Biomas e zonas (src/world/worldgen.js):
+- `world.biome` (Uint8Array por tile, nomes em `BIOMES`): `meadow, forest, pine, birch, marsh, shore, rocky, water, mountain`
+  (`BIOME_NAMES_PT` para a UI). `world.biomeAt(x, y)` → nome.
+- `world.zones = [{ type, x, y, r, f? }]`: um por chunk 16×16 onde um bioma domina (`type` = bioma, `f` = fração)
+  + `lake, river, flowers, mushrooms, outcrop, clearing, spawn`. Útil para tabelas de spawn de animais.
+- `world.dWater`, `world.dRock` (Float32Array, distância em tiles até água / rocha).
 
 ## Objetos e entidades
 - **Objetos estáticos** (`world.objects`, por chunk 16×16): `{ id, type, v, x, y, s, f, solid, ... }`
@@ -43,10 +53,15 @@ Texturas do mundo (src/world/world.js):
 
 ## Sistemas
 `game.systems` = lista de `{ update(game, dt), render?(game, B, view, env) }`.
-- `src/fx/ambient.js` → `installAmbient(game)`: vida ambiente, clima, partículas de fogo de objetos `fire`.
+- `src/fx/ambient.js` → `installAmbient(game)` (`game.ambient`): vida ambiente (vaga-lumes, borboletas, folhas, pássaros,
+  peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
+  (`game.R.autoScale = false` desliga).
+- `src/fx/environment.js`: `env.setWeather('clear'|'cloudy'|'rain'|'storm'|'fog')`, `env.weatherName()` (pt-BR),
+  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather}`; raios em `env.strikes`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
 - `game.audio.play(name, {x, y, volume})` (src/fx/audio.js). Nomes: hit, crit, swing, chop, mine, pickup, eat,
-  levelup, death, growl, ui, build, fire, splash, step.
+  levelup, death, growl, ui, build, fire, splash, step (o passo usa o tipo de chão em x,y). Áudio procedural:
+  `game.audio.enabled` (persistido), `.volume`, `.sfxVolume`, `.ambVolume`, `.toggle()`; ambiente segue a câmera.
 - `game.particles.emit({...})` (src/fx/particles.js). `layer: 'fx'` (alfa) ou `'emissive'` (brilho).
 - Input: `game.input` (`move()`, `pressed` Set de `KeyboardEvent.code`, `taps` [{x,y}] em px CSS, `isTouch`).
   Se `player.autoMove = [dx,dy]` estiver setado, o jogador anda nessa direção quando não há input manual.
