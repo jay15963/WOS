@@ -189,7 +189,7 @@ const LOOKS = [
 const ents = [];
 const pawn = (x, y, look, extra = {}) => { const p = { isEntity: true, kind: 'pawn', x, y, facing: 's', moving: false, moveT: 0, action: null, flash: 0, look, weapon: 'sword', ...extra }; ents.push(p); return p; };
 const animal = (species, x, y, extra = {}) => { const a = { isEntity: true, kind: 'animal', species, x, y, facing: 'e', moving: false, moveT: 0, action: null, flash: 0, scale: 1, ...extra }; ents.push(a); return a; };
-const walker = pawn(5, 11, LOOKS[0], { moving: true, path: { cx: 6, cy: 11, r: 2, w: 0.5 } });
+pawn(5, 11, LOOKS[0], { moving: true, path: { cx: 6, cy: 11, r: 2, w: 0.5 } });
 pawn(12, 11.5, LOOKS[1], { weapon: 'axe', act: 'chop' });
 pawn(14.6, 11.6, LOOKS[2], { weapon: 'pickaxe', act: 'attack', facing: 'e' });
 pawn(17.8, 12.4, LOOKS[3], { facing: 'n' });
@@ -199,7 +199,6 @@ animal('deer', 20, 14.5, { moving: true, path: { cx: 15, cy: 14.6, r: 4, w: 0.25
 animal('boar', 10, 14.6, { facing: 's' });
 animal('rabbit', 12, 13.5, { moving: true, path: { cx: 12, cy: 13.8, r: 1, w: 0.9 } });
 animal('bear', 27, 7.5, { facing: 'w' });
-void walker;
 
 const facingOf = (dx, dy) => (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : dy > 0 ? 's' : 'n');
 const SB = mkBatches();

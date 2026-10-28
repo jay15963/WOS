@@ -1,7 +1,9 @@
 // Trees (3/4 view, trunk at the bottom, canopy above). Sizes in tiles; anchor = trunk base.
 
-import { sprite, rng, OW, OUT, TAU, lin, rad, atop, fill, stroke, taper, leaf, ramp, mixc, tone, rgb, hex, circle, smoothClosed, blobPts } from './paint.js';
+import { sprite, rng, OW, TAU, lin, atop, fill, taper, leaf, ramp, rgb, hex, smoothClosed, blobPts } from './paint.js';
 import { mkLump, drawFoliage } from './foliage.js';
+
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 const BARK = { deep: '#2e2016', dark: '#47311f', mid: '#664730', light: '#87643f', high: '#a07b52' };
 
@@ -194,10 +196,12 @@ function pine(v) {
         const x0 = cx - T.w, x1 = cx + T.w;
         fill(g, lin(g, x0, T.topY, x1, T.botY, [[0, ramp(stops, 0.78)], [0.3, ramp(stops, 0.6)], [0.5, ramp(stops, 0.48)], [0.58, ramp(stops, 0.3)], [1, ramp(stops, 0.18)]]), (gg) => polyPath(gg, T.pts));
         g.save(); g.beginPath(); polyPath(g, T.pts); g.clip();
-        // needle clusters (scattered, irregular)
+        // needle clusters (scattered, irregular), batched per tone
         g.lineWidth = 1.15;
         const area = T.w * (T.botY - T.topY);
         const nm = Math.round(area / 26);
+        const NBN = 8, litP = [], darkP = [];
+        for (let i = 0; i < NBN; i++) { litP.push(null); darkP.push(null); }
         for (let i = 0; i < nm; i++) {
           const t = Math.sqrt(rand());
           const y = T.topY + 4 + (T.botY - T.topY - 2) * t;
@@ -205,9 +209,16 @@ function pine(v) {
           const x = cx + (rand() * 2 - 1) * half;
           const u = (x - cx) / Math.max(1, T.w);
           const lit = u < -0.08 - rand() * 0.2;
-          g.strokeStyle = lit ? ramp(stops, 0.82 - t * 0.2 + rand() * 0.1, 0.75) : ramp(stops, 0.05 + rand() * 0.1, 0.6);
+          const tone = lit ? clamp01(0.82 - t * 0.2 + rand() * 0.1) : clamp01(0.05 + rand() * 0.1);
+          const arr = lit ? litP : darkP;
+          const b = Math.round(tone * (NBN - 1));
+          const path = arr[b] || (arr[b] = new Path2D());
           const sz = 2 + rand() * 2.5, sk = (rand() - 0.5) * 0.8;
-          g.beginPath(); g.moveTo(x - sz + sk, y + sz * 0.8); g.lineTo(x, y); g.lineTo(x + sz + sk, y + sz * 0.8); g.stroke();
+          path.moveTo(x - sz + sk, y + sz * 0.8); path.lineTo(x, y); path.lineTo(x + sz + sk, y + sz * 0.8);
+        }
+        for (let b = 0; b < NBN; b++) {
+          if (litP[b]) { g.strokeStyle = ramp(stops, b / (NBN - 1), 0.75); g.stroke(litP[b]); }
+          if (darkP[b]) { g.strokeStyle = ramp(stops, b / (NBN - 1), 0.6); g.stroke(darkP[b]); }
         }
         // darker drooping fringe at the bottom
         g.strokeStyle = rgb(hex(pal.deep), 0.7);
@@ -390,7 +401,6 @@ function stump(v) {
 }
 
 function sapling(v) {
-  const rand = rng(6000 + v);
   return sprite(0.6, 0.9, (g, P) => {
     const cx = P.W / 2, baseY = P.H - 5;
     P.layer((g) => {
@@ -406,13 +416,12 @@ function sapling(v) {
         g.strokeStyle = pal.dark; g.lineWidth = 0.9;
         g.beginPath(); g.moveTo(x0, y0); g.lineTo((x0 + x1) / 2, (y0 + y1) / 2); g.stroke();
       }
-      void rand;
     }, 2.4);
   });
 }
 
 export function addTrees(add) {
-  const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / c.height);
+  const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / (c.origH || c.height));
   for (let i = 0; i < 5; i++) put('tree_oak_' + i, oak(i), 9);
   for (let i = 0; i < 4; i++) put('tree_pine_' + i, pine(i), 9);
   for (let i = 0; i < 3; i++) put('tree_birch_' + i, birch(i), 9);
@@ -422,4 +431,3 @@ export function addTrees(add) {
 }
 
 export { OAK_PALS, BARK };
-void OUT; void rad; void stroke; void mixc; void tone; void circle;

@@ -2,7 +2,7 @@
 // Drawn WHITE/GREY and tinted by multiplication at runtime: body × shirt, head × skin, hair/beard × hair color.
 // Weapons/tools are colored, pointing UP, anchored at the grip (grip centered horizontally so flips mirror).
 
-import { sprite, spritePx, rng, OW, TAU, lin, rad, atop, circle, smoothClosed, taper } from './paint.js';
+import { spritePx, rng, TAU, lin, rad, atop, circle } from './paint.js';
 
 // Geometry contract shared with compose.js (tiles)
 export const PAWN = {
@@ -390,4 +390,3 @@ export function addPawns(add) {
   add('weapon_club', club(), 0.5, 49 / 58);
 }
 export const HAIR_STYLES = Object.keys(HAIR);
-void sprite; void OW; void smoothClosed; void taper;

@@ -207,7 +207,7 @@ const GAIT = {
 const GAIT_DEF = { f: 10, bob: 0.05, rock: 0.05 };
 export function drawAnimal(B, A, a, t) {
   const T = tables(A);
-  const S = T.animal[a.species];
+  const S = T.animal[a.species] || T.animal.wolf;
   if (!S) return;
   const dir = a.facing || 'e';
   const sd = dir === 'w' ? 'e' : dir;
@@ -269,7 +269,8 @@ export function drawAnimal(B, A, a, t) {
 }
 
 // ---------- static world objects ----------
-// o: { type, v, x, y, s, f, shake, fall, stump, empty, flash, age, light, fire }
+// o: { type, v, x, y, s, f, shake, fall, fallDir?(±1, defaults to f), stump, empty, flash, age, light, fire,
+//      alpha?(0..1 see-through multiplier, trees/bushes) }
 const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.024, tree_birch: 0.04, tree_dead: 0.015 };
 export function drawStatic(B, A, o, t) {
   const T = tables(A);
@@ -290,7 +291,7 @@ export function drawStatic(B, A, o, t) {
       B.main.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 1, 0.08, 0, fl, f);
       return;
     }
-    const s = A.pick(type, o.v);
+    const s = A.pick(A.groups[type] ? type : 'tree_oak', o.v);
     let x = o.x, rot = 0, alpha = 1;
     const shk = o.shake || 0;
     if (shk > 0) { x += Math.sin(t * 57) * 0.045 * shk; rot = Math.sin(t * 43 + 1.3) * 0.028 * shk; }
@@ -299,14 +300,16 @@ export function drawStatic(B, A, o, t) {
       let a;
       if (fall <= 1) a = fall * fall * fall * 0.15 + fall * fall * 0.85;
       else { const u = Math.min(1, (fall - 1) / 0.25); a = 1 - Math.sin(u * Math.PI) * 0.06 * (1 - u * 0.5); }
-      rot = f * HALF_PI * a;
+      rot = (o.fallDir || f) * HALF_PI * a;
       alpha = 1 - clamp01((fall - 1.1) / 0.4);
     }
     const sc = o.s * age;
+    const sa = alpha;
+    if (o.alpha != null) alpha *= o.alpha; // optional see-through (e.g. canopy over the player)
     B.blob.add(T.blob, o.x, o.y, 1.05 * sc, 0.85 * sc, 1, 1, 1, 0.6 * (fall > 0 ? 1 - clamp01(fall) : 1));
     const sway = fall > 0 ? 0 : TREE_SWAY[type] ?? 0.03;
     B.main.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f);
-    B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, 0, f);
+    B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
     return;
   }
   if (type === 'bush' || type === 'berrybush') {
@@ -316,7 +319,7 @@ export function drawStatic(B, A, o, t) {
     const x = o.x + (shk > 0 ? Math.sin(t * 50) * 0.035 * shk : 0);
     const rot = shk > 0 ? Math.sin(t * 38) * 0.05 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.95 * o.s, 0.62 * o.s, 1, 1, 1, 0.55);
-    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0.05, rot, fl, f, 0.5);
+    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, o.alpha ?? 1, 0.05, rot, fl, f, 0.5);
     B.shadow.add(s, x, o.y, o.s, o.s, 1, 1, 1, 0.85, 0.05, rot, 0, f);
     return;
   }
@@ -340,8 +343,8 @@ export function drawStatic(B, A, o, t) {
         const k = 0.86 + 0.16 * Math.sin(ph) + 0.08 * Math.sin(ph * 2.7 + 1);
         const mid = i === 1;
         const fx = o.x + (i - 1) * 0.13 * sc + 0.025 * Math.sin(ph * 1.3);
-        const fsx = (mid ? 0.8 : 0.6) * k * sc;
-        const fsy = (mid ? 1.15 : 0.8) * (0.85 + 0.15 * Math.sin(ph * 0.8 + i)) * k * sc;
+        const fsx = (mid ? 0.92 : 0.68) * k * sc;
+        const fsy = (mid ? 1.35 : 0.95) * (0.85 + 0.15 * Math.sin(ph * 0.8 + i)) * k * sc;
         B.emissive.add(T.flames[i], fx, o.y + 0.02, fsx, fsy, 1, 1, 1, 0.92, 0, (i - 1) * 0.22 + 0.08 * Math.sin(ph * 0.7), 0, 1, 0, CAMPFIRE_FLAME_LIFT * sc);
       }
       // small licking tongue that pops in and out
@@ -371,9 +374,11 @@ export function drawStatic(B, A, o, t) {
     const s = A.get(type);
     const sc = o.s || 1;
     const item = type.charCodeAt(0) === 105 && type.startsWith('item_');
+    const flat = item || type === 'bed';
     if (item) B.blob.add(T.blob, o.x, o.y, 0.42 * sc, 0.26 * sc, 1, 1, 1, 0.45);
+    else if (type === 'chest') B.blob.add(T.blob, o.x, o.y, 0.9 * sc, 0.45 * sc, 1, 1, 1, 0.45);
     B.main.add(s, o.x, o.y, sc, sc, 1, 1, 1, 1, 0, 0, fl, f);
-    if (!item) B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 1, 0, 0, 0, f);
+    if (!flat) B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 1, 0, 0, 0, f);
   }
 }
 

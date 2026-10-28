@@ -1,7 +1,7 @@
 // Ground plants: bushes, berry bushes, grass tufts, tall grass, reeds, flowers, mushrooms.
 // Grass is drawn by the thousand: soft thin dark-green outlines, muted greens, darker roots.
 
-import { sprite, rng, OW, TAU, lin, ramp, rgb, hex, mixc, tone, leaf, taper, circle, clamp } from './paint.js';
+import { sprite, rng, TAU, lin, rgb, hex, mixc, leaf, circle } from './paint.js';
 import { drawFoliage, bushLumps } from './foliage.js';
 
 const BUSH_PALS = [
@@ -307,7 +307,7 @@ function mushroom(v) {
 }
 
 export function addPlants(add) {
-  const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / c.height);
+  const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / (c.origH || c.height));
   for (let i = 0; i < 4; i++) put('bush_' + i, bush(i, false, false), 6);
   for (let i = 0; i < 2; i++) {
     put('berrybush_' + i, bush(i, true, false), 6);
@@ -320,4 +320,3 @@ export function addPlants(add) {
   for (let i = 0; i < 3; i++) put('mushroom_' + i, mushroom(i), 4);
 }
 
-void OW; void ramp; void tone; void taper; void clamp;

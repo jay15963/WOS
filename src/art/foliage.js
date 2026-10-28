@@ -5,11 +5,13 @@
 import { TAU, clamp, ramp, rgb, hex, lin, rad, atop, circle } from './paint.js';
 
 const LX = -0.6, LY = -0.8; // direction toward the light
+const NB = 14;
+const BINS = new Array(NB).fill(null);
 
 export function mkLump(x, y, r, rand, scallop = 1) {
   const sc = [];
-  const rs0 = r * 0.17 * scallop;
-  const n = Math.max(8, Math.round((TAU * r) / (rs0 * 1.55)));
+  const rs0 = r * 0.19 * scallop;
+  const n = Math.max(8, Math.round((TAU * r) / (rs0 * 1.75)));
   const a0 = rand() * TAU;
   for (let i = 0; i < n; i++) {
     const a = a0 + (i / n) * TAU + (rand() - 0.5) * 0.25;
@@ -69,22 +71,23 @@ export function drawFoliage(g, lumps, pal, rand, opts) {
     if (lf > 0.22) {
       g.beginPath(); lumpPath(g, L, 0.56, -0.2, -0.3); g.fillStyle = ramp(stops, 0.6 + 0.26 * lf); g.fill();
     }
-    // painted leaf dabs
+    // painted leaf dabs (batched per tone bin: far fewer fill calls)
     if (marks > 0) {
-      g.save();
-      g.beginPath(); lumpPath(g, L); g.clip();
-      const n = Math.round(L.r * L.r * 0.045 * marks);
+      // (no clip: dabs stay inside 0.8 r, which is always inside the lump; clipping is costly)
+      const n = Math.round(L.r * L.r * 0.04 * marks);
+      const bins = BINS;
+      for (let i = 0; i < NB; i++) bins[i] = null;
       for (let i = 0; i < n; i++) {
-        const a = rand() * TAU, rr = Math.sqrt(rand()) * L.r * 0.98;
+        const a = rand() * TAU, rr = Math.sqrt(rand()) * L.r * 0.8;
         const x = L.x + Math.cos(a) * rr, y = L.y + Math.sin(a) * rr;
-        const loc = (Math.cos(a) * LX + Math.sin(a) * LY) * (rr / L.r); // -1..1 (lit side +)
+        const loc = (Math.cos(a) * LX + Math.sin(a) * LY) * (rr / (L.r * 0.8)); // -1..1 (lit side +)
         const base = 0.4 + 0.24 * lf + loc * 0.22;
         const light = rand() < 0.5 + loc * 0.35;
         const t = light ? base + 0.16 + rand() * 0.1 : base - 0.18 - rand() * 0.08;
-        g.fillStyle = ramp(stops, t, 0.9);
-        g.beginPath(); leafDab(g, x, y, 1.5 + rand() * 1.5, 0.5 + (rand() - 0.5) * 1.6); g.fill();
+        const b = Math.max(0, Math.min(NB - 1, Math.round(t * (NB - 1))));
+        leafDab(bins[b] || (bins[b] = new Path2D()), x, y, 1.5 + rand() * 1.5, 0.5 + (rand() - 0.5) * 1.6);
       }
-      g.restore();
+      for (let i = 0; i < NB; i++) if (bins[i]) { g.fillStyle = ramp(stops, i / (NB - 1), 0.9); g.fill(bins[i]); }
     }
     // specular highlight flecks on the most lit lumps
     if (lf > 0.6) {

@@ -42,7 +42,7 @@ function icon(bg, glow, symbol) {
       g.strokeStyle = 'rgba(255,240,210,0.35)'; g.lineWidth = 1;
       g.beginPath(); g.moveTo(3, 50); g.lineTo(3, 8); g.quadraticCurveTo(3, 3, 8, 3); g.lineTo(50, 3); g.stroke();
     }, 0);
-  });
+  }, { crop: false });
 }
 
 // ---- symbol helpers ----

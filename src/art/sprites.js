@@ -6,7 +6,7 @@
 // animals.js, buildings.js (+ items), icons.js, fx.js. Animation/composition lives in compose.js.
 
 import { Atlas } from '../engine/atlas.js';
-import { PPU, clearPool } from './paint.js';
+import { PPU, clearPool, anchorOf, cropAll } from './paint.js';
 import { addFx } from './fx.js';
 import { addTrees } from './trees.js';
 import { addPlants } from './plants.js';
@@ -20,13 +20,27 @@ export { PPU };
 
 export function buildAtlas() {
   const A = new Atlas(4096);
-  const add = (name, c, ax = 0.5, ay = 1) => A.add(name, c, ax, ay, PPU);
+  const pending = [];
+  const names = new Set();
+  const add = (name, c, ax = 0.5, ay = 1) => {
+    if (names.has(name)) console.warn('[art] duplicate sprite', name);
+    names.add(name);
+    pending.push({ name, c, ax, ay });
+  };
   // Each group is isolated: a failure in one painter must never break boot.
   const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons];
   for (const step of steps) {
     try { step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); }
   }
-  ensureContract(A, add);
+  ensureContract(names, add);
+  // crop padded canvases to content (single readback), convert anchors, then pack
+  let canv;
+  try { canv = cropAll(pending.map((p) => p.c)); } catch (e) { console.error('[art] crop failed', e); canv = pending.map((p) => p.c); }
+  for (let i = 0; i < pending.length; i++) {
+    const p = pending[i], c = canv[i];
+    const [x, y] = anchorOf(c, p.ax, p.ay);
+    A.add(p.name, c, x, y, PPU);
+  }
   clearPool();
   A.pack();
   return A;
@@ -45,9 +59,9 @@ const CONTRACT = [
   'item_wood', 'item_stone', 'item_berries', 'item_meat', 'item_cooked', 'item_leather', 'item_fiber', 'item_ore',
   'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_bandage', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
 ];
-function ensureContract(A, add) {
+function ensureContract(names, add) {
   for (const name of CONTRACT) {
-    if (A.has(name)) continue;
+    if (names.has(name)) continue;
     console.warn('[art] missing sprite, using placeholder:', name);
     const c = document.createElement('canvas');
     c.width = c.height = 32;

@@ -57,10 +57,15 @@ export function cssToHexArr(c) {
 }
 
 // ---------- canvases ----------
+// All art canvases are CPU (software) canvases: thousands of tiny path fills + blits are much faster
+// there than on GPU-backed canvases (per-draw overhead, shader compiles, readback stalls).
+export let SOFT = true;
+export function setSoftCanvas(v) { SOFT = v; }
 export function canvas(w, h) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(w));
   c.height = Math.max(1, Math.ceil(h));
+  if (SOFT) c.getContext('2d', { willReadFrequently: true });
   return c;
 }
 function ctx2d(c) {
@@ -93,58 +98,98 @@ function release(c) {
 }
 export function clearPool() { pool.clear(); }
 
-// dilation offsets (two rings) for a given radius in device px
+// dilation offsets for a given radius in device px: integer offsets (fast unfiltered blits) covering a disc
 const offCache = new Map();
 function offsets(R) {
-  const key = Math.round(R * 10);
+  const key = Math.round(R * 4);
   let o = offCache.get(key);
   if (o) return o;
   o = [];
-  const n1 = R > 3 ? 16 : 12;
-  for (let i = 0; i < n1; i++) { const a = (i / n1) * TAU; o.push([Math.cos(a) * R, Math.sin(a) * R]); }
-  if (R > 2.2) for (let i = 0; i < 8; i++) { const a = ((i + 0.5) / 8) * TAU; o.push([Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55]); }
+  const seen = new Set();
+  const push = (x, y) => { const k = x + ',' + y; if (!seen.has(k) && (x || y)) { seen.add(k); o.push([x, y]); } };
+  const n1 = R > 3 ? 14 : 10;
+  for (let i = 0; i < n1; i++) { const a = (i / n1) * TAU; push(Math.round(Math.cos(a) * R), Math.round(Math.sin(a) * R)); }
+  if (R > 2.2) for (let i = 0; i < 6; i++) { const a = ((i + 0.5) / 6) * TAU; push(Math.round(Math.cos(a) * R * 0.55), Math.round(Math.sin(a) * R * 0.55)); }
   offCache.set(key, o);
   return o;
 }
 
-// Draws `src` onto `dst` (identity transform) with a dilated outline behind it.
+// bounding box of non-transparent pixels [x0, y0, x1, y1) or null (cheap on software canvases).
+// Sampled every 2nd row/column (+2 px safety margin): features thinner than that don't exist at SS 2×.
+function alphaBox(c) {
+  const W = c.width, H = c.height;
+  const u = new Uint32Array(c.getContext('2d').getImageData(0, 0, W, H).data.buffer);
+  let y0 = -1, y1 = -1, x0 = W, x1 = -1;
+  for (let y = 0; y < H; y += 2) {
+    const r = y * W;
+    let rowMin = -1, rowMax = -1;
+    for (let x = 0; x < W; x += 2) if (u[r + x] >>> 24) { rowMin = x; break; }
+    if (rowMin < 0) continue;
+    for (let x = (W - 1) & ~1; x >= rowMin; x -= 2) if (u[r + x] >>> 24) { rowMax = x; break; }
+    if (y0 < 0) y0 = y;
+    y1 = y;
+    if (rowMin < x0) x0 = rowMin;
+    if (rowMax > x1) x1 = rowMax;
+  }
+  if (y0 < 0) return null;
+  return [Math.max(0, x0 - 2), Math.max(0, y0 - 2), Math.min(W, x1 + 3), Math.min(H, y1 + 3)];
+}
+const colAlpha = (col) => { const m = /rgba\(([^)]+)\)/.exec(col); if (!m) return [col, 1]; const v = m[1].split(','); return [`rgb(${v[0]},${v[1]},${v[2]})`, +v[3]]; };
+
+// Draws `src` onto `dst` (identity transform) with a dilated outline behind it. Only the painted
+// region (bounding box + outline radius) is processed.
 export function outlineOnto(dst, src, ow = OW, col = OUT) {
   const W = src.width, H = src.height;
+  const box = alphaBox(src);
+  if (!box) return;
+  const R = Math.ceil(ow * SS) + 1;
+  const rx0 = Math.max(0, box[0] - R), ry0 = Math.max(0, box[1] - R);
+  const rx1 = Math.min(W, box[2] + R), ry1 = Math.min(H, box[3] + R);
+  const rw = rx1 - rx0, rh = ry1 - ry0;
+  dst.save();
+  dst.setTransform(1, 0, 0, 1, 0, 0);
   if (ow > 0) {
     const t = acquire(W, H);
     const tg = t.getContext('2d');
-    for (const [dx, dy] of offsets(ow * SS)) tg.drawImage(src, dx, dy);
-    tg.globalCompositeOperation = 'source-in';
-    tg.fillStyle = col;
-    tg.fillRect(0, 0, W, H);
+    tg.imageSmoothingEnabled = false;
+    const bw = box[2] - box[0], bh = box[3] - box[1];
+    for (const [dx, dy] of offsets(ow * SS)) tg.drawImage(src, box[0], box[1], bw, bh, box[0] + dx, box[1] + dy, bw, bh);
+    tg.imageSmoothingEnabled = true;
+    const [c, a] = colAlpha(col);
+    tg.globalCompositeOperation = 'source-atop';
+    tg.fillStyle = c;
+    tg.fillRect(rx0, ry0, rw, rh);
     tg.globalCompositeOperation = 'source-over';
-    dst.save();
-    dst.setTransform(1, 0, 0, 1, 0, 0);
-    dst.drawImage(t, 0, 0);
-    dst.drawImage(src, 0, 0);
-    dst.restore();
+    const ga = dst.globalAlpha;
+    dst.globalAlpha = ga * a;
+    dst.drawImage(t, rx0, ry0, rw, rh, rx0, ry0, rw, rh);
+    dst.globalAlpha = ga;
     release(t);
-  } else {
-    dst.save();
-    dst.setTransform(1, 0, 0, 1, 0, 0);
-    dst.drawImage(src, 0, 0);
-    dst.restore();
   }
+  dst.drawImage(src, rx0, ry0, rw, rh, rx0, ry0, rw, rh);
+  dst.restore();
 }
 
 // Painter: one sprite under construction.
+// Drawing code works in the sprite's nominal W×H pixel box, but the canvas has a transparent margin
+// (pad) so nothing ever clips; finish() crops to the painted content, symmetric around the horizontal
+// center (so ax = 0.5 stays exact and flipped sprites mirror in place). The result carries
+// origW/origH/origin so atlas anchors given in the nominal box are converted (see sprites.js).
 class Painter {
-  constructor(W, H) {
+  constructor(W, H, opts = {}) {
     this.W = W; this.H = H;
-    this.c = canvas(W * SS, H * SS);
+    this.crop = opts.crop ?? true;
+    this.pad = this.crop ? (opts.pad ?? 10) : 0;
+    const pw = W + this.pad * 2, ph = H + this.pad * 2;
+    this.c = canvas(pw * SS, ph * SS);
     this.g = ctx2d(this.c);
-    this.g.setTransform(SS, 0, 0, SS, 0, 0);
+    this.g.setTransform(SS, 0, 0, SS, this.pad * SS, this.pad * SS);
   }
   // Draw `fn(g)` into an isolated layer, outline it, then composite it over the sprite.
   layer(fn, ow = OW, col = OUT, opacity = 1) {
     const L = acquire(this.c.width, this.c.height);
     const lg = ctx2d(L);
-    lg.setTransform(SS, 0, 0, SS, 0, 0);
+    lg.setTransform(SS, 0, 0, SS, this.pad * SS, this.pad * SS);
     fn(lg);
     lg.setTransform(1, 0, 0, 1, 0, 0);
     if (opacity < 1) { this.g.save(); this.g.globalAlpha = opacity; }
@@ -165,26 +210,91 @@ class Painter {
     release(L);
   }
   finish() {
-    const out = canvas(this.W, this.H);
-    const og = out.getContext('2d');
-    og.imageSmoothingEnabled = true;
-    og.imageSmoothingQuality = 'high';
-    og.drawImage(this.c, 0, 0, this.W, this.H);
-    return out;
+    const pad = this.pad, FW = this.W + pad * 2, FH = this.H + pad * 2;
+    const full = canvas(FW, FH);
+    const fg = full.getContext('2d');
+    fg.imageSmoothingEnabled = true;
+    fg.imageSmoothingQuality = 'high';
+    fg.drawImage(this.c, 0, 0, FW, FH);
+    full.origW = this.W; full.origH = this.H;
+    full.origin = { x: pad, y: pad };
+    full.needsCrop = this.crop;
+    return full;
   }
 }
 
-// sprite(wTiles, hTiles, (g, P) => {...}) → 1× canvas (PPU px per tile)
-export function sprite(wt, ht, fn) {
-  const P = new Painter(Math.round(wt * PPU), Math.round(ht * PPU));
+// Crop every padded sprite to its painted content with ONE pixel readback (staging atlas), keeping the
+// nominal horizontal center centered (ax = 0.5 stays exact so flips mirror in place).
+export function cropAll(list) {
+  const items = [];
+  for (let i = 0; i < list.length; i++) if (list[i].needsCrop) items.push(i);
+  if (!items.length) return list.slice();
+  const SW = 2048;
+  // shelf-pack into staging pages (≤ 4096 tall)
+  const pages = [];
+  let page = { rects: [], h: 0 }, x = 0, y = 0, rowH = 0;
+  for (const i of items) {
+    const c = list[i];
+    if (x + c.width > SW) { x = 0; y += rowH + 1; rowH = 0; }
+    if (y + c.height > 4096) { page.h = y + rowH; pages.push(page); page = { rects: [], h: 0 }; x = 0; y = 0; rowH = 0; }
+    page.rects.push({ i, x, y });
+    x += c.width + 1; rowH = Math.max(rowH, c.height);
+  }
+  page.h = y + rowH; pages.push(page);
+  const out = list.slice();
+  for (const P of pages) {
+    const st = canvas(SW, Math.max(1, P.h));
+    const sg = st.getContext('2d', { willReadFrequently: true });
+    for (const r of P.rects) sg.drawImage(list[r.i], r.x, r.y);
+    const d = sg.getImageData(0, 0, SW, st.height).data;
+    for (const r of P.rects) {
+      const c = list[r.i];
+      const FW = c.width, FH = c.height;
+      let minX = FW, maxX = -1, minY = FH, maxY = -1;
+      for (let yy = 0; yy < FH; yy++) {
+        let o = ((r.y + yy) * SW + r.x) * 4 + 3;
+        for (let xx = 0; xx < FW; xx++, o += 4) {
+          if (d[o] > 3) {
+            if (xx < minX) minX = xx;
+            if (xx > maxX) maxX = xx;
+            if (yy < minY) minY = yy;
+            if (yy > maxY) maxY = yy;
+          }
+        }
+      }
+      const pad = c.origin.x;
+      if (maxX < 0) { minX = pad; maxX = pad + c.origW - 1; minY = pad; maxY = pad + c.origH - 1; }
+      const axp = pad + c.origW / 2;
+      const half = Math.max(axp - minX, maxX + 1 - axp) + 1;
+      const x0 = Math.floor(axp - half);
+      const w = Math.round((axp - x0) * 2);
+      const y0 = Math.max(0, minY - 1), y1 = Math.min(FH, maxY + 2);
+      const cc = canvas(w, y1 - y0);
+      cc.getContext('2d').drawImage(c, x0, y0, w, y1 - y0, 0, 0, w, y1 - y0);
+      cc.origW = c.origW; cc.origH = c.origH;
+      cc.origin = { x: c.origin.x - x0, y: c.origin.y - y0 };
+      out[r.i] = cc;
+    }
+  }
+  return out;
+}
+
+// sprite(wTiles, hTiles, (g, P) => {...}, opts) → 1× canvas (PPU px per tile)
+export function sprite(wt, ht, fn, opts) {
+  const P = new Painter(Math.round(wt * PPU), Math.round(ht * PPU), opts);
   fn(P.g, P);
   return P.finish();
 }
 // sprite with explicit pixel size
-export function spritePx(W, H, fn) {
-  const P = new Painter(W, H);
+export function spritePx(W, H, fn, opts) {
+  const P = new Painter(W, H, opts);
   fn(P.g, P);
   return P.finish();
+}
+// convert an anchor given in a sprite's nominal box to its cropped canvas
+export function anchorOf(c, ax, ay) {
+  if (!c.origW) return [ax, ay];
+  return [(ax * c.origW + c.origin.x) / c.width, (ay * c.origH + c.origin.y) / c.height];
 }
 
 // ---------- paths ----------

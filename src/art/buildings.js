@@ -1,6 +1,6 @@
 // Buildings (campfire, torch, wooden wall, chest, bed) and item icons (ground drops / HUD).
 
-import { spritePx, rng, OW, TAU, lin, rad, atop, circle, taper, mixc, rgb, hex, smoothClosed, blobPts, leaf } from './paint.js';
+import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, smoothClosed, blobPts, leaf } from './paint.js';
 
 export const TORCH_FLAME_LIFT = 0.93; // tiles above the torch base where the flame sits
 export const CAMPFIRE_FLAME_LIFT = 0.12;
@@ -177,7 +177,10 @@ function bed() {
 }
 
 // ---------------- items ----------------
-function item(fn) { return spritePx(36, 36, (g, P) => P.layer((g) => fn(g, rng(fn.length * 99 + 1)), 2.3)); }
+// items keep a fixed 36×36 box (uniform HUD icons); content is scaled a touch so outlines never clip
+function item(fn) {
+  return spritePx(36, 36, (g, P) => P.layer((g) => { g.translate(18, 18); g.scale(0.9, 0.9); g.translate(-18, -18); fn(g, rng(fn.length * 99 + 1)); }, 2.3), { crop: false });
+}
 
 const ITEMS = {
   item_wood: (g) => {
@@ -241,11 +244,10 @@ const ITEMS = {
 };
 
 export function addBuildings(add) {
-  { const c = campfire(); add('campfire', c, 0.5, 40 / c.height); }
-  { const c = torch(); add('torch', c, 0.5, 67 / c.height); }
-  { const c = wallWood(); add('wall_wood', c, 0.5, 91 / c.height); }
-  { const c = chest(); add('chest', c, 0.5, 49 / c.height); }
-  { const c = bed(); add('bed', c, 0.5, 121 / c.height); }
+  { const c = campfire(); add('campfire', c, 0.5, 40 / (c.origH || c.height)); }
+  { const c = torch(); add('torch', c, 0.5, 67 / (c.origH || c.height)); }
+  { const c = wallWood(); add('wall_wood', c, 0.5, 91 / (c.origH || c.height)); }
+  { const c = chest(); add('chest', c, 0.5, 49 / (c.origH || c.height)); }
+  { const c = bed(); add('bed', c, 0.5, 121 / (c.origH || c.height)); }
   for (const k of Object.keys(ITEMS)) add(k, item(ITEMS[k]), 0.5, 0.82);
 }
-void taper; void atop; void rgb; void hex; void OW;

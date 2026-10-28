@@ -20,9 +20,10 @@ function flame(v) {
       g.fillStyle = col; g.fill();
     };
     const lean = v === 1 ? 3 : v === 2 ? -3 : 0;
-    g.save(); g.shadowColor = 'rgba(255,110,20,0.9)'; g.shadowBlur = 8;
-    tongue(1.0, lean, 'rgba(230,70,10,0.55)');
-    g.restore();
+    // soft outer glow (layered, no shadowBlur — that is very slow on canvas)
+    tongue(1.12, lean, 'rgba(230,70,10,0.14)');
+    tongue(1.04, lean, 'rgba(235,80,12,0.22)');
+    tongue(0.98, lean, 'rgba(240,90,15,0.4)');
     tongue(0.92, lean, lin(g, 0, base - 44, 0, base, [[0, 'rgba(230,60,10,0)'], [0.25, 'rgba(240,96,20,0.85)'], [1, 'rgba(255,140,30,1)']]));
     tongue(0.68, lean * 0.8, lin(g, 0, base - 32, 0, base, [[0, 'rgba(255,170,40,0)'], [0.3, 'rgba(255,190,60,0.95)'], [1, 'rgba(255,215,110,1)']]));
     tongue(0.4, lean * 0.5, lin(g, 0, base - 20, 0, base, [[0, 'rgba(255,245,200,0)'], [0.4, 'rgba(255,248,215,0.95)'], [1, 'rgba(255,255,240,1)']]));
@@ -63,11 +64,10 @@ export function addFx(add) {
     g.beginPath(); g.moveTo(2, 0); g.lineTo(3, 30); g.quadraticCurveTo(2, 32, 1, 30); g.closePath(); g.fill();
   }), 0.5, 1);
   add('fx_ring', spritePx(80, 56, (g) => {
-    const cx = 40, cy = 28, rx = 36, ry = 24;
-    g.save(); g.shadowColor = 'rgba(255,255,255,0.8)'; g.shadowBlur = 5;
+    const cx = 40, cy = 28, rx = 35, ry = 23;
+    for (const [lw, a] of [[9, 0.1], [6, 0.18]]) { g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = lw; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, TAU); g.stroke(); }
     g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 2.6;
     g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, TAU); g.stroke();
-    g.restore();
     g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 5;
     g.beginPath(); g.ellipse(cx, cy, rx - 3.5, ry - 2.5, 0, 0, TAU); g.stroke();
     g.fillStyle = 'rgba(255,255,255,1)';
@@ -89,8 +89,8 @@ export function addFx(add) {
     // crescent arc over the top (opening toward the bottom); rotate at runtime toward the hit direction
     const cx = 40, cy = 46;
     const cres = () => { g.beginPath(); g.arc(cx, cy, 32, Math.PI * 1.08, Math.PI * 1.92); g.quadraticCurveTo(cx + 18, cy - 20, cx, cy - 22); g.quadraticCurveTo(cx - 18, cy - 20, cx + Math.cos(Math.PI * 1.08) * 32, cy + Math.sin(Math.PI * 1.08) * 32); g.closePath(); };
-    g.save(); g.shadowColor = 'rgba(255,255,255,0.9)'; g.shadowBlur = 7;
-    cres(); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fill(); g.restore();
+    g.save(); g.translate(cx, cy); g.scale(1.08, 1.12); g.translate(-cx, -cy); cres(); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fill(); g.restore();
+    cres(); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fill();
     g.beginPath(); g.arc(cx, cy, 31, Math.PI * 1.15, Math.PI * 1.85); g.quadraticCurveTo(cx + 14, cy - 24, cx, cy - 26); g.quadraticCurveTo(cx - 14, cy - 24, cx + Math.cos(Math.PI * 1.15) * 31, cy + Math.sin(Math.PI * 1.15) * 31); g.closePath();
     g.fillStyle = 'rgba(255,255,255,1)'; g.fill();
   }), 0.5, 0.5);

@@ -2,7 +2,7 @@
 // plus a stride frame for the side view (_e_walk) used by the trot cycle in compose.js.
 // Each body part is its own outlined layer so overlaps read clearly (far legs → tail → body → near legs → head).
 
-import { spritePx, rng, OW, TAU, lin, rad, atop, circle, taper, mixc, rgb, hex, smoothClosed, blobPts } from './paint.js';
+import { spritePx, rng, OW, TAU, lin, rad, circle, taper, mixc, rgb, hex } from './paint.js';
 
 const SPECIES = {
   wolf: {
@@ -401,13 +401,10 @@ function back(sp) {
 export function addAnimals(add) {
   for (const sp of Object.keys(SPECIES)) {
     const S = SPECIES[sp];
-    const fx = (S.legs.fx + S.legs.rx) / 2 / S.W;
     add(`${sp}_e`, side(sp, false), 0.5, S.foot / S.H);
     add(`${sp}_e_walk`, side(sp, true), 0.5, S.foot / S.H);
     add(`${sp}_s`, front(sp), 0.5, S.front.foot / S.front.H);
     add(`${sp}_n`, back(sp), 0.5, S.front.foot / S.front.H);
-    void fx;
   }
 }
 export const ANIMAL_SPECIES = Object.keys(SPECIES);
-void smoothClosed; void blobPts; void atop;

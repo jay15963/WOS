@@ -96,5 +96,5 @@ function boulder(v) {
 }
 
 export function addRocks(add) {
-  for (let i = 0; i < 4; i++) { const c = boulder(i); add('boulder_' + i, c, 0.5, 1 - 7 / c.height); }
+  for (let i = 0; i < 4; i++) { const c = boulder(i); add('boulder_' + i, c, 0.5, 1 - 7 / (c.origH || c.height)); }
 }
