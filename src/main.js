@@ -3,6 +3,7 @@
 import { Renderer } from './engine/renderer.js';
 import { Input } from './engine/input.js';
 import { buildAtlas } from './art/sprites.js';
+import { startAtlasLookup, storeAtlas } from './engine/atlasCache.js';
 import { generateWorld } from './world/worldgen.js';
 import { World } from './world/world.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
@@ -31,6 +32,7 @@ async function boot() {
     const params = new URLSearchParams(location.search);
     const seed = parseInt(params.get('seed') || localStorage.getItem('wos.seed') || '20261028', 10);
 
+    const atlasLookup = startAtlasLookup(); // runs in parallel with world generation
     status('Preparando renderizador…', 0.05); await nextFrame();
     const canvas = $('#gl');
     const renderer = new Renderer(canvas);
@@ -45,7 +47,11 @@ async function boot() {
     renderer.setNoise(256, generateNoiseTexture(seed));
 
     status('Desenhando criaturas e plantas…', 0.7); await nextFrame();
-    const atlas = buildAtlas();
+    const cached = await atlasLookup;
+    const t0 = performance.now();
+    const atlas = cached.atlas || buildAtlas();
+    console.info(`[boot] atlas ${cached.atlas ? 'from cache' : 'painted'} in ${Math.round(performance.now() - t0)} ms (${atlas.size}px, ${atlas.list.length} sprites)`);
+    if (!cached.atlas) storeAtlas(cached.key, atlas);
     renderer.setAtlas(atlas);
 
     status('Despertando o mundo…', 0.92); await nextFrame();

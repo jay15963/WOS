@@ -8,6 +8,8 @@ import { initPlayer, playerSystem } from './player.js';
 import { abilitiesSystem } from './abilities.js';
 import { combatSystem } from './combat.js';
 import { createSpawners, mobsSystem } from './mobs.js';
+import { projectilesSystem } from './projectiles.js';
+import { installBandits, banditsSystem } from './bandits.js';
 import { gatheringSystem } from './gathering.js';
 import { initBuilding, buildingSystem } from './building.js';
 import { survivalSystem } from './survival.js';
@@ -37,6 +39,7 @@ export function installSystems(game) {
   const controller = installController(game);
   const isNew = !loadGame(game);
   createSpawners(game);
+  installBandits(game);
 
   const clock = {
     update(g, dt) {
@@ -58,6 +61,8 @@ export function installSystems(game) {
     abilitiesSystem(),
     combatSystem(),
     mobsSystem(),
+    projectilesSystem(),
+    banditsSystem(),
     gatheringSystem(),
     buildingSystem(),
     survivalSystem(),

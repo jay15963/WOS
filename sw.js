@@ -1,7 +1,7 @@
-// Service worker: offline-capable app shell.
-// Strategy: network-first for same-origin GETs (always fresh when online), cache fallback offline.
-// Bump VERSION on releases to drop old caches.
-const VERSION = 'wos-v2';
+// Service worker: offline-capable app shell, stale-while-revalidate.
+// Same-origin GETs are answered from the cache immediately (fast boot on phones) and refreshed in the
+// background, so a new deploy is picked up on the next launch. Bump VERSION to drop old caches.
+const VERSION = 'wos-v3';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './src/main.js', './src/ui/hud.css'])).catch(() => {}));
@@ -15,10 +15,14 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  e.respondWith(
-    fetch(req).then((res) => {
-      if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
+  e.respondWith(caches.open(VERSION).then(async (cache) => {
+    const hit = await cache.match(req, { ignoreSearch: req.mode === 'navigate' });
+    const net = fetch(req).then((res) => {
+      if (res.ok) cache.put(req, res.clone());
       return res;
-    }).catch(() => caches.match(req).then((r) => r || caches.match('./index.html')))
-  );
+    }).catch(() => null);
+    if (hit) { e.waitUntil(net); return hit; }
+    const res = await net;
+    return res || (await cache.match('./index.html')) || Response.error();
+  }));
 });

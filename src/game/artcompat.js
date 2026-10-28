@@ -3,13 +3,17 @@
 // read through the prototype so nothing has to be synced.
 
 const STATIC_FB = { chest: ['item_wood', 2.2], bed: ['item_leather', 2.8] };
-const SPECIES_FB = { bear: 'boar' };
+const SPECIES_FB = { bear: 'boar', fox: 'wolf', spider: 'wolf' };
+const SCALE_FB = { fox: 0.72, spider: 0.6 }; // stand-ins read smaller than the real wolf
 
 export function drawProxy(A, o) {
   if (o.isEntity) {
     if (o.kind === 'animal' && !A.has(o.species + '_s')) {
       let px = o._px;
-      if (!px) { px = o._px = Object.create(o); px.species = SPECIES_FB[o.species] || 'wolf'; }
+      if (!px) {
+        px = o._px = Object.create(o); px.species = SPECIES_FB[o.species] || 'wolf';
+        if (SCALE_FB[o.species]) px.scale = (o.scale || 1) * SCALE_FB[o.species];
+      }
       return px;
     }
     return o;
