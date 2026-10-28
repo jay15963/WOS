@@ -1,11 +1,39 @@
-// HUD panels: Mochila (inventory), Construir (build menu), Baú (chest transfer), Mapa (world map).
+// HUD panels: Mochila (inventory + equipment paper-doll), Criar (crafting, see crafting.js),
+// Construir (build menu by category + deconstruct), Baú (chest transfer), Mapa (world map).
 // Non-pausing (MMO): the world keeps running; tapping the world closes the panel.
+// Also installs the work bar (build / mining / deconstruct modes) — see workbar.js.
 
-import { ITEMS, BUILDINGS, BUILD_ORDER } from '../game/data.js';
+import { ITEMS, BUILDINGS, BUILD_ORDER, BUILD_CATS, SLOT_PT, ITEM_CAT_PT, TIER_SPEED } from '../game/data.js';
 import { eat } from '../game/survival.js';
-import { enterBuildMode } from '../game/building.js';
+import { enterBuildMode, enterDeconMode } from '../game/building.js';
 import { dropLoot } from '../game/loot.js';
-import { svgIcon, itemIcon, buildIcon, uiIcon } from './icons.js';
+import { equipFromSlot, unequip, SLOTS } from '../game/equipment.js';
+import { CROPS } from '../game/farming.js';
+import { svgIcon, uiIcon } from './icons.js';
+import { itemIco, buildIco, econIcon } from './econIcons.js';
+import { craftBody, craftBind, craftUpdate } from './crafting.js';
+import { installWorkbar } from './workbar.js';
+
+const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
+const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
+const MINES_PT = ['rocha e pedregulhos', 'rocha, cobre e carvão', 'rocha, cobre, carvão e ferro', 'todos os minérios', 'todos os minérios'];
+const SLOT_ICON = { main: '🗡️', off: '🛡️', body: '👕', head: '🪖' };
+const x100 = (v) => '×' + (Math.round(v * 100) / 100).toString().replace('.', ',');
+
+function itemStats(id) {
+  const d = ITEMS[id];
+  const out = [];
+  if (d.tool?.chop) out.push(`Corta árvores ${x100(d.tool.chop)}`);
+  if (d.tool?.mine) out.push(`Minera ${x100(d.tool.mine)} · ${MINES_PT[d.tier]}`);
+  if (d.tool?.skin) out.push('Tira couro dos animais · fibra mais rápida');
+  if (d.weapon) out.push(`Arma: ${WTYPE_PT[d.weapon.type] || d.weapon.type}${d.weapon.twoHanded ? ' · duas mãos' : ''}`);
+  if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}`);
+  if (d.shield) out.push(`Bloqueia ${Math.round(d.shield.block * 100)}% do dano`);
+  if (d.light) out.push('Ilumina em volta de você');
+  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ' · aquece' : ''}`);
+  if (d.seed) out.push(`Planta: ${CROPS[d.seed]?.name || d.seed}`);
+  return out;
+}
 
 export class Panels {
   constructor(game, el) {
@@ -13,26 +41,34 @@ export class Panels {
     this.el = el;
     this.open = null;   // panel name
     this.data = null;
-    this.sel = -1;
+    this.sel = null;    // inventory selection { kind: 'inv', i } | { kind: 'eq', slot }
     this.mapT = 0;
+    this.craftTab = 'tools';
+    this.craftStation = null;
+    this.buildTab = 'struct';
+    this.scroll = {};
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // never keep focus on panel buttons (Space/Enter are game keys)
     el.addEventListener('click', () => setTimeout(() => document.activeElement?.blur?.(), 0));
+    this.workbar = installWorkbar(game, el.parentElement);
   }
 
   toggle(name) {
-    if (this.open === name) this.close();
+    if (name === 'mine') { this.close(); this.g.ctl.toggleMineMode(); return; }
+    if (this.open === name && !(name === 'craft' && this.craftStation)) this.close();
     else this.show(name);
   }
 
   show(name, data = null) {
     const g = this.g;
     if (g.player.dead) return;
-    if (name === 'build' && g.build.mode) { g.build.mode = null; g.events.emit('buildmode', { type: null }); }
-    this.open = name; this.data = data; this.sel = -1;
+    if (g.build.mode && (name === 'build' || name === 'craft')) { g.build.mode = null; g.events.emit('buildui', {}); }
+    if (name === 'craft') this.craftStation = data?.station || null;
+    if (this.open !== name) this.sel = null;
+    this.open = name; this.data = data;
     g.ui.modal = true;
     this.render();
     g.audio?.play('ui', {});
@@ -47,56 +83,108 @@ export class Panels {
 
   refresh() { if (this.open && this.open !== 'map') this.render(); }
 
+  resetScroll(k) { delete this.scroll[k]; }
+
   frame(title, icon, body, cls = '') {
-    return `<div class="panel ${cls}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb">${body}</div></div>`;
+    return `<div class="panel ${cls}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
   }
 
   slots(inv, tag, cols, selected = -1) {
     const A = this.g.A;
-    return `<div class="grid" style="--cols:${cols}">${inv.slots.map((s, i) => `<button class="slot ${s ? 'full' : ''} ${i === selected ? 'sel' : ''}" data-${tag}="${i}">${s ? `${itemIcon(A, s.id)}<span class="n">${s.qty > 1 ? s.qty : ''}</span>` : ''}</button>`).join('')}</div>`;
+    return `<div class="grid" style="--cols:${cols}">${inv.slots.map((s, i) => `<button class="slot ${s ? 'full' : ''} ${i === selected ? 'sel' : ''}" data-${tag}="${i}" ${s ? `title="${ITEMS[s.id]?.name || ''}"` : ''}>${s ? `${itemIco(A, s.id)}<span class="n">${s.qty > 1 ? s.qty : ''}</span>` : ''}</button>`).join('')}</div>`;
+  }
+
+  invBody() {
+    const g = this.g, A = g.A, p = g.player;
+    const sel = this.sel;
+    let id = null, qty = 0, fromEq = null;
+    if (sel?.kind === 'inv') { const s = p.inv.slots[sel.i]; if (s) { id = s.id; qty = s.qty; } else this.sel = null; }
+    else if (sel?.kind === 'eq') { id = p.equip[sel.slot]; qty = 1; fromEq = sel.slot; if (!id) this.sel = null; }
+    const def = id && ITEMS[id];
+    const eq = (slot) => {
+      const it = p.equip[slot];
+      const on = sel?.kind === 'eq' && sel.slot === slot;
+      const blocked = slot === 'off' && ITEMS[p.equip.main]?.weapon?.twoHanded;
+      return `<button class="eqs ${it ? 'full' : ''} ${on ? 'sel' : ''} ${blocked ? 'blk' : ''}" data-eq="${slot}" title="${SLOT_PT[slot]}">
+        ${it ? itemIco(A, it) : `<span class="ph0">${blocked ? '🏹' : SLOT_ICON[slot]}</span>`}<small>${SLOT_PT[slot]}</small></button>`;
+    };
+    let detail;
+    if (def) {
+      const acts = [];
+      if (fromEq) acts.push(`<button class="btn primary" data-act="unequip">${econIcon(A, 'equip')}Desequipar</button>`);
+      else if (def.slot) acts.push(`<button class="btn primary" data-act="equip">${econIcon(A, 'equip')}Equipar</button>`);
+      if (def.food && !fromEq) acts.push(`<button class="btn primary" data-act="eat">${svgIcon('eat')}Comer</button>`);
+      if (def.seed && !fromEq) acts.push(`<button class="btn ${p.seedPref === id ? 'on' : ''}" data-act="seed">${econIcon(A, 'seed')}${p.seedPref === id ? 'Semente escolhida' : 'Plantar esta'}</button>`);
+      if (!fromEq) {
+        if (qty > 1) acts.push(`<button class="btn" data-act="drop1">${svgIcon('drop')}Largar 1</button>`);
+        acts.push(`<button class="btn" data-act="drop">${svgIcon('drop')}Largar${qty > 1 ? ' tudo' : ''}</button>`);
+      }
+      const stats = itemStats(id).map((s) => `<li>${s}</li>`).join('');
+      detail = `
+        <div class="it-head">${itemIco(A, id)}<div><b>${def.name}</b><small>${ITEM_CAT_PT[def.cat] || ''}${def.tier != null ? ` · era ${ERA_PT[def.tier]}` : ''}${qty > 1 ? ` · × ${qty}` : ''}</small></div></div>
+        <p>${def.desc}</p>${stats ? `<ul class="stats">${stats}</ul>` : ''}
+        <div class="acts">${acts.join('')}</div>`;
+    } else {
+      detail = `<p class="muted">Toque num item para ver detalhes, equipar ou usar.</p>
+        <p class="muted small">Ferramentas na mochila são usadas automaticamente (a melhor). Itens no chão são coletados ao passar perto.</p>`;
+    }
+    const used = p.inv.used();
+    const doll = `<div class="doll">
+        <span></span>${eq('head')}<span></span>
+        ${eq('main')}<div class="dstat"><span title="Armadura">🛡 ${p.armorValue || 0}</span><span title="Calor das roupas">🔥 ${p.warmth || 0}</span></div>${eq('off')}
+        <span></span>${eq('body')}<span></span>
+      </div>`;
+    return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };
+  }
+
+  buildBody() {
+    const g = this.g, A = g.A, p = g.player;
+    const tab = this.buildTab;
+    const tabs = BUILD_CATS.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-btab="${k}">${n}</button>`).join('');
+    const cards = BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
+      const b = BUILDINGS[id];
+      const ok = p.inv.has(b.cost);
+      const entries = Object.entries(b.cost);
+      const cost = entries.length ? entries.map(([it, n]) => {
+        const have = p.inv.count(it);
+        return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${have}/${n}</span>`;
+      }).join('') : '<span class="cost">grátis</span>';
+      const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
+      return `<button class="bcard ${ok ? '' : 'cant'}" data-build="${id}"><span class="bi">${buildIco(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small>${meta ? `<small class="bm">${meta}</small>` : ''}<span class="costs">${cost}</span></span></button>`;
+    }).join('');
+    return `<div class="tabs" data-scrollx="btabs">${tabs}<button class="tab tab-go" data-goto="craft">Criar itens ›</button></div>
+      <div class="btools"><button class="btn" data-decon>${econIcon(A, 'decon')}Desmontar construções</button><small class="muted">Desmontar devolve 75% do material.</small></div>
+      <div class="bgrid" data-scroll="bgrid">${cards}</div>`;
   }
 
   render() {
     const g = this.g, A = g.A, p = g.player;
     const name = this.open;
+    // keep scroll positions across re-renders
+    this.el.querySelectorAll('[data-scroll]').forEach((n) => { this.scroll[n.dataset.scroll] = n.scrollTop; });
+    this.el.querySelectorAll('[data-scrollx]').forEach((n) => { this.scroll['x' + n.dataset.scrollx] = n.scrollLeft; });
     let html = '';
     if (name === 'inv') {
-      const s = p.inv.slots[this.sel];
-      const def = s && ITEMS[s.id];
-      const detail = def ? `
-        <div class="it-head">${itemIcon(A, s.id)}<div><b>${def.name}</b><small>× ${s.qty}</small></div></div>
-        <p>${def.desc}</p>
-        ${def.food ? `<p class="stat">+${def.food.hunger} fome${def.food.heal ? ` · +${def.food.heal} vida` : ''}${def.food.sick ? ' · risco de indigestão' : ''}</p>` : ''}
-        <div class="acts">
-          ${def.food ? `<button class="btn primary" data-act="eat">${svgIcon('eat')}Comer</button>` : ''}
-          <button class="btn" data-act="drop">${svgIcon('drop')}Largar</button>
-        </div>` : `<p class="muted">Toque num item para ver detalhes.</p>
-        <p class="muted small">Itens no chão são coletados automaticamente ao passar perto.</p>`;
-      const used = p.inv.slots.filter(Boolean).length;
-      html = this.frame(`Mochila <small>${used}/${p.inv.size}</small>`, uiIcon(A, 'bag'), `<div class="inv-wrap">${this.slots(p.inv, 'slot', 5, this.sel)}<div class="detail">${detail}</div></div>`, 'p-inv');
+      const r = this.invBody();
+      html = this.frame(r.title, uiIcon(A, 'bag'), r.body, 'p-inv');
+    } else if (name === 'craft') {
+      html = this.frame('Criar', econIcon(A, 'craft'), craftBody(this), 'p-craft');
     } else if (name === 'build') {
-      const cards = BUILD_ORDER.map((id) => {
-        const b = BUILDINGS[id];
-        const ok = p.inv.has(b.cost);
-        const cost = Object.entries(b.cost).map(([it, n]) => {
-          const have = p.inv.count(it);
-          return `<span class="cost ${have >= n ? '' : 'lack'}">${itemIcon(A, it)}${have}/${n}</span>`;
-        }).join('');
-        return `<button class="bcard ${ok ? '' : 'cant'}" data-build="${id}"><span class="bi">${buildIcon(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small><span class="costs">${cost}</span></span></button>`;
-      }).join('');
-      html = this.frame('Construir', uiIcon(A, 'build'), `<div class="bgrid">${cards}</div>`, 'p-build');
+      html = this.frame('Construir', uiIcon(A, 'build'), this.buildBody(), 'p-build');
     } else if (name === 'chest') {
       const c = this.data?.chest;
       if (!c || !c.store) { this.close(); return; }
-      html = this.frame('Baú', buildIcon(A, 'chest'), `
+      html = this.frame('Baú', buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div><div class="gl">Mochila <small>toque para guardar</small></div>${this.slots(p.inv, 'slot', 5)}</div>
-          <div><div class="gl">Baú <small>toque para pegar</small></div>${this.slots(c.store, 'cslot', 4)}</div>
+          <div><div class="gl">Mochila <small>toque para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
+          <div><div class="gl">Baú <small>toque para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
     }
     this.el.innerHTML = html;
+    this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });
+    this.el.querySelectorAll('[data-scrollx]').forEach((n) => { const v = this.scroll['x' + n.dataset.scrollx]; if (v) n.scrollLeft = v; });
     this.bind();
     if (name === 'map') this.drawMap();
   }
@@ -113,12 +201,25 @@ export class Panels {
         if (left === s.qty) { g.events.emit('error', { text: 'Baú cheio' }); return; }
         p.inv.remove(s.id, s.qty - left);
         g.audio?.play('pickup', {});
-        g.touched && g.events.emit('inventory', {});
+        g.events.emit('inventory', {});
         this.render();
       } else {
-        this.sel = this.sel === i ? -1 : i;
+        const same = this.sel?.kind === 'inv' && this.sel.i === i;
+        this.sel = same || !p.inv.slots[i] ? null : { kind: 'inv', i };
         this.render();
       }
+    }));
+    el.querySelectorAll('[data-eq]').forEach((b) => b.addEventListener('click', () => {
+      const slot = b.dataset.eq;
+      const same = this.sel?.kind === 'eq' && this.sel.slot === slot;
+      this.sel = same || !p.equip[slot] ? null : { kind: 'eq', slot };
+      if (!p.equip[slot] && !same) {
+        // empty slot: hint which backpack items fit
+        const fit = p.inv.slots.findIndex((s) => s && ITEMS[s.id]?.slot === slot);
+        if (fit >= 0) this.sel = { kind: 'inv', i: fit };
+        else g.events.emit('toast', { text: `Nada para ${SLOT_PT[slot].toLowerCase()} na mochila`, kind: 'info' });
+      }
+      this.render();
     }));
     el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
       const st = this.data.chest.store, i = +b.dataset.cslot, s = st.slots[i];
@@ -131,25 +232,38 @@ export class Panels {
       this.render();
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
-      const s = p.inv.slots[this.sel];
+      const act = b.dataset.act, sel = this.sel;
+      if (!sel) return;
+      if (act === 'unequip' && sel.kind === 'eq') { if (unequip(g, sel.slot)) this.sel = null; this.render(); return; }
+      const s = sel.kind === 'inv' ? p.inv.slots[sel.i] : null;
       if (!s) return;
-      if (b.dataset.act === 'eat') eat(g, s.id);
-      else if (b.dataset.act === 'drop') {
-        const it = p.inv.takeSlot(this.sel);
+      if (act === 'equip') {
+        const slot = ITEMS[s.id].slot;
+        if (equipFromSlot(g, sel.i)) this.sel = { kind: 'eq', slot };
+      } else if (act === 'eat') eat(g, s.id);
+      else if (act === 'seed') { p.seedPref = s.id; g.events.emit('toast', { text: `Vai plantar: ${CROPS[ITEMS[s.id].seed]?.name || ''}`, kind: 'info' }); }
+      else if (act === 'drop' || act === 'drop1') {
         const fx = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[p.facing] || [0, 1];
+        let it;
+        if (act === 'drop1') { p.inv.remove(s.id, 1); it = { id: s.id, qty: 1 }; }
+        else it = p.inv.takeSlot(sel.i);
         const drop = dropLoot(g, p.x + fx[0] * 0.8, p.y + fx[1] * 0.6, it.id, it.qty, 0.3);
         drop.t = -2; // don't instantly re-pick
         g.events.emit('inventory', {});
       }
-      if (!p.inv.slots[this.sel]) this.sel = -1;
+      if (this.sel?.kind === 'inv' && !p.inv.slots[this.sel.i]) this.sel = null;
       this.render();
     }));
+    el.querySelectorAll('[data-btab]').forEach((b) => b.addEventListener('click', () => { this.buildTab = b.dataset.btab; this.resetScroll('bgrid'); this.render(); }));
     el.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.build;
       if (!p.inv.has(BUILDINGS[id].cost)) { g.events.emit('error', { text: 'Materiais insuficientes' }); return; }
       this.close();
       enterBuildMode(g, id);
     }));
+    el.querySelector('[data-decon]')?.addEventListener('click', () => { this.close(); enterDeconMode(g); });
+    if (this.open === 'craft') craftBind(this, el);
+    if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));
     const map = el.querySelector('.bigmap');
     if (map) map.addEventListener('click', () => this.close());
   }
@@ -168,13 +282,17 @@ export class Panels {
   }
 
   update(dt) {
+    this.workbar?.update(dt);
     if (this.open === 'map') {
       this.mapT -= dt;
       if (this.mapT <= 0) { this.mapT = 0.25; this.drawMap(); }
     }
+    if (this.open === 'craft') craftUpdate(this);
     if (this.open === 'chest' && this.data?.chest) {
       const c = this.data.chest, p = this.g.player;
       if (Math.hypot(c.x - p.x, c.y - p.y) > 2.6 || !this.g.build.structures.includes(c)) this.close();
     }
   }
 }
+
+export { TIER_SPEED, SLOTS };

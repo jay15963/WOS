@@ -15,6 +15,7 @@ import { lootSystem } from './loot.js';
 import { buildOcc } from './nav.js';
 import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
+import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 
@@ -34,8 +35,10 @@ export function installSystems(game) {
   initPlayer(game);
   initBuilding(game);
   buildOcc(game);
+  initEconomy(game);
   const controller = installController(game);
   const isNew = !loadGame(game);
+  postLoadEconomy(game, isNew);
   createSpawners(game);
 
   const clock = {
@@ -60,6 +63,7 @@ export function installSystems(game) {
     mobsSystem(),
     gatheringSystem(),
     buildingSystem(),
+    ...economySystems(),
     survivalSystem(),
     lootSystem(),
     juice,

@@ -12,6 +12,8 @@ import { attackable } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
 import { Minimap } from './minimap.js';
 import { Panels } from './panels.js';
+import { econIcon } from './econIcons.js';
+import { foodCount } from '../game/survival.js';
 
 let deferredInstall = null;
 addEventListener('beforeinstallprompt', (e) => {
@@ -63,8 +65,10 @@ export function installHUD(game, { isNew } = {}) {
     </div>
     <div class="buffs" id="buffs"></div>
     <div class="quick" id="quick">
-      <button class="qb" data-q="inv" title="Mochila (I)">${uiIcon(A, 'bag')}<span class="qk">I</span></button>
+      <button class="qb" data-q="inv" title="Mochila e equipamento (I)">${uiIcon(A, 'bag')}<span class="qk">I</span></button>
+      <button class="qb" data-q="craft" title="Criar (C)">${econIcon(A, 'craft')}<span class="qk">C</span></button>
       <button class="qb" data-q="build" title="Construir (B)">${uiIcon(A, 'build')}<span class="qk">B</span></button>
+      <button class="qb" data-q="mine" title="Minerar (X)">${econIcon(A, 'mine')}<span class="qk">X</span></button>
       <button class="qb" data-q="eat" title="Comer (Q)">${uiIcon(A, 'eat')}<span class="qk">Q</span><span class="badge" id="eat-n"></span></button>
     </div>
     <div class="tr">
@@ -400,7 +404,7 @@ export function installHUD(game, { isNew } = {}) {
         const [wn, wi] = WEATHER_PT[g.env.weather] || ['', ''];
         const h = g.env.hour, night = h >= 19.5 || h < 5.5;
         setText(R.weather, 'wx', `${night && g.env.weather === 'clear' ? '☾' : wi} ${night && g.env.weather === 'clear' ? 'Noite' : wn}`);
-        const food = (['berries', 'cooked', 'meat']).reduce((n, id) => n + pl.inv.count(id), 0);
+        const food = foodCount(pl);
         setText(R.eatN, 'eatn', food ? String(food) : '');
         toggle(R.eatN, 'eatnh', 'hidden', !food);
         const now = performance.now();

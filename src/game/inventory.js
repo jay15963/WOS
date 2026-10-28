@@ -1,6 +1,6 @@
 // Slot-based inventory (pure data).
 
-import { ITEMS } from './data.js';
+import { ITEMS, ITEM_ALIASES } from './data.js';
 
 export class Inventory {
   constructor(size = 20) {
@@ -38,6 +38,19 @@ export class Inventory {
     return n;
   }
 
+  // could all of { id: qty } fit at once (ignoring what `freed` would release)?
+  fits(items, freed = null) {
+    const free = this.slots.filter((s) => !s).length + (freed ? freed : 0);
+    let need = 0;
+    for (const id in items) {
+      const max = ITEMS[id]?.stack || 99;
+      let left = items[id];
+      for (const s of this.slots) if (s && s.id === id) left -= max - s.qty;
+      if (left > 0) need += Math.ceil(left / max);
+    }
+    return need <= free;
+  }
+
   remove(id, qty = 1) {
     if (this.count(id) < qty) return false;
     let left = qty;
@@ -60,6 +73,13 @@ export class Inventory {
     return true;
   }
 
+  // returns what did not fit as { id: qty }
+  addAll(items) {
+    const left = {};
+    for (const id in items) { const l = this.add(id, items[id]); if (l) left[id] = l; }
+    return left;
+  }
+
   takeSlot(i) {
     const s = this.slots[i];
     this.slots[i] = null;
@@ -67,11 +87,19 @@ export class Inventory {
     return s;
   }
 
+  used() { let n = 0; for (const s of this.slots) if (s) n++; return n; }
+
   toJSON() { return this.slots.map((s) => (s ? [s.id, s.qty] : 0)); }
 
   load(arr) {
     this.slots.fill(null);
-    if (Array.isArray(arr)) arr.forEach((s, i) => { if (s && i < this.size && ITEMS[s[0]]) this.slots[i] = { id: s[0], qty: s[1] | 0 }; });
+    if (Array.isArray(arr)) arr.forEach((s, i) => {
+      if (!s) return;
+      const id = ITEM_ALIASES[s[0]] || s[0];
+      if (!ITEMS[id]) return;
+      if (i < this.size && !this.slots[i]) this.slots[i] = { id, qty: Math.max(1, s[1] | 0) };
+      else this.add(id, Math.max(1, s[1] | 0));
+    });
     this.version++;
   }
 }
