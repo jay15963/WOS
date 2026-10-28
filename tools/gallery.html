@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WOS Sprite Gallery</title>
+  <style>
+    :root { --bg: #2a2520; --panel: #352f28; --ink: #e9e2d4; --dim: #a89d8a; --soil: #6b5238; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 system-ui, sans-serif; }
+    header { position: sticky; top: 0; z-index: 5; display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+      padding: 8px 16px; background: #1d1a16; border-bottom: 1px solid #000; }
+    header b { font-size: 15px; letter-spacing: 1px; color: #e8c46a; }
+    header a { color: var(--dim); text-decoration: none; }
+    header a:hover { color: var(--ink); }
+    #stats { color: var(--dim); }
+    section { padding: 10px 16px 18px; }
+    h2 { margin: 6px 0 8px; font-size: 14px; color: #e8c46a; font-weight: 600; letter-spacing: 0.5px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+    .cell { background: var(--soil); border-radius: 4px; padding: 6px; display: flex; flex-direction: column; align-items: center;
+      background-image: radial-gradient(rgba(0,0,0,0.12) 1px, transparent 1px); background-size: 7px 7px; }
+    .cell .pics { display: flex; gap: 6px; align-items: flex-end; }
+    .cell span { margin-top: 4px; font-size: 10px; color: #f2e9d8; text-shadow: 0 1px 0 #000; }
+    canvas.scene { display: block; border-radius: 4px; max-width: 100%; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    label { color: var(--dim); }
+  </style>
+</head>
+<body>
+  <header>
+    <b>WOS · sprite gallery</b>
+    <span id="stats">building…</span>
+    <a href="#scene">scene</a><a href="#pawns">pawns</a><a href="#animals">animals</a><a href="#sprites">sprites</a><a href="#atlas">atlas</a>
+    <label><input type="checkbox" id="night"> night tint</label>
+    <label>zoom <input type="range" id="zoom" min="30" max="110" value="64"></label>
+  </header>
+  <section id="scene"><h2>Scene (mock renderer: decor, trees, shadows, pawns, animals)</h2><canvas class="scene" id="sceneCv"></canvas></section>
+  <section id="pawns"><h2>Pawns — facings s / e / n / w · idle · walk · attack · chop · mine · gather · dead</h2><canvas class="scene" id="pawnCv"></canvas></section>
+  <section id="animals"><h2>Animals — s / e / n / w · idle · walk · attack · dead</h2><canvas class="scene" id="animalCv"></canvas></section>
+  <section id="sprites"></section>
+  <section id="atlas"><h2>Atlas</h2><canvas class="scene" id="atlasCv"></canvas></section>
+  <script type="module" src="./gallery.js"></script>
+</body>
+</html>
