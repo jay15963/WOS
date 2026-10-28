@@ -20,6 +20,7 @@ export function initEconomy(game) {
   initFarming(game);
   initCrafting(game);
   initWork(game);
+  game.hasTool = (p, kind) => hasTool(p || game.player, kind); // combat: skinning needs a knife
   // small API for other modules (combat, UI, debugging)
   game.econ = { hasTool: (k) => hasTool(game.player, k), bestTool: (k) => bestTool(game.player, k), equipItem: (id) => equipItem(game, id),
     unequip: (s) => unequip(game, s), equipFromSlot: (i) => equipFromSlot(game, i), rollKillLoot: (x, y, t) => rollKillLoot(game, x, y, t),

@@ -4,7 +4,7 @@
 // drag rectangles; touch: taps). Auto work (work.js) feeds goals with { auto: true }.
 
 import { steer, resetNav } from './nav.js';
-import { attackable, dist, reach } from './combat.js';
+import { attackable, dist, reach, isMob, attackRange, hasLOS } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
 import { describeObject, reachDist } from './gathering.js';
 import { describeStructure, buildTap, exitBuildMode, commitPlacement, deconRect, structureAtPoint, toggleDecon } from './building.js';
@@ -50,12 +50,21 @@ export function pick(game, sx, sy) {
   const tol = 14 / game.cam.zoom;
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (e.kind !== 'animal' || e.dead) continue;
+    if (!isMob(e) || e.dead) continue;
     const sc = e.scale || 1;
-    const rx = 0.55 * sc + tol, ry = 0.5 * sc + tol;
-    const dx = (wx - e.x) / rx, dy = (wy - (e.y - 0.35 * sc)) / ry;
+    // humanoid raiders are taller and thinner than animals
+    const pawn = e.kind === 'pawn';
+    const rx = (pawn ? 0.42 : 0.55) * sc + tol, ry = (pawn ? 0.78 : 0.5) * sc + tol;
+    const dx = (wx - e.x) / rx, dy = (wy - (e.y - (pawn ? 0.7 : 0.35) * sc)) / ry;
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = e; }
+  }
+  // breakable props (bandit crates)
+  for (const o of game.props || []) {
+    if (o.broken) continue;
+    const dx = (wx - o.x) / (0.5 + tol), dy = (wy - (o.y - 0.3)) / (0.45 + tol);
+    const d = dx * dx + dy * dy;
+    if (d < bd) { bd = d; best = o; }
   }
   if (best) return { type: 'creature', e: best, wx, wy };
   let hit = null, hitFlat = null;
@@ -129,8 +138,9 @@ export function installController(game) {
     },
     cycleTarget() {
       const p = game.player;
+      const tmp = (e) => e.temper || SPECIES[e.species]?.temper;
       const list = game.entities.filter((e) => attackable(e) && dist(e, p) < 18).sort((a, b) => {
-        const ka = (SPECIES[a.species].temper === 'passive' ? 6 : 0) + dist(a, p), kb = (SPECIES[b.species].temper === 'passive' ? 6 : 0) + dist(b, p);
+        const ka = (tmp(a) === 'passive' ? 6 : 0) + dist(a, p), kb = (tmp(b) === 'passive' ? 6 : 0) + dist(b, p);
         return ka - kb;
       });
       if (!list.length) { game.events.emit('error', { text: 'Nenhum alvo por perto' }); return; }
@@ -232,9 +242,9 @@ export function installController(game) {
     }
     const h = pick(game, tap.x, tap.y);
     if (h.type === 'creature') {
-      const e = h.e, temper = SPECIES[e.species].temper;
+      const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
       const fighting = e.state === 'chase' && e.threat === p;
-      if (p.target === e || temper === 'hostile' || fighting) ctl.engage(e);
+      if (p.target === e || temper === 'hostile' || fighting || e.isProp) ctl.engage(e);
       else {
         ctl.setTarget(e);
         if (!ctl.hinted.tap2) { ctl.hinted.tap2 = true; game.events.emit('toast', { text: 'Toque de novo para atacar', kind: 'info' }); }
@@ -324,7 +334,11 @@ export function installController(game) {
         } else if (goal.type === 'attack') {
           const t = goal.target;
           if (!attackable(t) || p.target !== t || !p.autoAttack) ctl.goal = null;
-          else if (dist(p, t) > reach(p, t) * 0.92) p.autoMove = steer(g, p, t.x, t.y, dt, spd, reach(p, t) * 0.85);
+          else if (p.wprof?.ranged) {
+            // bows: close in only until in range with a clear line of fire
+            const far = dist(p, t) > attackRange(p, t) * 0.9;
+            if ((far || !hasLOS(g.world, p.x, p.y, t.x, t.y)) && !p.cast) p.autoMove = steer(g, p, t.x, t.y, dt, spd, far ? attackRange(p, t) * 0.8 : 0.6);
+          } else if (dist(p, t) > reach(p, t) * 0.92) p.autoMove = steer(g, p, t.x, t.y, dt, spd, reach(p, t) * 0.85);
         } else if (goal.type === 'interact') {
           const it = goal.it;
           if (reachDist(p, it) <= it.reach) {
@@ -356,7 +370,7 @@ export function installController(game) {
       const t = p.target;
       if (t && !t.dead) {
         const sc = t.scale || 1;
-        const c = RING_COL[SPECIES[t.species]?.temper] || RING_COL.neutral;
+        const c = RING_COL[t.temper || SPECIES[t.species]?.temper] || RING_COL.neutral;
         const pulse = 0.85 + 0.15 * Math.sin(g.time * 5);
         B.blob.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
         if (env.night > 0.1) B.emissive.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);

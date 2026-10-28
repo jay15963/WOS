@@ -2,14 +2,15 @@
 // button, quick buttons, minimap + clock/weather, XP bar, buffs, error/feed/banner, build bar,
 // death screen, fullscreen / install. Updates the DOM only when values change.
 
-import { ABILITIES, ABILITY_ORDER, BUILDINGS, ITEMS, SPECIES, WEATHER_PT } from '../game/data.js';
+import { BUILDINGS, ITEMS, SPECIES, WEATHER_PT, DOTS } from '../game/data.js';
 import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
-import { abilityState, useAbility } from '../game/abilities.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
 import { attackable } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
+import { combatIcon } from './combaticons.js';
+import { installActionBar } from './actionbar.js';
 import { Minimap } from './minimap.js';
 import { Panels } from './panels.js';
 import { econIcon } from './econIcons.js';
@@ -24,6 +25,20 @@ addEventListener('beforeinstallprompt', (e) => {
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
+// target frame extras (portraits for raiders / crates, debuffs, enemy cast bar)
+const TF_CSS = `
+.tf .tcast { position: relative; height: 9px; margin-top: 1px; background: rgba(0,0,0,.6); border: 1px solid rgba(0,0,0,.8); border-radius: 2px; overflow: hidden; }
+.tf .tcast > i { position: absolute; inset: 0; transform-origin: 0 50%; background: linear-gradient(180deg, #ffe08a, #d9a83a 55%, #9a6e1c); }
+.tf .tcast > span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 8px; font-weight: 800; text-shadow: 0 1px 1px #000; }
+.tf .tdb { display: flex; gap: 3px; min-height: 0; }
+.tf .tdb:empty { display: none; }
+.tf .tdb > b { width: 16px; height: 16px; padding: 2px; border-radius: 3px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,90,72,.65); color: #ffb0a0; position: relative; }
+.tf .tdb > b.poison { border-color: rgba(120,220,90,.75); color: #b8f0a0; }
+.tf .tdb > b.burn { border-color: rgba(255,160,60,.8); color: #ffd090; }
+.tf.bandit .port { background: radial-gradient(circle at 35% 30%, #6a3a30, #2a1612 70%); }
+.tf .port .ini.pawn { color: #ffb4a0; }
+.tf.prop .port { background: radial-gradient(circle at 35% 30%, #6a5a40, #2a2418 70%); }
+`;
 
 function press(el, fn) {
   el.addEventListener('pointerdown', (e) => {
@@ -59,6 +74,8 @@ export function installHUD(game, { isNew } = {}) {
           <div class="ufn"><span class="nm" id="tf-nm"></span></div>
           <div class="bar hp" id="tf-hp"><i></i><b></b></div>
           <div class="tsub" id="tf-sub"></div>
+          <div class="tcast hidden" id="tf-cast"><i></i><span></span></div>
+          <div class="tdb" id="tf-db"></div>
         </div>
         <button class="tf-x" id="tf-x" aria-label="Limpar alvo">${svgIcon('close')}</button>
       </div>
@@ -86,13 +103,6 @@ export function installHUD(game, { isNew } = {}) {
     <div class="feed" id="feed"></div>
     <div class="ab-wrap" id="ab">
       <button class="ab ab-int hidden" id="ab-int"><span class="ic"></span><span class="lbl"></span><span class="key">E</span></button>
-      <button class="ab ab-atk" data-ab="attack" title="Atacar (F)"><span class="ic">${uiIcon(A, 'attack')}</span><span class="key">F</span></button>
-      ${ABILITY_ORDER.map((id, i) => {
-        const ab = ABILITIES[id];
-        return `<button class="ab ab-s ab-${i + 1}" data-ab="${id}" title="${ab.name} (${ab.key}) — ${ab.desc} Custo: ${ab.cost} energia, recarga ${ab.cd}s">
-          <span class="ic">${uiIcon(A, ab.icon)}</span><span class="cd"></span><span class="cdt"></span>
-          <span class="key">${ab.key}</span><span class="cost">${ab.cost}</span><span class="abn">${ab.name}</span></button>`;
-      }).join('')}
     </div>
     <div class="buildbar hidden" id="buildbar">
       <span class="bb-ic" id="bb-ic"></span>
@@ -112,6 +122,7 @@ export function installHUD(game, { isNew } = {}) {
     <div class="fade" id="fade"></div>
   `;
   const $ = (s) => root.querySelector(s);
+  if (!document.getElementById('tf-style')) { const st = document.createElement('style'); st.id = 'tf-style'; st.textContent = TF_CSS; document.head.appendChild(st); }
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;
 
@@ -125,31 +136,28 @@ export function installHUD(game, { isNew } = {}) {
     touchMode = t;
     root.classList.toggle('touch', t);
     root.classList.toggle('desktop', !t);
+    bar?.setMode(t);
   };
+  let bar = null;
   setMode();
+  bar = installActionBar(game, root, $('#ab'));
+  bar.setMode(touchMode);
 
   // ---------- refs ----------
   const R = {
     pfNm: $('#pf-nm'), pfLv: $('#pf-lv'), pfCmb: $('#pf-cmb'), pf: $('#pf'),
     hp: $('#pf-hp'), en: $('#pf-en'), hu: $('#pf-hu'),
     tf: $('#tf'), tfNm: $('#tf-nm'), tfLv: $('#tf-lv'), tfHp: $('#tf-hp'), tfSub: $('#tf-sub'), tfIni: $('#tf-ini'), tfImg: $('#tf-img'),
+    tfCast: $('#tf-cast'), tfCastI: $('#tf-cast i'), tfCastS: $('#tf-cast span'), tfDb: $('#tf-db'),
     buffs: $('#buffs'), eatN: $('#eat-n'), clock: $('#clock'), weather: $('#weather'),
     xp: $('#xp'), xpI: $('#xp i'), xpS: $('#xp span'),
     errs: $('#errs'), feed: $('#feed'), banner: $('#banner'),
     int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'),
-    atk: root.querySelector('[data-ab="attack"]'),
     bb: $('#buildbar'), bbNm: $('#bb-nm'), bbHint: $('#bb-hint'), bbIc: $('#bb-ic'), bbOk: $('#bb-ok'),
     death: $('#death'), deathSub: $('#death-sub'), respawn: $('#btn-respawn'), fade: $('#fade'),
     mm: $('#mm'), mmC: $('#mm canvas'),
   };
-  const abBtns = ABILITY_ORDER.map((id) => {
-    const el = root.querySelector(`[data-ab="${id}"]`);
-    return { id, el, cd: el.querySelector('.cd'), cdt: el.querySelector('.cdt'), last: {} };
-  });
-
   // ---------- input bindings ----------
-  for (const b of abBtns) press(b.el, () => useAbility(game, b.id));
-  press(R.atk, () => game.ctl.toggleAttack());
   press(R.int, () => game.ctl.interact());
   press($('#tf-x'), () => { game.ctl.setTarget(null); game.ctl.goal = null; });
   root.querySelectorAll('.qb').forEach((el) => press(el, () => {
@@ -279,7 +287,8 @@ export function installHUD(game, { isNew } = {}) {
   if (isNew) {
     const tips = [
       [1.2, 'Bem-vindo, Sobrevivente!', 'good'],
-      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque no mundo para interagir' : 'WASD para andar · clique para interagir · 1–5 habilidades', 'info'],
+      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque no mundo para interagir' : 'WASD para andar · clique para interagir · 1–7 habilidades', 'info'],
+      [7, 'Você está de mãos vazias: soque com cuidado e fuja de lobos', 'warn'],
       [9, 'Corte árvores e quebre pedras para conseguir materiais', 'info'],
       [14, 'Construa uma fogueira antes do anoitecer', 'info'],
     ];
@@ -324,47 +333,45 @@ export function installHUD(game, { isNew } = {}) {
         dirty.target = false;
         R.tf.classList.toggle('hidden', !t);
         if (t) {
-          const sp = SPECIES[t.species];
+          const temper = t.temper || SPECIES[t.species]?.temper || 'neutral';
           R.tfNm.textContent = t.name + (t.elite ? ' (Elite)' : '');
-          R.tf.className = `uf tf ${sp.temper}${t.elite ? ' elite' : ''}`;
-          const url = spriteURL(A, t.species + '_e', 64) || spriteURL(A, 'wolf_e', 64);
+          R.tf.className = `uf tf ${temper}${t.elite ? ' elite' : ''}${t.faction === 'bandit' ? ' bandit' : ''}${t.isProp ? ' prop' : ''}`;
+          const url = t.isProp ? spriteURL(A, t.type, 64) || spriteURL(A, 'chest', 64)
+            : t.kind === 'pawn' ? null
+            : spriteURL(A, t.species + '_e', 64) || spriteURL(A, 'wolf_e', 64);
+          R.tfIni.classList.toggle('pawn', t.kind === 'pawn');
           if (url) { R.tfImg.src = url; R.tfImg.style.display = ''; R.tfIni.textContent = ''; }
           else { R.tfImg.style.display = 'none'; R.tfIni.textContent = t.name[0]; }
-          C.tfhp = C.tfhpt = C.tfsub = C.tflv = null;
+          C.tfhp = C.tfhpt = C.tfsub = C.tflv = C.tfdb = C.tfcast = null;
         }
       }
       if (t) {
-        setBar(R.tfHp, 'tfhp', t.dead ? 0 : t.hp / t.maxHp, t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
-        const lvTxt = String(t.level);
-        if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = levelColor(t.level, pl.level); }
-        const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : STATE_PT[t.state] || '';
-        setText(R.tfSub, 'tfsub', TEMPER_PT[SPECIES[t.species].temper] + (st ? ' · ' + st : ''));
+        const gone = t.dead || t.broken;
+        setBar(R.tfHp, 'tfhp', gone ? 0 : t.hp / t.maxHp, t.isProp ? (gone ? 'Quebrado' : `${Math.ceil(t.hp)} / ${t.maxHp}`) : t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
+        const lvTxt = t.isProp ? '–' : String(t.level);
+        if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = t.isProp ? '' : levelColor(t.level, pl.level); }
+        const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : t.fearT > 0 ? 'assustado' : t.blocking ? 'bloqueando' : STATE_PT[t.state] || '';
+        const kind = t.isProp ? 'Objeto · quebre para saquear' : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
+        setText(R.tfSub, 'tfsub', kind + (st ? ' · ' + st : ''));
+        // enemy cast bar (raider telegraphs: interrupt with Shield Bash / Shove / stuns)
+        const ct = t.cast && !gone ? t.cast : null;
+        toggle(R.tfCast, 'tfcast', 'hidden', !ct);
+        if (ct) {
+          R.tfCastI.style.transform = `scaleX(${Math.min(1, ct.t / ct.dur).toFixed(3)})`;
+          setText(R.tfCastS, 'tfcasts', ct.name);
+        }
+        // debuffs (bleed / poison / burn)
+        const db = gone || !t.dots?.length ? '' : t.dots.map((d) => d.id).join(',');
+        if (C.tfdb !== db) {
+          C.tfdb = db;
+          R.tfDb.innerHTML = db ? t.dots.map((d) => `<b class="${d.id}" title="${DOTS[d.id]?.name || d.id}">${combatIcon(A, d.id === 'burn' ? 'fire' : d.id)}</b>`).join('') : '';
+        }
       }
 
-      // action bar
+      // action bar (dynamic, see actionbar.js)
       const dead = pl.dead;
       toggle(root, 'dead', 'is-dead', !!dead);
-      for (const b of abBtns) {
-        const s = abilityState(g, b.id);
-        const L = b.last;
-        let frac = 0, gcd = false;
-        if (s.cd > 0) frac = s.cd / s.cdDur;
-        else if (s.gcd > 0) { frac = s.gcd / s.gcdDur; gcd = true; }
-        const deg = Math.round(frac * 180) * 2;
-        if (L.deg !== deg) { L.deg = deg; b.cd.style.setProperty('--p', deg + 'deg'); }
-        if (L.gcd !== gcd) { L.gcd = gcd; b.el.classList.toggle('gcd', gcd); }
-        const txt = s.cd > 1.5 ? String(Math.ceil(s.cd)) : s.cd > 0 ? s.cd.toFixed(1) : '';
-        if (L.txt !== txt) { L.txt = txt; b.cdt.textContent = txt; }
-        const noen = !s.energyOk, far = !s.inRange;
-        if (L.noen !== noen) { L.noen = noen; b.el.classList.toggle('noen', noen); }
-        if (L.far !== far) { L.far = far; b.el.classList.toggle('far', far); }
-        const qd = pl.queued === b.id;
-        if (L.qd !== qd) { L.qd = qd; b.el.classList.toggle('queued', qd); }
-        const cool = s.cd > 0;
-        if (L.cool && !cool) { b.el.classList.remove('ready'); void b.el.offsetWidth; b.el.classList.add('ready'); }
-        L.cool = cool;
-      }
-      toggle(R.atk, 'atkon', 'on', !!(pl.autoAttack && attackable(pl.target)));
+      bar.update(g, dt);
 
       // interact button
       const near = g.ctl.near;
@@ -382,7 +389,7 @@ export function installHUD(game, { isNew } = {}) {
       buffT -= dt;
       if (buffV !== pl.buffsV) {
         buffV = pl.buffsV;
-        R.buffs.innerHTML = pl.buffs.map((b) => `<div class="bf ${b.good ? 'good' : 'bad'}" title="${b.name}${b.desc ? ' — ' + b.desc : ''}">${uiIcon(A, b.icon)}<span class="bt"></span></div>`).join('');
+        R.buffs.innerHTML = pl.buffs.map((b) => `<div class="bf ${b.good ? 'good' : 'bad'}" title="${b.name}${b.desc ? ' — ' + b.desc : ''}">${combatIcon(A, b.icon)}<span class="bt"></span></div>`).join('');
         buffT = 0;
       }
       if (buffT <= 0) {

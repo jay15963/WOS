@@ -131,7 +131,7 @@ export class Panels {
     const used = p.inv.used();
     const doll = `<div class="doll">
         <span></span>${eq('head')}<span></span>
-        ${eq('main')}<div class="dstat"><span title="Armadura">🛡 ${p.armorValue || 0}</span><span title="Calor das roupas">🔥 ${p.warmth || 0}</span></div>${eq('off')}
+        ${eq('main')}<div class="dstat"><span title="Armadura">🛡 ${p.armorV ?? p.armorValue ?? 0}</span><span title="Calor das roupas">🔥 ${p.warmth || 0}</span></div>${eq('off')}
         <span></span>${eq('body')}<span></span>
       </div>`;
     return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };

@@ -117,13 +117,15 @@ export class Game {
       }
     });
     for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
+    // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
+    for (const s of this.systems) s.collect?.(this, list, v);
     list.sort((a, b) => a.y - b.y);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
     const hides = (o, e, s) => o.y > e.y && o.y - e.y < 2.6 * s && Math.abs(o.x - e.x) < 1.15 * s;
     for (const o of list) {
-      if (o.isEntity || !o.type.startsWith('tree_') || o.stump) continue;
+      if (o.isEntity || o.draw || !o.type?.startsWith('tree_') || o.stump) continue;
       const s = o.s || 1;
       const covers = hides(o, pl, s) || (tg && hides(o, tg, s));
       const target = covers ? 0.42 : 1;
@@ -131,10 +133,13 @@ export class Game {
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
     for (const o of list) {
-      const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
-      if (!o.isEntity) drawStatic(B, A, d, t);
-      else if (o.kind === 'pawn') drawPawn(B, A, d, t);
-      else drawAnimal(B, A, d, t);
+      if (o.draw) o.draw(B, A, t);
+      else {
+        const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
+        if (!o.isEntity) drawStatic(B, A, d, t);
+        else if (o.kind === 'pawn') drawPawn(B, A, d, t);
+        else drawAnimal(B, A, d, t);
+      }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;
       if (L) {

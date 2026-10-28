@@ -105,6 +105,7 @@ function tileFree(game, tx, ty, kind) {
   if (w.noGrow && w.noGrow[i]) return false;
   if (game.minedSet?.has(i)) return false;
   if (w.roofAt ? w.roofAt(tx, ty) : w.roof?.[i]) return false;
+  if (game.camps) for (const c of game.camps) if (Math.hypot(tx + 0.5 - c.x, ty + 0.5 - c.y) < Math.max(7, (c.r || 0) + 1)) return false;
   const minD = kind.startsWith('tree_') ? 1.25 : 0.7;
   const cx = tx + 0.5, cy = ty + 0.6;
   let ok = true;

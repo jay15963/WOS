@@ -48,6 +48,7 @@ export function equipChanged(game) {
   }
   p.armorValue = armor; p.warmth = warmth;
   syncVisual(p, true);
+  game.events.emit('equipchange', {});
   game.events.emit('equip', {});
   game.events.emit('inventory', {});
 }
@@ -94,17 +95,12 @@ export function unequip(game, slot) {
   return true;
 }
 
-// Visual state for the art (and the old combat code): main-hand item, or the tool being used for work.
+// Visual main hand for the art: the tool being used for work (and shortly after), else p.equip.main.
+// Combat (player.js refreshGear) derives p.offhand / p.armor / hand-torch light from p.equip.
 export function syncVisual(p, force = false) {
   const tool = p.work?.tool || (p.toolShowT > 0 ? p.toolShown : null);
   const vis = tool || p.equip.main || null;
   if (force || p.weapon !== vis) p.weapon = vis;
-  p.offhand = p.equip.off || null;
-  const a = p.armor || (p.armor = { body: null, head: null });
-  a.body = p.equip.body || null; a.head = p.equip.head || null;
-  const L = ITEMS[p.equip.off]?.light;
-  if (L && !p.dead) { if (!p.light || p.light.src !== p.equip.off) p.light = { ...L, src: p.equip.off }; }
-  else if (p.light) p.light = null;
 }
 
 export function equipmentSystem() {

@@ -15,7 +15,8 @@ const STATIC_FB = {
   wild_potato: ['bush', 0.55], wild_cotton: ['bush', 0.55], wild_corn: ['tallgrass_2', 1.6],
   tent_0: ['bed', 2.2], tent_1: ['bed', 2.2], crate_0: ['chest', 1.6],
 };
-const SPECIES_FB = { bear: 'boar', spider: 'wolf', fox: 'wolf' };
+const SPECIES_FB = { bear: 'boar', fox: 'wolf', spider: 'wolf' };
+const SCALE_FB = { fox: 0.72, spider: 0.6 }; // stand-ins read smaller than the real wolf
 const CROP_FB = [['grass_1', 0.7], ['grass_3', 1.0], ['tallgrass_1', 1.2], ['bush', 0.6]];
 
 const hasArt = (A, o) => A.has(o.type) || A.has(o.type + '_0') || A.has(o.type + '_h') || (o.mask != null && A.has(o.type + '_' + o.mask)) || !!A.groups?.[o.type];
@@ -24,7 +25,10 @@ export function drawProxy(A, o) {
   if (o.isEntity) {
     if (o.kind === 'animal' && !A.has(o.species + '_s')) {
       let px = o._px;
-      if (!px) { px = o._px = Object.create(o); px.species = SPECIES_FB[o.species] || 'wolf'; }
+      if (!px) {
+        px = o._px = Object.create(o); px.species = SPECIES_FB[o.species] || 'wolf';
+        if (SCALE_FB[o.species]) px.scale = (o.scale || 1) * SCALE_FB[o.species];
+      }
       return px;
     }
     return o;
