@@ -86,6 +86,12 @@ Pawns/cabelos são **brancos/cinza** e tingidos em runtime (multiplicação) —
 
 Ícones para HTML: desenhe a região do sprite de `atlas.canvas` (u0..u1, v0..v1 × atlas.size) num canvas pequeno → `toDataURL()`.
 
+**Cache do atlas** (`src/engine/atlasCache.js`): em produção o atlas pronto (PNG + metadados) fica no IndexedDB, com chave =
+hash do código de todos os módulos importados a partir de `src/art/sprites.js`. Mudou a arte → cache invalida sozinho.
+Desligado em localhost (force com `?cache=1`; `?nocache` desliga). Regra: módulos de arte não podem depender de estado
+calculado durante a pintura (num acerto de cache a pintura não roda). Service worker: stale-while-revalidate (deploy novo
+aparece no próximo carregamento).
+
 Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
 da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
 (apaga chama de fogueira/tocha). Galeria de sprites: `tools/gallery.html` (`?focus=<regex>`, `?only=scene|pawns|animals|atlas`).
