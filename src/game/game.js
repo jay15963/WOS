@@ -3,6 +3,7 @@
 import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../art/compose.js';
 import { moveCircle, facingFrom } from './physics.js';
 import { clamp } from '../engine/noise.js';
+import { drawProxy } from './artcompat.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 
@@ -18,7 +19,7 @@ export class Game {
     for (const o of world.objects) o.solid = SOLID[o.type] || 0;
 
     this.player = {
-      isEntity: true, kind: 'pawn', name: 'Você', x: world.spawn.x, y: world.spawn.y, r: 0.24,
+      isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
       facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0,
       look: { skin: [0.96, 0.80, 0.66], hair: 'short', hairColor: [0.36, 0.22, 0.12], shirt: [0.34, 0.47, 0.62] },
       weapon: 'sword', hp: 100, maxHp: 100,
@@ -27,6 +28,8 @@ export class Game {
     this.cam = { x: this.player.x, y: this.player.y, zoom: 0, ppt: 48 };
     this.cam.zoom = this.defaultZoom();
     this._draw = [];
+    this.shakeOff = { x: 0, y: 0 }; // camera shake (juice)
+    this.worldTime = 0;             // persistent simulation clock (s), saved
     this.systems = []; // { update(game, dt), render?(game, B, view) } — gameplay modules plug in here
   }
 
@@ -37,12 +40,12 @@ export class Game {
 
   screenToWorld(sx, sy) {
     const z = this.cam.zoom;
-    return [this.cam.x + (sx - this.R.cssW / 2) / z, this.cam.y + (sy - this.R.cssH / 2) / z];
+    return [this.cam.x + this.shakeOff.x + (sx - this.R.cssW / 2) / z, this.cam.y + this.shakeOff.y + (sy - this.R.cssH / 2) / z];
   }
 
   worldToScreen(wx, wy) {
     const z = this.cam.zoom;
-    return [(wx - this.cam.x) * z + this.R.cssW / 2, (wy - this.cam.y) * z + this.R.cssH / 2];
+    return [(wx - this.cam.x - this.shakeOff.x) * z + this.R.cssW / 2, (wy - this.cam.y - this.shakeOff.y) * z + this.R.cssH / 2];
   }
 
   update(dt) {
@@ -115,9 +118,10 @@ export class Game {
     for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
     list.sort((a, b) => a.y - b.y);
     for (const o of list) {
-      if (!o.isEntity) drawStatic(B, A, o, t);
-      else if (o.kind === 'pawn') drawPawn(B, A, o, t);
-      else drawAnimal(B, A, o, t);
+      const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
+      if (!o.isEntity) drawStatic(B, A, d, t);
+      else if (o.kind === 'pawn') drawPawn(B, A, d, t);
+      else drawAnimal(B, A, d, t);
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;
       if (L) {
@@ -136,7 +140,7 @@ export class Game {
     }
 
     const dpr = R.dpr;
-    const cam = { x: this.cam.x, y: this.cam.y, ppt: this.cam.zoom * dpr };
+    const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr };
     R.render(cam, env, t);
   }
 }
