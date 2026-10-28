@@ -3,7 +3,7 @@
 Survival MMO 2D top-down (estilo visual RimWorld, combate simplificado estilo WoW), mobile-first, PWA.
 Sem build step: ES modules puros servidos estaticamente (GitHub Pages). WebGL2.
 
-Rodar localmente: `python -m http.server 5173 --bind 127.0.0.1` → http://localhost:5173
+Rodar localmente: `python tools/serve.py` → http://localhost:5173
 (`?seed=123` troca a semente do mundo). Em localhost o service worker é desativado.
 
 ## Coordenadas

@@ -13,7 +13,7 @@ Instalável como app em tela cheia (PWA).
 Sem build — módulos ES puros + WebGL2.
 
 ```bash
-python -m http.server 5173 --bind 127.0.0.1
+python tools/serve.py
 ```
 
 Abra http://localhost:5173 (use `?seed=123` para outro mundo). Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

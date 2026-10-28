@@ -5,7 +5,7 @@
   "type": "module",
   "description": "WOS — World of Survival: survival MMO 2D top-down no navegador (WebGL2, PWA).",
   "scripts": {
-    "dev": "python -m http.server 5173 --bind 127.0.0.1",
+    "dev": "python tools/serve.py 5173",
     "icons": "node tools/make-icons.mjs"
   }
 }

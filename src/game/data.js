@@ -70,7 +70,7 @@ export const BUILDINGS = {
 export const BUILD_ORDER = ['campfire', 'torch', 'wall_wood', 'chest', 'bed'];
 
 export const WEATHER_PT = {
-  clear: ['Céu limpo', '☀'], cloudy: ['Nublado', '☁'], rain: ['Chuva', '🌧'], fog: ['Neblina', '🌫'],
+  clear: ['Céu limpo', '☀'], cloudy: ['Nublado', '☁'], rain: ['Chuva', '🌧'], storm: ['Tempestade', '⛈'], fog: ['Neblina', '🌫'],
 };
 
 // Reaction colors (nameplates, target frame, minimap)
