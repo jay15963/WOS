@@ -226,7 +226,7 @@ void oreStain(vec2 wp, vec4 nA, vec4 nB, float ty, float cov, float lf){
     over(vec3(0.42, 0.22, 0.13) * (0.7 + 0.3 * nA.z) * lf, cov * s * 0.22);
   } else if (ty < 3.5) { // coal: sooty banded seam
     float band = 0.5 + 0.5 * sin(dot(wp, vec2(0.55, 1.35)) * 4.2 + nA.y * 7.0);
-    darken(cov * (0.42 + 0.16 * band));
+    darken(cov * (0.34 + 0.14 * band));
   } else if (ty < 4.5) { // gold: white quartz veins
     float r = 1.0 - abs(textureLod(uNoise, wp * 0.3 + 0.71, nLod(0.3)).b * 2.0 - 1.0);
     float r2 = 1.0 - abs(textureLod(uNoise, wp * 0.62 + 0.2, nLod(0.62)).a * 2.0 - 1.0);

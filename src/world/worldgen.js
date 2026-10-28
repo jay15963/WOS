@@ -15,6 +15,7 @@
 // Small natural objects (hand-gathered, no `solid`): pebble (v 0..3), stick (0..2), fibergrass (0..2),
 // wild_potato, wild_cotton, wild_corn. Generated after the trees/bushes/boulders so their ids are stable.
 // Guarantee: ≥ 10 pebbles, 8 sticks, 8 fibergrass and 2 berry bushes reachable within 14 tiles of spawn.
+// gen.timings = { section: ms } (generation profile).
 
 import { mulberry32, hash2, clamp, smoothstep } from '../engine/noise.js';
 
