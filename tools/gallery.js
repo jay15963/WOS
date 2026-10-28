@@ -1,7 +1,7 @@
 // Sprite gallery: builds the atlas, lists every sprite (1× and 2×) and renders composed pawns/animals and a
 // small scene through a Canvas2D mock of the renderer batches (tint by multiply, flip, rotation, lift,
 // sheared sun shadows, additive emissive). Serve the repo root and open /tools/gallery.html.
-// Query params: ?focus=<regex>&scale=1,3 (only matching sprites, at those scales) · ?only=scene|pawns|animals|atlas
+// Query params: ?focus=<regex>&scale=1,3 (only matching sprites, at those scales) · ?only=scene|pawns|armor|animals|iconsec|sprites|atlas
 //               &pz=<px per tile for the pawn sheet> &az=<px per tile for the animal sheet>
 
 import { buildAtlas } from '../src/art/sprites.js';
@@ -12,8 +12,9 @@ const Q = new URLSearchParams(location.search);
 const FOCUS = Q.get('focus') ? new RegExp(Q.get('focus')) : null;
 const FSCALES = (Q.get('scale') || '1,2').split(',').map(Number);
 const ONLY = Q.get('only'); // 'scene' | 'pawns' | 'animals'
-if (FOCUS) for (const id of ['scene', 'pawns', 'animals', 'atlas']) $('#' + id).style.display = 'none';
-if (ONLY) for (const id of ['scene', 'pawns', 'animals', 'atlas', 'sprites']) if (id !== ONLY) $('#' + id).style.display = 'none';
+const SECTIONS = ['scene', 'pawns', 'armor', 'animals', 'iconsec', 'sprites', 'atlas'];
+if (FOCUS) for (const id of SECTIONS) if (id !== 'sprites') $('#' + id).style.display = 'none';
+if (ONLY) for (const id of SECTIONS) if (id !== ONLY) $('#' + id).style.display = 'none';
 const t0 = performance.now();
 const A = buildAtlas();
 const buildMs = performance.now() - t0;
@@ -230,76 +231,117 @@ function sceneFrame(dt) {
   renderScene(sceneCv.getContext('2d'), SB, cam, SW, SH, sceneBg, $('#night').checked);
 }
 
-// ---------- pawn sheet ----------
-const pawnCv = $('#pawnCv');
-const STATES = ['idle', 'walk', 'attack', 'chop', 'mine', 'gather', 'dead'];
+// ---------- pawn pose sheet: every action pose × facing ----------
+// row = [label, weapon, offhand, action type (or 'walk'|'idle'|'dead'|'block'), armor?]
+const POSES = [
+  ['idle', 'sword_iron', null, 'idle'], ['walk', 'axe_stone', null, 'walk'], ['punch (bare)', null, null, 'attack'],
+  ['shove', null, null, 'shove'], ['slash sword', 'sword_steel', 'shield_iron', 'attack', { body: 'armor_iron', head: 'helmet_iron' }],
+  ['stab knife', 'knife_copper', null, 'stab'], ['cleave axe', 'axe_iron', null, 'cleave', { body: 'armor_leather' }],
+  ['smash mace', 'club_iron', 'shield_copper', 'smash', { body: 'armor_copper', head: 'helmet_copper' }], ['pierce spear', 'spear_steel', null, 'pierce'],
+  ['sweep spear', 'spear_stone', null, 'sweep'], ['shoot bow', 'bow_wood', null, 'shoot', { head: 'hood_leather', body: 'armor_leather' }],
+  ['aimed composite', 'bow_composite', null, 'aimed_shot'], ['throw spear', 'spear_iron', null, 'throw'],
+  ['block shield', 'sword_copper', 'shield_wood', 'block'], ['shield bash', 'sword_iron', 'shield_iron', 'shield_bash', { body: 'armor_iron' }],
+  ['torch swing', 'knife_stone', 'torch_hand', 'torch_swing'], ['walk torch', 'axe_primitive', 'torch_hand', 'walk'],
+  ['chop', 'axe_copper', null, 'chop'], ['mine', 'pickaxe_steel', null, 'mine'], ['build', null, null, 'build', { head: 'hat_straw', body: 'tunic_cloth' }],
+  ['gather', null, null, 'gather'], ['pick', null, null, 'pick'], ['bandage', null, null, 'bandage'],
+  ['whirlwind', 'sword_steel', null, 'whirlwind'], ['charge', 'sword_iron', null, 'charge'], ['disengage', 'bow_wood', null, 'disengage'],
+  ['dead', 'axe_iron', 'shield_wood', 'dead', { body: 'armor_leather', head: 'helmet_copper' }],
+];
+const BANDIT = { skin: [0.78, 0.6, 0.46], hair: 'shaggy', hairColor: [0.2, 0.15, 0.1], shirt: [0.42, 0.36, 0.3], pants: [0.3, 0.26, 0.22], beard: true, hat: 'bandana', hatColor: [0.6, 0.14, 0.12], face: 'scar' };
 const FACINGS = ['s', 'e', 'n', 'w'];
-const PZ = +(Q.get('pz') || 72), PCW = 1.25, PRH = 1.7;
-const pawnCols = FACINGS.length * 2;
-pawnCv.width = (pawnCols * PCW + 1.2) * PZ; pawnCv.height = (STATES.length * PRH + 0.3) * PZ;
-const pawnBg = soil(pawnCv.width, pawnCv.height, 3);
-const PB = mkBatches();
-const sheetPawns = [];
-STATES.forEach((st, r) => {
-  for (let c = 0; c < pawnCols; c++) {
-    const look = LOOKS[(c >= 4 ? 1 : 0) + (r % 3) * 2];
-    const p = { isEntity: true, kind: 'pawn', x: 1.2 + c * PCW + PCW / 2, y: r * PRH + PRH - 0.25, facing: FACINGS[c % 4], moving: st === 'walk', moveT: 0, action: null, flash: 0, look, weapon: c >= 4 ? 'axe' : 'sword', st, dead: st === 'dead', deadT: 0 };
-    sheetPawns.push(p);
-  }
-});
-function pawnFrame(dt) {
-  for (const k in PB) PB[k].clear();
-  const ctx = pawnCv.getContext('2d');
-  for (const p of sheetPawns) {
-    if (p.moving) p.moveT += dt;
-    if (['attack', 'chop', 'mine', 'gather'].includes(p.st)) {
-      const T = p.st === 'gather' ? 1.6 : 1.0;
-      const k = (time % T) / T;
-      p.action = k < 0.8 ? { type: p.st, t: k / 0.8 } : null;
-    }
-    if (p.dead) p.deadT = (time % 3);
-    if (p.st === 'idle') p.flash = (time % 3) < 0.15 ? 1 - (time % 3) / 0.15 : 0;
-    drawPawn(PB, A, p, time);
-  }
-  renderScene(ctx, PB, { x: pawnCv.width / PZ / 2, y: pawnCv.height / PZ / 2, zoom: PZ }, pawnCv.width, pawnCv.height, pawnBg, false);
-  ctx.fillStyle = '#f2e9d8'; ctx.font = '12px system-ui'; ctx.shadowColor = '#000'; ctx.shadowBlur = 2;
-  STATES.forEach((st, r) => ctx.fillText(st, 6, (r * PRH + PRH * 0.6) * PZ));
+const PZ = +(Q.get('pz') || 64), PCW = 1.2, PRH = 1.55;
+function sheet(id, rows, cols, cw, rh, z, make, labelsL, labelsT) {
+  const cv = $('#' + id);
+  cv.width = (cols * cw + 1.7) * z; cv.height = (rows.length * rh + 0.4) * z;
+  const bg = soil(cv.width, cv.height, id.length);
+  const B = mkBatches();
+  const list = [];
+  rows.forEach((r, ri) => { for (let c = 0; c < cols; c++) list.push(make(r, ri, c, 1.7 + c * cw + cw / 2, 0.4 + ri * rh + rh - 0.25)); });
+  return { cv, bg, B, list, z, labelsL, labelsT, rows, rh, cw };
+}
+function drawSheet(S, dt, step) {
+  if (S.cv.offsetParent === null) return; // hidden section
+  for (const k in S.B) S.B[k].clear();
+  for (const e of S.list) { step(e, dt); if (e.kind === 'pawn') drawPawn(S.B, A, e, time); else drawAnimal(S.B, A, e, time); }
+  const ctx = S.cv.getContext('2d');
+  renderScene(ctx, S.B, { x: S.cv.width / S.z / 2, y: S.cv.height / S.z / 2, zoom: S.z }, S.cv.width, S.cv.height, S.bg, $('#night').checked);
+  ctx.fillStyle = '#f2e9d8'; ctx.font = '11px system-ui'; ctx.shadowColor = '#000'; ctx.shadowBlur = 2;
+  S.rows.forEach((r, i) => ctx.fillText(S.labelsL(r), 4, (0.4 + i * S.rh + S.rh * 0.6) * S.z));
+  if (S.labelsT) S.labelsT.forEach((c, i) => ctx.fillText(c, (1.7 + i * S.cw + 0.3) * S.z, 13));
   ctx.shadowBlur = 0;
 }
+const looks = (i) => (i % 5 === 4 ? BANDIT : LOOKS[i % LOOKS.length]);
+const ROWS = Q.get('rows') ? new RegExp(Q.get('rows')) : null; // filter pose rows by label
+const pawnSheet = sheet('pawnCv', ROWS ? POSES.filter((r) => ROWS.test(r[0])) : POSES, 4, PCW, PRH, PZ, (r, ri, c, x, y) => ({
+  isEntity: true, kind: 'pawn', x, y, facing: FACINGS[c], moving: r[3] === 'walk', moveT: c * 0.2, action: null, flash: 0,
+  look: looks(ri), weapon: r[1], offhand: r[2], armor: r[4] || null, act: r[3], dead: r[3] === 'dead', deadT: 0,
+}), (r) => r[0], FACINGS);
+function stepPawn(p, dt) {
+  if (p.moving) p.moveT += dt;
+  const a = p.act;
+  if (!a) return;
+  if (a === 'dead') { p.deadT = time % 3; return; }
+  if (a === 'idle') { p.flash = (time % 3) < 0.15 ? 1 - (time % 3) / 0.15 : 0; return; }
+  if (a === 'walk') return;
+  if (a === 'block') { p.blocking = (time % 2.4) < 1.6; return; }
+  const T = a === 'gather' || a === 'bandage' || a === 'build' ? 1.8 : a === 'shoot' || a === 'aimed_shot' || a === 'whirlwind' ? 1.4 : 1.0;
+  const k = (time % T) / T;
+  p.action = k < 0.82 ? { type: a, t: k / 0.82 } : null;
+}
+
+// ---------- armor & gear combos (idle + walk) ----------
+const ARMORS = [
+  ['none', null, null, null], ['tunic + straw', { body: 'tunic_cloth', head: 'hat_straw' }, 'knife_primitive', null],
+  ['leather + hood', { body: 'armor_leather', head: 'hood_leather' }, 'spear_stone', null],
+  ['copper set', { body: 'armor_copper', head: 'helmet_copper' }, 'axe_copper', 'shield_copper'],
+  ['iron set', { body: 'armor_iron', head: 'helmet_iron' }, 'sword_iron', 'shield_iron'],
+  ['bandit', { body: 'armor_leather' }, 'club_wood', 'torch_hand', BANDIT],
+  ['bandit chief', { body: 'armor_iron', head: 'helmet_iron' }, 'sword_steel', 'shield_wood', { ...BANDIT, face: 'eyepatch', hair: 'braid' }],
+  ['masked archer', { body: 'tunic_cloth' }, 'bow_composite', null, { ...BANDIT, face: 'mask', hat: null, hair: 'long', beard: false }],
+];
+const armorSheet = sheet('armorCv', ARMORS, 8, PCW, PRH, PZ, (r, ri, c, x, y) => ({
+  isEntity: true, kind: 'pawn', x, y, facing: FACINGS[c % 4], moving: c >= 4, moveT: c * 0.13, action: null, flash: 0,
+  look: r[4] || LOOKS[ri % LOOKS.length], weapon: r[2], offhand: r[3], armor: r[1],
+}), (r) => r[0], ['s', 'e', 'n', 'w', 's walk', 'e walk', 'n walk', 'w walk']);
 
 // ---------- animal sheet ----------
-const animalCv = $('#animalCv');
-const SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear'];
-const ACOLS = ['s', 'e', 'n', 'w', 'e-idle', 's-idle', 'e-attack', 's-attack', 'dead'];
-const AZ = +(Q.get('az') || 60), ACW = 2.0, ARH = 2.0;
-animalCv.width = (ACOLS.length * ACW + 1.2) * AZ; animalCv.height = (SPECIES.length * ARH + 0.2) * AZ;
-const animalBg = soil(animalCv.width, animalCv.height, 5);
-const AB = mkBatches();
-const sheetAnimals = [];
-SPECIES.forEach((sp, r) => ACOLS.forEach((col, c) => {
-  const [f, st] = col.split('-');
-  sheetAnimals.push({ isEntity: true, kind: 'animal', species: sp, x: 1.2 + c * ACW + ACW / 2, y: r * ARH + ARH - 0.35, facing: f === 'dead' ? 'e' : f, moving: !st && f !== 'dead', moveT: c * 0.3, action: null, flash: 0, scale: 1, st: st || (f === 'dead' ? 'dead' : 'walk'), dead: f === 'dead', deadT: 0 });
-}));
-function animalFrame(dt) {
-  for (const k in AB) AB[k].clear();
-  const ctx = animalCv.getContext('2d');
-  for (const a of sheetAnimals) {
-    if (a.moving) a.moveT += dt * (a.species === 'rabbit' ? 0.7 : 1);
-    if (a.st === 'attack') { const k = (time % 1.2) / 1.2; a.action = k < 0.7 ? { type: 'attack', t: k / 0.7 } : null; }
-    if (a.dead) a.deadT = time % 3;
-    drawAnimal(AB, A, a, time);
+const SPECIES = ['wolf', 'fox', 'boar', 'deer', 'deer_doe', 'rabbit', 'bear', 'spider'];
+const ACOLS = ['s', 'e', 'n', 'w', 'e-idle', 's-idle', 'n-idle', 'e-attack', 's-attack', 'n-attack', 'dead'];
+const AZ = +(Q.get('az') || 56), ACW = 2.0, ARH = 2.0;
+const animalSheet = sheet('animalCv', SPECIES, ACOLS.length, ACW, ARH, AZ, (sp, r, c, x, y) => {
+  const [f, st] = ACOLS[c].split('-');
+  const doe = sp === 'deer_doe';
+  return { isEntity: true, kind: 'animal', species: doe ? 'deer' : sp, variant: sp === 'deer' ? 0 : doe ? 1 : undefined, x, y, facing: f === 'dead' ? 'e' : f, moving: !st && f !== 'dead', moveT: c * 0.3, action: null, flash: 0, scale: sp === 'bear' ? 1.2 : 1, st: st || (f === 'dead' ? 'dead' : 'walk'), dead: f === 'dead', deadT: 0 };
+}, (sp) => sp, ACOLS);
+function stepAnimal(a, dt) {
+  if (a.moving) a.moveT += dt * (a.species === 'rabbit' ? 0.7 : 1);
+  if (a.st === 'attack') { const k = (time % 1.2) / 1.2; a.action = k < 0.7 ? { type: 'attack', t: k / 0.7 } : null; }
+  if (a.dead) a.deadT = time % 3;
+}
+
+// ---------- icon sheet (64 px and HUD size 40 px) ----------
+{
+  const host = $('#icons');
+  for (const s of A.list) {
+    if (!/^icon_/.test(s.name)) continue;
+    const cell = document.createElement('div'); cell.className = 'cell';
+    const pics = document.createElement('div'); pics.className = 'pics';
+    for (const k of [64, 40]) {
+      const c = document.createElement('canvas'); c.width = c.height = k;
+      const x = c.getContext('2d'); x.imageSmoothingQuality = 'high';
+      x.drawImage(tinted(s, 1, 1, 1), 0, 0, s.pw, s.ph, 0, 0, k, k);
+      pics.appendChild(c);
+    }
+    cell.appendChild(pics);
+    const lab = document.createElement('span'); lab.textContent = s.name.slice(5); cell.appendChild(lab);
+    host.appendChild(cell);
   }
-  renderScene(ctx, AB, { x: animalCv.width / AZ / 2, y: animalCv.height / AZ / 2, zoom: AZ }, animalCv.width, animalCv.height, animalBg, false);
-  ctx.fillStyle = '#f2e9d8'; ctx.font = '12px system-ui'; ctx.shadowColor = '#000'; ctx.shadowBlur = 2;
-  SPECIES.forEach((sp, r) => ctx.fillText(sp, 6, (r * ARH + ARH * 0.6) * AZ));
-  ACOLS.forEach((c, i) => ctx.fillText(c, (1.2 + i * ACW + 0.2) * AZ, 14));
-  ctx.shadowBlur = 0;
 }
 
 // ---------- sprite listing ----------
 const CATS = [
   ['Trees', /^tree_/], ['Plants', /^(bush|berrybush|grass|tallgrass|reed|flower|mushroom)/], ['Rocks', /^boulder/],
-  ['Pawn parts', /^(pawn_|hair_|beard_)/], ['Weapons & tools', /^(weapon_|tool_)/], ['Animals', /^(wolf|boar|deer|rabbit|bear)_/],
+  ['Pawn parts', /^(pawn_|hair_|beard_|brows_)/], ['Apparel', /^(wear_|hat_|face_)/], ['Held gear', /^(held_|weapon_|tool_|proj_)/], ['Animals', /^(wolf|boar|deer|rabbit|bear|fox|spider)_/],
   ['Buildings', /^(campfire|torch|wall_|chest|bed)/], ['Items', /^item_/], ['Icons', /^icon_/], ['FX', /^fx_/],
 ];
 const sec = $('#sprites');
@@ -322,7 +364,7 @@ for (const [name, list] of groups) {
       c.width = s.pw * k; c.height = s.ph * k;
       const x = c.getContext('2d');
       x.imageSmoothingEnabled = true;
-      const tint = /^(pawn_body)/.test(s.name) ? [0.34, 0.47, 0.62] : /^pawn_head/.test(s.name) ? [0.96, 0.8, 0.66] : /^(hair_|beard_)/.test(s.name) ? [0.45, 0.28, 0.15] : null;
+      const tint = /^(pawn_body)/.test(s.name) ? [0.34, 0.47, 0.62] : /^pawn_legs/.test(s.name) ? [0.42, 0.35, 0.28] : /^(pawn_head|pawn_hand)/.test(s.name) ? [0.96, 0.8, 0.66] : /^(hair_|beard_|brows_)/.test(s.name) ? [0.45, 0.28, 0.15] : /^(hat_|face_mask)/.test(s.name) ? [0.6, 0.14, 0.12] : null;
       x.drawImage(tint ? tinted(s, ...tint) : tinted(s, 1, 1, 1), 0, 0, s.pw * k, s.ph * k);
       // anchor marker
       x.fillStyle = 'rgba(255,60,60,0.9)'; x.fillRect(s.ax * s.pw * k - 1, s.ay * s.ph * k - 1, 3, 3);
@@ -347,7 +389,7 @@ for (const [name, list] of groups) {
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now; time += dt;
-  try { sceneFrame(dt); pawnFrame(dt); animalFrame(dt); } catch (e) { console.error(e); $('#stats').textContent += ' · ERROR ' + e.message; return; }
+  try { if (ONLY !== 'pawns' && ONLY !== 'armor' && ONLY !== 'animals') sceneFrame(dt); if (ONLY !== 'scene') { drawSheet(pawnSheet, dt, stepPawn); drawSheet(armorSheet, dt, stepPawn); drawSheet(animalSheet, dt, stepAnimal); } } catch (e) { console.error(e); $('#stats').textContent += ' · ERROR ' + e.message; return; }
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);

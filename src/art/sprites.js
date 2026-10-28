@@ -15,6 +15,10 @@ import { addPawns } from './pawns.js';
 import { addAnimals } from './animals.js';
 import { addBuildings } from './buildings.js';
 import { addIcons } from './icons.js';
+import { addCreatures } from './creatures.js';
+import { addGear } from './gear.js';
+import { addApparel } from './apparel.js';
+import { addItems } from './items.js';
 
 export { PPU };
 
@@ -28,7 +32,7 @@ export function buildAtlas() {
     pending.push({ name, c, ax, ay });
   };
   // Each group is isolated: a failure in one painter must never break boot.
-  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons];
+  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addCreatures, addGear, addApparel, addItems];
   for (const step of steps) {
     try { step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); }
   }
