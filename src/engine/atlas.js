@@ -94,3 +94,28 @@ export class Atlas {
     return true;
   }
 }
+
+// ---------- cache support (see atlasCache.js) ----------
+Atlas.prototype.serialize = function () {
+  return {
+    size: this.size,
+    sprites: this.list.map((s) => ({ ...s })),
+  };
+};
+
+Atlas.fromCache = function (meta, canvas) {
+  const A = new Atlas();
+  A.canvas = canvas;
+  A.size = meta.size;
+  A.list = [];
+  A.groups = {};
+  for (const s of meta.sprites) {
+    A.sprites.set(s.name, s);
+    A.list.push(s);
+    (A.groups[s.group] ||= []).push(s);
+  }
+  for (const g of Object.values(A.groups)) {
+    g.sort((a, b) => (parseInt(a.name.match(/_(\d+)$/)?.[1] ?? 0)) - (parseInt(b.name.match(/_(\d+)$/)?.[1] ?? 0)));
+  }
+  return A;
+};

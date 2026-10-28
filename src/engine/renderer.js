@@ -25,6 +25,7 @@ export class Renderer {
     this.batches = {
       shadow: new SpriteBatch(gl, 2048),   // sun-shadow casters (silhouettes)
       decal: new SpriteBatch(gl, 1024),    // [world] per-tile terrain decals (addRaw: r = kind 0 ore / 1 rubble)
+      ground: new SpriteBatch(gl, 2048),   // flat ground sprites under everything (floors, farm plots, rugs)
       blob: new SpriteBatch(gl, 1024),     // contact shadows (dark ellipses) drawn on ground
       decor: new SpriteBatch(gl, 8192),    // ground plants, drawn before sorted sprites
       main: new SpriteBatch(gl, 8192),     // y-sorted world sprites (caller sorts)
@@ -238,6 +239,7 @@ export class Renderer {
       gl.uniform1i(p.u.uShadow, 1);
       gl.uniform2f(p.u.uViewport, this.w, this.h);
       gl.uniform1f(p.u.uShadowStr, env.shadowStr);
+      B.ground.draw();
       B.blob.draw();
       B.decor.draw();
       B.main.draw();
