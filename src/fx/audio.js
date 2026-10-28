@@ -1,10 +1,12 @@
 // Procedural audio (WebAudio, no files). Owned by the environment pass.
 // API: game.audio.play(name, { x, y, volume }) — x, y in world tiles (omit for UI/non-spatial sounds).
-// SFX names: hit, crit, swing, chop, mine, pickup, eat, levelup, death, growl, ui, build, fire, splash, step
-// (+ birds, thunder, owl used by the ambience). Unknown names are ignored.
+// SFX names: hit, crit, swing, chop, mine, pickup, eat, levelup, death, growl, ui, build, fire, splash, step,
+// drip (+ birds, thunder, owl used by the ambience). Unknown names are ignored.
 // game.audio.enabled (bool, persisted), game.audio.volume (master 0..1), .sfxVolume, .ambVolume.
 // update(game, dt) drives the soundscape that follows the camera: wind, rain, water, fire crackle,
-// birds by day, crickets / owls / frogs at night, thunder after lightning.
+// birds by day, crickets / owls / frogs at night, thunder after lightning. Inside mountain caves (camera
+// over dark mined tiles) the outdoor beds fade, a low rumble and dripping water take over and every
+// sound gets a long echo.
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const rnd = Math.random;
@@ -22,7 +24,8 @@ export class Audio {
     this._last = {};
     this._scanT = 0;
     this._near = { water: 0, flow: 0, waterPan: 0, marsh: 0, lush: 0.5, trees: 0, fire: 0, firePan: 0 };
-    this._timers = { bird: 2, cricket: 0.5, owl: 15, frog: 6, crackle: 0, chorus: 0 };
+    this._timers = { bird: 2, cricket: 0.5, owl: 15, frog: 6, crackle: 0, chorus: 0, drip: 2 };
+    this._cave = 0; // smoothed "camera is in a cave" 0..1
     this._strikeId = 0;
   }
 
@@ -61,6 +64,15 @@ export class Audio {
     this.verb.buffer = this._impulse(1.6, 2.6);
     this.verbIn = ctx.createGain(); this.verbIn.gain.value = 0.22;
     this.verbIn.connect(this.verb).connect(this.master);
+    // cave echo: feedback delay fed from the sfx + ambience buses (opened only underground)
+    this.echoIn = ctx.createGain(); this.echoIn.gain.value = 0;
+    this.echo = ctx.createDelay(1.0); this.echo.delayTime.value = 0.23;
+    const efb = ctx.createGain(); efb.gain.value = 0.36;
+    const elp = ctx.createBiquadFilter(); elp.type = 'lowpass'; elp.frequency.value = 1700;
+    this.echoIn.connect(this.echo).connect(elp).connect(efb).connect(this.echo);
+    elp.connect(this.master);
+    this.sfx.connect(this.echoIn);
+    this.amb.connect(this.echoIn);
     // noise buffers
     this.white = this._noise('white');
     this.pink = this._noise('pink');
@@ -125,6 +137,7 @@ export class Audio {
     this.bRiver = bed(this.pink, 'bandpass', 650, 0.6);
     this.bLake = bed(this.brown, 'lowpass', 380, 0.7);
     this.bFire = bed(this.brown, 'lowpass', 260, 0.7);
+    this.bCave = bed(this.brown, 'lowpass', 110, 0.8, false); // low rumble of the mountain
   }
 
   _set(node, v, tc = 0.4) { node.gain.setTargetAtTime(v, this.ctx.currentTime, tc); }
@@ -211,16 +224,25 @@ export class Audio {
     this.amb.gain.setTargetAtTime(amb, this.ctx.currentTime, 0.3);
     this.sfx.gain.setTargetAtTime(this.sfxVolume, this.ctx.currentTime, 0.3);
 
+    // caves: outdoor beds fade, echo + rumble + drips take over
+    const w = game.world;
+    const caveNow = w && w.caveDark ? w.caveDark(cam.x, cam.y + 0.4) : 0;
+    this._cave += (caveNow - this._cave) * (1 - Math.exp(-dt * 1.2));
+    const cave = this._cave, out = 1 - cave * 0.88;
+    this._set(this.verbIn, 0.22 + 0.55 * cave, 0.5);
+    this._set(this.echoIn, cave * 0.42, 0.5);
+    this._set(this.bCave.g, cave * 0.05, 1.0);
+
     // wind: always a little, gusts open the filter
     const wind = env.wind ?? 0.2;
-    this._set(this.bWind.g, 0.035 + wind * 0.13, 0.6);
+    this._set(this.bWind.g, (0.035 + wind * 0.13) * out, 0.6);
     this.bWind.f.frequency.setTargetAtTime(260 + wind * 520 + (env.gust || 0) * 260, this.ctx.currentTime, 0.8);
-    this._set(this.bWind2.g, Math.max(0, wind - 0.5) * 0.05, 0.8);
+    this._set(this.bWind2.g, Math.max(0, wind - 0.5) * 0.05 * out, 0.8);
     this.bWind2.f.frequency.setTargetAtTime(1100 + (env.gust || 0) * 700, this.ctx.currentTime, 1.0);
-    // rain
+    // rain (muffled to a distant hiss underground)
     const rain = env.rain || 0;
-    this._set(this.bRain.g, rain * 0.075, 1.2);
-    this._set(this.bRain2.g, rain * 0.05, 1.2);
+    this._set(this.bRain.g, rain * 0.075 * (1 - cave * 0.93), 1.2);
+    this._set(this.bRain2.g, rain * 0.05 * (1 - cave * 0.8), 1.2);
     // water
     this._set(this.bRiver.g, N.flow * 0.12, 0.8);
     if (this.bRiver.p) this.bRiver.p.pan.setTargetAtTime(N.waterPan * 0.6, this.ctx.currentTime, 0.5);
@@ -232,8 +254,13 @@ export class Audio {
     if (this.bFire.p) this.bFire.p.pan.setTargetAtTime(N.firePan, this.ctx.currentTime, 0.3);
 
     const T = this._timers;
-    const day = env.day || 0, night = env.night || 0, hour = env.hour ?? 12;
-    const calm = (1 - rain) * (1 - Math.max(0, wind - 0.6) * 1.5);
+    const day = env.day || 0, night = (env.night || 0) * (1 - cave), hour = env.hour ?? 12;
+    const calm = (1 - rain) * (1 - Math.max(0, wind - 0.6) * 1.5) * (1 - cave);
+    // unseen drips somewhere in the dark
+    if (cave > 0.35) {
+      T.drip -= dt * cave;
+      if (T.drip <= 0) { T.drip = 1.4 + rnd() * 4; this._drip((rnd() - 0.5) * 1.6, 0.25 + rnd() * 0.35); }
+    }
     // fire crackle
     if (N.fire > 0.02) {
       T.crackle -= dt;
@@ -374,6 +401,14 @@ export class Audio {
     if (rnd() < 0.25) this._burst(out, t + 0.03, this.white, 'bandpass', 900 + rnd() * 800, 1.5, 0.03, 0.6, 0.002);
   }
 
+  _drip(pan, vol = 1) {
+    const ctx = this.ctx, t = ctx.currentTime + 0.01;
+    const out = this._voice(pan, 0.07 * vol, 0.9);
+    const f = 850 + rnd() * 900;
+    this._tone(out, t, 'sine', f, f * 2.6, 0.045, 0.9, 0.002);
+    this._tone(out, t + 0.012, 'sine', f * 1.9, f * 3.1, 0.06, 0.35, 0.002);
+  }
+
   _thunder(dist) {
     const ctx = this.ctx, delay = 0.25 + dist * 2.6, t = ctx.currentTime + delay;
     const out = this._voice((rnd() - 0.5) * 0.8, 0.55 * (1.2 - dist * 0.6), 0.5);
@@ -490,5 +525,12 @@ const SFX = {
     for (let k = 0; k < 4; k++) { const f = 2400 + rnd() * 1800; this._tone(out, t + k * 0.12 + rnd() * 0.08, 'sine', f, f * 1.3, 0.05, v(0.12)); }
   },
   thunder(t, v) { void t; void v; this._thunder(0.4); },
+  drip(t, v, pan) {
+    // a drop falling into a puddle in a cave
+    const o = this._out(1, pan, 0.8);
+    const f = 900 + rnd() * 800;
+    this._tone(o, t, 'sine', f, f * 2.5, 0.045, v(0.16), 0.002);
+    this._tone(o, t + 0.01, 'sine', f * 1.8, f * 3.0, 0.06, v(0.07), 0.002);
+  },
   owl() { this._owl(); },
 };
