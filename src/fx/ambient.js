@@ -200,7 +200,7 @@ class Ambient {
 
     // ---------- water sparkles ----------
     if (env.sunI > 0.35 && env.rain < 0.2) {
-      this.acc.spark += dt * 10 * env.sunI * areaK;
+      this.acc.spark += dt * 6 * env.sunI * areaK;
       while (this.acc.spark > 1) {
         this.acc.spark -= 1;
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);

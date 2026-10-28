@@ -327,8 +327,8 @@ void main(){
     const float OW = 0.085;
     vec2 sunXY = normalize(uSun.xy + vec2(1e-4, 0.0));
     float facing = dot(outward, sunXY);
-    float bev = smoothstep(OW, OW + 0.02, sd) * (1.0 - smoothstep(OW + 0.07, OW + 0.2, sd));
-    rock *= 1.0 + bev * (0.3 + 0.35 * facing * (0.3 + 0.7 * uSunI));
+    float bev = smoothstep(OW, OW + 0.02, sd) * (1.0 - smoothstep(OW + 0.06, OW + 0.22, sd));
+    rock = mix(rock, rock * (1.32 + 0.3 * facing * (0.3 + 0.7 * uSunI)) + alb * 0.04, bev);
     float olm = 1.0 - smoothstep(OW - aaW * 0.5, OW + aaW * 0.5, sd);
     rock = mix(rock, alb * 0.15, olm);
     col = rock;
@@ -378,7 +378,7 @@ void main(){
 
     // ---------- mountains: ambient occlusion + cast shadow ----------
     float prox = F2.a;
-    if (sd > -1.6) col *= 1.0 - 0.42 * pow(1.0 - clamp(-sd / 1.35, 0.0, 1.0), 2.0);
+    if (sd > -1.6) col *= 1.0 - 0.36 * pow(1.0 - clamp(-sd / 1.35, 0.0, 1.0), 2.0);
     col *= 1.0 - 0.1 * (1.0 - smoothstep(0.0, 0.6, prox));
     if (prox < 0.95 && uShadowStr > 0.01) {
       float sl = length(uShadowDir);
@@ -391,7 +391,7 @@ void main(){
         float occH = smoothstep(0.45, 0.62, Fk.r) * (1.0 + 1.5 * Fk.g) * sl;
         rs = max(rs, smoothstep(t - 0.25, t + 0.2, occH));
       }
-      col *= 1.0 - rs * min(uShadowStr * 1.35, 0.75) * vec3(1.0, 0.95, 0.84);
+      col *= 1.0 - rs * min(uShadowStr * 1.1, 0.6) * vec3(1.0, 0.95, 0.84);
     }
 
     // ================= WATER =================
@@ -432,9 +432,9 @@ void main(){
       // sun glints + pinpoint sparkles
       vec3 H = normalize(uSun + vec3(0.0, 0.0, 1.0));
       float nh = max(dot(N, H), 0.0);
-      float sparkMask = smoothstep(0.62, 0.8, textureLod(uNoise, wp * 0.9 + uTime * vec2(0.05, -0.04), nLod(0.9)).g);
+      float sparkMask = smoothstep(0.7, 0.86, textureLod(uNoise, wp * 0.9 + uTime * vec2(0.05, -0.04), nLod(0.9)).g);
       float lightI = uSunI + uNight * 0.3 * (1.0 - uCloud);   // moonlight glints at night
-      wc += (pow(nh, 160.0) * 0.4 + pow(nh, 1600.0) * 2.2 * sparkMask) * lightI * sunT * (1.0 - uCloud * 0.6);
+      wc += (pow(nh, 160.0) * 0.28 + pow(nh, 1600.0) * 2.0 * sparkMask) * lightI * sunT * (1.0 - uCloud * 0.6);
       // shore foam + thin bright lip at the waterline
       float shore = 1.0 - smoothstep(0.27, 0.42, wl);
       float fn = textureLod(uNoise, wp * 0.7 + vec2(uTime * 0.03, uTime * 0.012), nLod(0.7)).r;
@@ -444,9 +444,9 @@ void main(){
       if (fl > 0.15) {
         // flow streaks on the river
         vec2 fd = flow / fl, pd = vec2(-fd.y, fd.x);
-        vec2 sp2 = vec2(dot(wp, fd) * 0.32 - uTime * 0.3 * fl, dot(wp, pd) * 1.7);
+        vec2 sp2 = vec2(dot(wp, fd) * 0.22 - uTime * 0.25 * fl, dot(wp, pd) * 1.9);
         float st = textureLod(uNoise, sp2, nLod(1.7)).b;
-        foam += smoothstep(0.64, 0.84, st) * 0.4 * smoothstep(0.15, 0.6, fl) * (1.0 - depth * 0.4);
+        foam += smoothstep(0.7, 0.88, st) * 0.3 * smoothstep(0.15, 0.6, fl) * (1.0 - depth * 0.4);
       }
       vec3 foamCol = vec3(0.86, 0.91, 0.92) * (0.65 + 0.35 * uSunI);
       wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * 0.5);
