@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#16181a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WOS">
+  <meta name="description" content="WOS — survival MMO 2D no navegador.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>WOS — World of Survival</title>
+  <link rel="stylesheet" href="src/ui/hud.css">
+</head>
+<body>
+  <canvas id="gl"></canvas>
+  <canvas id="overlay"></canvas>
+  <div id="hud"></div>
+  <div id="joystick"><div></div></div>
+  <div id="fps"></div>
+  <div id="loading">
+    <div class="loading-inner">
+      <div class="logo">WOS</div>
+      <div class="subtitle">World of Survival</div>
+      <div id="loading-bar"><div></div></div>
+      <div id="loading-text">Carregando…</div>
+    </div>
+  </div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

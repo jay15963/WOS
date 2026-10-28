@@ -1,0 +1,55 @@
+/* Base layout + RimWorld-like dark UI tokens. */
+:root {
+  --panel: rgba(22, 24, 26, 0.86);
+  --panel-2: rgba(38, 41, 44, 0.92);
+  --border: rgba(150, 150, 140, 0.35);
+  --text: #e6e2d8;
+  --muted: #a29d92;
+  --accent: #d9b45a;
+  --hp: #b8322f;
+  --hp-2: #e05a4a;
+  --energy: #d9b23c;
+  --hunger: #7fa64a;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: #0d0e0f; color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  user-select: none; -webkit-user-select: none; touch-action: none; overscroll-behavior: none;
+}
+#gl, #overlay { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; }
+#overlay { pointer-events: none; }
+#hud { position: fixed; inset: 0; pointer-events: none; }
+#hud .interactive, #hud button { pointer-events: auto; }
+
+#joystick {
+  position: fixed; left: -60px; top: -60px; width: 120px; height: 120px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.25); background: rgba(20,20,20,0.25);
+  opacity: 0; transition: opacity .15s; pointer-events: none;
+}
+#joystick > div {
+  position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%;
+  background: rgba(230,226,216,0.55); border: 2px solid rgba(0,0,0,0.4);
+}
+
+#fps {
+  position: fixed; left: calc(6px + var(--safe-l)); bottom: calc(4px + var(--safe-b)); font: 11px monospace;
+  color: rgba(255,255,255,0.55); pointer-events: none; text-shadow: 0 1px 2px #000;
+}
+
+#loading {
+  position: fixed; inset: 0; display: grid; place-items: center; z-index: 100;
+  background: radial-gradient(ellipse at center, #2a2620 0%, #121110 75%);
+  transition: opacity .6s;
+}
+#loading.hidden { opacity: 0; pointer-events: none; }
+.loading-inner { text-align: center; width: min(320px, 80vw); }
+.logo { font-size: 64px; font-weight: 800; letter-spacing: 10px; color: var(--accent); text-shadow: 0 4px 0 #3a2c10, 0 8px 24px rgba(0,0,0,.6); }
+.subtitle { color: var(--muted); letter-spacing: 4px; margin-bottom: 26px; text-transform: uppercase; font-size: 13px; }
+#loading-bar { height: 6px; background: rgba(255,255,255,0.08); border: 1px solid var(--border); }
+#loading-bar > div { height: 100%; width: 0; background: linear-gradient(90deg, #a07a30, var(--accent)); transition: width .3s; }
+#loading-text { margin-top: 10px; font-size: 13px; color: var(--muted); }
