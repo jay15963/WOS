@@ -1,6 +1,8 @@
 // Sprite gallery: builds the atlas, lists every sprite (1× and 2×) and renders composed pawns/animals and a
 // small scene through a Canvas2D mock of the renderer batches (tint by multiply, flip, rotation, lift,
 // sheared sun shadows, additive emissive). Serve the repo root and open /tools/gallery.html.
+// Query params: ?focus=<regex>&scale=1,3 (only matching sprites, at those scales) · ?only=scene|pawns|animals|atlas
+//               &pz=<px per tile for the pawn sheet> &az=<px per tile for the animal sheet>
 
 import { buildAtlas } from '../src/art/sprites.js';
 import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../src/art/compose.js';
