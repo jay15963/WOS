@@ -106,6 +106,22 @@ export class Renderer {
     return true;
   }
 
+  // Extra uniforms supplied by the environment: env.extra = { uName: number | [2..4 numbers] }.
+  // Unknown / optimized-out names are skipped.
+  _setExtra(p, X) {
+    if (!X) return;
+    const gl = this.gl;
+    for (const k in X) {
+      const loc = p.u[k];
+      if (!loc) continue;
+      const v = X[k];
+      if (typeof v === 'number') gl.uniform1f(loc, v);
+      else if (v.length === 2) gl.uniform2f(loc, v[0], v[1]);
+      else if (v.length === 3) gl.uniform3f(loc, v[0], v[1], v[2]);
+      else gl.uniform4f(loc, v[0], v[1], v[2], v[3]);
+    }
+  }
+
   clearBatches() {
     for (const b of Object.values(this.batches)) b.clear();
   }
@@ -173,6 +189,7 @@ export class Renderer {
       bind(3, gl.TEXTURE_2D, this.noiseTex, 'uNoise');
       bind(4, gl.TEXTURE_2D, this.shadow.tex, 'uShadow');
       bind(5, gl.TEXTURE_2D_ARRAY, this.groundTex, 'uGround');
+      this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
@@ -231,6 +248,11 @@ export class Renderer {
       gl.uniform1f(u.uContrast, env.contrast);
       gl.uniform1f(u.uVig, env.vignette);
       gl.uniform1f(u.uFlash, env.flash || 0);
+      if (u.uField) {
+        gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.fieldTex); gl.uniform1i(u.uField, 3);
+        gl.uniform2f(u.uWorld, this.world.W, this.world.H); gl.uniform1f(u.uHasField, 1);
+      }
+      this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
