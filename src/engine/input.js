@@ -81,7 +81,7 @@ export class Input {
     if (p.joy) { this._endJoy(); return; }
     if (cancel || p.pinched) return;
     const moved = Math.hypot(p.x - p.sx, p.y - p.sy);
-    if (moved < 14 && performance.now() - p.t < 450) this.taps.push({ x: p.x, y: p.y, button: e.button });
+    if (moved < 14 && performance.now() - p.t < 450) this.taps.push({ x: p.x, y: p.y, button: e.button, type: p.type });
   }
 
   _endJoy() {
