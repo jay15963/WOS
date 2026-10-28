@@ -49,6 +49,7 @@ export class Game {
   }
 
   update(dt) {
+    this._dt = dt;
     this.time += dt;
     this.env.update(dt);
     const p = this.player, inp = this.input;
@@ -117,6 +118,18 @@ export class Game {
     });
     for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
     list.sort((a, b) => a.y - b.y);
+    // canopies in front of the player (and their target) fade so they never vanish behind a tree
+    const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
+    const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
+    const hides = (o, e, s) => o.y > e.y && o.y - e.y < 2.6 * s && Math.abs(o.x - e.x) < 1.15 * s;
+    for (const o of list) {
+      if (o.isEntity || !o.type.startsWith('tree_') || o.stump) continue;
+      const s = o.s || 1;
+      const covers = hides(o, pl, s) || (tg && hides(o, tg, s));
+      const target = covers ? 0.42 : 1;
+      const a = o.alpha ?? 1;
+      if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
+    }
     for (const o of list) {
       const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
       if (!o.isEntity) drawStatic(B, A, d, t);

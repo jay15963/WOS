@@ -73,18 +73,22 @@ Pawns/cabelos são **brancos/cinza** e tingidos em runtime (multiplicação) —
 
 | Categoria | Nomes |
 |---|---|
-| FX | `fx_blob, fx_soft, fx_spark, fx_smoke, fx_leaf, fx_drop, fx_ring, fx_flame, fx_splash, fx_dust, fx_slash, fx_star` |
-| Árvores | `tree_oak_0..2, tree_pine_0..2, tree_birch_0..1, tree_dead_0, tree_stump_0, tree_sapling_0` |
-| Plantas | `bush_0..2, berrybush_0, berrybush_empty_0, grass_0..5, tallgrass_0..2, reed_0..2, flower_0..3, mushroom_0..1` |
-| Pedras | `boulder_0..2` |
-| Pawn | `pawn_body_{s,n,e}, pawn_head_{s,n,e}, hair_{short,long}_{s,n,e}` (oeste = leste espelhado) |
-| Armas | `weapon_sword, weapon_axe, tool_pickaxe` (apontando para cima, âncora no punho) |
-| Animais | `{wolf,boar,deer,rabbit,bear}_{s,n,e}` |
+| FX | `fx_blob, fx_soft, fx_spark, fx_smoke, fx_leaf, fx_drop, fx_ring, fx_flame, fx_flame_0..2, fx_splash, fx_dust, fx_slash, fx_star, fx_glow, fx_ember` |
+| Árvores | `tree_oak_0..4, tree_pine_0..3, tree_birch_0..2, tree_dead_0..1, tree_stump_0, tree_sapling_0` |
+| Plantas | `bush_0..3, berrybush_0..1, berrybush_empty_0..1, grass_0..7, tallgrass_0..3, reed_0..2, flower_0..5, mushroom_0..2` |
+| Pedras | `boulder_0..3` |
+| Pawn | `pawn_body_{s,n,e}, pawn_head_{s,n,e}, hair_{short,long,bun,mohawk,ponytail,curly}_{s,n,e}, beard_{s,e}` (oeste = leste espelhado) |
+| Armas | `weapon_sword, weapon_axe, weapon_spear, weapon_club, tool_pickaxe` (apontando para cima, âncora no punho) |
+| Animais | `{wolf,boar,deer,rabbit,bear}_{s,n,e}` + `{...}_e_walk` (quadro de passada lateral) |
 | Construções | `campfire, torch, wall_wood, chest, bed` |
 | Itens | `item_wood, item_stone, item_berries, item_meat, item_cooked, item_leather, item_fiber, item_ore` |
 | Ícones UI | `icon_strike, icon_charge, icon_whirlwind, icon_bandage, icon_sprint, icon_attack, icon_eat, icon_build, icon_bag, icon_gather` |
 
 Ícones para HTML: desenhe a região do sprite de `atlas.canvas` (u0..u1, v0..v1 × atlas.size) num canvas pequeno → `toDataURL()`.
+
+Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
+da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
+(apaga chama de fogueira/tocha). Galeria de sprites: `tools/gallery.html` (`?focus=<regex>`, `?only=scene|pawns|animals|atlas`).
 
 ## Donos de arquivos (trabalho em paralelo)
 - **Arte**: `src/art/**`, `tools/gallery.html`.

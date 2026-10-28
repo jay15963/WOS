@@ -14,7 +14,13 @@ import { installAmbient } from './fx/ambient.js';
 import { Audio } from './fx/audio.js';
 
 const $ = (s) => document.querySelector(s);
-const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+// Yield so the loading screen can paint; the timeout keeps boot going in background tabs (no rAF there).
+const nextFrame = () => new Promise((r) => {
+  let done = false;
+  const go = () => { if (!done) { done = true; r(); } };
+  requestAnimationFrame(() => setTimeout(go, 0));
+  setTimeout(go, 60);
+});
 
 async function boot() {
   const status = (t, p) => {

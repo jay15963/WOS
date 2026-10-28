@@ -1,7 +1,7 @@
 // Service worker: offline-capable app shell.
 // Strategy: network-first for same-origin GETs (always fresh when online), cache fallback offline.
 // Bump VERSION on releases to drop old caches.
-const VERSION = 'wos-v1';
+const VERSION = 'wos-v2';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './src/main.js', './src/ui/hud.css'])).catch(() => {}));
