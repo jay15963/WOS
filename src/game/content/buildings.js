@@ -1,19 +1,94 @@
 // Buildings: structures, stations, furniture, lights, farming  (pure data, no DOM). All user-facing strings in Brazilian Portuguese.
-// See docs/CONTENT.md for the canonical ids.
+// See docs/CONTENT.md §5 for the canonical ids. type = sprite name (connectables: `<type>_<mask>`, doors `<type>_h|v`).
+//
+// Fields:
+//  name, g ('m'|'f' grammatical gender for messages), emoji (UI fallback), cat: [category keys], cost, time (build s), xp
+//  size: [w, h] (default 1×1)      layer: 'main' (default) | 'floor' (floors, farm plots) | 'rug'
+//  block: 'tile' (world.solid = 1 over the footprint) | 'door' (world.solid = 2) | radius (round prop) | 0
+//  connect: autotile group (mask N=1 E=2 S=4 W=8)   flat: drawn on B.ground   drag: 'line' | 'area' placement
+//  station: crafting station   slots: storage   light / fire: always on   workLight: light while o.working
+//  warm: warmth radius (always, or only while working when warmWorking)
 
-// Buildings. tile: occupies a full tile (blocks it); solid: collision radius for round props.
+const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
+
+export const BUILD_CATS = [
+  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+];
+
 export const BUILDINGS = {
-  campfire:  { name: 'Fogueira', g: 'f', icon: 'campfire', cost: { wood: 5, stone: 3 }, solid: 0.3, xp: 15, fire: true,
-               light: { r: 1, g: 0.62, b: 0.3, radius: 6, intensity: 1.3, flicker: 0.25, lift: 0.3 },
-               desc: 'Luz, calor e cozinha. Renasça perto dela.' },
-  torch:     { name: 'Tocha', g: 'f', icon: 'torch', cost: { wood: 2, fiber: 1 }, solid: 0.1, xp: 4, fire: true,
-               light: { r: 1, g: 0.7, b: 0.38, radius: 3.6, intensity: 1.0, flicker: 0.3, lift: 0.75 },
-               desc: 'Ilumina os arredores.' },
-  wall_wood: { name: 'Parede de madeira', g: 'f', icon: 'wall_wood', cost: { wood: 3 }, tile: true, xp: 3, repeat: true,
-               desc: 'Bloqueia a passagem de criaturas.' },
-  chest:     { name: 'Baú', g: 'm', icon: 'chest', cost: { wood: 8 }, solid: 0.3, xp: 10, slots: 16,
-               desc: 'Guarda até 16 pilhas de itens.' },
-  bed:       { name: 'Cama', g: 'f', icon: 'bed', cost: { wood: 6, fiber: 4, leather: 2 }, solid: 0.32, xp: 15,
-               desc: 'Define o ponto de renascimento. Durma à noite.' },
+  // ---------- structures ----------
+  wall_wood:  { name: 'Parede de madeira', g: 'f', emoji: '🧱', cat: ['struct'], cost: { wood: 2 }, time: 2, xp: 3, block: 'tile', connect: 'wall', drag: 'line',
+                desc: 'Bloqueia a passagem. Conecta com outras paredes e com a rocha.' },
+  wall_stone: { name: 'Parede de pedra', g: 'f', emoji: '🧱', cat: ['struct'], cost: { stone_block: 2 }, time: 3, xp: 4, block: 'tile', connect: 'wall', drag: 'line',
+                desc: 'Parede resistente de blocos de pedra.' },
+  door_wood:  { name: 'Porta de madeira', g: 'f', emoji: '🚪', cat: ['struct'], cost: { wood: 4, rope: 1 }, time: 3, xp: 5, block: 'door', connect: 'wall',
+                desc: 'Abre para você; bloqueia criaturas. Conta como parede.' },
+  fence_wood: { name: 'Cerca', g: 'f', emoji: '🪵', cat: ['struct'], cost: { wood: 1 }, time: 1, xp: 1, block: 'tile', connect: 'fence', drag: 'line',
+                desc: 'Cerca baixa de madeira. Segura animais.' },
+  gate_wood:  { name: 'Portão', g: 'm', emoji: '🚧', cat: ['struct'], cost: { wood: 3, rope: 1 }, time: 2.5, xp: 3, block: 'door', connect: 'fence',
+                desc: 'Portão de cerca: abre para você, bloqueia criaturas.' },
+
+  // ---------- floors ----------
+  floor_wood:  { name: 'Piso de madeira', g: 'm', emoji: '🟫', cat: ['floor'], cost: { wood: 1 }, time: 0.8, xp: 1, layer: 'floor', flat: true, connect: 'floor_wood', drag: 'area',
+                 desc: 'Piso de tábuas. Andar sobre pisos é 10% mais rápido.' },
+  floor_stone: { name: 'Piso de pedra', g: 'm', emoji: '⬜', cat: ['floor'], cost: { stone_block: 1 }, time: 1.2, xp: 1, layer: 'floor', flat: true, connect: 'floor_stone', drag: 'area',
+                 desc: 'Piso de lajotas de pedra. 10% mais rápido.' },
+
+  // ---------- production ----------
+  workbench:   { name: 'Bancada de trabalho', g: 'f', emoji: '🛠️', cat: ['prod'], cost: { wood: 10, stone: 4 }, size: [2, 1], time: 6, xp: 20, block: 'tile', station: true,
+                 desc: 'Ferramentas de pedra, lanças, arcos, flechas, escudo e couro.' },
+  stonecutter: { name: 'Mesa de cantaria', g: 'f', emoji: '🪚', cat: ['prod'], cost: { wood: 6, stone: 12 }, size: [2, 1], time: 6, xp: 15, block: 'tile', station: true,
+                 desc: 'Corta pedra em blocos para paredes e pisos de pedra.' },
+  furnace:     { name: 'Fornalha', g: 'f', emoji: '🔥', cat: ['prod'], cost: { stone: 18, wood: 3 }, time: 8, xp: 20, block: 'tile', station: true,
+                 workLight: L(1, 0.55, 0.25, 4.5, 1.2, 0.2, 0.3), warm: 3, warmWorking: true,
+                 desc: 'Funde minério em barras e faz carvão. Usa madeira ou carvão como combustível.' },
+  anvil:       { name: 'Bigorna', g: 'f', emoji: '⚒️', cat: ['prod'], cost: { copper_bar: 3, stone: 6, wood: 2 }, time: 6, xp: 20, block: 'tile', station: true,
+                 desc: 'Forja ferramentas, armas e armaduras de metal.' },
+  loom:        { name: 'Tear', g: 'm', emoji: '🧶', cat: ['prod'], cost: { wood: 12, rope: 3 }, size: [2, 1], time: 6, xp: 15, block: 'tile', station: true,
+                 desc: 'Tece algodão em tecido, corda, bandagens e roupas.' },
+  cooking_pot: { name: 'Caldeirão', g: 'm', emoji: '🍲', cat: ['prod'], cost: { copper_bar: 2, stone: 6 }, time: 4, xp: 12, block: 'tile', station: true,
+                 workLight: L(1, 0.6, 0.3, 3.2, 0.9, 0.25, 0.3), warm: 2.5, warmWorking: true,
+                 desc: 'Prepara ensopados e assa alimentos.' },
+  campfire:    { name: 'Fogueira', g: 'f', emoji: '🔥', cat: ['light', 'prod'], cost: { wood: 3, pebble: 4 }, time: 3, xp: 15, block: 0.3, station: true, fire: true, warm: 4.5,
+                 light: L(1, 0.62, 0.3, 6, 1.3, 0.25, 0.3),
+                 desc: 'Luz, calor e cozinha. Renasça perto dela.' },
+
+  // ---------- furniture ----------
+  chest:       { name: 'Baú', g: 'm', emoji: '🧰', cat: ['furn'], cost: { wood: 8 }, time: 4, xp: 10, block: 0.3, slots: 20,
+                 desc: 'Guarda até 20 pilhas de itens.' },
+  bed:         { name: 'Cama', g: 'f', emoji: '🛏️', cat: ['furn'], cost: { wood: 8, fiber: 6, leather: 2 }, time: 6, xp: 15, block: 0.32,
+                 desc: 'Define o ponto de renascimento. Durma à noite.' },
+  table_wood:  { name: 'Mesa', g: 'f', emoji: '🪑', cat: ['furn'], cost: { wood: 6 }, size: [2, 1], time: 4, xp: 6, block: 'tile',
+                 desc: 'Mesa de madeira.' },
+  chair_wood:  { name: 'Cadeira', g: 'f', emoji: '🪑', cat: ['furn'], cost: { wood: 3 }, time: 2.5, xp: 3, block: 0.2,
+                 desc: 'Cadeira simples.' },
+  rug:         { name: 'Tapete', g: 'm', emoji: '🟥', cat: ['furn'], cost: { cloth: 4 }, size: [2, 1], time: 2, xp: 4, layer: 'rug', flat: true,
+                 desc: 'Tapete de tecido. Deixa a casa aconchegante.' },
+  flower_pot:  { name: 'Vaso de flores', g: 'm', emoji: '🪴', cat: ['furn'], cost: { stone: 3, fiber: 1 }, time: 1.5, xp: 2, block: 0.2,
+                 desc: 'Decoração com flores.' },
+  banner:      { name: 'Estandarte', g: 'm', emoji: '🚩', cat: ['furn'], cost: { wood: 3, cloth: 2 }, time: 2.5, xp: 4, block: 0.15,
+                 desc: 'Marca o seu território.' },
+
+  // ---------- lights ----------
+  torch:       { name: 'Tocha', g: 'f', emoji: '🕯️', cat: ['light'], cost: { wood: 2, fiber: 1 }, time: 1.5, xp: 4, block: 0.1, fire: true, warm: 2,
+                 light: L(1, 0.7, 0.38, 3.6, 1.0, 0.3, 0.75),
+                 desc: 'Ilumina os arredores (essencial nas minas).' },
+  brazier:     { name: 'Braseiro', g: 'm', emoji: '🔥', cat: ['light'], cost: { iron_bar: 2, stone: 6, coal: 2 }, time: 4, xp: 10, block: 0.3, fire: true, warm: 4,
+                 light: L(1, 0.6, 0.28, 6.5, 1.35, 0.25, 1.1),
+                 desc: 'Fogo alto em bacia de ferro. Muita luz e calor.' },
+  lamp_post:   { name: 'Poste com lanterna', g: 'm', emoji: '🏮', cat: ['light'], cost: { iron_bar: 2, wood: 4 }, time: 4, xp: 10, block: 0.15,
+                 light: L(1, 0.85, 0.55, 7, 1.2, 0.06, 1.5),
+                 desc: 'Luz alta e firme para caminhos e praças.' },
+
+  // ---------- farming ----------
+  farm_plot:   { name: 'Canteiro', g: 'm', emoji: '🟫', cat: ['farm'], cost: {}, time: 1.5, xp: 2, layer: 'floor', flat: true, connect: 'farm_plot', drag: 'area',
+                 desc: 'Terra arada. Plante sementes de batata, milho ou algodão.' },
 };
-export const BUILD_ORDER = ['campfire', 'torch', 'wall_wood', 'chest', 'bed'];
+
+for (const id in BUILDINGS) {
+  const b = BUILDINGS[id];
+  b.size ||= [1, 1];
+  b.layer ||= 'main';
+  b.block ??= 0;
+}
+export const BUILD_ORDER = Object.keys(BUILDINGS);

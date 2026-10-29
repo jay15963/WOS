@@ -12,8 +12,8 @@ export function initPlayer(game) {
   Object.assign(p, {
     name: 'Sobrevivente', level: 1, xp: 0,
     hunger: 100, maxHunger: 100, energy: 100, maxEnergy: 100,
-    inv: new Inventory(20), buffs: [],
-    equip: { main: null, off: null, body: null, head: null },
+    inv: new Inventory(24), buffs: [], // starts with NOTHING: empty backpack, bare hands
+    equip: { main: null, off: null, body: null, head: null }, weapon: null, offhand: null, armor: { body: null, head: null },
     swingT: 0, combatT: 0, inCombat: false, gcdT: 0, cds: {},
     target: null, autoAttack: false, respawn: null, baseSpeed: 4.0,
     work: null, charge: null, spin: null, leap: null, cast: null, block: null, blocking: false, stunT: 0, dmgMul: 1,

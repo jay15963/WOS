@@ -1,250 +1,288 @@
-// Gathering: trees (chop -> fall -> stump -> sapling regrow), berry bushes, fiber bushes,
-// boulders and mountain rock tiles (mine), campfire cooking. Work loop drives player.action.
+// Gathering + generic work loop. Natural objects: trees (axe: chop -> fall -> stump -> chop the stump
+// to remove it), boulders (pickaxe), and by hand: pebbles / sticks (pick), fiber grass, bushes, berry
+// bushes, wild crops (forage). Everything harvested is REMOVED from the world (flora.js regrows
+// elsewhere). Other modules (mining, building, farming) register their work kinds with registerWork().
+//
+// p.work = { it, owner:'gather', type (action anim), cycle, need, hits, t, hitDone, k (0..1), label, tool? }
 
-import { occAdd, occRemove } from './nav.js';
+import { occRemove } from './nav.js';
 import { dropLoot } from './loot.js';
 import { gainXp } from './player.js';
 import { faceTowards } from './combat.js';
+import { bestTool } from './equipment.js';
+import { ITEMS } from './data.js';
+import { removeNatural } from './flora.js';
 
-export const TREE_SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16 };
-const TREE_HITS = { tree_oak: 5, tree_pine: 4, tree_birch: 4, tree_dead: 3 };
+export { TREE_SOLID } from './flora.js';
+const TREE_TIME = { tree_oak: 4.6, tree_pine: 3.9, tree_birch: 3.6, tree_dead: 2.6 };
 const TREE_WOOD = { tree_oak: [4, 5], tree_pine: [3, 5], tree_birch: [3, 4], tree_dead: [2, 3] };
-const ROCK_COL = [[0.6, 0.58, 0.55], [0.62, 0.6, 0.58], [0.76, 0.72, 0.62], [0.42, 0.44, 0.48], [0.86, 0.85, 0.82]];
-const STUMP_REGROW = 300, BERRY_REGROW = 180, FIBER_CD = 120, GROW_TIME = 160;
+export const STUMP_DECAY = 2160; // s (3 in-game days)
+const FORAGE = {
+  fibergrass:  { verb: 'Colher fibra', label: 'Colhendo fibra', cycle: 0.9, prio: 3, fiber: true },
+  bush:        { verb: 'Colher', label: 'Colhendo arbusto', cycle: 1.2, prio: 2, fiber: true },
+  berrybush:   { verb: 'Colher frutas', label: 'Colhendo frutas', cycle: 1.3, prio: 4 },
+  wild_potato: { verb: 'Colher batata', label: 'Colhendo batata', cycle: 1.2, prio: 4 },
+  wild_corn:   { verb: 'Colher milho', label: 'Colhendo milho', cycle: 1.2, prio: 4 },
+  wild_cotton: { verb: 'Colher algodão', label: 'Colhendo algodão', cycle: 1.2, prio: 4 },
+};
+const PICK = { pebble: { verb: 'Pegar pedrinha', item: 'pebble' }, stick: { verb: 'Pegar graveto', item: 'stick' } };
 
 const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 
-export function touch(game, o) { game.touched.set(o.id, o); }
+export function touch(game, o) { if (!o.flora) game.touched.set(o.id, o); }
 
-// Interactable descriptor for a natural world object (or null)
-export function describeObject(game, o) {
-  const t = o.type;
-  if (t.startsWith('tree_')) {
-    if (o.stump || o.fall || (o.age ?? 1) < 0.9) return null; // saplings can't be chopped yet
-    return { kind: 'tree', o, x: o.x, y: o.y, verb: 'Cortar', icon: 'axe', prio: 2, reach: 0.95 };
-  }
-  if (t === 'berrybush') return o.empty ? null : { kind: 'berry', o, x: o.x, y: o.y, verb: 'Colher', icon: 'gather', prio: 4, reach: 0.95 };
-  if (t === 'bush') return (o.cdUntil || 0) > game.worldTime ? null : { kind: 'bush', o, x: o.x, y: o.y, verb: 'Fibras', icon: 'gather', prio: 1, reach: 0.9 };
-  if (t === 'boulder') return { kind: 'boulder', o, x: o.x, y: o.y, verb: 'Minerar', icon: 'pickaxe', prio: 2, reach: 0.75 + o.s * 0.4 };
+// ---------- work kind registry ----------
+// handler: { start(game, it) -> spec | null, valid(game, it), hit?(game, wk), finish(game, wk) -> done, tick?(game, wk, dt) }
+const WORK = {};
+export function registerWork(kind, handler) { WORK[kind] = handler; }
+export const workHandler = (kind) => WORK[kind];
+
+const TOOL_MSG = {
+  chop: ['Você precisa de um machado', 'Machado primitivo: 2 pedrinhas + 2 fibras + 1 graveto (Criar)'],
+  mine: ['Você precisa de uma picareta', 'Picareta primitiva: 3 pedrinhas + 2 fibras + 1 graveto (Criar)'],
+};
+export const needToolMsg = (kind) => TOOL_MSG[kind][0];
+export function needTool(game, kind) {
+  const msg = TOOL_MSG[kind];
+  game.events.emit('error', { text: msg[0] });
+  const h = game.ctl?.hinted;
+  if (h && !h['tool_' + kind]) { h['tool_' + kind] = true; game.events.emit('toast', { text: msg[1], kind: 'info' }); }
   return null;
 }
 
-export function describeRock(game, tx, ty) {
-  const w = game.world;
-  if (!w.inBounds(tx, ty) || !w.rock[w.idx(tx, ty)]) return null;
-  // only mineable when it borders open ground
-  let open = false;
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.inBounds(tx + dx, ty + dy) && !w.rock[w.idx(tx + dx, ty + dy)]) open = true;
-  if (!open) return null;
-  return { kind: 'rock', tx, ty, x: tx + 0.5, y: ty + 0.5, verb: 'Minerar', icon: 'pickaxe', prio: 1, tile: true, reach: 0.55 };
+// split a total work time into hits of ~0.75 s
+export function hitsFor(total, min = 2) {
+  const need = Math.max(min, Math.round(total / 0.75));
+  return { need, cycle: total / need };
 }
 
-// distance from player to the interactable's contact zone
+// Interactable descriptor for a natural world object (or null)
+export function describeObject(game, o) {
+  const t = o.type, p = game.player;
+  if (t.startsWith('tree_')) {
+    if (o.fall) return null;
+    const axe = !!bestTool(p, 'chop');
+    if (o.stump) return { kind: 'stump', o, x: o.x, y: o.y, verb: 'Arrancar toco', icon: 'axe', prio: axe ? 1 : -2, reach: 0.8 };
+    if ((o.age ?? 1) < 0.9) return null; // saplings can't be chopped yet
+    return { kind: 'tree', o, x: o.x, y: o.y, verb: 'Cortar', icon: 'axe', prio: axe ? 2 : -1, reach: 0.95 };
+  }
+  if (PICK[t]) return { kind: 'pick', o, x: o.x, y: o.y, verb: PICK[t].verb, icon: 'hand', prio: 5, reach: 0.7 };
+  const F = FORAGE[t];
+  if (F) return { kind: 'forage', o, x: o.x, y: o.y, verb: F.verb, icon: 'gather', prio: F.prio, reach: 0.9 };
+  if (t === 'boulder') {
+    const pick = !!bestTool(p, 'mine');
+    return { kind: 'boulder', o, x: o.x, y: o.y, verb: 'Quebrar', icon: 'pickaxe', prio: pick ? 2 : -1, reach: 0.75 + o.s * 0.4 };
+  }
+  return null;
+}
+
+// distance from player to the interactable's contact zone (tile kinds use the footprint rect)
 export function reachDist(p, it) {
   if (it.tile) {
-    const cx = Math.max(it.tx, Math.min(it.tx + 1, p.x)), cy = Math.max(it.ty, Math.min(it.ty + 1, p.y));
+    const w = it.w || 1, h = it.h || 1;
+    const cx = Math.max(it.tx, Math.min(it.tx + w, p.x)), cy = Math.max(it.ty, Math.min(it.ty + h, p.y));
     return Math.hypot(p.x - cx, p.y - cy) - p.r;
   }
   return Math.hypot(p.x - it.x, p.y - it.y) - p.r;
 }
 
 export function startWork(game, it) {
-  const p = game.player, o = it.o;
-  const err = (text) => { game.events.emit('error', { text }); return false; };
-  let w;
-  switch (it.kind) {
-    case 'tree':
-      if ((o.age ?? 1) < 0.9) return err('Ainda está crescendo');
-      w = { type: 'chop', cycle: 0.72, need: TREE_HITS[o.type] || 4, hits: o.hits || 0, label: 'Cortando' };
-      p.weapon = 'axe';
-      break;
-    case 'boulder':
-      w = { type: 'mine', cycle: 0.85, need: Math.round(3 + o.s * 2), hits: o.hits || 0, label: 'Minerando' };
-      p.weapon = 'pickaxe';
-      break;
-    case 'rock': {
-      const i = game.world.idx(it.tx, it.ty);
-      w = { type: 'mine', cycle: 0.85, need: 5, hits: game.rockHits.get(i) || 0, label: 'Minerando' };
-      p.weapon = 'pickaxe';
-      break;
-    }
-    case 'berry':
-      w = { type: 'gather', cycle: 1.3, need: 1, hits: 0, label: 'Colhendo' };
-      break;
-    case 'bush':
-      w = { type: 'gather', cycle: 1.1, need: 1, hits: 0, label: 'Colhendo fibras' };
-      break;
-    case 'cook':
-      if (!p.inv.count('meat')) return err('Sem carne crua para assar');
-      w = { type: 'gather', cycle: 2.0, need: 1, hits: 0, label: 'Assando carne', loop: true };
-      break;
-    default: return false;
-  }
+  const p = game.player;
+  const H = WORK[it.kind];
+  if (!H || p.dead) return false;
+  const spec = H.start(game, it);
+  if (!spec) return false;
   p.autoAttack = false;
-  p.work = { ...w, it, t: 0, hitDone: false, k: w.hits / w.need };
-  p.action = { type: w.type, t: 0 };
+  p.work = { owner: 'gather', it, t: 0, hitDone: false, hits: 0, ...spec };
+  p.work.k = p.work.hits / p.work.need;
+  p.action = { type: spec.type, t: 0 };
   return true;
 }
 
-function hit(game, wk) {
-  const p = game.player, it = wk.it, o = it.o, J = game.juice;
-  switch (it.kind) {
-    case 'tree':
-      o.shake = 1; o.hits = (o.hits || 0) + 1;
-      J.leaves(o.x, o.y, 4, 1.8 * o.s);
-      J.chips(o.x - (o.x - p.x) * 0.3, o.y, [0.62, 0.45, 0.28], 4, 0.4);
-      game.audio?.play('chop', { x: o.x, y: o.y });
-      break;
-    case 'boulder':
-      o.flash = 0.8; o.shake = 1; o.hits = (o.hits || 0) + 1;
-      J.chips(o.x, o.y, [0.62, 0.6, 0.57], 7, 0.35);
-      J.puff(o.x, o.y, 3, [0.7, 0.68, 0.64], 0.4);
-      game.audio?.play('mine', { x: o.x, y: o.y });
-      break;
-    case 'rock': {
-      const w = game.world, i = w.idx(it.tx, it.ty);
-      game.rockHits.set(i, (game.rockHits.get(i) || 0) + 1);
-      const col = ROCK_COL[w.rockType[i]] || ROCK_COL[0];
-      const cx = Math.max(it.tx, Math.min(it.tx + 1, p.x)), cy = Math.max(it.ty, Math.min(it.ty + 1, p.y));
-      J.chips(cx, cy, col, 7, 0.5);
-      if (w.ore[i]) J.chips(cx, cy, [1, 0.75, 0.3], 3, 0.5);
-      J.puff(cx, cy, 2, col, 0.4);
-      game.audio?.play('mine', { x: cx, y: cy });
-      break;
-    }
-    default: break;
-  }
-  touchIt(game, it);
+// ---------- natural objects ----------
+registerWork('tree', {
+  valid: (g, it) => !it.o.gone && !it.o.stump && !it.o.fall,
+  start(game, it) {
+    const o = it.o;
+    if ((o.age ?? 1) < 0.9) { game.events.emit('error', { text: 'Ainda está crescendo' }); return null; }
+    const tool = bestTool(game.player, 'chop');
+    if (!tool) return needTool(game, 'chop');
+    const { need, cycle } = hitsFor((TREE_TIME[o.type] || 4) * (o.s || 1) / tool.speed, 3);
+    return { type: 'chop', cycle, need, hits: Math.floor((o.prog || 0) * need), label: 'Cortando', tool: tool.id };
+  },
+  hit(game, wk) {
+    const p = game.player, o = wk.it.o, J = game.juice;
+    o.shake = 1; o.prog = wk.hits / wk.need;
+    J.leaves(o.x, o.y, 4, 1.8 * o.s);
+    J.chips(o.x - (o.x - p.x) * 0.3, o.y, [0.62, 0.45, 0.28], 4, 0.4);
+    game.audio?.play('chop', { x: o.x, y: o.y });
+    touch(game, o);
+  },
+  finish(game, wk) {
+    const o = wk.it.o, p = game.player;
+    o.fall = 0.001; o.prog = 0;
+    o.fallDir = p.x < o.x ? 1 : -1;
+    occRemove(game, o);
+    game.falling.push(o);
+    game.audio?.play('chop', { x: o.x, y: o.y, volume: 1.2 });
+    gainXp(game, 6);
+    touch(game, o);
+    return true;
+  },
+});
+
+registerWork('stump', {
+  valid: (g, it) => !it.o.gone && it.o.stump,
+  start(game, it) {
+    const tool = bestTool(game.player, 'chop');
+    if (!tool) return needTool(game, 'chop');
+    const cycle = 0.85 / Math.sqrt(tool.speed);
+    return { type: 'chop', cycle, need: 2, hits: Math.floor((it.o.prog || 0) * 2), label: 'Arrancando toco', tool: tool.id };
+  },
+  hit(game, wk) {
+    const o = wk.it.o;
+    o.shake = 1; o.flash = 0.5; o.prog = wk.hits / wk.need;
+    game.juice.chips(o.x, o.y - 0.1, [0.55, 0.4, 0.25], 5, 0.35);
+    game.audio?.play('chop', { x: o.x, y: o.y, volume: 0.8 });
+  },
+  finish(game, wk) {
+    const o = wk.it.o;
+    dropLoot(game, o.x, o.y - 0.1, 'wood', 1, 0.6);
+    game.juice.puff(o.x, o.y, 6, [0.6, 0.5, 0.38], 0.6);
+    game.stumps.delete(o);
+    removeNatural(game, o);
+    gainXp(game, 2);
+    return true;
+  },
+});
+
+registerWork('boulder', {
+  valid: (g, it) => !it.o.gone,
+  start(game, it) {
+    const tool = bestTool(game.player, 'mine');
+    if (!tool) return needTool(game, 'mine');
+    const { need, cycle } = hitsFor((2.2 + it.o.s * 2.2) / tool.speed, 2);
+    return { type: 'mine', cycle, need, hits: Math.floor((it.o.prog || 0) * need), label: 'Quebrando pedra', tool: tool.id };
+  },
+  hit(game, wk) {
+    const o = wk.it.o, J = game.juice;
+    o.flash = 0.8; o.shake = 1; o.prog = wk.hits / wk.need;
+    J.chips(o.x, o.y, [0.62, 0.6, 0.57], 7, 0.35);
+    J.puff(o.x, o.y, 3, [0.7, 0.68, 0.64], 0.4);
+    game.audio?.play('mine', { x: o.x, y: o.y });
+    touch(game, o);
+  },
+  finish(game, wk) {
+    const o = wk.it.o, J = game.juice;
+    const n = Math.max(2, Math.round(2 + o.s * 2 + Math.random()));
+    for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.1, 'stone');
+    if (Math.random() < 0.5) dropLoot(game, o.x, o.y - 0.1, 'pebble');
+    J.puff(o.x, o.y, 10, [0.7, 0.68, 0.64], 0.8);
+    J.chips(o.x, o.y, [0.62, 0.6, 0.57], 12, 0.3);
+    game.juice.shake(0.15);
+    removeNatural(game, o);
+    gainXp(game, 6);
+    return true;
+  },
+});
+
+function giveDirect(game, o, id, qty) {
+  const p = game.player;
+  const left = p.inv.add(id, qty);
+  if (qty - left > 0) { game.events.emit('loot', { item: id, qty: qty - left }); game.events.emit('inventory', {}); }
+  if (left) for (let k = 0; k < left; k++) dropLoot(game, o.x, o.y, id, 1, 0.4);
 }
 
-function touchIt(game, it) { if (it.o) touch(game, it.o); }
+registerWork('pick', {
+  valid: (g, it) => !it.o.gone,
+  start: () => ({ type: 'pick', cycle: 0.55, need: 1, label: 'Pegando', instantHit: true }),
+  finish(game, wk) {
+    const o = wk.it.o;
+    const item = PICK[o.type].item;
+    giveDirect(game, o, item, (o.s || 1) > 1.05 && Math.random() < 0.5 ? 2 : 1);
+    game.audio?.play('pickup', { x: o.x, y: o.y });
+    game.juice.puff(o.x, o.y, 3, [0.62, 0.56, 0.46], 0.35);
+    removeNatural(game, o);
+    gainXp(game, 1);
+    return true;
+  },
+});
 
-function finish(game, wk) {
-  const p = game.player, it = wk.it, o = it.o, J = game.juice;
-  switch (it.kind) {
-    case 'tree':
-      o.fall = 0.001;
-      occRemove(game, o);
-      game.falling.push(o);
-      game.audio?.play('chop', { x: o.x, y: o.y, volume: 1.2 });
-      gainXp(game, 6);
-      return true;
-    case 'boulder': {
-      const n = ri(3, 4);
-      for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.1, 'stone');
-      if (Math.random() < 0.12) dropLoot(game, o.x, o.y, 'ore');
-      J.puff(o.x, o.y, 10, [0.7, 0.68, 0.64], 0.8);
-      J.chips(o.x, o.y, [0.62, 0.6, 0.57], 12, 0.3);
-      game.juice.shake(0.15);
-      occRemove(game, o);
-      game.world.removeObject(o);
-      o.gone = true;
-      touch(game, o);
-      gainXp(game, 6);
-      game.events.emit('tile', { tx: Math.floor(o.x), ty: Math.floor(o.y) });
-      return true;
+registerWork('forage', {
+  valid: (g, it) => !it.o.gone,
+  start(game, it) {
+    const F = FORAGE[it.o.type];
+    let cycle = F.cycle;
+    let tool = null;
+    if (F.fiber) {
+      const k = bestTool(game.player, 'fiber');
+      if (k) { cycle /= 1 + 0.35 * k.speed; tool = k.id; }
     }
-    case 'rock': {
-      const w = game.world, i = w.idx(it.tx, it.ty);
-      const ore = w.ore[i];
-      const col = ROCK_COL[w.rockType[i]] || ROCK_COL[0];
-      if (w.mineRock(it.tx, it.ty)) {
-        game.minedTiles.push(i);
-        game.rockHits.delete(i);
-        const cx = it.tx + 0.5, cy = it.ty + 0.6;
-        const n = ri(2, 3);
-        for (let k = 0; k < n; k++) dropLoot(game, cx, cy, 'stone');
-        if (ore) { const m = ri(1, 2); for (let k = 0; k < m; k++) dropLoot(game, cx, cy, 'ore'); game.events.emit('toast', { text: 'Veio de minério!', kind: 'good' }); }
-        J.puff(cx, cy, 12, col, 1.0);
-        game.juice.shake(0.25);
-        gainXp(game, 5);
-        game.events.emit('tile', { tx: it.tx, ty: it.ty });
-      }
-      return true;
+    return { type: 'gather', cycle, need: 1, label: F.label, tool };
+  },
+  finish(game, wk) {
+    const o = wk.it.o, J = game.juice, p = game.player;
+    const drop = (id, n) => { for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.2, id, 1, 0.6); };
+    const knife = !!bestTool(p, 'fiber');
+    switch (o.type) {
+      case 'fibergrass': drop('fiber', ri(2, 3) + (knife ? 1 : 0)); break;
+      case 'bush': drop('fiber', ri(2, 3) + (knife ? 1 : 0)); drop('stick', 1); break;
+      case 'berrybush': drop('berries', ri(2, 4)); drop('stick', 1); break;
+      case 'wild_potato': drop('potato', ri(1, 2)); drop('seed_potato', ri(1, 2)); break;
+      case 'wild_corn': drop('corn', ri(1, 2)); drop('seed_corn', ri(1, 2)); break;
+      case 'wild_cotton': drop('cotton', ri(2, 3)); drop('seed_cotton', 1); break;
     }
-    case 'berry': {
-      o.empty = true; o.shake = 1; o.regrowAt = game.worldTime + BERRY_REGROW;
-      game.regrow.add(o); touch(game, o);
-      const n = ri(2, 4);
-      for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.2, 'berries', 1, 0.6);
-      J.leaves(o.x, o.y, 3, 0.5);
-      game.audio?.play('pickup', { x: o.x, y: o.y });
-      gainXp(game, 2);
-      return true;
-    }
-    case 'bush': {
-      o.shake = 1; o.cdUntil = game.worldTime + FIBER_CD; touch(game, o);
-      const n = ri(1, 2);
-      for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.2, 'fiber', 1, 0.6);
-      J.leaves(o.x, o.y, 4, 0.5);
-      gainXp(game, 1);
-      return true;
-    }
-    case 'cook': {
-      if (p.inv.remove('meat', 1)) {
-        const left = p.inv.add('cooked', 1);
-        if (left) dropLoot(game, p.x, p.y, 'cooked');
-        game.events.emit('loot', { item: 'cooked', qty: 1 });
-        game.events.emit('inventory', {});
-        game.audio?.play('fire', { x: o.x, y: o.y });
-        J.puff(o.x, o.y - 0.2, 4, [0.5, 0.5, 0.5], 0.6);
-        gainXp(game, 3);
-      }
-      wk.hits = 0;
-      return p.inv.count('meat') === 0;
-    }
-  }
-  return true;
-}
+    J.leaves(o.x, o.y, 5, 0.5);
+    game.audio?.play('pickup', { x: o.x, y: o.y });
+    removeNatural(game, o);
+    gainXp(game, 2);
+    return true;
+  },
+});
 
+// ---------- system ----------
 export function gatheringSystem() {
   let slowT = 0;
   return {
     update(game, dt) {
       const p = game.player;
+      game.stumps ||= new Set();
       const wk = p.work;
-      if (wk && !p.dead) {
-        const it = wk.it;
-        // validity
-        const valid = it.kind === 'rock' ? !!game.world.rock[game.world.idx(it.tx, it.ty)]
-          : it.o && !it.o.gone && !it.o.stump && !it.o.fall && !(it.kind === 'berry' && it.o.empty);
-        if (!valid || reachDist(p, it) > it.reach + 0.45) { p.work = null; p.action = null; }
+      if (wk && wk.owner === 'gather' && !p.dead) {
+        const it = wk.it, H = WORK[it.kind];
+        if (!H || !H.valid(game, it) || reachDist(p, it) > it.reach + 0.45) { p.work = null; p.action = null; }
         else {
-          faceTowards(p, { x: it.tx != null ? it.tx + 0.5 : it.x, y: it.ty != null ? it.ty + 0.5 : it.y });
+          faceTowards(p, { x: it.tile ? it.tx + (it.w || 1) / 2 : it.x, y: it.tile ? it.ty + (it.h || 1) / 2 : it.y });
           wk.t += dt / wk.cycle;
-          if (wk.type !== 'gather' && !wk.hitDone && wk.t >= 0.55) {
-            wk.hitDone = true;
-            wk.hits++;
-            hit(game, wk);
-          }
+          const hitAt = wk.instantHit ? 1 : 0.55;
+          if (H.hit && !wk.hitDone && wk.t >= hitAt) { wk.hitDone = true; wk.hits++; H.hit(game, wk); }
           if (wk.t >= 1) {
-            if (wk.type === 'gather') wk.hits++;
+            if (!H.hit) wk.hits++;
             wk.t = 0; wk.hitDone = false;
             if (wk.hits >= wk.need) {
-              const done = finish(game, wk);
-              if (done || !wk.loop) { p.work = null; p.action = null; p.workDoneT = 0; }
+              const done = H.finish(game, wk);
+              if (done !== false) { if (p.work === wk) { p.work = null; p.action = null; } }
+              else { wk.hits = 0; }
             }
           }
-          if (p.work) {
+          if (p.work === wk) {
             p.action = p.action || { type: wk.type, t: 0 };
-            p.action.type = wk.type; p.action.t = wk.type === 'gather' ? 0 : wk.t;
-            wk.k = Math.min(1, (wk.hits + (wk.type === 'gather' ? wk.t : 0)) / wk.need);
-            if (it.kind === 'cook') wk.label = `Assando carne (${p.inv.count('meat')})`;
+            p.action.type = wk.type;
+            p.action.t = wk.type === 'gather' || wk.type === 'pick' ? Math.min(1, wk.t) : wk.t;
+            const done = H.hit && wk.hitDone ? wk.hits - 1 : wk.hits;
+            wk.k = Math.min(1, (done + Math.min(1, wk.t)) / wk.need);
+            H.tick?.(game, wk, dt);
           }
         }
-      }
-      if (!p.work && p.weapon !== 'sword') {
-        p.workDoneT = (p.workDoneT || 0) + dt;
-        if (p.workDoneT > 1.5 || p.autoAttack) { p.weapon = 'sword'; p.workDoneT = 0; }
       }
 
       // shaking objects decay
       game.shaking = game.shaking || new Set();
-      if (wk?.it?.o) game.shaking.add(wk.it.o);
+      if (p.work?.it?.o) game.shaking.add(p.work.it.o);
       for (const o of game.shaking) {
         if (o.shake > 0) o.shake = Math.max(0, o.shake - dt * 3.5);
         if (o.flash > 0) o.flash = Math.max(0, o.flash - dt * 5);
-        if (!(o.shake > 0) && !(o.flash > 0) && o !== wk?.it?.o) game.shaking.delete(o);
+        if (!(o.shake > 0) && !(o.flash > 0) && o !== p.work?.it?.o) game.shaking.delete(o);
       }
 
       // falling trees
@@ -252,44 +290,41 @@ export function gatheringSystem() {
         const o = game.falling[i];
         const before = o.fall;
         o.fall += dt * (o.fall < 1 ? 0.6 + o.fall * 1.6 : 1.4);
+        const dir = o.fallDir || o.f || 1;
         if (before < 1 && o.fall >= 1) {
-          // impact
-          const fx = o.x + o.f * 1.6 * o.s;
+          const fx = o.x + dir * 1.6 * o.s;
           game.juice.leaves(fx, o.y, 12, 0.4);
           game.juice.puff(fx, o.y, 8, [0.6, 0.55, 0.45], 0.9);
           game.juice.shake(0.2);
           const [a, b] = TREE_WOOD[o.type] || [3, 4];
           const n = ri(a, b);
-          for (let k = 0; k < n; k++) dropLoot(game, o.x + o.f * (0.6 + (k / n) * 1.6) * o.s, o.y + (Math.random() - 0.5) * 0.3, 'wood', 1, 0.4);
+          for (let k = 0; k < n; k++) dropLoot(game, o.x + dir * (0.6 + (k / n) * 1.6) * o.s, o.y + (Math.random() - 0.5) * 0.3, 'wood', 1, 0.4);
+          if (Math.random() < 0.6) dropLoot(game, o.x + dir * 1.2 * o.s, o.y, 'stick', 1, 0.5);
         }
         if (o.fall >= 1.5) {
-          o.fall = 0; o.stump = true; o.hits = 0;
-          o.regrowAt = game.worldTime + STUMP_REGROW;
-          game.regrow.add(o); touch(game, o);
+          o.fall = 0; o.stump = true; o.prog = 0; o.alpha = 1;
+          o.stumpAt = game.worldTime;
+          game.stumps.add(o); touch(game, o);
           game.falling.splice(i, 1);
+          game.events.emit('tile', { tx: Math.floor(o.x), ty: Math.floor(o.y) });
         }
       }
 
-      // regrowth (slow tick)
+      // stumps rot away after a few days (never while on screen)
       slowT -= dt;
       if (slowT <= 0) {
-        const step = 1 - slowT; slowT = 1;
-        const now = game.worldTime;
-        for (const o of game.regrow) {
-          if (o.stump && now >= o.regrowAt) {
-            o.stump = false; o.age = 0.25; o.solid = 0; touch(game, o);
-          } else if (!o.stump && o.type.startsWith('tree_') && (o.age ?? 1) < 1) {
-            o.age = Math.min(1, o.age + step / GROW_TIME);
-            if (o.age >= 0.6 && !o.solid) {
-              const p2 = game.player;
-              if (Math.hypot(p2.x - o.x, p2.y - o.y) > 0.8) { o.solid = TREE_SOLID[o.type] || 0.18; occAdd(game, o); }
-            }
-            if (o.age >= 1) game.regrow.delete(o);
-          } else if (o.type === 'berrybush' && o.empty && now >= o.regrowAt) {
-            o.empty = false; game.regrow.delete(o); touch(game, o);
-          } else if (!o.stump && !o.empty && (o.age ?? 1) >= 1) game.regrow.delete(o);
+        slowT = 5;
+        const now = game.worldTime, v = game.view();
+        for (const o of game.stumps) {
+          if (o.gone || !o.stump) { game.stumps.delete(o); continue; }
+          if (now - (o.stumpAt || now) < STUMP_DECAY) continue;
+          if (o.x > v.x0 - 2 && o.x < v.x1 + 2 && o.y > v.y0 - 2 && o.y < v.y1 + 3) continue;
+          game.stumps.delete(o);
+          removeNatural(game, o);
         }
       }
     },
   };
 }
+
+export const itemName = (id) => ITEMS[id]?.name || id;
