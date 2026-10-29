@@ -15,7 +15,9 @@ const FAKE = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.tes
   ? new URLSearchParams(location.search).get('fakebuild') : null;
 export const BUILD = FAKE || BUILD_ID;
 export { ART_ID, BUILD_DATE };
-export const runtime = { atlasDigest: null, atlasOk: null }; // filled at boot (main.js)
+// filled at boot (main.js): digest of the sprite names, atlas validity; atlasReady resolves once known
+export const runtime = { atlasDigest: null, atlasOk: null, atlasReady: null, _atlasDone: null };
+runtime.atlasReady = new Promise((r) => { runtime._atlasDone = r; });
 
 // ---------- IP helpers ----------
 export function classifyIp(ip) {

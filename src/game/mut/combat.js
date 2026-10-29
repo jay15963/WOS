@@ -7,6 +7,7 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { dealDamage, addDot, stun, dist } from '../combat.js';
 import { aggro, startFlee } from '../ai.js';
+import { fireCosmetic } from '../projectiles.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const str = (v, n = 24) => (typeof v === 'string' ? v.slice(0, n) : undefined);
@@ -75,5 +76,16 @@ defineOp('mob.die', {
     game.audio?.play('death', { x: m.x, y: m.y, volume: 0.6 });
     game.juice.puff(m.x, m.y, 8, [0.7, 0.64, 0.56], 0.7);
     game.events.emit('kill', { target: m });
+  },
+});
+
+defineIntent('proj.fire', {
+  doc: "A player's own projectile (simulated by the shooter), relayed to the other peers as a cosmetic copy.",
+  args: { id: "'pid:n'", a: '[kind, x, y, tx, ty, angle, speed, range, faction, h1]' },
+  run(game, a, actor, net) {
+    if (typeof a.id !== 'string' || !Array.isArray(a.a)) return 'inválido';
+    const id = a.id.slice(0, 40), args = a.a.slice(0, 10);
+    if (!actor.local) fireCosmetic(game, id, args);
+    net.entsApi?.fx?.(['proj', id, ...args], num(args[1]), num(args[2]), actor.pid);
   },
 });

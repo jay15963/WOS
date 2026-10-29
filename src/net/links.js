@@ -3,7 +3,9 @@
 //   TrysteroLink — short room code, matched through free public networks, tried in cascade:
 //                  Nostr relays → BitTorrent trackers → MQTT brokers (the host listens on all of them).
 //   ManualLink   — no network at all: the players exchange two long codes by hand (WhatsApp etc.).
+//   BroadcastLink — tests only (?link=bc): same-origin tabs / iframes talk through a BroadcastChannel.
 // Common callbacks: onOpen(key, info), onClose(key), onData(key, msg). send(key | null, msg).
+// msg may be an object or an already-serialized JSON string; onData may deliver either (session parses).
 
 import { netlog } from './netlog.js';
 import { rtcConfig, tracePC, forceRelay } from './rtc.js';
@@ -222,7 +224,7 @@ export class ManualLink {
     this.ch = ch;
     ch.onopen = () => { netlog.fact('Rede de encontro', 'código manual'); this.cb.onOpen?.(this.key, { net: 'manual', label: 'código manual' }); };
     ch.onclose = () => this._down();
-    ch.onmessage = (e) => { try { this.cb.onData?.(this.key, JSON.parse(e.data)); } catch { /* ignore bad data */ } };
+    ch.onmessage = (e) => { if (typeof e.data === 'string') this.cb.onData?.(this.key, e.data); };
   }
   _down() {
     if (this._wasDown) return;
@@ -260,7 +262,7 @@ export class ManualLink {
   }
 
   send(key, msg) {
-    if (this.ch && this.ch.readyState === 'open') this.ch.send(JSON.stringify(msg));
+    if (this.ch && this.ch.readyState === 'open') this.ch.send(typeof msg === 'string' ? msg : JSON.stringify(msg));
   }
   keepOnly() {}
   async rtt() {
@@ -276,5 +278,69 @@ export class ManualLink {
     if (this.closed) return;
     this.closed = true;
     try { this.ch?.close(); this.pc?.close(); } catch { /* ignore */ }
+  }
+}
+
+// ---------- BroadcastChannel (automated tests: ?link=bc) ----------
+// Same interface as the other links; peers are same-origin tabs / iframes using the same room code.
+// Handshake: a guest announces itself ('hi'), the host answers ('hi-ack') -> both open the link.
+let bcSeq = 0;
+export class BroadcastLink {
+  constructor({ code, role, onOpen, onClose, onData }) {
+    this.code = code;
+    this.role = role;
+    this.cb = { onOpen, onClose, onData };
+    this.id = role[0] + Date.now().toString(36) + (++bcSeq) + crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+    this.peers = new Map(); // key -> peer id
+    this.failures = 0;
+    this.closed = false;
+    this.timer = null;
+  }
+  start() {
+    if (this.closed) return;
+    this.ch = new BroadcastChannel('wos-' + this.code);
+    this.ch.onmessage = (e) => this._msg(e.data);
+    netlog.info('signal', `BroadcastChannel: ${this.role === 'host' ? 'abrindo' : 'procurando'} a sala ${this.code} (teste local)`);
+    this._post({ k: 'hi', role: this.role });
+    if (this.role === 'guest') this.timer = setInterval(() => { if (!this.peers.size) this._post({ k: 'hi', role: 'guest' }); }, 700);
+    addEventListener('pagehide', () => this.close());
+  }
+  get open() { return this.peers.size; }
+  _post(o) { if (!this.closed) this.ch.postMessage({ ...o, from: this.id }); }
+  _msg(m) {
+    if (!m || m.from === this.id || (m.to && m.to !== this.id)) return;
+    const key = 'bc:' + m.from;
+    switch (m.k) {
+      case 'hi':
+        if (this.role === 'host' && m.role === 'guest') {
+          if (!this.peers.has(key)) { this.peers.set(key, m.from); this._post({ k: 'hi-ack', to: m.from }); this.cb.onOpen?.(key, { net: 'bc', label: 'BroadcastChannel' }); }
+          else this._post({ k: 'hi-ack', to: m.from });
+        } else if (this.role === 'guest' && m.role === 'host' && !this.peers.size) this._post({ k: 'hi', role: 'guest' });
+        return;
+      case 'hi-ack':
+        if (this.role === 'guest' && !this.peers.size) {
+          this.peers.set(key, m.from);
+          netlog.ok('signal', 'BroadcastChannel: conectado ao anfitrião');
+          this.cb.onOpen?.(key, { net: 'bc', label: 'BroadcastChannel' });
+        }
+        return;
+      case 'm': if (this.peers.has(key)) this.cb.onData?.(key, m.d); return;
+      case 'bye': if (this.peers.delete(key)) this.cb.onClose?.(key); return;
+    }
+  }
+  send(key, msg) {
+    const d = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    if (key) { const id = this.peers.get(key); if (id) this._post({ k: 'm', to: id, d }); return; }
+    for (const id of this.peers.values()) this._post({ k: 'm', to: id, d });
+  }
+  keepOnly() {}
+  async rtt() { return null; }
+  close() {
+    if (this.closed) return;
+    try { this._post({ k: 'bye' }); } catch { /* ignore */ }
+    this.closed = true;
+    clearInterval(this.timer);
+    try { this.ch?.close(); } catch { /* ignore */ }
+    this.peers.clear();
   }
 }

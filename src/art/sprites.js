@@ -29,7 +29,8 @@ import { CONTRACT } from './contract.js';
 
 export { PPU, CONTRACT };
 
-export function buildAtlas() {
+// opts.fail: name of a painter group that must throw (tests of the poisoned-cache rule, ?fakepaintfail=1)
+export function buildAtlas(opts = {}) {
   const A = new Atlas(4096);
   const pending = [];
   const names = new Set();
@@ -44,7 +45,7 @@ export function buildAtlas() {
   const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
     addCreatures, addGear, addApparel, addItems];
   for (const step of steps) {
-    try { step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); failures.push(`${step.name}: ${e?.message || e}`); }
+    try { if (opts.fail === step.name) throw new Error('falha simulada'); step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); failures.push(`${step.name}: ${e?.message || e}`); }
   }
   try { addLegacyItems(add, (n) => names.has(n)); } catch (e) { console.error('[art] legacy items failed', e); failures.push(`addLegacyItems: ${e?.message || e}`); }
   const placeholders = ensureContract(names, add);
