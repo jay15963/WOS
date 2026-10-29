@@ -24,6 +24,8 @@ uniform float uTime;
 uniform float uWind;   // 0..1 wind strength
 uniform vec2 uWindDir; // wind direction (world, y down)
 uniform vec2 uWindPh;  // accumulated phases: x = sway oscillation, y = travelling wind waves
+uniform vec4 uPush[12]; // vegetation pushers (src/fx/brush.js): x, y, radius, strength
+uniform int uPushN;
 `;
 
 // travelling wind waves rolling over grass fields (0..1). Shared by the sprite sway and the terrain
@@ -57,6 +59,27 @@ vec2 swayLocal(vec2 c, vec2 local){
   float wv = windWave(aPos, uWindDir, uWindPh.y);
   float bend = (0.15 + 0.5 * w) * (0.55 + 0.45 * slow) + wv * (0.2 + 0.55 * w);
   local += vec2(uWindDir.x, uWindDir.y * 0.4) * bend * k;
+  // walkers part the vegetation: the top is pushed away from each nearby pusher (players, creatures,
+  // critters, plus a lagging spring point behind each one that gives the recoil). Grass/flowers/crops
+  // only (tall trees ignore it). uPush[i] = (x, y, radius, strength; < 0 = pull)
+  float pk = clamp((sw - 0.03) * 16.0, 0.0, 1.0) * (1.0 - step(2.2, aSize.y)) * top * top * min(aSize.y, 1.2);
+  if (pk > 0.0 && uPushN > 0) {
+    vec2 acc = vec2(0.0);
+    float press = 0.0;
+    for (int i = 0; i < 12; i++) {
+      if (i >= uPushN) break;
+      vec4 P = uPush[i];
+      vec2 d = aPos - P.xy;
+      float dist = length(d);
+      float f = 1.0 - smoothstep(P.z * 0.15, P.z, dist);
+      acc += d / max(dist, 0.08) * f * P.w;
+      press = max(press, f * P.w);
+    }
+    float al = length(acc);
+    if (al > 1.0) acc /= al;
+    local += vec2(acc.x, acc.y * 0.45) * pk * 0.6;
+    local.y *= 1.0 - 0.28 * clamp(press, 0.0, 1.0) * pk / max(aSize.y, 0.3);   // pressed down under the feet
+  }
   return local;
 }
 vec2 rotLocal(vec2 l, float r){
@@ -147,11 +170,19 @@ void main(){
 }`;
 
 // Sun shadow: sprite silhouette sheared along uShadowDir by its height above the anchor.
+// Output (MAX blend): R = shadow used for lighting everywhere, with DAPPLED light holes punched into tree
+// crowns (sun through the leaves, drifting with the wind); G = canopy coverage without holes (G - R = sunlit
+// gaps under the crowns: god-ray sources in the post pass); B = plain coverage.
+// uDap = (amount 0 = off, animate 0/1, stretch along the light, -). Canopy = swaying sprite taller than 1.4.
 export const SHADOW_VS = `#version 300 es
 ${SPRITE_ATTRIBS}
 uniform vec2 uShadowDir;
+uniform vec4 uDap;
 out vec2 vUV;
 out float vA;
+out vec2 vW;          // ground position of the shadow fragment (dapple pattern is fixed to the ground)
+out float vCan;       // 1 for canopy casters
+flat out vec2 vWo;    // wind drift of the dapples
 ${SWAY_FN}
 void main(){
   vec2 c = aCorner;
@@ -167,18 +198,34 @@ void main(){
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
   vUV = mix(aUV.xy, aUV.zw, tc);
   vA = aColor.a;
+  vW = w;
+  vCan = aParams.x > 0.0 && aSize.y > 1.4 ? 1.0 : 0.0;
+  // leaves stirring: a slow drift down-wind + a small shimmer (multipliers of uWindPh keep m*100 integer)
+  vWo = uDap.y * (uWindDir * uWindPh.y * 0.02 + vec2(sin(uWindPh.x * 0.9), cos(uWindPh.x * 0.7)) * 0.04 * (0.4 + uWind));
 }`;
 
 export const SHADOW_FS = `#version 300 es
 precision mediump float;
-in vec2 vUV; in float vA;
+in vec2 vUV; in float vA; in highp vec2 vW; in float vCan;
+flat in highp vec2 vWo;
 uniform sampler2D uTex;
 uniform sampler2D uLook;
+uniform sampler2D uNoise;
+uniform highp vec4 uDap;
+uniform vec2 uSunN;   // unit light direction on the ground (along the shadows)
 out vec4 o;
 void main(){
   float a = (vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)).a : texture(uTex, vUV).a) * vA;
   if (a < 0.01) discard;
-  o = vec4(a, a, a, 1.0);
+  float hole = 0.0;
+  if (vCan > 0.5 && uDap.x > 0.0) {
+    // sun flecks: blobs elongated along the light (longer when the sun is low), only inside the crown shade
+    vec2 pd = vec2(-uSunN.y, uSunN.x);
+    vec2 q = vec2(dot(vW, uSunN) / uDap.z, dot(vW, pd));
+    float n = texture(uNoise, q * 0.21 + vWo).r * 0.6 + texture(uNoise, q * 0.53 - vWo * 1.4 + 0.37).g * 0.4;
+    hole = smoothstep(0.55, 0.66, n) * smoothstep(0.4, 0.9, a) * uDap.x;
+  }
+  o = vec4(a * (1.0 - hole), a * vCan, a, 1.0);
 }`;
 
 // Point light: radial falloff, additive into the lightmap (stored at half intensity).
@@ -950,6 +997,17 @@ uniform float uCamCave;   // camera inside a cave (0..1): deeper vignette
 uniform vec4 uBolt;       // lightning strike: world x, y, radius, intensity
 uniform float uGrain;     // film grain amount (0 = off)
 uniform float uBloom;     // soft bloom around strong lights
+// explicit light shafts (renderer.addShaft): A = (x, y opening, x, y landing), B = (height, width at the
+// opening, width at the landing, intensity), C = (r, g, b, haze)
+uniform vec4 uShA[8], uShB[8], uShC[8];
+uniform int uShN;
+#if QL >= 2
+#define NSH 7
+#define SHSTEP 0.45
+#else
+#define NSH 4
+#define SHSTEP 0.75
+#endif
 // local player's status (src/fx/status.js): A = (hp, cold, hunger, wet), B = (sick, warm, hit flash, heartbeat),
 // C = (shake x, shake y, dizzy wobble, sick wave); all 0 = nothing to do
 uniform vec4 uFeelA, uFeelB, uFeelC;
@@ -1109,24 +1167,41 @@ void main(){
   }
   c += fl * (alb * 1.3 + 0.04) * (vec3(0.85, 0.9, 1.0) + uFlashCol) / (1.0 + fireK * 1.5);
 
-  // light shafts: soft bands along the low sun, mostly visible in haze and mist
-  float rays = 0.0;
-  if (uRays > 0.01) {
-    vec2 sd = normalize(uSunXY + vec2(1e-4, 0.0)), pp = vec2(-sd.y, sd.x);
-    float u = dot(wp, pp) * 0.085 + dot(wp, sd) * 0.006;
-    float n = texture(uNoise, vec2(u, uTime * 0.0035)).r * 0.6 + texture(uNoise, vec2(u * 2.3 + 0.37, uTime * 0.006 + 0.5)).g * 0.4;
-    rays = smoothstep(0.48, 0.78, n) * uRays * outK;
+  // ---------- god rays: sun shafts through the canopy (strongest in the morning) ----------
+  // The sun-shadow map holds R = dappled shadow, G = canopy coverage (see SHADOW_FS). In the 3/4 view the
+  // beam above a sunlit gap S, at height h, is drawn at S - (shadowDir + (0, 1)) * h, so each pixel marches
+  // back towards the sun along +(shadowDir + lift) collecting gaps under the crowns (narrow shafts) and
+  // sunlit air next to the canopy (broad shafts at forest edges and clearings). Passing clouds thin them,
+  // mist makes them visible (below). Low quality: only the dappled flecks on the ground (shadow pass).
+  float shaft = 0.0, rays = 0.0;
+  vec3 sunC = vec3(1.0, 0.85, 0.6);
+#if QL >= 1
+  if (uRays > 0.01 && outK > 0.01) {
+    vec2 stepUV = vec2(uShadowDir.x, -(uShadowDir.y + 1.0)) / uView;   // uv per unit of height (uv y is up)
+    float gaps = 0.0, litAir = 0.0, can = 0.0, wsum = 0.0;
+    // interleaved-gradient dither (smooth, no clumps) hides the stair-step copies of the shadows
+    float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * SHSTEP * 0.45;
+    for (int k = 0; k < NSH; k++) {
+      float wk = 1.0 - float(k) / float(NSH) * 0.45;
+      vec2 s = textureLod(uShadow, uv + stepUV * (0.2 + float(k) * SHSTEP + jit), 1.25).rg;   // soft mip: hazy beams, gaps still read
+      gaps += max(s.g - s.r, 0.0) * wk;
+      litAir += (1.0 - s.r) * wk;
+      can += s.g;
+      wsum += wk;
+    }
+    gaps /= wsum; litAir /= wsum; can /= float(NSH);
+    float forest = smoothstep(0.08, 0.45, can);
+    float thin = 1.0 - cl * 0.85;
+    shaft = (gaps * 2.6 + litAir * forest * 0.65) * uRays * outK * thin;
+    rays = shaft;
+    c *= 1.0 - uRays * forest * (1.0 - litAir) * 0.08 * outK;           // shaded forest air: beams stand out
 #if QL >= 2
-    // shafts through the canopy gaps: the hazy air above a point is sunlit unless a crown blocks the sun
-    // (march the sun-shadow map along the light path): bright haze in the gaps, dim streaks behind crowns
-    vec2 sdUV = vec2(uShadowDir.x, -uShadowDir.y) / uView;
-    float occ = 0.0;
-    for (int k = 1; k <= 5; k++) occ += texture(uShadow, uv + sdUV * (float(k) * 0.55)).r;
-    float lit = clamp(1.0 - occ * 0.2 * 1.7, 0.0, 1.0);
-    c *= 1.0 - uRays * outK * (1.0 - lit) * 0.1;
-    rays = rays * 0.5 + uRays * outK * lit * 0.9;
+    // sun flecks on the ground glow a little warmer (the holes themselves come from the shadow pass)
+    vec2 s0 = textureLod(uShadow, uv, 0.0).rg;
+    c += alb * sunC * max(s0.g - s0.r, 0.0) * uRays * 0.4 * thin * outK;
 #endif
   }
+#endif
 
   // mist / fog banks
   float m1 = texture(uNoise, wp * 0.018 + uTime * vec2(0.0021, 0.0009)).b;
@@ -1140,9 +1215,49 @@ void main(){
   float fogA = uFog * (0.35 + mist * 0.9);
   fogA += uMist * smoothstep(0.35, 0.75, mist + low * 0.45) * (0.2 + 0.8 * low);   // hugs water and shores
   fogA *= 1.0 - cave * 0.92;
-  vec3 fogC = uFogCol * (1.0 + rays * 0.5);
+  vec3 fogC = uFogCol * (1.0 + rays * 0.6);
   c = mix(c, fogC, clamp(fogA * (1.0 + rays * 0.35), 0.0, 0.85));
-  c += uFogCol * rays * 0.16 * vec3(1.08, 0.97, 0.8);   // warm light shafts in the haze
+  // the shafts light up the haze: brighter in mist banks and morning fog (volumetric look)
+  float haze = 0.3 + fogA * 2.4;
+#if QL >= 2
+  haze += uMist * (0.3 + mist) * 0.9;
+#endif
+  c += sunC * shaft * haze * 0.24;
+  float moteW = min(shaft * 3.0, 1.0);
+
+  // explicit shafts (renderer.addShaft: windows, doorways, cave openings…): a beam from the opening (lifted
+  // by its height in the 3/4 view) to where the light lands, plus the lit patch on the floor
+  for (int i = 0; i < 8; i++) {
+    if (i >= uShN) break;
+    vec4 A = uShA[i], Q = uShB[i], C = uShC[i];
+    vec2 p0 = A.xy - vec2(0.0, Q.x), p1 = A.zw, ab = p1 - p0;
+    float t = clamp(dot(wp - p0, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
+    float dd = length(wp - (p0 + ab * t)) / max(mix(Q.y, Q.z, t) * 0.5, 0.02);
+    float beam = (1.0 - smoothstep(0.55, 1.0, dd)) * smoothstep(0.0, 0.15, t);
+    vec2 gd = normalize(A.zw - A.xy + vec2(1e-4, 0.0)), g = wp - p1;
+    vec2 gq = vec2(dot(g, gd) / max(Q.z * 0.9, 0.05), dot(g, vec2(-gd.y, gd.x)) / max(Q.z * 0.5, 0.05));
+    float spot = 1.0 - smoothstep(0.45, 1.0, length(gq));
+    c += C.rgb * Q.w * (alb * spot * 1.4 + beam * C.a * (0.15 + fogA) * 0.7);
+    moteW = max(moteW, beam * Q.w * C.a);
+  }
+#if QL >= 2
+  // dust motes / pollen sparkling inside the shafts
+  if (moteW > 0.02) {
+    float mo = 0.0;
+    for (int k = 0; k < 2; k++) {
+      float fk = float(k);
+      vec2 mp = wp * (2.6 + fk * 1.7) + vec2(uTime * 0.05, -uTime * 0.035) * (1.0 + fk) + fk * 7.7;
+      vec2 mc = floor(mp), mf = fract(mp) - 0.5;
+      float mh = hash12(mc + 3.3 * fk);
+      if (mh > 0.86) {
+        vec2 mo2 = (vec2(hash12(mc + 1.7), hash12(mc + 5.1)) - 0.5) * 0.6
+                 + vec2(sin(uTime * (0.6 + mh) + mh * 30.0), cos(uTime * (0.5 + mh) + mh * 20.0)) * 0.12;
+        mo += (1.0 - smoothstep(0.0, 0.07, length(mf - mo2))) * (0.5 + 0.5 * sin(uTime * (2.0 + mh * 3.0) + mh * 40.0));
+      }
+    }
+    c += sunC * mo * moteW * 0.55;
+  }
+#endif
 
   // precipitation: rain streaks (parallax layers), snowflakes over cold biomes
   if (uRain > 0.01 && outK > 0.01) {
