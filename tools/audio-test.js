@@ -1,4 +1,4 @@
-// Localhost-only listening / measuring page for the procedural audio (tools/audio-test.html).
+// Listening / measuring page for the procedural audio (tools/audio-test.html); also published so the owner can listen.
 // window.audioTest: { analyze(), soak(), playAll() } — results also in window.audioReport.
 
 import { getAudio, renderOffline, DEFAULT_LEVELS } from '../src/fx/audio.js';
@@ -7,10 +7,6 @@ import { MOODS } from '../src/fx/music.js';
 import { audioSettings } from '../src/fx/audioSettings.js';
 
 const $ = (s) => document.querySelector(s);
-if (!/^(localhost|127\.|\[::1\])/.test(location.hostname)) {
-  document.body.innerHTML = '<p style="padding:20px">Página de teste disponível somente em localhost.</p>';
-  throw new Error('localhost only');
-}
 
 const a = getAudio();
 a.director = { update() {}, onOp() {} }; // no automatic moods on this page
