@@ -11,7 +11,7 @@ import { describeStructure, buildTap, exitBuildMode, commitPlacement, deconRect,
 import { describeRock, designate, designateRect, isRock } from './mining.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
-import { ABILITY_ORDER, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
+import { ABILITIES, ABILITY_ORDER, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -294,7 +294,13 @@ export function installController(game) {
       // keys
       const K = inp.pressed;
       if (K.size && !p.dead) {
-        ABILITY_ORDER.forEach((id, i) => { if (K.has('Digit' + (i + 1)) || K.has('Numpad' + (i + 1))) useAbility(g, id); });
+        ABILITY_ORDER.forEach((id, i) => {
+          const code = K.has('Digit' + (i + 1)) ? 'Digit' + (i + 1) : K.has('Numpad' + (i + 1)) ? 'Numpad' + (i + 1) : null;
+          if (!code) return;
+          // [G ↔ B contract] aim: 'ground' abilities aim at the mouse while the key is held (src/ui/aim.js)
+          if (ABILITIES[id]?.aim === 'ground' && g.aim) g.aim.beginMouse(id, { key: code });
+          else useAbility(g, id);
+        });
         if (K.has('Tab')) ctl.cycleTarget();
         if (K.has('KeyE') || K.has('Space')) ctl.interact();
         if (K.has('KeyF')) ctl.toggleAttack();

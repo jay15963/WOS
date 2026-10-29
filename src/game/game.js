@@ -80,7 +80,10 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    const tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    let tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    // [G ↔ B contract] aimed ground abilities ease the camera toward the aim point (src/ui/aim.js)
+    const F = this.camFocus;
+    if (F && F.k > 0) { tx += (F.x - tx) * F.k; ty += (F.y - ty) * F.k; }
     const k = 1 - Math.exp(-dt * 6);
     this.cam.x += (tx - this.cam.x) * k;
     this.cam.y += (ty - this.cam.y) * k;

@@ -27,12 +27,40 @@ export const WEAPON_TYPES = {
   knife:   { name: 'Faca', g: 'f', min: 4, max: 7, swing: 1.15, reach: 0.6, crit: 0.06, act: 'stab', abilities: ['stab', 'lacerate'], icon: 'stab' },
   axe:     { name: 'Machado', g: 'm', min: 7, max: 12, swing: 1.75, reach: 0.68, crit: 0.02, act: 'attack', abilities: ['cleave', 'shove'], icon: 'cleave' },
   pickaxe: { name: 'Picareta', g: 'f', min: 5, max: 9, swing: 1.8, reach: 0.66, crit: 0, act: 'attack', abilities: ['shove'], icon: 'attack' },
-  spear:   { name: 'Lança', g: 'f', min: 6, max: 10, swing: 1.55, reach: 1.3, crit: 0.03, act: 'stab', abilities: ['pierce', 'sweep'], icon: 'pierce' },
+  spear:   { name: 'Lança', g: 'f', min: 6, max: 10, swing: 1.55, reach: 1.3, crit: 0.03, act: 'stab', abilities: ['pierce', 'sweep', 'throw_spear'], icon: 'pierce' },
   sword:   { name: 'Espada', g: 'f', min: 8, max: 13, swing: 1.5, reach: 0.72, crit: 0.03, act: 'attack', abilities: ['strike', 'whirlwind', 'charge'], icon: 'strike' },
   club:    { name: 'Clava', g: 'f', min: 7, max: 12, swing: 1.85, reach: 0.66, crit: 0.02, act: 'attack', stun: 0.08, abilities: ['smash', 'shove'], icon: 'smash' },
   bow:     { name: 'Arco', g: 'm', min: 7, max: 12, swing: 1.9, reach: 0.55, crit: 0.04, act: 'shoot', auto: 'shoot', ranged: true, range: 9,
-             twoHanded: true, ammo: 'arrow', abilities: ['aimed_shot', 'multi_shot', 'disengage'], icon: 'shoot' },
+             twoHanded: true, ammo: 'arrow', abilities: ['aimed_shot', 'multi_shot', 'long_shot', 'disengage'], icon: 'shoot' },
 };
+
+// ---------- aimed ground throws (abilities with aim: 'ground', lob: <weapon type>) ----------
+// range: max distance in tiles, the same on every device (fair in multiplayer). The simple bow reaches about half
+// of what a landscape phone shows at max zoom out (844 px / 22 px per tile ≈ 38 tiles wide → 18). Longer bows do
+// not zoom out further: the camera follows the aim point (src/ui/aim.js, game.camFocus).
+// scatter radius of the landing point = s0 + k × distance (rolled on the host, centre-weighted).
+// hitR: a creature is hit when the landing point is within hitR + its body radius.
+// dur / apex: flight time (s) and arc height (tiles) = [a, b] → a + b × distance. knock: push on hit.
+export const LOB = {
+  bow:   { ability: 'long_shot', proj: 'arrow', range: 18, s0: 0.1, k: 0.065, hitR: 0.45, dur: [0.5, 0.05], apex: [0.6, 0.2], knock: 0.15 },
+  spear: { ability: 'throw_spear', proj: 'spear', range: 8, s0: 0.1, k: 0.08, hitR: 0.5, dur: [0.32, 0.06], apex: [0.25, 0.1], knock: 0.6 },
+};
+// per-item range overrides: a better bow is one line here (the camera follows further, the zoom stays)
+export const LOB_RANGE = { bow_composite: 22 };
+
+const LOBS = new Map();
+// flight / accuracy spec of a main-hand item for its aimed ground ability, or null
+export function lobSpec(id) {
+  if (!id) return null;
+  if (LOBS.has(id)) return LOBS.get(id);
+  const { type } = splitId(id);
+  const L = WEAPON_TYPES[type] ? LOB[type] : null;
+  const S = L ? { ...L, type, range: LOB_RANGE[id] ?? L.range } : null;
+  LOBS.set(id, S);
+  return S;
+}
+export const lobScatter = (S, d) => S.s0 + S.k * d;
+export const lobFlight = (S, d) => ({ dur: S.dur[0] + S.dur[1] * d, apex: S.apex[0] + S.apex[1] * d });
 const SPECIAL_NAMES = { club_wood: 'Clava', club_iron: 'Maça de ferro', bow_wood: 'Arco simples', bow_composite: 'Arco composto' };
 
 // Off-hand. blockChance: passive chance to block a frontal hit (passiveReduce of the damage);

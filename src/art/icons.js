@@ -239,6 +239,25 @@ const MORE = {
       g.restore();
     }
   }],
+  // G: aimed ground abilities — a lobbed arc onto a target ring on the ground
+  icon_long_shot: ['#2a5226', 'rgba(255,236,170,0.45)', (g) => {
+    g.fillStyle = 'rgba(20,30,12,0.45)'; g.beginPath(); g.ellipse(48, 52, 11, 4, 0, 0, TAU); g.fill();
+    g.strokeStyle = 'rgba(255,92,70,0.95)'; g.lineWidth = 2.2; g.beginPath(); g.ellipse(48, 51, 9, 3.4, 0, 0, TAU); g.stroke();
+    g.setLineDash([3.4, 3.2]); arc(g, 32, 50, 18, Math.PI * 1.06, Math.PI * 1.86, 2.4, 'rgba(255,250,225,0.9)'); g.setLineDash([]);
+    g.save(); g.translate(46, 43); g.rotate(1.15);
+    g.fillStyle = '#c49a62'; g.fillRect(-15, -1, 15, 2);
+    g.fillStyle = '#d9dde2'; g.beginPath(); g.moveTo(0, -3.4); g.lineTo(6, 0); g.lineTo(0, 3.4); g.closePath(); g.fill();
+    g.fillStyle = '#e8e2d6'; g.beginPath(); g.moveTo(-16, 0); g.lineTo(-12, -3.4); g.lineTo(-10, -1); g.lineTo(-10, 1); g.lineTo(-12, 3.4); g.closePath(); g.fill();
+    g.restore();
+    gearAt(g, 'bow_wood_draw', 15, 50, -0.35, 0.62);
+  }],
+  icon_throw_spear: ['#2a4466', 'rgba(190,220,255,0.5)', (g) => {
+    g.fillStyle = 'rgba(10,20,36,0.45)'; g.beginPath(); g.ellipse(48, 53, 11, 3.6, 0, 0, TAU); g.fill();
+    burst(g, 48, 50, 7, 6, 'rgba(255,246,200,0.95)');
+    g.setLineDash([3.6, 3.4]); arc(g, 30, 56, 21, Math.PI * 1.1, Math.PI * 1.55, 2.4, 'rgba(230,240,255,0.85)'); g.setLineDash([]);
+    streaks(g, 20, 30, -0.55, 3, 9, 'rgba(255,255,255,0.6)');
+    gearAt(g, 'spear_iron', 22, 33, 1.0, 0.62);
+  }],
   icon_disengage: ['#1f5a4a', 'rgba(170,255,230,0.45)', (g) => {
     g.strokeStyle = 'rgba(230,255,245,0.9)'; g.lineWidth = 3.4; g.lineCap = 'round';
     g.beginPath(); g.moveTo(52, 46); g.quadraticCurveTo(40, 8, 16, 24); g.stroke();

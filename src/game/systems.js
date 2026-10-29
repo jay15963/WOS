@@ -27,6 +27,7 @@ import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
+import { installAim } from '../ui/aim.js';
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -95,5 +96,6 @@ export function installSystems(game) {
   ]) addSystem(game, s);
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
+  addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   return { isNew };
 }

@@ -126,7 +126,9 @@ export function installActionBar(game, root, wrap) {
         <span class="key">${i + 1}</span><span class="cost">${ab.cost || ''}</span><span class="ammo hidden"></span><span class="abn">${ab.name}</span>`;
       wrap.appendChild(el);
       const b = { id, el, cd: el.querySelector('.cd'), cdt: el.querySelector('.cdt'), ammo: el.querySelector('.ammo'), last: {} };
-      press(el, () => { useAbility(game, id); if (ab.hold) holdAbility(game, id); }, () => { if (ab.hold) releaseAbility(game, id); });
+      // [G ↔ B contract] aim: 'ground' → touch: the button becomes an aim joystick · mouse: aim at the cursor (src/ui/aim.js)
+      if (ab.aim === 'ground') press(el, (e) => { if (e.pointerType === 'mouse') game.aim?.beginMouse(id); else game.aim?.beginTouch(id, el, e); }, () => game.aim?.release());
+      else press(el, () => { useAbility(game, id); if (ab.hold) holdAbility(game, id); }, () => { if (ab.hold) releaseAbility(game, id); });
       return b;
     });
     if (!first) {
