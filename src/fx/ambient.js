@@ -4,6 +4,9 @@
 //  - rain splashes on the ground, wind-blown dust and leaves in gusts
 //  - fireflies at night, butterflies near flowers, falling leaves, dust motes in sunbeams
 //  - bird flocks crossing the sky (with ground shadows), fish jumping in lakes, water sparkles
+//  - caves (mined tiles under a mountain roof): dust motes drifting in torch light, water drips,
+//    a faint "eyes adjusting" light around the player, deeper vignette (env.extra.uCamCave)
+//  - glowing mushrooms at night, raindrops jumping on water
 //  - adaptive render resolution when the frame rate drops (game.R.autoScale = false disables)
 // Everything is spawned only around the visible view and capped.
 
@@ -32,11 +35,18 @@ class Ambient {
     this.K = {};
     for (const k in this.S) { const sp = A.get(this.S[k]); this.K[k] = 1 / Math.max(0.01, sp.w); }
     this.t = 0;
-    this.acc = { fire: 0, rain: 0, leaf: 0, fly: 0, mote: 0, spark: 0, gustDust: 0 };
+    this.acc = { fire: 0, rain: 0, leaf: 0, fly: 0, mote: 0, spark: 0, gustDust: 0, caveMote: 0 };
     this.scanT = 0;
     this.fires = [];
     this.trees = [];
     this.flowers = [];
+    this.mushrooms = [];
+    this.caveTiles = [];   // cave floor tiles in view (drips)
+    this.caveLights = [];  // light emitters standing in caves (dust motes)
+    this.drips = [];
+    this.nextDrip = 1;
+    this.eye = 0;          // smoothed cave darkness at the player
+    this.camCave = 0;      // smoothed cave darkness at the camera
     this.fireflies = [];
     this.butterflies = [];
     this.flocks = [];
@@ -82,6 +92,15 @@ class Ambient {
       }
     }
 
+    // ---------- caves: how dark is it around the player / camera ----------
+    const pl = g.player;
+    const ek = 1 - Math.exp(-dt * 1.6);
+    if (w.caveDark) {
+      this.eye += (w.caveDark(pl.x, pl.y) - this.eye) * ek;
+      this.camCave += (w.caveDark(g.cam.x, g.cam.y + 0.4) - this.camCave) * ek;
+    }
+    if (g.env.env.extra) g.env.env.extra.uCamCave = this.camCave;
+
     // ---------- rain splashes on the ground ----------
     if (env.rain > 0.05) {
       this.acc.rain += dt * env.rain * 55 * areaK;
@@ -89,7 +108,12 @@ class Ambient {
         this.acc.rain -= 1;
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const tx = Math.floor(x), ty = Math.floor(y);
-        if (w.isRock(tx, ty) || w.waterAt(tx, ty)) continue; // water ripples are drawn by the terrain shader
+        if (w.isRock(tx, ty) || (w.caveDark && w.caveDark(x, y) > 0.25)) continue; // no rain underground
+        if (w.waterAt(tx, ty)) {
+          // ripples are drawn by the terrain shader; add a droplet jumping off the surface now and then
+          if (rnd() < 0.35) P.emit({ spr: this.S.spark, x, y, vx: (rnd() - 0.5) * 0.4, vy: (rnd() - 0.5) * 0.2, lift: 0.02, vlift: 0.8 + rnd() * 0.7, grav: 7, life: 0.25, size: (0.08) * K.spark, size1: (0.05) * K.spark, r: 0.82, g: 0.88, b: 0.95, a: 0.6, a1: 0 });
+          continue;
+        }
         P.emit({ spr: this.S.splash, x, y, life: 0.28, size: (0.08) * K.splash, size1: (0.3) * K.splash, r: 0.85, g: 0.9, b: 1, a: 0.55, a1: 0 });
         if (rnd() < 0.3) for (let k = 0; k < 2; k++) {
           P.emit({ spr: this.S.spark, x, y, vx: (rnd() - 0.5) * 1.2, vy: (rnd() - 0.5) * 0.6, lift: 0.02, vlift: 1 + rnd(), grav: 7, life: 0.3, size: (0.1) * K.spark, size1: (0.06) * K.spark, r: 0.85, g: 0.9, b: 1, a: 0.7, a1: 0 });
@@ -106,6 +130,7 @@ class Ambient {
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const gnd = w.groundAt(Math.floor(x), Math.floor(y));
         if (!(gnd === 2 || gnd === 3 || gnd === 0) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
+        if (w.isMined && w.isMined(Math.floor(x), Math.floor(y))) continue;
         const sp = 1.5 + env.wind * 2.5;
         P.emit({ spr: this.S.dust, x, y, vx: env.windDir[0] * sp, vy: env.windDir[1] * sp, lift: 0.1, vlift: 0.15, life: 1.8, size: (0.4) * K.dust, size1: (1.4) * K.dust,
           r: 0.75, g: 0.66, b: 0.52, a: 0.16, a1: 0, fadeIn: 0.4, ground: false });
@@ -142,7 +167,7 @@ class Ambient {
         if (w.isRock(tx, ty)) continue;
         const i = ty * w.W + tx;
         const ok = (w.lush && w.lush[i] > 0.45) || (w.dWater && w.dWater[i] < 4);
-        if (!ok) continue;
+        if (!ok || (w.caveDark && w.caveDark(x, y) > 0.2)) continue;
         this.fireflies.push({ x, y, lift: 0.3 + rnd() * 0.9, ph: rnd() * TAU, sp: 0.25 + rnd() * 0.35, ang: rnd() * TAU, t: 0, life: 10 + rnd() * 14, blink: 0.4 + rnd() * 0.5 });
       }
     }
@@ -195,6 +220,44 @@ class Ambient {
         const x = o.x + (rnd() - 0.5) * 3, y = o.y + (rnd() - 0.5) * 2;
         P.emit({ spr: this.S.spark, x, y, lift: 0.3 + rnd() * 1.6, vx: (rnd() - 0.5) * 0.12 + env.windDir[0] * 0.08, vy: (rnd() - 0.5) * 0.08, vlift: (rnd() - 0.4) * 0.08,
           life: 4 + rnd() * 4, size: (0.12 + rnd() * 0.08) * K.spark, size1: (0.08) * K.spark, r: 1, g: 0.9, b: 0.7, a: 0.35 * motes, a1: 0, fadeIn: 1.5, layer: 'emissive', ground: false });
+      }
+    }
+
+    // ---------- caves: dust motes drifting through torch light ----------
+    if (this.caveLights.length) {
+      this.acc.caveMote += dt * Math.min(4, this.caveLights.length) * 2.2;
+      while (this.acc.caveMote > 1) {
+        this.acc.caveMote -= 1;
+        const o = this.caveLights[Math.floor(rnd() * this.caveLights.length)];
+        if (o.fire === false || o.lit === false) continue;
+        const R = Math.min(2.6, (o.light.radius || 3) * 0.55), a = rnd() * TAU, d = Math.sqrt(rnd()) * R;
+        const x = o.x + Math.cos(a) * d, y = o.y + Math.sin(a) * d * 0.8;
+        if (w.isRock(Math.floor(x), Math.floor(y))) continue;
+        const k = 1 - d / R;
+        P.emit({ spr: this.S.spark, x, y, lift: 0.2 + rnd() * 1.4, vx: (rnd() - 0.5) * 0.08, vy: (rnd() - 0.5) * 0.06, vlift: (rnd() - 0.45) * 0.06, drag: 0.1,
+          life: 4 + rnd() * 4, size: (0.07 + rnd() * 0.06) * K.spark, size1: (0.05) * K.spark, r: 1, g: 0.82, b: 0.55, a: 0.32 * k + 0.05, a1: 0, fadeIn: 1.2, layer: 'emissive', ground: false });
+      }
+    }
+
+    // ---------- caves: water dripping from the ceiling ----------
+    this.nextDrip -= dt;
+    if (this.nextDrip <= 0) {
+      this.nextDrip = 0.7 + rnd() * 2.2;
+      if (this.caveTiles.length) {
+        const i = this.caveTiles[Math.floor(rnd() * this.caveTiles.length)];
+        const x = (i % w.W) + 0.15 + rnd() * 0.7, y = Math.floor(i / w.W) + 0.2 + rnd() * 0.7;
+        this.drips.push({ x, y, t: 0, h: 1.5 + rnd() * 0.6 });
+      }
+    }
+    for (let k = this.drips.length - 1; k >= 0; k--) {
+      const d = this.drips[k];
+      d.t += dt;
+      d.lift = d.h - 4.9 * d.t * d.t;
+      if (d.lift <= 0) {
+        this.drips.splice(k, 1);
+        P.emit({ spr: this.S.ring, x: d.x, y: d.y, life: 0.6, size: (0.04) * K.ring, size1: (0.32) * K.ring, r: 0.8, g: 0.88, b: 1, a: 0.45, a1: 0 });
+        for (let j = 0; j < 3; j++) P.emit({ spr: this.S.spark, x: d.x, y: d.y, vx: (rnd() - 0.5) * 0.7, vy: (rnd() - 0.5) * 0.35, lift: 0.02, vlift: 0.7 + rnd() * 0.6, grav: 7, life: 0.3, size: (0.06) * K.spark, size1: (0.04) * K.spark, r: 0.8, g: 0.88, b: 1, a: 0.7, a1: 0 });
+        g.audio?.play?.('drip', { x: d.x, y: d.y, volume: 0.7 });
       }
     }
 
@@ -278,16 +341,32 @@ class Ambient {
   }
 
   _scan(g, v) {
-    const fires = [], trees = [], flowers = [];
+    const fires = [], trees = [], flowers = [], mushrooms = [], caveLights = [];
+    const w = g.world;
     const old = new Map(this.fires.map((f) => [f.o, f]));
-    g.world.forChunks(v.x0 - 3, v.y0 - 3, v.x1 + 3, v.y1 + 5, (c) => {
+    w.forChunks(v.x0 - 3, v.y0 - 3, v.x1 + 3, v.y1 + 5, (c) => {
       for (const o of c.objects) {
         if (o.fire) fires.push(old.get(o) || { o, acc: 0 });
         else if (o.type && o.type.startsWith('tree_') && o.type !== 'tree_dead' && !o.stump && o.x > v.x0 - 1 && o.x < v.x1 + 1 && o.y > v.y0 && o.y < v.y1 + 2) trees.push(o);
+        if (o.light && w.caveDark && o.x > v.x0 - 2 && o.x < v.x1 + 2 && o.y > v.y0 - 2 && o.y < v.y1 + 2 && w.caveDark(o.x, o.y - 0.3) > 0.4) caveLights.push(o);
       }
-      if (flowers.length < 240) for (const d of c.decor) if (d.t === 'flower' && d.x > v.x0 && d.x < v.x1 && d.y > v.y0 && d.y < v.y1) flowers.push(d);
+      for (const d of c.decor) {
+        if (d.x < v.x0 || d.x > v.x1 || d.y < v.y0 || d.y > v.y1 + 0.5) continue;
+        if (d.t === 'flower') { if (flowers.length < 240) flowers.push(d); }
+        else if (d.t === 'mushroom' && mushrooms.length < 90) mushrooms.push(d);
+      }
     });
-    this.fires = fires; this.trees = trees; this.flowers = flowers;
+    // cave floor tiles in view
+    const caveTiles = [];
+    if (w.isCave) {
+      const x0 = Math.max(0, Math.floor(v.x0)), x1 = Math.min(w.W - 1, Math.ceil(v.x1));
+      const y0 = Math.max(0, Math.floor(v.y0)), y1 = Math.min(w.H - 1, Math.ceil(v.y1));
+      for (let y = y0; y <= y1 && caveTiles.length < 400; y++) for (let x = x0; x <= x1; x++) {
+        if (w.isCave(x, y)) caveTiles.push(y * w.W + x);
+      }
+    }
+    this.fires = fires; this.trees = trees; this.flowers = flowers; this.mushrooms = mushrooms;
+    this.caveTiles = caveTiles; this.caveLights = caveLights;
   }
 
   // adaptive render scale: drop resolution when frames are slow, recover when fast
@@ -307,6 +386,40 @@ class Ambient {
   // ------------------------------------------------------------------ render
   render(g, B, v, env) {
     const t = this.t;
+    // terrain decals (ore deposits, rubble) for the visible tiles — see world.js chunk.decals
+    if (B.decal) {
+      const w = g.world, W = w.W, x0 = v.x0 - 1, x1 = v.x1 + 1, y0 = v.y0 - 1, y1 = v.y1 + 1;
+      w.forChunks(x0, y0, x1, y1, (c) => {
+        const L = c.decals;
+        if (!L) return;
+        for (let k = 0; k < L.length; k++) {
+          const e = L[k], i = e >> 1, tx = i % W, ty = (i / W) | 0;
+          if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
+          B.decal.addRaw(tx + 0.5, ty + 0.5, 1, 1, e & 1, 0, 0, 1);
+        }
+      });
+    }
+    // caves: faint cool light around the player so they can still make out the walls (torches do the rest)
+    if (this.eye > 0.03) {
+      const p = g.player;
+      B.light.addRaw(p.x, p.y - 0.35, 4.6, 4.6, 0.62, 0.68, 0.85, 0.3 * this.eye);
+    }
+    // falling cave drips
+    if (this.drips.length) {
+      const drop = this.spr(this.S.drop), K = this.K;
+      for (const d of this.drips) B.fx.add(drop, d.x, d.y, 0.05 * K.drop, 0.11 * K.drop, 0.85, 0.92, 1, 0.8, 0, 0, 0, 1, 0, Math.max(0, d.lift));
+    }
+    // bioluminescent mushrooms at night (about a third of them glow)
+    if (env.night > 0.2 && this.mushrooms.length) {
+      const soft = this.spr(this.S.soft), K = this.K;
+      for (const d of this.mushrooms) {
+        if (d.v % 3 !== 0) continue;
+        const pulse = 0.65 + 0.35 * Math.sin(t * 0.9 + d.x * 1.7 + d.y);
+        const a = 0.2 * env.night * pulse;
+        B.emissive.add(soft, d.x, d.y, 0.5 * K.soft * d.s, 0.38 * K.soft * d.s, 0.3, 0.85, 0.72, a, 0, 0, 0, 1, 0, 0.08);
+        B.emissive.add(soft, d.x, d.y, 0.16 * K.soft * d.s, 0.13 * K.soft * d.s, 0.6, 1, 0.9, a * 1.6, 0, 0, 0, 1, 0, 0.12);
+      }
+    }
     // fireflies: glow + tiny light
     if (this.fireflies.length) {
       const soft = this.spr(this.S.soft), core = this.spr(this.S.spark), K = this.K;
