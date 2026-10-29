@@ -70,6 +70,7 @@ export class Levels {
     this._nb = new Int32Array(16); this._nc = new Float32Array(16);
     this.STORY = STORY_H;
     this.hasUpper = false;
+    this.hasTops = false;
   }
 
   // any stairs in the world (level traversal possible)? Rebuilds the map when the structures changed.
@@ -89,7 +90,7 @@ export class Levels {
     for (const a of this.blk) a?.fill(0);
     for (const a of this.st) a?.fill(0);
     this.stairs.length = 0;
-    let upper = 0, sig = 0;
+    let upper = 0, sig = 0, tops = 0;
     const mark = (list, k, o) => {
       const A = this._arr(list, k, Uint8Array, N);
       for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A[y * W + x] = 1;
@@ -102,12 +103,13 @@ export class Levels {
       if (lv) { upper++; sig = (sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = o.y + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it)
       if (o.blueprint) continue;
       if (def.block === 'stairs') { this._addStair(o, lv); continue; }
-      if (isWallTop(def) && lv < MAX_LV) mark(this.surf, lv + 1, o);            // wall / door tops: the next story's floor
+      if (isWallTop(def) && lv < MAX_LV) { mark(this.surf, lv + 1, o); tops++; } // wall / door tops: the next story's floor
       if (lv && def.layer === 'floor' && !def.roof) mark(this.surf, lv, o);       // upper floor slab
       if (lv && (def.block === 'tile' || (def.block === 'door' && !o.open))) mark(this.blk, lv, o); // upper walls, closed doors, railings, furniture
     }
     this._active = this.stairs.length > 0;
     this.hasUpper = upper > 0;
+    this.hasTops = tops > 0; // (the build mode's story selector shows up)
     this._nodesV = -1; // A* nodes are built on the first path request
     // roofs: their eaves sit on the highest story — repaint J's regions when the upper stories change
     if (sig !== this._upSig) {
@@ -848,13 +850,20 @@ function cutaway(game, dt) {
         }
         if (inner.size < 400) for (const i of inner) { const o = wallAt(i % W, ((i / W) | 0) + 1); if (o) C.want.add(o); }
       }
-      // walls just south of the player (their top face is drawn over its body)
-      for (let y = ty + 1; y <= ty + 2; y++) for (let x = tx - 1; x <= tx + 1; x++) { const o = wallAt(x, y); if (o && (y === ty + 1 || x === tx)) C.want.add(o); }
+      // walls just south of the player (their top face is drawn over its body), and the stories stacked on them
+      // (each story is one more tile of facade over the player)
+      for (let k = lv; k <= MAX_LV; k++) {
+        for (let y = ty + 1; y <= ty + 2 + (k - lv); y++) for (let x = tx - 1; x <= tx + 1; x++) {
+          const o = w.inBounds(x, y) ? G.get(y * W + x + k * W * w.H) : null;
+          if (o && isWallish(o) && !o.blueprint && (y === ty + 1 || x === tx)) C.want.add(o);
+        }
+      }
     }
   }
   for (const o of C.want) C.live.add(o);
-  const k = 1 - Math.exp(-dt * 9);
+  const k = 1 - Math.exp(-dt * 9), R = L._rev?.want;
   for (const o of C.live) {
+    if (R?.has(o) && C.want.has(o)) continue; // the reveal fades it out completely (one owner per piece)
     const to = C.want.has(o) && !o.removed ? CUT_A : 1;
     const a = o.alpha ?? 1;
     const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;

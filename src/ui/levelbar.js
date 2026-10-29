@@ -45,7 +45,7 @@ export function installLevelbar(game) {
       const m = mode(), p = game.player, L = game.levels;
       if (m && m !== lastMode) { lastMode = m; if (m.lv == null) m.lv = m.move ? m.move.lv | 0 : Math.max(0, Math.min(MAX, Math.round(p.z || 0))); } // sync-ok: local build-mode choice
       if (!m) lastMode = null;
-      const want = !!m && !m.move && (L?.surf?.[1] || L?.hasUpper || (p.z || 0) > 0 || (m.lv | 0) > 0);
+      const want = !!m && !m.move && (L?.hasTops || L?.hasUpper || (p.z || 0) > 0 || (m.lv | 0) > 0);
       if (want !== shown) { shown = want; el.style.display = want ? 'flex' : 'none'; }
       if (!want) return;
       const K = game.input?.pressed;
