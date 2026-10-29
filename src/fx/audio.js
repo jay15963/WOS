@@ -63,7 +63,8 @@ export class Audio {
     this._hide = 1; this._duck = 1;
     this._near = { water: 0, flow: 0, waterPan: 0, marsh: 0, lush: 0.5, trees: 0, fire: 0, firePan: 0, indoor: 0, wolves: 0 };
     this._timers = { bird: 2, cricket: 0.5, owl: 15, frog: 6, crackle: 0, drip: 2, rumble: 30, blub: 8, gust: 4, howl: 40, wood: 25 };
-    this._cave = 0; this.indoor = 0;
+    this._cave = 0; this.indoor = 0; this._swim = 0;
+    this.body = { hp: 1, cold: 0, warm: 0 }; // the local player's state, set by the director
     this._strikeId = 0; this._lastThunder = -9;
     this._acc = 0; this._scanT = 0; this._gustOn = false;
     this._muteClickUntil = 0;
@@ -166,9 +167,13 @@ export class Audio {
     this.out.connect(comp); comp.connect(ctx.destination);
     this.comp = comp;
     this.musicBus = g(curve(L.music), this.out);
-    this.sfx = g(curve(L.sfx), this.out);
+    // the world (effects + ambience) passes one low-pass: it closes in when the player is near death
+    this.worldLP = ctx.createBiquadFilter();
+    this.worldLP.type = 'lowpass'; this.worldLP.frequency.value = 20000; this.worldLP.Q.value = 0.5;
+    this.worldLP.connect(this.out);
+    this.sfx = g(curve(L.sfx), this.worldLP);
     this.uiBus = g(curve(L.sfx), this.out);
-    this.amb = g(curve(L.amb), this.out);
+    this.amb = g(curve(L.amb), this.worldLP);
     // outdoor beds / critters pass one lowpass: muffled indoors and underground
     this.outdoor = ctx.createBiquadFilter();
     this.outdoor.type = 'lowpass'; this.outdoor.frequency.value = 18000; this.outdoor.Q.value = 0.5;
@@ -397,24 +402,34 @@ export class Audio {
     const R = this._recent, win = o.dedupe ?? 0.12;
     for (let i = R.length - 1; i >= 0; i--) {
       const e = R[i];
-      if (now - e.t > 0.4) break;
+      if (now - e.t > 0.8) break;
       if (e.n !== name || now - e.t > win) continue;
       if (!spatial || (e.x != null && Math.abs(e.x - o.x) < 0.9 && Math.abs(e.y - o.y) < 0.9)) return true;
     }
     R.push({ n: name, t: now, x: spatial ? o.x : null, y: spatial ? o.y : null });
-    if (R.length > 40) R.splice(0, R.length - 40);
+    if (R.length > 64) R.splice(0, R.length - 64);
+    return false;
+  }
+  // was one of `names` played near (x, y) during the last `win` seconds?
+  recentNear(names, x, y, win = 0.5, r = 1.2) {
+    if (!this.ctx) return false;
+    const now = this.ctx.currentTime;
+    for (let i = this._recent.length - 1; i >= 0; i--) {
+      const e = this._recent[i];
+      if (now - e.t > win) break;
+      if (names.includes(e.n) && e.x != null && Math.abs(e.x - x) < r && Math.abs(e.y - y) < r) return true;
+    }
     return false;
   }
   _sfx(name, o = {}) {
-    if (!this.bank.has(name)) return false;
+    const def = SFX[name];
+    if (!def) return false;
     const now = this.ctx.currentTime;
     if (name === 'ui_click' && now < this._muteClickUntil) return false;
-    const e = this.bank.get(name), def = e.def;
     const spatial = o.x != null && (def.bus !== 'ui' || o.world);
     if (def.gap && !o.force) {
-      const key = spatial ? name + ((o.x * 2) | 0) + ':' + ((o.y * 2) | 0) : name;
-      if (now - (this._gapT[key] ?? -9) < def.gap) return false;
-      this._gapT[key] = now;
+      if (now - (this._gapT[name] ?? -9) < def.gap) return false;
+      this._gapT[name] = now;
     }
     if (!o.force && this._dupe(name, o, now, spatial)) { this.stats.deduped++; return false; }
     const sp = spatial ? this._spatial(o.x, o.y, o.range || 14) : SP0;
@@ -422,6 +437,7 @@ export class Audio {
     const vol = (o.volume ?? 1) * sp.gain * def.gain * (1 + (rnd() - 0.5) * (def.vj ?? 0.1));
     if (vol < 0.003) return false;
     if (this.voices >= this.maxVoices && vol < 0.3 && !o.force) { this.stats.dropped++; return false; }
+    const e = this.bank.get(name);
     const rate = Math.pow(2, ((rnd() - 0.5) * 2 * (def.pj ?? 1)) / 12) * (o.pitch ?? 1);
     const bus = def.bus === 'ui' ? this.uiBus : def.bus === 'amb' ? (o.indoor === false || o.outdoor ? this.outdoor : this.amb) : this.sfx;
     const send = def.bus === 'amb' ? this.ambSend : def.bus === 'ui' ? null : this.sfxSend;
@@ -497,18 +513,23 @@ export class Audio {
     const caveNow = w && w.caveDark ? w.caveDark(this.lx, this.ly) : 0;
     this._cave += (caveNow - this._cave) * (1 - Math.exp(-dt * 1.2));
     this.indoor += (N.indoor - this.indoor) * (1 - Math.exp(-dt * 2));
-    const cave = this._cave, indoor = this.indoor, out = 1 - cave * 0.88;
-    const muff = Math.max(indoor * 0.85, cave);
+    // head at water level: the world gets muffled, water all around
+    const p = game.player, swimNow = p && !p.dead && w && w.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2 ? 1 : 0;
+    this._swim += (swimNow - this._swim) * (1 - Math.exp(-dt * 3));
+    const cave = this._cave, indoor = this.indoor, out = 1 - cave * 0.88, swim = this._swim;
+    const muff = Math.max(indoor * 0.85, cave, swim * 0.5);
     this._param(this.outdoor.frequency, muff > 0.04 ? 18000 * Math.pow(650 / 18000, muff) : 18000, 'ofreq', 0.4);
     this._param(this.verbIn.gain, 1 + 1.4 * cave + 0.3 * indoor, 'verb', 0.5);
+    const B = this.body, nd = clamp((0.2 - B.hp) / 0.2, 0, 1), cold = B.cold || 0, warm = B.warm || 0;
+    this._param(this.worldLP.frequency, nd > 0.01 ? 20000 * Math.pow(1500 / 20000, nd * 0.85) : 20000, 'wlp', 0.6);
     this._param(this.echoIn.gain, cave * 0.42, 'echo', 0.5);
     this._set(this.bCave, cave * 0.05, 1.0);
 
     const wind = env.wind ?? 0.2, gust = env.gust || 0;
     this._set(this.bWind, (0.035 + wind * 0.13) * out, 0.6);
     this._param(this.bWind.f.frequency, 260 + wind * 520 + gust * 260, 'wf', 0.8);
-    this._set(this.bWind2, Math.max(0, wind - 0.5) * 0.05 * out, 0.8);
-    this._param(this.bWind2.f.frequency, 1100 + gust * 700, 'wf2', 1.0);
+    this._set(this.bWind2, (Math.max(0, wind - 0.5) * 0.05 + cold * 0.022 * (1 - indoor)) * out, 0.8);
+    this._param(this.bWind2.f.frequency, 1100 + gust * 700 + cold * 900, 'wf2', 1.0);
     this._set(this.bLeaves, N.trees * (0.25 + wind) * 0.035 * out, 0.8);
     const rain = env.rain || 0;
     this._set(this.bRain, rain * 0.075 * (1 - cave * 0.93) * (1 - indoor * 0.4), 1.2);
@@ -518,10 +539,10 @@ export class Audio {
     if (this.bRiver.p) this._param(this.bRiver.p.pan, N.waterPan * 0.6, 'rp', 0.5);
     const tt = performance.now() / 1000;
     const lap = 0.5 + 0.5 * Math.sin(tt * 1.7) * Math.sin(tt * 0.6);
-    this._set(this.bLake, N.water * (0.05 + 0.06 * lap) * (1 - N.flow * 0.5), 0.3);
-    if (this.bLake.p) this._param(this.bLake.p.pan, N.waterPan * 0.6, 'lp', 0.5);
-    this._set(this.bFire, N.fire * 0.05, 0.3);
-    if (this.bFire.p) this._param(this.bFire.p.pan, N.firePan, 'fp', 0.3);
+    this._set(this.bLake, N.water * (0.05 + 0.06 * lap) * (1 - N.flow * 0.5) + swim * (0.06 + 0.04 * lap), 0.3);
+    if (this.bLake.p) this._param(this.bLake.p.pan, N.waterPan * 0.6 * (1 - swim), 'lp', 0.5);
+    this._set(this.bFire, N.fire * 0.05 * (1 + warm * 0.5), 0.3);
+    if (this.bFire.p) this._param(this.bFire.p.pan, N.firePan * (1 - warm * 0.5), 'fp', 0.3);
     const day = env.day || 0, night = (env.night || 0) * (1 - cave), hour = env.hour ?? 12;
     this._set(this.bInsect, night * (1 - rain) * (0.3 + N.lush) * 0.011, 2);
 
@@ -549,7 +570,7 @@ export class Audio {
     // fire crackle
     if (N.fire > 0.02) {
       T.crackle -= dt;
-      while (T.crackle <= 0) { T.crackle += 0.05 + rnd() * 0.2; this._sfx('crackle', { pan: N.firePan + (rnd() - 0.5) * 0.2, volume: Math.min(1, N.fire) * (0.4 + rnd() * 0.8), delay: rnd() * 0.08 }); }
+      while (T.crackle <= 0) { T.crackle += 0.05 + rnd() * 0.2; this._sfx('crackle', { pan: N.firePan * (1 - warm * 0.5) + (rnd() - 0.5) * 0.2, volume: Math.min(1, N.fire) * (0.4 + rnd() * 0.8) * (1 + warm * 0.4), delay: rnd() * 0.08 }); }
     }
     // birds by day, dawn chorus
     const dawn = hour > 5 && hour < 8.5;
@@ -695,6 +716,7 @@ const speciesOf = (e) => (e ? (e.species === 'bandit' || (e.kind === 'pawn' && e
 const METAL = /iron|copper|bronze|steel|chain|plate/;
 const ROUTES = {
   step(o) {
+    if (o.x != null && this._world?.waterAt?.(Math.floor(o.x), Math.floor(o.y)) === 2) return; // swimming: strokes instead (director)
     const s = o.surface || (o.ground && o.ground !== 'soft' ? o.ground : null) || this.surfaceAt(o.x, o.y);
     const name = 'step_' + s;
     this._sfx(this.bank.has(name) ? name : 'step_dirt', o.light ? { ...o, pitch: 1.25 * (o.pitch ?? 1), volume: (o.volume ?? 1) * 0.5 } : o);
@@ -726,7 +748,18 @@ const ROUTES = {
   hotbar(o) { this._sfx('hotbar', { ...o, pitch: Math.pow(2, PENTA[((o.slot | 0) % 10 + 10) % 10] / 12) * 0.9 }); },
   zoom(o) { this._sfx('zoom', { ...o, pitch: (o.dir ?? o.delta ?? 1) > 0 ? 1.15 : 0.85 }); },
   mine(o) { this._sfx('mine', o); },
+  // cosmetic wildlife (fx/wildlife.js): quiet and spaced out
+  splash(o) { this._sfx((o.volume ?? 1) <= 0.3 ? 'plop' : 'splash', o); }, // a frog / small critter jumping in = a plop
+  frog(o) { if (spaced.call(this, 'frog', 2.5)) this._sfx('frog', o); },
+  duck(o) { if (spaced.call(this, 'duck', 3) && this._sfx('duck', o)) this._sfx('wings', { ...o, delay: 0.12, volume: (o.volume ?? 1) * 0.9, force: true }); },
+  chirp(o) { if (spaced.call(this, 'chirp', 1.2)) this._sfx(Math.random() < 0.7 ? 'bird_chirp' : 'bird_warble', o); },
 };
+function spaced(key, gap) {
+  const t = this.ctx.currentTime, k = 'route:' + key;
+  if (t - (this._gapT[k] ?? -9) < gap) return false;
+  this._gapT[k] = t;
+  return true;
+}
 function hitRoute(name, o) {
   this._sfx(name, o);
   const e = this.entityNear(o.x, o.y, 0.6);

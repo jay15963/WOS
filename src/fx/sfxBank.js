@@ -204,6 +204,32 @@ export const SFX = {
     for (let k = 0; k < 3; k++) bubble(d, sr, 0.04 + r() * 0.15, r, 0.2);
     burst(d, sr, 0.02, 0.12, { r, type: 'hp', f: 3500, amp: 0.15, grain: 0.9, grainRate: 500 });
   } },
+  // swimming (deep water): a stroke = the arm slapping in, a pouring slosh, bubbles and drops falling back
+  swim_stroke: { v: 5, sec: 0.8, sr: 24000, gain: 0.34, rev: 0.18, pj: 1.2, vj: 0.15, render(d, sr, r) {
+    burst(d, sr, 0, 0.05, { r, type: 'bp', f: 1400 + r() * 400, q: 0.9, a: 0.003, amp: 0.4 });
+    burst(d, sr, 0.02, 0.45, { r, color: 'pink', type: 'bp', f: 900 + r() * 200, f1: 420, q: 0.9, a: 0.06, amp: 0.8, grain: 0.35, grainRate: 300 });
+    burst(d, sr, 0.05, 0.5, { r, color: 'brown', type: 'lp', f: 380, a: 0.08, amp: 0.45 });
+    const n = 4 + Math.floor(r() * 4);
+    for (let k = 0; k < n; k++) bubble(d, sr, 0.15 + r() * 0.45, r, 0.1 + r() * 0.1);
+    burst(d, sr, 0.25, 0.4, { r, type: 'hp', f: 3500, amp: 0.1, grain: 0.9, grainRate: 120 });
+  } },
+  swim_tread: { v: 4, sec: 0.75, sr: 24000, gain: 0.16, rev: 0.15, pj: 1.5, vj: 0.2, render(d, sr, r) {
+    burst(d, sr, 0, 0.65, { r, color: 'pink', type: 'bp', f: 550 + r() * 200, q: 0.8, shape: 'bell', pow: 1.5, amp: 0.7, grain: 0.3, grainRate: 200 });
+    for (let k = 0; k < 2 + Math.floor(r() * 3); k++) bubble(d, sr, 0.1 + r() * 0.5, r, 0.15);
+  } },
+  splash_in: { v: 3, sec: 1.05, sr: 24000, gain: 0.55, rev: 0.25, pj: 1, vj: 0.1, render(d, sr, r) {
+    tone(d, sr, 0, 0.16, 90, 45, 0.5, { a: 0.003, dec: 0.12 });
+    burst(d, sr, 0, 0.55, { r, type: 'bp', f: 1300 + r() * 300, f1: 380, q: 0.8, a: 0.004, amp: 0.9 });
+    burst(d, sr, 0.02, 0.75, { r, color: 'pink', type: 'lp', f: 520, a: 0.03, amp: 0.5 });
+    for (let k = 0; k < 9; k++) bubble(d, sr, 0.1 + r() * 0.75, r, 0.12 + r() * 0.12);
+    burst(d, sr, 0.01, 0.4, { r, type: 'hp', f: 4000, amp: 0.2, grain: 0.5, grainRate: 400 });
+  } },
+  splash_out: { v: 3, sec: 0.95, sr: 24000, gain: 0.42, rev: 0.2, pj: 1, vj: 0.1, render(d, sr, r) {
+    burst(d, sr, 0, 0.3, { r, color: 'pink', type: 'bp', f: 700, f1: 1100, q: 0.9, shape: 'bell', amp: 0.6 });
+    const n = 10 + Math.floor(r() * 7);
+    for (let k = 0; k < n; k++) { const f = 900 + r() * 900, t = 0.15 + Math.pow(r(), 1.4) * 0.7; tone(d, sr, t, 0.045, f, f * 2.4, 0.35 * (1 - (t - 0.15) / 0.8), { a: 0.001, dec: 0.04 }); }
+    burst(d, sr, 0.1, 0.6, { r, type: 'hp', f: 3000, amp: 0.15, grain: 0.8, grainRate: 200 });
+  } },
   plop: { v: 4, sec: 0.16, gain: 0.25, rev: 0.3, pj: 1.5, vj: 0.2, render(d, sr, r) {
     tone(d, sr, 0, 0.035, 300 + r() * 100, 900, 0.7, { a: 0.001, dec: 0.03 });
     burst(d, sr, 0, 0.06, { r, type: 'lp', f: 800, amp: 0.4 });
@@ -359,6 +385,53 @@ export const SFX = {
     burst(d, sr, 0, 0.8, { r, type: 'hp', f: 5000, shape: 'swell', amp: 0.15 });
     tone(d, sr, 0.1, 1.2, 523.25, 523.25, 0.3, (u) => Math.sin(Math.PI * u));
     tone(d, sr, 0.3, 1.1, 784, 784, 0.2, (u) => Math.sin(Math.PI * u));
+  } },
+
+  // ---------- the player's body (heard "from inside": bus ui, no reverb) ----------
+  heartbeat: { v: 2, sec: 0.55, sr: 16000, gain: 0.5, bus: 'ui', rev: 0, pj: 0.3, vj: 0.05, render(d, sr, r) {
+    const beat = (t, a) => {
+      tone(d, sr, t, 0.16, 62, 38, a, { a: 0.008, dec: 0.13 });
+      tone(d, sr, t, 0.1, 110, 70, a * 0.35, { a: 0.004, dec: 0.07 });
+      burst(d, sr, t, 0.05, { r, color: 'brown', type: 'lp', f: 180, a: 0.004, amp: a * 0.3 });
+    };
+    beat(0, 1); beat(0.17, 0.7);
+    biquad(d, sr, 'lp', 400, 0.7);
+  } },
+  shiver: { v: 3, sec: 0.9, sr: 24000, gain: 0.2, bus: 'ui', rev: 0, pj: 1, vj: 0.15, render(d, sr, r) {
+    // teeth chattering: a fast train of small enamel clicks over a shaky breath
+    const rate = 18 + r() * 8;
+    for (let t = 0.03; t < 0.75; t += (0.8 + r() * 0.4) / rate) modal(d, sr, t, 2200 + r() * 900, [[1, 0.5, 0.012], [1.7, 0.25, 0.008]], 0.35 + r() * 0.3, { r });
+    const n = Math.ceil(0.85 * sr), b = new Float32Array(n);
+    burst(b, sr, 0, 0.85, { r, color: 'pink', type: 'bp', f: 1300, q: 0.9, shape: 'bell', amp: 0.3 });
+    for (let i = 0; i < n; i++) b[i] *= 0.55 + 0.45 * Math.sin((2 * Math.PI * 9 * i) / sr);
+    mix(d, b, 0, 1);
+  } },
+  breath_cold: { v: 3, sec: 1.2, sr: 24000, gain: 0.2, bus: 'ui', rev: 0, pj: 1, vj: 0.15, render(d, sr, r) {
+    // a shaky, trembling exhale
+    const n = Math.ceil(1.1 * sr), b = new Float32Array(n), trem = 8 + r() * 3;
+    burst(b, sr, 0, 1.1, { r, color: 'pink', type: 'bp', f: 950 + r() * 200, q: 0.8, shape: 'bell', pow: 1.2, amp: 1 });
+    for (let i = 0; i < n; i++) b[i] *= 0.45 + 0.55 * Math.abs(Math.sin((Math.PI * trem * i) / sr));
+    mix(d, b, 0, 1);
+  } },
+  stomach: { v: 3, sec: 1.3, sr: 16000, gain: 0.3, bus: 'ui', rev: 0, pj: 1.5, vj: 0.15, render(d, sr, r) {
+    const ph = r() * 6;
+    voiced(d, sr, 0, 1.15, (u) => 70 + 35 * Math.sin(u * 9 + ph) + 12 * Math.sin(u * 23), (u) => Math.pow(Math.sin(Math.PI * u), 0.8),
+      { formants: [[180, 2, 1], [420, 3, 0.6]], tilt: 1.3, rough: 0.25, am: 0.5, amRate: 12, noise: 0.2, r });
+    for (let k = 0; k < 3; k++) tone(d, sr, 0.3 + r() * 0.7, 0.06, 150, 300, 0.25, { a: 0.004, dec: 0.05 });
+    biquad(d, sr, 'lp', 900, 0.7);
+  } },
+  drip_body: { v: 5, sec: 0.5, sr: 24000, gain: 0.12, bus: 'ui', rev: 0, pj: 2, vj: 0.3, render(d, sr, r) {
+    const n = 2 + Math.floor(r() * 3);
+    for (let k = 0; k < n; k++) {
+      const t = r() * 0.4, f = 1400 + r() * 1200;
+      tone(d, sr, t, 0.03, f, f * 1.7, 0.7, { a: 0.001, dec: 0.025 });
+      burst(d, sr, t + 0.004, 0.01, { r, type: 'hp', f: 3000, amp: 0.25 });
+    }
+  } },
+  queasy: { v: 2, sec: 1.1, sr: 16000, gain: 0.22, bus: 'ui', rev: 0, pj: 1, vj: 0.1, render(d, sr, r) {
+    // a closed-mouth, uneasy "mmmh"
+    voiced(d, sr, 0, 1.0, (u) => 115 - 25 * u + 6 * Math.sin(u * 14), (u) => Math.pow(Math.sin(Math.PI * u), 0.9),
+      { formants: [[300, 4, 1], [650, 5, 0.35], [2400, 6, 0.08]], tilt: 1.5, noise: 0.08, r });
   } },
 
   // ---------- wildlife & ambience voices (bus amb) ----------

@@ -103,6 +103,8 @@ export class Music {
     if (this.started) return;
     this.started = true;
     this.bank = new NoteBank(this.ctx, this.e.lowEnd ? 1.4e6 : 2.4e6, this.e.pool || null);
+    // danger must start at once: its first hits are rendered ahead (in the worker)
+    for (const [inst, m, v] of [['boom', 0, 0], ['taiko', 0, 0], ['taiko', 1, 0], ['taiko', 2, 0], ['frame', 2, 0], ['frame', 2, 1]]) this.bank.want(inst, m, v);
     this.nextAt = now + (this.mood === 'menu' ? 0.5 : 4 + Math.random() * 4);
   }
 
@@ -158,7 +160,11 @@ export class Music {
       if (!p.ending && p.phrasesLeft <= 0) p.ending = true;
       if (p.ending && !p.closed && p.mood === 'danger' && p.t0 - now < genAhead(p)) this._dangerEnd(p);
       if (p.ending && !p.closed && p.mood !== 'danger') p.closed = true;
-      while (p.queue.length && p.queue[0].t < now + LOOK) this._note(p, p.queue.shift());
+      while (p.queue.length && p.queue[0].t < now + LOOK) {
+        const ev = p.queue.shift();
+        if (ev.t < now - 0.04) { this.stats.late = (this.stats.late || 0) + 1; continue; } // main thread stalled: drop, never burst
+        this._note(p, ev);
+      }
       if (p.closed && !p.queue.length && now > p.t0) {
         this.cur = null;
         this.nextAt = p.t0 + 3 + (p.nextGap ?? this._gap(p.mood));
