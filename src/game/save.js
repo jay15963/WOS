@@ -11,6 +11,7 @@ import { saveFlora, loadFlora, SAPLING_GROW } from './flora.js';
 import { saveCrops, loadCrops } from './farming.js';
 import { saveCraft, loadCraft } from './crafting.js';
 import { equipChanged, SLOTS } from './equipment.js';
+import { collides } from './physics.js';
 
 const VERSION = 2;
 const key = (game, v = VERSION) => `wos.save.v${v}.${game.world.seed}`;
@@ -181,6 +182,10 @@ export function loadGame(game) {
   equipChanged(game);
   p.respawn = d.respawn || null;
   if (d.dead) { const sp = respawnPoint(game); p.x = sp.x; p.y = sp.y; } // saved while dead: wake up at the respawn point
+  if (collides(w, p.x, p.y, p.r, null, true)) { // never wake up stuck inside something built later
+    const x0 = p.x, y0 = p.y;
+    for (let k = 0; k < 40 && collides(w, p.x, p.y, p.r, null, true); k++) { const a = k * 2.4, r = 0.3 + k * 0.1; p.x = x0 + Math.cos(a) * r; p.y = y0 + Math.sin(a) * r; }
+  }
   if (game.ctl && data.hinted) game.ctl.hinted = { ...data.hinted };
   game.cam.x = p.x; game.cam.y = p.y - 0.4;
   if (v1) {

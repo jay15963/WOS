@@ -40,7 +40,7 @@ export const BUILDINGS = {
   stonecutter: { name: 'Mesa de cantaria', g: 'f', emoji: '🪚', cat: ['prod'], cost: { wood: 6, stone: 12 }, size: [2, 1], time: 6, xp: 15, block: 'tile', station: true,
                  desc: 'Corta pedra em blocos para paredes e pisos de pedra.' },
   furnace:     { name: 'Fornalha', g: 'f', emoji: '🔥', cat: ['prod'], cost: { stone: 18, wood: 3 }, time: 8, xp: 20, block: 'tile', station: true,
-                 workLight: L(1, 0.55, 0.25, 4.5, 1.2, 0.2, 0.5), warm: 3, warmWorking: true,
+                 workLight: L(1, 0.55, 0.25, 4.5, 1.2, 0.2, 0.3), warm: 3, warmWorking: true,
                  desc: 'Funde minério em barras e faz carvão. Usa madeira ou carvão como combustível.' },
   anvil:       { name: 'Bigorna', g: 'f', emoji: '⚒️', cat: ['prod'], cost: { copper_bar: 3, stone: 6, wood: 2 }, time: 6, xp: 20, block: 'tile', station: true,
                  desc: 'Forja ferramentas, armas e armaduras de metal.' },
@@ -74,10 +74,10 @@ export const BUILDINGS = {
                  light: L(1, 0.7, 0.38, 3.6, 1.0, 0.3, 0.75),
                  desc: 'Ilumina os arredores (essencial nas minas).' },
   brazier:     { name: 'Braseiro', g: 'm', emoji: '🔥', cat: ['light'], cost: { iron_bar: 2, stone: 6, coal: 2 }, time: 4, xp: 10, block: 0.3, fire: true, warm: 4,
-                 light: L(1, 0.6, 0.28, 6.5, 1.35, 0.25, 0.6),
+                 light: L(1, 0.6, 0.28, 6.5, 1.35, 0.25, 1.1),
                  desc: 'Fogo alto em bacia de ferro. Muita luz e calor.' },
   lamp_post:   { name: 'Poste com lanterna', g: 'm', emoji: '🏮', cat: ['light'], cost: { iron_bar: 2, wood: 4 }, time: 4, xp: 10, block: 0.15,
-                 light: L(1, 0.85, 0.55, 7, 1.2, 0.06, 1.7),
+                 light: L(1, 0.85, 0.55, 7, 1.2, 0.06, 1.5),
                  desc: 'Luz alta e firme para caminhos e praças.' },
 
   // ---------- farming ----------

@@ -33,14 +33,29 @@ export function collides(world, x, y, r, ignore = null, passDoors = false) {
   return hit;
 }
 
+function overlappedProp(world, x, y, r) {
+  let found = null;
+  world.forChunks(x - r - 1, y - r - 1, x + r + 1, y + r + 1, (c) => {
+    if (found) return;
+    for (const o of c.objects) {
+      if (!o.solid || o.stump || o.fall) continue;
+      const rr = r + o.solid, dx = x - o.x, dy = y - (o.cy ?? o.y);
+      if (dx * dx + dy * dy < rr * rr) { found = o; return; }
+    }
+  });
+  return found;
+}
+
 export function moveCircle(world, e, dx, dy) {
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
   const sx = dx / steps, sy = dy / steps;
   const pd = !!e.passDoors;
+  // already overlapping a round prop (finished / loaded under us): ignore it so we can walk out
+  const stuckOn = collides(world, e.x, e.y, e.r, null, pd) ? overlappedProp(world, e.x, e.y, e.r) : null;
   let moved = false;
   for (let i = 0; i < steps; i++) {
-    if (!collides(world, e.x + sx, e.y, e.r, null, pd)) { e.x += sx; moved = true; }
-    if (!collides(world, e.x, e.y + sy, e.r, null, pd)) { e.y += sy; moved = true; }
+    if (!collides(world, e.x + sx, e.y, e.r, stuckOn, pd)) { e.x += sx; moved = true; }
+    if (!collides(world, e.x, e.y + sy, e.r, stuckOn, pd)) { e.y += sy; moved = true; }
   }
   return moved;
 }

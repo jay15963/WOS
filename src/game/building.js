@@ -266,19 +266,25 @@ function clearDecor(game, tx, ty, sw, sh) {
   });
 }
 
-// nudge entities out of a newly solid footprint
+// nudge entities out of a newly solid footprint (tile blocks) or round prop
 function nudgeOut(game, o) {
   const def = defOf(o);
-  if (def.block !== 'tile' && def.block !== 'door') return;
+  const round = typeof def.block === 'number' && def.block > 0;
+  if (def.block !== 'tile' && def.block !== 'door' && !round) return;
   const [sw, sh] = def.size;
   for (const e of game.entities) {
     if (e.dead) continue;
-    if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
+    if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
+    else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
     if (def.block === 'door' && e.passDoors) continue;
     let best = null, bd = 1e9;
-    for (let ty = o.ty - 1; ty <= o.ty + sh; ty++) for (let tx = o.tx - 1; tx <= o.tx + sw; tx++) {
-      const x = tx + 0.5, y = ty + 0.5;
-      if (collides(game.world, x, y, e.r)) continue;
+    const pd = !!e.passDoors;
+    // closest free spot: around the prop first, then neighbouring tile centres
+    const cands = [];
+    if (round) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, rr = e.r + def.block + 0.05; cands.push([o.x + Math.cos(a) * rr, o.cy + Math.sin(a) * rr]); }
+    for (let ty = o.ty - 1; ty <= o.ty + sh; ty++) for (let tx = o.tx - 1; tx <= o.tx + sw; tx++) cands.push([tx + 0.5, ty + 0.5]);
+    for (const [x, y] of cands) {
+      if (collides(game.world, x, y, e.r, null, pd)) continue;
       const d = Math.hypot(x - e.x, y - e.y);
       if (d < bd) { bd = d; best = [x, y]; }
     }
