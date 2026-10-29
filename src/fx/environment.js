@@ -44,6 +44,11 @@ export class Environment {
     this.flash = 0;
     this.t = 0;
     this.windAng = this.rand() * Math.PI * 2;
+    // Cosmetic wind field (per frame, local to each client; never feeds gameplay):
+    // game.env.wind = { x, y, gust } — x, y = direction × strength (0..~1.05), gust 0..1 (both low-passed).
+    this.wind = { x: Math.cos(this.windAng) * 0.18, y: Math.sin(this.windAng) * 0.18, gust: 0.5 };
+    this._windS = WEATHERS.clear.wind;   // smoothed strength
+    this._gustS = 0.5;                  // smoothed gust
     this.strikes = [];          // recent lightning: { t, dist } (audio reads it for thunder)
     this.strikeId = 0;
     this._nextStrike = 4;
@@ -90,6 +95,15 @@ export class Environment {
     for (const key in target) this.cur[key] = lerp(this.cur[key], target[key], k);
     this.wet = clamp(this.wet + (this.cur.rain > 0.25 ? dt / 35 * this.cur.rain : -dt / 110), 0, 1);
     this.windAng += dt * 0.004 * Math.sin(this.t * 0.01);
+    // wind: slow gust noise, then low-passed strength (a few seconds) so sway amplitude never pumps;
+    // the sway / wave speeds stay almost constant (see compute) — calm even in storms
+    const tt = this.t, sdt = Math.min(dt, 0.1);
+    const gRaw = clamp(0.5 + 0.5 * Math.sin(tt * 0.17) * Math.sin(tt * 0.43 + 1.3) + 0.25 * Math.sin(tt * 0.6 + 0.4) * Math.sin(tt * 0.07), 0, 1);
+    this._gustS += (gRaw - this._gustS) * (1 - Math.exp(-sdt / 2.5));
+    const wRaw = Math.min(1.05, this.cur.wind * (0.75 + 0.5 * this._gustS) + this.cur.storm * 0.12 * this._gustS);
+    this._windS += (wRaw - this._windS) * (1 - Math.exp(-sdt / 3));
+    const W = this.wind;
+    W.x = Math.cos(this.windAng) * this._windS; W.y = Math.sin(this.windAng) * this._windS; W.gust = this._gustS;
 
     // lightning in heavy rain / storms (multi-flicker strikes)
     const stormy = this.cur.storm * 0.9 + Math.max(0, this.cur.rain - 0.6) * 0.25;
@@ -180,20 +194,19 @@ export class Environment {
     e.fogCol[0] = fogLum * (0.94 + warmF * 0.12); e.fogCol[1] = fogLum * (0.97 + warmF * 0.02); e.fogCol[2] = fogLum * (1.06 - warmF * 0.1);
     if (!isDay) { e.fogCol[0] *= 0.62; e.fogCol[1] *= 0.7; e.fogCol[2] *= 0.95; }
 
-    // wind with gusts
-    const tt = this.t;
-    const gust = clamp(0.5 + 0.5 * Math.sin(tt * 0.17) * Math.sin(tt * 0.43 + 1.3) + 0.25 * Math.sin(tt * 1.1 + 0.4) * Math.sin(tt * 0.07), 0, 1);
-    e.gust = gust;
-    e.wind = clamp(this.cur.wind * (0.7 + 0.6 * gust) + this.cur.storm * 0.2 * gust, 0, 1.2);
+    // wind (smoothed in update): strength drives the sway AMPLITUDE; the speeds below barely change
+    e.gust = this._gustS;
+    e.wind = this._windS;
     e.windDir[0] = Math.cos(this.windAng); e.windDir[1] = Math.sin(this.windAng);
     const cs = 0.0035 + this.cur.wind * 0.006;
     e.cloudVel[0] = e.windDir[0] * cs; e.cloudVel[1] = e.windDir[1] * cs;
-    // integrate the sway / wave phases (the shaders used to multiply time by the wind, which made the
-    // grass race after a while whenever the gusts changed)
+    // integrate the sway / wave phases on the CPU (never time × wind in a shader: that races). Rates are
+    // nearly constant (~1.0–1.3 rad/s sway, ~0.9–1.3 rad/s waves). Wrapped at 100·2π: every multiplier m the
+    // shaders apply to a phase must satisfy m·100 ∈ ℤ so the wrap stays invisible.
     const pdt = clamp(this.t - this._phT, 0, 0.1);
     this._phT = this.t;
-    e.windPh[0] = (e.windPh[0] + pdt * (1.3 + e.wind)) % 628.31853; // 100·2π: every multiple used by the shaders stays continuous
-    e.windPh[1] = (e.windPh[1] + pdt * (1.1 + e.wind * 1.7)) % 628.31853; // 100·2π: every multiple used by the shaders stays continuous
+    e.windPh[0] = (e.windPh[0] + pdt * (1.0 + 0.3 * e.wind)) % 628.31853;
+    e.windPh[1] = (e.windPh[1] + pdt * (0.9 + 0.35 * e.wind)) % 628.31853;
     X.uWindPh[0] = e.windPh[0]; X.uWindPh[1] = e.windPh[1];
     X.uWindDir[0] = e.windDir[0]; X.uWindDir[1] = e.windDir[1];
     X.uWindK = e.wind;

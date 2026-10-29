@@ -37,19 +37,26 @@ float windWave(vec2 p, vec2 dir, float ph){
 }
 `;
 
-// sway displacement shared by sprite & shadow shaders
-// (phases are accumulated on the CPU so changing wind never makes the sway jump or race)
+// sway displacement shared by sprite & shadow shaders. Calm by design: the oscillation frequency is
+// almost constant (CPU-integrated phase, ~1.0–1.3 rad/s; trees ×0.9, grass ×1.2–1.3) and only the
+// AMPLITUDE follows the (low-passed) wind, with caps. uWindPh wraps at 100·2π, so every multiplier of a
+// phase keeps m·100 integer (fr is quantized to 0.05 steps, harmonic ×1.6). Mirror: wind bench in the
+// C-agent report (keep both in sync if you tune it).
 const SWAY_FN = `${WAVE_FN}
 vec2 swayLocal(vec2 c, vec2 local){
   float top = clamp(aAnchor.y - c.y, 0.0, 1.0);
-  float ph = uWindPh.x + aPos.x * 0.63 + aPos.y * 0.37;
-  float gust = sin(uTime * 0.45 + aPos.x * 0.09 + aPos.y * 0.05) * 0.5 + 0.5;
-  float s = sin(ph) * 0.55 + sin(ph * 2.31 + 1.7) * 0.25 + (0.4 + uWind) * gust * 0.8;
-  float k = aParams.x * top * top * aSize.y * (0.6 + uWind);
+  float sw = clamp(aParams.x, 0.0, 0.2);
+  float fr = floor((0.8 + min(sw, 0.15) * 3.3) * 20.0 + 0.5) * 0.05;
+  float ph = uWindPh.x * fr + aPos.x * 0.63 + aPos.y * 0.37;
+  float slow = sin(uTime * 0.31 + aPos.x * 0.09 + aPos.y * 0.05) * 0.5 + 0.5;
+  float w = clamp(uWind, 0.0, 1.1);
+  float k = sw * top * top * aSize.y * (0.55 + 0.6 * w);
+  float s = sin(ph) * 0.6 + sin(ph * 1.6 + 1.7) * 0.2;
   local.x += s * k;
-  // lean with the passing wave, along the wind (y foreshortened by the 3/4 view)
+  // steady bend down-wind (slowly breathing) + the passing wind wave (y foreshortened by the 3/4 view)
   float wv = windWave(aPos, uWindDir, uWindPh.y);
-  local += vec2(uWindDir.x, uWindDir.y * 0.4) * wv * (0.3 + uWind * 1.5) * k;
+  float bend = (0.15 + 0.5 * w) * (0.55 + 0.45 * slow) + wv * (0.2 + 0.55 * w);
+  local += vec2(uWindDir.x, uWindDir.y * 0.4) * bend * k;
   return local;
 }
 vec2 rotLocal(vec2 l, float r){

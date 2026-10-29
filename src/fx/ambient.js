@@ -132,7 +132,7 @@ class Ambient {
         const gnd = w.groundAt(Math.floor(x), Math.floor(y));
         if (!(gnd === 2 || gnd === 3 || gnd === 0) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
         if (w.isMined && w.isMined(Math.floor(x), Math.floor(y))) continue;
-        const sp = 1.5 + env.wind * 2.5;
+        const sp = 1.0 + env.wind * 1.6;   // calm drift even in strong wind (≤ ~2.7 tiles/s)
         P.emit({ spr: this.S.dust, x, y, vx: env.windDir[0] * sp, vy: env.windDir[1] * sp, lift: 0.1, vlift: 0.15, life: 1.8, size: (0.4) * K.dust, size1: (1.4) * K.dust,
           r: 0.75, g: 0.66, b: 0.52, a: 0.16, a1: 0, fadeIn: 0.4, ground: false });
       }
@@ -149,7 +149,7 @@ class Ambient {
         if (pine && rnd() < 0.7) continue;
         const autumn = rnd();
         const c = o.type === 'tree_birch' ? [1.35, 1.2, 0.45] : autumn < 0.45 ? [1, 1, 1] : autumn < 0.8 ? [1.3, 0.95, 0.5] : [1.25, 0.72, 0.42];
-        const sp = 0.3 + env.wind * 1.6;
+        const sp = 0.25 + env.wind * 1.1; // ≤ ~1.4 tiles/s: leaves float, never shoot
         P.emit({ spr: this.S.leaf, x: o.x + (rnd() - 0.5) * 1.3 * s, y: o.y + (rnd() - 0.3) * 0.5, lift: (1.2 + rnd() * 1.3) * s,
           vx: env.windDir[0] * sp + (rnd() - 0.5) * 0.3, vy: env.windDir[1] * sp * 0.6 + (rnd() - 0.5) * 0.2, vlift: -0.25 - rnd() * 0.2, grav: 0.02, drag: 0.05,
           life: 5 + rnd() * 3, size: (0.17 + rnd() * 0.1) * K.leaf, size1: (0.15) * K.leaf, rot: rnd() * TAU, vr: (rnd() - 0.5) * 5, r: c[0], g: c[1], b: c[2], a: 1, a1: 0, flip: rnd() < 0.5 ? -1 : 1 });

@@ -1565,9 +1565,49 @@ def('S30', {
 });
 
 // =====================================================================================================
+// S31 C: calm wind on the guest (cosmetic visuals; wind never feeds shared state)
+def('S31', {
+  title: 'C: calm wind on the guest (cosmetic)', timeout: 60000,
+  expected: 'guest exposes game.env.wind {x,y,gust}; in a storm the sway / wave phase rates stay ≤ 1.45 rad/s (game time) and ≤ 1.7 rad/s (real time), strength ≤ 1.1 and low-passed (|Δ| ≤ 0.5 per s); weather follows the host',
+  api: 'game.env.{wind,weather,cur,t,setWeather}, game.env.env.{windPh,wind}',
+}, async (t) => {
+  const { H, G } = await pairCtx(t);
+  const EH = H.game.env, EG = G.game.env;
+  const w0 = EH.weather;
+  EH.setWeather('storm');
+  try {
+    await t.waitFor(() => EG.weather === 'storm', 8000, 'guest follows the host weather');
+    EG.cur.wind = 0.92; EG.cur.storm = 1; // skip the 14 s weather blend on the guest (cosmetic values only)
+    await t.sleep(3000);                   // let the low-passed strength settle
+    const s = [];
+    let last = null;
+    for (let k = 0; k < 16; k++) {
+      await t.sleep(500);
+      const e = EG.env, cur = { ph0: e.windPh[0], ph1: e.windPh[1], et: EG.t, rt: now(), wind: e.wind };
+      if (last && cur.et > last.et + 0.05) {
+        const P = 628.31853, d0 = (cur.ph0 - last.ph0 + P) % P, d1 = (cur.ph1 - last.ph1 + P) % P, ge = cur.et - last.et, re = (cur.rt - last.rt) / 1000;
+        s.push({ g0: d0 / ge, g1: d1 / ge, r0: d0 / re, r1: d1 / re, dw: Math.abs(cur.wind - last.wind) / ge, wind: cur.wind });
+      }
+      last = cur;
+    }
+    t.assert(s.length >= 8, 'guest frames advanced while sampling', `${s.length} windows`);
+    const mx = (k) => Math.max(...s.map((x) => x[k]));
+    t.metric('guestStorm', { swayRad: f2(mx('g0')), waveRad: f2(mx('g1')), swayRadReal: f2(mx('r0')), waveRadReal: f2(mx('r1')), windMax: f2(mx('wind')), dWindMax: f2(mx('dw')) });
+    t.check(mx('g0') <= 1.45 && mx('g1') <= 1.45, 'sway / wave phase rates ≤ 1.45 rad/s (game time)', `${f2(mx('g0'))} / ${f2(mx('g1'))}`);
+    t.check(mx('r0') <= 1.7 && mx('r1') <= 1.7, 'phase rates ≤ 1.7 rad/s over real time (no bursts on the guest)', `${f2(mx('r0'))} / ${f2(mx('r1'))}`);
+    t.check(mx('wind') <= 1.1 && mx('dw') <= 0.5, 'wind strength capped and low-passed', `max ${f2(mx('wind'))}, |Δ| ${f2(mx('dw'))}/s`);
+    const W = EG.wind;
+    t.check(W && Math.abs(Math.hypot(W.x, W.y) - EG.env.wind) < 0.05 && W.gust >= 0 && W.gust <= 1, 'game.env.wind = direction × strength, gust 0..1', W ? short(W) : 'missing');
+  } finally {
+    EH.setWeather(w0 || 'clear');
+    await t.tryWait(() => EG.weather === EH.weather, 8000);
+  }
+});
+
+// =====================================================================================================
 // entry
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
-  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S29'];
+  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S31', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));
 for (const s of S) if (!ORDER.includes(s.id)) ORDER.push(s.id);
 
