@@ -89,7 +89,12 @@ function paintFallback(cv) {
 
 const music = (mood) => { try { AUD.getAudio?.()?.music?.setMood?.(mood); } catch { /* audio not ready */ } };
 
-export function showMainMenu({ presetCode = '', progress = null, assets = null } = {}) {
+// onShown(): called once the live background has drawn its first frame (or failed / timed out), so the boot
+// loading screen can stay up until the menu is really ready and never stutters underneath it
+export function showMainMenu({ presetCode = '', progress = null, assets = null, onShown = null } = {}) {
+  let shown = false;
+  const showNow = () => { if (shown) return; shown = true; try { onShown?.(); } catch { /* ignore */ } };
+  setTimeout(showNow, 6000); // never keep the loading screen forever
   return new Promise((resolve) => {
     const root = document.createElement('div');
     root.id = 'menu';
@@ -137,9 +142,10 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
     assets?.then(({ renderer, atlas }) => {
       if (!root.isConnected) return;
       try {
-        show = startShowcase({ renderer, atlas, onReady: () => root.classList.add('live'), onFail: () => root.classList.remove('live') });
-      } catch (e) { console.warn('[menu] showcase unavailable', e); }
-    }).catch(() => {});
+        show = startShowcase({ renderer, atlas, onReady: () => { root.classList.add('live'); showNow(); }, onFail: () => { root.classList.remove('live'); showNow(); } });
+      } catch (e) { console.warn('[menu] showcase unavailable', e); showNow(); }
+    }).catch(() => showNow());
+    if (!assets) showNow();
 
     music('menu');
     const kick = () => music('menu');

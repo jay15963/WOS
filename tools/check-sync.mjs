@@ -5,7 +5,7 @@
 //   R2  entity list mutation outside game/mut/**, net/entities.js, net/session.js, game/game.js, mobs.js, bandits.js
 //   R3  ground-loot list mutation outside game/mut/loot.js, game/systems.js
 //   R4  assignment to a replicated field outside game/mut/**, autotile.js (mask/orient), net/snapshot.js
-//   R5  tile grid writes (solid[], noGrow[], occ[]) outside game/mut/**, world/world.js, game/nav.js
+//   R5  tile grid writes (solid[], noGrow[], occ[], path[] / pathPlan[]) outside game/mut/**, world/world.js, game/nav.js
 //   R6  Math.random / Date.now / performance.now / game.player in game/mut/** (except roll.js, own.js)
 //   R7  random ids (id = …Math.random…)
 //   R8  Math.random in shared-state code (world/**, net/**, economy / building / save modules…)
@@ -60,7 +60,7 @@ const RULES = [
   { id: 'R2', re: /\bentities\.(push|splice|unshift|pop|shift)\b|\bentities\s*=(?!=)/, ok: (f) => inMut(f) || ['src/net/entities.js', 'src/net/session.js', 'src/game/game.js', 'src/game/mobs.js', 'src/game/bandits.js'].includes(f), msg: 'lista de entidades alterada fora dos módulos de criaturas/rede' },
   { id: 'R3', re: /\bloot\.(push|splice)\b|\bgame\.loot\s*=(?!=)/, ok: (f) => f === 'src/game/mut/loot.js' || f === 'src/game/systems.js', msg: 'itens no chão alterados fora de mut/loot.js (use loot.add / loot.take)' },
   { id: 'R4', re: /\.(stump|stumpAt|fall|fallDir|gone|prog|born|progress|blueprint|mask|orient|working|fire|lit|broken|brokenAt|stage|growth|removed|store|decon)\s*(=(?!=)|\+=|-=)/, ok: (f, m) => inMut(f) || f === 'src/net/snapshot.js' || (f === 'src/game/autotile.js' && /\.(mask|orient)/.test(m[0])), msg: 'campo replicado alterado fora de uma op' },
-  { id: 'R5', re: /\bsolid\[[^\]]+\]\s*=(?!=)|\bnoGrow\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)|\bocc\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)/, ok: (f) => inMut(f) || f === 'src/world/world.js' || f === 'src/game/nav.js', msg: 'grade de tiles alterada fora de uma op' },
+  { id: 'R5', re: /\bsolid\[[^\]]+\]\s*=(?!=)|\bnoGrow\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)|\bocc\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)|\bpath(?:Plan)?\[[^\]]+\]\s*=(?!=)/, ok: (f) => inMut(f) || f === 'src/world/world.js' || f === 'src/game/nav.js', msg: 'grade de tiles alterada fora de uma op' },
   { id: 'R6', re: /Math\.random|Date\.now|performance\.now|\bgame\.player\b/, ok: (f) => !inMut(f) || f === 'src/game/mut/roll.js' || f === 'src/game/mut/own.js', msg: 'aplicador de op impuro (aleatório / relógio / jogador local) — passe o valor nos args' },
   { id: 'R7', re: /\bid\s*[:=][^,;]*Math\.random/, ok: () => false, msg: 'id aleatório (use net.newId na autoridade)' },
   { id: 'R8', re: /Math\.random/, ok: (f) => !(f.startsWith('src/world/') || f.startsWith('src/net/') || /^src\/game\/(gathering|building|mining|farming|loot|save|crafting|work|autotile|inventory|equipment|economy|game|systems)\.js$/.test(f)), msg: 'Math.random em código de estado compartilhado (use net.roll na autoridade)' },
