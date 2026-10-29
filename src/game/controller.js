@@ -310,7 +310,9 @@ export function installController(game) {
       else if (p.inv.room(h.it.item) <= 0) game.events.emit('error', { text: 'Mochila cheia' });
       return;
     }
-    // empty ground: never walks; a tap or click clears the creature target (so nearby things can be used again)
+    // empty ground: never walks. Desktop: a left click is the normal attack (same as Space: the target, or the
+    // nearest enemy). Phones: a tap clears the creature target (so nearby things can be used again)
+    if (isMouse) { if (attackable(p.target) || nearestEnemy(game, 10)) ctl.attack(); return; } // silent when nobody is around
     if (p.target) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
   };
 

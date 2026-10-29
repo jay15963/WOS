@@ -38,7 +38,8 @@ export function installActionBar(game, root, wrap) {
   const atk = document.createElement('button');
   atk.className = 'ab ab-atk';
   atk.dataset.ab = 'attack';
-  atk.innerHTML = `<span class="ic"></span><span class="key">Esp</span><span class="ammo hidden"></span>`;
+  atk.innerHTML = `<span class="ic"></span><span class="key">Esp · 🖱</span><span class="ammo hidden"></span>`;
+  atk.title = 'Atacar (Espaço ou clique esquerdo)';
   wrap.appendChild(atk);
   press(atk, () => game.ctl.toggleAttack());
   const atkIc = atk.querySelector('.ic'), atkAmmo = atk.querySelector('.ammo');

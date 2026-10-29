@@ -986,3 +986,13 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 /* phones: "eat" sits with the combat cluster (actionbar.js moves the .qb into #ab and places it) */
 #ab .qb.ab-eat { pointer-events: auto; z-index: 2; border-radius: 50%; }
 #ab .qb.ab-eat .qk { display: none; }
+
+/* desktop: the hotbar stays visible above open windows (drag items between the backpack / chest and the bar) */
+.desktop .hotbar { z-index: 6; }
+.desktop .panels { padding-bottom: calc(84px + var(--safe-b)); }
+
+/* horizontal tab strips: a visible thin scrollbar (the mouse wheel scrolls them sideways: hudtheme.js) */
+.tabs, :is(#hud, body) .kdet .ktabs, .cc-tabs { scrollbar-width: thin; scrollbar-color: var(--n-mustard, #d9a441) rgba(20, 12, 6, 0.35); padding-bottom: 6px; }
+.tabs::-webkit-scrollbar, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar, .cc-tabs::-webkit-scrollbar { display: block; height: 6px; }
+.tabs::-webkit-scrollbar-thumb, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar-thumb, .cc-tabs::-webkit-scrollbar-thumb { background: var(--n-mustard, #d9a441); border-radius: 3px; }
+.tabs::-webkit-scrollbar-track, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar-track, .cc-tabs::-webkit-scrollbar-track { background: rgba(20, 12, 6, 0.35); border-radius: 3px; }

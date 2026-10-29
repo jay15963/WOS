@@ -89,6 +89,13 @@ let done = false;
 export function installHudTheme() {
   if (done || typeof document === 'undefined') return;
   done = true;
+  // mouse wheel over a horizontal tab strip scrolls it sideways (build menu, crafting, Detalhes, editor tabs)
+  addEventListener('wheel', (e) => {
+    const t = e.target?.closest?.('.tabs, .ktabs, .cc-tabs');
+    if (!t || t.scrollWidth <= t.clientWidth + 1 || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    t.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false, capture: true });
   try {
     const st = document.documentElement.style;
     st.setProperty('--n-hatch', `url(${hatchTile()})`);
