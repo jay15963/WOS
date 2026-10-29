@@ -59,9 +59,10 @@ export class Game {
 
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
+    if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
-    if (p.rooted) mx = my = 0;
+    if (p.rooted || p._atkRootT > 0) mx = my = 0;
     const spd = p.speed * this.world.speedAt(p.x, p.y);
     if (mx || my) {
       const x0 = p.x, y0 = p.y;
