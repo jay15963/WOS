@@ -61,7 +61,8 @@ export function initPaths(game) {
     stroke: null,                    // { tiles: Set, ok: Map } while painting
     pending: [],                     // [{ tiles: [] }] sent, waiting for the host
     layers: null, layersP: null,     // material layers (CPU) once generated
-    gpuReady: false, full: true, hover: null, icons: null,
+    gpuReady: false, full: true, hover: null, icons: null, t0: 0,
+    stats: { last: 0, max: 0, n: 0 },  // CPU ms of the last / worst GPU-data rebuild (debug)
   };
   game._paths = V;
   game.paths = {
@@ -80,6 +81,7 @@ export function initPaths(game) {
       return deconTiles(game, list, false);
     },
     layers: () => ensureLayers(game),
+    stats: () => ({ ...V.stats }),
     refresh: () => { V.full = true; },
   };
   // work: the auto-work queue picks planned tiles too
@@ -478,9 +480,9 @@ function tileDirs(game, x0, y0, x1, y1) {
     Dr[i * 3] = ux; Dr[i * 3 + 1] = uy; Dr[i * 3 + 2] = end ? 0.5 : 0.5 + 0.75 * a;
   }
 }
-function rebuildCov(game, x0, y0, x1, y1) {
+function rebuildCov(game, x0, y0, x1, y1, planOnly = false) {
   const w = game.world, W = w.W, H = w.H, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, C = V.cov, Dr = V.dir, W2 = W * 2;
-  tileDirs(game, x0 - SPLAT_R, y0 - SPLAT_R, x1 + SPLAT_R, y1 + SPLAT_R);
+  if (!planOnly) tileDirs(game, x0 - SPLAT_R, y0 - SPLAT_R, x1 + SPLAT_R, y1 + SPLAT_R);
   const SC2 = 2 * COV_S * COV_S;
   for (let sy = Math.max(0, y0 * 2); sy <= Math.min(H * 2 - 1, y1 * 2 + 1); sy++) {
     const by = sy >> 1, wy = CW[sy & 1], qy = (sy + 0.5) / 2;
@@ -495,7 +497,7 @@ function rebuildCov(game, x0, y0, x1, y1) {
           const xx = bx + dx;
           if (xx < 0 || xx >= W) continue;
           const j = row + xx;
-          if (P[j]) {
+          if (P[j] && !planOnly) {
             const ex = qx - xx - 0.5, ey = qy - yy - 0.5, ux = Dr[j * 3], uy = Dr[j * 3 + 1], sa = Dr[j * 3 + 2];
             const u = ex * ux + ey * uy, v = -ex * uy + ey * ux;
             cb += Math.exp(-(u * u) / (2 * sa * sa) - (v * v) / SC2) / (Math.PI * SC2 * (sa / COV_S));
@@ -504,7 +506,7 @@ function rebuildCov(game, x0, y0, x1, y1) {
         }
       }
       const o = (sy * W2 + sx) * 2;
-      C[o] = cb >= 1 ? 255 : Math.round(cb * 255);
+      if (!planOnly) C[o] = cb >= 1 ? 255 : Math.round(cb * 255);
       C[o + 1] = cp >= 1 ? 255 : Math.round(cp * 255);
     }
   }
@@ -564,10 +566,12 @@ function contentBox(game) {
 
 function syncGpu(game) {
   const V = game._paths, s = game.pathGrid, w = game.world, R = game.R;
+  if (s.dirty || V.full) V.t0 = performance.now();
   const any = s.built > 0 || s.planned.size > 0 || V.prevList.length > 0;
   if (!s.dirty && !V.full) { if (R) R.pathOn = any && V.gpuReady ? 1 : 0; return; }
   let d = s.dirty;
-  s.dirty = null;
+  const planOnly = !s.dirtyBuilt; // only blueprints / the local preview changed: the built outline field stays
+  s.dirty = null; s.dirtyBuilt = false;
   if (d && d[0] <= 0 && d[1] <= 0 && d[2] >= w.W - 1 && d[3] >= w.H - 1) V.full = true; // snapshot / load
   if (V.full) {
     // whole grid: clear, then rebuild around the content only
@@ -581,19 +585,20 @@ function syncGpu(game) {
       rebuildCov(game, Math.max(0, d[0] - SPLAT_R - 2), Math.max(0, d[1] - SPLAT_R - 2), Math.min(w.W - 1, d[2] + SPLAT_R + 2), Math.min(w.H - 1, d[3] + SPLAT_R + 2));
     }
     if (prevHid || d) w.forChunks(0, 0, w.W, w.H, (c) => { for (const q of c.decor) if (q._hid) q._hid = 0; });
-    if (d) refreshDecor(game, Math.max(0, d[0] - 2), Math.max(0, d[1] - 2), Math.min(w.W - 1, d[2] + 2), Math.min(w.H - 1, d[3] + 2));
+    if (d) refreshDecor(game, Math.max(0, d[0] - 4), Math.max(0, d[1] - 4), Math.min(w.W - 1, d[2] + 4), Math.min(w.H - 1, d[3] + 4));
     V.anyHid = !!d;
     if (R?.gl && !game.headless) { if (R.pathTex) upload(game, 0, 0, w.W - 1, w.H - 1); else upload(game, 0, 0, 0, 0); }
   } else {
     const M5 = SPLAT_R + 2; // a tile change moves the directions of its neighbours (2), whose splats reach 3 further
     const x0 = Math.max(0, d[0] - M5), y0 = Math.max(0, d[1] - M5), x1 = Math.min(w.W - 1, d[2] + M5), y1 = Math.min(w.H - 1, d[3] + M5);
     rebuildData(game, Math.max(0, d[0] - SD_R), Math.max(0, d[1] - SD_R), Math.min(w.W - 1, d[2] + SD_R), Math.min(w.H - 1, d[3] + SD_R));
-    rebuildCov(game, x0, y0, x1, y1);
-    refreshDecor(game, Math.max(0, d[0] - 2), Math.max(0, d[1] - 2), Math.min(w.W - 1, d[2] + 2), Math.min(w.H - 1, d[3] + 2));
-    V.anyHid = true;
+    rebuildCov(game, x0, y0, x1, y1, planOnly);
+    if (!planOnly) { refreshDecor(game, Math.max(0, d[0] - 4), Math.max(0, d[1] - 4), Math.min(w.W - 1, d[2] + 4), Math.min(w.H - 1, d[3] + 4)); V.anyHid = true; }
     if (R?.gl && !game.headless) upload(game, x0, y0, x1, y1);
   }
   if (R) R.pathOn = any && V.gpuReady ? 1 : 0;
+  const ms = performance.now() - V.t0;
+  V.stats.last = ms; V.stats.max = Math.max(V.stats.max, ms); V.stats.n++;
 }
 
 function syncMaterials(game) {

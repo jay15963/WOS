@@ -510,7 +510,7 @@ const float P_EH[5] = float[5](0.07, 0.30, 0.34, 0.24, 0.3);     // how far the 
 const float P_EW[5] = float[5](0.1, 0.035, 0.03, 0.03, 0.035);   // edge softness (tiles)
 const float P_GAP[5] = float[5](0.0, 0.0, 0.85, 0.38, 1.0);      // share of the real ground seen in the gaps
 const float P_REL[5] = float[5](0.4, 1.0, 0.75, 0.9, 0.8);       // sun relief strength
-const float P_PUD[5] = float[5](1.35, 0.28, 0.6, 0.5, 0.75);     // puddle affinity (rain)
+const float P_PUD[5] = float[5](0.85, 0.28, 0.6, 0.5, 0.75);     // puddle affinity (rain): earth pools in ruts / prints
 const float P_HS[5] = float[5](0.016, 0.04, 0.03, 0.034, 0.03); // height scale of the micro normals (tiles per unit)
 const vec3 P_STRAY[3] = vec3[3](vec3(0.6, 0.58, 0.54), vec3(0.68, 0.63, 0.55), vec3(0.5, 0.49, 0.48));
 
@@ -539,6 +539,13 @@ vec4 pathMat(float l, vec2 p, float m){
   }
 #endif
   return a;
+}
+// height only (normals / shadows): one fetch, from the layout that dominates the anti-tiling blend there
+float pathH(float l, vec2 p, float m){
+#if QL >= 1
+  if (l < 1.5 && m > 0.5) return textureLod(uPathMat, vec3(ROT * p * 0.23 + vec2(0.31, 0.67), l), max(LOD - 0.12, 0.0)).a;
+#endif
+  return textureLod(uPathMat, vec3(p * 0.25, l), LOD).a;
 }
 
 void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT, float aaW,
@@ -624,16 +631,20 @@ void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT
   }
   // sun relief from the material height: micro normals from finite differences of the texture (smooth, no 2×2
   // screen-quad blocks) + (QL 2) small cast shadows
-  float he = max(PPX, 1.0 / 128.0) * 1.5;
-  vec2 hg = (vec2(pathMat(float(ia), wp + vec2(he, 0.0), nC.x).a, pathMat(float(ia), wp + vec2(0.0, he), nC.x).a) - M.a) / he * P_HS[ia];
+#if QL == 0
+  vec2 hg = vec2(0.0); // low quality: flat (the albedo keeps its contact shading)
+#else
+  float he = max(PPX, 1.0 / 128.0) * 1.5, fl = float(ia), h0 = ia < 2 ? pathH(fl, wp, nC.x) : M.a;
+  vec2 hg = (vec2(pathH(fl, wp + vec2(he, 0.0), nC.x), pathH(fl, wp + vec2(0.0, he), nC.x)) - h0) / he * P_HS[ia];
+#endif
   vec3 N = normalize(vec3(-hg, 1.0));
   float dif = max(dot(N, Ld), 0.0), flat0 = max(Ld.z, 0.25);
   float rel = P_REL[ia] * (0.3 + 0.7 * LI);
   float shade = mix(1.0, (0.42 + 0.66 * dif) / (0.42 + 0.66 * flat0), rel);
 #if QL >= 2
   if (rel > 0.3 && PPX < 0.05) {
-    float h2 = pathMat(float(ia), wp + normalize(Ld.xy + 1e-4) * 0.03, nC.x).a;
-    shade *= 1.0 - 0.3 * smoothstep(0.03, 0.14, h2 - M.a) * LI; // material only (ruts / prints are not occluders)
+    float h2 = pathH(fl, wp + normalize(Ld.xy + 1e-4) * 0.03, nC.x);
+    shade *= 1.0 - 0.3 * smoothstep(0.03, 0.14, h2 - h0) * LI; // material only (ruts / prints are not occluders)
   }
 #endif
   pc *= shade * mix(vec3(1.0), sunT, dif * 0.6);
@@ -654,7 +665,11 @@ void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT
   // outside: trampled grass streaked along the path, stray stones kicked off it
   if (m < 1.0 && sdE < 0.05) {
     float halo = smoothstep(-0.6, -0.02, sdE) * (1.0 - m);
+#if QL >= 1
     float st = textureLod(uNoise, vec2(dot(wp, tg) * 0.9, dot(wp, nrm) * 6.0) + 0.3, nLod(6.0)).b;
+#else
+    float st = nB.w;
+#endif
     float l0 = dot(col, vec3(0.333));
     vec3 tr = mix(vec3(l0), col, 0.72) * vec3(1.07, 1.05, 0.9);
     col = mix(col, tr, halo * (0.3 + 0.45 * smoothstep(0.45, 0.72, st)) * (ia == 0 ? 0.9 : ia == 1 ? 0.5 : 0.25));
@@ -676,9 +691,11 @@ void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT
     }
 #endif
   }
+  // where the real ground shows (around stepping stones) it keeps its own height / puddles
+  float gq = gapK * P_GAP[ia];
   col = mix(col, pc, m);
-  hgt = mix(hgt, h, m);
-  pk = mix(pk, P_PUD[ia], m);
+  hgt = mix(hgt, mix(h, hgt, gq), m);
+  pk = mix(pk, mix(P_PUD[ia], pk, gq), m);
   pathK = m;
 }
 

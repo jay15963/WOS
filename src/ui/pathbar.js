@@ -87,10 +87,13 @@ const CSS = `
 .pbb .lbl small.bad{color:#ffb39a}
 .touch .pbb .lbl{display:none}
 .touch .pbb button span{display:none}
+/* touch: compact — only the active type / brush / shape show; tapping it cycles (types open a list) */
+.touch .pbb .brush button:not(.on),.touch .pbb .shape button:not(.on),.touch .pbb:not(.open) .types button:not(.on){display:none}
+.touch .pbb .grp+.grp{padding-left:5px}
 @media (max-width:760px),(max-height:520px){.pbb{top:calc(var(--safe-t,0px) + 106px)}}
 @media (orientation:portrait){.touch .pbb{left:auto;right:calc(var(--safe-r,0px) + 6px);top:22%;transform:none;flex-direction:column;flex-wrap:nowrap;max-height:70vh;overflow-y:auto}
   .touch .pbb .grp{flex-direction:column}.touch .pbb .grp+.grp{border-left:0;border-top:1px solid rgba(150,190,240,.22);padding:6px 0 0}}
-.abb-on .workbar .wb-ok,.pbb-on .workbar .wb-ok,.pbb-on .workbar .wb-no{display:none!important}
+.pbb-on .workbar{display:none!important} /* this bar has its own name / cost line */
 `;
 
 export function installPathbar(game) {
@@ -108,9 +111,16 @@ export function installPathbar(game) {
   root.appendChild(bar);
   const $ = (s) => bar.querySelector(s), $$ = (s) => [...bar.querySelectorAll(s)];
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); game.audio?.play('ui_click', {}); setTimeout(() => el.classList.remove('down'), 120); });
-  for (const b of $$('[data-k]')) press(b, () => setPathCode(game, b.dataset.k));
-  for (const b of $$('[data-b]')) press(b, () => setBrush(game, +b.dataset.b));
-  for (const b of $$('[data-s]')) press(b, () => setShape(game, b.dataset.s));
+  const touch = () => document.documentElement.classList.contains('touch') || document.body.classList.contains('touch') || game.input.isTouch;
+  const SHAPES = ['free', 'line', 'area'];
+  for (const b of $$('[data-k]')) press(b, () => {
+    const m = game.build.mode;
+    if (touch() && m?.key === b.dataset.k) { bar.classList.toggle('open'); return; } // the active type opens / closes the list
+    bar.classList.remove('open');
+    setPathCode(game, b.dataset.k);
+  });
+  for (const b of $$('[data-b]')) press(b, () => { const m = game.build.mode; setBrush(game, touch() && m?.brush === +b.dataset.b ? (m.brush % 3) + 1 : +b.dataset.b); });
+  for (const b of $$('[data-s]')) press(b, () => { const m = game.build.mode; setShape(game, touch() && m?.shape === b.dataset.s ? SHAPES[(SHAPES.indexOf(m.shape) + 1) % 3] : b.dataset.s); });
   press($('.ok'), () => exitBuildMode(game));
   press($('.no'), () => cancelBuild(game));
   const lbl = $('.lbl b'), sub = $('.lbl small');

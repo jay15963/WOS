@@ -28,8 +28,9 @@ export function initPathGrids(game) {
 const PG = (game) => game.pathGrid || initPathGrids(game);
 
 // tile rect (inclusive) whose GPU data / decor visibility must be rebuilt (cosmetic consumers: game/paths.js)
-export function pathChanged(game, x0, y0, x1, y1) {
+export function pathChanged(game, x0, y0, x1, y1, built = true) {
   const s = PG(game), d = s.dirty;
+  if (built) s.dirtyBuilt = true; // built tiles changed (not only plans): the shader's outline field must be redone
   if (!d) s.dirty = [x0, y0, x1, y1];
   else { d[0] = Math.min(d[0], x0); d[1] = Math.min(d[1], y0); d[2] = Math.max(d[2], x1); d[3] = Math.max(d[3], y1); }
   s.v++;
@@ -132,7 +133,7 @@ function refundOf(game, pid, acc) {
 const floorAll = (acc) => { const out = {}; for (const id in acc) { const n = Math.floor(acc[id] + 1e-6); if (n > 0) out[id] = n; } return Object.keys(out).length ? out : undefined; };
 
 // ---------- appliers ----------
-function setTiles(game, tiles, fn) {
+function setTiles(game, tiles, fn, built = true) {
   const w = game.world, W = w.W;
   let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0, sx = 0, sy = 0;
   for (const i of tiles) {
@@ -144,7 +145,7 @@ function setTiles(game, tiles, fn) {
     if (y > y1) y1 = y;
     sx += x; sy += y; n++;
   }
-  if (n) pathChanged(game, x0, y0, x1, y1);
+  if (n) pathChanged(game, x0, y0, x1, y1, built);
   return n ? { n, x: sx / n + 0.5, y: sy / n + 0.5 } : null;
 }
 
@@ -155,7 +156,7 @@ defineOp('path.plan', {
     const w = game.world, c = a.c | 0;
     if (!validCode(c)) return;
     const s = PG(game), Q = w.pathPlan;
-    const r = setTiles(game, unrleTiles(a.tiles, Q.length), (i) => { Q[i] = c; if (c) s.planned.add(i); else s.planned.delete(i); });
+    const r = setTiles(game, unrleTiles(a.tiles, Q.length), (i) => { Q[i] = c; if (c) s.planned.add(i); else s.planned.delete(i); }, false);
     if (r && !ctx.mine && c) game.audio?.play('path_paint', { x: r.x, y: r.y, volume: 0.6 });
   },
 });
