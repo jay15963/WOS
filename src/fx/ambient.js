@@ -10,6 +10,8 @@
 //  - adaptive render resolution when the frame rate drops (game.R.autoScale = false disables)
 // Everything is spawned only around the visible view and capped.
 
+import { installWildlife } from './wildlife.js';
+
 const rnd = Math.random;
 const TAU = Math.PI * 2;
 
@@ -18,6 +20,7 @@ export function installAmbient(game) {
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.ambient = sys;
+  installWildlife(game); // critters (butterflies, bees, dragonflies, frogs, ducks, fish, squirrels, birds, rabbits)
 }
 
 class Ambient {
@@ -183,7 +186,7 @@ class Ambient {
 
     // ---------- butterflies (day, near flowers) ----------
     const day = env.day * (1 - env.rain) * (1 - Math.max(0, env.wind - 0.6));
-    const wantBf = day > 0.5 && this.flowers.length ? Math.min(9, Math.round(this.flowers.length / 6) + 1) : 0;
+    const wantBf = !g.wildlife && day > 0.5 && this.flowers.length ? Math.min(9, Math.round(this.flowers.length / 6) + 1) : 0; // wildlife.js has its own
     if (this.butterflies.length < wantBf && rnd() < dt * 1.5) {
       const fl = this.flowers[Math.floor(rnd() * this.flowers.length)];
       const cols = [[1, 0.95, 0.85], [1, 0.82, 0.3], [0.95, 0.55, 0.2], [0.55, 0.7, 1], [1, 1, 1], [0.95, 0.5, 0.75]];

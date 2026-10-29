@@ -1,6 +1,6 @@
 // Trees (3/4 view, trunk at the bottom, canopy above). Sizes in tiles; anchor = trunk base.
 
-import { sprite, rng, OW, TAU, lin, rad, atop, fill, taper, leaf, ramp, rgb, hex, smoothClosed, blobPts } from './paint.js';
+import { sprite, rng, OW, TAU, lin, rad, atop, fill, taper, leaf, ramp, rgb, hex, smoothClosed, blobPts, circle } from './paint.js';
 import { mkLump, drawFoliage } from './foliage.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -530,12 +530,317 @@ function sapling(v) {
   });
 }
 
+// =====================================================================================================
+// Species (art groups inside the gameplay tree types; composeWorld picks the group from o.v >> 4):
+//   tree_oak → oak · maple (autumn) · willow   tree_pine → conifer · scots pine · juniper
+//   tree_birch → birch · aspen                  tree_dead → dead · snag
+export const TREE_SPECIES = {
+  tree_oak: ['tree_oak', 'tree_maple', 'tree_willow'],
+  tree_pine: ['tree_pine', 'tree_scots', 'tree_juniper'],
+  tree_birch: ['tree_birch', 'tree_aspen'],
+  tree_dead: ['tree_dead', 'tree_snag'],
+};
+
+// a few fallen leaves / needles painted at the foot of a tree (sprite layer 0, under the trunk)
+function footLitter(g, cx, baseY, cols, n, rand, rx = 22, needles = false) {
+  for (let i = 0; i < n; i++) {
+    const a = rand() * TAU, r = 6 + rand() * rx;
+    const x = cx + Math.cos(a) * r, y = baseY + 1 + Math.sin(a) * r * 0.28;
+    g.fillStyle = cols[Math.floor(rand() * cols.length)];
+    if (needles) { g.strokeStyle = g.fillStyle; g.lineWidth = 1; const b = rand() * TAU; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(b) * 3, y + Math.sin(b) * 1.2); g.stroke(); }
+    else { g.beginPath(); g.ellipse(x, y, 1.8 + rand() * 1.2, 1 + rand() * 0.6, rand() * TAU, 0, TAU); g.fill(); }
+  }
+}
+
+// ---------------- MAPLE (autumn) ----------------
+const MAPLE_PALS = [
+  { deep: '#4f2410', dark: '#83361a', mid: '#b9531f', light: '#dd7a2c', high: '#f3a64a' },   // orange
+  { deep: '#45130f', dark: '#771c16', mid: '#a62e1f', light: '#cb4a2b', high: '#e87a4c' },   // red
+  { deep: '#4f3c12', dark: '#836116', mid: '#b5891f', light: '#d9ad33', high: '#f0cd5c' },   // golden
+];
+const MAPLE_BARK = { deep: '#2c241e', dark: '#463a30', mid: '#625345', light: '#80705f', high: '#9a8a78' };
+function maple(v) {
+  const rand = rng(6100 + v * 89);
+  const S = [{ W: 2.5, rx: 62, ry: 58, trunk: 44, ox: 0 }, { W: 2.4, rx: 58, ry: 62, trunk: 46, ox: -5 }, { W: 2.6, rx: 66, ry: 56, trunk: 42, ox: 4 }][v % 3];
+  const pal = MAPLE_PALS[v % MAPLE_PALS.length];
+  const Hpx = 12 + S.ry * 2 + S.trunk + 9;
+  return sprite(S.W, Hpx / 64, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9, ccy = 12 + S.ry, ccx = cx + S.ox;
+    const lean = S.ox * 0.7 + (rand() - 0.5) * 3;
+    P.layer((g) => footLitter(g, cx, baseY, [pal.mid, pal.light, pal.dark, pal.high], 26, rand, 26), 0);
+    P.layer((g) => {
+      const tx = cx + lean, ty = ccy + S.ry * 0.3;
+      g.fillStyle = MAPLE_BARK.mid;
+      for (const side of [-1, 1]) { g.beginPath(); taper(g, tx, ty + 16, tx + side * 12, ty, tx + side * (26 + rand() * 6), ty - 22, 9, 4); g.fill(); }
+      g.beginPath(); taper(g, tx, ty + 10, tx + 2, ty - 6, tx + (rand() - 0.5) * 8, ty - 30, 8, 3.5); g.fill();
+      drawTrunk(g, cx, baseY, ty + 2, 24, 14, lean, rand, MAPLE_BARK, ccy + S.ry);
+      for (const s of [-1, 1]) { g.fillStyle = MAPLE_BARK.mid; g.beginPath(); taper(g, cx + s * 8, baseY - 4, cx + s * 14, baseY - 1, cx + s * 20, baseY + 2, 5, 1.4); g.fill(); }
+    });
+    const all = [];
+    const n = 7, a0 = rand() * TAU;
+    for (let i = 0; i < n; i++) {
+      const a = a0 + (i / n) * TAU + (rand() - 0.5) * 0.5, k = 0.52 + rand() * 0.12;
+      all.push(mkLump(ccx + Math.cos(a) * S.rx * k, ccy + Math.sin(a) * S.ry * k * 0.9, Math.min(S.rx, S.ry) * (0.38 + rand() * 0.1), rand, 0.85));
+    }
+    for (let i = 0; i < 3; i++) { const a = rand() * TAU, d = 0.1 + rand() * 0.2; all.push(mkLump(ccx + Math.cos(a) * S.rx * d, ccy + Math.sin(a) * S.ry * d - S.ry * 0.14, Math.min(S.rx, S.ry) * (0.4 + rand() * 0.08), rand, 0.85)); }
+    P.layer((g) => {
+      drawFoliage(g, all, pal, rand, { cx: ccx, cy: ccy, R: S.rx, RY: S.ry, marks: 1.35, sprigs: 1.6 });
+      // a few bare twigs showing through the thinning crown
+      g.strokeStyle = MAPLE_BARK.dark; g.lineWidth = 1.2;
+      for (let i = 0; i < 4; i++) { const a = Math.PI * (1.15 + rand() * 0.7), r0 = S.rx * 0.55; const x0 = ccx + Math.cos(a) * r0, y0 = ccy + Math.sin(a) * r0 * 0.9; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + Math.cos(a) * 9, y0 + Math.sin(a) * 9); g.stroke(); }
+    });
+  });
+}
+
+// ---------------- WILLOW (weeping, by the water) ----------------
+const WILLOW_PAL = [
+  { deep: '#2f4219', dark: '#45602a', mid: '#628236', light: '#83a447', high: '#a8c563' },
+  { deep: '#32461c', dark: '#4a652c', mid: '#678838', light: '#8aaa4a', high: '#b0c968' },
+];
+function willow(v) {
+  const rand = rng(6400 + v * 97);
+  const pal = WILLOW_PAL[v % WILLOW_PAL.length];
+  const stops = [pal.deep, pal.dark, pal.mid, pal.light, pal.high];
+  const Wt = v ? 2.9 : 3.15, Ht = v ? 3.3 : 3.5;
+  return sprite(Wt, Ht, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9;
+    const lean = v ? -6 : 7;
+    const ccx = cx + lean * 1.2, ccy = 52, R = W * 0.4, RY = 34;
+    P.layer((g) => footLitter(g, cx, baseY, [pal.mid, pal.light, '#8c8a46'], 22, rand, 34), 0);
+    // trunk: short, thick, leaning, splitting into arching limbs that carry the curtains
+    const limbs = [];
+    P.layer((g) => {
+      drawTrunk(g, cx, baseY, ccy + 40, 30, 18, lean, rand, BARK, ccy + 70);
+      g.fillStyle = BARK.mid;
+      for (const [s, k] of [[-1, 1], [1, 1], [-1, 0.55], [1, 0.6]]) {
+        const x0 = cx + lean, y0 = ccy + 46, x1 = ccx + s * R * 0.78 * k, y1 = ccy + 4 - k * 8;
+        limbs.push([x1, y1]);
+        g.beginPath(); taper(g, x0, y0, (x0 + x1) / 2 + s * 4, y1 - 6, x1, y1, 10 * k + 3, 3); g.fill();
+      }
+    });
+    // a hanging strand: out from its origin, arching, then falling with a little sway; narrow leaves along it
+    const strand = (g, x0, y0, len, dir, t) => {
+      const out = dir * (6 + rand() * 8), x1 = x0 + out + (rand() - 0.5) * 6, y1 = Math.min(baseY - 3, y0 + len);
+      g.strokeStyle = ramp(stops, t - 0.2); g.lineWidth = 1;
+      g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(x0 + out * 1.2, y0 + 6, x1, y1); g.stroke();
+      const m = Math.round((y1 - y0) / 3.6);
+      for (let k = 1; k <= m; k++) {
+        const tt = k / m, u = 1 - tt;
+        const px = u * u * x0 + 2 * u * tt * (x0 + out * 1.2) + tt * tt * x1, py = u * u * y0 + 2 * u * tt * (y0 + 6) + tt * tt * y1;
+        g.fillStyle = ramp(stops, t + (rand() - 0.5) * 0.22 + (k & 1 ? 0.07 : -0.05) - tt * 0.08);
+        const s = k & 1 ? 1 : -1, wl = 1.5 - tt * 0.5;
+        g.beginPath(); leaf(g, px, py, px + s * (1.6 + rand() * 1.6), py + 4.2 + rand() * 2, wl, 0); g.fill();
+      }
+    };
+    // back curtains (darker, behind the crown)
+    P.layer((g) => {
+      for (let i = 0; i < 30; i++) {
+        const a = Math.PI * (1.0 + rand() * 1.0), d = 0.55 + rand() * 0.45;
+        const x0 = ccx + Math.cos(a) * R * d, y0 = ccy + Math.sin(a) * RY * d * 0.8;
+        strand(g, x0, y0, 60 + rand() * 60 - Math.abs(Math.cos(a)) * 10, Math.sign(Math.cos(a)) || 1, 0.22 + rand() * 0.14);
+      }
+    }, OW * 0.55);
+    // crown: a low, soft mound filling the gaps (the silhouette comes from the arching fronds on top of it)
+    P.layer((g) => {
+      const lumps = [];
+      for (const [lx, ly] of limbs) for (let i = 0; i < 2; i++) lumps.push(mkLump(lx * 0.8 + ccx * 0.2 + (rand() - 0.5) * 12, ly + 2 + (rand() - 0.5) * 8, R * (0.24 + rand() * 0.06), rand, 0.75));
+      for (let i = 0; i < 3; i++) lumps.push(mkLump(ccx + (i - 1) * R * 0.32 + (rand() - 0.5) * 6, ccy - RY * 0.35 + rand() * 6, R * (0.25 + rand() * 0.05), rand, 0.75));
+      drawFoliage(g, lumps, { deep: pal.deep, dark: pal.deep, mid: pal.dark, light: pal.mid, high: pal.light }, rand, { cx: ccx, cy: ccy - 6, R, RY, marks: 1.2, sprigs: 1.6, drop: 0.35 });
+    });
+    // arching branches: each rises from the trunk, arcs over the crown and lets its fronds hang down (back arches first)
+    const arches = [];
+    for (let i = 0; i < 15; i++) arches.push((i / 14) * 2 - 1 + (rand() - 0.5) * 0.08);
+    arches.sort((p, q) => Math.abs(q) - Math.abs(p));
+    for (const [pass, sel] of [[0, (u) => Math.abs(u) > 0.55], [1, (u) => Math.abs(u) <= 0.55]]) {
+      P.layer((g) => {
+        for (const u of arches) {
+          if (!sel(u)) continue;
+          const Ax = ccx + u * R * 0.4, Ay = ccy - RY * (1.05 - 0.35 * u * u) + rand() * 4;
+          const Cx = ccx + u * R * 0.95, Cy = ccy - RY * (0.95 - 0.2 * u * u);
+          const Ex = ccx + u * R * 1.08, Ey = ccy + RY * 0.25;
+          const t0 = 0.55 + 0.35 * (1 - (u + 1) / 2); // lit from the left
+          g.strokeStyle = ramp(stops, t0 - 0.25); g.lineWidth = 1.3;
+          g.beginPath(); g.moveTo(Ax - u * 6, Ay + 4); g.quadraticCurveTo(Ax - u * 2, Ay - 1, Ax, Ay); g.quadraticCurveTo(Cx, Cy, Ex, Ey); g.stroke();
+          for (const t of [0.05, 0.3, 0.55, 0.8, 1]) {
+            const uu = 1 - t, x0 = uu * uu * Ax + 2 * uu * t * Cx + t * t * Ex, y0 = uu * uu * Ay + 2 * uu * t * Cy + t * t * Ey;
+            strand(g, x0, y0, 34 + t * 40 + rand() * 30, u < 0 ? -1 : 1, t0 - t * 0.12 + (pass ? 0.06 : -0.06));
+          }
+        }
+      }, OW * 0.45);
+    }
+  });
+}
+
+// ---------------- SCOTS PINE (tall bare trunk, umbrella clumps) ----------------
+const SCOTS_PAL = [
+  { deep: '#16281d', dark: '#24402c', mid: '#355b3c', light: '#4c7a4c', high: '#6e9a62' },
+  { deep: '#182a1c', dark: '#27432b', mid: '#3a5f3a', light: '#527e48', high: '#76a05e' },
+];
+const SCOTS_BARK = { deep: '#3a1c10', dark: '#6a3419', mid: '#a25426', light: '#c87a3e', high: '#e0a062' };
+function scots(v) {
+  const rand = rng(6700 + v * 53);
+  const pal = SCOTS_PAL[v % SCOTS_PAL.length];
+  const Wt = v ? 2.4 : 2.7, Ht = v ? 3.8 : 3.6;
+  return sprite(Wt, Ht, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9;
+    const lean = v ? -7 : 6;
+    const topY = 22;
+    P.layer((g) => footLitter(g, cx, baseY, ['rgba(120,84,46,0.85)', 'rgba(156,116,64,0.75)', 'rgba(90,60,34,0.8)'], 22, rand, 16, true), 0);
+    // trunk: grey-brown fissured base, glowing orange upper bark, a couple of bare limbs
+    P.layer((g) => {
+      const bark = { ...SCOTS_BARK };
+      drawTrunk(g, cx, baseY, topY + 40, 17, 8, lean, rand, bark, topY + 92);
+      g.save(); g.beginPath(); trunkPath(g, cx, baseY, topY + 40, 17, 8, lean, rand); g.clip();
+      g.fillStyle = lin(g, 0, baseY - 70, 0, baseY, [[0, 'rgba(0,0,0,0)'], [0.5, 'rgba(70,58,48,0.55)'], [1, 'rgba(60,48,40,0.85)']]);
+      g.fillRect(0, 0, W, H);
+      for (let i = 0; i < 9; i++) { g.fillStyle = 'rgba(240,170,100,0.45)'; g.beginPath(); g.ellipse(cx - 3 + rand() * 4 + lean * 0.5, topY + 50 + rand() * 50, 1.2, 2.6, 0, 0, TAU); g.fill(); }
+      g.restore();
+      g.fillStyle = SCOTS_BARK.mid;
+      const lx = cx + lean * 0.62;
+      g.beginPath(); taper(g, lx, topY + 66, lx - 10, topY + 58, lx - 18, topY + 60, 3, 1.2); g.fill();
+      for (const [s, dy, len] of [[-1, 40, 36], [1, 30, 40], [-1, 14, 28], [1, 6, 22], [-1, 58, 30], [1, 54, 30]]) {
+        const bx = cx + lean * (0.75 + dy * 0.002), by = topY + dy + 14;
+        g.beginPath(); taper(g, bx, by + 6, bx + s * len * 0.5, by - 2, bx + s * len, by - 10, 4.5, 1.8); g.fill();
+      }
+    });
+    // umbrella crown: flat-topped clumps, each a cluster of small lumps, light on the upper faces
+    P.layer((g) => {
+      const clumps = [[-34, 40, 27], [32, 32, 29], [-6, 16, 31], [12, 50, 24], [-40, 70, 18], [38, 64, 19], [-14, 62, 20], [4, 34, 22]];
+      const lumps = [];
+      for (const [dx, dy, r] of clumps) {
+        const kx = cx + lean + dx * (v ? 0.85 : 1), ky = topY + dy;
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * Math.PI + Math.PI + (rand() - 0.5) * 0.3;
+          lumps.push(mkLump(kx + Math.cos(a) * r * 0.55, ky + Math.sin(a) * r * 0.25 + 4, r * (0.42 + rand() * 0.1), rand, 0.7));
+        }
+        lumps.push(mkLump(kx, ky + 2, r * 0.5, rand, 0.7));
+      }
+      drawFoliage(g, lumps, pal, rand, { cx: cx + lean, cy: topY + 40, R: 56, RY: 42, marks: 0.7, sprigs: 1.8, drop: 0.6 });
+      // needle tufts on the lit tops
+      g.strokeStyle = rgb(hex(pal.high), 0.7); g.lineWidth = 1;
+      g.beginPath();
+      for (const [dx, dy, r] of clumps) {
+        const kx = cx + lean + dx * (v ? 0.85 : 1), ky = topY + dy - r * 0.15;
+        for (let i = 0; i < 7; i++) { const x = kx - r * 0.5 + rand() * r * 0.8, y = ky - rand() * 3; const a = -Math.PI / 2 + (rand() - 0.5) * 1.2; g.moveTo(x, y); g.lineTo(x + Math.cos(a) * 3.5, y + Math.sin(a) * 3.5); }
+      }
+      g.stroke();
+    });
+  });
+}
+
+// ---------------- JUNIPER (twisted dry-slope tree, rocky ground) ----------------
+const JUN_PAL = { deep: '#1c2e22', dark: '#2c4532', mid: '#3e6044', light: '#567e56', high: '#7aa070' };
+function juniper(v) {
+  const rand = rng(6900 + v * 61);
+  return sprite(v ? 1.8 : 2.0, v ? 2.2 : 2.4, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9;
+    const s = v ? -1 : 1;
+    P.layer((g) => {
+      // gnarled, twisting trunk with a silver dead limb
+      g.fillStyle = lin(g, cx - 10, 0, cx + 10, 0, [[0, '#9a8a74'], [0.5, '#6f5f4c'], [1, '#3e3328']]);
+      g.beginPath(); taper(g, cx, baseY + 1, cx + s * 16, baseY - 30, cx - s * 4, baseY - 62, 14, 6, 14); g.fill();
+      g.beginPath(); taper(g, cx + s * 6, baseY - 34, cx + s * 22, baseY - 44, cx + s * 30, baseY - 70, 7, 3); g.fill();
+      g.fillStyle = '#c9c1b0'; g.beginPath(); taper(g, cx - s * 2, baseY - 46, cx - s * 16, baseY - 56, cx - s * 26, baseY - 52, 4, 1.4); g.fill();
+      g.strokeStyle = 'rgba(40,30,20,0.55)'; g.lineWidth = 1;
+      for (let i = 0; i < 5; i++) { const y = baseY - 6 - i * 10; g.beginPath(); g.moveTo(cx - 4 + s * i * 2.5, y); g.quadraticCurveTo(cx + s * (2 + i * 3), y - 6, cx + s * (i * 3), y - 12); g.stroke(); }
+      g.fillStyle = '#5d4c3a'; g.beginPath(); g.ellipse(cx, baseY - 1, 10, 3.5, 0, 0, TAU); g.fill();
+    });
+    P.layer((g) => {
+      const C = [[-s * 4, 58, 24], [s * 28, 70, 18], [s * 12, 40, 20], [-s * 22, 50, 15], [s * 2, 78, 16]];
+      const lumps = [];
+      for (const [dx, dy, r] of C) for (let i = 0; i < 4; i++) { const a = rand() * TAU; lumps.push(mkLump(cx + dx + Math.cos(a) * r * 0.45, baseY - dy + Math.sin(a) * r * 0.3, r * (0.55 + rand() * 0.12), rand, 0.75)); }
+      drawFoliage(g, lumps, JUN_PAL, rand, { cx, cy: baseY - 60, R: 38, RY: 28, marks: 1.0, sprigs: 1.8, drop: 0.5 });
+      // dusty blue berries
+      for (let i = 0; i < 6; i++) {
+        const [dx, dy, r] = C[i % C.length];
+        const x = cx + dx + (rand() - 0.5) * r * 1.2, y = baseY - dy + (rand() - 0.5) * r * 0.7;
+        g.fillStyle = '#2c3d5a'; g.beginPath(); circle(g, x, y, 1.4); g.fill();
+        g.fillStyle = '#8aa0c2'; g.beginPath(); circle(g, x - 0.4, y - 0.5, 0.9); g.fill();
+      }
+    });
+  });
+}
+
+// ---------------- ASPEN / POPLAR (tall slim crown, pale trunk, by the water) ----------------
+const ASPEN_PALS = [
+  { deep: '#3c4f1c', dark: '#566f26', mid: '#759130', light: '#97b23e', high: '#bfd15e' },
+  { deep: '#4a4e18', dark: '#6a6c20', mid: '#8f8e2a', light: '#b4ae38', high: '#d8cd5a' },  // turning yellow
+];
+function aspen(v) {
+  const rand = rng(7100 + v * 71);
+  const pal = ASPEN_PALS[v % ASPEN_PALS.length];
+  return sprite(1.5, 3.8, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9;
+    const topY = 10, crownB = H - 64;
+    P.layer((g) => {
+      g.fillStyle = lin(g, cx - 6, 0, cx + 6, 0, [[0, '#f0eee2'], [0.5, '#d6d2bf'], [1, '#9c9786']]);
+      g.beginPath(); taper(g, cx, baseY + 1, cx + 1, (baseY + crownB) / 2, cx + 2, topY + 40, 10, 4, 14); g.fill();
+      g.save(); g.beginPath(); taper(g, cx, baseY + 1, cx + 1, (baseY + crownB) / 2, cx + 2, topY + 40, 10, 4, 14); g.clip();
+      g.fillStyle = '#3a3630';
+      for (let i = 0; i < 9; i++) { const y = baseY - 6 - rand() * 60; g.beginPath(); g.ellipse(cx + (rand() - 0.5) * 5, y, 1.6 + rand() * 1.6, 0.8, 0, 0, TAU); g.fill(); }
+      g.fillStyle = 'rgba(40,44,30,0.85)'; g.fillRect(0, 0, W, crownB + 8);
+      g.restore();
+    });
+    P.layer((g) => {
+      const lumps = [];
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1), y = topY + 14 + t * (crownB - topY - 10);
+        const w = 15 * Math.sin(Math.min(1, t * 1.25) * Math.PI * 0.5 + 0.2) * (0.85 + rand() * 0.3);
+        lumps.push(mkLump(cx + (i & 1 ? 1 : -1) * w * 0.5 + (rand() - 0.5) * 3, y, 9 + w * 0.45, rand, 0.9));
+      }
+      drawFoliage(g, lumps, pal, rand, { cx, cy: (topY + crownB) / 2, R: 22, RY: (crownB - topY) / 2, marks: 1.6, sprigs: 1.2, drop: 0.5 });
+      // trembling coin-leaves catching light
+      g.fillStyle = rgb(hex(pal.high), 0.9);
+      for (let i = 0; i < 16; i++) { const y = topY + 16 + rand() * (crownB - topY - 20), x = cx - 12 + rand() * 14; g.beginPath(); g.ellipse(x, y, 1.6, 1.2, rand(), 0, TAU); g.fill(); }
+    });
+  });
+}
+
+// ---------------- SNAG (tall broken dead trunk) ----------------
+function snag(v) {
+  const rand = rng(7300 + v * 43);
+  return sprite(1.4, 2.7, (g, P) => {
+    const W = P.W, H = P.H, cx = W / 2, baseY = H - 9, topY = 30;
+    P.layer((g) => {
+      const path = (gg) => {
+        gg.moveTo(cx - 12, baseY + 1); gg.quadraticCurveTo(cx - 8, baseY - 20, cx - 7, baseY - 50);
+        gg.lineTo(cx - 6, topY + 12); gg.lineTo(cx - 3, topY); gg.lineTo(cx, topY + 9); gg.lineTo(cx + 3, topY - 6); gg.lineTo(cx + 5, topY + 14);
+        gg.lineTo(cx + 7, baseY - 50); gg.quadraticCurveTo(cx + 8, baseY - 20, cx + 12, baseY + 1); gg.closePath();
+      };
+      g.fillStyle = lin(g, cx - 10, 0, cx + 10, 0, [[0, '#8f8274'], [0.45, '#6a5d50'], [1, '#3a3129']]);
+      g.beginPath(); path(g); g.fill();
+      g.save(); g.beginPath(); path(g); g.clip();
+      g.strokeStyle = 'rgba(30,24,18,0.6)'; g.lineWidth = 1.1;
+      for (let i = 0; i < 6; i++) { const x = cx - 6 + i * 2.4; g.beginPath(); g.moveTo(x, baseY); g.lineTo(x + (rand() - 0.5) * 2, topY + 10 + rand() * 20); g.stroke(); }
+      // pale broken wood at the top, moss at the foot
+      g.fillStyle = '#c9b08a'; g.beginPath(); g.moveTo(cx - 6, topY + 12); g.lineTo(cx - 3, topY); g.lineTo(cx, topY + 9); g.lineTo(cx + 3, topY - 6); g.lineTo(cx + 5, topY + 14); g.lineTo(cx, topY + 16); g.closePath(); g.fill();
+      for (let i = 0; i < 9; i++) { g.fillStyle = i & 1 ? 'rgba(98,122,52,0.85)' : 'rgba(126,150,66,0.8)'; g.beginPath(); g.ellipse(cx + 2 + rand() * 8, baseY - 2 - rand() * 18, 2 + rand() * 2, 1.3 + rand(), 0, 0, TAU); g.fill(); }
+      g.restore();
+      // woodpecker holes and a stub branch
+      g.fillStyle = '#211812';
+      for (const [dx, dy] of [[-1, -60], [2, -76], [-2, -38]]) { g.beginPath(); g.ellipse(cx + dx, baseY + dy, 1.8, 2.4, 0, 0, TAU); g.fill(); }
+      g.fillStyle = '#5c5045'; g.beginPath(); taper(g, cx + 5, baseY - 66, cx + 12, baseY - 72, cx + 17, baseY - 70, 3.4, 1.2); g.fill();
+      for (const [fx, fy, fw] of [[-8, -24, 5], [-8, -29, 3.6]]) {
+        g.fillStyle = '#b8935e'; g.beginPath(); g.ellipse(cx + fx, baseY + fy, fw, fw * 0.42, 0, Math.PI * 0.95, Math.PI * 2.05); g.fill();
+        g.fillStyle = '#e2c88e'; g.beginPath(); g.ellipse(cx + fx, baseY + fy - fw * 0.12, fw * 0.8, fw * 0.2, 0, Math.PI, TAU); g.fill();
+      }
+    });
+  });
+}
+
 export function addTrees(add) {
   const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / (c.origH || c.height));
   for (let i = 0; i < 5; i++) put('tree_oak_' + i, oak(i), 9);
   for (let i = 0; i < PINE_SHAPES.length; i++) put('tree_pine_' + i, pine(i), 9);
   for (let i = 0; i < 3; i++) put('tree_birch_' + i, birch(i), 9);
   for (let i = 0; i < 2; i++) put('tree_dead_' + i, deadTree(i), 9);
+  for (let i = 0; i < 3; i++) put('tree_maple_' + i, maple(i), 9);
+  for (let i = 0; i < 2; i++) put('tree_willow_' + i, willow(i), 9);
+  for (let i = 0; i < 2; i++) put('tree_scots_' + i, scots(i), 9);
+  for (let i = 0; i < 2; i++) put('tree_juniper_' + i, juniper(i), 9);
+  for (let i = 0; i < 2; i++) put('tree_aspen_' + i, aspen(i), 9);
+  put('tree_snag_0', snag(0), 9);
   put('tree_stump_0', stump(0), 7);
   put('tree_sapling_0', sapling(0), 5);
 }

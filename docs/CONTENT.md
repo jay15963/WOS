@@ -9,7 +9,7 @@ O jogador **começa sem nada** (sem arma, sem ferramenta, inventário vazio) —
 
 | Era | Como chega | O que libera |
 |---|---|---|
-| 0 Primitiva | à mão | pegar pedrinhas, gravetos, fibra; faca/machado/picareta **primitivos**, corda, tocha, fogueira, bandagem |
+| 0 Primitiva | à mão | pegar pedrinhas, gravetos, fibra; faca/machado/picareta **primitivos**, corda, tocha, fogueira; ervas medicinais colhidas em arbustos de ervas |
 | 1 Pedra | Bancada de trabalho | ferramentas de pedra, lança de pedra, clava, arco + flechas, escudo de madeira, couro, paredes/portas/cercas/pisos de madeira, móveis |
 | 2 Cobre | Fornalha + Bigorna (+ Mesa de cantaria) | barras de cobre → ferramentas/armas/escudo/elmo de cobre; blocos de pedra → paredes/pisos de pedra |
 | 3 Ferro | minério de ferro (picareta de cobre+) | barras de ferro → ferramentas/armas/armadura de ferro, maça, braseiro, poste com lanterna |
@@ -26,7 +26,7 @@ Rocha comum e pedregulhos: qualquer picareta.
 `stone_block` Bloco de pedra · `rope` Corda · `leather` Couro · `cotton` Algodão · `cloth` Tecido ·
 `copper_ore` Minério de cobre · `iron_ore` Minério de ferro · `coal` Carvão · `gold_ore` Minério de ouro · `jade` Jade ·
 `copper_bar` Barra de cobre · `iron_bar` Barra de ferro · `steel_bar` Barra de aço · `gold_bar` Barra de ouro ·
-`arrow` Flecha · `bandage` Bandagem
+`arrow` Flecha · `herb` Erva medicinal (colhida no `herbbush`; o antigo `bandage` é migrado 1:1 para `herb`)
 **Sementes:** `seed_potato` Semente de batata · `seed_cotton` Semente de algodão · `seed_corn` Semente de milho
 **Comida:** `berries` Frutas silvestres · `meat` Carne crua · `cooked` Carne assada · `potato` Batata ·
 `baked_potato` Batata assada · `corn` Milho · `roast_corn` Milho assado · `stew` Ensopado
@@ -73,7 +73,7 @@ slot:'main'|'off'|'body'|'head', tool:{ chop?, mine?, skin? } (velocidade), weap
 | arco | `shoot` (auto, gasta flecha) · `aimed_shot` Tiro Mirado · `multi_shot` Tiro Múltiplo · `disengage` Recuar |
 | escudo | `block` Bloquear · `shield_bash` Golpe de Escudo |
 | tocha de mão | `torch_swing` Brandir Tocha (assusta animais, queima) |
-| sempre | `bandage` Bandagem (consome item `bandage`) · `sprint` Disparada |
+| sempre | `heal` Ervas medicinais (consome 1 `herb`, cura 40% em 8 s, interrompida por dano; pose `heal`) · `sprint` Disparada |
 A barra de ação muda conforme `p.equip.main` / `p.equip.off`. Projéteis: sprites `proj_arrow`, `proj_spear`.
 Ícones de UI extras: `icon_attack, icon_eat, icon_build, icon_bag, icon_gather, icon_craft, icon_mine, icon_equip, icon_shoot`.
 
@@ -104,7 +104,7 @@ Estruturas maiores que 1×1: `size: [w, h]`; `o.x = tx + w/2`, `o.y = ty + h`; s
 ## 6. Objetos naturais (worldgen) — interação à mão, somem ao coletar
 `pebble` (v 0..3) Pedrinhas no chão → `pebble` · `stick` (0..2) Galhos caídos → `stick` · `fibergrass` (0..2) Capim de fibra → `fiber` ·
 `wild_potato`, `wild_cotton`, `wild_corn` (plantas silvestres → comida/algodão + sementes) · além de `bush` (fibra + graveto),
-`berrybush` (frutas + graveto), `boulder` (picareta → pedra), árvores (machado → madeira).
+`berrybush` (frutas + graveto), `herbbush` Arbusto de ervas (frutinhas verdes → `herb`), `boulder` (picareta → pedra), árvores (machado → madeira).
 Sprites: `pebble_0..3`, `stick_0..2`, `fibergrass_0..2`, `wild_potato_0`, `wild_cotton_0`, `wild_corn_0`.
 
 **Regras de coleta e renascimento (economia):**

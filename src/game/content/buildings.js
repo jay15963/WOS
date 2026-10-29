@@ -45,7 +45,7 @@ export const BUILDINGS = {
   anvil:       { name: 'Bigorna', g: 'f', emoji: '⚒️', cat: ['prod'], cost: { copper_bar: 3, stone: 6, wood: 2 }, time: 6, xp: 20, block: 'tile', station: true,
                  desc: 'Forja ferramentas, armas e armaduras de metal.' },
   loom:        { name: 'Tear', g: 'm', emoji: '🧶', cat: ['prod'], cost: { wood: 12, rope: 3 }, size: [2, 1], time: 6, xp: 15, block: 'tile', station: true,
-                 desc: 'Tece algodão em tecido, corda, bandagens e roupas.' },
+                 desc: 'Tece algodão em tecido, corda e roupas.' },
   cooking_pot: { name: 'Caldeirão', g: 'm', emoji: '🍲', cat: ['prod'], cost: { copper_bar: 2, stone: 6 }, time: 4, xp: 12, block: 'tile', station: true,
                  workLight: L(1, 0.6, 0.3, 3.2, 0.9, 0.25, 0.3), warm: 2.5, warmWorking: true,
                  desc: 'Prepara ensopados e assa alimentos.' },

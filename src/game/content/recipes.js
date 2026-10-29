@@ -26,7 +26,6 @@ export const RECIPES = {
   pickaxe_primitive: R('pickaxe_primitive', { pebble: 3, fiber: 2, stick: 1 }, 'hand', 4, 'tools'),
   rope:              R('rope', { fiber: 3 }, 'hand', 2, 'materials'),
   torch_hand:        R('torch_hand', { stick: 1, fiber: 1 }, 'hand', 2, 'weapons'),
-  bandage:           R('bandage', { fiber: 3 }, 'hand', 2.5, 'materials'),
   hat_straw:         R('hat_straw', { fiber: 6 }, 'hand', 5, 'armor'),
 
   // ---------- era 1: workbench ----------
@@ -81,7 +80,6 @@ export const RECIPES = {
   // ---------- loom ----------
   cloth:             R('cloth', { cotton: 3 }, 'loom', 4, 'materials'),
   rope_loom:         R('rope', { fiber: 4 }, 'loom', 2, 'materials', { qty: 2 }),
-  bandage_cloth:     R('bandage', { cloth: 1 }, 'loom', 3, 'materials', { qty: 3 }),
   tunic_cloth:       R('tunic_cloth', { cloth: 4, rope: 1 }, 'loom', 8, 'armor'),
 
   // ---------- cooking ----------
