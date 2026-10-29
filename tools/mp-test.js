@@ -1500,6 +1500,9 @@ def('S40', {
   await A.buildAll(t, H, MH, [bed.id]);
   H.game.env.hour = 21;
   await t.waitFor(() => Math.abs(G.game.env.hour - 21) < 0.1, 3000 + CFG.budget, 'guest clock at night');
+  A.pacify(H, hp.x, hp.y, 40); // no creature may be chasing the host ("Não dá para dormir em combate")
+  for (const m of H.game.entities) if (m.isMob && !m.proxy && m.state === 'chase' && m.threat === hp) { m.state = 'idle'; m.stateT = 1; m.threat = null; m.calmT = 600; }
+  await t.sleep(300);
   hp.combatT = 0; hp.inCombat = false;
   A.standBy(H, MH, bed);
   await t.sleep(200);

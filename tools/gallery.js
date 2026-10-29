@@ -252,6 +252,7 @@ const POSES = [
   ['hurt', 'sword_iron', null, 'hurt'], ['respawn', null, null, 'respawn'],
   ['heal (herbs)', null, null, 'heal'], ['eat', 'sword_iron', null, 'eat'], ['craft', null, null, 'craft'], ['cook', null, null, 'cook'],
   ['plant', null, null, 'plant'], ['harvest', null, null, 'harvest'], ['sit', 'axe_iron', 'torch_hand', 'sit'], ['sleep', null, null, 'sleep'],
+  ['butcher knife', 'knife_iron', null, 'butcher'], ['butcher bare', null, null, 'butcher'], ['gather bones', null, null, 'gather_bones'],
 ];
 const BANDIT = { skin: [0.78, 0.6, 0.46], hair: 'shaggy', hairColor: [0.2, 0.15, 0.1], shirt: [0.42, 0.36, 0.3], pants: [0.3, 0.26, 0.22], beard: true, hat: 'bandana', hatColor: [0.6, 0.14, 0.12], face: 'scar' };
 const FACINGS = ['s', 'e', 'n', 'w'];
@@ -297,7 +298,7 @@ function stepPawn(p, dt) {
   if (a === 'idle') { p.flash = (time % 3) < 0.15 ? 1 - (time % 3) / 0.15 : 0; return; }
   if (a === 'walk') return;
   if (a === 'block') { p.blocking = (time % 2.4) < 1.6; return; }
-  const T = a === 'gather' || a === 'bandage' || a === 'build' || a === 'craft' || a === 'cook' ? 1.8 : a === 'eat' ? 2.4 : a === 'heal' ? 1.6 : a === 'shoot' || a === 'aimed_shot' || a === 'whirlwind' ? 1.4 : 1.0;
+  const T = a === 'gather' || a === 'bandage' || a === 'build' || a === 'craft' || a === 'cook' || a === 'butcher' || a === 'gather_bones' ? 1.8 : a === 'eat' ? 2.4 : a === 'heal' ? 1.6 : a === 'shoot' || a === 'aimed_shot' || a === 'whirlwind' ? 1.4 : 1.0;
   const k = (time % T) / T;
   p.action = k < 0.82 ? { type: a, t: k / 0.82 } : null;
 }

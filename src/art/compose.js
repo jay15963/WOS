@@ -71,7 +71,7 @@ function tables(A) {
     blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), spark: opt('fx_spark') || opt('fx_soft'), hand: opt('pawn_hand'),
     foot: { s: opt('pawn_foot_s'), e: opt('pawn_foot_e') }, lids: { s: opt('pawn_lids_s'), e: opt('pawn_lids_e') },
     soft: opt('fx_soft'), ring: opt('fx_ring'),
-    cover: opt('pawn_cover'), herb: opt('pawn_herb'), food: opt('item_berries'), thigh: opt('pawn_thigh_e'),
+    bones: opt('item_bones') || opt('item_bone'), cover: opt('pawn_cover'), herb: opt('pawn_herb'), food: opt('item_berries'), thigh: opt('pawn_thigh_e'),
   };
   T.foot.n = T.foot.s;
   for (const d of DIRS) {
@@ -100,7 +100,7 @@ function tables(A) {
     };
   }
   for (let i = 0; i < 3; i++) T.flames.push(opt('fx_flame_' + i) || A.get('fx_flame'));
-  T.axe = held(T, 'axe_iron'); T.pick = held(T, 'pickaxe_iron'); T.bow = held(T, 'bow_wood'); T.hammer = held(T, 'hammer');
+  T.knife = held(T, 'knife_iron'); T.axe = held(T, 'axe_iron'); T.pick = held(T, 'pickaxe_iron'); T.bow = held(T, 'bow_wood'); T.hammer = held(T, 'hammer');
   CACHE.set(A, T);
   return T;
 }
@@ -169,6 +169,7 @@ const POSE_OF = {
 const ATTACK_OF = { knife: 'stab', sword: 'slash', axe: 'heavy', pickaxe: 'heavy', club: 'smash', spear: 'pierce', bow: 'shoot', torch: 'slash', hammer: 'smash' };
 const WHIRL = ['s', 'e', 'n', 'w'];
 const TWO_HAND = { heavy: 1, smash: 1 };
+const BLADE = { knife: 1, sword: 1, axe: 1 }; // can cut a carcass
 // poses that look down at the hands (head follows the body, no head turn)
 const BUSY = { heal: 1, eat: 1, craft: 1, cook: 1, plant: 1, harvest: 1, gather: 1, pick: 1, build: 1 };
 
@@ -307,7 +308,7 @@ export function drawPawn(B, A, p, t) {
     const buckle = u < 0.22 ? smooth(u / 0.22) : 1;
     const fu = clamp01((u - 0.15) / 0.85);
     const kk = fu < 0.72 ? easeIn(fu / 0.72) : 1 - Math.sin(((fu - 0.72) / 0.28) * Math.PI) * 0.07;
-    const side = sd === 'e' ? -flip : ph0 % TAU > Math.PI ? 1 : -1;
+    const side = sd === 'e' ? -flip : sd === 's' ? 1 : -1; // same on every peer (corpses match)
     const rot = side * HALF_PI * kk;
     const bsy = 1 - 0.12 * buckle * (1 - kk);
     const HL = PAWN.headLift * bsy;
@@ -433,6 +434,7 @@ export function drawPawn(B, A, p, t) {
   let blockK = p.blocking ? 1 : 0;
   let herbAt = 0; // 1: herbs between the hands, 2: under the off hand (pressed on the arm)
   let food = null;
+  let bundle = null; // bones held against the chest
   let ghost = 0;  // swing trail: 1 = side view (rot = flip·angle), 2 = front/back (rot = angle)
   let kneel = 0;  // 0..1: lowered on one knee (feet apart)
 
@@ -631,6 +633,37 @@ export function drawPawn(B, A, p, t) {
         oy -= 0.03 * kneel - pull * 0.04;
         h1x = 0.08; h1l = hand + 0.06; h2x = -0.06; h2l = hand + 0.06; h1b = h2b = true;
       }
+    } else if (pose === 'butcher' || pose === 'gather_bones') {
+      // kneeling over a carcass: cut it with a blade (or pull with bare hands) · pick the bones up into the arms
+      kneel = smooth(clamp01(k * 5)) * (1 - smooth(clamp01((k - 0.92) / 0.08)));
+      sy *= 1 - 0.19 * kneel; sx *= 1 + 0.06 * kneel; headDy -= 0.05 * kneel;
+      showO = showO && oType === 'torch';
+      if (sd === 'e') rot += flip * 0.24 * kneel; else oy += (sd === 's' ? 0.03 : -0.03) * kneel;
+      const tool = pose === 'butcher' ? (act.item ? held(T, act.item) : BLADE[wType] ? M : p.weapon ? T.knife : NO_HELD) : NO_HELD;
+      if (tool.s) {
+        // sawing strokes with the blade, the other hand pins the carcass down
+        const saw = Math.sin(k * TAU * 4);
+        wsp = tool.s; wType = tool.type; showW = true; wDy = 0; wSx = wSy = 0.9;
+        h2 = true;
+        if (sd === 'e') { wRot = flip * (HALF_PI + 0.5 + saw * 0.14); wHx = flip * (0.1 + saw * 0.05); wHl = -0.13; h2x = flip * 0.3; h2l = 0.05; h2b = true; }
+        else if (sd === 's') { wRot = Math.PI - 0.4 + saw * 0.12; wSy = 0.55; wHx = 0.12 + saw * 0.04; wHl = -0.1; wDy = 0.1; h2x = 0.12; h2dy = 0.16; h2l = 0.05; wBehind = false; }
+        else { wRot = 0.25 + saw * 0.12; wSy = 0.55; wHx = -0.12; wHl = 0.02; wDy = -0.08; h2x = 0.1; h2l = 0.18; h2b = true; }
+      } else if (pose === 'butcher') {
+        // bare hands: grab and pull back, leaning away from the carcass
+        showW = false; h1 = h2 = true;
+        const pull = Math.max(0, Math.sin(k * TAU * 2));
+        if (sd === 'e') { rot -= flip * pull * 0.14; h1x = flip * (0.3 - pull * 0.1); h1l = 0.06 + pull * 0.06; h2x = flip * (0.26 - pull * 0.1); h2l = 0.07 + pull * 0.06; h2b = true; }
+        else if (sd === 's') { h1x = -0.08; h2x = 0.08; h1dy = h2dy = 0.15 - pull * 0.06; h1l = h2l = 0.06 + pull * 0.05; oy -= pull * 0.02; }
+        else { h1x = 0.08; h2x = -0.08; h1l = h2l = 0.12 + pull * 0.05; h1b = h2b = true; oy += pull * 0.02; }
+      } else {
+        // bones: the hands take turns picking from the ground, then hug the bundle to the chest
+        showW = false; h1 = h2 = true;
+        const hug = smooth(clamp01((k - 0.68) / 0.14)), wv = Math.sin(k * TAU * 2.2), rp1 = Math.max(0, wv) * (1 - hug), rp2 = Math.max(0, -wv) * (1 - hug);
+        if (hug > 0.3) bundle = T.bones;
+        if (sd === 'e') { h1x = flip * (0.16 + 0.14 * rp1 - 0.04 * hug); h1l = 0.2 - 0.15 * rp1 + 0.06 * hug; h2x = flip * (0.12 + 0.14 * rp2 - 0.02 * hug); h2l = 0.2 - 0.15 * rp2 + 0.07 * hug; h2b = hug < 0.5; }
+        else if (sd === 's') { h1x = -0.12 + 0.06 * hug; h2x = 0.12 - 0.06 * hug; h1l = 0.2 - 0.15 * rp1 + 0.06 * hug; h2l = 0.2 - 0.15 * rp2 + 0.06 * hug; h1dy = 0.12 * rp1; h2dy = 0.12 * rp2; }
+        else { h1x = 0.12 - 0.05 * hug; h2x = -0.12 + 0.05 * hug; h1l = 0.26 - 0.1 * rp1; h2l = 0.26 - 0.1 * rp2; h1b = h2b = true; }
+      }
     } else if (pose === 'heal') {
       // crush the medicinal herbs between the palms, then press the poultice on the forearm
       showW = false; showO = false;
@@ -823,6 +856,7 @@ export function drawPawn(B, A, p, t) {
   if (showO && osp && !oBehind) rigOff();
   if (hand && h1 && !h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
   if (hand && h2 && !h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
+  if (bundle && h1 && h2) B.main.add(bundle, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.55, 0.55, 1, 1, 1, al, 0, 0, fl, sd === 'e' ? flip : 1, 0, bl + (h1l + h2l) / 2);
   // herbs peek out between the palms / from under the pressing hand
   if (herbAt === 1 && h1 && h2 && T.herb) B.main.add(T.herb, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.7, 0.7, 1, 1, 1, al, 0, 0, fl, 1, 0, bl + (h1l + h2l) / 2 + 0.05);
   if (herbAt === 2 && h2 && T.herb) B.main.add(T.herb, hx2 + (sd === 'e' ? flip * 0.05 : 0.05), y + h2dy, 0.7, 0.7, 1, 1, 1, al, 0, 0.4, fl, 1, 0, bl + h2l - 0.04);
@@ -1074,6 +1108,18 @@ export function drawAnimal(B, A, a, t) {
     if (sd === 'e') B.emissive.add(T.spark, x + flip * 0.44 * sc * sx, y, 0.18 * sc, 0.14 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + 0.52 * sc * sy);
     else for (let i = -1; i <= 1; i += 2) B.emissive.add(T.spark, x + i * 0.055 * sc, y, 0.13 * sc, 0.13 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + 0.48 * sc * sy);
   }
+}
+
+// ---------- corpses ----------
+// The death animations end in a stable lying pose (pawns: on the side / back, weapon dropped beside; animals:
+// on the side, spiders on the back), oriented from `facing` only, so it is identical on every peer. drawCorpse
+// draws that end pose for any pawn / animal / creature record (e.g. a corpse object that copies kind, species,
+// variant, scale, look, weapon, offhand, armor, facing, x, y) — or bake corpse sprites from it.
+export function drawCorpse(B, A, e, t = 0) {
+  const d = e.dead, dt = e.deadT, wd = e._wd;
+  e.dead = true; e.deadT = 10;
+  if (e.kind === 'pawn') drawPawn(B, A, e, t); else drawAnimal(B, A, e, t);
+  e.dead = d; e.deadT = dt; e._wd = wd;
 }
 
 // World objects, structures and ground decor live in composeWorld.js (re-exported here).
