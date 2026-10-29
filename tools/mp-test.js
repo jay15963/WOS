@@ -1429,7 +1429,7 @@ def('S29', {
 // S40 D: remote action animations (presence stream: action timeline, pose)
 def('S40', {
   title: 'D: remote action anims', timeout: 150000,
-  expected: "Guest's copy of the host shows the host's chop (same type, duration = work cycle, looping while chopping), a melee swing played from its start (first t < 0.4) and ending, and the sleep pose in the host's bed (pose.o = the bed); host's copy of the guest shows the guest's swing and sitting pose; walk parity unchanged",
+  expected: "Guest's copy of the host shows the host's chop (same type, duration = work cycle, looping while chopping), a melee swing played from its start (first t < 0.4) and ending, and the sleep pose in the host's bed (pose.o = the bed); host's copy of the guest shows the guest's swing and sitting pose; the copy swims in deep water (from its position)",
   api: 'presence st/sts s.a = [type, t, dur, loop, item?], s.ps; session.players.get(pid).ent.{action, pose}; juice.lieDown(bed) via useStructure (bed at night)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -1513,6 +1513,24 @@ def('S40', {
   release();
   const woke = await t.tryWait(() => !copyH()?.pose, 2500);
   t.check(!hp.pose && woke, 'moving wakes the host up on both sides', `host ${hp.pose?.type || 'up'} · copy ${copyH()?.pose?.type || 'up'}`);
+
+  // 5. swimming is derived from the tile under the avatar on every peer (guest's copy of the host swims too)
+  const W = H.game.world;
+  let deep = null;
+  for (let r = 2; r < 60 && !deep; r += 2) for (let a = 0; a < 24 && !deep; a++) {
+    const x = Math.floor(hp.x + Math.cos(a / 24 * Math.PI * 2) * r), y = Math.floor(hp.y + Math.sin(a / 24 * Math.PI * 2) * r);
+    if (W.waterAt(x, y) === 2 && W.waterAt(x + 1, y) === 2 && W.waterAt(x - 1, y) === 2) deep = [x + 0.5, y + 0.5];
+  }
+  if (!deep) t.note('no deep water near the host — swim sub-check skipped');
+  else {
+    A.teleport(H, deep[0], deep[1]);
+    const near = A.freeSpot(G, MG, deep[0] + 3, deep[1], { rMin: 0, rMax: 5 });
+    if (near) A.teleport(G, near[0], near[1]);
+    const swam = await t.tryWait(() => (copyH()?._swim || 0) > 0.8 && (hp._swim || 0) > 0.8, 4000);
+    t.check(swam, "guest's copy of the host swims in deep water (derived from its position)", `host ${f2(hp._swim || 0)} · copy ${f2(copyH()?._swim || 0)}`);
+    sendAway(H, MH, deep[0], deep[1], 8);
+    hp.wetT = 0; hp._wet = 0; MH.player.removeBuff?.(hp, 'wet'); MH.player.removeBuff?.(hp, 'cold'); // leave the shared pair dry
+  }
   await t.checkDigest(H, G);
 });
 
