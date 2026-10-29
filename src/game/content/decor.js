@@ -115,6 +115,8 @@ export const DECOR = {
                   desc: 'Peles e ervas secando ao sol.' },
   notice_board: { name: 'Mural de avisos', g: 'm', emoji: '📜', cat: ['garden'], decor: true, cost: { wood: 4 }, time: 2.5, xp: 4, block: 0.14, edge: true, move: true, eg: [0.24, 0.42],
                   desc: 'Quadro com bilhetes e um telhadinho.' },
+  pergola:      { name: 'Pergolado', g: 'm', emoji: '🌿', cat: ['garden'], decor: true, cost: { wood: 10, fiber: 4 }, size: [2, 2], time: 6, xp: 8, block: 0, move: true,
+                  desc: 'Caramanchão de madeira coberto de trepadeiras. Dá para passar por baixo.' },
   fountain:     { name: 'Chafariz', g: 'm', emoji: '⛲', cat: ['garden'], decor: true, cost: { stone: 16 }, size: [2, 2], time: 8, xp: 12, block: 'tile', move: true,
                   desc: 'Chafariz de pedra com água correndo.' },
 };

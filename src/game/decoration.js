@@ -127,7 +127,7 @@ function installShowcase(game) {
       ['sacks', kx + 6, ky + 5, 0], ['rug_fur', kx + 2, ky + 3, 0]);
     rows.push(['training_dummy', kx + 2, ky1 + 2, 0], ['training_dummy', kx + 5, ky1 + 2, 0], ['brazier', kx + 1, ky1 + 1, 0], ['brazier', kx + 6, ky1 + 1, 0],
       ['lamp_stone', kx - 1, ky1 + 2, 0], ['statue', kx + 3, ky1 + 4, 0], ['woodpile', kx + 4, ky1 + 4, 0], ['haystack', kx1 + 1, ky1 + 3, 0], ['cart', kx + 5, ky1 + 4, 0],
-      ['fountain', hx1 + 1, gy0 + 1, 0], ['garden_arch', hx + 3, gy1 + 1, 0]);
+      ['fountain', hx1 + 1, gy0 + 1, 0], ['garden_arch', hx + 3, gy1 + 1, 0], ['pergola', kx1 + 2, ky + 2, 0], ['bench_stone', kx1 + 2, ky + 4, 0], ['plant_pot', kx1 + 4, ky + 2, 0]);
     const n = put(rows);
     p.x = hx + 3.5; p.y = gy1 + 2.5;
     if (opts.cam !== false) { game.cam.x = (x0 + W / 2); game.cam.y = y0 + Hh / 2; }

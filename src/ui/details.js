@@ -258,5 +258,11 @@ export function installDetails(game) {
     render();
   });
   game.events.on('closepanels', () => close());
+  // a blueprint being edited changed on the host (struct.style arrived, or it was built / removed)
+  let rt = 0;
+  game.events.on('tile', () => {
+    if (!el || !S?.target || rt) return;
+    rt = setTimeout(() => { rt = 0; if (S?.target && (S.target.removed || !S.target.blueprint)) S.target = null; render(); }, 60);
+  });
   return { open, close, get isOpen() { return !!el; }, toggle(type) { if (el && S?.type === type && !S.target) close(); else open(type); } };
 }

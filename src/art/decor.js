@@ -951,6 +951,28 @@ function fountain() {
   });
 }
 
+function pergola() {
+  const rand = rng(2801);
+  return mkv(2, 2, 70, (g, P, Y, W) => {
+    const posts = [[10, 0.18], [W - 10, 0.18], [10, 1.86], [W - 10, 1.86]];
+    P.layer((g) => {
+      for (const [x, v] of posts) leg(g, x, Y(v, 72), Y(v, 0), 5.5, WOOD.mid);
+      // beams (E-W) and rafters (N-S) seen from above at the top
+      for (const v of [0.18, 1.86]) { g.fillStyle = lin(g, 0, Y(v, 76), 0, Y(v, 70), [[0, WOOD.high], [1, WOOD.dark]]); g.fillRect(2, Y(v, 76), W - 4, 6); }
+      for (let k = 0; k < 6; k++) { const x = 8 + k * ((W - 16) / 5); g.fillStyle = lin(g, x - 2.5, 0, x + 2.5, 0, [[0, '#b48a58'], [1, '#6e4a2c']]); g.fillRect(x - 2.5, Y(0.08, 80), 5, Y(1.96, 80) - Y(0.08, 80)); }
+    }, 2.4);
+    P.layer((g) => {
+      const roses = ['#e0506a', '#f2a0b4', '#fff2f0', '#c58fe0'];
+      for (let i = 0; i < 70; i++) {
+        const x = 8 + rand() * (W - 16), v = 0.1 + rand() * 1.8;
+        g.fillStyle = GREENS[(rand() * 4) | 0]; g.beginPath(); g.ellipse(x, Y(v, 80) + (rand() - 0.5) * 4, 3.4, 2.4, rand() * 3, 0, TAU); g.fill();
+        if (rand() < 0.22) { g.fillStyle = roses[(rand() * 4) | 0]; g.beginPath(); circle(g, x, Y(v, 81), 1.8); g.fill(); }
+      }
+      for (const [x, v] of posts) for (let k = 0; k < 9; k++) { g.fillStyle = GREENS[k % 4]; g.beginPath(); g.ellipse(x + (rand() - 0.5) * 7, Y(v, 4 + rand() * 66), 2.8, 2, rand() * 3, 0, TAU); g.fill(); }
+    }, 1.2);
+  });
+}
+
 // ---------------- registration ----------------
 // flame / glow spots (tiles relative to the anchor: [dx, lift])
 export const DECOR_GEOM = {
@@ -994,5 +1016,5 @@ export function addDecor(add) {
   A('cart', cart(false)); A('cart_e', cart(true));
   A('scarecrow', scarecrow()); A('birdhouse', birdhouse()); A('beehive', beehive());
   A('drying_rack', dryingRack(false)); A('drying_rack_e', dryingRack(true));
-  A('notice_board', noticeBoard()); A('fountain', fountain());
+  A('notice_board', noticeBoard()); A('fountain', fountain()); A('pergola', pergola());
 }

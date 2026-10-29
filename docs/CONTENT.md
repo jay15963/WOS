@@ -135,7 +135,8 @@ Tina de banho (2×1) · `training_dummy` Boneco de treino.
 `planter` Floreira (2×1) · `stepping` Pedras de caminho (3, plano) · `well` Poço · `signpost` Placa · `bench_stone` Banco de
 pedra (2×1) · `garden_arch` Arco de jardim (passa-se por baixo) · `statue` Estátua (2) · `totem` Totem · `woodpile` Pilha de
 lenha (2×1) · `haystack` Monte de feno · `cart` Carroça (2×1) · `scarecrow` Espantalho · `birdhouse` Casinha de passarinho ·
-`beehive` Colmeia · `drying_rack` Varal de secagem (2×1) · `notice_board` Mural de avisos · `fountain` Chafariz (2×2).
+`beehive` Colmeia · `drying_rack` Varal de secagem (2×1) · `notice_board` Mural de avisos · `fountain` Chafariz (2×2) ·
+`pergola` Pergolado (2×2, passa-se por baixo).
 **Peças de construção novas (grupo `fence`):** `fence_stone` Muro de pedra · `hedge` Cerca viva.
 **Boneco de treino:** pronto, entra em `game.props` (alvo atacável, nunca quebra, sem saque); cada golpe é a intent
 `dummy.hit` → op `dummy.hit` (balanço, número flutuante, palha e som para todos); o anfitrião dá um pouco de XP ao autor

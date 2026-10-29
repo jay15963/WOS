@@ -221,7 +221,7 @@ function lanternGlow(B, T, x, y, lift, t) {
 function drawGate(B, T, o, k, t, fl) {
   const on = k ? k.on : {}, st = k ? k.style : 'rail';
   const L = T.gate[st] || T.gate.rail;
-  let orient = o.orient || 'h';
+  const orient = o.orient || (o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h');
   const kk = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x = o.x, y = o.y, x0 = x - 0.5, D = T.d;
   if (orient === 'h') {
@@ -257,7 +257,7 @@ function drawGate(B, T, o, k, t, fl) {
 function drawDoorK(B, T, o, k, t, fl) {
   const on = k.on, st = k.style;
   const L = T.door[st] || T.door.plank;
-  const orient = o.orient || 'h';
+  const orient = o.orient || (o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h');
   const kk = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x = o.x, y = o.y, x0 = x - 0.5, D = T.d;
   if (orient === 'h') {
