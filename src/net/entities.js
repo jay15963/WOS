@@ -6,7 +6,8 @@
 //   full = [nid, kind('a'|'p'), species, name, level, elite, temper, faction|0, scale, maxHp, variant|0, look|0,
 //           weapon|0, offhand|0, armorBody|0, armorHead|0, camp|0, ...dyn]
 //   up   = [nid, ...dyn]   (trailing zeros trimmed)
-//   dyn  = [x*100|0, y*100|0, bits, hp, actType|0, actT*100|0, actDur*100|0, actSeq, castName|0, castT*100|0, castDur*100|0, tgtPid|0]
+//   dyn  = [x*100|0, y*100|0, bits, hp, actType|0, actT*100|0, actDur*100|0, actSeq, castName|0, castT*100|0, castDur*100|0, tgtPid|0,
+//           z*100|0 (levels: height in stories; trailing zeros trimmed)]
 //   bits = facing (0 s,1 n,2 e,3 w) | moving<<2 | dead<<3 | blocking<<4 | stunned<<5 | chase<<6 | bleed<<7 |
 //          poison<<8 | burn<<9 | dazed<<10 | feared<<11
 // {t:'fx', l:[['dmg', tgt, src, amount, kind, crit, dtype, ability, blocked, dot, text] | ['proj', id, ...args] |
@@ -100,7 +101,7 @@ export class EntityServer {
     const tgt = thr ? (thr === this.game.player ? this.s.pid : thr.pid || 0) : 0;
     return [Math.round(m.x * 100), Math.round(m.y * 100), bits, Math.max(0, Math.round(m.hp)),
       a ? a.type : 0, a ? Math.round((a.t || 0) * 100) : 0, a ? (a.hold ? 0 : Math.round((a.dur || 0.5) * 100)) : 0, a ? m._actSeq : 0,
-      c ? c.name : 0, c ? Math.round(c.t * 100) : 0, c ? Math.round(c.dur * 100) : 0, tgt];
+      c ? c.name : 0, c ? Math.round(c.t * 100) : 0, c ? Math.round(c.dur * 100) : 0, tgt, Math.round((m.z || 0) * 100)];
   }
   _static(m) {
     return [m.nid, m.kind === 'pawn' ? 'p' : 'a', m.species, m.name, m.level, m.elite ? 1 : 0, m.temper || 0, m.faction || 0,
@@ -219,10 +220,11 @@ export class EntityClient {
 
   _dyn(e, d, ht, fresh = false) {
     const x = num(d[0]) / 100, y = num(d[1]) / 100, bits = num(d[2]) | 0;
+    const z = Math.max(0, Math.min(3, num(d[12]) / 100)); // levels: height in stories
     const B = e._buf, prev = B[B.length - 1];
-    if (fresh && !B.length) { e.x = x; e.y = y; }
-    if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; }
-    if (!prev || ht > prev.t) { B.push({ t: ht, x, y }); if (B.length > 12) B.shift(); }
+    if (fresh && !B.length) { e.x = x; e.y = y; e.z = z; }
+    if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; }
+    if (!prev || ht > prev.t) { B.push({ t: ht, x, y, z }); if (B.length > 12) B.shift(); }
     e.facing = FACES[bits & 3];
     e.netMoving = !!(bits & 4);
     const dead = !!(bits & 8);
@@ -269,11 +271,12 @@ export class EntityClient {
       if (B.length) {
         let a = B[0], b = B[B.length - 1];
         for (let i = B.length - 1; i > 0; i--) if (B[i - 1].t <= rt) { a = B[i - 1]; b = B[i]; break; }
-        let x, y;
-        if (rt <= a.t) { x = a.x; y = a.y; } else if (rt >= b.t) { x = b.x; y = b.y; } else {
+        let x, y, z;
+        if (rt <= a.t) { x = a.x; y = a.y; z = a.z; } else if (rt >= b.t) { x = b.x; y = b.y; z = b.z; } else {
           const k = (rt - a.t) / Math.max(1e-3, b.t - a.t);
-          x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k;
+          x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k; z = (a.z || 0) + ((b.z || 0) - (a.z || 0)) * k;
         }
+        e.z = z || 0; e.lv = Math.round(e.z); // levels
         const d = Math.hypot(x - e.x, y - e.y);
         if (d > 6) { e.x = x; e.y = y; } else { e.x = x; e.y = y; stepGait(e, Math.min(d, 1)); }
         e.moving = !e.dead && (e.netMoving || d > 0.005);
