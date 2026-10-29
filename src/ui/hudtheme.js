@@ -89,6 +89,41 @@ let done = false;
 export function installHudTheme() {
   if (done || typeof document === 'undefined') return;
   done = true;
+  // horizontal tab strips: fade the edge(s) that hide more tabs, and bring the selected tab into view (centred)
+  // whenever a strip is (re)rendered — selecting a tab near the end reveals the hidden ones
+  const STRIPS = '.tabs, .ktabs, .cc-tabs';
+  const edges = (t) => {
+    const more = t.scrollWidth > t.clientWidth + 1;
+    t.classList.toggle('more-l', more && t.scrollLeft > 2);
+    t.classList.toggle('more-r', more && t.scrollLeft < t.scrollWidth - t.clientWidth - 2);
+  };
+  const seen = new WeakSet();
+  const prep = (t) => {
+    if (!seen.has(t)) {
+      seen.add(t);
+      const on = t.querySelector('.on, [aria-selected="true"]');
+      if (on && t.scrollWidth > t.clientWidth + 1) {
+        requestAnimationFrame(() => { // after the panel restored its scroll position
+          const want = on.offsetLeft - (t.clientWidth - on.offsetWidth) / 2;
+          t.scrollTo({ left: Math.max(0, want), behavior: 'smooth' });
+        });
+      }
+    }
+    edges(t);
+  };
+  addEventListener('scroll', (e) => { const t = e.target; if (t?.matches?.(STRIPS)) edges(t); }, { capture: true, passive: true });
+  addEventListener('click', (e) => { const b = e.target?.closest?.('.cc-tab'); const t = b?.closest(STRIPS); if (t) { seen.delete(t); requestAnimationFrame(() => prep(t)); } }, true);
+  addEventListener('resize', () => document.querySelectorAll(STRIPS).forEach(edges));
+  try {
+    new MutationObserver((list) => {
+      for (const m of list) for (const n of m.addedNodes) {
+        if (n.nodeType !== 1) continue;
+        if (n.matches(STRIPS)) prep(n);
+        else if (n.querySelector) n.querySelectorAll(STRIPS).forEach(prep);
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  } catch { /* no observer: strips still scroll */ }
+
   // mouse wheel over a horizontal tab strip scrolls it sideways (build menu, crafting, Detalhes, editor tabs)
   addEventListener('wheel', (e) => {
     const t = e.target?.closest?.('.tabs, .ktabs, .cc-tabs');

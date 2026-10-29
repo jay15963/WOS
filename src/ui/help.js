@@ -17,7 +17,7 @@ export function installHelp(game) {
       <div class="hk-col"><h4>Movimento e mundo</h4>
         ${row(['W', 'A', 'S', 'D'], 'Andar (ou setas)')}
         ${row(L(KEYS.interact), 'Interagir com o que está perto (cortar, minerar, abrir…)')}
-        ${row(['Clique'], 'Usar a coisa clicada (chegue perto antes) · no chão: atacar')}
+        ${row(['Clique'], 'Usar a coisa clicada (chegue perto antes) · no chão: tirar o foco')}
         ${row(['Roda', '+', '−'], 'Zoom')}
         ${row(L(KEYS.target).concat(['Clique']), 'Próximo alvo · ou clique na criatura')}
         ${row(['Esc'], 'Cancelar (mira, construção, tarefa automática) · menu')}
@@ -28,7 +28,7 @@ export function installHelp(game) {
         ${row(L(KEYS.eat), 'Comer a melhor comida')}
       </div>
       <div class="hk-col"><h4>Combate</h4>
-        ${row(L(KEYS.attack).concat(['Clique esq.']), 'Atacar o alvo (ou o inimigo mais perto) · clique no chão também ataca')}
+        ${row(L(KEYS.attack).concat(['Clique esq.']), 'Atacar o alvo (ou o inimigo mais perto) · clique na criatura para atacá-la')}
         ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo, na ordem da barra (T e X só com espada + escudo)')}
         ${row(L(KEYS.heal), 'Curar (as ervas também vão para a barra 1–5)')}
         ${row(['⇧ Shift'], 'Disparada (correr)')}

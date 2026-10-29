@@ -281,7 +281,8 @@ export function installController(game) {
     if (h.type === 'creature') {
       const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
       const fighting = e.state === 'chase' && e.threat === p;
-      if (p.target === e || temper === 'hostile' || fighting || e.isProp) {
+      // desktop: a left click ON a creature is the normal attack (owner); phones: first tap targets, second attacks
+      if (isMouse || p.target === e || temper === 'hostile' || fighting || e.isProp) {
         ctl.engage(e); // arms the auto attack: it swings as soon as the player walks into range
         if (dist(p, e) > attackRange(p, e) * 1.05) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1));
       } else {
@@ -310,9 +311,8 @@ export function installController(game) {
       else if (p.inv.room(h.it.item) <= 0) game.events.emit('error', { text: 'Mochila cheia' });
       return;
     }
-    // empty ground: never walks. Desktop: a left click is the normal attack (same as Space: the target, or the
-    // nearest enemy). Phones: a tap clears the creature target (so nearby things can be used again)
-    if (isMouse) { if (attackable(p.target) || nearestEnemy(game, 10)) ctl.attack(); return; } // silent when nobody is around
+    // empty ground (no creature near the click / tap): never walks and never picks some far creature — it clears
+    // the current target, on desktop and phones alike (owner). Attacking: click the creature, or Space
     if (p.target) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
   };
 
