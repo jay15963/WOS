@@ -3,9 +3,10 @@
 //   indoors near a bed) > rain > dawn > night > day, with hysteresis so it never flips back and forth.
 // - Everyone's actions are audible: remote avatars' footsteps, swings, bow shots, shield, herbs, deaths and
 //   level-ups come from their replicated presence; creature footsteps and idle voices from the entity list
-//   (host creatures or guest proxies alike); doors / chests from their open state (any source: local,
-//   op, resync); structure / tree / chest / pickup sounds from ops (onOp, before they apply) — the actor's
-//   own client already played the predicted ones (ctx.mine) and duplicates are merged by the engine.
+//   (host creatures or guest proxies alike); tree / chest / pickup / blueprint / station sounds from ops
+//   (onOp, before they apply) — the actor's own client already played the predicted ones (ctx.mine) and
+//   duplicates are merged by the engine. Doors (op door.set), build / decon / raze and the local chest lid
+//   are played by the construction code (A) itself.
 
 const MELEE = new Set(['attack', 'bash', 'stab', 'lacerate', 'cleave', 'smash', 'pierce', 'sweep', 'charge', 'torch_swing', 'whirlwind', 'disengage']);
 const IDLE = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'spider']);
@@ -19,7 +20,7 @@ export function installAudioDirector(game, audio) {
   const music = audio.music;
   const W = new WeakMap();      // per-entity: { k (gait step), act, dead, lv, t }
   const OPEN = new WeakMap();   // door / chest: last open state
-  const D = { mood: null, want: null, wantT: 0, dangerUntil: -1, moodT: 0, idleT: 5, structT: 0, chest: null, chestMute: null, hits: [], me: {}, bodyT: 0, bt: { heart: 0, shiver: 0, growl: 0, drip: 0, queasy: 0, shivK: 0 } };
+  const D = { mood: null, want: null, wantT: 0, dangerUntil: -1, moodT: 0, idleT: 5, structT: 0, hits: [], me: {}, bodyT: 0, bt: { heart: 0, shiver: 0, growl: 0, drip: 0, queasy: 0, shivK: 0 } };
   const now = () => audio.ctx.currentTime;
   const byId = (id) => game.world.objById?.get(id) || game.flora?.dyn?.get(id) || null;
   const near = (o, r) => Math.abs(o.x - audio.lx) < r && Math.abs(o.y - audio.ly) < r;
@@ -34,20 +35,11 @@ export function installAudioDirector(game, audio) {
   };
   const muteClick = () => { if (audio.ctx) audio._muteClickUntil = now() + 0.06; };
   first('error', () => { audio.play('error'); muteClick(); });
-  first('open', (d) => {
-    if (d?.panel === 'chest' && d.chest) {
-      D.chest = d.chest;
-      audio.play('chest_open', { x: d.chest.x, y: d.chest.y - 0.3 });
-    } else audio.play('ui_open');
-    muteClick();
-  });
-  first('closepanels', () => { if (game.ui?.modal && !D.chest) { audio.play('ui_close'); muteClick(); } });
-  ev.on('built', (d) => {
-    const o = d?.o;
-    if (!o) return;
-    audio.play('build_done', { x: o.x, y: o.y });
-    if (LIGHTS.has(o.type)) audio.play('ignite', { x: o.x, y: o.y, volume: 0.5 });
-  });
+  // panels: a chest plays its own lid (building.js); other panels open / close with a soft sweep
+  const chestPanel = () => game.ui?.panels?.open === 'chest';
+  first('open', (d) => { if (d?.panel !== 'chest') audio.play('ui_open'); muteClick(); });
+  first('closepanels', () => { if (game.ui?.modal && !chestPanel()) { audio.play('ui_close'); muteClick(); } });
+  ev.on('built', (d) => { const o = d?.o; if (o && LIGHTS.has(o.type)) audio.play('ignite', { x: o.x, y: o.y, volume: 0.5 }); });
   ev.on('sleep', () => audio.play('sleep'));
   ev.on('respawn', () => audio.play('respawn'));
   ev.on('death', () => { music.rest(25, 4); });
@@ -104,13 +96,6 @@ export function installAudioDirector(game, audio) {
       if (t < h.t) continue;
       D.hits.splice(i, 1);
       if (!h.e.dead && !audio.recentNear(['hit', 'crit', 'block'], h.e.x, h.e.y, 0.7)) audio.play('hit', { x: h.e.x, y: h.e.y, volume: 0.7 });
-    }
-    // the local chest panel closed
-    if (D.chest && !game.ui?.modal) {
-      const o = D.chest;
-      D.chest = null;
-      D.chestMute = { o, until: t + 2 };
-      if (!o.removed) audio.play('chest_close', { x: o.x, y: o.y - 0.3 });
     }
     D.structT -= dt;
     if (D.structT <= 0) { D.structT = 0.1; watchStructures(t); }
@@ -184,7 +169,7 @@ export function installAudioDirector(game, audio) {
     else if (ty === 'bandage' || ty === 'heal') audio.play('heal', { x: e.x, y: e.y, volume: 0.8 });
   }
 
-  // doors and chests: open-state transitions from any source
+  // chests with a shared open state (if one ever exists): transitions from any source
   function watchStructures(t) {
     const B = game.build;
     if (!B) return;
@@ -193,10 +178,8 @@ export function installAudioDirector(game, audio) {
       const was = OPEN.get(o);
       OPEN.set(o, open);
       if (was === undefined || was === open || o.blueprint || !near(o, 24)) return;
-      if (D.chest === o || (D.chestMute && D.chestMute.o === o && t < D.chestMute.until)) return;
       audio.play(open ? a : b, { x: o.x, y: o.y - 0.3 });
     };
-    for (const o of B.doors || []) watch(o, 'door_open', 'door_close');
     for (const o of B.structures || []) if (o.type === 'chest' && 'open' in o) watch(o, 'chest_open', 'chest_close');
   }
 
@@ -258,12 +241,6 @@ export function installAudioDirector(game, audio) {
         if (ctx.mine || !Array.isArray(a.list)) break;
         const r = a.list.find((row) => Array.isArray(row) && (row[5] ?? 1) < 1);
         if (r) audio.play('blueprint', { x: r[2] + 0.5, y: r[3] + 0.5 });
-        break;
-      }
-      case 'struct.remove': {
-        const o = byId(a.id);
-        if (!o || a.quiet) break;
-        audio.play(o.type === 'campfire' && !o.blueprint ? 'raze' : 'decon', { x: o.x, y: o.y, volume: o.blueprint ? 0.4 : 1 });
         break;
       }
       case 'tree.fell': { const o = byId(a.id); if (o) audio.play('tree_creak', { x: o.x, y: o.y }); break; }
