@@ -137,7 +137,7 @@ export function useAbility(game, id) {
     return false;
   }
   if (p.energy < (ab.cost || 0)) return err('Sem energia');
-  if (ab.item && p.inv.count(ab.item) <= 0) return err(ab.item === 'bandage' ? 'Sem bandagens na mochila' : `Sem ${(ITEMS[ab.item]?.name || ab.item).toLowerCase()} na mochila`);
+  if (ab.item && p.inv.count(ab.item) <= 0) return err(ab.item === 'herb' ? 'Sem ervas medicinais na mochila' : `Sem ${(ITEMS[ab.item]?.name || ab.item).toLowerCase()} na mochila`);
   if (ab.ammo && p.inv.count(ab.ammo) <= 0) { noAmmo(game); return false; }
   if (ab.aim) { // ground skillshot used without aiming (queue, tests, old bindings): at the target
     const pt = aimDefault(game, id);
@@ -482,13 +482,13 @@ function effect(game, id, ab, t) {
       }));
       break;
     }
-    case 'bandage': {
-      if (!p.inv.remove('bandage', 1)) { game.events.emit('error', { text: 'Sem bandagens na mochila' }); break; }
+    case 'heal': { // medicinal herbs: crushed and pressed on the wound, heal over time
+      if (!p.inv.remove('herb', 1)) { game.events.emit('error', { text: 'Sem ervas medicinais na mochila' }); break; }
       game.events.emit('inventory', {});
       const total = p.maxHp * 0.4, ticks = 8;
-      addBuff(p, 'bandage', 8, { tick: 1, tickT: 1, onTick: (g, pl) => healEntity(g, pl, total / ticks) });
-      p.action = { type: 'bandage', t: 0, dur: 0.5 };
-      game.audio?.play('eat', { x: p.x, y: p.y, volume: 0.5 });
+      addBuff(p, 'heal', 8, { tick: 1, tickT: 1, onTick: (g, pl) => healEntity(g, pl, total / ticks) });
+      p.action = { type: 'heal', t: 0, dur: 0.5 };
+      game.audio?.play('heal', { x: p.x, y: p.y, volume: 0.6 });
       break;
     }
     case 'sprint': {

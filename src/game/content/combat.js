@@ -71,26 +71,27 @@ export const ABILITIES = {
                  desc: 'Interrompe ataques preparados, atordoa por 1 s e empurra (70% do dano).' },
   torch_swing: { name: 'Brandir Tocha', icon: 'torch_swing', cost: 20, cd: 10, range: 0, act: 'torch_swing', cone: true,
                  desc: 'Agita a tocha à frente: dano de fogo, queimadura e espanta animais por 4 s.' },
-  bandage:     { name: 'Bandagem', icon: 'bandage', cost: 10, cd: 25, range: 0, item: 'bandage', act: 'bandage',
-                 desc: 'Gasta 1 bandagem: cura 40% da vida em 8 s. Interrompida ao sofrer dano.' },
+  heal:        { name: 'Ervas medicinais', icon: 'heal', cost: 10, cd: 25, range: 0, item: 'herb', act: 'heal',
+                 desc: 'Gasta 1 erva medicinal: cura 40% da vida em 8 s. Interrompida ao sofrer dano.' },
   sprint:      { name: 'Disparada', icon: 'sprint', cost: 20, cd: 20, range: 0, offGcd: true,
                  desc: '+65% de velocidade por 5 s. Dá mais fome.' },
 };
 // Generic abilities always on the bar (after weapon / off-hand ones).
-export const GENERIC_ABILITIES = ['bandage', 'sprint'];
+export const GENERIC_ABILITIES = ['heal', 'sprint'];
 // LIVE list: the current action bar in slot order (keys 1..7). Rebuilt in place by
 // src/game/abilities.js when the equipment changes — keep the same array object.
-export const ABILITY_ORDER = ['shove', 'bandage', 'sprint'];
+export const ABILITY_ORDER = ['shove', 'heal', 'sprint'];
 export const GCD = 1.0;
 
 export const BUFFS = {
-  bandage:  { name: 'Bandagem', icon: 'bandage', good: true },
+  heal:     { name: 'Ervas medicinais', icon: 'heal', good: true },
   sprint:   { name: 'Disparada', icon: 'sprint', good: true },
   block:    { name: 'Bloqueando', icon: 'block', good: true, desc: 'Escudo erguido: dano frontal muito reduzido.' },
   warm:     { name: 'Aquecido', icon: 'fire', good: true, desc: 'Perto do fogo: regeneração maior.' },
   weak:     { name: 'Fraqueza', icon: 'skull', good: false, desc: 'Renascido: -25% de dano.' },
   sick:     { name: 'Indigestão', icon: 'sick', good: false, desc: 'Carne crua: perde vida.' },
   cold:     { name: 'Frio', icon: 'cold', good: false, desc: 'Noite sem fogo: mais fome.' },
+  wet:      { name: 'Molhado', icon: 'cold', good: false, desc: 'Roupa encharcada: sente frio até secar (seca bem mais rápido perto do fogo).' },
   starving: { name: 'Faminto', icon: 'hunger', good: false, desc: 'Sem comida: perde vida.' },
   poison:   { name: 'Veneno', icon: 'poison', good: false, desc: 'Picada de aranha: perde vida aos poucos.' },
   bleed:    { name: 'Sangramento', icon: 'bleed', good: false, desc: 'Ferida aberta: perde vida aos poucos.' },

@@ -127,7 +127,7 @@ const TALL_HAIR = { mohawk: 1, bun: 1 };
 // action type → pose (attack depends on the weapon)
 const POSE_OF = {
   strike: 'attack', punch: 'attack', lacerate: 'slash', sweep: 'cleave', aimed_shot: 'shoot', multi_shot: 'shoot',
-  shield_bash: 'bash', torch_swing: 'torch',
+  shield_bash: 'bash', torch_swing: 'torch', heal: 'bandage', // heal: alias until D draws its own pose
 };
 const ATTACK_OF = { knife: 'stab', sword: 'slash', axe: 'heavy', pickaxe: 'heavy', club: 'smash', spear: 'pierce', bow: 'shoot', torch: 'slash', hammer: 'smash' };
 const WHIRL = ['s', 'e', 'n', 'w'];

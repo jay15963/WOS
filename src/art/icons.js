@@ -2,6 +2,7 @@
 
 import { spritePxFast as spritePx, TAU, lin, rad, circle, leaf, smoothClosed, mixc } from './paint.js';
 import { GEAR } from './gear.js';
+import { herbBundle } from './plants.js';
 
 function rrect(g, x, y, w, h, r) {
   g.moveTo(x + r, y); g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r); g.lineTo(x + w, y + h - r);
@@ -87,17 +88,6 @@ const SYMBOLS = {
     }
     g.fillStyle = '#5a3a24'; g.beginPath(); circle(g, 32, 32, 4.5); g.fill();
     g.fillStyle = '#d4ad55'; g.beginPath(); circle(g, 32, 32, 2.2); g.fill();
-  }],
-  icon_bandage: ['#2e5c2c', 'rgba(200,255,190,0.45)', (g) => {
-    g.fillStyle = lin(g, 10, 30, 50, 52, [[0, '#ffffff'], [1, '#cfc7b4']]);
-    g.beginPath(); g.moveTo(26, 40); g.bezierCurveTo(36, 46, 46, 44, 56, 52); g.lineTo(52, 58); g.bezierCurveTo(42, 52, 32, 54, 22, 48); g.closePath(); g.fill();
-    g.fillStyle = lin(g, 10, 14, 40, 48, [[0, '#ffffff'], [0.6, '#e6dfcf'], [1, '#b0a790']]);
-    g.beginPath(); g.ellipse(26, 30, 15, 17, 0, 0, TAU); g.fill();
-    g.fillStyle = '#d8d0bd'; g.beginPath(); g.ellipse(26, 30, 7, 8, 0, 0, TAU); g.fill();
-    g.fillStyle = '#b5ab94'; g.beginPath(); g.ellipse(26, 30, 3, 3.5, 0, 0, TAU); g.fill();
-    g.strokeStyle = 'rgba(150,140,120,0.6)'; g.lineWidth = 1; g.beginPath(); g.ellipse(26, 30, 11, 12.5, 0, 0, TAU); g.stroke();
-    g.fillStyle = '#d0302a'; g.fillRect(41, 10, 6, 18); g.fillRect(35, 16, 18, 6);
-    g.fillStyle = 'rgba(255,255,255,0.5)'; g.fillRect(41, 10, 2, 18);
   }],
   icon_sprint: ['#1f5c5c', 'rgba(170,255,240,0.45)', (g) => {
     g.strokeStyle = 'rgba(220,255,250,0.8)'; g.lineWidth = 2.6;
@@ -321,6 +311,17 @@ const MORE = {
     g.restore();
   }],
 };
+
+// ---------- E · Natureza: "Ervas medicinais" (heal over time with a medicinal herb) ----------
+MORE.icon_heal = ['#2e5c2c', 'rgba(200,255,190,0.5)', (g) => {
+  g.save(); g.translate(30, 33); g.scale(1.55, 1.55);
+  herbBundle(g, 0, 0, 1, (() => { let s = 7; return () => ((s = (s * 16807) % 2147483647) / 2147483647); })());
+  g.restore();
+  // soothing sparkle (heal)
+  g.fillStyle = 'rgba(235,255,215,0.95)';
+  g.fillRect(45, 10, 4, 13); g.fillRect(40.5, 14.5, 13, 4);
+  g.fillStyle = 'rgba(235,255,215,0.7)'; g.beginPath(); circle(g, 14, 16, 2); g.fill(); g.beginPath(); circle(g, 52, 40, 1.6); g.fill();
+}];
 
 export function addIcons(add) {
   for (const [name, [bg, glow, fn]] of Object.entries(SYMBOLS)) add(name, icon(bg, glow, fn), 0.5, 0.5);

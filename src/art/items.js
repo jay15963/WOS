@@ -8,6 +8,7 @@ import { spline, rrect } from './kit.js';
 import { GEAR, MAT } from './gear.js';
 import { WEAR } from './apparel.js';
 import { HX, HY } from './pawns.js';
+import { herbBundle } from './plants.js';
 
 const A = (c, a) => rgb(hex(c), a);
 const OWI = 2.3;
@@ -147,16 +148,6 @@ const ITEMS = {
       g.restore();
     }
   }],
-  item_bandage: [(g) => {
-    g.fillStyle = lin(g, 8, 20, 30, 30, [[0, '#ffffff'], [1, '#cfc7b4']]);
-    g.beginPath(); g.moveTo(17, 24); g.bezierCurveTo(22, 28, 27, 27, 32, 31); g.lineTo(30, 34); g.bezierCurveTo(25, 30, 20, 31, 15, 28); g.closePath(); g.fill();
-    g.fillStyle = lin(g, 6, 8, 26, 30, [[0, '#ffffff'], [0.6, '#e6dfcf'], [1, '#b0a790']]);
-    g.beginPath(); g.ellipse(16, 18, 9.5, 10.5, 0, 0, TAU); g.fill();
-    g.fillStyle = '#d8d0bd'; g.beginPath(); g.ellipse(16, 18, 4.2, 4.8, 0, 0, TAU); g.fill();
-    g.fillStyle = '#b5ab94'; g.beginPath(); g.ellipse(16, 18, 1.8, 2.1, 0, 0, TAU); g.fill();
-    g.strokeStyle = 'rgba(150,140,120,0.6)'; g.lineWidth = 0.8; g.beginPath(); g.ellipse(16, 18, 7, 8, 0, 0, TAU); g.stroke();
-    g.fillStyle = '#d0302a'; g.fillRect(25, 5, 4, 11); g.fillRect(21.5, 8.5, 11, 4);
-  }],
   item_seed_potato: [(g) => sack(g, '#b8986a', '#7a5a34'), (g, r) => { potatoShape(g, 25, 27, 4.6, 3.6, 0.3, '#b98a52', r); g.fillStyle = '#7fae46'; g.beginPath(); leaf(g, 25, 24, 28, 19, 1.6, 0.3); g.fill(); }],
   item_seed_cotton: [(g) => sack(g, '#c9b79a', '#8a7556'), (g) => { for (const [x, y] of [[24, 27], [28, 29], [21, 30]]) { g.fillStyle = '#5a3a22'; g.beginPath(); g.ellipse(x, y, 2, 1.4, 0.4, 0, TAU); g.fill(); g.fillStyle = '#f2efe8'; g.beginPath(); circle(g, x - 0.6, y - 1.4, 1.6); g.fill(); } }],
   item_seed_corn: [(g) => sack(g, '#a8a070', '#6e6838'), (g) => { for (const [x, y] of [[23, 28], [27, 26.5], [26, 30.5], [21, 31]]) { g.fillStyle = '#e8b830'; g.beginPath(); g.moveTo(x - 1.6, y - 1.2); g.lineTo(x + 1.6, y - 1.2); g.lineTo(x + 1, y + 1.8); g.lineTo(x - 1, y + 1.8); g.closePath(); g.fill(); g.fillStyle = '#fff0a0'; g.fillRect(x - 0.9, y - 0.9, 1, 1); } }],
@@ -193,6 +184,9 @@ const ITEMS = {
     g.strokeStyle = '#d8b07a'; g.lineWidth = 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(24, 17); g.lineTo(31, 7); g.stroke();
   }, (g) => steam(g, 16, 13)],
 };
+
+// ---------- E · Natureza: medicinal herb (replaces the old bandage) ----------
+ITEMS.item_herb = [(g, r) => herbBundle(g, 17, 17, 0.95, r)];
 
 // gear icons: the held sprite painters, laid diagonally (tip up-right) and fitted to the box
 function gearIcon(id) {

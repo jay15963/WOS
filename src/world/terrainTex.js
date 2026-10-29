@@ -331,6 +331,33 @@ function soil(n, B, seed, dark) {
     const g = 0.4 + R() * 0.22;
     T.pebble(R() * n, R() * n, 1.5 + Math.pow(R(), 1.5) * 3.2, [g * 1.08, g * 0.98, g * 0.85], { h: 0.8, rim: 0.45, shadow: 0.3 });
   }
+  // life in the soil: short turf in soft patches (light soil = meadows), tiny sprouts and clover leaves,
+  // dry grass fibres, moss specks
+  const pm = B.view('patch', 6, 3, 0.5, dark ? 61 : 23, dark ? 187 : 91);
+  if (!dark) {
+    const pm2 = B.view('mid', 16, 3, 0.55, 77, 141), tm = new Float32Array(n * n);
+    for (let i = 0; i < tm.length; i++) tm[i] = smooth(-0.05, 0.3, pm[i] + pm2[i] * 0.35) * 0.5;
+    T.paint(tm, [0.36, 0.38, 0.20], 0.5, 0.3);
+    for (let k = 0; k < 1700; k++) {
+      const x = R() * n, y = R() * n;
+      if (tm[Math.floor(y) * n + Math.floor(x)] < 0.12) continue;
+      const a = -1.57 + (R() - 0.5) * 1.4, l = 1.6 + R() * 2.4, v = 0.8 + R() * 0.4;
+      T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.38, [0.30 * v, 0.40 * v, 0.17 * v], 0.8, 0.6);
+    }
+  }
+  for (let k = 0; k < (dark ? 260 : 340); k++) {
+    const x = R() * n, y = R() * n;
+    if (pm[Math.floor(y) * n + Math.floor(x)] < -0.05 && R() < 0.7) continue;
+    const gc = dark ? [0.26, 0.33, 0.15] : [0.34, 0.42, 0.18], v = 0.85 + R() * 0.3;
+    if (R() < 0.45) { // clover / seedling leaves
+      for (let j = 0; j < 3; j++) { const a = (j / 3) * 6.28 + R(); T.disc(x + Math.cos(a) * 1.3, y + Math.sin(a) * 1.1, 1.1 + R() * 0.5, [gc[0] * v, gc[1] * v, gc[2] * v], 0.75, 0.05); }
+    } else { const a = -1.57 + (R() - 0.5) * 1.2, l = 2 + R() * 3; T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.4, [gc[0] * v, gc[1] * v * 1.05, gc[2] * v], 0.85, 0.6); }
+  }
+  for (let k = 0; k < (dark ? 60 : 140); k++) {
+    const x = R() * n, y = R() * n, a = R() * 6.28, l = 3 + R() * 5;
+    T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.35, dark ? [0.30, 0.24, 0.15] : [0.62, 0.56, 0.36], 0.6, 0.55);
+  }
+  if (dark) for (let k = 0; k < 420; k++) T.disc(R() * n, R() * n, 0.6 + R() * 0.7, R() < 0.5 ? [0.27, 0.32, 0.15] : [0.33, 0.38, 0.17], 0.55, 0.03);
   return T.bytes();
 }
 
@@ -356,6 +383,16 @@ function sand(n, B, seed) {
     T.pebble(R() * n, R() * n, 1.4 + R() * 2.0, [g, g * 0.95, g * 0.86], { h: 0.75, rim: 0.35, shadow: 0.22 });
   }
   for (let k = 0; k < 10; k++) T.pebble(R() * n, R() * n, 1.2 + R() * 0.8, [0.93, 0.89, 0.82], { h: 0.6, rim: 0.25, shadow: 0.2, flat: 0.6 });
+  // fine wind ripples across the big ones, broken shell bits, a few dark seaweed threads
+  const fr = new Float32Array(n * n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const i = y * n + x; fr[i] = Math.sin((x * 9 - y * 38) * K + w[i] * 3) * smooth(-0.2, 0.4, w[i]); }
+  T.mod(fr, 0.02, null, 0.05);
+  for (let k = 0; k < 26; k++) {
+    const x = R() * n, y = R() * n, a = R() * 6.28, c = R() < 0.6 ? [0.95, 0.91, 0.84] : [0.88, 0.74, 0.66];
+    T.line(x, y, x + Math.cos(a) * 2.2, y + Math.sin(a) * 2.2, 0.7, c, 0.9, 0.62);
+    T.line(x + Math.cos(a + 1.2) * 0.6, y + Math.sin(a + 1.2) * 0.6, x + Math.cos(a + 0.5) * 2, y + Math.sin(a + 0.5) * 2, 0.5, c, 0.7, 0.6);
+  }
+  for (let k = 0; k < 8; k++) { const x = R() * n, y = R() * n, a = R() * 6.28, l = 5 + R() * 6; T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.45, [0.30, 0.34, 0.22], 0.55, 0.5); }
   return T.bytes();
 }
 
@@ -370,6 +407,13 @@ function gravel(n, B, seed) {
     const c = cols[Math.floor(R() * cols.length)], v = 0.88 + R() * 0.24;
     T.pebble(R() * n, R() * n, 1.8 + Math.pow(R(), 1.6) * 5.5, [c[0] * v, c[1] * v, c[2] * v], { h: 0.7 + R() * 0.3, rim: 0.5, shadow: 0.35 });
   }
+  // lichen rosettes on some stones (pale green / rust) and grass tufts between them
+  for (let k = 0; k < 150; k++) {
+    const x = R() * n, y = R() * n;
+    if (T.h[Math.floor(y) * n + Math.floor(x)] < 0.55) continue;
+    T.disc(x, y, 0.8 + R() * 1.1, R() < 0.6 ? [0.62, 0.66, 0.46] : [0.70, 0.52, 0.32], 0.6);
+  }
+  for (let k = 0; k < 60; k++) { const x = R() * n, y = R() * n; for (let j = 0; j < 3; j++) { const a = -1.57 + (j - 1) * 0.5 + (R() - 0.5) * 0.3, l = 2 + R() * 2.5; T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.35, [0.40, 0.46, 0.22], 0.85, 0.5); } }
   return T.bytes();
 }
 
@@ -396,6 +440,12 @@ function marsh(n, B, seed) {
     if (pud[Math.floor(y) * n + Math.floor(x)] > 0.22) continue;
     T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.5, R() < 0.5 ? [0.46, 0.43, 0.26] : [0.30, 0.32, 0.18], 0.7, 0.7);
   }
+  // duckweed floating in the pools (bright little green dots, clustered)
+  for (let k = 0; k < 1100; k++) {
+    const x = R() * n, y = R() * n, i = Math.floor(y) * n + Math.floor(x);
+    if (pud[i] < 0.3 || fine[i] < -0.1) continue;
+    T.disc(x, y, 0.55 + R() * 0.5, R() < 0.5 ? [0.36, 0.48, 0.16] : [0.44, 0.56, 0.2], 0.85);
+  }
   return T.bytes();
 }
 
@@ -411,6 +461,30 @@ function mud(n, B, seed) {
   for (let k = 0; k < 260; k++) T.disc(R() * n, R() * n, 1.5 + R() * 4, [0.42, 0.34, 0.25], 0.22, 0.08);
   for (let k = 0; k < 1200; k++) T.disc(R() * n, R() * n, 0.6 + R() * 0.8, R() < 0.5 ? [0.24, 0.18, 0.13] : [0.45, 0.37, 0.28], 0.45);
   for (let k = 0; k < 16; k++) { const g = 0.4 + R() * 0.15; T.pebble(R() * n, R() * n, 1.4 + R() * 2.4, [g, g * 0.93, g * 0.84], { h: 0.75, rim: 0.4 }); }
+  // drying cracks on the raised (dry) parts
+  const Wc = worley(n, 12, R, 0.9);
+  for (let i = 0; i < n * n; i++) {
+    const c = (1 - smooth(0.01, 0.045, Wc.e[i])) * smooth(0.05, 0.25, -pud[i]);
+    if (c <= 0) continue;
+    const k = 1 - 0.32 * c;
+    T.r[i] *= k; T.g[i] *= k; T.b[i] *= k; T.h[i] -= c * 0.12;
+  }
+  // a few animal tracks pressed into the mud: deer hooves and bird feet
+  for (let k = 0; k < 7; k++) {
+    let x = R() * n, y = R() * n; const a = R() * 6.28;
+    for (let s = 0; s < 4; s++) {
+      x += Math.cos(a) * 9; y += Math.sin(a) * 9;
+      const side = s & 1 ? 1 : -1, ox = Math.cos(a + 1.57) * side * 2.2, oy = Math.sin(a + 1.57) * side * 2.2;
+      for (const d of [-0.8, 0.8]) T.disc(x + ox + Math.cos(a + 1.57) * d, y + oy + Math.sin(a + 1.57) * d, 0.9, [0.22, 0.17, 0.12], 0.55, -0.08);
+    }
+  }
+  for (let k = 0; k < 6; k++) {
+    const x = R() * n, y = R() * n, a = R() * 6.28;
+    for (let s = 0; s < 3; s++) {
+      const px = x + Math.cos(a) * s * 5, py = y + Math.sin(a) * s * 5;
+      for (const d of [-0.5, 0, 0.5]) T.line(px, py, px + Math.cos(a + d) * 2.4, py + Math.sin(a + d) * 2.4, 0.32, [0.24, 0.18, 0.13], 0.6, 0.4);
+    }
+  }
   return T.bytes();
 }
 
@@ -465,6 +539,20 @@ function forestFloor(n, B, seed) {
     T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.4, R() < 0.5 ? [0.52, 0.38, 0.20] : [0.25, 0.20, 0.12], 0.75, 0.55);
   }
   for (let k = 0; k < 10; k++) { const g = 0.42 + R() * 0.15; T.pebble(R() * n, R() * n, 1.6 + R() * 2.4, [g * 0.95, g, g * 0.85], { h: 0.8 }); }
+  // drifts of fallen needles, a few cones / acorns, bright moss cushions in the mossy patches
+  const nd = B.view('mid', 16, 3, 0.55, 211, 377);
+  for (let k = 0; k < 520; k++) {
+    const x = R() * n, y = R() * n;
+    if (nd[Math.floor(y) * n + Math.floor(x)] < 0.1) continue;
+    const a = R() * 6.28;
+    T.line(x, y, x + Math.cos(a) * 2.6, y + Math.sin(a) * 2.6, 0.3, R() < 0.5 ? [0.50, 0.34, 0.18] : [0.40, 0.27, 0.14], 0.85, 0.55);
+  }
+  for (let k = 0; k < 14; k++) T.pebble(R() * n, R() * n, 1.3 + R() * 0.8, R() < 0.5 ? [0.42, 0.28, 0.15] : [0.55, 0.42, 0.22], { h: 0.8, rim: 0.55, shadow: 0.35, flat: 0.2 });
+  for (let k = 0; k < 240; k++) {
+    const x = R() * n, y = R() * n;
+    if (mp[Math.floor(y) * n + Math.floor(x)] < 0.1) continue;
+    T.disc(x, y, 0.7 + R() * 1.1, R() < 0.5 ? [0.36, 0.44, 0.18] : [0.44, 0.52, 0.22], 0.7, 0.06);
+  }
   return T.bytes();
 }
 

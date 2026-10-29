@@ -1,6 +1,6 @@
 // Dynamic action bar (#ab): auto-attack button + the live ability list (ABILITY_ORDER, rebuilt from the
 // equipment), WoW-like cooldown sweeps, GCD, energy dimming, out-of-range / no line of fire, ammo &
-// bandage badges, hold-to-block, a cast bar (Aimed Shot) and a pop-in animation on equipment change.
+// herb badges, hold-to-block, a cast bar (Aimed Shot) and a pop-in animation on equipment change.
 // Touch: two thumb arcs around the big attack button (inner 4, outer 3). Desktop: one row, keys 1..7.
 
 import { ABILITIES, ABILITY_ORDER } from '../game/data.js';
@@ -105,7 +105,7 @@ export function installActionBar(game, root, wrap) {
     }
   };
 
-  const groupOf = (id) => (id === 'bandage' || id === 'sprint' ? 2 : p.offprof?.abilities.includes(id) ? 1 : 0);
+  const groupOf = (id) => (id === 'heal' || id === 'sprint' ? 2 : p.offprof?.abilities.includes(id) ? 1 : 0);
 
   const rebuild = () => {
     const ids = ABILITY_ORDER.slice();

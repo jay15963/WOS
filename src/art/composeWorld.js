@@ -9,16 +9,20 @@
 //   type, v (variant), x, y, s (scale), f (±1 flip), alpha, flash, shake (0..1)
 //   trees: fall, fallDir, stump, age · bushes: empty
 //   autotile (wall_* / fence_* / floor_* / farm_plot): mask 0..15 (N=1 E=2 S=4 W=8)
-//   doors/gates (door_wood / gate_wood, or *_h / *_v): open 0..1, orient 'h'|'v' (else derived from mask)
+//   doors/gates (door_wood / gate_wood, or *_h / *_v): _openT 0..1 swing (else open), orient 'h'|'v' (else from mask)
+//   rotated / edge props: face 's'|'n'|'e'|'w' (sprites <type>, <type>_n, <type>_e; w = e mirrored), fw x fh footprint,
+//   tx / ty, rot; torches: _mount (wall behind -> wall torch); rug: rot (drawn rotated, centred on the footprint)
 //   stations: working (furnace glow, pot steam), fire / lit (false = off)
 //   crops: type 'crop' + kind ('potato'|'cotton'|'corn') or type 'crop_<kind>'; stage 0..3
 //          farm_plot may also carry crop/kind + stage (drawn on top of the plot)
-//   construction: progress 0..1 (< 1 = blueprint: translucent, blue tint, scaffold)
+//   construction: progress 0..1 (< 1 = blueprint: RimWorld-blue, translucent; scaffold once work started)
+//   build ghosts (drawGhost): _ghost 1 = valid (blue) / 2 = invalid (red)
 //   damage: hp / maxHp (cracks below 75 / 50 / 25 %)
 
-import { TORCH_FLAME_LIFT, CAMPFIRE_FLAME_LIFT } from './buildings.js';
+import { TORCH_FLAME_LIFT, CAMPFIRE_FLAME_LIFT, TORCH_WALL } from './buildings.js';
 import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
+import { TREE_SPECIES } from './trees.js';
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -28,6 +32,7 @@ const FLAT = { floor_wood: 1, floor_stone: 1, farm_plot: 1, rug: 1 };
 const CROPS = ['potato', 'cotton', 'corn'];
 // footprint width (tiles) for blueprint scaffolds / crack overlays of multi-tile props
 const WIDE = { workbench: 2, stonecutter: 2, loom: 2, table_wood: 2, rug: 2, tent: 2, bed: 1 };
+const ROT_A = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
 
 const CACHE = new WeakMap();
 function tables(A) {
@@ -50,10 +55,24 @@ function tables(A) {
     'door_wood_sill_h', 'door_wood_sill_v', 'gate_wood_h', 'gate_wood_h_frame', 'gate_wood_h_leaf', 'gate_wood_v', 'gate_wood_v_frame', 'gate_wood_v_leaf',
     'gate_wood_v_post', 'campfire_coals', 'furnace_glow', 'lamp_post_glow', 'banner_pole', 'cooking_pot_coals', 'brazier_coals']) T.parts[n] = opt(n);
   T.banner = []; for (let i = 0; i < 3; i++) { const c = opt('banner_cloth_' + i); if (c) T.banner.push(c); }
+  T.face = {}; // type -> [n, e] facing variants (null = mirror / reuse the base)
+  for (const n of ['torch_wall_s', 'torch_wall_e', 'chest_open']) T.parts[n] = opt(n);
   CACHE.set(A, T);
   return T;
 }
 const spriteOf = (A, type, v) => (A.groups[type] ? A.pick(type, v | 0) : A.has(type) ? A.get(type) : null);
+// facing variant of a prop: front S = base, N = <type>_n (else the base mirrored), E = <type>_e, W = E mirrored
+let FFLIP = 1;
+function faceSprite(A, T, type, v, face) {
+  FFLIP = 1;
+  const base = spriteOf(A, type, v);
+  if (!face || face === 's') return base;
+  let fv = T.face[type];
+  if (!fv) { fv = T.face[type] = [A.has(type + '_n') ? A.get(type + '_n') : null, A.has(type + '_e') ? A.get(type + '_e') : null]; }
+  if (face === 'n') { if (fv[0]) return fv[0]; FFLIP = -1; return base; }
+  if (face === 'w') FFLIP = -1;
+  return fv[1] || base;
+}
 
 // ---------- ghost previews ----------
 // structureSprite(A, type, mask?, opts?) → [sprite, scale] for a build ghost of `type` with the given
@@ -79,19 +98,29 @@ export function structureSprite(A, type, mask = 0, opts) {
   return GHOST;
 }
 
+// placement ghost: the real drawing of `o` (a scratch object with type, x, y, tx, ty, rot, face, fw, fh, mask) in
+// RimWorld-blue (o._ghost 1) or red (2), translucent (o.alpha)
+export function drawGhost(B, A, o, t) { drawStatic(B, A, o, t); }
+
 // ---------- shared helpers ----------
 // blueprint state → globals used by the painters below (avoids per-call objects)
 let CR = 1, CG = 1, CB = 1, CA = 1, BP = false;
+const BP_FLASH = 0.14; // lifts the darks of blueprints a little (pale silhouette)
+// blueprint tint: a strong blue boost turns warm wood / stone into RimWorld-blue (channels > 1 are fine)
 function setState(o) {
   const p = o.progress;
   BP = p != null && p < 1;
   const a = o.alpha ?? 1;
-  if (BP) { CR = 0.62; CG = 0.8; CB = 1; CA = a * (0.42 + 0.12 * clamp01(p)); }
+  if (o._ghost) { BP = true; if (o._ghost === 2) { CR = 1.6; CG = 0.42; CB = 0.36; } else { CR = 0.36; CG = 0.78; CB = 2.1; } CA = a * 0.72; }
+  else if (BP) { CR = 0.34; CG = 0.72; CB = 2.0; CA = a * (0.62 + 0.3 * clamp01(p)); }
   else { CR = CG = CB = 1; CA = a; }
 }
 function overlays(B, T, o, w, t) {
-  // scaffold while under construction, cracks when damaged
-  if (BP && T.scaffold && (o.progress || 0) > 0.02) B.main.add(T.scaffold, o.x, o.y, w, 1, 1, 1, 1, 0.9 * (o.alpha ?? 1), 0, 0, 0, 1);
+  // scaffold while under construction (frame stage: work started), cracks when damaged
+  if (BP && !o._ghost && T.scaffold && (o.progress || 0) > 0.02) {
+    const fw = o.fw || w, fh = o.fh || 1, cx = o.tx != null ? o.tx + fw / 2 : o.x;
+    for (let k = 0; k < fh; k++) B.main.add(T.scaffold, cx, o.ty != null ? o.ty + fh - k : o.y - k, fw, 1, 1, 1, 1, 0.9 * (o.alpha ?? 1), 0, 0, 0, 1);
+  }
   if (o.hp != null && o.maxHp > 0 && T.cracks.length) {
     const k = o.hp / o.maxHp;
     const i = k < 0.25 ? 2 : k < 0.5 ? 1 : k < 0.75 ? 0 : -1;
@@ -109,12 +138,20 @@ function blockShadow(B, s, x, y, a) {
 }
 
 // ---------- static world objects ----------
-const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.022, tree_birch: 0.04, tree_dead: 0.015 };
+const BUSH_SP = [null, 'bush_rose', 'bush_juniper'];
+const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.022, tree_birch: 0.04, tree_dead: 0.015,
+  tree_maple: 0.03, tree_willow: 0.05, tree_scots: 0.018, tree_juniper: 0.016, tree_aspen: 0.045, tree_snag: 0.008 };
+// species art group of a tree: o.v >> 4 indexes TREE_SPECIES[type] (worldgen / regrowth encode it; 0 = the type itself)
+function treeGroup(A, type, v) {
+  const L = TREE_SPECIES[type];
+  const g = L ? L[(v >> 4) % L.length] : type;
+  return A.groups[g] ? g : A.groups[type] ? type : 'tree_oak';
+}
 export function drawStatic(B, A, o, t) {
   const T = tables(A);
   const type = o.type;
   const f = o.f || 1;
-  const fl = o.flash || 0;
+  const fl = o._ghost || (o.progress != null && o.progress < 1) ? BP_FLASH : o.flash || 0;
   const c0 = type.charCodeAt(0);
   // ----- trees -----
   if (c0 === 116 && type.startsWith('tree_')) {
@@ -133,7 +170,8 @@ export function drawStatic(B, A, o, t) {
       B.shadow.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 0.8, 0.08, 0, 0, f);
       return;
     }
-    const s = A.pick(A.groups[type] ? type : 'tree_oak', o.v);
+    const grp = o._tg || (o._tg = treeGroup(A, type, o.v | 0));
+    const s = A.pick(grp, o.v & 15);
     let x = o.x, rot = 0, alpha = 1;
     const shk = o.shake || 0;
     if (shk > 0) { x += Math.sin(t * 57) * 0.045 * shk; rot = Math.sin(t * 43 + 1.3) * 0.028 * shk; }
@@ -149,14 +187,16 @@ export function drawStatic(B, A, o, t) {
     const sa = alpha;
     if (o.alpha != null) alpha *= o.alpha; // optional see-through (e.g. canopy over the player)
     B.blob.add(T.blob, o.x, o.y, 1.05 * sc, 0.85 * sc, 1, 1, 1, 0.6 * (fall > 0 ? 1 - clamp01(fall) : 1));
-    const sway = fall > 0 ? 0 : TREE_SWAY[type] ?? 0.03;
+    const sway = fall > 0 ? 0 : TREE_SWAY[grp] ?? 0.03;
     B.main.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f);
     B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
     return;
   }
-  if (type === 'bush' || type === 'berrybush') {
-    const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : type;
-    const s = A.pick(name, o.v);
+  if (type === 'bush' || type === 'berrybush' || type === 'herbbush') {
+    // bush species from o.v (worldgen / regrowth): ≥ 1000 → wild rose (1) / juniper shrub (2)
+    const sp = type === 'bush' ? ((o.v | 0) / 1000) | 0 : 0;
+    const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : sp && A.groups[BUSH_SP[sp]] ? BUSH_SP[sp] : type;
+    const s = A.pick(name, (o.v | 0) % 1000);
     const shk = o.shake || 0;
     const x = o.x + (shk > 0 ? Math.sin(t * 50) * 0.035 * shk : 0);
     const rot = shk > 0 ? Math.sin(t * 38) * 0.05 * shk : 0;
@@ -166,7 +206,7 @@ export function drawStatic(B, A, o, t) {
     return;
   }
   if (type === 'boulder') {
-    const s = A.pick('boulder', o.v);
+    const s = (o.v | 0) >= 8000 && A.groups.boulder_moss ? A.pick('boulder_moss', o.v) : A.pick('boulder', o.v); // ≥ 8000: mossy (woods)
     const x = o.x + shakeX(o, t, 0.03);
     B.blob.add(T.blob, o.x, o.y, 1.0 * o.s, 0.55 * o.s, 1, 1, 1, 0.5);
     B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f);
@@ -242,9 +282,18 @@ export function drawStatic(B, A, o, t) {
     return;
   }
   if (type === 'torch') {
-    const s = A.get('torch');
     const sc = o.s || 1;
     setState(o);
+    const face = o.face;
+    const wall = o._mount && (face === 's' || face === 'e' || face === 'w') ? T.parts[face === 's' ? 'torch_wall_s' : 'torch_wall_e'] : null;
+    if (wall) {
+      // wall torch: iron bracket on the wall face (lifted to wall height), torch leaning out of it
+      const G2 = face === 's' ? TORCH_WALL.s : TORCH_WALL.e, fx = face === 'w' ? -1 : 1;
+      B.main.add(wall, o.x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, fx, 0, G2.lift * sc);
+      if (!BP && o.fire !== false && o.lit !== false) smallFlame(B, T, o.x + G2.fx * fx * sc, o.y, (G2.lift + G2.flame) * sc, sc, t, 0.9);
+      return;
+    }
+    const s = A.get('torch');
     B.blob.add(T.blob, o.x, o.y, 0.35 * sc, 0.25 * sc, 1, 1, 1, 0.5);
     B.main.add(s, o.x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, 1);
     if (!BP) B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 1, 0, 0, 0, 1);
@@ -254,22 +303,31 @@ export function drawStatic(B, A, o, t) {
   if (type === 'brazier' || type === 'lamp_post' || type === 'furnace' || type === 'cooking_pot') { drawLit(B, A, T, o, type, fl, t); return; }
   if (type === 'banner') { drawBanner(B, A, T, o, fl, t); return; }
   // ----- generic props: stations, furniture, camp, items -----
-  const s = spriteOf(A, type, o.v);
+  // (a chest the local player has open shows its lid up: o._lid, cosmetic)
+  const lid = o._lid && type === 'chest' && (!o.face || o.face === 's') && T.parts.chest_open;
+  if (lid) FFLIP = 1;
+  const s = lid || (o.face ? faceSprite(A, T, type, o.v, o.face) : spriteOf(A, type, o.v));
   if (!s) return;
+  const ff = o.face ? FFLIP : f;
   const sc = o.s || 1;
   setState(o);
   const x = o.x + shakeX(o, t, 0.025);
-  if (FLAT[type]) { B.ground.add(s, o.x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, f, 1); return; }
+  if (FLAT[type]) {
+    if (type === 'rug' && o.tx != null) B.ground.add(s, o.tx + (o.fw || 2) / 2, o.ty + (o.fh || 1) / 2, sc, sc, CR, CG, CB, CA, 0, ROT_A[(o.rot | 0) & 3], fl, 1, 1);
+    else B.ground.add(s, o.x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, f, 1);
+    return;
+  }
   const item = c0 === 105 && type.startsWith('item_');
   if (item) {
     B.blob.add(T.blob, o.x, o.y, 0.42 * sc, 0.26 * sc, 1, 1, 1, 0.45);
     B.main.add(s, x, o.y, sc, sc, 1, 1, 1, CA, 0, 0, fl, f);
     return;
   }
-  const w = WIDE[type] || 1;
-  if (type !== 'bed') B.blob.add(T.blob, o.x, o.y - 0.06, (0.62 + 0.38 * w) * sc, 0.4 * sc, 1, 1, 1, 0.38 * CA);
-  B.main.add(s, x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, f);
-  if (!BP && type !== 'bed') B.shadow.add(s, o.x, o.y, sc, sc * 0.8, 1, 1, 1, CA, 0, 0, 0, f);
+  const w = o.fw || WIDE[type] || 1, h = o.fh || 1;
+  B.blob.add(T.blob, o.x, o.y - 0.06 - (h - 1) * 0.5, (0.62 + 0.38 * w) * sc, (0.4 + 0.6 * (h - 1)) * sc, 1, 1, 1, 0.38 * CA);
+  B.main.add(s, x, o.y, sc, sc, CR, CG, CB, CA, 0, 0, fl, ff);
+  // (sprites of N-S footprints are ground depth, not height: no sun shadow)
+  if (!BP && type !== 'bed' && h < 2) B.shadow.add(s, o.x, o.y, sc, sc * 0.8, 1, 1, 1, CA, 0, 0, 0, ff);
   overlays(B, T, o, w, t);
 }
 
@@ -299,7 +357,7 @@ function drawDoor(B, T, o, type, fl, isDoor) {
   const base = isDoor ? 'door_wood' : 'gate_wood';
   let orient = o.orient;
   if (!orient) orient = type.endsWith('_v') ? 'v' : type.endsWith('_h') ? 'h' : o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h';
-  const k = 1 - 0.86 * clamp01(o.open || 0);
+  const k = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x0 = o.x - 0.5, y = o.y;
   if (orient === 'h') {
     const frame = P[base + '_h_frame'], leaf = P[base + '_h_leaf'];
@@ -412,10 +470,16 @@ function drawBanner(B, A, T, o, fl, t) {
 // ---------- ground decor (grass, flowers...) ----------
 // subtle per-tuft tint so the carpet never looks stamped
 const GRASS_TINT = [[1, 1, 1], [0.93, 0.99, 0.88], [1.05, 1.02, 0.92], [0.9, 0.95, 0.84], [1.02, 0.98, 0.86], [0.96, 1.03, 0.94], [1.08, 1.04, 0.9], [0.88, 0.93, 0.86]];
+// flat ground details: drawn in B.ground (under contact shadows and plants), never sway, no tint
+export const FLAT_DECOR = new Set(['litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood']);
+// wind sway per decor kind (fraction of the sprite height; the shader scales it by the wind)
+const DECOR_SWAY = { flower: 0.05, bloom: 0.06, mushroom: 0, tallgrass: 0.15, reed: 0.15, fern: 0.07, heather: 0.04, drygrass: 0.13, thistle: 0.06 };
+const UNTINTED = new Set(['flower', 'bloom', 'mushroom', 'heather', 'thistle']);
 export function drawDecor(B, A, d) {
-  const s = d._s || (d._s = A.pick(d.t, d.v));
+  const s = d._s || (d._s = A.groups[d.t] ? A.pick(d.t, d.v) : A.pick('grass', d.v));
   const t = d.t;
-  const tint = t === 'flower' || t === 'mushroom' ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
-  const sway = t === 'flower' || t === 'mushroom' ? 0.05 : t === 'tallgrass' || t === 'reed' ? 0.15 : 0.11;
-  B.decor.add(s, d.x, d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, t === 'mushroom' ? 0 : sway, 0, 0, d.f, 1);
+  if (FLAT_DECOR.has(t)) { B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, 1, 0, 0, 0, d.f, 1); return; }
+  const tint = UNTINTED.has(t) ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
+  const sway = DECOR_SWAY[t] ?? 0.11;
+  B.decor.add(s, d.x, d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, 1);
 }

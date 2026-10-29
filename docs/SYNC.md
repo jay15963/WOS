@@ -323,7 +323,7 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
   keeps working on the host almost unchanged.
 - **Owner = player authority** for its avatar: movement (no server-side movement; co-op, no anti-cheat),
   inventory, equipment, XP, hunger/energy, buffs, cooldowns, **HP and death**. Damage from host creatures
-  is sent to the owner, who runs its own `dealDamage` (dodge, armor, block, bandage interruption, death).
+  is sent to the owner, who runs its own `dealDamage` (dodge, armor, block, herb-heal interruption, death).
   Rationale: all of that state already lives on the player object and is driven by `game.player`; moving
   it to the host would mean replicating inventories and stats, for no benefit in co-op.
 - **Attacker rolls**: a player's hit/miss/crit/damage rolls happen on the attacker's client (as today,
@@ -928,6 +928,20 @@ differs from the design text above, the code is described here (this section win
 - The guest whose atlas differs from the host's (same build) clears its atlas cache and reloads once (`sessionStorage
   wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
 - R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
+- **Construction (round V2, agent A)** — shared structure fields `rot`, `paid`, `open`, `moveOf` (set in op appliers, in snapshot
+  `structs` rows `[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]` and in the `structs`
+  digest rows; derived on every peer by `setGeom`: `fw × fh` footprint after rotation, `x, y, cy`, `face`). Cosmetic: `_openT`
+  (door swing), `_mount` (wall torch), `_lid` (chest lid, local player only).
+  - `build.place {type, tiles, rot}` places **free** blueprints (`struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid,
+    moveOf]`); the builder delivers the cost when work starts: `build.hit {id, start, pay}` (cost taken locally, `refund` on reject) →
+    `struct.paid {id, by, give?}` (a second delivery comes back as `give`). Unpaid blueprints refuse `inc`/`final` ("Falta material").
+    Cancelling (`build.decon` on a blueprint) gives back delivered materials only.
+  - Doors / gates: closed = `world.solid` 1 (blocks everyone), open = 0; only `door.toggle {id, open}` (reach 2.4, closing refused
+    while a player / creature overlaps the tile) → `door.set {id, open, by}` (each peer nudges its own player out when closing).
+  - "Mover": `build.move {id, tx, ty, rot}` → a paid plan (`moveOf` = source id, kept out of the tile grid, may overlap the source);
+    finishing it (`build.hit final`, target re-validated) → `struct.relocate {id: plan, src}` moves the SAME object (id, store, state).
+  - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
+  - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
 
 ### 7.3 Save format
 
@@ -935,7 +949,8 @@ Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, 
 fuel, hinted, marks, world: serializeWorld(game, {save: true}) }` (the snapshot plus `ids` and `natpos` — `{id: [type, x, y]}` used to
 re-find worldgen objects if the world generator changed). Guests write `{ v: 3, guest: 1, player, craft, fuel, hinted }` only.
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
-`null` = derive from the age.
+`null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
+`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
 
 ### 7.4 Background clock
 

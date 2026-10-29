@@ -6,6 +6,7 @@ import { addBuff, removeBuff, hasBuff } from './player.js';
 import { healEntity, dealDamage } from './combat.js';
 
 const DRAIN = 0.075; // hunger per second (~22 min from full to empty)
+const WET_TIME = 90;  // s soaked after leaving deep water (drying is 5× faster when warmed by a fire)
 
 export function eat(game, id) {
   const p = game.player, def = ITEMS[id];
@@ -67,6 +68,9 @@ export function survivalSystem() {
       const p = game.player;
       if (p.dead) return;
       if (p.warmFoodT > 0) p.warmFoodT -= dt;
+      // swimming in deep water soaks and chills; wet clothes keep chilling until they dry
+      if (p.swimming) p.wetT = WET_TIME;
+      else if (p.wetT > 0) p.wetT = Math.max(0, p.wetT - dt * (hasBuff(p, 'warm') ? 5 : 1));
       // warmth scan
       scanT -= dt;
       if (scanT <= 0) {
@@ -76,13 +80,17 @@ export function survivalSystem() {
         else removeBuff(p, 'warm');
         const night = (game.env.env.night || 0) > 0.55;
         const dressed = (p.warmth || 0) >= 2;
-        if (night && !warm && !dressed) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true }); }
+        const wet = p.wetT > 0;
+        if (wet) { if (!hasBuff(p, 'wet')) addBuff(p, 'wet', 1, { perm: true }); }
+        else removeBuff(p, 'wet');
+        if (p.swimming || (wet && !warm) || (night && !warm && !dressed)) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true }); }
         else removeBuff(p, 'cold');
       }
 
       let drain = DRAIN;
       if (hasBuff(p, 'sprint')) drain *= 3;
       if (hasBuff(p, 'cold')) drain *= 1.5;
+      if (p.swimming) drain *= 2.5; // icy water + effort
       if (hasBuff(p, 'warm')) drain *= 0.8;
       if (p.inCombat) drain *= 1.3;
       p.hunger = Math.max(0, p.hunger - drain * dt);
