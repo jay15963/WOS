@@ -14,7 +14,7 @@ import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
 import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
-import { liftOf } from './levels.js';
+import { liftOf, STORY_H } from './levels.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -91,10 +91,13 @@ export function pick(game, sx, sy) {
   }
   if (best) return { type: 'creature', e: best, wx, wy };
   let hit = null, hitFlat = null;
-  game.world.forChunks(wx - 2, wy - 1, wx + 2, wy + 3, (c) => {
+  const LV = game.levels?.hasUpper ? game.levels : null; // levels: upper pieces are drawn lifted (faded / covered ones are not pickable)
+  game.world.forChunks(wx - 2, wy - 1, wx + 2, wy + 3 + (LV ? 3 * STORY_H : 0), (c) => {
     for (const o of c.objects) {
-      if (Math.abs(o.x - wx) > 2.5 || o.y < wy - 0.6 || o.y > wy + 2.6) continue;
-      if (!objHit(o, wx, wy, tol) || (hid(o.x, o.y) && !o.door)) continue;
+      const ly = LV && o.lv ? wy + o.lv * STORY_H : wy;
+      if (Math.abs(o.x - wx) > 2.5 || o.y < ly - 0.6 || o.y > ly + 2.6) continue;
+      if (LV && (o.lv ? (o.alpha ?? 1) < 0.5 : LV.culled(o))) continue;
+      if (!objHit(o, wx, ly, tol) || (hid(o.x, o.y) && !o.door)) continue;
       const d = describeAny(game, o);
       if (!d) continue;
       if (o.flat) { if (!hitFlat) hitFlat = d; continue; }
@@ -122,9 +125,11 @@ export function nearestInteractable(game) {
     const score = d - (it.prio || 0) * 0.2 - bonus;
     if (score < bs) { bs = score; best = it; }
   };
+  const pz = Math.round(p.z || 0);
   game.world.forChunks(p.x - 3, p.y - 3, p.x + 3, p.y + 3, (c) => {
     for (const o of c.objects) {
       if (Math.abs(o.x - p.x) > 3 || Math.abs(o.y - p.y) > 3) continue;
+      if (o.building && (o.lv | 0) !== pz && (o.door || o.store || o.type === 'bed' || BUILDINGS[o.type]?.station)) continue; // levels: doors / chests / beds / stations of your own story
       consider(describeAny(game, o));
     }
   });
@@ -436,13 +441,14 @@ export function installController(game) {
           if (!attackable(t) || p.target !== t || !p.autoAttack) ctl.goal = null;
         } else if (goal.type === 'interact') {
           const it = goal.it;
-          if (reachDist(p, it) <= it.reach) {
+          const glv = it.use && it.o?.building ? it.o.lv | 0 : null; // levels: doors / chests / beds / stations are used from their own story
+          if (reachDist(p, it) <= it.reach && (glv == null || Math.round(p.z || 0) === glv)) {
             ctl.goal = null;
             if (!useInteract(g, it) && goal.auto) g.work?.fail(it);
           } else {
             const gx = it.tile ? Math.max(it.tx, Math.min(it.tx + (it.w || 1), p.x)) : it.x;
             const gy = it.tile ? Math.max(it.ty, Math.min(it.ty + (it.h || 1), p.y)) : it.y;
-            const dir = steer(g, p, gx, gy, dt, spd, 0.05);
+            const dir = steer(g, p, gx, gy, dt, spd, 0.05, glv);
             if (!dir || (p.nav && p.nav.fails > 2)) {
               ctl.goal = null;
               if (goal.auto) g.work?.fail(it);

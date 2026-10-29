@@ -16,6 +16,12 @@ import { BUILDINGS } from './data.js';
 import { tileBlocked } from './physics.js';
 import { walkable } from './nav.js';
 import { WALL_H } from '../art/structures.js';
+import { enclosedRoom } from './roofs.js';
+import { ROOF_GEOM } from './content/roofs.js';
+import { wallBehind as wallBehindL } from './autotile.js';
+import { drawStatic } from '../art/composeWorld.js';
+import { drawProxy } from './artcompat.js';
+import { lootRow } from './mut/roll.js';
 
 export const MAX_LV = 3;
 export const STORY_H = WALL_H;   // screen height of one story (tiles): a wall top is the next story's floor
@@ -33,11 +39,18 @@ export const heightK = (a, b) => 1 + 0.12 * Math.max(0, Math.min(2, (a?.z || 0) 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];
 const isWallTop = (def) => def.connect === 'wall' && (def.block === 'tile' || def.block === 'door');
+const SUPPORT = ROOF_GEOM.support;    // same rule as J's roofs: a support of the story below within 6 tiles
+const NEED_SUPPORT = 'Precisa de apoio: paredes ou colunas no andar de baixo a até 6 tiles';
+const NOT_UP = new Set(['farm_plot', 'campfire']); // (things that only make sense on the ground)
+const LAYER_DY = { floor: 0.0006, rug: 0.0003 };      // upper pieces share the sorted batch: the slab first, then rugs, then the rest
 
 export function installLevels(game) {
   const L = new Levels(game);
   game.levels = L;
   game.world.levels = L; // physics / LOS only get the world
+  // J's roofs ask how many stories a building has (eaves on top of the highest one)
+  game.build.storeysAt = (x, y) => L.sync().storeysAt(x, y);
+  game.build.storeysIn = (tiles) => L.sync().storeysIn(tiles);
   return L;
 }
 
@@ -55,6 +68,8 @@ export class Levels {
     this.nodeTile = new Int32Array(64);
     this.nodeLv = new Uint8Array(64);
     this._nb = new Int32Array(16); this._nc = new Float32Array(16);
+    this.STORY = STORY_H;
+    this.hasUpper = false;
   }
 
   // any stairs in the world (level traversal possible)? Rebuilds the map when the structures changed.
@@ -74,20 +89,158 @@ export class Levels {
     for (const a of this.blk) a?.fill(0);
     for (const a of this.st) a?.fill(0);
     this.stairs.length = 0;
+    let upper = 0, sig = 0;
+    const mark = (list, k, o) => {
+      const A = this._arr(list, k, Uint8Array, N);
+      for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A[y * W + x] = 1;
+    };
     for (const o of g.build.structures) {
-      if (o.blueprint || o.moveOf || o.removed) continue;
+      if (o.moveOf || o.removed) continue;
       const def = BUILDINGS[o.type];
       if (!def) continue;
       const lv = o.lv | 0;
+      if (lv) { upper++; sig = (sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = o.y + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it)
+      if (o.blueprint) continue;
       if (def.block === 'stairs') { this._addStair(o, lv); continue; }
-      if (isWallTop(def) && lv < MAX_LV) {
-        const S = this._arr(this.surf, lv + 1, Uint8Array, N);
-        for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) S[y * W + x] = 1;
-      }
-      // [P2] upper floors (floor_* with lv ≥ 1) → surf[lv]; upper walls / doors / railings / furniture → blk[lv]
+      if (isWallTop(def) && lv < MAX_LV) mark(this.surf, lv + 1, o);            // wall / door tops: the next story's floor
+      if (lv && def.layer === 'floor' && !def.roof) mark(this.surf, lv, o);       // upper floor slab
+      if (lv && (def.block === 'tile' || (def.block === 'door' && !o.open))) mark(this.blk, lv, o); // upper walls, closed doors, railings, furniture
     }
     this._active = this.stairs.length > 0;
+    this.hasUpper = upper > 0;
     this._nodesV = -1; // A* nodes are built on the first path request
+    // roofs: their eaves sit on the highest story — repaint J's regions when the upper stories change
+    if (sig !== this._upSig) {
+      this._upSig = sig;
+      const R = g.roofs;
+      if (R?.artDirty) for (const o of g.build.structures) if (o.lv && !o.removed) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y) && w.broof?.[y * W + x]) R.artDirty.add(y * W + x);
+      if (R?.artDirty && this._upTiles) for (const i of this._upTiles) R.artDirty.add(i);
+      this._upTiles = g.build.structures.filter((o) => o.lv && !o.removed).map((o) => o.ty * W + o.tx);
+    }
+  }
+
+  // ---------- stories (upper floors, walls, furniture) ----------
+  // number of stories at a tile (J's roofs put their eaves on top): 1 + the highest story holding a wall / floor there
+  storeysAt(x, y) {
+    const g = this.game, w = g.world;
+    if (!this.hasUpper || !w.inBounds(x, y)) return 1;
+    const i = y * w.W + x, N = w.W * w.H, G = g.build.grid;
+    let s = 1;
+    for (let k = 1; k <= MAX_LV; k++) {
+      const a = G.main.get(i + k * N), f = G.floor.get(i + k * N);
+      if ((a && isWallTop(BUILDINGS[a.type]) && !a.blueprint) || (f && !f.blueprint)) s = k + 1;
+    }
+    return s;
+  }
+  storeysIn(tiles) { let s = 1; if (this.hasUpper) for (const i of tiles) { const W = this.game.world.W; s = Math.max(s, this.storeysAt(i % W, (i / W) | 0)); } return s; }
+
+  // a support of story lv-1 (wall / door / column, planned too when `planned`) within SUPPORT tiles: upper floors stand on it
+  supportedL(tx, ty, lv, planned = false) {
+    const g = this.game, w = g.world, N = w.W * w.H, G = g.build.grid.main, R = SUPPORT, R2 = R * R, base = (lv - 1) * N;
+    for (let dy = -R; dy <= R; dy++) {
+      const y = ty + dy;
+      if (y < 0 || y >= w.H) continue;
+      const r = Math.floor(Math.sqrt(R2 - dy * dy));
+      for (let dx = -r; dx <= r; dx++) {
+        const x = tx + dx;
+        if (x < 0 || x >= w.W) continue;
+        const i = y * w.W + x;
+        if (lv === 1 && w.rock[i]) return true;
+        const o = G.get(i + base);
+        if (o && !o.moveOf && !this._gone?.has(o) && (BUILDINGS[o.type].support || isWallTop(BUILDINGS[o.type])) && (planned || !o.blueprint)) return true;
+      }
+    }
+    return false;
+  }
+  // something to stand a piece on at story lv: a floor slab of lv or the top of a wall of lv-1 (planned too when `planned`)
+  surfaceUnder(tx, ty, lv, planned = false) {
+    const g = this.game, w = g.world, N = w.W * w.H, i = ty * w.W + tx, G = g.build.grid;
+    const f = G.floor.get(i + lv * N);
+    if (f && !f.moveOf && !this._gone?.has(f) && (planned || !f.blueprint)) return true;
+    const a = G.main.get(i + (lv - 1) * N);
+    return !!(a && !a.moveOf && !this._gone?.has(a) && isWallTop(BUILDINGS[a.type]) && (planned || !a.blueprint));
+  }
+  // placement rule for a piece on story lv ≥ 1 (mut/structures.placeReason hook). Same contract as placeReason.
+  upperReason(type, tx, ty, who, rot, ignore, lv) {
+    this.sync();
+    const g = this.game, w = g.world, def = BUILDINGS[type], N = w.W * w.H;
+    if (lv > MAX_LV) return 'Alto demais';
+    if (NOT_UP.has(type) || def.raze) return 'Isto só pode ficar no chão';
+    const [w0, h0] = def.size || [1, 1];
+    const [sw, sh] = def.rotate && (rot & 1) ? [h0, w0] : [w0, h0];
+    const G2 = g.build.grid[def.layer];
+    let replace = null;
+    for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
+      if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return 'Fora do mapa';
+      const i = y * w.W + x;
+      const cur = G2.get(i + lv * N);
+      if (cur && !(ignore && cur === ignore)) {
+        if (!ignore && def.block === 'door' && sw === 1 && sh === 1 && BUILDINGS[cur.type].connect === def.connect && BUILDINGS[cur.type].block === 'tile') { replace = cur; continue; }
+        return 'exists';
+      }
+      if (this.stairwell(x, y, lv)) return 'Vão da escada: deixe aberto';
+      if (def.layer === 'floor') { if (!this.supportedL(x, y, lv, true)) return NEED_SUPPORT; if (lv === 1 && this._tallBelow(x, y)) return 'Árvore ou pedra embaixo: tire antes'; }
+      else if (!this.surfaceUnder(x, y, lv, true)) return 'Precisa de piso embaixo (ou o topo de uma parede)';
+    }
+    if (def.block === 'stairs') { const r = this.stairsReason(type, tx, ty, rot, lv); if (r) return r; }
+    if (def.mount === 'wall' && !(rot >= 1 && rot <= 4 && wallBehindL(g, tx, ty, rot, lv))) return 'Encoste numa parede pronta';
+    if (who && Math.hypot(tx + sw / 2 - who.x, ty + sh / 2 - who.y) > 22) return 'Muito longe';
+    return replace ? { replace } : null;
+  }
+  // a tree / boulder on the ground tile (it would poke through a story-1 slab)
+  _tallBelow(tx, ty) {
+    let hit = false;
+    this.game.world.forChunks(tx - 1, ty - 1, tx + 2, ty + 2, (c) => {
+      if (hit) return;
+      for (const o of c.objects) if (!o.building && !o.gone && !o.stump && (o.type.startsWith('tree_') || o.type === 'boulder') && Math.floor(o.x) === tx && Math.floor(o.y - 0.05) === ty) { hit = true; return; }
+    });
+    return hit;
+  }
+  // upper piece drawn under a screen point (lifted by its story; faded ones are skipped), highest story first —
+  // building.structureAtPoint / controller.pick ask it before the ground
+  pickUpper(wx, wy, layers = ['main', 'rug', 'floor']) {
+    if (!this.hasUpper) return null;
+    const g = this.game, w = g.world, N = w.W * w.H, G = g.build.grid;
+    for (let k = MAX_LV; k >= 1; k--) {
+      const tx = Math.floor(wx), ty = Math.floor(wy + k * STORY_H);
+      if (!w.inBounds(tx, ty)) continue;
+      for (const L of layers) {
+        const o = G[L].get(ty * w.W + tx + k * N);
+        if (o && (o.alpha ?? 1) > 0.5) return o;
+      }
+    }
+    return null;
+  }
+  // build.hit start hook: what an upper blueprint needs FINISHED before the work starts (null = ok)
+  buildStartReason(o) {
+    const def = BUILDINGS[o.type], lv = o.lv | 0;
+    for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) {
+      if (def.layer === 'floor') { if (!this.supportedL(x, y, lv)) return 'Sem apoio: termine as paredes do andar de baixo primeiro'; }
+      else if (!this.surfaceUnder(x, y, lv)) return 'Construa o piso embaixo primeiro';
+    }
+    return null;
+  }
+  // host: finished upper pieces that lost what holds them up (support for floors, a surface for the rest)
+  unsupported() {
+    const out = [];
+    for (const o of this.game.build.structures) {
+      if (!o.lv || o.blueprint || o.moveOf || o.removed) continue;
+      const def = BUILDINGS[o.type];
+      let bad = false;
+      for (let y = o.ty; y < o.ty + (o.fh || 1) && !bad; y++) for (let x = o.tx; x < o.tx + (o.fw || 1) && !bad; x++) {
+        bad = def.layer === 'floor' ? !this.supportedL(x, y, o.lv) : !this.surfaceUnder(x, y, o.lv);
+      }
+      if (bad) out.push(o);
+    }
+    return out;
+  }
+
+  // upper pieces that would fall if `gone` (a Set of structures) were removed (building.confirmSupports asks first)
+  lostWithout(gone) {
+    this.sync();
+    if (!this.hasUpper) return [];
+    this._gone = gone;
+    try { return this.unsupported().filter((o) => !gone.has(o)); } finally { this._gone = null; }
   }
 
   _addStair(o, n) {
@@ -108,7 +261,7 @@ export class Levels {
       const A = this._arr(this.st, k, Int32Array, N);
       for (const i of tiles) A[i] = s.idx + 1;
     }
-    o._sy = ty + 0.2; // depth key: drawn before anything standing on it (docs/LEVELS.md §8)
+    o._sy = n ? ty + fh + 0.002 : ty + 0.2; // depth key: before anything standing on it, after the slab under it (docs/LEVELS.md §8)
   }
 
   _buildNodes() {
@@ -164,7 +317,7 @@ export class Levels {
     for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
       const i = this._tile(x + 0.5, y + 0.5);
       if (lv + 1 <= MAX_LV && this.isSurface(lv + 1, i)) return 'Tire o piso de cima da escada primeiro';
-      if (this.game.roofs?.at?.(x, y, lv + 1)) return 'Tire o telhado de cima da escada primeiro'; // J's built roofs
+      if (this.game.build.grid.roof?.get(i) && this.storeysAt(x, y) <= lv + 1) return 'Tire o telhado de cima da escada primeiro'; // J's roof right over it
     }
     return null;
   }
@@ -542,11 +695,181 @@ class Heap {
   }
 }
 
+// ---------- drawing upper stories (game.js hook) ----------
+// An upper piece is drawn by the normal painters with its base lifted by lv stories, all of it into the sorted batch
+// (its floor / blob / sill sprites too, so it stays in depth order with what stands around it).
+Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
+  const a = o.alpha ?? 1;
+  if (a <= 0.02) return;
+  const lift = (o.lv | 0) * STORY_H, def = BUILDINGS[o.type];
+  let PB = this._pb;
+  if (!PB || PB.main !== B.main) PB = this._pb = { ...B, ground: B.main, blob: B.main, decor: B.main };
+  const y0 = o.y, cy0 = o.cy, ty0 = o.ty;
+  o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift;
+  try {
+    if (o.blueprint && !o._ghost && A.has('bp_tile')) { // RimWorld-blue plan grid on its story (building.js draws the ground ones)
+      const tile = A.get('bp_tile');
+      for (let y = 0; y < (o.fh || 1); y++) for (let x = 0; x < (o.fw || 1); x++) B.main.add(tile, o.tx + x + 0.5, ty0 + y + 1 - lift, 1, 1, 0.42, 0.7, 1, 0.5 * a, 0, 0, 0, 1, 0);
+    }
+    drawStatic(PB, A, drawProxy(A, o), t);
+    // K's canopy over the door right below sticks out in front of this wall (drawn first, it would hide under it)
+    if (isWallTop(def) && !o._ghost && A.has('kd_awning')) {
+      const g = this.game, w = g.world, d = g.build.grid.main.get(ty0 * w.W + o.tx + ((o.lv | 0) - 1) * w.W * w.H);
+      const vert = d && (d.orient ? d.orient === 'v' : d.mask != null && !(d.mask & 10) && (d.mask & 5)); // (archCompose.drawDoorK's rule)
+      if (d && d.door && !d.blueprint && d._k?.on?.awning && !vert) {
+        const tn = d._k.tint || [1, 1, 1];
+        B.main.add(A.get('kd_awning'), d.x, d.y, 1, 1, tn[0], tn[1], tn[2], d.alpha ?? 1, 0, 0, 0, 1, 0, ((o.lv | 0) - 1) * STORY_H);
+      }
+    }
+    if (!o._ghost && this.game.build.decon.has(o) && A.has('fx_ring')) B.main.add(A.get('fx_ring'), o.tx + (o.fw || 1) / 2, ty0 + (o.fh || 1) / 2 + 0.1 - lift, 0.95 * (o.fw || 1), 0.65 * (o.fh || 1), 1, 0.35, 0.3, 0.85);
+    // the slab's front beam where an upper floor overhangs (nothing under its south edge)
+    if (def.layer === 'floor' && !o.blueprint && A.has('slab_edge')) {
+      const g = this.game, w = g.world, N = w.W * w.H, i = ty0 * w.W + o.tx, lv = o.lv | 0;
+      const below = g.build.grid.main.get(i + (lv - 1) * N), south = g.build.grid.floor.get(i + w.W + lv * N);
+      if (!south && !(below && isWallTop(BUILDINGS[below.type]))) B.main.add(A.get('slab_edge'), o.tx + 0.5, ty0 + 1 - lift, 1, 1, 1, 1, 1, a, 0, 0, 0, 1, 0, 0);
+    }
+  } finally { o.y = y0; o.cy = cy0; o.ty = ty0; }
+  const Lg = o.light;
+  if (Lg) {
+    const tt = this.game.time, f = Lg.flicker ? 1 - Lg.flicker * (0.5 + 0.5 * Math.sin(tt * 11 + o.x * 3) * Math.sin(tt * 7.3 + o.y)) : 1, d = Lg.radius * 2 * (0.96 + 0.04 * f);
+    B.light.addRaw(o.x, o.y - lift - (Lg.lift ?? 0.3), d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
+  }
+};
+// hidden under an opaque upper floor? (entities and furniture below a slab whose story is not faded for the player)
+Levels.prototype.culled = function culled(o) {
+  const g = this.game;
+  if (o === g.player || o.draw) return false;
+  if (!o.isEntity) { const def = o.building && BUILDINGS[o.type]; if (!def || isWallTop(def) || def.layer === 'floor' || def.roof || def.block === 'stairs') return false; }
+  const w = g.world, tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
+  if (!w.inBounds(tx, ty)) return false;
+  const k = o.isEntity ? Math.round(o.z || 0) : (o.lv | 0), i = ty * w.W + tx, N = w.W * w.H, F = g.build.grid.floor;
+  for (let L = k + 1; L <= MAX_LV; L++) { const f = F.get(i + L * N); if (f && !f.blueprint && (f.alpha ?? 1) > 0.5) return true; }
+  return false;
+};
+
+// ---------- reveal (cosmetic): the stories above the local player inside its building fade out ----------
+// Building = J's roof region over the player, else the upper floor slab right above it (4-connected). Upper pieces of
+// higher stories on it (and on the ring of walls around it) fade to 0, so the player sees its own story; things under
+// the slab the player stands on are culled (they would poke through it).
+function reveal(game, dt) {
+  const L = game.levels, p = game.player, w = game.world, N = w.W * w.H;
+  const C = L._rev || (L._rev = { key: '', want: new Set(), live: new Set() });
+  if (!L.hasUpper && !C.live.size) return;
+  const V = Math.round(p.z || 0), tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05), I = game.indoors;
+  const key = p.dead ? '' : `${tx},${ty},${V},${game.build.v},${I?.kind === 'built' ? I.region : 0}`;
+  if (key !== C.key) {
+    C.key = key;
+    C.want.clear();
+    if (key && w.inBounds(tx, ty) && L.hasUpper) {
+      let tiles = null;
+      const reg = I?.kind === 'built' ? game.roofs?.regions?.get(I.region) : null;
+      if (reg) tiles = new Set(reg.tiles);
+      else if (V < MAX_LV && game.build.grid.floor.get(ty * w.W + tx + (V + 1) * N)) {
+        tiles = new Set();
+        const F = game.build.grid.floor, q = [ty * w.W + tx], off = (V + 1) * N;
+        tiles.add(q[0]);
+        while (q.length && tiles.size < 600) {
+          const i = q.pop(), x = i % w.W;
+          for (const j of [i - 1, i + 1, i - w.W, i + w.W]) {
+            if (j < 0 || j >= N || (j === i - 1 && x === 0) || (j === i + 1 && x === w.W - 1) || tiles.has(j) || !F.get(j + off)) continue;
+            tiles.add(j); q.push(j);
+          }
+        }
+      }
+      if (tiles) {
+        const near = (i) => tiles.has(i) || tiles.has(i - 1) || tiles.has(i + 1) || tiles.has(i - w.W) || tiles.has(i + w.W);
+        for (const o of game.build.structures) {
+          if (!(o.lv > V) || o.removed) continue;
+          let hit = false;
+          for (let y = o.ty; y < o.ty + (o.fh || 1) && !hit; y++) for (let x = o.tx; x < o.tx + (o.fw || 1) && !hit; x++) hit = near(y * w.W + x);
+          if (hit) C.want.add(o);
+        }
+      }
+    }
+  }
+  for (const o of C.want) C.live.add(o);
+  const k = 1 - Math.exp(-dt * 7);
+  for (const o of C.live) {
+    const to = C.want.has(o) && !o.removed ? 0 : 1;
+    const a = o.alpha ?? 1;
+    const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
+    if (na >= 1) { delete o.alpha; C.live.delete(o); } else o.alpha = na; // sync-ok: cosmetic fade (COSMETIC_FIELDS 'alpha')
+  }
+}
+
+// authority: upper pieces that lost their support fall (op lv.collapse, half the materials as loot below)
+function collapseCheck(game) {
+  const L = game.levels;
+  if (L._colV === L.v) return;
+  L._colV = L.v;
+  const bad = L.unsupported();
+  if (!bad.length) return;
+  const net = game.net, drops = [];
+  for (const o of bad) {
+    const cost = BUILDINGS[o.type]?.cost || {};
+    for (const id in cost) { const q = Math.floor(cost[id] / 2); if (q > 0) drops.push(lootRow(net, o.x, o.y - 0.3, id, q, 0.7)); }
+    if (o.store) for (const s of o.store.slots) if (s) drops.push(lootRow(net, o.x, o.y - 0.3, s.id, s.qty, 0.8));
+  }
+  net.emit('lv.collapse', { ids: bad.map((o) => o.id), drops: drops.length ? drops : undefined });
+}
+
+// ---------- cutaway (cosmetic): tall walls that hide the room / the player fade (RimWorld-like) ----------
+// A story is one tile tall, so a wall's top face covers the tile north of it. Walls of the local player's room whose
+// north side is inside the room (south walls, interior partitions) and walls right in front of the player fade to
+// CUT_A while the player is there; everything eases back afterwards. Only o.alpha (cosmetic) is written.
+const CUT_A = 0.22;
+const isWallish = (o) => { const d = o && BUILDINGS[o.type]; return !!d && d.connect === 'wall' && (d.block === 'tile' || d.block === 'door'); };
+function cutaway(game, dt) {
+  const L = game.levels, p = game.player, w = game.world, C = L._cut || (L._cut = { key: '', want: new Set(), live: new Set() });
+  const lv = p.lv | 0, tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05);
+  const key = p.dead ? '' : `${tx},${ty},${lv},${game.build.v}`;
+  if (key !== C.key) {
+    C.key = key;
+    C.want.clear();
+    if (key && w.inBounds(tx, ty)) {
+      const G = game.build.grid.main, W = w.W;
+      const wallAt = (x, y) => { if (!w.inBounds(x, y)) return null; const o = G.get(y * W + x + lv * W * w.H); return isWallish(o) && !o.blueprint ? o : null; };
+      // the room around the player (interior tiles + the wall ring), from J's flood fill
+      const room = lv === 0 ? game.roofs && roomOf(game, tx, ty) : null;
+      if (room) {
+        const inner = new Set();
+        for (const [x, y] of room) if (!wallAt(x, y)) inner.add(y * W + x);
+        for (const [x, y] of room) { const o = wallAt(x, y); if (o && inner.has((y - 1) * W + x)) C.want.add(o); }
+      } else if (lv > 0) {
+        // upper story: the floor slab around the player (4-connected, walls stop it) and its walls whose north is on it
+        const F = game.build.grid.floor, off = lv * W * w.H, inner = new Set(), q = [ty * W + tx];
+        if (F.get(q[0] + off)) inner.add(q[0]); else q.length = 0;
+        while (q.length && inner.size < 400) {
+          const i = q.pop(), x = i % W;
+          for (const j of [i - 1, i + 1, i - W, i + W]) {
+            if (j < 0 || j >= W * w.H || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1) || inner.has(j) || !F.get(j + off) || wallAt(j % W, (j / W) | 0)) continue;
+            inner.add(j); q.push(j);
+          }
+        }
+        if (inner.size < 400) for (const i of inner) { const o = wallAt(i % W, ((i / W) | 0) + 1); if (o) C.want.add(o); }
+      }
+      // walls just south of the player (their top face is drawn over its body)
+      for (let y = ty + 1; y <= ty + 2; y++) for (let x = tx - 1; x <= tx + 1; x++) { const o = wallAt(x, y); if (o && (y === ty + 1 || x === tx)) C.want.add(o); }
+    }
+  }
+  for (const o of C.want) C.live.add(o);
+  const k = 1 - Math.exp(-dt * 9);
+  for (const o of C.live) {
+    const to = C.want.has(o) && !o.removed ? CUT_A : 1;
+    const a = o.alpha ?? 1;
+    const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
+    if (na >= 1) { delete o.alpha; C.live.delete(o); } else o.alpha = na; // sync-ok: cosmetic fade (COSMETIC_FIELDS 'alpha')
+  }
+}
+// enclosed room around a tile (J's roofs.enclosedRoom; recomputed when the tile or the structures change)
+const roomOf = (game, tx, ty) => enclosedRoom(game, tx, ty, 220);
+
 // ---------- system ----------
 // Every peer keeps the derived map fresh; the owner settles its own player (falls, jump down), the authority
 // its creatures. Remote copies only display the replicated z. Also the landing marker of a stairs ghost (cosmetic).
 // (Depth: game.js sorts by (_sy ?? y) + z — one tile of depth per story; stairs get _sy at rebuild.)
 export function levelsSystem() {
+  let bar = null;
   return {
     sync: 'all', // derived map everywhere; settle() runs on the owner (player) / the host (creatures)
     update(game, dt) {
@@ -560,6 +883,14 @@ export function levelsSystem() {
         for (const e of game.entities) if (e.isMob && !e.proxy && (e.lv || e.z > 0)) L.settle(e, dt);
       }
       p._lx = p.x; p._ly = p.y; // (stair / wall-top footsteps: juice + audio 'step' with surfaceOf)
+      if (game.net.auth && L.hasUpper) collapseCheck(game);
+      if (!game.headless) { cutaway(game, dt); reveal(game, dt); }
+      // build mode: the story to build on (src/ui/levelbar.js), loaded lazily like the build bar
+      if (!bar && typeof document !== 'undefined' && game.R?.canvas && !game.headless) {
+        bar = 1;
+        import('../ui/levelbar.js').then((m) => { bar = m.installLevelbar(game); }).catch((e) => { console.warn('levelbar', e); bar = 2; });
+      }
+      if (typeof bar === 'object' && bar) bar.update(dt);
     },
     render(game, B) {
       // stairs ghost: mark the landing tile (green when a surface is there to step onto)
@@ -571,8 +902,8 @@ export function levelsSystem() {
         const r = m.rot & 3, fw = r & 1 ? h0 : w0, fh = r & 1 ? w0 : h0;
         const lx = r === 0 ? g.tx : r === 2 ? g.tx : r === 1 ? g.tx + fw : g.tx - 1;
         const ly = r === 0 ? g.ty - 1 : r === 2 ? g.ty + fh : g.ty;
-        const ok = L.isSurface(1, L._tile(lx + 0.5, ly + 0.5));
-        B.fx.add(ring, lx + 0.5, ly + 0.6 - STORY_H, 0.8, 0.5, ok ? 0.5 : 1, ok ? 1 : 0.85, ok ? 0.55 : 0.45, 0.75 * pulse);
+        const up = Math.min(MAX_LV, (m.lv | 0) + 1), ok = L.isSurface(up, L._tile(lx + 0.5, ly + 0.5));
+        B.fx.add(ring, lx + 0.5, ly + 0.6 - up * STORY_H, 0.8, 0.5, ok ? 0.5 : 1, ok ? 1 : 0.85, ok ? 0.55 : 0.45, 0.75 * pulse);
       }
     },
   };

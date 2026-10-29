@@ -3,7 +3,7 @@
 // bypasses the 10-minute HTTP cache of GitHub Pages), so one boot never mixes modules of two deploys.
 // The SW cache is only the offline fallback. VERSION is written by tools/stamp.mjs ('wos-' + BUILD_ID).
 <<<<<<< HEAD
-const VERSION = 'wos-c74fada021fa';
+const VERSION = 'wos-4a9cb20f6ebf';
 =======
 const VERSION = 'wos-74af30e430f6';
 >>>>>>> main

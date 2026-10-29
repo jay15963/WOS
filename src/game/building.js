@@ -87,7 +87,8 @@ export function enterBuildMode(game, type, opts = {}) {
   if (def.mount && !src && !rot) rot = 1; // wall-mounted decor: against a wall
   const look = src ? [src.style || '', src.det || ''] : lookMemory(game)[type] || [def.roof ? rotMemory(game)['style:' + type] || '' : '', ''];
   game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null,
-    style: normStyle(type, look[0]), det: cleanDet(type, look[1]) };
+    style: normStyle(type, look[0]), det: cleanDet(type, look[1]),
+    lv: def.roof ? 0 : src ? src.lv | 0 : Math.max(0, Math.min(3, Math.round(p.z || 0))) }; // levels: story to build on (ui/levelbar.js), the player's own by default
   game.events.emit('buildui', {});
   const h = game.ctl?.hinted;
   if (!h) return;
@@ -192,6 +193,7 @@ export function originAt(game, wx, wy) {
   const m = game.build.mode;
   if (!m || m.kind !== 'place') return [Math.floor(wx), Math.floor(wy)];
   const [fw, fh] = dimsOf(m.type, m.rot);
+  wy += (m.lv | 0) * (game.levels?.STORY ?? 1); // levels: the ghost of an upper story is drawn lifted
   return [Math.floor(wx - fw / 2 + 0.5), Math.floor(wy - fh / 2 + 0.5)];
 }
 
@@ -210,15 +212,15 @@ function updatePreview(game) {
     if (room) { tiles = room.slice(0, MAX_TILES); m.room = true; }
   }
   // wall-mounted decor snaps to the wall next to the hovered tile (keeps the chosen side when it has one)
-  if (def.mount && !m.move && !wallBehind(game, m.hover[0], m.hover[1], m.rot)) {
-    for (const r of [1, 2, 4, 3]) if (wallBehind(game, m.hover[0], m.hover[1], r)) { m.rot = r; break; }
+  if (def.mount && !m.move && !wallBehind(game, m.hover[0], m.hover[1], m.rot, m.lv | 0)) {
+    for (const r of [1, 2, 4, 3]) if (wallBehind(game, m.hover[0], m.hover[1], r, m.lv | 0)) { m.rot = r; break; }
   }
   const multi = tiles.length > 1;
   const ghost = new Set();
   const out = [];
   let nOk = 0, firstReason = null;
   for (const [tx, ty] of tiles) {
-    let r = placeReason(game, m.type, tx, ty, p, m.rot, m.move);
+    let r = placeReason(game, m.type, tx, ty, p, m.rot, m.move, m.lv | 0); // levels: the chosen story
     if (r === 'exists' && multi) continue;
     let replace = null;
     if (r && typeof r === 'object') { replace = r.replace; r = null; }
@@ -231,7 +233,7 @@ function updatePreview(game) {
   }
   if (def.connect) {
     const extra = (x, y) => game.world.inBounds(x, y) && ghost.has(game.world.idx(x, y));
-    for (const t of out) t.mask = computeMask(game, m.type, t.tx, t.ty, extra); // sync-ok: ghost preview tile, not a structure
+    for (const t of out) t.mask = computeMask(game, m.type, t.tx, t.ty, extra, m.lv | 0); // sync-ok: ghost preview tile, not a structure
   }
   m.tiles = out; m.n = nOk; m.valid = nOk > 0; m.reason = nOk ? null : firstReason;
   // materials are only needed when the work starts: tell the player what is missing for all of it
@@ -266,7 +268,7 @@ export function commitPlacement(game) {
     exitBuildMode(game);
     return true;
   }
-  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined }, {
+  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined, lv: m.lv || undefined }, {
     onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
   });
   game.events.emit('toast', { text: (n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`) + (m.short ? ` · ${m.short.toLowerCase()}` : ''), kind: m.short ? 'warn' : 'info' });
@@ -318,6 +320,7 @@ export function buildDragStart(game, wx, wy) {
     const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice();
     const hit = roofPick(game, wx, wy);
     m.roof = hit ? [hit.tx, hit.ty] : null;
+    m.upLv = hit ? 0 : game.levels?.pickUpper(wx, wy)?.lv | 0; // levels: a drag that starts on an upper story marks that story
     return;
   }
   const o = originAt(game, wx, wy);
@@ -343,8 +346,8 @@ export function buildDragEnd(game, wx, wy, { commit = true } = {}) {
     if (!a) return false;
     const tx = Math.floor(wx), ty = Math.floor(wy);
     if (a[0] === tx && a[1] === ty) { deconAt(game, wx, wy); return true; }
-    const n = deconRect(game, a[0], a[1], tx, ty, m.roof);
-    m.roof = null;
+    const n = deconRect(game, a[0], a[1], tx, ty, m.roof, m.upLv | 0);
+    m.roof = null; m.upLv = 0;
     if (n) game.events.emit('toast', { text: `${n} marcada(s) para desmontar`, kind: 'info' });
     return n > 0;
   }
@@ -368,6 +371,8 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
     const hit = roofPick(game, wx, wy);
     if (hit) { const o = structureAt(game, hit.tx, hit.ty, 'roof'); if (o) return o; }
   }
+  const up = game.levels?.pickUpper(wx, wy); // levels: upper stories are drawn lifted, over the ground
+  if (up) return up;
   const tx = Math.floor(wx), ty = Math.floor(wy);
   const g = structureAt(game, tx, ty, 'main') || structureAt(game, tx, ty, 'rug') || structureAt(game, tx, ty, 'floor');
   if (g) return g;
@@ -383,15 +388,18 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
 const CONFIRM = { key: '', t: 0 };
 function confirmSupports(game, list) {
   const sup = list.filter((o) => !o.blueprint && BUILDINGS[o.type]?.support && !game.build.decon.has(o));
-  if (!sup.length) return true;
+  const held = game.levels?.hasUpper ? list.filter((o) => !o.blueprint && !game.build.decon.has(o)) : []; // levels: what upper pieces stand on
+  if (!sup.length && !held.length) return true;
   const gone = new Set(sup), removing = new Set(list);
-  const lost = roofsLostWithout(game, gone).filter((r) => !removing.has(r));
-  if (!lost.length) return true;
-  const key = sup.map((o) => o.id).sort().join(',');
+  const lost = sup.length ? roofsLostWithout(game, gone).filter((r) => !removing.has(r)) : [];
+  const up = held.length ? game.levels.lostWithout(new Set(held)).filter((o) => !removing.has(o)) : [];
+  if (!lost.length && !up.length) return true;
+  const key = [...new Set([...sup, ...held])].map((o) => o.id).sort().join(',');
   const now = game.time;
   if (CONFIRM.key === key && now - CONFIRM.t < 6) { CONFIRM.key = ''; return true; }
   CONFIRM.key = key; CONFIRM.t = now;
-  game.events.emit('toast', { text: `O teto vai desabar (${lost.length} ${lost.length > 1 ? 'tiles' : 'tile'})! ${game.input.isTouch ? 'Toque' : 'Clique'} de novo para confirmar`, kind: 'warn' });
+  const what = lost.length ? `O teto vai desabar (${lost.length} ${lost.length > 1 ? 'tiles' : 'tile'})` : `O andar de cima vai desabar (${up.length} ${up.length > 1 ? 'peças' : 'peça'})`;
+  game.events.emit('toast', { text: `${what}! ${game.input.isTouch ? 'Toque' : 'Clique'} de novo para confirmar`, kind: 'warn' });
   game.audio?.play('ui_click', {});
   return false;
 }
@@ -416,8 +424,17 @@ export function deconAt(game, wx, wy) {
 
 // a drag that starts on a visible roof marks roof tiles (the corners mapped from the roof image to its tiles);
 // any other drag marks the structures on the ground layers
-export function deconRect(game, x0, y0, x1, y1, roof = null) {
+export function deconRect(game, x0, y0, x1, y1, roof = null, lv = 0) {
   const seen = new Set();
+  if (lv && !roof) { // levels: the rectangle as drawn on story lv (lifted)
+    const d = Math.round(lv * (game.levels?.STORY ?? 1)), N = game.world.W * game.world.H;
+    for (let y = Math.min(y0, y1) + d; y <= Math.max(y0, y1) + d; y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+      if (!game.world.inBounds(x, y)) continue;
+      for (const L of ['main', 'rug', 'floor']) { const o = game.build.grid[L].get(y * game.world.W + x + lv * N); if (o) seen.add(o); }
+    }
+    if (seen.size) { game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 }); game.work?.wake(); }
+    return seen.size;
+  }
   if (roof) {
     const b = roofPick(game, x1 + 0.5, y1 + 0.5);
     const ex = b ? b.tx : x1, ey = b ? b.ty : Math.floor(y1 + roofEaveH() + 0.5);
@@ -667,6 +684,7 @@ export function buildingSystem() {
       const pulse = 0.75 + 0.25 * Math.sin(t * 5);
       for (const o of S) {
         if (o.x < v.x0 - 3 || o.x > v.x1 + 3 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
+        if (o.lv) continue; // levels: upper plans / marks are drawn on their story (levels.drawUpper)
         const def = defOf(o);
         const sw = o.fw || 1, sh = o.fh || 1;
         if (def.flat && soft && !art && !A.has(o.type + '_' + o.mask) && !A.has(o.type)) {
@@ -676,7 +694,7 @@ export function buildingSystem() {
         }
         if (o.blueprint && def.roof) {
           // roof plan: a blue grid in the air (eave height), red-ish when no finished support is near yet
-          const ok = canSupply(game, o), He = roofEaveH();
+          const ok = canSupply(game, o), He = roofEaveH(game.build.storeysAt?.(o.tx, o.ty) || 1); // (agent L: highest story)
           if (tile) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
           if (bar && (o.progress || 0) > 0.001) {
             B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
@@ -735,15 +753,17 @@ export function buildingSystem() {
       for (const g of m.tiles) {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
-        if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) B.ground.add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0);
-        else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse);
+        const glv = m.lv | 0, gl = glv ? glv * (game.levels?.STORY ?? 1) : 0; // levels: ghost on the chosen story
+        if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
+        else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, 0, 0, 1, 0, gl);
         G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
         G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
         G0._cm = G0._k?.on.carpet ? g.mask : 0;
         setGeom(G0);
-        G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot) : false;
-        G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse;
-        if (art && CW.drawGhost) CW.drawGhost(B, A, G0, t);
+        G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot, glv) : false;
+        G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse; G0.lv = glv; // sync-ok: scratch ghost
+        if (glv && game.levels) game.levels.drawUpper(B, A, G0, t);
+        else if (art && CW.drawGhost) CW.drawGhost(B, A, G0, t);
         else {
           const [s, sc] = ghostSprite(A, m.type, g.mask);
           if (s) (BUILDINGS[m.type].flat ? B.ground : B.fx).add(s, G0.x, G0.y, sc, sc, r, gg, b, 0.55 * pulse, 0, 0, 0, 1);
@@ -753,7 +773,7 @@ export function buildingSystem() {
   };
 }
 // scratch object for ghosts (no per-frame allocation)
-const GHOST_O = { type: '', tx: 0, ty: 0, rot: 0, x: 0, y: 0, cy: 0, fw: 1, fh: 1, mask: 0, progress: 0, blueprint: true, building: true, _ghost: 1, alpha: 1, s: 1, f: 1, v: 0, style: '', det: '', _k: null, _cm: 0 };
+const GHOST_O = { type: '', tx: 0, ty: 0, rot: 0, x: 0, y: 0, cy: 0, fw: 1, fh: 1, mask: 0, progress: 0, blueprint: true, building: true, _ghost: 1, alpha: 1, s: 1, f: 1, v: 0, style: '', det: '', _k: null, _cm: 0, lv: 0 };
 
 const FLAT_FB = { floor_wood: [0.62, 0.45, 0.28], floor_stone: [0.62, 0.62, 0.6], farm_plot: [0.36, 0.25, 0.16], rug: [0.62, 0.2, 0.18] };
 
