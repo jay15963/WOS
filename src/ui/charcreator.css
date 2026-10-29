@@ -114,6 +114,15 @@
 .cc-chip:hover { background: rgba(255,255,255,.1); }
 .cc-chip.sel { background: rgba(231,195,110,.2); border-color: #e7c36e; color: #fff0c8; }
 .cc-follow { margin-bottom: 8px; }
+.cc-note { margin: 0 0 10px; font-size: 12px; color: var(--muted, #a29d92); }
+.cc-saved { cursor: pointer; }
+.cc-del { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; padding: 0; cursor: pointer;
+  color: #f3e6cc; background: rgba(12,11,9,.6); border: 1px solid rgba(255,255,255,.14); opacity: .75; transition: opacity .15s, background .15s; }
+.cc-del .cc-i { width: 14px; height: 14px; }
+.cc-del:hover { opacity: 1; background: rgba(180,60,40,.7); }
+.cc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 18px 0 4px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); font-size: 11px; color: var(--muted, #a29d92); }
+.cc-legend span { text-transform: uppercase; letter-spacing: 1.2px; font-weight: 700; margin-right: 2px; }
+.cc-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; transform: rotate(45deg); background: var(--rar); box-shadow: 0 0 6px var(--rar); margin-right: -6px; }
 
 .cc-colors { display: flex; flex-direction: column; gap: 6px; }
 .cc-sub { font-size: 11px; color: var(--muted, #a29d92); margin-top: 2px; }
@@ -140,7 +149,7 @@
 
 .cc-sliders { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
 .cc-slider { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 10px; font-size: 12px; color: #cfc6b2; font-weight: 600; }
-.cc-slider input { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; border-radius: 9px; outline: none; touch-action: pan-x; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+.cc-slider input { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; border-radius: 9px; outline: none; touch-action: pan-y; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
 .cc-slider input::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: #fff; border: 3px solid #e7c36e; box-shadow: 0 2px 6px rgba(0,0,0,.55); }
 .cc-slider input::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #fff; border: 3px solid #e7c36e; }
 

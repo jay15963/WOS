@@ -5,7 +5,7 @@
 // parts painted at k× resolution, so what the player sees here is exactly their in-game character.
 // The look is saved per player profile (src/game/look.js saveLook) and, in a running game, sent to the others.
 
-import { PreviewAtlas, drawPawn2D, previewPawn } from '../art/look/preview.js';
+import { PreviewAtlas, drawPawn2D, previewPawn, atlasView } from '../art/look/preview.js';
 import { CATALOG, PALETTES, RARITY } from '../art/look/catalog.js';
 import { cleanLook, loadLook, saveLook, randomLook, applyLook, packLook, GROUPS, DEFAULT_LOOK, hexOf, rgbOf } from '../game/look.js';
 import { playerName, setPlayerName } from '../net/session.js';
@@ -66,6 +66,9 @@ const I = {
   plus: '<path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
   check: '<path d="m5 12.6 4.4 4.4L19 7.4" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
   x: '<path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
+  star: '<path d="m12 2.8 2.7 5.8 6.3.7-4.7 4.3 1.3 6.2L12 16.7l-5.6 3.1 1.3-6.2L3 9.3l6.3-.7Z"/>',
+  gear: '<path d="M12 2.6 19.6 5v6.4c0 4.6-3.2 8.4-7.6 10-4.4-1.6-7.6-5.4-7.6-10V5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 6.4v11.4M7.6 10.6h8.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  save: '<path d="M5 3.6h11.4L20.4 7.6V19a1.4 1.4 0 0 1-1.4 1.4H5A1.4 1.4 0 0 1 3.6 19V5A1.4 1.4 0 0 1 5 3.6Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.4 3.8v4.6h8V3.8M7.4 20.2v-6h9.2v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
 };
 const icon = (n, cls = '') => `<svg class="cc-i ${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${I[n]}</svg>`;
 
@@ -127,6 +130,18 @@ function picker(host, hex, onChange) {
   hx.value = hex;
   requestAnimationFrame(draw);
   return { set(c) { [h, s, v] = rgb2hsv(rgbOf(c)); hx.value = c; draw(); } };
+}
+
+// ---------------- saved looks (wardrobe, per profile) ----------------
+const SAVED_KEY = 'wos.looks', SAVED_MAX = 8;
+function savedLooks() { try { const a = JSON.parse(localStorage.getItem(SAVED_KEY) || '[]'); return Array.isArray(a) ? a.filter((x) => typeof x === 'string').slice(0, SAVED_MAX) : []; } catch { return []; } }
+function setSavedLooks(a) { try { localStorage.setItem(SAVED_KEY, JSON.stringify(a.slice(0, SAVED_MAX))); } catch { /* ignore */ } }
+
+// preview atlas + the game atlas for equipment (in a running game), per k
+class MixAtlas {
+  constructor(P, V) { this.P = P; this.V = V; this.list = []; this.groups = {}; this.k = P.k; }
+  has(n) { return this.P.has(n) || this.V.has(n); }
+  get(n) { return this.P.has(n) ? this.P.get(n) : this.V.get(n); }
 }
 
 // ---------------- thumbnails ----------------
@@ -279,6 +294,7 @@ const TABS = [
     { kind: 'grid', k: 'shoes', t: 'Calçados', frame: 'legs' },
     { kind: 'colors', k: 'shoeC', t: 'Cor dos calçados', pal: ['leather', 'cloth'], labels: ['Couro', 'Tecido'], when: (L) => L.shoes !== 'barefoot' },
   ] },
+  { id: 'saved', name: 'Salvos', icon: 'star', saved: 1, sections: [] },
 ];
 let openNow = null;
 
@@ -315,6 +331,7 @@ export function openCharEditor(opts = {}) {
           <button class="cc-round" data-a="rotl" aria-label="Girar para a esquerda">${icon('left')}</button>
           <button class="cc-round cc-mode" data-a="walk" aria-label="Parado / andando">${icon('walk')}</button>
           <button class="cc-round" data-a="zoom" aria-label="Aproximar">${icon('zoomIn')}</button>
+          ${game?.A ? `<button class="cc-round" data-a="gear" aria-label="Ver com equipamento" title="Ver com o equipamento atual">${icon('gear')}</button>` : ''}
           <button class="cc-round" data-a="rotr" aria-label="Girar para a direita">${icon('right')}</button>
         </div>
       </section>
@@ -364,7 +381,7 @@ export function openCharEditor(opts = {}) {
       const cy = fy + (zk - 1) * scale * 0.5;
       const cx = pv.width / 2;
       stage(ctx, pv.width, pv.height, cx, cy, scale * 0.62);
-      drawPawn2D(ctx, atlasFor(scale / 64 + 0.4), pawn, now / 1000, cx, cy, scale);
+      drawPawn2D(ctx, gearOn ? mixFor(scale / 64 + 0.4) : atlasFor(scale / 64 + 0.4), pawn, now / 1000, cx, cy, scale);
     }
     raf = requestAnimationFrame(frameP);
   };
@@ -374,6 +391,17 @@ export function openCharEditor(opts = {}) {
   Q('[data-a=rotr]').onclick = () => rot(-1);
   const walkBtn = Q('[data-a=walk]');
   walkBtn.onclick = () => { walking = !walking; walkBtn.innerHTML = icon(walking ? 'stand' : 'walk'); walkBtn.classList.toggle('on', walking); sfx('ui_click', game); };
+  // in a running game: show the current equipment (game atlas) over the look
+  let gearOn = false;
+  const gearView = game?.A ? atlasView(game.A) : null, MIX = new Map();
+  const mixFor = (k) => { const A = atlasFor(k); let m = MIX.get(A); if (!m) { m = new MixAtlas(A, gearView); MIX.set(A, m); } return m; };
+  const gearBtn = Q('[data-a=gear]');
+  if (gearBtn) gearBtn.onclick = () => {
+    gearOn = !gearOn; gearBtn.classList.toggle('on', gearOn);
+    const gp = game.player;
+    pawn.armor = gearOn && gp.armor ? { ...gp.armor } : null; pawn.weapon = gearOn ? gp.weapon || null : null; pawn.offhand = gearOn ? gp.offhand || null : null;
+    sfx('ui_click', game);
+  };
   const zoomBtn = Q('[data-a=zoom]');
   const setZoom = (z) => { zoomed = z; zTarget = z ? 2 : 1; zoomBtn.innerHTML = icon(z ? 'zoomOut' : 'zoomIn'); zoomBtn.classList.toggle('on', z); };
   zoomBtn.onclick = () => { setZoom(!zoomed); sfx('ui_click', game); };
@@ -502,6 +530,7 @@ export function openCharEditor(opts = {}) {
     const T = TABS.find((x) => x.id === tab);
     body.innerHTML = '';
     SECTIONS.length = 0;
+    if (T.saved) { savedTab(); return; }
     const head = document.createElement('div'); head.className = 'cc-tabhead';
     head.innerHTML = `<h3>${T.name}</h3><button class="cc-mini" type="button">${icon('dice')}<span>Sortear ${T.name.toLowerCase()}</span></button>`;
     head.querySelector('button').onclick = () => { set(randomLook(randSeed(), L, GROUPS[T.group]), { rerender: true }); sfx('ui_click', game); bump(); };
@@ -514,14 +543,44 @@ export function openCharEditor(opts = {}) {
       sec.appendChild(el); body.appendChild(sec);
       SECTIONS.push({ S, el });
     }
+    const leg = document.createElement('div'); leg.className = 'cc-legend';
+    leg.innerHTML = `<span>Raridade</span>${['uncommon', 'rare', 'epic', 'legendary'].map((r) => `<i style="--rar:${RARITY[r].color}"></i>${RARITY[r].name}`).join('')}`;
+    body.appendChild(leg);
     updateSelection();
     // zoom on the face for face tabs (the player sees the detail being edited)
     if (tab === 'face' || tab === 'marks' || tab === 'beard') { if (!zoomed) setZoom(true); } else if (zoomed && tab !== 'hair') setZoom(false);
   }
+  // wardrobe: up to 8 saved looks (this profile), tap to wear, ✕ to forget
+  function savedTab() {
+    const head = document.createElement('div'); head.className = 'cc-tabhead';
+    head.innerHTML = `<h3>Visuais salvos</h3><button class="cc-mini" type="button">${icon('save')}<span>Guardar este visual</span></button>`;
+    const list = savedLooks();
+    head.querySelector('button').onclick = () => {
+      const cur = packLook(L), a = savedLooks().filter((x) => x !== cur);
+      a.unshift(cur); setSavedLooks(a); sfx('ui_click', game); renderTab();
+    };
+    body.appendChild(head);
+    const p = document.createElement('p'); p.className = 'cc-note';
+    p.textContent = list.length ? 'Toque num visual para vesti-lo. Eles ficam guardados neste aparelho.' : 'Guarde combinações de que você gosta para trocar de visual num toque.';
+    body.appendChild(p);
+    const grid = document.createElement('div'); grid.className = 'cc-grid big';
+    list.forEach((packed, i) => {
+      const b = document.createElement('div'); b.className = 'cc-opt cc-saved'; b.dataset.k = '_saved'; b.dataset.v = packed; b.tabIndex = 0; b.setAttribute('role', 'button');
+      b.innerHTML = `<canvas class="cc-th"></canvas><span class="cc-lbl">Visual ${i + 1}</span><button class="cc-del" type="button" aria-label="Esquecer este visual">${icon('x')}</button>`;
+      thumbs.add(b.querySelector('canvas'), () => cleanLook(packed), 'body');
+      const wear = () => { set(cleanLook(packed), { rerender: false }); sfx('ui_click', game); bump(); };
+      b.onclick = wear; b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wear(); } };
+      b.querySelector('.cc-del').onclick = (e) => { e.stopPropagation(); setSavedLooks(savedLooks().filter((x) => x !== packed)); sfx('ui_close', game); renderTab(); };
+      grid.appendChild(b);
+    });
+    body.appendChild(grid);
+    updateSelection();
+  }
   function updateSelection() {
+    const cur = packLook(L);
     for (const b of body.querySelectorAll('[data-k][data-v]')) {
       const k = b.dataset.k, v = b.dataset.v;
-      b.classList.toggle('sel', (L[k] ?? '') === v);
+      b.classList.toggle('sel', k === '_saved' ? v === cur : (L[k] ?? '') === v);
     }
     for (const em of body.querySelectorAll('.cc-cur')) {
       const k = em.dataset.k, v = L[k];
@@ -534,8 +593,9 @@ export function openCharEditor(opts = {}) {
       // re-show conditional sections when their condition flips
       if (S.kind === 'grid' && (S.k === 'paint' || S.k === 'over' || S.k === 'shoes' || S.k === 'hair')) { /* handled by rerender on chips */ }
     }
-    const want = TABS.find((x) => x.id === tab).sections.filter((S) => !S.when || S.when(L)).length;
-    if (want !== SECTIONS.length) renderTab();
+    const TT = TABS.find((x) => x.id === tab);
+    const want = TT.sections.filter((S) => !S.when || S.when(L)).length;
+    if (!TT.saved && want !== SECTIONS.length) renderTab();
   }
   renderTab();
   syncTools();
