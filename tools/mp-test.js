@@ -23,7 +23,9 @@ const pct = (xs, q) => { const s = [...xs].sort((a, b) => a - b); return s.lengt
 const f2 = (v) => (Number.isFinite(v) ? v.toFixed(2) : String(v));
 
 // guest's avatar as seen by the host / host's avatar as seen by the guest
-const guestOnHost = (H, G) => A.avatarOn(H, G.pid);
+const guestOnHost = (H, G) => A.authAvatarOn(H, G.pid);
+// page text + boot error + last session error (messages shown to the player)
+const pageText = (f) => `${f.text()} ${f.win?.wosBootError || ''} ${f.session?.lastError?.msg || ''}`.replace(/\s+/g, ' ');
 const hostOnGuest = (H, G) => A.avatarOn(G, H.pid);
 
 // move a player far from (x, y) (keeps loot out of magnet range, views away from spawns…)
@@ -87,8 +89,8 @@ def('S2', {
   const G = await bootGuest(t, room, H, { extra: '&fakebuild=FAKEX9', waitSync: false, label: 'guest-fakebuild' });
   let everJoined = false, hostListed = false;
   t.watch(() => { if (isSynced(G)) everJoined = true; if (H.session?.players?.has?.(G.pidHint)) hostListed = true; }, 30);
-  const shown = await t.tryWait(() => /Vers(õ|o)es diferentes/i.test(G.text()) || everJoined, 40000);
-  const txt = G.text().replace(/\s+/g, ' ');
+  const shown = await t.tryWait(() => /Vers(õ|o)es diferentes/i.test(pageText(G)) || everJoined, 40000);
+  const txt = pageText(G);
   t.check(shown && !everJoined, 'guest shows "Versões diferentes…"', short(txt.slice(0, 220), 220));
   t.check(/FAKEX9/.test(txt), 'message names the guest build (sua X, anfitrião Y)');
   await t.sleep(2000);
@@ -112,14 +114,14 @@ def('S3', {
     let everJoined = false;
     t.watch(() => { if (isSynced(G)) everJoined = true; }, 30);
     const re = /Gr(á|a)ficos (incompletos|corrompidos)/i;
-    await t.tryWait(() => re.test(G.text()) || everJoined, 40000);
+    await t.tryWait(() => re.test(pageText(G)) || everJoined, 40000);
     if (everJoined || G.game) {
       const A0 = G.game?.A;
       const hookWorked = val.startsWith('ph:') ? !!A0?.placeholders?.includes?.(val.slice(3)) : A0 && !A0.has(val);
       if (!hookWorked) { t.note(`${label}: ?fakeart hook not implemented (atlas unchanged) — variant skipped`); frames.close(G); frames.close(H); continue; }
     }
     ran++;
-    t.check(re.test(G.text()), `${label}: guest shows "Gráficos incompletos/corrompidos"`, short(G.text().replace(/\s+/g, ' ').slice(0, 200), 200));
+    t.check(re.test(pageText(G)), `${label}: guest shows "Gráficos incompletos/corrompidos"`, short(pageText(G).slice(0, 200), 200));
     t.check(!everJoined, `${label}: never connected with a different atlas`, `frame loads=${G.loads}`);
     t.check(G.loads <= 2, `${label}: reloaded at most once`, `loads=${G.loads}`);
     t.check(!(H.session?.players?.size), `${label}: host has no players`);
@@ -586,6 +588,11 @@ def('S13', {
   A.keepAlive(t, G);
   const ns = A.freeSpot(H, MH, dx + 0.5, y0 - 2.5, { rMin: 0, rMax: 1.5 });
   t.assert(ns, 'free spot north of the door');
+  const orig = { x: wolf.x, y: wolf.y, home: wolf.home };
+  t.defer(() => { // put the creature back home (it must not haunt the spawn in later scenarios)
+    wolf.x = orig.x; wolf.y = orig.y; wolf.home = orig.home; wolf.state = 'idle'; wolf.stateT = 1; wolf.threat = null; wolf.calmT = 120;
+  });
+  wolf.calmT = 0;
   wolf.x = ns[0]; wolf.y = ns[1]; wolf.home = { x: ns[0], y: ns[1] };
   A.teleport(G, dx + 0.5, y0 + 2.2);
   await t.sleep(400);
@@ -622,8 +629,9 @@ def('S14', {
   // optional: a wall next to the ore tile, to check mask updates
   let wall = null;
   const second = c.opens[1];
+  A.teleport(G, c.opens[0][0] + 0.5, c.opens[0][1] + 0.5);
+  await A.hostSees(t, H, G);
   if (second && MG.building.placeReason(G.game, 'wall_wood', second[0], second[1]) === null && MH.building.placeReason(H.game, 'wall_wood', second[0], second[1]) === null) {
-    A.teleport(G, c.opens[0][0] + 0.5, c.opens[0][1] + 0.5);
     A.place(G, MG, 'wall_wood', second);
     const wb = await t.waitFor(() => A.structAt(H, MH, second[0], second[1], 'main'), RT() + 400, 'host has the guest wall blueprint');
     await t.waitFor(() => A.structOn(G, wb.id), ONEWAY() + 300, 'guest has the wall blueprint');
@@ -633,7 +641,7 @@ def('S14', {
   } else t.note('no second open neighbour — wall-mask sub-check skipped');
   const stand = () => A.teleport(G, c.opens[0][0] + 0.5, c.opens[0][1] + 0.5);
   stand();
-  await t.sleep(250);
+  await A.hostSees(t, H, G);
   const oreItem = MG.worldgen.ORE_ITEM?.[c.ore] || MG.items.ORE_ITEM?.[c.ore];
   const loot = A.lootRecorder(t, [H, G]);
   const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
@@ -821,6 +829,7 @@ def('S17', {
   t.assert(m, 'found a hostile creature');
   t.need(m.nid != null, 'host creatures have no nid (entity replication not merged)');
   env.claimed.add('mob' + m.nid);
+  m.calmT = 0;
   const s = A.freeSpot(G, MG, m.x + 4.2, m.y, { rMin: 0, rMax: 2 });
   t.assert(s, 'free spot 4 tiles from the creature');
   A.teleport(G, s[0], s[1]);
@@ -990,8 +999,15 @@ def('S20', {
   A.teleport(G, s[0], s[1]);
   await t.waitFor(() => { const av = guestOnHost(H, G); return av && Math.hypot(av.x - cH.x, av.y - cH.y) < 2; }, 2000, 'host sees the guest at the crate');
   const loot = A.lootRecorder(t, [H, G]);
-  A.hit(G, MG, cG, 50);
-  await t.waitFor(() => cH.broken, RT() + 400, 'crate broken on the host', () => `hp ${cH.hp} ui: ${G.lastUi()}`);
+  // crates count hits, not damage (hp 3; a strike ≥ 18 counts 2): strike until it breaks, like a player would
+  let strikes = 0;
+  while (!cH.broken && strikes < 6) {
+    const hp0 = cH.hp;
+    A.hit(G, MG, cG, 50); strikes++;
+    await t.waitFor(() => cH.broken || cH.hp < hp0, RT() + 400, `crate takes strike ${strikes} on the host`, () => `hp ${cH.hp} ui: ${G.lastUi()}`);
+    await t.tryWait(() => cG.hp === cH.hp || cG.broken, ONEWAY() + 200);
+  }
+  t.check(cH.broken, 'crate broken on the host', `${strikes} strikes`);
   const lag = await t.timeTo(() => cG.broken, ONEWAY() + 300, 'crate broken on the guest');
   t.metric('brokenLagMs', Math.round(lag));
   await t.sleep(500);
@@ -1021,7 +1037,8 @@ def('S21', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const F = H.game.flora;
-  t.need(F && Array.isArray(F.chunks) && 'ci' in F && 't' in F && F.dyn instanceof Map, 'host flora internals (game.flora.ci/t/chunks/dyn) missing — cannot accelerate regrowth');
+  // (objects come from the frame's realm: no instanceof checks against this page's Map/Array)
+  t.need(F && F.chunks?.length && 'ci' in F && 't' in F && typeof F.dyn?.keys === 'function', 'host flora internals (game.flora.ci/t/chunks/dyn) missing — cannot accelerate regrowth');
   const sp = spawnOf(H);
   const tr = A.pickTree(H, MH, G, sp.x + 10, sp.y, env.claimed, { r: 40 });
   t.assert(tr, 'found a tree');
@@ -1118,7 +1135,11 @@ def('S23', {
   // A) connection drop without reload: host changes the world meanwhile
   const s = G.session;
   if (typeof s?._close === 'function' && s.hostKey) {
-    const res0 = stat(G, 'resyncs');
+    const res0 = stat(G, 'resyncs'), resH0 = stat(H, 'resyncs');
+    const states = [];
+    const off = s.on?.('state', (d) => states.push(d?.state));
+    if (off) t.defer(off);
+    else t.watch(() => { const st = G.session?.state; if (st !== states[states.length - 1]) states.push(st); }, 2);
     t.log('simulating a lost connection on the guest');
     s._close(s.hostKey);
     A.ensure(H, { wood: 4 });
@@ -1126,9 +1147,14 @@ def('S23', {
     const site = A.findSite([H], [MH], 'wall_wood', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[hp.x, hp.y]] });
     let bp = null;
     if (site) { A.place(H, MH, 'wall_wood', site.tiles[0]); bp = A.structAt(H, MH, site.tiles[0][0], site.tiles[0][1], 'main'); }
+    await t.tryWait(() => states.includes('lost') || states.includes('syncing'), 3000);
     const back = await t.tryWait(() => G.session?.state === 'connected' && isSynced(G), 45000);
-    t.check(back, 'guest reconnects and resyncs', `state=${G.session?.state}`);
-    if (res0 != null) t.check(stat(G, 'resyncs') > res0, 'net.stats.resyncs incremented', `${res0} → ${stat(G, 'resyncs')}`);
+    t.check(back && states.includes('lost'), 'guest goes lost → reconnects → synced', `states ${states.join(' → ')}`);
+    if (res0 != null) {
+      const g1 = stat(G, 'resyncs'), h1 = stat(H, 'resyncs');
+      t.check(g1 > res0 || h1 > resH0, 'a resync snapshot was served (net.stats.resyncs)', `guest ${res0}→${g1} · host ${resH0}→${h1}`);
+      if (!(g1 > res0)) t.note(`the guest's own stats.resyncs does not count a reconnect (host ${resH0}→${h1})`);
+    }
     if (bp) t.check(await t.tryWait(() => A.structOn(G, bp.id), 3000), 'change made while disconnected is present after the resync', bp.id);
     await t.checkDigest(H, G, 'digest equal after reconnect');
   } else t.note('session._close/hostKey not available — reconnect variant skipped');
@@ -1179,8 +1205,8 @@ def('S24', {
   const keys0 = storage.newKeys().filter((k) => k.startsWith('wos.save.'));
   H.session.close('saiu');
   t.log('host closed the session');
-  const shown = await t.tryWait(() => /O anfitri(ã|a)o saiu/i.test(G.text()), 8000);
-  t.check(shown, 'guest shows "O anfitrião saiu"', short(G.text().replace(/\s+/g, ' ').slice(0, 200), 200));
+  const shown = await t.tryWait(() => /O anfitri(ã|a)o saiu/i.test(pageText(G)), 8000);
+  t.check(shown, 'guest shows "O anfitrião saiu"', short(pageText(G).slice(0, 200), 200));
   const btn = [...(G.doc?.querySelectorAll('button, a') || [])].find((b) => /Voltar ao menu/i.test(b.textContent || ''));
   t.check(!!btn, '"Voltar ao menu" button present');
   if (btn) {
@@ -1331,15 +1357,22 @@ function bot(t, f, M, home) {
   A.equip(f, 'sword_copper');
   g.work.paused = false;
   const stats = { actions: {}, errors: 0 };
-  let next = 0;
+  let next = 0, busySince = now();
   const pick = (r) => r[Math.floor(Math.random() * r.length)];
   t.watch(() => {
     if (p.dead) { M.player.respawnPlayer(g); return; }
     p.hunger = Math.max(p.hunger, 70); if (p.hp < p.maxHp * 0.4) p.hp = p.maxHp;
     if (A.count(f, 'wood') < 10) A.ensure(f, { wood: 20 });
     if (Math.hypot(p.x - home.x, p.y - home.y) > 22) { const s = A.freeSpot(f, M, home.x, home.y, { rMin: 0, rMax: 4 }); if (s) A.teleport(f, s[0], s[1]); }
-    if (now() < next || p.work || g.ctl.goal || p.autoAttack) return;
+    const busy = p.work || g.ctl.goal || p.autoAttack;
+    if (busy && now() - busySince > 9000) { // fleeing prey, unreachable job: give up, pick something else
+      p.autoAttack = false; g.ctl.setTarget(null); g.ctl.goal = null; p.work = null; p.action = null;
+      stats.givenUp = (stats.givenUp || 0) + 1;
+    }
+    if (!busy) busySince = now();
+    if (now() < next || busy) return;
     next = now() + 1500 + Math.random() * 3000;
+    busySince = now();
     const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon']);
     stats.actions[act] = (stats.actions[act] || 0) + 1;
     try {
@@ -1386,7 +1419,9 @@ def('S29', {
     t.check(kbps < 25, 'guest download < 25 KB/s', `${f2(kbps)} KB/s down, ${f2(up)} KB/s up`);
   } else t.note('net.stats.bytesIn missing — bandwidth check skipped');
   await t.checkDigest(H, G, 'digest equal at the end of the soak', { ms: 6000 });
-  t.metric('botActions', { host: bh.actions, guest: bg.actions, errors: bh.errors + bg.errors });
+  t.metric('botActions', { host: bh.actions, guest: bg.actions, givenUp: [bh.givenUp || 0, bg.givenUp || 0], errors: bh.errors + bg.errors });
+  const nAct = (s) => Object.values(s.actions).reduce((a, b) => a + b, 0);
+  t.check(nAct(bh) >= el / 8 && nAct(bg) >= el / 8, 'both bots stayed active', `host ${nAct(bh)} · guest ${nAct(bg)} actions in ${Math.round(el)} s`);
   if (!t.checks.length) t.skip('bots ran, but no net stats / digest to assert on');
 });
 

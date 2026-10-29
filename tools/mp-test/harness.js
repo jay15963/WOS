@@ -130,7 +130,7 @@ export class Frame {
   get pid() { return this.net?.pid || this.session?.pid || this.pidHint; }
   get loadingText() { return this.doc?.querySelector('#loading-text')?.textContent || ''; }
   get loadingHidden() { const el = this.doc?.querySelector('#loading'); return !!el && el.classList.contains('hidden'); }
-  get bootError() { const t = this.loadingText; return /^Erro:/.test(t) ? t : null; }
+  get bootError() { const t = this.loadingText; try { if (this.win?.wosBootError) return 'Erro: ' + this.win.wosBootError; } catch { /* ignore */ } return /^Erro:/.test(t) ? t : null; }
   get alive() { return this.box.isConnected && !!this.win; }
   text() { try { return this.doc?.body?.innerText || ''; } catch { return ''; } }
   _hook() {
