@@ -16,13 +16,14 @@ import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
 import { chestAdapter } from './container.js';
+import { uiScale } from './uiscale.js';
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
 const MINES_PT = ['rocha e pedregulhos', 'rocha, cobre e carvão', 'rocha, cobre, carvão e ferro', 'todos os minérios', 'todos os minérios'];
 const SLOT_ICON = { main: '🗡️', off: '🛡️', body: '👕', head: '🪖' };
 const x100 = (v) => '×' + (Math.round(v * 100) / 100).toString().replace('.', ',');
-const WIN_KEY = { inv: 'I', craft: 'C', build: 'B', map: 'M' };
+const WIN_KEY = { inv: 'Tab', craft: 'C', build: 'B', map: 'M' };
 
 export function itemStats(id) {
   const d = ITEMS[id];
@@ -231,8 +232,9 @@ export class Panels {
       if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('button')) return;
       const p0 = this.pos[name] || [0, 0], x0 = e.clientX, y0 = e.clientY;
       const mv = (ev) => {
-        const nx = Math.max(-innerWidth / 2 + 80, Math.min(innerWidth / 2 - 80, p0[0] + ev.clientX - x0));
-        const ny = Math.max(-innerHeight / 2 + 40, Math.min(innerHeight / 2 - 40, p0[1] + ev.clientY - y0));
+        const s = uiScale(), hw = innerWidth / s / 2, hh = innerHeight / s / 2;
+        const nx = Math.max(-hw + 80, Math.min(hw - 80, p0[0] + (ev.clientX - x0) / s));
+        const ny = Math.max(-hh + 40, Math.min(hh - 40, p0[1] + (ev.clientY - y0) / s));
         this.pos[name] = [Math.round(nx), Math.round(ny)];
         win.style.translate = `${this.pos[name][0]}px ${this.pos[name][1]}px`;
       };
@@ -325,7 +327,7 @@ export class Panels {
     const cv = this.el.querySelector('.bigmap');
     const mini = this.g.ui.minimap;
     if (!cv || !mini) return;
-    const size = Math.floor(Math.min(innerWidth * 0.86, innerHeight * 0.72, 620));
+    const sc = uiScale(), size = Math.floor(Math.min((innerWidth / sc) * 0.86, (innerHeight / sc) * 0.72, 620));
     const dpr = Math.min(2, devicePixelRatio || 1);
     cv.style.width = cv.style.height = size + 'px';
     if (cv.width !== size * dpr) { cv.width = cv.height = size * dpr; }

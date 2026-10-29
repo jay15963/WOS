@@ -20,12 +20,15 @@ const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR
 const SMALL = new Set(['pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'crop']);
 const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still used (a tiny step, no walking)
 
-// Desktop key scheme (shown by the shortcuts overlay, src/ui/help.js). Digits 1–9, 0 = hotbar.
-// Weapon / off-hand abilities take Q R T G Z in bar order; the generic heal = V, sprint = Shift.
-export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyT', 'KeyG', 'KeyZ'];
+// Desktop key scheme (shown by the shortcuts overlay, src/ui/help.js) — owner's rule: everything used while
+// walking sits under the left hand on WASD (Space, Shift, Q, E, R, F, 1–5, mouse). Space = attack, Shift =
+// sprint, E = interact, Tab = backpack, digits 1–9, 0 = hotbar (herbs / food there too). Weapon / off-hand
+// abilities take Q R F in bar order (a 4th / 5th, only sword + shield: G T); heal also on V; Z = next target.
+// Ctrl is never bound (Ctrl+W would close the tab while walking).
+export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyF', 'KeyG', 'KeyT'];
 export const KEYS = {
-  interact: ['KeyE', 'Space'], attack: ['KeyF'], target: ['Tab'], eat: ['KeyK'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
-  inv: ['KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], mine: ['KeyX'], help: ['KeyH', 'F1'],
+  interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyK'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
+  inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], mine: ['KeyX'], help: ['KeyH', 'F1'],
 };
 // key code for each ability of the bar (null = no key)
 export function abilityKeys(ids) {
@@ -150,6 +153,19 @@ export function installController(game) {
       const p = game.player;
       if (p.dead) return;
       if (p.autoAttack && attackable(p.target)) { p.autoAttack = false; if (ctl.goal?.type === 'attack') ctl.goal = null; return; }
+      const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
+      if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
+      ctl.engage(t);
+      if (dist(p, t) > attackRange(p, t) * 1.05) {
+        ctl.flag = { x: t.x, y: t.y, w: 1.15 * (t.scale || 1), h: 0.75 * (t.scale || 1), t: 0 };
+        game.events.emit('error', { text: 'Chegue mais perto' });
+      }
+    },
+    // Space: attack the target, else the nearest enemy (never toggles off; Esc / walking away ends it)
+    attack() {
+      const p = game.player;
+      if (p.dead) return;
+      if (p.autoAttack && attackable(p.target)) return;
       const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
@@ -284,7 +300,7 @@ export function installController(game) {
         if (dist(p, e) > attackRange(p, e) * 1.05) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1));
       } else {
         ctl.setTarget(e);
-        if (!ctl.hinted.tap2) { ctl.hinted.tap2 = true; game.events.emit('toast', { text: isMouse ? 'Clique de novo para atacar' : 'Toque de novo para atacar', kind: 'info' }); }
+        if (!ctl.hinted.tap2) { ctl.hinted.tap2 = true; game.events.emit('toast', { text: isMouse ? 'Clique de novo (ou Espaço) para atacar' : 'Toque de novo para atacar', kind: 'info' }); }
       }
       return;
     }
@@ -356,7 +372,7 @@ export function installController(game) {
         for (let i = 0; i < 10; i++) if (K.has('Digit' + ((i + 1) % 10)) || K.has('Numpad' + ((i + 1) % 10))) g.events.emit('hotbar', { i });
         if (any(KEYS.target)) ctl.cycleTarget();
         if (any(KEYS.interact) && !bm) ctl.interact();
-        if (any(KEYS.attack)) ctl.toggleAttack();
+        if (any(KEYS.attack) && !bm) ctl.attack();
         if (any(KEYS.eat)) eatBest(g);
         if (any(KEYS.mine)) ctl.toggleMineMode();
         if (K.has('Enter') && bm) commitPlacement(g);

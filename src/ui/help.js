@@ -19,7 +19,7 @@ export function installHelp(game) {
         ${row(L(KEYS.interact), 'Interagir com o que está perto (cortar, minerar, abrir…)')}
         ${row(['Clique'], 'Usar / mirar a coisa clicada (chegue perto antes)')}
         ${row(['Roda', '+', '−'], 'Zoom')}
-        ${row(L(KEYS.target), 'Próximo alvo')}
+        ${row(L(KEYS.target).concat(['Clique']), 'Próximo alvo · ou clique na criatura')}
         ${row(['Esc'], 'Cancelar · menu')}
         <h4>Barra de itens</h4>
         ${row(['1', '…', '9', '0'], 'Usar o slot: equipar ferramenta/arma, comer, construir')}
@@ -28,9 +28,9 @@ export function installHelp(game) {
         ${row(L(KEYS.eat), 'Comer a melhor comida')}
       </div>
       <div class="hk-col"><h4>Combate</h4>
-        ${row(L(KEYS.attack), 'Ataque automático liga/desliga')}
-        ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo (na ordem da barra)')}
-        ${row(L(KEYS.heal), 'Curar')}
+        ${row(L(KEYS.attack), 'Atacar o alvo (ou o inimigo mais perto)')}
+        ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo, na ordem da barra (G e T só com espada + escudo)')}
+        ${row(L(KEYS.heal), 'Curar (as ervas também vão para a barra 1–5)')}
         ${row(['⇧ Shift'], 'Disparada (correr)')}
         <h4>Janelas</h4>
         ${row(L(KEYS.inv), 'Mochila e equipamento')}

@@ -10,6 +10,7 @@ import { attackable } from '../game/combat.js';
 import { combatIcon } from './combaticons.js';
 import { uiIcon } from './icons.js';
 import { abilityKeys, keyLabel } from '../game/controller.js';
+import { uiScale } from './uiscale.js';
 
 const CSS = `
 .ab-wrap .ab-s .ammo { position: absolute; z-index: 3; top: 2px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 9.5px; font-weight: 800; line-height: 15px; text-align: center; color: #fff4d8; background: rgba(60,44,20,.92); border: 1px solid rgba(217,180,90,.8); pointer-events: none; }
@@ -67,7 +68,7 @@ export function installActionBar(game, root, wrap) {
   const atk = document.createElement('button');
   atk.className = 'ab ab-atk';
   atk.dataset.ab = 'attack';
-  atk.innerHTML = `<span class="ic"></span><span class="key">F</span><span class="ammo hidden"></span>`;
+  atk.innerHTML = `<span class="ic"></span><span class="key">Esp</span><span class="ammo hidden"></span>`;
   wrap.appendChild(atk);
   press(atk, () => game.ctl.toggleAttack());
   const atkIc = atk.querySelector('.ic'), atkAmmo = atk.querySelector('.ammo');
@@ -83,7 +84,7 @@ export function installActionBar(game, root, wrap) {
 
   const layout = () => {
     if (touch) {
-      const W = innerWidth, H = innerHeight;
+      const s = uiScale(), W = innerWidth / s, H = innerHeight / s; // HUD css px (zoomed)
       const k = Math.max(0.8, Math.min(1, Math.min(W, H) / 400));
       const n = btns.length, nIn = Math.min(4, n), nOut = n - nIn;
       const c = 38 * k + 1;
@@ -168,7 +169,7 @@ export function installActionBar(game, root, wrap) {
       if (ak !== atkKey) {
         atkKey = ak;
         atkIc.innerHTML = ak === 'punch' ? combatIcon(A, 'punch') : ak === 'shoot' ? combatIcon(A, 'shoot') : uiIcon(A, 'attack');
-        atk.title = `${ak === 'punch' ? 'Socar' : ak === 'shoot' ? 'Atirar' : 'Atacar'} (F) — liga/desliga o ataque automático`;
+        atk.title = `${ak === 'punch' ? 'Socar' : ak === 'shoot' ? 'Atirar' : 'Atacar'} (Espaço) — ataca o alvo ou o inimigo mais perto`;
       }
       const ammo = prof?.ammo ? pl.inv.count(prof.ammo) : -1;
       if (L.atkAmmo !== ammo) {

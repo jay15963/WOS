@@ -6,6 +6,7 @@ import { RECIPES, STATION_PT, stationsOf } from '../game/content/recipes.js';
 import { abilityKeys, keyLabel } from '../game/controller.js';
 import { itemStats } from './panels.js';
 import { itemIco } from './econIcons.js';
+import { uiScale } from './uiscale.js';
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const ERA_COL = ['#cfc6b0', '#c9c2b4', '#e0a070', '#b8c8d8', '#d8e4f0'];
@@ -58,7 +59,7 @@ export function installTooltips(game) {
     }
     if (el.dataset.ab != null) {
       const id = el.dataset.ab;
-      if (id === 'attack') return '<b>Ataque automático</b><span class="key">F</span><p>Liga/desliga. Ataca o alvo quando ele estiver ao alcance — chegue perto andando.</p>';
+      if (id === 'attack') return '<b>Atacar</b><span class="key">Espaço</span><p>Ataca o alvo, ou o inimigo mais perto. Golpeia quando ele estiver ao alcance — chegue perto andando. Esc para.</p>';
       const ab = ABILITIES[id];
       if (!ab) return '';
       const k = abilityKeys(ABILITY_ORDER)[ABILITY_ORDER.indexOf(id)];
@@ -82,7 +83,8 @@ export function installTooltips(game) {
     let x = mx + 16, y = my + 18;
     if (x + r.width > innerWidth - 8) x = mx - r.width - 12;
     if (y + r.height > innerHeight - 8) y = my - r.height - 12;
-    tip.style.transform = `translate(${Math.max(8, x)}px, ${Math.max(8, y)}px)`;
+    const s = uiScale(); // the tooltip is zoomed with the HUD: its own px are viewport px / s
+    tip.style.transform = `translate(${Math.max(8, x) / s}px, ${Math.max(8, y) / s}px)`;
   };
   const show = (el) => {
     const h = html(el);

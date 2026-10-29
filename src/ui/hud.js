@@ -21,6 +21,7 @@ import { installHotbar } from './hotbar.js';
 import { installTooltips } from './tooltip.js';
 import { installHelp } from './help.js';
 import { openContainer } from './container.js';
+import { applyUiScale } from './uiscale.js';
 import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFullscreenChange, openInstallGuide } from './pwa.js';
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
@@ -99,7 +100,7 @@ export function installHUD(game, { isNew } = {}) {
       </div>
       <div class="tl-bot">
         <div class="quick" id="quick">
-          <button class="qb" data-q="inv" data-tip="<b>Mochila e equipamento</b><span class='key'>I</span>">${uiIcon(A, 'bag')}<span class="qk">I</span></button>
+          <button class="qb" data-q="inv" data-tip="<b>Mochila e equipamento</b><span class='key'>Tab</span>">${uiIcon(A, 'bag')}<span class="qk">Tab</span></button>
           <button class="qb" data-q="craft" data-tip="<b>Criar itens</b><span class='key'>C</span>">${econIcon(A, 'craft')}<span class="qk">C</span></button>
           <button class="qb" data-q="build" data-tip="<b>Construir</b><span class='key'>B</span>">${uiIcon(A, 'build')}<span class="qk">B</span></button>
           <button class="qb" data-q="mine" data-tip="<b>Marcar rochas para minerar</b><span class='key'>X</span>">${econIcon(A, 'mine')}<span class="qk">X</span></button>
@@ -161,6 +162,7 @@ export function installHUD(game, { isNew } = {}) {
     touchMode = t;
     root.classList.toggle('touch', t);
     root.classList.toggle('desktop', !t);
+    applyUiScale(!t);
     bar?.setMode(t);
   };
   let bar = null;
@@ -310,7 +312,7 @@ export function installHUD(game, { isNew } = {}) {
   if (isNew) {
     const tips = [
       [1.2, 'Bem-vindo, Sobrevivente!', 'good'],
-      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque nas coisas perto de você para usar · pinça = zoom' : 'WASD para andar · E interage · 1–0 barra de itens · H mostra os atalhos', 'info'],
+      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque nas coisas perto de você para usar · pinça = zoom' : 'WASD anda · Espaço ataca · E interage · Shift corre · Tab mochila · 1–0 barra · H atalhos', 'info'],
       [7, 'Você está de mãos vazias: soque com cuidado e fuja de lobos', 'warn'],
       [9, game.input.isTouch ? 'Toque em Criar para fazer faca, machado e picareta' : 'Criar (C): faça faca, machado e picareta primitivos', 'info'],
       [14, 'A noite é fria: faça uma fogueira, um abrigo fechado ou roupas antes de escurecer', 'warn'],
