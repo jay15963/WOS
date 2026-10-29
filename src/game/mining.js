@@ -8,6 +8,7 @@ import { registerWork, hitsFor, needToolMsg } from './gathering.js';
 import { bestTool } from './equipment.js';
 import { ORE_MIN_TIER, ORE_NAME_PT, TIER_PT_F } from './content/items.js';
 import { rockHitFx } from './mut/tiles.js';
+import { onRockHit } from '../fx/rockfx.js';
 
 const HARD = [1.1, 1.4, 1.0, 1.15, 1.25];        // by world.rockType (1 granite .. 4 marble)
 const ORE_HARD = [1, 1.2, 1.35, 1.15, 1.5, 1.6];  // by world.ore
@@ -67,6 +68,7 @@ registerWork('rock', {
   hit(game, wk) {
     const p = game.player, it = wk.it;
     rockHitFx(game, it.tx, it.ty, p.x, p.y);
+    onRockHit(game, game.world.idx(it.tx, it.ty), p.x, p.y); // the crack trembles now (it widens when the host's progress lands)
     game.net.request('rock.hit', { tx: it.tx, ty: it.ty, inc: +(1 / wk.need).toFixed(4) });
   },
   finish(game, wk) {

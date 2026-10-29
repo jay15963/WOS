@@ -21,6 +21,7 @@ import { gatheringSystem } from './gathering.js';
 import { initBuilding, buildingSystem } from './building.js';
 import { initRoofs, roofsSystem } from './roofs.js';
 import { raysSystem } from '../fx/rays.js';
+import { initRockFx, rockFxSystem } from '../fx/rockfx.js';
 import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
@@ -62,6 +63,7 @@ export function installSystems(game) {
   initPlayer(game);
   initBuilding(game);
   initRoofs(game);
+  initRockFx(game);                 // cracks of rock being mined (cosmetic)
   installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   buildOcc(game);
   initEconomy(game);
@@ -102,6 +104,7 @@ export function installSystems(game) {
     buildingSystem(),
     roofsSystem(),
     raysSystem(),
+    rockFxSystem(),
     roofSupportSystem(),
     pathsSystem(),
     ...economySystems(),

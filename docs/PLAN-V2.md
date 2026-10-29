@@ -312,6 +312,15 @@ it is no longer a cave. A roof system for both buildings and caves:
   fixed, closer view (reduced field of view); leaving eases back to the player's own zoom — smooth both ways,
   never a jump, never a lock outside. No rain under roofs, darker interiors lit by fires/torches, warmth and
   "indoors" audio based on the roof.
+- **Cave ceilings** (later request): a cave shows a ceiling from outside — the mountain's rock under an earthy,
+  mossy crust, so it reads as a cave and not as solid mountain — hiding what is inside (sprites, names, lights,
+  picking). The cave the local player is in fades out. A cave-in plays as cracks spreading from the middle, the
+  ceiling splitting into chunks that drop tile by tile outwards, pieces falling, dust; the ceiling around the hole
+  stays cracked for a while. Cosmetic and derived from the shared rock / roof grids (game/roofs.js "cave
+  ceilings", roofData A / G, terrain shader `ceilMask`); scenario **J6**.
+- **Mining cracks** (later request): cracks follow the pickaxe — each hit's progress (op `rock.prog`, shared)
+  opens impact cracks from the middle of the tile, faster with a better pickaxe; the last hit breaks the block
+  along them into wedges that drop into the hole (src/fx/rockfx.js, terrain shader `uMine`).
 
 ## K · Detalhes de arquitetura e decoração (added later, port 5192)
 

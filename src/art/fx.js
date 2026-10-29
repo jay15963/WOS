@@ -120,6 +120,22 @@ export function addFx(add) {
     g.fillStyle = '#ffffff'; for (let i = 0; i < 5; i++) { const a = (i / 5) * TAU + 0.6, r = 19; g.beginPath(); circle(g, 24 + Math.cos(a) * r, 24 + Math.sin(a) * r, 1.3); g.fill(); }
     g.beginPath(); circle(g, 24, 24, 4.5); g.fill();
   }), 0.5, 0.5);
+  // broken chunks of rock (cave-ins: pieces of the ceiling falling): grey, tinted at runtime by the rock colour.
+  // Three shapes, each an outline, a lit top facet and a shaded face split by a ridge.
+  const RUBBLE = [
+    { pts: [[6, 14], [11, 6], [20, 4], [27, 10], [28, 19], [22, 27], [12, 28], [5, 22]], top: [[9, 13], [13, 8], [20, 7], [24, 11], [17, 15]], low: [[17, 15], [25, 12], [25, 19], [20, 24], [14, 25]], ridge: [[9, 13], [17, 15], [25, 12]], leg: [[17, 15], [14, 25]] },
+    { pts: [[3, 18], [8, 9], [17, 7], [29, 12], [27, 21], [18, 25], [8, 25]], top: [[7, 16], [10, 10], [17, 9], [26, 13], [16, 17]], low: [[16, 17], [26, 14], [24, 20], [17, 23], [10, 22]], ridge: [[7, 16], [16, 17], [26, 14]], leg: [[16, 17], [12, 23]] },
+    { pts: [[9, 5], [21, 6], [27, 15], [24, 27], [13, 28], [5, 20], [5, 11]], top: [[8, 11], [11, 7], [20, 8], [23, 14], [14, 16]], low: [[14, 16], [23, 15], [22, 25], [14, 26]], ridge: [[8, 11], [14, 16], [23, 15]], leg: [[14, 16], [14, 26]] },
+  ];
+  RUBBLE.forEach((R, n) => add(n ? 'fx_rubble_' + n : 'fx_rubble', spritePx(32, 32, (g) => {
+    const path = (pts, k = 1) => { g.beginPath(); pts.forEach(([x, y], i) => { const px = 16 + (x - 16) * k, py = 16 + (y - 16) * k; i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.closePath(); };
+    path(R.pts); g.fillStyle = '#2a2724'; g.fill();                                  // outline
+    path(R.pts, 0.86); g.fillStyle = lin(g, 6, 6, 26, 26, [[0, '#f2eee8'], [0.45, '#c9c4bc'], [1, '#7d7871']]); g.fill();
+    path(R.top); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fill();
+    path(R.low); g.fillStyle = 'rgba(40,36,32,0.3)'; g.fill();
+    g.strokeStyle = 'rgba(40,36,32,0.45)'; g.lineWidth = 1; g.beginPath();
+    R.ridge.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.moveTo(...R.leg[0]); g.lineTo(...R.leg[1]); g.stroke();
+  }), 0.5, 0.5));
   // poison: bubbly green cloud with drips (colored)
   add('fx_poison', spritePx(40, 40, (g, P) => P.layer((g) => {
     for (const [x, y, r] of [[20, 22, 9], [12, 20, 6], [28, 19, 7], [19, 13, 6], [26, 27, 5], [13, 28, 4.5]]) {

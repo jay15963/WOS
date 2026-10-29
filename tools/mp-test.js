@@ -2895,6 +2895,64 @@ def('J5', {
   await t.checkDigest(H, G);
 });
 
+def('J6', {
+  title: 'J: cave ceilings — drawn over caves nobody local is in, a guest inside sees under it, cave-ins crumble on both', timeout: 150000,
+  expected: 'A 20×20 hall dug around a rock pillar is one cave on both, its ceiling drawn on both (roofData A = 255, roofs.hidden true) while both players are outside; the guest walks in: its own ceiling fades out (A → 0, indoors cave) while the host still draws it and hides the guest under it; mining the pillar takes the roof off the middle: both schedule the same crumbling tiles, the hole opens on both (A 0, no cave) while the ring by the walls stays a covered cave on the host; digest equal',
+  api: 'game.roofs {caves, caveOf, data A/G, crumble, cracks, hidden}, underCaveCeiling, world.isCave / lastLost, tile.mine (collapseFx cave → caveCrumble)',
+}, async (t) => {
+  const { H, G } = await pairCtx(t);
+  const w = H.game.world, sp = spawnOf(H);
+  t.need(H.game.roofs?.caves && G.game.roofs?.caves, 'cave ceilings (game.roofs.caves) missing');
+  // a solid mountain block (all rock, mountain roof) far from the ones other scenarios dug
+  const taken = [...env.claimed].filter((k) => typeof k === 'string' && k.startsWith('mountain')).map((k) => k.slice(8).split(',').map(Number));
+  let best = null, bd = 1e9;
+  for (let cy = 14; cy < w.H - 14; cy += 2) for (let cx = 14; cx < w.W - 14; cx += 2) {
+    const i = w.idx(cx, cy);
+    if (!w.rock[i] || !w.roof0[i] || taken.some(([x, y]) => Math.hypot(x - cx, y - cy) < 30)) continue;
+    const d = Math.hypot(cx - sp.x, cy - sp.y);
+    if (d >= bd) continue;
+    let ok = true;
+    for (let y = cy - 12; y < cy + 12 && ok; y++) for (let x = cx - 12; x < cx + 12; x++) { const j = w.idx(x, y); if (!w.rock[j] || !w.roof0[j]) { ok = false; break; } }
+    if (ok) { best = [cx, cy]; bd = d; }
+  }
+  t.need(best, 'needs a 24×24 solid mountain block in this seed');
+  const [cx, cy] = best;
+  env.claimed.add('mountain' + cx + ',' + cy);
+  A.pacify(H, cx, cy, 30);
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  // the hall around a pillar at (cx, cy): every tile stays within 6 of rock → one covered cave
+  for (let y = cy - 10; y < cy + 10; y++) for (let x = cx - 10; x < cx + 10; x++) if ((x !== cx || y !== cy) && w.rock[w.idx(x, y)]) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx - 9, cy - 9)] === 0, RT() + 1500, 'guest has the dug hall');
+  await t.sleep(ONEWAY() + 400);
+  const A_ = (f, x, y) => f.game.roofs.data[f.game.world.idx(x, y) * 4 + 3];
+  const caveId = (f, x, y) => f.game.roofs.caveOf[f.game.world.idx(x, y)];
+  t.check(H.game.world.isCave(cx + 3, cy + 3) && G.game.world.isCave(cx + 3, cy + 3), 'the hall is a cave on both');
+  t.check(caveId(H, cx - 9, cy - 9) && caveId(H, cx - 9, cy - 9) === caveId(H, cx + 9, cy + 9) && caveId(G, cx - 9, cy - 9) === caveId(G, cx + 9, cy + 9), 'one cave region from corner to corner on both');
+  t.check(A_(H, cx + 3, cy + 3) === 255 && A_(G, cx + 3, cy + 3) === 255, 'its ceiling is drawn on both while both are outside', `host ${A_(H, cx + 3, cy + 3)} guest ${A_(G, cx + 3, cy + 3)}`);
+  t.check(H.game.roofs.hidden(cx + 3.5, cy + 3.9) && G.game.roofs.hidden(cx + 3.5, cy + 3.9), 'things inside are hidden under it on both');
+  // the guest walks in (a corner that stays a cave after the cave-in below)
+  const gx = cx - 8.5, gy = cy - 7.6;
+  A.teleport(G, gx, gy);
+  await t.waitFor(() => G.game.indoors.kind === 'cave' && A_(G, cx - 9, cy - 8) < 8, 4000, 'guest inside: its own ceiling faded out', () => `kind ${G.game.indoors.kind} A ${A_(G, cx - 9, cy - 8)}`);
+  await t.sleep(ONEWAY() + 300);
+  t.check(A_(H, cx - 9, cy - 8) === 255, 'the host (outside) still draws that ceiling', `host A ${A_(H, cx - 9, cy - 8)}`);
+  const ge = H.game.session?.players ? [...H.game.session.players.values()].map((p) => p.av || p.ent).find((e) => e && Math.hypot(e.x - gx, e.y - gy) < 2) : null;
+  t.check(!ge || H.game.roofs.hidden(ge.x, ge.y), 'the guest is hidden under the ceiling on the host', ge ? `${f2(ge.x)},${f2(ge.y)}` : 'no avatar handle (skipped)');
+  // the pillar goes: the middle loses its roof — the same crumbling tiles on both, the hole opens on both
+  H.game.net.emit('tile.mine', { tx: cx, ty: cy, drops: [], by: H.game.net.pid, xp: 0 });
+  const lostH = H.game.world.lastLost.length;
+  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx, cy)] === 0, RT() + 1000, 'guest has the pillar mined');
+  const lostG = G.game.world.lastLost.length;
+  t.check(lostH > 20 && lostH === lostG, 'the same section lost its roof on both', `host ${lostH} guest ${lostG}`);
+  t.check(H.game.roofs.crumble.size >= lostH && G.game.roofs.crumble.size >= lostG, 'both play the crumble', `host ${H.game.roofs.crumble.size} guest ${G.game.roofs.crumble.size}`);
+  await t.waitFor(() => !H.game.roofs.crumble.size && !G.game.roofs.crumble.size, 6000, 'the crumble ends on both');
+  t.check(!H.game.world.isCave(cx, cy) && !G.game.world.isCave(cx, cy) && A_(H, cx, cy) === 0 && A_(G, cx, cy) === 0, 'the middle is open sky with no ceiling on both');
+  t.check(A_(H, cx + 9, cy + 9) === 255 && H.game.world.isCave(cx + 9, cy + 9), 'the ring by the walls stays a covered cave on the host');
+  t.check(H.game.roofs.cracks.size > 0, 'the ceiling around the hole is left cracked', `${H.game.roofs.cracks.size} tiles`);
+  t.check(G.game.indoors.kind === 'cave' && A_(G, cx - 9, cy - 8) < 8, 'the guest is still inside its (revealed) cave');
+  await t.checkDigest(H, G);
+});
+
 // L · Andares e escadarias (agent L, docs/LEVELS.md): stairs, ramparts, levels across the network
 // host-side test setup: finished structures through the real op (no work loop) — rows [type, tx, ty, rot]
 function hostBuild(H, rows) {

@@ -7,7 +7,7 @@ import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
 import { loadLook } from './look.js';
-import { underOpaqueRoof } from './roofs.js';
+import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { BUILDINGS } from './data.js';
 import { STORY_H } from './levels.js';
 
@@ -192,8 +192,9 @@ export class Game {
     const LV = this.levels?.hasUpper ? this.levels : null; // levels: upper stories in the world
     for (const o of list) {
       // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
-      // walls / doors whose front faces show below the eaves
-      if (!o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
+      // walls / doors whose front faces show below the eaves; same under a cave ceiling (never the local player,
+      // who is drawn while its own cave's ceiling fades out)
+      if (!o.draw && ((underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) || (o !== pl && underCaveCeiling(this, o.x, o.y)))) continue;
       if (o.draw) o.draw(B, A, t);
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden

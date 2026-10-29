@@ -11,6 +11,7 @@ import { addLootRows } from './loot.js';
 import { lootRows, ri } from './roll.js';
 import { onRockMined, collapseFx } from '../roofs.js';
 import { hurtUnder } from './roofs.js';
+import { onRockHit, onRockBreak } from '../../fx/rockfx.js';
 
 const ORE_ITEM = WG.ORE_ITEM || ORE_ITEM_DB; // world ore code -> item id (CONTENT §7)
 export const ROCK_COL = [[0.6, 0.58, 0.55], [0.62, 0.6, 0.58], [0.76, 0.72, 0.62], [0.42, 0.44, 0.48], [0.86, 0.85, 0.82]];
@@ -40,14 +41,14 @@ export function mineTile(game, tx, ty, fx = false) {
   const lost = w.lastLost;
   if (fx && lost.length) {
     // the mountain ceiling falls where it lost its support (a big section: dust, rubble and a rumble)
-    const tiles = lost.map((j) => [j % w.W, (j / w.W) | 0]);
-    if (lost.length >= 3) {
-      const c = collapseFx(game, tiles, { big: lost.length > 8, cave: true });
-      if (c && Math.hypot(game.cam.x - c[0], game.cam.y - c[1]) < 26) game.events.emit('toast', { text: 'Desabamento! O teto da caverna caiu e a luz do dia entrou', kind: 'warn' });
-    } else for (const [x, y] of tiles) game.juice.puff(x + 0.5, y + 0.6, 6, [0.58, 0.55, 0.5], 0.9);
+    // (each tile carries its chunk colour: the rock it was dug from, earthier like the ceiling the shader draws)
+    const tiles = lost.map((j) => { const c = ROCK_COL[w.rockType[j]] || ROCK_COL[0]; return [j % w.W, (j / w.W) | 0, [c[0] * 0.8, c[1] * 0.74, c[2] * 0.68]]; });
+    const c = collapseFx(game, tiles, { big: lost.length > 8, cave: true, quiet: lost.length < 3 });
+    if (lost.length >= 3 && c && Math.hypot(game.cam.x - c[0], game.cam.y - c[1]) < 26) game.events.emit('toast', { text: 'Desabamento! O teto da caverna caiu e a luz do dia entrou', kind: 'warn' });
   }
   if (!game.minedSet.has(i)) { game.minedTiles.push(i); game.minedSet.add(i); }
   game.rockHits.delete(i);
+  if (fx) onRockBreak(game, i, ROCK_COL[w.rockType[i]] || ROCK_COL[0]); // the block breaks apart along its cracks (cosmetic)
   updateMasksAround(game, tx, ty);
   game.events.emit('tile', { tx, ty });
   return true;
@@ -58,7 +59,7 @@ defineOp('rock.prog', {
   args: { i: 'tileIdx', p: '0..1', by: 'pid', x: 'miner x', y: 'miner y' },
   apply(game, a, ctx) {
     game.rockHits.set(a.i, a.p);
-    if (!ctx.mine) { const W = game.world.W; rockHitFx(game, a.i % W, (a.i / W) | 0, a.x ?? 0, a.y ?? 0); }
+    if (!ctx.mine) { const W = game.world.W; rockHitFx(game, a.i % W, (a.i / W) | 0, a.x ?? 0, a.y ?? 0); onRockHit(game, a.i, a.x ?? 0, a.y ?? 0); }
   },
 });
 

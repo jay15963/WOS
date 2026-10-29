@@ -28,6 +28,31 @@ uniform vec4 uPush[12]; // vegetation pushers (src/fx/brush.js): x, y, radius, s
 uniform int uPushN;
 `;
 
+// Cave ceilings (game/roofs.js): roofData A = the ceiling drawn over a cave the local player is not inside,
+// G (on cave tiles) = cracks before / around a cave-in. Needs uRoofT and uWorld.
+//   ceilNear(wp): a ceiling over the point or within half a tile (its rock rim, the cave mouth): the cave darkness
+//     there gives way to daylight (it is the top of the mountain, not the inside of the cave);
+//   ceilMask(rq, sd, jag, aa, e, a): coverage 0..1 at the rock-edge warp point rq (so it meets the rock outline);
+//     e = signed distance to its lip (tiles, + inside), a = the roofData sample. Same mask in terrain and decals.
+const CEIL_FN = `
+float ceilNear(vec2 wp){
+  float c = textureLod(uRoofT, wp / uWorld, 0.0).a;
+  c = max(c, max(max(textureLod(uRoofT, (wp + vec2(0.5, 0.0)) / uWorld, 0.0).a, textureLod(uRoofT, (wp - vec2(0.5, 0.0)) / uWorld, 0.0).a),
+                 max(textureLod(uRoofT, (wp + vec2(0.0, 0.5)) / uWorld, 0.0).a, textureLod(uRoofT, (wp - vec2(0.0, 0.5)) / uWorld, 0.0).a)));
+  return smoothstep(0.05, 0.35, c);
+}
+float ceilMask(vec2 rq, float sd, float jag, float aa, out float e, out vec4 a){
+  a = textureLod(uRoofT, rq / uWorld, 0.0);
+  e = -9.0;
+  if (a.a < 0.004) return 0.0;
+  const float E = 0.22;
+  float ax = textureLod(uRoofT, (rq + vec2(E, 0.0)) / uWorld, 0.0).a, ay = textureLod(uRoofT, (rq + vec2(0.0, E)) / uWorld, 0.0).a;
+  e = (a.a - 0.5 + jag) / max(length(vec2(ax - a.a, ay - a.a) / E), 0.45);
+  // + close the seam along the rock outline (both masks follow the same tile edges)
+  return max(smoothstep(-aa, aa, e), smoothstep(0.08, 0.3, a.a) * smoothstep(-0.5, -0.06, sd));
+}
+`;
+
 // travelling wind waves rolling over grass fields (0..1). Shared by the sprite sway and the terrain
 // grass sheen so tufts bend exactly where the ground brightens. ph = accumulated wave phase.
 const WAVE_FN = `
@@ -312,9 +337,11 @@ uniform sampler2D uRoofT;  // roofData: R interior darkness, G revealed region, 
 uniform vec2 uCam, uView, uWorld;
 uniform vec3 uAmb, uCaveAmb;
 uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (0 = unset)
+${CEIL_FN}
 void main(){
   vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
   float c = texture(uCave, wp / uWorld).r;
+  if (c > 0.004) c *= 1.0 - ceilNear(wp); // a drawn cave ceiling is outdoors (game/roofs.js)
   c = pow(c, 1.4);   // keep the spill onto the surrounding rock tight
   vec3 a = mix(uAmb, min(uAmb, uCaveAmb), c);
   if (uIndoorAmb > 0.0) { vec4 R = texture(uRoofT, wp / uWorld); a *= mix(1.0, uIndoorAmb, R.r * R.g); }
@@ -346,9 +373,11 @@ out vec4 o;
 uniform vec2 uWorld, uViewport;
 uniform float uTime;
 uniform sampler2D uTile, uNoise, uField, uCave, uShadow;
+uniform sampler2D uRoofT;  // roofData: A = cave ceiling (rubble under it is hidden)
 uniform vec3 uSun;
 uniform float uSunI, uShadowStr, uWet;
 uniform vec2 uShadowDir;
+${CEIL_FN}
 
 // mean albedo of the rock types (granite, limestone, slate, marble) for loose rubble
 const vec3 ROCKC[4] = vec3[4](vec3(0.53, 0.49, 0.475), vec3(0.63, 0.595, 0.515), vec3(0.36, 0.37, 0.4), vec3(0.72, 0.715, 0.69));
@@ -560,7 +589,9 @@ void main(){
   vec4 nA = texture(uNoise, wp * 0.093);
   vec4 nB = texture(uNoise, wp * 0.29 + 0.5);
   vec4 CV = texture(uCave, wp / uWorld);
-  float cave = CV.r, outK = 1.0 - cave;
+  float cave = CV.r;
+  if (cave > 0.004) cave *= 1.0 - ceilNear(wp);
+  float outK = 1.0 - cave;
   vec3 Ld = normalize(mix(uSun, vec3(-0.35, -0.45, 0.82), cave));
   float LI = mix(uSunI, 0.8, cave);
   vec2 sdirU = normalize(mix(normalize(uShadowDir + vec2(1e-4, 0.0)), vec2(0.6, 0.8), cave));
@@ -601,6 +632,8 @@ void main(){
     rubble(wp, 2.7, 1.7, Ld, sdirU, shade);
     if (PPX < 0.03) rubble(wp + 0.43, 4.6, 8.9, Ld, sdirU, shade);
     ACC *= smoothstep(-0.03, -0.12, sd);
+    float ce; vec4 RC;
+    ACC *= 1.0 - ceilMask(rq, sd, (nB.y - 0.5) * 0.16 + (nA.w - 0.5) * 0.1, PPX * 1.25, ce, RC); // under a cave ceiling
     shadowMask = 1.0;
   }
   if (ACC.a < 0.002 && dot(ACC.rgb, vec3(1.0)) < 0.002) discard;
@@ -874,6 +907,8 @@ uniform float uSnow;        // snow cover 0..1 (builds up while it snows over co
 uniform float uSnowPeak;    // permanent snow on the high mountain tops (cold biomes)
 uniform float uClimOn;      // 0 = skip the climate fetch (no snow lying and no walls in view)
 uniform sampler2D uRoofT;   // roofData: B = built roof over the tile (dry, no snow)
+uniform vec4 uMine[8];      // rock being mined (src/fx/rockfx.js): tx, ty, crack 0..1 | 1 + break progress, hit pulse
+uniform int uMineN;
 // [paths] painted terrain paths (agent M, src/game/paths.js): bound on units 13–15 by the renderer
 uniform sampler2D uPath;          // 1x RGBA linear: R built type (+128 = nearest type, outside) and G plan code (+16 = local
                                   // preview) read with texelFetch; B plan / A built signed distance (sd = v * 4 - 2 tiles)
@@ -962,6 +997,25 @@ vec3 ripples(vec2 p){
 }
 ${PATH_FN}
 ${WAVE_FN}
+${CEIL_FN}
+// Voronoi chunks (a breaking cave ceiling): x = distance to the nearest cell edge (F2 - F1), y / z = hashes of the cell
+vec3 vorCell(vec2 p){
+  vec2 ip = floor(p), fp = fract(p);
+  float d1 = 9.0, d2 = 9.0;
+  vec2 c1 = vec2(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec2 g = vec2(float(i), float(j)), r = g + hash22(ip + g) - fp;
+    float d = dot(r, r);
+    if (d < d1) { d2 = d1; d1 = d; c1 = ip + g; } else if (d < d2) d2 = d;
+  }
+  vec2 h = hash22(c1 + 17.3);
+  return vec3(sqrt(d2) - sqrt(d1), h.x, h.y);
+}
+// impact cracks of a rock tile being mined: Voronoi cells in polar space around the tile centre (d = point - centre)
+// — spokes and rings, finer near the middle; the block later breaks into the same wedges
+vec3 crackCell(vec2 d, vec2 tile){
+  return vorCell(vec2(atan(d.y, d.x) * 1.4, log(length(d) + 0.16) * 1.9) + tile * 3.17);
+}
 void main(){
   vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
   PPX = max(abs(dFdx(wp.x)), 1e-5);
@@ -976,6 +1030,7 @@ void main(){
   vec4 F2 = texture(uField2, wp / uWorld);
   vec4 CV = texture(uCave, wp / uWorld);
   float cave = CV.r;                         // 1 = dark cave under a mountain roof
+  if (cave > 0.004) cave *= 1.0 - ceilNear(wp); // under a drawn cave ceiling it is the mountain top: daylight
   float outK = 1.0 - cave;
   vec4 CL = vec4(0.0);
   if (uClimOn > 0.5) CL = texture(uClim, wp / uWorld);
@@ -1009,6 +1064,27 @@ void main(){
   vec2 wq = wp + warp * 0.3;
   float wl = fieldAt(wq).b + (nB.x - 0.5) * 0.08 + (nA.w - 0.5) * 0.05;
 
+  // ---------- rock being mined: cracks follow the pickaxe; the last hit breaks the block along them ----------
+  float mCrk = 0.0, mPulse = 0.0;
+  vec2 mT = vec2(-99.0);
+  for (int k = 0; k < 8; k++) {
+    if (k >= uMineN) break;
+    vec4 M = uMine[k];
+    vec2 d = wp - M.xy - 0.5;
+    float box = max(abs(d.x), abs(d.y));
+    if (box > 0.8) continue;
+    if (M.z >= 1.0) {
+      // already mined out: still drawn as rock while its chunks drop out one by one
+      // (a rounded, ragged block inside the tile: the old rock edge is gone from the field)
+      float blk = mix(box, length(d) * 0.8, 0.5) + (nA.y - 0.5) * 0.12;
+      if (blk < 0.4 && crackCell(d, M.xy).y * 0.85 + 0.12 > (M.z - 1.0) * 1.2) { sd = max(sd, 0.32); mCrk = 1.0; mT = M.xy; }
+    } else {
+      float fall = 1.0 - smoothstep(0.35, 0.8, box);
+      if (M.z * fall > mCrk) { mCrk = M.z * fall; mT = M.xy; }
+      mPulse = max(mPulse, M.w * fall);
+    }
+  }
+
   vec3 col;
   float shadowMask = 1.0;
 
@@ -1038,6 +1114,18 @@ void main(){
     float mass = (0.86 + 0.14 * smoothstep(0.25, 1.3, sd) + 0.08 * Fr.g) * (0.92 + 0.16 * r0 * rk);
     vec3 rock = alb * shade * mass * mix(vec3(1.0), sunT, dif * uSunI * outK);
     rock *= 0.8 + 0.4 * smoothstep(0.12, 0.6, RT.a);         // cavities
+    if (mCrk > 0.01) {
+      // cracks spread from the middle of the tile to its edges with the mining progress, trembling on each hit;
+      // the chunks they outline tilt apart toward the end (the same cells the block breaks into)
+      vec2 md = wp - mT - 0.5 + vec2(sin(uTime * 61.0), cos(uTime * 53.0)) * 0.02 * mPulse;
+      vec3 vc = crackCell(md, mT);
+      float r = length(md);
+      float keep = smoothstep(0.42, 0.6, textureLod(uNoise, wp * 1.3 + 0.21, nLod(1.3)).g + mCrk * 0.8) * (1.0 - smoothstep(mCrk * 0.8, mCrk * 0.8 + 0.13, r));
+      float gw = (0.014 + 0.05 * mCrk) * (0.75 + 0.5 * nB.z) * 1.6 / (r + 0.16); // (in the polar cells' units: even in the world)
+      rock *= mix(1.0, 0.84 + 0.3 * vc.z, smoothstep(0.45, 1.0, mCrk));
+      rock = mix(rock, rock * 1.28 + alb * 0.05, (1.0 - smoothstep(gw, gw * 2.4, vc.x)) * keep * 0.6); // the lit lip of each crack
+      rock = mix(rock, alb * 0.1, (1.0 - smoothstep(gw * 0.5, gw, vc.x)) * keep);
+    }
     // snow on the cold massifs: permanent on the high tops, everywhere after snowfall (flat, upward faces)
     float capS = max(uSnow, uSnowPeak * smoothstep(0.35, 0.95, Fr.g)) * snowA;
     if (capS > 0.01) {
@@ -1050,8 +1138,10 @@ void main(){
     vec2 sunXY = normalize(Ld.xy + vec2(1e-4, 0.0));
     float facing = dot(outward, sunXY);
     float bev = smoothstep(OW, OW + 0.02, sd) * (1.0 - smoothstep(OW + 0.06, OW + 0.22, sd));
+    float cs = smoothstep(0.12, 0.35, textureLod(uRoofT, rq / uWorld, 0.0).a); // a cave ceiling continues the massif: a seam, not a cliff
+    bev *= 1.0 - 0.85 * cs;
     rock = mix(rock, rock * (1.32 + 0.3 * facing * (0.3 + 0.7 * LI)) + alb * 0.04, bev);
-    float olm = 1.0 - smoothstep(OW - aaW * 0.5, OW + aaW * 0.5, sd);
+    float olm = (1.0 - smoothstep(OW - aaW * 0.5, OW + aaW * 0.5, sd)) * (1.0 - 0.72 * cs);
     rock = mix(rock, alb * 0.15, olm);
     col = rock;
     shadowMask = 0.4;
@@ -1176,6 +1266,59 @@ void main(){
         rs = max(rs, smoothstep(t - 0.25, t + 0.2, occH));
       }
       col *= 1.0 - rs * min(uShadowStr * 1.1, 0.6) * outK * vec3(1.0, 0.95, 0.84);
+    }
+
+    // ---------- cave ceiling over a cave the local player is not inside (roofData A; G = cracks) ----------
+    // (after the mountain shading: it is the top of the mountain too, not a pit at the foot of a cliff)
+    {
+      float jag = (nB.y - 0.5) * 0.24 + (nA.w - 0.5) * 0.14;
+      float ce; vec4 RC;
+      float cm = ceilMask(rq, sd, jag, aaW, ce, RC);
+      // the lip casts a short shadow onto the floor of the cave mouth
+      if (cm < 0.997 && uShadowStr > 0.01) {
+        float sa = textureLod(uRoofT, (rq - uShadowDir * 0.6) / uWorld, 0.0).a;
+        col *= 1.0 - smoothstep(0.4, 0.62, sa) * (1.0 - cm) * min(uShadowStr * 1.1, 0.6) * 0.75;
+      }
+      if (cm > 0.003) {
+        float crk = RC.g * (1.0 - RC.b);           // (G is the built roofs' reveal on their own tiles)
+        vec2 cw = wp + (crk > 0.25 ? vec2(sin(uTime * 47.0), cos(uTime * 41.0)) * 0.016 * crk : vec2(0.0)); // it trembles
+        vec4 bw2;
+        vec4 CT = blend4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td), cw * 0.55 + 3.7, nC.x, f, bw2);
+        // the mountain's rock under a crust of earth: warmer, a touch darker, lichen and moss in patches
+        vec3 alb = mix(CT.rgb, vec3(0.5, 0.41, 0.31), 0.34) * (0.86 + 0.12 * nC.z);
+        float moss = smoothstep(0.56, 0.72, textureLod(uNoise, cw * 0.16 + 0.13, nLod(0.16)).g + (nB.x - 0.5) * 0.35);
+        alb = mix(alb, vec3(0.3, 0.33, 0.19), moss * 0.55 * (1.0 - snowA));
+        vec2 hg2 = vec2(dFdx(CT.a), -dFdy(CT.a)) / PPX;
+        vec3 Nc = normalize(vec3(-hg2 * 0.3, 1.0));
+        float dif = max(dot(Nc, uSun), 0.0);
+        vec3 cc = alb * (0.56 + 0.62 * dif * (0.3 + 0.7 * uSunI)) * mix(vec3(1.0), sunT, dif * uSunI);
+        cc *= 0.86 + 0.28 * smoothstep(0.15, 0.7, CT.a);
+        // fine fissures in the crust
+        float n1 = textureLod(uNoise, cw * 0.19 + warp * 0.05, nLod(0.19)).r;
+        cc *= 1.0 - 0.38 * (1.0 - smoothstep(0.006, 0.018, abs(n1 - 0.5)));
+        // breaking: it splits into chunks whose gaps open while it trembles; then they drop one by one as the
+        // tile's coverage runs out (game/roofs.js crumble)
+        // (crk < 0.45: a few thin cracks — the ceiling around an old cave-in; above: it is breaking)
+        float br = smoothstep(0.45, 0.9, crk);
+        if (crk > 0.02) {
+          vec3 vc = vorCell(cw * 1.55);
+          float keep = smoothstep(0.45, 0.62, textureLod(uNoise, cw * 0.7 + 0.41, nLod(0.7)).b + crk * 0.5); // which edges split
+          float gw = (0.014 + 0.15 * br) * (0.7 + 0.6 * nB.z);
+          cc *= mix(1.0, 0.84 + 0.3 * vc.z, br);                                  // each chunk tilts a shade apart
+          cc = mix(cc, alb * 0.2, (1.0 - smoothstep(gw * 0.5, gw, vc.x)) * keep * smoothstep(0.0, 0.25, crk));
+          cm *= mix(1.0, step(vc.y * 0.9 + 0.05, RC.a), br);
+        }
+        // seam with the massif (soft occlusion) and the lip over the cave mouth (not along a breaking edge)
+        cc *= 1.0 - 0.16 * smoothstep(-0.7, 0.0, sd);
+        float lipK = (1.0 - smoothstep(-0.5, -0.1, sd)) * (1.0 - br);
+        cc = mix(cc, cc * 1.28 + alb * 0.05, smoothstep(0.05, 0.08, ce) * (1.0 - smoothstep(0.1, 0.24, ce)) * lipK);
+        cc = mix(cc, alb * 0.16, (1.0 - smoothstep(0.05 - aaW * 0.5, 0.05 + aaW * 0.5, ce)) * lipK);
+        // weather on the mountain top
+        cc *= 1.0 - 0.16 * uWet;
+        if (uSnow > 0.01) cc = mix(cc, vec3(0.85, 0.88, 0.93) * (0.62 + 0.4 * dif * uSunI) * sunT, smoothstep(0.3, 0.7, uSnow * snowA + (nB.y - 0.5) * 0.4) * 0.9);
+        col = mix(col, cc, cm);
+        shadowMask = mix(shadowMask, 0.6, cm);
+      }
     }
 
     // ================= WATER =================
@@ -1378,6 +1521,7 @@ vec4 dropLayer(vec2 p, float dens, float seed){
   return vec4(d, 1.0 - smoothstep(0.8, 1.0, l), l);
 }
 
+${CEIL_FN}
 void main(){
   // ---- status displacement (shiver, dizzy wobble, sick wave) and lens effects (frost, droplets) ----
   vec2 uv = vUV + uFeelC.xy;
@@ -1426,6 +1570,7 @@ void main(){
 
   vec2 wp = uCam + vec2(uv.x - 0.5, 0.5 - uv.y) * uView;
   float cave = uHasField > 0.5 ? texture(uCave, wp / uWorld).r : 0.0;
+  if (cave > 0.004) cave *= 1.0 - ceilNear(wp); // a drawn cave ceiling is outdoors (fog, rain, flashes)
   // revealed interior of a building (the roof faded for the local player): no sky effects inside
   vec4 RD = uIndoorAmb > 0.0 ? texture(uRoofT, wp / uWorld) : vec4(0.0);
   float inside = RD.g * RD.b;

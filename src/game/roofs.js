@@ -14,8 +14,9 @@
 //     (src/art/roofRaster.js) rebuilt only when its tiles / fires change, drawn as depth-sorted column slices
 //     (collect → renderer roof segments), sun-shadow casters and a light occluder;
 //   - roofData (RGBA per tile, renderer uRoofT): R = interior darkness (walking distance from open sky through
-//     open doors), G = revealed (the region the local player is under, faded), B = built roof coverage;
-//   - game.indoors = { kind: null | 'cave' | 'built', region, zoomK, caveK, builtK } for the local player
+//     open doors), G = revealed (the region the local player is under, faded), B = built roof coverage,
+//     A = cave ceiling drawn over the tile, G on cave tiles = its cracks (see "cave ceilings");
+//   - game.indoors = { kind: null | 'cave' | 'built', region (built region / cave id), zoomK, caveK, builtK } for the local player
 //     (camera zoom lock in game.js, screen effects in the post shader, audio / survival read world.roofAt);
 //   - fades: the region the local player is under fades out (~0.35 s); a roof in front of the player goes
 //     see-through (0.32); chimneys smoke while a fire burns under them; cave-ins and collapses kick up dust.
@@ -54,8 +55,11 @@ export function initRoofs(game) {
   };
   game.roofs.collapsing = new Set(); // tiles whose roof just fell (cosmetic: the old painting drops and fades)
   game.roofs.falling = [];           // [{ g, t }] old paintings dropping
+  // cave ceilings (cosmetic, see "cave ceilings" below)
+  Object.assign(game.roofs, { caveOf: new Int32Array(N), caves: new Map(), caveNext: 1, caveDirty: new Set(), caveAll: true, crumble: new Map(), cracks: new Map(), peek: new Map() });
   game.indoors = { kind: null, region: 0, zoomK: 0, caveK: 0, builtK: 0, _cand: null, _candT: 0, _k: 0 };
-  game.roofs.hidden = (x, y) => underOpaqueRoof(game, x, y); // for fx modules (no import of game code)
+  // for fx modules (no import of game code): hidden by an opaque built roof or by a cave ceiling
+  game.roofs.hidden = (x, y) => underOpaqueRoof(game, x, y) || underCaveCeiling(game, x, y);
   // the world asks us to ease cave darkness changes caused by mining (cosmetic)
   w.caveFade = (i, a, b) => { game.roofs.caveFade.set(i, { a, b, t: 0 }); };
 }
@@ -86,6 +90,9 @@ export function onRockMined(game, tx, ty) {
   if (!R) return;
   R.supportDirty.push([tx, ty, tx, ty]);
   markData(R, tx - 8, ty - 8, tx + 8, ty + 8);
+  // cosmetic: the caves change (a new cave tile, tiles that lost the natural roof — world.lastLost of this mining)
+  R.caveDirty.add(game.world.idx(tx, ty));
+  for (const j of game.world.lastLost) R.caveDirty.add(j);
 }
 // a door opened / closed (light comes in through the doorway)
 export function onDoor(game, o) { if (game.roofs) markData(game.roofs, o.tx - 6, o.ty - 6, o.tx + 6, o.ty + 6); }
@@ -186,9 +193,21 @@ export function enclosedRoom(game, tx, ty, max = 220) {
 
 // ---------------- cosmetic: collapse / cave-in dust ----------------
 // tiles: [[tx, ty, col?]] or tile indices; col = roof colour (debris)
-export function collapseFx(game, tiles, { big = false, cave = false } = {}) {
+export function collapseFx(game, tiles, { big = false, cave = false, quiet = false } = {}) {
   const J = game.juice, w = game.world, R = game.roofs;
   let cx = 0, cy = 0;
+  if (cave && R) {
+    // a cave ceiling: cracks spread, then it breaks tile by tile from the middle outwards (caveCrumble)
+    for (const t of tiles) { cx += t[0] + 0.5; cy += t[1] + 0.5; }
+    if (!tiles.length) return;
+    cx /= tiles.length; cy /= tiles.length;
+    caveCrumble(game, tiles, cx, cy, quiet);
+    if (quiet) return [cx, cy];
+    const near = Math.hypot(game.cam.x - cx, game.cam.y - cy);
+    if (near < 22) game.juice?.shake?.(Math.min(0.6, (big ? 0.55 : 0.3) * (1 - near / 26)));
+    game.audio?.play('cave_in', { x: cx, y: cy });
+    return [cx, cy];
+  }
   const n = Math.min(tiles.length, 70);
   for (let k = 0; k < tiles.length; k++) {
     const t = tiles[k];
@@ -224,8 +243,10 @@ export function roofsSystem() {
         R.artDirty.clear();
       }
       if (R.dataDirty) { const d = R.dataDirty; R.dataDirty = null; computeData(game, d[0], d[1], d[2], d[3]); }
+      if (R.caveAll || R.caveDirty.size) rebuildCaves(game);
       updateIndoors(game, dt);
       updateFades(game, dt);
+      updateCaves(game, dt);
       for (let k = R.falling.length - 1; k >= 0; k--) {
         const g = R.falling[k];
         g.falling += dt;
@@ -548,7 +569,7 @@ function updateIndoors(game, dt) {
     if (w.inBounds(tx, ty)) {
       const i = ty * w.W + tx;
       if (w.broof[i]) { kind = 'built'; region = R.regionOf[i]; }
-      else if (w.roof[i] && !w.rock[i]) kind = 'cave';
+      else if (w.roof[i] && !w.rock[i]) { kind = 'cave'; region = R.caveOf[i]; } // (the cave whose ceiling fades)
     }
   }
   // debounce: a doorway shuffle never flips the camera back and forth
@@ -642,11 +663,11 @@ function dustFx(game, dt) {
     f.t += dt;
     if (f.t < 0) continue;
     R.fx.splice(k, 1);
-    const c = f.cave ? [0.55, 0.53, 0.5] : [0.68, 0.6, 0.48], rc = f.col || c;
+    const c = f.cave ? [0.6, 0.56, 0.5] : [0.68, 0.6, 0.48], rc = f.col || c;
     // a billowing cloud from the ground and from where the roof was
     for (let j = 0; j < 4; j++) P.emit({ spr: name, x: f.x + (Math.random() - 0.5) * 1.1, y: f.y + (Math.random() - 0.5) * 0.9, lift: j < 2 ? 0.15 : 0.8 + Math.random() * 1.6, vlift: j < 2 ? 0.35 : -0.15,
       vx: (Math.random() - 0.5) * 1.1, vy: (Math.random() - 0.5) * 0.6, drag: 0.7, life: 2 + Math.random() * 1.8, size: 0.9 * K, size1: (2.6 + Math.random() * 1.2) * K,
-      r: c[0], g: c[1], b: c[2], a: 0.55, a1: 0, fadeIn: 0.12, ground: false });
+      r: c[0], g: c[1], b: c[2], a: f.cave ? 0.68 : 0.55, a1: 0, fadeIn: 0.12, ground: false });
     // falling debris (tiles / straw / rubble) from the roof height
     for (let j = 0; j < 6; j++) P.emit({ spr: pk, x: f.x + (Math.random() - 0.5) * 0.9, y: f.y + (Math.random() - 0.5) * 0.7, lift: 1 + Math.random() * 1.8, vlift: Math.random() * 0.8,
       grav: 9, vx: (Math.random() - 0.5) * 1.4, vy: (Math.random() - 0.5) * 0.6, life: 0.7 + Math.random() * 0.4, size: (0.16 + Math.random() * 0.14) * Kp, size1: 0.1 * Kp,
@@ -681,6 +702,219 @@ export function underOpaqueRoof(game, x, y) {
   if (!w.broof[i]) return false;
   const g = R.regions.get(R.regionOf[i]);
   return !!(g && g.art && g.alpha >= 0.985);
+}
+
+// ---------------- cave ceilings (cosmetic) ----------------
+// A cave = 4-connected mined tiles under the natural roof (world.isCave). The terrain shader draws a ceiling over
+// every cave the local player is not inside (roofData A = coverage): from outside a cave reads as a lower, earthier
+// part of the mountain, and what is inside stays hidden (underCaveCeiling → roofs.hidden: sprites, labels, picking,
+// aim, lights). The cave the local player enters fades out (~0.35 s); standing at its mouth, the player sees a few
+// tiles into it (peek: nothing can bite from under the ceiling unseen). A cave-in (world.lastLost) plays as cracks
+// running over the ceiling (roofData G on cave tiles), then the ceiling breaking tile by tile from the middle of the
+// lost section outwards (each tile's chunks drop one by one), pieces falling and a dust cloud; cracks linger on the
+// ceiling left around the hole.
+// Everything here derives from the shared rock / roof grids, so every peer shows the same caves.
+const CRACK_T = 0.42;   // cracks spreading before the first tile breaks
+const BREAK_T = 0.35;   // a tile's ceiling crumbling away (its chunks drop one by one, terrain shader)
+const isCaveTile = (w, i) => w.roof[i] === 1 && w.rock[i] === 0;
+
+function rebuildCaves(game) {
+  const R = game.roofs, w = game.world, W = w.W, CO = R.caveOf, D = R.data;
+  const seeds = [], olds = [];
+  if (R.caveAll) {
+    R.caveAll = false;
+    for (const g of R.caves.values()) olds.push(g);
+    R.caves.clear(); CO.fill(0);
+    for (let i = 0; i < CO.length; i++) if (isCaveTile(w, i)) seeds.push(i); else if (D[i * 4 + 3] && !R.crumble.has(i)) D[i * 4 + 3] = 0;
+    markUpload(R, 0, 0, W - 1, w.H - 1);
+  } else {
+    const aff = new Set();
+    for (const i of R.caveDirty) {
+      seeds.push(i);
+      const x = i % W;
+      for (const j of [i, i - 1, i + 1, i - W, i + W]) {
+        if (j < 0 || j >= CO.length || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1)) continue;
+        if (CO[j]) aff.add(CO[j]);
+      }
+    }
+    for (const id of aff) {
+      const g = R.caves.get(id);
+      if (!g) continue;
+      for (const i of g.tiles) { if (CO[i] === id) CO[i] = 0; seeds.push(i); }
+      R.caves.delete(id);
+      olds.push(g);
+    }
+  }
+  R.caveDirty.clear();
+  const q = [];
+  for (const s of seeds) {
+    if (!isCaveTile(w, s)) {
+      // left every cave (its roof fell, or the snapshot changed it): no ceiling unless it is still crumbling
+      if (D[s * 4 + 3] && !R.crumble.has(s)) { D[s * 4 + 3] = 0; markUpload(R, s % W, (s / W) | 0, s % W, (s / W) | 0); }
+      continue;
+    }
+    if (CO[s]) continue;
+    const id = R.caveNext++, tiles = [];
+    CO[s] = id; q.length = 0; q.push(s);
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    while (q.length) {
+      const i = q.pop(), x = i % W, y = (i - x) / W;
+      tiles.push(i);
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && !CO[i - 1] && isCaveTile(w, i - 1)) { CO[i - 1] = id; q.push(i - 1); }
+      if (x < W - 1 && !CO[i + 1] && isCaveTile(w, i + 1)) { CO[i + 1] = id; q.push(i + 1); }
+      if (y > 0 && !CO[i - W] && isCaveTile(w, i - W)) { CO[i - W] = id; q.push(i - W); }
+      if (y < w.H - 1 && !CO[i + W] && isCaveTile(w, i + W)) { CO[i + W] = id; q.push(i + W); }
+    }
+    // keep the fade of the cave it grew from / split off (no flash while the player digs inside it)
+    let reveal = 0;
+    for (const o of olds) {
+      if (o.reveal <= reveal || o.x1 < x0 || o.x0 > x1 || o.y1 < y0 || o.y0 > y1) continue;
+      for (const i of o.tiles) if (CO[i] === id) { reveal = o.reveal; break; }
+    }
+    R.caves.set(id, { id, tiles: Int32Array.from(tiles), x0, y0, x1, y1, reveal, av: -1 });
+  }
+}
+
+// per frame: the fade of each cave's ceiling, the crumbling tiles of cave-ins, lingering cracks
+function updateCaves(game, dt) {
+  const R = game.roofs, I = game.indoors, w = game.world, D = R.data, W = w.W;
+  const k = Math.min(1, dt / 0.35);
+  for (const g of R.caves.values()) {
+    const tr = I.kind === 'cave' && I.region === g.id ? 1 : 0;
+    if (g.reveal !== tr) g.reveal = tr > g.reveal ? Math.min(1, g.reveal + k) : Math.max(0, g.reveal - k);
+    const e = g.reveal * g.reveal * (3 - 2 * g.reveal), v = Math.round(255 * (1 - e));
+    if (v === g.av) continue;
+    g.av = v;
+    for (const i of g.tiles) D[i * 4 + 3] = w.broof[i] ? 0 : Math.min(v, R.peek.get(i) ?? 255);
+    markUpload(R, g.x0, g.y0, g.x1, g.y1);
+  }
+  peekCaves(game);
+  for (const [i, c] of R.crumble) {
+    c.t += dt;
+    let a, gc;
+    if (c.t < 0) {
+      a = c.a;
+      gc = Math.max(c.g, Math.round(255 * Math.min(1, Math.max(0, 1 + c.t / c.crack))));
+    } else {
+      if (!c.fell) { c.fell = true; breakFx(game, c); }
+      const u = Math.min(1, c.t / BREAK_T);
+      a = Math.round(c.a * (1 - u)); gc = 255;
+      if (u >= 1) { R.crumble.delete(i); gc = 0; }
+    }
+    D[i * 4 + 3] = a;
+    D[i * 4 + 1] = gc;
+    markUpload(R, c.x, c.y, c.x, c.y);
+  }
+  for (const [i, c] of R.cracks) {
+    if (c.d > 0) { c.d -= dt; continue; }  // waits for the cave-in next to it
+    c.v -= dt / 45;
+    const x = i % W, y = (i - x) / W;
+    if (c.v <= 0 || !isCaveTile(w, i)) { R.cracks.delete(i); if (!R.crumble.has(i) && !w.broof[i]) D[i * 4 + 1] = 0; markUpload(R, x, y, x, y); continue; }
+    if (R.crumble.has(i) || w.broof[i]) continue;
+    D[i * 4 + 1] = Math.round(255 * Math.min(1, c.v));
+    markUpload(R, x, y, x, y);
+  }
+}
+
+// at a cave's mouth the local player sees a few tiles into it: the ceiling of the cave(s) touching the tiles right
+// around the player fades within ~3 tiles (never through rock: only caves the player is next to)
+function peekCaves(game) {
+  const R = game.roofs, w = game.world, D = R.data, W = w.W, p = game.player, I = game.indoors, old = R.peek;
+  const next = new Map(), near = new Set();
+  if (!p.dead) {
+    const px = Math.floor(p.x), py = Math.floor(p.y - 0.05);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = px + dx, y = py + dy;
+      if (!w.inBounds(x, y)) continue;
+      const id = R.caveOf[y * W + x];
+      if (id && !(I.kind === 'cave' && I.region === id)) near.add(id);
+    }
+    if (near.size) for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const x = px + dx, y = py + dy;
+      if (!w.inBounds(x, y)) continue;
+      const i = y * W + x;
+      if (!near.has(R.caveOf[i])) continue;
+      const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - (p.y - 0.05));
+      const v = Math.round(255 * Math.min(1, Math.max(0, (d - 1.6) / 1.6)));
+      if (v < 255) next.set(i, v);
+    }
+  }
+  if (!next.size && !old.size) return;
+  // tiles that leave the peek get their cave's value back; the others its minimum with the peek
+  for (const i of old.keys()) if (!next.has(i)) next.set(i, 255);
+  for (const [i, v] of next) {
+    const g = R.caves.get(R.caveOf[i]);
+    const base = g && g.av >= 0 && !w.broof[i] ? g.av : 0;
+    const a = Math.min(base, v);
+    if (D[i * 4 + 3] !== a) { D[i * 4 + 3] = a; markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
+    if (v >= 255) next.delete(i);
+  }
+  R.peek = next;
+}
+
+// a cave-in over `tiles` ([[tx, ty, col?]]): schedule the crumble from (ex, ey) outwards + cracks around it
+function caveCrumble(game, tiles, ex, ey, quiet) {
+  const R = game.roofs, w = game.world, W = w.W, D = R.data;
+  const crack = quiet ? CRACK_T * 0.6 : CRACK_T;
+  let far = 0;
+  for (const t of tiles) {
+    const [x, y] = t, i = y * W + x, d = Math.hypot(x + 0.5 - ex, y + 0.5 - ey);
+    const delay = crack + d * 0.11 + Math.random() * 0.1;
+    far = Math.max(far, delay);
+    const old = R.crumble.get(i);
+    R.crumble.set(i, { x, y, t: -delay, crack, a: old ? old.a : D[i * 4 + 3], g: D[i * 4 + 1], col: t[2] || null, fell: false, n: R.crumble.size });
+  }
+  // the ceiling left around the hole stays cracked for a while (shown once the hole is there, fading over ~45 s)
+  for (const t of tiles) {
+    const [x, y] = t;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (!w.inBounds(nx, ny)) continue;
+      const j = ny * W + nx;
+      if (!isCaveTile(w, j) || R.crumble.has(j)) continue;
+      const v = 0.42 - Math.hypot(dx, dy) * 0.1, c = R.cracks.get(j);
+      if (!c || c.v < v) R.cracks.set(j, { v, d: Math.max(0, far * 0.5 - 0.1) });
+    }
+  }
+}
+
+// one tile of cave ceiling breaks: chunks of it fall from the ceiling height, a dust cloud follows (fx queue)
+function breakFx(game, c) {
+  const R = game.roofs, P = game.particles, A = game.A;
+  const col = c.col || [0.56, 0.53, 0.5];
+  if (c.n > 90) return; // a huge cave-in: the first tiles carry the show
+  const v = game.view?.();
+  if (v && (c.x < v.x0 - 3 || c.x > v.x1 + 3 || c.y < v.y0 - 3 || c.y > v.y1 + 4)) return;
+  if (P && A) {
+    const name = A.has('fx_rubble') ? 'fx_rubble' : A.has('fx_spark') ? 'fx_spark' : null;
+    if (name) {
+      const K = 1 / Math.max(0.01, A.get(name).w), n = 2 + (Math.random() < 0.4 ? 1 : 0);
+      for (let j = 0; j < n; j++) {
+        const s = (0.26 + Math.random() * 0.32) * K, sh = 0.82 + Math.random() * 0.26, v = (Math.random() * 3) | 0;
+        P.emit({ spr: v && A.has('fx_rubble_' + v) ? 'fx_rubble_' + v : name, x: c.x + 0.15 + Math.random() * 0.7, y: c.y + 0.25 + Math.random() * 0.6, lift: 1.5 + Math.random() * 0.7, vlift: -Math.random() * 0.6,
+          grav: 13, bounce: 0.28, vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.35, drag: 0.3, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 9,
+          life: 1.3 + Math.random() * 0.6, hold: 0.6, size: s, size1: s * 0.85, r: col[0] * sh, g: col[1] * sh, b: col[2] * sh, a: 1, a1: 0 });
+      }
+      // grit pouring from the broken edge
+      const pk = A.has('fx_spark') ? 'fx_spark' : name, Kp = 1 / Math.max(0.01, A.get(pk).w);
+      for (let j = 0; j < 5; j++) P.emit({ spr: pk, x: c.x + Math.random(), y: c.y + 0.2 + Math.random() * 0.7, lift: 1.6 + Math.random() * 0.5, vlift: -0.4,
+        grav: 9, vx: (Math.random() - 0.5) * 0.3, vy: 0, life: 0.6 + Math.random() * 0.3, size: (0.07 + Math.random() * 0.07) * Kp, size1: 0.05 * Kp,
+        r: col[0] * 0.9, g: col[1] * 0.88, b: col[2] * 0.85, a: 1, a1: 0.6 });
+    }
+  }
+  // the dust cloud when the chunks hit the floor (dustFx)
+  R.fx.push({ x: c.x + 0.5, y: c.y + 0.5, t: -0.45 - Math.random() * 0.12, cave: true, col });
+}
+
+// is the point (feet) under a cave ceiling drawn right now? (sprites, labels, lights there are hidden)
+export function underCaveCeiling(game, x, y) {
+  const R = game.roofs, w = game.world;
+  if (!R) return false;
+  const tx = Math.floor(x), ty = Math.floor(y - 0.05);
+  if (tx < 0 || ty < 0 || tx >= w.W || ty >= w.H) return false;
+  const i = ty * w.W + tx;
+  return R.data[i * 4 + 3] >= 128 && !w.rock[i];
 }
 
 // height of the built roof surface over tile (tx, ty) (eave height when unknown)

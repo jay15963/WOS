@@ -58,6 +58,10 @@ export function raysSystem() {
           const i = w.idx(s.tx, s.ty), g = R?.regions.get(R.regionOf[i]);
           vis = g ? 1 - g.alpha : 0;
           if (vis < 0.02) continue;
+        } else if (R?.data) {
+          // a cave skylight lands on a floor hidden by the cave ceiling while the local player is outside it
+          vis = 1 - R.data[w.idx(s.tx, s.ty) * 4 + 3] / 255;
+          if (vis < 0.02) continue;
         }
         const breathe = 0.88 + 0.12 * Math.sin(t * 0.37 + s.x * 1.3 + s.y * 0.7);
         const a = k * vis * breathe;

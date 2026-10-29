@@ -10,7 +10,8 @@
 // premultiplied + mipmaps; owner slice id, RG8) made by setRoofTex(old, art). A depth-sorted drawable calls
 // roofSlice(region, slice) from the main sort: the quad lands in batches.roof and a segment remembers the main
 // batch position, so the scene pass draws main sprites up to there, then the roof slice, then the rest.
-// roofData (RGBA per tile, uRoofT): R interior darkness, G revealed region, B built coverage — updateRoofData().
+// roofData (RGBA per tile, uRoofT): R interior darkness, G revealed region (cracks on cave tiles), B built coverage,
+// A cave ceiling drawn over the tile (game/roofs.js) — updateRoofData().
 //
 // WIND SWAY (opt-in per sprite, for everyone who draws plants): pass a non-zero `sway` in
 //   batch.add(sprite, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recvShadow, lift)
@@ -181,6 +182,7 @@ export class Renderer {
     // [world] caves/roofs/trampled ground (RGBA 1x, linear) — see world.js caveData
     this.caveTex = createTexture(gl, { width: world.W, height: world.H, data: world.caveData || new Uint8Array(world.W * world.H * 4) });
     this.roofDataTex = createTexture(gl, { width: world.W, height: world.H, data: new Uint8Array(world.W * world.H * 4) });
+    this.mine = { u: new Float32Array(32), n: 0 }; // rock being mined (src/fx/rockfx.js): tx, ty, crack / 1 + break, pulse
     this._buildClimate(world);
   }
 
@@ -522,6 +524,7 @@ export class Renderer {
       bind(6, gl.TEXTURE_2D, this.caveTex, 'uCave'); // [world]
       if (u.uClim) bind(7, gl.TEXTURE_2D, this.climTex, 'uClim');
       if (u.uRoofT) bind(8, gl.TEXTURE_2D, this.roofDataTex, 'uRoofT');
+      if (u.uMineN) { const m = this.mine; gl.uniform1i(u.uMineN, m ? m.n : 0); if (m && m.n && u.uMine) gl.uniform4fv(u.uMine, m.u, 0, 32); }
       // [paths] painted path grid + materials (src/game/paths.js sets pathTex / pathCovTex / pathMatTex / pathOn). The fallbacks keep
       // both samplers bound to a texture of their own type (a 2D and a 2D-array sampler never share a unit).
       if (u.uPathMat) {
@@ -556,6 +559,7 @@ export class Renderer {
       bindD(2, this.fieldTex, 'uField');
       bindD(3, this.caveTex, 'uCave');
       bindD(4, this.shadow.tex, 'uShadow');
+      if (u.uRoofT) bindD(5, this.roofDataTex, 'uRoofT'); // cave ceilings hide the rubble under them
       B.decal.draw();
     }
     {
