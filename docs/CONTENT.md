@@ -117,7 +117,13 @@ construir. Estações e móveis (`station`, `slots`, `decor: true`) **não** tê
   (pincel / menu "Estilo da planta" → `struct.style`); peça pronta: desmontar e construir de novo. Estilos e detalhes são
   **grátis** (não mudam o custo).
 - Arte: estilo = um sprite por máscara (`wst_<estilo>_<m>`, cantos suaves `wst_<estilo>_s<m>`, cercas `kfe_<estilo>_<m>`); cada
-  detalhe = UM sprite sobreposto (cantos NE/SE espelhados), cores = tinta na hora de desenhar. Nunca estilo × detalhe × máscara.
+  detalhe = UM sprite sobreposto, cores = tinta na hora de desenhar. Nunca estilo × detalhe × máscara.
+  **Detalhes seguem o material:** cada estilo tem uma família de cantos (`CORNER_FAM` em `src/art/arch.js`: tábuas, toras,
+  enxaimel, pau a pique, blocos, pedra bruta, seixos; enxaimel de tijolos usa a madeira do enxaimel) e `look: 'wood' | 'stone'`
+  no catálogo. Postes, pilares, arremates, escoras/contrafortes, coroamento, cinta e ameias são pintados nessa família e levam
+  a cor (tom) da parede; pedra cinza numa parede de madeira só nas opções "de pedra" (cunhais, soco). Peças de canto têm
+  um sprite por canto (nw, ne, sw, se: a luz fica sempre de cima à esquerda) e projetam sombra junto com a parede.
+  Rótulos por material: `names` / `descs` `{ wood, stone }` no detalhe (`detName` / `detDesc` em `content/kits.js`).
   **Pintura preguiçosa:** só o visual padrão de cada peça (e os brilhos emissivos) é assado no atlas; variantes de estilo, cantos
   suaves, detalhes e decoração são registrados em `src/art/lazyDefs.js` (`lazyDef(nome, pintor, ax, ay)`, no import de
   `arch.js` / `decor.js`) e pintados sob demanda na textura preguiçosa de H (`art/look/lazy.js`). Enquanto um sprite não está

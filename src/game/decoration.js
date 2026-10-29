@@ -106,9 +106,9 @@ function installShowcase(game) {
     if (ids.length) net.emit('obj.remove', { ids, fx: 'clear' });
   };
   // place rows [type, tx, ty, rot, style, det] finished (authority only, through the normal op)
-  const put = (rows, done = 1) => {
+  const put = (rows, done = 1, lv = 0) => {
     const list = rows.filter((r) => BUILDINGS[r[0]]).map(([type, tx, ty, rot = 0, style = '', det = '']) => [net.newId('s'), type, tx, ty, Math.floor(net.roll() * 1000), done, Math.round(game.worldTime), rot, 1, 0, style, det]);
-    if (list.length) net.emit('struct.add', { list });
+    if (list.length) net.emit('struct.add', lv ? { list, lv } : { list });
     return list.length;
   };
   const rect = (type, x0, y0, x1, y1, style, det, skip = []) => {
@@ -197,6 +197,30 @@ function installShowcase(game) {
     const n = put(rows);
     p.x = x0 + 16; p.y = y0 + 23;
     return { n, at };
+  };
+  // corner details per wall style (art review): mat 'wood' | 'stone'; a 3×3 ring (4 convex corners) per detail,
+  // plus free ends (line + lone piece) for the end caps; opts.lv = stories stacked on top (same rings), opts.dets = columns
+  H.corners = (mat = 'wood', opts = {}) => {
+    if (!net.auth) return 'só no anfitrião';
+    const styles = mat === 'stone' ? [['wall_stone', 'cut'], ['wall_stone', 'rough'], ['wall_stone', 'cobble'], ['wall_stone', 'tbrick']]
+      : [['wall_wood', 'plank'], ['wall_wood', 'log'], ['wall_wood', 'timber'], ['wall_wood', 'wattle']];
+    const dets = opts.dets || ['', 'soft', 'post', 'quoin', 'pillar', 'buttress', 'endcap'];
+    const W = dets.length * 5 + 1, Hh = styles.length * 5 + 1;
+    const p = game.player;
+    const at = freeRect(p.x, p.y, W, Hh);
+    if (!at) return 'sem espaço';
+    const [x0, y0] = at;
+    clear(x0 - 1, y0 - 1, W + 2, Hh + 2);
+    const rows = [];
+    styles.forEach(([type, st], j) => dets.forEach((d, i) => {
+      const x = x0 + 1 + i * 5, y = y0 + 1 + j * 5;
+      if (d === 'endcap') { for (let k = 0; k < 3; k++) rows.push([type, x + k, y, 0, st, d]); rows.push([type, x + 3, y + 1, 0, st, d], [type, x + 3, y + 2, 0, st, d], [type, x + 1, y + 2, 0, st, d]); }
+      else rows.push(...rect(type, x, y, x + 2, y + 2, st, d === 'buttress' ? 'buttress' : d));
+    }));
+    let n = put(rows);
+    if (opts.lv) for (let k = 1; k <= opts.lv; k++) n += put(rows, 1, k); // the same rings stacked story by story
+    p.x = x0 + W / 2; p.y = y0 + Hh + 0.5;
+    return { n, at: [x0, y0], W, H: Hh };
   };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {

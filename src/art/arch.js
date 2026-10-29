@@ -337,6 +337,7 @@ function cutSides(g, m) {
   if (S && W) g.clearRect(-big, 64, big, big);
 }
 
+const COVER_BOARD = new Set(['plank', 'timber', 'tbrick']);
 export function wallStyleSprite(style, m, soft = false) {
   const st = WSTYLE[style];
   const S = m & 4;
@@ -356,6 +357,8 @@ export function wallStyleSprite(style, m, soft = false) {
             g.fillStyle = lin(g, x, 0, x + k * 12, 0, [[0, k > 0 ? 'rgba(255,240,210,0.16)' : 'rgba(15,10,6,0.4)'], [1, 'rgba(0,0,0,0)']]);
             g.fillRect(Math.min(x, x + k * 12), 30, 12, FH + 44);
           }
+          // wooden looks: a rounded cover board down each free front corner (never a grey shape on wood)
+          if (COVER_BOARD.has(style)) { if (!(m & 8)) coverBoard(g, style, 0, false); if (!(m & 2)) coverBoard(g, style, 64, true); }
         }
         g.restore();
       }
@@ -380,90 +383,436 @@ const F0 = 64, F1 = 64 + FH; // front band rows
 const FM = F0 + Math.round((FH - 26) * 0.45);
 const WIN0 = F0 + Math.round(Math.max(3, FH * 0.2)), WIN1 = WIN0 + Math.round(Math.max(17, FH * 0.45));
 
-// corner pieces (NW = top corner cap; SW = top corner + down the front). NE / SE = mirrored at draw time.
-function cornerPost(sw) {
-  return wbox((g) => {
-    const x = -1, w = 15, rise = 5;
-    const y = sw ? 64 - w : 0;
-    // cap (end grain) rising a little above the top face
-    g.fillStyle = '#4a2f1c'; g.fillRect(x, y - rise, w, w + rise);
-    g.fillStyle = lin(g, x, y - rise, x + w, y - rise + w, [[0, '#c29462'], [1, '#7a5230']]); g.fillRect(x, y - rise, w, w);
-    g.strokeStyle = 'rgba(70,40,18,0.65)'; g.lineWidth = 0.8;
-    for (const k of [0.72, 0.46, 0.2]) { g.beginPath(); g.ellipse(x + w / 2, y - rise + w / 2, (w / 2) * k, (w / 2) * k * 0.92, 0, 0, TAU); g.stroke(); }
-    g.beginPath(); g.moveTo(x + w / 2, y - rise + w / 2); g.lineTo(x + w - 2, y - rise + w * 0.7); g.stroke(); // check crack
-    g.fillStyle = 'rgba(255,236,200,0.45)'; g.fillRect(x, y - rise, w, 1.3); g.fillRect(x, y - rise, 1.2, w);
-    g.fillStyle = lin(g, x, 0, x + w, 0, [[0, '#7a5232'], [1, '#3e2716']]); g.fillRect(x, y - rise + w, w, rise); // side of the rise
-    if (sw) {
-      g.fillStyle = lin(g, x, 0, x + w, 0, [[0, '#8f6238'], [0.45, '#6e4a2c'], [1, '#43291a']]); g.fillRect(x, 64, w, FH);
-      g.strokeStyle = 'rgba(30,18,8,0.5)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(x + 5, 66); g.lineTo(x + 5.5, F1 - 2); g.moveTo(x + 10, 66); g.lineTo(x + 10.2, F1 - 2); g.stroke();
-      for (const yy of [F0 + 4, F1 - 7]) { g.fillStyle = '#3a3a40'; g.fillRect(x, yy, w, 2.6); g.fillStyle = '#1f1f24'; g.beginPath(); circle(g, x + w / 2, yy + 1.3, 0.9); g.fill(); }
-    }
-  }, 2.4);
+// ---------------- corner pieces (per material family) ----------------
+// Every wall style has a corner FAMILY (CORNER_FAM): its corner pieces, buttresses and trims are painted in that
+// material and colour, so a wooden wall never shows grey stone unless the option is a stone one ("de pedra").
+// Four sprites per corner piece (nw, ne, sw, se): the light stays top-left on both sides (no mirroring at draw time).
+// North corners show only what rises above the wall top or stands out beside it; south corners run the whole story
+// (FH) down the front. Projection: a point at plan y (0..64 in the tile, 64 = south edge) and height h (px) is drawn at
+// screen y = plan y + FH - h, so the top face (h = FH) is the 64×64 square and the front runs from 64 to 64 + FH.
+export const CORNER_FAM = { plank: 'plank', log: 'log', timber: 'timber', tbrick: 'timber', wattle: 'wattle', cut: 'cut', rough: 'rough', cobble: 'cobble' };
+export const WOOD_FAMS = ['plank', 'log', 'timber', 'wattle'], STONE_FAMS = ['cut', 'rough', 'cobble'], QUOIN_FAMS = ['lime', ...STONE_FAMS];
+export const CORNERS = ['nw', 'ne', 'sw', 'se'];
+const WP = { // wood families: lit / mid / shade = a vertical face lit from the left; end0 / end1 = end grain
+  plank: { lit: '#9c6e43', mid: '#7c5331', shade: '#553620', hi: 'rgba(255,226,180,0.42)', lo: 'rgba(30,16,6,0.5)', end0: '#a8794a', end1: '#7a5130', ring: 'rgba(78,46,20,0.55)', grain: 'rgba(40,22,10,0.38)', top0: '#c49563', top1: '#9a6c40' },
+  log: { lit: '#c29464', mid: '#946640', shade: '#5e3e22', hi: 'rgba(255,230,190,0.4)', lo: 'rgba(30,16,6,0.5)', end0: '#dfbf8a', end1: '#b68c5a', ring: 'rgba(140,96,52,0.8)', grain: 'rgba(60,36,16,0.4)', bark: '#6b4527', top0: '#b98a58', top1: '#8c5f38' },
+  timber: { lit: '#6e4a2e', mid: '#4a2f1c', shade: '#2e1c10', hi: 'rgba(255,214,160,0.26)', lo: 'rgba(10,6,2,0.5)', end0: '#7c5434', end1: '#4e321e', ring: 'rgba(24,14,6,0.6)', grain: 'rgba(16,10,4,0.42)', top0: '#7a5232', top1: '#4a2f1c' },
+  wattle: { lit: '#94714c', mid: '#6e5032', shade: '#4a3420', hi: 'rgba(255,230,190,0.32)', lo: 'rgba(30,16,6,0.5)', end0: '#c9a678', end1: '#9c7a50', ring: 'rgba(110,80,44,0.7)', grain: 'rgba(40,26,12,0.4)', bark: '#5d4128', top0: '#a8855a', top1: '#7a5a36' },
+};
+const SP = { // stone families (+ lime: the dressed stone used for "de pedra" pieces on wooden walls)
+  cut: { lit: '#d2cbbd', mid: '#aaa295', shade: '#7c756a', top0: '#e0d9cc', top1: '#b2aa9d', mortar: '#57524a', rough: 0 },
+  rough: { lit: '#c2baab', mid: '#9a9285', shade: '#6e685e', top0: '#cec6b7', top1: '#a29a8c', mortar: '#45413a', rough: 1 },
+  cobble: { lit: '#d6ccb8', mid: '#afa591', shade: '#847b6a', top0: '#e2d9c6', top1: '#b9af9b', mortar: '#8a816d', rough: 0 },
+  lime: { lit: '#dcd3bf', mid: '#b8ae99', shade: '#8a8170', top0: '#e8e1cf', top1: '#c0b7a2', mortar: '#6a6252', rough: 0 },
+};
+const CAPW = { lit: '#8e623a', mid: '#6e4a2c', front: '#5e3d22', shade: '#3a2414', line: 'rgba(30,16,6,0.55)', hi: 'rgba(255,220,170,0.35)', knob: '#4a2f1c' };
+const CAPT = { lit: '#6a4630', mid: '#4e3220', front: '#40281a', shade: '#24160a', line: 'rgba(10,6,2,0.55)', hi: 'rgba(255,214,160,0.25)', knob: '#2e1c10' };
+const THATCH = { lit: '#c4a45e', mid: '#a4873f', front: '#93773a', shade: '#665126', line: 'rgba(70,52,18,0.65)', hi: 'rgba(255,236,180,0.35)', knob: '#6e5424' };
+const scr = (planY, h) => planY + FH - h;
+const cbox = (fn, pad = 24) => spritePx(64, 64 + FH, (g, P) => fn(P), { pad });
+const rampH = (g, x, w, p) => lin(g, x, 0, x + w, 0, [[0, p.lit], [0.42, p.mid], [1, p.shade]]);
+const rampCyl = (g, x, w, p) => lin(g, x, 0, x + w, 0, [[0, p.mid], [0.27, p.lit], [0.62, p.mid], [1, p.shade]]);
+function grainV(g, x, y0, y1, w, p, seed) {
+  g.strokeStyle = p.grain; g.lineWidth = 0.7;
+  for (let k = 0; k < 2; k++) {
+    const gx = x + w * (0.3 + k * 0.38) + (hash(seed, k) - 0.5) * 1.5;
+    g.beginPath(); g.moveTo(gx, y0 + 2);
+    for (let y = y0 + 6; y < y1 - 1; y += 6) g.lineTo(gx + Math.sin((y + seed * 13 + k * 7) * 0.23) * 0.7, y);
+    g.stroke();
+  }
 }
-function cornerQuoin(sw) {
-  return wbox((g) => {
-    const L = '#c4bcad', D = '#9f9789';
-    if (!sw) { g.fillStyle = lin(g, 0, 0, 16, 16, [[0, L], [1, D]]); g.fillRect(0, 0, 16, 14); g.fillStyle = 'rgba(255,255,245,0.5)'; g.fillRect(0, 0, 16, 1.4); return; }
-    g.fillStyle = lin(g, 0, 50, 16, 64, [[0, L], [1, D]]); g.fillRect(0, 50, 16, 14);
-    g.fillStyle = 'rgba(255,255,245,0.5)'; g.fillRect(0, 50, 16, 1.4);
-    // alternating long / short dressed stones up the corner
-    const rows = Math.max(3, Math.round(FH / 8.7)), rh = FH / rows;
-    for (let r = 0; r < rows; r++) {
-      const w = r & 1 ? 9 : 15, y = F0 + r * rh;
-      g.fillStyle = lin(g, 0, y, 0, y + rh, [[0, '#c2baab'], [1, '#968e81']]); g.fillRect(0, y + 0.6, w, rh - 1.2);
-      g.fillStyle = 'rgba(255,255,245,0.45)'; g.fillRect(0, y + 0.6, w, 1);
-      g.fillStyle = 'rgba(30,26,20,0.45)'; g.fillRect(w - 1, y + 0.6, 1, rh - 1.2);
-    }
-  }, 2);
+// end of a post seen from above: rings, a check, a chamfered rim (squared) or the bark ring (round)
+function endGrain(g, x, y, w, h, p, round) {
+  const cx = x + w / 2, cy = y + h / 2;
+  g.fillStyle = lin(g, x, y, x + w, y + h, [[0, p.end0], [1, p.end1]]);
+  g.beginPath(); if (round) g.ellipse(cx, cy, w / 2, h / 2, 0, 0, TAU); else g.rect(x, y, w, h); g.fill();
+  g.strokeStyle = p.ring; g.lineWidth = 0.7;
+  for (const k of [0.72, 0.46, 0.22]) { g.beginPath(); g.ellipse(cx + 0.4, cy + 0.3, (w / 2) * k, (h / 2) * k, 0, 0, TAU); g.stroke(); }
+  g.beginPath(); g.moveTo(cx + 0.4, cy + 0.3); g.lineTo(cx + w * 0.34, cy + h * 0.2); g.stroke();
+  if (round) { g.strokeStyle = p.bark || p.shade; g.lineWidth = 1.3; g.beginPath(); g.ellipse(cx, cy, w / 2 - 0.6, h / 2 - 0.6, 0, 0, TAU); g.stroke(); return; }
+  g.fillStyle = 'rgba(255,236,200,0.42)'; g.fillRect(x, y, w, 1.1); g.fillRect(x, y, 1.1, h);
+  g.fillStyle = 'rgba(30,16,6,0.42)'; g.fillRect(x, y + h - 1.1, w, 1.1); g.fillRect(x + w - 1.1, y, 1.1, h);
 }
-function cornerPillar(sw) {
-  return wbox((g) => {
-    const cx = 8, R = 9;
-    const cy = sw ? 56 : 8;
-    if (sw) {
-      g.fillStyle = lin(g, cx - R, 0, cx + R, 0, [[0, '#cfc8ba'], [0.4, '#b4ac9e'], [1, '#7d766b']]);
-      g.fillRect(cx - R, cy, R * 2, F1 - cy - 2);
-      g.beginPath(); g.ellipse(cx, F1 - 2, R, R * 0.36, 0, 0, Math.PI); g.fill();
-      g.strokeStyle = 'rgba(60,56,50,0.4)'; g.lineWidth = 0.8;
-      for (const y of [F0 + 6, F0 + 14]) { g.beginPath(); g.moveTo(cx - R, y); g.quadraticCurveTo(cx, y + 3, cx + R, y); g.stroke(); }
-      g.fillStyle = '#8a8378'; g.fillRect(cx - R - 1.5, F1 - 6, R * 2 + 3, 4); // base ring
-    }
-    // cap rising above the wall top
-    g.fillStyle = '#a69e90'; g.fillRect(cx - R, cy - 8, R * 2, 8);
-    g.fillStyle = lin(g, cx - R, cy - 12, cx + R, cy, [[0, '#e2dccf'], [1, '#aca496']]);
-    g.beginPath(); g.ellipse(cx, cy - 8, R + 1.5, (R + 1.5) * 0.7, 0, 0, TAU); g.fill();
-    g.fillStyle = 'rgba(255,255,245,0.5)'; g.beginPath(); g.ellipse(cx - 2, cy - 10, R * 0.6, R * 0.3, 0, 0, TAU); g.fill();
-    g.fillStyle = '#c9c1b2'; g.beginPath(); circle(g, cx, cy - 11, 3); g.fill();
+function pin(g, kind, x, y) {
+  if (kind === 'nail') {
+    g.fillStyle = '#26221f'; g.beginPath(); circle(g, x, y, 1.15); g.fill();
+    g.fillStyle = 'rgba(210,210,220,0.6)'; g.beginPath(); circle(g, x - 0.35, y - 0.35, 0.42); g.fill();
+  } else {
+    g.fillStyle = '#24160b'; g.beginPath(); circle(g, x, y, 1.55); g.fill();
+    g.fillStyle = '#93684a'; g.beginPath(); circle(g, x - 0.25, y - 0.25, 1); g.fill();
+  }
+}
+function lash(g, x, w, y) { // rope binding round a pole
+  g.fillStyle = '#9c8350'; g.fillRect(x - 0.6, y, w + 1.2, 4.2);
+  g.strokeStyle = '#dcc68e'; g.lineWidth = 0.8;
+  for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(x - 0.6, y + 0.5 + k * 1.35); g.lineTo(x + w + 0.6, y + 1.5 + k * 1.35); g.stroke(); }
+}
+function footShade(g, x, w, y1, k = 10) {
+  g.fillStyle = lin(g, 0, y1 - k, 0, y1, [[0, 'rgba(15,10,6,0)'], [1, 'rgba(15,10,6,0.45)']]); g.fillRect(x, y1 - k, w, k);
+}
+// a dressed stone face (lit top-left), rough families get a hand-knapped outline
+function stoneFace(g, x, y, w, h, p, seed) {
+  g.fillStyle = lin(g, x, y, x + w * 0.8, y + h, [[0, p.lit], [0.55, p.mid], [1, p.shade]]);
+  if (p.rough) {
+    const j = (k) => (hash(seed * 7 + k, k * 3) - 0.5) * 1.6;
+    g.beginPath(); g.moveTo(x + 1 + j(1), y + j(2)); g.lineTo(x + w - 1 + j(3), y + j(4)); g.lineTo(x + w + j(5) * 0.5, y + h * 0.5); g.lineTo(x + w - 1 + j(6), y + h + j(7) * 0.5);
+    g.lineTo(x + 1 + j(8), y + h + j(9) * 0.5); g.lineTo(x + j(10) * 0.5, y + h * 0.5); g.closePath(); g.fill();
+  } else g.fillRect(x, y, w, h);
+  g.fillStyle = 'rgba(255,252,240,0.5)'; g.fillRect(x + 0.4, y, w - 0.8, 1); g.fillRect(x, y + 0.4, 1, h - 0.8);
+  g.fillStyle = 'rgba(30,26,20,0.42)'; g.fillRect(x + 0.4, y + h - 1, w - 0.8, 1); g.fillRect(x + w - 1, y + 0.4, 1, h - 0.8);
+  g.fillStyle = 'rgba(40,36,30,0.22)';
+  for (let i = 0; i < 2 + (w * h) / 80; i++) g.fillRect(x + 1.6 + hash(i, seed) * (w - 3.2), y + 1.6 + hash(seed, i + 9) * (h - 3.2), 0.9, 0.9);
+}
+// a slab seen from above (x, y, w, h) with its south face t px below it
+function slab(g, x, y, w, h, t, p) {
+  if (t > 0) { g.fillStyle = lin(g, 0, y + h, 0, y + h + t, [[0, p.mid], [1, p.shade]]); g.fillRect(x, y + h, w, t); }
+  g.fillStyle = lin(g, x, y, x + w, y + h, [[0, p.top0], [1, p.top1]]); g.fillRect(x, y, w, h);
+  g.fillStyle = 'rgba(255,252,240,0.5)'; g.fillRect(x, y, w, 1.1); g.fillRect(x, y, 1.1, h);
+  g.fillStyle = 'rgba(30,26,20,0.35)'; g.fillRect(x, y + h - 1, w, 1); g.fillRect(x + w - 1, y, 1, h);
+}
+// a box standing on plan (cx, cy): half-width hw, half-depth hd, heights h0..h1 → [top y0, top y1, front bottom]
+function box(g, cx, cy, hw, hd, h0, h1, p, top = true) {
+  const yt = scr(cy - hd, h1), yb = scr(cy + hd, h1), yf = scr(cy + hd, h0);
+  g.fillStyle = rampH(g, cx - hw, 2 * hw, p); g.fillRect(cx - hw, yb, 2 * hw, yf - yb);
+  if (top) { g.fillStyle = lin(g, cx - hw, yt, cx + hw, yb, [[0, p.top0], [1, p.top1]]); g.fillRect(cx - hw, yt, 2 * hw, yb - yt); }
+  return [yt, yb, yf];
+}
+// an upright cylinder on plan (cx, cy), radius r, heights h0..h1 (its top circle is left to the caller)
+function cylinder(g, cx, cy, r, h0, h1, p, top = false) {
+  const y1 = scr(cy, h1), y0 = scr(cy, h0);
+  g.fillStyle = rampCyl(g, cx - r, 2 * r, p);
+  g.beginPath(); g.moveTo(cx - r, y1); g.lineTo(cx + r, y1); g.lineTo(cx + r, y0); g.ellipse(cx, y0, r, r, 0, 0, Math.PI); g.closePath(); g.fill();
+  if (top) { g.fillStyle = lin(g, cx - r, y1 - r, cx + r, y1 + r, [[0, p.top0], [1, p.top1]]); g.beginPath(); g.ellipse(cx, y1, r, r, 0, 0, TAU); g.fill(); }
+  return [y1, y0 + r];
+}
+// only the part outside the wall shows beside a north corner (below the wall top)
+function besideOnly(g, e, s, fn) {
+  if (s) { fn(); return; }
+  g.save(); g.beginPath(); g.rect(e ? 64 : -60, -60, 60, 400); g.clip(); fn(); g.restore();
+}
+
+// ---- wooden posts (squared timber; wattle: a round pole; endcap: taller, with a little roof cap) ----
+function woodPost(fam, c, capped = false) {
+  if (fam === 'log' && !capped) return logNotch(c);
+  return cbox((P) => {
+    const p = WP[fam], e = c[1] === 'e', s = c[0] === 's';
+    const round = fam === 'wattle' || fam === 'log';
+    const w = fam === 'timber' ? 13 : round ? 13 : 15, rise = capped ? 9 : round ? 5 : 4;
+    const x = e ? 66 - w : -2, ty = (s ? 64 - w : 0) - rise; // 2 px proud of both faces
+    const fy0 = ty + w, fy1 = s ? F1 : ty + w + rise;
+    P.layer((g) => {
+      g.fillStyle = round ? rampCyl(g, x, w, p) : rampH(g, x, w, p);
+      g.fillRect(x, fy0, w, fy1 - fy0);
+      if (round) {
+        g.strokeStyle = 'rgba(30,18,8,0.35)'; g.lineWidth = 0.8;
+        for (let k = 0; k < 3; k++) { const gx = x + 2.2 + (k * (w - 4.4)) / 2; g.beginPath(); g.moveTo(gx, fy0 + 2); g.lineTo(gx + (hash(k, w) - 0.5) * 2, fy1 - 2); g.stroke(); }
+        if (s) for (const ky of [0.3, 0.7]) { g.fillStyle = p.shade; g.beginPath(); g.ellipse(x + w * 0.62, fy0 + (fy1 - fy0) * ky, 1.7, 1.1, 0, 0, TAU); g.fill(); }
+      } else {
+        grainV(g, x, fy0, fy1, w, p, w + (e ? 3 : 1));
+        g.fillStyle = p.hi; g.fillRect(x + 1.3, fy0, 1, fy1 - fy0); // chamfered arrises: lit left, shaded right
+        g.fillStyle = p.lo; g.fillRect(x + w - 2.3, fy0, 1, fy1 - fy0);
+      }
+      if (s) {
+        if (fam === 'plank') for (const y of [F0 + 6.5, F0 + Math.round(FH / 2) - 0.5, F1 - 5.5]) { pin(g, 'nail', x + w * 0.34, y); pin(g, 'nail', x + w * 0.68, y); }
+        else if (fam === 'timber') for (const y of [F0 + 1.8, F0 + FH / 2, F1 - 2.2]) pin(g, 'peg', x + w / 2, y);
+        else { lash(g, x, w, F0 + 9); lash(g, x, w, F1 - 16); }
+        footShade(g, x, w, F1);
+      }
+      endGrain(g, x, ty, w, w, p, round);
+      if (capped) postCap(g, x, ty, w, fam === 'wattle' ? THATCH : fam === 'timber' ? CAPT : CAPW);
+    }, 2.4);
+    if (fam === 'timber' && s) P.layer((g) => { // the frame's brace runs into the post: pegged joint
+      const d = w + 2.6, jx = e ? 64 - d : d, jy = F1 - 4 - (d - 3) * ((FH - 7) / 26);
+      pin(g, 'peg', jx, jy);
+    }, 0.6);
   });
 }
-// rounded end caps: e = free end on the east (mirror for west), s = free end facing south, n = facing north
-function endCap(dir) {
-  return wbox((g) => {
-    const col = (y0, y1) => lin(g, 0, y0, 0, y1, [[0, '#e0d8c6'], [1, '#aaa192']]);
-    if (dir === 'e') {
-      g.fillStyle = col(0, 64); g.beginPath(); g.moveTo(44, 2); g.quadraticCurveTo(64, 2, 64, 32); g.quadraticCurveTo(64, 62, 44, 62); g.closePath(); g.fill();
-      g.fillStyle = 'rgba(30,26,20,0.25)'; g.beginPath(); g.moveTo(58, 10); g.quadraticCurveTo(63, 32, 58, 54); g.lineTo(62, 50); g.quadraticCurveTo(64, 32, 62, 14); g.closePath(); g.fill();
-    } else if (dir === 's') {
-      g.fillStyle = col(40, 64); g.beginPath(); g.moveTo(2, 48); g.quadraticCurveTo(2, 64, 32, 64); g.quadraticCurveTo(62, 64, 62, 48); g.closePath(); g.fill();
-      g.fillStyle = lin(g, 0, 0, 64, 0, [[0, '#9a9285'], [0.4, '#b9b1a3'], [1, '#6e675d']]);
-      g.beginPath(); g.moveTo(2, 50); g.quadraticCurveTo(2, 66, 32, 66); g.quadraticCurveTo(62, 66, 62, 50); g.lineTo(62, F1 - 6); g.quadraticCurveTo(62, F1 + 2, 32, F1); g.quadraticCurveTo(2, F1 + 2, 2, F1 - 6); g.closePath(); g.fill();
-      g.fillStyle = 'rgba(255,250,235,0.35)'; g.fillRect(6, 64, 52, 1.2);
+// a small pyramid roof on a post top (x, y, w)
+function postCap(g, x, y, w, C) {
+  const o = 2.4, x0 = x - o, x1 = x + w + o, y0 = y - o - 1, y1 = y + w + o - 1, ax = (x0 + x1) / 2, ay = (y0 + y1) / 2 - 8;
+  g.fillStyle = C.shade; g.fillRect(x0, y1 - 0.6, x1 - x0, 2.6);
+  const tri = (a, b, col) => { g.fillStyle = col; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.lineTo(ax, ay); g.closePath(); g.fill(); };
+  tri([x0, y0], [x1, y0], C.mid);
+  tri([x1, y0], [x1, y1], C.shade);
+  tri([x0, y1], [x1, y1], C.front);
+  tri([x0, y0], [x0, y1], C.lit);
+  g.strokeStyle = C.line; g.lineWidth = 0.7;
+  for (let k = 1; k < 3; k++) { const t = k / 3; g.beginPath(); g.moveTo(x0 + (ax - x0) * t, y1 + (ay - y1) * t); g.lineTo(x1 + (ax - x1) * t, y1 + (ay - y1) * t); g.stroke(); }
+  g.strokeStyle = C.hi; g.lineWidth = 0.9; g.beginPath(); g.moveTo(x0, y1); g.lineTo(ax, ay); g.stroke();
+  g.fillStyle = C.knob; g.beginPath(); circle(g, ax, ay - 1.3, 1.8); g.fill();
+  g.fillStyle = C.hi; g.beginPath(); circle(g, ax - 0.5, ay - 1.8, 0.6); g.fill();
+}
+// log cabin corner: saddle-notched crossings. Down the front, course by course: the side wall's log ends in a round
+// sawn end (half of it past the corner), and between them the run's own log runs on past the corner and ends there.
+// North corners only show the two top logs poking out (the rest is behind the wall).
+function logNotch(c) {
+  return cbox((P) => P.layer((g) => {
+    const e = c[1] === 'e', s = c[0] === 's', rh = LOG_RH, OUT = 9;
+    const X = (x) => (e ? 64 - x : x), R = (x0, w) => (e ? 64 - x0 - w : x0);
+    const run = (y0, y1) => { // the run's log continuing past the corner, rounded where it ends
+      const h = y1 - y0, x = R(-OUT, OUT + 8);
+      g.fillStyle = lin(g, 0, y0, 0, y1, [[0, LOG.hi], [0.35, LOG.mid], [1, LOG.dark]]);
+      g.beginPath(); if (g.roundRect) g.roundRect(x, y0, OUT + 8, h, e ? [0, h / 2, h / 2, 0] : [h / 2, 0, 0, h / 2]); else g.rect(x, y0, OUT + 8, h); g.fill();
+      g.fillStyle = 'rgba(255,232,196,0.32)'; g.fillRect(x + 2, y0 + 1, OUT + 4, 0.9);
+      g.strokeStyle = 'rgba(40,24,12,0.38)'; g.lineWidth = 0.6; g.beginPath(); g.moveTo(X(-OUT + 3), y0 + h * 0.55); g.lineTo(X(5), y0 + h * 0.5); g.stroke();
+      // sawn end, seen edge-on at the tip
+      g.fillStyle = LOG.end; g.beginPath(); g.ellipse(X(-OUT + 1.6), (y0 + y1) / 2, 1.3, h / 2 - 1.2, 0, 0, TAU); g.fill();
+    };
+    const end = (cy, ry) => { // the side wall's log end facing the viewer
+      const cx = X(0.5), rx = 8.2;
+      g.fillStyle = LOG.bark; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, TAU); g.fill();
+      g.fillStyle = lin(g, cx - rx, cy - ry, cx + rx, cy + ry, [[0, '#ead09c'], [0.6, '#cfa66e'], [1, '#b0864f']]);
+      g.beginPath(); g.ellipse(cx, cy, rx - 1.3, ry - 1.2, 0, 0, TAU); g.fill();
+      g.strokeStyle = LOG.ring; g.lineWidth = 0.65;
+      for (const k of [0.7, 0.42, 0.18]) { g.beginPath(); g.ellipse(cx + 0.3, cy + 0.2, (rx - 1.3) * k, (ry - 1.2) * k, 0, 0, TAU); g.stroke(); }
+      g.beginPath(); g.moveTo(cx + 0.3, cy + 0.2); g.lineTo(cx + (e ? -1 : 1) * 5, cy - ry * 0.5); g.stroke(); // drying check
+      g.fillStyle = 'rgba(255,244,214,0.45)'; g.beginPath(); g.ellipse(cx - 2.4, cy - ry * 0.45, 2.6, 0.9, 0, 0, TAU); g.fill();
+    };
+    const topLog = (x, y, w, h, alongX) => { // a log end seen from above
+      g.fillStyle = alongX ? lin(g, 0, y, 0, y + h, [[0, LOG.hi], [0.5, LOG.mid], [1, LOG.dark]]) : lin(g, x, 0, x + w, 0, [[0, LOG.hi], [0.5, LOG.mid], [1, LOG.dark]]);
+      g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, Math.min(w, h) / 2); else g.rect(x, y, w, h); g.fill();
+      g.strokeStyle = 'rgba(40,24,12,0.4)'; g.lineWidth = 0.6; g.beginPath();
+      if (alongX) { g.moveTo(x + 2, y + h * 0.45); g.lineTo(x + w - 2, y + h * 0.5); } else { g.moveTo(x + w * 0.45, y + 2); g.lineTo(x + w * 0.5, y + h - 2); }
+      g.stroke();
+    };
+    if (s) {
+      const n = Math.ceil(FH / rh);
+      topLog(R(-OUT, OUT + 10), 64 - rh + 0.4, OUT + 10, rh - 0.8, true); // the run's top log, from above
+      for (let r = 1; r < n; r += 2) { const y0 = F0 + r * rh; if (F1 - y0 > 2) run(y0 + 0.3, Math.min(F1, y0 + rh) - 0.3); }
+      for (let r = 0; r < n; r += 2) {
+        const y0 = F0 + r * rh, y1 = Math.min(F1, y0 + rh);
+        if (y1 - y0 > 2.5) end((y0 + y1) / 2, (y1 - y0) / 2 + 0.9);
+      }
     } else {
-      g.fillStyle = col(0, 20); g.beginPath(); g.moveTo(2, 16); g.quadraticCurveTo(2, 0, 32, 0); g.quadraticCurveTo(62, 0, 62, 16); g.closePath(); g.fill();
+      topLog(R(-OUT, OUT + 10), 0.4, OUT + 10, rh - 0.8, true);  // the back run's top log past the side
+      topLog(R(0.4, rh - 0.8), -OUT, rh - 0.8, OUT + 10, false); // the side wall's top log past the back
     }
+  }, 2.2));
+}
+
+// ---- stone corner pieces ----
+// dressed corner pier: three tall stones and a cap stone (north corners: the cap only)
+function stonePost(fam, c) {
+  return cbox((P) => P.layer((g) => {
+    const p = SP[fam], e = c[1] === 'e', s = c[0] === 's';
+    const w = 15, rise = 4, o = 1.6, x = e ? 65 - w : -1, ty = (s ? 64 - w : 0) - rise;
+    if (s) {
+      const top = ty + w, hh = (F1 - top) / 3;
+      for (let k = 0; k < 3; k++) {
+        const y0 = top + k * hh;
+        g.fillStyle = p.mortar; g.fillRect(x, y0, w, hh);
+        stoneFace(g, x + 0.6, y0 + 0.7, w - 1.2, hh - 1.4, p, k + (e ? 7 : 0));
+      }
+      footShade(g, x, w, F1, 8);
+    } else { g.fillStyle = lin(g, 0, ty + w, 0, ty + w + rise, [[0, p.mid], [1, p.shade]]); g.fillRect(x, ty + w, w, rise + 1); }
+    slab(g, x - o, ty - o, w + 2 * o, w + 2 * o, 3, p);
+  }, 2.2));
+}
+// quoins: long and short dressed blocks alternating up the corner, a little proud of the wall
+function quoinPiece(qf, c) {
+  return cbox((P) => P.layer((g) => {
+    const p = SP[qf], e = c[1] === 'e', s = c[0] === 's', L = 22, S = 13;
+    const R = (w) => (e ? 65 - w : -1);
+    if (s) {
+      const rows = 6, rh = FH / rows;
+      for (let r = 0; r < rows; r++) {
+        const w = r % 2 ? S : L, x = R(w), y = F0 + r * rh;
+        if (!e) { g.fillStyle = 'rgba(20,14,8,0.32)'; g.fillRect(x + w, y + 1.2, 1.8, rh - 0.8); }
+        g.fillStyle = p.mortar; g.fillRect(x, y, w, rh);
+        stoneFace(g, x + 0.6, y + 0.7, w - 1.2, rh - 1.4, p, r * 3 + (e ? 11 : 0));
+      }
+      footShade(g, R(L), L, F1, 7);
+      slab(g, R(L), 64 - 14, L, 14, 0, p);
+    } else slab(g, R(14), 0, 14, 22, 0, p);
+  }, 2));
+}
+// columns with a base and a capital, standing on the corner point (half outside the wall)
+function stonePillar(fam, c) {
+  return cbox((P) => P.layer((g) => {
+    const p = SP[fam], e = c[1] === 'e', s = c[0] === 's';
+    const cx = e ? 64 : 0, cy = s ? 64 : 0;
+    besideOnly(g, e, s, () => {
+      box(g, cx, cy, 11, 11, 0, 6, p);                       // plinth
+      const [ty0] = cylinder(g, cx, cy, 9, 6, 9, p, true);       // torus
+      g.fillStyle = 'rgba(255,252,240,0.35)'; g.fillRect(cx - 8, ty0 + 0.5, 16, 1);
+      cylinder(g, cx, cy, 7, 9, FH - 5, p);                    // shaft
+      g.strokeStyle = 'rgba(40,36,30,0.28)'; g.lineWidth = 0.8;
+      for (const dx of [-3.5, 0, 3.5]) { g.beginPath(); g.moveTo(cx + dx, scr(cy + 7, FH - 6)); g.lineTo(cx + dx, scr(cy + 7, 11)); g.stroke(); }
+      cylinder(g, cx, cy, 9, FH - 5, FH, { ...p, lit: p.top0 }, true); // echinus
+    });
+    const [yt, yb] = box(g, cx, cy, 11, 11, FH, FH + 6, p);        // abacus, above the wall top
+    g.fillStyle = 'rgba(255,252,240,0.5)'; g.fillRect(cx - 11, yt, 22, 1.1); g.fillRect(cx - 11, yt, 1.1, yb - yt);
+    g.fillStyle = 'rgba(30,26,20,0.3)'; g.fillRect(cx - 11, yb - 1, 22, 1);
+    g.strokeStyle = 'rgba(60,56,50,0.3)'; g.lineWidth = 0.8; g.strokeRect(cx - 7, yt + 4, 14, yb - yt - 8);
+  }, 2.2));
+}
+// rounded ends: a bullnose of rounded stones wrapping the corner + a rounded coping stone on top
+function stoneEnd(fam, c) {
+  return cbox((P) => P.layer((g) => {
+    const p = SP[fam], e = c[1] === 'e', s = c[0] === 's', w = 16, x = e ? 66 - w : -2;
+    if (s) {
+      const rows = 6, rh = FH / rows;
+      for (let r = 0; r < rows; r++) {
+        const y = F0 + r * rh;
+        g.fillStyle = p.mortar; g.fillRect(x, y, w, rh);
+        g.fillStyle = e ? lin(g, x, 0, x + w, 0, [[0, p.mid], [0.55, p.mid], [1, p.shade]]) : lin(g, x, 0, x + w, 0, [[0, p.lit], [0.3, p.lit], [1, p.mid]]);
+        g.beginPath();
+        const rr = 4;
+        if (g.roundRect) g.roundRect(x + 0.6, y + 0.7, w - 1.2, rh - 1.4, e ? [0, rr, rr, 0] : [rr, 0, 0, rr]); else g.rect(x + 0.6, y + 0.7, w - 1.2, rh - 1.4);
+        g.fill();
+        g.fillStyle = 'rgba(255,252,240,0.45)'; g.fillRect(x + 1.5, y + 0.7, w - 3, 1);
+        g.fillStyle = 'rgba(30,26,20,0.35)'; g.fillRect(x + 1.5, y + rh - 1.7, w - 3, 1);
+        if (!e) { g.fillStyle = 'rgba(255,252,240,0.25)'; g.fillRect(x + 3, y + 1.5, 1.6, rh - 3); }
+      }
+      footShade(g, x, w, F1, 8);
+    }
+    // coping stone with the outer corner rounded (its south face is the same shape 3 px lower)
+    const cw = 20, ch = 20, cx0 = e ? 66 - cw : -2, cy0 = (s ? 66 - ch : -2) - 3, rad = 14;
+    const corner = e ? (s ? [0, 0, rad, 0] : [0, rad, 0, 0]) : (s ? [0, 0, 0, rad] : [rad, 0, 0, 0]);
+    const shape = (dy) => { g.beginPath(); if (g.roundRect) g.roundRect(cx0, cy0 + dy, cw, ch, corner); else g.rect(cx0, cy0 + dy, cw, ch); };
+    shape(3); g.fillStyle = lin(g, 0, cy0 + ch, 0, cy0 + ch + 3, [[0, p.mid], [1, p.shade]]); g.fill();
+    shape(0); g.fillStyle = lin(g, cx0, cy0, cx0 + cw, cy0 + ch, [[0, p.top0], [1, p.top1]]); g.fill();
+    g.strokeStyle = 'rgba(255,252,240,0.5)'; g.lineWidth = 1; shape(0.6); g.stroke();
+  }, 2.2));
+}
+
+// ---- wooden pillars: a squared (or round) column on a sole block, a bolster capital and an end-grain cap ----
+function woodPillar(fam, c) {
+  return cbox((P) => P.layer((g) => {
+    const p = WP[fam], e = c[1] === 'e', s = c[0] === 's', round = fam === 'log' || fam === 'wattle';
+    const cx = e ? 64 : 0, cy = s ? 64 : 0;
+    besideOnly(g, e, s, () => {
+      box(g, cx, cy, 9.5, 9.5, 0, 7, p);
+      if (round) {
+        cylinder(g, cx, cy, 6.5, 7, FH - 6, p);
+        g.strokeStyle = 'rgba(30,18,8,0.3)'; g.lineWidth = 0.8;
+        for (const dx of [-3, 1.5]) { g.beginPath(); g.moveTo(cx + dx, scr(cy + 6.5, FH - 7)); g.lineTo(cx + dx + 0.8, scr(cy + 6.5, 9)); g.stroke(); }
+        if (fam === 'wattle') { lash(g, cx - 6.5, 13, scr(cy + 6.5, FH - 14)); lash(g, cx - 6.5, 13, scr(cy + 6.5, 16)); }
+      } else {
+        const [, yb, yf] = box(g, cx, cy, 6.5, 6.5, 7, FH - 6, p, false);
+        grainV(g, cx - 6.5, yb, yf, 13, p, 5 + (e ? 2 : 0));
+        g.fillStyle = p.hi; g.fillRect(cx - 5.4, yb + 3, 1, yf - yb - 6);
+        g.fillStyle = p.lo; g.fillRect(cx + 4.4, yb + 3, 1, yf - yb - 6);
+        // chamfer stops near both ends
+        g.fillStyle = p.lo; for (const yy of [yb + 3, yf - 4]) { g.beginPath(); g.moveTo(cx - 6.5, yy); g.lineTo(cx - 4.5, yy + 1); g.lineTo(cx - 6.5, yy + 2); g.fill(); }
+        if (fam === 'timber') for (const yy of [yb + 6, yf - 8]) pin(g, 'peg', cx, yy);
+      }
+      box(g, cx, cy, 10, 8.5, FH - 6, FH, p, false); // bolster capital
+    });
+    const [yt] = box(g, cx, cy, 8, 8, FH, FH + 5, p, false);
+    endGrain(g, cx - 8, yt, 16, 16, p, round);
+  }, 2.4));
+}
+
+// ---- buttresses ----
+// stone: a pier tapering in two stages, sloped weathering on top, courses matching the wall rows
+function stoneButtress(fam) {
+  return cbox((P) => P.layer((g) => {
+    const p = SP[fam], cx = 32;
+    const stage = (hw, d, h0, h1, slopeTo, seed) => {
+      const yb = scr(64 + d, h1), yf = scr(64 + d, h0);
+      // face
+      g.fillStyle = rampH(g, cx - hw, 2 * hw, p); g.fillRect(cx - hw, yb, 2 * hw, yf - yb);
+      const rows = Math.max(1, Math.round((h1 - h0) / 10.6)), rh = (yf - yb) / rows;
+      g.fillStyle = 'rgba(40,36,30,0.42)';
+      for (let r = 1; r < rows; r++) g.fillRect(cx - hw, yb + r * rh - 0.5, 2 * hw, 1);
+      for (let r = 0; r < rows; r++) { const jx = cx + (hash(r, seed) - 0.5) * hw; g.fillRect(jx, yb + r * rh, 1, rh); }
+      g.fillStyle = 'rgba(255,252,240,0.4)'; g.fillRect(cx - hw, yb, 1.1, yf - yb);
+      // sloped weathering back to the stage above (or the wall)
+      const ys = scr(64 + slopeTo, h1 + (d - slopeTo) * 0.9);
+      g.fillStyle = lin(g, 0, ys, 0, yb, [[0, p.top0], [1, p.top1]]);
+      g.beginPath(); g.moveTo(cx - hw, yb); g.lineTo(cx + hw, yb); g.lineTo(cx + hw - 1.5, ys); g.lineTo(cx - hw + 1.5, ys); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,252,240,0.45)'; g.fillRect(cx - hw + 1.5, ys, 2 * hw - 3, 1);
+    };
+    stage(8, 6, FH * 0.42, FH * 0.8, 0, 3);      // upper stage, sloping back into the wall
+    stage(12, 11, 0, FH * 0.42, 6, 7);           // lower, wider stage, a set-off ledge onto the upper one
+    footShade(g, cx - 12, 24, scr(64 + 11, 0), 8);
+  }, 2.2));
+}
+// wood: a post against the wall propped by two raking struts on sole blocks
+function woodButtress(fam) {
+  return cbox((P) => {
+    const p = WP[fam], cx = 32, round = fam === 'log' || fam === 'wattle';
+    const top = F0 + 5, cleat = F0 + 22, foot = F1 + 6;
+    P.layer((g) => { // struts (behind the post)
+      for (const k of [-1, 1]) {
+        const x0 = cx + k * 3, x1 = cx + k * 18;
+        g.lineCap = round ? 'round' : 'butt';
+        g.strokeStyle = p.mid; g.lineWidth = round ? 5.4 : 5; g.beginPath(); g.moveTo(x0, cleat + 2); g.lineTo(x1, foot - 2); g.stroke();
+        g.strokeStyle = p.lit; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x0 - 1.4, cleat + 1); g.lineTo(x1 - 1.6, foot - 3); g.stroke();
+        g.strokeStyle = p.shade; g.lineWidth = 1.1; g.beginPath(); g.moveTo(x0 + 1.6, cleat + 3); g.lineTo(x1 + 1.4, foot - 1.5); g.stroke();
+        g.lineCap = 'round';
+        // sole block at the foot
+        g.fillStyle = rampH(g, x1 - 5, 10, p); g.fillRect(x1 - 5, foot - 3, 10, 5);
+        g.fillStyle = lin(g, 0, foot - 6, 0, foot - 3, [[0, p.top0], [1, p.top1]]); g.fillRect(x1 - 5, foot - 6, 10, 3);
+      }
+    }, 2.2);
+    P.layer((g) => { // the post and the cleat
+      const w = round ? 8 : 9;
+      g.fillStyle = round ? rampCyl(g, cx - w / 2, w, p) : rampH(g, cx - w / 2, w, p); g.fillRect(cx - w / 2, top, w, F1 - top);
+      if (!round) { grainV(g, cx - w / 2, top, F1, w, p, 9); g.fillStyle = p.hi; g.fillRect(cx - w / 2 + 1.1, top, 0.9, F1 - top); }
+      endGrain(g, cx - w / 2, top - 4, w, 4, p, false);
+      g.fillStyle = rampH(g, cx - 8, 16, p); g.fillRect(cx - 8, cleat - 3, 16, 6);
+      g.fillStyle = p.hi; g.fillRect(cx - 8, cleat - 3, 16, 0.9);
+      if (fam === 'plank') { pin(g, 'nail', cx - 5, cleat); pin(g, 'nail', cx + 5, cleat); pin(g, 'nail', cx, F0 + 10); }
+      else if (fam === 'timber') { pin(g, 'peg', cx - 5, cleat); pin(g, 'peg', cx + 5, cleat); }
+      else lash(g, cx - 8, 16, cleat - 2);
+      footShade(g, cx - w / 2, w, F1, 8);
+    }, 2.2);
+  });
+}
+
+// ---- wooden trims (the stone ones stay: capPiece / crenel / band) ----
+function capWood(fam, edge) {
+  return wbox((g) => {
+    const p = WP[fam];
+    const board = (x, y, w, h, alongX) => {
+      g.fillStyle = alongX ? lin(g, 0, y, 0, y + h, [[0, p.top0], [1, p.top1]]) : lin(g, x, 0, x + w, 0, [[0, p.top0], [1, p.top1]]); g.fillRect(x, y, w, h);
+      g.strokeStyle = p.grain; g.lineWidth = 0.7; g.beginPath();
+      if (alongX) { g.moveTo(x, y + h * 0.45); g.lineTo(x + w, y + h * 0.5); } else { g.moveTo(x + w * 0.45, y); g.lineTo(x + w * 0.5, y + h); }
+      g.stroke();
+      g.fillStyle = 'rgba(255,236,200,0.4)'; if (alongX) g.fillRect(x, y, w, 1); else g.fillRect(x, y, 1, h);
+      for (let k = 0; k < 4; k++) pin(g, 'nail', alongX ? x + 8 + k * 16 : x + w / 2, alongX ? y + h / 2 : y + 8 + k * 16);
+    };
+    if (edge === 'n') board(-1, -3, 66, 8, true);
+    else if (edge === 'w') board(-3, -1, 8, 66, false);
+    else {
+      board(-1, 57, 66, 7, true);
+      g.fillStyle = lin(g, 0, 64, 0, 69, [[0, p.mid], [1, p.shade]]); g.fillRect(-1, 64, 66, 5); // fascia
+      g.fillStyle = 'rgba(20,12,6,0.35)'; g.fillRect(-1, 69, 66, 2.2);
+    }
+  }, 1.8);
+}
+function crenWood(fam, edge) {
+  return wbox((g) => {
+    const p = WP[fam];
+    const M = (x, y, w, h) => { // a squared timber merlon: end grain on top, its south face below
+      g.fillStyle = rampH(g, x, w, p); g.fillRect(x, y - 10 + h, w, 10);
+      grainV(g, x, y - 10 + h, y + h, w, p, x);
+      endGrain(g, x, y - 10, w, h, p, false);
+    };
+    if (edge === 'n') { M(2, 2, 14, 9); M(34, 2, 14, 9); }
+    else if (edge === 's') { M(2, 56, 14, 8); M(34, 56, 14, 8); }
+    else { M(0, 8, 9, 14); M(0, 40, 9, 14); }
   }, 2);
 }
-function buttress() {
+function bandWood(fam) {
   return wbox((g) => {
-    const cx = 32, w = 13;
-    // sloped pier against the front: top slope + face
-    g.fillStyle = lin(g, cx - w, 52, cx + w, 64, [[0, '#cbc3b4'], [1, '#9c9486']]);
-    g.beginPath(); g.moveTo(cx - w + 2, 54); g.lineTo(cx + w - 2, 54); g.lineTo(cx + w, 70); g.lineTo(cx - w, 70); g.closePath(); g.fill();
-    g.fillStyle = lin(g, cx - w, 0, cx + w, 0, [[0, '#a8a092'], [0.5, '#8f887b'], [1, '#6a645a']]);
-    g.fillRect(cx - w, 70, w * 2, F1 - 70 + 3);
-    g.fillStyle = 'rgba(30,26,20,0.35)'; for (const y of [76, 83]) g.fillRect(cx - w, y, w * 2, 1);
-    g.fillStyle = 'rgba(255,250,235,0.4)'; g.fillRect(cx - w, 70, w * 2, 1.2);
-  }, 2);
+    const p = WP[fam], y = FM + 9;
+    g.fillStyle = lin(g, 0, y, 0, y + 5.5, [[0, p.lit], [1, p.shade]]); g.fillRect(-2, y, 68, 5.5);
+    g.fillStyle = p.hi; g.fillRect(-2, y, 68, 0.9);
+    g.fillStyle = 'rgba(20,12,6,0.35)'; g.fillRect(-2, y + 5.5, 68, 1.6);
+    for (let k = 0; k < 4; k++) pin(g, fam === 'timber' ? 'peg' : 'nail', 8 + k * 16, y + 2.8);
+  }, 1.6);
+}
+// soft corners on wooden looks: a rounded cover board down each free front corner (drawn into the wall sprite)
+function coverBoard(g, style, x, east) {
+  const p = WP[CORNER_FAM[style]] || WP.plank, w = 7, X = east ? x - w : x;
+  g.fillStyle = east ? lin(g, X, 0, X + w, 0, [[0, p.mid], [0.5, p.shade], [1, tone(p.shade, 0.75)]]) : lin(g, X, 0, X + w, 0, [[0, p.lit], [0.45, p.lit], [1, p.mid]]);
+  g.fillRect(X, F0, w, FH);
+  g.fillStyle = east ? 'rgba(255,226,180,0.18)' : 'rgba(255,236,200,0.42)'; g.fillRect(east ? X + 0.8 : X + 1.4, F0, 1, FH);
+  g.fillStyle = 'rgba(20,12,6,0.4)'; g.fillRect(east ? X - 0.6 : X + w - 0.4, F0, 1, FH);
+  for (const y of [F0 + 6.5, F0 + Math.round(FH / 2) - 0.5, F1 - 5.5]) pin(g, CORNER_FAM[style] === 'timber' ? 'peg' : 'nail', X + w / 2, y);
 }
 function plinth() {
   return wbox((g) => {
@@ -1186,11 +1535,18 @@ function archSprites(S) {
     for (const m of SOFT_MASKS) S(`wst_${st}_s${m}`, () => wallStyleSprite(st, m, true), 0.5, 1);
   }
   const A = (n, f, baked = false) => S(n, f, 0.5, 1, baked);
-  A('kd_post_nw', () => cornerPost(false)); A('kd_post_sw', () => cornerPost(true));
-  A('kd_quoin_nw', () => cornerQuoin(false)); A('kd_quoin_sw', () => cornerQuoin(true));
-  A('kd_pillar_nw', () => cornerPillar(false)); A('kd_pillar_sw', () => cornerPillar(true));
-  A('kd_end_e', () => endCap('e')); A('kd_end_s', () => endCap('s')); A('kd_end_n', () => endCap('n'));
-  A('kd_buttress', buttress); A('kd_plinth', plinth);
+  // corner pieces per material family and corner (nw, ne, sw, se); buttresses and wooden trims per family
+  for (const c of CORNERS) {
+    for (const f of WOOD_FAMS) { A(`kd_post_${f}_${c}`, () => woodPost(f, c)); A(`kd_pillar_${f}_${c}`, () => woodPillar(f, c)); A(`kd_endp_${f}_${c}`, () => woodPost(f, c, true)); }
+    for (const f of STONE_FAMS) { A(`kd_post_${f}_${c}`, () => stonePost(f, c)); A(`kd_pillar_${f}_${c}`, () => stonePillar(f, c)); A(`kd_endp_${f}_${c}`, () => stoneEnd(f, c)); }
+    for (const f of QUOIN_FAMS) A(`kd_quoin_${f}_${c}`, () => quoinPiece(f, c));
+  }
+  for (const f of WOOD_FAMS) {
+    A(`kd_bt_${f}`, () => woodButtress(f)); A(`kd_bandw_${f}`, () => bandWood(f));
+    for (const e of ['n', 's', 'w']) { A(`kd_capw_${f}_${e}`, () => capWood(f, e)); A(`kd_crenw_${f}_${e}`, () => crenWood(f, e)); }
+  }
+  for (const f of STONE_FAMS) A(`kd_bt_${f}`, () => stoneButtress(f));
+  A('kd_plinth', plinth);
   A('kd_cap_n', () => capPiece('n')); A('kd_cap_s', () => capPiece('s')); A('kd_cap_w', () => capPiece('w'));
   A('kd_cren_n', () => crenel('n')); A('kd_cren_s', () => crenel('s')); A('kd_cren_w', () => crenel('w'));
   A('kd_beams', beams); A('kd_band', band);
