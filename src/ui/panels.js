@@ -1,5 +1,6 @@
 // HUD panels: Mochila (inventory + equipment paper-doll), Criar (crafting, see crafting.js),
-// Construir (build menu by category + deconstruct), Baú (chest transfer), Mapa (world map).
+// Construir (build menu by category + deconstruct), Baú / Corpo (transfer window driven by a container
+// adapter, see container.js: open with { panel: 'chest', chest } or { panel: 'chest', container }), Mapa.
 // Non-pausing (MMO): the world keeps running; tapping the world closes the panel.
 // Also installs the work bar (build / mining / deconstruct modes) — see workbar.js.
 
@@ -13,6 +14,7 @@ import { svgIcon, uiIcon } from './icons.js';
 import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
+import { chestContainer, sortBar } from './container.js';
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -51,7 +53,8 @@ export class Panels {
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
     // chest contents are shared (op chest.set): refresh an open chest when anyone changes it
-    game.events.on('chest', (d) => { if (this.open === 'chest' && this.data?.chest === d.o) this.render(); });
+    game.events.on('chest', (d) => { if (this.open === 'chest' && this.box?.chest === d.o) this.render(); });
+    game.events.on('container', (d) => { if (this.open === 'chest' && this.box?.key === d.key) this.render(); });
     game.events.on('inventory', () => { if (this.open === 'chest') this.render(); });
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // never keep focus on panel buttons (Space/Enter are game keys)
@@ -72,6 +75,7 @@ export class Panels {
     if (name === 'craft') this.craftStation = data?.station || null;
     if (this.open !== name) this.sel = null;
     this.open = name; this.data = data;
+    this.box = name === 'chest' ? data?.container || (data?.chest ? chestContainer(g, data.chest) : null) : null;
     g.ui.modal = true;
     this.fresh = true;
     this.render();
@@ -81,7 +85,7 @@ export class Panels {
 
   close() {
     if (!this.open) return;
-    this.open = null; this.data = null;
+    this.open = null; this.data = null; this.box = null;
     this.el.innerHTML = '';
     this.g.ui.modal = false;
   }
@@ -96,7 +100,7 @@ export class Panels {
 
   slots(inv, tag, cols, selected = -1) {
     const A = this.g.A;
-    return `<div class="grid" style="--cols:${cols}">${inv.slots.map((s, i) => `<button class="slot ${s ? 'full' : ''} ${i === selected ? 'sel' : ''}" data-${tag}="${i}" ${s ? `title="${ITEMS[s.id]?.name || ''}"` : ''}>${s ? `${itemIco(A, s.id)}<span class="n">${s.qty > 1 ? s.qty : ''}</span>` : ''}</button>`).join('')}</div>`;
+    return `<div class="grid" style="--cols:${cols}">${(inv.slots || inv).map((s, i) => `<button class="slot ${s ? 'full' : ''} ${i === selected ? 'sel' : ''}" data-${tag}="${i}" ${s ? `title="${ITEMS[s.id]?.name || ''}"` : ''}>${s ? `${itemIco(A, s.id)}<span class="n">${s.qty > 1 ? s.qty : ''}</span>` : ''}</button>`).join('')}</div>`;
   }
 
   invBody() {
@@ -177,12 +181,12 @@ export class Panels {
     } else if (name === 'build') {
       html = this.frame('Construir', uiIcon(A, 'build'), this.buildBody(), 'p-build');
     } else if (name === 'chest') {
-      const c = this.data?.chest;
-      if (!c || !c.store) { this.close(); return; }
-      html = this.frame('Baú', buildIco(A, 'chest'), `
+      const c = this.box;
+      if (!c || !c.valid()) { this.close(); return; }
+      html = this.frame(c.title, c.kind === 'chest' ? buildIco(A, 'chest') : uiIcon(A, 'bag'), `
         <div class="chest-wrap">
-          <div><div class="gl">Mochila <small>toque para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
-          <div><div class="gl">Baú <small>toque para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
+          <div><div class="gl">Mochila <small>toque para guardar</small>${sortBar('bag')}</div>${this.slots(p.inv, 'slot', 6)}</div>
+          <div><div class="gl">${c.label} <small>toque para pegar</small>${sortBar('box')}</div>${this.slots(c.items(), 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
@@ -200,14 +204,8 @@ export class Panels {
     el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
       const i = +b.dataset.slot;
       if (this.open === 'chest') {
-        const s = p.inv.slots[i], chest = this.data.chest;
-        if (!s) return;
-        if (chest.store.room(s.id) <= 0) { g.events.emit('error', { text: 'Baú cheio' }); return; }
-        // the whole stack leaves the backpack now; the host stores it (leftovers / refusal come back)
-        const it = p.inv.takeSlot(i);
-        g.net.request('chest.put', { id: chest.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: (why) => g.events.emit('error', { text: why || 'Baú cheio' }) });
-        g.audio?.play('pickup', {});
-        g.events.emit('inventory', {});
+        if (!p.inv.slots[i] || !this.box) return;
+        this.box.put(i); // the container adapter asks the host (refund on refusal)
         this.render();
       } else {
         const same = this.sel?.kind === 'inv' && this.sel.i === i;
@@ -227,13 +225,12 @@ export class Panels {
       }
       this.render();
     }));
-    el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
-      const chest = this.data.chest, i = +b.dataset.cslot, s = chest.store.slots[i];
-      if (!s) return;
-      const room = p.inv.room(s.id);
-      if (room <= 0) { g.events.emit('error', { text: 'Mochila cheia' }); return; }
-      g.net.request('chest.take', { id: chest.id, slot: i, qty: Math.min(room, s.qty) }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu' }) });
-      g.audio?.play('pickup', {});
+    el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => { this.box?.take(+b.dataset.cslot); }));
+    el.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+      const [side, mode] = b.dataset.sort.split(':');
+      if (!this.box) return;
+      if (side === 'bag') { this.box.sortBag(mode); this.render(); } else this.box.sort(mode);
+      g.audio?.play('ui_click', {});
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
       const act = b.dataset.act, sel = this.sel;
@@ -291,10 +288,7 @@ export class Panels {
       if (this.mapT <= 0) { this.mapT = 0.25; this.drawMap(); }
     }
     if (this.open === 'craft') craftUpdate(this);
-    if (this.open === 'chest' && this.data?.chest) {
-      const c = this.data.chest, p = this.g.player;
-      if (Math.hypot(c.x - p.x, c.y - p.y) > 2.6 || !this.g.build.structures.includes(c)) this.close();
-    }
+    if (this.open === 'chest' && (!this.box || !this.box.valid())) this.close();
   }
 }
 

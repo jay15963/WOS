@@ -78,6 +78,7 @@ export function pick(game, sx, sy) {
       if (!hit || o.y > hit.o.y) hit = d;
     }
   });
+  if (!hit) hit = game.corpses?.pickAt(wx, wy, tol) || null; // bodies on the ground (corpses.js)
   if (hit) return { type: 'interact', it: hit, wx, wy };
   const rk = describeRock(game, Math.floor(wx), Math.floor(wy));
   if (rk) return { type: 'interact', it: rk, wx, wy };
@@ -104,6 +105,7 @@ export function nearestInteractable(game) {
       consider(describeAny(game, o));
     }
   });
+  game.corpses?.forNear(p.x, p.y, 3, consider); // bodies on the ground (corpses.js)
   const tx = Math.floor(p.x), ty = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;

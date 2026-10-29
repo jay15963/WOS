@@ -9,3 +9,4 @@ import './camps.js';
 import './combat.js';
 import './env.js';
 import './own.js';
+import './corpses.js';

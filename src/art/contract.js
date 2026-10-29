@@ -22,6 +22,8 @@ export const CONTRACT = [
   'crop_potato_0', 'crop_cotton_0', 'crop_corn_0',
   'item_wood', 'item_stone', 'item_berries', 'item_meat', 'item_cooked', 'item_leather', 'item_fiber', 'item_ore',
   'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_heal', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
+  // corpses (I): skeletons, carcasses, rot, fly, bone item
+  'corpse_skel_s', 'corpse_skel_m', 'corpse_skel_l', 'corpse_skel_pawn', 'corpse_carcass_s', 'corpse_carcass_m', 'corpse_carcass_l', 'corpse_rot_0', 'fx_fly', 'item_bone',
 ];
 
 // does `names` (Set or Map-like with has) hold art for a kind: exact, _0, _h or any _<n> variant
