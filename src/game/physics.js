@@ -1,7 +1,8 @@
 
 // Circle-vs-tile and circle-vs-obstacle collision with axis sliding.
-// world.solid: 1 blocks everyone (walls, fences, stations), 2 = door / gate: only movers with
-// `passDoors` (the player) go through. Round props collide at (o.x, o.cy ?? o.y).
+// world.solid: 1 blocks everyone (walls, fences, stations, beds, CLOSED doors / gates). Doors open and close
+// only by an explicit action (door.toggle → door.set): open = 0, everyone passes (creatures too). Value 2
+// (legacy "only passDoors movers") is no longer written. Round props collide at (o.x, o.cy ?? o.y).
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 

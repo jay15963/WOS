@@ -4,6 +4,8 @@ import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, smoothClosed, blobPts, 
 
 export const TORCH_FLAME_LIFT = 0.93; // tiles above the torch base where the flame sits
 export const CAMPFIRE_FLAME_LIFT = 0.12;
+// wall torches: sprite lift onto the wall face, flame height above the lifted base, flame x offset (tiles)
+export const TORCH_WALL = { s: { lift: 0.3, flame: 37 / 64, fx: 0 }, e: { lift: 0.3, flame: 37 / 64, fx: 7 / 64 } };
 
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
 
@@ -176,6 +178,183 @@ function bed() {
   });
 }
 
+// bed turned around (head to the south): footboard far, pillow and headboard near the viewer (1×2 box)
+function bedSouth() {
+  return spritePx(68, 124, (g, P) => {
+    P.layer((g) => {
+      const x0 = 5, x1 = 63;
+      g.fillStyle = lin(g, x0, 0, x1, 0, [[0, WOOD.light], [1, WOOD.dark]]);
+      g.fillRect(x0, 6, x1 - x0, 112);
+      // footboard (far end, low)
+      g.fillStyle = lin(g, 0, 2, 0, 12, [[0, '#a77a4c'], [1, WOOD.deep]]);
+      g.fillRect(x0 - 1, 3, x1 - x0 + 2, 9);
+      g.fillStyle = 'rgba(255,235,200,0.35)'; g.fillRect(x0 - 1, 3, x1 - x0 + 2, 1.2);
+      // sheet + blanket from the foot
+      g.fillStyle = '#e8e0cf'; g.fillRect(x0 + 4, 12, x1 - x0 - 8, 92);
+      g.fillStyle = lin(g, x0, 12, x1, 80, [[0, '#6f8fb0'], [0.5, '#4f7092'], [1, '#3a5672']]);
+      g.beginPath(); g.moveTo(x0 + 2, 12); g.lineTo(x1 - 2, 12); g.lineTo(x1 - 2, 74); g.quadraticCurveTo(34, 79, x0 + 2, 74); g.closePath(); g.fill();
+      g.fillStyle = '#d9d2c2'; g.beginPath(); g.moveTo(x0 + 2, 68); g.quadraticCurveTo(34, 73, x1 - 2, 68); g.lineTo(x1 - 2, 74); g.quadraticCurveTo(34, 79, x0 + 2, 74); g.closePath(); g.fill();
+      g.save(); g.beginPath(); g.rect(x0 + 2, 12, x1 - x0 - 4, 56); g.clip();
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) if ((r + c) & 1) { g.fillStyle = 'rgba(170,190,215,0.22)'; g.fillRect(x0 + 2 + c * 14.5, 12 + r * 12, 14.5, 12); }
+      g.strokeStyle = 'rgba(230,236,245,0.35)'; g.lineWidth = 0.7; g.setLineDash([1.6, 1.6]);
+      g.beginPath(); for (let c = 1; c < 4; c++) { g.moveTo(x0 + 2 + c * 14.5, 12); g.lineTo(x0 + 2 + c * 14.5, 68); } for (let r = 1; r < 5; r++) { g.moveTo(x0 + 2, 12 + r * 12); g.lineTo(x1 - 2, 12 + r * 12); } g.stroke();
+      g.setLineDash([]); g.restore();
+      // folded throw at the foot
+      g.fillStyle = '#a3473a'; g.fillRect(x0 + 3, 16, x1 - x0 - 6, 9);
+      g.fillStyle = '#d9b45a'; g.fillRect(x0 + 3, 21, x1 - x0 - 6, 1.2);
+      // pillow near the viewer
+      g.fillStyle = lin(g, 0, 82, 0, 100, [[0, '#ffffff'], [1, '#d6cfc0']]);
+      g.beginPath(); g.ellipse(34, 90, 21, 8.5, 0, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(120,110,95,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(24, 90); g.quadraticCurveTo(34, 93, 44, 90); g.stroke();
+      // headboard: front panel with posts
+      g.fillStyle = lin(g, 0, 100, 0, 121, [[0, '#b98a58'], [1, WOOD.deep]]);
+      g.beginPath(); g.moveTo(x0 - 1, 121); g.lineTo(x0 - 1, 104); g.quadraticCurveTo(34, 97, x1 + 1, 104); g.lineTo(x1 + 1, 121); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(60,36,18,0.5)'; g.lineWidth = 0.9;
+      for (const y of [109, 115]) { g.beginPath(); g.moveTo(x0 + 3, y); g.lineTo(x1 - 3, y); g.stroke(); }
+      g.fillStyle = 'rgba(255,235,200,0.35)'; g.beginPath(); g.moveTo(x0 + 2, 104.5); g.quadraticCurveTo(34, 98, x1 - 2, 104.5); g.lineTo(x1 - 2, 106); g.quadraticCurveTo(34, 99.5, x0 + 2, 106); g.closePath(); g.fill();
+      for (const x of [x0 - 1, x1 - 3]) { g.fillStyle = WOOD.dark; g.fillRect(x, 100, 4, 21); g.fillStyle = WOOD.high; g.beginPath(); circle(g, x + 2, 100, 2.6); g.fill(); }
+    }, OW);
+  });
+}
+
+// bed lying east-west (2×1 box, headboard on the west, foot on the east); Y(v, h) = ground row v, height h
+function bedEast() {
+  const E = 26, W = 132;
+  const Y = (v, h) => E + v * 64 - h;
+  return spritePx(W, 64 + E, (g, P) => {
+    P.layer((g) => {
+      const x0 = 8, x1 = W - 6, v0 = 0.1, v1 = 0.9, top = 13;
+      // frame side (south face) + top
+      g.fillStyle = lin(g, 0, Y(v1, top), 0, Y(v1, 0), [[0, WOOD.mid], [1, WOOD.deep]]);
+      g.fillRect(x0, Y(v1, top), x1 - x0, top);
+      g.fillStyle = lin(g, 0, Y(v0, top), 0, Y(v1, top), [[0, WOOD.light], [1, WOOD.dark]]);
+      g.fillRect(x0, Y(v0, top + 2), x1 - x0, Y(v1, top) - Y(v0, top + 2));
+      // sheet
+      g.fillStyle = '#e8e0cf'; g.fillRect(x0 + 3, Y(v0 + 0.05, top + 3), x1 - x0 - 8, Y(v1 - 0.04, top + 3) - Y(v0 + 0.05, top + 3));
+      // pillow (west)
+      g.fillStyle = lin(g, x0 + 6, 0, x0 + 26, 0, [[0, '#ffffff'], [1, '#d6cfc0']]);
+      g.beginPath(); g.ellipse(x0 + 17, Y(0.5, top + 5), 9, 18, 0, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(120,110,95,0.5)'; g.lineWidth = 1; g.beginPath(); g.moveTo(x0 + 17, Y(0.3, top + 5)); g.quadraticCurveTo(x0 + 20, Y(0.5, top + 5), x0 + 17, Y(0.7, top + 5)); g.stroke();
+      // blanket over the body, draping on the south side
+      const bx = x0 + 34;
+      g.fillStyle = lin(g, bx, Y(v0, top), x1, Y(v1, 0), [[0, '#6f8fb0'], [0.5, '#4f7092'], [1, '#3a5672']]);
+      g.beginPath(); g.moveTo(bx, Y(v0 + 0.03, top + 4)); g.lineTo(x1 - 3, Y(v0 + 0.03, top + 4)); g.lineTo(x1 - 3, Y(v1, 2)); g.lineTo(bx + 2, Y(v1, 2)); g.quadraticCurveTo(bx - 4, Y(0.5, top + 4), bx, Y(v0 + 0.03, top + 4)); g.closePath(); g.fill();
+      g.fillStyle = '#d9d2c2'; g.beginPath(); g.moveTo(bx, Y(v0 + 0.03, top + 4)); g.quadraticCurveTo(bx - 4, Y(0.5, top + 4), bx + 2, Y(v1, 2)); g.lineTo(bx + 8, Y(v1, 2)); g.quadraticCurveTo(bx + 2, Y(0.5, top + 4), bx + 6, Y(v0 + 0.03, top + 4)); g.closePath(); g.fill();
+      g.save(); g.beginPath(); g.rect(bx + 7, Y(v0, top + 6), x1 - bx - 10, Y(v1, 0) - Y(v0, top + 6)); g.clip();
+      for (let c = 0; c < 6; c++) for (let r = 0; r < 4; r++) if ((r + c) & 1) { g.fillStyle = 'rgba(170,190,215,0.22)'; g.fillRect(bx + 7 + c * 13.5, Y(v0, top + 4) + r * 13, 13.5, 13); }
+      g.restore();
+      g.strokeStyle = 'rgba(30,45,65,0.5)'; g.lineWidth = 1.1;
+      for (const x of [bx + 34, bx + 62]) { g.beginPath(); g.moveTo(x, Y(v0 + 0.03, top + 4)); g.quadraticCurveTo(x + 3, Y(0.5, top + 4), x, Y(v1, 3)); g.stroke(); }
+      // folded throw at the foot (east)
+      g.fillStyle = '#a3473a'; g.fillRect(x1 - 18, Y(v0 + 0.03, top + 4), 9, Y(v1, 2) - Y(v0 + 0.03, top + 4));
+      g.fillStyle = '#d9b45a'; g.fillRect(x1 - 13, Y(v0 + 0.03, top + 4), 1.2, Y(v1, 2) - Y(v0 + 0.03, top + 4));
+      // headboard (west, tall) and footboard (east, low): boards across the bed, seen from the south
+      const board = (xa, xb, hTop) => {
+        g.fillStyle = lin(g, 0, Y(v0, hTop), 0, Y(v1, 0), [[0, '#b98a58'], [1, WOOD.deep]]);
+        g.beginPath(); g.moveTo(xa, Y(v1, 0)); g.lineTo(xa, Y(v0, hTop)); g.lineTo(xb, Y(v0, hTop)); g.lineTo(xb, Y(v1, 0)); g.closePath(); g.fill();
+        g.fillStyle = 'rgba(255,235,200,0.35)'; g.fillRect(xa, Y(v0, hTop), xb - xa, 1.3);
+        g.fillStyle = WOOD.high; g.beginPath(); circle(g, (xa + xb) / 2, Y(v0, hTop + 1), 2.6); g.fill();
+        g.beginPath(); circle(g, (xa + xb) / 2, Y(v1, hTop - 9) , 2.2); g.fill();
+      };
+      board(x0 - 4, x0 + 4, 32);
+      board(x1 - 4, x1 + 3, 21);
+    }, OW);
+  });
+}
+
+// chest seen from the back (turned north): plain boards, hinges, no lock
+function chestBack() {
+  return spritePx(58, 52, (g, P) => {
+    P.layer((g) => {
+      const x0 = 6, x1 = 52, lidTop = 8, lidBot = 22, bot = 47;
+      g.fillStyle = lin(g, x0, 0, x1, 0, [[0, WOOD.mid], [1, WOOD.deep]]);
+      g.fillRect(x0, lidBot, x1 - x0, bot - lidBot);
+      g.strokeStyle = 'rgba(40,24,12,0.55)'; g.lineWidth = 1;
+      for (const y of [29, 35, 41]) { g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); }
+      g.fillStyle = lin(g, 0, lidTop, 0, lidBot, [[0, '#b88b5d'], [1, WOOD.dark]]);
+      g.beginPath(); g.moveTo(x0 - 1, lidBot); g.lineTo(x0 + 1, lidTop + 2); g.quadraticCurveTo(29, lidTop - 3, x1 - 1, lidTop + 2); g.lineTo(x1 + 1, lidBot); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(80,50,24,0.45)'; g.lineWidth = 0.8;
+      for (const y of [12, 16.5]) { g.beginPath(); g.moveTo(x0 + 1, y); g.quadraticCurveTo(29, y - 2.2, x1 - 1, y); g.stroke(); }
+      g.fillStyle = '#56565c';
+      for (const bx of [x0 + 7, x1 - 11]) g.fillRect(bx, lidTop + 1, 4, bot - lidTop - 1);
+      // hinges at the lid edge
+      g.fillStyle = '#3e3e44';
+      for (const hx of [x0 + 14, x1 - 18]) { g.fillRect(hx, lidBot - 2, 7, 5); g.fillStyle = 'rgba(255,255,255,0.3)'; g.fillRect(hx, lidBot - 2, 7, 1); g.fillStyle = '#3e3e44'; }
+      g.fillStyle = 'rgba(20,12,6,0.45)'; g.fillRect(x0, bot - 5, x1 - x0, 5);
+    }, OW);
+  });
+}
+
+// chest turned sideways (front = lock facing east): lid seen from above, end panel toward the viewer
+function chestSide() {
+  return spritePx(46, 82, (g, P) => {
+    P.layer((g) => {
+      const x0 = 5, x1 = 41, top0 = 22, top1 = 52, bot = 78; // lid rows top0..top1 (foreshortened like the front view), end panel top1..bot
+      // lid (barrel top along N-S)
+      g.fillStyle = lin(g, x0, 0, x1, 0, [[0, '#9a6e43'], [0.45, '#c39566'], [1, WOOD.mid]]);
+      g.beginPath(); g.moveTo(x0, top1); g.lineTo(x0, top0 + 3); g.quadraticCurveTo(x0, top0, x0 + 4, top0); g.lineTo(x1 - 4, top0); g.quadraticCurveTo(x1, top0, x1, top0 + 3); g.lineTo(x1, top1); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(80,50,24,0.45)'; g.lineWidth = 0.8;
+      for (const x of [x0 + 11, x0 + 24]) { g.beginPath(); g.moveTo(x, top0 + 1); g.lineTo(x, top1); g.stroke(); }
+      g.fillStyle = 'rgba(255,240,210,0.3)'; g.fillRect(x0 + 13, top0 + 1, 3, top1 - top0 - 1);
+      // iron bands across the lid
+      g.fillStyle = '#56565c'; for (const y of [top0 + 5, top1 - 9]) g.fillRect(x0, y, x1 - x0, 4);
+      g.fillStyle = 'rgba(255,255,255,0.3)'; for (const y of [top0 + 5, top1 - 9]) g.fillRect(x0, y, x1 - x0, 1.1);
+      // lock on the east side
+      g.fillStyle = '#c9a24a'; g.fillRect(x1 - 4, (top0 + top1) / 2 - 4, 5, 8);
+      g.fillStyle = '#2a2018'; g.fillRect(x1 - 2, (top0 + top1) / 2 - 1, 1.2, 3);
+      // end panel (south) with the lid arch and a rope handle
+      g.fillStyle = lin(g, 0, top1, 0, bot, [[0, WOOD.mid], [1, WOOD.dark]]);
+      g.fillRect(x0, top1, x1 - x0, bot - top1);
+      g.fillStyle = lin(g, 0, top1 - 4, 0, top1 + 8, [[0, '#b48a5a'], [1, WOOD.mid]]);
+      g.beginPath(); g.moveTo(x0, top1 + 8); g.quadraticCurveTo((x0 + x1) / 2, top1 - 5, x1, top1 + 8); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(25,14,6,0.5)'; g.fillRect(x0, top1 + 8, x1 - x0, 1.6);
+      g.strokeStyle = 'rgba(40,24,12,0.5)'; g.lineWidth = 1;
+      for (const y of [top1 + 15, top1 + 21]) { g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); }
+      g.fillStyle = '#4a4a50';
+      for (const [bx, by, sx, sy] of [[x0, top1 + 9, 1, 1], [x1, top1 + 9, -1, 1], [x0, bot, 1, -1], [x1, bot, -1, -1]]) { g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sx * 5, by); g.lineTo(bx, by + sy * 5); g.closePath(); g.fill(); }
+      g.strokeStyle = '#c8b27a'; g.lineWidth = 1.6; g.beginPath(); g.arc((x0 + x1) / 2, top1 + 15, 4, 0.1, Math.PI - 0.1); g.stroke();
+      g.fillStyle = 'rgba(20,12,6,0.4)'; g.fillRect(x0, bot - 4, x1 - x0, 4);
+    }, OW);
+  });
+}
+
+// wall torches: an iron bracket on the wall face holding a torch leaning out (s: front wall, e: west wall)
+function torchWall(side) {
+  return spritePx(side ? 30 : 26, 48, (g, P) => {
+    P.layer((g) => {
+      if (!side) {
+        const cx = 13;
+        g.fillStyle = lin(g, cx - 6, 0, cx + 6, 0, [[0, '#6e6e78'], [1, '#2c2c31']]);
+        g.beginPath(); g.roundRect ? g.roundRect(cx - 6, 30, 12, 15, 2) : g.rect(cx - 6, 30, 12, 15); g.fill();
+        g.fillStyle = '#1e1e22'; for (const y of [33, 41]) { g.beginPath(); circle(g, cx, y, 1.1); g.fill(); }
+        g.strokeStyle = '#4a4a52'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(cx, 36); g.lineTo(cx, 28); g.stroke();
+        g.fillStyle = lin(g, cx - 3, 0, cx + 3, 0, [[0, WOOD.high], [0.5, WOOD.mid], [1, WOOD.deep]]);
+        g.beginPath(); g.moveTo(cx - 2.4, 13); g.lineTo(cx + 2.4, 13); g.lineTo(cx + 2.8, 34); g.lineTo(cx - 2.8, 34); g.closePath(); g.fill();
+        g.fillStyle = '#4b4b50'; g.fillRect(cx - 3.6, 26, 7.2, 3.2);
+        g.fillStyle = lin(g, cx - 5, 0, cx + 5, 0, [[0, '#b29a70'], [1, '#6b5436']]);
+        g.beginPath(); g.moveTo(cx - 4.6, 6); g.lineTo(cx + 4.6, 6); g.lineTo(cx + 3.8, 15); g.lineTo(cx - 3.8, 15); g.closePath(); g.fill();
+        g.fillStyle = '#231a14'; g.beginPath(); g.ellipse(cx, 6, 4.6, 2, 0, 0, TAU); g.fill();
+        g.fillStyle = '#e0702a'; g.beginPath(); g.ellipse(cx, 5.7, 2.4, 1, 0, 0, TAU); g.fill();
+      } else {
+        // plate on the left (west wall), arm and torch leaning east
+        g.fillStyle = lin(g, 1, 0, 7, 0, [[0, '#6e6e78'], [1, '#2c2c31']]);
+        g.fillRect(2, 24, 5, 20);
+        g.fillStyle = '#1e1e22'; for (const y of [28, 40]) { g.beginPath(); circle(g, 4.5, y, 1); g.fill(); }
+        g.strokeStyle = '#4a4a52'; g.lineWidth = 2.2; g.beginPath(); g.moveTo(6, 36); g.lineTo(13, 30); g.stroke();
+        g.save(); g.translate(15, 31); g.rotate(0.38);
+        g.fillStyle = lin(g, -3, 0, 3, 0, [[0, WOOD.high], [0.5, WOOD.mid], [1, WOOD.deep]]);
+        g.beginPath(); g.moveTo(-2.4, -20); g.lineTo(2.4, -20); g.lineTo(2.8, 4); g.lineTo(-2.8, 4); g.closePath(); g.fill();
+        g.fillStyle = '#4b4b50'; g.fillRect(-3.6, -3, 7.2, 3.2);
+        g.fillStyle = lin(g, -5, 0, 5, 0, [[0, '#b29a70'], [1, '#6b5436']]);
+        g.beginPath(); g.moveTo(-4.6, -28); g.lineTo(4.6, -28); g.lineTo(3.8, -19); g.lineTo(-3.8, -19); g.closePath(); g.fill();
+        g.fillStyle = '#231a14'; g.beginPath(); g.ellipse(0, -28, 4.6, 2, 0, 0, TAU); g.fill();
+        g.fillStyle = '#e0702a'; g.beginPath(); g.ellipse(0, -28.3, 2.4, 1, 0, 0, TAU); g.fill();
+        g.restore();
+      }
+    }, 2.4);
+  });
+}
+
 // ---------------- items ----------------
 // items keep a fixed 36×36 box (uniform HUD icons); content is scaled a touch so outlines never clip
 function item(fn) {
@@ -249,6 +428,13 @@ export function addBuildings(add) {
   { const c = torch(); add('torch', c, 0.5, 67 / (c.origH || c.height)); }
   { const c = chest(); add('chest', c, 0.5, 49 / (c.origH || c.height)); }
   { const c = bed(); add('bed', c, 0.5, 121 / (c.origH || c.height)); }
+  // facing variants (rotation / edge placement): <type>_n, <type>_e (west = east mirrored)
+  { const c = bedSouth(); add('bed_n', c, 0.5, 121 / (c.origH || c.height)); }
+  add('bed_e', bedEast(), 0.5, 1);
+  { const c = chestBack(); add('chest_n', c, 0.5, 49 / (c.origH || c.height)); }
+  add('chest_e', chestSide(), 0.5, 79 / 82);
+  add('torch_wall_s', torchWall(false), 0.5, 1);
+  add('torch_wall_e', torchWall(true), 0.5, 1);
 }
 
 // Legacy item icons (item_wood ... item_ore). Items now belong to Art B: these only fill names that no other

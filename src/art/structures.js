@@ -663,6 +663,33 @@ function cracks(v) {
   }, { crop: false });
 }
 
+// ---------------- blueprint overlays (tinted at draw time) ----------------
+// footprint grid tile: light fill + crisp border, like RimWorld's blueprint cells
+function bpTile() {
+  return spritePx(64, 64, (g) => {
+    g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(1, 1, 62, 62);
+    g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 2.2; g.strokeRect(2.2, 2.2, 59.6, 59.6);
+    g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1; g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(32, 6); g.lineTo(32, 58); g.moveTo(6, 32); g.lineTo(58, 32); g.stroke(); g.setLineDash([]);
+  }, { crop: false });
+}
+// progress bar (64 px = 1 tile wide; scaled by the caller)
+function bpBar() {
+  return spritePx(64, 8, (g) => {
+    g.fillStyle = '#ffffff'; g.beginPath(); g.roundRect ? g.roundRect(0.5, 0.5, 63, 7, 3.5) : g.rect(0.5, 0.5, 63, 7); g.fill();
+  }, { crop: false });
+}
+// "falta material" badge: orange disc with a plank and an exclamation mark
+function bpNoMat() {
+  return spritePx(30, 30, (g, P) => {
+    P.layer((g) => {
+      g.fillStyle = rad(g, 13, 12, 2, 13, [[0, '#ffb35a'], [1, '#d4581e']]); g.beginPath(); circle(g, 15, 15, 12.5); g.fill();
+      g.strokeStyle = 'rgba(255,240,220,0.9)'; g.lineWidth = 1.6; g.beginPath(); circle(g, 15, 15, 11); g.stroke();
+      g.fillStyle = '#fff6e8'; g.fillRect(13.4, 7, 3.2, 10); g.beginPath(); circle(g, 15, 21.2, 1.9); g.fill();
+    }, 2, 'rgba(40,20,10,0.9)');
+  }, { pad: 4 });
+}
+
 // ---------------- registration ----------------
 export function addStructures(add) {
   const wallAy = () => 1; // anchor = bottom of the nominal box (foot of the front face = tile bottom edge)
@@ -703,6 +730,9 @@ export function addStructures(add) {
   add('gate_wood_v_leaf', gateV('leaf'), 0.5, (PH + 5 - 24) / (64 + PH));
   add('gate_wood', gateH('full'), 0.5, 1);
   add('scaffold_0', scaffold(), 0.5, 1);
+  add('bp_tile', bpTile(), 0.5, 1);
+  add('bp_bar', bpBar(), 0, 0.5);
+  add('bp_nomat', bpNoMat(), 0.5, 1);
   for (let v = 0; v < 3; v++) add('crack_' + v, cracks(v), 0.5, 1);
   TEX.clear();
 }
