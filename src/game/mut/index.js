@@ -14,3 +14,4 @@ import './paths.js'; // painted terrain paths (agent M)
 import './own.js';
 import './kit.js';
 import './corpses.js';
+import './levels.js';

@@ -5,7 +5,9 @@ import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, smoothClosed, blobPts, 
 export const TORCH_FLAME_LIFT = 0.93; // tiles above the torch base where the flame sits
 export const CAMPFIRE_FLAME_LIFT = 0.12;
 // wall torches: sprite lift onto the wall face, flame height above the lifted base, flame x offset (tiles)
-export const TORCH_WALL = { s: { lift: 0.3, flame: 37 / 64, fx: 0 }, e: { lift: 0.3, flame: 37 / 64, fx: 7 / 64 } };
+// wall torch bracket on the face: about mid-height of a story (art/structures.js STORY_PX; 0.3 on the old 26-px walls)
+const TORCH_UP = 0.3 + Math.max(0, 1 - 26 / 64) * 0.45;
+export const TORCH_WALL = { s: { lift: TORCH_UP, flame: 37 / 64, fx: 0 }, e: { lift: TORCH_UP, flame: 37 / 64, fx: 7 / 64 } };
 
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
 

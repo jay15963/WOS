@@ -1,17 +1,19 @@
-# WOS · Andares e escadarias (height levels) — design
+# WOS · Andares e escadarias (height levels)
 
 Owner's request: height layers. With a staircase (a stairway, not a ladder) the player walks up to the
 story above or down to the one below: towers, houses with several stories, and walls you can walk on top
 of (ramparts) when a staircase stands next to them. Everything stays deconstructable; built details are
-fixed (rebuild to change).
+fixed (rebuild to change). Visual ask: **tall facades** (a timber-frame house with a tall front wall, windows,
+a door with a canopy, under a tall gable roof) while keeping top-down readability.
 
-Status: **phase 1 implemented** (core, stairs, ramparts, replication, basic level drawing, scenarios
-L1–L5). **Phase 2** (after J — roofs — and K — details — land): upper floors, upper walls / doors /
-railings / furniture, support + collapse, roof integration, reveal / hide, K styles on upper pieces.
-Sections marked **[P2]** are design only.
+Status: **phase 1** (core, stairs, ramparts, replication, scenarios L1–L5) and **phase 2** (tall facades,
+upper floors / walls / doors / railings / furniture, support + collapse, J's roofs on top of the highest
+story, reveal / cutaway, story selector, save v9, scenarios L6–L8) are implemented.
 
-Code: `src/game/levels.js` (core, pure simulation + small draw helpers), `src/game/mut/levels.js` (ops,
-[P2] mostly), `src/art/stairs.js` (art). Hooks in other files are one-liners marked `// levels:`.
+Code: `src/game/levels.js` (core: level map, collision, stairs, falls, A*, story rules, drawing / reveal /
+cutaway helpers), `src/game/mut/levels.js` (op `lv.collapse`), `src/ui/levelbar.js` (story selector),
+`src/art/stairs.js` (stairs + slab edge art). Hooks in other files are one-liners marked `levels:` /
+`(agent L)`.
 
 ---
 
@@ -21,32 +23,32 @@ Code: `src/game/levels.js` (core, pure simulation + small draw helpers), `src/ga
 |---|---|
 | `lv` | story index, integer `0` (ground) … `MAX_LV = 3` |
 | `z` | continuous height of an entity **in stories** (0 = ground, 1 = on a wall top / 1st upper floor) |
-| `STORY_H` | screen height of one story in tiles = `WALL_H` (`26/64`, the wall front face). A wall top is exactly the floor of the next story, so a pawn on a rampart stands on the drawn top face. If walls get taller (K), `STORY_H` follows `WALL_H`. |
+| `STORY_PX` | one story on screen at 64 PPU = **64 px** (`art/structures.js`): a facade tall enough for a door and windows |
+| `STORY_H` | screen height of one story in tiles = `WALL_H = STORY_PX / 64 = 1`. A wall top is exactly the floor of the next story, so a pawn on a rampart stands on the drawn top face. |
 | level of an entity | `e.lv` = the collision / navigation level it walks on; `e.z` = drawing / combat height. Off stairs `z === lv`. On a stair from `n` to `n+1`, `z = n + u` (u = progress 0..1 along the stair) and `lv = u < 0.5 ? n : n + 1`. During a fall `lv` is already the landing level and `z` eases down. |
 
-Everything that exists today is level 0: a structure without `lv` is `lv 0`, an entity without `z` is on
-the ground, an old save has no level data at all.
+Everything without level data is level 0: a structure without `lv`, an entity without `z`, an old save.
 
 ## 2. Data model
 
 ### 2.1 Structures
 
-- Shared field `o.lv` (integer, absent = 0; phase 1: always 0, [P2] set) only in op appliers (`struct.add` carries it per batch, a
-  placement drag is always on one story), serialized, digested (§7).
-- Structures that exist on upper levels **[P2]** (all placed with `lv = k ≥ 1`):
+- Shared field `o.lv` (integer 1..3, absent = 0), set only by op appliers: `struct.add {list, lv}` carries it
+  per batch (a placement drag is always on one story), snapshot section `lvs`, digest rows (§7). Roofs never
+  carry `lv` (J's roof sits on top of the highest story, §8).
+- Pieces that can stand on a story `k ≥ 1` (any building type except `farm_plot`, `campfire` and razeable ones):
   - `floor_*` at `lv k` = **upper floor** (a slab: walkable surface at level k, ceiling of story k-1);
-  - `wall_*`, `door_*`, `gate/fence` at `lv k` (stacked on a wall top or standing on an upper floor);
-  - `railing_wood` ("Guarda-corpo") at `lv k`: a low fence-like edge piece, blocks walking at level k;
-  - `stairs_*` at `lv n ≥ 1` (needs surfaces under its whole footprint at level n);
-  - furniture / props at `lv k` (chest, bed, table, torch…) standing on surfaces at level k.
-- **Grid keys [P2]**: upper structures go into the same `game.build.grid[layer]` maps with the key
-  `tileIdx + lv * W * H` (two-line hook in `autotile.gridAdd/gridRemove`), so `structureAt(game, tx, ty,
-  layer)` keeps meaning "level 0" for all existing code and `structureAtL(game, tx, ty, layer, lv)` reads any
-  level. Autotile masks connect only within one level (same key offset). `world.solid` stays the level-0
-  grid; upper blocking lives in `levels.blk[k]` (§2.3).
-- Stairs (`stairs_wood`, phase 1): `size [1, 2]`, `rotate` (4 orientations), `block: 'stairs'` (never
-  `world.solid` — the level module does its collision). `rot` = front (entrance) side: 0 S, 1 W, 2 N, 3 E;
-  the stair ascends away from its front:
+  - `wall_*`, `door_*`, `column_*` at `lv k` (on a wall top of story k-1 or on an upper floor);
+  - `fence_wood` at `lv k` = **railing** (guarda-corpo) along a rampart or a balcony edge;
+  - `stairs_*` at `lv n ≥ 1` (surfaces under the whole footprint);
+  - furniture / props (chest, bed, stations, decor, K's wall-mounted pieces against an upper wall).
+- **Grid keys**: upper pieces go into the same `game.build.grid[layer]` maps with the key
+  `tileIdx + lv · W · H` (`autotile.lvKey`). `structureAt(game, tx, ty, layer)` keeps meaning level 0;
+  `structureAt(…, lv)`, `connectsAt / computeMask / wallBehind(…, lv)` read a story. Autotile masks connect
+  only within one story (rock joins only at level 0). `world.solid` / occupancy stay level 0; upper blocking
+  lives in `levels.blk[k]`.
+- Stairs (`stairs_wood`): `size [1, 2]`, `rotate` (4 orientations), `block: 'stairs'` (never `world.solid`).
+  `rot` = entrance side: 0 S, 1 W, 2 N, 3 E; the stair ascends away from it:
 
   | rot | footprint | ascends | entrance tile (level n) | landing tile (level n+1) |
   |---|---|---|---|---|
@@ -58,199 +60,170 @@ the ground, an old save has no level data at all.
 ### 2.2 Entities
 
 `e.lv`, `e.z` (absent = 0) on the local player, host creatures, remote avatars (`pl.ent`, `pl.av`) and
-proxies. Owner-authoritative like positions: the local player's mover writes them; host creatures are moved
-by the host; remote copies get them from the presence / entity streams (§7).
+proxies. Owner-authoritative like positions (§7).
 
 ### 2.3 Derived level map (`game.levels`, rebuilt lazily)
 
 Rebuilt from the structure list whenever `game.build.v` changes (every structure op bumps it), so it is a
-pure function of replicated state — identical on every peer, no extra op hooks:
+pure function of replicated state — identical on every peer, no extra ops:
 
-- `surf[k]` (`Uint8Array(W·H)`, allocated only for levels that have any): 1 = standable surface at level k:
-  top of a **finished** level k-1 wall / door (`connect: 'wall'`; fences and gates are too thin), [P2] an
-  upper floor at level k, top of a [P2] column of story k-1.
-- `blk[k]` **[P2]**: blocked at level k (level-k walls, closed level-k doors, railings, solid furniture).
-- `stairs[]`: `{ o, n, axis, sg, b, len, l0, l1, tiles[], entrance, landing }` (n = base level = `o.lv`);
-  `st[k]` (`Int32Array`, stair index + 1) marks stair tiles at level n (the steps) and at level n+1 (the open
-  stairwell above them, entered only from the landing).
-- `active` = any stairs or upper surfaces exist. When false every hook takes the old level-0 path
-  (zero cost for worlds without levels).
+- `surf[k]` (`Uint8Array(W·H)`, allocated only for levels that have any): standable at level k = top of a
+  **finished** story-(k-1) wall / door (`connect: 'wall'`; fences are too thin), or a finished upper floor at k.
+- `blk[k]`: blocked at level k (story-k walls, closed story-k doors, railings, solid furniture: every
+  `block: 'tile'` piece).
+- `stairs[]` + `st[k]` (stair index + 1 at level n = steps, at n+1 = the open stairwell above them).
+- `active` = any stairs; `hasUpper` = any piece above the ground. With neither every hook takes the old path.
+- Story queries: `storeysAt(x, y)` (1 + highest story holding a wall / floor; J's eaves), `storeysIn(tiles)`,
+  `supportedL`, `surfaceUnder`, `upperReason`, `buildStartReason`, `unsupported`, `lostWithout(gone)`,
+  `pickUpper(wx, wy)`.
 
 `world.levels = game.levels` so `physics.js` / `combat.hasLOS` reach it with only the world.
 
-## 3. Support rules [P2] (consistent with J's roof support)
+## 3. Support and collapse
 
-- An upper floor tile at level k is **supported** when a support element of story k-1 is within
-  `SUPPORT_R = 6` tiles (euclidean, tile centres; the same radius J uses for roofs): a finished level k-1 wall /
-  door, a column ("Coluna", J), or natural rock at k = 1. Upper floors also need 4-connectivity to a supported
-  tile (no floating islands). Upper walls / railings / furniture need a surface under their footprint.
-- Placement refuses unsupported pieces ("Precisa de apoio: paredes ou colunas a até 6 tiles").
-- **Collapse**: when a support or a surface is removed (`struct.remove` from decon, raze, collapse), the host
-  recomputes support for upper structures within `SUPPORT_R + 1` of it and emits
-  `level.collapse {ids, drops}` (half the materials as loot at the level below, a dust puff, a crash sound).
-  Collapsing floors take what stands on them (cascade, same op). Entities on vanished surfaces fall (§4.6).
-  Collapse runs only on the host; guests just apply the op.
-- Deconstruction stays free (everything is deconstructable): taking down a support simply collapses what
-  depended on it (the decon menu warns: "Isto segura o andar de cima").
+- An upper floor tile at level k is **supported** when a support of story k-1 is within `ROOF_GEOM.support = 6`
+  tiles (J's radius, euclidean): a wall / door (`connect: 'wall'`), a column (`def.support`), or natural rock at
+  k = 1. Every other upper piece needs a **surface** under its footprint: an upper floor of its story or the top
+  of a story-(k-1) wall.
+- Placement (`placeReason(…, lv)` → `levels.upperReason`, same contract as `placeReason`): "Precisa de apoio:
+  paredes ou colunas no andar de baixo a até 6 tiles", "Precisa de piso embaixo (ou o topo de uma parede)",
+  "Vão da escada: deixe aberto" (no floor over a stairwell), "Árvore ou pedra embaixo: tire antes" (story-1 floor
+  over a tree / boulder), "Isto só pode ficar no chão", "Encoste numa parede pronta" (mounted decor), door
+  replacing a wall of the same story. Planned (blueprint) supports / floors count for planning.
+- Work start (`build.hit` → `levels.buildStartReason`): the support / floor under it must be **finished**
+  ("Sem apoio: termine as paredes do andar de baixo primeiro", "Construa o piso embaixo primeiro"). Upper pieces
+  are built from the ground (2D reach), like J's roofs.
+- **Collapse**: right after the structures change, the host's levels system lists finished upper pieces with no
+  support / surface left and emits **`lv.collapse {ids, drops}`**: dust, chips, `roof_collapse` crash, half the
+  materials and every chest content as loot on the ground below. A collapse can leave more pieces unsupported:
+  the next check takes them (cascade, one story per frame). Entities on vanished surfaces fall (§4.6). J's roofs
+  follow their own support rule on the story below (their eaves drop back when the upper story goes).
+- Deconstruction stays free; marking something an upper story rests on asks for a second tap: "O andar de cima
+  vai desabar (n peças)! Toque de novo para confirmar" (`building.confirmSupports` + `levels.lostWithout`).
 
 ## 4. Stairs and movement
 
 ### 4.1 Stair placement
 
-- Level n stair: footprint tiles free at level n (level 0: the usual `placeReason` — no rock, water, other
-  main-layer structure; [P2] level ≥ 1: surfaces under every tile, no blocker).
-- **Open stairwell**: at level n+1 nothing may cover the footprint — no roof (J), no upper floor, no wall top.
-  "Tire o telhado / piso de cima da escada primeiro" (remove roof tiles first; roofs and floors are
-  deconstructable). Conversely J's roof placement and [P2] upper floors refuse tiles over a stairwell
-  (`game.levels.stairwell(tx, ty, lv)`).
-- The landing does not need to exist yet (stairs may be built before the wall); the ghost shows the landing
-  tile (green = a surface is there).
+- Footprint free at level n (level 0: `placeReason`; n ≥ 1: surfaces under every tile).
+- **Open stairwell**: at level n+1 nothing may cover the footprint — no upper floor, no wall top, no roof under
+  the stair's top ("Tire o piso / o telhado de cima da escada primeiro"). Conversely J's roofs and upper floors
+  refuse stairwell tiles (`levels.stairwell(tx, ty, lv)`).
+- The landing need not exist yet; the ghost rings the landing tile on its story (green = a surface is there).
 
 ### 4.2 Collision per level
 
-A tile is **free at level k** for an entity when:
-- k = 0: today's rule (`tileBlocked`: rock, deep water unless swimming, `world.solid`), and it is not a stair
-  tile (stair tiles at level 0 are side walls of the stair except through its entrance);
-- k ≥ 1: `surf[k]` is set and `blk[k]` is not — every other tile is **air** and blocks. Walkable edges are
-  therefore bounded by construction: nobody walks off a rampart into the air.
-- Stair tiles: the bottom step is free at level n only for an entity whose centre is on the entrance tile, the
-  top step free at level n+1 only from the landing tile. Round props (trees, chests…) collide only with
-  entities of their own level (`o.lv ?? 0`).
+A tile is free at level k when: k = 0: `tileBlocked` rules and not a stair tile (stair sides are walls except
+through the entrance); k ≥ 1: `surf[k]` set and `blk[k]` not — everything else is **air** and blocks, so nobody
+walks off a rampart or an upper floor. Stair tiles: bottom step only from the entrance, top step only from the
+landing. Round props collide only with entities of their own story. Closing a door / nudging creatures out of a
+new piece works per story.
 
 ### 4.3 Stair traversal
 
-An entity is **on** stair s when its centre is inside the footprint and `e.lv ∈ {n, n+1}` (derived each step
-from position; no hidden state). On a stair: movement is projected on the stair axis, the lateral coordinate
-is eased into the corridor (`[l0 + r, l1 − r]`, side rails), `z = n + u`, `lv` switches at u = 0.5. Leaving
-past the bottom edge needs the entrance free at level n; past the top edge the landing free at level n+1;
-otherwise the entity stops at the edge. Speed on stairs ×0.8 (`levels.speedAt`); water / mud slowdowns only
-at level 0. Footsteps on stairs use the hollow `step_stairs` sound (alias `stairs_step`), on wall tops the wall material.
+On a stair: movement projected on the stair axis, lateral eased into the corridor (side rails), `z = n + u`,
+`lv` switches at u = 0.5. Speed ×0.8; hollow `step_stairs` footsteps; wall material on wall tops.
 
 ### 4.4 Wall tops (ramparts)
 
-Tops of finished walls and doors are level-1 surfaces (level k+1 above level-k walls, [P2]): a wall line with a
-staircase next to it is a rampart. Diagonal squeezes between wall tops that only touch at a corner are blocked
-like any corner. Doors keep their lintel walkable, open or closed.
+Tops of finished walls and doors are surfaces of the next story: a wall line with a staircase next to it is a
+rampart; fences on it are railings.
 
 ### 4.5 Jump down
 
-A player stranded up high (stairs removed) or wanting a shortcut keeps pushing against an edge of a surface
-for ~0.9 s while not moving: a short hop lands on the tile beyond at the level below (if it is free there).
-"Continue empurrando para pular" hints the first time. Creatures never jump. Owner-side movement, replicated
-through presence like any movement.
+Pushing against an edge for ~0.9 s while not moving: a short hop to the free tile beyond, one story down
+("Continue empurrando para pular" the first time). Owner-side, replicated like any movement.
 
 ### 4.6 Falling
 
-An entity off stairs at level k ≥ 1 whose tile is no longer a surface (wall deconstructed, collapse, stair
-removed under it) falls to the highest free level below at that tile (else the nearest free ground spot):
-`lv` switches at once, `z` eases down (gravity), a thud and a dust puff on landing. The owner applies it (local
-player; host creatures); remote copies follow the stream. No fall damage in phase 1 (relaxing game); [P2]
-optional small damage from ≥ 2 stories.
+An entity off stairs at level k ≥ 1 whose tile is no longer a surface (deconstruction, collapse) falls to the
+highest surface below (else the nearest free ground spot): `lv` at once, `z` eases down with gravity, a thud and
+dust. No fall damage (relaxing game).
 
 ## 5. Navigation
 
-`levels.findPath(game, e, gx, gy, glv)` — the same budgeted A* (octile heuristic, no corner cutting) over
-nodes `(tile, level)`:
-- node ids: `tileIdx` for level 0; `W·H + j` for the j-th upper surface (`node[k][tileIdx]` lookup, only levels
-  that have surfaces);
-- level k node: the 8 neighbours free at level k; stair tiles only along the stair axis (entrance ↔ bottom
-  step … top step ↔ landing) — **stairs are portals**;
-- waypoints carry their level: `[x, y, lv]`.
-
-`nav.steer(game, e, gx, gy, dt, speed, arrive, glv)`: when `game.levels.active` it plans with the level A*,
-never drops a path for a direct seek when `glv ≠ e.lv` or `e.lv > 0`, smooths only between level-0 waypoints of
-a level-0 entity (stair tiles block `clearLine` / `walkable`), and probes obstacles with the level collision.
-Creatures and bandits therefore climb stairs and walk ramparts to reach a target; an unreachable target (no
-stairs) ends in partial paths → `nav.fails` → evade, as today.
+`levels.findPath(sx, sy, slv, gx, gy, glv)` — budgeted A* over `(tile, level)` nodes; stairs are portals;
+waypoints `[x, y, lv]`. `nav.steer(…, glv)` plans with it when levels are active or the mover is up high.
+Creatures / bandits climb stairs to reach a target. The player's interact goals path to the object's story for
+doors, chests, beds and stations (used only from their own story); blueprints are worked from anywhere in reach.
 
 ## 6. Combat across levels
 
-- `sameLevel(a, b)` = `|z_a − z_b| < 0.5`. **Melee only on the same level**: `combat.reach(a, b)` returns −1
-  across levels, so every melee check (creature bites, bandit swings, the player's auto attack, melee
-  abilities, charge) fails and the creature keeps pathing (stairs) or gives up.
-- **Ranged across levels with line of sight**: the sight line goes from `z_a + 0.5` to `z_b + 0.5` (stories);
-  a level-k blocker (level 0: rock, `world.solid`; [P2] `blk[k]`, upper floors crossed) blocks only where the line
-  is inside `[k, k+1)`. A rampart shooter sees over the walls around it; a target on a wall is visible over
-  walls in the near half of the line, and still hidden by walls right in front of the shooter. Rock always blocks.
-- Projectiles fly the same line (`pr.z0 → pr.z1`), hit only entities within 0.75 story of the line, are drawn
-  lifted by `z · STORY_H`, and the cosmetic copies get `z0 / z1` in the `proj` args.
-- **Height bonus**: ranged range +12 % per story of advantage over the target (max 2 stories) for players
-  (`attackRange`) and bandit archers.
-- AoE abilities hit only targets on the caster's level (`areaTargets` filter).
+- Melee only on the same story (`sameLevel`: `|z_a − z_b| < 0.5`).
+- Ranged across stories with height LOS (`combat.hasLOS(…, z0, z1)`), projectiles `z0 → z1`, +12 % range per
+  story of advantage (max 2), AoE only on the caster's story.
 
 ## 7. Sync
 
 | What | How |
 |---|---|
-| structure `lv` [P2] | `struct.add {list, lv?}` (per batch); snapshot section `lvs: [[structId, lv]]` (only lv > 0; absent = all 0); digest part `levels` (rows `[id, lv]` + per-level hashes of `surf`/`blk`) |
-| collapse [P2] | `level.collapse {ids, drops}` host op; `level.place`-free: upper pieces use `build.place {…, lv}` |
-| player `z` | presence `st`/`sts` entry key `z` (2 decimals, omitted when 0); interpolated with x/y in the sender clock; host avatar `av.z`/`av.lv` (AI / hit checks) |
-| creature `z` | entity stream `dyn[12] = round(z·100)` (trailing zeros trimmed: free when 0); proxies interpolate it |
-| projectiles | `proj` args gain `z0, z1` (`×100`, trailing) |
-| save | world part = snapshot (`lvs` included); player `z` (restored only if a surface is still there, else ground) |
+| structure `lv` | `struct.add {list, lv?}` (whole batch); `build.place {…, lv}`; `build.move` keeps the story; snapshot section `lvs: [[structId, lv]]` (only lv > 0) with reconcile comparing `lv`; digest `structs` rows end with `lv` |
+| collapse | host op `lv.collapse {ids, drops}` |
+| reveal / cutaway | cosmetic `o.alpha` only (`COSMETIC_FIELDS`), never sent |
+| player `z` | presence `st`/`sts` key `z` (2 decimals, omitted when 0) next to H's look and the chat `ty` flag; host avatar `av.z`/`av.lv` |
+| creature `z` | entity stream `dyn[12] = round(z·100)` (trailing zeros trimmed) |
+| projectiles | `proj` args `z0, z1` |
+| save | **v9** (v8 = M's terrain paths): world part = snapshot (`lvs` included), player `z` (restored only if a surface is still there). Saves v1–v8 load with everything on the ground. |
 
-`PROTO` 2 → 3 (presence / entity / projectile formats grew). Determinism: the level map is derived from
-replicated structures only; randomness none; host AI uses `av.z`.
-
-**Save migration**: none needed — old saves have no `lvs` and no player `z`: everything loads at level 0.
-The data version stays 4 (only optional data was added); scenario L3 checks it.
+`PROTO 5`. The level map is derived from replicated structures only.
 
 ## 8. Rendering by level (3/4 view)
 
-- One story = `STORY_H` = 0.406 tiles up on screen (§1). An entity is drawn with its base lifted by
-  `z · STORY_H` (contact shadow and sun shadow move with it: it stands on the wall top).
-- **Depth order**: the single sorted batch uses `_sy` when present: entities `y + z` (one tile of depth per
-  story: a pawn on a wall top draws after the wall under it, before walls / trees further south of it); stairs
-  `ty + 0.2` (before anything standing on them); flat upper slabs [P2] `y + 0.001·lv`; upper walls [P2] base `y`.
-- **Camera** follows the elevated position (`y − z · STORY_H`), smoothly while climbing.
-- Name plates, target rings, hp bars, floating numbers use the lifted position (`levels.liftOf(e)`).
-- Remote players / proxies: drawn from their replicated `z` like the local player.
-- **[P2] reveal / hide** (local player's view level V = `round(player.z)`):
-  - structures and entities above V inside the building the player is in fade out (J's roof fade drives
-    roofs; the same alpha drives upper floors / upper walls of that building);
-  - things on cells covered by a slab at level ≤ V (upper floor, roof) and below it are **not drawn** while the
-    player stands above them (they are under the floor) and are drawn faded / hidden from outside like J's roofed
-    interiors;
-  - from outside (V = 0, not under the building) a multi-story house shows its walls stacked with the upper
-    floor / roof over the interior (J's rule).
+- **Tall facades**: `STORY_PX = 64` — wall fronts, door leaves (`DH = FH − 1`), timber frames, logs, courses,
+  K's windows / mounts / lanterns / sconces (`ARCH_GEOM.dlanternLift / sconceLift`, `MOUNT_UP`) and torches are
+  painted for a 1-tile story; stairs climb one full story. K's per-story bands stack because an upper wall is
+  drawn by the same painters with its base lifted.
+- **Upper pieces** (`levels.drawUpper`, game.js hook): the normal painters with the base lifted by
+  `lv · STORY_H`, every sprite (floor / blob / sill too) into the sorted batch; depth key
+  `_sy = y + 0.001·lv − (floor 0.0006 | rug 0.0003)` (slab, then rugs, then what stands on it); upper blueprints
+  get the blue plan grid, decon marks the red ring; an overhanging upper floor shows a beam under its south edge
+  (`slab_edge`, painted on demand through K's lazy registry); K's door canopy below an upper wall is re-drawn in front of it
+  (`archCompose.archSprite`, lazy too). K's lazy style / detail sprites and the baked default looks (their fallback) are
+  both painted for a full story.
+- **Entities**: base lifted by `z · STORY_H`; depth `y + z`; camera follows `y − z · STORY_H`; plates, rings, bars
+  lifted.
+- **Roofs** (J): `roofEaveH(storeys)` with `game.build.storeysAt / storeysIn` — the eaves sit on top of the
+  highest story; J's region art is repainted when the upper stories under it change.
+- **Reveal** (cosmetic, local player, view level `V = round(player.z)`): inside a building (J's roof region, else
+  the upper slab right above the player) every upper piece above V on it or on its wall ring fades to 0; from
+  outside a multi-story house shows its stacked facades under the roof.
+- **Culling**: furniture and entities under an opaque upper floor (not faded) are not drawn (they would poke
+  through the slab), nor pickable.
+- **Cutaway** (RimWorld-style, cosmetic): walls of the local player's room whose north tile is inside the room
+  (south walls, inner partitions) and the walls just south of the player fade to 0.22; on an upper story the
+  room is the floor slab around the player. Everything eases back when the player leaves.
+- **Picking**: `levels.pickUpper` (upper pieces under the cursor, lifted, faded ones skipped) before the ground in
+  `structureAtPoint` and `controller.pick`; a decon drag that starts on an upper piece marks that story.
 
-## 9. Interfaces needed
+## 9. Build mode on a story
 
-### From J (roofs, interiors, caves)
-1. Roof tiles carry a story: a roof over walls of story k-1 is the ceiling of story k-1 at `lv k` (roof `lv`
-   field, default 1). `game.roofs.at(tx, ty, lv)` → roof piece or null.
-2. One support rule for roofs and upper floors: `game.roofs.supported(tx, ty, lv)` (walls / columns / rock of
-   story lv-1 within 6), or J exports the radius + the support element test and L calls it. Columns ("Coluna")
-   must be stackable per story (`lv`).
-3. Collapse uses host ops; J's roof collapse op and L's `level.collapse` should share one cascade pass (a
-   removed upper floor drops the roof on top of it).
-4. Indoors: `game.indoors(x, y, lv)` must count an upper floor above as a ceiling (no rain, warmth, indoor
-   audio, zoom-in) — the upper floor is the roof of the story below.
-5. Roof fade: J's fade alpha per building region exposed (`game.roofs.fadeAt(tx, ty, lv)`), so L fades upper
-   floors and upper walls with the same curve; J's roof placement refuses stairwell tiles
-   (`game.levels.stairwell(tx, ty, lv)`).
+`game.build.mode.lv` = the story to build on, by default the player's (`round(z)`); roofs always 0.
+`src/ui/levelbar.js` shows "Andar ▲ Térreo / 1º andar / 2º andar / 3º andar ▼" (PageUp / PageDown on desktop)
+while placing, when there is anything to build on above the ground. The ghost, the hovered tile
+(`originAt` lifts the cursor), masks, mounts and the stairs landing ring follow the story; the commit sends
+`build.place {…, lv}`.
 
-### From K (details, styles)
-1. `o.style` / `o.det` work on structures of any `lv` (the painters receive the lift; facades get a
-   `story` index so a 2-story wall can show a beam / trim between stories).
-2. Multi-story facade art: a level-k wall on top of a level k-1 wall draws its front face directly above the
-   lower one (no outline seam) — K owns the wall art, L supplies the lift and the stacking mask (wall below?).
-3. Railings ("Guarda-corpo") and stair styles (stone / wood, with / without handrail) as K style variants of
-   L's structures; corner details on wall tops stay cosmetic (never block rampart walking).
+## 10. Interfaces with J and K (as implemented)
 
-## 10. Phase 1 scope (implemented)
+- J: `ROOF_GEOM.support` (radius), `def.support` columns, `enclosedRoom` (cutaway room), `game.indoors` +
+  region fades (reveal follows the region the player is under), `roofEaveH(storeys)` fed by
+  `game.build.storeysAt / storeysIn` (one-line hook in `roofs.artSpec` and the roof blueprint grid),
+  stairwell refusals both ways.
+- K: `o.style` / `o.det` / `_k` work on any story (carpet masks use the story key); `wallBehind(…, lv)` for
+  mounted decor; facade constants follow `STORY_PX`.
 
-- `src/game/levels.js`: level map, per-level collision + stair traversal (`move`), falls, jump down, level A*,
-  `sameLevel`, `liftOf`, `heightK`, speed, footstep surface, depth keys, levels system; height LOS in
-  `combat.hasLOS(…, z0, z1)`.
-- `stairs_wood` (Escada de madeira, 1×2, 4 orientations, wood 6) with procedural art (`src/art/stairs.js`).
-- Ramparts on finished walls / doors; creatures / bandits path through stairs; melee same level only; ranged
-  across levels with height LOS + range bonus; projectiles with heights.
-- Replication: presence `z`, entity stream `z`, projectile `z0/z1`, player `z` in the save, `PROTO 3`. Structure
-  `lv` is read by the level map (absent = 0) but nothing can be placed above level 0 yet, so its op arg / snapshot
-  section / digest part (§7) land in phase 2 with upper placement.
-- Drawing: lifted entities, depth keys, camera, name plates / rings.
-- Scenarios L1 (guest builds stairs, climbs a rampart, host sees it at level 1, hop down), L2 (creature can't
-  melee a rampart player; control on the ground), L3 (bandit archer shoots up), L4 (creature climbs the stairs to
-  reach the player, proxy z 1), L5 (save on a rampart restores it; an older save loads at level 0).
-- Upper floors / roofs: **not** in phase 1; see [P2].
+## 11. Scenarios
+
+L1 (guest builds stairs, climbs a rampart, host sees lv 1, hop down) · L2 (no melee onto a rampart; control) ·
+L3 (bandit archer shoots up) · L4 (creature climbs stairs) · L5 (save on a rampart; older save at level 0) ·
+**L6** (guest plans and builds a second story — floor, wall row, door, chest — with real work; refusals; same
+story map on both; snapshot `lvs`; climbs in and is stopped by the upper door / walls) · **L7** (host removes the
+ground walls: `lv.collapse` on both, chest items dropped, guest falls) · **L8** (save v9 keeps the stories, the
+player wakes up upstairs; a v8 save still loads).
+
+## 12. Known limits
+
+- Upper pieces are built from the ground (no scaffolding): the work loop uses 2D reach.
+- J's indoors (rain, warmth, zoom) counts J's roofs; an upper floor without a roof above it is not "indoors"
+  for the story below.
+- The level bar picks one story per placement; a drag never spans stories.

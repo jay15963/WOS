@@ -1,13 +1,16 @@
-// Stairs (agent L, docs/LEVELS.md): a wooden stairway that climbs one story (the wall height, 26 px at 64 PPU) over its
+// Stairs (agent L, docs/LEVELS.md): a wooden stairway that climbs one story (the wall height, STORY_PX at 64 PPU) over its
 // 2-tile footprint, with stringers and handrails, in the warm plank palette of the walls (art/structures.js).
 // Sprites (anchor = bottom centre of the footprint, o.y = ty + fh):
 //   stairs_wood    entrance south, ascends north (1×2): treads + risers seen from the front
 //   stairs_wood_n  entrance north, ascends south (1×2): treads seen from behind, tall end face at the south
 //   stairs_wood_e  entrance east, ascends west (2×1): side profile (the game mirrors it for "ascends east")
+//   slab_edge      the beam under the south edge of an overhanging upper floor (anchor top centre; lazy, not baked)
 
 import { spritePx, lin, circle, OW } from './paint.js';
+import { STORY_PX } from './structures.js';
+import { lazyDef } from './lazyDefs.js';
 
-const RISE = 26;             // one story (px) = WALL_H
+const RISE = STORY_PX;       // one story (px) = WALL_H
 const N_STEPS = 5;
 const POST = 16;             // handrail height (px)
 const TR = { base: ['#c69a68', '#bb8e5c', '#c9a06f', '#b4885a', '#c29563'], hi: 'rgba(255,236,196,0.55)', seam: '#5e3c20', grain: 'rgba(98,62,32,0.3)' };
@@ -89,7 +92,7 @@ function stairsS() {
 
 // entrance north, ascending south: the high end (with its end face) at the bottom of the sprite
 function stairsN() {
-  const W = 64, D = 128, H = 152, B = H;
+  const W = 64, D = 128, H = Math.ceil(D + Math.max(RISE / N_STEPS, RISE - 64) + POST + 12), B = H;
   const Y = (d, h) => B - d - h;
   const sd = D / N_STEPS, rise = RISE / N_STEPS;
   const x0 = 10, x1 = 54;
@@ -162,8 +165,29 @@ function stairsE() {
   }, { pad: 10 });
 }
 
+// the front beam under the south edge of an upper floor that overhangs (nothing below it): a dark rim joist with
+// the ends of the floor joists (anchor = top centre: it hangs below the slab's south edge)
+function slabEdge() {
+  const W = 64, H = 11;
+  return spritePx(W, H, (g) => {
+    g.fillStyle = lin(g, 0, 0, 0, H, [[0, SG.top], [0.45, SG.mid], [1, SG.dark]]);
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = SG.hi; g.fillRect(0, 0, W, 1.4);
+    g.fillStyle = 'rgba(30,18,8,0.55)'; g.fillRect(0, H - 2, W, 2);
+    for (const x of [8, 32, 56]) { // joist ends
+      g.fillStyle = RS.dark; g.fillRect(x - 4, 2.5, 8, 6);
+      g.strokeStyle = 'rgba(255,224,180,0.25)'; g.lineWidth = 0.8; g.beginPath(); circle(g, x, 5.5, 1.8); g.stroke();
+    }
+    g.fillStyle = 'rgba(40,36,34,0.85)';
+    for (const x of [20, 44]) { g.beginPath(); circle(g, x, 5.5, 0.9); g.fill(); }
+  }, { pad: 2 });
+}
+
 export function addStairs(add) {
   add('stairs_wood', stairsS(), 0.5, 1);
   add('stairs_wood_n', stairsN(), 0.5, 1);
   add('stairs_wood_e', stairsE(), 0.5, 1);
 }
+// the slab edge is painted on demand into the shared lazy texture (agent K's registry, art/lazyDefs.js): registered at
+// import, since the baked atlas may come from the cache
+lazyDef('slab_edge', slabEdge, 0.5, 0);

@@ -187,12 +187,14 @@ export class Game {
       const a = o.alpha ?? 1;
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
+    const LV = this.levels?.hasUpper ? this.levels : null; // levels: upper stories in the world
     for (const o of list) {
       // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
       // walls / doors whose front faces show below the eaves
       if (!o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
       if (o.draw) o.draw(B, A, t);
       else {
+        if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
         const lz = o.isEntity && o.z > 0 ? o.z * STORY_H : 0, y0 = o.y;
         if (lz) o.y = y0 - lz;

@@ -36,7 +36,7 @@ export function dumpPart(game, part) {
     case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone)
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
     case 'structs': return game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
-      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']).sort(cmp);
+      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '', o.lv | 0]).sort(cmp); // (lv: levels, agent L)
     case 'tiles': return [['rock', fnvBytes(w.rock)], ['solid', fnvBytes(w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
       ['roof', fnvBytes(w.roof)], ['broof', fnvBytes(w.broof)]];
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);

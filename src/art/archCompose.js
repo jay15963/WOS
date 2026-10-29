@@ -17,6 +17,8 @@ import { LAZY_DEFS, LAZY_GROUPS } from './lazyDefs.js';
 import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
 export const KIT_ENV = { night: 0, sync: false };
+// wall-mounted decor was placed for a 26-px face: raise it to the middle of today's taller story (agent L)
+const MOUNT_UP = Math.max(0, SG.FH - 26 / 64) * 0.5;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const SOFT = new Set(SOFT_MASKS);
@@ -225,7 +227,7 @@ function drawWall(B, T, o, k, t, fl) {
     const mt = on.shelf ? 'shelf' : on.hooks ? 'hooks' : on.antlers ? 'antlers' : on.pennant ? 'pennant' : on.painting ? 'painting' : on.shield ? 'shield' : on.sconce ? 'sconce' : null;
     if (mt) {
       addPlain(B, D[mt], x, y, 1, 1, fl);
-      if (mt === 'sconce' && !BP) smallFlame(B, T, x + 4 / 64, y, 0.36, 1, t, 0.8);
+      if (mt === 'sconce' && !BP) smallFlame(B, T, x + 4 / 64, y, AG.sconceLift, 1, t, 0.8);
     }
     if (on.flowers) addPlain(B, D.flowers, x, y, 1, 1, fl);
   }
@@ -327,7 +329,7 @@ function drawDoorK(B, T, o, k, t, fl) {
     if (!BP) blockShadow(B, frame, x, y, CA);
     if (kk > 0.9) { if (on.knocker) addPlain(B, D.knocker, x, y, 1, 1, fl); if (on.wreath) addPlain(B, D.wreath, x, y, 1, 1, fl); }
     if (st === 'arched') addPlain(B, D.door_arch, x, y, 1, 1, fl);
-    if (on.lantern) { addPlain(B, D.dlantern, x, y, 1, 1, fl); if (!BP) lanternGlow(B, T, x + 28.6 / 64, y, (26 - 10) / 64, t); }
+    if (on.lantern) { addPlain(B, D.dlantern, x, y, 1, 1, fl); if (!BP) lanternGlow(B, T, x + 28.6 / 64, y, AG.dlanternLift, t); }
     if (on.awning) add(B, D.awning, x, y, 1, 1, fl);
   } else {
     const frame = T.door_wood_v_frame, post = T.door_wood_v_post, leaf = L.v;
@@ -410,7 +412,7 @@ function drawDecorProp(B, A, o, t, fl) {
     if (!s) return;
     const g = DG.mount[type] || { l: 0.04, s: 0.66 };
     const r = o.rot | 0;
-    if (r === 1 || !o._mount) B.main.add(s, x, y, g.s, g.s, CR, CG, CB, CA, 0, 0, fl, 1, 0, Math.max(0, y - o.ty) + g.l);
+    if (r === 1 || !o._mount) B.main.add(s, x, y, g.s, g.s, CR, CG, CB, CA, 0, 0, fl, 1, 0, Math.max(0, y - o.ty) + g.l + MOUNT_UP);
     else if (r === 2 || r === 4) B.main.add(s, x + (r === 2 ? 0.08 : -0.08), y, g.s * 0.28, g.s * 0.9, CR * 0.85, CG * 0.85, CB * 0.85, CA, 0, 0, fl, 1, 0, 0.12 + g.l);
     else B.main.add(s, x, y, g.s * 0.8, g.s * 0.5, CR, CG, CB, CA, 0, 0, fl, 1, 0, SG.FH + 0.02);
     return;
