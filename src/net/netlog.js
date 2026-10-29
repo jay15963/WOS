@@ -1,0 +1,220 @@
+// Network log: every connection step with timestamps, kept across reloads (last sessions in
+// localStorage) and turned into a plain-text report the players can copy and paste for support.
+// Public IP addresses are always masked; only their class (private / CGNAT / Radmin / public...) is kept.
+
+const KEY = 'wos.netlog';
+const MAX_ENTRIES = 1200;     // per session
+const KEEP_SESSIONS = 4;
+
+export const PROTO = 1;       // multiplayer protocol version
+export const BUILD = '2026.10.28';
+
+// ---------- IP helpers ----------
+export function classifyIp(ip) {
+  if (!ip) return 'oculto pelo navegador';
+  if (ip.endsWith('.local')) return 'mDNS (oculto pelo navegador)';
+  if (ip.includes(':')) {
+    const l = ip.toLowerCase();
+    if (l === '::1') return 'IPv6 loopback';
+    if (l.startsWith('fe80')) return 'IPv6 link-local';
+    if (l.startsWith('fc') || l.startsWith('fd')) return 'IPv6 privado';
+    return 'IPv6 público';
+  }
+  const p = ip.split('.').map(Number);
+  if (p.length !== 4 || p.some((n) => !(n >= 0 && n <= 255))) return 'desconhecido';
+  const [a, b] = p;
+  if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'IPv4 privado (rede local)';
+  if (a === 100 && b >= 64 && b <= 127) return 'IPv4 CGNAT (operadora)';
+  if (a === 26) return 'Radmin VPN';
+  if (a === 25) return 'Hamachi';
+  if (a === 127) return 'loopback';
+  if (a === 169 && b === 254) return 'link-local';
+  if (a === 0) return 'não informado';
+  return 'IPv4 público';
+}
+
+export function maskIp(ip) {
+  if (!ip) return '?';
+  if (ip.endsWith('.local')) return '<mdns>.local';
+  const cls = classifyIp(ip);
+  if (ip.includes(':')) return cls.includes('público') ? ip.split(':').slice(0, 2).join(':') + ':…' : ip.split(':')[0] + ':…';
+  const p = ip.split('.');
+  if (cls === 'IPv4 público') return `${p[0]}.x.x.${p[3]}`;
+  if (cls === 'IPv4 CGNAT (operadora)') return `${p[0]}.${p[1]}.x.x`;
+  return `${p[0]}.${p[1]}.x.${p[3]}`;
+}
+
+const IPV4_RE = /\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b/g;
+const IPV6_RE = /\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\b/gi;
+export function maskText(s) {
+  return String(s)
+    .replace(IPV4_RE, (m) => maskIp(m))
+    // only real IPv6 shapes ('::' or 5+ groups), never clock times like 22:10:05
+    .replace(IPV6_RE, (m) => (m.includes('::') || m.split(':').length >= 5 ? maskIp(m) : m));
+}
+
+// parse an ICE candidate line: "candidate:… 1 udp 2122260223 192.168.0.10 54321 typ host …"
+export function parseCandidate(c) {
+  const s = typeof c === 'string' ? c : c?.candidate || '';
+  if (!s) return null;
+  const f = s.replace(/^a=/, '').split(/\s+/);
+  const typ = f.indexOf('typ');
+  const raddr = f.indexOf('raddr');
+  return {
+    protocol: (f[2] || '').toLowerCase(),
+    address: f[4] || '',
+    port: +f[5] || 0,
+    type: typ >= 0 ? f[typ + 1] : '?',
+    relAddress: raddr >= 0 ? f[raddr + 1] : '',
+    tcpType: f.includes('tcptype') ? f[f.indexOf('tcptype') + 1] : '',
+  };
+}
+
+export function describeCandidate(c) {
+  const p = parseCandidate(c);
+  if (!p) return 'fim da coleta';
+  return `${p.type} ${p.protocol}${p.tcpType ? '/' + p.tcpType : ''} ${maskIp(p.address)}:${p.port} (${classifyIp(p.address)})`;
+}
+
+const LEVEL_ICON = { info: '·', ok: '✓', warn: '!', error: '✗' };
+
+class NetLog {
+  constructor() {
+    this.t0 = performance.now();
+    this.session = {
+      id: Math.random().toString(36).slice(2, 8),
+      started: new Date().toISOString(),
+      facts: {},
+      entries: [],
+    };
+    this.listeners = new Set();
+    this.previous = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved && Array.isArray(saved.sessions)) this.previous = saved.sessions.slice(-(KEEP_SESSIONS - 1));
+    } catch { /* ignore */ }
+    this._persistT = null;
+    this._hookConsole();
+  }
+
+  now() { return (performance.now() - this.t0) / 1000; }
+
+  log(level, cat, msg, data) {
+    const e = { t: +this.now().toFixed(3), level, cat, msg: maskText(msg) };
+    if (data !== undefined) {
+      try { e.data = maskText(typeof data === 'string' ? data : JSON.stringify(data)).slice(0, 600); } catch { /* ignore */ }
+    }
+    const E = this.session.entries;
+    E.push(e);
+    if (E.length > MAX_ENTRIES) E.splice(0, E.length - MAX_ENTRIES);
+    const line = `[net:${cat}] ${e.msg}${e.data ? ' ' + e.data : ''}`;
+    if (!this._inConsole) {
+      this._inConsole = true;
+      try {
+        if (level === 'error') this._origError?.(line);
+        else if (level === 'warn') this._origWarn?.(line);
+        else console.info(line);
+      } finally { this._inConsole = false; }
+    }
+    for (const fn of this.listeners) { try { fn(e); } catch { /* ignore */ } }
+    this._schedulePersist();
+    return e;
+  }
+  info(cat, msg, data) { return this.log('info', cat, msg, data); }
+  ok(cat, msg, data) { return this.log('ok', cat, msg, data); }
+  warn(cat, msg, data) { return this.log('warn', cat, msg, data); }
+  error(cat, msg, data) { return this.log('error', cat, msg, data); }
+
+  // summary facts shown at the top of the report (NAT type, route that worked, role, room...)
+  fact(key, value) {
+    this.session.facts[key] = typeof value === 'string' ? maskText(value) : value;
+    this._schedulePersist();
+  }
+
+  subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+
+  clearAll() {
+    this.previous = [];
+    this.session.entries = [];
+    this.session.facts = {};
+    try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  }
+
+  _schedulePersist() {
+    if (this._persistT) return;
+    this._persistT = setTimeout(() => { this._persistT = null; this.persist(); }, 800);
+  }
+
+  persist() {
+    if (!this.session.entries.length && !Object.keys(this.session.facts).length) return;
+    try {
+      const sessions = this.previous.concat([{ ...this.session, entries: this.session.entries.slice(-500) }]);
+      localStorage.setItem(KEY, JSON.stringify({ sessions }));
+    } catch { /* quota: drop history */ try { localStorage.removeItem(KEY); } catch { /* ignore */ } }
+  }
+
+  // Trystero and the browser report relay problems through console.warn/error: capture those too.
+  _hookConsole() {
+    this._origWarn = console.warn.bind(console);
+    this._origError = console.error.bind(console);
+    const wrap = (orig, level) => (...args) => {
+      orig(...args);
+      if (this._inConsole) return;
+      const s = args.map((a) => (a instanceof Error ? a.message : typeof a === 'string' ? a : '')).join(' ');
+      if (/trystero|webrtc|rtcpeer|ice|datachannel|websocket/i.test(s)) {
+        this._inConsole = true;
+        try { this.log(level, 'lib', s.slice(0, 300)); } finally { this._inConsole = false; }
+      }
+    };
+    console.warn = wrap(this._origWarn, 'warn');
+    console.error = wrap(this._origError, 'error');
+    addEventListener('unhandledrejection', (ev) => {
+      const r = ev.reason;
+      const s = (r && (r.stack || r.message)) || String(r);
+      if (/trystero|net\/|RTC|ICE|WebSocket/i.test(s)) this.log('error', 'lib', 'Promessa rejeitada: ' + (r?.message || String(r)).slice(0, 300));
+    });
+  }
+
+  // ---------- plain-text report ----------
+  report() {
+    const nav = navigator;
+    const conn = nav.connection ? `velocidade estimada ${nav.connection.effectiveType || '?'}${nav.connection.type ? ' · tipo ' + nav.connection.type : ''}` : 'n/d';
+    const lines = [];
+    lines.push('=== WOS · relatório de rede ===');
+    lines.push(`Gerado em: ${new Date().toLocaleString('pt-BR')} · jogo ${BUILD} · protocolo ${PROTO}`);
+    lines.push(`Navegador: ${browserName()} · ${nav.platform || '?'} · online: ${nav.onLine ? 'sim' : 'NÃO'} · ${conn}`);
+    lines.push(`Página: ${location.host}${location.pathname}`);
+    lines.push('');
+    const dump = (s, title, limit) => {
+      lines.push(`--- ${title} (id ${s.id}, iniciada ${new Date(s.started).toLocaleString('pt-BR')}) ---`);
+      const f = s.facts || {};
+      const keys = Object.keys(f);
+      if (keys.length) for (const k of keys) lines.push(`  ${k}: ${typeof f[k] === 'object' ? JSON.stringify(f[k]) : f[k]}`);
+      else lines.push('  (sem resumo)');
+      const errs = s.entries.filter((e) => e.level === 'error' || e.level === 'warn');
+      if (errs.length) {
+        lines.push(`  Problemas (${errs.length}):`);
+        for (const e of errs.slice(-25)) lines.push(`    +${e.t.toFixed(1)}s ${LEVEL_ICON[e.level]} [${e.cat}] ${e.msg}${e.data ? ' ' + e.data : ''}`);
+      }
+      const E = s.entries.slice(-limit);
+      lines.push(`  Linha do tempo (últimas ${E.length} de ${s.entries.length}):`);
+      for (const e of E) lines.push(`    +${e.t.toFixed(2)}s ${LEVEL_ICON[e.level]} [${e.cat}] ${e.msg}${e.data ? ' ' + e.data : ''}`);
+      lines.push('');
+    };
+    dump(this.session, 'Sessão atual', 220);
+    for (let i = this.previous.length - 1; i >= 0; i--) dump(this.previous[i], `Sessão anterior ${this.previous.length - i}`, 80);
+    lines.push('(IPs públicos mascarados. Cole este texto inteiro na conversa para análise.)');
+    return lines.join('\n');
+  }
+}
+
+function browserName() {
+  const ua = navigator.userAgent;
+  const m = ua.match(/(Edg|OPR|SamsungBrowser|Firefox|Chrome|Version)\/(\d+)/);
+  const name = !m ? '?' : m[1] === 'Edg' ? 'Edge' : m[1] === 'OPR' ? 'Opera' : m[1] === 'Version' ? 'Safari' : m[1];
+  const os = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '?';
+  return `${name} ${m ? m[2] : ''} (${os})`;
+}
+
+export const netlog = new NetLog();
+if (typeof window !== 'undefined') window.netlog = netlog; // debug handle

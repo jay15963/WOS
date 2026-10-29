@@ -87,7 +87,18 @@ export class Minimap {
     // creatures
     const dot = full ? 2 : 2.5;
     for (const e of g.entities) {
-      if (e.kind !== 'animal' || e.dead) continue;
+      if (e.dead) continue;
+      if (e.remote || e.faction === 'bandit') {
+        // other players (blue) and raiders (red)
+        const X = toX(e.x), Y = toY(e.y);
+        if (X < 0 || Y < 0 || X > W || Y > H) continue;
+        if (!full && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
+        ctx.fillStyle = e.remote ? '#6fc3ff' : '#ff5a48';
+        ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
+        if (e.remote) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
+        continue;
+      }
+      if (e.kind !== 'animal') continue;
       const X = toX(e.x), Y = toY(e.y);
       if (X < 0 || Y < 0 || X > W || Y > H) continue;
       if (!full && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;

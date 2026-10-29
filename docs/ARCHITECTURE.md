@@ -117,3 +117,19 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
 - **Arte**: `structureSprite(A, type, mask, {orient, kind, v})` (composeWorld.js) para fantasmas de construção; galerias em
   `tools/gallery.html` (personagens/itens) e `tools/gallery-world.html` (mundo/construções).
+
+## Menu e multijogador (fase 1)
+- **Boot** (`src/main.js`): gráficos carregam em segundo plano enquanto o **menu principal** (`src/ui/menu.js`) aparece; o mundo
+  só é gerado depois da escolha (um jogador / criar sala / entrar). `?seed=N` pula o menu (testes); `?sala=CODIGO` abre a tela
+  de entrar já preenchida (link de convite). Menu do jogo (☰ / Esc): `src/ui/netui.js` (pausa só em um jogador).
+- **Rede** (`src/net/`): sempre WebRTC (navegador ↔ navegador). Encontro pelo código via Trystero (`vendor/trystero/*`, MIT,
+  empacotado com esbuild) em cascata **Nostr → BitTorrent → MQTT** (anfitrião escuta nas três); alternativa sem rede de encontro:
+  **código manual** (`ManualLink`). STUN: Google + Cloudflare; TURN opcional nas Configurações (`wos.turn`).
+- **Sessão** (`session.js`): anfitrião é a autoridade; mensagens `hello/welcome/reject/st/sts/lk/chat/ping/pong/left/bye`,
+  máx. 4 jogadores, presença a 12 Hz com interpolação, horário/clima do anfitrião, reconexão automática do convidado (3×).
+  Convidado salva separado (`game.saveSuffix = '.guest'`). Jogadores remotos são entidades `kind:'pawn', remote:true,
+  faction:'friend'` (não são alvo nem criatura).
+- **Logs** (`netlog.js`): cada passo (sinalização, candidatos ICE, rota escolhida, falhas explicadas, erros da biblioteca) com
+  horário, salvos nas últimas sessões (`wos.netlog`). **Copiar relatório** gera texto com IPs públicos mascarados.
+  `rtc.js`: `tracePC` (explica falhas: sem candidatos remotos, UDP bloqueado, NAT incompatível) e `probeNetwork` (tipo de NAT).
+- Próxima fase: mundo compartilhado (coleta/construção/mineração) e criaturas/combate sincronizados pelo anfitrião.

@@ -304,7 +304,8 @@ export function installController(game) {
           if (g.build.mode) exitBuildMode(g);
           else if (g.mining.mode) ctl.toggleMineMode(false);
           else if (g.ui?.modal) g.events.emit('closepanels', {});
-          else { ctl.setTarget(null); ctl.goal = null; }
+          else if (p.target || ctl.goal) { ctl.setTarget(null); ctl.goal = null; }
+          else g.events.emit('pausemenu', {});
         }
       }
       if (K.has('KeyI')) g.events.emit('toggle', { panel: 'inv' });

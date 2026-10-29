@@ -14,7 +14,8 @@ import { equipChanged, SLOTS } from './equipment.js';
 import { collides } from './physics.js';
 
 const VERSION = 2;
-const key = (game, v = VERSION) => `wos.save.v${v}.${game.world.seed}`;
+// guests in someone else's world keep a separate save (game.saveSuffix = '.guest')
+const key = (game, v = VERSION) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
 
 export function hasSave(game) {
