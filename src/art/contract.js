@@ -15,6 +15,7 @@ export const CONTRACT = [
   ...CREATURE_SPECIES.flatMap((s) => [s + '_s', s + '_n', s + '_e']),
   'proj_arrow', 'proj_spear',
   'campfire', 'torch', 'wall_wood', 'chest', 'bed',
+  'stairs_wood', // levels (agent L)
   // world expansion (Art A): one per group is enough for composeWorld's fallbacks
   'wall_stone', 'fence_wood', 'floor_wood', 'floor_stone', 'farm_plot', 'door_wood_h', 'door_wood_v', 'gate_wood_h', 'gate_wood_v',
   'workbench', 'stonecutter', 'furnace', 'anvil', 'loom', 'cooking_pot', 'table_wood', 'chair_wood', 'rug_0', 'flower_pot_0',
