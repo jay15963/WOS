@@ -202,7 +202,7 @@ export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
 }
 
 // placement sites: origin (x0, y0) whose tiles (shape(x0, y0)) are all valid for `type` on every frame
-export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [] } = {}) {
+export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [], rot = 0 } = {}) {
   for (let r = rMin; r <= rMax; r++) {
     for (let k = 0; k < 8 * r; k++) {
       const a = (k / (8 * r)) * Math.PI * 2;
@@ -212,7 +212,7 @@ export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avo
       for (const [tx, ty] of tiles) {
         if (avoidPts.some(([px, py]) => Math.abs(px - (tx + 0.5)) < 1.6 && Math.abs(py - (ty + 0.5)) < 1.6)) { ok = false; break; }
         for (let i = 0; i < fs.length && ok; i++) {
-          const rs = Ms[i].building.placeReason(fs[i].game, type, tx, ty);
+          const rs = Ms[i].building.placeReason(fs[i].game, type, tx, ty, null, rot);
           if (rs !== null) ok = false;
         }
         if (!ok) break;
@@ -293,13 +293,15 @@ export async function gather(t, f, M, o, { ms = 15000 } = {}) {
   await workUntil(t, f, () => M.gathering.describeObject(f.game, o), () => o.gone || !objOn(f, o.id), ms, `${o.type} ${o.id} gone`);
 }
 
-// place blueprints through build mode: single tile (a) or a drag from a to b; returns structures created on f
-export function place(f, M, type, a, b = a) {
+// place blueprints through build mode: single tile (a) or a drag from a to b (rot: orientation); returns
+// structures created on f
+export function place(f, M, type, a, b = a, rot = null) {
   const g = f.game;
   const before = new Set(g.build.structures.map((o) => o.id));
   M.building.enterBuildMode(g, type);
   const m = g.build.mode;
   if (!m || m.kind !== 'place') throw new Fail(`${f.label}: enterBuildMode(${type}) refused (${f.lastUi(1)})`);
+  if (rot != null) m.rot = rot;
   if (M.data.BUILDINGS[type].drag) { m.anchor = [a[0], a[1]]; m.end = [b[0], b[1]]; m.hover = [b[0], b[1]]; }
   else m.hover = [a[0], a[1]];
   m.locked = true;
@@ -319,7 +321,7 @@ export function structAt(f, M, tx, ty, layer = null) {
 // stand next to a structure (outside its footprint)
 export function standBy(f, M, o, prefer = Math.PI / 2) {
   const def = M.data.BUILDINGS[o.type];
-  const [sw, sh] = def.size;
+  const sw = o.fw || def.size[0], sh = o.fh || def.size[1];
   const cx = o.tx + sw / 2, cy = o.ty + sh / 2;
   const s = freeSpot(f, M, cx, cy, { rMin: Math.max(sw, sh) / 2 + 0.45, rMax: Math.max(sw, sh) / 2 + 1.3, prefer,
     avoid: (x, y) => x > o.tx - 0.3 && x < o.tx + sw + 0.3 && y > o.ty - 0.3 && y < o.ty + sh + 0.3 });
@@ -390,6 +392,13 @@ export async function walkTo(t, f, x, y, { ms = 15000 } = {}) {
 }
 
 export function useBed(f, M, bed) { M.building.useStructure(f.game, M.building.describeStructure(f.game, bed)); }
+
+// open / close a door the way a player does (E / tap → describeStructure kind 'door' → useStructure → door.toggle)
+export function useDoor(f, M, door) {
+  const it = M.building.describeStructure(f.game, door);
+  if (!it || it.kind !== 'door') throw new Fail(`${f.label}: ${door.id} is not a usable door (${it?.kind})`);
+  M.building.useStructure(f.game, it);
+}
 
 // put an inventory item into a chest through the chest panel (the UI path a player uses)
 export async function chestPut(t, f, M, chest, item) {

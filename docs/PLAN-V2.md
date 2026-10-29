@@ -276,3 +276,54 @@ with ids, names, rarity and an `unlocked` flag (everything free for now, ready f
   `src/ui/charcreator.js` (B imports it guarded: `import('./charcreator.js').then(m => m.mountMenuAvatar?.(…))`,
   and moves the player-name field there). Contract with D: D owns the rig/animation; H owns what each part looks
   like; part painters take `(g, dir, look, params)` and fit the rig's anchors.
+
+## I · Corpos e decomposição (added later, port 5189)
+
+Owner's request: every living being leaves a corpse that decomposes, counted from the moment of death in
+shared world time (`game.worldTime`; one game day = `env.dayLength` s, 720 today), not by calendar days:
+- **Day 1 (0–1 day): fresh** · **day 2 (1–2): rotten, visibly** (discoloured, flies) · **days 3–5 (2–5): skeleton**
+  · after 5 days it disappears.
+- **Players (and bandits):** the dead player's carried items (bag + equipped) stay on the corpse; it can be
+  opened until the end of day 2. Opening shows the player's inventory and the corpse's side by side; clicking
+  an item moves it across (same as a chest), with the sort buttons on both. From day 3 it can't be opened;
+  the action becomes removing the skeleton, which gives bones ("Ossos"), with an animation.
+- **Animals:** no automatic loot on death any more. The corpse stays; on day 1 the action is **"Coletar"**
+  (butcher: meat, hide, etc., over a few seconds, better with a cutting tool); from day 2 (rotten) it can't be
+  butchered; then skeleton → remove → bones; gone after day 5.
+- Sync: corpses are shared world objects created by the host's death op (id, species/look, position,
+  facing, `deathT`, store); the stage is derived from `worldTime - deathT` on every peer; looting, butchering,
+  bone removal and expiry are intents → host ops; snapshot, save and digest include them.
+- Contracts: **B** owns the container window (inventory ↔ chest with sorting); it must accept any container
+  (chest or corpse) through one adapter. **D** draws the butcher and gather-bones poses (`butcher`,
+  `gather_bones`) and lying/death poses. **F** adds `butcher`, `bones` and a flies buzz near rotten corpses.
+
+## J · Telhados, interiores e cavernas (added later, port 5190)
+
+Owner's request: what counts as a "cave" must make sense — if a player mines a mountain open (or all of it),
+it is no longer a cave. A roof system for both buildings and caves:
+- **Built roofs** (like floors: a build category, area drag, blueprints): they hide what is inside a building
+  and reveal it only for the player standing under that roof. Drawn **procedurally** for any shape and size
+  (hip-roof shading from the distance-to-edge field, ridges, eaves, material texture). A roof needs support:
+  walls, and **columns** ("Coluna", new structure) when the interior is large (e.g. every roof tile within 6
+  tiles of a wall/column/rock); losing support collapses it.
+- **Natural roofs**: a mined tile is a cave only while the rock above is still supported by nearby rock;
+  opening a mountain removes the roof (sky light, rain). Deterministic and synced.
+- **Inside (cave or building)**: screen effects (darker, closer vignette, dust in caves) and the zoom eases to a
+  fixed, closer view (reduced field of view); leaving eases back to the player's own zoom — smooth both ways,
+  never a jump, never a lock outside. No rain under roofs, darker interiors lit by fires/torches, warmth and
+  "indoors" audio based on the roof.
+
+## K · Detalhes de arquitetura e decoração (added later, port 5192)
+
+Owner's request: much more detail for interior and exterior decoration (including a **straw training dummy**
+for combat practice), and, in build mode, a **"Detalhes" button** that opens a list of details for the selected
+structure — corner details that make buildings less blocky, trims, styles — so building becomes relaxing and
+deeply satisfying because it is beautiful. Procedural roofs (agent J) get the same detail list. Building must
+feel complete and magnificent, with a lot of freedom.
+- K owns: decoration content (furniture, interior/exterior props, training dummy), the per-structure **style /
+  details** data model (`o.style`, `o.det`), the details UI (from `buildbar.js`), the art for styles, corners and
+  details, and wall/floor/fence/door style variants.
+- J owns roof geometry/rendering; **roof details** go through an interface J exposes (roof style fields read by
+  J's renderer + roof-layer props such as chimneys and dormers). K defines the catalogue; J draws.
+- Sync: style and details are shared structure state set by ops (place / restyle intents), in snapshot, save
+  and digest. Scenarios **K1, K2…** in `tools/mp-test.js`.

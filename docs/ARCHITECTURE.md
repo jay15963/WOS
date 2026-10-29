@@ -66,11 +66,21 @@ Biomas e zonas (src/world/worldgen.js):
   peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
   (`game.R.autoScale = false` desliga).
 - `src/fx/environment.js`: `env.setWeather('clear'|'cloudy'|'rain'|'storm'|'fog')`, `env.weatherName()` (pt-BR),
-  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather}`; raios em `env.strikes`.
+  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather, snowCover, snowAt}`; raios em `env.strikes`.
+  Vento cosmético por quadro: `game.env.wind = { x, y, gust }` (direção × força 0..~1,05, rajada 0..1, filtrados).
+  Relâmpago: `game.events.emit('lightning', { x, y, power, dist })`. Neve: chuva sobre biomas frios (pinheiral,
+  montanha) cai como neve (`R.coldAt(x, y)` ≥ 0,6). Balanço de plantas: parâmetro `sway` do `batch.add` (`swayFor(tipo)`
+  em `renderer.js`, ver o topo do arquivo).
+- `src/fx/quality.js`: `game.quality` = `'low'|'medium'|'high'` (efetivo), `game.qualityMode` (escolha, `wos.quality`),
+  `qualitySettings(el, game)` (linha das configurações). `game.debug.*` (só localhost): `src/fx/debug.js`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
-- `game.audio.play(name, {x, y, volume})` (src/fx/audio.js). Nomes: hit, crit, swing, chop, mine, pickup, eat,
-  levelup, death, growl, ui, build, fire, splash, step (o passo usa o tipo de chão em x,y). Áudio procedural:
-  `game.audio.enabled` (persistido), `.volume`, `.sfxVolume`, `.ambVolume`, `.toggle()`; ambiente segue a câmera.
+- Áudio procedural (src/fx/audio.js, sem arquivos): `getAudio()` (singleton, também no menu) = `game.audio`.
+  `game.audio.play(name, {x, y, volume, delay, pitch})` — catálogo em `src/fx/sfxBank.js` + rotas em audio.js (step usa o
+  chão/piso em x,y; swing a arma; hit/growl/death a espécie mais próxima). Nomes desconhecidos são ignorados.
+  Música generativa: `game.audio.music.setMood('menu'|'day'|'night'|'dawn'|'rain'|'cave'|'danger'|'home')` (o diretor
+  `src/fx/audioDirector.js` escolhe sozinho no jogo). Volumes `setLevel('master'|'music'|'sfx'|'amb')`, `.enabled` (mudo),
+  UI em `src/fx/audioSettings.js`. `net.js` chama `audio.onOp()` antes de cada op (sons das ações de todos). Teste/escuta:
+  `tools/audio-test.html` (localhost).
 - `game.particles.emit({...})` (src/fx/particles.js). `layer: 'fx'` (alfa) ou `'emissive'` (brilho).
 - Input: `game.input` (`move()`, `pressed` Set de `KeyboardEvent.code`, `taps` [{x,y}] em px CSS, `isTouch`).
   Se `player.autoMove = [dx,dy]` estiver setado, o jogador anda nessa direção quando não há input manual.
@@ -123,7 +133,11 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `world.camps` / `world.zones` (`bandit_camp`). Luz: passe `AMBIENT_FS` (ambiente × caverna) + luzes aditivas; batch `decal`.
 - **Economia** (`game.econ`): `hasTool, bestTool, equipItem, unequip, equipFromSlot, rollKillLoot, craft, recipeState, build,
   designate, nextStep`; `game.hasTool(p, kind)`; `registerWork(kind, handler)` (gathering.js); `world.noGrow` (sem renascer perto de
-  construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia, 2 = porta.
+  construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia (paredes, móveis,
+  portas FECHADAS), 0 = livre (porta aberta). Portas só abrem/fecham por ação (`door.toggle`).
+- **Construção (rodada V2)**: plantas grátis (azuis), material entregue no início da obra (`struct.paid`), rotação `o.rot`
+  (4 orientações / 5 posições de borda), pegada `o.fw × o.fh`, `Mover` (`build.move` → `struct.relocate`), `Arrasar`
+  (`struct.raze`), barra de construção e menu de contexto em `src/ui/buildbar.js`. Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor

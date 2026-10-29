@@ -442,7 +442,8 @@ export function drawPawn(B, A, p, t) {
 
   // behind the body
   if (showO && osp && oBehind) B.main.add(osp, ox2, y, oSc, oSc, 1, 1, 1, 1, 0, oRot, fl, oFlip, 0, ol);
-  if (showW && wsp && wBehind) B.main.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 1, 0, wRot, fl, wFlip, 0, wl);
+  const wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back (src/ui/aim.js)
+  if (showW && wsp && wBehind) B.main.add(wsp, wx, y, wSx, wSy, 1, 1, 1, wA, 0, wRot, fl, wFlip, 0, wl);
   if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h1l);
   if (hand && h2 && h2b) B.main.add(hand, hx2, y + h2dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h2l);
   // long hair behind the body, then the look's body stack (build / height scale the whole body)
@@ -459,7 +460,7 @@ export function drawPawn(B, A, p, t) {
   if (bandana && !wh) B.main.add(bandana, hx, y, 1, 1, hat[0], hat[1], hat[2], 1, 0, hr, fl, flip, 0, hl);
   if (wh) B.main.add(wh, hx, y, 1, 1, 1, 1, 1, 1, 0, hr, fl, flip, 0, hl);
   // in front of the body
-  if (showW && wsp && !wBehind) B.main.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 1, 0, wRot, fl, wFlip, 0, wl);
+  if (showW && wsp && !wBehind) B.main.add(wsp, wx, y, wSx, wSy, 1, 1, 1, wA, 0, wRot, fl, wFlip, 0, wl);
   if (showO && osp && !oBehind) B.main.add(osp, ox2, y, oSc, oSc, 1, 1, 1, 1, 0, oRot, fl, oFlip, 0, ol);
   if (hand && h1 && !h1b) B.main.add(hand, hx1, y + h1dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h1l);
   if (hand && h2 && !h2b) B.main.add(hand, hx2, y + h2dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h2l);
@@ -482,7 +483,7 @@ export function drawPawn(B, A, p, t) {
   B.shadow.add(head, hx, y, 1, 1, 1, 1, 1, 0.9, 0, hr, 0, flip, 0, hl);
   const topS = wh || (hair && hair[0] ? hair[0].s : null) || bandana;
   if (topS) B.shadow.add(topS, hx, y, 1, 1, 1, 1, 1, 0.9, 0, hr, 0, flip, 0, hl);
-  if (showW && wsp) B.shadow.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 0.8, 0, wRot, 0, wFlip, 0, wl);
+  if (showW && wsp) B.shadow.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 0.8 * wA, 0, wRot, 0, wFlip, 0, wl);
   if (showO && osp) B.shadow.add(osp, ox2, y, oSc, oSc, 1, 1, 1, 0.8, 0, oRot, 0, oFlip, 0, ol);
 }
 

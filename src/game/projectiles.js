@@ -8,6 +8,8 @@
 // shown on guests as COSMETIC copies (fx 'proj' / 'pend' from net/entities.js); a player's own arrows are
 // simulated by the shooter (hits → mob.hit) and relayed to the others as cosmetic copies (intent proj.fire).
 // A cosmetic projectile never tests victims, calls onHit/onMiss or drops loot.
+// Lobbed shots (fireLob: Tiro Longo / Lançar Lança) fly a timed parabola to a host-rolled landing point instead
+// (see the section below and src/game/mut/bow.js).
 
 import { dropLoot } from './loot.js';
 import { allPlayers } from './players.js';
@@ -48,10 +50,115 @@ export function fireArrow(game, o) {
   return pr;
 }
 
+// id for a projectile created by the authority (creature shots, lobbed player shots)
+export const hostProjId = () => 'h' + (++projSeq).toString(36);
+
+// ---------- lobbed shots (aimed ground abilities: Tiro Longo, Lançar Lança) ----------
+// A parabola from (x, y) to the landing point (lx, ly) in `dur` s with apex height `apex` (tiles). The HOST owns the
+// outcome (mut/bow.js rolls the landing point, its copy calls onLand to resolve the hit); every other peer flies a
+// cosmetic copy from fx ['proj', id, 'lob'|'lobs', x, y, lx, ly, dur, apex, ownerPid]. The shooter's own copy
+// starts at once toward the aim point and is bent onto the host's landing point by retargetLob() on the ack.
+// o: { id, proj: 'arrow'|'spear', x, y, lx, ly, dur, apex, cosmetic, src, owner, onLand(game, pr) }
+export function fireLob(game, o) {
+  const P = game.projectiles || (game.projectiles = []);
+  const gx = o.lx - o.x, gy = o.ly - o.y, gl = Math.hypot(gx, gy) || 1;
+  const pr = {
+    lob: true, kind: o.proj === 'spear' ? 'spear' : 'arrow', faction: 'player', id: o.id || null, cosmetic: !!o.cosmetic,
+    src: o.src || null, owner: o.owner || null, onLand: o.onLand || null,
+    x: o.x, y: o.y, x0: o.x, y0: o.y, ax: o.lx, ay: o.ly, lx: o.lx, ly: o.ly, k0: 0, k: 0,
+    dur: Math.max(0.1, o.dur), apex: Math.max(0, o.apex), t: 0, lift: H0, rot: Math.atan2(gy - 2 * o.apex, gx),
+    gdir: Math.atan2(gy / gl, gx / gl), stuck: false, ground: false, alpha: 1, d: 0, whoosh: false, pend: null,
+  };
+  P.push(pr);
+  if (P.length > 80) P.splice(0, P.length - 80);
+  return pr;
+}
+
+// the shooter's predicted copy learns the host's landing point (bends smoothly from here on)
+export function retargetLob(pr, lx, ly, id) {
+  if (!pr || !pr.lob) return;
+  if (id) pr.id = id;
+  if (pr.stuck) { pr.x = pr.lx = lx; pr.y = pr.ly = ly; return; }
+  // keep the current position: fold the old correction into the aim path, then blend toward the new point
+  const w = blendW(pr, pr.k);
+  pr.ax += (pr.lx - pr.ax) * w; pr.ay += (pr.ly - pr.ay) * w;
+  pr.k0 = pr.k; pr.lx = lx; pr.ly = ly;
+}
+
+const blendW = (pr, k) => (pr.k0 >= 1 ? 1 : Math.max(0, Math.min(1, (k - pr.k0) / (1 - pr.k0))));
+const lobLift = (pr, k) => H0 * (1 - k) + 4 * pr.apex * k * (1 - k);
+function lobAt(pr, k, out) {
+  const w = blendW(pr, k);
+  out[0] = pr.x0 + (pr.ax - pr.x0) * k + (pr.lx - pr.ax) * w;
+  out[1] = pr.y0 + (pr.ay - pr.y0) * k + (pr.ly - pr.ay) * w;
+  out[2] = lobLift(pr, k);
+  return out;
+}
+const _a = [0, 0, 0], _b = [0, 0, 0];
+
+// one frame of a lobbed shot; true = remove it
+function stepLob(game, pr, dt) {
+  pr.t += dt;
+  if (pr.stuck) {
+    if (pr.kind === 'spear') { if (pr.t > 0.35) pr.alpha -= dt / 0.45; } // the spear returns to the hand
+    else if (pr.t > STUCK_LIFE) pr.alpha -= dt * 2;
+    return pr.alpha <= 0;
+  }
+  const k = Math.min(1, pr.t / pr.dur);
+  lobAt(pr, k, _a);
+  lobAt(pr, Math.max(0, k - 0.02), _b);
+  pr.x = _a[0]; pr.y = _a[1]; pr.lift = _a[2]; pr.k = k;
+  // screen-space direction: ground motion minus the lift change
+  const vx = _a[0] - _b[0], vy = (_a[1] - _b[1]) - (_a[2] - _b[2]);
+  if (vx * vx + vy * vy > 1e-8) pr.rot = Math.atan2(vy, vx);
+  if (!pr.whoosh && k > 0.42) { pr.whoosh = true; game.audio?.play('arrow_whoosh', { x: pr.x, y: pr.y, volume: pr.kind === 'spear' ? 0.9 : 0.6 }); }
+  if (pr.kind === 'arrow' && pr.lift > 0.6 && game.juice) {
+    const sp = game.juice.spr('fx_soft');
+    if (sp && (pr._tr = (pr._tr || 0) + dt) > 0.035) {
+      pr._tr = 0;
+      game.juice.emit({ spr: sp, x: pr.x, y: pr.y, life: 0.32, size: 0.22, size1: 0.05, r: 1, g: 0.97, b: 0.88, a: 0.42, a1: 0, lift: pr.lift, ground: false });
+    }
+  }
+  if (k < 1) return false;
+  return landLob(game, pr);
+}
+
+function landLob(game, pr) {
+  const w = game.world, J = game.juice;
+  pr.x = pr.lx; pr.y = pr.ly; pr.t = 0;
+  const tx = Math.floor(pr.x), ty = Math.floor(pr.y);
+  const inside = w.inBounds(tx, ty);
+  const i = inside ? ty * w.W + tx : -1;
+  // a mountain roof stops a shot coming from outside the cave (a throw inside a cave lands normally)
+  const roofed = inside && w.roof[i] && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
+  const wall = !inside || w.rock[i] || w.solid[i] || roofed;
+  pr.blocked = !!wall;
+  const water = inside && !wall && w.waterAt(tx, ty) > 0;
+  game.audio?.play('arrow_land', { x: pr.x, y: pr.y, volume: pr.kind === 'spear' ? 1.1 : 0.7 });
+  let gone = false;
+  if (water) { J?.splash(pr.x, pr.y, pr.kind === 'spear' ? 0.9 : 0.55); gone = true; }
+  else {
+    pr.stuck = true; pr.ground = !wall;
+    pr.lift = wall ? 0.6 : 0.04;
+    J?.puff(pr.x, pr.y, pr.kind === 'spear' ? 5 : 2, [0.62, 0.55, 0.45], pr.kind === 'spear' ? 0.45 : 0.3);
+  }
+  if (pr.owner && pr.kind === 'spear') game.events?.emit('spearback', { pid: pr.owner });
+  if (!pr.cosmetic) { pr.onLand?.(game, pr); pr.onLand = null; }
+  // the host's word on how it ended (hit → removed / moved) arrived before this copy landed
+  const e = pr.pend;
+  if (e) { pr.pend = null; if (!e.stuck) gone = true; else { pr.x = pr.lx = e.x; pr.y = pr.ly = e.y; pr.stuck = true; } }
+  return gone;
+}
+
 // a projectile seen by another peer (no gameplay effect)
 export function fireCosmetic(game, id, a) {
   if (!Array.isArray(a)) return null;
   const n = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  if (a[0] === 'lob' || a[0] === 'lobs') {
+    const [kind, x, y, lx, ly, dur, apex, owner] = a;
+    return fireLob(game, { id, cosmetic: true, proj: kind === 'lobs' ? 'spear' : 'arrow', x: n(x), y: n(y), lx: n(lx), ly: n(ly),
+      dur: Math.min(4, Math.max(0.1, n(dur, 1))), apex: Math.min(8, Math.max(0, n(apex, 1))), owner: typeof owner === 'string' ? owner.slice(0, 40) : null });
+  }
   const [kind, x, y, tx, ty, angle, speed, range, faction, h1] = a;
   const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' ? 'spear' : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit' });
   pr.h1 = n(h1, 0.35);
@@ -64,7 +171,9 @@ export function endCosmetic(game, id, x, y, stuck, ground) {
   if (!P) return;
   const pr = P.find((q) => q.id === id && q.cosmetic);
   if (!pr) return;
+  if (pr.lob && !pr.stuck) { pr.pend = { x, y, stuck }; return; } // still in the air here: applied on landing
   if (!stuck) { P.splice(P.indexOf(pr), 1); return; }
+  if (pr.lob) { pr.x = pr.lx = x; pr.y = pr.ly = y; return; }
   pr.x = x; pr.y = y; pr.stuck = true; pr.t = 0; pr.ground = !!ground;
   if (ground) pr.lift = 0.04;
 }
@@ -99,7 +208,7 @@ function stick(game, pr, ground) {
   pr.stuck = true; pr.t = 0;
   pr.ground = ground;
   if (ground) pr.lift = 0.04;
-  game.audio?.play(ground ? 'step' : 'chop', { x: pr.x, y: pr.y, volume: 0.35 });
+  game.audio?.play(ground ? 'arrow_ground' : 'arrow_wood', { x: pr.x, y: pr.y, volume: 0.8 });
   if (pr.cosmetic) return;
   reportEnd(game, pr, true, ground);
   if (pr.faction === 'player' && pr.kind === 'arrow' && Math.random() < (ground ? 0.5 : 0.3)) {
@@ -118,6 +227,7 @@ export function projectilesSystem() {
       const w = game.world, p = game.player, E = game.entities, PL = allPlayers(game);
       for (let i = P.length - 1; i >= 0; i--) {
         const pr = P[i];
+        if (pr.lob) { if (stepLob(game, pr, dt)) P.splice(i, 1); continue; }
         pr.t += dt;
         if (pr.stuck) {
           if (pr.recover && pr.t > 0.6) {
@@ -205,7 +315,7 @@ export function projectilesSystem() {
       for (const pr of P) {
         if (pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
         const d = pool[n] || (pool[n] = { type: 'fx_proj', x: 0, y: 0, pr: null, draw(B, A) { drawProjectile(game, B, A, this.pr); } });
-        d.pr = pr; d.x = pr.x; d.y = pr.y + 0.05; n++;
+        d.pr = pr; d.x = pr.x; d.y = pr.y + 0.05 + (pr.lob && !pr.stuck ? pr.lift * 0.8 : 0); n++; // high lobs draw over trees
         list.push(d);
       }
     },
@@ -232,6 +342,13 @@ function drawShadows(game, B, A, v) {
   if (!blob) return;
   for (const pr of game.projectiles) {
     if (pr.stuck || pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
+    if (pr.lob) {
+      // lob: the shadow slides along the ground path, longer and softer the higher the shaft flies
+      const L = pr.kind === 'spear' ? 1.3 : 0.85, h = Math.max(0, pr.lift);
+      const a = Math.max(0.6, 1 - h / 7);
+      B.blob.add(blob, pr.x, pr.y, (L + h * 0.06) / blob.w, (0.2 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir);
+      continue;
+    }
     // shadow on the ground under the shaft (sizes are multiples of the sprite's own size)
     B.blob.add(blob, pr.x, pr.y, 0.5 / blob.w, 0.09 / blob.h, 1, 1, 1, 0.45 * Math.max(0.25, 1 - pr.lift / 2));
   }
@@ -244,8 +361,19 @@ function drawProjectile(game, B, A, pr) {
   const a = Math.max(0, pr.alpha);
   let rot = pr.rot;
   if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(pr.rot)) * 0.3 + 0.55, Math.cos(pr.rot) || 0.01);
-  const lift = pr.lift;
+  let lift = pr.lift;
   const spr = pr.kind === 'spear' ? spear : arrow;
+  if (pr.lob && spr) {
+    let x = pr.x, sc = (pr.kind === 'spear' ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
+    if (pr.stuck && pr.ground) {
+      // planted steeply: the tip in the ground at the landing point, the shaft leaning back toward the shooter
+      rot = Math.atan2(1.6, Math.cos(pr.gdir) * 0.9 || 0.01);
+      const half = (spr.w * 0.36);
+      x -= Math.cos(rot) * half; lift = Math.sin(rot) * half; sc = 1;
+    }
+    B.main.add(spr, x, pr.y, sc, sc, 1, 1, 1, a, 0, rot, 0, 1, 0, lift);
+    return;
+  }
   if (spr) {
     const sc = pr.kind === 'spear' && spr === arrow ? 1.5 : 1;
     B.main.add(spr, pr.x, pr.y, sc, sc, 1, 1, 1, a, 0, rot, 0, 1, 0, lift);

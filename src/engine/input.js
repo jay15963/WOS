@@ -1,51 +1,108 @@
 // Unified keyboard / mouse / touch input.
-// - Keyboard: WASD/arrows move, other keys exposed via pressed set + onKey callbacks
-// - Touch: floating virtual joystick on the left 45% of the screen; taps elsewhere; pinch zoom
-// - Mouse: click = tap, wheel = zoom
+// - Keyboard: WASD/arrows move, other keys exposed via `keys` (held) / `pressed` (this frame)
+// - Touch: floating virtual joystick on the left 45% of the screen (first finger only); taps elsewhere;
+//   two fingers = pinch zoom. A finger that took part in a two-finger gesture never becomes a tap or the
+//   joystick (a second finger landing right after the first cancels the joystick and starts a pinch).
+// - Mouse: click = tap (never movement), wheel / +/- = zoom.
+// Gesture state for other modules (e.g. build-mode drags): `touches` (active touch fingers),
+// `multiTouch` (≥ 2 fingers down), `pinching` (a pinch is in progress), `gestureT` (performance.now() of
+// the last multi-finger moment — ignore single-finger drags that started before it); the same in one object
+// `gesture = { touches, multi, pinching, pinch, t }`; `isJoyPointer(id)`; `joyZone` (left screen fraction
+// of the joystick: the controller narrows it in build mode so paint drags can start almost anywhere).
+
+const JOY_R = 56;
+const PINCH_GRACE = 220; // ms: a second finger this soon after the first turns the joystick into a pinch
 
 export class Input {
   constructor(canvas, joyEl) {
     this.canvas = canvas;
     this.keys = new Set();
     this.pressed = new Set();   // keys pressed this frame
-    this.taps = [];             // [{x, y}] css px
-    this.zoom = 0;              // accumulated zoom factor (log)
-    this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0, active: false };
+    this.taps = [];             // [{x, y, button, type}] css px
+    this.zoom = 0;              // zoom request this frame (log factor; + = closer)
+    this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0, active: false, t: 0 };
     this.joyEl = joyEl;
     this.pointers = new Map();
     this.pinchDist = 0;
+    this.touches = 0;
+    this.multiTouch = false;
+    this.pinching = false;
+    this.gestureT = 0;
+    this.gesture = { touches: 0, multi: false, pinching: false, pinch: false, t: 0 }; // same state as one object
+    this.joyZone = 0.45;        // left fraction of the screen where a first finger starts the joystick
     this.isTouch = matchMedia('(pointer: coarse)').matches;
 
     addEventListener('keydown', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
-      if (e.code === 'Tab') e.preventDefault();
-      if (!this.keys.has(e.code)) this.pressed.add(e.code);
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
+      if (e.code === 'Tab' || e.code === 'F1' || (e.code === 'Space' && e.target === document.body)) e.preventDefault();
+      if (!this.keys.has(e.code)) {
+        this.pressed.add(e.code);
+        if (e.code === 'Equal' || e.code === 'NumpadAdd') this.zoom += 0.18;
+        if (e.code === 'Minus' || e.code === 'NumpadSubtract') this.zoom -= 0.18;
+      }
       this.keys.add(e.code);
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); this._endJoy(); });
+    addEventListener('blur', () => { this.keys.clear(); this._endJoy(); this.pointers.clear(); this._gesture(); });
 
     canvas.addEventListener('pointerdown', (e) => this._down(e));
     addEventListener('pointermove', (e) => this._move(e));
     addEventListener('pointerup', (e) => this._up(e));
     addEventListener('pointercancel', (e) => this._up(e, true));
-    canvas.addEventListener('wheel', (e) => { e.preventDefault(); this.zoom -= Math.sign(e.deltaY) * 0.12; }, { passive: false });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // trackpads send many small deltas, mice ±100: scale by magnitude, cap per event
+      let d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1);
+      if (e.ctrlKey) d *= 2.5; // trackpad pinch arrives as ctrl+wheel
+      this.zoom -= Math.max(-0.3, Math.min(0.3, d * 0.0016));
+    }, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // iOS Safari: block the page's own pinch zoom (two-finger gestures belong to the game)
+    for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, (e) => e.preventDefault(), { passive: false });
   }
+
+  _touchList() { const out = []; for (const q of this.pointers.values()) if (q.type === 'touch') out.push(q); return out; }
+
+  _gesture() {
+    const t = this._touchList();
+    this.touches = t.length;
+    this.multiTouch = t.length >= 2;
+    if (this.multiTouch) this.gestureT = performance.now();
+    const free = t.filter((q) => !q.joy);
+    this.pinching = free.length >= 2;
+    const G = this.gesture;
+    G.touches = this.touches; G.multi = this.multiTouch; G.pinching = G.pinch = this.pinching; G.t = this.gestureT;
+  }
+
+  // is this pointer driving the joystick? (build-mode paint drags ignore it)
+  isJoyPointer(id) { return this.joy.id === id; }
 
   _down(e) {
     e.preventDefault();
-    this.canvas.setPointerCapture?.(e.pointerId);
-    const p = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, t: performance.now(), type: e.pointerType, joy: false };
-    if (e.pointerType === 'touch') this.isTouch = true;
-    if (e.pointerType === 'touch' && this.joy.id === null && e.clientX < innerWidth * 0.45 && this.pointers.size === 0) {
-      p.joy = true;
-      Object.assign(this.joy, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0, active: true });
-      this._showJoy();
+    try { this.canvas.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
+    const now = performance.now();
+    const p = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, t: now, type: e.pointerType, joy: false, pinched: false };
+    if (e.pointerType === 'touch') {
+      this.isTouch = true;
+      const others = this._touchList();
+      if (!others.length && this.joy.id === null && e.clientX < innerWidth * this.joyZone) {
+        p.joy = true;
+        Object.assign(this.joy, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0, active: true, t: now });
+        this._showJoy();
+      } else if (others.length) {
+        // a second finger: if the joystick just started and barely moved, this is a pinch, not walking
+        const j = others.find((q) => q.joy);
+        if (j && now - j.t < PINCH_GRACE && Math.hypot(j.x - j.sx, j.y - j.sy) < 14) { j.joy = false; this._endJoy(); }
+        // two free fingers = a gesture: none of them may become a tap (a lone finger beside a walking
+        // joystick still taps normally)
+        const free = others.filter((q) => !q.joy);
+        if (free.length) { for (const q of free) q.pinched = true; p.pinched = true; }
+      }
     }
     this.pointers.set(e.pointerId, p);
-    const others = [...this.pointers.values()].filter((q) => !q.joy);
-    if (others.length === 2) this.pinchDist = Math.hypot(others[0].x - others[1].x, others[0].y - others[1].y);
+    this._gesture();
+    const free = this._touchList().filter((q) => !q.joy);
+    if (free.length === 2) this.pinchDist = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
   }
 
   _move(e) {
@@ -53,24 +110,24 @@ export class Input {
     if (!p) return;
     p.x = e.clientX; p.y = e.clientY;
     if (p.joy) {
-      const R = 56;
       let dx = e.clientX - this.joy.ox, dy = e.clientY - this.joy.oy;
       const d = Math.hypot(dx, dy);
-      if (d > R) {
+      if (d > JOY_R) {
         // drag the base along (floating stick)
-        this.joy.ox += (dx / d) * (d - R); this.joy.oy += (dy / d) * (d - R);
-        dx = (dx / d) * R; dy = (dy / d) * R;
+        this.joy.ox += (dx / d) * (d - JOY_R); this.joy.oy += (dy / d) * (d - JOY_R);
+        dx = (dx / d) * JOY_R; dy = (dy / d) * JOY_R;
       }
-      this.joy.x = dx / R; this.joy.y = dy / R;
+      this.joy.x = dx / JOY_R; this.joy.y = dy / JOY_R;
       this._showJoy();
       return;
     }
-    const others = [...this.pointers.values()].filter((q) => !q.joy);
-    if (others.length === 2) {
-      const d = Math.hypot(others[0].x - others[1].x, others[0].y - others[1].y);
-      if (this.pinchDist > 0) this.zoom += Math.log(d / this.pinchDist);
+    if (p.type !== 'touch') return;
+    const free = this._touchList().filter((q) => !q.joy);
+    if (free.length >= 2) {
+      const d = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
+      if (this.pinchDist > 0 && d > 0) this.zoom += Math.log(d / this.pinchDist);
       this.pinchDist = d;
-      others.forEach((q) => { q.pinched = true; });
+      this.gestureT = performance.now();
     }
   }
 
@@ -78,7 +135,11 @@ export class Input {
     const p = this.pointers.get(e.pointerId);
     if (!p) return;
     this.pointers.delete(e.pointerId);
-    if (p.joy) { this._endJoy(); return; }
+    if (p.joy) { this._endJoy(); this._gesture(); return; }
+    const free = this._touchList().filter((q) => !q.joy);
+    if (free.length === 2) this.pinchDist = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
+    else this.pinchDist = 0;
+    this._gesture();
     if (cancel || p.pinched) return;
     const moved = Math.hypot(p.x - p.sx, p.y - p.sy);
     if (moved < 14 && performance.now() - p.t < 450) this.taps.push({ x: p.x, y: p.y, button: e.button, type: p.type });
@@ -94,7 +155,7 @@ export class Input {
     this.joyEl.style.opacity = '1';
     this.joyEl.style.transform = `translate(${this.joy.ox}px, ${this.joy.oy}px)`;
     const knob = this.joyEl.firstElementChild;
-    if (knob) knob.style.transform = `translate(${this.joy.x * 56}px, ${this.joy.y * 56}px)`;
+    if (knob) knob.style.transform = `translate(${this.joy.x * JOY_R}px, ${this.joy.y * JOY_R}px)`;
   }
 
   // analog movement vector, length <= 1

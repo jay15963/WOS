@@ -171,10 +171,10 @@ export function mountMenuAvatar(el, { name, onName, nameField } = {}) {
   root.className = 'cc-avatar';
   root.innerHTML = `
     ${nameField ? `<label class="cc-name"><span>Seu nome</span><input maxlength="18" autocomplete="off" spellcheck="false" enterkeyhint="done" value="${esc(name ?? playerName())}" aria-label="Seu nome"></label>` : ''}
-    <div class="cc-stage" title="Toque para girar"><canvas></canvas>${nameField ? '' : '<div class="cc-plate"></div>'}</div>
+    <div class="cc-stage" title="Toque para girar"><canvas></canvas></div>
     <button class="cc-edit" type="button">${icon('pen')}<span>Editar aparência</span></button>`;
   el.appendChild(root);
-  const cv = root.querySelector('canvas'), stageEl = root.querySelector('.cc-stage'), plate = root.querySelector('.cc-plate');
+  const cv = root.querySelector('canvas'), stageEl = root.querySelector('.cc-stage'), plate = null;
   let look = loadLook(), pawn = previewPawn(look), alive = true, raf = 0, visible = true, last = performance.now();
   const setPlate = (n) => { if (plate) plate.textContent = n || 'Sobrevivente'; };
   setPlate(name ?? playerName());
@@ -423,6 +423,7 @@ export function openCharEditor(opts = {}) {
       b.innerHTML = `<canvas class="cc-th"></canvas><span class="cc-lbl">${esc(e.name)}</span>${e.rarity !== 'common' ? `<i class="cc-rar" aria-hidden="true"></i>` : ''}${e.unlocked ? '' : `<span class="cc-lock">${icon('lock')}</span>`}`;
       thumbs.add(b.querySelector('canvas'), lookWith(S.k, e.id), S.frame);
       b.onclick = () => { if (!e.unlocked) { sfx('error', game); return; } if (L[S.k] !== e.id) { set({ [S.k]: e.id }); sfx('ui_click', game); } };
+      b.onpointerenter = (ev) => { if (ev.pointerType === 'mouse') sfx('ui_hover', game); };
       el.appendChild(b);
     }
     return el;
