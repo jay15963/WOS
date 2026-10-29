@@ -71,6 +71,11 @@ Cross-agent interfaces (agree on these names, do not wait for each other):
   lid locally (`o._openT`); D does not touch structures.
 - **Quality:** C owns `game.quality` ('low'|'medium'|'high', persisted, auto by default) and the setting UI row.
 
+| **G · Combate de arco** (added later) | 5187 | bow parts of `src/game/{abilities,projectiles}.js` and `content/{combat,weapons}.js`, new `src/ui/aim.js` (aim joystick / mouse aim / ground indicator / camera focus), `tools/mp-test.js` bow scenarios |
+
+Contract B ↔ G: abilities may have `aim: 'ground'`; B's action bar and key handling call `game.aim?.beginTouch(id, buttonEl, ev)` /
+`game.aim?.beginMouse(id)` / `game.aim?.release()`; B's camera honours `game.camFocus = { x, y, k }` while aiming.
+
 ## A · Construção (structures)
 
 The game already has blueprints (`o.blueprint`, `o.progress`), line/area drag, deconstruction (75%
@@ -229,3 +234,24 @@ The game already has procedural WebAudio SFX and a soundscape (`src/fx/audio.js`
   pause menu, persisted, applied live. Audio unlock on the first gesture (iOS: resume on `touchend`). Lower
   or pause when the tab is hidden.
 - Export `getAudio()` singleton + `music.setMood()` (§1).
+
+## G · Combate de arco (long lobbed shot)
+
+Owner's request: a bow ability "Tiro longo" — the player shoots upward so the arrow flies much further.
+- **Mobile:** hold the ability button → aim mode; the button becomes a joystick (like Mobile Legends
+  skillshots): the more it is tilted, the further the shot; a clear ground indicator (landing circle, arc
+  preview, max-range ring); release fires; drag back to the centre / cancel zone cancels. Quick tap = default.
+- **Desktop:** aim with the mouse. Holding the ability key shows the indicator at the mouse; a click fires
+  (the mouse is already there); a quick key tap fires at the mouse point. Esc / right-click cancels.
+- **Range:** a long range clamp per bow. Today there is one bow: its range is what the screen shows at max
+  zoom out (game zoom clamp is 22..110 px/tile in `game.js`; define the range in tiles from a landscape phone
+  at max zoom out, the same on every device, so multiplayer is fair). Better bows (future) do not zoom out
+  further: the camera follows the landing point as far as it goes. While aiming the camera eases toward the
+  aim point (`game.camFocus`).
+- **Inaccuracy grows with distance** (scatter radius ∝ distance), rolled **on the host** (shared randomness).
+- **Arc:** the arrow flies a visible parabola with its shadow on the ground, lands, sticks; hits creatures
+  near the landing point (small radius); costs an arrow; cooldown/energy like the other bow abilities.
+- **Sync:** guest → intent with the aim point; host validates (range, ammo, cooldown), rolls the scatter,
+  emits the projectile through the existing projectile replication (`src/game/projectiles.js`,
+  `docs/SYNC.md` §3.7); damage only on the host; everyone sees the same arrow and landing. The aim indicator
+  and camera are local. Scenario "G: long shot" in `tools/mp-test.js`.
