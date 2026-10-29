@@ -20,6 +20,7 @@ import { populateCamps, banditsSystem, campArtSystem, installCamps } from './ban
 import { gatheringSystem } from './gathering.js';
 import { initBuilding, buildingSystem } from './building.js';
 import { initRoofs, roofsSystem } from './roofs.js';
+import { raysSystem } from '../fx/rays.js';
 import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
@@ -94,6 +95,7 @@ export function installSystems(game) {
     gatheringSystem(),
     buildingSystem(),
     roofsSystem(),
+    raysSystem(),
     roofSupportSystem(),
     ...economySystems(),
     survivalSystem(),

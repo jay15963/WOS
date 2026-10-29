@@ -90,6 +90,20 @@ function roofIcon(kind) {
 
 function solid(ay) { const c = canvas(8, 8); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 8, 8); return c; }
 
+// a sun shaft (src/fx/rays.js drawShaft): soft across, bright at the top fading toward the floor, anchored at its top
+function shaft() {
+  const W = 16, H = 64, c = canvas(W, H), g = c.getContext('2d'), img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = (x + 0.5) / W - 0.5, v = (y + 0.5) / H;
+    const across = Math.cos(Math.min(1, Math.abs(u) * 2) * Math.PI / 2) ** 1.6;
+    const along = Math.min(1, v * 6) * (0.45 + 0.55 * (1 - v)) * Math.min(1, (1 - v) * 5 + 0.35);
+    const a = Math.round(across * along * 255), o = (y * W + x) * 4;
+    img.data[o] = 255; img.data[o + 1] = 255; img.data[o + 2] = 255; img.data[o + 3] = a;
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
 export function addRoofArt(add) {
   add('column_wood', columnWood(), 0.5, 1);
   add('column_stone', columnStone(), 0.5, 1);
@@ -98,4 +112,5 @@ export function addRoofArt(add) {
   add('roof_stone', roofIcon('stone'), 0.5, 1);
   add('fx_solid', solid(0), 0.5, 0);    // anchored at its top (lifted roof lids in the shadow pass)
   add('fx_solid_b', solid(1), 0.5, 1);  // anchored at its foot (vertical cards)
+  add('fx_shaft', shaft(), 0.5, 0);      // sun shaft, anchored at its top
 }

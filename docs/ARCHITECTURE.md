@@ -243,6 +243,12 @@ Arquivos: `src/game/content/roofs.js` (catálogo: `ROOF_GEOM`, `ROOF_STYLES`, `R
   longe que o zoom do jogador) e ignora pinça / roda / +−; ao sair volta ao zoom do jogador. Mistura smoothstep de ~1 s nos dois sentidos
   (`indoors.zoomK`, `game.stepZoom`); `camFocus` (mira do arco) continua só movendo a câmera. Post (`uIndoorFx`): caverna = vinheta mais
   escura e mais fechada + luz mais fria + poeira flutuando; casa = vinheta quente, um pouco mais fechada.
+- **Raios de sol nos interiores** (`src/fx/rays.js`, sistema cosmético, derivado do estado compartilhado + hora): feixes inclinados
+  na direção do sol (`env.shadowDir`) por portas abertas / vãos do lado do sol, janelas (paredes com `window` em `o.det`, agente K),
+  buracos no telhado (tiles removidos, claraboias) e clarabóias / bocas de caverna (céu aberto junto ao chão da caverna); dourados e longos
+  de manhã, curtos ao meio-dia, âmbar à tarde, nada à noite / com nuvens; mancha clara no chão (mapa de luz) e poeira no feixe. Só
+  aparecem onde o telhado está revelado (casas) ou sempre (cavernas). Primitiva `drawShaft(B, A, x, y, h, dx, dy, largura, r, g, b, a)`
+  (compatível com a do agente C). Até 22 feixes (alta) / 14 (média) / 7 sem poeira (baixa).
 - **Sync**: telhados = estruturas genéricas (`struct.add` linhas `[.., moveOf, style, det]`, snapshot `[14] style [15] det`, linhas do
   digest com style / det); `roof.collapse` só do anfitrião; teto natural derivado (digest `tiles` inclui `roof` e `broof`). Save v6 (v5 = corpos, agente I).
   Cenários J1–J5 em `tools/mp-test.js`. Depuração (localhost): `game.debug.roofRoom(w, h, tipo, estilo, {fire, columns, det})`,
