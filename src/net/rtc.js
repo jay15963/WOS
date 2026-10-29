@@ -10,6 +10,58 @@ export const STUN_SERVERS = [
   { urls: 'stun:stun.cloudflare.com:3478' },
 ];
 
+// ---- Cloudflare TURN (via the WOS Worker in server/turn) ----
+// The Worker returns short-lived credentials. Set its address here after `npx wrangler deploy`
+// (or paste it in Settings, stored as localStorage 'wos.turnEndpoint').
+export const TURN_ENDPOINT_DEFAULT = '';
+let cfTurn = null; // { iceServers, expires }
+
+export function turnEndpoint() {
+  try { return (localStorage.getItem('wos.turnEndpoint') || TURN_ENDPOINT_DEFAULT || '').trim(); } catch { return TURN_ENDPOINT_DEFAULT; }
+}
+export function setTurnEndpoint(url) {
+  try {
+    url = String(url || '').trim();
+    if (url) localStorage.setItem('wos.turnEndpoint', url); else localStorage.removeItem('wos.turnEndpoint');
+    localStorage.removeItem('wos.turnCache');
+  } catch { /* ignore */ }
+  cfTurn = null;
+}
+
+// Fetch (or reuse) TURN credentials. Resolves true when TURN is available. Never throws.
+export async function prepareIce({ force = false } = {}) {
+  const ep = turnEndpoint();
+  if (!ep) { netlog.fact('TURN', 'não configurado (só conexão direta)'); return false; }
+  const fresh = (c) => c && c.expires > Date.now() + 10 * 60 * 1000 && Array.isArray(c.iceServers) && c.iceServers.length;
+  if (!force && fresh(cfTurn)) return true;
+  if (!force) {
+    try { const c = JSON.parse(localStorage.getItem('wos.turnCache') || 'null'); if (fresh(c)) { cfTurn = c; netlog.fact('TURN', 'Cloudflare ativo (credenciais em cache)'); return true; } } catch { /* ignore */ }
+  }
+  const t0 = performance.now();
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 6000);
+    const res = await fetch(ep, { cache: 'no-store', signal: ctl.signal });
+    clearTimeout(timer);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ? `${data.error}${data.status ? ' (' + data.status + ')' : ''}` : 'HTTP ' + res.status);
+    const servers = (data.iceServers || []).filter((s) => [].concat(s.urls).some((u) => /^turns?:/.test(u)));
+    if (!servers.length) throw new Error('resposta sem servidores TURN');
+    cfTurn = { iceServers: servers, expires: Date.now() + (data.ttl || 3600) * 1000 };
+    try { localStorage.setItem('wos.turnCache', JSON.stringify(cfTurn)); } catch { /* ignore */ }
+    const n = servers.reduce((k, s) => k + [].concat(s.urls).length, 0);
+    netlog.ok('turn', `TURN da Cloudflare pronto (${n} endereços, ${Math.round(performance.now() - t0)} ms)`);
+    netlog.fact('TURN', 'Cloudflare ativo');
+    return true;
+  } catch (e) {
+    const msg = e.name === 'AbortError' ? 'tempo esgotado' : e.message;
+    netlog.warn('turn', `Não foi possível obter credenciais TURN: ${msg}. Seguindo só com conexão direta.`);
+    netlog.fact('TURN', 'falhou: ' + msg);
+    return false;
+  }
+}
+
+// Manual TURN (any provider), saved in Settings: localStorage 'wos.turn' = { urls, username, credential }
 export function loadTurn() {
   try {
     const t = JSON.parse(localStorage.getItem('wos.turn') || 'null');
@@ -20,8 +72,11 @@ export function saveTurn(t) {
   try { if (t && t.urls) localStorage.setItem('wos.turn', JSON.stringify(t)); else localStorage.removeItem('wos.turn'); } catch { /* ignore */ }
 }
 export function iceServers() {
+  const list = STUN_SERVERS.slice();
   const turn = loadTurn();
-  return turn ? STUN_SERVERS.concat([turn]) : STUN_SERVERS.slice();
+  if (turn) list.push(turn);
+  if (cfTurn && cfTurn.expires > Date.now()) list.push(...cfTurn.iceServers);
+  return list;
 }
 
 let seq = 0;
@@ -203,6 +258,7 @@ async function explainFailure(pc, id) {
   if (!remote.length) why = 'o outro jogador não enviou nenhum candidato (a troca pela rede de encontro não completou)';
   else if (!pub(remote)) why = 'o outro jogador não conseguiu descobrir o endereço público dele (UDP bloqueado ou STUN inacessível do lado dele)';
   else if (!pub(local)) why = 'seu navegador não conseguiu descobrir seu endereço público (UDP bloqueado/firewall do seu lado)';
+  else if (local.includes('relay') || remote.includes('relay')) why = 'falhou até pelo TURN (repetidor): a rede de um dos dois bloqueia também o acesso a turn.cloudflare.com (firewall corporativo/escola?) ou a conexão caiu';
   else {
     why = 'os dois têm endereço público e trocaram endereços, mas nenhum pacote atravessou: NAT incompatível entre as duas redes (pelo menos um lado tem NAT simétrico ou bloqueio da operadora). Conexão direta não é possível nessa dupla — use um servidor TURN (Configurações → TURN)';
     if (snap && snap.enviados > 0 && snap.respostas === 0 && snap.recebidos_do_outro === 0) why += '. Nenhum pacote chegou em nenhum dos sentidos';
@@ -281,4 +337,26 @@ export async function probeNetwork(timeoutMs = 7000) {
   netlog.log(out.verdict === 'compativel' || out.verdict === 'aberto' ? 'ok' : 'warn', 'nat', `Resultado: ${out.label} (${out.ms} ms)`, out.candidates);
   netlog.fact('Teste de rede', `${out.label} · ${JSON.stringify(out.candidates)}`);
   return out;
+}
+
+// Settings → "Testar TURN": gets fresh credentials and asks the relay for an address
+// (iceTransportPolicy 'relay' only gathers TURN candidates).
+export async function testTurnRelay() {
+  const ok = await prepareIce({ force: true });
+  if (!ok) return { ok: false, msg: 'Não consegui credenciais: ' + (netlog.session.facts.TURN || 'endereço vazio') };
+  let pc;
+  try { pc = new RTCPeerConnection({ iceServers: cfTurn.iceServers, iceTransportPolicy: 'relay' }); } catch (e) { return { ok: false, msg: e.message }; }
+  pc.createDataChannel('t');
+  const found = await new Promise((res) => {
+    const t = setTimeout(() => res(null), 7000);
+    pc.onicecandidate = (e) => { if (e.candidate && / typ relay /.test(e.candidate.candidate)) { clearTimeout(t); res(e.candidate.candidate); } };
+    pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => res(null));
+  });
+  pc.close();
+  if (found) {
+    netlog.ok('turn', `Teste do TURN: o repetidor respondeu (${describeCandidate(found)})`);
+    return { ok: true, msg: 'TURN funcionando: o repetidor da Cloudflare respondeu.' };
+  }
+  netlog.warn('turn', 'Teste do TURN: o repetidor não respondeu em 7 s');
+  return { ok: false, msg: 'Credenciais OK, mas o repetidor não respondeu em 7 s (rede bloqueando?)' };
 }

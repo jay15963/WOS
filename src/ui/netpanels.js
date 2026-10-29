@@ -2,7 +2,7 @@
 // settings, room (host) view, join-by-code flow and manual pairing. Each returns a cleanup fn.
 
 import { netlog } from '../net/netlog.js';
-import { probeNetwork, loadTurn, saveTurn } from '../net/rtc.js';
+import { probeNetwork, loadTurn, saveTurn, turnEndpoint, setTurnEndpoint, testTurnRelay } from '../net/rtc.js';
 import { normalizeCode, playerName, setPlayerName, MAX_PLAYERS } from '../net/session.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -119,7 +119,13 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
       <select data-k="quality">
         ${[['auto', 'Automática'], ['high', 'Alta'], ['medium', 'Média'], ['low', 'Baixa (celulares fracos)']].map(([v, l]) => `<option value="${v}" ${get('wos.quality', 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}
       </select></label>
-    <h3>Avançado: servidor TURN (opcional)</h3>
+    <h3>TURN da Cloudflare (recomendado)</h3>
+    <p class="muted">Repetidor usado <b>só</b> quando a conexão direta falha (NAT incompatível). Cole o endereço do seu Worker
+      (pasta <code>server/turn</code> do projeto) e toque em Testar.</p>
+    <label class="mfield">Endereço do Worker<input data-k="cfturn" placeholder="https://wos-turn.SEU-NOME.workers.dev" value="${esc(turnEndpoint())}"></label>
+    <div class="row"><button class="mbtn" data-a="testturn">Testar TURN</button></div>
+    <div data-k="turnres"></div>
+    <h3>Outro servidor TURN (avançado)</h3>
     <p class="muted">Necessário quando o diagnóstico mostra <b>NAT incompatível</b>: o TURN repassa o tráfego quando a conexão direta é impossível.
       Basta o anfitrião configurar. Crie uma conta gratuita num provedor de TURN (ex.: Metered / Open Relay), copie as URLs
       (<code>turn:…</code> e <code>turns:…</code>), o usuário e a senha que ele mostrar e cole abaixo.</p>
@@ -141,6 +147,15 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
     netlog.info('config', urls.length ? `Servidor TURN configurado (${urls.length} URL)` : 'Servidor TURN removido');
   };
   q('turnUrls').onchange = saveT; q('turnUser').onchange = saveT; q('turnPass').onchange = saveT;
+  q('cfturn').onchange = () => { setTurnEndpoint(q('cfturn').value); netlog.info('config', q('cfturn').value.trim() ? 'Endereço do TURN da Cloudflare salvo' : 'TURN da Cloudflare removido'); };
+  el.querySelector('[data-a=testturn]').onclick = async (ev) => {
+    const b = ev.currentTarget, out = el.querySelector('[data-k=turnres]');
+    setTurnEndpoint(q('cfturn').value);
+    b.disabled = true; b.textContent = 'Testando…'; out.innerHTML = '';
+    const r = await testTurnRelay();
+    b.disabled = false; b.textContent = 'Testar de novo';
+    out.innerHTML = `<div class="verdict ${r.ok ? 'good' : 'bad'}"><b>${r.ok ? 'Pronto!' : 'Ainda não'}</b>${esc(r.msg)}</div>`;
+  };
   el.querySelector('[data-a=wipe]').onclick = () => {
     if (!confirm('Apagar mundos salvos, nome, configurações e histórico de rede deste navegador?')) return;
     try { Object.keys(localStorage).filter((k) => k.startsWith('wos.')).forEach((k) => localStorage.removeItem(k)); } catch { /* ignore */ }

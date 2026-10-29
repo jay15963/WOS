@@ -7,8 +7,9 @@
 
 import { TrysteroLink, ManualLink, NETWORKS } from './links.js';
 
-const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão direta entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: configurar um servidor TURN gratuito em Configurações → TURN (basta o anfitrião).';
+const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: TURN da Cloudflare em Configurações (copie o relatório se ele já estiver ativo).';
 import { netlog, PROTO, BUILD } from './netlog.js';
+import { prepareIce } from './rtc.js';
 
 export const MAX_PLAYERS = 4;
 const SEND_HZ = 12;
@@ -117,7 +118,8 @@ export class Session {
     netlog.fact('Sala', code);
     netlog.ok('session', `Sala ${code} criada (mundo ${game.world.seed}). Compartilhe o código com seus amigos.`);
     this.link = this._newLink('host');
-    this.link.start();
+    const link = this.link;
+    prepareIce().finally(() => { if (this.link === link) link.start(); }); // TURN credentials first (if configured)
     this._setState('hosting');
   }
 
@@ -125,6 +127,7 @@ export class Session {
   async manualInvite() {
     if (this.role !== 'host') throw new Error('Crie uma sala primeiro');
     if (this._pendingManual && !this._pendingManual.open) this._pendingManual.close();
+    await prepareIce();
     const ml = new ManualLink({ role: 'host', onOpen: (k, i) => this._open(k, i), onClose: (k) => this._close(k), onData: (k, m) => this._data(k, m) });
     this.manuals.set(ml.key, ml);
     this._pendingManual = ml;
@@ -145,7 +148,7 @@ export class Session {
     netlog.info('session', `Entrando na sala ${code}…`);
     this._setState('joining');
     this.link = this._newLink('guest');
-    return this._awaitWelcome(timeoutMs, () => this.link.start());
+    return this._awaitWelcome(timeoutMs, () => prepareIce().finally(() => this.link?.start()));
   }
 
   // manual pairing, guest side: paste the invite, returns the answer code; welcome arrives later
@@ -154,6 +157,7 @@ export class Session {
     this.code = 'MANUAL';
     netlog.fact('Papel', 'convidado (código manual)');
     this._setState('joining');
+    await prepareIce();
     this.link = new ManualLink({ role: 'guest', onOpen: (k, i) => this._open(k, i), onClose: (k) => this._close(k), onData: (k, m) => this._data(k, m) });
     const answer = await this.link.acceptOffer(invite);
     this.welcome = this._awaitWelcome(timeoutMs, () => {});
@@ -239,7 +243,7 @@ export class Session {
     netlog.warn('session', `Tentativa de reconexão ${this.reconnects}/3`);
     this.link?.close();
     this.link = this._newLink('guest');
-    this._awaitWelcome(40000, () => this.link.start())
+    this._awaitWelcome(40000, () => prepareIce().finally(() => this.link?.start()))
       .then(() => { this._setState('connected'); this.emit('toast', { text: 'Reconectado à sala!', kind: 'good' }); })
       .catch(() => setTimeout(() => this._reconnect(), 3000));
   }

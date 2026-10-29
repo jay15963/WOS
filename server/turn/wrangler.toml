@@ -1,0 +1,5 @@
+# WOS · TURN credentials Worker. Deploy: npx wrangler deploy (from this folder).
+name = "wos-turn"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
