@@ -255,3 +255,24 @@ Owner's request: a bow ability "Tiro longo" — the player shoots upward so the 
   emits the projectile through the existing projectile replication (`src/game/projectiles.js`,
   `docs/SYNC.md` §3.7); damage only on the host; everyone sees the same arrow and landing. The aim indicator
   and camera are local. Scenario "G: long shot" in `tools/mp-test.js`.
+
+## H · Personalização do personagem (added later, port 5188)
+
+Owner's request: a character customizer that is a **core feature of the game**, so well made that players
+would one day want to buy cosmetic items. In the main menu the player's character stands on screen, with a
+text field above it for the player name and an **"Editar aparência"** button opening a rich, beautiful editor:
+skin tone, head shape, face (eyes, eye colour, brows, nose, mouth, ears, freckles/marks/scars, face paint),
+hair (many styles, colour, highlights), facial hair, body type, clothing (shirt/tunic styles, pants, shoes, colours,
+patterns). **No accessories such as hats** — headgear and armour are game equipment. Content is a catalogue
+with ids, names, rarity and an `unlocked` flag (everything free for now, ready for future cosmetics).
+
+- Owns: new `src/game/look.js` (schema, defaults, validation `cleanLook`, random, migration of the old
+  `look = { skin, hair, hairColor, shirt }`), new `src/ui/charcreator.{js,css}` (menu avatar + editor), new
+  `src/art/look/*.js` (part painters), the look parts of `src/art/{pawns,compose,apparel}.js` **after D lands**.
+- Sync: `look` already travels in `hello` / `lk` (`src/net/session.js`, `cleanLook`). The new schema must be
+  compact, validated on receipt (unknown ids → default, colours clamped), sent on change, and drawn the same on
+  every client. Bump `PROTO` if the message format changes. Scenario "H: look sync" in `tools/mp-test.js`.
+- Contract with B: B's main menu hosts H's widget: `mountMenuAvatar(el, { name, onName })` exported by
+  `src/ui/charcreator.js` (B imports it guarded: `import('./charcreator.js').then(m => m.mountMenuAvatar?.(…))`,
+  and moves the player-name field there). Contract with D: D owns the rig/animation; H owns what each part looks
+  like; part painters take `(g, dir, look, params)` and fit the rig's anchors.
