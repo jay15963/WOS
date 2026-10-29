@@ -130,7 +130,7 @@ export class Frame {
   get pid() { return this.net?.pid || this.session?.pid || this.pidHint; }
   get loadingText() { return this.doc?.querySelector('#loading-text')?.textContent || ''; }
   get loadingHidden() { const el = this.doc?.querySelector('#loading'); return !!el && el.classList.contains('hidden'); }
-  get bootError() { const t = this.loadingText; return /^Erro:/.test(t) ? t : null; }
+  get bootError() { const t = this.loadingText; try { if (this.win?.wosBootError) return 'Erro: ' + this.win.wosBootError; } catch { /* ignore */ } return /^Erro:/.test(t) ? t : null; }
   get alive() { return this.box.isConnected && !!this.win; }
   text() { try { return this.doc?.body?.innerText || ''; } catch { return ''; } }
   _hook() {
@@ -196,7 +196,10 @@ function patchRaf(w) {
   };
   w.cancelAnimationFrame = (h) => { q.delete(h); };
 }
+// ?nopump=1: never pump (multiplayer frames then rely on the game's own stalled-rAF worker clock, SYNC.md §7.4;
+// single-player frames do not tick at all while the page is not rendered)
 setInterval(() => {
+  if (Q.has('nopump')) return;
   let any = false;
   for (const f of frames.live) {
     let w, R;

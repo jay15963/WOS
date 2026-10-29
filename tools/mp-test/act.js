@@ -132,6 +132,7 @@ export async function reset(t, H, MH, G, MG) {
     try { g.events.emit('closepanels', {}); } catch { /* ignore */ }
   }
   const sp = H.game.world.spawn;
+  pacify(H, sp.x, sp.y, 24, 90); // the spawn ring holds only passive animals; strays from earlier scenarios calm down
   const a = freeSpot(H, MH, sp.x, sp.y, { rMin: 0, rMax: 4 });
   if (a) teleport(H, a[0], a[1]);
   if (G) {
@@ -173,10 +174,12 @@ export function nidOf(m) { return m?.nid ?? null; }
 export function proxyOf(G, m) {
   const nid = nidOf(m);
   if (nid == null) return null;
-  return G.game.entities.find((e) => e.nid === nid) || G.net?.ents?.get?.(nid) || null;
+  return G.game.entities.find((e) => e.nid === nid) || G.net?.entsApi?.byNid?.(nid) || null;
 }
-// the avatar of player `pid` as seen on frame f (remote players live in session.players)
+// the drawn (interpolated) copy of player `pid` on frame f (remote players live in session.players)
 export function avatarOn(f, pid) { return f.session?.players?.get?.(pid)?.ent || null; }
+// host side: the authoritative avatar (latest received position; what AI / intent validation use)
+export function authAvatarOn(f, pid) { const pl = f.session?.players?.get?.(pid); return pl?.av || pl?.ent || null; }
 
 // ore tiles: rock with ore, an open 4-neighbour to stand on; nearest to (cx, cy)
 export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
@@ -248,6 +251,14 @@ export async function workUntil(t, f, makeIt, done, ms, label, { retries = 6, st
     }
     return false;
   }, ms, `${f.label}: ${label}`, () => `work=${short(p.work?.label)} goal=${g.ctl.goal?.type ?? '-'} restarts=${restarts} ui: ${f.lastUi()}`);
+}
+
+// the host validates guest intents against its own view of the guest (pl.av): after teleporting a guest far,
+// wait until that view caught up before acting
+export async function hostSees(t, H, G, ms = 3000) {
+  const p = G.game.player;
+  await t.waitFor(() => { const av = authAvatarOn(H, G.pid); return av && Math.hypot(av.x - p.x, av.y - p.y) < 0.35; }, ms,
+    'host sees the guest at its new position', () => { const av = authAvatarOn(H, G.pid); return `host view ${av?.x?.toFixed(2)},${av?.y?.toFixed(2)} guest ${p.x.toFixed(2)},${p.y.toFixed(2)}`; });
 }
 
 // host-side test setup: hostile creatures near a work site stop aggroing for a while (authority AI fields)
