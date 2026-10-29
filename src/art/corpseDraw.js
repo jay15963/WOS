@@ -50,7 +50,10 @@ function sideOf(T, A, key) {
 const SIZE = { rabbit: 's', fox: 's', spider: 's', deer: 'm', wolf: 'm', boar: 'm', bear: 'l' };
 const FRESH_A = [0.82, 0.8, 0.78], ROT_A = [0.58, 0.66, 0.48], DRY_A = [0.42, 0.37, 0.32], RAW_A = [0.86, 0.42, 0.36];
 const FRESH_P = [0.93, 0.92, 0.9], ROT_P = [0.66, 0.77, 0.56];
-const BONE_OLD = [0.86, 0.8, 0.68], BONE_NEW = [1, 0.99, 0.95];
+const BONE_OLD = [0.86, 0.8, 0.68], BONE_NEW = [1, 0.99, 0.95], ROT_RAW = [ROT_A[0] * 0.8, ROT_A[1] * 0.7, ROT_A[2] * 0.7];
+// scratch colours (no per-frame allocation)
+const bone = [1, 1, 1], tint = [1, 1, 1];
+function mix3(out, a, b, t) { out[0] = lerp(a[0], b[0], t); out[1] = lerp(a[1], b[1], t); out[2] = lerp(a[2], b[2], t); return out; }
 
 // visible gear of a pawn body (only what is still inside it; raiders keep their clothes)
 function pawnProxy(c) {
@@ -79,7 +82,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   let skelA = sm(1.88, 2, age) * (1 - sm(4.9, 5, age));
   if (gone > 0) { bodyA *= 1 - gone; skelA *= 1 - gone; }
   const bleach = sm(2, 4.5, age);
-  const bone = [lerp(BONE_OLD[0], BONE_NEW[0], bleach), lerp(BONE_OLD[1], BONE_NEW[1], bleach), lerp(BONE_OLD[2], BONE_NEW[2], bleach)];
+  mix3(bone, BONE_OLD, BONE_NEW, bleach);
   const shrink = 1 - gone * 0.35;
 
   if (c.of === 'pawn') {
@@ -89,7 +92,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     // blood under a fresh body
     if (T.soft && age < 0.6) B.decor.add(T.soft, c.x + side * 0.3, c.y + 0.02, 1.3 / T.soft.w, 0.55 / T.soft.w, 0.32, 0.04, 0.04, 0.45 * (1 - sm(0.2, 0.6, age)) * clamp01(tsince * 1.5), 0, 0, 0, 1, 1, 0);
     if (bodyA > 0.01) {
-      const tint = [lerp(FRESH_P[0], ROT_P[0], rotK), lerp(FRESH_P[1], ROT_P[1], rotK), lerp(FRESH_P[2], ROT_P[2], rotK)];
+      mix3(tint, FRESH_P, ROT_P, rotK);
       const sunk = 1 - 0.07 * rotK;
       const W = WB;
       W.main.set(B.decor, tint[0], tint[1], tint[2], bodyA, 1, sunk);
@@ -125,8 +128,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     // spiders: on their back, no rotation; the "skeleton" is a dry husk
     const dry = sm(1.88, 2.2, age);
     const fade = 1 - sm(4.9, 5, age);
-    const tint = dry > 0 ? [lerp(ROT_A[0], DRY_A[0], dry), lerp(ROT_A[1], DRY_A[1], dry), lerp(ROT_A[2], DRY_A[2], dry)]
-      : [lerp(FRESH_A[0], ROT_A[0], rotK), lerp(FRESH_A[1], ROT_A[1], rotK), lerp(FRESH_A[2], ROT_A[2], rotK)];
+    if (dry > 0) mix3(tint, ROT_A, DRY_A, dry); else mix3(tint, FRESH_A, ROT_A, rotK);
     const a = fade * (1 - gone);
     const shr = (1 - 0.12 * dry) * shrink;
     if (T.blob) B.blob.add(T.blob, c.x, c.y, s.w * 0.7 * sc, 0.6 * sc, 1, 1, 1, 0.45 * a);
@@ -144,9 +146,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   if (bodyA > 0.01) {
     if (T.blob) B.blob.add(T.blob, c.x, c.y, s.w * 0.8 * sc, 0.7 * sc, 1, 1, 1, 0.5 * bodyA);
     // butchered: the skinned body (raw tint) with its flank opened (ribs exposed)
-    const tint = c.butchered
-      ? [lerp(RAW_A[0], ROT_A[0] * 0.8, rotK), lerp(RAW_A[1], ROT_A[1] * 0.7, rotK), lerp(RAW_A[2], ROT_A[2] * 0.7, rotK)]
-      : [lerp(FRESH_A[0], ROT_A[0], rotK), lerp(FRESH_A[1], ROT_A[1], rotK), lerp(FRESH_A[2], ROT_A[2], rotK)];
+    if (c.butchered) mix3(tint, RAW_A, ROT_RAW, rotK); else mix3(tint, FRESH_A, ROT_A, rotK);
     const sunk = 1 - 0.08 * rotK;
     B.decor.add(s, x, y, sc, sc * sunk, tint[0], tint[1], tint[2], bodyA, 0, rot, 0, flip, 1, 0);
     const K = c.butchered ? T.carc[sz] : null;
