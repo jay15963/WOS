@@ -640,22 +640,34 @@ function willow(v) {
         strand(g, x0, y0, 60 + rand() * 60 - Math.abs(Math.cos(a)) * 10, Math.sign(Math.cos(a)) || 1, 0.22 + rand() * 0.14);
       }
     }, OW * 0.55);
-    // crown: an irregular, lumpy wide dome (several sub-domes on the limbs)
+    // crown: a low, soft mound filling the gaps (the silhouette comes from the arching fronds on top of it)
     P.layer((g) => {
       const lumps = [];
-      for (const [lx, ly] of limbs) for (let i = 0; i < 3; i++) lumps.push(mkLump(lx + (rand() - 0.5) * 16, ly - 4 + (rand() - 0.5) * 10, R * (0.26 + rand() * 0.08), rand, 0.75));
-      for (let i = 0; i < 3; i++) lumps.push(mkLump(ccx + (i - 1) * R * 0.35 + (rand() - 0.5) * 6, ccy - RY * 0.55 + rand() * 6, R * (0.3 + rand() * 0.06), rand, 0.75));
-      drawFoliage(g, lumps, pal, rand, { cx: ccx, cy: ccy - 6, R, RY, marks: 1.4, sprigs: 2.2, drop: 0.4 });
+      for (const [lx, ly] of limbs) for (let i = 0; i < 2; i++) lumps.push(mkLump(lx * 0.8 + ccx * 0.2 + (rand() - 0.5) * 12, ly + 2 + (rand() - 0.5) * 8, R * (0.24 + rand() * 0.06), rand, 0.75));
+      for (let i = 0; i < 3; i++) lumps.push(mkLump(ccx + (i - 1) * R * 0.32 + (rand() - 0.5) * 6, ccy - RY * 0.35 + rand() * 6, R * (0.25 + rand() * 0.05), rand, 0.75));
+      drawFoliage(g, lumps, { deep: pal.deep, dark: pal.deep, mid: pal.dark, light: pal.mid, high: pal.light }, rand, { cx: ccx, cy: ccy - 6, R, RY, marks: 1.2, sprigs: 1.6, drop: 0.35 });
     });
-    // front curtains: cascade over the lower crown, ragged hem, lit on the left
-    P.layer((g) => {
-      for (let i = 0; i < 34; i++) {
-        const u = rand() * 2 - 1;
-        const x0 = ccx + u * R * 0.92, y0 = ccy - RY * 0.35 + (1 - u * u) * RY * 0.5 + rand() * 10;
-        const len = 52 + rand() * 54 - Math.abs(u) * 14;
-        strand(g, x0, y0, len, u < 0 ? -1 : 1, 0.5 + 0.3 * (1 - (u + 1) / 2) + rand() * 0.08);
-      }
-    }, OW * 0.5);
+    // arching branches: each rises from the trunk, arcs over the crown and lets its fronds hang down (back arches first)
+    const arches = [];
+    for (let i = 0; i < 15; i++) arches.push((i / 14) * 2 - 1 + (rand() - 0.5) * 0.08);
+    arches.sort((p, q) => Math.abs(q) - Math.abs(p));
+    for (const [pass, sel] of [[0, (u) => Math.abs(u) > 0.55], [1, (u) => Math.abs(u) <= 0.55]]) {
+      P.layer((g) => {
+        for (const u of arches) {
+          if (!sel(u)) continue;
+          const Ax = ccx + u * R * 0.4, Ay = ccy - RY * (1.05 - 0.35 * u * u) + rand() * 4;
+          const Cx = ccx + u * R * 0.95, Cy = ccy - RY * (0.95 - 0.2 * u * u);
+          const Ex = ccx + u * R * 1.08, Ey = ccy + RY * 0.25;
+          const t0 = 0.55 + 0.35 * (1 - (u + 1) / 2); // lit from the left
+          g.strokeStyle = ramp(stops, t0 - 0.25); g.lineWidth = 1.3;
+          g.beginPath(); g.moveTo(Ax - u * 6, Ay + 4); g.quadraticCurveTo(Ax - u * 2, Ay - 1, Ax, Ay); g.quadraticCurveTo(Cx, Cy, Ex, Ey); g.stroke();
+          for (const t of [0.05, 0.3, 0.55, 0.8, 1]) {
+            const uu = 1 - t, x0 = uu * uu * Ax + 2 * uu * t * Cx + t * t * Ex, y0 = uu * uu * Ay + 2 * uu * t * Cy + t * t * Ey;
+            strand(g, x0, y0, 34 + t * 40 + rand() * 30, u < 0 ? -1 : 1, t0 - t * 0.12 + (pass ? 0.06 : -0.06));
+          }
+        }
+      }, OW * 0.45);
+    }
   });
 }
 
