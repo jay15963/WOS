@@ -1789,6 +1789,8 @@ def('S50', {
   // heal on the guest
   const p = G.game.player, n0 = A.count(G, 'herb');
   A.pacify(H, p.x, p.y, 16, 120);
+  // keep the guest warm and dry (earlier scenarios may have soaked it: cold / hypothermia damage would eat the HoT)
+  t.watch(() => { p.bodyHeat = 100; p.wetT = 0; if (p.buffs) for (let k = p.buffs.length - 1; k >= 0; k--) if (/^(cold|hypothermia|wet|chilled|starving)$/.test(p.buffs[k].id)) p.buffs.splice(k, 1); }, 4);
   p.hp = 40;
   const used = A.ability(G, MG, 'heal');
   t.check(used !== false && A.count(G, 'herb') === n0 - 1, 'heal ability uses exactly 1 herb', `used ${used} herbs ${n0} → ${A.count(G, 'herb')}`);
