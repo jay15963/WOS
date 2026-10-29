@@ -244,7 +244,7 @@ function effect(game, id, ab, t) {
       break;
     }
     case 'lacerate': {
-      act('attack', 0.32);
+      act('lacerate', 0.32);
       game.audio?.play('swing', { x: p.x, y: p.y });
       melee(game, t, 0.6, 0, { ability: id }, 0.1, (e) => {
         if (!isMob(e)) return;
@@ -293,7 +293,7 @@ function effect(game, id, ab, t) {
       break;
     }
     case 'sweep': {
-      act('cleave', 0.44);
+      act('sweep', 0.44);
       const dir = aimDir(p, t);
       game.audio?.play('swing', { x: p.x, y: p.y, volume: 1.1 });
       slashFx(game, p.x, p.y, dir, 5, 3.2, 1.5);
@@ -318,7 +318,7 @@ function effect(game, id, ab, t) {
     case 'whirlwind': {
       p.weapon = weapon(p);
       p.spin = { t: 0, dur: 0.5 };
-      p.action = { type: 'attack', t: 0, dur: 0.5 };
+      p.action = { type: 'whirlwind', t: 0, dur: 0.5 };
       J.whirl(p);
       game.audio?.play('swing', { x: p.x, y: p.y });
       areaTargets(game, p.x, p.y, 2.3).forEach((e, n) => melee(game, e, 1.1, 2, { ability: id }, 0.08 + n * 0.03));
@@ -380,7 +380,7 @@ function effect(game, id, ab, t) {
       break;
     }
     case 'torch_swing': {
-      act('attack', 0.38);
+      act('torch_swing', 0.38);
       const dir = aimDir(p, t);
       p.facing = facingFrom(dir[0], dir[1], p.facing);
       game.audio?.play('fire', { x: p.x, y: p.y });
@@ -401,7 +401,7 @@ function effect(game, id, ab, t) {
       game.events.emit('inventory', {});
       const total = p.maxHp * 0.4, ticks = 8;
       addBuff(p, 'bandage', 8, { tick: 1, tickT: 1, onTick: (g, pl) => healEntity(g, pl, total / ticks) });
-      p.action = { type: 'cast', t: 0, dur: 0.5 };
+      p.action = { type: 'bandage', t: 0, dur: 0.5 };
       game.audio?.play('eat', { x: p.x, y: p.y, volume: 0.5 });
       break;
     }

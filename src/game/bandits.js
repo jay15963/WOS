@@ -151,8 +151,14 @@ function makeLook(rand, female, chief) {
   return {
     skin: pick(rand, SKINS), hair: female ? pick(rand, HAIR_F) : pick(rand, HAIR_M), hairColor: pick(rand, HAIRC),
     shirt: chief ? [0.56, 0.12, 0.1] : pick(rand, SHIRTS), beard: !female && rand() < 0.55,
+    // rough outlaw extras (Art B): bandana, face mask/scar/eyepatch, dark trousers
+    hat: rand() < 0.45 ? 'bandana' : undefined, hatColor: pick(rand, BANDANAS),
+    face: chief ? 'scar' : rand() < 0.25 ? 'mask' : rand() < 0.2 ? 'scar' : rand() < 0.12 ? 'eyepatch' : undefined,
+    pants: pick(rand, PANTS),
   };
 }
+const BANDANAS = [[0.62, 0.14, 0.12], [0.2, 0.22, 0.26], [0.42, 0.3, 0.18], [0.75, 0.6, 0.3]];
+const PANTS = [[0.28, 0.24, 0.2], [0.22, 0.24, 0.28], [0.36, 0.3, 0.22], [0.18, 0.17, 0.16]];
 
 function kitFor(camp, role, rand) {
   if (role === 'chief') return CHIEF_KITS[Math.min(1, camp.tier)];
