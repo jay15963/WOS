@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WOS · catálogo de aparência</title>
+<style>
+  body { margin: 0; background: #1b1a18; color: #e6e2d8; font: 13px system-ui, sans-serif; }
+  h2 { margin: 18px 12px 6px; font-size: 15px; color: #d9b45a; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px; }
+  figure { margin: 0; background: radial-gradient(ellipse at 50% 70%, #4a4a3a, #2a2924); border-radius: 8px; padding: 4px; text-align: center; }
+  figcaption { font-size: 11px; color: #b8b2a4; max-width: 150px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  canvas { display: block; }
+  #info { padding: 8px 12px; color: #a29d92; }
+</style>
+</head>
+<body>
+<div id="info">?cat=hair · ?k=3 · ?dirs=s,e,n,w · ?n=24 (random looks) · ?scale=150 · ?walk=1 · ?ids=a,b · ?over={json} · ?gear=helmet_iron,armor_leather (game atlas)</div>
+<div id="out"></div>
+<script type="module">
+import { PreviewAtlas, drawPawn2D, previewPawn, atlasView } from '../src/art/look/preview.js';
+import { buildAtlas } from '../src/art/sprites.js';
+import { CATALOG } from '../src/art/look/catalog.js';
+import { DEFAULT_LOOK, randomLook, cleanLook } from '../src/game/look.js';
+const Q = new URLSearchParams(location.search);
+const k = +(Q.get('k') || 3), scale = +(Q.get('scale') || 150), dirs = (Q.get('dirs') || 's,e,n').split(','), walk = Q.has('walk');
+// ?gear=… draws through the real game atlas (atlas resolution) with that equipment on
+const gear = Q.get('gear') ? Q.get('gear').split(',') : null;
+const A = gear ? atlasView(buildAtlas()) : new PreviewAtlas(k);
+const out = document.querySelector('#out');
+const base = Q.get('base') ? cleanLook(Q.get('base')) : { ...DEFAULT_LOOK, ...JSON.parse(Q.get('over') || '{}') };
+function fig(row, look, label, dir) {
+  const f = document.createElement('figure');
+  const c = document.createElement('canvas');
+  const W = Math.round(scale * 1.05), H = Math.round(scale * 1.55);
+  c.width = W; c.height = H; c.style.width = W + 'px'; c.style.height = H + 'px';
+  const p = previewPawn(look); p.facing = dir; if (walk) { p.moving = true; p.moveT = 0.12; }
+  if (gear) p.armor = { head: gear.find((g) => /^(helmet|hood|hat)/.test(g)) || null, body: gear.find((g) => /^(armor|tunic)/.test(g)) || null };
+  drawPawn2D(c.getContext('2d'), A, p, 0.3, W / 2, H - scale * 0.12, scale);
+  f.appendChild(c);
+  const cap = document.createElement('figcaption'); cap.textContent = label; f.appendChild(cap);
+  row.appendChild(f);
+}
+function section(title, items) {
+  const h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+  const row = document.createElement('div'); row.className = 'row'; out.appendChild(row);
+  for (const [look, label] of items) for (const d of dirs) fig(row, look, label + (dirs.length > 1 ? ' ' + d : ''), d);
+}
+const t0 = performance.now();
+const cat = Q.get('cat');
+if (cat === 'random' || !cat) {
+  const n = +(Q.get('n') || 16);
+  section('Aleatórios', Array.from({ length: n }, (_, i) => [randomLook(i + 1 + (+Q.get('seed') || 0)), 'seed ' + (i + 1)]));
+}
+if (cat && cat !== 'random') {
+  const field = { hair: 'hair', beard: 'beard', top: 'top', over: 'over', bottom: 'bottom', shoes: 'shoes', head: 'head', ears: 'ears', eyes: 'eyes', brows: 'brows', nose: 'nose', mouth: 'mouth', cheeks: 'cheeks', age: 'age', marks: 'marks', scar: 'scar', paint: 'paint', pattern: 'pattern', build: 'build', height: 'height', hairFx: 'hairFx' }[cat];
+  const ids = Q.get('ids') ? Q.get('ids').split(',') : null;
+  section(cat, CATALOG[field].filter((e) => !ids || ids.includes(e.id)).map((e) => [cleanLook({ ...base, [field]: e.id }), e.name]));
+}
+document.querySelector('#info').textContent += ` · ${A.painted} partes pintadas em ${Math.round(performance.now() - t0)} ms (k=${k})`;
+window.lookDone = true;
+</script>
+</body>
+</html>

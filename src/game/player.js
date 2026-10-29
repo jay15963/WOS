@@ -186,10 +186,12 @@ export function playerSystem() {
         if (b.t <= 0) { p.buffs.splice(i, 1); p.buffsV = (p.buffsV || 0) + 1; }
       }
 
-      // regeneration (no HP regen in combat, needs food in the belly)
+      // regeneration (no HP regen in combat, needs food in the belly, and never while the body is cold:
+      // otherwise regen would cancel the cold damage of survival.js)
       const warm = hasBuff(p, 'warm');
       p.energy = Math.min(p.maxEnergy, p.energy + dt * (p.inCombat ? 7 : 11));
-      if (!p.inCombat && p.hunger > 15 && p.hp < p.maxHp) {
+      const frozen = hasBuff(p, 'cold') || hasBuff(p, 'hypothermia');
+      if (!p.inCombat && !frozen && p.hunger > 15 && p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + dt * p.maxHp * (warm ? 0.03 : 0.012));
       }
 

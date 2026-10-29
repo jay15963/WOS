@@ -21,7 +21,8 @@ import { addLootRows } from './loot.js';
 import { lootRow, r3 } from './roll.js';
 import { noGrowStamp, removeNatural, findObj } from './objects.js';
 import { removeCropAt, cropAt } from './crops.js';
-import { sortedSlots, SORT_MODES } from '../invsort.js'; // chest.sort (agent B)
+import { sortedSlots, SORT_MODES } from '../invsort.js'; // store.sort (agents B + I)
+import { sortBody } from './corpses.js';
 import { allPlayers } from '../players.js';
 
 export const REFUND = 0.75;
@@ -628,10 +629,12 @@ defineIntent('chest.take', {
   },
 });
 
-defineIntent('chest.sort', {
-  doc: 'Sort a chest (stacks merged): mode name | type | qty. The host computes the order; it travels in chest.set.',
-  args: { id: 'structId', mode: "'name'|'type'|'qty'" },
+// one shared-sort path for every shared container: chests (→ chest.set) and bodies (mut/corpses.js → corpse.set)
+defineIntent('store.sort', {
+  doc: 'Sort a shared container (stacks merged): kind chest (default) | corpse, mode name | type | qty. The host computes the order; it travels in chest.set / corpse.set.',
+  args: { kind: "'chest'|'corpse'?", id: 'structId|corpseId', mode: "'name'|'type'|'qty'" },
   run(game, a, actor, net) {
+    if (a.kind === 'corpse') return sortBody(game, a, actor, net);
     const o = chestOf(game, a.id);
     if (!o) return 'Baú não existe mais';
     if (!SORT_MODES.includes(a.mode)) return 'Ordem desconhecida';

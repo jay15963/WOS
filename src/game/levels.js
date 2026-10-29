@@ -304,6 +304,10 @@ export class Levels {
   settle(e, dt) {
     if (!(e.lv > 0) && !(e.z > 0) && !(e._fallV < 0)) return;
     this.sync();
+    if (e.dead && (e.lv > 0 || this.stairAt(e.lv | 0, e.x, e.y))) { // died up high: the body falls to the ground below
+      const [gx, gy] = this.groundSpot(e.x, e.y);
+      e.x = gx; e.y = gy; e.lv = 0; e._hop = null;
+    }
     const k = e.lv | 0;
     const s = this.stairAt(k, e.x, e.y);
     if (s && !e._hop) { this._onStair(e, s); return; }
@@ -339,6 +343,18 @@ export class Levels {
       const a = n * 2.4, d = 0.3 + n * 0.08, x = x0 + Math.cos(a) * d, y = y0 + Math.sin(a) * d;
       if (!this.collidesL(0, x, y, r, true, false, this._tile(x, y))) { e.x = x; e.y = y; return; }
     }
+  }
+
+  // nearest free ground point (level 0, not a stair step) to (x, y) — where a body that died up high lies
+  // (mut/corpses.js on the authority, settle() for the dying entity: same function, same spot)
+  groundSpot(x, y, r = 0.1) {
+    this.sync();
+    if (!this.collidesL(0, x, y, r, true, false, -1)) return [x, y];
+    for (let n = 1; n < 90; n++) {
+      const a = n * 2.4, d = 0.25 + n * 0.06, px = x + Math.cos(a) * d, py = y + Math.sin(a) * d;
+      if (!this.collidesL(0, px, py, r, true, false, -1)) return [px, py];
+    }
+    return [x, y];
   }
 
   // ---------- jump down (local player only) ----------
@@ -528,8 +544,8 @@ class Heap {
 
 // ---------- system ----------
 // Every peer keeps the derived map fresh; the owner settles its own player (falls, jump down), the authority
-// its creatures. Remote copies only display the replicated z. Also: depth keys for the sorted batch and the
-// landing marker of a stairs ghost (cosmetic).
+// its creatures. Remote copies only display the replicated z. Also the landing marker of a stairs ghost (cosmetic).
+// (Depth: game.js sorts by (_sy ?? y) + z — one tile of depth per story; stairs get _sy at rebuild.)
 export function levelsSystem() {
   return {
     sync: 'all', // derived map everywhere; settle() runs on the owner (player) / the host (creatures)
@@ -541,13 +557,9 @@ export function levelsSystem() {
       L.hopUpdate(game, p, dt);
       L.settle(p, dt);
       if (game.net.auth && (L._active || L.surf[1])) {
-        for (const e of game.entities) if (e.isMob && !e.proxy && !e.dead && (e.lv || e.z > 0)) L.settle(e, dt);
+        for (const e of game.entities) if (e.isMob && !e.proxy && (e.lv || e.z > 0)) L.settle(e, dt);
       }
       p._lx = p.x; p._ly = p.y; // (stair / wall-top footsteps: juice + audio 'step' with surfaceOf)
-    },
-    // depth keys: entities draw one tile deeper per story (after the wall they stand on)
-    collect(game, list) {
-      for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity) o._sy = o.z > 0 ? o.y + o.z : o.y; }
     },
     render(game, B) {
       // stairs ghost: mark the landing tile (green when a surface is there to step onto)

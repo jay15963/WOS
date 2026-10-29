@@ -341,3 +341,13 @@ stories, and **walls you can walk on top of** (ramparts) when a staircase stands
 - Sync: `lv` on structures (ops/snapshot/save/digest) and `z`/level in the avatar and creature streams.
 - Two phases: (1) design + core in isolated modules now; (2) integration after J (roofs) and K (details) merge.
 - Everything stays deconstructable; built details are fixed (rebuild to change).
+
+## M · Caminhos no terreno (added later, port 5194)
+
+Owner's request (with a screenshot of the soft sand/grass/water blends): a kind of "ground" construction that
+is NOT square like floors — **dirt path (free, no resources)**, **gravel**, **flagstone / lajota**, etc. — painted
+on the terrain and **blending softly and in detail with the ground textures**, like the river shore does.
+- Painted with a brush (drag; line/area; brush size), removable; a shared per-tile path grid (ops, snapshot,
+  save, digest); drawn inside the terrain pass with noisy soft edges and material detail (pebbles, cracks,
+  worn ruts), edge scatter; walking speed bonus; flora never regrows on paths, grass decor hidden on them.
+- Floors (inside buildings, square) stay agent K's; paths are terrain. Roofs are J's.

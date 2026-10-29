@@ -278,7 +278,7 @@ export class Panels {
       if (key === 'inv') { this.sel = null; sortBackpack(g, mode); this.render(); return; }
       const c = this.container;
       if (!c || c.id !== key) return;
-      // shared containers: the host sorts (e.g. chest.sort → chest.set) and every peer gets the same order
+      // shared containers: the host sorts (store.sort → chest.set / corpse.set) and every peer gets the same order
       c.sort(mode);
       this.render();
     }));

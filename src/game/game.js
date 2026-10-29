@@ -6,6 +6,7 @@ import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
+import { loadLook } from './look.js';
 import { STORY_H } from './levels.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
@@ -25,7 +26,7 @@ export class Game {
     this.player = {
       isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
       facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0, canSwim: true, swimming: false,
-      look: { skin: [0.96, 0.80, 0.66], hair: 'short', hairColor: [0.36, 0.22, 0.12], shirt: [0.34, 0.47, 0.62] },
+      look: loadLook(), // agent H: the player's saved appearance (per profile, src/game/look.js)
       weapon: 'sword', hp: 100, maxHp: 100,
     };
     this.entities = [this.player];
@@ -149,10 +150,12 @@ export class Game {
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
-    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
+    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); // a body on the ground replaces the dead (corpses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
-    list.sort((a, b) => (a._sy ?? a.y) - (b._sy ?? b.y)); // levels: _sy = depth key (entities y + z, stairs) when set
+    // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
+    for (let i = 0; i < list.length; i++) { const o = list[i]; o._sk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
+    list.sort((a, b) => a._sk - b._sk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
