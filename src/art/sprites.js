@@ -35,7 +35,16 @@ import { CONTRACT } from './contract.js';
 export { PPU, CONTRACT };
 
 // opts.fail: name of a painter group that must throw (tests of the poisoned-cache rule, ?fakepaintfail=1)
-export function buildAtlas(opts = {}) {
+// Paint every sprite into a new atlas. buildAtlas() runs it in one go (tools); buildAtlasAsync() yields to the
+// browser between groups so the loading screen can repaint its progress bar (a phone repaints for ~10 s on the
+// first boot after every art update; done in one block the page looked frozen).
+const GROUP_PT = {
+  addFx: 'efeitos', addTrees: 'árvores', addPlants: 'plantas', addRocks: 'rochas', addPawns: 'pessoas', addAnimals: 'animais',
+  addBuildings: 'construções', addIcons: 'ícones', addStructures: 'paredes e portas', addStations: 'bancadas', addCrops: 'plantações',
+  addNatural: 'natureza', addCreatures: 'criaturas', addGear: 'armas e ferramentas', addApparel: 'roupas', addItems: 'itens',
+  addCorpses: 'corpos', addRoofArt: 'telhados', addStairs: 'escadas', addArch: 'arquitetura', addDecor: 'decoração',
+};
+function* atlasSteps(opts) {
   const A = new Atlas(4096);
   const pending = [];
   const names = new Set();
@@ -49,11 +58,15 @@ export function buildAtlas(opts = {}) {
   const failures = [];
   const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
     addCreatures, addGear, addApparel, addItems, addCorpses, addRoofArt, addStairs, addArch, addDecor]; // look parts: painted lazily (art/look/lazy.js)
-  for (const step of steps) {
+  const total = steps.length + 2;
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    yield [i / total, GROUP_PT[step.name] || ''];
     try { if (opts.fail === step.name) throw new Error('falha simulada'); step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); failures.push(`${step.name}: ${e?.message || e}`); }
   }
   try { addLegacyItems(add, (n) => names.has(n)); } catch (e) { console.error('[art] legacy items failed', e); failures.push(`addLegacyItems: ${e?.message || e}`); }
   const placeholders = ensureContract(names, add);
+  yield [steps.length / total, 'recortando'];
   // crop padded canvases to content (single readback), convert anchors, then pack
   let canv;
   try { canv = cropAll(pending.map((p) => p.c)); } catch (e) { console.error('[art] crop failed', e); failures.push(`cropAll: ${e?.message || e}`); canv = pending.map((p) => p.c); }
@@ -63,10 +76,28 @@ export function buildAtlas(opts = {}) {
     A.add(p.name, c, x, y, PPU);
   }
   clearPool();
+  yield [(steps.length + 1) / total, 'organizando'];
   A.pack();
   A.failures = failures;
   A.placeholders = placeholders;
   return A;
+}
+
+export function buildAtlas(opts = {}) {
+  const it = atlasSteps(opts);
+  for (;;) { const r = it.next(); if (r.done) return r.value; }
+}
+
+// onStep(fraction 0..1, group label) before each group; yields a frame in between
+export async function buildAtlasAsync(opts = {}, onStep = null) {
+  const breathe = () => new Promise((r) => (document.hidden ? setTimeout(r, 0) : requestAnimationFrame(() => setTimeout(r, 0))));
+  const it = atlasSteps(opts);
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+    try { onStep?.(r.value[0], r.value[1]); } catch { /* ignore */ }
+    await breathe();
+  }
 }
 
 // Fallback sprites for any contract name that failed to draw (keeps the game booting). Every placeholder is

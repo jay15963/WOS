@@ -7,7 +7,7 @@
 
 import { Renderer } from './engine/renderer.js';
 import { Input } from './engine/input.js';
-import { buildAtlas } from './art/sprites.js';
+import { buildAtlas, buildAtlasAsync } from './art/sprites.js';
 import { startAtlasLookup, storeAtlas } from './engine/atlasCache.js';
 import { checkAtlas } from './game/artcheck.js';
 import { BUILD_ID, BUILD_FILES } from './version.js';
@@ -79,7 +79,9 @@ function loadAssets() {
       }
     }
     const fromCache = !!atlas;
-    if (!atlas) atlas = buildAtlas({ fail: FLAGS.paintFail ? 'addNatural' : null });
+    // first boot after an art update: paint group by group, letting the loading bar move in between
+    if (!atlas) atlas = await buildAtlasAsync({ fail: FLAGS.paintFail ? 'addNatural' : null },
+      (f, what) => report(0.5 + f * 0.45, what ? `Desenhando ${what}…` : 'Desenhando…'));
     atlas.source = fromCache ? 'cache' : 'painted';
     if (FLAGS.fakeArt) { // test hook: break the atlas before the handshake
       if (FLAGS.fakeArt.startsWith('ph:')) atlas.placeholders = [...(atlas.placeholders || []), FLAGS.fakeArt.slice(3)];
