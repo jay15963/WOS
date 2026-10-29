@@ -409,6 +409,9 @@ html, body {
 .jobchip.paused { color: #a29d92; border-color: var(--border) !important; }
 .jobchip.down { transform: scale(.94); }
 
+/* re-rendered panels must not replay the open animation (no flicker) */
+.panel.still { animation: none !important; }
+
 /* tabs */
 .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin: 0 0 8px; padding-bottom: 2px; }
 .tabs::-webkit-scrollbar { display: none; }
@@ -492,8 +495,13 @@ html, body {
   .inv2 .detail2 { grid-column: 1 / -1; }
   .doll { grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 52px); gap: 2px; padding: 3px; }
   .eqs { width: 48px; height: 50px; padding: 4px 3px 12px !important; }
-  .tip { font-size: 11px; padding: 4px 6px; margin-bottom: 6px; }
-  .cq { margin-bottom: 6px; }
+  .tip { font-size: 11px; padding: 3px 6px; margin-bottom: 5px; }
+  .tip span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cq { margin-bottom: 5px; min-height: 40px; padding: 3px 5px; }
+  .cq.empty { min-height: 0; padding: 3px 6px; }
+  .cq.empty small { font-size: 10px; }
+  .tabs { margin-bottom: 5px; }
+  .rmain { min-height: 54px; padding: 5px 6px 5px 5px !important; }
 }
 @media (max-width: 640px) and (orientation: portrait) {
   .inv2 { grid-template-columns: 1fr; justify-items: center; }

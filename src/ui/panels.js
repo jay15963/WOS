@@ -70,7 +70,9 @@ export class Panels {
     if (this.open !== name) this.sel = null;
     this.open = name; this.data = data;
     g.ui.modal = true;
+    this.fresh = true;
     this.render();
+    this.fresh = false;
     g.audio?.play('ui', {});
   }
 
@@ -86,7 +88,7 @@ export class Panels {
   resetScroll(k) { delete this.scroll[k]; }
 
   frame(title, icon, body, cls = '') {
-    return `<div class="panel ${cls}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
+    return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
   }
 
   slots(inv, tag, cols, selected = -1) {
