@@ -2,24 +2,17 @@
 // the work loop (work.js) mines the reachable ones nearest-first. Time depends on the pickaxe tier,
 // rock hardness (world.rockType) and the ore; ore needs a minimum pickaxe tier (CONTENT §1/§7).
 // Yields stone + ore item; world.mineRock() turns the tile into rough stone floor (roof stays: World).
+// Multiplayer: designations are personal; progress and the mined tile are host ops (mut/tiles.js).
 
 import { registerWork, hitsFor, needToolMsg } from './gathering.js';
 import { bestTool } from './equipment.js';
-import { ORE_ITEM as ORE_ITEM_DB, ORE_MIN_TIER, ORE_NAME_PT, TIER_PT_F } from './content/items.js';
-import * as WG from '../world/worldgen.js';
-const ORE_ITEM = WG.ORE_ITEM || ORE_ITEM_DB; // world ore code -> item id (CONTENT §7)
-import { dropLoot } from './loot.js';
-import { gainXp } from './player.js';
-import { updateMasksAround } from './autotile.js';
+import { ORE_MIN_TIER, ORE_NAME_PT, TIER_PT_F } from './content/items.js';
+import { rockHitFx } from './mut/tiles.js';
 
 const HARD = [1.1, 1.4, 1.0, 1.15, 1.25];        // by world.rockType (1 granite .. 4 marble)
 const ORE_HARD = [1, 1.2, 1.35, 1.15, 1.5, 1.6];  // by world.ore
 const BASE = 3.4;                                  // s with a primitive pickaxe on limestone
-const ROCK_COL = [[0.6, 0.58, 0.55], [0.62, 0.6, 0.58], [0.76, 0.72, 0.62], [0.42, 0.44, 0.48], [0.86, 0.85, 0.82]];
-const ORE_COL = [null, [0.95, 0.55, 0.25], [0.6, 0.45, 0.38], [0.15, 0.15, 0.16], [1, 0.85, 0.3], [0.35, 0.85, 0.55]];
 const MAX_MARKS = 600;
-
-const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
 
 export function initMining(game) {
   game.mining = { marks: new Set(), mode: false, blocked: new Map(), anchor: null, end: null, v: 0 };
@@ -100,39 +93,14 @@ registerWork('rock', {
     const { need, cycle } = hitsFor(total, 2);
     return { type: 'mine', cycle, need, hits: Math.floor((game.rockHits.get(i) || 0) * need), label: w.ore[i] ? `Minerando ${ORE_NAME_PT[w.ore[i]]}` : 'Minerando', tool: tool.id };
   },
+  // feedback now, progress and the mined tile on the host (mut/tiles.js)
   hit(game, wk) {
-    const p = game.player, it = wk.it, w = game.world, i = w.idx(it.tx, it.ty), J = game.juice;
-    game.rockHits.set(i, wk.hits / wk.need);
-    const col = ROCK_COL[w.rockType[i]] || ROCK_COL[0];
-    const cx = Math.max(it.tx, Math.min(it.tx + 1, p.x)), cy = Math.max(it.ty, Math.min(it.ty + 1, p.y));
-    J.chips(cx, cy, col, 7, 0.5);
-    if (w.ore[i]) J.chips(cx, cy, ORE_COL[w.ore[i]] || [1, 0.75, 0.3], 3, 0.5);
-    J.puff(cx, cy, 2, col, 0.4);
-    game.audio?.play('mine', { x: cx, y: cy });
+    const p = game.player, it = wk.it;
+    rockHitFx(game, it.tx, it.ty, p.x, p.y);
+    game.net.request('rock.hit', { tx: it.tx, ty: it.ty, inc: +(1 / wk.need).toFixed(4) });
   },
   finish(game, wk) {
-    const it = wk.it, w = game.world, i = w.idx(it.tx, it.ty);
-    const ore = w.ore[i];
-    const col = ROCK_COL[w.rockType[i]] || ROCK_COL[0];
-    if (!w.mineRock(it.tx, it.ty)) return true;
-    game.mining.marks.delete(i); game.mining.blocked.delete(i); game.mining.v++;
-    game.minedTiles.push(i); game.minedSet.add(i);
-    game.rockHits.delete(i);
-    const cx = it.tx + 0.5, cy = it.ty + 0.6;
-    const n = ri(1, 2) + (Math.random() < 0.25 ? 1 : 0);
-    for (let k = 0; k < n; k++) dropLoot(game, cx, cy, 'stone');
-    const oreItem = ORE_ITEM[ore];
-    if (oreItem) {
-      const m = ore >= 4 ? 1 : ri(1, 2);
-      for (let k = 0; k < m; k++) dropLoot(game, cx, cy, oreItem);
-      const h = game.ctl?.hinted;
-      if (h && !h['ore' + ore]) { h['ore' + ore] = true; game.events.emit('toast', { text: `Veio de ${ORE_NAME_PT[ore]}!`, kind: 'good' }); }
-    }
-    game.juice.puff(cx, cy, 12, col, 1.0);
-    game.juice.shake(0.2);
-    gainXp(game, ore ? 8 : 4);
-    updateMasksAround(game, it.tx, it.ty);
-    game.events.emit('tile', { tx: it.tx, ty: it.ty });
+    game.net.request('rock.hit', { tx: wk.it.tx, ty: wk.it.ty, final: true });
     return true;
   },
 });
@@ -155,6 +123,7 @@ export function nearestMark(game, x, y, maxD = 40) {
 export function miningSystem() {
   let cleanT = 0;
   return {
+    sync: 'owner', // designations are a personal job list; the mined tiles themselves are ops
     update(game, dt) {
       cleanT -= dt;
       if (cleanT <= 0) {

@@ -4,6 +4,8 @@ import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../art/compose.js';
 import { moveCircle, facingFrom } from './physics.js';
 import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
+import { stepGait } from './anim.js';
+import { Net } from '../net/net.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 
@@ -29,8 +31,9 @@ export class Game {
     this.cam.zoom = this.defaultZoom();
     this._draw = [];
     this.shakeOff = { x: 0, y: 0 }; // camera shake (juice)
-    this.worldTime = 0;             // persistent simulation clock (s), saved
-    this.systems = []; // { update(game, dt), render?(game, B, view) } — gameplay modules plug in here
+    this.worldTime = 0;             // persistent simulation clock (s), saved; the HOST's clock in multiplayer
+    this.systems = []; // { sync, update(game, dt), render?(game, B, view) } — add with addSystem (systems.js)
+    this.net = new Net(this);       // role 'solo' until a session makes it 'host' or 'guest'
   }
 
   defaultZoom() {
@@ -60,10 +63,11 @@ export class Game {
     if (p.rooted) mx = my = 0;
     const spd = p.speed * this.world.speedAt(p.x, p.y);
     if (mx || my) {
+      const x0 = p.x, y0 = p.y;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
       p.facing = facingFrom(mx, my, p.facing);
       p.moving = true;
-      p.moveT += dt * Math.hypot(mx, my) * (spd / 4);
+      stepGait(p, Math.hypot(p.x - x0, p.y - y0)); // distance actually travelled (same clock as remote copies)
     } else {
       p.moving = false;
     }
@@ -84,11 +88,12 @@ export class Game {
     this.particles.update(dt);
     this.audio?.update(this, dt);
 
-    if (this.world.dirty) {
+    if (this.world.dirty && !this.headless) {
       const d = this.world.dirty;
       this.R.updateWorldRegion(d[0], d[1], d[2], d[3]);
       this.world.dirty = null;
     }
+    this.net.flush(); // one ordered op batch per frame to every synced guest
   }
 
   // visible world rect (with margins for tall sprites & shadows)

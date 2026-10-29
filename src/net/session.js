@@ -1,20 +1,36 @@
-// Multiplayer session (co-op, host-authoritative in the host's browser).
-// Phase 1: lobby by code, presence (see each other move/act), shared clock & weather, chat, ping,
-// reconnection. Every step is logged to netlog for diagnostics.
+// Multiplayer session (co-op, host-authoritative in the host's browser). docs/SYNC.md §3.
+// Transport: TrysteroLink (code) / ManualLink (codes by hand) / BroadcastLink (?link=bc, automated tests).
 //
-// Messages (JSON): hello / welcome / reject / st (guest state) / sts (host: everyone's states + env)
-//                  chat / ping / pong / bye
+// Join: guest → hello {v, build, art, pid, name, look}; host checks protocol / build / atlas digest →
+// welcome {seed, hour, day, weather, wt, …} (or reject {reason, msg}); the guest generates the seed world
+// as a guest (no local creatures / regrowth / world save), sends ready; the host answers with the world
+// snapshot (chunks ≤ 48 KB) and from then on the guest is `synced`: it receives every op batch (ops), the
+// creature stream (ents), cosmetic events (fx), owner messages (own), digests (dg) and acks to its requests.
+//
+// Messages: hello welcome reject ready snap st sts lk chat ping pong left bye rq ack ops own ents fx dg dgx dgr
+// Presence (st / sts, 12 Hz) carries the sender clock (ts / ht): remote players are interpolated in the
+// sender's time with a min-filtered clock offset (stable on TURN jitter).
 
-import { TrysteroLink, ManualLink, NETWORKS } from './links.js';
+import { TrysteroLink, ManualLink, BroadcastLink, NETWORKS } from './links.js';
+import { netlog, PROTO, BUILD, runtime } from './netlog.js';
+import { prepareIce } from './rtc.js';
+import { stepGait } from '../game/anim.js';
+import { serializeWorld, applyWorld } from './snapshot.js';
+import { EntityServer, EntityClient, ClockSync } from './entities.js';
+import { DigestHost, DigestGuest } from './digest.js';
+import { releaseStations } from '../game/mut/structures.js';
+import { clearAtlasCache } from '../engine/atlasCache.js';
 
 const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: TURN da Cloudflare em Configurações (copie o relatório se ele já estiver ativo).';
-import { netlog, PROTO, BUILD } from './netlog.js';
-import { prepareIce } from './rtc.js';
+const QS = new URLSearchParams(location.search);
+const DEV = /^(localhost|127\.|\[::1\])/.test(location.hostname);
+const LINK_BC = QS.get('link') === 'bc';
 
 export const MAX_PLAYERS = 4;
 const SEND_HZ = 12;
-const INTERP_DELAY = 0.12;     // s behind the newest snapshot
+const INTERP_DELAY = 0.12;     // s behind the newest presence sample (sender time)
 const STALE_S = 12;            // drop a remote player after this long without data
+const CHUNK = 48000;           // snapshot chunk (chars of JSON)
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const FACINGS = new Set(['s', 'n', 'e', 'w']);
 
@@ -29,11 +45,13 @@ export function normalizeCode(s) {
 // one id per browser TAB (sessionStorage survives reloads of that tab, so reconnects keep the id,
 // while two tabs/windows on the same PC are still different players)
 export function playerId() {
+  const forced = DEV ? QS.get('pid') : null; // tests: ?pid=<id> (iframes of one harness share sessionStorage)
+  if (forced) return forced.slice(0, 12);
   try {
     let id = sessionStorage.getItem('wos.pid');
-    if (!id) { id = Math.random().toString(36).slice(2, 10); sessionStorage.setItem('wos.pid', id); }
+    if (!id) { id = Math.random().toString(36).slice(2, 10); sessionStorage.setItem('wos.pid', id); } // sync-ok: player id (playerId), never world state
     return id;
-  } catch { return Math.random().toString(36).slice(2, 10); }
+  } catch { return Math.random().toString(36).slice(2, 10); } // sync-ok: player id (playerId)
 }
 export function playerName() {
   try { return (localStorage.getItem('wos.name') || '').trim().slice(0, 18) || 'Sobrevivente'; } catch { return 'Sobrevivente'; }
@@ -63,6 +81,9 @@ function packState(p) {
   };
 }
 
+export const versionMessage = (mine, host) => `Versões diferentes do jogo (sua ${mine || '?'}, anfitrião ${host || '?'}). Recarregue a página (Ctrl+Shift+R); se persistir, o anfitrião também deve recarregar.`;
+export const GRAPHICS_BROKEN = 'Gráficos incompletos neste navegador: recarregue a página (Ctrl+Shift+R) antes de jogar em grupo.';
+
 export class Session {
   constructor() {
     this.role = null;
@@ -72,7 +93,7 @@ export class Session {
     this.game = null;
     this.pid = playerId();
     this.name = playerName();
-    this.players = new Map();   // pid -> { pid, name, key, ent, rtt, last, look }
+    this.players = new Map();   // pid -> { pid, name, key, ent (drawn), av (latest, for host AI), rtt, last, look, synced, clk }
     this.keyToPid = new Map();
     this.hostKey = null;
     this.hostPid = null;
@@ -81,7 +102,14 @@ export class Session {
     this.rtt = null;
     this.bubbles = new Map();   // pid -> { text, until }
     this.reconnects = 0;
-    this.state = 'idle';        // idle | hosting | joining | connected | lost | closed
+    this.state = 'idle';        // idle | hosting | joining | syncing | connected | lost | hostgone | closed
+    this.allList = [];          // host: [local player, ...synced remote avatars] (players.js)
+    this.snapIn = null;         // guest: snapshot chunks being received
+    this.lastResync = -1e9;
+    this.lastError = null;
+    this.ents = null;
+    this.digest = null;
+    this.hostClock = new ClockSync();
     window.session = this;      // debug handle
   }
 
@@ -89,13 +117,12 @@ export class Session {
   emit(type, data) { for (const fn of this.listeners[type] || []) { try { fn(data); } catch (e) { console.error(e); } } }
   _setState(s, extra) { this.state = s; netlog.fact('Estado da sessão', s); this.emit('state', { state: s, ...extra }); }
   get count() { return this.players.size + 1; }
+  get net() { return this.game?.net; }
 
   _newLink(role) {
-    return new TrysteroLink({
-      code: this.code, role,
-      onOpen: (k, i) => this._open(k, i), onClose: (k) => this._close(k), onData: (k, m) => this._data(k, m),
-      onFail: () => this._linkFailed(),
-    });
+    const cb = { onOpen: (k, i) => this._open(k, i), onClose: (k) => this._close(k), onData: (k, m) => this._data(k, m) };
+    if (LINK_BC) return new BroadcastLink({ code: this.code, role, ...cb });
+    return new TrysteroLink({ code: this.code, role, ...cb, onFail: () => this._linkFailed() });
   }
 
   // a peer was found on a network but WebRTC could not connect. When every network failed, stop waiting.
@@ -110,17 +137,29 @@ export class Session {
   }
 
   // ---------------- host ----------------
+  // returns false (and does nothing) when this browser's graphics are incomplete
   host(game, code = newRoomCode()) {
+    if (runtime.atlasOk === false) {
+      this.lastError = { reason: 'graphics', msg: GRAPHICS_BROKEN };
+      netlog.error('session', 'Sala não criada: ' + GRAPHICS_BROKEN);
+      game.events?.emit('error', { text: GRAPHICS_BROKEN });
+      return false;
+    }
     this.role = 'host';
     this.code = code;
+    game.net.role = 'host';
+    game.net.pid = this.pid;
+    game.player.pid = this.pid;
     this.attach(game);
     netlog.fact('Papel', 'anfitrião');
     netlog.fact('Sala', code);
     netlog.ok('session', `Sala ${code} criada (mundo ${game.world.seed}). Compartilhe o código com seus amigos.`);
     this.link = this._newLink('host');
     const link = this.link;
-    prepareIce().finally(() => { if (this.link === link) link.start(); }); // TURN credentials first (if configured)
+    if (LINK_BC) link.start();
+    else prepareIce().finally(() => { if (this.link === link) link.start(); }); // TURN credentials first (if configured)
     this._setState('hosting');
+    return true;
   }
 
   // manual pairing, host side (one guest per invite)
@@ -140,21 +179,29 @@ export class Session {
 
   // ---------------- guest ----------------
   // Connect & handshake before the world exists. Resolves with the host's welcome (seed, time...).
-  join(code, { timeoutMs = 55000 } = {}) {
+  async join(code, { timeoutMs = 55000 } = {}) {
     this.role = 'guest';
     this.code = code;
+    await runtime.atlasReady;
+    if (runtime.atlasOk === false) {
+      this.lastError = { reason: 'graphics', msg: GRAPHICS_BROKEN };
+      netlog.error('session', GRAPHICS_BROKEN);
+      throw new Error(GRAPHICS_BROKEN);
+    }
     netlog.fact('Papel', 'convidado');
     netlog.fact('Sala', code);
     netlog.info('session', `Entrando na sala ${code}…`);
     this._setState('joining');
     this.link = this._newLink('guest');
-    return this._awaitWelcome(timeoutMs, () => prepareIce().finally(() => this.link?.start()));
+    return this._awaitWelcome(timeoutMs, () => (LINK_BC ? this.link.start() : prepareIce().finally(() => this.link?.start())));
   }
 
   // manual pairing, guest side: paste the invite, returns the answer code; welcome arrives later
   async manualJoin(invite, { timeoutMs = 90000 } = {}) {
     this.role = 'guest';
     this.code = 'MANUAL';
+    await runtime.atlasReady;
+    if (runtime.atlasOk === false) throw new Error(GRAPHICS_BROKEN);
     netlog.fact('Papel', 'convidado (código manual)');
     this._setState('joining');
     await prepareIce();
@@ -184,40 +231,90 @@ export class Session {
     });
   }
 
-  // called once the game exists (host: immediately; guest: after the world was generated)
+  // called once the game exists (host: immediately; guest: after the world was generated as a guest)
   attach(game) {
     this.game = game;
     game.session = this;
-    if (this.role === 'guest') {
-      // the host owns the weather: never switch locally
-      game.env.weatherT = 1e9;
-      for (const pl of this.players.values()) if (!pl.ent) this._spawn(pl);
-      this._setState('connected');
+    game.net.session = this;
+    if (this.role === 'host') {
+      this.ents = new EntityServer(game, this);
+      this.digest = new DigestHost(game, this);
+      this._rebuildAll();
+      return;
     }
+    // guest: the host owns the weather and the world
+    game.net.role = 'guest';
+    game.net.pid = this.pid;
+    game.player.pid = this.pid;
+    game.env.weatherT = 1e9;
+    this.ents = new EntityClient(game, this);
+    this.digest = new DigestGuest(game, this);
+    for (const pl of this.players.values()) if (!pl.ent) this._spawn(pl);
+    if (this.welcomeInfo) this._applyWelcomeClock(this.welcomeInfo);
+    this._sendReady(false);
   }
 
-  // ---------------- messages ----------------
+  _applyWelcomeClock(w) {
+    const g = this.game;
+    g.env.hour = w.hour; g.env.dayIndex = w.day; g.env.setWeather(w.weather); g.env.weatherT = 1e9;
+    if (Number.isFinite(w.wt)) g.worldTime = w.wt;
+  }
+
+  _sendReady(resync) {
+    const net = this.game.net;
+    if (!resync) net.synced = false;
+    this.snapIn = null;
+    this._setState('syncing');
+    this.sendHost({ t: 'ready', resync: resync ? 1 : 0 });
+  }
+
+  // ---------------- transport ----------------
   _hello() {
-    return { t: 'hello', v: PROTO, build: BUILD, pid: this.pid, name: this.name, look: this.game ? this.game.player.look : null };
+    return { t: 'hello', v: PROTO, build: BUILD, art: runtime.atlasDigest, pid: this.pid, name: this.name, look: this.game ? this.game.player.look : null };
   }
 
   _open(key, info) {
     netlog.info('session', `Canal aberto via ${info?.label || '?'}; apresentando-se`);
-    this._sendTo(key, this._hello());
+    if (this.role === 'guest') this._sendTo(key, this._hello()); // the host never introduces itself first
   }
 
   _sendTo(key, msg) {
-    if (key.startsWith('manual:') && this.role === 'host') this.manuals.get(key)?.send(key, msg);
-    else this.link?.send(key, msg);
+    if (!key) return;
+    const s = JSON.stringify(msg);
+    if (this.game?.net) this.game.net.stats.bytesOut += s.length;
+    if (key.startsWith('manual:') && this.role === 'host') this.manuals.get(key)?.send(key, s);
+    else this.link?.send(key, s);
   }
+  sendHost(msg) { if (this.hostKey) this._sendTo(this.hostKey, msg); }
+  sendToPid(pid, msg) { const pl = this.players.get(pid); if (pl?.key) this._sendTo(pl.key, msg); }
+  _broadcast(msg, exceptKey = null) {
+    const s = JSON.stringify(msg);
+    for (const pl of this.players.values()) {
+      if (!pl.key || pl.key === exceptKey) continue;
+      if (this.game?.net) this.game.net.stats.bytesOut += s.length;
+      if (pl.key.startsWith('manual:')) this.manuals.get(pl.key)?.send(pl.key, s); else this.link?.send(pl.key, s);
+    }
+  }
+  _broadcastSynced(msg) {
+    const s = JSON.stringify(msg);
+    for (const pl of this.players.values()) {
+      if (!pl.key || !pl.synced) continue;
+      this.game.net.stats.bytesOut += s.length;
+      if (pl.key.startsWith('manual:')) this.manuals.get(pl.key)?.send(pl.key, s); else this.link?.send(pl.key, s);
+    }
+  }
+  // net.flush(): one ordered op batch per frame to every synced guest
+  broadcastOps(msg) { if (this.role === 'host') this._broadcastSynced(msg); }
+  syncedGuests() { const out = []; for (const pl of this.players.values()) if (pl.synced && pl.key) out.push(pl); return out; }
 
   _close(key) {
     const pid = this.keyToPid.get(key);
     this.keyToPid.delete(key);
     if (this.role === 'guest' && key === this.hostKey) {
-      netlog.error('session', 'Conexão com o anfitrião perdida');
       this.hostKey = null;
       for (const pl of [...this.players.values()]) this._remove(pl.pid, true);
+      if (this.state === 'hostgone' || this.state === 'closed') return;
+      netlog.error('session', 'Conexão com o anfitrião perdida');
       this._setState('lost');
       this.emit('toast', { text: 'Conexão com o anfitrião perdida — tentando reconectar…', kind: 'warn' });
       this._reconnect();
@@ -233,39 +330,48 @@ export class Session {
   }
 
   _reconnect() {
-    if (this.reconnects >= 3 || this.code === 'MANUAL') {
-      netlog.error('session', 'Desistindo de reconectar; jogando sozinho');
-      this.emit('toast', { text: 'Sem conexão com a sala. Você continua jogando sozinho.', kind: 'error' });
-      this.link?.close();
-      return;
-    }
+    if (this.reconnects >= 3 || this.code === 'MANUAL') { this._hostGone('Não foi possível reconectar à sala.'); return; }
     this.reconnects++;
     netlog.warn('session', `Tentativa de reconexão ${this.reconnects}/3`);
     this.link?.close();
     this.link = this._newLink('guest');
-    this._awaitWelcome(40000, () => prepareIce().finally(() => this.link?.start()))
-      .then(() => { this._setState('connected'); this.emit('toast', { text: 'Reconectado à sala!', kind: 'good' }); })
-      .catch(() => setTimeout(() => this._reconnect(), 3000));
+    this._awaitWelcome(40000, () => (LINK_BC ? this.link.start() : prepareIce().finally(() => this.link?.start())))
+      .then(() => this.emit('toast', { text: 'Reconectado à sala! Sincronizando…', kind: 'good' }))
+      .catch(() => { if (this.state !== 'hostgone') setTimeout(() => this._reconnect(), 3000); });
   }
 
-  _data(key, m) {
+  // the host left for good: no silent switch to a half-simulated solo world
+  _hostGone(why) {
+    if (this.state === 'hostgone') return;
+    netlog.error('session', `O anfitrião saiu: ${why}`);
+    this.link?.close();
+    this._setState('hostgone', { why });
+    this.emit('hostgone', { why });
+  }
+
+  _data(key, raw) {
+    let m = raw;
+    if (typeof raw === 'string') {
+      if (this.game?.net) this.game.net.stats.bytesIn += raw.length;
+      try { m = JSON.parse(raw); } catch { return; }
+    } else if (raw && this.game?.net) this.game.net.stats.bytesIn += JSON.stringify(raw).length;
     if (!m || typeof m !== 'object' || typeof m.t !== 'string') return;
+    const fromHost = this.role === 'guest' && key === this.hostKey;
     switch (m.t) {
       case 'hello': return this._onHello(key, m);
       case 'welcome': return this._onWelcome(key, m);
-      case 'reject': {
-        const why = str(m.reason, 120) || 'recusado';
-        netlog.error('session', `O anfitrião recusou: ${why}`);
-        this._joinWait?.reject(new Error(why));
-        return;
-      }
+      case 'reject': return this._onReject(m);
+      case 'ready': return this._onReady(key, m);
+      case 'snap': if (fromHost) this._onSnap(m); return;
       case 'st': {
         const pid = this.keyToPid.get(key);
-        if (pid && this.role === 'host') this._applyState(pid, m.s);
+        if (pid && this.role === 'host') this._applyState(pid, m.s, num(m.ts, 0, 1e9, 0));
         return;
       }
       case 'sts': {
-        if (this.role !== 'guest' || key !== this.hostKey) return;
+        if (!fromHost) return;
+        const ht = num(m.ht, 0, 1e9, 0);
+        if (ht) this.hostClock.sample(ht);
         if (Array.isArray(m.list)) for (const it of m.list.slice(0, MAX_PLAYERS)) {
           const pid = str(it?.pid, 12);
           if (!pid || pid === this.pid) continue;
@@ -273,9 +379,28 @@ export class Session {
           const pl = this.players.get(pid);
           if (it.name) pl.name = str(it.name, 18);
           if (it.look) { pl.look = cleanLook(it.look); if (pl.ent && pl.look) pl.ent.look = pl.look; }
-          this._applyState(pid, it.s);
+          this._applyState(pid, it.s, ht, this.hostClock);
         }
         if (m.env && this.game) this._applyEnv(m.env);
+        return;
+      }
+      case 'rq': {
+        const pid = this.keyToPid.get(key), pl = pid && this.players.get(pid);
+        if (this.role !== 'host' || !pl || !pl.synced || !this.game) return;
+        const ack = this.game.net.onRequest(pid, pl.av, m);
+        this._sendTo(key, ack);
+        return;
+      }
+      case 'ack': if (fromHost) this.game?.net.onAck(m); return;
+      case 'ops': if (fromHost && this.game) this.game.net.onOps(m); return;
+      case 'own': if (fromHost && this.game) this.game.net.onOwn(m); return;
+      case 'ents': if (fromHost && this.ents) this.ents.onEnts(m); return;
+      case 'fx': if (fromHost && this.ents) this.ents.onFx(m); return;
+      case 'dg': if (fromHost && this.digest) this.digest.onDigest(m); return;
+      case 'dgr': if (fromHost && this.digest) this.digest.onRows(m); return;
+      case 'dgx': {
+        const pid = this.keyToPid.get(key);
+        if (this.role === 'host' && pid && this.digest) this.digest.onRequest(key, m);
         return;
       }
       case 'lk': {
@@ -286,7 +411,7 @@ export class Session {
       }
       case 'left': {
         const pid = str(m.pid, 12);
-        if (this.role === 'guest' && pid) this._remove(pid);
+        if (fromHost && pid) this._remove(pid);
         return;
       }
       case 'chat': {
@@ -311,6 +436,7 @@ export class Session {
         return;
       }
       case 'bye': {
+        if (fromHost) { this._hostGone('O anfitrião fechou a sala.'); return; }
         netlog.info('session', 'Outro jogador saiu da sala');
         this._close(key);
         return;
@@ -319,63 +445,146 @@ export class Session {
   }
 
   _onHello(key, m) {
-    if (this.role !== 'host') return; // guests ignore hellos from other guests (mesh links)
+    if (this.role !== 'host' || !this.game) return; // guests ignore hellos from other guests (mesh links)
     const pid = str(m.pid, 12), name = str(m.name, 18) || 'Jogador';
     if (!pid) return;
-    if (m.v !== PROTO) {
-      netlog.warn('session', `Recusado ${name}: versão do protocolo ${m.v} ≠ ${PROTO}`);
-      this._sendTo(key, { t: 'reject', reason: `Versões diferentes do jogo (sua ${m.build || '?'}, anfitrião ${BUILD}). Recarreguem a página.` });
+    if (m.v !== PROTO || m.build !== BUILD) {
+      netlog.warn('session', `Recusado ${name}: versão ${m.build || '?'} (protocolo ${m.v}) ≠ ${BUILD} (protocolo ${PROTO})`);
+      this._sendTo(key, { t: 'reject', reason: 'version', host: BUILD, mine: str(m.build, 24), msg: versionMessage(str(m.build, 24), BUILD) });
+      return;
+    }
+    if (m.art !== runtime.atlasDigest) {
+      netlog.warn('session', `Recusado ${name}: atlas ${m.art} ≠ ${runtime.atlasDigest}`);
+      this._sendTo(key, { t: 'reject', reason: 'atlas', msg: 'Gráficos diferentes do anfitrião neste navegador.' });
       return;
     }
     if (!this.players.has(pid) && this.players.size >= MAX_PLAYERS - 1) {
-      this._sendTo(key, { t: 'reject', reason: `Sala cheia (${MAX_PLAYERS} jogadores)` });
+      this._sendTo(key, { t: 'reject', reason: 'full', msg: `Sala cheia (${MAX_PLAYERS} jogadores)` });
       return;
     }
     const existing = this.players.get(pid);
-    if (existing && existing.key !== key) { this.keyToPid.delete(existing.key); existing.key = key; }
+    if (existing && existing.key !== key) { this.keyToPid.delete(existing.key); existing.key = key; existing.synced = false; this._rebuildAll(); }
     if (!existing) this._addPlayer(pid, name, key);
     const pl = this.players.get(pid);
     pl.name = name;
     pl.look = cleanLook(m.look);
     if (pl.ent && pl.look) pl.ent.look = pl.look;
     this.keyToPid.set(key, pid);
-    const env = this.game.env;
+    const g = this.game, env = g.env;
     this._sendTo(key, {
-      t: 'welcome', v: PROTO, hostPid: this.pid, hostName: this.name, seed: this.game.world.seed,
-      hour: env.hour, day: env.dayIndex, weather: env.weather,
+      t: 'welcome', v: PROTO, build: BUILD, art: runtime.atlasDigest, hostPid: this.pid, hostName: this.name, seed: g.world.seed,
+      hour: env.hour, day: env.dayIndex, weather: env.weather, wt: Math.round(g.worldTime * 100) / 100,
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
     });
-    netlog.ok('session', `${name} entrou na sala (${this.count}/${MAX_PLAYERS})`);
+    netlog.ok('session', `${name} conectou (${this.count}/${MAX_PLAYERS}); aguardando a sincronização do mundo`);
     netlog.fact('Jogadores', this.count);
-    this.emit('toast', { text: `${name} entrou no mundo`, kind: 'good' });
+    if (!existing) this.emit('toast', { text: `${name} entrou no mundo`, kind: 'good' });
     this.emit('players', {});
   }
 
   _onWelcome(key, m) {
     if (this.role !== 'guest') return;
-    if (m.v !== PROTO) { this._joinWait?.reject(new Error('Versões diferentes do jogo — recarreguem a página')); return; }
+    if (m.v !== PROTO || (m.build && m.build !== BUILD)) {
+      const msg = versionMessage(BUILD, str(m.build, 24));
+      this.lastError = { reason: 'version', msg };
+      this._joinWait?.reject(new Error(msg));
+      return;
+    }
     this.hostKey = key;
     this.hostPid = str(m.hostPid, 12);
     this.link.keepOnly?.(key);
     this.keyToPid.set(key, this.hostPid);
     const hostName = str(m.hostName, 18) || 'Anfitrião';
     if (!this.players.has(this.hostPid)) this._addPlayer(this.hostPid, hostName, key);
-    this.players.get(this.hostPid).host = true;
+    const hp = this.players.get(this.hostPid);
+    hp.host = true; hp.key = key;
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
-      weather: str(m.weather, 12) || 'clear', hostName,
+      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName,
     };
     this.welcomeInfo = welcome;
     netlog.ok('session', `Bem-vindo! Anfitrião: ${hostName}, mundo ${welcome.seed}`);
     netlog.fact('Mundo', welcome.seed);
     this.reconnects = 0;
     if (this._joinWait) this._joinWait.resolve(welcome);
-    else if (this.game) this._setState('connected');
+    if (this.game) { this._applyWelcomeClock(welcome); this._sendReady(true); } // reconnect: resync the world
+  }
+
+  _onReject(m) {
+    const reason = str(m.reason, 16) || '';
+    let msg = str(m.msg, 300) || str(m.reason, 120) || 'recusado';
+    if (reason === 'version') msg = versionMessage(BUILD, str(m.host, 24));
+    if (reason === 'atlas') {
+      let tried = false;
+      try { tried = sessionStorage.getItem('wos.atlasRetry') === '1'; } catch { /* ignore */ }
+      if (!tried && !QS.has('nosave')) {
+        try { sessionStorage.setItem('wos.atlasRetry', '1'); } catch { /* ignore */ }
+        netlog.warn('session', 'Atlas diferente do anfitrião: limpando o cache de gráficos e recarregando');
+        clearAtlasCache().finally(() => location.reload());
+        return;
+      }
+      msg = 'Gráficos corrompidos neste navegador — limpe os dados do site (Configurações → Apagar todos os dados) e recarregue.';
+    }
+    this.lastError = { reason, msg };
+    netlog.error('session', `O anfitrião recusou: ${msg}`);
+    this._joinWait?.reject(new Error(msg));
+  }
+
+  // host: a guest generated its world and wants the current state (join or resync)
+  _onReady(key, m) {
+    if (this.role !== 'host' || !this.game) return;
+    const pid = this.keyToPid.get(key), pl = pid && this.players.get(pid);
+    if (!pl) return;
+    const net = this.game.net;
+    net.flush(); // ops already applied go out first (seq ≤ snapshot seq: the guest skips them)
+    const json = JSON.stringify(serializeWorld(this.game));
+    const n = Math.max(1, Math.ceil(json.length / CHUNK));
+    for (let i = 0; i < n; i++) this._sendTo(key, { t: 'snap', i, n, d: json.slice(i * CHUNK, (i + 1) * CHUNK) });
+    pl.synced = true;
+    this.ents?.resetGuest(pid);
+    this._rebuildAll();
+    if (m.resync) net.stats.resyncs++;
+    netlog.ok('session', `${pl.name}: ${m.resync ? 'ressincronizado' : 'mundo enviado'} (${Math.round(json.length / 1024)} KB, seq ${net.seq})`);
+    this.emit('players', {});
+  }
+
+  // guest: snapshot chunks
+  _onSnap(m) {
+    const n = num(m.n, 1, 10000, 1) | 0, i = num(m.i, 0, n - 1, 0) | 0;
+    if (!this.snapIn || this.snapIn.n !== n || i === 0) this.snapIn = { n, parts: new Array(n), got: 0 };
+    const S = this.snapIn;
+    if (S.parts[i] == null && typeof m.d === 'string') { S.parts[i] = m.d; S.got++; }
+    if (S.got < S.n) return;
+    this.snapIn = null;
+    let data;
+    try { data = JSON.parse(S.parts.join('')); } catch (e) { netlog.error('sync', 'Snapshot do mundo inválido: ' + e.message); return; }
+    const g = this.game, net = g.net;
+    this.ents?.clear();
+    applyWorld(g, data, 'net');
+    net.seq = data.seq | 0;
+    net.stats.lastSeq = net.seq;
+    net.synced = true;
+    netlog.ok('sync', `Mundo sincronizado (seq ${net.seq}, ${data.structs?.length || 0} construções, ${data.loot?.length || 0} itens no chão)`);
+    this._setState('connected');
+    this.emit('synced', { seq: net.seq });
+  }
+
+  // guest: ask the host for a fresh snapshot (rate-limited)
+  requestResync(why = 'manual') {
+    if (this.role !== 'guest' || !this.hostKey || !this.game) return false;
+    const now = performance.now() / 1000;
+    if (why !== 'manual' && now - this.lastResync < 30) return false;
+    this.lastResync = now;
+    this.game.net.stats.resyncs++;
+    netlog.warn('sync', `Pedindo ressincronização ao anfitrião (${why})`);
+    if (why === 'lacuna de ops' || why === 'op desconhecida') this.game.net.synced = false;
+    this.sendHost({ t: 'ready', resync: 1 });
+    return true;
   }
 
   // ---------------- players ----------------
   _addPlayer(pid, name, key) {
-    const pl = { pid, name, key, ent: null, rtt: null, last: performance.now(), look: null };
+    const pl = { pid, name, key, ent: null, av: null, rtt: null, last: performance.now(), look: null, synced: false, clk: new ClockSync() };
     this.players.set(pid, pl);
     if (key) this.keyToPid.set(key, pid);
     if (this.game) this._spawn(pl);
@@ -393,6 +602,9 @@ export class Session {
       weapon: null, offhand: null, armor: { body: null, head: null }, hp: 100, maxHp: 100, level: 1, dead: false,
       _buf: [], _seen: false,
     };
+    // the host's AI / hit checks use the LATEST position (avatar), not the interpolated drawing
+    pl.av = { isEntity: true, kind: 'pawn', avatar: true, remote: true, pid: pl.pid, name: pl.name, x: sp.x, y: sp.y, r: 0.24, facing: 's', moving: false,
+      speed: 4, vx: 0, vy: 0, hp: 100, maxHp: 100, level: 1, dead: false, blocking: false, passDoors: true, gone: false, ent: pl.ent, lastHitSkin: false };
     g.entities.push(pl.ent);
   }
 
@@ -400,10 +612,13 @@ export class Session {
     const pl = this.players.get(pid);
     if (!pl) return;
     this.players.delete(pid);
+    if (pl.av) pl.av.gone = true; // sync-ok: host-side avatar of a player that left (AI drops it), not world state
     if (pl.ent && this.game) {
       const i = this.game.entities.indexOf(pl.ent);
       if (i >= 0) this.game.entities.splice(i, 1);
     }
+    if (this.role === 'host' && this.game) { releaseStations(this.game, pid); this.ents?.dropGuest(pid); }
+    this._rebuildAll();
     if (!quiet) {
       netlog.info('session', `${pl.name} saiu da sala`);
       this.emit('toast', { text: `${pl.name} saiu do mundo`, kind: 'warn' });
@@ -412,24 +627,39 @@ export class Session {
     this.emit('players', {});
   }
 
-  _applyState(pid, s) {
+  _rebuildAll() {
+    if (!this.game) return;
+    const L = [this.game.player];
+    if (this.role === 'host') for (const pl of this.players.values()) if (pl.synced && pl.av && !pl.av.gone) L.push(pl.av);
+    this.allList = L;
+  }
+
+  // presence sample (sender clock ts): drawn copy (interpolated) + host avatar (latest)
+  _applyState(pid, s, ts, clock = null) {
     const pl = this.players.get(pid);
     if (!pl || !s || typeof s !== 'object') return;
     pl.last = performance.now();
     const e = pl.ent;
-    if (!e) { pl.pending = s; return; }
+    if (!e) { pl.pending = [s, ts]; return; }
     const W = this.game.world;
     const x = num(s.x, 0, W.W, e.x), y = num(s.y, 0, W.H, e.y);
+    const clk = clock || pl.clk;
+    if (ts && !clock) clk.sample(ts);
+    const t = ts || performance.now() / 1000;
     const B = e._buf;
-    B.push({ t: performance.now() / 1000, x, y });
-    if (B.length > 20) B.shift();
+    const prev = B[B.length - 1];
+    if (prev && t <= prev.t) { /* out of order / duplicate sample */ } else {
+      if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; } // teleport / respawn: snap
+      B.push({ t, x, y });
+      if (B.length > 24) B.shift();
+    }
     if (!e._seen) { e.x = x; e.y = y; e._seen = true; }
     if (FACINGS.has(s.f)) e.facing = s.f;
     e.netMoving = !!s.mv;
     if (Array.isArray(s.a) && typeof s.a[0] === 'string') {
-      const type = s.a[0].slice(0, 16), t = num(s.a[1], 0, 1, 0);
-      if (!e.action || e.action.type !== type || t < e.action.t - 0.05) e.action = { type, t, dur: 0.4, remote: true };
-      else e.action.t = Math.max(e.action.t, t);
+      const type = s.a[0].slice(0, 16), at = num(s.a[1], 0, 1, 0);
+      if (!e.action || e.action.type !== type || at < e.action.t - 0.05) e.action = { type, t: at, dur: 0.4, remote: true };
+      else e.action.t = Math.max(e.action.t, at);
     } else e.action = null;
     e.weapon = str(s.w, 32) || null;
     e.offhand = str(s.o, 32) || null;
@@ -441,10 +671,19 @@ export class Session {
     e.blocking = !!s.bl;
     e.level = num(s.lv, 1, 999, 1) | 0;
     e.name = pl.name;
+    const av = pl.av;
+    if (av) {
+      const dt = av._t != null ? t - av._t : 0;
+      if (dt > 0.02 && dt < 1) { av.vx = (x - av.x) / dt; av.vy = (y - av.y) / dt; } else if (dt >= 1) { av.vx = av.vy = 0; }
+      if (!s.mv) av.vx = av.vy = 0;
+      av._t = t;
+      av.x = x; av.y = y; av.facing = e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
+      av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
+    }
   }
 
   _applyEnv(env) {
-    const E = this.game.env;
+    const G = this.game, E = G.env;
     const h = num(env.h, 0, 24, E.hour);
     let dh = h - E.hour;
     if (dh > 12) dh -= 24; else if (dh < -12) dh += 24;
@@ -453,10 +692,10 @@ export class Session {
     const w = str(env.w, 12);
     if (w && w !== E.weather) { E.setWeather(w); }
     E.weatherT = 1e9;
-  }
-
-  _broadcast(msg, exceptKey = null) {
-    for (const pl of this.players.values()) if (pl.key && pl.key !== exceptKey) this._sendTo(pl.key, msg);
+    if (env.wt != null) {
+      const wt = num(env.wt, 0, 1e9, G.worldTime);
+      if (Math.abs(wt - G.worldTime) > 2) G.worldTime = wt; // the host's clock drives respawns, crops, decay
+    }
   }
 
   // ---------------- chat ----------------
@@ -472,28 +711,29 @@ export class Session {
     this.emit('chat', { pid, name, text, self: pid === this.pid });
   }
 
-  // ---------------- per-frame (installed as a game system) ----------------
+  // ---------------- per-frame (installed as a game system through netui) ----------------
   update(game, dt) {
-    if (!this.game || this.state === 'closed') return;
+    if (!this.game || this.state === 'closed' || this.state === 'hostgone') return;
     const p = game.player;
+    const now = performance.now() / 1000;
     this.sendAcc += dt; this.envAcc += dt; this.pingAcc += dt; this.lookAcc += dt;
     if (this.sendAcc >= 1 / SEND_HZ) {
       this.sendAcc = 0;
       const s = packState(p);
       if (this.role === 'guest' && this.hostKey) {
-        this._sendTo(this.hostKey, { t: 'st', s });
+        this._sendTo(this.hostKey, { t: 'st', s, ts: +now.toFixed(3) });
         if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: p.look }); }
       } else if (this.role === 'host' && this.players.size) {
         const withLook = this.lookAcc > 5;
         if (withLook) this.lookAcc = 0;
         const list = [{ pid: this.pid, name: this.name, s, look: withLook ? p.look : undefined }];
         for (const pl of this.players.values()) {
-          if (!pl.ent) continue;
-          list.push({ pid: pl.pid, name: pl.name, s: packState(pl.ent), look: withLook ? pl.look : undefined });
+          if (!pl.ent || !pl.synced) continue;
+          list.push({ pid: pl.pid, name: pl.name, s: packState(pl.av || pl.ent), look: withLook ? pl.look : undefined });
         }
-        const msg = { t: 'sts', list };
-        if (this.envAcc > 2) { this.envAcc = 0; msg.env = { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather }; }
-        this._broadcast(msg);
+        const msg = { t: 'sts', ht: +now.toFixed(3), list };
+        if (this.envAcc > 2) { this.envAcc = 0; msg.env = { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather, wt: Math.round(game.worldTime * 100) / 100 }; }
+        this._broadcastSynced(msg);
       }
     }
     if (this.pingAcc > 3) {
@@ -502,36 +742,46 @@ export class Session {
       if (this.role === 'guest' && this.hostKey) this._sendTo(this.hostKey, { t: 'ping', ts });
       else this._broadcast({ t: 'ping', ts });
     }
-    // interpolate remote players
-    const now = performance.now() / 1000 - INTERP_DELAY;
+    this.ents?.tick(dt);
+    if (this.role === 'host') this.digest?.tick(dt);
+    this._interpolate(dt, now);
+  }
+
+  // remote players: interpolated in the sender's clock, same gait clock as everyone (anim.js)
+  _interpolate(dt, now) {
     for (const pl of this.players.values()) {
       const e = pl.ent;
       if (!e) continue;
-      if (pl.pending) { this._applyState(pl.pid, pl.pending); pl.pending = null; }
+      if (pl.pending) { const [s, ts] = pl.pending; pl.pending = null; this._applyState(pl.pid, s, ts); }
+      const clk = this.role === 'guest' ? this.hostClock : pl.clk;
       const B = e._buf;
       if (B.length) {
+        const rt = clk.ready ? now - clk.off - INTERP_DELAY : (B[B.length - 1].t - INTERP_DELAY);
         let a = B[0], b = B[B.length - 1];
-        for (let i = B.length - 1; i > 0; i--) if (B[i - 1].t <= now) { a = B[i - 1]; b = B[i]; break; }
+        for (let i = B.length - 1; i > 0; i--) if (B[i - 1].t <= rt) { a = B[i - 1]; b = B[i]; break; }
         let x, y;
-        if (now <= a.t) { x = a.x; y = a.y; } else if (now >= b.t) {
-          const ex = Math.min(0.2, now - b.t), prev = B.length > 1 ? B[B.length - 2] : b, span = Math.max(1e-3, b.t - prev.t);
+        if (rt <= a.t) { x = a.x; y = a.y; } else if (rt >= b.t) {
+          const ex = Math.min(0.2, rt - b.t), prev = B.length > 1 ? B[B.length - 2] : b, span = Math.max(1e-3, b.t - prev.t);
           x = b.x + ((b.x - prev.x) / span) * ex * (e.netMoving ? 1 : 0);
           y = b.y + ((b.y - prev.y) / span) * ex * (e.netMoving ? 1 : 0);
         } else {
-          const k = (now - a.t) / Math.max(1e-3, b.t - a.t);
+          const k = (rt - a.t) / Math.max(1e-3, b.t - a.t);
           x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k;
         }
         const d = Math.hypot(x - e.x, y - e.y);
-        if (d > 6) { e.x = x; e.y = y; } else { e.x = x; e.y = y; }
+        if (d > 6) { // teleport / respawn: snap, never interpolate across the map
+          const last = B[B.length - 1];
+          B.length = 0; B.push(last);
+          e.x = last.x; e.y = last.y;
+        } else { e.x = x; e.y = y; stepGait(e, Math.min(d, 1)); }
         e.moving = e.netMoving || d > 0.01;
-        if (e.moving) e.moveT += d * 2.2 + dt * 0.2;
       }
       if (e.action && !e.action.remote) e.action = null;
       if (e.action) { e.action.t = Math.min(1, e.action.t + dt / (e.action.dur || 0.4)); if (e.action.t >= 1) e.action = null; }
-      if (e.dead) e.deadT = (e.deadT || 0) + dt;
       if (performance.now() - pl.last > STALE_S * 1000 && !pl.host) {
         netlog.warn('session', `${pl.name} parou de enviar dados há ${STALE_S}s; removendo`);
         this._remove(pl.pid);
+        if (this.role === 'host') this._broadcast({ t: 'left', pid: pl.pid });
       }
     }
   }
@@ -592,6 +842,11 @@ export class Session {
     for (const pid of [...this.players.keys()]) this._remove(pid, true);
     netlog.info('session', `Sessão encerrada (${reason})`);
     this._setState('closed');
-    if (this.game) this.game.session = null;
+    if (this.game) {
+      this.ents?.clear?.();
+      if (this.game.session === this) this.game.session = null;
+      if (this.game.net.session === this) this.game.net.session = null;
+      if (this.game.net.role === 'host') this.game.net.role = 'solo'; // the host keeps its world (solo again)
+    }
   }
 }

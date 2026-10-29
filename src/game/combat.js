@@ -1,14 +1,18 @@
 // Combat rules: hit rolls, damage pipeline (armor, shields, blocks, damage types), heals, DoTs,
 // deaths, loot & XP, breakable props, and the player's auto attack (melee swing timer / bow auto-shot).
+// Multiplayer: creatures are host objects. On a guest, a hit on a creature proxy is routed to the host
+// (routeHit → intent mob.hit with the locally rolled amount); crates go through prop.hit; deaths are the
+// op mob.die. The attacker's own rolls stay local (feel), the host applies armor / aggro / death / loot.
 
 import { SPECIES, ITEMS } from './data.js';
 import { weaponProfile, armorReduction } from './content/weapons.js';
 import { mobXp } from './stats.js';
-import { gainXp, enterCombat, addBuff, removeBuff, killPlayer, knock } from './player.js';
+import { enterCombat, addBuff, removeBuff, killPlayer, knock } from './player.js';
 import { aggro } from './ai.js';
-import { dropLoot } from './loot.js';
+import { lootRows, ri } from './mut/roll.js';
 import { facingFrom } from './physics.js';
 import { fireArrow } from './projectiles.js';
+import { applyMobEffect } from './mut/combat.js';
 
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // any creature / raider controlled by the sim
@@ -68,12 +72,37 @@ export function rollPlayerHit(game, target, mult = 1, flat = 0, canMiss = true, 
 
 export function applyPlayerHit(game, target, roll, opts = {}) {
   const p = game.player;
-  if (roll.miss) {
-    game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' });
-    if (isMob(target)) aggro(game, target, p);
-    return 0;
-  }
+  if (roll.miss) { playerMiss(game, target); return 0; }
   return dealDamage(game, p, target, roll.amount, { crit: roll.crit, ...opts });
+}
+
+// the local player missed `target` ("Errou" + aggro); a proxy's miss is shown by the host's echo
+export function playerMiss(game, target) {
+  const p = game.player;
+  if (target?.proxy) { routeHit(game, p, target, 0, { miss: true }); return; }
+  game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' });
+  if (isMob(target)) aggro(game, target, p);
+}
+
+// guest: a hit by the local player on a host creature -> intent mob.hit (rolled amount; no local damage
+// event: the host's fx echo shows the number). Returns the rolled amount for local UX.
+export function routeHit(game, src, dst, amount, opts = {}) {
+  const p = game.player;
+  if (src === p || src?.owner === p) enterCombat(p);
+  const f = opts.from;
+  game.net.request('mob.hit', {
+    nid: dst.nid, amount: Math.round(amount), crit: opts.crit ? 1 : 0, miss: opts.miss ? 1 : 0, ability: opts.ability || undefined,
+    dtype: opts.dtype || undefined, ranged: opts.ranged ? 1 : 0, from: f ? [+f.x.toFixed(2), +f.y.toFixed(2)] : undefined,
+    knock: opts.knock, skin: canSkin(game) ? 1 : 0, eff: opts.eff,
+  });
+  return opts.miss ? 0 : Math.max(1, Math.round(amount));
+}
+
+// status effects of the local player's abilities on a creature: applied on the authority, routed on guests
+export function mobEffect(game, e, eff) {
+  if (!e || e.dead || e.isProp) return;
+  if (e.proxy) { game.net.request('mob.hit', { nid: e.nid, amount: 0, noDmg: 1, eff, skin: canSkin(game) ? 1 : 0 }); return; }
+  applyMobEffect(game, e, eff, game.player);
 }
 
 // frontal test for blocks: is `from` in front of `e`
@@ -88,6 +117,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
   if (!dst) return 0;
   if (dst.isProp) return damageProp(game, src, dst, amount, opts);
   if (dst.dead) return 0;
+  if (dst.proxy) return opts.dot ? 0 : routeHit(game, src, dst, amount, opts);
   const p = game.player;
   const dtype = opts.dtype || 'phys';
   if (dst.state === 'evade') {
@@ -176,6 +206,7 @@ export function healEntity(game, e, amount) {
 // id: 'bleed' | 'poison' | 'burn'. dmg per tick (already scaled). Refreshes an existing dot of the same id.
 export function addDot(game, target, id, { dur = 6, tick = 1, dmg = 1, src = null } = {}) {
   if (!target || target.dead) return;
+  if (target.proxy) { mobEffect(game, target, { dot: { id, dur, tick, dmg } }); return; }
   const dtype = id === 'burn' ? 'fire' : id;
   const p = game.player;
   if (target === p) {
@@ -196,7 +227,7 @@ export const hasDot = (e, id) => !!e?.dots?.some((d) => d.id === id);
 function updateDots(game, dt) {
   for (const e of game.entities) {
     const D = e.dots;
-    if (!D || !D.length) continue;
+    if (!D || !D.length || e.proxy) continue; // proxies: the host ticks their dots
     if (e.dead) { D.length = 0; continue; }
     for (let i = D.length - 1; i >= 0; i--) {
       const d = D[i];
@@ -212,27 +243,12 @@ function updateDots(game, dt) {
 }
 
 // ---------- breakable props (bandit crates) ----------
-// o: world object with { isProp:true, hp, maxHp, name, r, onBreak?(game,o,src) }
+// o: camp crate { isProp:true, hp, maxHp, name, r } — shared state: intent prop.hit → op prop.set (mut/camps.js)
 function damageProp(game, src, o, amount, opts) {
   if (o.broken) return 0;
-  const dmg = amount >= 18 ? 2 : 1;
-  o.hp = Math.max(0, o.hp - dmg);
-  o.flash = 1; o.shake = 1;
-  (game.shaking ||= new Set()).add(o);
-  game.juice.chips(o.x, o.y - 0.2, [0.62, 0.46, 0.28], 7, 0.45);
-  game.audio?.play('chop', { x: o.x, y: o.y, volume: 0.8 });
-  game.events.emit('damage', { target: o, src, amount: 0, kind: 'prop' });
-  if (src === game.player) enterCombat(src, 1);
-  if (o.hp <= 0) {
-    o.broken = true;
-    game.juice.puff(o.x, o.y, 10, [0.62, 0.5, 0.36], 0.8);
-    game.juice.chips(o.x, o.y, [0.62, 0.46, 0.28], 14, 0.3);
-    game.juice.shake(0.15);
-    o.onBreak?.(game, o, src);
-    const p = game.player;
-    if (p.target === o) { p.autoAttack = false; game.later(0.6, () => { if (p.target === o) { p.target = null; game.events.emit('target', { target: null }); } }); }
-  }
-  return dmg;
+  if (src === game.player || src?.owner === game.player) enterCombat(game.player, 1);
+  game.net.request('prop.hit', { id: o.id, amount: Math.round(amount) });
+  return amount >= 18 ? 2 : 1;
 }
 
 // ---------- deaths & loot ----------
@@ -247,46 +263,51 @@ export function canSkin(game, p = game.player) {
 
 export const lootable = (id) => !!ITEMS[id];
 
-export function dropTable(game, m, rows, killer) {
-  const skin = rows.some((r) => r[4] === 'skin') ? canSkin(game) : true;
+// authority: kill loot rows of a creature table; skin = the killer has a knife. -> { rows, skipped }
+export function dropTable(game, m, rows, skin) {
+  const net = game.net, out = [];
   let skipped = false;
   for (const [item, a, b, chance, flag] of rows) {
-    if (!lootable(item) || Math.random() > chance) continue;
+    if (!lootable(item) || net.roll() > chance) continue;
     if (flag === 'skin' && !skin) { skipped = true; continue; }
-    const n = a + Math.floor(Math.random() * (b - a + 1));
-    for (let i = 0; i < n; i++) dropLoot(game, m.x, m.y, item, 1);
+    lootRows(net, out, m.x, m.y, item, ri(net, a, b));
   }
-  if (skipped && killer === game.player) {
-    const h = game.ctl?.hinted;
-    const k = (h && h.skin) || 0;
-    if (k < 3) {
-      if (h) h.skin = k + 1;
-      game.events.emit('toast', { text: 'Sem faca: não deu para tirar o couro', kind: 'warn' });
-    }
-  }
+  return { rows: out, skipped };
 }
 
+// the player that dealt the killing blow (local player, its arrow, or a remote avatar on the host)
+function killerPlayer(game, killer) {
+  const p = game.player;
+  if (killer === p || (killer && killer.owner === p)) return { pid: game.net.pid, level: p.level, skin: canSkin(game) };
+  if (killer && killer.avatar) return { pid: killer.pid, level: killer.level || 1, skin: !!killer.lastHitSkin };
+  return null;
+}
+
+// authority only: a creature dies -> op mob.die (+ loot.add); xp / toasts go to the killer
 export function killMob(game, m, killer) {
   m.hp = 0; m.dead = true; m.deadT = 0; m.action = null; m.moving = false; m.state = 'dead';
   m.cast = null; m.blocking = false; m.dots && (m.dots.length = 0);
   m.diedAt = game.worldTime;
-  const p = game.player;
   const sp = SPECIES[m.species] || SPECIES.wolf;
-  game.audio?.play('death', { x: m.x, y: m.y, volume: 0.6 });
-  game.juice.puff(m.x, m.y, 8, [0.7, 0.64, 0.56], 0.7);
-  const byPlayer = killer === p || (killer && killer.owner === p);
-  if (byPlayer) {
-    const xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, p.level);
-    if (xp) gainXp(game, xp);
-    if (m.onDeath) m.onDeath(game, m, p);
-    else dropTable(game, m, sp.loot || [], p);
+  const kp = killerPlayer(game, killer);
+  const die = { nid: m.nid };
+  let rows = null;
+  if (kp) {
+    die.by = kp.pid;
+    die.xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, kp.level) || undefined;
+    if (m.onDeath) {
+      const r = m.onDeath(game, m);
+      rows = r?.rows;
+      if (r?.toast) die.toast = r.toast;
+    } else {
+      const r = dropTable(game, m, sp.loot || [], killer?.avatar ? !!m.lastHitSkin : kp.skin);
+      rows = r.rows;
+      if (r.skipped) die.tip = ['skin', 'Sem faca: não deu para tirar o couro', 3];
+    }
   }
   m.respawnAt = game.worldTime + (m.elite ? 300 : 100) + Math.random() * 80;
-  game.events.emit('kill', { target: m });
-  if (p.target === m) {
-    p.autoAttack = false;
-    game.later(1.2, () => { if (p.target === m) { p.target = null; game.events.emit('target', { target: null }); } });
-  }
+  game.net.emit('mob.die', die);
+  if (rows && rows.length) game.net.emit('loot.add', { list: rows });
 }
 
 // ---------- player auto attack ----------
@@ -324,17 +345,28 @@ export function playerShot(game, t, mult = 1, flat = 0, opts = {}) {
     src: p, faction: 'player', x: p.x, y: p.y, tx, ty, angle: ang, target: roll.miss || side ? null : t,
     range: (p.wprof?.range || 9) + 3, ability: opts.ability, kind: 'arrow',
     onHit: (g, e, pr) => {
-      if (!side && roll.miss && e === t) { g.events.emit('damage', { target: e, src: p, amount: 0, kind: 'miss' }); if (isMob(e)) aggro(g, e, p); return; }
+      if (!side && roll.miss && e === t) { playerMiss(g, e); return; }
       const r = !side && e === t ? roll : rollPlayerHit(g, e, mult, flat, false);
       applyPlayerHit(g, e, r, { ability: opts.ability, ranged: true, from: { x: pr.ox, y: pr.oy }, knock: 0.08 });
     },
-    onMiss: side ? null : () => { if (!roll.miss && attackable(t)) { game.events.emit('damage', { target: t, src: p, amount: 0, kind: 'miss' }); if (isMob(t)) aggro(game, t, p); } },
+    onMiss: side ? null : () => { if (!roll.miss && attackable(t)) playerMiss(game, t); },
   });
 }
 
+// clear the local player's target shortly after it died / broke (any peer: 'kill' comes from mob.die / prop.set)
+function onKill(game, target) {
+  const p = game.player;
+  if (p.target !== target) return;
+  p.autoAttack = false;
+  game.later(target.isProp ? 0.6 : 1.2, () => { if (p.target === target) { p.target = null; game.events.emit('target', { target: null }); } });
+}
+
 export function combatSystem() {
+  let wired = false;
   return {
+    sync: 'owner', // local auto-attack; creature dots tick on the authority only (proxies are skipped)
     update(game, dt) {
+      if (!wired) { wired = true; game.events.on('kill', (d) => onKill(game, d.target)); }
       const p = game.player;
       updateDots(game, dt);
       p.swingT = Math.max(0, p.swingT - dt);
@@ -380,19 +412,20 @@ export function combatSystem() {
         if (p.dead || !attackable(t) || dist(p, t) > reach(p, t) + 0.5) return;
         const r = rollPlayerHit(game, t);
         applyPlayerHit(game, t, r);
-        if (!r.miss && prof.stun && isMob(t) && !t.dead && Math.random() < prof.stun) stun(game, t, 1.0);
+        if (!r.miss && prof.stun && isMob(t) && !t.dead && Math.random() < prof.stun) stun(game, t, 1.0, p);
       });
     },
   };
 }
 
-// stun a mob (interrupts casts); elites resist half
-export function stun(game, m, dur) {
+// stun a mob (interrupts casts); elites resist half. Proxies: routed to the host.
+export function stun(game, m, dur, src = game.player) {
   if (!m || m.dead || m.isProp) return;
+  if (m.proxy) { mobEffect(game, m, { stun: dur }); return; }
   const d = m.elite ? dur * 0.5 : dur;
   m.stunT = Math.max(m.stunT || 0, d);
-  if (m.cast) { m.cast = null; game.events.emit('damage', { target: m, src: game.player, amount: 0, kind: 'interrupt' }); }
+  if (m.cast) { m.cast = null; game.events.emit('damage', { target: m, src, amount: 0, kind: 'interrupt' }); }
   m.blocking = false;
   game.juice.stun(m);
-  game.events.emit('damage', { target: m, src: game.player, amount: 0, kind: 'stun' });
+  game.events.emit('damage', { target: m, src, amount: 0, kind: 'stun' });
 }

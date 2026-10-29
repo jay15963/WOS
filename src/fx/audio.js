@@ -330,7 +330,7 @@ export class Audio {
       } else if (o.type && o.type.startsWith('tree_')) trees++;
     }
     N.trees = clamp(trees / 25, 0, 1);
-    N.fire = clamp(fire, 0, 1.2);
+    N.fire = clamp(fire, 0, 1.2); // sync-ok: audio mixer level, not a world object
     N.firePan = fire > 0 ? fpan / fire : 0;
   }
 

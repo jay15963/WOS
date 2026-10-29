@@ -36,7 +36,7 @@ function tables(A) {
   const opt = (n) => (A.has(n) ? A.get(n) : null);
   T = { flames: [], blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), smoke: opt('fx_smoke') || opt('fx_soft'), auto: {}, crop: {}, cracks: [], parts: {} };
   for (let i = 0; i < 3; i++) T.flames.push(opt('fx_flame_' + i) || opt('fx_flame'));
-  T.stump = A.groups.tree_stump ? A.pick('tree_stump', 0) : null;
+  T.stump = A.groups.tree_stump ? A.pick('tree_stump', 0) : null; // sync-ok: sprite table of the painter, not a world object
   T.sapling = A.groups.tree_sapling ? A.pick('tree_sapling', 0) : null;
   for (const type of AUTO) {
     const arr = [];

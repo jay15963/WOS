@@ -3,7 +3,7 @@
 
 import { diagnosticsPanel, netTestPanel, settingsPanel, joinPanel } from './netpanels.js';
 import { Session, playerName, setPlayerName } from '../net/session.js';
-import { BUILD } from '../net/netlog.js';
+import { BUILD, BUILD_DATE } from '../net/netlog.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ls = {
@@ -45,7 +45,7 @@ export function showMainMenu({ presetCode = '', progress = null } = {}) {
           <button class="mbtn" data-a="mp">Multijogador<small>Criar sala ou entrar com código</small></button>
           <button class="mbtn" data-a="settings">Configurações<small>Nome, som, qualidade</small></button>
         </nav>
-        <div class="menu-foot"><span>Versão ${BUILD}</span><span data-k="ld">Carregando gráficos…</span></div>
+        <div class="menu-foot"><span>Versão ${BUILD_DATE} · ${BUILD}</span><span data-k="ld">Carregando gráficos…</span></div>
         <div class="menu-load"><i></i></div>
       </div>
       <div class="mpanel hidden"><button class="x" title="Fechar">✕</button><div class="mbody"></div></div>`;
@@ -110,7 +110,8 @@ export function showMainMenu({ presetCode = '', progress = null } = {}) {
       el.insertAdjacentHTML('beforeend', `
         <div class="row"><button class="mbtn primary" data-a="host">Criar sala</button><button class="mbtn primary" data-a="join">Entrar com código</button></div>
         <div class="row"><button class="mbtn" data-a="test">Testar minha rede</button><button class="mbtn" data-a="diag">Diagnóstico</button></div>
-        <p class="muted">Fase 1: vocês se veem no mesmo mundo, com chat, horário e clima sincronizados. Coleta, construção e criaturas compartilhadas vêm na próxima etapa.</p>`);
+        <p class="muted">Mundo compartilhado: árvores, construções, minas, plantações, itens no chão e criaturas são os mesmos para todos
+           (o anfitrião é o dono do mundo). Todos precisam da mesma versão do jogo — recarregue a página se a sala recusar.</p>`);
       el.querySelector('[data-a=host]').onclick = () => open((b) => {
         b.innerHTML = `<h2>Criar sala</h2><p>Qual mundo seus amigos vão visitar?</p>
           <div class="row">

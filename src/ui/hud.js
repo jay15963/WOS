@@ -312,6 +312,7 @@ export function installHUD(game, { isNew } = {}) {
   let slowT = 0, buffV = -1, buffT = 0, modeT = 0;
 
   return {
+    sync: 'cosmetic', // HUD
     update(g, dt) {
       modeT -= dt;
       if (modeT <= 0) { modeT = 1; setMode(); }

@@ -4,6 +4,8 @@
 //
 // Bare-hands balance: the ring around the spawn only holds passive animals (rabbit, fox, deer) and
 // neutral boars; wolves start ~30 tiles out, spiders hug the mountains (~32+), bears ~55+, camps ~60+.
+// Multiplayer: creatures live on the HOST only (spawners, AI, respawns: mobsSystem is sync 'host'); they
+// reach guests through the entity stream (net/entities.js). Sleep / respawn / caves consider every player.
 
 import { SPECIES } from './data.js';
 import { mobStats } from './stats.js';
@@ -11,10 +13,14 @@ import { mulberry32 } from '../engine/noise.js';
 import { updateCreature } from './ai.js';
 import { updateBandit } from './bandits.js';
 import { mobBlocked } from './nav.js';
+import { allPlayers, minPlayerDist, inAnyView } from './players.js';
 
 const SLEEP = 40;
-let mobId = 1;
-export const nextMobId = () => mobId++;
+// creature ids from the authority: nid 'm<base36>' for the network, numeric id for the art (gait phase)
+export function allocMob(game) {
+  const nid = game.net.newId('m');
+  return { nid, id: parseInt(nid.slice(1), 36) };
+}
 
 function countTrees(world, x, y, r) {
   let n = 0;
@@ -76,30 +82,33 @@ export function createSpawners(game) {
 export function spawnMember(game, s) {
   const sp = SPECIES[s.species];
   const w = game.world;
+  const R = () => game.net.roll();
   let x = s.x, y = s.y;
   for (let k = 0; k < 10; k++) {
-    const a = Math.random() * Math.PI * 2, r = Math.random() * 2.5;
+    const a = R() * Math.PI * 2, r = R() * 2.5;
     const tx = s.x + Math.cos(a) * r, ty = s.y + Math.sin(a) * r;
     if (!mobBlocked(w, tx, ty, sp.r) && !w.waterAt(Math.floor(tx), Math.floor(ty))) { x = tx; y = ty; break; }
   }
-  const level = Math.max(1, s.level + (Math.random() < 0.25 ? (Math.random() < 0.5 ? -1 : 1) : 0));
+  const level = Math.max(1, s.level + (R() < 0.25 ? (R() < 0.5 ? -1 : 1) : 0));
   const st = mobStats(sp, level);
+  const ids = allocMob(game);
   const m = {
-    isEntity: true, isMob: true, kind: 'animal', id: mobId++, species: s.species, name: sp.name, level, elite: !!sp.elite,
-    temper: sp.temper, x, y, r: sp.r, scale: sp.scale * (0.92 + Math.random() * 0.16),
-    facing: Math.random() < 0.5 ? 'e' : 'w', moving: false, moveT: Math.random() * 10, action: null, flash: 0,
+    isEntity: true, isMob: true, kind: 'animal', ...ids, species: s.species, name: sp.name, level, elite: !!sp.elite,
+    temper: sp.temper, x, y, r: sp.r, scale: +(sp.scale * (0.92 + R() * 0.16)).toFixed(3), variant: ids.id & 1,
+    facing: R() < 0.5 ? 'e' : 'w', moving: false, moveT: R() * 10, action: null, flash: 0,
     dead: false, deadT: 0, hp: st.maxHp, maxHp: st.maxHp, dmg: st.dmg,
-    home: { x, y }, spawner: s, state: 'idle', stateT: Math.random() * 4, swingT: 0, stunT: 0,
+    home: { x, y }, spawner: s, state: 'idle', stateT: R() * 4, swingT: 0, stunT: 0,
   };
   if (s.cave) m.cave = true;
   s.members.push(m);
-  game.entities.push(m);
+  game.entities.push(m); // host-only creature list (guests get proxies from net/entities.js)
   return m;
 }
 
 // ---------- cave spiders: mined tunnels under mountain roofs get dark and infested ----------
 function caveSpawn(game) {
-  const w = game.world, p = game.player;
+  const w = game.world;
+  const L = allPlayers(game), p = L[Math.floor(Math.random() * L.length)]; // around any player
   const roof = w.roof;
   const mined = game.minedTiles;
   if (!roof || !mined || mined.length < 6) return;
@@ -125,6 +134,7 @@ function caveSpawn(game) {
 export function mobsSystem() {
   let slowT = 0, caveT = 8;
   return {
+    sync: 'host', // creatures are simulated by the host only
     update(game, dt) {
       const p = game.player;
       game._pathBudget = 3;
@@ -136,13 +146,14 @@ export function mobsSystem() {
         if (!m.isMob) continue;
         if (m.dead) {
           // corpse cleanup (raider corpses linger a little longer; their camp respawns them)
-          if (m.deadT > 60 || (m.deadT > 20 && !onScreen(game, m))) {
-            E.splice(i, 1);
+          if (m.deadT > 60 || (m.deadT > 20 && !inAnyView(game, m.x, m.y, 2, 2))) {
+            E.splice(i, 1); // host-only creature list
             if (p.target === m) { p.target = null; game.events.emit('target', { target: null }); }
           }
           continue;
         }
-        const d = Math.abs(m.x - p.x) + Math.abs(m.y - p.y);
+        let d = 1e9;
+        for (const q of allPlayers(game)) d = Math.min(d, Math.abs(m.x - q.x) + Math.abs(m.y - q.y));
         if (d > SLEEP * 1.4 && m.state !== 'evade' && m.state !== 'chase') { m.moving = false; continue; }
         if (m.faction === 'bandit') updateBandit(game, m, dt);
         else updateCreature(game, m, dt);
@@ -172,10 +183,10 @@ export function mobsSystem() {
           for (let k = s.members.length - 1; k >= 0; k--) {
             const m = s.members[k];
             if (!m.dead || game.worldTime < m.respawnAt) continue;
-            if (Math.hypot(s.x - p.x, s.y - p.y) < 18) continue; // never pop in on screen
+            if (minPlayerDist(game, s.x, s.y) < 18) continue; // never pop in on anyone's screen
             s.members.splice(k, 1);
             const i = E.indexOf(m);
-            if (i >= 0) E.splice(i, 1);
+            if (i >= 0) E.splice(i, 1); // host-only creature list
             if (s.cave) continue; // cave nests don't refill; new ones appear while you dig
             spawnMember(game, s);
           }
@@ -188,7 +199,3 @@ export function mobsSystem() {
   };
 }
 
-function onScreen(game, e) {
-  const v = game.view();
-  return e.x > v.x0 - 2 && e.x < v.x1 + 2 && e.y > v.y0 - 2 && e.y < v.y1 + 2;
-}

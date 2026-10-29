@@ -66,6 +66,7 @@ export function installNetUI(game) {
     s.on('players', () => updateChip(true));
     s.on('rtt', () => updateChip(true));
     s.on('state', () => updateChip(true));
+    s.on('hostgone', (d) => showHostGone(game, d.why));
   };
   let chipT = 0, chipTxt = '';
   const updateChip = (force) => {
@@ -76,11 +77,13 @@ export function installNetUI(game) {
     chip.classList.toggle('wait', s.role === 'host' && s.players.size === 0);
     let t;
     if (s.role === 'host') t = `Sala ${s.code} · ${s.count}/${MAX_PLAYERS}`;
-    else t = s.state === 'lost' ? 'Reconectando…' : `Sala ${s.code === 'MANUAL' ? 'manual' : s.code} · ${s.count}/${MAX_PLAYERS}${s.rtt != null ? ' · ' + Math.round(s.rtt) + ' ms' : ''}`;
+    else t = s.state === 'lost' ? 'Reconectando…' : s.state === 'syncing' ? 'Sincronizando o mundo…' : s.state === 'hostgone' ? 'O anfitrião saiu'
+      : `Sala ${s.code === 'MANUAL' ? 'manual' : s.code} · ${s.count}/${MAX_PLAYERS}${s.rtt != null ? ' · ' + Math.round(s.rtt) + ' ms' : ''}`;
     if (force || t !== chipTxt) { chipTxt = t; chip.querySelector('[data-k=t]').textContent = t; }
   };
 
   return {
+    sync: 'all', // session pump (presence, entity stream, ops flush happen inside) + room chip
     update(g, dt) {
       if (g.session) { wire(g.session); g.session.update(g, dt); }
       chipT -= dt;
@@ -143,7 +146,7 @@ function makePause(game) {
     on('resume', () => api.close());
     on('host', () => {
       const ses = new Session();
-      ses.host(game);
+      if (!ses.host(game)) { api.close(); return; } // graphics incomplete: refused (message shown)
       sub((el) => roomPanel(el, ses));
     });
     on('room', () => sub((el) => roomPanel(el, game.session)));
@@ -175,6 +178,21 @@ function makePause(game) {
     toggle() { if (isOpen) api.close(); else api.open(); },
   };
   return api;
+}
+
+// guest: the host left for good — no silent switch to a half-simulated solo world
+function showHostGone(game, why) {
+  if (document.querySelector('.hostgone')) return;
+  const root = document.createElement('div');
+  root.className = 'pause hostgone';
+  root.innerHTML = `<div class="mpanel"><div class="mbody">
+    <h2>O anfitrião saiu</h2>
+    <p>${esc(why || 'A sala foi fechada.')} O mundo pertence ao anfitrião: sem ele não dá para continuar nesta sala.
+       Seu personagem (mochila, equipamento e nível) fica salvo.</p>
+    <div class="row"><button class="mbtn primary wide" data-a="menu">Voltar ao menu</button></div></div></div>`;
+  document.body.appendChild(root);
+  game.ui.modal = true;
+  root.querySelector('[data-a=menu]').onclick = () => exitToMenu(game);
 }
 
 export function exitToMenu(game) {

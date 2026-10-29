@@ -2,12 +2,17 @@
 // leash -> evade home with full regen, passive animals flee (smart direction sampling), fear (torch),
 // daze (shove), poison bites (spiders), skittish animals (foxes). Movement never passes doors (nav.moveMob).
 // Raiders (faction 'bandit') have their own brain in bandits.js but share these helpers.
+// Multiplayer: creatures exist on the HOST only. They pick the nearest player (players.js), chase their
+// `threat` (local player or a remote avatar) and hurt it through hurtPlayer (owner applies the damage).
+// On guests the same objects are AI-less proxies (net/entities.js): aggro() on a proxy is routed to the host.
 
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
-import { dealDamage, reach, dist, faceTowards, addDot } from './combat.js';
+import { reach, dist, faceTowards, mobEffect } from './combat.js';
 import { enterCombat } from './player.js';
+import { nearestPlayer, hurtPlayer } from './players.js';
+import { stepGait } from './anim.js';
 
 export const LEASH = 26;  // max distance from home while chasing
 const BORED = 11;         // seconds without exchanging blows before evading
@@ -18,9 +23,17 @@ export function aggroRadius(m, p) {
   return (m.aggroR ?? sp.aggro ?? 0) * k;
 }
 
+// who this creature cares about: its threat while chasing, else the nearest player
+export function pickTarget(game, m) {
+  if (m.state === 'chase' && m.threat && !m.threat.gone) return m.threat;
+  return nearestPlayer(game, m.x, m.y, 60, { alive: false }) || game.player;
+}
+
 // m was damaged / provoked by src
 export function aggro(game, m, src, social = true) {
-  if (!m || m.dead || m.state === 'evade' || m.isProp) return;
+  if (!m || m.dead || m.isProp) return;
+  if (m.proxy) { mobEffect(game, m, { aggro: 1 }); return; } // guest: the host decides
+  if (m.state === 'evade') return;
   const sp = SPECIES[m.species];
   m.lastCombatT = game.worldTime;
   if (m.temper === 'passive' || sp.temper === 'passive') {
@@ -34,7 +47,7 @@ export function aggro(game, m, src, social = true) {
   if (!was) {
     resetNav(m);
     game.audio?.play('growl', { x: m.x, y: m.y, volume: m.kind === 'pawn' ? 0.5 : 1 });
-    if (src === game.player) enterCombat(game.player);
+    if (src === game.player) enterCombat(src);
     if (social && sp.social) {
       const R = m.camp ? 9 : 8;
       for (const o of game.entities) {
@@ -81,10 +94,11 @@ export function go(game, m, dir, speed, dt) {
   if (!dir) { m.moving = false; return; }
   let spd = speed * game.world.speedAt(m.x, m.y);
   if (m.dazeT > 0) spd *= 0.45;
+  const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);
   m.facing = facingFrom(dir[0], dir[1], m.facing);
   m.moving = true;
-  m.moveT += dt * (spd / 4);
+  stepGait(m, Math.hypot(m.x - x0, m.y - y0));
 }
 
 // best open direction away from `from` (8 samples, prefers away + toward home when far)
@@ -132,7 +146,7 @@ export function tickStatus(game, m, dt) {
   return true;
 }
 
-// creature melee swing at the player (shared by animals; raiders use their own variants)
+// creature melee swing at a player (shared by animals; raiders use their own variants)
 function bite(game, m, p, sp, rng) {
   m.swingT = sp.swing * (0.9 + Math.random() * 0.2);
   m.action = { type: 'attack', t: 0, dur: 0.5 };
@@ -141,19 +155,17 @@ function bite(game, m, p, sp, rng) {
     if (m.dead || m.stunT > 0 || p.dead || dist(m, p) > rng + 0.6) return;
     m.lastCombatT = game.worldTime;
     const crit = Math.random() < 0.05;
-    const dmg = dealDamage(game, m, p, Math.max(1, Math.round(m.dmg * (0.8 + Math.random() * 0.4) * (crit ? 1.5 : 1))), { crit });
     const pz = sp.poison;
-    if (pz && dmg > 0 && !p.dead && Math.random() < pz.chance) {
-      const fresh = !p.buffs.some((b) => b.id === 'poison');
-      addDot(game, p, 'poison', { dur: pz.dur, tick: pz.tick, dmg: Math.max(1, Math.round(m.dmg * pz.k)), src: m });
-      if (fresh) game.events.emit('error', { text: 'Você foi envenenado!' });
-    }
+    // poison is rolled with the bite and applied by the owner only if the bite lands
+    const poison = pz && Math.random() < pz.chance ? { dur: pz.dur, tick: pz.tick, dmg: Math.max(1, Math.round(m.dmg * pz.k)) } : null;
+    hurtPlayer(game, m, p, Math.max(1, Math.round(m.dmg * (0.8 + Math.random() * 0.4) * (crit ? 1.5 : 1))), { crit, poison });
   });
 }
 
 export function updateCreature(game, m, dt) {
+  if (m.proxy) { game.net.violation('updateCreature num proxy'); return; }
   const sp = SPECIES[m.species] || SPECIES.wolf;
-  const p = game.player;
+  const p = pickTarget(game, m);
   if (!tickStatus(game, m, dt)) return;
   const d = dist(m, p);
   m.thinkT = (m.thinkT || 0) - dt;
@@ -218,13 +230,13 @@ export function updateCreature(game, m, dt) {
     case 'chase': {
       const t = m.threat;
       const homeD = Math.hypot(m.x - m.home.x, m.y - m.home.y);
-      if (!t || t.dead || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 3)) { evade(m, homeD > LEASH ? 4 : 9); break; }
-      if (t === p) enterCombat(p, 1);
+      if (!t || t.dead || t.gone || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 3)) { evade(m, homeD > LEASH ? 4 : 9); break; }
+      if (t === game.player) enterCombat(t, 1);
       const rng = reach(m, t);
-      if (d <= rng && t === p) {
+      if (d <= rng) {
         m.moving = false;
         faceTowards(m, t);
-        if (m.swingT <= 0) bite(game, m, p, sp, rng);
+        if (m.swingT <= 0) bite(game, m, t, sp, rng);
       } else {
         const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85);
         go(game, m, dir, sp.speed, dt);

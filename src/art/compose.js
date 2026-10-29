@@ -16,6 +16,10 @@ import { PAWN } from './pawns.js';
 import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
 
+// set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
+// with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
+export const artHooks = { warn: null };
+
 const TAU = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -496,7 +500,8 @@ export function drawAnimal(B, A, a, t) {
   const T = tables(A);
   let key = a.species;
   if (key === 'deer' && (a.variant === 1 || (a.variant == null && ((a.id ?? 0) & 1))) && T.animal.deer_doe) key = 'deer_doe';
-  const S = T.animal[key] || T.animal.wolf;
+  let S = T.animal[key];
+  if (!S) { artHooks.warn?.(key + '_s'); S = T.animal.wolf; }
   if (!S) return;
   const dir = a.facing || 'e';
   const sd = dir === 'w' ? 'e' : dir;

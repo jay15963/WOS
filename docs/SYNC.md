@@ -1,6 +1,7 @@
 # WOS — Multiplayer sync: root causes, replication design, regression guards
 
-Status: **design** (written by the sync analyst; the CODER implements it, the TESTER verifies it).
+Status: **implemented** (design by the sync analyst; implemented by the CODER — see §7 for what changed
+during implementation and the exact test API; the TESTER verifies it with `tools/mp-test.html`).
 Scope: everything the user saw in the first real 2-player test, plus everything else that will
 desync, plus the mechanisms that keep it from coming back when new content is added.
 Code identifiers are in English; player-facing strings stay pt-BR.
@@ -665,6 +666,9 @@ Scans `src/**/*.js` line by line (ignores comments); a line ending with `// sync
 | R10 system tags | every `export function \w+System\s*\(` returns an object containing `sync:` | — |
 | R11 stamp fresh | recomputed `BUILD_ID`/`ART_ID` equal `src/version.js`; `sw.js` VERSION matches | — |
 | R12 art required names | every `SPECIES` (non-pawn) appears in `CONTRACT` as `<sp>_{s,n,e}`; every `BUILDINGS` type, flora kind and crop kind has a contract name | — |
+| R13 registration (added) | every `src/game/mut/*.js` is imported by `src/game/mut/index.js` (otherwise its ops would not be registered) | — |
+
+Changed during implementation: R5's `noGrow[` pattern only matches **writes**; R9 also checks `toOwner(pid, 'x')` ↔ `defineOwn('x')`.
 
 ### 4.2 Runtime guards (dev = localhost: throw; prod: `netlog.error('sync', …)` once per site with stack)
 
@@ -871,3 +875,92 @@ Timing budgets: harness ≤ 100 ms; WebRTC LAN ≤ 300 ms; TURN ≤ 600 ms. "Dig
 - Host wall at (123,120) and removed tree 2545: guest `structures 0`, `solid 0`, tree present.
 - Remote gait: host 11.73 tiles, `moveT` +2.93 (host) vs +26.32 (guest's copy) → ×9.0.
 - Missing `spider_s` → spiders drawn as wolf × 0.59 with "Aranha da caverna" plates next to a real deer.
+
+---
+
+## 7. Implementation notes — changed during implementation
+
+Everything in §3–§5 is implemented (tasks 1–21 and 23; task 22 is the tester's harness). Where the code
+differs from the design text above, the code is described here (this section wins).
+
+### 7.1 Files
+
+| File | Role |
+|---|---|
+| `tools/stamp.mjs` | writes `src/version.js` (`BUILD_ID`, `ART_ID`, `BUILD_DATE`, `BUILD_FILES`) and `sw.js` `VERSION`; `--check` only verifies. Text is LF-normalised before hashing. |
+| `tools/check-sync.mjs` | lint R1–R13 (`npm run check` = stamp check + lint) |
+| `src/art/contract.js` | `CONTRACT` (moved out of `sprites.js`, pure data so node can import it), `hasKindArt`, `atlasDigest` |
+| `src/game/artcheck.js` | `requiredSprites()` / `checkAtlas(A)` (**changed**: lives on the game side instead of `sprites.js`, so `ART_ID` does not depend on content/balance files) |
+| `src/net/registry.js` | `defineIntent` / `defineOp` / `defineOwn` registries (**changed**: a leaf module, not inside `net.js`, to avoid ES-module init cycles) |
+| `src/net/net.js` | `Net` (`game.net`) |
+| `src/game/mut/*.js` | `loot`, `objects` (natural + flora), `structures`, `tiles`, `crops`, `camps`, `combat`, `env`, `own` (owner effects + `player.hurt`), `roll` (authority randomness), `index.js` imports them all (**new rule R13**: every `mut/*.js` must be imported there) |
+| `src/game/players.js`, `src/game/anim.js` | §3.5 / §1b |
+| `src/net/entities.js` | `EntityServer` / `EntityClient` / `ClockSync` |
+| `src/net/snapshot.js` | `serializeWorld` / `applyWorld` |
+| `src/net/digest.js` | digest parts, `dg/dgx/dgr`, `installNetDebug` (debug API) |
+
+### 7.2 Protocol / ops details that differ from §3.3–§3.4
+
+- **Work hits** (`gather.hit`, `build.hit`, `rock.hit`): each local hit sends `{inc: 1/need}` (host: `prog = min(0.999, prog + inc)`,
+  op `obj.prog` / `struct.progress` / `rock.prog`); the end of the local work loop sends `{final: true}` and the host completes when
+  `prog ≥ 0.85` (pick / forage have no progress and complete on `final`). Keeps single-player timing identical.
+- `build.hit {id, start: true}` is sent when the work **starts** (not on the first hit): the host clears the footprint
+  (`obj.remove {ids, give: yields}`, crops `crop.remove`) or rejects with "Algo está no caminho" (the work stops).
+- `build.place {type, tiles}` (the cost × tiles is paid locally and passed as `refund` of the request); refused tiles come back as
+  `give` on `struct.add`; a door replacing a wall emits `struct.remove {give: wall cost, quiet: 1}` first.
+- `struct.remove {id, by?, give?, giveAt?, drops?, quiet?, toast?}`: refunds are computed by the host and travel as `give`.
+- `struct.complete` carries `toast` and, for beds, `respawn` (owner effect sets `p.respawn`).
+- `chest.put {id, item, qty}` / `chest.take {id, slot, qty}` (qty = room in the backpack) → `chest.set {id, slots, by, give}`.
+- `mob.hit` also accepts `noDmg: 1` + `eff: {stun, daze, interrupt, dot:{id,dur,tick,dmg}, fear, aggro, status:[text, dtype]}` —
+  ability effects on a proxy (`mobEffect()` in `combat.js`; on the authority the same effects are applied directly).
+- `mob.die {nid, by?, xp?, toast?, tip?}` (`tip = [hintKey, text, max]`, e.g. "Sem faca…" for the killer only).
+- `prop.set {id, hp, broken, at?, hit?, by?, toast?}` (`hit: 1` plays the hit feedback on every peer).
+- `proj.fire {id: 'pid:n', a: [kind, x, y, tx, ty, angle, speed, range, faction, h1]}`; creature shots use `fx ['proj', id, …a]` and
+  `['pend', id, x, y, stuck, ground]`. Player arrows are not 'pend'-ed (their cosmetic copies stick on their own).
+- Owner-effect fields: `by, xp, give, giveAt, quiet, toast, toastKind, tip, respawn`.
+- `env.skip {hour, day, wt, by}`; the guest's local check refuses sleeping with
+  "Ponto de renascimento definido. Em multijogador só o anfitrião dorme até o amanhecer." (the intent itself refuses guests too).
+- Station fuel is a per-player bank `game.craft.fuel` (saved with the player as `fuel`; legacy station fuel is moved to the
+  host's bank on migration).
+- `dg` also carries `env` rows; `env` and creature positions (> 4 tiles) are **soft** checks (netlog warning only). Creature
+  species / missing proxy / "dead only here" are hard (`sync` error, `desyncs++`, resync).
+- On an op gap / unknown op the guest stops applying (`net.synced = false`) and asks for a resync; other resyncs keep applying.
+- The guest whose atlas differs from the host's (same build) clears its atlas cache and reloads once (`sessionStorage
+  wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
+- R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
+
+### 7.3 Save format
+
+Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,
+fuel, hinted, marks, world: serializeWorld(game, {save: true}) }` (the snapshot plus `ids` and `natpos` — `{id: [type, x, y]}` used to
+re-find worldgen objects if the world generator changed). Guests write `{ v: 3, guest: 1, player, craft, fuel, hinted }` only.
+v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
+`null` = derive from the age.
+
+### 7.4 Background clock
+
+The worker clock (§3.12) drives `game.update` while a session is live and the tab is hidden **or `requestAnimationFrame` stalled
+for > 300 ms** (occluded / background tabs of some embedders never report `document.hidden`), or `wosDebug.setHidden(true)`.
+
+### 7.5 Test API (stable; used by `tools/mp-test.*`)
+
+URL flags: `?seed=N`, `?mp=host&sala=CODE` (host directly, seed from `?seed`, default 4242), `?sala=CODE&autojoin=1`, `?nosave=1`,
+`?link=bc`, `?pid=ID` (localhost: overrides `playerId()`), localhost only: `?fakebuild=X`, `?fakeart=<sprite>` (deleted from the
+atlas) / `?fakeart=ph:<sprite>` (marked as placeholder) — both make the atlas invalid → join/host refused with
+"Gráficos incompletos neste navegador…" — and `?fakepaintfail=1` (painter group `addNatural` throws → placeholders, atlas never cached).
+
+Globals: `window.game`, `window.session` (`players` Map pid → `{pid, name, key, ent, av, synced, rtt}`, `state`, `hostKey`,
+`_close(key)`, `lastError {reason, msg}`, `allList`), `window.netlog` (`subscribe`, `session.entries`), `window.wosDebug.setHidden(bool)`,
+`window.wosBootError` (message shown on the loading screen when boot / join failed).
+
+`game.net`: `role`, `pid`, `seq`, `synced`, `stats {opsIn, opsOut, rq, rejects, acks, bytesIn, bytesOut, desyncs, resyncs, lastSeq}`,
+`request(name, args, {refund, refundAt, onOk, onReject})`, `digest() → {seq, parts, counts}`, `dump(part)` (parts: `nat dyn structs
+tiles loot crops props env ents`), `diff(a, b)` (two digests → list of parts; two row arrays → `{missing, extra, changed, count}`),
+`ents` (host: `{role, guests: {pid: [nid…]}, mobs}`; guest: `{role, proxies: [{nid, species, name, level, dead, x, y, state}]}`),
+`forceResync()`, `selfTest() → {atlasOk, atlasDigest, placeholders, failures, missingSprites, speciesFallbacks, artWarnings,
+systemsUntagged, role, synced, seq}`, `entsApi.byNid(nid)`.
+
+`game.A.source = 'cache' | 'painted'`, `game.A.check` (= `checkAtlas`). Creature proxies on guests: `proxy: true, nid, isEntity,
+isMob, species, name, level, state ('idle'|'chase'|'dead'), threat (=== game.player when chasing the local player), cast {name,t,dur},
+stunT / dazeT / fearT (1 or 0), dots [{id}], hp, maxHp`. Events: `game.events` `desync {part, msg, detail}`, `worldreset`,
+session events `synced`, `hostgone`.

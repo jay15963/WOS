@@ -8,7 +8,6 @@ import { initFarming, farmingSystem } from './farming.js';
 import { initCrafting, craftingSystem, enqueue, recipeState } from './crafting.js';
 import { initWork, workSystem } from './work.js';
 import { updateAllMasks } from './autotile.js';
-import { rollKillLoot } from './loot.js';
 import { enterBuildMode } from './building.js';
 
 // before loadGame (flora targets must be read from the pristine world)
@@ -23,15 +22,15 @@ export function initEconomy(game) {
   game.hasTool = (p, kind) => hasTool(p || game.player, kind); // combat: skinning needs a knife
   // small API for other modules (combat, UI, debugging)
   game.econ = { hasTool: (k) => hasTool(game.player, k), bestTool: (k) => bestTool(game.player, k), equipItem: (id) => equipItem(game, id),
-    unequip: (s) => unequip(game, s), equipFromSlot: (i) => equipFromSlot(game, i), rollKillLoot: (x, y, t) => rollKillLoot(game, x, y, t),
+    unequip: (s) => unequip(game, s), equipFromSlot: (i) => equipFromSlot(game, i),
     craft: (id, n) => enqueue(game, id, n), recipeState: (id) => recipeState(game, id), build: (type) => enterBuildMode(game, type),
     designate: (tx, ty, on) => designate(game, tx, ty, on), nextStep: () => nextStep(game) };
 }
 
-// after loadGame
+// after loadGame (the starter safety net is an authority decision: ops)
 export function postLoadEconomy(game, isNew) {
   updateAllMasks(game);
-  if (isNew) ensureStarter(game, false);
+  if (isNew && game.net.auth) ensureStarter(game, false);
 }
 
 export function economySystems() {
@@ -74,6 +73,7 @@ function guideSystem() {
     return true;
   };
   return {
+    sync: 'owner', // hints for the local player
     update(game, dt) {
       t -= dt;
       if (t > 0) return;

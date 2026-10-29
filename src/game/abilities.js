@@ -8,7 +8,7 @@ import { moveCircle, facingFrom, collides } from './physics.js';
 import { addBuff, removeBuff, enterCombat } from './player.js';
 import {
   rollPlayerHit, applyPlayerHit, healEntity, reach, dist, attackable, isMob, faceTowards, facingVec,
-  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot,
+  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect,
 } from './combat.js';
 import { aggro } from './ai.js';
 
@@ -232,7 +232,7 @@ function effect(game, id, ab, t) {
       act('bash', 0.32);
       game.audio?.play('swing', { x: p.x, y: p.y, volume: 0.6 });
       melee(game, t, 0.6, 0, { ability: id, knock: 1.6 }, 0.12, (e) => {
-        if (isMob(e)) { e.dazeT = 1.5; if (e.cast) { e.cast = null; game.events.emit('damage', { target: e, src: p, amount: 0, kind: 'interrupt' }); } }
+        if (isMob(e)) mobEffect(game, e, { daze: 1.5, interrupt: 1 });
         J.puff(e.x, e.y, 6);
       });
       break;
@@ -248,8 +248,7 @@ function effect(game, id, ab, t) {
       game.audio?.play('swing', { x: p.x, y: p.y });
       melee(game, t, 0.6, 0, { ability: id }, 0.1, (e) => {
         if (!isMob(e)) return;
-        addDot(game, e, 'bleed', { dur: 8, tick: 2, dmg: Math.max(1, Math.round(avgHit(p) * 1.6 / 4)), src: p });
-        game.events.emit('damage', { target: e, src: p, amount: 0, kind: 'status', text: 'Sangrando', dtype: 'bleed' });
+        mobEffect(game, e, { dot: { id: 'bleed', dur: 8, tick: 2, dmg: Math.max(1, Math.round(avgHit(p) * 1.6 / 4)) }, status: ['Sangrando', 'bleed'] });
       });
       break;
     }
@@ -297,7 +296,7 @@ function effect(game, id, ab, t) {
       const dir = aimDir(p, t);
       game.audio?.play('swing', { x: p.x, y: p.y, volume: 1.1 });
       slashFx(game, p.x, p.y, dir, 5, 3.2, 1.5);
-      cone(game, dir, 2.5, -0.25).forEach((e, n) => melee(game, e, 0.9, 1, { ability: id, knock: 1.2 }, 0.12 + n * 0.03, (h) => { if (isMob(h)) h.dazeT = Math.max(h.dazeT || 0, 0.6); }));
+      cone(game, dir, 2.5, -0.25).forEach((e, n) => melee(game, e, 0.9, 1, { ability: id, knock: 1.2 }, 0.12 + n * 0.03, (h) => { if (isMob(h)) mobEffect(game, h, { daze: 0.6 }); }));
       break;
     }
     case 'strike': {
@@ -387,12 +386,7 @@ function effect(game, id, ab, t) {
       flameFx(game, p, dir);
       cone(game, dir, 2.3, -0.05).forEach((e, n) => melee(game, e, 0.6, 1, { ability: id, dtype: 'fire', canMiss: false }, 0.12 + n * 0.03, (h) => {
         if (!isMob(h)) return;
-        addDot(game, h, 'burn', { dur: 3, tick: 1, dmg: Math.max(1, Math.round(avgHit(p) * 0.3)), src: p });
-        if (h.kind === 'animal' && h.faction !== 'bandit') {
-          h.fearT = h.elite ? 2 : 4;
-          h.state = 'flee'; h.fleeFrom = p; h.fleeT = h.fearT; h.fleeDir = null; h.threat = null;
-          game.events.emit('damage', { target: h, src: p, amount: 0, kind: 'status', text: 'Assustado!', dtype: 'fire' });
-        }
+        mobEffect(game, h, { dot: { id: 'burn', dur: 3, tick: 1, dmg: Math.max(1, Math.round(avgHit(p) * 0.3)) }, fear: 4 });
       }));
       break;
     }
@@ -432,6 +426,7 @@ function flameFx(game, p, dir) {
 export function abilitiesSystem() {
   let barInit = false;
   return {
+    sync: 'owner', // the local player's bar, casts, charges, leaps
     update(game, dt) {
       const p = game.player;
       if (!barInit) { barInit = true; game.events.on('gear', () => rebuildBar(game)); rebuildBar(game); }

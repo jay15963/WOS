@@ -5,20 +5,24 @@
 //
 // World object types (CONTENT §5, drawn by the art): tent_0 | tent_1 | crate_0 | campfire | banner.
 // Missing sprites get a tinted stand-in from the render hook below.
+// Multiplayer: the camp LAYOUT is deterministic on every client (mut/camps.js installCamps); raiders, their
+// AI, loot and respawns are HOST-only (populateCamps, banditsSystem) and reach guests as entity proxies.
+// Raiders target the nearest player (players.js); damage to a remote player goes to its owner (hurtPlayer).
 
 import { SPECIES } from './data.js';
 import { weaponProfile, offhandProfile, equipArmor } from './content/weapons.js';
 import { mobStats } from './stats.js';
-import { mulberry32 } from '../engine/noise.js';
-import { occAdd, occAddTiles, occRemove, steer, resetNav, mobBlocked } from './nav.js';
-import { dealDamage, dist, faceTowards, hasLOS, reach, addDot, lootable, facingVec } from './combat.js';
-import { aggro, aggroRadius, evade, go, fleeDir, tickStatus, pickWander } from './ai.js';
-import { enterCombat, stunPlayer } from './player.js';
-import { dropLoot } from './loot.js';
+import { steer, resetNav, mobBlocked } from './nav.js';
+import { dist, faceTowards, hasLOS, reach, lootable, facingVec } from './combat.js';
+import { aggro, aggroRadius, evade, go, fleeDir, tickStatus, pickWander, pickTarget } from './ai.js';
+import { enterCombat } from './player.js';
 import { fireArrow } from './projectiles.js';
-import { nextMobId, levelForDistance } from './mobs.js';
+import { allocMob, levelForDistance } from './mobs.js';
+import { lootRows, ri } from './mut/roll.js';
+import { campHooks } from './mut/camps.js';
+import { hurtPlayer, minPlayerDist } from './players.js';
+export { installCamps, findCampSpots } from './mut/camps.js';
 
-const CAMP_MIN_D = 60;
 const LEASH = 30;
 const BORED = 12;
 const CAMP_RESPAWN = [240, 330];
@@ -44,108 +48,6 @@ const CHIEF_KITS = [
 
 const pick = (r, a) => a[Math.floor(r() * a.length) % a.length];
 
-// ---------- camp placement ----------
-function openSpot(game, x, y, R) {
-  const w = game.world;
-  if (!w.inBounds(Math.floor(x - R - 2), Math.floor(y - R - 2)) || !w.inBounds(Math.floor(x + R + 2), Math.floor(y + R + 2))) return false;
-  let trees = 0;
-  for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
-    if (dx * dx + dy * dy > R * R) continue;
-    const i = w.idx(Math.floor(x + dx), Math.floor(y + dy));
-    if (w.rock[i] || w.water[i] || w.solid[i]) return false;
-  }
-  if (game.build?.structures?.some((s) => Math.hypot(s.x - x, s.y - y) < R + 6)) return false;
-  w.forChunks(x - R, y - R, x + R, y + R, (c) => { for (const o of c.objects) if (o.type.startsWith('tree_') && Math.hypot(o.x - x, o.y - y) < R) trees++; });
-  return trees <= 9;
-}
-
-export function findCampSpots(game) {
-  const w = game.world, sx = w.spawn.x, sy = w.spawn.y;
-  const zones = (w.zones || []).filter((z) => z.type === 'bandit_camp');
-  if (zones.length) return zones.slice(0, 4).map((z) => ({ x: z.x, y: z.y, r: z.r || 6, zone: true }));
-  const rand = mulberry32((w.seed | 0) * 131 + 17);
-  const cands = [];
-  for (const z of w.zones || []) {
-    if (z.type !== 'clearing' && z.type !== 'meadow' && z.type !== 'birch' && z.type !== 'forest') continue;
-    const d = Math.hypot(z.x - sx, z.y - sy);
-    if (d < CAMP_MIN_D) continue;
-    cands.push({ x: z.x, y: z.y, d, score: (z.type === 'clearing' ? 2 : z.type === 'meadow' ? 1.2 : 0.6) + rand() });
-  }
-  for (let k = 0; k < 400; k++) {
-    const x = 12 + rand() * (w.W - 24), y = 12 + rand() * (w.H - 24);
-    const d = Math.hypot(x - sx, y - sy);
-    if (d >= CAMP_MIN_D) cands.push({ x, y, d, score: rand() * 0.8 });
-  }
-  cands.sort((a, b) => b.score - a.score);
-  const out = [];
-  for (const c of cands) {
-    if (out.length >= 3) break;
-    const x = Math.floor(c.x) + 0.5, y = Math.floor(c.y) + 0.5;
-    if (out.some((o) => Math.hypot(o.x - x, o.y - y) < 48)) continue;
-    if (!openSpot(game, x, y, 5)) continue;
-    out.push({ x, y, r: 6 });
-  }
-  return out;
-}
-
-function clearArea(game, x, y, R) {
-  const w = game.world;
-  const kill = [];
-  w.forChunks(x - R - 1, y - R - 1, x + R + 1, y + R + 1, (c) => {
-    for (const o of c.objects) {
-      if (o.building || o.camp) continue;
-      if (Math.hypot(o.x - x, o.y - y) > R) continue;
-      if (/^(tree_|bush|berrybush|boulder|pebble|stick|fibergrass|wild_)/.test(o.type)) kill.push(o);
-    }
-    if (c.decor) c.decor = c.decor.filter((d) => d.t === 'grass' || Math.hypot(d.x - x, d.y - y) > R - 0.5);
-  });
-  for (const o of kill) { occRemove(game, o); w.removeObject(o); o.gone = true; }
-}
-
-function addCampObject(game, camp, o) {
-  const w = game.world;
-  // reuse an object the world generator may already have placed here
-  let found = null;
-  w.forChunks(o.x - 1, o.y - 1, o.x + 1, o.y + 1, (c) => {
-    for (const q of c.objects) if (!found && q.type === o.type && Math.hypot(q.x - o.x, q.y - o.y) < 1.2) found = q;
-  });
-  const obj = found || w.addObject({ v: 0, s: 1, f: 1, ...o });
-  Object.assign(obj, { camp: camp.id });
-  if (!found && obj.solid) occAdd(game, obj);
-  camp.objects.push(obj);
-  return obj;
-}
-
-function makeCrate(game, camp, x, y) {
-  const o = addCampObject(game, camp, { type: 'crate_0', x, y, solid: 0.32, f: Math.random() < 0.5 ? 1 : -1 });
-  Object.assign(o, { isProp: true, name: 'Caixote', temper: 'neutral', level: 1, r: 0.34, scale: 0.9, hp: 3, maxHp: 3, broken: false, onBreak: crateBreak });
-  (game.props ||= []).push(o);
-  camp.crates.push(o);
-  return o;
-}
-
-function buildCamp(game, spot, id, tier, rand) {
-  const w = game.world;
-  const camp = { id: 'camp' + id, x: spot.x, y: spot.y, r: spot.r, tier, objects: [], crates: [], members: [], rand };
-  if (!spot.zone) clearArea(game, spot.x, spot.y, 4.6);
-  const cx = spot.x, cy = spot.y;
-  addCampObject(game, camp, {
-    type: 'campfire', x: cx, y: cy + 0.12, solid: 0.3, fire: true,
-    light: { r: 1, g: 0.62, b: 0.3, radius: 6, intensity: 1.3, flicker: 0.25, lift: 0.3 },
-  });
-  addCampObject(game, camp, { type: 'banner', x: cx + 1.6, y: cy - 1.1, solid: 0.12 });
-  const a0 = rand() * Math.PI * 2;
-  for (let k = 0; k < 2; k++) {
-    const a = a0 + k * Math.PI * (0.85 + rand() * 0.3);
-    const tx = Math.floor(cx + Math.cos(a) * 3.3) + 0.5, ty = Math.floor(cy + Math.sin(a) * 2.6) + 1;
-    const t = addCampObject(game, camp, { type: 'tent_' + (k % 2), x: tx, y: ty, solid: 0.62, f: Math.cos(a) > 0 ? -1 : 1 });
-    occAddTiles(game, t, [[Math.floor(tx) - 1, Math.floor(ty - 0.05)], [Math.floor(tx) + 1, Math.floor(ty - 0.05)]]);
-    makeCrate(game, camp, tx + (Math.cos(a) > 0 ? -1.5 : 1.5), ty + 0.6);
-  }
-  if (rand() < 0.6) makeCrate(game, camp, cx - 1.8, cy + 1.4);
-  return camp;
-}
-
 // ---------- raiders ----------
 function makeLook(rand, female, chief) {
   return {
@@ -167,7 +69,7 @@ function kitFor(camp, role, rand) {
 }
 
 function spawnBandit(game, camp, role, slot) {
-  const sp = SPECIES.bandit, rand = Math.random;
+  const sp = SPECIES.bandit, rand = () => game.net.roll();
   const female = role !== 'chief' && rand() < 0.4;
   const kit = kitFor(camp, role, rand);
   const level = Math.max(1, camp.level + (role === 'chief' ? 2 : rand() < 0.3 ? 1 : 0));
@@ -181,7 +83,7 @@ function spawnBandit(game, camp, role, slot) {
   let x = post.x, y = post.y;
   for (let k = 0; k < 10 && mobBlocked(game.world, x, y, sp.r); k++) { x = post.x + (rand() - 0.5) * 3; y = post.y + (rand() - 0.5) * 3; }
   const m = {
-    isEntity: true, isMob: true, kind: 'pawn', faction: 'bandit', species: 'bandit', id: nextMobId(),
+    isEntity: true, isMob: true, kind: 'pawn', faction: 'bandit', species: 'bandit', ...allocMob(game),
     name: chief ? 'Chefe dos saqueadores' : female ? 'Saqueadora' : 'Saqueador', level, elite: chief, role, camp: camp.id, campRef: camp,
     temper: 'hostile', x, y, r: sp.r, scale: chief ? 1.08 : 1, facing: rand() < 0.5 ? 'e' : 'w', moving: false, moveT: rand() * 10,
     action: null, flash: 0, dead: false, deadT: 0,
@@ -194,7 +96,7 @@ function spawnBandit(game, camp, role, slot) {
   };
   m.maxHp = m.hp;
   camp.members.push(m);
-  game.entities.push(m);
+  game.entities.push(m); // host-only creature list (guests get proxies from net/entities.js)
   return m;
 }
 
@@ -206,43 +108,39 @@ function populate(game, camp) {
   roles.forEach((r, i) => spawnBandit(game, camp, r, i));
 }
 
-export function installBandits(game) {
+// host only: raiders of every camp (the layout already exists on every client)
+export function populateCamps(game) {
   const w = game.world;
-  game.camps = [];
-  game.props = game.props || [];
-  const spots = findCampSpots(game);
-  spots.forEach((s, i) => {
-    const rand = mulberry32((w.seed | 0) * 977 + i * 31 + 3);
-    const d = Math.hypot(s.x - w.spawn.x, s.y - w.spawn.y);
-    const camp = buildCamp(game, s, i + 1, d > 95 ? 1 : 0, rand);
-    camp.level = levelForDistance(d, 1);
+  for (const camp of game.camps || []) {
+    camp.level = levelForDistance(Math.hypot(camp.x - w.spawn.x, camp.y - w.spawn.y), 1);
     populate(game, camp);
-    game.camps.push(camp);
-  });
+  }
   return game.camps;
 }
 
 // ---------- loot ----------
-function drop(game, x, y, id, a = 1, b = a) {
+// authority: loot rows collected in `out`, emitted by the caller as one loot.add
+function drop(game, out, x, y, id, a = 1, b = a) {
   if (!lootable(id)) return false;
-  const n = a + Math.floor(Math.random() * (b - a + 1));
-  for (let k = 0; k < n; k++) dropLoot(game, x, y, id, 1);
+  const n = ri(game.net, a, b);
+  lootRows(game.net, out, x, y, id, n);
   return n > 0;
 }
-function rollTable(game, x, y, rows, rolls) {
+function rollTable(game, out, x, y, rows, rolls) {
+  const R = () => game.net.roll();
   let any = false;
   for (let k = 0; k < rolls; k++) {
     let tot = 0;
     for (const r of rows) if (lootable(r[0])) tot += r[3];
     if (tot <= 0) break;
-    let u = Math.random() * tot;
+    let u = R() * tot;
     for (const r of rows) {
       if (!lootable(r[0])) continue;
       u -= r[3];
-      if (u <= 0) { any = drop(game, x, y, r[0], r[1], r[2]) || any; break; }
+      if (u <= 0) { any = drop(game, out, x, y, r[0], r[1], r[2]) || any; break; }
     }
   }
-  if (!any) drop(game, x, y, pick(Math.random, ['wood', 'stone', 'fiber']), 1, 2);
+  if (!any) drop(game, out, x, y, pick(R, ['wood', 'stone', 'fiber']), 1, 2);
 }
 const BANDIT_LOOT = [
   ['arrow', 2, 5, 3], ['leather', 1, 2, 2], ['rope', 1, 1, 2], ['cloth', 1, 2, 1.5], ['cooked', 1, 2, 2], ['bandage', 1, 1, 1.5],
@@ -254,35 +152,35 @@ const CRATE_LOOT = [
   ['potato', 1, 3, 1], ['cooked', 1, 2, 1], ['copper_ore', 1, 3, 1], ['iron_ore', 1, 2, 0.6], ['knife_stone', 1, 1, 0.4], ['spear_stone', 1, 1, 0.3],
 ];
 
+// kill loot of a raider (authority) -> loot rows; returns a toast for the killer or null
 function banditDeath(game, m) {
-  const x = m.x, y = m.y;
-  if (m.role === 'archer') drop(game, x, y, 'arrow', 3, 7);
-  if (m.weapon && Math.random() < (m.role === 'chief' ? 0.6 : 0.22)) drop(game, x, y, m.weapon);
+  const x = m.x, y = m.y, out = [], R = () => game.net.roll();
+  if (m.role === 'archer') drop(game, out, x, y, 'arrow', 3, 7);
+  if (m.weapon && R() < (m.role === 'chief' ? 0.6 : 0.22)) drop(game, out, x, y, m.weapon);
   const ap = m.armor && (m.armor.body || m.armor.head);
-  if (ap && Math.random() < (m.role === 'chief' ? 0.35 : 0.1)) drop(game, x, y, ap);
-  if (m.offhand && Math.random() < 0.2) drop(game, x, y, m.offhand);
+  if (ap && R() < (m.role === 'chief' ? 0.35 : 0.1)) drop(game, out, x, y, ap);
+  if (m.offhand && R() < 0.2) drop(game, out, x, y, m.offhand);
   if (m.role === 'chief') {
-    drop(game, x, y, m.level >= 6 ? 'iron_bar' : 'copper_bar', 1, 2);
-    drop(game, x, y, 'bandage', 1, 2);
-    game.events.emit('toast', { text: 'Chefe dos saqueadores derrotado!', kind: 'good' });
+    drop(game, out, x, y, m.level >= 6 ? 'iron_bar' : 'copper_bar', 1, 2);
+    drop(game, out, x, y, 'bandage', 1, 2);
   }
-  rollTable(game, x, y, BANDIT_LOOT.filter((r) => r[0] !== 'iron_bar' || m.level >= 5), m.role === 'chief' ? 3 : 1 + (Math.random() < 0.5 ? 1 : 0));
+  rollTable(game, out, x, y, BANDIT_LOOT.filter((r) => r[0] !== 'iron_bar' || m.level >= 5), m.role === 'chief' ? 3 : 1 + (R() < 0.5 ? 1 : 0));
+  return { rows: out, toast: m.role === 'chief' ? 'Chefe dos saqueadores derrotado!' : null };
 }
 
-function crateBreak(game, o) {
-  occRemove(game, o);
-  game.world.removeObject(o); // the art never sees a broken crate; it comes back with the camp
-  o.brokenAt = game.worldTime;
-  rollTable(game, o.x, o.y - 0.1, CRATE_LOOT, 2 + Math.floor(Math.random() * 2));
-  game.events.emit('toast', { text: 'Caixote quebrado', kind: 'info' });
-  // the camp notices
+// host side of a crate break (mut/camps.js prop.hit): camp loot + the camp notices the breaker
+campHooks.crateBreak = (game, o, breaker) => {
+  const out = [];
+  rollTable(game, out, o.x, o.y - 0.1, CRATE_LOOT, 2 + Math.floor(game.net.roll() * 2));
+  if (out.length) game.net.emit('loot.add', { list: out });
   const camp = game.camps?.find((c) => c.id === o.camp);
-  if (camp) for (const m of camp.members) if (!m.dead && dist(m, o) < 12 && m.state !== 'chase') aggro(game, m, game.player);
-}
+  if (camp && breaker) for (const m of camp.members) if (!m.dead && dist(m, o) < 12 && m.state !== 'chase') aggro(game, m, breaker);
+};
 
 // ---------- AI ----------
 function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y); }
 
+// p = the target player (local or a remote avatar); extra effects (stun / bleed) ride on the hit
 function meleeHit(game, m, p, mult, opts = {}) {
   const rng = reach(m, p);
   game.later(opts.delay ?? 0.22, () => {
@@ -290,22 +188,23 @@ function meleeHit(game, m, p, mult, opts = {}) {
     m.lastCombatT = game.worldTime;
     const crit = Math.random() < 0.06;
     const dmg = Math.max(1, Math.round(m.dmg * (m.enraged ? 1.3 : 1) * mult * (0.85 + Math.random() * 0.3) * (crit ? 1.5 : 1)));
-    const got = dealDamage(game, m, p, dmg, { crit, ability: opts.ability });
-    if (got > 0) opts.after?.(got);
+    hurtPlayer(game, m, p, dmg, { crit, ability: opts.ability, stun: opts.stun, bleed: opts.bleed });
   });
 }
 
 function shootAt(game, m, p, mult, kind = 'arrow', ability) {
-  // lead the player a little when moving
+  // lead the target a little when moving (remote avatars carry a velocity estimate)
   let tx = p.x, ty = p.y;
-  if (p.moving) {
-    const f = facingVec(p.facing), tFly = dist(m, p) / (kind === 'spear' ? 13 : 17);
+  const tFly = dist(m, p) / (kind === 'spear' ? 13 : 17);
+  if (p.vx != null) { tx += p.vx * tFly * 0.55; ty += p.vy * tFly * 0.55; }
+  else if (p.moving) {
+    const f = facingVec(p.facing);
     tx += f[0] * p.speed * tFly * 0.55; ty += f[1] * p.speed * tFly * 0.55;
   }
   const dmg = Math.max(1, Math.round(m.dmg * mult * (0.85 + Math.random() * 0.3)));
   fireArrow(game, {
     src: m, faction: 'bandit', x: m.x, y: m.y, tx, ty, range: 13, kind,
-    onHit: (g, e, pr) => { dealDamage(g, m, e, dmg, { from: { x: pr.ox, y: pr.oy }, ranged: true, ability }); },
+    onHit: (g, e, pr) => { hurtPlayer(g, m, e, dmg, { from: { x: pr.ox, y: pr.oy }, ranged: true, ability }); },
   });
 }
 
@@ -318,7 +217,7 @@ function special(game, m, p, d) {
     m.action = { type: 'smash', t: 0, hold: true };
     startCast(m, 'Esmagar', 0.7, () => {
       m.action = { type: 'smash', t: 0.4, dur: 0.35 };
-      meleeHit(game, m, p, 1.3, { delay: 0.08, ability: 'smash', after: () => { if (!p.dead) stunPlayer(game, 0.9); } });
+      meleeHit(game, m, p, 1.3, { delay: 0.08, ability: 'smash', stun: 0.9 });
     });
   } else if (type === 'spear' && d > 2.6 && d < 7.5 && m.throwT <= 0 && canSee(game, m, p)) {
     m.throwT = 14;
@@ -332,7 +231,7 @@ function special(game, m, p, d) {
     meleeHit(game, m, p, 1.45, { ability: 'cleave' });
   } else if (type === 'knife') {
     m.action = { type: 'attack', t: 0, dur: 0.35 };
-    meleeHit(game, m, p, 0.8, { ability: 'lacerate', after: () => addDot(game, p, 'bleed', { dur: 6, tick: 1.5, dmg: Math.max(1, Math.round(m.dmg * 0.35)), src: m }) });
+    meleeHit(game, m, p, 0.8, { ability: 'lacerate', bleed: { dur: 6, tick: 1.5, dmg: Math.max(1, Math.round(m.dmg * 0.35)) } });
   } else if (m.role === 'chief' && d < 2.6) {
     m.action = { type: 'attack', t: 0, dur: 0.5 };
     m.spinT = 0.5;
@@ -346,7 +245,8 @@ function special(game, m, p, d) {
 }
 
 export function updateBandit(game, m, dt) {
-  const p = game.player;
+  if (m.proxy) { game.net.violation('updateBandit num proxy'); return; }
+  const p = pickTarget(game, m);
   const sp = SPECIES.bandit;
   if (!tickStatus(game, m, dt)) { m.blocking = false; return; }
   const d = dist(m, p);
@@ -403,8 +303,8 @@ export function updateBandit(game, m, dt) {
     case 'chase': {
       const t = m.threat;
       const homeD = Math.hypot(m.x - camp.x, m.y - camp.y);
-      if (!t || t.dead || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 4)) { evade(m, homeD > LEASH ? 3 : 8); break; }
-      if (t === p) enterCombat(p, 1);
+      if (!t || t.dead || t.gone || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 4)) { evade(m, homeD > LEASH ? 3 : 8); break; }
+      if (t === game.player) enterCombat(t, 1);
       if (m.role === 'chief') {
         if (!m.enraged && m.hp < m.maxHp * 0.3) {
           m.enraged = true; m.swingDur *= 0.85;
@@ -508,13 +408,14 @@ const FB = { tent_0: ['bed', 2.1, [0.78, 0.64, 0.46]], tent_1: ['bed', 2.1, [0.6
 export function banditsSystem() {
   let slowT = 0;
   return {
+    sync: 'host', // raider respawns and crate rebuilds (prop.set)
     update(game, dt) {
       slowT -= dt;
       if (slowT > 0 || !game.camps) return;
       slowT = 2;
-      const p = game.player, now = game.worldTime;
+      const now = game.worldTime;
       for (const camp of game.camps) {
-        const far = Math.hypot(camp.x - p.x, camp.y - p.y) > 36;
+        const far = minPlayerDist(game, camp.x, camp.y) > 36;
         for (let i = camp.members.length - 1; i >= 0; i--) {
           const m = camp.members[i];
           if (!m.dead) continue;
@@ -522,16 +423,22 @@ export function banditsSystem() {
           if (now < m.respawnAt || !far) continue;
           camp.members.splice(i, 1);
           const k = game.entities.indexOf(m);
-          if (k >= 0) game.entities.splice(k, 1);
+          if (k >= 0) game.entities.splice(k, 1); // host-only creature list
           spawnBandit(game, camp, m.role, i);
         }
         for (const o of camp.crates) {
           if (!o.broken || now - (o.brokenAt || 0) < CRATE_RESPAWN || !far) continue;
-          o.broken = false; o.hp = o.maxHp; o.flash = 0;
-          game.world.addObject(o); occAdd(game, o);
+          game.net.emit('prop.set', { id: o.id, hp: o.maxHp, broken: 0 });
         }
       }
     },
+  };
+}
+
+// camp stand-in art for missing sprites (every peer)
+export function campArtSystem() {
+  return {
+    sync: 'cosmetic',
     // optional y-sorted path (same core hook as projectiles.js); otherwise render() draws them late
     collect(game, list, v) {
       if (!game.camps) return;

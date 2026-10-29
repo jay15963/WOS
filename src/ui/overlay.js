@@ -3,6 +3,7 @@
 // interaction progress bar. Redrawn every frame from simulation state + combat events.
 
 import { SPECIES, TEMPER_COLOR } from '../game/data.js';
+import { DEV } from '../game/artcompat.js';
 
 const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
 // floating text colors per damage type (dealt by the player / taken by the player)
@@ -88,6 +89,7 @@ export function installOverlay(game) {
   const plates = [], placed = [];
 
   return {
+    sync: 'cosmetic', // floating text, nameplates
     update(g, dt) {
       for (let i = fct.length - 1; i >= 0; i--) {
         const f = fct[i];
@@ -135,7 +137,7 @@ export function installOverlay(game) {
         const bandit = e.faction === 'bandit';
         const col = bandit ? '#ff5a48' : TEMPER_COLOR[temper];
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
-        const label = e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`;
+        const label = (e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
         const [sx, sy0] = g.worldToScreen(e.x, e.y - spriteTop(e));
         let sy = sy0 - 6;
