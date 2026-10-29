@@ -13,6 +13,7 @@
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
 //   props:  [[id, hp, broken, brokenAt]],
+//   corpses:[[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc, v, gear|0, 0]]  (mut/corpses.js)
 //   ids, natpos                                                            // save file only
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
@@ -30,6 +31,7 @@ import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
+import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -62,6 +64,7 @@ export function serializeWorld(game, { save = false } = {}) {
     crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
+    corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
   };
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
   return data;
@@ -257,6 +260,18 @@ function applyInner(game, d, mode) {
     else { setPropBroken(game, o, false); o.hp = hp; }
   }
   if (reconcile) for (const o of game.props || []) if (!pIds.has(o.id) && (o.broken || o.hp !== o.maxHp)) { setPropBroken(game, o, false); o.hp = o.maxHp; }
+
+  // ---- bodies on the ground ----
+  if (game.corpses) {
+    const cIds = new Set();
+    for (const r of arr(d.corpses)) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+      cIds.add(r[0]);
+      addCorpse(game, r, { fresh: false });
+      net.seeId(r[0]);
+    }
+    if (reconcile) for (const c of [...game.corpses.map.values()]) if (!cIds.has(c.id)) removeCorpse(game, c);
+  }
 
   updateAllMasks(game);
   if (d.ids && typeof d.ids === 'object') for (const k in d.ids) if (k in net.ids && Number.isFinite(d.ids[k])) net.ids[k] = Math.max(net.ids[k], d.ids[k]);

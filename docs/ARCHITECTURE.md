@@ -165,6 +165,11 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
 - **Construção (rodada V2)**: plantas grátis (azuis), material entregue no início da obra (`struct.paid`), rotação `o.rot`
   (4 orientações / 5 posições de borda), pegada `o.fw × o.fh`, `Mover` (`build.move` → `struct.relocate`), `Arrasar`
   (`struct.raze`), barra de construção e menu de contexto em `src/ui/buildbar.js`. Detalhes em `docs/SYNC.md` §7.2.
+- **Corpos e decomposição (rodada V2)**: todo ser morto deixa um corpo (`game.corpses`, `src/game/corpses.js` + ops em
+  `mut/corpses.js`, arte em `art/corpses.js` / `art/corpseDraw.js`, desenhado no batch `decor`). Estágio derivado do tempo do mundo:
+  fresco (1º dia) → podre (2º, verde-acinzentado, moscas) → ossada (3º–5º) → some. Animais: "Coletar" no 1º dia (carne / couro, melhor
+  com lâmina); ossada: "Remover ossada" dá Ossos. Jogadores / saqueadores: os itens ficam no corpo ("Revistar" até o fim do 2º dia,
+  janela de contêiner de B, `openContainer` + `corpseAdapter` em `corpses.js`, ordenação pela intent única `store.sort`). Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor

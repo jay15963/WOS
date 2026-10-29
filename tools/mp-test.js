@@ -766,12 +766,14 @@ def('S15', {
 // =====================================================================================================
 // S16 ★ Wolf killed by the guest
 async function killByGuest(t, C, wolf, { knife }) {
-  const { H, G, MH, MG } = C;
+  const { H, G, MG } = C;
   const gpl = G.game.player;
+  // blades decide the yields (corpses: knife / sword / axe = full table; bare hands = no hide)
+  const BLADE = /^(knife|sword|axe)_/;
   if (knife) A.ensure(G, { knife_stone: 1 });
   else {
-    if (/^knife_/.test(gpl.equip.main || '')) G.game.econ.unequip('main');
-    gpl.inv.slots = gpl.inv.slots.map((s) => (s && /^knife_/.test(s.id) ? null : s));
+    if (BLADE.test(gpl.equip.main || '')) G.game.econ.unequip('main');
+    gpl.inv.slots = gpl.inv.slots.map((s) => (s && BLADE.test(s.id) ? null : s));
     G.game.events.emit('inventory', {});
   }
   const s = A.freeSpot(G, MG, wolf.x, wolf.y, { rMin: 1.1, rMax: 2 });
@@ -782,55 +784,51 @@ async function killByGuest(t, C, wolf, { knife }) {
   const inv0 = [A.invSnap(H), A.invSnap(G)];
   const xpH = A.xpRecorder(t, H), xpG = A.xpRecorder(t, G);
   const loot = A.lootRecorder(t, [H, G]);
+  const before = new Set(H.game.corpses.map.keys());
   A.hit(G, MG, A.proxyOf(G, wolf) || prox, 9999);
   t.log(`guest hits wolf ${wolf.nid} for 9999 (knife: ${knife})`);
   const dh = await t.timeTo(() => wolf.dead, RT() + 400, 'wolf dead on the host', () => `hp ${wolf.hp} guest ui: ${G.lastUi()}`);
   await t.waitFor(() => A.proxyOf(G, wolf)?.dead || !A.proxyOf(G, wolf), ONEWAY() + 300, 'wolf dead on the guest');
   t.metric(`kill${knife ? 'Knife' : ''}RoundTripMs`, Math.round(dh));
-  await t.waitFor(() => loot.rows(0).length > 0, 1500, 'kill loot on the host');
-  await t.sleep(ONEWAY() + 150);
-  const rows = loot.rows(0);
-  const mid = rows.reduce((a, r) => [a[0] + (H.game.loot.find((l) => String(l.id) === r.id)?.x ?? wolf.x), a[1] + (H.game.loot.find((l) => String(l.id) === r.id)?.y ?? wolf.y)], [0, 0]).map((v) => v / rows.length);
-  // both players stand on the pile: each item picked by exactly one of them
-  A.teleport(H, mid[0], mid[1]);
-  A.teleport(G, mid[0] + 0.3, mid[1]);
-  const killIds = new Set(rows.map((r) => r.id));
-  const gone = await t.tryWait(() => !H.game.loot.some((l) => killIds.has(String(l.id))) && !G.game.loot.some((l) => killIds.has(String(l.id))), 5000);
+  A.pacify(H, wolf.x, wolf.y, 24, 120); // the pack calms down while the guest works on the body
+  const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.of === 'wolf'), 1500, 'wolf body on the host');
+  const cg = await t.waitFor(() => G.game.corpses.map.get(ch.id), ONEWAY() + 600, 'same body (id) on the guest');
+  const sameBody = cg.of === ch.of && Math.abs(cg.x - ch.x) < 0.01 && Math.abs(cg.y - ch.y) < 0.01 && cg.deathT === ch.deathT;
+  const verb = MG.corpses.describeCorpse(G.game, cg)?.verb;
+  await A.workUntil(t, G, () => { const q = G.game.corpses.map.get(ch.id); return q && !q.butchered ? MG.corpses.describeCorpse(G.game, q) : null; },
+    () => ch.butchered && G.game.corpses.map.get(ch.id)?.butchered, 20000, 'guest collects the wolf (Coletar)');
   await t.sleep(RT());
   loot.stop();
-  const cmp = loot.compare(0, 1), li = loot.items(0);
   const gainH = A.invDiff(inv0[0], A.invSnap(H)), gainG = A.invDiff(inv0[1], A.invSnap(G));
-  const sum = {};
-  for (const k of Object.keys(li)) sum[k] = (gainH[k] || 0) + (gainG[k] || 0);
-  return { cmp, li, gone, gainH, gainG, sum, xpH: xpH.total, xpG: xpG.total };
+  return { sameBody, verb, ground: loot.rows(0).length + loot.rows(1).length, gainH, gainG, xpH: xpH.total, xpG: xpG.total };
 }
 def('S16', {
   star: true, title: 'Wolf killed by the guest', timeout: 150000,
-  expected: 'Wolf dead on both; loot on both with identical ids; leather only if the guest had a knife; XP only to the guest; each item picked by one player only',
-  api: 'combat applyPlayerHit on a proxy (mob.hit intent {skin}); mob.die op + loot.add; loot.take arbitration; proxies {nid,dead}',
+  expected: 'Wolf dead on both; no ground loot: the same body (id) on both; the guest collects it ("Coletar"): meat to the guest only, leather only with a blade (knife), XP only to the guest',
+  api: 'combat applyPlayerHit on a proxy (mob.hit intent); mob.die + corpse.add ops; corpses.describeCorpse → work "butcher" → intent corpse.butcher → op corpse.butcher {give}; proxies {nid,dead}',
 }, async (t) => {
   const C = await pairCtx(t);
   const { H, G } = C;
-  A.ensure(H, { knife_stone: 1 }); // the host's knife must NOT make the guest's kill drop leather
+  t.need(H.game.corpses && G.game.corpses, 'corpses not merged (game.corpses missing)');
+  A.ensure(H, { knife_stone: 1 }); // the host's knife must NOT make the guest's work yield leather
   A.keepAlive(t, G);
   const sp = spawnOf(H);
   const wolves = A.hostMobs(H, (m) => m.species === 'wolf' && !env.claimed.has('mob' + m.nid)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
   t.assert(wolves.length >= 2, 'found two wolves on the host', `${wolves.length}`);
   t.need(wolves[0].nid != null, 'host creatures have no nid (entity replication not merged)');
-  let leatherNoKnife = 0;
   for (const [k, knife] of [[0, false], [1, true]]) {
     const wolf = wolves[k];
     env.claimed.add('mob' + wolf.nid);
     const r = await killByGuest(t, C, wolf, { knife });
-    const tag = knife ? ' (guest with knife)' : ' (guest without knife, host has one)';
-    t.check(r.cmp.ok && r.cmp.n > 0, 'kill loot with identical ids on both' + tag, r.cmp.detail);
-    t.check((r.li.meat || 0) >= 1, 'meat dropped' + tag, short(r.li));
-    if (!knife) { leatherNoKnife = r.li.leather || 0; t.check(!leatherNoKnife, 'no leather without a knife (skin flag from the killing hit)', short(r.li)); }
-    else t.note(`leather with a knife: ${r.li.leather || 0} (70% chance)`);
-    t.check(r.xpG > 0 && r.xpH === 0, 'kill XP only to the guest' + tag, `guest +${f2(r.xpG)} host +${f2(r.xpH)}`);
-    t.check(r.gone, 'all kill loot picked up' + tag);
-    const dup = Object.keys(r.li).filter((k2) => r.sum[k2] !== r.li[k2]);
-    t.check(!dup.length, 'each item picked by exactly one player (no duplication / loss)' + tag, `dropped ${short(r.li)} · host +${short(r.gainH)} · guest +${short(r.gainG)}`);
+    const tag = knife ? ' (guest with knife)' : ' (guest bare-handed, host has a knife)';
+    t.check(r.sameBody, 'the same wolf body (id, position, time of death) on both' + tag);
+    t.check(r.ground === 0, 'no kill loot on the ground' + tag, `${r.ground} rows`);
+    t.check(r.verb === 'Coletar', 'interaction on the fresh body is "Coletar"' + tag, r.verb);
+    t.check((r.gainG.meat || 0) >= 1, 'meat collected by the guest' + tag, short(r.gainG));
+    if (!knife) t.check(!r.gainG.leather, 'no leather bare-handed', short(r.gainG));
+    else t.note(`leather with a knife: ${r.gainG.leather || 0} (70% chance)`);
+    t.check(!Object.keys(r.gainH).length, 'the host got nothing' + tag, short(r.gainH));
+    t.check(r.xpG > 0 && r.xpH === 0, 'kill + collect XP only to the guest' + tag, `guest +${f2(r.xpG)} host +${f2(r.xpH)}`);
   }
   await t.checkDigest(H, G);
   env.history.push('S16');
@@ -1394,7 +1392,7 @@ function bot(t, f, M, home) {
     if (now() < next || busy) return;
     next = now() + 1500 + Math.random() * 3000;
     busySince = now();
-    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon']);
+    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon', 'body']);
     stats.actions[act] = (stats.actions[act] || 0) + 1;
     try {
       if (act === 'walk') { const s = A.freeSpot(f, M, p.x + (Math.random() - 0.5) * 16, p.y + (Math.random() - 0.5) * 16, { rMin: 0, rMax: 3 }); if (s) g.ctl.walkTo(s[0], s[1]); }
@@ -1405,6 +1403,7 @@ function bot(t, f, M, home) {
         const type = Math.random() < 0.5 ? 'floor_wood' : 'wall_wood';
         if (M.building.placeReason(g, type, tx, ty) === null && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) > 1.5) A.place(f, M, type, [tx, ty]);
       } else if (act === 'fight') { const m = A.mobs(f, (e) => !e.dead && (e.species === 'rabbit' || e.species === 'deer' || e.species === 'boar' || e.species === 'fox') && A.dist(e, p) < 14)[0]; if (m) g.ctl.engage(m); }
+      else if (act === 'body') { let it = null; g.corpses?.forNear(p.x, p.y, 12, (q) => { if (!it && q.prio >= 0) it = q; }); if (it) A.interact(f, it); }
       else if (act === 'decon') { const o = g.build.structures.filter((q) => !q.blueprint && A.dist(q, p) < 12)[0]; if (o) M.building.toggleDecon(g, o, true); }
     } catch { stats.errors++; }
   }, 250);
@@ -1450,8 +1449,8 @@ def('S29', {
 // S40 B: chest sort (guest sorts a shared chest through the chest panel)
 def('S40', {
   title: 'B: chest sort', timeout: 120000,
-  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (chest.sort → chest.set): same order on both, stacks merged, digest equal',
-  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (chest.sort intent → chest.set {slots}); o.store.slots; invsort.sortedSlots',
+  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (store.sort → chest.set): same order on both, stacks merged, digest equal',
+  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (store.sort intent {kind: chest} → chest.set {slots}); o.store.slots; invsort.sortedSlots',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.ensure(H, { wood: 10 });
@@ -1712,10 +1711,17 @@ def('S30', {
     const s = A.freeSpot(S1, M, prey.x, prey.y, { rMin: 0.8, rMax: 1.5 });
     if (s) A.teleport(S1, s[0], s[1]);
     const cl = A.lootRecorder(t, [S1]);
+    const meat0 = A.count(S1, 'meat');
     A.hit(S1, M, prey, 9999);
     t.check(prey.dead, 'a hit kills the creature locally', prey.species);
     await t.sleep(300); cl.stop();
-    t.check((cl.items(0).meat || 0) >= 1, 'kill drops meat', short(cl.items(0)));
+    t.check(!(cl.items(0).meat), 'kill drops no loot (the body stays)', short(cl.items(0)));
+    const body = [...g.corpses.map.values()].find((c) => c.of === prey.species && Math.hypot(c.x - prey.x, c.y - prey.y) < 0.5);
+    t.check(!!body, 'kill leaves a body', prey.species);
+    if (body) {
+      await A.workUntil(t, S1, () => (body.butchered ? null : M.corpses.describeCorpse(g, body)), () => body.butchered, 20000, 'collect the body (Coletar)');
+      t.check(A.count(S1, 'meat') > meat0, 'Coletar gives meat', `${meat0} → ${A.count(S1, 'meat')}`);
+    }
   } else t.note('no prey found — combat sub-check skipped');
   // net (merged core)
   if (S1.net) {
@@ -2090,6 +2096,201 @@ def('S37', {
   const cells = new Map(); let clash = null;
   for (const r of out) { const [fw, fh] = MH.building.dimsOf(r[1], r[10]); for (let yy = r[3]; yy < r[3] + fh; yy++) for (let xx = r[2]; xx < r[2] + fw; xx++) { const k = xx + ',' + yy; if (cells.has(k)) clash = `${cells.get(k)} × ${r[0]} at ${k}`; cells.set(k, r[0]); } }
   t.check(!clash, 'no two migrated structures overlap', clash || `${cells.size} cells`);
+});
+
+// =====================================================================================================
+// S60 / S61 — I · corpos e decomposição (bodies decompose in shared world time)
+// Time is fast-forwarded through the env op on the host (test-only path: the harness emits env.skip, the op
+// every peer applies for sleeping, so worldTime / hour / day move the same way on all of them).
+function skipDays(H, days) {
+  const g = H.game, E = g.env, dl = E.dayLength || 720;
+  let hour = E.hour + days * 24, day = E.dayIndex;
+  while (hour >= 24) { hour -= 24; day++; }
+  g.net.emit('env.skip', { hour: +hour.toFixed(3), day, wt: Math.round((g.worldTime + days * dl) * 100) / 100 });
+  g.net.flush();
+}
+const bodyOn = (f, id) => f.game.corpses?.map.get(id) || null;
+const corpseAgeOn = (f, M, c) => M.mcorpses.corpseAge(f.game, c);
+const stageOn = (f, M, id) => { const c = bodyOn(f, id); return c ? M.mcorpses.stageOf(f.game, c) : 'none'; };
+// request an intent on a frame and resolve with { ok, why }
+const ask = (f, name, args) => new Promise((res) => {
+  const r = f.game.net.request(name, args, { onOk: () => res({ ok: true }), onReject: (why) => res({ ok: false, why }) });
+  if (r === true) res({ ok: true });
+});
+
+def('S60', {
+  title: 'I: animal corpse stages + coletar', timeout: 180000,
+  expected: 'Kill → the same body on both, no ground loot; day 1 the guest collects it (meat to the guest only, carcass on both); a second body: day 2 rotten → "Está podre demais"; day 3 skeleton → "Remover ossada" gives bones to the guest and removes it on both; day 5 the host removes the rest; digest equal',
+  api: 'mob.die + corpse.add; corpses.describeCorpse / work kinds butcher, corpse_bones; intents corpse.butcher / corpse.bones; ops corpse.butcher / corpse.remove; stage from (worldTime - deathT) / env.dayLength; env.skip (test fast-forward)',
+}, async (t) => {
+  const C = await pairCtx(t);
+  const { H, G, MH, MG } = C;
+  t.need(H.game.corpses && G.game.corpses && MG.corpses?.describeCorpse, 'corpses not merged');
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const sp = spawnOf(H);
+  const prey = A.hostMobs(H, (m) => ['deer', 'rabbit', 'fox', 'boar'].includes(m.species) && !env.claimed.has('mob' + m.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 2);
+  t.assert(prey.length === 2, 'found two animals on the host', `${prey.length}`);
+  for (const m of prey) env.claimed.add('mob' + m.nid);
+  A.ensure(G, { knife_stone: 1 });
+  const loot = A.lootRecorder(t, [H, G]);
+  const ids = [];
+  for (const m of prey) {
+    const s = A.freeSpot(G, MG, m.x, m.y, { rMin: 1, rMax: 2 });
+    t.assert(s, 'free spot next to the ' + m.species);
+    A.teleport(G, s[0], s[1]);
+    await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, `${m.species} proxy on the guest`);
+    await A.hostSees(t, H, G, 4000);
+    const before = new Set(H.game.corpses.map.keys());
+    m.calmT = 999; m.state = 'idle'; m.stateT = 99; // keep still for the kill (host AI)
+    A.hit(G, MG, A.proxyOf(G, m), 9999);
+    await t.waitFor(() => m.dead, RT() + 600, `${m.species} dead on the host`);
+    const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((q) => !before.has(q.id) && q.of === m.species), 1500, `${m.species} body on the host`);
+    await t.waitFor(() => bodyOn(G, c.id), ONEWAY() + 600, `${m.species} body on the guest`);
+    ids.push(c.id);
+  }
+  await t.sleep(RT());
+  t.check(loot.rows(0).length === 0 && loot.rows(1).length === 0, 'animals drop nothing on the ground', `${loot.rows(0).length}/${loot.rows(1).length}`);
+  loot.stop();
+  const [a, b] = ids;
+  t.check(stageOn(H, MH, a) === 'fresh' && stageOn(G, MG, a) === 'fresh', 'day 1: fresh on both');
+  // day 1: guest collects body A
+  const ca = bodyOn(G, a);
+  const it0 = MG.corpses.describeCorpse(G.game, ca);
+  t.check(it0?.verb === 'Coletar' && it0.prio >= 0, 'fresh animal body offers "Coletar"', `${it0?.kind} ${it0?.verb}`);
+  const invG0 = A.invSnap(G), invH0 = A.invSnap(H);
+  const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
+  const sa = A.freeSpot(G, MG, ca.x, ca.y, { rMin: 0.6, rMax: 1.2 });
+  if (sa) A.teleport(G, sa[0], sa[1]);
+  await A.hostSees(t, H, G, 4000);
+  await A.workUntil(t, G, () => { const q = bodyOn(G, a); return q && !q.butchered ? MG.corpses.describeCorpse(G.game, q) : null; },
+    () => bodyOn(H, a)?.butchered && bodyOn(G, a)?.butchered, 20000, 'guest collects body A');
+  await t.sleep(RT());
+  const gainG = A.invDiff(invG0, A.invSnap(G)), gainH = A.invDiff(invH0, A.invSnap(H));
+  t.check((gainG.meat || 0) >= 1, 'Coletar gives meat to the guest', short(gainG));
+  t.check(!Object.keys(gainH).length && xpH.total === 0, 'the host got nothing', short(gainH));
+  t.check(xpG.total > 0, 'small XP reward to the guest', f2(xpG.total));
+  t.check(!MG.corpses.describeCorpse(G.game, bodyOn(G, a)), 'a butchered fresh body offers nothing more');
+  const again = await ask(G, 'corpse.butcher', { id: a, blade: 'knife', tier: 1 });
+  t.check(!again.ok && /coletado/i.test(again.why || ''), 'a second Coletar is refused', again.why);
+  // day 2: rotten
+  skipDays(H, 1.05);
+  await t.waitFor(() => stageOn(G, MG, b) === 'rotten' && stageOn(H, MH, b) === 'rotten', ONEWAY() + 1500, 'day 2: body B rotten on both');
+  const itR = MG.corpses.describeCorpse(G.game, bodyOn(G, b));
+  t.check(itR && itR.prio < 0, 'rotten body is not offered as an action (tap only)', `${itR?.kind} prio ${itR?.prio}`);
+  const rot = await ask(G, 'corpse.butcher', { id: b, blade: 'knife', tier: 1 });
+  t.check(!rot.ok && /podre/i.test(rot.why || ''), 'Coletar on a rotten body: "Está podre demais"', rot.why);
+  const errs = [];
+  t.on(G, 'error', (d) => errs.push(d?.text));
+  const sb = A.freeSpot(G, MG, bodyOn(G, b).x, bodyOn(G, b).y, { rMin: 0.6, rMax: 1.2 });
+  if (sb) A.teleport(G, sb[0], sb[1]);
+  MG.gathering.startWork(G.game, itR);
+  t.check(!G.game.player.work && errs.some((e) => /podre/i.test(e || '')), 'the work refuses with "Está podre demais"', short(errs));
+  const early = await ask(G, 'corpse.bones', { id: b });
+  t.check(!early.ok, 'no bones before the skeleton stage', early.why);
+  // days 3–5: skeleton → bones
+  skipDays(H, 1.05);
+  await t.waitFor(() => stageOn(G, MG, a) === 'skeleton' && stageOn(H, MH, a) === 'skeleton', ONEWAY() + 1500, 'day 3: skeletons on both');
+  const itS = MG.corpses.describeCorpse(G.game, bodyOn(G, a));
+  t.check(itS?.kind === 'corpse_bones' && /ossada|restos/i.test(itS.verb), 'skeleton offers "Remover ossada"', `${itS?.kind} ${itS?.verb}`);
+  const bones0 = A.count(G, 'bone');
+  const sc = A.freeSpot(G, MG, bodyOn(G, a).x, bodyOn(G, a).y, { rMin: 0.6, rMax: 1.2 });
+  if (sc) A.teleport(G, sc[0], sc[1]);
+  await A.hostSees(t, H, G, 4000);
+  await A.workUntil(t, G, () => { const q = bodyOn(G, a); return q ? MG.corpses.describeCorpse(G.game, q) : null; }, () => !bodyOn(H, a) && !bodyOn(G, a), 20000, 'guest removes the bones of A');
+  await t.sleep(RT());
+  const species = prey[0].species;
+  const wantBones = MG.mcorpses.BONES[MG.mcorpses.SIZE_OF[species]] || 1;
+  t.check(A.count(G, 'bone') - bones0 === (species === 'spider' ? 0 : wantBones), `"Ossos" to the guest (${species})`, `${bones0} → ${A.count(G, 'bone')}`);
+  t.check(!bodyOn(H, a) && !bodyOn(G, a), 'skeleton removed on both');
+  await t.checkDigest(H, G, 'digest equal (skeleton stage)');
+  // day 5+: the host removes what is left
+  skipDays(H, 3.1);
+  await t.waitFor(() => !bodyOn(H, b) && !bodyOn(G, b), 2500 + ONEWAY(), 'after day 5 body B is gone on both');
+  await t.checkDigest(H, G);
+  env.history.push('S60');
+});
+
+def('S61', {
+  title: 'I: player corpse loot', timeout: 180000,
+  expected: 'The guest dies: its bag + equipment move into its body (same id and contents on both, "Corpo de <nome>"), it respawns with nothing; the host opens the body ("Revistar": transfer window), takes, puts and sorts both sides; the guest takes from its own body; from day 3 the body cannot be opened (refused, window closes) and offers "Remover ossada"; digest equal',
+  api: 'player death → intent corpse.player → op corpse.add {owner}; container window (container.js openContainer + corpses.corpseAdapter: data-slot / data-cslot / data-sort + data-sortk); intents corpse.put / corpse.take / store.sort {kind: corpse} → op corpse.set; env.skip',
+}, async (t) => {
+  const C = await pairCtx(t);
+  const { H, G, MH, MG } = C;
+  t.need(H.game.corpses && G.game.corpses && MG.corpses?.describeCorpse, 'corpses not merged');
+  A.keepAlive(t, H);
+  const gp = G.game.player;
+  // what the guest carries
+  for (let i = 0; i < gp.inv.size; i++) gp.inv.slots[i] = null;
+  A.ensure(G, { wood: 7, pebble: 3, berries: 4, stick: 2 });
+  A.equip(G, 'knife_stone');
+  const carried = A.invSnap(G);
+  for (const k of ['main', 'off', 'body', 'head']) { const id = gp.equip[k]; if (id) carried[id] = (carried[id] || 0) + 1; }
+  const before = new Set(H.game.corpses.map.keys());
+  const at = { x: gp.x, y: gp.y };
+  MG.player.killPlayer(G.game);
+  const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.owner === G.pid), RT() + 800, "guest's body on the host");
+  const cg = await t.waitFor(() => bodyOn(G, ch.id), ONEWAY() + 600, "guest's body on the guest");
+  const content = (c) => { const o = {}; for (const s of c.store.slots) if (s) o[s.id] = (o[s.id] || 0) + s.qty; return o; };
+  t.check(JSON.stringify(content(ch)) === JSON.stringify(content(cg)) && Object.keys(A.invDiff(carried, content(ch))).length === 0,
+    'bag + equipped items are in the body (same on both)', `carried ${short(carried)} · body ${short(content(ch))}`);
+  t.check(Math.hypot(ch.x - at.x, ch.y - at.y) < 0.6, 'the body lies where the guest died');
+  t.check(/^Corpo de /.test(ch.name || ''), 'named "Corpo de <nome>"', ch.name);
+  t.check(!gp.inv.used() && !Object.values(gp.equip).some(Boolean), 'the dead guest carries nothing (bag and equipment)');
+  MG.player.respawnPlayer(G.game);
+  await t.sleep(200);
+  t.check(!gp.inv.used() && !gp.equip.main, 'respawn with nothing carried');
+  // host opens the body
+  const s = A.freeSpot(H, MH, ch.x, ch.y, { rMin: 0.7, rMax: 1.3 });
+  t.assert(s, 'free spot next to the body');
+  A.teleport(H, s[0], s[1]);
+  const itO = MH.corpses.describeCorpse(H.game, ch);
+  t.check(itO?.kind === 'corpse_open' && itO.verb === 'Revistar', 'pawn body offers "Revistar"', `${itO?.kind} ${itO?.verb}`);
+  A.ensure(H, { stone: 4 });
+  A.interact(H, itO);
+  const pn = H.game.ui.panels;
+  await t.waitFor(() => pn.open === 'container' && pn.container?.kind === 'corpse', 4000, 'host: container window open on the body');
+  t.check(/Corpo de /.test(H.doc.querySelector('.p-chest .pt')?.textContent || ''), 'window title "Corpo de <nome>"', H.doc.querySelector('.p-chest .pt')?.textContent);
+  const wood0 = A.count(H, 'wood');
+  const wi = ch.store.slots.findIndex((q) => q && q.id === 'wood');
+  H.doc.querySelector(`[data-cslot="${wi}"]`)?.click();
+  await t.waitFor(() => A.count(H, 'wood') >= wood0 + 7 && !content(bodyOn(G, ch.id)).wood, RT() + 600, 'host takes the wood (gone from the body on both)');
+  const si = H.game.player.inv.slots.findIndex((q) => q && q.id === 'stone');
+  H.doc.querySelector(`[data-slot="${si}"]`)?.click();
+  await t.waitFor(() => content(bodyOn(G, ch.id)).stone === 4 && content(ch).stone === 4, RT() + 600, 'host puts 4 stones into the body (on both)');
+  H.doc.querySelector(`[data-sort="name"][data-sortk="corpse:${ch.id}"]`)?.click();
+  const names = (c) => c.store.slots.filter(Boolean).map((q) => MH.data.ITEMS[q.id].name);
+  const isSorted = (L) => L.every((n, i) => !i || L[i - 1].localeCompare(n, 'pt-BR') <= 0);
+  await t.waitFor(() => isSorted(names(ch)) && JSON.stringify(bodyOn(G, ch.id).store.toJSON()) === JSON.stringify(ch.store.toJSON()) && !!ch.store.slots[0], RT() + 600, 'body sorted A–Z (same on both)');
+  t.check(isSorted(names(ch)), 'body sorted alphabetically', names(ch).join(', '));
+  A.ensure(H, { pebble: 1, wood: 1 });
+  H.doc.querySelector('[data-sort="qty"][data-sortk="inv"]')?.click();
+  await t.sleep(50);
+  const q = H.game.player.inv.slots.filter(Boolean).map((x) => x.qty);
+  t.check(q.every((v, i) => !i || q[i - 1] >= v) && !H.game.player.inv.slots.slice(0, q.length).some((x) => !x), 'backpack sorted by quantity (gaps closed)', q.join(','));
+  H.doc.querySelector('[data-sort="type"][data-sortk="inv"]')?.click();
+  await t.sleep(50);
+  // the guest takes from its own body
+  const sg = A.freeSpot(G, MG, ch.x, ch.y, { rMin: 0.7, rMax: 1.3, prefer: Math.PI });
+  if (sg) A.teleport(G, sg[0], sg[1]);
+  await A.hostSees(t, H, G, 4000);
+  const gi = bodyOn(G, ch.id).store.slots.findIndex((x) => x && x.id === 'berries');
+  const take = await ask(G, 'corpse.take', { id: ch.id, slot: gi, qty: 40 });
+  await t.sleep(RT());
+  t.check(take.ok && A.count(G, 'berries') === 4 && !content(ch).berries, 'the guest takes the berries back from its own body', `${take.why || ''} · guest berries ${A.count(G, 'berries')}`);
+  // day 3: skeleton, can't be opened any more
+  skipDays(H, 2.05);
+  await t.waitFor(() => stageOn(G, MG, ch.id) === 'skeleton', ONEWAY() + 1500, 'day 3: the body is a skeleton on the guest');
+  await t.waitFor(() => pn.open !== 'container', 2000, 'host window closes at the skeleton stage');
+  const late = await ask(G, 'corpse.take', { id: ch.id, slot: bodyOn(G, ch.id).store.slots.findIndex(Boolean), qty: 10 });
+  t.check(!late.ok && /ossada/i.test(late.why || ''), 'taking from day 3 is refused', late.why);
+  const latePut = await ask(H, 'corpse.put', { id: ch.id, item: 'wood', qty: 1 });
+  t.check(!latePut.ok, 'putting from day 3 is refused', latePut.why);
+  const itB = MG.corpses.describeCorpse(G.game, bodyOn(G, ch.id));
+  t.check(itB?.kind === 'corpse_bones' && itB.verb === 'Remover ossada', 'the action becomes "Remover ossada"', `${itB?.kind} ${itB?.verb}`);
+  await t.checkDigest(H, G);
+  env.history.push('S61');
 });
 
 // =====================================================================================================

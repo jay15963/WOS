@@ -13,6 +13,7 @@ import { lootRows, ri } from './mut/roll.js';
 import { facingFrom } from './physics.js';
 import { fireArrow } from './projectiles.js';
 import { applyMobEffect } from './mut/combat.js';
+import { corpseFromMob } from './mut/corpses.js';
 
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // any creature / raider controlled by the sim
@@ -287,7 +288,8 @@ function killerPlayer(game, killer) {
   return null;
 }
 
-// authority only: a creature dies -> op mob.die (+ loot.add); xp / toasts go to the killer
+// authority only: a creature dies -> op mob.die + its body (corpse.add); xp / toasts go to the killer.
+// Animals drop nothing (butchered from the body); a raider's loot rows stay inside its body.
 export function killMob(game, m, killer) {
   m.hp = 0; m.dead = true; m.deadT = 0; m.action = null; m.moving = false; m.state = 'dead';
   m.cast = null; m.blocking = false; m.dots && (m.dots.length = 0);
@@ -303,15 +305,11 @@ export function killMob(game, m, killer) {
       const r = m.onDeath(game, m);
       rows = r?.rows;
       if (r?.toast) die.toast = r.toast;
-    } else {
-      const r = dropTable(game, m, sp.loot || [], killer?.avatar ? !!m.lastHitSkin : kp.skin);
-      rows = r.rows;
-      if (r.skipped) die.tip = ['skin', 'Sem faca: não deu para tirar o couro', 3];
     }
   }
   m.respawnAt = game.worldTime + (m.elite ? 300 : 100) + Math.random() * 80;
   game.net.emit('mob.die', die);
-  if (rows && rows.length) game.net.emit('loot.add', { list: rows });
+  corpseFromMob(game, m, rows); // I · corpses (replaces the kill loot drop)
 }
 
 // ---------- player auto attack ----------

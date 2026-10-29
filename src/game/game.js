@@ -149,7 +149,7 @@ export class Game {
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
-    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
+    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); // a body on the ground replaces the dead (corpses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
     list.sort((a, b) => (a._sy ?? a.y) - (b._sy ?? b.y)); // _sy: depth override (pawn lying in a bed / on a chair)

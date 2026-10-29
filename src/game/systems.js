@@ -29,6 +29,7 @@ import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
 import { decorSystem } from './decoration.js'; // agent K: dummy readouts, window glow, showcase (dev)
+import { initCorpses, corpsesSystem } from './corpses.js';
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -57,6 +58,7 @@ export function installSystems(game) {
   initBuilding(game);
   buildOcc(game);
   initEconomy(game);
+  initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -92,6 +94,7 @@ export function installSystems(game) {
     ...economySystems(),
     survivalSystem(),
     lootSystem(),
+    corpsesSystem(),
     juice,
     saveSystem(game),
   ]) addSystem(game, s);

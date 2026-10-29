@@ -1,8 +1,8 @@
 // Inventory / chest sorting (pure): merges partial stacks and orders them.
 //   name — A→Z by pt-BR name · type — category (tools, weapons, off-hand, clothing, food, materials,
 //   seeds, ammo, others), then quantity desc, then name · qty — quantity desc, then name.
-// The player's backpack is sorted locally (owner state); a chest is sorted by the host (intent chest.sort,
-// src/game/mut/structures.js) and the resulting slot list travels in the chest.set op.
+// The player's backpack is sorted locally (owner state); chests and bodies are sorted by the host (intent store.sort,
+// src/game/mut/structures.js) and the resulting slot list travels in the chest.set / corpse.set op.
 
 import { ITEMS } from './data.js';
 
