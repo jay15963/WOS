@@ -4,6 +4,7 @@ import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../art/compose.js';
 import { moveCircle, facingFrom } from './physics.js';
 import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
+import { stepGait } from './anim.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 
@@ -60,10 +61,11 @@ export class Game {
     if (p.rooted) mx = my = 0;
     const spd = p.speed * this.world.speedAt(p.x, p.y);
     if (mx || my) {
+      const x0 = p.x, y0 = p.y;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
       p.facing = facingFrom(mx, my, p.facing);
       p.moving = true;
-      p.moveT += dt * Math.hypot(mx, my) * (spd / 4);
+      stepGait(p, Math.hypot(p.x - x0, p.y - y0)); // distance actually travelled (same clock as remote copies)
     } else {
       p.moving = false;
     }

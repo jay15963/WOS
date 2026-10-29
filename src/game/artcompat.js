@@ -2,6 +2,21 @@
 // structures / stations / natural objects / crops...). Returns a cached prototype-proxy of the object
 // with a substitute sprite/species; live state is read through the prototype so nothing has to be synced.
 // A fallback is only used when the atlas has no art at all for the type (type, type_0, type_<mask>, type_h).
+// Every fallback is LOUD (artWarn: netlog error once per name + a dev tag over the entity): in a validated
+// atlas (game/artcheck.js) none of them can trigger — a creature drawn as another species is a bug.
+
+import { netlog } from '../net/netlog.js';
+import { artHooks } from '../art/compose.js';
+
+export const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
+const warned = new Set();
+export const artWarnings = () => [...warned];
+export function artWarn(name, what = 'substituto') {
+  if (warned.has(name)) return;
+  warned.add(name);
+  netlog.error('art', `Sprite ausente no atlas: ${name} — desenhado com ${what}`);
+}
+artHooks.warn = (name) => artWarn(name, 'outro sprite');
 
 const STATIC_FB = {
   chest: ['item_wood', 2.2], bed: ['item_leather', 2.8],
@@ -28,6 +43,8 @@ export function drawProxy(A, o) {
       if (!px) {
         px = o._px = Object.create(o); px.species = SPECIES_FB[o.species] || 'wolf';
         if (SCALE_FB[o.species]) px.scale = (o.scale || 1) * SCALE_FB[o.species];
+        o._artFallback = o.species + '_s';
+        artWarn(o.species + '_s', 'a arte de ' + px.species);
       }
       return px;
     }
@@ -35,6 +52,7 @@ export function drawProxy(A, o) {
   }
   if (o.type === 'crop') {
     if (A.has(`crop_${o.kind}_${o.stage}`) || A.has(`crop_${o.kind}_0`)) return o;
+    artWarn(`crop_${o.kind}_0`);
     const [t, s] = CROP_FB[o.stage | 0] || CROP_FB[0];
     let px = o._px;
     if (!px || px._st !== o.stage) { px = o._px = Object.create(o); px._st = o.stage; px.type = A.has(t) || A.groups?.[t] ? t : 'bush'; px.s = s; }
@@ -47,9 +65,10 @@ export function drawProxy(A, o) {
       px = o._px = Object.create(o);
       const t = A.has(fb[0]) || A.groups?.[fb[0]] ? fb[0] : 'item_wood';
       px.type = t; px.s = fb[1] * (o.s || 1); px.f = o.f || 1;
-      if (t === 'campfire' || t === 'torch') px.lit = false;
+      if (t === 'campfire' || t === 'torch') px.lit = false; // sync-ok: art proxy object (cosmetic copy, never the shared object)
+      artWarn(o.type);
     }
-    if (o.type === 'furnace' || o.type === 'cooking_pot' || o.type === 'brazier' || o.type === 'lamp_post') px.lit = o.type === 'brazier' || o.type === 'lamp_post' ? !o.blueprint : !!o.working;
+    if (o.type === 'furnace' || o.type === 'cooking_pot' || o.type === 'brazier' || o.type === 'lamp_post') px.lit = o.type === 'brazier' || o.type === 'lamp_post' ? !o.blueprint : !!o.working; // sync-ok: art proxy object
     return px;
   }
   return o;

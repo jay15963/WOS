@@ -8,6 +8,7 @@ import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
 import { dealDamage, reach, dist, faceTowards, addDot } from './combat.js';
 import { enterCombat } from './player.js';
+import { stepGait } from './anim.js';
 
 export const LEASH = 26;  // max distance from home while chasing
 const BORED = 11;         // seconds without exchanging blows before evading
@@ -81,10 +82,11 @@ export function go(game, m, dir, speed, dt) {
   if (!dir) { m.moving = false; return; }
   let spd = speed * game.world.speedAt(m.x, m.y);
   if (m.dazeT > 0) spd *= 0.45;
+  const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);
   m.facing = facingFrom(dir[0], dir[1], m.facing);
   m.moving = true;
-  m.moveT += dt * (spd / 4);
+  stepGait(m, Math.hypot(m.x - x0, m.y - y0));
 }
 
 // best open direction away from `from` (8 samples, prefers away + toward home when far)

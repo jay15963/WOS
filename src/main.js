@@ -6,6 +6,8 @@ import { Renderer } from './engine/renderer.js';
 import { Input } from './engine/input.js';
 import { buildAtlas } from './art/sprites.js';
 import { startAtlasLookup, storeAtlas } from './engine/atlasCache.js';
+import { checkAtlas } from './game/artcheck.js';
+import { BUILD_ID, BUILD_FILES } from './version.js';
 import { generateWorld } from './world/worldgen.js';
 import { World } from './world/world.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
@@ -19,7 +21,7 @@ import { showMainMenu, wipeWorlds } from './ui/menu.js';
 import { installNetUI } from './ui/netui.js';
 import { applyQuality } from './ui/netpanels.js';
 import { Session, playerName } from './net/session.js';
-import { netlog } from './net/netlog.js';
+import { netlog, runtime } from './net/netlog.js';
 
 const $ = (s) => document.querySelector(s);
 // Yield so the screen can paint; the timeout keeps boot going in background tabs (no rAF there).
@@ -49,9 +51,25 @@ function loadAssets() {
     report(0.5, 'Desenhando criaturas e plantas…'); await nextFrame();
     const cached = await atlasLookup;
     const t0 = performance.now();
-    const atlas = cached.atlas || buildAtlas();
-    console.info(`[boot] atlas ${cached.atlas ? 'from cache' : 'painted'} in ${Math.round(performance.now() - t0)} ms (${atlas.size}px, ${atlas.list.length} sprites)`);
-    if (!cached.atlas) storeAtlas(cached.key, atlas);
+    if (cached.why) netlog.warn('art', 'Atlas guardado descartado: ' + cached.why);
+    let atlas = cached.atlas;
+    if (atlas) {
+      const chk = checkAtlas(atlas);
+      if (!chk.ok) {
+        netlog.warn('art', 'Atlas guardado incompleto, pintando de novo', { faltam: chk.missingSprites.concat(chk.missingKinds).slice(0, 12) });
+        atlas = null;
+      }
+    }
+    const fromCache = !!atlas;
+    if (!atlas) atlas = buildAtlas();
+    const chk = atlas.check = checkAtlas(atlas);
+    runtime.atlasDigest = chk.digest; runtime.atlasOk = chk.ok;
+    console.info(`[boot] atlas ${fromCache ? 'from cache' : 'painted'} in ${Math.round(performance.now() - t0)} ms (${atlas.size}px, ${atlas.list.length} sprites, digest ${chk.digest})`);
+    if (!chk.ok) {
+      netlog.error('art', 'Gráficos incompletos neste navegador (o atlas não será guardado e o multijogador fica bloqueado)',
+        { falhas: chk.failures, substitutos: chk.placeholders, faltam: chk.missingSprites.concat(chk.missingKinds).slice(0, 20) });
+    }
+    if (!fromCache) storeAtlas(cached.key, atlas); // refuses atlases with failures / placeholders
     renderer.setAtlas(atlas);
     report(1, 'Pronto');
     return { renderer, atlas };
@@ -155,6 +173,24 @@ function takeSnapshot(glCanvas) {
 }
 
 boot();
+
+// Dev only: version.js must describe the code that is running (tools/stamp.mjs). Refetch every stamped file
+// without caches, hash it exactly like the stamp tool and compare.
+async function devVersionCheck() {
+  try {
+    const enc = new TextEncoder();
+    const parts = [];
+    for (const p of BUILD_FILES) {
+      const r = await fetch(p, { cache: 'no-store' });
+      if (!r.ok) throw new Error(p + ' ' + r.status);
+      parts.push(p + '\n' + (await r.text()).replace(/\r\n?/g, '\n') + '\n');
+    }
+    const buf = await crypto.subtle.digest('SHA-1', enc.encode(parts.join('')));
+    const hex = [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+    if (hex !== BUILD_ID) console.error('version.js is stale: run `node tools/stamp.mjs` (stamped ' + BUILD_ID + ', code ' + hex + ')');
+  } catch (e) { console.warn('[dev] version check skipped:', e.message); }
+}
+if (/^(localhost|127\.|\[::1\])/.test(location.hostname)) setTimeout(devVersionCheck, 4000);
 
 // PWA service worker (disabled on localhost so development never serves stale files)
 if ('serviceWorker' in navigator && !/^(localhost|127\.|\[::1\])/.test(location.hostname)) {

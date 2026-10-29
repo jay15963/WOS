@@ -3,7 +3,7 @@
 
 import { diagnosticsPanel, netTestPanel, settingsPanel, joinPanel } from './netpanels.js';
 import { Session, playerName, setPlayerName } from '../net/session.js';
-import { BUILD } from '../net/netlog.js';
+import { BUILD, BUILD_DATE } from '../net/netlog.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ls = {
@@ -45,7 +45,7 @@ export function showMainMenu({ presetCode = '', progress = null } = {}) {
           <button class="mbtn" data-a="mp">Multijogador<small>Criar sala ou entrar com código</small></button>
           <button class="mbtn" data-a="settings">Configurações<small>Nome, som, qualidade</small></button>
         </nav>
-        <div class="menu-foot"><span>Versão ${BUILD}</span><span data-k="ld">Carregando gráficos…</span></div>
+        <div class="menu-foot"><span>Versão ${BUILD_DATE} · ${BUILD}</span><span data-k="ld">Carregando gráficos…</span></div>
         <div class="menu-load"><i></i></div>
       </div>
       <div class="mpanel hidden"><button class="x" title="Fechar">✕</button><div class="mbody"></div></div>`;

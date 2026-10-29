@@ -10,6 +10,7 @@ import { TrysteroLink, ManualLink, NETWORKS } from './links.js';
 const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: TURN da Cloudflare em Configurações (copie o relatório se ele já estiver ativo).';
 import { netlog, PROTO, BUILD } from './netlog.js';
 import { prepareIce } from './rtc.js';
+import { stepGait } from '../game/anim.js';
 
 export const MAX_PLAYERS = 4;
 const SEND_HZ = 12;
@@ -421,6 +422,8 @@ export class Session {
     const W = this.game.world;
     const x = num(s.x, 0, W.W, e.x), y = num(s.y, 0, W.H, e.y);
     const B = e._buf;
+    const prev = B[B.length - 1];
+    if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; } // teleport / respawn: snap
     B.push({ t: performance.now() / 1000, x, y });
     if (B.length > 20) B.shift();
     if (!e._seen) { e.x = x; e.y = y; e._seen = true; }
@@ -522,9 +525,12 @@ export class Session {
           x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k;
         }
         const d = Math.hypot(x - e.x, y - e.y);
-        if (d > 6) { e.x = x; e.y = y; } else { e.x = x; e.y = y; }
+        if (d > 6) { // teleport / respawn: snap, never interpolate across the map
+          const last = B[B.length - 1];
+          B.length = 0; B.push(last);
+          e.x = last.x; e.y = last.y;
+        } else { e.x = x; e.y = y; stepGait(e, Math.min(d, 1)); }
         e.moving = e.netMoving || d > 0.01;
-        if (e.moving) e.moveT += d * 2.2 + dt * 0.2;
       }
       if (e.action && !e.action.remote) e.action = null;
       if (e.action) { e.action.t = Math.min(1, e.action.t + dt / (e.action.dur || 0.4)); if (e.action.t >= 1) e.action = null; }
