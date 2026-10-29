@@ -135,13 +135,19 @@ export function rrect(g, x, y, w, h, r) {
 export function fur(g, rand, x0, y0, x1, y1, n, cols, dir = Math.PI * 0.6, len = 3.2, pl = 0.4, lw = 0.9) {
   g.lineWidth = lw;
   g.lineCap = 'round';
+  // two batched paths (dark / light): one stroke call each
+  const P = [[], []];
   for (let i = 0; i < n; i++) {
     const x = x0 + rand() * (x1 - x0), y = y0 + rand() * (y1 - y0);
     const a = dir + (rand() - 0.5) * 0.6, l = len * (0.6 + rand() * 0.8);
-    g.strokeStyle = rand() < pl ? cols[1] : cols[0];
+    P[rand() < pl ? 1 : 0].push(x, y, x + Math.cos(a) * l * 0.5 + (rand() - 0.5), y + Math.sin(a) * l * 0.5 + (rand() - 0.5), x + Math.cos(a) * l, y + Math.sin(a) * l);
+  }
+  for (let k = 0; k < 2; k++) {
+    const q = P[k];
+    if (!q.length) continue;
+    g.strokeStyle = cols[k];
     g.beginPath();
-    g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + (rand() - 0.5), y + Math.sin(a) * l * 0.5 + (rand() - 0.5), x + Math.cos(a) * l, y + Math.sin(a) * l);
+    for (let i = 0; i < q.length; i += 6) { g.moveTo(q[i], q[i + 1]); g.quadraticCurveTo(q[i + 2], q[i + 3], q[i + 4], q[i + 5]); }
     g.stroke();
   }
 }
