@@ -165,6 +165,7 @@ async function boot() {
     const netui = installNetUI(game);
     addSystem(game, netui);
     window.game = game; // debug handle
+    if (!atlas.check.ok) game.later(1.5, () => game.events.emit('toast', { text: 'Gráficos incompletos neste navegador — recarregue a página (Ctrl+Shift+R). O multijogador fica bloqueado.', kind: 'warn' }));
 
     if (choice.mode === 'host') {
       const s = new Session();
