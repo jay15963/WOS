@@ -32,6 +32,10 @@ export function installHelp(game) {
         ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo, na ordem da barra (G e T só com espada + escudo)')}
         ${row(L(KEYS.heal), 'Curar (as ervas também vão para a barra 1–5)')}
         ${row(['⇧ Shift'], 'Disparada (correr)')}
+        <h4>Tiro longo · Lançar lança</h4>
+        ${row(['Segurar tecla'], 'Mirar com o mouse; clique ou solte a tecla para atirar')}
+        ${row(['Alt'], 'Segurado: mira livre (sem mira assistida)')}
+        ${row(['Botão dir.', 'Esc'], 'Cancelar a mira')}
         <h4>Janelas</h4>
         ${row(L(KEYS.inv), 'Mochila e equipamento')}
         ${row(L(KEYS.craft), 'Criar itens')}
@@ -52,6 +56,8 @@ export function installHelp(game) {
         ${row(['✌ pinça'], 'Dois dedos: aproximar / afastar a câmera')}
         ${row(['Botão grande'], 'Ataque automático')}
         ${row(['Botões em arco'], 'Habilidades')}
+        ${row(['Segurar e arrastar'], 'Tiro longo / lançar lança: arraste para mirar, solte para atirar (gruda no bicho perto)')}
+        ${row(['✕ / centro'], 'Solte no ✕ ou volte ao centro para cancelar a mira')}
         ${row(['Botão dourado'], 'Interagir com o que está perto')}
         ${row(['Mapa'], 'Toque no minimapa para o mapa grande')}
         ${row(['Segurar'], 'Numa construção: usar · mover · desmontar')}

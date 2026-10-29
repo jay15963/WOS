@@ -5,7 +5,8 @@
 //    clearly closer to it than to the locked one); pushing beyond RELEASE × the locked target's snap radius breaks
 //    the lock (then it re-locks onto whatever is under the raw point, or aims freely)
 // Pure functions (no DOM, no game state) so the hysteresis can be checked in isolation (tools/mp-test.js G1).
-// Setting: localStorage 'wos.aimAssist' = 'strong' | 'normal' | 'off' (default normal); mouse aim is a bit weaker.
+// Setting: localStorage 'wos.aimAssist' = 'strong' | 'normal' | 'off' (default normal); mouse aim is a bit weaker and
+// Alt held turns it off (src/ui/aim.js).
 
 export const ASSIST = {
   strong: { snap: 1.5, grow: 0.035 },
@@ -60,7 +61,11 @@ export function aimAssistSetting(el) {
   row.className = 'mfield';
   row.innerHTML = `Mira assistida (tiro longo, lançar lança)
     <select data-k="aimassist">${ASSIST_OPTIONS.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const hint = document.createElement('p');
+  hint.className = 'muted';
+  hint.style.margin = '2px 0 8px';
+  hint.textContent = 'A mira gruda no bicho perto do ponto mirado; puxe mais forte para soltar (ou pular para outro). No computador, segure Alt para mirar livre.';
   const anchor = el.querySelector('[data-k=qualityrow]');
-  if (anchor) anchor.before(row); else el.append(row);
+  if (anchor) anchor.before(row, hint); else el.append(row, hint);
   row.querySelector('select').onchange = (e) => setAimAssistMode(e.target.value);
 }

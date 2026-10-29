@@ -10,7 +10,7 @@
 //  - Thrown spear: the hand is empty while it flies (p._throwT) and the weapon fades back in (e._wFade).
 //  - Aim assist ("Mira assistida", src/ui/aimAssist.js): the raw point (stick / mouse) sticks to creatures with
 //    hysteresis (lock, hop to a neighbour, break free, re-lock) and a locked shot leads a moving target by its flight
-//    time. Desktop: weaker, Shift held = no assist. Setting Forte / Normal / Desligada.
+//    time. Desktop: weaker, Alt held = no assist (Shift stays Sprint). Setting Forte / Normal / Desligada.
 // Touch: aim buttons get `touch-action: none` (else the browser turns the drag into a pan and fires pointercancel);
 //   the finger is tracked on window, anywhere on screen, until it lifts.
 // API (PLAN-V2 contract B ↔ G): game.aim = { beginTouch(id, buttonEl, ev), beginMouse(id, { key, sticky }?), release(),
@@ -240,7 +240,13 @@ export function installAim(game) {
     e.preventDefault(); e.stopImmediatePropagation(); // not the pause menu / target clear
     cancel();
   }, true);
-  addEventListener('blur', () => { if (S.active) cancel(true); }); // alt-tab while aiming: never fire blind
+  // Alt held = free aim (no assist). preventDefault so the browser never moves focus to its menu bar.
+  let altHeld = false;
+  const isAlt = (e) => e.key === 'Alt' || e.code === 'AltLeft' || e.code === 'AltRight';
+  const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || e.target?.isContentEditable;
+  addEventListener('keydown', (e) => { if (!isAlt(e) || typing(e)) return; altHeld = true; e.preventDefault(); });
+  addEventListener('keyup', (e) => { if (!isAlt(e)) return; altHeld = false; if (!typing(e)) e.preventDefault(); });
+  addEventListener('blur', () => { altHeld = false; if (S.active) cancel(true); }); // alt-tab while aiming: never fire blind
 
   // ---------- aim point: raw (stick / mouse) → glue lock → lead ----------
   function rawUpdate(Sx) {
@@ -264,7 +270,7 @@ export function installAim(game) {
     const p = game.player, lim = Sx.range + 3;
     cands.length = 0;
     for (const e of game.entities) {
-      if (!isMob(e) || e.dead || e.faction === 'friend' || e.isProp) continue;
+      if (!isMob(e) || e.dead || e.faction === 'friend' || e.isProp || game.roofs?.hidden?.(e.x, e.y)) continue; // not inside roofed buildings
       if (Math.abs(e.x - p.x) > lim || Math.abs(e.y - p.y) > lim) continue;
       cands.push(e);
     }
@@ -290,8 +296,8 @@ export function installAim(game) {
     const g = game, p = g.player, Sx = aimSpec(g, S.id);
     if (!Sx) return;
     rawUpdate(Sx);
-    const shift = S.mode === 'mouse' && (g.input.keys.has('ShiftLeft') || g.input.keys.has('ShiftRight'));
-    const P = shift ? null : assistParams(aimAssistMode(), S.mode === 'mouse');
+    const free = S.mode === 'mouse' && altHeld;
+    const P = free ? null : assistParams(aimAssistMode(), S.mode === 'mouse');
     const C = candidates(Sx);
     let lock;
     if (S.raw.has) lock = stepLock(S.lock, S.raw.x, S.raw.y, C, P, p.x, p.y);
