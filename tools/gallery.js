@@ -6,7 +6,7 @@
 //               &pz=<px per tile for the pawn sheet> &az=<px per tile for the animal sheet>
 
 import { buildAtlas } from '../src/art/sprites.js';
-import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../src/art/compose.js';
+import { drawPawn, drawAnimal, drawStatic, drawDecor, animEnv } from '../src/art/compose.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -417,10 +417,11 @@ if (Q.get('strip')) {
         ? { isEntity: true, kind: 'animal', species: sp === 'deer_doe' ? 'deer' : sp, variant: sp === 'deer_doe' ? 1 : 0, x: 0.15 + CW / 2 + i * CW, y: RH * (j + 1), facing: d, moving: kind !== 'idle' && kind !== 'attack', flash: 0, scale: 1, id: 7 }
         : { isEntity: true, kind: 'pawn', x: 0.15 + CW / 2 + i * CW, y: RH * (j + 1) - 0.1, facing: d, moving: kind === 'walk' || kind === 'run', look: LOOKS[1], weapon: Q.get('weapon') || null, offhand: Q.get('off') || null, armor: null, flash: 0 };
       e._ph = 1.3; e._ft = 1; e._mk = e.moving ? 1 : 0;
-      if (sp) { e._gs = kind === 'run' ? 5.5 : 1.6; e.moveT = u * (Math.PI * 2) / 10; if (kind === 'attack') e.action = { type: 'attack', t: u }; }
+      if (sp) { e._gs = kind === 'run' ? 5.5 : 1.6; e._gph = u * Math.PI * 2; e.moveT = 1; if (kind === 'attack') e.action = { type: 'attack', t: u }; if (kind === 'idle') e.nid = 'm' + j; }
       else if (e.moving) { e._gs = kind === 'run' ? 6.6 : 4; e.moveT = (u * Math.PI * 2) / 9.5; }
       else if (kind === 'sit' || kind === 'sleep') e.pose = { type: kind };
       else if (kind !== 'idle') e.action = { type: kind, t: u };
+      if (sp && kind === 'idle') animEnv.wt = u * 12; // idle life schedule over 12 s
       if (sp) drawAnimal(B, A, e, 1); else drawPawn(B, A, e, 1);
     }
     renderScene(cv.getContext('2d'), B, { x: cv.width / Z / 2, y: cv.height / Z / 2, zoom: Z }, cv.width, cv.height, bg, false);

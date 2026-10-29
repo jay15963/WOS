@@ -77,7 +77,7 @@ function tables(A) {
       ew: [fr('_e_walk'), fr('_e_w1'), opt(sp + '_e_w2') || fr('_e_walk'), opt(sp + '_e_w3') || fr('_e_w1')],
       sw: [opt(sp + '_s_w1') || s, s, opt(sp + '_s_w2') || s, s],
       nw: [opt(sp + '_n_w1') || n, n, opt(sp + '_n_w2') || n, n],
-      dead: opt(sp + '_dead'),
+      dead: opt(sp + '_dead'), graze: opt(sp + '_e_graze'),
     };
   }
   for (let i = 0; i < 3; i++) T.flames.push(opt('fx_flame_' + i) || A.get('fx_flame'));
@@ -857,18 +857,27 @@ function rigOff() {
 function rigFood(x, y, l) { if (R.food) R.B.main.add(R.food, x, y, 0.42, 0.42, 1, 1, 1, R.al, 0, 0, R.fl, 1, 0, l + 0.03); }
 
 // ---------- animals ----------
-// a: { x, y, species, facing, moving, moveT, action, flash, dead, deadT, scale, variant? }
-// f: gait speed (rad per moveT unit; 4 frames per cycle), bob: body lift, rock: pitch/roll
+// a: { x, y, species, facing, moving, moveT, action, flash, dead, deadT, scale, variant?, nid?, state? }
+// f: walk phase (rad per moveT unit; 4 frames per cycle) · fr: run phase (longer strides: fewer cycles per tile)
+// bob: body lift · rock: pitch/roll · run: running style · graze: herbivore idle (head down to the grass)
 const GAIT = {
-  wolf: { f: 10, bob: 0.05, rock: 0.035 },
-  fox: { f: 11, bob: 0.045, rock: 0.035 },
-  boar: { f: 12.5, bob: 0.04, rock: 0.045 },
-  deer: { f: 8.5, bob: 0.075, rock: 0.035 },
-  rabbit: { f: 7.5, bob: 0.2, rock: 0.15, hop: true },
-  bear: { f: 6.5, bob: 0.045, rock: 0.06, roll: 0.035 },
-  spider: { f: 15, bob: 0.015, rock: 0.02, skitter: true },
+  wolf: { f: 10, fr: 7, bob: 0.05, rock: 0.035, run: 'gallop' },
+  fox: { f: 11, fr: 8, bob: 0.045, rock: 0.035, run: 'gallop' },
+  boar: { f: 12.5, fr: 11, bob: 0.04, rock: 0.045, run: 'trot', graze: true },
+  deer: { f: 8.5, fr: 5.2, bob: 0.075, rock: 0.035, run: 'bound', graze: true },
+  rabbit: { f: 7.5, fr: 6.2, bob: 0.2, rock: 0.15, hop: true, graze: true },
+  bear: { f: 6.5, fr: 5.5, bob: 0.045, rock: 0.06, roll: 0.035, run: 'lope' },
+  spider: { f: 15, fr: 13, bob: 0.015, rock: 0.02, skitter: true },
 };
-const GAIT_DEF = { f: 10, bob: 0.05, rock: 0.04 };
+const GAIT_DEF = { f: 10, fr: 8, bob: 0.05, rock: 0.04, run: 'gallop' };
+// deterministic per-creature 0..1 seed from its network id (same idle schedule on every peer)
+function seedOf(a) {
+  if (a._seed != null) return a._seed;
+  const s = String(a.nid ?? a.id ?? 0);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (a._seed = ((h >>> 0) % 10007) / 10007);
+}
 export function drawAnimal(B, A, a, t) {
   const T = tables(A);
   let key = a.species;
@@ -884,6 +893,15 @@ export function drawAnimal(B, A, a, t) {
   const sp = a.species;
   const G = GAIT[sp] || GAIT_DEF;
   const ph0 = phaseOf(a);
+  // gait clock: phase advances with the distance walked (moveT, identical on every peer), faster per tile
+  // when walking than when running (strides lengthen)
+  const m = a.moveT || 0;
+  const dm = Math.max(0, m - (a._gm ?? m));
+  tick(a, t);
+  const spd = a._gs || 0;
+  const rk = clamp01((spd - 2.3) / 1.5) * (a._mk ?? 1);
+  if (a._gph == null) a._gph = m * (G.f + (G.fr - G.f) * rk);
+  else a._gph += dm * (G.f + (G.fr - G.f) * rk);
 
   if (a.dead) {
     const u = clamp01((a.deadT || 0) * 2.6);
@@ -896,36 +914,67 @@ export function drawAnimal(B, A, a, t) {
       B.main.add(s, a.x, a.y, sc, sc * (u < 0.5 ? 1 - u : 1), 0.85, 0.82, 0.8, 1, 0, u < 0.5 ? flip * u * 2 : 0, fl, flip, 0, hop);
       return;
     }
-    const s = S.e;
-    const rot = flip * HALF_PI * k;
+    // stagger, topple onto the side, a last twitch
+    const s = u < 0.18 ? S.ew[1] : S.e;
+    const twitch = u >= 1 ? 0 : u > 0.82 ? Math.sin((u - 0.82) * 60) * 0.02 * (1 - u) * 5 : 0;
+    const rot = flip * (HALF_PI * k + twitch);
     const c = s.h * s.ay * 0.45 * sc;
     if (T.blob) B.blob.add(T.blob, a.x, a.y, s.w * 0.8 * sc, 0.7 * sc, 1, 1, 1, 0.5);
-    B.main.add(s, a.x - flip * c * k, a.y + 0.05 * k, sc, sc, 0.82, 0.8, 0.78, 1, 0, rot, fl, flip, 0, 0);
+    B.main.add(s, a.x - flip * c * k, a.y + 0.05 * k, sc, sc * (1 - 0.06 * (1 - k) * (u < 0.2 ? u * 5 : 1)), 0.82, 0.8, 0.78, 1, 0, rot, fl, flip, 0, 0);
     return;
   }
 
   let spr = sd === 'e' ? S.e : sd === 's' ? S.s : S.n;
   let lift = 0, sx = 1, sy = 1, rot = 0, ox = 0, oy = 0;
   if (a.moving) {
-    const ph = (a.moveT || 0) * G.f;
+    const ph = a._gph;
     const u = ((ph / TAU) % 1 + 1) % 1;
     const fi = (u * 4) | 0;
+    const run = rk > 0.5;
     if (G.hop) {
-      // crouch → airborne stretch → land
+      // crouch → airborne stretch → land (longer, higher hops when fleeing)
+      const bob = G.bob * (1 + rk * 0.5);
       const air = u > 0.18 && u < 0.82 ? Math.sin(((u - 0.18) / 0.64) * Math.PI) : 0;
-      lift = air * G.bob;
+      lift = air * bob;
       if (sd === 'e') { spr = air > 0.12 ? S.ew[0] : S.ew[1]; rot = -flip * Math.cos(((u - 0.18) / 0.64) * Math.PI) * 0.16 * (air > 0 ? 1 : 0); }
-      sy = air > 0 ? 1 + air * 0.08 : 0.9; sx = air > 0 ? 1 - air * 0.04 : 1.08;
+      sy = air > 0 ? 1 + air * (0.08 + rk * 0.05) : 0.9; sx = air > 0 ? 1 - air * 0.04 : 1.08;
+    } else if (run && G.run === 'bound' && sd === 'e') {
+      // deer bound: push off gathered, sail stretched (nose up → nose down), land gathered
+      if (u < 0.22) { spr = S.ew[1]; const c = Math.sin((u / 0.22) * Math.PI); sy = 1 - 0.08 * c; sx = 1 + 0.04 * c; rot = -flip * 0.06 * c; }
+      else if (u < 0.84) { const v = (u - 0.22) / 0.62; spr = S.ew[0]; lift = Math.sin(v * Math.PI) * 0.24; rot = flip * (-0.16 + 0.3 * v); sx = 1.05; sy = 0.98; }
+      else { spr = S.ew[3]; const c = Math.sin(((u - 0.84) / 0.16) * Math.PI); sy = 1 - 0.1 * c; sx = 1 + 0.05 * c; rot = flip * 0.05 * (1 - c); }
+    } else if (run && sd === 'e') {
+      // gallop / trot / lope: same 4 frames, stronger rocking-horse pitch, stretch at full extension
+      spr = S.ew[fi];
+      const s2 = Math.sin(2 * ph), ext = Math.abs(Math.cos(ph));
+      if (G.run === 'trot') { lift = Math.abs(Math.sin(2 * ph)) * 0.045; rot = flip * (0.05 + s2 * 0.03); }
+      else if (G.run === 'lope') { lift = (0.5 - 0.5 * Math.cos(2 * ph)) * 0.07; rot = flip * s2 * 0.07; ox += Math.sin(ph) * 0.02; }
+      else { lift = (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI)) * G.bob * 1.6; rot = flip * s2 * 0.09; sx = 1 + ext * 0.05; sy = 1 - ext * 0.03; }
+      if (G.skitter) ox += Math.sin(ph * 3.1) * 0.015;
     } else {
-      lift = G.bob * (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI));
+      const bob = G.bob * (1 + rk * 0.6);
+      lift = bob * (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI));
       if (sd === 'e') { spr = S.ew[fi]; rot = flip * Math.sin(2 * ph) * G.rock * 0.5; }
-      else { spr = sd === 's' ? S.sw[fi] : S.nw[fi]; rot = Math.sin(ph) * G.rock * 0.6; sx = 1 + Math.cos(2 * ph) * 0.02; }
+      else { spr = sd === 's' ? S.sw[fi] : S.nw[fi]; rot = Math.sin(ph) * G.rock * (0.6 + rk * 0.5); sx = 1 + Math.cos(2 * ph) * 0.02; }
       if (G.roll) { ox += Math.sin(ph) * G.roll * (sd === 'e' ? 0.3 : 1); rot += sd === 'e' ? 0 : Math.sin(ph) * G.roll; }
       if (G.skitter) ox += Math.sin(ph * 3.1) * 0.012;
     }
   } else {
     const br = Math.sin(t * 2 + ph0);
     sy = 1 + br * 0.016; sx = 1 - br * 0.006;
+    // idle life on a shared schedule (creature id + world clock): grazing, looking around, a twitch
+    if (!a.action && a.state !== 'chase' && a.state !== 'flee') {
+      const sd0 = seedOf(a), P = 7 + sd0 * 5;
+      const u = ((animEnv.wt + sd0 * 37) / P) % 1;
+      if (G.graze && S.graze && sd === 'e' && u < 0.5) {
+        spr = S.graze;
+        sy *= 1 - 0.012 * Math.abs(Math.sin(t * 6.5 + ph0)); // nibbling
+      } else if (G.graze && sd !== 'e' && u < 0.5) {
+        sy *= 0.95 - 0.012 * Math.abs(Math.sin(t * 6.5 + ph0)); oy += sd === 's' ? 0.02 : -0.02; // head down, seen front / back
+      } else if (sd === 'e' && u > 0.62 && u < 0.76) spr = S.s; // looks around (toward the camera)
+      else if (!G.graze && S.graze && sd === 'e' && u > 0.3 && u < 0.4) spr = S.graze; // predators sniff the ground
+      if (u > 0.86 && u < 0.885) { rot += flip * Math.sin(t * 60) * 0.02; sx *= 1.01; } // skin twitch / ear flick
+    }
     // spiders twitch a leg now and then
     if (G.skitter && Math.sin(t * 1.3 + ph0 * 3) > 0.96) spr = sd === 'e' ? S.ew[1] : sd === 's' ? S.sw[0] : S.nw[0];
   }
@@ -945,6 +994,7 @@ export function drawAnimal(B, A, a, t) {
       else rot += flip * f * (sp === 'boar' ? 0.1 : 0.14);
       if (sp === 'wolf' || sp === 'fox' || sp === 'rabbit') lift += Math.max(0, f) * 0.09 * sc;
       if (sp === 'spider' && f < 0) spr = S.ew[1];
+      if (f > 0.3 && !rear) spr = S.ew[0]; // legs stretched in the lunge
     } else if (sd === 's') {
       oy += f * reach * 0.7; sx *= 1 + Math.max(0, f) * 0.08; sy *= 1 + f * 0.06;
       if (rear && f < 0) { sy *= 1 - f * 0.35; lift -= f * 0.08; }
@@ -952,7 +1002,7 @@ export function drawAnimal(B, A, a, t) {
     if (f < 0 && !rear) { sy *= 1 + f * 0.12; sx *= 1 - f * 0.06; }
     if (rear && k > 0.58 && k < 0.7) { const u = 1 - Math.abs((k - 0.62) / 0.08); sy *= 1 - 0.08 * clamp01(u); sx *= 1 + 0.06 * clamp01(u); }
   }
-  if (fl > 0.4) ox += Math.sin(t * 70) * 0.025 * fl; // hit flinch
+  if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.05 * fl; } // hit flinch
   const x = a.x + ox, y = a.y + oy;
   const bw = sd === 'e' ? spr.w * 0.62 : spr.w * 0.72;
   if (T.blob) B.blob.add(T.blob, a.x, a.y, bw * sc * (1 - lift), 0.55 * sc * (1 - lift), 1, 1, 1, 0.7);
