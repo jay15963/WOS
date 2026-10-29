@@ -23,8 +23,13 @@ export const SURVIVAL = {
     sprint: 2.2, work: 1.35, combat: 1.3, chilled: 1.45, nearFire: 0.9,
     hungry: 25,           // below this: slower, half energy regen
     hungrySpeed: 0.92, hungryRegen: 0.5,
+    // Minecraft-style: food never heals on the spot; HP regenerates only with a full belly (player.js)
+    regenFull: 90,        // ≥ 90% hunger: normal HP regeneration
+    regenSlow: 80,        // 80–90%: slow regeneration (regenSlowK of normal); below 80%: none
+    regenSlowK: 0.3,
     starveEvery: 2,       // s between starvation hits
-    starveBase: 1, starveRamp: 1 / 15, starveMax: 6, // damage per hit grows by 1 every 15 s starving
+    // starving: 2% of max HP per hit, +1% every 15 s starving, up to 5% (≈ 2.5% / s): it kills, not just tickles
+    starvePct: 0.02, starveRampPct: 0.01 / 15, starveMaxPct: 0.05,
   },
   temp: {
     biome: { meadow: 17, forest: 15, pine: 9, birch: 12, marsh: 13, shore: 16, rocky: 10, water: 13, mountain: 4 },
@@ -67,7 +72,7 @@ export function eat(game, id) {
   if (!p.inv.remove(id, 1)) return false;
   const f = def.food;
   p.hunger = Math.min(p.maxHunger, p.hunger + f.hunger);
-  if (f.heal) healEntity(game, p, f.heal);
+  // eating no longer heals on the spot (owner: Minecraft-style) — a full belly lets HP regenerate (player.js)
   if (f.warm) p.warmFoodT = Math.max(p.warmFoodT || 0, f.warm);
   game.audio?.play('eat', { x: p.x, y: p.y });
   if (!p.action) p.action = { type: 'eat', t: 0, dur: 1.2, item: id }; // eating pose (replicated with presence)
@@ -317,7 +322,8 @@ export function survivalSystem() {
         starveT += dt; starveAcc += dt;
         if (starveAcc >= H.starveEvery) {
           starveAcc = 0;
-          dealDamage(game, p, p, Math.min(H.starveMax, Math.floor(H.starveBase + starveT * H.starveRamp)), { noDodge: true, noKnock: true });
+          const pct = Math.min(H.starveMaxPct, H.starvePct + starveT * H.starveRampPct);
+          dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * pct)), { noDodge: true, noKnock: true });
         }
         if (hungerWarnT <= 0) { game.events.emit('error', { text: 'Você está morrendo de fome!' }); hungerWarnT = 15; }
       } else {

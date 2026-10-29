@@ -198,9 +198,11 @@ export class Juice {
       this.splash(e.x + sx, e.y + sy, 0.7);
       if (me) this.g.audio?.play('splash', { x: e.x, y: e.y, volume: 0.35 });
     } else {
+      // no footstep dust puffs any more (owner: two dark puffs floated beside the pawn, very visible in rain / at
+      // night); only a faint one when sprinting on dry ground in daylight
       const s = this.spr('fx_dust', 'fx_smoke');
-      const dusty = w.groundAt(tx, ty) !== 4; // marsh: no dust
       const run = (e._gs || 0) > 5;
+      const dusty = run && w.groundAt(tx, ty) !== 4 && !(this.g.env?.env?.wet > 0.2) && (this.g.env?.env?.night || 0) < 0.3;
       if (s && dusty) {
         for (let i = 0; i < (run ? 3 : 2); i++) this.emit({ spr: s, x: e.x + sx + rnd(-0.06, 0.06), y: e.y + sy + rnd(-0.02, 0.04), vx: rnd(-0.3, 0.3) - this.fwd(e) * (run ? 0.5 : 0.2), vy: rnd(-0.1, 0.1), life: rnd(0.45, 0.7), size: 0.16, size1: run ? 0.5 : 0.42, r: 0.72, g: 0.62, b: 0.48, a: s === 'fx_dust' ? 0.55 : 0.32, a1: 0, lift: 0.04, vlift: 0.25, drag: 3 });
       }

@@ -6,6 +6,7 @@ import { BUFFS } from './data.js';
 import { weaponProfile, offhandProfile, equipArmor, playerPower } from './content/weapons.js';
 import { moveCircle, collides } from './physics.js';
 import { moveMob } from './nav.js';
+import { SURVIVAL } from './survival.js'; // hunger thresholds for HP regeneration (circular import: used at run time only)
 
 export function initPlayer(game) {
   const p = game.player;
@@ -191,8 +192,11 @@ export function playerSystem() {
       const warm = hasBuff(p, 'warm');
       p.energy = Math.min(p.maxEnergy, p.energy + dt * (p.inCombat ? 7 : 11));
       const frozen = hasBuff(p, 'cold') || hasBuff(p, 'hypothermia');
-      if (!p.inCombat && !frozen && p.hunger > 15 && p.hp < p.maxHp) {
-        p.hp = Math.min(p.maxHp, p.hp + dt * p.maxHp * (warm ? 0.03 : 0.012));
+      // Minecraft-style: regenerate only with a full belly (≥ 90% normal, 80–90% slow, below 80% none)
+      const H = SURVIVAL.hunger, fed = (p.hunger / (p.maxHunger || 100)) * 100;
+      const regenK = fed >= H.regenFull ? 1 : fed >= H.regenSlow ? H.regenSlowK : 0;
+      if (!p.inCombat && !frozen && regenK > 0 && p.hp < p.maxHp) {
+        p.hp = Math.min(p.maxHp, p.hp + dt * p.maxHp * (warm ? 0.03 : 0.012) * regenK);
       }
 
       // speed

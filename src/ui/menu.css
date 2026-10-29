@@ -439,3 +439,14 @@ html .cc-edit { font: 700 16px var(--n-fd); letter-spacing: 0.6px; text-transfor
   background: linear-gradient(180deg, #f9dd86, #e2b443 55%, #c3922a); box-shadow: inset 0 0 0 1px rgba(255, 250, 230, 0.6), 0 3px 0 rgba(20, 12, 6, 0.5), 0 8px 20px rgba(0, 0, 0, 0.4); }
 html .cc-name input { font: italic 800 20px var(--n-fd); color: var(--n-ink); border-radius: 4px; background: linear-gradient(180deg, #fffaf0, #ead6ab); border: 2px solid var(--n-ink); box-shadow: 0 3px 0 rgba(20, 12, 6, 0.45); }
 html .cc-name { font: 700 13px var(--n-fd); letter-spacing: 3px; color: var(--n-cream); }
+
+/* pause menu on short (landscape phone) screens: compact 3-column grid so every option fits without scrolling */
+@media (max-height: 520px) {
+  .pause .mpanel { width: min(760px, calc(100vw - 24px - var(--safe-l) - var(--safe-r))); max-height: calc(100dvh - 16px - var(--safe-t) - var(--safe-b)); padding: 10px 16px 12px; }
+  .pause .mpanel h2 { font-size: 20px; margin-bottom: 4px; padding-bottom: 4px; }
+  .pause .mpanel .mbody > p.muted { font-size: 12.5px; margin: 0 0 4px; }
+  .pause-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+  .pause-nav .wide { grid-column: span 3; }
+  .pause-nav .mbtn { min-height: 44px; padding: 6px 12px; font-size: 15px; }
+  .pause-nav .mbtn small { font-size: 11.5px; }
+}

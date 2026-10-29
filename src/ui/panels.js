@@ -37,7 +37,7 @@ export function itemStats(id) {
   if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}`);
   if (d.shield) out.push(`Bloqueia ${Math.round(d.shield.block * 100)}% do dano`);
   if (d.light) out.push('Ilumina em volta de você');
-  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ` · aquece por ${d.food.warm} s` : ''}`);
+  if (d.food) out.push(`+${d.food.hunger} fome${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ` · aquece por ${d.food.warm} s` : ''}`);
   if (d.seed) out.push(`Planta: ${CROPS[d.seed]?.name || d.seed}`);
   return out;
 }

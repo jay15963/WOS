@@ -977,3 +977,8 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .help .hx { width: 44px; height: 44px; }
 .help .hx::before { inset: 10px; }
 /* ====================== fim: economia ====================== */
+
+/* responsiveness: the grid track must never grow past the panels area (a 760px window on a landscape phone used to
+   push its own track wider than the screen and get cut on the right) */
+.panels { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.panels > .panel { max-width: 100%; justify-self: center; align-self: center; }
