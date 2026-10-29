@@ -3731,7 +3731,9 @@ def('A7', {
   // a real tap on a plan tile (a point the controller's pick resolves to that path job)
   const tapPlan = async (code) => {
     const i0 = tiles.find((i) => g.world.pathPlan[i] === code);
-    A.teleport(G, (i0 % W) + 0.5, ((i0 / W) | 0) + 1.6);
+    const sp = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 0.5, { rMin: 0.8, rMax: 2.5, prefer: Math.PI / 2 });
+    t.assert(sp, 'free spot next to the stroke');
+    A.teleport(G, sp[0], sp[1]);
     await A.hostSees(t, H, G);
     g.cam.x = gp.x; g.cam.y = gp.y - 0.4;
     await t.sleep(80);
@@ -3750,7 +3752,7 @@ def('A7', {
   const st = g.work.status();
   t.check(st && st.kind === 'path' && st.n === 6 && st.name === 'Cascalho' && /Assentando caminho/.test(st.verb), 'status: Assentando caminho · Cascalho · 6', JSON.stringify(st));
   await t.waitFor(() => tiles.every((i) => w.path[i] === 2 && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
-    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'}`);
+    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'built cells identical on both', pathCells(H, tiles));
   t.check(A.count(G, 'pebble') === peb0 - 6, '6 pebbles left the guest bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);

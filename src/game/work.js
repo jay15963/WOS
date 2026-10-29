@@ -275,6 +275,13 @@ export function workSystem() {
       if (p.work || ctl.goal || p.moving || p.autoAttack || p.inCombat || game.ui?.modal || p.charge) {
         if (p.work && inSeq(seq, p.work.it)) seq.cur = seq.kind === 'path' ? p.work.it.i : p.work.it.o.id;
         W.idleT = 0;
+        // walking to a job without getting closer for 3 s (stuck against something): skip that job for a while
+        const g0 = ctl.goal;
+        if (g0?.auto && g0.type === 'interact' && !p.work) {
+          const d = Math.hypot((g0.it.x ?? p.x) - p.x, (g0.it.y ?? p.y) - p.y);
+          if (seq.walkD == null || d < seq.walkD - 0.2) { seq.walkD = d; seq.walkT = 0; }
+          else if ((seq.walkT = (seq.walkT || 0) + dt) > 3) { W.fail(g0.it); ctl.goal = null; seq.walkD = null; }
+        } else seq.walkD = null;
         return;
       }
       W.idleT += dt;
