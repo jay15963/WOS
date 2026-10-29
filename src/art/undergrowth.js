@@ -438,7 +438,22 @@ function driftwood() {
   }, { pad: 4 });
 }
 
+// thin elliptical ripple ring for the water's surface (top arc catches the sky; src/fx/waterline.js)
+function ripple() {
+  return sprite(1.0, 0.46, (g, P) => {
+    const cx = P.W / 2, cy = P.H / 2, rx = P.W / 2 - 3, ry = P.H / 2 - 2;
+    // a darker trough just inside a light crest: reads on bright shallow water and on dark deep water alike
+    g.lineWidth = 3; g.strokeStyle = 'rgba(16,44,54,0.34)'; g.beginPath(); g.ellipse(cx, cy, rx - 3, ry - 1.8, 0, 0, TAU); g.stroke();
+    for (const [w, a] of [[6.5, 0.16], [3.6, 0.42], [2, 0.95]]) {
+      g.lineWidth = w;
+      g.strokeStyle = `rgba(240,248,255,${a})`; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, Math.PI * 1.02, Math.PI * 1.98); g.stroke();
+      g.strokeStyle = `rgba(220,236,245,${a * 0.55})`; g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, Math.PI * 0.05, Math.PI * 0.95); g.stroke();
+    }
+  }, { pad: 4 });
+}
+
 export function addUndergrowth(add) {
+  add('fx_ripple', ripple(), 0.5, 0.5);
   const put = (name, c, foot) => add(name, c, 0.5, 1 - foot / (c.origH || c.height));
   const flat = (name, c) => add(name, c, 0.5, 0.5);
   for (let i = 0; i < 4; i++) put('fern_' + i, fern(i), 4);

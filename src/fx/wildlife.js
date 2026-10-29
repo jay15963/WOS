@@ -6,6 +6,8 @@
 // and removed once off-screen. Critters are y-sorted with the world through `collect` (objects with draw()).
 // Sprites: src/art/critters.js (cr_*), rabbits reuse rabbit_e / rabbit_e_walk.
 
+import { installWaterline } from './waterline.js';
+
 const rnd = Math.random;
 const TAU = Math.PI * 2;
 const SCAN = 0.8; // s between habitat scans
@@ -25,6 +27,7 @@ export function installWildlife(game) {
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed with the ambient one, before the gameplay registry (tagged above)
   game.wildlife = sys;
+  installWaterline(game); // ripples / reflections around the plants standing in water
   return sys;
 }
 
@@ -553,7 +556,7 @@ class Wildlife {
       case 'duck': {
         const s = c.st === 2 ? S.duckFly : c.v === 2 ? S.duckling : S.duck[c.v] || S.duck[0];
         if (c.st === 2) this._shadow(B, c, 0.4, 0.25);
-        B.main.add(s, c.x, c.y, 0.85, 0.85, 1, 1, 1, a, 0, c.st === 2 ? 0 : Math.sin(t * 1.6 + c.ph) * 0.04, 0, c.flip, 0, c.lift);
+        B.main.add(s, c.x, c.y, 0.85, 0.85, 1, 1, 1, a, 0, c.st === 2 ? 0 : Math.sin(t * 1.6 + c.ph) * 0.04, 0, c.flip, c.st === 2 ? 0 : -1, c.lift); // -1: waterline
         break;
       }
       case 'fish': {
