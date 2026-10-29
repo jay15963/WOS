@@ -12,7 +12,8 @@ import { registerWork, hitsFor } from './gathering.js';
 import { SLOTS, equipChanged } from './equipment.js';
 import { ITEMS } from './data.js';
 import { stageOf, corpseAge, sizeOf, isPawnCorpse, DAY_GONE } from './mut/corpses.js';
-import { sortInventory } from './itemsort.js';
+import { openContainer } from '../ui/container.js';
+import { uiIcon } from '../ui/icons.js';
 import { drawCorpse, drawFlies } from '../art/corpseDraw.js';
 
 const BUTCHER_TIME = { s: 2.4, m: 3.6, l: 5.4 };      // s with a blade (bare hands: ×1.8)
@@ -167,46 +168,47 @@ registerWork('corpse_bones', {
 
 // ---------- transfer window (container adapter for the chest window) ----------
 export function openCorpse(game, c) {
-  game.events.emit('open', { panel: 'chest', container: corpseContainer(game, c) });
+  openContainer(game, corpseAdapter(game, c));
   game.audio?.play('ui_open', { x: c.x, y: c.y });
 }
 
-// Container adapter consumed by the chest / transfer window (src/ui/panels.js):
-// { key, kind, id, title, label, cols, items(), size(), valid(), put(i), take(i), sort(mode), sortBag(mode) }
-export function corpseContainer(game, c) {
-  const p = game.player, net = game.net;
-  const fail = (why) => game.events.emit('error', { text: why || 'Não deu' });
+// Body adapter for the container window (src/ui/container.js contract: id, title, label, icon, cols, items(),
+// put(i, n), take(i, n), sort(mode), canOpen()). The window refreshes on game.events 'container' { id } (corpse.set),
+// sorts the backpack itself, and closes as soon as canOpen() is false (far, dead, or the body is a skeleton).
+export function corpseAdapter(game, c) {
+  const net = game.net;
+  const fail = (t) => (why) => game.events.emit('error', { text: why || t });
   return {
-    key: 'corpse:' + c.id, kind: 'corpse', id: c.id,
-    title: c.name || 'Corpo', label: c.owner === net.pid ? 'Seu corpo' : 'Corpo', cols: 6,
+    id: 'corpse:' + c.id, kind: 'corpse', corpseId: c.id,
+    title: c.name || 'Corpo', label: c.owner === net.pid ? 'Seu corpo' : 'Corpo', icon: uiIcon(game.A, 'bag'), cols: 6,
     items: () => (c.store ? c.store.slots : []),
-    size: () => c.store?.size || 0,
-    valid: () => !gone(game, c) && !!c.store && !p.dead && ['fresh', 'rotten'].includes(stageOf(game, c)) && Math.hypot(c.x - p.x, c.y - p.y) <= OPEN_REACH,
-    put(i) {
-      const s = p.inv.slots[i];
-      if (!s) return;
-      if (c.store.room(s.id) <= 0) { fail('Não cabe mais nada'); return; }
-      const it = p.inv.takeSlot(i);
-      net.request('corpse.put', { id: c.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: fail });
-      game.audio?.play('pickup', {});
-      game.events.emit('inventory', {});
+    put(i, n) {
+      const p = game.player, s = p.inv.slots[i];
+      if (!s || !c.store) return false;
+      if (c.store.room(s.id) <= 0) { game.events.emit('error', { text: 'Não cabe mais nada' }); return false; }
+      const it = n >= s.qty ? p.inv.takeSlot(i) : (p.inv.remove(s.id, n), { id: s.id, qty: n });
+      net.request('corpse.put', { id: c.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: fail('Não cabe mais nada') });
+      return true;
     },
-    take(i) {
-      const s = c.store.slots[i];
-      if (!s) return;
-      const room = p.inv.room(s.id);
-      if (room <= 0) { fail('Mochila cheia'); return; }
-      net.request('corpse.take', { id: c.id, slot: i, qty: Math.min(room, s.qty) }, { onReject: fail });
-      game.audio?.play('pickup', {});
+    take(i, n) {
+      const s = c.store?.slots[i];
+      if (!s) return false;
+      const room = game.player.inv.room(s.id);
+      if (room <= 0) { game.events.emit('error', { text: 'Mochila cheia' }); return false; }
+      net.request('corpse.take', { id: c.id, slot: i, qty: Math.min(room, n ?? s.qty, s.qty) }, { onReject: fail('Não deu') });
+      return true;
     },
-    sort(mode) { net.request('store.sort', { kind: 'corpse', id: c.id, mode }, { onReject: fail }); },
-    sortBag(mode) { sortInventory(p.inv, mode); game.events.emit('inventory', {}); },
+    sort(mode) { net.request('store.sort', { kind: 'corpse', id: c.id, mode }, { onReject: fail('Não deu para ordenar') }); },
+    canOpen() {
+      const p = game.player;
+      return !gone(game, c) && !!c.store && !p.dead && ['fresh', 'rotten'].includes(stageOf(game, c)) && Math.hypot(c.x - p.x, c.y - p.y) <= OPEN_REACH;
+    },
   };
 }
 
 // ---------- system ----------
 export function corpsesSystem() {
-  let slowT = 0, flyT = 2;
+  let slowT = 0, flyT = 1, rotT = 0;
   return {
     sync: 'all', // drawing / flies (cosmetic) everywhere; expiry after 5 days only on the authority
     update(game, dt) {
@@ -220,21 +222,25 @@ export function corpsesSystem() {
           if (ids.length) game.net.emit('corpse.remove', { ids, quiet: 1 });
         }
       }
-      // buzzing near the local player (cosmetic)
+      // buzzing over rotten bodies near the local player (cosmetic): audio.js re-triggers its 3 s buzz per spot
+      // (spaced), so it is fed often; at most the two nearest bodies within 14 tiles
       flyT -= dt;
       if (flyT <= 0) {
-        flyT = 3.5;
+        flyT = 0.5;
         const p = game.player;
-        let best = null, bd = 7;
+        let b1 = null, b2 = null, d1 = 14, d2 = 14;
         for (const c of C.map.values()) {
-          const a = corpseAge(game, c);
-          if (a < 0.95 || a >= 1.95) continue;
+          if (!c.rotten) continue;
           const d = Math.hypot(c.x - p.x, c.y - p.y);
-          if (d < bd) { bd = d; best = c; }
+          if (d < d1) { b2 = b1; d2 = d1; b1 = c; d1 = d; } else if (d < d2) { b2 = c; d2 = d; }
         }
-        if (best) game.audio?.play('flies', { x: best.x, y: best.y, volume: 0.6 });
+        if (b1) game.audio?.play('flies', { x: b1.x, y: b1.y, volume: 0.7 });
+        if (b2) game.audio?.play('flies', { x: b2.x, y: b2.y, volume: 0.5 });
       }
       for (let i = C.fading.length - 1; i >= 0; i--) if (game.time - C.fading[i].t0 > 0.6) C.fading.splice(i, 1);
+      // derived, cosmetic: c.rotten = the flies stage (also read by audio code); recomputed from shared time
+      rotT -= dt;
+      if (rotT <= 0) { rotT = 0.5; for (const c of C.map.values()) { const a = corpseAge(game, c); c.rotten = a >= 0.95 && a < 1.95; } }
     },
     render(game, B, v) {
       const A = game.A, t = game.time, C = game.corpses;

@@ -296,3 +296,58 @@ shared world time (`game.worldTime`; one game day = `env.dayLength` s, 720 today
 - Contracts: **B** owns the container window (inventory ↔ chest with sorting); it must accept any container
   (chest or corpse) through one adapter. **D** draws the butcher and gather-bones poses (`butcher`,
   `gather_bones`) and lying/death poses. **F** adds `butcher`, `bones` and a flies buzz near rotten corpses.
+
+## J · Telhados, interiores e cavernas (added later, port 5190)
+
+Owner's request: what counts as a "cave" must make sense — if a player mines a mountain open (or all of it),
+it is no longer a cave. A roof system for both buildings and caves:
+- **Built roofs** (like floors: a build category, area drag, blueprints): they hide what is inside a building
+  and reveal it only for the player standing under that roof. Drawn **procedurally** for any shape and size
+  (hip-roof shading from the distance-to-edge field, ridges, eaves, material texture). A roof needs support:
+  walls, and **columns** ("Coluna", new structure) when the interior is large (e.g. every roof tile within 6
+  tiles of a wall/column/rock); losing support collapses it.
+- **Natural roofs**: a mined tile is a cave only while the rock above is still supported by nearby rock;
+  opening a mountain removes the roof (sky light, rain). Deterministic and synced.
+- **Inside (cave or building)**: screen effects (darker, closer vignette, dust in caves) and the zoom eases to a
+  fixed, closer view (reduced field of view); leaving eases back to the player's own zoom — smooth both ways,
+  never a jump, never a lock outside. No rain under roofs, darker interiors lit by fires/torches, warmth and
+  "indoors" audio based on the roof.
+
+## K · Detalhes de arquitetura e decoração (added later, port 5192)
+
+Owner's request: much more detail for interior and exterior decoration (including a **straw training dummy**
+for combat practice), and, in build mode, a **"Detalhes" button** that opens a list of details for the selected
+structure — corner details that make buildings less blocky, trims, styles — so building becomes relaxing and
+deeply satisfying because it is beautiful. Procedural roofs (agent J) get the same detail list. Building must
+feel complete and magnificent, with a lot of freedom.
+- K owns: decoration content (furniture, interior/exterior props, training dummy), the per-structure **style /
+  details** data model (`o.style`, `o.det`), the details UI (from `buildbar.js`), the art for styles, corners and
+  details, and wall/floor/fence/door style variants.
+- J owns roof geometry/rendering; **roof details** go through an interface J exposes (roof style fields read by
+  J's renderer + roof-layer props such as chimneys and dormers). K defines the catalogue; J draws.
+- Sync: style and details are shared structure state set by ops (place / restyle intents), in snapshot, save
+  and digest. Scenarios **K1, K2…** in `tools/mp-test.js`.
+
+## L · Andares e escadarias (added later, port 5193)
+
+Owner's request: a system of height layers. With a roof/upper floor and a **staircase** (a stairway, not a
+ladder), the player walks up to the floor above or down to the floor below — towers, houses with several
+stories, and **walls you can walk on top of** (ramparts) when a staircase stands next to them.
+- Stories `lv` 0 (ground), 1, 2…; upper floors need support from below (same idea as J's roof support);
+  stairs connect lv n ↔ n+1 and need the tile above to be open (remove roof tiles first — everything is
+  deconstructable); wall tops are walkable at the next level when reachable by stairs.
+- Per-level collision/navigation, rendering by level (what is above the local player fades/hides, what is
+  below an upper floor is hidden), the local player's level drives the reveal; creatures/bandits may use stairs.
+- Sync: `lv` on structures (ops/snapshot/save/digest) and `z`/level in the avatar and creature streams.
+- Two phases: (1) design + core in isolated modules now; (2) integration after J (roofs) and K (details) merge.
+- Everything stays deconstructable; built details are fixed (rebuild to change).
+
+## M · Caminhos no terreno (added later, port 5194)
+
+Owner's request (with a screenshot of the soft sand/grass/water blends): a kind of "ground" construction that
+is NOT square like floors — **dirt path (free, no resources)**, **gravel**, **flagstone / lajota**, etc. — painted
+on the terrain and **blending softly and in detail with the ground textures**, like the river shore does.
+- Painted with a brush (drag; line/area; brush size), removable; a shared per-tile path grid (ops, snapshot,
+  save, digest); drawn inside the terrain pass with noisy soft edges and material detail (pebbles, cracks,
+  worn ruts), edge scatter; walking speed bonus; flora never regrows on paths, grass decor hidden on them.
+- Floors (inside buildings, square) stay agent K's; paths are terrain. Roofs are J's.

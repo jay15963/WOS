@@ -7,6 +7,7 @@ import './tiles.js';
 import './crops.js';
 import './camps.js';
 import './combat.js';
+import './bow.js';
 import './env.js';
 import './own.js';
 import './corpses.js';

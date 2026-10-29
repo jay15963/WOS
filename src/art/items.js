@@ -31,6 +31,14 @@ function rock(g, x, y, rx, ry, rand, col, dark) {
   g.restore();
   return pts;
 }
+// a smooth river pebble: soft oval, darker belly, glossy highlight
+function pebble(g, x, y, rx, ry, rot, col) {
+  g.save(); g.translate(x, y); g.rotate(rot);
+  g.fillStyle = mixc(col, '#2e2a26', 0.45); g.beginPath(); g.ellipse(0, 0.5, rx, ry, 0, 0, TAU); g.fill();
+  g.fillStyle = lin(g, 0, -ry, 0, ry, [[0, mixc(col, '#ffffff', 0.28)], [1, col]]); g.beginPath(); g.ellipse(0, -0.2, rx * 0.92, ry * 0.82, 0, 0, TAU); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.75)'; g.beginPath(); g.ellipse(-rx * 0.35, -ry * 0.42, rx * 0.32, ry * 0.2, -0.25, 0, TAU); g.fill();
+  g.restore();
+}
 function nugget(g, x, y, r, c0, c1, c2) {
   g.fillStyle = c0; g.beginPath(); g.moveTo(x - r, y); g.lineTo(x - r * 0.3, y - r * 0.95); g.lineTo(x + r * 0.8, y - r * 0.5); g.lineTo(x + r, y + r * 0.4); g.lineTo(x + r * 0.1, y + r); g.lineTo(x - r * 0.8, y + r * 0.6); g.closePath(); g.fill();
   g.fillStyle = c1; g.beginPath(); g.moveTo(x - r * 0.8, y - r * 0.1); g.lineTo(x - r * 0.25, y - r * 0.8); g.lineTo(x + r * 0.5, y - r * 0.4); g.lineTo(x, y + r * 0.1); g.closePath(); g.fill();
@@ -72,7 +80,30 @@ function sack(g, col, colD) {
 
 // ---------- materials, food, seeds ----------
 const ITEMS = {
-  item_pebble: [(g, r) => { rock(g, 12, 23, 5.5, 4.2, r, '#9a948b'); rock(g, 23, 24, 6.5, 4.6, r, '#8c857b'); rock(g, 18, 16, 4.4, 3.4, r, '#a9a399'); }],
+  // pebbles: a little pile of small, smooth, rounded river stones in mixed tints (never one big rock)
+  item_pebble: [(g) => {
+    for (const [x, y, rx, ry, rot, col] of [[11, 26, 4.2, 3, 0.2, '#8e8f96'], [19.5, 27.5, 4.6, 3.2, -0.15, '#b9a98c'], [27, 25.5, 3.8, 2.8, 0.35, '#9c7f6a'],
+      [15, 19.5, 3.9, 2.9, -0.3, '#a7aab0'], [23.5, 18.5, 3.6, 2.7, 0.25, '#7f8a8c']]) pebble(g, x, y, rx, ry, rot, col);
+  }],
+  // stone: ONE big angular chunk with flat facets, a crack and chips (reads apart from the pebbles)
+  item_stone: [(g) => {
+    const P = [[6, 24], [9, 13], [17, 7], [27, 9], [31, 18], [28, 28], [16, 31]];
+    g.fillStyle = '#5c5852'; g.beginPath(); g.moveTo(...P[0]); for (const q of P.slice(1)) g.lineTo(...q); g.closePath(); g.fill();
+    // top facet (lit), front-left facet (mid), right facet (shadow)
+    g.fillStyle = lin(g, 10, 8, 26, 20, [[0, '#a9a49b'], [1, '#858077']]);
+    g.beginPath(); g.moveTo(9, 13); g.lineTo(17, 7); g.lineTo(27, 9); g.lineTo(22, 17); g.lineTo(12, 18); g.closePath(); g.fill();
+    g.fillStyle = lin(g, 6, 18, 20, 31, [[0, '#7c776f'], [1, '#5e5a54']]);
+    g.beginPath(); g.moveTo(6, 24); g.lineTo(9, 13); g.lineTo(12, 18); g.lineTo(22, 17); g.lineTo(20, 29); g.lineTo(16, 31); g.closePath(); g.fill();
+    g.fillStyle = lin(g, 22, 12, 31, 28, [[0, '#68645e'], [1, '#46433f']]);
+    g.beginPath(); g.moveTo(22, 17); g.lineTo(27, 9); g.lineTo(31, 18); g.lineTo(28, 28); g.lineTo(20, 29); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,252,240,0.7)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(9.6, 13.2); g.lineTo(17, 7.8); g.lineTo(26.4, 9.6); g.stroke();
+    g.strokeStyle = 'rgba(40,36,32,0.75)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(14, 20); g.lineTo(16.5, 23.5); g.lineTo(15.2, 27); g.moveTo(24.5, 20.5); g.lineTo(27, 23); g.stroke();
+    g.fillStyle = 'rgba(255,250,235,0.45)'; g.beginPath(); g.moveTo(13, 12); g.lineTo(17, 9.2); g.lineTo(19, 11.4); g.closePath(); g.fill();
+    // rough, natural rock: dark specks and a tuft of moss (the cut stone block is smooth and pale)
+    g.fillStyle = 'rgba(30,28,25,0.45)'; g.beginPath(); for (const [x, y] of [[10, 22], [18, 25], [25, 21], [21, 13], [12, 27]]) circle(g, x, y, 0.8); g.fill();
+    g.fillStyle = '#6f8a3a'; g.beginPath(); g.ellipse(21, 9.6, 3.6, 1.4, 0.1, 0, TAU); g.ellipse(25.5, 10.4, 2, 1, 0.2, 0, TAU); g.fill();
+    g.fillStyle = '#93ad52'; g.beginPath(); g.ellipse(20.5, 9.1, 1.8, 0.7, 0.1, 0, TAU); g.fill();
+  }],
   item_stick: [(g, r) => {
     const twig = (x0, y0, x1, y1, w) => { g.strokeStyle = '#5a3c22'; g.lineWidth = w + 1.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.strokeStyle = '#9a7048'; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.strokeStyle = 'rgba(255,230,190,0.5)'; g.lineWidth = w * 0.3; g.beginPath(); g.moveTo(x0 - 0.5, y0 - 0.5); g.lineTo(x1 - 0.5, y1 - 0.5); g.stroke(); };
     twig(7, 29, 29, 8, 3.2); twig(20, 17, 27, 20, 2); twig(13, 24, 11, 15, 1.8);
@@ -136,8 +167,18 @@ const ITEMS = {
     g.fillStyle = '#ffffff'; g.beginPath(); circle(g, 15.5, 13.2, 1.1); g.fill();
   }],
   item_copper_bar: [(g) => { ingot(g, 18, 22, 20, 6, MAT.copper, false); ingot(g, 18, 15, 18, 5.5, MAT.copper, true); }],
-  item_iron_bar: [(g) => { ingot(g, 18, 22, 20, 6, MAT.iron, false); ingot(g, 18, 15, 18, 5.5, MAT.iron, true); }],
-  item_steel_bar: [(g) => { ingot(g, 18, 22, 20, 6, MAT.steel, true); ingot(g, 18, 15, 18, 5.5, MAT.steel, true); }],
+  // iron: dull dark grey with rust flecks · steel: bright blue-white with a stamped star (tell them apart small)
+  item_iron_bar: [(g) => {
+    ingot(g, 18, 22, 20, 6, MAT.iron, false); ingot(g, 18, 15, 18, 5.5, MAT.iron, false);
+    g.fillStyle = 'rgba(150,80,40,0.85)'; g.beginPath(); circle(g, 12, 25, 1.1); circle(g, 23, 26.5, 0.9); circle(g, 21, 17.5, 0.8); circle(g, 14, 18, 0.7); g.fill();
+  }],
+  item_steel_bar: [(g) => {
+    const M = { ...MAT.steel, base: '#a9bfd6', dark: '#5a6f88' };
+    ingot(g, 18, 22, 20, 6, M, true); ingot(g, 18, 15, 18, 5.5, M, true);
+    g.fillStyle = 'rgba(40,60,90,0.75)'; g.beginPath();
+    for (let i = 0; i < 10; i++) { const a = (i / 10) * TAU - Math.PI / 2, rr = i % 2 ? 1.1 : 2.4; g.lineTo(18 + Math.cos(a) * rr, 18.2 + Math.sin(a) * rr * 0.8); }
+    g.closePath(); g.fill();
+  }],
   item_gold_bar: [(g) => { const G = { base: '#e0a92a', light: '#fff0a0', dark: '#8a5a10', edge: '#fffbe0' }; ingot(g, 18, 22, 20, 6, G, false); ingot(g, 18, 15, 18, 5.5, G, true); }],
   item_arrow: [(g) => {
     for (const [dy, c] of [[-4, '#b8402e'], [0, '#3a6ab0'], [4, '#e8e2d6']]) {

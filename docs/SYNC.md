@@ -928,6 +928,15 @@ differs from the design text above, the code is described here (this section win
 - The guest whose atlas differs from the host's (same build) clears its atlas cache and reloads once (`sessionStorage
   wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
 - R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
+- **Presence animation fields** (round V2, agent D; `packState` in `session.js`): `a = [type, t, dur, loop, item?]` (`dur` 0 =
+  held pose; `loop` 1 = work cycle that repeats while working, `dur` = `p.work.cycle`), `hd` = head facing when it differs from
+  `f`, `ps` = resting pose `'sit' | ['sit', seatId] | ['sleep', bedId]`. Receivers keep `f / a / hd / ps` in the interpolation
+  buffer and apply them at the same delayed render time as the position; an action's start is rebuilt as
+  `sampleTime - t·dur`, so a swing is shown from its first frame even when it started between two samples (S40). The host
+  relays other guests' last raw sample (aged by the time since it arrived), so guest ↔ guest copies carry weapon / action /
+  pose too. Creature proxies (`entities.js`) likewise start a new action at `ht - t·dur` instead of on receipt.
+  Everything else a pawn does on screen (walk cycle, feet, hands, blink, breathing, flinch from `flash`, death / rise from
+  `dead`) is derived in `art/compose.js` from these replicated fields; cosmetic caches are `_`-prefixed.
 - **Construction (round V2, agent A)** — shared structure fields `rot`, `paid`, `open`, `moveOf` (set in op appliers, in snapshot
   `structs` rows `[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]` and in the `structs`
   digest rows; derived on every peer by `setGeom`: `fw × fh` footprint after rotation, `x, y, cy`, `face`). Cosmetic: `_openT`
@@ -944,7 +953,7 @@ differs from the design text above, the code is described here (this section win
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
 
 - **Corpses (round V2, agent I)** — `game.corpses.map` (id → body), shared fields `id, of ('pawn' | species), x, y, f, deathT, size, store,
-  butchered, owner, name, look, sc, v, gear`; cosmetic `_t0` (fall animation), `_ph`, `_px`, `_fly`; on entities `_corpseId` (a dead creature /
+  butchered, owner, name, look, sc, v, gear`; cosmetic `_t0` (fall animation), `_ph`, `_px`, `rotten` (flies stage, derived every 0.5 s; feeds the `flies` sound); on entities `_corpseId` (a dead creature /
   player whose body is on the ground is not drawn by the rig). The **stage is never replicated**: every peer derives it from
   `(worldTime - deathT) / env.dayLength` — fresh < 1 ≤ rotten < 2 ≤ skeleton < 5, then the host emits `corpse.remove` (expiry tick 2 s,
   cap 150 bodies, oldest first). Snapshot `corpses` rows `[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc,
@@ -953,8 +962,9 @@ differs from the design text above, the code is described here (this section win
     a raider's loot rows go into its body), `corpse.set {id, slots, by?, give?}`, `corpse.butcher {id, by, give, xp, tip?}`,
     `corpse.remove {ids, by?, give?, xp?, fx: 'bones'?}`.
   - Intents: `corpse.player {x, y, f, slots, gear}` (the dying owner already emptied its bag + equipment; refund on reject),
-    `corpse.put {id, item, qty}` / `corpse.take {id, slot, qty}` (pawn bodies, fresh or rotten, reach 3.2), `store.sort {kind:
-    'chest'|'corpse', id, mode: 'alpha'|'type'|'qty'}` (→ `chest.set` / `corpse.set`, stacks merge), `corpse.butcher {id, blade, tier}`
+    `corpse.put {id, item, qty}` / `corpse.take {id, slot, qty}` (pawn bodies, fresh or rotten, reach 3.2). Sorting is ONE shared
+    intent for every container, `store.sort {kind: 'chest' (default) | 'corpse', id, mode: 'name'|'type'|'qty'}` (mut/structures.js;
+    replaces B's `chest.sort`; `src/game/invsort.js` `sortedSlots`, stacks merge) → `chest.set` / `corpse.set`; `corpse.butcher {id, blade, tier}`
     (end of the local timed work; fresh animal, not butchered; yields rolled on the host from `SPECIES[].loot`: blade = full table +
     bonus, bare hands = no hide and ~60% meat), `corpse.bones {id}` (skeleton stage; `give: {bone: 1|2|4|3}` by size, spiders 0).
   - Test fast-forward: the harness emits `env.skip {hour, day, wt}` on the host (S60 / S61).

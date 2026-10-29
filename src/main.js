@@ -19,7 +19,7 @@ import { Particles } from './fx/particles.js';
 import { Game } from './game/game.js';
 import { installSystems, addSystem } from './game/systems.js';
 import { installAmbient } from './fx/ambient.js';
-import { Audio } from './fx/audio.js';
+import { getAudio } from './fx/audio.js';
 import { showMainMenu, wipeWorlds } from './ui/menu.js';
 import { installNetUI } from './ui/netui.js';
 import { applyQuality } from './ui/netpanels.js';
@@ -123,7 +123,8 @@ async function boot() {
     } else {
       $('#loading').classList.add('hidden');
       await nextFrame();
-      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress });
+      getAudio()?.music?.setMood?.('menu'); // idempotent (the menu may set it too)
+      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress, assets: assets.promise });
       $('#loading').classList.remove('hidden');
     }
     status('Preparando…', 0.3); await nextFrame();
@@ -145,11 +146,7 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave;
-    game.audio = new Audio();
-    try { const v = parseFloat(localStorage.getItem('wos.audio.volume')); if (Number.isFinite(v)) game.audio.volume = v; } catch { /* ignore */ }
-    const unlock = () => game.audio.unlock();
-    addEventListener('pointerdown', unlock, { once: true });
-    addEventListener('keydown', unlock, { once: true });
+    game.audio = getAudio().attach(game); // procedural audio: unlocks on the first gesture, music moods follow the game
     if (guest) {
       // the role must be known BEFORE installSystems: a guest runs no host systems, no world save,
       // no spawners / raiders / starter flora — the world comes from the host's snapshot

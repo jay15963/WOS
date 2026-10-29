@@ -1446,6 +1446,170 @@ def('S29', {
 });
 
 // =====================================================================================================
+// S40 B: chest sort (guest sorts a shared chest through the chest panel)
+def('S40', {
+  title: 'B: chest sort', timeout: 120000,
+  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (store.sort → chest.set): same order on both, stacks merged, digest equal',
+  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (store.sort intent {kind: chest} → chest.set {slots}); o.store.slots; invsort.sortedSlots',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 10 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'chest', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free tile for the chest');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'chest', [tx, ty]);
+  const chestH = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 2000, 'host chest blueprint');
+  await A.buildAll(t, H, MH, [chestH.id]);
+  const chestG = await t.waitFor(() => { const o = A.structOn(G, chestH.id); return o && !o.blueprint && o; }, ONEWAY() + 300, 'guest sees the finished chest');
+  // messy contents set by the authority: split stacks, mixed categories, gaps
+  const messy = [['stone', 2], 0, ['potato', 1], ['pebble', 2], ['meat', 2], 0, ['stone', 3], ['meat', 1], ['knife_primitive', 1]];
+  while (messy.length < chestH.store.size) messy.push(0);
+  H.game.net.emit('chest.set', { id: chestH.id, slots: messy, by: H.game.net.pid, quiet: 1 });
+  const order = (o) => (o?.store?.slots || []).filter(Boolean).map((s) => `${s.id}×${s.qty}`).join(',');
+  await t.waitFor(() => order(A.structOn(G, chestH.id)) === order(chestH), ONEWAY() + 400, 'guest sees the messy chest');
+  A.standBy(G, MG, chestG);
+  const it = MG.building.describeStructure(G.game, chestG);
+  t.assert(it && it.kind === 'chest', 'guest can use the chest', it?.kind);
+  MG.building.useStructure(G.game, it);
+  const sortClick = async (mode) => {
+    const btn = await t.waitFor(() => G.doc.querySelector(`[data-sort="${mode}"][data-sortk="chest:${chestG.id}"]`), 3000, `guest chest panel shows the ${mode} sort button`);
+    const before = order(chestH);
+    btn.click();
+    await t.waitFor(() => order(chestH) !== before || order(chestH) === want[mode], RT() + 600, `host chest sorted (${mode})`, () => `host ${order(chestH)}`);
+    await t.waitFor(() => order(A.structOn(G, chestH.id)) === order(chestH), ONEWAY() + 400, `guest sees the ${mode} order`, () => `host ${order(chestH)} · guest ${order(A.structOn(G, chestH.id))}`);
+    t.check(order(chestH) === want[mode], `${mode}: expected order`, order(chestH));
+  };
+  const want = {
+    // tools → food (quantity desc: 3 meat before 1 potato) → materials (5 stone before 2 pebbles)
+    type: 'knife_primitive×1,meat×3,potato×1,stone×5,pebble×2',
+    qty: 'stone×5,meat×3,pebble×2,potato×1,knife_primitive×1',
+  };
+  const nm = (id) => MG.data.ITEMS[id].name;
+  want.name = ['knife_primitive', 'meat', 'pebble', 'potato', 'stone'].sort((a, b) => nm(a).localeCompare(nm(b), 'pt-BR'))
+    .map((id) => `${id}×${{ knife_primitive: 1, meat: 3, pebble: 2, potato: 1, stone: 5 }[id]}`).join(',');
+  await sortClick('type');
+  await sortClick('qty');
+  await sortClick('name');
+  t.check(G.doc.querySelector(`[data-sort="name"][data-sortk="chest:${chestG.id}"]`)?.classList.contains('on'), 'last sort of this chest is highlighted');
+  G.game.events.emit('closepanels', {});
+  await t.checkDigest(H, G);
+  env.history.push('S40');
+});
+
+// =====================================================================================================
+// S42 D: remote action animations (presence stream: action timeline, pose)
+def('S42', {
+  title: 'D: remote action anims', timeout: 150000,
+  expected: "Guest's copy of the host shows the host's chop (same type, duration = work cycle, looping while chopping), a melee swing played from its start (first t < 0.4) and ending, and the sleep pose in the host's bed (pose.o = the bed); host's copy of the guest shows the guest's swing and sitting pose; the copy swims in deep water (from its position)",
+  api: 'presence st/sts s.a = [type, t, dur, loop, item?], s.ps; session.players.get(pid).ent.{action, pose}; juice.lieDown(bed) via useStructure (bed at night)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const hp = H.game.player, gp = G.game.player;
+  const sp = spawnOf(H);
+  const copyH = () => hostOnGuest(H, G);  // drawn copy of the host on the guest
+  const copyG = () => A.avatarOn(H, G.pid); // drawn copy of the guest on the host
+  t.assert(copyH() && copyG(), 'both sides have the other player');
+  // sample the copies at a fine interval
+  const seen = { chop: [], attackG: [], attackH: [] };
+  t.watch(() => {
+    const c = copyH();
+    if (c?.action?.type === 'chop') seen.chop.push([now(), c.action.t, c.action.dur]);
+    if (c?.action?.type === 'attack') seen.attackG.push([now(), c.action.t]);
+    const d = copyG();
+    if (d?.action?.type === 'attack') seen.attackH.push([now(), d.action.t]);
+  }, 2);
+
+  // 1. host chops a tree: the guest sees the chop loop with the host's real cycle
+  const tr = A.pickTree(H, MH, G, sp.x, sp.y, env.claimed);
+  t.assert(tr, 'found a standing tree present on both frames');
+  A.ensure(H, { axe_copper: 1 });
+  A.teleport(H, tr.west[0], tr.west[1]);
+  const gs = A.freeSpot(G, MG, tr.o.x - 4, tr.o.y + 1.5, { rMin: 0, rMax: 3 });
+  if (gs) A.teleport(G, gs[0], gs[1]);
+  await t.sleep(400);
+  let cycle = 0;
+  t.watch(() => { if (hp.work?.type === 'chop') cycle = hp.work.cycle; }, 4);
+  await A.chop(t, H, MH, A.objOn(H, tr.o.id), { until: 'fall' });
+  t.check(seen.chop.length > 5, "guest's copy of the host plays 'chop'", `${seen.chop.length} samples`);
+  const durs = seen.chop.map((r) => r[2]);
+  const medDur = median(durs);
+  t.check(cycle > 0 && Math.abs(medDur - cycle) <= 0.03, 'chop duration on the copy = host work cycle', `copy ${f2(medDur)} s · host ${f2(cycle)} s`);
+  let wraps = 0;
+  for (let i = 1; i < seen.chop.length; i++) if (seen.chop[i][1] < seen.chop[i - 1][1] - 0.3) wraps++;
+  t.check(wraps >= 1, 'the chop loops on the copy (cycle restarts)', `${wraps} restarts`);
+  sendAway(H, MH, tr.o.x, tr.o.y, 6, Math.PI);
+  await t.sleep(600);
+
+  // 2. a melee swing each way: shown from its start, then it ends
+  const swing = async (f, list, label) => {
+    list.length = 0;
+    f.game.player.action = { type: 'attack', t: 0, dur: 0.34 };
+    await t.sleep(900);
+    const ts = list.map((r) => r[1]);
+    t.check(ts.length >= 3, `${label}: copy plays the swing`, `${ts.length} samples`);
+    t.check(ts.length && ts[0] < 0.4, `${label}: swing shown from its start (first t < 0.4)`, ts.length ? `first t ${f2(ts[0])}` : 'none');
+    t.check(ts.length && Math.max(...ts) > 0.7, `${label}: swing plays through`, ts.length ? `max t ${f2(Math.max(...ts))}` : 'none');
+  };
+  await swing(H, seen.attackG, 'host → guest');
+  t.check(!copyH()?.action, "the swing ended on the guest's copy", copyH()?.action?.type || 'none');
+  await swing(G, seen.attackH, 'guest → host');
+
+  // 3. guest sits (resting pose) → host's copy sits
+  gp.pose = { type: 'sit', id: null, o: null };
+  const sat = await t.tryWait(() => copyG()?.pose?.type === 'sit', 2000);
+  t.check(sat, "host's copy of the guest sits", copyG()?.pose?.type || 'none');
+  gp.pose = null;
+  await t.tryWait(() => !copyG()?.pose, 2000);
+  t.check(!copyG()?.pose, 'standing up reaches the host', copyG()?.pose?.type || 'none');
+
+  // 4. host sleeps in its bed at night → guest's copy lies in that bed
+  A.ensure(H, { wood: 10, fiber: 8, leather: 3 });
+  const site = A.findSite([H, G], [MH, MG], 'bed', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[hp.x, hp.y], [gp.x, gp.y]] });
+  t.assert(site, 'found a tile for a bed');
+  A.place(H, MH, 'bed', site.tiles[0]);
+  const bed = await t.waitFor(() => A.structAt(H, MH, site.tiles[0][0], site.tiles[0][1], 'main'), 2000, 'host bed blueprint');
+  await A.buildAll(t, H, MH, [bed.id]);
+  H.game.env.hour = 21;
+  await t.waitFor(() => Math.abs(G.game.env.hour - 21) < 0.1, 3000 + CFG.budget, 'guest clock at night');
+  A.pacify(H, hp.x, hp.y, 40); // no creature may be chasing the host ("Não dá para dormir em combate")
+  for (const m of H.game.entities) if (m.isMob && !m.proxy && m.state === 'chase' && m.threat === hp) { m.state = 'idle'; m.stateT = 1; m.threat = null; m.calmT = 600; }
+  await t.sleep(300);
+  hp.combatT = 0; hp.inCombat = false;
+  A.standBy(H, MH, bed);
+  await t.sleep(200);
+  A.useBed(H, MH, bed);
+  t.check(hp.pose?.type === 'sleep', 'host lies down in the bed', hp.pose?.type || 'none');
+  const lay = await t.tryWait(() => copyH()?.pose?.type === 'sleep', 2500);
+  t.check(lay && copyH().pose.o?.id === bed.id, "guest's copy of the host sleeps in that bed", `${copyH()?.pose?.type || 'none'} · bed ${copyH()?.pose?.o?.id ?? '-'} (want ${bed.id})`);
+  const release = A.holdMove(H, 0, 1);
+  t.defer(release);
+  await t.sleep(400);
+  release();
+  const woke = await t.tryWait(() => !copyH()?.pose, 2500);
+  t.check(!hp.pose && woke, 'moving wakes the host up on both sides', `host ${hp.pose?.type || 'up'} · copy ${copyH()?.pose?.type || 'up'}`);
+
+  // 5. swimming is derived from the tile under the avatar on every peer (guest's copy of the host swims too)
+  const W = H.game.world;
+  let deep = null;
+  for (let r = 2; r < 60 && !deep; r += 2) for (let a = 0; a < 24 && !deep; a++) {
+    const x = Math.floor(hp.x + Math.cos(a / 24 * Math.PI * 2) * r), y = Math.floor(hp.y + Math.sin(a / 24 * Math.PI * 2) * r);
+    if (W.waterAt(x, y) === 2 && W.waterAt(x + 1, y) === 2 && W.waterAt(x - 1, y) === 2) deep = [x + 0.5, y + 0.5];
+  }
+  if (!deep) t.note('no deep water near the host — swim sub-check skipped');
+  else {
+    A.teleport(H, deep[0], deep[1]);
+    const near = A.freeSpot(G, MG, deep[0] + 3, deep[1], { rMin: 0, rMax: 5 });
+    if (near) A.teleport(G, near[0], near[1]);
+    const swam = await t.tryWait(() => (copyH()?._swim || 0) > 0.8 && (hp._swim || 0) > 0.8, 4000);
+    t.check(swam, "guest's copy of the host swims in deep water (derived from its position)", `host ${f2(hp._swim || 0)} · copy ${f2(copyH()?._swim || 0)}`);
+    sendAway(H, MH, deep[0], deep[1], 8);
+    hp.wetT = 0; hp._wet = 0; MH.player.removeBuff?.(hp, 'wet'); MH.player.removeBuff?.(hp, 'cold'); // leave the shared pair dry
+  }
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // S30 Single-player regression
 def('S30', {
   title: 'Single-player regression', timeout: 240000,
@@ -2050,7 +2214,7 @@ def('S60', {
 def('S61', {
   title: 'I: player corpse loot', timeout: 180000,
   expected: 'The guest dies: its bag + equipment move into its body (same id and contents on both, "Corpo de <nome>"), it respawns with nothing; the host opens the body ("Revistar": transfer window), takes, puts and sorts both sides; the guest takes from its own body; from day 3 the body cannot be opened (refused, window closes) and offers "Remover ossada"; digest equal',
-  api: 'player death → intent corpse.player → op corpse.add {owner}; transfer window (panels.js chest panel with a container adapter: data-slot / data-cslot / data-sort); intents corpse.put / corpse.take / store.sort → op corpse.set; env.skip',
+  api: 'player death → intent corpse.player → op corpse.add {owner}; container window (container.js openContainer + corpses.corpseAdapter: data-slot / data-cslot / data-sort + data-sortk); intents corpse.put / corpse.take / store.sort {kind: corpse} → op corpse.set; env.skip',
 }, async (t) => {
   const C = await pairCtx(t);
   const { H, G, MH, MG } = C;
@@ -2086,7 +2250,7 @@ def('S61', {
   A.ensure(H, { stone: 4 });
   A.interact(H, itO);
   const pn = H.game.ui.panels;
-  await t.waitFor(() => pn.open === 'chest' && pn.box?.kind === 'corpse', 4000, 'host: transfer window open on the body');
+  await t.waitFor(() => pn.open === 'container' && pn.container?.kind === 'corpse', 4000, 'host: container window open on the body');
   t.check(/Corpo de /.test(H.doc.querySelector('.p-chest .pt')?.textContent || ''), 'window title "Corpo de <nome>"', H.doc.querySelector('.p-chest .pt')?.textContent);
   const wood0 = A.count(H, 'wood');
   const wi = ch.store.slots.findIndex((q) => q && q.id === 'wood');
@@ -2095,17 +2259,17 @@ def('S61', {
   const si = H.game.player.inv.slots.findIndex((q) => q && q.id === 'stone');
   H.doc.querySelector(`[data-slot="${si}"]`)?.click();
   await t.waitFor(() => content(bodyOn(G, ch.id)).stone === 4 && content(ch).stone === 4, RT() + 600, 'host puts 4 stones into the body (on both)');
-  H.doc.querySelector('[data-sort="box:alpha"]')?.click();
+  H.doc.querySelector(`[data-sort="name"][data-sortk="corpse:${ch.id}"]`)?.click();
   const names = (c) => c.store.slots.filter(Boolean).map((q) => MH.data.ITEMS[q.id].name);
   const isSorted = (L) => L.every((n, i) => !i || L[i - 1].localeCompare(n, 'pt-BR') <= 0);
   await t.waitFor(() => isSorted(names(ch)) && JSON.stringify(bodyOn(G, ch.id).store.toJSON()) === JSON.stringify(ch.store.toJSON()) && !!ch.store.slots[0], RT() + 600, 'body sorted A–Z (same on both)');
   t.check(isSorted(names(ch)), 'body sorted alphabetically', names(ch).join(', '));
   A.ensure(H, { pebble: 1, wood: 1 });
-  H.doc.querySelector('[data-sort="bag:qty"]')?.click();
+  H.doc.querySelector('[data-sort="qty"][data-sortk="inv"]')?.click();
   await t.sleep(50);
   const q = H.game.player.inv.slots.filter(Boolean).map((x) => x.qty);
   t.check(q.every((v, i) => !i || q[i - 1] >= v) && !H.game.player.inv.slots.slice(0, q.length).some((x) => !x), 'backpack sorted by quantity (gaps closed)', q.join(','));
-  H.doc.querySelector('[data-sort="bag:type"]')?.click();
+  H.doc.querySelector('[data-sort="type"][data-sortk="inv"]')?.click();
   await t.sleep(50);
   // the guest takes from its own body
   const sg = A.freeSpot(G, MG, ch.x, ch.y, { rMin: 0.7, rMax: 1.3, prefer: Math.PI });
@@ -2118,7 +2282,7 @@ def('S61', {
   // day 3: skeleton, can't be opened any more
   skipDays(H, 2.05);
   await t.waitFor(() => stageOn(G, MG, ch.id) === 'skeleton', ONEWAY() + 1500, 'day 3: the body is a skeleton on the guest');
-  await t.waitFor(() => pn.open !== 'chest', 2000, 'host window closes at the skeleton stage');
+  await t.waitFor(() => pn.open !== 'container', 2000, 'host window closes at the skeleton stage');
   const late = await ask(G, 'corpse.take', { id: ch.id, slot: bodyOn(G, ch.id).store.slots.findIndex(Boolean), qty: 10 });
   t.check(!late.ok && /ossada/i.test(late.why || ''), 'taking from day 3 is refused', late.why);
   const latePut = await ask(H, 'corpse.put', { id: ch.id, item: 'wood', qty: 1 });
@@ -2130,9 +2294,204 @@ def('S61', {
 });
 
 // =====================================================================================================
+// S41 C: calm wind on the guest (cosmetic visuals; wind never feeds shared state)
+def('S41', {
+  title: 'C: calm wind on the guest (cosmetic)', timeout: 60000,
+  expected: 'guest exposes game.env.wind {x,y,gust}; in a storm the sway / wave phase rates stay ≤ 1.45 rad/s (game time) and ≤ 1.7 rad/s (real time), strength ≤ 1.1 and low-passed (|Δ| ≤ 0.5 per s); weather follows the host',
+  api: 'game.env.{wind,weather,cur,t,setWeather}, game.env.env.{windPh,wind}',
+}, async (t) => {
+  const { H, G } = await pairCtx(t);
+  const EH = H.game.env, EG = G.game.env;
+  const w0 = EH.weather;
+  EH.setWeather('storm');
+  try {
+    await t.waitFor(() => EG.weather === 'storm', 8000, 'guest follows the host weather');
+    EG.cur.wind = 0.92; EG.cur.storm = 1; // skip the 14 s weather blend on the guest (cosmetic values only)
+    await t.sleep(3000);                   // let the low-passed strength settle
+    const s = [];
+    let last = null;
+    for (let k = 0; k < 16; k++) {
+      await t.sleep(500);
+      const e = EG.env, cur = { ph0: e.windPh[0], ph1: e.windPh[1], et: EG.t, rt: now(), wind: e.wind };
+      if (last && cur.et > last.et + 0.05) {
+        const P = 628.31853, d0 = (cur.ph0 - last.ph0 + P) % P, d1 = (cur.ph1 - last.ph1 + P) % P, ge = cur.et - last.et, re = (cur.rt - last.rt) / 1000;
+        s.push({ g0: d0 / ge, g1: d1 / ge, r0: d0 / re, r1: d1 / re, dw: Math.abs(cur.wind - last.wind) / ge, wind: cur.wind });
+      }
+      last = cur;
+    }
+    t.assert(s.length >= 8, 'guest frames advanced while sampling', `${s.length} windows`);
+    const mx = (k) => Math.max(...s.map((x) => x[k]));
+    t.metric('guestStorm', { swayRad: f2(mx('g0')), waveRad: f2(mx('g1')), swayRadReal: f2(mx('r0')), waveRadReal: f2(mx('r1')), windMax: f2(mx('wind')), dWindMax: f2(mx('dw')) });
+    t.check(mx('g0') <= 1.45 && mx('g1') <= 1.45, 'sway / wave phase rates ≤ 1.45 rad/s (game time)', `${f2(mx('g0'))} / ${f2(mx('g1'))}`);
+    t.check(mx('r0') <= 1.7 && mx('r1') <= 1.7, 'phase rates ≤ 1.7 rad/s over real time (no bursts on the guest)', `${f2(mx('r0'))} / ${f2(mx('r1'))}`);
+    t.check(mx('wind') <= 1.1 && mx('dw') <= 0.5, 'wind strength capped and low-passed', `max ${f2(mx('wind'))}, |Δ| ${f2(mx('dw'))}/s`);
+    const W = EG.wind;
+    t.check(W && Math.abs(Math.hypot(W.x, W.y) - EG.env.wind) < 0.05 && W.gust >= 0 && W.gust <= 1, 'game.env.wind = direction × strength, gust 0..1', W ? short(W) : 'missing');
+  } finally {
+    EH.setWeather(w0 || 'clear');
+    await t.tryWait(() => EG.weather === EH.weather, 8000);
+  }
+});
+
+// =====================================================================================================
 // entry
+// =====================================================================================================
+// G1 / G2 — aimed ground abilities (agent G): Tiro Longo (bow) and Lançar Lança (spear)
+// host creature for an aimed throw: an animal (not a raider) with a free spot `d` tiles away for the guest
+function lobSite(t, H, G, MG, d) {
+  const sp = spawnOf(H);
+  const list = A.hostMobs(H, (m) => m.kind === 'animal' && !env.claimed.has('mob' + m.nid) && m.state !== 'chase')
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  for (const m of list.slice(0, 12)) {
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const s = A.freeSpot(G, MG, m.x + Math.cos(a) * d, m.y + Math.sin(a) * d, { rMin: 0, rMax: 0.8 });
+      if (s && Math.abs(Math.hypot(s[0] - m.x, s[1] - m.y) - d) < 0.9) return { m, s };
+    }
+  }
+  return null;
+}
+// keep a host creature still (authority-side test setup) so the aimed point stays on it
+const holdStill = (t, m) => t.watch(() => { if (!m.dead) { m.stunT = 2; m.calmT = 60; } }, 30);
+const lobsOf = (f, seen) => (f.game.projectiles || []).filter((q) => q.lob && !seen.has(q));
+
+def('G1', {
+  title: 'G: long shot', timeout: 150000,
+  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; digest equal',
+  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
+  const W = await import(new URL('src/game/content/weapons.js', G.win.location.href).href);
+  const S = W.lobSpec('bow_wood');
+  A.keepAlive(t, G);
+  t.assert(A.equip(G, 'bow_wood') !== false && G.game.player.equip.main === 'bow_wood', 'guest holds a bow');
+  A.ensure(G, { arrow: 14 });
+  MG.abilities.rebuildBar(G.game);
+  const site = lobSite(t, H, G, MG, 16);
+  t.assert(site, 'creature with a free spot 16 tiles away');
+  const { m, s } = site;
+  env.claimed.add('mob' + m.nid);
+  holdStill(t, m);
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  const prox = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'creature proxy on the guest');
+  t.log(`target ${m.species} ${m.nid} at ${f2(Math.hypot(m.x - s[0], m.y - s[1]))} tiles`);
+  const dmgH = [], dmgG = [];
+  const av = () => guestOnHost(H, G);
+  t.on(H, 'damage', (d) => { if (d.target === m && d.ability === 'long_shot' && d.kind === 'hit') dmgH.push(d); });
+  t.on(G, 'damage', (d) => { if (d.target?.nid === m.nid && d.ability === 'long_shot' && d.kind === 'hit') dmgG.push(d); });
+  const gp = G.game.player;
+  const arrows0 = A.count(G, 'arrow');
+  let shots = 0, hit = false, bothSee = true, sameLanding = true, inRange = true, lastT = -1e9;
+  const seenH = new Set(H.game.projectiles || []), seenG = new Set(G.game.projectiles || []);
+  for (let k = 0; k < 7 && !hit && !m.dead; k++) {
+    const wait = 2700 - (now() - lastT);
+    if (wait > 0) await t.sleep(wait); // host cooldown (3 s, 20% slack)
+    gp.cds.long_shot = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+    const px = A.proxyOf(G, m) || prox;
+    const r = MG.abilities.fireAimed(G.game, 'long_shot', px.x, px.y);
+    t.assert(r === true, `shot ${k + 1} fired by the guest`, String(r));
+    lastT = now(); shots++;
+    const gpr = lobsOf(G, seenG)[0];
+    const hpr = await t.waitFor(() => lobsOf(H, seenH)[0], RT() + 600, 'host flies the arrow');
+    seenH.add(hpr); if (gpr) seenG.add(gpr);
+    bothSee = bothSee && !!gpr && !hpr.cosmetic && hpr.owner === G.pid;
+    await t.waitFor(() => gpr && gpr.id === hpr.id, RT() + 600, 'guest copy takes the host id (ack)');
+    sameLanding = sameLanding && Math.hypot(gpr.lx - hpr.lx, gpr.ly - hpr.ly) < 0.01;
+    inRange = inRange && Math.hypot(hpr.lx - hpr.x0, hpr.ly - hpr.y0) <= S.range + W.lobScatter(S, S.range) + 0.01;
+    if (k === 0) {
+      // the host enforces the cooldown even when the guest skips its own check (arrow refunded)
+      const c0 = A.count(G, 'arrow');
+      gp.inv.remove('arrow', 1);
+      let why = null;
+      G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: px.x, ay: px.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onReject: (w) => { why = w; } });
+      await t.waitFor(() => why != null, RT() + 600, 'host answers an early 2nd shot');
+      await t.sleep(50);
+      t.check(/pronto/i.test(why) && A.count(G, 'arrow') === c0, 'early 2nd shot refused by the host ("Ainda não está pronto"), arrow refunded', `why="${why}" arrows ${c0} → ${A.count(G, 'arrow')}`);
+    }
+    t.log(`shot ${k + 1}: lands ${f2(Math.hypot(hpr.lx - m.x, hpr.ly - m.y))} from the ${m.species} (scatter ≤ ${f2(W.lobScatter(S, 16))})`);
+    await t.waitFor(() => hpr.stuck || !(H.game.projectiles || []).includes(hpr), hpr.dur * 1000 + 1500, 'arrow lands on the host');
+    await t.sleep(ONEWAY() + 250);
+    hit = dmgH.length > 0 || m.dead;
+  }
+  t.check(bothSee, 'both see the arrow (host: authoritative copy owned by the guest · guest: its own copy)');
+  t.check(sameLanding, 'same landing point on both (guest copy bent onto the host roll)');
+  t.check(inRange, `landing within range + scatter (${S.range} + ${f2(W.lobScatter(S, S.range))} tiles)`);
+  t.check(hit, `host applies the hit (${shots} shot(s) at 16 tiles)`, `host dmg ${dmgH.map((d) => d.amount).join(',') || '-'} · dead ${m.dead}`);
+  if (dmgH.length) t.check(dmgH[0].src === av() || dmgH[0].src?.pid === G.pid, 'the hit comes from the guest avatar', dmgH[0].src?.pid || dmgH[0].src?.name);
+  if (dmgH.length) await t.tryWait(() => dmgG.length > 0 || A.proxyOf(G, m)?.dead, RT() + 600);
+  t.check(!dmgH.length || dmgG.length > 0 || A.proxyOf(G, m)?.dead || !A.proxyOf(G, m), 'guest sees the hit (fx dmg / death)', `${dmgG.length} events`);
+  t.check(A.count(G, 'arrow') === arrows0 - shots, '1 arrow left the guest bag per shot', `${arrows0} → ${A.count(G, 'arrow')} after ${shots} shot(s)`);
+  // range clamp by the host (aim 40 tiles away, sent directly)
+  const wait = 2700 - (now() - lastT);
+  if (wait > 0) await t.sleep(wait);
+  const seen2 = new Set(H.game.projectiles || []);
+  gp.inv.remove('arrow', 1);
+  let ok2 = null;
+  G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: gp.x + 40, ay: gp.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onOk: (r) => { ok2 = r || {}; }, onReject: (w) => { ok2 = { why: w }; } });
+  await t.waitFor(() => ok2, RT() + 600, 'host answers the far shot');
+  const far = lobsOf(H, seen2)[0];
+  t.check(far && Math.hypot(far.lx - far.x0, far.ly - far.y0) <= S.range + W.lobScatter(S, S.range) + 0.01, 'aim 40 tiles away is clamped to the bow range by the host', far ? `${f2(Math.hypot(far.lx - far.x0, far.ly - far.y0))} tiles` : JSON.stringify(ok2));
+  if (far) await t.tryWait(() => far.stuck || !(H.game.projectiles || []).includes(far), far.dur * 1000 + 1500);
+  await t.sleep(900); // possible arrow recovery (loot.add) settles
+  await t.checkDigest(H, G);
+});
+
+def('G2', {
+  title: 'G: spear throw', timeout: 120000,
+  expected: 'Guest throws its spear (Lançar Lança) at a creature 6 tiles away: both see the flight (host authoritative, guest copy), the host applies the hit (ability throw_spear); the spear stays equipped on the guest (equip.main unchanged, hand empty only while it flies, then back; the host sees the hand weapon come back via presence); no spear loot anywhere; 10 s cooldown (an immediate 2nd throw is refused); digest equal',
+  api: 'abilities.fireAimed(game, "throw_spear", x, y); p._throwT / p.weapon; presence w; projectiles {lob, kind:"spear"}; loot rows',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
+  A.keepAlive(t, G);
+  const gp = G.game.player;
+  t.assert(A.equip(G, 'spear_iron') !== false && gp.equip.main === 'spear_iron', 'guest holds a spear');
+  MG.abilities.rebuildBar(G.game);
+  const spears0 = gp.inv.count('spear_iron');
+  const site = lobSite(t, H, G, MG, 6);
+  t.assert(site, 'creature with a free spot 6 tiles away');
+  const { m, s } = site;
+  env.claimed.add('mob' + m.nid);
+  holdStill(t, m);
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  const prox = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'creature proxy on the guest');
+  const dmgH = [];
+  t.on(H, 'damage', (d) => { if (d.target === m && d.ability === 'throw_spear' && d.kind === 'hit') dmgH.push(d); });
+  const spearLoot = (f) => (f.game.loot || []).filter((l) => /^spear_/.test(l.item)).length;
+  const loot0 = [spearLoot(H), spearLoot(G)];
+  const hostHand = [];
+  const av = () => A.avatarOn(H, G.pid);
+  const ww = t.watch(() => hostHand.push(av() ? av().weapon : 'no avatar'), 20);
+  const seenH = new Set(H.game.projectiles || []), seenG = new Set(G.game.projectiles || []);
+  gp.cds.throw_spear = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+  const px = A.proxyOf(G, m) || prox;
+  const r = MG.abilities.fireAimed(G.game, 'throw_spear', px.x, px.y);
+  t.assert(r === true, 'guest throws', String(r));
+  const gpr = lobsOf(G, seenG)[0];
+  await t.sleep(60);
+  t.check(gp.weapon == null && gp.equip.main === 'spear_iron', 'hand empty while the spear flies, still equipped', `weapon ${gp.weapon} · main ${gp.equip.main}`);
+  const hpr = await t.waitFor(() => lobsOf(H, seenH)[0], RT() + 600, 'host flies the spear');
+  t.check(gpr && gpr.kind === 'spear' && hpr.kind === 'spear' && !hpr.cosmetic, 'both see the spear flight', `guest ${gpr?.kind} · host ${hpr.kind}`);
+  const again = MG.abilities.fireAimed(G.game, 'throw_spear', px.x, px.y);
+  t.check(again === false, 'immediate 2nd throw refused (10 s cooldown)', String(again));
+  await t.waitFor(() => hpr.stuck || !(H.game.projectiles || []).includes(hpr), hpr.dur * 1000 + 1500, 'spear lands on the host');
+  await t.tryWait(() => dmgH.length > 0 || m.dead, RT() + 400);
+  t.check(dmgH.length > 0 || m.dead, 'host applies the spear hit', `dmg ${dmgH.map((d) => d.amount).join(',') || '-'} · dead ${m.dead}`);
+  await t.waitFor(() => gp.weapon === 'spear_iron', 2000, 'the spear is back in the guest hand');
+  await t.waitFor(() => av()?.weapon === 'spear_iron', 1500 + RT(), 'host sees the spear back in the guest hand (presence)');
+  ww.stop();
+  t.check(hostHand.includes(null), 'host saw the empty hand during the flight (presence)', short(hostHand.slice(0, 40)));
+  await t.sleep(600);
+  t.check(gp.equip.main === 'spear_iron' && gp.inv.count('spear_iron') === spears0, 'spear still equipped on the guest, inventory unchanged', `main ${gp.equip.main} · bag ${gp.inv.count('spear_iron')}`);
+  t.check(spearLoot(H) === loot0[0] && spearLoot(G) === loot0[1], 'no spear loot on the ground (host / guest)', `${spearLoot(H)} / ${spearLoot(G)}`);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
-  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S29'];
+  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));
 for (const s of S) if (!ORDER.includes(s.id)) ORDER.push(s.id);
 

@@ -14,7 +14,7 @@ import { artWarnings } from '../game/artcompat.js';
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
-export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't'];
+export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
 
 const fnv = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
 function fnvBytes(a) { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); }

@@ -426,6 +426,86 @@ function hand() {
   });
 }
 
+// ---------------- animation parts (compose.js rig) ----------------
+// boot (tinted dark leather at runtime): 's' = toe seen from the front, 'e' = profile, toe to the right
+function foot(d) {
+  return spritePx(18, 12, (g, P) => {
+    P.layer((g) => {
+      g.fillStyle = '#cfcfcf';
+      g.beginPath();
+      if (d === 'e') { g.moveTo(3, 9.5); g.lineTo(3, 3.5); g.quadraticCurveTo(4, 1.6, 7.5, 1.8); g.lineTo(10, 3.6); g.quadraticCurveTo(15.6, 4.6, 15.4, 8); g.lineTo(15.2, 9.6); g.closePath(); }
+      else g.ellipse(9, 6.2, 5.2, 4.4, 0, 0, TAU);
+      g.fill();
+      g.fillStyle = lin(g, 0, 2, 0, 10, [[0, '#ffffff'], [1, '#a8a8a8']]);
+      g.beginPath();
+      if (d === 'e') g.ellipse(9, 5.4, 5.4, 2.6, 0.1, 0, TAU); else g.ellipse(8.4, 5.4, 4, 3.2, 0, 0, TAU);
+      g.fill();
+      // sole
+      g.fillStyle = 'rgba(40,40,40,0.75)';
+      if (d === 'e') g.fillRect(3, 8.6, 12.4, 1.2); else { g.beginPath(); g.ellipse(9, 9.6, 4.6, 1.1, 0, 0, TAU); g.fill(); }
+    }, 1.4);
+  });
+}
+// closed eyelids (tinted with skin) over the head's eyes: blinks and sleep
+function lids(d) {
+  return spritePx(HW, HH, (g, P) => {
+    P.layer((g) => {
+      const lid = (x, y) => {
+        g.fillStyle = '#e4e4e4'; g.beginPath(); g.ellipse(x, y, 2.35, 2.8, 0, 0, TAU); g.fill();
+        g.strokeStyle = 'rgba(40,30,26,0.9)'; g.lineWidth = 0.9; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 2, y + 0.6); g.quadraticCurveTo(x, y + 1.9, x + 2, y + 0.6); g.stroke();
+      };
+      if (d === 's') { lid(HX - 6.3, HY + 3.2); lid(HX + 6.3, HY + 3.2); } else lid(HX + 9.4, HY + 2.6);
+    }, 0);
+  });
+}
+// blanket lump over a sleeping pawn (tinted like the bed quilt)
+function cover() {
+  return spritePx(56, 60, (g, P) => {
+    P.layer((g) => {
+      g.fillStyle = '#c4c4c4';
+      g.beginPath(); g.moveTo(5, 10); g.quadraticCurveTo(28, 2, 51, 10); g.quadraticCurveTo(55, 34, 52, 56); g.lineTo(4, 56); g.quadraticCurveTo(1, 34, 5, 10); g.closePath(); g.fill();
+      g.fillStyle = lin(g, 8, 6, 48, 58, [[0, '#ffffff'], [0.5, '#e2e2e2'], [1, '#a9a9a9']]);
+      g.beginPath(); g.ellipse(27, 28, 21, 24, 0, 0, TAU); g.fill();
+      // folded hem near the chin and two soft folds
+      g.fillStyle = '#f4f4f4'; g.beginPath(); g.moveTo(5, 10); g.quadraticCurveTo(28, 2, 51, 10); g.lineTo(51, 16); g.quadraticCurveTo(28, 8, 5, 16); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(70,70,70,0.35)'; g.lineWidth = 1.1;
+      g.beginPath(); g.moveTo(12, 30); g.quadraticCurveTo(20, 36, 17, 50); g.moveTo(42, 28); g.quadraticCurveTo(35, 38, 39, 52); g.stroke();
+    }, 2.2);
+  });
+}
+// "Z" glyph for sleep particles
+function zz() {
+  return spritePx(14, 14, (g, P) => {
+    P.layer((g) => {
+      g.strokeStyle = '#ffffff'; g.lineWidth = 2.4; g.lineJoin = 'round'; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(3, 3); g.lineTo(11, 3); g.lineTo(3, 11); g.lineTo(11, 11); g.stroke();
+    }, 1.1, 'rgba(30,40,60,0.7)');
+  });
+}
+// a pinch of crushed medicinal herbs (held while healing)
+function herb() {
+  return spritePx(14, 12, (g, P) => {
+    P.layer((g) => {
+      for (const [x, y, r, c] of [[5, 7, 3.4, '#4f8a3a'], [9, 6, 3.2, '#6aa64a'], [7, 4, 2.8, '#83bd5c'], [10, 8.5, 2.2, '#3e7430']]) {
+        g.fillStyle = c; g.beginPath(); g.ellipse(x, y, r, r * 0.75, 0.6, 0, TAU); g.fill();
+      }
+      g.fillStyle = '#b8e08a'; g.beginPath(); circle(g, 6.5, 3.6, 0.9); circle(g, 9.5, 5.2, 0.7); g.fill();
+    }, 1.2);
+  });
+}
+
+// thigh seen from the side (sitting): trouser capsule, tinted with look.pants; anchor at the hip end
+function thigh() {
+  return spritePx(26, 13, (g, P) => {
+    P.layer((g) => {
+      g.fillStyle = '#c8c8c8'; g.beginPath(); g.moveTo(5, 2.5); g.lineTo(20, 2.5); g.quadraticCurveTo(25, 6.5, 20, 10.5); g.lineTo(5, 10.5); g.quadraticCurveTo(1, 6.5, 5, 2.5); g.closePath(); g.fill();
+      g.fillStyle = lin(g, 0, 2, 0, 11, [[0, '#f2f2f2'], [1, '#b2b2b2']]); g.beginPath(); g.ellipse(13, 5.8, 10, 3, 0, 0, TAU); g.fill();
+      g.strokeStyle = 'rgba(70,70,70,0.4)'; g.lineWidth = 1; g.beginPath(); g.moveTo(17, 4); g.quadraticCurveTo(19, 6.5, 17.5, 9.5); g.stroke();
+    }, 1.6);
+  });
+}
+
 export function addPawns(add) {
   for (const d of ['s', 'n', 'e']) {
     add('pawn_body_' + d, body(d), 0.5, FEET / BH);
@@ -437,5 +517,13 @@ export function addPawns(add) {
   add('beard_s', beard('s'), 0.5, NECK / HH);
   add('beard_e', beard('e'), 0.5, NECK / HH);
   add('pawn_hand', hand(), 0.5, 0.5);
+  add('pawn_foot_s', foot('s'), 0.5, 10.4 / 12);
+  add('pawn_foot_e', foot('e'), 0.5, 10.4 / 12);
+  add('pawn_lids_s', lids('s'), 0.5, NECK / HH);
+  add('pawn_lids_e', lids('e'), 0.5, NECK / HH);
+  add('pawn_cover', cover(), 0.5, 8 / 60); // anchor at the hem (chin)
+  add('pawn_zz', zz(), 0.5, 0.5);
+  add('pawn_herb', herb(), 0.5, 0.5);
+  add('pawn_thigh_e', thigh(), 3 / 26, 0.5);
 }
 export const HAIR_STYLES = Object.keys(HAIR);

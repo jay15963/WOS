@@ -66,11 +66,21 @@ Biomas e zonas (src/world/worldgen.js):
   peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
   (`game.R.autoScale = false` desliga).
 - `src/fx/environment.js`: `env.setWeather('clear'|'cloudy'|'rain'|'storm'|'fog')`, `env.weatherName()` (pt-BR),
-  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather}`; raios em `env.strikes`.
+  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather, snowCover, snowAt}`; raios em `env.strikes`.
+  Vento cosmético por quadro: `game.env.wind = { x, y, gust }` (direção × força 0..~1,05, rajada 0..1, filtrados).
+  Relâmpago: `game.events.emit('lightning', { x, y, power, dist })`. Neve: chuva sobre biomas frios (pinheiral,
+  montanha) cai como neve (`R.coldAt(x, y)` ≥ 0,6). Balanço de plantas: parâmetro `sway` do `batch.add` (`swayFor(tipo)`
+  em `renderer.js`, ver o topo do arquivo).
+- `src/fx/quality.js`: `game.quality` = `'low'|'medium'|'high'` (efetivo), `game.qualityMode` (escolha, `wos.quality`),
+  `qualitySettings(el, game)` (linha das configurações). `game.debug.*` (só localhost): `src/fx/debug.js`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
-- `game.audio.play(name, {x, y, volume})` (src/fx/audio.js). Nomes: hit, crit, swing, chop, mine, pickup, eat,
-  levelup, death, growl, ui, build, fire, splash, step (o passo usa o tipo de chão em x,y). Áudio procedural:
-  `game.audio.enabled` (persistido), `.volume`, `.sfxVolume`, `.ambVolume`, `.toggle()`; ambiente segue a câmera.
+- Áudio procedural (src/fx/audio.js, sem arquivos): `getAudio()` (singleton, também no menu) = `game.audio`.
+  `game.audio.play(name, {x, y, volume, delay, pitch})` — catálogo em `src/fx/sfxBank.js` + rotas em audio.js (step usa o
+  chão/piso em x,y; swing a arma; hit/growl/death a espécie mais próxima). Nomes desconhecidos são ignorados.
+  Música generativa: `game.audio.music.setMood('menu'|'day'|'night'|'dawn'|'rain'|'cave'|'danger'|'home')` (o diretor
+  `src/fx/audioDirector.js` escolhe sozinho no jogo). Volumes `setLevel('master'|'music'|'sfx'|'amb')`, `.enabled` (mudo),
+  UI em `src/fx/audioSettings.js`. `net.js` chama `audio.onOp()` antes de cada op (sons das ações de todos). Teste/escuta:
+  `tools/audio-test.html` (localhost).
 - `game.particles.emit({...})` (src/fx/particles.js). `layer: 'fx'` (alfa) ou `'emissive'` (brilho).
 - Input: `game.input` (`move()`, `pressed` Set de `KeyboardEvent.code`, `taps` [{x,y}] em px CSS, `isTouch`).
   Se `player.autoMove = [dx,dy]` estiver setado, o jogador anda nessa direção quando não há input manual.
@@ -105,6 +115,14 @@ criatura, arte de toda construção / flora / plantação) e descartado se falta
 `src/art/contract.js`. Service worker: **network-first** com `cache:'no-cache'` (um carregamento nunca mistura dois deploys; o
 cache do SW só serve offline).
 
+Animação (rodada V2, agente D): `compose.js` monta o pawn como um rig (corpo, botas `pawn_foot_*`, mãos `pawn_hand`, cabeça
+com pálpebras `pawn_lids_*`) e lê, além dos campos acima, `p.headFacing` (cabeça virada para o alvo), `p.pose`
+(`{type:'sit'|'sleep', o?}`: sentado / deitado na cama) e `action.item` (comida na mão). Ações novas: `eat`, `craft`, `cook`,
+`plant`, `harvest`, `heal` (alias `bandage`). O motor cosmético fica em `juice.js` (olhar, sentar perto da fogueira / na
+cadeira, dormir, passos, arbustos e plantações que balançam, migalhas/ervas/Zzz) e o vento chega por `animEnv` (exportado
+por `compose.js`). Animais: quadro `<espécie>_e_graze` (pastar/farejar) gerado do quadro parado; andadura por velocidade.
+`e._sy` (cosmético) troca a chave de profundidade enquanto o pawn está deitado/sentado num móvel. Prévia: `tools/gallery.html?strip=walk,run,chop&sdir=e`
+(`&species=deer` para animais).
 Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
 da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
 (apaga chama de fogueira/tocha). Galeria de sprites: `tools/gallery.html` (`?focus=<regex>`, `?only=scene|pawns|animals|atlas`).
@@ -132,7 +150,7 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `mut/corpses.js`, arte em `art/corpses.js` / `art/corpseDraw.js`, desenhado no batch `decor`). Estágio derivado do tempo do mundo:
   fresco (1º dia) → podre (2º, verde-acinzentado, moscas) → ossada (3º–5º) → some. Animais: "Coletar" no 1º dia (carne / couro, melhor
   com lâmina); ossada: "Remover ossada" dá Ossos. Jogadores / saqueadores: os itens ficam no corpo ("Revistar" até o fim do 2º dia,
-  janela de transferência com adaptador de contêiner `src/ui/container.js` e ordenação). Detalhes em `docs/SYNC.md` §7.2.
+  janela de contêiner de B, `openContainer` + `corpseAdapter` em `corpses.js`, ordenação pela intent única `store.sort`). Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor

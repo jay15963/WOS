@@ -37,19 +37,26 @@ float windWave(vec2 p, vec2 dir, float ph){
 }
 `;
 
-// sway displacement shared by sprite & shadow shaders
-// (phases are accumulated on the CPU so changing wind never makes the sway jump or race)
+// sway displacement shared by sprite & shadow shaders. Calm by design: the oscillation frequency is
+// almost constant (CPU-integrated phase, ~1.0–1.3 rad/s; trees ×0.9, grass ×1.2–1.3) and only the
+// AMPLITUDE follows the (low-passed) wind, with caps. uWindPh wraps at 100·2π, so every multiplier of a
+// phase keeps m·100 integer (fr is quantized to 0.05 steps, harmonic ×1.6). Mirror: wind bench in the
+// C-agent report (keep both in sync if you tune it).
 const SWAY_FN = `${WAVE_FN}
 vec2 swayLocal(vec2 c, vec2 local){
   float top = clamp(aAnchor.y - c.y, 0.0, 1.0);
-  float ph = uWindPh.x + aPos.x * 0.63 + aPos.y * 0.37;
-  float gust = sin(uTime * 0.45 + aPos.x * 0.09 + aPos.y * 0.05) * 0.5 + 0.5;
-  float s = sin(ph) * 0.55 + sin(ph * 2.31 + 1.7) * 0.25 + (0.4 + uWind) * gust * 0.8;
-  float k = aParams.x * top * top * aSize.y * (0.6 + uWind);
+  float sw = clamp(aParams.x, 0.0, 0.2);
+  float fr = floor((0.8 + min(sw, 0.15) * 3.3) * 20.0 + 0.5) * 0.05;
+  float ph = uWindPh.x * fr + aPos.x * 0.63 + aPos.y * 0.37;
+  float slow = sin(uTime * 0.31 + aPos.x * 0.09 + aPos.y * 0.05) * 0.5 + 0.5;
+  float w = clamp(uWind, 0.0, 1.1);
+  float k = sw * top * top * aSize.y * (0.55 + 0.6 * w);
+  float s = sin(ph) * 0.6 + sin(ph * 1.6 + 1.7) * 0.2;
   local.x += s * k;
-  // lean with the passing wave, along the wind (y foreshortened by the 3/4 view)
+  // steady bend down-wind (slowly breathing) + the passing wind wave (y foreshortened by the 3/4 view)
   float wv = windWave(aPos, uWindDir, uWindPh.y);
-  local += vec2(uWindDir.x, uWindDir.y * 0.4) * wv * (0.3 + uWind * 1.5) * k;
+  float bend = (0.15 + 0.5 * w) * (0.55 + 0.45 * slow) + wv * (0.2 + 0.55 * w);
+  local += vec2(uWindDir.x, uWindDir.y * 0.4) * bend * k;
   return local;
 }
 vec2 rotLocal(vec2 l, float r){
@@ -60,11 +67,17 @@ vec2 rotLocal(vec2 l, float r){
 
 export const SPRITE_VS = `#version 300 es
 ${SPRITE_ATTRIBS}
+uniform sampler2D uClim;  // R = snow affinity (cold biomes), G = structure occupancy (contact AO)
+uniform vec2 uWorldSz;
+uniform float uSnow;      // snow cover 0..1 (env.extra.uSnow)
 out vec2 vUV;
 out vec4 vColor;
 out float vFlash;
 out float vRecv;
 out vec2 vLocal;
+out vec2 vW;              // world position on the ground plane (before lift)
+out float vFrost;         // snow lying on this (vegetation) sprite
+flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
 ${SWAY_FN}
 void main(){
   vec2 c = aCorner;
@@ -72,32 +85,57 @@ void main(){
   local = rotLocal(local, aParams.y);
   if (aParams.x > 0.0) local = swayLocal(c, local);
   vec2 w = aPos + local;
+  vW = w;
   w.y -= aExtra.y;
   vec2 clip = (w - uCam) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
   vUV = mix(aUV.xy, aUV.zw, tc);
+  vVr = vec2(min(aUV.y, aUV.w), max(aUV.y, aUV.w));
   vColor = aColor;
   // grass tufts catch the light as a wind wave bends them (silvery sheen rolling over the fields)
   if (aParams.x > 0.09) vColor.rgb *= 1.0 + windWave(aPos, uWindDir, uWindPh.y) * (0.04 + 0.1 * uWind);
   vFlash = aParams.z;
   vRecv = aExtra.x;
   vLocal = c;
+  vFrost = 0.0;
+#if QL >= 1
+  if (uSnow > 0.01 && aParams.x > 0.0) vFrost = uSnow * smoothstep(0.45, 0.75, textureLod(uClim, aPos / uWorldSz, 0.0).r);
+#endif
 }`;
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal;
+in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost;
+flat in vec2 vVr;
 uniform sampler2D uTex;
 uniform sampler2D uShadow;
+uniform sampler2D uClim;
+uniform highp vec2 uWorldSz;
 uniform vec2 uViewport;
 uniform float uShadowStr;
+uniform float uAO;        // 1 while drawing ground / decor: darken next to walls (contact AO)
 out vec4 o;
 void main(){
   vec4 t = texture(uTex, vUV);
   if (t.a < 0.003) discard;
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
+#if QL >= 1
+  if (vFrost > 0.01) {
+    // snow settles on the top edges of leaves / needles / blades (texel above is empty)
+    float dv = 2.5 / float(textureSize(uTex, 0).y);
+    float up = min(texture(uTex, vec2(vUV.x, max(vUV.y - dv, vVr.x))).a, texture(uTex, vec2(vUV.x, max(vUV.y - dv * 2.6, vVr.x))).a);
+    float cap = smoothstep(0.12, 0.6, t.a - up * 0.9);
+    float lum = dot(c.rgb, vec3(0.3, 0.59, 0.11)) / max(c.a, 1e-3);
+    vec3 sn = vec3(0.88, 0.91, 0.97) * (0.78 + 0.3 * smoothstep(0.1, 0.45, lum)) * c.a;
+    c.rgb = mix(c.rgb, sn, vFrost * (cap * 0.85 + 0.1));
+  }
+  if (uAO > 0.0) {
+    float so = texture(uClim, (vW + vec2(0.0, -0.08)) / uWorldSz).g;
+    c.rgb *= 1.0 - uAO * 0.3 * smoothstep(0.18, 0.62, so);
+  }
+#endif
   c.rgb = mix(c.rgb, vec3(c.a), clamp(vFlash, 0.0, 1.0));
   if (vRecv > 0.0) {
     float s = texture(uShadow, gl_FragCoord.xy / uViewport).r;
@@ -488,7 +526,23 @@ uniform vec2 uCloudVel;
 uniform float uNight;
 uniform vec2 uWindDir;      // wind direction (grass waves)
 uniform vec2 uWindPh;       // accumulated phases (y = travelling wind waves)
-uniform float uWindK;       // wind strength 0..1.2
+uniform float uWindK;       // wind strength 0..1.1
+uniform sampler2D uClim;    // 1x, linear: R snow affinity (cold biomes), G structure occupancy (contact AO)
+uniform float uSnow;        // snow cover 0..1 (builds up while it snows over cold biomes, melts slowly)
+uniform float uSnowPeak;    // permanent snow on the high mountain tops (cold biomes)
+uniform float uClimOn;      // 0 = skip the climate fetch (no snow lying and no walls in view)
+
+// quality (QL from the renderer: 0 low, 1 medium, 2 high)
+#if QL == 0
+#define RIPK 1
+#define SHK 3
+#elif QL == 1
+#define RIPK 2
+#define SHK 6
+#else
+#define RIPK 3
+#define SHK 6
+#endif
 
 const mat2 ROT = mat2(0.8253, 0.5646, -0.5646, 0.8253);
 // per ground id: puddle affinity (soil, rich, sand, gravel, marsh, mud, stone, forest floor)
@@ -513,6 +567,9 @@ float ridgeN(vec2 p, float l){
 // layer sample with anti-tiling: two rotated/scaled samples, height-aware mix by low-freq noise m
 vec4 gtex(float l, vec2 wp, float m){
   vec4 a = textureLod(uGround, vec3(wp * 0.25, l), LOD);
+#if QL == 0
+  return a;
+#endif
   vec4 b = textureLod(uGround, vec3(ROT * wp * 0.23 + vec2(0.31, 0.67), l), max(LOD - 0.12, 0.0));
   float t = clamp((m - 0.5) * 3.5 + (b.a - a.a) * 2.0 + 0.5, 0.0, 1.0);
   return mix(a, b, t);
@@ -537,7 +594,7 @@ vec4 blend4(float la, float lb, float lc, float ld, vec2 wp, float m, vec2 f, ou
 // expanding rain rings: xy = normal perturbation, z = ring brightness
 vec3 ripples(vec2 p){
   vec3 acc = vec3(0.0);
-  for (int k = 0; k < 3; k++) {
+  for (int k = 0; k < RIPK; k++) {
     float fk = float(k);
     if (k == 2 && uRain < 0.45) break;   // extra layer of drops in heavy rain
     vec2 q = p * (2.4 + fk * 1.35) + fk * 7.31;
@@ -570,6 +627,9 @@ void main(){
   vec4 CV = texture(uCave, wp / uWorld);
   float cave = CV.r;                         // 1 = dark cave under a mountain roof
   float outK = 1.0 - cave;
+  vec4 CL = vec4(0.0);
+  if (uClimOn > 0.5) CL = texture(uClim, wp / uWorld);
+  float snowA = smoothstep(0.45, 0.75, CL.r) * outK;   // where snow can lie (cold biomes, outdoors)
   vec3 sunT = vec3(1.0) + uSunWarm * outK;
   // relief light: the sun outdoors, a soft fixed top-left light underground (torches do the rest)
   vec3 Ld = normalize(mix(uSun, vec3(-0.35, -0.45, 0.82), cave));
@@ -612,7 +672,11 @@ void main(){
     // ridged relief on the massifs (crests and gullies lit by the sun)
     const float E2 = 0.22;
     float rl = nLod(0.032);
+#if QL == 0
+    float r0 = ridgeN(wp, rl), rx = r0, ry = r0;
+#else
     float r0 = ridgeN(wp, rl), rx = ridgeN(wp + vec2(E2, 0.0), rl), ry = ridgeN(wp + vec2(0.0, E2), rl);
+#endif
     float rk = smoothstep(0.06, 0.5, Fr.g);
     vec2 hgR = vec2(rx - r0, ry - r0) / E2 * rk * 0.85;
     vec3 N = normalize(vec3(-hgM * 2.4 * (1.0 - cliff) - hgR + outward * cliff * 1.9 - hg * 0.3, 1.0));
@@ -623,6 +687,13 @@ void main(){
     float mass = (0.86 + 0.14 * smoothstep(0.25, 1.3, sd) + 0.08 * Fr.g) * (0.92 + 0.16 * r0 * rk);
     vec3 rock = alb * shade * mass * mix(vec3(1.0), sunT, dif * uSunI * outK);
     rock *= 0.8 + 0.4 * smoothstep(0.12, 0.6, RT.a);         // cavities
+    // snow on the cold massifs: permanent on the high tops, everywhere after snowfall (flat, upward faces)
+    float capS = max(uSnow, uSnowPeak * smoothstep(0.35, 0.95, Fr.g)) * snowA;
+    if (capS > 0.01) {
+      float m = smoothstep(0.3, 0.62, capS * 1.15 + (N.z - 0.9) * 2.4 + (RT.a - 0.5) * 0.6 + (nB.y - 0.5) * 0.35 - 0.28) * (1.0 - cliff * 0.75);
+      vec3 snC = vec3(0.86, 0.89, 0.95) * (0.56 + 0.56 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * uSunI * outK);
+      rock = mix(rock, snC, m);
+    }
     // RimWorld-like edge: thick dark outline + lighter bevel just inside it
     const float OW = 0.085;
     vec2 sunXY = normalize(Ld.xy + vec2(1e-4, 0.0));
@@ -671,7 +742,7 @@ void main(){
       col = mix(col, col * vec3(0.8, 0.86, 0.78), hum * forK * 0.35);
     }
     // tiny flower heads scattered through lush grass, in colour patches
-    if (F2.r > 0.5 && PPX < 0.035) {
+    if (QL >= 1 && F2.r > 0.5 && PPX < 0.035) {
       vec2 fp = wp * 3.3;
       vec2 fc = floor(fp), fh = hash22(fc + 3.17);
       float patchK = smoothstep(0.52, 0.8, nC.y * 0.7 + nA.x * 0.3);
@@ -700,7 +771,7 @@ void main(){
     }
 
     // rain wetness: darker, a bit richer; puddles in low spots; marsh keeps standing water (never in caves)
-    float wet = uWet * outK;
+    float wet = uWet * outK * (1.0 - 0.9 * snowA * step(0.02, uSnow));
     col *= 1.0 - 0.2 * wet * min(pk, 1.0);
     float lum0 = dot(col, vec3(0.333));
     col = mix(vec3(lum0), col, 1.0 + 0.18 * wet);
@@ -722,6 +793,18 @@ void main(){
       col = mix(col, pc, pm * 0.85);
     }
 
+    // snow cover on the ground of cold biomes (bumps first, then a full blanket)
+    if (uSnow > 0.01 && snowA > 0.01) {
+      float sn = uSnow * snowA;
+      float m = smoothstep(0.3, 0.6, sn * 1.3 + (hgt - 0.5) * 0.6 + (nB.y - 0.5) * 0.45 + (nA.z - 0.5) * 0.25 - 0.3);
+      vec3 Ns = normalize(vec3(-hgG * 0.03, 1.0));
+      float sd2 = max(dot(Ns, uSun), 0.0);
+      vec3 snC = vec3(0.85, 0.88, 0.93) * (0.8 + 0.2 * sd2 * uSunI + 0.06 * nA.z) * sunT;
+      col = mix(col, snC, m * (1.0 - 0.6 * CV.b));
+    }
+    // contact AO at the foot of walls / structures
+    col *= 1.0 - 0.3 * smoothstep(0.18, 0.62, CL.g);
+
     // ---------- mountains: ambient occlusion + cast shadow ----------
     float prox = F2.a;
     if (sd > -1.6) col *= 1.0 - 0.36 * pow(1.0 - clamp(-sd / 1.35, 0.0, 1.0), 2.0);
@@ -731,8 +814,8 @@ void main(){
       vec2 sdir = uShadowDir / max(sl, 1e-3);
       float maxD = min(4.2, 2.6 * sl + 0.4);
       float rs = 0.0;
-      for (int k = 1; k <= 6; k++) {
-        float t = float(k) / 6.0 * maxD;
+      for (int k = 1; k <= SHK; k++) {
+        float t = float(k) / float(SHK) * maxD;
         vec4 Fk = fieldAt(wp - sdir * t);
         float occH = smoothstep(0.45, 0.62, Fk.r) * (1.0 + 1.5 * Fk.g) * sl;
         rs = max(rs, smoothstep(t - 0.25, t + 0.2, occH));
@@ -766,9 +849,11 @@ void main(){
       // sandy bottom seen through clear water (refracted), absorbed with depth
       vec2 refr = N.xy * (0.05 + 0.2 * depth);
       vec3 bottom = textureLod(uGround, vec3((wp + refr) * 0.25, 2.0), LOD).rgb * (0.9 + 0.12 * nA.x);
+#if QL >= 1
       float cz = textureLod(uNoise, wp * 0.43 + nn * 0.3 + uTime * 0.035, nLod(0.43)).w;
       float caus = pow(1.0 - abs(cz * 2.0 - 1.0), 7.0);
       bottom += caus * 0.32 * (1.0 - depth) * (0.2 + 0.8 * uSunI) * sunT;
+#endif
       float dd = 0.05 + depth * 1.95;
       vec3 Tr = exp(-vec3(2.4, 0.92, 0.66) * dd);
       vec3 deepCol = vec3(0.026, 0.10, 0.16);
@@ -786,7 +871,7 @@ void main(){
       float lightI = uSunI + uNight * 0.3 * (1.0 - uCloud);   // moonlight glints at night
       wc += (pow(nh, 160.0) * 0.28 + pow(nh, 1600.0) * 2.0 * sparkMask) * lightI * sunT * (1.0 - uCloud * 0.6);
       // clear nights: twinkling stars mirrored in calm water (screen-fixed, like the real sky)
-      if (uNight > 0.05 && uCloud < 0.85) {
+      if (QL >= 1 && uNight > 0.05 && uCloud < 0.85) {
         vec2 sp = vUV * uView * 1.6 + N.xy * 0.35;
         vec2 scl = floor(sp), sh2 = hash22(scl + 41.0);
         if (sh2.x > 0.82) {
@@ -802,7 +887,7 @@ void main(){
       float wave = 0.5 + 0.5 * sin(uTime * 1.25 - wl * 34.0 + fn * 7.0);
       float foam = smoothstep(0.66, 0.9, fn * 0.55 + wave * 0.55) * shore;
       foam += (1.0 - smoothstep(0.26, 0.29, wl)) * 0.55 * (0.55 + 0.45 * fn);
-      if (fl > 0.15) {
+      if (QL >= 1 && fl > 0.15) {
         // flow streaks on the river
         vec2 fd = flow / fl, pd = vec2(-fd.y, fd.x);
         vec2 sp2 = vec2(dot(wp, fd) * 0.22 - uTime * 0.25 * fl, dot(wp, pd) * 1.9);
@@ -827,12 +912,15 @@ void main(){
 }`;
 
 // Lighting composite + atmosphere + grading. Extra uniforms via env.extra (0 = neutral).
+// QL (renderer quality): 0 low (1 rain layer, no bloom / grain), 1 medium, 2 high (canopy light shafts).
 export const POST_FS = `#version 300 es
 precision highp float;
 in vec2 vUV;
 out vec4 o;
 uniform sampler2D uScene, uLight, uNoise, uField;
 uniform sampler2D uCave;  // R = cave darkness (no sky effects underground)
+uniform sampler2D uClim;  // R = snow affinity: precipitation falls as snow over cold biomes
+uniform sampler2D uShadow; // sprite sun shadows (canopy light shafts, high quality)
 uniform vec2 uCam, uView, uWorld;
 uniform float uTime;
 uniform float uCloud;   // cloud cover 0..1
@@ -842,8 +930,10 @@ uniform float uFog;
 uniform vec3 uFogCol;
 uniform vec3 uTint;
 uniform float uSat, uContrast, uVig, uFlash;
+uniform vec3 uAmb;        // ambient light (light above it = fire / torch light: keeps warmth and saturation)
+uniform vec3 uCaveAmb;    // ambient inside mined caves (see AMBIENT_FS)
 uniform vec3 uLift;       // shadow tint added in the darks
-uniform float uRain;      // rain streak intensity
+uniform float uRain;      // precipitation intensity
 uniform vec2 uRainDir;    // streak slant (x per unit fall)
 uniform float uMist;      // low mist hugging water/lowlands
 uniform float uHasField;  // 1 when uField is bound
@@ -852,11 +942,20 @@ uniform vec3 uFlashCol;
 uniform float uNight;
 uniform float uRays;      // low-sun light shafts through the morning / evening haze
 uniform vec2 uSunXY;      // horizontal direction towards the sun (world, y down)
+uniform vec2 uShadowDir;  // sun-shadow offset per unit height (world, y down)
 uniform float uCamCave;   // camera inside a cave (0..1): deeper vignette
+uniform vec4 uBolt;       // lightning strike: world x, y, radius, intensity
+uniform float uGrain;     // film grain amount (0 = off)
+uniform float uBloom;     // soft bloom around strong lights
+// local player's status (src/fx/status.js): A = (hp, cold, hunger, wet), B = (sick, warm, hit flash, heartbeat),
+// C = (shake x, shake y, dizzy wobble, sick wave); all 0 = nothing to do
+uniform vec4 uFeelA, uFeelB, uFeelC;
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
-// world-space rain streaks (one layer)
+// world-space rain streaks (one layer). The streak axis is the fall direction (screen down, slanted by the
+// wind: dir); it moves towards +dir, so the crisp bright HEAD is at the bottom end and the TAIL fades out
+// above it, thinning (dy = 0 tail ... len head).
 float rainLayer(vec2 wp, float scale, float speed, float seed, float dens){
   vec2 dir = normalize(vec2(uRainDir.x, 1.0));
   vec2 p = vec2(dot(wp, vec2(dir.y, -dir.x)), dot(wp, dir)) * scale;
@@ -871,19 +970,126 @@ float rainLayer(vec2 wp, float scale, float speed, float seed, float dens){
   float len = 0.28 + 0.12 * h;
   float dx = abs(fr.x - x0);
   float dy = fr.y - y0;
-  float w = 0.05;
-  return smoothstep(w, 0.0, dx) * smoothstep(0.0, 0.05, dy) * (1.0 - smoothstep(len * 0.3, len, dy));
+  if (dy < 0.0 || dy > len) return 0.0;
+  float k = dy / len;
+  float w = 0.05 * (0.5 + 0.5 * k);
+  float head = 1.0 - smoothstep(len - 0.045, len, dy);
+  float tail = smoothstep(0.0, 0.8, k);
+  return (1.0 - smoothstep(0.0, w, dx)) * head * tail * tail;
+}
+
+// world-space snowflakes (one layer): slow fall, drift with the wind, each flake wobbling on its own
+float snowLayer(vec2 wp, float scale, float speed, float seed, float dens){
+  vec2 p = wp * scale;
+  p.y -= uTime * speed;
+  p.x -= uTime * speed * uRainDir.x * 1.6;
+  vec2 cell = floor(p), f = fract(p) - 0.5;
+  float h = hash12(cell + seed);
+  if (h > dens) return 0.0;
+  vec2 c0 = (vec2(hash12(cell + seed + 3.1), hash12(cell + seed + 7.7)) - 0.5) * 0.55;
+  c0.x += sin(uTime * (0.7 + h * 1.3) + h * 40.0) * 0.14;
+  float r = length(f - c0);
+  float sz = 0.05 + 0.06 * hash12(cell + seed + 1.3);
+  return 1.0 - smoothstep(sz * 0.25, sz, r);
+}
+
+// water droplets on the "lens" (one layer, p in screen units with y UP): xy = position inside the drop
+// (-1..1), z = coverage, w = squared radius (0 centre .. 1 rim)
+vec4 dropLayer(vec2 p, float dens, float seed){
+  vec2 c = floor(p), f = fract(p) - 0.5;
+  float h = hash12(c + seed);
+  if (h > dens) return vec4(0.0);
+  vec2 o = (vec2(hash12(c + seed + 3.1), hash12(c + seed + 7.3)) - 0.5) * 0.45;
+  float r = 0.12 + 0.17 * hash12(c + seed + 1.7);
+  vec2 d = (f - o) / r;
+  d.y *= 1.12;   // a little heavier at the bottom
+  float l = dot(d, d);
+  if (l > 1.0) return vec4(0.0);
+  return vec4(d, 1.0 - smoothstep(0.8, 1.0, l), l);
 }
 
 void main(){
-  vec3 c = texture(uScene, vUV).rgb;
-  vec3 L = texture(uLight, vUV).rgb * 2.0;
-  c *= L;
-  c += max(L - 1.0, 0.0) * 0.07;   // warm bloom where lights are strong
+  // ---- status displacement (shiver, dizzy wobble, sick wave) and lens effects (frost, droplets) ----
+  vec2 uv = vUV + uFeelC.xy;
+  vec2 q0 = vUV - 0.5;
+  float e2 = dot(q0, q0);
+  if (uFeelC.z > 0.001) {
+    uv += vec2(sin(uTime * 0.7), cos(uTime * 0.53)) * 0.005 * uFeelC.z * (0.25 + e2 * 3.0);
+    float a = sin(uTime * 0.41) * 0.02 * uFeelC.z * e2 * 3.0;
+    uv = 0.5 + mat2(cos(a), -sin(a), sin(a), cos(a)) * (uv - 0.5);
+  }
+  if (uFeelC.w > 0.001) uv += vec2(sin(vUV.y * 8.0 + uTime * 1.2), cos(vUV.x * 6.0 + uTime * 0.9)) * 0.0018 * uFeelC.w;
+  vec2 sp = q0 * vec2(uView.x / uView.y, 1.0);   // aspect-correct screen position (height 1)
+  vec2 ae = abs(q0) * 2.0;                       // 0 centre .. 1 screen edges
+  float edgeK = max(ae.x, ae.y);
+  float frost = 0.0, crys = 0.0, drop = 0.0, dropHi = 0.0, dropRim = 0.0;
+  vec2 lens = vec2(0.0);
+  if (uFeelA.y > 0.01) {
+    // frost creeping in from the corners: feathery ice (ridged noise), reach grows with the cold
+    float cd = edgeK * 0.5 + length(ae) * 0.5;
+    float n1 = texture(uNoise, sp * 1.4 + 0.13).r, n2 = texture(uNoise, sp * 3.4 + 0.71).g;
+    float ridge = 1.0 - abs(n2 * 2.0 - 1.0);
+    float reach = 1.42 - uFeelA.y * 0.5;
+    frost = smoothstep(reach, reach + 0.26, cd + (n1 - 0.5) * 0.3 + ridge * 0.08);
+    crys = pow(ridge, 9.0) * smoothstep(reach - 0.06, reach + 0.14, cd + (n1 - 0.5) * 0.3);
+#if QL >= 1
+    lens += (vec2(n1, n2) - 0.5) * 0.012 * frost;
+#endif
+  }
+  if (uFeelA.w > 0.01) {
+    // droplets beading on the screen edges after wading / heavy rain, a few sliding down slowly
+    float band = smoothstep(0.3, 0.9, edgeK - (1.0 - uFeelA.w) * 0.25);
+    vec4 d1 = dropLayer(sp * 8.0, 0.55 * uFeelA.w, 1.0);
+    vec2 ps = sp * 5.0;
+    ps.y += uTime * (0.04 + 0.07 * hash12(vec2(floor(ps.x), 3.0)));   // a few drops slide down slowly
+    vec4 d2 = dropLayer(ps, 0.3 * uFeelA.w, 9.0);
+    vec4 d = d1.z > d2.z ? d1 : d2;
+    drop = d.z * band;
+    vec2 g = d.xy - vec2(-0.32, 0.38);                        // glint up-left inside the drop
+    dropHi = exp(-dot(g, g) * 16.0) * drop;
+    dropRim = smoothstep(0.55, 0.95, d.w) * drop;
+#if QL >= 1
+    lens -= d.xy * sqrt(max(1.0 - d.w, 0.0)) * vec2(uView.y / uView.x, 1.0) * 0.03 * drop;  // the drop flips what is behind it
+#endif
+  }
+  uv += lens;
 
-  vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
+  vec2 wp = uCam + vec2(uv.x - 0.5, 0.5 - uv.y) * uView;
   float cave = uHasField > 0.5 ? texture(uCave, wp / uWorld).r : 0.0;
   float outK = 1.0 - cave;
+  vec3 c = texture(uScene, uv).rgb;
+#if QL >= 1
+  // near death: the edges of the view soften (cheap 3-tap blur of the scene)
+  float bk = smoothstep(0.6, 1.0, uFeelA.x) * smoothstep(0.1, 0.45, e2);
+  if (bk > 0.01) {
+    vec2 bo = q0 * 0.016 * bk;
+    c = (c + texture(uScene, uv + bo).rgb + texture(uScene, uv - bo).rgb + texture(uScene, uv + vec2(-bo.y, bo.x)).rgb) * 0.25;
+  }
+#endif
+  vec3 alb = c;   // unlit scene (the lightning flash lights this, so firelit spots do not burn out)
+  vec3 L = textureLod(uLight, uv, 0.0).rgb * 2.0;
+  // point lights over a bright ambient are washed out by daylight: compress their excess by the local
+  // ambient level (same cave dimming as AMBIENT_FS), full strength at night and underground
+  vec3 ambL = mix(uAmb, min(uAmb, uCaveAmb), pow(cave, 1.4));
+  float gain = 1.0 / (1.0 + max(dot(ambL, vec3(0.3, 0.5, 0.2)) - 0.4, 0.0) * 2.0);
+  vec3 ex = max(L - ambL, 0.0) * gain;
+  ex /= 1.0 + ex * 0.4;   // soft knee: firelight falls off gently instead of burning out the centre
+  L = min(L, ambL) + ex;
+  c *= L;
+  c += max(L - 1.0, 0.0) * 0.07;   // warm bloom where lights are strong
+  // light above the ambient level (fires, torches, lanterns): keeps its warmth through the night grade
+  float fireK = clamp(dot(ex, vec3(0.4, 0.4, 0.2)) * 2.2, 0.0, 1.0);
+
+#if QL >= 1
+  if (uBloom > 0.0) {
+    // soft bloom from the mipmapped light map (renderer builds the mips when bloom is on): one or two fetches
+    vec3 Lb = textureLod(uLight, uv, 2.5).rgb * 2.0;
+#if QL >= 2
+    Lb = Lb * 0.55 + textureLod(uLight, uv, 4.0).rgb * 0.9;   // plus a wider, fainter ring
+#endif
+    c += max((Lb - ambL) * gain - 0.45, 0.0) * vec3(1.0, 0.8, 0.58) * 0.22 * uBloom;
+  }
+#endif
 
   // drifting cloud shadows (domain-warped, soft)
   vec2 cuv = wp * 0.0105 + uCloudVel * uTime;
@@ -892,8 +1098,13 @@ void main(){
   cl = smoothstep(0.58 - 0.3 * uCloud, 0.82 - 0.12 * uCloud, cl);
   c *= 1.0 - cl * max(0.17 + uCloudSh, 0.0) * uDay * outK;
 
-  // lightning: re-light the scene with a cold flash (barely reaches into caves)
-  c += uFlash * (c * 2.2 + 0.05) * (vec3(0.85, 0.9, 1.0) + uFlashCol) * (1.0 - cave * 0.92);
+  // lightning: re-light the scene with a cold flash (barely reaches into caves), stronger near the strike
+  float fl = uFlash * (1.0 - cave * 0.92);
+  if (uBolt.w > 0.001) {
+    vec2 bd = (wp - uBolt.xy) * vec2(1.0, 1.35) / uBolt.z;
+    fl += uBolt.w * exp(-dot(bd, bd) * 2.2) * outK;
+  }
+  c += fl * (alb * 1.3 + 0.04) * (vec3(0.85, 0.9, 1.0) + uFlashCol) / (1.0 + fireK * 1.5);
 
   // light shafts: soft bands along the low sun, mostly visible in haze and mist
   float rays = 0.0;
@@ -902,6 +1113,16 @@ void main(){
     float u = dot(wp, pp) * 0.085 + dot(wp, sd) * 0.006;
     float n = texture(uNoise, vec2(u, uTime * 0.0035)).r * 0.6 + texture(uNoise, vec2(u * 2.3 + 0.37, uTime * 0.006 + 0.5)).g * 0.4;
     rays = smoothstep(0.48, 0.78, n) * uRays * outK;
+#if QL >= 2
+    // shafts through the canopy gaps: the hazy air above a point is sunlit unless a crown blocks the sun
+    // (march the sun-shadow map along the light path): bright haze in the gaps, dim streaks behind crowns
+    vec2 sdUV = vec2(uShadowDir.x, -uShadowDir.y) / uView;
+    float occ = 0.0;
+    for (int k = 1; k <= 5; k++) occ += texture(uShadow, uv + sdUV * (float(k) * 0.55)).r;
+    float lit = clamp(1.0 - occ * 0.2 * 1.7, 0.0, 1.0);
+    c *= 1.0 - uRays * outK * (1.0 - lit) * 0.1;
+    rays = rays * 0.5 + uRays * outK * lit * 0.9;
+#endif
   }
 
   // mist / fog banks
@@ -914,34 +1135,76 @@ void main(){
     low = clamp(F.b * 1.2 + F.a * 0.6, 0.0, 1.0);
   }
   float fogA = uFog * (0.35 + mist * 0.9);
-  fogA += uMist * smoothstep(0.35, 0.75, mist + low * 0.45) * (0.35 + 0.65 * low);
+  fogA += uMist * smoothstep(0.35, 0.75, mist + low * 0.45) * (0.2 + 0.8 * low);   // hugs water and shores
   fogA *= 1.0 - cave * 0.92;
   vec3 fogC = uFogCol * (1.0 + rays * 0.5);
   c = mix(c, fogC, clamp(fogA * (1.0 + rays * 0.35), 0.0, 0.85));
-  c += uFogCol * rays * 0.06 * vec3(1.05, 0.98, 0.85);
+  c += uFogCol * rays * 0.16 * vec3(1.08, 0.97, 0.8);   // warm light shafts in the haze
 
-  // rain streaks (3 parallax layers)
-  if (uRain > 0.01) {
-    float r = rainLayer(wp, 1.5, 22.0, 1.0, 0.7 * uRain) * 0.6
-            + rainLayer(wp + 13.1, 2.2, 17.0, 5.0, 0.75 * uRain) * 0.45
-            + rainLayer(wp + 27.7, 3.2, 13.0, 9.0, 0.8 * uRain) * 0.3;
+  // precipitation: rain streaks (parallax layers), snowflakes over cold biomes
+  if (uRain > 0.01 && outK > 0.01) {
+    float snowK = uHasField > 0.5 ? smoothstep(0.45, 0.75, texture(uClim, wp / uWorld).r) : 0.0;
     vec3 rc = mix(uFogCol * 1.15, vec3(0.75, 0.8, 0.88), 0.4) * (0.55 + 0.45 * uDay);
-    c = mix(c, rc, clamp(r, 0.0, 1.0) * 0.55 * outK);
+    if (snowK < 0.99) {
+      float r = rainLayer(wp, 1.5, 22.0, 1.0, 0.7 * uRain) * 0.6;
+#if QL >= 1
+      r += rainLayer(wp + 13.1, 2.2, 17.0, 5.0, 0.75 * uRain) * 0.45;
+#endif
+#if QL >= 2
+      r += rainLayer(wp + 27.7, 3.2, 13.0, 9.0, 0.8 * uRain) * 0.3;
+#endif
+      c = mix(c, rc, clamp(r, 0.0, 1.0) * 0.62 * outK * (1.0 - snowK));
+    }
+    if (snowK > 0.01) {
+      float sf = snowLayer(wp, 1.1, 1.1, 2.0, 0.55 * uRain) + snowLayer(wp + 7.3, 1.7, 0.85, 6.0, 0.6 * uRain) * 0.8;
+#if QL >= 1
+      sf += snowLayer(wp + 19.1, 2.6, 0.62, 11.0, 0.65 * uRain) * 0.6;
+#endif
+      vec3 scol = vec3(0.93, 0.95, 1.0) * clamp(max(L, vec3(0.42)) * (0.75 + 0.25 * uDay), 0.0, 1.25);
+      c = mix(c, scol, clamp(sf, 0.0, 1.0) * 0.85 * outK * snowK);
+    }
   }
 
-  // grading: gain (tint), lift in the darks, saturation, contrast, soft highlight shoulder
-  c *= uTint;
+  // grading: gain (tint), lift in the darks, saturation, contrast, soft highlight shoulder.
+  // Firelit areas keep a warm, saturated look under the cool night grade.
+  vec3 tint = mix(uTint, vec3(1.0), fireK * 0.75);
+  tint *= mix(vec3(1.0), vec3(0.9, 0.97, 1.1), uFeelA.y) * mix(vec3(1.0), vec3(0.97, 0.99, 1.03), uFeelA.w)
+        * mix(vec3(1.0), vec3(0.95, 1.05, 0.86), uFeelB.x * 0.8);
+  c *= tint;
   float lum = dot(c, vec3(0.299, 0.587, 0.114));
-  c += uLift * (1.0 - smoothstep(0.0, 0.55, lum));
+  c += uLift * (1.0 - smoothstep(0.0, 0.55, lum)) * (1.0 - fireK * 0.6);
+  c += vec3(0.0, 0.012, -0.004) * uFeelB.x;
   lum = dot(c, vec3(0.299, 0.587, 0.114));
-  c = mix(vec3(lum), c, uSat);
-  c = (c - 0.45) * uContrast + 0.45;
+  float satF = mix(uSat, max(uSat, 1.06), fireK) * (1.0 - 0.42 * uFeelA.z - 0.22 * uFeelA.x);
+  c = mix(vec3(lum), c, satF);
+  c = (c - 0.45) * uContrast * (1.0 - 0.1 * uFeelA.z) + 0.45;
   vec3 hi = max(c - 0.82, 0.0);
   c = c - hi + hi / (1.0 + hi * 2.2);
   vec2 v = vUV - 0.5;
-  float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7);
+  float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7) * (1.0 + smoothstep(0.7, 1.0, uFeelA.z) * 1.3);
   c *= 1.0 - vg;
   c = max(c, 0.0);
+  if (dot(uFeelA, vec4(1.0)) + uFeelB.x + uFeelB.y + uFeelB.z > 0.002) {
+    float rim = smoothstep(0.32, 1.0, length(v * vec2(1.0, 0.92)) * 1.5);   // centre stays clear
+    // cold: frosted glass with bright crystal veins
+    if (frost > 0.001) {
+      lum = dot(c, vec3(0.299, 0.587, 0.114));
+      vec3 fc = vec3(0.78, 0.87, 0.97) * (0.55 + 0.6 * lum + 0.25 * uDay);
+      c = mix(c, fc, frost * 0.42) + vec3(0.7, 0.82, 1.0) * crys * 0.22;
+    }
+    // wet: rim darkening of each droplet + a small specular glint
+    if (drop > 0.001) c = c * (1.0 + drop * 0.07 - dropRim * 0.4) + vec3(0.92, 0.96, 1.0) * dropHi * 0.55;
+    // warm by a fire: a soft golden glow at the edges
+    c += vec3(0.15, 0.07, 0.012) * uFeelB.y * rim * (0.85 + 0.15 * sin(uTime * 1.3));
+    // low health: red vignette pulsing with the heartbeat; damage: quick red flash
+    float red = rim * (uFeelA.x * 0.3 + uFeelB.w * 0.32) + uFeelB.z * (0.1 + 0.3 * rim);
+    c = mix(c, vec3(0.42, 0.03, 0.02) + c * vec3(0.35, 0.05, 0.04), clamp(red, 0.0, 0.7));
+  }
+#if QL >= 1
+  // gentle film grain (a bit stronger in the shadows, slowly changing)
+  float gr = hash12(floor(gl_FragCoord.xy * 0.75) + floor(uTime * 18.0) * vec2(37.0, 17.0)) - 0.5;
+  c += gr * uGrain * (0.6 + 0.4 * (1.0 - smoothstep(0.0, 0.6, lum)));
+#endif
   c += (hash12(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
   o = vec4(c, 1.0);
 }`;

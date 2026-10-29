@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WOS · Teste de áudio</title>
+<link rel="stylesheet" href="../src/ui/hud.css">
+<link rel="stylesheet" href="../src/ui/menu.css">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 16px; background: #15130f; color: #ece6da; font: 14px/1.4 system-ui, sans-serif; overflow: auto; height: auto; position: static; touch-action: auto; user-select: text; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #d9b45a; letter-spacing: 1px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.5px; color: #b9b2a4; margin: 22px 0 8px; }
+  h3 { font-size: 12px; color: #8f887b; margin: 10px 0 4px; font-weight: 600; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: 500 13px system-ui; color: #ece6da; background: #2a2724; border: 1px solid #4a443c; border-radius: 4px; padding: 7px 10px; cursor: pointer; }
+  button:hover { background: #3a3530; } button.on { border-color: #d9b45a; background: #4a3c1e; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .box { background: rgba(0,0,0,0.25); border: 1px solid #3a352f; border-radius: 6px; padding: 10px 12px; }
+  #info, #report { font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; color: #cbd2c6; }
+  .muted { color: #8f887b; font-size: 12px; }
+  .cols { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 16px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>WOS · Teste de áudio</h1>
+  <div class="muted">Somente em localhost. Toque/clique em qualquer lugar para ativar o som. Tudo aqui é sintetizado no código (sem arquivos de áudio).</div>
+  <div class="cols">
+    <div>
+      <h2>Volumes</h2>
+      <div data-audio-settings></div>
+      <h2>Música</h2>
+      <div class="row" id="moods"></div>
+      <div class="row" style="margin-top:6px"><button id="stop">Parar música</button><button id="next">Próxima peça agora</button></div>
+      <div class="box" style="margin-top:8px"><div id="info">—</div></div>
+      <h2>Ambiente (cenas)</h2>
+      <div class="row" id="scenes"></div>
+      <h2>Espacial</h2>
+      <div class="row" id="spatial"></div>
+    </div>
+    <div>
+      <h2>Efeitos</h2>
+      <div id="sfx"></div>
+      <h2>Análise offline</h2>
+      <div class="row"><button id="analyze">Medir níveis (músicas + efeitos)</button><button id="soak">Teste longo (10 min de música, nós/memória)</button></div>
+      <div class="box" style="margin-top:8px"><div id="report">—</div></div>
+    </div>
+  </div>
+</div>
+<script type="module" src="./audio-test.js"></script>
+</body>
+</html>

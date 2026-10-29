@@ -6,7 +6,8 @@
 //
 // Ops:     corpse.add · corpse.set · corpse.butcher · corpse.remove
 // Intents: corpse.player (a player died: its items go into the body) · corpse.put · corpse.take ·
-//          store.sort (chest or corpse) · corpse.butcher ("Coletar", day 1, animals) · corpse.bones ("Remover ossada")
+//          corpse.butcher ("Coletar", day 1, animals) · corpse.bones ("Remover ossada"); sorting a body goes through
+//          the shared store.sort intent (mut/structures.js, kind 'corpse' → sortBody below)
 //
 // Shared corpse fields (snapshot / digest): id, of ('pawn' | species), x, y, f (facing), deathT, size, store
 // (pawn bodies), butchered, owner (pid of a dead player), name (window title), look (pawns), sc (scale),
@@ -17,7 +18,7 @@ import { defineIntent, defineOp } from '../../net/registry.js';
 import { ITEMS, ITEM_ALIASES, SPECIES } from '../data.js';
 import { Inventory } from '../inventory.js';
 import { ri } from './roll.js';
-import { sortSlots, SORT_MODES } from '../itemsort.js';
+import { sortedSlots, SORT_MODES } from '../invsort.js';
 
 export const CORPSE_SLOTS = 30;      // a player carries 24 + 4 equipped
 export const BANDIT_SLOTS = 12;
@@ -174,7 +175,7 @@ defineOp('corpse.set', {
     if (!c || !c.store) return;
     c.store.load(a.slots);
     game.corpses.v++;
-    game.events.emit('container', { key: 'corpse:' + c.id });
+    game.events.emit('container', { id: 'corpse:' + c.id });
   },
 });
 
@@ -268,23 +269,13 @@ defineIntent('corpse.take', {
   },
 });
 
-defineIntent('store.sort', {
-  doc: 'Sort a shared container (kind chest | corpse) by mode: alpha (Alfabético), type (Tipo: category, then quantity), qty (Quantidade). Stacks merge.',
-  args: { kind: "'chest'|'corpse'", id: 'structId|corpseId', mode: "'alpha'|'type'|'qty'" },
-  run(game, a, actor, net) {
-    const mode = SORT_MODES.includes(a.mode) ? a.mode : 'type';
-    if (a.kind === 'corpse') {
-      const [c, why] = openBody(game, a, actor);
-      if (!c) return why;
-      net.emit('corpse.set', { id: c.id, slots: sortSlots(c.store.slots, c.store.size, mode), quiet: 1 });
-      return;
-    }
-    const o = game.world.objById.get(a.id);
-    if (!o || !o.building || o.removed || !o.store || o.blueprint) return 'Baú não existe mais';
-    if (actor.ent && Math.hypot(actor.ent.x - o.x, actor.ent.y - o.y) > REACH + 1) return 'Chegue mais perto';
-    net.emit('chest.set', { id: o.id, slots: sortSlots(o.store.slots, o.store.size, mode), quiet: 1 });
-  },
-});
+// store.sort (mut/structures.js) for a body: fresh / rotten pawn body near the actor → corpse.set
+export function sortBody(game, a, actor, net) {
+  if (!SORT_MODES.includes(a.mode)) return 'Ordem desconhecida';
+  const [c, why] = openBody(game, a, actor);
+  if (!c) return why;
+  net.emit('corpse.set', { id: c.id, slots: sortedSlots(c.store.slots, c.store.size, a.mode), by: actor.pid, quiet: 1 });
+}
 
 defineIntent('corpse.butcher', {
   doc: '"Coletar" (end of the local work): animal body on its first day, not butchered yet → yields by the host. blade = the cutting tool the actor used.',

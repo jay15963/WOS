@@ -109,7 +109,7 @@ function complete(game, e, st) {
   if (got) game.events.emit('loot', { item: r.out, qty: got });
   for (let k = 0; k < left; k++) dropLoot(game, p.x, p.y, r.out, 1, 0.5);
   if (left) game.events.emit('error', { text: 'Mochila cheia: item no chão' });
-  game.audio?.play(r.cat === 'food' ? 'eat' : 'build', { x: p.x, y: p.y, volume: 0.6 });
+  game.audio?.play('craft_done', { x: p.x, y: p.y });
   game.juice.puff(st ? st.x : p.x, (st ? st.y : p.y) - 0.3, 5, [0.85, 0.8, 0.7], 0.5);
   gainXp(game, Math.max(2, Math.round(r.time)));
   // first weapon / armour piece goes straight to its empty slot
@@ -148,12 +148,13 @@ export function craftingSystem() {
           active = st; going = true;
           e.t += dt;
           const k = Math.min(1, e.t / r.time);
-          const type = st && !['campfire', 'cooking_pot'].includes(st.type) ? 'build' : 'gather';
+          const type = !st ? 'craft' : ['campfire', 'cooking_pot'].includes(st.type) ? 'cook' : 'build'; // pose (art/compose.js)
+          const cyc = type === 'build' ? 0.625 : type === 'cook' ? 1.6 : 1.4;
           if (p.work?.owner !== 'craft') p.work = { owner: 'craft', it: { kind: 'craft' }, type, t: 0 };
           const wk = p.work;
           wk.k = k; wk.type = type;
           wk.label = `${ITEMS[r.out].name}${Q.length > 1 ? ` (+${Q.length - 1})` : ''}`;
-          p.action = { type, t: type === 'build' ? (e.t * 1.6) % 1 : 0 };
+          p.action = { type, t: (e.t / cyc) % 1, cyc };
           if (st) faceTowards(p, { x: st.x, y: st.y - 0.5 });
           if (e.t >= r.time) {
             Q.shift();

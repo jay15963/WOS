@@ -4,6 +4,9 @@
 import { netlog } from '../net/netlog.js';
 import { probeNetwork, loadTurn, saveTurn, turnEndpoint, setTurnEndpoint, testTurnRelay } from '../net/rtc.js';
 import { normalizeCode, playerName, setPlayerName, MAX_PLAYERS } from '../net/session.js';
+import { audioSettings } from '../fx/audioSettings.js';
+import { uiScaleSetting } from './uiscale.js';
+import { qualitySettings } from '../fx/quality.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -115,10 +118,7 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
     <label class="mfield">Seu nome (aparece para outros jogadores)<input data-k="name" maxlength="18" value="${esc(playerName())}"></label>
     <label class="toggle"><input type="checkbox" data-k="audio" ${audioOn ? 'checked' : ''}> Som ligado</label>
     <label class="mfield">Volume<input type="range" data-k="vol" min="0" max="100" value="${Math.round(+get('wos.audio.volume', '0.8') * 100)}"></label>
-    <label class="mfield">Qualidade gráfica
-      <select data-k="quality">
-        ${[['auto', 'Automática'], ['high', 'Alta'], ['medium', 'Média'], ['low', 'Baixa (celulares fracos)']].map(([v, l]) => `<option value="${v}" ${get('wos.quality', 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}
-      </select></label>
+    <div data-k="qualityrow"></div>
     <h3>TURN da Cloudflare (recomendado)</h3>
     <p class="muted">Repetidor usado <b>só</b> quando a conexão direta falha (NAT incompatível). Cole o endereço do seu Worker
       (pasta <code>server/turn</code> do projeto) e toque em Testar.</p>
@@ -140,7 +140,7 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
   q('name').onchange = () => { setPlayerName(q('name').value); onName?.(playerName()); if (game) game.player.name = playerName(); };
   q('audio').onchange = () => { set('wos.audio.enabled', q('audio').checked ? '1' : '0'); if (game?.audio) game.audio.enabled = q('audio').checked; };
   q('vol').oninput = () => { const v = +q('vol').value / 100; set('wos.audio.volume', String(v)); if (game?.audio) game.audio.volume = v; };
-  q('quality').onchange = () => { set('wos.quality', q('quality').value); if (game) applyQuality(game.R, q('quality').value); };
+  qualitySettings(q('qualityrow'), game); // graphics quality row (agent C, src/fx/quality.js)
   const saveT = () => {
     const urls = q('turnUrls').value.split(',').map((s) => s.trim()).filter(Boolean);
     saveTurn(urls.length ? { urls, username: q('turnUser').value.trim() || undefined, credential: q('turnPass').value || undefined } : null);
@@ -162,16 +162,12 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
     try { indexedDB.deleteDatabase('wos-atlas'); indexedDB.deleteDatabase('wos-cache'); } catch { /* ignore */ }
     location.href = location.pathname;
   };
+  audioSettings(el); // F: Geral / Música / Efeitos / Ambiente + mute (replaces the two old audio rows)
+  uiScaleSetting(el); // Tamanho da interface (agent B)
   return () => {};
 }
 
-export function applyQuality(R, q) {
-  if (!R) return;
-  R.maxDpr = q === 'high' ? 2 : q === 'medium' ? 1.5 : q === 'low' ? 1 : 2;
-  R.autoScale = q === 'auto';
-  if (q !== 'auto') R.renderScale = 1;
-  R.w = 0; // force resize
-}
+export { applyQuality } from '../fx/quality.js'; // graphics quality lives in src/fx/quality.js (agent C)
 
 // ---------- host: room view (in-game) ----------
 export function roomPanel(el, session) {
