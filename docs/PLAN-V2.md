@@ -276,3 +276,23 @@ with ids, names, rarity and an `unlocked` flag (everything free for now, ready f
   `src/ui/charcreator.js` (B imports it guarded: `import('./charcreator.js').then(m => m.mountMenuAvatar?.(…))`,
   and moves the player-name field there). Contract with D: D owns the rig/animation; H owns what each part looks
   like; part painters take `(g, dir, look, params)` and fit the rig's anchors.
+
+## I · Corpos e decomposição (added later, port 5189)
+
+Owner's request: every living being leaves a corpse that decomposes, counted from the moment of death in
+shared world time (`game.worldTime`; one game day = `env.dayLength` s, 720 today), not by calendar days:
+- **Day 1 (0–1 day): fresh** · **day 2 (1–2): rotten, visibly** (discoloured, flies) · **days 3–5 (2–5): skeleton**
+  · after 5 days it disappears.
+- **Players (and bandits):** the dead player's carried items (bag + equipped) stay on the corpse; it can be
+  opened until the end of day 2. Opening shows the player's inventory and the corpse's side by side; clicking
+  an item moves it across (same as a chest), with the sort buttons on both. From day 3 it can't be opened;
+  the action becomes removing the skeleton, which gives bones ("Ossos"), with an animation.
+- **Animals:** no automatic loot on death any more. The corpse stays; on day 1 the action is **"Coletar"**
+  (butcher: meat, hide, etc., over a few seconds, better with a cutting tool); from day 2 (rotten) it can't be
+  butchered; then skeleton → remove → bones; gone after day 5.
+- Sync: corpses are shared world objects created by the host's death op (id, species/look, position,
+  facing, `deathT`, store); the stage is derived from `worldTime - deathT` on every peer; looting, butchering,
+  bone removal and expiry are intents → host ops; snapshot, save and digest include them.
+- Contracts: **B** owns the container window (inventory ↔ chest with sorting); it must accept any container
+  (chest or corpse) through one adapter. **D** draws the butcher and gather-bones poses (`butcher`,
+  `gather_bones`) and lying/death poses. **F** adds `butcher`, `bones` and a flies buzz near rotten corpses.
