@@ -177,7 +177,9 @@ doors, chests, beds and stations (used only from their own story); blueprints ar
   `lv · STORY_H`, every sprite (floor / blob / sill too) into the sorted batch; depth key
   `_sy = y + 0.001·lv − (floor 0.0006 | rug 0.0003)` (slab, then rugs, then what stands on it); upper blueprints
   get the blue plan grid, decon marks the red ring; an overhanging upper floor shows a beam under its south edge
-  (`slab_edge`); K's door canopy below an upper wall is re-drawn in front of it.
+  (`slab_edge`, painted on demand through K's lazy registry); K's door canopy below an upper wall is re-drawn in front of it
+  (`archCompose.archSprite`, lazy too). K's lazy style / detail sprites and the baked default looks (their fallback) are
+  both painted for a full story.
 - **Entities**: base lifted by `z · STORY_H`; depth `y + z`; camera follows `y − z · STORY_H`; plates, rings, bars
   lifted.
 - **Roofs** (J): `roofEaveH(storeys)` with `game.build.storeysAt / storeysIn` — the eaves sit on top of the
