@@ -439,7 +439,7 @@ export function installHUD(game, { isNew } = {}) {
           R.death.classList.remove('hidden');
           R.fade.classList.add('on', 'death');
           const wh = respawnPoint(g).where;
-          R.deathSub.textContent = `Você renascerá ${wh === 'acampamento' ? 'no' : 'na'} ${wh}.`;
+          R.deathSub.textContent = `Você renascerá ${wh === 'ponto de partida' ? 'no' : 'na'} ${wh}.`;
           panels.close();
           exitBuildMode(g);
         }

@@ -132,7 +132,7 @@ export function respawnPoint(game) {
     if (d < bd) { bd = d; best = o; }
   }
   if (best) return { x: best.x, y: best.y + 0.9, where: 'fogueira' };
-  return { x: game.world.spawn.x, y: game.world.spawn.y, where: 'acampamento' };
+  return { x: game.world.spawn.x, y: game.world.spawn.y, where: 'ponto de partida' };
 }
 
 export function respawnPlayer(game) {
