@@ -196,7 +196,10 @@ function patchRaf(w) {
   };
   w.cancelAnimationFrame = (h) => { q.delete(h); };
 }
+// ?nopump=1: never pump (multiplayer frames then rely on the game's own stalled-rAF worker clock, SYNC.md §7.4;
+// single-player frames do not tick at all while the page is not rendered)
 setInterval(() => {
+  if (Q.has('nopump')) return;
   let any = false;
   for (const f of frames.live) {
     let w, R;
