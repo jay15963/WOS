@@ -19,6 +19,7 @@ const FAIL_CD = 12;       // s an unreachable job is skipped
 export function initWork(game) {
   const W = game.work = {
     idleT: 0, failed: new Map(), farmUntil: 0, told: new Set(),
+    providers: [], // other job sources: { find(game, player, maxDist) -> [it, dist] | null, count(game) } (painted paths)
     wake() { W.idleT = IDLE_DELAY; },
     queuePlantNear() { W.farmUntil = game.worldTime + 25; W.idleT = IDLE_DELAY; },
     queueHarvestNear() { W.farmUntil = game.worldTime + 25; W.idleT = IDLE_DELAY; },
@@ -28,6 +29,7 @@ export function initWork(game) {
 }
 
 function jobKey(game, it) {
+  if (it.key) return it.key;
   if (it.kind === 'rock') return 'r' + game.world.idx(it.tx, it.ty);
   if (it.o) return 'o' + it.o.id + it.kind;
   return null;
@@ -36,6 +38,7 @@ function jobKey(game, it) {
 export function countJobs(game) {
   let n = game.mining.marks.size + game.build.decon.size;
   for (const o of game.build.structures) if (o.blueprint) n++;
+  for (const pr of game.work?.providers || []) n += pr.count(game) || 0;
   return n;
 }
 
@@ -69,6 +72,7 @@ function nearestJob(game) {
       consider(it, Math.hypot(m[0] + 0.5 - p.x, m[1] + 0.5 - p.y));
     }
   }
+  for (const pr of W.providers) { const r = pr.find(game, p, bd); if (r) consider(r[0], r[1]); }
   if (now < W.farmUntil) {
     const seed = seedToPlant(p);
     for (const o of game.build.structures) {

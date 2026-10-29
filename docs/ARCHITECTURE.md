@@ -77,7 +77,11 @@ Biomas e zonas (src/world/worldgen.js):
   numa segunda textura 1024² (cresce até 2048²). O renderer chama `A.look.tick()` por quadro, envia as partes novas (`texSubImage2D`) e
   liga a textura `uLook`; registros de sprite com `u ∈ [-1, 0)` são amostrados nela pelos shaders de sprite e de sombra. Enquanto as
   partes de um visual são pintadas (orçamento ~4 ms/quadro), `rigReady()` é falso e o `compose` desenha `R.fb` (pawn base do atlas nas
-  mesmas cores); o visual do jogador local é pintado na hora. O digest do atlas não depende delas; `selfTest().look` mostra o estado. Capacetes: `WEAR_HIDES_HAIR` (`true` esconde o cabelo da frente,
+  mesmas cores); o visual do jogador local é pintado na hora. O digest do atlas não depende delas; `selfTest().look` mostra o estado.
+  A mesma textura guarda os sprites preguiçosos do agente K (`src/art/lazyDefs.js`: variantes de estilo, cantos suaves, detalhes,
+  decoração; `archCompose.js` pede com `want` e pula até ficarem prontos, `prewarmArch` pinta o que o mundo carregado usa antes dos
+  primeiros quadros). Despejo: primeiro partes paradas há ~10 s, depois há ~1 s, depois a textura cresce, e só no tamanho máximo
+  a metade mais antiga — o que está na tela não pisca. `selfTest()` traz `lazyDefs` / `lazyDigest` (registro, não pixels). Capacetes: `WEAR_HIDES_HAIR` (`true` esconde o cabelo da frente,
   `'tall'` só os estilos altos); o cabelo longo de trás continua visível.
 - **Prévia** `src/art/look/preview.js`: `PreviewAtlas(k)` pinta as partes sob demanda em k× com os mesmos pintores, `drawPawn2D`
   reproduz num canvas 2D as instâncias que `compose.drawPawn` gera (mesmas regras do shader). `atlasView(A)` usa o atlas do jogo.
@@ -191,6 +195,12 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   e `z` (altura em andares, contínua na escada; presença e fluxo de criaturas replicam `z`). `STORY_H` = altura de um andar
   na tela (= `WALL_H`), `liftOf(e)`, `sameLevel(a, b)` (corpo a corpo só no mesmo nível), `heightK` (bônus de alcance),
   `hasLOS(..., z0, z1)`. Ganchos de uma linha marcados `levels:` em physics / nav / combat / projectiles / game.js.
+- **Caminhos (rodada V2, agente M)**: terreno pintado, não construção — `world.path` / `world.pathPlan` (grade por tile, ops `path.plan` /
+  `path.set` em `src/game/mut/paths.js`, catálogo em `content/paths.js`). Modo de construção `{ kind: 'path', tool }` (aba "Caminhos" do
+  Construir, pincel 1/2/3, livre / linha / área, borracha; `building.js` delega `buildTap/buildDrag*/cancelBuild` ao `mode.tool`), barra em
+  `src/ui/pathbar.js`, trabalho automático via `game.work.providers`. Desenho dentro do passe de terreno (`PATH_FN` em shaders.js): `uPath`
+  (1×: tipo / plano / distâncias), `uPathF` (2×: contorno por gaussianas orientadas), `uPathMat` (texturas de `src/world/pathTex.js`, geradas
+  num worker e guardadas no IndexedDB) nas unidades 13–15. API de teste: `game.paths.{paint, jobAt, counts, stats}`.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.

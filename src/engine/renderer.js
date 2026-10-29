@@ -522,6 +522,14 @@ export class Renderer {
       bind(6, gl.TEXTURE_2D, this.caveTex, 'uCave'); // [world]
       if (u.uClim) bind(7, gl.TEXTURE_2D, this.climTex, 'uClim');
       if (u.uRoofT) bind(8, gl.TEXTURE_2D, this.roofDataTex, 'uRoofT');
+      // [paths] painted path grid + materials (src/game/paths.js sets pathTex / pathCovTex / pathMatTex / pathOn). The fallbacks keep
+      // both samplers bound to a texture of their own type (a 2D and a 2D-array sampler never share a unit).
+      if (u.uPathMat) {
+        bind(13, gl.TEXTURE_2D, this.pathCovTex || this.tileTex, 'uPathF');
+        bind(14, gl.TEXTURE_2D, this.pathTex || this.tileTex, 'uPath');
+        bind(15, gl.TEXTURE_2D_ARRAY, this.pathMatTex || this.groundTex, 'uPathMat');
+        gl.uniform1f(u.uPathOn, this.pathOn && this.pathTex && this.pathMatTex ? 1 : 0);
+      }
       // climate fetch only when it can show something (snow lying, or walls in view for the contact AO)
       if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
       this._setExtra(p, env.extra);

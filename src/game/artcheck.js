@@ -4,7 +4,8 @@
 // src/art) so the art module graph — and thus ART_ID — does not depend on balance/content files.
 
 import { SPECIES, BUILDINGS } from './data.js';
-import { CONTRACT, hasKindArt, atlasDigest } from '../art/contract.js';
+import { CONTRACT, LAZY_KINDS, hasKindArt, atlasDigest } from '../art/contract.js';
+import { LAZY_DEFS, lazyKind } from '../art/lazyDefs.js'; // agent K: lazily painted kinds
 import { FLORA_KINDS } from './flora.js';
 import { CROPS } from './farming.js';
 
@@ -24,13 +25,15 @@ export function requiredKinds() {
 export function checkAtlas(A) {
   const names = A.sprites; // Map name -> sprite
   const missingSprites = requiredSprites().filter((n) => !names.has(n));
-  const missingKinds = requiredKinds().filter((k) => !hasKindArt(names, k) && !A.groups?.[k]);
+  const missingKinds = requiredKinds().filter((k) => !hasKindArt(names, k) && !A.groups?.[k] && !lazyKind(k));
+  // every lazily painted kind needs its painter registered (they are painted on demand, so check the registry)
+  const lazyMissing = LAZY_KINDS.map((n) => n.replace(/_0$/, '')).filter((k) => !lazyKind(k));
   const speciesFallbacks = Object.keys(SPECIES).filter((sp) => !SPECIES[sp].pawn && !names.has(sp + '_s'));
   const placeholders = A.placeholders || [];
   const failures = A.failures || [];
   return {
-    ok: !missingSprites.length && !missingKinds.length && !placeholders.length && !failures.length,
-    missingSprites, missingKinds, speciesFallbacks, placeholders, failures,
+    ok: !missingSprites.length && !missingKinds.length && !placeholders.length && !failures.length && !lazyMissing.length,
+    missingSprites, missingKinds, speciesFallbacks, placeholders, failures, lazyMissing, lazyDefs: LAZY_DEFS.size, lazyDigest: atlasDigest(LAZY_DEFS.keys()),
     digest: atlasDigest(names.keys()),
   };
 }

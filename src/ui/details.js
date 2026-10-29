@@ -9,6 +9,7 @@ import { BUILDINGS } from '../game/data.js';
 import { kitOf, stylesFor, detailsFor, decodeKit, normStyle, cleanDet, withDetail, hasDet, detList, hasKit } from '../game/content/kits.js';
 import { setBuildLook, enterStyleBrush, enterBuildMode, exitBuildMode, lastLook } from '../game/building.js';
 import { drawStatic } from '../art/composeWorld.js';
+import { KIT_ENV, archSprite } from '../art/archCompose.js';
 import { roofArtStyle, ROOF_PROPS } from '../game/content/kits.js';
 import { ROOF_STYLES } from '../game/content/roofs.js';
 
@@ -69,17 +70,18 @@ function tinted(A, s, r, g, b) {
   const key = s.name + '|' + ((r * 50) | 0) + ',' + ((g * 50) | 0) + ',' + ((b * 50) | 0);
   let c = tintCache.get(key);
   if (c) return c;
-  const AS = A.size, sx = s.u0 * AS, sy = s.v0 * AS;
+  const lazy = s.u0 < 0 && s.canvas; // a lazily painted record keeps its own canvas
+  const src = lazy ? s.canvas : A.canvas, AS = A.size, sx = lazy ? 0 : s.u0 * AS, sy = lazy ? 0 : s.v0 * AS;
   c = document.createElement('canvas'); c.width = s.pw; c.height = s.ph;
   const x = c.getContext('2d');
-  x.drawImage(A.canvas, sx, sy, s.pw, s.ph, 0, 0, s.pw, s.ph);
+  x.drawImage(src, sx, sy, s.pw, s.ph, 0, 0, s.pw, s.ph);
   if (r !== 1 || g !== 1 || b !== 1) {
     x.globalCompositeOperation = 'multiply';
     x.fillStyle = `rgb(${Math.min(255, r * 255) | 0},${Math.min(255, g * 255) | 0},${Math.min(255, b * 255) | 0})`;
     x.fillRect(0, 0, s.pw, s.ph);
     if (r > 1 || g > 1 || b > 1) { x.globalCompositeOperation = 'screen'; x.globalAlpha = 0.25; x.fillStyle = `rgb(${Math.min(255, (r - 1) * 255) | 0},${Math.min(255, (g - 1) * 255) | 0},${Math.min(255, (b - 1) * 255) | 0})`; x.fillRect(0, 0, s.pw, s.ph); x.globalAlpha = 1; }
     x.globalCompositeOperation = 'destination-in';
-    x.drawImage(A.canvas, sx, sy, s.pw, s.ph, 0, 0, s.pw, s.ph);
+    x.drawImage(src, sx, sy, s.pw, s.ph, 0, 0, s.pw, s.ph);
   }
   if (tintCache.size > 600) tintCache.clear();
   tintCache.set(key, c);
@@ -88,7 +90,8 @@ function tinted(A, s, r, g, b) {
 function renderObjs(A, objs, W, H, view) {
   const B = Object.fromEntries(['shadow', 'ground', 'blob', 'decor', 'main', 'fx', 'light', 'emissive'].map((k) => [k, new MockBatch()]));
   objs.sort((a, b) => a.y - b.y);
-  for (const o of objs) drawStatic(B, A, o, 0);
+  KIT_ENV.sync = true; // lazy sprites of the preview are painted now
+  try { for (const o of objs) drawStatic(B, A, o, 0); } finally { KIT_ENV.sync = false; }
   const c = document.createElement('canvas');
   const dpr = Math.min(2, devicePixelRatio || 1);
   c.width = W * dpr; c.height = H * dpr;
@@ -198,8 +201,11 @@ function roofPreview(game, type, style, det, W, H) {
   if (/(^|\.)chimney(\.|$)/.test(det)) { g.fillStyle = '#8f887b'; g.fillRect(cx + half * 0.45, top + 8, 9, 18); g.fillStyle = '#3a3530'; g.fillRect(cx + half * 0.45 - 1.5, top + 6, 12, 3); }
   if (/(^|\.)vane(\.|$)/.test(det)) { g.strokeStyle = '#3e3e44'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx, top); g.lineTo(cx, top - 9); g.moveTo(cx - 5, top - 7); g.lineTo(cx + 6, top - 7); g.stroke(); }
   const A = game.A, pid = /(^|\.)skylight(\.|$)/.test(det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(det) ? 'dormer_pl' : /(^|\.)dormer(\.|$)/.test(det) ? 'dormer' : null;
-  if (pid && A.has(ROOF_PROPS[pid])) {
-    const s = A.get(ROOF_PROPS[pid]), img = tinted(A, s, 1, 1, 1), k = 22 / Math.max(s.pw, s.ph);
+  KIT_ENV.sync = true;
+  const ps = pid ? archSprite(A, ROOF_PROPS[pid]) : null;
+  KIT_ENV.sync = false;
+  if (ps) {
+    const s = ps, img = tinted(A, s, 1, 1, 1), k = 22 / Math.max(s.pw, s.ph);
     g.drawImage(img, cx - half * 0.62 - s.pw * k / 2, eave - (eave - top) * 0.38 - s.ph * k, s.pw * k, s.ph * k);
   }
   return c.toDataURL();

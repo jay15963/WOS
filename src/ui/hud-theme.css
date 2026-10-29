@@ -251,9 +251,25 @@ html .aim-cancel { font: 700 12px/1 var(--n-fd); letter-spacing: 0.6px; text-tra
   background: rgba(60, 20, 14, 0.78); border: 2px solid var(--n-coral); box-shadow: 0 0 0 2px var(--n-ink), 0 4px 12px rgba(0, 0, 0, 0.5); }
 html .aim-cancel.hot { background: var(--n-coral); color: var(--n-cream-hi); }
 
-/* ---------- M · paths toolbar and any future toolbars: same plates as the build toolbar ---------- */
-html :is(.ptb, .pathbar, .paths-bar) {
-  color: var(--n-text); font: 700 13px/1.15 var(--n-fd); border-radius: 6px;
+/* ---------- M · paths toolbar (.pbb, pathbar.js): same plates as the build toolbar ---------- */
+html .pbb {
+  gap: 5px; padding: 6px 7px; border-radius: 6px; color: var(--n-text); font: 700 13px/1.15 var(--n-fd);
   background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
   box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.22), var(--n-drop);
 }
+html .pbb .grp + .grp { border-left: 2px solid rgba(20, 12, 6, 0.6); box-shadow: -1px 0 0 rgba(242, 228, 196, 0.1); }
+html .pbb button {
+  border-radius: 4px; font: 700 11.5px/1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-text);
+  background: linear-gradient(180deg, var(--n-bark-2), var(--n-bark)); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.2), 0 2px 0 rgba(20, 12, 6, 0.5);
+}
+html .pbb button:hover { filter: brightness(1.12); }
+html .pbb button.on { color: var(--n-ink); background: linear-gradient(180deg, #fbf1dc, #e3cea2); border-color: var(--n-ink); box-shadow: inset 0 0 0 1px #fffaf0, 0 2px 0 rgba(20, 12, 6, 0.5), 0 0 10px rgba(247, 217, 122, 0.35); }
+html .pbb .sw i { box-shadow: 0 0 0 2px var(--n-ink), inset 0 1px 3px rgba(0, 0, 0, 0.45); }
+html .pbb .sw.er i { background: var(--n-coral-lo); color: var(--n-cream-hi); }
+html .pbb .ok { color: #f6fde8; background: linear-gradient(180deg, #a8c65e, #6d8a2c 70%, var(--n-olive-lo)); }
+html .pbb .no { color: #fff2ea; background: linear-gradient(180deg, #ef7262, var(--n-coral) 45%, var(--n-coral-lo)); }
+html .pbb .lbl b { font: 700 15px/1.1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-cream-hi); }
+html .pbb .lbl small { font: 600 12.5px/1.15 var(--n-fd); color: var(--n-text-2); }
+html .pbb .lbl small.bad { color: var(--n-coral-hi); }
+@media (orientation: portrait) { html .touch .pbb .grp + .grp { border-left: 0; border-top: 2px solid rgba(20, 12, 6, 0.6); box-shadow: 0 -1px 0 rgba(242, 228, 196, 0.1); } }

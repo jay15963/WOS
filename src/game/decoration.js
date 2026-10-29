@@ -7,7 +7,7 @@
 //  - localhost only: game.debugK.showcase() builds a decorated base next to the player through ops
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
 
-import { KIT_ENV } from '../art/archCompose.js';
+import { KIT_ENV, archSprite, prewarmArch } from '../art/archCompose.js';
 import { BUILDINGS } from './data.js';
 import { DUMMY_NAME } from './mut/kit.js';
 import { ROOF_PROPS } from './content/kits.js';
@@ -28,13 +28,16 @@ export function decorSystem(game) {
     dummies.add(o);
   });
   if (DEV) installShowcase(game);
+  // lazy art (styles, details, decoration): paint what the loaded world uses before the first frames
+  prewarmArch(game, 700);
+  game.events.on('worldreset', () => prewarmArch(game, 500));
   let acc = 0;
   // roof props: cached list of roof tiles carrying a prop detail (rebuilt when structures change), pooled drawables
   const PROP_RE = /(^|\.)(dormer|dormer_pl|skylight)(\.|$)/;
   let props = [], propsV = -1;
   const pool = [];
   function drawRoofProp(B, A) {
-    const s = A.has(this.sprite) ? A.get(this.sprite) : null;
+    const s = archSprite(A, this.sprite); // lazily painted (requested until ready)
     if (!s) return;
     B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, 1, 0, this.lift);
     if (this.glow && KIT_ENV.night > 0.05 && A.has('roof_dormer_glow')) B.emissive.add(A.get('roof_dormer_glow'), this.x, this.wy, 1, 1, 1, 0.8, 0.5, KIT_ENV.night * this.a, 0, 0, 0, 1, 0, this.lift);

@@ -5,6 +5,7 @@
 // small flat boxes (64 × 44) drawn lifted onto the wall face by archCompose.js. Flame / glow spots: DECOR_GEOM.
 
 import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, tone, smoothClosed, blobPts } from './paint.js';
+import { lazyDef } from './lazyDefs.js';
 
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
 const DARKW = { dark: '#3a2416', mid: '#55351f', light: '#74492b', high: '#8f5e38' };
@@ -984,37 +985,40 @@ export const DECOR_GEOM = {
   mount: { painting: 0.06, trophy: 0.02, herbs_hang: 0.06, curtain: 0.02, pot_hooks: 0.04 },
 };
 export const DECOR_ROT2 = ['bookshelf', 'dresser', 'bench_wood', 'bench_stone', 'washtub', 'weapon_rack', 'woodpile', 'cart', 'drying_rack', 'planter', 'fireplace'];
-export function addDecor(add) {
-  const A = (n, c) => add(n, c, 0.5, 1);
-  A('shelf_wood', shelfWood()); A('bookshelf', bookshelf(false)); A('bookshelf_e', bookshelf(true));
-  A('wardrobe', wardrobe()); A('dresser', dresser(false)); A('dresser_e', dresser(true));
-  A('bench_wood', benchWood(false)); A('bench_wood_e', benchWood(true));
-  A('stool', stool());
-  A('chair_fine', chairFine('s')); A('chair_fine_n', chairFine('n')); A('chair_fine_e', chairFine('e'));
-  A('table_round', tableRound()); A('table_small', tableSmall()); A('barrel', barrel()); A('crates', crates()); A('sacks', sacks()); A('jars', jars());
-  A('candles', candles()); A('candelabra', candelabra());
-  A('herbs_hang', herbsHang()); A('curtain', curtain()); A('painting', painting()); A('trophy', trophy()); A('pot_hooks', potHooks());
-  for (let v = 0; v < 3; v++) A('plant_pot_' + v, plantPot(v));
-  add('rug_round', rugRound(), 0.5, 0.5); add('rug_fur', rugFur(), 0.5, 0.5);
-  A('weapon_rack', weaponRack(false)); A('weapon_rack_e', weaponRack(true));
-  A('armor_stand', armorStand());
-  A('fireplace', fireplace(false)); A('fireplace_e', fireplace(true));
-  A('washtub', washtub(false)); A('washtub_e', washtub(true));
-  A('training_dummy', dummy('full')); A('training_dummy_base', dummy('base')); A('training_dummy_body', dummy('body'));
-  A('lamp_stone', lampStone(false)); A('lamp_stone_glow', lampStone(true));
-  A('lamp_wood', lampWood(false)); A('lamp_wood_glow', lampWood(true));
-  for (let v = 0; v < 3; v++) A('flower_bed_' + v, flowerBed(v));
-  A('planter', planter(false)); A('planter_e', planter(true));
-  for (let v = 0; v < 3; v++) A('stepping_' + v, stepping(v));
-  A('well', well()); A('signpost', signpost());
-  A('bench_stone', benchStone(false)); A('bench_stone_e', benchStone(true));
-  A('garden_arch', gardenArch());
-  for (let v = 0; v < 2; v++) A('statue_' + v, statue(v));
-  A('totem', totem());
-  A('woodpile', woodpile(false)); A('woodpile_e', woodpile(true));
-  A('haystack', haystack());
-  A('cart', cart(false)); A('cart_e', cart(true));
-  A('scarecrow', scarecrow()); A('birdhouse', birdhouse()); A('beehive', beehive());
-  A('drying_rack', dryingRack(false)); A('drying_rack_e', dryingRack(true));
-  A('notice_board', noticeBoard()); A('fountain', fountain()); A('pergola', pergola());
+// every decoration sprite: S(name, paint, ax, ay, baked); only the emissive glows are baked, the rest is lazy
+function decorSprites(S) {
+  const A = (n, f, baked = false) => S(n, f, 0.5, 1, baked);
+  A('shelf_wood', () => shelfWood()); A('bookshelf', () => bookshelf(false)); A('bookshelf_e', () => bookshelf(true));
+  A('wardrobe', () => wardrobe()); A('dresser', () => dresser(false)); A('dresser_e', () => dresser(true));
+  A('bench_wood', () => benchWood(false)); A('bench_wood_e', () => benchWood(true));
+  A('stool', () => stool());
+  A('chair_fine', () => chairFine('s')); A('chair_fine_n', () => chairFine('n')); A('chair_fine_e', () => chairFine('e'));
+  A('table_round', () => tableRound()); A('table_small', () => tableSmall()); A('barrel', () => barrel()); A('crates', () => crates()); A('sacks', () => sacks()); A('jars', () => jars());
+  A('candles', () => candles()); A('candelabra', () => candelabra());
+  A('herbs_hang', () => herbsHang()); A('curtain', () => curtain()); A('painting', () => painting()); A('trophy', () => trophy()); A('pot_hooks', () => potHooks());
+  for (let v = 0; v < 3; v++) A('plant_pot_' + v, () => plantPot(v));
+  S('rug_round', rugRound, 0.5, 0.5); S('rug_fur', rugFur, 0.5, 0.5);
+  A('weapon_rack', () => weaponRack(false)); A('weapon_rack_e', () => weaponRack(true));
+  A('armor_stand', () => armorStand());
+  A('fireplace', () => fireplace(false)); A('fireplace_e', () => fireplace(true));
+  A('washtub', () => washtub(false)); A('washtub_e', () => washtub(true));
+  A('training_dummy', () => dummy('full')); A('training_dummy_base', () => dummy('base')); A('training_dummy_body', () => dummy('body'));
+  A('lamp_stone', () => lampStone(false)); A('lamp_stone_glow', () => lampStone(true), true);
+  A('lamp_wood', () => lampWood(false)); A('lamp_wood_glow', () => lampWood(true), true);
+  for (let v = 0; v < 3; v++) A('flower_bed_' + v, () => flowerBed(v));
+  A('planter', () => planter(false)); A('planter_e', () => planter(true));
+  for (let v = 0; v < 3; v++) A('stepping_' + v, () => stepping(v));
+  A('well', () => well()); A('signpost', () => signpost());
+  A('bench_stone', () => benchStone(false)); A('bench_stone_e', () => benchStone(true));
+  A('garden_arch', () => gardenArch());
+  for (let v = 0; v < 2; v++) A('statue_' + v, () => statue(v));
+  A('totem', () => totem());
+  A('woodpile', () => woodpile(false)); A('woodpile_e', () => woodpile(true));
+  A('haystack', () => haystack());
+  A('cart', () => cart(false)); A('cart_e', () => cart(true));
+  A('scarecrow', () => scarecrow()); A('birdhouse', () => birdhouse()); A('beehive', () => beehive());
+  A('drying_rack', () => dryingRack(false)); A('drying_rack_e', () => dryingRack(true));
+  A('notice_board', () => noticeBoard()); A('fountain', () => fountain()); A('pergola', () => pergola());
 }
+export function addDecor(add) { decorSprites((n, f, ax, ay, baked) => { if (baked) add(n, f(), ax, ay); }); }
+decorSprites((n, f, ax, ay, baked) => { if (!baked) lazyDef(n, f, ax, ay); });
