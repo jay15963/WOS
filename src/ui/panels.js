@@ -6,7 +6,8 @@
 
 import { ITEMS, BUILDINGS, BUILD_ORDER, BUILD_CATS, SLOT_PT, ITEM_CAT_PT, TIER_SPEED } from '../game/data.js';
 import { eat } from '../game/survival.js';
-import { enterBuildMode, enterDeconMode } from '../game/building.js';
+import { enterBuildMode, enterDeconMode, lastLook } from '../game/building.js';
+import { hasKit, stylesFor, normStyle, detList } from '../game/content/kits.js'; // agent K: Detalhes
 import { dropLoot } from '../game/loot.js';
 import { equipFromSlot, unequip, SLOTS } from '../game/equipment.js';
 import { CROPS } from '../game/farming.js';
@@ -183,7 +184,12 @@ export class Panels {
         return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${have}/${n}</span>`;
       }).join('') : '<span class="cost">grátis</span>';
       const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
-      return `<button class="bcard ${ok ? '' : 'cant'}" data-build="${id}"><span class="bi">${buildIco(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small>${meta ? `<small class="bm">${meta}</small>` : ''}<span class="costs">${cost}</span></span></button>`;
+      let sty = '';
+      if (hasKit(id)) { // agent K: styles chip (opens Detalhes) + the remembered look
+        const [st, dt] = lastLook(g, id), n = detList(dt).length, sn = stylesFor(id).find((s) => s.id === normStyle(id, st))?.name;
+        sty = `<span class="bsty" data-style="${id}">✦ Estilos${sn || n ? ` · ${[sn, n ? n + ' det.' : ''].filter(Boolean).join(' · ')}` : ''}</span>`;
+      }
+      return `<button class="bcard ${ok ? '' : 'cant'}" data-build="${id}"><span class="bi">${buildIco(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small>${meta ? `<small class="bm">${meta}</small>` : ''}<span class="costs">${cost}</span>${sty}</span></button>`;
     }).join('');
     return `<div class="tabs" data-scrollx="btabs">${tabs}<button class="tab tab-go" data-goto="craft">Criar itens ›</button></div>
       <div class="btools"><button class="btn" data-decon>${econIcon(A, 'decon')}Desmontar construções</button><small class="muted">Desmontar devolve 75% do material.</small></div>
@@ -310,6 +316,13 @@ export class Panels {
       this.render();
     }));
     el.querySelectorAll('[data-btab]').forEach((b) => b.addEventListener('click', () => { this.buildTab = b.dataset.btab; this.resetScroll('bgrid'); this.render(); }));
+    el.querySelectorAll('[data-style]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = b.dataset.style;
+      this.close();
+      enterBuildMode(g, id);
+      g.later?.(0.05, () => g.events.emit('details', { type: id }));
+    }));
     el.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.build;
       if (!p.inv.has(BUILDINGS[id].cost)) { g.events.emit('error', { text: 'Materiais insuficientes' }); return; }

@@ -14,6 +14,8 @@ import {
   buildDragStart, buildDragMove, buildDragEnd, dimsOf,
 } from '../game/building.js';
 import { pick } from '../game/controller.js';
+import { installDetails, DETAILS_ICON } from './details.js'; // agent K: Detalhes panel
+import { hasKit } from '../game/content/kits.js';
 
 const ICON = {
   rot: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5v4h-4"/>',
@@ -26,6 +28,7 @@ const ICON = {
   build: '<path d="M13.5 3.5l7 7-2.6 2.6-7-7z"/><path d="M12.2 7.8 3.5 16.5a2 2 0 0 0 2.8 2.8l8.7-8.7"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  style: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ICON.use}</svg>`;
 
@@ -70,16 +73,21 @@ export function installBuildbar(game) {
   const bar = document.createElement('div');
   bar.className = 'abb hidden';
   bar.innerHTML = `<button class="rot" title="Girar (R · Shift+R volta)">${svg('rot')}<span>Girar</span></button>
+    <button class="det off" title="Estilos e detalhes (T)">${DETAILS_ICON}<span>Detalhes</span></button>
     <span class="lbl"><b></b><small></small></span>
     <button class="ok" title="Confirmar (Enter)">${svg('ok')}<span>Confirmar</span></button>
     <button class="no" title="Cancelar (Esc · botão direito)">${svg('no')}<span>Cancelar</span></button>`;
   root.appendChild(bar);
   const $ = (s) => bar.querySelector(s);
-  const R = { rot: $('.rot'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small') };
+  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small') };
+  const details = installDetails(game);
+  game.ui.details = details;
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); setTimeout(() => el.classList.remove('down'), 120); });
   press(R.rot, (e) => rotateBuild(game, e.shiftKey ? -1 : 1));
   press(R.ok, () => { const m = game.build.mode; if (m?.kind === 'place') commitPlacement(game); else exitBuildMode(game); });
   press(R.no, () => cancelBuild(game));
+  press(R.det, () => { const m = game.build.mode; if (m?.type) details.toggle(m.type); });
+  addEventListener('keydown', (e) => { if (e.code === 'KeyT' && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
 
   // ---------- context menu ----------
   let menu = null;
@@ -189,7 +197,7 @@ export function installBuildbar(game) {
     const m = game.build.mode;
     const [wx, wy] = game.screenToWorld(e.clientX, e.clientY);
     // rows / areas are placed on release; single props only move the ghost (✓ confirms)
-    const commit = m.kind === 'decon' || (!!BUILDINGS[m.type]?.drag && !m.move);
+    const commit = m.kind === 'decon' || m.kind === 'brush' || (!!BUILDINGS[m.type]?.drag && !m.move);
     buildDragEnd(game, wx, wy, { commit });
   };
   addEventListener('pointerup', (e) => up(e, false));
@@ -202,12 +210,21 @@ export function installBuildbar(game) {
   return {
     update(dt) {
       const m = game.build.mode;
-      const on = !!m && (m.kind === 'place' || m.kind === 'decon');
+      const on = !!m && (m.kind === 'place' || m.kind === 'decon' || m.kind === 'brush');
       if (last.on !== on) { last.on = on; bar.classList.toggle('hidden', !on); root.classList.toggle('abb-on', on); if (on) closeMenu(); }
       if (!on) return;
       t -= dt;
       if (t > 0) return;
       t = 0.1;
+      R.det.classList.toggle('off', !(m.type && hasKit(m.type) && !m.move));
+      if (m.kind === 'brush') {
+        R.rot.classList.add('off');
+        set('nm', R.nm, 'Pincel · ' + (BUILDINGS[m.type]?.name || ''));
+        set('sub', R.sub, 'Toque ou arraste sobre plantas azuis');
+        R.sub.classList.remove('bad');
+        R.ok.classList.remove('bad');
+        return;
+      }
       if (m.kind === 'decon') {
         R.rot.classList.add('off');
         set('nm', R.nm, 'Desmontar');

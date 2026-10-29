@@ -359,11 +359,11 @@ export function installController(game) {
       const K = inp.pressed;
       const any = (list) => list.some((c) => K.has(c));
       if (K.size && !p.dead) {
-        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation) and Enter
+        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation), T (Detalhes, agent K) and Enter
         const codes = abilityKeys(ABILITY_ORDER);
         ABILITY_ORDER.forEach((id, i) => {
           const c = codes[i];
-          if (!c || (bm && (c === 'KeyR' || c === 'ShiftLeft'))) return;
+          if (!c || (bm && (c === 'KeyR' || c === 'KeyT' || c === 'ShiftLeft'))) return;
           if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
           // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
           if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id, { key: c }); ctl._aimKey = c; return; }

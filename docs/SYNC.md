@@ -956,6 +956,19 @@ differs from the design text above, the code is described here (this section win
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
 
+- **Styles & details (round V2, agent K)** — shared structure fields `style` ('' = default look) and `det` (canonical detail string:
+  ids sorted, joined with '.'), set in appliers only: `build.place {type, tiles, rot, style, det}` (host cleans them with
+  `normStyle` / `cleanDet`) → `struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]`; snapshot
+  `structs` rows carry them at [14] / [15]; the `structs` digest rows end with `style, det`. `build.move` keeps the source look.
+  - `struct.style {ids, type, style|null, det|null, add?, del?}` (intent) changes BLUEPRINTS only (finished pieces are refused:
+    "Já construída: desmonte e construa de novo") → op `struct.style {list: [[id, style, det]], by}`.
+  - Derived on every peer (cosmetic): `o._k` (decoded look, shared cache), `o._cm` (carpet links, autotile `tileHooks`), detail
+    lights (sconces / lanterns) in `o.light`.
+  - Training dummy (`dummy: true`): when finished it joins `game.props` (`isProp`, never broken). The hitter rolls the amount
+    (combat `damageProp`) → intent `dummy.hit {id, amount, crit, dtype, ranged}` (reach 6 / 18) → op `dummy.hit {id, amount, crit,
+    dtype, sx, by, xp}` on every peer (wobble `_wobT`, straw, sound `dummy_hit`, event `dummyhit` → floating numbers). XP is an
+    owner effect computed by the host with diminishing returns per player (host-only bookkeeping `game._train`).
+
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,
@@ -964,6 +977,8 @@ re-find worldgen objects if the world generator changed). Guests write `{ v: 3, 
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
 `migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
+**v5** (agent K): structure rows carry `style, det` at [14] / [15]; older rows are padded with `'', ''` (default look) by
+`migrateStructRows` (the step only adds those two fields, so the version number can be renumbered at merge time).
 
 ### 7.4 Background clock
 

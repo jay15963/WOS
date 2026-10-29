@@ -169,6 +169,11 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
+- **Estilos e detalhes (agente K)**: catálogo `src/game/content/kits.js` (regra em `docs/CONTENT.md` §5.1), campos `o.style` / `o.det`,
+  ops em `src/game/mut/kit.js` (`struct.style` só para plantas, `dummy.hit`), painel **Detalhes** `src/ui/details.js` (botão na barra
+  de construção, tecla T, chip "✦ Estilos" no menu Construir, pincel de estilo), arte `src/art/arch.js` (estilos e detalhes) +
+  `src/art/decor.js` (decoração) desenhada por `src/art/archCompose.js` (chamado no começo de `drawStatic`). Sistema cosmético
+  `src/game/decoration.js` (brilho das janelas à noite, DPS do boneco, `game.debugK.showcase()` / `fill(n)` em localhost).
 - **Arte**: `structureSprite(A, type, mask, {orient, kind, v})` (composeWorld.js) para fantasmas de construção; galerias em
   `tools/gallery.html` (personagens/itens) e `tools/gallery-world.html` (mundo/construções).
 
