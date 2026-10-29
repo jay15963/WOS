@@ -152,6 +152,7 @@ export const PAINT = [
   E('tribal', 'Tribal', { kind: 'tribal' }, 'epic'),
   E('forehead', 'Símbolo na testa', { kind: 'forehead' }, 'rare'),
   E('fox', 'Bigodes de raposa', { kind: 'whiskers' }, 'rare'),
+  E('spirit', 'Espírito da floresta', { kind: 'spirit' }, 'legendary'),
 ];
 
 // ---------------- hair ----------------
@@ -258,6 +259,7 @@ export const PATTERN = [
   E('chevron', 'Zigue-zague', {}, 'uncommon'),
   E('embroidered', 'Barra bordada', {}, 'epic'),
   E('patches', 'Remendos', {}, 'uncommon'),
+  E('stars', 'Céu estrelado', {}, 'legendary'),
 ];
 // outer layer worn over the top
 export const OVER = [

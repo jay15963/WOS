@@ -393,6 +393,13 @@ export function facePaint(g, d, e, rand) {
     g.lineWidth = 1; g.beginPath(); g.ellipse(cx, cy, d === 'e' ? 1.4 : 2.2, 2.2, 0, 0, TAU); g.stroke();
     g.beginPath(); circle(g, cx, cy, 0.8); g.fill();
     brush(() => { for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; g.moveTo(cx + Math.cos(a) * 3, cy + Math.sin(a) * 3); g.lineTo(cx + Math.cos(a) * 4, cy + Math.sin(a) * 4); } }, 0.7);
+  } else if (k === 'spirit') {
+    // forest spirit: a vine curling from the forehead down one cheek, with small leaves
+    const S = 1;
+    brush(() => { g.moveTo(X(S, 1), HY - 12); g.bezierCurveTo(X(S, 7), HY - 10.6, X(S, 12.4), HY - 4.6, X(S, 10.6), HY + 1.6); g.bezierCurveTo(X(S, 9.4), HY + 6, X(S, 13), HY + 9, X(S, 11.2), HY + 13.4); }, 1);
+    const leafAt = (x, y, a) => { g.save(); g.translate(x, y); g.rotate(d === 'e' ? a * 0.6 : a); g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(1.7, -1.5, 3.4, 0); g.quadraticCurveTo(1.7, 1.5, 0, 0); g.fill(); g.restore(); };
+    for (const [x, y, a] of [[4.6, -11.2, -0.4], [9.4, -7.6, 0.5], [11.8, -1.8, 1.2], [10, 4.4, 2.6], [12.2, 9, 0.9]]) leafAt(X(S, x), HY + y, a);
+    if (d === 's') { g.beginPath(); for (const [x, y] of [[-6, 6.6], [-8.4, 8.4], [-6.6, 10.2]]) circle(g, HX + x, HY + y, 0.6); g.fill(); }
   } else if (k === 'whiskers') {
     if (d === 's') { g.beginPath(); g.ellipse(HX, HY + 7.4, 1.6, 1.2, 0, 0, TAU); g.fill(); }
     for (const s of sides) brush(() => { for (let i = 0; i < 3; i++) { g.moveTo(X(s, 4.6), HY + 9 + i * 1.2); g.lineTo(X(s, 12.4), HY + 7.6 + i * 2.2); } }, 0.75);

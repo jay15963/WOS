@@ -2340,7 +2340,7 @@ def('S70', {
     await t.tryWait(() => { const x = A.avatarOn(H, G.pid); return x && LH.packLook(x.look) === want; }, 3000);
   }
   const legacy = LH.cleanLook(bad[2]);
-  t.check(legacy.hair === 'long' && legacy.beard === 'full' && legacy.topC === '80331a', 'legacy { skin, hair, hairColor, shirt, beard } migrates', `${legacy.hair} ${legacy.beard} ${legacy.topC}`);
+  t.check(legacy.hair === 'long' && legacy.beard !== 'none' && legacy.topC === '80331a' && LH.packLook(LH.cleanLook(bad[2])) === LK.packLook(LK.cleanLook(bad[2])), 'legacy { skin, hair, hairColor, shirt, beard } migrates the same on both', `${legacy.hair} ${legacy.beard} ${legacy.topC} ${legacy.top}`);
   const st = H.game.net.selfTest();
   t.check(st.atlasOk && !st.missingSprites.length && !st.placeholders.length, 'host selfTest clean', JSON.stringify({ atlasOk: st.atlasOk, missing: st.missingSprites.length }));
   await t.checkDigest(H, G);

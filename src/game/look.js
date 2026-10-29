@@ -13,6 +13,7 @@ export const LOOK_V = 1;
 const KEY = 'wos.look';
 
 // [field, catalogue | 'c' (colour) | 'c?' (optional colour, '' = follow another), default]
+// The order is the wire format (packLook): only ever append new fields at the end (and bump LOOK_V if needed).
 export const FIELDS = [
   ['build', 'build', 'average'], ['height', 'height', 'normal'], ['skin', 'c', 'dcae84'],
   ['head', 'head', 'round'], ['ears', 'ears', 'medium'], ['eyes', 'eyes', 'almond'], ['eyeC', 'c', '6b4024'],
@@ -52,7 +53,13 @@ function cleanObj(l) {
   }
   return out;
 }
-// old saves / bandits: { skin:[r,g,b], hair, hairColor, shirt, pants?, beard? }
+// old saves / bandits: { skin:[r,g,b], hair, hairColor, shirt, pants?, beard? }. The colours and hair are kept;
+// face and clothes get variety from a hash of the old fields (same old look → same new look on every peer).
+const LEG_TOP = ['tee', 'laced', 'tunic', 'sleeveless', 'henley', 'shirt', 'jerkin'];
+const LEG_BOT = ['trousers', 'baggy', 'breeches', 'wraps', 'trousers'];
+const LEG_SHOE = ['boots', 'boots', 'wraps', 'shoes', 'moccasins'];
+const LEG_BEARD = ['full', 'short', 'long', 'goatee', 'mutton', 'stubble_heavy'];
+function fnv(...vals) { let h = 2166136261 >>> 0; for (const v of vals) { const t = String(v); for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } } return h; }
 export function migrateLook(l) {
   const o = { ...DEFAULT_LOOK };
   const skin = hexOf(l.skin); if (skin) o.skin = skin;
@@ -60,7 +67,15 @@ export function migrateLook(l) {
   const hc = hexOf(l.hairColor); if (hc) o.hairC = hc;
   const sh = hexOf(l.shirt); if (sh) o.topC = sh;
   const pa = hexOf(l.pants); if (pa) o.botC = pa;
-  if (l.beard) o.beard = 'full';
+  const h = fnv(o.skin, o.hairC, o.topC, o.botC, o.hair);
+  const at = (list, sh2) => list[(h >>> sh2) % list.length];
+  o.top = at(LEG_TOP, 1); o.bottom = at(LEG_BOT, 5); o.shoes = at(LEG_SHOE, 9);
+  for (const [k, sh2] of [['head', 3], ['eyes', 7], ['brows', 11], ['nose', 13], ['mouth', 17], ['ears', 19]]) {
+    const list = CATALOG[k].filter((e) => e.id !== 'none' && e.rarity === 'common');
+    o[k] = list[(h >>> sh2) % list.length].id;
+  }
+  o.eyeC = PALETTES.eyes[(h >>> 23) % 10].hex;
+  if (l.beard) o.beard = at(LEG_BEARD, 21);
   if (l.face === 'scar') o.scar = 'eye';
   return o;
 }

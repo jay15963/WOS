@@ -221,6 +221,12 @@ export function pattern(g, d, id, hem, rand) {
     g.save(); g.translate(0, 0); band(hy - 4.4, 3.4); g.restore();
     if (d === 's') { g.beginPath(); g.moveTo(17, 13); g.quadraticCurveTo(28, 23, 39, 13); g.lineWidth = 2.8; g.stroke(); }
     if (d === 'n') { g.beginPath(); g.moveTo(16, 14); g.quadraticCurveTo(28, 18, 40, 14); g.lineWidth = 2.6; g.stroke(); }
+  } else if (id === 'stars') {
+    // night sky: little four-point stars, specks and a faint constellation line
+    const star = (x, y, r) => { g.beginPath(); for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU - Math.PI / 2, rr = i % 2 ? r * 0.36 : r; g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } g.closePath(); g.fill(); };
+    g.beginPath(); for (let i = 0; i < 34; i++) circle(g, 2 + rand() * 52, 11 + rand() * (hy - 9), 0.3 + rand() * 0.3); g.fill();
+    for (let i = 0; i < 11; i++) star(4 + rand() * 48, 13 + rand() * (hy - 14), 1.2 + rand() * 1.2);
+    g.globalAlpha = 0.55; g.lineWidth = 0.45; g.beginPath(); let px = 8 + rand() * 10, py = 16 + rand() * 6; g.moveTo(px, py); for (let i = 0; i < 5; i++) { px += 5 + rand() * 4; py += (rand() - 0.4) * 6; g.lineTo(px, py); } g.stroke(); g.globalAlpha = 1;
   } else if (id === 'patches') {
     for (const [x, y, w, h] of [[16, 30, 6, 5], [33, 20, 5, 6], [24, 37, 7, 4.4]]) {
       g.fillStyle = '#f0f0f0'; g.beginPath(); g.rect(x, y, w, h); g.fill();
