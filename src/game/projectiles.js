@@ -8,6 +8,8 @@
 // shown on guests as COSMETIC copies (fx 'proj' / 'pend' from net/entities.js); a player's own arrows are
 // simulated by the shooter (hits → mob.hit) and relayed to the others as cosmetic copies (intent proj.fire).
 // A cosmetic projectile never tests victims, calls onHit/onMiss or drops loot.
+// Lobbed shots (fireLob: Tiro Longo / Lançar Lança) fly a timed parabola to a host-rolled landing point instead
+// (see the section below and src/game/mut/bow.js).
 
 import { dropLoot } from './loot.js';
 import { allPlayers } from './players.js';
@@ -127,7 +129,10 @@ function landLob(game, pr) {
   const tx = Math.floor(pr.x), ty = Math.floor(pr.y);
   const inside = w.inBounds(tx, ty);
   const i = inside ? ty * w.W + tx : -1;
-  const wall = !inside || w.rock[i] || w.solid[i];
+  // a mountain roof stops a shot coming from outside the cave (a throw inside a cave lands normally)
+  const roofed = inside && w.roof[i] && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
+  const wall = !inside || w.rock[i] || w.solid[i] || roofed;
+  pr.blocked = !!wall;
   const water = inside && !wall && w.waterAt(tx, ty) > 0;
   game.audio?.play('arrow_land', { x: pr.x, y: pr.y, volume: pr.kind === 'spear' ? 1.1 : 0.7 });
   let gone = false;

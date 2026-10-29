@@ -195,6 +195,7 @@ export function aimCheck(game, id) {
   if (ab.ammo && p.inv.count(ab.ammo) <= 0) return 'Sem flechas';
   if (!aimSpec(game, id)) return ab.lob === 'bow' ? 'Precisa de um arco' : 'Precisa de uma lança';
   if (p._throwT > 0) return 'A lança ainda está no ar';
+  if (aimSpec(game, id).open && game.world.isCave(Math.floor(p.x), Math.floor(p.y))) return 'Teto baixo demais para atirar para o alto';
   return null;
 }
 
@@ -235,7 +236,7 @@ export function fireAimed(game, id, wx, wy) {
   game.audio?.play(S.proj === 'spear' ? 'swing' : 'bow_release', { x: p.x, y: p.y, volume: 0.9 });
   const roll = rollPlayerHit(game, { level: p.level }, ab.mult || 1, ab.flat || 0, false);
   const { dur, apex } = lobFlight(S, D);
-  if (S.proj === 'spear') p._throwT = dur; // the hand is empty until the spear lands (src/ui/aim.js hides it)
+  if (S.proj === 'spear') { p._throwT = dur; p.swingT = Math.max(p.swingT, dur + 0.15); } // empty hand until it lands (src/ui/aim.js)
   const r2 = (v) => Math.round(v * 100) / 100;
   const args = { ab: id, w: p.equip?.main || null, x: r2(p.x), y: r2(p.y), ax: r2(ax), ay: r2(ay), amount: roll.amount, crit: roll.crit ? 1 : 0, skin: canSkin(game) ? 1 : 0 };
   // guest: its own copy flies right away toward the aim point (bent onto the host's landing on the ack)

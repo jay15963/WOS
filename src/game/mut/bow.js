@@ -28,6 +28,7 @@ defineIntent('lob.fire', {
     const wid = actor.local ? src.equip?.main : typeof a.w === 'string' ? a.w.slice(0, 40) : null;
     const S = lobSpec(wid);
     if (!S || S.type !== ab.lob) return ab.lob === 'bow' ? 'Sem arco nas mãos' : 'Sem lança nas mãos';
+    if (S.open && game.world.isCave(Math.floor(src.x), Math.floor(src.y))) return 'Teto baixo demais para atirar para o alto';
     const key = actor.pid + '|' + a.ab, last = LAST.get(key);
     if (last != null && game.worldTime - last < (ab.cd || 0) * 0.8) return 'Ainda não está pronto';
     // origin: the shooter's reported position when it agrees with what the host sees
@@ -57,7 +58,7 @@ defineIntent('lob.fire', {
 // host, on landing: hit the creature closest to the landing point (small radius); a miss startles the ones near
 function resolve(game, pr, S, h) {
   const src = pr.src, net = game.net;
-  if (src?.gone) return;
+  if (src?.gone || pr.blocked) return; // came down on a wall / rock / a mountain roof
   const x = pr.lx, y = pr.ly;
   let best = null, bd = 1e9;
   for (const e of game.entities) {

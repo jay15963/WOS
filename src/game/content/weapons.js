@@ -41,8 +41,9 @@ export const WEAPON_TYPES = {
 // scatter radius of the landing point = s0 + k × distance (rolled on the host, centre-weighted).
 // hitR: a creature is hit when the landing point is within hitR + its body radius.
 // dur / apex: flight time (s) and arc height (tiles) = [a, b] → a + b × distance. knock: push on hit.
+// open: needs open sky (no shooting it up from inside a cave).
 export const LOB = {
-  bow:   { ability: 'long_shot', proj: 'arrow', range: 18, s0: 0.1, k: 0.065, hitR: 0.45, dur: [0.5, 0.05], apex: [0.6, 0.2], knock: 0.15 },
+  bow:   { ability: 'long_shot', proj: 'arrow', open: true, range: 18, s0: 0.1, k: 0.065, hitR: 0.45, dur: [0.5, 0.05], apex: [0.6, 0.2], knock: 0.15 },
   spear: { ability: 'throw_spear', proj: 'spear', range: 8, s0: 0.1, k: 0.08, hitR: 0.5, dur: [0.32, 0.06], apex: [0.25, 0.1], knock: 0.6 },
 };
 // per-item range overrides: a better bow is one line here (the camera follows further, the zoom stays)

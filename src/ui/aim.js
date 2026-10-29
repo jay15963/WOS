@@ -213,7 +213,7 @@ export function installAim(game) {
     e.preventDefault(); e.stopImmediatePropagation(); // not the pause menu / target clear
     cancel();
   }, true);
-  addEventListener('blur', () => { if (S.active && S.mode === 'mouse' && S.key) release(); });
+  addEventListener('blur', () => { if (S.active) cancel(true); }); // alt-tab while aiming: never fire blind
 
   // ---------- aim point ----------
   function aimUpdate() {
