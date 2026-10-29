@@ -296,3 +296,19 @@ shared world time (`game.worldTime`; one game day = `env.dayLength` s, 720 today
 - Contracts: **B** owns the container window (inventory ↔ chest with sorting); it must accept any container
   (chest or corpse) through one adapter. **D** draws the butcher and gather-bones poses (`butcher`,
   `gather_bones`) and lying/death poses. **F** adds `butcher`, `bones` and a flies buzz near rotten corpses.
+
+## J · Telhados, interiores e cavernas (added later, port 5190)
+
+Owner's request: what counts as a "cave" must make sense — if a player mines a mountain open (or all of it),
+it is no longer a cave. A roof system for both buildings and caves:
+- **Built roofs** (like floors: a build category, area drag, blueprints): they hide what is inside a building
+  and reveal it only for the player standing under that roof. Drawn **procedurally** for any shape and size
+  (hip-roof shading from the distance-to-edge field, ridges, eaves, material texture). A roof needs support:
+  walls, and **columns** ("Coluna", new structure) when the interior is large (e.g. every roof tile within 6
+  tiles of a wall/column/rock); losing support collapses it.
+- **Natural roofs**: a mined tile is a cave only while the rock above is still supported by nearby rock;
+  opening a mountain removes the roof (sky light, rain). Deterministic and synced.
+- **Inside (cave or building)**: screen effects (darker, closer vignette, dust in caves) and the zoom eases to a
+  fixed, closer view (reduced field of view); leaving eases back to the player's own zoom — smooth both ways,
+  never a jump, never a lock outside. No rain under roofs, darker interiors lit by fires/torches, warmth and
+  "indoors" audio based on the roof.
