@@ -68,9 +68,13 @@ Biomas e zonas (src/world/worldgen.js):
 - `src/fx/environment.js`: `env.setWeather('clear'|'cloudy'|'rain'|'storm'|'fog')`, `env.weatherName()` (pt-BR),
   `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather}`; raios em `env.strikes`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
-- `game.audio.play(name, {x, y, volume})` (src/fx/audio.js). Nomes: hit, crit, swing, chop, mine, pickup, eat,
-  levelup, death, growl, ui, build, fire, splash, step (o passo usa o tipo de chão em x,y). Áudio procedural:
-  `game.audio.enabled` (persistido), `.volume`, `.sfxVolume`, `.ambVolume`, `.toggle()`; ambiente segue a câmera.
+- Áudio procedural (src/fx/audio.js, sem arquivos): `getAudio()` (singleton, também no menu) = `game.audio`.
+  `game.audio.play(name, {x, y, volume, delay, pitch})` — catálogo em `src/fx/sfxBank.js` + rotas em audio.js (step usa o
+  chão/piso em x,y; swing a arma; hit/growl/death a espécie mais próxima). Nomes desconhecidos são ignorados.
+  Música generativa: `game.audio.music.setMood('menu'|'day'|'night'|'dawn'|'rain'|'cave'|'danger'|'home')` (o diretor
+  `src/fx/audioDirector.js` escolhe sozinho no jogo). Volumes `setLevel('master'|'music'|'sfx'|'amb')`, `.enabled` (mudo),
+  UI em `src/fx/audioSettings.js`. `net.js` chama `audio.onOp()` antes de cada op (sons das ações de todos). Teste/escuta:
+  `tools/audio-test.html` (localhost).
 - `game.particles.emit({...})` (src/fx/particles.js). `layer: 'fx'` (alfa) ou `'emissive'` (brilho).
 - Input: `game.input` (`move()`, `pressed` Set de `KeyboardEvent.code`, `taps` [{x,y}] em px CSS, `isTouch`).
   Se `player.autoMove = [dx,dy]` estiver setado, o jogador anda nessa direção quando não há input manual.

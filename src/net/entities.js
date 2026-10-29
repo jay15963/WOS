@@ -308,7 +308,7 @@ export class EntityClient {
         if (ev.kind === 'hit') {
           target.flash = ev.dot ? Math.max(target.flash || 0, 0.45) : 1;
           if (!ev.dot) {
-            if (ev.blocked) { g.juice.chips(target.x, target.y, [0.95, 0.85, 0.6], 6, 0.6); g.audio?.play('mine', { x: target.x, y: target.y, volume: 0.6 }); }
+            if (ev.blocked) { g.juice.chips(target.x, target.y, [0.95, 0.85, 0.6], 6, 0.6); g.audio?.play('block', { x: target.x, y: target.y }); }
             else {
               g.juice.hit(target.x, target.y, ev.crit, ev.dtype === 'fire' ? [1, 0.55, 0.15] : null);
               if (ev.dtype === 'phys') g.juice.blood(target.x, target.y, ev.crit ? 7 : 4);
