@@ -2316,6 +2316,26 @@ def('S61', {
   env.history.push('S61');
 });
 
+def('S62', {
+  title: 'Survival: dying of cold does not kill again after the respawn', timeout: 90000,
+  expected: 'The guest freezes to death (body heat ~0, hypothermia hits); after "Renascer" its body heat is back to ≥ 75%, it is dry, no hypothermia, and 6 s later it is still alive with its half HP (no cold damage); the host sees it alive; digest equal',
+  api: 'survival (p.bodyHeat, hypothermia ticks) → killPlayer; respawnPlayer (bodyHeat ≥ 75, wetT 0); presence hp / dead',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.pacify(H, gp.x, gp.y, 30);
+  gp.bodyHeat = 2; gp.wetT = 60; gp.hp = 3;
+  await t.waitFor(() => gp.dead, 12000, 'the guest freezes to death', () => `heat ${f2(gp.bodyHeat)} hp ${gp.hp}`);
+  MG.player.respawnPlayer(G.game);
+  t.check(gp.bodyHeat >= 75 && !gp.wetT, 'respawned warm and dry', `heat ${f2(gp.bodyHeat)} wet ${gp.wetT}`);
+  const hp0 = gp.hp;
+  await t.sleep(6000);
+  t.check(!gp.dead && gp.hp >= hp0 && !gp.buffs.some((b) => b.id === 'hypothermia'), 'still alive 6 s later, no cold damage', `hp ${hp0} → ${gp.hp} heat ${f2(gp.bodyHeat)} buffs ${short(gp.buffs.map((b) => b.id))}`);
+  const av = [...(H.game.session?.players?.values() || [])].find((p) => p.pid === G.pid);
+  t.check(!av || !(av.av?.dead || av.ent?.dead), 'the host sees the guest alive');
+  await t.checkDigest(H, G);
+});
+
 // =====================================================================================================
 // S41 C: calm wind on the guest (cosmetic visuals; wind never feeds shared state)
 def('S41', {

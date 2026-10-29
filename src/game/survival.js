@@ -225,7 +225,7 @@ export function survivalSystem() {
       const p = game.player;
       if (p.bodyHeat == null) p.bodyHeat = 100;
       updateFeel(p, dt);
-      if (p.dead) { starveT = hypoT = 0; p.wetT = 0; return; }
+      if (p.dead) { starveT = hypoT = starveAcc = hypoAcc = 0; p.wetT = 0; return; } // (a respawn starts the damage clocks afresh)
       if (p.warmFoodT > 0) p.warmFoodT -= dt;
 
       // felt temperature (shelter flood fill 2 Hz)

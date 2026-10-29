@@ -150,6 +150,9 @@ export function respawnPlayer(game) {
   p.dead = false; p.deadT = 0; p.rooted = false; p.flash = 0;
   p.hp = Math.round(p.maxHp * 0.5); p.energy = p.maxEnergy;
   p.hunger = Math.max(p.hunger, 35);
+  // the cold that killed you does not come back with you (else hypothermia kills again at once): warm enough to
+  // reach a fire, and dry
+  p.bodyHeat = Math.max(p.bodyHeat ?? 100, 75); p.wetT = 0; p.swimming = false;
   p.combatT = 0; p.target = null; p.autoAttack = false;
   addBuff(p, 'weak', 60);
   game.cam.x = p.x; game.cam.y = p.y;
