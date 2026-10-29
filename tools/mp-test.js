@@ -3181,8 +3181,15 @@ def('L7', {
   t.need(MG.levels?.Levels?.prototype?.unsupported, 'stories (levels phase 2) missing');
   const gp = G.game.player, hp = H.game.player;
   A.keepAlive(t, G); A.keepAlive(t, H);
-  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const o = []; for (let dx = -2; dx <= 5; dx++) for (let dy = -1; dy <= 5; dy++) o.push([x + dx, y + dy]); return o; }, gp.x, gp.y, { rMin: 3, rMax: 22, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
-  t.assert(site, 'found a free site');
+  // nothing else may hold the story up: no wall / door / column / rock within 7 tiles of the room (earlier scenarios build nearby)
+  const BH = MH.data.BUILDINGS, wH = H.game.world;
+  const alone = (x, y) => {
+    for (const o of H.game.build.structures) if (!o.lv && o.tx > x - 8 && o.tx < x + 11 && o.ty > y - 8 && o.ty < y + 11 && (BH[o.type]?.support || BH[o.type]?.connect === 'wall')) return false;
+    for (let yy = y - 7; yy < y + 11; yy++) for (let xx = x - 7; xx < x + 11; xx++) if (!wH.inBounds(xx, yy) || wH.rock[wH.idx(xx, yy)]) return false;
+    return true;
+  };
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { if (!alone(x, y)) return [[-9, -9]]; const o = []; for (let dx = -2; dx <= 5; dx++) for (let dy = -1; dy <= 5; dy++) o.push([x + dx, y + dy]); return o; }, gp.x, gp.y, { rMin: 3, rMax: 40, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free site with no other support around');
   const { x0: x, y0: y } = site;
   A.pacify(H, x, y, 22);
   const walls = hostBuild(H, ringRows(x, y));
