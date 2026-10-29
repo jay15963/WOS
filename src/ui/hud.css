@@ -138,6 +138,7 @@ html, body {
 .tmp.hot { color: #ffb07a; }
 .tmp.cold { color: #a8d4ff; background: rgba(40,80,130,.45); }
 .tmp.freeze { color: #e6f4ff; background: rgba(60,120,200,.6); animation: pulse 1.2s infinite; }
+.tmp.wet { color: #cfeaff; background: rgba(40,100,160,.55); }
 @keyframes lowbar { to { filter: brightness(1.6); } }
 
 .tf .ufb { width: 150px; }

@@ -115,7 +115,9 @@ export class World {
   // movement speed multiplier at a world point
   speedAt(x, y) {
     const tx = Math.floor(x), ty = Math.floor(y);
-    if (this.waterAt(tx, ty) === 1) return 0.55;
+    const wa = this.waterAt(tx, ty);
+    if (wa === 2) return 0.14; // deep water: swimming, a lot slower than wading
+    if (wa === 1) return 0.55;
     const g = this.groundAt(tx, ty);
     if (g === G.MARSH) return 0.7;
     if (g === G.MUD) return 0.8;

@@ -2,7 +2,16 @@
 // body heat driven by a felt temperature (°C) from biome + time of day + rain / storm / wind / wet (read
 // from game.env), warmed by fires, enclosed shelters (roofed = floor or cave), clothing and warm food.
 // Every number lives in SURVIVAL below. Effects: hungry (<25%), starving (0), chilled (<30% heat:
-// slower, hungrier), hypothermia (<10%: ramping damage). Eating lives here too.
+// slower, hungrier), hypothermia (<10%: ramping damage). Swimming in deep water chills hard and soaks the
+// clothes; wet clothes (also slowly from rain) keep the player chilled until they dry (fast by a fire, faster
+// in sunshine or under a roof). Eating lives here too.
+//
+// Player fields written here (local, owner-side, never replicated):
+//   p.bodyHeat 0..100 · p.feelC felt °C · p.wetT s of soaking left · p.shelter (enclosed room) · p._felt (°C parts)
+//   p.feel = { hp, cold, hunger, wet, sick, warm } — smooth 0..1 severities updated every frame (same object,
+//   no allocation) for screen effects (agent C) and sounds (agent F): hp 0 above 35% health → 1 near death;
+//   cold 0 at ≥50% body heat, 0.5 when chilled (30%), 1 at hypothermia (≤10%); hunger 0 above 25% → 1 starving;
+//   wet 1 while swimming, decaying while the clothes dry; sick = food poisoning / poison; warm = by a fire.
 
 import { ITEMS, BUILDINGS, FOOD_IDS } from './data.js';
 import { addBuff, removeBuff, hasBuff } from './player.js';
@@ -34,6 +43,17 @@ export const SURVIVAL = {
     chilled: 30, hypo: 10,
     chilledSpeed: 0.86,
     hypoEvery: 2, hypoBase: 1, hypoRamp: 1 / 12, hypoMax: 6,
+  },
+  // swimming in deep water / wet clothes (p.swimming is set by game.update; p.wetT = seconds of soaking left)
+  wet: {
+    swim: -16,            // °C while swimming (icy river) + extra heat loss below
+    swimLoss: 0.6,        // extra heat %/s while swimming
+    soaked: 120,          // s to dry after leaving deep water (at the base rate)
+    rainSoak: 1.6,        // wetT gained per s in rain (× rain 0..1) when not covered, up to rainMax
+    rainMax: 60,
+    chill: -7,            // °C while fully wet (scales with how wet), wind chill ×2 when wet
+    dry: 1, dryFire: 6, drySun: 2.5, dryShelter: 1.5, // drying speed multipliers
+    hungerSwim: 2.5,      // hunger × while swimming
   },
 };
 
@@ -146,8 +166,11 @@ export function feltTemp(game, p, shelter) {
   const room = (shelter.enclosed ? T.shelter : 0) + (shelter.roof ? T.roof : 0) + (shelter.cave && !shelter.enclosed ? T.cave : 0);
   const cloth = (p.warmth || 0) * T.cloth;
   const food = p.warmFoodT > 0 ? T.warmFood : 0;
-  const c = base + day + rain + wind + fire + room + cloth + food;
-  return { c, base, day, rain, wind, fire, room, cloth, food };
+  // water: swimming is icy; wet clothes chill (scaled by how soaked) and double the wind chill
+  const Wt = SURVIVAL.wet, wk = Math.min(1, (p.wetT || 0) / 60);
+  const water = p.swimming ? Wt.swim : wk > 0 ? Wt.chill * wk + wind * wk : 0;
+  const c = base + day + rain + wind + fire + room + cloth + food + water;
+  return { c, base, day, rain, wind, fire, room, cloth, food, water };
 }
 
 // HUD readout: { key, text, cls, why }
@@ -160,8 +183,29 @@ export function heatState(p) {
   const add = (v, t) => { if (Math.abs(v) >= 0.5) parts.push(`${v > 0 ? '+' : '−'}${Math.round(Math.abs(v))}° ${t}`); };
   parts.push(`${Math.round(f.base)}° aqui`);
   add(f.day, 'hora do dia'); add(f.rain, 'chuva'); add(f.wind, 'vento'); add(f.fire, 'fogo'); add(f.room, 'abrigo'); add(f.cloth, 'roupas'); add(f.food, 'comida quente');
-  const why = parts.join(' · ') + (c < SURVIVAL.temp.comfort ? '. Abaixo de 12° o corpo esfria.' : '. Confortável: o corpo se aquece.');
-  return { key: c + cls + (p.bodyHeat < 30 ? 'c' : ''), text: `${c}°C`, cls, why };
+  add(f.water, p.swimming ? 'água gelada' : 'roupa molhada');
+  const wetNote = p.swimming ? ' Nadando: o corpo esfria muito rápido.' : p.wetT > 0 ? ` Molhado: seca em ~${Math.ceil(p.wetT)} s (muito mais rápido perto do fogo).` : '';
+  const why = parts.join(' · ') + (c < SURVIVAL.temp.comfort ? '. Abaixo de 12° o corpo esfria.' : '. Confortável: o corpo se aquece.') + wetNote;
+  const wet = p.swimming || p.wetT > 0;
+  return { key: c + cls + (p.bodyHeat < 30 ? 'c' : '') + (wet ? 'w' + Math.ceil((p.wetT || 0) / 10) : ''), text: `${wet ? '💧 ' : ''}${c}°C`, cls: cls + (wet ? ' wet' : ''), why, wet };
+}
+
+// p.feel: smooth 0..1 severities for screen effects / sounds (see the header); one object, reused
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+function updateFeel(p, dt) {
+  const F = p.feel || (p.feel = { hp: 0, cold: 0, hunger: 0, wet: 0, sick: 0, warm: 0 });
+  const k = 1 - Math.exp(-dt * 3);
+  const hpf = p.maxHp ? p.hp / p.maxHp : 1;
+  const heat = p.bodyHeat ?? 100;
+  const tHp = p.dead ? 1 : clamp01((0.35 - hpf) / 0.33);
+  const tCold = p.dead ? 0 : heat >= 50 ? 0 : heat >= 30 ? (50 - heat) / 40 : 0.5 + clamp01((30 - heat) / 20) * 0.5;
+  const tHunger = p.dead ? 0 : clamp01((25 - (p.hunger ?? 100)) / 25);
+  const tWet = p.swimming ? 1 : clamp01((p.wetT || 0) / SURVIVAL.wet.soaked);
+  let sick = 0;
+  for (const b of p.buffs || []) if (b.id === 'sick' || b.id === 'poison') { sick = 1; break; }
+  const tWarm = p.dead ? 0 : clamp01(Math.max((p._felt?.fire || 0) / 14, p.warmFoodT > 0 ? 0.4 : 0));
+  F.hp += (tHp - F.hp) * k; F.cold += (tCold - F.cold) * k; F.hunger += (tHunger - F.hunger) * k;
+  F.wet += (tWet - F.wet) * (p.swimming ? 1 - Math.exp(-dt * 8) : k); F.sick += (sick - F.sick) * k; F.warm += (tWarm - F.warm) * k;
 }
 
 export function survivalSystem() {
@@ -172,12 +216,32 @@ export function survivalSystem() {
     update(game, dt) {
       const p = game.player;
       if (p.bodyHeat == null) p.bodyHeat = 100;
-      if (p.dead) { starveT = hypoT = 0; return; }
+      updateFeel(p, dt);
+      if (p.dead) { starveT = hypoT = 0; p.wetT = 0; return; }
       if (p.warmFoodT > 0) p.warmFoodT -= dt;
 
       // felt temperature (shelter flood fill 2 Hz)
       scanT -= dt;
       if (scanT <= 0) { scanT = 0.5; shelter = shelterAt(game, Math.floor(p.x), Math.floor(p.y)); }
+      // soaking / drying (p.swimming comes from game.update: deep water)
+      const W = SURVIVAL.wet, E = game.env, ec = E.cur || {};
+      const wasWet = (p.wetT || 0) > 0;
+      if (p.swimming) p.wetT = W.soaked;
+      else {
+        const rainNow = shelter.enclosed || shelter.cave ? 0 : (ec.rain || 0);
+        if (rainNow > 0.2 && (p.wetT || 0) < W.rainMax) p.wetT = Math.min(W.rainMax, (p.wetT || 0) + rainNow * W.rainSoak * dt);
+        else if (p.wetT > 0) {
+          const hr = E.hour ?? 12, sunny = hr > 7 && hr < 18 && (ec.cloud ?? 0) < 0.5 && rainNow < 0.05;
+          const k = W.dry * (fireHeat(game, p.x, p.y) > 3 ? W.dryFire : 1) * (sunny ? W.drySun : 1) * (shelter.roof || shelter.enclosed ? W.dryShelter : 1);
+          p.wetT = Math.max(0, p.wetT - dt * k);
+        }
+      }
+      const wetNow = (p.wetT || 0) > 0;
+      if (wetNow) { if (!hasBuff(p, 'wet')) addBuff(p, 'wet', 1, { perm: true, name: 'Molhado', icon: 'cold', good: false, desc: 'Roupa encharcada: sente frio até secar (seca bem mais rápido perto do fogo).' }); }
+      else removeBuff(p, 'wet');
+      if (wetNow && !wasWet) game.events.emit('toast', { text: p.swimming ? 'Água gelada! Nadar deixa você com muito frio' : 'Você está ficando molhado', kind: 'warn' });
+      else if (!wetNow && wasWet) game.events.emit('toast', { text: 'Roupa seca', kind: 'good' });
+
       const f = p._felt = feltTemp(game, p, shelter);
       p.feelC = f.c;
       p.shelter = shelter.enclosed;
@@ -186,12 +250,14 @@ export function survivalSystem() {
       const d = f.c - T.comfort;
       if (d < 0) p.bodyHeat = Math.max(0, p.bodyHeat + d * T.lossK * dt);
       else p.bodyHeat = Math.min(100, p.bodyHeat + (T.gainBase + d * T.gainK) * dt);
+      if (p.swimming) p.bodyHeat = Math.max(0, p.bodyHeat - W.swimLoss * dt);
       const heat = p.bodyHeat;
 
       // warm buff (fire / warm meal): better regen (player.js) and a little less hunger
       const warm = f.fire > 3 || p.warmFoodT > 0;
       if (warm) { if (!hasBuff(p, 'warm')) addBuff(p, 'warm', 1, { perm: true }); } else removeBuff(p, 'warm');
-      const chilled = heat < T.chilled;
+      // chilled: a cold body, or swimming / wet clothes away from a fire
+      const chilled = heat < T.chilled || p.swimming || (wetNow && !warm);
       if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento e com mais fome. Aqueça-se.' }); }
       else removeBuff(p, 'cold');
       const hypo = heat < T.hypo;
@@ -218,6 +284,7 @@ export function survivalSystem() {
       if (p.work) drain *= H.work;
       if (p.inCombat) drain *= H.combat;
       if (chilled) drain *= H.chilled;
+      if (p.swimming) drain *= W.hungerSwim; // icy water + effort
       if (warm) drain *= H.nearFire;
       p.hunger = Math.max(0, p.hunger - drain * dt);
       const hungry = p.hunger < H.hungry;
