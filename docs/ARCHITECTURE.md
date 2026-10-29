@@ -41,10 +41,16 @@ Biomas e zonas (src/world/worldgen.js):
 
 ## Objetos e entidades
 - **Objetos estáticos** (`world.objects`, por chunk 16×16): `{ id, type, v, x, y, s, f, solid, ... }`
-  types: `tree_oak|tree_pine|tree_birch|tree_dead|bush|berrybush|boulder` + construções (`campfire|torch|wall_wood|...`).
+  types: `tree_oak|tree_pine|tree_birch|tree_dead|bush|berrybush|herbbush|boulder` + construções (`campfire|torch|wall_wood|...`).
   Estado visual opcional: `shake` (0..1), `fall` (0..1.5 animação de queda), `stump`, `empty` (arbusto sem frutas),
   `flash`, `age` (escala de crescimento), `light: {r,g,b,radius,intensity,flicker,lift}` (emite luz), `fire: true` (emite chama/fumaça).
-- **Decor** (`chunk.decor`): `{ t, v, x, y, s, f }` t: `grass|tallgrass|reed|flower|mushroom`. Não interativo.
+- **Decor** (`chunk.decor`): `{ t, v, x, y, s, f }` t: `grass|tallgrass|reed|flower|mushroom|fern|bloom|heather|drygrass|thistle` (em pé,
+  balançam com o vento) e detalhes planos no chão (`B.ground`, `FLAT_DECOR` em composeWorld): `litter|needles|twigs|petals|moss|lily|riverstone|
+  scree|shell|driftwood`. Não interativo, determinístico pela semente (`addNatureDetails` em worldgen.js).
+- **Espécies (só arte)** dentro dos tipos de jogo, codificadas em `o.v` (worldgen e renascimento usam as mesmas regras, `treeSpecies` /
+  `bushSpecies` / `boulderMossy` em worldgen.js): árvores `v = espécie * 16 + variante` (`TREE_SPECIES` em trees.js: carvalho/bordo/salgueiro,
+  conífera/pinheiro-silvestre/zimbro, bétula/choupo, morta/tronco quebrado), arbustos `v = espécie * 1000 + variante` (rosa-brava, zimbro),
+  pedregulho com musgo `v >= 8000`.
 - **Entidades** (`game.entities`): `isEntity: true`, `kind: 'pawn' | 'animal'`.
   - comuns: `x, y, r (raio colisão), facing 's'|'n'|'e'|'w', moving, moveT, action {type:'attack'|'chop'|'mine'|'gather'|'cast', t:0..1} | null, flash, dead, deadT`
   - pawn: `look: { skin:[r,g,b], hair:'short'|'long'|..., hairColor:[r,g,b], shirt:[r,g,b] }, weapon: 'sword'|'axe'|'pickaxe'|null`
@@ -53,6 +59,9 @@ Biomas e zonas (src/world/worldgen.js):
 
 ## Sistemas
 `game.systems` = lista de `{ update(game, dt), render?(game, B, view, env) }`.
+- `src/fx/wildlife.js` → `installWildlife(game)` (`game.wildlife`, chamado por installAmbient, `sync: 'cosmetic'`): borboletas, abelhas, libélulas,
+  sapos, patos, sombras de peixe, esquilos, passarinhos e coelhos; todos fogem dos jogadores, limitados por espécie (`game.quality`), entram na
+  ordenação por profundidade via `collect`.
 - `src/fx/ambient.js` → `installAmbient(game)` (`game.ambient`): vida ambiente (vaga-lumes, borboletas, folhas, pássaros,
   peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
   (`game.R.autoScale = false` desliga).
@@ -74,15 +83,16 @@ Pawns/cabelos são **brancos/cinza** e tingidos em runtime (multiplicação) —
 | Categoria | Nomes |
 |---|---|
 | FX | `fx_blob, fx_soft, fx_spark, fx_smoke, fx_leaf, fx_drop, fx_ring, fx_flame, fx_flame_0..2, fx_splash, fx_dust, fx_slash, fx_star, fx_glow, fx_ember` |
-| Árvores | `tree_oak_0..4, tree_pine_0..3, tree_birch_0..2, tree_dead_0..1, tree_stump_0, tree_sapling_0` |
-| Plantas | `bush_0..3, berrybush_0..1, berrybush_empty_0..1, grass_0..7, tallgrass_0..3, reed_0..2, flower_0..5, mushroom_0..2` |
+| Árvores | `tree_oak_0..4, tree_pine_0..4, tree_birch_0..2, tree_dead_0..1, tree_maple_0..2, tree_willow_0..1, tree_scots_0..1, tree_juniper_0..1, tree_aspen_0..1, tree_snag_0, tree_stump_0, tree_sapling_0` |
+| Plantas | `bush_0..3, bush_rose_0..1, bush_juniper_0..1, berrybush_0..1, berrybush_empty_0..1, herbbush_0..2, grass_0..7, tallgrass_0..3, reed_0..2, flower_0..5, mushroom_0..4, fern_0..3, bloom_0..5, heather_0..1, drygrass_0..1, thistle_0..1` + planos `litter_0..4, needles_0..1, twigs_0..1, petals_0..1, moss_0..2, lily_0..3, riverstone_0..2, scree_0..1, shell_0..1, driftwood_0`; `boulder_moss_0..2` |
+| Bichos (cosméticos) | `cr_butterfly_0..4, cr_bee, cr_dragonfly_0..1, cr_frog_0..1, cr_frog_jump, cr_duck_0..1, cr_duck_fly, cr_duckling, cr_fish, cr_squirrel_{sit,run,climb}, cr_bird_0..2_{sit,peck,fly}` (src/art/critters.js) |
 | Pedras | `boulder_0..3` |
 | Pawn | `pawn_body_{s,n,e}, pawn_head_{s,n,e}, hair_{short,long,bun,mohawk,ponytail,curly}_{s,n,e}, beard_{s,e}` (oeste = leste espelhado) |
 | Armas | `weapon_sword, weapon_axe, weapon_spear, weapon_club, tool_pickaxe` (apontando para cima, âncora no punho) |
 | Animais | `{wolf,boar,deer,rabbit,bear}_{s,n,e}` + `{...}_e_walk` (quadro de passada lateral) |
 | Construções | `campfire, torch, wall_wood, chest, bed` |
 | Itens | `item_wood, item_stone, item_berries, item_meat, item_cooked, item_leather, item_fiber, item_ore` |
-| Ícones UI | `icon_strike, icon_charge, icon_whirlwind, icon_bandage, icon_sprint, icon_attack, icon_eat, icon_build, icon_bag, icon_gather` |
+| Ícones UI | `icon_strike, icon_charge, icon_whirlwind, icon_heal, icon_sprint, icon_attack, icon_eat, icon_build, icon_bag, icon_gather` |
 
 Ícones para HTML: desenhe a região do sprite de `atlas.canvas` (u0..u1, v0..v1 × atlas.size) num canvas pequeno → `toDataURL()`.
 

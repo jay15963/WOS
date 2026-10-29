@@ -21,6 +21,7 @@ const FORAGE = {
   fibergrass:  { verb: 'Colher fibra', label: 'Colhendo fibra', cycle: 0.9, prio: 3, fiber: true },
   bush:        { verb: 'Colher', label: 'Colhendo arbusto', cycle: 1.2, prio: 2, fiber: true },
   berrybush:   { verb: 'Colher frutas', label: 'Colhendo frutas', cycle: 1.3, prio: 4 },
+  herbbush:    { verb: 'Colher ervas', label: 'Colhendo ervas', cycle: 1.4, prio: 4 },
   wild_potato: { verb: 'Colher batata', label: 'Colhendo batata', cycle: 1.2, prio: 4 },
   wild_corn:   { verb: 'Colher milho', label: 'Colhendo milho', cycle: 1.2, prio: 4 },
   wild_cotton: { verb: 'Colher algodão', label: 'Colhendo algodão', cycle: 1.2, prio: 4 },

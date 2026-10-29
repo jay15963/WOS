@@ -323,7 +323,7 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
   keeps working on the host almost unchanged.
 - **Owner = player authority** for its avatar: movement (no server-side movement; co-op, no anti-cheat),
   inventory, equipment, XP, hunger/energy, buffs, cooldowns, **HP and death**. Damage from host creatures
-  is sent to the owner, who runs its own `dealDamage` (dodge, armor, block, bandage interruption, death).
+  is sent to the owner, who runs its own `dealDamage` (dodge, armor, block, herb-heal interruption, death).
   Rationale: all of that state already lives on the player object and is driven by `game.player`; moving
   it to the host would mean replicating inventories and stats, for no benefit in co-op.
 - **Attacker rolls**: a player's hit/miss/crit/damage rolls happen on the attacker's client (as today,

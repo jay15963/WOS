@@ -143,11 +143,11 @@ function rollTable(game, out, x, y, rows, rolls) {
   if (!any) drop(game, out, x, y, pick(R, ['wood', 'stone', 'fiber']), 1, 2);
 }
 const BANDIT_LOOT = [
-  ['arrow', 2, 5, 3], ['leather', 1, 2, 2], ['rope', 1, 1, 2], ['cloth', 1, 2, 1.5], ['cooked', 1, 2, 2], ['bandage', 1, 1, 1.5],
+  ['arrow', 2, 5, 3], ['leather', 1, 2, 2], ['rope', 1, 1, 2], ['cloth', 1, 2, 1.5], ['cooked', 1, 2, 2], ['herb', 1, 1, 1.5],
   ['copper_bar', 1, 1, 1.2], ['stick', 2, 3, 1], ['coal', 1, 2, 1], ['berries', 2, 3, 1],
 ];
 const CRATE_LOOT = [
-  ['arrow', 3, 8, 3], ['bandage', 1, 2, 2], ['rope', 1, 2, 2], ['cloth', 1, 3, 1.6], ['copper_bar', 1, 2, 1.6], ['iron_bar', 1, 1, 0.6],
+  ['arrow', 3, 8, 3], ['herb', 1, 2, 2], ['rope', 1, 2, 2], ['cloth', 1, 3, 1.6], ['copper_bar', 1, 2, 1.6], ['iron_bar', 1, 1, 0.6],
   ['coal', 1, 3, 1.4], ['leather', 1, 2, 1.4], ['seed_potato', 1, 3, 1], ['seed_corn', 1, 2, 0.8], ['seed_cotton', 1, 2, 0.8],
   ['potato', 1, 3, 1], ['cooked', 1, 2, 1], ['copper_ore', 1, 3, 1], ['iron_ore', 1, 2, 0.6], ['knife_stone', 1, 1, 0.4], ['spear_stone', 1, 1, 0.3],
 ];
@@ -162,7 +162,7 @@ function banditDeath(game, m) {
   if (m.offhand && R() < 0.2) drop(game, out, x, y, m.offhand);
   if (m.role === 'chief') {
     drop(game, out, x, y, m.level >= 6 ? 'iron_bar' : 'copper_bar', 1, 2);
-    drop(game, out, x, y, 'bandage', 1, 2);
+    drop(game, out, x, y, 'herb', 1, 2);
   }
   rollTable(game, out, x, y, BANDIT_LOOT.filter((r) => r[0] !== 'iron_bar' || m.level >= 5), m.role === 'chief' ? 3 : 1 + (R() < 0.5 ? 1 : 0));
   return { rows: out, toast: m.role === 'chief' ? 'Chefe dos saqueadores derrotado!' : null };

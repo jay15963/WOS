@@ -29,7 +29,7 @@
   <header>
     <b>WOS · world gallery</b>
     <span id="stats">building…</span>
-    <a href="#structures">structures</a><a href="#masks">masks</a><a href="#props">props</a><a href="#nature">nature</a><a href="#sprites">sprites</a><a href="#atlas">atlas</a>
+    <a href="#structures">structures</a><a href="#masks">masks</a><a href="#props">props</a><a href="#nature">nature</a><a href="#nature2">nature+</a><a href="#sprites">sprites</a><a href="#atlas">atlas</a>
     <label><input type="checkbox" id="night"> night</label>
     <label>hour <input type="range" id="hour" min="6" max="18" step="0.25" value="10"></label>
     <label>zoom <input type="range" id="zoom" min="24" max="110" value="56"></label>
@@ -41,6 +41,7 @@
   <section id="masks"><h2>Autotile masks 0..15 (N=1 E=2 S=4 W=8), isolated</h2><canvas class="scene" id="maskCv"></canvas></section>
   <section id="props"><h2>Stations, furniture, lights, camp</h2><canvas class="scene" id="propCv"></canvas></section>
   <section id="nature"><h2>Nature — trees, plants, rocks, pickups</h2><canvas class="scene" id="natCv"></canvas></section>
+  <section id="nature2"><h2>Nature+ — species, undergrowth, ground details, water edges (agent E)</h2><canvas class="scene" id="nat2Cv"></canvas></section>
   <section id="sprites"></section>
   <section id="atlas"><h2>Atlas</h2><canvas class="scene" id="atlasCv"></canvas></section>
   <script type="module" src="./gallery-world.js"></script>
