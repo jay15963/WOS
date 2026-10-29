@@ -14,6 +14,7 @@ import { addLootRows } from './loot.js';
 import { lootRow, r3 } from './roll.js';
 import { noGrowStamp, removeNatural, findObj } from './objects.js';
 import { removeCropAt, cropAt } from './crops.js';
+import { sortedSlots, SORT_MODES } from '../invsort.js'; // chest.sort (agent B)
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
@@ -415,6 +416,17 @@ defineIntent('chest.take', {
     const inv = cloneStore(o);
     inv.remove(s.id, n);
     net.emit('chest.set', { id: o.id, slots: inv.toJSON(), by: actor.pid, give: { [s.id]: n } });
+  },
+});
+
+defineIntent('chest.sort', {
+  doc: 'Sort a chest (stacks merged): mode name | type | qty. The host computes the order; it travels in chest.set.',
+  args: { id: 'structId', mode: "'name'|'type'|'qty'" },
+  run(game, a, actor, net) {
+    const o = chestOf(game, a.id);
+    if (!o) return 'Baú não existe mais';
+    if (!SORT_MODES.includes(a.mode)) return 'Ordem desconhecida';
+    net.emit('chest.set', { id: o.id, slots: sortedSlots(o.store.slots, o.store.size, a.mode), by: actor.pid, quiet: 1 });
   },
 });
 

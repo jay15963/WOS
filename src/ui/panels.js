@@ -10,6 +10,7 @@ import { dropLoot } from '../game/loot.js';
 import { equipFromSlot, unequip, SLOTS } from '../game/equipment.js';
 import { CROPS } from '../game/farming.js';
 import { svgIcon, uiIcon } from './icons.js';
+import { SORT_MODES, SORT_PT, sortBackpack } from '../game/invsort.js';
 import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
@@ -49,6 +50,8 @@ export class Panels {
     this.buildTab = 'struct';
     this.scroll = {};
     this.pos = {};      // desktop window offsets (dragged by the title bar)
+    this.sortMode = {}; // last sort per container ('inv' | 'chest:<id>'), kept in localStorage
+    try { this.sortMode = JSON.parse(localStorage.getItem('wos.sort') || '{}') || {}; } catch { /* ignore */ }
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
@@ -101,6 +104,12 @@ export class Panels {
     return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"${st}><div class="ph"><span class="pt">${icon}<span>${title}</span>${k ? `<kbd class="pk">${k}</kbd>` : ''}</span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
   }
 
+  // sort buttons (A→Z · Tipo · Quantidade); the last one used per container is highlighted
+  sortBar(key) {
+    const cur = this.sortMode[key];
+    return `<div class="sortbar"><span>Ordenar</span>${SORT_MODES.map((m) => `<button class="sbt ${cur === m ? 'on' : ''}" data-sort="${m}" data-sortk="${key}">${SORT_PT[m]}</button>`).join('')}</div>`;
+  }
+
   slots(inv, tag, cols, selected = -1) {
     const A = this.g.A;
     return `<div class="grid" style="--cols:${cols}">${inv.slots.map((s, i) => `<button class="slot ${s ? 'full' : ''} ${i === selected ? 'sel' : ''}" data-${tag}="${i}" ${s ? `title="${ITEMS[s.id]?.name || ''}"` : ''}>${s ? `${itemIco(A, s.id)}<span class="n">${s.qty > 1 ? s.qty : ''}</span>` : ''}</button>`).join('')}</div>`;
@@ -146,7 +155,7 @@ export class Panels {
         ${eq('main')}<div class="dstat"><span title="Armadura">🛡 ${p.armorV ?? p.armorValue ?? 0}</span><span title="Calor das roupas">🔥 ${p.warmth || 0}</span></div>${eq('off')}
         <span></span>${eq('body')}<span></span>
       </div>`;
-    return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };
+    return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };
   }
 
   buildBody() {
@@ -188,8 +197,8 @@ export class Panels {
       if (!c || !c.store) { this.close(); return; }
       html = this.frame('Baú', buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div class="inv-side"><div class="gl">Mochila <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
-          <div class="chest-side"><div class="gl">Baú <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
+          <div class="inv-side"><div class="gl">Mochila <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para guardar</small></div>${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6)}</div>
+          <div class="chest-side"><div class="gl">Baú <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para pegar</small></div>${this.sortBar('chest:' + c.id)}${this.slots(c.store, 'cslot', 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
@@ -246,6 +255,18 @@ export class Panels {
         if (fit >= 0) this.sel = { kind: 'inv', i: fit };
         else g.events.emit('toast', { text: `Nada para ${SLOT_PT[slot].toLowerCase()} na mochila`, kind: 'info' });
       }
+      this.render();
+    }));
+    el.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+      const mode = b.dataset.sort, key = b.dataset.sortk;
+      this.sortMode[key] = mode;
+      try { localStorage.setItem('wos.sort', JSON.stringify(this.sortMode)); } catch { /* ignore */ }
+      g.audio?.play('ui_click', {});
+      if (key === 'inv') { this.sel = null; sortBackpack(g, mode); this.render(); return; }
+      const chest = this.data?.chest;
+      if (!chest) return;
+      // a chest is shared: the host sorts it (chest.sort -> chest.set) and every peer gets the same order
+      g.net.request('chest.sort', { id: chest.id, mode }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu para ordenar' }) });
       this.render();
     }));
     el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {

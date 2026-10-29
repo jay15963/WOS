@@ -1426,6 +1426,58 @@ def('S29', {
 });
 
 // =====================================================================================================
+// S31 B: chest sort (guest sorts a shared chest through the chest panel)
+def('S31', {
+  title: 'B: chest sort', timeout: 120000,
+  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (chest.sort → chest.set): same order on both, stacks merged, digest equal',
+  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (chest.sort intent → chest.set {slots}); o.store.slots; invsort.sortedSlots',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 10 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'chest', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free tile for the chest');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'chest', [tx, ty]);
+  const chestH = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 2000, 'host chest blueprint');
+  await A.buildAll(t, H, MH, [chestH.id]);
+  const chestG = await t.waitFor(() => { const o = A.structOn(G, chestH.id); return o && !o.blueprint && o; }, ONEWAY() + 300, 'guest sees the finished chest');
+  // messy contents set by the authority: split stacks, mixed categories, gaps
+  const messy = [['stone', 2], 0, ['potato', 1], ['pebble', 2], ['meat', 2], 0, ['stone', 3], ['meat', 1], ['knife_primitive', 1]];
+  while (messy.length < chestH.store.size) messy.push(0);
+  H.game.net.emit('chest.set', { id: chestH.id, slots: messy, by: H.game.net.pid, quiet: 1 });
+  const order = (o) => (o?.store?.slots || []).filter(Boolean).map((s) => `${s.id}×${s.qty}`).join(',');
+  await t.waitFor(() => order(A.structOn(G, chestH.id)) === order(chestH), ONEWAY() + 400, 'guest sees the messy chest');
+  A.standBy(G, MG, chestG);
+  const it = MG.building.describeStructure(G.game, chestG);
+  t.assert(it && it.kind === 'chest', 'guest can use the chest', it?.kind);
+  MG.building.useStructure(G.game, it);
+  const sortClick = async (mode) => {
+    const btn = await t.waitFor(() => G.doc.querySelector(`[data-sort="${mode}"][data-sortk="chest:${chestG.id}"]`), 3000, `guest chest panel shows the ${mode} sort button`);
+    const before = order(chestH);
+    btn.click();
+    await t.waitFor(() => order(chestH) !== before || order(chestH) === want[mode], RT() + 600, `host chest sorted (${mode})`, () => `host ${order(chestH)}`);
+    await t.waitFor(() => order(A.structOn(G, chestH.id)) === order(chestH), ONEWAY() + 400, `guest sees the ${mode} order`, () => `host ${order(chestH)} · guest ${order(A.structOn(G, chestH.id))}`);
+    t.check(order(chestH) === want[mode], `${mode}: expected order`, order(chestH));
+  };
+  const want = {
+    // tools → food (quantity desc: 3 meat before 1 potato) → materials (5 stone before 2 pebbles)
+    type: 'knife_primitive×1,meat×3,potato×1,stone×5,pebble×2',
+    qty: 'stone×5,meat×3,pebble×2,potato×1,knife_primitive×1',
+  };
+  const nm = (id) => MG.data.ITEMS[id].name;
+  want.name = ['knife_primitive', 'meat', 'pebble', 'potato', 'stone'].sort((a, b) => nm(a).localeCompare(nm(b), 'pt-BR'))
+    .map((id) => `${id}×${{ knife_primitive: 1, meat: 3, pebble: 2, potato: 1, stone: 5 }[id]}`).join(',');
+  await sortClick('type');
+  await sortClick('qty');
+  await sortClick('name');
+  t.check(G.doc.querySelector(`[data-sort="name"][data-sortk="chest:${chestG.id}"]`)?.classList.contains('on'), 'last sort of this chest is highlighted');
+  G.game.events.emit('closepanels', {});
+  await t.checkDigest(H, G);
+  env.history.push('S31');
+});
+
+// =====================================================================================================
 // S30 Single-player regression
 def('S30', {
   title: 'Single-player regression', timeout: 240000,

@@ -128,15 +128,19 @@ function shelterAt(game, tx, ty) {
   return { enclosed: !open, roof: cave || (!open && floor), cave };
 }
 
+const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 // felt temperature at the player and its parts (for the °C readout / tooltip)
 export function feltTemp(game, p, shelter) {
-  const T = SURVIVAL.temp, E = game.env, e = E.env || {};
+  // simulation state of the environment (env.cur / wet / hour advance in update(), also without rendering)
+  const T = SURVIVAL.temp, E = game.env, e = E.cur || E.env || {};
+  const wet = E.wet ?? E.env?.wet ?? 0;
   const biome = game.world.biomeAt?.(p.x, p.y);
   const base = T.biome[biome] ?? T.biomeDefault;
   const h = E.hour ?? 12;
-  const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * (e.night || 0);
+  const night = h < 12 ? 1 - ss(4.6, 6.3, h) : ss(18.7, 20.4, h);
+  const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * night;
   const covered = shelter.enclosed || shelter.cave;
-  const rain = covered ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + (e.wet || 0) * T.wet;
+  const rain = covered ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
   const wind = covered ? 0 : (e.wind || 0) * T.wind;
   const fire = fireHeat(game, p.x, p.y);
   const room = (shelter.enclosed ? T.shelter : 0) + (shelter.roof ? T.roof : 0) + (shelter.cave && !shelter.enclosed ? T.cave : 0);

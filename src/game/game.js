@@ -100,7 +100,10 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    const tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    let tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
+    const cf = this.camFocus;
+    if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) { const fk = clamp(cf.k ?? 0.5, 0, 1); tx += (cf.x - tx) * fk; ty += (cf.y - ty) * fk; }
     const k = 1 - Math.exp(-dt * 6);
     this.cam.x += (tx - this.cam.x) * k;
     this.cam.y += (ty - this.cam.y) * k;

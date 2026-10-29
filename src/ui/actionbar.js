@@ -130,7 +130,14 @@ export function installActionBar(game, root, wrap) {
         <span class="key">${kl}</span><span class="cost">${ab.cost || ''}</span><span class="ammo hidden"></span><span class="abn">${ab.name}</span>`;
       wrap.appendChild(el);
       const b = { id, el, cd: el.querySelector('.cd'), cdt: el.querySelector('.cdt'), ammo: el.querySelector('.ammo'), last: {} };
-      press(el, () => { useAbility(game, id); if (ab.hold) holdAbility(game, id); }, () => { if (ab.hold) releaseAbility(game, id); });
+      press(el, (e) => {
+        // ground-aimed abilities (aim: 'ground'): hand the press to the aim module (game.aim, agent G).
+        // Touch: the button becomes an aim stick (the pointer is captured on `el`); mouse: aim follows the cursor.
+        if (ab.aim && e.pointerType !== 'mouse' && game.aim?.beginTouch) { game.aim.beginTouch(id, el, e); return; }
+        if (ab.aim && e.pointerType === 'mouse' && game.aim?.beginMouse) { game.aim.beginMouse(id, { sticky: true }); return; }
+        useAbility(game, id);
+        if (ab.hold) holdAbility(game, id);
+      }, () => { if (ab.hold) releaseAbility(game, id); });
       return b;
     });
     if (!first) {

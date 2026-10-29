@@ -12,7 +12,8 @@ import { describeStructure, buildTap, exitBuildMode, commitPlacement, deconRect,
 import { describeRock, designate, designateRect, isRock } from './mining.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
-import { ABILITY_ORDER, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
+import { cancelCraft } from './crafting.js';
+import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -205,6 +206,11 @@ export function installController(game) {
   canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') ctl.mouse = { x: e.clientX, y: e.clientY }; });
   canvas.addEventListener('pointerleave', () => { ctl.mouse = null; });
 
+  // right click cancels a ground aim (game.aim, agent G) before anything else sees it
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 2 && game.aim?.active) { game.aim.cancel?.(); ctl._aimKey = null; e.stopImmediatePropagation(); }
+  }, true);
+
   // ---------- mouse drags for build / decon / mining modes ----------
   const tileAt = (e) => { const [wx, wy] = game.screenToWorld(e.clientX, e.clientY); return [Math.floor(wx), Math.floor(wy), wx, wy]; };
   let drag = null;
@@ -256,6 +262,7 @@ export function installController(game) {
   const doTap = (tap) => {
     const p = game.player;
     if (p.dead) return;
+    if (game.aim?.active) { game.aim.tap?.(tap); return; } // aiming: a click fires at that point (game.aim)
     if (game.ui?.modal) { game.events.emit('closepanels', {}); return; }
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
@@ -338,7 +345,10 @@ export function installController(game) {
         ABILITY_ORDER.forEach((id, i) => {
           const c = codes[i];
           if (!c || (bm && (c === 'KeyR' || c === 'ShiftLeft'))) return;
-          if (K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight'))) useAbility(g, id);
+          if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
+          // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
+          if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id); ctl._aimKey = c; return; }
+          useAbility(g, id);
         });
         for (let i = 0; i < 10; i++) if (K.has('Digit' + ((i + 1) % 10)) || K.has('Numpad' + ((i + 1) % 10))) g.events.emit('hotbar', { i });
         if (any(KEYS.target)) ctl.cycleTarget();
@@ -348,13 +358,16 @@ export function installController(game) {
         if (any(KEYS.mine)) ctl.toggleMineMode();
         if (K.has('Enter') && bm) commitPlacement(g);
         if (K.has('Escape')) {
-          if (g.build.mode) exitBuildMode(g);
+          if (g.aim?.active) { g.aim.cancel?.(); ctl._aimKey = null; }
+          else if (g.build.mode) exitBuildMode(g);
           else if (g.mining.mode) ctl.toggleMineMode(false);
           else if (g.ui?.modal) g.events.emit('closepanels', {});
           else if (p.target || ctl.goal) { ctl.setTarget(null); ctl.goal = null; }
           else g.events.emit('pausemenu', {});
         }
       }
+      // aim key released → fire (a quick tap fires at the mouse at once; game.aim decides)
+      if (ctl._aimKey && !inp.keys.has(ctl._aimKey) && !(ctl._aimKey === 'ShiftLeft' && inp.keys.has('ShiftRight'))) { ctl._aimKey = null; g.aim?.release?.(); }
       // shield block keeps up while its key is held
       if (p.block) {
         const c = abilityKeys(ABILITY_ORDER)[ABILITY_ORDER.indexOf('block')];
@@ -374,6 +387,12 @@ export function installController(game) {
       ctl.manual = !!(mx || my);
       if (ctl.manual) {
         if (ctl.goal) ctl.goal = null;
+        // walking cancels the crafting the player is doing (ingredients refunded by cancelCraft)
+        const Q = g.craft?.queue;
+        if (Q?.length && (p.work?.owner === 'craft' || Q[0].t > 0)) {
+          for (let i = Q.length - 1; i >= 0; i--) cancelCraft(g, i);
+          g.events.emit('error', { text: 'Craft cancelado' });
+        }
         if (p.work) { p.work = null; p.action = null; }
       }
 
