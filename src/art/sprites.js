@@ -4,6 +4,8 @@
 //
 // Modules: paint.js (helpers), foliage.js (leaf masses), trees.js, plants.js, rocks.js, pawns.js,
 // animals.js, buildings.js (+ items), icons.js, fx.js. Animation/composition lives in compose.js.
+// Art B (characters & items): kit.js (shape helpers), creatures.js (spider), gear.js (held tools/weapons/shields,
+// projectiles), apparel.js (wear overlays, bandit extras), items.js (item icons).
 
 import { Atlas } from '../engine/atlas.js';
 import { PPU, clearPool, anchorOf, cropAll } from './paint.js';
@@ -19,6 +21,10 @@ import { addStructures } from './structures.js';
 import { addStations } from './stations.js';
 import { addCrops } from './crops.js';
 import { addNatural } from './natural.js';
+import { addCreatures } from './creatures.js';
+import { addGear } from './gear.js';
+import { addApparel } from './apparel.js';
+import { addItems } from './items.js';
 
 export { PPU };
 
@@ -32,7 +38,8 @@ export function buildAtlas() {
     pending.push({ name, c, ax, ay });
   };
   // Each group is isolated: a failure in one painter must never break boot.
-  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural];
+  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
+    addCreatures, addGear, addApparel, addItems];
   for (const step of steps) {
     try { step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); }
   }
@@ -59,7 +66,8 @@ const CONTRACT = [
   'pawn_body_s', 'pawn_body_n', 'pawn_body_e', 'pawn_head_s', 'pawn_head_n', 'pawn_head_e',
   'hair_short_s', 'hair_short_n', 'hair_short_e', 'hair_long_s', 'hair_long_n', 'hair_long_e',
   'weapon_sword', 'weapon_axe', 'tool_pickaxe',
-  ...['wolf', 'boar', 'deer', 'rabbit', 'bear'].flatMap((s) => [s + '_s', s + '_n', s + '_e']),
+  ...['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider'].flatMap((s) => [s + '_s', s + '_n', s + '_e']),
+  'proj_arrow', 'proj_spear',
   'campfire', 'torch', 'wall_wood', 'chest', 'bed',
   // world expansion (Art A): one per group is enough for composeWorld's fallbacks
   'wall_stone', 'fence_wood', 'floor_wood', 'floor_stone', 'farm_plot', 'door_wood_h', 'door_wood_v', 'gate_wood_h', 'gate_wood_v',
