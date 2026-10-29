@@ -22,7 +22,7 @@ export class Game {
 
     this.player = {
       isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
-      facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0,
+      facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0, canSwim: true, swimming: false,
       look: { skin: [0.96, 0.80, 0.66], hair: 'short', hairColor: [0.36, 0.22, 0.12], shirt: [0.34, 0.47, 0.62] },
       weapon: 'sword', hp: 100, maxHp: 100,
     };
@@ -60,6 +60,7 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
+    p.swimming = !p.dead && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted || p._atkRootT > 0) mx = my = 0;

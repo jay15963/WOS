@@ -85,6 +85,7 @@ export const BUFFS = {
   weak:     { name: 'Fraqueza', icon: 'skull', good: false, desc: 'Renascido: -25% de dano.' },
   sick:     { name: 'Indigestão', icon: 'sick', good: false, desc: 'Carne crua: perde vida.' },
   cold:     { name: 'Frio', icon: 'cold', good: false, desc: 'Noite sem fogo: mais fome.' },
+  wet:      { name: 'Molhado', icon: 'cold', good: false, desc: 'Roupa encharcada: sente frio até secar (seca bem mais rápido perto do fogo).' },
   starving: { name: 'Faminto', icon: 'hunger', good: false, desc: 'Sem comida: perde vida.' },
   poison:   { name: 'Veneno', icon: 'poison', good: false, desc: 'Picada de aranha: perde vida aos poucos.' },
   bleed:    { name: 'Sangramento', icon: 'bleed', good: false, desc: 'Ferida aberta: perde vida aos poucos.' },
