@@ -288,7 +288,7 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
 | Position, facing, moving, action | game.js:57-69; abilities.js:472-519; controller.js | O | pres (12 Hz) |
 | HP, dead, maxHp, level, blocking | combat.js:118, 142; player.js:79-157 | O | pres |
 | Weapon/offhand/armor visuals | equipment.js:100-109; player.js:36-58 | O | pres |
-| Look | session.js:485 | O | `lk` |
+| Look | session.js `_setLook` / `sendLook` (agent H, `game/look.js`) | O | `lk` / `sts.look` (packed string) |
 | Damage taken from creatures | ai.js:136-152; bandits.js:286-310; projectiles.js:115-121 | H decides hit, O applies | own `player.hurt` |
 | Poison/bleed/stun on players | ai.js:146-150; bandits.js:321, 335 | O applies | own `player.hurt {poison/bleed/stun}` |
 | XP, level-up | player.js:79-94 | O | via `by/xp` on ops |
@@ -928,6 +928,10 @@ differs from the design text above, the code is described here (this section win
 - The guest whose atlas differs from the host's (same build) clears its atlas cache and reloads once (`sessionStorage
   wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
 - R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
+- **Looks** (round V2, agent H): `hello.look`, `lk.look` and `sts.list[].look` carry `packLook()` strings (`"1|average|…"`, ~200 B;
+  PROTO 4). Receivers always run `cleanLook()` (unknown ids → defaults, colours validated; legacy objects migrated), so a peer can
+  never break drawing. `session.sendLook()` (called by `applyLook` when the player saves in the editor) sends at the next presence
+  tick; the host relays a changed guest look to everyone at once (otherwise every 5 s). Scenario S70.
 - **Presence animation fields** (round V2, agent D; `packState` in `session.js`): `a = [type, t, dur, loop, item?]` (`dur` 0 =
   held pose; `loop` 1 = work cycle that repeats while working, `dur` = `p.work.cycle`), `hd` = head facing when it differs from
   `f`, `ps` = resting pose `'sit' | ['sit', seatId] | ['sleep', bedId]`. Receivers keep `f / a / hd / ps` in the interpolation

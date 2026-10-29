@@ -20,6 +20,7 @@ import { EntityServer, EntityClient, ClockSync } from './entities.js';
 import { DigestHost, DigestGuest } from './digest.js';
 import { releaseStations } from '../game/mut/structures.js';
 import { clearAtlasCache } from '../engine/atlasCache.js';
+import { cleanLook, packLook, loadLook } from '../game/look.js';
 
 const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: TURN da Cloudflare em Configurações (copie o relatório se ele já estiver ativo).';
 const QS = new URLSearchParams(location.search);
@@ -63,14 +64,7 @@ export function setPlayerName(n) {
 // ---- sanitizers for untrusted peer data ----
 const num = (v, lo, hi, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 const str = (v, max = 32) => (typeof v === 'string' ? v.slice(0, max) : null);
-const color = (c) => (Array.isArray(c) && c.length === 3 ? c.map((x) => num(x, 0, 1.5, 0.5)) : null);
-function cleanLook(l) {
-  if (!l || typeof l !== 'object') return null;
-  return {
-    skin: color(l.skin) || [0.95, 0.8, 0.66], hair: str(l.hair, 16) || 'short', hairColor: color(l.hairColor) || [0.35, 0.22, 0.12],
-    shirt: color(l.shirt) || [0.4, 0.5, 0.7], pants: color(l.pants) || undefined, beard: !!l.beard,
-  };
-}
+// looks (agent H, src/game/look.js): packed string on the wire, cleaned on receipt (unknown ids → default)
 
 // action for the presence stream: [type, t, dur (0 = held pose), loop (work cycles), item?] — receivers rebuild
 // the exact timeline (start = sample time - t·dur) and play it with the same delay as the position
@@ -302,7 +296,7 @@ export class Session {
 
   // ---------------- transport ----------------
   _hello() {
-    return { t: 'hello', v: PROTO, build: BUILD, art: runtime.atlasDigest, pid: this.pid, name: this.name, look: this.game ? this.game.player.look : null };
+    return { t: 'hello', v: PROTO, build: BUILD, art: runtime.atlasDigest, pid: this.pid, name: this.name, look: packLook(this.game ? this.game.player.look : loadLook()) };
   }
 
   _open(key, info) {
@@ -410,7 +404,7 @@ export class Session {
           if (!this.players.has(pid)) this._addPlayer(pid, str(it.name, 18) || 'Jogador', null);
           const pl = this.players.get(pid);
           if (it.name) pl.name = str(it.name, 18);
-          if (it.look) { pl.look = cleanLook(it.look); if (pl.ent && pl.look) pl.ent.look = pl.look; }
+          if (it.look) this._setLook(pl, it.look);
           this._applyState(pid, it.s, ht, this.hostClock);
         }
         if (m.env && this.game) this._applyEnv(m.env);
@@ -438,7 +432,7 @@ export class Session {
       case 'lk': {
         const pid = this.keyToPid.get(key);
         const pl = pid && this.players.get(pid);
-        if (pl) { pl.look = cleanLook(m.look); if (pl.ent && pl.look) pl.ent.look = pl.look; }
+        if (pl && this._setLook(pl, m.look) && this.role === 'host') this.lookAcc = 99; // relay a change to the others now
         return;
       }
       case 'left': {
@@ -499,8 +493,7 @@ export class Session {
     if (!existing) this._addPlayer(pid, name, key);
     const pl = this.players.get(pid);
     pl.name = name;
-    pl.look = cleanLook(m.look);
-    if (pl.ent && pl.look) pl.ent.look = pl.look;
+    this._setLook(pl, m.look);
     this.keyToPid.set(key, pid);
     const g = this.game, env = g.env;
     this._sendTo(key, {
@@ -615,6 +608,17 @@ export class Session {
   }
 
   // ---------------- players ----------------
+  // validated look of a remote player (true when it changed); the drawn entity follows
+  _setLook(pl, raw) {
+    const l = cleanLook(raw);
+    if (pl.look && packLook(pl.look) === packLook(l)) return false;
+    pl.look = l;
+    if (pl.ent) pl.ent.look = l;
+    return true;
+  }
+  // our look changed (character creator): send it with the next presence tick
+  sendLook() { this.lookAcc = 99; }
+
   _addPlayer(pid, name, key) {
     const pl = { pid, name, key, ent: null, av: null, rtt: null, last: performance.now(), look: null, synced: false, clk: new ClockSync() };
     this.players.set(pid, pl);
@@ -630,7 +634,7 @@ export class Session {
     pl.ent = {
       isEntity: true, kind: 'pawn', remote: true, faction: 'friend', pid: pl.pid, name: pl.name,
       x: sp.x, y: sp.y, r: 0.24, facing: 's', moving: false, moveT: 0, action: null, flash: 0,
-      look: pl.look || { skin: [0.95, 0.8, 0.66], hair: 'short', hairColor: [0.3, 0.2, 0.12], shirt: [0.55, 0.42, 0.3] },
+      look: pl.look || cleanLook(null),
       weapon: null, offhand: null, armor: { body: null, head: null }, hp: 100, maxHp: 100, level: 1, dead: false,
       _buf: [], _seen: false,
     };
@@ -750,15 +754,15 @@ export class Session {
       const s = packState(p);
       if (this.role === 'guest' && this.hostKey) {
         this._sendTo(this.hostKey, { t: 'st', s, ts: +now.toFixed(3) });
-        if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: p.look }); }
+        if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: packLook(p.look) }); }
       } else if (this.role === 'host' && this.players.size) {
         const withLook = this.lookAcc > 5;
         if (withLook) this.lookAcc = 0;
-        const list = [{ pid: this.pid, name: this.name, s, look: withLook ? p.look : undefined }];
+        const list = [{ pid: this.pid, name: this.name, s, look: withLook ? packLook(p.look) : undefined }];
         for (const pl of this.players.values()) {
           if (!pl.ent || !pl.synced) continue;
           const rs = pl.lastS ? agedState(pl.lastS, now - (pl.lastSAt || now)) : packState(pl.av || pl.ent);
-          list.push({ pid: pl.pid, name: pl.name, s: rs, look: withLook ? pl.look : undefined });
+          list.push({ pid: pl.pid, name: pl.name, s: rs, look: withLook && pl.look ? packLook(pl.look) : undefined });
         }
         const msg = { t: 'sts', ht: +now.toFixed(3), list };
         if (this.envAcc > 2) { this.envAcc = 0; msg.env = { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather, wt: Math.round(game.worldTime * 100) / 100 }; }

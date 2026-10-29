@@ -85,6 +85,7 @@ export function startShowcase({ renderer, atlas, onReady = null }) {
 
   const p = game.player;
   Object.assign(p, { x: fx - 0.55, y: fy + 1.25, facing: 'e', weapon: null, name: '' });
+  addEventListener('wos:look', (e) => { if (e.detail) p.look = e.detail; }); // agent H: the new look by the fire at once
   const friend = {
     isEntity: true, kind: 'pawn', name: '', x: fx + 1.6, y: fy + 0.95, r: 0.24, facing: 'w', moving: false, moveT: 0, action: null, flash: 0, weapon: null, hp: 1, maxHp: 1,
     look: { skin: [0.78, 0.58, 0.44], hair: 'long', hairColor: [0.12, 0.09, 0.07], shirt: [0.62, 0.36, 0.28] },
