@@ -101,3 +101,28 @@ export function drawPawn2D(ctx, A, p, t, cx, cy, scale, { shadow = true } = {}) 
 export function previewPawn(look) {
   return { isEntity: true, kind: 'pawn', id: 1, x: 0, y: 0, facing: 's', moving: false, moveT: 0, action: null, flash: 0, look, weapon: null, offhand: null, armor: null, hp: 1, maxHp: 1 };
 }
+
+// the game atlas seen as a preview atlas (sprites sliced from the packed canvas on first use): lets previews
+// show equipment / weapons drawn by the game (gallery checks, in-game editor)
+export function atlasView(A) {
+  const cache = new Map();
+  return {
+    k: 1, list: [], groups: {},
+    has: (n) => A.has(n),
+    get(n) {
+      let s = cache.get(n);
+      if (s) return s;
+      if (!A.has(n)) return NONE;
+      const r = A.get(n);
+      s = {
+        ...r, _c: null, _tint: new Map(),
+        get canvas() {
+          if (!this._c) { const c = document.createElement('canvas'); c.width = r.pw; c.height = r.ph; c.getContext('2d').drawImage(A.canvas, r.u0 * A.size, r.v0 * A.size, r.pw, r.ph, 0, 0, r.pw, r.ph); this._c = c; }
+          return this._c;
+        },
+      };
+      cache.set(n, s);
+      return s;
+    },
+  };
+}

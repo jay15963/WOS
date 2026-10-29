@@ -27,7 +27,7 @@ function sfx(name, game) {
   try { (game?.audio || window.game?.audio || audioMod?.getAudio?.())?.play?.(name); } catch { /* sound is optional */ }
 }
 const ATLAS = new Map();
-const atlasFor = (k) => { k = Math.max(1, Math.min(6, Math.round(k))); let A = ATLAS.get(k); if (!A) { A = new PreviewAtlas(k); ATLAS.set(k, A); } return A; };
+const atlasFor = (k) => { k = Math.max(1, Math.min(7, Math.round(k))); let A = ATLAS.get(k); if (!A) { A = new PreviewAtlas(k); ATLAS.set(k, A); } return A; };
 const randSeed = () => (Math.random() * 2 ** 31) >>> 0;
 const LOOK_EVENT = 'wos:look';
 
@@ -134,6 +134,7 @@ function picker(host, hex, onChange) {
 const FRAMES = {
   head: { cy: 0.86, view: 0.92, dir: 's' }, face: { cy: 0.84, view: 0.7, dir: 's' }, bust: { cy: 0.66, view: 1.2, dir: 's' },
   body: { cy: 0.62, view: 1.6, dir: 's' }, legs: { cy: 0.22, view: 0.85, dir: 's' }, side: { cy: 0.84, view: 0.95, dir: 'e' },
+  torso: { cy: 0.44, view: 1.0, dir: 's' },
 };
 class Thumbs {
   constructor() { this.queue = []; this.raf = 0; this.io = new IntersectionObserver((es) => { for (const e of es) { e.target._vis = e.isIntersecting; if (e.isIntersecting && e.target._dirty) this.push(e.target); } }, { rootMargin: '120px' }); }
@@ -267,11 +268,11 @@ const TABS = [
     { kind: 'colors', k: 'beardC', t: 'Cor da barba e sobrancelhas', pal: ['hair', 'dye'], labels: ['Naturais', 'Tinturas'], follow: 'Igual ao cabelo' },
   ] },
   { id: 'clothes', name: 'Roupas', icon: 'clothes', group: 'clothes', sections: [
-    { kind: 'grid', k: 'top', t: 'Parte de cima', frame: 'bust' },
+    { kind: 'grid', k: 'top', t: 'Parte de cima', frame: 'torso' },
     { kind: 'colors', k: 'topC', t: 'Cor principal', pal: 'cloth' },
     { kind: 'colors', k: 'topC2', t: 'Cor secundária (detalhes e estampa)', pal: 'cloth' },
-    { kind: 'grid', k: 'pattern', t: 'Estampa', frame: 'bust' },
-    { kind: 'grid', k: 'over', t: 'Por cima', frame: 'bust' },
+    { kind: 'grid', k: 'pattern', t: 'Estampa', frame: 'torso' },
+    { kind: 'grid', k: 'over', t: 'Por cima', frame: 'torso' },
     { kind: 'colors', k: 'overC', t: 'Cor (por cima)', pal: ['leather', 'cloth'], labels: ['Couro', 'Tecido'], when: (L) => L.over !== 'none' },
     { kind: 'grid', k: 'bottom', t: 'Parte de baixo', frame: 'legs' },
     { kind: 'colors', k: 'botC', t: 'Cor (parte de baixo)', pal: ['cloth', 'leather'], labels: ['Tecido', 'Couro'] },
@@ -354,13 +355,13 @@ export function openCharEditor(opts = {}) {
       const ctx = pv.getContext('2d');
       ctx.clearRect(0, 0, pv.width, pv.height);
       const base = Math.min(pv.width / 1.75, (pv.height - 70 * d) / 1.95);
-      const scale = base * (1 + (zk - 1) * 1.55);
+      const scale = base * zk;
       // zoom toward the face
       const fy = pv.height - 46 * d - base * 0.1;
       const cy = fy + (zk - 1) * scale * 0.5;
       const cx = pv.width / 2;
       stage(ctx, pv.width, pv.height, cx, cy, scale * 0.62);
-      drawPawn2D(ctx, atlasFor(Math.min(6, scale / 64 + 0.4)), pawn, now / 1000, cx, cy, scale);
+      drawPawn2D(ctx, atlasFor(scale / 64 + 0.4), pawn, now / 1000, cx, cy, scale);
     }
     raf = requestAnimationFrame(frameP);
   };
@@ -371,7 +372,7 @@ export function openCharEditor(opts = {}) {
   const walkBtn = Q('[data-a=walk]');
   walkBtn.onclick = () => { walking = !walking; walkBtn.innerHTML = icon(walking ? 'stand' : 'walk'); walkBtn.classList.toggle('on', walking); sfx('ui_click', game); };
   const zoomBtn = Q('[data-a=zoom]');
-  const setZoom = (z) => { zoomed = z; zTarget = z ? 2.2 : 1; zoomBtn.innerHTML = icon(z ? 'zoomOut' : 'zoomIn'); zoomBtn.classList.toggle('on', z); };
+  const setZoom = (z) => { zoomed = z; zTarget = z ? 2 : 1; zoomBtn.innerHTML = icon(z ? 'zoomOut' : 'zoomIn'); zoomBtn.classList.toggle('on', z); };
   zoomBtn.onclick = () => { setZoom(!zoomed); sfx('ui_click', game); };
   // drag / swipe to rotate, wheel / pinch to zoom
   const pts = new Map();

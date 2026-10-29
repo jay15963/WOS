@@ -15,15 +15,18 @@
 </style>
 </head>
 <body>
-<div id="info">?cat=hair · ?k=3 · ?dirs=s,e,n,w · ?n=24 (random looks) · ?scale=150 · ?walk=1</div>
+<div id="info">?cat=hair · ?k=3 · ?dirs=s,e,n,w · ?n=24 (random looks) · ?scale=150 · ?walk=1 · ?ids=a,b · ?over={json} · ?gear=helmet_iron,armor_leather (game atlas)</div>
 <div id="out"></div>
 <script type="module">
-import { PreviewAtlas, drawPawn2D, previewPawn } from '../src/art/look/preview.js';
+import { PreviewAtlas, drawPawn2D, previewPawn, atlasView } from '../src/art/look/preview.js';
+import { buildAtlas } from '../src/art/sprites.js';
 import { CATALOG } from '../src/art/look/catalog.js';
 import { DEFAULT_LOOK, randomLook, cleanLook } from '../src/game/look.js';
 const Q = new URLSearchParams(location.search);
 const k = +(Q.get('k') || 3), scale = +(Q.get('scale') || 150), dirs = (Q.get('dirs') || 's,e,n').split(','), walk = Q.has('walk');
-const A = new PreviewAtlas(k);
+// ?gear=… draws through the real game atlas (atlas resolution) with that equipment on
+const gear = Q.get('gear') ? Q.get('gear').split(',') : null;
+const A = gear ? atlasView(buildAtlas()) : new PreviewAtlas(k);
 const out = document.querySelector('#out');
 const base = Q.get('base') ? cleanLook(Q.get('base')) : { ...DEFAULT_LOOK, ...JSON.parse(Q.get('over') || '{}') };
 function fig(row, look, label, dir) {
@@ -32,6 +35,7 @@ function fig(row, look, label, dir) {
   const W = Math.round(scale * 1.05), H = Math.round(scale * 1.55);
   c.width = W; c.height = H; c.style.width = W + 'px'; c.style.height = H + 'px';
   const p = previewPawn(look); p.facing = dir; if (walk) { p.moving = true; p.moveT = 0.12; }
+  if (gear) p.armor = { head: gear.find((g) => /^(helmet|hood|hat)/.test(g)) || null, body: gear.find((g) => /^(armor|tunic)/.test(g)) || null };
   drawPawn2D(c.getContext('2d'), A, p, 0.3, W / 2, H - scale * 0.12, scale);
   f.appendChild(c);
   const cap = document.createElement('figcaption'); cap.textContent = label; f.appendChild(cap);

@@ -69,7 +69,7 @@ export function lookDefs() {
   for (const e of C.scar) if (e.id !== 'none') for (const d of D2) M.set(`lk_scar_${e.id}_${d}`, headD(`lk_scar_${e.id}_${d}`, (g) => F.scar(g, d, e), 0));
   for (const e of C.paint) if (e.id !== 'none') for (const d of (e.p.kind === 'tribal' || e.p.kind === 'stripes') ? D3 : D2) M.set(`lk_paint_${e.id}_${d}`, headD(`lk_paint_${e.id}_${d}`, (g, r) => F.facePaint(g, d, e, r), 0));
   // hair
-  const hairDef = (e, d, opts) => ({ W: HW, H: HH, ax: 0.5, ay: NECK / HH, pad: 18, paint: (P) => paintHair(P, e, d, opts) });
+  const hairDef = (e, d, opts) => ({ W: HW, H: HH, ax: 0.5, ay: NECK / HH, pad: 14, paint: (P) => paintHair(P, e, d, opts) });
   for (const e of C.hair) if (!e.p.none) {
     for (const d of D3) {
       M.set(`lk_hair_${e.id}_${d}`, hairDef(e, d, {}));

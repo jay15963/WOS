@@ -261,11 +261,13 @@ function texture(g, p, d, R, rand) {
   g.fillStyle = lin(g, 0, HY - 4, 0, R.bot + 4, [[0, 'rgba(0,0,0,0)'], [1, DARKH(0.3)]]);
   g.fillRect(-20, HY - 4, 100, 90);
   if (R.back) { g.fillStyle = DARKH(0.22); g.fillRect(-20, -30, 100, 140); }
+  // strokes are batched into one dark and one light path (one stroke call each: fast atlas painting)
+  const dk = new Path2D(), lt = new Path2D();
+  const flush = (wd = 0.9, wl = 0.75, ad = 0.4, al = 0.42) => { g.strokeStyle = DARKH(ad); g.lineWidth = wd; g.stroke(dk); g.strokeStyle = LITEH(al); g.lineWidth = wl; g.stroke(lt); };
   const strand = (x, y, len, ang, bend, light) => {
-    g.strokeStyle = light ? LITEH(0.42) : DARKH(0.4); g.lineWidth = light ? 0.75 : 0.9;
-    g.beginPath(); g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.cos(ang + bend) * len * 0.55, y + Math.sin(ang + bend) * len * 0.55, x + Math.cos(ang + bend * 1.6) * len, y + Math.sin(ang + bend * 1.6) * len);
-    g.stroke();
+    const P = light ? lt : dk;
+    P.moveTo(x, y);
+    P.quadraticCurveTo(x + Math.cos(ang + bend) * len * 0.55, y + Math.sin(ang + bend) * len * 0.55, x + Math.cos(ang + bend * 1.6) * len, y + Math.sin(ang + bend * 1.6) * len);
   };
   if (tex === 'straight' || tex === 'wavy') {
     const wave = tex === 'wavy';
@@ -279,11 +281,11 @@ function texture(g, p, d, R, rand) {
       const x = HX - 24 + rand() * 48, y = HY - 2 + rand() * (R.bot - HY - 4);
       const ang = Math.PI / 2 + (x - HX) * 0.012 + (rand() - 0.5) * 0.2;
       if (wave) {
-        g.strokeStyle = i % 3 ? DARKH(0.38) : LITEH(0.4); g.lineWidth = 0.85; g.beginPath(); g.moveTo(x, y);
-        for (let k = 1; k <= 3; k++) g.quadraticCurveTo(x + (k % 2 ? 1.8 : -1.8), y + k * 3 - 1.5, x + (k % 2 ? 0.2 : -0.2), y + k * 3);
-        g.stroke();
+        const P = i % 3 ? dk : lt; P.moveTo(x, y);
+        for (let k = 1; k <= 3; k++) P.quadraticCurveTo(x + (k % 2 ? 1.8 : -1.8), y + k * 3 - 1.5, x + (k % 2 ? 0.2 : -0.2), y + k * 3);
       } else strand(x, y, 6 + rand() * 9, ang, (rand() - 0.5) * 0.15, i % 3 === 0);
     }
+    flush();
     // glossy sheen
     g.strokeStyle = LITEH(0.85); g.lineWidth = 2;
     g.beginPath(); g.arc(cx + 1, cy + 8, 11, Math.PI * 1.12, Math.PI * 1.42); g.stroke();
@@ -294,11 +296,11 @@ function texture(g, p, d, R, rand) {
     const n = tex === 'coily' ? 110 : 56, r = tex === 'coily' ? 1.1 : 2;
     for (let i = 0; i < n; i++) {
       const x = HX - 30 + rand() * 60, y = R.top - 2 + rand() * (R.bot - R.top + 6);
-      g.strokeStyle = DARKH(tex === 'coily' ? 0.36 : 0.45); g.lineWidth = tex === 'coily' ? 0.7 : 1;
-      g.beginPath(); g.arc(x, y, r + rand() * r, 0.2, 2.6); g.stroke();
-      g.strokeStyle = LITEH(tex === 'coily' ? 0.35 : 0.6); g.lineWidth = tex === 'coily' ? 0.6 : 0.8;
-      g.beginPath(); g.arc(x - 0.6, y - 0.6, r * 0.8 + rand() * 0.6, 3.5, 5.2); g.stroke();
+      const r1 = r + rand() * r, r2 = r * 0.8 + rand() * 0.6;
+      dk.moveTo(x + Math.cos(0.2) * r1, y + Math.sin(0.2) * r1); dk.arc(x, y, r1, 0.2, 2.6);
+      lt.moveTo(x - 0.6 + Math.cos(3.5) * r2, y - 0.6 + Math.sin(3.5) * r2); lt.arc(x - 0.6, y - 0.6, r2, 3.5, 5.2);
     }
+    if (tex === 'coily') flush(0.7, 0.6, 0.36, 0.35); else flush(1, 0.8, 0.45, 0.6);
     g.fillStyle = LITEH(tex === 'coily' ? 0.22 : 0.3); g.beginPath(); g.ellipse(cx - 2, cy - 1, 9, 5, -0.3, 0, TAU); g.fill();
   } else if (tex === 'locs' || tex === 'twists') {
     // ropes: from the crown outward on the cranium, then down
@@ -308,9 +310,10 @@ function texture(g, p, d, R, rand) {
       const x0 = cx + Math.cos(a) * 4, y0 = cy + Math.sin(a) * 4;
       const x1 = cx + Math.cos(a) * 18, y1 = cy + Math.sin(a) * 15;
       const xe = x1 + (x1 - HX) * 0.1, ye = Math.max(y1, R.bot + 2);
-      g.strokeStyle = DARKH(0.5); g.lineWidth = 0.9; g.beginPath(); g.moveTo(x0, y0); g.quadraticCurveTo(x1, y1, xe, ye); g.stroke();
-      g.strokeStyle = LITEH(0.45); g.lineWidth = 0.8; g.beginPath(); g.moveTo(x0 + 1.4, y0 + 0.4); g.quadraticCurveTo(x1 + 1.4, y1 + 0.6, xe + 1.4, ye); g.stroke();
+      dk.moveTo(x0, y0); dk.quadraticCurveTo(x1, y1, xe, ye);
+      lt.moveTo(x0 + 1.4, y0 + 0.4); lt.quadraticCurveTo(x1 + 1.4, y1 + 0.6, xe + 1.4, ye);
     }
+    flush(0.9, 0.8, 0.5, 0.45);
     g.strokeStyle = DARKH(0.4); g.lineWidth = 0.6; g.beginPath();
     for (let i = 0; i < (tex === 'twists' ? 70 : 50); i++) { const x = HX - 26 + rand() * 52, y = R.top + rand() * (R.bot - R.top + 4); g.moveTo(x - 1.2, y - 0.6); g.lineTo(x + 1.2, y + (tex === 'twists' ? 1.4 : 0.6)); }
     g.stroke();
@@ -337,8 +340,9 @@ function texture(g, p, d, R, rand) {
       g.stroke();
     }
   } else if (tex === 'buzz') {
-    g.fillStyle = DARKH(0.28);
-    for (let i = 0; i < 160; i++) { g.beginPath(); circle(g, HX - 22 + rand() * 44, HY - 22 + rand() * 40, 0.35 + rand() * 0.3); g.fill(); }
+    g.fillStyle = DARKH(0.28); g.beginPath();
+    for (let i = 0; i < 160; i++) circle(g, HX - 22 + rand() * 44, HY - 22 + rand() * 40, 0.35 + rand() * 0.3);
+    g.fill();
     g.fillStyle = LITEH(0.3); g.beginPath(); g.ellipse(cx, cy, 8, 4, -0.3, 0, TAU); g.fill();
   }
   if (p.side && d === 's') { g.strokeStyle = DARKH(0.45); g.lineWidth = 1; g.beginPath(); g.moveTo(HX + 6, HY - 19); g.quadraticCurveTo(HX + 4, HY - 14, HX + 6, HY - 9); g.stroke(); }
@@ -393,7 +397,7 @@ export function paintHair(P, e, d, { back = false, mode = 'base' } = {}) {
   if (!R) return;
   const seed = e.id.length * 131 + e.id.charCodeAt(0) * 7 + d.charCodeAt(0) + (back ? 50 : 0);
   if (mode === 'base' && R.stub.length) {
-    P.layer((g) => { g.globalAlpha = 0.34; fillShapes(g, R.stub, '#8a8a8a'); g.globalAlpha = 1; g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(40,40,40,0.35)'; const r = rng(seed + 9); for (let i = 0; i < 90; i++) { g.beginPath(); circle(g, HX - 20 + r() * 40, HY - 20 + r() * 34, 0.4); g.fill(); } g.restore(); }, 0);
+    P.layer((g) => { g.globalAlpha = 0.34; fillShapes(g, R.stub, '#8a8a8a'); g.globalAlpha = 1; g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(40,40,40,0.35)'; const r = rng(seed + 9); g.beginPath(); for (let i = 0; i < 90; i++) circle(g, HX - 20 + r() * 40, HY - 20 + r() * 34, 0.4); g.fill(); g.restore(); }, 0);
   }
   if (!R.shapes.length) return;
   const thin = p.cap === 'buzz';
@@ -508,7 +512,7 @@ export function paintBeard(P, e, d) {
     else { g.moveTo(HX - 17, HY + 2); g.quadraticCurveTo(HX - 16, HY + 17, HX, HY + 18.6); g.quadraticCurveTo(HX + 16, HY + 17, HX + 17, HY + 2); g.quadraticCurveTo(HX + 9, HY + 9, HX, HY + 9); g.quadraticCurveTo(HX - 9, HY + 9, HX - 17, HY + 2); }
     g.closePath(); g.fill();
     g.save(); g.globalCompositeOperation = 'source-atop'; g.fillStyle = `rgba(70,70,70,${0.4 + p.st * 0.4})`;
-    for (let i = 0; i < 120; i++) { g.beginPath(); circle(g, (d === 'e' ? HX - 2 : HX - 18) + rand() * (d === 'e' ? 19 : 36), HY + 1 + rand() * 18, 0.3 + rand() * 0.25); g.fill(); }
+    g.beginPath(); for (let i = 0; i < 120; i++) circle(g, (d === 'e' ? HX - 2 : HX - 18) + rand() * (d === 'e' ? 19 : 36), HY + 1 + rand() * 18, 0.3 + rand() * 0.25); g.fill();
     g.restore();
   }, 0);
   if (!p.m && !p.b) return;
@@ -519,9 +523,9 @@ export function paintBeard(P, e, d) {
     g.save(); g.globalCompositeOperation = 'source-atop';
     g.fillStyle = lin(g, HX - 12, HY + 4, HX + 12, HY + 30, [[0, '#f6f6f6'], [1, '#9c9c9c']]); g.fillRect(-10, 0, 80, 90);
     g.strokeStyle = DARKH(0.45); g.lineWidth = 0.9;
-    for (let i = 0; i < 26; i++) { const x = (d === 'e' ? HX + 1 : HX - 15) + rand() * (d === 'e' ? 17 : 30), y = HY + 6 + rand() * 26; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rand() - 0.5) * 2, y + 3 + rand() * 3); g.stroke(); }
+    g.beginPath(); for (let i = 0; i < 26; i++) { const x = (d === 'e' ? HX + 1 : HX - 15) + rand() * (d === 'e' ? 17 : 30), y = HY + 6 + rand() * 26; g.moveTo(x, y); g.lineTo(x + (rand() - 0.5) * 2, y + 3 + rand() * 3); } g.stroke();
     g.strokeStyle = LITEH(0.55); g.lineWidth = 0.8;
-    for (let i = 0; i < 8; i++) { const x = (d === 'e' ? HX + 4 : HX - 11) + rand() * (d === 'e' ? 11 : 22), y = HY + 9 + rand() * 12; g.beginPath(); g.moveTo(x, y); g.lineTo(x + 0.5, y + 3); g.stroke(); }
+    g.beginPath(); for (let i = 0; i < 8; i++) { const x = (d === 'e' ? HX + 4 : HX - 11) + rand() * (d === 'e' ? 11 : 22), y = HY + 9 + rand() * 12; g.moveTo(x, y); g.lineTo(x + 0.5, y + 3); } g.stroke();
     if (p.b === 'braided') { const x = d === 'e' ? HX + 13 : HX; g.strokeStyle = DARKH(0.55); for (let y = HY + 20; y < HY + 33; y += 2.6) { g.beginPath(); g.moveTo(x - 2.2, y); g.quadraticCurveTo(x, y + 1.8, x + 2.2, y); g.stroke(); } }
     g.restore();
     if (p.b === 'braided') { const x = d === 'e' ? HX + 13.4 : HX; g.fillStyle = '#7c7c7c'; g.beginPath(); g.ellipse(x, HY + 30.6, 2.6, 1.1, 0, 0, TAU); g.fill(); }
