@@ -1819,6 +1819,21 @@ def('S50', {
 
 // =====================================================================================================
 // Agent A (construction) scenarios — rotation / edge props, real footprints, delivery, move, decon, raze, saves
+// points around every ground item (findSite avoidPts): sites ≥ ~3.5 tiles from loot, so the magnet never changes bag counts
+const lootAvoid = (f, cx, cy, r = 26) => {
+  const out = [], D = [-3, -1.5, 0, 1.5, 3];
+  for (const l of f.game.loot) if (Math.hypot(l.x - cx, l.y - cy) < r) for (const dx of D) for (const dy of D) out.push([l.x + dx, l.y + dy]);
+  return out;
+};
+// auto-work waits while a creature chases the player: calm every host creature around (any temper) and drop its chase
+const calmAround = (H, x, y, r = 30, secs = 300) => {
+  for (const m of H.game.entities) {
+    if (!m.isMob || m.proxy || m.dead || Math.hypot(m.x - x, m.y - y) > r) continue;
+    m.calmT = secs;
+    if (m.state === 'chase') { m.state = 'idle'; m.stateT = 1; m.threat = null; }
+  }
+};
+const chasers = (f) => f.game.entities.filter((e) => !e.dead && e.state === 'chase' && e.threat === f.game.player).map((e) => `${e.type ?? e.kind}@${f2(e.x)},${f2(e.y)}`).join(' ') || 'none';
 const geo = (o) => o && `${o.tx},${o.ty} r${o.rot | 0} ${o.fw}×${o.fh} @${f2(o.x)},${f2(o.y)} c${f2(o.cy)}`;
 
 def('S31', {
@@ -1898,7 +1913,7 @@ def('S33', {
   const { H, G, MH, MG } = await pairCtx(t);
   const g = G.game, gp = g.player, hp = H.game.player;
   const row = (x, y) => [0, 1, 2, 3, 4].map((k) => [x + k, y]).concat([[x - 1, y]]);
-  const site = A.findSite([H, G], [MH, MG], 'fence_wood', row, gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  const site = A.findSite([H, G], [MH, MG], 'fence_wood', row, gp.x, gp.y, { rMin: 3, rMax: 20, avoidPts: [[gp.x, gp.y], [hp.x, hp.y], ...lootAvoid(G, gp.x, gp.y)] });
   t.assert(site, 'found a free row');
   const { x0, y0 } = site;
   // a wall post at the west end (built by the host) for the fence to join
@@ -2351,9 +2366,10 @@ def('A6', {
   const g = G.game, gp = g.player, hp = H.game.player;
   A.ensure(G, { wood: 30 });
   const row = (x, y) => [0, 1, 2, 3, 4].map((k) => [x + k, y]);
-  const site = A.findSite([H, G], [MH, MG], 'wall_wood', row, gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', row, gp.x, gp.y, { rMin: 3, rMax: 20, avoidPts: [[gp.x, gp.y], [hp.x, hp.y], ...lootAvoid(G, gp.x, gp.y)] });
   t.assert(site, 'found a free row');
   const { x0, y0 } = site;
+  calmAround(H, x0 + 2, y0);
   A.place(G, MG, 'wall_wood', [x0, y0], [x0 + 4, y0]);
   const at = (f, M) => [0, 1, 2, 3, 4].map((k) => A.structAt(f, M, x0 + k, y0, 'main'));
   await t.waitFor(() => at(G, MG).every(Boolean) && at(H, MH).every(Boolean), RT() + 600, '5 wall blueprints on both');
@@ -2382,7 +2398,7 @@ def('A6', {
   g.input.taps.push({ x: tap.sx, y: tap.sy, type: 'touch' });
   await t.waitFor(() => g.work.seq, 2000, 'the tap started auto-work', () => `tap at ${f2(tap.sx)},${f2(tap.sy)} · ui: ${G.lastUi()}`);
   const st = g.work.status();
-  t.check(st && st.kind === 'build' && st.n === 5 && /Parede de madeira/.test(st.name), 'status: Construindo · Parede de madeira · 5', JSON.stringify(st));
+  t.check(st && st.kind === 'build' && st.n >= 5 && ids.every((id) => g.work.seq.ids.has(id)) && /Parede de madeira/.test(st.name), 'status: Construindo · Parede de madeira · ≥5 (the whole row)', JSON.stringify(st));
   await t.waitFor(() => { const b = G.doc.querySelector('.awb'); return b && !b.classList.contains('hidden') && /Construindo/.test(b.textContent); }, 3000, 'banner visible with "Construindo"');
   // two walls get built in sequence (the player walks between them by itself)
   await t.waitFor(() => ids.filter((id) => !A.structOn(H, id)?.blueprint).length >= 2, 60000, 'two walls built by the sequence',
@@ -3720,6 +3736,8 @@ def('A7', {
   const tiles = pathRow(H, MP, gp.x, gp.y, 6);
   t.assert(tiles, 'found a free row of 6 paintable tiles');
   env.history.push('A7');
+  calmAround(H, (tiles[2] % W) + 0.5, ((tiles[2] / W) | 0) + 0.5);
+  await t.tryWait(() => chasers(G) === 'none', 4000);
   A.ensure(G, { pebble: 12 });
   const peb0 = A.count(G, 'pebble');
   g.paths.paint('gravel', tiles);
@@ -3752,7 +3770,7 @@ def('A7', {
   const st = g.work.status();
   t.check(st && st.kind === 'path' && st.n === 6 && st.name === 'Cascalho' && /Assentando caminho/.test(st.verb), 'status: Assentando caminho · Cascalho · 6', JSON.stringify(st));
   await t.waitFor(() => tiles.every((i) => w.path[i] === 2 && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
-    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
+    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} chasers=${chasers(G)} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'built cells identical on both', pathCells(H, tiles));
   t.check(A.count(G, 'pebble') === peb0 - 6, '6 pebbles left the guest bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
