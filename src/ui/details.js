@@ -125,7 +125,7 @@ function sample(game, type, style, det, focus) {
   if (kit === 'wall') return [[mk(type, 0, 0, 6), mk(type, 1, 0, 10), mk(type, 2, 0, 8), mk(type, 0, 1, 1)], [-0.15, -0.55, 3.15, 2.1]];
   if (kit === 'door') {
     const wall = Object.keys(BUILDINGS).find((t) => BUILDINGS[t].connect === def.connect && BUILDINGS[t].block === 'tile') || 'wall_wood';
-    return [[mk(wall, 0, 0, 2, { _k: null }), mk(type, 1, 0, 10, { orient: 'h', door: true, open: 0, _openT: 0 }), mk(wall, 2, 0, 8, { _k: null })], [-0.1, -0.6, 3.1, 1.15]];
+    return [[mk(wall, 0, 0, 2, { _k: null }), mk(type, 1, 0, 10, { orient: 'h', door: true, open: 0, _openT: 0 }), mk(wall, 2, 0, 8, { _k: null })], [0.38, -0.62, 2.62, 1.1]];
   }
   if (kit === 'gate') return [[mk('fence_wood', 0, 0, 2, { _k: null }), mk(type, 1, 0, 10, { orient: 'h', door: true, open: 0, _openT: 0 }), mk('fence_wood', 2, 0, 8, { _k: null })], [0.25, -0.95, 2.75, 1.12]];
   if (kit === 'fence') return [[mk(type, 0, 0, 2), mk(type, 1, 0, 10), mk(type, 2, 0, 8)], [0.45, -0.62, 2.55, 1.12]];
