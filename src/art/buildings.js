@@ -262,6 +262,34 @@ function bedEast() {
   });
 }
 
+// chest with the lid swung open (while the local player has it open): lid inside, contents peeking out
+function chestOpen() {
+  const rand = rng(4242);
+  return spritePx(58, 60, (g, P) => {
+    P.layer((g) => {
+      const x0 = 6, x1 = 52, rim = 30, bot = 55;
+      // lid standing open behind the body (its inside faces us)
+      g.fillStyle = lin(g, 0, 2, 0, rim, [[0, '#8a5f38'], [1, '#5a3b22']]);
+      g.beginPath(); g.moveTo(x0, rim); g.lineTo(x0 + 2, 6); g.quadraticCurveTo(29, 1, x1 - 2, 6); g.lineTo(x1, rim); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(40,24,12,0.5)'; g.lineWidth = 0.8;
+      for (const y of [12, 19, 25]) { g.beginPath(); g.moveTo(x0 + 2, y); g.lineTo(x1 - 2, y); g.stroke(); }
+      g.fillStyle = '#56565c'; for (const bx of [x0 + 7, x1 - 11]) g.fillRect(bx, 6, 4, rim - 6);
+      // opening: dark inside with a few things
+      g.fillStyle = '#2a1a0e'; g.fillRect(x0 + 2, rim - 2, x1 - x0 - 4, 8);
+      for (const [x, c] of [[16, '#9c6e43'], [24, '#8a857e'], [33, '#c9a24a'], [41, '#b8233a']]) { g.fillStyle = c; g.beginPath(); g.ellipse(x + (rand() - 0.5) * 2, rim + 1, 3.6, 2.4, 0, 0, TAU); g.fill(); }
+      // body front (as the closed chest)
+      g.fillStyle = lin(g, x0, 0, x1, 0, [[0, WOOD.light], [0.6, WOOD.mid], [1, WOOD.dark]]);
+      g.fillRect(x0, rim + 4, x1 - x0, bot - rim - 4);
+      g.fillStyle = '#b48a5a'; g.fillRect(x0 - 1, rim + 3, x1 - x0 + 2, 3);
+      g.strokeStyle = 'rgba(40,24,12,0.5)'; g.lineWidth = 1;
+      for (const y of [rim + 12, rim + 19]) { g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y); g.stroke(); }
+      g.fillStyle = '#56565c'; for (const bx of [x0 + 7, x1 - 11]) g.fillRect(bx, rim + 4, 4, bot - rim - 4);
+      g.fillStyle = '#c9a24a'; g.fillRect(25.5, rim + 4, 7, 6);
+      g.fillStyle = 'rgba(20,12,6,0.4)'; g.fillRect(x0, bot - 5, x1 - x0, 5);
+    }, OW);
+  });
+}
+
 // chest seen from the back (turned north): plain boards, hinges, no lock
 function chestBack() {
   return spritePx(58, 52, (g, P) => {
@@ -433,6 +461,7 @@ export function addBuildings(add) {
   add('bed_e', bedEast(), 0.5, 1);
   { const c = chestBack(); add('chest_n', c, 0.5, 49 / (c.origH || c.height)); }
   add('chest_e', chestSide(), 0.5, 79 / 82);
+  { const c = chestOpen(); add('chest_open', c, 0.5, 57 / (c.origH || c.height)); }
   add('torch_wall_s', torchWall(false), 0.5, 1);
   add('torch_wall_e', torchWall(true), 0.5, 1);
 }

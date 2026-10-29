@@ -47,8 +47,9 @@ const CSS = `
 .abb .lbl small.bad{color:#ffb39a}
 .abb kbd{font:600 9px system-ui;opacity:.7}
 @media (max-width:760px),(max-height:520px){.abb{top:calc(var(--safe-t,0px) + 112px)}}
-@media (max-width:520px){.abb .lbl{display:none}.abb button{width:54px;height:52px}}
-@media (max-height:440px){.abb{top:auto;bottom:calc(var(--safe-b,0px) + 12px)}}
+.touch .abb .lbl{display:none}
+@media (orientation:portrait){.touch .abb{left:auto;right:calc(var(--safe-r,0px) + 8px);top:34%;transform:none;flex-direction:column}}
+@media (max-width:520px){.abb .lbl{display:none}.abb button{width:56px;height:54px}}
 .abb-on .workbar .wb-ok,.abb-on .workbar .wb-no{display:none!important}
 .asm{position:absolute;z-index:40;min-width:168px;padding:5px;border-radius:10px;background:rgba(22,24,28,.94);border:1px solid rgba(217,180,90,.5);
   box-shadow:0 8px 22px rgba(0,0,0,.45);pointer-events:auto;color:#f1ead8;font:600 13px/1.2 system-ui,sans-serif;animation:asm-in .12s ease-out}

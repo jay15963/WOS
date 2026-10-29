@@ -428,7 +428,8 @@ export function useStructure(game, it) {
     case 'chest':
       game.events.emit('open', { panel: 'chest', chest: o });
       game.audio?.play('chest_open', { x: o.x, y: o.y });
-      o._lid = 1;
+      if (LID.o && LID.o !== o) LID.o._lid = 0;
+      o._lid = 1; LID.o = o; LID.t = 0.6;
       return;
     case 'station':
       game.events.emit('open', { panel: 'craft', station: o.type });
@@ -476,6 +477,7 @@ export function structureMenu(game, o) {
 }
 
 // ---------- system ----------
+const LID = { o: null, t: 0 }; // chest whose lid is up for the local player
 // door swing: ease with a little overshoot at the end (cosmetic, every peer animates the shared o.open)
 const swing = (u) => (u >= 1 ? 1 : u <= 0 ? 0 : 1 - Math.pow(1 - u, 3) * Math.cos(u * 2.2));
 export function buildingSystem() {
@@ -498,11 +500,12 @@ export function buildingSystem() {
           o._openT = target ? swing(o._u) : 1 - swing(1 - o._u);
         } else { o._u = target; o._openT = target; }
       }
-      // chest lid (local player's open chest panel)
+      // chest lid (cosmetic): up while the local player's chest panel shows it
       const pn = game.ui?.panels;
       const ch = pn && pn.open === 'chest' ? pn.data?.chest : null;
       if (chestOpen && chestOpen !== ch) { game.audio?.play('chest_close', { x: chestOpen.x, y: chestOpen.y }); chestOpen._lid = 0; }
       chestOpen = ch || null;
+      if (LID.o && LID.o !== ch && (LID.t -= dt) <= 0) { LID.o._lid = 0; LID.o = null; }
       // floors: +10% walking speed
       const tx = Math.floor(p.x), ty = Math.floor(p.y);
       const fl = structureAt(game, tx, ty, 'floor');

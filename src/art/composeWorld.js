@@ -55,7 +55,7 @@ function tables(A) {
     'gate_wood_v_post', 'campfire_coals', 'furnace_glow', 'lamp_post_glow', 'banner_pole', 'cooking_pot_coals', 'brazier_coals']) T.parts[n] = opt(n);
   T.banner = []; for (let i = 0; i < 3; i++) { const c = opt('banner_cloth_' + i); if (c) T.banner.push(c); }
   T.face = {}; // type -> [n, e] facing variants (null = mirror / reuse the base)
-  for (const n of ['torch_wall_s', 'torch_wall_e']) T.parts[n] = opt(n);
+  for (const n of ['torch_wall_s', 'torch_wall_e', 'chest_open']) T.parts[n] = opt(n);
   CACHE.set(A, T);
   return T;
 }
@@ -291,7 +291,10 @@ export function drawStatic(B, A, o, t) {
   if (type === 'brazier' || type === 'lamp_post' || type === 'furnace' || type === 'cooking_pot') { drawLit(B, A, T, o, type, fl, t); return; }
   if (type === 'banner') { drawBanner(B, A, T, o, fl, t); return; }
   // ----- generic props: stations, furniture, camp, items -----
-  const s = o.face ? faceSprite(A, T, type, o.v, o.face) : spriteOf(A, type, o.v);
+  // (a chest the local player has open shows its lid up: o._lid, cosmetic)
+  const lid = o._lid && type === 'chest' && (!o.face || o.face === 's') && T.parts.chest_open;
+  if (lid) FFLIP = 1;
+  const s = lid || (o.face ? faceSprite(A, T, type, o.v, o.face) : spriteOf(A, type, o.v));
   if (!s) return;
   const ff = o.face ? FFLIP : f;
   const sc = o.s || 1;
