@@ -50,7 +50,7 @@ const FB = { pebble: ['item_stone', 0.6], stick: ['item_wood', 0.7], copper_ore:
   jade: ['item_ore', 0.8], coal: ['item_stone', 0.8], stone_block: ['item_stone', 1], copper_bar: ['item_ore', 0.9], iron_bar: ['item_ore', 0.9],
   steel_bar: ['item_ore', 0.9], gold_bar: ['item_ore', 0.9], potato: ['item_berries', 0.9], baked_potato: ['item_cooked', 0.8], corn: ['item_berries', 0.9],
   roast_corn: ['item_cooked', 0.8], stew: ['item_cooked', 0.9], cotton: ['item_fiber', 0.9], cloth: ['item_leather', 0.8], rope: ['item_fiber', 0.9],
-  bandage: ['item_fiber', 0.8], arrow: ['item_wood', 0.6] };
+  herb: ['item_fiber', 0.8], arrow: ['item_wood', 0.6] };
 function itemSprite(A, id) {
   const def = ITEMS[id];
   if (def && A.has(def.sprite)) return [def.sprite, 1];

@@ -154,7 +154,7 @@ export function drawStatic(B, A, o, t) {
     B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
     return;
   }
-  if (type === 'bush' || type === 'berrybush') {
+  if (type === 'bush' || type === 'berrybush' || type === 'herbbush') {
     const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : type;
     const s = A.pick(name, o.v);
     const shk = o.shake || 0;

@@ -8,7 +8,7 @@ export const CREATURE_SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox'
 export const CONTRACT = [
   'fx_blob', 'fx_soft', 'fx_spark', 'fx_smoke', 'fx_leaf', 'fx_drop', 'fx_ring', 'fx_flame', 'fx_splash', 'fx_dust', 'fx_slash', 'fx_star',
   'tree_oak_0', 'tree_pine_0', 'tree_birch_0', 'tree_dead_0', 'tree_stump_0', 'tree_sapling_0',
-  'bush_0', 'berrybush_0', 'berrybush_empty_0', 'grass_0', 'tallgrass_0', 'reed_0', 'flower_0', 'mushroom_0', 'boulder_0',
+  'bush_0', 'berrybush_0', 'berrybush_empty_0', 'herbbush_0', 'grass_0', 'tallgrass_0', 'reed_0', 'flower_0', 'mushroom_0', 'boulder_0',
   'pawn_body_s', 'pawn_body_n', 'pawn_body_e', 'pawn_head_s', 'pawn_head_n', 'pawn_head_e',
   'hair_short_s', 'hair_short_n', 'hair_short_e', 'hair_long_s', 'hair_long_n', 'hair_long_e',
   'weapon_sword', 'weapon_axe', 'tool_pickaxe',
@@ -21,7 +21,7 @@ export const CONTRACT = [
   'banner_0', 'brazier', 'lamp_post', 'tent_0', 'crate_0', 'pebble_0', 'stick_0', 'fibergrass_0', 'wild_potato_0', 'wild_cotton_0', 'wild_corn_0',
   'crop_potato_0', 'crop_cotton_0', 'crop_corn_0',
   'item_wood', 'item_stone', 'item_berries', 'item_meat', 'item_cooked', 'item_leather', 'item_fiber', 'item_ore',
-  'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_bandage', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
+  'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_heal', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
 ];
 
 // does `names` (Set or Map-like with has) hold art for a kind: exact, _0, _h or any _<n> variant

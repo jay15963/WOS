@@ -1565,6 +1565,61 @@ def('S30', {
 });
 
 // =====================================================================================================
+// S50 E: herb bush harvest (medicinal herbs replace bandages)
+def('S50', {
+  title: 'E: herb bush harvest', timeout: 120000,
+  expected: 'Guest forages a herbbush: gone on both, identical herb loot ids on both, herbs end in the guest bag (not the host\'s); old "bandage" ids load as herb; the guest heals with "heal" (1 herb, HoT, interrupted by damage); digest equal',
+  api: 'gather.hit kind forage on herbbush → obj.remove {drops herb}; loot.take; Inventory.load alias bandage→herb; useAbility("heal") buff heal; combat.dealDamage interrupt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = spawnOf(H);
+  const hb = A.shared(H, G, sp.x, sp.y, 60, (o) => o.type === 'herbbush' && !o.gone, env.claimed)[0];
+  t.assert(hb, 'found a herb bush present on both frames');
+  env.claimed.add(hb.id);
+  const id = hb.id, oH = A.objOn(H, id), oG = A.objOn(G, id);
+  t.check(!!oH && !!oG && oH.x === oG.x && oH.y === oG.y, 'same herbbush (id, position) on both', `${id} @ ${f2(oH?.x)},${f2(oH?.y)}`);
+  const st = A.freeSpot(G, MG, oG.x, oG.y, { rMin: 0.7, rMax: 1.2, prefer: Math.PI });
+  t.assert(st, 'free spot next to the bush');
+  A.teleport(G, st[0], st[1]);
+  sendAway(H, MH, oH.x, oH.y, 8, 0);
+  A.pacify(H, oH.x, oH.y, 16, 120);
+  await A.hostSees(t, H, G);
+  const c0 = [A.count(H, 'herb'), A.count(G, 'herb')];
+  const loot = A.lootRecorder(t, [H, G]);
+  await A.gather(t, G, MG, oG);
+  await t.waitFor(() => (oH.gone || !A.objOn(H, id)) && (oG.gone || !A.objOn(G, id)), 4000, 'herb bush gone on both');
+  await t.tryWait(() => A.count(G, 'herb') > c0[1], 4000);
+  await t.sleep(RT());
+  loot.stop();
+  const items = loot.items(0), cmp = loot.compare(0, 1);
+  t.check((items.herb || 0) >= 1 && (items.herb || 0) <= 2, 'one harvest of 1–2 medicinal herbs', short(items));
+  t.check(cmp.ok, 'herb loot identical on both', cmp.detail);
+  t.check(A.count(G, 'herb') > c0[1], 'herbs in the guest bag', `${c0[1]} → ${A.count(G, 'herb')}`);
+  t.check(A.count(H, 'herb') === c0[0], 'host bag unchanged', `${c0[0]} → ${A.count(H, 'herb')}`);
+  // legacy bandages load as herbs (inventory / chest stores / ground loot all go through ITEM_ALIASES)
+  const inv = new G.game.player.inv.constructor(4);
+  inv.load([['bandage', 3], 0, 0, 0]);
+  t.check(inv.count('herb') === 3 && !inv.count('bandage'), 'old save: 3 bandages load as 3 herbs', `herb ${inv.count('herb')} bandage ${inv.count('bandage')}`);
+  // heal on the guest
+  const p = G.game.player, n0 = A.count(G, 'herb');
+  A.pacify(H, p.x, p.y, 16, 120);
+  p.hp = 40;
+  const used = A.ability(G, MG, 'heal');
+  t.check(used !== false && A.count(G, 'herb') === n0 - 1, 'heal ability uses exactly 1 herb', `used ${used} herbs ${n0} → ${A.count(G, 'herb')}`);
+  t.check(G.game.player.action?.type === 'heal', "action / pose id 'heal'", String(G.game.player.action?.type));
+  const hp0 = p.hp;
+  await t.tryWait(() => p.hp >= hp0 + 9, 3500);
+  t.check(p.hp >= hp0 + 9, 'heals over time (~5% of max HP per second)', `${f2(hp0)} → ${f2(p.hp)}`);
+  MG.combat.dealDamage(G.game, { x: p.x + 1, y: p.y, level: 1 }, p, 3, {});
+  const hpHit = p.hp;
+  t.check(!p.buffs?.some?.((b) => b.id === 'heal'), 'taking damage interrupts the herbs', short((p.buffs || []).map((b) => b.id)));
+  await t.sleep(1600);
+  t.check(p.hp <= hpHit + 0.01, 'no more healing after the interruption', `${f2(hpHit)} → ${f2(p.hp)}`);
+  await t.checkDigest(H, G);
+  env.history.push('S50');
+});
+
+// =====================================================================================================
 // entry
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S29'];

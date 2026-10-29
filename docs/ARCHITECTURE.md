@@ -41,7 +41,7 @@ Biomas e zonas (src/world/worldgen.js):
 
 ## Objetos e entidades
 - **Objetos estáticos** (`world.objects`, por chunk 16×16): `{ id, type, v, x, y, s, f, solid, ... }`
-  types: `tree_oak|tree_pine|tree_birch|tree_dead|bush|berrybush|boulder` + construções (`campfire|torch|wall_wood|...`).
+  types: `tree_oak|tree_pine|tree_birch|tree_dead|bush|berrybush|herbbush|boulder` + construções (`campfire|torch|wall_wood|...`).
   Estado visual opcional: `shake` (0..1), `fall` (0..1.5 animação de queda), `stump`, `empty` (arbusto sem frutas),
   `flash`, `age` (escala de crescimento), `light: {r,g,b,radius,intensity,flicker,lift}` (emite luz), `fire: true` (emite chama/fumaça).
 - **Decor** (`chunk.decor`): `{ t, v, x, y, s, f }` t: `grass|tallgrass|reed|flower|mushroom`. Não interativo.
@@ -75,14 +75,14 @@ Pawns/cabelos são **brancos/cinza** e tingidos em runtime (multiplicação) —
 |---|---|
 | FX | `fx_blob, fx_soft, fx_spark, fx_smoke, fx_leaf, fx_drop, fx_ring, fx_flame, fx_flame_0..2, fx_splash, fx_dust, fx_slash, fx_star, fx_glow, fx_ember` |
 | Árvores | `tree_oak_0..4, tree_pine_0..3, tree_birch_0..2, tree_dead_0..1, tree_stump_0, tree_sapling_0` |
-| Plantas | `bush_0..3, berrybush_0..1, berrybush_empty_0..1, grass_0..7, tallgrass_0..3, reed_0..2, flower_0..5, mushroom_0..2` |
+| Plantas | `bush_0..3, berrybush_0..1, berrybush_empty_0..1, herbbush_0..2, grass_0..7, tallgrass_0..3, reed_0..2, flower_0..5, mushroom_0..2` |
 | Pedras | `boulder_0..3` |
 | Pawn | `pawn_body_{s,n,e}, pawn_head_{s,n,e}, hair_{short,long,bun,mohawk,ponytail,curly}_{s,n,e}, beard_{s,e}` (oeste = leste espelhado) |
 | Armas | `weapon_sword, weapon_axe, weapon_spear, weapon_club, tool_pickaxe` (apontando para cima, âncora no punho) |
 | Animais | `{wolf,boar,deer,rabbit,bear}_{s,n,e}` + `{...}_e_walk` (quadro de passada lateral) |
 | Construções | `campfire, torch, wall_wood, chest, bed` |
 | Itens | `item_wood, item_stone, item_berries, item_meat, item_cooked, item_leather, item_fiber, item_ore` |
-| Ícones UI | `icon_strike, icon_charge, icon_whirlwind, icon_bandage, icon_sprint, icon_attack, icon_eat, icon_build, icon_bag, icon_gather` |
+| Ícones UI | `icon_strike, icon_charge, icon_whirlwind, icon_heal, icon_sprint, icon_attack, icon_eat, icon_build, icon_bag, icon_gather` |
 
 Ícones para HTML: desenhe a região do sprite de `atlas.canvas` (u0..u1, v0..v1 × atlas.size) num canvas pequeno → `toDataURL()`.
 

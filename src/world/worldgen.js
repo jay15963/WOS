@@ -14,7 +14,8 @@
 // Roof (gen.roof): 1 where the ORIGINAL rock is ≥ 2 tiles deep; mined tiles there become dark caves.
 // Small natural objects (hand-gathered, no `solid`): pebble (v 0..3), stick (0..2), fibergrass (0..2),
 // wild_potato, wild_cotton, wild_corn. Generated after the trees/bushes/boulders so their ids are stable.
-// Guarantee: ≥ 10 pebbles, 8 sticks, 8 fibergrass and 2 berry bushes reachable within 14 tiles of spawn.
+// Guarantee: ≥ 10 pebbles, 8 sticks, 8 fibergrass, 2 berry bushes and 1 herb bush reachable within 14 tiles of spawn.
+// Herb bushes (`herbbush`, medicinal herbs with little green berries): clusters in shady / damp spots.
 // gen.timings = { section: ms } (generation profile).
 
 import { mulberry32, hash2, clamp, smoothstep } from '../engine/noise.js';
@@ -375,6 +376,21 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     berryC.push({ x, y });
   }
   const berryNear = (x, y) => { for (const c of berryC) if ((c.x - x) ** 2 + (c.y - y) ** 2 < 6.5) return true; return false; };
+  // medicinal herb bush clusters: shady, damp spots (birch groves, forest floor, marsh edges, meadows by water).
+  // Own rng + hash salts so adding them leaves every other object where it was.
+  const herbC = [];
+  {
+    const hrand = mulberry32(seed * 977 + 41);
+    for (let tries = 0; tries < 900 && herbC.length < 26; tries++) {
+      const x = 6 + hrand() * (W - 12), y = 6 + hrand() * (H - 12);
+      const i = idx(Math.floor(x), Math.floor(y));
+      if (!canPlant(i)) continue;
+      const b = biome[i];
+      const ok = b === B.BIRCH || (b === B.FOREST && forest[i] > FT + 0.04) || (b === B.MARSH && dWater[i] > 1.5) || (b === B.MEADOW && dWater[i] < 7 && moist[i] > 0);
+      if (ok) herbC.push({ x, y });
+    }
+  }
+  const herbNear = (x, y) => { for (const c of herbC) if ((c.x - x) ** 2 + (c.y - y) ** 2 < 5) return true; return false; };
 
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = idx(x, y);
@@ -421,6 +437,13 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     if (r3 < pRock) {
       objects.push({ id: oid++, type: 'boulder', v: Math.floor(r3 * 7919), x: x + 0.5 + (r - 0.5) * 0.3, y: y + 0.6, s: 0.6 + r * 0.55, f: r < 0.5 ? -1 : 1 });
       occupied[i] = 3;
+      continue;
+    }
+    const r4 = hash2(x, y, seed + 4041);
+    if (b !== B.SHORE && b !== B.ROCKY && ground[i] !== G.MARSH && herbNear(x + 0.5, y + 0.5) && r4 < 0.13) {
+      const h5 = hash2(x, y, seed + 4051);
+      objects.push({ id: oid++, type: 'herbbush', v: Math.floor(h5 * 1000), x: x + 0.5 + (h5 - 0.5) * 0.4, y: y + 0.6, s: 0.8 + r4 * 2.2, f: h5 < 0.5 ? -1 : 1 });
+      occupied[i] = 2;
     }
   }
 
@@ -764,8 +787,8 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
   {
     const RG = 14, sx = spawn.x, sy = spawn.y;
     const okTile = (i) => reach[i] && !water[i] && !rock[i];
-    const need = { pebble: 10, stick: 8, fibergrass: 8, berrybush: 2 };
-    const have = { pebble: 0, stick: 0, fibergrass: 0, berrybush: 0 };
+    const need = { pebble: 10, stick: 8, fibergrass: 8, berrybush: 2, herbbush: 1 };
+    const have = { pebble: 0, stick: 0, fibergrass: 0, berrybush: 0, herbbush: 0 };
     for (const o of objects) {
       if (have[o.type] === undefined || (o.x - sx) ** 2 + (o.y - sy) ** 2 > RG * RG) continue;
       if (okTile(idx(Math.floor(o.x), Math.floor(o.y)))) have[o.type]++;
@@ -789,17 +812,18 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
       stick: (c) => c.tree * 3 + (dForest[c.i] < 2 ? 1 : 0),
       fibergrass: (c) => (biome[c.i] === B.MEADOW ? 1 : 0) + lush[c.i] * 2,
       berrybush: (c) => (dForest[c.i] > 0.5 && dForest[c.i] < 4 ? 2 : 0) + (biome[c.i] === B.MEADOW ? 0.5 : 0),
+      herbbush: (c) => (dForest[c.i] < 3 ? 2 : 0) + c.d * 0.12 + (dWater[c.i] < 6 ? 0.5 : 0),
     };
     const place = (type, c) => {
       const jx = (grand() - 0.5) * 0.5, jy = (grand() - 0.5) * 0.4, f = grand() < 0.5 ? -1 : 1;
       const x = c.x + 0.5 + jx, y = c.y + 0.55 + jy;
-      if (type === 'berrybush') {
+      if (type === 'berrybush' || type === 'herbbush') {
         objects.push({ id: oid++, type, v: Math.floor(grand() * 1000), x, y: c.y + 0.6, s: 0.85 + grand() * 0.3, f });
         occupied[c.i] = 2;
       } else addSmall(type, Math.floor(grand() * (type === 'pebble' ? 4 : 3)), x, y, 0.85 + grand() * 0.3, f);
       c.used = true;
     };
-    for (const type of ['berrybush', 'stick', 'fibergrass', 'pebble']) {
+    for (const type of ['berrybush', 'stick', 'fibergrass', 'pebble', 'herbbush']) {
       let miss = need[type] - have[type];
       if (miss <= 0) continue;
       const P = pref[type];

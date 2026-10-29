@@ -18,7 +18,7 @@ export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
 const SMALL = new Set(['pebble', 'stick', 'fibergrass']);
 const TREES = ['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead'];
-export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn'];
+export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn'];
 const FLORA_SET = new Set(FLORA_KINDS);
 
 // synthesized densities (per tile, by biome) for kinds the world generator did not place at all
@@ -174,6 +174,7 @@ export function ensureStarter(game, offscreen = false) {
     [['stick'], 'stick', 6, 2.5, 13],
     [['fibergrass', 'bush'], 'fibergrass', 7, 2.5, 13],
     [['boulder'], 'boulder', 2, 6, 22],
+    [['herbbush'], 'herbbush', 1, 6, 26],
     [['wild_potato'], 'wild_potato', 1, 8, 30],
     [['wild_corn'], 'wild_corn', 1, 8, 30],
     [['wild_cotton'], 'wild_cotton', 1, 8, 30],
