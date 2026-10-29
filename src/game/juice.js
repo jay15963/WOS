@@ -166,9 +166,9 @@ export class Juice {
       e._jt = type;
       // Zzz rising from a sleeper
       if (e.pose?.type === 'sleep') {
-        e._zt = (e._zt || 0) - dt;
+        e._zt = (e._zt ?? 0.8) - dt; // first one once the sleeper has been drawn (head position known)
         if (e._zt <= 0) { e._zt = 1.5; this.zzz(e); }
-      }
+      } else e._zt = null;
     }
   }
 
