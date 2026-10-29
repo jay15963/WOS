@@ -12,7 +12,7 @@ const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
 const FOCUS = Q.get('focus') ? new RegExp(Q.get('focus')) : null;
 const ONLY = Q.get('only');
-if (ONLY) for (const id of ['structures', 'masks', 'props', 'nature', 'sprites', 'atlas']) if (id !== ONLY) $('#' + id).style.display = 'none';
+if (ONLY) for (const id of ['structures', 'masks', 'props', 'nature', 'nature2', 'sprites', 'atlas']) if (id !== ONLY) $('#' + id).style.display = 'none';
 if (Q.get('z')) $('#zoom').value = Q.get('z');
 if (Q.get('hour')) $('#hour').value = Q.get('hour');
 if (Q.get('night')) $('#night').checked = true;
@@ -97,6 +97,7 @@ function renderScene(ctx, B, cam, W, H, bg) {
   const night = $('#night').checked;
   ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   if (bg) ctx.drawImage(bg, 0, 0, W, H); else { ctx.fillStyle = '#6b5238'; ctx.fillRect(0, 0, W, H); }
+  if (B.water) { const [x, y, w, h] = B.water; ctx.fillStyle = '#2e5a64'; ctx.fillRect(ox + x * Z, oy + y * Z, w * Z, h * Z); }
   for (const it of B.ground.list) drawInst(ctx, it, Z, ox, oy);
   if (B.shadow.list.length && !night) {
     shadowCv.width = W; shadowCv.height = H;
@@ -163,7 +164,7 @@ function scene(cvId, wTiles, hTiles, build, opts = {}) {
     const Z = +$('#zoom').value;
     const W = Q.get('full') ? Math.round(wTiles * Z) : Math.min(Math.round(wTiles * Z), Math.max(400, innerWidth - 40)), H = Math.round(hTiles * Z);
     if (cv.width !== W || cv.height !== H || !S.bg) { cv.width = W; cv.height = H; S.bg = soil(W, H, 7 + SCENES.length); }
-    S.cam = { x: Math.min(wTiles / 2, W / Z / 2), y: hTiles / 2, zoom: Z };
+    S.cam = { x: Q.get('cx') ? +Q.get('cx') : Math.min(wTiles / 2, W / Z / 2), y: Q.get('cy') ? +Q.get('cy') : hTiles / 2, zoom: Z }; // ?cx= / ?cy= pan
   };
   SCENES.push(S);
   return S;
@@ -171,8 +172,9 @@ function scene(cvId, wTiles, hTiles, build, opts = {}) {
 function frameScene(S, t) {
   S.resize();
   const B = S.B;
-  for (const k in B) B[k].clear();
+  for (const k in B) B[k].clear?.();
   for (const f of S.anim) f(t);
+  B.water = S.water || null;
   for (const d of S.decor) drawDecor(B, A, d);
   S.objects.sort((a, b) => a.y - b.y);
   for (const o of S.objects) {
@@ -331,8 +333,45 @@ const natS = scene('natCv', 34, 15, (S) => {
   S.labels = [['pickups: pebble · stick · fibergrass · wild potato / cotton / corn', 2, 11]];
 });
 
+// --- nature+ (species, undergrowth, ground details, water edge) ---
+const nat2S = scene('nat2Cv', 34, 17, (S) => {
+  const O = (type, x, y, v = 0, extra = {}) => { const o = { type, x, y, v, s: 1, f: v % 2 ? -1 : 1, id: S.objects.length, ...extra }; S.objects.push(o); return o; };
+  const D = (t, x, y, v, s = 1) => S.decor.push({ t, v, x, y, s, f: v % 2 ? -1 : 1 });
+  // tree species: v = species * 16 + variant
+  for (let i = 0; i < 3; i++) O('tree_oak', 2 + i * 2.6, 3.8 + (i % 2) * 0.4, 16 + i);       // maples
+  for (let i = 0; i < 2; i++) O('tree_oak', 10.6 + i * 3.3, 3.9, 32 + i);                      // willows
+  for (let i = 0; i < 2; i++) O('tree_pine', 17.8 + i * 2.4, 4, 16 + i);                       // scots pines
+  for (let i = 0; i < 2; i++) O('tree_pine', 22.6 + i * 2.1, 4, 32 + i);                       // junipers
+  for (let i = 0; i < 2; i++) O('tree_birch', 26.6 + i * 1.6, 4, 16 + i);                      // aspens
+  O('tree_dead', 30.4, 4, 16); O('tree_pine', 32.3, 4, 1);
+  // bushes, herbs, mossy boulders
+  for (let i = 0; i < 3; i++) O('herbbush', 2 + i * 1.4, 7.2, i);
+  for (let i = 0; i < 2; i++) O('bush', 6.6 + i * 1.4, 7.2, 1000 + i);
+  for (let i = 0; i < 2; i++) O('bush', 9.6 + i * 1.4, 7.2, 2000 + i);
+  for (let i = 0; i < 3; i++) O('boulder', 13 + i * 1.4, 7.2, 8000 + i);
+  // upright undergrowth
+  for (let i = 0; i < 4; i++) D('fern', 17.5 + i * 1.0, 7.2, i);
+  for (let i = 0; i < 6; i++) D('bloom', 21.8 + i * 0.95, 7.2, i);
+  for (let i = 0; i < 2; i++) D('heather', 2 + i * 1, 9.6, i);
+  for (let i = 0; i < 2; i++) D('drygrass', 4.2 + i * 1, 9.6, i);
+  for (let i = 0; i < 2; i++) D('thistle', 6.4 + i * 0.8, 9.6, i);
+  for (let i = 0; i < 5; i++) D('mushroom', 8.4 + i * 0.7, 9.6, i);
+  // flat details
+  const flat = [['litter', 5], ['needles', 2], ['twigs', 2], ['petals', 2], ['moss', 3], ['scree', 2], ['shell', 2], ['driftwood', 1]];
+  let fx = 12.5;
+  for (const [t, n] of flat) for (let i = 0; i < n; i++) { D(t, fx, 9.6, i); fx += 1.15; }
+  // a pond corner with lily pads, river stones, reeds
+  S.labels = [['maples · willows · scots pines · junipers · aspens · snag', 1.5, 0.8], ['herb bushes · rose · juniper shrub · mossy boulders · ferns · flower clusters (meadow warm/cool, forest, marsh, shore, rocky)', 1.5, 5.6],
+    ['heather · dry grass · thistle · mushrooms · litter (oak/maple/birch) · needles · twigs · petals · moss · scree · shells · driftwood', 1.5, 8.6], ['water edge: lily pads · river stones · reeds', 1.5, 11.4]];
+  S.water = [1, 12, 33, 4.5];
+  for (let i = 0; i < 4; i++) D('lily', 3 + i * 1.6, 13.6 + (i % 2) * 0.6, i);
+  for (let i = 0; i < 3; i++) D('riverstone', 11 + i * 1.3, 13.8, i);
+  for (let i = 0; i < 3; i++) D('reed', 16 + i * 0.8, 13.4, i);
+  grassAround(S, 0.6, (x, y) => y >= 11);
+});
+
 // ---------- sprite listing ----------
-const MINE = /^(tree_|bush|berrybush|grass|tallgrass|reed|flower|mushroom|boulder|pebble|stick|fibergrass|wild_|campfire|torch|wall_|chest|bed|fence_|floor_|farm_|door_|gate_|workbench|stonecutter|furnace|anvil|loom|cooking_pot|table_|chair_|rug|flower_pot|banner|brazier|lamp_post|tent|crate|crop_|scaffold|crack|struct_)/;
+const MINE = /^(tree_|bush|berrybush|herbbush|fern|bloom|heather|drygrass|thistle|litter|needles|twigs|petals|moss|lily|riverstone|scree|shell|driftwood|grass|tallgrass|reed|flower|mushroom|boulder|pebble|stick|fibergrass|wild_|campfire|torch|wall_|chest|bed|fence_|floor_|farm_|door_|gate_|workbench|stonecutter|furnace|anvil|loom|cooking_pot|table_|chair_|rug|flower_pot|banner|brazier|lamp_post|tent|crate|crop_|scaffold|crack|struct_)/;
 {
   const sec = $('#sprites');
   const list = A.list.filter((s) => MINE.test(s.name) && (!FOCUS || FOCUS.test(s.name)));

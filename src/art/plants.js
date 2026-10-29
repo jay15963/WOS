@@ -3,6 +3,7 @@
 
 import { sprite, rng, TAU, lin, rgb, hex, mixc, leaf, circle } from './paint.js';
 import { drawFoliage, bushLumps } from './foliage.js';
+import { addUndergrowth } from './undergrowth.js';
 
 const BUSH_PALS = [
   { deep: '#22381a', dark: '#314d22', mid: '#45682c', light: '#5d8436', high: '#7a9f47' },
@@ -405,5 +406,6 @@ export function addPlants(add) {
   for (let i = 0; i < 3; i++) put('reed_' + i, reed(i), 4);
   for (let i = 0; i < 6; i++) put('flower_' + i, flower(i), 4);
   for (let i = 0; i < 3; i++) put('mushroom_' + i, mushroom(i), 4);
+  addUndergrowth(add);
 }
 

@@ -7,7 +7,7 @@
 // Multiplayer: regrowth, the safety net and sapling solidity are HOST decisions emitted as ops
 // (mut/objects.js obj.add / tree.solid); every peer derives the sapling age from `born` + worldTime.
 
-import { BIOMES, G } from '../world/worldgen.js';
+import { BIOMES, G, treeSpecies, bushSpecies, boulderMossy } from '../world/worldgen.js';
 import { CHUNK } from '../world/world.js';
 import { mulberry32 } from '../engine/noise.js';
 import { spawnFlora, ageOf, TREE_SOLID, SAPLING_GROW, NOGROW_R } from './mut/objects.js';
@@ -103,7 +103,12 @@ function tileFree(game, tx, ty, kind) {
 function spawnAt(game, kind, tx, ty) {
   const R = () => game.net.roll();
   const jx = (R() - 0.5) * (kind.startsWith('tree_') ? 0.5 : 0.6), jy = (R() - 0.5) * 0.4;
-  return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, floraLook(game.net, kind));
+  const look = floraLook(game.net, kind), w = game.world;
+  // art species of the spot, same rules as the world generator (rolled here, travels in the op's v)
+  if (kind.startsWith('tree_')) look.v = treeSpecies(w, kind, tx, ty, R()) * 16 + (look.v & 15);
+  else if (kind === 'bush') look.v = bushSpecies(w, tx, ty, R()) * 1000 + (look.v % 1000);
+  else if (kind === 'boulder' && boulderMossy(w, tx, ty)) look.v = 8000 + (look.v % 1000);
+  return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, look);
 }
 
 const growKey = (kind) => (kind.startsWith('tree_') ? 'tree' : kind);

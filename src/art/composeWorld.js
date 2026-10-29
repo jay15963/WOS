@@ -19,6 +19,7 @@
 import { TORCH_FLAME_LIFT, CAMPFIRE_FLAME_LIFT } from './buildings.js';
 import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
+import { TREE_SPECIES } from './trees.js';
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -109,7 +110,15 @@ function blockShadow(B, s, x, y, a) {
 }
 
 // ---------- static world objects ----------
-const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.022, tree_birch: 0.04, tree_dead: 0.015 };
+const BUSH_SP = [null, 'bush_rose', 'bush_juniper'];
+const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.022, tree_birch: 0.04, tree_dead: 0.015,
+  tree_maple: 0.03, tree_willow: 0.05, tree_scots: 0.018, tree_juniper: 0.016, tree_aspen: 0.045, tree_snag: 0.008 };
+// species art group of a tree: o.v >> 4 indexes TREE_SPECIES[type] (worldgen / regrowth encode it; 0 = the type itself)
+function treeGroup(A, type, v) {
+  const L = TREE_SPECIES[type];
+  const g = L ? L[(v >> 4) % L.length] : type;
+  return A.groups[g] ? g : A.groups[type] ? type : 'tree_oak';
+}
 export function drawStatic(B, A, o, t) {
   const T = tables(A);
   const type = o.type;
@@ -133,7 +142,8 @@ export function drawStatic(B, A, o, t) {
       B.shadow.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 0.8, 0.08, 0, 0, f);
       return;
     }
-    const s = A.pick(A.groups[type] ? type : 'tree_oak', o.v);
+    const grp = o._tg || (o._tg = treeGroup(A, type, o.v | 0));
+    const s = A.pick(grp, o.v & 15);
     let x = o.x, rot = 0, alpha = 1;
     const shk = o.shake || 0;
     if (shk > 0) { x += Math.sin(t * 57) * 0.045 * shk; rot = Math.sin(t * 43 + 1.3) * 0.028 * shk; }
@@ -149,14 +159,16 @@ export function drawStatic(B, A, o, t) {
     const sa = alpha;
     if (o.alpha != null) alpha *= o.alpha; // optional see-through (e.g. canopy over the player)
     B.blob.add(T.blob, o.x, o.y, 1.05 * sc, 0.85 * sc, 1, 1, 1, 0.6 * (fall > 0 ? 1 - clamp01(fall) : 1));
-    const sway = fall > 0 ? 0 : TREE_SWAY[type] ?? 0.03;
+    const sway = fall > 0 ? 0 : TREE_SWAY[grp] ?? 0.03;
     B.main.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f);
     B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
     return;
   }
   if (type === 'bush' || type === 'berrybush' || type === 'herbbush') {
-    const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : type;
-    const s = A.pick(name, o.v);
+    // bush species from o.v (worldgen / regrowth): ≥ 1000 → wild rose (1) / juniper shrub (2)
+    const sp = type === 'bush' ? ((o.v | 0) / 1000) | 0 : 0;
+    const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : sp && A.groups[BUSH_SP[sp]] ? BUSH_SP[sp] : type;
+    const s = A.pick(name, (o.v | 0) % 1000);
     const shk = o.shake || 0;
     const x = o.x + (shk > 0 ? Math.sin(t * 50) * 0.035 * shk : 0);
     const rot = shk > 0 ? Math.sin(t * 38) * 0.05 * shk : 0;
@@ -166,7 +178,7 @@ export function drawStatic(B, A, o, t) {
     return;
   }
   if (type === 'boulder') {
-    const s = A.pick('boulder', o.v);
+    const s = (o.v | 0) >= 8000 && A.groups.boulder_moss ? A.pick('boulder_moss', o.v) : A.pick('boulder', o.v); // ≥ 8000: mossy (woods)
     const x = o.x + shakeX(o, t, 0.03);
     B.blob.add(T.blob, o.x, o.y, 1.0 * o.s, 0.55 * o.s, 1, 1, 1, 0.5);
     B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f);
@@ -412,10 +424,16 @@ function drawBanner(B, A, T, o, fl, t) {
 // ---------- ground decor (grass, flowers...) ----------
 // subtle per-tuft tint so the carpet never looks stamped
 const GRASS_TINT = [[1, 1, 1], [0.93, 0.99, 0.88], [1.05, 1.02, 0.92], [0.9, 0.95, 0.84], [1.02, 0.98, 0.86], [0.96, 1.03, 0.94], [1.08, 1.04, 0.9], [0.88, 0.93, 0.86]];
+// flat ground details: drawn in B.ground (under contact shadows and plants), never sway, no tint
+export const FLAT_DECOR = new Set(['litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood']);
+// wind sway per decor kind (fraction of the sprite height; the shader scales it by the wind)
+const DECOR_SWAY = { flower: 0.05, bloom: 0.06, mushroom: 0, tallgrass: 0.15, reed: 0.15, fern: 0.07, heather: 0.04, drygrass: 0.13, thistle: 0.06 };
+const UNTINTED = new Set(['flower', 'bloom', 'mushroom', 'heather', 'thistle']);
 export function drawDecor(B, A, d) {
-  const s = d._s || (d._s = A.pick(d.t, d.v));
+  const s = d._s || (d._s = A.groups[d.t] ? A.pick(d.t, d.v) : A.pick('grass', d.v));
   const t = d.t;
-  const tint = t === 'flower' || t === 'mushroom' ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
-  const sway = t === 'flower' || t === 'mushroom' ? 0.05 : t === 'tallgrass' || t === 'reed' ? 0.15 : 0.11;
-  B.decor.add(s, d.x, d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, t === 'mushroom' ? 0 : sway, 0, 0, d.f, 1);
+  if (FLAT_DECOR.has(t)) { B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, 1, 0, 0, 0, d.f, 1); return; }
+  const tint = UNTINTED.has(t) ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
+  const sway = DECOR_SWAY[t] ?? 0.11;
+  B.decor.add(s, d.x, d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, 1);
 }

@@ -16,6 +16,11 @@
 // wild_potato, wild_cotton, wild_corn. Generated after the trees/bushes/boulders so their ids are stable.
 // Guarantee: ≥ 10 pebbles, 8 sticks, 8 fibergrass, 2 berry bushes and 1 herb bush reachable within 14 tiles of spawn.
 // Herb bushes (`herbbush`, medicinal herbs with little green berries): clusters in shady / damp spots.
+// Species (art only, inside the gameplay kinds): trees o.v = species * 16 + variant (treeSpecies), bushes
+// o.v = species * 1000 + variant (bushSpecies), mossy boulders o.v >= 8000 — composeWorld picks the art group.
+// Decor: grass / tallgrass / flower / reed / mushroom + undergrowth (fern, bloom, heather, drygrass, thistle) and
+// flat ground details (litter, needles, twigs, petals, moss, lily, riverstone, scree, shell, driftwood).
+// `tramp` also holds a few faint game trails winding down to the water.
 // gen.timings = { section: ms } (generation profile).
 
 import { mulberry32, hash2, clamp, smoothstep } from '../engine/noise.js';
@@ -65,6 +70,47 @@ export const BIOME_NAMES_PT = ['Campina', 'Floresta', 'Pinheiral', 'Bosque de b�
 export const BIOME_ID = { MEADOW: 0, FOREST: 1, PINE: 2, BIRCH: 3, MARSH: 4, SHORE: 5, ROCKY: 6, WATER: 7, MOUNTAIN: 8 };
 const B = BIOME_ID;
 export const CAMP_R = 6; // bandit camp radius (tiles)
+
+// ---------- species (art only) inside the gameplay kinds ----------
+// Smooth 0..1 value noise of cell size `cell` tiles (autumn groves, pine stands): a pure function of the seed.
+export function groveAt(seed, x, y, cell = 13, salt = 0) {
+  const fx = x / cell, fy = y / cell, x0 = Math.floor(fx), y0 = Math.floor(fy);
+  let u = fx - x0, v = fy - y0;
+  u = u * u * (3 - 2 * u); v = v * v * (3 - 2 * v);
+  const h = (a, b) => hash2(a, b, seed * 31 + 977 + salt);
+  const a = h(x0, y0), b = h(x0 + 1, y0), c = h(x0, y0 + 1), d = h(x0 + 1, y0 + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+// Tree species index for a tree of gameplay `type` at tile (tx, ty) — encoded as o.v = species * 16 + variant
+// (composeWorld TREE_SPECIES). `w` = world / generator fields { seed, W, biome, dWater, dRock, ground };
+// r = one uniform roll (worldgen hash or the host's net.roll for regrowth).
+//   tree_oak: 0 oak · 1 maple (autumn groves) · 2 willow (banks)   tree_pine: 0 conifer · 1 scots pine · 2 juniper (dry, rocky)
+//   tree_birch: 0 birch · 1 aspen (near water)                     tree_dead: 0 dead · 1 snag
+export function treeSpecies(w, type, tx, ty, r) {
+  const i = ty * w.W + tx;
+  const b = w.biome[i], dw = w.dWater[i], dr = w.dRock[i], g = w.ground[i];
+  switch (type) {
+    case 'tree_oak':
+      if (dw < 3.2 && b !== B.PINE && b !== B.ROCKY) return r < 0.7 ? 2 : 0;
+      if (groveAt(w.seed, tx, ty, 14, 1) > 0.64) return r < 0.85 ? 1 : 0;
+      return r < 0.05 ? 1 : 0;
+    case 'tree_pine':
+      if (b === B.ROCKY || g === G.GRAVEL || dr < 2.2) return r < 0.65 ? 2 : 0;
+      return groveAt(w.seed, tx, ty, 11, 2) > 0.55 ? (r < 0.75 ? 1 : 0) : (r < 0.15 ? 1 : 0);
+    case 'tree_birch': return dw < 5 ? (r < 0.45 ? 1 : 0) : (r < 0.1 ? 1 : 0);
+    case 'tree_dead': return b === B.MARSH || r < 0.4 ? 1 : 0;
+    default: return 0;
+  }
+}
+// Bush species (o.v = species * 1000 + variant): 0 bush · 1 wild rose (meadows, birch groves) · 2 juniper shrub (pines, rocky)
+export function bushSpecies(w, tx, ty, r) {
+  const i = ty * w.W + tx, b = w.biome[i];
+  if (b === B.PINE || b === B.ROCKY) return r < 0.55 ? 2 : 0;
+  if (b === B.MEADOW || b === B.BIRCH) return r < 0.35 ? 1 : 0;
+  return 0;
+}
+// Boulder look: mossy in the woods (o.v ≥ 8000)
+export const boulderMossy = (w, tx, ty) => { const b = w.biome[ty * w.W + tx]; return b === B.FOREST || b === B.BIRCH || b === B.PINE || b === B.MARSH; };
 
 function distanceField(W, H, isSource) {
   // multi-source two-pass chamfer (octile-ish weights)
@@ -390,14 +436,30 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
       if (ok) herbC.push({ x, y });
     }
   }
-  const herbNear = (x, y) => { for (const c of herbC) if ((c.x - x) ** 2 + (c.y - y) ** 2 < 5) return true; return false; };
+  const herbMask = new Uint8Array(N); // tiles within √5 of a cluster centre
+  for (const c of herbC) for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+    const x = Math.floor(c.x) + dx, y = Math.floor(c.y) + dy;
+    if (inB(x, y) && (c.x - x - 0.5) ** 2 + (c.y - y - 0.5) ** 2 < 5) herbMask[idx(x, y)] = 1;
+  }
 
+  const SPW = { seed, W, biome, dWater, dRock, ground }; // species helpers' view of the generator
+  const treeFree = (x, y, R) => {
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (inB(x + dx, y + dy) && occupied[idx(x + dx, y + dy)] === 1) return false;
+    return true;
+  };
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = idx(x, y);
     if (!canPlant(i)) continue;
     const b = biome[i];
     const r = hash2(x, y, seed + 101);
     const fo = forest[i];
+    // weeping willows leaning over the river banks and lake shores (roomy: no other tree within 2 tiles)
+    if (dWater[i] >= 1.1 && dWater[i] < 3.0 && b !== B.ROCKY && b !== B.PINE && ground[i] !== G.STONE && hash2(x, y, seed + 611) < 0.032 && treeFree(x, y, 2)) {
+      const h = hash2(x, y, seed + 612);
+      objects.push({ id: oid++, type: 'tree_oak', v: 32 + Math.floor(h * 16), x: x + 0.5 + (h - 0.5) * 0.3, y: y + 0.6, s: 0.9 + hash2(x, y, seed + 613) * 0.25, f: dWater[i] < 2 && h < 0.5 ? -1 : 1, age: 1 });
+      occupied[i] = 1;
+      continue;
+    }
     // trees
     let pTree = 0;
     if (b === B.FOREST || b === B.BIRCH || b === B.PINE) pTree = 0.2 + 0.42 * smoothstep(FT, FT + 0.35, fo);
@@ -412,7 +474,8 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
         const kind = pickTree(b, hash2(x, y, seed + 8));
         const jx = (hash2(x, y, seed + 3) - 0.5) * 0.55, jy = (hash2(x, y, seed + 4) - 0.5) * 0.55;
         const big = b === B.MEADOW ? 0.15 : 0; // lone meadow trees grow larger
-        objects.push({ id: oid++, type: kind, v: Math.floor(hash2(x, y, seed + 5) * 16), x: x + 0.5 + jx, y: y + 0.6 + jy, s: 0.85 + big + hash2(x, y, seed + 6) * 0.35, f: hash2(x, y, seed + 7) < 0.5 ? -1 : 1, age: 1 });
+        const sp = treeSpecies(SPW, kind, x, y, hash2(x, y, seed + 9));
+        objects.push({ id: oid++, type: kind, v: sp * 16 + Math.floor(hash2(x, y, seed + 5) * 16), x: x + 0.5 + jx, y: y + 0.6 + jy, s: 0.85 + big + hash2(x, y, seed + 6) * 0.35, f: hash2(x, y, seed + 7) < 0.5 ? -1 : 1, age: 1 });
         occupied[i] = 1;
         continue;
       }
@@ -428,19 +491,19 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     }
     const pBush = fertile ? 0.006 + edge * 0.05 + (b !== B.MEADOW ? 0.02 : 0) : b === B.MARSH ? 0.012 : 0;
     if (r2 < pBush) {
-      objects.push({ id: oid++, type: 'bush', v: Math.floor(r2 * 1000), x: x + 0.5 + (r - 0.5) * 0.4, y: y + 0.6, s: 0.75 + r * 0.45, f: r < 0.5 ? -1 : 1 });
+      objects.push({ id: oid++, type: 'bush', v: bushSpecies(SPW, x, y, hash2(x, y, seed + 207)) * 1000 + Math.floor(r2 * 1000), x: x + 0.5 + (r - 0.5) * 0.4, y: y + 0.6, s: 0.75 + r * 0.45, f: r < 0.5 ? -1 : 1 });
       occupied[i] = 2;
       continue;
     }
     const r3 = hash2(x, y, seed + 303);
     const pRock = b === B.ROCKY ? 0.06 : dRock[i] < 5 ? 0.02 : b === B.SHORE ? 0.006 : 0.0022;
     if (r3 < pRock) {
-      objects.push({ id: oid++, type: 'boulder', v: Math.floor(r3 * 7919), x: x + 0.5 + (r - 0.5) * 0.3, y: y + 0.6, s: 0.6 + r * 0.55, f: r < 0.5 ? -1 : 1 });
+      objects.push({ id: oid++, type: 'boulder', v: (boulderMossy(SPW, x, y) ? 8000 : 0) + Math.floor(r3 * 7919), x: x + 0.5 + (r - 0.5) * 0.3, y: y + 0.6, s: 0.6 + r * 0.55, f: r < 0.5 ? -1 : 1 });
       occupied[i] = 3;
       continue;
     }
     const r4 = hash2(x, y, seed + 4041);
-    if (b !== B.SHORE && b !== B.ROCKY && ground[i] !== G.MARSH && herbNear(x + 0.5, y + 0.5) && r4 < 0.13) {
+    if (b !== B.SHORE && b !== B.ROCKY && ground[i] !== G.MARSH && herbMask[i] && r4 < 0.13) {
       const h5 = hash2(x, y, seed + 4051);
       objects.push({ id: oid++, type: 'herbbush', v: Math.floor(h5 * 1000), x: x + 0.5 + (h5 - 0.5) * 0.4, y: y + 0.6, s: 0.8 + r4 * 2.2, f: h5 < 0.5 ? -1 : 1 });
       occupied[i] = 2;
@@ -468,6 +531,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     }
     return [best, col];
   };
+  const flowerZA = new Float32Array(N), flowerCA = new Uint8Array(N); // flower meadow strength / colour per tile
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = idx(x, y);
     const b = biome[i];
@@ -506,6 +570,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     L = clamp(L, 0, 1);
     lush[i] = L;
     const [fz, fc] = flowerAt(x + 0.5, y + 0.5);
+    flowerZA[i] = fz; flowerCA[i] = fc;
     const tallN = fbm(pW, x / 7, y / 7, 2);
     const colN = fbm(pC, x / 6, y / 6, 2);
     const count = Math.floor(L * 2.4 + hash2(x, y, seed + 303) + fz * 1.5);
@@ -539,8 +604,107 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     zones.push({ type: 'mushrooms', x, y, r: r + 0.5 });
     made++;
   }
-
+  // meadows and birch groves read greener (short turf in the terrain shader follows `lush`)
+  for (let i = 0; i < N; i++) if (biome[i] === B.MEADOW || biome[i] === B.BIRCH) lush[i] = Math.min(1, lush[i] + 0.07);
   lap('decor');
+  addNatureDetails();
+
+  // Undergrowth, ground details and water edges (decor only; own hash salts so the classic decor above and
+  // every object keep their places). Flat kinds lie on the ground (composeWorld FLAT_DECOR).
+  function addNatureDetails() {
+    const D = (t, v, x, y, s, f) => decor.push({ t, v, x, y, s, f });
+    const dLandW = distanceField(W, H, (i) => !water[i]);
+    // fallen leaves / needles / twigs under the trees (colour by species)
+    for (const o of objects) {
+      if (!o.type.startsWith('tree_')) continue;
+      const sp = o.v >> 4, h0 = hash2(o.id, 3, seed + 1101);
+      let t = 'litter', v = h0 < 0.5 ? 0 : 1;
+      if (o.type === 'tree_pine') { if (sp === 2) continue; t = 'needles'; v = h0 < 0.6 ? 0 : 1; }
+      else if (o.type === 'tree_oak') v = sp === 1 ? 2 + (h0 < 0.5 ? 0 : 1) : sp === 2 ? 0 : v;
+      else if (o.type === 'tree_birch') v = 4;
+      else { t = 'twigs'; v = h0 < 0.5 ? 0 : 1; }
+      const n = (sp === 1 && o.type === 'tree_oak' ? 3 : 1) + Math.floor(hash2(o.id, 5, seed + 1102) * 2);
+      for (let k = 0; k < n; k++) {
+        const a = hash2(o.id, 7 + k, seed + 1103) * Math.PI * 2, r = (0.25 + hash2(o.id, 11 + k, seed + 1104) * 0.85) * o.s;
+        const x = o.x + Math.cos(a) * r, y = o.y + 0.05 + Math.sin(a) * r * 0.55;
+        const tx = Math.floor(x), ty = Math.floor(y);
+        if (!inB(tx, ty) || !canPlant(idx(tx, ty))) continue;
+        D(t, v, x, y, 0.75 + hash2(o.id, 13 + k, seed + 1105) * 0.5, a < 3.14 ? 1 : -1);
+      }
+    }
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      const i = idx(x, y);
+      const h = hash2(x, y, seed + 1201), hv = hash2(x, y, seed + 1202);
+      const px = x + hash2(x, y, seed + 1203), py = y + hash2(x, y, seed + 1204);
+      const f = hv < 0.5 ? -1 : 1, s = 0.8 + hash2(x, y, seed + 1205) * 0.4;
+      if (water[i]) {
+        // still water near the shore: lily pads in patches; shallow rivers: stones
+        const flowing = Math.hypot(flowX[i], flowY[i]) > 0.2;
+        if (!flowing && dLandW[i] <= 2.6) {
+          const p = groveAt(seed, x, y, 5, 7) > 0.45 ? 0.26 : 0.035;
+          if (h < p) D('lily', hv < 0.35 ? 1 + (hv < 0.12 ? 1 : 0) : (hv < 0.7 ? 0 : 3), px, py, s, f);
+        } else if (flowing && water[i] === 1 && h < 0.07) D('riverstone', Math.floor(hv * 3), px, py, s, f);
+        continue;
+      }
+      if (!canPlant(i)) continue;
+      const b = biome[i], g = ground[i], dr = dRock[i], dw = dWater[i];
+      const woods = b === B.FOREST || b === B.BIRCH || b === B.PINE;
+      // foot of the cliffs: scree, ferns and moss in the shade of the rock
+      if (dr < 1.6) {
+        if (h < 0.24) { D('scree', Math.floor(hv * 2), px, py, s, f); continue; }
+        if (h < 0.31 && b !== B.SHORE) { D('fern', Math.floor(hv * 4), px, py, s, f); continue; }
+        if (h < 0.37 && b !== B.SHORE) { D('moss', Math.floor(hv * 3), px, py, s, f); continue; }
+      }
+      // banks: wet stones, driftwood on sand
+      if (dw <= 1.2) {
+        if ((g === G.SAND || g === G.GRAVEL) && h < 0.05) { D('riverstone', Math.floor(hv * 3), px, py, s, f); continue; }
+        if (g === G.SAND && h > 0.994) { D('driftwood', 0, px, py, s, f); continue; }
+      }
+      const cl = b === B.MEADOW || b === B.MARSH || b === B.SHORE ? 0.5 : groveAt(seed, x, y, 6, 5);
+      let p;
+      switch (b) {
+        case B.FOREST: case B.BIRCH: case B.PINE: {
+          p = (g === G.MOSS ? 0.075 : 0.035) * (cl > 0.55 ? 2.2 : 0.6) * (b === B.PINE ? 0.7 : 1);
+          if (h < p) { D('fern', Math.floor(hv * 4), px, py, s, f); break; }
+          if (h < p + 0.03) { D('moss', Math.floor(hv * 3), px, py, s, f); break; }
+          if (h < p + 0.042) { D('twigs', Math.floor(hv * 2), px, py, s, f); break; }
+          const pb = b === B.BIRCH ? 0.035 : b === B.FOREST ? 0.012 : 0;
+          if (h > 1 - pb && groveAt(seed, x, y, 8, 9) > 0.45) { D('bloom', 2, px, py, s, f); break; }
+          if (b === B.PINE && g !== G.MOSS && h > 0.985) D('heather', Math.floor(hv * 2), px, py, s, f);
+          break;
+        }
+        case B.MEADOW: {
+          const fo = forest[i];
+          if (Math.abs(fo - FT) < 0.05 && h < 0.03) { D('fern', Math.floor(hv * 4), px, py, s, f); break; } // forest edge
+          const fz = flowerZA[i], fc = flowerCA[i];
+          if (fz > 0.15 && h < 0.08 + fz * 0.12) { D('bloom', fc & 1, px, py, s, f); break; }
+          if (fz > 0.35 && h > 0.96) { D('petals', fc === 3 ? 1 : 0, px, py, s, f); break; }
+          if (h > 0.993) { D('bloom', hv < 0.5 ? 0 : 1, px, py, s, f); break; }
+          if (moist[i] < -0.12 && h < 0.006) D('thistle', Math.floor(hv * 2), px, py, s, f);
+          break;
+        }
+        case B.MARSH:
+          if (h < 0.025) D('bloom', 3, px, py, s, f);
+          else if (h < 0.05) D('moss', Math.floor(hv * 3), px, py, s, f);
+          else if (h < 0.06) D('fern', Math.floor(hv * 4), px, py, s, f);
+          break;
+        case B.SHORE:
+          if (g === G.SAND && h < 0.05) D('shell', Math.floor(hv * 2), px, py, s, f);
+          else if (h < 0.06 && dw > 1.2) D('drygrass', Math.floor(hv * 2), px, py, s, f);
+          else if (h > 0.985 && dw > 1.5) D('bloom', 4, px, py, s, f);
+          break;
+        case B.ROCKY:
+          if (h < 0.08) D('drygrass', Math.floor(hv * 2), px, py, s, f);
+          else if (h < 0.13 && cl > 0.45) D('heather', Math.floor(hv * 2), px, py, s, f);
+          else if (h < 0.1 && g === G.GRAVEL) D('scree', Math.floor(hv * 2), px, py, s, f);
+          else if (h > 0.985) D('bloom', 5, px, py, s, f);
+          else if (h > 0.978) D('thistle', Math.floor(hv * 2), px, py, s, f);
+          break;
+      }
+    }
+  }
+
+  lap('details');
   // ---------- spawn: open meadow near a forest edge, water in view, far from cliffs ----------
   const dForest = distanceField(W, H, (i) => biome[i] === B.FOREST || biome[i] === B.BIRCH || biome[i] === B.PINE);
   let spawn = null, best = -1e9;
@@ -674,9 +838,45 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
         }
       }
     }
+    // game trails: a few faint worn paths winding from the meadows and woods down to the water, around the trees
+    {
+      const trand = mulberry32(seed * 389 + 17);
+      const nTr = 4 + Math.floor(trand() * 3);
+      const dwAt = (x, y) => dWater[idx(clamp(x, 0, W - 1), clamp(y, 0, H - 1))];
+      for (let k = 0, tries = 0; k < nTr && tries < 300; tries++) {
+        let px = 16 + trand() * (W - 32), py = 16 + trand() * (H - 32);
+        const i0 = idx(Math.floor(px), Math.floor(py));
+        if (!canPlant(i0) || dWater[i0] < 9 || dWater[i0] > 45 || biome[i0] === B.MARSH || tramp[i0] || Math.hypot(px - spawn.x, py - spawn.y) < 6) continue;
+        k++;
+        let ang = trand() * Math.PI * 2;
+        const len = 34 + trand() * 40;
+        for (let s = 0; s < len; s += 0.5) {
+          const tx = Math.floor(px), ty = Math.floor(py);
+          if (dWater[idx(tx, ty)] < 1.3) break; // reached the water
+          const gx = dwAt(tx + 1, ty) - dwAt(tx - 1, ty), gy = dwAt(tx, ty + 1) - dwAt(tx, ty - 1);
+          let da = Math.atan2(-gy, -gx) - ang;
+          da = Math.atan2(Math.sin(da), Math.cos(da));
+          ang += da * 0.07 + (trand() - 0.5) * 0.36;
+          for (let t2 = 0; t2 < 5; t2++) { // swerve around trees ahead
+            const ax = Math.floor(px + Math.cos(ang) * 0.9), ay = Math.floor(py + Math.sin(ang) * 0.9);
+            if (!inB(ax, ay) || occupied[idx(ax, ay)] !== 1) break;
+            ang += (t2 & 1 ? -1 : 1) * 0.6 * (t2 + 1);
+          }
+          px += Math.cos(ang) * 0.5; py += Math.sin(ang) * 0.5;
+          const nx = Math.floor(px), ny = Math.floor(py);
+          if (!inB(nx, ny) || rock[idx(nx, ny)] || water[idx(nx, ny)]) break;
+          const fade = Math.min(1, s / 6, (len - s) / 6);
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const ww = Math.max(0, 1 - Math.hypot(nx + dx + 0.5 - px, ny + dy + 0.5 - py) / 1.05);
+            if (ww > 0 && occupied[idx(clamp(nx + dx, 0, W - 1), clamp(ny + dy, 0, H - 1))] !== 1) markT(nx + dx, ny + dy, Math.round(ww * fade * 112));
+          }
+          lush[idx(nx, ny)] *= 0.8;
+        }
+      }
+    }
     // clear the camp grounds (Combat places tents / fire there)
-    if (camps.length) {
-      for (let k = objects.length - 1; k >= 0; k--) {
+    {
+      for (let k = objects.length - 1; k >= 0 && camps.length; k--) {
         const o = objects[k];
         for (const c of camps) {
           if ((o.x - c.x) ** 2 + (o.y - c.y) ** 2 < (R + 0.6) ** 2) {
