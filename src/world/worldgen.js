@@ -593,7 +593,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     const x = 8 + rand() * (W - 16), y = 8 + rand() * (H - 16);
     const i = idx(Math.floor(x), Math.floor(y));
     if ((biome[i] !== B.FOREST && biome[i] !== B.PINE && biome[i] !== B.BIRCH) || occupied[i]) continue;
-    const r = 1.0 + rand() * 1.1, n = 9 + Math.floor(rand() * 7), v = Math.floor(rand() * 2);
+    const r = 1.0 + rand() * 1.1, n = 9 + Math.floor(rand() * 7), v = [0, 1, 3, 0][Math.floor(rand() * 4)]; // fairy rings: brown, fly agaric, puffballs
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + rand() * 0.3, rr = r * (0.9 + rand() * 0.2);
       const mx = x + Math.cos(a) * rr, my = y + Math.sin(a) * rr;
