@@ -14,6 +14,7 @@
 
 import { spritePx, rng, OW, TAU, SS, canvas, lin, rad, circle, mixc, tone, clamp, hex, rgb } from './paint.js';
 import { wallTop, wallFront, planks, STORY_PX } from './structures.js';
+import { lazyDef } from './lazyDefs.js';
 
 // FH = one story of facade (agent L: STORY_PX = one tile); courses keep their 26-px-era sizes (LOG_RH, brick rows)
 const FH = STORY_PX, OV = 3, EXT = 12, BL = 2, PH = 36;
@@ -1177,56 +1178,70 @@ function roofSkylight() {
 // ---------------- registration ----------------
 export const FLOOR_STYLES = ['herring', 'parquet', 'wide', 'cobble', 'tiles', 'checker'];
 export const FENCE_STYLES = { picket: 'fence_wood', board: 'fence_wood', wattle: 'fence_wood', stone: 'fence_stone', hedge: 'hedge' };
-export function addArch(add) {
-  const wallAy = 1;
+// every sprite of this module: S(name, paint, ax, ay, baked). Baked = the default look of K's own pieces (stone wall,
+// hedge) and the emissive glows; everything else is painted lazily on demand (art/lazyDefs.js → shared lazy texture).
+function archSprites(S) {
   for (const st of WALL_STYLES) {
-    if (st !== 'plank' && st !== 'cut') for (let m = 0; m < 16; m++) add(`wst_${st}_${m}`, wallStyleSprite(st, m), 0.5, wallAy);
-    for (const m of SOFT_MASKS) add(`wst_${st}_s${m}`, wallStyleSprite(st, m, true), 0.5, wallAy);
+    if (st !== 'plank' && st !== 'cut') for (let m = 0; m < 16; m++) S(`wst_${st}_${m}`, () => wallStyleSprite(st, m), 0.5, 1);
+    for (const m of SOFT_MASKS) S(`wst_${st}_s${m}`, () => wallStyleSprite(st, m, true), 0.5, 1);
   }
-  const A = (n, c) => add(n, c, 0.5, 1);
-  A('kd_post_nw', cornerPost(false)); A('kd_post_sw', cornerPost(true));
-  A('kd_quoin_nw', cornerQuoin(false)); A('kd_quoin_sw', cornerQuoin(true));
-  A('kd_pillar_nw', cornerPillar(false)); A('kd_pillar_sw', cornerPillar(true));
-  A('kd_end_e', endCap('e')); A('kd_end_s', endCap('s')); A('kd_end_n', endCap('n'));
-  A('kd_buttress', buttress()); A('kd_plinth', plinth());
-  A('kd_cap_n', capPiece('n')); A('kd_cap_s', capPiece('s')); A('kd_cap_w', capPiece('w'));
-  A('kd_cren_n', crenel('n')); A('kd_cren_s', crenel('s')); A('kd_cren_w', crenel('w'));
-  A('kd_beams', beams()); A('kd_band', band());
-  for (const k of ['window', 'shutters', 'curtains', 'oculus', 'slit']) A('kd_' + k, windowArt(k, false));
-  A('kd_win_glow', windowArt('window', true)); A('kd_oculus_glow', windowArt('oculus', true));
-  A('kd_winbox', winbox());
-  for (const k of ['shelf', 'hooks', 'antlers', 'pennant', 'painting', 'shield', 'sconce']) A('kd_' + k, mount(k));
-  for (let v = 0; v < 3; v++) A('kd_ivy_' + v, ivy(v));
-  for (let v = 0; v < 2; v++) A('kd_moss_' + v, moss(v));
-  for (let v = 0; v < 2; v++) A('kd_cracks_' + v, cracksArt(v));
-  A('kd_weather', weatherArt()); A('kd_flowers', flowersArt());
+  const A = (n, f, baked = false) => S(n, f, 0.5, 1, baked);
+  A('kd_post_nw', () => cornerPost(false)); A('kd_post_sw', () => cornerPost(true));
+  A('kd_quoin_nw', () => cornerQuoin(false)); A('kd_quoin_sw', () => cornerQuoin(true));
+  A('kd_pillar_nw', () => cornerPillar(false)); A('kd_pillar_sw', () => cornerPillar(true));
+  A('kd_end_e', () => endCap('e')); A('kd_end_s', () => endCap('s')); A('kd_end_n', () => endCap('n'));
+  A('kd_buttress', buttress); A('kd_plinth', plinth);
+  A('kd_cap_n', () => capPiece('n')); A('kd_cap_s', () => capPiece('s')); A('kd_cap_w', () => capPiece('w'));
+  A('kd_cren_n', () => crenel('n')); A('kd_cren_s', () => crenel('s')); A('kd_cren_w', () => crenel('w'));
+  A('kd_beams', beams); A('kd_band', band);
+  for (const k of ['window', 'shutters', 'curtains', 'oculus', 'slit']) A('kd_' + k, () => windowArt(k, false));
+  A('kd_win_glow', () => windowArt('window', true), true); A('kd_oculus_glow', () => windowArt('oculus', true), true);
+  A('kd_winbox', winbox);
+  for (const k of ['shelf', 'hooks', 'antlers', 'pennant', 'painting', 'shield', 'sconce']) A('kd_' + k, () => mount(k));
+  for (let v = 0; v < 3; v++) A('kd_ivy_' + v, () => ivy(v));
+  for (let v = 0; v < 2; v++) A('kd_moss_' + v, () => moss(v));
+  for (let v = 0; v < 2; v++) A('kd_cracks_' + v, () => cracksArt(v));
+  A('kd_weather', weatherArt); A('kd_flowers', flowersArt);
   // doors
   for (const st of ['panel', 'iron', 'arched', 'rustic']) {
-    add(`kdr_${st}_h_leaf`, doorLeafSprite(st), 9 / 64, 1);
-    add(`kdr_${st}_v_leaf`, doorLeafV(st), 0.5, (0.15 * 64 + (FH - DH)) / (64 + FH));
+    S(`kdr_${st}_h_leaf`, () => doorLeafSprite(st), 9 / 64, 1);
+    S(`kdr_${st}_v_leaf`, () => doorLeafV(st), 0.5, (0.15 * 64 + (FH - DH)) / (64 + FH));
   }
-  A('kd_door_arch', doorArch()); A('kd_awning', awning()); A('kd_dlantern', doorLantern()); A('kd_knocker', knocker()); A('kd_wreath', wreath());
-  A('kd_step', doorStep());
-  // fences
-  for (const st in FENCE_STYLES) for (let m = 0; m < 16; m++) add(`kfe_${st}_${m}`, fenceStyleSprite(st, m), 0.5, 1);
-  add('fence_stone', fenceStyleSprite('stone', 0), 0.5, 1); add('hedge', fenceStyleSprite('hedge', 0), 0.5, 1);
-  for (const k of ['flat', 'ball', 'point']) A('kfe_cap_' + k, fenceCap(k));
-  A('kfe_lantern', fenceLantern()); A('kfe_flowers', fenceFlowers()); A('kfe_vines_h', fenceVines(0)); A('kfe_vines_v', fenceVines(1)); A('kfe_bird', bird());
+  A('kd_door_arch', doorArch); A('kd_awning', awning); A('kd_dlantern', doorLantern); A('kd_knocker', knocker); A('kd_wreath', wreath);
+  A('kd_step', doorStep);
+  // fences (stone wall / hedge masks: baked, they are those pieces' own default look)
+  for (const st in FENCE_STYLES) for (let m = 0; m < 16; m++) S(`kfe_${st}_${m}`, () => fenceStyleSprite(st, m), 0.5, 1, st === 'stone' || st === 'hedge');
+  S('fence_stone', () => fenceStyleSprite('stone', 0), 0.5, 1, true); S('hedge', () => fenceStyleSprite('hedge', 0), 0.5, 1, true);
+  for (const k of ['flat', 'ball', 'point']) A('kfe_cap_' + k, () => fenceCap(k));
+  A('kfe_lantern', fenceLantern); A('kfe_flowers', fenceFlowers); A('kfe_vines_h', () => fenceVines(0)); A('kfe_vines_v', () => fenceVines(1)); A('kfe_bird', bird);
   // gates
-  for (const st of ['picket', 'board']) { add(`kg_${st}_h_leaf`, gateLeafStyled(st, 'leaf'), 10 / 64, 1); add(`kg_${st}_v_leaf`, gateLeafStyledV(st), 0.5, (PH + 5 - 24) / (64 + PH)); }
-  A('kg_arch', gateArch()); A('kg_sign', gateSign());
+  for (const st of ['picket', 'board']) { S(`kg_${st}_h_leaf`, () => gateLeafStyled(st, 'leaf'), 10 / 64, 1); S(`kg_${st}_v_leaf`, () => gateLeafStyledV(st), 0.5, (PH + 5 - 24) / (64 + PH)); }
+  A('kg_arch', gateArch); A('kg_sign', gateSign);
   // floors
   const flAy = (64 + FLB) / (64 + FLB * 2);
-  for (const st of FLOOR_STYLES) add('kf_' + st, floorTex(st), 0.5, flAy);
-  for (const k of ['wood', 'stone', 'inlay', 'carpet', 'body']) add('kfx_' + k, floorStrip(k), 0.5, 0.5);
-  add('kf_inlay', floorInlay(), 0.5, 1);
-  for (const k of ['straw', 'leaves', 'moss']) for (let v = 0; v < 2; v++) add(`kf_${k}_${v}`, floorScatter(k, v), 0.5, 1);
-  // roof props (agent J)
-  for (const st of ['wood', 'plaster']) { A('roof_dormer_' + st, roofDormer(st, false)); }
-  A('roof_dormer_glow', roofDormer('wood', true));
-  A('roof_skylight_glass', roofSkylight());
+  for (const st of FLOOR_STYLES) S('kf_' + st, () => floorTex(st), 0.5, flAy);
+  for (const k of ['wood', 'stone', 'inlay', 'carpet', 'body']) S('kfx_' + k, () => floorStrip(k), 0.5, 0.5);
+  S('kf_inlay', floorInlay, 0.5, 1);
+  for (const k of ['straw', 'leaves', 'moss']) for (let v = 0; v < 2; v++) S(`kf_${k}_${v}`, () => floorScatter(k, v), 0.5, 1);
+  // roof props (agent J's roofs)
+  for (const st of ['wood', 'plaster']) A('roof_dormer_' + st, () => roofDormer(st, false));
+  A('roof_dormer_glow', () => roofDormer('wood', true), true);
+  A('roof_skylight_glass', roofSkylight);
+}
+export function addArch(add) {
+  archSprites((n, f, ax, ay, baked) => { if (baked) add(n, f(), ax, ay); });
   TEX.clear();
 }
+// lazy registration happens at import (the baked atlas may come from the cache: addArch then never runs); the
+// tile texture cache is shared by the masks of a style while they are painted, then dropped once painting goes idle
+let texTimer = 0;
+const lazyPaint = (f) => () => {
+  const c = f();
+  clearTimeout(texTimer);
+  texTimer = setTimeout(() => TEX.clear(), 3000);
+  return c;
+};
+archSprites((n, f, ax, ay, baked) => { if (!baked) lazyDef(n, lazyPaint(f), ax, ay); });
 
 // geometry for archCompose.js (tiles)
 export const ARCH_GEOM = { FH: FH / 64, PH: PH / 64, dlanternLift: (F1 - (FM + 6 + 4)) / 64, sconceLift: (F1 - (FM + 11 - 7)) / 64, postTop: (FR.post + 3) / 64, lanternFlame: { x: 7 / 64, lift: (FR.post + 2 + 5) / 64 } };

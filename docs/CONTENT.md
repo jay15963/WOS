@@ -118,6 +118,11 @@ construir. Estações e móveis (`station`, `slots`, `decor: true`) **não** tê
   **grátis** (não mudam o custo).
 - Arte: estilo = um sprite por máscara (`wst_<estilo>_<m>`, cantos suaves `wst_<estilo>_s<m>`, cercas `kfe_<estilo>_<m>`); cada
   detalhe = UM sprite sobreposto (cantos NE/SE espelhados), cores = tinta na hora de desenhar. Nunca estilo × detalhe × máscara.
+  **Pintura preguiçosa:** só o visual padrão de cada peça (e os brilhos emissivos) é assado no atlas; variantes de estilo, cantos
+  suaves, detalhes e decoração são registrados em `src/art/lazyDefs.js` (`lazyDef(nome, pintor, ax, ay)`, no import de
+  `arch.js` / `decor.js`) e pintados sob demanda na textura preguiçosa de H (`art/look/lazy.js`). Enquanto um sprite não está
+  pronto, a base cai no visual padrão do tipo e o detalhe é pulado nesse quadro; prévias e ícones pintam na hora. Sprite novo de
+  kit: `S(nome, () => pintor(...), ax, ay)` em `archSprites` / `decorSprites` (`baked = true` só para o padrão / brilho).
 - Fachadas modulares por andar: o pintor da frente pinta uma faixa `(topo, altura)`; um andar a mais repete a faixa.
 - **Telhados (agente J):** o kit `roof` usa os estilos de J (`ROOF_STYLES` / `ROOF_TYPE_STYLES` em `content/roofs.js`, ids explícitos,
   nunca `''`) e os detalhes de J (`moss`, `chimney`, `vane`, `trim`) + os de K: forma (`end_gable` / `end_hip`), empena (`gab_*`),

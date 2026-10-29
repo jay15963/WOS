@@ -27,8 +27,14 @@ export const CONTRACT = [
   'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_heal', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
   // corpses (I): skeletons, carcasses, rot, fly, bone item
   'corpse_skel_s', 'corpse_skel_m', 'corpse_skel_l', 'corpse_skel_pawn', 'corpse_carcass_s', 'corpse_carcass_m', 'corpse_carcass_l', 'corpse_rot_0', 'fx_fly', 'item_bone',
-  // agent K: decoration, garden, stone wall / hedge (src/art/decor.js, arch.js)
-  'fence_stone', 'hedge', 'shelf_wood', 'bookshelf', 'wardrobe', 'dresser', 'bench_wood', 'stool', 'chair_fine', 'table_round', 'table_small', 'barrel', 'crates',
+  // agent K: stone wall / hedge (baked default look; src/art/arch.js)
+  'fence_stone', 'hedge',
+];
+
+// agent K: building kinds whose art is painted lazily (art/lazyDefs.js, shared lazy texture) — never baked, never in the
+// atlas digest; checkAtlas (game/artcheck.js) requires a registered lazy painter for each, tools/check-sync.mjs R12 accepts them.
+export const LAZY_KINDS = [
+  'shelf_wood', 'bookshelf', 'wardrobe', 'dresser', 'bench_wood', 'stool', 'chair_fine', 'table_round', 'table_small', 'barrel', 'crates',
   'sacks', 'jars', 'candles', 'candelabra', 'herbs_hang', 'curtain', 'plant_pot_0', 'rug_round', 'rug_fur', 'painting', 'trophy', 'pot_hooks', 'weapon_rack',
   'armor_stand', 'fireplace', 'washtub', 'training_dummy', 'lamp_stone', 'lamp_wood', 'flower_bed_0', 'planter', 'stepping_0', 'well', 'signpost', 'bench_stone',
   'garden_arch', 'statue_0', 'totem', 'woodpile', 'haystack', 'cart', 'scarecrow', 'birdhouse', 'beehive', 'drying_rack', 'notice_board', 'fountain', 'pergola',

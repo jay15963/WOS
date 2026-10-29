@@ -20,6 +20,7 @@ import { enclosedRoom } from './roofs.js';
 import { ROOF_GEOM } from './content/roofs.js';
 import { wallBehind as wallBehindL } from './autotile.js';
 import { drawStatic } from '../art/composeWorld.js';
+import { archSprite } from '../art/archCompose.js'; // K's lazy sprites (painted on demand)
 import { drawProxy } from './artcompat.js';
 import { lootRow } from './mut/roll.js';
 
@@ -715,20 +716,22 @@ Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
     }
     drawStatic(PB, A, drawProxy(A, o), t);
     // K's canopy over the door right below sticks out in front of this wall (drawn first, it would hide under it)
-    if (isWallTop(def) && !o._ghost && A.has('kd_awning')) {
+    if (isWallTop(def) && !o._ghost) {
       const g = this.game, w = g.world, d = g.build.grid.main.get(ty0 * w.W + o.tx + ((o.lv | 0) - 1) * w.W * w.H);
       const vert = d && (d.orient ? d.orient === 'v' : d.mask != null && !(d.mask & 10) && (d.mask & 5)); // (archCompose.drawDoorK's rule)
-      if (d && d.door && !d.blueprint && d._k?.on?.awning && !vert) {
+      const aw = d && d.door && !d.blueprint && d._k?.on?.awning && !vert ? archSprite(A, 'kd_awning') : null; // (null until painted)
+      if (aw) {
         const tn = d._k.tint || [1, 1, 1];
-        B.main.add(A.get('kd_awning'), d.x, d.y, 1, 1, tn[0], tn[1], tn[2], d.alpha ?? 1, 0, 0, 0, 1, 0, ((o.lv | 0) - 1) * STORY_H);
+        B.main.add(aw, d.x, d.y, 1, 1, tn[0], tn[1], tn[2], d.alpha ?? 1, 0, 0, 0, 1, 0, ((o.lv | 0) - 1) * STORY_H);
       }
     }
     if (!o._ghost && this.game.build.decon.has(o) && A.has('fx_ring')) B.main.add(A.get('fx_ring'), o.tx + (o.fw || 1) / 2, ty0 + (o.fh || 1) / 2 + 0.1 - lift, 0.95 * (o.fw || 1), 0.65 * (o.fh || 1), 1, 0.35, 0.3, 0.85);
     // the slab's front beam where an upper floor overhangs (nothing under its south edge)
-    if (def.layer === 'floor' && !o.blueprint && A.has('slab_edge')) {
+    if (def.layer === 'floor' && !o.blueprint) {
       const g = this.game, w = g.world, N = w.W * w.H, i = ty0 * w.W + o.tx, lv = o.lv | 0;
       const below = g.build.grid.main.get(i + (lv - 1) * N), south = g.build.grid.floor.get(i + w.W + lv * N);
-      if (!south && !(below && isWallTop(BUILDINGS[below.type]))) B.main.add(A.get('slab_edge'), o.tx + 0.5, ty0 + 1 - lift, 1, 1, 1, 1, 1, a, 0, 0, 0, 1, 0, 0);
+      const se = !south && !(below && isWallTop(BUILDINGS[below.type])) ? archSprite(A, 'slab_edge') : null; // lazy (art/stairs.js)
+      if (se) B.main.add(se, o.tx + 0.5, ty0 + 1 - lift, 1, 1, 1, 1, 1, a, 0, 0, 0, 1, 0, 0);
     }
   } finally { o.y = y0; o.cy = cy0; o.ty = ty0; }
   const Lg = o.light;

@@ -87,7 +87,7 @@ export function installNetDebug(game) {
     const chk = game.A.check || checkAtlas(game.A);
     return {
       atlasOk: chk.ok, atlasDigest: chk.digest, placeholders: chk.placeholders, failures: chk.failures,
-      missingSprites: chk.missingSprites.concat(chk.missingKinds), speciesFallbacks: chk.speciesFallbacks,
+      missingSprites: chk.missingSprites.concat(chk.missingKinds, chk.lazyMissing || []), speciesFallbacks: chk.speciesFallbacks, lazyDefs: chk.lazyDefs, lazyDigest: chk.lazyDigest, // agent K: lazily painted sprites (registry, not pixels)
       artWarnings: artWarnings(), systemsUntagged: game.systems.filter((s) => !s.sync).map((s) => s.constructor?.name || '?'),
       role: net.role, synced: net.synced, seq: net.seq,
       // agent H: look parts are painted lazily per client (not in the atlas digest); failures must stay empty

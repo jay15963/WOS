@@ -1,25 +1,30 @@
 // UI icons: atlas sprites rendered to data URLs (icon_* / item_* when the art exists),
 // with crisp inline-SVG line icons as fallback.
 
+import { LAZY_DEFS } from '../art/lazyDefs.js';
+import { KIT_ENV, archSprite } from '../art/archCompose.js';
 import { ITEMS } from '../game/data.js';
 
 const cache = new Map();
 
 // Draw an atlas sprite region into a small canvas -> data URL (contain-fit, centered)
 export function spriteURL(A, name, size = 64) {
-  if (!A || !A.has(name) || !A.canvas) return null;
+  if (!A || !A.canvas) return null;
   const k = name + '@' + size;
   if (cache.has(k)) return cache.get(k);
-  const s = A.get(name);
+  let s = A.has(name) ? A.get(name) : null;
+  if (!s && LAZY_DEFS.has(name)) { KIT_ENV.sync = true; s = archSprite(A, name); KIT_ENV.sync = false; } // agent K: lazy art
+  if (!s) return null;
+  const lazy = s.u0 < 0 && s.canvas;
   const S = A.size || A.canvas.width;
-  const sx = s.u0 * S, sy = s.v0 * S, sw = (s.u1 - s.u0) * S, sh = (s.v1 - s.v0) * S;
+  const sx = lazy ? 0 : s.u0 * S, sy = lazy ? 0 : s.v0 * S, sw = lazy ? s.pw : (s.u1 - s.u0) * S, sh = lazy ? s.ph : (s.v1 - s.v0) * S;
   const c = document.createElement('canvas');
   c.width = c.height = size;
   const g = c.getContext('2d');
   const f = Math.min(size / sw, size / sh) * 0.92;
   const w = sw * f, h = sh * f;
   g.imageSmoothingQuality = 'high';
-  g.drawImage(A.canvas, sx, sy, sw, sh, (size - w) / 2, (size - h) / 2, w, h);
+  g.drawImage(lazy ? s.canvas : A.canvas, sx, sy, sw, sh, (size - w) / 2, (size - h) / 2, w, h);
   const url = c.toDataURL();
   cache.set(k, url);
   return url;

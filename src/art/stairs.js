@@ -4,10 +4,11 @@
 //   stairs_wood    entrance south, ascends north (1×2): treads + risers seen from the front
 //   stairs_wood_n  entrance north, ascends south (1×2): treads seen from behind, tall end face at the south
 //   stairs_wood_e  entrance east, ascends west (2×1): side profile (the game mirrors it for "ascends east")
-//   slab_edge      the beam under the south edge of an overhanging upper floor (anchor top centre)
+//   slab_edge      the beam under the south edge of an overhanging upper floor (anchor top centre; lazy, not baked)
 
 import { spritePx, lin, circle, OW } from './paint.js';
 import { STORY_PX } from './structures.js';
+import { lazyDef } from './lazyDefs.js';
 
 const RISE = STORY_PX;       // one story (px) = WALL_H
 const N_STEPS = 5;
@@ -186,5 +187,7 @@ export function addStairs(add) {
   add('stairs_wood', stairsS(), 0.5, 1);
   add('stairs_wood_n', stairsN(), 0.5, 1);
   add('stairs_wood_e', stairsE(), 0.5, 1);
-  add('slab_edge', slabEdge(), 0.5, 0);
 }
+// the slab edge is painted on demand into the shared lazy texture (agent K's registry, art/lazyDefs.js): registered at
+// import, since the baked atlas may come from the cache
+lazyDef('slab_edge', slabEdge, 0.5, 0);
