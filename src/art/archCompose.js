@@ -4,14 +4,14 @@
 // KIT_ENV.night (cosmetic, set every frame by the kit system).
 //
 // Base piece = one sprite per style × mask; every detail is an overlay drawn right after it (same anchor),
-// NE / SE corner pieces are the NW / SW ones mirrored (sx = -1), tones multiply the base colour.
+// corner pieces come one per corner in the style's material family (art/arch.js CORNER_FAM), tones multiply the base colour.
 // Lazy art: style variants, details and decoration are painted on demand into the shared lazy texture (records with
 // u < 0, art/lazyDefs.js). A record not painted yet is requested (want) and skipped this frame by the batch wrapper;
 // styled bases fall back to the baked default look of the piece meanwhile. KIT_ENV.sync (previews) paints at once.
 
 import { BUILDINGS } from '../game/content/buildings.js';
 import { STRUCT_GEOM as SG } from './structures.js';
-import { ARCH_GEOM as AG, SOFT_MASKS } from './arch.js';
+import { ARCH_GEOM as AG, SOFT_MASKS, CORNER_FAM, WOOD_FAMS, STONE_FAMS, QUOIN_FAMS, CORNERS } from './arch.js';
 import { DECOR_GEOM as DG, DECOR_ROT2 } from './decor.js';
 import { LAZY_DEFS, LAZY_GROUPS } from './lazyDefs.js';
 import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
@@ -103,7 +103,20 @@ function tables(A) {
   for (const k of ['wood', 'stone', 'inlay', 'carpet', 'body']) T.floorEdge[k] = opt('kfx_' + k);
   T.floorBase = { plank: arr('floor_wood_'), flag: arr('floor_stone_') };
   for (const st of ['herring', 'parquet', 'wide', 'cobble', 'tiles', 'checker']) T.floorBase[st] = opt('kf_' + st);
-  for (const n of ['post_nw', 'post_sw', 'quoin_nw', 'quoin_sw', 'pillar_nw', 'pillar_sw', 'end_e', 'end_s', 'end_n', 'buttress', 'plinth', 'cap_n', 'cap_s', 'cap_w',
+  // corner pieces per material family × corner, buttresses per family, wooden trims per wood family (art/arch.js)
+  T.cp = {};
+  for (const k of ['post', 'pillar', 'endp', 'quoin']) {
+    T.cp[k] = {};
+    for (const f of k === 'quoin' ? QUOIN_FAMS : [...WOOD_FAMS, ...STONE_FAMS]) { const q = {}; for (const c of CORNERS) q[c] = opt(`kd_${k}_${f}_${c}`); T.cp[k][f] = q; }
+  }
+  T.bt = {}; for (const f of [...WOOD_FAMS, ...STONE_FAMS]) T.bt[f] = opt('kd_bt_' + f);
+  T.capw = {}; T.crenw = {}; T.bandw = {};
+  for (const f of WOOD_FAMS) {
+    T.capw[f] = { n: opt(`kd_capw_${f}_n`), s: opt(`kd_capw_${f}_s`), w: opt(`kd_capw_${f}_w`) };
+    T.crenw[f] = { n: opt(`kd_crenw_${f}_n`), s: opt(`kd_crenw_${f}_s`), w: opt(`kd_crenw_${f}_w`) };
+    T.bandw[f] = opt('kd_bandw_' + f);
+  }
+  for (const n of ['plinth', 'cap_n', 'cap_s', 'cap_w',
     'cren_n', 'cren_s', 'cren_w', 'beams', 'band', 'window', 'shutters', 'curtains', 'oculus', 'slit', 'win_glow', 'oculus_glow', 'winbox', 'shelf', 'hooks', 'antlers',
     'pennant', 'painting', 'shield', 'sconce', 'ivy_0', 'ivy_1', 'ivy_2', 'moss_0', 'moss_1', 'cracks_0', 'cracks_1', 'weather', 'flowers', 'door_arch', 'awning',
     'dlantern', 'knocker', 'wreath', 'step']) T.d[n] = opt('kd_' + n);
@@ -140,6 +153,17 @@ function faceSprite(A, T, type, v, face) {
 }
 
 function blockShadow(B, s, x, y, a) { B.shadow.add(s, x, y - s.ay, 1, -1 / (0.6 * s.h), 1, 1, 1, a, 0, 0, 0, 1, 0, SG.FH * 1.1); }
+// a detail standing out of its wall (pillar, buttress, log ends…) casts its shadow with the wall's mapping: the same
+// nominal box as the wall sprite `base`, so both silhouettes land on the same footprint (MAX blend: no double dark)
+function detShadow(B, s, base, x, y) { if (!BP && s && base) B.shadow.add(s, x, y - base.ay, 1, -1 / (0.6 * base.h), 1, 1, 1, CA, 0, 0, 0, 1, 0, SG.FH * 1.1); }
+const WOODF = new Set(WOOD_FAMS);
+// corners of a wall tile: convex ones (corner pieces) and the ones at a free end (end caps)
+const CONVEX = [];
+const ENDS = [];
+for (let m = 0; m < 16; m++) {
+  CONVEX.push(CORNERS.filter((c) => !(m & (c[0] === 'n' ? 1 : 4)) && !(m & (c[1] === 'w' ? 8 : 2))));
+  ENDS.push(m === 8 ? ['ne', 'se'] : m === 2 ? ['nw', 'sw'] : m === 1 ? ['sw', 'se'] : m === 4 ? ['nw', 'ne'] : m === 0 ? CORNERS : []);
+}
 function smallFlame(B, T, x, y, lift, sc, t, k) {
   const ph = t * 11 + x * 2.3 + y;
   const q = 0.9 + 0.12 * Math.sin(ph) + 0.06 * Math.sin(ph * 2.3);
@@ -181,35 +205,39 @@ function drawWall(B, T, o, k, t, fl) {
   if (!base) return false;
   const x = o.x, y = o.y, D = T.d;
   const front = !(m & 4);
-  const S = o.type === 'wall_stone' || BUILDINGS[o.type].mat === 'stone' ? add : addPlain; // stone trims take the stone tone
+  // material: the style's corner family (wood looks get wooden pieces in the wall's colours); stone pieces take the
+  // tone on stone walls and stay plain on wooden ones (only the "de pedra" options are stone on wood)
+  const stoneType = o.type === 'wall_stone' || BUILDINGS[o.type].mat === 'stone';
+  const fam = CORNER_FAM[st] || (stoneType ? 'cut' : 'plank'), woodLook = WOODF.has(fam);
+  const S = stoneType ? add : addPlain, M = woodLook ? add : S;
   B.main.add(base, x, y, 1, 1, TR, TG, TB, CA, 0, 0, fl, 1);
   if (!BP) blockShadow(B, base, x, y, CA);
   // trims on the top face edges
-  if (on.cap) { if (!(m & 1)) S(B, D.cap_n, x, y, 1, 1, fl); if (!(m & 8)) S(B, D.cap_w, x, y, 1, 1, fl); if (!(m & 2)) S(B, D.cap_w, x, y, -1, 1, fl); if (front) S(B, D.cap_s, x, y, 1, 1, fl); }
+  if (on.cap) {
+    const C = woodLook ? T.capw[fam] : { n: D.cap_n, s: D.cap_s, w: D.cap_w };
+    if (!(m & 1)) M(B, C.n, x, y, 1, 1, fl); if (!(m & 8)) M(B, C.w, x, y, 1, 1, fl); if (!(m & 2)) M(B, C.w, x, y, -1, 1, fl); if (front) M(B, C.s, x, y, 1, 1, fl);
+  }
   if (front) {
     if (on.plinth) S(B, D.plinth, x, y, 1, 1, fl);
     if (on.beams) add(B, D.beams, x, y, 1, 1, fl);
-    if (on.band) S(B, D.band, x, y, 1, 1, fl);
-    if (on.buttress) S(B, D.buttress, x, y, 1, 1, fl);
+    if (on.band) M(B, woodLook ? T.bandw[fam] : D.band, x, y, 1, 1, fl);
+    if (on.buttress) { const s = T.bt[fam]; M(B, s, x, y, 1, 1, fl); detShadow(B, s, base, x, y); }
   }
   // nature (under the mounted things)
   if (on.weather && front) addPlain(B, D.weather, x, y, 1, 0.9, fl);
   if (on.moss) addPlain(B, (o.tx + o.ty) & 1 ? D.moss_1 : D.moss_0, x, y, 1, 1, fl);
   if (on.cracks) addPlain(B, hash(o.tx, o.ty) < 0.5 ? D.cracks_0 : D.cracks_1, x, y, hash(o.ty, o.tx) < 0.5 ? 1 : -1, 1, fl);
-  // corner pieces at convex corners (NE / SE mirrored)
-  const cp = on.post ? 'post' : on.quoin ? 'quoin' : on.pillar ? 'pillar' : null;
+  // corner pieces (one sprite per corner, lit from the top-left on both sides): convex corners; end caps at free ends
+  const cp = on.post ? 'post' : on.quoin ? 'quoin' : on.pillar ? 'pillar' : on.endcap ? 'endp' : null;
   if (cp) {
-    const nw = !(m & 1) && !(m & 8), ne = !(m & 1) && !(m & 2), sw = !(m & 4) && !(m & 8), se = !(m & 4) && !(m & 2);
-    const sN = D[cp + '_nw'], sS = D[cp + '_sw'];
-    const A2 = cp === 'post' ? (S === add ? addPlain : add) : S;
-    if (nw) A2(B, sN, x, y, 1, 1, fl); if (ne) A2(B, sN, x, y, -1, 1, fl);
-    if (sw) A2(B, sS, x, y, 1, 1, fl); if (se) A2(B, sS, x, y, -1, 1, fl);
-  } else if (on.endcap) {
-    if (m === 8) S(B, D.end_e, x, y, 1, 1, fl); else if (m === 2) S(B, D.end_e, x, y, -1, 1, fl);
-    else if (m === 1) S(B, D.end_s, x, y, 1, 1, fl); else if (m === 4) S(B, D.end_n, x, y, 1, 1, fl);
-    else if (m === 0) { S(B, D.end_e, x, y, 1, 1, fl); S(B, D.end_e, x, y, -1, 1, fl); }
+    const set = T.cp[cp][cp === 'quoin' ? (woodLook ? (stoneType ? 'cut' : 'lime') : fam) : fam];
+    const P = cp === 'quoin' ? S : M;
+    for (const c of cp === 'endp' ? ENDS[m] : CONVEX[m]) { const s = set[c]; if (s) { P(B, s, x, y, 1, 1, fl); detShadow(B, s, base, x, y); } }
   }
-  if (on.crenel) { if (!(m & 1)) S(B, D.cren_n, x, y, 1, 1, fl); if (!(m & 8)) S(B, D.cren_w, x, y, 1, 1, fl); if (!(m & 2)) S(B, D.cren_w, x, y, -1, 1, fl); if (front) S(B, D.cren_s, x, y, 1, 1, fl); }
+  if (on.crenel) {
+    const C = woodLook ? T.crenw[fam] : { n: D.cren_n, s: D.cren_s, w: D.cren_w };
+    if (!(m & 1)) M(B, C.n, x, y, 1, 1, fl); if (!(m & 8)) M(B, C.w, x, y, 1, 1, fl); if (!(m & 2)) M(B, C.w, x, y, -1, 1, fl); if (front) M(B, C.s, x, y, 1, 1, fl);
+  }
   if (front) {
     // openings / mounted things on the south face
     const win = on.window ? 'window' : on.window_shutters ? 'shutters' : on.window_curtains ? 'curtains' : on.window_round ? 'oculus' : on.slit ? 'slit' : null;

@@ -11,9 +11,11 @@
 // restyling), they never change the build cost: decorating must stay relaxing.
 //
 // Kit entry: { name, tabs: [[cat, label]], styles: [style], details: [detail] }
-//   style:  { id, name, desc?, types?: [buildingId] (default: every type of the kit), def?: true (the type's own art) }
+//   style:  { id, name, desc?, types?: [buildingId] (default: every type of the kit), def?: true (the type's own art),
+//             look?: 'wood' | 'stone' (what the style looks like: details follow it; default matOf(type)) }
 //   detail: { id, name, cat, group? (exclusive with the others of the group), types? / mats? (filters),
-//             front?: needs a visible south face (walls), tint?: [r,g,b] (tone), light?: {...}, glow? (night window) }
+//             front?: needs a visible south face (walls), tint?: [r,g,b] (tone), light?: {...}, glow? (night window),
+//             names? / descs?: { wood, stone } (label / help by the style's look: the art follows the material) }
 
 import { BUILDINGS } from './buildings.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_DETAILS } from './roofs.js'; // agent J's roof catalogue
@@ -45,27 +47,31 @@ export const KITS = {
     name: 'Parede',
     tabs: [['style', 'Estilo'], ['corner', 'Cantos'], ['trim', 'Acabamentos'], ['wall', 'Na parede'], ['nature', 'Natureza'], ['tone', 'Cor']],
     styles: [
-      { id: 'plank', name: 'Tábuas', types: ['wall_wood'], def: true, desc: 'Tábuas pregadas, o clássico.' },
-      { id: 'log', name: 'Toras', types: ['wall_wood'], desc: 'Cabana de toras com as pontas cruzadas nos cantos.' },
-      { id: 'timber', name: 'Enxaimel', types: ['wall_wood'], desc: 'Vigas escuras com mãos-francesas e reboco claro.' },
-      { id: 'wattle', name: 'Pau a pique', types: ['wall_wood'], desc: 'Varas trançadas e barro, cantos macios.' },
-      { id: 'cut', name: 'Blocos de pedra', types: ['wall_stone'], def: true, desc: 'Blocos lavrados em fiadas.' },
-      { id: 'rough', name: 'Pedra bruta', types: ['wall_stone'], desc: 'Pedras irregulares assentadas à mão.' },
-      { id: 'cobble', name: 'Seixos', types: ['wall_stone'], desc: 'Pedras de rio arredondadas na argamassa.' },
-      { id: 'tbrick', name: 'Enxaimel de tijolos', types: ['wall_stone'], desc: 'Vigas de madeira com tijolos aparentes.' },
+      { id: 'plank', name: 'Tábuas', types: ['wall_wood'], def: true, look: 'wood', desc: 'Tábuas pregadas, o clássico.' },
+      { id: 'log', name: 'Toras', types: ['wall_wood'], look: 'wood', desc: 'Cabana de toras com as pontas cruzadas nos cantos.' },
+      { id: 'timber', name: 'Enxaimel', types: ['wall_wood'], look: 'wood', desc: 'Vigas escuras com mãos-francesas e reboco claro.' },
+      { id: 'wattle', name: 'Pau a pique', types: ['wall_wood'], look: 'wood', desc: 'Varas trançadas e barro, cantos macios.' },
+      { id: 'cut', name: 'Blocos de pedra', types: ['wall_stone'], def: true, look: 'stone', desc: 'Blocos lavrados em fiadas.' },
+      { id: 'rough', name: 'Pedra bruta', types: ['wall_stone'], look: 'stone', desc: 'Pedras irregulares assentadas à mão.' },
+      { id: 'cobble', name: 'Seixos', types: ['wall_stone'], look: 'stone', desc: 'Pedras de rio arredondadas na argamassa.' },
+      { id: 'tbrick', name: 'Enxaimel de tijolos', types: ['wall_stone'], look: 'wood', desc: 'Vigas de madeira com tijolos aparentes.' },
     ],
+    // corner pieces / trims take the material and colour of the style (art/arch.js corner families): wood on wood
+    // looks, stone on stone looks; stone on a wooden wall only when the option says "de pedra"
     details: [
-      { id: 'soft', name: 'Cantos suaves', cat: 'corner', desc: 'Arredonda ou chanfra os cantos de fora.' },
-      { id: 'post', name: 'Postes de canto', cat: 'corner', group: 'cp' },
-      { id: 'quoin', name: 'Cunhais de pedra', cat: 'corner', group: 'cp' },
-      { id: 'pillar', name: 'Pilares', cat: 'corner', group: 'cp' },
-      { id: 'endcap', name: 'Arremates redondos', cat: 'corner', group: 'cp' },
-      { id: 'buttress', name: 'Contrafortes', cat: 'corner', front: true },
+      { id: 'soft', name: 'Cantos suaves', cat: 'corner', descs: { wood: 'Tábua de canto arredondada nos cantos de fora.', stone: 'Chanfra os cantos de fora.' } },
+      { id: 'post', name: 'Postes de canto', cat: 'corner', group: 'cp', names: { stone: 'Esquinas lavradas' },
+        descs: { wood: 'Poste de madeira esquadrado no canto (toras: pontas entalhadas cruzadas).', stone: 'Pilastra de pedra lavrada no canto, com capa.' } },
+      { id: 'quoin', name: 'Cunhais de pedra', cat: 'corner', group: 'cp', desc: 'Pedras lavradas alternando longas e curtas.' },
+      { id: 'pillar', name: 'Pilares', cat: 'corner', group: 'cp', descs: { wood: 'Pilares de madeira com base e capitel.', stone: 'Colunas de pedra com base e capitel.' } },
+      { id: 'endcap', name: 'Arremates', cat: 'corner', group: 'cp', descs: { wood: 'Postes com chapéu nas pontas soltas.', stone: 'Pedras arredondadas fechando as pontas soltas.' } },
+      { id: 'buttress', name: 'Contrafortes', cat: 'corner', front: true, names: { wood: 'Escoras' },
+        descs: { wood: 'Escoras de madeira em ângulo apoiando a parede.', stone: 'Contrafortes de pedra afinando para cima, topo inclinado.' } },
       { id: 'plinth', name: 'Soco de pedra', cat: 'trim', front: true },
-      { id: 'cap', name: 'Coroamento', cat: 'trim' },
+      { id: 'cap', name: 'Coroamento', cat: 'trim', descs: { wood: 'Tábua de arremate sobre a parede.', stone: 'Pedras de capa sobre a parede.' } },
       { id: 'beams', name: 'Vigas aparentes', cat: 'trim', front: true },
-      { id: 'band', name: 'Cinta', cat: 'trim', front: true },
-      { id: 'crenel', name: 'Ameias', cat: 'trim' },
+      { id: 'band', name: 'Cinta', cat: 'trim', front: true, descs: { wood: 'Tábua horizontal no meio da parede.', stone: 'Faixa de pedra no meio da parede.' } },
+      { id: 'crenel', name: 'Ameias', cat: 'trim', descs: { wood: 'Ameias de madeira no topo.', stone: 'Ameias de pedra no topo.' } },
       { id: 'window', name: 'Janela', cat: 'wall', group: 'win', front: true, glow: 1 },
       { id: 'window_shutters', name: 'Janela com venezianas', cat: 'wall', group: 'win', front: true, glow: 1 },
       { id: 'window_curtains', name: 'Janela com cortinas', cat: 'wall', group: 'win', front: true, glow: 1 },
@@ -285,6 +291,14 @@ export function detailsFor(type) {
   return k ? k.details.filter((d) => okFor(d, type)) : [];
 }
 export const defaultStyle = (type) => stylesFor(type).find((s) => s.def)?.id || stylesFor(type)[0]?.id || '';
+// what a style looks like ('wood' | 'stone' | 'plant'): the material its details are drawn in
+export function lookOf(type, style) {
+  const id = style || defaultStyle(type);
+  return stylesFor(type).find((s) => s.id === id)?.look || matOf(type);
+}
+// a detail's label / help for a style (names / descs follow the style's look)
+export const detName = (type, style, d) => d.names?.[lookOf(type, style)] || d.name;
+export const detDesc = (type, style, d) => d.descs?.[lookOf(type, style)] || d.desc || '';
 
 // '' when s is the type's default look or unknown
 export function normStyle(type, s) {

@@ -6,7 +6,7 @@
 // Purely local UI: changes go through building.js (setBuildLook / enterStyleBrush) and the struct.style intent.
 
 import { BUILDINGS } from '../game/data.js';
-import { kitOf, stylesFor, detailsFor, decodeKit, normStyle, cleanDet, withDetail, hasDet, detList, hasKit } from '../game/content/kits.js';
+import { kitOf, stylesFor, detailsFor, decodeKit, normStyle, cleanDet, withDetail, hasDet, detList, hasKit, detName, detDesc } from '../game/content/kits.js';
 import { setBuildLook, enterStyleBrush, enterBuildMode, exitBuildMode, lastLook } from '../game/building.js';
 import { drawStatic } from '../art/composeWorld.js';
 import { KIT_ENV, archSprite } from '../art/archCompose.js';
@@ -298,7 +298,7 @@ export function installDetails(game) {
         body += G.items.map((d) => {
           const on = hasDet(curDet, d.id);
           const pv = preview(game, type, st, withDetail(type, d.group === 'cc' ? withDetail(type, curDet, 'carpet', true) : curDet, d.id, true), 120, 96, d.front || d.cat === 'wall' ? 'front' : '');
-          return `<button class="kc ${on ? 'on' : ''}" data-k="det" data-v="${d.id}" title="${d.desc || ''}"><img src="${pv}" alt=""><span>${d.name}</span></button>`;
+          return `<button class="kc ${on ? 'on' : ''}" data-k="det" data-v="${d.id}" title="${detDesc(type, st, d)}"><img src="${pv}" alt=""><span>${detName(type, st, d)}</span></button>`;
         }).join('');
       }
     }
