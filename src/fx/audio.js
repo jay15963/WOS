@@ -369,6 +369,7 @@ export class Audio {
     if (w.water[i]) return 'water';
     const e = g?.env?.env;
     if ((e?.snow ?? e?.snowCover ?? 0) > 0.35) return 'snow';
+    if (w.path && w.path[i] && w.pathSurface) return w.pathSurface[w.path[i]]; // painted path: dirt / gravel / stone
     switch (w.ground[i]) {
       case 1: return 'grass';
       case 2: return 'sand';

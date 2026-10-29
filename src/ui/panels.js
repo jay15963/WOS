@@ -18,6 +18,7 @@ import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
 import { chestAdapter } from './container.js';
 import { uiScale } from './uiscale.js';
+import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -174,8 +175,11 @@ export class Panels {
   buildBody() {
     const g = this.g, A = g.A, p = g.player;
     const tab = this.buildTab;
-    const tabs = BUILD_CATS.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-btab="${k}">${n}</button>`).join('');
-    const cards = BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
+    const cats = BUILD_CATS.flatMap((c) => (c[0] === 'floor' ? [c, PATH_TAB] : [c])); // "Caminhos" after "Pisos"
+    const tabs = cats.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-btab="${k}">${n}</button>`).join('');
+    const pcost = (cost) => { const e = Object.entries(cost); return e.length ? e.map(([it, n]) => `<span class="cost ${p.inv.count(it) >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${p.inv.count(it)}/${n}</span>`).join('') : '<span class="cost">grátis</span>'; };
+    const pathCards = tab !== 'path' ? '' : pathCatalog(g).map((c) => `<button class="bcard" data-path="${c.key}"><span class="bi">${c.icon ? `<img class="spri" src="${c.icon}" alt="" draggable="false">` : `<span class="emo" style="display:block;width:100%;height:100%;border-radius:50%;background:${c.swatch}"></span>`}</span><span class="bt"><b>${c.name}</b><small>${c.desc}</small><small class="bm">${c.meta}</small>${c.remove ? '' : `<span class="costs">${pcost(c.cost)}</span>`}</span></button>`).join('');
+    const cards = pathCards || BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
       const b = BUILDINGS[id];
       const ok = p.inv.has(b.cost);
       const entries = Object.entries(b.cost);
@@ -330,6 +334,8 @@ export class Panels {
       enterBuildMode(g, id);
     }));
     el.querySelector('[data-decon]')?.addEventListener('click', () => { this.close(); enterDeconMode(g); });
+    el.querySelectorAll('[data-path]').forEach((b) => b.addEventListener('click', () => { this.close(); g.paths?.enter(b.dataset.path); }));
+    if (this.open === 'build' && this.buildTab === 'path' && !g._paths?.layers) g.paths?.layers().then(() => { if (this.open === 'build' && this.buildTab === 'path') this.render(); });
     if (this.open === 'craft') craftBind(this, el);
     if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));
     const map = el.querySelector('.bigmap');

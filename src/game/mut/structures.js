@@ -419,6 +419,8 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
       if (BAD_FARM.has(w.ground[i])) return 'Solo ruim para plantar';
     }
     if (layer === 'rug' && G2.floor.get(i)?.type === 'farm_plot') return 'Canteiro no caminho';
+    // painted paths (mut/paths.js) and floors / rugs / plots never share a tile (roofs over a path are fine)
+    if ((layer === 'floor' || layer === 'rug') && w.path && (w.path[i] || (w.pathPlan[i] && w.pathPlan[i] !== 15))) return 'Caminho no local (remova o caminho antes)';
     if (layer === 'main' && w.solid[i] && !replace && !(ignore && G2.main.get(i) === ignore)) return 'Algo no caminho';
     for (const o of objectsOnTile(game, x, y)) {
       if (CLEARABLE.has(o.type)) continue;

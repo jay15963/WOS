@@ -10,8 +10,9 @@
 import { netlog } from './netlog.js';
 import { checkAtlas } from '../game/artcheck.js';
 import { artWarnings } from '../game/artcompat.js';
+import { pathRows } from '../game/mut/paths.js';
 
-export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses'];
+export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
 export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
@@ -43,6 +44,7 @@ export function dumpPart(game, part) {
     case 'props': return (game.props || []).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0]).sort(cmp);
     case 'corpses': return game.corpses ? [...game.corpses.map.values()].map((c) => [c.id, c.of, c.x.toFixed(2), c.y.toFixed(2), Math.round(c.deathT), c.butchered ? 1 : 0,
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
+    case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'env': return [['day', game.env.dayIndex], ['hour', +game.env.hour.toFixed(2)], ['weather', game.env.weather], ['wt', Math.round(game.worldTime)]];
     case 'ents': return game.net.entsApi?.debug?.() || null;
   }

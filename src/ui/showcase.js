@@ -84,10 +84,12 @@ export function startShowcase({ renderer, atlas, onReady = null, onFail = null }
   } finally { game.net.applying--; }
 
   const p = game.player;
-  Object.assign(p, { x: fx - 0.55, y: fy + 1.25, facing: 'e', weapon: null, name: '' });
+  // both survivors sit on the ground facing the fire (D's 'sit' pose); the player is the one the owner customised
+  Object.assign(p, { x: fx - 0.55, y: fy + 1.25, facing: 'e', weapon: null, name: '', pose: { type: 'sit', id: null, o: null } });
   addEventListener('wos:look', (e) => { if (e.detail) p.look = e.detail; }); // agent H: the new look by the fire at once
   const friend = {
     isEntity: true, kind: 'pawn', name: '', x: fx + 1.6, y: fy + 0.95, r: 0.24, facing: 'w', moving: false, moveT: 0, action: null, flash: 0, weapon: null, hp: 1, maxHp: 1, lazyLook: true,
+    pose: { type: 'sit', id: null, o: null },
     look: { skin: [0.78, 0.58, 0.44], hair: 'long', hairColor: [0.12, 0.09, 0.07], shirt: [0.62, 0.36, 0.28] },
   };
   game.entities.push(friend); // sync-ok: menu showcase world (local, never shared)
@@ -132,9 +134,11 @@ export function startShowcase({ renderer, atlas, onReady = null, onFail = null }
     if (env.weather === 'storm') env.setWeather('rain');
     amb.update(game, dt);
     game.particles.update(dt);
-    // idle life: survivors glance around, deer drift while grazing
-    if (Math.sin(C.t * 0.37) > 0.96) p.facing = 's'; else p.facing = 'e';
-    friend.facing = Math.sin(C.t * 0.23 + 2) > 0.93 ? 's' : 'w';
+    // idle life: the seated survivors glance around (head only, they stay sitting by the fire), deer drift while grazing
+    p.facing = 'e'; friend.facing = 'w';
+    p.headFacing = Math.sin(C.t * 0.37) > 0.9 ? 's' : null;
+    friend.headFacing = Math.sin(C.t * 0.23 + 2) > 0.9 ? 's' : null;
+    p.moving = friend.moving = false;
     for (const d of deer) {
       d._t += dt;
       const mv = Math.sin(d._t * 0.21) > 0.75;

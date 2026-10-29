@@ -15,6 +15,7 @@
 //   loot:   [[id, item, qty, x, y]],
 //   props:  [[id, hp, broken, brokenAt]],
 //   corpses:[[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc, v, gear|0, 0]]  (mut/corpses.js)
+//   paths:  { g, p }  painted paths: run-length [value, count…] of world.path / world.pathPlan (mut/paths.js)
 //   ids, natpos                                                            // save file only
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
@@ -33,6 +34,7 @@ import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
+import { serializePaths, applyPaths } from '../game/mut/paths.js';
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -66,6 +68,7 @@ export function serializeWorld(game, { save = false } = {}) {
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
+    paths: serializePaths(game),
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
@@ -278,6 +281,8 @@ function applyInner(game, d, mode) {
     }
     if (reconcile) for (const c of [...game.corpses.map.values()]) if (!cIds.has(c.id)) removeCorpse(game, c);
   }
+  // ---- painted paths (a snapshot without them = none; an old save without them keeps none) ----
+  if (reconcile || d.paths) applyPaths(game, d.paths);
 
   updateAllMasks(game);
   if (d.ids && typeof d.ids === 'object') for (const k in d.ids) if (k in net.ids && Number.isFinite(d.ids[k])) net.ids[k] = Math.max(net.ids[k], d.ids[k]);

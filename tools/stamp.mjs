@@ -95,6 +95,10 @@ export const BUILD_FILES = ${JSON.stringify(files)};
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   if (process.argv.includes('--check')) {
+    // a leftover merge conflict in a published file breaks the app (e.g. sw.js would not parse → no updates)
+    const served = [...walk(join(ROOT, 'src')), 'index.html', 'sw.js', 'manifest.webmanifest', ...walk(join(ROOT, 'tools')), ...walk(join(ROOT, 'docs'))];
+    const bad = served.filter((f) => /\.(js|mjs|css|html|json|webmanifest|md)$/.test(f) && /^(<{7}|>{7}) /m.test(read(f)));
+    if (bad.length) { console.log('MERGE CONFLICT markers in: ' + bad.join(', ')); process.exit(1); }
     const cur = computeIds(), st = readStamp();
     const ok = st && st.BUILD_ID === cur.BUILD_ID && st.ART_ID === cur.ART_ID && swVersion() === 'wos-' + cur.BUILD_ID;
     console.log(ok ? `stamp ok (${cur.BUILD_ID} / art ${cur.ART_ID})` : `stamp STALE: run node tools/stamp.mjs (have ${st?.BUILD_ID}/${st?.ART_ID}, want ${cur.BUILD_ID}/${cur.ART_ID})`);

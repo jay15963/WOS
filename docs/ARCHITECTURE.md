@@ -195,6 +195,12 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `struct.add {lv}`, snapshot `lvs`, save v9), apoio a até 6 tiles + desabamento (op `lv.collapse`), telhado de J no topo
   do andar mais alto (`game.build.storeysAt`), revelar / esconder andares e corte de paredes (cosmético `o.alpha`),
   seletor de andar no modo construção (`src/ui/levelbar.js`, `game.build.mode.lv`).
+- **Caminhos (rodada V2, agente M)**: terreno pintado, não construção — `world.path` / `world.pathPlan` (grade por tile, ops `path.plan` /
+  `path.set` em `src/game/mut/paths.js`, catálogo em `content/paths.js`). Modo de construção `{ kind: 'path', tool }` (aba "Caminhos" do
+  Construir, pincel 1/2/3, livre / linha / área, borracha; `building.js` delega `buildTap/buildDrag*/cancelBuild` ao `mode.tool`), barra em
+  `src/ui/pathbar.js`, trabalho automático via `game.work.providers`. Desenho dentro do passe de terreno (`PATH_FN` em shaders.js): `uPath`
+  (1×: tipo / plano / distâncias), `uPathF` (2×: contorno por gaussianas orientadas), `uPathMat` (texturas de `src/world/pathTex.js`, geradas
+  num worker e guardadas no IndexedDB) nas unidades 13–15. API de teste: `game.paths.{paint, jobAt, counts, stats}`.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
