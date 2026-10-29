@@ -5,7 +5,7 @@
 // Deer has two looks: `deer_*` (stag, antlers) and `deer_doe_*` (spotted doe, no antlers).
 // Layer order per sprite: far legs → near legs → tail → body (+neck) → far ear → head → antlers.
 
-import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, rgb, hex, atop } from './paint.js';
+import { spritePxFast as spritePx, rng, OW, TAU, lin, rad, circle, mixc, rgb, hex, atop } from './paint.js';
 import { spline, chain, plant, limbPath, fur, tufts, eyeAt, part, stack, strip, mirror } from './kit.js';
 
 const A = (c, a) => rgb(hex(c), a);
@@ -467,8 +467,10 @@ function sideFrames(sp, variant) {
   const nearFn = each((g, [nf, nh]) => { drawLeg(g, S, nh, false, 'hind', rand); drawLeg(g, S, nf, false, 'front', rand); });
   let far = LEG_CACHE.get(sp + 'far'), near = LEG_CACHE.get(sp + 'near');
   if (!far) {
-    far = strip(W, H, names.length, (P, dx) => L(P, S, (g) => farFn(g, dx), S.ow * 0.85));
-    near = strip(W, H, names.length, (P, dx) => L(P, S, (g) => nearFn(g, dx), S.ow * 0.72));
+    // legs only live in a band near the ground: paint them in smaller canvases
+    const ly0 = S.oy + Math.min(S.legs.front.y - S.legs.front.w0 * 0.6, S.legs.hind.y - S.legs.hind.w0 * 0.6) - 6, ly1 = S.oy + S.foot + 5;
+    far = strip(W, H, names.length, (P, dx) => L(P, S, (g) => farFn(g, dx), S.ow * 0.85), ly0, ly1);
+    near = strip(W, H, names.length, (P, dx) => L(P, S, (g) => nearFn(g, dx), S.ow * 0.72), ly0, ly1);
     LEG_CACHE.set(sp + 'far', far); LEG_CACHE.set(sp + 'near', near);
   }
   const out = {};
@@ -744,9 +746,10 @@ function frontBackFrames(sp, view, variant) {
     const key = sp + view + legN++;
     let fr = LEG_CACHE.get(key);
     if (fr) return fr;
+    const ly0 = F.oy + Math.min(F.front.top, F.hind.top) - 2 - Math.max(F.front.w0, F.hind.w0 * 1.25) * 0.6 - 4, ly1 = F.oy + F.foot + 5;
     fr = strip(W, H, 2, (P, dx) => L(P, so, (g) => {
       for (let f = 0; f < 2; f++) { g.save(); g.translate(f * dx, 0); fn(g, f === 1 ? 3.2 : 0, 0); g.restore(); }
-    }, ow));
+    }, ow), ly0, ly1);
     fr.push(mirror(fr[1]));
     LEG_CACHE.set(key, fr);
     return fr;

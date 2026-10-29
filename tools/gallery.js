@@ -2,6 +2,7 @@
 // small scene through a Canvas2D mock of the renderer batches (tint by multiply, flip, rotation, lift,
 // sheared sun shadows, additive emissive). Serve the repo root and open /tools/gallery.html.
 // Query params: ?focus=<regex>&scale=1,3 (only matching sprites, at those scales) · ?only=scene|pawns|armor|animals|iconsec|sprites|atlas
+//               &rows=<regex> (pose rows) · &sp=<regex> (animal species) · &cols=<regex> (animal columns)
 //               &pz=<px per tile for the pawn sheet> &az=<px per tile for the animal sheet>
 
 import { buildAtlas } from '../src/art/sprites.js';
@@ -305,8 +306,8 @@ const armorSheet = sheet('armorCv', ARMORS, 8, PCW, PRH, PZ, (r, ri, c, x, y) =>
 }), (r) => r[0], ['s', 'e', 'n', 'w', 's walk', 'e walk', 'n walk', 'w walk']);
 
 // ---------- animal sheet ----------
-const SPECIES = ['wolf', 'fox', 'boar', 'deer', 'deer_doe', 'rabbit', 'bear', 'spider'];
-const ACOLS = ['s', 'e', 'n', 'w', 'e-idle', 's-idle', 'n-idle', 'e-attack', 's-attack', 'n-attack', 'dead'];
+const SPECIES = ['wolf', 'fox', 'boar', 'deer', 'deer_doe', 'rabbit', 'bear', 'spider'].filter((s) => !Q.get('sp') || new RegExp(Q.get('sp')).test(s)); // ?sp=<regex>
+const ACOLS = ['s', 'e', 'n', 'w', 'e-idle', 's-idle', 'n-idle', 'e-attack', 's-attack', 'n-attack', 'dead'].filter((c) => !Q.get('cols') || new RegExp(Q.get('cols')).test(c)); // ?cols=<regex>
 const AZ = +(Q.get('az') || 56), ACW = 2.0, ARH = 2.0;
 const animalSheet = sheet('animalCv', SPECIES, ACOLS.length, ACW, ARH, AZ, (sp, r, c, x, y) => {
   const [f, st] = ACOLS[c].split('-');

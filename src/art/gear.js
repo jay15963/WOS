@@ -5,7 +5,7 @@
 // Legacy contract names (weapon_sword, weapon_axe, weapon_spear, weapon_club, tool_pickaxe) are aliases of iron tiers.
 // GEAR is exported so items.js can paint the same objects as inventory icons.
 
-import { spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
+import { spritePxFast as spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
 import { spline, rrect } from './kit.js';
 
 const A = (c, a) => rgb(hex(c), a);
@@ -130,16 +130,20 @@ T.axe = {
     if (tier === 'primitive') {
       return [haftFn, (g) => {
         // triangular chipped flake lashed to the side of a stick
-        fillMat(g, M, (g) => spline(g, [[cx + 1, 8], [cx + 9, 6], [cx + 15, 9], [cx + 16.5, 17], [cx + 12, 22], [cx + 2, 20]], true, 0.6), [cx, 5, cx + 17, 23], 51);
-        g.strokeStyle = A(M.edge, 0.8); g.lineWidth = 0.9; g.beginPath(); g.moveTo(cx + 15, 9.5); g.quadraticCurveTo(cx + 17, 15, cx + 13, 21); g.stroke();
+        // sharp knapped flake (angular facets), cutting edge to the right
+        fillMat(g, M, (g) => { g.moveTo(cx + 1, 9); g.lineTo(cx + 8, 5.5); g.lineTo(cx + 15.5, 4.5); g.lineTo(cx + 17.5, 11); g.lineTo(cx + 16, 18); g.lineTo(cx + 12, 23); g.lineTo(cx + 6, 20.5); g.lineTo(cx + 1, 19); g.closePath(); }, [cx, 4, cx + 18, 23], 51);
+        g.strokeStyle = A(M.dark, 0.6); g.lineWidth = 0.6; g.beginPath(); g.moveTo(cx + 8, 5.8); g.lineTo(cx + 10, 13); g.lineTo(cx + 6, 20.2); g.moveTo(cx + 10, 13); g.lineTo(cx + 17, 11.2); g.stroke();
+        g.strokeStyle = A(M.edge, 0.9); g.lineWidth = 1; g.beginPath(); g.moveTo(cx + 15.6, 5); g.lineTo(cx + 17.3, 11); g.lineTo(cx + 15.8, 17.8); g.lineTo(cx + 12, 22.5); g.stroke();
         lashing(g, H, cx + 0.5, 14, 7, 13, 5);
       }];
     }
     if (tier === 'stone') {
       return [haftFn, (g) => {
         // ground stone axe head wedged through the haft, bound with cord
-        fillMat(g, M, (g) => spline(g, [[cx - 5, 10], [cx + 4, 8], [cx + 13, 6.5], [cx + 17.5, 13], [cx + 14, 21], [cx + 4, 19], [cx - 5, 18]], true, 0.7), [cx - 5, 6, cx + 18, 21], 52);
-        g.strokeStyle = A(M.edge, 0.9); g.lineWidth = 1; g.beginPath(); g.moveTo(cx + 15, 8); g.quadraticCurveTo(cx + 18.5, 13.5, cx + 15, 19.5); g.stroke();
+        // polished stone wedge: narrow butt, flared cutting edge
+        fillMat(g, M, (g) => spline(g, [[cx - 6, 12.5], [cx + 2, 10.5], [cx + 11, 6.5], [cx + 16.5, 7], [cx + 18.5, 14], [cx + 16.5, 21], [cx + 11, 21.5], [cx + 2, 17.5], [cx - 6, 15.5]], true, 0.55), [cx - 6, 6, cx + 19, 22], 52);
+        g.strokeStyle = A(M.edge, 0.95); g.lineWidth = 1.1; g.beginPath(); g.moveTo(cx + 16.4, 7.6); g.quadraticCurveTo(cx + 19, 14, cx + 16.4, 20.4); g.stroke();
+        g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(cx + 9, 10.5, 4, 1.2, -0.35, 0, TAU); g.fill();
         lashing(g, H, cx, 14, 6.4, 12, 4);
       }];
     }

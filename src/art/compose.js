@@ -228,10 +228,10 @@ export function drawPawn(B, A, p, t) {
   showW = !!wsp;
   // bows are slung across the back unless shooting
   if (wType === 'bow' && pose !== 'shoot' && wsp === M.s) {
-    wRot = sd === 'e' ? flip * 1.05 : sd === 's' ? 0.9 : -0.9;
+    wRot = sd === 'e' ? flip * 1.05 : sd === 's' ? 0.75 : -0.75;
     wHx = -H[0] * flip + (sd === 'e' ? -flip * 0.1 : 0);
-    wHl = 0.36 - H[1];
-    wBehind = sd !== 'n'; wSx = wSy = 0.9;
+    wHl = 0.5 - H[1];
+    wBehind = sd !== 'n'; wSx = wSy = 0.82;
   }
   if (act && pose) {
     if (pose === 'slash' || pose === 'heavy' || pose === 'cleave') {
@@ -316,7 +316,7 @@ export function drawPawn(B, A, p, t) {
       const pull = draw > 0.45 ? 0.2 : draw > 0 ? 0.11 : 0;
       if (sd === 'e') {
         wRot = flip * 0.18 * (1 - up); wHx = flip * (0.16 * up - 0.04 * recoil * up); wHl = 0.06 * up; wFlipK = 1;
-        if (draw > 0) { h2 = true; h2x = flip * (0.1 * up + 0.1 - pull - 0.14); h2l = H[1] + 0.06; }
+        if (draw > 0) { h2 = true; h2x = flip * (H[0] + 0.16 * up - pull); h2l = H[1] + 0.06 * up; }
         rot -= flip * draw * 0.05;
       } else if (sd === 's') {
         wRot = -0.15 + (HALF_PI + 0.15) * up; wHx = 0.23 * up; wHl = 0.06 * up; wBehind = false;

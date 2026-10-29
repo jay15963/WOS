@@ -1,18 +1,26 @@
 // Shape kit for the character/creature/item art (Art B): splines, jointed limbs, fur strokes, rounded rects.
 // Pure path helpers on a Canvas2D context (coordinates in the sprite's 1× pixel box, see paint.js).
 
-import { TAU, canvas, spritePx } from './paint.js';
+import { TAU, canvas, spritePxFast as spritePx } from './paint.js';
 
 // ---------- multi-frame sprites from shared parts ----------
 // Paint `fn(P)` as an isolated padded sprite part (same nominal box W×H as the final sprite).
 export function part(W, H, fn) { return spritePx(W, H, (g, P) => fn(P)); }
+// part restricted to the horizontal band y0..y1 of the W×H box (smaller canvases = faster outlines);
+// stack() places it back at its offset.
+export function band(W, H, y0, y1, fn) {
+  y0 = Math.max(0, Math.floor(y0)); y1 = Math.min(H, Math.ceil(y1));
+  const c = spritePx(W, y1 - y0, (g, P) => fn({ layer: (f, ow, col, op) => P.layer((g) => { g.translate(0, -y0); f(g); }, ow, col, op) }));
+  c.offY = y0;
+  return c;
+}
 // n frames of a part. fn(P, dx) draws every frame i translated by i*dx; each frame is painted into its own
 // part with the others shifted off-canvas (outline passes only see one frame → small bounding boxes).
-export function strip(W, H, n, fn) {
+export function strip(W, H, n, fn, y0 = 0, y1 = H) {
   const dx = W + 40;
   const out = [];
   for (let i = 0; i < n; i++) {
-    out.push(part(W, H, (P) => {
+    out.push(band(W, H, y0, y1, (P) => {
       const Q = { layer: (f, ow, col, op) => P.layer((g) => { g.translate(-i * dx, 0); f(g); }, ow, col, op) };
       fn(Q, dx);
     }));
@@ -25,15 +33,16 @@ export function mirror(c0) {
   const g = c.getContext('2d');
   g.translate(c0.width, 0); g.scale(-1, 1); g.drawImage(c0, 0, 0);
   c.origW = c0.origW; c.origH = c0.origH; c.origin = { x: c0.width - c0.origin.x - c0.origW, y: c0.origin.y }; c.needsCrop = true;
+  if (c0.offY != null) c.offY = c0.offY;
   return c;
 }
 // Stack finished parts (same size/pad) into one sprite canvas, keeping the crop metadata of the first.
 export function stack(parts) {
   let c0 = null;
-  for (const p of parts) if (p) { c0 = p; break; }
+  for (const p of parts) if (p && p.offY == null) { c0 = p; break; }
   const c = canvas(c0.width, c0.height);
   const g = c.getContext('2d');
-  for (const p of parts) if (p) g.drawImage(p, 0, 0);
+  for (const p of parts) if (p) g.drawImage(p, 0, p.offY || 0);
   c.origW = c0.origW; c.origH = c0.origH; c.origin = c0.origin; c.needsCrop = true;
   return c;
 }

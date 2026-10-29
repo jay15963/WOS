@@ -3,7 +3,7 @@
 // fixed 36×36 box, uncropped, anchor (0.5, 0.82), content scaled 0.9 around the center, ~2.3 px outline.
 // Tools, weapons, shields and apparel reuse the exact held/wear painters (gear.js, apparel.js).
 
-import { spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex, smoothClosed, blobPts, leaf } from './paint.js';
+import { spritePxFast as spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex, smoothClosed, blobPts, leaf } from './paint.js';
 import { spline, rrect } from './kit.js';
 import { GEAR, MAT } from './gear.js';
 import { WEAR } from './apparel.js';

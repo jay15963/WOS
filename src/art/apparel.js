@@ -5,7 +5,7 @@
 //   face_mask_{s,e} (tinted with look.hatColor), face_scar_{s,e}, face_eyepatch_{s,e} (fixed colors)
 // WEAR exports the painters so items.js can draw the same pieces as inventory icons.
 
-import { spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
+import { spritePxFast as spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
 import { BW, BH, FEET, HW, HH, NECK, HX, HY, bodyPath } from './pawns.js';
 import { spline, rrect } from './kit.js';
 
@@ -216,9 +216,22 @@ const HEAD = {
     if (d === 's') { g.fillStyle = 'rgba(255,245,210,0.55)'; g.beginPath(); g.ellipse(HX - 5, by - 11, 4, 2, -0.3, 0, TAU); g.fill(); }
   },
   hood_leather(g, d, rand, icon) {
-    const C = { base: '#7c5030', light: '#b07a4c', dark: '#4a2c16', stitch: '#d8b680', inner: '#2e1c10' };
+    const C = { base: '#86573a', light: '#c08a5a', dark: '#4a2c16', stitch: '#e0c08a', inner: '#2e1c10' };
+    // short scalloped mantle over the shoulders (drawn first, under the hood)
+    const mantle = (w, y) => {
+      g.fillStyle = lin(g, HX - w, y - 6, HX + w, y + 8, [[0, C.light], [0.5, C.base], [1, C.dark]]);
+      g.beginPath(); g.moveTo(HX - w + 2, y - 6);
+      g.quadraticCurveTo(HX - w - 1, y + 2, HX - w + 1, y + 6);
+      const n = 6;
+      for (let i = 0; i < n; i++) { const x0 = HX - w + 1 + (i * (2 * w - 2)) / n, x1 = HX - w + 1 + ((i + 1) * (2 * w - 2)) / n; g.quadraticCurveTo((x0 + x1) / 2, y + 10, x1, y + 6); }
+      g.quadraticCurveTo(HX + w + 1, y + 2, HX + w - 2, y - 6); g.closePath(); g.fill();
+      g.strokeStyle = A(C.stitch, 0.7); g.lineWidth = 0.7; g.setLineDash([1.2, 1.2]);
+      g.beginPath(); g.moveTo(HX - w + 3, y + 4); g.quadraticCurveTo(HX, y + 7, HX + w - 3, y + 4); g.stroke(); g.setLineDash([]);
+    };
+    if (d === 's' || d === 'n') mantle(20, HY + 17);
+    else { g.save(); g.translate(-3, 0); mantle(17, HY + 17); g.restore(); }
     if (d === 's') {
-      const outer = (gg) => { gg.moveTo(HX - 21, HY + 20); gg.bezierCurveTo(HX - 23, HY + 2, HX - 22, HY - 18, HX, HY - 21.5); gg.bezierCurveTo(HX + 22, HY - 18, HX + 23, HY + 2, HX + 21, HY + 20); gg.quadraticCurveTo(HX, HY + 25, HX - 21, HY + 20); gg.closePath(); };
+      const outer = (gg) => { gg.moveTo(HX - 20, HY + 18); gg.bezierCurveTo(HX - 22, HY + 2, HX - 21.5, HY - 17, HX, HY - 21); gg.bezierCurveTo(HX + 21.5, HY - 17, HX + 22, HY + 2, HX + 20, HY + 18); gg.quadraticCurveTo(HX, HY + 23, HX - 20, HY + 18); gg.closePath(); };
       const face = (gg) => gg.ellipse(HX, HY + 4.5, 13.5, 14.5, 0, 0, TAU);
       g.beginPath(); outer(g); if (!icon) face(g);
       g.fillStyle = lin(g, HX - 20, HY - 20, HX + 20, HY + 22, [[0, C.light], [0.5, C.base], [1, C.dark]]); g.fill('evenodd');
@@ -226,13 +239,18 @@ const HEAD = {
       g.strokeStyle = C.dark; g.lineWidth = 1.6; g.beginPath(); g.ellipse(HX, HY + 4.5, 14.2, 15.2, 0, 0, TAU); g.stroke();
       g.strokeStyle = A(C.stitch, 0.8); g.lineWidth = 0.7; g.setLineDash([1.3, 1.3]); g.beginPath(); g.ellipse(HX, HY + 4.5, 16, 17, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke();
       g.beginPath(); g.moveTo(HX, HY - 20.5); g.lineTo(HX, HY - 11); g.stroke(); g.setLineDash([]);
-      g.fillStyle = 'rgba(255,240,215,0.25)'; g.beginPath(); g.ellipse(HX - 10, HY - 12, 6, 3.5, -0.6, 0, TAU); g.fill();
+      g.fillStyle = 'rgba(255,240,215,0.3)'; g.beginPath(); g.ellipse(HX - 10, HY - 12, 6, 3.5, -0.6, 0, TAU); g.fill();
+      // inner rim shadow framing the face
+      g.strokeStyle = 'rgba(30,16,6,0.45)'; g.lineWidth = 1.6; g.beginPath(); g.ellipse(HX, HY + 4.5, 12.6, 13.6, 0, Math.PI * 1.1, Math.PI * 1.9); g.stroke();
     } else if (d === 'n') {
-      const outer = (gg) => { gg.moveTo(HX - 21, HY + 20); gg.bezierCurveTo(HX - 23, HY + 2, HX - 22, HY - 18, HX, HY - 21.5); gg.bezierCurveTo(HX + 22, HY - 18, HX + 23, HY + 2, HX + 21, HY + 20); gg.quadraticCurveTo(HX, HY + 25, HX - 21, HY + 20); gg.closePath(); };
+      const outer = (gg) => { gg.moveTo(HX - 20, HY + 18); gg.bezierCurveTo(HX - 22, HY + 2, HX - 21.5, HY - 17, HX, HY - 21); gg.bezierCurveTo(HX + 21.5, HY - 17, HX + 22, HY + 2, HX + 20, HY + 18); gg.quadraticCurveTo(HX, HY + 23, HX - 20, HY + 18); gg.closePath(); };
       g.beginPath(); outer(g); g.fillStyle = lin(g, HX - 20, HY - 20, HX + 20, HY + 22, [[0, C.light], [0.5, C.base], [1, C.dark]]); g.fill();
       g.strokeStyle = C.dark; g.lineWidth = 1.1; g.beginPath(); g.moveTo(HX, HY - 21); g.quadraticCurveTo(HX + 1.5, HY, HX, HY + 23); g.stroke();
       g.strokeStyle = A(C.stitch, 0.8); g.lineWidth = 0.7; g.setLineDash([1.3, 1.3]); g.beginPath(); g.moveTo(HX + 1.6, HY - 20); g.quadraticCurveTo(HX + 3, HY, HX + 1.6, HY + 22); g.stroke(); g.setLineDash([]);
       g.strokeStyle = A(C.dark, 0.5); g.lineWidth = 1; g.beginPath(); g.moveTo(HX - 14, HY + 14); g.quadraticCurveTo(HX - 6, HY + 18, HX - 3, HY + 22); g.moveTo(HX + 14, HY + 14); g.quadraticCurveTo(HX + 7, HY + 18, HX + 4, HY + 22); g.stroke();
+      g.fillStyle = 'rgba(255,240,215,0.25)'; g.beginPath(); g.ellipse(HX - 9, HY - 11, 6, 3.6, -0.6, 0, TAU); g.fill();
+      // little pointed tip at the back of the hood
+      g.fillStyle = C.base; g.beginPath(); g.moveTo(HX - 4, HY - 19); g.quadraticCurveTo(HX + 1, HY - 27, HX + 7, HY - 26); g.quadraticCurveTo(HX + 4, HY - 21, HX + 5, HY - 17); g.closePath(); g.fill();
     } else {
       const outer = (gg) => { gg.moveTo(HX - 18, HY + 21); gg.bezierCurveTo(HX - 24, HY + 4, HX - 22, HY - 19, HX - 1, HY - 21.5); gg.bezierCurveTo(HX + 12, HY - 21.5, HX + 18, HY - 12, HX + 17, HY - 3); gg.quadraticCurveTo(HX + 9, HY - 2, HX + 6, HY + 6); gg.quadraticCurveTo(HX + 6, HY + 16, HX + 10, HY + 22); gg.quadraticCurveTo(HX - 4, HY + 25, HX - 18, HY + 21); gg.closePath(); };
       g.beginPath(); outer(g); g.fillStyle = lin(g, HX - 20, HY - 20, HX + 18, HY + 22, [[0, C.light], [0.5, C.base], [1, C.dark]]); g.fill();

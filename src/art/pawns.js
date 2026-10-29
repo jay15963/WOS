@@ -4,7 +4,7 @@
 //   hair / beard / brows × hair color.
 // Held weapons/tools live in gear.js; apparel overlays (wear_*) and bandit extras in apparel.js.
 
-import { spritePx, rng, TAU, lin, rad, atop, circle } from './paint.js';
+import { spritePxFast as spritePx, rng, TAU, lin, rad, atop, circle } from './paint.js';
 
 // Geometry contract shared with compose.js (tiles)
 export const PAWN = {
