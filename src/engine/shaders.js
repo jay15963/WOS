@@ -863,7 +863,9 @@ uniform float uCamCave;   // camera inside a cave (0..1): deeper vignette
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
-// world-space rain streaks (one layer)
+// world-space rain streaks (one layer). The streak axis is the fall direction (screen down, slanted by the
+// wind: dir); it moves towards +dir, so the crisp bright HEAD is at the bottom end and the TAIL fades out
+// above it, thinning (dy = 0 tail ... len head).
 float rainLayer(vec2 wp, float scale, float speed, float seed, float dens){
   vec2 dir = normalize(vec2(uRainDir.x, 1.0));
   vec2 p = vec2(dot(wp, vec2(dir.y, -dir.x)), dot(wp, dir)) * scale;
@@ -878,8 +880,12 @@ float rainLayer(vec2 wp, float scale, float speed, float seed, float dens){
   float len = 0.28 + 0.12 * h;
   float dx = abs(fr.x - x0);
   float dy = fr.y - y0;
-  float w = 0.05;
-  return smoothstep(w, 0.0, dx) * smoothstep(0.0, 0.05, dy) * (1.0 - smoothstep(len * 0.3, len, dy));
+  if (dy < 0.0 || dy > len) return 0.0;
+  float k = dy / len;
+  float w = 0.05 * (0.5 + 0.5 * k);
+  float head = 1.0 - smoothstep(len - 0.045, len, dy);
+  float tail = smoothstep(0.0, 0.8, k);
+  return (1.0 - smoothstep(0.0, w, dx)) * head * tail * tail;
 }
 
 void main(){
