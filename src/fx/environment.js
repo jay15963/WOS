@@ -53,11 +53,16 @@ export class Environment {
       cloud: 0, day: 1, cloudVel: [0.004, 0.0016], fog: 0, fogCol: [0.8, 0.82, 0.85],
       wind: 0.2, windDir: [1, 0], gust: 0, wet: 0, rain: 0, storm: 0, flash: 0, hour: 8, night: 0,
       weather: 'clear', mist: 0,
+      windPh: [0, 0], // accumulated sway / wind-wave phases (smooth whatever the wind does)
       extra: {
         uRain: 0, uSunWarm: [0, 0, 0], uCloud: 0, uCloudVel: [0, 0], uLift: [0, 0, 0], uRainDir: [0, 0],
         uMist: 0, uCloudSh: 0, uFlashCol: [0, 0, 0], uNight: 0,
+        // caves & wind (world pass): ambient inside mined mountain caves, grass waves, light shafts
+        uCaveAmb: [0.12, 0.125, 0.15], uWindDir: [1, 0], uWindK: 0.2, uWindPh: [0, 0], uRays: 0, uSunXY: [1, 0],
+        uCamCave: 0, // set by the ambient system (camera inside a cave)
       },
     };
+    this._phT = 0;
   }
 
   setWeather(name) {
@@ -183,6 +188,15 @@ export class Environment {
     e.windDir[0] = Math.cos(this.windAng); e.windDir[1] = Math.sin(this.windAng);
     const cs = 0.0035 + this.cur.wind * 0.006;
     e.cloudVel[0] = e.windDir[0] * cs; e.cloudVel[1] = e.windDir[1] * cs;
+    // integrate the sway / wave phases (the shaders used to multiply time by the wind, which made the
+    // grass race after a while whenever the gusts changed)
+    const pdt = clamp(this.t - this._phT, 0, 0.1);
+    this._phT = this.t;
+    e.windPh[0] = (e.windPh[0] + pdt * (1.3 + e.wind)) % 628.31853; // 100·2π: every multiple used by the shaders stays continuous
+    e.windPh[1] = (e.windPh[1] + pdt * (1.1 + e.wind * 1.7)) % 628.31853; // 100·2π: every multiple used by the shaders stays continuous
+    X.uWindPh[0] = e.windPh[0]; X.uWindPh[1] = e.windPh[1];
+    X.uWindDir[0] = e.windDir[0]; X.uWindDir[1] = e.windDir[1];
+    X.uWindK = e.wind;
 
     e.wet = this.wet;
     e.rain = rain;
@@ -199,6 +213,12 @@ export class Environment {
     X.uRainDir[0] = e.windDir[0] * (0.15 + e.wind * 0.45); X.uRainDir[1] = 0;
     X.uCloudSh = cl * 0.1 - rain * 0.16;
     X.uNight = e.night;
+    // caves: a cool, very dim ambient (torches and fires light them up fully)
+    const nk = e.night;
+    X.uCaveAmb[0] = 0.12 - 0.03 * nk; X.uCaveAmb[1] = 0.125 - 0.025 * nk; X.uCaveAmb[2] = 0.15 - 0.02 * nk;
+    // low-sun light shafts through haze (dawn and late afternoon, clear-ish skies)
+    X.uRays = isDay ? low * e.day * (1 - cl * 0.85) * (1 - rain) * 0.9 : 0;
+    X.uSunXY[0] = e.sun3[0]; X.uSunXY[1] = e.sun3[1];
     return e;
   }
 

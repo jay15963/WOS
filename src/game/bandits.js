@@ -552,7 +552,7 @@ function forStandIns(game, v, fn) {
     if (camp.x < v.x0 - 6 || camp.x > v.x1 + 6 || camp.y < v.y0 - 6 || camp.y > v.y1 + 8) continue;
     for (const o of camp.objects) {
       const fb = FB[o.type];
-      if (!fb || A.has(o.type) || o.broken || !A.has(fb[0])) continue;
+      if (!fb || A.has(o.type) || A.groups[o.type] || o.broken || !A.has(fb[0])) continue;
       fn(o);
     }
   }

@@ -15,8 +15,12 @@ import { addPlants } from './plants.js';
 import { addRocks } from './rocks.js';
 import { addPawns } from './pawns.js';
 import { addAnimals } from './animals.js';
-import { addBuildings } from './buildings.js';
+import { addBuildings, addLegacyItems } from './buildings.js';
 import { addIcons } from './icons.js';
+import { addStructures } from './structures.js';
+import { addStations } from './stations.js';
+import { addCrops } from './crops.js';
+import { addNatural } from './natural.js';
 import { addCreatures } from './creatures.js';
 import { addGear } from './gear.js';
 import { addApparel } from './apparel.js';
@@ -34,10 +38,12 @@ export function buildAtlas() {
     pending.push({ name, c, ax, ay });
   };
   // Each group is isolated: a failure in one painter must never break boot.
-  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addCreatures, addGear, addApparel, addItems];
+  const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
+    addCreatures, addGear, addApparel, addItems];
   for (const step of steps) {
     try { step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); }
   }
+  try { addLegacyItems(add, (n) => names.has(n)); } catch (e) { console.error('[art] legacy items failed', e); }
   ensureContract(names, add);
   // crop padded canvases to content (single readback), convert anchors, then pack
   let canv;
@@ -63,6 +69,11 @@ const CONTRACT = [
   ...['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider'].flatMap((s) => [s + '_s', s + '_n', s + '_e']),
   'proj_arrow', 'proj_spear',
   'campfire', 'torch', 'wall_wood', 'chest', 'bed',
+  // world expansion (Art A): one per group is enough for composeWorld's fallbacks
+  'wall_stone', 'fence_wood', 'floor_wood', 'floor_stone', 'farm_plot', 'door_wood_h', 'door_wood_v', 'gate_wood_h', 'gate_wood_v',
+  'workbench', 'stonecutter', 'furnace', 'anvil', 'loom', 'cooking_pot', 'table_wood', 'chair_wood', 'rug_0', 'flower_pot_0',
+  'banner_0', 'brazier', 'lamp_post', 'tent_0', 'crate_0', 'pebble_0', 'stick_0', 'fibergrass_0', 'wild_potato_0', 'wild_cotton_0', 'wild_corn_0',
+  'crop_potato_0', 'crop_cotton_0', 'crop_corn_0',
   'item_wood', 'item_stone', 'item_berries', 'item_meat', 'item_cooked', 'item_leather', 'item_fiber', 'item_ore',
   'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_bandage', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
 ];
