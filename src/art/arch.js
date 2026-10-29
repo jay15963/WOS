@@ -1129,27 +1129,7 @@ function floorScatter(kind, v) {
   }, { pad: 2 });
 }
 
-// ---------------- roof props (agent J's roofs; phase 2 wiring) ----------------
-function roofChimney(style) {
-  return spritePx(40, 70, (g, P) => {
-    P.layer((g) => {
-      const x0 = 8, x1 = 32, top = 14, bot = 66;
-      if (style === 'brick') {
-        g.fillStyle = '#5a4a3e'; g.fillRect(x0, top, x1 - x0, bot - top);
-        for (let r = 0; r * 4.6 < bot - top; r++) for (let k = 0; k < 4; k++) { const X = x0 + k * 6.5 - (r & 1 ? 3 : 0), Y = top + r * 4.6; g.fillStyle = pick(BRICK, k + r * 3, 4); g.fillRect(Math.max(x0, X + 0.5), Y + 0.5, 5.6, 3.6); }
-      } else {
-        g.save(); g.beginPath(); g.rect(x0, top, x1 - x0, bot - top); g.clip();
-        courses(g, x0, x1, top, bot, 7, RSTONE, 41, { mortar: '#4a453e', round: 2.5, minW: 7, maxW: 13 });
-        g.restore();
-      }
-      g.fillStyle = lin(g, x0, 0, x1, 0, [[0, 'rgba(255,250,235,0.18)'], [1, 'rgba(20,16,12,0.4)']]); g.fillRect(x0, top, x1 - x0, bot - top);
-      // cap
-      g.fillStyle = '#3a3530'; g.fillRect(x0 - 3, top - 4, x1 - x0 + 6, 5);
-      g.fillStyle = '#1c1814'; g.beginPath(); g.ellipse(20, top - 4, 9, 2.6, 0, 0, TAU); g.fill();
-      if (style === 'cap') { g.fillStyle = '#2e2a26'; g.fillRect(x0 - 1, top - 14, x1 - x0 + 2, 3); g.fillRect(x0 + 1, top - 11, 3, 7); g.fillRect(x1 - 4, top - 11, 3, 7); }
-    }, 2.4);
-  }, { pad: 10 });
-}
+// ---------------- roof props (agent J's roofs; phase 2 wiring: drawn on the slope via J's roofPropAt) ----------------
 function roofDormer(style, glow) {
   return spritePx(48, 56, (g, P) => {
     if (glow) { g.fillStyle = 'rgba(255,196,110,0.95)'; g.fillRect(17, 28, 14, 13); return; }
@@ -1168,16 +1148,6 @@ function roofSkylight() {
     g.fillStyle = '#5a3b24'; g.fillRect(19, 11, 2, 18); g.fillStyle = 'rgba(255,255,255,0.45)'; g.beginPath(); g.moveTo(10, 26); g.lineTo(16, 12); g.lineTo(18, 12); g.lineTo(12, 26); g.closePath(); g.fill();
   }, 2.2), { pad: 8 });
 }
-function roofVane(style) {
-  return spritePx(40, 64, (g, P) => P.layer((g) => {
-    g.strokeStyle = IRON.mid; g.lineWidth = 1.6; g.beginPath(); g.moveTo(20, 62); g.lineTo(20, 14); g.moveTo(12, 34); g.lineTo(28, 34); g.moveTo(20, 26); g.lineTo(20, 42); g.stroke();
-    g.fillStyle = IRON.light; g.font = 'bold 6px sans-serif';
-    if (style === 'arrow') { g.fillStyle = IRON.dark; g.beginPath(); g.moveTo(4, 16); g.lineTo(32, 16); g.lineTo(32, 12); g.lineTo(38, 17); g.lineTo(32, 22); g.lineTo(32, 18); g.lineTo(4, 18); g.closePath(); g.fill(); g.fillRect(4, 12, 4, 10); }
-    else { g.fillStyle = IRON.dark; g.beginPath(); g.moveTo(10, 16); g.quadraticCurveTo(12, 6, 20, 8); g.lineTo(24, 4); g.lineTo(25, 9); g.quadraticCurveTo(30, 12, 28, 18); g.lineTo(32, 14); g.quadraticCurveTo(34, 20, 26, 22); g.lineTo(14, 22); g.closePath(); g.fill(); }
-    g.fillStyle = '#c9a24a'; g.beginPath(); circle(g, 20, 14, 1.6); g.fill();
-  }, 1.8), { pad: 8 });
-}
-
 // ---------------- registration ----------------
 export const FLOOR_STYLES = ['herring', 'parquet', 'wide', 'cobble', 'tiles', 'checker'];
 export const FENCE_STYLES = { picket: 'fence_wood', board: 'fence_wood', wattle: 'fence_wood', stone: 'fence_stone', hedge: 'hedge' };
@@ -1226,11 +1196,9 @@ export function addArch(add) {
   add('kf_inlay', floorInlay(), 0.5, 1);
   for (const k of ['straw', 'leaves', 'moss']) for (let v = 0; v < 2; v++) add(`kf_${k}_${v}`, floorScatter(k, v), 0.5, 1);
   // roof props (agent J)
-  for (const st of ['stone', 'brick', 'cap']) A('roof_chimney_' + st, roofChimney(st));
   for (const st of ['wood', 'plaster']) { A('roof_dormer_' + st, roofDormer(st, false)); }
   A('roof_dormer_glow', roofDormer('wood', true));
   A('roof_skylight_glass', roofSkylight());
-  for (const st of ['rooster', 'arrow']) A('roof_vane_' + st, roofVane(st));
   TEX.clear();
 }
 

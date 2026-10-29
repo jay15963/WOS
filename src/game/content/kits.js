@@ -200,30 +200,37 @@ export const KITS = {
       ...TONE_WOOD, ...TONE_STONE,
     ],
   },
-  // agent J's built roofs: J's procedural renderer reads roofLook(o) (below); roof props are roof-layer structures
+  // agent J's built roofs (types roof_thatch / roof_wood / roof_stone, layer 'roof'): J's renderer turns roofLook(o)
+  // (below) into its per-tile look; J paints the chimney (det 'chimney' or a fire under the roof) and the vane itself
   roof: {
     name: 'Telhado',
-    tabs: [['style', 'Material'], ['trim', 'Cumeeira e beiral'], ['nature', 'Tempo'], ['tone', 'Cor']],
+    tabs: [['style', 'Material'], ['trim', 'Forma e acabamento'], ['wall', 'No telhado'], ['nature', 'Tempo'], ['tone', 'Cor']],
     styles: [
-      { id: 'thatch', name: 'Palha', def: true, desc: 'Sapê grosso e macio.' },
-      { id: 'shake', name: 'Telhas de madeira', desc: 'Tabuinhas sobrepostas.' },
-      { id: 'slate', name: 'Ardósia azul', desc: 'Escamas de ardósia azulada.' },
-      { id: 'stone', name: 'Lajes de pedra', desc: 'Escamas de pedra cinza.' },
-      { id: 'terra', name: 'Telhas de barro', desc: 'Escamas de terracota alaranjada.' },
-      { id: 'turf', name: 'Telhado verde', desc: 'Grama e flores sobre o telhado.' },
+      { id: 'thatch', name: 'Palha', types: ['roof_thatch'], def: true, desc: 'Sapê grosso amarrado na cumeeira.' },
+      { id: 'turf', name: 'Telhado verde', types: ['roof_thatch'], desc: 'Grama e flores sobre o telhado.' },
+      { id: 'shake', name: 'Telhas de madeira', types: ['roof_wood'], def: true, desc: 'Tabuinhas sobrepostas.' },
+      { id: 'wscale', name: 'Escamas de madeira', types: ['roof_wood'], desc: 'Tabuinhas recortadas em escama.' },
+      { id: 'slate', name: 'Ardósia azul', types: ['roof_stone'], def: true, desc: 'Escamas de ardósia azulada.' },
+      { id: 'stone', name: 'Lajes cinza', types: ['roof_stone'], desc: 'Escamas de pedra cinza.' },
+      { id: 'terra', name: 'Terracota', types: ['roof_stone'], desc: 'Escamas de barro alaranjadas.' },
+      { id: 'flag', name: 'Lajes grossas', types: ['roof_stone'], desc: 'Placas de pedra pesadas.' },
     ],
     details: [
-      { id: 'r_wood', name: 'Cumeeira de madeira', cat: 'trim', group: 'ridge' },
+      { id: 'end_gable', name: 'Duas águas (empena)', cat: 'trim', group: 'ends' },
+      { id: 'end_hip', name: 'Quatro águas', cat: 'trim', group: 'ends' },
+      { id: 'gab_plaster', name: 'Empena de reboco', cat: 'trim', group: 'gab' },
+      { id: 'gab_planks', name: 'Empena de tábuas', cat: 'trim', group: 'gab' },
+      { id: 'gab_stone', name: 'Empena de pedra', cat: 'trim', group: 'gab' },
+      { id: 'r_board', name: 'Cumeeira de tábua', cat: 'trim', group: 'ridge' },
       { id: 'r_tile', name: 'Cumeeira de telha', cat: 'trim', group: 'ridge' },
-      { id: 'r_stone', name: 'Cumeeira de pedra', cat: 'trim', group: 'ridge' },
-      { id: 'e_plain', name: 'Beiral simples', cat: 'trim', group: 'eave' },
-      { id: 'e_carved', name: 'Beiral entalhado', cat: 'trim', group: 'eave' },
-      { id: 'e_painted', name: 'Beiral pintado', cat: 'trim', group: 'eave' },
-      { id: 'barge', name: 'Bordas grossas', cat: 'trim' },
-      { id: 'edge', name: 'Acabamento de borda', cat: 'trim' },
+      { id: 'r_bound', name: 'Cumeeira amarrada', cat: 'trim', group: 'ridge' },
+      { id: 'barge', name: 'Bordas grossas escuras', cat: 'trim' },
+      { id: 'trim', name: 'Acabamento de beiral', cat: 'trim' },
+      { id: 'chimney', name: 'Chaminé de pedra', cat: 'wall' },
+      { id: 'vane', name: 'Cata-vento', cat: 'wall' },
       { id: 'moss', name: 'Musgo', cat: 'nature' },
       { id: 'weather', name: 'Desgaste', cat: 'nature' },
-      { id: 'icicles', name: 'Pingentes', cat: 'nature' },
+      { id: 'icicles', name: 'Pingentes de gelo', cat: 'nature' },
       { id: 't_light', name: 'Mais claro', cat: 'tone', group: 'tone', tint: [1.14, 1.12, 1.08] },
       { id: 't_dark', name: 'Mais escuro', cat: 'tone', group: 'tone', tint: [0.74, 0.74, 0.78] },
       { id: 't_warm', name: 'Quente', cat: 'tone', group: 'tone', tint: [1.12, 0.96, 0.82] },
@@ -232,12 +239,11 @@ export const KITS = {
   },
 };
 
-// roof props: roof-layer structures (phase 2, when J's roof layer exists). Art is ready: sprites roof_<id>[_<style>].
+// roof props: roof-layer structures K draws as sprites on the slope (phase 2, via J's roofPropAt). Chimney and vane are
+// roof details painted by J (det 'chimney' / 'vane'), not props.
 export const ROOF_PROPS = [
-  { id: 'chimney', name: 'Chaminé', styles: [['stone', 'Pedra'], ['brick', 'Tijolos'], ['cap', 'Pedra com chapéu']], desc: 'Solta fumaça quando há uma lareira acesa embaixo.' },
-  { id: 'dormer', name: 'Água-furtada', styles: [['wood', 'Madeira'], ['plaster', 'Reboco']], desc: 'Janelinha saindo do telhado; brilha à noite.' },
-  { id: 'skylight', name: 'Claraboia', styles: [['glass', 'Vidro']], desc: 'Deixa a luz entrar.' },
-  { id: 'vane', name: 'Cata-vento', styles: [['rooster', 'Galo'], ['arrow', 'Flecha']], desc: 'Gira com o vento.' },
+  { id: 'roof_dormer', name: 'Água-furtada', sprites: ['roof_dormer_wood', 'roof_dormer_plaster'], glow: 'roof_dormer_glow', desc: 'Janelinha saindo do telhado; brilha à noite.' },
+  { id: 'roof_skylight', name: 'Claraboia', sprites: ['roof_skylight_glass'], desc: 'Deixa a luz entrar.' },
 ];
 
 // ---------- lookup ----------
@@ -352,24 +358,30 @@ export function decodeKit(type, style, det) {
 }
 
 // ---------- interface for agent J (roof renderer) ----------
-// roofLook(o) → { mat, pattern, base, dark, light, ridge, eave, barge, edge, moss, weather, icicles, tint }
-// pattern: 'thatch' | 'shake' | 'scale' (fish-scale shingles) | 'slab' | 'turf'. Colours are [r,g,b] 0..255 before the tint.
+// roofLook(o) → J's per-tile look fields: { mat, pattern: 'thatch'|'shake'|'scale'|'slab'|'turf', base, dark, light ([r,g,b] 0..1,
+// tone already multiplied), ends: 'gable'|'hip'|null, gable: 'plaster'|'planks'|'stone'|null, ridge: 'board'|'tile'|'bound'|null,
+// barge, trim, chimney, vane, moss, weather, icicles (booleans) }. null = J's default for the type.
 export const ROOF_MATS = {
   thatch: { pattern: 'thatch', base: [196, 164, 98], dark: [122, 94, 52], light: [228, 204, 140] },
+  turf: { pattern: 'turf', base: [104, 140, 66], dark: [64, 92, 40], light: [146, 182, 92] },
   shake: { pattern: 'shake', base: [150, 104, 64], dark: [92, 60, 34], light: [190, 142, 94] },
+  wscale: { pattern: 'scale', base: [158, 112, 70], dark: [96, 62, 36], light: [196, 150, 100] },
   slate: { pattern: 'scale', base: [92, 112, 140], dark: [52, 64, 86], light: [140, 160, 186] },
   stone: { pattern: 'scale', base: [136, 134, 128], dark: [86, 84, 80], light: [180, 178, 170] },
   terra: { pattern: 'scale', base: [204, 112, 62], dark: [138, 66, 34], light: [234, 156, 100] },
-  turf: { pattern: 'turf', base: [104, 140, 66], dark: [64, 92, 40], light: [146, 182, 92] },
+  flag: { pattern: 'slab', base: [146, 140, 128], dark: [92, 88, 80], light: [186, 180, 168] },
 };
 export function roofLook(o) {
   const k = decodeKit(o.type, o.style, o.det);
   const mat = ROOF_MATS[k.style] ? k.style : 'thatch';
-  const on = k.on;
+  const M = ROOF_MATS[mat], t = k.tint || [1, 1, 1], on = k.on;
+  const c = (v) => [Math.min(1, (v[0] / 255) * t[0]), Math.min(1, (v[1] / 255) * t[1]), Math.min(1, (v[2] / 255) * t[2])];
   return {
-    mat, ...ROOF_MATS[mat],
-    ridge: on.r_wood ? 'wood' : on.r_tile ? 'tile' : on.r_stone ? 'stone' : null,
-    eave: on.e_plain ? 'plain' : on.e_carved ? 'carved' : on.e_painted ? 'painted' : null,
-    barge: !!on.barge, edge: !!on.edge, moss: on.moss ? 1 : 0, weather: on.weather ? 1 : 0, icicles: !!on.icicles, tint: k.tint,
+    mat, pattern: M.pattern, base: c(M.base), dark: c(M.dark), light: c(M.light),
+    ends: on.end_gable ? 'gable' : on.end_hip ? 'hip' : null,
+    gable: on.gab_plaster ? 'plaster' : on.gab_planks ? 'planks' : on.gab_stone ? 'stone' : null,
+    ridge: on.r_board ? 'board' : on.r_tile ? 'tile' : on.r_bound ? 'bound' : null,
+    barge: !!on.barge, trim: !!on.trim, chimney: !!on.chimney, vane: !!on.vane,
+    moss: !!on.moss, weather: !!on.weather, icicles: !!on.icicles,
   };
 }
