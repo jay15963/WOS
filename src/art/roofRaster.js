@@ -189,12 +189,12 @@ export function rasterRegion(spec) {
         // front edge entering the roof: a slab edge (fascia / bargeboard) below the first sample
         const gableEnd = r.ns && !r.hip && y > r.Y1;
         const tk = gableEnd ? 0.12 : thick;
-        for (let q = 0, n = Math.ceil(tk * res); q <= n; q++) put(px, py + q, y + 0.0005, H - q / res, BOARD, K, gableEnd ? 7 : 8, s, x);
+        for (let q = 0, n = Math.ceil(tk * res); q <= n; q++) put(px, py + q, y + 0.0005, H, BOARD, K, gableEnd ? 7 : 8, s, x); // h = top of the board
         put(px, py, y, H, SURF, K, F, s, x);
       } else if (H > prevH + 0.02 + r.p * dy * 2) {
         // step up onto a higher roof (its gable end or eave edge stands in front of the lower one)
         const isFace = r.ns && !r.hip;
-        for (let q = py; q <= prevPy; q++) put(px, q, y, y - (q / res + sy0), isFace ? FACE : BOARD, K, isFace ? 0 : 8, s, x);
+        for (let q = py; q <= prevPy; q++) put(px, q, y, isFace ? y - (q / res + sy0) : H, isFace ? FACE : BOARD, K, isFace ? 0 : 8, s, x);
       } else {
         const a = Math.min(py, prevPy), b = Math.max(py, prevPy);
         for (let q = a; q <= b; q++) put(px, q, y, H, SURF, K, F, s, x);

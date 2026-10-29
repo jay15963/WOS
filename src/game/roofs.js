@@ -206,7 +206,7 @@ export function collapseFx(game, tiles, { big = false, cave = false } = {}) {
 
 // ---------------- the local / cosmetic system ----------------
 export function roofsSystem() {
-  let artT = 0, smokeAcc = 0;
+  let artT = 0, smokeAcc = 0, moteAcc = 0;
   const tmpList = [];
   return {
     sync: 'cosmetic', // regions, art, fades, indoor state of the local player, roofData texture
@@ -243,6 +243,19 @@ export function roofsSystem() {
       smokeAcc += dt;
       if (smokeAcc > 0.12) { smokeChimneys(game, smokeAcc); smokeAcc = 0; }
       dustFx(game, dt);
+      // caves: fine dust motes drifting through the dim air around the player (cosmetic)
+      const I = game.indoors, P = game.particles;
+      if (I.caveK > 0.3 && P && game.A?.has('fx_spark')) {
+        moteAcc += dt * 5 * I.caveK;
+        const p = game.player, K = 1 / Math.max(0.01, game.A.get('fx_spark').w);
+        while (moteAcc > 1) {
+          moteAcc -= 1;
+          const a = Math.random() * 6.283, d = Math.sqrt(Math.random()) * 4.5;
+          P.emit({ spr: 'fx_spark', x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d * 0.75, lift: 0.2 + Math.random() * 1.5, vx: (Math.random() - 0.5) * 0.07, vy: (Math.random() - 0.5) * 0.05,
+            vlift: (Math.random() - 0.45) * 0.05, drag: 0.1, life: 4 + Math.random() * 4, size: (0.05 + Math.random() * 0.05) * K, size1: 0.04 * K,
+            r: 0.86, g: 0.84, b: 0.78, a: 0.22, a1: 0, fadeIn: 1.4, layer: 'emissive', ground: false });
+        }
+      }
       // roofData upload
       if (R.upload && game.R?.updateRoofData) { const u = R.upload; R.upload = null; game.R.updateRoofData(R.data, u[0], u[1], u[2], u[3]); }
       // screen effects (post shader) and the indoor ambient level

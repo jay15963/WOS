@@ -942,6 +942,13 @@ differs from the design text above, the code is described here (this section win
     finishing it (`build.hit final`, target re-validated) → `struct.relocate {id: plan, src}` moves the SAME object (id, store, state).
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
+- **Roofs (round V2, agent J)** — roof tiles are generic structures on layer `'roof'` with the shared fields `style` (string) / `det`
+  (canonical detail string): `struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]`, snapshot rows
+  `[.., moveOf, style, det]` (`[14]`, `[15]`), digest `structs` rows end with style, det. `build.place {type, tiles, rot, style, det}`;
+  `build.hit start` on a roof refuses without a finished support within 6 tiles (no footprint clearing). `world.broof` (finished roofs) is
+  derived in the struct appliers. Host op `roof.collapse {ids, drops}` (from `roofSupportSystem`, sync host, after a support was removed or
+  rock mined) + `player.hurt` for players under it. The natural roof (`world.roof`) is derived from the rock grid inside `tile.mine` on
+  every peer (no op); `rock.hit` adds the cave-in damage on the host. Digest `tiles` part also hashes `roof` and `broof`.
 
 ### 7.3 Save format
 
@@ -950,7 +957,8 @@ fuel, hinted, marks, world: serializeWorld(game, {save: true}) }` (the snapshot 
 re-find worldgen objects if the world generator changed). Guests write `{ v: 3, guest: 1, player, craft, fuel, hinted }` only.
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
-`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
+`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby). **v5** (roofs): rows carry
+`style, det` (older rows get `''`); the natural roof is re-derived from the mined tiles with the support rule.
 
 ### 7.4 Background clock
 
