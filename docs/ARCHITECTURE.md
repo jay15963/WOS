@@ -77,7 +77,11 @@ Biomas e zonas (src/world/worldgen.js):
   numa segunda textura 1024² (cresce até 2048²). O renderer chama `A.look.tick()` por quadro, envia as partes novas (`texSubImage2D`) e
   liga a textura `uLook`; registros de sprite com `u ∈ [-1, 0)` são amostrados nela pelos shaders de sprite e de sombra. Enquanto as
   partes de um visual são pintadas (orçamento ~4 ms/quadro), `rigReady()` é falso e o `compose` desenha `R.fb` (pawn base do atlas nas
-  mesmas cores); o visual do jogador local é pintado na hora. O digest do atlas não depende delas; `selfTest().look` mostra o estado. Capacetes: `WEAR_HIDES_HAIR` (`true` esconde o cabelo da frente,
+  mesmas cores); o visual do jogador local é pintado na hora. O digest do atlas não depende delas; `selfTest().look` mostra o estado.
+  A mesma textura guarda os sprites preguiçosos do agente K (`src/art/lazyDefs.js`: variantes de estilo, cantos suaves, detalhes,
+  decoração; `archCompose.js` pede com `want` e pula até ficarem prontos, `prewarmArch` pinta o que o mundo carregado usa antes dos
+  primeiros quadros). Despejo: primeiro partes paradas há ~10 s, depois há ~1 s, depois a textura cresce, e só no tamanho máximo
+  a metade mais antiga — o que está na tela não pisca. `selfTest()` traz `lazyDefs` / `lazyDigest` (registro, não pixels). Capacetes: `WEAR_HIDES_HAIR` (`true` esconde o cabelo da frente,
   `'tall'` só os estilos altos); o cabelo longo de trás continua visível.
 - **Prévia** `src/art/look/preview.js`: `PreviewAtlas(k)` pinta as partes sob demanda em k× com os mesmos pintores, `drawPawn2D`
   reproduz num canvas 2D as instâncias que `compose.drawPawn` gera (mesmas regras do shader). `atlasView(A)` usa o atlas do jogo.

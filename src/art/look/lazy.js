@@ -7,13 +7,16 @@
 //   LA.want(r) / LA.paintNow(r) · LA.tick(budgetMs) (renderer, once per frame) · LA.stats()
 // Parts not drawn for a while are evicted when space runs out (records stay; they are re-placed on demand).
 // Nothing here is shared state: every client paints the parts its own looks need, from the same code.
+// Agent K registers more lazily painted sprites in art/lazyDefs.js (style variants, details, decoration): same texture.
 
 import { lookDefs } from './index.js';
 import { atlasCanvas } from './hipaint.js';
 import { PPU, anchorOf } from '../paint.js';
+import { LAZY_DEFS } from '../lazyDefs.js'; // agent K: style variants / details / decoration share this texture
 
 const PAD = 4;              // texels between parts (mipmaps)
 const IDLE_FRAMES = 600;    // a part unused this long (~10 s) may be evicted
+const RECENT_FRAMES = 60;   // … and one unused this long (~1 s) before the texture grows
 export const LOOK_CLOCK = { f: 0 }; // frame counter; compose stamps rec.lu = LOOK_CLOCK.f when it draws a part
 
 // crop a padded part canvas to its painted content, keeping the nominal centre centred (ax = 0.5 stays exact)
@@ -57,11 +60,11 @@ export class LookAtlas {
     this.shelves = []; this.nextY = PAD;
     this.full = true;
   }
-  has(n) { return this.defs.has(n); }
+  has(n) { return this.defs.has(n) || LAZY_DEFS.has(n); }
   get(n) {
     let r = this.recs.get(n);
     if (r) return r;
-    if (!this.defs.has(n)) return null;
+    if (!this.defs.has(n) && !LAZY_DEFS.has(n)) return null;
     r = { name: n, ready: false, placed: false, queued: false, failed: false, canvas: null, w: 0, h: 0, ax: 0.5, ay: 1, u0: 0, v0: 0, u1: 0, v1: 0, pw: 0, ph: 0, x: 0, y: 0, lu: LOOK_CLOCK.f };
     this.recs.set(n, r);
     if (this.sync) this.paintNow(r);
@@ -85,8 +88,8 @@ export class LookAtlas {
     const t0 = performance.now();
     if (!r.canvas) {
       try {
-        const def = this.defs.get(r.name);
-        const c = crop(atlasCanvas(def));
+        const def = this.defs.get(r.name) || LAZY_DEFS.get(r.name);
+        const c = crop(def.canvas ? def.canvas() : atlasCanvas(def)); // (agent K's defs bring their own painter)
         if (!c) { r.failed = true; return; } // nothing painted (never drawn)
         const [ax, ay] = anchorOf(c, def.ax, def.ay);
         r.canvas = c; r.pw = c.width; r.ph = c.height; r.w = c.width / PPU; r.h = c.height / PPU; r.ax = ax; r.ay = ay;
@@ -115,33 +118,39 @@ export class LookAtlas {
     r.v0 = r.y / this.H; r.v1 = (r.y + r.ph) / this.H;
   }
   _place(r) {
-    if (!this._alloc(r)) {
-      this._compact(0);
-      if (!this._alloc(r)) { this._compact(1); if (!this._alloc(r)) { this._compact(2); if (!this._alloc(r)) { r.failed = true; return; } } }
-    }
+    let ok = this._alloc(r);
+    for (let lv = 0; !ok && lv < 4; lv++) { if (this._compact(lv)) ok = this._alloc(r); }
+    if (!ok) { r.failed = true; return; }
     this.ctx.drawImage(r.canvas, r.x, r.y);
     this._uv(r);
     r.placed = true; r.ready = true;
     if (!this.full) this.uploads.push(r);
   }
-  // make room: 0 = drop parts idle for ~10 s, 1 = drop the older half too, 2 = grow the texture; then repack all
+  // make room, then repack all: 0 = drop parts idle for ~10 s, 1 = drop parts not drawn for ~1 s, 2 = grow the
+  // texture (up to 2048²), 3 = (full size) drop the older half too. Parts drawn this very second are evicted only
+  // at level 3, so a scene whose parts all fit in 2048² never flickers (agent K's styles / details / decoration
+  // share this texture with the look parts). Returns false when the level cannot apply (already at full size).
   _compact(level) {
+    const grow = this.W < 2048 || this.H < 2048;
+    if (level === 2 && !grow) return false;
     const keep = [], now = LOOK_CLOCK.f;
     const placed = [...this.recs.values()].filter((r) => r.placed);
     placed.sort((a, b) => b.lu - a.lu);
-    const cut = level === 1 ? Math.ceil(placed.length / 2) : placed.length;
+    const idle = level === 0 ? IDLE_FRAMES : RECENT_FRAMES;
+    const cut = level === 3 ? Math.ceil(placed.length / 2) : placed.length;
+    if (level < 2 && !placed.some((r) => now - r.lu > idle)) return false; // nothing to drop: no repack
     placed.forEach((r, i) => {
-      if ((level >= 0 && now - r.lu > IDLE_FRAMES) || i >= cut) { r.placed = false; r.ready = false; this.epoch++; } else keep.push(r);
+      if (now - r.lu > idle || i >= cut) { r.placed = false; r.ready = false; this.epoch++; } else keep.push(r);
     });
     if (level === 2) {
       if (this.W <= this.H && this.W < 2048) this._resize(this.W * 2, this.H);
-      else if (this.H < 2048) this._resize(this.W, this.H * 2);
-      else this._resize(this.W, this.H);
+      else this._resize(this.W, this.H * 2);
     } else this._resize(this.W, this.H);
     keep.sort((a, b) => b.ph - a.ph);
     for (const r of keep) { if (this._alloc(r)) { this.ctx.drawImage(r.canvas, r.x, r.y); this._uv(r); } else { r.placed = false; r.ready = false; this.epoch++; } }
     this.uploads.length = 0;
     this.repacks++;
+    return true;
   }
   stats() {
     let placed = 0; for (const r of this.recs.values()) if (r.placed) placed++;

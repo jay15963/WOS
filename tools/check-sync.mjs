@@ -126,10 +126,10 @@ for (const [n, at] of defs.own) if (!owned.has(n)) report('R9', at.split(':')[0]
 // R12 art contract covers the content
 {
   const imp = (p) => import(pathToFileURL(join(ROOT, p)).href);
-  const { CONTRACT, hasKindArt } = await imp('src/art/contract.js');
+  const { CONTRACT, LAZY_KINDS = [], hasKindArt } = await imp('src/art/contract.js');
   const { SPECIES } = await imp('src/game/content/combat.js');
   const { BUILDINGS } = await imp('src/game/content/buildings.js');
-  const names = new Set(CONTRACT);
+  const names = new Set([...CONTRACT, ...LAZY_KINDS]); // (agent K: lazily painted kinds count as art; artcheck checks their painters)
   for (const sp in SPECIES) {
     if (SPECIES[sp].pawn) continue;
     for (const d of ['s', 'n', 'e']) if (!names.has(`${sp}_${d}`)) report('R12', 'src/art/contract.js', 1, `espécie '${sp}' sem '${sp}_${d}' no contrato de arte`);
