@@ -109,6 +109,7 @@ export function installAim(game) {
 
   // ---------- begin / end ----------
   function start(id) {
+    if (game.build?.mode || game.mining?.mode || game.ui?.modal) return false; // keys / clicks belong to those modes
     const why = aimCheck(game, id);
     if (why != null) { if (why) game.events.emit('error', { text: why }); return false; }
     const p = game.player;
