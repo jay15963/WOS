@@ -19,6 +19,9 @@ import { projectilesSystem } from './projectiles.js';
 import { populateCamps, banditsSystem, campArtSystem, installCamps } from './bandits.js';
 import { gatheringSystem } from './gathering.js';
 import { initBuilding, buildingSystem } from './building.js';
+import { initRoofs, roofsSystem } from './roofs.js';
+import { raysSystem } from '../fx/rays.js';
+import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
 import { buildOcc } from './nav.js';
@@ -55,6 +58,7 @@ export function installSystems(game) {
 
   initPlayer(game);
   initBuilding(game);
+  initRoofs(game);
   buildOcc(game);
   initEconomy(game);
   initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
@@ -90,6 +94,9 @@ export function installSystems(game) {
     campArtSystem(),
     gatheringSystem(),
     buildingSystem(),
+    roofsSystem(),
+    raysSystem(),
+    roofSupportSystem(),
     ...economySystems(),
     survivalSystem(),
     lootSystem(),

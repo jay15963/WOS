@@ -677,22 +677,14 @@ export class Audio {
     for (const e of game.entities) if (e.species === 'wolf' && !e.dead && Math.abs(e.x - this.lx) < 60 && Math.abs(e.y - this.ly) < 60) wolves++;
     N.wolves = wolves;
   }
-  // 0..1: walls / rock around the listener on (almost) every side, within 7 tiles
+  // 0..1: indoors = under a roof (world.roofAt: a built roof or a cave ceiling, agent J); a walled yard without a
+  // roof is outdoors. The tiles around the listener soften the edge (doorways, porches).
   _indoorAt(w, tx, ty) {
     if (!w.inBounds(tx, ty)) return 0;
-    if (w.isCave?.(tx, ty)) return 1;
-    let hit = 0;
-    for (const [dx, dy] of DIRS8) {
-      for (let k = 1; k <= 7; k++) {
-        const x = tx + dx * k, y = ty + dy * k;
-        if (!w.inBounds(x, y)) { hit++; break; }
-        if (this._isWall(y * w.W + x)) { hit++; break; }
-      }
-    }
-    let f = hit / 8;
-    const fl = this.game?.build?.grid?.floor?.get(ty * w.W + tx);
-    if (fl && !fl.blueprint) f = Math.min(1, f + 0.15);
-    return f >= 0.85 ? 1 : f >= 0.6 ? (f - 0.6) / 0.25 : 0;
+    if (w.isCave?.(tx, ty) || w.roofAt?.(tx, ty) === 2) return 1;
+    let n = 0;
+    for (const [dx, dy] of DIRS8) if (w.roofAt?.(tx + dx, ty + dy) === 2 || w.isCave?.(tx + dx, ty + dy)) n++;
+    return n >= 5 ? 0.5 : 0;
   }
 
   // ---------- multiplayer: sounds of everyone's actions (net.js calls this before each op applies) ----------

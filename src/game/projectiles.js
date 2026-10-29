@@ -129,8 +129,8 @@ function landLob(game, pr) {
   const tx = Math.floor(pr.x), ty = Math.floor(pr.y);
   const inside = w.inBounds(tx, ty);
   const i = inside ? ty * w.W + tx : -1;
-  // a mountain roof stops a shot coming from outside the cave (a throw inside a cave lands normally)
-  const roofed = inside && w.roof[i] && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
+  // a roof (mountain ceiling or built roof) stops a shot coming from outside (a throw inside lands normally)
+  const roofed = inside && w.roofAt(tx, ty) !== 0 && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
   const wall = !inside || w.rock[i] || w.solid[i] || roofed;
   pr.blocked = !!wall;
   const water = inside && !wall && w.waterAt(tx, ty) > 0;

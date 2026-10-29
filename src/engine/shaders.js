@@ -77,6 +77,7 @@ out float vRecv;
 out vec2 vLocal;
 out vec2 vW;              // world position on the ground plane (before lift)
 out float vFrost;         // snow lying on this (vegetation) sprite
+out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
 ${SWAY_FN}
 void main(){
@@ -99,6 +100,7 @@ void main(){
   vFlash = aParams.z;
   vRecv = aExtra.x;
   vLocal = c;
+  vH = (aAnchor.y - c.y) * aSize.y;
   vFrost = 0.0;
 #if QL >= 1
   if (uSnow > 0.01 && aParams.x > 0.0) vFrost = uSnow * smoothstep(0.45, 0.75, textureLod(uClim, aPos / uWorldSz, 0.0).r);
@@ -107,8 +109,9 @@ void main(){
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost;
+in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
+uniform highp float uTime;
 uniform sampler2D uTex;
 uniform sampler2D uLook;  // lazily painted look parts (agent H): sprites with u in [-1, 0)
 uniform sampler2D uShadow;
@@ -119,10 +122,35 @@ uniform float uShadowStr;
 uniform float uAO;        // 1 while drawing ground / decor: darken next to walls (contact AO)
 out vec4 o;
 void main(){
-  vec4 t = texture(uTex, vUV);
-  if (vUV.x < 0.0) t = texture(uLook, vUV + vec2(1.0, 0.0));
+  // WATER (agent E): recvShadow < 0 flags a sprite standing in water (src/fx/waterline.js) — -1 = stone / duck
+  // (waterline 0.055 tile above the anchor), -2 = plant (reeds: 0.15 tile, the stems rise out of the water);
+  // below the soft wavy waterline the sprite is refracted, tinted toward the water and faded, with a faint
+  // broken lip where it leaves the water; both receive shadows like recv 1. -3 = a reflection (vertically
+  // flipped copy: wobbles, fades with depth, no shadow).
+  vec2 uv = vUV;
+  float sub = 0.0, wl = 0.0;
+  if (vRecv < -0.5) {
+    float deep = vRecv < -1.5 ? 1.0 : 0.0;
+    wl = mix(0.055, 0.15, deep) + (0.012 + 0.01 * deep) * sin(vW.x * 21.0 + uTime * 1.9) + 0.007 * sin(vW.x * 47.0 - uTime * 2.7);
+    sub = vRecv < -2.5 ? 1.0 : 1.0 - smoothstep(wl - 0.03 - 0.03 * deep, wl + 0.025, vH);
+    uv.x += sub * sin(abs(vH) * 60.0 + uTime * 2.4 + vW.x * 9.0) * (vRecv < -2.5 ? 2.4 : 1.2) / float(textureSize(uTex, 0).x); // ≤ 2.4 texels (atlas PAD 4)
+  }
+  vec4 t = texture(uTex, uv);
+  if (vUV.x < 0.0) t = texture(uLook, vUV + vec2(1.0, 0.0)); // lazily painted look parts (agent H)
   if (t.a < 0.003) discard;
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
+  if (vRecv < -0.5) {
+    if (vRecv < -2.5) {
+      // the flipped copy is squashed ×0.6 and anchored 0.09 above the waterline: hide the submerged part
+      c *= smoothstep(0.06, 0.1, abs(vH)) * (1.0 - smoothstep(0.12, 0.42, abs(vH)));
+      c.rgb = mix(c.rgb, vec3(0.09, 0.18, 0.21) * c.a, 0.5);
+    } else {
+      c.rgb = mix(c.rgb, vec3(0.2, 0.4, 0.43) * c.a, sub * 0.4);
+      c *= 1.0 - sub * (0.86 + 0.08 * smoothstep(wl - 0.03, wl - 0.12, vH)); // deeper = more water in front
+      float lip = vH - wl;
+      c.rgb += vec3(0.55, 0.66, 0.7) * exp(-lip * lip * 3000.0) * (0.5 + 0.5 * sin(vW.x * 93.0 + uTime * 3.0)) * 0.16 * c.a;
+    }
+  }
 #if QL >= 1
   if (vFrost > 0.01) {
     // snow settles on the top edges of leaves / needles / blades (texel above is empty)
@@ -139,9 +167,10 @@ void main(){
   }
 #endif
   c.rgb = mix(c.rgb, vec3(c.a), clamp(vFlash, 0.0, 1.0));
-  if (vRecv > 0.0) {
+  float rv = vRecv < 0.0 ? (vRecv < -2.5 ? 0.0 : 1.0) : vRecv; // water flags receive like 1 (reflections: no)
+  if (rv > 0.0) {
     float s = texture(uShadow, gl_FragCoord.xy / uViewport).r;
-    c.rgb *= 1.0 - s * uShadowStr * vRecv;
+    c.rgb *= 1.0 - s * uShadowStr * rv;
   }
   o = c;
 }`;
@@ -194,6 +223,43 @@ void main(){
   o = vec4(vColor.rgb * vColor.a * f * 0.5, 1.0);
 }`;
 
+// Procedural roof slices (src/art/roofRaster.js images, renderer.roofSlice): a quad per tile-column run,
+// aColor = (alpha, owner slice id + 1, -, -). Pixels owned by another slice are discarded (each roof pixel is drawn
+// by exactly one depth-sorted slice). uMode 1 = light occluder (writes the outdoor ambient into the light map).
+export const ROOF_VS = `#version 300 es
+${SPRITE_ATTRIBS}
+out vec2 vUV;
+flat out vec2 vA;   // alpha, owner id
+void main(){
+  vec2 w = aPos + aCorner * aSize;
+  vec2 clip = (w - uCam) * uScale;
+  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+  vUV = mix(aUV.xy, aUV.zw, aCorner);
+  vA = aColor.rg;
+}`;
+
+export const ROOF_FS = `#version 300 es
+precision highp float;
+in vec2 vUV;
+flat in vec2 vA;
+uniform sampler2D uTex;    // colour (premultiplied, mipmapped)
+uniform sampler2D uOwner;  // RG8 owner slice id + 1 (nearest)
+uniform vec2 uTexSz;
+uniform float uMode;       // 0 scene, 1 light occluder
+uniform vec3 uAmbR;        // ambient × 0.5 (light map scale)
+uniform float uWet;
+out vec4 o;
+void main(){
+  vec2 ow = texelFetch(uOwner, ivec2(min(vUV * uTexSz, uTexSz - 1.0)), 0).rg * 255.0;
+  if (abs(ow.r + ow.g * 256.0 - vA.y) > 0.5) discard;
+  vec4 c = texture(uTex, vUV);
+  float a = c.a * vA.x;
+  if (a < 0.004) discard;
+  if (uMode > 0.5) { o = vec4(uAmbR * a, a); return; }
+  c.rgb *= 1.0 - 0.17 * uWet;   // rain-darkened roof
+  o = c * vA.x;
+}`;
+
 // Ambient light (light target, half res): env.ambient, dimmed to uCaveAmb inside mined mountain caves.
 // Point lights are added on top afterwards, so torches light caves fully.
 export const AMBIENT_FS = `#version 300 es
@@ -201,13 +267,17 @@ precision highp float;
 in vec2 vUV;
 out vec4 o;
 uniform sampler2D uCave;   // R = cave darkness (see world.js caveData)
+uniform sampler2D uRoofT;  // roofData: R interior darkness, G revealed region, B built roof
 uniform vec2 uCam, uView, uWorld;
 uniform vec3 uAmb, uCaveAmb;
+uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (0 = unset)
 void main(){
   vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
   float c = texture(uCave, wp / uWorld).r;
   c = pow(c, 1.4);   // keep the spill onto the surrounding rock tight
-  o = vec4(mix(uAmb, min(uAmb, uCaveAmb), c) * 0.5, 1.0);
+  vec3 a = mix(uAmb, min(uAmb, uCaveAmb), c);
+  if (uIndoorAmb > 0.0) { vec4 R = texture(uRoofT, wp / uWorld); a *= mix(1.0, uIndoorAmb, R.r * R.g); }
+  o = vec4(a * 0.5, 1.0);
 }`;
 
 // Terrain decals (drawn right after the terrain, before any sprite): one quad per tile that needs
@@ -534,6 +604,7 @@ uniform sampler2D uClim;    // 1x, linear: R snow affinity (cold biomes), G stru
 uniform float uSnow;        // snow cover 0..1 (builds up while it snows over cold biomes, melts slowly)
 uniform float uSnowPeak;    // permanent snow on the high mountain tops (cold biomes)
 uniform float uClimOn;      // 0 = skip the climate fetch (no snow lying and no walls in view)
+uniform sampler2D uRoofT;   // roofData: B = built roof over the tile (dry, no snow)
 
 // quality (QL from the renderer: 0 low, 1 medium, 2 high)
 #if QL == 0
@@ -632,7 +703,8 @@ void main(){
   float outK = 1.0 - cave;
   vec4 CL = vec4(0.0);
   if (uClimOn > 0.5) CL = texture(uClim, wp / uWorld);
-  float snowA = smoothstep(0.45, 0.75, CL.r) * outK;   // where snow can lie (cold biomes, outdoors)
+  float roofB = (uWet > 0.01 || uSnow > 0.01) ? texture(uRoofT, wp / uWorld).b : 0.0;
+  float snowA = smoothstep(0.45, 0.75, CL.r) * outK * (1.0 - roofB);   // where snow can lie (cold biomes, outdoors)
   vec3 sunT = vec3(1.0) + uSunWarm * outK;
   // relief light: the sun outdoors, a soft fixed top-left light underground (torches do the rest)
   vec3 Ld = normalize(mix(uSun, vec3(-0.35, -0.45, 0.82), cave));
@@ -774,7 +846,7 @@ void main(){
     }
 
     // rain wetness: darker, a bit richer; puddles in low spots; marsh keeps standing water (never in caves)
-    float wet = uWet * outK * (1.0 - 0.9 * snowA * step(0.02, uSnow));
+    float wet = uWet * outK * (1.0 - roofB) * (1.0 - 0.9 * snowA * step(0.02, uSnow));
     col *= 1.0 - 0.2 * wet * min(pk, 1.0);
     float lum0 = dot(col, vec3(0.333));
     col = mix(vec3(lum0), col, 1.0 + 0.18 * wet);
@@ -787,7 +859,7 @@ void main(){
     float sheen = pow(max(dot(Ng, Hs), 0.0), 24.0) * (wet * 0.5 + marshK * 0.3 + mudK * 0.3);
     col += sheen * 0.10 * uSunI * sunT;
     if (pm > 0.001) {
-      vec3 rp = uRain > 0.02 && cave < 0.5 ? ripples(wp) * uRain : vec3(0.0);
+      vec3 rp = uRain > 0.02 && cave < 0.5 && roofB < 0.5 ? ripples(wp) * uRain : vec3(0.0);
       vec2 pn = rp.xy + (nB.xy - 0.5) * 0.08;
       vec3 Np = normalize(vec3(pn, 1.0));
       vec3 pc = col * vec3(0.5, 0.55, 0.55) + uSky * 0.2;
@@ -924,6 +996,9 @@ uniform sampler2D uScene, uLight, uNoise, uField;
 uniform sampler2D uCave;  // R = cave darkness (no sky effects underground)
 uniform sampler2D uClim;  // R = snow affinity: precipitation falls as snow over cold biomes
 uniform sampler2D uShadow; // sprite sun shadows (canopy light shafts, high quality)
+uniform sampler2D uRoofT;  // roofData: R interior darkness, G revealed region, B built roof
+uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (as AMBIENT_FS)
+uniform vec4 uIndoorFx;    // local player: x = in a cave (0..1), y = in a building, z = interior zoom blend
 uniform vec2 uCam, uView, uWorld;
 uniform float uTime;
 uniform float uCloud;   // cloud cover 0..1
@@ -1059,7 +1134,10 @@ void main(){
 
   vec2 wp = uCam + vec2(uv.x - 0.5, 0.5 - uv.y) * uView;
   float cave = uHasField > 0.5 ? texture(uCave, wp / uWorld).r : 0.0;
-  float outK = 1.0 - cave;
+  // revealed interior of a building (the roof faded for the local player): no sky effects inside
+  vec4 RD = uIndoorAmb > 0.0 ? texture(uRoofT, wp / uWorld) : vec4(0.0);
+  float inside = RD.g * RD.b;
+  float outK = (1.0 - cave) * (1.0 - inside);
   vec3 c = texture(uScene, uv).rgb;
 #if QL >= 1
   // near death: the edges of the view soften (cheap 3-tap blur of the scene)
@@ -1074,6 +1152,7 @@ void main(){
   // point lights over a bright ambient are washed out by daylight: compress their excess by the local
   // ambient level (same cave dimming as AMBIENT_FS), full strength at night and underground
   vec3 ambL = mix(uAmb, min(uAmb, uCaveAmb), pow(cave, 1.4));
+  if (uIndoorAmb > 0.0) ambL *= mix(1.0, uIndoorAmb, RD.r * RD.g);
   float gain = 1.0 / (1.0 + max(dot(ambL, vec3(0.3, 0.5, 0.2)) - 0.4, 0.0) * 2.0);
   vec3 ex = max(L - ambL, 0.0) * gain;
   ex /= 1.0 + ex * 0.4;   // soft knee: firelight falls off gently instead of burning out the centre
@@ -1102,7 +1181,7 @@ void main(){
   c *= 1.0 - cl * max(0.17 + uCloudSh, 0.0) * uDay * outK;
 
   // lightning: re-light the scene with a cold flash (barely reaches into caves), stronger near the strike
-  float fl = uFlash * (1.0 - cave * 0.92);
+  float fl = uFlash * (1.0 - cave * 0.92) * (1.0 - inside * 0.85);
   if (uBolt.w > 0.001) {
     vec2 bd = (wp - uBolt.xy) * vec2(1.0, 1.35) / uBolt.z;
     fl += uBolt.w * exp(-dot(bd, bd) * 2.2) * outK;
@@ -1139,7 +1218,7 @@ void main(){
   }
   float fogA = uFog * (0.35 + mist * 0.9);
   fogA += uMist * smoothstep(0.35, 0.75, mist + low * 0.45) * (0.2 + 0.8 * low);   // hugs water and shores
-  fogA *= 1.0 - cave * 0.92;
+  fogA *= (1.0 - cave * 0.92) * (1.0 - inside * 0.9);
   vec3 fogC = uFogCol * (1.0 + rays * 0.5);
   c = mix(c, fogC, clamp(fogA * (1.0 + rays * 0.35), 0.0, 0.85));
   c += uFogCol * rays * 0.16 * vec3(1.08, 0.97, 0.8);   // warm light shafts in the haze
@@ -1186,6 +1265,14 @@ void main(){
   vec2 v = vUV - 0.5;
   float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7) * (1.0 + smoothstep(0.7, 1.0, uFeelA.z) * 1.3);
   c *= 1.0 - vg;
+  if (uIndoorFx.x + uIndoorFx.y > 0.003) {
+    // interiors: caves get a darker, closer vignette and cooler light; buildings a warm, slightly closer one
+    float rr = length(v * vec2(uView.x / uView.y, 1.0) * vec2(0.82, 1.0));
+    float vc = smoothstep(0.22, 0.78, rr), vb = smoothstep(0.3, 0.85, rr);
+    c *= 1.0 - uIndoorFx.x * vc * 0.42;
+    c *= mix(vec3(1.0), vec3(0.9, 0.96, 1.08), uIndoorFx.x * 0.55);
+    c = mix(c, c * vec3(1.06, 0.95, 0.82) * (1.0 - vb * 0.22), uIndoorFx.y * (0.35 + 0.65 * vb));
+  }
   c = max(c, 0.0);
   if (dot(uFeelA, vec4(1.0)) + uFeelB.x + uFeelB.y + uFeelB.z > 0.002) {
     float rim = smoothstep(0.32, 1.0, length(v * vec2(1.0, 0.92)) * 1.5);   // centre stays clear

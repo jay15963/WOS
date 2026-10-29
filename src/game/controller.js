@@ -69,9 +69,10 @@ export function describeAny(game, o) {
 export function pick(game, sx, sy) {
   const [wx, wy] = game.screenToWorld(sx, sy);
   const tol = 14 / game.cam.zoom;
+  const hid = (x, y) => !!game.roofs?.hidden?.(x, y); // inside a building whose roof covers it (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead) continue;
+    if (!isMob(e) || e.dead || hid(e.x, e.y)) continue;
     const sc = e.scale || 1;
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
@@ -92,7 +93,7 @@ export function pick(game, sx, sy) {
   game.world.forChunks(wx - 2, wy - 1, wx + 2, wy + 3, (c) => {
     for (const o of c.objects) {
       if (Math.abs(o.x - wx) > 2.5 || o.y < wy - 0.6 || o.y > wy + 2.6) continue;
-      if (!objHit(o, wx, wy, tol)) continue;
+      if (!objHit(o, wx, wy, tol) || (hid(o.x, o.y) && !o.door)) continue;
       const d = describeAny(game, o);
       if (!d) continue;
       if (o.flat) { if (!hitFlat) hitFlat = d; continue; }

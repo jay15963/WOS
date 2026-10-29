@@ -18,6 +18,8 @@
 // Herb bushes (`herbbush`, medicinal herbs with little green berries): clusters in shady / damp spots.
 // Species (art only, inside the gameplay kinds): trees o.v = species * 16 + variant (treeSpecies), bushes
 // o.v = species * 1000 + variant (bushSpecies), mossy boulders o.v >= 8000 — composeWorld picks the art group.
+// Decor in water carries `w` (water depth 1 / 2): reeds / river stones get the shader waterline, ripples
+// and reflections (src/fx/waterline.js); lily pads float.
 // Decor: grass / tallgrass / flower / reed / mushroom + undergrowth (fern, bloom, heather, drygrass, thistle) and
 // flat ground details (litter, needles, twigs, petals, moss, lily, riverstone, scree, shell, driftwood).
 // `tramp` also holds a few faint game trails winding down to the water.
@@ -548,7 +550,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
         const n = 2 + Math.floor(hash2(x, y, seed + 707) * 3);
         for (let k = 0; k < n; k++) {
           const h1 = hash2(x * 7 + k, y * 13 - k, seed + 708), h2 = hash2(x * 11 - k, y * 3 + k, seed + 709);
-          decor.push({ t: 'reed', v: Math.floor(h1 * 997), x: x + h1, y: y + h2, s: 0.8 + h2 * 0.4, f: h1 < 0.5 ? -1 : 1 });
+          decor.push({ t: 'reed', v: Math.floor(h1 * 997), x: x + h1, y: y + h2, s: 0.8 + h2 * 0.4, f: h1 < 0.5 ? -1 : 1, w: 1 }); // w: stands in water (waterline)
         }
       }
       continue;
@@ -642,8 +644,8 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
         const flowing = Math.hypot(flowX[i], flowY[i]) > 0.2;
         if (!flowing && dLandW[i] <= 2.6) {
           const p = groveAt(seed, x, y, 5, 7) > 0.45 ? 0.26 : 0.035;
-          if (h < p) D('lily', hv < 0.35 ? 1 + (hv < 0.12 ? 1 : 0) : (hv < 0.7 ? 0 : 3), px, py, s, f);
-        } else if (flowing && water[i] === 1 && h < 0.07) D('riverstone', Math.floor(hv * 3), px, py, s, f);
+          if (h < p) { D('lily', hv < 0.35 ? 1 + (hv < 0.12 ? 1 : 0) : (hv < 0.7 ? 0 : 3), px, py, s, f); decor[decor.length - 1].w = water[i]; }
+        } else if (flowing && water[i] === 1 && h < 0.07) { D('riverstone', Math.floor(hv * 3), px, py, s, f); decor[decor.length - 1].w = 1; }
         continue;
       }
       if (!canPlant(i)) continue;

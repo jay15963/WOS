@@ -6,7 +6,10 @@
 // Refunds / yields are computed by the authority and travel as owner effects (`give` to `by`).
 //
 // Shared structure fields: id, type, tx, ty, v, rot, progress (< 1 = blueprint), paid (materials delivered),
-// decon, store, working, open (doors), moveOf (a "Mover" blueprint: id of the structure that will move here).
+// decon, store, working, open (doors), moveOf (a "Mover" blueprint: id of the structure that will move here),
+// style (string id) / det (detail bit mask) — roofs (content/roofs.js), open to other structures (agent K).
+// Roofs (layer 'roof', agent J): placing needs a (planned or finished) support within 6 tiles, building needs a
+// finished one; game/roofs.js keeps world.broof and the collapse checks in step (onRoofStruct).
 // Derived (setGeom): fw × fh footprint after rotation, x, y (base / sort key), cy (round collision centre).
 // Blueprints are free to place; the builder delivers the cost when work starts (build.hit start + pay).
 
@@ -24,6 +27,8 @@ import { removeCropAt, cropAt } from './crops.js';
 import { sortedSlots, SORT_MODES } from '../invsort.js'; // store.sort (agents B + I)
 import { sortBody } from './corpses.js';
 import { allPlayers } from '../players.js';
+import { onRoofStruct, onDoor, roofSupported } from '../roofs.js';
+import { ROOF_STYLES, defaultRoofStyle, cleanDet } from '../content/roofs.js';
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
@@ -135,6 +140,8 @@ export function placeStructure(game, type, tx, ty, opts) {
   setGeom(o);
   o.paid = o.progress >= 1 || !!opts.paid || costEmpty(def);
   if (opts.moveOf) o.moveOf = opts.moveOf;
+  if (def.roof) { o.style = cleanStyle(type, opts.style); o.det = cleanDet(opts.det); o.roof = true; }
+  else if (opts.style || opts.det) { o.style = typeof opts.style === 'string' ? opts.style.slice(0, 40) : ''; o.det = cleanDet(opts.det); }
   if (def.flat) o.flat = true;
   if (o.progress < 1) { o.blueprint = true; if (def.fire || def.workLight) { o.fire = false; o.lit = false; } }
   if (def.slots && !o.moveOf) { o.store = new Inventory(def.slots); if (opts.store) o.store.load(opts.store); }
@@ -144,7 +151,7 @@ export function placeStructure(game, type, tx, ty, opts) {
   game.build.structures.push(o);
   if (!o.moveOf) gridAdd(game, o); // "Mover" plans stay out of the grid (they may overlap the object being moved)
   noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
-  clearDecor(game, tx, ty, o.fw, o.fh);
+  if (!def.roof) clearDecor(game, tx, ty, o.fw, o.fh);
   updateMasksAround(game, tx, ty, tx + o.fw - 1, ty + o.fh - 1);
   if (o.progress >= 1) completeStructure(game, o, { silent: true, auth: game.net.auth });
   if (opts.decon) game.build.decon.add(o);
@@ -175,12 +182,13 @@ export function completeStructure(game, o, { silent = false, auth = true } = {})
   nudgeOut(game, o, auth);
   updateMasksAround(game, o.tx, o.ty, o.tx + o.fw - 1, o.ty + o.fh - 1); // wall-mounted props, door orientation
   if (!silent) {
-    game.juice.puff(o.x, o.y - 0.2, 10, [0.72, 0.64, 0.52], 0.8);
-    game.audio?.play('build_done', { x: o.x, y: o.y });
+    game.juice.puff(o.x, o.y - 0.2 - (def.roof ? 0.6 : 0), def.roof ? 5 : 10, [0.72, 0.64, 0.52], 0.8);
+    game.audio?.play(def.roof ? 'build_hit' : 'build_done', { x: o.x, y: o.y });
     if (o.type === 'campfire') game.audio?.play('fire', { x: o.x, y: o.y });
     game.events.emit('built', { o });
   }
   game.build.v++;
+  onRoofStruct(game, o, 'complete');
   for (const [x, y] of footprint(o)) game.events.emit('tile', { tx: x, ty: y });
 }
 
@@ -198,6 +206,7 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
   game.build.decon.delete(o);
   o.removed = true;
+  onRoofStruct(game, o, 'remove', wasBlueprint);
   addLootRows(game, drops);
   if (o.type === 'farm_plot') removeCropAt(game, o.tx, o.ty);
   // plans to move this object die with it
@@ -250,19 +259,20 @@ export function setWorking(game, o, on) {
 export function setDoorOpen(game, o, open) {
   o.open = !!open;
   if (!o.blueprint) setSolid(game, o);
+  onDoor(game, o);
   game.build.v++;
   game.events.emit('tile', { tx: o.tx, ty: o.ty });
 }
 
 // ---------- ops ----------
 defineOp('struct.add', {
-  doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf].',
-  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf]]', by: 'pid?', give: '{item: qty}?' },
+  doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det].',
+  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style?, det?]]', by: 'pid?', give: '{item: qty}?' },
   apply(game, a, ctx) {
     for (const r of a.list || []) {
-      const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf] = r;
+      const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det] = r;
       if (!BUILDINGS[type] || game.world.objById.has(id)) continue;
-      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined });
+      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style: style || undefined, det: det || '' });
     }
     if (ctx.mine && a.list?.length) game.audio?.play('blueprint', {});
   },
@@ -377,6 +387,7 @@ defineOp('chest.set', {
 export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null) {
   const def = BUILDINGS[type], w = game.world;
   if (!def) return 'Construção desconhecida';
+  if (def.roof) return roofReason(game, type, tx, ty, who);
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const layer = def.layer;
   const G2 = game.build.grid;
@@ -410,6 +421,28 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null) {
   return replace ? { replace } : null;
 }
 export const MAX_DIST = 22;
+
+// roofs: over anything built (walls, furniture, floors) or open ground; never over rock, water, trees or under a
+// mountain ceiling; a support (planned or finished) within 6 tiles
+export const NO_SUPPORT = 'Sem apoio: precisa de parede, coluna ou rocha a até 6 tiles';
+function roofReason(game, type, tx, ty, who) {
+  const w = game.world;
+  if (!w.inBounds(tx, ty) || tx < 1 || ty < 1 || tx >= w.W - 1 || ty >= w.H - 1) return 'Fora do mapa';
+  const i = w.idx(tx, ty);
+  if (w.rock[i]) return 'Rocha no caminho';
+  if (w.water[i]) return 'Não dá para construir na água';
+  if (w.roof[i]) return 'Já tem teto de rocha';
+  if (game.build.grid.roof.get(i)) return 'exists';
+  for (const o of objectsOnTile(game, tx, ty)) if (o.type.startsWith('tree_') && !o.stump) return 'Árvore no caminho';
+  if (!roofSupported(game, tx, ty, false)) return NO_SUPPORT;
+  if (who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST) return 'Muito longe';
+  return null;
+}
+// a valid style id for a roof type (unknown → the type's default)
+export function cleanStyle(type, style) {
+  const st = ROOF_STYLES[style];
+  return st && st.type === type ? style : defaultRoofStyle(type);
+}
 const BAD_FARM = new Set([G.STONE, G.SAND, G.GRAVEL]);
 
 const addTo = (acc, items) => { for (const k in items) if (items[k] > 0) acc[k] = (acc[k] || 0) + items[k]; return acc; };
@@ -417,8 +450,8 @@ const nonEmpty = (o) => (Object.keys(o).length ? o : undefined);
 const near = (e, o, r) => !e || Math.hypot(e.x - o.x, e.y - (o.cy ?? o.y)) <= r + Math.max(o.fw || 1, o.fh || 1) / 2;
 
 defineIntent('build.place', {
-  doc: 'Place free blueprints of `type` on tiles with orientation `rot` (materials are delivered later, when work starts). A door may replace a wall (wall refunded).',
-  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?' },
+  doc: 'Place free blueprints of `type` on tiles with orientation `rot` (materials are delivered later, when work starts). A door may replace a wall (wall refunded). Roofs take a style id (fixed once built).',
+  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?', style: 'styleId?', det: 'detailString?' },
   run(game, a, actor, net) {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
@@ -438,7 +471,9 @@ defineIntent('build.place', {
         r = null;
       }
       if (r) { first ||= r === 'exists' ? 'Já existe uma construção aqui' : r; continue; }
-      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0]);
+      const row = [net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0];
+      if (def.roof) row.push(cleanStyle(a.type, a.style), cleanDet(a.det));
+      list.push(row);
     }
     if (!list.length) return first || 'Local inválido';
     net.emit('struct.add', { list, by: actor.pid });
@@ -472,6 +507,12 @@ defineIntent('build.hit', {
     const def = defOf(o);
     if (a.start) {
       if (!o.paid && !a.pay) return 'Falta material';
+      if (def.roof) {
+        if (!roofSupported(game, o.tx, o.ty, true)) return 'Sem apoio: termine as paredes ou colunas perto (até 6 tiles)';
+        if (a.pay && !o.paid) net.emit('struct.paid', { id: o.id, by: actor.pid });
+        else if (a.pay) net.emit('struct.paid', { id: o.id, by: actor.pid, give: nonEmpty(addTo({}, def.cost)), quiet: 1 });
+        return;
+      }
       const ids = [], give = {};
       for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) {
         for (const n of objectsOnTile(game, x, y)) {

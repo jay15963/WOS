@@ -116,6 +116,7 @@ export function installOverlay(game) {
       for (const e of g.entities) {
         if (!(e.isMob || e.kind === 'animal') || e.dead) continue;
         if (e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2.5) continue;
+        if (g.roofs?.hidden?.(e.x, e.y)) continue; // inside a building whose roof hides it
         const d = Math.hypot(e.x - p.x, e.y - p.y);
         const isT = e === p.target;
         const fighting = e.state === 'chase' && e.threat === p;
