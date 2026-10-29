@@ -118,7 +118,7 @@ export function installBuildbar(game) {
   const structureUnder = (sx, sy) => {
     let o = null;
     try { const h = pick(game, sx, sy); if (h.type === 'interact' && h.it?.o?.building) o = h.it.o; else if (h.type === 'creature') return null; } catch { /* ignore */ }
-    if (!o) { const [wx, wy] = game.screenToWorld(sx, sy); o = structureAtPoint(game, wx, wy) || structureAtPoint(game, wx, wy + 0.5); }
+    if (!o) { const [wx, wy] = game.screenToWorld(sx, sy); o = structureAtPoint(game, wx, wy, { roof: true }) || structureAtPoint(game, wx, wy + 0.5); }
     return o;
   };
   game.events.on('structmenu', (d) => {

@@ -1968,7 +1968,7 @@ def('S37', {
   ];
   const out = MH.save.migrateStructRows(g, rows.map((r) => r.slice()));
   const by = Object.fromEntries(out.map((r) => [r[0], r]));
-  t.check(out.every((r) => r.length === 14), 'every row has 14 fields', out.map((r) => r.length).join(','));
+  t.check(out.every((r) => r.length >= 14), 'every row has the v4 fields (14; v6 adds style, det)', out.map((r) => r.length).join(','));
   t.check(out.filter((r) => r[1] !== 'bed').every((r) => r[10] === 0 && r[11] === 1 && r[12] === 0 && !r[13]), 'legacy defaults: rot 0, paid 1, closed, no plan');
   const p = (r) => `${r[2]},${r[3]} r${r[10]}`;
   t.check(by.old_bed_a && by.old_bed_a[2] === x && by.old_bed_a[3] === y + 1 && by.old_bed_a[10] === 0, 'bed A extends south', p(by.old_bed_a || []));

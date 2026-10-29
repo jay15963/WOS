@@ -117,7 +117,7 @@ export function rasterRegion(spec) {
   // height of rect r at (x, y); -1e9 outside its domain. Sets HF (facet) as a side value. The roof is the min of
   // its planes; each plane rises at pitch p from the wall line and its overhang (a < off) kicks out shallower.
   let HF = 0;
-  const plane = (p, a, off) => (a >= off ? He + p * (a - off) : He - (off - a) * p * 0.4);
+  const plane = (p, a, off, kick = 0.4) => (a >= off ? He + p * (a - off) : He - (off - a) * p * kick);
   const hRect = (r, x, y) => {
     if (x < r.dx0 || x > r.dx1 || y < r.dy0 || y > r.dy1) return -1e9;
     const p = r.p;
@@ -126,11 +126,11 @@ export function rasterRegion(spec) {
       const hw = plane(p, x - r.dx0, e), he = plane(p, r.dx1 - x, e);
       if (hw <= he) { h = hw; f = 1; } else { h = he; f = 2; }
       if (r.hip) {
-        const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e);
+        const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e, 1);
         if (hs < h && hs <= hn) { h = hs; f = 3; } else if (hn < h) { h = hn; f = 4; }
       }
     } else {
-      const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e);
+      const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e, 1);
       if (hs <= hn) { h = hs; f = 3; } else { h = hn; f = 4; }
       if (r.hip) {
         const hw = plane(p, x - r.dx0, e), he = plane(p, r.dx1 - x, e);
@@ -297,7 +297,8 @@ export function rasterRegion(spec) {
           U = x; V = (f === 3 ? r.dy1 - yd : yd - r.dy0) * (1 + r.p);
           ridgeD = r.ns ? 9 : Math.abs(yd - r.c) * (1 + r.p);
         }
-        const tint = 1 + 0.06 * Math.sin(x * 0.9 + yd * 0.6) * Math.sin(yd * 1.3 - x * 0.45);
+        const tint = (1 + 0.06 * Math.sin(x * 0.9 + yd * 0.6) * Math.sin(yd * 1.3 - x * 0.45)) * (0.9 + 0.1 * smooth(0, 1.6, V))
+          * (1 + (vnoise(x * 0.45 + 31, yd * 0.45) - 0.5) * 0.14);
         let lum = 1, base = s.base;
         const rowH = s.rowH, cw = s.cellW;
         if (s.pattern === 'scale') {
@@ -348,11 +349,17 @@ export function rasterRegion(spec) {
           R += (0.3 - R) * m * 0.6; Gc += (0.38 - Gc) * m * 0.6; B += (0.18 - B) * m * 0.6;
         }
         if (cap > 0) {
-          const cc = s.ridge === 'board' ? s.light : s.ridge === 'bound' ? s.base : s.dark;
-          const roll = (Math.sqrt(1 - (1 - cap) * (1 - cap)) * 0.6 + 0.55) * (s.ridge === 'board' ? 0.62 : s.ridge === 'bound' ? 0.8 : 1);
-          const band = s.ridge === 'bound' ? (Math.abs(((r.ns ? sy : x) * 2.2) % 1 - 0.5) < 0.08 ? 0.6 : 1) : s.ridge === 'tile' ? (((r.ns ? sy : x) * 3.4) % 1 < 0.1 ? 0.7 : 1) : 1;
-          R = cc[0] * 1.35 * roll * band; Gc = cc[1] * 1.35 * roll * band; B = cc[2] * 1.35 * roll * band;
-          shade = Math.max(shade, 0.9);
+          // ridge cap: a rounded band with a dark lower edge (tiles: half-round tiles with joints; thatch: a bound
+          // straw roll with ties; wood: a ridge board)
+          const along = r.ns ? sy : x;
+          const cc = s.ridge === 'board' ? s.board : s.ridge === 'bound' ? s.base : s.dark;
+          let k = s.ridge === 'board' ? 1.7 : s.ridge === 'bound' ? 0.95 : 1.25;
+          k *= 0.72 + 0.5 * Math.sqrt(cap);                                   // rounded: bright along the top
+          if (s.ridge === 'tile') { const u = (along * 3.1) % 1; k *= u < 0.08 ? 0.55 : 0.9 + 0.2 * Math.sin(u * 3.1416); }
+          else if (s.ridge === 'bound') { if (Math.abs((along * 1.6) % 1 - 0.5) < 0.05) k *= 0.55; k *= 0.92 + 0.16 * hash(Math.floor(along * 30), 9); }
+          if (cap < 0.22) k *= 0.5;                                            // edge line
+          R = cc[0] * k; Gc = cc[1] * k; B = cc[2] * k;
+          shade = Math.max(shade, 0.95);
         }
         // trim (det): light painted rake boards along the gable edges of the slopes
         const rakeD = r.ns ? (r.hip ? 9 : Math.min(yd - r.dy0, r.dy1 - yd)) : (r.hip ? 9 : Math.min(x - r.dx0, r.dx1 - x));
