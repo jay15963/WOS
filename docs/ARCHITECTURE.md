@@ -191,6 +191,10 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   e `z` (altura em andares, contínua na escada; presença e fluxo de criaturas replicam `z`). `STORY_H` = altura de um andar
   na tela (= `WALL_H`), `liftOf(e)`, `sameLevel(a, b)` (corpo a corpo só no mesmo nível), `heightK` (bônus de alcance),
   `hasLOS(..., z0, z1)`. Ganchos de uma linha marcados `levels:` em physics / nav / combat / projectiles / game.js.
+  Fase 2: fachadas altas (`STORY_PX = 64`, um andar = 1 tile), peças em andares (`o.lv`, chave de grade `tile + lv·W·H`,
+  `struct.add {lv}`, snapshot `lvs`, save v9), apoio a até 6 tiles + desabamento (op `lv.collapse`), telhado de J no topo
+  do andar mais alto (`game.build.storeysAt`), revelar / esconder andares e corte de paredes (cosmético `o.alpha`),
+  seletor de andar no modo construção (`src/ui/levelbar.js`, `game.build.mode.lv`).
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
