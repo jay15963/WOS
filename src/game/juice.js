@@ -117,7 +117,11 @@ export class Juice {
     }
     if (busy) { this.idleT = 0; return; }
     this.idleT += dt;
-    if (this.seat && this.idleT > 1.4 && !this.seat.gone) { p.pose = { type: 'sit', id: this.seat.id, o: this.seat }; return; }
+    if (this.seat && this.idleT > 1.4 && !this.seat.gone) {
+      if (this.seat.face) p.facing = this.seat.face; // sit the way the chair faces (A's rotated props)
+      p.pose = { type: 'sit', id: this.seat.id, o: this.seat };
+      return;
+    }
     if (this.fireNear && this.idleT > 4.5) {
       p.facing = faceOf(this.fireNear.x - p.x, (this.fireNear.cy ?? this.fireNear.y) - p.y);
       p.pose = { type: 'sit', id: null, o: null };

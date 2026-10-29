@@ -7,7 +7,7 @@ import { steer, resetNav } from './nav.js';
 import { attackable, dist, reach, isMob, attackRange, hasLOS } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
 import { describeObject, reachDist } from './gathering.js';
-import { describeStructure, buildTap, exitBuildMode, commitPlacement, deconRect, structureAtPoint, toggleDecon } from './building.js';
+import { describeStructure, buildTap, exitBuildMode, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
 import { describeRock, designate, designateRect, isRock } from './mining.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
@@ -26,7 +26,7 @@ function objHit(o, wx, wy, tol) {
   }
   if (o.building) {
     const def = BUILDINGS[o.type];
-    const [sw, sh] = def?.size || [1, 1];
+    const sw = o.fw || def?.size[0] || 1, sh = o.fh || def?.size[1] || 1;
     const top = def?.flat ? 0 : def?.block === 'tile' || def?.block === 'door' ? 0.55 : 0.9;
     return wx >= o.tx - tol && wx < o.tx + sw + tol && wy > o.ty - top && wy < o.ty + sh + tol * 0.5;
   }
@@ -185,25 +185,31 @@ export function installController(game) {
   canvas.addEventListener('pointerleave', () => { ctl.mouse = null; });
 
   // ---------- mouse drags for build / decon / mining modes ----------
+  // build: the ghost follows the cursor (any tile on screen within reach), left drag = row / area, right click
+  // or Esc = cancel the drag, then the mode; right click on a structure outside the modes = its context menu.
+  // Touch build drags (one finger paints, two fingers stay pinch zoom) live in src/ui/buildbar.js.
   const tileAt = (e) => { const [wx, wy] = game.screenToWorld(e.clientX, e.clientY); return [Math.floor(wx), Math.floor(wy), wx, wy]; };
   let drag = null;
   canvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse' || game.player.dead || game.ui?.modal) return;
     const bm = game.build.mode, M = game.mining;
-    if (e.button === 2) { if (bm) exitBuildMode(game); else if (M.mode) ctl.toggleMineMode(false); return; }
+    if (e.button === 2) {
+      if (bm) { drag = null; ctl.dragging = false; cancelBuild(game); } else if (M.mode) ctl.toggleMineMode(false);
+      else game.events.emit('structmenu', { x: e.clientX, y: e.clientY });
+      return;
+    }
     if (e.button !== 0 || (!bm && !M.mode)) return;
     const [tx, ty, wx, wy] = tileAt(e);
     drag = { kind: bm ? bm.kind : 'mine', a: [tx, ty], wx, wy };
     ctl.dragging = true;
-    if (bm?.kind === 'place') { bm.anchor = BUILDINGS[bm.type].drag ? [tx, ty] : null; bm.end = null; bm.hover = [tx, ty]; }
-    else if (bm?.kind === 'decon') { bm.anchor = [tx, ty]; bm.end = [tx, ty]; }
+    if (bm) buildDragStart(game, wx, wy);
     else { M.anchor = [tx, ty]; M.end = [tx, ty]; drag.on = !M.marks.has(game.world.idx(Math.max(0, tx), Math.max(0, ty))); }
   });
   addEventListener('pointermove', (e) => {
     if (!drag || e.pointerType !== 'mouse') return;
-    const [tx, ty] = tileAt(e);
+    const [tx, ty, wx, wy] = tileAt(e);
     const bm = game.build.mode;
-    if (bm && (bm.kind === 'place' || bm.kind === 'decon')) { if (bm.anchor) bm.end = [tx, ty]; bm.hover = [tx, ty]; }
+    if (bm) buildDragMove(game, wx, wy);
     else if (game.mining.mode) game.mining.end = [tx, ty];
   });
   addEventListener('pointerup', (e) => {
@@ -211,13 +217,8 @@ export function installController(game) {
     const d = drag; drag = null; ctl.dragging = false;
     const [tx, ty, wx, wy] = tileAt(e);
     const bm = game.build.mode, M = game.mining;
-    if (bm?.kind === 'place' && d.kind === 'place') {
-      if (bm.anchor) bm.end = [tx, ty]; else bm.hover = [tx, ty];
-      commitPlacement(game);
-    } else if (bm?.kind === 'decon' && d.kind === 'decon') {
-      if (d.a[0] === tx && d.a[1] === ty) { const o = structureAtPoint(game, wx, wy); if (o) toggleDecon(game, o); else game.events.emit('error', { text: 'Nenhuma construção aqui' }); }
-      else { const n = deconRect(game, d.a[0], d.a[1], tx, ty); if (n) game.events.emit('toast', { text: `${n} marcada(s) para desmontar`, kind: 'info' }); }
-      bm.anchor = bm.end = null;
+    if (bm && bm.kind === d.kind) {
+      buildDragEnd(game, wx, wy);
     } else if (M.mode && d.kind === 'mine') {
       const n = designateRect(game, d.a[0], d.a[1], tx, ty, d.on);
       if (!n) game.events.emit('error', { text: 'Marque tiles de rocha' });
@@ -301,8 +302,9 @@ export function installController(game) {
         if (K.has('KeyQ')) eatBest(g);
         if (K.has('KeyX')) ctl.toggleMineMode();
         if (K.has('Enter') && g.build.mode) commitPlacement(g);
+        if (K.has('KeyR') && g.build.mode?.kind === 'place') rotateBuild(g, inp.keys.has('ShiftLeft') || inp.keys.has('ShiftRight') ? -1 : 1);
         if (K.has('Escape')) {
-          if (g.build.mode) exitBuildMode(g);
+          if (g.build.mode) cancelBuild(g);
           else if (g.mining.mode) ctl.toggleMineMode(false);
           else if (g.ui?.modal) g.events.emit('closepanels', {});
           else if (p.target || ctl.goal) { ctl.setTarget(null); ctl.goal = null; }

@@ -1,5 +1,5 @@
 // Desync detector + debug API (docs/SYNC.md §4.3 / §4.4).
-// Canonical rows of the shared world (cosmetic fields excluded: shake, flash, alpha, open, _*, loot x/y,
+// Canonical rows of the shared world (cosmetic fields excluded: shake, flash, alpha, _openT, _*, loot x/y,
 // sapling age, fall progress) hashed per part. Every 5 s the host sends {t:'dg', s, parts, ents} right after
 // its op flush; the ordered channel guarantees the guest has applied exactly the ops ≤ s, so exact parts
 // must match. On a mismatch the guest asks for the rows (dgx → dgr), logs the first differences as a
@@ -14,7 +14,7 @@ import { artWarnings } from '../game/artcompat.js';
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
-export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'open', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't'];
+export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't'];
 
 const fnv = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
 function fnvBytes(a) { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); }
@@ -35,7 +35,7 @@ export function dumpPart(game, part) {
     case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone)
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
     case 'structs': return game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
-      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0]).sort(cmp);
+      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0]).sort(cmp);
     case 'tiles': return [['rock', fnvBytes(w.rock)], ['solid', fnvBytes(w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')]];
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);

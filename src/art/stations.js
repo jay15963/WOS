@@ -424,6 +424,226 @@ function flowerPot(v) {
   });
 }
 
+// ---------------- facing variants (rotation): <type>_n (front north), <type>_e (front east, footprint 1×2) ----------------
+// N-S footprints use a box `ht` tiles deep: Y(v, h) with v in 0..ht (0 = north edge of the footprint)
+const mkv = (wt, ht, E, fn) => spritePx(Math.round(wt * 64), Math.round(ht * 64) + E, (g, P) => fn(g, P, (v, h) => E + v * 64 - h, Math.round(wt * 64)), { pad: 12 });
+
+// workbench turned north: we see the back of the tool board standing on the near (south) edge
+function workbenchN() {
+  const rand = rng(511);
+  return mk(2, 50, (g, P, Y, W) => {
+    const x0 = 6, x1 = W - 6;
+    P.layer((g) => {
+      const ty0 = Y(0.14, 30), ty1 = Y(0.8, 30), fb = Y(0.8, 0);
+      leg(g, x0 + 7, Y(0.2, 22), Y(0.2, 0), 5, WOOD.dark); leg(g, x1 - 7, Y(0.2, 22), Y(0.2, 0), 5, WOOD.dark);
+      leg(g, x0 + 4, ty1, fb, 6); leg(g, x1 - 4, ty1, fb, 6);
+      plankTop(g, x0, ty0, x1, ty1, '#b6874f', 'x', 4);
+      // planks and shavings on the top (far half visible)
+      g.fillStyle = lin(g, 0, ty0 + 4, 0, ty0 + 12, [[0, '#d8b27a'], [1, '#b08654']]);
+      g.save(); g.translate(x0 + 46, ty0 + 9); g.rotate(0.06); g.fillRect(-24, -4, 48, 8); g.restore();
+      g.strokeStyle = '#e2c290'; g.lineWidth = 1;
+      for (let i = 0; i < 7; i++) { const x = x0 + 18 + rand() * 80, y = ty0 + 4 + rand() * 10; g.beginPath(); g.arc(x, y, 1.3 + rand(), rand() * 3, rand() * 3 + 3.5); g.stroke(); }
+      g.fillStyle = IRON.mid; g.fillRect(x0 + 6, ty0 + 3, 12, 8); g.fillStyle = IRON.light; g.fillRect(x0 + 6, ty0 + 3, 12, 2); // vise
+      // back of the tool board on the near edge: boards, battens and the tool hooks poking through
+      const by0 = Y(0.86, 46), by1 = Y(0.86, 14);
+      g.fillStyle = lin(g, 0, by0, 0, by1, [[0, '#7a5434'], [1, '#5c3d22']]);
+      g.fillRect(x0 + 8, by0, x1 - x0 - 16, by1 - by0);
+      g.strokeStyle = 'rgba(30,18,8,0.55)'; g.lineWidth = 1;
+      for (let x = x0 + 20; x < x1 - 10; x += 13) { g.beginPath(); g.moveTo(x, by0 + 1); g.lineTo(x, by1 - 1); g.stroke(); }
+      g.fillStyle = WOOD.mid; g.fillRect(x0 + 8, by0 + 6, x1 - x0 - 16, 4); g.fillRect(x0 + 8, by1 - 9, x1 - x0 - 16, 4);
+      g.strokeStyle = WOOD.light; g.lineWidth = 3; g.beginPath(); g.moveTo(x0 + 12, by1 - 9); g.lineTo(x1 - 12, by0 + 10); g.stroke();
+      g.fillStyle = '#2e2e32'; for (let x = x0 + 16; x < x1 - 12; x += 9) { g.beginPath(); circle(g, x, by0 + 14, 0.9); g.fill(); }
+      g.fillStyle = 'rgba(255,230,190,0.3)'; g.fillRect(x0 + 8, by0, x1 - x0 - 16, 1.2);
+      leg(g, x0 + 10, by0 - 2, Y(0.86, 0), 4); leg(g, x1 - 10, by0 - 2, Y(0.86, 0), 4);
+    }, OW);
+  });
+}
+
+// workbench turned east (1×2): long bench running north-south, vise on the near end, tools on the top
+function workbenchE() {
+  const rand = rng(512);
+  return mkv(1, 2, 36, (g, P, Y, W) => {
+    const x0 = 9, x1 = W - 9;
+    P.layer((g) => {
+      const ty0 = Y(0.1, 30), ty1 = Y(1.86, 30), ay = Y(1.86, 22), fb = Y(1.86, 0);
+      leg(g, x0 + 3, Y(0.18, 22), Y(0.18, 0), 5, WOOD.dark); leg(g, x1 - 3, Y(0.18, 22), Y(0.18, 0), 5, WOOD.dark);
+      // lower shelf with planks
+      plankTop(g, x0 + 3, Y(0.5, 8), x1 - 3, Y(1.8, 8), '#7e5532', 'y', 2);
+      g.fillStyle = '#a77a48'; g.fillRect(x0 + 8, Y(1.0, 14), 6, 40); g.fillRect(x0 + 16, Y(1.1, 18), 6, 38);
+      leg(g, x0 + 3, ty1, fb, 6); leg(g, x1 - 3, ty1, fb, 6);
+      plankTop(g, x0, ty0, x1, ty1, '#b6874f', 'y', 3);
+      apron(g, x0, x1, ty1, ay, '#875c34');
+      // tools: saw, hammer, plane, a plank being worked + shavings
+      g.fillStyle = '#b8bcc4'; g.beginPath(); g.moveTo(x0 + 8, ty0 + 10); g.lineTo(x0 + 14, ty0 + 34); g.lineTo(x0 + 20, ty0 + 33); g.lineTo(x0 + 13, ty0 + 9); g.closePath(); g.fill();
+      g.fillStyle = '#8a5a30'; g.fillRect(x0 + 10, ty0 + 3, 7, 8);
+      g.fillStyle = lin(g, x0 + 22, 0, x0 + 32, 0, [[0, '#d8b27a'], [1, '#b08654']]); g.fillRect(x0 + 24, ty0 + 30, 9, 50);
+      g.fillStyle = 'rgba(90,58,30,0.5)'; g.fillRect(x0 + 32, ty0 + 30, 1, 50);
+      g.fillStyle = '#9a6a3a'; g.fillRect(x0 + 8, ty0 + 52, 7, 15); g.fillStyle = IRON.mid; g.fillRect(x0 + 6, ty0 + 57, 4, 3);
+      g.fillStyle = '#8a5a30'; g.fillRect(x0 + 10, ty0 + 80, 3, 16); g.fillStyle = IRON.mid; g.fillRect(x0 + 7, ty0 + 77, 9, 5);
+      g.strokeStyle = '#e2c290'; g.lineWidth = 1;
+      for (let i = 0; i < 8; i++) { const x = x0 + 6 + rand() * 30, y = ty0 + 40 + rand() * 50; g.beginPath(); g.arc(x, y, 1.3 + rand(), rand() * 3, rand() * 3 + 3.5); g.stroke(); }
+      // vise on the near (south) end
+      g.fillStyle = IRON.mid; g.fillRect(x1 - 16, ty1 - 10, 13, 9); g.fillStyle = IRON.light; g.fillRect(x1 - 16, ty1 - 10, 13, 2);
+      g.fillStyle = IRON.dark; g.fillRect(x1 - 11, ty1 - 1, 3, 8);
+      // nails pot at the far end
+      g.fillStyle = '#8a8a90'; g.fillRect(x1 - 14, ty0 + 6, 7, 7); g.fillStyle = '#3a3a40'; g.beginPath(); g.ellipse(x1 - 10.5, ty0 + 6, 3.5, 1.4, 0, 0, TAU); g.fill();
+    }, OW);
+  });
+}
+
+// stonecutter turned east (1×2): stone slab table north-south
+function stonecutterE() {
+  const rand = rng(513);
+  return mkv(1, 2, 30, (g, P, Y, W) => {
+    const x0 = 8, x1 = W - 8;
+    ground(g, W / 2, Y(2, 0) - 4, 34, 12, 0.25);
+    P.layer((g) => {
+      const ty0 = Y(0.12, 26), ty1 = Y(1.86, 26), fy = Y(1.86, 16), fb = Y(1.86, 0);
+      leg(g, x0 + 5, Y(0.25, 16), Y(0.25, 0), 8, WOOD.deep); leg(g, x1 - 5, Y(0.25, 16), Y(0.25, 0), 8, WOOD.deep);
+      leg(g, x0 + 5, ty1, fb, 9, WOOD.dark); leg(g, x1 - 5, ty1, fb, 9, WOOD.dark);
+      g.fillStyle = lin(g, x0, ty0, x1, ty1, [[0, '#b9b2a6'], [1, '#8d867b']]); g.fillRect(x0, ty0, x1 - x0, ty1 - ty0);
+      g.fillStyle = lin(g, 0, ty1, 0, fy, [[0, '#7d776d'], [1, '#5e5951']]); g.fillRect(x0, ty1, x1 - x0, fy - ty1);
+      g.fillStyle = 'rgba(255,252,240,0.5)'; g.fillRect(x0, ty0, x1 - x0, 1.4);
+      for (let i = 0; i < 16; i++) { g.fillStyle = rand() < 0.5 ? 'rgba(255,255,245,0.3)' : 'rgba(40,36,30,0.3)'; g.fillRect(x0 + 3 + rand() * (x1 - x0 - 6), ty0 + 2 + rand() * (ty1 - ty0 - 4), 1.2, 1.2); }
+      // block being dressed + chisel
+      const bx = x0 + 10, by = ty0 + 48;
+      g.fillStyle = '#a49c8f'; g.fillRect(bx, by, 26, 14); g.fillStyle = '#c4bcae'; g.fillRect(bx, by - 8, 26, 8);
+      g.fillStyle = 'rgba(255,255,245,0.45)'; g.fillRect(bx, by - 8, 26, 1.2);
+      g.save(); g.translate(bx + 30, by + 2); g.rotate(-0.4); g.fillStyle = IRON.light; g.fillRect(-1.2, -10, 2.4, 12); g.fillStyle = '#9a6a3a'; g.fillRect(-1.8, 2, 3.6, 7); g.restore();
+      // stacked dressed blocks at the far end
+      for (const [dx, dy] of [[2, 16], [16, 16], [9, 6]]) {
+        g.fillStyle = '#9a9286'; g.fillRect(x0 + dx, ty0 + dy, 13, 9);
+        g.fillStyle = '#bab2a4'; g.fillRect(x0 + dx, ty0 + dy - 5, 13, 5);
+        g.fillStyle = 'rgba(255,255,245,0.4)'; g.fillRect(x0 + dx, ty0 + dy - 5, 13, 1);
+      }
+      for (let i = 0; i < 12; i++) { g.fillStyle = 'rgba(220,214,200,0.7)'; g.beginPath(); circle(g, bx - 4 + rand() * 36, by + 16 + rand() * 20, 0.6 + rand() * 0.9); g.fill(); }
+      stoneBlob(g, x1 - 2, Y(1.98, 2), 6, 4, rand, '#8f897e');
+    }, OW);
+  });
+}
+
+// loom turned north: the weaver's bench behind the frame
+function loomN() {
+  return mk(2, 58, (g, P, Y, W) => {
+    const x0 = 14, x1 = W - 14;
+    P.layer((g) => {
+      const bt = Y(0.22, 14);
+      g.fillStyle = lin(g, 0, bt - 6, 0, bt, [[0, '#a77a48'], [1, '#7a5232']]); g.fillRect(W / 2 - 22, bt - 6, 44, 6);
+      leg(g, W / 2 - 18, bt, Y(0.22, 0), 4); leg(g, W / 2 + 18, bt, Y(0.22, 0), 4);
+      const fy = Y(0.6, 0), topY = Y(0.6, 70);
+      for (const x of [x0, x1]) { leg(g, x, topY, fy, 6, WOOD.mid); g.fillStyle = WOOD.dark; g.fillRect(x - 6, fy - 4, 12, 4); }
+      g.fillStyle = lin(g, 0, topY, 0, topY + 6, [[0, WOOD.high], [1, WOOD.dark]]); g.fillRect(x0 - 4, topY, x1 - x0 + 8, 6);
+      const clothTop = Y(0.6, 46), clothBot = Y(0.6, 22);
+      g.strokeStyle = 'rgba(236,226,200,0.9)'; g.lineWidth = 0.8;
+      g.beginPath(); for (let x = x0 + 6; x < x1 - 4; x += 2.6) { g.moveTo(x, topY + 6); g.lineTo(x, clothTop); } g.stroke();
+      g.fillStyle = WOOD.light; g.fillRect(x0 + 2, Y(0.6, 56), x1 - x0 - 4, 3);
+      // back of the cloth: same stripes, a little duller
+      const cols = ['#9c4733', '#c9b993', '#38607e', '#c9b993', '#9c4733'];
+      for (let i = 0; i < 5; i++) { const y = clothTop + (i * (clothBot - clothTop)) / 5; g.fillStyle = cols[i]; g.fillRect(x0 + 5, y, x1 - x0 - 10, (clothBot - clothTop) / 5 + 0.5); }
+      g.strokeStyle = 'rgba(40,24,12,0.22)'; g.lineWidth = 0.6;
+      g.beginPath(); for (let x = x0 + 6; x < x1 - 4; x += 2.6) { g.moveTo(x, clothTop); g.lineTo(x, clothBot); } g.stroke();
+      g.fillStyle = lin(g, 0, clothBot, 0, clothBot + 7, [[0, '#c9b78e'], [1, '#8c7a58']]); g.fillRect(x0 - 2, clothBot, x1 - x0 + 4, 7);
+      // basket of cotton on the left
+      const bx = x0 - 2, byy = Y(0.95, 0);
+      g.fillStyle = '#a0804e'; g.beginPath(); g.moveTo(bx - 9, byy - 12); g.lineTo(bx + 9, byy - 12); g.lineTo(bx + 7, byy); g.lineTo(bx - 7, byy); g.closePath(); g.fill();
+      for (let i = 0; i < 5; i++) { g.fillStyle = i & 1 ? '#f4f0e6' : '#e2dccd'; g.beginPath(); circle(g, bx - 6 + i * 3, byy - 13 - (i & 1) * 2, 3); g.fill(); }
+    }, OW);
+  });
+}
+
+// loom turned east (1×2): the frame seen slightly from its side, bench on the east
+function loomE() {
+  return mkv(1, 2, 60, (g, P, Y, W) => {
+    const xf = 22;
+    P.layer((g) => {
+      const vb = 0.25, vf = 1.7, h = 70;
+      // posts (far and near) + top beam + feet
+      leg(g, xf - 12, Y(vb, h), Y(vb, 0), 5, WOOD.dark);
+      g.fillStyle = WOOD.dark; g.fillRect(xf - 20, Y(vb, 0) - 3, 16, 4);
+      // cloth panel (a narrow parallelogram between the posts)
+      const ct = 46, cb = 22;
+      const quad = (va, vb2, ha, hb, fill) => { g.fillStyle = fill; g.beginPath(); g.moveTo(xf - 10, Y(va, ha)); g.lineTo(xf + 10, Y(vb2, ha)); g.lineTo(xf + 10, Y(vb2, hb)); g.lineTo(xf - 10, Y(va, hb)); g.closePath(); g.fill(); };
+      g.strokeStyle = 'rgba(236,226,200,0.85)'; g.lineWidth = 0.8;
+      g.beginPath(); for (let k = 0; k <= 10; k++) { const v = vb + ((vf - vb) * k) / 10, x = xf - 10 + 20 * (k / 10); g.moveTo(x, Y(v, h - 6)); g.lineTo(x, Y(v, ct)); } g.stroke();
+      const cols = ['#b5523a', '#d9c9a0', '#3f6a8a', '#d9c9a0', '#b5523a'];
+      for (let i = 0; i < 5; i++) quad(vb, vf, ct - (i * (ct - cb)) / 5, ct - ((i + 1) * (ct - cb)) / 5, cols[i]);
+      g.fillStyle = lin(g, 0, Y(vf, cb), 0, Y(vf, cb - 6), [[0, '#c9b78e'], [1, '#8c7a58']]); quad(vb, vf, cb, cb - 6, '#b4a27c');
+      g.strokeStyle = WOOD.high; g.lineWidth = 5; g.beginPath(); g.moveTo(xf - 12, Y(vb, h)); g.lineTo(xf + 12, Y(vf, h)); g.stroke();
+      leg(g, xf + 12, Y(vf, h), Y(vf, 0), 6, WOOD.mid);
+      g.fillStyle = WOOD.dark; g.fillRect(xf + 4, Y(vf, 0) - 4, 16, 4);
+      // bench on the east, running north-south
+      const bx0 = 40, bx1 = 56;
+      g.fillStyle = lin(g, bx0, 0, bx1, 0, [[0, '#a77a48'], [1, '#7a5232']]); g.fillRect(bx0, Y(0.6, 14), bx1 - bx0, Y(1.5, 14) - Y(0.6, 14));
+      g.fillStyle = '#7a5232'; g.fillRect(bx0, Y(1.5, 14), bx1 - bx0, 5);
+      leg(g, bx0 + 3, Y(1.5, 9), Y(1.5, 0), 4); leg(g, bx1 - 3, Y(1.5, 9), Y(1.5, 0), 4);
+      // basket at the far end
+      const byy = Y(0.3, 0), bx = 46;
+      g.fillStyle = '#a0804e'; g.beginPath(); g.moveTo(bx - 8, byy - 11); g.lineTo(bx + 8, byy - 11); g.lineTo(bx + 6, byy); g.lineTo(bx - 6, byy); g.closePath(); g.fill();
+      for (let i = 0; i < 4; i++) { g.fillStyle = i & 1 ? '#f4f0e6' : '#e2dccd'; g.beginPath(); circle(g, bx - 5 + i * 3.4, byy - 12 - (i & 1) * 2, 2.8); g.fill(); }
+    }, OW);
+  });
+}
+
+// table turned (1×2)
+function tableE() {
+  return mkv(1, 2, 30, (g, P, Y, W) => {
+    const x0 = 10, x1 = W - 10;
+    P.layer((g) => {
+      const ty0 = Y(0.12, 27), ty1 = Y(1.86, 27), ay = Y(1.86, 21), fb = Y(1.86, 0);
+      leg(g, x0 + 4, Y(0.25, 21), Y(0.25, 0), 4, WOOD.dark); leg(g, x1 - 4, Y(0.25, 21), Y(0.25, 0), 4, WOOD.dark);
+      leg(g, x0 + 4, ay, fb, 5.5); leg(g, x1 - 4, ay, fb, 5.5);
+      plankTop(g, x0, ty0, x1, ty1, '#a87a48', 'y', 3);
+      apron(g, x0, x1, ty1, ay, '#7d5532');
+      // runner cloth along the table
+      const cx = W / 2;
+      g.fillStyle = '#d9cfb6'; g.fillRect(cx - 9, ty0, 18, ty1 - ty0); g.fillRect(cx - 9, ty1, 18, 6);
+      g.fillStyle = '#a3473a'; g.fillRect(cx - 9, ty0, 2, ty1 - ty0); g.fillRect(cx + 7, ty0, 2, ty1 - ty0);
+      // plate + bread, mug, candle
+      g.fillStyle = '#e8e2d4'; g.beginPath(); g.ellipse(cx, ty0 + 24, 9, 5, 0, 0, TAU); g.fill();
+      g.fillStyle = '#c08a48'; g.beginPath(); g.ellipse(cx - 1, ty0 + 22.5, 5.5, 2.8, 0, 0, TAU); g.fill();
+      g.fillStyle = '#8a5a30'; g.fillRect(cx + 9, ty0 + 76, 7, 9); g.fillStyle = '#5a3a1e'; g.beginPath(); g.ellipse(cx + 12.5, ty0 + 76, 3.5, 1.4, 0, 0, TAU); g.fill();
+      g.fillStyle = '#f2ead6'; g.fillRect(cx - 2, ty0 + 48, 4, 9); g.fillStyle = '#c9a24a'; g.beginPath(); g.ellipse(cx, ty0 + 57, 5, 1.8, 0, 0, TAU); g.fill();
+      g.fillStyle = '#ffd27a'; g.beginPath(); g.ellipse(cx, ty0 + 45.5, 1.4, 2.6, 0, 0, TAU); g.fill();
+    }, OW);
+  });
+}
+
+// chair turned north (backrest toward the viewer) and east (side view, backrest on the west)
+function chairN() {
+  return mk(1, 34, (g, P, Y, W) => {
+    const cx = W / 2;
+    P.layer((g) => {
+      const sy0 = Y(0.25, 17), sy1 = Y(0.7, 17);
+      leg(g, cx - 11, Y(0.25, 17), Y(0.25, 0), 4, WOOD.dark); leg(g, cx + 11, Y(0.25, 17), Y(0.25, 0), 4, WOOD.dark);
+      plankTop(g, cx - 14, sy0, cx + 14, sy1, '#b08250', 'x', 2);
+      // backrest on the near side
+      leg(g, cx - 11, Y(0.75, 46), Y(0.75, 0), 4.4); leg(g, cx + 11, Y(0.75, 46), Y(0.75, 0), 4.4);
+      g.fillStyle = lin(g, 0, Y(0.75, 46), 0, Y(0.75, 36), [[0, WOOD.high], [1, WOOD.mid]]); g.fillRect(cx - 13, Y(0.75, 46), 26, 7);
+      g.fillStyle = WOOD.mid; g.fillRect(cx - 4, Y(0.75, 39), 3, 20); g.fillRect(cx + 2, Y(0.75, 39), 3, 20);
+      g.fillStyle = WOOD.dark; g.fillRect(cx - 13, Y(0.75, 21), 26, 3);
+    }, OW);
+  });
+}
+function chairE() {
+  return mk(1, 34, (g, P, Y, W) => {
+    const cx = W / 2;
+    P.layer((g) => {
+      const x0 = cx - 10, x1 = cx + 12, sy0 = Y(0.3, 17), sy1 = Y(0.72, 17);
+      leg(g, x0 + 2, Y(0.3, 17), Y(0.3, 0), 3.6, WOOD.dark); leg(g, x1 - 2, Y(0.3, 17), Y(0.3, 0), 3.6, WOOD.dark);
+      plankTop(g, x0, sy0, x1, sy1, '#b08250', 'y', 2);
+      apron(g, x0, x1, sy1, sy1 + 4, '#7d5532');
+      leg(g, x1 - 2, sy1, Y(0.72, 0), 4.2); leg(g, x0 + 2, sy1, Y(0.72, 0), 4.2);
+      // backrest on the west edge, seen from the side: two posts and the top rail
+      g.fillStyle = lin(g, x0 - 3, 0, x0 + 3, 0, [[0, WOOD.high], [1, WOOD.dark]]);
+      g.fillRect(x0 - 3, Y(0.3, 46), 5, Y(0.3, 17) - Y(0.3, 46));
+      g.fillRect(x0 - 3, Y(0.72, 46), 5, Y(0.72, 17) - Y(0.72, 46));
+      g.fillStyle = lin(g, 0, Y(0.3, 46), 0, Y(0.72, 40), [[0, WOOD.high], [1, WOOD.mid]]);
+      g.beginPath(); g.moveTo(x0 - 3, Y(0.3, 46)); g.lineTo(x0 + 2, Y(0.3, 46)); g.lineTo(x0 + 2, Y(0.72, 40)); g.lineTo(x0 - 3, Y(0.72, 40)); g.closePath(); g.fill();
+      g.fillStyle = WOOD.mid; g.fillRect(x0 - 2, Y(0.5, 39), 3, 18);
+    }, OW);
+  });
+}
+
 // ---------------- banner (pole + swinging cloth) ----------------
 const BANNER_COLS = [['#a3302a', '#e6c56a'], ['#2f5a86', '#e8e0c8'], ['#3f6a34', '#e6c56a']];
 function bannerPole() {
@@ -627,7 +847,7 @@ export function addStations(add) {
   A('cooking_pot', cookingPot(false)); A('cooking_pot_coals', cookingPot(true));
   A('table_wood', table());
   A('chair_wood', chair());
-  for (let v = 0; v < 2; v++) add('rug_' + v, rug(v), 0.5, 1);
+  for (let v = 0; v < 2; v++) add('rug_' + v, rug(v), 0.5, 0.5); // centred: drawn rotated about the footprint centre
   for (let v = 0; v < 3; v++) A('flower_pot_' + v, flowerPot(v));
   A('banner_pole', bannerPole());
   for (let v = 0; v < 3; v++) add('banner_cloth_' + v, bannerCloth(v), 0.5, 0);
@@ -636,4 +856,10 @@ export function addStations(add) {
   A('lamp_post', lampPost(false)); A('lamp_post_glow', lampPost(true));
   for (let v = 0; v < 2; v++) A('tent_' + v, tent(v));
   for (let v = 0; v < 3; v++) A('crate_' + v, crate(v));
+  // facing variants for rotation (front N / front E; W = E mirrored, missing N = base mirrored)
+  A('workbench_n', workbenchN()); A('workbench_e', workbenchE());
+  A('stonecutter_e', stonecutterE());
+  A('loom_n', loomN()); A('loom_e', loomE());
+  A('table_wood_e', tableE());
+  A('chair_wood_n', chairN()); A('chair_wood_e', chairE());
 }

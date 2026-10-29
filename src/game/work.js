@@ -1,8 +1,10 @@
 // Work queue (RimWorld-like): when the player is idle, walk to the nearest pending job and do it —
 // blueprints to build, structures marked for deconstruction, designated rock to mine, and follow-up
 // farm jobs (plant the next empty plot / harvest the next ripe crop). Also routes interactions.
+// Blueprints whose materials were not delivered yet are skipped while the bag lacks them ("falta material",
+// one hint per blueprint). Any movement input stops the current job at once (controller) and resets the idle timer.
 
-import { describeStructure, useStructure, structIt } from './building.js';
+import { describeStructure, useStructure, structIt, canSupply, missingText } from './building.js';
 import { startWork } from './gathering.js';
 import { nearestMark, rockIt } from './mining.js';
 import { seedToPlant, cropAt } from './farming.js';
@@ -16,7 +18,7 @@ const FAIL_CD = 12;       // s an unreachable job is skipped
 
 export function initWork(game) {
   const W = game.work = {
-    idleT: 0, failed: new Map(), farmUntil: 0,
+    idleT: 0, failed: new Map(), farmUntil: 0, told: new Set(),
     wake() { W.idleT = IDLE_DELAY; },
     queuePlantNear() { W.farmUntil = game.worldTime + 25; W.idleT = IDLE_DELAY; },
     queueHarvestNear() { W.farmUntil = game.worldTime + 25; W.idleT = IDLE_DELAY; },
@@ -53,6 +55,10 @@ function nearestJob(game) {
     if (!blue && !dec) continue;
     const d = Math.hypot(o.x - p.x, o.y - 0.5 - p.y);
     if (d >= bd) continue;
+    if (blue && !canSupply(game, o)) {
+      if (!W.told.has(o.id) && d < 14) { W.told.add(o.id); game.events.emit('toast', { text: `${o.moveOf ? '' : 'Planta parada · '}falta material: ${missingText(game, o)}`, kind: 'warn' }); }
+      continue;
+    }
     consider(structIt(o, { kind: blue ? 'blueprint' : 'decon', verb: blue ? 'Construir' : 'Desmontar', icon: 'build', auto: true }), d);
   }
   if (game.mining.marks.size) {
@@ -93,7 +99,7 @@ export function workSystem() {
     update(game, dt) {
       const p = game.player, ctl = game.ctl, W = game.work;
       const idle = !W.paused && !p.dead && !p.work && !ctl.goal && !ctl.manual && !p.moving && !p.autoAttack && !p.inCombat && !game.ui?.modal && !p.charge;
-      if (!idle) { if (W.idleT > 0 && (p.moving || ctl.manual)) W.idleT = 0; return; }
+      if (!idle) { if (p.moving || ctl.manual) W.idleT = 0; return; }
       W.idleT += dt;
       if (W.idleT < IDLE_DELAY) return;
       if (craftingActive(game)) return;
