@@ -25,15 +25,32 @@ export function econSvg(name) {
 
 // UI icon: atlas icon_<name> when present, else our SVG
 export function econIcon(A, name) {
-  const url = spriteURL(A, 'icon_' + name, 96);
+  const url = short(spriteURL(A, 'icon_' + name, 96));
   if (url) return `<img class="spri" src="${url}" alt="" draggable="false">`;
   return econSvg(name);
+}
+
+// data: URLs are long; panels re-render often, so hand out short blob: URLs instead (cached)
+const SHORT = new Map();
+function short(url) {
+  if (!url || !url.startsWith('data:')) return url;
+  let s = SHORT.get(url);
+  if (!s) {
+    try {
+      const [head, b64] = url.split(',');
+      const bin = atob(b64), n = bin.length, u8 = new Uint8Array(n);
+      for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+      s = URL.createObjectURL(new Blob([u8], { type: head.slice(5).split(';')[0] || 'image/png' }));
+    } catch { s = url; }
+    SHORT.set(url, s);
+  }
+  return s;
 }
 
 export function itemIco(A, id) {
   const def = ITEMS[id];
   if (!def) return '';
-  const url = spriteURL(A, def.sprite, 64) || (def.weapon || def.slot ? spriteURL(A, 'held_' + id, 64) : null);
+  const url = short(spriteURL(A, def.sprite, 64) || (def.weapon || def.slot ? spriteURL(A, 'held_' + id, 64) : null));
   if (url) return `<img class="spri" src="${url}" alt="" draggable="false">`;
   return `<span class="emo">${def.emoji || '•'}</span>`;
 }
@@ -41,7 +58,7 @@ export function itemIco(A, id) {
 export function buildIco(A, type) {
   const def = BUILDINGS[type];
   for (const n of [type, type + '_10', type + '_h', type + '_0', type + '_15']) {
-    const url = spriteURL(A, n, 96);
+    const url = short(spriteURL(A, n, 96));
     if (url) return `<img class="spri" src="${url}" alt="" draggable="false">`;
   }
   return `<span class="emo">${def?.emoji || '🏗️'}</span>`;

@@ -118,9 +118,11 @@ export function loadGame(game) {
     for (const [id, stump, age, empty, gone] of data.objects || []) {
       const o = w.objById.get(id);
       if (!o || o.building) continue;
-      if (gone || empty) { removeQuiet(game, o); continue; }
-      if (stump) makeStump(game, o, game.worldTime);
-      else if (age < 1 && o.type.startsWith('tree_')) {
+      const tree = o.type.startsWith('tree_');
+      // (ids may point at different objects after world generator changes: only apply what fits the type)
+      if (gone || (empty && o.type === 'berrybush')) { removeQuiet(game, o); continue; }
+      if (stump && tree) makeStump(game, o, game.worldTime);
+      else if (age < 1 && tree) {
         o.age = age; o.born = game.worldTime - Math.max(0, age - 0.08) * SAPLING_GROW;
         if (age < 0.6) { o.solid = 0; occRemove(game, o); }
         game.flora.growing.add(o); game.touched.set(id, o);

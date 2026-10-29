@@ -411,6 +411,9 @@ html, body {
 
 /* re-rendered panels must not replay the open animation (no flicker) */
 .panel.still { animation: none !important; }
+/* panels never grow past the screen: the body scrolls instead */
+.panels > .panel { max-height: calc(100vh - 16px - var(--safe-t) - var(--safe-b)); max-height: calc(100dvh - 16px - var(--safe-t) - var(--safe-b)); min-height: 0; }
+.panels > .panel > .pb { min-height: 0; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 
 /* tabs */
 .tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; margin: 0 0 8px; padding-bottom: 2px; }
