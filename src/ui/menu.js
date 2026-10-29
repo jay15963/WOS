@@ -51,6 +51,8 @@ export function showMainMenu({ presetCode = '', progress = null } = {}) {
       <div class="mpanel hidden"><button class="x" title="Fechar">✕</button><div class="mbody"></div></div>`;
     document.body.appendChild(root);
     if (snap) root.querySelector('.menu-bg').style.backgroundImage = `url("${snap}")`;
+    // agent H: the player's character + name + "Editar aparência" (src/ui/charcreator.js; B's new menu hosts it in .mc-avatar)
+    import('./charcreator.js').then((m) => { if (root.isConnected) m.mountMenuAvatar?.(root.appendChild(Object.assign(document.createElement('div'), { className: 'menu-avatar' })), { name: playerName(), onName: setPlayerName }); }).catch((e) => console.warn('[charcreator]', e));
 
     const panel = root.querySelector('.mpanel'), body = root.querySelector('.mbody');
     let cleanup = null;
