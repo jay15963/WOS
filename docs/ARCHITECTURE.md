@@ -147,6 +147,12 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   (4 orientações / 5 posições de borda), pegada `o.fw × o.fh`, `Mover` (`build.move` → `struct.relocate`), `Arrasar`
   (`struct.raze`), barra de construção e menu de contexto em `src/ui/buildbar.js`. Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
+- **Caminhos (rodada V2, agente M)**: terreno pintado, não construção — `world.path` / `world.pathPlan` (grade por tile, ops `path.plan` /
+  `path.set` em `src/game/mut/paths.js`, catálogo em `content/paths.js`). Modo de construção `{ kind: 'path', tool }` (aba "Caminhos" do
+  Construir, pincel 1/2/3, livre / linha / área, borracha; `building.js` delega `buildTap/buildDrag*/cancelBuild` ao `mode.tool`), barra em
+  `src/ui/pathbar.js`, trabalho automático via `game.work.providers`. Desenho dentro do passe de terreno (`PATH_FN` em shaders.js): `uPath`
+  (1×: tipo / plano / distâncias), `uPathF` (2×: contorno por gaussianas orientadas), `uPathMat` (texturas de `src/world/pathTex.js`, geradas
+  num worker e guardadas no IndexedDB) nas unidades 13–15. API de teste: `game.paths.{paint, jobAt, counts, stats}`.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.

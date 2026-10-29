@@ -687,7 +687,7 @@ Canonical rows (cosmetic fields excluded: shake, flash, alpha, open, `_*`, loot 
 - `dyn`: `[id, type, x.toFixed(2), y.toFixed(2), v, stump, solid>0, born]`;
 - `structs`: `[id, type, tx, ty, round(progress*10), mask, orient, decon, working, store]`;
 - `tiles`: FNV of `world.rock` and `world.solid` byte arrays + sorted `minedTiles`;
-- `loot`: `[id, item, qty]`; `crops`: `[tx, ty, kind, stage]`; `props`: `[id, hp, broken]`;
+- `loot`: `[id, item, qty]`; `crops`: `[tx, ty, kind, stage]`; `props`: `[id, hp, broken]`; `paths` (round V2): `[chunk, fnv(path), fnv(plan)]`;
 - tolerant: `env` (day exact, hour ±0.05, weather exact, worldTime ±3 s); `ents`: host sends
   `[nid, species, dead, x, y]` of the guest's interest set → guest checks species/dead exact, position ≤ 1.5 tiles.
 
@@ -951,6 +951,25 @@ differs from the design text above, the code is described here (this section win
     finishing it (`build.hit final`, target re-validated) → `struct.relocate {id: plan, src}` moves the SAME object (id, store, state).
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
+- **Painted terrain paths (round V2, agent M)** — a shared per-tile grid, not structures. `world.path` (Uint8Array W×H, built type
+  0 none / 1 terra / 2 cascalho / 3 lajota / 4 paralelepípedo / 5 pedras de passagem, `content/paths.js`) and `world.pathPlan` (plan
+  code 0 none / 1..5 blueprint of that type / 15 remove), created by `initPathGrids` before any save / snapshot is applied; written only
+  in `src/game/mut/paths.js` (lint R5 covers `path[` / `pathPlan[` writes). Tile lists travel run-length encoded `[start, len, …]`.
+  - `path.plan {c, tiles}` (intent, ≤ 2000 tiles, ≤ 30 tiles from the painter): the host skips tiles that cannot take a path (water,
+    rock, floors / rugs / farm plots, structures other than doors, trees / stumps / boulders) and emits up to three `path.plan {c, tiles,
+    by}` ops (lay plans, removal marks, cancels — the eraser cancels blueprints at once). Blueprints are free.
+  - `path.lay {t, tiles}` (intent, ≤ 12 tiles, worker within 3.2 tiles): the worker's client took `cost × n` from its bag (request
+    `refund`); the host lays the tiles still planned with `t` → `obj.remove {fx: 'clear', give}` for loose plants on them + `path.set
+    {t, tiles, by, xp, give}` (`give` = cost of refused tiles + 75% of a replaced path). Tiles that became blocked lose their plan.
+  - `path.dig {tiles}`: tiles marked 15 → `path.set {t: 0, tiles, by, give: 75%}`. The host keeps the fractions of the 75% refunds per
+    player (authority-only bank, so two patches of 2 gravel tiles give 3 pebbles, not 2); only the integer result travels in `give`.
+  - Snapshot / save: `paths: { g: rle(world.path), p: rle(world.pathPlan) }` as `[value, count, …]` runs of the whole grid; a `'net'`
+    snapshot without it clears the grids, a `'load'` save without it (older versions) keeps none. Digest part **`paths`**: one row per
+    16×16 chunk holding any path / plan `["cx,cy", fnv(path), fnv(plan)]`.
+  - Derived on every peer from the grids: `game.pathGrid {planned: Set, built, dirty}` (work queue / UI), the GPU data of the terrain
+    shader (signed distances, 2× outline field) and `decor._hid` (cosmetic: grass decor hidden on paths). `world.growWeight` is 0 on any
+    path / plan tile (flora never regrows there); floors / rugs / plots refuse path tiles (`placeReason`). The walking speed bonus is the
+    owner's (`pathsSystem`, `sync: 'owner'`, like floors).
 
 ### 7.3 Save format
 
@@ -959,7 +978,7 @@ fuel, hinted, marks, world: serializeWorld(game, {save: true}) }` (the snapshot 
 re-find worldgen objects if the world generator changed). Guests write `{ v: 3, guest: 1, player, craft, fuel, hinted }` only.
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
-`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
+`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby). **v5** (round V2, agent M): `world.paths` (painted path grids, see §7.2); v1–v4 saves load with no paths.
 
 ### 7.4 Background clock
 
