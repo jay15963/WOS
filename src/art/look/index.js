@@ -85,6 +85,18 @@ export function lookDefs() {
   return M;
 }
 
+// base rig parts the creator preview also needs (same shapes as pawns.js pawn_hand / pawn_thigh_e; preview only,
+// the game atlas has the originals)
+let EXTRA = null;
+export function previewExtras() {
+  if (EXTRA) return EXTRA;
+  EXTRA = new Map([
+    ['pawn_hand', { W: 14, H: 14, ax: 0.5, ay: 0.5, pad: 6, paint: (P) => P.layer((g) => B.hand(g), 2.2) }],
+    ['pawn_thigh_e', { W: 26, H: 13, ax: 3 / 26, ay: 0.5, pad: 6, paint: (P) => P.layer((g) => B.thigh(g), 1.6) }],
+  ]);
+  return EXTRA;
+}
+
 // atlas painter group (sprites.js)
 export function addLook(add) {
   for (const [name, def] of lookDefs()) add(name, atlasCanvas(def), def.ax, def.ay);

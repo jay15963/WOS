@@ -6,7 +6,7 @@
 // own (weapons, fx…) are invisible stand-ins here.
 
 import { drawPawn } from '../compose.js';
-import { lookDefs } from './index.js';
+import { lookDefs, previewExtras } from './index.js';
 import { hiCanvas } from './hipaint.js';
 
 const NONE = { name: '', canvas: null, w: 0.01, h: 0.01, ax: 0.5, ay: 1, u0: 0, v0: 0, u1: 0, v1: 0 };
@@ -15,7 +15,7 @@ const NONE = { name: '', canvas: null, w: 0.01, h: 0.01, ax: 0.5, ay: 1, u0: 0, 
 // drawn for a few seconds may be dropped (repainted if needed again), the working set never is.
 export class PreviewAtlas {
   constructor(k = 3, budget = 9e6) {
-    this.k = k; this.defs = lookDefs(); this.sprites = new Map(); this.list = []; this.groups = {}; this.size = 0;
+    this.k = k; this.defs = new Map([...lookDefs(), ...previewExtras()]); this.sprites = new Map(); this.list = []; this.groups = {}; this.size = 0;
     this.painted = 0; this.lru = new Map(); this.px = 0; this.budget = budget;
   }
   _touch(s) {

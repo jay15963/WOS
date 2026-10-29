@@ -508,5 +508,18 @@ export function foot(g, d, e) {
   });
 }
 
+// mitten hand and sitting thigh (copies of the pawns.js rig parts, for the creator preview)
+export function hand(g) {
+  g.fillStyle = '#d6d6d6'; g.beginPath(); g.ellipse(7, 7, 4.3, 3.9, 0, 0, TAU); g.fill();
+  g.fillStyle = lin(g, 3, 3, 11, 11, [[0, '#ffffff'], [1, '#c8c8c8']]); g.beginPath(); g.ellipse(6.6, 6.6, 3.6, 3.2, 0, 0, TAU); g.fill();
+  g.strokeStyle = 'rgba(90,90,90,0.5)'; g.lineWidth = 0.7;
+  g.beginPath(); g.moveTo(5, 4.4); g.lineTo(5.4, 7); g.moveTo(7.4, 4.1); g.lineTo(7.6, 6.8); g.stroke();
+}
+export function thigh(g) {
+  g.fillStyle = '#c8c8c8'; g.beginPath(); g.moveTo(5, 2.5); g.lineTo(20, 2.5); g.quadraticCurveTo(25, 6.5, 20, 10.5); g.lineTo(5, 10.5); g.quadraticCurveTo(1, 6.5, 5, 2.5); g.closePath(); g.fill();
+  g.fillStyle = lin(g, 0, 2, 0, 11, [[0, '#f2f2f2'], [1, '#b2b2b2']]); g.beginPath(); g.ellipse(13, 5.8, 10, 3, 0, 0, TAU); g.fill();
+  g.strokeStyle = 'rgba(70,70,70,0.4)'; g.lineWidth = 1; g.beginPath(); g.moveTo(17, 4); g.quadraticCurveTo(19, 6.5, 17.5, 9.5); g.stroke();
+}
+
 export const seed = (s) => rng(s);
 export { hemY };

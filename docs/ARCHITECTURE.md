@@ -132,6 +132,14 @@ criatura, arte de toda construção / flora / plantação) e descartado se falta
 `src/art/contract.js`. Service worker: **network-first** com `cache:'no-cache'` (um carregamento nunca mistura dois deploys; o
 cache do SW só serve offline).
 
+Animação (rodada V2, agente D): `compose.js` monta o pawn como um rig (corpo, botas `pawn_foot_*`, mãos `pawn_hand`, cabeça
+com pálpebras `pawn_lids_*`) e lê, além dos campos acima, `p.headFacing` (cabeça virada para o alvo), `p.pose`
+(`{type:'sit'|'sleep', o?}`: sentado / deitado na cama) e `action.item` (comida na mão). Ações novas: `eat`, `craft`, `cook`,
+`plant`, `harvest`, `heal` (alias `bandage`). O motor cosmético fica em `juice.js` (olhar, sentar perto da fogueira / na
+cadeira, dormir, passos, arbustos e plantações que balançam, migalhas/ervas/Zzz) e o vento chega por `animEnv` (exportado
+por `compose.js`). Animais: quadro `<espécie>_e_graze` (pastar/farejar) gerado do quadro parado; andadura por velocidade.
+`e._sy` (cosmético) troca a chave de profundidade enquanto o pawn está deitado/sentado num móvel. Prévia: `tools/gallery.html?strip=walk,run,chop&sdir=e`
+(`&species=deer` para animais).
 Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
 da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
 (apaga chama de fogueira/tocha). Galeria de sprites: `tools/gallery.html` (`?focus=<regex>`, `?only=scene|pawns|animals|atlas`).

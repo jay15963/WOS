@@ -66,13 +66,45 @@ const num = (v, lo, hi, d = 0) => (typeof v === 'number' && Number.isFinite(v) ?
 const str = (v, max = 32) => (typeof v === 'string' ? v.slice(0, max) : null);
 // looks (agent H, src/game/look.js): packed string on the wire, cleaned on receipt (unknown ids → default)
 
+// action for the presence stream: [type, t, dur (0 = held pose), loop (work cycles), item?] — receivers rebuild
+// the exact timeline (start = sample time - t·dur) and play it with the same delay as the position
+function packAct(p) {
+  const a = p.action;
+  if (!a || !(a.t < 1)) return 0;
+  const hold = !!a.hold;
+  const dur = hold ? 0 : a.dur || a.cyc || p.work?.cycle || 0.4;
+  const out = [String(a.type), +(+a.t || 0).toFixed(2), +dur.toFixed(2), !a.dur && !hold ? 1 : 0];
+  if (a.item) out.push(String(a.item));
+  return out;
+}
+// resting pose: 'sit' | ['sit', seatId] | ['sleep', bedId] (cosmetic, drawn by art/compose.js)
+const packPose = (p) => (p.pose ? (p.pose.id ? [p.pose.type, p.pose.id] : p.pose.type) : undefined);
 function packState(p) {
-  const a = p.action && p.action.t < 1 ? [p.action.type, +(+p.action.t).toFixed(2)] : 0;
   return {
-    x: +p.x.toFixed(2), y: +p.y.toFixed(2), f: p.facing, mv: p.moving ? 1 : 0, a,
+    x: +p.x.toFixed(2), y: +p.y.toFixed(2), f: p.facing, mv: p.moving ? 1 : 0, a: packAct(p),
+    hd: p.headFacing && p.headFacing !== p.facing ? p.headFacing : undefined, ps: packPose(p),
     w: p.weapon || 0, o: p.offhand || 0, ab: p.armor?.body || 0, ah: p.armor?.head || 0,
     hp: Math.round(p.hp || 0), mh: Math.round(p.maxHp || 100), d: p.dead ? 1 : 0, bl: p.blocking ? 1 : 0, lv: p.level || 1,
   };
+}
+// a relayed sample (host → other guests) is re-sent later than it was taken: age its action accordingly
+function agedState(s, age) {
+  const a = s.a;
+  if (!Array.isArray(a) || !(a[2] > 0) || !(age > 0.005)) return s;
+  let k = (+a[1] || 0) + age / a[2];
+  if (a[3]) k -= Math.floor(k); else if (k >= 1) return { ...s, a: 0 };
+  const b = a.slice(); b[1] = +k.toFixed(2);
+  return { ...s, a: b };
+}
+function parseAct(a, ts) {
+  if (!Array.isArray(a) || typeof a[0] !== 'string') return null;
+  const k = num(a[1], 0, 1, 0), dur = num(a[2], 0, 30, 0.4);
+  return { type: a[0].slice(0, 16), k, dur, loop: !!a[3], start: ts - k * dur, item: str(a[4], 24) };
+}
+function parsePose(ps) {
+  if (typeof ps === 'string') return ps === 'sit' || ps === 'sleep' ? { type: ps, id: null } : null;
+  if (Array.isArray(ps) && (ps[0] === 'sit' || ps[0] === 'sleep')) return { type: ps[0], id: typeof ps[1] === 'string' || typeof ps[1] === 'number' ? ps[1] : null };
+  return null;
 }
 
 export const versionMessage = (mine, host) => `Versões diferentes do jogo (sua ${mine || '?'}, anfitrião ${host || '?'}). Recarregue a página (Ctrl+Shift+R); se persistir, o anfitrião também deve recarregar.`;
@@ -654,17 +686,13 @@ export class Session {
     const prev = B[B.length - 1];
     if (prev && t <= prev.t) { /* out of order / duplicate sample */ } else {
       if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; } // teleport / respawn: snap
-      B.push({ t, x, y });
+      // facing, action timeline, head and pose ride with the position (same interpolation delay)
+      B.push({ t, x, y, f: FACINGS.has(s.f) ? s.f : null, a: parseAct(s.a, t), hd: FACINGS.has(s.hd) ? s.hd : null, ps: parsePose(s.ps) });
       if (B.length > 24) B.shift();
     }
-    if (!e._seen) { e.x = x; e.y = y; e._seen = true; }
-    if (FACINGS.has(s.f)) e.facing = s.f;
+    if (!e._seen) { e.x = x; e.y = y; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
     e.netMoving = !!s.mv;
-    if (Array.isArray(s.a) && typeof s.a[0] === 'string') {
-      const type = s.a[0].slice(0, 16), at = num(s.a[1], 0, 1, 0);
-      if (!e.action || e.action.type !== type || at < e.action.t - 0.05) e.action = { type, t: at, dur: 0.4, remote: true };
-      else e.action.t = Math.max(e.action.t, at);
-    } else e.action = null;
+    pl.lastS = s; pl.lastSAt = performance.now() / 1000;
     e.weapon = str(s.w, 32) || null;
     e.offhand = str(s.o, 32) || null;
     e.armor = { body: str(s.ab, 32) || null, head: str(s.ah, 32) || null };
@@ -681,7 +709,7 @@ export class Session {
       if (dt > 0.02 && dt < 1) { av.vx = (x - av.x) / dt; av.vy = (y - av.y) / dt; } else if (dt >= 1) { av.vx = av.vy = 0; }
       if (!s.mv) av.vx = av.vy = 0;
       av._t = t;
-      av.x = x; av.y = y; av.facing = e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
+      av.x = x; av.y = y; av.facing = FACINGS.has(s.f) ? s.f : e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
       av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
     }
   }
@@ -733,7 +761,8 @@ export class Session {
         const list = [{ pid: this.pid, name: this.name, s, look: withLook ? packLook(p.look) : undefined }];
         for (const pl of this.players.values()) {
           if (!pl.ent || !pl.synced) continue;
-          list.push({ pid: pl.pid, name: pl.name, s: packState(pl.av || pl.ent), look: withLook && pl.look ? packLook(pl.look) : undefined });
+          const rs = pl.lastS ? agedState(pl.lastS, now - (pl.lastSAt || now)) : packState(pl.av || pl.ent);
+          list.push({ pid: pl.pid, name: pl.name, s: rs, look: withLook && pl.look ? packLook(pl.look) : undefined });
         }
         const msg = { t: 'sts', ht: +now.toFixed(3), list };
         if (this.envAcc > 2) { this.envAcc = 0; msg.env = { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather, wt: Math.round(game.worldTime * 100) / 100 }; }
@@ -779,15 +808,40 @@ export class Session {
           e.x = last.x; e.y = last.y;
         } else { e.x = x; e.y = y; stepGait(e, Math.min(d, 1)); }
         e.moving = e.netMoving || d > 0.01;
+        this._discrete(e, B, rt);
       }
-      if (e.action && !e.action.remote) e.action = null;
-      if (e.action) { e.action.t = Math.min(1, e.action.t + dt / (e.action.dur || 0.4)); if (e.action.t >= 1) e.action = null; }
       if (performance.now() - pl.last > STALE_S * 1000 && !pl.host) {
         netlog.warn('session', `${pl.name} parou de enviar dados há ${STALE_S}s; removendo`);
         this._remove(pl.pid);
         if (this.role === 'host') this._broadcast({ t: 'left', pid: pl.pid });
       }
     }
+  }
+
+  // facing / action / head / pose of a remote player at render time rt (sender clock), from the newest
+  // sample at or before rt — an action is shown from its real start even if that falls before its sample
+  _discrete(e, B, rt) {
+    let cur = B[0], A = null;
+    for (let i = B.length - 1; i >= 0; i--) if (B[i].t <= rt) { cur = B[i]; break; }
+    for (let i = B.length - 1; i >= 0; i--) { const S = B[i]; if (S.t <= rt || (S.a && S.a.start <= rt)) { A = S.a; break; } }
+    if (cur.f) e.facing = cur.f;
+    e.headFacing = cur.hd;
+    const P = cur.ps;
+    if (!P) e.pose = null;
+    else if (!e.pose || e.pose.type !== P.type || e.pose.id !== P.id || (P.id != null && !e.pose.o)) {
+      const o = P.id != null ? this.game.world.objById?.get(P.id) || null : null;
+      e.pose = { type: P.type, id: P.id, o };
+    }
+    let k = 0;
+    if (A) {
+      k = A.dur > 0 ? (rt - A.start) / A.dur : A.k;
+      if (A.loop) k -= Math.floor(k);
+      if (k >= 1 || k < 0) A = null;
+    }
+    if (!A) { e.action = null; return; }
+    const ra = e._ra || (e._ra = { type: '', t: 0, dur: 0, remote: true, item: null });
+    ra.type = A.type; ra.t = k; ra.dur = A.dur; ra.hold = !(A.dur > 0); ra.item = A.item;
+    e.action = ra;
   }
 
   // nameplates + chat bubbles on the overlay canvas (drawn after the regular overlay)

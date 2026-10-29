@@ -929,9 +929,18 @@ differs from the design text above, the code is described here (this section win
   wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
 - R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
 - **Looks** (round V2, agent H): `hello.look`, `lk.look` and `sts.list[].look` carry `packLook()` strings (`"1|average|…"`, ~200 B;
-  PROTO 3). Receivers always run `cleanLook()` (unknown ids → defaults, colours validated; legacy objects migrated), so a peer can
+  PROTO 4). Receivers always run `cleanLook()` (unknown ids → defaults, colours validated; legacy objects migrated), so a peer can
   never break drawing. `session.sendLook()` (called by `applyLook` when the player saves in the editor) sends at the next presence
   tick; the host relays a changed guest look to everyone at once (otherwise every 5 s). Scenario S70.
+- **Presence animation fields** (round V2, agent D; `packState` in `session.js`): `a = [type, t, dur, loop, item?]` (`dur` 0 =
+  held pose; `loop` 1 = work cycle that repeats while working, `dur` = `p.work.cycle`), `hd` = head facing when it differs from
+  `f`, `ps` = resting pose `'sit' | ['sit', seatId] | ['sleep', bedId]`. Receivers keep `f / a / hd / ps` in the interpolation
+  buffer and apply them at the same delayed render time as the position; an action's start is rebuilt as
+  `sampleTime - t·dur`, so a swing is shown from its first frame even when it started between two samples (S40). The host
+  relays other guests' last raw sample (aged by the time since it arrived), so guest ↔ guest copies carry weapon / action /
+  pose too. Creature proxies (`entities.js`) likewise start a new action at `ht - t·dur` instead of on receipt.
+  Everything else a pawn does on screen (walk cycle, feet, hands, blink, breathing, flinch from `flash`, death / rise from
+  `dead`) is derived in `art/compose.js` from these replicated fields; cosmetic caches are `_`-prefixed.
 - **Construction (round V2, agent A)** — shared structure fields `rot`, `paid`, `open`, `moveOf` (set in op appliers, in snapshot
   `structs` rows `[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]` and in the `structs`
   digest rows; derived on every peer by `setGeom`: `fw × fh` footprint after rotation, `x, y, cy`, `face`). Cosmetic: `_openT`
