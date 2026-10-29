@@ -1,12 +1,19 @@
 // Build toolbar + structure context menu + touch build gestures (agent A).
-// - Toolbar (bottom centre) while placing: ⟳ girar · ✓ confirmar · ✕ cancelar, the orientation name and what is
-//   missing for the whole plan ("Falta: …"). Desktop shows the keys (R / Shift+R, Enter, Esc).
+// - Toolbar while placing: ⟳ girar · ✓ confirmar · ✕ cancelar, the orientation name and what is missing for the
+//   whole plan ("Falta: …"); desktop shows the keys (R / Shift+R, Enter, Esc). It sits at the BOTTOM with the item
+//   card (the HUD's work bar, re-parented here as a compact strip above the buttons), placed by a small solver
+//   between the joystick zone, the ability cluster, the quick buttons and the hotbar, so it never covers the
+//   spot being built on (owner: "deixe embaixo"); toasts move above it while building.
 // - Touch in build mode: one finger drags rows / areas (walls, fences, floors) or carries the ghost (single props);
 //   a second finger cancels the paint so the gesture stays a pinch zoom (read from game.input when it exposes
 //   gesture state, else counted here). Taps still go through the controller (buildTap).
 // - Context menu (Usar/Abrir · Mover · Desmontar / Arrasar / Cancelar): tap-and-hold a structure on touch, right
 //   click on desktop (controller emits 'structmenu').
-// Purely local UI: every action goes through building.js (intents to the host).
+// - "Construir agora" on the toolbar after a placement: starts auto-work on that batch (work.js, opt-in).
+// - Auto-work banner (top, under the HUD's top row, never over the player card / minimap): what the running job
+//   sequence does ("Construindo · Parede de madeira · 3 restantes"), ✕ Cancelar (Esc on desktop) and, after the
+//   player moved (sequence paused), ▶ Continuar.
+// Purely local UI: every action goes through building.js / work.js (intents to the host).
 
 import { BUILDINGS } from '../game/data.js';
 import {
@@ -14,9 +21,15 @@ import {
   buildDragStart, buildDragMove, buildDragEnd, dimsOf,
 } from '../game/building.js';
 import { pick } from '../game/controller.js';
+import { describeStructure } from '../game/building.js';
+import { structureAt } from '../game/autotile.js';
 import { installDetails, DETAILS_ICON } from './details.js'; // agent K: Detalhes panel
 import { hasKit } from '../game/content/kits.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES } from '../game/content/roofs.js';
+import { uiScale } from './uiscale.js';
+
+// HUD css px from a client rect / point (the HUD has a CSS zoom: uiscale.js)
+const zf = () => uiScale() || 1;
 
 const ICON = {
   rot: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5v4h-4"/>',
@@ -30,13 +43,25 @@ const ICON = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
   style: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  farm: '<path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"/><path d="M5 19l8-8"/>',
+  play: '<path d="M8 5.5v13l10.5-6.5z"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ICON.use}</svg>`;
 
 const CSS = `
-.abb{position:absolute;left:50%;top:calc(var(--safe-t,0px) + 132px);transform:translateX(-50%);display:flex;align-items:center;gap:6px;
+.abw{position:absolute;left:50%;bottom:calc(var(--safe-b,0px) + 10px);transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;
+  gap:4px;z-index:30;pointer-events:none;max-width:calc(100% - 16px)}
+.abw.placed{transform:none}
+.abw.hidden{display:none}
+.abw .workbar{position:static!important;transform:none!important;top:auto!important;left:auto!important;margin:0;max-width:100%;pointer-events:auto;
+  padding:3px 8px 3px 5px!important;gap:6px!important}
+.abw .workbar .wb-ic{width:26px;height:26px}
+.abw .workbar .wb-tx{min-width:0;max-width:none;flex-direction:row;flex-wrap:wrap;align-items:baseline;column-gap:8px}
+.abw .workbar .wb-tx b{font-size:12.5px}
+.abw .workbar:not(.hidden) ~ .abb .lbl b{display:none}
+.abb{position:relative;display:flex;align-items:center;gap:6px;
   padding:6px;border-radius:10px;background:rgba(20,26,34,.86);border:1px solid rgba(120,170,230,.45);box-shadow:0 6px 18px rgba(0,0,0,.35);
-  pointer-events:auto;z-index:30;color:#e8f0ff;font:600 12px/1.2 system-ui,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
+  pointer-events:auto;color:#e8f0ff;font:600 12px/1.2 system-ui,sans-serif;user-select:none;-webkit-user-select:none;touch-action:none}
 .abb.hidden{display:none}
 .abb button{all:unset;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:58px;height:54px;
   border-radius:8px;cursor:pointer;background:rgba(60,90,130,.55);border:1px solid rgba(150,190,240,.35);color:#eaf3ff;font-size:10.5px;transition:transform .08s,background .15s}
@@ -50,11 +75,12 @@ const CSS = `
 .abb .lbl b{font-size:12.5px;color:#fff}.abb .lbl small{font-weight:500;font-size:10.5px;color:#b8c8e0}
 .abb .lbl small.bad{color:#ffb39a}
 .abb kbd{font:600 9px system-ui;opacity:.7}
-@media (max-width:760px),(max-height:520px){.abb{top:calc(var(--safe-t,0px) + 112px)}}
 .touch .abb .lbl{display:none}
-@media (orientation:portrait){.touch .abb{left:auto;right:calc(var(--safe-r,0px) + 8px);top:34%;transform:none;flex-direction:column}}
-@media (max-width:520px){.abb .lbl{display:none}.abb button{width:56px;height:54px}}
+@media (max-width:520px){.abb .lbl{display:none}.abb button{width:54px;height:52px}}
+@media (max-height:440px){.abb button{height:48px;width:56px}.abb{padding:5px}}
 .abb-on .workbar .wb-ok,.abb-on .workbar .wb-no{display:none!important}
+.abb-on .feed{bottom:var(--abw-feed-b,22px)!important}
+.abb-on.abw-feedtop .feed{top:var(--abw-feed-t)!important;bottom:auto!important;left:var(--abw-feed-x)!important;width:min(var(--abw-feed-w),360px)!important}
 .asm{position:absolute;z-index:40;min-width:168px;padding:5px;border-radius:10px;background:rgba(22,24,28,.94);border:1px solid rgba(217,180,90,.5);
   box-shadow:0 8px 22px rgba(0,0,0,.45);pointer-events:auto;color:#f1ead8;font:600 13px/1.2 system-ui,sans-serif;animation:asm-in .12s ease-out}
 @keyframes asm-in{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
@@ -64,6 +90,36 @@ const CSS = `
 .asm button:hover,.asm button:active{background:rgba(217,180,90,.18)}
 .asm button.dis{opacity:.6;cursor:default;font-weight:500;font-size:12px}
 .touch .asm button{padding:12px 12px}
+.abb .go{background:rgba(160,110,40,.85);border-color:rgba(240,200,120,.5)}
+.abb .go.off{display:none}
+.awb{position:absolute;left:50%;top:calc(var(--gap,8px) + var(--safe-t,0px) + 70px);transform:translateX(-50%);display:flex;align-items:center;gap:8px;
+  padding:5px 6px 5px 9px;border-radius:6px;background:var(--panel,rgba(22,24,26,.86));border:1px solid rgba(217,180,90,.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 2px 10px rgba(0,0,0,.45);pointer-events:auto;z-index:3;color:var(--text,#efe6d2);
+  font-size:12px;font-weight:600;line-height:1.2;user-select:none;-webkit-user-select:none;touch-action:none;max-width:calc(100% - 16px);box-sizing:border-box;animation:awb-in .18s ease-out}
+@keyframes awb-in{from{opacity:0}to{opacity:1}}
+.awb.placed{transform:none}
+.awb.hidden{display:none}
+.awb .ic{width:26px;height:26px;flex:none;color:var(--accent,#d9b45a);display:grid;place-items:center}
+.awb .ic svg{width:22px;height:22px}
+.awb.busy .ic svg{animation:awb-hit 1s ease-in-out infinite;transform-origin:70% 70%}
+@keyframes awb-hit{0%,100%{transform:rotate(0)}45%{transform:rotate(-24deg)}60%{transform:rotate(6deg)}}
+.awb .tx{display:flex;flex-direction:column;min-width:0;flex:1}
+.awb .tx b{font-size:12.5px;display:flex;min-width:0;white-space:nowrap}
+.awb .tx b .v{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.awb .tx b .n{flex:none;color:var(--accent,#d9b45a);margin-left:5px}
+.awb .tx small{font-size:10.5px;font-weight:500;color:var(--muted,#a29d92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.awb .tx small.warn{color:#ffb39a}
+.awb button{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:4px;height:32px;padding:0 10px;border-radius:5px;cursor:pointer;flex:none;
+  font-size:12px;font-weight:700;border:1px solid var(--border,rgba(150,150,140,.35));background:rgba(52,55,58,.95);color:var(--text,#efe6d2)}
+.awb button svg{width:14px;height:14px}
+.awb button:active,.awb button.down{transform:scale(.94)}
+.awb .x{border-color:rgba(240,150,130,.5);background:rgba(110,40,34,.9);color:#ffe2da}
+.awb .c{border-color:rgba(170,230,160,.5);background:rgba(54,104,58,.92);color:#e8ffe0}
+.awb .c.off{display:none}
+.awb kbd{font:600 9.5px system-ui;opacity:.75;margin-left:2px}
+.touch .awb kbd{display:none}
+.touch .awb button{height:36px;padding:0 11px}
+@media (max-width:420px){.awb button span{display:none}.awb button{padding:0 9px}}
 `;
 
 export function installBuildbar(game) {
@@ -71,22 +127,145 @@ export function installBuildbar(game) {
   if (!document.getElementById('abb-style')) {
     const st = document.createElement('style'); st.id = 'abb-style'; st.textContent = CSS; document.head.appendChild(st);
   }
+  // bottom wrapper: [item card strip] over [buttons]
+  const wrap = document.createElement('div');
+  wrap.className = 'abw hidden';
+  root.appendChild(wrap);
   const bar = document.createElement('div');
-  bar.className = 'abb hidden';
+  bar.className = 'abb';
   bar.innerHTML = `<button class="rot" title="Girar (R · Shift+R volta)">${svg('rot')}<span>Girar</span></button>
     <button class="det off" title="Estilos e detalhes (T)">${DETAILS_ICON}<span>Detalhes</span></button>
     <span class="lbl"><b></b><small></small></span>
     <button class="ok" title="Confirmar (Enter)">${svg('ok')}<span>Confirmar</span></button>
+    <button class="go off" title="Construir agora as plantas que você colocou">${svg('build')}<span>Construir</span></button>
     <button class="no" title="Cancelar (Esc · botão direito)">${svg('no')}<span>Cancelar</span></button>`;
-  root.appendChild(bar);
+  wrap.appendChild(bar);
+  // the HUD's item card (work bar: name · cost · hint) joins the wrapper as the strip above the buttons
+  const adoptCard = () => { const wbar = root.querySelector('.workbar'); if (wbar && wbar.parentElement !== wrap) wrap.insertBefore(wbar, bar); };
+  adoptCard();
   const $ = (s) => bar.querySelector(s);
-  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span') };
+  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), go: $('.go'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span') };
+  // the last placed batch still standing as blueprints (for "Construir agora")
+  const batchBlueprint = () => {
+    const lb = game.build.lastBatch;
+    if (!lb) return null;
+    for (const [x, y] of lb.tiles) for (const L of ['main', 'floor', 'rug', 'roof']) {
+      const o = game.build.grid[L] ? structureAt(game, x, y, L) : null;
+      if (o && o.blueprint && o.type === lb.type) return o;
+    }
+    return null;
+  };
   const details = installDetails(game);
   game.ui.details = details;
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); setTimeout(() => el.classList.remove('down'), 120); });
   press(R.rot, (e) => rotateBuild(game, e.shiftKey ? -1 : 1));
   press(R.ok, () => { const m = game.build.mode; if (m?.kind === 'place') commitPlacement(game); else exitBuildMode(game); });
   press(R.no, () => cancelBuild(game));
+  press(R.go, () => {
+    const o = batchBlueprint();
+    if (!o) { game.events.emit('error', { text: 'As plantas ainda não apareceram' }); return; }
+    exitBuildMode(game);
+    game.work?.begin?.(describeStructure(game, o));
+  });
+
+  // ---------- auto-work banner ----------
+  const wb = document.createElement('div');
+  wb.className = 'awb hidden';
+  wb.innerHTML = `<span class="ic"></span><span class="tx"><b><span class="v"></span><span class="n"></span></b><small></small></span>
+    <button class="c off" title="Continuar a tarefa">${svg('play')}<span>Continuar</span></button>
+    <button class="x" title="Cancelar a tarefa automática (Esc)">${svg('no')}<span>Cancelar</span><kbd>Esc</kbd></button>`;
+  root.appendChild(wb);
+  const W$ = { ic: wb.querySelector('.ic'), v: wb.querySelector('.tx .v'), n: wb.querySelector('.tx .n'), sm: wb.querySelector('.tx small'), c: wb.querySelector('.c'), x: wb.querySelector('.x') };
+  press(W$.x, () => game.work?.cancel?.());
+  press(W$.c, () => game.work?.resume?.());
+  game.ui.workBanner = wb;
+  // place it under the top row without covering the player card, quick buttons or the minimap
+  const OBST = ['.tl-top', '.tl-bot', '.tr'];
+  // highest free slot under the top row (HUD css px): { x, y, w } or null
+  const topSlot = (h, minW, maxW) => {
+    const z = zf(), rr = root.getBoundingClientRect(), W = rr.width / z;
+    const gap = 6;
+    minW = Math.min(minW, W - 16); maxW = Math.min(maxW, W - 16);
+    const obs = [];
+    for (const sel of OBST) for (const el of root.querySelectorAll(sel)) {
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && r.top - rr.top < rr.height * 0.6) obs.push({ l: (r.left - rr.left) / z, r: (r.right - rr.left) / z, t: (r.top - rr.top) / z, b: (r.bottom - rr.top) / z });
+    }
+    const tops = [8, ...obs.map((o) => o.b + gap)].sort((a, b) => a - b);
+    for (const y of tops) {
+      let L = 8, Rr = W - 8;
+      for (const o of obs) if (o.t < y + h && o.b > y) { if ((o.l + o.r) / 2 < W / 2) L = Math.max(L, o.r + gap); else Rr = Math.min(Rr, o.l - gap); }
+      if (Rr - L < minW) continue;
+      const w = Math.min(maxW, Rr - L);
+      return { x: Math.max(L, Math.min(Rr - w, W / 2 - w / 2)), y, w };
+    }
+    return null;
+  };
+  const placeBanner = () => {
+    const sl = topSlot(wb.offsetHeight || 44, 250, 500);
+    if (!sl) return;
+    wb.style.left = sl.x + 'px'; wb.style.top = sl.y + 'px'; wb.style.width = sl.w + 'px';
+    wb.classList.add('placed');
+  };
+  // bottom wrapper placement: lowest spot (centred when possible) that avoids the joystick zone (touch), the
+  // ability cluster / interact button, the hotbar and the left quick column
+  const BOT_OBST = ['.ab', '.ab-int', '.hotbar', '.tl-bot', '.tr', '.awb'];
+  const placeBottom = () => {
+    const z = zf(), rr = root.getBoundingClientRect(), W = rr.width / z, H = rr.height / z;
+    // the buttons must fit; the card strip wraps its text to the room left (natural width measured unconstrained)
+    wrap.style.maxWidth = 'none';
+    const w = Math.min(Math.max(bar.offsetWidth, Math.min(wrap.offsetWidth, 260)) || 300, W - 16), h = wrap.offsetHeight || 110, gap = 8;
+    const obs = [];
+    for (const sel of BOT_OBST) for (const el of root.querySelectorAll(sel)) {
+      if (wrap.contains(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden') obs.push({ l: (r.left - rr.left) / z, r: (r.right - rr.left) / z, t: (r.top - rr.top) / z, b: (r.bottom - rr.top) / z });
+    }
+    if (game.input.isTouch || root.classList.contains('touch')) obs.push({ l: 0, r: W * (game.input.joyZone ?? 0.2), t: H * 0.25, b: H }); // where a finger starts the joystick
+    const safeB = parseFloat(getComputedStyle(root).getPropertyValue('--safe-b')) || 0;
+    const bottoms = [H - safeB - 10, ...obs.map((o) => o.t - gap)].filter((b) => b - h > H * 0.3).sort((a, b) => b - a);
+    for (const bt of bottoms) {
+      const y = bt - h;
+      let L = 8, R = W - 8;
+      for (const o of obs) if (o.t < bt && o.b > y) { if ((o.l + o.r) / 2 < W / 2) L = Math.max(L, o.r + gap); else R = Math.min(R, o.l - gap); }
+      if (R - L < w) continue;
+      const x = Math.max(L, Math.min(R - w, W / 2 - w / 2));
+      wrap.style.left = x + 'px'; wrap.style.bottom = (H - bt) + 'px'; wrap.style.maxWidth = (R - L) + 'px';
+      wrap.classList.add('placed');
+      root.style.setProperty('--abw-feed-b', (H - y + 6) + 'px');
+      const fs = topSlot(70, 220, 360);
+      root.classList.toggle('abw-feedtop', !!fs);
+      if (fs) { root.style.setProperty('--abw-feed-t', fs.y + 'px'); root.style.setProperty('--abw-feed-x', (fs.x + fs.w / 2) + 'px'); root.style.setProperty('--abw-feed-w', fs.w + 'px'); }
+      return;
+    }
+    wrap.classList.remove('placed'); wrap.style.left = ''; wrap.style.bottom = ''; wrap.style.maxWidth = '';
+    root.style.setProperty('--abw-feed-b', (h + 20) + 'px');
+  };
+  let wbT = 0, wbPlaceT = 0, abwT = 0;
+  const updBanner = (dt) => {
+    const s = game.work?.status?.();
+    const show = !!s && !game.build.mode;
+    if (last.wb !== show) { last.wb = show; wb.classList.toggle('hidden', !show); if (show) { wb.classList.remove('placed'); wbPlaceT = 0; } }
+    if (!show) return;
+    if ((wbT -= dt) <= 0) {
+      wbT = 0.15;
+      const ic = s.kind === 'decon' ? 'decon' : s.kind === 'farm' ? 'farm' : 'build';
+      if (last.wbic !== ic) { last.wbic = ic; W$.ic.innerHTML = svg(ic); }
+      const n = s.n + (s.blocked || 0);
+      const narrow = wb.offsetWidth < 330; // phones: the name goes to the second line, the count stays visible
+      set('wbv', W$.v, s.kind === 'build' && !narrow ? `${s.verb} · ${s.name}` : s.verb);
+      set('wbn', W$.n, s.kind === 'build' ? `· ${n} ${n === 1 ? 'restante' : 'restantes'}` : `· ${n}`);
+      const touch = game.input.isTouch;
+      const pre = s.kind === 'build' && narrow ? s.name + ' · ' : '';
+      const sub = pre + (s.paused ? (touch ? 'Pausado: você andou · toque em Continuar' : 'Pausado: você andou · Continuar retoma')
+        : s.blocked ? `${s.blocked} ${s.blocked === 1 ? 'espera' : 'esperam'} material` : (touch ? 'Automático · andar pausa' : 'Automático · andar pausa · Esc cancela'));
+      set('wbs', W$.sm, sub);
+      W$.sm.classList.toggle('warn', !!s.paused || !!s.blocked);
+      W$.c.classList.toggle('off', !s.paused);
+      wb.classList.toggle('busy', !s.paused && !!game.player.work);
+    }
+    if ((wbPlaceT -= dt) <= 0) { wbPlaceT = 0.5; placeBanner(); }
+  };
   press(R.det, () => { const m = game.build.mode; if (m?.type) details.toggle(m.type); });
   addEventListener('keydown', (e) => { if (e.code === 'KeyT' && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
 
@@ -105,8 +284,9 @@ export function installBuildbar(game) {
     root.appendChild(menu);
     const W = root.clientWidth || innerWidth, H = root.clientHeight || innerHeight;
     const mw = menu.offsetWidth, mh = menu.offsetHeight;
-    menu.style.left = Math.max(8, Math.min(W - mw - 8, sx - mw / 2)) + 'px';
-    menu.style.top = Math.max(8, Math.min(H - mh - 8, sy - mh - 18)) + 'px';
+    const z = zf(), px = sx / z, py = sy / z; // client px -> HUD css px
+    menu.style.left = Math.max(8, Math.min(W - mw - 8, px - mw / 2)) + 'px';
+    menu.style.top = Math.max(8, Math.min(H - mh - 8, py - mh - 18)) + 'px';
     menu.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       const b = e.target.closest('button[data-i]');
@@ -210,10 +390,12 @@ export function installBuildbar(game) {
   let t = 0;
   return {
     update(dt) {
+      updBanner(dt);
       const m = game.build.mode;
       const on = !!m && (m.kind === 'place' || m.kind === 'decon' || m.kind === 'brush');
-      if (last.on !== on) { last.on = on; bar.classList.toggle('hidden', !on); root.classList.toggle('abb-on', on); if (on) closeMenu(); }
+      if (last.on !== on) { last.on = on; adoptCard(); wrap.classList.toggle('hidden', !on); root.classList.toggle('abb-on', on); if (on) { closeMenu(); abwT = 0; } }
       if (!on) return;
+      if ((abwT -= dt) <= 0) { abwT = 0.4; placeBottom(); }
       t -= dt;
       if (t > 0) return;
       t = 0.1;
@@ -245,6 +427,7 @@ export function installBuildbar(game) {
       set('sub', R.sub, sub);
       R.sub.classList.toggle('bad', (!m.valid && !!m.reason) || !!m.short);
       R.ok.classList.toggle('bad', !m.valid);
+      R.go.classList.toggle('off', !!m.move || !batchBlueprint());
     },
   };
 }

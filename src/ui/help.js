@@ -20,7 +20,7 @@ export function installHelp(game) {
         ${row(['Clique'], 'Usar / mirar a coisa clicada (chegue perto antes)')}
         ${row(['Roda', '+', '−'], 'Zoom')}
         ${row(L(KEYS.target).concat(['Clique']), 'Próximo alvo · ou clique na criatura')}
-        ${row(['Esc'], 'Cancelar · menu')}
+        ${row(['Esc'], 'Cancelar (mira, construção, tarefa automática) · menu')}
         <h4>Barra de itens</h4>
         ${row(['1', '…', '9', '0'], 'Usar o slot: equipar ferramenta/arma, comer, construir')}
         ${row(['Arrastar'], 'Itens entre barra, mochila, equipamento e baú')}
@@ -41,13 +41,14 @@ export function installHelp(game) {
         ${row(L(KEYS.craft), 'Criar itens')}
         ${row(L(KEYS.build), 'Construir')}
         ${row(L(KEYS.map), 'Mapa')}
-        ${row(L(KEYS.mine), 'Marcar rochas para minerar')}
         ${row(['H', 'F1'], 'Esta ajuda')}
         <h4>Construindo</h4>
         ${row(['Clique', 'Arrastar'], 'Colocar · fileira / área')}
         ${row(['R', '⇧R'], 'Girar')}
         ${row(['Botão dir.', 'Esc'], 'Cancelar')}
         ${row(['Botão dir.'], 'Numa construção: usar · mover · desmontar')}
+        ${row(['Clique'], 'Numa planta azul (ou marcada para desmontar): o personagem faz a fileira inteira e para · Esc cancela')}
+        ${row(['Minerar'], 'Encoste numa rocha com picareta e use E')}
       </div>`;
     const mob = `
       <div class="hk-col"><h4>Tela de toque</h4>
@@ -62,6 +63,8 @@ export function installHelp(game) {
         ${row(['Mapa'], 'Toque no minimapa para o mapa grande')}
         ${row(['Segurar'], 'Numa construção: usar · mover · desmontar')}
         ${row(['☝ arrastar'], 'Construindo: fileira / área (o joystick fica só na beirada esquerda)')}
+        ${row(['Toque'], 'Numa planta azul: o personagem constrói a fileira e para · ✕ no aviso de cima cancela')}
+        ${row(['Minerar'], 'Encoste numa rocha com picareta e use o botão dourado')}
       </div>`;
     el.innerHTML = `<div class="help-card"><div class="help-h"><b>Atalhos e controles</b><button class="hx" aria-label="Fechar">✕</button></div>
       <div class="help-b">${touch() ? mob : desk}</div>

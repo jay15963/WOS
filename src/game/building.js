@@ -81,7 +81,6 @@ export function enterBuildMode(game, type, opts = {}) {
   if (src) type = src.type;
   const def = BUILDINGS[type];
   if (!def) return;
-  game.mining && (game.mining.mode = false);
   const [tx, ty] = src ? [src.tx, src.ty] : frontTile(p);
   let rot = src ? src.rot | 0 : normRot(type, rotMemory(game)[type] ?? 0);
   if (def.mount && !src && !rot) rot = 1; // wall-mounted decor: against a wall
@@ -113,7 +112,6 @@ export function enterBuildMode(game, type, opts = {}) {
 
 export function enterDeconMode(game) {
   if (game.player.dead) return;
-  game.mining && (game.mining.mode = false);
   game.build.mode = { kind: 'decon', hover: null, anchor: null, end: null, tiles: [] };
   game.events.emit('buildui', {});
 }
@@ -142,7 +140,6 @@ export function setBuildLook(game, type, style, det) {
 // style brush: paint the chosen look over BLUEPRINTS of `type` (tap / drag a rectangle)
 export function enterStyleBrush(game, type) {
   if (game.player.dead || !hasKit(type)) return;
-  game.mining && (game.mining.mode = false);
   const [st, dt] = lastLook(game, type);
   game.build.mode = { kind: 'brush', type, style: st, det: dt, hover: null, anchor: null, end: null, tiles: [] };
   game.events.emit('buildui', {});
@@ -262,17 +259,16 @@ export function commitPlacement(game) {
       onReject: (why) => game.events.emit('error', { text: why || 'Não deu para mover' }),
     });
     game.events.emit('toast', { text: `${def.name}: mudança marcada`, kind: 'info' });
-    game.work?.wake();
     exitBuildMode(game);
     return true;
   }
+  game.build.lastBatch = { type: m.type, tiles }; // "Construir agora" on the build bar (local)
   game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined }, {
     onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
   });
   game.events.emit('toast', { text: (n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`) + (m.short ? ` · ${m.short.toLowerCase()}` : ''), kind: m.short ? 'warn' : 'info' });
   const h = game.ctl?.hinted;
-  if (h && !h.blueprint) { h.blueprint = true; game.events.emit('toast', { text: 'Você constrói as plantas sozinho quando fica parado; o material sai da mochila quando a obra começa', kind: 'info' }); } // sync-ok: hint flag, not a structure
-  game.work?.wake();
+  if (h && !h.blueprint) { h.blueprint = true; game.events.emit('toast', { text: game.input.isTouch ? 'Toque numa planta azul para construir a fileira; o material sai da mochila quando a obra começa' : 'Clique numa planta azul para construir a fileira; o material sai da mochila quando a obra começa', kind: 'info' }); } // sync-ok: hint flag, not a structure
   m.anchor = null; m.end = null; m.locked = false;
   // rows stay in the mode; single props too on desktop (RimWorld-like: right click / Esc ends), touch leaves it
   if (!def.drag && game.input.isTouch) exitBuildMode(game);
@@ -401,7 +397,6 @@ export function toggleDecon(game, o, on = null) {
   const want = o.blueprint ? false : on == null ? !game.build.decon.has(o) : on;
   if (want && !confirmSupports(game, [o])) return false;
   game.net.request('build.decon', { ids: [o.id], on: on == null ? null : on ? 1 : 0 });
-  if (want) game.work?.wake();
   return want;
 }
 
@@ -432,7 +427,6 @@ export function deconRect(game, x0, y0, x1, y1, roof = null) {
   for (const o of game.build.structures) if (o.moveOf && o.tx <= bx && o.tx + o.fw > ax && o.ty <= by && o.ty + o.fh > ay) seen.add(o);
   if (seen.size) {
     game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 });
-    game.work?.wake();
   }
   return seen.size;
 }
@@ -488,6 +482,7 @@ registerWork('blueprint', {
       onReject: (why) => {
         refused = true; // authority: synchronous · guest: arrives later and stops the work
         if (p.work?.it?.o === o) { p.work = null; p.action = null; }
+        game.work?.fail(it); // a running sequence skips it for a while (no retry loop)
         game.events.emit('error', { text: why || 'Algo está no caminho' });
       },
     });
@@ -592,9 +587,10 @@ export function structureMenu(game, o) {
   const out = [];
   const it = describeStructure(game, o);
   const goUse = () => game.ctl?.interact?.(describeStructure(game, o));
+  const goWork = () => game.work?.begin?.(describeStructure(game, o)); // opt-in auto-work over its batch (work.js)
   if (o.blueprint) {
     if (!canSupply(game, o)) out.push({ id: 'info', label: `Falta: ${missingText(game, o)}`, icon: 'info', disabled: true });
-    else out.push({ id: 'build', label: o.moveOf ? 'Mover agora' : 'Construir agora', icon: 'build', run: goUse });
+    else out.push({ id: 'build', label: o.moveOf ? 'Mover agora' : 'Construir agora', icon: 'build', run: goWork });
     if (!o.moveOf && hasKit(o.type)) out.push({ id: 'style', label: 'Estilo da planta', icon: 'style', run: () => game.events.emit('details', { type: o.type, target: o }) });
     out.push({ id: 'cancel', label: o.moveOf ? 'Cancelar mudança' : 'Cancelar planta', icon: 'close', run: () => toggleDecon(game, o) });
     return out;
@@ -602,7 +598,10 @@ export function structureMenu(game, o) {
   if (it && it.use) out.push({ id: 'use', label: it.kind === 'chest' ? 'Abrir baú' : it.kind === 'bed' ? 'Dormir' : it.verb, icon: it.icon, run: goUse });
   if (def.move && !o.moveOf) out.push({ id: 'move', label: 'Mover', icon: 'move', run: () => enterBuildMode(game, o.type, { move: o }) });
   if (def.raze) out.push({ id: 'raze', label: 'Arrasar', icon: 'raze', run: () => razeStructure(game, o) });
-  else if (game.build.decon.has(o)) out.push({ id: 'undecon', label: 'Não desmontar', icon: 'close', run: () => toggleDecon(game, o, false) });
+  else if (game.build.decon.has(o)) {
+    out.push({ id: 'deconnow', label: 'Desmontar agora', icon: 'decon', run: goWork });
+    out.push({ id: 'undecon', label: 'Não desmontar', icon: 'close', run: () => toggleDecon(game, o, false) });
+  }
   else out.push({ id: 'decon', label: `Desmontar (devolve ${Math.round(REFUND * 100)}%)`, icon: 'decon', run: () => toggleDecon(game, o, true) });
   return out;
 }

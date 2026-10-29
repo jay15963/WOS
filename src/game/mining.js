@@ -1,8 +1,8 @@
-// Mining like RimWorld: designate rock tiles (mode "Minerar" or tapping rock), marked with an overlay;
-// the work loop (work.js) mines the reachable ones nearest-first. Time depends on the pickaxe tier,
-// rock hardness (world.rockType) and the ore; ore needs a minimum pickaxe tier (CONTENT §1/§7).
-// Yields stone + ore item; world.mineRock() turns the tile into rough stone floor (roof stays: World).
-// Multiplayer: designations are personal; progress and the mined tile are host ops (mut/tiles.js).
+// Mining is a DIRECT action: stand next to a rock tile that has an open side and use it (interact button /
+// E / a tap) with a pickaxe. There are no designations or mining jobs (owner's rule: no automatic mining).
+// Time depends on the pickaxe tier, rock hardness (world.rockType) and the ore; ore needs a minimum pickaxe
+// tier (CONTENT §1/§7). Yields stone + ore item; world.mineRock() turns the tile into rough stone floor.
+// Multiplayer: progress and the mined tile are host ops (mut/tiles.js, intent rock.hit).
 
 import { registerWork, hitsFor, needToolMsg } from './gathering.js';
 import { bestTool } from './equipment.js';
@@ -12,33 +12,13 @@ import { rockHitFx } from './mut/tiles.js';
 const HARD = [1.1, 1.4, 1.0, 1.15, 1.25];        // by world.rockType (1 granite .. 4 marble)
 const ORE_HARD = [1, 1.2, 1.35, 1.15, 1.5, 1.6];  // by world.ore
 const BASE = 3.4;                                  // s with a primitive pickaxe on limestone
-const MAX_MARKS = 600;
 
 export function initMining(game) {
-  game.mining = { marks: new Set(), mode: false, blocked: new Map(), anchor: null, end: null, v: 0 };
+  game.mining = { mode: false }; // (mode stays false: other modules still read it)
   game.minedSet = new Set();
 }
 
 export const isRock = (game, tx, ty) => game.world.inBounds(tx, ty) && game.world.rock[game.world.idx(tx, ty)] === 1;
-
-// set / clear / toggle a designation. Returns the new state, or null when (tx,ty) is not rock.
-export function designate(game, tx, ty, on = null) {
-  if (!isRock(game, tx, ty)) return null;
-  const M = game.mining, i = game.world.idx(tx, ty);
-  const want = on == null ? !M.marks.has(i) : on;
-  if (want) { if (M.marks.size >= MAX_MARKS) { game.events.emit('error', { text: 'Fila de mineração cheia' }); return false; } M.marks.add(i); }
-  else { M.marks.delete(i); M.blocked.delete(i); }
-  M.v++;
-  return want;
-}
-
-export function designateRect(game, x0, y0, x1, y1, on) {
-  let n = 0;
-  for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
-    if (designate(game, x, y, on) != null) n++;
-  }
-  return n;
-}
 
 // an open, walkable 4-neighbour to stand on
 export function mineable(game, tx, ty) {
@@ -56,12 +36,10 @@ export function rockIt(game, tx, ty) {
   return { kind: 'rock', tx, ty, x: tx + 0.5, y: ty + 0.5, verb: 'Minerar', icon: 'pickaxe', prio: 1, tile: true, reach: 0.55 };
 }
 
-// descriptor used by taps / contextual button (only for designatable rock)
+// descriptor used by taps / the contextual button (rock with an open side)
 export function describeRock(game, tx, ty) {
   if (!isRock(game, tx, ty) || !mineable(game, tx, ty)) return null;
-  const it = rockIt(game, tx, ty);
-  if (game.mining.marks.has(game.world.idx(tx, ty))) it.verb = 'Minerar';
-  return it;
+  return rockIt(game, tx, ty);
 }
 
 // pickaxe check for an ore tile -> error text or null
@@ -75,19 +53,11 @@ export function pickaxeProblem(game, i) {
 }
 
 registerWork('rock', {
-  valid: (g, it) => {
-    const i = g.world.idx(it.tx, it.ty);
-    return g.world.rock[i] === 1 && g.mining.marks.has(i);
-  },
+  valid: (g, it) => g.world.rock[g.world.idx(it.tx, it.ty)] === 1,
   start(game, it) {
     const w = game.world, i = w.idx(it.tx, it.ty);
-    if (!game.mining.marks.has(i)) designate(game, it.tx, it.ty, true);
     const prob = pickaxeProblem(game, i);
-    if (prob) {
-      game.events.emit('error', { text: prob });
-      game.mining.blocked.set(i, game.worldTime + 25);
-      return null;
-    }
+    if (prob) { game.events.emit('error', { text: prob }); return null; }
     const tool = bestTool(game.player, 'mine');
     const total = BASE * (HARD[w.rockType[i]] || 1) * (ORE_HARD[w.ore[i]] || 1) / tool.speed;
     const { need, cycle } = hitsFor(total, 2);
@@ -104,60 +74,3 @@ registerWork('rock', {
     return true;
   },
 });
-
-// nearest reachable designation (for the work queue)
-export function nearestMark(game, x, y, maxD = 40) {
-  const M = game.mining, w = game.world;
-  let best = null, bd = maxD;
-  for (const i of M.marks) {
-    if ((M.blocked.get(i) || 0) > game.worldTime) continue;
-    const tx = i % w.W, ty = (i / w.W) | 0;
-    const d = Math.hypot(tx + 0.5 - x, ty + 0.5 - y);
-    if (d >= bd || !w.rock[i]) continue;
-    if (!mineable(game, tx, ty)) continue;
-    bd = d; best = [tx, ty, i];
-  }
-  return best;
-}
-
-export function miningSystem() {
-  let cleanT = 0;
-  return {
-    sync: 'owner', // designations are a personal job list; the mined tiles themselves are ops
-    update(game, dt) {
-      cleanT -= dt;
-      if (cleanT <= 0) {
-        cleanT = 3;
-        const w = game.world;
-        for (const i of game.mining.marks) if (!w.rock[i]) game.mining.marks.delete(i);
-      }
-    },
-    render(game, B, v) {
-      const M = game.mining, A = game.A;
-      if (!M.marks.size && !M.mode) return;
-      const ring = A.has('fx_ring') ? A.get('fx_ring') : null;
-      const pick = A.has('icon_mine') ? A.get('icon_mine') : A.has('tool_pickaxe') ? A.get('tool_pickaxe') : null;
-      const w = game.world, t = game.time;
-      const now = game.worldTime;
-      const cur = game.player.work?.it?.kind === 'rock' ? game.player.work.it : null;
-      for (const i of M.marks) {
-        const tx = i % w.W, ty = (i / w.W) | 0;
-        if (tx + 1 < v.x0 || tx > v.x1 || ty + 1 < v.y0 || ty > v.y1 + 1) continue;
-        const blocked = (M.blocked.get(i) || 0) > now;
-        const [r, g, b] = blocked ? [1, 0.4, 0.35] : [1, 0.86, 0.35];
-        const active = cur && cur.tx === tx && cur.ty === ty;
-        const pulse = active ? 0.8 + 0.2 * Math.sin(t * 9) : 0.85;
-        if (ring) B.fx.add(ring, tx + 0.5, ty + 0.62, 0.95 * pulse, 0.62 * pulse, r, g, b, 0.75);
-        if (pick) B.fx.add(pick, tx + 0.5, ty + 0.72, 0.5, 0.5, r, g, b, 0.9, 0, -0.5, 0, 1, 0, 0.12);
-      }
-      // drag preview (desktop rectangle)
-      if (M.mode && M.anchor && M.end && ring) {
-        const [ax, ay] = M.anchor, [ex, ey] = M.end;
-        for (let y = Math.min(ay, ey); y <= Math.max(ay, ey); y++) for (let x = Math.min(ax, ex); x <= Math.max(ax, ex); x++) {
-          if (!isRock(game, x, y)) continue;
-          B.fx.add(ring, x + 0.5, y + 0.62, 0.8, 0.5, 0.6, 0.9, 1, 0.6);
-        }
-      }
-    },
-  };
-}

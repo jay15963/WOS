@@ -52,7 +52,6 @@ export function buildSaveData(game) {
   data.worldTime = Math.round(game.worldTime);
   data.env = { hour: +game.env.hour.toFixed(3), day: game.env.dayIndex, weather: game.env.weather };
   data.world = serializeWorld(game, { save: true });
-  data.marks = [...game.mining.marks];
   return data;
 }
 
@@ -90,8 +89,7 @@ export function loadGame(game) {
   snap.wt = wt;
   snap.env = data.env ? { h: data.env.hour, d: data.env.day, w: data.env.weather } : snap.env;
   applyWorld(game, snap, 'load');
-  const w = game.world;
-  for (const i of data.marks || []) if (w.rock[i]) game.mining.marks.add(i);
+  // (data.marks of older saves: mining designations no longer exist — ignored)
   loadPlayer(game, data.player || {}, data);
   if (data.v === 1) {
     game.later(2.5, () => game.events.emit('toast', { text: 'Mundo atualizado: ferramentas agora são criadas (Criar · C)', kind: 'warn' }));

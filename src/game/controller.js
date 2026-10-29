@@ -1,15 +1,16 @@
 // Player controller: taps/clicks/keys -> intents (target, engage, interact, walk), goal steering
 // via player.autoMove, contextual nearest-interactable, ground rings (target / marker / hint).
-// Modes: build placement (ghost, drag line/area), deconstruct, mining designation (desktop: mouse
-// drag rectangles; touch: taps). Auto work (work.js) feeds goals with { auto: true }.
+// Modes: build placement (ghost, drag line/area), deconstruct. Mining is a direct action (no designations).
+// Auto-work is opt-in (work.js): a tap / click on a blueprint or a marked structure starts its sequence,
+// which then feeds goals with { auto: true }; Esc cancels it.
 
 import { steer, resetNav } from './nav.js';
 import { attackable, dist, isMob, attackRange } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
 import { GENERIC_ABILITIES } from './content/combat.js';
 import { describeObject, reachDist } from './gathering.js';
-import { describeStructure, buildTap, exitBuildMode, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
-import { describeRock, designate, designateRect, isRock } from './mining.js';
+import { describeStructure, buildTap, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
+import { describeRock, isRock } from './mining.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
@@ -29,7 +30,7 @@ const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still us
 export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyF', 'KeyG', 'KeyT'];
 export const KEYS = {
   interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyK'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
-  inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], mine: ['KeyX'], help: ['KeyH', 'F1'],
+  inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], help: ['KeyH', 'F1'],
 };
 // key code for each ability of the bar (null = no key)
 export function abilityKeys(ids) {
@@ -199,7 +200,6 @@ export function installController(game) {
         return;
       }
       if (p.work && p.work.it.o === it.o && p.work.it.tx === it.tx && p.work.it.ty === it.ty) return;
-      if (it.kind === 'rock') designate(game, it.tx, it.ty, true);
       p.autoAttack = false;
       ctl.goal = { type: 'interact', it };
       resetNav(p);
@@ -208,16 +208,6 @@ export function installController(game) {
       ctl.goal = { type: 'move', x, y };
       ctl.marker = { x, y, t: 0 };
       resetNav(game.player);
-    },
-    toggleMineMode(on = null) {
-      const M = game.mining;
-      M.mode = on == null ? !M.mode : on;
-      M.anchor = M.end = null;
-      if (M.mode) {
-        if (game.build.mode) exitBuildMode(game);
-        if (!ctl.hinted.minemode) { ctl.hinted.minemode = true; game.events.emit('toast', { text: game.input.isTouch ? 'Toque nas rochas para marcar (toque de novo desmarca)' : 'Clique ou arraste sobre as rochas para marcar', kind: 'info' }); }
-      }
-      game.events.emit('buildui', {});
     },
   };
   game.ctl = ctl;
@@ -231,7 +221,7 @@ export function installController(game) {
     if (e.button === 2 && game.aim?.active) { game.aim.cancel?.(); ctl._aimKey = null; e.stopImmediatePropagation(); }
   }, true);
 
-  // ---------- mouse drags for build / decon / mining modes ----------
+  // ---------- mouse drags for build / decon modes ----------
   // build: the ghost follows the cursor (any tile on screen within reach), left drag = row / area, right click
   // or Esc = cancel the drag, then the mode; right click on a structure outside the modes = its context menu.
   // Touch build drags (one finger paints, two fingers stay pinch zoom) live in src/ui/buildbar.js.
@@ -239,39 +229,29 @@ export function installController(game) {
   let drag = null;
   canvas.addEventListener('pointerdown', (e) => {
     if (e.pointerType !== 'mouse' || game.player.dead || game.ui?.modal) return;
-    const bm = game.build.mode, M = game.mining;
+    const bm = game.build.mode;
     if (e.button === 2) {
-      if (bm) { drag = null; ctl.dragging = false; cancelBuild(game); } else if (M.mode) ctl.toggleMineMode(false);
+      if (bm) { drag = null; ctl.dragging = false; cancelBuild(game); }
       else game.events.emit('structmenu', { x: e.clientX, y: e.clientY });
       return;
     }
-    if (e.button !== 0 || (!bm && !M.mode)) return;
+    if (e.button !== 0 || !bm) return;
     const [tx, ty, wx, wy] = tileAt(e);
-    drag = { kind: bm ? bm.kind : 'mine', a: [tx, ty], wx, wy };
+    drag = { kind: bm.kind, a: [tx, ty], wx, wy };
     ctl.dragging = true;
-    if (bm) buildDragStart(game, wx, wy);
-    else { M.anchor = [tx, ty]; M.end = [tx, ty]; drag.on = !M.marks.has(game.world.idx(Math.max(0, tx), Math.max(0, ty))); }
+    buildDragStart(game, wx, wy);
   });
   addEventListener('pointermove', (e) => {
     if (!drag || e.pointerType !== 'mouse') return;
-    const [tx, ty, wx, wy] = tileAt(e);
-    const bm = game.build.mode;
-    if (bm) buildDragMove(game, wx, wy);
-    else if (game.mining.mode) game.mining.end = [tx, ty];
+    const [, , wx, wy] = tileAt(e);
+    if (game.build.mode) buildDragMove(game, wx, wy);
   });
   addEventListener('pointerup', (e) => {
     if (!drag || e.pointerType !== 'mouse') return;
     const d = drag; drag = null; ctl.dragging = false;
-    const [tx, ty, wx, wy] = tileAt(e);
-    const bm = game.build.mode, M = game.mining;
-    if (bm && bm.kind === d.kind) {
-      buildDragEnd(game, wx, wy);
-    } else if (M.mode && d.kind === 'mine') {
-      const n = designateRect(game, d.a[0], d.a[1], tx, ty, d.on);
-      if (!n) game.events.emit('error', { text: 'Marque tiles de rocha' });
-      else if (d.on) game.work?.wake();
-      M.anchor = M.end = null;
-    }
+    const [, , wx, wy] = tileAt(e);
+    const bm = game.build.mode;
+    if (bm && bm.kind === d.kind) buildDragEnd(game, wx, wy);
   });
 
   // Taps / clicks never walk the player (joystick / WASD do): they target or use one specific thing.
@@ -288,13 +268,6 @@ export function installController(game) {
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
     if (game.build.mode) { if (!isMouse) buildTap(game, wx, wy); return; }
-    if (game.mining.mode) {
-      if (isMouse) return;
-      const r = designate(game, Math.floor(wx), Math.floor(wy));
-      if (r == null) game.events.emit('error', { text: 'Toque numa rocha' });
-      else if (r) game.work?.wake();
-      return;
-    }
     const h = pick(game, tap.x, tap.y);
     if (h.type === 'creature') {
       const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
@@ -310,11 +283,9 @@ export function installController(game) {
     }
     if (h.type === 'interact') {
       const it = h.it;
-      // tapping already designated rock cancels the designation
-      if (it.kind === 'rock' && game.mining.marks.has(game.world.idx(it.tx, it.ty)) && !(p.work?.it?.tx === it.tx && p.work?.it?.ty === it.ty)) {
-        designate(game, it.tx, it.ty, false);
-        return;
-      }
+      // a blue blueprint / a frame / a structure marked for deconstruction: start auto-work on it (and the rest of
+      // its batch). This is the only way auto-work starts (work.js); it walks there by itself.
+      if (it.kind === 'blueprint' || it.kind === 'decon') { game.work?.begin?.(it); return; }
       if (reachDist(p, it) > it.reach + TAP_SLACK) {
         const s = it.tile ? Math.max(1, it.w || 1) : it.kind === 'tree' ? 0.9 : 0.8;
         tooFar(it.x, it.tile ? it.y : it.y - 0.02, s, s * 0.62);
@@ -323,12 +294,7 @@ export function installController(game) {
       ctl.interact(it);
       return;
     }
-    if (h.type === 'rock') { // interior rock: designate for later (auto work mines it when reachable)
-      const r = designate(game, h.tx, h.ty);
-      if (r && !ctl.hinted.rockmark) { ctl.hinted.rockmark = true; game.events.emit('toast', { text: 'Rocha marcada: será minerada quando der para alcançar', kind: 'info' }); }
-      if (r) game.work?.wake();
-      return;
-    }
+    if (h.type === 'rock') return; // rock without an open side: nothing to do (mining is a direct action next to it)
     if (h.type === 'loot') {
       // loot.js pulls items within ~2.3 tiles into the backpack by itself
       if (Math.hypot(p.x - h.it.x, p.y - h.it.y) > 2.2) tooFar(h.it.x, h.it.y, 0.6, 0.4);
@@ -354,7 +320,7 @@ export function installController(game) {
         if (hoverT <= 0) {
           hoverT = 0.12;
           const h = pick(g, ctl.mouse.x, ctl.mouse.y);
-          canvas.style.cursor = g.build.mode || g.mining.mode ? 'crosshair' : h.type === 'ground' ? 'default' : 'pointer';
+          canvas.style.cursor = g.build.mode ? 'crosshair' : h.type === 'ground' ? 'default' : 'pointer';
           ctl.hoverPick = h;
         }
       } else { ctl.hover = null; ctl.hoverPick = null; }
@@ -378,14 +344,13 @@ export function installController(game) {
         if (any(KEYS.interact) && !bm) ctl.interact();
         if (any(KEYS.attack) && !bm) ctl.attack();
         if (any(KEYS.eat)) eatBest(g);
-        if (any(KEYS.mine)) ctl.toggleMineMode();
         if (K.has('Enter') && bm) commitPlacement(g);
         if (K.has('KeyR') && g.build.mode?.kind === 'place') rotateBuild(g, inp.keys.has('ShiftLeft') || inp.keys.has('ShiftRight') ? -1 : 1);
         if (K.has('Escape')) {
           if (g.aim?.active) { g.aim.cancel?.(); ctl._aimKey = null; }
           else if (g.build.mode) cancelBuild(g);
-          else if (g.mining.mode) ctl.toggleMineMode(false);
           else if (g.ui?.modal) g.events.emit('closepanels', {});
+          else if (g.work?.active?.()) { g.work.cancel(); ctl.goal = null; } // the auto-work banner's ✕
           else if (p.target || ctl.goal) { ctl.setTarget(null); ctl.goal = null; }
           else g.events.emit('pausemenu', {});
         }
@@ -483,7 +448,7 @@ export function installController(game) {
         if (env.night > 0.1) B.emissive.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
-      if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
+      if (n && !p.work && !g.build.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
         const s = n.tile ? Math.max(1, n.w || 1) : n.kind === 'tree' ? 0.9 : 0.8;
         const a = 0.35 + 0.15 * Math.sin(g.time * 4);
         B.blob.add(ring, n.x, n.tile ? n.y : n.y - 0.02, s, s * 0.62, 1, 0.95, 0.8, a);
@@ -497,10 +462,6 @@ export function installController(game) {
           for (let y = Math.min(a0[1], a1[1]); y <= Math.max(a0[1], a1[1]); y++) for (let x = Math.min(a0[0], a1[0]); x <= Math.max(a0[0], a1[0]); x++)
             B.fx.add(ring, x + 0.5, y + 0.6, 0.85, 0.55, 1, 0.4, 0.35, 0.55);
         } else if (h) B.fx.add(ring, Math.floor(h.wx) + 0.5, Math.floor(h.wy) + 0.6, 0.9, 0.58, 1, 0.45, 0.4, 0.7);
-      } else if (g.mining.mode && ctl.hover && !g.mining.anchor) {
-        const tx = Math.floor(ctl.hover.wx), ty = Math.floor(ctl.hover.wy);
-        const ok = isRock(g, tx, ty);
-        B.fx.add(ring, tx + 0.5, ty + 0.62, 0.9, 0.58, ok ? 1 : 0.6, ok ? 0.9 : 0.6, ok ? 0.5 : 0.6, 0.6);
       }
       const m = ctl.marker;
       if (m) {

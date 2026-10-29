@@ -103,7 +103,6 @@ export function installHUD(game, { isNew } = {}) {
           <button class="qb" data-q="inv" data-tip="<b>Mochila e equipamento</b><span class='key'>Tab</span>">${uiIcon(A, 'bag')}<span class="qk">Tab</span></button>
           <button class="qb" data-q="craft" data-tip="<b>Criar itens</b><span class='key'>C</span>">${econIcon(A, 'craft')}<span class="qk">C</span></button>
           <button class="qb" data-q="build" data-tip="<b>Construir</b><span class='key'>B</span>">${uiIcon(A, 'build')}<span class="qk">B</span></button>
-          <button class="qb" data-q="mine" data-tip="<b>Marcar rochas para minerar</b><span class='key'>X</span>">${econIcon(A, 'mine')}<span class="qk">X</span></button>
           <button class="qb qb-map" data-q="map" data-tip="<b>Mapa</b><span class='key'>M</span>">${svgIcon('map')}<span class="qk">M</span></button>
           <button class="qb" data-q="eat" data-tip="<b>Comer a melhor comida</b><span class='key'>${keyLabel(KEYS.eat[0])}</span>">${uiIcon(A, 'eat')}<span class="qk">${keyLabel(KEYS.eat[0])}</span><span class="badge" id="eat-n"></span></button>
         </div>
@@ -148,9 +147,6 @@ export function installHUD(game, { isNew } = {}) {
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;
   game.ui.openContainer = (adapter) => openContainer(game, adapter); // container window (container.js contract)
-  // the job chip (pending blueprints / mining) lives in the status row under the card, never over buttons
-  const chip = root.querySelector('.jobchip');
-  if (chip) $('#status').appendChild(chip);
 
   // ---------- layout mode ----------
   let touchMode = null;
