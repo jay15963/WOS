@@ -1,7 +1,7 @@
 // Frame pipeline:
 //  1. shadow target (half res): sun-shadow silhouettes, MAX blend
-//  2. scene target: terrain shader -> blob shadows -> decor (grass) -> sorted sprites -> alpha FX
-//  3. light target (half res): ambient + additive point lights
+//  2. scene target: terrain shader -> terrain decals (ore, rubble) -> blob shadows -> decor (grass) -> sorted sprites -> alpha FX
+//  3. light target (half res): ambient (darkened in mountain caves, AMBIENT_FS) + additive point lights
 //  4. screen: post (lighting, clouds, mist, grading, vignette) -> emissive sprites (fire, sparks)
 // Game code fills `renderer.batches.*` every frame, then calls render(camera, env).
 
@@ -18,10 +18,13 @@ export class Renderer {
     this.progLight = createProgram(gl, S.SPRITE_VS, S.LIGHT_FS);
     this.progTerrain = createProgram(gl, S.FULL_VS, S.TERRAIN_FS);
     this.progPost = createProgram(gl, S.FULL_VS, S.POST_FS);
+    this.progAmbient = createProgram(gl, S.FULL_VS, S.AMBIENT_FS); // [world] ambient light with cave darkness
+    this.progDecal = createProgram(gl, S.DECAL_VS, S.DECAL_FS);    // [world] per-tile terrain decals (ore, rubble)
     this.fsVao = gl.createVertexArray();
 
     this.batches = {
       shadow: new SpriteBatch(gl, 2048),   // sun-shadow casters (silhouettes)
+      decal: new SpriteBatch(gl, 1024),    // [world] per-tile terrain decals (addRaw: r = kind 0 ore / 1 rubble)
       ground: new SpriteBatch(gl, 2048),   // flat ground sprites under everything (floors, farm plots, rugs)
       blob: new SpriteBatch(gl, 1024),     // contact shadows (dark ellipses) drawn on ground
       decor: new SpriteBatch(gl, 8192),    // ground plants, drawn before sorted sprites
@@ -61,6 +64,8 @@ export class Renderer {
     this.tileTex = createTexture(gl, { width: world.W, height: world.H, data: world.tileData, filter: gl.NEAREST });
     this.fieldTex = createTexture(gl, { width: world.W * world.FR, height: world.H * world.FR, data: world.field });
     this.field2Tex = createTexture(gl, { width: world.W, height: world.H, data: world.field2 });
+    // [world] caves/roofs/trampled ground (RGBA 1x, linear) — see world.js caveData
+    this.caveTex = createTexture(gl, { width: world.W, height: world.H, data: world.caveData || new Uint8Array(world.W * world.H * 4) });
   }
 
   // Re-upload a rectangular tile region after the world changed (mining, building...).
@@ -77,6 +82,10 @@ export class Renderer {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, rw, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, w.tileData);
     gl.bindTexture(gl.TEXTURE_2D, this.field2Tex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, rw, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, w.field2);
+    if (w.caveData) { // [world]
+      gl.bindTexture(gl.TEXTURE_2D, this.caveTex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, rw, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, w.caveData);
+    }
     // field (FR x)
     const R = w.FR;
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, w.W * R);
@@ -141,6 +150,9 @@ export class Renderer {
       gl.uniform2f(prog.u.uScale, sx, sy);
       gl.uniform1f(prog.u.uTime, time);
       gl.uniform1f(prog.u.uWind, env.wind);
+      // [world] wind direction + CPU-accumulated sway / wave phases (travelling wind waves)
+      if (prog.u.uWindDir) gl.uniform2fv(prog.u.uWindDir, env.windDir);
+      if (prog.u.uWindPh) gl.uniform2f(prog.u.uWindPh, env.windPh ? env.windPh[0] : time * 1.4, env.windPh ? env.windPh[1] : time * 1.2);
     };
 
     gl.disable(gl.DEPTH_TEST);
@@ -190,12 +202,33 @@ export class Renderer {
       bind(3, gl.TEXTURE_2D, this.noiseTex, 'uNoise');
       bind(4, gl.TEXTURE_2D, this.shadow.tex, 'uShadow');
       bind(5, gl.TEXTURE_2D_ARRAY, this.groundTex, 'uGround');
+      bind(6, gl.TEXTURE_2D, this.caveTex, 'uCave'); // [world]
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    if (B.decal.n) {
+      // [world] terrain decals: ore deposits on the rock tops, rubble on stone floors (premultiplied over)
+      const p = this.progDecal, u = p.u, W = this.world;
+      gl.useProgram(p.p);
+      spriteUniforms(p);
+      gl.uniform2f(u.uWorld, W.W, W.H);
+      gl.uniform2f(u.uViewport, this.w, this.h);
+      gl.uniform3fv(u.uSun, env.sun3);
+      gl.uniform1f(u.uSunI, env.sunI);
+      gl.uniform2f(u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
+      gl.uniform1f(u.uShadowStr, env.shadowStr);
+      gl.uniform1f(u.uWet, env.wet);
+      const bindD = (unit, tex, name) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
+      bindD(0, this.tileTex, 'uTile');
+      bindD(1, this.noiseTex, 'uNoise');
+      bindD(2, this.fieldTex, 'uField');
+      bindD(3, this.caveTex, 'uCave');
+      bindD(4, this.shadow.tex, 'uShadow');
+      B.decal.draw();
+    }
     {
       const p = this.progSprite;
       gl.useProgram(p.p);
@@ -217,8 +250,22 @@ export class Renderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.light.fbo);
     gl.viewport(0, 0, this.light.w, this.light.h);
     const amb = env.ambient;
-    gl.clearColor(amb[0] * 0.5, amb[1] * 0.5, amb[2] * 0.5, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    {
+      // [world] ambient = env.ambient, dimmed to uCaveAmb inside mined mountain caves (stored at half intensity)
+      const p = this.progAmbient, u = p.u;
+      gl.disable(gl.BLEND);
+      gl.useProgram(p.p);
+      gl.uniform2f(u.uCam, cam.x, cam.y);
+      gl.uniform2f(u.uView, viewW, viewH);
+      gl.uniform2f(u.uWorld, this.world.W, this.world.H);
+      gl.uniform3f(u.uAmb, amb[0], amb[1], amb[2]);
+      gl.uniform3f(u.uCaveAmb, 0.12, 0.125, 0.15);
+      this._setExtra(p, env.extra);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 0);
+      gl.bindVertexArray(this.fsVao);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.enable(gl.BLEND);
+    }
     if (B.light.n) {
       gl.blendFunc(gl.ONE, gl.ONE);
       const p = this.progLight;
@@ -254,6 +301,7 @@ export class Renderer {
         gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.fieldTex); gl.uniform1i(u.uField, 3);
         gl.uniform2f(u.uWorld, this.world.W, this.world.H); gl.uniform1f(u.uHasField, 1);
       }
+      if (u.uCave) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 4); } // [world]
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
