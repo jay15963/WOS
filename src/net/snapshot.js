@@ -9,6 +9,7 @@
 //   falling:[[id, fall, dir]],
 //   mined:  [tileIdx...],  rockp: [[i, p]],
 //   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf, style, det]],
+//   lvs:    [[structId, lv]]   (levels, agent L: structures above the ground; absent = every one on level 0)
 //           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan; rows of 14 = no style / details)
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
@@ -66,6 +67,8 @@ export function serializeWorld(game, { save = false } = {}) {
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
   };
+  const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
+  if (lvs.length) data.lvs = lvs;
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
   return data;
 }
@@ -177,12 +180,13 @@ function applyInner(game, d, mode) {
 
   // ---- structures ----
   const sIds = new Map();
+  const LVS = new Map(arr(d.lvs).filter((r) => Array.isArray(r)).map((r) => [r[0], Math.max(0, Math.min(3, r[1] | 0))])); // levels
   for (const r of arr(d.structs)) if (Array.isArray(r) && BUILDINGS[r[1]]) sIds.set(r[0], r);
   if (reconcile) {
     for (const o of [...game.build.structures]) {
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
-      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
+      const same = r && (LVS.get(o.id) || 0) === (o.lv | 0) && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
         && (r[14] || '') === (o.style || '') && (r[15] || '') === (o.det || '');
       if (!same) removeStructure(game, o, { quiet: true });
     }
@@ -199,11 +203,12 @@ function applyInner(game, d, mode) {
       const def = BUILDINGS[type];
       const [fw, fh] = dimsOf(type, rot);
       let ok = true;
+      const lv = LVS.get(id) || 0, off = lv * w.W * w.H; // levels: the story's grid keys
       for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
-        if (!w.inBounds(x, y) || w.rock[w.idx(x, y)] || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y)))) ok = false;
+        if (!w.inBounds(x, y) || (!lv && w.rock[w.idx(x, y)]) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
       }
       if (!ok) continue;
-      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det });
+      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det, lv });
     } else {
       if (o.blueprint && progress >= 1) completeStructure(game, o, { silent: true, auth: net.auth });
       else if (o.blueprint) o.progress = Math.min(0.999, progress);

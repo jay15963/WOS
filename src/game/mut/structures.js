@@ -113,9 +113,10 @@ function nudgeOut(game, o, auth) {
   if (def.block !== 'tile' && def.block !== 'door' && !round) return;
   if (def.block === 'door' && o.open) return;
   const sw = o.fw || 1, sh = o.fh || 1;
+  const olv = o.lv | 0, L = game.levels;
   for (const e of game.entities) {
     if (e.dead || e.remote || e.proxy || (e.isMob && !auth)) continue;
-    if (e.lv > 0 || e.z > 0) continue; // levels: up a story (rampart, stairs), not in the way
+    if ((e.lv | 0) !== olv || (L && L.onStair(e))) continue; // levels: only the story it was built on (stairs are corridors)
     if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
     else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
     let best = null, bd = 1e9;
@@ -124,7 +125,7 @@ function nudgeOut(game, o, auth) {
     if (round) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, rr = e.r + def.block + 0.05; cands.push([o.x + Math.cos(a) * rr, o.cy + Math.sin(a) * rr]); }
     for (let ty = o.ty - 1; ty <= o.ty + sh; ty++) for (let tx = o.tx - 1; tx <= o.tx + sw; tx++) cands.push([tx + 0.5, ty + 0.5]);
     for (const [x, y] of cands) {
-      if (collides(game.world, x, y, e.r, null, pd)) continue;
+      if (olv ? L.collidesL(olv, x, y, e.r, pd, false, -1) : collides(game.world, x, y, e.r, null, pd)) continue;
       const d = Math.hypot(x - e.x, y - e.y);
       if (d < bd) { bd = d; best = [x, y]; }
     }
@@ -140,6 +141,7 @@ export function placeStructure(game, type, tx, ty, opts) {
     id: opts.id, type, v: opts.v ?? 0, tx, ty, rot: normRot(type, opts.rot), s: 1, f: 1, building: true, layer: def.layer,
     progress: Math.max(0, Math.min(1, opts.progress ?? 1)), mask: 0, solid: 0, builtAt: opts.builtAt ?? Math.round(game.worldTime),
   };
+  if (opts.lv && !def.roof) o.lv = Math.max(0, Math.min(3, opts.lv | 0)); // levels: story (absent = ground)
   setGeom(o);
   applyKitFields(game, o, opts.style, opts.det);
   o.paid = o.progress >= 1 || !!opts.paid || costEmpty(def);
@@ -153,8 +155,8 @@ export function placeStructure(game, type, tx, ty, opts) {
   w.addObject(o);
   game.build.structures.push(o);
   if (!o.moveOf) gridAdd(game, o); // "Mover" plans stay out of the grid (they may overlap the object being moved)
-  noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
-  if (!def.roof) clearDecor(game, tx, ty, o.fw, o.fh);
+  if (!o.lv) noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
+  if (!def.roof && !o.lv) clearDecor(game, tx, ty, o.fw, o.fh);
   updateMasksAround(game, tx, ty, tx + o.fw - 1, ty + o.fh - 1);
   if (o.progress >= 1) completeStructure(game, o, { silent: true, auth: game.net.auth });
   if (opts.decon) game.build.decon.add(o);
@@ -167,6 +169,7 @@ export function placeStructure(game, type, tx, ty, opts) {
 function setSolid(game, o) {
   const def = defOf(o), w = game.world;
   if (def.block !== 'tile' && def.block !== 'door') return;
+  if (o.lv) return; // levels: upper stories block through the level map (levels.blk)
   const v = def.block === 'door' && o.open ? 0 : 1;
   for (const [x, y] of footprint(o)) if (w.inBounds(x, y)) w.solid[w.idx(x, y)] = v;
 }
@@ -177,7 +180,7 @@ export function completeStructure(game, o, { silent = false, auth = true } = {})
   o.paid = true;
   delete o.blueprint;
   if (def.block === 'tile' || def.block === 'door') setSolid(game, o);
-  else if (typeof def.block === 'number' && def.block > 0) { o.solid = def.block; occAdd(game, o); }
+  else if (typeof def.block === 'number' && def.block > 0) { o.solid = def.block; if (!o.lv) occAdd(game, o); }
   if (def.light) o.light = { ...def.light };
   if (def.fire) o.fire = true;
   else if (def.workLight) o.fire = false;
@@ -203,10 +206,10 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   else if (game.world.objById.get(o.id) !== o) return; // (orphans still in the world are cleaned up: resync repair)
   const wasBlueprint = !!o.blueprint;
   if (!o.moveOf) gridRemove(game, o);
-  noGrowStamp(game, o.tx, o.ty, o.fw, o.fh, -1);
+  if (!o.lv) noGrowStamp(game, o.tx, o.ty, o.fw, o.fh, -1);
   w.removeObject(o);
   occRemove(game, o);
-  if (!wasBlueprint && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
+  if (!wasBlueprint && !o.lv && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
   game.build.decon.delete(o);
   o.removed = true;
@@ -229,9 +232,9 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
 export function relocateStructure(game, o, tx, ty, rot, auth = true) {
   const def = defOf(o), w = game.world;
   const ox = o.tx, oy = o.ty, ofw = o.fw, ofh = o.fh;
-  const blocks = !o.blueprint && (def.block === 'tile' || def.block === 'door');
+  const blocks = !o.blueprint && !o.lv && (def.block === 'tile' || def.block === 'door');
   gridRemove(game, o);
-  noGrowStamp(game, ox, oy, ofw, ofh, -1);
+  if (!o.lv) noGrowStamp(game, ox, oy, ofw, ofh, -1);
   w.removeObject(o);
   occRemove(game, o);
   if (blocks) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
@@ -239,11 +242,10 @@ export function relocateStructure(game, o, tx, ty, rot, auth = true) {
   setGeom(o);
   w.addObject(o);
   gridAdd(game, o);
-  noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
-  clearDecor(game, tx, ty, o.fw, o.fh);
+  if (!o.lv) { noGrowStamp(game, tx, ty, o.fw, o.fh, +1); clearDecor(game, tx, ty, o.fw, o.fh); }
   if (!o.blueprint) {
     if (blocks) setSolid(game, o);
-    else if (o.solid) occAdd(game, o);
+    else if (o.solid && !o.lv) occAdd(game, o);
     nudgeOut(game, o, auth);
   }
   updateMasksAround(game, ox, oy, ox + ofw - 1, oy + ofh - 1);
@@ -272,12 +274,13 @@ export function setDoorOpen(game, o, open) {
 // ---------- ops ----------
 defineOp('struct.add', {
   doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det].',
-  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]]', by: 'pid?', give: '{item: qty}?' },
+  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]]', by: 'pid?', give: '{item: qty}?', lv: 'story 0..3? (levels: the whole batch)' },
   apply(game, a, ctx) {
+    const lv = Math.max(0, Math.min(3, a.lv | 0));
     for (const r of a.list || []) {
       const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det] = r;
       if (!BUILDINGS[type] || game.world.objById.has(id)) continue;
-      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det });
+      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det, lv });
     }
     if (ctx.mine && a.list?.length) game.audio?.play('blueprint', {});
   },
@@ -389,10 +392,11 @@ defineOp('chest.set', {
 // ---------- authority side ----------
 // placement check shared by the local preview and the host. `who` = the placing player (distance),
 // `rot` = orientation, `ignore` = a structure whose tiles count as free (the one being moved).
-export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null) {
+export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv = 0) {
   const def = BUILDINGS[type], w = game.world;
   if (!def) return 'Construção desconhecida';
   if (def.roof) return roofReason(game, type, tx, ty, who);
+  if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const layer = def.layer;
   const G2 = game.build.grid;
@@ -458,10 +462,11 @@ const near = (e, o, r) => !e || Math.hypot(e.x - o.x, e.y - (o.cy ?? o.y)) <= r 
 
 defineIntent('build.place', {
   doc: 'Place free blueprints of `type` on tiles with orientation `rot` and look style / det (materials are delivered later, when work starts). A door may replace a wall (wall refunded). Looks are fixed once built.',
-  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?', style: 'styleId?', det: 'detailString?' },
+  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?', style: 'styleId?', det: 'detailString?', lv: 'story 0..3? (levels)' },
   run(game, a, actor, net) {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
+    const lv = def.roof ? 0 : Math.max(0, Math.min(3, num(a.lv) | 0)); // levels: the story of the whole drag
     const tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, MAX_TILES) : [];
     if (!tiles.length) return 'Nada para construir';
     const rot = normRot(a.type, num(a.rot));
@@ -472,7 +477,7 @@ defineIntent('build.place', {
       const tx = num(t?.[0]) | 0, ty = num(t?.[1]) | 0, key = tx + ',' + ty;
       if (seen.has(key)) continue;
       seen.add(key);
-      let r = placeReason(game, a.type, tx, ty, actor.ent, rot);
+      let r = placeReason(game, a.type, tx, ty, actor.ent, rot, null, lv);
       if (r && typeof r === 'object') {
         const old = r.replace;
         net.emit('struct.remove', { id: old.id, by: actor.pid, give: old.paid ? nonEmpty(addTo({}, defOf(old).cost)) : undefined, giveAt: [r3(old.x), r3(old.y - 0.2)], quiet: 1 });
@@ -482,7 +487,7 @@ defineIntent('build.place', {
       list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0, style, det]);
     }
     if (!list.length) return first || 'Local inválido';
-    net.emit('struct.add', { list, by: actor.pid });
+    net.emit('struct.add', lv ? { list, by: actor.pid, lv } : { list, by: actor.pid });
     return { placed: list.length };
   },
 });
@@ -497,10 +502,10 @@ defineIntent('build.move', {
     if (!def.move) return 'Isto não pode ser movido';
     const tx = num(a.tx) | 0, ty = num(a.ty) | 0, rot = normRot(src.type, num(a.rot));
     if (tx === src.tx && ty === src.ty && rot === (src.rot | 0)) return 'Já está aqui';
-    const r = placeReason(game, src.type, tx, ty, actor.ent, rot, src);
+    const r = placeReason(game, src.type, tx, ty, actor.ent, rot, src, src.lv | 0);
     if (r) return r === 'exists' ? 'Já existe uma construção aqui' : typeof r === 'string' ? r : 'Local inválido';
     for (const b of game.build.structures.filter((q) => q.moveOf === src.id)) net.emit('struct.remove', { id: b.id, quiet: 1 });
-    net.emit('struct.add', { list: [[net.newId('s'), src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id, src.style || '', src.det || '']], by: actor.pid });
+    net.emit('struct.add', { list: [[net.newId('s'), src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id, src.style || '', src.det || '']], by: actor.pid, lv: src.lv | 0 || undefined }); // levels: same story
   },
 });
 
@@ -520,13 +525,14 @@ defineIntent('build.hit', {
         return;
       }
       const ids = [], give = {};
+      if (o.lv) { const why = game.levels?.buildStartReason(o); if (why) return why; } // levels: the floor under it first
       for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) {
-        for (const n of objectsOnTile(game, x, y)) {
+        if (!o.lv) for (const n of objectsOnTile(game, x, y)) {
           if (CLEARABLE.has(n.type)) { ids.push(n.id); addTo(give, CLEAR_YIELD[n.type] || {}); }
           else if (n.type !== 'crop') return 'Algo está no caminho';
         }
         if (o.moveOf) { // the target of a move must still be free (other plans may have been built there)
-          const cur = game.build.grid[def.layer].get(game.world.idx(x, y));
+          const cur = game.build.grid[def.layer].get(game.world.idx(x, y) + (o.lv | 0) * game.world.W * game.world.H);
           if (cur && cur.id !== o.moveOf) return 'Já existe uma construção aqui';
         }
       }
@@ -534,7 +540,7 @@ defineIntent('build.hit', {
         if (!o.paid) net.emit('struct.paid', { id: o.id, by: actor.pid });
         else net.emit('struct.paid', { id: o.id, by: actor.pid, give: nonEmpty(addTo({}, def.cost)), quiet: 1 }); // delivered twice: back
       }
-      if (def.layer !== 'floor') for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) if (cropAt(game, x, y)) net.emit('crop.remove', { tx: x, ty: y });
+      if (def.layer !== 'floor' && !o.lv) for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) if (cropAt(game, x, y)) net.emit('crop.remove', { tx: x, ty: y });
       if (ids.length) net.emit('obj.remove', { ids, fx: 'clear', by: actor.pid, give: nonEmpty(give), giveAt: [r3(o.x), r3(o.y - 0.2)] });
       return;
     }
@@ -548,7 +554,7 @@ defineIntent('build.hit', {
     if (o.moveOf) {
       const src = structById(game, o.moveOf);
       if (!src || src.blueprint) { net.emit('struct.remove', { id: o.id, quiet: 1 }); return 'O objeto não existe mais'; }
-      const r = placeReason(game, src.type, o.tx, o.ty, null, o.rot, src);
+      const r = placeReason(game, src.type, o.tx, o.ty, null, o.rot, src, o.lv | 0);
       if (r) return typeof r === 'string' && r !== 'exists' ? r : 'Algo está no caminho';
       net.emit('struct.relocate', { id: o.id, src: src.id, by: actor.pid, xp: 2, toast: `${def.name} ${def.g === 'm' ? 'movido' : 'movida'}` });
       return;
@@ -619,7 +625,7 @@ defineIntent('struct.raze', {
 // is any player / creature (other than none) inside the door tile? (closing would trap it)
 function doorBusy(game, o) {
   const x0 = o.tx, y0 = o.ty, x1 = o.tx + (o.fw || 1), y1 = o.ty + (o.fh || 1);
-  const inside = (e) => e && !e.dead && !(e.z > 0) && e.x + (e.r || 0.25) * 0.8 > x0 && e.x - (e.r || 0.25) * 0.8 < x1 && e.y + (e.r || 0.25) * 0.8 > y0 && e.y - (e.r || 0.25) * 0.8 < y1;
+  const inside = (e) => e && !e.dead && Math.round(e.z || 0) === (o.lv | 0) && e.x + (e.r || 0.25) * 0.8 > x0 && e.x - (e.r || 0.25) * 0.8 < x1 && e.y + (e.r || 0.25) * 0.8 > y0 && e.y - (e.r || 0.25) * 0.8 < y1;
   for (const p of allPlayers(game)) if (inside(p)) return true;
   for (const e of game.entities) if (e.isMob && !e.proxy && inside(e)) return true;
   return false;

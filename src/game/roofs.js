@@ -425,7 +425,7 @@ function artSpec(game, g) {
   }
   const res = game.quality === 'low' ? 30 : game.quality === 'medium' ? 42 : 54;
   return { tiles: g.tiles.slice(), W, x0: g.x0, y0: g.y0, x1: g.x1, y1: g.y1, style, styles, det, fires,
-    eaveH: roofEaveH(game.build.storeysAt?.(g.x0, g.y0) || 1), res };
+    eaveH: roofEaveH(game.build.storeysIn?.(g.tiles) || game.build.storeysAt?.(g.x0, g.y0) || 1), res }; // agent L: highest story of the region
 }
 
 function buildArt(game, g, W) {

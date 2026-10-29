@@ -52,7 +52,7 @@ tileHooks.push((game, o) => {
   for (const [dx, dy, bit] of D4) {
     const x = o.tx + dx, y = o.ty + dy;
     if (!w.inBounds(x, y)) continue;
-    const n = g.get(w.idx(x, y));
+    const n = g.get(w.idx(x, y) + (o.lv | 0) * w.W * w.H); // levels: same story
     if (n && hasDet(n.det, 'carpet')) m |= bit;
   }
   o._cm = m;
