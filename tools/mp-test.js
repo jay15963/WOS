@@ -434,7 +434,7 @@ def('S9', {
 const L5 = (x0, y0) => [[x0, y0], [x0 + 1, y0], [x0 + 2, y0], [x0 + 2, y0 + 1], [x0 + 2, y0 + 2]];
 def('S10', {
   star: true, title: 'Guest builds a wall line (5 tiles) incl. a corner', timeout: 120000,
-  expected: 'Host sees 5 structures with the same ids, mask, orient; world.solid=1 on both; host cannot walk through; guest paid once',
+  expected: 'Host sees 5 structures with the same ids, mask, orient; world.solid=1 on both; host cannot walk through; blueprints free, guest delivers the wood once while building',
   api: 'build mode enterBuildMode/commitPlacement (build.place intent) → struct.add; build.hit → struct.progress/struct.complete; o.{mask,orient,blueprint}; world.solid',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -454,7 +454,7 @@ def('S10', {
   await t.waitFor(() => at(G, MG).every(Boolean), ONEWAY() + 300, 'guest has the 5 blueprints');
   const ids = at(H, MH).map((o) => o.id);
   t.check(JSON.stringify(ids) === JSON.stringify(at(G, MG).map((o) => o.id)), 'blueprint ids identical', short(ids));
-  t.check(A.invDiff(invG0, A.invSnap(G)).wood === -10, 'guest paid 10 wood for 5 blueprints', short(A.invDiff(invG0, A.invSnap(G))));
+  t.check(!A.invDiff(invG0, A.invSnap(G)).wood, 'blueprints are free: no wood taken when placing', short(A.invDiff(invG0, A.invSnap(G))));
   await A.buildAll(t, G, MG, ids);
   await t.waitFor(() => ids.every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 300, 'host sees all 5 completed');
   await t.sleep(ONEWAY());
@@ -464,7 +464,7 @@ def('S10', {
   t.check(sh.map(mo).join(' ') === sg.map(mo).join(' '), 'mask / orient identical', `host ${sh.map(mo).join(' ')} · guest ${sg.map(mo).join(' ')}`);
   const solid = (f) => site.tiles.map(([x, y]) => f.game.world.solid[f.game.world.idx(x, y)]);
   t.check(solid(H).every((v) => v === 1) && solid(G).every((v) => v === 1), 'world.solid = 1 on both', `host ${solid(H)} guest ${solid(G)}`);
-  t.check(A.invDiff(invG0, A.invSnap(G)).wood === -10, 'guest paid once (still −10 wood after building)', short(A.invDiff(invG0, A.invSnap(G))));
+  t.check(A.invDiff(invG0, A.invSnap(G)).wood === -10, 'guest delivered the materials once, when building (−10 wood)', short(A.invDiff(invG0, A.invSnap(G))));
   t.check(!A.invDiff(invH0, A.invSnap(H)).wood, 'host inventory untouched', short(A.invDiff(invH0, A.invSnap(H))));
   t.check(xpG.total > 0 && xpH.total === 0, 'build XP only to the guest', `guest +${xpG.total} host +${xpH.total}`);
   // host tries to walk south through the middle wall
@@ -484,7 +484,7 @@ def('S10', {
 // S11 Placement race
 def('S11', {
   title: 'Guest places on a tile the host just built', timeout: 60000,
-  expected: 'That tile rejected, its cost refunded to the guest; one structure (the host’s) on both',
+  expected: 'That tile rejected (blueprints are free: the guest keeps its wood); one structure (the host’s) on both',
   api: 'build.place reject → give refund; struct.add from the host; net.stats.rejects',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -500,7 +500,7 @@ def('S11', {
   if (guestErr) t.note('guest placement refused locally (host op already applied): ' + guestErr);
   t.log(`host and guest place wall_wood at (${tx},${ty}) in the same tick`);
   const refunded = await t.tryWait(() => A.count(G, 'wood') === w0, RT() + 600);
-  t.check(refunded, 'guest wood back to the starting amount (refund)', `${w0} → ${A.count(G, 'wood')}`);
+  t.check(refunded, 'guest wood unchanged (free blueprint, nothing to refund)', `${w0} → ${A.count(G, 'wood')}`);
   await t.sleep(ONEWAY());
   const oh = A.structAt(H, MH, tx, ty, 'main'), og = A.structAt(G, MG, tx, ty, 'main');
   t.check(oh && og && oh.id === og.id, 'one structure at the tile, same id on both', `${oh?.id} / ${og?.id}`);
@@ -551,11 +551,11 @@ def('S12', {
 });
 
 // =====================================================================================================
-// S13 Door built by the host
+// S13 Door built by the host, opened / closed by the guest (doors open ONLY by an explicit action)
 def('S13', {
-  title: 'Door built by the host', timeout: 150000,
-  expected: 'Both players pass the door; host creatures cannot (positions — host and proxy — never inside the door tile)',
-  api: 'door_wood replacing a wall (struct.remove + struct.add); world.solid=2; player passDoors; host AI pathing; proxies',
+  title: 'A: Door — guest opens / closes it; closed it blocks everyone (host creature too)', timeout: 150000,
+  expected: 'Finished door starts closed (world.solid 1 on both, nobody passes); the guest opens it (door.toggle → door.set: open on both, solid 0, the guest walks through); closing is refused while someone stands in it; closed again, a host creature lured toward the guest never enters the door tile',
+  api: 'door_wood replacing a wall (struct.remove + struct.add); describeStructure kind door + useStructure (door.toggle intent → door.set op); o.open; world.solid; host AI pathing; proxies',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.ensure(H, { wood: 40, rope: 2 });
@@ -572,16 +572,36 @@ def('S13', {
   await A.buildAll(t, H, MH, ids);
   await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), ONEWAY() + 400, 'guest sees the finished wall + door');
   const di = H.game.world.idx(dx, y0);
-  t.check(H.game.world.solid[di] === 2 && G.game.world.solid[di] === 2, 'door tile solid = 2 on both', `${H.game.world.solid[di]} / ${G.game.world.solid[di]}`);
-  // players pass (north → south)
-  for (const [f, M] of [[G, MG], [H, MH]]) {
-    A.teleport(f, dx + 0.5, y0 - 1.1);
-    const rel = A.holdMove(f, 0, 1);
-    const ok = await t.tryWait(() => f.game.player.y > y0 + 1.3, 3000);
-    rel();
-    t.check(ok, `${f.label} walks through the door`, `y ${f2(f.game.player.y)}`);
-  }
-  // a host creature lured toward the guest on the other side never enters the door tile
+  const solid = () => `${H.game.world.solid[di]} / ${G.game.world.solid[di]}`;
+  const doorG = () => A.structOn(G, door.id);
+  t.check(!door.open && !doorG()?.open && H.game.world.solid[di] === 1 && G.game.world.solid[di] === 1, 'finished door starts closed (solid 1 on both)', `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  // nobody passes a closed door (it never opens by itself)
+  A.teleport(H, dx + 0.5, y0 - 1.1);
+  { const rel = A.holdMove(H, 0, 1); await t.sleep(900); rel(); }
+  t.check(hp.y < y0 + 0.05 && !door.open, 'host cannot walk through the closed door (no auto-open)', `host y ${f2(hp.y)} · open ${door.open}`);
+  A.teleport(H, dx + 4.5, y0 + 3.5);
+  // the guest opens it with an explicit action
+  A.teleport(G, dx + 0.5, y0 - 0.95);
+  await A.hostSees(t, H, G);
+  A.useDoor(G, MG, doorG());
+  const ms = await t.timeTo(() => door.open && doorG()?.open && H.game.world.solid[di] === 0 && G.game.world.solid[di] === 0, RT() + 400, 'door open on both (solid 0)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  t.metric('doorOpenRoundTripMs', Math.round(ms));
+  { const rel = A.holdMove(G, 0, 1); const ok = await t.tryWait(() => gp.y > y0 + 1.3, 3000); rel(); t.check(ok, 'guest walks through the open door', `y ${f2(gp.y)}`); }
+  // closing while standing in the doorway is refused
+  A.teleport(G, dx + 0.5, y0 + 0.5);
+  await A.hostSees(t, H, G);
+  const rej0 = stat(G, 'rejects');
+  A.useDoor(G, MG, doorG());
+  await t.sleep(RT() + 300);
+  t.check(door.open && doorG()?.open, 'closing refused while the guest stands in the doorway', `open ${door.open}/${doorG()?.open} · rejects ${rej0} → ${stat(G, 'rejects')}`);
+  // step out (south) and close it
+  A.teleport(G, dx + 0.5, y0 + 2.2);
+  await A.hostSees(t, H, G);
+  G.game.player.x = dx + 0.5; G.game.player.y = y0 + 1.45; // within reach of the door, outside its tile
+  await A.hostSees(t, H, G);
+  A.useDoor(G, MG, doorG());
+  await t.waitFor(() => !door.open && !doorG()?.open && H.game.world.solid[di] === 1 && G.game.world.solid[di] === 1, RT() + 400, 'door closed on both (solid 1)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  // a host creature lured toward the guest on the other side never enters the closed door tile
   const wolf = A.hostMobs(H, (m) => m.kind === 'animal' && (m.temper || '') === 'hostile').sort((a, b) => Math.hypot(a.x - dx, a.y - y0) - Math.hypot(b.x - dx, b.y - y0))[0]
     || A.hostMobs(H, (m) => m.kind === 'animal')[0];
   t.assert(wolf, 'found a host creature to lure');
@@ -603,8 +623,9 @@ def('S13', {
   t.watch(() => { samples++; if (inDoor(wolf)) inside++; if (inDoor(A.proxyOf(G, wolf))) insideProxy++; }, 10);
   await t.sleep(8000);
   t.metric('lure', { species: wolf.species, state: wolf.state, samples, end: `${f2(wolf.x)},${f2(wolf.y)}` });
-  t.check(inside === 0, 'host creature never inside the door tile', `${inside}/${samples} samples`);
+  t.check(inside === 0, 'host creature never inside the closed door tile', `${inside}/${samples} samples`);
   t.check(insideProxy === 0, 'creature proxy on the guest never inside the door tile', `${insideProxy}/${samples}`);
+  t.check(!door.open, 'the door stayed closed (creatures never open it)', `open ${door.open}`);
   await t.checkDigest(H, G);
   env.history.push('S13');
 });
@@ -1426,8 +1447,8 @@ def('S29', {
 });
 
 // =====================================================================================================
-// S31 B: chest sort (guest sorts a shared chest through the chest panel)
-def('S31', {
+// S40 B: chest sort (guest sorts a shared chest through the chest panel)
+def('S40', {
   title: 'B: chest sort', timeout: 120000,
   expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (chest.sort → chest.set): same order on both, stacks merged, digest equal',
   api: 'chest panel [data-sort][data-sortk=chest:<id>] click (chest.sort intent → chest.set {slots}); o.store.slots; invsort.sortedSlots',
@@ -1474,7 +1495,7 @@ def('S31', {
   t.check(G.doc.querySelector(`[data-sort="name"][data-sortk="chest:${chestG.id}"]`)?.classList.contains('on'), 'last sort of this chest is highlighted');
   G.game.events.emit('closepanels', {});
   await t.checkDigest(H, G);
-  env.history.push('S31');
+  env.history.push('S40');
 });
 
 // =====================================================================================================
@@ -1524,9 +1545,10 @@ def('S30', {
   const [wx, wy] = site.tiles[0];
   A.place(S1, M, 'wall_wood', [wx, wy]);
   const wall = A.structAt(S1, M, wx, wy, 'main');
-  t.check(wall && wall.blueprint && A.count(S1, 'wood') === w0 - 2, 'blueprint placed, 2 wood paid', `${w0} → ${A.count(S1, 'wood')}`);
+  t.check(wall && wall.blueprint && A.count(S1, 'wood') === w0, 'blueprint placed for free (no wood taken yet)', `${w0} → ${A.count(S1, 'wood')}`);
   await A.buildAll(t, S1, M, [wall.id]);
   t.check(g.world.solid[g.world.idx(wx, wy)] === 1, 'wall completed and solid');
+  t.check(A.count(S1, 'wood') === w0 - 2, '2 wood delivered when the work started', `${w0} → ${A.count(S1, 'wood')}`);
   // chest through the panel
   A.ensure(S1, { wood: 10, stone: 3 });
   const cs = A.findSite([S1], [M], 'chest', (x, y) => [[x, y]], p.x, p.y, { rMin: 2, rMax: 10, avoidPts: [[p.x, p.y]] });
@@ -1669,6 +1691,293 @@ def('S50', {
   t.check(p.hp <= hpHit + 0.01, 'no more healing after the interruption', `${f2(hpHit)} → ${f2(p.hp)}`);
   await t.checkDigest(H, G);
   env.history.push('S50');
+});
+
+// =====================================================================================================
+// Agent A (construction) scenarios — rotation / edge props, real footprints, delivery, move, decon, raze, saves
+const geo = (o) => o && `${o.tx},${o.ty} r${o.rot | 0} ${o.fw}×${o.fh} @${f2(o.x)},${f2(o.y)} c${f2(o.cy)}`;
+
+def('S31', {
+  title: 'A: rotated / edge chest seen identically', timeout: 90000,
+  expected: 'Guest places a chest pushed against the east edge (rot 2): host has the same rot, x/y/cy and facing; finished, the round collider sits at the same offset on both; digest equal',
+  api: 'build mode rot (R / ⟳) → build.place {rot} → struct.add rows [.., rot, paid, moveOf]; o.{rot,face,x,y,cy}; physics.collides',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(G, { wood: 10 });
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'chest', (x, y) => [[x, y]], gp.x, gp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free tile for the chest');
+  const [tx, ty] = site.tiles[0];
+  A.place(G, MG, 'chest', [tx, ty], [tx, ty], 2);
+  const oh = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), RT() + 400, 'host has the chest blueprint');
+  const og = await t.waitFor(() => A.structOn(G, oh.id), ONEWAY() + 300, 'guest has it');
+  t.check(oh.rot === 2 && og.rot === 2 && oh.face === 'w' && og.face === 'w', 'rot 2 (against the east edge, facing west) on both', `host ${geo(oh)} ${oh.face} · guest ${geo(og)} ${og.face}`);
+  t.check(geo(oh) === geo(og), 'same derived geometry (x, y, cy) on both', `${geo(oh)} | ${geo(og)}`);
+  t.check(oh.x > tx + 0.6 && Math.abs(oh.cy - (ty + 0.5)) < 0.05, 'pushed toward the east edge', geo(oh));
+  await A.buildAll(t, G, MG, [oh.id]);
+  await t.waitFor(() => !oh.blueprint && !A.structOn(G, oh.id)?.blueprint, ONEWAY() + 300, 'chest finished on both');
+  const hit = (f, M, o) => M.physics.collides(f.game.world, o.x, o.cy, 0.05, null, true);
+  const miss = (f, M, o) => M.physics.collides(f.game.world, tx + 0.18, ty + 0.5, 0.05, null, true);
+  t.check(hit(H, MH, oh) && hit(G, MG, og), 'collider at the pushed position on both');
+  t.check(!miss(H, MH, oh) && !miss(G, MG, og), 'west half of the tile stays free on both');
+  await t.checkDigest(H, G);
+  env.history.push('S31');
+});
+
+def('S32', {
+  title: 'A: 2-tile bed collision on both', timeout: 120000,
+  expected: 'Host builds a bed (1×2, rot 0) and one lying sideways (rot 1, 2×1): world.solid = 1 on every footprint tile on both; the guest cannot walk into the second tile; the bed art stays inside its footprint (top ≥ the footprint north edge)',
+  api: 'BUILDINGS.bed.size [1,2] + rotate; dimsOf / o.{fw,fh}; completeStructure solid; physics; sprite bed / bed_e',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 20, fiber: 14, leather: 6 });
+  const hp = H.game.player, gp = G.game.player;
+  const s0 = A.findSite([H, G], [MH, MG], 'bed', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]], rot: 0 });
+  t.assert(s0, 'found a 1×2 spot');
+  const [bx, by] = s0.tiles[0];
+  A.place(H, MH, 'bed', [bx, by], [bx, by], 0);
+  const b0 = await t.waitFor(() => A.structAt(H, MH, bx, by + 1, 'main'), 1500, 'bed blueprint covers both tiles (grid)');
+  const s1 = A.findSite([H, G], [MH, MG], 'bed', (x, y) => [[x, y]], hp.x + 3, hp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y], [bx + 0.5, by + 1]], rot: 1 });
+  t.assert(s1, 'found a 2×1 spot');
+  const [cx, cy] = s1.tiles[0];
+  A.place(H, MH, 'bed', [cx, cy], [cx, cy], 1);
+  const b1 = await t.waitFor(() => A.structAt(H, MH, cx + 1, cy, 'main'), 1500, 'sideways bed covers 2×1');
+  t.check(b0.fw === 1 && b0.fh === 2 && b1.fw === 2 && b1.fh === 1, 'footprints 1×2 and 2×1', `${geo(b0)} · ${geo(b1)}`);
+  await A.buildAll(t, H, MH, [b0.id, b1.id]);
+  await t.waitFor(() => [b0, b1].every((o) => A.structOn(G, o.id) && !A.structOn(G, o.id).blueprint), ONEWAY() + 400, 'guest sees both beds finished');
+  const tiles = [[bx, by], [bx, by + 1], [cx, cy], [cx + 1, cy]];
+  const sol = (f) => tiles.map(([x, y]) => f.game.world.solid[f.game.world.idx(x, y)]);
+  t.check(sol(H).every((v) => v === 1) && sol(G).every((v) => v === 1), 'solid 1 on all 4 footprint tiles on both', `host ${sol(H)} guest ${sol(G)}`);
+  t.check(geo(b0) === geo(A.structOn(G, b0.id)) && geo(b1) === geo(A.structOn(G, b1.id)), 'same geometry on both', `${geo(b0)} · ${geo(b1)}`);
+  // the guest walks west → east just south of the bed's first tile, into its second tile: blocked
+  const sx = bx - 0.8, sy = by + 1.5;
+  if (!MG.physics.collides(G.game.world, sx, sy, 0.27, null, true)) {
+    A.teleport(G, sx, sy);
+    const rel = A.holdMove(G, 1, 0);
+    await t.sleep(900);
+    rel();
+    t.check(gp.x < bx + 0.05, 'guest cannot walk into the bed’s second tile', `guest x ${f2(gp.x)} (bed column starts at ${bx})`);
+  } else t.note('west side of the bed blocked — walk test skipped');
+  // art stays inside the footprint: sprite top (anchor y − h·ay) not above the footprint's north edge (beyond wall height)
+  const A0 = H.game.A, spr = A0.get('bed');
+  const top = b0.y - spr.h * spr.ay;
+  t.check(top >= b0.ty - 0.02, 'bed art does not poke north of its footprint', `top ${f2(top)} footprint ${b0.ty}`);
+  await t.checkDigest(H, G);
+  env.history.push('S32');
+});
+
+def('S33', {
+  title: 'A: guest drags a blueprint row and builds it (materials on delivery)', timeout: 150000,
+  expected: 'Guest drags a 4-tile fence row (the same drag API as mouse / one finger): 4 free blueprints on both (no wood taken); a 5th cancelled after delivery refunds its wood; with too little wood one stays "falta material" (skipped by auto-work, unpaid on both); building takes the wood from the guest’s bag when each starts; fences joined to a wall',
+  api: 'buildDragStart/Move/End → build.place; build.hit {start, pay} → struct.paid; canSupply / work queue skip; build.decon on a paid blueprint → give; autotile joins',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const g = G.game, gp = g.player, hp = H.game.player;
+  const row = (x, y) => [0, 1, 2, 3, 4].map((k) => [x + k, y]).concat([[x - 1, y]]);
+  const site = A.findSite([H, G], [MH, MG], 'fence_wood', row, gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free row');
+  const { x0, y0 } = site;
+  // a wall post at the west end (built by the host) for the fence to join
+  A.ensure(H, { wood: 6 });
+  A.place(H, MH, 'wall_wood', [x0 - 1, y0]);
+  const wall = await t.waitFor(() => A.structAt(H, MH, x0 - 1, y0, 'main'), 1500, 'host wall blueprint');
+  await A.buildAll(t, H, MH, [wall.id]);
+  // the guest drags the row with the build-mode drag API
+  const wood0 = A.count(G, 'wood');
+  MG.building.enterBuildMode(g, 'fence_wood');
+  MG.building.buildDragStart(g, x0 + 0.5, y0 + 0.5);
+  MG.building.buildDragMove(g, x0 + 2.5, y0 + 0.5);
+  MG.building.buildDragEnd(g, x0 + 4.5, y0 + 0.5);
+  MG.building.exitBuildMode(g);
+  const at = (f, M) => [0, 1, 2, 3, 4].map((k) => A.structAt(f, M, x0 + k, y0, 'main'));
+  await t.waitFor(() => at(H, MH).every(Boolean), RT() + 400, 'host has the 5 fence blueprints', () => `${at(H, MH).filter(Boolean).length}/5 · ui: ${G.lastUi()}`);
+  await t.waitFor(() => at(G, MG).every(Boolean), ONEWAY() + 300, 'guest has them');
+  const ids = at(H, MH).map((o) => o.id);
+  t.check(A.count(G, 'wood') === wood0, 'free blueprints: guest wood unchanged after the drag', `${wood0} → ${A.count(G, 'wood')}`);
+  t.check(at(H, MH).every((o) => !o.paid) && at(G, MG).every((o) => !o.paid), 'unpaid on both');
+  // deliver + cancel the 5th: its wood comes back
+  A.ensure(G, { wood: 1 });
+  const last = A.structOn(G, ids[4]);
+  const w1 = A.count(G, 'wood');
+  A.standBy(G, MG, last);
+  await A.hostSees(t, H, G);
+  A.interact(G, MG.building.describeStructure(g, last));
+  await t.waitFor(() => A.structOn(H, ids[4])?.paid, RT() + 2000, 'host: 5th blueprint delivered');
+  t.check(A.count(G, 'wood') === w1 - 1, 'delivery took 1 wood from the guest', `${w1} → ${A.count(G, 'wood')}`);
+  gp.work = null; gp.action = null; g.ctl.goal = null;
+  MG.building.toggleDecon(g, A.structOn(G, ids[4]));
+  await t.waitFor(() => !A.structOn(H, ids[4]) && !A.structOn(G, ids[4]), RT() + 400, 'cancelled on both');
+  await t.waitFor(() => A.count(G, 'wood') === w1, ONEWAY() + 300, 'cancel refunded the delivered wood');
+  // too little wood: one of the remaining 4 stays "falta material"
+  const have = A.count(G, 'wood');
+  if (have > 3) gp.inv.remove('wood', have - 3);
+  if (have < 3) A.ensure(G, { wood: 3 });
+  g.events.emit('inventory', {});
+  for (const id of ids.slice(0, 3)) { const o = A.structOn(G, id); A.standBy(G, MG, o); await A.hostSees(t, H, G); await A.buildAll(t, G, MG, [id]); }
+  t.check(A.count(G, 'wood') === 0, 'each start took 1 wood (3 built, bag empty)', `wood ${A.count(G, 'wood')}`);
+  const lack = A.structOn(G, ids[3]);
+  t.check(lack.blueprint && !lack.paid && !MG.building.canSupply(g, lack), 'the 4th waits for material (unpaid, cannot supply)');
+  g.work.paused = false;
+  await t.sleep(1800);
+  g.work.paused = true;
+  const busy = gp.work?.it?.o === lack;
+  gp.work = null; gp.action = null; g.ctl.goal = null;
+  t.check(!busy && !A.structOn(H, ids[3])?.paid, 'auto-work skips it (falta material)', `busy ${busy}`);
+  A.ensure(G, { wood: 2 });
+  await A.buildAll(t, G, MG, [ids[3]]);
+  await t.waitFor(() => ids.slice(0, 4).every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 300, 'host sees all 4 built');
+  t.check(A.count(G, 'wood') === 1, 'the 4th took its wood when it started', `wood ${A.count(G, 'wood')}`);
+  const f0 = A.structOn(H, ids[0]), f0g = A.structOn(G, ids[0]);
+  t.check((f0.mask & 8) && (f0g.mask & 8), 'first fence joins the wall to its west (mask W) on both', `mask ${f0.mask}/${f0g.mask}`);
+  await t.checkDigest(H, G);
+  env.history.push('S33');
+});
+
+def('S34', {
+  title: 'A: move a chest with its contents (Mover)', timeout: 150000,
+  expected: 'Guest marks "Mover" for a host chest holding stone: a move plan appears on both (paid, moveOf); when the guest builds it the SAME chest (same id) is at the new tile on both with its contents; the old tile is free; digest equal',
+  api: 'structureMenu "Mover" → enterBuildMode {move} → build.move intent → struct.add [.., moveOf]; build.hit final → struct.relocate; o.store',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 10 });
+  const hp = H.game.player, gp = G.game.player;
+  const two = (x, y) => [[x, y], [x + 2, y]];
+  const site = A.findSite([H, G], [MH, MG], 'chest', two, hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found two free tiles');
+  const [[tx, ty], [nx, ny]] = site.tiles;
+  A.place(H, MH, 'chest', [tx, ty]);
+  const ch = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 1500, 'host chest blueprint');
+  await A.buildAll(t, H, MH, [ch.id]);
+  const cg = await t.waitFor(() => { const o = A.structOn(G, ch.id); return o && !o.blueprint && o; }, ONEWAY() + 300, 'guest sees the chest');
+  A.ensure(G, { stone: 4 });
+  A.standBy(G, MG, cg);
+  await A.hostSees(t, H, G);
+  await A.chestPut(t, G, MG, cg, 'stone');
+  await t.waitFor(() => (ch.store?.count?.('stone') || 0) >= 4, RT() + 400, 'host chest holds the stone');
+  const slots = (o) => JSON.stringify(o?.store?.toJSON?.() || null);
+  const before = slots(ch);
+  // the guest uses the context menu entry "Mover", then places the plan at the new tile
+  const menu = MG.building.structureMenu(G.game, cg);
+  const mv = menu.find((e) => e.id === 'move');
+  t.assert(mv, 'context menu offers Mover', menu.map((e) => e.label).join(' · '));
+  mv.run();
+  const m = G.game.build.mode;
+  t.assert(m && m.move === cg, 'build mode carries the chest to move');
+  m.hover = [nx, ny]; m.locked = true;
+  MG.building.commitPlacement(G.game);
+  const plan = await t.waitFor(() => H.game.build.structures.find((o) => o.moveOf === ch.id), RT() + 400, 'host has the move plan');
+  const planG = await t.waitFor(() => A.structOn(G, plan.id), ONEWAY() + 300, 'guest has it');
+  t.check(plan.paid && planG.paid && planG.moveOf === ch.id, 'move plan: paid (no materials), moveOf on both');
+  await A.buildAll(t, G, MG, [plan.id]);
+  await t.waitFor(() => !A.structOn(H, plan.id) && ch.tx === nx && ch.ty === ny, RT() + 600, 'host: chest moved, plan gone', () => `chest ${geo(ch)} plan ${!!A.structOn(H, plan.id)}`);
+  await t.waitFor(() => { const o = A.structOn(G, ch.id); return o && o.tx === nx && o.ty === ny && !A.structOn(G, plan.id); }, ONEWAY() + 300, 'guest: chest moved');
+  t.check(slots(ch) === before && slots(A.structOn(G, ch.id)) === before, 'contents kept on both', `${before} → host ${slots(ch)} guest ${slots(A.structOn(G, ch.id))}`);
+  t.check(!A.structAt(H, MH, tx, ty, 'main') && !A.structAt(G, MG, tx, ty, 'main'), 'old tile free on both');
+  t.check(A.structAt(H, MH, nx, ny, 'main') === ch && A.structAt(G, MG, nx, ny, 'main')?.id === ch.id, 'grid points to the moved chest on both');
+  await t.checkDigest(H, G);
+  env.history.push('S34');
+});
+
+def('S35', {
+  title: 'A: deconstruct a 2×1 workbench (refund 75%)', timeout: 120000,
+  expected: 'Guest deconstructs a host workbench: gone on both, both footprint tiles free (solid 0), 75% refund (8 wood, 3 stone) only to the guest; digest equal',
+  api: 'structureMenu "Desmontar" → build.decon → struct.decon; decon work → decon.hit → struct.remove {give}; world.solid',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 12, stone: 6 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'workbench', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a 2×1 spot');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'workbench', [tx, ty]);
+  const wb = await t.waitFor(() => A.structAt(H, MH, tx + 1, ty, 'main'), 1500, 'workbench blueprint');
+  await A.buildAll(t, H, MH, [wb.id]);
+  await t.waitFor(() => A.structOn(G, wb.id) && !A.structOn(G, wb.id).blueprint, ONEWAY() + 300, 'guest sees it finished');
+  const invG0 = A.invSnap(G), invH0 = A.invSnap(H);
+  const menu = MG.building.structureMenu(G.game, A.structOn(G, wb.id));
+  t.check(menu.some((e) => e.id === 'decon') && menu.some((e) => e.id === 'move') && menu.some((e) => e.id === 'use'), 'menu: Usar · Mover · Desmontar', menu.map((e) => e.label).join(' · '));
+  await A.decon(t, G, MG, wb.id);
+  await t.waitFor(() => !A.structOn(H, wb.id), ONEWAY() + 300, 'gone on the host');
+  await t.sleep(300);
+  const sol = (f) => [0, 1].map((k) => f.game.world.solid[f.game.world.idx(tx + k, ty)]);
+  t.check(sol(H).every((v) => !v) && sol(G).every((v) => !v), 'both footprint tiles free on both', `host ${sol(H)} guest ${sol(G)}`);
+  const dg = A.invDiff(invG0, A.invSnap(G)), dh = A.invDiff(invH0, A.invSnap(H));
+  t.check(dg.wood === 8 && dg.stone === 3, '75% refund to the guest (8 wood, 3 stone)', short(dg));
+  t.check(!dh.wood && !dh.stone, 'nothing to the host', short(dh));
+  await t.checkDigest(H, G);
+  env.history.push('S35');
+});
+
+def('S36', {
+  title: 'A: raze a campfire (Arrasar)', timeout: 90000,
+  expected: 'Guest razes a host campfire next to it: removed at once on both (no work), only half the pebbles come back (2), no wood; digest equal',
+  api: 'structureMenu "Arrasar" → struct.raze intent → struct.remove {give, fx:raze}',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 4, pebble: 4 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'campfire', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a spot');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'campfire', [tx, ty]);
+  const cf = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 1500, 'campfire blueprint');
+  await A.buildAll(t, H, MH, [cf.id]);
+  const cg = await t.waitFor(() => { const o = A.structOn(G, cf.id); return o && !o.blueprint && o; }, ONEWAY() + 300, 'guest sees the fire');
+  A.standBy(G, MG, cg);
+  await A.hostSees(t, H, G);
+  const invG0 = A.invSnap(G);
+  const menu = MG.building.structureMenu(G.game, cg);
+  const rz = menu.find((e) => e.id === 'raze');
+  t.assert(rz, 'menu offers Arrasar', menu.map((e) => e.label).join(' · '));
+  t.check(!menu.some((e) => e.id === 'decon'), 'campfire: Arrasar instead of Desmontar');
+  rz.run();
+  await t.waitFor(() => !A.structOn(H, cf.id) && !A.structOn(G, cf.id), RT() + 400, 'razed on both');
+  await t.sleep(200);
+  const dg = A.invDiff(invG0, A.invSnap(G));
+  t.check(dg.pebble === 2 && !dg.wood, 'half the pebbles back, no wood', short(dg));
+  await t.checkDigest(H, G);
+  env.history.push('S36');
+});
+
+def('S37', {
+  title: 'A: old save migration (1×1 beds, rows without rot / paid)', timeout: 30000,
+  expected: 'migrateStructRows: v3 rows gain rot 0, paid 1, closed, no plan; a bed saved as 1×1 extends south when free, north / sideways otherwise, never onto another structure; other types unchanged',
+  api: 'save.js VERSION 4, migrateStructRows(game, rows) (unit-style on the host frame’s world)',
+}, async (t) => {
+  const { H, MH } = await pairCtx(t);
+  const g = H.game, w = g.world, sp = w.spawn;
+  t.need(typeof MH.save.migrateStructRows === 'function', 'migrateStructRows missing');
+  // a free 6×6 patch near the spawn (no rock / water)
+  let base = null;
+  for (let r = 4; r < 40 && !base; r++) for (let k = 0; k < 16 && !base; k++) {
+    const x = Math.floor(sp.x + Math.cos(k / 16 * Math.PI * 2) * r), y = Math.floor(sp.y + Math.sin(k / 16 * Math.PI * 2) * r);
+    let ok = true;
+    for (let yy = y; yy < y + 6 && ok; yy++) for (let xx = x; xx < x + 6 && ok; xx++) { const i = w.idx(xx, yy); if (w.rock[i] || w.water[i]) ok = false; }
+    if (ok) base = [x, y];
+  }
+  t.assert(base, 'found a free 6×6 patch');
+  const [x, y] = base;
+  const rows = [
+    ['old_bed_a', 'bed', x, y + 1, 5, 1, 0, 0, 0, 100],          // free below → extends south
+    ['old_bed_b', 'bed', x + 2, y + 1, 5, 1, 0, 0, 0, 100],      // wall below → north
+    ['old_wall_b', 'wall_wood', x + 2, y + 2, 0, 1, 0, 0, 0, 100],
+    ['old_bed_c', 'bed', x + 4, y + 1, 5, 1, 0, 0, 0, 100],      // walls N and S → sideways
+    ['old_wall_c1', 'wall_wood', x + 4, y, 0, 1, 0, 0, 0, 100],
+    ['old_wall_c2', 'wall_wood', x + 4, y + 2, 0, 1, 0, 0, 0, 100],
+    ['old_chest', 'chest', x, y + 4, 0, 0.4, 0, 0, 0, 100],      // blueprint saved before "delivery" existed
+  ];
+  const out = MH.save.migrateStructRows(g, rows.map((r) => r.slice()));
+  const by = Object.fromEntries(out.map((r) => [r[0], r]));
+  t.check(out.every((r) => r.length === 14), 'every row has 14 fields', out.map((r) => r.length).join(','));
+  t.check(out.filter((r) => r[1] !== 'bed').every((r) => r[10] === 0 && r[11] === 1 && r[12] === 0 && !r[13]), 'legacy defaults: rot 0, paid 1, closed, no plan');
+  const p = (r) => `${r[2]},${r[3]} r${r[10]}`;
+  t.check(by.old_bed_a && by.old_bed_a[2] === x && by.old_bed_a[3] === y + 1 && by.old_bed_a[10] === 0, 'bed A extends south', p(by.old_bed_a || []));
+  t.check(by.old_bed_b && by.old_bed_b[3] === y && by.old_bed_b[10] === 0, 'bed B (wall below) extends north', p(by.old_bed_b || []));
+  t.check(by.old_bed_c && by.old_bed_c[10] === 1, 'bed C (walls N and S) lies sideways', p(by.old_bed_c || []));
+  // no overlaps in the migrated layout
+  const cells = new Map(); let clash = null;
+  for (const r of out) { const [fw, fh] = MH.building.dimsOf(r[1], r[10]); for (let yy = r[3]; yy < r[3] + fh; yy++) for (let xx = r[2]; xx < r[2] + fw; xx++) { const k = xx + ',' + yy; if (cells.has(k)) clash = `${cells.get(k)} × ${r[0]} at ${k}`; cells.set(k, r[0]); } }
+  t.check(!clash, 'no two migrated structures overlap', clash || `${cells.size} cells`);
 });
 
 // =====================================================================================================

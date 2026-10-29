@@ -43,6 +43,7 @@ export function installHelp(game) {
         ${row(['Clique', 'Arrastar'], 'Colocar · fileira / área')}
         ${row(['R', '⇧R'], 'Girar')}
         ${row(['Botão dir.', 'Esc'], 'Cancelar')}
+        ${row(['Botão dir.'], 'Numa construção: usar · mover · desmontar')}
       </div>`;
     const mob = `
       <div class="hk-col"><h4>Tela de toque</h4>
@@ -53,6 +54,8 @@ export function installHelp(game) {
         ${row(['Botões em arco'], 'Habilidades')}
         ${row(['Botão dourado'], 'Interagir com o que está perto')}
         ${row(['Mapa'], 'Toque no minimapa para o mapa grande')}
+        ${row(['Segurar'], 'Numa construção: usar · mover · desmontar')}
+        ${row(['☝ arrastar'], 'Construindo: fileira / área (o joystick fica só na beirada esquerda)')}
       </div>`;
     el.innerHTML = `<div class="help-card"><div class="help-h"><b>Atalhos e controles</b><button class="hx" aria-label="Fechar">✕</button></div>
       <div class="help-b">${touch() ? mob : desk}</div>

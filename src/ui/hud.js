@@ -404,7 +404,9 @@ export function installHUD(game, { isNew } = {}) {
       toggle(R.int, 'intv', 'hidden', !showInt);
       if (showInt) {
         const key = near.verb + near.icon;
-        if (C.intk !== key) { C.intk = key; R.intLbl.textContent = near.verb; R.intIc.innerHTML = uiIcon(A, near.icon); }
+        // doors / gates: the icon shows what the action does (open → ajar door, close → shut door)
+        const ic = near.kind === 'door' ? (near.verb === 'Fechar' ? 'door_close' : 'door_open') : near.icon;
+        if (C.intk !== key) { C.intk = key; R.intLbl.textContent = near.verb; R.intIc.innerHTML = uiIcon(A, ic); }
       }
 
       // build bar validity

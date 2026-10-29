@@ -6,7 +6,9 @@
 // - Mouse: click = tap (never movement), wheel / +/- = zoom.
 // Gesture state for other modules (e.g. build-mode drags): `touches` (active touch fingers),
 // `multiTouch` (≥ 2 fingers down), `pinching` (a pinch is in progress), `gestureT` (performance.now() of
-// the last multi-finger moment — ignore single-finger drags that started before it).
+// the last multi-finger moment — ignore single-finger drags that started before it); the same in one object
+// `gesture = { touches, multi, pinching, pinch, t }`; `isJoyPointer(id)`; `joyZone` (left screen fraction
+// of the joystick: the controller narrows it in build mode so paint drags can start almost anywhere).
 
 const JOY_R = 56;
 const PINCH_GRACE = 220; // ms: a second finger this soon after the first turns the joystick into a pinch
@@ -26,6 +28,8 @@ export class Input {
     this.multiTouch = false;
     this.pinching = false;
     this.gestureT = 0;
+    this.gesture = { touches: 0, multi: false, pinching: false, pinch: false, t: 0 }; // same state as one object
+    this.joyZone = 0.45;        // left fraction of the screen where a first finger starts the joystick
     this.isTouch = matchMedia('(pointer: coarse)').matches;
 
     addEventListener('keydown', (e) => {
@@ -66,7 +70,12 @@ export class Input {
     if (this.multiTouch) this.gestureT = performance.now();
     const free = t.filter((q) => !q.joy);
     this.pinching = free.length >= 2;
+    const G = this.gesture;
+    G.touches = this.touches; G.multi = this.multiTouch; G.pinching = G.pinch = this.pinching; G.t = this.gestureT;
   }
+
+  // is this pointer driving the joystick? (build-mode paint drags ignore it)
+  isJoyPointer(id) { return this.joy.id === id; }
 
   _down(e) {
     e.preventDefault();
@@ -76,7 +85,7 @@ export class Input {
     if (e.pointerType === 'touch') {
       this.isTouch = true;
       const others = this._touchList();
-      if (!others.length && this.joy.id === null && e.clientX < innerWidth * 0.45) {
+      if (!others.length && this.joy.id === null && e.clientX < innerWidth * this.joyZone) {
         p.joy = true;
         Object.assign(this.joy, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0, active: true, t: now });
         this._showJoy();
