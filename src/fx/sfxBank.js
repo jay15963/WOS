@@ -205,7 +205,7 @@ export const SFX = {
     burst(d, sr, 0.02, 0.12, { r, type: 'hp', f: 3500, amp: 0.15, grain: 0.9, grainRate: 500 });
   } },
   // swimming (deep water): a stroke = the arm slapping in, a pouring slosh, bubbles and drops falling back
-  swim_stroke: { v: 5, sec: 0.8, sr: 24000, gain: 0.34, rev: 0.18, pj: 1.2, vj: 0.15, render(d, sr, r) {
+  swim_stroke: { v: 5, sec: 0.8, sr: 24000, gain: 0.22, rev: 0.18, pj: 1.2, vj: 0.15, render(d, sr, r) {
     burst(d, sr, 0, 0.05, { r, type: 'bp', f: 1400 + r() * 400, q: 0.9, a: 0.003, amp: 0.4 });
     burst(d, sr, 0.02, 0.45, { r, color: 'pink', type: 'bp', f: 900 + r() * 200, f1: 420, q: 0.9, a: 0.06, amp: 0.8, grain: 0.35, grainRate: 300 });
     burst(d, sr, 0.05, 0.5, { r, color: 'brown', type: 'lp', f: 380, a: 0.08, amp: 0.45 });
@@ -249,7 +249,7 @@ export const SFX = {
     burst(d, sr, 0, 0.008 + r() * 0.02, { r, type: 'hp', f: 1500 + r() * 2500, a: 0.0004, amp: 1 });
     if (r() < 0.4) burst(d, sr, 0.015, 0.03, { r, type: 'bp', f: 800 + r() * 700, q: 1.5, amp: 0.5 });
   } },
-  tree_creak: { v: 2, sec: 1.2, sr: 24000, gain: 0.42, rev: 0.3, pj: 1, vj: 0.1, render(d, sr, r) {
+  tree_creak: { v: 2, sec: 1.2, sr: 24000, gain: 0.3, rev: 0.3, pj: 1, vj: 0.1, render(d, sr, r) {
     const n = Math.ceil(0.9 * sr), tmp = new Float32Array(n);
     voiced(tmp, sr, 0, 0.9, (u) => 60 + 30 * Math.sin(Math.PI * u) + 8 * Math.sin(u * 30), (u) => Math.pow(Math.sin(Math.PI * u), 0.8),
       { formants: [[220, 3, 1], [480, 4, 0.6], [900, 5, 0.3]], harm: 10, noise: 0.15, rough: 0.25, r });
@@ -286,7 +286,7 @@ export const SFX = {
     bellTone(d, sr, 0.2, 1174.7, 0.18, 0.8);
     bellTone(d, sr, 0.28, 1568, 0.12, 0.8);
   } },
-  decon: { v: 3, sec: 0.85, sr: 24000, gain: 0.48, rev: 0.25, pj: 1, vj: 0.12, render(d, sr, r) {
+  decon: { v: 3, sec: 0.85, sr: 24000, gain: 0.34, rev: 0.25, pj: 1, vj: 0.12, render(d, sr, r) {
     creak(d, sr, 0, 0.24, 520 + r() * 80, 420, 0.4, r);
     const ts = [0.18, 0.27, 0.34, 0.46];
     ts.forEach((t, k) => wood(d, sr, t + r() * 0.03, 420 - k * 50 + r() * 60, 0.7 - k * 0.1, r, 0.8));
@@ -304,24 +304,24 @@ export const SFX = {
     modal(d, sr, 0, 1200, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.8, { r });
     modal(d, sr, 0.045, 1450, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.7, { r });
   } },
-  door_open: { v: 3, sec: 0.6, gain: 0.42, rev: 0.2, pj: 1, vj: 0.1, render(d, sr, r) {
+  door_open: { v: 3, sec: 0.6, gain: 0.26, rev: 0.2, pj: 1, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 2300 + r() * 200, [[1, 0.5, 0.03], [1.6, 0.3, 0.02]], 0.6, { r });
     click(d, sr, 0, r, 0.4, 3000);
     creak(d, sr, 0.04, 0.38, 300 + r() * 50, 430 + r() * 80, 0.45, r);
     burst(d, sr, 0.05, 0.3, { r, color: 'pink', type: 'lp', f: 500, shape: 'bell', amp: 0.3 });
   } },
-  door_close: { v: 3, sec: 0.46, gain: 0.5, rev: 0.22, pj: 1, vj: 0.1, render(d, sr, r) {
+  door_close: { v: 3, sec: 0.46, gain: 0.3, rev: 0.22, pj: 1, vj: 0.1, render(d, sr, r) {
     burst(d, sr, 0, 0.15, { r, color: 'pink', type: 'lp', f: 600, shape: 'bell', amp: 0.3 });
     modal(d, sr, 0.12, 85 + r() * 15, [[1, 0.9, 0.15], [1.9, 0.6, 0.1], [3.3, 0.35, 0.06]], 0.9, { r });
     burst(d, sr, 0.12, 0.06, { r, type: 'lp', f: 900, amp: 0.5 });
     modal(d, sr, 0.16, 2100, [[1, 0.4, 0.025], [1.7, 0.25, 0.018]], 0.5, { r });
   } },
-  chest_open: { v: 3, sec: 0.42, gain: 0.38, rev: 0.15, pj: 1, vj: 0.1, render(d, sr, r) {
+  chest_open: { v: 3, sec: 0.42, gain: 0.24, rev: 0.15, pj: 1, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 2500, [[1, 0.4, 0.025], [1.6, 0.25, 0.018]], 0.5, { r });
     creak(d, sr, 0.03, 0.22, 480 + r() * 60, 620, 0.35, r);
     wood(d, sr, 0.25, 240 + r() * 40, 0.4, r, 0.6);
   } },
-  chest_close: { v: 3, sec: 0.32, gain: 0.45, rev: 0.15, pj: 1, vj: 0.1, render(d, sr, r) {
+  chest_close: { v: 3, sec: 0.32, gain: 0.28, rev: 0.15, pj: 1, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 140 + r() * 20, [[1, 0.8, 0.12], [2.3, 0.5, 0.07], [3.8, 0.3, 0.05]], 0.9, { r });
     burst(d, sr, 0, 0.05, { r, type: 'lp', f: 1000, amp: 0.4 });
     modal(d, sr, 0.04, 2300, [[1, 0.4, 0.025], [1.6, 0.25, 0.018]], 0.45, { r });
@@ -372,7 +372,7 @@ export const SFX = {
     tone(d, sr, 0.11, 0.15, 262, 255, 0.55, { a: 0.006, dec: 0.13 }, 'tri');
     tone(d, sr, 0, 0.26, 131, 128, 0.2, { a: 0.01, dec: 0.22 });
   } },
-  levelup: { v: 1, sec: 2.4, sr: 24000, gain: 0.42, bus: 'ui', rev: 0.45, pj: 0, vj: 0, render(d, sr, r) {
+  levelup: { v: 1, sec: 2.4, sr: 24000, gain: 0.34, bus: 'ui', rev: 0.45, pj: 0, vj: 0, render(d, sr, r) {
     [523.25, 659.25, 784, 1046.5, 1318.5].forEach((f, k) => ks(d, sr, k * 0.07, 2.2, f, { t60: 1.6, bright: 0.7, pos: 0.12, amp: 0.55, r }));
     [1046.5, 1318.5, 1568].forEach((f) => modal(d, sr, 0.36, f, [[1, 0.25, 1.8], [2, 0.08, 0.9], [3, 0.04, 0.5], [4.2, 0.03, 0.3]], 1, { r, spread: 0.003 }));
     burst(d, sr, 0.3, 1.2, { r, type: 'hp', f: 6000, shape: 'bell', amp: 0.05 });
@@ -388,7 +388,7 @@ export const SFX = {
   } },
 
   // ---------- the player's body (heard "from inside": bus ui, no reverb) ----------
-  heartbeat: { v: 2, sec: 0.55, sr: 16000, gain: 0.5, bus: 'ui', rev: 0, pj: 0.3, vj: 0.05, render(d, sr, r) {
+  heartbeat: { v: 2, sec: 0.55, sr: 16000, gain: 0.4, bus: 'ui', rev: 0, pj: 0.3, vj: 0.05, render(d, sr, r) {
     const beat = (t, a) => {
       tone(d, sr, t, 0.16, 62, 38, a, { a: 0.008, dec: 0.13 });
       tone(d, sr, t, 0.1, 110, 70, a * 0.35, { a: 0.004, dec: 0.07 });
@@ -554,7 +554,7 @@ Object.assign(SFX, {
   boar_idle: vox(0.6, (d, sr, r) => { const n = 1 + Math.floor(r() * 3); for (let k = 0; k < n; k++) voiced(d, sr, k * 0.18, 0.12, (u) => 110 - u * 15, (u) => Math.sin(Math.PI * u), { formants: [[340, 3, 1], [780, 4, 0.5]], rough: 0.2, am: 0.6, amRate: 40, noise: 0.3, r }); }, { gain: 0.28 }),
   boar_death: vox(0.7, (d, sr, r) => voiced(d, sr, 0, 0.6, (u) => 800 * Math.pow(0.5, u), (u) => adEnv(u, 0.05, 0.95), { formants: [[1000, 4, 1], [2000, 5, 0.5]], rough: 0.12, noise: 0.25, r })),
   bear_aggro: vox(1.2, (d, sr, r) => voiced(d, sr, 0, 1.1, (u) => 75 + 22 * Math.sin(Math.PI * u), (u) => Math.pow(Math.min(1, u * 3), 1.5) * Math.pow(1 - u, 0.6),
-    { formants: [[300, 2.5, 1], [700, 3, 0.7], [1600, 4, 0.25]], harm: 20, tilt: 0.8, rough: 0.18, am: 0.35, amRate: 22, noise: 0.35, r }), { gain: 0.62, v: 2 }),
+    { formants: [[300, 2.5, 1], [700, 3, 0.7], [1600, 4, 0.25]], harm: 20, tilt: 0.8, rough: 0.18, am: 0.35, amRate: 22, noise: 0.35, r }), { gain: 0.5, v: 2 }),
   bear_hurt: vox(0.5, (d, sr, r) => voiced(d, sr, 0, 0.4, (u) => 95 - u * 20, (u) => adEnv(u, 0.1, 0.9), { formants: [[320, 2.5, 1], [740, 3, 0.7], [1600, 4, 0.25]], harm: 20, tilt: 0.8, rough: 0.2, am: 0.3, noise: 0.35, r }), { gain: 0.55 }),
   bear_idle: vox(0.8, (d, sr, r) => { burst(d, sr, 0, 0.3, { r, color: 'brown', type: 'lp', f: 500, a: 0.05, amp: 0.7 }); burst(d, sr, 0.38, 0.3, { r, color: 'brown', type: 'lp', f: 450, a: 0.05, amp: 0.5 }); }, { gain: 0.3 }),
   bear_death: vox(1.1, (d, sr, r) => voiced(d, sr, 0, 1.0, (u) => 90 * Math.pow(0.55, u), (u) => adEnv(u, 0.08, 0.92), { formants: [[300, 2.5, 1], [700, 3, 0.6]], harm: 18, tilt: 0.9, rough: 0.2, noise: 0.3, r }), { gain: 0.55, v: 2 }),
