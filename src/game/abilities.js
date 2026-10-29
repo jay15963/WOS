@@ -3,14 +3,15 @@
 // and every effect (CONTENT §4). Simulation only; the HUD reads abilityState() / p.cast.
 
 import { ABILITIES, ABILITY_ORDER, GCD, ITEMS } from './data.js';
-import { barFor } from './content/weapons.js';
+import { barFor, lobSpec, lobFlight } from './content/weapons.js';
 import { moveCircle, facingFrom, collides } from './physics.js';
 import { addBuff, removeBuff, enterCombat } from './player.js';
 import {
   rollPlayerHit, applyPlayerHit, healEntity, reach, dist, attackable, isMob, faceTowards, facingVec,
-  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect,
+  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect, canSkin,
 } from './combat.js';
 import { aggro } from './ai.js';
+import { fireLob, retargetLob } from './projectiles.js';
 
 const SPIN_DIRS = ['s', 'e', 'n', 'w'];
 
@@ -86,7 +87,8 @@ export function abilityState(game, id) {
   const rs = ab.target ? (t ? rangeOk(game, ab, t) : 'ok') : 'ok';
   const ammo = ammoCount(p, ab), items = itemCount(p, ab);
   const stocked = (ammo < 0 || ammo > 0) && (items < 0 || items > 0);
-  const active = (id === 'block' && !!p.block) || (p.cast && p.cast.id === id) || (id === 'sprint' && p.buffs.some((b) => b.id === 'sprint'));
+  const active = (id === 'block' && !!p.block) || (p.cast && p.cast.id === id) || (id === 'sprint' && p.buffs.some((b) => b.id === 'sprint'))
+    || (!!ab.aim && game.aim?.active && game.aim.id === id);
   return {
     cd, cdDur: ab.cd, gcd, gcdDur: GCD,
     energyOk: p.energy >= (ab.cost || 0),
@@ -137,6 +139,11 @@ export function useAbility(game, id) {
   if (p.energy < (ab.cost || 0)) return err('Sem energia');
   if (ab.item && p.inv.count(ab.item) <= 0) return err(ab.item === 'herb' ? 'Sem ervas medicinais na mochila' : `Sem ${(ITEMS[ab.item]?.name || ab.item).toLowerCase()} na mochila`);
   if (ab.ammo && p.inv.count(ab.ammo) <= 0) { noAmmo(game); return false; }
+  if (ab.aim) { // ground skillshot used without aiming (queue, tests, old bindings): at the target
+    const pt = aimDefault(game, id);
+    if (!pt) return err('Sem alvo: segure o botão e arraste para mirar');
+    return fireAimed(game, id, pt.x, pt.y) === true;
+  }
 
   let t = null;
   if (ab.target) {
@@ -161,6 +168,91 @@ export function useAbility(game, id) {
   p.cds[id] = ab.cd || 0;
   if (t && t !== p) faceTowards(p, t);
   effect(game, id, ab, t);
+  return true;
+}
+
+// ---------- aimed ground abilities (aim: 'ground': Tiro Longo, Lançar Lança) ----------
+// The UI (src/ui/aim.js) picks the point; fireAimed pays energy / cooldown / the arrow, rolls the damage (attacker's
+// roll, like every player hit) and asks the host (intent lob.fire, mut/bow.js), which rolls the scatter, flies the
+// real projectile and resolves the hit. A guest shows its own copy at once and bends it onto the host's landing.
+
+// flight / accuracy spec of this ability with the current main hand (null = wrong weapon)
+export function aimSpec(game, id) {
+  const ab = ABILITIES[id], S = lobSpec(game.player.equip?.main);
+  return ab?.lob && S && S.type === ab.lob ? S : null;
+}
+
+// why the ability cannot start aiming now ('' = silent no), or null when it can
+export function aimCheck(game, id) {
+  const p = game.player, ab = ABILITIES[id];
+  if (!ab || !ab.aim || p.dead) return '';
+  if (!ABILITY_ORDER.includes(id)) return 'Não disponível com esta arma';
+  if (p.charge || p.leap) return '';
+  if (p.stunT > 0) return 'Atordoado';
+  if (p.cast) return 'Conjurando…';
+  if ((p.cds[id] || 0) > 0) return 'Ainda não está pronto';
+  if (p.energy < (ab.cost || 0)) return 'Sem energia';
+  if (ab.ammo && p.inv.count(ab.ammo) <= 0) return 'Sem flechas';
+  if (!aimSpec(game, id)) return ab.lob === 'bow' ? 'Precisa de um arco' : 'Precisa de uma lança';
+  if (p._throwT > 0) return 'A lança ainda está no ar';
+  if (aimSpec(game, id).open && game.world.isCave(Math.floor(p.x), Math.floor(p.y))) return 'Teto baixo demais para atirar para o alto';
+  return null;
+}
+
+// default point for a quick tap / an unaimed use: the target, else the nearest enemy in range
+export function aimDefault(game, id) {
+  const p = game.player, S = aimSpec(game, id);
+  if (!S) return null;
+  const R = S.range + 0.5;
+  const t = attackable(p.target) && !p.target.isProp && dist(p, p.target) <= R ? p.target : nearestEnemy(game, R);
+  return t ? { x: t.x, y: t.y, target: t } : null;
+}
+
+// fire at the world point (wx, wy): true = fired · 'wait' = global cooldown still running · false = refused (error shown)
+let lobSeq = 0;
+export function fireAimed(game, id, wx, wy) {
+  const p = game.player, ab = ABILITIES[id], net = game.net;
+  const why = aimCheck(game, id);
+  if (why != null) { if (why) game.events.emit('error', { text: why }); return false; }
+  if (!ab.offGcd && p.gcdT > 0) return 'wait';
+  const S = aimSpec(game, id);
+  let dx = wx - p.x, dy = wy - p.y, d = Math.hypot(dx, dy);
+  if (d < 0.05) { [dx, dy] = facingVec(p.facing); d = 1; }
+  const D = Math.min(Math.max(d, 1), S.range);
+  const ax = p.x + (dx / d) * D, ay = p.y + (dy / d) * D;
+  // costs (refunded when the host refuses)
+  if (p.work) { p.work = null; p.action = null; }
+  if (!ab.offGcd) p.gcdT = GCD;
+  p.energy -= ab.cost || 0;
+  p.cds[id] = ab.cd || 0;
+  const paid = ab.ammo ? useAmmo(game, p.wprof, 1) : 0;
+  enterCombat(p, 3);
+  // pose: face the shot and release (bow recoil / spear follow-through)
+  p.weapon = p.equip?.main ?? p.weapon;
+  p.facing = facingFrom(dx, dy, p.facing); p._faceLockT = 0.5;
+  p._atkRootT = Math.max(p._atkRootT || 0, S.proj === 'spear' ? 0.38 : 0.3); // stand still for the release (like auto-attacks)
+  p.action = ab.act === 'throw' ? { type: 'throw', t: 0.46, dur: 0.42 } : { type: 'shoot', t: 0.7, dur: 0.32 };
+  p.swingT = Math.max(p.swingT || 0, 0.6); // no auto-shot right on top of it
+  game.audio?.play(S.proj === 'spear' ? 'swing' : 'bow_release', { x: p.x, y: p.y, volume: 0.9 });
+  const roll = rollPlayerHit(game, { level: p.level }, ab.mult || 1, ab.flat || 0, false);
+  const { dur, apex } = lobFlight(S, D);
+  if (S.proj === 'spear') { p._throwT = dur; p.swingT = Math.max(p.swingT, dur + 0.15); } // empty hand until it lands (src/ui/aim.js)
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const args = { ab: id, w: p.equip?.main || null, x: r2(p.x), y: r2(p.y), ax: r2(ax), ay: r2(ay), amount: roll.amount, crit: roll.crit ? 1 : 0, skin: canSkin(game) ? 1 : 0 };
+  // guest: its own copy flies right away toward the aim point (bent onto the host's landing on the ack)
+  const mine = net.auth ? null : fireLob(game, { id: `${net.pid}:L${++lobSeq}`, cosmetic: true, proj: S.proj, x: p.x, y: p.y, lx: ax, ly: ay, dur, apex, owner: net.pid });
+  const undo = (text) => {
+    if (mine) { mine.alpha = 0; mine.stuck = true; mine.t = 0; }
+    p.energy = Math.min(p.maxEnergy, p.energy + (ab.cost || 0));
+    p.cds[id] = 0; p.gcdT = 0; p._throwT = 0;
+    if (text) game.events.emit('error', { text });
+  };
+  net.request('lob.fire', args, {
+    refund: paid ? { [ab.ammo]: paid } : undefined,
+    onOk: (res) => { if (mine && res && typeof res.lx === 'number') retargetLob(mine, res.lx, res.ly, typeof res.id === 'string' ? res.id : null); },
+    onReject: (text) => undo(text || 'Não deu para atirar'),
+  });
+  game.events.emit('aimfire', { id, x: ax, y: ay, dur });
   return true;
 }
 

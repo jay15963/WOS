@@ -366,7 +366,7 @@ export function installController(game) {
           if (!c || (bm && (c === 'KeyR' || c === 'ShiftLeft'))) return;
           if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
           // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
-          if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id); ctl._aimKey = c; return; }
+          if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id, { key: c }); ctl._aimKey = c; return; }
           useAbility(g, id);
         });
         for (let i = 0; i < 10; i++) if (K.has('Digit' + ((i + 1) % 10)) || K.has('Numpad' + ((i + 1) % 10))) g.events.emit('hotbar', { i });

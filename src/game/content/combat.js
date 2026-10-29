@@ -57,6 +57,12 @@ export const ABILITIES = {
                  cast: 1.4, desc: 'Mira por 1,4 s (parado): 260% do dano +6. Mover-se cancela.' },
   multi_shot:  { name: 'Tiro Múltiplo', icon: 'multi_shot', cost: 35, cd: 12, range: [0, 9], target: true, act: 'shoot', ammo: 'arrow', ammoN: 3,
                  desc: 'Dispara 3 flechas em leque: 90% do dano cada.' },
+  // aim: 'ground' = skillshot aimed at a point (src/ui/aim.js); lob = weapon type of the flight / scatter spec
+  // (content/weapons.js LOB); mult / flat = damage of the hit, rolled by the shooter, applied by the host.
+  long_shot:   { name: 'Tiro Longo', icon: 'long_shot', cost: 20, cd: 3, range: 0, aim: 'ground', lob: 'bow', act: 'shoot', ammo: 'arrow', mult: 1.3, flat: 2,
+                 desc: 'Atira para o alto e a flecha cai bem longe, onde você mirar: 130% do dano +2. Quanto mais longe, menos preciso.' },
+  throw_spear: { name: 'Lançar Lança', icon: 'throw_spear', cost: 25, cd: 10, range: 0, aim: 'ground', lob: 'spear', act: 'throw', mult: 2.4, flat: 6,
+                 desc: 'Arremessa a lança onde você mirar: 240% do dano +6. Quanto mais longe, menos preciso. A lança volta para a sua mão.' },
   disengage:   { name: 'Recuar', icon: 'disengage', act: 'disengage', cost: 15, cd: 14, range: 0, offGcd: true,
                  desc: 'Salta 4 m para trás, para longe do alvo.' },
   block:       { name: 'Bloquear', icon: 'block', cost: 10, cd: 8, range: 0, offGcd: true, hold: true, act: 'block',
