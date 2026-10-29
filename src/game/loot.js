@@ -110,6 +110,7 @@ export function lootSystem() {
       const glow = A.has('fx_soft') ? A.get('fx_soft') : null;
       for (const it of game.loot) {
         if (it.x < v.x0 - 1 || it.x > v.x1 + 1 || it.y < v.y0 - 1 || it.y > v.y1 + 1) continue;
+        if (game.roofs?.hidden?.(it.x, it.y)) continue; // under an opaque roof
         const [name, sc] = itemSprite(A, it.item);
         if (!A.has(name)) continue;
         const s = A.get(name);

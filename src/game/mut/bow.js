@@ -28,7 +28,7 @@ defineIntent('lob.fire', {
     const wid = actor.local ? src.equip?.main : typeof a.w === 'string' ? a.w.slice(0, 40) : null;
     const S = lobSpec(wid);
     if (!S || S.type !== ab.lob) return ab.lob === 'bow' ? 'Sem arco nas mãos' : 'Sem lança nas mãos';
-    if (S.open && game.world.isCave(Math.floor(src.x), Math.floor(src.y))) return 'Teto baixo demais para atirar para o alto';
+    if (S.open && game.world.roofAtPoint(src.x, src.y)) return 'Teto baixo demais para atirar para o alto';
     const key = actor.pid + '|' + a.ab, last = LAST.get(key);
     if (last != null && game.worldTime - last < (ab.cd || 0) * 0.8) return 'Ainda não está pronto';
     // origin: the shooter's reported position when it agrees with what the host sees

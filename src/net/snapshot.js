@@ -8,8 +8,8 @@
 //   dyn:    [[id, type, x, y, v, s, f, born, stump, stumpAt, solid]],      // host-created flora
 //   falling:[[id, fall, dir]],
 //   mined:  [tileIdx...],  rockp: [[i, p]],
-//   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]],
-//           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan)
+//   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf, style, det]],
+//           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan; rows of 14 = no style / details)
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
 //   props:  [[id, hp, broken, brokenAt]],
@@ -59,7 +59,7 @@ export function serializeWorld(game, { save = false } = {}) {
     mined: game.minedTiles.slice(),
     rockp: [...game.rockHits].map(([i, p]) => [i, r3(p)]),
     structs: game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, o.v | 0, r3(o.progress), game.build.decon.has(o) ? 1 : 0,
-      o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0]),
+      o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']),
     crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
@@ -181,7 +181,8 @@ function applyInner(game, d, mode) {
     for (const o of [...game.build.structures]) {
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
-      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1);
+      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
+        && (r[14] || '') === (o.style || '') && (r[15] || '') === (o.det || '');
       if (!same) removeStructure(game, o, { quiet: true });
     }
   }
@@ -189,6 +190,7 @@ function applyInner(game, d, mode) {
     const [id, type, tx, ty, v, progress, decon, store, working, builtAt] = r;
     const legacy = r.length <= 10;
     const rot = legacy ? 0 : r[10] | 0, paid = legacy ? 1 : r[11] ? 1 : 0, open = !legacy && !!r[12], moveOf = (!legacy && r[13]) || undefined;
+    const style = r[14] || undefined, det = typeof r[15] === 'string' ? r[15] : '';
     let o = game.world.objById.get(id);
     if (o && !o.building) continue;
     if (o && !game.build.structures.includes(o)) { removeStructure(game, o, { quiet: true }); o = null; } // orphan: rebuild
@@ -200,7 +202,7 @@ function applyInner(game, d, mode) {
         if (!w.inBounds(x, y) || w.rock[w.idx(x, y)] || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y)))) ok = false;
       }
       if (!ok) continue;
-      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf });
+      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det });
     } else {
       if (o.blueprint && progress >= 1) completeStructure(game, o, { silent: true, auth: net.auth });
       else if (o.blueprint) o.progress = Math.min(0.999, progress);

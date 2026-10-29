@@ -1,6 +1,6 @@
 // Survival (owner side: the local player's own body): hunger with penalties and ramping starvation, and
 // body heat driven by a felt temperature (°C) from biome + time of day + rain / storm / wind / wet (read
-// from game.env), warmed by fires, enclosed shelters (roofed = floor or cave), clothing and warm food.
+// from game.env), warmed by fires, enclosed shelters, roofs (world.roofAt: built or a cave ceiling), clothing and warm food.
 // Every number lives in SURVIVAL below. Effects: hungry (<25%), starving (0), chilled (<30% heat:
 // slower, hungrier, no HP regen), freezing (<20%: slow HP loss), hypothermia (<10%: ramping damage, % of max HP). Swimming in deep water chills hard and soaks the
 // clothes; wet clothes (also slowly from rain) keep the player chilled until they dry (fast by a fire, faster
@@ -34,7 +34,8 @@ export const SURVIVAL = {
     rain: -4, storm: -7, wet: -2, wind: -5, // wind × env.wind (0..1.2)
     cave: 3,              // inside a mountain cave: no rain / wind, a bit warmer
     fire: 22,             // °C at a fire, fading to 0 at 1.25 × its warm radius
-    shelter: 7, roof: 3,  // enclosed room (walls / doors / rock all around) + roof (floor tiles or a cave)
+    shelter: 7, roof: 3,  // enclosed room (walls / doors / rock all around) + roof over the player (built or a cave)
+    porchWind: 0.6,       // wind × under a roof that is not enclosed (porch, pavilion)
     cloth: 3,             // per point of clothing warmth (tunic 2, leather 1, hood 1…)
     warmFood: 6,          // while a warm meal lasts
     comfort: 12,          // felt °C at or above which the body warms up
@@ -121,12 +122,13 @@ export function fireHeat(game, x, y) {
 export function warmAt(game, x, y) { return fireHeat(game, x, y) > 3; }
 
 // Enclosed shelter around tile (tx, ty): flood fill over walkable tiles; walls, doors, rock and deep water
-// close it. Returns { enclosed, roof } (roof = a floor under the player or a mountain cave).
+// close it. Returns { enclosed, roof, cave } (roof = world.roofAt: a built roof or a mountain cave ceiling).
 const MAX_ROOM = 140;
 function shelterAt(game, tx, ty) {
   const w = game.world, W = w.W;
   if (!w.inBounds(tx, ty)) return { enclosed: false, roof: false };
   const cave = !!w.isCave?.(tx, ty);
+  const roof = cave || (w.roofAt?.(tx, ty) === 2);
   const seen = new Set();
   const q = [ty * W + tx];
   seen.add(q[0]);
@@ -146,9 +148,7 @@ function shelterAt(game, tx, ty) {
     }
     if (open) break;
   }
-  let floor = false;
-  if (!open) for (const o of game.build.structures) if (!o.blueprint && BUILDINGS[o.type]?.layer === 'floor' && o.tx === tx && o.ty === ty && o.type !== 'farm_plot') { floor = true; break; }
-  return { enclosed: !open, roof: cave || (!open && floor), cave };
+  return { enclosed: !open, roof, cave };
 }
 
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -163,8 +163,8 @@ export function feltTemp(game, p, shelter) {
   const night = h < 12 ? 1 - ss(4.6, 6.3, h) : ss(18.7, 20.4, h);
   const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * night;
   const covered = shelter.enclosed || shelter.cave;
-  const rain = covered ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
-  const wind = covered ? 0 : (e.wind || 0) * T.wind;
+  const rain = covered || shelter.roof ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
+  const wind = covered ? 0 : (e.wind || 0) * T.wind * (shelter.roof ? T.porchWind : 1);
   const fire = fireHeat(game, p.x, p.y);
   const room = (shelter.enclosed ? T.shelter : 0) + (shelter.roof ? T.roof : 0) + (shelter.cave && !shelter.enclosed ? T.cave : 0);
   const cloth = (p.warmth || 0) * T.cloth;
@@ -231,7 +231,7 @@ export function survivalSystem() {
       const wasWet = (p.wetT || 0) > 0;
       if (p.swimming) p.wetT = W.soaked;
       else {
-        const rainNow = shelter.enclosed || shelter.cave ? 0 : (ec.rain || 0);
+        const rainNow = shelter.enclosed || shelter.roof ? 0 : (ec.rain || 0);
         if (rainNow > 0.2 && (p.wetT || 0) < W.rainMax) p.wetT = Math.min(W.rainMax, (p.wetT || 0) + rainNow * W.rainSoak * dt);
         else if (p.wetT > 0) {
           const hr = E.hour ?? 12, sunny = hr > 7 && hr < 18 && (ec.cloud ?? 0) < 0.5 && rainNow < 0.05;

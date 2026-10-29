@@ -1,9 +1,16 @@
 // Frame pipeline:
 //  1. shadow target (half res): sun-shadow silhouettes, MAX blend
 //  2. scene target: terrain shader -> terrain decals (ore, rubble) -> blob shadows -> decor (grass) -> sorted sprites -> alpha FX
-//  3. light target (half res): ambient (darkened in mountain caves, AMBIENT_FS) + additive point lights
+//  3. light target (half res): ambient (darkened in mountain caves and revealed interiors, AMBIENT_FS) + additive
+//     point lights + roof occluder (opaque roofs keep the outdoor ambient: lamps inside never light the roof)
 //  4. screen: post (lighting, clouds, mist, snow / rain, bloom, grading, vignette, grain) -> emissive sprites (fire, sparks)
 // Game code fills `renderer.batches.*` every frame, then calls render(camera, env).
+//
+// ROOFS (src/game/roofs.js, src/art/roofRaster.js): each roof region is a cached texture pair (colour,
+// premultiplied + mipmaps; owner slice id, RG8) made by setRoofTex(old, art). A depth-sorted drawable calls
+// roofSlice(region, slice) from the main sort: the quad lands in batches.roof and a segment remembers the main
+// batch position, so the scene pass draws main sprites up to there, then the roof slice, then the rest.
+// roofData (RGBA per tile, uRoofT): R interior darkness, G revealed region, B built coverage — updateRoofData().
 //
 // WIND SWAY (opt-in per sprite, for everyone who draws plants): pass a non-zero `sway` in
 //   batch.add(sprite, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recvShadow, lift)
@@ -47,6 +54,9 @@ export class Renderer {
     this.progShadow = createProgram(gl, ql(S.SHADOW_VS, 0), ql(S.SHADOW_FS, 0));
     this.progAmbient = createProgram(gl, ql(S.FULL_VS, 0), ql(S.AMBIENT_FS, 0)); // [world] ambient light with cave darkness
     this.progDecal = createProgram(gl, ql(S.DECAL_VS, 0), ql(S.DECAL_FS, 0));    // [world] per-tile terrain decals (ore, rubble)
+    this.progRoof = createProgram(gl, ql(S.ROOF_VS, 0), ql(S.ROOF_FS, 0));       // procedural roof slices (scene + light occluder)
+    this.roofSeg = [];                      // [{ at (main batch index), start, n, tex }] for this frame
+    this._segPool = [];
     this.fsVao = gl.createVertexArray();
     this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
     this.solidNear = true;                  // walls in view (syncSolid): enables the contact-AO fetches
@@ -61,6 +71,7 @@ export class Renderer {
       fx: new SpriteBatch(gl, 4096),       // alpha particles (smoke, dust, rain, leaves)
       light: new SpriteBatch(gl, 512),     // point lights (use addRaw)
       emissive: new SpriteBatch(gl, 4096), // additive, unaffected by darkness (fire, sparks)
+      roof: new SpriteBatch(gl, 256),      // roof slices (roofSlice), drawn in segments inside the main sort
     };
 
     this.renderScale = 1;
@@ -151,7 +162,90 @@ export class Renderer {
     this.field2Tex = createTexture(gl, { width: world.W, height: world.H, data: world.field2 });
     // [world] caves/roofs/trampled ground (RGBA 1x, linear) — see world.js caveData
     this.caveTex = createTexture(gl, { width: world.W, height: world.H, data: world.caveData || new Uint8Array(world.W * world.H * 4) });
+    this.roofDataTex = createTexture(gl, { width: world.W, height: world.H, data: new Uint8Array(world.W * world.H * 4) });
     this._buildClimate(world);
+  }
+
+  // ---------- roofs ----------
+  // roofData (RGBA per tile): rect re-upload from the CPU copy
+  updateRoofData(data, x0, y0, x1, y1) {
+    const gl = this.gl, w = this.world;
+    if (!this.roofDataTex || !w) return;
+    x0 = Math.max(0, x0 | 0); y0 = Math.max(0, y0 | 0); x1 = Math.min(w.W - 1, x1 | 0); y1 = Math.min(w.H - 1, y1 | 0);
+    if (x1 < x0 || y1 < y0) return;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, w.W);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
+    gl.bindTexture(gl.TEXTURE_2D, this.roofDataTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  }
+  // cave darkness rect only (smooth light changes after a cave-in)
+  updateCaveRegion(x0, y0, x1, y1) {
+    const gl = this.gl, w = this.world;
+    if (!w?.caveData) return;
+    x0 = Math.max(0, x0 | 0); y0 = Math.max(0, y0 | 0); x1 = Math.min(w.W - 1, x1 | 0); y1 = Math.min(w.H - 1, y1 | 0);
+    if (x1 < x0 || y1 < y0) return;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, w.W);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
+    gl.bindTexture(gl.TEXTURE_2D, this.caveTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, w.caveData);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  }
+  // textures of a painted roof region (art from src/art/roofRaster.js)
+  setRoofTex(old, art) {
+    const gl = this.gl;
+    if (old) this.deleteRoofTex(old);
+    const color = createTexture(gl, { width: art.w, height: art.h, data: art.color, mipmap: true });
+    const own = new Uint8Array(art.owner.buffer, art.owner.byteOffset, art.owner.length * 2); // little endian: lo, hi
+    const owner = createTexture(gl, { width: art.w, height: art.h, data: own, internal: gl.RG8, format: gl.RG, filter: gl.NEAREST });
+    return { color, owner, w: art.w, h: art.h };
+  }
+  deleteRoofTex(h) {
+    if (!h) return;
+    this.gl.deleteTexture(h.color); this.gl.deleteTexture(h.owner);
+    h.color = h.owner = null;
+  }
+  // a roof slice, called in depth order from the main sort (o.draw of a roof drawable)
+  roofSlice(region, s) {
+    const tex = region.gl;
+    if (!tex || !tex.color) return;
+    const B = this.batches, at = B.main.n, segs = this.roofSeg;
+    const a = region.alpha ?? 1;
+    if (a <= 0.004) return;
+    const last = segs.length ? segs[segs.length - 1] : null;
+    if (last && last.at === at && last.tex === tex) last.n++;
+    else {
+      const sg = this._segPool[segs.length] || (this._segPool[segs.length] = { at: 0, start: 0, n: 0, tex: null });
+      sg.at = at; sg.start = B.roof.n; sg.n = 1; sg.tex = tex;
+      segs.push(sg);
+    }
+    const dy = region.dropY || 0; // a collapsing roof drops
+    B.roof.addQuad(s.x0, s.y0 + dy, s.x1 - s.x0, s.y1 - s.y0, s.u0, s.v0, s.u1, s.v1, a, s.id + 1, 0, 0);
+  }
+  _roofPass(mode, uni, amb) {
+    const gl = this.gl, p = this.progRoof, B = this.batches;
+    gl.useProgram(p.p);
+    uni(p);
+    gl.uniform1f(p.u.uMode, mode);
+    if (p.u.uAmbR) gl.uniform3f(p.u.uAmbR, amb[0] * 0.5, amb[1] * 0.5, amb[2] * 0.5);
+    gl.uniform1i(p.u.uTex, 0);
+    gl.uniform1i(p.u.uOwner, 1);
+    B.roof.upload();
+  }
+  _roofSegment(sg) {
+    const gl = this.gl, p = this.progRoof;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, sg.tex.owner);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sg.tex.color);
+    gl.uniform2f(p.u.uTexSz, sg.tex.w, sg.tex.h);
+    this.batches.roof.drawRange(sg.start, sg.start + sg.n);
   }
 
   // Climate texture (RGBA 1x, linear): R = snow affinity (cold biomes, blurred over ~3 tiles), G = structure
@@ -292,6 +386,7 @@ export class Renderer {
 
   clearBatches() {
     for (const b of Object.values(this.batches)) b.clear();
+    this.roofSeg.length = 0;
   }
 
   // ---------- frame ----------
@@ -365,6 +460,7 @@ export class Renderer {
       bind(5, gl.TEXTURE_2D_ARRAY, this.groundTex, 'uGround');
       bind(6, gl.TEXTURE_2D, this.caveTex, 'uCave'); // [world]
       if (u.uClim) bind(7, gl.TEXTURE_2D, this.climTex, 'uClim');
+      if (u.uRoofT) bind(8, gl.TEXTURE_2D, this.roofDataTex, 'uRoofT');
       // climate fetch only when it can show something (snow lying, or walls in view for the contact AO)
       if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
       this._setExtra(p, env.extra);
@@ -413,7 +509,26 @@ export class Renderer {
       B.blob.draw();
       B.decor.draw();
       if (ao) gl.uniform1f(ao, 0);
-      B.main.draw();
+      if (!this.roofSeg.length) B.main.draw();
+      else {
+        // main sprites up to each roof slice, the slice, … (roof slices are depth-sorted with the sprites)
+        B.main.upload();
+        let k = 0, i = 0;
+        const segs = this.roofSeg;
+        const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); };
+        while (i < segs.length) {
+          const at = segs[i].at;
+          if (at > k) { B.main.drawRange(k, at); k = at; }
+          this._roofPass(0, roofUni, env.ambient);
+          // consecutive segments at the same position share the program
+          while (i < segs.length && segs[i].at === at) { this._roofSegment(segs[i]); i++; }
+          gl.useProgram(p.p);
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
+          if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.activeTexture(gl.TEXTURE0); }
+        }
+        if (k < B.main.n) B.main.drawRange(k, B.main.n);
+      }
       B.fx.draw();
     }
 
@@ -433,6 +548,7 @@ export class Renderer {
       gl.uniform3f(u.uCaveAmb, 0.12, 0.125, 0.15);
       this._setExtra(p, env.extra);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 0);
+      if (u.uRoofT) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.roofDataTex); gl.uniform1i(u.uRoofT, 1); gl.activeTexture(gl.TEXTURE0); }
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.enable(gl.BLEND);
@@ -443,6 +559,12 @@ export class Renderer {
       gl.useProgram(p.p);
       spriteUniforms(p);
       B.light.draw();
+    }
+    if (this.roofSeg.length) {
+      // opaque roofs: the outdoor ambient only (lamps inside a closed house never light its roof)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      this._roofPass(1, spriteUniforms, env.ambient);
+      for (const sg of this.roofSeg) this._roofSegment(sg);
     }
     const bloom = this.level >= 1 ? this.fx.bloom * (env.bloomK ?? 1) : 0;
     if (bloom > 0) {
@@ -482,6 +604,7 @@ export class Renderer {
       if (u.uCave) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 4); } // [world]
       if (u.uClim) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.uniform1i(u.uClim, 5); }
       if (u.uShadow) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex); gl.uniform1i(u.uShadow, 6); }
+      if (u.uRoofT) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, this.roofDataTex); gl.uniform1i(u.uRoofT, 7); }
       if (u.uAmb) gl.uniform3f(u.uAmb, amb[0], amb[1], amb[2]);
       if (u.uShadowDir) gl.uniform2f(u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
       if (u.uGrain) gl.uniform1f(u.uGrain, this.fx.grain);

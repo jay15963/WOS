@@ -20,6 +20,8 @@ export const CONTRACT = [
   'workbench', 'stonecutter', 'furnace', 'anvil', 'loom', 'cooking_pot', 'table_wood', 'chair_wood', 'rug_0', 'flower_pot_0',
   'banner_0', 'brazier', 'lamp_post', 'tent_0', 'crate_0', 'pebble_0', 'stick_0', 'fibergrass_0', 'wild_potato_0', 'wild_cotton_0', 'wild_corn_0',
   'crop_potato_0', 'crop_cotton_0', 'crop_corn_0',
+  // roofs (agent J): build-menu icons of the roof types + columns (roofs are painted per region at runtime)
+  'roof_thatch', 'roof_wood', 'roof_stone', 'column_wood', 'column_stone', 'fx_solid', 'fx_solid_b',
   'item_wood', 'item_stone', 'item_berries', 'item_meat', 'item_cooked', 'item_leather', 'item_fiber', 'item_ore',
   'icon_strike', 'icon_charge', 'icon_whirlwind', 'icon_heal', 'icon_sprint', 'icon_attack', 'icon_eat', 'icon_build', 'icon_bag', 'icon_gather',
   // corpses (I): skeletons, carcasses, rot, fly, bone item
