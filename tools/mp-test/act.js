@@ -11,7 +11,7 @@ const PATHS = {
   combat: 'game/combat.js', abilities: 'game/abilities.js', physics: 'game/physics.js', nav: 'game/nav.js',
   player: 'game/player.js', save: 'game/save.js', loot: 'game/loot.js', flora: 'game/flora.js', ai: 'game/ai.js',
   equipment: 'game/equipment.js', data: 'game/data.js', autotile: 'game/autotile.js', items: 'game/content/items.js',
-  worldgen: 'world/worldgen.js', stats: 'game/stats.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
+  worldgen: 'world/worldgen.js', stats: 'game/stats.js', controller: 'game/controller.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
   corpses: 'game/corpses.js', mcorpses: 'game/mut/corpses.js', levels: 'game/levels.js',
 };
 const CACHE = new WeakMap();
@@ -126,7 +126,7 @@ export async function reset(t, H, MH, G, MG) {
     if (p.dead) { try { M.player.respawnPlayer(g); } catch { /* ignore */ } }
     try { M.building.exitBuildMode(g); } catch { /* ignore */ }
     if (g.mining) g.mining.mode = false;
-    if (g.work) g.work.paused = true;
+    if (g.work) { g.work.paused = true; g.work.cancel?.(true); }
     p.hp = p.maxHp; p.energy = p.maxEnergy; p.hunger = Math.max(p.hunger ?? 100, 80);
     p.target = null; p.autoAttack = false; p.work = null; p.action = null; p.combatT = 0;
     if (g.ctl) g.ctl.goal = null;

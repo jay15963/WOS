@@ -2,7 +2,7 @@
 // Construir (build menu by category + deconstruct), containers (Baú and any adapter of container.js:
 // backpack beside the container, click / drag to transfer, sort buttons), Mapa (world map).
 // Non-pausing (MMO): the world keeps running; tapping the world closes the panel.
-// Also installs the work bar (build / mining / deconstruct modes) — see workbar.js.
+// Also installs the work bar (build / deconstruct modes) — see workbar.js.
 
 import { ITEMS, BUILDINGS, BUILD_ORDER, BUILD_CATS, SLOT_PT, ITEM_CAT_PT, TIER_SPEED } from '../game/data.js';
 import { eat } from '../game/survival.js';
@@ -71,7 +71,6 @@ export class Panels {
   }
 
   toggle(name) {
-    if (name === 'mine') { this.close(); this.g.ctl.toggleMineMode(); return; }
     if (this.open === name && !(name === 'craft' && this.craftStation)) this.close();
     else this.show(name);
   }

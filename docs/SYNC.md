@@ -955,6 +955,10 @@ differs from the design text above, the code is described here (this section win
     finishing it (`build.hit final`, target re-validated) → `struct.relocate {id: plan, src}` moves the SAME object (id, store, state).
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
+  - Auto-work is opt-in and owner-side (`work.js`, `game.work.{begin, cancel, pause, resume, status}`): a tap / click on a blueprint,
+    frame or decon-marked structure (or using one by hand) starts a local job sequence over its batch (same type + builtAt, plus
+    connected same-type blueprints / connected decon marks / the plots of a field); each job still goes through `build.hit` /
+    `decon.hit` / `farm.*`. Mining designations (`game.mining.marks`) were removed; old saves' `marks` are ignored.
 - **Roofs (round V2, agent J)** — roof tiles are generic structures on layer `'roof'` with the shared fields `style` (string) / `det`
   (canonical detail string): `struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]`, snapshot rows
   `[.., moveOf, style, det]` (`[14]`, `[15]`), digest `structs` rows end with style, det. `build.place {type, tiles, rot, style, det}`;

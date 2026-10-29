@@ -94,6 +94,8 @@ const CSS = `
 @media (orientation:portrait){.touch .pbb{left:auto;right:calc(var(--safe-r,0px) + 6px);top:22%;transform:none;flex-direction:column;flex-wrap:nowrap;max-height:70vh;overflow-y:auto}
   .touch .pbb .grp{flex-direction:column}.touch .pbb .grp+.grp{border-left:0;border-top:1px solid rgba(150,190,240,.22);padding:6px 0 0}}
 .pbb-on .workbar{display:none!important} /* this bar has its own name / cost line */
+.pbb .lay{background:rgba(160,110,40,.85);border-color:rgba(240,200,120,.5)}
+.pbb .lay.hidden{display:none}
 `;
 
 export function installPathbar(game) {
@@ -107,7 +109,7 @@ export function installPathbar(game) {
     <div class="grp brush"><button data-b="1" title="Pincel pequeno ( [ )">${dot(3.2)}<span>1</span></button><button data-b="2" title="Pincel médio">${dot(5.6)}<span>2</span></button><button data-b="3" title="Pincel grande ( ] )">${dot(8)}<span>3</span></button></div>
     <div class="grp shape"><button data-s="free" title="Pincel livre (R muda)">${IC.free}<span>Pincel</span></button><button data-s="line" title="Linha reta">${IC.line}<span>Linha</span></button><button data-s="area" title="Área">${IC.area}<span>Área</span></button></div>
     <span class="lbl"><b></b><small></small></span>
-    <div class="grp"><button class="ok" title="Pronto (Enter)">${IC.ok}<span>Pronto</span></button><button class="no" title="Cancelar (Esc · botão direito)">${IC.no}<span>Cancelar</span></button></div>`;
+    <div class="grp"><button class="ok" title="Pronto (Enter)">${IC.ok}<span>Pronto</span></button><button class="lay hidden" title="Assentar agora o caminho que você pintou">${IC.ok}<span>Assentar</span></button><button class="no" title="Cancelar (Esc · botão direito)">${IC.no}<span>Cancelar</span></button></div>`;
   root.appendChild(bar);
   const $ = (s) => bar.querySelector(s), $$ = (s) => [...bar.querySelectorAll(s)];
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); game.audio?.play('ui_click', {}); setTimeout(() => el.classList.remove('down'), 120); });
@@ -122,6 +124,14 @@ export function installPathbar(game) {
   for (const b of $$('[data-b]')) press(b, () => { const m = game.build.mode; setBrush(game, touch() && m?.brush === +b.dataset.b ? (m.brush % 3) + 1 : +b.dataset.b); });
   for (const b of $$('[data-s]')) press(b, () => { const m = game.build.mode; setShape(game, touch() && m?.shape === b.dataset.s ? SHAPES[(SHAPES.indexOf(m.shape) + 1) % 3] : b.dataset.s); });
   press($('.ok'), () => exitBuildMode(game));
+  // "Assentar agora": opt-in auto-work over the last painted stroke (work.js sequence kind 'path', agent A)
+  const lastPlan = () => {
+    const lp = game.build.lastPath, w = game.world;
+    if (!lp) return null;
+    for (const i of lp.tiles) if (w.pathPlan[i] === lp.code) return game.paths.jobAt(i % w.W, (i / w.W) | 0);
+    return null;
+  };
+  press($('.lay'), () => { const it = lastPlan(); if (!it) return; exitBuildMode(game); game.work?.begin?.(it); });
   press($('.no'), () => cancelBuild(game));
   const lbl = $('.lbl b'), sub = $('.lbl small');
   const last = {};
@@ -142,6 +152,9 @@ export function installPathbar(game) {
       if (last.on !== on) { last.on = on; bar.classList.toggle('hidden', !on); root.classList.toggle('pbb-on', on); }
       if (!on) return;
       swatches();
+      const lay = $('.lay'), lp = lastPlan();
+      lay.classList.toggle('hidden', !lp);
+      if (lp) lay.querySelector('span').textContent = lp.c === PATH_REMOVE ? 'Remover' : 'Assentar';
       t -= dt;
       if (t > 0 && last.k === m.key && last.b === m.brush && last.s === m.shape && last.n === m.n) return;
       t = 0.15;

@@ -3,7 +3,7 @@
 
 import { initEquipment, equipmentSystem, hasTool, bestTool, equipItem, unequip, equipFromSlot } from './equipment.js';
 import { initFlora, floraSystem, ensureStarter } from './flora.js';
-import { initMining, miningSystem, designate } from './mining.js';
+import { initMining } from './mining.js';
 import { initFarming, farmingSystem } from './farming.js';
 import { initCrafting, craftingSystem, enqueue, recipeState } from './crafting.js';
 import { initWork, workSystem } from './work.js';
@@ -24,7 +24,7 @@ export function initEconomy(game) {
   game.econ = { hasTool: (k) => hasTool(game.player, k), bestTool: (k) => bestTool(game.player, k), equipItem: (id) => equipItem(game, id),
     unequip: (s) => unequip(game, s), equipFromSlot: (i) => equipFromSlot(game, i),
     craft: (id, n) => enqueue(game, id, n), recipeState: (id) => recipeState(game, id), build: (type) => enterBuildMode(game, type),
-    designate: (tx, ty, on) => designate(game, tx, ty, on), nextStep: () => nextStep(game) };
+    nextStep: () => nextStep(game) };
 }
 
 // after loadGame (the starter safety net is an authority decision: ops)
@@ -34,7 +34,7 @@ export function postLoadEconomy(game, isNew) {
 }
 
 export function economySystems() {
-  return [workSystem(), craftingSystem(), miningSystem(), farmingSystem(), floraSystem(), equipmentSystem(), guideSystem()];
+  return [workSystem(), craftingSystem(), farmingSystem(), floraSystem(), equipmentSystem(), guideSystem()];
 }
 
 // ---------- progression guide ----------
@@ -87,7 +87,7 @@ function guideSystem() {
       if (axe >= 0 && pick >= 0 && once(game, 'gather', 'Corte árvores e quebre pedregulhos. Construir (B): fogueira e bancada', 'good')) return;
       if (game.env.hour >= 17.2 && game.env.hour < 19 && !built(game, 'campfire') && once(game, 'night' + game.env.dayIndex, 'Vai anoitecer: construa uma fogueira (3 madeira + 4 pedrinhas)', 'warn')) return;
       if (built(game, 'workbench') && once(game, 'bench', 'Bancada pronta: ferramentas de pedra, arco, flechas e lança', 'good')) return;
-      if (pick >= 1 && once(game, 'mine', 'Com picareta de pedra você minera cobre e carvão nas montanhas (Minerar: X)')) return;
+      if (pick >= 1 && once(game, 'mine', 'Com picareta de pedra você minera cobre e carvão: encoste numa rocha e use o botão de ação (E)')) return;
       if ((p.inv.count('copper_ore') || p.inv.count('iron_ore')) && !built(game, 'furnace') && once(game, 'ore', 'Construa uma fornalha para fundir minério (18 pedra + 3 madeira)')) return;
       if (p.inv.count('copper_bar') >= 2 && !built(game, 'anvil') && once(game, 'anvil', 'Bigorna: forje ferramentas e armas de cobre')) return;
       if ((p.inv.count('seed_potato') || p.inv.count('seed_corn') || p.inv.count('seed_cotton')) && !built(game, 'farm_plot') && once(game, 'seeds', 'Sementes! Faça canteiros (Construir › Agricultura) para plantar')) return;

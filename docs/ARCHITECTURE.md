@@ -182,7 +182,7 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `chunk.pop` (população inicial por tipo), `world.canGrow(tx,ty,kind)`, `world.growWeight(tx,ty,kind)`;
   `world.camps` / `world.zones` (`bandit_camp`). Luz: passe `AMBIENT_FS` (ambiente × caverna) + luzes aditivas; batch `decal`.
 - **Economia** (`game.econ`): `hasTool, bestTool, equipItem, unequip, equipFromSlot, rollKillLoot, craft, recipeState, build,
-  designate, nextStep`; `game.hasTool(p, kind)`; `registerWork(kind, handler)` (gathering.js); `world.noGrow` (sem renascer perto de
+  nextStep`; `game.hasTool(p, kind)`; `registerWork(kind, handler)` (gathering.js); `world.noGrow` (sem renascer perto de
   construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia (paredes, móveis,
   portas FECHADAS), 0 = livre (porta aberta). Portas só abrem/fecham por ação (`door.toggle`).
 - **Construção (rodada V2)**: plantas grátis (azuis), material entregue no início da obra (`struct.paid`), rotação `o.rot`
@@ -193,7 +193,9 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   fresco (1º dia) → podre (2º, verde-acinzentado, moscas) → ossada (3º–5º) → some. Animais: "Coletar" no 1º dia (carne / couro, melhor
   com lâmina); ossada: "Remover ossada" dá Ossos. Jogadores / saqueadores: os itens ficam no corpo ("Revistar" até o fim do 2º dia,
   janela de contêiner de B, `openContainer` + `corpseAdapter` em `corpses.js`, ordenação pela intent única `store.sort`). Detalhes em `docs/SYNC.md` §7.2.
-  Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
+  Save v2 (`wos.save.v1.<seed>` migrado). Trabalho automático **opcional** (`work.js`): só começa quando o jogador toca numa
+  planta azul / obra / construção marcada (ou planta/colhe à mão) e percorre aquele lote; faixa no topo com ✕ Cancelar (Esc), andar
+  pausa (▶ Continuar). Mineração é só ação direta (sem marcas nem fila).
 - **Andares (agente L, `docs/LEVELS.md`)**: `game.levels` (`src/game/levels.js`) — mapa de níveis derivado das construções
   (topo de muro/porta pronta = piso do andar 1), escadas `block: 'stairs'` (portais no A*), entidades com `lv` (nível de colisão)
   e `z` (altura em andares, contínua na escada; presença e fluxo de criaturas replicam `z`). `STORY_H` = altura de um andar

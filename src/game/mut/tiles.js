@@ -1,5 +1,5 @@
 // Rock tiles: mining progress and mined tiles (world.rock / ground / textures / wall masks).
-// Ops: rock.prog · tile.mine. Intent: rock.hit. Designations (game.mining.marks) stay per player.
+// Ops: rock.prog · tile.mine. Intent: rock.hit. (Mining is a direct action: no designations.)
 // The natural (mountain) roof is derived from the rock grid inside world.mineRock on every peer (world.js
 // _naturalRoof); tile.mine plays the cave-in where a section lost its roof and the host hurts players under it.
 
@@ -48,8 +48,6 @@ export function mineTile(game, tx, ty, fx = false) {
   }
   if (!game.minedSet.has(i)) { game.minedTiles.push(i); game.minedSet.add(i); }
   game.rockHits.delete(i);
-  const M = game.mining;
-  if (M) { M.marks.delete(i); M.blocked.delete(i); M.v++; }
   updateMasksAround(game, tx, ty);
   game.events.emit('tile', { tx, ty });
   return true;

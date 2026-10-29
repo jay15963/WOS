@@ -1,9 +1,8 @@
-// Work bar (top centre): build placement (name, cost × tiles, hint, ✓ / ✕), deconstruct mode,
-// mining designation mode, plus a small job chip (pending blueprints / mining / decon, pause toggle).
+// Work bar (top centre): build placement (name, cost × tiles, hint, ✓ / ✕) and deconstruct mode.
+// (The old pending-jobs chip is gone: auto-work is opt-in and shows its own banner, src/ui/buildbar.js.)
 
 import { BUILDINGS, ITEMS } from '../game/data.js';
 import { commitPlacement, exitBuildMode } from '../game/building.js';
-import { countJobs } from '../game/work.js';
 import { svgIcon } from './icons.js';
 import { econIcon, buildIco, itemIco } from './econIcons.js';
 
@@ -20,29 +19,17 @@ export function installWorkbar(game, root) {
   bar.innerHTML = `<span class="wb-ic"></span><span class="wb-tx"><b></b><small class="wb-cost"></small><small class="wb-hint"></small></span>
     <button class="bb-b ok wb-ok" title="Construir (Enter)">${svgIcon('check')}</button><button class="bb-b no wb-no" title="Cancelar (Esc)">${svgIcon('close')}</button>`;
   root.appendChild(bar);
-  const chip = document.createElement('button');
-  chip.className = 'jobchip hidden';
-  chip.title = 'Tarefas pendentes (toque para pausar)';
-  root.appendChild(chip);
   const $ = (s) => bar.querySelector(s);
   const R = { ic: $('.wb-ic'), nm: $('.wb-tx b'), cost: $('.wb-cost'), hint: $('.wb-hint'), ok: $('.wb-ok'), no: $('.wb-no') };
   press(R.ok, () => {
     const m = game.build.mode;
     if (m?.kind === 'place') commitPlacement(game);
     else if (m?.kind === 'decon') exitBuildMode(game);
-    else if (game.mining.mode) game.ctl.toggleMineMode(false);
   });
   press(R.no, () => {
     const m = game.build.mode;
     if (m?.kind === 'place' && m.anchor) { m.anchor = m.end = null; m.locked = false; return; }
     if (m) exitBuildMode(game);
-    else if (game.mining.mode) game.ctl.toggleMineMode(false);
-  });
-  press(chip, () => {
-    game.work.paused = !game.work.paused;
-    game.events.emit('toast', { text: game.work.paused ? 'Tarefas pausadas' : 'Tarefas retomadas', kind: 'info' });
-    if (!game.work.paused) game.work.wake();
-    last.chip = null;
   });
 
   const last = {};
@@ -53,8 +40,8 @@ export function installWorkbar(game, root) {
       t -= dt;
       if (t > 0) return;
       t = 0.1;
-      const m = game.build.mode, M = game.mining, touch = document.getElementById('hud')?.classList.contains('touch');
-      const mode = m ? m.kind + (m.type || '') : M.mode ? 'mine' : '';
+      const m = game.build.mode, touch = document.getElementById('hud')?.classList.contains('touch');
+      const mode = m ? m.kind + (m.type || '') : '';
       if (last.mode !== mode) { last.mode = mode; bar.classList.toggle('hidden', !mode); }
       if (m?.kind === 'place') {
         const def = BUILDINGS[m.type];
@@ -78,23 +65,6 @@ export function installWorkbar(game, root) {
         set('hint', R.hint, touch ? 'Toque nas construções (planta: cancela)' : 'Clique ou arraste sobre construções');
         R.ok.classList.add('hidden');
         R.hint.classList.remove('bad');
-      } else if (M.mode) {
-        set('ic', R.ic, econIcon(A, 'mine'), true);
-        set('nm', R.nm, 'Minerar');
-        set('cost', R.cost, `${M.marks.size} rocha(s) marcada(s)`);
-        set('hint', R.hint, touch ? 'Toque nas rochas · de novo desmarca' : 'Clique ou arraste sobre rochas');
-        R.ok.classList.add('hidden');
-        R.hint.classList.remove('bad');
-      }
-      // job chip
-      const n = countJobs(game);
-      const chipTxt = n ? `${econIcon(A, game.work.paused ? 'pause' : 'build')}<span>${n}</span>` : '';
-      const key = n + ':' + !!game.work.paused;
-      if (last.chip !== key) {
-        last.chip = key;
-        chip.classList.toggle('hidden', !n);
-        chip.classList.toggle('paused', !!game.work.paused);
-        chip.innerHTML = chipTxt;
       }
     },
   };

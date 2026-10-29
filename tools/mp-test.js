@@ -1392,11 +1392,15 @@ function bot(t, f, M, home) {
     if (now() < next || busy) return;
     next = now() + 1500 + Math.random() * 3000;
     busySince = now();
-    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon', 'body']);
+    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon', 'body', 'work', 'work']);
     stats.actions[act] = (stats.actions[act] || 0) + 1;
     try {
       if (act === 'walk') { const s = A.freeSpot(f, M, p.x + (Math.random() - 0.5) * 16, p.y + (Math.random() - 0.5) * 16, { rMin: 0, rMax: 3 }); if (s) g.ctl.walkTo(s[0], s[1]); }
       else if (act === 'chop') { const o = A.shared(f, null, p.x, p.y, 12, A.standingTree)[0]; if (o) A.interact(f, M.gathering.describeObject(g, o)); }
+      else if (act === 'work') { // opt-in auto-work: "tap" a blue plan / a marked structure nearby
+        const o = g.build.structures.filter((q) => (q.blueprint || g.build.decon.has(q)) && A.dist(q, p) < 14)[0];
+        if (o) g.work.begin(M.building.describeStructure(g, o));
+      }
       else if (act === 'gather') { const o = A.shared(f, null, p.x, p.y, 10, (q) => /^(pebble|stick|fibergrass|bush|berrybush)$/.test(q.type) && !q.gone)[0]; if (o) A.interact(f, M.gathering.describeObject(g, o)); }
       else if (act === 'build') {
         const tx = Math.floor(p.x + (Math.random() - 0.5) * 10), ty = Math.floor(p.y + (Math.random() - 0.5) * 10);
@@ -1815,6 +1819,21 @@ def('S50', {
 
 // =====================================================================================================
 // Agent A (construction) scenarios — rotation / edge props, real footprints, delivery, move, decon, raze, saves
+// points around every ground item (findSite avoidPts): sites ≥ ~3.5 tiles from loot, so the magnet never changes bag counts
+const lootAvoid = (f, cx, cy, r = 26) => {
+  const out = [], D = [-3, -1.5, 0, 1.5, 3];
+  for (const l of f.game.loot) if (Math.hypot(l.x - cx, l.y - cy) < r) for (const dx of D) for (const dy of D) out.push([l.x + dx, l.y + dy]);
+  return out;
+};
+// auto-work waits while a creature chases the player: calm every host creature around (any temper) and drop its chase
+const calmAround = (H, x, y, r = 30, secs = 300) => {
+  for (const m of H.game.entities) {
+    if (!m.isMob || m.proxy || m.dead || Math.hypot(m.x - x, m.y - y) > r) continue;
+    m.calmT = secs;
+    if (m.state === 'chase') { m.state = 'idle'; m.stateT = 1; m.threat = null; }
+  }
+};
+const chasers = (f) => f.game.entities.filter((e) => !e.dead && e.state === 'chase' && e.threat === f.game.player).map((e) => `${e.type ?? e.kind}@${f2(e.x)},${f2(e.y)}`).join(' ') || 'none';
 const geo = (o) => o && `${o.tx},${o.ty} r${o.rot | 0} ${o.fw}×${o.fh} @${f2(o.x)},${f2(o.y)} c${f2(o.cy)}`;
 
 def('S31', {
@@ -1888,13 +1907,13 @@ def('S32', {
 
 def('S33', {
   title: 'A: guest drags a blueprint row and builds it (materials on delivery)', timeout: 150000,
-  expected: 'Guest drags a 4-tile fence row (the same drag API as mouse / one finger): 4 free blueprints on both (no wood taken); a 5th cancelled after delivery refunds its wood; with too little wood one stays "falta material" (skipped by auto-work, unpaid on both); building takes the wood from the guest’s bag when each starts; fences joined to a wall',
+  expected: 'Guest drags a 4-tile fence row (the same drag API as mouse / one finger): 4 free blueprints on both (no wood taken); a 5th cancelled after delivery refunds its wood; opt-in auto-work started on the first builds the others in sequence and stops on the one lacking wood ("falta material", unpaid on both); the wood leaves the guest’s bag when each starts; fences joined to a wall',
   api: 'buildDragStart/Move/End → build.place; build.hit {start, pay} → struct.paid; canSupply / work queue skip; build.decon on a paid blueprint → give; autotile joins',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const g = G.game, gp = g.player, hp = H.game.player;
   const row = (x, y) => [0, 1, 2, 3, 4].map((k) => [x + k, y]).concat([[x - 1, y]]);
-  const site = A.findSite([H, G], [MH, MG], 'fence_wood', row, gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  const site = A.findSite([H, G], [MH, MG], 'fence_wood', row, gp.x, gp.y, { rMin: 3, rMax: 20, avoidPts: [[gp.x, gp.y], [hp.x, hp.y], ...lootAvoid(G, gp.x, gp.y)] });
   t.assert(site, 'found a free row');
   const { x0, y0 } = site;
   // a wall post at the west end (built by the host) for the fence to join
@@ -1933,16 +1952,18 @@ def('S33', {
   if (have > 3) gp.inv.remove('wood', have - 3);
   if (have < 3) A.ensure(G, { wood: 3 });
   g.events.emit('inventory', {});
-  for (const id of ids.slice(0, 3)) { const o = A.structOn(G, id); A.standBy(G, MG, o); await A.hostSees(t, H, G); await A.buildAll(t, G, MG, [id]); }
+  // opt-in auto-work from the first fence: builds the 3 it can pay for in sequence, skips the 4th, then stops
+  A.standBy(G, MG, A.structOn(G, ids[0]));
+  await A.hostSees(t, H, G);
+  g.work.paused = false;
+  t.check(g.work.begin(MG.building.describeStructure(g, A.structOn(G, ids[0]))), 'auto-work started from the first blueprint');
+  t.check(g.work.seq?.ids?.size === 4, 'the sequence holds the 4 fences of the row', `${g.work.seq?.ids?.size}`);
+  await t.waitFor(() => ids.slice(0, 3).every((id) => !A.structOn(H, id)?.blueprint) && !g.work.seq, 40000, 'auto-work built 3 and stopped',
+    () => `built ${ids.slice(0, 3).filter((id) => !A.structOn(H, id)?.blueprint).length}/3 · seq ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'}`);
+  g.work.paused = true;
   t.check(A.count(G, 'wood') === 0, 'each start took 1 wood (3 built, bag empty)', `wood ${A.count(G, 'wood')}`);
   const lack = A.structOn(G, ids[3]);
-  t.check(lack.blueprint && !lack.paid && !MG.building.canSupply(g, lack), 'the 4th waits for material (unpaid, cannot supply)');
-  g.work.paused = false;
-  await t.sleep(1800);
-  g.work.paused = true;
-  const busy = gp.work?.it?.o === lack;
-  gp.work = null; gp.action = null; g.ctl.goal = null;
-  t.check(!busy && !A.structOn(H, ids[3])?.paid, 'auto-work skips it (falta material)', `busy ${busy}`);
+  t.check(lack.blueprint && !lack.paid && !MG.building.canSupply(g, lack) && !A.structOn(H, ids[3])?.paid, 'the 4th was skipped: unpaid, waits for material');
   A.ensure(G, { wood: 2 });
   await A.buildAll(t, G, MG, [ids[3]]);
   await t.waitFor(() => ids.slice(0, 4).every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 300, 'host sees all 4 built');
@@ -2333,6 +2354,72 @@ def('S41', {
     EH.setWeather(w0 || 'clear');
     await t.tryWait(() => EG.weather === EH.weather, 8000);
   }
+});
+
+
+def('A6', {
+  title: 'A: opt-in auto-work (tap a blueprint, build the row, cancel mid-way)', timeout: 150000,
+  expected: 'Placing a 5-wall row starts nothing (no delivery, no work for 1.5 s); a real tap on the first blueprint starts the sequence (banner shows "Construindo · Parede de madeira · N restantes"); walls get built one after another; the banner ✕ cancels mid-way: the current step stops, the rest stay blueprints (delivered ones stay paid) and nothing more is built; digest equal',
+  api: 'input tap → controller doTap → game.work.begin (work.js) → build.hit / struct.* ops; banner DOM (.awb, .x) → game.work.cancel(); game.work.status()',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const g = G.game, gp = g.player, hp = H.game.player;
+  A.ensure(G, { wood: 30 });
+  const row = (x, y) => [0, 1, 2, 3, 4].map((k) => [x + k, y]);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', row, gp.x, gp.y, { rMin: 3, rMax: 20, avoidPts: [[gp.x, gp.y], [hp.x, hp.y], ...lootAvoid(G, gp.x, gp.y)] });
+  t.assert(site, 'found a free row');
+  const { x0, y0 } = site;
+  calmAround(H, x0 + 2, y0);
+  A.place(G, MG, 'wall_wood', [x0, y0], [x0 + 4, y0]);
+  const at = (f, M) => [0, 1, 2, 3, 4].map((k) => A.structAt(f, M, x0 + k, y0, 'main'));
+  await t.waitFor(() => at(G, MG).every(Boolean) && at(H, MH).every(Boolean), RT() + 600, '5 wall blueprints on both');
+  const ids = at(H, MH).map((o) => o.id);
+  // nothing happens by itself, even with continuation allowed
+  g.work.paused = false;
+  t.defer(() => { g.work.cancel(true); g.work.paused = true; });
+  const wood0 = A.count(G, 'wood');
+  await t.sleep(1500);
+  t.check(!g.work.seq && !gp.work && ids.every((id) => !A.structOn(H, id).paid) && A.count(G, 'wood') === wood0, 'placing starts nothing (no delivery, no work)', `seq ${!!g.work.seq} work ${gp.work?.label ?? '-'}`);
+  // a real tap on a blueprint of the row (screen point → controller pick / doTap → work.begin); the point is one
+  // where the controller's own pick finds that blueprint (no tree canopy in front of it)
+  const first = A.structOn(G, ids[0]);
+  A.standBy(G, MG, first);
+  await A.hostSees(t, H, G);
+  g.cam.x = gp.x; g.cam.y = gp.y - 0.4;
+  await t.sleep(80);
+  let tap = null;
+  for (const id of ids) for (const dy of [0.9, 0.6, 0.3]) {
+    if (tap) break;
+    const o = A.structOn(G, id), [sx, sy] = g.worldToScreen(o.tx + 0.5, o.ty + dy);
+    const h = MG.controller.pick(g, sx, sy);
+    if (h.type === 'interact' && h.it?.o === o) tap = { sx, sy, id };
+  }
+  t.assert(tap, 'a screen point that picks a blueprint of the row');
+  g.input.taps.push({ x: tap.sx, y: tap.sy, type: 'touch' });
+  await t.waitFor(() => g.work.seq, 2000, 'the tap started auto-work', () => `tap at ${f2(tap.sx)},${f2(tap.sy)} · ui: ${G.lastUi()}`);
+  const st = g.work.status();
+  t.check(st && st.kind === 'build' && st.n >= 5 && ids.every((id) => g.work.seq.ids.has(id)) && /Parede de madeira/.test(st.name), 'status: Construindo · Parede de madeira · ≥5 (the whole row)', JSON.stringify(st));
+  await t.waitFor(() => { const b = G.doc.querySelector('.awb'); return b && !b.classList.contains('hidden') && /Construindo/.test(b.textContent); }, 3000, 'banner visible with "Construindo"');
+  // two walls get built in sequence (the player walks between them by itself)
+  await t.waitFor(() => ids.filter((id) => !A.structOn(H, id)?.blueprint).length >= 2, 60000, 'two walls built by the sequence',
+    () => `built ${ids.filter((id) => !A.structOn(H, id)?.blueprint).length} · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'}`);
+  // cancel mid-way through the banner's ✕
+  const btn = G.doc.querySelector('.awb .x');
+  t.assert(btn, 'banner cancel button');
+  btn.dispatchEvent(new G.win.PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  t.check(!g.work.seq && !gp.work, 'cancel stops the sequence and its current step', `seq ${!!g.work.seq} work ${gp.work?.label ?? '-'}`);
+  await t.sleep(RT() + 1500);
+  const builtNow = ids.filter((id) => !A.structOn(H, id)?.blueprint).length;
+  await t.sleep(1500);
+  const builtLater = ids.filter((id) => !A.structOn(H, id)?.blueprint).length;
+  t.check(builtLater === builtNow && builtNow < 5, 'nothing more is built after the cancel', `${builtNow} → ${builtLater}`);
+  const left = ids.filter((id) => A.structOn(H, id)?.blueprint);
+  t.check(left.length >= 1 && left.every((id) => A.structOn(G, id)?.blueprint), 'the rest stay blueprints (plans) on both', `${left.length} left`);
+  const paidLeft = left.filter((id) => A.structOn(H, id).paid).length;
+  t.check(A.count(G, 'wood') === wood0 - 2 * (builtNow + paidLeft), 'wood taken only for delivered walls (a delivered plan stays paid)', `${wood0} → ${A.count(G, 'wood')} · built ${builtNow} · paid plans ${paidLeft}`);
+  t.check(G.doc.querySelector('.awb')?.classList.contains('hidden'), 'banner hidden after the cancel');
+  await t.checkDigest(H, G);
+  env.history.push('A6');
 });
 
 // =====================================================================================================
@@ -3841,6 +3928,71 @@ def('M5', {
   let err = null;
   try { MN.applyWorld(g, old, 'load'); } catch (e) { err = e.message; }
   t.check(!err && !g.pathGrid.built && !g.pathGrid.planned.size, 'an old save without paths loads (no paths, no error)', err || 'ok');
+});
+
+def('A7', {
+  title: 'A: opt-in auto-work on painted paths (tap a plan, lay the stroke, remove it)', timeout: 150000,
+  expected: 'Guest paints a 6-tile gravel stroke: nothing is laid by itself (1.5 s); a real tap on one plan tile starts a path sequence (banner "Assentando caminho · Cascalho · N restantes") that lays the whole stroke through path.lay (pebbles leave the guest bag, grids identical on both); then red removal marks on the stroke + a tap dig them all out (path.dig); digest equal',
+  api: 'game.paths.paint / jobAt; controller pick → doTap → game.work.begin (sequence kind path) → path.lay / path.dig; game.work.status()',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(G.game.paths, 'needs the painted paths module (game.paths)');
+  const MP = await frameImport(H, 'game/mut/paths.js');
+  A.keepAlive(t, G);
+  const g = G.game, gp = g.player, w = H.game.world, W = w.W;
+  const tiles = pathRow(H, MP, gp.x, gp.y, 6);
+  t.assert(tiles, 'found a free row of 6 paintable tiles');
+  env.history.push('A7');
+  calmAround(H, (tiles[2] % W) + 0.5, ((tiles[2] / W) | 0) + 0.5);
+  await t.tryWait(() => chasers(G) === 'none', 4000);
+  A.ensure(G, { pebble: 12 });
+  const peb0 = A.count(G, 'pebble');
+  g.paths.paint('gravel', tiles);
+  await t.waitFor(() => tiles.every((i) => g.world.pathPlan[i] === 2 && w.pathPlan[i] === 2), RT() + 600, 'gravel plans on both');
+  g.work.paused = false;
+  t.defer(() => { g.work.cancel(true); g.work.paused = true; });
+  await t.sleep(1500);
+  t.check(!g.work.seq && tiles.every((i) => !w.path[i]) && A.count(G, 'pebble') === peb0, 'painting starts nothing (no tile laid, no pebble taken)');
+  // a real tap on a plan tile (a point the controller's pick resolves to that path job)
+  const tapPlan = async (code) => {
+    const i0 = tiles.find((i) => g.world.pathPlan[i] === code);
+    const sp = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 0.5, { rMin: 0.8, rMax: 2.5, prefer: Math.PI / 2 });
+    t.assert(sp, 'free spot next to the stroke');
+    A.teleport(G, sp[0], sp[1]);
+    await A.hostSees(t, H, G);
+    g.cam.x = gp.x; g.cam.y = gp.y - 0.4;
+    await t.sleep(80);
+    let tap = null;
+    for (const i of tiles) for (const [ox, oy] of [[0.5, 0.5], [0.3, 0.8], [0.7, 0.2]]) {
+      if (tap || g.world.pathPlan[i] !== code) continue;
+      const [sx, sy] = g.worldToScreen((i % W) + ox, ((i / W) | 0) + oy);
+      const h = MG.controller.pick(g, sx, sy);
+      if (h.type === 'interact' && h.it?.kind === 'path' && h.it.i === i) tap = { sx, sy };
+    }
+    t.assert(tap, 'a screen point that picks a plan tile of the stroke');
+    g.input.taps.push({ x: tap.sx, y: tap.sy, type: 'touch' });
+    await t.waitFor(() => g.work.seq?.kind === 'path', 2000, 'the tap started a path sequence', () => `ui: ${G.lastUi()}`);
+  };
+  await tapPlan(2);
+  const st = g.work.status();
+  t.check(st && st.kind === 'path' && st.n === 6 && st.name === 'Cascalho' && /Assentando caminho/.test(st.verb), 'status: Assentando caminho · Cascalho · 6', JSON.stringify(st));
+  await t.waitFor(() => tiles.every((i) => w.path[i] === 2 && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
+    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} chasers=${chasers(G)} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'built cells identical on both', pathCells(H, tiles));
+  t.check(A.count(G, 'pebble') === peb0 - 6, '6 pebbles left the guest bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
+  // removal marks work like deconstruction marks
+  g.paths.paint('remove', tiles);
+  await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15 && g.world.pathPlan[i] === 15), RT() + 600, 'red removal marks on both');
+  await t.sleep(800);
+  t.check(tiles.every((i) => w.path[i] === 2), 'marking removes nothing by itself');
+  await tapPlan(15);
+  t.check(g.work.status()?.verb === 'Removendo caminho', 'status: Removendo caminho', JSON.stringify(g.work.status()));
+  await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence dug the stroke out',
+    () => `left ${tiles.filter((i) => w.path[i]).length} · ${JSON.stringify(g.work.status())}`);
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', pathCells(H, tiles));
+  await t.checkDigest(H, G);
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',

@@ -9,8 +9,9 @@
 //     (the stroke is dropped), a tap stamps once.
 //   The stroke shows at once as a local blueprint preview; on release the tiles go to the host in ONE request
 //   (path.plan, run-length encoded) and come back as blue blueprints for everyone.
-// Building (RimWorld flow, cheapest to sync): blueprints are free; auto-work (work.js provider) lays a patch of up to
-//   PATH_PATCH planned tiles around the worked one per cycle; the materials leave the bag when the patch is laid
+// Building (RimWorld flow, cheapest to sync): blueprints are free; opt-in auto-work (work.js sequence kind 'path':
+//   tap / click a blue plan, E next to it, or "Assentar" on the toolbar) lays a patch of up to PATH_PATCH planned tiles
+//   around the worked one per cycle and walks the rest of the painted stroke; the materials leave the bag when the patch is laid
 //   (path.lay; the dirt path is free). Removal: the eraser or the deconstruct tool marks built tiles (code 15), work
 //   digs them out (path.dig, 75% of the materials back). Blueprints under the eraser are cancelled at once.
 // Cosmetic (every peer, from the shared grids): GPU data for the shader (signed distance fields, region uploads),
@@ -115,8 +116,8 @@ export function enterPathMode(game, key = 'dirt') {
   if (game.ctl?.hinted && !h.pathhint) {
     h.pathhint = true; // sync-ok: hint flag (player save), not shared state
     game.events.emit('toast', {
-      text: game.input.isTouch ? 'Arraste um dedo para pintar o caminho (dois dedos dão zoom). Você mesmo assenta as plantas quando fica parado.'
-        : 'Arraste para pintar o caminho · [ ] tamanho do pincel · R forma · Esc cancela',
+      text: game.input.isTouch ? 'Arraste um dedo para pintar o caminho (dois dedos dão zoom). Depois toque na planta azul para assentar.'
+        : 'Arraste para pintar o caminho · [ ] tamanho do pincel · R forma · Esc cancela · clique na planta azul para assentar',
       kind: 'info',
     });
   }
@@ -261,6 +262,7 @@ function commitStroke(game) {
     return 0;
   }
   const code = m.code, T = PATH_TYPES[code];
+  game.build.lastPath = { code, tiles: list }; // "Assentar agora" on the path toolbar (local)
   const w = game.world, c = list[list.length >> 1];
   game.audio?.play('path_paint', { x: (c % w.W) + 0.5, y: ((c / w.W) | 0) + 0.5 });
   requestPlan(game, code, list, {
