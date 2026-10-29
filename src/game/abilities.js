@@ -328,7 +328,7 @@ function effect(game, id, ab, t) {
       p.action.t = 0.55; // release from the held draw
       playerShot(game, t, 2.6, 6, { ability: id });
       if (!useAmmo(game, p.wprof, 1)) noAmmo(game);
-      game.audio?.play('crit', { x: p.x, y: p.y, volume: 0.5 });
+      game.audio?.play('bow', { x: p.x, y: p.y, volume: 1.1 });
       J.shake(0.12);
       break;
     }
@@ -341,7 +341,7 @@ function effect(game, id, ab, t) {
           if (a === 0 || angs.length < 3) playerShot(game, t, 0.9, 0, { ability: id, angle: a });
           else shotWide(game, t, a, id);
         }
-        game.audio?.play('swing', { x: p.x, y: p.y });
+        game.audio?.play('bow', { x: p.x, y: p.y });
       });
       if (n < 3) game.events.emit('error', { text: n === 2 ? 'Só 2 flechas' : 'Só 1 flecha' });
       break;
@@ -364,7 +364,7 @@ function effect(game, id, ab, t) {
       p.weapon = weapon(p);
       p.action = { type: 'block', t: 0, dur: 0.22 };
       addBuff(p, 'block', 4);
-      game.audio?.play('build', { x: p.x, y: p.y, volume: 0.5 });
+      game.audio?.play('shield_up', { x: p.x, y: p.y });
       break;
     }
     case 'shield_bash': {

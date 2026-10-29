@@ -152,7 +152,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
   if (src !== dst && !opts.dot) {
     if (blocked) {
       game.juice.chips(hx, hy, [0.95, 0.85, 0.6], 6, 0.6);
-      game.audio?.play('mine', { x: hx, y: hy, volume: 0.6 });
+      game.audio?.play('block', { x: hx, y: hy });
     } else {
       game.juice.hit(hx, hy, opts.crit, dst === p ? [1, 0.45, 0.35] : dtype === 'fire' ? [1, 0.55, 0.15] : null);
       if (dtype === 'phys') game.juice.blood(hx, hy, opts.crit ? 7 : 4);
@@ -395,7 +395,7 @@ export function combatSystem() {
           if (!useAmmo(game, prof, 1)) { noAmmo(game); return; }
           faceTowards(p, t);
           playerShot(game, t, 1, 0);
-          game.audio?.play('swing', { x: p.x, y: p.y, volume: 0.7 });
+          game.audio?.play('bow', { x: p.x, y: p.y });
         });
         return;
       }

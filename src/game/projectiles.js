@@ -99,7 +99,7 @@ function stick(game, pr, ground) {
   pr.stuck = true; pr.t = 0;
   pr.ground = ground;
   if (ground) pr.lift = 0.04;
-  game.audio?.play(ground ? 'step' : 'chop', { x: pr.x, y: pr.y, volume: 0.35 });
+  game.audio?.play(ground ? 'arrow_ground' : 'arrow_wood', { x: pr.x, y: pr.y, volume: 0.8 });
   if (pr.cosmetic) return;
   reportEnd(game, pr, true, ground);
   if (pr.faction === 'player' && pr.kind === 'arrow' && Math.random() < (ground ? 0.5 : 0.3)) {
