@@ -331,8 +331,20 @@ function soil(n, B, seed, dark) {
     const g = 0.4 + R() * 0.22;
     T.pebble(R() * n, R() * n, 1.5 + Math.pow(R(), 1.5) * 3.2, [g * 1.08, g * 0.98, g * 0.85], { h: 0.8, rim: 0.45, shadow: 0.3 });
   }
-  // life in the soil: tiny sprouts and clover leaves in loose patches, dry grass fibres, moss specks
+  // life in the soil: short turf in soft patches (light soil = meadows), tiny sprouts and clover leaves,
+  // dry grass fibres, moss specks
   const pm = B.view('patch', 6, 3, 0.5, dark ? 61 : 23, dark ? 187 : 91);
+  if (!dark) {
+    const pm2 = B.view('mid', 16, 3, 0.55, 77, 141), tm = new Float32Array(n * n);
+    for (let i = 0; i < tm.length; i++) tm[i] = smooth(-0.05, 0.3, pm[i] + pm2[i] * 0.35) * 0.5;
+    T.paint(tm, [0.36, 0.38, 0.20], 0.5, 0.3);
+    for (let k = 0; k < 1700; k++) {
+      const x = R() * n, y = R() * n;
+      if (tm[Math.floor(y) * n + Math.floor(x)] < 0.12) continue;
+      const a = -1.57 + (R() - 0.5) * 1.4, l = 1.6 + R() * 2.4, v = 0.8 + R() * 0.4;
+      T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.38, [0.30 * v, 0.40 * v, 0.17 * v], 0.8, 0.6);
+    }
+  }
   for (let k = 0; k < (dark ? 260 : 340); k++) {
     const x = R() * n, y = R() * n;
     if (pm[Math.floor(y) * n + Math.floor(x)] < -0.05 && R() < 0.7) continue;
