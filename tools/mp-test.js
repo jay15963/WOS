@@ -1566,6 +1566,161 @@ def('S30', {
 
 // =====================================================================================================
 // entry
+// =====================================================================================================
+// G1 / G2 — aimed ground abilities (agent G): Tiro Longo (bow) and Lançar Lança (spear)
+// host creature for an aimed throw: an animal (not a raider) with a free spot `d` tiles away for the guest
+function lobSite(t, H, G, MG, d) {
+  const sp = spawnOf(H);
+  const list = A.hostMobs(H, (m) => m.kind === 'animal' && !env.claimed.has('mob' + m.nid) && m.state !== 'chase')
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  for (const m of list.slice(0, 12)) {
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const s = A.freeSpot(G, MG, m.x + Math.cos(a) * d, m.y + Math.sin(a) * d, { rMin: 0, rMax: 0.8 });
+      if (s && Math.abs(Math.hypot(s[0] - m.x, s[1] - m.y) - d) < 0.9) return { m, s };
+    }
+  }
+  return null;
+}
+// keep a host creature still (authority-side test setup) so the aimed point stays on it
+const holdStill = (t, m) => t.watch(() => { if (!m.dead) { m.stunT = 2; m.calmT = 60; } }, 30);
+const lobsOf = (f, seen) => (f.game.projectiles || []).filter((q) => q.lob && !seen.has(q));
+
+def('G1', {
+  title: 'G: long shot', timeout: 150000,
+  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; digest equal',
+  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
+  const W = await import(new URL('src/game/content/weapons.js', G.win.location.href).href);
+  const S = W.lobSpec('bow_wood');
+  A.keepAlive(t, G);
+  t.assert(A.equip(G, 'bow_wood') !== false && G.game.player.equip.main === 'bow_wood', 'guest holds a bow');
+  A.ensure(G, { arrow: 14 });
+  MG.abilities.rebuildBar(G.game);
+  const site = lobSite(t, H, G, MG, 16);
+  t.assert(site, 'creature with a free spot 16 tiles away');
+  const { m, s } = site;
+  env.claimed.add('mob' + m.nid);
+  holdStill(t, m);
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  const prox = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'creature proxy on the guest');
+  t.log(`target ${m.species} ${m.nid} at ${f2(Math.hypot(m.x - s[0], m.y - s[1]))} tiles`);
+  const dmgH = [], dmgG = [];
+  const av = () => guestOnHost(H, G);
+  t.on(H, 'damage', (d) => { if (d.target === m && d.ability === 'long_shot' && d.kind === 'hit') dmgH.push(d); });
+  t.on(G, 'damage', (d) => { if (d.target?.nid === m.nid && d.ability === 'long_shot' && d.kind === 'hit') dmgG.push(d); });
+  const gp = G.game.player;
+  const arrows0 = A.count(G, 'arrow');
+  let shots = 0, hit = false, bothSee = true, sameLanding = true, inRange = true, lastT = -1e9;
+  const seenH = new Set(H.game.projectiles || []), seenG = new Set(G.game.projectiles || []);
+  for (let k = 0; k < 7 && !hit && !m.dead; k++) {
+    const wait = 2700 - (now() - lastT);
+    if (wait > 0) await t.sleep(wait); // host cooldown (3 s, 20% slack)
+    gp.cds.long_shot = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+    const px = A.proxyOf(G, m) || prox;
+    const r = MG.abilities.fireAimed(G.game, 'long_shot', px.x, px.y);
+    t.assert(r === true, `shot ${k + 1} fired by the guest`, String(r));
+    lastT = now(); shots++;
+    const gpr = lobsOf(G, seenG)[0];
+    const hpr = await t.waitFor(() => lobsOf(H, seenH)[0], RT() + 600, 'host flies the arrow');
+    seenH.add(hpr); if (gpr) seenG.add(gpr);
+    bothSee = bothSee && !!gpr && !hpr.cosmetic && hpr.owner === G.pid;
+    await t.waitFor(() => gpr && gpr.id === hpr.id, RT() + 600, 'guest copy takes the host id (ack)');
+    sameLanding = sameLanding && Math.hypot(gpr.lx - hpr.lx, gpr.ly - hpr.ly) < 0.01;
+    inRange = inRange && Math.hypot(hpr.lx - hpr.x0, hpr.ly - hpr.y0) <= S.range + W.lobScatter(S, S.range) + 0.01;
+    if (k === 0) {
+      // the host enforces the cooldown even when the guest skips its own check (arrow refunded)
+      const c0 = A.count(G, 'arrow');
+      gp.inv.remove('arrow', 1);
+      let why = null;
+      G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: px.x, ay: px.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onReject: (w) => { why = w; } });
+      await t.waitFor(() => why != null, RT() + 600, 'host answers an early 2nd shot');
+      await t.sleep(50);
+      t.check(/pronto/i.test(why) && A.count(G, 'arrow') === c0, 'early 2nd shot refused by the host ("Ainda não está pronto"), arrow refunded', `why="${why}" arrows ${c0} → ${A.count(G, 'arrow')}`);
+    }
+    t.log(`shot ${k + 1}: lands ${f2(Math.hypot(hpr.lx - m.x, hpr.ly - m.y))} from the ${m.species} (scatter ≤ ${f2(W.lobScatter(S, 16))})`);
+    await t.waitFor(() => hpr.stuck || !(H.game.projectiles || []).includes(hpr), hpr.dur * 1000 + 1500, 'arrow lands on the host');
+    await t.sleep(ONEWAY() + 250);
+    hit = dmgH.length > 0 || m.dead;
+  }
+  t.check(bothSee, 'both see the arrow (host: authoritative copy owned by the guest · guest: its own copy)');
+  t.check(sameLanding, 'same landing point on both (guest copy bent onto the host roll)');
+  t.check(inRange, `landing within range + scatter (${S.range} + ${f2(W.lobScatter(S, S.range))} tiles)`);
+  t.check(hit, `host applies the hit (${shots} shot(s) at 16 tiles)`, `host dmg ${dmgH.map((d) => d.amount).join(',') || '-'} · dead ${m.dead}`);
+  if (dmgH.length) t.check(dmgH[0].src === av() || dmgH[0].src?.pid === G.pid, 'the hit comes from the guest avatar', dmgH[0].src?.pid || dmgH[0].src?.name);
+  if (dmgH.length) await t.tryWait(() => dmgG.length > 0 || A.proxyOf(G, m)?.dead, RT() + 600);
+  t.check(!dmgH.length || dmgG.length > 0 || A.proxyOf(G, m)?.dead || !A.proxyOf(G, m), 'guest sees the hit (fx dmg / death)', `${dmgG.length} events`);
+  t.check(A.count(G, 'arrow') === arrows0 - shots, '1 arrow left the guest bag per shot', `${arrows0} → ${A.count(G, 'arrow')} after ${shots} shot(s)`);
+  // range clamp by the host (aim 40 tiles away, sent directly)
+  const wait = 2700 - (now() - lastT);
+  if (wait > 0) await t.sleep(wait);
+  const seen2 = new Set(H.game.projectiles || []);
+  gp.inv.remove('arrow', 1);
+  let ok2 = null;
+  G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: gp.x + 40, ay: gp.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onOk: (r) => { ok2 = r || {}; }, onReject: (w) => { ok2 = { why: w }; } });
+  await t.waitFor(() => ok2, RT() + 600, 'host answers the far shot');
+  const far = lobsOf(H, seen2)[0];
+  t.check(far && Math.hypot(far.lx - far.x0, far.ly - far.y0) <= S.range + W.lobScatter(S, S.range) + 0.01, 'aim 40 tiles away is clamped to the bow range by the host', far ? `${f2(Math.hypot(far.lx - far.x0, far.ly - far.y0))} tiles` : JSON.stringify(ok2));
+  if (far) await t.tryWait(() => far.stuck || !(H.game.projectiles || []).includes(far), far.dur * 1000 + 1500);
+  await t.sleep(900); // possible arrow recovery (loot.add) settles
+  await t.checkDigest(H, G);
+});
+
+def('G2', {
+  title: 'G: spear throw', timeout: 120000,
+  expected: 'Guest throws its spear (Lançar Lança) at a creature 6 tiles away: both see the flight (host authoritative, guest copy), the host applies the hit (ability throw_spear); the spear stays equipped on the guest (equip.main unchanged, hand empty only while it flies, then back; the host sees the hand weapon come back via presence); no spear loot anywhere; 10 s cooldown (an immediate 2nd throw is refused); digest equal',
+  api: 'abilities.fireAimed(game, "throw_spear", x, y); p._throwT / p.weapon; presence w; projectiles {lob, kind:"spear"}; loot rows',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
+  A.keepAlive(t, G);
+  const gp = G.game.player;
+  t.assert(A.equip(G, 'spear_iron') !== false && gp.equip.main === 'spear_iron', 'guest holds a spear');
+  MG.abilities.rebuildBar(G.game);
+  const spears0 = gp.inv.count('spear_iron');
+  const site = lobSite(t, H, G, MG, 6);
+  t.assert(site, 'creature with a free spot 6 tiles away');
+  const { m, s } = site;
+  env.claimed.add('mob' + m.nid);
+  holdStill(t, m);
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  const prox = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'creature proxy on the guest');
+  const dmgH = [];
+  t.on(H, 'damage', (d) => { if (d.target === m && d.ability === 'throw_spear' && d.kind === 'hit') dmgH.push(d); });
+  const spearLoot = (f) => (f.game.loot || []).filter((l) => /^spear_/.test(l.item)).length;
+  const loot0 = [spearLoot(H), spearLoot(G)];
+  const hostHand = [];
+  const av = () => A.avatarOn(H, G.pid);
+  const ww = t.watch(() => hostHand.push(av() ? av().weapon : 'no avatar'), 20);
+  const seenH = new Set(H.game.projectiles || []), seenG = new Set(G.game.projectiles || []);
+  gp.cds.throw_spear = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+  const px = A.proxyOf(G, m) || prox;
+  const r = MG.abilities.fireAimed(G.game, 'throw_spear', px.x, px.y);
+  t.assert(r === true, 'guest throws', String(r));
+  const gpr = lobsOf(G, seenG)[0];
+  await t.sleep(60);
+  t.check(gp.weapon == null && gp.equip.main === 'spear_iron', 'hand empty while the spear flies, still equipped', `weapon ${gp.weapon} · main ${gp.equip.main}`);
+  const hpr = await t.waitFor(() => lobsOf(H, seenH)[0], RT() + 600, 'host flies the spear');
+  t.check(gpr && gpr.kind === 'spear' && hpr.kind === 'spear' && !hpr.cosmetic, 'both see the spear flight', `guest ${gpr?.kind} · host ${hpr.kind}`);
+  const again = MG.abilities.fireAimed(G.game, 'throw_spear', px.x, px.y);
+  t.check(again === false, 'immediate 2nd throw refused (10 s cooldown)', String(again));
+  await t.waitFor(() => hpr.stuck || !(H.game.projectiles || []).includes(hpr), hpr.dur * 1000 + 1500, 'spear lands on the host');
+  await t.tryWait(() => dmgH.length > 0 || m.dead, RT() + 400);
+  t.check(dmgH.length > 0 || m.dead, 'host applies the spear hit', `dmg ${dmgH.map((d) => d.amount).join(',') || '-'} · dead ${m.dead}`);
+  await t.waitFor(() => gp.weapon === 'spear_iron', 2000, 'the spear is back in the guest hand');
+  await t.waitFor(() => av()?.weapon === 'spear_iron', 1500 + RT(), 'host sees the spear back in the guest hand (presence)');
+  ww.stop();
+  t.check(hostHand.includes(null), 'host saw the empty hand during the flight (presence)', short(hostHand.slice(0, 40)));
+  await t.sleep(600);
+  t.check(gp.equip.main === 'spear_iron' && gp.inv.count('spear_iron') === spears0, 'spear still equipped on the guest, inventory unchanged', `main ${gp.equip.main} · bag ${gp.inv.count('spear_iron')}`);
+  t.check(spearLoot(H) === loot0[0] && spearLoot(G) === loot0[1], 'no spear loot on the ground (host / guest)', `${spearLoot(H)} / ${spearLoot(G)}`);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

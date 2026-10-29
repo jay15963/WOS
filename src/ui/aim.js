@@ -298,7 +298,8 @@ export function installAim(game) {
         const hw = (v.x1 - v.x0) / 2 - 1.6, hh = (v.y1 - v.y0) / 2 - 1.6;
         const dx = Math.abs(S.x - p.x), dy = Math.abs(S.y - p.y), d = Math.hypot(dx, dy);
         const need = Math.max(dx > hw ? 1 - hw / dx : 0, dy > hh ? 1 - hh / dy : 0);
-        kT = Math.min(0.92, Math.max(0.12 + 0.3 * (d / (Sx?.range || 18)), need));
+        // mouse: only a nudge (the cursor is on screen already, a big ease would make the point drift under it)
+        kT = S.mode === 'mouse' ? 0.1 * Math.min(1, d / (Sx?.range || 18)) : Math.min(0.92, Math.max(0.12 + 0.3 * (d / (Sx?.range || 18)), need));
         cam.x = S.x; cam.y = S.y;
       } else if (focus.hold > 0) {
         focus.hold -= dt; kT = focus.kHold; cam.x = focus.x; cam.y = focus.y;
@@ -340,8 +341,9 @@ export function installAim(game) {
         const k = (i + ph) / N;
         if (k < 0.04 || k > 0.97) continue;
         const x = p.x + dx * k, y = p.y + dy * k, lift = H0 * (1 - k) + 4 * apex * k * (1 - k);
-        const s = Math.max(0.2, (9 + 3 * Math.sin(k * Math.PI)) * px) / dot.w;
-        const a = (0.9 * Math.min(1, k * 6) * Math.min(1, (1 - k) * 8)) * dim;
+        const s = Math.max(0.22, (11 + 3 * Math.sin(k * Math.PI)) * px) / dot.w;
+        const a = Math.min(1, k * 6) * Math.min(1, (1 - k) * 8) * dim;
+        B.fx.add(dot, x, y, s * 1.45, s * 1.45, 0.1, 0.07, 0.03, a * 0.4, 0, 0, 0, 1, 0, lift); // dark halo: reads on sand / snow
         B.fx.add(dot, x, y, s, s, col[0], col[1], col[2], a, 0, 0, 0, 1, 0, lift);
         B.blob.add(dot, x, y, s * 0.75, s * 0.4, 0.06, 0.05, 0.04, a * 0.45);
       }

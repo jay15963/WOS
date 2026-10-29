@@ -229,6 +229,7 @@ export function fireAimed(game, id, wx, wy) {
   // pose: face the shot and release (bow recoil / spear follow-through)
   p.weapon = p.equip?.main ?? p.weapon;
   p.facing = facingFrom(dx, dy, p.facing); p._faceLockT = 0.5;
+  p._atkRootT = Math.max(p._atkRootT || 0, S.proj === 'spear' ? 0.38 : 0.3); // stand still for the release (like auto-attacks)
   p.action = ab.act === 'throw' ? { type: 'throw', t: 0.46, dur: 0.42 } : { type: 'shoot', t: 0.7, dur: 0.32 };
   p.swingT = Math.max(p.swingT || 0, 0.6); // no auto-shot right on top of it
   game.audio?.play(S.proj === 'spear' ? 'swing' : 'bow_release', { x: p.x, y: p.y, volume: 0.9 });

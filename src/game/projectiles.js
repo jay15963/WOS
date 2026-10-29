@@ -339,9 +339,9 @@ function drawShadows(game, B, A, v) {
     if (pr.stuck || pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
     if (pr.lob) {
       // lob: the shadow slides along the ground path, longer and softer the higher the shaft flies
-      const L = pr.kind === 'spear' ? 1.15 : 0.6, h = Math.max(0, pr.lift);
-      const a = 0.55 * Math.max(0.45, 1 - h / 8);
-      B.blob.add(blob, pr.x, pr.y, (L * (0.75 + Math.abs(Math.cos(pr.gdir)) * 0.25) + h * 0.05) / blob.w, (0.1 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir);
+      const L = pr.kind === 'spear' ? 1.3 : 0.85, h = Math.max(0, pr.lift);
+      const a = Math.max(0.6, 1 - h / 7);
+      B.blob.add(blob, pr.x, pr.y, (L + h * 0.06) / blob.w, (0.2 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir);
       continue;
     }
     // shadow on the ground under the shaft (sizes are multiples of the sprite's own size)
@@ -359,7 +359,7 @@ function drawProjectile(game, B, A, pr) {
   let lift = pr.lift;
   const spr = pr.kind === 'spear' ? spear : arrow;
   if (pr.lob && spr) {
-    let x = pr.x, sc = (pr.kind === 'spear' ? 1.05 : 1.25) + Math.max(0, lift) * 0.06; // bigger high up (closer to the camera)
+    let x = pr.x, sc = (pr.kind === 'spear' ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
     if (pr.stuck && pr.ground) {
       // planted steeply: the tip in the ground at the landing point, the shaft leaning back toward the shooter
       rot = Math.atan2(1.6, Math.cos(pr.gdir) * 0.9 || 0.01);
