@@ -383,6 +383,8 @@ registerWork('path', {
   start(game, it) {
     const w = game.world, p = game.player;
     const rem = it.c === PATH_REMOVE;
+    // something was built / grew on the blueprint meanwhile (or the path to remove is gone): drop that plan
+    if (rem ? !w.path[it.i] : canPaint(game, it.tx, it.ty)) { game.net.request('path.plan', { c: 0, tiles: rleTiles([it.i]) }); return null; }
     let tiles = patchOf(game, it);
     if (!tiles.includes(it.i)) tiles.unshift(it.i);
     tiles = tiles.slice(0, PATH_PATCH);

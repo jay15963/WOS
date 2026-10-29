@@ -2392,6 +2392,7 @@ def('M2', {
     const part = old.slice(0, 3);
     G.game.paths.paint('remove', part);
     await t.waitFor(() => part.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host marks 3 dirt tiles for removal');
+    await t.waitFor(() => part.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 3 removal marks');
     await layPaths(t, G, part, { code: 15 });
     await t.waitFor(() => part.every((i) => !w.path[i]), ONEWAY() + 600, 'host: 3 dirt tiles removed');
     t.check(old.slice(3).every((i) => w.path[i] === 1 && G.game.world.path[i] === 1), 'the rest of the dirt path stays on both');
