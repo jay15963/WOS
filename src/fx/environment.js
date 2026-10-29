@@ -4,23 +4,26 @@
 import { clamp, lerp, smoothstep, mulberry32 } from '../engine/noise.js';
 
 // hour, ambient light, tint (gain), lift (shadow tint), saturation, contrast, sky (water reflection)
+// moonlit blue night → lavender pre-dawn → pink dawn → golden morning → neutral noon → warm afternoon →
+// golden hour → pink / orange dusk → violet blue hour → night
 const KF = [
-  [0.0,  [0.31, 0.35, 0.54], [0.92, 0.97, 1.12], [0.012, 0.018, 0.045], 0.62, 1.04, [0.10, 0.14, 0.27]],
-  [4.2,  [0.31, 0.35, 0.54], [0.92, 0.97, 1.12], [0.012, 0.018, 0.045], 0.62, 1.04, [0.10, 0.14, 0.27]],
-  [5.0,  [0.40, 0.41, 0.60], [0.95, 0.96, 1.09], [0.014, 0.016, 0.045], 0.70, 1.03, [0.26, 0.29, 0.46]],
-  [5.8,  [0.74, 0.62, 0.64], [1.04, 0.96, 0.98], [0.020, 0.012, 0.030], 0.86, 1.03, [0.74, 0.60, 0.64]],
-  [6.6,  [1.00, 0.86, 0.70], [1.06, 0.99, 0.91], [0.016, 0.010, 0.004], 1.04, 1.05, [0.86, 0.76, 0.66]],
-  [8.0,  [1.00, 0.96, 0.89], [1.03, 1.00, 0.96], [0.006, 0.004, 0.000], 1.06, 1.05, [0.62, 0.72, 0.82]],
-  [12.0, [1.00, 1.00, 1.00], [1.00, 1.00, 1.00], [0.000, 0.000, 0.004], 1.06, 1.05, [0.56, 0.70, 0.84]],
-  [16.2, [1.00, 0.97, 0.91], [1.02, 1.00, 0.96], [0.004, 0.002, 0.000], 1.07, 1.05, [0.60, 0.70, 0.80]],
-  [17.6, [1.00, 0.85, 0.68], [1.06, 0.98, 0.90], [0.016, 0.010, 0.004], 1.08, 1.06, [0.86, 0.72, 0.60]],
-  [18.6, [0.90, 0.68, 0.62], [1.05, 0.94, 0.93], [0.020, 0.010, 0.022], 0.98, 1.05, [0.80, 0.58, 0.58]],
-  [19.3, [0.52, 0.48, 0.66], [0.98, 0.94, 1.06], [0.014, 0.012, 0.045], 0.80, 1.04, [0.36, 0.34, 0.54]],
-  [20.3, [0.32, 0.35, 0.55], [0.92, 0.97, 1.12], [0.012, 0.018, 0.045], 0.63, 1.04, [0.11, 0.15, 0.28]],
-  [24.0, [0.31, 0.35, 0.54], [0.92, 0.97, 1.12], [0.012, 0.018, 0.045], 0.62, 1.04, [0.10, 0.14, 0.27]],
+  [0.0,  [0.30, 0.36, 0.58], [0.90, 0.98, 1.14], [0.012, 0.020, 0.052], 0.66, 1.06, [0.09, 0.13, 0.27]],
+  [4.2,  [0.30, 0.36, 0.58], [0.90, 0.98, 1.14], [0.012, 0.020, 0.052], 0.66, 1.06, [0.09, 0.13, 0.27]],
+  [5.0,  [0.42, 0.42, 0.62], [0.96, 0.95, 1.08], [0.020, 0.015, 0.048], 0.72, 1.04, [0.30, 0.30, 0.50]],
+  [5.8,  [0.80, 0.66, 0.66], [1.05, 0.96, 0.98], [0.030, 0.015, 0.030], 0.90, 1.04, [0.86, 0.64, 0.64]],
+  [6.6,  [1.04, 0.88, 0.68], [1.07, 1.00, 0.89], [0.022, 0.012, 0.000], 1.08, 1.06, [0.94, 0.80, 0.62]],
+  [8.0,  [1.00, 0.96, 0.88], [1.04, 1.00, 0.95], [0.008, 0.005, 0.000], 1.07, 1.05, [0.62, 0.74, 0.86]],
+  [12.0, [1.00, 1.00, 1.00], [1.00, 1.00, 1.00], [0.000, 0.000, 0.004], 1.06, 1.05, [0.56, 0.70, 0.86]],
+  [15.6, [1.00, 0.98, 0.92], [1.03, 1.00, 0.95], [0.004, 0.002, 0.000], 1.08, 1.05, [0.62, 0.72, 0.82]],
+  [17.4, [1.02, 0.86, 0.66], [1.07, 0.99, 0.88], [0.020, 0.010, 0.000], 1.10, 1.06, [0.92, 0.74, 0.58]],
+  [18.4, [0.96, 0.76, 0.74], [1.04, 0.96, 0.98], [0.032, 0.015, 0.034], 0.95, 1.05, [0.94, 0.64, 0.68]],
+  [19.3, [0.58, 0.54, 0.74], [0.99, 0.95, 1.08], [0.022, 0.017, 0.052], 0.86, 1.04, [0.46, 0.38, 0.64]],
+  [20.4, [0.32, 0.37, 0.59], [0.90, 0.98, 1.14], [0.012, 0.020, 0.052], 0.66, 1.06, [0.10, 0.14, 0.28]],
+  [24.0, [0.30, 0.36, 0.58], [0.90, 0.98, 1.14], [0.012, 0.020, 0.052], 0.66, 1.06, [0.09, 0.13, 0.27]],
 ];
+const NEUTRAL_GRADE = { tint: [1, 1, 1], lift: [0, 0, 0], sat: 1, mist: 0 };
 
-const WEATHERS = {
+export const WEATHERS = {
   clear:  { cloud: 0.12, rain: 0, fog: 0.0, wind: 0.18, storm: 0 },
   cloudy: { cloud: 0.72, rain: 0, fog: 0.04, wind: 0.38, storm: 0 },
   rain:   { cloud: 0.92, rain: 0.72, fog: 0.10, wind: 0.55, storm: 0 },
@@ -52,6 +55,8 @@ export class Environment {
     this.strikes = [];          // recent lightning: { t, dist } (audio reads it for thunder)
     this.strikeId = 0;
     this._nextStrike = 4;
+    this.snowCover = 0;         // cosmetic: snow lying in cold biomes (builds up while it precipitates, melts after)
+    this.grade = NEUTRAL_GRADE; // per-biome colour grade around the camera (set by the ambient system)
     this.env = {
       ambient: [1, 1, 1], tint: [1, 1, 1], sat: 1, contrast: 1, vignette: 0.5,
       shadowDir: [0, 0], shadowStr: 0.5, sun3: [0, 0, 1], sunI: 1, sky: [0.6, 0.7, 0.8],
@@ -65,7 +70,10 @@ export class Environment {
         // caves & wind (world pass): ambient inside mined mountain caves, grass waves, light shafts
         uCaveAmb: [0.12, 0.125, 0.15], uWindDir: [1, 0], uWindK: 0.2, uWindPh: [0, 0], uRays: 0, uSunXY: [1, 0],
         uCamCave: 0, // set by the ambient system (camera inside a cave)
+        // snow over cold biomes (cover 0..1, permanent peaks), lightning strike light (x, y, radius, intensity)
+        uSnow: 0, uSnowPeak: 0.5, uBolt: [0, 0, 1, 0],
       },
+      snowAt: 0,   // share of the precipitation at the camera that falls as snow (ambient system; audio may read it)
     };
     this._phT = 0;
   }
@@ -94,6 +102,7 @@ export class Environment {
     const k = 1 - Math.exp(-dt / 14);
     for (const key in target) this.cur[key] = lerp(this.cur[key], target[key], k);
     this.wet = clamp(this.wet + (this.cur.rain > 0.25 ? dt / 35 * this.cur.rain : -dt / 110), 0, 1);
+    this.snowCover = clamp(this.snowCover + (this.cur.rain > 0.25 ? dt / 60 * this.cur.rain : -dt / 260), 0, 1);
     this.windAng += dt * 0.004 * Math.sin(this.t * 0.01);
     // wind: slow gust noise, then low-passed strength (a few seconds) so sway amplitude never pumps;
     // the sway / wave speeds stay almost constant (see compute) — calm even in storms
@@ -166,7 +175,7 @@ export class Environment {
     const low = isDay ? Math.pow(1 - elev, 2.2) : 0;
     e.shadowStr = isDay ? (0.2 + 0.4 * smoothstep(0, 0.16, elev)) * (1 - cl * 0.72) : 0.13 * (1 - cl);
     // warm low sun, cool moonlight
-    if (isDay) { X.uSunWarm[0] = 0.22 * low; X.uSunWarm[1] = 0.03 * low; X.uSunWarm[2] = -0.24 * low; }
+    if (isDay) { X.uSunWarm[0] = 0.19 * low; X.uSunWarm[1] = 0.06 * low; X.uSunWarm[2] = -0.22 * low; }
     else { X.uSunWarm[0] = -0.2; X.uSunWarm[1] = -0.08; X.uSunWarm[2] = 0.15; }
 
     // weather influence
@@ -182,10 +191,14 @@ export class Environment {
     }
     e.sat *= 1 - rain * 0.22 - cl * 0.07;
     e.contrast *= 1 - rain * 0.04;
-    // mist: morning lowland mist, a little at dusk, plus fog weather
+    // per-biome colour grade around the camera (warm meadows, cool pines, teal marsh…), weaker at night
+    const G = this.grade || NEUTRAL_GRADE, gk = 1 - 0.6 * (h < 5 || h > 20.5 ? 1 : 0);
+    for (let c = 0; c < 3; c++) { e.tint[c] *= 1 + (G.tint[c] - 1) * gk; X.uLift[c] += G.lift[c] * gk; }
+    e.sat *= 1 + (G.sat - 1) * gk;
+    // mist: morning lowland mist, a little at dusk, plus fog weather (marshes keep a little more)
     const morning = h > 4.3 && h < 9.2 ? Math.sin(((h - 4.3) / 4.9) * Math.PI) : 0;
     const evening = h > 19 && h < 22.5 ? Math.sin(((h - 19) / 3.5) * Math.PI) * 0.35 : 0;
-    e.mist = (morning * 0.42 + evening) * (1 - this.cur.wind * 0.8);
+    e.mist = (morning * 0.42 + evening + G.mist * (0.4 + morning)) * (1 - this.cur.wind * 0.8);
     e.fog = this.cur.fog + morning * 0.06;
     X.uMist = e.mist;
     const glow = morning * 0.7 + evening * 0.5;
@@ -232,6 +245,8 @@ export class Environment {
     // low-sun light shafts through haze (dawn and late afternoon, clear-ish skies)
     X.uRays = isDay ? low * e.day * (1 - cl * 0.85) * (1 - rain) * 0.9 : 0;
     X.uSunXY[0] = e.sun3[0]; X.uSunXY[1] = e.sun3[1];
+    X.uSnow = this.snowCover;
+    e.snowCover = this.snowCover;
     return e;
   }
 
