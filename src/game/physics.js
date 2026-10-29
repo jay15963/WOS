@@ -49,6 +49,8 @@ function overlappedProp(world, x, y, r) {
 }
 
 export function moveCircle(world, e, dx, dy) {
+  const L = world.levels;
+  if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts (src/game/levels.js)
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
   const sx = dx / steps, sy = dy / steps;
   const pd = !!e.passDoors, sw = !!e.canSwim;

@@ -140,6 +140,7 @@ export function respawnPlayer(game) {
   const p = game.player;
   const sp = respawnPoint(game);
   p.x = sp.x; p.y = sp.y;
+  p.lv = 0; p.z = 0; p._fallV = 0; p._hop = null; // levels: respawn on the ground
   // nudge out of anything solid
   for (let k = 0; k < 24 && collides(game.world, p.x, p.y, p.r); k++) {
     const a = k * 2.4, r = 0.4 + k * 0.12;

@@ -3,7 +3,9 @@
 // Stuck player arrows are sometimes recoverable as `arrow` loot. Simulation + a render hook (B.main / B.blob).
 //
 // fireArrow(game, { src, faction:'player'|'bandit', x, y, tx, ty, angle?, target?, range?, speed?, kind?:'arrow'|'spear',
-//                   onHit(game, entity, proj), onMiss?(game, proj), cosmetic?, id? })
+//                   onHit(game, entity, proj), onMiss?(game, proj), cosmetic?, id?, z0?, z1? })
+// levels: z0 / z1 = stories of the shooter / the aim point (default: the source's / the target's z). The shaft
+// flies that line (pr.pz), is blocked by level-0 walls only below their top and hits entities near its height.
 // Multiplayer: creature shots are simulated by the host (victims: every player, damage via hurtPlayer) and
 // shown on guests as COSMETIC copies (fx 'proj' / 'pend' from net/entities.js); a player's own arrows are
 // simulated by the shooter (hits → mob.hit) and relayed to the others as cosmetic copies (intent proj.fire).
@@ -13,6 +15,7 @@
 
 import { dropLoot } from './loot.js';
 import { allPlayers } from './players.js';
+import { STORY_H } from './levels.js';
 
 let projSeq = 0;
 
@@ -35,11 +38,14 @@ export function fireArrow(game, o) {
     d: 0, maxD, arcD, arcH: Math.min(0.9, 0.05 * arcD + 0.08), h1: o.target ? 0.5 * (o.target.scale || 1) : 0.35,
     lift: H0, rot: Math.atan2(uy, ux), stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
     cosmetic: !!o.cosmetic, id: o.id || null,
+    z0: o.z0 ?? (o.src?.z || 0), z1: o.z1 ?? (o.target ? o.target.z || 0 : o.src?.z || 0), zL: L, pz: 0, // levels: heights
   };
+  pr.pz = pr.z0;
   P.push(pr);
   if (P.length > 80) P.splice(0, P.length - 80);
   if (!pr.cosmetic) {
     const net = game.net, args = [pr.kind, +o.x.toFixed(2), +o.y.toFixed(2), +o.tx.toFixed(2), +o.ty.toFixed(2), +(o.angle || 0).toFixed(3), speed, maxD, pr.faction, +pr.h1.toFixed(2)];
+    if (pr.z0 || pr.z1) args.push(Math.round(pr.z0 * 100), Math.round(pr.z1 * 100)); // levels: heights (trailing, ×100)
     if (pr.faction !== 'player') {
       if (net.auth && game.session) { pr.id = 'h' + (++projSeq).toString(36); net.entsApi?.fx?.(['proj', pr.id, ...args], pr.x, pr.y); }
     } else if (game.session && game.session.state !== 'closed') {
@@ -159,8 +165,9 @@ export function fireCosmetic(game, id, a) {
     return fireLob(game, { id, cosmetic: true, proj: kind === 'lobs' ? 'spear' : 'arrow', x: n(x), y: n(y), lx: n(lx), ly: n(ly),
       dur: Math.min(4, Math.max(0.1, n(dur, 1))), apex: Math.min(8, Math.max(0, n(apex, 1))), owner: typeof owner === 'string' ? owner.slice(0, 40) : null });
   }
-  const [kind, x, y, tx, ty, angle, speed, range, faction, h1] = a;
-  const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' ? 'spear' : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit' });
+  const [kind, x, y, tx, ty, angle, speed, range, faction, h1, z0, z1] = a;
+  const zc = (v) => Math.max(0, Math.min(3, n(v) / 100)); // levels: heights of the shot (stories)
+  const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' ? 'spear' : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit', z0: zc(z0), z1: zc(z1) });
   pr.h1 = n(h1, 0.35);
   return pr;
 }
@@ -207,7 +214,7 @@ function hitsSolidObject(world, x, y, lift) {
 function stick(game, pr, ground) {
   pr.stuck = true; pr.t = 0;
   pr.ground = ground;
-  if (ground) pr.lift = 0.04;
+  if (ground) { pr.lift = 0.04; pr.pz = 0; } // levels: lies on the ground
   game.audio?.play(ground ? 'arrow_ground' : 'arrow_wood', { x: pr.x, y: pr.y, volume: 0.8 });
   if (pr.cosmetic) return;
   reportEnd(game, pr, true, ground);
@@ -257,9 +264,10 @@ export function projectilesSystem() {
           const nx = pr.x + pr.ux * s, ny = pr.y + pr.uy * s;
           const nd = pr.d + s;
           const nl = liftAt(pr, nd);
-          // walls / rock
+          const pz = pr.z0 === pr.z1 ? pr.z0 : pr.z0 + (pr.z1 - pr.z0) * Math.min(1, nd / Math.max(0.5, pr.zL)); // levels: shot height
+          // walls / rock (a level-0 wall only below its top: shots from / to a rampart fly over the walls)
           const tx = Math.floor(nx), ty = Math.floor(ny);
-          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || w.solid[ty * w.W + tx]) { stick(game, pr, false); done = true; break; }
+          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || (w.solid[ty * w.W + tx] && pz < 0.5)) { stick(game, pr, false); done = true; break; }
           // creatures / players (cosmetic copies hit nothing)
           let victim = null;
           if (pr.cosmetic) { /* no victims */ }
@@ -267,13 +275,13 @@ export function projectilesSystem() {
             for (const e of E) {
               if (e === pr.src || e === p || e.dead || !(e.isMob || e.kind === 'animal')) continue;
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
-              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4) { victim = e; break; }
+              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz) < 0.75) { victim = e; break; }
             }
           } else {
             for (const q of PL) {
               if (q.dead) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
-              if (dx * dx + dy * dy < rr * rr) { victim = q; break; }
+              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz) < 0.75) { victim = q; break; }
             }
           }
           if (victim && pr.d > 0.25) {
@@ -296,7 +304,7 @@ export function projectilesSystem() {
             break;
           }
           const sl = pr.lift;
-          pr.x = nx; pr.y = ny; pr.d = nd; pr.lift = nl;
+          pr.x = nx; pr.y = ny; pr.d = nd; pr.lift = nl; pr.pz = pz;
           // screen-space direction: ground velocity minus the lift change
           pr.rot = Math.atan2(pr.uy * s - (nl - sl), pr.ux * s);
           if (nl <= 0.03 || nd >= pr.maxD + 4) { stick(game, pr, true); done = true; break; }
@@ -315,7 +323,7 @@ export function projectilesSystem() {
       for (const pr of P) {
         if (pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
         const d = pool[n] || (pool[n] = { type: 'fx_proj', x: 0, y: 0, pr: null, draw(B, A) { drawProjectile(game, B, A, this.pr); } });
-        d.pr = pr; d.x = pr.x; d.y = pr.y + 0.05 + (pr.lob && !pr.stuck ? pr.lift * 0.8 : 0); n++; // high lobs draw over trees
+        d.pr = pr; d.x = pr.x; d.y = pr.y + 0.05 + (pr.lob && !pr.stuck ? pr.lift * 0.8 : 0) + (pr.pz || 0); n++; // high lobs draw over trees; levels: +1 tile of depth per story
         list.push(d);
       }
     },
@@ -361,7 +369,7 @@ function drawProjectile(game, B, A, pr) {
   const a = Math.max(0, pr.alpha);
   let rot = pr.rot;
   if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(pr.rot)) * 0.3 + 0.55, Math.cos(pr.rot) || 0.01);
-  let lift = pr.lift;
+  let lift = pr.lift + (pr.pz || 0) * STORY_H; // levels: shots from / to a height
   const spr = pr.kind === 'spear' ? spear : arrow;
   if (pr.lob && spr) {
     let x = pr.x, sc = (pr.kind === 'spear' ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)

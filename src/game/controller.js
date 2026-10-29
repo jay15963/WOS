@@ -14,6 +14,7 @@ import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
 import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
+import { liftOf } from './levels.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -76,7 +77,7 @@ export function pick(game, sx, sy) {
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
     const rx = (pawn ? 0.42 : 0.55) * sc + tol, ry = (pawn ? 0.78 : 0.5) * sc + tol;
-    const dx = (wx - e.x) / rx, dy = (wy - (e.y - (pawn ? 0.7 : 0.35) * sc)) / ry;
+    const dx = (wx - e.x) / rx, dy = (wy - (e.y - liftOf(e) - (pawn ? 0.7 : 0.35) * sc)) / ry; // levels: lifted
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = e; }
   }
@@ -463,8 +464,9 @@ export function installController(game) {
         const sc = t.scale || 1;
         const c = RING_COL[t.temper || SPECIES[t.species]?.temper] || RING_COL.neutral;
         const pulse = 0.85 + 0.15 * Math.sin(g.time * 5);
-        B.blob.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
-        if (env.night > 0.1) B.emissive.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
+        const ty = t.y - liftOf(t); // levels: ring under its feet up a story
+        B.blob.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
+        if (env.night > 0.1) B.emissive.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
       if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack)) {

@@ -164,6 +164,7 @@ export function mobsSystem() {
         const a = awake[i];
         for (let j = i + 1; j < awake.length; j++) {
           const b = awake[j];
+          if (a.lv || b.lv || a.z > 0 || b.z > 0) continue; // levels: separation on the ground only
           const dx = b.x - a.x, dy = b.y - a.y, rr = (a.r + b.r) * 0.9;
           if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
           const dd = Math.hypot(dx, dy);

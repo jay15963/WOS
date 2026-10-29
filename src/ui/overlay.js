@@ -3,6 +3,7 @@
 // interaction progress bar. Redrawn every frame from simulation state + combat events.
 
 import { SPECIES, TEMPER_COLOR } from '../game/data.js';
+import { liftOf } from '../game/levels.js';
 import { DEV } from '../game/artcompat.js';
 
 const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
@@ -94,7 +95,7 @@ export function installOverlay(game) {
       for (let i = fct.length - 1; i >= 0; i--) {
         const f = fct[i];
         f.t += dt;
-        if (!f.e.dead || f.e.kind !== 'animal') { f.x = f.e.x; f.y = f.e.y; }
+        if (!f.e.dead || f.e.kind !== 'animal') { f.x = f.e.x; f.y = f.e.y - liftOf(f.e); } // levels: up a story
         if (f.t >= f.life) fct.splice(i, 1);
       }
     },
@@ -139,7 +140,7 @@ export function installOverlay(game) {
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
         const label = (e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
-        const [sx, sy0] = g.worldToScreen(e.x, e.y - spriteTop(e));
+        const [sx, sy0] = g.worldToScreen(e.x, e.y - spriteTop(e) - liftOf(e)); // levels: lifted plate
         let sy = sy0 - 6;
         const cast = e.cast && e.cast.dur ? e.cast : null;
         const hgt = fs + 3 + (showBar ? bh + 4 : 0) + (cast ? 13 : 0);
@@ -201,7 +202,7 @@ export function installOverlay(game) {
       // progress bar (gathering / cooking)
       const wk = p.work;
       if (wk && !p.dead) {
-        const [sx, sy] = g.worldToScreen(p.x, p.y - 1.55);
+        const [sx, sy] = g.worldToScreen(p.x, p.y - 1.55 - liftOf(p));
         const bw2 = small ? 64 : 78, bh2 = small ? 6 : 7;
         ctx.fillStyle = 'rgba(14,15,16,0.82)';
         ctx.fillRect(sx - bw2 / 2 - 3, sy - bh2 - 15, bw2 + 6, bh2 + 19);

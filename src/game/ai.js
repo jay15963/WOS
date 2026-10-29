@@ -95,7 +95,7 @@ export function pickWander(game, m, rMax = 5) {
 
 export function go(game, m, dir, speed, dt) {
   if (!dir) { m.moving = false; return; }
-  let spd = speed * game.world.speedAt(m.x, m.y);
+  let spd = speed * (game.levels ? game.levels.speedAt(m) : game.world.speedAt(m.x, m.y)); // levels: stairs slower
   if (m.dazeT > 0) spd *= 0.45;
   const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);
@@ -241,7 +241,7 @@ export function updateCreature(game, m, dt) {
         faceTowards(m, t);
         if (m.swingT <= 0) bite(game, m, t, sp, rng);
       } else {
-        const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85);
+        const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85, t.lv | 0); // levels: the target's story (stairs as portals)
         go(game, m, dir, sp.speed, dt);
       }
       break;
@@ -250,8 +250,8 @@ export function updateCreature(game, m, dt) {
     case 'evade': {
       m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.3 * dt);
       m.stateT -= dt;
-      if (m.stateT <= 0) { m.x = m.home.x; m.y = m.home.y; } // hopelessly stuck: snap home
-      const dir = steer(game, m, m.home.x, m.home.y, dt, sp.speed * 1.4, 0.8);
+      if (m.stateT <= 0) { m.x = m.home.x; m.y = m.home.y; m.lv = 0; m.z = 0; } // hopelessly stuck: snap home
+      const dir = steer(game, m, m.home.x, m.home.y, dt, sp.speed * 1.4, 0.8, 0);
       if (!dir) { m.hp = m.maxHp; m.state = 'idle'; m.stateT = 1.5; m.moving = false; resetNav(m); }
       else go(game, m, dir, sp.speed * 1.4, dt);
       break;

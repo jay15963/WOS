@@ -22,6 +22,7 @@ import { initBuilding, buildingSystem } from './building.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
 import { buildOcc } from './nav.js';
+import { installLevels, levelsSystem } from './levels.js';
 import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
@@ -54,6 +55,7 @@ export function installSystems(game) {
 
   initPlayer(game);
   initBuilding(game);
+  installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   buildOcc(game);
   initEconomy(game);
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
@@ -78,6 +80,7 @@ export function installSystems(game) {
 
   for (const s of [
     clock,
+    levelsSystem(),
     controller,
     playerSystem(),
     abilitiesSystem(),

@@ -32,6 +32,7 @@ function savePlayer(game) {
     hp: Math.round(p.dead ? p.maxHp * 0.5 : p.hp), energy: Math.round(p.energy), hunger: +p.hunger.toFixed(1),
     level: p.level, xp: Math.round(p.xp), inv: p.inv.toJSON(), respawn: p.respawn, dead: !!p.dead,
     equip: { ...p.equip }, seedPref: p.seedPref || null,
+    z: p.z > 0 && !p.dead ? +p.z.toFixed(2) : undefined, // levels: on a rampart / stairs (absent = ground, old saves too)
   };
 }
 
@@ -113,7 +114,8 @@ function loadPlayer(game, d, data) {
   equipChanged(game);
   p.respawn = d.respawn || null;
   if (d.dead) { const sp = respawnPoint(game); p.x = sp.x; p.y = sp.y; } // saved while dead: wake up at the respawn point
-  if (collides(w, p.x, p.y, p.r, null, true)) { // never wake up stuck inside something built later
+  const up = !d.dead && !!game.levels?.restore(p, d.z); // levels: back up there if the rampart / stairs still stand, else the ground
+  if (!up && collides(w, p.x, p.y, p.r, null, true)) { // never wake up stuck inside something built later
     const x0 = p.x, y0 = p.y;
     for (let k = 0; k < 40 && collides(w, p.x, p.y, p.r, null, true); k++) { const a = k * 2.4, r = 0.3 + k * 0.1; p.x = x0 + Math.cos(a) * r; p.y = y0 + Math.sin(a) * r; }
   }

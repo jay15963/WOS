@@ -39,6 +39,7 @@ export class Juice {
     const w = this.g.world;
     const tx = Math.floor(p.x), ty = Math.floor(p.y);
     const side = (k & 1 ? 1 : -1) * 0.08;
+    if (p.z > 0) { this.g.audio?.play('step', { x: p.x, y: p.y, volume: 0.25, surface: this.g.levels?.surfaceOf(p) }); return; } // levels: stairs / wall top
     if (w.waterAt(tx, ty) === 1) {
       this.splash(p.x + side, p.y, 0.7);
       this.g.audio?.play('splash', { x: p.x, y: p.y, volume: 0.35 });

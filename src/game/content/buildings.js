@@ -5,6 +5,7 @@
 //  name, g ('m'|'f' grammatical gender for messages), emoji (UI fallback), cat: [category keys], cost, time (build s), xp
 //  size: [w, h] (default 1×1)      layer: 'main' (default) | 'floor' (floors, farm plots) | 'rug'
 //  block: 'tile' (world.solid = 1 over the footprint) | 'door' (closed = world.solid 1, open = 0) | radius (round prop) | 0
+//         | 'stairs' (levels.js: a stairway to the story above, entered only through its front / top end)
 //  connect: autotile group (mask N=1 E=2 S=4 W=8)   flat: drawn on B.ground   drag: 'line' | 'area' placement
 //  joins: autotile groups this connectable links to (default [connect]; 'rock' = natural rock tiles)
 //  station: crafting station   slots: storage   light / fire: always on   workLight: light while o.working
@@ -31,6 +32,9 @@ export const BUILDINGS = {
                 desc: 'Cerca baixa de madeira. Segura animais e se liga às paredes.' },
   gate_wood:  { name: 'Portão', g: 'm', emoji: '🚧', cat: ['struct'], cost: { wood: 3, rope: 1 }, time: 2.5, xp: 3, block: 'door', connect: 'fence', joins: ['fence', 'wall', 'rock'],
                 desc: 'Portão de cerca: abra e feche com E ou um toque. Fechado, ninguém passa.' },
+  // levels (agent L, docs/LEVELS.md): block 'stairs' = traversal by src/game/levels.js (never world.solid)
+  stairs_wood: { name: 'Escada de madeira', g: 'f', emoji: '🪜', cat: ['struct'], cost: { wood: 6 }, size: [1, 2], time: 4, xp: 6, block: 'stairs', rotate: true,
+                desc: 'Sobe um andar: encoste o topo num muro para andar em cima dele. Gire para escolher o sentido; em cima da escada não pode haver telhado nem piso.' },
 
   // ---------- floors ----------
   floor_wood:  { name: 'Piso de madeira', g: 'm', emoji: '🟫', cat: ['floor'], cost: { wood: 1 }, time: 0.8, xp: 1, layer: 'floor', flat: true, connect: 'floor_wood', drag: 'area',
