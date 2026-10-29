@@ -144,7 +144,9 @@ export function drawStatic(B, A, o, t) {
       let a;
       if (fall <= 1) a = fall * fall * fall * 0.15 + fall * fall * 0.85;
       else { const u = Math.min(1, (fall - 1) / 0.25); a = 1 - Math.sin(u * Math.PI) * 0.06 * (1 - u * 0.5); }
-      rot = (o.fallDir || f) * HALF_PI * a;
+      // timber: a short creak back against the cut before it goes (animation pass)
+      const creak = fall < 0.16 ? Math.sin((fall / 0.16) * Math.PI) * 0.035 : 0;
+      rot = (o.fallDir || f) * (HALF_PI * a - creak);
       alpha = 1 - clamp01((fall - 1.1) / 0.4);
     }
     const sc = o.s * age;

@@ -106,7 +106,7 @@ export class Juice {
 
   // sitting down when idle (on a chair, or on the ground by a fire), waking up from bed
   rest(p, dt) {
-    const busy = p.moving || p.action || p.work || p.dead || p.inCombat || p.charge || p.cast || (p.autoAttack && p.target && !p.target.dead);
+    const busy = p.moving || p.action || p.work || p.dead || p.inCombat || p.charge || p.cast || (p._swim || 0) > 0.3 || (p.autoAttack && p.target && !p.target.dead);
     const P = p.pose;
     if (P) {
       const gone = P.o && (P.o.gone || P.o.removed);
@@ -144,6 +144,7 @@ export class Juice {
       if (e._jd && !e.dead && e !== g.player) this.levelUp(e);
       e._jd = !!e.dead;
       if (e.dead) continue;
+      this.water(e, dt);
       this.footsteps(e);
       this.rustle(e);
       const a = e.action;
@@ -176,7 +177,7 @@ export class Juice {
 
   // footsteps on the gait clock (contact = every half cycle of art/compose.js's walk): dust + step sound
   footsteps(e) {
-    if (!e.moving || e.pose) return;
+    if (!e.moving || e.pose || e._swim > 0.5) return;
     const k = Math.floor((e.moveT * PAWN_GAIT - HALF_PI) / Math.PI);
     if (k === e._stepK) return;
     const first = e._stepK == null;
@@ -220,6 +221,25 @@ export class Juice {
         }
       }
     });
+  }
+
+  // swimming in deep water (from the tile under the avatar, same on every peer) and the wet look after it:
+  // e._swim 0..1 and e._wet 0..1 are read by art/compose.js; splashes while swimming, drips while drying
+  water(e, dt) {
+    const deep = this.g.world.waterAt(Math.floor(e.x), Math.floor(e.y)) === 2;
+    e._swim = (e._swim || 0) + ((deep ? 1 : 0) - (e._swim || 0)) * Math.min(1, dt * 5);
+    if (deep) {
+      e._wet = 1;
+      if (Math.random() < dt * (e.moving ? 1.1 : 0.35)) this.splash(e.x + rnd(-0.2, 0.2), e.y + 0.03, 0.4);
+    } else if (e._wet > 0) {
+      e._wet = Math.max(0, e._wet - dt / 35);
+      if (e._wet > 0.15 && Math.random() < dt * 5 * e._wet) this.drip(e);
+    }
+  }
+
+  drip(e) {
+    const s = this.spr('fx_drop', 'fx_soft');
+    if (s) this.emit({ spr: s, x: e.x + rnd(-0.2, 0.2), y: e.y + rnd(-0.03, 0.03), vx: 0, vy: 0, life: 0.45, size: 0.1, size1: 0.06, r: 0.7, g: 0.85, b: 1, a: 0.85, a1: 0.3, lift: rnd(0.15, 0.45), vlift: -0.4, grav: 6 });
   }
 
   // ---------- small bursts used by the poses ----------

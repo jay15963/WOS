@@ -418,6 +418,8 @@ if (Q.get('strip')) {
         : { isEntity: true, kind: 'pawn', x: 0.15 + CW / 2 + i * CW, y: RH * (j + 1) - 0.1, facing: d, moving: kind === 'walk' || kind === 'run', look: LOOKS[1], weapon: Q.get('weapon') || null, offhand: Q.get('off') || null, armor: null, flash: 0 };
       e._ph = 1.3; e._ft = 1; e._mk = e.moving ? 1 : 0;
       if (sp) { e._gs = kind === 'run' ? 5.5 : 1.6; e._gph = u * Math.PI * 2; e.moveT = 1; if (kind === 'attack') e.action = { type: 'attack', t: u }; if (kind === 'idle') e.nid = 'm' + j; }
+      else if (kind === 'swim') { e._swim = 1; e.moving = true; e._mk = 1; e._gs = 0.5; e.moveT = (u * Math.PI * 2) / 4; }
+      else if (kind === 'wet') { e._wet = 1; }
       else if (e.moving) { e._gs = kind === 'run' ? 6.6 : 4; e.moveT = (u * Math.PI * 2) / 9.5; }
       else if (kind === 'sit' || kind === 'sleep') e.pose = { type: kind };
       else if (kind !== 'idle') e.action = { type: kind, t: u };

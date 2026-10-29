@@ -52,6 +52,7 @@ function tables(A) {
     held: new Map(), wear: new Map(), items: new Map(),
     blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), spark: opt('fx_spark') || opt('fx_soft'), hand: opt('pawn_hand'),
     foot: { s: opt('pawn_foot_s'), e: opt('pawn_foot_e') }, lids: { s: opt('pawn_lids_s'), e: opt('pawn_lids_e') },
+    soft: opt('fx_soft'), ring: opt('fx_ring'),
     cover: opt('pawn_cover'), herb: opt('pawn_herb'), food: opt('item_berries'), thigh: opt('pawn_thigh_e'),
   };
   T.foot.n = T.foot.s;
@@ -137,6 +138,8 @@ const DEFAULT_LOOK = { skin: [0.95, 0.8, 0.66], hair: 'short', hairColor: [0.35,
 const PANTS = [0.42, 0.35, 0.28];
 const HAT_COL = [0.62, 0.17, 0.13];
 const BLANKET = [0.47, 0.61, 0.78];
+const WET_SH = [0, 0, 0], WET_PC = [0, 0, 0];
+const WATER = [0.36, 0.55, 0.62];
 const TALL_HAIR = { mohawk: 1, bun: 1 };
 const LONG_HAIR = { long: 1, ponytail: 1, braid: 1, shaggy: 1 };
 const OPP = { s: 'n', n: 's', e: 'w', w: 'e' };
@@ -169,7 +172,12 @@ function tick(p, t) {
     const v = p.moving ? Math.min(12, Math.max(0, m - (p._gm ?? m)) / PER_TILE / dt) : 0;
     p._gs = (p._gs || 0) + (v - (p._gs || 0)) * Math.min(1, dt * 7);
     p._mk = (p._mk ?? 0) + ((p.moving ? 1 : 0) - (p._mk ?? 0)) * Math.min(1, dt * 11);
-  } else if (p._mk == null) p._mk = p.moving ? 1 : 0;
+    // stride blend: a short stop (swing / bow draw) keeps the feet planted where they were — the walk resumes
+    // from the same phase without a pop; a longer stop brings them together with a small shuffle step
+    p._stop = p.moving ? 0 : (p._stop || 0) + dt;
+    const sk = p._sk ?? 0;
+    p._sk = p.moving ? sk + (1 - sk) * Math.min(1, dt * 11) : p._stop > 0.5 ? sk * Math.max(0, 1 - dt * 4.5) : sk;
+  } else if (p._mk == null) { p._mk = p.moving ? 1 : 0; p._sk = p._mk; }
   p._gm = m;
   return dt;
 }
@@ -214,8 +222,14 @@ export function drawPawn(B, A, p, t) {
   const hflip = hdir === 'w' ? -1 : 1;
   const L = p.look || DEFAULT_LOOK;
   const fl = p.flash || 0;
-  const sh = L.shirt || DEFAULT_LOOK.shirt, sk = L.skin || DEFAULT_LOOK.skin, hc = L.hairColor || DEFAULT_LOOK.hairColor;
-  const pc = L.pants || PANTS, hat = L.hatColor || HAT_COL;
+  let sh = L.shirt || DEFAULT_LOOK.shirt, pc = L.pants || PANTS;
+  const sk = L.skin || DEFAULT_LOOK.skin, hc = L.hairColor || DEFAULT_LOOK.hairColor, hat = L.hatColor || HAT_COL;
+  const wet = p._wet || 0;
+  if (wet > 0.02) { // soaked clothes are darker (scratch colours, no allocation)
+    const d = 1 - 0.3 * wet;
+    WET_SH[0] = sh[0] * d; WET_SH[1] = sh[1] * d; WET_SH[2] = sh[2] * (d + 0.04 * wet); sh = WET_SH;
+    WET_PC[0] = pc[0] * d; WET_PC[1] = pc[1] * d; WET_PC[2] = pc[2] * (d + 0.04 * wet); pc = WET_PC;
+  }
   const body = T.body[sd], head = T.head[hsd], legs = T.legs[sd];
   const armor = p.armor;
   const wb = armor ? wear(T, armor.body, sd) : null;
@@ -307,8 +321,10 @@ export function drawPawn(B, A, p, t) {
   const gs = Math.sin(ph), gc = Math.cos(ph), bob = Math.abs(gc);
   let lift = 0, sx = 1, sy = 1, rot = 0, ox = 0, oy = 0, headRot = 0, headDy = 0, al = 1;
   // feet: forward offset (tiles, along the facing) and lift; hands: swing (+ = forward). 1 = right (main) side
-  const stride = (0.1 + 0.06 * run) * mk, fUp = (0.045 + 0.045 * run) * mk;
+  const skd = sit ? 0 : p._sk ?? mk;
+  const stride = (0.1 + 0.06 * run) * skd, fUp = (0.045 + 0.045 * run) * mk * mk; // the lifted boot lands first
   let f1 = gs * stride, f2 = -gs * stride, f1l = Math.max(0, gc) * fUp, f2l = Math.max(0, -gc) * fUp;
+  if (!p.moving && (p._stop || 0) > 0.5 && skd > 0.03) { const sh = Math.sin(Math.PI * skd) * 0.025; if (Math.abs(f1) > Math.abs(f2)) f1l += sh; else f2l += sh; }
   const arm = (0.055 + 0.06 * run) * mk;
   const a1 = -gs * arm, a2 = gs * arm;
   let feetFront = false; // sitting: feet stick out in front of the body
@@ -348,6 +364,17 @@ export function drawPawn(B, A, p, t) {
     rot = idle * 0.008 * Math.sin(t * 0.3 + ph0);
   }
 
+  // swimming (juice.js sets _swim from the tile under every avatar): chest-deep, no walk cycle
+  const swim = sit ? 0 : p._swim || 0;
+  const swimming = swim > 0.5;
+  let stroke = 0;
+  if (swim > 0.01) {
+    stroke = t * 1.9 + ph0 + (p.moveT || 0) * 4;
+    const bobS = Math.sin(stroke * 2) * 0.012;
+    lift = lift * (1 - swim) + bobS * swim; sy *= 1 - 0.42 * swim; sx *= 1 + 0.03 * swim;
+    rot *= 1 - swim; headRot *= 1 - swim; headDy += bobS * 0.5 * swim;
+    f1l = f2l = 0;
+  }
   // ---- held items: rest pose ----
   const H = sd === 's' ? PAWN.handS : sd === 'n' ? PAWN.handN : PAWN.handE;
   const OH = sd === 's' ? PAWN.offS : sd === 'n' ? PAWN.offN : PAWN.offE;
@@ -681,7 +708,7 @@ export function drawPawn(B, A, p, t) {
 
   const bx0 = seat ? seat.x : p.x, by0 = seat ? seat.y - 0.06 : p.y;
   if (seat) { lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); }
-  const LEG = sit && !seat ? 0 : 0.05; // body stands on its boots
+  const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)
   const x = bx0 + ox, y = by0 + oy;
   const bl = lift + LEG;
   const HL = PAWN.headLift * sy;
@@ -696,7 +723,7 @@ export function drawPawn(B, A, p, t) {
   const shut = !!lids && (blinking(t, ph0) || fl > 0.6 || (pose === 'heal' && k > 0.5 && k < 0.62));
 
   // contact shadow (shrinks a little while airborne)
-  if (T.blob) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al);
+  if (T.blob) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al * (1 - swim));
 
   // item positions
   let wx = 0, wl = 0, wy = y + wDy;
@@ -708,6 +735,13 @@ export function drawPawn(B, A, p, t) {
   const oFlip = sd === 'e' ? flip : 1;
   const hand = T.hand;
   // rest hands at the sleeve cuffs (swinging while walking) unless a pose or a held item placed them
+  if (swimming && !act) {
+    showW = false; showO = false;
+    const u = (stroke / TAU) % 1, sweep = Math.sin(u * TAU), reach = 0.5 + 0.5 * Math.cos(u * TAU);
+    h1 = h2 = true; h1b = h2b = false;
+    if (sd === 'e') { h1x = flip * (0.08 + 0.2 * reach); h1l = 0.1 + 0.03 * sweep; h2x = flip * (0.04 + 0.18 * reach); h2l = 0.11 + 0.03 * sweep; h2b = true; }
+    else { const spread = 0.06 + 0.2 * (1 - reach); h1x = -spread; h2x = spread; h1l = h2l = 0.1 + 0.02 * sweep; h1dy = h2dy = (sd === 's' ? 0.08 : -0.08) * reach; h1b = h2b = sd === 'n'; }
+  }
   const grip = showW && wsp && !slung && !h1;
   const twoHand = grip && act && (TWO_HAND[pose] || (pose === 'cleave' && (wType === 'axe' || wType === 'club')));
   const offGrip = showO && osp && oType === 'torch' && !h2;
@@ -738,16 +772,22 @@ export function drawPawn(B, A, p, t) {
   R.osp = osp; R.ox = ox2; R.oy = oy2; R.ol = ol; R.oSc = oSc; R.oRot = oRot; R.oFlip = oFlip; R.offGrip = offGrip; R.food = food;
 
   // behind the body
-  rigFeet(false);
+  if (swim < 0.5) rigFeet(false);
   if (showO && osp && oBehind) rigOff();
   if (showW && wsp && wBehind) rigWeapon();
   if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
   if (hand && h2 && h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
   // body
   B.main.add(body, x, y, sx, sy, sh[0], sh[1], sh[2], al, 0, rot, fl, flip, 0, bl);
-  if (legs) B.main.add(legs, x, y, sx, sy, pc[0], pc[1], pc[2], al, 0, rot, fl, flip, 0, bl);
+  if (legs && swim < 0.5) B.main.add(legs, x, y, sx, sy, pc[0], pc[1], pc[2], al, 0, rot, fl, flip, 0, bl);
   if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, bl);
-  rigFeet(true);
+  if (swim < 0.5) rigFeet(true);
+  if (swim > 0.01 && T.soft) {
+    // the water line hides the lower body; a slow ripple ring spreads around the swimmer
+    const wa = 0.85 * swim;
+    B.main.add(T.soft, x, y + 0.02, 1.9, 0.75, WATER[0], WATER[1], WATER[2], wa, 0, 0, 0, 1, 0, 0.03);
+    if (T.ring) { const u = (t * 0.7 + ph0) % 1; B.main.add(T.ring, x, y + 0.03, 0.5 + u * 0.7, 0.4 + u * 0.55, 0.85, 0.95, 1, 0.35 * (1 - u) * swim, 0, 0, 0, 1, 0, 0.01); }
+  }
   // head
   B.main.add(head, hx, y, 1, 1, sk[0], sk[1], sk[2], al, 0, hr, fl, hflip, 0, hl);
   if (shut) B.main.add(lids, hx, y, 1, 1, sk[0], sk[1], sk[2], al, 0, hr, fl, hflip, 0, hl);
