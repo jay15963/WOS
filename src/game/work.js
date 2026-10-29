@@ -252,8 +252,16 @@ function craftingActive(game) {
   return recipeState(game, Q[0].id).stationOk;
 }
 
+// a creature is actually after the player (p.inCombat also stays on from cold / hunger damage, which must not
+// freeze auto-work)
+function chased(game) {
+  const p = game.player;
+  for (const e of game.entities) if (e !== p && !e.dead && e.state === 'chase' && e.threat === p) return true;
+  return false;
+}
+
 export function workSystem() {
-  let farT = 0;
+  let farT = 0, chaseT = 0, chase = false;
   return {
     sync: 'owner', // the local player's job sequence
     update(game, dt) {
@@ -272,7 +280,8 @@ export function workSystem() {
         return;
       }
       if (W.paused) return;
-      if (p.work || ctl.goal || p.moving || p.autoAttack || p.inCombat || game.ui?.modal || p.charge) {
+      if ((chaseT -= dt) <= 0) { chaseT = 0.5; chase = p.inCombat && chased(game); }
+      if (p.work || ctl.goal || p.moving || p.autoAttack || chase || game.ui?.modal || p.charge) {
         if (p.work && inSeq(seq, p.work.it)) seq.cur = seq.kind === 'path' ? p.work.it.i : p.work.it.o.id;
         W.idleT = 0;
         // walking to a job without getting closer for 3 s (stuck against something): skip that job for a while
