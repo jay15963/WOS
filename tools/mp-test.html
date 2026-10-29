@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>WOS mp-test</title>
+  <style>
+    :root { --bg: #1d1a16; --panel: #2a2520; --ink: #e9e2d4; --dim: #a89d8a; --accent: #e8c46a; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 12px/1.35 system-ui, sans-serif; }
+    header { flex: 0 0 auto; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 6px 12px; border-bottom: 1px solid #000; }
+    header b { color: var(--accent); letter-spacing: 1px; }
+    header a { color: var(--dim); text-decoration: none; }
+    header a:hover { color: var(--ink); }
+    #cfg { color: var(--dim); }
+    /* game frames: always on screen (every frame must keep running requestAnimationFrame) */
+    #frames { flex: 0 0 38vh; min-height: 200px; display: flex; gap: 4px; padding: 4px; background: #000; }
+    #frames:empty::before { content: 'no game frames open'; color: #555; margin: auto; }
+    .fbox { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; background: #111; border: 1px solid #333; }
+    .fcap { flex: 0 0 auto; padding: 2px 6px; color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fbox iframe { flex: 1 1 auto; width: 100%; border: 0; background: #000; }
+    main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 6px 12px 12px; background: var(--panel); }
+    #status { color: var(--accent); margin-bottom: 6px; white-space: pre-wrap; }
+    #report { margin: 0; font: 12px/1.35 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body>
+  <header>
+    <b>WOS · multiplayer sync tests</b>
+    <span id="cfg"></span>
+    <a href="?run=all">run all (BroadcastChannel)</a>
+    <a href="?run=star&amp;transport=webrtc">★ over WebRTC</a>
+    <a href="?run=star&amp;relay=1">★ through TURN</a>
+    <a href="?">catalogue</a>
+  </header>
+  <div id="frames"></div>
+  <main>
+    <div id="status">loading…</div>
+    <pre id="report"></pre>
+  </main>
+  <script type="module" src="mp-test.js"></script>
+</body>
+</html>
