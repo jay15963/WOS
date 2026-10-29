@@ -2,7 +2,7 @@
 // body heat driven by a felt temperature (°C) from biome + time of day + rain / storm / wind / wet (read
 // from game.env), warmed by fires, enclosed shelters, roofs (world.roofAt: built or a cave ceiling), clothing and warm food.
 // Every number lives in SURVIVAL below. Effects: hungry (<25%), starving (0), chilled (<30% heat:
-// slower, hungrier), hypothermia (<10%: ramping damage). Swimming in deep water chills hard and soaks the
+// slower, hungrier, no HP regen), freezing (<20%: slow HP loss), hypothermia (<10%: ramping damage, % of max HP). Swimming in deep water chills hard and soaks the
 // clothes; wet clothes (also slowly from rain) keep the player chilled until they dry (fast by a fire, faster
 // in sunshine or under a roof). Eating lives here too.
 //
@@ -41,9 +41,11 @@ export const SURVIVAL = {
     comfort: 12,          // felt °C at or above which the body warms up
     lossK: 0.085,         // heat %/s lost per °C below comfort (meadow night: chilled in ~2 min)
     gainK: 0.09, gainBase: 0.4, // heat %/s regained per °C above comfort (+ base)
-    chilled: 30, hypo: 10,
+    chilled: 30, freezing: 20, hypo: 10, // body heat % thresholds (chilled: no HP regen, slower, hungrier)
     chilledSpeed: 0.86,
-    hypoEvery: 2, hypoBase: 1, hypoRamp: 1 / 12, hypoMax: 6,
+    freezeEvery: 3, freezePct: 0.01,     // < 20%: lose 1% of max HP every 3 s
+    // < 10%: lose 2% of max HP every 2 s, +1% per 10 s spent freezing, up to 6% (≈ 3% max HP / s)
+    hypoEvery: 2, hypoPct: 0.02, hypoRampPct: 0.001, hypoMaxPct: 0.06,
   },
   // swimming in deep water / wet clothes (p.swimming is set by game.update; p.wetT = seconds of soaking left)
   wet: {
@@ -68,6 +70,7 @@ export function eat(game, id) {
   if (f.heal) healEntity(game, p, f.heal);
   if (f.warm) p.warmFoodT = Math.max(p.warmFoodT || 0, f.warm);
   game.audio?.play('eat', { x: p.x, y: p.y });
+  if (!p.action) p.action = { type: 'eat', t: 0, dur: 1.2, item: id }; // eating pose (replicated with presence)
   game.events.emit('inventory', {});
   game.events.emit('toast', { text: `Comeu ${def.name.toLowerCase()} (+${f.hunger} fome${f.warm ? ' · aquece' : ''})`, kind: 'info' });
   if (f.sick && Math.random() < f.sick) {
@@ -258,7 +261,7 @@ export function survivalSystem() {
       if (warm) { if (!hasBuff(p, 'warm')) addBuff(p, 'warm', 1, { perm: true }); } else removeBuff(p, 'warm');
       // chilled: a cold body, or swimming / wet clothes away from a fire
       const chilled = heat < T.chilled || p.swimming || (wetNow && !warm);
-      if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento e com mais fome. Aqueça-se.' }); }
+      if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento, com mais fome e sem recuperar vida. Aqueça-se.' }); }
       else removeBuff(p, 'cold');
       const hypo = heat < T.hypo;
       if (hypo) {
@@ -266,7 +269,17 @@ export function survivalSystem() {
         hypoT += dt; hypoAcc += dt;
         if (hypoAcc >= T.hypoEvery) {
           hypoAcc = 0;
-          dealDamage(game, p, p, Math.min(T.hypoMax, Math.floor(T.hypoBase + hypoT * T.hypoRamp)), { noDodge: true, noKnock: true });
+          const pct = Math.min(T.hypoMaxPct, T.hypoPct + hypoT * T.hypoRampPct);
+          dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * pct)), { noDodge: true, noKnock: true });
+          if (p.dead) return;
+        }
+      } else if (heat < T.freezing) {
+        // freezing (not yet hypothermia): slow, steady HP loss
+        removeBuff(p, 'hypothermia'); hypoT = Math.max(0, hypoT - dt * 2);
+        hypoAcc += dt;
+        if (hypoAcc >= T.freezeEvery) {
+          hypoAcc = 0;
+          dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * T.freezePct)), { noDodge: true, noKnock: true });
           if (p.dead) return;
         }
       } else { removeBuff(p, 'hypothermia'); hypoT = Math.max(0, hypoT - dt * 2); hypoAcc = 0; }
@@ -274,6 +287,7 @@ export function survivalSystem() {
       if (d < 0) {
         if (lastHeat >= 60 && heat < 60) game.events.emit('toast', { text: `Está esfriando (${Math.round(f.c)}°C): fogueira, abrigo fechado ou roupas`, kind: 'warn' });
         if (lastHeat >= T.chilled && heat < T.chilled) game.events.emit('error', { text: 'Você está com frio!' });
+        if (lastHeat >= T.freezing && heat < T.freezing) game.events.emit('error', { text: 'Você está congelando e perdendo vida!' });
         if (lastHeat >= T.hypo && heat < T.hypo) game.events.emit('error', { text: 'Hipotermia! Aqueça-se já' });
       } else if (lastHeat < T.chilled && heat >= T.chilled) game.events.emit('toast', { text: 'O corpo está se aquecendo', kind: 'good' });
       lastHeat = heat;

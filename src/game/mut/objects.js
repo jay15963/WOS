@@ -86,7 +86,7 @@ function hitFx(game, o, toward) {
   (game.shaking ||= new Set()).add(o);
   if (isTree(o) && !o.stump) {
     o.shake = 1;
-    J.leaves(o.x, o.y, 4, 1.8 * o.s);
+    if (J.treeHit) J.treeHit(o, toward); else J.leaves(o.x, o.y, 4, 1.8 * o.s);
     J.chips(toward ? o.x - (o.x - toward.x) * 0.3 : o.x, o.y, [0.62, 0.45, 0.28], 4, 0.4);
     game.audio?.play('chop', { x: o.x, y: o.y });
   } else if (o.stump) {
@@ -107,6 +107,7 @@ const REMOVE_FX = {
   boulder: (game, o, mine) => {
     game.juice.puff(o.x, o.y, 10, [0.7, 0.68, 0.64], 0.8);
     game.juice.chips(o.x, o.y, [0.62, 0.6, 0.57], 12, 0.3);
+    game.juice.crumble?.(o);
     if (mine) game.juice.shake(0.15);
   },
   pick: (game, o) => { game.audio?.play('pickup', { x: o.x, y: o.y }); game.juice.puff(o.x, o.y, 3, [0.62, 0.56, 0.46], 0.35); },

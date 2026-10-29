@@ -147,7 +147,9 @@ function treeGroup(A, type, v) {
   const g = L ? L[(v >> 4) % L.length] : type;
   return A.groups[g] ? g : A.groups[type] ? type : 'tree_oak';
 }
+let NOW = 0; // frame time for helpers that do not receive t
 export function drawStatic(B, A, o, t) {
+  NOW = t;
   const T = tables(A);
   const type = o.type;
   const f = o.f || 1;
@@ -180,7 +182,9 @@ export function drawStatic(B, A, o, t) {
       let a;
       if (fall <= 1) a = fall * fall * fall * 0.15 + fall * fall * 0.85;
       else { const u = Math.min(1, (fall - 1) / 0.25); a = 1 - Math.sin(u * Math.PI) * 0.06 * (1 - u * 0.5); }
-      rot = (o.fallDir || f) * HALF_PI * a;
+      // timber: a short creak back against the cut before it goes (animation pass)
+      const creak = fall < 0.16 ? Math.sin((fall / 0.16) * Math.PI) * 0.035 : 0;
+      rot = (o.fallDir || f) * (HALF_PI * a - creak);
       alpha = 1 - clamp01((fall - 1.1) / 0.4);
     }
     const sc = o.s * age;
@@ -210,6 +214,12 @@ export function drawStatic(B, A, o, t) {
     const x = o.x + shakeX(o, t, 0.03);
     B.blob.add(T.blob, o.x, o.y, 1.0 * o.s, 0.55 * o.s, 1, 1, 1, 0.5);
     B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f);
+    // cracks spread over the rock as it is worked (o.prog comes from the host's ops) — animation pass (D)
+    const pg = o.prog || 0;
+    if (pg > 0.12 && T.cracks.length) {
+      const c = T.cracks[Math.min(T.cracks.length - 1, (pg * 3) | 0)];
+      B.main.add(c, x, o.y - 0.05 * o.s, (0.6 * s.w * o.s) / c.w, (0.5 * s.h * o.s) / c.h, 1, 1, 1, 0.55 + 0.35 * pg, 0, 0, 0, f, 0, 0.06 * o.s);
+    }
     B.shadow.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, 0, f);
     return;
   }
@@ -346,7 +356,8 @@ function drawCrop(B, T, o, kind, fl, f) {
   const st = Math.max(0, Math.min(3, o.stage | 0));
   const s = arr[st] || arr[0];
   const sway = 0.04 + st * 0.025;
-  B.main.add(s, o.x, o.y, 1, 1, 1, 1, 1, o.alpha ?? 1, sway, 0, fl, f, 0.6);
+  const rot = o.shake > 0 ? Math.sin(NOW * 36 + o.x * 3) * 0.09 * o.shake : 0; // wiggle when brushed / worked
+  B.main.add(s, o.x, o.y, 1, 1, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.6);
   if (st > 0) B.shadow.add(s, o.x, o.y - 0.3, 1, 1, 1, 1, 1, 0.75, sway, 0, 0, f, 0, -0.3);
 }
 

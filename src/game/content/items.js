@@ -43,6 +43,7 @@ export const ITEMS = {
   steel_bar:   mat('Barra de aço', '⬜', 'Ferro com carvão. O melhor metal.'),
   gold_bar:    mat('Barra de ouro', '🟨', 'Ouro fundido. Valioso.', { value: 30 }),
   arrow:       { name: 'Flecha', emoji: '➶', stack: 99, cat: 'ammo', desc: 'Munição para arcos.' },
+  bone:        mat('Ossos', '🦴', 'Ossos limpos recolhidos de uma ossada. Restos de um ser que já viveu por aqui.'),
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
 
   // ---------- seeds ----------

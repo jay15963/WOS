@@ -288,7 +288,7 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
 | Position, facing, moving, action | game.js:57-69; abilities.js:472-519; controller.js | O | pres (12 Hz) |
 | HP, dead, maxHp, level, blocking | combat.js:118, 142; player.js:79-157 | O | pres |
 | Weapon/offhand/armor visuals | equipment.js:100-109; player.js:36-58 | O | pres |
-| Look | session.js:485 | O | `lk` |
+| Look | session.js `_setLook` / `sendLook` (agent H, `game/look.js`) | O | `lk` / `sts.look` (packed string) |
 | Damage taken from creatures | ai.js:136-152; bandits.js:286-310; projectiles.js:115-121 | H decides hit, O applies | own `player.hurt` |
 | Poison/bleed/stun on players | ai.js:146-150; bandits.js:321, 335 | O applies | own `player.hurt {poison/bleed/stun}` |
 | XP, level-up | player.js:79-94 | O | via `by/xp` on ops |
@@ -928,6 +928,19 @@ differs from the design text above, the code is described here (this section win
 - The guest whose atlas differs from the host's (same build) clears its atlas cache and reloads once (`sessionStorage
   wos.atlasRetry`); with `?nosave` the reload is skipped and the "Gráficos corrompidos…" message is shown at once.
 - R5 (`noGrow[`) matches **writes** only (reads in regrowth checks are fine).
+- **Looks** (round V2, agent H): `hello.look`, `lk.look` and `sts.list[].look` carry `packLook()` strings (`"1|average|…"`, ~200 B;
+  PROTO 4). Receivers always run `cleanLook()` (unknown ids → defaults, colours validated; legacy objects migrated), so a peer can
+  never break drawing. `session.sendLook()` (called by `applyLook` when the player saves in the editor) sends at the next presence
+  tick; the host relays a changed guest look to everyone at once (otherwise every 5 s). Scenario S70.
+- **Presence animation fields** (round V2, agent D; `packState` in `session.js`): `a = [type, t, dur, loop, item?]` (`dur` 0 =
+  held pose; `loop` 1 = work cycle that repeats while working, `dur` = `p.work.cycle`), `hd` = head facing when it differs from
+  `f`, `ps` = resting pose `'sit' | ['sit', seatId] | ['sleep', bedId]`. Receivers keep `f / a / hd / ps` in the interpolation
+  buffer and apply them at the same delayed render time as the position; an action's start is rebuilt as
+  `sampleTime - t·dur`, so a swing is shown from its first frame even when it started between two samples (S40). The host
+  relays other guests' last raw sample (aged by the time since it arrived), so guest ↔ guest copies carry weapon / action /
+  pose too. Creature proxies (`entities.js`) likewise start a new action at `ht - t·dur` instead of on receipt.
+  Everything else a pawn does on screen (walk cycle, feet, hands, blink, breathing, flinch from `flash`, death / rise from
+  `dead`) is derived in `art/compose.js` from these replicated fields; cosmetic caches are `_`-prefixed.
 - **Construction (round V2, agent A)** — shared structure fields `rot`, `paid`, `open`, `moveOf` (set in op appliers, in snapshot
   `structs` rows `[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]` and in the `structs`
   digest rows; derived on every peer by `setGeom`: `fw × fh` footprint after rotation, `x, y, cy`, `face`). Cosmetic: `_openT`
@@ -950,6 +963,22 @@ differs from the design text above, the code is described here (this section win
   rock mined) + `player.hurt` for players under it. The natural roof (`world.roof`) is derived from the rock grid inside `tile.mine` on
   every peer (no op); `rock.hit` adds the cave-in damage on the host. Digest `tiles` part also hashes `roof` and `broof`.
 
+- **Corpses (round V2, agent I)** — `game.corpses.map` (id → body), shared fields `id, of ('pawn' | species), x, y, f, deathT, size, store,
+  butchered, owner, name, look, sc, v, gear`; cosmetic `_t0` (fall animation), `_ph`, `_px`, `rotten` (flies stage, derived every 0.5 s; feeds the `flies` sound); on entities `_corpseId` (a dead creature /
+  player whose body is on the ground is not drawn by the rig). The **stage is never replicated**: every peer derives it from
+  `(worldTime - deathT) / env.dayLength` — fresh < 1 ≤ rotten < 2 ≤ skeleton < 5, then the host emits `corpse.remove` (expiry tick 2 s,
+  cap 150 bodies, oldest first). Snapshot `corpses` rows `[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc,
+  v, gear|0, 0]`; digest part `corpses` `[id, of, x, y, round(deathT), butchered, owner, store]`. Ids `c<n>` (`net.ids.c`).
+  - Ops: `corpse.add {list}` (host death path: `killMob` → `corpseFromMob`, it **replaces** the kill-loot `loot.add`: animals drop nothing,
+    a raider's loot rows go into its body), `corpse.set {id, slots, by?, give?}`, `corpse.butcher {id, by, give, xp, tip?}`,
+    `corpse.remove {ids, by?, give?, xp?, fx: 'bones'?}`.
+  - Intents: `corpse.player {x, y, f, slots, gear}` (the dying owner already emptied its bag + equipment; refund on reject),
+    `corpse.put {id, item, qty}` / `corpse.take {id, slot, qty}` (pawn bodies, fresh or rotten, reach 3.2). Sorting is ONE shared
+    intent for every container, `store.sort {kind: 'chest' (default) | 'corpse', id, mode: 'name'|'type'|'qty'}` (mut/structures.js;
+    replaces B's `chest.sort`; `src/game/invsort.js` `sortedSlots`, stacks merge) → `chest.set` / `corpse.set`; `corpse.butcher {id, blade, tier}`
+    (end of the local timed work; fresh animal, not butchered; yields rolled on the host from `SPECIES[].loot`: blade = full table +
+    bonus, bare hands = no hide and ~60% meat), `corpse.bones {id}` (skeleton stage; `give: {bone: 1|2|4|3}` by size, spiders 0).
+  - Test fast-forward: the harness emits `env.skip {hour, day, wt}` on the host (S60 / S61).
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,
@@ -957,8 +986,10 @@ fuel, hinted, marks, world: serializeWorld(game, {save: true}) }` (the snapshot 
 re-find worldgen objects if the world generator changed). Guests write `{ v: 3, guest: 1, player, craft, fuel, hinted }` only.
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
-`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby). **v5** (roofs): rows carry
-`style, det` (older rows get `''`); the natural roof is re-derived from the mined tiles with the support rule.
+`migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
+**v5** (round V2, agent I): the world snapshot carries `corpses` (optional; older saves simply have no bodies).
+**v6** (roofs, agent J): structure rows carry `style, det` (older rows get `''`); the natural roof is re-derived from the mined tiles
+with the support rule.
 
 ### 7.4 Background clock
 

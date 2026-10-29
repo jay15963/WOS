@@ -11,3 +11,4 @@ import './combat.js';
 import './bow.js';
 import './env.js';
 import './own.js';
+import './corpses.js';

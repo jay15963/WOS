@@ -20,6 +20,7 @@ import { EntityServer, EntityClient, ClockSync } from './entities.js';
 import { DigestHost, DigestGuest } from './digest.js';
 import { releaseStations } from '../game/mut/structures.js';
 import { clearAtlasCache } from '../engine/atlasCache.js';
+import { cleanLook, packLook, loadLook } from '../game/look.js';
 
 const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: TURN da Cloudflare em Configurações (copie o relatório se ele já estiver ativo).';
 const QS = new URLSearchParams(location.search);
@@ -63,22 +64,114 @@ export function setPlayerName(n) {
 // ---- sanitizers for untrusted peer data ----
 const num = (v, lo, hi, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 const str = (v, max = 32) => (typeof v === 'string' ? v.slice(0, max) : null);
-const color = (c) => (Array.isArray(c) && c.length === 3 ? c.map((x) => num(x, 0, 1.5, 0.5)) : null);
-function cleanLook(l) {
-  if (!l || typeof l !== 'object') return null;
-  return {
-    skin: color(l.skin) || [0.95, 0.8, 0.66], hair: str(l.hair, 16) || 'short', hairColor: color(l.hairColor) || [0.35, 0.22, 0.12],
-    shirt: color(l.shirt) || [0.4, 0.5, 0.7], pants: color(l.pants) || undefined, beard: !!l.beard,
-  };
-}
+// looks (agent H, src/game/look.js): packed string on the wire, cleaned on receipt (unknown ids → default)
 
+// action for the presence stream: [type, t, dur (0 = held pose), loop (work cycles), item?] — receivers rebuild
+// the exact timeline (start = sample time - t·dur) and play it with the same delay as the position
+function packAct(p) {
+  const a = p.action;
+  if (!a || !(a.t < 1)) return 0;
+  const hold = !!a.hold;
+  const dur = hold ? 0 : a.dur || a.cyc || p.work?.cycle || 0.4;
+  const out = [String(a.type), +(+a.t || 0).toFixed(2), +dur.toFixed(2), !a.dur && !hold ? 1 : 0];
+  if (a.item) out.push(String(a.item));
+  return out;
+}
+// resting pose: 'sit' | ['sit', seatId] | ['sleep', bedId] (cosmetic, drawn by art/compose.js)
+const packPose = (p) => (p.pose ? (p.pose.id ? [p.pose.type, p.pose.id] : p.pose.type) : undefined);
 function packState(p) {
-  const a = p.action && p.action.t < 1 ? [p.action.type, +(+p.action.t).toFixed(2)] : 0;
   return {
-    x: +p.x.toFixed(2), y: +p.y.toFixed(2), f: p.facing, mv: p.moving ? 1 : 0, a,
+    x: +p.x.toFixed(2), y: +p.y.toFixed(2), f: p.facing, mv: p.moving ? 1 : 0, a: packAct(p),
+    hd: p.headFacing && p.headFacing !== p.facing ? p.headFacing : undefined, ps: packPose(p),
     w: p.weapon || 0, o: p.offhand || 0, ab: p.armor?.body || 0, ah: p.armor?.head || 0,
     hp: Math.round(p.hp || 0), mh: Math.round(p.maxHp || 100), d: p.dead ? 1 : 0, bl: p.blocking ? 1 : 0, lv: p.level || 1,
+    ty: p.typing ? 1 : undefined, // chat box open: others see a "typing…" bubble (cosmetic)
   };
+}
+// ---------- chat bubbles (overlay canvas) ----------
+const BUBBLE_MAX = 3, BUBBLE_W = 190, BUBBLE_LH = 15, BUBBLE_PAD = 7, BUBBLE_GAP = 5;
+const easeBack = (k) => { const c = 1.7; k -= 1; return 1 + (c + 1) * k * k * k + c * k * k; };
+function wrapLines(ctx, text) {
+  const words = text.split(/\s+/), out = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width <= BUBBLE_W - BUBBLE_PAD * 2 || !line) line = t;
+    else { out.push(line); line = w; }
+    if (out.length === 4) break;
+  }
+  if (out.length < 4 && line) out.push(line);
+  if (out.length === 4 && (words.join(' ').length > out.join(' ').length)) out[3] = out[3].replace(/.{0,2}$/, '…');
+  return out.map((l) => { while (ctx.measureText(l).width > BUBBLE_W - BUBBLE_PAD * 2 && l.length > 2) l = l.slice(0, -2) + '…'; return l; });
+}
+function bubbleBox(ctx, x, y, w, h, alpha, tail) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2 + 1, y - h + 2, w, h, 8); ctx.fill();
+  ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.strokeStyle = 'rgba(40,34,26,0.85)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h, w, h, 8);
+  if (tail) { ctx.moveTo(x - 5, y); ctx.lineTo(x, y + 6); ctx.lineTo(x + 5, y); }
+  ctx.fill(); ctx.stroke();
+  if (tail) { ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.fillRect(x - 4, y - 2, 8, 2.5); }
+}
+// stack of ≤ 3 bubbles above (x, y): newest at the bottom (closest to the head), older ones slide up;
+// new ones pop in, expired / pushed-out ones fade; a "typing…" bubble sits under them while typing
+function drawBubbles(ctx, list, x, y, now, dt, typing) {
+  ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
+  let base = 0; // offset (px above y) where the next bubble starts
+  let first = true;
+  if (typing) {
+    const w = 38, h = 20, ph = now / 1000;
+    bubbleBox(ctx, x, y, w, h, 0.95, true);
+    ctx.fillStyle = '#6d5f4c';
+    for (let i = 0; i < 3; i++) { const k = Math.max(0, Math.sin(ph * 6 - i * 0.9)); ctx.beginPath(); ctx.arc(x - 9 + i * 9, y - 10 - k * 3, 2.3, 0, Math.PI * 2); ctx.fill(); }
+    base = h + BUBBLE_GAP; first = false;
+  }
+  if (!list || !list.length) { ctx.globalAlpha = 1; return; }
+  const k = 1 - Math.exp(-dt * 14);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i];
+    const gone = b.out ? (now - b.out) / 350 : now > b.until ? (now - b.until) / 500 : 0;
+    if (gone >= 1) { list.splice(i, 1); continue; }
+    if (!b.lines) b.lines = wrapLines(ctx, b.text);
+    const w = Math.min(BUBBLE_W, Math.max(...b.lines.map((l) => ctx.measureText(l).width)) + BUBBLE_PAD * 2);
+    const h = b.lines.length * BUBBLE_LH + BUBBLE_PAD * 2 - 4;
+    const target = base;
+    b.oy = b.oy == null ? target : b.oy + (target - b.oy) * k; // slide smoothly when the stack changes
+    const age = (now - b.t0) / 1000;
+    const pop = Math.min(1, age / 0.22), s = easeBack(pop);
+    const alpha = Math.min(1, age / 0.15) * (1 - gone);
+    const yy = y - b.oy - (b.out ? gone * 14 : 0);
+    ctx.save();
+    ctx.translate(x, yy); ctx.scale(s, s); ctx.translate(-x, -yy);
+    bubbleBox(ctx, x, yy, w, h, alpha, first);
+    ctx.fillStyle = '#2a241c';
+    b.lines.forEach((l, j) => ctx.fillText(l, x, yy - h + BUBBLE_PAD + 10 + j * BUBBLE_LH));
+    ctx.restore();
+    if (!b.out) base += h + BUBBLE_GAP;
+    first = false;
+  }
+  ctx.globalAlpha = 1;
+}
+
+// a relayed sample (host → other guests) is re-sent later than it was taken: age its action accordingly
+function agedState(s, age) {
+  const a = s.a;
+  if (!Array.isArray(a) || !(a[2] > 0) || !(age > 0.005)) return s;
+  let k = (+a[1] || 0) + age / a[2];
+  if (a[3]) k -= Math.floor(k); else if (k >= 1) return { ...s, a: 0 };
+  const b = a.slice(); b[1] = +k.toFixed(2);
+  return { ...s, a: b };
+}
+function parseAct(a, ts) {
+  if (!Array.isArray(a) || typeof a[0] !== 'string') return null;
+  const k = num(a[1], 0, 1, 0), dur = num(a[2], 0, 30, 0.4);
+  return { type: a[0].slice(0, 16), k, dur, loop: !!a[3], start: ts - k * dur, item: str(a[4], 24) };
+}
+function parsePose(ps) {
+  if (typeof ps === 'string') return ps === 'sit' || ps === 'sleep' ? { type: ps, id: null } : null;
+  if (Array.isArray(ps) && (ps[0] === 'sit' || ps[0] === 'sleep')) return { type: ps[0], id: typeof ps[1] === 'string' || typeof ps[1] === 'number' ? ps[1] : null };
+  return null;
 }
 
 export const versionMessage = (mine, host) => `Versões diferentes do jogo (sua ${mine || '?'}, anfitrião ${host || '?'}). Recarregue a página (Ctrl+Shift+R); se persistir, o anfitrião também deve recarregar.`;
@@ -100,7 +193,7 @@ export class Session {
     this.listeners = {};
     this.sendAcc = 0; this.envAcc = 0; this.pingAcc = 0; this.lookAcc = 99;
     this.rtt = null;
-    this.bubbles = new Map();   // pid -> { text, until }
+    this.bubbles = new Map();   // pid -> [{ text, lines, t0, until, out, oy }] (≤ 3 stacked chat bubbles, newest last)
     this.reconnects = 0;
     this.state = 'idle';        // idle | hosting | joining | syncing | connected | lost | hostgone | closed
     this.allList = [];          // host: [local player, ...synced remote avatars] (players.js)
@@ -270,7 +363,7 @@ export class Session {
 
   // ---------------- transport ----------------
   _hello() {
-    return { t: 'hello', v: PROTO, build: BUILD, art: runtime.atlasDigest, pid: this.pid, name: this.name, look: this.game ? this.game.player.look : null };
+    return { t: 'hello', v: PROTO, build: BUILD, art: runtime.atlasDigest, pid: this.pid, name: this.name, look: packLook(this.game ? this.game.player.look : loadLook()) };
   }
 
   _open(key, info) {
@@ -378,7 +471,7 @@ export class Session {
           if (!this.players.has(pid)) this._addPlayer(pid, str(it.name, 18) || 'Jogador', null);
           const pl = this.players.get(pid);
           if (it.name) pl.name = str(it.name, 18);
-          if (it.look) { pl.look = cleanLook(it.look); if (pl.ent && pl.look) pl.ent.look = pl.look; }
+          if (it.look) this._setLook(pl, it.look);
           this._applyState(pid, it.s, ht, this.hostClock);
         }
         if (m.env && this.game) this._applyEnv(m.env);
@@ -406,7 +499,7 @@ export class Session {
       case 'lk': {
         const pid = this.keyToPid.get(key);
         const pl = pid && this.players.get(pid);
-        if (pl) { pl.look = cleanLook(m.look); if (pl.ent && pl.look) pl.ent.look = pl.look; }
+        if (pl && this._setLook(pl, m.look) && this.role === 'host') this.lookAcc = 99; // relay a change to the others now
         return;
       }
       case 'left': {
@@ -467,8 +560,7 @@ export class Session {
     if (!existing) this._addPlayer(pid, name, key);
     const pl = this.players.get(pid);
     pl.name = name;
-    pl.look = cleanLook(m.look);
-    if (pl.ent && pl.look) pl.ent.look = pl.look;
+    this._setLook(pl, m.look);
     this.keyToPid.set(key, pid);
     const g = this.game, env = g.env;
     this._sendTo(key, {
@@ -583,6 +675,17 @@ export class Session {
   }
 
   // ---------------- players ----------------
+  // validated look of a remote player (true when it changed); the drawn entity follows
+  _setLook(pl, raw) {
+    const l = cleanLook(raw);
+    if (pl.look && packLook(pl.look) === packLook(l)) return false;
+    pl.look = l;
+    if (pl.ent) pl.ent.look = l;
+    return true;
+  }
+  // our look changed (character creator): send it with the next presence tick
+  sendLook() { this.lookAcc = 99; }
+
   _addPlayer(pid, name, key) {
     const pl = { pid, name, key, ent: null, av: null, rtt: null, last: performance.now(), look: null, synced: false, clk: new ClockSync() };
     this.players.set(pid, pl);
@@ -598,7 +701,7 @@ export class Session {
     pl.ent = {
       isEntity: true, kind: 'pawn', remote: true, faction: 'friend', pid: pl.pid, name: pl.name,
       x: sp.x, y: sp.y, r: 0.24, facing: 's', moving: false, moveT: 0, action: null, flash: 0,
-      look: pl.look || { skin: [0.95, 0.8, 0.66], hair: 'short', hairColor: [0.3, 0.2, 0.12], shirt: [0.55, 0.42, 0.3] },
+      look: pl.look || cleanLook(null),
       weapon: null, offhand: null, armor: { body: null, head: null }, hp: 100, maxHp: 100, level: 1, dead: false,
       _buf: [], _seen: false,
     };
@@ -650,17 +753,14 @@ export class Session {
     const prev = B[B.length - 1];
     if (prev && t <= prev.t) { /* out of order / duplicate sample */ } else {
       if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; } // teleport / respawn: snap
-      B.push({ t, x, y });
+      // facing, action timeline, head and pose ride with the position (same interpolation delay)
+      B.push({ t, x, y, f: FACINGS.has(s.f) ? s.f : null, a: parseAct(s.a, t), hd: FACINGS.has(s.hd) ? s.hd : null, ps: parsePose(s.ps) });
       if (B.length > 24) B.shift();
     }
-    if (!e._seen) { e.x = x; e.y = y; e._seen = true; }
-    if (FACINGS.has(s.f)) e.facing = s.f;
+    if (!e._seen) { e.x = x; e.y = y; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
     e.netMoving = !!s.mv;
-    if (Array.isArray(s.a) && typeof s.a[0] === 'string') {
-      const type = s.a[0].slice(0, 16), at = num(s.a[1], 0, 1, 0);
-      if (!e.action || e.action.type !== type || at < e.action.t - 0.05) e.action = { type, t: at, dur: 0.4, remote: true };
-      else e.action.t = Math.max(e.action.t, at);
-    } else e.action = null;
+    pl.lastS = s; pl.lastSAt = performance.now() / 1000;
+    e.typing = !!s.ty;
     e.weapon = str(s.w, 32) || null;
     e.offhand = str(s.o, 32) || null;
     e.armor = { body: str(s.ab, 32) || null, head: str(s.ah, 32) || null };
@@ -677,7 +777,7 @@ export class Session {
       if (dt > 0.02 && dt < 1) { av.vx = (x - av.x) / dt; av.vy = (y - av.y) / dt; } else if (dt >= 1) { av.vx = av.vy = 0; }
       if (!s.mv) av.vx = av.vy = 0;
       av._t = t;
-      av.x = x; av.y = y; av.facing = e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
+      av.x = x; av.y = y; av.facing = FACINGS.has(s.f) ? s.f : e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
       av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
     }
   }
@@ -707,7 +807,13 @@ export class Session {
     this._showChat(this.pid, this.name, text);
   }
   _showChat(pid, name, text) {
-    this.bubbles.set(pid, { text, until: performance.now() + 6000 });
+    const now = performance.now();
+    let list = this.bubbles.get(pid);
+    if (!list) this.bubbles.set(pid, list = []);
+    list.push({ text, lines: null, t0: now, until: now + 7000 + Math.min(5000, text.length * 60), out: 0, oy: null });
+    // a 4th message pushes the oldest still-visible one out (it fades up and away)
+    const live = list.filter((b) => !b.out);
+    if (live.length > BUBBLE_MAX) live[0].out = now;
     this.emit('chat', { pid, name, text, self: pid === this.pid });
   }
 
@@ -722,14 +828,15 @@ export class Session {
       const s = packState(p);
       if (this.role === 'guest' && this.hostKey) {
         this._sendTo(this.hostKey, { t: 'st', s, ts: +now.toFixed(3) });
-        if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: p.look }); }
+        if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: packLook(p.look) }); }
       } else if (this.role === 'host' && this.players.size) {
         const withLook = this.lookAcc > 5;
         if (withLook) this.lookAcc = 0;
-        const list = [{ pid: this.pid, name: this.name, s, look: withLook ? p.look : undefined }];
+        const list = [{ pid: this.pid, name: this.name, s, look: withLook ? packLook(p.look) : undefined }];
         for (const pl of this.players.values()) {
           if (!pl.ent || !pl.synced) continue;
-          list.push({ pid: pl.pid, name: pl.name, s: packState(pl.av || pl.ent), look: withLook ? pl.look : undefined });
+          const rs = pl.lastS ? agedState(pl.lastS, now - (pl.lastSAt || now)) : packState(pl.av || pl.ent);
+          list.push({ pid: pl.pid, name: pl.name, s: rs, look: withLook && pl.look ? packLook(pl.look) : undefined });
         }
         const msg = { t: 'sts', ht: +now.toFixed(3), list };
         if (this.envAcc > 2) { this.envAcc = 0; msg.env = { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather, wt: Math.round(game.worldTime * 100) / 100 }; }
@@ -775,15 +882,40 @@ export class Session {
           e.x = last.x; e.y = last.y;
         } else { e.x = x; e.y = y; stepGait(e, Math.min(d, 1)); }
         e.moving = e.netMoving || d > 0.01;
+        this._discrete(e, B, rt);
       }
-      if (e.action && !e.action.remote) e.action = null;
-      if (e.action) { e.action.t = Math.min(1, e.action.t + dt / (e.action.dur || 0.4)); if (e.action.t >= 1) e.action = null; }
       if (performance.now() - pl.last > STALE_S * 1000 && !pl.host) {
         netlog.warn('session', `${pl.name} parou de enviar dados há ${STALE_S}s; removendo`);
         this._remove(pl.pid);
         if (this.role === 'host') this._broadcast({ t: 'left', pid: pl.pid });
       }
     }
+  }
+
+  // facing / action / head / pose of a remote player at render time rt (sender clock), from the newest
+  // sample at or before rt — an action is shown from its real start even if that falls before its sample
+  _discrete(e, B, rt) {
+    let cur = B[0], A = null;
+    for (let i = B.length - 1; i >= 0; i--) if (B[i].t <= rt) { cur = B[i]; break; }
+    for (let i = B.length - 1; i >= 0; i--) { const S = B[i]; if (S.t <= rt || (S.a && S.a.start <= rt)) { A = S.a; break; } }
+    if (cur.f) e.facing = cur.f;
+    e.headFacing = cur.hd;
+    const P = cur.ps;
+    if (!P) e.pose = null;
+    else if (!e.pose || e.pose.type !== P.type || e.pose.id !== P.id || (P.id != null && !e.pose.o)) {
+      const o = P.id != null ? this.game.world.objById?.get(P.id) || null : null;
+      e.pose = { type: P.type, id: P.id, o };
+    }
+    let k = 0;
+    if (A) {
+      k = A.dur > 0 ? (rt - A.start) / A.dur : A.k;
+      if (A.loop) k -= Math.floor(k);
+      if (k >= 1 || k < 0) A = null;
+    }
+    if (!A) { e.action = null; return; }
+    const ra = e._ra || (e._ra = { type: '', t: 0, dur: 0, remote: true, item: null });
+    ra.type = A.type; ra.t = k; ra.dur = A.dur; ra.hold = !(A.dur > 0); ra.item = A.item;
+    e.action = ra;
   }
 
   // nameplates + chat bubbles on the overlay canvas (drawn after the regular overlay)
@@ -798,6 +930,7 @@ export class Session {
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
     const now = performance.now();
+    const dt = Math.min(0.1, Math.max(0, (now - (this._bubT || now)) / 1000)); this._bubT = now;
     const z = game.cam.zoom;
     const draw = (e, name, isSelf) => {
       const [sx, sy] = game.worldToScreen(e.x, e.y - 1.25);
@@ -813,19 +946,7 @@ export class Session {
           ctx.fillStyle = '#4fbf5a'; ctx.fillRect(sx - w / 2, sy + 4, w * k, 4);
         }
       }
-      const b = this.bubbles.get(e === game.player ? this.pid : e.pid);
-      if (b && b.until > now) {
-        const a = Math.min(1, (b.until - now) / 600);
-        ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
-        const text = b.text.length > 42 ? b.text.slice(0, 40) + '…' : b.text;
-        const tw = ctx.measureText(text).width + 14;
-        const by = sy - (isSelf ? 4 : 18);
-        ctx.globalAlpha = a;
-        ctx.fillStyle = 'rgba(250,246,236,0.95)'; ctx.strokeStyle = 'rgba(30,26,22,0.85)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.roundRect?.(sx - tw / 2, by - 18, tw, 20, 6); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#2a241c'; ctx.fillText(text, sx, by - 4);
-        ctx.globalAlpha = 1;
-      }
+      drawBubbles(ctx, this.bubbles.get(e === game.player ? this.pid : e.pid), sx, sy - (isSelf ? 4 : 18), now, dt, isSelf ? !!game.player.typing : !!e.typing);
     };
     for (const pl of this.players.values()) if (pl.ent && !pl.ent.dead) draw(pl.ent, pl.name, false);
     draw(game.player, this.name, true);

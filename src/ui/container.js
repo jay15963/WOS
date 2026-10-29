@@ -9,7 +9,7 @@
 //     put(i, n):  move n items of backpack slot i into the container → shared containers send an intent
 //                 (the whole stack leaves the backpack at once; refunds / leftovers come back via the op)
 //     take(i, n): move up to n items of container slot i into the backpack (n = room in the backpack)
-//     sort(mode): 'name' | 'type' | 'qty' — shared containers: host intent → op (chest.sort → chest.set)
+//     sort(mode): 'name' | 'type' | 'qty' — shared containers: host intent store.sort {kind, id, mode} → op (chest.set / corpse.set)
 //     canOpen():  still valid and in reach? (checked every frame; the window closes when false)
 //     event?:  game event name that means "contents changed" (re-render), e.g. 'chest'; 'container' always works
 //     chest?:  the chest structure (chests only: A's lid animation reads panels.data.chest)
@@ -48,7 +48,7 @@ export function chestAdapter(game, o) {
       game.net.request('chest.take', { id: o.id, slot: i, qty: Math.min(room, n, s.qty) }, { onReject: err('Não deu') });
       return true;
     },
-    sort(mode) { game.net.request('chest.sort', { id: o.id, mode }, { onReject: err('Não deu para ordenar') }); },
+    sort(mode) { game.net.request('store.sort', { kind: 'chest', id: o.id, mode }, { onReject: err('Não deu para ordenar') }); },
     canOpen() {
       const p = game.player;
       return !!o.store && !o.removed && game.build.structures.includes(o) && Math.hypot(o.x - p.x, o.y - p.y) <= 2.6;

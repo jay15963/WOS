@@ -117,6 +117,33 @@ export class Renderer {
     this.atlasTex = createTexture(gl, { source: atlas.canvas, mipmap: true, premultiply: true });
   }
 
+  // agent H: lazily painted look parts (art/look/lazy.js) in a second texture, sampled for sprites with u < 0.
+  // New parts are uploaded once per frame (sub-rects; the whole texture after a repack or a resize).
+  _syncLook() {
+    const LA = this.atlas && this.atlas.look;
+    if (!LA) return;
+    LA.tick(4);
+    if (!LA.full && !LA.uploads.length) return;
+    const gl = this.gl;
+    if (!this.lookTex || this.lookW !== LA.W || this.lookH !== LA.H) {
+      if (this.lookTex) gl.deleteTexture(this.lookTex);
+      this.lookTex = createTexture(gl, { width: LA.W, height: LA.H, mipmap: true, premultiply: true });
+      this.lookW = LA.W; this.lookH = LA.H; LA.full = true;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, this.lookTex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    if (LA.full) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, LA.canvas);
+    else for (const r of LA.uploads) if (r.placed) gl.texSubImage2D(gl.TEXTURE_2D, 0, r.x, r.y, gl.RGBA, gl.UNSIGNED_BYTE, r.canvas);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    LA.full = false; LA.uploads.length = 0;
+  }
+  _bindLook(p) {
+    if (!this.lookTex || !p.u.uLook) return;
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.lookTex); gl.uniform1i(p.u.uLook, 3);
+  }
+
   setGroundTextures(size, layers) {
     this.groundTex = createTextureArray(this.gl, size, layers);
   }
@@ -384,6 +411,7 @@ export class Renderer {
 
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
+    this._syncLook(); // agent H: paint + upload look parts requested while composing this frame
 
     // 1. shadows
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadow.fbo);
@@ -399,6 +427,7 @@ export class Renderer {
       gl.uniform2f(p.u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
       gl.uniform1i(p.u.uTex, 0);
+      this._bindLook(p);
       B.shadow.draw();
       gl.blendEquation(gl.FUNC_ADD);
     }
@@ -468,6 +497,7 @@ export class Renderer {
       gl.uniform1i(p.u.uTex, 0);
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
       gl.uniform1i(p.u.uShadow, 1);
+      this._bindLook(p);
       gl.uniform2f(p.u.uViewport, this.w, this.h);
       gl.uniform1f(p.u.uShadowStr, env.shadowStr);
       if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.uniform1i(p.u.uClim, 2); }
