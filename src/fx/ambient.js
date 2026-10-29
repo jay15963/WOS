@@ -17,6 +17,7 @@
 
 import { installQuality, qualityPreset, qualityStepDown, qualityStepUp } from './quality.js';
 import { installDebug } from './debug.js';
+import { installStatusFx } from './status.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -42,6 +43,7 @@ export function installAmbient(game) {
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.ambient = sys;
+  installStatusFx(game);  // local player's status screen effects (cosmetic)
 }
 
 class Ambient {
@@ -412,7 +414,8 @@ class Ambient {
     const R = g.R, P = this.perf, now = performance.now();
     const raw = (now - P.last) / 1000;
     P.last = now;
-    if (R.autoScale === false || raw <= 0 || raw > 0.15 || document.visibilityState !== 'visible') return;
+    // gaps > 100 ms are throttling (background / occluded tabs keep 'visible' in some shells) or hitches, not load
+    if (R.autoScale === false || raw <= 0 || raw > 0.1 || document.visibilityState !== 'visible') return;
     P.ema += (raw - P.ema) * 0.05;
     P.coolT -= raw;
     if (P.ema > 1 / 42) { P.slowT += raw; P.fastT = 0; } else if (P.ema < 1 / 56) { P.fastT += raw; P.slowT = 0; } else { P.slowT = P.fastT = 0; }

@@ -6,7 +6,10 @@
 // frames at full resolution it may climb back one tier per session (never above the device guess).
 // A tier sets: device-pixel cap, shader level (#define QL 0/1/2 in the renderer), particle cap, ambient
 // FX density (qualityPreset().fx), post grain / bloom.
-// UI: qualitySettings(el, game) renders the settings row (one call from the settings panel).
+// UI: qualitySettings(el, game) renders the settings rows (one call from the settings panel): the quality
+// select plus the "Efeitos de tela de status" and "Reduzir movimento" toggles (src/fx/status.js).
+
+import { statusFxOn, reduceMotion, setStatusFx, setReduceMotion } from './status.js';
 
 export const TIERS = ['low', 'medium', 'high'];
 export const PRESETS = {
@@ -117,8 +120,14 @@ export function qualitySettings(el, game = null) {
   const cur = lsGet(KEY) || 'auto';
   el.innerHTML = `<label class="mfield">Qualidade gráfica
       <select data-k="quality">${OPTIONS.map(([v, l]) => `<option value="${v}" ${cur === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-    <p class="muted" data-k="qnote" style="margin:2px 0 8px"></p>`;
+    <p class="muted" data-k="qnote" style="margin:2px 0 8px"></p>
+    <label class="toggle"><input type="checkbox" data-k="statusfx" ${statusFxOn() ? 'checked' : ''}> Efeitos de tela de status (ferido, frio, fome…)</label>
+    <label class="toggle"><input type="checkbox" data-k="reducemotion" ${reduceMotion() ? 'checked' : ''}> Reduzir movimento (sem tremor nem balanço da tela)</label>`;
   const sel = el.querySelector('select'), note = el.querySelector('[data-k=qnote]');
+  const fx = el.querySelector('[data-k=statusfx]'), rm = el.querySelector('[data-k=reducemotion]');
+  const st = () => game?.statusFx || state.game?.statusFx;
+  fx.onchange = () => { setStatusFx(fx.checked); const s = st(); if (s) s.on = fx.checked; };
+  rm.onchange = () => { setReduceMotion(rm.checked); const s = st(); if (s) s.rm = rm.checked; };
   let seen = false;
   const upd = () => {
     if (el.isConnected) seen = true;

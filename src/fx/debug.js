@@ -4,6 +4,7 @@
 //   snow(v)               snow cover 0..1 (cosmetic)
 //   strike(dist)          lightning now (0 = overhead … 1 = far; cosmetic)
 //   quality(mode)         'auto'|'low'|'medium'|'high' (persisted like the settings row)
+//   feel(f)               force the status screen effects { hp, cold, hunger, wet, sick, warm } (null = real)
 //   scene()               campfire, torches and a short wall next to the player (single player, through ops)
 //   cave()                dig a tunnel + room into the nearest mountain, torch inside, stand there (single player)
 //   bench(n)              render n frames synchronously: { gpuMs, renderCpuMs, updateCpuMs, … } (timer queries)
@@ -40,6 +41,8 @@ export function installDebug(game) {
       return E.strikeId;
     },
     quality(mode) { if (mode) setQualityMode(mode); return qualityState(); },
+    // force the status screen effects: feel({ hp, cold, hunger, wet, sick, warm }) (0..1 each); feel() = real values
+    feel(f = null) { if (game.statusFx) game.statusFx.force = f ? { hp: 0, cold: 0, hunger: 0, wet: 0, sick: 0, warm: 0, ...f } : null; return game.statusFx?.s; },
     scene() {
       if (!solo()) return false;
       const net = game.net, p = game.player, w = game.world;

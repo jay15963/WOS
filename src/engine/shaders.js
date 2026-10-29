@@ -947,6 +947,9 @@ uniform float uCamCave;   // camera inside a cave (0..1): deeper vignette
 uniform vec4 uBolt;       // lightning strike: world x, y, radius, intensity
 uniform float uGrain;     // film grain amount (0 = off)
 uniform float uBloom;     // soft bloom around strong lights
+// local player's status (src/fx/status.js): A = (hp, cold, hunger, wet), B = (sick, warm, hit flash, heartbeat),
+// C = (shake x, shake y, dizzy wobble, sick wave); all 0 = nothing to do
+uniform vec4 uFeelA, uFeelB, uFeelC;
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 
@@ -990,13 +993,81 @@ float snowLayer(vec2 wp, float scale, float speed, float seed, float dens){
   return 1.0 - smoothstep(sz * 0.25, sz, r);
 }
 
+// water droplets on the "lens" (one layer, p in screen units with y UP): xy = position inside the drop
+// (-1..1), z = coverage, w = squared radius (0 centre .. 1 rim)
+vec4 dropLayer(vec2 p, float dens, float seed){
+  vec2 c = floor(p), f = fract(p) - 0.5;
+  float h = hash12(c + seed);
+  if (h > dens) return vec4(0.0);
+  vec2 o = (vec2(hash12(c + seed + 3.1), hash12(c + seed + 7.3)) - 0.5) * 0.45;
+  float r = 0.12 + 0.17 * hash12(c + seed + 1.7);
+  vec2 d = (f - o) / r;
+  d.y *= 1.12;   // a little heavier at the bottom
+  float l = dot(d, d);
+  if (l > 1.0) return vec4(0.0);
+  return vec4(d, 1.0 - smoothstep(0.8, 1.0, l), l);
+}
+
 void main(){
-  vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
+  // ---- status displacement (shiver, dizzy wobble, sick wave) and lens effects (frost, droplets) ----
+  vec2 uv = vUV + uFeelC.xy;
+  vec2 q0 = vUV - 0.5;
+  float e2 = dot(q0, q0);
+  if (uFeelC.z > 0.001) {
+    uv += vec2(sin(uTime * 0.7), cos(uTime * 0.53)) * 0.005 * uFeelC.z * (0.25 + e2 * 3.0);
+    float a = sin(uTime * 0.41) * 0.02 * uFeelC.z * e2 * 3.0;
+    uv = 0.5 + mat2(cos(a), -sin(a), sin(a), cos(a)) * (uv - 0.5);
+  }
+  if (uFeelC.w > 0.001) uv += vec2(sin(vUV.y * 8.0 + uTime * 1.2), cos(vUV.x * 6.0 + uTime * 0.9)) * 0.0018 * uFeelC.w;
+  vec2 sp = q0 * vec2(uView.x / uView.y, 1.0);   // aspect-correct screen position (height 1)
+  vec2 ae = abs(q0) * 2.0;                       // 0 centre .. 1 screen edges
+  float edgeK = max(ae.x, ae.y);
+  float frost = 0.0, crys = 0.0, drop = 0.0, dropHi = 0.0, dropRim = 0.0;
+  vec2 lens = vec2(0.0);
+  if (uFeelA.y > 0.01) {
+    // frost creeping in from the corners: feathery ice (ridged noise), reach grows with the cold
+    float cd = edgeK * 0.5 + length(ae) * 0.5;
+    float n1 = texture(uNoise, sp * 1.4 + 0.13).r, n2 = texture(uNoise, sp * 3.4 + 0.71).g;
+    float ridge = 1.0 - abs(n2 * 2.0 - 1.0);
+    float reach = 1.42 - uFeelA.y * 0.5;
+    frost = smoothstep(reach, reach + 0.26, cd + (n1 - 0.5) * 0.3 + ridge * 0.08);
+    crys = pow(ridge, 9.0) * smoothstep(reach - 0.06, reach + 0.14, cd + (n1 - 0.5) * 0.3);
+#if QL >= 1
+    lens += (vec2(n1, n2) - 0.5) * 0.012 * frost;
+#endif
+  }
+  if (uFeelA.w > 0.01) {
+    // droplets beading on the screen edges after wading / heavy rain, a few sliding down slowly
+    float band = smoothstep(0.3, 0.9, edgeK - (1.0 - uFeelA.w) * 0.25);
+    vec4 d1 = dropLayer(sp * 8.0, 0.55 * uFeelA.w, 1.0);
+    vec2 ps = sp * 5.0;
+    ps.y += uTime * (0.04 + 0.07 * hash12(vec2(floor(ps.x), 3.0)));   // a few drops slide down slowly
+    vec4 d2 = dropLayer(ps, 0.3 * uFeelA.w, 9.0);
+    vec4 d = d1.z > d2.z ? d1 : d2;
+    drop = d.z * band;
+    vec2 g = d.xy - vec2(-0.32, 0.38);                        // glint up-left inside the drop
+    dropHi = exp(-dot(g, g) * 16.0) * drop;
+    dropRim = smoothstep(0.55, 0.95, d.w) * drop;
+#if QL >= 1
+    lens -= d.xy * sqrt(max(1.0 - d.w, 0.0)) * vec2(uView.y / uView.x, 1.0) * 0.03 * drop;  // the drop flips what is behind it
+#endif
+  }
+  uv += lens;
+
+  vec2 wp = uCam + vec2(uv.x - 0.5, 0.5 - uv.y) * uView;
   float cave = uHasField > 0.5 ? texture(uCave, wp / uWorld).r : 0.0;
   float outK = 1.0 - cave;
-  vec3 c = texture(uScene, vUV).rgb;
+  vec3 c = texture(uScene, uv).rgb;
+#if QL >= 1
+  // near death: the edges of the view soften (cheap 3-tap blur of the scene)
+  float bk = smoothstep(0.6, 1.0, uFeelA.x) * smoothstep(0.1, 0.45, e2);
+  if (bk > 0.01) {
+    vec2 bo = q0 * 0.016 * bk;
+    c = (c + texture(uScene, uv + bo).rgb + texture(uScene, uv - bo).rgb + texture(uScene, uv + vec2(-bo.y, bo.x)).rgb) * 0.25;
+  }
+#endif
   vec3 alb = c;   // unlit scene (the lightning flash lights this, so firelit spots do not burn out)
-  vec3 L = textureLod(uLight, vUV, 0.0).rgb * 2.0;
+  vec3 L = textureLod(uLight, uv, 0.0).rgb * 2.0;
   // point lights over a bright ambient are washed out by daylight: compress their excess by the local
   // ambient level (same cave dimming as AMBIENT_FS), full strength at night and underground
   vec3 ambL = mix(uAmb, min(uAmb, uCaveAmb), pow(cave, 1.4));
@@ -1012,9 +1083,9 @@ void main(){
 #if QL >= 1
   if (uBloom > 0.0) {
     // soft bloom from the mipmapped light map (renderer builds the mips when bloom is on): one or two fetches
-    vec3 Lb = textureLod(uLight, vUV, 2.5).rgb * 2.0;
+    vec3 Lb = textureLod(uLight, uv, 2.5).rgb * 2.0;
 #if QL >= 2
-    Lb = Lb * 0.55 + textureLod(uLight, vUV, 4.0).rgb * 0.9;   // plus a wider, fainter ring
+    Lb = Lb * 0.55 + textureLod(uLight, uv, 4.0).rgb * 0.9;   // plus a wider, fainter ring
 #endif
     c += max((Lb - ambL) * gain - 0.45, 0.0) * vec3(1.0, 0.8, 0.58) * 0.22 * uBloom;
   }
@@ -1047,7 +1118,7 @@ void main(){
     // (march the sun-shadow map along the light path): bright haze in the gaps, dim streaks behind crowns
     vec2 sdUV = vec2(uShadowDir.x, -uShadowDir.y) / uView;
     float occ = 0.0;
-    for (int k = 1; k <= 5; k++) occ += texture(uShadow, vUV + sdUV * (float(k) * 0.55)).r;
+    for (int k = 1; k <= 5; k++) occ += texture(uShadow, uv + sdUV * (float(k) * 0.55)).r;
     float lit = clamp(1.0 - occ * 0.2 * 1.7, 0.0, 1.0);
     c *= 1.0 - uRays * outK * (1.0 - lit) * 0.1;
     rays = rays * 0.5 + uRays * outK * lit * 0.9;
@@ -1096,18 +1167,39 @@ void main(){
 
   // grading: gain (tint), lift in the darks, saturation, contrast, soft highlight shoulder.
   // Firelit areas keep a warm, saturated look under the cool night grade.
-  c *= mix(uTint, vec3(1.0), fireK * 0.75);
+  vec3 tint = mix(uTint, vec3(1.0), fireK * 0.75);
+  tint *= mix(vec3(1.0), vec3(0.9, 0.97, 1.1), uFeelA.y) * mix(vec3(1.0), vec3(0.97, 0.99, 1.03), uFeelA.w)
+        * mix(vec3(1.0), vec3(0.95, 1.05, 0.86), uFeelB.x * 0.8);
+  c *= tint;
   float lum = dot(c, vec3(0.299, 0.587, 0.114));
   c += uLift * (1.0 - smoothstep(0.0, 0.55, lum)) * (1.0 - fireK * 0.6);
+  c += vec3(0.0, 0.012, -0.004) * uFeelB.x;
   lum = dot(c, vec3(0.299, 0.587, 0.114));
-  c = mix(vec3(lum), c, mix(uSat, max(uSat, 1.06), fireK));
-  c = (c - 0.45) * uContrast + 0.45;
+  float satF = mix(uSat, max(uSat, 1.06), fireK) * (1.0 - 0.42 * uFeelA.z - 0.22 * uFeelA.x);
+  c = mix(vec3(lum), c, satF);
+  c = (c - 0.45) * uContrast * (1.0 - 0.1 * uFeelA.z) + 0.45;
   vec3 hi = max(c - 0.82, 0.0);
   c = c - hi + hi / (1.0 + hi * 2.2);
   vec2 v = vUV - 0.5;
-  float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7);
+  float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7) * (1.0 + smoothstep(0.7, 1.0, uFeelA.z) * 1.3);
   c *= 1.0 - vg;
   c = max(c, 0.0);
+  if (dot(uFeelA, vec4(1.0)) + uFeelB.x + uFeelB.y + uFeelB.z > 0.002) {
+    float rim = smoothstep(0.32, 1.0, length(v * vec2(1.0, 0.92)) * 1.5);   // centre stays clear
+    // cold: frosted glass with bright crystal veins
+    if (frost > 0.001) {
+      lum = dot(c, vec3(0.299, 0.587, 0.114));
+      vec3 fc = vec3(0.78, 0.87, 0.97) * (0.55 + 0.6 * lum + 0.25 * uDay);
+      c = mix(c, fc, frost * 0.42) + vec3(0.7, 0.82, 1.0) * crys * 0.22;
+    }
+    // wet: rim darkening of each droplet + a small specular glint
+    if (drop > 0.001) c = c * (1.0 + drop * 0.07 - dropRim * 0.4) + vec3(0.92, 0.96, 1.0) * dropHi * 0.55;
+    // warm by a fire: a soft golden glow at the edges
+    c += vec3(0.15, 0.07, 0.012) * uFeelB.y * rim * (0.85 + 0.15 * sin(uTime * 1.3));
+    // low health: red vignette pulsing with the heartbeat; damage: quick red flash
+    float red = rim * (uFeelA.x * 0.3 + uFeelB.w * 0.32) + uFeelB.z * (0.1 + 0.3 * rim);
+    c = mix(c, vec3(0.42, 0.03, 0.02) + c * vec3(0.35, 0.05, 0.04), clamp(red, 0.0, 0.7));
+  }
 #if QL >= 1
   // gentle film grain (a bit stronger in the shadows, slowly changing)
   float gr = hash12(floor(gl_FragCoord.xy * 0.75) + floor(uTime * 18.0) * vec2(37.0, 17.0)) - 0.5;
