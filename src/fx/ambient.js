@@ -7,20 +7,46 @@
 //  - caves (mined tiles under a mountain roof): dust motes drifting in torch light, water drips,
 //    a faint "eyes adjusting" light around the player, deeper vignette (env.extra.uCamCave)
 //  - glowing mushrooms at night, raindrops jumping on water
-//  - adaptive render resolution when the frame rate drops (game.R.autoScale = false disables)
-// Everything is spawned only around the visible view and capped.
+//  - adaptive render resolution when the frame rate drops (game.R.autoScale = false disables), then (auto
+//    quality only) one quality tier down — src/fx/quality.js
+//  - lightning bolts + strike light, game.events 'lightning' { x, y, power, dist } (for thunder / reactions)
+//  - firelight: warm bounce light on the ground and a soft halo around flames and lamps
+//  - per-biome colour grade around the camera (env.grade), snow vs rain at the camera (env.env.snowAt),
+//    contact-AO texture kept in sync with walls (R.syncSolid)
+// Everything is spawned only around the visible view and capped (density × quality tier).
+
+import { installQuality, qualityPreset, qualityStepDown, qualityStepUp } from './quality.js';
+import { installDebug } from './debug.js';
+import { installStatusFx } from './status.js';
 
 import { installWildlife } from './wildlife.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
 
+// colour grade per biome (tint gain, lift in the darks, saturation, extra mist); blended around the camera
+const GRADE = {
+  meadow: { tint: [1.025, 1.0, 0.96], lift: [0.004, 0.002, 0], sat: 1.05, mist: 0 },
+  forest: { tint: [0.99, 1.015, 0.96], lift: [0, 0.006, 0.002], sat: 1.02, mist: 0.05 },
+  pine: { tint: [0.965, 1.0, 1.03], lift: [0, 0.004, 0.01], sat: 0.94, mist: 0.08 },
+  birch: { tint: [1.03, 1.02, 0.95], lift: [0.004, 0.003, 0], sat: 1.05, mist: 0 },
+  marsh: { tint: [0.96, 1.01, 0.97], lift: [0, 0.008, 0.006], sat: 0.9, mist: 0.22 },
+  shore: { tint: [1.02, 1.0, 0.98], lift: [0.002, 0.002, 0.004], sat: 1.06, mist: 0.04 },
+  rocky: { tint: [1.0, 0.98, 0.965], lift: [0.004, 0.002, 0], sat: 0.93, mist: 0 },
+  water: { tint: [0.99, 1.0, 1.02], lift: [0, 0.002, 0.006], sat: 1.02, mist: 0.08 },
+  mountain: { tint: [0.97, 0.985, 1.03], lift: [0, 0.002, 0.01], sat: 0.92, mist: 0.03 },
+};
+const SNOW_GRADE = { tint: [0.98, 1.0, 1.045], lift: [0.004, 0.006, 0.012], sat: 0.9, mist: 0.04 };
+
 export function installAmbient(game) {
+  installQuality(game);
+  installDebug(game);
   const sys = new Ambient(game);
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.ambient = sys;
   installWildlife(game); // critters (butterflies, bees, dragonflies, frogs, ducks, fish, squirrels, birds, rabbits)
+  installStatusFx(game);  // local player's status screen effects (cosmetic)
 }
 
 class Ambient {
@@ -32,7 +58,7 @@ class Ambient {
       soft: pick('fx_soft'), spark: pick('fx_spark', 'fx_soft'), smoke: pick('fx_smoke', 'fx_soft'),
       leaf: pick('fx_leaf', 'fx_soft'), ring: pick('fx_ring', 'fx_soft'), splash: pick('fx_splash', 'fx_ring', 'fx_soft'),
       dust: pick('fx_dust', 'fx_smoke', 'fx_soft'), star: pick('fx_star', 'fx_spark', 'fx_soft'), blob: pick('fx_blob', 'fx_soft'),
-      drop: pick('fx_drop', 'fx_spark', 'fx_soft'),
+      drop: pick('fx_drop', 'fx_spark', 'fx_soft'), glow: pick('fx_glow', 'fx_soft'),
     };
     this._spr = {};
     // world-size -> sprite scale factors (particle `size` multiplies the sprite's own size)
@@ -59,6 +85,13 @@ class Ambient {
     this.nextFish = 4 + rnd() * 6;
     // adaptive resolution
     this.perf = { last: performance.now(), ema: 1 / 60, slowT: 0, fastT: 0, coolT: 0 };
+    this.lights = [];      // light emitters in view (halo / bounce light)
+    this.bolts = [];       // lightning bolts being drawn
+    this._strikeId = game.env.strikeId || 0;
+    this.grade = { tint: [1, 1, 1], lift: [0, 0, 0], sat: 1, mist: 0 };
+    this._gradeT = { tint: [1, 1, 1], lift: [0, 0, 0], sat: 1, mist: 0 };
+    this.gradeScanT = 0;
+    this.snowAt = 0;
   }
 
   spr(name) { return this._spr[name] || (this._spr[name] = this.g.A.get(name)); }
@@ -68,8 +101,11 @@ class Ambient {
     this.t += dt;
     const env = g.env.env, v = g.view(), w = g.world, P = g.particles, K = this.K;
     const area = (v.x1 - v.x0) * (v.y1 - v.y0);
-    const areaK = Math.min(2.5, area / 900);
+    const Q = qualityPreset();
+    const areaK = Math.min(2.5, area / 900) * Q.fx;
     this._perf(g);
+    this._climate(g, dt);
+    this._lightning(g, dt);
 
     // periodic scan of the visible neighbourhood (fires, trees, flowers)
     this.scanT -= dt;
@@ -113,6 +149,7 @@ class Ambient {
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const tx = Math.floor(x), ty = Math.floor(y);
         if (w.isRock(tx, ty) || (w.caveDark && w.caveDark(x, y) > 0.25)) continue; // no rain underground
+        if (g.R.coldAt && g.R.coldAt(x, y) > 0.6) continue;                       // it snows here (post shader)
         if (w.waterAt(tx, ty)) {
           // ripples are drawn by the terrain shader; add a droplet jumping off the surface now and then
           if (rnd() < 0.35) P.emit({ spr: this.S.spark, x, y, vx: (rnd() - 0.5) * 0.4, vy: (rnd() - 0.5) * 0.2, lift: 0.02, vlift: 0.8 + rnd() * 0.7, grav: 7, life: 0.25, size: (0.08) * K.spark, size1: (0.05) * K.spark, r: 0.82, g: 0.88, b: 0.95, a: 0.6, a1: 0 });
@@ -135,7 +172,7 @@ class Ambient {
         const gnd = w.groundAt(Math.floor(x), Math.floor(y));
         if (!(gnd === 2 || gnd === 3 || gnd === 0) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
         if (w.isMined && w.isMined(Math.floor(x), Math.floor(y))) continue;
-        const sp = 1.5 + env.wind * 2.5;
+        const sp = 1.0 + env.wind * 1.6;   // calm drift even in strong wind (≤ ~2.7 tiles/s)
         P.emit({ spr: this.S.dust, x, y, vx: env.windDir[0] * sp, vy: env.windDir[1] * sp, lift: 0.1, vlift: 0.15, life: 1.8, size: (0.4) * K.dust, size1: (1.4) * K.dust,
           r: 0.75, g: 0.66, b: 0.52, a: 0.16, a1: 0, fadeIn: 0.4, ground: false });
       }
@@ -152,7 +189,7 @@ class Ambient {
         if (pine && rnd() < 0.7) continue;
         const autumn = rnd();
         const c = o.type === 'tree_birch' ? [1.35, 1.2, 0.45] : autumn < 0.45 ? [1, 1, 1] : autumn < 0.8 ? [1.3, 0.95, 0.5] : [1.25, 0.72, 0.42];
-        const sp = 0.3 + env.wind * 1.6;
+        const sp = 0.25 + env.wind * 1.1; // ≤ ~1.4 tiles/s: leaves float, never shoot
         P.emit({ spr: this.S.leaf, x: o.x + (rnd() - 0.5) * 1.3 * s, y: o.y + (rnd() - 0.3) * 0.5, lift: (1.2 + rnd() * 1.3) * s,
           vx: env.windDir[0] * sp + (rnd() - 0.5) * 0.3, vy: env.windDir[1] * sp * 0.6 + (rnd() - 0.5) * 0.2, vlift: -0.25 - rnd() * 0.2, grav: 0.02, drag: 0.05,
           life: 5 + rnd() * 3, size: (0.17 + rnd() * 0.1) * K.leaf, size1: (0.15) * K.leaf, rot: rnd() * TAU, vr: (rnd() - 0.5) * 5, r: c[0], g: c[1], b: c[2], a: 1, a1: 0, flip: rnd() < 0.5 ? -1 : 1 });
@@ -345,14 +382,16 @@ class Ambient {
   }
 
   _scan(g, v) {
-    const fires = [], trees = [], flowers = [], mushrooms = [], caveLights = [];
+    const fires = [], trees = [], flowers = [], mushrooms = [], caveLights = [], lights = [];
     const w = g.world;
+    g.R.syncSolid?.(v.x0 - 3, v.y0 - 3, v.x1 + 3, v.y1 + 4); // contact AO follows walls / doors
     const old = new Map(this.fires.map((f) => [f.o, f]));
     w.forChunks(v.x0 - 3, v.y0 - 3, v.x1 + 3, v.y1 + 5, (c) => {
       for (const o of c.objects) {
         if (o.fire) fires.push(old.get(o) || { o, acc: 0 });
         else if (o.type && o.type.startsWith('tree_') && o.type !== 'tree_dead' && !o.stump && o.x > v.x0 - 1 && o.x < v.x1 + 1 && o.y > v.y0 && o.y < v.y1 + 2) trees.push(o);
         if (o.light && w.caveDark && o.x > v.x0 - 2 && o.x < v.x1 + 2 && o.y > v.y0 - 2 && o.y < v.y1 + 2 && w.caveDark(o.x, o.y - 0.3) > 0.4) caveLights.push(o);
+        if (o.light && lights.length < 48 && o.x > v.x0 - 4 && o.x < v.x1 + 4 && o.y > v.y0 - 3 && o.y < v.y1 + 5) lights.push(o);
       }
       for (const d of c.decor) {
         if (d.x < v.x0 || d.x > v.x1 || d.y < v.y0 || d.y > v.y1 + 0.5) continue;
@@ -370,7 +409,7 @@ class Ambient {
       }
     }
     this.fires = fires; this.trees = trees; this.flowers = flowers; this.mushrooms = mushrooms;
-    this.caveTiles = caveTiles; this.caveLights = caveLights;
+    this.caveTiles = caveTiles; this.caveLights = caveLights; this.lights = lights;
   }
 
   // adaptive render scale: drop resolution when frames are slow, recover when fast
@@ -378,13 +417,86 @@ class Ambient {
     const R = g.R, P = this.perf, now = performance.now();
     const raw = (now - P.last) / 1000;
     P.last = now;
-    if (R.autoScale === false || raw <= 0 || raw > 0.15 || document.visibilityState !== 'visible') return;
+    // gaps > 100 ms are throttling (background / occluded tabs keep 'visible' in some shells) or hitches, not load
+    if (R.autoScale === false || raw <= 0 || raw > 0.1 || document.visibilityState !== 'visible') return;
     P.ema += (raw - P.ema) * 0.05;
     P.coolT -= raw;
     if (P.ema > 1 / 42) { P.slowT += raw; P.fastT = 0; } else if (P.ema < 1 / 56) { P.fastT += raw; P.slowT = 0; } else { P.slowT = P.fastT = 0; }
     const cur = R.renderScale || 1;
-    if (P.slowT > 2.5 && cur > 0.55 && P.coolT <= 0) { R.renderScale = Math.max(0.55, cur - 0.15); P.slowT = 0; P.coolT = 3; }
-    else if (P.fastT > 10 && cur < 1 && P.coolT <= 0) { R.renderScale = Math.min(1, cur + 0.1); P.fastT = 0; P.coolT = 6; }
+    if (P.slowT > 2.5 && P.coolT <= 0) {
+      // first a little less resolution, then (auto quality) one tier down, then resolution again
+      if (cur > 0.86) R.renderScale = Math.max(0.85, cur - 0.15);
+      else if (qualityStepDown()) P.coolT = 5;
+      else if (cur > 0.55) R.renderScale = Math.max(0.55, cur - 0.15);
+      P.slowT = 0; P.coolT = Math.max(P.coolT, 3);
+    } else if (P.fastT > 10 && cur < 1 && P.coolT <= 0) { R.renderScale = Math.min(1, cur + 0.1); P.fastT = 0; P.coolT = 6; }
+    else if (P.fastT > 45 && cur >= 1 && P.coolT <= 0 && !P.upgraded) { P.upgraded = true; if (qualityStepUp()) { P.fastT = 0; P.coolT = 8; } }
+  }
+
+  // climate around the camera: snow share of the precipitation, per-biome colour grade (smoothed)
+  _climate(g, dt) {
+    const E = g.env, env = E.env, w = g.world, R = g.R, cam = g.cam;
+    const cold = R.coldAt ? R.coldAt(cam.x, cam.y + 0.4) : 0;
+    const sk = Math.min(1, Math.max(0, (cold - 0.45) / 0.3));
+    this.snowAt += (sk - this.snowAt) * (1 - Math.exp(-dt * 2));
+    env.snowAt = this.snowAt * env.rain;
+    env.bloomK = this.lights.length ? 1 : 0;   // the post bloom only pays its taps when a light is in view
+    this.gradeScanT -= dt;
+    const T = this._gradeT;
+    if (this.gradeScanT <= 0 && w.biome && w.biomeAt) {
+      this.gradeScanT = 0.35;
+      T.tint[0] = T.tint[1] = T.tint[2] = 0; T.lift[0] = T.lift[1] = T.lift[2] = 0; T.sat = 0; T.mist = 0;
+      let n = 0;
+      for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) {
+        const G = GRADE[w.biomeAt(cam.x + i * 3, cam.y + j * 3)];
+        if (!G) continue;
+        n++;
+        for (let c = 0; c < 3; c++) { T.tint[c] += G.tint[c]; T.lift[c] += G.lift[c]; }
+        T.sat += G.sat; T.mist += G.mist;
+      }
+      const sn = (E.snowCover || 0) * sk;
+      for (let c = 0; c < 3; c++) {
+        T.tint[c] = n ? T.tint[c] / n : 1; T.lift[c] = n ? T.lift[c] / n : 0;
+        T.tint[c] += (SNOW_GRADE.tint[c] - T.tint[c]) * sn; T.lift[c] += (SNOW_GRADE.lift[c] - T.lift[c]) * sn;
+      }
+      T.sat = n ? T.sat / n : 1; T.mist = n ? T.mist / n : 0;
+      T.sat += (SNOW_GRADE.sat - T.sat) * sn; T.mist += (SNOW_GRADE.mist - T.mist) * sn;
+      // underground the cave look takes over
+      const ck = 1 - this.camCave;
+      for (let c = 0; c < 3; c++) { T.tint[c] = 1 + (T.tint[c] - 1) * ck; T.lift[c] *= ck; }
+      T.sat = 1 + (T.sat - 1) * ck; T.mist *= ck;
+    }
+    const k = 1 - Math.exp(-dt / 2), Gr = this.grade;
+    for (let c = 0; c < 3; c++) { Gr.tint[c] += (T.tint[c] - Gr.tint[c]) * k; Gr.lift[c] += (T.lift[c] - Gr.lift[c]) * k; }
+    Gr.sat += (T.sat - Gr.sat) * k; Gr.mist += (T.mist - Gr.mist) * k;
+    E.grade = Gr;
+  }
+
+  // lightning: a jagged bolt for near strikes, local strike light, an event for sound / reactions
+  _lightning(g, dt) {
+    const E = g.env, X = E.env.extra;
+    if (E.strikeId !== this._strikeId) {
+      this._strikeId = E.strikeId;
+      const s = E.strikes[E.strikes.length - 1];
+      if (s) {
+        const cam = g.cam, ang = rnd() * TAU, d = 2.5 + s.dist * 16;
+        const x = cam.x + Math.cos(ang) * d, y = cam.y + 0.4 + Math.sin(ang) * d * 0.75;
+        const power = s.a;
+        const b = { x, y, t0: s.t, power, dist: s.dist, segs: s.dist < 0.78 ? boltPath(x, y, 9 + rnd() * 3) : null };
+        this.bolts.push(b);
+        if (this.bolts.length > 3) this.bolts.shift();
+        g.events?.emit?.('lightning', { x, y, power, dist: s.dist });
+      }
+    }
+    let best = 0, bx = 0, by = 0, br = 1;
+    for (let k = this.bolts.length - 1; k >= 0; k--) {
+      const b = this.bolts[k], a = E.t - b.t0;
+      if (a > 1.3 || a < -0.5) { this.bolts.splice(k, 1); continue; }
+      b.k = strikePulse(Math.max(0, a));
+      const I = b.k * b.power * (1 - b.dist * 0.55);
+      if (I > best) { best = I; bx = b.x; by = b.y; br = 8 + b.power * 6; }
+    }
+    if (X.uBolt) { X.uBolt[0] = bx; X.uBolt[1] = by; X.uBolt[2] = br; X.uBolt[3] = Math.min(1.2, best * 0.9); }
   }
 
   // ------------------------------------------------------------------ render
@@ -402,6 +514,39 @@ class Ambient {
           B.decal.addRaw(tx + 0.5, ty + 0.5, 1, 1, e & 1, 0, 0, 1);
         }
       });
+    }
+    // firelight: warm bounce on the ground around flames + a soft halo (fake bloom) around every light
+    if (this.lights.length) {
+      const glow = this.spr(this.S.glow || this.S.soft), K = this.K, night = env.night, dark = Math.max(night, this.camCave);
+      for (const o of this.lights) {
+        const L = o.light;
+        if (!L || o.dead || o.fire === false || o.lit === false || o.blueprint) continue;
+        const seed = o.x * 3.1 + o.y * 1.7;
+        const fl = o.fire ? 0.84 + 0.1 * Math.sin(t * 9.3 + seed) * Math.sin(t * 5.1 + seed * 2) + 0.06 * Math.sin(t * 23 + seed) : 1;
+        const R = L.radius || 4, I = L.intensity ?? 1, lift = L.lift ?? 0.3;
+        if (o.fire && dark > 0.05) B.light.addRaw(o.x, o.y + 0.1, R * 2.3, R * 1.7, L.r, L.g * 0.8, L.b * 0.6, 0.11 * I * fl * dark);
+        const a = (0.015 + 0.17 * dark) * I * fl;
+        if (a > 0.01) {
+          const s = (o.fire ? 1.3 : 1.0) * (0.4 + 0.16 * Math.min(R, 7)) * K.glow;
+          B.emissive.add(glow, o.x, o.y, s, s * 0.85, L.r, L.g * 0.85, L.b * 0.7, a, 0, 0, 0, 1, 0, lift);
+        }
+      }
+    }
+    // lightning bolts (near strikes): glow + white core along a jagged path from the sky to the ground
+    if (this.bolts.length) {
+      const soft = this.spr(this.S.soft), K = this.K;
+      for (const b of this.bolts) {
+        if (!b.segs || !(b.k > 0.02)) continue;
+        const a = Math.min(1, b.k * b.power);
+        for (const sg of b.segs) {
+          const dx = sg[2] - sg[0], dy = sg[3] - sg[1], len = Math.hypot(dx, dy) + 0.05, rot = Math.atan2(-dx, dy);
+          const mx = (sg[0] + sg[2]) / 2, my = (sg[1] + sg[3]) / 2, wk = sg[4];
+          B.emissive.add(soft, mx, my, 0.7 * wk * K.soft, len * 1.25 * K.soft, 0.55, 0.65, 1, 0.22 * a, 0, rot);
+          B.emissive.add(soft, mx, my, 0.16 * wk * K.soft, len * 1.15 * K.soft, 0.95, 0.97, 1, a, 0, rot);
+        }
+        const gl = this.spr(this.S.glow), gs = 2.6 * this.K.glow;
+        B.emissive.add(gl, b.x, b.y, gs, gs * 0.6, 0.7, 0.78, 1, 0.35 * a);
+      }
     }
     // caves: faint cool light around the player so they can still make out the walls (torches do the rest)
     if (this.eye > 0.03) {
@@ -478,4 +623,32 @@ class Ambient {
       }
     }
   }
+}
+
+// jagged lightning path from the sky (y - H, the 3/4 view maps height to screen up) down to (x, y):
+// [x0, y0, x1, y1, width] segments, main channel + 1–2 short forks
+function boltPath(x, y, H) {
+  const N = 9, x0 = x + (rnd() - 0.5) * 3, pts = [[x0, y - H]];
+  for (let i = 1; i <= N; i++) {
+    const k = i / N;
+    pts.push([x0 + (x - x0) * k + (i < N ? (rnd() - 0.5) * 1.1 : 0), y - H * (1 - k)]);
+  }
+  const segs = [];
+  for (let i = 0; i < N; i++) segs.push([pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 1 - i * 0.03]);
+  const forks = 1 + (rnd() < 0.5 ? 1 : 0);
+  for (let f = 0; f < forks; f++) {
+    let [px, py] = pts[2 + Math.floor(rnd() * 4)];
+    const dir = rnd() < 0.5 ? -1 : 1;
+    for (let j = 0; j < 3; j++) {
+      const nx = px + dir * (0.4 + rnd() * 0.6), ny = py + 0.6 + rnd() * 0.6;
+      segs.push([px, py, nx, ny, 0.55 - j * 0.12]);
+      px = nx; py = ny;
+    }
+  }
+  return segs;
+}
+
+// brightness of a strike over time (three quick pulses, same shape as the scene flash in environment.js)
+function strikePulse(a) {
+  return Math.exp(-a * 14) + (a > 0.13 ? 0.6 * Math.exp(-(a - 0.13) * 18) : 0) + (a > 0.27 ? 0.8 * Math.exp(-(a - 0.27) * 9) : 0);
 }

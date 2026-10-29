@@ -2,25 +2,54 @@
 //  1. shadow target (half res): sun-shadow silhouettes, MAX blend
 //  2. scene target: terrain shader -> terrain decals (ore, rubble) -> blob shadows -> decor (grass) -> sorted sprites -> alpha FX
 //  3. light target (half res): ambient (darkened in mountain caves, AMBIENT_FS) + additive point lights
-//  4. screen: post (lighting, clouds, mist, grading, vignette) -> emissive sprites (fire, sparks)
+//  4. screen: post (lighting, clouds, mist, snow / rain, bloom, grading, vignette, grain) -> emissive sprites (fire, sparks)
 // Game code fills `renderer.batches.*` every frame, then calls render(camera, env).
+//
+// WIND SWAY (opt-in per sprite, for everyone who draws plants): pass a non-zero `sway` in
+//   batch.add(sprite, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recvShadow, lift)
+// sway = bend at the sprite's top as a fraction of its height (the base stays put). swayFor(type) below gives
+// the house values (trees 0.02–0.04, bushes 0.05, crops 0.07, grass 0.11, tall grass / reeds 0.15). Pass the
+// same sway in batches.shadow so the shadow bends with the plant. The shader takes the wind from env
+// (game.env.wind = { x, y, gust }, cosmetic, per frame): calm, nearly constant frequency, amplitude follows
+// the wind. sway > 0.09 also gets the silvery wind-wave sheen; any sway > 0 lets snow settle on the sprite's
+// top edges in cold biomes. CPU-side motion (particles, critters) can read game.env.wind directly.
+//
+// Quality: setQuality(0|1|2) switches the terrain / sprite / light / post programs compiled with
+// `#define QL n` (src/fx/quality.js picks the level; game.quality = 'low'|'medium'|'high').
 
 import { createContext, createProgram, createTexture, createTextureArray, createTarget, deleteTarget } from './gl.js';
 import { SpriteBatch } from './spriteBatch.js';
 import * as S from './shaders.js';
 
+// house sway values by object / decor type (prefix match); 0 = rigid
+const SWAY = [['tree_pine', 0.022], ['tree_dead', 0.015], ['tree_birch', 0.04], ['tree_', 0.03], ['sapling', 0.08],
+  ['berrybush', 0.05], ['bush', 0.05], ['crop', 0.07], ['wild_corn', 0.06], ['fibergrass', 0.11], ['tallgrass', 0.15],
+  ['reed', 0.15], ['cattail', 0.15], ['grass', 0.11], ['fern', 0.08], ['flower', 0.05], ['herb', 0.06], ['clover', 0.05]];
+export function swayFor(type) {
+  if (!type) return 0;
+  for (const [p, v] of SWAY) if (type.startsWith(p)) return v;
+  return 0;
+}
+
+// snow affinity per biome name: precipitation turns to snow and snow lies where it is ≥ ~0.6
+const COLD = { pine: 0.9, mountain: 1, rocky: 0.45, tundra: 1, taiga: 0.9, snow: 1, glacier: 1, alpine: 1 };
+const BIOME_LIST = ['meadow', 'forest', 'pine', 'birch', 'marsh', 'shore', 'rocky', 'water', 'mountain'];
+
+// prepend the quality define right after the version line
+const ql = (src, level) => src.replace('#version 300 es', `#version 300 es\n#define QL ${level}`);
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     const gl = (this.gl = createContext(canvas));
-    this.progSprite = createProgram(gl, S.SPRITE_VS, S.SPRITE_FS);
-    this.progShadow = createProgram(gl, S.SHADOW_VS, S.SHADOW_FS);
-    this.progLight = createProgram(gl, S.SPRITE_VS, S.LIGHT_FS);
-    this.progTerrain = createProgram(gl, S.FULL_VS, S.TERRAIN_FS);
-    this.progPost = createProgram(gl, S.FULL_VS, S.POST_FS);
-    this.progAmbient = createProgram(gl, S.FULL_VS, S.AMBIENT_FS); // [world] ambient light with cave darkness
-    this.progDecal = createProgram(gl, S.DECAL_VS, S.DECAL_FS);    // [world] per-tile terrain decals (ore, rubble)
+    this._variants = {};   // quality level -> { sprite, light, terrain, post } (compiled on first use)
+    this.level = -1;       // set by setQuality (quality.js right after boot) or by the first render
+    this.progShadow = createProgram(gl, ql(S.SHADOW_VS, 0), ql(S.SHADOW_FS, 0));
+    this.progAmbient = createProgram(gl, ql(S.FULL_VS, 0), ql(S.AMBIENT_FS, 0)); // [world] ambient light with cave darkness
+    this.progDecal = createProgram(gl, ql(S.DECAL_VS, 0), ql(S.DECAL_FS, 0));    // [world] per-tile terrain decals (ore, rubble)
     this.fsVao = gl.createVertexArray();
+    this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
+    this.solidNear = true;                  // walls in view (syncSolid): enables the contact-AO fetches
 
     this.batches = {
       shadow: new SpriteBatch(gl, 2048),   // sun-shadow casters (silhouettes)
@@ -39,6 +68,35 @@ export class Renderer {
     this.w = this.h = 0;
     this.stats = { sprites: 0 };
     this.resize();
+  }
+
+  // Shader quality 0 (low) / 1 (medium) / 2 (high): programs are compiled once per level and cached.
+  // A driver that rejects a level falls back to the next lower one (level 0 failing throws).
+  setQuality(level) {
+    level = Math.max(0, Math.min(2, level | 0));
+    if (level === this.level) return this.level;
+    const gl = this.gl;
+    for (let l = level; l >= 0; l--) {
+      let v = this._variants[l];
+      if (!v) {
+        try {
+          v = this._variants[l] = {
+            sprite: createProgram(gl, ql(S.SPRITE_VS, l), ql(S.SPRITE_FS, l)),
+            light: createProgram(gl, ql(S.SPRITE_VS, l), ql(S.LIGHT_FS, l)),
+            terrain: createProgram(gl, ql(S.FULL_VS, l), ql(S.TERRAIN_FS, l)),
+            post: createProgram(gl, ql(S.FULL_VS, l), ql(S.POST_FS, l)),
+          };
+        } catch (e) {
+          if (l === 0) throw e;
+          console.warn(`[gl] quality level ${l} shaders failed, trying ${l - 1}:`, e.message);
+          continue;
+        }
+      }
+      this.level = l;
+      this.progSprite = v.sprite; this.progLight = v.light; this.progTerrain = v.terrain; this.progPost = v.post;
+      return l;
+    }
+    return this.level;
   }
 
   // ---------- resources ----------
@@ -66,6 +124,79 @@ export class Renderer {
     this.field2Tex = createTexture(gl, { width: world.W, height: world.H, data: world.field2 });
     // [world] caves/roofs/trampled ground (RGBA 1x, linear) — see world.js caveData
     this.caveTex = createTexture(gl, { width: world.W, height: world.H, data: world.caveData || new Uint8Array(world.W * world.H * 4) });
+    this._buildClimate(world);
+  }
+
+  // Climate texture (RGBA 1x, linear): R = snow affinity (cold biomes, blurred over ~3 tiles), G = structure
+  // occupancy (walls 1, doors 0.5: contact AO). G follows world.solid through syncSolid() (cheap region diff).
+  _buildClimate(world) {
+    const gl = this.gl, W = world.W, H = world.H, N = W * H;
+    const D = this._clim = new Uint8Array(N * 4);
+    const cold = new Float32Array(N);
+    if (world.biome) {
+      const lut = new Float32Array(256);
+      (world.biomeNames || BIOME_LIST).forEach((n, i) => { lut[i] = COLD[n] || 0; });
+      for (let i = 0; i < N; i++) cold[i] = lut[world.biome[i]];
+    }
+    const tmp = new Float32Array(N), R = 3, k = 1 / (2 * R + 1);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let a = 0;
+      for (let d = -R; d <= R; d++) a += cold[y * W + Math.min(W - 1, Math.max(0, x + d))];
+      tmp[y * W + x] = a * k;
+    }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let a = 0;
+      for (let d = -R; d <= R; d++) a += tmp[Math.min(H - 1, Math.max(0, y + d)) * W + x];
+      D[(y * W + x) * 4] = Math.round(Math.min(1, a * k) * 255);
+    }
+    this._solid = new Uint8Array(N);
+    if (world.solid) for (let i = 0; i < N; i++) { const v = world.solid[i]; this._solid[i] = v; D[i * 4 + 1] = v === 1 ? 255 : v ? 128 : 0; }
+    if (this.climTex) gl.deleteTexture(this.climTex);
+    this.climTex = createTexture(gl, { width: W, height: H, data: D });
+  }
+
+  // snow affinity 0..1 at a world point (CPU side of the climate texture: splashes, audio, grading)
+  coldAt(x, y) {
+    const w = this.world;
+    if (!this._clim || !w) return 0;
+    const tx = Math.min(w.W - 1, Math.max(0, x | 0)), ty = Math.min(w.H - 1, Math.max(0, y | 0));
+    return this._clim[(ty * w.W + tx) * 4] / 255;
+  }
+
+  // Re-upload the AO channel where world.solid changed inside a tile rect (the ambient system calls it a few
+  // times per second for the visible area). Returns true when something changed.
+  syncSolid(x0, y0, x1, y1) {
+    const w = this.world;
+    if (!w || !w.solid || !this._solid) return false;
+    const W = w.W;
+    x0 = Math.max(0, x0 | 0); y0 = Math.max(0, y0 | 0); x1 = Math.min(W - 1, x1 | 0); y1 = Math.min(w.H - 1, y1 | 0);
+    let cx0 = 1e9, cy0 = 1e9, cx1 = -1, cy1 = -1, n = 0;
+    const S0 = w.solid, C = this._solid, D = this._clim;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0, i = y * W + x0; x <= x1; x++, i++) {
+        const v = S0[i];
+        if (v) n++;
+        if (v === C[i]) continue;
+        C[i] = v; D[i * 4 + 1] = v === 1 ? 255 : v ? 128 : 0;
+        if (x < cx0) cx0 = x;
+        if (x > cx1) cx1 = x;
+        if (y < cy0) cy0 = y;
+        if (y > cy1) cy1 = y;
+      }
+    }
+    this.solidNear = n > 0;   // walls in view: contact AO is worth its texture fetch
+    if (cx1 < 0) return false;
+    const gl = this.gl;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, W);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, cx0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, cy0);
+    gl.bindTexture(gl.TEXTURE_2D, this.climTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, cx0, cy0, cx1 - cx0 + 1, cy1 - cy0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, D);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    return true;
   }
 
   // Re-upload a rectangular tile region after the world changed (mining, building...).
@@ -142,6 +273,7 @@ export class Renderer {
   render(cam, env, time) {
     const gl = this.gl;
     const B = this.batches;
+    if (this.level < 0) this.setQuality(Renderer.defaultLevel ?? 2);
     const viewW = this.w / cam.ppt, viewH = this.h / cam.ppt;
     const sx = 2 / viewW, sy = 2 / viewH;
 
@@ -203,6 +335,9 @@ export class Renderer {
       bind(4, gl.TEXTURE_2D, this.shadow.tex, 'uShadow');
       bind(5, gl.TEXTURE_2D_ARRAY, this.groundTex, 'uGround');
       bind(6, gl.TEXTURE_2D, this.caveTex, 'uCave'); // [world]
+      if (u.uClim) bind(7, gl.TEXTURE_2D, this.climTex, 'uClim');
+      // climate fetch only when it can show something (snow lying, or walls in view for the contact AO)
+      if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -239,9 +374,15 @@ export class Renderer {
       gl.uniform1i(p.u.uShadow, 1);
       gl.uniform2f(p.u.uViewport, this.w, this.h);
       gl.uniform1f(p.u.uShadowStr, env.shadowStr);
+      if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.uniform1i(p.u.uClim, 2); }
+      if (p.u.uWorldSz) gl.uniform2f(p.u.uWorldSz, this.world.W, this.world.H);
+      if (p.u.uSnow) gl.uniform1f(p.u.uSnow, (env.extra && env.extra.uSnow) || 0);
+      const ao = p.u.uAO;
+      if (ao) gl.uniform1f(ao, this.solidNear ? 1 : 0);   // contact AO next to walls on floors and ground plants
       B.ground.draw();
       B.blob.draw();
       B.decor.draw();
+      if (ao) gl.uniform1f(ao, 0);
       B.main.draw();
       B.fx.draw();
     }
@@ -273,6 +414,13 @@ export class Renderer {
       spriteUniforms(p);
       B.light.draw();
     }
+    const bloom = this.level >= 1 ? this.fx.bloom * (env.bloomK ?? 1) : 0;
+    if (bloom > 0) {
+      // mip chain of the light map = a cheap wide blur for the post bloom
+      gl.bindTexture(gl.TEXTURE_2D, this.light.tex);
+      if (!this.light.mip) { gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); this.light.mip = true; }
+      gl.generateMipmap(gl.TEXTURE_2D);
+    }
 
     // 4. post to screen
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -302,6 +450,12 @@ export class Renderer {
         gl.uniform2f(u.uWorld, this.world.W, this.world.H); gl.uniform1f(u.uHasField, 1);
       }
       if (u.uCave) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 4); } // [world]
+      if (u.uClim) { gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.uniform1i(u.uClim, 5); }
+      if (u.uShadow) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex); gl.uniform1i(u.uShadow, 6); }
+      if (u.uAmb) gl.uniform3f(u.uAmb, amb[0], amb[1], amb[2]);
+      if (u.uShadowDir) gl.uniform2f(u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
+      if (u.uGrain) gl.uniform1f(u.uGrain, this.fx.grain);
+      if (u.uBloom) gl.uniform1f(u.uBloom, this.light.mip ? bloom : 0); // bloomK: 0 when no light is in view
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -315,6 +469,7 @@ export class Renderer {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
       gl.uniform1i(p.u.uTex, 0);
       gl.uniform1f(p.u.uShadowStr, 0);
+      if (p.u.uSnow) gl.uniform1f(p.u.uSnow, 0);
       B.emissive.draw();
     }
     gl.bindVertexArray(null);

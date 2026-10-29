@@ -66,7 +66,13 @@ Biomas e zonas (src/world/worldgen.js):
   peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
   (`game.R.autoScale = false` desliga).
 - `src/fx/environment.js`: `env.setWeather('clear'|'cloudy'|'rain'|'storm'|'fog')`, `env.weatherName()` (pt-BR),
-  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather}`; raios em `env.strikes`.
+  `env.env.{wind, windDir, gust, rain, wet, storm, night, day, hour, weather, snowCover, snowAt}`; raios em `env.strikes`.
+  Vento cosmético por quadro: `game.env.wind = { x, y, gust }` (direção × força 0..~1,05, rajada 0..1, filtrados).
+  Relâmpago: `game.events.emit('lightning', { x, y, power, dist })`. Neve: chuva sobre biomas frios (pinheiral,
+  montanha) cai como neve (`R.coldAt(x, y)` ≥ 0,6). Balanço de plantas: parâmetro `sway` do `batch.add` (`swayFor(tipo)`
+  em `renderer.js`, ver o topo do arquivo).
+- `src/fx/quality.js`: `game.quality` = `'low'|'medium'|'high'` (efetivo), `game.qualityMode` (escolha, `wos.quality`),
+  `qualitySettings(el, game)` (linha das configurações). `game.debug.*` (só localhost): `src/fx/debug.js`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
 - Áudio procedural (src/fx/audio.js, sem arquivos): `getAudio()` (singleton, também no menu) = `game.audio`.
   `game.audio.play(name, {x, y, volume, delay, pitch})` — catálogo em `src/fx/sfxBank.js` + rotas em audio.js (step usa o
