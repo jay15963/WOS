@@ -112,6 +112,10 @@ Biomas e zonas (src/world/worldgen.js):
 - `src/fx/quality.js`: `game.quality` = `'low'|'medium'|'high'` (efetivo), `game.qualityMode` (escolha, `wos.quality`),
   `qualitySettings(el, game)` (linha das configurações). `game.debug.*` (só localhost): `src/fx/debug.js`.
 - `src/game/systems.js` → `installSystems(game)`: gameplay (combate, mobs, sobrevivência, coleta, construção, HUD).
+- **HUD** (`src/ui/hud.js`, sistema cosmético): tema "kit artesanal" em camadas — `src/ui/hud-theme.css` (fonte Barlow Condensed em
+  `vendor/`, tokens `--n-*`, primitivas `.n-panel/.n-btn/.n-tag/.n-key/.n-coin/.n-glass`), `src/ui/hud.css` (layout e peles), `src/ui/hudtheme.js`
+  (hachura procedural `--n-hatch`, grão `--n-grain`, símbolos SVG `nIcon`), radar `src/ui/radar.js` (minimapa elíptico + arco do sol + gotas
+  apontando hostis / neutros / jogadores / casa / corpo). Referência completa: `docs/HUD.md`.
 - Áudio procedural (src/fx/audio.js, sem arquivos): `getAudio()` (singleton, também no menu) = `game.audio`.
   `game.audio.play(name, {x, y, volume, delay, pitch})` — catálogo em `src/fx/sfxBank.js` + rotas em audio.js (step usa o
   chão/piso em x,y; swing a arma; hit/growl/death a espécie mais próxima). Nomes desconhecidos são ignorados.

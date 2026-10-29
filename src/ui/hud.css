@@ -804,6 +804,7 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
   .errs { top: calc(21% + var(--safe-t)); }
   .banner .b1 { font-size: 34px; }
   .feed { bottom: calc(14px + var(--safe-b)); width: min(42%, 320px); }
+  .touch .feed { width: min(38%, 300px); transform: translateX(-56%); } /* clear of the interact diamond */
   .fi { font-size: 13.5px; padding: 2px 12px 2px 10px; }
   .fi .li { width: 18px; height: 18px; }
   .grid { grid-template-columns: repeat(var(--cols, 5), 46px); gap: 4px; }
@@ -836,7 +837,7 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
   .touch .ab-int { right: 90px; bottom: 200px; }
   .bgrid { grid-template-columns: 1fr; }
   .inv-wrap, .chest-wrap { flex-direction: column; }
-  .feed { width: 74%; bottom: calc(350px + var(--safe-b)); }
+  .feed, .touch .feed { width: 74%; bottom: calc(350px + var(--safe-b)); transform: translateX(-50%); }
   .touch .castbar { bottom: calc(286px + var(--safe-b)); }
 }
 
