@@ -146,7 +146,7 @@ export class Panels {
         <p>${def.desc}</p>${stats ? `<ul class="stats">${stats}</ul>` : ''}
         <div class="acts">${acts.join('')}</div>`;
     } else {
-      detail = `<p class="muted">Toque num item para ver detalhes, equipar ou usar.</p>
+      detail = `<p class="muted">${g.input.isTouch ? 'Toque' : 'Clique'} num item para ver detalhes, equipar ou usar.${g.input.isTouch ? '' : ' Arraste itens para a barra (1–0), para o equipamento ou para um baú.'}</p>
         <p class="muted small">Ferramentas na mochila são usadas automaticamente (a melhor). Itens no chão são coletados ao passar perto.</p>`;
     }
     const used = p.inv.used();

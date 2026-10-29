@@ -463,7 +463,7 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 }
 /* portrait phone: keep the thumb arc but stack top frames */
 @media (max-width: 640px) and (orientation: portrait) {
-  .tf { position: fixed; right: calc(var(--gap) + var(--safe-r)); top: calc(var(--gap) + var(--safe-t) + 132px); }
+  .tf { position: fixed; right: calc(var(--gap) + var(--safe-r)); top: calc(var(--gap) + var(--safe-t) + 164px); } /* below the 4 system buttons */
   .mm { width: 92px; height: 92px; }
   .touch .ab-int { right: 90px; bottom: 200px; }
   .bgrid { grid-template-columns: 1fr; }

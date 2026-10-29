@@ -3,7 +3,7 @@
 // to put away), food is eaten, seeds become the planting choice, buildings enter build mode.
 // Usable items picked up are added to free slots automatically (unless the player removed them before).
 // Also: mouse drag-and-drop between hotbar, backpack, equipment, chest and the build menu (desktop only).
-// The layout is per browser (localStorage `wos.hotbar`), so it works the same for hosts and guests.
+// The layout is kept per world in this browser (localStorage `wos.hotbar.<seed>`), for hosts and guests alike.
 
 import { ITEMS, BUILDINGS } from '../game/data.js';
 import { eat } from '../game/survival.js';
@@ -13,11 +13,12 @@ import { CROPS } from '../game/farming.js';
 import { itemIco, buildIco } from './econIcons.js';
 
 const N = 10;
-const KEY = 'wos.hotbar';
+const KEY = 'wos.hotbar'; // + '.<seed>' (+ '.guest'): one layout per world
 const autoKind = (d) => !!d && (d.weapon || d.tool || d.slot === 'off' || d.food || d.seed);
 
 export function installHotbar(game, root) {
   const A = game.A, p = game.player;
+  const key = `${KEY}.${game.world.seed}${game.net.role === 'guest' ? '.guest' : ''}`;
   const S = load();
   const bar = document.createElement('div');
   bar.className = 'hotbar';
@@ -28,12 +29,12 @@ export function installHotbar(game, root) {
 
   function load() {
     try {
-      const d = JSON.parse(localStorage.getItem(KEY) || 'null');
+      const d = JSON.parse(localStorage.getItem(key) || 'null');
       if (d && Array.isArray(d.slots)) return { slots: Array.from({ length: N }, (_, i) => d.slots[i] || null), skip: new Set(d.skip || []) };
     } catch { /* ignore */ }
     return { slots: new Array(N).fill(null), skip: new Set() };
   }
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify({ slots: S.slots, skip: [...S.skip].slice(-60) })); } catch { /* ignore */ } };
+  const save = () => { if (game.noSave) return; try { localStorage.setItem(key, JSON.stringify({ slots: S.slots, skip: [...S.skip].slice(-60) })); } catch { /* ignore */ } };
 
   const has = (k, id) => S.slots.findIndex((s) => s && s.k === k && s.id === id);
   const owned = (id) => p.inv.count(id) + Object.values(p.equip || {}).filter((x) => x === id).length;

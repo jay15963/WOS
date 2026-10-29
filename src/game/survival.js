@@ -21,7 +21,7 @@ export const SURVIVAL = {
     biome: { meadow: 17, forest: 15, pine: 9, birch: 12, marsh: 13, shore: 16, rocky: 10, water: 13, mountain: 4 },
     biomeDefault: 14,
     dayAmp: 4,            // ±°C over the day (warmest 14 h, coldest 2 h)
-    night: -6,            // extra at full night
+    night: -7,            // extra at full night
     rain: -4, storm: -7, wet: -2, wind: -5, // wind × env.wind (0..1.2)
     cave: 3,              // inside a mountain cave: no rain / wind, a bit warmer
     fire: 22,             // °C at a fire, fading to 0 at 1.25 × its warm radius
@@ -29,7 +29,7 @@ export const SURVIVAL = {
     cloth: 3,             // per point of clothing warmth (tunic 2, leather 1, hood 1…)
     warmFood: 6,          // while a warm meal lasts
     comfort: 12,          // felt °C at or above which the body warms up
-    lossK: 0.065,         // heat %/s lost per °C below comfort
+    lossK: 0.085,         // heat %/s lost per °C below comfort (meadow night: chilled in ~2 min)
     gainK: 0.09, gainBase: 0.4, // heat %/s regained per °C above comfort (+ base)
     chilled: 30, hypo: 10,
     chilledSpeed: 0.86,
