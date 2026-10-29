@@ -1,0 +1,251 @@
+/* =====================================================================================================
+   WOS HUD THEME (agent N) — "hand-made kit": warm cream / parchment shapes with dark-brown ink outlines,
+   coral · orange · mustard · teal · olive accents on dark-brown backing, hand-drawn hatching, condensed
+   bold (italic) numerals. Full reference: docs/HUD.md.
+
+   Layers
+     1. hud-theme.css (this file): font, tokens, shared primitives (.n-*) and skins for UI that other modules
+        inject (A build toolbar / context menu, K Detalhes, M paths toolbar, notifications, aim).
+     2. hud.css: in-game HUD layout + skins (player card, radar, action bar, hotbar, windows…).
+     3. menu.css: main menu, pause menu, settings, chat, room chip, install popup.
+   Runtime textures (src/ui/hudtheme.js → installHudTheme()): --n-hatch (hatching tile), --n-grain (paper),
+   SVG symbols #n-<name> (nIcon(name)).
+
+   Primitives (use these in new UI and it matches):
+     .n-panel        window body (bark gradient, ink outline, cream inner line, grain)  + .n-head (cream ribbon title)
+     .n-btn          plate button (dark) · .primary (mustard) · .ok (olive) · .danger (coral)
+     .n-tag          angled tag (parallelogram) · .cream / .ink / .coral / .teal
+     .n-key          key cap / hanging key pennant (desktop shortcuts)
+     .n-coin         round badge (counts, levels)
+     .n-hatch        hatching cloud behind an element (needs position: relative/absolute on it)
+     .n-glass        translucent touch control (opaque when .down / .hot)
+     .n-num          condensed bold italic numerals
+   ===================================================================================================== */
+
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(../../vendor/barlow-condensed/barlow-condensed-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url(../../vendor/barlow-condensed/barlow-condensed-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: italic; font-weight: 700; font-display: swap;
+  src: url(../../vendor/barlow-condensed/barlow-condensed-latin-700-italic.woff2) format('woff2'); }
+@font-face { font-family: 'Barlow Condensed'; font-style: italic; font-weight: 800; font-display: swap;
+  src: url(../../vendor/barlow-condensed/barlow-condensed-latin-800-italic.woff2) format('woff2'); }
+
+:root {
+  /* ink & backing */
+  --n-ink: #24160d;          /* outlines, text on cream */
+  --n-ink-2: #33200f;        /* deep backing, bar tracks */
+  --n-bark: #4a2f1b;         /* raised plate */
+  --n-bark-2: #5f3d23;       /* hover plate */
+  --n-bark-3: #3b2615;       /* window body top */
+  /* parchment */
+  --n-cream: #f2e4c4;
+  --n-cream-hi: #fff7e6;
+  --n-cream-lo: #d8c294;
+  --n-text: #f4e9d2;         /* text on dark */
+  --n-text-2: #c9b48c;       /* muted text on dark */
+  --n-text-3: #7a5c3c;       /* muted text on cream */
+  /* accents */
+  --n-coral: #e5574a;  --n-coral-hi: #ff8b70;  --n-coral-lo: #9c2f27;
+  --n-orange: #ec8b3b; --n-orange-hi: #ffb470; --n-orange-lo: #a9531c;
+  --n-mustard: #e2b443; --n-mustard-hi: #f7d97a; --n-mustard-lo: #9a7218;
+  --n-teal: #3fa89c;   --n-teal-hi: #86dccd;   --n-teal-lo: #1f6d65;
+  --n-olive: #93b04c;  --n-olive-hi: #c3dc7c;  --n-olive-lo: #56701f;
+  --n-sky: #8cc6e8;    --n-sky-lo: #3a76a6;
+  --n-glow: #fff4e4;   --n-glow-c: rgba(255, 158, 132, 0.85);
+  /* touch glass (owner: translucent action buttons on phones) */
+  --n-glass: rgba(30, 18, 10, 0.24);
+  --n-glass-ring: rgba(242, 228, 196, 0.62);
+  --n-glass-on: rgba(40, 25, 14, 0.9);
+  /* type */
+  --n-fd: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', 'Segoe UI', system-ui, sans-serif;
+  /* shapes */
+  --n-r: 4px;
+  --n-drop: 0 3px 0 rgba(20, 12, 6, 0.42), 0 8px 18px rgba(0, 0, 0, 0.32);
+  --n-ts: 0 1px 0 #24160d, 1px 0 0 #24160d, -1px 0 0 #24160d, 0 -1px 0 #24160d, 0 2px 3px rgba(0, 0, 0, 0.55);
+  --n-ts-soft: 0 1px 0 rgba(36, 22, 13, 0.9), 0 0 3px rgba(36, 22, 13, 0.7);
+  --n-hatch: none;           /* set by hudtheme.js */
+  --n-grain: none;
+  /* notched tile (hotbar / slots): ink plate with a cream hairline */
+  --n-tile: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' preserveAspectRatio='none'%3E%3Cpath d='M6 1h36l5 5v36l-5 5H6l-5-5V6z' fill='%23221409' fill-opacity='.82' stroke='%2324160d' stroke-width='2'/%3E%3Cpath d='M7 3.5h34L44.5 7v34L41 44.5H7L3.5 41V7z' fill='none' stroke='%23f2e4c4' stroke-opacity='.16' stroke-width='1.2'/%3E%3C/svg%3E");
+  --n-tile-full: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' preserveAspectRatio='none'%3E%3CradialGradient id='g' cx='.5' cy='.4' r='.7'%3E%3Cstop offset='0' stop-color='%23573a22'/%3E%3Cstop offset='1' stop-color='%23301d0f'/%3E%3C/radialGradient%3E%3Cpath d='M6 1h36l5 5v36l-5 5H6l-5-5V6z' fill='url(%23g)' stroke='%2324160d' stroke-width='2'/%3E%3Cpath d='M7 3.5h34L44.5 7v34L41 44.5H7L3.5 41V7z' fill='none' stroke='%23f2e4c4' stroke-opacity='.3' stroke-width='1.2'/%3E%3C/svg%3E");
+  --n-tile-on: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48' preserveAspectRatio='none'%3E%3CradialGradient id='g' cx='.5' cy='.4' r='.7'%3E%3Cstop offset='0' stop-color='%23735126'/%3E%3Cstop offset='1' stop-color='%233a2412'/%3E%3C/radialGradient%3E%3Cpath d='M6 1h36l5 5v36l-5 5H6l-5-5V6z' fill='url(%23g)' stroke='%2324160d' stroke-width='2'/%3E%3Cpath d='M6.5 3h35L45 6.5v35L41.5 45h-35L3 41.5v-35z' fill='none' stroke='%23f7d97a' stroke-width='2'/%3E%3C/svg%3E");
+
+  /* legacy tokens (B's hud.css / menu.css / other agents) remapped onto the theme */
+  --panel: linear-gradient(180deg, rgba(64, 41, 24, 0.94), rgba(40, 25, 14, 0.95));
+  --panel-2: rgba(52, 33, 19, 0.95);
+  --panel-3: rgba(84, 55, 32, 0.96);
+  --panel-solid: rgba(40, 25, 14, 0.97);
+  --border: rgba(242, 228, 196, 0.2);
+  --border-hi: rgba(247, 217, 122, 0.75);
+  --text: #f4e9d2;
+  --muted: #c3ad86;
+  --accent: #f0c65a;
+  --hostile: #f0604f;
+  --neutral: #f2c64c;
+  --passive: #a2cc5e;
+}
+
+/* ---------- primitives ---------- */
+.n-num { font-family: var(--n-fd); font-style: italic; font-weight: 800; letter-spacing: 0.2px; font-variant-numeric: tabular-nums; }
+
+.n-panel {
+  position: relative; color: var(--n-text); border-radius: 6px;
+  background: var(--n-grain), linear-gradient(180deg, #3e2918 0%, #2b1a0e 100%);
+  border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.2), inset 0 0 0 4px rgba(20, 12, 6, 0.3), var(--n-drop);
+}
+.n-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px; color: var(--n-ink);
+  font: 700 16px/1.1 var(--n-fd); letter-spacing: 0.6px; text-transform: uppercase;
+  background: linear-gradient(180deg, #f8edd5, #e2cda2); border-bottom: 2px solid var(--n-ink);
+  box-shadow: inset 0 -3px 0 rgba(150, 110, 55, 0.22), inset 0 1px 0 #fffaf0;
+}
+
+.n-btn {
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 14px; cursor: pointer; border: 0; background: none;
+  font: 700 15px/1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-text);
+  transition: transform 0.08s, filter 0.15s;
+}
+.n-btn::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 3px; transform: skewX(-10deg);
+  background: linear-gradient(180deg, var(--n-bark-2), var(--n-bark)); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.18), 0 2px 0 rgba(20, 12, 6, 0.45);
+}
+.n-btn:hover { filter: brightness(1.12); }
+.n-btn:active, .n-btn.down { transform: translateY(1px) scale(0.98); }
+.n-btn.primary { color: var(--n-ink); }
+.n-btn.primary::before { background: linear-gradient(180deg, var(--n-mustard-hi), var(--n-mustard) 60%, #c99a2c); }
+.n-btn.ok { color: #f4fbe6; } .n-btn.ok::before { background: linear-gradient(180deg, #a4c25a, var(--n-olive-lo)); }
+.n-btn.danger { color: #fff1ea; } .n-btn.danger::before { background: linear-gradient(180deg, var(--n-coral), var(--n-coral-lo)); }
+
+.n-tag {
+  position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px;
+  font: 700 12px/1.25 var(--n-fd); letter-spacing: 0.5px; text-transform: uppercase; color: var(--n-text); white-space: nowrap;
+}
+.n-tag::before { content: ''; position: absolute; inset: 0; z-index: -1; transform: skewX(-16deg); background: var(--n-ink); border-radius: 2px; }
+.n-tag.cream { color: var(--n-ink); } .n-tag.cream::before { background: linear-gradient(180deg, #fbf1dc, #e6d2a8); box-shadow: 0 0 0 1.5px var(--n-ink); }
+.n-tag.coral::before { background: var(--n-coral); box-shadow: 0 0 0 1.5px var(--n-ink); }
+.n-tag.teal::before { background: var(--n-teal-lo); box-shadow: 0 0 0 1.5px var(--n-ink); }
+
+.n-key, kbd {
+  display: inline-grid; place-items: center; min-width: 19px; height: 19px; padding: 0 5px; border-radius: 3px;
+  font: 700 12px/1 var(--n-fd); letter-spacing: 0.3px; color: var(--n-ink); vertical-align: 1px;
+  background: linear-gradient(180deg, #fbf1dc, #e3cea2); border: 1.5px solid var(--n-ink); border-bottom-width: 3px;
+}
+.n-coin {
+  display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  font: italic 800 12px/1 var(--n-fd); color: var(--n-ink);
+  background: radial-gradient(circle at 40% 32%, #fbe7a4, var(--n-mustard) 60%, #b98a24); border: 1.5px solid var(--n-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.n-hatch { position: relative; }
+.n-hatch::before {
+  content: ''; position: absolute; inset: -16px -22px; z-index: -1; pointer-events: none; opacity: 0.85;
+  background: var(--n-hatch); background-size: 192px 192px;
+  -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent 100%); mask-image: radial-gradient(closest-side, #000 45%, transparent 100%);
+}
+.n-glass { background: var(--n-glass); box-shadow: 0 0 0 1.5px rgba(36, 22, 13, 0.6), inset 0 0 0 2px var(--n-glass-ring); }
+.n-glass.down, .n-glass.hot { background: var(--n-glass-on); }
+
+/* ---------- loading screen (index.html) ---------- */
+#loading { background: radial-gradient(ellipse at center, #3a2615 0%, #1a100a 78%); }
+.logo { font: italic 800 76px/1 var(--n-fd); letter-spacing: 12px; color: var(--n-mustard-hi); text-shadow: 0 4px 0 #3a2410, 0 0 30px rgba(236, 139, 59, 0.35), 0 10px 26px rgba(0, 0, 0, 0.6); }
+.subtitle { font: 700 15px var(--n-fd); color: var(--n-text-2); letter-spacing: 6px; }
+#loading-bar { height: 12px; border: 2px solid var(--n-ink); background: var(--n-ink-2); transform: skewX(-16deg); border-radius: 2px; box-shadow: 0 0 0 1px rgba(242, 228, 196, 0.25); overflow: hidden; }
+#loading-bar > div { background: linear-gradient(180deg, var(--n-mustard-hi), var(--n-orange) 70%); box-shadow: 2px 0 0 var(--n-glow), 4px 0 10px var(--n-glow-c); }
+#loading-text { font: 600 14px var(--n-fd); letter-spacing: 1px; color: var(--n-text-2); }
+
+/* =====================================================================================================
+   Skins for UI injected by other modules. Their own CSS is appended later in <head>, so these selectors
+   carry one extra element / pseudo-class of specificity (html …) to win without !important.
+   ===================================================================================================== */
+
+/* ---------- A · build toolbar (.abb) + structure context menu (.asm) ---------- */
+html .abb {
+  gap: 5px; padding: 6px 7px; border-radius: 6px; color: var(--n-text); font: 700 13px/1.15 var(--n-fd);
+  background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.22), var(--n-drop);
+}
+html .abb button {
+  width: 60px; height: 54px; border-radius: 4px; font: 700 12px/1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-text);
+  background: linear-gradient(180deg, var(--n-bark-2), var(--n-bark)); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 210, 0.2), inset 0 0 0 1px rgba(242, 228, 196, 0.08), 0 2px 0 rgba(20, 12, 6, 0.5);
+}
+html .abb button:hover { filter: brightness(1.12); }
+html .abb .ok { color: #f6fde8; background: linear-gradient(180deg, #a8c65e, #6d8a2c 70%, var(--n-olive-lo)); }
+html .abb .ok.bad { color: #b9a98a; background: linear-gradient(180deg, #5b4a38, #3e3022); }
+html .abb .no { color: #fff2ea; background: linear-gradient(180deg, #ef7262, var(--n-coral) 45%, var(--n-coral-lo)); }
+html .abb .det { color: var(--n-ink); background: linear-gradient(180deg, var(--n-mustard-hi), var(--n-mustard) 60%, #b98a24); }
+html .abb .lbl b { font: 700 15px/1.1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-cream-hi); }
+html .abb .lbl small { font: 600 12.5px/1.15 var(--n-fd); letter-spacing: 0.2px; color: var(--n-text-2); }
+html .abb .lbl small.bad { color: var(--n-coral-hi); }
+html .abb kbd { font: 700 10px var(--n-fd); min-width: 0; height: auto; padding: 0 3px; border-width: 1px; opacity: 0.85; }
+
+html .asm {
+  padding: 4px; border-radius: 6px; color: var(--n-text); font: 700 15px/1.2 var(--n-fd); letter-spacing: 0.3px;
+  background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.22), var(--n-drop);
+}
+html .asm h4 {
+  margin: -4px -4px 4px; padding: 6px 10px; border-radius: 4px 4px 0 0; font: 700 14px var(--n-fd); letter-spacing: 0.6px; text-transform: uppercase;
+  color: var(--n-ink); background: linear-gradient(180deg, #f8edd5, #e2cda2); border-bottom: 2px solid var(--n-ink);
+}
+html .asm button { border-radius: 3px; }
+html .asm button:hover, html .asm button:active { background: rgba(247, 217, 122, 0.16); }
+html .asm button svg { color: var(--n-mustard-hi); }
+
+/* ---------- K · Detalhes panel (.kdet) and style chips ---------- */
+html :is(#hud, body) .kdet {
+  color: var(--n-text); font: 600 13px/1.25 var(--n-fd); border-radius: 6px;
+  background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.2), var(--n-drop);
+}
+html :is(#hud, body) .kdet .kh { background: linear-gradient(180deg, #f8edd5, #e2cda2); border-bottom: 2px solid var(--n-ink); color: var(--n-ink); }
+html :is(#hud, body) .kdet .kh b { font: 700 16px var(--n-fd); letter-spacing: 0.6px; text-transform: uppercase; color: var(--n-ink); }
+html :is(#hud, body) .kdet .kh small { color: var(--n-text-3); font: 600 12.5px var(--n-fd); }
+html :is(#hud, body) .kdet .kh img { filter: drop-shadow(0 1px 0 var(--n-ink)); }
+html :is(#hud, body) .kdet .kx { color: var(--n-cream-hi); background: var(--n-coral); border: 2px solid var(--n-ink); border-radius: 4px; transform: rotate(45deg) scale(0.78); }
+html :is(#hud, body) .kdet .kx > * { transform: rotate(-45deg); }
+html :is(#hud, body) .kdet .ktab { font: 700 13.5px var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; border-radius: 3px; color: var(--n-text-2);
+  background: var(--n-bark); border: 1.5px solid var(--n-ink); }
+html :is(#hud, body) .kdet .ktab.on { color: var(--n-ink); background: linear-gradient(180deg, #fbf1dc, #e3cea2); border-color: var(--n-ink); }
+html :is(#hud, body) .kdet .ktab i { color: var(--n-coral-lo); }
+html :is(#hud, body) .kdet .kc { border-radius: 4px; background: rgba(20, 12, 6, 0.35); border: 1.5px solid rgba(242, 228, 196, 0.14); }
+html :is(#hud, body) .kdet .kc:hover { border-color: rgba(247, 217, 122, 0.55); background: rgba(247, 217, 122, 0.06); }
+html :is(#hud, body) .kdet .kc.on { border-color: var(--n-mustard-hi); background: rgba(226, 180, 67, 0.14); box-shadow: 0 0 0 1px var(--n-ink), 0 0 10px rgba(247, 217, 122, 0.25); }
+html :is(#hud, body) .kdet .kc.on::after { color: var(--n-ink); background: var(--n-mustard-hi); border: 1.5px solid var(--n-ink); border-radius: 50%; width: 16px; height: 16px; display: grid; place-items: center; font-size: 10px; top: 4px; right: 4px; }
+html :is(#hud, body) .kdet .kc img { border-radius: 3px; background: radial-gradient(ellipse at 50% 60%, #6d5236, #33200f 78%); box-shadow: inset 0 0 0 1px rgba(36, 22, 13, 0.8); }
+html :is(#hud, body) .kdet .kc span { font: 600 13px/1.1 var(--n-fd); color: var(--n-text); }
+html :is(#hud, body) .kdet .kgrp { font: 700 12px var(--n-fd); letter-spacing: 1.2px; color: var(--n-mustard-hi); }
+html :is(#hud, body) .kdet .kdesc { font: 600 13px var(--n-fd); color: var(--n-text-2); }
+html :is(#hud, body) .kdet .kf { border-top: 2px solid rgba(20, 12, 6, 0.6); box-shadow: inset 0 1px 0 rgba(242, 228, 196, 0.1); }
+html :is(#hud, body) .kdet .kb { font: 700 13.5px var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; border-radius: 3px; color: var(--n-text);
+  background: linear-gradient(180deg, var(--n-bark-2), var(--n-bark)); border: 1.5px solid var(--n-ink); }
+html :is(#hud, body) .kdet .kb.on { color: var(--n-ink); background: linear-gradient(180deg, var(--n-mustard-hi), var(--n-mustard)); }
+html :is(#hud, body) .kdet .kb.go { color: #f6fde8; background: linear-gradient(180deg, #a8c65e, var(--n-olive-lo)); }
+html :is(#hud, body) .kdet .kf .ksum { font: 600 12.5px var(--n-fd); color: var(--n-text-2); }
+html .bcard .bsty { font: 700 12px var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-ink); border-radius: 3px;
+  background: linear-gradient(180deg, var(--n-mustard-hi), var(--n-mustard)); border: 1.5px solid var(--n-ink); }
+
+/* ---------- top notifications (notify.js) ---------- */
+html .wos-note {
+  border-radius: 6px; color: var(--n-text); font: 700 15.5px/1.25 var(--n-fd); letter-spacing: 0.2px;
+  background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.22), var(--n-drop);
+}
+html .wos-note .ni { border-radius: 50%; color: var(--n-ink); background: radial-gradient(circle at 40% 32%, #fbe7a4, var(--n-mustard) 62%, #b98a24); border: 2px solid var(--n-ink); }
+html .wos-note .nt small { font: 600 13px var(--n-fd); color: var(--n-text-2); }
+html .wos-note .nx { border-radius: 4px; color: var(--n-cream); background: rgba(20, 12, 6, 0.45); }
+html .wos-note.good .ni { background: radial-gradient(circle at 40% 32%, #e2f2b0, var(--n-olive) 62%, var(--n-olive-lo)); color: var(--n-ink); }
+html .wos-note.warn .ni { background: radial-gradient(circle at 40% 32%, #ffd2a6, var(--n-orange) 62%, var(--n-orange-lo)); color: var(--n-ink); }
+html .wos-note.update .ni { background: radial-gradient(circle at 40% 32%, #c8f1e9, var(--n-teal) 62%, var(--n-teal-lo)); color: var(--n-ink); }
+html .wos-note.good, html .wos-note.warn, html .wos-note.update { border-color: var(--n-ink); }
+
+/* ---------- M · paths toolbar and any future toolbars: same plates as the build toolbar ---------- */
+html :is(.ptb, .pathbar, .paths-bar) {
+  color: var(--n-text); font: 700 13px/1.15 var(--n-fd); border-radius: 6px;
+  background: var(--n-grain), linear-gradient(180deg, #3e2918, #2a190d); border: 2px solid var(--n-ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 228, 196, 0.22), var(--n-drop);
+}

@@ -1,7 +1,12 @@
 // Minimap: the world is rasterized once (1 px per tile) from rock/water/ground/objects, then a
 // window around the player is blitted each refresh with creature / structure dots on top.
+// Drawn inside the radar disc (radar.js) and the map window; dot colours follow the HUD theme (hud-theme.css).
 
-import { SPECIES, TEMPER_COLOR } from '../game/data.js';
+import { SPECIES } from '../game/data.js';
+
+// theme colours (hud-theme.css tokens): coral hostile, mustard neutral, olive passive, teal players
+const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
+const INK = '#24160d', CREAM = '#f6ead0', TEAL = '#4cc2b4', FIRE = '#ffa040';
 
 const GROUND = [[92, 76, 52], [74, 60, 40], [176, 158, 116], [118, 112, 100], [72, 80, 52], [78, 64, 46], [104, 100, 94], [70, 86, 46]];
 const ROCK = [[96, 94, 90], [104, 101, 96], [128, 122, 106], [76, 78, 84], [150, 148, 142]];
@@ -68,7 +73,7 @@ export class Minimap {
   draw(ctx, W, H, span, full = false) {
     const g = this.g, p = g.player, w = g.world;
     ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = '#0d0e0f';
+    ctx.fillStyle = '#1d120a';
     ctx.fillRect(0, 0, W, H);
     let sx, sy, sw, sh;
     if (full) { sx = 0; sy = 0; sw = w.W; sh = w.H; }
@@ -81,8 +86,15 @@ export class Minimap {
       if (!o.fire && o.type !== 'bed' && o.type !== 'chest') continue;
       const X = toX(o.x), Y = toY(o.y);
       if (X < -4 || Y < -4 || X > W + 4 || Y > H + 4) continue;
-      ctx.fillStyle = o.fire ? '#ffb040' : '#e8d0a0';
-      ctx.fillRect(X - 2, Y - 2, 4, 4);
+      if (o.fire) {
+        ctx.fillStyle = 'rgba(255,150,60,0.35)';
+        ctx.beginPath(); ctx.arc(X, Y, 4.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = FIRE;
+        ctx.fillRect(X - 1.8, Y - 1.8, 3.6, 3.6);
+      } else {
+        ctx.fillStyle = INK; ctx.fillRect(X - 2.5, Y - 2.5, 5, 5);
+        ctx.fillStyle = CREAM; ctx.fillRect(X - 1.5, Y - 1.5, 3, 3);
+      }
     }
     // creatures
     const dot = full ? 2 : 2.5;
@@ -93,32 +105,35 @@ export class Minimap {
         const X = toX(e.x), Y = toY(e.y);
         if (X < 0 || Y < 0 || X > W || Y > H) continue;
         if (!full && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
-        ctx.fillStyle = e.remote ? '#6fc3ff' : '#ff5a48';
+        ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
-        if (e.remote) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
+        ctx.strokeStyle = e.remote ? CREAM : INK; ctx.lineWidth = 1; ctx.stroke();
         continue;
       }
       if (e.kind !== 'animal') continue;
       const X = toX(e.x), Y = toY(e.y);
       if (X < 0 || Y < 0 || X > W || Y > H) continue;
       if (!full && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
-      ctx.fillStyle = TEMPER_COLOR[SPECIES[e.species].temper];
+      ctx.fillStyle = DOT[SPECIES[e.species]?.temper] || DOT.neutral;
       ctx.beginPath(); ctx.arc(X, Y, e === p.target ? dot + 1.2 : dot * (e.elite ? 1.4 : 1), 0, Math.PI * 2); ctx.fill();
-      if (e === p.target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke(); }
+      ctx.strokeStyle = e === p.target ? '#fff' : 'rgba(36,22,13,0.85)'; ctx.lineWidth = e === p.target ? 1.4 : 0.8; ctx.stroke();
     }
     // spawn camp marker
     {
       const X = toX(w.spawn.x), Y = toY(w.spawn.y);
-      ctx.strokeStyle = 'rgba(230,226,216,0.7)'; ctx.lineWidth = 1;
-      ctx.strokeRect(X - 2.5, Y - 2.5, 5, 5);
+      ctx.strokeStyle = 'rgba(246,234,208,0.8)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(X, Y - 3.5); ctx.lineTo(X + 3.5, Y); ctx.lineTo(X, Y + 3.5); ctx.lineTo(X - 3.5, Y); ctx.closePath(); ctx.stroke();
     }
     // player arrow
     const X = toX(p.x), Y = toY(p.y);
     const ang = { s: Math.PI / 2, n: -Math.PI / 2, e: 0, w: Math.PI }[p.facing] ?? 0;
     ctx.save();
     ctx.translate(X, Y); ctx.rotate(ang);
-    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1.2;
-    const s = full ? 5 : 5.5;
+    // soft light under the player, then a cream arrow with an ink outline
+    ctx.fillStyle = 'rgba(255,236,190,0.22)';
+    ctx.beginPath(); ctx.arc(0, 0, full ? 7 : 9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = CREAM; ctx.strokeStyle = INK; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    const s = full ? 5 : 6;
     ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(-s * 0.7, s * 0.65); ctx.lineTo(-s * 0.35, 0); ctx.lineTo(-s * 0.7, -s * 0.65); ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
