@@ -1,9 +1,10 @@
 // DOM HUD (#hud): unit frames (XP, hunger, body heat, °C inside the player card), action bar (thumb arc
-// on touch / compact row on desktop), desktop hotbar (hotbar.js), interact button, quick buttons, minimap
-// + clock/weather, buffs + job chip, error/feed/banner, build bar, death screen, fullscreen / install /
-// help buttons. Updates the DOM only when values change.
+// on touch / compact row on desktop), desktop hotbar (hotbar.js), interact button, quick buttons, radar
+// (radar.js: minimap disc + day arc + markers, clock/weather), buffs + job chip, error/feed/banner, build bar,
+// death screen, fullscreen / install / help buttons. Updates the DOM only when values change.
+// Look: hud-theme.css (tokens, primitives) + hud.css (layout / skins), see docs/HUD.md.
 
-import { BUILDINGS, ITEMS, SPECIES, WEATHER_PT, DOTS } from '../game/data.js';
+import { BUILDINGS, ITEMS, SPECIES, DOTS } from '../game/data.js';
 import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
@@ -24,23 +25,12 @@ import { openContainer } from './container.js';
 import { applyUiScale } from './uiscale.js';
 import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFullscreenChange, openInstallGuide } from './pwa.js';
 import { PreviewAtlas, drawPawn2D, previewPawn } from '../art/look/preview.js';
+import { installHudTheme, nIcon } from './hudtheme.js';
+import { radarMarkup, installRadar } from './radar.js';
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
-// target frame extras (portraits for raiders / crates, debuffs, enemy cast bar)
-const TF_CSS = `
-.tf .tcast { position: relative; height: 9px; margin-top: 1px; background: rgba(0,0,0,.6); border: 1px solid rgba(0,0,0,.8); border-radius: 2px; overflow: hidden; }
-.tf .tcast > i { position: absolute; inset: 0; transform-origin: 0 50%; background: linear-gradient(180deg, #ffe08a, #d9a83a 55%, #9a6e1c); }
-.tf .tcast > span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 8px; font-weight: 800; text-shadow: 0 1px 1px #000; }
-.tf .tdb { display: flex; gap: 3px; min-height: 0; }
-.tf .tdb:empty { display: none; }
-.tf .tdb > b { width: 16px; height: 16px; padding: 2px; border-radius: 3px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,90,72,.65); color: #ffb0a0; position: relative; }
-.tf .tdb > b.poison { border-color: rgba(120,220,90,.75); color: #b8f0a0; }
-.tf .tdb > b.burn { border-color: rgba(255,160,60,.8); color: #ffd090; }
-.tf.bandit .port { background: radial-gradient(circle at 35% 30%, #6a3a30, #2a1612 70%); }
-.tf .port .ini.pawn { color: #ffb4a0; }
-.tf.prop .port { background: radial-gradient(circle at 35% 30%, #6a5a40, #2a2418 70%); }
-`;
+// target frame extras (portraits for raiders / crates, debuffs, enemy cast bar): styled in hud.css
 
 // instant buttons (game actions): fire on pointerdown for responsiveness
 function press(el, fn) {
@@ -71,27 +61,30 @@ export function installHUD(game, { isNew } = {}) {
   const A = game.A;
   const root = document.getElementById('hud');
   const p = game.player;
+  installHudTheme();
+  // ribbon bar: the fill <i> slides (translateX) so its angled end and glowing tip follow the value
+  const rib = (cls, id, icon, tip = '', icon2 = '') => `<div class="rb rb-${cls}"${tip ? ` data-tip="${tip}"` : ''}><div class="bar ${cls}" id="${id}"><i></i><b></b></div><s class="cap">${nIcon(icon, 'c1')}${icon2 ? nIcon(icon2, 'c2') : ''}</s></div>`;
   root.innerHTML = `
     <div class="tl">
       <div class="tl-top">
         <div class="uf pf" id="pf">
-          <div class="port"><canvas class="face" id="pf-face"></canvas><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
+          <div class="port"><i class="pfr"></i><canvas class="face" id="pf-face"></canvas><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
           <div class="ufb">
-            <div class="ufn"><span class="nm" id="pf-nm"></span><span class="cmb" id="pf-cmb">${svgIcon('attack')}</span><span class="tmp" id="pf-tmp"></span></div>
-            <div class="bar hp" id="pf-hp"><i></i><b></b></div>
-            <div class="bar en" id="pf-en"><i></i><b></b></div>
+            <div class="ufn"><span class="nm" id="pf-nm"></span><span class="cmb" id="pf-cmb">${nIcon('swords')}</span><span class="tmp" id="pf-tmp"></span></div>
+            ${rib('hp', 'pf-hp', 'heart', '<b>Vida</b><p>Volta devagar fora de combate; comer e descansar ajudam.</p>')}
+            ${rib('en', 'pf-en', 'bolt', '<b>Energia</b><p>Gasta nas habilidades e ao correr; recupera sozinha.</p>')}
             <div class="bars2">
-              <div class="bar hu" id="pf-hu" data-tip="<b>Fome</b><p>Coma antes de esvaziar: abaixo de 25% você fica fraco e sem comida perde vida.</p>"><i></i><b></b></div>
-              <div class="bar wm" id="pf-wm" data-tip="<b>Calor do corpo</b><p>Cai no frio (noite, chuva, vento, montanha). Fogueira, abrigo fechado, roupas e comida quente aquecem.</p>"><i></i><b></b></div>
+              ${rib('hu', 'pf-hu', 'food', '<b>Fome</b><p>Coma antes de esvaziar: abaixo de 25% você fica fraco e sem comida perde vida.</p>')}
+              ${rib('wm', 'pf-wm', 'flame', '<b>Calor do corpo</b><p>Cai no frio (noite, chuva, vento, montanha). Fogueira, abrigo fechado, roupas e comida quente aquecem.</p>', 'snow')}
             </div>
-            <div class="bar xpb" id="pf-xp" data-tip="<b>Experiência</b><p>Ganhe XP coletando, construindo, criando e lutando.</p>"><i></i><b></b></div>
+            ${rib('xpb', 'pf-xp', 'star', '<b>Experiência</b><p>Ganhe XP coletando, construindo, criando e lutando.</p>')}
           </div>
         </div>
         <div class="uf tf hidden" id="tf">
-          <div class="port"><span class="ini" id="tf-ini"></span><img id="tf-img" alt="" draggable="false"><span class="lv" id="tf-lv"></span></div>
+          <div class="port"><i class="pfr"></i><span class="ini" id="tf-ini"></span><img id="tf-img" alt="" draggable="false"><span class="lv" id="tf-lv"></span></div>
           <div class="ufb">
             <div class="ufn"><span class="nm" id="tf-nm"></span></div>
-            <div class="bar hp" id="tf-hp"><i></i><b></b></div>
+            ${rib('hp', 'tf-hp', 'heart')}
             <div class="tsub" id="tf-sub"></div>
             <div class="tcast hidden" id="tf-cast"><i></i><span></span></div>
             <div class="tdb" id="tf-db"></div>
@@ -117,10 +110,7 @@ export function installHUD(game, { isNew } = {}) {
         <button class="sb hidden" id="btn-install" data-tip="<b>Instalar o jogo</b><p>Tela cheia de verdade e ícone na tela inicial.</p>">${svgIcon('install')}</button>
         <button class="sb" id="btn-help" data-tip="<b>Atalhos e controles</b><span class='key'>H</span>"><span class="qm">?</span></button>
       </div>
-      <div class="mmwrap">
-        <div class="mm" id="mm" data-tip="<b>Mapa</b><span class='key'>M</span>"><canvas></canvas></div>
-        <div class="mm-info"><span id="clock"></span><span id="weather"></span></div>
-      </div>
+      ${radarMarkup()}
     </div>
     <div class="errs" id="errs"></div>
     <div class="banner" id="banner"></div>
@@ -137,7 +127,7 @@ export function installHUD(game, { isNew } = {}) {
     <div class="panels" id="panels"></div>
     <div class="death hidden" id="death">
       <div class="dbox">
-        <div class="dt">Você morreu</div>
+        <div class="dt"><span>Você morreu</span></div>
         <div class="ds" id="death-sub"></div>
         <button class="btn primary" id="btn-respawn">Renascer</button>
       </div>
@@ -164,7 +154,6 @@ export function installHUD(game, { isNew } = {}) {
   };
   setTimeout(() => paintFace(), 0); // after layout (not rAF: it would wait for a visible tab)
   addEventListener('wos:look', (e) => paintFace(e.detail || game.player.look));
-  if (!document.getElementById('tf-style')) { const st = document.createElement('style'); st.id = 'tf-style'; st.textContent = TF_CSS; document.head.appendChild(st); }
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;
   game.ui.openContainer = (adapter) => openContainer(game, adapter); // container window (container.js contract)
@@ -196,13 +185,13 @@ export function installHUD(game, { isNew } = {}) {
     hp: $('#pf-hp'), en: $('#pf-en'), hu: $('#pf-hu'),
     tf: $('#tf'), tfNm: $('#tf-nm'), tfLv: $('#tf-lv'), tfHp: $('#tf-hp'), tfSub: $('#tf-sub'), tfIni: $('#tf-ini'), tfImg: $('#tf-img'),
     tfCast: $('#tf-cast'), tfCastI: $('#tf-cast i'), tfCastS: $('#tf-cast span'), tfDb: $('#tf-db'),
-    buffs: $('#buffs'), eatN: $('#eat-n'), clock: $('#clock'), weather: $('#weather'),
+    buffs: $('#buffs'), eatN: $('#eat-n'),
     xp: $('#pf-xp'), wm: $('#pf-wm'), tmp: $('#pf-tmp'),
     errs: $('#errs'), feed: $('#feed'), banner: $('#banner'),
     int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'),
     bb: $('#buildbar'), bbNm: $('#bb-nm'), bbHint: $('#bb-hint'), bbIc: $('#bb-ic'), bbOk: $('#bb-ok'),
     death: $('#death'), deathSub: $('#death-sub'), respawn: $('#btn-respawn'), fade: $('#fade'),
-    mm: $('#mm'), mmC: $('#mm canvas'),
+    mm: $('#mm'),
   };
   // ---------- input bindings ----------
   press(R.int, () => game.ctl.interact());
@@ -248,11 +237,10 @@ export function installHUD(game, { isNew } = {}) {
   installTooltips(game);
   installHelp(game);
 
-  // ---------- minimap ----------
+  // ---------- minimap (drawn in the radar disc and the map window) ----------
   const mini = new Minimap(game);
   game.ui.minimap = mini;
-  const mctx = R.mmC.getContext('2d');
-  let mmT = 0;
+  const radar = installRadar(game, $('#radar'), mini);
   game.events.on('tile', (d) => mini.updateTiles(d.tx, d.ty));
 
   // ---------- messages ----------
@@ -349,7 +337,7 @@ export function installHUD(game, { isNew } = {}) {
   const setBar = (bar, k, frac, text) => {
     const f = Math.max(0, Math.min(1, frac));
     const q = Math.round(f * 500) / 500;
-    if (C[k] !== q) { C[k] = q; bar.firstElementChild.style.transform = `scaleX(${q})`; }
+    if (C[k] !== q) { C[k] = q; bar.firstElementChild.style.transform = `translateX(${((q - 1) * 100).toFixed(1)}%)`; }
     if (text != null && C[k + 't'] !== text) { C[k + 't'] = text; bar.lastElementChild.textContent = text; }
   };
   const toggle = (el, k, cls, on) => { if (C[k] !== on) { C[k] = on; el.classList.toggle(cls, on); } };
@@ -457,14 +445,10 @@ export function installHUD(game, { isNew } = {}) {
       const max = pl.level >= MAX_LEVEL;
       setBar(R.xp, 'xp', max ? 1 : pl.xp / need, max ? `Nível ${pl.level} · máximo` : `Nível ${pl.level} · ${Math.floor(pl.xp)} / ${need} XP`);
 
-      // slow stuff (4 Hz): clock, weather, food badge, messages expiry
+      // slow stuff (4 Hz): temperature chip, food badge, messages expiry (clock / weather: radar.js)
       slowT -= dt;
       if (slowT <= 0) {
         slowT = 0.25;
-        setText(R.clock, 'clock', g.env.clockString());
-        const [wn, wi] = WEATHER_PT[g.env.weather] || ['', ''];
-        const h = g.env.hour, night = h >= 19.5 || h < 5.5;
-        setText(R.weather, 'wx', `${night && g.env.weather === 'clear' ? '☾' : wi} ${night && g.env.weather === 'clear' ? 'Noite' : wn}`);
         const hs = heatState(pl);
         if (C.tmp !== hs.key) {
           C.tmp = hs.key;
@@ -481,16 +465,8 @@ export function installHUD(game, { isNew } = {}) {
         if (dirty.inv) { dirty.inv = false; panels.refresh(); }
       }
 
-      // minimap (10 Hz)
-      mmT -= dt;
-      if (mmT <= 0) {
-        mmT = 0.1;
-        const dpr = Math.min(2, devicePixelRatio || 1);
-        const cw = R.mm.clientWidth, ch = R.mm.clientHeight;
-        if (R.mmC.width !== Math.round(cw * dpr)) { R.mmC.width = Math.round(cw * dpr); R.mmC.height = Math.round(ch * dpr); }
-        mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        mini.draw(mctx, cw, ch, 56);
-      }
+      // radar: disc (10 Hz), markers, day arc / clock / weather (4 Hz)
+      radar.update(g, dt);
       panels.update(dt);
 
       // death

@@ -6,7 +6,9 @@ import { SPECIES, TEMPER_COLOR } from '../game/data.js';
 import { liftOf } from '../game/levels.js';
 import { DEV } from '../game/artcompat.js';
 
-const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+// HUD theme font (hud-theme.css, vendored Barlow Condensed); falls back to the system font until it loads
+const FONT = '"Barlow Condensed", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif';
+const INK = 'rgba(36,22,13,0.9)';
 // floating text colors per damage type (dealt by the player / taken by the player)
 const DT_OUT = { phys: '#f2f2f2', bleed: '#e05ab4', poison: '#8fe04a', fire: '#ffa03a' };
 const DT_IN = { phys: '#ff4a3a', bleed: '#e05ab4', poison: '#8fe04a', fire: '#ff8a3a' };
@@ -105,13 +107,13 @@ export function installOverlay(game) {
       ctx.clearRect(0, 0, W, H);
       const p = g.player, z = g.cam.zoom;
       const small = Math.min(W, H) < 500;
-      const fs = small ? 11 : 12;
+      const fs = small ? 12.5 : 14;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'alphabetic';
       ctx.lineJoin = 'round';
 
       // nameplates
-      ctx.font = `600 ${fs}px ${FONT}`;
+      ctx.font = `700 ${fs}px ${FONT}`;
       const v = g.view();
       plates.length = 0;
       for (const e of g.entities) {
@@ -158,12 +160,12 @@ export function installOverlay(game) {
           const cw = bw + 10, ch = small ? 7 : 8;
           const k = Math.min(1, cast.t / cast.dur);
           bar(sx - cw / 2, sy - ch, cw, ch, k, '#e0b040', 'rgba(0,0,0,0.75)');
-          ctx.font = `700 ${small ? 8.5 : 9}px ${FONT}`;
-          ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+          ctx.font = `italic 800 ${small ? 10 : 11}px ${FONT}`;
+          ctx.lineWidth = 2.5; ctx.strokeStyle = INK;
           ctx.strokeText(cast.name, sx, sy - 1);
           ctx.fillStyle = '#fff4d8';
           ctx.fillText(cast.name, sx, sy - 1);
-          ctx.font = `600 ${fs}px ${FONT}`;
+          ctx.font = `700 ${fs}px ${FONT}`;
           sy -= ch + 5;
         }
         if (showBar) {
@@ -181,7 +183,7 @@ export function installOverlay(game) {
           sy -= bh + 4;
         }
         ctx.lineWidth = 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.strokeStyle = INK;
         ctx.strokeText(label, sx, sy);
         ctx.fillStyle = pl.isT ? '#ffffff' : e.elite && bandit ? '#ffb070' : col;
         ctx.fillText(label, sx, sy);
@@ -191,11 +193,11 @@ export function installOverlay(game) {
         }
         const tag = e.stunT > 0 ? ['atordoado', '#ffd84a'] : e.fearT > 0 ? ['assustado', '#ffa03a'] : e.blocking ? ['bloqueando', '#8fd0ff'] : e.enraged ? ['enfurecido', '#ff6a4a'] : null;
         if (tag) {
-          ctx.font = `600 ${fs - 1}px ${FONT}`;
+          ctx.font = `italic 700 ${fs - 1}px ${FONT}`;
           ctx.strokeText(tag[0], sx, sy - fs - 1);
           ctx.fillStyle = tag[1];
           ctx.fillText(tag[0], sx, sy - fs - 1);
-          ctx.font = `600 ${fs}px ${FONT}`;
+          ctx.font = `700 ${fs}px ${FONT}`;
         }
       }
       ctx.globalAlpha = 1;
@@ -205,14 +207,14 @@ export function installOverlay(game) {
       if (wk && !p.dead) {
         const [sx, sy] = g.worldToScreen(p.x, p.y - 1.55 - liftOf(p));
         const bw2 = small ? 64 : 78, bh2 = small ? 6 : 7;
-        ctx.fillStyle = 'rgba(14,15,16,0.82)';
-        ctx.fillRect(sx - bw2 / 2 - 3, sy - bh2 - 15, bw2 + 6, bh2 + 19);
-        ctx.strokeStyle = 'rgba(200,195,180,0.35)';
+        ctx.fillStyle = 'rgba(40,25,14,0.9)';
+        ctx.fillRect(sx - bw2 / 2 - 3, sy - bh2 - 16, bw2 + 6, bh2 + 20);
+        ctx.strokeStyle = 'rgba(242,228,196,0.4)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(sx - bw2 / 2 - 2.5, sy - bh2 - 14.5, bw2 + 5, bh2 + 18);
-        bar(sx - bw2 / 2, sy - bh2, bw2, bh2, wk.k, '#d9b45a', 'rgba(0,0,0,0.5)');
-        ctx.font = `600 ${small ? 10 : 11}px ${FONT}`;
-        ctx.fillStyle = '#e6e2d8';
+        ctx.strokeRect(sx - bw2 / 2 - 2.5, sy - bh2 - 15.5, bw2 + 5, bh2 + 19);
+        bar(sx - bw2 / 2, sy - bh2, bw2, bh2, wk.k, '#e2b443', 'rgba(20,12,6,0.7)');
+        ctx.font = `700 ${small ? 11.5 : 13}px ${FONT}`;
+        ctx.fillStyle = '#f4e9d2';
         ctx.fillText(wk.label, sx, sy - bh2 - 4);
       }
 
@@ -228,9 +230,9 @@ export function installOverlay(game) {
         if (f.big) scale = f.t < 0.12 ? 1 + (f.t / 0.12) * 0.7 : 1.7 - Math.min(0.5, (f.t - 0.12) * 2.2);
         const a = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4;
         ctx.globalAlpha = Math.max(0, a);
-        ctx.font = `800 ${Math.round(f.size * scale)}px ${FONT}`;
+        ctx.font = `italic 800 ${Math.round(f.size * scale * 1.18)}px ${FONT}`;
         ctx.lineWidth = f.big ? 4 : 3;
-        ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+        ctx.strokeStyle = INK;
         ctx.strokeText(f.text, sx, sy);
         ctx.fillStyle = f.color;
         ctx.fillText(f.text, sx, sy);

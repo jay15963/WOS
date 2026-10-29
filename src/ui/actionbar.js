@@ -12,31 +12,7 @@ import { uiIcon } from './icons.js';
 import { abilityKeys, keyLabel } from '../game/controller.js';
 import { uiScale } from './uiscale.js';
 
-const CSS = `
-.ab-wrap .ab-s .ammo { position: absolute; z-index: 3; top: 2px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; font-size: 9.5px; font-weight: 800; line-height: 15px; text-align: center; color: #fff4d8; background: rgba(60,44,20,.92); border: 1px solid rgba(217,180,90,.8); pointer-events: none; }
-.ab-wrap .ab .ammo.out { color: #ffd0c8; background: rgba(110,30,24,.95); border-color: rgba(255,110,90,.9); }
-.ab-wrap .ab-atk .ammo { top: 6px; right: 8px; }
-.ab-wrap .ab.nostock .ic { filter: saturate(0) brightness(.55); }
-.ab-wrap .ab.active { border-color: rgba(140,220,255,.95) !important; box-shadow: 0 0 0 1px #000, 0 0 12px rgba(120,200,255,.65); }
-.ab-wrap .ab.pop { animation: abPop .32s cubic-bezier(.2,1.5,.4,1) both; }
-@keyframes abPop { from { transform: scale(.2); opacity: 0; } }
-.ab-wrap .ab.out { transition: transform .14s, opacity .14s; transform: scale(.4); opacity: 0; pointer-events: none; }
-.desktop .ab-wrap .ab-s.grp { margin-left: 10px; }
-.desktop .ab-wrap .ab-s.grp::before { content: ''; position: absolute; left: -7px; top: 8px; bottom: 8px; width: 1px; background: rgba(225,218,200,.25); }
-.desktop .ab-wrap .ab-s { overflow: visible; }
-.desktop .ab-wrap .ab-s .cd { border-radius: 6px; }
-.touch .ab-wrap .ab-s .ammo { top: -3px; right: -3px; }
-.touch .ab-wrap .ab-s { overflow: visible; }
-.touch .ab-wrap .ab-s .cd { border-radius: 50%; }
-.castbar { position: absolute; left: 50%; bottom: calc(118px + var(--safe-b)); transform: translateX(-50%); width: min(260px, 52vw); height: 16px; border-radius: 3px; background: rgba(10,11,12,.82); border: 1px solid rgba(225,218,200,.45); box-shadow: 0 0 0 1px #000, 0 3px 10px rgba(0,0,0,.5); overflow: hidden; pointer-events: none; }
-.castbar > i { position: absolute; inset: 0; transform-origin: 0 50%; background: linear-gradient(180deg, #ffe08a, #d9a83a 55%, #9a6e1c); }
-.castbar > span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 10.5px; font-weight: 800; color: #fff; text-shadow: 0 1px 2px #000; }
-.castbar.done > i { background: linear-gradient(180deg, #b8f8a0, #5ab84a); }
-.castbar.fail > i { background: linear-gradient(180deg, #ff8a7a, #b8322f); }
-.castbar.fade { transition: opacity .35s; opacity: 0; }
-.touch .castbar { bottom: calc(64px + var(--safe-b)); }
-.desktop .castbar { bottom: calc(92px + var(--safe-b)); }
-`;
+// styles: hud.css ("action bar" section) — glassy touch buttons, segmented cooldown rings, key tags
 
 function press(el, down, up) {
   el.addEventListener('pointerdown', (e) => {
@@ -57,12 +33,6 @@ const INNER = { 1: [45], 2: [15, 75], 3: [0, 45, 90], 4: [0, 30, 60, 90] };
 const OUTER = { 1: [45], 2: [24, 66], 3: [12, 45, 78] };
 
 export function installActionBar(game, root, wrap) {
-  if (!document.getElementById('ab-style')) {
-    const st = document.createElement('style');
-    st.id = 'ab-style';
-    st.textContent = CSS;
-    document.head.appendChild(st);
-  }
   const A = game.A, p = game.player;
   const intBtn = wrap.querySelector('#ab-int');
   const atk = document.createElement('button');
@@ -208,6 +178,7 @@ export function installActionBar(game, root, wrap) {
         const qd = pl.queued === b.id;
         if (Lb.qd !== qd) { Lb.qd = qd; b.el.classList.toggle('queued', qd); }
         const cool = s.cd > 0;
+        if (Lb.cool !== cool) b.el.classList.toggle('cool', cool); // cooling: the touch button turns opaque
         if (Lb.cool && !cool) { b.el.classList.remove('ready', 'pop'); void b.el.offsetWidth; b.el.classList.add('ready'); }
         Lb.cool = cool;
       }

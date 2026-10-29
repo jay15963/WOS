@@ -224,7 +224,7 @@ export class Panels {
           <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how} para pegar</small></div>${this.sortBar(c.id)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
-      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
+      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div>`, 'p-map');
     }
     this.el.innerHTML = html;
     this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });
