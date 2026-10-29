@@ -4,7 +4,8 @@
 // batch.add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift)
 //
 // Pawn state read here (see docs/CONTENT.md §3):
-//   look { skin, hair, hairColor, shirt, pants?, beard?, hat?:'bandana', hatColor?, face?:'scar'|'eyepatch'|'mask' }
+//   look: agent H's schema (src/game/look.js; legacy { skin, hair, hairColor, shirt… } migrated) → look/rig.js layers;
+//   bandit extras read from the raw object: hat:'bandana', hatColor, face:'mask'|'eyepatch'
 //   weapon (item id → held_<id>; legacy 'sword'|'axe'|'pickaxe'|'spear'|'club'; null = bare hands)
 //   offhand ('shield_*' | 'torch_hand'), armor { body, head } (→ wear_<id>_<dir>), blocking (bool)
 //   action { type, t } — attack, chop, mine, gather, pick, build, cast, shoot, throw, block, bash, stab, cleave,
@@ -15,6 +16,7 @@
 import { PAWN } from './pawns.js';
 import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
+import { lookRig } from './look/rig.js';
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
@@ -103,6 +105,10 @@ function wear(T, id, d) {
   return s;
 }
 const phaseOf = (o) => o._ph ?? (o._ph = ((o.id ?? 0) * 0.618 + Math.random()) * TAU);
+// look layers (agent H, look/rig.js): one tinted sprite stack at one transform
+function stack(B, list, x, y, sx, sy, a, rot, fl, flip, lift) {
+  for (let i = 0; i < list.length; i++) { const l = list[i]; B.main.add(l.s, x, y, sx, sy, l.r, l.g, l.b, a, 0, rot, fl, flip, 0, lift); }
+}
 
 // ---------- weapon swing curves ----------
 // returns 0..1 amounts { wind, hit } for an action progress k (wind-up, fast strike, recovery)
@@ -121,9 +127,7 @@ function thrust(k, wEnd = 0.3, hEnd = 0.48, back = 0.5) {
 const hump = (k) => Math.sin(clamp01(k) * Math.PI);
 
 const DEFAULT_LOOK = { skin: [0.95, 0.8, 0.66], hair: 'short', hairColor: [0.35, 0.22, 0.12], shirt: [0.5, 0.5, 0.5] };
-const PANTS = [0.42, 0.35, 0.28];
 const HAT_COL = [0.62, 0.17, 0.13];
-const TALL_HAIR = { mohawk: 1, bun: 1 };
 // action type → pose (attack depends on the weapon)
 const POSE_OF = {
   strike: 'attack', punch: 'attack', lacerate: 'slash', sweep: 'cleave', aimed_shot: 'shoot', multi_shot: 'shoot',
@@ -143,21 +147,19 @@ export function drawPawn(B, A, p, t) {
   const sd = dir === 'w' ? 'e' : dir;
   const flip = dir === 'w' ? -1 : 1;
   const L = p.look || DEFAULT_LOOK;
+  const R = lookRig(A, L);
   const fl = p.flash || 0;
-  const sh = L.shirt || DEFAULT_LOOK.shirt, sk = L.skin || DEFAULT_LOOK.skin, hc = L.hairColor || DEFAULT_LOOK.hairColor;
-  const pc = L.pants || PANTS, hat = L.hatColor || HAT_COL;
-  const body = T.body[sd], head = T.head[sd], legs = T.legs[sd];
+  const sk = R.skin, hat = Array.isArray(L.hatColor) ? L.hatColor : HAT_COL;
+  const body = T.body[sd], head = T.head[sd];
   const armor = p.armor;
   const wb = armor ? wear(T, armor.body, sd) : null;
   const wh = armor ? wear(T, armor.head, sd) : null;
   const bandana = L.hat === 'bandana' ? T.hat[sd] : null;
   const hides = wh ? WEAR_HIDES_HAIR[armor.head] : bandana ? 'tall' : null;
-  const hs = T.hair[L.hair];
-  let hair = hs ? hs[sd] : null;
-  if (hides === true || (hides === 'tall' && TALL_HAIR[L.hair])) hair = null;
-  const beard = L.beard && sd !== 'n' ? T.beard[sd] : null;
-  const brows = sd !== 'n' ? T.brows[sd] : null;
-  const fs = L.face && T.face[L.face] ? T.face[L.face][sd === 'n' ? 'x' : sd] : null;
+  const hair = hides === true || (hides === 'tall' && R.tall) ? null : R.hair[sd];
+  const beard = R.beard[sd];
+  const brows = R.brows[sd];
+  const fs = R.legacyFace && T.face[L.face] ? T.face[L.face][sd === 'n' ? 'x' : sd] : null;
   const fTint = L.face === 'mask' ? hat : null;
   const ph0 = phaseOf(p);
 
@@ -170,18 +172,19 @@ export function drawPawn(B, A, p, t) {
     const kk = u < 0.75 ? easeIn(u / 0.75) : 1 - Math.sin(((u - 0.75) / 0.25) * Math.PI) * 0.07;
     const side = sd === 'e' ? -flip : ph0 % TAU > Math.PI ? 1 : -1;
     const rot = side * HALF_PI * kk;
-    const HL = PAWN.headLift;
+    const HL = PAWN.headLift * R.sy * R.hk;
     const hx = p.x + Math.sin(rot) * HL, hy = p.y - Math.cos(rot) * HL;
     if (T.blob) B.blob.add(T.blob, p.x + side * 0.3 * kk, p.y, 0.75 + 0.5 * kk, 0.6, 1, 1, 1, 0.55);
     if (M.s) B.main.add(M.s, p.x - side * 0.25, p.y + 0.12, 0.9, 0.9, 1, 1, 1, 1, 0, side * HALF_PI * 1.15, fl, 1, 0, 0.02);
     if (O.s) B.main.add(O.s, p.x + side * 0.15, p.y + 0.18, 0.9, 0.9, 1, 1, 1, 1, 0, side * 0.3, fl, 1, 0, 0.01);
-    B.main.add(body, p.x, p.y, 1, 1, sh[0], sh[1], sh[2], 1, 0, rot, fl, flip, 0, 0);
-    if (legs) B.main.add(legs, p.x, p.y, 1, 1, pc[0], pc[1], pc[2], 1, 0, rot, fl, flip, 0, 0);
-    if (wb) B.main.add(wb, p.x, p.y, 1, 1, 1, 1, 1, 1, 0, rot, fl, flip, 0, 0);
-    B.main.add(head, hx, hy, 1, 1, sk[0], sk[1], sk[2], 1, 0, rot, fl, flip, 0, 0);
+    stack(B, R.hairBack[sd], hx, hy, 1, 1, 1, rot, fl, flip, 0);
+    stack(B, R.body[sd], p.x, p.y, R.sx, R.sy * R.hk, 1, rot, fl, flip, 0);
+    if (wb) B.main.add(wb, p.x, p.y, R.sx, R.sy * R.hk, 1, 1, 1, 1, 0, rot, fl, flip, 0, 0);
+    stack(B, R.head[sd], hx, hy, 1, 1, 1, rot, fl, flip, 0);
     if (fs) B.main.add(fs, hx, hy, 1, 1, fTint ? fTint[0] : 1, fTint ? fTint[1] : 1, fTint ? fTint[2] : 1, 1, 0, rot, fl, flip, 0, 0);
-    if (beard) B.main.add(beard, hx, hy, 1, 1, hc[0], hc[1], hc[2], 1, 0, rot, fl, flip, 0, 0);
-    if (hair) B.main.add(hair, hx, hy, 1, 1, hc[0], hc[1], hc[2], 1, 0, rot, fl, flip, 0, 0);
+    stack(B, brows, hx, hy, 1, 1, 1, rot, fl, flip, 0);
+    stack(B, beard, hx, hy, 1, 1, 1, rot, fl, flip, 0);
+    if (hair) stack(B, hair, hx, hy, 1, 1, 1, rot, fl, flip, 0);
     if (bandana) B.main.add(bandana, hx, hy, 1, 1, hat[0], hat[1], hat[2], 1, 0, rot, fl, flip, 0, 0);
     if (wh) B.main.add(wh, hx, hy, 1, 1, 1, 1, 1, 1, 0, rot, fl, flip, 0, 0);
     return;
@@ -419,7 +422,7 @@ export function drawPawn(B, A, p, t) {
   }
 
   const x = p.x + ox, y = p.y + oy;
-  const HL = PAWN.headLift * sy;
+  const HL = PAWN.headLift * sy * R.sy * R.hk;
   const hx = x + Math.sin(rot) * HL;
   const hl = lift + Math.cos(rot) * HL + headDy;
   const hr = rot * 0.55 + headRot;
@@ -429,9 +432,9 @@ export function drawPawn(B, A, p, t) {
 
   // item positions
   let wx = 0, wl = 0;
-  if (showW && wsp) { wx = x + H[0] * flip + wHx + Math.sin(rot) * H[1]; wl = lift + H[1] * sy + wHl; }
+  if (showW && wsp) { wx = x + H[0] * R.sx * flip + wHx + Math.sin(rot) * H[1]; wl = lift + H[1] * sy * R.hk + wHl; }
   let ox2 = 0, ol = 0;
-  if (showO && osp) { ox2 = x + OH[0] * flip + oHx + Math.sin(rot) * OH[1]; ol = lift + OH[1] * sy + oHl; }
+  if (showO && osp) { ox2 = x + OH[0] * R.sx * flip + oHx + Math.sin(rot) * OH[1]; ol = lift + OH[1] * sy * R.hk + oHl; }
   const wFlip = sd === 'e' ? flip * wFlipK : 1;
   const oFlip = sd === 'e' ? flip : 1;
   const hand = T.hand;
@@ -442,17 +445,17 @@ export function drawPawn(B, A, p, t) {
   if (showW && wsp && wBehind) B.main.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 1, 0, wRot, fl, wFlip, 0, wl);
   if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h1l);
   if (hand && h2 && h2b) B.main.add(hand, hx2, y + h2dy, 1, 1, sk[0], sk[1], sk[2], 1, 0, 0, fl, 1, 0, lift + h2l);
-  // body
-  B.main.add(body, x, y, sx, sy, sh[0], sh[1], sh[2], 1, 0, rot, fl, flip, 0, lift);
-  if (legs) B.main.add(legs, x, y, sx, sy, pc[0], pc[1], pc[2], 1, 0, rot, fl, flip, 0, lift);
-  if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, 1, 0, rot, fl, flip, 0, lift);
+  // long hair behind the body, then the look's body stack (build / height scale the whole body)
+  stack(B, R.hairBack[sd], hx, y, 1, 1, 1, hr, fl, flip, hl);
+  stack(B, R.body[sd], x, y, sx * R.sx, sy * R.sy * R.hk, 1, rot, fl, flip, lift);
+  if (wb) B.main.add(wb, x, y, sx * R.sx, sy * R.sy * R.hk, 1, 1, 1, 1, 0, rot, fl, flip, 0, lift);
   // head
-  B.main.add(head, hx, y, 1, 1, sk[0], sk[1], sk[2], 1, 0, hr, fl, flip, 0, hl);
+  stack(B, R.head[sd], hx, y, 1, 1, 1, hr, fl, flip, hl);
   if (fs && L.face !== 'mask') B.main.add(fs, hx, y, 1, 1, 1, 1, 1, 1, 0, hr, fl, flip, 0, hl);
-  if (brows && !(wh && armor.head === 'helmet_iron' && sd === 's')) B.main.add(brows, hx, y, 1, 1, hc[0], hc[1], hc[2], 1, 0, hr, fl, flip, 0, hl);
-  if (beard) B.main.add(beard, hx, y, 1, 1, hc[0], hc[1], hc[2], 1, 0, hr, fl, flip, 0, hl);
+  if (!(wh && armor.head === 'helmet_iron' && sd === 's')) stack(B, brows, hx, y, 1, 1, 1, hr, fl, flip, hl);
+  stack(B, beard, hx, y, 1, 1, 1, hr, fl, flip, hl);
   if (fs && L.face === 'mask') B.main.add(fs, hx, y, 1, 1, fTint[0], fTint[1], fTint[2], 1, 0, hr, fl, flip, 0, hl);
-  if (hair) B.main.add(hair, hx, y, 1, 1, hc[0], hc[1], hc[2], 1, 0, hr, fl, flip, 0, hl);
+  if (hair) stack(B, hair, hx, y, 1, 1, 1, hr, fl, flip, hl);
   if (bandana && !wh) B.main.add(bandana, hx, y, 1, 1, hat[0], hat[1], hat[2], 1, 0, hr, fl, flip, 0, hl);
   if (wh) B.main.add(wh, hx, y, 1, 1, 1, 1, 1, 1, 0, hr, fl, flip, 0, hl);
   // in front of the body
@@ -475,9 +478,9 @@ export function drawPawn(B, A, p, t) {
     if (T.glow) B.emissive.add(T.glow, tx, y, 0.75, 0.75, 1, 0.6, 0.3, 0.22 + 0.04 * Math.sin(fph * 1.3), 0, 0, 0, 1, 0, tl + 0.12);
   }
 
-  B.shadow.add(body, x, y, sx, sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
+  B.shadow.add(body, x, y, sx * R.sx, sy * R.sy * R.hk, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
   B.shadow.add(head, hx, y, 1, 1, 1, 1, 1, 0.9, 0, hr, 0, flip, 0, hl);
-  const topS = wh || hair || bandana;
+  const topS = wh || (hair && hair[0] ? hair[0].s : null) || bandana;
   if (topS) B.shadow.add(topS, hx, y, 1, 1, 1, 1, 1, 0.9, 0, hr, 0, flip, 0, hl);
   if (showW && wsp) B.shadow.add(wsp, wx, y, wSx, wSy, 1, 1, 1, 0.8, 0, wRot, 0, wFlip, 0, wl);
   if (showO && osp) B.shadow.add(osp, ox2, y, oSc, oSc, 1, 1, 1, 0.8, 0, oRot, 0, oFlip, 0, ol);
