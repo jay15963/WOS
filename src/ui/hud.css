@@ -982,3 +982,7 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
    push its own track wider than the screen and get cut on the right) */
 .panels { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .panels > .panel { max-width: 100%; justify-self: center; align-self: center; }
+
+/* phones: "eat" sits with the combat cluster (actionbar.js moves the .qb into #ab and places it) */
+#ab .qb.ab-eat { pointer-events: auto; z-index: 2; border-radius: 50%; }
+#ab .qb.ab-eat .qk { display: none; }

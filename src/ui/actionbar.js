@@ -66,6 +66,15 @@ export function installActionBar(game, root, wrap) {
         const cx = c + Math.cos(a) * R, cy = c + Math.sin(a) * R;
         Object.assign(b.el.style, { right: `${(cx - s / 2).toFixed(1)}px`, bottom: `${(cy - s / 2).toFixed(1)}px`, width: `${s.toFixed(1)}px`, height: `${s.toFixed(1)}px` });
       });
+      // phones: the "eat" button lives with the combat cluster (left column keeps only bag / craft / build)
+      const eat = eatBtn();
+      if (eat) {
+        if (eat.parentElement !== wrap) wrap.appendChild(eat);
+        eat.classList.add('ab-eat');
+        const es = Math.round(48 * k);
+        const pos = W > H ? { right: 240 * k, bottom: 92 * k } : { right: 196 * k, bottom: 236 * k };
+        Object.assign(eat.style, { position: 'absolute', right: `${Math.round(pos.right)}px`, bottom: `${Math.round(pos.bottom)}px`, width: `${es}px`, height: `${es}px`, margin: '0' });
+      }
       if (intBtn) {
         // keep the interact button clear of the outer arc (left of it in landscape, above it in portrait)
         if (nOut > 0 && W > H) Object.assign(intBtn.style, { right: `${Math.round(232 * k)}px`, bottom: `${Math.round(6 * k)}px` });
@@ -75,8 +84,11 @@ export function installActionBar(game, root, wrap) {
     } else {
       for (const b of btns) b.el.style.right = b.el.style.bottom = b.el.style.width = b.el.style.height = '';
       if (intBtn) intBtn.style.right = intBtn.style.bottom = '';
+      const eat = eatBtn(), quick = root.querySelector('#quick');
+      if (eat && quick && eat.parentElement !== quick) { quick.appendChild(eat); eat.classList.remove('ab-eat'); eat.removeAttribute('style'); }
     }
   };
+  function eatBtn() { return root.querySelector('.qb[data-q=eat]'); }
 
   const groupOf = (id) => (GENERIC_ABILITIES.includes(id) ? 2 : p.offprof?.abilities.includes(id) ? 1 : 0);
 
