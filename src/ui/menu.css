@@ -74,6 +74,33 @@
 .menu-load.done { opacity: 0; }
 .menu-load > i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #a07a30, var(--accent)); transition: width .3s; }
 
+/* the player's character spot (name above, avatar of agent H on a soft pedestal) — right of the column */
+.menu-char { position: fixed; z-index: 1; right: calc(5vw + var(--safe-r)); bottom: calc(7vh + var(--safe-b)); width: min(280px, 30vw);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.mc-name { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #e8d6b0; text-shadow: 0 1px 4px #000; }
+.mc-name input { width: 100%; text-align: center; font: 700 17px var(--font, system-ui); letter-spacing: .5px; color: #fff4d8; padding: 9px 12px; border-radius: 12px; outline: none;
+  background: rgba(22,20,17,0.72); border: 1px solid rgba(226,182,92,0.45); box-shadow: 0 6px 18px rgba(0,0,0,.45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  user-select: text; -webkit-user-select: text; touch-action: manipulation; }
+.mc-name input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(226,182,92,.35), 0 6px 18px rgba(0,0,0,.45); }
+.mc-stage { position: relative; width: 100%; display: none; justify-content: center; }
+.menu.has-avatar .mc-stage { display: flex; }
+.mc-stage::before { content: ''; position: absolute; left: 50%; bottom: -6px; width: 92%; height: 60px; transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(255,214,150,.28), rgba(40,30,20,.35) 45%, transparent 70%); }
+.mc-stage::after { content: ''; position: absolute; inset: -30px -20px -10px; z-index: -1; pointer-events: none; background: radial-gradient(ellipse at 50% 65%, rgba(10,8,6,.55), transparent 65%); }
+.mc-avatar { position: relative; min-height: 220px; width: 100%; display: flex; justify-content: center; align-items: flex-end; }
+.menu.enter .menu-char { animation: fadeUp .8s ease-out .7s both; }
+@media (max-width: 860px) and (orientation: portrait) {
+  .menu-char { position: relative; right: auto; bottom: auto; width: min(300px, 100%); margin: 14px auto 0; }
+  .mc-avatar { min-height: 170px; }
+}
+@media (max-height: 520px) {
+  .menu-char { right: calc(2vw + var(--safe-r)); bottom: calc(3vh + var(--safe-b)); width: min(240px, 36vw); gap: 4px; }
+  .mc-name { font-size: 9.5px; }
+  .mc-name input { font-size: 14px; padding: 6px 10px; }
+  .mc-avatar { min-height: 150px; }
+}
+.menu.panel-open .menu-char { visibility: hidden; }
+
 /* entrance */
 .menu.enter .menu-emblem { animation: menuIn .9s cubic-bezier(.2,.9,.3,1) both, ember 3.2s ease-in-out .9s infinite; }
 .menu.enter .menu-logo span { animation: logoIn .8s cubic-bezier(.2,1.3,.4,1) both; }

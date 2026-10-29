@@ -1,6 +1,6 @@
 // Dynamic action bar (#ab): auto-attack button + the live ability list (ABILITY_ORDER, rebuilt from the
 // equipment), WoW-like cooldown sweeps, GCD, energy dimming, out-of-range / no line of fire, ammo &
-// bandage badges, hold-to-block, a cast bar (Aimed Shot) and a pop-in animation on equipment change.
+// herb badges, hold-to-block, a cast bar (Aimed Shot) and a pop-in animation on equipment change.
 // Touch: two thumb arcs around the big attack button (inner 4, outer 3). Desktop: a compact row above the
 // hotbar with the letter keys of controller.js (Q R T G Z · V heal · Shift sprint).
 

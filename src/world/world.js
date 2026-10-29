@@ -5,7 +5,7 @@
 //   R = cave darkness (mined & roofed tiles, spilling ~1 tile onto the surrounding rock and fading at
 //       the cave mouth), G = ore nearby (tile or a neighbour holds ore: lets the shader skip ore work),
 //       B = trampled ground (bandit camps / trails), A = mined floor.
-// Chunks carry their initial population per kind: `chunk.pop = { tree, bush, berrybush, boulder,
+// Chunks carry their initial population per kind: `chunk.pop = { tree, bush, berrybush, herbbush, boulder,
 // fibergrass, pebble, stick, wild, wild_potato, wild_cotton, wild_corn }` (regrowth targets).
 // `canGrow(tx, ty, kind)` / `growWeight(...)` tell where a kind may (re)grow naturally.
 // Terrain decals: `chunk.decals` (Int32Array of tileIndex * 2 + kind; kind 0 = ore deposit on a rock
@@ -17,7 +17,7 @@ import { G, BIOMES, BIOME_ID, CAMP_R } from './worldgen.js';
 export const CHUNK = 16;
 export const FR = 4; // field texture resolution per tile
 
-const POP_KEYS = ['tree', 'bush', 'berrybush', 'boulder', 'fibergrass', 'pebble', 'stick', 'wild', 'wild_potato', 'wild_cotton', 'wild_corn'];
+const POP_KEYS = ['tree', 'bush', 'berrybush', 'herbbush', 'boulder', 'fibergrass', 'pebble', 'stick', 'wild', 'wild_potato', 'wild_cotton', 'wild_corn'];
 const B = BIOME_ID;
 
 export class World {
@@ -253,6 +253,8 @@ export class World {
       }
       case 'bush': return woods ? 0.8 : b === B.MEADOW ? 0.35 : b === B.MARSH ? 0.3 : 0;
       case 'berrybush': return g === G.SAND || g === G.STONE ? 0 : woods ? 0.7 : b === B.MEADOW ? 0.5 : 0;
+      // medicinal herbs like shade and moisture: woods (birch groves most), marsh edges, damp meadows
+      case 'herbbush': return g === G.SAND || g === G.STONE || g === G.MARSH ? 0 : b === B.BIRCH ? 0.8 : woods ? 0.6 : b === B.MARSH ? 0.45 : b === B.MEADOW ? (dw < 8 ? 0.35 : 0.15) : 0;
       case 'fibergrass': return b === B.MEADOW ? 0.4 + L * 0.6 : b === B.MARSH ? (g === G.MUD ? 0.9 : 0.5) : woods ? (g === G.MOSS ? 0.15 : 0.5) : b === B.SHORE && dw > 1.2 ? 0.2 : 0;
       case 'pebble': {
         if (g === G.MARSH) return 0;

@@ -5,7 +5,8 @@
 // Also: mouse drag-and-drop between hotbar, backpack, equipment, chest and the build menu (desktop only).
 // The layout is kept per world in this browser (localStorage `wos.hotbar.<seed>`), for hosts and guests alike.
 
-import { ITEMS, BUILDINGS } from '../game/data.js';
+import { ITEMS, BUILDINGS, ABILITIES, ABILITY_ORDER } from '../game/data.js';
+import { useAbility } from '../game/abilities.js';
 import { eat } from '../game/survival.js';
 import { enterBuildMode, exitBuildMode } from '../game/building.js';
 import { equipItem, equipFromSlot, unequip } from '../game/equipment.js';
@@ -14,7 +15,9 @@ import { itemIco, buildIco } from './econIcons.js';
 
 const N = 10;
 const KEY = 'wos.hotbar'; // + '.<seed>' (+ '.guest'): one layout per world
-const autoKind = (d) => !!d && (d.weapon || d.tool || d.slot === 'off' || d.food || d.seed);
+// the ability (on the current bar) that consumes this item, e.g. the heal ability and its herbs
+const usedBy = (id) => ABILITY_ORDER.find((a) => ABILITIES[a]?.item === id) || null;
+const autoKind = (d, id) => !!d && (d.weapon || d.tool || d.slot === 'off' || d.food || d.seed || !!usedBy(id));
 
 export function installHotbar(game, root) {
   const A = game.A, p = game.player;
@@ -46,7 +49,7 @@ export function installHotbar(game, root) {
     for (const s of p.inv.slots) if (s) ids.add(s.id);
     for (const k of ['main', 'off']) if (p.equip?.[k]) ids.add(p.equip[k]);
     for (const id of ids) {
-      if (!autoKind(ITEMS[id]) || S.skip.has(id) || has('item', id) >= 0) continue;
+      if (!autoKind(ITEMS[id], id) || S.skip.has(id) || has('item', id) >= 0) continue;
       const free = S.slots.indexOf(null);
       if (free < 0) break;
       S.slots[free] = { k: 'item', id };
@@ -81,6 +84,7 @@ export function installHotbar(game, root) {
     if (!p.inv.count(s.id)) { game.events.emit('error', { text: `Você não tem ${d.name.toLowerCase()}` }); return; }
     if (d.slot) equipItem(game, s.id);
     else if (d.food) eat(game, s.id);
+    else if (usedBy(s.id)) useAbility(game, usedBy(s.id)); // consumables used by an ability (herbs → heal)
     else if (d.seed) { p.seedPref = s.id; game.events.emit('toast', { text: `Vai plantar: ${CROPS[d.seed]?.name || d.name}`, kind: 'info' }); }
     else game.events.emit('toast', { text: `${d.name}: material para receitas e construções`, kind: 'info' });
     draw(true);

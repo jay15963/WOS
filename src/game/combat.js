@@ -166,7 +166,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
 
   if (dst === p) {
     if (src !== p) enterCombat(p);
-    if (src !== p && !opts.dot && removeBuff(p, 'bandage')) game.events.emit('error', { text: 'Bandagem interrompida' });
+    if (src !== p && !opts.dot && removeBuff(p, 'heal')) game.events.emit('error', { text: 'Cura com ervas interrompida' });
     if (src !== p && !opts.dot) game.juice.shake(amount >= p.maxHp * 0.12 ? 0.35 + Math.min(0.4, amount / p.maxHp) : 0.15);
     if (p.work && src !== p && !opts.dot && p.work.it?.kind !== 'cook') { p.work = null; p.action = null; }
     if (p.hp <= 0) killPlayer(game);

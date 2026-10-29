@@ -3,6 +3,7 @@
 
 import { sprite, rng, TAU, lin, rgb, hex, mixc, leaf, circle } from './paint.js';
 import { drawFoliage, bushLumps } from './foliage.js';
+import { addUndergrowth } from './undergrowth.js';
 
 const BUSH_PALS = [
   { deep: '#22381a', dark: '#314d22', mid: '#45682c', light: '#5d8436', high: '#7a9f47' },
@@ -47,6 +48,92 @@ function bush(v, berries, empty) {
             if (j === 0) { g.beginPath(); circle(g, x, y, 1.4); g.fillStyle = '#7c8a3a'; g.fill(); }
           }
         }
+      }
+    });
+  });
+}
+
+// ---------------- medicinal herbs ----------------
+// Shared herb look (bush, item icon, ability icon): soft sage-green leaves with pale veins and clusters of
+// little GREEN berries (unripe-looking, glossy) so it reads apart from the red berry bush.
+export const HERB = { leafD: '#3f6a2c', leaf: '#6f9e45', leafL: '#9cc466', vein: '#cfe6a0', berryD: '#3d5a18', berry: '#8fbe34', berryL: '#d8f08a' };
+export function herbLeaf(g, x0, y0, x1, y1, w, col = HERB.leaf, vein = HERB.vein) {
+  g.fillStyle = col;
+  g.beginPath(); leaf(g, x0, y0, x1, y1, w, w * 0.15); g.fill();
+  // crinkled edge: little bumps along both sides
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+  for (let k = 1; k < 4; k++) {
+    const t = k / 4, mx = x0 + dx * t, my = y0 + dy * t, ww = w * 0.92 * Math.sin(t * Math.PI);
+    for (const s of [-1, 1]) { g.beginPath(); circle(g, mx + nx * ww * s * 0.8, my + ny * ww * s * 0.8, Math.max(0.5, w * 0.22)); g.fill(); }
+  }
+  g.strokeStyle = vein; g.lineWidth = Math.max(0.5, w * 0.16);
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0 + dx * 0.82, y0 + dy * 0.82);
+  for (let k = 1; k < 3; k++) {
+    const t = k / 3.2, mx = x0 + dx * t, my = y0 + dy * t;
+    for (const s of [-1, 1]) { g.moveTo(mx, my); g.lineTo(mx + (nx * s * 0.6 + dx / L * 0.5) * w, my + (ny * s * 0.6 + dy / L * 0.5) * w); }
+  }
+  g.stroke();
+}
+export function herbBerries(g, x, y, r, n, rand) {
+  for (let j = 0; j < n; j++) {
+    const a = (j / n) * TAU + rand() * 0.6, d = j === 0 ? 0 : r * (1.1 + rand() * 0.4);
+    const bx = x + Math.cos(a) * d, by = y + Math.sin(a) * d * 0.8;
+    g.beginPath(); circle(g, bx, by, r * 1.15); g.fillStyle = HERB.berryD; g.fill();
+    g.beginPath(); circle(g, bx - r * 0.1, by - r * 0.1, r * 0.9); g.fillStyle = HERB.berry; g.fill();
+    g.beginPath(); circle(g, bx - r * 0.35, by - r * 0.4, r * 0.38); g.fillStyle = HERB.berryL; g.fill();
+  }
+}
+// tied bunch of herb leaves + a berry sprig, centred on (cx, cy), size factor k (≈ 30 px tall at k = 1)
+export function herbBundle(g, cx, cy, k, rand) {
+  const by = cy + 12 * k;
+  g.strokeStyle = '#4f6a2a'; g.lineWidth = 1.6 * k;
+  g.beginPath();
+  for (const dx of [-3, -1, 1, 3]) { g.moveTo(cx + dx * 0.4 * k, by); g.quadraticCurveTo(cx + dx * 0.8 * k, by - 6 * k, cx + dx * 1.6 * k, by - 11 * k); }
+  g.stroke();
+  const L = [[-0.75, 15, 4.2, HERB.leafD], [0.75, 15, 4.2, HERB.leafD], [-0.35, 18, 4.6, HERB.leaf], [0.4, 18, 4.6, HERB.leaf], [0, 20, 5, HERB.leafL]];
+  for (const [a, len, w, col] of L) {
+    const x0 = cx + a * 3 * k, y0 = by - 7 * k;
+    herbLeaf(g, x0, y0, x0 + Math.sin(a) * len * k, y0 - Math.cos(a) * len * k, w * k, col);
+  }
+  // fibre tie
+  g.fillStyle = '#c9b07a'; g.fillRect(cx - 3.4 * k, by - 6.5 * k, 6.8 * k, 2.4 * k);
+  g.fillStyle = 'rgba(90,60,30,0.5)'; g.fillRect(cx - 3.4 * k, by - 4.6 * k, 6.8 * k, 0.6 * k);
+  herbBerries(g, cx + 6.5 * k, by - 2 * k, 1.9 * k, 4, rand);
+}
+
+function herbBush(v) {
+  const rand = rng(7900 + v * 37);
+  const dims = [[1.1, 0.9, 58, 40], [1.2, 0.85, 64, 36], [1.05, 0.95, 54, 44]][v % 3];
+  const pal = [
+    { deep: '#2a4320', dark: '#3b5a2a', mid: '#557a38', light: '#73994a', high: '#98b968' },
+    { deep: '#28421f', dark: '#385828', mid: '#507636', light: '#6e9548', high: '#93b664' },
+    { deep: '#2c4521', dark: '#3e5d2b', mid: '#5a7f3a', light: '#7a9f4e', high: '#a0c06e' },
+  ][v % 3];
+  return sprite(dims[0], dims[1], (g, P) => {
+    const cx = P.W / 2, baseY = P.H - 6;
+    const w = dims[2], h = dims[3];
+    const lumps = bushLumps(cx, baseY, w, h, rand);
+    for (const L of lumps) L.r *= 0.92;
+    const brand = rng(313 + v);
+    P.layer((g) => {
+      drawFoliage(g, lumps, pal, rand, { cx, cy: baseY - h * 0.5, R: w * 0.5, RY: h * 0.5, marks: 0.8, drop: 0.45, sprigs: 0.6 });
+      // crinkled herb leaves poking out of the mass
+      for (let k = 0; k < 11; k++) {
+        const a = Math.PI * (1.05 + brand() * 0.9), r0 = 0.32 + brand() * 0.18;
+        const x0 = cx + Math.cos(a) * w * r0, y0 = baseY - h * 0.45 + Math.sin(a) * h * r0;
+        const len = 7 + brand() * 4;
+        herbLeaf(g, x0, y0, x0 + Math.cos(a) * len, y0 + Math.sin(a) * len * 0.8 - 2, 2.6 + brand(), brand() < 0.5 ? HERB.leafL : HERB.leaf);
+      }
+      // little green berries in clusters + a few tiny white flowers
+      for (let k = 0; k < 6; k++) {
+        const bx = cx + (brand() - 0.5) * w * 0.72, by = baseY - h * (0.22 + brand() * 0.55);
+        herbBerries(g, bx, by, 1.7, 3 + Math.floor(brand() * 3), brand);
+      }
+      for (let k = 0; k < 4; k++) {
+        const fx = cx + (brand() - 0.5) * w * 0.7, fy = baseY - h * (0.35 + brand() * 0.5);
+        g.fillStyle = '#f4f2e4';
+        for (let j = 0; j < 5; j++) { const a = (j / 5) * TAU; g.beginPath(); circle(g, fx + Math.cos(a) * 1.3, fy + Math.sin(a) * 1.1, 0.9); g.fill(); }
+        g.fillStyle = '#e8c84a'; g.beginPath(); circle(g, fx, fy, 0.6); g.fill();
       }
     });
   });
@@ -313,10 +400,12 @@ export function addPlants(add) {
     put('berrybush_' + i, bush(i, true, false), 6);
     put('berrybush_empty_' + i, bush(i, true, true), 6);
   }
+  for (let i = 0; i < 3; i++) put('herbbush_' + i, herbBush(i), 6);
   for (let i = 0; i < 8; i++) put('grass_' + i, grassTuft(i), 4);
   for (let i = 0; i < 4; i++) put('tallgrass_' + i, tallGrass(i), 4);
   for (let i = 0; i < 3; i++) put('reed_' + i, reed(i), 4);
   for (let i = 0; i < 6; i++) put('flower_' + i, flower(i), 4);
   for (let i = 0; i < 3; i++) put('mushroom_' + i, mushroom(i), 4);
+  addUndergrowth(add);
 }
 

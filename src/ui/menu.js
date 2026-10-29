@@ -109,6 +109,10 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
           <div class="menu-sub">World of Survival</div>
           <p class="menu-tag">Sobreviva, construa e descanse junto ao fogo.</p>
         </header>
+        <section class="menu-char" aria-label="Seu personagem">
+          <label class="mc-name"><span>Seu nome</span><input data-k="pname" maxlength="18" value="${esc(playerName())}" autocomplete="off" spellcheck="false" enterkeyhint="done"></label>
+          <div class="mc-stage"><div class="mc-avatar"></div></div>
+        </section>
         <nav class="menu-nav">
           ${info ? btn('continue', 'play', 'Continuar', `Dia ${info.day} · nível ${info.level} · mundo ${seed}`, 'primary', n++) : ''}
           ${btn('new', 'new', 'Novo mundo', info ? 'Apaga o progresso e começa do zero' : 'Comece sua sobrevivência', info ? '' : 'primary', n++)}
@@ -176,11 +180,18 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
       if (p >= 1) root.querySelector('.menu-load')?.classList.add('done');
     });
 
-    const nameField = (el) => {
-      el.insertAdjacentHTML('beforeend', `<label class="mfield">Seu nome<input data-k="pname" maxlength="18" value="${esc(playerName())}"></label>`);
-      const inp = el.querySelector('[data-k=pname]');
-      inp.onchange = () => setPlayerName(inp.value);
-    };
+    // the player's character spot: name field above the avatar (agent H's charcreator.js, loaded guarded;
+    // until it exists only the name field shows)
+    const nameInp = root.querySelector('.mc-name input');
+    const saveName = () => { setPlayerName(nameInp.value); nameInp.value = playerName(); };
+    nameInp.addEventListener('change', saveName);
+    nameInp.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') nameInp.blur(); });
+    const avatar = root.querySelector('.mc-avatar');
+    import('./charcreator.js').then((m) => {
+      if (!m.mountMenuAvatar || !root.isConnected) return;
+      m.mountMenuAvatar(avatar, { name: playerName(), onName: (nm) => { setPlayerName(nm); nameInp.value = playerName(); } });
+      root.classList.add('has-avatar');
+    }).catch(() => { /* customiser not installed yet: the name field alone */ });
 
     const newWorld = (mode) => (el) => {
       el.innerHTML = `
@@ -199,8 +210,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
       el.innerHTML = `
         <h2>Multijogador</h2>
         <p>Co-op de até 4 jogadores pela internet, sem servidor: os navegadores se conectam direto (WebRTC).
-           O anfitrião cria a sala e passa o código de 6 letras.</p>`;
-      nameField(el);
+           O anfitrião cria a sala e passa o código de 6 letras. Seu nome aparece para os outros (mude no menu, acima do personagem).</p>`;
       el.insertAdjacentHTML('beforeend', `
         <div class="row"><button class="mbtn primary" data-a="host">Criar sala</button><button class="mbtn primary" data-a="join">Entrar com código</button></div>
         <div class="row"><button class="mbtn" data-a="test">Testar minha rede</button><button class="mbtn" data-a="diag">Diagnóstico</button></div>
@@ -228,7 +238,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
     root.querySelector('[data-a=continue]')?.addEventListener('click', () => finish({ mode: 'single', seed }));
     root.querySelector('[data-a=new]').onclick = () => open(newWorld('single'));
     root.querySelector('[data-a=mp]').onclick = () => open(mpPanel);
-    root.querySelector('[data-a=settings]').onclick = () => open((el) => settingsPanel(el));
+    root.querySelector('[data-a=settings]').onclick = () => open((el) => settingsPanel(el, { onName: () => { nameInp.value = playerName(); } }));
     root.querySelector('[data-a=install]')?.addEventListener('click', () => openInstallGuide({ title: 'Instalar o jogo' }));
 
     // update check: silently once on open (badge + top notification), on demand with the button
