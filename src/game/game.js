@@ -173,8 +173,10 @@ export class Game {
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
     // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
-    for (let i = 0; i < list.length; i++) { const o = list[i]; o._sk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
-    list.sort((a, b) => a._sk - b._sk);
+    // depth key: `_zk` — NOT `_sk`, which is the pawn rig's stride blend (art/compose.js): sharing the name made
+    // side-view boots fly far from the body (the stride became the pawn's y)
+    for (let i = 0; i < list.length; i++) { const o = list[i]; o._zk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
+    list.sort((a, b) => a._zk - b._zk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);

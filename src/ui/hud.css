@@ -996,3 +996,7 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .tabs::-webkit-scrollbar, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar, .cc-tabs::-webkit-scrollbar { display: block; height: 6px; }
 .tabs::-webkit-scrollbar-thumb, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar-thumb, .cc-tabs::-webkit-scrollbar-thumb { background: var(--n-mustard, #d9a441); border-radius: 3px; }
 .tabs::-webkit-scrollbar-track, :is(#hud, body) .kdet .ktabs::-webkit-scrollbar-track, .cc-tabs::-webkit-scrollbar-track { background: rgba(20, 12, 6, 0.35); border-radius: 3px; }
+/* hidden tabs: the edge that hides more of them fades out (hudtheme.js toggles .more-l / .more-r) */
+:is(.tabs, .ktabs, .cc-tabs).more-r { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); }
+:is(.tabs, .ktabs, .cc-tabs).more-l { -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px); mask-image: linear-gradient(90deg, transparent, #000 56px); }
+:is(.tabs, .ktabs, .cc-tabs).more-l.more-r { -webkit-mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, transparent, #000 56px, #000 calc(100% - 56px), transparent); }
