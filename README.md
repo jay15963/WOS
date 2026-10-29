@@ -23,4 +23,14 @@ Sem build — módulos ES puros + WebGL2.
 python tools/serve.py
 ```
 
-Abra http://localhost:5173 (use `?seed=123` para outro mundo). Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Abra http://localhost:5173 (use `?seed=123` para outro mundo). Veja [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) e,
+para o multijogador, [docs/SYNC.md](docs/SYNC.md).
+
+Antes de cada commit:
+
+```bash
+node tools/stamp.mjs        # grava a identidade do build (src/version.js + VERSION do sw.js)
+node tools/check-sync.mjs   # regras de sincronização do multijogador (ou: npm run check)
+```
+
+Teste automático com dois clientes: `tools/mp-test.html` (iframes com `?link=bc`, sem rede).

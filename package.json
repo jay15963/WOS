@@ -6,6 +6,8 @@
   "description": "WOS — World of Survival: survival MMO 2D top-down no navegador (WebGL2, PWA).",
   "scripts": {
     "dev": "python tools/serve.py 5173",
-    "icons": "node tools/make-icons.mjs"
+    "icons": "node tools/make-icons.mjs",
+    "stamp": "node tools/stamp.mjs",
+    "check": "node tools/stamp.mjs --check && node tools/check-sync.mjs"
   }
 }

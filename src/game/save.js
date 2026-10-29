@@ -163,7 +163,7 @@ function migrateLegacy(game, data, wt) {
   for (const [kind, tx, ty, growth] of data.crops || []) snap.crops.push([tx, ty, kind, growth || 0, stageOf(growth || 0)]);
   for (const [item0, qty, x, y] of data.loot || []) {
     const item = ITEM_ALIASES[item0] || item0;
-    if (ITEMS[item]) snap.loot.push([net.newId('L'), item, qty, x, y]);
+    if (ITEMS[item]) snap.loot.push([net.newId('L'), item, qty, x, y]); // sync-ok: rows of a snapshot being built (legacy save migration)
   }
   return snap;
 }

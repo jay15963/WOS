@@ -87,10 +87,13 @@ Pawns/cabelos são **brancos/cinza** e tingidos em runtime (multiplicação) —
 Ícones para HTML: desenhe a região do sprite de `atlas.canvas` (u0..u1, v0..v1 × atlas.size) num canvas pequeno → `toDataURL()`.
 
 **Cache do atlas** (`src/engine/atlasCache.js`): em produção o atlas pronto (PNG + metadados) fica no IndexedDB, com chave =
-hash do código de todos os módulos importados a partir de `src/art/sprites.js`. Mudou a arte → cache invalida sozinho.
-Desligado em localhost (force com `?cache=1`; `?nocache` desliga). Regra: módulos de arte não podem depender de estado
-calculado durante a pintura (num acerto de cache a pintura não roda). Service worker: stale-while-revalidate (deploy novo
-aparece no próximo carregamento).
+`ART_ID` (hash do grafo de módulos de arte gravado em `src/version.js` por `node tools/stamp.mjs` — a identidade do código que
+está rodando, nunca fontes baixadas em tempo de execução). Um atlas com falhas de pintura ou substitutos (`A.failures`,
+`A.placeholders`) **nunca** é guardado; num acerto o atlas é validado (`src/game/artcheck.js`: contrato, `<espécie>_{s,n,e}` de toda
+criatura, arte de toda construção / flora / plantação) e descartado se faltar algo. Desligado em localhost (force com `?cache=1`;
+`?nocache` desliga). Regra: módulos de arte não podem depender de estado calculado durante a pintura. Contrato de nomes:
+`src/art/contract.js`. Service worker: **network-first** com `cache:'no-cache'` (um carregamento nunca mistura dois deploys; o
+cache do SW só serve offline).
 
 Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
 da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
@@ -127,11 +130,41 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   **código manual** (`ManualLink`). STUN: Google + Cloudflare. **TURN da Cloudflare** como fallback automático: o jogo busca
   credenciais temporárias no Worker `server/turn` (`TURN_ENDPOINT_DEFAULT` em `rtc.js`); o navegador só usa o repetidor quando a
   conexão direta falha. Modo de teste `wos.forceRelay=1`. TURN manual de outro provedor ainda é possível (`wos.turn`).
-- **Sessão** (`session.js`): anfitrião é a autoridade; mensagens `hello/welcome/reject/st/sts/lk/chat/ping/pong/left/bye`,
-  máx. 4 jogadores, presença a 12 Hz com interpolação, horário/clima do anfitrião, reconexão automática do convidado (3×).
-  Convidado salva separado (`game.saveSuffix = '.guest'`). Jogadores remotos são entidades `kind:'pawn', remote:true,
-  faction:'friend'` (não são alvo nem criatura).
+- **Sessão** (`session.js`): o anfitrião é a autoridade do mundo; mensagens `hello/welcome/reject/ready/snap/st/sts/lk/chat/ping/
+  pong/left/bye/rq/ack/ops/own/ents/fx/dg/dgx/dgr`, máx. 4 jogadores, presença a 12 Hz interpolada no relógio do remetente.
+  `hello` leva protocolo, `BUILD_ID` e o digest do atlas: versões / gráficos diferentes são recusados com mensagem clara.
+  O convidado gera o mundo da semente **como convidado** (sem criaturas, regrowth ou save de mundo locais) e recebe o
+  snapshot do anfitrião; depois disso só ops sequenciadas mudam o mundo. Convidado salva **só o jogador**
+  (`wos.save.v2.<seed>.guest`). Jogadores remotos: entidades `kind:'pawn', remote:true, faction:'friend'`; no anfitrião cada
+  um tem também um avatar (`pl.av`, posição mais recente) usado pela IA. Se o anfitrião sair: "O anfitrião saiu" + Voltar ao menu.
 - **Logs** (`netlog.js`): cada passo (sinalização, candidatos ICE, rota escolhida, falhas explicadas, erros da biblioteca) com
   horário, salvos nas últimas sessões (`wos.netlog`). **Copiar relatório** gera texto com IPs públicos mascarados.
   `rtc.js`: `tracePC` (explica falhas: sem candidatos remotos, UDP bloqueado, NAT incompatível) e `probeNetwork` (tipo de NAT).
-- Próxima fase: mundo compartilhado (coleta/construção/mineração) e criaturas/combate sincronizados pelo anfitrião.
+- Mundo compartilhado (coleta / construção / mineração / plantações / saque / acampamentos) e criaturas / combate
+  sincronizados pelo anfitrião: ver a seção abaixo e `docs/SYNC.md`.
+
+## Multijogador — contrato de sincronização (leia antes de mexer em gameplay)
+Arquitetura completa e API de teste: `docs/SYNC.md` (§3 desenho, §7 o que foi implementado). Um jogador = anfitrião sem
+convidados: o mesmo caminho de código roda sempre.
+
+1. Toda mudança de estado compartilhado (objetos do mundo, tiles, construções, itens no chão, plantações, criaturas,
+   acampamentos, horário) é uma **op** (`defineOp` em `src/game/mut/*.js`, `apply` determinístico, com `doc` + `args`) emitida
+   pela autoridade (`game.net.emit`), normalmente a partir de uma **intent** (`defineIntent`) pedida com
+   `game.net.request(nome, args, { refund, onOk, onReject })`. Nunca mude esse estado diretamente
+   (`world.addObject/removeObject/mineRock` têm guarda em tempo de execução).
+2. Todo sistema novo declara `sync: 'host' | 'owner' | 'all' | 'cosmetic'` e é instalado com `addSystem` (convidados pulam
+   `host`).
+3. Todo campo novo de runtime num objeto compartilhado é setado só dentro de um `apply`, serializado em `src/net/snapshot.js`
+   e listado nas linhas do digest (`src/net/digest.js`) — ou é cosmético (prefixo `_` ou em `COSMETIC_FIELDS`).
+4. Aleatoriedade e ids só na autoridade (`net.roll()`, `net.newId(prefixo)`), e o resultado vai nos args da op. Nada de
+   `Math.random` em ids. Aplicadores nunca usam `game.player` (efeitos no jogador local: campos `by/xp/give/toast` da op).
+5. Criatura nova: `SPECIES` + nomes no contrato de arte (`<sp>_{s,n,e}` em `src/art/contract.js`); o stream de entidades não
+   precisa de nada. Construção / item / plantação nova: nomes no contrato; as ops são genéricas por tipo.
+6. Antes de commitar: `node tools/stamp.mjs` e `node tools/check-sync.mjs` (ou `npm run check`); para mecânica nova,
+   adicione um cenário em `tools/mp-test.js`. Mudou formato de mensagem → aumente `PROTO` (`src/net/netlog.js`).
+
+Arquivos: `src/net/net.js` (núcleo), `registry.js`, `session.js`, `links.js` (+ `BroadcastLink` para testes, `?link=bc`),
+`entities.js` (criaturas 10 Hz com interesse, proxies nos convidados, eventos cosméticos), `snapshot.js` (save e entrada),
+`digest.js` (detector de dessincronia a cada 5 s + ressincronização automática + API de depuração `game.net.digest/dump/diff/
+selfTest`), `src/game/mut/*` (ops e intents por domínio), `src/game/players.js` (todos os jogadores para a IA do anfitrião),
+`src/game/anim.js` (`stepGait`: 0,25 de ciclo por tile para todos). Testes automáticos com dois clientes: `tools/mp-test.html`.

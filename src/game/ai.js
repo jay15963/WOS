@@ -9,7 +9,7 @@
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
-import { reach, dist, faceTowards } from './combat.js';
+import { reach, dist, faceTowards, mobEffect } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer } from './players.js';
 import { stepGait } from './anim.js';
@@ -32,7 +32,7 @@ export function pickTarget(game, m) {
 // m was damaged / provoked by src
 export function aggro(game, m, src, social = true) {
   if (!m || m.dead || m.isProp) return;
-  if (m.proxy) { game.net.entsApi?.effect?.(m, { aggro: 1 }); return; } // guest: the host decides
+  if (m.proxy) { mobEffect(game, m, { aggro: 1 }); return; } // guest: the host decides
   if (m.state === 'evade') return;
   const sp = SPECIES[m.species];
   m.lastCombatT = game.worldTime;

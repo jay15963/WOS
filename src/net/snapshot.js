@@ -184,6 +184,7 @@ function applyInner(game, d, mode) {
   for (const [id, type, tx, ty, v, progress, decon, store, working, builtAt] of sIds.values()) {
     let o = game.world.objById.get(id);
     if (o && !o.building) continue;
+    if (o && !game.build.structures.includes(o)) { removeStructure(game, o, { quiet: true }); o = null; } // orphan: rebuild
     if (!o) {
       const def = BUILDINGS[type];
       let ok = true;

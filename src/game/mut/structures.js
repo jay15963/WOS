@@ -132,8 +132,8 @@ export function completeStructure(game, o, { silent = false, auth = true } = {})
 export function removeStructure(game, o, { drops = null, quiet = false } = {}) {
   const def = defOf(o), w = game.world;
   const S = game.build.structures, k = S.indexOf(o);
-  if (k < 0) return;
-  S.splice(k, 1);
+  if (k >= 0) S.splice(k, 1);
+  else if (game.world.objById.get(o.id) !== o) return; // (orphans still in the world are cleaned up: resync repair)
   const wasBlueprint = !!o.blueprint;
   gridRemove(game, o);
   const [sw, sh] = def.size;

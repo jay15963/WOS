@@ -436,7 +436,7 @@ export class Session {
         return;
       }
       case 'bye': {
-        if (fromHost) { this._hostGone('o anfitrião fechou a sala'); return; }
+        if (fromHost) { this._hostGone('O anfitrião fechou a sala.'); return; }
         netlog.info('session', 'Outro jogador saiu da sala');
         this._close(key);
         return;
@@ -612,7 +612,7 @@ export class Session {
     const pl = this.players.get(pid);
     if (!pl) return;
     this.players.delete(pid);
-    if (pl.av) pl.av.gone = true;
+    if (pl.av) pl.av.gone = true; // sync-ok: host-side avatar of a player that left (AI drops it), not world state
     if (pl.ent && this.game) {
       const i = this.game.entities.indexOf(pl.ent);
       if (i >= 0) this.game.entities.splice(i, 1);

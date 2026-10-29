@@ -110,7 +110,8 @@ export function showMainMenu({ presetCode = '', progress = null } = {}) {
       el.insertAdjacentHTML('beforeend', `
         <div class="row"><button class="mbtn primary" data-a="host">Criar sala</button><button class="mbtn primary" data-a="join">Entrar com código</button></div>
         <div class="row"><button class="mbtn" data-a="test">Testar minha rede</button><button class="mbtn" data-a="diag">Diagnóstico</button></div>
-        <p class="muted">Fase 1: vocês se veem no mesmo mundo, com chat, horário e clima sincronizados. Coleta, construção e criaturas compartilhadas vêm na próxima etapa.</p>`);
+        <p class="muted">Mundo compartilhado: árvores, construções, minas, plantações, itens no chão e criaturas são os mesmos para todos
+           (o anfitrião é o dono do mundo). Todos precisam da mesma versão do jogo — recarregue a página se a sala recusar.</p>`);
       el.querySelector('[data-a=host]').onclick = () => open((b) => {
         b.innerHTML = `<h2>Criar sala</h2><p>Qual mundo seus amigos vão visitar?</p>
           <div class="row">
