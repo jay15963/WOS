@@ -2,8 +2,9 @@
 // and a steering helper (direct seek when the straight line is clear, local probe avoidance, early A*
 // when walls / rock / trunks are in the way, stuck detection, path smoothing). Pure simulation.
 //
-// Doors (world.solid[i] === 2) block every creature; only entities with `passDoors` (the player,
-// set by economy) path through them. Creature movers here never set passDoors.
+// Doors: a closed door / gate is world.solid 1 (blocks and is routed around by everyone, creatures
+// included); an open one is 0 (everyone passes). They never open by themselves. The value-2 paths below
+// (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
 import { collides, moveCircle } from './physics.js';
 

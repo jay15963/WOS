@@ -1,8 +1,9 @@
 // Save / load to localStorage ('wos.' prefix). Autosave every 20 s and on hide/pagehide.
-// v3 (key wos.save.v2.<seed>): { v: 3, worldTime, env, player, world: serializeWorld(...), marks, craft, fuel,
+// v4 (key wos.save.v2.<seed>): { v: 4, worldTime, env, player, world: serializeWorld(...), marks, craft, fuel,
 // hinted } — the world part is the SAME serializer as the multiplayer join snapshot (net/snapshot.js), so
 // anything persisted is replicated at join by construction. v1 / v2 saves are migrated into a snapshot and
-// applied through the same path.
+// applied through the same path. v4 (round V2): structure rows carry rot / paid / open / moveOf; older rows are
+// legacy (rot 0, paid, closed) and beds saved as 1×1 get a free 1×2 spot (migrateStructRows).
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -13,8 +14,9 @@ import { equipChanged, SLOTS } from './equipment.js';
 import { collides } from './physics.js';
 import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
+import { dimsOf } from './mut/structures.js';
 
-const VERSION = 3;
+const VERSION = 4;
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
 const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
@@ -69,14 +71,15 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, VERSION].includes(data.v)) return false;
+  if (!data || ![1, 2, 3, VERSION].includes(data.v)) return false;
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;
   }
   const away = Math.max(0, Math.min(OFFLINE_CAP, (Date.now() - (data.savedAt || Date.now())) / 1000));
   const wt = (data.worldTime || 0) + away;
-  const snap = data.v === VERSION ? { ...(data.world || {}) } : migrateLegacy(game, data, wt);
+  const snap = data.v >= 3 ? { ...(data.world || {}) } : migrateLegacy(game, data, wt);
+  if (data.v < VERSION && Array.isArray(snap.structs)) snap.structs = migrateStructRows(game, snap.structs);
   snap.wt = wt;
   snap.env = data.env ? { h: data.env.hour, d: data.env.day, w: data.env.weather } : snap.env;
   applyWorld(game, snap, 'load');
@@ -166,6 +169,54 @@ function migrateLegacy(game, data, wt) {
     if (ITEMS[item]) snap.loot.push([net.newId('L'), item, qty, x, y]); // sync-ok: rows of a snapshot being built (legacy save migration)
   }
   return snap;
+}
+
+// ---------- v3 -> v4: structure footprints that grew (bed 1×1 -> 1×2) ----------
+// Old rows (length 10) keep working: rot 0, paid, closed doors. A bed gets the first free 1×2 spot among: extending
+// south, extending north, lying east, lying west; else the nearest free spot within 3 tiles (rare).
+const GREW = { bed: [1, 1] };
+export function migrateStructRows(game, rows) {
+  const w = game.world;
+  const occ = new Map(); // `${layer}:${tileIdx}` -> row
+  const dims = (r) => (r.length <= 10 && GREW[r[1]] ? GREW[r[1]] : dimsOf(r[1], r.length > 10 ? r[10] | 0 : 0));
+  const mark = (r, tx, ty, fw, fh, on) => {
+    const L = BUILDINGS[r[1]].layer;
+    for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) { const k = L + ':' + w.idx(x, y); if (on) occ.set(k, r); else if (occ.get(k) === r) occ.delete(k); }
+  };
+  const valid = rows.filter((r) => Array.isArray(r) && BUILDINGS[r[1]]);
+  for (const r of valid) { const [fw, fh] = dims(r); mark(r, r[2], r[3], fw, fh, true); }
+  const free = (r, tx, ty, fw, fh) => {
+    const L = BUILDINGS[r[1]].layer;
+    for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
+      if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return false;
+      const i = w.idx(x, y);
+      if (w.rock[i] || w.water[i]) return false;
+      const o = occ.get(L + ':' + i);
+      if (o && o !== r) return false;
+    }
+    return true;
+  };
+  const out = [];
+  for (const r0 of valid) {
+    const r = r0.slice();
+    if (r.length <= 10) {
+      while (r.length < 10) r.push(0);
+      r.push(0, 1, 0, 0); // rot, paid, open, moveOf
+      if (GREW[r[1]]) {
+        const tx = r[2], ty = r[3];
+        mark(r0, tx, ty, 1, 1, false);
+        const cands = [[tx, ty, 0], [tx, ty - 1, 0], [tx, ty, 1], [tx - 1, ty, 1]];
+        for (let d = 1; d <= 3; d++) for (let dy = -d; dy <= d; dy++) for (let dx = -d; dx <= d; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === d) cands.push([tx + dx, ty + dy, 0], [tx + dx, ty + dy, 1]);
+        const hit = cands.find(([x, y, rot]) => { const [fw, fh] = dimsOf(r[1], rot); return free(r, x, y, fw, fh); });
+        if (!hit) continue; // nowhere to put it: dropped (practically never)
+        [r[2], r[3], r[10]] = hit;
+        const [fw, fh] = dimsOf(r[1], hit[2]);
+        mark(r, hit[0], hit[1], fw, fh, true);
+      }
+    }
+    out.push(r);
+  }
+  return out;
 }
 
 export function resetSave(game) {

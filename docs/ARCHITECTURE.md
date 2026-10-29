@@ -123,7 +123,11 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `world.camps` / `world.zones` (`bandit_camp`). Luz: passe `AMBIENT_FS` (ambiente × caverna) + luzes aditivas; batch `decal`.
 - **Economia** (`game.econ`): `hasTool, bestTool, equipItem, unequip, equipFromSlot, rollKillLoot, craft, recipeState, build,
   designate, nextStep`; `game.hasTool(p, kind)`; `registerWork(kind, handler)` (gathering.js); `world.noGrow` (sem renascer perto de
-  construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia, 2 = porta.
+  construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia (paredes, móveis,
+  portas FECHADAS), 0 = livre (porta aberta). Portas só abrem/fecham por ação (`door.toggle`).
+- **Construção (rodada V2)**: plantas grátis (azuis), material entregue no início da obra (`struct.paid`), rotação `o.rot`
+  (4 orientações / 5 posições de borda), pegada `o.fw × o.fh`, `Mover` (`build.move` → `struct.relocate`), `Arrasar`
+  (`struct.raze`), barra de construção e menu de contexto em `src/ui/buildbar.js`. Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
