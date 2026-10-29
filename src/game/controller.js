@@ -68,6 +68,14 @@ export function describeAny(game, o) {
   return describeObject(game, o);
 }
 
+// Space / attack button without a target: only a creature close to the PLAYER (the weapon's reach plus a step for
+// melee, the bow's range for ranged) — never some far creature on screen (a click targets what is near the mouse)
+function nearbyFoe(game) {
+  const p = game.player, pr = p.wprof;
+  const r = pr && pr.ranged ? (pr.range || 8) : 2.2;
+  return nearestEnemy(game, r);
+}
+
 export function pick(game, sx, sy) {
   const [wx, wy] = game.screenToWorld(sx, sy);
   const tol = 14 / game.cam.zoom;
@@ -167,7 +175,7 @@ export function installController(game) {
       const p = game.player;
       if (p.dead) return;
       if (p.autoAttack && attackable(p.target)) { p.autoAttack = false; if (ctl.goal?.type === 'attack') ctl.goal = null; return; }
-      const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
+      const t = attackable(p.target) ? p.target : nearbyFoe(game);
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
       if (dist(p, t) > attackRange(p, t) * 1.05) {
@@ -180,7 +188,7 @@ export function installController(game) {
       const p = game.player;
       if (p.dead) return;
       if (p.autoAttack && attackable(p.target)) return;
-      const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
+      const t = attackable(p.target) ? p.target : nearbyFoe(game);
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
       if (dist(p, t) > attackRange(p, t) * 1.05) {
