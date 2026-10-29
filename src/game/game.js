@@ -6,6 +6,7 @@ import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
+import { loadLook } from './look.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 
@@ -23,7 +24,7 @@ export class Game {
     this.player = {
       isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
       facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0, canSwim: true, swimming: false,
-      look: { skin: [0.96, 0.80, 0.66], hair: 'short', hairColor: [0.36, 0.22, 0.12], shirt: [0.34, 0.47, 0.62] },
+      look: loadLook(), // agent H: the player's saved appearance (per profile, src/game/look.js)
       weapon: 'sword', hp: 100, maxHp: 100,
     };
     this.entities = [this.player];

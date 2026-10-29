@@ -11,7 +11,7 @@ const PATHS = {
   combat: 'game/combat.js', abilities: 'game/abilities.js', physics: 'game/physics.js', nav: 'game/nav.js',
   player: 'game/player.js', save: 'game/save.js', loot: 'game/loot.js', flora: 'game/flora.js', ai: 'game/ai.js',
   equipment: 'game/equipment.js', data: 'game/data.js', autotile: 'game/autotile.js', items: 'game/content/items.js',
-  worldgen: 'world/worldgen.js', stats: 'game/stats.js',
+  worldgen: 'world/worldgen.js', stats: 'game/stats.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

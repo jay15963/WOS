@@ -1620,6 +1620,63 @@ def('S50', {
 });
 
 // =====================================================================================================
+// S70 H: look sync (character creator)
+def('S70', {
+  title: 'H: look sync', timeout: 90000,
+  expected: 'Guest changes its look → the host draws the very same parts and colours (look/rig layers per facing); host change → guest sees it; a malformed look from a peer (unknown ids, bad colours, garbage) is cleaned to valid defaults and draws; packed look < 260 B; selfTest clean',
+  api: 'game/look.js {randomLook, cleanLook, packLook, applyLook} · session.sendLook() · lk / sts.look (packed) · art/look/rig.js lookRig(A, look)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.look?.packLook && MG.lookRig?.lookRig, 'look schema / rig modules');
+  const LK = MG.look, LH = MH.look;
+  const layers = (M, A, look) => { const R = M.lookRig.lookRig(A, look), out = []; for (const d of ['s', 'n', 'e']) for (const part of ['hairBack', 'body', 'head', 'brows', 'beard', 'hair']) for (const l of R[part][d]) out.push(`${d}:${l.s.name}:${l.r.toFixed(3)},${l.g.toFixed(3)},${l.b.toFixed(3)}`); return out; };
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // 1. the guest restyles itself (live, like the editor's "Salvar" in a running game)
+  let nl = LK.randomLook(4242);
+  if (LK.packLook(nl) === LK.packLook(G.game.player.look)) nl = LK.randomLook(4343);
+  nl = { ...nl, hair: 'long_wavy', hairFx: 'tips', pattern: 'plaid', over: 'vest', beard: 'full' };
+  LK.applyLook(G.game, nl);
+  const want = LK.packLook(G.game.player.look);
+  const seen = () => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) === want; };
+  const ms = await t.timeTo(seen, 4000, 'host sees the new guest look');
+  t.metric('lookSyncMs', Math.round(ms));
+  t.check(seen(), 'host has the guest look (packed equal)', want.slice(0, 80) + '…');
+  const lg = layers(MG, G.game.A, G.game.player.look), lh = layers(MH, H.game.A, A.avatarOn(H, G.pid).look);
+  t.check(lg.length > 30 && same(lg, lh), 'same sprite layers + tints on both clients (3 facings)', `${lg.length} layers · ${lg.slice(0, 3).join(' | ')}`);
+  t.check(want.length < 260, 'packed look is compact', `${want.length} chars`);
+  t.metric('lookBytes', want.length);
+  // 2. the host restyles → the guest sees it
+  const hl = { ...LH.randomLook(777), hair: 'afro', top: 'gown', paint: 'tribal' };
+  LH.applyLook(H.game, hl);
+  const wantH = LH.packLook(H.game.player.look);
+  await t.waitFor(() => { const e = A.avatarOn(G, H.pid); return e && LK.packLook(e.look) === wantH; }, 8000, 'guest sees the new host look');
+  t.check(same(layers(MH, H.game.A, H.game.player.look), layers(MG, G.game.A, A.avatarOn(G, H.pid).look)), 'guest draws the host with the same layers');
+  // 3. malformed looks from a peer are cleaned (never crash, never undefined parts)
+  const bad = [
+    '1|nonexistent|zz|<b>|' + 'x'.repeat(40),
+    { v: 1, hair: '<script>', skin: 'zzzzzz', topC: [9, -3, 'a'], eyes: 42, beardC: 'nothex', shoes: null, top: { evil: 1 } },
+    { skin: [2, 2, 2], hair: 'long', hairColor: [0.2, 0.1, 0.05], shirt: [0.5, 0.2, 0.1], beard: true },
+    12345, 'garbage', ['a', 1],
+  ];
+  for (const [i, b] of bad.entries()) {
+    G.session.sendHost({ t: 'lk', look: b });
+    await t.waitFor(() => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) !== want; }, 3000, `host applied malformed look #${i + 1}`).catch(() => {});
+    const e = A.avatarOn(H, G.pid), l = e?.look || {};
+    const ok = LH.packLook(l) === LH.packLook(LH.cleanLook(l)) && /^[0-9a-f]{6}$/.test(l.skin) && /^[0-9a-f]{6}$/.test(l.topC) && typeof l.hair === 'string';
+    let drew = true;
+    try { layers(MH, H.game.A, l); H.game.render(); } catch (err) { drew = false; t.log('draw error ' + err.message); }
+    t.check(ok && drew, `malformed look #${i + 1} cleaned and drawn`, `hair ${l.hair} skin ${l.skin} top ${l.top} topC ${l.topC}`);
+    G.session.sendHost({ t: 'lk', look: want }); // back to the real one
+    await t.tryWait(() => { const x = A.avatarOn(H, G.pid); return x && LH.packLook(x.look) === want; }, 3000);
+  }
+  const legacy = LH.cleanLook(bad[2]);
+  t.check(legacy.hair === 'long' && legacy.beard === 'full' && legacy.topC === '80331a', 'legacy { skin, hair, hairColor, shirt, beard } migrates', `${legacy.hair} ${legacy.beard} ${legacy.topC}`);
+  const st = H.game.net.selfTest();
+  t.check(st.atlasOk && !st.missingSprites.length && !st.placeholders.length, 'host selfTest clean', JSON.stringify({ atlasOk: st.atlasOk, missing: st.missingSprites.length }));
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // entry
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S29'];
