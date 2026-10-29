@@ -83,7 +83,8 @@ export function rasterRegion(spec) {
   const inR = new Int32Array(bw * bh);
   for (let n = 0; n < nT; n++) { const i = T[n], x = i % W - bx0, y = ((i / W) | 0) - by0; inR[y * bw + x] = n + 1; }
   const ST = new Array(nT);
-  for (let n = 0; n < nT; n++) ST[n] = ROOF_STYLES[spec.style[n]] || ROOF_STYLES.thatch;
+  const SX = spec.styles || {}; // agent K: derived styles (Detalhes overrides)
+  for (let n = 0; n < nT; n++) ST[n] = SX[spec.style[n]] || ROOF_STYLES[spec.style[n]] || ROOF_STYLES.thatch;
   const styleOf = (n) => ST[n];
   // ---- rectangles + their roofs ----
   const rects = maximalRects(inR, bw, bh);
@@ -96,7 +97,7 @@ export function rasterRegion(spec) {
       cnt[k] = (cnt[k] || 0) + 1;
       if (cnt[k] > bn) { bn = cnt[k]; best = k; }
     }
-    const S = ROOF_STYLES[best] || ROOF_STYLES.thatch;
+    const S = SX[best] || ROOF_STYLES[best] || ROOF_STYLES.thatch;
     r.S = S;
     // world coords
     r.X0 = r.x0 + bx0; r.X1 = r.x1 + bx0; r.Y0 = r.y0 + by0; r.Y1 = r.y1 + by0;

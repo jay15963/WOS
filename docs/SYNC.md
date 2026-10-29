@@ -963,6 +963,19 @@ differs from the design text above, the code is described here (this section win
   rock mined) + `player.hurt` for players under it. The natural roof (`world.roof`) is derived from the rock grid inside `tile.mine` on
   every peer (no op); `rock.hit` adds the cave-in damage on the host. Digest `tiles` part also hashes `roof` and `broof`.
 
+- **Styles & details (round V2, agent K)** — shared structure fields `style` ('' = default look) and `det` (canonical detail string:
+  ids sorted, joined with '.'), set in appliers only: `build.place {type, tiles, rot, style, det}` (host cleans them with
+  `normStyle` / `cleanDet`) → `struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]`; snapshot
+  `structs` rows carry them at [14] / [15]; the `structs` digest rows end with `style, det`. `build.move` keeps the source look.
+  - `struct.style {ids, type, style|null, det|null, add?, del?}` (intent) changes BLUEPRINTS only (finished pieces are refused:
+    "Já construída: desmonte e construa de novo") → op `struct.style {list: [[id, style, det]], by}`.
+  - Derived on every peer (cosmetic): `o._k` (decoded look, shared cache), `o._cm` (carpet links, autotile `tileHooks`), detail
+    lights (sconces / lanterns) in `o.light`.
+  - Training dummy (`dummy: true`): when finished it joins `game.props` (`isProp`, never broken). The hitter rolls the amount
+    (combat `damageProp`) → intent `dummy.hit {id, amount, crit, dtype, ranged}` (reach 6 / 18) → op `dummy.hit {id, amount, crit,
+    dtype, sx, by, xp}` on every peer (wobble `_wobT`, straw, sound `dummy_hit`, event `dummyhit` → floating numbers). XP is an
+    owner effect computed by the host with diminishing returns per player (host-only bookkeeping `game._train`).
+
 - **Corpses (round V2, agent I)** — `game.corpses.map` (id → body), shared fields `id, of ('pawn' | species), x, y, f, deathT, size, store,
   butchered, owner, name, look, sc, v, gear`; cosmetic `_t0` (fall animation), `_ph`, `_px`, `rotten` (flies stage, derived every 0.5 s; feeds the `flies` sound); on entities `_corpseId` (a dead creature /
   player whose body is on the ground is not drawn by the rig). The **stage is never replicated**: every peer derives it from
@@ -990,6 +1003,8 @@ v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'l
 **v5** (round V2, agent I): the world snapshot carries `corpses` (optional; older saves simply have no bodies).
 **v6** (roofs, agent J): structure rows carry `style, det` (older rows get `''`); the natural roof is re-derived from the mined tiles
 with the support rule.
+**v7** (agent K): every construction piece carries `style, det` (same [14] / [15] slots); older rows are padded with `'', ''`
+(default look) by `migrateStructRows`.
 
 ### 7.4 Background clock
 

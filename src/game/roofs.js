@@ -22,6 +22,7 @@
 
 import { BUILDINGS } from './data.js';
 import { ROOF_GEOM, ROOF_STYLES, ROOF_TYPE_STYLES, roofEaveH, DET, detBits } from './content/roofs.js';
+import { roofArtStyle } from './content/kits.js'; // agent K: style overrides from the Detalhes kit
 import { rasterRegion, attachArt } from '../art/roofRaster.js';
 
 const STYLE_KEYS = Object.keys(ROOF_STYLES);
@@ -404,10 +405,11 @@ function disposeRegion(game, g) {
 // the painting job of a region (structured-clone friendly)
 function artSpec(game, g) {
   const w = game.world, W = w.W, grid = game.build.grid.roof;
-  const style = new Array(g.tiles.length), det = new Int32Array(g.tiles.length);
+  const style = new Array(g.tiles.length), det = new Int32Array(g.tiles.length), styles = {};
   for (let n = 0; n < g.tiles.length; n++) {
     const o = grid.get(g.tiles[n]);
-    style[n] = o?.style || ROOF_TYPE_STYLES[o?.type]?.[0] || 'thatch';
+    const ka = o ? roofArtStyle(o) : null; // agent K: derived style (ends, gable, ridge, boards, tone…)
+    if (ka) { styles[ka.key] ||= ka.style; style[n] = ka.key; } else style[n] = o?.style || ROOF_TYPE_STYLES[o?.type]?.[0] || 'thatch';
     det[n] = detBits(o?.det);
   }
   // fire sources under the roof get a chimney above them; lights make the gable windows glow at night
@@ -422,7 +424,7 @@ function artSpec(game, g) {
     if ((def.fire || def.workLight) && (def.warm || 0) >= 2.5) fires.push([o.x, o.cy ?? o.y - 0.3, o.id]); // hearths, not torches
   }
   const res = game.quality === 'low' ? 30 : game.quality === 'medium' ? 42 : 54;
-  return { tiles: g.tiles.slice(), W, x0: g.x0, y0: g.y0, x1: g.x1, y1: g.y1, style, det, fires,
+  return { tiles: g.tiles.slice(), W, x0: g.x0, y0: g.y0, x1: g.x1, y1: g.y1, style, styles, det, fires,
     eaveH: roofEaveH(game.build.storeysAt?.(g.x0, g.y0) || 1), res };
 }
 

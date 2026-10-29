@@ -36,7 +36,7 @@ const pick = (arr, a, b) => arr[Math.floor(hash(a, b) * arr.length)];
 
 // ---------------- plank / block painters (tile-periodic, in "along-x" space) ----------------
 // planks running along x, rows across y; covers [x0,x1]×[y0,y1]. rows: plank count per 64 px.
-function planks(g, x0, y0, x1, y1, rows, pal, seed, opt = {}) {
+export function planks(g, x0, y0, x1, y1, rows, pal, seed, opt = {}) {
   const ph = 64 / rows;
   const r0 = Math.floor(y0 / ph), r1 = Math.ceil(y1 / ph);
   for (let r = r0; r < r1; r++) {
@@ -80,7 +80,7 @@ function planks(g, x0, y0, x1, y1, rows, pal, seed, opt = {}) {
 
 // ashlar blocks (rows across y, block joints periodic in 64)
 const ASHLAR = [[0, 22, 41], [11, 33, 52], [4, 27, 46]];
-function ashlar(g, x0, y0, x1, y1, pal, rowsPer = 3, layout = ASHLAR, bevel = 1.6) {
+export function ashlar(g, x0, y0, x1, y1, pal, rowsPer = 3, layout = ASHLAR, bevel = 1.6) {
   const rh = 64 / rowsPer;
   g.fillStyle = pal.mortar; g.fillRect(x0, y0, x1 - x0, y1 - y0);
   const r0 = Math.floor(y0 / rh), r1 = Math.ceil(y1 / rh);
@@ -143,7 +143,7 @@ function orientOf(m) {
   return m ? 'x' : 'h';
 }
 
-function wallTop(g, kind, m, x0, y0, x1, y1) {
+export function wallTop(g, kind, m, x0, y0, x1, y1) { // (exported for agent K's soft-corner variants)
   const o = orientOf(m);
   if (kind === 'wood') {
     if (o === 'v') cached(g, 'wt_v', (g, a, b, c, d) => transposed(g, () => planks(g, b, a, d, c, 5, WT, 1)));
@@ -183,7 +183,7 @@ function wallTop(g, kind, m, x0, y0, x1, y1) {
   if (!S) { g.fillStyle = 'rgba(30,18,8,0.22)'; g.fillRect(x0, 61, x1 - x0, 3); }
 }
 
-function wallFront(g, kind, m, x0, x1) {
+export function wallFront(g, kind, m, x0, x1) {
   cached(g, 'wf_' + kind, (g, a, b, c) => wallFrontTex(g, kind, a, c));
   const top = 64;
   // corner shading where the wall ends (unconnected sides)

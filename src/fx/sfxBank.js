@@ -323,6 +323,19 @@ export const SFX = {
     bellTone(d, sr, 0.03, 1046.5, 0.25, 0.25);
     bellTone(d, sr, 0.09, 1568, 0.2, 0.25);
   } },
+  // agent K: a blueprint takes a new style (soft sparkle) · a hit on the straw training dummy (muffled thump + hay)
+  restyle: { v: 3, sec: 0.5, gain: 0.22, rev: 0.3, pj: 0.8, vj: 0.1, gap: 0.08, render(d, sr, r) {
+    burst(d, sr, 0, 0.18, { r, color: 'pink', type: 'bp', f: 3400, q: 0.9, shape: 'bell', amp: 0.35, grain: 0.5 });
+    bellTone(d, sr, 0.01, 1318.5, 0.2, 0.2);
+    bellTone(d, sr, 0.07, 1760, 0.16, 0.22);
+    bellTone(d, sr, 0.13, 2093, 0.1, 0.25);
+  } },
+  dummy_hit: { v: 5, sec: 0.3, gain: 0.5, rev: 0.12, pj: 1.6, vj: 0.18, render(d, sr, r) {
+    thump(d, sr, 0, 120 + r() * 30, 60, 0.7, 0.07);
+    burst(d, sr, 0.004, 0.16, { r, color: 'pink', type: 'bp', f: 1800 + r() * 900, q: 0.6, a: 0.004, amp: 0.85, grain: 0.75, grainRate: 1500 });
+    rustle(d, sr, 0.03, 0.18, r, 0.35, 4200);
+    wood(d, sr, 0.002, 210 + r() * 40, 0.2, r, 0.6);
+  } },
   build_hit: { v: 6, sec: 0.26, gain: 0.48, rev: 0.22, pj: 1.3, vj: 0.15, render(d, sr, r) {
     click(d, sr, 0, r, 0.7, 3000);
     modal(d, sr, 0.001, 260 + r() * 80, [[1, 0.8, 0.08], [2.3, 0.5, 0.06], [3.9, 0.35, 0.04]], 0.85, { r });

@@ -3131,6 +3131,276 @@ def('S70', {
   await t.checkDigest(H, G);
 });
 
+// =====================================================================================================
+// Agent K (architecture styles & details, decoration, training dummy)
+const kmods = async (f) => {
+  const imp = f.win.Function('u', 'return import(u)');
+  const base = new URL('src/', f.win.location.href);
+  const [kits, kit] = await Promise.all([imp(new URL('game/content/kits.js', base).href), imp(new URL('game/mut/kit.js', base).href)]);
+  return { kits, kit };
+};
+const look = (o) => o && `${o.type}:${o.style || '-'}/${o.det || '-'} m${o.mask | 0}`;
+// place `type` through build mode with the look picked in Detalhes (setBuildLook): a drag a → b or a single tile
+function placeStyled(f, M, type, style, det, a, b = a) {
+  const g = f.game;
+  M.building.enterBuildMode(g, type);
+  M.building.setBuildLook(g, type, style, det);
+  const m = g.build.mode;
+  if (!m || m.kind !== 'place') throw new Fail(`${f.label}: enterBuildMode(${type}) refused`);
+  if (M.data.BUILDINGS[type].drag && (a[0] !== b[0] || a[1] !== b[1])) { m.anchor = [a[0], a[1]]; m.end = [b[0], b[1]]; m.hover = [b[0], b[1]]; } else m.hover = [a[0], a[1]];
+  m.locked = true;
+  const ok = M.building.commitPlacement(g);
+  M.building.exitBuildMode(g);
+  if (!ok) throw new Fail(`${f.label}: commitPlacement(${type}) failed (${f.lastUi(1)})`);
+  return ok; // (on a guest the blueprints appear when the host's struct.add arrives)
+}
+
+def('K1', {
+  title: 'K: styled walls with corner details placed by the guest', timeout: 180000,
+  expected: 'Guest picks "Pedra bruta" + quoins / soft corners / crenels / ivy / sandstone tone in Detalhes and drags an L of stone walls (+ one tile with an arrow slit): the host has the same style, canonical det and masks for every piece (blueprints and finished), the decoded look (_k) matches; digest equal',
+  api: 'setBuildLook → build.place {type, tiles, rot, style, det} → struct.add rows [.., style, det]; o.{style, det, mask, _k}; content/kits.js cleanDet',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KG = await kmods(G);
+  A.ensure(G, { stone_block: 20 });
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => [[x, y], [x + 1, y], [x + 2, y], [x, y + 1]], gp.x, gp.y, { rMin: 3, rMax: 14, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free L of 4 tiles');
+  const { x0: x, y0: y } = site;
+  const DET = 'ivy.quoin.soft.crenel.t_warm';
+  const want = KG.kits.cleanDet('wall_stone', DET);
+  t.check(want === 'crenel.ivy.quoin.soft.t_warm', 'canonical detail string (sorted, one per group)', want);
+  placeStyled(G, MG, 'wall_stone', 'rough', DET, [x, y], [x + 2, y]);
+  placeStyled(G, MG, 'wall_stone', 'rough', 'quoin.slit.pillar', [x, y + 1]);
+  t.check(KG.kits.cleanDet('wall_stone', 'quoin.slit.pillar') === 'pillar.slit', 'exclusive group: one corner piece kept (first in canonical order)', KG.kits.cleanDet('wall_stone', 'quoin.slit.pillar'));
+  const tiles = [[x, y], [x + 1, y], [x + 2, y], [x, y + 1]];
+  await t.waitFor(() => tiles.every(([tx, ty]) => A.structAt(H, MH, tx, ty, 'main') && A.structAt(G, MG, tx, ty, 'main')), RT() + 800, 'both have the 4 styled blueprints');
+  const ids = tiles.map(([tx, ty]) => A.structAt(H, MH, tx, ty, 'main').id);
+  t.log(`guest placed ${ids.length} styled walls at ${x},${y}`);
+  const pairs = () => tiles.map(([tx, ty]) => [A.structAt(H, MH, tx, ty, 'main'), A.structAt(G, MG, tx, ty, 'main')]);
+  const same = () => pairs().every(([h, g]) => h && g && h.id === g.id && look(h) === look(g));
+  await t.waitFor(same, ONEWAY() + 400, 'same look on both (blueprints)');
+  const P = pairs();
+  t.check(P.slice(0, 3).every(([h]) => h.style === 'rough' && h.det === want), 'row: style rough + canonical det on the host', P.map(([h]) => look(h)).join(' | '));
+  t.check(P[3][0].style === 'rough' && P[3][0].det === 'pillar.slit', 'single tile keeps its own details', look(P[3][0]));
+  t.check(P.every(([h, g]) => h._k && g._k && h._k.key === g._k.key) && P.slice(0, 3).every(([h, g]) => h._k.on.quoin && g._k.on.quoin) && P[3][0]._k.on.pillar, 'decoded look (_k) identical on both', P.map(([h]) => h._k?.key).join(' | '));
+  await A.buildAll(t, G, MG, ids, { ms: 40000 });
+  await t.waitFor(() => pairs().every(([h, g]) => h && g && !h.blueprint && !g.blueprint), ONEWAY() + 600, 'all finished on both');
+  await t.waitFor(same, ONEWAY() + 400, 'same look + masks on both (finished)');
+  const F = pairs();
+  const masks = F.map(([h]) => h.mask | 0), EXP = [6, 10, 8, 1];
+  t.check(masks.every((m, i) => (m & EXP[i]) === EXP[i]), 'autotile masks of the L (E+S, E+W, W, N; natural rock may add bits)', masks.join(','));
+  t.check(F.every(([h, g]) => (h.mask | 0) === (g.mask | 0)), 'masks equal on both', F.map(([h, g]) => `${h.mask}/${g.mask}`).join(' '));
+  t.check(F.every(([h]) => H.game.world.solid[H.game.world.idx(h.tx, h.ty)] === 1), 'styled walls are solid like any wall');
+  // the styled art draws without errors on both frames
+  let drew = true;
+  for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log('render error ' + e.message); } }
+  t.check(drew, 'both frames render the styled walls');
+  await t.checkDigest(H, G);
+  env.history.push('K1');
+});
+
+def('K2', {
+  title: 'K: style brush over blueprints (guest); finished pieces refuse a restyle', timeout: 180000,
+  expected: 'Guest drags 3 wood floor blueprints (default look), then paints "Taco xadrez" + blue carpet over them with the style brush: applied on both (struct.style), carpet links (_cm) equal; after one is built, a brush stroke over it is refused for the finished one (it keeps its look on both) while the remaining blueprints change; context menu offers "Estilo da planta" only on blueprints; digest equal',
+  api: 'enterStyleBrush + buildDragStart/End (kind brush) → struct.style intent (blueprints only) → op struct.style {list:[[id, style, det]]}; structureMenu entry id "style"',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KG = await kmods(G);
+  A.ensure(G, { wood: 10 });
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'floor_wood', (x, y) => [[x, y], [x + 1, y], [x + 2, y]], gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found 3 free tiles');
+  const { x0: x, y0: y } = site;
+  placeStyled(G, MG, 'floor_wood', '', '', [x, y], [x + 2, y]);
+  const T3 = [[x, y], [x + 1, y], [x + 2, y]];
+  await t.waitFor(() => T3.every(([tx, ty]) => A.structAt(H, MH, tx, ty, 'floor') && A.structAt(G, MG, tx, ty, 'floor')), RT() + 800, '3 floor blueprints on both (default look)');
+  const ids = T3.map(([tx, ty]) => A.structAt(H, MH, tx, ty, 'floor').id);
+  t.check(ids.every((id) => !A.structOn(G, id).style && !A.structOn(G, id).det), 'default look', ids.map((id) => look(A.structOn(G, id))).join(' | '));
+  const menu = MG.building.structureMenu(G.game, A.structOn(G, ids[0]));
+  t.check(menu.some((e) => e.id === 'style'), 'blueprint context menu offers "Estilo da planta"', menu.map((e) => e.label).join(' · '));
+  // brush: remember the look for the type, enter the brush, drag over the 3 tiles
+  const g = G.game;
+  MG.building.setBuildLook(g, 'floor_wood', 'parquet', 'carpet.c_blue');
+  MG.building.enterStyleBrush(g, 'floor_wood');
+  t.check(g.build.mode?.kind === 'brush' && g.build.mode.style === 'parquet', 'brush mode with the chosen look', JSON.stringify({ k: g.build.mode?.kind, s: g.build.mode?.style, d: g.build.mode?.det }));
+  MG.building.buildDragStart(g, x + 0.5, y + 0.5);
+  MG.building.buildDragMove(g, x + 2.5, y + 0.5);
+  MG.building.buildDragEnd(g, x + 2.5, y + 0.5);
+  const det = KG.kits.cleanDet('floor_wood', 'carpet.c_blue');
+  const painted = (f) => ids.every((id) => { const o = A.structOn(f, id); return o && o.style === 'parquet' && o.det === det; });
+  await t.waitFor(() => painted(H) && painted(G), RT() + 600, 'brushed look on both');
+  const cm = (f) => ids.map((id) => A.structOn(f, id)._cm | 0);
+  t.check(JSON.stringify(cm(H)) === JSON.stringify(cm(G)) && JSON.stringify(cm(H)) === JSON.stringify([2, 10, 8]), 'carpet links to its carpeted neighbours on both', `host ${cm(H)} guest ${cm(G)}`);
+  // build the first one, then brush again with another look
+  await A.buildAll(t, G, MG, [ids[0]]);
+  await t.waitFor(() => !A.structOn(H, ids[0])?.blueprint && !A.structOn(G, ids[0])?.blueprint, ONEWAY() + 400, 'first floor finished on both');
+  const menu2 = MG.building.structureMenu(G.game, A.structOn(G, ids[0]));
+  t.check(!menu2.some((e) => e.id === 'style'), 'finished piece: no "Estilo" entry', menu2.map((e) => e.label).join(' · '));
+  // a direct restyle of the finished piece is refused by the host
+  let refused = null;
+  g.net.request('struct.style', { ids: [ids[0]], type: 'floor_wood', style: 'herring', det: '' }, { onReject: (why) => { refused = why || 'refused'; } });
+  await t.waitFor(() => refused, RT() + 600, 'host refuses restyling a finished piece');
+  t.check(/desmonte/i.test(refused), 'refusal tells to deconstruct and build again', refused);
+  MG.building.setBuildLook(g, 'floor_wood', 'herring', '');
+  MG.building.enterStyleBrush(g, 'floor_wood');
+  MG.building.buildDragStart(g, x + 0.5, y + 0.5);
+  MG.building.buildDragEnd(g, x + 2.5, y + 0.5);
+  const rest = ids.slice(1);
+  await t.waitFor(() => rest.every((id) => A.structOn(H, id)?.style === 'herring' && A.structOn(G, id)?.style === 'herring'), RT() + 600, 'remaining blueprints repainted on both');
+  MG.building.exitBuildMode(g);
+  const f0 = (f) => A.structOn(f, ids[0]);
+  t.check(f0(H).style === 'parquet' && f0(G).style === 'parquet' && f0(H).det === det && f0(G).det === det, 'the finished floor kept its look on both', `${look(f0(H))} | ${look(f0(G))}`);
+  await t.checkDigest(H, G);
+  env.history.push('K2');
+});
+
+def('K3', {
+  title: 'K: training dummy hit by the guest is seen by both', timeout: 150000,
+  expected: 'Host builds a "Boneco de treino"; the guest hits it: every peer gets the dummy.hit op (wobble start _wobT, straw, number: the host shows the remote hit as floating text), the dummy never breaks (hp stays, still a target, no loot), the guest earns a little XP (owner effect) that fades with many hits, the host earns nothing; DPS readout on the host; digest equal',
+  api: 'combat.applyPlayerHit → damageProp → intent dummy.hit {id, amount, crit} → op dummy.hit {id, amount, crit, by, xp}; event dummyhit; o.{dummy, isProp, hp, _wobT, _dpsTxt}; game.props',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 6, fiber: 10 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'training_dummy', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a spot');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'training_dummy', [tx, ty]);
+  const dh = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 1500, 'dummy blueprint');
+  await A.buildAll(t, H, MH, [dh.id]);
+  const dg = await t.waitFor(() => { const o = A.structOn(G, dh.id); return o && !o.blueprint && o.dummy && o; }, ONEWAY() + 400, 'guest sees a finished dummy');
+  t.check(dh.dummy && dh.isProp && H.game.props.includes(dh) && G.game.props.includes(dg), 'dummy is an attackable prop on both');
+  A.standBy(G, MG, dg);
+  A.standBy(H, MH, dh, -Math.PI / 2);
+  await A.hostSees(t, H, G);
+  const evH = [], evG = [], dmgH = [];
+  t.on(H, 'dummyhit', (d) => evH.push(d)); t.on(G, 'dummyhit', (d) => evG.push(d));
+  t.on(H, 'damage', (d) => { if (d.target === dh) dmgH.push(d); });
+  const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
+  const loot0 = H.game.loot.length;
+  const t0H = H.game.time, t0G = G.game.time;
+  A.hit(G, MG, dg, 12);
+  await t.waitFor(() => evH.length >= 1 && evG.length >= 1, RT() + 600, 'both peers got the hit');
+  t.check(evH[0].amount === 12 && evG[0].amount === 12 && evG[0].mine && !evH[0].mine, 'same amount on both; it is the guest\'s hit', JSON.stringify([evH[0], evG[0]].map((e) => [e.amount, e.mine])));
+  t.check(dh._wobT >= t0H && dg._wobT >= t0G, 'wobble started on both', `${dh._wobT?.toFixed?.(2)} / ${dg._wobT?.toFixed?.(2)}`);
+  t.check(dmgH.some((d) => d.kind === 'status' && d.text === '12'), 'host shows the remote hit as a floating number', JSON.stringify(dmgH.map((d) => [d.kind, d.text, d.amount])));
+  // many hits: never breaks, xp fades
+  for (let i = 0; i < 39; i++) { A.hit(G, MG, dg, 9999); if (i % 8 === 7) await t.sleep(60); }
+  await t.waitFor(() => evH.length >= 40 && evG.length >= 40, RT() * 3 + 1500, '40 hits applied on both');
+  await t.sleep(RT() + 300);
+  t.check(A.structOn(H, dh.id) && A.structOn(G, dh.id) && dh.hp === dh.maxHp && dg.hp === dg.maxHp && !dh.broken, 'never breaks (hp unchanged, still there)', `hp ${dh.hp}/${dh.maxHp}`);
+  t.check(H.game.loot.length === loot0, 'no loot from a dummy', `${loot0} → ${H.game.loot.length}`);
+  t.check(xpG.total >= 3 && xpG.total <= 18, 'guest earned a little xp (diminishing)', `+${xpG.total} xp in 40 hits`);
+  const firstHalf = xpG.events.slice(0, Math.ceil(xpG.events.length / 2)).length, all = xpG.events.length;
+  t.check(all >= 2 && xpG.events.every((v) => v <= 1), 'xp comes in small steps', short(xpG.events));
+  t.check(xpH.total === 0, 'host earned nothing from the guest\'s hits', `+${xpH.total}`);
+  t.note(`xp events ${firstHalf}/${all} in the first half of the hits`);
+  await t.sleep(400);
+  t.check(/DPS/.test(dh._dpsTxt || '') && /DPS/.test(dg._dpsTxt || ''), 'DPS readout on both', `${dh._dpsTxt} | ${dg._dpsTxt}`);
+  await t.checkDigest(H, G);
+  env.history.push('K3');
+});
+
+def('K4', {
+  title: 'K: old save (v4 rows without style / det) loads with default looks', timeout: 120000,
+  expected: 'migrateStructRows pads v4 rows (14 fields) and v3 rows (10) to 16 with style "" / det ""; a solo game booted from a crafted v4 save has the structures with the default look (no _k), masks computed; saving again writes the current version with 16-field rows',
+  api: 'save.js VERSION (5), migrateStructRows, loadGame / saveGame (solo frame without ?nosave, key wos.save.v2.<seed>, removed afterwards)',
+}, async (t) => {
+  const { H, MH } = await pairCtx(t);
+  const g = H.game;
+  const r14 = ['k4_wall', 'wall_wood', 10, 10, 3, 1, 0, 0, 0, 50, 0, 1, 0, 0];
+  const r10 = ['k4_old', 'wall_stone', 12, 10, 3, 1, 0, 0, 0, 50];
+  const out = MH.save.migrateStructRows(g, [r14.slice(), r10.slice()]);
+  t.check(out.length === 2 && out.every((r) => r.length === 16 && r[14] === '' && r[15] === ''), 'rows padded to 16 fields with the default look', out.map((r) => r.length + ':' + JSON.stringify(r.slice(14))).join(' '));
+  // a crafted v4 save for a solo frame (same seed as the pair)
+  const site = A.findSite([H], [MH], 'wall_wood', (x, y) => [[x, y], [x + 1, y], [x, y + 1]], g.world.spawn.x, g.world.spawn.y, { rMin: 4, rMax: 20 });
+  t.assert(site, 'free tiles for the old structures');
+  const { x0: x, y0: y } = site;
+  const key = `wos.save.v2.${CFG.seed}`;
+  const save = {
+    v: 4, seed: CFG.seed, savedAt: Date.now(), worldTime: 100, env: { hour: 10, day: 0, weather: 'clear' },
+    player: { name: 'Teste', x: g.world.spawn.x, y: g.world.spawn.y, hp: 100, energy: 100, hunger: 90, level: 1, xp: 0, inv: [], equip: {} },
+    craft: null, fuel: 0, hinted: {}, marks: [],
+    world: { gone: [], nat: [], dyn: [], falling: [], mined: [], rockp: [], crops: [], loot: [], props: [],
+      structs: [['k4_w1', 'wall_wood', x, y, 1, 1, 0, 0, 0, 50, 0, 1, 0, 0], ['k4_w2', 'wall_wood', x + 1, y, 2, 1, 0, 0, 0, 50, 0, 1, 0, 0], ['k4_f', 'floor_stone', x, y + 1, 3, 1, 0, 0, 0, 50, 0, 1, 0, 0]] },
+  };
+  const prev = localStorage.getItem(key);
+  localStorage.setItem(key, JSON.stringify(save));
+  let S = null;
+  try {
+    presetPid('k4' + rand(5));
+    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo`, 'k4solo');
+    await t.waitFor(() => S.game || S.bootError, CFG.bootMs, 'solo boot from the v4 save');
+    t.assert(S.game, 'solo frame booted: ' + (S.bootError || ''));
+    const MS = await A.mods(S);
+    const o = (id) => S.game.build.structures.find((q) => q.id === id);
+    await t.waitFor(() => o('k4_w1') && o('k4_w2') && o('k4_f'), 8000, 'old structures loaded');
+    const L = ['k4_w1', 'k4_w2', 'k4_f'].map(o);
+    t.check(L.every((q) => (q.style || '') === '' && (q.det || '') === '' && !q._k), 'default look (no style / details / decoded look)', L.map(look).join(' | '));
+    t.check((o('k4_w1').mask | 0) === 2 && (o('k4_w2').mask | 0) === 8, 'masks recomputed (E / W)', `${o('k4_w1').mask} ${o('k4_w2').mask}`);
+    let drew = true; try { S.game.render(); } catch (e) { drew = false; t.log(e.message); }
+    t.check(drew, 'renders the old structures');
+    MS.save.saveGame(S.game);
+    const now = JSON.parse(localStorage.getItem(key) || 'null');
+    const rows = now?.world?.structs || [];
+    t.check(now && now.v >= 5 && rows.length >= 3 && rows.every((r) => r.length === 16), 'saved again: current version, 16-field rows', `v${now?.v} rows ${rows.map((r) => r.length).join(',')}`);
+  } finally {
+    if (S) frames.close(S);
+    if (prev == null) localStorage.removeItem(key); else localStorage.setItem(key, prev);
+  }
+});
+
+def('K5', {
+  title: 'K: roof details (with J) — guest styles a roof plan, brush, finish', timeout: 200000,
+  expected: 'Over a walled room the guest places roof plans with "Telha de barro" + hip ends / dormers / warm tone (Detalhes): same style + canonical det on both and the same derived painter style (roofArtStyle key); the style brush repaints the plans (slate + chimney) on both; once finished the roof is painted on both, the dormer tiles get a slope position (roofPropAt) and a restyle is refused; digest equal',
+  api: 'build mode roof_stone + setBuildLook → build.place {style, det} (room fill) → struct.add; struct.style (brush); kits.roofArtStyle(o) → J artSpec spec.styles; roofs.roofPropAt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KH = await kmods(H), KG = await kmods(G);
+  t.need(MH.data.BUILDINGS.roof_stone && KH.kits.roofArtStyle, 'roofs (agent J) merged');
+  const gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(5, 4, H), gp.x, gp.y, { rMin: 4, rMax: 34, avoidPts: [[gp.x, gp.y]] });
+  t.assert(site, 'found a free 5×4 site');
+  const { x0, y0 } = site;
+  const roofs = (f) => f.game.build.structures.filter((o) => o.roof && o.tx >= x0 && o.tx < x0 + 5 && o.ty >= y0 && o.ty < y0 + 4);
+  const wallIds = hostRoom(H, x0, y0, 5, 4);
+  // leave no roofed room behind for later scenarios (J1 counts roof plans)
+  t.defer(() => { for (const o of roofs(H)) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 }); for (const id of wallIds) H.game.net.emit('struct.remove', { id, quiet: 1 }); });
+  await t.waitFor(() => A.structAt(G, MG, x0, y0, 'main') && !A.structAt(G, MG, x0, y0, 'main').blueprint, ONEWAY() + 600, 'guest has the walled room');
+  A.teleport(G, x0 + 2.5, y0 + 6); await A.hostSees(t, H, G);
+  placeStyled(G, MG, 'roof_stone', 'terracotta', 't_warm.dormer.end_hip', [x0 + 2, y0 + 1]);
+  const want = KG.kits.cleanDet('roof_stone', 't_warm.dormer.end_hip');
+  await t.waitFor(() => roofs(H).length >= 6 && roofs(G).length === roofs(H).length, RT() + 1200, 'roof plans for the room on both');
+  const key = (f, K) => roofs(f).map((o) => `${o.id}:${o.style}:${o.det}:${K.kits.roofArtStyle(o)?.key || '-'}`).sort().join(' ');
+  t.check(roofs(H).every((o) => o.style === 'terracotta' && o.det === want && o.blueprint), 'plans: terracotta + canonical det on the host', short(roofs(H).slice(0, 2).map(look)));
+  t.check(key(H, KH) === key(G, KG), 'same plans, looks and derived painter style on both', short(key(G, KG), 160));
+  t.check(/end_hip/.test(KH.kits.roofArtStyle(roofs(H)[0])?.key || '') && KH.kits.roofArtStyle(roofs(H)[0]).style.ends === 'hip', 'derived style turns hip ends on for J\'s painter', KH.kits.roofArtStyle(roofs(H)[0])?.key);
+  // brush the plans to slate + chimney (dormers kept)
+  const g = G.game;
+  MG.building.setBuildLook(g, 'roof_stone', 'slate', 'chimney.dormer');
+  MG.building.enterStyleBrush(g, 'roof_stone');
+  MG.building.buildDragStart(g, x0 + 0.5, y0 + 0.5);
+  MG.building.buildDragEnd(g, x0 + 4.5, y0 + 3.5);
+  MG.building.exitBuildMode(g);
+  const want2 = KG.kits.cleanDet('roof_stone', 'chimney.dormer');
+  await t.waitFor(() => [H, G].every((f) => roofs(f).every((o) => o.style === 'slate' && o.det === want2)), RT() + 800, 'brushed to slate + chimney on both');
+  // the host finishes them (test shortcut, like J's scenarios) → painted region on both
+  for (const o of roofs(H)) H.game.net.emit('struct.complete', { id: o.id, by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => roofs(G).every((o) => !o.blueprint) && regionAt(H, x0 + 2, y0 + 1)?.art && regionAt(G, x0 + 2, y0 + 1)?.art, 9000, 'roof finished and painted on both');
+  const RG = await fimp(G, 'game/roofs.js');
+  const pr = RG.roofPropAt(G.game, x0 + 2, y0 + 1);
+  t.check(pr && pr.lift > 0.3 && Number.isFinite(pr.key), 'dormer tile has a slope position on the guest (roofPropAt)', JSON.stringify(pr));
+  let refused = null;
+  g.net.request('struct.style', { ids: [roofs(G)[0].id], type: 'roof_stone', style: 'stone', det: '' }, { onReject: (why) => { refused = why || 'refused'; } });
+  await t.waitFor(() => refused, RT() + 600, 'finished roof: restyle refused');
+  t.check(roofs(H).every((o) => o.style === 'slate') && roofs(G).every((o) => o.style === 'slate'), 'finished roof keeps its look on both');
+  let drew = true; for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log(e.message); } }
+  t.check(drew, 'both render the styled roof with dormers');
+  await t.checkDigest(H, G);
+  env.history.push('K5');
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

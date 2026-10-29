@@ -376,11 +376,11 @@ export function installHUD(game, { isNew } = {}) {
       }
       if (t) {
         const gone = t.dead || t.broken;
-        setBar(R.tfHp, 'tfhp', gone ? 0 : t.hp / t.maxHp, t.isProp ? (gone ? 'Quebrado' : `${Math.ceil(t.hp)} / ${t.maxHp}`) : t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
+        setBar(R.tfHp, 'tfhp', gone ? 0 : t.hp / t.maxHp, t.isProp ? (t.dummy ? t._dpsTxt || 'Treino' : gone ? 'Quebrado' : `${Math.ceil(t.hp)} / ${t.maxHp}`) : t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
         const lvTxt = t.isProp ? '–' : String(t.level);
         if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = t.isProp ? '' : levelColor(t.level, pl.level); }
         const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : t.fearT > 0 ? 'assustado' : t.blocking ? 'bloqueando' : STATE_PT[t.state] || '';
-        const kind = t.isProp ? 'Objeto · quebre para saquear' : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
+        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
         setText(R.tfSub, 'tfsub', kind + (st ? ' · ' + st : ''));
         // enemy cast bar (raider telegraphs: interrupt with Shield Bash / Shove / stuns)
         const ct = t.cast && !gone ? t.cast : null;

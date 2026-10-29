@@ -8,6 +8,8 @@
 // none (nothing to migrate: the field is optional and defaults to an empty list).
 // v6 (roofs, agent J): structure rows carry style / det (roofs); older rows get '' (14 → 16 fields). The natural
 // roof is re-derived from the mined tiles with the support rule, so old worlds dug wide open lose those ceilings.
+// v7 (agent K): every construction piece (not only roofs) carries style / det; rows are the same 16 fields, so nothing
+// to migrate beyond v6 (older rows get '' / '' = the default look).
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -20,7 +22,7 @@ import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
-const VERSION = 6;
+const VERSION = 7; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
 const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
@@ -76,7 +78,7 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, 3, 4, 5, VERSION].includes(data.v)) return false;
+  if (!data || ![1, 2, 3, 4, 5, 6, VERSION].includes(data.v)) return false;
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;

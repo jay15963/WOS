@@ -101,6 +101,53 @@ Estruturas maiores que 1×1: `size: [w, h]`; `o.x = tx + w/2`, `o.y = ty + h`; s
 **Agricultura:** `farm_plot` + plantas `crop_<kind>_<stage>` com kind `potato|cotton|corn`, stage 0..3 (3 = pronto para colher).
 **Acampamento de saqueadores:** `tent_0..1` Barraca, `crate_0` Caixote (+ fogueira/estandarte).
 
+### 5.1 Estilos e detalhes das peças de construção (agente K) — REGRA
+Toda **peça de construção** (paredes, portas, cercas, portões, pisos, canteiros, telhados, colunas, escadas, parapeitos e
+qualquer peça futura) tem um **kit**: o catálogo de estilos e detalhes que o jogador escolhe em **Detalhes** antes de
+construir. Estações e móveis (`station`, `slots`, `decor: true`) **não** têm kit.
+- Kit **explícito**: `BUILDINGS[type].kit = '<id>'` (`kit: null` desliga). Ou **inferido** (a próxima peça ganha o sistema sem
+  fazer nada): grupo `wall` + `block: 'tile'` → `wall`; grupo `wall` + porta → `door`; grupo `fence` → `fence` (porta → `gate`);
+  `layer: 'floor'` → `floor`; `farm_plot` → `plot`; `layer: 'roof'` → `roof`; ids `column_*` / `pillar_*` → `column`.
+- Catálogo em `src/game/content/kits.js` (`KITS[kit] = { name, tabs, styles, details }`): estilo `{ id, name, desc, types?, def? }`
+  (`types` limita a tipos; `def` = a arte própria do tipo), detalhe `{ id, name, cat, group?, types?, mats?, front?, tint?, light?,
+  glow? }` (`group` = escolha exclusiva; `mats` filtra por material do tipo: `def.mat` ou o custo → `wood` / `stone` / `plant`).
+  Um estilo ou detalhe novo é só uma linha no catálogo + a arte (`src/art/arch.js` pinta, `src/art/archCompose.js` desenha).
+- Campos compartilhados da estrutura: `o.style` (id; `''` = visual padrão) e `o.det` (ids ordenados juntados com `.`; `''` = nenhum),
+  **fixados na colocação** (`build.place {type, tiles, rot, style, det}`). Só **plantas** (não construídas) mudam de estilo
+  (pincel / menu "Estilo da planta" → `struct.style`); peça pronta: desmontar e construir de novo. Estilos e detalhes são
+  **grátis** (não mudam o custo).
+- Arte: estilo = um sprite por máscara (`wst_<estilo>_<m>`, cantos suaves `wst_<estilo>_s<m>`, cercas `kfe_<estilo>_<m>`); cada
+  detalhe = UM sprite sobreposto (cantos NE/SE espelhados), cores = tinta na hora de desenhar. Nunca estilo × detalhe × máscara.
+- Fachadas modulares por andar: o pintor da frente pinta uma faixa `(topo, altura)`; um andar a mais repete a faixa.
+- **Telhados (agente J):** o kit `roof` usa os estilos de J (`ROOF_STYLES` / `ROOF_TYPE_STYLES` em `content/roofs.js`, ids explícitos,
+  nunca `''`) e os detalhes de J (`moss`, `chimney`, `vane`, `trim`) + os de K: forma (`end_gable` / `end_hip`), empena (`gab_*`),
+  cumeeira (`r_board` / `r_tile` / `r_bound`), `barge`, `weather`, cores (`t_*`) — `roofArtStyle(o)` transforma esses em um estilo
+  derivado que o pintor de J lê (`artSpec` → `spec.styles`) — e os adereços no telhado (`dormer`, `dormer_pl`, `skylight`), sprites
+  de K desenhados sobre a água do telhado com `roofPropAt` de J. Janelas com vidro têm ids que começam com `window` (`window`,
+  `window_shutters`, `window_curtains`, `window_round`): os raios de sol de J entram por elas.
+
+### 5.2 Decoração (agente K, `src/game/content/decor.js`) — categorias Decoração e Jardim
+Campos extras: `decor: true` (sem kit, devolve como móvel ao desmontar), `eg: [profundidade, meia largura]` (peças de borda),
+`mount: 'wall'` (vai na parede: precisa de parede pronta ou rocha atrás; desenhada na face da parede), `dummy: true`,
+`flame: n` (velas / lanternas, sem fumaça), `mat`.
+**Interior:** `shelf_wood` Estante · `bookshelf` Estante de livros (2×1) · `wardrobe` Guarda-roupa · `dresser` Cômoda (2×1) ·
+`bench_wood` Banco · `stool` Banquinho · `chair_fine` Cadeira estofada · `table_round` Mesa redonda · `table_small` Mesinha ·
+`barrel` Barril · `crates` Pilha de caixotes · `sacks` Sacos de grãos · `jars` Potes e jarros · `candles` Velas · `candelabra`
+Candelabro · `herbs_hang` Ervas penduradas · `curtain` Cortinas · `plant_pot` Planta em vaso (3) · `rug_round` Tapete redondo
+(2×2) · `rug_fur` Tapete de pele (2×1) · `painting` Quadro · `trophy` Troféu de caça · `pot_hooks` Ganchos de cozinha ·
+`weapon_rack` Suporte de armas (2×1) · `armor_stand` Suporte de armadura · `fireplace` Lareira (2×1, fogo, calor) · `washtub`
+Tina de banho (2×1) · `training_dummy` Boneco de treino.
+**Jardim / exterior:** `lamp_stone` Lanterna de pedra · `lamp_wood` Poste de lanterna · `flower_bed` Canteiro de flores (3) ·
+`planter` Floreira (2×1) · `stepping` Pedras de caminho (3, plano) · `well` Poço · `signpost` Placa · `bench_stone` Banco de
+pedra (2×1) · `garden_arch` Arco de jardim (passa-se por baixo) · `statue` Estátua (2) · `totem` Totem · `woodpile` Pilha de
+lenha (2×1) · `haystack` Monte de feno · `cart` Carroça (2×1) · `scarecrow` Espantalho · `birdhouse` Casinha de passarinho ·
+`beehive` Colmeia · `drying_rack` Varal de secagem (2×1) · `notice_board` Mural de avisos · `fountain` Chafariz (2×2) ·
+`pergola` Pergolado (2×2, passa-se por baixo).
+**Peças de construção novas (grupo `fence`):** `fence_stone` Muro de pedra · `hedge` Cerca viva.
+**Boneco de treino:** pronto, entra em `game.props` (alvo atacável, nunca quebra, sem saque); cada golpe é a intent
+`dummy.hit` → op `dummy.hit` (balanço, número flutuante, palha e som para todos); o anfitrião dá um pouco de XP ao autor
+(0,5 por golpe, caindo com muitos golpes seguidos; nada a partir do nível 12). DPS na placa e no quadro do alvo.
+
 ## 6. Objetos naturais (worldgen) — interação à mão, somem ao coletar
 `pebble` (v 0..3) Pedrinhas no chão → `pebble` · `stick` (0..2) Galhos caídos → `stick` · `fibergrass` (0..2) Capim de fibra → `fiber` ·
 `wild_potato`, `wild_cotton`, `wild_corn` (plantas silvestres → comida/algodão + sementes) · além de `bush` (fibra + graveto),

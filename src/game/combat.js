@@ -255,6 +255,10 @@ function updateDots(game, dt) {
 function damageProp(game, src, o, amount, opts) {
   if (o.broken) return 0;
   if (src === game.player || src?.owner === game.player) enterCombat(game.player, 1);
+  if (o.dummy) { // training dummy (agent K, mut/kit.js): never breaks; everyone sees the hit
+    game.net.request('dummy.hit', { id: o.id, amount: Math.round(amount), crit: opts.crit ? 1 : 0, dtype: opts.dtype || undefined, ranged: opts.ranged ? 1 : 0 });
+    return Math.round(amount);
+  }
   game.net.request('prop.hit', { id: o.id, amount: Math.round(amount) });
   return amount >= 18 ? 2 : 1;
 }

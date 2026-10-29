@@ -16,10 +16,13 @@
 //  support: holds up roofs (walls, doors, columns; natural rock too) · roof: built roof tile (layer 'roof', drawn by
 //  src/art/roofRaster.js from content/roofs.js; o.style / o.det)
 
+import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, extra construction pieces
+
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
   ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ...DECOR_CATS,
 ];
 
 export const BUILDINGS = {
@@ -105,6 +108,7 @@ export const BUILDINGS = {
   // ---------- farming ----------
   farm_plot:   { name: 'Canteiro', g: 'm', emoji: '🟫', cat: ['farm'], cost: {}, time: 1.5, xp: 2, layer: 'floor', flat: true, connect: 'farm_plot', drag: 'area',
                  desc: 'Terra arada. Plante sementes de batata, milho ou algodão.' },
+  ...DECOR,
 };
 
 for (const id in BUILDINGS) {

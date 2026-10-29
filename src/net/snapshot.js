@@ -26,6 +26,7 @@ import { occAdd, occRemove } from '../game/nav.js';
 import { updateAllMasks } from '../game/autotile.js';
 import { makeFloraObject, removeNatural, makeStump, TREE_SOLID, findObj } from '../game/mut/objects.js';
 import { placeStructure, completeStructure, removeStructure, setWorking, setDoorOpen, dimsOf } from '../game/mut/structures.js';
+import { applyKitFields } from '../game/mut/kit.js';
 import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
@@ -190,7 +191,7 @@ function applyInner(game, d, mode) {
     const [id, type, tx, ty, v, progress, decon, store, working, builtAt] = r;
     const legacy = r.length <= 10;
     const rot = legacy ? 0 : r[10] | 0, paid = legacy ? 1 : r[11] ? 1 : 0, open = !legacy && !!r[12], moveOf = (!legacy && r[13]) || undefined;
-    const style = r[14] || undefined, det = typeof r[15] === 'string' ? r[15] : '';
+    const style = typeof r[14] === 'string' ? r[14] : '', det = typeof r[15] === 'string' ? r[15] : '';
     let o = game.world.objById.get(id);
     if (o && !o.building) continue;
     if (o && !game.build.structures.includes(o)) { removeStructure(game, o, { quiet: true }); o = null; } // orphan: rebuild
@@ -211,6 +212,7 @@ function applyInner(game, d, mode) {
       if (o.station) setWorking(game, o, !!working);
       if (paid && o.blueprint) o.paid = true;
       if (o.door && !!o.open !== open) setDoorOpen(game, o, open);
+      if ((o.style || '') !== style || (o.det || '') !== det) applyKitFields(game, o, style, det); // masks: updateAllMasks below
     }
     net.seeId(id);
   }

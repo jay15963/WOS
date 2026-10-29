@@ -23,6 +23,7 @@ import { TORCH_FLAME_LIFT, CAMPFIRE_FLAME_LIFT, TORCH_WALL } from './buildings.j
 import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
 import { TREE_SPECIES } from './trees.js';
+import { drawArch, ARCH_TYPES, drawPlotKit } from './archCompose.js'; // agent K: styles, details, decoration
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -244,6 +245,8 @@ export function drawStatic(B, A, o, t) {
   }
   // ----- crops -----
   if (c0 === 99 && (type === 'crop' || type.startsWith('crop_'))) { drawCrop(B, T, o, type === 'crop' ? o.kind : type.slice(5), fl, f); return; }
+  // ----- styled construction pieces & decoration (agent K) -----
+  if ((o._k || ARCH_TYPES.has(type)) && drawArch(B, A, o, t, fl)) return;
   // ----- autotiled structures -----
   const auto = T.auto[type];
   if (auto) {
@@ -251,6 +254,7 @@ export function drawStatic(B, A, o, t) {
     const s = auto[(o.mask | 0) & 15];
     if (FLAT[type]) {
       B.ground.add(s, o.x, o.y, 1, 1, CR, CG, CB, CA, 0, 0, fl, 1, 1);
+      if (o._k) drawPlotKit(B, A, o);
       if (type === 'farm_plot' && (o.crop || o.kind) && o.stage != null) drawCrop(B, T, o, o.crop || o.kind, fl, 1);
       return;
     }

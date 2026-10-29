@@ -77,8 +77,12 @@ export function wallBehind(game, tx, ty, d) {
   return !!(o && !o.blueprint && BUILDINGS[o.type].connect === 'wall');
 }
 
+// extra derived per-tile data recomputed with the masks (agent K: detail masks such as carpets)
+export const tileHooks = [];
+
 function refresh(o, game) {
   const def = BUILDINGS[o.type];
+  for (let i = 0; i < tileHooks.length; i++) tileHooks[i](game, o);
   if (def?.edge) {
     o._mount = o.rot >= 1 && o.rot <= 4 && wallBehind(game, o.tx, o.ty, o.rot);
     if (o.light && def.light) o.light.lift = def.light.lift + (o._mount && o.rot !== 3 ? 0.3 : 0); // wall torch: light at the flame (cosmetic)

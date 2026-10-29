@@ -32,6 +32,7 @@ import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
+import { decorSystem } from './decoration.js'; // agent K: dummy readouts, window glow, showcase (dev)
 import { initCorpses, corpsesSystem } from './corpses.js';
 import './mut/index.js';
 
@@ -110,5 +111,6 @@ export function installSystems(game) {
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
+  addSystem(game, decorSystem(game));
   return { isNew };
 }

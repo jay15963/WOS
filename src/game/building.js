@@ -9,6 +9,9 @@
 // structures goes through the host: intents build.place / build.move / build.hit / build.decon / decon.hit /
 // struct.raze / door.toggle and the ops of mut/structures.js.
 //
+// Style kits (agent K): the look picked in "Detalhes" (m.style / m.det, remembered per type) goes with build.place;
+// the style brush (mode kind 'brush') repaints BLUEPRINTS only (struct.style) — finished pieces keep their look.
+//
 // Structure object: { id, type, v, tx, ty, rot, fw, fh, x, y (base / sort key), cy, building, layer, flat?,
 //   progress, blueprint?, paid, moveOf?, mask (autotile), orient ('h'|'v' doors), open (doors, shared),
 //   _openT (door swing 0..1, cosmetic), working (stations), store (chest), light, fire, style / det (roofs) }
@@ -25,6 +28,7 @@ import * as CW from '../art/composeWorld.js';
 import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
+import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
 
 export { placeStructure, completeStructure, removeStructure, placeReason, defOf, REFUND, dimsOf, rotCount } from './mut/structures.js';
 
@@ -79,9 +83,11 @@ export function enterBuildMode(game, type, opts = {}) {
   if (!def) return;
   game.mining && (game.mining.mode = false);
   const [tx, ty] = src ? [src.tx, src.ty] : frontTile(p);
-  const rot = src ? src.rot | 0 : normRot(type, rotMemory(game)[type] ?? 0);
+  let rot = src ? src.rot | 0 : normRot(type, rotMemory(game)[type] ?? 0);
+  if (def.mount && !src && !rot) rot = 1; // wall-mounted decor: against a wall
+  const look = src ? [src.style || '', src.det || ''] : lookMemory(game)[type] || [def.roof ? rotMemory(game)['style:' + type] || '' : '', ''];
   game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null,
-    style: def.roof ? cleanStyle(type, rotMemory(game)['style:' + type]) : undefined };
+    style: normStyle(type, look[0]), det: cleanDet(type, look[1]) };
   game.events.emit('buildui', {});
   const h = game.ctl?.hinted;
   if (!h) return;
@@ -120,6 +126,42 @@ export function exitBuildMode(game) {
 
 // last orientation per type (kept with the player's hints, so it survives a reload)
 const rotMemory = (game) => { const h = game.ctl?.hinted; return h ? (h.brot ||= {}) : game.build.rot; };
+// last look (style, det) per type (agent K)
+const lookMemory = (game) => { const h = game.ctl?.hinted; return h ? (h.blook ||= {}) : (game.build.look ||= {}); };
+export const lastLook = (game, type) => lookMemory(game)[type] || ['', ''];
+
+// set the look of the current placement (Detalhes panel) and remember it for the type
+export function setBuildLook(game, type, style, det) {
+  const st = normStyle(type, style), dt = cleanDet(type, det);
+  lookMemory(game)[type] = [st, dt]; // sync-ok: local preference (player save), not a structure
+  const m = game.build.mode;
+  if (m && (m.kind === 'place' || m.kind === 'brush') && m.type === type && !m.move) { m.style = st; m.det = dt; }
+  game.events.emit('buildui', {});
+}
+
+// style brush: paint the chosen look over BLUEPRINTS of `type` (tap / drag a rectangle)
+export function enterStyleBrush(game, type) {
+  if (game.player.dead || !hasKit(type)) return;
+  game.mining && (game.mining.mode = false);
+  const [st, dt] = lastLook(game, type);
+  game.build.mode = { kind: 'brush', type, style: st, det: dt, hover: null, anchor: null, end: null, tiles: [] };
+  game.events.emit('buildui', {});
+  const h = game.ctl?.hinted;
+  if (h && !h.brushhint) { h.brushhint = true; game.events.emit('toast', { text: 'O pincel muda o estilo das plantas azuis ainda não construídas', kind: 'info' }); } // sync-ok: hint flag
+}
+function brushRect(game, x0, y0, x1, y1) {
+  const m = game.build.mode, ids = [];
+  const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
+  let built = 0;
+  for (const o of game.build.structures) {
+    if (o.type !== m.type || o.tx > bx || o.tx + (o.fw || 1) <= ax || o.ty > by || o.ty + (o.fh || 1) <= ay) continue;
+    if (!o.blueprint || o.moveOf) { built++; continue; }
+    ids.push(o.id);
+  }
+  if (!ids.length) { game.events.emit('error', { text: built ? 'Já construída: desmonte e construa de novo para mudar o estilo' : 'Nenhuma planta deste tipo aqui' }); return 0; }
+  game.net.request('struct.style', { ids, type: m.type, style: m.style || '', det: m.det || '' }, { onReject: (why) => why && game.events.emit('error', { text: why }) });
+  return ids.length;
+}
 
 // R / Shift+R / ⟳: next orientation (remembered per type)
 export function rotateBuild(game, dir = 1) {
@@ -129,8 +171,9 @@ export function rotateBuild(game, dir = 1) {
     // roofs: ⟳ / R cycle the roof style of the plan (fixed once built)
     const L = ROOF_TYPE_STYLES[m.type] || [];
     if (L.length < 2) return false;
-    m.style = L[(((L.indexOf(m.style) + dir) % L.length) + L.length) % L.length];
+    m.style = L[(((L.indexOf(m.style || L[0]) + dir) % L.length) + L.length) % L.length];
     rotMemory(game)['style:' + m.type] = m.style; // sync-ok: local preference (player save), not a structure
+    lookMemory(game)[m.type] = [m.style, m.det || '']; // sync-ok: local preference (agent K's Detalhes memory)
     game.audio?.play('rotate', {});
     game.events.emit('buildui', {});
     return true;
@@ -165,6 +208,10 @@ function updatePreview(game) {
     const room = m._roomAt && m._roomAt[0] === tiles[0][0] && m._roomAt[1] === tiles[0][1] && m._roomV === game.build.v ? m._room : (m._room = enclosedRoom(game, tiles[0][0], tiles[0][1]));
     m._roomAt = tiles[0]; m._roomV = game.build.v;
     if (room) { tiles = room.slice(0, MAX_TILES); m.room = true; }
+  }
+  // wall-mounted decor snaps to the wall next to the hovered tile (keeps the chosen side when it has one)
+  if (def.mount && !m.move && !wallBehind(game, m.hover[0], m.hover[1], m.rot)) {
+    for (const r of [1, 2, 4, 3]) if (wallBehind(game, m.hover[0], m.hover[1], r)) { m.rot = r; break; }
   }
   const multi = tiles.length > 1;
   const ghost = new Set();
@@ -219,7 +266,7 @@ export function commitPlacement(game) {
     exitBuildMode(game);
     return true;
   }
-  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style }, {
+  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined }, {
     onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
   });
   game.events.emit('toast', { text: (n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`) + (m.short ? ` · ${m.short.toLowerCase()}` : ''), kind: m.short ? 'warn' : 'info' });
@@ -240,7 +287,7 @@ export const confirmPlace = (game) => {
 export function cancelBuild(game) {
   const m = game.build.mode;
   if (m?.kind === 'place' && (m.anchor || m.dragging)) { m.anchor = m.end = null; m.locked = false; m.dragging = false; return; }
-  if (m?.kind === 'decon' && m.anchor) { m.anchor = m.end = null; return; }
+  if ((m?.kind === 'decon' || m?.kind === 'brush') && m.anchor) { m.anchor = m.end = null; return; }
   exitBuildMode(game);
 }
 
@@ -248,6 +295,7 @@ export function cancelBuild(game) {
 export function buildTap(game, wx, wy) {
   const m = game.build.mode;
   if (m.kind === 'decon') { deconAt(game, wx, wy); return; }
+  if (m.kind === 'brush') { const x = Math.floor(wx), y = Math.floor(wy); brushRect(game, x, y, x, y); return; }
   const [tx, ty] = originAt(game, wx, wy);
   const def = BUILDINGS[m.type];
   if (def.drag && !m.move) {
@@ -265,6 +313,7 @@ export function buildTap(game, wx, wy) {
 export function buildDragStart(game, wx, wy) {
   const m = game.build.mode;
   if (!m) return;
+  if (m.kind === 'brush') { const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice(); return; }
   if (m.kind === 'decon') {
     const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice();
     const hit = roofPick(game, wx, wy);
@@ -279,7 +328,7 @@ export function buildDragStart(game, wx, wy) {
 export function buildDragMove(game, wx, wy) {
   const m = game.build.mode;
   if (!m) return;
-  if (m.kind === 'decon') { if (m.anchor) m.end = [Math.floor(wx), Math.floor(wy)]; return; }
+  if (m.kind === 'decon' || m.kind === 'brush') { if (m.anchor) m.end = [Math.floor(wx), Math.floor(wy)]; return; }
   if (!m.dragging) return;
   const o = originAt(game, wx, wy);
   m.hover = o;
@@ -298,6 +347,11 @@ export function buildDragEnd(game, wx, wy, { commit = true } = {}) {
     m.roof = null;
     if (n) game.events.emit('toast', { text: `${n} marcada(s) para desmontar`, kind: 'info' });
     return n > 0;
+  }
+  if (m.kind === 'brush') {
+    const a = m.anchor; m.anchor = m.end = null;
+    if (!a) return false;
+    return brushRect(game, a[0], a[1], Math.floor(wx), Math.floor(wy)) > 0;
   }
   if (!m.dragging) return false;
   m.dragging = false;
@@ -541,6 +595,7 @@ export function structureMenu(game, o) {
   if (o.blueprint) {
     if (!canSupply(game, o)) out.push({ id: 'info', label: `Falta: ${missingText(game, o)}`, icon: 'info', disabled: true });
     else out.push({ id: 'build', label: o.moveOf ? 'Mover agora' : 'Construir agora', icon: 'build', run: goUse });
+    if (!o.moveOf && hasKit(o.type)) out.push({ id: 'style', label: 'Estilo da planta', icon: 'style', run: () => game.events.emit('details', { type: o.type, target: o }) });
     out.push({ id: 'cancel', label: o.moveOf ? 'Cancelar mudança' : 'Cancelar planta', icon: 'close', run: () => toggleDecon(game, o) });
     return out;
   }
@@ -654,6 +709,17 @@ export function buildingSystem() {
         }
       }
       const m = game.build.mode;
+      if (m?.kind === 'brush' && ring) { // style brush: gold rings over the blueprints it would repaint
+        const a0 = m.anchor, a1 = m.end || a0, hv = game.ctl?.hover;
+        const ax = a0 ? Math.min(a0[0], a1[0]) : hv ? Math.floor(hv.wx) : 1e9, bx = a0 ? Math.max(a0[0], a1[0]) : ax;
+        const ay = a0 ? Math.min(a0[1], a1[1]) : hv ? Math.floor(hv.wy) : 1e9, by = a0 ? Math.max(a0[1], a1[1]) : ay;
+        for (const o of S) {
+          if (o.type !== m.type || !o.blueprint) continue;
+          const inside = o.tx <= bx && o.tx + (o.fw || 1) > ax && o.ty <= by && o.ty + (o.fh || 1) > ay;
+          B.fx.add(ring, o.tx + (o.fw || 1) / 2, o.ty + (o.fh || 1) / 2 + 0.1, 0.9 * (o.fw || 1), 0.6 * (o.fh || 1), 1, 0.82, 0.35, inside ? 0.95 * pulse : 0.3);
+        }
+        if (a0 && tile) for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) B.ground.add(tile, x + 0.5, y + 1, 1, 1, 1, 0.85, 0.4, 0.35, 0, 0, 0, 1, 0);
+      }
       if (!m || m.kind !== 'place') return;
       // ghost preview: blue = ok, red = invalid; footprint grid under it
       const G0 = GHOST_O;
@@ -672,6 +738,8 @@ export function buildingSystem() {
         if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) B.ground.add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0);
         else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse);
         G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
+        G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
+        G0._cm = G0._k?.on.carpet ? g.mask : 0;
         setGeom(G0);
         G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot) : false;
         G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse;
@@ -685,7 +753,7 @@ export function buildingSystem() {
   };
 }
 // scratch object for ghosts (no per-frame allocation)
-const GHOST_O = { type: '', tx: 0, ty: 0, rot: 0, x: 0, y: 0, cy: 0, fw: 1, fh: 1, mask: 0, progress: 0, blueprint: true, building: true, _ghost: 1, alpha: 1, s: 1, f: 1, v: 0 };
+const GHOST_O = { type: '', tx: 0, ty: 0, rot: 0, x: 0, y: 0, cy: 0, fw: 1, fh: 1, mask: 0, progress: 0, blueprint: true, building: true, _ghost: 1, alpha: 1, s: 1, f: 1, v: 0, style: '', det: '', _k: null, _cm: 0 };
 
 const FLAT_FB = { floor_wood: [0.62, 0.45, 0.28], floor_stone: [0.62, 0.62, 0.6], farm_plot: [0.36, 0.25, 0.16], rug: [0.62, 0.2, 0.18] };
 
