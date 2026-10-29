@@ -312,3 +312,18 @@ it is no longer a cave. A roof system for both buildings and caves:
   fixed, closer view (reduced field of view); leaving eases back to the player's own zoom — smooth both ways,
   never a jump, never a lock outside. No rain under roofs, darker interiors lit by fires/torches, warmth and
   "indoors" audio based on the roof.
+
+## K · Detalhes de arquitetura e decoração (added later, port 5192)
+
+Owner's request: much more detail for interior and exterior decoration (including a **straw training dummy**
+for combat practice), and, in build mode, a **"Detalhes" button** that opens a list of details for the selected
+structure — corner details that make buildings less blocky, trims, styles — so building becomes relaxing and
+deeply satisfying because it is beautiful. Procedural roofs (agent J) get the same detail list. Building must
+feel complete and magnificent, with a lot of freedom.
+- K owns: decoration content (furniture, interior/exterior props, training dummy), the per-structure **style /
+  details** data model (`o.style`, `o.det`), the details UI (from `buildbar.js`), the art for styles, corners and
+  details, and wall/floor/fence/door style variants.
+- J owns roof geometry/rendering; **roof details** go through an interface J exposes (roof style fields read by
+  J's renderer + roof-layer props such as chimneys and dormers). K defines the catalogue; J draws.
+- Sync: style and details are shared structure state set by ops (place / restyle intents), in snapshot, save
+  and digest. Scenarios **K1, K2…** in `tools/mp-test.js`.
