@@ -140,6 +140,7 @@ export function respawnPlayer(game) {
   const p = game.player;
   const sp = respawnPoint(game);
   p.x = sp.x; p.y = sp.y;
+  p.lv = 0; p.z = 0; p._fallV = 0; p._hop = null; // levels: respawn on the ground
   // nudge out of anything solid
   for (let k = 0; k < 24 && collides(game.world, p.x, p.y, p.r); k++) {
     const a = k * 2.4, r = 0.4 + k * 0.12;
@@ -185,10 +186,12 @@ export function playerSystem() {
         if (b.t <= 0) { p.buffs.splice(i, 1); p.buffsV = (p.buffsV || 0) + 1; }
       }
 
-      // regeneration (no HP regen in combat, needs food in the belly)
+      // regeneration (no HP regen in combat, needs food in the belly, and never while the body is cold:
+      // otherwise regen would cancel the cold damage of survival.js)
       const warm = hasBuff(p, 'warm');
       p.energy = Math.min(p.maxEnergy, p.energy + dt * (p.inCombat ? 7 : 11));
-      if (!p.inCombat && p.hunger > 15 && p.hp < p.maxHp) {
+      const frozen = hasBuff(p, 'cold') || hasBuff(p, 'hypothermia');
+      if (!p.inCombat && !frozen && p.hunger > 15 && p.hp < p.maxHp) {
         p.hp = Math.min(p.maxHp, p.hp + dt * p.maxHp * (warm ? 0.03 : 0.012));
       }
 

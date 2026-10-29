@@ -51,7 +51,7 @@ function findSpot(world) {
   return best || [Math.floor(world.spawn.x), Math.floor(world.spawn.y)];
 }
 
-export function startShowcase({ renderer, atlas, onReady = null }) {
+export function startShowcase({ renderer, atlas, onReady = null, onFail = null }) {
   const world = new World(generateWorld(SEED));
   renderer.setWorld(world);
   renderer.setNoise(256, generateNoiseTexture(SEED));
@@ -85,8 +85,9 @@ export function startShowcase({ renderer, atlas, onReady = null }) {
 
   const p = game.player;
   Object.assign(p, { x: fx - 0.55, y: fy + 1.25, facing: 'e', weapon: null, name: '' });
+  addEventListener('wos:look', (e) => { if (e.detail) p.look = e.detail; }); // agent H: the new look by the fire at once
   const friend = {
-    isEntity: true, kind: 'pawn', name: '', x: fx + 1.6, y: fy + 0.95, r: 0.24, facing: 'w', moving: false, moveT: 0, action: null, flash: 0, weapon: null, hp: 1, maxHp: 1,
+    isEntity: true, kind: 'pawn', name: '', x: fx + 1.6, y: fy + 0.95, r: 0.24, facing: 'w', moving: false, moveT: 0, action: null, flash: 0, weapon: null, hp: 1, maxHp: 1, lazyLook: true,
     look: { skin: [0.78, 0.58, 0.44], hair: 'long', hairColor: [0.12, 0.09, 0.07], shirt: [0.62, 0.36, 0.28] },
   };
   game.entities.push(friend); // sync-ok: menu showcase world (local, never shared)
@@ -101,7 +102,9 @@ export function startShowcase({ renderer, atlas, onReady = null }) {
   const amb = game.ambient;
 
   // slow cinematic camera around the fire; the scene sits right of the menu column on wide screens
-  const C = { t: Math.random() * 60, last: performance.now(), raf: 0, alive: true, shown: false };
+  const C = { t: Math.random() * 60, last: performance.now(), raf: 0, alive: true, shown: false,
+    // load governor (battery saver / slow phones): the menu buttons must always stay responsive
+    t0: performance.now(), work: 0, gap: 16, slowT: 0, stage: 0, skip: 0 };
   const camAt = () => {
     const w = renderer.cssW || innerWidth, h = renderer.cssH || innerHeight;
     const wide = w > 700 && w > h * 1.15;
@@ -115,9 +118,13 @@ export function startShowcase({ renderer, atlas, onReady = null }) {
   const frame = (now) => {
     if (!C.alive) return;
     C.raf = requestAnimationFrame(frame);
+    const gap = now - C.last;
+    // stage 1: half the frames (the scene still moves, at half the cost)
+    if (C.stage >= 1 && (C.skip = (C.skip + 1) % 2) === 1) return;
     const dt = Math.min(0.05, Math.max(0, (now - C.last) / 1000));
     C.last = now;
     if (document.hidden) return;
+    const w0 = performance.now();
     C.t += dt;
     game.time += dt; game._dt = dt;
     env.update(dt);
@@ -135,14 +142,35 @@ export function startShowcase({ renderer, atlas, onReady = null }) {
       if (mv) { const dx = Math.sin(d._t * 0.05) > 0 ? 1 : -1; d.x += dx * dt * 0.6; d.facing = dx > 0 ? 'e' : 'w'; d.moveT = (d.moveT || 0) + dt * 2; }
     }
     camAt();
-    try { game.render(); } catch (e) { console.warn('[menu] showcase render failed', e); stop(); return; }
+    try { game.render(); } catch (e) { console.warn('[menu] showcase render failed', e); stop(); onFail?.(); return; }
     if (!C.shown) { C.shown = true; onReady?.(); }
+    // governor: after a warm-up, a scene that keeps costing > 24 ms per frame (or runs under ~14 fps) first
+    // drops resolution and half its frames, then freezes on its last frame — the DOM menu stays usable
+    const work = performance.now() - w0;
+    C.work += (work - C.work) * 0.1;
+    C.gap += (Math.min(400, gap) - C.gap) * 0.1;
+    if (now - C.t0 > 2500) {
+      const slow = C.work > 24 || C.gap > (C.stage ? 140 : 70);
+      const rs = Math.min(0.4, gap / 1000); // real seconds (dt is clamped)
+      C.slowT = slow ? C.slowT + rs : Math.max(0, C.slowT - rs * 0.5);
+      if (C.slowT > 1.5) {
+        C.slowT = 0;
+        if (C.stage === 0) { C.stage = 1; C.prevScale = renderer.renderScale; renderer.renderScale = Math.min(renderer.renderScale || 1, 0.6); renderer.resize?.(); console.info('[menu] slow device: lighter showcase'); } // sync-ok: menu showcase (local, never shared)
+        else { C.alive = false; cancelAnimationFrame(C.raf); console.info('[menu] slow device: showcase paused on its last frame'); }
+      }
+    }
   };
+  // the GPU dropped the context (memory pressure, battery saver…): back to the painted background
+  const lost = (e) => { e.preventDefault?.(); C.alive = false; cancelAnimationFrame(C.raf); onFail?.(); };
+  renderer.canvas?.addEventListener?.('webglcontextlost', lost, { once: true });
   camAt();
   C.raf = requestAnimationFrame(frame);
 
   function stop() {
-    if (!C.alive) return;
+    renderer.canvas?.removeEventListener?.('webglcontextlost', lost);
+    if (C.prevScale != null) { renderer.renderScale = C.prevScale; C.prevScale = null; renderer.resize?.(); } // the game decides its own
+    if (!C.alive && C.stopped) return;
+    C.stopped = true;
     C.alive = false;
     cancelAnimationFrame(C.raf);
     // free this world's GPU textures before the real one is uploaded

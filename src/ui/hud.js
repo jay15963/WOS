@@ -8,7 +8,7 @@ import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
-import { attackable } from '../game/combat.js';
+import { attackable, dist, attackRange } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
 import { combatIcon } from './combaticons.js';
 import { installActionBar } from './actionbar.js';
@@ -376,11 +376,11 @@ export function installHUD(game, { isNew } = {}) {
       }
       if (t) {
         const gone = t.dead || t.broken;
-        setBar(R.tfHp, 'tfhp', gone ? 0 : t.hp / t.maxHp, t.isProp ? (gone ? 'Quebrado' : `${Math.ceil(t.hp)} / ${t.maxHp}`) : t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
+        setBar(R.tfHp, 'tfhp', gone ? 0 : t.hp / t.maxHp, t.isProp ? (t.dummy ? t._dpsTxt || 'Treino' : gone ? 'Quebrado' : `${Math.ceil(t.hp)} / ${t.maxHp}`) : t.dead ? 'Morto' : `${Math.ceil(t.hp)} / ${t.maxHp}`);
         const lvTxt = t.isProp ? '–' : String(t.level);
         if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = t.isProp ? '' : levelColor(t.level, pl.level); }
         const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : t.fearT > 0 ? 'assustado' : t.blocking ? 'bloqueando' : STATE_PT[t.state] || '';
-        const kind = t.isProp ? 'Objeto · quebre para saquear' : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
+        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
         setText(R.tfSub, 'tfsub', kind + (st ? ' · ' + st : ''));
         // enemy cast bar (raider telegraphs: interrupt with Shield Bash / Shove / stuns)
         const ct = t.cast && !gone ? t.cast : null;
@@ -404,7 +404,9 @@ export function installHUD(game, { isNew } = {}) {
 
       // interact button
       const near = g.ctl.near;
-      const showInt = !!near && !pl.work && !dead && !g.build.mode && !(pl.autoAttack && attackable(pl.target));
+      // the use button hides only while actually fighting the target in range (a far / fleeing target never blocks it)
+      const fightingT = pl.autoAttack && attackable(pl.target) && dist(pl, pl.target) <= attackRange(pl, pl.target) + 0.5;
+      const showInt = !!near && !pl.work && !dead && !g.build.mode && !fightingT;
       toggle(R.int, 'intv', 'hidden', !showInt);
       if (showInt) {
         const key = near.verb + near.icon;

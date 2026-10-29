@@ -6,9 +6,17 @@ import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
+import { loadLook } from './look.js';
+import { underOpaqueRoof } from './roofs.js';
+import { BUILDINGS } from './data.js';
+import { STORY_H } from './levels.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
+// interiors (game.indoors from src/game/roofs.js): under a roof the camera eases to a fixed, closer zoom (a reduced
+// field of view; never farther than the player's own zoom) and zoom input is ignored; leaving eases back to the
+// player's zoom. The blend (indoors.zoomK) is a ~1 s smoothstep both ways.
+const INDOOR_ZOOM = { cave: 1.45, built: 1.32 };
 
 export class Game {
   constructor({ renderer, atlas, world, env, input, particles }) {
@@ -24,7 +32,7 @@ export class Game {
     this.player = {
       isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
       facing: 's', moving: false, moveT: 0, speed: 4.0, action: null, flash: 0, canSwim: true, swimming: false,
-      look: { skin: [0.96, 0.80, 0.66], hair: 'short', hairColor: [0.36, 0.22, 0.12], shirt: [0.34, 0.47, 0.62] },
+      look: loadLook(), // agent H: the player's saved appearance (per profile, src/game/look.js)
       weapon: 'sword', hp: 100, maxHp: 100,
     };
     this.entities = [this.player];
@@ -44,7 +52,8 @@ export class Game {
 
   // smooth, clamped zoom; the chosen factor (relative to the screen's default) survives reloads
   stepZoom(dt, req) {
-    const c = this.cam;
+    const c = this.cam, I = this.indoors;
+    if (I && I.zoomK > 0.001) req = 0; // inside: the view is fixed
     if (c.zoomK == null) {
       let k = 1;
       try { const v = parseFloat(localStorage.getItem('wos.zoom')); if (Number.isFinite(v)) k = v; } catch { /* ignore */ }
@@ -56,7 +65,13 @@ export class Game {
       c.zoomK = z / this.defaultZoom();
       c._zoomSave = 0.8;
     }
-    const target = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    let target = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    if (I && I.zoomK > 0.001) {
+      const kind = I.kind || I._lastKind || 'built';
+      if (I.kind) I._lastKind = I.kind;
+      const inside = Math.max(target, clamp(this.defaultZoom() * INDOOR_ZOOM[kind], ZOOM_MIN, ZOOM_MAX));
+      target += (inside - target) * I.zoomK;
+    }
     const k = 1 - Math.exp(-dt * 14);
     c.zoom = Math.abs(target - c.zoom) < 0.01 ? target : c.zoom + (target - c.zoom) * k;
     if (c._zoomSave > 0 && (c._zoomSave -= dt) <= 0) { try { localStorage.setItem('wos.zoom', c.zoomK.toFixed(3)); } catch { /* ignore */ } }
@@ -81,11 +96,11 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
+    p.swimming = !p.dead && !(p.z > 0) && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
-    if (p.rooted || p._atkRootT > 0) mx = my = 0;
-    const spd = p.speed * this.world.speedAt(p.x, p.y);
+    if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
+    const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y)); // levels: stairs slower
     if (mx || my) {
       const x0 = p.x, y0 = p.y;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
@@ -103,7 +118,7 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    let tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    let tx = p.x + mx * look, ty = p.y - 0.4 - (p.z > 0 ? p.z * STORY_H : 0) + my * look; // levels: follow the elevated position
     // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
     const cf = this.camFocus;
     if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) { const fk = clamp(cf.k ?? 0.5, 0, 1); tx += (cf.x - tx) * fk; ty += (cf.y - ty) * fk; }
@@ -119,6 +134,11 @@ export class Game {
       const d = this.world.dirty;
       this.R.updateWorldRegion(d[0], d[1], d[2], d[3]);
       this.world.dirty = null;
+    }
+    if (this.world.caveDirty && !this.headless) {
+      const d = this.world.caveDirty;
+      this.R.updateCaveRegion?.(d[0], d[1], d[2], d[3]);
+      this.world.caveDirty = null;
     }
     this.net.flush(); // one ordered op batch per frame to every synced guest
   }
@@ -145,13 +165,16 @@ export class Game {
         if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d); // _hid: on a painted path
       }
       for (const o of c.objects) {
+        if (o.roof) continue; // roof tiles: drawn by the roof regions (src/game/roofs.js collect)
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
-    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
+    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); // a body on the ground replaces the dead (corpses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
-    list.sort((a, b) => (a._sy ?? a.y) - (b._sy ?? b.y)); // _sy: depth override (pawn lying in a bed / on a chair)
+    // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
+    for (let i = 0; i < list.length; i++) { const o = list[i]; o._sk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
+    list.sort((a, b) => a._sk - b._sk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
@@ -165,12 +188,19 @@ export class Game {
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
     for (const o of list) {
+      // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
+      // walls / doors whose front faces show below the eaves
+      if (!o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
       if (o.draw) o.draw(B, A, t);
       else {
+        // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
+        const lz = o.isEntity && o.z > 0 ? o.z * STORY_H : 0, y0 = o.y;
+        if (lz) o.y = y0 - lz;
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
         else if (o.kind === 'pawn') drawPawn(B, A, d, t);
         else drawAnimal(B, A, d, t);
+        if (lz) o.y = y0;
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;

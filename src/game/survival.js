@@ -1,8 +1,8 @@
 // Survival (owner side: the local player's own body): hunger with penalties and ramping starvation, and
 // body heat driven by a felt temperature (°C) from biome + time of day + rain / storm / wind / wet (read
-// from game.env), warmed by fires, enclosed shelters (roofed = floor or cave), clothing and warm food.
+// from game.env), warmed by fires, enclosed shelters, roofs (world.roofAt: built or a cave ceiling), clothing and warm food.
 // Every number lives in SURVIVAL below. Effects: hungry (<25%), starving (0), chilled (<30% heat:
-// slower, hungrier), hypothermia (<10%: ramping damage). Swimming in deep water chills hard and soaks the
+// slower, hungrier, no HP regen), freezing (<20%: slow HP loss), hypothermia (<10%: ramping damage, % of max HP). Swimming in deep water chills hard and soaks the
 // clothes; wet clothes (also slowly from rain) keep the player chilled until they dry (fast by a fire, faster
 // in sunshine or under a roof). Eating lives here too.
 //
@@ -34,15 +34,18 @@ export const SURVIVAL = {
     rain: -4, storm: -7, wet: -2, wind: -5, // wind × env.wind (0..1.2)
     cave: 3,              // inside a mountain cave: no rain / wind, a bit warmer
     fire: 22,             // °C at a fire, fading to 0 at 1.25 × its warm radius
-    shelter: 7, roof: 3,  // enclosed room (walls / doors / rock all around) + roof (floor tiles or a cave)
+    shelter: 7, roof: 3,  // enclosed room (walls / doors / rock all around) + roof over the player (built or a cave)
+    porchWind: 0.6,       // wind × under a roof that is not enclosed (porch, pavilion)
     cloth: 3,             // per point of clothing warmth (tunic 2, leather 1, hood 1…)
     warmFood: 6,          // while a warm meal lasts
     comfort: 12,          // felt °C at or above which the body warms up
     lossK: 0.085,         // heat %/s lost per °C below comfort (meadow night: chilled in ~2 min)
     gainK: 0.09, gainBase: 0.4, // heat %/s regained per °C above comfort (+ base)
-    chilled: 30, hypo: 10,
+    chilled: 30, freezing: 20, hypo: 10, // body heat % thresholds (chilled: no HP regen, slower, hungrier)
     chilledSpeed: 0.86,
-    hypoEvery: 2, hypoBase: 1, hypoRamp: 1 / 12, hypoMax: 6,
+    freezeEvery: 3, freezePct: 0.01,     // < 20%: lose 1% of max HP every 3 s
+    // < 10%: lose 2% of max HP every 2 s, +1% per 10 s spent freezing, up to 6% (≈ 3% max HP / s)
+    hypoEvery: 2, hypoPct: 0.02, hypoRampPct: 0.001, hypoMaxPct: 0.06,
   },
   // swimming in deep water / wet clothes (p.swimming is set by game.update; p.wetT = seconds of soaking left)
   wet: {
@@ -119,12 +122,13 @@ export function fireHeat(game, x, y) {
 export function warmAt(game, x, y) { return fireHeat(game, x, y) > 3; }
 
 // Enclosed shelter around tile (tx, ty): flood fill over walkable tiles; walls, doors, rock and deep water
-// close it. Returns { enclosed, roof } (roof = a floor under the player or a mountain cave).
+// close it. Returns { enclosed, roof, cave } (roof = world.roofAt: a built roof or a mountain cave ceiling).
 const MAX_ROOM = 140;
 function shelterAt(game, tx, ty) {
   const w = game.world, W = w.W;
   if (!w.inBounds(tx, ty)) return { enclosed: false, roof: false };
   const cave = !!w.isCave?.(tx, ty);
+  const roof = cave || (w.roofAt?.(tx, ty) === 2);
   const seen = new Set();
   const q = [ty * W + tx];
   seen.add(q[0]);
@@ -144,9 +148,7 @@ function shelterAt(game, tx, ty) {
     }
     if (open) break;
   }
-  let floor = false;
-  if (!open) for (const o of game.build.structures) if (!o.blueprint && BUILDINGS[o.type]?.layer === 'floor' && o.tx === tx && o.ty === ty && o.type !== 'farm_plot') { floor = true; break; }
-  return { enclosed: !open, roof: cave || (!open && floor), cave };
+  return { enclosed: !open, roof, cave };
 }
 
 const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -161,8 +163,8 @@ export function feltTemp(game, p, shelter) {
   const night = h < 12 ? 1 - ss(4.6, 6.3, h) : ss(18.7, 20.4, h);
   const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * night;
   const covered = shelter.enclosed || shelter.cave;
-  const rain = covered ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
-  const wind = covered ? 0 : (e.wind || 0) * T.wind;
+  const rain = covered || shelter.roof ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
+  const wind = covered ? 0 : (e.wind || 0) * T.wind * (shelter.roof ? T.porchWind : 1);
   const fire = fireHeat(game, p.x, p.y);
   const room = (shelter.enclosed ? T.shelter : 0) + (shelter.roof ? T.roof : 0) + (shelter.cave && !shelter.enclosed ? T.cave : 0);
   const cloth = (p.warmth || 0) * T.cloth;
@@ -229,7 +231,7 @@ export function survivalSystem() {
       const wasWet = (p.wetT || 0) > 0;
       if (p.swimming) p.wetT = W.soaked;
       else {
-        const rainNow = shelter.enclosed || shelter.cave ? 0 : (ec.rain || 0);
+        const rainNow = shelter.enclosed || shelter.roof ? 0 : (ec.rain || 0);
         if (rainNow > 0.2 && (p.wetT || 0) < W.rainMax) p.wetT = Math.min(W.rainMax, (p.wetT || 0) + rainNow * W.rainSoak * dt);
         else if (p.wetT > 0) {
           const hr = E.hour ?? 12, sunny = hr > 7 && hr < 18 && (ec.cloud ?? 0) < 0.5 && rainNow < 0.05;
@@ -259,7 +261,7 @@ export function survivalSystem() {
       if (warm) { if (!hasBuff(p, 'warm')) addBuff(p, 'warm', 1, { perm: true }); } else removeBuff(p, 'warm');
       // chilled: a cold body, or swimming / wet clothes away from a fire
       const chilled = heat < T.chilled || p.swimming || (wetNow && !warm);
-      if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento e com mais fome. Aqueça-se.' }); }
+      if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento, com mais fome e sem recuperar vida. Aqueça-se.' }); }
       else removeBuff(p, 'cold');
       const hypo = heat < T.hypo;
       if (hypo) {
@@ -267,7 +269,17 @@ export function survivalSystem() {
         hypoT += dt; hypoAcc += dt;
         if (hypoAcc >= T.hypoEvery) {
           hypoAcc = 0;
-          dealDamage(game, p, p, Math.min(T.hypoMax, Math.floor(T.hypoBase + hypoT * T.hypoRamp)), { noDodge: true, noKnock: true });
+          const pct = Math.min(T.hypoMaxPct, T.hypoPct + hypoT * T.hypoRampPct);
+          dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * pct)), { noDodge: true, noKnock: true });
+          if (p.dead) return;
+        }
+      } else if (heat < T.freezing) {
+        // freezing (not yet hypothermia): slow, steady HP loss
+        removeBuff(p, 'hypothermia'); hypoT = Math.max(0, hypoT - dt * 2);
+        hypoAcc += dt;
+        if (hypoAcc >= T.freezeEvery) {
+          hypoAcc = 0;
+          dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * T.freezePct)), { noDodge: true, noKnock: true });
           if (p.dead) return;
         }
       } else { removeBuff(p, 'hypothermia'); hypoT = Math.max(0, hypoT - dt * 2); hypoAcc = 0; }
@@ -275,6 +287,7 @@ export function survivalSystem() {
       if (d < 0) {
         if (lastHeat >= 60 && heat < 60) game.events.emit('toast', { text: `Está esfriando (${Math.round(f.c)}°C): fogueira, abrigo fechado ou roupas`, kind: 'warn' });
         if (lastHeat >= T.chilled && heat < T.chilled) game.events.emit('error', { text: 'Você está com frio!' });
+        if (lastHeat >= T.freezing && heat < T.freezing) game.events.emit('error', { text: 'Você está congelando e perdendo vida!' });
         if (lastHeat >= T.hypo && heat < T.hypo) game.events.emit('error', { text: 'Hipotermia! Aqueça-se já' });
       } else if (lastHeat < T.chilled && heat >= T.chilled) game.events.emit('toast', { text: 'O corpo está se aquecendo', kind: 'good' });
       lastHeat = heat;

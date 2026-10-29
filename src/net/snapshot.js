@@ -8,11 +8,12 @@
 //   dyn:    [[id, type, x, y, v, s, f, born, stump, stumpAt, solid]],      // host-created flora
 //   falling:[[id, fall, dir]],
 //   mined:  [tileIdx...],  rockp: [[i, p]],
-//   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf]],
-//           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan)
+//   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf, style, det]],
+//           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan; rows of 14 = no style / details)
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
 //   props:  [[id, hp, broken, brokenAt]],
+//   corpses:[[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc, v, gear|0, 0]]  (mut/corpses.js)
 //   paths:  { g, p }  painted paths: run-length [value, count…] of world.path / world.pathPlan (mut/paths.js)
 //   ids, natpos                                                            // save file only
 // }
@@ -26,10 +27,12 @@ import { occAdd, occRemove } from '../game/nav.js';
 import { updateAllMasks } from '../game/autotile.js';
 import { makeFloraObject, removeNatural, makeStump, TREE_SOLID, findObj } from '../game/mut/objects.js';
 import { placeStructure, completeStructure, removeStructure, setWorking, setDoorOpen, dimsOf } from '../game/mut/structures.js';
+import { applyKitFields } from '../game/mut/kit.js';
 import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
+import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
 
 export const SNAP_V = 1;
@@ -59,10 +62,11 @@ export function serializeWorld(game, { save = false } = {}) {
     mined: game.minedTiles.slice(),
     rockp: [...game.rockHits].map(([i, p]) => [i, r3(p)]),
     structs: game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, o.v | 0, r3(o.progress), game.build.decon.has(o) ? 1 : 0,
-      o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0]),
+      o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']),
     crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
+    corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
   };
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
@@ -181,7 +185,8 @@ function applyInner(game, d, mode) {
     for (const o of [...game.build.structures]) {
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
-      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1);
+      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
+        && (r[14] || '') === (o.style || '') && (r[15] || '') === (o.det || '');
       if (!same) removeStructure(game, o, { quiet: true });
     }
   }
@@ -189,6 +194,7 @@ function applyInner(game, d, mode) {
     const [id, type, tx, ty, v, progress, decon, store, working, builtAt] = r;
     const legacy = r.length <= 10;
     const rot = legacy ? 0 : r[10] | 0, paid = legacy ? 1 : r[11] ? 1 : 0, open = !legacy && !!r[12], moveOf = (!legacy && r[13]) || undefined;
+    const style = typeof r[14] === 'string' ? r[14] : '', det = typeof r[15] === 'string' ? r[15] : '';
     let o = game.world.objById.get(id);
     if (o && !o.building) continue;
     if (o && !game.build.structures.includes(o)) { removeStructure(game, o, { quiet: true }); o = null; } // orphan: rebuild
@@ -200,7 +206,7 @@ function applyInner(game, d, mode) {
         if (!w.inBounds(x, y) || w.rock[w.idx(x, y)] || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y)))) ok = false;
       }
       if (!ok) continue;
-      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf });
+      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det });
     } else {
       if (o.blueprint && progress >= 1) completeStructure(game, o, { silent: true, auth: net.auth });
       else if (o.blueprint) o.progress = Math.min(0.999, progress);
@@ -209,6 +215,7 @@ function applyInner(game, d, mode) {
       if (o.station) setWorking(game, o, !!working);
       if (paid && o.blueprint) o.paid = true;
       if (o.door && !!o.open !== open) setDoorOpen(game, o, open);
+      if ((o.style || '') !== style || (o.det || '') !== det) applyKitFields(game, o, style, det); // masks: updateAllMasks below
     }
     net.seeId(id);
   }
@@ -258,6 +265,17 @@ function applyInner(game, d, mode) {
   }
   if (reconcile) for (const o of game.props || []) if (!pIds.has(o.id) && (o.broken || o.hp !== o.maxHp)) { setPropBroken(game, o, false); o.hp = o.maxHp; }
 
+  // ---- bodies on the ground ----
+  if (game.corpses) {
+    const cIds = new Set();
+    for (const r of arr(d.corpses)) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+      cIds.add(r[0]);
+      addCorpse(game, r, { fresh: false });
+      net.seeId(r[0]);
+    }
+    if (reconcile) for (const c of [...game.corpses.map.values()]) if (!cIds.has(c.id)) removeCorpse(game, c);
+  }
   // ---- painted paths (a snapshot without them = none; an old save without them keeps none) ----
   if (reconcile || d.paths) applyPaths(game, d.paths);
 

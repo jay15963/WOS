@@ -4,6 +4,12 @@
 // anything persisted is replicated at join by construction. v1 / v2 saves are migrated into a snapshot and
 // applied through the same path. v4 (round V2): structure rows carry rot / paid / open / moveOf; older rows are
 // legacy (rot 0, paid, closed) and beds saved as 1×1 get a free 1×2 spot (migrateStructRows).
+// v5 (round V2, agent I): the world snapshot carries `corpses` (bodies decomposing on the ground); older saves have
+// none (nothing to migrate: the field is optional and defaults to an empty list).
+// v6 (roofs, agent J): structure rows carry style / det (roofs); older rows get '' (14 → 16 fields). The natural
+// roof is re-derived from the mined tiles with the support rule, so old worlds dug wide open lose those ceilings.
+// v7 (agent K): every construction piece (not only roofs) carries style / det; rows are the same 16 fields, so nothing
+// to migrate beyond v6 (older rows get '' / '' = the default look).
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -16,7 +22,7 @@ import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
-const VERSION = 5; // v5 (agent M): world.paths (painted path grid); older saves simply have none
+const VERSION = 8; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K) · v8 painted paths (M)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
 const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
@@ -32,6 +38,7 @@ function savePlayer(game) {
     hp: Math.round(p.dead ? p.maxHp * 0.5 : p.hp), energy: Math.round(p.energy), hunger: +p.hunger.toFixed(1),
     level: p.level, xp: Math.round(p.xp), inv: p.inv.toJSON(), respawn: p.respawn, dead: !!p.dead,
     equip: { ...p.equip }, seedPref: p.seedPref || null,
+    z: p.z > 0 && !p.dead ? +p.z.toFixed(2) : undefined, // levels: on a rampart / stairs (absent = ground, old saves too)
   };
 }
 
@@ -71,7 +78,7 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, 3, 4, VERSION].includes(data.v)) return false;
+  if (!data || ![1, 2, 3, 4, 5, 6, 7, VERSION].includes(data.v)) return false;
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;
@@ -113,7 +120,8 @@ function loadPlayer(game, d, data) {
   equipChanged(game);
   p.respawn = d.respawn || null;
   if (d.dead) { const sp = respawnPoint(game); p.x = sp.x; p.y = sp.y; } // saved while dead: wake up at the respawn point
-  if (collides(w, p.x, p.y, p.r, null, true)) { // never wake up stuck inside something built later
+  const up = !d.dead && !!game.levels?.restore(p, d.z); // levels: back up there if the rampart / stairs still stand, else the ground
+  if (!up && collides(w, p.x, p.y, p.r, null, true)) { // never wake up stuck inside something built later
     const x0 = p.x, y0 = p.y;
     for (let k = 0; k < 40 && collides(w, p.x, p.y, p.r, null, true); k++) { const a = k * 2.4, r = 0.3 + k * 0.1; p.x = x0 + Math.cos(a) * r; p.y = y0 + Math.sin(a) * r; }
   }
@@ -214,6 +222,8 @@ export function migrateStructRows(game, rows) {
         mark(r, hit[0], hit[1], fw, fh, true);
       }
     }
+    while (r.length < 14) r.push(0);
+    while (r.length < 16) r.push(''); // v6: style, det
     out.push(r);
   }
   return out;

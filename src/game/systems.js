@@ -19,9 +19,13 @@ import { projectilesSystem } from './projectiles.js';
 import { populateCamps, banditsSystem, campArtSystem, installCamps } from './bandits.js';
 import { gatheringSystem } from './gathering.js';
 import { initBuilding, buildingSystem } from './building.js';
+import { initRoofs, roofsSystem } from './roofs.js';
+import { raysSystem } from '../fx/rays.js';
+import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
 import { buildOcc } from './nav.js';
+import { installLevels, levelsSystem } from './levels.js';
 import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
@@ -29,6 +33,8 @@ import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (a
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
+import { decorSystem } from './decoration.js'; // agent K: dummy readouts, window glow, showcase (dev)
+import { initCorpses, corpsesSystem } from './corpses.js';
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -55,8 +61,11 @@ export function installSystems(game) {
 
   initPlayer(game);
   initBuilding(game);
+  initRoofs(game);
+  installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   buildOcc(game);
   initEconomy(game);
+  initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
   initPaths(game);                  // path grids exist before a save / snapshot is applied
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
@@ -80,6 +89,7 @@ export function installSystems(game) {
 
   for (const s of [
     clock,
+    levelsSystem(),
     controller,
     playerSystem(),
     abilitiesSystem(),
@@ -90,15 +100,20 @@ export function installSystems(game) {
     campArtSystem(),
     gatheringSystem(),
     buildingSystem(),
+    roofsSystem(),
+    raysSystem(),
+    roofSupportSystem(),
     pathsSystem(),
     ...economySystems(),
     survivalSystem(),
     lootSystem(),
+    corpsesSystem(),
     juice,
     saveSystem(game),
   ]) addSystem(game, s);
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
+  addSystem(game, decorSystem(game));
   return { isNew };
 }

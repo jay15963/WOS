@@ -137,7 +137,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null }
     assets?.then(({ renderer, atlas }) => {
       if (!root.isConnected) return;
       try {
-        show = startShowcase({ renderer, atlas, onReady: () => root.classList.add('live') });
+        show = startShowcase({ renderer, atlas, onReady: () => root.classList.add('live'), onFail: () => root.classList.remove('live') });
       } catch (e) { console.warn('[menu] showcase unavailable', e); }
     }).catch(() => {});
 

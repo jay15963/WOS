@@ -71,6 +71,15 @@ export const SFX = {
     wood(d, sr, 0.05 + r() * 0.022, f0 * (1.1 + r() * 0.12), 0.45, r, 0.6);
     if (k === 3) creak(d, sr, 0.03, 0.12, 430, 380, 0.12, r);
   }),
+  // levels (agent L): hollow wooden stair tread with a little creak; 'stairs_step' is its alias
+  step_stairs: steps((d, sr, r, k) => {
+    const f0 = 118 + r() * 30;
+    click(d, sr, 0, r, 0.3, 2200);
+    wood(d, sr, 0.001, f0, 0.95, r, 1.3);
+    thump(d, sr, 0.002, 78 + r() * 12, 44, 0.42, 0.08);
+    wood(d, sr, 0.055 + r() * 0.02, f0 * (1.18 + r() * 0.1), 0.4, r, 0.7);
+    if (k % 2 === 0) creak(d, sr, 0.04, 0.14, 380 + r() * 60, 330, 0.14, r);
+  }),
   step_water: steps((d, sr, r) => {
     burst(d, sr, 0, 0.17, { r, color: 'pink', type: 'bp', f: 1000 + r() * 400, f1: 480, q: 0.8, a: 0.01, amp: 0.8 });
     burst(d, sr, 0.01, 0.18, { r, color: 'brown', type: 'lp', f: 320, amp: 0.4 });
@@ -314,6 +323,19 @@ export const SFX = {
     bellTone(d, sr, 0.03, 1046.5, 0.25, 0.25);
     bellTone(d, sr, 0.09, 1568, 0.2, 0.25);
   } },
+  // agent K: a blueprint takes a new style (soft sparkle) · a hit on the straw training dummy (muffled thump + hay)
+  restyle: { v: 3, sec: 0.5, gain: 0.22, rev: 0.3, pj: 0.8, vj: 0.1, gap: 0.08, render(d, sr, r) {
+    burst(d, sr, 0, 0.18, { r, color: 'pink', type: 'bp', f: 3400, q: 0.9, shape: 'bell', amp: 0.35, grain: 0.5 });
+    bellTone(d, sr, 0.01, 1318.5, 0.2, 0.2);
+    bellTone(d, sr, 0.07, 1760, 0.16, 0.22);
+    bellTone(d, sr, 0.13, 2093, 0.1, 0.25);
+  } },
+  dummy_hit: { v: 5, sec: 0.3, gain: 0.5, rev: 0.12, pj: 1.6, vj: 0.18, render(d, sr, r) {
+    thump(d, sr, 0, 120 + r() * 30, 60, 0.7, 0.07);
+    burst(d, sr, 0.004, 0.16, { r, color: 'pink', type: 'bp', f: 1800 + r() * 900, q: 0.6, a: 0.004, amp: 0.85, grain: 0.75, grainRate: 1500 });
+    rustle(d, sr, 0.03, 0.18, r, 0.35, 4200);
+    wood(d, sr, 0.002, 210 + r() * 40, 0.2, r, 0.6);
+  } },
   build_hit: { v: 6, sec: 0.26, gain: 0.48, rev: 0.22, pj: 1.3, vj: 0.15, render(d, sr, r) {
     click(d, sr, 0, r, 0.7, 3000);
     modal(d, sr, 0.001, 260 + r() * 80, [[1, 0.8, 0.08], [2.3, 0.5, 0.06], [3.9, 0.35, 0.04]], 0.85, { r });
@@ -344,6 +366,26 @@ export const SFX = {
     burst(d, sr, 0.1, 0.6, { r, color: 'brown', type: 'lp', f: 600, amp: 0.5 });
     burst(d, sr, 0, 0.6, { r, color: 'pink', type: 'bp', f: 900, f1: 300, shape: 'bell', amp: 0.35 });
   } },
+  // roofs (agent J): a built roof gives way (timbers crack, tiles slide, a heavy thud, dust) / a cave ceiling falls
+  roof_collapse: { v: 2, sec: 2.2, sr: 24000, gain: 0.62, rev: 0.32, pj: 0.8, vj: 0.1, render(d, sr, r) {
+    creak(d, sr, 0, 0.35, 420 + r() * 60, 260, 0.45, r);
+    for (let k = 0; k < 5; k++) wood(d, sr, 0.22 + k * 0.07 + r() * 0.04, 380 - k * 40 + r() * 70, 0.75 - k * 0.08, r, 0.7);
+    for (let k = 0; k < 26; k++) click(d, sr, 0.35 + r() * 1.1, r, 0.12 + r() * 0.25, 1800 + r() * 2600); // tiles / straw sliding
+    thump(d, sr, 0.5, 70, 35, 0.9, 0.3);
+    thump(d, sr, 0.68, 95, 45, 0.5, 0.2);
+    burst(d, sr, 0.5, 1.5, { r, color: 'brown', type: 'lp', f: 700, f1: 260, shape: 'bell', amp: 0.55 });
+    burst(d, sr, 0.45, 1.2, { r, color: 'pink', type: 'bp', f: 1400, q: 0.6, shape: 'bell', amp: 0.22, grain: 0.6, grainRate: 900 });
+  } },
+  cave_in: { v: 2, sec: 2.6, sr: 22050, gain: 0.7, rev: 0.45, pj: 0.6, vj: 0.1, render(d, sr, r) {
+    burst(d, sr, 0, 2.2, { r, color: 'brown', type: 'lp', f: 420, f1: 160, shape: 'bell', amp: 0.75 }); // the rumble
+    thump(d, sr, 0.15, 55, 28, 1.0, 0.45);
+    for (let k = 0; k < 18; k++) {
+      const t = 0.1 + r() * 1.7;
+      crunch(d, sr, t, r, 600 + r() * 1400, 0.25 + r() * 0.35, 0.04 + r() * 0.05); // rocks hitting the floor
+      if (k % 3 === 0) thump(d, sr, t, 110 + r() * 60, 60, 0.35, 0.08);
+    }
+    burst(d, sr, 0.3, 1.6, { r, color: 'pink', type: 'hp', f: 2600, shape: 'bell', amp: 0.12, grain: 0.8, grainRate: 1400 }); // gravel trickle
+  } },
   // painted terrain paths (agent M): a brush swish + soft chime (plan), earth tamped, gravel poured, stones set
   path_paint: { v: 3, sec: 0.5, gain: 0.26, rev: 0.22, pj: 0.7, vj: 0.12, render(d, sr, r) {
     burst(d, sr, 0, 0.3, { r, color: 'pink', type: 'bp', f: 1500 + r() * 400, f1: 2600, q: 0.7, shape: 'bell', amp: 0.55, grain: 0.5, grainRate: 700 });
@@ -373,6 +415,17 @@ export const SFX = {
   rotate: { v: 3, sec: 0.12, gain: 0.24, bus: 'ui', rev: 0, pj: 0.8, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 1200, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.8, { r });
     modal(d, sr, 0.045, 1450, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.7, { r });
+  } },
+  // levels (agent L): hop off a wall top / landing after a drop
+  jump: { v: 3, sec: 0.2, gain: 0.22, rev: 0.05, pj: 1, vj: 0.15, render(d, sr, r) {
+    burst(d, sr, 0, 0.12, { r, color: 'pink', type: 'bp', f: 1400 + r() * 400, q: 0.7, a: 0.01, amp: 0.45, grain: 0.5 });
+    thump(d, sr, 0.004, 120, 70, 0.25, 0.04);
+  } },
+  jump_land: { v: 3, sec: 0.42, gain: 0.4, rev: 0.12, pj: 1, vj: 0.15, render(d, sr, r) {
+    thump(d, sr, 0, 72 + r() * 14, 38, 0.9, 0.12);
+    burst(d, sr, 0.002, 0.16, { r, color: 'pink', type: 'lp', f: 900 + r() * 300, a: 0.004, amp: 0.6 });
+    burst(d, sr, 0.01, 0.2, { r, color: 'pink', type: 'bp', f: 2400, q: 0.8, amp: 0.22, grain: 0.7, grainRate: 1000 });
+    click(d, sr, 0.06 + r() * 0.03, r, 0.18, 2600);
   } },
   door_open: { v: 3, sec: 0.6, gain: 0.26, rev: 0.2, pj: 1, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 2300 + r() * 200, [[1, 0.5, 0.03], [1.6, 0.3, 0.02]], 0.6, { r });
@@ -656,7 +709,7 @@ Object.assign(SFX, {
 export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'fox', 'spider', 'bandit']);
 
 // names that other code may call with a different meaning / older name
-export const ALIAS = { ui: 'ui_click', build: 'build_hit', fire: 'ignite', craft: 'craft_done', thud: 'arrow_ground' };
+export const ALIAS = { ui: 'ui_click', build: 'build_hit', fire: 'ignite', craft: 'craft_done', thud: 'arrow_ground', stairs_step: 'step_stairs' };
 
 // every variant of one sound, finished: pure function, also run by the synth worker
 export function renderSfx(name) {

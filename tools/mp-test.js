@@ -766,12 +766,14 @@ def('S15', {
 // =====================================================================================================
 // S16 ★ Wolf killed by the guest
 async function killByGuest(t, C, wolf, { knife }) {
-  const { H, G, MH, MG } = C;
+  const { H, G, MG } = C;
   const gpl = G.game.player;
+  // blades decide the yields (corpses: knife / sword / axe = full table; bare hands = no hide)
+  const BLADE = /^(knife|sword|axe)_/;
   if (knife) A.ensure(G, { knife_stone: 1 });
   else {
-    if (/^knife_/.test(gpl.equip.main || '')) G.game.econ.unequip('main');
-    gpl.inv.slots = gpl.inv.slots.map((s) => (s && /^knife_/.test(s.id) ? null : s));
+    if (BLADE.test(gpl.equip.main || '')) G.game.econ.unequip('main');
+    gpl.inv.slots = gpl.inv.slots.map((s) => (s && BLADE.test(s.id) ? null : s));
     G.game.events.emit('inventory', {});
   }
   const s = A.freeSpot(G, MG, wolf.x, wolf.y, { rMin: 1.1, rMax: 2 });
@@ -782,55 +784,51 @@ async function killByGuest(t, C, wolf, { knife }) {
   const inv0 = [A.invSnap(H), A.invSnap(G)];
   const xpH = A.xpRecorder(t, H), xpG = A.xpRecorder(t, G);
   const loot = A.lootRecorder(t, [H, G]);
+  const before = new Set(H.game.corpses.map.keys());
   A.hit(G, MG, A.proxyOf(G, wolf) || prox, 9999);
   t.log(`guest hits wolf ${wolf.nid} for 9999 (knife: ${knife})`);
   const dh = await t.timeTo(() => wolf.dead, RT() + 400, 'wolf dead on the host', () => `hp ${wolf.hp} guest ui: ${G.lastUi()}`);
   await t.waitFor(() => A.proxyOf(G, wolf)?.dead || !A.proxyOf(G, wolf), ONEWAY() + 300, 'wolf dead on the guest');
   t.metric(`kill${knife ? 'Knife' : ''}RoundTripMs`, Math.round(dh));
-  await t.waitFor(() => loot.rows(0).length > 0, 1500, 'kill loot on the host');
-  await t.sleep(ONEWAY() + 150);
-  const rows = loot.rows(0);
-  const mid = rows.reduce((a, r) => [a[0] + (H.game.loot.find((l) => String(l.id) === r.id)?.x ?? wolf.x), a[1] + (H.game.loot.find((l) => String(l.id) === r.id)?.y ?? wolf.y)], [0, 0]).map((v) => v / rows.length);
-  // both players stand on the pile: each item picked by exactly one of them
-  A.teleport(H, mid[0], mid[1]);
-  A.teleport(G, mid[0] + 0.3, mid[1]);
-  const killIds = new Set(rows.map((r) => r.id));
-  const gone = await t.tryWait(() => !H.game.loot.some((l) => killIds.has(String(l.id))) && !G.game.loot.some((l) => killIds.has(String(l.id))), 5000);
+  A.pacify(H, wolf.x, wolf.y, 24, 120); // the pack calms down while the guest works on the body
+  const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.of === 'wolf'), 1500, 'wolf body on the host');
+  const cg = await t.waitFor(() => G.game.corpses.map.get(ch.id), ONEWAY() + 600, 'same body (id) on the guest');
+  const sameBody = cg.of === ch.of && Math.abs(cg.x - ch.x) < 0.01 && Math.abs(cg.y - ch.y) < 0.01 && cg.deathT === ch.deathT;
+  const verb = MG.corpses.describeCorpse(G.game, cg)?.verb;
+  await A.workUntil(t, G, () => { const q = G.game.corpses.map.get(ch.id); return q && !q.butchered ? MG.corpses.describeCorpse(G.game, q) : null; },
+    () => ch.butchered && G.game.corpses.map.get(ch.id)?.butchered, 20000, 'guest collects the wolf (Coletar)');
   await t.sleep(RT());
   loot.stop();
-  const cmp = loot.compare(0, 1), li = loot.items(0);
   const gainH = A.invDiff(inv0[0], A.invSnap(H)), gainG = A.invDiff(inv0[1], A.invSnap(G));
-  const sum = {};
-  for (const k of Object.keys(li)) sum[k] = (gainH[k] || 0) + (gainG[k] || 0);
-  return { cmp, li, gone, gainH, gainG, sum, xpH: xpH.total, xpG: xpG.total };
+  return { sameBody, verb, ground: loot.rows(0).length + loot.rows(1).length, gainH, gainG, xpH: xpH.total, xpG: xpG.total };
 }
 def('S16', {
   star: true, title: 'Wolf killed by the guest', timeout: 150000,
-  expected: 'Wolf dead on both; loot on both with identical ids; leather only if the guest had a knife; XP only to the guest; each item picked by one player only',
-  api: 'combat applyPlayerHit on a proxy (mob.hit intent {skin}); mob.die op + loot.add; loot.take arbitration; proxies {nid,dead}',
+  expected: 'Wolf dead on both; no ground loot: the same body (id) on both; the guest collects it ("Coletar"): meat to the guest only, leather only with a blade (knife), XP only to the guest',
+  api: 'combat applyPlayerHit on a proxy (mob.hit intent); mob.die + corpse.add ops; corpses.describeCorpse → work "butcher" → intent corpse.butcher → op corpse.butcher {give}; proxies {nid,dead}',
 }, async (t) => {
   const C = await pairCtx(t);
   const { H, G } = C;
-  A.ensure(H, { knife_stone: 1 }); // the host's knife must NOT make the guest's kill drop leather
+  t.need(H.game.corpses && G.game.corpses, 'corpses not merged (game.corpses missing)');
+  A.ensure(H, { knife_stone: 1 }); // the host's knife must NOT make the guest's work yield leather
   A.keepAlive(t, G);
   const sp = spawnOf(H);
   const wolves = A.hostMobs(H, (m) => m.species === 'wolf' && !env.claimed.has('mob' + m.nid)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
   t.assert(wolves.length >= 2, 'found two wolves on the host', `${wolves.length}`);
   t.need(wolves[0].nid != null, 'host creatures have no nid (entity replication not merged)');
-  let leatherNoKnife = 0;
   for (const [k, knife] of [[0, false], [1, true]]) {
     const wolf = wolves[k];
     env.claimed.add('mob' + wolf.nid);
     const r = await killByGuest(t, C, wolf, { knife });
-    const tag = knife ? ' (guest with knife)' : ' (guest without knife, host has one)';
-    t.check(r.cmp.ok && r.cmp.n > 0, 'kill loot with identical ids on both' + tag, r.cmp.detail);
-    t.check((r.li.meat || 0) >= 1, 'meat dropped' + tag, short(r.li));
-    if (!knife) { leatherNoKnife = r.li.leather || 0; t.check(!leatherNoKnife, 'no leather without a knife (skin flag from the killing hit)', short(r.li)); }
-    else t.note(`leather with a knife: ${r.li.leather || 0} (70% chance)`);
-    t.check(r.xpG > 0 && r.xpH === 0, 'kill XP only to the guest' + tag, `guest +${f2(r.xpG)} host +${f2(r.xpH)}`);
-    t.check(r.gone, 'all kill loot picked up' + tag);
-    const dup = Object.keys(r.li).filter((k2) => r.sum[k2] !== r.li[k2]);
-    t.check(!dup.length, 'each item picked by exactly one player (no duplication / loss)' + tag, `dropped ${short(r.li)} · host +${short(r.gainH)} · guest +${short(r.gainG)}`);
+    const tag = knife ? ' (guest with knife)' : ' (guest bare-handed, host has a knife)';
+    t.check(r.sameBody, 'the same wolf body (id, position, time of death) on both' + tag);
+    t.check(r.ground === 0, 'no kill loot on the ground' + tag, `${r.ground} rows`);
+    t.check(r.verb === 'Coletar', 'interaction on the fresh body is "Coletar"' + tag, r.verb);
+    t.check((r.gainG.meat || 0) >= 1, 'meat collected by the guest' + tag, short(r.gainG));
+    if (!knife) t.check(!r.gainG.leather, 'no leather bare-handed', short(r.gainG));
+    else t.note(`leather with a knife: ${r.gainG.leather || 0} (70% chance)`);
+    t.check(!Object.keys(r.gainH).length, 'the host got nothing' + tag, short(r.gainH));
+    t.check(r.xpG > 0 && r.xpH === 0, 'kill + collect XP only to the guest' + tag, `guest +${f2(r.xpG)} host +${f2(r.xpH)}`);
   }
   await t.checkDigest(H, G);
   env.history.push('S16');
@@ -1394,7 +1392,7 @@ function bot(t, f, M, home) {
     if (now() < next || busy) return;
     next = now() + 1500 + Math.random() * 3000;
     busySince = now();
-    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon']);
+    const act = pick(['walk', 'walk', 'chop', 'gather', 'gather', 'build', 'fight', 'decon', 'body']);
     stats.actions[act] = (stats.actions[act] || 0) + 1;
     try {
       if (act === 'walk') { const s = A.freeSpot(f, M, p.x + (Math.random() - 0.5) * 16, p.y + (Math.random() - 0.5) * 16, { rMin: 0, rMax: 3 }); if (s) g.ctl.walkTo(s[0], s[1]); }
@@ -1405,6 +1403,7 @@ function bot(t, f, M, home) {
         const type = Math.random() < 0.5 ? 'floor_wood' : 'wall_wood';
         if (M.building.placeReason(g, type, tx, ty) === null && Math.hypot(tx + 0.5 - p.x, ty + 0.5 - p.y) > 1.5) A.place(f, M, type, [tx, ty]);
       } else if (act === 'fight') { const m = A.mobs(f, (e) => !e.dead && (e.species === 'rabbit' || e.species === 'deer' || e.species === 'boar' || e.species === 'fox') && A.dist(e, p) < 14)[0]; if (m) g.ctl.engage(m); }
+      else if (act === 'body') { let it = null; g.corpses?.forNear(p.x, p.y, 12, (q) => { if (!it && q.prio >= 0) it = q; }); if (it) A.interact(f, it); }
       else if (act === 'decon') { const o = g.build.structures.filter((q) => !q.blueprint && A.dist(q, p) < 12)[0]; if (o) M.building.toggleDecon(g, o, true); }
     } catch { stats.errors++; }
   }, 250);
@@ -1450,8 +1449,8 @@ def('S29', {
 // S40 B: chest sort (guest sorts a shared chest through the chest panel)
 def('S40', {
   title: 'B: chest sort', timeout: 120000,
-  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (chest.sort → chest.set): same order on both, stacks merged, digest equal',
-  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (chest.sort intent → chest.set {slots}); o.store.slots; invsort.sortedSlots',
+  expected: 'Guest clicks Tipo / A→Z / Quantidade in the chest panel; the host sorts (store.sort → chest.set): same order on both, stacks merged, digest equal',
+  api: 'chest panel [data-sort][data-sortk=chest:<id>] click (store.sort intent {kind: chest} → chest.set {slots}); o.store.slots; invsort.sortedSlots',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.ensure(H, { wood: 10 });
@@ -1712,10 +1711,17 @@ def('S30', {
     const s = A.freeSpot(S1, M, prey.x, prey.y, { rMin: 0.8, rMax: 1.5 });
     if (s) A.teleport(S1, s[0], s[1]);
     const cl = A.lootRecorder(t, [S1]);
+    const meat0 = A.count(S1, 'meat');
     A.hit(S1, M, prey, 9999);
     t.check(prey.dead, 'a hit kills the creature locally', prey.species);
     await t.sleep(300); cl.stop();
-    t.check((cl.items(0).meat || 0) >= 1, 'kill drops meat', short(cl.items(0)));
+    t.check(!(cl.items(0).meat), 'kill drops no loot (the body stays)', short(cl.items(0)));
+    const body = [...g.corpses.map.values()].find((c) => c.of === prey.species && Math.hypot(c.x - prey.x, c.y - prey.y) < 0.5);
+    t.check(!!body, 'kill leaves a body', prey.species);
+    if (body) {
+      await A.workUntil(t, S1, () => (body.butchered ? null : M.corpses.describeCorpse(g, body)), () => body.butchered, 20000, 'collect the body (Coletar)');
+      t.check(A.count(S1, 'meat') > meat0, 'Coletar gives meat', `${meat0} → ${A.count(S1, 'meat')}`);
+    }
   } else t.note('no prey found — combat sub-check skipped');
   // net (merged core)
   if (S1.net) {
@@ -1789,6 +1795,8 @@ def('S50', {
   // heal on the guest
   const p = G.game.player, n0 = A.count(G, 'herb');
   A.pacify(H, p.x, p.y, 16, 120);
+  // keep the guest warm and dry (earlier scenarios may have soaked it: cold / hypothermia damage would eat the HoT)
+  t.watch(() => { p.bodyHeat = 100; p.wetT = 0; if (p.buffs) for (let k = p.buffs.length - 1; k >= 0; k--) if (/^(cold|hypothermia|wet|chilled|starving)$/.test(p.buffs[k].id)) p.buffs.splice(k, 1); }, 4);
   p.hp = 40;
   const used = A.ability(G, MG, 'heal');
   t.check(used !== false && A.count(G, 'herb') === n0 - 1, 'heal ability uses exactly 1 herb', `used ${used} herbs ${n0} → ${A.count(G, 'herb')}`);
@@ -2080,7 +2088,7 @@ def('S37', {
   ];
   const out = MH.save.migrateStructRows(g, rows.map((r) => r.slice()));
   const by = Object.fromEntries(out.map((r) => [r[0], r]));
-  t.check(out.every((r) => r.length === 14), 'every row has 14 fields', out.map((r) => r.length).join(','));
+  t.check(out.every((r) => r.length >= 14), 'every row has the v4 fields (14; v6 adds style, det)', out.map((r) => r.length).join(','));
   t.check(out.filter((r) => r[1] !== 'bed').every((r) => r[10] === 0 && r[11] === 1 && r[12] === 0 && !r[13]), 'legacy defaults: rot 0, paid 1, closed, no plan');
   const p = (r) => `${r[2]},${r[3]} r${r[10]}`;
   t.check(by.old_bed_a && by.old_bed_a[2] === x && by.old_bed_a[3] === y + 1 && by.old_bed_a[10] === 0, 'bed A extends south', p(by.old_bed_a || []));
@@ -2090,6 +2098,201 @@ def('S37', {
   const cells = new Map(); let clash = null;
   for (const r of out) { const [fw, fh] = MH.building.dimsOf(r[1], r[10]); for (let yy = r[3]; yy < r[3] + fh; yy++) for (let xx = r[2]; xx < r[2] + fw; xx++) { const k = xx + ',' + yy; if (cells.has(k)) clash = `${cells.get(k)} × ${r[0]} at ${k}`; cells.set(k, r[0]); } }
   t.check(!clash, 'no two migrated structures overlap', clash || `${cells.size} cells`);
+});
+
+// =====================================================================================================
+// S60 / S61 — I · corpos e decomposição (bodies decompose in shared world time)
+// Time is fast-forwarded through the env op on the host (test-only path: the harness emits env.skip, the op
+// every peer applies for sleeping, so worldTime / hour / day move the same way on all of them).
+function skipDays(H, days) {
+  const g = H.game, E = g.env, dl = E.dayLength || 720;
+  let hour = E.hour + days * 24, day = E.dayIndex;
+  while (hour >= 24) { hour -= 24; day++; }
+  g.net.emit('env.skip', { hour: +hour.toFixed(3), day, wt: Math.round((g.worldTime + days * dl) * 100) / 100 });
+  g.net.flush();
+}
+const bodyOn = (f, id) => f.game.corpses?.map.get(id) || null;
+const corpseAgeOn = (f, M, c) => M.mcorpses.corpseAge(f.game, c);
+const stageOn = (f, M, id) => { const c = bodyOn(f, id); return c ? M.mcorpses.stageOf(f.game, c) : 'none'; };
+// request an intent on a frame and resolve with { ok, why }
+const ask = (f, name, args) => new Promise((res) => {
+  const r = f.game.net.request(name, args, { onOk: () => res({ ok: true }), onReject: (why) => res({ ok: false, why }) });
+  if (r === true) res({ ok: true });
+});
+
+def('S60', {
+  title: 'I: animal corpse stages + coletar', timeout: 180000,
+  expected: 'Kill → the same body on both, no ground loot; day 1 the guest collects it (meat to the guest only, carcass on both); a second body: day 2 rotten → "Está podre demais"; day 3 skeleton → "Remover ossada" gives bones to the guest and removes it on both; day 5 the host removes the rest; digest equal',
+  api: 'mob.die + corpse.add; corpses.describeCorpse / work kinds butcher, corpse_bones; intents corpse.butcher / corpse.bones; ops corpse.butcher / corpse.remove; stage from (worldTime - deathT) / env.dayLength; env.skip (test fast-forward)',
+}, async (t) => {
+  const C = await pairCtx(t);
+  const { H, G, MH, MG } = C;
+  t.need(H.game.corpses && G.game.corpses && MG.corpses?.describeCorpse, 'corpses not merged');
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const sp = spawnOf(H);
+  const prey = A.hostMobs(H, (m) => ['deer', 'rabbit', 'fox', 'boar'].includes(m.species) && !env.claimed.has('mob' + m.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 2);
+  t.assert(prey.length === 2, 'found two animals on the host', `${prey.length}`);
+  for (const m of prey) env.claimed.add('mob' + m.nid);
+  A.ensure(G, { knife_stone: 1 });
+  const loot = A.lootRecorder(t, [H, G]);
+  const ids = [];
+  for (const m of prey) {
+    const s = A.freeSpot(G, MG, m.x, m.y, { rMin: 1, rMax: 2 });
+    t.assert(s, 'free spot next to the ' + m.species);
+    A.teleport(G, s[0], s[1]);
+    await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, `${m.species} proxy on the guest`);
+    await A.hostSees(t, H, G, 4000);
+    const before = new Set(H.game.corpses.map.keys());
+    m.calmT = 999; m.state = 'idle'; m.stateT = 99; // keep still for the kill (host AI)
+    A.hit(G, MG, A.proxyOf(G, m), 9999);
+    await t.waitFor(() => m.dead, RT() + 600, `${m.species} dead on the host`);
+    const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((q) => !before.has(q.id) && q.of === m.species), 1500, `${m.species} body on the host`);
+    await t.waitFor(() => bodyOn(G, c.id), ONEWAY() + 600, `${m.species} body on the guest`);
+    ids.push(c.id);
+  }
+  await t.sleep(RT());
+  t.check(loot.rows(0).length === 0 && loot.rows(1).length === 0, 'animals drop nothing on the ground', `${loot.rows(0).length}/${loot.rows(1).length}`);
+  loot.stop();
+  const [a, b] = ids;
+  t.check(stageOn(H, MH, a) === 'fresh' && stageOn(G, MG, a) === 'fresh', 'day 1: fresh on both');
+  // day 1: guest collects body A
+  const ca = bodyOn(G, a);
+  const it0 = MG.corpses.describeCorpse(G.game, ca);
+  t.check(it0?.verb === 'Coletar' && it0.prio >= 0, 'fresh animal body offers "Coletar"', `${it0?.kind} ${it0?.verb}`);
+  const invG0 = A.invSnap(G), invH0 = A.invSnap(H);
+  const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
+  const sa = A.freeSpot(G, MG, ca.x, ca.y, { rMin: 0.6, rMax: 1.2 });
+  if (sa) A.teleport(G, sa[0], sa[1]);
+  await A.hostSees(t, H, G, 4000);
+  await A.workUntil(t, G, () => { const q = bodyOn(G, a); return q && !q.butchered ? MG.corpses.describeCorpse(G.game, q) : null; },
+    () => bodyOn(H, a)?.butchered && bodyOn(G, a)?.butchered, 20000, 'guest collects body A');
+  await t.sleep(RT());
+  const gainG = A.invDiff(invG0, A.invSnap(G)), gainH = A.invDiff(invH0, A.invSnap(H));
+  t.check((gainG.meat || 0) >= 1, 'Coletar gives meat to the guest', short(gainG));
+  t.check(!Object.keys(gainH).length && xpH.total === 0, 'the host got nothing', short(gainH));
+  t.check(xpG.total > 0, 'small XP reward to the guest', f2(xpG.total));
+  t.check(!MG.corpses.describeCorpse(G.game, bodyOn(G, a)), 'a butchered fresh body offers nothing more');
+  const again = await ask(G, 'corpse.butcher', { id: a, blade: 'knife', tier: 1 });
+  t.check(!again.ok && /coletado/i.test(again.why || ''), 'a second Coletar is refused', again.why);
+  // day 2: rotten
+  skipDays(H, 1.05);
+  await t.waitFor(() => stageOn(G, MG, b) === 'rotten' && stageOn(H, MH, b) === 'rotten', ONEWAY() + 1500, 'day 2: body B rotten on both');
+  const itR = MG.corpses.describeCorpse(G.game, bodyOn(G, b));
+  t.check(itR && itR.prio < 0, 'rotten body is not offered as an action (tap only)', `${itR?.kind} prio ${itR?.prio}`);
+  const rot = await ask(G, 'corpse.butcher', { id: b, blade: 'knife', tier: 1 });
+  t.check(!rot.ok && /podre/i.test(rot.why || ''), 'Coletar on a rotten body: "Está podre demais"', rot.why);
+  const errs = [];
+  t.on(G, 'error', (d) => errs.push(d?.text));
+  const sb = A.freeSpot(G, MG, bodyOn(G, b).x, bodyOn(G, b).y, { rMin: 0.6, rMax: 1.2 });
+  if (sb) A.teleport(G, sb[0], sb[1]);
+  MG.gathering.startWork(G.game, itR);
+  t.check(!G.game.player.work && errs.some((e) => /podre/i.test(e || '')), 'the work refuses with "Está podre demais"', short(errs));
+  const early = await ask(G, 'corpse.bones', { id: b });
+  t.check(!early.ok, 'no bones before the skeleton stage', early.why);
+  // days 3–5: skeleton → bones
+  skipDays(H, 1.05);
+  await t.waitFor(() => stageOn(G, MG, a) === 'skeleton' && stageOn(H, MH, a) === 'skeleton', ONEWAY() + 1500, 'day 3: skeletons on both');
+  const itS = MG.corpses.describeCorpse(G.game, bodyOn(G, a));
+  t.check(itS?.kind === 'corpse_bones' && /ossada|restos/i.test(itS.verb), 'skeleton offers "Remover ossada"', `${itS?.kind} ${itS?.verb}`);
+  const bones0 = A.count(G, 'bone');
+  const sc = A.freeSpot(G, MG, bodyOn(G, a).x, bodyOn(G, a).y, { rMin: 0.6, rMax: 1.2 });
+  if (sc) A.teleport(G, sc[0], sc[1]);
+  await A.hostSees(t, H, G, 4000);
+  await A.workUntil(t, G, () => { const q = bodyOn(G, a); return q ? MG.corpses.describeCorpse(G.game, q) : null; }, () => !bodyOn(H, a) && !bodyOn(G, a), 20000, 'guest removes the bones of A');
+  await t.sleep(RT());
+  const species = prey[0].species;
+  const wantBones = MG.mcorpses.BONES[MG.mcorpses.SIZE_OF[species]] || 1;
+  t.check(A.count(G, 'bone') - bones0 === (species === 'spider' ? 0 : wantBones), `"Ossos" to the guest (${species})`, `${bones0} → ${A.count(G, 'bone')}`);
+  t.check(!bodyOn(H, a) && !bodyOn(G, a), 'skeleton removed on both');
+  await t.checkDigest(H, G, 'digest equal (skeleton stage)');
+  // day 5+: the host removes what is left
+  skipDays(H, 3.1);
+  await t.waitFor(() => !bodyOn(H, b) && !bodyOn(G, b), 2500 + ONEWAY(), 'after day 5 body B is gone on both');
+  await t.checkDigest(H, G);
+  env.history.push('S60');
+});
+
+def('S61', {
+  title: 'I: player corpse loot', timeout: 180000,
+  expected: 'The guest dies: its bag + equipment move into its body (same id and contents on both, "Corpo de <nome>"), it respawns with nothing; the host opens the body ("Revistar": transfer window), takes, puts and sorts both sides; the guest takes from its own body; from day 3 the body cannot be opened (refused, window closes) and offers "Remover ossada"; digest equal',
+  api: 'player death → intent corpse.player → op corpse.add {owner}; container window (container.js openContainer + corpses.corpseAdapter: data-slot / data-cslot / data-sort + data-sortk); intents corpse.put / corpse.take / store.sort {kind: corpse} → op corpse.set; env.skip',
+}, async (t) => {
+  const C = await pairCtx(t);
+  const { H, G, MH, MG } = C;
+  t.need(H.game.corpses && G.game.corpses && MG.corpses?.describeCorpse, 'corpses not merged');
+  A.keepAlive(t, H);
+  const gp = G.game.player;
+  // what the guest carries
+  for (let i = 0; i < gp.inv.size; i++) gp.inv.slots[i] = null;
+  A.ensure(G, { wood: 7, pebble: 3, berries: 4, stick: 2 });
+  A.equip(G, 'knife_stone');
+  const carried = A.invSnap(G);
+  for (const k of ['main', 'off', 'body', 'head']) { const id = gp.equip[k]; if (id) carried[id] = (carried[id] || 0) + 1; }
+  const before = new Set(H.game.corpses.map.keys());
+  const at = { x: gp.x, y: gp.y };
+  MG.player.killPlayer(G.game);
+  const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.owner === G.pid), RT() + 800, "guest's body on the host");
+  const cg = await t.waitFor(() => bodyOn(G, ch.id), ONEWAY() + 600, "guest's body on the guest");
+  const content = (c) => { const o = {}; for (const s of c.store.slots) if (s) o[s.id] = (o[s.id] || 0) + s.qty; return o; };
+  t.check(JSON.stringify(content(ch)) === JSON.stringify(content(cg)) && Object.keys(A.invDiff(carried, content(ch))).length === 0,
+    'bag + equipped items are in the body (same on both)', `carried ${short(carried)} · body ${short(content(ch))}`);
+  t.check(Math.hypot(ch.x - at.x, ch.y - at.y) < 0.6, 'the body lies where the guest died');
+  t.check(/^Corpo de /.test(ch.name || ''), 'named "Corpo de <nome>"', ch.name);
+  t.check(!gp.inv.used() && !Object.values(gp.equip).some(Boolean), 'the dead guest carries nothing (bag and equipment)');
+  MG.player.respawnPlayer(G.game);
+  await t.sleep(200);
+  t.check(!gp.inv.used() && !gp.equip.main, 'respawn with nothing carried');
+  // host opens the body
+  const s = A.freeSpot(H, MH, ch.x, ch.y, { rMin: 0.7, rMax: 1.3 });
+  t.assert(s, 'free spot next to the body');
+  A.teleport(H, s[0], s[1]);
+  const itO = MH.corpses.describeCorpse(H.game, ch);
+  t.check(itO?.kind === 'corpse_open' && itO.verb === 'Revistar', 'pawn body offers "Revistar"', `${itO?.kind} ${itO?.verb}`);
+  A.ensure(H, { stone: 4 });
+  A.interact(H, itO);
+  const pn = H.game.ui.panels;
+  await t.waitFor(() => pn.open === 'container' && pn.container?.kind === 'corpse', 4000, 'host: container window open on the body');
+  t.check(/Corpo de /.test(H.doc.querySelector('.p-chest .pt')?.textContent || ''), 'window title "Corpo de <nome>"', H.doc.querySelector('.p-chest .pt')?.textContent);
+  const wood0 = A.count(H, 'wood');
+  const wi = ch.store.slots.findIndex((q) => q && q.id === 'wood');
+  H.doc.querySelector(`[data-cslot="${wi}"]`)?.click();
+  await t.waitFor(() => A.count(H, 'wood') >= wood0 + 7 && !content(bodyOn(G, ch.id)).wood, RT() + 600, 'host takes the wood (gone from the body on both)');
+  const si = H.game.player.inv.slots.findIndex((q) => q && q.id === 'stone');
+  H.doc.querySelector(`[data-slot="${si}"]`)?.click();
+  await t.waitFor(() => content(bodyOn(G, ch.id)).stone === 4 && content(ch).stone === 4, RT() + 600, 'host puts 4 stones into the body (on both)');
+  H.doc.querySelector(`[data-sort="name"][data-sortk="corpse:${ch.id}"]`)?.click();
+  const names = (c) => c.store.slots.filter(Boolean).map((q) => MH.data.ITEMS[q.id].name);
+  const isSorted = (L) => L.every((n, i) => !i || L[i - 1].localeCompare(n, 'pt-BR') <= 0);
+  await t.waitFor(() => isSorted(names(ch)) && JSON.stringify(bodyOn(G, ch.id).store.toJSON()) === JSON.stringify(ch.store.toJSON()) && !!ch.store.slots[0], RT() + 600, 'body sorted A–Z (same on both)');
+  t.check(isSorted(names(ch)), 'body sorted alphabetically', names(ch).join(', '));
+  A.ensure(H, { pebble: 1, wood: 1 });
+  H.doc.querySelector('[data-sort="qty"][data-sortk="inv"]')?.click();
+  await t.sleep(50);
+  const q = H.game.player.inv.slots.filter(Boolean).map((x) => x.qty);
+  t.check(q.every((v, i) => !i || q[i - 1] >= v) && !H.game.player.inv.slots.slice(0, q.length).some((x) => !x), 'backpack sorted by quantity (gaps closed)', q.join(','));
+  H.doc.querySelector('[data-sort="type"][data-sortk="inv"]')?.click();
+  await t.sleep(50);
+  // the guest takes from its own body
+  const sg = A.freeSpot(G, MG, ch.x, ch.y, { rMin: 0.7, rMax: 1.3, prefer: Math.PI });
+  if (sg) A.teleport(G, sg[0], sg[1]);
+  await A.hostSees(t, H, G, 4000);
+  const gi = bodyOn(G, ch.id).store.slots.findIndex((x) => x && x.id === 'berries');
+  const take = await ask(G, 'corpse.take', { id: ch.id, slot: gi, qty: 40 });
+  await t.sleep(RT());
+  t.check(take.ok && A.count(G, 'berries') === 4 && !content(ch).berries, 'the guest takes the berries back from its own body', `${take.why || ''} · guest berries ${A.count(G, 'berries')}`);
+  // day 3: skeleton, can't be opened any more
+  skipDays(H, 2.05);
+  await t.waitFor(() => stageOn(G, MG, ch.id) === 'skeleton', ONEWAY() + 1500, 'day 3: the body is a skeleton on the guest');
+  await t.waitFor(() => pn.open !== 'container', 2000, 'host window closes at the skeleton stage');
+  const late = await ask(G, 'corpse.take', { id: ch.id, slot: bodyOn(G, ch.id).store.slots.findIndex(Boolean), qty: 10 });
+  t.check(!late.ok && /ossada/i.test(late.why || ''), 'taking from day 3 is refused', late.why);
+  const latePut = await ask(H, 'corpse.put', { id: ch.id, item: 'wood', qty: 1 });
+  t.check(!latePut.ok, 'putting from day 3 is refused', latePut.why);
+  const itB = MG.corpses.describeCorpse(G.game, bodyOn(G, ch.id));
+  t.check(itB?.kind === 'corpse_bones' && itB.verb === 'Remover ossada', 'the action becomes "Remover ossada"', `${itB?.kind} ${itB?.verb}`);
+  await t.checkDigest(H, G);
+  env.history.push('S61');
 });
 
 // =====================================================================================================
@@ -2156,8 +2359,8 @@ const lobsOf = (f, seen) => (f.game.projectiles || []).filter((q) => q.lob && !s
 
 def('G1', {
   title: 'G: long shot', timeout: 150000,
-  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; digest equal',
-  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter',
+  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; aim-assist hysteresis (lock, hop, stay, free, re-lock); a guest shot glued onto a creature walking sideways leads it and lands on its predicted position within scatter; digest equal',
+  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter; ui/aimAssist.js stepLock / assistParams; game.aim {beginMouse, release, lock}; event aimfire',
 }, async (t) => {
   const { H, G, MG } = await pairCtx(t);
   t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
@@ -2229,10 +2432,65 @@ def('G1', {
   gp.inv.remove('arrow', 1);
   let ok2 = null;
   G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: gp.x + 40, ay: gp.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onOk: (r) => { ok2 = r || {}; }, onReject: (w) => { ok2 = { why: w }; } });
+  lastT = now();
   await t.waitFor(() => ok2, RT() + 600, 'host answers the far shot');
   const far = lobsOf(H, seen2)[0];
   t.check(far && Math.hypot(far.lx - far.x0, far.ly - far.y0) <= S.range + W.lobScatter(S, S.range) + 0.01, 'aim 40 tiles away is clamped to the bow range by the host', far ? `${f2(Math.hypot(far.lx - far.x0, far.ly - far.y0))} tiles` : JSON.stringify(ok2));
   if (far) await t.tryWait(() => far.stuck || !(H.game.projectiles || []).includes(far), far.dur * 1000 + 1500);
+  // aim assist hysteresis (pure): lock → hop to a neighbour → stays glued → forced free → re-lock; off = never
+  const AA = await import(new URL('src/ui/aimAssist.js', G.win.location.href).href);
+  const PA = AA.assistParams('normal', false);
+  const tA = { x: 10, y: 10, r: 0.3 }, tB = { x: 12.2, y: 10, r: 0.3 }, tC = { x: 20, y: 10, r: 0.3 }, cs = [tA, tB, tC];
+  const nm = (o) => (o === tA ? 'A' : o === tB ? 'B' : o === tC ? 'C' : '-');
+  let lk = null;
+  const seqOut = [];
+  for (const rx of [10.3, 11.4, 13.5, 16.5, 19.3]) { lk = AA.stepLock(lk, rx, 10, cs, PA, 0, 10); seqOut.push(`${rx}→${nm(lk)}`); }
+  t.check(seqOut.join(' ') === '10.3→A 11.4→B 13.5→B 16.5→- 19.3→C', 'aim assist hysteresis: lock A, hop to B, stay glued, break free, re-lock C', seqOut.join(' '));
+  t.check(AA.stepLock(null, 10, 10, cs, AA.assistParams('off'), 0, 10) === null, 'aim assist off: never locks');
+  // locked shot on a MOVING creature: the guest aim glues onto its proxy and leads it by the flight time
+  const site2 = lobSite(t, H, G, MG, 10);
+  const ga = G.game.aim;
+  if (!site2 || !ga?.beginMouse) t.note('no creature for the moving-target shot (or no game.aim) — skipped');
+  else {
+    const m2 = site2.m;
+    env.claimed.add('mob' + m2.nid);
+    A.teleport(G, site2.s[0], site2.s[1]);
+    await A.hostSees(t, H, G);
+    await t.waitFor(() => A.proxyOf(G, m2), 3000 + CFG.budget, 'moving creature proxy on the guest');
+    // host (authority test setup): the creature walks sideways at 1.2 tiles/s, stunned so its own AI stays out
+    const ux = -(m2.y - site2.s[1]), uy = m2.x - site2.s[0], ul = Math.hypot(ux, uy) || 1, V = 1.2;
+    const x0 = m2.x, y0 = m2.y, tm0 = now();
+    const mover = t.watch(() => {
+      if (m2.dead) return;
+      const sec = Math.min(6, (now() - tm0) / 1000);
+      m2.x = x0 + (ux / ul) * V * sec; m2.y = y0 + (uy / ul) * V * sec; m2.stunT = 2; m2.calmT = 60;
+    }, 16);
+    const wait2 = 2700 - (now() - lastT);
+    if (wait2 > 0) await t.sleep(wait2);
+    gp.cds.long_shot = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+    A.ensure(G, { arrow: 4 });
+    const cv = G.game.R.canvas;
+    const mvTo = (wx, wy) => { const [sx, sy] = G.game.worldToScreen(wx, wy); cv.dispatchEvent(new G.win.PointerEvent('pointermove', { clientX: sx, clientY: sy, pointerType: 'mouse', bubbles: true })); };
+    ga.beginMouse('long_shot');
+    const follow = t.watch(() => { const q = A.proxyOf(G, m2); if (q) mvTo(q.x + 0.35, q.y + 0.3); }, 30);
+    await t.waitFor(() => ga.lock && ga.lock === A.proxyOf(G, m2), 2500, 'guest aim glues onto the moving creature');
+    await t.sleep(800); // velocity estimate settles
+    let fired = null;
+    t.on(G, 'aimfire', (d) => { fired = d; });
+    t.on(G, 'error', (d) => t.log(`guest message: ${d.text}`));
+    const q0 = A.proxyOf(G, m2), qxy = [q0.x, q0.y];
+    follow.stop();
+    const seen3 = new Set(H.game.projectiles || []);
+    ga.release();
+    t.assert(fired, 'locked shot fired by the guest (aim module)');
+    const lead = Math.hypot(fired.x - qxy[0], fired.y - qxy[1]);
+    t.check(lead > 0.6, 'the locked aim leads the moving creature', `${f2(lead)} tiles ahead of the proxy`);
+    const hp3 = await t.waitFor(() => lobsOf(H, seen3)[0], RT() + 600, 'host flies the locked shot');
+    await t.waitFor(() => hp3.stuck || !(H.game.projectiles || []).includes(hp3), hp3.dur * 1000 + 1500, 'locked shot lands on the host');
+    const D3 = Math.hypot(fired.x - gp.x, fired.y - gp.y), off3 = Math.hypot(hp3.lx - m2.x, hp3.ly - m2.y);
+    mover.stop();
+    t.check(off3 <= W.lobScatter(S, D3) + 0.6, "locked shot lands on the moving creature's predicted position (within scatter)", `${f2(off3)} tiles from it · scatter ≤ ${f2(W.lobScatter(S, D3))} at ${f2(D3)} tiles`);
+  }
   await t.sleep(900); // possible arrow recovery (loot.add) settles
   await t.checkDigest(H, G);
 });
@@ -2287,6 +2545,860 @@ def('G2', {
   t.check(gp.equip.main === 'spear_iron' && gp.inv.count('spear_iron') === spears0, 'spear still equipped on the guest, inventory unchanged', `main ${gp.equip.main} · bag ${gp.inv.count('spear_iron')}`);
   t.check(spearLoot(H) === loot0[0] && spearLoot(G) === loot0[1], 'no spear loot on the ground (host / guest)', `${spearLoot(H)} / ${spearLoot(G)}`);
   await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// J · Telhados, interiores e cavernas (agent J)
+const fimp = (f, p) => f.win.Function('u', 'return import(u)')(new URL('src/' + p, f.win.location.href).href);
+// a w × h rect of free tiles at least `far` tiles away from rock (so only the walls / columns hold the roof)
+const roomTiles = (w, h, f = null, far = 8) => (x0, y0) => {
+  const out = [], W = f?.game.world;
+  // …and from other players' walls / columns / roofs (earlier scenarios)
+  if (f) for (const o of f.game.build.structures) {
+    if (o.roof || o.type.startsWith('wall_') || o.type.startsWith('door_') || o.type.startsWith('column_')) {
+      if (o.tx > x0 - 8 && o.tx < x0 + w + 8 && o.ty > y0 - 8 && o.ty < y0 + h + 8) return [[-5, -5]];
+    }
+  }
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+    if (W && W.inBounds(x, y) && W.dRock && W.dRock[W.idx(x, y)] < far) return [[-5, -5]]; // too close to a mountain
+    out.push([x, y]);
+  }
+  return out;
+};
+// host (authority) puts down FINISHED walls around a w × h rect (+ a door in the south wall) — test shortcut
+function hostRoom(H, x0, y0, w, h, { door = true, wall = 'wall_wood' } = {}) {
+  const net = H.game.net, rows = [];
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+    if (x !== x0 && y !== y0 && x !== x0 + w - 1 && y !== y0 + h - 1) continue;
+    const isDoor = door && y === y0 + h - 1 && x === x0 + (w >> 1);
+    rows.push([net.newId('s'), isDoor ? 'door_wood' : wall, x, y, 0, 1, Math.round(H.game.worldTime), 0, 1, 0]);
+  }
+  net.emit('struct.add', { list: rows, by: net.pid });
+  return rows.map((r) => r[0]);
+}
+function hostRoof(H, x0, y0, w, h, type = 'roof_wood', style = 'shingle') {
+  const net = H.game.net, rows = [];
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) rows.push([net.newId('s'), type, x, y, 0, 1, Math.round(H.game.worldTime), 0, 1, 0, style, '']);
+  net.emit('struct.add', { list: rows, by: net.pid });
+  return rows.map((r) => r[0]);
+}
+const roofIds = (f) => f.game.build.structures.filter((o) => o.roof).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
+const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf[w.idx(x, y)]) || null; };
+
+def('J1', {
+  title: 'J: guest roofs a room, host sees the same roof', timeout: 240000,
+  expected: 'A tap inside a closed room makes roof plans for the room and its walls (free, blue); the guest builds them (sticks + fibre leave its bag when each tile starts); host and guest have the same roof structures (ids, style), world.broof equal, one roof region painted on both; roof plans need a finished support (refused without); digest equal',
+  api: 'build mode roof_thatch + tap (room fill) → build.place {style} → struct.add rows [.., style, det]; build.hit start (support check); world.broof / roofAt; game.roofs.regions (art)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(6, 5, H), gp.x, gp.y, { rMin: 4, rMax: 30, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free 6×5 site');
+  const { x0, y0 } = site;
+  // a roof plan with no support anywhere near is refused
+  const far = MG.building.placeReason(G.game, 'roof_thatch', x0 + 2, y0 + 2, gp, 0);
+  t.check(typeof far === 'string' && /apoio/i.test(far), 'roof plan without any support near is refused ("Sem apoio")', String(far));
+  const walls = hostRoom(H, x0, y0, 6, 5);
+  await t.waitFor(() => walls.every((id) => A.structOn(G, id)), RT() + 400, 'guest has the finished walls');
+  A.ensure(G, { stick: 40, fiber: 80 });
+  A.keepAlive(t, G);
+  const s0 = A.count(G, 'stick'), f0 = A.count(G, 'fiber');
+  A.teleport(G, x0 + 3, y0 + 6.5);
+  await A.hostSees(t, H, G);
+  // one tap inside the room → the whole room and its walls
+  MG.building.enterBuildMode(G.game, 'roof_thatch');
+  const m = G.game.build.mode;
+  m.hover = [x0 + 2, y0 + 2]; m.locked = true;
+  MG.building.commitPlacement(G.game);
+  t.check(m.room, 'the tap filled the enclosed room', `room=${m.room} n=${m.n}`);
+  MG.building.exitBuildMode(G.game);
+  const n = 6 * 5;
+  await t.waitFor(() => roofIds(H).length === n, RT() + 600, `host has ${n} roof plans`, () => `host ${roofIds(H).length}`);
+  await t.waitFor(() => roofIds(G).length === n, ONEWAY() + 400, 'guest has the roof plans');
+  t.check(JSON.stringify(roofIds(H)) === JSON.stringify(roofIds(G)), 'roof plan ids and style identical', short(roofIds(H).slice(0, 3)));
+  t.check(A.count(G, 'stick') === s0 && A.count(G, 'fiber') === f0, 'plans are free (nothing taken yet)');
+  const ids = G.game.build.structures.filter((o) => o.roof).map((o) => o.id);
+  await A.buildAll(t, G, MG, ids, { ms: 25000 });
+  await t.waitFor(() => ids.every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 400, 'host sees every roof tile finished');
+  await t.sleep(ONEWAY() + 300);
+  const bro = (f) => { const w = f.game.world; let s = 0; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 6; x++) s += w.broof[w.idx(x, y)] ? 1 : 0; return s; };
+  t.check(bro(H) === n && bro(G) === n, 'world.broof covers the room on both', `host ${bro(H)} guest ${bro(G)}`);
+  t.check(H.game.world.roofAt(x0 + 2, y0 + 2) === 2 && G.game.world.roofAt(x0 + 2, y0 + 2) === 2, 'roofAt = built inside on both');
+  await t.waitFor(() => regionAt(G, x0 + 2, y0 + 2)?.art && regionAt(H, x0 + 2, y0 + 2)?.art, 8000, 'roof region painted on both');
+  t.check(regionAt(G, x0 + 2, y0 + 2).tiles.length === n && regionAt(H, x0 + 2, y0 + 2).tiles.length === n, `one region of ${n} tiles on both`);
+  t.check(s0 - A.count(G, 'stick') === n && f0 - A.count(G, 'fiber') === 2 * n, 'materials delivered by the guest once per tile', `sticks −${s0 - A.count(G, 'stick')} fibre −${f0 - A.count(G, 'fiber')}`);
+  await t.checkDigest(H, G);
+  env.jRoom = { x0, y0, w: 6, h: 5 };
+});
+
+def('J2', {
+  title: 'J: host goes inside, only its roof view fades; interior zoom', timeout: 150000,
+  expected: 'Host walks under the roof: game.indoors = built, its roof region fades out (alpha ~0) while the guest (outside) keeps it opaque and does not draw the host avatar under it; host camera eases to the closer interior zoom (no jump > 6%/frame), zoom input is ignored inside; leaving eases back to the player zoom (±3%)',
+  api: 'game.indoors {kind, region, zoomK}; game.roofs.regions[].alpha; roofs.underOpaqueRoof; game.cam.zoom; input.zoom',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  let room = env.jRoom;
+  if (!room || !regionAt(H, room.x0 + 2, room.y0 + 2)) {
+    const gp = G.game.player;
+    const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(6, 5, H), gp.x, gp.y, { rMin: 4, rMax: 30, avoidPts: [[gp.x, gp.y]] });
+    t.assert(site, 'found a free 6×5 site');
+    room = { x0: site.x0, y0: site.y0, w: 6, h: 5 };
+    hostRoom(H, room.x0, room.y0, 6, 5); hostRoof(H, room.x0, room.y0, 6, 5);
+  }
+  const { x0, y0 } = room;
+  const RH = await fimp(H, 'game/roofs.js'), RG = await fimp(G, 'game/roofs.js');
+  A.teleport(G, x0 + 3, y0 + 7);
+  A.teleport(H, x0 + 3, y0 + 7.4);
+  await t.waitFor(() => regionAt(H, x0 + 2, y0 + 2)?.art && regionAt(G, x0 + 2, y0 + 2)?.art, 8000, 'the roof is painted on both');
+  await t.sleep(1400);
+  const z0 = H.game.cam.zoom, dz = H.game.defaultZoom();
+  // frame-by-frame zoom samples on the host
+  const Z = [];
+  let rec = true;
+  const loop = () => { if (!rec) return; Z.push(H.game.cam.zoom); H.win.requestAnimationFrame(loop); };
+  H.win.requestAnimationFrame(loop);
+  A.teleport(H, x0 + 2.5, y0 + 2.6);
+  await t.waitFor(() => H.game.indoors.kind === 'built', 2000, 'host indoors = built');
+  // zoom input while inside is ignored
+  const w = t.watch(() => { H.game.input.zoom = 0.5; }, 16);
+  await t.sleep(1600);
+  w.stop();
+  const gH = regionAt(H, x0 + 2, y0 + 2), gG = regionAt(G, x0 + 2, y0 + 2);
+  t.check(gH.alpha < 0.05 && gH.reveal > 0.95, 'host: its roof faded out', `alpha ${f2(gH.alpha)} reveal ${f2(gH.reveal)}`);
+  t.check(gG.alpha > 0.95, 'guest: the same roof stays opaque', `alpha ${f2(gG.alpha)}`);
+  const av = A.avatarOn(G, H.pid);
+  t.check(av && RG.underOpaqueRoof(G.game, av.x, av.y), 'guest: the host avatar is under an opaque roof (hidden)', av ? `${f2(av.x)},${f2(av.y)}` : 'no avatar');
+  const zIn = H.game.cam.zoom, want = Math.max(z0, Math.min(110, dz * 1.32));
+  t.check(Math.abs(zIn - want) / want < 0.04, 'host zoom eased to the interior zoom (input ignored)', `outside ${f2(z0)} → inside ${f2(zIn)} (want ${f2(want)})`);
+  // leave: back to the player zoom, smoothly
+  A.teleport(H, x0 + 3, y0 + 7.4);
+  await t.waitFor(() => !H.game.indoors.kind, 2000, 'host outdoors again');
+  await t.sleep(1800);
+  rec = false;
+  const zOut = H.game.cam.zoom;
+  t.check(Math.abs(zOut - z0) / z0 < 0.03, 'zoom back to the player zoom outside', `${f2(zOut)} vs ${f2(z0)}`);
+  let jump = 0;
+  for (let k = 1; k < Z.length; k++) jump = Math.max(jump, Math.abs(Z[k] - Z[k - 1]) / Z[k - 1]);
+  t.check(Z.length > 20 && jump < 0.06, 'no zoom jump (max change per frame < 6%)', `${Z.length} frames, max ${(jump * 100).toFixed(1)}%`);
+  await t.waitFor(() => regionAt(H, x0 + 2, y0 + 2).alpha > 0.95, 2000, 'host roof opaque again outside');
+  await t.checkDigest(H, G);
+});
+
+def('J3', {
+  title: 'J: removing walls collapses the unsupported roof on both', timeout: 180000,
+  expected: 'A 14×5 roofed hall; the guest marks the east walls for deconstruction: the first try warns "O teto vai desabar" and marks nothing, the second marks them; when the last support near the east end goes, the roof tiles farther than 6 tiles (Euclidean, tile centres) from any support collapse on both (roof.collapse: same remaining ids), the rest stays; toast "O teto desabou!"; digest equal',
+  api: 'building.deconRect (confirmSupports) → build.decon; decon.hit → struct.remove → roofs supportDirty → host roofSupportSystem → op roof.collapse',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(14, 5, H, 9), gp.x, gp.y, { rMin: 4, rMax: 34, avoidPts: [[gp.x, gp.y]] });
+  t.assert(site, 'found a free 14×5 site');
+  const { x0, y0 } = site;
+  hostRoom(H, x0, y0, 14, 5, { door: false });
+  const roofs = hostRoof(H, x0, y0, 14, 5);
+  await t.waitFor(() => roofs.every((id) => A.structOn(G, id)), RT() + 600, 'guest has the hall and its roof');
+  A.keepAlive(t, G);
+  A.teleport(G, x0 + 10, y0 + 6.6);
+  await A.hostSees(t, H, G);
+  const toasts = [];
+  t.on(G, 'toast', (d) => toasts.push(d.text));
+  // east walls (x ≥ x0 + 6): their removal leaves x0+12, x0+13 more than 6 tiles from the last wall (x0+5)
+  const east = G.game.build.structures.filter((o) => o.type === 'wall_wood' && o.tx >= x0 + 6 && o.tx <= x0 + 13 && o.ty >= y0 && o.ty <= y0 + 4);
+  const n1 = MG.building.deconRect(G.game, x0 + 6, y0, x0 + 13, y0 + 4);
+  t.check(n1 === 0 && toasts.some((s) => /teto vai desabar/i.test(s)), 'first try: "O teto vai desabar" warning, nothing marked', `marked ${n1} · ${short(toasts)}`);
+  const n2 = MG.building.deconRect(G.game, x0 + 6, y0, x0 + 13, y0 + 4);
+  t.check(n2 === east.length, 'second try marks the walls', `${n2}/${east.length}`);
+  await t.waitFor(() => east.every((o) => H.game.build.decon.has(A.structOn(H, o.id))), RT() + 500, 'host has the decon marks');
+  // the host finishes all but one of them (shortcut), the guest deconstructs the last one for real
+  const last = east.find((o) => o.tx === x0 + 6 && o.ty === y0);
+  for (const o of east) if (o !== last) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 });
+  await t.sleep(ONEWAY() + 300);
+  // the last east wall (x0+6, y0) still holds what is within 6 tiles of it, e.g. (x0+12, y0); the far corner already fell
+  await t.waitFor(() => !A.structAt(H, MH, x0 + 13, y0 + 4, 'roof'), RT() + 800, 'far corner (8 tiles from the last wall) fell');
+  t.check(A.structAt(H, MH, x0 + 12, y0, 'roof') && A.structAt(G, MG, x0 + 12, y0, 'roof'), 'the last wall still holds the tiles within 6 tiles of it', `${roofIds(H).length} roof tiles`);
+  await A.decon(t, G, MG, last.id);
+  const gone = (f) => [12, 13].every((dx) => [0, 1, 2, 3, 4].every((dy) => !A.structAt(f, MG, x0 + dx, y0 + dy, 'roof')));
+  await t.waitFor(() => gone(H) && gone(G), RT() + 800, 'tiles beyond 6 tiles collapsed on both');
+  const kept = (f) => [[0, 2], [6, 2], [10, 2], [11, 0], [11, 4]].every(([dx, dy]) => A.structAt(f, MG, x0 + dx, y0 + dy, 'roof'));
+  const lost11 = (f) => [1, 2, 3].every((dy) => !A.structAt(f, MG, x0 + 11, y0 + dy, 'roof'));
+  t.check(kept(H) && kept(G), 'tiles within 6 tiles of the last walls stay');
+  t.check(lost11(H) && lost11(G), 'tiles just beyond 6 tiles (x0+11, middle rows: 6.1–6.3) fell too');
+  t.check(JSON.stringify(roofIds(H)) === JSON.stringify(roofIds(G)), 'same remaining roof tiles on both', `${roofIds(H).length} / ${roofIds(G).length}`);
+  await t.tryWait(() => toasts.some((s) => /teto desabou/i.test(s)), 1500);
+  t.check(toasts.some((s) => /teto desabou/i.test(s)), 'guest got "O teto desabou!"', short(toasts));
+  await t.sleep(800);
+  await t.checkDigest(H, G);
+});
+
+def('J4', {
+  title: 'J: mining a mountain open removes its natural roof identically on both', timeout: 150000,
+  expected: 'Mined tiles keep the mountain roof while rock is within 6 tiles; opening a 14×14 box takes it off in the middle on both peers (world.roof bytes equal, roofAt / isCave equal per tile, the centre is open sky, tiles next to the remaining rock stay caves); a guest mining hit through rock.hit keeps them equal; digest equal',
+  api: 'tile.mine → world.mineRock → _naturalRoof (world.roof, lastLost); world.roofAt / isCave; digest tiles part (roof, broof)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const w = H.game.world, sp = spawnOf(H);
+  // a solid mountain block (all rock, roof0 in the middle) closest to the spawn
+  let best = null, bd = 1e9;
+  for (let cy = 12; cy < w.H - 12; cy += 2) for (let cx = 12; cx < w.W - 12; cx += 2) {
+    const i = w.idx(cx, cy);
+    if (!w.rock[i] || !w.roof0[i]) continue;
+    const d = Math.hypot(cx - sp.x, cy - sp.y);
+    if (d >= bd) continue;
+    let ok = true;
+    for (let y = cy - 9; y < cy + 9 && ok; y++) for (let x = cx - 9; x < cx + 9; x++) if (!w.rock[w.idx(x, y)]) { ok = false; break; }
+    if (ok) { best = [cx, cy]; bd = d; }
+  }
+  t.need(best, 'needs an 18×18 solid mountain block in this seed');
+  const [cx, cy] = best;
+  env.claimed.add('mountain' + cx + ',' + cy);
+  // a 3-wide tunnel into it first: still a cave everywhere
+  for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 8; x <= cx; x++) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.sleep(ONEWAY() + 300);
+  t.check(H.game.world.isCave(cx - 3, cy) && G.game.world.isCave(cx - 3, cy), 'a narrow tunnel stays a cave on both');
+  // open the box
+  for (let y = cy - 7; y < cy + 7; y++) for (let x = cx - 7; x < cx + 7; x++) if (w.rock[w.idx(x, y)]) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx, cy)] === 0, RT() + 1000, 'guest has the mined box');
+  await t.sleep(ONEWAY() + 300);
+  const eqRoof = () => { const a = H.game.world.roof, b = G.game.world.roof; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return -1; };
+  const diffAt = eqRoof();
+  t.check(diffAt < 0, 'world.roof identical on both', diffAt < 0 ? 'equal' : `first difference at tile ${diffAt}`);
+  t.check(H.game.world.roofAt(cx, cy) === 0 && G.game.world.roofAt(cx, cy) === 0, 'the centre of the opened hall is open sky on both');
+  t.check(!H.game.world.isCave(cx, cy) && !G.game.world.isCave(cx, cy), 'the centre is no longer a cave');
+  let edgeCave = 0;
+  for (let y = cy - 7; y < cy + 7; y++) { if (H.game.world.isCave(cx - 7, y)) edgeCave++; }
+  t.check(edgeCave > 0, 'tiles next to the remaining rock keep their ceiling', `${edgeCave} cave tiles along the west edge`);
+  // the guest mines one more rock tile at the east edge through the real rock.hit path
+  A.ensure(G, { pickaxe_steel: 1 });
+  A.keepAlive(t, G);
+  const tx = cx + 7, ty = cy;
+  const stand = () => A.teleport(G, tx - 0.5, ty + 0.5);
+  stand();
+  await A.hostSees(t, H, G);
+  await A.mine(t, G, MG, tx, ty, { stand });
+  await t.waitFor(() => H.game.world.rock[w.idx(tx, ty)] === 0 && G.game.world.rock[w.idx(tx, ty)] === 0, RT() + 600, 'guest mining hit reached both');
+  await t.sleep(ONEWAY() + 300);
+  t.check(eqRoof() < 0, 'world.roof still identical after the guest mined');
+  await t.checkDigest(H, G);
+});
+
+def('J5', {
+  title: 'J: roofs survive a guest resync and the save round trip', timeout: 120000,
+  expected: 'After roofs exist, a guest resync (snapshot, reconcile) keeps the same roof structures (ids, style, det) and the guest repaints them; a save → load of the host world data restores roofs with their style (v6 rows); digest equal',
+  api: 'net.forceResync(); snapshot structs rows [.., style, det]; save.buildSaveData / serializeWorld',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  if (!roofIds(H).filter((s) => !s.endsWith(':bp')).length) {
+    const gp = G.game.player;
+    const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(5, 4, H, 2), gp.x, gp.y, { rMin: 4, rMax: 24 });
+    t.assert(site, 'found a free 5×4 site');
+    hostRoom(H, site.x0, site.y0, 5, 4); hostRoof(H, site.x0, site.y0, 5, 4, 'roof_stone', 'terracotta');
+    await t.sleep(RT() + 400);
+  }
+  const before = roofIds(H);
+  G.game.net.forceResync();
+  await t.waitFor(() => G.game.net.synced && JSON.stringify(roofIds(G)) === JSON.stringify(before), 15000, 'guest roofs equal after the resync');
+  const snap = H.game.net.digest ? (await fimp(H, 'net/snapshot.js')).serializeWorld(H.game, { save: true }) : null;
+  const rows = (snap?.structs || []).filter((r) => String(r[1]).startsWith('roof_'));
+  t.check(rows.length && rows.every((r) => r.length >= 16 && typeof r[14] === 'string' && r[14]), 'save rows carry the roof style (v6)', short(rows[0]));
+  const SV = await fimp(H, 'game/save.js');
+  const data = SV.buildSaveData(H.game);
+  t.check(data.v >= 6, 'save data version bumped for roofs', `v${data.v}`);
+  const mig = SV.migrateStructRows(H.game, [[ 'sx1', 'wall_wood', 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0 ]]);
+  t.check(mig[0].length === 16 && mig[0][14] === '' && mig[0][15] === '', 'v4 / v5 rows migrate to v6 (style / det empty)', short(mig[0]));
+  await t.checkDigest(H, G);
+});
+
+// L · Andares e escadarias (agent L, docs/LEVELS.md): stairs, ramparts, levels across the network
+// host-side test setup: finished structures through the real op (no work loop) — rows [type, tx, ty, rot]
+function hostBuild(H, rows) {
+  const g = H.game, net = g.net;
+  const list = rows.map(([type, tx, ty, rot = 0]) => [net.newId('s'), type, tx, ty, 0, 1, Math.round(g.worldTime), rot, 1, 0]);
+  net.emit('struct.add', { list });
+  return list.map((r) => r[0]);
+}
+// owner-side setup: stand on a wall top (level 1) at (x, y)
+function upOn(f, x, y) { A.teleport(f, x, y); const p = f.game.player; p.lv = 1; p.z = 1; }
+const lvOf = (e) => `lv ${e?.lv ?? '-'} z ${f2(e?.z ?? 0)}`;
+// a wall row (x..x+n-1, y) with free ground around it, valid on both frames
+const rowSite = (H, G, MH, MG, n, cx, cy, opts = {}) => A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => {
+  const out = [];
+  for (let k = -1; k <= n; k++) for (let dy = -1; dy <= (opts.south ?? 1); dy++) out.push([x + k, y + dy]);
+  return out;
+}, cx, cy, opts);
+
+def('L1', {
+  star: true, title: 'L: guest builds stairs and walks on a rampart', timeout: 180000,
+  expected: 'Guest builds a wall row + stairs (blueprints, real work): same ids on both, level map identical; climbing the stairs raises z 0 → 1 smoothly and ends on the wall top (lv 1, bounded by the edges); the host sees the guest at lv 1 in the same place (avatar + drawn copy); walking along the rampart keeps lv 1; pushing at the edge hops down to lv 0 (host sees z 0); digest equal',
+  api: 'BUILDINGS.stairs_wood (block "stairs", rot), game.levels {active, stairs, isSurface, stairAt}, player {lv, z}, presence st/sts z, session players.av.z / ent.z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.levels?.STORY_H && MG.data.BUILDINGS.stairs_wood, 'levels module / stairs_wood missing');
+  const gp = G.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = rowSite(H, G, MH, MG, 5, gp.x, gp.y, { rMin: 3, rMax: 18, south: 3, avoidPts: [[gp.x, gp.y], [H.game.player.x, H.game.player.y]] });
+  t.assert(site, 'found a free 7×5 site');
+  const { x0: x, y0: y } = site;
+  A.pacify(H, x, y, 20);
+  A.ensure(G, { wood: 40 });
+  const walls = A.place(G, MG, 'wall_wood', [x, y], [x + 4, y]);
+  const stairsL = A.place(G, MG, 'stairs_wood', [x + 1, y + 1], [x + 1, y + 1], 0);
+  t.log(`guest planned ${walls.length} walls + ${stairsL.length} stairs at ${x},${y}`);
+  const ids = await t.waitFor(() => { const L0 = G.game.build.structures.filter((o) => o.blueprint && o.ty >= y && o.ty <= y + 1 && o.tx >= x && o.tx <= x + 4); return L0.length >= 6 && L0; }, RT() + 600, 'guest sees 6 blueprints');
+  const st = ids.find((o) => o.type === 'stairs_wood');
+  t.assert(st, 'stairs blueprint present');
+  t.check(st.fw === 1 && st.fh === 2 && (st.rot | 0) === 0, 'stairs footprint 1×2, rot 0 (ascends north)', `${st.fw}×${st.fh} rot ${st.rot}`);
+  await A.buildAll(t, G, MG, ids.map((o) => o.id), { ms: 30000 });
+  await t.waitFor(() => ids.every((o) => { const h = A.structOn(H, o.id); return h && !h.blueprint; }), RT() + 800, 'host sees every piece finished');
+  const LH = H.game.levels, LG = G.game.levels;
+  const wi = H.game.world.idx(x + 1, y);
+  t.check(LH.active && LG.active && LH.stairs.length === LG.stairs.length, 'level map active on both (stairs registered)', `host ${LH.stairs.length} · guest ${LG.stairs.length}`);
+  t.check(LH.isSurface(1, wi) && LG.isSurface(1, wi), 'wall tops are level-1 surfaces on both');
+  // climb
+  A.teleport(G, x + 1.5, y + 3.5);
+  await A.hostSees(t, H, G);
+  const zs = [];
+  const zw = t.watch(() => zs.push(+(gp.z || 0).toFixed(3)), 4);
+  const rel = A.holdMove(G, 0, -1);
+  await t.waitFor(() => gp.lv === 1 && gp.z === 1 && gp.y < y + 0.9, 5000, 'guest climbs to level 1', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.sleep(400);
+  rel(); zw.stop();
+  const mids = zs.filter((v) => v > 0.05 && v < 0.95);
+  t.check(mids.length >= 3, 'z rises smoothly on the stairs (intermediate heights)', short(zs.filter((_, i) => i % 3 === 0).slice(0, 30)));
+  t.check(gp.lv === 1 && Math.floor(gp.y) === y && gp.y > y + 0.2, 'stands on the wall top, stopped by the north edge (no walking into the air)', `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  const av = () => guestOnHost(H, G), drawn = () => A.avatarOn(H, G.pid);
+  await t.waitFor(() => av() && av().z === 1 && av().lv === 1 && Math.hypot(av().x - gp.x, av().y - gp.y) < 0.3, RT() + 400, 'host avatar of the guest at lv 1 in the same place', () => `host av ${lvOf(av())} ${f2(av()?.x)},${f2(av()?.y)}`);
+  await t.waitFor(() => Math.abs((drawn()?.z ?? 0) - 1) < 0.01 && Math.hypot(drawn().x - gp.x, drawn().y - gp.y) < 0.35, RT() + 600, 'host draws the guest on the wall top (interpolated copy z = 1)');
+  // along the rampart
+  const x1 = gp.x;
+  const rel2 = A.holdMove(G, 1, 0);
+  await t.sleep(700);
+  rel2();
+  t.check(gp.lv === 1 && gp.x > x1 + 1 && Math.floor(gp.y) === y, 'walks along the rampart at lv 1', `${lvOf(gp)} x ${f2(x1)} → ${f2(gp.x)}`);
+  await t.waitFor(() => av()?.lv === 1 && Math.abs(av().x - gp.x) < 0.3, RT() + 400, 'host follows the guest along the rampart');
+  // jump down north (push at the edge)
+  const rel3 = A.holdMove(G, 0, -1);
+  await t.waitFor(() => gp.lv === 0 && gp.z === 0 && gp.y < y, 4000, 'pushing at the edge hops down to the ground', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  rel3();
+  await t.waitFor(() => av() && !(av().z > 0) && av().y < y, RT() + 400, 'host sees the guest back on the ground (z 0)');
+  await t.checkDigest(H, G);
+});
+
+def('L2', {
+  title: 'L: creature cannot melee a player on a wall top', timeout: 150000,
+  expected: 'Guest stands on a rampart with no stairs; a hostile host creature chases it, stays at lv 0 and never lands a bite (melee only on the same level); once the guest is back on the ground next to it, it bites (control); proxies keep z 0',
+  api: 'combat.reach −1 across levels; levels.findPath (no portal → partial → evade); own player.hurt; ents dyn z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = spawnOf(H);
+  const m = A.hostMobs(H, (e) => (e.species === 'wolf' || e.species === 'spider' || e.species === 'boar') && (e.temper || '') !== 'passive' && !env.claimed.has('mob' + e.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  t.assert(m, 'found a hostile creature');
+  env.claimed.add('mob' + m.nid);
+  const site = rowSite(H, G, MH, MG, 3, m.x, m.y, { rMin: 2, rMax: 9 });
+  t.assert(site, 'wall site near the creature');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), RT() + 500, 'guest sees the walls');
+  const gp = G.game.player;
+  upOn(G, x + 1.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1 && Math.hypot(guestOnHost(H, G).x - gp.x, guestOnHost(H, G).y - gp.y) < 0.3, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} ${f2(gp.x)},${f2(gp.y)} · host av ${lvOf(guestOnHost(H, G))} ${f2(guestOnHost(H, G)?.x)},${f2(guestOnHost(H, G)?.y)}`);
+  const dmg = [];
+  // creature hits only (survival damage — cold, hunger — has the player itself as source; DoTs are ticks)
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ t: now(), src: d.src.species || d.src.nid || '?', z: gp.z }); });
+  m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  let minD = 1e9, maxLv = 0, proxZ = 0;
+  const w = t.watch(() => { minD = Math.min(minD, Math.hypot(m.x - gp.x, m.y - gp.y)); maxLv = Math.max(maxLv, m.lv | 0, m.z > 0 ? 1 : 0); const pr = A.proxyOf(G, m); if (pr) proxZ = Math.max(proxZ, pr.z || 0); }, 8);
+  await t.sleep(7000);
+  w.stop();
+  t.metric('melee', { minD: f2(minD), state: m.state, fails: m.nav?.fails ?? 0 });
+  t.check(minD < 2.6, 'the creature came close (below the wall)', `min distance ${f2(minD)} · state ${m.state}`);
+  t.check(maxLv === 0, 'the creature stayed at lv 0 (no stairs to climb)', lvOf(m));
+  t.check(!dmg.length, 'no bite reached the guest on the wall top', `${dmg.length} hits ${short(dmg.slice(0, 3))}`);
+  t.check(proxZ === 0, 'creature proxy on the guest keeps z 0', `max ${f2(proxZ)}`);
+  // control: back on the ground beside it → bitten
+  const s = A.freeSpot(G, MG, m.x, m.y, { rMin: 0.7, rMax: 1.6 });
+  t.assert(s, 'free ground spot next to the creature');
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  m.calmT = 0; if (m.state !== 'chase') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  const bit = await t.tryWait(() => dmg.length > 0, 9000);
+  t.check(bit, 'on the same level the creature bites (control)', `${dmg.length} hits · creature ${m.state} at ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`);
+  sendAway(G, MG, m.x, m.y, 30);
+  A.pacify(H, m.x, m.y, 6, 120);
+  await t.checkDigest(H, G);
+});
+
+def('L3', {
+  title: 'L: bandit archer shoots a player on a rampart', timeout: 150000,
+  expected: 'Guest on a wall top (lv 1) 6–8 tiles from a bandit archer with height line of sight: the archer shoots (arrows aimed at z 1, flying over walls), the guest takes ranged damage only; arrows visible on both',
+  api: 'combat.hasLOS(world, …, z0, z1); fireArrow {z0, z1}; fx proj z args; own player.hurt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const archers = [];
+  for (const c of H.game.camps || []) for (const mm of c.members || []) if (mm.role === 'archer' && !mm.dead) archers.push(mm);
+  const sp = spawnOf(H);
+  archers.sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  t.assert(archers.length, 'found a bandit archer');
+  const ar = archers[0];
+  let site = null;
+  for (let r = 6; r <= 8 && !site; r++) {
+    const cand = rowSite(H, G, MH, MG, 3, ar.x, ar.y, { rMin: r, rMax: r });
+    if (cand && MH.combat.hasLOS(H.game.world, cand.x0 + 1.5, cand.y0 + 0.5, ar.x, ar.y, 1, ar.z || 0)) site = cand;
+  }
+  t.assert(site, 'wall site 6–8 tiles from the archer with line of sight from the top');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), RT() + 500, 'guest sees the walls');
+  const gp = G.game.player;
+  upOn(G, x + 1.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
+  const dmg = [], shotsH = [], seenH = new WeakSet(), seenG = new WeakSet();
+  let gArrows = 0;
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ weapon: d.src.weapon || '?', srcZ: +(d.src.z || 0).toFixed(2), lv: gp.lv }); });
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) if (pr.faction === 'bandit' && !seenH.has(pr)) { seenH.add(pr); shotsH.push(+(pr.z1 || 0).toFixed(2)); }
+    for (const pr of G.game.projectiles || []) if (pr.cosmetic && !seenG.has(pr)) { seenG.add(pr); gArrows++; }
+  }, 8);
+  ar.calmT = 0;
+  MH.ai.aggro(H.game, ar, guestOnHost(H, G));
+  await t.tryWait(() => dmg.length > 0 && gArrows > 0, 30000);
+  t.metric('archer', { shots: shotsH.length, z1: short(shotsH.slice(0, 6)), hits: dmg.length, guestArrows: gArrows });
+  t.check(shotsH.length > 0 && shotsH.some((z) => z === 1), 'the archer shoots at the guest on the rampart (arrows aimed at z 1)', short(shotsH.slice(0, 8)));
+  t.check(dmg.length > 0, 'ranged hits reach the guest at lv 1', `${dmg.length} hits, guest ${lvOf(gp)}`);
+  t.check(dmg.every((d) => /bow|spear/.test(d.weapon) && d.srcZ < 0.5 && d.lv === 1), 'every hit was a shot (bow / thrown spear) from the ground while the guest stood on the wall (no melee)', short(dmg.slice(0, 6)));
+  t.check(gArrows > 0, 'arrows visible on the guest (cosmetic copies)', `${gArrows}`);
+  sendAway(G, MG, ar.x, ar.y, 40);
+  await t.checkDigest(H, G);
+});
+
+def('L4', {
+  title: 'L: creature climbs the stairs to reach a player', timeout: 150000,
+  expected: 'With a staircase up to the rampart, a hostile host creature paths through it (stairs = A* portal), reaches lv 1 and bites the guest standing on the wall top; the guest sees the creature proxy at z 1',
+  api: 'levels.findPath portals, nav.steer(glv), levels.move on stairs, ents dyn z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = spawnOf(H);
+  const m = A.hostMobs(H, (e) => (e.species === 'wolf' || e.species === 'boar') && (e.temper || '') !== 'passive' && !env.claimed.has('mob' + e.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  t.need(m, 'no wolf / boar left near the spawn');
+  env.claimed.add('mob' + m.nid);
+  const site = rowSite(H, G, MH, MG, 5, m.x, m.y, { rMin: 3, rMax: 10, south: 3 });
+  t.assert(site, 'rampart site near the creature');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y], ['wall_wood', x + 3, y], ['wall_wood', x + 4, y], ['stairs_wood', x + 1, y + 1, 0]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 500, 'guest sees the rampart');
+  const gp = G.game.player;
+  upOn(G, x + 3.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
+  const dmg = [];
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push(now()); });
+  let proxZ = 0, onStairs = 0;
+  t.watch(() => { const pr = A.proxyOf(G, m); if (pr) proxZ = Math.max(proxZ, pr.z || 0); if (m.z > 0.05 && m.z < 0.95) onStairs++; }, 8);
+  m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  const up = await t.tryWait(() => m.lv === 1 && m.z === 1, 20000);
+  t.check(up, 'the creature climbed to lv 1 through the stairs', `${lvOf(m)} state ${m.state} at ${f2(m.x)},${f2(m.y)} fails ${m.nav?.fails ?? 0}`);
+  t.check(onStairs > 0, 'it was seen mid-stairs (0 < z < 1)', `${onStairs} samples`);
+  const bit = await t.tryWait(() => dmg.length > 0, 10000);
+  t.check(bit, 'and bites the guest on the rampart', `${dmg.length} hits`);
+  await t.tryWait(() => proxZ >= 0.99, RT() + 1200); // the proxy follows the stream (10 Hz, 150 ms behind)
+  t.check(proxZ >= 0.99, 'guest sees the creature proxy up there (z 1)', `max z ${f2(proxZ)}`);
+  sendAway(G, MG, m.x, m.y, 30);
+  m.x = m.home.x; m.y = m.home.y; m.lv = 0; m.z = 0; // host-side cleanup
+  A.pacify(H, m.x, m.y, 6, 120);
+  await t.checkDigest(H, G);
+});
+
+def('L5', {
+  title: 'L: saves — old save loads at lv 0, a new one keeps the rampart', timeout: 120000,
+  expected: 'Solo save frame: a player saved on a wall top reloads at lv 1 on it; the same save without level data (an older build) loads at lv 0 and never inside the wall; structures without lv (incl. legacy 10-field rows) load at level 0 and their tops are surfaces',
+  api: 'save.js player.z (optional), levels.restore(p, z), snapshot rows without lv; localStorage wos.save.v2.<seed> (restored after the run)',
+}, async (t) => {
+  const seed = CFG.seed + 17;
+  presetPid('s' + rand(7));
+  const S = t.open('solo-levels', `seed=${seed}`, null);
+  await t.waitFor(() => S.game && S.loadingHidden, CFG.bootMs, 'save frame boot');
+  const M = await A.mods(S);
+  await A.reset(t, S, M, null, null);
+  const g = S.game, p = g.player;
+  const site = A.findSite([S], [M], 'wall_wood', (x, y) => { const o = []; for (let k = -1; k <= 5; k++) for (let dy = -1; dy <= 3; dy++) o.push([x + k, y + dy]); return o; }, p.x, p.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'free site');
+  const { x0: x, y0: y } = site;
+  hostBuild(S, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y], ['stairs_wood', x + 1, y + 1, 0]]);
+  A.teleport(S, x + 1.5, y + 3.5);
+  const rel = A.holdMove(S, 0, -1);
+  await t.waitFor(() => p.lv === 1 && p.z === 1, 5000, 'climbs onto the wall');
+  rel();
+  await t.sleep(200);
+  const at = [p.x, p.y];
+  t.assert(M.save.saveGame(g), 'saveGame() wrote a save');
+  const key = `wos.save.v2.${seed}`;
+  const data = JSON.parse(S.win.localStorage.getItem(key));
+  t.check(data?.player?.z === 1, 'the save records player z 1', String(data?.player?.z));
+  t.check(!data.world.lvs && g.build.structures.every((o) => !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
+  S.reload();
+  await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded (1)');
+  let p2 = S.game.player;
+  t.check(p2.lv === 1 && p2.z === 1 && Math.hypot(p2.x - at[0], p2.y - at[1]) < 0.05, 'reloads standing on the rampart (lv 1)', `${lvOf(p2)} at ${f2(p2.x)},${f2(p2.y)}`);
+  // an older build's save: no player z, plus a legacy 10-field wall row (v3)
+  const old = JSON.parse(JSON.stringify(data));
+  delete old.player.z;
+  old.v = 3;
+  old.world.structs = old.world.structs.map((r) => r.slice(0, 10));
+  old.world.structs.push(['old_wall_lv', 'wall_wood', x + 4, y, 0, 1, 0, 0, 0, 100]);
+  const g2 = S.game;
+  g2.noSave = true; // the page would save itself again on pagehide
+  S.win.localStorage.setItem(key, JSON.stringify(old));
+  S.reload();
+  await t.waitFor(() => S.loads >= 3 && S.game && S.loadingHidden && S.game !== g2, CFG.bootMs, 'reloaded (2: old save)');
+  const g3 = S.game;
+  p2 = g3.player;
+  t.check(!(p2.lv > 0) && !(p2.z > 0), 'old save: the player loads at lv 0', lvOf(p2));
+  const M3 = await A.mods(S);
+  t.check(!M3.physics.collides(g3.world, p2.x, p2.y, p2.r, null, true), 'old save: not stuck inside the wall (nudged out at lv 0)', `${f2(p2.x)},${f2(p2.y)}`);
+  const S3 = g3.build.structures;
+  t.check(S3.some((o) => o.id === 'old_wall_lv') && S3.every((o) => !(o.lv > 0)), 'old rows load as level-0 structures', `${S3.length} structures`);
+  const L3 = g3.levels;
+  t.check(L3.active && L3.isSurface(1, g3.world.idx(x + 4, y)) && L3.isSurface(1, g3.world.idx(x + 1, y)), 'their wall tops are level-1 surfaces, stairs active', `stairs ${L3.stairs.length}`);
+});
+
+// =====================================================================================================
+// S70 H: look sync (character creator)
+def('S70', {
+  title: 'H: look sync', timeout: 90000,
+  expected: 'Guest changes its look → the host draws the very same parts and colours (look/rig layers per facing); host change → guest sees it; a malformed look from a peer (unknown ids, bad colours, garbage) is cleaned to valid defaults and draws; packed look < 320 B (avg ~200); selfTest clean',
+  api: 'game/look.js {randomLook, cleanLook, packLook, applyLook} · session.sendLook() · lk / sts.look (packed) · art/look/rig.js lookRig(A, look)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.look?.packLook && MG.lookRig?.lookRig, 'look schema / rig modules');
+  const LK = MG.look, LH = MH.look;
+  const layers = (M, A, look) => { const R = M.lookRig.lookRig(A, look), out = []; for (const d of ['s', 'n', 'e']) for (const part of ['hairBack', 'body', 'head', 'brows', 'beard', 'hair']) for (const l of R[part][d]) out.push(`${d}:${l.s.name}:${l.r.toFixed(3)},${l.g.toFixed(3)},${l.b.toFixed(3)}`); return out; };
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // 1. the guest restyles itself (live, like the editor's "Salvar" in a running game)
+  let nl = LK.randomLook(4242);
+  if (LK.packLook(nl) === LK.packLook(G.game.player.look)) nl = LK.randomLook(4343);
+  nl = { ...nl, hair: 'long_wavy', hairFx: 'tips', pattern: 'plaid', over: 'vest', beard: 'full' };
+  LK.applyLook(G.game, nl);
+  const want = LK.packLook(G.game.player.look);
+  const seen = () => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) === want; };
+  const ms = await t.timeTo(seen, 4000, 'host sees the new guest look');
+  t.metric('lookSyncMs', Math.round(ms));
+  t.check(seen(), 'host has the guest look (packed equal)', want.slice(0, 80) + '…');
+  const lg = layers(MG, G.game.A, G.game.player.look), lh = layers(MH, H.game.A, A.avatarOn(H, G.pid).look);
+  t.check(lg.length > 30 && same(lg, lh), 'same sprite layers + tints on both clients (3 facings)', `${lg.length} layers · ${lg.slice(0, 3).join(' | ')}`);
+  // lazy look atlas: the host paints the guest's parts on demand (not baked in the atlas, not in the digest)
+  const RH = MH.lookRig.lookRig(H.game.A, A.avatarOn(H, G.pid).look);
+  const readyH = MH.lookRig.rigReady(RH, true), st0 = H.game.net.selfTest().look;
+  t.check(readyH && RH.need.every((r) => r.ready) && st0 && !st0.failures.length && !H.game.A.has('lk_skin_s'), 'host paints the guest look parts lazily (second texture), no failures', JSON.stringify(st0));
+  t.check(want.length < 320, 'packed look is compact (worst case ~290 chars)', `${want.length} chars`);
+  t.metric('lookBytes', want.length);
+  // 2. the host restyles → the guest sees it
+  const hl = { ...LH.randomLook(777), hair: 'afro', top: 'gown', paint: 'tribal' };
+  LH.applyLook(H.game, hl);
+  const wantH = LH.packLook(H.game.player.look);
+  await t.waitFor(() => { const e = A.avatarOn(G, H.pid); return e && LK.packLook(e.look) === wantH; }, 8000, 'guest sees the new host look');
+  t.check(same(layers(MH, H.game.A, H.game.player.look), layers(MG, G.game.A, A.avatarOn(G, H.pid).look)), 'guest draws the host with the same layers');
+  // 3. malformed looks from a peer are cleaned (never crash, never undefined parts)
+  const bad = [
+    '1|nonexistent|zz|<b>|' + 'x'.repeat(40),
+    { v: 1, hair: '<script>', skin: 'zzzzzz', topC: [9, -3, 'a'], eyes: 42, beardC: 'nothex', shoes: null, top: { evil: 1 } },
+    { skin: [2, 2, 2], hair: 'long', hairColor: [0.2, 0.1, 0.05], shirt: [0.5, 0.2, 0.1], beard: true },
+    12345, 'garbage', ['a', 1],
+  ];
+  for (const [i, b] of bad.entries()) {
+    G.session.sendHost({ t: 'lk', look: b });
+    await t.waitFor(() => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) !== want; }, 3000, `host applied malformed look #${i + 1}`).catch(() => {});
+    const e = A.avatarOn(H, G.pid), l = e?.look || {};
+    const ok = LH.packLook(l) === LH.packLook(LH.cleanLook(l)) && /^[0-9a-f]{6}$/.test(l.skin) && /^[0-9a-f]{6}$/.test(l.topC) && typeof l.hair === 'string';
+    let drew = true;
+    try { layers(MH, H.game.A, l); H.game.render(); } catch (err) { drew = false; t.log('draw error ' + err.message); }
+    t.check(ok && drew, `malformed look #${i + 1} cleaned and drawn`, `hair ${l.hair} skin ${l.skin} top ${l.top} topC ${l.topC}`);
+    G.session.sendHost({ t: 'lk', look: want }); // back to the real one
+    await t.tryWait(() => { const x = A.avatarOn(H, G.pid); return x && LH.packLook(x.look) === want; }, 3000);
+  }
+  const legacy = LH.cleanLook(bad[2]);
+  t.check(legacy.hair === 'long' && legacy.beard !== 'none' && legacy.topC === '80331a' && LH.packLook(LH.cleanLook(bad[2])) === LK.packLook(LK.cleanLook(bad[2])), 'legacy { skin, hair, hairColor, shirt, beard } migrates the same on both', `${legacy.hair} ${legacy.beard} ${legacy.topC} ${legacy.top}`);
+  const st = H.game.net.selfTest();
+  t.check(st.atlasOk && !st.missingSprites.length && !st.placeholders.length, 'host selfTest clean', JSON.stringify({ atlasOk: st.atlasOk, missing: st.missingSprites.length }));
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// Agent K (architecture styles & details, decoration, training dummy)
+const kmods = async (f) => {
+  const imp = f.win.Function('u', 'return import(u)');
+  const base = new URL('src/', f.win.location.href);
+  const [kits, kit] = await Promise.all([imp(new URL('game/content/kits.js', base).href), imp(new URL('game/mut/kit.js', base).href)]);
+  return { kits, kit };
+};
+const look = (o) => o && `${o.type}:${o.style || '-'}/${o.det || '-'} m${o.mask | 0}`;
+// place `type` through build mode with the look picked in Detalhes (setBuildLook): a drag a → b or a single tile
+function placeStyled(f, M, type, style, det, a, b = a) {
+  const g = f.game;
+  M.building.enterBuildMode(g, type);
+  M.building.setBuildLook(g, type, style, det);
+  const m = g.build.mode;
+  if (!m || m.kind !== 'place') throw new Fail(`${f.label}: enterBuildMode(${type}) refused`);
+  if (M.data.BUILDINGS[type].drag && (a[0] !== b[0] || a[1] !== b[1])) { m.anchor = [a[0], a[1]]; m.end = [b[0], b[1]]; m.hover = [b[0], b[1]]; } else m.hover = [a[0], a[1]];
+  m.locked = true;
+  const ok = M.building.commitPlacement(g);
+  M.building.exitBuildMode(g);
+  if (!ok) throw new Fail(`${f.label}: commitPlacement(${type}) failed (${f.lastUi(1)})`);
+  return ok; // (on a guest the blueprints appear when the host's struct.add arrives)
+}
+
+def('K1', {
+  title: 'K: styled walls with corner details placed by the guest', timeout: 180000,
+  expected: 'Guest picks "Pedra bruta" + quoins / soft corners / crenels / ivy / sandstone tone in Detalhes and drags an L of stone walls (+ one tile with an arrow slit): the host has the same style, canonical det and masks for every piece (blueprints and finished), the decoded look (_k) matches; digest equal',
+  api: 'setBuildLook → build.place {type, tiles, rot, style, det} → struct.add rows [.., style, det]; o.{style, det, mask, _k}; content/kits.js cleanDet',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KG = await kmods(G);
+  A.ensure(G, { stone_block: 20 });
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => [[x, y], [x + 1, y], [x + 2, y], [x, y + 1]], gp.x, gp.y, { rMin: 3, rMax: 14, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free L of 4 tiles');
+  const { x0: x, y0: y } = site;
+  const DET = 'ivy.quoin.soft.crenel.t_warm';
+  const want = KG.kits.cleanDet('wall_stone', DET);
+  t.check(want === 'crenel.ivy.quoin.soft.t_warm', 'canonical detail string (sorted, one per group)', want);
+  placeStyled(G, MG, 'wall_stone', 'rough', DET, [x, y], [x + 2, y]);
+  placeStyled(G, MG, 'wall_stone', 'rough', 'quoin.slit.pillar', [x, y + 1]);
+  t.check(KG.kits.cleanDet('wall_stone', 'quoin.slit.pillar') === 'pillar.slit', 'exclusive group: one corner piece kept (first in canonical order)', KG.kits.cleanDet('wall_stone', 'quoin.slit.pillar'));
+  const tiles = [[x, y], [x + 1, y], [x + 2, y], [x, y + 1]];
+  await t.waitFor(() => tiles.every(([tx, ty]) => A.structAt(H, MH, tx, ty, 'main') && A.structAt(G, MG, tx, ty, 'main')), RT() + 800, 'both have the 4 styled blueprints');
+  const ids = tiles.map(([tx, ty]) => A.structAt(H, MH, tx, ty, 'main').id);
+  t.log(`guest placed ${ids.length} styled walls at ${x},${y}`);
+  const pairs = () => tiles.map(([tx, ty]) => [A.structAt(H, MH, tx, ty, 'main'), A.structAt(G, MG, tx, ty, 'main')]);
+  const same = () => pairs().every(([h, g]) => h && g && h.id === g.id && look(h) === look(g));
+  await t.waitFor(same, ONEWAY() + 400, 'same look on both (blueprints)');
+  const P = pairs();
+  t.check(P.slice(0, 3).every(([h]) => h.style === 'rough' && h.det === want), 'row: style rough + canonical det on the host', P.map(([h]) => look(h)).join(' | '));
+  t.check(P[3][0].style === 'rough' && P[3][0].det === 'pillar.slit', 'single tile keeps its own details', look(P[3][0]));
+  t.check(P.every(([h, g]) => h._k && g._k && h._k.key === g._k.key) && P.slice(0, 3).every(([h, g]) => h._k.on.quoin && g._k.on.quoin) && P[3][0]._k.on.pillar, 'decoded look (_k) identical on both', P.map(([h]) => h._k?.key).join(' | '));
+  await A.buildAll(t, G, MG, ids, { ms: 40000 });
+  await t.waitFor(() => pairs().every(([h, g]) => h && g && !h.blueprint && !g.blueprint), ONEWAY() + 600, 'all finished on both');
+  await t.waitFor(same, ONEWAY() + 400, 'same look + masks on both (finished)');
+  const F = pairs();
+  const masks = F.map(([h]) => h.mask | 0), EXP = [6, 10, 8, 1];
+  t.check(masks.every((m, i) => (m & EXP[i]) === EXP[i]), 'autotile masks of the L (E+S, E+W, W, N; natural rock may add bits)', masks.join(','));
+  t.check(F.every(([h, g]) => (h.mask | 0) === (g.mask | 0)), 'masks equal on both', F.map(([h, g]) => `${h.mask}/${g.mask}`).join(' '));
+  t.check(F.every(([h]) => H.game.world.solid[H.game.world.idx(h.tx, h.ty)] === 1), 'styled walls are solid like any wall');
+  // the styled art draws without errors on both frames
+  let drew = true;
+  for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log('render error ' + e.message); } }
+  t.check(drew, 'both frames render the styled walls');
+  await t.checkDigest(H, G);
+  env.history.push('K1');
+});
+
+def('K2', {
+  title: 'K: style brush over blueprints (guest); finished pieces refuse a restyle', timeout: 180000,
+  expected: 'Guest drags 3 wood floor blueprints (default look), then paints "Taco xadrez" + blue carpet over them with the style brush: applied on both (struct.style), carpet links (_cm) equal; after one is built, a brush stroke over it is refused for the finished one (it keeps its look on both) while the remaining blueprints change; context menu offers "Estilo da planta" only on blueprints; digest equal',
+  api: 'enterStyleBrush + buildDragStart/End (kind brush) → struct.style intent (blueprints only) → op struct.style {list:[[id, style, det]]}; structureMenu entry id "style"',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KG = await kmods(G);
+  A.ensure(G, { wood: 10 });
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'floor_wood', (x, y) => [[x, y], [x + 1, y], [x + 2, y]], gp.x, gp.y, { rMin: 3, rMax: 12, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found 3 free tiles');
+  const { x0: x, y0: y } = site;
+  placeStyled(G, MG, 'floor_wood', '', '', [x, y], [x + 2, y]);
+  const T3 = [[x, y], [x + 1, y], [x + 2, y]];
+  await t.waitFor(() => T3.every(([tx, ty]) => A.structAt(H, MH, tx, ty, 'floor') && A.structAt(G, MG, tx, ty, 'floor')), RT() + 800, '3 floor blueprints on both (default look)');
+  const ids = T3.map(([tx, ty]) => A.structAt(H, MH, tx, ty, 'floor').id);
+  t.check(ids.every((id) => !A.structOn(G, id).style && !A.structOn(G, id).det), 'default look', ids.map((id) => look(A.structOn(G, id))).join(' | '));
+  const menu = MG.building.structureMenu(G.game, A.structOn(G, ids[0]));
+  t.check(menu.some((e) => e.id === 'style'), 'blueprint context menu offers "Estilo da planta"', menu.map((e) => e.label).join(' · '));
+  // brush: remember the look for the type, enter the brush, drag over the 3 tiles
+  const g = G.game;
+  MG.building.setBuildLook(g, 'floor_wood', 'parquet', 'carpet.c_blue');
+  MG.building.enterStyleBrush(g, 'floor_wood');
+  t.check(g.build.mode?.kind === 'brush' && g.build.mode.style === 'parquet', 'brush mode with the chosen look', JSON.stringify({ k: g.build.mode?.kind, s: g.build.mode?.style, d: g.build.mode?.det }));
+  MG.building.buildDragStart(g, x + 0.5, y + 0.5);
+  MG.building.buildDragMove(g, x + 2.5, y + 0.5);
+  MG.building.buildDragEnd(g, x + 2.5, y + 0.5);
+  const det = KG.kits.cleanDet('floor_wood', 'carpet.c_blue');
+  const painted = (f) => ids.every((id) => { const o = A.structOn(f, id); return o && o.style === 'parquet' && o.det === det; });
+  await t.waitFor(() => painted(H) && painted(G), RT() + 600, 'brushed look on both');
+  const cm = (f) => ids.map((id) => A.structOn(f, id)._cm | 0);
+  t.check(JSON.stringify(cm(H)) === JSON.stringify(cm(G)) && JSON.stringify(cm(H)) === JSON.stringify([2, 10, 8]), 'carpet links to its carpeted neighbours on both', `host ${cm(H)} guest ${cm(G)}`);
+  // build the first one, then brush again with another look
+  await A.buildAll(t, G, MG, [ids[0]]);
+  await t.waitFor(() => !A.structOn(H, ids[0])?.blueprint && !A.structOn(G, ids[0])?.blueprint, ONEWAY() + 400, 'first floor finished on both');
+  const menu2 = MG.building.structureMenu(G.game, A.structOn(G, ids[0]));
+  t.check(!menu2.some((e) => e.id === 'style'), 'finished piece: no "Estilo" entry', menu2.map((e) => e.label).join(' · '));
+  // a direct restyle of the finished piece is refused by the host
+  let refused = null;
+  g.net.request('struct.style', { ids: [ids[0]], type: 'floor_wood', style: 'herring', det: '' }, { onReject: (why) => { refused = why || 'refused'; } });
+  await t.waitFor(() => refused, RT() + 600, 'host refuses restyling a finished piece');
+  t.check(/desmonte/i.test(refused), 'refusal tells to deconstruct and build again', refused);
+  MG.building.setBuildLook(g, 'floor_wood', 'herring', '');
+  MG.building.enterStyleBrush(g, 'floor_wood');
+  MG.building.buildDragStart(g, x + 0.5, y + 0.5);
+  MG.building.buildDragEnd(g, x + 2.5, y + 0.5);
+  const rest = ids.slice(1);
+  await t.waitFor(() => rest.every((id) => A.structOn(H, id)?.style === 'herring' && A.structOn(G, id)?.style === 'herring'), RT() + 600, 'remaining blueprints repainted on both');
+  MG.building.exitBuildMode(g);
+  const f0 = (f) => A.structOn(f, ids[0]);
+  t.check(f0(H).style === 'parquet' && f0(G).style === 'parquet' && f0(H).det === det && f0(G).det === det, 'the finished floor kept its look on both', `${look(f0(H))} | ${look(f0(G))}`);
+  await t.checkDigest(H, G);
+  env.history.push('K2');
+});
+
+def('K3', {
+  title: 'K: training dummy hit by the guest is seen by both', timeout: 150000,
+  expected: 'Host builds a "Boneco de treino"; the guest hits it: every peer gets the dummy.hit op (wobble start _wobT, straw, number: the host shows the remote hit as floating text), the dummy never breaks (hp stays, still a target, no loot), the guest earns a little XP (owner effect) that fades with many hits, the host earns nothing; DPS readout on the host; digest equal',
+  api: 'combat.applyPlayerHit → damageProp → intent dummy.hit {id, amount, crit} → op dummy.hit {id, amount, crit, by, xp}; event dummyhit; o.{dummy, isProp, hp, _wobT, _dpsTxt}; game.props',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.ensure(H, { wood: 6, fiber: 10 });
+  const hp = H.game.player, gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'training_dummy', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a spot');
+  const [tx, ty] = site.tiles[0];
+  A.place(H, MH, 'training_dummy', [tx, ty]);
+  const dh = await t.waitFor(() => A.structAt(H, MH, tx, ty, 'main'), 1500, 'dummy blueprint');
+  await A.buildAll(t, H, MH, [dh.id]);
+  const dg = await t.waitFor(() => { const o = A.structOn(G, dh.id); return o && !o.blueprint && o.dummy && o; }, ONEWAY() + 400, 'guest sees a finished dummy');
+  t.check(dh.dummy && dh.isProp && H.game.props.includes(dh) && G.game.props.includes(dg), 'dummy is an attackable prop on both');
+  A.standBy(G, MG, dg);
+  A.standBy(H, MH, dh, -Math.PI / 2);
+  await A.hostSees(t, H, G);
+  const evH = [], evG = [], dmgH = [];
+  t.on(H, 'dummyhit', (d) => evH.push(d)); t.on(G, 'dummyhit', (d) => evG.push(d));
+  t.on(H, 'damage', (d) => { if (d.target === dh) dmgH.push(d); });
+  const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
+  const loot0 = H.game.loot.length;
+  const t0H = H.game.time, t0G = G.game.time;
+  A.hit(G, MG, dg, 12);
+  await t.waitFor(() => evH.length >= 1 && evG.length >= 1, RT() + 600, 'both peers got the hit');
+  t.check(evH[0].amount === 12 && evG[0].amount === 12 && evG[0].mine && !evH[0].mine, 'same amount on both; it is the guest\'s hit', JSON.stringify([evH[0], evG[0]].map((e) => [e.amount, e.mine])));
+  t.check(dh._wobT >= t0H && dg._wobT >= t0G, 'wobble started on both', `${dh._wobT?.toFixed?.(2)} / ${dg._wobT?.toFixed?.(2)}`);
+  t.check(dmgH.some((d) => d.kind === 'status' && d.text === '12'), 'host shows the remote hit as a floating number', JSON.stringify(dmgH.map((d) => [d.kind, d.text, d.amount])));
+  // many hits: never breaks, xp fades
+  for (let i = 0; i < 39; i++) { A.hit(G, MG, dg, 9999); if (i % 8 === 7) await t.sleep(60); }
+  await t.waitFor(() => evH.length >= 40 && evG.length >= 40, RT() * 3 + 1500, '40 hits applied on both');
+  await t.sleep(RT() + 300);
+  t.check(A.structOn(H, dh.id) && A.structOn(G, dh.id) && dh.hp === dh.maxHp && dg.hp === dg.maxHp && !dh.broken, 'never breaks (hp unchanged, still there)', `hp ${dh.hp}/${dh.maxHp}`);
+  t.check(H.game.loot.length === loot0, 'no loot from a dummy', `${loot0} → ${H.game.loot.length}`);
+  t.check(xpG.total >= 3 && xpG.total <= 18, 'guest earned a little xp (diminishing)', `+${xpG.total} xp in 40 hits`);
+  const firstHalf = xpG.events.slice(0, Math.ceil(xpG.events.length / 2)).length, all = xpG.events.length;
+  t.check(all >= 2 && xpG.events.every((v) => v <= 1), 'xp comes in small steps', short(xpG.events));
+  t.check(xpH.total === 0, 'host earned nothing from the guest\'s hits', `+${xpH.total}`);
+  t.note(`xp events ${firstHalf}/${all} in the first half of the hits`);
+  await t.sleep(400);
+  t.check(/DPS/.test(dh._dpsTxt || '') && /DPS/.test(dg._dpsTxt || ''), 'DPS readout on both', `${dh._dpsTxt} | ${dg._dpsTxt}`);
+  await t.checkDigest(H, G);
+  env.history.push('K3');
+});
+
+def('K4', {
+  title: 'K: old save (v4 rows without style / det) loads with default looks', timeout: 120000,
+  expected: 'migrateStructRows pads v4 rows (14 fields) and v3 rows (10) to 16 with style "" / det ""; a solo game booted from a crafted v4 save has the structures with the default look (no _k), masks computed; saving again writes the current version with 16-field rows',
+  api: 'save.js VERSION (5), migrateStructRows, loadGame / saveGame (solo frame without ?nosave, key wos.save.v2.<seed>, removed afterwards)',
+}, async (t) => {
+  const { H, MH } = await pairCtx(t);
+  const g = H.game;
+  const r14 = ['k4_wall', 'wall_wood', 10, 10, 3, 1, 0, 0, 0, 50, 0, 1, 0, 0];
+  const r10 = ['k4_old', 'wall_stone', 12, 10, 3, 1, 0, 0, 0, 50];
+  const out = MH.save.migrateStructRows(g, [r14.slice(), r10.slice()]);
+  t.check(out.length === 2 && out.every((r) => r.length === 16 && r[14] === '' && r[15] === ''), 'rows padded to 16 fields with the default look', out.map((r) => r.length + ':' + JSON.stringify(r.slice(14))).join(' '));
+  // a crafted v4 save for a solo frame (same seed as the pair)
+  const site = A.findSite([H], [MH], 'wall_wood', (x, y) => [[x, y], [x + 1, y], [x, y + 1]], g.world.spawn.x, g.world.spawn.y, { rMin: 4, rMax: 20 });
+  t.assert(site, 'free tiles for the old structures');
+  const { x0: x, y0: y } = site;
+  const key = `wos.save.v2.${CFG.seed}`;
+  const save = {
+    v: 4, seed: CFG.seed, savedAt: Date.now(), worldTime: 100, env: { hour: 10, day: 0, weather: 'clear' },
+    player: { name: 'Teste', x: g.world.spawn.x, y: g.world.spawn.y, hp: 100, energy: 100, hunger: 90, level: 1, xp: 0, inv: [], equip: {} },
+    craft: null, fuel: 0, hinted: {}, marks: [],
+    world: { gone: [], nat: [], dyn: [], falling: [], mined: [], rockp: [], crops: [], loot: [], props: [],
+      structs: [['k4_w1', 'wall_wood', x, y, 1, 1, 0, 0, 0, 50, 0, 1, 0, 0], ['k4_w2', 'wall_wood', x + 1, y, 2, 1, 0, 0, 0, 50, 0, 1, 0, 0], ['k4_f', 'floor_stone', x, y + 1, 3, 1, 0, 0, 0, 50, 0, 1, 0, 0]] },
+  };
+  const prev = localStorage.getItem(key);
+  localStorage.setItem(key, JSON.stringify(save));
+  let S = null;
+  try {
+    presetPid('k4' + rand(5));
+    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo`, 'k4solo');
+    await t.waitFor(() => S.game || S.bootError, CFG.bootMs, 'solo boot from the v4 save');
+    t.assert(S.game, 'solo frame booted: ' + (S.bootError || ''));
+    const MS = await A.mods(S);
+    const o = (id) => S.game.build.structures.find((q) => q.id === id);
+    await t.waitFor(() => o('k4_w1') && o('k4_w2') && o('k4_f'), 8000, 'old structures loaded');
+    const L = ['k4_w1', 'k4_w2', 'k4_f'].map(o);
+    t.check(L.every((q) => (q.style || '') === '' && (q.det || '') === '' && !q._k), 'default look (no style / details / decoded look)', L.map(look).join(' | '));
+    t.check((o('k4_w1').mask | 0) === 2 && (o('k4_w2').mask | 0) === 8, 'masks recomputed (E / W)', `${o('k4_w1').mask} ${o('k4_w2').mask}`);
+    let drew = true; try { S.game.render(); } catch (e) { drew = false; t.log(e.message); }
+    t.check(drew, 'renders the old structures');
+    MS.save.saveGame(S.game);
+    const now = JSON.parse(localStorage.getItem(key) || 'null');
+    const rows = now?.world?.structs || [];
+    t.check(now && now.v >= 5 && rows.length >= 3 && rows.every((r) => r.length === 16), 'saved again: current version, 16-field rows', `v${now?.v} rows ${rows.map((r) => r.length).join(',')}`);
+  } finally {
+    if (S) frames.close(S);
+    if (prev == null) localStorage.removeItem(key); else localStorage.setItem(key, prev);
+  }
+});
+
+def('K5', {
+  title: 'K: roof details (with J) — guest styles a roof plan, brush, finish', timeout: 200000,
+  expected: 'Over a walled room the guest places roof plans with "Telha de barro" + hip ends / dormers / warm tone (Detalhes): same style + canonical det on both and the same derived painter style (roofArtStyle key); the style brush repaints the plans (slate + chimney) on both; once finished the roof is painted on both, the dormer tiles get a slope position (roofPropAt) and a restyle is refused; digest equal',
+  api: 'build mode roof_stone + setBuildLook → build.place {style, det} (room fill) → struct.add; struct.style (brush); kits.roofArtStyle(o) → J artSpec spec.styles; roofs.roofPropAt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const KH = await kmods(H), KG = await kmods(G);
+  t.need(MH.data.BUILDINGS.roof_stone && KH.kits.roofArtStyle, 'roofs (agent J) merged');
+  const gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(5, 4, H), gp.x, gp.y, { rMin: 4, rMax: 34, avoidPts: [[gp.x, gp.y]] });
+  t.assert(site, 'found a free 5×4 site');
+  const { x0, y0 } = site;
+  const roofs = (f) => f.game.build.structures.filter((o) => o.roof && o.tx >= x0 && o.tx < x0 + 5 && o.ty >= y0 && o.ty < y0 + 4);
+  const wallIds = hostRoom(H, x0, y0, 5, 4);
+  // leave no roofed room behind for later scenarios (J1 counts roof plans)
+  t.defer(() => { for (const o of roofs(H)) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 }); for (const id of wallIds) H.game.net.emit('struct.remove', { id, quiet: 1 }); });
+  await t.waitFor(() => A.structAt(G, MG, x0, y0, 'main') && !A.structAt(G, MG, x0, y0, 'main').blueprint, ONEWAY() + 600, 'guest has the walled room');
+  A.teleport(G, x0 + 2.5, y0 + 6); await A.hostSees(t, H, G);
+  placeStyled(G, MG, 'roof_stone', 'terracotta', 't_warm.dormer.end_hip', [x0 + 2, y0 + 1]);
+  const want = KG.kits.cleanDet('roof_stone', 't_warm.dormer.end_hip');
+  await t.waitFor(() => roofs(H).length >= 6 && roofs(G).length === roofs(H).length, RT() + 1200, 'roof plans for the room on both');
+  const key = (f, K) => roofs(f).map((o) => `${o.id}:${o.style}:${o.det}:${K.kits.roofArtStyle(o)?.key || '-'}`).sort().join(' ');
+  t.check(roofs(H).every((o) => o.style === 'terracotta' && o.det === want && o.blueprint), 'plans: terracotta + canonical det on the host', short(roofs(H).slice(0, 2).map(look)));
+  t.check(key(H, KH) === key(G, KG), 'same plans, looks and derived painter style on both', short(key(G, KG), 160));
+  t.check(/end_hip/.test(KH.kits.roofArtStyle(roofs(H)[0])?.key || '') && KH.kits.roofArtStyle(roofs(H)[0]).style.ends === 'hip', 'derived style turns hip ends on for J\'s painter', KH.kits.roofArtStyle(roofs(H)[0])?.key);
+  // brush the plans to slate + chimney (dormers kept)
+  const g = G.game;
+  MG.building.setBuildLook(g, 'roof_stone', 'slate', 'chimney.dormer');
+  MG.building.enterStyleBrush(g, 'roof_stone');
+  MG.building.buildDragStart(g, x0 + 0.5, y0 + 0.5);
+  MG.building.buildDragEnd(g, x0 + 4.5, y0 + 3.5);
+  MG.building.exitBuildMode(g);
+  const want2 = KG.kits.cleanDet('roof_stone', 'chimney.dormer');
+  await t.waitFor(() => [H, G].every((f) => roofs(f).every((o) => o.style === 'slate' && o.det === want2)), RT() + 800, 'brushed to slate + chimney on both');
+  // the host finishes them (test shortcut, like J's scenarios) → painted region on both
+  for (const o of roofs(H)) H.game.net.emit('struct.complete', { id: o.id, by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => roofs(G).every((o) => !o.blueprint) && regionAt(H, x0 + 2, y0 + 1)?.art && regionAt(G, x0 + 2, y0 + 1)?.art, 9000, 'roof finished and painted on both');
+  const RG = await fimp(G, 'game/roofs.js');
+  const pr = RG.roofPropAt(G.game, x0 + 2, y0 + 1);
+  t.check(pr && pr.lift > 0.3 && Number.isFinite(pr.key), 'dormer tile has a slope position on the guest (roofPropAt)', JSON.stringify(pr));
+  let refused = null;
+  g.net.request('struct.style', { ids: [roofs(G)[0].id], type: 'roof_stone', style: 'stone', det: '' }, { onReject: (why) => { refused = why || 'refused'; } });
+  await t.waitFor(() => refused, RT() + 600, 'finished roof: restyle refused');
+  t.check(roofs(H).every((o) => o.style === 'slate') && roofs(G).every((o) => o.style === 'slate'), 'finished roof keeps its look on both');
+  let drew = true; for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log(e.message); } }
+  t.check(drew, 'both render the styled roof with dormers');
+  await t.checkDigest(H, G);
+  env.history.push('K5');
 });
 
 // =====================================================================================================
@@ -2496,8 +3608,8 @@ def('M4', {
 });
 
 def('M5', {
-  title: 'M: paths in the save file (v5) and old saves', timeout: 120000,
-  expected: 'Solo: buildSaveData has v 5 and world.paths {g, p}; clearing the grids and applying the saved world (load) restores them exactly; a v4-style world without paths loads with no error and keeps the grids empty',
+  title: 'M: paths in the save file (v8) and old saves', timeout: 120000,
+  expected: 'Solo: buildSaveData has v 8 and world.paths {g, p}; clearing the grids and applying the saved world (load) restores them exactly; a v7-style world without paths loads with no error and keeps the grids empty',
   api: 'save.buildSaveData, net/snapshot.js serializeWorld / applyWorld(…, "load"), mut/paths.js applyPaths / rleGrid',
 }, async (t) => {
   const S = await bootSolo(t, '', 'solo-paths');
@@ -2509,7 +3621,7 @@ def('M5', {
   g.net.emit('path.set', { t: 4, tiles: MP.rleTiles(tiles.slice(0, 6)) });
   g.net.emit('path.plan', { c: 2, tiles: MP.rleTiles(tiles.slice(6)) });
   const data = MS.buildSaveData(g);
-  t.check(data.v === 5 && data.world?.paths && Array.isArray(data.world.paths.g), 'save data v5 with world.paths', `v ${data.v} · paths ${short(data.world?.paths, 80)}`);
+  t.check(data.v >= 8 && data.world?.paths && Array.isArray(data.world.paths.g), 'save data v8 with world.paths', `v ${data.v} · paths ${short(data.world?.paths, 80)}`);
   const h0 = gridHash(w.path) + '/' + gridHash(w.pathPlan);
   const snap = JSON.parse(JSON.stringify(data.world));
   g.net.withApply(() => MP.applyPaths(g, null)); // empty grids

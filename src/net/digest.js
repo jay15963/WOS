@@ -12,10 +12,10 @@ import { checkAtlas } from '../game/artcheck.js';
 import { artWarnings } from '../game/artcompat.js';
 import { pathRows } from '../game/mut/paths.js';
 
-export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'paths'];
+export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
-export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't'];
+export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
 
 const fnv = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
 function fnvBytes(a) { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); }
@@ -36,11 +36,14 @@ export function dumpPart(game, part) {
     case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone)
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
     case 'structs': return game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
-      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0]).sort(cmp);
-    case 'tiles': return [['rock', fnvBytes(w.rock)], ['solid', fnvBytes(w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')]];
+      game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']).sort(cmp);
+    case 'tiles': return [['rock', fnvBytes(w.rock)], ['solid', fnvBytes(w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
+      ['roof', fnvBytes(w.roof)], ['broof', fnvBytes(w.broof)]];
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
     case 'props': return (game.props || []).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0]).sort(cmp);
+    case 'corpses': return game.corpses ? [...game.corpses.map.values()].map((c) => [c.id, c.of, c.x.toFixed(2), c.y.toFixed(2), Math.round(c.deathT), c.butchered ? 1 : 0,
+      c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'env': return [['day', game.env.dayIndex], ['hour', +game.env.hour.toFixed(2)], ['weather', game.env.weather], ['wt', Math.round(game.worldTime)]];
     case 'ents': return game.net.entsApi?.debug?.() || null;
@@ -87,6 +90,8 @@ export function installNetDebug(game) {
       missingSprites: chk.missingSprites.concat(chk.missingKinds), speciesFallbacks: chk.speciesFallbacks,
       artWarnings: artWarnings(), systemsUntagged: game.systems.filter((s) => !s.sync).map((s) => s.constructor?.name || '?'),
       role: net.role, synced: net.synced, seq: net.seq,
+      // agent H: look parts are painted lazily per client (not in the atlas digest); failures must stay empty
+      look: game.A.look ? game.A.look.stats() : null,
     };
   };
 }

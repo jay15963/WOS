@@ -14,6 +14,7 @@ import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
 import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
+import { liftOf } from './levels.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -69,14 +70,15 @@ export function describeAny(game, o) {
 export function pick(game, sx, sy) {
   const [wx, wy] = game.screenToWorld(sx, sy);
   const tol = 14 / game.cam.zoom;
+  const hid = (x, y) => !!game.roofs?.hidden?.(x, y); // inside a building whose roof covers it (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead) continue;
+    if (!isMob(e) || e.dead || hid(e.x, e.y)) continue;
     const sc = e.scale || 1;
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
     const rx = (pawn ? 0.42 : 0.55) * sc + tol, ry = (pawn ? 0.78 : 0.5) * sc + tol;
-    const dx = (wx - e.x) / rx, dy = (wy - (e.y - (pawn ? 0.7 : 0.35) * sc)) / ry;
+    const dx = (wx - e.x) / rx, dy = (wy - (e.y - liftOf(e) - (pawn ? 0.7 : 0.35) * sc)) / ry; // levels: lifted
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = e; }
   }
@@ -92,13 +94,14 @@ export function pick(game, sx, sy) {
   game.world.forChunks(wx - 2, wy - 1, wx + 2, wy + 3, (c) => {
     for (const o of c.objects) {
       if (Math.abs(o.x - wx) > 2.5 || o.y < wy - 0.6 || o.y > wy + 2.6) continue;
-      if (!objHit(o, wx, wy, tol)) continue;
+      if (!objHit(o, wx, wy, tol) || (hid(o.x, o.y) && !o.door)) continue;
       const d = describeAny(game, o);
       if (!d) continue;
       if (o.flat) { if (!hitFlat) hitFlat = d; continue; }
       if (!hit || o.y > hit.o.y) hit = d;
     }
   });
+  if (!hit) hit = game.corpses?.pickAt(wx, wy, tol) || null; // bodies on the ground (corpses.js)
   if (hit) return { type: 'interact', it: hit, wx, wy };
   const rk = describeRock(game, Math.floor(wx), Math.floor(wy));
   if (rk) return { type: 'interact', it: rk, wx, wy };
@@ -125,6 +128,7 @@ export function nearestInteractable(game) {
       consider(describeAny(game, o));
     }
   });
+  game.corpses?.forNear(p.x, p.y, 3, consider); // bodies on the ground (corpses.js)
   const tx = Math.floor(p.x), ty = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;
@@ -331,8 +335,8 @@ export function installController(game) {
       else if (p.inv.room(h.it.item) <= 0) game.events.emit('error', { text: 'Mochila cheia' });
       return;
     }
-    // empty ground: nothing happens (a tap on a phone clears the target)
-    if (p.target && !isMouse) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
+    // empty ground: never walks; a tap or click clears the creature target (so nearby things can be used again)
+    if (p.target) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
   };
 
   let hoverT = 0;
@@ -359,11 +363,11 @@ export function installController(game) {
       const K = inp.pressed;
       const any = (list) => list.some((c) => K.has(c));
       if (K.size && !p.dead) {
-        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation) and Enter
+        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation), T (Detalhes, agent K) and Enter
         const codes = abilityKeys(ABILITY_ORDER);
         ABILITY_ORDER.forEach((id, i) => {
           const c = codes[i];
-          if (!c || (bm && (c === 'KeyR' || c === 'ShiftLeft'))) return;
+          if (!c || (bm && (c === 'KeyR' || c === 'KeyT' || c === 'ShiftLeft'))) return;
           if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
           // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
           if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id, { key: c }); ctl._aimKey = c; return; }
@@ -451,6 +455,17 @@ export function installController(game) {
       // contextual interactable (5 Hz)
       ctl.nearT -= dt;
       if (ctl.nearT <= 0) { ctl.nearT = 0.2; ctl.near = p.dead ? null : nearestInteractable(g); }
+      // never stay locked on a creature: with something usable nearby (campfire, door, chest…) for 3 s and the
+      // target not being fought in range, the target is dropped so the action button goes back to the object
+      // (counted only while the SAME object stays next to the player — walking past trees keeps resetting it)
+      const tg = p.target, nr = ctl.near;
+      const nk = nr ? (nr.o || `${nr.kind}:${nr.tx},${nr.ty}`) : null;
+      if (tg && nr && !p.dead && nk === ctl.lockK) {
+        const fighting = attackable(tg) && p.autoAttack && dist(p, tg) <= attackRange(p, tg) + 0.5;
+        ctl.lockT = fighting ? 0 : (ctl.lockT || 0) + dt;
+        if (ctl.lockT >= 3) { ctl.lockT = 0; ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
+      } else ctl.lockT = 0;
+      ctl.lockK = nk;
       if (ctl.marker) { ctl.marker.t += dt; if (ctl.marker.t > 0.9 || !ctl.goal) ctl.marker = null; }
     },
 
@@ -463,11 +478,12 @@ export function installController(game) {
         const sc = t.scale || 1;
         const c = RING_COL[t.temper || SPECIES[t.species]?.temper] || RING_COL.neutral;
         const pulse = 0.85 + 0.15 * Math.sin(g.time * 5);
-        B.blob.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
-        if (env.night > 0.1) B.emissive.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
+        const ty = t.y - liftOf(t); // levels: ring under its feet up a story
+        B.blob.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
+        if (env.night > 0.1) B.emissive.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
-      if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack)) {
+      if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
         const s = n.tile ? Math.max(1, n.w || 1) : n.kind === 'tree' ? 0.9 : 0.8;
         const a = 0.35 + 0.15 * Math.sin(g.time * 4);
         B.blob.add(ring, n.x, n.tile ? n.y : n.y - 0.02, s, s * 0.62, 1, 0.95, 0.8, a);

@@ -59,7 +59,8 @@ function nearestJob(game) {
     const d = Math.hypot(o.x - p.x, o.y - 0.5 - p.y);
     if (d >= bd) continue;
     if (blue && !canSupply(game, o)) {
-      if (!W.told.has(o.id) && d < 14) { W.told.add(o.id); game.events.emit('toast', { text: `${o.moveOf ? '' : 'Planta parada · '}falta material: ${missingText(game, o)}`, kind: 'warn' }); }
+      const roofWait = o.roof ? 'roof' : o.id;
+      if (!W.told.has(roofWait) && d < 14) { W.told.add(roofWait); game.events.emit('toast', { text: `${o.moveOf ? '' : 'Planta parada · '}falta ${missingText(game, o)}`, kind: 'warn' }); }
       continue;
     }
     consider(structIt(o, { kind: blue ? 'blueprint' : 'decon', verb: blue ? 'Construir' : 'Desmontar', icon: 'build', auto: true }), d);

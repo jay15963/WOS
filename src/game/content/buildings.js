@@ -5,6 +5,7 @@
 //  name, g ('m'|'f' grammatical gender for messages), emoji (UI fallback), cat: [category keys], cost, time (build s), xp
 //  size: [w, h] (default 1×1)      layer: 'main' (default) | 'floor' (floors, farm plots) | 'rug'
 //  block: 'tile' (world.solid = 1 over the footprint) | 'door' (closed = world.solid 1, open = 0) | radius (round prop) | 0
+//         | 'stairs' (levels.js: a stairway to the story above, entered only through its front / top end)
 //  connect: autotile group (mask N=1 E=2 S=4 W=8)   flat: drawn on B.ground   drag: 'line' | 'area' placement
 //  joins: autotile groups this connectable links to (default [connect]; 'rock' = natural rock tiles)
 //  station: crafting station   slots: storage   light / fire: always on   workLight: light while o.working
@@ -12,31 +13,51 @@
 //  rotate: 4 orientations (o.rot 0..3 = front S, W, N, E; an odd rot swaps the footprint w×h)
 //  edge: small prop with 5 placements (o.rot 0 = centred, 1..4 = against the N / E / S / W edge, facing away from it)
 //  move: can be moved ("Mover" keeps its state: chest contents, variant…)   raze: removed at once ("Arrasar", small refund)
+//  support: holds up roofs (walls, doors, columns; natural rock too) · roof: built roof tile (layer 'roof', drawn by
+//  src/art/roofRaster.js from content/roofs.js; o.style / o.det)
+
+import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, extra construction pieces
 
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
-  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ...DECOR_CATS,
 ];
 
 export const BUILDINGS = {
   // ---------- structures ----------
-  wall_wood:  { name: 'Parede de madeira', g: 'f', emoji: '🧱', cat: ['struct'], cost: { wood: 2 }, time: 2, xp: 3, block: 'tile', connect: 'wall', joins: ['wall', 'rock'], drag: 'line',
+  wall_wood:  { name: 'Parede de madeira', g: 'f', emoji: '🧱', cat: ['struct'], cost: { wood: 2 }, time: 2, xp: 3, block: 'tile', connect: 'wall', joins: ['wall', 'rock'], drag: 'line', support: true,
                 desc: 'Bloqueia a passagem. Conecta com outras paredes e com a rocha.' },
-  wall_stone: { name: 'Parede de pedra', g: 'f', emoji: '🧱', cat: ['struct'], cost: { stone_block: 2 }, time: 3, xp: 4, block: 'tile', connect: 'wall', joins: ['wall', 'rock'], drag: 'line',
+  wall_stone: { name: 'Parede de pedra', g: 'f', emoji: '🧱', cat: ['struct'], cost: { stone_block: 2 }, time: 3, xp: 4, block: 'tile', connect: 'wall', joins: ['wall', 'rock'], drag: 'line', support: true,
                 desc: 'Parede resistente de blocos de pedra.' },
-  door_wood:  { name: 'Porta de madeira', g: 'f', emoji: '🚪', cat: ['struct'], cost: { wood: 4, rope: 1 }, time: 3, xp: 5, block: 'door', connect: 'wall', joins: ['wall', 'rock'],
+  door_wood:  { name: 'Porta de madeira', g: 'f', emoji: '🚪', cat: ['struct'], cost: { wood: 4, rope: 1 }, time: 3, xp: 5, block: 'door', connect: 'wall', joins: ['wall', 'rock'], support: true,
                 desc: 'Abra e feche com E ou um toque. Fechada, ninguém passa (nem as criaturas). Conta como parede.' },
   fence_wood: { name: 'Cerca', g: 'f', emoji: '🪵', cat: ['struct'], cost: { wood: 1 }, time: 1, xp: 1, block: 'tile', connect: 'fence', joins: ['fence', 'wall', 'rock'], drag: 'line',
                 desc: 'Cerca baixa de madeira. Segura animais e se liga às paredes.' },
   gate_wood:  { name: 'Portão', g: 'm', emoji: '🚧', cat: ['struct'], cost: { wood: 3, rope: 1 }, time: 2.5, xp: 3, block: 'door', connect: 'fence', joins: ['fence', 'wall', 'rock'],
                 desc: 'Portão de cerca: abra e feche com E ou um toque. Fechado, ninguém passa.' },
+  // levels (agent L, docs/LEVELS.md): block 'stairs' = traversal by src/game/levels.js (never world.solid)
+  stairs_wood: { name: 'Escada de madeira', g: 'f', emoji: '🪜', cat: ['struct'], cost: { wood: 6 }, size: [1, 2], time: 4, xp: 6, block: 'stairs', rotate: true,
+                desc: 'Sobe um andar: encoste o topo num muro para andar em cima dele. Gire para escolher o sentido; em cima da escada não pode haver telhado nem piso.' },
 
   // ---------- floors ----------
   floor_wood:  { name: 'Piso de madeira', g: 'm', emoji: '🟫', cat: ['floor'], cost: { wood: 1 }, time: 0.8, xp: 1, layer: 'floor', flat: true, connect: 'floor_wood', drag: 'area',
                  desc: 'Piso de tábuas. Andar sobre pisos é 10% mais rápido.' },
   floor_stone: { name: 'Piso de pedra', g: 'm', emoji: '⬜', cat: ['floor'], cost: { stone_block: 1 }, time: 1.2, xp: 1, layer: 'floor', flat: true, connect: 'floor_stone', drag: 'area',
                  desc: 'Piso de lajotas de pedra. 10% mais rápido.' },
+
+  // ---------- roofs (layer 'roof', area drag; need a support within 6 tiles) ----------
+  roof_thatch: { name: 'Telhado de palha', g: 'm', emoji: '🛖', cat: ['roof'], cost: { stick: 1, fiber: 2 }, time: 0.7, xp: 1, layer: 'roof', roof: true, drag: 'area',
+                 desc: 'Palha amarrada em varas. Esconde o interior e protege da chuva. Precisa de parede, coluna ou rocha a até 6 tiles.' },
+  roof_wood:   { name: 'Telhado de madeira', g: 'm', emoji: '🏠', cat: ['roof'], cost: { wood: 1 }, time: 0.8, xp: 1, layer: 'roof', roof: true, drag: 'area',
+                 desc: 'Telhas de madeira sobrepostas. Precisa de parede, coluna ou rocha a até 6 tiles.' },
+  roof_stone:  { name: 'Telhado de pedra', g: 'm', emoji: '🏰', cat: ['roof'], cost: { stone_block: 1 }, time: 1, xp: 1, layer: 'roof', roof: true, drag: 'area',
+                 desc: 'Ardósia, telha de barro ou lajes (troque o estilo com ⟳). Precisa de parede, coluna ou rocha a até 6 tiles.' },
+  column_wood: { name: 'Coluna de madeira', g: 'f', emoji: '🪵', cat: ['roof', 'struct'], cost: { wood: 3 }, time: 2, xp: 3, block: 'tile', support: true,
+                 desc: 'Segura o teto no meio de salões grandes (o teto precisa de apoio a até 6 tiles).' },
+  column_stone: { name: 'Coluna de pedra', g: 'f', emoji: '🏛️', cat: ['roof', 'struct'], cost: { stone_block: 2 }, time: 3, xp: 4, block: 'tile', support: true,
+                 desc: 'Coluna de blocos de pedra. Segura o teto de salões grandes.' },
 
   // ---------- production ----------
   workbench:   { name: 'Bancada de trabalho', g: 'f', emoji: '🛠️', cat: ['prod'], cost: { wood: 10, stone: 4 }, size: [2, 1], time: 6, xp: 20, block: 'tile', station: true, rotate: true, move: true,
@@ -87,6 +108,7 @@ export const BUILDINGS = {
   // ---------- farming ----------
   farm_plot:   { name: 'Canteiro', g: 'm', emoji: '🟫', cat: ['farm'], cost: {}, time: 1.5, xp: 2, layer: 'floor', flat: true, connect: 'farm_plot', drag: 'area',
                  desc: 'Terra arada. Plante sementes de batata, milho ou algodão.' },
+  ...DECOR,
 };
 
 for (const id in BUILDINGS) {

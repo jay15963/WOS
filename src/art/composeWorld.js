@@ -23,6 +23,7 @@ import { TORCH_FLAME_LIFT, CAMPFIRE_FLAME_LIFT, TORCH_WALL } from './buildings.j
 import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
 import { TREE_SPECIES } from './trees.js';
+import { drawArch, ARCH_TYPES, drawPlotKit } from './archCompose.js'; // agent K: styles, details, decoration
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -244,6 +245,8 @@ export function drawStatic(B, A, o, t) {
   }
   // ----- crops -----
   if (c0 === 99 && (type === 'crop' || type.startsWith('crop_'))) { drawCrop(B, T, o, type === 'crop' ? o.kind : type.slice(5), fl, f); return; }
+  // ----- styled construction pieces & decoration (agent K) -----
+  if ((o._k || ARCH_TYPES.has(type)) && drawArch(B, A, o, t, fl)) return;
   // ----- autotiled structures -----
   const auto = T.auto[type];
   if (auto) {
@@ -251,6 +254,7 @@ export function drawStatic(B, A, o, t) {
     const s = auto[(o.mask | 0) & 15];
     if (FLAT[type]) {
       B.ground.add(s, o.x, o.y, 1, 1, CR, CG, CB, CA, 0, 0, fl, 1, 1);
+      if (o._k) drawPlotKit(B, A, o);
       if (type === 'farm_plot' && (o.crop || o.kind) && o.stage != null) drawCrop(B, T, o, o.crop || o.kind, fl, 1);
       return;
     }
@@ -486,11 +490,15 @@ export const FLAT_DECOR = new Set(['litter', 'needles', 'twigs', 'petals', 'moss
 // wind sway per decor kind (fraction of the sprite height; the shader scales it by the wind)
 const DECOR_SWAY = { flower: 0.05, bloom: 0.06, mushroom: 0, tallgrass: 0.15, reed: 0.15, fern: 0.07, heather: 0.04, drygrass: 0.13, thistle: 0.06 };
 const UNTINTED = new Set(['flower', 'bloom', 'mushroom', 'heather', 'thistle']);
+export const WATERLINE = 0.15; // plant waterline above the sprite anchor (tiles) — keep equal to SPRITE_FS "WATER" (recv -2)
+// d.w (worldgen): stands in water → recv -2 (plants) / -1 (stones) = the sprite shader's soft wavy waterline (SPRITE_FS "WATER");
+// d._kick (src/fx/waterline.js, cosmetic): something waded through the clump → it sways harder for a moment.
 export function drawDecor(B, A, d) {
   const s = d._s || (d._s = A.groups[d.t] ? A.pick(d.t, d.v) : A.pick('grass', d.v));
   const t = d.t;
-  if (FLAT_DECOR.has(t)) { B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, 1, 0, 0, 0, d.f, 1); return; }
+  if (FLAT_DECOR.has(t)) { B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, 1, 0, 0, 0, d.f, d.w && t === 'riverstone' ? -1 : 1); return; }
   const tint = UNTINTED.has(t) ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
-  const sway = DECOR_SWAY[t] ?? 0.11;
-  B.decor.add(s, d.x, d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, 1);
+  const sway = (DECOR_SWAY[t] ?? 0.11) * (d._kick ? 1 + d._kick * 0.9 : 1);
+  // in water the sprite sinks by the shader's plant waterline (0.15 tile): the stems leave the water at d.y
+  B.decor.add(s, d.x, d.w ? d.y + WATERLINE : d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, d.w ? -2 : 1);
 }

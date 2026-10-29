@@ -18,6 +18,7 @@ if (FOCUS) for (const id of SECTIONS) if (id !== 'sprites') $('#' + id).style.di
 if (ONLY) for (const id of SECTIONS) if (id !== ONLY) $('#' + id).style.display = 'none';
 const t0 = performance.now();
 const A = buildAtlas();
+A.lookSync = true; // look parts (agent H, art/look/lazy.js) are painted on first use, synchronously here
 const buildMs = performance.now() - t0;
 $('#stats').textContent = `${A.list.length} sprites · atlas ${A.size}×${A.size} · buildAtlas ${buildMs.toFixed(0)} ms`;
 console.log('buildAtlas ms', buildMs, 'atlas', A.size);
@@ -36,7 +37,9 @@ const mkBatches = () => ({ shadow: new MockBatch(), blob: new MockBatch(), decor
 
 // ---------- sprite sources (tinted / silhouettes cached) ----------
 const AC = A.canvas, AS = A.size;
-const srcRect = (s) => [s.u0 * AS, s.v0 * AS, s.pw, s.ph];
+// lazily painted look parts carry their own canvas (u < 0 in the game's second texture)
+const srcOf = (s) => s.canvas || AC;
+const srcRect = (s) => (s.canvas ? [0, 0, s.pw, s.ph] : [s.u0 * AS, s.v0 * AS, s.pw, s.ph]);
 const tintCache = new Map();
 function tinted(s, r, g, b, mode = 'tint') {
   const key = s.name + '|' + mode + '|' + (r * 255 | 0) + ',' + (g * 255 | 0) + ',' + (b * 255 | 0);
@@ -46,14 +49,14 @@ function tinted(s, r, g, b, mode = 'tint') {
   c.width = s.pw; c.height = s.ph;
   const x = c.getContext('2d');
   const [sx, sy, sw, sh] = srcRect(s);
-  x.drawImage(AC, sx, sy, sw, sh, 0, 0, sw, sh);
+  x.drawImage(srcOf(s), sx, sy, sw, sh, 0, 0, sw, sh);
   if (mode === 'tint') {
     if (r !== 1 || g !== 1 || b !== 1) {
       x.globalCompositeOperation = 'multiply';
       x.fillStyle = `rgb(${r * 255 | 0},${g * 255 | 0},${b * 255 | 0})`;
       x.fillRect(0, 0, sw, sh);
       x.globalCompositeOperation = 'destination-in';
-      x.drawImage(AC, sx, sy, sw, sh, 0, 0, sw, sh);
+      x.drawImage(srcOf(s), sx, sy, sw, sh, 0, 0, sw, sh);
     }
   } else {
     x.globalCompositeOperation = 'source-in';

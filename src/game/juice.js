@@ -193,6 +193,7 @@ export class Juice {
     const lat = e.facing === 'e' || e.facing === 'w';
     const sx = lat ? 0 : side, sy = lat ? side * 0.4 : 0;
     const me = e === this.g.player;
+    if (e.z > 0) { if (me) this.g.audio?.play('step', { x: e.x, y: e.y, volume: 0.25, surface: this.g.levels?.surfaceOf(e) }); return; } // levels: stairs / wall top (no ground dust)
     if (w.waterAt(tx, ty) === 1) {
       this.splash(e.x + sx, e.y + sy, 0.7);
       if (me) this.g.audio?.play('splash', { x: e.x, y: e.y, volume: 0.35 });

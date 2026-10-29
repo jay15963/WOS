@@ -105,8 +105,8 @@ export function canPaint(game, tx, ty) {
     const f = G.floor?.get(i);
     if (f) return f.type === 'farm_plot' ? 'Canteiro no local' : 'Piso no local (piso e caminho não se misturam)';
     if (G.rug?.get(i)) return 'Tapete no local';
-    const o = G.main?.get(i);
-    if (o && BUILDINGS[o.type]?.block !== 'door') return 'Construção no local';
+    const o = G.main?.get(i); // walls, furniture, stairs, support columns… (doors / gates keep the path through them)
+    if (o && BUILDINGS[o.type]?.block !== 'door') return BUILDINGS[o.type]?.block === 'stairs' ? 'Escada no local' : BUILDINGS[o.type]?.support ? 'Coluna no local' : 'Construção no local';
   }
   for (const o of objectsOnTile(game, tx, ty)) {
     if (CLEARABLE.has(o.type) || o.type === 'crop') continue;

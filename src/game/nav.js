@@ -48,6 +48,8 @@ export function walkable(game, tx, ty, doors = false) {
   if (w.blocked(tx, ty)) return false;
   const i = w.idx(tx, ty);
   if (game.occ[i]) return false;
+  const S0 = game.levels?.st[0];
+  if (S0 && S0[i]) return false; // levels: stair steps are side walls at level 0 (entered only through their entrance)
   return doors || w.solid[i] !== 2;
 }
 
@@ -65,6 +67,8 @@ export const mobBlocked = (w, x, y, r) => collides(w, x, y, r) || overlapsDoor(w
 
 export function moveMob(game, e, dx, dy) {
   const w = game.world;
+  const L = game.levels;
+  if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts
   if (e.passDoors) return moveCircle(w, e, dx, dy);
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
   const sx = dx / steps, sy = dy / steps;
@@ -178,18 +182,24 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false) {
 // ---------- steering ----------
 // Returns a unit direction [dx, dy] toward (gx, gy) for entity e, or null when within `arrive`.
 // `expectSpeed` (tiles/s) is used for stuck detection. Uses game._pathBudget (A* calls per frame).
-export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2) {
+// `glv` = the goal's level (stories, docs/LEVELS.md §5); null = the entity's own level.
+export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = null) {
   const nav = e.nav || (e.nav = { path: null, i: 0, gx: 0, gy: 0, chkT: 0, lastD: 1e9, retryT: 0, losT: 0, side: Math.random() < 0.5 ? 1 : -1 });
   const dGoal = Math.hypot(gx - e.x, gy - e.y);
   if (dGoal <= arrive) { nav.path = null; return null; }
   const doors = !!e.passDoors;
   const w = game.world;
+  // levels: with stairs / ramparts plan over (tile, level) nodes; across levels or up high always follow a path
+  const LV = game.levels && (game.levels.active || e.lv || e.z > 0) ? game.levels : null;
+  const elv = e.lv | 0, tlv = glv == null ? elv : glv | 0;
+  const cross = !!LV && (tlv !== elv || elv > 0 || e.z > 0);
   nav.retryT -= dt;
   nav.losT -= dt;
   const wantPath = () => {
-    if (nav.retryT > 0 || (game._pathBudget ?? 1) <= 0 || dGoal < 0.9) return;
+    if (nav.retryT > 0 || (game._pathBudget ?? 1) <= 0 || (dGoal < 0.9 && !cross)) return;
     game._pathBudget = (game._pathBudget ?? 1) - 1;
-    const res = findPath(game, Math.floor(e.x), Math.floor(e.y), Math.floor(gx), Math.floor(gy), 1600, doors);
+    const res = LV ? LV.findPath(Math.floor(e.x), Math.floor(e.y), elv, Math.floor(gx), Math.floor(gy), tlv, 1600, doors)
+      : findPath(game, Math.floor(e.x), Math.floor(e.y), Math.floor(gx), Math.floor(gy), 1600, doors);
     if (res && res.path.length) { nav.path = res.path; nav.i = 0; nav.gx = gx; nav.gy = gy; nav.partial = !res.complete; }
     else nav.retryT = 1.5;
     if (!res || !res.complete) { nav.side = -nav.side; nav.retryT = Math.max(nav.retryT, 0.8); }
@@ -201,8 +211,8 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2) {
     else {
       let wp = nav.path[nav.i];
       while (wp && Math.hypot(wp[0] - e.x, wp[1] - e.y) < 0.32) wp = nav.path[++nav.i];
-      // smoothing: jump ahead to the furthest waypoint still in a clear straight line (max 3 ahead)
-      if (wp && nav.losT <= 0) {
+      // smoothing: jump ahead to the furthest waypoint still in a clear straight line (max 3 ahead; level 0 only)
+      if (wp && nav.losT <= 0 && !cross) {
         nav.losT = 0.25;
         for (let k = Math.min(nav.path.length - 1, nav.i + 3); k > nav.i; k--) {
           const q = nav.path[k];
@@ -217,7 +227,7 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2) {
   } else if (nav.losT <= 0) {
     // walls / rock / player buildings straight ahead: plan around them right away
     nav.losT = 0.5;
-    if (dGoal > 1.5 && !clearLine(game, e.x, e.y, gx, gy, doors, true)) wantPath();
+    if (cross ? dGoal > 0.3 : dGoal > 1.5 && !clearLine(game, e.x, e.y, gx, gy, doors, true)) wantPath();
     if (nav.path) { const wp = nav.path[0]; tx = wp[0]; ty = wp[1]; }
   }
   let dx = tx - e.x, dy = ty - e.y;
@@ -225,7 +235,7 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2) {
   dx /= L; dy /= L;
   // local probe avoidance (trunks, other props) — also while following a path
   const pr = 0.3;
-  const blockedAt = doors ? (x, y) => collides(w, x, y, e.r) : (x, y) => mobBlocked(w, x, y, e.r);
+  const blockedAt = LV ? (x, y) => LV.blockedFor(e, x, y) : doors ? (x, y) => collides(w, x, y, e.r) : (x, y) => mobBlocked(w, x, y, e.r);
   if (blockedAt(e.x + dx * pr, e.y + dy * pr)) {
     const angs = [0.7, -0.7, 1.35, -1.35, 2.0, -2.0];
     for (const a0 of angs) {

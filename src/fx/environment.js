@@ -242,8 +242,12 @@ export class Environment {
     // caves: a cool, very dim ambient (torches and fires light them up fully)
     const nk = e.night;
     X.uCaveAmb[0] = 0.12 - 0.03 * nk; X.uCaveAmb[1] = 0.125 - 0.025 * nk; X.uCaveAmb[2] = 0.15 - 0.02 * nk;
-    // low-sun light shafts through haze (dawn and late afternoon, clear-ish skies)
-    X.uRays = isDay ? low * e.day * (1 - cl * 0.85) * (1 - rain) * 0.9 : 0;
+    // god rays: the signature of the mornings (dawn → ~10 h, golden), softer late afternoon, none at night,
+    // fading under heavy overcast and rain
+    const mornR = smoothstep(5.75, 6.5, h) * (1 - smoothstep(7.8, 10.5, h));
+    const eveR = smoothstep(15.6, 17.4, h) * (1 - smoothstep(18.5, 19.25, h)) * 0.55;
+    X.uRays = isDay || h < 6.5 ? (mornR + eveR) * (1 - smoothstep(0.5, 0.92, cl)) * (1 - rain) : 0;
+    e.rays = X.uRays;
     X.uSunXY[0] = e.sun3[0]; X.uSunXY[1] = e.sun3[1];
     X.uSnow = this.snowCover;
     e.snowCover = this.snowCover;

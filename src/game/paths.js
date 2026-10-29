@@ -621,8 +621,8 @@ export function pathsSystem() {
     update(game, dt) {
       const V = game._paths, p = game.player, w = game.world;
       if (!V) return;
-      // walking on a path (floors and paths never share a tile)
-      if (!p.dead) {
+      // walking on a path (floors and paths never share a tile; not while up on a wall top / upper story)
+      if (!p.dead && !(p.lv > 0)) {
         const tx = Math.floor(p.x), ty = Math.floor(p.y);
         if (w.inBounds(tx, ty)) { const t = w.path[w.idx(tx, ty)]; if (t) p.speed *= PATH_TYPES[t].speed; }
       }

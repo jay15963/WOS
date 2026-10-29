@@ -18,6 +18,7 @@
 import { installQuality, qualityPreset, qualityStepDown, qualityStepUp } from './quality.js';
 import { installDebug } from './debug.js';
 import { installStatusFx } from './status.js';
+import { installBrush } from './brush.js';
 
 import { installWildlife } from './wildlife.js';
 
@@ -47,6 +48,7 @@ export function installAmbient(game) {
   game.ambient = sys;
   installWildlife(game); // critters (butterflies, bees, dragonflies, frogs, ducks, fish, squirrels, birds, rabbits)
   installStatusFx(game);  // local player's status screen effects (cosmetic)
+  installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
 }
 
 class Ambient {
@@ -112,9 +114,12 @@ class Ambient {
     if (this.scanT <= 0) { this.scanT = 0.4; this._scan(g, v); }
 
     // ---------- fire: smoke + embers ----------
+    const RF = g.roofs;
     for (const f of this.fires) {
       const o = f.o;
       if (!o.fire || o.dead) continue;
+      // under a closed roof the smoke leaves through the chimney (src/game/roofs.js)
+      if (RF && w.broof) { const ti = Math.floor(o.y - 0.05) * w.W + Math.floor(o.x), rg = w.broof[ti] && RF.regions.get(RF.regionOf[ti]); if (rg && rg.alpha > 0.5) continue; }
       const I = typeof o.fire === 'number' ? o.fire : 1;
       const lift = (o.light && o.light.lift != null ? o.light.lift : 0.3) + 0.15;
       f.acc = (f.acc || 0) + dt * I;
@@ -148,7 +153,7 @@ class Ambient {
         this.acc.rain -= 1;
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const tx = Math.floor(x), ty = Math.floor(y);
-        if (w.isRock(tx, ty) || (w.caveDark && w.caveDark(x, y) > 0.25)) continue; // no rain underground
+        if (w.isRock(tx, ty) || (w.caveDark && w.caveDark(x, y) > 0.25) || w.roofAt?.(tx, ty) === 2) continue; // no rain underground / under roofs
         if (g.R.coldAt && g.R.coldAt(x, y) > 0.6) continue;                       // it snows here (post shader)
         if (w.waterAt(tx, ty)) {
           // ripples are drawn by the terrain shader; add a droplet jumping off the surface now and then
@@ -171,7 +176,7 @@ class Ambient {
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const gnd = w.groundAt(Math.floor(x), Math.floor(y));
         if (!(gnd === 2 || gnd === 3 || gnd === 0) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
-        if (w.isMined && w.isMined(Math.floor(x), Math.floor(y))) continue;
+        if ((w.isMined && w.isMined(Math.floor(x), Math.floor(y))) || w.roofAt?.(Math.floor(x), Math.floor(y)) === 2) continue;
         const sp = 1.0 + env.wind * 1.6;   // calm drift even in strong wind (≤ ~2.7 tiles/s)
         P.emit({ spr: this.S.dust, x, y, vx: env.windDir[0] * sp, vy: env.windDir[1] * sp, lift: 0.1, vlift: 0.15, life: 1.8, size: (0.4) * K.dust, size1: (1.4) * K.dust,
           r: 0.75, g: 0.66, b: 0.52, a: 0.16, a1: 0, fadeIn: 0.4, ground: false });
@@ -208,7 +213,7 @@ class Ambient {
         if (w.isRock(tx, ty)) continue;
         const i = ty * w.W + tx;
         const ok = (w.lush && w.lush[i] > 0.45) || (w.dWater && w.dWater[i] < 4);
-        if (!ok || (w.caveDark && w.caveDark(x, y) > 0.2)) continue;
+        if (!ok || (w.caveDark && w.caveDark(x, y) > 0.2) || w.roofAt?.(tx, ty)) continue; // never indoors
         this.fireflies.push({ x, y, lift: 0.3 + rnd() * 0.9, ph: rnd() * TAU, sp: 0.25 + rnd() * 0.35, ang: rnd() * TAU, t: 0, life: 10 + rnd() * 14, blink: 0.4 + rnd() * 0.5 });
       }
     }
@@ -520,7 +525,7 @@ class Ambient {
       const glow = this.spr(this.S.glow || this.S.soft), K = this.K, night = env.night, dark = Math.max(night, this.camCave);
       for (const o of this.lights) {
         const L = o.light;
-        if (!L || o.dead || o.fire === false || o.lit === false || o.blueprint) continue;
+        if (!L || o.dead || o.fire === false || o.lit === false || o.blueprint || g.roofs?.hidden?.(o.x, o.y)) continue;
         const seed = o.x * 3.1 + o.y * 1.7;
         const fl = o.fire ? 0.84 + 0.1 * Math.sin(t * 9.3 + seed) * Math.sin(t * 5.1 + seed * 2) + 0.06 * Math.sin(t * 23 + seed) : 1;
         const R = L.radius || 4, I = L.intensity ?? 1, lift = L.lift ?? 0.3;

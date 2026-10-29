@@ -3,6 +3,7 @@
 import './loot.js';
 import './objects.js';
 import './structures.js';
+import './roofs.js';
 import './tiles.js';
 import './crops.js';
 import './camps.js';
@@ -11,3 +12,5 @@ import './bow.js';
 import './env.js';
 import './paths.js'; // painted terrain paths (agent M)
 import './own.js';
+import './kit.js';
+import './corpses.js';
