@@ -956,6 +956,22 @@ differs from the design text above, the code is described here (this section win
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
 
+- **Corpses (round V2, agent I)** — `game.corpses.map` (id → body), shared fields `id, of ('pawn' | species), x, y, f, deathT, size, store,
+  butchered, owner, name, look, sc, v, gear`; cosmetic `_t0` (fall animation), `_ph`, `_px`, `rotten` (flies stage, derived every 0.5 s; feeds the `flies` sound); on entities `_corpseId` (a dead creature /
+  player whose body is on the ground is not drawn by the rig). The **stage is never replicated**: every peer derives it from
+  `(worldTime - deathT) / env.dayLength` — fresh < 1 ≤ rotten < 2 ≤ skeleton < 5, then the host emits `corpse.remove` (expiry tick 2 s,
+  cap 150 bodies, oldest first). Snapshot `corpses` rows `[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc,
+  v, gear|0, 0]`; digest part `corpses` `[id, of, x, y, round(deathT), butchered, owner, store]`. Ids `c<n>` (`net.ids.c`).
+  - Ops: `corpse.add {list}` (host death path: `killMob` → `corpseFromMob`, it **replaces** the kill-loot `loot.add`: animals drop nothing,
+    a raider's loot rows go into its body), `corpse.set {id, slots, by?, give?}`, `corpse.butcher {id, by, give, xp, tip?}`,
+    `corpse.remove {ids, by?, give?, xp?, fx: 'bones'?}`.
+  - Intents: `corpse.player {x, y, f, slots, gear}` (the dying owner already emptied its bag + equipment; refund on reject),
+    `corpse.put {id, item, qty}` / `corpse.take {id, slot, qty}` (pawn bodies, fresh or rotten, reach 3.2). Sorting is ONE shared
+    intent for every container, `store.sort {kind: 'chest' (default) | 'corpse', id, mode: 'name'|'type'|'qty'}` (mut/structures.js;
+    replaces B's `chest.sort`; `src/game/invsort.js` `sortedSlots`, stacks merge) → `chest.set` / `corpse.set`; `corpse.butcher {id, blade, tier}`
+    (end of the local timed work; fresh animal, not butchered; yields rolled on the host from `SPECIES[].loot`: blade = full table +
+    bonus, bare hands = no hide and ~60% meat), `corpse.bones {id}` (skeleton stage; `give: {bone: 1|2|4|3}` by size, spiders 0).
+  - Test fast-forward: the harness emits `env.skip {hour, day, wt}` on the host (S60 / S61).
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,
@@ -964,6 +980,7 @@ re-find worldgen objects if the world generator changed). Guests write `{ v: 3, 
 v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'load')`. Snapshot `dyn[...][10]` (solid) may be
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
 `migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
+**v5** (round V2, agent I): the world snapshot carries `corpses` (optional; older saves simply have no bodies).
 
 ### 7.4 Background clock
 
