@@ -400,3 +400,70 @@ export function volume(g, x0, y0, x1, y1, dark = 'rgba(20,16,10,0.35)', light = 
     g.fillRect(Math.min(x0, x1) - 50, Math.min(y0, y1) - 50, Math.abs(x1 - x0) + 100, Math.abs(y1 - y0) + 100);
   });
 }
+
+// ---------- fast outline variant (added by Art B) ----------
+// Same look as outlineOnto/Painter.layer with fewer dilation taps (10 on the ring + 4 inside instead of 14 + 6):
+// fewer blits for character/creature/item art. spritePxFast() is a drop-in for spritePx().
+const offCacheFast = new Map();
+function offsetsFast(R) {
+  const key = Math.round(R * 4);
+  let o = offCacheFast.get(key);
+  if (o) return o;
+  o = [];
+  const seen = new Set();
+  const push = (x, y) => { const k = x + ',' + y; if (!seen.has(k) && (x || y)) { seen.add(k); o.push([x, y]); } };
+  const n1 = R > 3 ? 10 : 8;
+  for (let i = 0; i < n1; i++) { const a = (i / n1) * TAU; push(Math.round(Math.cos(a) * R), Math.round(Math.sin(a) * R)); }
+  if (R > 2.2) for (let i = 0; i < 4; i++) { const a = ((i + 0.5) / 4) * TAU; push(Math.round(Math.cos(a) * R * 0.55), Math.round(Math.sin(a) * R * 0.55)); }
+  offCacheFast.set(key, o);
+  return o;
+}
+export function outlineOntoFast(dst, src, ow = OW, col = OUT) {
+  const W = src.width, H = src.height;
+  const box = alphaBox(src);
+  if (!box) return;
+  const R = Math.ceil(ow * SS) + 1;
+  const rx0 = Math.max(0, box[0] - R), ry0 = Math.max(0, box[1] - R);
+  const rx1 = Math.min(W, box[2] + R), ry1 = Math.min(H, box[3] + R);
+  const rw = rx1 - rx0, rh = ry1 - ry0;
+  dst.save();
+  dst.setTransform(1, 0, 0, 1, 0, 0);
+  if (ow > 0) {
+    const t = acquire(W, H);
+    const tg = t.getContext('2d');
+    tg.imageSmoothingEnabled = false;
+    const bw = box[2] - box[0], bh = box[3] - box[1];
+    for (const [dx, dy] of offsetsFast(ow * SS)) tg.drawImage(src, box[0], box[1], bw, bh, box[0] + dx, box[1] + dy, bw, bh);
+    tg.imageSmoothingEnabled = true;
+    const [c, a] = colAlpha(col);
+    tg.globalCompositeOperation = 'source-atop';
+    tg.fillStyle = c;
+    tg.fillRect(rx0, ry0, rw, rh);
+    tg.globalCompositeOperation = 'source-over';
+    const ga = dst.globalAlpha;
+    dst.globalAlpha = ga * a;
+    dst.drawImage(t, rx0, ry0, rw, rh, rx0, ry0, rw, rh);
+    dst.globalAlpha = ga;
+    release(t);
+  }
+  dst.drawImage(src, rx0, ry0, rw, rh, rx0, ry0, rw, rh);
+  dst.restore();
+}
+class FastPainter extends Painter {
+  layer(fn, ow = OW, col = OUT, opacity = 1) {
+    const L = acquire(this.c.width, this.c.height);
+    const lg = ctx2d(L);
+    lg.setTransform(SS, 0, 0, SS, this.pad * SS, this.pad * SS);
+    fn(lg);
+    lg.setTransform(1, 0, 0, 1, 0, 0);
+    if (opacity < 1) { this.g.save(); this.g.globalAlpha = opacity; }
+    outlineOntoFast(this.g, L, ow, col);
+    if (opacity < 1) this.g.restore();
+    release(L);
+  }
+}
+export function spritePxFast(W, H, fn, opts) {
+  const P = new FastPainter(W, H, opts);
+  fn(P.g, P);
+  return P.finish();
+}

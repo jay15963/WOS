@@ -49,8 +49,9 @@ export function addFx(add) {
     }
   }), 0.5, 0.5);
   add('fx_dust', spritePx(48, 48, (g) => {
-    for (const [x, y, r] of [[24, 27, 16], [16, 24, 10], [32, 22, 11], [24, 18, 9]]) {
-      g.fillStyle = rad(g, x, y, 0, r, [[0, 'rgba(240,232,215,0.55)'], [0.6, 'rgba(235,225,205,0.25)'], [1, 'rgba(230,220,200,0)']]);
+    // soft billowing puff: overlapping lobes, brighter top-left
+    for (const [x, y, r, k] of [[24, 28, 15, 1], [14, 26, 10, 0.9], [34, 25, 11, 0.9], [22, 18, 10, 1.1], [31, 17, 7, 1], [16, 33, 8, 0.8], [34, 33, 8, 0.8]]) {
+      g.fillStyle = rad(g, x - r * 0.3, y - r * 0.35, 0, r, [[0, `rgba(248,242,228,${0.5 * k})`], [0.55, `rgba(236,226,206,${0.26 * k})`], [1, 'rgba(230,220,200,0)']]);
       g.beginPath(); circle(g, x, y, r); g.fill();
     }
   }), 0.5, 0.5);
@@ -86,25 +87,63 @@ export function addFx(add) {
     for (const [x, y, r] of [[22, 18, 2.2], [32, 11, 2.6], [42, 17, 2.1], [27, 6, 1.5], [38, 7, 1.4], [16, 25, 1.6], [48, 24, 1.6]]) { g.beginPath(); g.ellipse(x, y, r * 0.8, r * 1.2, 0, 0, TAU); g.fill(); }
   }), 0.5, 0.72);
   add('fx_slash', spritePx(80, 80, (g) => {
-    // crescent arc over the top (opening toward the bottom); rotate at runtime toward the hit direction
+    // tapered crescent over the top (opening toward the bottom), bright leading edge fading into a trail;
+    // rotate at runtime toward the hit direction
     const cx = 40, cy = 46;
-    const cres = () => { g.beginPath(); g.arc(cx, cy, 32, Math.PI * 1.08, Math.PI * 1.92); g.quadraticCurveTo(cx + 18, cy - 20, cx, cy - 22); g.quadraticCurveTo(cx - 18, cy - 20, cx + Math.cos(Math.PI * 1.08) * 32, cy + Math.sin(Math.PI * 1.08) * 32); g.closePath(); };
-    g.save(); g.translate(cx, cy); g.scale(1.08, 1.12); g.translate(-cx, -cy); cres(); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fill(); g.restore();
-    cres(); g.fillStyle = 'rgba(255,255,255,0.5)'; g.fill();
-    g.beginPath(); g.arc(cx, cy, 31, Math.PI * 1.15, Math.PI * 1.85); g.quadraticCurveTo(cx + 14, cy - 24, cx, cy - 26); g.quadraticCurveTo(cx - 14, cy - 24, cx + Math.cos(Math.PI * 1.15) * 31, cy + Math.sin(Math.PI * 1.15) * 31); g.closePath();
-    g.fillStyle = 'rgba(255,255,255,1)'; g.fill();
+    const cres = (r, th, a0, a1) => {
+      g.beginPath();
+      const n = 24;
+      for (let i = 0; i <= n; i++) { const t = i / n, a = a0 + (a1 - a0) * t, w = th * Math.sin(t * Math.PI) ** 0.8; const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r; i ? g.lineTo(x, y) : g.moveTo(x, y); }
+      for (let i = n; i >= 0; i--) { const t = i / n, a = a0 + (a1 - a0) * t, w = th * Math.sin(t * Math.PI) ** 0.8; const x = cx + Math.cos(a) * (r - w), y = cy + Math.sin(a) * (r - w); g.lineTo(x, y); }
+      g.closePath();
+    };
+    cres(35, 15, Math.PI * 1.02, Math.PI * 1.98); g.fillStyle = 'rgba(255,255,255,0.14)'; g.fill();
+    cres(33, 11, Math.PI * 1.06, Math.PI * 1.94); g.fillStyle = lin(g, 6, 0, 74, 0, [[0, 'rgba(255,255,255,0.1)'], [0.5, 'rgba(255,255,255,0.5)'], [1, 'rgba(255,255,255,0.75)']]); g.fill();
+    cres(32, 5.5, Math.PI * 1.12, Math.PI * 1.9); g.fillStyle = lin(g, 8, 0, 74, 0, [[0, 'rgba(255,255,255,0.3)'], [0.6, 'rgba(255,255,255,0.95)'], [1, 'rgba(255,255,255,1)']]); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.9)';
+    for (const [a, r, s] of [[1.3, 26, 1.4], [1.55, 23, 1.1], [1.75, 27, 1.2]]) { g.beginPath(); circle(g, cx + Math.cos(Math.PI * a) * r, cy + Math.sin(Math.PI * a) * r, s); g.fill(); }
   }), 0.5, 0.5);
   add('fx_star', spritePx(32, 32, (g) => {
-    g.fillStyle = rad(g, 16, 16, 0, 16, [[0, 'rgba(255,255,255,0.7)'], [0.4, 'rgba(255,255,255,0.15)'], [1, 'rgba(255,255,255,0)']]);
+    // hit sparkle: soft core + long 4-point rays + short diagonal rays
+    g.fillStyle = rad(g, 16, 16, 0, 16, [[0, 'rgba(255,255,255,0.85)'], [0.35, 'rgba(255,255,255,0.2)'], [1, 'rgba(255,255,255,0)']]);
     g.fillRect(0, 0, 32, 32);
-    g.fillStyle = '#ffffff';
-    g.beginPath();
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU - Math.PI / 2, r = i % 2 ? 3 : 15;
-      const x = 16 + Math.cos(a) * r, y = 16 + Math.sin(a) * r;
-      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    const star = (n, r0, r1, rot) => { g.beginPath(); for (let i = 0; i < n * 2; i++) { const a = (i / (n * 2)) * TAU + rot, r = i % 2 ? r1 : r0; const x = 16 + Math.cos(a) * r, y = 16 + Math.sin(a) * r; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); g.fill(); };
+    g.fillStyle = 'rgba(255,255,255,0.7)'; star(4, 9, 1.6, Math.PI / 4);
+    g.fillStyle = '#ffffff'; star(4, 15.5, 2.2, -Math.PI / 2);
+    g.beginPath(); circle(g, 16, 16, 3); g.fill();
+  }), 0.5, 0.5);
+  // shield block: bright spark burst with flying shards (white, tint at runtime — e.g. gold)
+  add('fx_block', spritePx(48, 48, (g) => {
+    g.fillStyle = rad(g, 24, 24, 0, 22, [[0, 'rgba(255,255,255,0.95)'], [0.3, 'rgba(255,255,255,0.35)'], [1, 'rgba(255,255,255,0)']]); g.fillRect(0, 0, 48, 48);
+    g.strokeStyle = '#ffffff'; g.lineCap = 'round';
+    for (let i = 0; i < 9; i++) { const a = (i / 9) * TAU + 0.2, r0 = 6, r1 = 15 + (i % 3) * 4; g.lineWidth = 2.4 - (i % 3) * 0.5; g.beginPath(); g.moveTo(24 + Math.cos(a) * r0, 24 + Math.sin(a) * r0); g.lineTo(24 + Math.cos(a) * r1, 24 + Math.sin(a) * r1); g.stroke(); }
+    g.fillStyle = '#ffffff'; for (let i = 0; i < 5; i++) { const a = (i / 5) * TAU + 0.6, r = 19; g.beginPath(); circle(g, 24 + Math.cos(a) * r, 24 + Math.sin(a) * r, 1.3); g.fill(); }
+    g.beginPath(); circle(g, 24, 24, 4.5); g.fill();
+  }), 0.5, 0.5);
+  // poison: bubbly green cloud with drips (colored)
+  add('fx_poison', spritePx(40, 40, (g, P) => P.layer((g) => {
+    for (const [x, y, r] of [[20, 22, 9], [12, 20, 6], [28, 19, 7], [19, 13, 6], [26, 27, 5], [13, 28, 4.5]]) {
+      g.fillStyle = rad(g, x - r * 0.35, y - r * 0.35, 0, r, [[0, 'rgba(200,255,140,0.95)'], [0.6, 'rgba(110,190,60,0.85)'], [1, 'rgba(60,120,30,0.8)']]);
+      g.beginPath(); circle(g, x, y, r); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); circle(g, x - r * 0.35, y - r * 0.4, r * 0.22); g.fill();
     }
-    g.closePath(); g.fill();
+    g.fillStyle = 'rgba(110,190,60,0.9)'; g.beginPath(); g.ellipse(16, 33, 1.6, 2.8, 0, 0, TAU); g.ellipse(25, 33.5, 1.3, 2.4, 0, 0, TAU); g.fill();
+  }, 1.4, 'rgba(24,48,14,0.85)')), 0.5, 0.5);
+  // blood droplet splat (colored dark red; particles can tint lighter)
+  add('fx_blood', spritePx(24, 24, (g) => {
+    g.fillStyle = '#8a1218';
+    g.beginPath(); circle(g, 12, 13, 5.5); g.fill();
+    for (const [x, y, r] of [[5, 8, 2], [19, 7, 1.6], [20, 17, 2.2], [6, 19, 1.4], [13, 4, 1.2]]) { g.beginPath(); circle(g, x, y, r); g.fill(); }
+    g.fillStyle = '#c42a2a'; g.beginPath(); circle(g, 11, 12, 3.8); g.fill();
+    g.fillStyle = 'rgba(255,200,190,0.8)'; g.beginPath(); circle(g, 9.6, 10.6, 1.1); g.fill();
+  }), 0.5, 0.5);
+  // three claw rakes (animal attacks); white, rotate/tint at runtime
+  add('fx_claw', spritePx(48, 48, (g) => {
+    for (let i = 0; i < 3; i++) {
+      const o = (i - 1) * 9;
+      g.beginPath(); g.moveTo(10 + o, 8); g.quadraticCurveTo(22 + o, 22, 30 + o, 42); g.quadraticCurveTo(20 + o, 24, 7 + o, 11); g.closePath();
+      g.fillStyle = 'rgba(255,255,255,0.95)'; g.fill();
+    }
   }), 0.5, 0.5);
   for (let i = 0; i < 3; i++) add('fx_flame_' + i, flame(i), 0.5, 49 / 52);
   // contract name (single flame) = variant 0
