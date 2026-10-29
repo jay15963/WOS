@@ -15,6 +15,24 @@
 //   nid / id (idle-life schedule), state ('chase' | 'flee' …)
 // Every animation is a function of replicated state (facing, moving, moveT, action, flash, dead, pose,
 // headFacing) plus time, so remote copies animate like the original. `_`-fields are per-client caches.
+//
+// ---------- PAWN RIG (anchors; directions s / n / e, w = e mirrored with flip -1) ----------
+// Appearance comes ONLY from `look` (tints + part ids); equipment (weapon, offhand, armor → wear_*) is separate.
+// All positions are in tiles; `lift` = height above the ground plane (screen up). Per-frame values:
+//   x, y   ground point under the body (entity x, y + pose offsets); bl = body lift (bob + LEG 0.05 on the boots)
+//   torso  pawn_body_<d> (× look.shirt) and pawn_legs_<d> (× look.pants): BW×BH = 56×56 px canvas, anchor bottom
+//          centre at FEET (53 px) → drawn at (x, y, lift bl), scale (sx, sy) squash/stretch, rotation rot.
+//          Body armour wear_<id>_<d> uses the same canvas/anchor. → drawTorso()
+//   head   pawn_head_<d> (× look.skin): HW×HH = 58×66 px canvas, anchor at the neck (NECK 52 px) → drawn at
+//          (hx, y, lift hl) with hl = bl + PAWN.headLift·sy (0.56) + bob, rotation hr. Every head part shares that
+//          canvas and anchor: pawn_lids_<d> (blink / sleep, × skin), face_<id>_<d>, brows_<d> / beard_<d> /
+//          hair_<style>_<d> (× look.hairColor; hair gets its own follow-through rot/lift), hat_bandana_<d>,
+//          head wear wear_<id>_<d>. The head may face another way than the body (headFacing). → drawHead()
+//   hands  pawn_hand (× skin, centre anchor, 14 px): rest at the sleeve cuffs (s/n: x ±0.27, lift 0.17; e: near
+//          x +0.02 / far −0.03, lift 0.18), weapon grip at PAWN.handS/N/E (+ offS/N/E for the off hand).
+//   feet   pawn_foot_<s|e> (boots, × pants·0.5, anchor at the sole): s/n x ±0.125; e x ±0.025 + stride, drawn
+//          behind the torso; sitting: in front (+ pawn_thigh_e from the hip in the side view).
+// Part painters (art/pawns.js today, art/look/* later) only need to paint into these canvases/anchors.
 
 import { PAWN } from './pawns.js';
 import { TORCH_TIP } from './gear.js';
@@ -193,6 +211,49 @@ function bedSlot(o) {
   BX = o.x - BUX * 0.62; BY = (vert ? o.y - 1 : o.y - 0.5) - BUY * 0.62; BR = q * HALF_PI;
 }
 
+// ---------- look-driven part drawing (the rig decides where; the look decides what) ----------
+// torso: body (× shirt) + trousers (× pants) + body armour, all on the torso anchor
+function drawTorso(B, T, L, armor, sd, sh, pc, x, y, sx, sy, rot, fl, flip, lift, al, legsOn = true) {
+  B.main.add(T.body[sd], x, y, sx, sy, sh[0], sh[1], sh[2], al, 0, rot, fl, flip, 0, lift);
+  const legs = T.legs[sd];
+  if (legs && legsOn) B.main.add(legs, x, y, sx, sy, pc[0], pc[1], pc[2], al, 0, rot, fl, flip, 0, lift);
+  const wb = armor ? wear(T, armor.body, sd) : null;
+  if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, lift);
+}
+// hair sprite for a look (null when bald or hidden by head wear / bandana)
+function hairOf(T, L, armor, d) {
+  const hs = T.hair[L.hair];
+  if (!hs) return null;
+  const wh = armor ? wear(T, armor.head, d) : null;
+  const hides = wh ? WEAR_HIDES_HAIR[armor.head] : L.hat === 'bandana' ? 'tall' : null;
+  if (hides === true || (hides === 'tall' && TALL_HAIR[L.hair])) return null;
+  return hs[d] || null;
+}
+// topmost head sprite (sun shadow silhouette)
+function headTop(T, L, armor, d) {
+  return (armor ? wear(T, armor.head, d) : null) || hairOf(T, L, armor, d) || (L.hat === 'bandana' ? T.hat[d] : null);
+}
+// head + every part sharing its anchor, from the look. d: 's'|'n'|'e' (flip mirrors 'w'); shut: eyelids closed;
+// hairR / hairL: hair rotation / lift (follow-through), equal to r / l when no follow-through is wanted
+function drawHead(B, T, L, armor, d, flip, x, y, l, r, fl, al, shut, hairR, hairL) {
+  const sk = L.skin || DEFAULT_LOOK.skin, hc = L.hairColor || DEFAULT_LOOK.hairColor, hat = L.hatColor || HAT_COL;
+  const wh = armor ? wear(T, armor.head, d) : null;
+  B.main.add(T.head[d], x, y, 1, 1, sk[0], sk[1], sk[2], al, 0, r, fl, flip, 0, l);
+  if (shut && d !== 'n' && T.lids[d]) B.main.add(T.lids[d], x, y, 1, 1, sk[0], sk[1], sk[2], al, 0, r, fl, flip, 0, l);
+  const fs = L.face && T.face[L.face] ? T.face[L.face][d === 'n' ? 'x' : d] : null;
+  if (fs && L.face !== 'mask') B.main.add(fs, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
+  const brows = d !== 'n' ? T.brows[d] : null;
+  if (brows && !(wh && armor.head === 'helmet_iron' && d === 's')) B.main.add(brows, x, y, 1, 1, hc[0], hc[1], hc[2], al, 0, r, fl, flip, 0, l);
+  const beard = L.beard && d !== 'n' ? T.beard[d] : null;
+  if (beard) B.main.add(beard, x, y, 1, 1, hc[0], hc[1], hc[2], al, 0, r, fl, flip, 0, l);
+  if (fs && L.face === 'mask') B.main.add(fs, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, flip, 0, l);
+  const hair = hairOf(T, L, armor, d);
+  if (hair) B.main.add(hair, x, y, 1, 1, hc[0], hc[1], hc[2], al, 0, hairR, fl, flip, 0, hairL);
+  const bandana = L.hat === 'bandana' ? T.hat[d] : null;
+  if (bandana && !wh) B.main.add(bandana, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, flip, 0, l);
+  if (wh) B.main.add(wh, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
+}
+
 // eyes closed now? (blink schedule from the pawn's phase: irregular, sometimes a double blink)
 function blinking(t, ph0) {
   const per = 3.1 + 1.8 * ((ph0 * 7.31) % 1);
@@ -230,19 +291,8 @@ export function drawPawn(B, A, p, t) {
     WET_SH[0] = sh[0] * d; WET_SH[1] = sh[1] * d; WET_SH[2] = sh[2] * (d + 0.04 * wet); sh = WET_SH;
     WET_PC[0] = pc[0] * d; WET_PC[1] = pc[1] * d; WET_PC[2] = pc[2] * (d + 0.04 * wet); pc = WET_PC;
   }
-  const body = T.body[sd], head = T.head[hsd], legs = T.legs[sd];
+  const body = T.body[sd], head = T.head[hsd];
   const armor = p.armor;
-  const wb = armor ? wear(T, armor.body, sd) : null;
-  const wh = armor ? wear(T, armor.head, hsd) : null;
-  const bandana = L.hat === 'bandana' ? T.hat[hsd] : null;
-  const hides = wh ? WEAR_HIDES_HAIR[armor.head] : bandana ? 'tall' : null;
-  const hs = T.hair[L.hair];
-  let hair = hs ? hs[hsd] : null;
-  if (hides === true || (hides === 'tall' && TALL_HAIR[L.hair])) hair = null;
-  const beard = L.beard && hsd !== 'n' ? T.beard[hsd] : null;
-  const brows = hsd !== 'n' ? T.brows[hsd] : null;
-  const fs = L.face && T.face[L.face] ? T.face[L.face][hsd === 'n' ? 'x' : hsd] : null;
-  const fTint = L.face === 'mask' ? hat : null;
   const ph0 = phaseOf(p);
   const lids = hsd !== 'n' ? T.lids[hsd] : null;
 
@@ -267,21 +317,8 @@ export function drawPawn(B, A, p, t) {
     if (O.s) B.main.add(O.s, p.x + side * 0.15, p.y + 0.18, 0.9, 0.9, 1, 1, 1, 1, 0, side * 0.3, fl, 1, 0, 0.01);
     const ft = T.foot[sd];
     if (ft) B.main.add(ft, p.x - side * 0.08 * kk, p.y + 0.02, 1, 1, pc[0] * 0.5, pc[1] * 0.45, pc[2] * 0.42, 1, 0, rot, fl, flip, 0, 0);
-    B.main.add(body, p.x, p.y, 1, bsy, sh[0], sh[1], sh[2], 1, 0, rot, fl, flip, 0, 0);
-    if (legs) B.main.add(legs, p.x, p.y, 1, bsy, pc[0], pc[1], pc[2], 1, 0, rot, fl, flip, 0, 0);
-    if (wb) B.main.add(wb, p.x, p.y, 1, bsy, 1, 1, 1, 1, 0, rot, fl, flip, 0, 0);
-    const dh = T.head[sd], dl = sd !== 'n' ? T.lids[sd] : null;
-    B.main.add(dh, hx, hy, 1, 1, sk[0], sk[1], sk[2], 1, 0, rot, fl, flip, 0, 0);
-    if (dl && kk > 0.5) B.main.add(dl, hx, hy, 1, 1, sk[0], sk[1], sk[2], 1, 0, rot, fl, flip, 0, 0);
-    const dfs = L.face && T.face[L.face] ? T.face[L.face][sd === 'n' ? 'x' : sd] : null;
-    if (dfs) B.main.add(dfs, hx, hy, 1, 1, fTint ? fTint[0] : 1, fTint ? fTint[1] : 1, fTint ? fTint[2] : 1, 1, 0, rot, fl, flip, 0, 0);
-    const db = L.beard && sd !== 'n' ? T.beard[sd] : null;
-    if (db) B.main.add(db, hx, hy, 1, 1, hc[0], hc[1], hc[2], 1, 0, rot, fl, flip, 0, 0);
-    const dhr = hs && !(hides === true || (hides === 'tall' && TALL_HAIR[L.hair])) ? hs[sd] : null;
-    if (dhr) B.main.add(dhr, hx, hy, 1, 1, hc[0], hc[1], hc[2], 1, 0, rot, fl, flip, 0, 0);
-    if (L.hat === 'bandana' && T.hat[sd]) B.main.add(T.hat[sd], hx, hy, 1, 1, hat[0], hat[1], hat[2], 1, 0, rot, fl, flip, 0, 0);
-    const dwh = armor ? wear(T, armor.head, sd) : null;
-    if (dwh) B.main.add(dwh, hx, hy, 1, 1, 1, 1, 1, 1, 0, rot, fl, flip, 0, 0);
+    drawTorso(B, T, L, armor, sd, sh, pc, p.x, p.y, 1, bsy, rot, fl, flip, 0, 1);
+    drawHead(B, T, L, armor, sd, flip, hx, hy, 0, rot, fl, 1, kk > 0.5, rot, 0);
     return;
   }
 
@@ -297,15 +334,8 @@ export function drawPawn(B, A, p, t) {
     const nx = px + ux * 0.2, ny = py + uy * 0.2;
     p._zx = nx; p._zy = ny; // where the Zzz rise from (juice.js)
     const tilt = ang + 0.14 * (ph0 % 2 > 1 ? 1 : -1) + breath * 0.015;
-    const hl = 0.02, head0 = T.head.s;
-    B.main.add(head0, nx, ny, 1, 1, sk[0], sk[1], sk[2], 1, 0, tilt, fl, 1, 0, hl);
-    if (T.lids.s) B.main.add(T.lids.s, nx, ny, 1, 1, sk[0], sk[1], sk[2], 1, 0, tilt, fl, 1, 0, hl);
-    if (T.brows.s) B.main.add(T.brows.s, nx, ny, 1, 1, hc[0], hc[1], hc[2], 1, 0, tilt, fl, 1, 0, hl);
-    const sb = L.beard ? T.beard.s : null;
-    if (sb) B.main.add(sb, nx, ny, 1, 1, hc[0], hc[1], hc[2], 1, 0, tilt, fl, 1, 0, hl);
-    const shr = hs && !(hides === true || (hides === 'tall' && TALL_HAIR[L.hair])) ? hs.s : null;
-    if (shr) B.main.add(shr, nx, ny, 1, 1, hc[0], hc[1], hc[2], 1, 0, tilt, fl, 1, 0, hl);
-    if (L.hat === 'bandana' && T.hat.s) B.main.add(T.hat.s, nx, ny, 1, 1, hat[0], hat[1], hat[2], 1, 0, tilt, fl, 1, 0, hl);
+    const hl = 0.02;
+    drawHead(B, T, L, null, 's', 1, nx, ny, hl, tilt, fl, 1, true, tilt, hl);
     // body under the blanket, chest rising slowly
     const cx = nx + ux * 0.02, cy = ny + uy * 0.02;
     B.main.add(T.cover, cx, cy, 0.86, 1 + breath * 0.025, BLANKET[0], BLANKET[1], BLANKET[2], 1, 0, ang, fl, 1, 0, hl + 0.01);
@@ -778,9 +808,7 @@ export function drawPawn(B, A, p, t) {
   if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
   if (hand && h2 && h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
   // body
-  B.main.add(body, x, y, sx, sy, sh[0], sh[1], sh[2], al, 0, rot, fl, flip, 0, bl);
-  if (legs && swim < 0.5) B.main.add(legs, x, y, sx, sy, pc[0], pc[1], pc[2], al, 0, rot, fl, flip, 0, bl);
-  if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, bl);
+  drawTorso(B, T, L, armor, sd, sh, pc, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
   if (swim < 0.5) rigFeet(true);
   if (swim > 0.01 && T.soft) {
     // the water line hides the lower body; a slow ripple ring spreads around the swimmer
@@ -789,15 +817,7 @@ export function drawPawn(B, A, p, t) {
     if (T.ring) { const u = (t * 0.7 + ph0) % 1; B.main.add(T.ring, x, y + 0.03, 0.5 + u * 0.7, 0.4 + u * 0.55, 0.85, 0.95, 1, 0.35 * (1 - u) * swim, 0, 0, 0, 1, 0, 0.01); }
   }
   // head
-  B.main.add(head, hx, y, 1, 1, sk[0], sk[1], sk[2], al, 0, hr, fl, hflip, 0, hl);
-  if (shut) B.main.add(lids, hx, y, 1, 1, sk[0], sk[1], sk[2], al, 0, hr, fl, hflip, 0, hl);
-  if (fs && L.face !== 'mask') B.main.add(fs, hx, y, 1, 1, 1, 1, 1, al, 0, hr, fl, hflip, 0, hl);
-  if (brows && !(wh && armor.head === 'helmet_iron' && hsd === 's')) B.main.add(brows, hx, y, 1, 1, hc[0], hc[1], hc[2], al, 0, hr, fl, hflip, 0, hl);
-  if (beard) B.main.add(beard, hx, y, 1, 1, hc[0], hc[1], hc[2], al, 0, hr, fl, hflip, 0, hl);
-  if (fs && L.face === 'mask') B.main.add(fs, hx, y, 1, 1, fTint[0], fTint[1], fTint[2], al, 0, hr, fl, hflip, 0, hl);
-  if (hair) B.main.add(hair, hx, y, 1, 1, hc[0], hc[1], hc[2], al, 0, hairR, fl, hflip, 0, hairL);
-  if (bandana && !wh) B.main.add(bandana, hx, y, 1, 1, hat[0], hat[1], hat[2], al, 0, hr, fl, hflip, 0, hl);
-  if (wh) B.main.add(wh, hx, y, 1, 1, 1, 1, 1, al, 0, hr, fl, hflip, 0, hl);
+  drawHead(B, T, L, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut, hairR, hairL);
   // in front of the body
   if (showW && wsp && !wBehind) rigWeapon();
   if (showO && osp && !oBehind) rigOff();
@@ -823,7 +843,7 @@ export function drawPawn(B, A, p, t) {
 
   B.shadow.add(body, x, y, sx, sy, 1, 1, 1, 0.9 * al, 0, rot, 0, flip, 0, bl);
   B.shadow.add(head, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip, 0, hl);
-  const topS = wh || hair || bandana;
+  const topS = headTop(T, L, armor, hsd);
   if (topS) B.shadow.add(topS, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip, 0, hl);
   if (showW && wsp) B.shadow.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, 0.8 * al, 0, wRot, 0, wFlip, 0, wl);
   if (showO && osp) B.shadow.add(osp, ox2, oy2, oSc, oSc, 1, 1, 1, 0.8 * al, 0, oRot, 0, oFlip, 0, ol);
