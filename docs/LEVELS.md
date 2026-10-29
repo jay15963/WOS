@@ -6,7 +6,7 @@ of (ramparts) when a staircase stands next to them. Everything stays deconstruct
 fixed (rebuild to change).
 
 Status: **phase 1 implemented** (core, stairs, ramparts, replication, basic level drawing, scenarios
-L1–L4). **Phase 2** (after J — roofs — and K — details — land): upper floors, upper walls / doors /
+L1–L5). **Phase 2** (after J — roofs — and K — details — land): upper floors, upper walls / doors /
 railings / furniture, support + collapse, roof integration, reveal / hide, K styles on upper pieces.
 Sections marked **[P2]** are design only.
 
@@ -31,7 +31,7 @@ the ground, an old save has no level data at all.
 
 ### 2.1 Structures
 
-- Shared field `o.lv` (integer, absent = 0). Set only in op appliers (`struct.add` carries it per batch, a
+- Shared field `o.lv` (integer, absent = 0; phase 1: always 0, [P2] set) only in op appliers (`struct.add` carries it per batch, a
   placement drag is always on one story), serialized, digested (§7).
 - Structures that exist on upper levels **[P2]** (all placed with `lv = k ≥ 1`):
   - `floor_*` at `lv k` = **upper floor** (a slab: walkable surface at level k, ceiling of story k-1);
@@ -182,7 +182,7 @@ stairs) ends in partial paths → `nav.fails` → evade, as today.
 
 | What | How |
 |---|---|
-| structure `lv` | `struct.add {list, lv?}` (per batch); snapshot section `lvs: [[structId, lv]]` (only lv > 0; absent = all 0); digest part `levels` (rows `[id, lv]` + per-level hashes of `surf`/`blk`) |
+| structure `lv` [P2] | `struct.add {list, lv?}` (per batch); snapshot section `lvs: [[structId, lv]]` (only lv > 0; absent = all 0); digest part `levels` (rows `[id, lv]` + per-level hashes of `surf`/`blk`) |
 | collapse [P2] | `level.collapse {ids, drops}` host op; `level.place`-free: upper pieces use `build.place {…, lv}` |
 | player `z` | presence `st`/`sts` entry key `z` (2 decimals, omitted when 0); interpolated with x/y in the sender clock; host avatar `av.z`/`av.lv` (AI / hit checks) |
 | creature `z` | entity stream `dyn[12] = round(z·100)` (trailing zeros trimmed: free when 0); proxies interpolate it |
@@ -241,13 +241,16 @@ The data version stays 4 (only optional data was added); scenario L3 checks it.
 ## 10. Phase 1 scope (implemented)
 
 - `src/game/levels.js`: level map, per-level collision + stair traversal (`move`), falls, jump down, level A*,
-  `sameLevel`, `liftOf`, `losHeight`, speed, depth keys, levels system.
+  `sameLevel`, `liftOf`, `heightK`, speed, footstep surface, depth keys, levels system; height LOS in
+  `combat.hasLOS(…, z0, z1)`.
 - `stairs_wood` (Escada de madeira, 1×2, 4 orientations, wood 6) with procedural art (`src/art/stairs.js`).
 - Ramparts on finished walls / doors; creatures / bandits path through stairs; melee same level only; ranged
   across levels with height LOS + range bonus; projectiles with heights.
-- Replication: presence `z`, entity stream `z`, projectile `z0/z1`, structure `lv` plumbing (op arg, snapshot
-  `lvs`, digest part `levels`), `PROTO 3`.
+- Replication: presence `z`, entity stream `z`, projectile `z0/z1`, player `z` in the save, `PROTO 3`. Structure
+  `lv` is read by the level map (absent = 0) but nothing can be placed above level 0 yet, so its op arg / snapshot
+  section / digest part (§7) land in phase 2 with upper placement.
 - Drawing: lifted entities, depth keys, camera, name plates / rings.
-- Scenarios L1 (guest climbs a rampart, host sees it at level 1), L2 (creature can't melee a rampart player,
-  bandit archer can shoot), L3 (old save at level 0), L4 (creature climbs the stairs to reach the player).
-- Upper floors / roofs: **not** in phase 1 (only the `lv` plumbing); see [P2].
+- Scenarios L1 (guest builds stairs, climbs a rampart, host sees it at level 1, hop down), L2 (creature can't
+  melee a rampart player; control on the ground), L3 (bandit archer shoots up), L4 (creature climbs the stairs to
+  reach the player, proxy z 1), L5 (save on a rampart restores it; an older save loads at level 0).
+- Upper floors / roofs: **not** in phase 1; see [P2].
