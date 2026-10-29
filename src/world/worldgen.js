@@ -867,8 +867,8 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
           if (!inB(nx, ny) || rock[idx(nx, ny)] || water[idx(nx, ny)]) break;
           const fade = Math.min(1, s / 6, (len - s) / 6);
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-            const ww = Math.max(0, 1 - Math.hypot(nx + dx + 0.5 - px, ny + dy + 0.5 - py) / 1.05);
-            if (ww > 0 && occupied[idx(clamp(nx + dx, 0, W - 1), clamp(ny + dy, 0, H - 1))] !== 1) markT(nx + dx, ny + dy, Math.round(ww * fade * 112));
+            const ww = Math.max(0, 1 - Math.hypot(nx + dx + 0.5 - px, ny + dy + 0.5 - py) / 0.95);
+            if (ww > 0 && occupied[idx(clamp(nx + dx, 0, W - 1), clamp(ny + dy, 0, H - 1))] !== 1) markT(nx + dx, ny + dy, Math.round(ww * fade * 84));
           }
           lush[idx(nx, ny)] *= 0.8;
         }

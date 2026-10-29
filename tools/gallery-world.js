@@ -334,7 +334,7 @@ const natS = scene('natCv', 34, 15, (S) => {
 });
 
 // --- nature+ (species, undergrowth, ground details, water edge) ---
-const nat2S = scene('nat2Cv', 34, 17, (S) => {
+const nat2S = scene('nat2Cv', 34, 17.4, (S) => {
   const O = (type, x, y, v = 0, extra = {}) => { const o = { type, x, y, v, s: 1, f: v % 2 ? -1 : 1, id: S.objects.length, ...extra }; S.objects.push(o); return o; };
   const D = (t, x, y, v, s = 1) => S.decor.push({ t, v, x, y, s, f: v % 2 ? -1 : 1 });
   // tree species: v = species * 16 + variant
@@ -367,6 +367,13 @@ const nat2S = scene('nat2Cv', 34, 17, (S) => {
   for (let i = 0; i < 4; i++) D('lily', 3 + i * 1.6, 13.6 + (i % 2) * 0.6, i);
   for (let i = 0; i < 3; i++) D('riverstone', 11 + i * 1.3, 13.8, i);
   for (let i = 0; i < 3; i++) D('reed', 16 + i * 0.8, 13.4, i);
+  // cosmetic wildlife sprites (src/fx/wildlife.js animates them in game)
+  const crit = ['cr_butterfly_0', 'cr_butterfly_1', 'cr_butterfly_2', 'cr_butterfly_3', 'cr_butterfly_4', 'cr_bee', 'cr_dragonfly_0', 'cr_dragonfly_1',
+    'cr_frog_0', 'cr_frog_1', 'cr_frog_jump', 'cr_squirrel_sit', 'cr_squirrel_run', 'cr_squirrel_climb', 'cr_bird_0_sit', 'cr_bird_0_peck', 'cr_bird_1_sit',
+    'cr_bird_2_sit', 'cr_bird_2_fly', 'cr_fish'];
+  crit.forEach((n, i) => O(n, 2 + i * 0.75, 16.4, 0));
+  for (const [n, x] of [['cr_duck_0', 20], ['cr_duckling', 20.8], ['cr_duckling', 21.4], ['cr_duck_1', 22.4], ['cr_duck_fly', 23.6]]) O(n, x, 15.2, 0);
+  S.labels.push(['wildlife: butterflies · bee · dragonflies · frogs · squirrel · birds · fish shadow · ducks (on the pond)', 1.5, 15.9]);
   grassAround(S, 0.6, (x, y) => y >= 11);
 });
 
