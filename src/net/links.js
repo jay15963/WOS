@@ -6,7 +6,7 @@
 // Common callbacks: onOpen(key, info), onClose(key), onData(key, msg). send(key | null, msg).
 
 import { netlog } from './netlog.js';
-import { iceServers, tracePC } from './rtc.js';
+import { rtcConfig, tracePC, forceRelay } from './rtc.js';
 
 const APP_ID = 'wos-survival-v1';
 export const NETWORKS = [
@@ -30,6 +30,7 @@ export class TrysteroLink {
 
   start() {
     netlog.info('signal', `${this.role === 'host' ? 'Abrindo' : 'Procurando'} a sala ${this.code} nas redes públicas de encontro`);
+    if (forceRelay()) netlog.warn('signal', 'Modo de teste: conexão direta desativada, tudo passa pelo TURN');
     NETWORKS.forEach((net, i) => {
       const delay = this.role === 'host' ? 0 : CASCADE_MS[i];
       if (!delay) this._join(net);
@@ -61,7 +62,7 @@ export class TrysteroLink {
       room = mod.joinRoom({
         appId: APP_ID,
         password: 'wos:' + this.code,   // encrypts the session descriptions exchanged on public relays
-        rtcConfig: { iceServers: iceServers() },
+        rtcConfig: rtcConfig(),
         rtcPolyfill: Traced,
         relayConfig: { warnOnRelayFailure: true },
       }, 'sala-' + this.code, {
@@ -209,7 +210,7 @@ export class ManualLink {
   get open() { return this.ch && this.ch.readyState === 'open' ? 1 : 0; }
 
   _pc() {
-    const pc = new RTCPeerConnection({ iceServers: iceServers() });
+    const pc = new RTCPeerConnection(rtcConfig());
     tracePC(pc, 'manual');
     pc.addEventListener('connectionstatechange', () => {
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this._down();

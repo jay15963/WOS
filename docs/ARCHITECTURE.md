@@ -124,7 +124,9 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   de entrar já preenchida (link de convite). Menu do jogo (☰ / Esc): `src/ui/netui.js` (pausa só em um jogador).
 - **Rede** (`src/net/`): sempre WebRTC (navegador ↔ navegador). Encontro pelo código via Trystero (`vendor/trystero/*`, MIT,
   empacotado com esbuild) em cascata **Nostr → BitTorrent → MQTT** (anfitrião escuta nas três); alternativa sem rede de encontro:
-  **código manual** (`ManualLink`). STUN: Google + Cloudflare; TURN opcional nas Configurações (`wos.turn`).
+  **código manual** (`ManualLink`). STUN: Google + Cloudflare. **TURN da Cloudflare** como fallback automático: o jogo busca
+  credenciais temporárias no Worker `server/turn` (`TURN_ENDPOINT_DEFAULT` em `rtc.js`); o navegador só usa o repetidor quando a
+  conexão direta falha. Modo de teste `wos.forceRelay=1`. TURN manual de outro provedor ainda é possível (`wos.turn`).
 - **Sessão** (`session.js`): anfitrião é a autoridade; mensagens `hello/welcome/reject/st/sts/lk/chat/ping/pong/left/bye`,
   máx. 4 jogadores, presença a 12 Hz com interpolação, horário/clima do anfitrião, reconexão automática do convidado (3×).
   Convidado salva separado (`game.saveSuffix = '.guest'`). Jogadores remotos são entidades `kind:'pawn', remote:true,

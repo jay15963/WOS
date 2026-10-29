@@ -13,7 +13,7 @@ export const STUN_SERVERS = [
 // ---- Cloudflare TURN (via the WOS Worker in server/turn) ----
 // The Worker returns short-lived credentials. Set its address here after `npx wrangler deploy`
 // (or paste it in Settings, stored as localStorage 'wos.turnEndpoint').
-export const TURN_ENDPOINT_DEFAULT = '';
+export const TURN_ENDPOINT_DEFAULT = 'https://wos-turn.wos-jay.workers.dev';
 let cfTurn = null; // { iceServers, expires }
 
 export function turnEndpoint() {
@@ -70,6 +70,14 @@ export function loadTurn() {
 }
 export function saveTurn(t) {
   try { if (t && t.urls) localStorage.setItem('wos.turn', JSON.stringify(t)); else localStorage.removeItem('wos.turn'); } catch { /* ignore */ }
+}
+// Test mode (Settings/console): localStorage 'wos.forceRelay' = '1' forbids direct routes, so every
+// connection must go through TURN — simulates the "NAT incompatível" case between two tabs/PCs.
+export function forceRelay() { try { return localStorage.getItem('wos.forceRelay') === '1'; } catch { return false; } }
+export function rtcConfig() {
+  const cfg = { iceServers: iceServers() };
+  if (forceRelay()) cfg.iceTransportPolicy = 'relay';
+  return cfg;
 }
 export function iceServers() {
   const list = STUN_SERVERS.slice();
