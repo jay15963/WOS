@@ -52,7 +52,8 @@ class StatusFx {
     const w = g.world, tx = Math.floor(p.x), ty = Math.floor(p.y);
     const inWater = w && w.waterAt && w.waterAt(tx, ty) > 0;
     const env = g.env.env;
-    const rainHere = Math.max(0, (env.rain || 0) - (env.snowAt || 0)) * (w && w.caveDark ? 1 - w.caveDark(p.x, p.y) : 1);
+    const snowK = g.R && g.R.coldAt ? clamp01((g.R.coldAt(p.x, p.y) - 0.45) / 0.3) : 0;   // it snows here, not rains
+    const rainHere = (env.rain || 0) * (1 - snowK) * (w && w.caveDark ? 1 - w.caveDark(p.x, p.y) : 1);
     this.wetT = inWater ? 1 : Math.max(Math.max(0, this.wetT - dt / 22), rainHere > 0.5 ? 0.3 : 0);
     if (f) {
       T.hp = clamp01(f.hp ?? 0); T.cold = clamp01(f.cold ?? 0); T.hunger = clamp01(f.hunger ?? 0);
