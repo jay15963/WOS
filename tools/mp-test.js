@@ -2726,7 +2726,7 @@ def('L5', {
   const key = `wos.save.v2.${seed}`;
   const data = JSON.parse(S.win.localStorage.getItem(key));
   t.check(data?.player?.z === 1, 'the save records player z 1', String(data?.player?.z));
-  t.check(data.v === 4 && data.world.structs.every((r) => r.length === 14), 'no structure level data (all lv 0), data version unchanged', `v ${data.v}`);
+  t.check(!data.world.lvs && g.build.structures.every((o) => !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
   S.reload();
   await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded (1)');
   let p2 = S.game.player;
