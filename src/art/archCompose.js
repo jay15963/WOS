@@ -123,15 +123,16 @@ function drawWall(B, T, o, k, t, fl) {
   if (!base) return false;
   const x = o.x, y = o.y, D = T.d;
   const front = !(m & 4);
+  const S = o.type === 'wall_stone' || BUILDINGS[o.type].mat === 'stone' ? add : addPlain; // stone trims take the stone tone
   B.main.add(base, x, y, 1, 1, TR, TG, TB, CA, 0, 0, fl, 1);
   if (!BP) blockShadow(B, base, x, y, CA);
   // trims on the top face edges
-  if (on.cap) { if (!(m & 1)) addPlain(B, D.cap_n, x, y, 1, 1, fl); if (!(m & 8)) addPlain(B, D.cap_w, x, y, 1, 1, fl); if (!(m & 2)) addPlain(B, D.cap_w, x, y, -1, 1, fl); if (front) addPlain(B, D.cap_s, x, y, 1, 1, fl); }
+  if (on.cap) { if (!(m & 1)) S(B, D.cap_n, x, y, 1, 1, fl); if (!(m & 8)) S(B, D.cap_w, x, y, 1, 1, fl); if (!(m & 2)) S(B, D.cap_w, x, y, -1, 1, fl); if (front) S(B, D.cap_s, x, y, 1, 1, fl); }
   if (front) {
-    if (on.plinth) addPlain(B, D.plinth, x, y, 1, 1, fl);
+    if (on.plinth) S(B, D.plinth, x, y, 1, 1, fl);
     if (on.beams) add(B, D.beams, x, y, 1, 1, fl);
-    if (on.band) addPlain(B, D.band, x, y, 1, 1, fl);
-    if (on.buttress) addPlain(B, D.buttress, x, y, 1, 1, fl);
+    if (on.band) S(B, D.band, x, y, 1, 1, fl);
+    if (on.buttress) S(B, D.buttress, x, y, 1, 1, fl);
   }
   // nature (under the mounted things)
   if (on.weather && front) addPlain(B, D.weather, x, y, 1, 0.9, fl);
@@ -142,15 +143,15 @@ function drawWall(B, T, o, k, t, fl) {
   if (cp) {
     const nw = !(m & 1) && !(m & 8), ne = !(m & 1) && !(m & 2), sw = !(m & 4) && !(m & 8), se = !(m & 4) && !(m & 2);
     const sN = D[cp + '_nw'], sS = D[cp + '_sw'];
-    const A2 = cp === 'post' ? add : addPlain;
+    const A2 = cp === 'post' ? (S === add ? addPlain : add) : S;
     if (nw) A2(B, sN, x, y, 1, 1, fl); if (ne) A2(B, sN, x, y, -1, 1, fl);
     if (sw) A2(B, sS, x, y, 1, 1, fl); if (se) A2(B, sS, x, y, -1, 1, fl);
   } else if (on.endcap) {
-    if (m === 8) addPlain(B, D.end_e, x, y, 1, 1, fl); else if (m === 2) addPlain(B, D.end_e, x, y, -1, 1, fl);
-    else if (m === 1) addPlain(B, D.end_s, x, y, 1, 1, fl); else if (m === 4) addPlain(B, D.end_n, x, y, 1, 1, fl);
-    else if (m === 0) { addPlain(B, D.end_e, x, y, 1, 1, fl); addPlain(B, D.end_e, x, y, -1, 1, fl); }
+    if (m === 8) S(B, D.end_e, x, y, 1, 1, fl); else if (m === 2) S(B, D.end_e, x, y, -1, 1, fl);
+    else if (m === 1) S(B, D.end_s, x, y, 1, 1, fl); else if (m === 4) S(B, D.end_n, x, y, 1, 1, fl);
+    else if (m === 0) { S(B, D.end_e, x, y, 1, 1, fl); S(B, D.end_e, x, y, -1, 1, fl); }
   }
-  if (on.crenel) { if (!(m & 1)) addPlain(B, D.cren_n, x, y, 1, 1, fl); if (!(m & 8)) addPlain(B, D.cren_w, x, y, 1, 1, fl); if (!(m & 2)) addPlain(B, D.cren_w, x, y, -1, 1, fl); if (front) addPlain(B, D.cren_s, x, y, 1, 1, fl); }
+  if (on.crenel) { if (!(m & 1)) S(B, D.cren_n, x, y, 1, 1, fl); if (!(m & 8)) S(B, D.cren_w, x, y, 1, 1, fl); if (!(m & 2)) S(B, D.cren_w, x, y, -1, 1, fl); if (front) S(B, D.cren_s, x, y, 1, 1, fl); }
   if (front) {
     // openings / mounted things on the south face
     const win = on.window ? 'window' : on.shutters ? 'shutters' : on.curtains ? 'curtains' : on.oculus ? 'oculus' : on.slit ? 'slit' : null;
@@ -314,7 +315,7 @@ function drawFloor(B, T, o, k, fl) {
   if (on.straw) B.ground.add(D['fl_straw_' + h], x, y, 1, 1, CR, CG, CB, CA, 0, 0, 0, 1, 1);
   if (on.inlay && D.fl_inlay) B.ground.add(D.fl_inlay, x, y, 1, 1, CR, CG, CB, CA, 0, 0, 0, 1, 1);
   if (on.carpet) {
-    const col = on.c_blue ? [0.42, 0.56, 0.9] : on.c_green ? [0.46, 0.7, 0.42] : on.c_gold ? [1, 0.82, 0.42] : [0.86, 0.32, 0.28];
+    const col = on.c_blue ? [0.3, 0.42, 0.82] : on.c_green ? [0.34, 0.58, 0.32] : on.c_gold ? [0.98, 0.74, 0.32] : [0.78, 0.24, 0.2];
     const body = T.floorEdge.body;
     if (body) B.ground.add(body, o.tx + 0.5, o.ty + 0.5, 1, 1, CR * col[0], CG * col[1], CB * col[2], CA, 0, 0, 0, 1, 1);
     edges(B, T.floorEdge.carpet, o, (o._cm | 0) & 15, CR, CG, CB, CA);

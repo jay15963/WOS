@@ -31,7 +31,7 @@ export function applyKitFields(game, o, style, det) {
 function kitLight(o) {
   const def = BUILDINGS[o.type];
   if (def.light) return;
-  const L = !o.blueprint && o._k?.light;
+  const L = !o.blueprint && (o.progress ?? 1) >= 1 && o._k?.light; // (placeStructure calls this before setting o.blueprint)
   if (L) { if (!o.light || o._kl !== L) { o.light = { ...L }; o._kl = L; } }
   else if (o._kl) { delete o.light; o._kl = null; }
 }

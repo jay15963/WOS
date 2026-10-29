@@ -109,8 +109,8 @@ function installShowcase(game) {
       ['trophy', hx + 5, hy + 1, 1], ['herbs_hang', hx + 6, hy + 1, 1], ['barrel', hx + 5, hy + 4, 0]);
     // ---- garden: picket fence, gate with arch, lanterns, flower beds ----
     const gx0 = hx - 1 + 0, gy0 = hy1 + 1, gx1 = hx1 + 1, gy1 = gy0 + 5;
-    const fence = rect('fence_wood', gx0, gy0 - 7, gx1, gy1, 'picket', 'cap_ball.flowers', [[hx + 3, gy1]]).filter((r) => !(r[2] >= hy && r[2] <= hy1 && r[1] >= hx && r[1] <= hx1));
-    rows.push(...fence.map((r) => (r[1] === gx0 && r[2] === gy1) || (r[1] === gx1 && r[2] === gy1) || (r[1] === gx0 && r[2] === gy0 - 7) || (r[1] === gx1 && r[2] === gy0 - 7) ? [r[0], r[1], r[2], 0, 'picket', 'cap_ball.lantern'] : r));
+    const fence = rect('fence_wood', gx0, hy1, gx1, gy1, 'picket', 'cap_ball.flowers', [[hx + 3, gy1]]).filter((r) => !(r[2] >= hy && r[2] <= hy1 && r[1] >= hx && r[1] <= hx1));
+    rows.push(...fence.map((r) => (r[1] === gx0 && r[2] === gy1) || (r[1] === gx1 && r[2] === gy1) || (r[1] === gx0 && r[2] === hy1) || (r[1] === gx1 && r[2] === hy1) ? [r[0], r[1], r[2], 0, 'picket', 'cap_ball.lantern'] : r));
     rows.push(['gate_wood', hx + 3, gy1, 0, 'picket', 'arch.lantern']);
     rows.push(['flower_bed', hx, gy0 + 1, 0], ['flower_bed', hx, gy0 + 2, 0], ['flower_bed', hx1, gy0 + 1, 0], ['flower_bed', hx1, gy0 + 2, 0],
       ['bench_wood', hx + 4, gy0 + 3, 0], ['well', hx1 - 1, gy0 + 3, 0], ['birdhouse', hx + 1, gy0 + 4, 0], ['beehive', hx + 2, gy0 + 4, 3], ['scarecrow', hx + 6, gy0 + 1, 0],
@@ -118,9 +118,9 @@ function installShowcase(game) {
       ['lamp_wood', hx + 2, gy0 + 1, 0], ['planter', hx + 5, gy0 + 4, 0], ['signpost', hx + 4, gy1 + 1, 0]);
     // ---- stone keep (7×7) with quoins, buttresses, crenellations, arrow slits ----
     const kx = hx1 + 4, ky = y0 + 1, kx1 = kx + 7, ky1 = ky + 7;
-    const kw = rect('wall_stone', kx, ky, kx1, ky1, 'cut', 'quoin.crenel.plinth', [[kx + 3, ky1], [kx + 1, ky1], [kx + 5, ky1]]);
+    const kw = rect('wall_stone', kx, ky, kx1, ky1, 'rough', 'quoin.crenel.plinth', [[kx + 3, ky1], [kx + 1, ky1], [kx + 5, ky1]]);
     rows.push(...kw);
-    rows.push(['wall_stone', kx + 1, ky1, 0, 'cut', 'quoin.crenel.plinth.slit.buttress'], ['wall_stone', kx + 5, ky1, 0, 'cut', 'quoin.crenel.plinth.slit.buttress']);
+    rows.push(['wall_stone', kx + 1, ky1, 0, 'rough', 'quoin.crenel.plinth.slit.buttress.ivy'], ['wall_stone', kx + 5, ky1, 0, 'rough', 'quoin.crenel.plinth.slit.buttress']);
     rows.push(['door_wood', kx + 3, ky1, 0, 'arched', 't_dark.lantern']);
     rows.push(...area('floor_stone', kx + 1, ky + 1, kx1 - 1, ky1 - 1, 'checker', 'b_curb'));
     rows.push(['weapon_rack', kx + 1, ky + 1, 0], ['armor_stand', kx + 4, ky + 1, 1], ['banner', kx + 5, ky + 1, 1], ['candelabra', kx + 6, ky + 2, 0], ['crates', kx + 1, ky + 5, 0],
@@ -132,6 +132,33 @@ function installShowcase(game) {
     p.x = hx + 3.5; p.y = gy1 + 2.5;
     if (opts.cam !== false) { game.cam.x = (x0 + W / 2); game.cam.y = y0 + Hh / 2; }
     return { n, at: [x0, y0], house: [hx, hy], keep: [kx, ky] };
+  };
+  // every style side by side (art review): rows of walls, soft corners + corner pieces, doors, fences, floors
+  H.gallery = () => {
+    if (!net.auth) return 'só no anfitrião';
+    const p = game.player;
+    const at = freeRect(p.x, p.y, 34, 26);
+    if (!at) return 'sem espaço';
+    const [x0, y0] = at;
+    clear(x0 - 1, y0 - 1, 36, 28);
+    const rows = [];
+    const L = (type, x, y, st, dt) => rows.push([type, x, y, 0, st, dt], [type, x + 1, y, 0, st, dt], [type, x + 2, y, 0, st, dt], [type, x, y + 1, 0, st, dt]);
+    const W = [['wall_wood', 'plank'], ['wall_wood', 'log'], ['wall_wood', 'timber'], ['wall_wood', 'wattle'], ['wall_stone', 'cut'], ['wall_stone', 'rough'], ['wall_stone', 'cobble'], ['wall_stone', 'tbrick']];
+    W.forEach(([t, st], i) => L(t, x0 + 1 + i * 4, y0 + 1, st, ''));
+    const D = ['soft.post.window', 'soft.post.shutters.winbox', 'soft.post.curtains.ivy', 'soft.endcap.oculus.moss', 'quoin.crenel.slit.plinth', 'soft.quoin.buttress.cracks', 'pillar.cap.sconce', 'soft.post.beams.painting'];
+    W.forEach(([t, st], i) => L(t, x0 + 1 + i * 4, y0 + 5, st, D[i]));
+    ['plank', 'panel', 'iron', 'arched', 'rustic'].forEach((st, i) => {
+      const x = x0 + 1 + i * 6, y = y0 + 9;
+      rows.push(['wall_wood', x, y, 0, 'timber', 'post'], ['door_wood', x + 1, y, 0, st, i === 0 ? 'awning.lantern' : i === 1 ? 'wreath.step' : i === 2 ? 'knocker' : ''], ['wall_wood', x + 2, y, 0, 'timber', 'shutters']);
+    });
+    [['fence_wood', 'rail', 'cap_flat'], ['fence_wood', 'picket', 'cap_ball.flowers'], ['fence_wood', 'board', 'cap_point.lantern'], ['fence_wood', 'wattle', 'vines'], ['fence_stone', '', 'moss'], ['hedge', '', 'bird']]
+      .forEach(([t, st, dt], i) => { const x = x0 + 1 + i * 5, y = y0 + 12; for (let k = 0; k < 4; k++) rows.push([t, x + k, y, 0, st, dt]); rows.push([t, x, y + 1, 0, st, dt]); });
+    ['rail', 'picket', 'board'].forEach((st, i) => { const x = x0 + 1 + i * 5, y = y0 + 15; rows.push(['fence_wood', x, y, 0, st, ''], ['gate_wood', x + 1, y, 0, st, i === 1 ? 'arch.lantern' : 'cap_ball.sign'], ['fence_wood', x + 2, y, 0, st, '']); });
+    [['floor_wood', 'plank', ''], ['floor_wood', 'herring', 'b_board'], ['floor_wood', 'parquet', 'carpet.c_blue'], ['floor_wood', 'wide', 'straw'], ['floor_stone', 'flag', 'mossy'], ['floor_stone', 'cobble', 'leaves'], ['floor_stone', 'tiles', 'inlay.b_inlay'], ['floor_stone', 'checker', 'b_curb']]
+      .forEach(([t, st, dt], i) => { const x = x0 + 1 + i * 4, y = y0 + 18; for (let yy = 0; yy < 2; yy++) for (let xx = 0; xx < 3; xx++) rows.push([t, x + xx, y + yy, 0, st, dt]); });
+    const n = put(rows);
+    p.x = x0 + 16; p.y = y0 + 23;
+    return { n, at };
   };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {
