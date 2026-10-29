@@ -21,6 +21,14 @@
 // the wind. sway > 0.09 also gets the silvery wind-wave sheen; any sway > 0 lets snow settle on the sprite's
 // top edges in cold biomes. CPU-side motion (particles, critters) can read game.env.wind directly.
 //
+// WALKERS PARTING VEGETATION: src/fx/brush.js feeds up to 12 pushers (setPushers) every frame; any swaying
+// sprite (sway ≥ ~0.04, shorter than 2.2 tiles) bends away from them in the shared sway function — no opt-in
+// beyond the sway value.
+//
+// GOD RAYS: sun-shadow pass punches dappled holes into tree crowns (canopy = swaying sprite > 1.4 tiles) and
+// keeps the hole-free canopy in G; the post pass turns gaps into shafts (strength env.extra.uRays, morning
+// curve in environment.js). Extra shafts from openings: renderer.addShaft(...) + sunShaft(env), below.
+//
 // Quality: setQuality(0|1|2) switches the terrain / sprite / light / post programs compiled with
 // `#define QL n` (src/fx/quality.js picks the level; game.quality = 'low'|'medium'|'high').
 
@@ -36,6 +44,16 @@ export function swayFor(type) {
   if (!type) return 0;
   for (const [p, v] of SWAY) if (type.startsWith(p)) return v;
   return 0;
+}
+
+// Sunlight for a shaft through an opening (see Renderer.addShaft): unit light direction on the ground
+// (dx, dy), ground run per unit of height (len: landing = opening + (dx, dy) * len * height), god-ray
+// strength now (k: strongest in the morning, 0 at night / overcast) and a warm colour.
+export function sunShaft(env) {
+  const sd = env.shadowDir || [0, 0], sl = Math.hypot(sd[0], sd[1]) || 1;
+  const k = env.extra && env.extra.uRays != null ? env.extra.uRays : 0;
+  const warm = env.hour != null && env.hour > 12 ? 0.08 : 0;
+  return { dx: sd[0] / sl, dy: sd[1] / sl, len: sl, k, day: env.day ?? 1, r: 1, g: 0.86 - warm, b: 0.62 - warm * 1.5 };
 }
 
 // snow affinity per biome name: precipitation turns to snow and snow lies where it is ≥ ~0.6
@@ -387,7 +405,31 @@ export class Renderer {
   clearBatches() {
     for (const b of Object.values(this.batches)) b.clear();
     this.roofSeg.length = 0;
+    this.shaftN = 0;
   }
+
+  // LIGHT SHAFT primitive (agent J: windows, doorways, cave openings…), call every frame from render():
+  //   (x, y)   the opening on the ground plane (world tiles); h its height above the ground — in the 3/4 view the
+  //            beam starts h tiles up the screen from (x, y)
+  //   (ex, ey) where the light lands on the floor (for sunlight: use sunShaft(env) below)
+  //   w0, w1   beam width at the opening / at the landing; i intensity (0..~1.5)
+  //   r, g, b  light colour; haze 0..1 (0 = only the lit patch on the floor, 1 = a visible beam in the air)
+  // Draws a hazy beam from the opening to the landing point plus a lit, softly edged patch on the floor; on high
+  // quality dust motes sparkle inside it. Up to 8 per frame (extra ones are dropped); cleared by clearBatches().
+  addShaft(x, y, ex, ey, h = 1, w0 = 0.6, w1 = 1, i = 1, r = 1, g = 0.86, b = 0.62, haze = 0.6) {
+    const n = this.shaftN || 0;
+    if (n >= 8) return false;
+    const A = this._shA || (this._shA = new Float32Array(32)), Bq = this._shB || (this._shB = new Float32Array(32)), C = this._shC || (this._shC = new Float32Array(32));
+    const o = n * 4;
+    A[o] = x; A[o + 1] = y; A[o + 2] = ex; A[o + 3] = ey;
+    Bq[o] = h; Bq[o + 1] = w0; Bq[o + 2] = w1; Bq[o + 3] = i;
+    C[o] = r; C[o + 1] = g; C[o + 2] = b; C[o + 3] = haze;
+    this.shaftN = n + 1;
+    return true;
+  }
+
+  // Vegetation pushers for this frame (src/fx/brush.js): Float32Array of (x, y, radius, strength) × n, n ≤ 12.
+  setPushers(arr, n) { this._push = arr; this._pushN = Math.min(12, n | 0); }
 
   // ---------- frame ----------
   // cam: { x, y, ppt (device px per tile) }
@@ -407,6 +449,12 @@ export class Renderer {
       // [world] wind direction + CPU-accumulated sway / wave phases (travelling wind waves)
       if (prog.u.uWindDir) gl.uniform2fv(prog.u.uWindDir, env.windDir);
       if (prog.u.uWindPh) gl.uniform2f(prog.u.uWindPh, env.windPh ? env.windPh[0] : time * 1.4, env.windPh ? env.windPh[1] : time * 1.2);
+      // walkers parting the vegetation (src/fx/brush.js)
+      if (prog.u.uPushN) {
+        const n = this._pushN || 0;
+        gl.uniform1i(prog.u.uPushN, n);
+        if (n && prog.u.uPush) gl.uniform4fv(prog.u.uPush, this._push, 0, 48);
+      }
     };
 
     gl.disable(gl.DEPTH_TEST);
@@ -428,8 +476,21 @@ export class Renderer {
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
       gl.uniform1i(p.u.uTex, 0);
       this._bindLook(p);
+      // dappled sun flecks in the crown shadows (static on low quality, drifting with the wind above)
+      if (p.u.uDap) {
+        const sl = Math.hypot(env.shadowDir[0], env.shadowDir[1]) || 1;
+        gl.uniform4f(p.u.uDap, Math.min(1, (env.sunI ?? 1) * 1.25), this.level >= 1 ? 1 : 0, 1 + sl * 0.55, 0);
+        if (p.u.uSunN) gl.uniform2f(p.u.uSunN, env.shadowDir[0] / sl, env.shadowDir[1] / sl);
+        if (p.u.uNoise) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.noiseTex); gl.uniform1i(p.u.uNoise, 4); }
+      }
       B.shadow.draw();
       gl.blendEquation(gl.FUNC_ADD);
+    }
+    if (this.level >= 1 && ((env.extra && env.extra.uRays) || 0) > 0.01) {
+      // mip chain of the sun-shadow map: the god-ray march samples a softer level (no ghost copies)
+      gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
+      if (!this.shadow.mip) { gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); this.shadow.mip = true; }
+      gl.generateMipmap(gl.TEXTURE_2D);
     }
 
     // 2. scene
@@ -609,6 +670,11 @@ export class Renderer {
       if (u.uShadowDir) gl.uniform2f(u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
       if (u.uGrain) gl.uniform1f(u.uGrain, this.fx.grain);
       if (u.uBloom) gl.uniform1f(u.uBloom, this.light.mip ? bloom : 0); // bloomK: 0 when no light is in view
+      if (u.uShN) {
+        const n = this.shaftN || 0;
+        gl.uniform1i(u.uShN, n);
+        if (n) { gl.uniform4fv(u.uShA, this._shA, 0, 32); gl.uniform4fv(u.uShB, this._shB, 0, 32); gl.uniform4fv(u.uShC, this._shC, 0, 32); }
+      }
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);

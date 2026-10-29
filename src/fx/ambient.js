@@ -18,6 +18,7 @@
 import { installQuality, qualityPreset, qualityStepDown, qualityStepUp } from './quality.js';
 import { installDebug } from './debug.js';
 import { installStatusFx } from './status.js';
+import { installBrush } from './brush.js';
 
 import { installWildlife } from './wildlife.js';
 
@@ -47,6 +48,7 @@ export function installAmbient(game) {
   game.ambient = sys;
   installWildlife(game); // critters (butterflies, bees, dragonflies, frogs, ducks, fish, squirrels, birds, rabbits)
   installStatusFx(game);  // local player's status screen effects (cosmetic)
+  installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
 }
 
 class Ambient {
