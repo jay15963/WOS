@@ -955,6 +955,13 @@ differs from the design text above, the code is described here (this section win
     finishing it (`build.hit final`, target re-validated) → `struct.relocate {id: plan, src}` moves the SAME object (id, store, state).
   - "Arrasar" (campfires): `struct.raze {id}` → `struct.remove {fx:'raze', give: half the pebbles}`.
   - Autotile: `def.joins` (Set of groups, `'rock'` = rock tiles) — walls join wall + rock, fences join fence + wall + rock.
+- **Roofs (round V2, agent J)** — roof tiles are generic structures on layer `'roof'` with the shared fields `style` (string) / `det`
+  (canonical detail string): `struct.add` rows `[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]`, snapshot rows
+  `[.., moveOf, style, det]` (`[14]`, `[15]`), digest `structs` rows end with style, det. `build.place {type, tiles, rot, style, det}`;
+  `build.hit start` on a roof refuses without a finished support within 6 tiles (no footprint clearing). `world.broof` (finished roofs) is
+  derived in the struct appliers. Host op `roof.collapse {ids, drops}` (from `roofSupportSystem`, sync host, after a support was removed or
+  rock mined) + `player.hurt` for players under it. The natural roof (`world.roof`) is derived from the rock grid inside `tile.mine` on
+  every peer (no op); `rock.hit` adds the cave-in damage on the host. Digest `tiles` part also hashes `roof` and `broof`.
 
 - **Styles & details (round V2, agent K)** — shared structure fields `style` ('' = default look) and `det` (canonical detail string:
   ids sorted, joined with '.'), set in appliers only: `build.place {type, tiles, rot, style, det}` (host cleans them with
@@ -994,8 +1001,10 @@ v1/v2 saves are migrated into a snapshot and applied through `applyWorld(…, 'l
 `null` = derive from the age. **v4** (round V2): structure rows carry `rot, paid, open, moveOf`; older rows (10 fields) are migrated by
 `migrateStructRows` (rot 0, paid, closed; beds saved as 1×1 get the first free 1×2 spot: south, north, sideways, nearby).
 **v5** (round V2, agent I): the world snapshot carries `corpses` (optional; older saves simply have no bodies).
-**v6** (agent K): structure rows carry `style, det` at [14] / [15]; older rows are padded with `'', ''` (default look) by
-`migrateStructRows` (the step only adds those two fields, so the version number can be renumbered at merge time).
+**v6** (roofs, agent J): structure rows carry `style, det` (older rows get `''`); the natural roof is re-derived from the mined tiles
+with the support rule.
+**v7** (agent K): every construction piece carries `style, det` (same [14] / [15] slots); older rows are padded with `'', ''`
+(default look) by `migrateStructRows`.
 
 ### 7.4 Background clock
 

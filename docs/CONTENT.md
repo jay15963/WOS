@@ -119,6 +119,12 @@ construir. Estações e móveis (`station`, `slots`, `decor: true`) **não** tê
 - Arte: estilo = um sprite por máscara (`wst_<estilo>_<m>`, cantos suaves `wst_<estilo>_s<m>`, cercas `kfe_<estilo>_<m>`); cada
   detalhe = UM sprite sobreposto (cantos NE/SE espelhados), cores = tinta na hora de desenhar. Nunca estilo × detalhe × máscara.
 - Fachadas modulares por andar: o pintor da frente pinta uma faixa `(topo, altura)`; um andar a mais repete a faixa.
+- **Telhados (agente J):** o kit `roof` usa os estilos de J (`ROOF_STYLES` / `ROOF_TYPE_STYLES` em `content/roofs.js`, ids explícitos,
+  nunca `''`) e os detalhes de J (`moss`, `chimney`, `vane`, `trim`) + os de K: forma (`end_gable` / `end_hip`), empena (`gab_*`),
+  cumeeira (`r_board` / `r_tile` / `r_bound`), `barge`, `weather`, cores (`t_*`) — `roofArtStyle(o)` transforma esses em um estilo
+  derivado que o pintor de J lê (`artSpec` → `spec.styles`) — e os adereços no telhado (`dormer`, `dormer_pl`, `skylight`), sprites
+  de K desenhados sobre a água do telhado com `roofPropAt` de J. Janelas com vidro têm ids que começam com `window` (`window`,
+  `window_shutters`, `window_curtains`, `window_round`): os raios de sol de J entram por elas.
 
 ### 5.2 Decoração (agente K, `src/game/content/decor.js`) — categorias Decoração e Jardim
 Campos extras: `decor: true` (sem kit, devolve como móvel ao desmontar), `eg: [profundidade, meia largura]` (peças de borda),

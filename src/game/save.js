@@ -6,7 +6,10 @@
 // legacy (rot 0, paid, closed) and beds saved as 1×1 get a free 1×2 spot (migrateStructRows).
 // v5 (round V2, agent I): the world snapshot carries `corpses` (bodies decomposing on the ground); older saves have
 // none (nothing to migrate: the field is optional and defaults to an empty list).
-// v6 (agent K): structure rows carry style / det at [14], [15]; older rows (14 fields) get the default look ('', '').
+// v6 (roofs, agent J): structure rows carry style / det (roofs); older rows get '' (14 → 16 fields). The natural
+// roof is re-derived from the mined tiles with the support rule, so old worlds dug wide open lose those ceilings.
+// v7 (agent K): every construction piece (not only roofs) carries style / det; rows are the same 16 fields, so nothing
+// to migrate beyond v6 (older rows get '' / '' = the default look).
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -19,7 +22,7 @@ import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
-const VERSION = 6; // v5 (agent I): corpses · v6 (agent K): structure rows carry style / det (older rows: default look)
+const VERSION = 7; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
 const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
@@ -74,7 +77,7 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, 3, 4, 5, VERSION].includes(data.v)) return false;
+  if (!data || ![1, 2, 3, 4, 5, 6, VERSION].includes(data.v)) return false;
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;
@@ -217,7 +220,8 @@ export function migrateStructRows(game, rows) {
         mark(r, hit[0], hit[1], fw, fh, true);
       }
     }
-    while (r.length < 16) r.push(''); // v6 (agent K): style, det (default look)
+    while (r.length < 14) r.push(0);
+    while (r.length < 16) r.push(''); // v6: style, det
     out.push(r);
   }
   return out;

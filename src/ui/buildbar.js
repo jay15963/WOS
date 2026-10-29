@@ -16,6 +16,7 @@ import {
 import { pick } from '../game/controller.js';
 import { installDetails, DETAILS_ICON } from './details.js'; // agent K: Detalhes panel
 import { hasKit } from '../game/content/kits.js';
+import { ROOF_STYLES, ROOF_TYPE_STYLES } from '../game/content/roofs.js';
 
 const ICON = {
   rot: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5v4h-4"/>',
@@ -79,7 +80,7 @@ export function installBuildbar(game) {
     <button class="no" title="Cancelar (Esc · botão direito)">${svg('no')}<span>Cancelar</span></button>`;
   root.appendChild(bar);
   const $ = (s) => bar.querySelector(s);
-  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small') };
+  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span') };
   const details = installDetails(game);
   game.ui.details = details;
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); setTimeout(() => el.classList.remove('down'), 120); });
@@ -125,7 +126,7 @@ export function installBuildbar(game) {
   const structureUnder = (sx, sy) => {
     let o = null;
     try { const h = pick(game, sx, sy); if (h.type === 'interact' && h.it?.o?.building) o = h.it.o; else if (h.type === 'creature') return null; } catch { /* ignore */ }
-    if (!o) { const [wx, wy] = game.screenToWorld(sx, sy); o = structureAtPoint(game, wx, wy) || structureAtPoint(game, wx, wy + 0.5); }
+    if (!o) { const [wx, wy] = game.screenToWorld(sx, sy); o = structureAtPoint(game, wx, wy, { roof: true }) || structureAtPoint(game, wx, wy + 0.5); }
     return o;
   };
   game.events.on('structmenu', (d) => {
@@ -234,11 +235,13 @@ export function installBuildbar(game) {
         return;
       }
       const def = BUILDINGS[m.type];
-      const n = rotCount(m.type);
+      const n = def.roof ? (ROOF_TYPE_STYLES[m.type] || []).length : rotCount(m.type);
       R.rot.classList.toggle('off', n < 2);
+      set('rl', R.rotL, def.roof ? 'Estilo' : 'Girar');
       const [fw, fh] = dimsOf(m.type, m.rot);
       set('nm', R.nm, (m.move ? 'Mover: ' : '') + def.name + (fw * fh > 1 ? ` · ${fw}×${fh}` : ''));
-      const sub = !m.valid && m.reason ? m.reason : m.short || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
+      const roofSub = def.roof ? `${ROOF_STYLES[m.style || ROOF_TYPE_STYLES[m.type]?.[0]]?.name || ''}${m.room ? ' · sala inteira' : ''}${m.n > 1 ? ` · ${m.n} tiles` : ''}` : '';
+      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
       set('sub', R.sub, sub);
       R.sub.classList.toggle('bad', (!m.valid && !!m.reason) || !!m.short);
       R.ok.classList.toggle('bad', !m.valid);

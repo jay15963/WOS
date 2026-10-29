@@ -2,12 +2,16 @@
 //  - KIT_ENV.night for the night glow of windows / lamps (art/archCompose.js)
 //  - training dummies: floating numbers for every hit (op dummy.hit → event 'dummyhit'), a DPS readout on the
 //    nameplate / target frame (local, from the hits seen), straw puffs
+//  - roof props (details dormer / dormer_pl / skylight on finished roof tiles): K's sprites on agent J's roof slope
+//    (roofPropAt: lift, depth key, the region's fade), dormer windows glow at night
 //  - localhost only: game.debugK.showcase() builds a decorated base next to the player through ops
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
 
 import { KIT_ENV } from '../art/archCompose.js';
 import { BUILDINGS } from './data.js';
 import { DUMMY_NAME } from './mut/kit.js';
+import { ROOF_PROPS } from './content/kits.js';
+import { roofPropAt } from './roofs.js';
 
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const DPS_WIN = 5; // s
@@ -25,8 +29,32 @@ export function decorSystem(game) {
   });
   if (DEV) installShowcase(game);
   let acc = 0;
+  // roof props: cached list of roof tiles carrying a prop detail (rebuilt when structures change), pooled drawables
+  const PROP_RE = /(^|\.)(dormer|dormer_pl|skylight)(\.|$)/;
+  let props = [], propsV = -1;
+  const pool = [];
+  function drawRoofProp(B, A) {
+    const s = A.has(this.sprite) ? A.get(this.sprite) : null;
+    if (!s) return;
+    B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, 1, 0, this.lift);
+    if (this.glow && KIT_ENV.night > 0.05 && A.has('roof_dormer_glow')) B.emissive.add(A.get('roof_dormer_glow'), this.x, this.wy, 1, 1, 1, 0.8, 0.5, KIT_ENV.night * this.a, 0, 0, 0, 1, 0, this.lift);
+  }
   return {
-    sync: 'cosmetic', // glow and readouts only
+    sync: 'cosmetic', // glow, readouts and roof-prop sprites only
+    collect(g, list, v) {
+      if (!g.roofs) return;
+      if (g.build.v !== propsV) { propsV = g.build.v; props = g.build.structures.filter((o) => o.roof && !o.blueprint && o.det && PROP_RE.test(o.det)); }
+      let k = 0;
+      for (const o of props) {
+        if (o.tx < v.x0 - 2 || o.tx > v.x1 + 2 || o.ty < v.y0 - 2 || o.ty > v.y1 + 4) continue;
+        const r = roofPropAt(g, o.tx, o.ty);
+        if (!r || r.alpha <= 0.02) continue;
+        const id = /(^|\.)skylight(\.|$)/.test(o.det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(o.det) ? 'dormer_pl' : 'dormer';
+        const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false });
+        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.sprite = ROOF_PROPS[id]; d.glow = id !== 'skylight';
+        list.push(d); k++;
+      }
+    },
     update(g, dt) {
       KIT_ENV.night = g.env?.env?.night || 0;
       acc += dt;
@@ -100,7 +128,7 @@ function installShowcase(game) {
     const hx = x0 + 1, hy = y0 + 1, hx1 = hx + 7, hy1 = hy + 6;
     const walls = rect('wall_wood', hx, hy, hx1, hy1, 'timber', 'post', [[hx + 3, hy1], [hx + 1, hy1], [hx + 5, hy1]]);
     rows.push(...walls);
-    rows.push(['wall_wood', hx + 1, hy1, 0, 'timber', 'post.shutters.winbox'], ['wall_wood', hx + 5, hy1, 0, 'timber', 'post.shutters.winbox']);
+    rows.push(['wall_wood', hx + 1, hy1, 0, 'timber', 'post.window_shutters.winbox'], ['wall_wood', hx + 5, hy1, 0, 'timber', 'post.window_shutters.winbox']);
     rows.push(['door_wood', hx + 3, hy1, 0, 'panel', 'awning.lantern.wreath.step']);
     rows.push(...area('floor_wood', hx + 1, hy + 1, hx1 - 1, hy1 - 1, 'herring', ''));
     rows.push(...area('floor_wood', hx + 2, hy + 3, hx + 4, hy + 4, 'herring', 'c_red.carpet'));
@@ -128,6 +156,13 @@ function installShowcase(game) {
     rows.push(['training_dummy', kx + 2, ky1 + 2, 0], ['training_dummy', kx + 5, ky1 + 2, 0], ['brazier', kx + 1, ky1 + 1, 0], ['brazier', kx + 6, ky1 + 1, 0],
       ['lamp_stone', kx - 1, ky1 + 2, 0], ['statue', kx + 3, ky1 + 4, 0], ['woodpile', kx + 4, ky1 + 4, 0], ['haystack', kx1 + 1, ky1 + 3, 0], ['cart', kx + 5, ky1 + 4, 0],
       ['fountain', hx1 + 1, gy0 + 1, 0], ['garden_arch', hx + 3, gy1 + 1, 0], ['pergola', kx1 + 2, ky + 2, 0], ['bench_stone', kx1 + 2, ky + 4, 0], ['plant_pot', kx1 + 4, ky + 2, 0]);
+    // roof over the cottage (agent J's roofs with K's details): slate, plaster gable, tile ridge, dark boards, dormers
+    if (opts.roof !== false && BUILDINGS.roof_stone) {
+      for (let y = hy; y <= hy1; y++) for (let x = hx; x <= hx1; x++) {
+        const dm = y === hy1 - 1 && (x === hx + 1 || x === hx1 - 1) ? '.dormer' : '';
+        rows.push(['roof_stone', x, y, 0, 'slate', 'barge.end_gable.gab_plaster.r_tile' + dm]);
+      }
+    }
     const n = put(rows);
     p.x = hx + 3.5; p.y = gy1 + 2.5;
     if (opts.cam !== false) { game.cam.x = (x0 + W / 2); game.cam.y = y0 + Hh / 2; }
@@ -145,11 +180,11 @@ function installShowcase(game) {
     const L = (type, x, y, st, dt) => rows.push([type, x, y, 0, st, dt], [type, x + 1, y, 0, st, dt], [type, x + 2, y, 0, st, dt], [type, x, y + 1, 0, st, dt]);
     const W = [['wall_wood', 'plank'], ['wall_wood', 'log'], ['wall_wood', 'timber'], ['wall_wood', 'wattle'], ['wall_stone', 'cut'], ['wall_stone', 'rough'], ['wall_stone', 'cobble'], ['wall_stone', 'tbrick']];
     W.forEach(([t, st], i) => L(t, x0 + 1 + i * 4, y0 + 1, st, ''));
-    const D = ['soft.post.window', 'soft.post.shutters.winbox', 'soft.post.curtains.ivy', 'soft.endcap.oculus.moss', 'quoin.crenel.slit.plinth', 'soft.quoin.buttress.cracks', 'pillar.cap.sconce', 'soft.post.beams.painting'];
+    const D = ['soft.post.window', 'soft.post.window_shutters.winbox', 'soft.post.window_curtains.ivy', 'soft.endcap.window_round.moss', 'quoin.crenel.slit.plinth', 'soft.quoin.buttress.cracks', 'pillar.cap.sconce', 'soft.post.beams.painting'];
     W.forEach(([t, st], i) => L(t, x0 + 1 + i * 4, y0 + 5, st, D[i]));
     ['plank', 'panel', 'iron', 'arched', 'rustic'].forEach((st, i) => {
       const x = x0 + 1 + i * 6, y = y0 + 9;
-      rows.push(['wall_wood', x, y, 0, 'timber', 'post'], ['door_wood', x + 1, y, 0, st, i === 0 ? 'awning.lantern' : i === 1 ? 'wreath.step' : i === 2 ? 'knocker' : ''], ['wall_wood', x + 2, y, 0, 'timber', 'shutters']);
+      rows.push(['wall_wood', x, y, 0, 'timber', 'post'], ['door_wood', x + 1, y, 0, st, i === 0 ? 'awning.lantern' : i === 1 ? 'wreath.step' : i === 2 ? 'knocker' : ''], ['wall_wood', x + 2, y, 0, 'timber', 'window_shutters']);
     });
     [['fence_wood', 'rail', 'cap_flat'], ['fence_wood', 'picket', 'cap_ball.flowers'], ['fence_wood', 'board', 'cap_point.lantern'], ['fence_wood', 'wattle', 'vines'], ['fence_stone', '', 'moss'], ['hedge', '', 'bird']]
       .forEach(([t, st, dt], i) => { const x = x0 + 1 + i * 5, y = y0 + 12; for (let k = 0; k < 4; k++) rows.push([t, x + k, y, 0, st, dt]); rows.push([t, x, y + 1, 0, st, dt]); });
@@ -168,7 +203,7 @@ function installShowcase(game) {
     if (!at) return 'sem espaço';
     const [x0, y0] = at;
     clear(x0, y0, side + 2, side + 2);
-    const rows = [], kinds = [['wall_wood', 'timber', 'post.shutters.ivy'], ['wall_stone', 'rough', 'quoin.moss.cracks'], ['floor_wood', 'parquet', 'carpet.c_blue'], ['fence_wood', 'picket', 'cap_ball.lantern.flowers'],
+    const rows = [], kinds = [['wall_wood', 'timber', 'post.window_shutters.ivy'], ['wall_stone', 'rough', 'quoin.moss.cracks'], ['floor_wood', 'parquet', 'carpet.c_blue'], ['fence_wood', 'picket', 'cap_ball.lantern.flowers'],
       ['flower_bed', '', ''], ['plant_pot', '', ''], ['candles', '', ''], ['barrel', '', ''], ['lamp_wood', '', '']];
     for (let i = 0; i < n; i++) { const [t, st, dt] = kinds[(i / side | 0) % kinds.length]; rows.push([t, x0 + 1 + (i % side), y0 + 1 + ((i / side) | 0), 0, st, dt]); }
     return put(rows);

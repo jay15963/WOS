@@ -2086,7 +2086,7 @@ def('S37', {
   ];
   const out = MH.save.migrateStructRows(g, rows.map((r) => r.slice()));
   const by = Object.fromEntries(out.map((r) => [r[0], r]));
-  t.check(out.every((r) => r.length >= 14), 'every row has the v4 fields (14; agent K pads style / det to 16)', out.map((r) => r.length).join(','));
+  t.check(out.every((r) => r.length >= 14), 'every row has the v4 fields (14; v6 adds style, det)', out.map((r) => r.length).join(','));
   t.check(out.filter((r) => r[1] !== 'bed').every((r) => r[10] === 0 && r[11] === 1 && r[12] === 0 && !r[13]), 'legacy defaults: rot 0, paid 1, closed, no plan');
   const p = (r) => `${r[2]},${r[3]} r${r[10]}`;
   t.check(by.old_bed_a && by.old_bed_a[2] === x && by.old_bed_a[3] === y + 1 && by.old_bed_a[10] === 0, 'bed A extends south', p(by.old_bed_a || []));
@@ -2487,6 +2487,267 @@ def('G2', {
   await t.sleep(600);
   t.check(gp.equip.main === 'spear_iron' && gp.inv.count('spear_iron') === spears0, 'spear still equipped on the guest, inventory unchanged', `main ${gp.equip.main} · bag ${gp.inv.count('spear_iron')}`);
   t.check(spearLoot(H) === loot0[0] && spearLoot(G) === loot0[1], 'no spear loot on the ground (host / guest)', `${spearLoot(H)} / ${spearLoot(G)}`);
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// J · Telhados, interiores e cavernas (agent J)
+const fimp = (f, p) => f.win.Function('u', 'return import(u)')(new URL('src/' + p, f.win.location.href).href);
+// a w × h rect of free tiles at least `far` tiles away from rock (so only the walls / columns hold the roof)
+const roomTiles = (w, h, f = null, far = 8) => (x0, y0) => {
+  const out = [], W = f?.game.world;
+  // …and from other players' walls / columns / roofs (earlier scenarios)
+  if (f) for (const o of f.game.build.structures) {
+    if (o.roof || o.type.startsWith('wall_') || o.type.startsWith('door_') || o.type.startsWith('column_')) {
+      if (o.tx > x0 - 8 && o.tx < x0 + w + 8 && o.ty > y0 - 8 && o.ty < y0 + h + 8) return [[-5, -5]];
+    }
+  }
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+    if (W && W.inBounds(x, y) && W.dRock && W.dRock[W.idx(x, y)] < far) return [[-5, -5]]; // too close to a mountain
+    out.push([x, y]);
+  }
+  return out;
+};
+// host (authority) puts down FINISHED walls around a w × h rect (+ a door in the south wall) — test shortcut
+function hostRoom(H, x0, y0, w, h, { door = true, wall = 'wall_wood' } = {}) {
+  const net = H.game.net, rows = [];
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+    if (x !== x0 && y !== y0 && x !== x0 + w - 1 && y !== y0 + h - 1) continue;
+    const isDoor = door && y === y0 + h - 1 && x === x0 + (w >> 1);
+    rows.push([net.newId('s'), isDoor ? 'door_wood' : wall, x, y, 0, 1, Math.round(H.game.worldTime), 0, 1, 0]);
+  }
+  net.emit('struct.add', { list: rows, by: net.pid });
+  return rows.map((r) => r[0]);
+}
+function hostRoof(H, x0, y0, w, h, type = 'roof_wood', style = 'shingle') {
+  const net = H.game.net, rows = [];
+  for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) rows.push([net.newId('s'), type, x, y, 0, 1, Math.round(H.game.worldTime), 0, 1, 0, style, '']);
+  net.emit('struct.add', { list: rows, by: net.pid });
+  return rows.map((r) => r[0]);
+}
+const roofIds = (f) => f.game.build.structures.filter((o) => o.roof).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
+const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf[w.idx(x, y)]) || null; };
+
+def('J1', {
+  title: 'J: guest roofs a room, host sees the same roof', timeout: 240000,
+  expected: 'A tap inside a closed room makes roof plans for the room and its walls (free, blue); the guest builds them (sticks + fibre leave its bag when each tile starts); host and guest have the same roof structures (ids, style), world.broof equal, one roof region painted on both; roof plans need a finished support (refused without); digest equal',
+  api: 'build mode roof_thatch + tap (room fill) → build.place {style} → struct.add rows [.., style, det]; build.hit start (support check); world.broof / roofAt; game.roofs.regions (art)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(6, 5, H), gp.x, gp.y, { rMin: 4, rMax: 30, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free 6×5 site');
+  const { x0, y0 } = site;
+  // a roof plan with no support anywhere near is refused
+  const far = MG.building.placeReason(G.game, 'roof_thatch', x0 + 2, y0 + 2, gp, 0);
+  t.check(typeof far === 'string' && /apoio/i.test(far), 'roof plan without any support near is refused ("Sem apoio")', String(far));
+  const walls = hostRoom(H, x0, y0, 6, 5);
+  await t.waitFor(() => walls.every((id) => A.structOn(G, id)), RT() + 400, 'guest has the finished walls');
+  A.ensure(G, { stick: 40, fiber: 80 });
+  A.keepAlive(t, G);
+  const s0 = A.count(G, 'stick'), f0 = A.count(G, 'fiber');
+  A.teleport(G, x0 + 3, y0 + 6.5);
+  await A.hostSees(t, H, G);
+  // one tap inside the room → the whole room and its walls
+  MG.building.enterBuildMode(G.game, 'roof_thatch');
+  const m = G.game.build.mode;
+  m.hover = [x0 + 2, y0 + 2]; m.locked = true;
+  MG.building.commitPlacement(G.game);
+  t.check(m.room, 'the tap filled the enclosed room', `room=${m.room} n=${m.n}`);
+  MG.building.exitBuildMode(G.game);
+  const n = 6 * 5;
+  await t.waitFor(() => roofIds(H).length === n, RT() + 600, `host has ${n} roof plans`, () => `host ${roofIds(H).length}`);
+  await t.waitFor(() => roofIds(G).length === n, ONEWAY() + 400, 'guest has the roof plans');
+  t.check(JSON.stringify(roofIds(H)) === JSON.stringify(roofIds(G)), 'roof plan ids and style identical', short(roofIds(H).slice(0, 3)));
+  t.check(A.count(G, 'stick') === s0 && A.count(G, 'fiber') === f0, 'plans are free (nothing taken yet)');
+  const ids = G.game.build.structures.filter((o) => o.roof).map((o) => o.id);
+  await A.buildAll(t, G, MG, ids, { ms: 25000 });
+  await t.waitFor(() => ids.every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 400, 'host sees every roof tile finished');
+  await t.sleep(ONEWAY() + 300);
+  const bro = (f) => { const w = f.game.world; let s = 0; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 6; x++) s += w.broof[w.idx(x, y)] ? 1 : 0; return s; };
+  t.check(bro(H) === n && bro(G) === n, 'world.broof covers the room on both', `host ${bro(H)} guest ${bro(G)}`);
+  t.check(H.game.world.roofAt(x0 + 2, y0 + 2) === 2 && G.game.world.roofAt(x0 + 2, y0 + 2) === 2, 'roofAt = built inside on both');
+  await t.waitFor(() => regionAt(G, x0 + 2, y0 + 2)?.art && regionAt(H, x0 + 2, y0 + 2)?.art, 8000, 'roof region painted on both');
+  t.check(regionAt(G, x0 + 2, y0 + 2).tiles.length === n && regionAt(H, x0 + 2, y0 + 2).tiles.length === n, `one region of ${n} tiles on both`);
+  t.check(s0 - A.count(G, 'stick') === n && f0 - A.count(G, 'fiber') === 2 * n, 'materials delivered by the guest once per tile', `sticks −${s0 - A.count(G, 'stick')} fibre −${f0 - A.count(G, 'fiber')}`);
+  await t.checkDigest(H, G);
+  env.jRoom = { x0, y0, w: 6, h: 5 };
+});
+
+def('J2', {
+  title: 'J: host goes inside, only its roof view fades; interior zoom', timeout: 150000,
+  expected: 'Host walks under the roof: game.indoors = built, its roof region fades out (alpha ~0) while the guest (outside) keeps it opaque and does not draw the host avatar under it; host camera eases to the closer interior zoom (no jump > 6%/frame), zoom input is ignored inside; leaving eases back to the player zoom (±3%)',
+  api: 'game.indoors {kind, region, zoomK}; game.roofs.regions[].alpha; roofs.underOpaqueRoof; game.cam.zoom; input.zoom',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  let room = env.jRoom;
+  if (!room || !regionAt(H, room.x0 + 2, room.y0 + 2)) {
+    const gp = G.game.player;
+    const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(6, 5, H), gp.x, gp.y, { rMin: 4, rMax: 30, avoidPts: [[gp.x, gp.y]] });
+    t.assert(site, 'found a free 6×5 site');
+    room = { x0: site.x0, y0: site.y0, w: 6, h: 5 };
+    hostRoom(H, room.x0, room.y0, 6, 5); hostRoof(H, room.x0, room.y0, 6, 5);
+  }
+  const { x0, y0 } = room;
+  const RH = await fimp(H, 'game/roofs.js'), RG = await fimp(G, 'game/roofs.js');
+  A.teleport(G, x0 + 3, y0 + 7);
+  A.teleport(H, x0 + 3, y0 + 7.4);
+  await t.waitFor(() => regionAt(H, x0 + 2, y0 + 2)?.art && regionAt(G, x0 + 2, y0 + 2)?.art, 8000, 'the roof is painted on both');
+  await t.sleep(1400);
+  const z0 = H.game.cam.zoom, dz = H.game.defaultZoom();
+  // frame-by-frame zoom samples on the host
+  const Z = [];
+  let rec = true;
+  const loop = () => { if (!rec) return; Z.push(H.game.cam.zoom); H.win.requestAnimationFrame(loop); };
+  H.win.requestAnimationFrame(loop);
+  A.teleport(H, x0 + 2.5, y0 + 2.6);
+  await t.waitFor(() => H.game.indoors.kind === 'built', 2000, 'host indoors = built');
+  // zoom input while inside is ignored
+  const w = t.watch(() => { H.game.input.zoom = 0.5; }, 16);
+  await t.sleep(1600);
+  w.stop();
+  const gH = regionAt(H, x0 + 2, y0 + 2), gG = regionAt(G, x0 + 2, y0 + 2);
+  t.check(gH.alpha < 0.05 && gH.reveal > 0.95, 'host: its roof faded out', `alpha ${f2(gH.alpha)} reveal ${f2(gH.reveal)}`);
+  t.check(gG.alpha > 0.95, 'guest: the same roof stays opaque', `alpha ${f2(gG.alpha)}`);
+  const av = A.avatarOn(G, H.pid);
+  t.check(av && RG.underOpaqueRoof(G.game, av.x, av.y), 'guest: the host avatar is under an opaque roof (hidden)', av ? `${f2(av.x)},${f2(av.y)}` : 'no avatar');
+  const zIn = H.game.cam.zoom, want = Math.max(z0, Math.min(110, dz * 1.32));
+  t.check(Math.abs(zIn - want) / want < 0.04, 'host zoom eased to the interior zoom (input ignored)', `outside ${f2(z0)} → inside ${f2(zIn)} (want ${f2(want)})`);
+  // leave: back to the player zoom, smoothly
+  A.teleport(H, x0 + 3, y0 + 7.4);
+  await t.waitFor(() => !H.game.indoors.kind, 2000, 'host outdoors again');
+  await t.sleep(1800);
+  rec = false;
+  const zOut = H.game.cam.zoom;
+  t.check(Math.abs(zOut - z0) / z0 < 0.03, 'zoom back to the player zoom outside', `${f2(zOut)} vs ${f2(z0)}`);
+  let jump = 0;
+  for (let k = 1; k < Z.length; k++) jump = Math.max(jump, Math.abs(Z[k] - Z[k - 1]) / Z[k - 1]);
+  t.check(Z.length > 20 && jump < 0.06, 'no zoom jump (max change per frame < 6%)', `${Z.length} frames, max ${(jump * 100).toFixed(1)}%`);
+  await t.waitFor(() => regionAt(H, x0 + 2, y0 + 2).alpha > 0.95, 2000, 'host roof opaque again outside');
+  await t.checkDigest(H, G);
+});
+
+def('J3', {
+  title: 'J: removing walls collapses the unsupported roof on both', timeout: 180000,
+  expected: 'A 14×5 roofed hall; the guest marks the east walls for deconstruction: the first try warns "O teto vai desabar" and marks nothing, the second marks them; when the last support near the east end goes, the roof tiles farther than 6 tiles (Euclidean, tile centres) from any support collapse on both (roof.collapse: same remaining ids), the rest stays; toast "O teto desabou!"; digest equal',
+  api: 'building.deconRect (confirmSupports) → build.decon; decon.hit → struct.remove → roofs supportDirty → host roofSupportSystem → op roof.collapse',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(14, 5, H, 9), gp.x, gp.y, { rMin: 4, rMax: 34, avoidPts: [[gp.x, gp.y]] });
+  t.assert(site, 'found a free 14×5 site');
+  const { x0, y0 } = site;
+  hostRoom(H, x0, y0, 14, 5, { door: false });
+  const roofs = hostRoof(H, x0, y0, 14, 5);
+  await t.waitFor(() => roofs.every((id) => A.structOn(G, id)), RT() + 600, 'guest has the hall and its roof');
+  A.keepAlive(t, G);
+  A.teleport(G, x0 + 10, y0 + 6.6);
+  await A.hostSees(t, H, G);
+  const toasts = [];
+  t.on(G, 'toast', (d) => toasts.push(d.text));
+  // east walls (x ≥ x0 + 6): their removal leaves x0+12, x0+13 more than 6 tiles from the last wall (x0+5)
+  const east = G.game.build.structures.filter((o) => o.type === 'wall_wood' && o.tx >= x0 + 6 && o.tx <= x0 + 13 && o.ty >= y0 && o.ty <= y0 + 4);
+  const n1 = MG.building.deconRect(G.game, x0 + 6, y0, x0 + 13, y0 + 4);
+  t.check(n1 === 0 && toasts.some((s) => /teto vai desabar/i.test(s)), 'first try: "O teto vai desabar" warning, nothing marked', `marked ${n1} · ${short(toasts)}`);
+  const n2 = MG.building.deconRect(G.game, x0 + 6, y0, x0 + 13, y0 + 4);
+  t.check(n2 === east.length, 'second try marks the walls', `${n2}/${east.length}`);
+  await t.waitFor(() => east.every((o) => H.game.build.decon.has(A.structOn(H, o.id))), RT() + 500, 'host has the decon marks');
+  // the host finishes all but one of them (shortcut), the guest deconstructs the last one for real
+  const last = east.find((o) => o.tx === x0 + 6 && o.ty === y0);
+  for (const o of east) if (o !== last) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 });
+  await t.sleep(ONEWAY() + 300);
+  // the last east wall (x0+6, y0) still holds what is within 6 tiles of it, e.g. (x0+12, y0); the far corner already fell
+  await t.waitFor(() => !A.structAt(H, MH, x0 + 13, y0 + 4, 'roof'), RT() + 800, 'far corner (8 tiles from the last wall) fell');
+  t.check(A.structAt(H, MH, x0 + 12, y0, 'roof') && A.structAt(G, MG, x0 + 12, y0, 'roof'), 'the last wall still holds the tiles within 6 tiles of it', `${roofIds(H).length} roof tiles`);
+  await A.decon(t, G, MG, last.id);
+  const gone = (f) => [12, 13].every((dx) => [0, 1, 2, 3, 4].every((dy) => !A.structAt(f, MG, x0 + dx, y0 + dy, 'roof')));
+  await t.waitFor(() => gone(H) && gone(G), RT() + 800, 'tiles beyond 6 tiles collapsed on both');
+  const kept = (f) => [[0, 2], [6, 2], [10, 2], [11, 0], [11, 4]].every(([dx, dy]) => A.structAt(f, MG, x0 + dx, y0 + dy, 'roof'));
+  const lost11 = (f) => [1, 2, 3].every((dy) => !A.structAt(f, MG, x0 + 11, y0 + dy, 'roof'));
+  t.check(kept(H) && kept(G), 'tiles within 6 tiles of the last walls stay');
+  t.check(lost11(H) && lost11(G), 'tiles just beyond 6 tiles (x0+11, middle rows: 6.1–6.3) fell too');
+  t.check(JSON.stringify(roofIds(H)) === JSON.stringify(roofIds(G)), 'same remaining roof tiles on both', `${roofIds(H).length} / ${roofIds(G).length}`);
+  await t.tryWait(() => toasts.some((s) => /teto desabou/i.test(s)), 1500);
+  t.check(toasts.some((s) => /teto desabou/i.test(s)), 'guest got "O teto desabou!"', short(toasts));
+  await t.sleep(800);
+  await t.checkDigest(H, G);
+});
+
+def('J4', {
+  title: 'J: mining a mountain open removes its natural roof identically on both', timeout: 150000,
+  expected: 'Mined tiles keep the mountain roof while rock is within 6 tiles; opening a 14×14 box takes it off in the middle on both peers (world.roof bytes equal, roofAt / isCave equal per tile, the centre is open sky, tiles next to the remaining rock stay caves); a guest mining hit through rock.hit keeps them equal; digest equal',
+  api: 'tile.mine → world.mineRock → _naturalRoof (world.roof, lastLost); world.roofAt / isCave; digest tiles part (roof, broof)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const w = H.game.world, sp = spawnOf(H);
+  // a solid mountain block (all rock, roof0 in the middle) closest to the spawn
+  let best = null, bd = 1e9;
+  for (let cy = 12; cy < w.H - 12; cy += 2) for (let cx = 12; cx < w.W - 12; cx += 2) {
+    const i = w.idx(cx, cy);
+    if (!w.rock[i] || !w.roof0[i]) continue;
+    const d = Math.hypot(cx - sp.x, cy - sp.y);
+    if (d >= bd) continue;
+    let ok = true;
+    for (let y = cy - 9; y < cy + 9 && ok; y++) for (let x = cx - 9; x < cx + 9; x++) if (!w.rock[w.idx(x, y)]) { ok = false; break; }
+    if (ok) { best = [cx, cy]; bd = d; }
+  }
+  t.need(best, 'needs an 18×18 solid mountain block in this seed');
+  const [cx, cy] = best;
+  env.claimed.add('mountain' + cx + ',' + cy);
+  // a 3-wide tunnel into it first: still a cave everywhere
+  for (let y = cy - 1; y <= cy + 1; y++) for (let x = cx - 8; x <= cx; x++) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.sleep(ONEWAY() + 300);
+  t.check(H.game.world.isCave(cx - 3, cy) && G.game.world.isCave(cx - 3, cy), 'a narrow tunnel stays a cave on both');
+  // open the box
+  for (let y = cy - 7; y < cy + 7; y++) for (let x = cx - 7; x < cx + 7; x++) if (w.rock[w.idx(x, y)]) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx, cy)] === 0, RT() + 1000, 'guest has the mined box');
+  await t.sleep(ONEWAY() + 300);
+  const eqRoof = () => { const a = H.game.world.roof, b = G.game.world.roof; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return -1; };
+  const diffAt = eqRoof();
+  t.check(diffAt < 0, 'world.roof identical on both', diffAt < 0 ? 'equal' : `first difference at tile ${diffAt}`);
+  t.check(H.game.world.roofAt(cx, cy) === 0 && G.game.world.roofAt(cx, cy) === 0, 'the centre of the opened hall is open sky on both');
+  t.check(!H.game.world.isCave(cx, cy) && !G.game.world.isCave(cx, cy), 'the centre is no longer a cave');
+  let edgeCave = 0;
+  for (let y = cy - 7; y < cy + 7; y++) { if (H.game.world.isCave(cx - 7, y)) edgeCave++; }
+  t.check(edgeCave > 0, 'tiles next to the remaining rock keep their ceiling', `${edgeCave} cave tiles along the west edge`);
+  // the guest mines one more rock tile at the east edge through the real rock.hit path
+  A.ensure(G, { pickaxe_steel: 1 });
+  A.keepAlive(t, G);
+  const tx = cx + 7, ty = cy;
+  const stand = () => A.teleport(G, tx - 0.5, ty + 0.5);
+  stand();
+  await A.hostSees(t, H, G);
+  await A.mine(t, G, MG, tx, ty, { stand });
+  await t.waitFor(() => H.game.world.rock[w.idx(tx, ty)] === 0 && G.game.world.rock[w.idx(tx, ty)] === 0, RT() + 600, 'guest mining hit reached both');
+  await t.sleep(ONEWAY() + 300);
+  t.check(eqRoof() < 0, 'world.roof still identical after the guest mined');
+  await t.checkDigest(H, G);
+});
+
+def('J5', {
+  title: 'J: roofs survive a guest resync and the save round trip', timeout: 120000,
+  expected: 'After roofs exist, a guest resync (snapshot, reconcile) keeps the same roof structures (ids, style, det) and the guest repaints them; a save → load of the host world data restores roofs with their style (v6 rows); digest equal',
+  api: 'net.forceResync(); snapshot structs rows [.., style, det]; save.buildSaveData / serializeWorld',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  if (!roofIds(H).filter((s) => !s.endsWith(':bp')).length) {
+    const gp = G.game.player;
+    const site = A.findSite([H, G], [MH, MG], 'wall_wood', roomTiles(5, 4, H, 2), gp.x, gp.y, { rMin: 4, rMax: 24 });
+    t.assert(site, 'found a free 5×4 site');
+    hostRoom(H, site.x0, site.y0, 5, 4); hostRoof(H, site.x0, site.y0, 5, 4, 'roof_stone', 'terracotta');
+    await t.sleep(RT() + 400);
+  }
+  const before = roofIds(H);
+  G.game.net.forceResync();
+  await t.waitFor(() => G.game.net.synced && JSON.stringify(roofIds(G)) === JSON.stringify(before), 15000, 'guest roofs equal after the resync');
+  const snap = H.game.net.digest ? (await fimp(H, 'net/snapshot.js')).serializeWorld(H.game, { save: true }) : null;
+  const rows = (snap?.structs || []).filter((r) => String(r[1]).startsWith('roof_'));
+  t.check(rows.length && rows.every((r) => r.length >= 16 && typeof r[14] === 'string' && r[14]), 'save rows carry the roof style (v6)', short(rows[0]));
+  const SV = await fimp(H, 'game/save.js');
+  const data = SV.buildSaveData(H.game);
+  t.check(data.v >= 6, 'save data version bumped for roofs', `v${data.v}`);
+  const mig = SV.migrateStructRows(H.game, [[ 'sx1', 'wall_wood', 1, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0 ]]);
+  t.check(mig[0].length === 16 && mig[0][14] === '' && mig[0][15] === '', 'v4 / v5 rows migrate to v6 (style / det empty)', short(mig[0]));
   await t.checkDigest(H, G);
 });
 

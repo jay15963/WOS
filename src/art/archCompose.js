@@ -154,7 +154,7 @@ function drawWall(B, T, o, k, t, fl) {
   if (on.crenel) { if (!(m & 1)) S(B, D.cren_n, x, y, 1, 1, fl); if (!(m & 8)) S(B, D.cren_w, x, y, 1, 1, fl); if (!(m & 2)) S(B, D.cren_w, x, y, -1, 1, fl); if (front) S(B, D.cren_s, x, y, 1, 1, fl); }
   if (front) {
     // openings / mounted things on the south face
-    const win = on.window ? 'window' : on.shutters ? 'shutters' : on.curtains ? 'curtains' : on.oculus ? 'oculus' : on.slit ? 'slit' : null;
+    const win = on.window ? 'window' : on.window_shutters ? 'shutters' : on.window_curtains ? 'curtains' : on.window_round ? 'oculus' : on.slit ? 'slit' : null;
     if (win) {
       addPlain(B, D[win], x, y, 1, 1, fl);
       const n = KIT_ENV.night;

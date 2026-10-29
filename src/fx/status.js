@@ -53,7 +53,8 @@ class StatusFx {
     const inWater = w && w.waterAt && w.waterAt(tx, ty) > 0;
     const env = g.env.env;
     const snowK = g.R && g.R.coldAt ? clamp01((g.R.coldAt(p.x, p.y) - 0.45) / 0.3) : 0;   // it snows here, not rains
-    const rainHere = (env.rain || 0) * (1 - snowK) * (w && w.caveDark ? 1 - w.caveDark(p.x, p.y) : 1);
+    const roofed = w && w.roofAtPoint ? w.roofAtPoint(p.x, p.y) !== 0 && !w.isRock(tx, ty) : false; // under a roof / cave ceiling
+    const rainHere = roofed ? 0 : (env.rain || 0) * (1 - snowK) * (w && w.caveDark ? 1 - w.caveDark(p.x, p.y) : 1);
     this.wetT = inWater ? 1 : Math.max(Math.max(0, this.wetT - dt / 22), rainHere > 0.5 ? 0.3 : 0);
     if (f) {
       T.hp = clamp01(f.hp ?? 0); T.cold = clamp01(f.cold ?? 0); T.hunger = clamp01(f.hunger ?? 0);

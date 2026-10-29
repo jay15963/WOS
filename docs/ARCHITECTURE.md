@@ -160,7 +160,7 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
 
 ## APIs da expansão "Eras" (resumo; contrato completo em `docs/CONTENT.md`)
 - **Mundo** (`src/world/worldgen.js`, `world.js`): `ORE`, `ORE_ITEM`, `ORE_NAMES_PT`, `BIOME_ID`, `CAMP_R`;
-  `world.roof` / `roofAt(tx,ty)`, `isCave`, `isMined`, `caveDark(x,y)`, `world.rock0` (rocha original);
+  `world.roof` (teto natural atual) / `roof0` / `roofAt(tx,ty)` (0 / 1 natural / 2 construído, ver "Telhados"), `isCave`, `isMined`, `caveDark(x,y)`, `world.rock0` (rocha original);
   `world.caveData` (textura RGBA: escuridão da caverna, minério próximo, chão pisado, piso minerado);
   `chunk.pop` (população inicial por tipo), `world.canGrow(tx,ty,kind)`, `world.growWeight(tx,ty,kind)`;
   `world.camps` / `world.zones` (`bandit_camp`). Luz: passe `AMBIENT_FS` (ambiente × caverna) + luzes aditivas; batch `decal`.
@@ -187,6 +187,77 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   `src/game/decoration.js` (brilho das janelas à noite, DPS do boneco, `game.debugK.showcase()` / `fill(n)` em localhost).
 - **Arte**: `structureSprite(A, type, mask, {orient, kind, v})` (composeWorld.js) para fantasmas de construção; galerias em
   `tools/gallery.html` (personagens/itens) e `tools/gallery-world.html` (mundo/construções).
+
+## Telhados, interiores e cavernas (agente J)
+Arquivos: `src/game/content/roofs.js` (catálogo: `ROOF_GEOM`, `ROOF_STYLES`, `ROOF_DETAILS`, `roofEaveH`), `src/game/roofs.js`
+(estado, regiões, apoio, "dentro", fades), `src/game/mut/roofs.js` (op `roof.collapse`, sistema do anfitrião), `src/art/roofRaster.js`
+(pintura procedural, funções puras) + `src/art/roofWorker.js` (worker de módulo), `src/art/roofs.js` (colunas e ícones no atlas).
+
+- **Telhado construído** = uma estrutura por tile na camada `'roof'` (`roof_thatch` palha: graveto + 2 fibras · `roof_wood` madeira ·
+  `roof_stone` blocos de pedra), categoria **Teto**, arrasto de área, plantas azuis no ar (altura do beiral), material entregue na obra.
+  Um toque dentro de uma sala fechada (paredes / portas / rocha, ≤ 220 tiles) cobre a sala inteira e as paredes. ⟳ / R troca o estilo da
+  planta (`o.style`, fixo depois de pronto; `o.det` = detalhes, string canônica de ids ordenados com `.`). Colunas `column_wood` /
+  `column_stone` (1×1, `def.support`).
+- **Regra de apoio**: todo tile de telhado precisa de um apoio a até **6 tiles** (distância euclidiana entre centros): parede, porta ou coluna
+  (`def.support`, camada main), rocha natural ou a borda do mapa. Colocar a planta aceita apoios planejados; **construir** exige um apoio
+  pronto ("Sem apoio: termine as paredes ou colunas perto"); planta sem apoio fica vermelha e não é colocada. Quando um apoio pronto some
+  (desmontar, mineração), o anfitrião (`roofSupportSystem`, sync host) acha os tiles prontos sem apoio e emite `roof.collapse {ids, drops}`:
+  poeira, entulho, som `roof_collapse`, toast "O teto desabou!" perto da câmera, ¼ do material vira loot, 8 de dano em quem estiver embaixo
+  (`hurtUnder` → `player.hurt`). Remover tiles de telhado nunca derruba o resto (apoio vem só de paredes / colunas / rocha). Marcar para
+  desmontar uma parede / porta / coluna que deixaria telhado sem apoio pede **um segundo toque em até 6 s** ("O teto vai desabar (N tiles)!").
+  Desmontar: um toque / arrasto que começa num telhado visível remove tiles de telhado; em qualquer outro lugar, as outras camadas.
+- **Geometria procedural** (`rasterRegion`): região = tiles de telhado prontos 4-conectados. 1) cobertura por **retângulos máximos**
+  (gulosa, podem se sobrepor); 2) cada retângulo ganha um telhado de duas águas no lado comprido: **empena frontal** (cumeeira N–S, o
+  triângulo da empena virado para a câmera) quando a largura ≤ 1,3 × a profundidade, senão **empena lateral** (cumeeira L–O, a água
+  comprida virada para a câmera); pontas em empena ou **quadril** conforme o estilo (`ends`; palha = quadril); a inclinação achata em vãos
+  largos para a cumeeira não passar de `maxRise` (2,8 tiles); 3) a superfície é o **máximo** das alturas dos retângulos: onde dois
+  telhados se encontram o máximo forma os **rincões** das empenas cruzadas (L / T / U) e uma ala mais baixa morre no telhado mais alto;
+  4) vista 3/4: (x, y, h) vai para a tela (x, y − h); um z-buffer na profundidade y resolve beirais, faces de empena, testeiras e chaminés.
+  Beirais curtos ao sul (0,12) para a fachada aparecer; 0,3 nos outros lados, com o beiral mais raso que a água ("bell cast").
+  Pintura: escamas (ardósia azul, telha de barro), telhas de madeira, palha, lajes de pedra, fiadas paralelas a cada beiral, luz fixa
+  de cima/esquerda (como os sprites), cumeeira, espigões, rincões escuros, testeiras escuras nas empenas, sombra sob o beiral, face de empena
+  em reboco com enxaimel / tábuas / pedra com janela (brilha à noite com luz dentro), chaminé de pedra sobre fogueiras / fornalhas / panelas
+  (solta fumaça enquanto queima), cata-vento (det `vane`), musgo (det `moss`), acabamento claro (det `trim`). A altura do beiral é
+  `roofEaveH(andares)` (`game.build.storeysAt?.(x, y)`, gancho para o agente L).
+- **Desenho**: cada região tem uma imagem (pintada no worker; no thread principal com orçamento de 8 ms se não houver worker) e só é
+  repintada quando seus tiles / fogos mudam (a imagem velha continua enquanto a nova não chega). A imagem é cortada em **fatias por coluna
+  de tiles** (uma por trecho contínuo de uma coluna); cada fatia entra na ordenação por profundidade com a chave = borda sul do trecho
+  (`collect`), e o renderer desenha os sprites até ali, a fatia, e o resto (`renderer.roofSlice`, segmentos do batch main; um pixel é
+  desenhado só pela fatia dona: textura RG8 de dono). Coisas ao norte / dentro ficam atrás, ao sul na frente; um telhado na frente do
+  jogador fica translúcido (0,32). Sombra do sol: um cartão vertical + uma tampa erguida por tile (altura do telhado). Passe de luz: o
+  telhado opaco grava a luz ambiente externa (lampiões dentro nunca iluminam o telhado). O que está sob um telhado opaco não é desenhado
+  (`underOpaqueRoof`), só paredes / portas cujas frentes aparecem sob o beiral.
+- **Revelar**: a região sob o jogador **local** some em ~0,35 s (`g.reveal`, máscara G do roofData); as outras ficam opacas e escondem
+  quem está dentro (jogadores remotos inclusive).
+- **Teto natural** (`world.roof`): um tile minerado mantém o teto da montanha enquanto houver rocha a até **6 tiles** (`roof0` = teto
+  original, rocha com ≥ 2 de profundidade). Função pura da grade de rocha (rocha só diminui) — igual em todos os pares sem op; abrir a
+  montanha tira o teto (luz do céu, chuva, sol; deixa de ser caverna). `world.lastLost` = tiles que perderam o teto na última mineração:
+  `tile.mine` faz o desabamento (≥ 3 tiles: poeira, pedras, som `cave_in`, toast) e o anfitrião dá 5 de dano a quem estiver embaixo; a luz
+  muda suave (~1,4 s, `caveFade`). Escuridão da caverna (`caveData.R`) = distância andando desde o céu aberto: a luz cai das aberturas
+  para dentro dos túneis.
+- **API "dentro"**: `world.roofAt(tx, ty)` → `ROOF_NONE 0 | ROOF_NATURAL 1 | ROOF_BUILT 2` (fora do mapa = natural; rocha conta como
+  natural), `world.roofAtPoint(x, y)` (pés), `world.isCave` (minerado + teto natural), `world.broof` (estilo + 1 dos telhados prontos).
+  `game.indoors = { kind: null|'cave'|'built', region, zoomK, caveK, builtK }` (jogador local, com histerese de 0,18 s).
+  Usado por: chuva / neve (post: sem precipitação, névoa, nuvens nem relâmpago no interior revelado; terreno: sem molhado, poças nem neve
+  sob telhado; respingos de chuva), interior mais escuro (ambiente × 0,42 com a escuridão do roofData; portas abertas deixam a luz entrar),
+  sobrevivência (abrigo / chuva / vento pelo teto, não mais pelo piso), áudio "dentro" (`_indoorAt` = teto, não mais paredes ao redor),
+  vaga-lumes / borboletas / bichos não nascem dentro, fumaça de fogo sob telhado sai pela chaminé, tiro para o alto recusado sob teto.
+- **roofData** (textura RGBA por tile, `uRoofT`): R = escuridão interna (distância andando desde o céu aberto, paredes e portas fechadas
+  barram), G = região revelada (fade), B = cobertura de telhado. CPU em `game.roofs.data`, reenvio por retângulo (`updateRoofData`).
+- **Vista de dentro**: sob qualquer teto a câmera vai para um zoom fixo mais perto (caverna 1,45×, casa 1,32× o zoom padrão; nunca mais
+  longe que o zoom do jogador) e ignora pinça / roda / +−; ao sair volta ao zoom do jogador. Mistura smoothstep de ~1 s nos dois sentidos
+  (`indoors.zoomK`, `game.stepZoom`); `camFocus` (mira do arco) continua só movendo a câmera. Post (`uIndoorFx`): caverna = vinheta mais
+  escura e mais fechada + luz mais fria + poeira flutuando; casa = vinheta quente, um pouco mais fechada.
+- **Raios de sol nos interiores** (`src/fx/rays.js`, sistema cosmético, derivado do estado compartilhado + hora): feixes inclinados
+  na direção do sol (`env.shadowDir`) por portas abertas / vãos do lado do sol, janelas (paredes com `window` em `o.det`, agente K),
+  buracos no telhado (tiles removidos, claraboias) e clarabóias / bocas de caverna (céu aberto junto ao chão da caverna); dourados e longos
+  de manhã, curtos ao meio-dia, âmbar à tarde, nada à noite / com nuvens; mancha clara no chão (mapa de luz) e poeira no feixe. Só
+  aparecem onde o telhado está revelado (casas) ou sempre (cavernas). Primitiva `drawShaft(B, A, x, y, h, dx, dy, largura, r, g, b, a)`
+  (compatível com a do agente C). Até 22 feixes (alta) / 14 (média) / 7 sem poeira (baixa).
+- **Sync**: telhados = estruturas genéricas (`struct.add` linhas `[.., moveOf, style, det]`, snapshot `[14] style [15] det`, linhas do
+  digest com style / det); `roof.collapse` só do anfitrião; teto natural derivado (digest `tiles` inclui `roof` e `broof`). Save v6 (v5 = corpos, agente I).
+  Cenários J1–J5 em `tools/mp-test.js`. Depuração (localhost): `game.debug.roofRoom(w, h, tipo, estilo, {fire, columns, det})`,
+  `game.debug.hall()`, `game.debug.openCave()`.
 
 ## Menu e multijogador (fase 1)
 - **Boot** (`src/main.js`): gráficos carregam em segundo plano enquanto o **menu principal** (`src/ui/menu.js`) aparece; o mundo

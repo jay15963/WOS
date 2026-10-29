@@ -16,6 +16,7 @@
 //             front?: needs a visible south face (walls), tint?: [r,g,b] (tone), light?: {...}, glow? (night window) }
 
 import { BUILDINGS } from './buildings.js';
+import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_DETAILS } from './roofs.js'; // agent J's roof catalogue
 
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
@@ -66,9 +67,9 @@ export const KITS = {
       { id: 'band', name: 'Cinta', cat: 'trim', front: true },
       { id: 'crenel', name: 'Ameias', cat: 'trim' },
       { id: 'window', name: 'Janela', cat: 'wall', group: 'win', front: true, glow: 1 },
-      { id: 'shutters', name: 'Janela com venezianas', cat: 'wall', group: 'win', front: true, glow: 1 },
-      { id: 'curtains', name: 'Janela com cortinas', cat: 'wall', group: 'win', front: true, glow: 1 },
-      { id: 'oculus', name: 'Óculo', cat: 'wall', group: 'win', front: true, glow: 1 },
+      { id: 'window_shutters', name: 'Janela com venezianas', cat: 'wall', group: 'win', front: true, glow: 1 },
+      { id: 'window_curtains', name: 'Janela com cortinas', cat: 'wall', group: 'win', front: true, glow: 1 },
+      { id: 'window_round', name: 'Óculo', cat: 'wall', group: 'win', front: true, glow: 1 },
       { id: 'slit', name: 'Seteira', cat: 'wall', group: 'win', front: true },
       { id: 'winbox', name: 'Floreira', cat: 'wall', front: true },
       { id: 'shelf', name: 'Prateleira', cat: 'wall', group: 'mnt', front: true },
@@ -200,21 +201,13 @@ export const KITS = {
       ...TONE_WOOD, ...TONE_STONE,
     ],
   },
-  // agent J's built roofs (types roof_thatch / roof_wood / roof_stone, layer 'roof'): J's renderer turns roofLook(o)
-  // (below) into its per-tile look; J paints the chimney (det 'chimney' or a fire under the roof) and the vane itself
+  // agent J's built roofs (types roof_thatch / roof_wood / roof_stone, layer 'roof'): styles are J's ROOF_STYLES (built below),
+  // J's details (moss, chimney, vane, trim) + K's overrides that roofArtStyle(o) turns into a derived style for J's painter
+  // (ends, gable, ridge, bargeboards, weathering, tone) + roof props drawn by K on the slope (dormer, skylight)
   roof: {
-    name: 'Telhado',
+    name: 'Telhado', explicit: true, // style ids stay explicit (J's rows / tests expect the id even for the default)
     tabs: [['style', 'Material'], ['trim', 'Forma e acabamento'], ['wall', 'No telhado'], ['nature', 'Tempo'], ['tone', 'Cor']],
-    styles: [
-      { id: 'thatch', name: 'Palha', types: ['roof_thatch'], def: true, desc: 'Sapê grosso amarrado na cumeeira.' },
-      { id: 'turf', name: 'Telhado verde', types: ['roof_thatch'], desc: 'Grama e flores sobre o telhado.' },
-      { id: 'shake', name: 'Telhas de madeira', types: ['roof_wood'], def: true, desc: 'Tabuinhas sobrepostas.' },
-      { id: 'wscale', name: 'Escamas de madeira', types: ['roof_wood'], desc: 'Tabuinhas recortadas em escama.' },
-      { id: 'slate', name: 'Ardósia azul', types: ['roof_stone'], def: true, desc: 'Escamas de ardósia azulada.' },
-      { id: 'stone', name: 'Lajes cinza', types: ['roof_stone'], desc: 'Escamas de pedra cinza.' },
-      { id: 'terra', name: 'Terracota', types: ['roof_stone'], desc: 'Escamas de barro alaranjadas.' },
-      { id: 'flag', name: 'Lajes grossas', types: ['roof_stone'], desc: 'Placas de pedra pesadas.' },
-    ],
+    styles: [],
     details: [
       { id: 'end_gable', name: 'Duas águas (empena)', cat: 'trim', group: 'ends' },
       { id: 'end_hip', name: 'Quatro águas', cat: 'trim', group: 'ends' },
@@ -225,12 +218,14 @@ export const KITS = {
       { id: 'r_tile', name: 'Cumeeira de telha', cat: 'trim', group: 'ridge' },
       { id: 'r_bound', name: 'Cumeeira amarrada', cat: 'trim', group: 'ridge' },
       { id: 'barge', name: 'Bordas grossas escuras', cat: 'trim' },
-      { id: 'trim', name: 'Acabamento de beiral', cat: 'trim' },
-      { id: 'chimney', name: 'Chaminé de pedra', cat: 'wall' },
-      { id: 'vane', name: 'Cata-vento', cat: 'wall' },
-      { id: 'moss', name: 'Musgo', cat: 'nature' },
+      { id: 'trim', name: ROOF_DETAILS.trim?.name || 'Acabamento', cat: 'trim', desc: ROOF_DETAILS.trim?.desc },
+      { id: 'chimney', name: ROOF_DETAILS.chimney?.name || 'Chaminé', cat: 'wall', desc: ROOF_DETAILS.chimney?.desc },
+      { id: 'vane', name: ROOF_DETAILS.vane?.name || 'Cata-vento', cat: 'wall', desc: ROOF_DETAILS.vane?.desc },
+      { id: 'dormer', name: 'Água-furtada', cat: 'wall', group: 'prop', desc: 'Janelinha saindo do telhado; brilha à noite.' },
+      { id: 'dormer_pl', name: 'Água-furtada de reboco', cat: 'wall', group: 'prop' },
+      { id: 'skylight', name: 'Claraboia', cat: 'wall', group: 'prop' },
+      { id: 'moss', name: ROOF_DETAILS.moss?.name || 'Musgo', cat: 'nature', desc: ROOF_DETAILS.moss?.desc },
       { id: 'weather', name: 'Desgaste', cat: 'nature' },
-      { id: 'icicles', name: 'Pingentes de gelo', cat: 'nature' },
       { id: 't_light', name: 'Mais claro', cat: 'tone', group: 'tone', tint: [1.14, 1.12, 1.08] },
       { id: 't_dark', name: 'Mais escuro', cat: 'tone', group: 'tone', tint: [0.74, 0.74, 0.78] },
       { id: 't_warm', name: 'Quente', cat: 'tone', group: 'tone', tint: [1.12, 0.96, 0.82] },
@@ -238,13 +233,13 @@ export const KITS = {
     ],
   },
 };
+for (const type in ROOF_TYPE_STYLES) ROOF_TYPE_STYLES[type].forEach((id, i) => {
+  const st = ROOF_STYLES[id];
+  if (st) KITS.roof.styles.push({ id, name: st.name, types: [type], def: i === 0 });
+});
 
-// roof props: roof-layer structures K draws as sprites on the slope (phase 2, via J's roofPropAt). Chimney and vane are
-// roof details painted by J (det 'chimney' / 'vane'), not props.
-export const ROOF_PROPS = [
-  { id: 'roof_dormer', name: 'Água-furtada', sprites: ['roof_dormer_wood', 'roof_dormer_plaster'], glow: 'roof_dormer_glow', desc: 'Janelinha saindo do telhado; brilha à noite.' },
-  { id: 'roof_skylight', name: 'Claraboia', sprites: ['roof_skylight_glass'], desc: 'Deixa a luz entrar.' },
-];
+// roof props (K's sprites on J's roof slope, drawn per roof tile with the detail): sprite names per detail id
+export const ROOF_PROPS = { dormer: 'roof_dormer_wood', dormer_pl: 'roof_dormer_plaster', skylight: 'roof_skylight_glass' };
 
 // ---------- lookup ----------
 const INFER_CACHE = new Map();
@@ -293,6 +288,7 @@ export const defaultStyle = (type) => stylesFor(type).find((s) => s.def)?.id || 
 
 // '' when s is the type's default look or unknown
 export function normStyle(type, s) {
+  if (kitOf(type)?.explicit) { const st = typeof s === 'string' && s && stylesFor(type).find((x) => x.id === s); return st ? st.id : defaultStyle(type); }
   if (typeof s !== 'string' || !s) return '';
   const st = stylesFor(type).find((x) => x.id === s);
   return !st || st.def ? '' : st.id;
@@ -352,36 +348,37 @@ export function decodeKit(type, style, det) {
     if (d.light && !light) light = d.light;
     if (d.glow) glow = 1;
   }
-  k = { key, kit: kid, type, style: normStyle(type, style) || defaultStyle(type), custom: !!normStyle(type, style), on, ids, tint, light, glow, n: ids.length };
+  const ns = normStyle(type, style);
+  k = { key, kit: kid, type, style: ns || defaultStyle(type), custom: !!ns && ns !== defaultStyle(type), on, ids, tint, light, glow, n: ids.length };
   DECODE.set(key, k);
   return k;
 }
 
-// ---------- interface for agent J (roof renderer) ----------
-// roofLook(o) → J's per-tile look fields: { mat, pattern: 'thatch'|'shake'|'scale'|'slab'|'turf', base, dark, light ([r,g,b] 0..1,
-// tone already multiplied), ends: 'gable'|'hip'|null, gable: 'plaster'|'planks'|'stone'|null, ridge: 'board'|'tile'|'bound'|null,
-// barge, trim, chimney, vane, moss, weather, icicles (booleans) }. null = J's default for the type.
-export const ROOF_MATS = {
-  thatch: { pattern: 'thatch', base: [196, 164, 98], dark: [122, 94, 52], light: [228, 204, 140] },
-  turf: { pattern: 'turf', base: [104, 140, 66], dark: [64, 92, 40], light: [146, 182, 92] },
-  shake: { pattern: 'shake', base: [150, 104, 64], dark: [92, 60, 34], light: [190, 142, 94] },
-  wscale: { pattern: 'scale', base: [158, 112, 70], dark: [96, 62, 36], light: [196, 150, 100] },
-  slate: { pattern: 'scale', base: [92, 112, 140], dark: [52, 64, 86], light: [140, 160, 186] },
-  stone: { pattern: 'scale', base: [136, 134, 128], dark: [86, 84, 80], light: [180, 178, 170] },
-  terra: { pattern: 'scale', base: [204, 112, 62], dark: [138, 66, 34], light: [234, 156, 100] },
-  flag: { pattern: 'slab', base: [146, 140, 128], dark: [92, 88, 80], light: [186, 180, 168] },
-};
-export function roofLook(o) {
-  const k = decodeKit(o.type, o.style, o.det);
-  const mat = ROOF_MATS[k.style] ? k.style : 'thatch';
-  const M = ROOF_MATS[mat], t = k.tint || [1, 1, 1], on = k.on;
-  const c = (v) => [Math.min(1, (v[0] / 255) * t[0]), Math.min(1, (v[1] / 255) * t[1]), Math.min(1, (v[2] / 255) * t[2])];
-  return {
-    mat, pattern: M.pattern, base: c(M.base), dark: c(M.dark), light: c(M.light),
-    ends: on.end_gable ? 'gable' : on.end_hip ? 'hip' : null,
-    gable: on.gab_plaster ? 'plaster' : on.gab_planks ? 'planks' : on.gab_stone ? 'stone' : null,
-    ridge: on.r_board ? 'board' : on.r_tile ? 'tile' : on.r_bound ? 'bound' : null,
-    barge: !!on.barge, trim: !!on.trim, chimney: !!on.chimney, vane: !!on.vane,
-    moss: !!on.moss, weather: !!on.weather, icicles: !!on.icicles,
-  };
+// ---------- interface for agent J (roof renderer, game/roofs.js artSpec) ----------
+// roofArtStyle(o) → null (J's own ROOF_STYLES[o.style] is enough) or { key, style }: a copy of J's style with K's overrides
+// (ends, gable, ridge, dark bargeboards, weathering, tone tint) that J's painter reads like any ROOF_STYLES entry.
+const DERIVED = new Map();
+export function roofArtStyle(o) {
+  const k = decodeKit(o.type, o.style, o.det), on = k.on;
+  const base = ROOF_STYLES[k.style];
+  if (!base) return null;
+  const ov = k.ids.filter((id) => /^(end_|gab_|r_|t_)/.test(id) || id === 'barge' || id === 'weather');
+  if (!ov.length) return null;
+  const key = k.style + '|' + ov.join('.');
+  let d = DERIVED.get(key);
+  if (d) return d;
+  const st = { ...base };
+  if (on.end_gable) st.ends = 'gable'; else if (on.end_hip) st.ends = 'hip';
+  if (on.gab_plaster) st.gable = 'plaster'; else if (on.gab_planks) st.gable = 'planks'; else if (on.gab_stone) st.gable = 'stone';
+  if (on.gab_planks && !base.gable?.startsWith?.('plank')) st.gableCol = [0.6, 0.42, 0.25];
+  if (on.gab_stone && base.gable !== 'stone') st.gableCol = [0.62, 0.6, 0.56];
+  if (on.gab_plaster && base.gable !== 'plaster') st.gableCol = [0.88, 0.82, 0.7];
+  if (on.r_board) st.ridge = 'board'; else if (on.r_tile) st.ridge = 'tile'; else if (on.r_bound) st.ridge = 'bound';
+  const mul = (c, t) => c && [Math.min(1, c[0] * t[0]), Math.min(1, c[1] * t[1]), Math.min(1, c[2] * t[2])];
+  if (on.barge) st.board = mul(base.board, [0.55, 0.55, 0.6]);
+  if (on.weather) { st.jitter = (base.jitter || 0.06) + 0.05; const g = (c) => c && [c[0] * 0.9 + 0.03, c[1] * 0.9 + 0.03, c[2] * 0.9 + 0.03]; st.base = g(st.base); st.light = g(st.light); }
+  if (k.tint) for (const f of ['base', 'dark', 'light', 'board', 'gableCol']) st[f] = mul(st[f], k.tint);
+  d = { key, style: st };
+  DERIVED.set(key, d);
+  return d;
 }

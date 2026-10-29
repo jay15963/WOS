@@ -9,6 +9,8 @@ import { BUILDINGS } from '../game/data.js';
 import { kitOf, stylesFor, detailsFor, decodeKit, normStyle, cleanDet, withDetail, hasDet, detList, hasKit } from '../game/content/kits.js';
 import { setBuildLook, enterStyleBrush, enterBuildMode, exitBuildMode, lastLook } from '../game/building.js';
 import { drawStatic } from '../art/composeWorld.js';
+import { roofArtStyle, ROOF_PROPS } from '../game/content/kits.js';
+import { ROOF_STYLES } from '../game/content/roofs.js';
 
 const CSS = `
 :is(#hud,body) .kdet{position:absolute;z-index:35;pointer-events:auto;display:flex;flex-direction:column;color:#f1ead8;font:600 12px/1.25 system-ui,sans-serif;
@@ -138,12 +140,69 @@ function preview(game, type, style, det, W = 120, H = 96, focus = '') {
   let u = PREV.get(key);
   if (u) return u;
   try {
-    const [objs, view] = sample(game, type, style, det, focus);
-    u = renderObjs(game.A, objs, W, H, view);
+    if (BUILDINGS[type]?.roof) u = roofPreview(game, type, style, det, W, H);
+    else {
+      const [objs, view] = sample(game, type, style, det, focus);
+      u = renderObjs(game.A, objs, W, H, view);
+    }
   } catch (e) { console.warn('[detalhes] preview', e); u = ''; }
   if (PREV.size > 400) PREV.clear();
   PREV.set(key, u);
   return u;
+}
+
+// roofs are painted per region by agent J's renderer: the card shows a small front-gable house in the style's colours
+function roofPreview(game, type, style, det, W, H) {
+  const o = { type, style, det };
+  const ka = roofArtStyle(o);
+  const S = ka?.style || ROOF_STYLES[style] || ROOF_STYLES[Object.keys(ROOF_STYLES).find((k) => ROOF_STYLES[k].type === type)] || ROOF_STYLES.thatch;
+  const c = document.createElement('canvas'), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = W * dpr; c.height = H * dpr;
+  const g = c.getContext('2d'); g.scale(dpr, dpr);
+  const rgb = (v, k = 1) => `rgb(${Math.min(255, v[0] * 255 * k) | 0},${Math.min(255, v[1] * 255 * k) | 0},${Math.min(255, v[2] * 255 * k) | 0})`;
+  const cx = W / 2, top = H * 0.12, eave = H * 0.62, half = W * 0.42, hip = S.ends === 'hip';
+  // walls
+  g.fillStyle = '#eadcbf'; g.fillRect(cx - half * 0.86, eave - 2, half * 1.72, H * 0.26);
+  g.fillStyle = '#4a2f1c'; g.fillRect(cx - half * 0.86, eave + H * 0.22, half * 1.72, 3); g.fillRect(cx - 5, eave + 6, 10, H * 0.18);
+  // roof body
+  g.save(); g.beginPath();
+  if (hip) { g.moveTo(cx - half, eave); g.lineTo(cx - half * 0.35, top + 6); g.lineTo(cx + half * 0.35, top + 6); g.lineTo(cx + half, eave); }
+  else { g.moveTo(cx - half, eave); g.lineTo(cx, top); g.lineTo(cx + half, eave); }
+  g.closePath(); g.fillStyle = rgb(S.base); g.fill(); g.clip();
+  const rows = S.pattern === 'thatch' ? 9 : 7, rh = (eave - top) / rows;
+  for (let r = 0; r < rows; r++) {
+    const y = top + r * rh;
+    for (let x = -W; x < W * 2; x += S.pattern === 'slab' ? 13 : S.pattern === 'thatch' ? 4 : 9) {
+      const xx = x + (r & 1 ? 4.5 : 0);
+      g.fillStyle = (r + Math.floor(x / 9)) % 3 ? rgb(S.base) : rgb(S.light, 0.96);
+      g.beginPath();
+      if (S.pattern === 'scale') g.ellipse(xx, y + rh * 0.7, 4.6, rh * 0.75, 0, 0, Math.PI);
+      else if (S.pattern === 'thatch') g.rect(xx, y, 1.6, rh * 1.3);
+      else g.rect(xx, y, S.pattern === 'slab' ? 12 : 8, rh - 1);
+      g.fill();
+      g.strokeStyle = rgb(S.dark); g.lineWidth = 0.8; g.stroke();
+    }
+  }
+  g.restore();
+  // gable front (gable ends) with a window
+  if (!hip) {
+    g.fillStyle = S.gable === 'planks' ? rgb(S.gableCol || [0.6, 0.42, 0.25]) : S.gable === 'stone' ? rgb(S.gableCol || [0.62, 0.6, 0.56]) : rgb(S.gableCol || [0.88, 0.82, 0.7]);
+    g.beginPath(); g.moveTo(cx - half * 0.5, eave); g.lineTo(cx, top + (eave - top) * 0.42); g.lineTo(cx + half * 0.5, eave); g.closePath(); g.fill();
+    g.fillStyle = '#26303c'; g.fillRect(cx - 4, eave - 13, 8, 8); g.fillStyle = '#5a3b24'; g.fillRect(cx - 0.6, eave - 13, 1.2, 8);
+  }
+  // ridge + boards
+  g.strokeStyle = rgb(S.board || [0.27, 0.17, 0.09]); g.lineWidth = /(^|\.)barge(\.|$)/.test(det) ? 4 : 2.6; g.lineCap = 'round';
+  g.beginPath(); if (hip) { g.moveTo(cx - half, eave); g.lineTo(cx - half * 0.35, top + 6); g.lineTo(cx + half * 0.35, top + 6); g.lineTo(cx + half, eave); } else { g.moveTo(cx - half, eave); g.lineTo(cx, top); g.lineTo(cx + half, eave); } g.stroke();
+  if (/(^|\.)trim(\.|$)/.test(det)) { g.strokeStyle = '#efe6d0'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(cx - half, eave + 1.5); g.lineTo(cx + half, eave + 1.5); g.stroke(); }
+  if (/(^|\.)moss(\.|$)/.test(det)) { g.fillStyle = 'rgba(86,118,52,0.7)'; for (const [x, y] of [[-0.5, 0.75], [0.3, 0.6], [0.55, 0.85], [-0.2, 0.5]]) { g.beginPath(); g.ellipse(cx + x * half, top + (eave - top) * y, 5, 2.4, 0, 0, Math.PI * 2); g.fill(); } }
+  if (/(^|\.)chimney(\.|$)/.test(det)) { g.fillStyle = '#8f887b'; g.fillRect(cx + half * 0.45, top + 8, 9, 18); g.fillStyle = '#3a3530'; g.fillRect(cx + half * 0.45 - 1.5, top + 6, 12, 3); }
+  if (/(^|\.)vane(\.|$)/.test(det)) { g.strokeStyle = '#3e3e44'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx, top); g.lineTo(cx, top - 9); g.moveTo(cx - 5, top - 7); g.lineTo(cx + 6, top - 7); g.stroke(); }
+  const A = game.A, pid = /(^|\.)skylight(\.|$)/.test(det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(det) ? 'dormer_pl' : /(^|\.)dormer(\.|$)/.test(det) ? 'dormer' : null;
+  if (pid && A.has(ROOF_PROPS[pid])) {
+    const s = A.get(ROOF_PROPS[pid]), img = tinted(A, s, 1, 1, 1), k = 22 / Math.max(s.pw, s.ph);
+    g.drawImage(img, cx - half * 0.62 - s.pw * k / 2, eave - (eave - top) * 0.38 - s.ph * k, s.pw * k, s.ph * k);
+  }
+  return c.toDataURL();
 }
 
 // ---------------- panel ----------------

@@ -182,7 +182,8 @@ function applyInner(game, d, mode) {
     for (const o of [...game.build.structures]) {
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
-      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1);
+      const same = r && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
+        && (r[14] || '') === (o.style || '') && (r[15] || '') === (o.det || '');
       if (!same) removeStructure(game, o, { quiet: true });
     }
   }

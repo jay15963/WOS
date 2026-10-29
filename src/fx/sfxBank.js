@@ -357,6 +357,26 @@ export const SFX = {
     burst(d, sr, 0.1, 0.6, { r, color: 'brown', type: 'lp', f: 600, amp: 0.5 });
     burst(d, sr, 0, 0.6, { r, color: 'pink', type: 'bp', f: 900, f1: 300, shape: 'bell', amp: 0.35 });
   } },
+  // roofs (agent J): a built roof gives way (timbers crack, tiles slide, a heavy thud, dust) / a cave ceiling falls
+  roof_collapse: { v: 2, sec: 2.2, sr: 24000, gain: 0.62, rev: 0.32, pj: 0.8, vj: 0.1, render(d, sr, r) {
+    creak(d, sr, 0, 0.35, 420 + r() * 60, 260, 0.45, r);
+    for (let k = 0; k < 5; k++) wood(d, sr, 0.22 + k * 0.07 + r() * 0.04, 380 - k * 40 + r() * 70, 0.75 - k * 0.08, r, 0.7);
+    for (let k = 0; k < 26; k++) click(d, sr, 0.35 + r() * 1.1, r, 0.12 + r() * 0.25, 1800 + r() * 2600); // tiles / straw sliding
+    thump(d, sr, 0.5, 70, 35, 0.9, 0.3);
+    thump(d, sr, 0.68, 95, 45, 0.5, 0.2);
+    burst(d, sr, 0.5, 1.5, { r, color: 'brown', type: 'lp', f: 700, f1: 260, shape: 'bell', amp: 0.55 });
+    burst(d, sr, 0.45, 1.2, { r, color: 'pink', type: 'bp', f: 1400, q: 0.6, shape: 'bell', amp: 0.22, grain: 0.6, grainRate: 900 });
+  } },
+  cave_in: { v: 2, sec: 2.6, sr: 22050, gain: 0.7, rev: 0.45, pj: 0.6, vj: 0.1, render(d, sr, r) {
+    burst(d, sr, 0, 2.2, { r, color: 'brown', type: 'lp', f: 420, f1: 160, shape: 'bell', amp: 0.75 }); // the rumble
+    thump(d, sr, 0.15, 55, 28, 1.0, 0.45);
+    for (let k = 0; k < 18; k++) {
+      const t = 0.1 + r() * 1.7;
+      crunch(d, sr, t, r, 600 + r() * 1400, 0.25 + r() * 0.35, 0.04 + r() * 0.05); // rocks hitting the floor
+      if (k % 3 === 0) thump(d, sr, t, 110 + r() * 60, 60, 0.35, 0.08);
+    }
+    burst(d, sr, 0.3, 1.6, { r, color: 'pink', type: 'hp', f: 2600, shape: 'bell', amp: 0.12, grain: 0.8, grainRate: 1400 }); // gravel trickle
+  } },
   rotate: { v: 3, sec: 0.12, gain: 0.24, bus: 'ui', rev: 0, pj: 0.8, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 1200, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.8, { r });
     modal(d, sr, 0.045, 1450, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.7, { r });

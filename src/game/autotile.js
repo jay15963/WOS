@@ -9,7 +9,7 @@ import { BUILDINGS } from './data.js';
 export const DIRS4 = [[0, -1, 1], [1, 0, 2], [0, 1, 4], [-1, 0, 8]]; // dx, dy, bit
 
 export function initGrids(game) {
-  game.build.grid = { main: new Map(), floor: new Map(), rug: new Map() };
+  game.build.grid = { main: new Map(), floor: new Map(), rug: new Map(), roof: new Map() };
 }
 
 export const layerOf = (type) => BUILDINGS[type]?.layer || 'main';
