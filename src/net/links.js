@@ -18,6 +18,13 @@ export const NETWORKS = [
 ];
 const CASCADE_MS = [0, 9000, 18000]; // guest: when to add each network if nobody was found yet
 
+// Public meeting servers that are permanently down: skipping them saves connection attempts and console noise.
+const DEAD_RELAYS = ['relay.flashapp.me', 'test.mosquitto.org'];
+function relayConfigFor(mod) {
+  const urls = Array.isArray(mod.defaultRelayUrls) ? mod.defaultRelayUrls.filter((u) => !DEAD_RELAYS.some((d) => u.includes(d))) : null;
+  return urls && urls.length ? { urls, warnOnRelayFailure: true } : { warnOnRelayFailure: true };
+}
+
 export class TrysteroLink {
   constructor({ code, role, onOpen, onClose, onData, onFail }) {
     this.code = code;
@@ -66,7 +73,7 @@ export class TrysteroLink {
         password: 'wos:' + this.code,   // encrypts the session descriptions exchanged on public relays
         rtcConfig: rtcConfig(),
         rtcPolyfill: Traced,
-        relayConfig: { warnOnRelayFailure: true },
+        relayConfig: relayConfigFor(mod),
       }, 'sala-' + this.code, {
         onJoinError: (d) => {
           this.failures++;
