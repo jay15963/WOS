@@ -26,7 +26,7 @@ export function floraLook(net, kind) {
   const R = () => net.roll();
   const f = R() < 0.5 ? -1 : 1;
   if (kind.startsWith('tree_')) return { v: Math.floor(R() * 16), s: r3(0.85 + R() * 0.35), f };
-  if (kind === 'bush' || kind === 'berrybush') return { v: Math.floor(R() * 1000), s: r3(0.75 + R() * 0.45), f };
+  if (kind === 'bush' || kind === 'berrybush' || kind === 'herbbush') return { v: Math.floor(R() * 1000), s: r3(0.75 + R() * 0.45), f };
   if (kind === 'boulder') return { v: Math.floor(R() * 7919), s: r3(0.6 + R() * 0.5), f };
   if (kind === 'pebble') return { v: Math.floor(R() * 4), s: r3(0.8 + R() * 0.4), f };
   if (kind === 'stick' || kind === 'fibergrass') return { v: Math.floor(R() * 3), s: r3(0.85 + R() * 0.3), f };

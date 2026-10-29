@@ -25,14 +25,14 @@ export const ITEMS = {
   // ---------- materials ----------
   pebble:      mat('Pedrinha', '🪨', 'Pedra pequena achada no chão. Dá para lascar ferramentas primitivas.'),
   stick:       mat('Graveto', '🥢', 'Galho seco. Cabo de ferramentas, flechas e tochas.'),
-  fiber:       mat('Fibra vegetal', '🌿', 'Fibras de capim e arbustos. Amarra ferramentas; vira corda e bandagem.'),
+  fiber:       mat('Fibra vegetal', '🌿', 'Fibras de capim e arbustos. Amarra ferramentas; vira corda.'),
   wood:        mat('Madeira', '🪵', 'Toras cortadas com machado. Base de quase toda construção.'),
   stone:       mat('Pedra', '🪨', 'Pedra bruta quebrada com picareta.'),
   stone_block: mat('Bloco de pedra', '🧱', 'Pedra cortada na mesa de cantaria. Paredes e pisos de pedra.'),
   rope:        mat('Corda', '🪢', 'Fibras trançadas. Amarra ferramentas melhores.'),
   leather:     mat('Couro', '🟫', 'Couro de animal (precisa de faca para tirar). Armaduras, camas.'),
   cotton:      mat('Algodão', '☁️', 'Fibra macia. Vira tecido no tear.'),
-  cloth:       mat('Tecido', '🧵', 'Tecido feito no tear. Roupas, bandagens, tapetes.'),
+  cloth:       mat('Tecido', '🧵', 'Tecido feito no tear. Roupas e tapetes.'),
   copper_ore:  mat('Minério de cobre', '🟠', 'Veio de cobre (picareta de pedra ou melhor). Funda na fornalha.'),
   iron_ore:    mat('Minério de ferro', '🟤', 'Veio de ferro (picareta de cobre ou melhor). Funda na fornalha.'),
   coal:        mat('Carvão', '⚫', 'Combustível forte. Necessário para fazer aço.'),
@@ -43,7 +43,7 @@ export const ITEMS = {
   steel_bar:   mat('Barra de aço', '⬜', 'Ferro com carvão. O melhor metal.'),
   gold_bar:    mat('Barra de ouro', '🟨', 'Ouro fundido. Valioso.', { value: 30 }),
   arrow:       { name: 'Flecha', emoji: '➶', stack: 99, cat: 'ammo', desc: 'Munição para arcos.' },
-  bandage:     { name: 'Bandagem', emoji: '🩹', stack: 20, cat: 'material', desc: 'Usada pela habilidade Bandagem para curar ferimentos.' },
+  herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
 
   // ---------- seeds ----------
   seed_potato: { name: 'Semente de batata', emoji: '🌰', stack: 40, cat: 'seed', seed: 'potato', desc: 'Plante num canteiro. Vem de batatas silvestres.' },
@@ -116,7 +116,7 @@ for (const id in ITEMS) ITEMS[id].sprite ||= 'item_' + id;
 export const FOOD_IDS = Object.keys(ITEMS).filter((id) => ITEMS[id].food);
 export const SEED_IDS = Object.keys(ITEMS).filter((id) => ITEMS[id].seed);
 // legacy ids from older saves
-export const ITEM_ALIASES = { ore: 'copper_ore' };
+export const ITEM_ALIASES = { ore: 'copper_ore', bandage: 'herb' }; // bandages became medicinal herbs (1:1)
 
 export const ITEM_CAT_PT = {
   material: 'Material', food: 'Comida', tool: 'Ferramenta', weapon: 'Arma', offhand: 'Mão secundária',

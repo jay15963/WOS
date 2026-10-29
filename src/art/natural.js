@@ -3,6 +3,7 @@
 
 import { sprite, rng, TAU, lin, rad, circle, mixc, leaf, taper, smoothClosed, blobPts } from './paint.js';
 import { PLANTS } from './crops.js';
+import { addCritters } from './critters.js';
 
 const STONE = [['#9c958a', '#c2bbaf', '#6c665e'], ['#8f877b', '#b6ad9f', '#5f584f'], ['#a49a8a', '#cbc1b0', '#70675a'], ['#878a88', '#b0b3b0', '#5a5d5c']];
 
@@ -136,4 +137,5 @@ export function addNatural(add) {
   put('wild_potato_0', wild('potato'), 6);
   put('wild_cotton_0', wild('cotton'), 6);
   put('wild_corn_0', wild('corn'), 6);
+  addCritters(add); // cosmetic wildlife (src/fx/wildlife.js)
 }

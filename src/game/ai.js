@@ -14,8 +14,9 @@ import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer } from './players.js';
 import { stepGait } from './anim.js';
 
-export const LEASH = 26;  // max distance from home while chasing
-const BORED = 11;         // seconds without exchanging blows before evading
+export const LEASH = 120; // max distance from home while chasing (was 26: chases gave up far too soon)
+const FLEE_LEASH = 26;    // passive animals fleeing start curving back home past this distance
+const BORED = 45;         // seconds without exchanging blows before evading (scaled with LEASH)
 
 export function aggroRadius(m, p) {
   const sp = SPECIES[m.species];
@@ -71,7 +72,9 @@ export function startFlee(m, from, t) {
 export function evade(m, calm = 0) {
   if (m.dead) return;
   m.state = 'evade';
-  m.stateT = 12;
+  // time to walk home before the stuck fallback snaps it there (long chases need longer)
+  const homeD = Math.hypot(m.x - m.home.x, m.y - m.home.y);
+  m.stateT = Math.max(12, 6 + homeD / Math.max(1, (SPECIES[m.species]?.speed || 3) * 1.4) * 1.6);
   m.calmT = calm; // seconds of ignoring the player after giving up (unreachable / bored)
   m.threat = null;
   m.action = null;
@@ -218,7 +221,7 @@ export function updateCreature(game, m, dt) {
       const homeD = Math.hypot(m.x - m.home.x, m.y - m.home.y);
       // re-pick a direction a few times per second (corners, rivers, walls)
       m.fleeRe = (m.fleeRe || 0) - dt;
-      if (!m.fleeDir || m.fleeRe <= 0) { m.fleeRe = 0.35; m.fleeDir = fleeDir(game, m, f, homeD > LEASH ? 1.2 : 0); }
+      if (!m.fleeDir || m.fleeRe <= 0) { m.fleeRe = 0.35; m.fleeDir = fleeDir(game, m, f, homeD > FLEE_LEASH ? 1.2 : 0); }
       const dir = m.fleeDir;
       const fast = m.fleeT > 1 || m.fearT > 0;
       if (dir && mobBlocked(game.world, m.x + dir[0] * 0.35, m.y + dir[1] * 0.35, m.r)) m.fleeRe = 0;

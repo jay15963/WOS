@@ -7,18 +7,19 @@
 // Multiplayer: regrowth, the safety net and sapling solidity are HOST decisions emitted as ops
 // (mut/objects.js obj.add / tree.solid); every peer derives the sapling age from `born` + worldTime.
 
-import { BIOMES, G } from '../world/worldgen.js';
+import { BIOMES, G, treeSpecies, bushSpecies, boulderMossy } from '../world/worldgen.js';
 import { CHUNK } from '../world/world.js';
 import { mulberry32 } from '../engine/noise.js';
 import { spawnFlora, ageOf, TREE_SOLID, SAPLING_GROW, NOGROW_R } from './mut/objects.js';
 import { floraLook } from './mut/roll.js';
 import { inAnyView, minPlayerDist } from './players.js';
+import { footprint } from './autotile.js';
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
 const SMALL = new Set(['pebble', 'stick', 'fibergrass']);
 const TREES = ['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead'];
-export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn'];
+export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn'];
 const FLORA_SET = new Set(FLORA_KINDS);
 
 // synthesized densities (per tile, by biome) for kinds the world generator did not place at all
@@ -103,7 +104,12 @@ function tileFree(game, tx, ty, kind) {
 function spawnAt(game, kind, tx, ty) {
   const R = () => game.net.roll();
   const jx = (R() - 0.5) * (kind.startsWith('tree_') ? 0.5 : 0.6), jy = (R() - 0.5) * 0.4;
-  return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, floraLook(game.net, kind));
+  const look = floraLook(game.net, kind), w = game.world;
+  // art species of the spot, same rules as the world generator (rolled here, travels in the op's v)
+  if (kind.startsWith('tree_')) look.v = treeSpecies(w, kind, tx, ty, R()) * 16 + (look.v & 15);
+  else if (kind === 'bush') look.v = bushSpecies(w, tx, ty, R()) * 1000 + (look.v % 1000);
+  else if (kind === 'boulder' && boulderMossy(w, tx, ty)) look.v = 8000 + (look.v % 1000);
+  return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, look);
 }
 
 const growKey = (kind) => (kind.startsWith('tree_') ? 'tree' : kind);
@@ -174,6 +180,7 @@ export function ensureStarter(game, offscreen = false) {
     [['stick'], 'stick', 6, 2.5, 13],
     [['fibergrass', 'bush'], 'fibergrass', 7, 2.5, 13],
     [['boulder'], 'boulder', 2, 6, 22],
+    [['herbbush'], 'herbbush', 1, 6, 26],
     [['wild_potato'], 'wild_potato', 1, 8, 30],
     [['wild_corn'], 'wild_corn', 1, 8, 30],
     [['wild_cotton'], 'wild_cotton', 1, 8, 30],
@@ -182,6 +189,27 @@ export function ensureStarter(game, offscreen = false) {
     const have = countNear(game, s.x, s.y, rMax, types);
     if (have < want) spawnNear(game, kind, s.x, s.y, rMin, rMax, want - have, offscreen);
   }
+}
+
+// Natural objects standing on a player structure's footprint (a newer world generator may grow a plant where
+// an old save has a building): removed once after load by the authority (one obj.remove op, 'clear' fx).
+export function clearUnderStructures(game) {
+  const S = game.build?.structures;
+  if (!S || !S.length) return 0;
+  const w = game.world, ids = new Set();
+  for (const s of S) {
+    const tiles = footprint(s);
+    if (!tiles.length) continue;
+    const key = new Set(tiles.map(([x, y]) => x + ',' + y));
+    w.forChunks(s.tx - 1, s.ty - 1, s.tx + 4, s.ty + 4, (c) => {
+      for (const o of c.objects) {
+        if (o.building || o.gone || (!FLORA_SET.has(o.type) && o.type !== 'boulder')) continue;
+        if (key.has(Math.floor(o.x) + ',' + Math.floor(o.y - 0.05))) ids.add(o.id);
+      }
+    });
+  }
+  if (ids.size) game.net.emit('obj.remove', { ids: [...ids], fx: 'clear' });
+  return ids.size;
 }
 
 // ---------- system ----------
@@ -203,6 +231,7 @@ export function floraSystem() {
         }
       }
       if (!net.auth) return;
+      if (!F.cleared) { F.cleared = true; clearUnderStructures(game); }
       // regrowth: a few chunks per second, round robin over the whole map
       F.t -= dt;
       if (F.t > 0) return;

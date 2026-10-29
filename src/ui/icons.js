@@ -30,7 +30,7 @@ const P = {
   attack: '<path d="M4 4l10.5 10.5M4 4v3l9 9M4 4h3l9 9"/><path d="M20 4 9.5 14.5M20 4v3l-9 9M20 4h-3l-9 9" opacity=".55"/><path d="M13 17l4 4M17 17l-4 4M11 17l-4 4M7 17l4 4"/>',
   charge: '<path d="M3 8h6M2 12h8M3 16h6"/><path d="M12 5l7 7-7 7"/><path d="M15.5 8.5 19 12l-3.5 3.5" opacity=".5"/>',
   whirlwind: '<path d="M12 12a1.6 1.6 0 0 1 3.2 0a3.2 3.2 0 0 1-6.4 0a4.8 4.8 0 0 1 9.6 0a6.4 6.4 0 0 1-12.8 0a8 8 0 0 1 16 0"/>',
-  bandage: '<rect x="2.5" y="8.5" width="19" height="7" rx="3.5" transform="rotate(-45 12 12)"/><path d="M10 10l4 4M14 10l-4 4" stroke-width="1.6"/>',
+  heal: '<path d="M5 20c0-7.8 5.2-13 13-13 0 7.8-5.2 13-13 13z"/><path d="M5 20l7.5-7.5"/><circle cx="17.5" cy="17.5" r="1.6"/><path d="M18 2.5v5M15.5 5h5" stroke-width="1.6"/>',
   sprint: '<path d="M4 6l6 6-6 6"/><path d="M11 6l6 6-6 6"/><path d="M18 6v12" opacity=".5"/>',
   eat: '<path d="M14.5 3.5a6 6 0 0 1 6 6c0 3.6-3.7 6.3-7.3 6.1l-3.3 3.3"/><path d="M14.5 3.5c-3.6 0-6.3 3.7-6.1 7.3l-3.3 3.3"/><circle cx="7.6" cy="20.2" r="1.7"/><circle cx="3.8" cy="16.4" r="1.7"/>',
   hunger: '<path d="M14.5 3.5a6 6 0 0 1 6 6c0 3.6-3.7 6.3-7.3 6.1l-3.3 3.3"/><path d="M14.5 3.5c-3.6 0-6.3 3.7-6.1 7.3l-3.3 3.3"/><circle cx="7.6" cy="20.2" r="1.7"/><circle cx="3.8" cy="16.4" r="1.7"/>',

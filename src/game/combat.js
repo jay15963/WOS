@@ -166,7 +166,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
 
   if (dst === p) {
     if (src !== p) enterCombat(p);
-    if (src !== p && !opts.dot && removeBuff(p, 'bandage')) game.events.emit('error', { text: 'Bandagem interrompida' });
+    if (src !== p && !opts.dot && removeBuff(p, 'heal')) game.events.emit('error', { text: 'Cura com ervas interrompida' });
     if (src !== p && !opts.dot) game.juice.shake(amount >= p.maxHp * 0.12 ? 0.35 + Math.min(0.4, amount / p.maxHp) : 0.15);
     if (p.work && src !== p && !opts.dot && p.work.it?.kind !== 'cook') { p.work = null; p.action = null; }
     if (p.hp <= 0) killPlayer(game);
@@ -390,6 +390,8 @@ export function combatSystem() {
         p.weapon = p.equip?.main ?? p.weapon;
         p.action = { type: 'shoot', t: 0, dur: 0.6 };
         p.swingT = p.swing;
+        // shooting while walking: the player stops for the draw (no kiting), then walks on
+        faceTowards(p, t); p._faceLockT = p._atkRootT = 0.45;
         game.later(0.36, () => {
           if (p.dead || !attackable(t) || p.target !== t) return;
           if (!useAmmo(game, prof, 1)) { noAmmo(game); return; }
@@ -402,10 +404,13 @@ export function combatSystem() {
       if (d > reach(p, t)) return;
       enterCombat(p, 2);
       if (!game.ctl?.manual) faceTowards(p, t);
-      if (p.swingT > 0 || !facingOk(p, t)) return;
+      if (p.swingT > 0) return;
+      // attacking while walking is allowed, but the player stops for the swing (no kiting), then walks on
+      const swingDur = Math.min(0.42, 0.18 + prof.swing * 0.12);
+      faceTowards(p, t); p._faceLockT = p._atkRootT = swingDur;
       if (p.work) { p.work = null; }
       p.weapon = p.equip?.main ?? null;
-      p.action = { type: prof.act, t: 0, dur: Math.min(0.42, 0.18 + prof.swing * 0.12) };
+      p.action = { type: prof.act, t: 0, dur: swingDur };
       p.swingT = p.swing;
       game.audio?.play('swing', { x: p.x, y: p.y, volume: prof.type === 'unarmed' ? 0.5 : 1 });
       game.later(0.14, () => {
