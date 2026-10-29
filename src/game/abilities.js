@@ -195,7 +195,7 @@ export function aimCheck(game, id) {
   if (ab.ammo && p.inv.count(ab.ammo) <= 0) return 'Sem flechas';
   if (!aimSpec(game, id)) return ab.lob === 'bow' ? 'Precisa de um arco' : 'Precisa de uma lança';
   if (p._throwT > 0) return 'A lança ainda está no ar';
-  if (aimSpec(game, id).open && game.world.isCave(Math.floor(p.x), Math.floor(p.y))) return 'Teto baixo demais para atirar para o alto';
+  if (aimSpec(game, id).open && game.world.roofAtPoint(p.x, p.y)) return 'Teto baixo demais para atirar para o alto';
   return null;
 }
 

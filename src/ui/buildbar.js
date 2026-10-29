@@ -14,6 +14,7 @@ import {
   buildDragStart, buildDragMove, buildDragEnd, dimsOf,
 } from '../game/building.js';
 import { pick } from '../game/controller.js';
+import { ROOF_STYLES, ROOF_TYPE_STYLES } from '../game/content/roofs.js';
 
 const ICON = {
   rot: '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4.5v4h-4"/>',
@@ -75,7 +76,7 @@ export function installBuildbar(game) {
     <button class="no" title="Cancelar (Esc · botão direito)">${svg('no')}<span>Cancelar</span></button>`;
   root.appendChild(bar);
   const $ = (s) => bar.querySelector(s);
-  const R = { rot: $('.rot'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small') };
+  const R = { rot: $('.rot'), ok: $('.ok'), no: $('.no'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span') };
   const press = (el, fn) => el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('down'); fn(e); setTimeout(() => el.classList.remove('down'), 120); });
   press(R.rot, (e) => rotateBuild(game, e.shiftKey ? -1 : 1));
   press(R.ok, () => { const m = game.build.mode; if (m?.kind === 'place') commitPlacement(game); else exitBuildMode(game); });
@@ -217,11 +218,13 @@ export function installBuildbar(game) {
         return;
       }
       const def = BUILDINGS[m.type];
-      const n = rotCount(m.type);
+      const n = def.roof ? (ROOF_TYPE_STYLES[m.type] || []).length : rotCount(m.type);
       R.rot.classList.toggle('off', n < 2);
+      set('rl', R.rotL, def.roof ? 'Estilo' : 'Girar');
       const [fw, fh] = dimsOf(m.type, m.rot);
       set('nm', R.nm, (m.move ? 'Mover: ' : '') + def.name + (fw * fh > 1 ? ` · ${fw}×${fh}` : ''));
-      const sub = !m.valid && m.reason ? m.reason : m.short || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
+      const roofSub = def.roof ? `${ROOF_STYLES[m.style]?.name || ''}${m.room ? ' · sala inteira' : ''}${m.n > 1 ? ` · ${m.n} tiles` : ''}` : '';
+      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
       set('sub', R.sub, sub);
       R.sub.classList.toggle('bad', (!m.valid && !!m.reason) || !!m.short);
       R.ok.classList.toggle('bad', !m.valid);

@@ -6,9 +6,15 @@ import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
+import { underOpaqueRoof } from './roofs.js';
+import { BUILDINGS } from './data.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
+// interiors (game.indoors from src/game/roofs.js): under a roof the camera eases to a fixed, closer zoom (a reduced
+// field of view; never farther than the player's own zoom) and zoom input is ignored; leaving eases back to the
+// player's zoom. The blend (indoors.zoomK) is a ~1 s smoothstep both ways.
+const INDOOR_ZOOM = { cave: 1.45, built: 1.32 };
 
 export class Game {
   constructor({ renderer, atlas, world, env, input, particles }) {
@@ -44,7 +50,8 @@ export class Game {
 
   // smooth, clamped zoom; the chosen factor (relative to the screen's default) survives reloads
   stepZoom(dt, req) {
-    const c = this.cam;
+    const c = this.cam, I = this.indoors;
+    if (I && I.zoomK > 0.001) req = 0; // inside: the view is fixed
     if (c.zoomK == null) {
       let k = 1;
       try { const v = parseFloat(localStorage.getItem('wos.zoom')); if (Number.isFinite(v)) k = v; } catch { /* ignore */ }
@@ -56,7 +63,13 @@ export class Game {
       c.zoomK = z / this.defaultZoom();
       c._zoomSave = 0.8;
     }
-    const target = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    let target = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    if (I && I.zoomK > 0.001) {
+      const kind = I.kind || I._lastKind || 'built';
+      if (I.kind) I._lastKind = I.kind;
+      const inside = Math.max(target, clamp(this.defaultZoom() * INDOOR_ZOOM[kind], ZOOM_MIN, ZOOM_MAX));
+      target += (inside - target) * I.zoomK;
+    }
     const k = 1 - Math.exp(-dt * 14);
     c.zoom = Math.abs(target - c.zoom) < 0.01 ? target : c.zoom + (target - c.zoom) * k;
     if (c._zoomSave > 0 && (c._zoomSave -= dt) <= 0) { try { localStorage.setItem('wos.zoom', c.zoomK.toFixed(3)); } catch { /* ignore */ } }
@@ -120,6 +133,11 @@ export class Game {
       this.R.updateWorldRegion(d[0], d[1], d[2], d[3]);
       this.world.dirty = null;
     }
+    if (this.world.caveDirty && !this.headless) {
+      const d = this.world.caveDirty;
+      this.R.updateCaveRegion?.(d[0], d[1], d[2], d[3]);
+      this.world.caveDirty = null;
+    }
     this.net.flush(); // one ordered op batch per frame to every synced guest
   }
 
@@ -145,6 +163,7 @@ export class Game {
         if (d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d);
       }
       for (const o of c.objects) {
+        if (o.roof) continue; // roof tiles: drawn by the roof regions (src/game/roofs.js collect)
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
@@ -165,6 +184,9 @@ export class Game {
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
     for (const o of list) {
+      // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
+      // walls / doors whose front faces show below the eaves
+      if (!o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
       if (o.draw) o.draw(B, A, t);
       else {
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)

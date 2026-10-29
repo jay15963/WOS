@@ -91,6 +91,50 @@ export function installDebug(game) {
       p.x = cx + 0.5; p.y = cy + 0.9; game.cam.x = p.x; game.cam.y = p.y - 0.4;
       return [cx, cy];
     },
+    // a finished room with a door and a roof next to the player (roofs, agent J): w × h outer size, roof type / style
+    // opts: { dx, dy (offset from the player), fire: true (campfire inside), columns: [[x, y]...] (relative), noWalls }
+    roofRoom(w = 6, h = 5, type = 'roof_stone', style = null, opts = {}) {
+      if (!solo()) return false;
+      const net = game.net, p = game.player;
+      const x0 = Math.floor(p.x) + (opts.dx ?? 2), y0 = Math.floor(p.y) + (opts.dy ?? -Math.floor(h / 2));
+      const put = (t, x, y, extra = []) => {
+        const id = net.newId('s');
+        net.emit('struct.add', { list: [[id, t, x, y, 0, 1, Math.round(game.worldTime), 0, 1, 0, ...extra]], by: net.pid });
+        return id;
+      };
+      const wall = opts.wall || 'wall_wood';
+      if (!opts.noWalls) {
+        for (let x = x0; x < x0 + w; x++) for (let y = y0; y < y0 + h; y++) {
+          const edge = x === x0 || y === y0 || x === x0 + w - 1 || y === y0 + h - 1;
+          if (!edge) continue;
+          const door = y === y0 + h - 1 && x === x0 + (w >> 1);
+          if (game.world.blocked(x, y)) continue;
+          put(door ? 'door_wood' : wall, x, y);
+        }
+      }
+      for (const [cx, cy] of opts.columns || []) put(opts.column || 'column_wood', x0 + cx, y0 + cy);
+      if (opts.fire) put('campfire', x0 + (w >> 1), y0 + 1);
+      if (opts.torch !== false) put('torch', x0 + 1, y0 + 1);
+      for (let x = x0; x < x0 + w; x++) for (let y = y0; y < y0 + h; y++) put(type, x, y, [style || '', opts.det || '']);
+      return [x0, y0, w, h];
+    },
+    // a big hall on columns: walls around, a column every `step` tiles inside
+    hall(w = 15, h = 11, step = 5, type = 'roof_wood', style = null) {
+      const cols = [];
+      for (let x = step; x < w - 1; x += step) for (let y = step; y < h - 1; y += step) cols.push([x, y]);
+      return this.roofRoom(w, h, type, style, { columns: cols, column: 'column_stone', wall: 'wall_stone', fire: true });
+    },
+    // mine a box of w × h tiles out of the nearest big mountain (stand inside it): watch the ceiling go
+    openCave(w = 14, h = 14) {
+      if (!solo()) return false;
+      const t = this.cave();
+      if (!Array.isArray(t)) return t;
+      const [cx, cy] = t, wld = game.world;
+      for (let y = cy - (h >> 1); y < cy + (h >> 1); y++) for (let x = cx - (w >> 1); x < cx + (w >> 1); x++) {
+        if (wld.inBounds(x, y) && wld.rock[wld.idx(x, y)]) game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: game.net.pid, xp: 0 });
+      }
+      return [cx, cy, w, h];
+    },
     async bench(n = 120) {
       const R = game.R, gl = R.gl, ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
       const qs = [], rend = [], upd = [];

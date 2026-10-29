@@ -3,6 +3,7 @@
 //  pos(2) size(2) anchor(2) uv(4) color(4) params(4: sway, rot, flash, flip) extra(2: recvShadow, lift)
 
 export const STRIDE = 20;
+const ATTR = [[1, 2], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 2]];
 
 export class SpriteBatch {
   constructor(gl, capacity = 4096) {
@@ -66,17 +67,47 @@ export class SpriteBatch {
     d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0;
   }
 
-  draw() {
+  // free quad (roof slices): world rect x, y (top-left), w × h, uv rect, colour, params (anchor 0, 0)
+  addQuad(x, y, w, h, u0, v0, u1, v1, r = 1, g = 1, b = 1, a = 1) {
+    if (this.n >= this.cap) this._grow();
+    const d = this.data, o = this.n++ * STRIDE;
+    d[o] = x; d[o + 1] = y; d[o + 2] = w; d[o + 3] = h; d[o + 4] = 0; d[o + 5] = 0;
+    d[o + 6] = u0; d[o + 7] = v0; d[o + 8] = u1; d[o + 9] = v1;
+    d[o + 10] = r; d[o + 11] = g; d[o + 12] = b; d[o + 13] = a;
+    d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0;
+  }
+
+  upload() {
     if (!this.n) return;
     const gl = this.gl;
-    gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ibuf);
     if (this.gpuCap < this.cap) {
       gl.bufferData(gl.ARRAY_BUFFER, this.data.byteLength, gl.DYNAMIC_DRAW);
       this.gpuCap = this.cap;
     }
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.data, 0, this.n * STRIDE);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.n);
+  }
+
+  // instances [a, b) of the uploaded data (no base-instance in WebGL2: the instance pointers move instead)
+  drawRange(a, b) {
+    if (b <= a) return;
+    const gl = this.gl;
+    gl.bindVertexArray(this.vao);
+    if (a) this._pointers(a);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, b - a);
+    if (a) this._pointers(0);
     gl.bindVertexArray(null);
+  }
+  _pointers(first) {
+    const gl = this.gl, BY = STRIDE * 4;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.ibuf);
+    let off = first * BY;
+    for (const [loc, size] of ATTR) { gl.vertexAttribPointer(loc, size, gl.FLOAT, false, BY, off); off += size * 4; }
+  }
+
+  draw() {
+    if (!this.n) return;
+    this.upload();
+    this.drawRange(0, this.n);
   }
 }

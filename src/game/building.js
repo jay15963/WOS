@@ -11,14 +11,20 @@
 //
 // Structure object: { id, type, v, tx, ty, rot, fw, fh, x, y (base / sort key), cy, building, layer, flat?,
 //   progress, blueprint?, paid, moveOf?, mask (autotile), orient ('h'|'v' doors), open (doors, shared),
-//   _openT (door swing 0..1, cosmetic), working (stations), store (chest), light, fire }
+//   _openT (door swing 0..1, cosmetic), working (stations), store (chest), light, fire, style / det (roofs) }
+// Roofs (agent J, layer 'roof'): area drag (a tap inside a closed room roofs the whole room + its walls), ⟳ / R
+// cycles the roof style of the plan (fixed once built), plans show at eave height, red where no support is near.
+// Deconstruct: a tap / drag that starts on a visible roof removes roof tiles; anywhere else the other layers.
+// Removing a wall / door / column that holds a roof up asks for a second tap ("O teto vai desabar").
 
 import { BUILDINGS, ITEMS } from './data.js';
 import { buildSprite } from './artcompat.js';
 import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
-import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, rotCount, normRot, dimsOf, setGeom } from './mut/structures.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
+import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt } from './roofs.js';
+import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 
 export { placeStructure, completeStructure, removeStructure, placeReason, defOf, REFUND, dimsOf, rotCount } from './mut/structures.js';
 
@@ -74,13 +80,17 @@ export function enterBuildMode(game, type, opts = {}) {
   game.mining && (game.mining.mode = false);
   const [tx, ty] = src ? [src.tx, src.ty] : frontTile(p);
   const rot = src ? src.rot | 0 : normRot(type, rotMemory(game)[type] ?? 0);
-  game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null };
+  game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null,
+    style: def.roof ? cleanStyle(type, rotMemory(game)['style:' + type]) : undefined };
   game.events.emit('buildui', {});
   const h = game.ctl?.hinted;
   if (!h) return;
   const touch = game.input.isTouch;
   if (src) {
     if (!h.movehint) { h.movehint = true; game.events.emit('toast', { text: touch ? 'Toque no novo lugar, ⟳ para girar e ✓ para confirmar' : 'Clique no novo lugar · R gira · Esc cancela', kind: 'info' }); }
+  } else if (def.roof && !h.roofhint) {
+    h.roofhint = true;
+    game.events.emit('toast', { text: (touch ? 'Toque dentro de uma sala fechada para cobrir tudo, ou arraste uma área' : 'Clique dentro de uma sala fechada para cobrir tudo, ou arraste uma área') + ' · ⟳ troca o estilo · o teto precisa de apoio a até 6 tiles', kind: 'info' });
   } else if (def.drag && !h['drag_' + def.drag]) {
     h['drag_' + def.drag] = true;
     game.events.emit('toast', {
@@ -115,6 +125,16 @@ const rotMemory = (game) => { const h = game.ctl?.hinted; return h ? (h.brot ||=
 export function rotateBuild(game, dir = 1) {
   const m = game.build.mode;
   if (!m || m.kind !== 'place') return false;
+  if (BUILDINGS[m.type]?.roof) {
+    // roofs: ⟳ / R cycle the roof style of the plan (fixed once built)
+    const L = ROOF_TYPE_STYLES[m.type] || [];
+    if (L.length < 2) return false;
+    m.style = L[(((L.indexOf(m.style) + dir) % L.length) + L.length) % L.length];
+    rotMemory(game)['style:' + m.type] = m.style; // sync-ok: local preference (player save), not a structure
+    game.audio?.play('rotate', {});
+    game.events.emit('buildui', {});
+    return true;
+  }
   const n = rotCount(m.type);
   if (n < 2) { game.events.emit('error', { text: 'Isto não gira' }); return false; }
   m.rot = (((m.rot + dir) % n) + n) % n;
@@ -138,7 +158,14 @@ function updatePreview(game) {
   const def = BUILDINGS[m.type];
   const origin = m.anchor || m.hover;
   const target = m.anchor ? (m.end || m.hover) : m.hover;
-  const tiles = def.drag && m.anchor && !m.move ? dragTiles(def.drag, origin[0], origin[1], target[0], target[1]) : [m.hover];
+  let tiles = def.drag && m.anchor && !m.move ? dragTiles(def.drag, origin[0], origin[1], target[0], target[1]) : [m.hover];
+  // roofs: a single tile inside a closed room covers the whole room and its walls
+  m.room = false;
+  if (def.roof && tiles.length === 1) {
+    const room = m._roomAt && m._roomAt[0] === tiles[0][0] && m._roomAt[1] === tiles[0][1] && m._roomV === game.build.v ? m._room : (m._room = enclosedRoom(game, tiles[0][0], tiles[0][1]));
+    m._roomAt = tiles[0]; m._roomV = game.build.v;
+    if (room) { tiles = room.slice(0, MAX_TILES); m.room = true; }
+  }
   const multi = tiles.length > 1;
   const ghost = new Set();
   const out = [];
@@ -192,7 +219,7 @@ export function commitPlacement(game) {
     exitBuildMode(game);
     return true;
   }
-  game.net.request('build.place', { type: m.type, tiles, rot: m.rot }, {
+  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style }, {
     onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
   });
   game.events.emit('toast', { text: (n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`) + (m.short ? ` · ${m.short.toLowerCase()}` : ''), kind: m.short ? 'warn' : 'info' });
@@ -238,7 +265,12 @@ export function buildTap(game, wx, wy) {
 export function buildDragStart(game, wx, wy) {
   const m = game.build.mode;
   if (!m) return;
-  if (m.kind === 'decon') { const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice(); return; }
+  if (m.kind === 'decon') {
+    const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice();
+    const hit = roofPick(game, wx, wy);
+    m.roof = hit ? [hit.tx, hit.ty] : null;
+    return;
+  }
   const o = originAt(game, wx, wy);
   m.dragging = true;
   m.hover = o; m.locked = true;
@@ -262,7 +294,8 @@ export function buildDragEnd(game, wx, wy, { commit = true } = {}) {
     if (!a) return false;
     const tx = Math.floor(wx), ty = Math.floor(wy);
     if (a[0] === tx && a[1] === ty) { deconAt(game, wx, wy); return true; }
-    const n = deconRect(game, a[0], a[1], tx, ty);
+    const n = deconRect(game, a[0], a[1], tx, ty, m.roof);
+    m.roof = null;
     if (n) game.events.emit('toast', { text: `${n} marcada(s) para desmontar`, kind: 'info' });
     return n > 0;
   }
@@ -276,25 +309,50 @@ export function buildDragEnd(game, wx, wy, { commit = true } = {}) {
 }
 
 // ---------- deconstruction designations ----------
-export function structureAtPoint(game, wx, wy) {
+export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
+  if (roof) {
+    const hit = roofPick(game, wx, wy);
+    if (hit) { const o = structureAt(game, hit.tx, hit.ty, 'roof'); if (o) return o; }
+  }
   const tx = Math.floor(wx), ty = Math.floor(wy);
   const g = structureAt(game, tx, ty, 'main') || structureAt(game, tx, ty, 'rug') || structureAt(game, tx, ty, 'floor');
   if (g) return g;
   // move plans are not in the grid
   for (const o of game.build.structures) if (o.moveOf && tx >= o.tx && tx < o.tx + o.fw && ty >= o.ty && ty < o.ty + o.fh) return o;
+  // roof plans (blue, at eave height) and roofs whose region is faded out (player inside) are picked last
+  const rb = structureAt(game, tx, Math.floor(wy + roofEaveH()), 'roof');
+  if (rb && rb.blueprint) return rb;
   return null;
+}
+
+// removing these supports would drop roof tiles: ask for a second tap within 6 s (same set) before marking them
+const CONFIRM = { key: '', t: 0 };
+function confirmSupports(game, list) {
+  const sup = list.filter((o) => !o.blueprint && BUILDINGS[o.type]?.support && !game.build.decon.has(o));
+  if (!sup.length) return true;
+  const gone = new Set(sup), removing = new Set(list);
+  const lost = roofsLostWithout(game, gone).filter((r) => !removing.has(r));
+  if (!lost.length) return true;
+  const key = sup.map((o) => o.id).sort().join(',');
+  const now = game.time;
+  if (CONFIRM.key === key && now - CONFIRM.t < 6) { CONFIRM.key = ''; return true; }
+  CONFIRM.key = key; CONFIRM.t = now;
+  game.events.emit('toast', { text: `O teto vai desabar (${lost.length} ${lost.length > 1 ? 'tiles' : 'tile'})! ${game.input.isTouch ? 'Toque' : 'Clique'} de novo para confirmar`, kind: 'warn' });
+  game.audio?.play('ui_click', {});
+  return false;
 }
 
 // returns the wanted state (blueprints are cancelled: false)
 export function toggleDecon(game, o, on = null) {
   const want = o.blueprint ? false : on == null ? !game.build.decon.has(o) : on;
+  if (want && !confirmSupports(game, [o])) return false;
   game.net.request('build.decon', { ids: [o.id], on: on == null ? null : on ? 1 : 0 });
   if (want) game.work?.wake();
   return want;
 }
 
 export function deconAt(game, wx, wy) {
-  const o = structureAtPoint(game, wx, wy);
+  const o = structureAtPoint(game, wx, wy, { roof: true });
   if (!o) { game.events.emit('error', { text: 'Nenhuma construção aqui' }); return; }
   // campfires: razed at once when next to it, else marked like any other structure
   const p = game.player;
@@ -302,12 +360,21 @@ export function deconAt(game, wx, wy) {
   toggleDecon(game, o);
 }
 
-export function deconRect(game, x0, y0, x1, y1) {
+// a drag that starts on a visible roof marks roof tiles (the corners mapped from the roof image to its tiles);
+// any other drag marks the structures on the ground layers
+export function deconRect(game, x0, y0, x1, y1, roof = null) {
   const seen = new Set();
+  if (roof) {
+    const b = roofPick(game, x1 + 0.5, y1 + 0.5);
+    const ex = b ? b.tx : x1, ey = b ? b.ty : Math.floor(y1 + roofEaveH() + 0.5);
+    x0 = roof[0]; y0 = roof[1]; x1 = ex; y1 = ey;
+  }
   const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
   for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) {
-    for (const L of ['main', 'rug', 'floor']) { const o = structureAt(game, x, y, L); if (o) seen.add(o); }
+    for (const L of roof ? ['roof'] : ['main', 'rug', 'floor']) { const o = structureAt(game, x, y, L); if (o) seen.add(o); }
   }
+  if (!roof && !seen.size) for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) { const o = structureAt(game, x, y, 'roof'); if (o?.blueprint) seen.add(o); }
+  if (seen.size && !confirmSupports(game, [...seen])) return 0;
   for (const o of game.build.structures) if (o.moveOf && o.tx <= bx && o.tx + o.fw > ax && o.ty <= by && o.ty + o.fh > ay) seen.add(o);
   if (seen.size) {
     game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 });
@@ -327,10 +394,13 @@ export function toggleDoor(game, o) {
 // ---------- materials ----------
 // can the local player start this blueprint? (delivered already, or the cost is in the bag)
 export function canSupply(game, o) {
-  if (!o.blueprint || o.paid || o.moveOf) return true;
+  if (!o.blueprint || o.moveOf) return true;
+  if (defOf(o).roof && !roofSupported(game, o.tx, o.ty, true)) return false;
+  if (o.paid) return true;
   return game.player.inv.has(defOf(o).cost);
 }
 export function missingText(game, o) {
+  if (defOf(o).roof && o.blueprint && !roofSupported(game, o.tx, o.ty, true)) return 'apoio (termine as paredes ou colunas perto)';
   const cost = defOf(o).cost, p = game.player, miss = [];
   for (const k in cost) { const have = p.inv.count(k); if (have < cost[k]) miss.push(`${cost[k] - have} ${(ITEMS[k]?.name || k).toLowerCase()}`); }
   return miss.join(', ');
@@ -339,6 +409,7 @@ export function missingText(game, o) {
 // ---------- work kinds ----------
 // read-only footprint check (the host clears it when the work starts and may still refuse)
 function footprintBlocked(game, o) {
+  if (defOf(o).roof) return false;
   for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) {
     for (const n of objectsOnTile(game, x, y)) if (!CLEARABLE.has(n.type) && n.type !== 'crop') return true;
   }
@@ -404,6 +475,7 @@ registerWork('decon', {
 export function structIt(o, extra) {
   const def = defOf(o);
   const sw = o.fw || def.size[0], sh = o.fh || def.size[1];
+  if (def.roof) return { o, tile: true, tx: o.tx, ty: o.ty, w: 1, h: 1, x: o.tx + 0.5, y: o.ty + 0.5, reach: 2.6, ...extra }; // from a ladder: interiors behind a closed door too
   if (def.block === 'tile' || def.block === 'door' || def.flat || sw > 1 || sh > 1)
     return { o, tile: true, tx: o.tx, ty: o.ty, w: sw, h: sh, x: o.tx + sw / 2, y: o.ty + sh / 2, reach: 0.6, ...extra };
   return { o, x: o.x, y: o.cy ?? o.y, reach: 0.85, ...extra };
@@ -546,6 +618,21 @@ export function buildingSystem() {
           for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++)
             B.ground.add(soft, o.tx + x + 0.5, o.ty + y + 0.85, 1.45, 1.1, c[0], c[1], c[2], o.blueprint ? 0.35 : 0.9);
         }
+        if (o.blueprint && def.roof) {
+          // roof plan: a blue grid in the air (eave height), red-ish when no finished support is near yet
+          const ok = canSupply(game, o), He = roofEaveH();
+          if (tile) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
+          if (bar && (o.progress || 0) > 0.001) {
+            B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
+            B.fx.add(bar, o.tx + 0.17, o.ty - He + 0.4, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+          }
+          continue;
+        }
+        if (def.roof) {
+          // a finished roof tile marked for deconstruction: red tile on the roof surface
+          if (game.build.decon.has(o) && tile) { const pl = 0.8 + 0.2 * Math.sin(t * 6); B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, 1, 0.35, 0.3, 0.55 * pl, 0, 0, 0, 1, 0, roofHeightAt(game, o.tx, o.ty)); }
+          continue;
+        }
         if (o.blueprint) {
           // RimWorld blueprint: blue grid over the footprint, progress bar once the frame is up, missing-material badge
           const ok = canSupply(game, o);
@@ -569,6 +656,15 @@ export function buildingSystem() {
       if (!m || m.kind !== 'place') return;
       // ghost preview: blue = ok, red = invalid; footprint grid under it
       const G0 = GHOST_O;
+      if (BUILDINGS[m.type].roof) {
+        const He = roofEaveH();
+        for (const g of m.tiles) {
+          if (!tile) break;
+          B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.35, g.ok ? 1 : 0.3, 0.6 * pulse, 0, 0, 0, 1, 0, He);
+          if (soft) B.ground.add(soft, g.tx + 0.5, g.ty + 0.85, 1.2, 0.9, 0.3, 0.5, 0.8, 0.16 * pulse); // its footprint on the ground
+        }
+        return;
+      }
       for (const g of m.tiles) {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];

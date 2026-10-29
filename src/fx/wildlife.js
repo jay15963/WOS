@@ -63,6 +63,7 @@ class Wildlife {
   }
   add(kind, props) {
     if (this.n[kind] >= this.capOf(kind)) return null;
+    if (props.x != null && this.g.world.roofAt?.(Math.floor(props.x), Math.floor(props.y)) === 2) return null; // never indoors (built roofs)
     const c = new Critter(this, kind);
     Object.assign(c, props);
     c.t = 0; c.a = 0; c.ph = rnd() * TAU;
