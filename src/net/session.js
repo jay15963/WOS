@@ -108,24 +108,25 @@ function wrapLines(ctx, text) {
 }
 function bubbleBox(ctx, x, y, w, h, alpha, tail) {
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = 'rgba(0,0,0,0.22)';
-  ctx.beginPath(); ctx.roundRect?.(x - w / 2 + 1, y - h + 2, w, h, 8); ctx.fill();
-  ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.strokeStyle = 'rgba(40,34,26,0.85)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h, w, h, 8);
+  // HUD theme (N): parchment bubble, ink outline, hard drop shadow
+  ctx.fillStyle = 'rgba(20,12,6,0.4)';
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h + 3, w, h, 6); ctx.fill();
+  ctx.fillStyle = 'rgba(251,242,222,0.98)'; ctx.strokeStyle = 'rgba(36,22,13,0.95)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h, w, h, 6);
   if (tail) { ctx.moveTo(x - 5, y); ctx.lineTo(x, y + 6); ctx.lineTo(x + 5, y); }
   ctx.fill(); ctx.stroke();
-  if (tail) { ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.fillRect(x - 4, y - 2, 8, 2.5); }
+  if (tail) { ctx.fillStyle = 'rgba(251,242,222,0.98)'; ctx.fillRect(x - 4, y - 2.5, 8, 3); }
 }
 // stack of ≤ 3 bubbles above (x, y): newest at the bottom (closest to the head), older ones slide up;
 // new ones pop in, expired / pushed-out ones fade; a "typing…" bubble sits under them while typing
 function drawBubbles(ctx, list, x, y, now, dt, typing) {
-  ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
+  ctx.font = '700 13.5px "Barlow Condensed", "Segoe UI", system-ui, sans-serif';
   let base = 0; // offset (px above y) where the next bubble starts
   let first = true;
   if (typing) {
     const w = 38, h = 20, ph = now / 1000;
     bubbleBox(ctx, x, y, w, h, 0.95, true);
-    ctx.fillStyle = '#6d5f4c';
+    ctx.fillStyle = '#7a5c3c';
     for (let i = 0; i < 3; i++) { const k = Math.max(0, Math.sin(ph * 6 - i * 0.9)); ctx.beginPath(); ctx.arc(x - 9 + i * 9, y - 10 - k * 3, 2.3, 0, Math.PI * 2); ctx.fill(); }
     base = h + BUBBLE_GAP; first = false;
   }
@@ -147,7 +148,7 @@ function drawBubbles(ctx, list, x, y, now, dt, typing) {
     ctx.save();
     ctx.translate(x, yy); ctx.scale(s, s); ctx.translate(-x, -yy);
     bubbleBox(ctx, x, yy, w, h, alpha, first);
-    ctx.fillStyle = '#2a241c';
+    ctx.fillStyle = '#24160d';
     b.lines.forEach((l, j) => ctx.fillText(l, x, yy - h + BUBBLE_PAD + 10 + j * BUBBLE_LH));
     ctx.restore();
     if (!b.out) base += h + BUBBLE_GAP;

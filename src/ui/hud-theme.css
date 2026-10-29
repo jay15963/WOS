@@ -243,6 +243,14 @@ html .wos-note.warn .ni { background: radial-gradient(circle at 40% 32%, #ffd2a6
 html .wos-note.update .ni { background: radial-gradient(circle at 40% 32%, #c8f1e9, var(--n-teal) 62%, var(--n-teal-lo)); color: var(--n-ink); }
 html .wos-note.good, html .wos-note.warn, html .wos-note.update { border-color: var(--n-ink); }
 
+/* ---------- G · aim stick / cancel zone (aim.js) ---------- */
+html .aim-joy .ring { border-color: rgba(242, 228, 196, 0.7); box-shadow: 0 0 0 1.5px rgba(36, 22, 13, 0.6), inset 0 0 16px rgba(20, 12, 6, 0.4); }
+html .aim-joy .dead { border-color: rgba(242, 228, 196, 0.5); }
+html .aim-joy .knob { border: 2px solid var(--n-ink); box-shadow: 0 3px 0 rgba(20, 12, 6, 0.45), 0 0 0 2px rgba(247, 217, 122, 0.5); }
+html .aim-cancel { font: 700 12px/1 var(--n-fd); letter-spacing: 0.6px; text-transform: uppercase; text-shadow: none;
+  background: rgba(60, 20, 14, 0.78); border: 2px solid var(--n-coral); box-shadow: 0 0 0 2px var(--n-ink), 0 4px 12px rgba(0, 0, 0, 0.5); }
+html .aim-cancel.hot { background: var(--n-coral); color: var(--n-cream-hi); }
+
 /* ---------- M · paths toolbar and any future toolbars: same plates as the build toolbar ---------- */
 html :is(.ptb, .pathbar, .paths-bar) {
   color: var(--n-text); font: 700 13px/1.15 var(--n-fd); border-radius: 6px;
