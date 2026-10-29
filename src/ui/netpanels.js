@@ -120,7 +120,9 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
         ${[['auto', 'Automática'], ['high', 'Alta'], ['medium', 'Média'], ['low', 'Baixa (celulares fracos)']].map(([v, l]) => `<option value="${v}" ${get('wos.quality', 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}
       </select></label>
     <h3>Avançado: servidor TURN (opcional)</h3>
-    <p class="muted">Só se a conexão direta falhar sempre. Serviços como Open Relay (Metered) ou Cloudflare têm plano gratuito; cole aqui os dados que eles fornecem.</p>
+    <p class="muted">Necessário quando o diagnóstico mostra <b>NAT incompatível</b>: o TURN repassa o tráfego quando a conexão direta é impossível.
+      Basta o anfitrião configurar. Crie uma conta gratuita num provedor de TURN (ex.: Metered / Open Relay), copie as URLs
+      (<code>turn:…</code> e <code>turns:…</code>), o usuário e a senha que ele mostrar e cole abaixo.</p>
     <label class="mfield">URLs (separe por vírgula)<input data-k="turnUrls" placeholder="turn:exemplo.com:3478" value="${esc([].concat(turn.urls || []).join(', '))}"></label>
     <div class="row">
       <label class="mfield" style="flex:1">Usuário<input data-k="turnUser" value="${esc(turn.username || '')}"></label>
@@ -167,7 +169,9 @@ export function roomPanel(el, session) {
     <h3>Jogadores (<span data-k="n"></span>/${MAX_PLAYERS})</h3>
     <ul class="plist" data-k="list"></ul>
     <h3>Se o amigo não conseguir entrar</h3>
-    <p class="muted">Peça para os dois copiarem o relatório de diagnóstico. Como alternativa, use a <b>conexão manual</b> (troca de códigos longos, sem rede de encontro).</p>
+    <p class="muted">Peça para os dois copiarem o relatório de diagnóstico. Se o erro for <b>NAT incompatível</b>, a conexão direta entre
+      as duas redes é impossível: configure um <b>servidor TURN</b> gratuito em Configurações (basta o anfitrião).
+      A <b>conexão manual</b> só ajuda quando as redes de encontro estão bloqueadas.</p>
     <div class="row"><button class="mbtn" data-a="manual">Conexão manual</button></div>
     <div data-k="manual"></div>
     <div class="row"></div>`;
@@ -259,8 +263,8 @@ export function joinPanel(el, { makeSession, onJoined, presetCode = '' }) {
       offStep();
       ['net', 'find', 'rtc', 'hello'].forEach((s) => { const li = steps.querySelector(`[data-s=${s}]`); if (li.className === 'doing') li.className = 'fail'; });
       res.innerHTML = `<div class="verdict bad"><b>Não foi possível entrar</b>${esc(e.message)}<br><br>
-        Confira o código e se a sala ainda está aberta. Se persistir: <b>Testar minha rede</b> nos dois computadores, depois
-        <b>Copiar relatório</b> dos dois e cole na conversa. Como alternativa, tente a <b>Conexão manual</b>.</div>`;
+        Se a mensagem fala em <b>NAT incompatível</b>, o anfitrião precisa configurar um <b>servidor TURN</b> gratuito em Configurações.
+        Senão, confira o código e se a sala está aberta. Em todo caso: <b>Copiar relatório</b> nos dois e cole na conversa.</div>`;
       el.querySelector('[data-a=go]').disabled = false;
       el.querySelector('[data-a=go]').textContent = 'Tentar de novo';
     }

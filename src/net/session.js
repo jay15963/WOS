@@ -5,7 +5,9 @@
 // Messages (JSON): hello / welcome / reject / st (guest state) / sts (host: everyone's states + env)
 //                  chat / ping / pong / bye
 
-import { TrysteroLink, ManualLink } from './links.js';
+import { TrysteroLink, ManualLink, NETWORKS } from './links.js';
+
+const NAT_FAIL = 'A sala foi encontrada e vocês trocaram endereços, mas a conexão direta entre as duas redes falhou em todas as tentativas (NAT incompatível). Solução: configurar um servidor TURN gratuito em Configurações → TURN (basta o anfitrião).';
 import { netlog, PROTO, BUILD } from './netlog.js';
 
 export const MAX_PLAYERS = 4;
@@ -91,7 +93,19 @@ export class Session {
     return new TrysteroLink({
       code: this.code, role,
       onOpen: (k, i) => this._open(k, i), onClose: (k) => this._close(k), onData: (k, m) => this._data(k, m),
+      onFail: () => this._linkFailed(),
     });
+  }
+
+  // a peer was found on a network but WebRTC could not connect. When every network failed, stop waiting.
+  _linkFailed() {
+    const L = this.link;
+    if (this.role !== 'guest' || !this._joinWait || !L || L.open) return;
+    if (L.failures >= NETWORKS.length) {
+      netlog.error('session', NAT_FAIL);
+      netlog.fact('Falha ao entrar', NAT_FAIL);
+      this._joinWait.reject(new Error(NAT_FAIL));
+    }
   }
 
   // ---------------- host ----------------
@@ -150,7 +164,9 @@ export class Session {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this._joinWait = null;
-        const why = this.link?.open ? 'conectou, mas o anfitrião não respondeu' : 'ninguém foi encontrado com esse código (sala fechada, código errado ou conexão bloqueada)';
+        const why = this.link?.open ? 'conectou, mas o anfitrião não respondeu'
+          : this.link?.failures ? NAT_FAIL
+          : 'ninguém foi encontrado com esse código (sala fechada, código errado ou redes de encontro bloqueadas)';
         netlog.error('session', `Tempo esgotado ao entrar: ${why}`);
         netlog.fact('Falha ao entrar', why);
         this.close('timeout');

@@ -34,6 +34,7 @@ export function tracePC(pc, label) {
   const el = () => ((performance.now() - t0) / 1000).toFixed(1) + 's';
   const counts = {};
   pc._wosId = id;
+  const rec = pc._wos = { local: [], remote: [], snap: null, explained: false };
   // Some signaling networks (BitTorrent) pre-create offers that may never be answered. Events are
   // buffered and only written to the log once a remote peer is involved, so unused offers stay quiet.
   let active = false;
@@ -54,7 +55,7 @@ export function tracePC(pc, label) {
       return;
     }
     const c = parseCandidate(e.candidate.candidate);
-    if (c) counts[c.type] = (counts[c.type] || 0) + 1;
+    if (c) { counts[c.type] = (counts[c.type] || 0) + 1; rec.local.push(c); }
     L('info', `${id}: candidato local ${describeCandidate(e.candidate.candidate)}`);
   });
   pc.addEventListener('icecandidateerror', (e) => {
@@ -79,6 +80,37 @@ export function tracePC(pc, label) {
   pc.addEventListener('connectionstatechange', () => {
     const s = pc.connectionState;
     L(LEVEL[s] || 'info', `${id}: conexão ${s} (${el()})`);
+    if (s === 'failed') explainFailure(pc, id);
+  });
+  // what the OTHER player sent us: candidates inside the session description + trickled ones
+  const remoteCand = (line, how) => {
+    const c = parseCandidate(line);
+    if (!c || !c.address) return;
+    if (rec.remote.some((r) => r.address === c.address && r.port === c.port && r.protocol === c.protocol)) return;
+    rec.remote.push(c);
+    L('info', `${id}: candidato remoto (${how}) ${describeCandidate(line)}`);
+  };
+  const srd = pc.setRemoteDescription.bind(pc);
+  pc.setRemoteDescription = (desc, ...rest) => {
+    try {
+      const sdp = desc && desc.sdp;
+      if (sdp) {
+        const lines = sdp.split(String.fromCharCode(10)).map((l) => l.trim()).filter((l) => l.startsWith('a=candidate:'));
+        L('info', `${id}: descrição remota recebida (${desc.type}, ${lines.length} candidatos embutidos)`);
+        lines.forEach((l) => remoteCand(l.slice(2), 'na descrição'));
+      }
+    } catch { /* ignore */ }
+    return srd(desc, ...rest);
+  };
+  const aic = pc.addIceCandidate.bind(pc);
+  pc.addIceCandidate = (cand, ...rest) => {
+    try { if (cand && cand.candidate) remoteCand(cand.candidate, 'enviado depois'); } catch { /* ignore */ }
+    return aic(cand, ...rest);
+  };
+  pc.addEventListener('iceconnectionstatechange', () => {
+    if (pc.iceConnectionState === 'checking' && !rec.snapTimers) {
+      rec.snapTimers = [4000, 11000].map((ms) => setTimeout(() => snapshotPairs(pc, id, L), ms));
+    }
   });
   pc.addEventListener('datachannel', (e) => traceChannel(e.channel, id));
   const create = pc.createDataChannel.bind(pc);
@@ -123,25 +155,62 @@ async function describeRoute(pc, id) {
   } catch (e) { netlog.warn('ice', `${id}: não foi possível ler a rota: ${e.message}`); }
 }
 
-async function explainFailure(pc, id) {
+// Connectivity checks in progress: how many STUN checks went out / came back on each candidate pair.
+async function snapshotPairs(pc, id, L) {
+  if (pc.connectionState === 'connected' || pc.connectionState === 'closed') return;
   try {
     const { st, all } = await statsOf(pc);
-    const local = all.filter((r) => r.type === 'local-candidate');
-    const remote = all.filter((r) => r.type === 'remote-candidate');
     const pairs = all.filter((r) => r.type === 'candidate-pair');
-    const types = (list) => [...new Set(list.map((c) => c.candidateType))].join(', ') || 'nenhum';
-    const pstates = {};
-    for (const p of pairs) pstates[p.state] = (pstates[p.state] || 0) + 1;
-    let why;
-    if (!remote.length) why = 'o outro jogador não enviou nenhum candidato (a troca pela sinalização não completou)';
-    else if (!remote.some((c) => c.candidateType === 'srflx' || c.candidateType === 'relay' || c.candidateType === 'prflx')) why = 'o outro jogador não conseguiu descobrir o endereço público dele (UDP bloqueado ou STUN inacessível do lado dele)';
-    else if (!local.some((c) => c.candidateType === 'srflx' || c.candidateType === 'relay')) why = 'seu navegador não conseguiu descobrir seu endereço público (UDP bloqueado/firewall do seu lado)';
-    else why = 'os dois têm endereço público, mas nenhuma rota passou: NAT incompatível (provável NAT simétrico ou CGNAT restritivo). Solução: TURN ou Radmin VPN ligado nos dois';
-    netlog.error('ice', `${id}: conexão falhou — ${why}`, { locais: types(local), remotos: types(remote), pares: pstates });
-    netlog.fact('Última falha ICE', why);
-    for (const c of remote.slice(0, 6)) netlog.info('ice', `${id}: candidato remoto ${c.candidateType} ${c.protocol || ''} ${maskIp(c.address || c.ip)} (${classifyIp(c.address || c.ip)})`);
-    void st;
-  } catch (e) { netlog.warn('ice', `${id}: falha ao analisar o erro: ${e.message}`); }
+    const sum = { pares: pairs.length, enviados: 0, respostas: 0, recebidos_do_outro: 0 };
+    const states = {};
+    for (const p of pairs) {
+      sum.enviados += p.requestsSent || 0;
+      sum.respostas += p.responsesReceived || 0;
+      sum.recebidos_do_outro += p.requestsReceived || 0;
+      states[p.state] = (states[p.state] || 0) + 1;
+    }
+    const top = pairs.slice(0, 4).map((p) => {
+      const l = st.get(p.localCandidateId) || {}, r = st.get(p.remoteCandidateId) || {};
+      return `${l.candidateType}→${r.candidateType}(${classifyIp(r.address || r.ip).replace(/ \(.*\)/, '')}) ${p.state} env ${p.requestsSent || 0}/resp ${p.responsesReceived || 0}/receb ${p.requestsReceived || 0}`;
+    });
+    pc._wos.snap = sum;
+    L('info', `${id}: testes de conectividade em andamento`, { ...sum, estados: states, pares_exemplo: top });
+  } catch { /* closed */ }
+}
+
+async function explainFailure(pc, id) {
+  const rec = pc._wos || { local: [], remote: [] };
+  if (rec.explained) return;
+  rec.explained = true;
+  let local = rec.local.map((c) => c.type), remote = rec.remote.map((c) => c.type);
+  let snap = rec.snap;
+  try {
+    // fresher data if the connection is still readable
+    const { all } = await statsOf(pc);
+    const lc = all.filter((r) => r.type === 'local-candidate').map((c) => c.candidateType);
+    const rc = all.filter((r) => r.type === 'remote-candidate').map((c) => c.candidateType);
+    if (lc.length) local = lc;
+    if (rc.length) remote = rc;
+    const pairs = all.filter((r) => r.type === 'candidate-pair');
+    if (pairs.length) {
+      snap = { pares: pairs.length, enviados: 0, respostas: 0, recebidos_do_outro: 0 };
+      for (const p of pairs) { snap.enviados += p.requestsSent || 0; snap.respostas += p.responsesReceived || 0; snap.recebidos_do_outro += p.requestsReceived || 0; }
+    }
+  } catch { /* already closed: use what was recorded */ }
+  const pub = (list) => list.some((t) => t === 'srflx' || t === 'relay' || t === 'prflx');
+  const uniq = (list) => [...new Set(list)].join(', ') || 'nenhum';
+  let why;
+  if (!remote.length) why = 'o outro jogador não enviou nenhum candidato (a troca pela rede de encontro não completou)';
+  else if (!pub(remote)) why = 'o outro jogador não conseguiu descobrir o endereço público dele (UDP bloqueado ou STUN inacessível do lado dele)';
+  else if (!pub(local)) why = 'seu navegador não conseguiu descobrir seu endereço público (UDP bloqueado/firewall do seu lado)';
+  else {
+    why = 'os dois têm endereço público e trocaram endereços, mas nenhum pacote atravessou: NAT incompatível entre as duas redes (pelo menos um lado tem NAT simétrico ou bloqueio da operadora). Conexão direta não é possível nessa dupla — use um servidor TURN (Configurações → TURN)';
+    if (snap && snap.enviados > 0 && snap.respostas === 0 && snap.recebidos_do_outro === 0) why += '. Nenhum pacote chegou em nenhum dos sentidos';
+    else if (snap && snap.recebidos_do_outro > 0 && snap.respostas === 0) why += '. Os pacotes do outro chegaram até você, mas os seus não chegaram lá (o bloqueio está do lado dele)';
+    else if (snap && snap.respostas > 0) why += '. Alguns pacotes passaram mas a conexão não se firmou (rede instável)';
+  }
+  netlog.error('ice', `${id}: conexão falhou — ${why}`, { locais: uniq(local), remotos: uniq(remote), testes: snap || 'sem dados' });
+  netlog.fact('Última falha ICE', why);
 }
 
 // ---------- "Testar minha rede": gathers candidates against several STUN servers ----------

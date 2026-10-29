@@ -17,10 +17,11 @@ export const NETWORKS = [
 const CASCADE_MS = [0, 9000, 18000]; // guest: when to add each network if nobody was found yet
 
 export class TrysteroLink {
-  constructor({ code, role, onOpen, onClose, onData }) {
+  constructor({ code, role, onOpen, onClose, onData, onFail }) {
     this.code = code;
     this.role = role;
-    this.cb = { onOpen, onClose, onData };
+    this.cb = { onOpen, onClose, onData, onFail };
+    this.failures = 0;        // peers found whose direct connection then failed
     this.rooms = new Map();   // netId -> { room, act, net, mod }
     this.peers = new Map();   // key -> { netId, peerId, act }
     this.timers = [];
@@ -64,7 +65,11 @@ export class TrysteroLink {
         rtcPolyfill: Traced,
         relayConfig: { warnOnRelayFailure: true },
       }, 'sala-' + this.code, {
-        onJoinError: (d) => netlog.error('signal', `${net.label}: erro com um par (${d.error})`),
+        onJoinError: (d) => {
+          this.failures++;
+          netlog.error('signal', `${net.label}: o outro jogador foi encontrado, mas a conexão direta falhou (${d.error})`);
+          this.cb.onFail?.(net.id);
+        },
       });
     } catch (e) {
       netlog.error('signal', `${net.label}: falha ao entrar na sala (${e.message})`);

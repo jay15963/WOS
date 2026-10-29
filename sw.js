@@ -1,7 +1,7 @@
 // Service worker: offline-capable app shell, stale-while-revalidate.
 // Same-origin GETs are answered from the cache immediately (fast boot on phones) and refreshed in the
 // background, so a new deploy is picked up on the next launch. Bump VERSION to drop old caches.
-const VERSION = 'wos-v5';
+const VERSION = 'wos-v6';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './src/main.js', './src/ui/hud.css'])).catch(() => {}));
