@@ -630,18 +630,20 @@ export function openCharEditor(opts = {}) {
   };
   Q('[data-a=save]').onclick = save;
   cancelBtn.onclick = cancel;
+  // capture on window + stopImmediatePropagation: the game's own key listeners (also on window) never see keys
+  // meant for the editor (no walking / hotkeys behind it in multiplayer)
   const onKey = (e) => {
     if (!root.isConnected) return;
     const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || '') && document.activeElement.type !== 'range';
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); cancel(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); cancel(); return; }
     if (typing) return;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.stopPropagation(); jump(e.shiftKey ? hi + 1 : hi - 1); }
-    else if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); e.stopPropagation(); jump(hi + 1); }
-    else if (e.key === 'ArrowLeft') { e.stopPropagation(); rot(1); }
-    else if (e.key === 'ArrowRight') { e.stopPropagation(); rot(-1); }
+    if (mod && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); e.stopImmediatePropagation(); jump(e.shiftKey ? hi + 1 : hi - 1); }
+    else if (mod && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); e.stopImmediatePropagation(); jump(hi + 1); }
+    else if (e.key === 'ArrowLeft') { e.stopImmediatePropagation(); rot(1); }
+    else if (e.key === 'ArrowRight') { e.stopImmediatePropagation(); rot(-1); }
     else if (e.key === 'Enter' && mod) { e.preventDefault(); save(); }
-    e.stopPropagation();
+    e.stopImmediatePropagation();
   };
   addEventListener('keydown', onKey, true);
   return promise;

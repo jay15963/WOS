@@ -33,11 +33,9 @@ export function lookDefs() {
   const necks = new Set(C.top.map((e) => e.p.neck));
   for (const n of necks) for (const d of B.necklineDirs(n)) M.set(`lk_neck_${n}_${d}`, body(`lk_neck_${n}_${d}`, (g) => B.neckline(g, d, n), 0));
   for (const e of C.pattern) if (e.id !== 'plain') for (const h of HEMS) for (const d of D3) {
-    if (e.id === 'embroidered' && d === 'e' && h === 'short') { /* still drawn: hem band */ }
     M.set(`lk_pat_${e.id}_${h}_${d}`, body(`lk_pat_${e.id}_${h}_${d}`, (g, r) => B.pattern(g, d, e.id, h, r), 0));
   }
   for (const e of C.over) if (e.id !== 'none') for (const d of D3) {
-    if ((e.p.kind === 'apron' && d === 'n') || (e.p.kind === 'corset' && d === 'n')) { /* back views still show ties / laces */ }
     M.set(`lk_over_${e.id}_${d}`, body(`lk_over_${e.id}_${d}`, (g, r) => B.overLayer(g, d, e, r), 1.3, 12));
   }
   for (const e of C.bottom) for (const d of D3) M.set(`lk_bot_${e.id}_${d}`, body(`lk_bot_${e.id}_${d}`, (g, r) => B.bottomBase(g, d, e, r), 1.4, 12));

@@ -93,7 +93,7 @@ function capE(sh, p, v) {
 }
 
 // side / back length shapes
-function lengthS(sh, p, v, back) {
+function lengthS(sh, p, v) {
   const L = p.len || 0;
   if (L < 1) return;
   const Y = HY + LEN_Y[L], wob = p.tex === 'wavy' || p.tex === 'curly' || p.wild ? 1.6 : 0.8;
@@ -109,7 +109,6 @@ function lengthS(sh, p, v, back) {
     pts.push([X(inner - 0.6), Y - 4], [X(inner), HY + 10], [X(15.6), HY + 1], [X(15.4), HY - 4]);
     sh.push(poly(pts, p.round || p.tex !== 'straight'));
   }
-  if (back && L >= 3) return;
 }
 function backS(sh, p, v) {
   const L = p.len || 0;

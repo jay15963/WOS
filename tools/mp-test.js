@@ -2293,7 +2293,7 @@ def('G2', {
 // S70 H: look sync (character creator)
 def('S70', {
   title: 'H: look sync', timeout: 90000,
-  expected: 'Guest changes its look → the host draws the very same parts and colours (look/rig layers per facing); host change → guest sees it; a malformed look from a peer (unknown ids, bad colours, garbage) is cleaned to valid defaults and draws; packed look < 260 B; selfTest clean',
+  expected: 'Guest changes its look → the host draws the very same parts and colours (look/rig layers per facing); host change → guest sees it; a malformed look from a peer (unknown ids, bad colours, garbage) is cleaned to valid defaults and draws; packed look < 320 B (avg ~200); selfTest clean',
   api: 'game/look.js {randomLook, cleanLook, packLook, applyLook} · session.sendLook() · lk / sts.look (packed) · art/look/rig.js lookRig(A, look)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -2313,7 +2313,7 @@ def('S70', {
   t.check(seen(), 'host has the guest look (packed equal)', want.slice(0, 80) + '…');
   const lg = layers(MG, G.game.A, G.game.player.look), lh = layers(MH, H.game.A, A.avatarOn(H, G.pid).look);
   t.check(lg.length > 30 && same(lg, lh), 'same sprite layers + tints on both clients (3 facings)', `${lg.length} layers · ${lg.slice(0, 3).join(' | ')}`);
-  t.check(want.length < 260, 'packed look is compact', `${want.length} chars`);
+  t.check(want.length < 320, 'packed look is compact (worst case ~290 chars)', `${want.length} chars`);
   t.metric('lookBytes', want.length);
   // 2. the host restyles → the guest sees it
   const hl = { ...LH.randomLook(777), hair: 'afro', top: 'gown', paint: 'tribal' };

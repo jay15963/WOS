@@ -72,7 +72,9 @@ Biomas e zonas (src/world/worldgen.js):
 - **Prévia** `src/art/look/preview.js`: `PreviewAtlas(k)` pinta as partes sob demanda em k× com os mesmos pintores, `drawPawn2D`
   reproduz num canvas 2D as instâncias que `compose.drawPawn` gera (mesmas regras do shader). `atlasView(A)` usa o atlas do jogo.
 - **UI** `src/ui/charcreator.js`: `mountMenuAvatar(el, { name, onName })` (menu do B, `.mc-avatar`) e `openCharEditor({ game?,
-  look?, name? })` (também no menu de pausa: "Aparência"). Galeria: `tools/looks.html` (`?cat=hair&dirs=s,e,n`, `?gear=helmet_iron`).
+  look?, name? })` (também no menu de pausa: "Aparência"; no jogo a prévia mostra o equipamento atual). Guarda-roupa: até 8 visuais
+  salvos (`localStorage wos.looks`, strings de `packLook`). Ao salvar, `wos:look` (evento em `window`) avisa o avatar do menu e a
+  fogueira da vitrine. Galeria: `tools/looks.html` (`?cat=hair&dirs=s,e,n`, `?gear=helmet_iron`).
 
 ## Sistemas
 `game.systems` = lista de `{ update(game, dt), render?(game, B, view, env) }`.

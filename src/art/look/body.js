@@ -4,13 +4,12 @@
 // top trims (secondary) · over layer · shoes. Tucked tops draw the bottoms after the top.
 // Painter signature (contract with agent D): fn(g, d, e, rand) in box coordinates; registered in index.js.
 
-import { TAU, lin, rad, circle, rng } from '../paint.js';
+import { TAU, lin, circle, rng } from '../paint.js';
 import { BW, BH, BELT, bodyPath } from '../pawns.js';
 
 const DARK = (a) => `rgba(46,40,36,${a})`;
 const LITE = (a) => `rgba(255,255,255,${a})`;
 const atop = (g, fn) => { g.save(); g.globalCompositeOperation = 'source-atop'; fn(); g.restore(); };
-const erase = (g, fn) => { g.save(); g.globalCompositeOperation = 'destination-out'; g.fillStyle = '#000'; g.beginPath(); fn(); g.fill(); g.restore(); };
 const clipBody = (g, d) => { g.beginPath(); bodyPath(g, d); g.clip(); };
 const mirrorX = (x) => BW - x;
 
@@ -250,7 +249,6 @@ const NECKS = {
   henley: { s: (g) => { g.moveTo(21.4, 11); g.quadraticCurveTo(28, 19.2, 34.6, 11); g.closePath(); g.moveTo(26.8, 16); g.lineTo(28, 22.4); g.lineTo(29.2, 16); g.closePath(); } },
   collar: { s: (g) => { g.moveTo(22, 11); g.lineTo(28, 21.6); g.lineTo(34, 11); g.closePath(); } },
   wrap: { s: (g) => { g.moveTo(19, 11); g.lineTo(31, 26.6); g.lineTo(37, 11); g.closePath(); }, e: (g) => { g.moveTo(34, 11); g.quadraticCurveTo(36, 17, 41.6, 21); g.lineTo(42, 13); g.closePath(); } },
-  scoop_n: null,
 };
 export function necklineDirs(neck) { const n = NECKS[neck]; return n ? Object.keys(n) : []; }
 export function neckline(g, d, neck) {
