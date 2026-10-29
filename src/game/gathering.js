@@ -214,7 +214,7 @@ export function gatheringSystem() {
         const dir = o.fallDir || o.f || 1;
         if (before < 1 && o.fall >= 1) {
           const fx = o.x + dir * 1.6 * o.s;
-          game.juice.leaves(fx, o.y, 12, 0.4);
+          if (game.juice.treeLand) game.juice.treeLand(o, dir); else game.juice.leaves(fx, o.y, 12, 0.4);
           game.juice.puff(fx, o.y, 8, [0.6, 0.55, 0.45], 0.9);
           if (Math.hypot(p.x - o.x, p.y - o.y) < 14) game.juice.shake(0.2);
           if (net.auth) net.emit('tree.land', { id: o.id, drops: treeLandDrops(game, o) });

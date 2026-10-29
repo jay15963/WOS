@@ -53,9 +53,28 @@ Biomas e zonas (src/world/worldgen.js):
   pedregulho com musgo `v >= 8000`.
 - **Entidades** (`game.entities`): `isEntity: true`, `kind: 'pawn' | 'animal'`.
   - comuns: `x, y, r (raio colisão), facing 's'|'n'|'e'|'w', moving, moveT, action {type:'attack'|'chop'|'mine'|'gather'|'cast', t:0..1} | null, flash, dead, deadT`
-  - pawn: `look: { skin:[r,g,b], hair:'short'|'long'|..., hairColor:[r,g,b], shirt:[r,g,b] }, weapon: 'sword'|'axe'|'pickaxe'|null`
+  - pawn: `look` (esquema do agente H, `src/game/look.js`: `{ v:1, build, height, skin:'hex', head, ears, eyes, eyeC, brows, nose, mouth, cheeks, age, marks, scar, paint, paintC, hair, hairC, hairFx, hairC2, beard, beardC, top, topC, topC2, pattern, over, overC, bottom, botC, shoes, shoeC }`; o formato antigo `{ skin:[r,g,b], hair, hairColor, shirt }` dos saqueadores é migrado na hora), `weapon: 'sword'|'axe'|'pickaxe'|null`
   - animal: `species: 'wolf'|'boar'|'deer'|'rabbit'|'bear', scale`
 - Desenho: `src/art/compose.js` → `drawPawn / drawAnimal / drawStatic / drawDecor`. Lê o estado acima, não altera nada.
+
+## Aparência do personagem (agente H)
+- **Esquema** `src/game/look.js`: `cleanLook(x)` aceita qualquer coisa (objeto, string compacta da rede, visual antigo) e sempre
+  devolve um visual válido (ids desconhecidos → padrão, cores hex); `packLook` (rede, ~200 B) / `unpackLook`, `randomLook(seed,
+  base?, campos?)`, `loadLook` / `saveLook` (perfil do jogador, `localStorage wos.look`, não por mundo), `applyLook(game, look)`
+  (jogo rodando: troca o visual local e avisa os outros com `session.sendLook()`).
+- **Catálogo** `src/art/look/catalog.js`: toda opção tem `id`, nome pt-BR, `rarity` (`RARITY`) e `unlocked` (cosméticos futuros só
+  acrescentam entradas). Paletas de pele, olhos, cabelo, tinturas, tecido, couro e pintura.
+- **Arte** `src/art/look/{body,face,hair}.js` (pintores por parte, branco/cinza tingido no atlas) → `index.js` (`lookDefs()` nomes
+  `lk_<parte>_<id>_<dir>`, `addLook` em `sprites.js`) → `rig.js` (`lookRig(A, look)`: pilhas ordenadas e tingidas por direção
+  `body / head / brows / beard / hair / hairBack`, `lids`, `feet`, escala de corpo `sx, sy, hk`; cache por objeto de visual). O
+  `compose.js` desenha essas pilhas nas transformações do rig. Capacetes: `WEAR_HIDES_HAIR` (`true` esconde o cabelo da frente,
+  `'tall'` só os estilos altos); o cabelo longo de trás continua visível.
+- **Prévia** `src/art/look/preview.js`: `PreviewAtlas(k)` pinta as partes sob demanda em k× com os mesmos pintores, `drawPawn2D`
+  reproduz num canvas 2D as instâncias que `compose.drawPawn` gera (mesmas regras do shader). `atlasView(A)` usa o atlas do jogo.
+- **UI** `src/ui/charcreator.js`: `mountMenuAvatar(el, { name, onName })` (menu do B, `.mc-avatar`) e `openCharEditor({ game?,
+  look?, name? })` (também no menu de pausa: "Aparência"; no jogo a prévia mostra o equipamento atual). Guarda-roupa: até 8 visuais
+  salvos (`localStorage wos.looks`, strings de `packLook`). Ao salvar, `wos:look` (evento em `window`) avisa o avatar do menu e a
+  fogueira da vitrine. Galeria: `tools/looks.html` (`?cat=hair&dirs=s,e,n`, `?gear=helmet_iron`).
 
 ## Sistemas
 `game.systems` = lista de `{ update(game, dt), render?(game, B, view, env) }`.
@@ -115,6 +134,14 @@ criatura, arte de toda construção / flora / plantação) e descartado se falta
 `src/art/contract.js`. Service worker: **network-first** com `cache:'no-cache'` (um carregamento nunca mistura dois deploys; o
 cache do SW só serve offline).
 
+Animação (rodada V2, agente D): `compose.js` monta o pawn como um rig (corpo, botas `pawn_foot_*`, mãos `pawn_hand`, cabeça
+com pálpebras `pawn_lids_*`) e lê, além dos campos acima, `p.headFacing` (cabeça virada para o alvo), `p.pose`
+(`{type:'sit'|'sleep', o?}`: sentado / deitado na cama) e `action.item` (comida na mão). Ações novas: `eat`, `craft`, `cook`,
+`plant`, `harvest`, `heal` (alias `bandage`). O motor cosmético fica em `juice.js` (olhar, sentar perto da fogueira / na
+cadeira, dormir, passos, arbustos e plantações que balançam, migalhas/ervas/Zzz) e o vento chega por `animEnv` (exportado
+por `compose.js`). Animais: quadro `<espécie>_e_graze` (pastar/farejar) gerado do quadro parado; andadura por velocidade.
+`e._sy` (cosmético) troca a chave de profundidade enquanto o pawn está deitado/sentado num móvel. Prévia: `tools/gallery.html?strip=walk,run,chop&sdir=e`
+(`&species=deer` para animais).
 Campos visuais opcionais lidos por `compose.js`: `look.beard` (bool), `hair: 'bald'` (sem cabelo), `o.fallDir` (±1, lado da queda
 da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem o jogador), `o.fire === false` / `o.lit === false`
 (apaga chama de fogueira/tocha). Galeria de sprites: `tools/gallery.html` (`?focus=<regex>`, `?only=scene|pawns|animals|atlas`).

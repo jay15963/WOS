@@ -331,8 +331,8 @@ export function installController(game) {
       else if (p.inv.room(h.it.item) <= 0) game.events.emit('error', { text: 'Mochila cheia' });
       return;
     }
-    // empty ground: nothing happens (a tap on a phone clears the target)
-    if (p.target && !isMouse) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
+    // empty ground: never walks; a tap or click clears the creature target (so nearby things can be used again)
+    if (p.target) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
   };
 
   let hoverT = 0;
@@ -451,6 +451,17 @@ export function installController(game) {
       // contextual interactable (5 Hz)
       ctl.nearT -= dt;
       if (ctl.nearT <= 0) { ctl.nearT = 0.2; ctl.near = p.dead ? null : nearestInteractable(g); }
+      // never stay locked on a creature: with something usable nearby (campfire, door, chest…) for 3 s and the
+      // target not being fought in range, the target is dropped so the action button goes back to the object
+      // (counted only while the SAME object stays next to the player — walking past trees keeps resetting it)
+      const tg = p.target, nr = ctl.near;
+      const nk = nr ? (nr.o || `${nr.kind}:${nr.tx},${nr.ty}`) : null;
+      if (tg && nr && !p.dead && nk === ctl.lockK) {
+        const fighting = attackable(tg) && p.autoAttack && dist(p, tg) <= attackRange(p, tg) + 0.5;
+        ctl.lockT = fighting ? 0 : (ctl.lockT || 0) + dt;
+        if (ctl.lockT >= 3) { ctl.lockT = 0; ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
+      } else ctl.lockT = 0;
+      ctl.lockK = nk;
       if (ctl.marker) { ctl.marker.t += dt; if (ctl.marker.t > 0.9 || !ctl.goal) ctl.marker = null; }
     },
 
@@ -467,7 +478,7 @@ export function installController(game) {
         if (env.night > 0.1) B.emissive.add(ring, t.x, t.y, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
-      if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack)) {
+      if (n && !p.work && !g.build.mode && !g.mining.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
         const s = n.tile ? Math.max(1, n.w || 1) : n.kind === 'tree' ? 0.9 : 0.8;
         const a = 0.35 + 0.15 * Math.sin(g.time * 4);
         B.blob.add(ring, n.x, n.tile ? n.y : n.y - 0.02, s, s * 0.62, 1, 0.95, 0.8, a);

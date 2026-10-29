@@ -1499,6 +1499,118 @@ def('S40', {
 });
 
 // =====================================================================================================
+// S42 D: remote action animations (presence stream: action timeline, pose)
+def('S42', {
+  title: 'D: remote action anims', timeout: 150000,
+  expected: "Guest's copy of the host shows the host's chop (same type, duration = work cycle, looping while chopping), a melee swing played from its start (first t < 0.4) and ending, and the sleep pose in the host's bed (pose.o = the bed); host's copy of the guest shows the guest's swing and sitting pose; the copy swims in deep water (from its position)",
+  api: 'presence st/sts s.a = [type, t, dur, loop, item?], s.ps; session.players.get(pid).ent.{action, pose}; juice.lieDown(bed) via useStructure (bed at night)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const hp = H.game.player, gp = G.game.player;
+  const sp = spawnOf(H);
+  const copyH = () => hostOnGuest(H, G);  // drawn copy of the host on the guest
+  const copyG = () => A.avatarOn(H, G.pid); // drawn copy of the guest on the host
+  t.assert(copyH() && copyG(), 'both sides have the other player');
+  // sample the copies at a fine interval
+  const seen = { chop: [], attackG: [], attackH: [] };
+  t.watch(() => {
+    const c = copyH();
+    if (c?.action?.type === 'chop') seen.chop.push([now(), c.action.t, c.action.dur]);
+    if (c?.action?.type === 'attack') seen.attackG.push([now(), c.action.t]);
+    const d = copyG();
+    if (d?.action?.type === 'attack') seen.attackH.push([now(), d.action.t]);
+  }, 2);
+
+  // 1. host chops a tree: the guest sees the chop loop with the host's real cycle
+  const tr = A.pickTree(H, MH, G, sp.x, sp.y, env.claimed);
+  t.assert(tr, 'found a standing tree present on both frames');
+  A.ensure(H, { axe_copper: 1 });
+  A.teleport(H, tr.west[0], tr.west[1]);
+  const gs = A.freeSpot(G, MG, tr.o.x - 4, tr.o.y + 1.5, { rMin: 0, rMax: 3 });
+  if (gs) A.teleport(G, gs[0], gs[1]);
+  await t.sleep(400);
+  let cycle = 0;
+  t.watch(() => { if (hp.work?.type === 'chop') cycle = hp.work.cycle; }, 4);
+  await A.chop(t, H, MH, A.objOn(H, tr.o.id), { until: 'fall' });
+  t.check(seen.chop.length > 5, "guest's copy of the host plays 'chop'", `${seen.chop.length} samples`);
+  const durs = seen.chop.map((r) => r[2]);
+  const medDur = median(durs);
+  t.check(cycle > 0 && Math.abs(medDur - cycle) <= 0.03, 'chop duration on the copy = host work cycle', `copy ${f2(medDur)} s · host ${f2(cycle)} s`);
+  let wraps = 0;
+  for (let i = 1; i < seen.chop.length; i++) if (seen.chop[i][1] < seen.chop[i - 1][1] - 0.3) wraps++;
+  t.check(wraps >= 1, 'the chop loops on the copy (cycle restarts)', `${wraps} restarts`);
+  sendAway(H, MH, tr.o.x, tr.o.y, 6, Math.PI);
+  await t.sleep(600);
+
+  // 2. a melee swing each way: shown from its start, then it ends
+  const swing = async (f, list, label) => {
+    list.length = 0;
+    f.game.player.action = { type: 'attack', t: 0, dur: 0.34 };
+    await t.sleep(900);
+    const ts = list.map((r) => r[1]);
+    t.check(ts.length >= 3, `${label}: copy plays the swing`, `${ts.length} samples`);
+    t.check(ts.length && ts[0] < 0.4, `${label}: swing shown from its start (first t < 0.4)`, ts.length ? `first t ${f2(ts[0])}` : 'none');
+    t.check(ts.length && Math.max(...ts) > 0.7, `${label}: swing plays through`, ts.length ? `max t ${f2(Math.max(...ts))}` : 'none');
+  };
+  await swing(H, seen.attackG, 'host → guest');
+  t.check(!copyH()?.action, "the swing ended on the guest's copy", copyH()?.action?.type || 'none');
+  await swing(G, seen.attackH, 'guest → host');
+
+  // 3. guest sits (resting pose) → host's copy sits
+  gp.pose = { type: 'sit', id: null, o: null };
+  const sat = await t.tryWait(() => copyG()?.pose?.type === 'sit', 2000);
+  t.check(sat, "host's copy of the guest sits", copyG()?.pose?.type || 'none');
+  gp.pose = null;
+  await t.tryWait(() => !copyG()?.pose, 2000);
+  t.check(!copyG()?.pose, 'standing up reaches the host', copyG()?.pose?.type || 'none');
+
+  // 4. host sleeps in its bed at night → guest's copy lies in that bed
+  A.ensure(H, { wood: 10, fiber: 8, leather: 3 });
+  const site = A.findSite([H, G], [MH, MG], 'bed', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[hp.x, hp.y], [gp.x, gp.y]] });
+  t.assert(site, 'found a tile for a bed');
+  A.place(H, MH, 'bed', site.tiles[0]);
+  const bed = await t.waitFor(() => A.structAt(H, MH, site.tiles[0][0], site.tiles[0][1], 'main'), 2000, 'host bed blueprint');
+  await A.buildAll(t, H, MH, [bed.id]);
+  H.game.env.hour = 21;
+  await t.waitFor(() => Math.abs(G.game.env.hour - 21) < 0.1, 3000 + CFG.budget, 'guest clock at night');
+  A.pacify(H, hp.x, hp.y, 40); // no creature may be chasing the host ("Não dá para dormir em combate")
+  for (const m of H.game.entities) if (m.isMob && !m.proxy && m.state === 'chase' && m.threat === hp) { m.state = 'idle'; m.stateT = 1; m.threat = null; m.calmT = 600; }
+  await t.sleep(300);
+  hp.combatT = 0; hp.inCombat = false;
+  A.standBy(H, MH, bed);
+  await t.sleep(200);
+  A.useBed(H, MH, bed);
+  t.check(hp.pose?.type === 'sleep', 'host lies down in the bed', hp.pose?.type || 'none');
+  const lay = await t.tryWait(() => copyH()?.pose?.type === 'sleep', 2500);
+  t.check(lay && copyH().pose.o?.id === bed.id, "guest's copy of the host sleeps in that bed", `${copyH()?.pose?.type || 'none'} · bed ${copyH()?.pose?.o?.id ?? '-'} (want ${bed.id})`);
+  const release = A.holdMove(H, 0, 1);
+  t.defer(release);
+  await t.sleep(400);
+  release();
+  const woke = await t.tryWait(() => !copyH()?.pose, 2500);
+  t.check(!hp.pose && woke, 'moving wakes the host up on both sides', `host ${hp.pose?.type || 'up'} · copy ${copyH()?.pose?.type || 'up'}`);
+
+  // 5. swimming is derived from the tile under the avatar on every peer (guest's copy of the host swims too)
+  const W = H.game.world;
+  let deep = null;
+  for (let r = 2; r < 60 && !deep; r += 2) for (let a = 0; a < 24 && !deep; a++) {
+    const x = Math.floor(hp.x + Math.cos(a / 24 * Math.PI * 2) * r), y = Math.floor(hp.y + Math.sin(a / 24 * Math.PI * 2) * r);
+    if (W.waterAt(x, y) === 2 && W.waterAt(x + 1, y) === 2 && W.waterAt(x - 1, y) === 2) deep = [x + 0.5, y + 0.5];
+  }
+  if (!deep) t.note('no deep water near the host — swim sub-check skipped');
+  else {
+    A.teleport(H, deep[0], deep[1]);
+    const near = A.freeSpot(G, MG, deep[0] + 3, deep[1], { rMin: 0, rMax: 5 });
+    if (near) A.teleport(G, near[0], near[1]);
+    const swam = await t.tryWait(() => (copyH()?._swim || 0) > 0.8 && (hp._swim || 0) > 0.8, 4000);
+    t.check(swam, "guest's copy of the host swims in deep water (derived from its position)", `host ${f2(hp._swim || 0)} · copy ${f2(copyH()?._swim || 0)}`);
+    sendAway(H, MH, deep[0], deep[1], 8);
+    hp.wetT = 0; hp._wet = 0; MH.player.removeBuff?.(hp, 'wet'); MH.player.removeBuff?.(hp, 'cold'); // leave the shared pair dry
+  }
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // S30 Single-player regression
 def('S30', {
   title: 'Single-player regression', timeout: 240000,
@@ -2174,6 +2286,63 @@ def('G2', {
   await t.sleep(600);
   t.check(gp.equip.main === 'spear_iron' && gp.inv.count('spear_iron') === spears0, 'spear still equipped on the guest, inventory unchanged', `main ${gp.equip.main} · bag ${gp.inv.count('spear_iron')}`);
   t.check(spearLoot(H) === loot0[0] && spearLoot(G) === loot0[1], 'no spear loot on the ground (host / guest)', `${spearLoot(H)} / ${spearLoot(G)}`);
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// S70 H: look sync (character creator)
+def('S70', {
+  title: 'H: look sync', timeout: 90000,
+  expected: 'Guest changes its look → the host draws the very same parts and colours (look/rig layers per facing); host change → guest sees it; a malformed look from a peer (unknown ids, bad colours, garbage) is cleaned to valid defaults and draws; packed look < 320 B (avg ~200); selfTest clean',
+  api: 'game/look.js {randomLook, cleanLook, packLook, applyLook} · session.sendLook() · lk / sts.look (packed) · art/look/rig.js lookRig(A, look)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.look?.packLook && MG.lookRig?.lookRig, 'look schema / rig modules');
+  const LK = MG.look, LH = MH.look;
+  const layers = (M, A, look) => { const R = M.lookRig.lookRig(A, look), out = []; for (const d of ['s', 'n', 'e']) for (const part of ['hairBack', 'body', 'head', 'brows', 'beard', 'hair']) for (const l of R[part][d]) out.push(`${d}:${l.s.name}:${l.r.toFixed(3)},${l.g.toFixed(3)},${l.b.toFixed(3)}`); return out; };
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+  // 1. the guest restyles itself (live, like the editor's "Salvar" in a running game)
+  let nl = LK.randomLook(4242);
+  if (LK.packLook(nl) === LK.packLook(G.game.player.look)) nl = LK.randomLook(4343);
+  nl = { ...nl, hair: 'long_wavy', hairFx: 'tips', pattern: 'plaid', over: 'vest', beard: 'full' };
+  LK.applyLook(G.game, nl);
+  const want = LK.packLook(G.game.player.look);
+  const seen = () => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) === want; };
+  const ms = await t.timeTo(seen, 4000, 'host sees the new guest look');
+  t.metric('lookSyncMs', Math.round(ms));
+  t.check(seen(), 'host has the guest look (packed equal)', want.slice(0, 80) + '…');
+  const lg = layers(MG, G.game.A, G.game.player.look), lh = layers(MH, H.game.A, A.avatarOn(H, G.pid).look);
+  t.check(lg.length > 30 && same(lg, lh), 'same sprite layers + tints on both clients (3 facings)', `${lg.length} layers · ${lg.slice(0, 3).join(' | ')}`);
+  t.check(want.length < 320, 'packed look is compact (worst case ~290 chars)', `${want.length} chars`);
+  t.metric('lookBytes', want.length);
+  // 2. the host restyles → the guest sees it
+  const hl = { ...LH.randomLook(777), hair: 'afro', top: 'gown', paint: 'tribal' };
+  LH.applyLook(H.game, hl);
+  const wantH = LH.packLook(H.game.player.look);
+  await t.waitFor(() => { const e = A.avatarOn(G, H.pid); return e && LK.packLook(e.look) === wantH; }, 8000, 'guest sees the new host look');
+  t.check(same(layers(MH, H.game.A, H.game.player.look), layers(MG, G.game.A, A.avatarOn(G, H.pid).look)), 'guest draws the host with the same layers');
+  // 3. malformed looks from a peer are cleaned (never crash, never undefined parts)
+  const bad = [
+    '1|nonexistent|zz|<b>|' + 'x'.repeat(40),
+    { v: 1, hair: '<script>', skin: 'zzzzzz', topC: [9, -3, 'a'], eyes: 42, beardC: 'nothex', shoes: null, top: { evil: 1 } },
+    { skin: [2, 2, 2], hair: 'long', hairColor: [0.2, 0.1, 0.05], shirt: [0.5, 0.2, 0.1], beard: true },
+    12345, 'garbage', ['a', 1],
+  ];
+  for (const [i, b] of bad.entries()) {
+    G.session.sendHost({ t: 'lk', look: b });
+    await t.waitFor(() => { const e = A.avatarOn(H, G.pid); return e && LH.packLook(e.look) !== want; }, 3000, `host applied malformed look #${i + 1}`).catch(() => {});
+    const e = A.avatarOn(H, G.pid), l = e?.look || {};
+    const ok = LH.packLook(l) === LH.packLook(LH.cleanLook(l)) && /^[0-9a-f]{6}$/.test(l.skin) && /^[0-9a-f]{6}$/.test(l.topC) && typeof l.hair === 'string';
+    let drew = true;
+    try { layers(MH, H.game.A, l); H.game.render(); } catch (err) { drew = false; t.log('draw error ' + err.message); }
+    t.check(ok && drew, `malformed look #${i + 1} cleaned and drawn`, `hair ${l.hair} skin ${l.skin} top ${l.top} topC ${l.topC}`);
+    G.session.sendHost({ t: 'lk', look: want }); // back to the real one
+    await t.tryWait(() => { const x = A.avatarOn(H, G.pid); return x && LH.packLook(x.look) === want; }, 3000);
+  }
+  const legacy = LH.cleanLook(bad[2]);
+  t.check(legacy.hair === 'long' && legacy.beard !== 'none' && legacy.topC === '80331a' && LH.packLook(LH.cleanLook(bad[2])) === LK.packLook(LK.cleanLook(bad[2])), 'legacy { skin, hair, hairColor, shirt, beard } migrates the same on both', `${legacy.hair} ${legacy.beard} ${legacy.topC} ${legacy.top}`);
+  const st = H.game.net.selfTest();
+  t.check(st.atlasOk && !st.missingSprites.length && !st.placeholders.length, 'host selfTest clean', JSON.stringify({ atlasOk: st.atlasOk, missing: st.missingSprites.length }));
   await t.checkDigest(H, G);
 });
 

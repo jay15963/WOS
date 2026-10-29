@@ -6,7 +6,7 @@
 //               &pz=<px per tile for the pawn sheet> &az=<px per tile for the animal sheet>
 
 import { buildAtlas } from '../src/art/sprites.js';
-import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../src/art/compose.js';
+import { drawPawn, drawAnimal, drawStatic, drawDecor, animEnv } from '../src/art/compose.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -247,6 +247,12 @@ const POSES = [
   ['gather', null, null, 'gather'], ['pick', null, null, 'pick'], ['bandage', null, null, 'bandage'],
   ['whirlwind', 'sword_steel', null, 'whirlwind'], ['charge', 'sword_iron', null, 'charge'], ['disengage', 'bow_wood', null, 'disengage'],
   ['dead', 'axe_iron', 'shield_wood', 'dead', { body: 'armor_leather', head: 'helmet_copper' }],
+  // animation pass (D): run, look-at, flinch, respawn, work and rest poses
+  ['run', 'sword_iron', 'shield_wood', 'run'], ['run bare', null, null, 'run'], ['look around', 'spear_iron', null, 'look'],
+  ['hurt', 'sword_iron', null, 'hurt'], ['respawn', null, null, 'respawn'],
+  ['heal (herbs)', null, null, 'heal'], ['eat', 'sword_iron', null, 'eat'], ['craft', null, null, 'craft'], ['cook', null, null, 'cook'],
+  ['plant', null, null, 'plant'], ['harvest', null, null, 'harvest'], ['sit', 'axe_iron', 'torch_hand', 'sit'], ['sleep', null, null, 'sleep'],
+  ['butcher knife', 'knife_iron', null, 'butcher'], ['butcher bare', null, null, 'butcher'], ['gather bones', null, null, 'gather_bones'],
 ];
 const BANDIT = { skin: [0.78, 0.6, 0.46], hair: 'shaggy', hairColor: [0.2, 0.15, 0.1], shirt: [0.42, 0.36, 0.3], pants: [0.3, 0.26, 0.22], beard: true, hat: 'bandana', hatColor: [0.6, 0.14, 0.12], face: 'scar' };
 const FACINGS = ['s', 'e', 'n', 'w'];
@@ -278,14 +284,21 @@ const pawnSheet = sheet('pawnCv', ROWS ? POSES.filter((r) => ROWS.test(r[0])) : 
   look: looks(ri), weapon: r[1], offhand: r[2], armor: r[4] || null, act: r[3], dead: r[3] === 'dead', deadT: 0,
 }), (r) => r[0], FACINGS);
 function stepPawn(p, dt) {
-  if (p.moving) p.moveT += dt;
   const a = p.act;
+  if (a === 'run') p.moving = true;
+  if (p.moving) p.moveT += dt * (a === 'run' ? 1.65 : 1);
   if (!a) return;
+  if (a === 'run') return;
   if (a === 'dead') { p.deadT = time % 3; return; }
+  if (a === 'look') { const L = ['s', 'e', 'n', 'w'], i = L.indexOf(p.facing); p.headFacing = L[(i + ((time % 4) < 2 ? 1 : 3)) % 4]; return; }
+  if (a === 'hurt') { const u = time % 1.4; p.flash = u < 0.17 ? 1 - u / 0.17 : 0; return; }
+  if (a === 'respawn') { const u = time % 3; p.dead = u < 1.4; if (p.dead) p.deadT = u; return; }
+  if (a === 'sit') { p.pose = { type: 'sit' }; return; }
+  if (a === 'sleep') { p.pose = { type: 'sleep', o: null }; return; }
   if (a === 'idle') { p.flash = (time % 3) < 0.15 ? 1 - (time % 3) / 0.15 : 0; return; }
   if (a === 'walk') return;
   if (a === 'block') { p.blocking = (time % 2.4) < 1.6; return; }
-  const T = a === 'gather' || a === 'bandage' || a === 'build' ? 1.8 : a === 'shoot' || a === 'aimed_shot' || a === 'whirlwind' ? 1.4 : 1.0;
+  const T = a === 'gather' || a === 'bandage' || a === 'build' || a === 'craft' || a === 'cook' || a === 'butcher' || a === 'gather_bones' ? 1.8 : a === 'eat' ? 2.4 : a === 'heal' ? 1.6 : a === 'shoot' || a === 'aimed_shot' || a === 'whirlwind' ? 1.4 : 1.0;
   const k = (time % T) / T;
   p.action = k < 0.82 ? { type: a, t: k / 0.82 } : null;
 }
@@ -385,6 +398,39 @@ for (const [name, list] of groups) {
   const x = c.getContext('2d');
   x.fillStyle = '#6b5238'; x.fillRect(0, 0, c.width, c.height);
   x.drawImage(AC, 0, 0, c.width, c.height);
+}
+
+// ---------- frozen animation strip: ?strip=<walk|run|action type>&sdir=<s|e|n|w>&n=10&weapon=<id>&off=<id>&species=<sp> ----------
+// renders N phases of one pose side by side (walk/run: one gait cycle; actions: t = 0..1) for frame-by-frame review
+if (Q.get('strip')) {
+  for (const id of SECTIONS) $('#' + id).style.display = 'none';
+  $('#strip').style.display = '';
+  const kinds = Q.get('strip').split(','), d = Q.get('sdir') || 'e', N = +(Q.get('n') || 10), Z = +(Q.get('z') || 110);
+  const sp = Q.get('species');
+  const cv = $('#stripCv'); const CW = sp ? 2.0 : 1.15, RH = sp ? 1.9 : 1.6;
+  cv.width = (N * CW + 0.3) * Z; cv.height = (RH * kinds.length + 0.2) * Z;
+  const bg = soil(cv.width, cv.height, 7);
+  const draw = () => {
+    const B = mkBatches();
+    for (let j = 0; j < kinds.length; j++) for (let i = 0; i < N; i++) {
+      const u = i / N, kind = kinds[j];
+      const e = sp
+        ? { isEntity: true, kind: 'animal', species: sp === 'deer_doe' ? 'deer' : sp, variant: sp === 'deer_doe' ? 1 : 0, x: 0.15 + CW / 2 + i * CW, y: RH * (j + 1), facing: d, moving: kind !== 'idle' && kind !== 'attack', flash: 0, scale: 1, id: 7 }
+        : { isEntity: true, kind: 'pawn', x: 0.15 + CW / 2 + i * CW, y: RH * (j + 1) - 0.1, facing: d, moving: kind === 'walk' || kind === 'run', look: LOOKS[1], weapon: Q.get('weapon') || null, offhand: Q.get('off') || null, armor: null, flash: 0 };
+      e._ph = 1.3; e._ft = 1; e._mk = e.moving ? 1 : 0;
+      if (sp) { e._gs = kind === 'run' ? 5.5 : 1.6; e._gph = u * Math.PI * 2; e.moveT = 1; if (kind === 'attack') e.action = { type: 'attack', t: u }; if (kind === 'idle') e.nid = 'm' + j; }
+      else if (kind === 'swim') { e._swim = 1; e.moving = true; e._mk = 1; e._gs = 0.5; e.moveT = (u * Math.PI * 2) / 4; }
+      else if (kind === 'wet') { e._wet = 1; }
+      else if (e.moving) { e._gs = kind === 'run' ? 6.6 : 4; e.moveT = (u * Math.PI * 2) / 9.5; }
+      else if (kind === 'sit' || kind === 'sleep') e.pose = { type: kind };
+      else if (kind !== 'idle') e.action = { type: kind, t: u };
+      if (sp && kind === 'idle') animEnv.wt = u * 12; // idle life schedule over 12 s
+      if (sp) drawAnimal(B, A, e, 1); else drawPawn(B, A, e, 1);
+    }
+    renderScene(cv.getContext('2d'), B, { x: cv.width / Z / 2, y: cv.height / Z / 2, zoom: Z }, cv.width, cv.height, bg, false);
+  };
+  draw();
+  window.redrawStrip = draw;
 }
 
 function loop(now) {

@@ -8,7 +8,7 @@ import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
-import { attackable } from '../game/combat.js';
+import { attackable, dist, attackRange } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
 import { combatIcon } from './combaticons.js';
 import { installActionBar } from './actionbar.js';
@@ -404,7 +404,9 @@ export function installHUD(game, { isNew } = {}) {
 
       // interact button
       const near = g.ctl.near;
-      const showInt = !!near && !pl.work && !dead && !g.build.mode && !(pl.autoAttack && attackable(pl.target));
+      // the use button hides only while actually fighting the target in range (a far / fleeing target never blocks it)
+      const fightingT = pl.autoAttack && attackable(pl.target) && dist(pl, pl.target) <= attackRange(pl, pl.target) + 0.5;
+      const showInt = !!near && !pl.work && !dead && !g.build.mode && !fightingT;
       toggle(R.int, 'intv', 'hidden', !showInt);
       if (showInt) {
         const key = near.verb + near.icon;
