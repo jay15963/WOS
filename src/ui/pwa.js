@@ -100,6 +100,8 @@ const ADDHOME_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const DOTS_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 const MENU_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
 const PHONE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>';
+const FULL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+const INSTALL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11M7 10l5 5 5-5"/><path d="M4.5 16.5V20h15v-3.5"/></svg>';
 const BELL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg>';
 
 function qrSVG(text) {
@@ -161,11 +163,11 @@ export function openInstallGuide({ title = 'Aviso importante' } = {}) {
       <div class="pwa-head"><span class="pwa-ico"><img src="icons/icon-192.png" alt=""></span>
         <div><b id="pwa-t">${title}</b><small>Instale o WOS como aplicativo</small></div></div>
       <p class="pwa-lead">O jogo funciona <b>muito melhor instalado</b>: abre em <b>tela cheia</b>, sem barras do navegador, carrega mais rápido e guarda seu progresso com segurança.${P.mobile ? '' : ' No computador ele abre numa janela própria.'}</p>
-      <ul class="pwa-why"><li>${SHARE_SVG.replace('<svg', '<svg class="w"')}Tela cheia de verdade</li><li>${BELL_SVG.replace('<svg', '<svg class="w"')}Notificações</li><li>${PHONE_SVG.replace('<svg', '<svg class="w"')}Ícone na tela inicial</li></ul>
+      <ul class="pwa-why"><li>${FULL_SVG.replace('<svg', '<svg class="w"')}Tela cheia de verdade</li><li>${BELL_SVG.replace('<svg', '<svg class="w"')}Notificações</li><li>${PHONE_SVG.replace('<svg', '<svg class="w"')}Ícone na tela inicial</li></ul>
       <div class="ibox here">
         <div class="ih">${ADDHOME_SVG}<b>${P.desktop ? 'Instalar neste computador' : 'Como instalar'}</b></div>
         ${can ? '<p>Um toque e pronto:</p>' : manualSteps(P)}
-        <div class="pwa-act"><button class="pbtn primary" data-a="install">${SHARE_SVG.replace('<svg', '<svg class="w"')}<span>Instalar</span></button></div>
+        <div class="pwa-act"><button class="pbtn primary" data-a="install">${INSTALL_SVG.replace('<svg', '<svg class="w"')}<span>Instalar</span></button></div>
       </div>
       ${phone}
     </div>

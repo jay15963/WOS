@@ -123,7 +123,7 @@ async function boot() {
     } else {
       $('#loading').classList.add('hidden');
       await nextFrame();
-      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress });
+      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress, assets: assets.promise });
       $('#loading').classList.remove('hidden');
     }
     status('Preparando…', 0.3); await nextFrame();
