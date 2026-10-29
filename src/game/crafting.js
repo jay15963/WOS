@@ -1,7 +1,8 @@
 // Crafting: recipes by station (content/recipes.js). Ingredients are paid when queued (refunded on
 // cancel); each item takes time while the player stands still near the station (progress bar over the
 // player via p.work, owner 'craft'); moving pauses, staying idle in range resumes. Furnace recipes burn
-// fuel (wood 1 / coal 3 units, kept in station.fuel). Stations get o.working = true while crafting.
+// fuel (wood 1 / coal 3 units, kept in the player's own fuel bank game.craft.fuel). Stations show
+// o.working while anyone crafts at them (multiplayer: intent station.work → op struct.working).
 
 import { RECIPES, STATION_RANGE, FUEL_VALUE, STATION_PT, stationsOf } from './content/recipes.js';
 import { ITEMS, BUILDINGS } from './data.js';
@@ -15,7 +16,7 @@ export const MAX_QUEUE = 8;
 const WORK_LINGER = 1.6; // s a furnace keeps glowing between items
 
 export function initCrafting(game) {
-  game.craft = { queue: [], v: 0, status: null };
+  game.craft = { queue: [], v: 0, status: null, fuel: 0 };
 }
 
 const stationName = (r) => stationsOf(r).map((s) => STATION_PT[s]).join(' ou ');
@@ -34,9 +35,9 @@ export function nearestStation(game, r) {
 
 const anyBuilt = (game, types) => game.build.structures.some((o) => !o.blueprint && types.includes(o.type));
 
-function fuelAvailable(game, st) {
+function fuelAvailable(game) {
   const inv = game.player.inv;
-  return (st?.fuel || 0) + inv.count('wood') * FUEL_VALUE.wood + inv.count('coal') * FUEL_VALUE.coal;
+  return (game.craft.fuel || 0) + inv.count('wood') * FUEL_VALUE.wood + inv.count('coal') * FUEL_VALUE.coal;
 }
 
 // UI-facing state of a recipe
@@ -50,7 +51,7 @@ export function recipeState(game, id) {
   let reason = null;
   if (!stationOk) reason = anyBuilt(game, stationsOf(r)) ? `Fique perto: ${stationName(r)}` : `Precisa de: ${stationName(r)}`;
   else if (!have) reason = 'Faltam materiais';
-  else if (r.fuel && fuelAvailable(game, st) - (r.in.wood || 0) < r.fuel) reason = 'Sem combustível (madeira ou carvão)';
+  else if (r.fuel && fuelAvailable(game) - (r.in.wood || 0) < r.fuel) reason = 'Sem combustível (madeira ou carvão)';
   return { ok: !reason, have, stationOk, station: st, reason, missing, queueFull: game.craft.queue.length >= MAX_QUEUE };
 }
 
@@ -87,15 +88,16 @@ export function cancelCraft(game, index) {
   game.events.emit('inventory', {});
 }
 
-function takeFuel(game, st, need) {
-  const inv = game.player.inv;
-  st.fuel = st.fuel || 0;
-  while (st.fuel < need) {
-    if (inv.remove('wood', 1)) st.fuel += FUEL_VALUE.wood;
-    else if (inv.remove('coal', 1)) st.fuel += FUEL_VALUE.coal;
+// fuel bank of the local player (unburnt fuel stays with the player, not in the shared station)
+function takeFuel(game, need) {
+  const inv = game.player.inv, C = game.craft;
+  C.fuel = C.fuel || 0;
+  while (C.fuel < need) {
+    if (inv.remove('wood', 1)) C.fuel += FUEL_VALUE.wood;
+    else if (inv.remove('coal', 1)) C.fuel += FUEL_VALUE.coal;
     else return false;
   }
-  st.fuel -= need;
+  C.fuel -= need;
   game.events.emit('inventory', {});
   return true;
 }
@@ -120,8 +122,9 @@ function complete(game, e, st) {
 }
 
 export function craftingSystem() {
-  const lit = new Set();
+  let myStation = null, myOn = false, lingerT = 0;
   return {
+    sync: 'owner', // the local player's crafting queue (station light via station.work)
     update(game, dt) {
       const C = game.craft, Q = C.queue, p = game.player, ctl = game.ctl;
       let active = null, going = false;
@@ -137,7 +140,7 @@ export function craftingSystem() {
         const busy = p.moving || ctl?.goal || (p.work && p.work.owner !== 'craft') || (p.autoAttack && p.target && !p.target.dead) || p.charge;
         if (r.station !== 'hand' && !st) C.status = `Volte para perto: ${stationName(r)}`;
         else if (busy) C.status = 'Pausado (fique parado)';
-        else if (r.fuel && !e.fueled && !takeFuel(game, st, r.fuel)) {
+        else if (r.fuel && !e.fueled && !takeFuel(game, r.fuel)) {
           C.status = 'Sem combustível (madeira ou carvão)';
           if (!e.fuelMsgT || game.time > e.fuelMsgT) { e.fuelMsgT = game.time + 6; game.events.emit('error', { text: C.status }); }
         } else {
@@ -162,18 +165,19 @@ export function craftingSystem() {
         if (!going && p.work?.owner === 'craft') { p.work = null; p.action = null; }
       } else if (p.work?.owner === 'craft') { p.work = null; p.action = null; }
 
-      // station working state (+ light / fire for furnace & pot)
-      if (active) { active.workT = WORK_LINGER; lit.add(active); }
-      for (const o of lit) {
-        if (o !== active) o.workT = (o.workT || 0) - dt;
-        const on = o.workT > 0 && !o.removed;
-        if (o.working !== on) {
-          o.working = on;
-          const def = BUILDINGS[o.type];
-          if (def.workLight) { if (on) o.light = { ...def.workLight }; else delete o.light; }
-          if (def.warmWorking && o.type !== 'campfire') o.fire = on;
+      // the station this player works at glows (+ lingers a moment between items): shared state, so it is
+      // requested from the host (station.work) only on transitions
+      if (active) {
+        lingerT = WORK_LINGER;
+        if (myStation !== active) {
+          if (myStation && myOn) game.net.request('station.work', { id: myStation.id, on: 0 });
+          myStation = active; myOn = false;
         }
-        if (!on) lit.delete(o);
+      } else lingerT -= dt;
+      if (myStation) {
+        const want = lingerT > 0 && !myStation.removed && !!BUILDINGS[myStation.type]?.station;
+        if (want !== myOn) { myOn = want; if (!myStation.removed) game.net.request('station.work', { id: myStation.id, on: want ? 1 : 0 }); }
+        if (!want) myStation = null;
       }
     },
   };
@@ -182,6 +186,8 @@ export function craftingSystem() {
 export function saveCraft(game) {
   return game.craft.queue.map((e) => [e.id, +e.t.toFixed(2), e.station || 0, e.fueled ? 1 : 0]);
 }
+export const saveFuel = (game) => +(game.craft.fuel || 0).toFixed(2);
+export function loadFuel(game, v) { game.craft.fuel = Math.max(0, Number(v) || 0); }
 
 export function loadCraft(game, arr) {
   for (const [id, t, station, fueled] of arr || []) {

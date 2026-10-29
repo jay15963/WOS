@@ -105,6 +105,7 @@ export function syncVisual(p, force = false) {
 
 export function equipmentSystem() {
   return {
+    sync: 'owner', // visual tool of the local player
     update(game, dt) {
       const p = game.player;
       if (p.work?.tool) { p.toolShown = p.work.tool; p.toolShowT = SHOW_TOOL_AFTER; }

@@ -81,6 +81,7 @@ export function installNetUI(game) {
   };
 
   return {
+    sync: 'all', // session pump (presence, entity stream, ops flush happen inside) + room chip
     update(g, dt) {
       if (g.session) { wire(g.session); g.session.update(g, dt); }
       chipT -= dt;

@@ -14,7 +14,7 @@ import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terra
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
 import { Game } from './game/game.js';
-import { installSystems } from './game/systems.js';
+import { installSystems, addSystem } from './game/systems.js';
 import { installAmbient } from './fx/ambient.js';
 import { Audio } from './fx/audio.js';
 import { showMainMenu, wipeWorlds } from './ui/menu.js';
@@ -117,7 +117,7 @@ async function boot() {
     installSystems(game);
     game.player.name = playerName();
     const netui = installNetUI(game);
-    game.systems.push(netui);
+    addSystem(game, netui);
     window.game = game; // debug handle
 
     if (choice.mode === 'host') {

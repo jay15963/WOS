@@ -15,7 +15,8 @@ const TAU = Math.PI * 2;
 
 export function installAmbient(game) {
   const sys = new Ambient(game);
-  game.systems.push(sys);
+  sys.sync = 'cosmetic';
+  game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.ambient = sys;
 }
 

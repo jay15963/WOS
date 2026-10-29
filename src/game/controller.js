@@ -275,6 +275,7 @@ export function installController(game) {
 
   let hoverT = 0;
   return {
+    sync: 'owner', // input of the local player
     update(g, dt) {
       const p = g.player, inp = g.input;
       // hover (desktop mouse)

@@ -1,95 +1,34 @@
 // Building: placement modes (single / line / rectangle outline / filled area) with connected ghost
 // previews, blueprints built over time by the player (action 'build', o.progress 0→1, non-blocking until
 // done), deconstruction (refund 75%), doors / gates (world.solid = 2, o.open 0..1), structure use
-// (chest, bed, crafting stations), floor speed bonus, noGrow stamps and decor clearing.
+// (chest, bed, crafting stations), floor speed bonus.
+// Multiplayer: this module is the player's side (modes, preview, work loop, UI). Every change to the
+// shared structures goes through the host: intents build.place / build.hit / build.decon / decon.hit and
+// the ops of mut/structures.js (placeStructure, completeStructure, removeStructure live there).
 //
 // Structure object: { id, type, v, tx, ty, x, y (base), s, f, building, layer, flat?, progress, blueprint?,
 //   mask (autotile), orient ('h'|'v' doors), open (doors), working (stations), store (chest), light, fire }
 // 1×1: x = tx + 0.5, y = ty + 1 · w×h: x = tx + w/2, y = ty + h. Round props collide at (x, cy).
 
 import { BUILDINGS, ITEMS } from './data.js';
-import { Inventory } from './inventory.js';
-import { occAdd, occRemove } from './nav.js';
-import { gainXp } from './player.js';
-import { dropLoot } from './loot.js';
 import { buildSprite } from './artcompat.js';
 import { registerWork, hitsFor } from './gathering.js';
-import { initGrids, gridAdd, gridRemove, footprint, computeMask, updateMasksAround, structureAt, DIRS4 } from './autotile.js';
-import { noGrowStamp, removeNatural } from './flora.js';
-import { collides } from './physics.js';
-import { G } from '../world/worldgen.js';
+import { initGrids, computeMask, structureAt, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES } from './mut/structures.js';
 
-let nextId = 1;
+export { placeStructure, completeStructure, removeStructure, placeReason, defOf, REFUND } from './mut/structures.js';
+
 const FRONT = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] };
-const MAX_DIST = 22;       // placement distance from the player (tiles)
-const MAX_TILES = 140;     // per drag
-export const REFUND = 0.75;
-const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'wild_potato', 'wild_cotton', 'wild_corn']);
-const CLEAR_YIELD = { pebble: { pebble: 1 }, stick: { stick: 1 }, fibergrass: { fiber: 2 }, bush: { fiber: 2, stick: 1 }, berrybush: { berries: 2, stick: 1 },
-  wild_potato: { potato: 1, seed_potato: 1 }, wild_cotton: { cotton: 2, seed_cotton: 1 }, wild_corn: { corn: 1, seed_corn: 1 } };
-const BAD_FARM = new Set([G.STONE, G.SAND, G.GRAVEL]);
 
 export function initBuilding(game) {
   game.build = { mode: null, structures: [], doors: [], decon: new Set(), v: 0 };
   initGrids(game);
 }
 
-export const defOf = (o) => BUILDINGS[o.type];
-const msgBuilt = (def) => `${def.name} ${def.g === 'm' ? 'construído' : 'construída'}`;
-
 export function frontTile(p) {
   const [fx, fy] = FRONT[p.facing] || FRONT.s;
   return [Math.floor(p.x + fx * 0.9), Math.floor(p.y - 0.1 + fy * 0.9)];
-}
-
-// ---------- natural objects on a tile ----------
-function objectsOnTile(game, tx, ty) {
-  const out = [];
-  game.world.forChunks(tx - 1, ty - 1, tx + 2, ty + 2, (c) => {
-    for (const o of c.objects) {
-      if (o.building || o.gone) continue;
-      if (Math.floor(o.x) === tx && Math.floor(o.y - 0.05) === ty) out.push(o);
-    }
-  });
-  return out;
-}
-
-// ---------- placement validity ----------
-// returns null when OK, else a pt-BR reason. `skipExisting` lets drags silently skip built tiles.
-export function placeReason(game, type, tx, ty) {
-  const def = BUILDINGS[type], w = game.world, p = game.player;
-  if (!def) return 'Construção desconhecida';
-  const [sw, sh] = def.size;
-  const layer = def.layer;
-  const G2 = game.build.grid;
-  let replace = null;
-  for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
-    if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return 'Fora do mapa';
-    const i = w.idx(x, y);
-    if (w.rock[i]) return 'Rocha no caminho';
-    if (w.water[i]) return 'Não dá para construir na água';
-    if (G2[layer].has(i)) {
-      // a door / gate can replace a wall / fence of its group (single tile)
-      const cur = G2[layer].get(i);
-      if (def.block === 'door' && sw === 1 && sh === 1 && BUILDINGS[cur.type].connect === def.connect && BUILDINGS[cur.type].block === 'tile') { replace = cur; continue; }
-      return 'exists';
-    }
-    if (layer === 'main' && G2.floor.get(i)?.type === 'farm_plot') return 'Canteiro no caminho';
-    if (type === 'farm_plot') {
-      if (G2.main.has(i) || G2.rug.has(i)) return 'Construção no caminho';
-      if (BAD_FARM.has(w.ground[i])) return 'Solo ruim para plantar';
-    }
-    if (layer === 'rug' && G2.floor.get(i)?.type === 'farm_plot') return 'Canteiro no caminho';
-    if (layer === 'main' && w.solid[i] && !replace) return 'Algo no caminho';
-    for (const o of objectsOnTile(game, x, y)) {
-      if (CLEARABLE.has(o.type)) continue;
-      if (o.type === 'crop') { if (layer !== 'floor') return 'Plantação no caminho'; continue; }
-      return o.type.startsWith('tree_') ? (o.stump ? 'Toco no caminho' : 'Árvore no caminho') : o.type === 'boulder' ? 'Pedregulho no caminho' : 'Algo no caminho';
-    }
-  }
-  if (Math.hypot(tx + sw / 2 - p.x, ty + sh / 2 - p.y) > MAX_DIST) return 'Muito longe';
-  return replace ? { replace } : null;
 }
 
 // tiles for a drag from (ax, ay) to (bx, by)
@@ -160,7 +99,7 @@ function updatePreview(game) {
   const total = {};
   let nOk = 0, firstReason = null;
   for (const [tx, ty] of tiles) {
-    let r = placeReason(game, m.type, tx, ty);
+    let r = placeReason(game, m.type, tx, ty, p);
     if (r === 'exists' && multi) continue;
     let replace = null;
     if (r && typeof r === 'object') { replace = r.replace; r = null; }
@@ -176,32 +115,37 @@ function updatePreview(game) {
   }
   if (def.connect) {
     const extra = (x, y) => game.world.inBounds(x, y) && ghost.has(game.world.idx(x, y));
-    for (const t of out) t.mask = computeMask(game, m.type, t.tx, t.ty, extra);
+    for (const t of out) t.mask = computeMask(game, m.type, t.tx, t.ty, extra); // sync-ok: ghost preview tile, not a structure
   }
   m.tiles = out; m.n = nOk; m.valid = nOk > 0; m.reason = nOk ? null : firstReason; m.total = total;
 }
 
-// place every valid, affordable tile of the preview as blueprints
+// place every valid, affordable tile of the preview as blueprints (paid now; the host refunds refusals)
 export function commitPlacement(game) {
   const m = game.build.mode;
   if (!m || m.kind !== 'place') return false;
   updatePreview(game);
   const def = BUILDINGS[m.type], p = game.player;
   if (!m.valid) { game.events.emit('error', { text: m.reason || 'Local inválido' }); return false; }
-  let n = 0;
+  const tiles = [];
   for (const t of m.tiles) {
     if (!t.ok) continue;
     if (!p.inv.pay(def.cost)) break;
-    if (t.replace && !t.replace.removed) removeStructure(game, t.replace, 1, true);
-    placeStructure(game, m.type, t.tx, t.ty, { progress: 0 });
-    n++;
+    tiles.push([t.tx, t.ty]);
   }
+  const n = tiles.length;
   if (!n) return false;
+  const paid = {};
+  for (const k in def.cost) paid[k] = def.cost[k] * n;
   game.events.emit('inventory', {});
+  game.net.request('build.place', { type: m.type, tiles }, {
+    refund: paid,
+    onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
+  });
   game.audio?.play('build', { x: p.x, y: p.y, volume: 0.5 });
   game.events.emit('toast', { text: n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`, kind: 'info' });
   const h = game.ctl?.hinted;
-  if (h && !h.blueprint) { h.blueprint = true; game.events.emit('toast', { text: 'Você constrói as plantas automaticamente quando fica parado', kind: 'info' }); }
+  if (h && !h.blueprint) { h.blueprint = true; game.events.emit('toast', { text: 'Você constrói as plantas automaticamente quando fica parado', kind: 'info' }); } // sync-ok: hint flag, not a structure
   game.work?.wake();
   m.anchor = null; m.end = null; m.locked = false;
   if (!def.drag || !p.inv.has(def.cost)) exitBuildMode(game);
@@ -230,160 +174,16 @@ export function buildTap(game, wx, wy) {
   m.hover = [tx, ty]; m.locked = true;
 }
 
-// ---------- structures ----------
-export function placeStructure(game, type, tx, ty, opts = {}) {
-  const def = BUILDINGS[type], w = game.world;
-  const [sw, sh] = def.size;
-  const o = {
-    id: opts.id || 'b' + Date.now().toString(36) + (nextId++).toString(36), type, v: opts.v ?? Math.floor(Math.random() * 1000),
-    tx, ty, x: tx + sw / 2, y: ty + sh, cy: ty + sh * 0.6, s: 1, f: 1, building: true, layer: def.layer,
-    progress: Math.max(0, Math.min(1, opts.progress ?? 1)), mask: 0, solid: 0, builtAt: opts.builtAt ?? game.worldTime,
-  };
-  if (def.flat) o.flat = true;
-  if (o.progress < 1) { o.blueprint = true; if (def.fire || def.workLight) { o.fire = false; o.lit = false; } }
-  if (def.slots) { o.store = new Inventory(def.slots); if (opts.store) o.store.load(opts.store); }
-  if (def.station) { o.station = true; o.working = false; if (opts.fuel) o.fuel = opts.fuel; }
-  if (def.block === 'door') { o.door = true; o.open = 0; o.orient = 'h'; game.build.doors.push(o); }
-  w.addObject(o);
-  game.build.structures.push(o);
-  gridAdd(game, o);
-  noGrowStamp(game, tx, ty, sw, sh, +1);
-  clearDecor(game, tx, ty, sw, sh);
-  updateMasksAround(game, tx, ty, tx + sw - 1, ty + sh - 1);
-  if (o.progress >= 1) completeStructure(game, o, true);
-  if (opts.decon) game.build.decon.add(o);
-  game.build.v++;
-  game.events.emit('tile', { tx, ty });
-  return o;
-}
-
-function clearDecor(game, tx, ty, sw, sh) {
-  game.world.forChunks(tx, ty, tx + sw, ty + sh, (c) => {
-    for (let k = c.decor.length - 1; k >= 0; k--) {
-      const d = c.decor[k];
-      if (d.x >= tx && d.x < tx + sw && d.y >= ty && d.y < ty + sh) c.decor.splice(k, 1);
-    }
-  });
-}
-
-// nudge entities out of a newly solid footprint (tile blocks) or round prop
-function nudgeOut(game, o) {
-  const def = defOf(o);
-  const round = typeof def.block === 'number' && def.block > 0;
-  if (def.block !== 'tile' && def.block !== 'door' && !round) return;
-  const [sw, sh] = def.size;
-  for (const e of game.entities) {
-    if (e.dead) continue;
-    if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
-    else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
-    if (def.block === 'door' && e.passDoors) continue;
-    let best = null, bd = 1e9;
-    const pd = !!e.passDoors;
-    // closest free spot: around the prop first, then neighbouring tile centres
-    const cands = [];
-    if (round) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2, rr = e.r + def.block + 0.05; cands.push([o.x + Math.cos(a) * rr, o.cy + Math.sin(a) * rr]); }
-    for (let ty = o.ty - 1; ty <= o.ty + sh; ty++) for (let tx = o.tx - 1; tx <= o.tx + sw; tx++) cands.push([tx + 0.5, ty + 0.5]);
-    for (const [x, y] of cands) {
-      if (collides(game.world, x, y, e.r, null, pd)) continue;
-      const d = Math.hypot(x - e.x, y - e.y);
-      if (d < bd) { bd = d; best = [x, y]; }
-    }
-    if (best) { e.x = best[0]; e.y = best[1]; }
-  }
-}
-
-export function completeStructure(game, o, silent = false) {
-  const def = defOf(o), w = game.world;
-  o.progress = 1;
-  delete o.blueprint;
-  const [sw, sh] = def.size;
-  if (def.block === 'tile' || def.block === 'door') {
-    for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = def.block === 'door' ? 2 : 1;
-  } else if (typeof def.block === 'number' && def.block > 0) {
-    o.solid = def.block; occAdd(game, o);
-  }
-  if (def.light) o.light = { ...def.light };
-  if (def.fire) o.fire = true;
-  else if (def.workLight) o.fire = false;
-  delete o.lit;
-  nudgeOut(game, o);
-  const p = game.player;
-  if (o.type === 'bed' && (!silent || !p.respawn)) p.respawn = o.id;
-  if (!silent) {
-    game.juice.puff(o.x, o.y - 0.2, 10, [0.72, 0.64, 0.52], 0.8);
-    game.audio?.play('build', { x: o.x, y: o.y });
-    gainXp(game, def.xp || 3);
-    game.events.emit('toast', { text: msgBuilt(def), kind: 'good' });
-    if (o.type === 'bed') game.events.emit('toast', { text: 'Ponto de renascimento definido', kind: 'info' });
-    if (o.type === 'campfire') game.audio?.play('fire', { x: o.x, y: o.y });
-    game.events.emit('built', { o });
-  }
-  game.build.v++;
-  game.events.emit('tile', { tx: o.tx, ty: o.ty });
-  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) if (x || y) game.events.emit('tile', { tx: o.tx + x, ty: o.ty + y });
-}
-
-function refundTo(game, o, items) {
-  const p = game.player;
-  for (const id in items) {
-    const n = items[id];
-    if (n <= 0) continue;
-    const left = p.inv.add(id, n);
-    if (n - left > 0) game.events.emit('loot', { item: id, qty: n - left });
-    for (let k = 0; k < left; k++) dropLoot(game, o.x, o.y - 0.2, id, 1, 0.6);
-  }
-  game.events.emit('inventory', {});
-}
-
-export function removeStructure(game, o, refund = REFUND, quiet = false) {
-  const def = defOf(o), w = game.world;
-  const S = game.build.structures, k = S.indexOf(o);
-  if (k < 0) return;
-  S.splice(k, 1);
-  const wasBlueprint = !!o.blueprint;
-  gridRemove(game, o);
-  const [sw, sh] = def.size;
-  noGrowStamp(game, o.tx, o.ty, sw, sh, -1);
-  w.removeObject(o);
-  occRemove(game, o);
-  if (!wasBlueprint && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
-  if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
-  game.build.decon.delete(o);
-  o.removed = true;
-  if (refund > 0) {
-    const back = {};
-    for (const id in def.cost) back[id] = wasBlueprint ? def.cost[id] : Math.round(def.cost[id] * refund);
-    refundTo(game, o, back);
-  }
-  if (o.store) for (const s of o.store.slots) if (s) dropLoot(game, o.x, o.y - 0.3, s.id, s.qty, 0.8);
-  if (o.fuel > 0) { /* unburnt fuel is lost */ }
-  if (o.type === 'farm_plot') game.farm?.removeCropAt(o.tx, o.ty);
-  if (game.player.respawn === o.id) game.player.respawn = null;
-  updateMasksAround(game, o.tx, o.ty, o.tx + sw - 1, o.ty + sh - 1);
-  if (!quiet) {
-    game.juice.puff(o.x, o.y - 0.2, 8, [0.72, 0.64, 0.52], 0.7);
-    game.audio?.play('build', { x: o.x, y: o.y, volume: 0.7 });
-  }
-  game.build.v++;
-  game.events.emit('tile', { tx: o.tx, ty: o.ty });
-}
-
 // ---------- deconstruction designations ----------
 export function structureAtPoint(game, wx, wy) {
   const tx = Math.floor(wx), ty = Math.floor(wy);
   return structureAt(game, tx, ty, 'main') || structureAt(game, tx, ty, 'rug') || structureAt(game, tx, ty, 'floor');
 }
 
+// returns the wanted state (blueprints are cancelled: false)
 export function toggleDecon(game, o, on = null) {
-  const D = game.build.decon;
-  if (o.blueprint) { // cancelling a blueprint is instant, full refund
-    removeStructure(game, o, 1);
-    game.events.emit('toast', { text: `${defOf(o).name}: planta cancelada`, kind: 'info' });
-    return false;
-  }
-  const want = on == null ? !D.has(o) : on;
-  if (want) D.add(o); else D.delete(o);
-  game.build.v++;
+  const want = o.blueprint ? false : on == null ? !game.build.decon.has(o) : on;
+  game.net.request('build.decon', { ids: [o.id], on: on == null ? null : on ? 1 : 0 });
   if (want) game.work?.wake();
   return want;
 }
@@ -399,36 +199,39 @@ export function deconRect(game, x0, y0, x1, y1) {
   for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
     for (const L of ['main', 'rug', 'floor']) { const o = structureAt(game, x, y, L); if (o) seen.add(o); }
   }
-  for (const o of seen) toggleDecon(game, o, true);
+  if (seen.size) {
+    game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 });
+    game.work?.wake();
+  }
   return seen.size;
 }
 
 // ---------- work kinds ----------
-function clearFootprint(game, o) {
+// read-only footprint check (the host clears it on the first hit and may still refuse)
+function footprintBlocked(game, o) {
   const def = defOf(o);
   const [sw, sh] = def.size;
-  const give = {};
   for (let y = o.ty; y < o.ty + sh; y++) for (let x = o.tx; x < o.tx + sw; x++) {
-    for (const n of objectsOnTile(game, x, y)) {
-      if (CLEARABLE.has(n.type)) {
-        const yld = CLEAR_YIELD[n.type] || {};
-        for (const k in yld) give[k] = (give[k] || 0) + yld[k];
-        game.juice.leaves?.(n.x, n.y, 3, 0.4);
-        removeNatural(game, n);
-      } else if (n.type === 'crop' && def.layer !== 'floor') {
-        game.farm?.removeCrop(n);
-      } else if (n.type !== 'crop') return false;
-    }
+    for (const n of objectsOnTile(game, x, y)) if (!CLEARABLE.has(n.type) && n.type !== 'crop') return true;
   }
-  refundTo(game, o, give);
-  return true;
+  return false;
 }
 
 registerWork('blueprint', {
   valid: (g, it) => !it.o.removed && !!it.o.blueprint,
   start(game, it) {
     const o = it.o, def = defOf(o);
-    if (!clearFootprint(game, o)) { game.events.emit('error', { text: 'Algo está no caminho' }); return null; }
+    if (footprintBlocked(game, o)) { game.events.emit('error', { text: 'Algo está no caminho' }); return null; }
+    const p = game.player;
+    let refused = false;
+    game.net.request('build.hit', { id: o.id, start: true }, {
+      onReject: (why) => {
+        refused = true; // authority: synchronous · guest: arrives later and stops the work
+        if (p.work?.it?.o === o) { p.work = null; p.action = null; }
+        game.events.emit('error', { text: why || 'Algo está no caminho' });
+      },
+    });
+    if (refused || o.removed || !o.blueprint) return null;
     const { need, cycle } = hitsFor(def.time || 2, 2);
     return { type: 'build', cycle, need, hits: Math.floor((o.progress || 0) * need), label: `Construindo ${def.name.toLowerCase()}` };
   },
@@ -436,9 +239,9 @@ registerWork('blueprint', {
     const o = wk.it.o;
     game.juice.chips(o.x, o.y - 0.3, [0.72, 0.6, 0.45], 4, 0.3);
     game.audio?.play('build', { x: o.x, y: o.y, volume: 0.35 });
+    game.net.request('build.hit', { id: o.id, inc: +(1 / wk.need).toFixed(4) });
   },
-  tick(game, wk) { wk.it.o.progress = Math.min(0.999, wk.k); },
-  finish(game, wk) { completeStructure(game, wk.it.o); return true; },
+  finish(game, wk) { game.net.request('build.hit', { id: wk.it.o.id, final: true }); return true; },
 });
 
 registerWork('decon', {
@@ -451,15 +254,11 @@ registerWork('decon', {
   hit(game, wk) {
     const o = wk.it.o;
     o.shake = 1;
+    (game.shaking ||= new Set()).add(o);
     game.juice.chips(o.x, o.y - 0.3, [0.72, 0.6, 0.45], 4, 0.3);
     game.audio?.play('build', { x: o.x, y: o.y, volume: 0.35 });
   },
-  finish(game, wk) {
-    const o = wk.it.o, def = defOf(o);
-    removeStructure(game, o, REFUND);
-    game.events.emit('toast', { text: `${def.name} ${def.g === 'm' ? 'desmontado' : 'desmontada'}`, kind: 'info' });
-    return true;
-  },
+  finish(game, wk) { game.net.request('decon.hit', { id: wk.it.o.id }); return true; },
 });
 
 // ---------- interaction descriptors ----------
@@ -501,15 +300,13 @@ export function useStructure(game, it) {
       if (p.inCombat || game.entities.some((e) => !e.dead && e !== p && e.state === 'chase' && e.threat === p)) {
         game.events.emit('error', { text: 'Não dá para dormir em combate' }); return;
       }
+      if (!game.net.auth) { game.events.emit('toast', { text: 'Ponto de renascimento definido. Em multijogador só o anfitrião dorme até o amanhecer.', kind: 'info' }); return; }
       game.events.emit('sleep', {});
       game.later(0.9, () => {
-        const from = game.env.hour;
-        const hours = from >= 12 ? 24 - from + 6 : 6 - from;
-        if (game.env.hour >= 12) game.env.dayIndex++;
-        game.env.hour = 6.0;
-        game.worldTime += Math.max(0, hours) / 24 * (game.env.dayLength || 720); // crops & regrowth advance
-        p.hp = p.maxHp; p.energy = p.maxEnergy; p.hunger = Math.max(0, p.hunger - 15);
-        game.events.emit('toast', { text: 'Você dormiu até o amanhecer', kind: 'good' });
+        game.net.request('env.sleep', {}, {
+          onOk: () => { p.hp = p.maxHp; p.energy = p.maxEnergy; p.hunger = Math.max(0, p.hunger - 15); },
+          onReject: (why) => game.events.emit('error', { text: why || 'Não deu para dormir' }),
+        });
       });
       return;
     }
@@ -519,12 +316,17 @@ export function useStructure(game, it) {
 // ---------- system ----------
 export function buildingSystem() {
   return {
+    sync: 'owner', // doors animate locally from every player's position; preview / floor speed are the player's
     update(game, dt) {
       const p = game.player;
-      // doors open for the player
+      // doors open for any player (cosmetic: derived from the positions every peer knows)
       for (const o of game.build.doors) {
         if (o.blueprint) continue;
-        const near = !p.dead && Math.abs(p.x - (o.tx + 0.5)) < 1.25 && Math.abs(p.y - (o.ty + 0.5)) < 1.25;
+        let near = false;
+        for (const e of game.entities) {
+          if (e.kind !== 'pawn' || e.isMob || e.proxy || e.dead) continue;
+          if (Math.abs(e.x - (o.tx + 0.5)) < 1.25 && Math.abs(e.y - (o.ty + 0.5)) < 1.25) { near = true; break; }
+        }
         const target = near ? 1 : 0;
         if (o.open !== target) {
           const was = o.open;

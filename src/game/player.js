@@ -159,6 +159,7 @@ export function respawnPlayer(game) {
 // ---------- per-frame ----------
 export function playerSystem() {
   return {
+    sync: 'owner', // local player stats, buffs, regeneration
     update(game, dt) {
       const p = game.player;
       // equipment polling (cheap string compare) → stats + action bar (abilities.js listens to 'gear')

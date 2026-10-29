@@ -88,6 +88,7 @@ export function installOverlay(game) {
   const plates = [], placed = [];
 
   return {
+    sync: 'cosmetic', // floating text, nameplates
     update(g, dt) {
       for (let i = fct.length - 1; i >= 0; i--) {
         const f = fct[i];

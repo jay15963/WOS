@@ -63,8 +63,12 @@ export class World {
     this.objById.set(o.id, o);
   }
 
+  // Runtime changes to the object lists are SHARED state: only op appliers / snapshot apply / the
+  // deterministic camp layout may call these (game.net installs `guard`, which checks net.applying).
+  // Every object needs an id given by the authority (no random ids: two peers would disagree).
   addObject(o) {
-    o.id ||= Math.floor(Math.random() * 1e9);
+    this.guard?.('addObject');
+    if (o.id == null || o.id === '') throw new Error('world.addObject: objeto sem id');
     this._insert(o);
     // keep chunk list y-sorted lazily
     this.chunkAt(o.x, o.y).sorted = false;
@@ -72,6 +76,7 @@ export class World {
   }
 
   removeObject(o) {
+    this.guard?.('removeObject');
     const c = this.chunkAt(o.x, o.y);
     const k = c.objects.indexOf(o);
     if (k >= 0) c.objects.splice(k, 1);
@@ -119,6 +124,7 @@ export class World {
 
   // Remove a rock wall tile (mining). Returns true if changed.
   mineRock(tx, ty) {
+    this.guard?.('mineRock');
     if (!this.inBounds(tx, ty)) return false;
     const i = this.idx(tx, ty);
     if (!this.rock[i]) return false;

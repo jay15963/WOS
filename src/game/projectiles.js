@@ -3,9 +3,16 @@
 // Stuck player arrows are sometimes recoverable as `arrow` loot. Simulation + a render hook (B.main / B.blob).
 //
 // fireArrow(game, { src, faction:'player'|'bandit', x, y, tx, ty, angle?, target?, range?, speed?, kind?:'arrow'|'spear',
-//                   onHit(game, entity, proj), onMiss?(game, proj) })
+//                   onHit(game, entity, proj), onMiss?(game, proj), cosmetic?, id? })
+// Multiplayer: creature shots are simulated by the host (victims: every player, damage via hurtPlayer) and
+// shown on guests as COSMETIC copies (fx 'proj' / 'pend' from net/entities.js); a player's own arrows are
+// simulated by the shooter (hits → mob.hit) and relayed to the others as cosmetic copies (intent proj.fire).
+// A cosmetic projectile never tests victims, calls onHit/onMiss or drops loot.
 
 import { dropLoot } from './loot.js';
+import { allPlayers } from './players.js';
+
+let projSeq = 0;
 
 const STEP = 0.22;          // collision sub-step (tiles)
 const STUCK_LIFE = 5;       // seconds a stuck arrow stays visible
@@ -25,10 +32,46 @@ export function fireArrow(game, o) {
     x: o.x + ux * 0.3, y: o.y + uy * 0.3 - 0.02, ox: o.x, oy: o.y, ux, uy, speed,
     d: 0, maxD, arcD, arcH: Math.min(0.9, 0.05 * arcD + 0.08), h1: o.target ? 0.5 * (o.target.scale || 1) : 0.35,
     lift: H0, rot: Math.atan2(uy, ux), stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
+    cosmetic: !!o.cosmetic, id: o.id || null,
   };
   P.push(pr);
   if (P.length > 80) P.splice(0, P.length - 80);
+  if (!pr.cosmetic) {
+    const net = game.net, args = [pr.kind, +o.x.toFixed(2), +o.y.toFixed(2), +o.tx.toFixed(2), +o.ty.toFixed(2), +(o.angle || 0).toFixed(3), speed, maxD, pr.faction, +pr.h1.toFixed(2)];
+    if (pr.faction !== 'player') {
+      if (net.auth && game.session) { pr.id = 'h' + (++projSeq).toString(36); net.entsApi?.fx?.(['proj', pr.id, ...args], pr.x, pr.y); }
+    } else if (game.session && game.session.state !== 'closed') {
+      pr.id = net.pid + ':' + (++projSeq).toString(36);
+      net.request('proj.fire', { id: pr.id, a: args });
+    }
+  }
   return pr;
+}
+
+// a projectile seen by another peer (no gameplay effect)
+export function fireCosmetic(game, id, a) {
+  if (!Array.isArray(a)) return null;
+  const n = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  const [kind, x, y, tx, ty, angle, speed, range, faction, h1] = a;
+  const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' ? 'spear' : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit' });
+  pr.h1 = n(h1, 0.35);
+  return pr;
+}
+
+// authority: where a creature shot ended (cosmetic copies on guests follow)
+export function endCosmetic(game, id, x, y, stuck, ground) {
+  const P = game.projectiles;
+  if (!P) return;
+  const pr = P.find((q) => q.id === id && q.cosmetic);
+  if (!pr) return;
+  if (!stuck) { P.splice(P.indexOf(pr), 1); return; }
+  pr.x = x; pr.y = y; pr.stuck = true; pr.t = 0; pr.ground = !!ground;
+  if (ground) pr.lift = 0.04;
+}
+
+function reportEnd(game, pr, stuck, ground) {
+  if (pr.cosmetic || !pr.id || pr.faction === 'player' || !game.net.auth) return;
+  game.net.entsApi?.fx?.(['pend', pr.id, +pr.x.toFixed(2), +pr.y.toFixed(2), stuck ? 1 : 0, ground ? 1 : 0], pr.x, pr.y);
 }
 
 function liftAt(pr, d) {
@@ -57,8 +100,10 @@ function stick(game, pr, ground) {
   pr.ground = ground;
   if (ground) pr.lift = 0.04;
   game.audio?.play(ground ? 'step' : 'chop', { x: pr.x, y: pr.y, volume: 0.35 });
+  if (pr.cosmetic) return;
+  reportEnd(game, pr, true, ground);
   if (pr.faction === 'player' && pr.kind === 'arrow' && Math.random() < (ground ? 0.5 : 0.3)) {
-    pr.recover = true; // becomes a pickable arrow after a beat
+    pr.recover = true; // becomes a pickable arrow after a beat (shooter's side: loot.drop)
   }
   pr.onMiss?.(game, pr);
   pr.onMiss = null;
@@ -66,10 +111,11 @@ function stick(game, pr, ground) {
 
 export function projectilesSystem() {
   return {
+    sync: 'all', // flight on every peer; hits resolved by the shooter (players) or the host (creatures)
     update(game, dt) {
       const P = game.projectiles;
       if (!P || !P.length) return;
-      const w = game.world, p = game.player, E = game.entities;
+      const w = game.world, p = game.player, E = game.entities, PL = allPlayers(game);
       for (let i = P.length - 1; i >= 0; i--) {
         const pr = P[i];
         pr.t += dt;
@@ -104,21 +150,26 @@ export function projectilesSystem() {
           // walls / rock
           const tx = Math.floor(nx), ty = Math.floor(ny);
           if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || w.solid[ty * w.W + tx]) { stick(game, pr, false); done = true; break; }
-          // creatures
+          // creatures / players (cosmetic copies hit nothing)
           let victim = null;
-          if (pr.faction === 'player') {
+          if (pr.cosmetic) { /* no victims */ }
+          else if (pr.faction === 'player') {
             for (const e of E) {
               if (e === pr.src || e === p || e.dead || !(e.isMob || e.kind === 'animal')) continue;
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
               if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4) { victim = e; break; }
             }
-          } else if (!p.dead) {
-            const dx = p.x - nx, dy = p.y - ny, rr = p.r + 0.14;
-            if (dx * dx + dy * dy < rr * rr) victim = p;
+          } else {
+            for (const q of PL) {
+              if (q.dead) continue;
+              const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
+              if (dx * dx + dy * dy < rr * rr) { victim = q; break; }
+            }
           }
           if (victim && pr.d > 0.25) {
             pr.x = nx; pr.y = ny;
             pr.onHit?.(game, victim, pr);
+            reportEnd(game, pr, false, false);
             game.juice.chips(nx, ny, [0.85, 0.75, 0.55], 3, nl);
             P.splice(i, 1);
             done = true;
@@ -128,9 +179,9 @@ export function projectilesSystem() {
           const ob = pr.d > 0.4 ? hitsSolidObject(w, nx, ny, nl) : null;
           if (ob) {
             pr.x = nx - pr.ux * 0.12; pr.y = ny - pr.uy * 0.12;
-            if (ob.isProp && pr.faction === 'player' && pr.src) pr.onHit?.(game, ob, pr);
+            if (ob.isProp && pr.faction === 'player' && pr.src && !pr.cosmetic) pr.onHit?.(game, ob, pr);
             else stick(game, pr, false);
-            if (ob.isProp) P.splice(i, 1);
+            if (ob.isProp) { if (!pr.stuck) reportEnd(game, pr, false, false); P.splice(i, 1); }
             done = true;
             break;
           }

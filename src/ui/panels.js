@@ -50,6 +50,9 @@ export class Panels {
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
+    // chest contents are shared (op chest.set): refresh an open chest when anyone changes it
+    game.events.on('chest', (d) => { if (this.open === 'chest' && this.data?.chest === d.o) this.render(); });
+    game.events.on('inventory', () => { if (this.open === 'chest') this.render(); });
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // never keep focus on panel buttons (Space/Enter are game keys)
     el.addEventListener('click', () => setTimeout(() => document.activeElement?.blur?.(), 0));
@@ -197,11 +200,12 @@ export class Panels {
     el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
       const i = +b.dataset.slot;
       if (this.open === 'chest') {
-        const s = p.inv.slots[i];
+        const s = p.inv.slots[i], chest = this.data.chest;
         if (!s) return;
-        const left = this.data.chest.store.add(s.id, s.qty);
-        if (left === s.qty) { g.events.emit('error', { text: 'Baú cheio' }); return; }
-        p.inv.remove(s.id, s.qty - left);
+        if (chest.store.room(s.id) <= 0) { g.events.emit('error', { text: 'Baú cheio' }); return; }
+        // the whole stack leaves the backpack now; the host stores it (leftovers / refusal come back)
+        const it = p.inv.takeSlot(i);
+        g.net.request('chest.put', { id: chest.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: (why) => g.events.emit('error', { text: why || 'Baú cheio' }) });
         g.audio?.play('pickup', {});
         g.events.emit('inventory', {});
         this.render();
@@ -224,14 +228,12 @@ export class Panels {
       this.render();
     }));
     el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
-      const st = this.data.chest.store, i = +b.dataset.cslot, s = st.slots[i];
+      const chest = this.data.chest, i = +b.dataset.cslot, s = chest.store.slots[i];
       if (!s) return;
-      const left = p.inv.add(s.id, s.qty);
-      if (left === s.qty) { g.events.emit('error', { text: 'Mochila cheia' }); return; }
-      st.remove(s.id, s.qty - left);
+      const room = p.inv.room(s.id);
+      if (room <= 0) { g.events.emit('error', { text: 'Mochila cheia' }); return; }
+      g.net.request('chest.take', { id: chest.id, slot: i, qty: Math.min(room, s.qty) }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu' }) });
       g.audio?.play('pickup', {});
-      g.events.emit('inventory', {});
-      this.render();
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
       const act = b.dataset.act, sel = this.sel;
@@ -249,8 +251,7 @@ export class Panels {
         let it;
         if (act === 'drop1') { p.inv.remove(s.id, 1); it = { id: s.id, qty: 1 }; }
         else it = p.inv.takeSlot(sel.i);
-        const drop = dropLoot(g, p.x + fx[0] * 0.8, p.y + fx[1] * 0.6, it.id, it.qty, 0.3);
-        drop.t = -2; // don't instantly re-pick
+        dropLoot(g, p.x + fx[0] * 0.8, p.y + fx[1] * 0.6, it.id, it.qty, 0.3, { hold: true }); // hold: not re-picked at once
         g.events.emit('inventory', {});
       }
       if (this.sel?.kind === 'inv' && !p.inv.slots[this.sel.i]) this.sel = null;

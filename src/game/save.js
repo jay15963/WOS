@@ -1,63 +1,56 @@
 // Save / load to localStorage ('wos.' prefix). Autosave every 20 s and on hide/pagehide.
-// v2: player (inventory, equipment), structures (progress / masks recomputed / stores / fuel / decon),
-// harvested natural objects (by id, validated by type + position), regrown flora, mined tiles,
-// mining designations, crops, crafting queue, ground items, hints. Migrates v1 saves.
+// v3 (key wos.save.v2.<seed>): { v: 3, worldTime, env, player, world: serializeWorld(...), marks, craft, fuel,
+// hinted } — the world part is the SAME serializer as the multiplayer join snapshot (net/snapshot.js), so
+// anything persisted is replicated at join by construction. v1 / v2 saves are migrated into a snapshot and
+// applied through the same path.
+// Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
+// queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
 import { applyLevel, respawnPoint } from './player.js';
-import { occRemove } from './nav.js';
-import { placeStructure } from './building.js';
 import { BUILDINGS, ITEMS, ITEM_ALIASES } from './data.js';
-import { saveFlora, loadFlora, SAPLING_GROW } from './flora.js';
-import { saveCrops, loadCrops } from './farming.js';
-import { saveCraft, loadCraft } from './crafting.js';
+import { saveCraft, loadCraft, saveFuel, loadFuel } from './crafting.js';
 import { equipChanged, SLOTS } from './equipment.js';
 import { collides } from './physics.js';
+import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
+import { stageOf } from './mut/crops.js';
 
-const VERSION = 2;
-// guests in someone else's world keep a separate save (game.saveSuffix = '.guest')
-const key = (game, v = VERSION) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
+const VERSION = 3;
+// guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
+const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
 
 export function hasSave(game) {
   try { return !!(localStorage.getItem(key(game)) || localStorage.getItem(key(game, 1))); } catch { return false; }
 }
 
-export function saveGame(game) {
+function savePlayer(game) {
   const p = game.player;
-  if (!game._loaded) return false;
-  const nat = [];
-  for (const o of game.touched.values()) {
-    if (o.flora) continue;
-    nat.push([o.id, o.type, +o.x.toFixed(2), +o.y.toFixed(2), o.gone ? 1 : 0, o.stump ? 1 : 0, Math.round(o.stumpAt || 0), +(o.prog || 0).toFixed(2)]);
-  }
-  const data = {
-    v: VERSION, seed: game.world.seed, savedAt: Date.now(), worldTime: Math.round(game.worldTime),
-    env: { hour: +game.env.hour.toFixed(3), day: game.env.dayIndex, weather: game.env.weather },
-    player: {
-      name: p.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), facing: p.facing,
-      hp: Math.round(p.dead ? p.maxHp * 0.5 : p.hp), energy: Math.round(p.energy), hunger: +p.hunger.toFixed(1),
-      level: p.level, xp: Math.round(p.xp), inv: p.inv.toJSON(), respawn: p.respawn, dead: !!p.dead,
-      equip: { ...p.equip }, seedPref: p.seedPref || null,
-    },
-    structures: game.build.structures.map((o) => {
-      const s = { id: o.id, type: o.type, tx: o.tx, ty: o.ty, builtAt: Math.round(o.builtAt || 0) };
-      if (o.progress < 1) s.p = +o.progress.toFixed(3);
-      if (o.store) s.store = o.store.toJSON();
-      if (o.fuel) s.fuel = o.fuel;
-      if (game.build.decon.has(o)) s.decon = 1;
-      return s;
-    }),
-    nat,
-    flora: saveFlora(game),
-    mined: game.minedTiles,
-    marks: [...game.mining.marks],
-    crops: saveCrops(game),
-    craft: saveCraft(game),
-    loot: game.loot.filter((l) => l.t < 240).slice(-80).map((l) => [l.item, l.qty, +l.x.toFixed(2), +l.y.toFixed(2)]),
-    hinted: game.ctl?.hinted || {},
+  return {
+    name: p.name, x: +p.x.toFixed(2), y: +p.y.toFixed(2), facing: p.facing,
+    hp: Math.round(p.dead ? p.maxHp * 0.5 : p.hp), energy: Math.round(p.energy), hunger: +p.hunger.toFixed(1),
+    level: p.level, xp: Math.round(p.xp), inv: p.inv.toJSON(), respawn: p.respawn, dead: !!p.dead,
+    equip: { ...p.equip }, seedPref: p.seedPref || null,
   };
+}
+
+export function buildSaveData(game) {
+  const guest = game.net.role === 'guest';
+  const data = {
+    v: VERSION, seed: game.world.seed, savedAt: Date.now(),
+    player: savePlayer(game), craft: saveCraft(game), fuel: saveFuel(game), hinted: game.ctl?.hinted || {},
+  };
+  if (guest) { data.guest = 1; return data; } // never world data in a guest save
+  data.worldTime = Math.round(game.worldTime);
+  data.env = { hour: +game.env.hour.toFixed(3), day: game.env.dayIndex, weather: game.env.weather };
+  data.world = serializeWorld(game, { save: true });
+  data.marks = [...game.mining.marks];
+  return data;
+}
+
+export function saveGame(game) {
+  if (!game._loaded || game.noSave) return false;
   try {
-    localStorage.setItem(key(game), JSON.stringify(data));
+    localStorage.setItem(key(game), JSON.stringify(buildSaveData(game)));
     game.lastSave = Date.now();
     return true;
   } catch (e) {
@@ -66,110 +59,42 @@ export function saveGame(game) {
   }
 }
 
-// find a natural object saved as (id, type, x, y): exact id first, then the same type at the same spot
-function findNatural(w, id, type, x, y) {
-  const o = w.objById.get(id);
-  if (o && (!type || (o.type === type && Math.abs(o.x - x) < 0.6 && Math.abs(o.y - y) < 0.6))) return o;
-  if (!type) return null;
-  const near = w.query(x, y, 0.6, (q) => q.type === type && !q.building && !q.flora);
-  return near[0] || null;
-}
-
-function removeQuiet(game, o) {
-  occRemove(game, o);
-  game.world.removeObject(o);
-  o.gone = true;
-  game.touched.set(o.id, o);
-}
-
-function makeStump(game, o, at) {
-  o.stump = true; o.stumpAt = at; o.prog = 0;
-  occRemove(game, o);
-  game.stumps.add(o);
-  game.touched.set(o.id, o);
-}
-
-export function loadGame(game) {
-  let data;
+function readSave(game) {
   try {
-    data = JSON.parse(localStorage.getItem(key(game)) || 'null');
-    if (!data) data = JSON.parse(localStorage.getItem(key(game, 1)) || 'null'); // migrate v1
-  } catch { data = null; }
+    return JSON.parse(localStorage.getItem(key(game)) || 'null') || JSON.parse(localStorage.getItem(key(game, 1)) || 'null'); // v1 migrates
+  } catch { return null; }
+}
+
+// returns true when a save was loaded. Guests load only their player.
+export function loadGame(game) {
+  const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || (data.v !== 1 && data.v !== VERSION)) return false;
-  const v1 = data.v === 1;
-  const w = game.world, p = game.player;
+  if (!data || ![1, 2, VERSION].includes(data.v)) return false;
+  if (game.net.role === 'guest') {
+    loadPlayer(game, data.player || {}, data);
+    return true;
+  }
   const away = Math.max(0, Math.min(OFFLINE_CAP, (Date.now() - (data.savedAt || Date.now())) / 1000));
-  game.worldTime = (data.worldTime || 0) + away;
-
-  if (data.env) {
-    game.env.hour = data.env.hour ?? game.env.hour;
-    game.env.dayIndex = data.env.day ?? game.env.dayIndex;
-    if (data.env.weather) game.env.setWeather?.(data.env.weather);
-  }
-
-  // mined rock tiles
-  for (const i of data.mined || []) {
-    const tx = i % w.W, ty = Math.floor(i / w.W);
-    if (w.mineRock(tx, ty)) { game.minedTiles.push(i); game.minedSet.add(i); }
-  }
-
-  // natural objects
-  if (v1) {
-    for (const [id, stump, age, empty, gone] of data.objects || []) {
-      const o = w.objById.get(id);
-      if (!o || o.building) continue;
-      const tree = o.type.startsWith('tree_');
-      // (ids may point at different objects after world generator changes: only apply what fits the type)
-      if (gone || (empty && o.type === 'berrybush')) { removeQuiet(game, o); continue; }
-      if (stump && tree) makeStump(game, o, game.worldTime);
-      else if (age < 1 && tree) {
-        o.age = age; o.born = game.worldTime - Math.max(0, age - 0.08) * SAPLING_GROW;
-        if (age < 0.6) { o.solid = 0; occRemove(game, o); }
-        game.flora.growing.add(o); game.touched.set(id, o);
-      }
-    }
-  } else {
-    for (const [id, type, x, y, gone, stump, stumpAt, prog] of data.nat || []) {
-      const o = findNatural(w, id, type, x, y);
-      if (!o) continue;
-      if (gone) { removeQuiet(game, o); continue; }
-      if (stump) makeStump(game, o, stumpAt || game.worldTime);
-      if (prog) { o.prog = prog; game.touched.set(o.id, o); }
-    }
-    loadFlora(game, data.flora);
-  }
-
-  // buildings (old v1 structures are complete)
-  for (const s of data.structures || []) {
-    if (!BUILDINGS[s.type]) continue;
-    const def = BUILDINGS[s.type];
-    let ok = true;
-    for (let y = s.ty; y < s.ty + def.size[1]; y++) for (let x = s.tx; x < s.tx + def.size[0]; x++) {
-      if (!w.inBounds(x, y) || w.rock[w.idx(x, y)] || game.build.grid[def.layer].has(w.idx(x, y))) ok = false;
-    }
-    if (!ok) continue;
-    // anything natural still standing on a restored structure goes away
-    for (let y = s.ty; y < s.ty + def.size[1]; y++) for (let x = s.tx; x < s.tx + def.size[0]; x++) {
-      for (const o of w.query(x + 0.5, y + 0.6, 0.9, (q) => !q.building && q.type !== 'crop' && Math.floor(q.x) === x && Math.floor(q.y - 0.05) === y)) {
-        if (o.flora) { game.world.removeObject(o); game.flora.dyn.delete(o.id); occRemove(game, o); } else removeQuiet(game, o);
-      }
-    }
-    placeStructure(game, s.type, s.tx, s.ty, { id: s.id, progress: s.p ?? 1, builtAt: s.builtAt, store: s.store, fuel: s.fuel, decon: s.decon });
-  }
-
-  loadCrops(game, data.crops);
+  const wt = (data.worldTime || 0) + away;
+  const snap = data.v === VERSION ? { ...(data.world || {}) } : migrateLegacy(game, data, wt);
+  snap.wt = wt;
+  snap.env = data.env ? { h: data.env.hour, d: data.env.day, w: data.env.weather } : snap.env;
+  applyWorld(game, snap, 'load');
+  const w = game.world;
   for (const i of data.marks || []) if (w.rock[i]) game.mining.marks.add(i);
-  loadCraft(game, data.craft);
-
-  // ground items
-  for (const [item0, qty, x, y] of data.loot || []) {
-    const item = ITEM_ALIASES[item0] || item0;
-    if (ITEMS[item]) game.loot.push({ id: 1e6 + game.loot.length, item, qty, x, y, vx: 0, vy: 0, lift: 0, vlift: 0, t: 1, ph: Math.random() * 6 });
+  loadPlayer(game, data.player || {}, data);
+  if (data.v === 1) {
+    game.later(2.5, () => game.events.emit('toast', { text: 'Mundo atualizado: ferramentas agora são criadas (Criar · C)', kind: 'warn' }));
+    if (saveGame(game)) try { localStorage.removeItem(key(game, 1)); } catch { /* ignore */ }
   }
+  return true;
+}
 
-  // player
-  const d = data.player || {};
+function loadPlayer(game, d, data) {
+  const w = game.world, p = game.player;
+  const v1 = data.v === 1;
+  loadCraft(game, data.craft);
+  if (data.fuel != null) loadFuel(game, data.fuel);
   p.name = d.name || p.name;
   p.level = Math.max(1, d.level | 0 || 1);
   applyLevel(p);
@@ -191,11 +116,56 @@ export function loadGame(game) {
   }
   if (game.ctl && data.hinted) game.ctl.hinted = { ...data.hinted };
   game.cam.x = p.x; game.cam.y = p.y - 0.4;
-  if (v1) {
-    game.later(2.5, () => game.events.emit('toast', { text: 'Mundo atualizado: ferramentas agora são criadas (Criar · C)', kind: 'warn' }));
-    if (saveGame(game)) try { localStorage.removeItem(key(game, 1)); } catch { /* ignore */ }
+}
+
+// ---------- v1 / v2 -> snapshot ----------
+const hashId = (s) => { let h = 7; s = String(s); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h) % 1000; };
+
+function migrateLegacy(game, data, wt) {
+  const w = game.world, net = game.net;
+  const snap = { gone: [], nat: [], dyn: [], falling: [], mined: (data.mined || []).slice(), rockp: [], structs: [], crops: [], loot: [], props: [] };
+  if (data.v === 1) {
+    for (const [id, stump, , empty, gone] of data.objects || []) {
+      const o = w.objById.get(id);
+      if (!o || o.building) continue;
+      const tree = o.type.startsWith('tree_');
+      if (gone || (empty && o.type === 'berrybush')) snap.gone.push(o.id);
+      else if (stump && tree) snap.nat.push([o.id, 1, Math.round(wt), 0]);
+    }
+  } else {
+    for (const [id, type, x, y, gone, stump, stumpAt, prog] of data.nat || []) {
+      const o = findNatural(w, id, type, x, y);
+      if (!o) continue;
+      if (gone) snap.gone.push(o.id);
+      else snap.nat.push([o.id, stump ? 1 : 0, Math.round(stumpAt || wt), prog || 0]);
+    }
+    for (const r of data.flora || []) {
+      const [type, x, y, v, s, f, born, stump, stumpAt] = r;
+      snap.dyn.push([net.newId('f'), type, x, y, v | 0, s || 1, f || 1, born ?? Math.round(wt), stump ? 1 : 0, Math.round(stumpAt || wt), null]);
+    }
   }
-  return true;
+  let fuel = 0;
+  const removeOnFootprint = new Set();
+  for (const s of data.structures || []) {
+    const def = BUILDINGS[s.type];
+    if (!def) continue;
+    fuel += s.fuel || 0;
+    snap.structs.push([s.id, s.type, s.tx, s.ty, hashId(s.id), s.p ?? 1, s.decon ? 1 : 0, s.store || 0, 0, s.builtAt || 0]);
+    // anything natural still standing on a restored structure goes away
+    for (let y = s.ty; y < s.ty + def.size[1]; y++) for (let x = s.tx; x < s.tx + def.size[0]; x++) {
+      for (const o of w.query(x + 0.5, y + 0.6, 0.9, (q) => !q.building && q.type !== 'crop' && !q.flora && Math.floor(q.x) === x && Math.floor(q.y - 0.05) === y)) removeOnFootprint.add(o.id);
+      for (const r of snap.dyn) if (Math.floor(r[2]) === x && Math.floor(r[3] - 0.05) === y) r[1] = null;
+    }
+  }
+  snap.dyn = snap.dyn.filter((r) => r[1]);
+  for (const id of removeOnFootprint) if (!snap.gone.includes(id)) snap.gone.push(id);
+  if (fuel) game.craft.fuel = (game.craft.fuel || 0) + fuel;
+  for (const [kind, tx, ty, growth] of data.crops || []) snap.crops.push([tx, ty, kind, growth || 0, stageOf(growth || 0)]);
+  for (const [item0, qty, x, y] of data.loot || []) {
+    const item = ITEM_ALIASES[item0] || item0;
+    if (ITEMS[item]) snap.loot.push([net.newId('L'), item, qty, x, y]);
+  }
+  return snap;
 }
 
 export function resetSave(game) {
@@ -208,6 +178,7 @@ export function saveSystem(game) {
   addEventListener('pagehide', doSave);
   let t = 0;
   return {
+    sync: 'owner', // host: world + player; guest: player only
     update(g, dt) {
       t += dt;
       if (t >= 20) { t = 0; doSave(); }

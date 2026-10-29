@@ -62,6 +62,7 @@ export function warmAt(game, x, y) {
 export function survivalSystem() {
   let scanT = 0, warnT = 0;
   return {
+    sync: 'owner', // hunger / warmth of the local player
     update(game, dt) {
       const p = game.player;
       if (p.dead) return;

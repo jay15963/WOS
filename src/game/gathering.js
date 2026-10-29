@@ -2,20 +2,20 @@
 // to remove it), boulders (pickaxe), and by hand: pebbles / sticks (pick), fiber grass, bushes, berry
 // bushes, wild crops (forage). Everything harvested is REMOVED from the world (flora.js regrows
 // elsewhere). Other modules (mining, building, farming) register their work kinds with registerWork().
+// Multiplayer: the work loop is the worker's own; every shared change goes through the host
+// (intent gather.hit → ops in mut/objects.js). Work handlers never mutate shared state.
 //
 // p.work = { it, owner:'gather', type (action anim), cycle, need, hits, t, hitDone, k (0..1), label, tool? }
 
-import { occRemove } from './nav.js';
-import { dropLoot } from './loot.js';
-import { gainXp } from './player.js';
 import { faceTowards } from './combat.js';
 import { bestTool } from './equipment.js';
 import { ITEMS } from './data.js';
-import { removeNatural } from './flora.js';
+import { objectHitFx, treeLandDrops, touch } from './mut/objects.js';
+import { inAnyView } from './players.js';
 
 export { TREE_SOLID } from './flora.js';
+export { touch };
 const TREE_TIME = { tree_oak: 4.6, tree_pine: 3.9, tree_birch: 3.6, tree_dead: 2.6 };
-const TREE_WOOD = { tree_oak: [4, 5], tree_pine: [3, 5], tree_birch: [3, 4], tree_dead: [2, 3] };
 export const STUMP_DECAY = 2160; // s (3 in-game days)
 const FORAGE = {
   fibergrass:  { verb: 'Colher fibra', label: 'Colhendo fibra', cycle: 0.9, prio: 3, fiber: true },
@@ -26,10 +26,6 @@ const FORAGE = {
   wild_cotton: { verb: 'Colher algodão', label: 'Colhendo algodão', cycle: 1.2, prio: 4 },
 };
 const PICK = { pebble: { verb: 'Pegar pedrinha', item: 'pebble' }, stick: { verb: 'Pegar graveto', item: 'stick' } };
-
-const ri = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
-
-export function touch(game, o) { if (!o.flora) game.touched.set(o.id, o); }
 
 // ---------- work kind registry ----------
 // handler: { start(game, it) -> spec | null, valid(game, it), hit?(game, wk), finish(game, wk) -> done, tick?(game, wk, dt) }
@@ -100,6 +96,11 @@ export function startWork(game, it) {
 }
 
 // ---------- natural objects ----------
+// The worker's client plays the hit feedback at once and asks the host (gather.hit); the host owns the
+// progress (o.prog) and the completion. `finish` never mutates: it sends the final hit and ends the work.
+const hitReq = (game, wk, kind) => game.net.request('gather.hit', { id: wk.it.o.id, kind, inc: +(1 / wk.need).toFixed(4) });
+const finalReq = (game, wk, kind, extra) => { game.net.request('gather.hit', { id: wk.it.o.id, kind, final: true, ...extra }); return true; };
+
 registerWork('tree', {
   valid: (g, it) => !it.o.gone && !it.o.stump && !it.o.fall,
   start(game, it) {
@@ -110,25 +111,8 @@ registerWork('tree', {
     const { need, cycle } = hitsFor((TREE_TIME[o.type] || 4) * (o.s || 1) / tool.speed, 3);
     return { type: 'chop', cycle, need, hits: Math.floor((o.prog || 0) * need), label: 'Cortando', tool: tool.id };
   },
-  hit(game, wk) {
-    const p = game.player, o = wk.it.o, J = game.juice;
-    o.shake = 1; o.prog = wk.hits / wk.need;
-    J.leaves(o.x, o.y, 4, 1.8 * o.s);
-    J.chips(o.x - (o.x - p.x) * 0.3, o.y, [0.62, 0.45, 0.28], 4, 0.4);
-    game.audio?.play('chop', { x: o.x, y: o.y });
-    touch(game, o);
-  },
-  finish(game, wk) {
-    const o = wk.it.o, p = game.player;
-    o.fall = 0.001; o.prog = 0;
-    o.fallDir = p.x < o.x ? 1 : -1;
-    occRemove(game, o);
-    game.falling.push(o);
-    game.audio?.play('chop', { x: o.x, y: o.y, volume: 1.2 });
-    gainXp(game, 6);
-    touch(game, o);
-    return true;
-  },
+  hit(game, wk) { objectHitFx(game, wk.it.o, game.player); hitReq(game, wk, 'tree'); },
+  finish: (game, wk) => finalReq(game, wk, 'tree'),
 });
 
 registerWork('stump', {
@@ -139,21 +123,8 @@ registerWork('stump', {
     const cycle = 0.85 / Math.sqrt(tool.speed);
     return { type: 'chop', cycle, need: 2, hits: Math.floor((it.o.prog || 0) * 2), label: 'Arrancando toco', tool: tool.id };
   },
-  hit(game, wk) {
-    const o = wk.it.o;
-    o.shake = 1; o.flash = 0.5; o.prog = wk.hits / wk.need;
-    game.juice.chips(o.x, o.y - 0.1, [0.55, 0.4, 0.25], 5, 0.35);
-    game.audio?.play('chop', { x: o.x, y: o.y, volume: 0.8 });
-  },
-  finish(game, wk) {
-    const o = wk.it.o;
-    dropLoot(game, o.x, o.y - 0.1, 'wood', 1, 0.6);
-    game.juice.puff(o.x, o.y, 6, [0.6, 0.5, 0.38], 0.6);
-    game.stumps.delete(o);
-    removeNatural(game, o);
-    gainXp(game, 2);
-    return true;
-  },
+  hit(game, wk) { objectHitFx(game, wk.it.o, game.player); hitReq(game, wk, 'stump'); },
+  finish: (game, wk) => finalReq(game, wk, 'stump'),
 });
 
 registerWork('boulder', {
@@ -164,48 +135,14 @@ registerWork('boulder', {
     const { need, cycle } = hitsFor((2.2 + it.o.s * 2.2) / tool.speed, 2);
     return { type: 'mine', cycle, need, hits: Math.floor((it.o.prog || 0) * need), label: 'Quebrando pedra', tool: tool.id };
   },
-  hit(game, wk) {
-    const o = wk.it.o, J = game.juice;
-    o.flash = 0.8; o.shake = 1; o.prog = wk.hits / wk.need;
-    J.chips(o.x, o.y, [0.62, 0.6, 0.57], 7, 0.35);
-    J.puff(o.x, o.y, 3, [0.7, 0.68, 0.64], 0.4);
-    game.audio?.play('mine', { x: o.x, y: o.y });
-    touch(game, o);
-  },
-  finish(game, wk) {
-    const o = wk.it.o, J = game.juice;
-    const n = Math.max(2, Math.round(2 + o.s * 2 + Math.random()));
-    for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.1, 'stone');
-    if (Math.random() < 0.5) dropLoot(game, o.x, o.y - 0.1, 'pebble');
-    J.puff(o.x, o.y, 10, [0.7, 0.68, 0.64], 0.8);
-    J.chips(o.x, o.y, [0.62, 0.6, 0.57], 12, 0.3);
-    game.juice.shake(0.15);
-    removeNatural(game, o);
-    gainXp(game, 6);
-    return true;
-  },
+  hit(game, wk) { objectHitFx(game, wk.it.o, game.player); hitReq(game, wk, 'boulder'); },
+  finish: (game, wk) => finalReq(game, wk, 'boulder'),
 });
-
-function giveDirect(game, o, id, qty) {
-  const p = game.player;
-  const left = p.inv.add(id, qty);
-  if (qty - left > 0) { game.events.emit('loot', { item: id, qty: qty - left }); game.events.emit('inventory', {}); }
-  if (left) for (let k = 0; k < left; k++) dropLoot(game, o.x, o.y, id, 1, 0.4);
-}
 
 registerWork('pick', {
   valid: (g, it) => !it.o.gone,
   start: () => ({ type: 'pick', cycle: 0.55, need: 1, label: 'Pegando', instantHit: true }),
-  finish(game, wk) {
-    const o = wk.it.o;
-    const item = PICK[o.type].item;
-    giveDirect(game, o, item, (o.s || 1) > 1.05 && Math.random() < 0.5 ? 2 : 1);
-    game.audio?.play('pickup', { x: o.x, y: o.y });
-    game.juice.puff(o.x, o.y, 3, [0.62, 0.56, 0.46], 0.35);
-    removeNatural(game, o);
-    gainXp(game, 1);
-    return true;
-  },
+  finish: (game, wk) => finalReq(game, wk, 'pick'),
 });
 
 registerWork('forage', {
@@ -220,33 +157,16 @@ registerWork('forage', {
     }
     return { type: 'gather', cycle, need: 1, label: F.label, tool };
   },
-  finish(game, wk) {
-    const o = wk.it.o, J = game.juice, p = game.player;
-    const drop = (id, n) => { for (let k = 0; k < n; k++) dropLoot(game, o.x, o.y - 0.2, id, 1, 0.6); };
-    const knife = !!bestTool(p, 'fiber');
-    switch (o.type) {
-      case 'fibergrass': drop('fiber', ri(2, 3) + (knife ? 1 : 0)); break;
-      case 'bush': drop('fiber', ri(2, 3) + (knife ? 1 : 0)); drop('stick', 1); break;
-      case 'berrybush': drop('berries', ri(2, 4)); drop('stick', 1); break;
-      case 'wild_potato': drop('potato', ri(1, 2)); drop('seed_potato', ri(1, 2)); break;
-      case 'wild_corn': drop('corn', ri(1, 2)); drop('seed_corn', ri(1, 2)); break;
-      case 'wild_cotton': drop('cotton', ri(2, 3)); drop('seed_cotton', 1); break;
-    }
-    J.leaves(o.x, o.y, 5, 0.5);
-    game.audio?.play('pickup', { x: o.x, y: o.y });
-    removeNatural(game, o);
-    gainXp(game, 2);
-    return true;
-  },
+  finish: (game, wk) => finalReq(game, wk, 'forage', { fibre: !!bestTool(game.player, 'fiber') }),
 });
 
 // ---------- system ----------
 export function gatheringSystem() {
   let slowT = 0;
   return {
+    sync: 'all', // work loop: owner · falling animation: every peer · drops, stumps and decay: authority
     update(game, dt) {
-      const p = game.player;
-      game.stumps ||= new Set();
+      const p = game.player, net = game.net;
       const wk = p.work;
       if (wk && wk.owner === 'gather' && !p.dead) {
         const it = wk.it, H = WORK[it.kind];
@@ -276,7 +196,7 @@ export function gatheringSystem() {
         }
       }
 
-      // shaking objects decay
+      // shaking objects decay (cosmetic)
       game.shaking = game.shaking || new Set();
       if (p.work?.it?.o) game.shaking.add(p.work.it.o);
       for (const o of game.shaking) {
@@ -285,46 +205,36 @@ export function gatheringSystem() {
         if (!(o.shake > 0) && !(o.flash > 0) && o !== p.work?.it?.o) game.shaking.delete(o);
       }
 
-      // falling trees
+      // falling trees: every peer animates; the authority drops the wood and makes the stump
       for (let i = game.falling.length - 1; i >= 0; i--) {
         const o = game.falling[i];
         const before = o.fall;
-        o.fall += dt * (o.fall < 1 ? 0.6 + o.fall * 1.6 : 1.4);
+        o.fall = Math.min(net.auth ? 9 : 1.5, o.fall + dt * (o.fall < 1 ? 0.6 + o.fall * 1.6 : 1.4)); // sync-ok: fall animation progress (start/end are ops)
         const dir = o.fallDir || o.f || 1;
         if (before < 1 && o.fall >= 1) {
           const fx = o.x + dir * 1.6 * o.s;
           game.juice.leaves(fx, o.y, 12, 0.4);
           game.juice.puff(fx, o.y, 8, [0.6, 0.55, 0.45], 0.9);
-          game.juice.shake(0.2);
-          const [a, b] = TREE_WOOD[o.type] || [3, 4];
-          const n = ri(a, b);
-          for (let k = 0; k < n; k++) dropLoot(game, o.x + dir * (0.6 + (k / n) * 1.6) * o.s, o.y + (Math.random() - 0.5) * 0.3, 'wood', 1, 0.4);
-          if (Math.random() < 0.6) dropLoot(game, o.x + dir * 1.2 * o.s, o.y, 'stick', 1, 0.5);
+          if (Math.hypot(p.x - o.x, p.y - o.y) < 14) game.juice.shake(0.2);
+          if (net.auth) net.emit('tree.land', { id: o.id, drops: treeLandDrops(game, o) });
         }
-        if (o.fall >= 1.5) {
-          o.fall = 0; o.stump = true; o.prog = 0; o.alpha = 1;
-          o.stumpAt = game.worldTime;
-          game.stumps.add(o); touch(game, o);
-          game.falling.splice(i, 1);
-          game.events.emit('tile', { tx: Math.floor(o.x), ty: Math.floor(o.y) });
-        }
+        if (o.fall >= 1.5 && net.auth) net.emit('tree.stump', { id: o.id, at: Math.round(game.worldTime) });
       }
 
-      // stumps rot away after a few days (never while on screen)
+      // stumps rot away after a few days (never while any player can see them) — authority
       slowT -= dt;
-      if (slowT <= 0) {
+      if (slowT <= 0 && net.auth) {
         slowT = 5;
-        const now = game.worldTime, v = game.view();
+        const now = game.worldTime, ids = [];
         for (const o of game.stumps) {
           if (o.gone || !o.stump) { game.stumps.delete(o); continue; }
           if (now - (o.stumpAt || now) < STUMP_DECAY) continue;
-          if (o.x > v.x0 - 2 && o.x < v.x1 + 2 && o.y > v.y0 - 2 && o.y < v.y1 + 3) continue;
-          game.stumps.delete(o);
-          removeNatural(game, o);
+          if (inAnyView(game, o.x, o.y, 2, 3)) continue;
+          ids.push(o.id);
         }
+        if (ids.length) net.emit('obj.remove', { ids });
       }
     },
   };
 }
-
 export const itemName = (id) => ITEMS[id]?.name || id;

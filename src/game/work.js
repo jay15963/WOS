@@ -89,6 +89,7 @@ function craftingActive(game) {
 
 export function workSystem() {
   return {
+    sync: 'owner', // the local player's job queue
     update(game, dt) {
       const p = game.player, ctl = game.ctl, W = game.work;
       const idle = !W.paused && !p.dead && !p.work && !ctl.goal && !ctl.manual && !p.moving && !p.autoAttack && !p.inCombat && !game.ui?.modal && !p.charge;
