@@ -327,3 +327,17 @@ feel complete and magnificent, with a lot of freedom.
   J's renderer + roof-layer props such as chimneys and dormers). K defines the catalogue; J draws.
 - Sync: style and details are shared structure state set by ops (place / restyle intents), in snapshot, save
   and digest. Scenarios **K1, K2…** in `tools/mp-test.js`.
+
+## L · Andares e escadarias (added later, port 5193)
+
+Owner's request: a system of height layers. With a roof/upper floor and a **staircase** (a stairway, not a
+ladder), the player walks up to the floor above or down to the floor below — towers, houses with several
+stories, and **walls you can walk on top of** (ramparts) when a staircase stands next to them.
+- Stories `lv` 0 (ground), 1, 2…; upper floors need support from below (same idea as J's roof support);
+  stairs connect lv n ↔ n+1 and need the tile above to be open (remove roof tiles first — everything is
+  deconstructable); wall tops are walkable at the next level when reachable by stairs.
+- Per-level collision/navigation, rendering by level (what is above the local player fades/hides, what is
+  below an upper floor is hidden), the local player's level drives the reveal; creatures/bandits may use stairs.
+- Sync: `lv` on structures (ops/snapshot/save/digest) and `z`/level in the avatar and creature streams.
+- Two phases: (1) design + core in isolated modules now; (2) integration after J (roofs) and K (details) merge.
+- Everything stays deconstructable; built details are fixed (rebuild to change).
