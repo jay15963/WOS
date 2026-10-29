@@ -303,4 +303,6 @@
   width: min(460px, calc(100vw - 24px)); display: flex; gap: 6px; pointer-events: auto;
 }
 .chatbar.hidden { display: none; }
-.chatbar input { flex: 1; }
+.chatbar .chatform { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.chatbar input { flex: 1; min-width: 0; }
+.chatbar .chatx { flex: none; width: 40px; padding: 0; }

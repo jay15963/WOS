@@ -85,8 +85,75 @@ function packState(p) {
     hd: p.headFacing && p.headFacing !== p.facing ? p.headFacing : undefined, ps: packPose(p),
     w: p.weapon || 0, o: p.offhand || 0, ab: p.armor?.body || 0, ah: p.armor?.head || 0,
     hp: Math.round(p.hp || 0), mh: Math.round(p.maxHp || 100), d: p.dead ? 1 : 0, bl: p.blocking ? 1 : 0, lv: p.level || 1,
+    ty: p.typing ? 1 : undefined, // chat box open: others see a "typing…" bubble (cosmetic)
   };
 }
+// ---------- chat bubbles (overlay canvas) ----------
+const BUBBLE_MAX = 3, BUBBLE_W = 190, BUBBLE_LH = 15, BUBBLE_PAD = 7, BUBBLE_GAP = 5;
+const easeBack = (k) => { const c = 1.7; k -= 1; return 1 + (c + 1) * k * k * k + c * k * k; };
+function wrapLines(ctx, text) {
+  const words = text.split(/\s+/), out = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width <= BUBBLE_W - BUBBLE_PAD * 2 || !line) line = t;
+    else { out.push(line); line = w; }
+    if (out.length === 4) break;
+  }
+  if (out.length < 4 && line) out.push(line);
+  if (out.length === 4 && (words.join(' ').length > out.join(' ').length)) out[3] = out[3].replace(/.{0,2}$/, '…');
+  return out.map((l) => { while (ctx.measureText(l).width > BUBBLE_W - BUBBLE_PAD * 2 && l.length > 2) l = l.slice(0, -2) + '…'; return l; });
+}
+function bubbleBox(ctx, x, y, w, h, alpha, tail) {
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2 + 1, y - h + 2, w, h, 8); ctx.fill();
+  ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.strokeStyle = 'rgba(40,34,26,0.85)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect?.(x - w / 2, y - h, w, h, 8);
+  if (tail) { ctx.moveTo(x - 5, y); ctx.lineTo(x, y + 6); ctx.lineTo(x + 5, y); }
+  ctx.fill(); ctx.stroke();
+  if (tail) { ctx.fillStyle = 'rgba(252,248,238,0.97)'; ctx.fillRect(x - 4, y - 2, 8, 2.5); }
+}
+// stack of ≤ 3 bubbles above (x, y): newest at the bottom (closest to the head), older ones slide up;
+// new ones pop in, expired / pushed-out ones fade; a "typing…" bubble sits under them while typing
+function drawBubbles(ctx, list, x, y, now, dt, typing) {
+  ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
+  let base = 0; // offset (px above y) where the next bubble starts
+  let first = true;
+  if (typing) {
+    const w = 38, h = 20, ph = now / 1000;
+    bubbleBox(ctx, x, y, w, h, 0.95, true);
+    ctx.fillStyle = '#6d5f4c';
+    for (let i = 0; i < 3; i++) { const k = Math.max(0, Math.sin(ph * 6 - i * 0.9)); ctx.beginPath(); ctx.arc(x - 9 + i * 9, y - 10 - k * 3, 2.3, 0, Math.PI * 2); ctx.fill(); }
+    base = h + BUBBLE_GAP; first = false;
+  }
+  if (!list || !list.length) { ctx.globalAlpha = 1; return; }
+  const k = 1 - Math.exp(-dt * 14);
+  for (let i = list.length - 1; i >= 0; i--) {
+    const b = list[i];
+    const gone = b.out ? (now - b.out) / 350 : now > b.until ? (now - b.until) / 500 : 0;
+    if (gone >= 1) { list.splice(i, 1); continue; }
+    if (!b.lines) b.lines = wrapLines(ctx, b.text);
+    const w = Math.min(BUBBLE_W, Math.max(...b.lines.map((l) => ctx.measureText(l).width)) + BUBBLE_PAD * 2);
+    const h = b.lines.length * BUBBLE_LH + BUBBLE_PAD * 2 - 4;
+    const target = base;
+    b.oy = b.oy == null ? target : b.oy + (target - b.oy) * k; // slide smoothly when the stack changes
+    const age = (now - b.t0) / 1000;
+    const pop = Math.min(1, age / 0.22), s = easeBack(pop);
+    const alpha = Math.min(1, age / 0.15) * (1 - gone);
+    const yy = y - b.oy - (b.out ? gone * 14 : 0);
+    ctx.save();
+    ctx.translate(x, yy); ctx.scale(s, s); ctx.translate(-x, -yy);
+    bubbleBox(ctx, x, yy, w, h, alpha, first);
+    ctx.fillStyle = '#2a241c';
+    b.lines.forEach((l, j) => ctx.fillText(l, x, yy - h + BUBBLE_PAD + 10 + j * BUBBLE_LH));
+    ctx.restore();
+    if (!b.out) base += h + BUBBLE_GAP;
+    first = false;
+  }
+  ctx.globalAlpha = 1;
+}
+
 // a relayed sample (host → other guests) is re-sent later than it was taken: age its action accordingly
 function agedState(s, age) {
   const a = s.a;
@@ -126,7 +193,7 @@ export class Session {
     this.listeners = {};
     this.sendAcc = 0; this.envAcc = 0; this.pingAcc = 0; this.lookAcc = 99;
     this.rtt = null;
-    this.bubbles = new Map();   // pid -> { text, until }
+    this.bubbles = new Map();   // pid -> [{ text, lines, t0, until, out, oy }] (≤ 3 stacked chat bubbles, newest last)
     this.reconnects = 0;
     this.state = 'idle';        // idle | hosting | joining | syncing | connected | lost | hostgone | closed
     this.allList = [];          // host: [local player, ...synced remote avatars] (players.js)
@@ -693,6 +760,7 @@ export class Session {
     if (!e._seen) { e.x = x; e.y = y; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
     e.netMoving = !!s.mv;
     pl.lastS = s; pl.lastSAt = performance.now() / 1000;
+    e.typing = !!s.ty;
     e.weapon = str(s.w, 32) || null;
     e.offhand = str(s.o, 32) || null;
     e.armor = { body: str(s.ab, 32) || null, head: str(s.ah, 32) || null };
@@ -739,7 +807,13 @@ export class Session {
     this._showChat(this.pid, this.name, text);
   }
   _showChat(pid, name, text) {
-    this.bubbles.set(pid, { text, until: performance.now() + 6000 });
+    const now = performance.now();
+    let list = this.bubbles.get(pid);
+    if (!list) this.bubbles.set(pid, list = []);
+    list.push({ text, lines: null, t0: now, until: now + 7000 + Math.min(5000, text.length * 60), out: 0, oy: null });
+    // a 4th message pushes the oldest still-visible one out (it fades up and away)
+    const live = list.filter((b) => !b.out);
+    if (live.length > BUBBLE_MAX) live[0].out = now;
     this.emit('chat', { pid, name, text, self: pid === this.pid });
   }
 
@@ -856,6 +930,7 @@ export class Session {
     ctx.textBaseline = 'alphabetic';
     ctx.lineJoin = 'round';
     const now = performance.now();
+    const dt = Math.min(0.1, Math.max(0, (now - (this._bubT || now)) / 1000)); this._bubT = now;
     const z = game.cam.zoom;
     const draw = (e, name, isSelf) => {
       const [sx, sy] = game.worldToScreen(e.x, e.y - 1.25);
@@ -871,19 +946,7 @@ export class Session {
           ctx.fillStyle = '#4fbf5a'; ctx.fillRect(sx - w / 2, sy + 4, w * k, 4);
         }
       }
-      const b = this.bubbles.get(e === game.player ? this.pid : e.pid);
-      if (b && b.until > now) {
-        const a = Math.min(1, (b.until - now) / 600);
-        ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
-        const text = b.text.length > 42 ? b.text.slice(0, 40) + '…' : b.text;
-        const tw = ctx.measureText(text).width + 14;
-        const by = sy - (isSelf ? 4 : 18);
-        ctx.globalAlpha = a;
-        ctx.fillStyle = 'rgba(250,246,236,0.95)'; ctx.strokeStyle = 'rgba(30,26,22,0.85)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.roundRect?.(sx - tw / 2, by - 18, tw, 20, 6); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#2a241c'; ctx.fillText(text, sx, by - 4);
-        ctx.globalAlpha = 1;
-      }
+      drawBubbles(ctx, this.bubbles.get(e === game.player ? this.pid : e.pid), sx, sy - (isSelf ? 4 : 18), now, dt, isSelf ? !!game.player.typing : !!e.typing);
     };
     for (const pl of this.players.values()) if (pl.ent && !pl.ent.dead) draw(pl.ent, pl.name, false);
     draw(game.player, this.name, true);

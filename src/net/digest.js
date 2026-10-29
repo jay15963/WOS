@@ -87,6 +87,8 @@ export function installNetDebug(game) {
       missingSprites: chk.missingSprites.concat(chk.missingKinds), speciesFallbacks: chk.speciesFallbacks,
       artWarnings: artWarnings(), systemsUntagged: game.systems.filter((s) => !s.sync).map((s) => s.constructor?.name || '?'),
       role: net.role, synced: net.synced, seq: net.seq,
+      // agent H: look parts are painted lazily per client (not in the atlas digest); failures must stay empty
+      look: game.A.look ? game.A.look.stats() : null,
     };
   };
 }

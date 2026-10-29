@@ -1,6 +1,7 @@
 // Look sprite registry (agent H): every catalogue part as a named definition { W, H, ax, ay, pad, paint(P) }.
-// addLook(add) paints them all into the game atlas (sprites.js); the character creator paints single parts at
-// k× through hipaint.js (same painters → the preview is exactly the in-game sprite, sharper).
+// The game paints only the parts the looks on screen use, lazily, into a second texture (lazy.js); the character
+// creator paints single parts at k× through hipaint.js (same painters → the preview is the in-game sprite, sharper).
+// addLook(add) (bake everything into an atlas) is kept for tools only.
 // Names: lk_<part>_<id>_<dir> (see lookDefs); w (west) = mirrored e, like every pawn part.
 
 import { rng } from '../paint.js';

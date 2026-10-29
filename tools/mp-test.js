@@ -2514,6 +2514,10 @@ def('S70', {
   t.check(seen(), 'host has the guest look (packed equal)', want.slice(0, 80) + '…');
   const lg = layers(MG, G.game.A, G.game.player.look), lh = layers(MH, H.game.A, A.avatarOn(H, G.pid).look);
   t.check(lg.length > 30 && same(lg, lh), 'same sprite layers + tints on both clients (3 facings)', `${lg.length} layers · ${lg.slice(0, 3).join(' | ')}`);
+  // lazy look atlas: the host paints the guest's parts on demand (not baked in the atlas, not in the digest)
+  const RH = MH.lookRig.lookRig(H.game.A, A.avatarOn(H, G.pid).look);
+  const readyH = MH.lookRig.rigReady(RH, true), st0 = H.game.net.selfTest().look;
+  t.check(readyH && RH.need.every((r) => r.ready) && st0 && !st0.failures.length && !H.game.A.has('lk_skin_s'), 'host paints the guest look parts lazily (second texture), no failures', JSON.stringify(st0));
   t.check(want.length < 320, 'packed look is compact (worst case ~290 chars)', `${want.length} chars`);
   t.metric('lookBytes', want.length);
   // 2. the host restyles → the guest sees it
