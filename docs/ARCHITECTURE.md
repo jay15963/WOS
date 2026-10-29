@@ -101,3 +101,19 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
 - **Ambiente/mundo**: `src/world/**`, `src/engine/shaders.js` (terreno/post), `src/fx/**`.
 - **Gameplay/UI**: `src/game/**` (exceto física compartilhada), `src/ui/**`, containers no `index.html`.
 - **Núcleo (integração)**: `src/engine/renderer.js, gl.js, spriteBatch.js, atlas.js, input.js`, `src/main.js`, PWA.
+
+## APIs da expansão "Eras" (resumo; contrato completo em `docs/CONTENT.md`)
+- **Mundo** (`src/world/worldgen.js`, `world.js`): `ORE`, `ORE_ITEM`, `ORE_NAMES_PT`, `BIOME_ID`, `CAMP_R`;
+  `world.roof` / `roofAt(tx,ty)`, `isCave`, `isMined`, `caveDark(x,y)`, `world.rock0` (rocha original);
+  `world.caveData` (textura RGBA: escuridão da caverna, minério próximo, chão pisado, piso minerado);
+  `chunk.pop` (população inicial por tipo), `world.canGrow(tx,ty,kind)`, `world.growWeight(tx,ty,kind)`;
+  `world.camps` / `world.zones` (`bandit_camp`). Luz: passe `AMBIENT_FS` (ambiente × caverna) + luzes aditivas; batch `decal`.
+- **Economia** (`game.econ`): `hasTool, bestTool, equipItem, unequip, equipFromSlot, rollKillLoot, craft, recipeState, build,
+  designate, nextStep`; `game.hasTool(p, kind)`; `registerWork(kind, handler)` (gathering.js); `world.noGrow` (sem renascer perto de
+  construções); física: `collides(world, x, y, r, ignore, passDoors)`, `tileBlocked`; `world.solid` 1 = bloqueia, 2 = porta.
+  Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
+- **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
+  `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
+  `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
+- **Arte**: `structureSprite(A, type, mask, {orient, kind, v})` (composeWorld.js) para fantasmas de construção; galerias em
+  `tools/gallery.html` (personagens/itens) e `tools/gallery-world.html` (mundo/construções).

@@ -124,10 +124,11 @@ export function killPlayer(game) {
 export function respawnPoint(game) {
   const p = game.player;
   const S = game.build?.structures || [];
-  const bed = p.respawn && S.find((o) => o.id === p.respawn);
+  const done = (o) => (o.progress ?? 1) >= 1; // blueprints don't count
+  const bed = p.respawn && S.find((o) => o.id === p.respawn && done(o));
   if (bed) return { x: bed.x, y: bed.y + 0.6, where: 'cama' };
   let best = null, bd = 1e9;
-  for (const o of S) if (o.type === 'campfire') {
+  for (const o of S) if (o.type === 'campfire' && done(o)) {
     const d = Math.hypot(o.x - p.x, o.y - p.y);
     if (d < bd) { bd = d; best = o; }
   }

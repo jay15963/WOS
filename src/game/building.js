@@ -352,7 +352,7 @@ export function removeStructure(game, o, refund = REFUND, quiet = false) {
   o.removed = true;
   if (refund > 0) {
     const back = {};
-    for (const id in def.cost) back[id] = wasBlueprint ? def.cost[id] : Math.floor(def.cost[id] * refund);
+    for (const id in def.cost) back[id] = wasBlueprint ? def.cost[id] : Math.round(def.cost[id] * refund);
     refundTo(game, o, back);
   }
   if (o.store) for (const s of o.store.slots) if (s) dropLoot(game, o.x, o.y - 0.3, s.id, s.qty, 0.8);

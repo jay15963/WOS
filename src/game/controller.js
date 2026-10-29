@@ -329,7 +329,9 @@ export function installController(game) {
       if (goal && !p.dead && !p.charge) {
         const spd = p.speed || 4;
         if (goal.type === 'move') {
-          const dir = steer(g, p, goal.x, goal.y, dt, spd, 0.15);
+          const d = Math.hypot(goal.x - p.x, goal.y - p.y);
+          if (goal.best == null || d < goal.best - 0.05) { goal.best = d; goal.stall = 0; } else goal.stall = (goal.stall || 0) + dt;
+          const dir = goal.stall > 1.2 ? null : steer(g, p, goal.x, goal.y, dt, spd, 0.15); // unreachable: give up
           if (!dir) ctl.goal = null; else p.autoMove = dir;
         } else if (goal.type === 'attack') {
           const t = goal.target;

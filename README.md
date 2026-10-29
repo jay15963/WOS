@@ -6,8 +6,15 @@ Instalável como app em tela cheia (PWA).
 **Jogar:** https://jay15963.github.io/WOS/
 
 ## Controles
-- **Celular:** joystick à esquerda (toque e arraste), toque no mundo para interagir/selecionar alvo, pinça para zoom.
-- **PC:** WASD/setas para andar, clique para interagir, roda do mouse para zoom.
+- **Celular:** joystick à esquerda (toque e arraste), toque no mundo para coletar/atacar/andar, pinça para zoom,
+  habilidades no arco à direita, botões rápidos à esquerda (Mochila, Criar, Construir, Minerar, Comer).
+- **PC:** WASD/setas para andar, clique para interagir/atacar, 1–7 habilidades, F ataque, Tab alvo, E interagir,
+  C criar, B construir, X minerar, I mochila, Q comer, M mapa, Esc cancelar, roda do mouse para zoom.
+
+## Progressão
+Você começa só com as mãos: pegue pedrinhas, gravetos e fibras → faca, machado e picareta primitivos → madeira e pedra →
+bancada → ferramentas de pedra → minere as montanhas (cobre, carvão, ferro...) → fornalha e bigorna → cobre → ferro → aço.
+Construa casas com paredes que se conectam, portas, pisos, móveis e plantações. Cuidado com lobos, aranhas e saqueadores.
 
 ## Desenvolvimento
 Sem build — módulos ES puros + WebGL2.

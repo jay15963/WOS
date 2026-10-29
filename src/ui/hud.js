@@ -289,7 +289,7 @@ export function installHUD(game, { isNew } = {}) {
       [1.2, 'Bem-vindo, Sobrevivente!', 'good'],
       [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque no mundo para interagir' : 'WASD para andar · clique para interagir · 1–7 habilidades', 'info'],
       [7, 'Você está de mãos vazias: soque com cuidado e fuja de lobos', 'warn'],
-      [9, 'Corte árvores e quebre pedras para conseguir materiais', 'info'],
+      [9, game.input.isTouch ? 'Toque em Criar para fazer faca, machado e picareta' : 'Criar (C): faça faca, machado e picareta primitivos', 'info'],
       [14, 'Construa uma fogueira antes do anoitecer', 'info'],
     ];
     for (const [t, text, kind] of tips) game.later(t, () => ev.emit('toast', { text, kind }));
