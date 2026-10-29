@@ -2310,11 +2310,20 @@ function pathRow(H, MP, x, y, n, { rMin = 2, rMax = 12, avoid = null } = {}) {
   }
   return null;
 }
-// the guest lays every planned tile of `tiles` (its own work loop, auto-work paused)
-async function layPaths(t, f, tiles, { ms = 30000, code = null } = {}) {
-  const w = f.game.world, W = w.W;
-  const next = () => { const i = tiles.find((j) => w.pathPlan[j] && (code == null || w.pathPlan[j] === code)); return i == null ? null : f.game.paths.jobAt(i % W, (i / W) | 0); };
-  await A.workUntil(t, f, next, () => tiles.every((j) => !w.pathPlan[j] || (code != null && w.pathPlan[j] !== code)), ms, 'works the planned path tiles', { retries: 12 });
+// the guest lays every planned tile of `tiles` (its own work loop, auto-work paused); before each (re)start it stands
+// next to the next planned tile (this tests the sync, not the walking) with no fight / aim state left from earlier scenarios
+async function layPaths(t, f, M, tiles, { ms = 30000, code = null } = {}) {
+  const w = f.game.world, W = w.W, p = f.game.player;
+  const nextIdx = () => tiles.find((j) => w.pathPlan[j] && (code == null || w.pathPlan[j] === code));
+  const next = () => { const i = nextIdx(); return i == null ? null : f.game.paths.jobAt(i % W, (i / W) | 0); };
+  const stand = () => {
+    const i = nextIdx();
+    if (i == null) return;
+    p.autoAttack = false; p.target = null; p._atkRootT = 0; p.rooted = false;
+    const s = A.freeSpot(f, M, (i % W) + 0.5, ((i / W) | 0) + 0.5, { rMin: 0, rMax: 1.4 });
+    if (s) A.teleport(f, s[0], s[1]);
+  };
+  await A.workUntil(t, f, next, () => tiles.every((j) => !w.pathPlan[j] || (code != null && w.pathPlan[j] !== code)), ms, 'works the planned path tiles', { retries: 12, stand });
 }
 
 def('M1', {
@@ -2336,7 +2345,7 @@ def('M1', {
   t.metric('planRoundTripMs', Math.round(ms));
   await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 1), ONEWAY() + 400, 'guest has the 8 blueprints');
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'blueprint cells identical', pathCells(H, tiles));
-  await layPaths(t, G, tiles);
+  await layPaths(t, G, MG, tiles);
   await t.waitFor(() => tiles.every((i) => H.game.world.path[i] === 1 && !H.game.world.pathPlan[i]), ONEWAY() + 600, 'host has the 8 built dirt tiles');
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles) && tiles.every((i) => G.game.world.path[i] === 1), 'built cells identical on both (type 1, no plan)', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
@@ -2372,7 +2381,7 @@ def('M2', {
   G.game.paths.paint('gravel', tiles);
   await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 2), RT() + 600, 'gravel blueprints on the guest');
   t.check(A.count(G, 'pebble') === peb0, 'blueprints are free (no pebble taken when painting)', `${peb0} → ${A.count(G, 'pebble')}`);
-  await layPaths(t, G, tiles);
+  await layPaths(t, G, MG, tiles);
   await t.waitFor(() => tiles.every((i) => w.path[i] === 2), ONEWAY() + 600, 'host has the 4 gravel tiles');
   t.check(A.count(G, 'pebble') === peb0 - 4, '1 pebble per tile left the bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
   // eraser on 2 tiles, deconstruct tool on the other 2
@@ -2381,7 +2390,7 @@ def('M2', {
   t.check(n >= 2, 'the deconstruct tool marks painted path tiles', `${n} marked`);
   await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host has the 4 removal marks');
   await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 4 removal marks');
-  await layPaths(t, G, tiles, { code: 15 });
+  await layPaths(t, G, MG, tiles, { code: 15 });
   await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]), ONEWAY() + 600, 'host: the 4 gravel tiles are gone');
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
@@ -2393,7 +2402,7 @@ def('M2', {
     G.game.paths.paint('remove', part);
     await t.waitFor(() => part.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host marks 3 dirt tiles for removal');
     await t.waitFor(() => part.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 3 removal marks');
-    await layPaths(t, G, part, { code: 15 });
+    await layPaths(t, G, MG, part, { code: 15 });
     await t.waitFor(() => part.every((i) => !w.path[i]), ONEWAY() + 600, 'host: 3 dirt tiles removed');
     t.check(old.slice(3).every((i) => w.path[i] === 1 && G.game.world.path[i] === 1), 'the rest of the dirt path stays on both');
   } else t.note('no M1 dirt path left — partial erase of it skipped');
