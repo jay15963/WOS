@@ -270,18 +270,17 @@ export class Levels {
     const qt = Math.min(hi, Math.max(lo, q0 + dq));
     const mq = Math.max(Math.abs(dq), 0.6 * Math.hypot(sx, sy) + 0.02);
     const q = q0 + Math.max(-mq, Math.min(mq, qt - q0));
-    const pos = (cc) => (ax ? [q, cc] : [cc, q]);
     const u = (s.sg * (c - s.b)) / s.len;
     if (u < 0) {
-      const [nx, ny] = pos(c);
+      const nx = ax ? q : c, ny = ax ? c : q;
       if (!this.collidesL(s.n, nx, ny, r, pd, false, s.ent)) { e.x = nx; e.y = ny; e.lv = s.n; e.z = s.n; return true; }
       c = s.b + s.sg * EPS;
     } else if (u > 1) {
-      const [nx, ny] = pos(c);
+      const nx = ax ? q : c, ny = ax ? c : q;
       if (s.n + 1 <= MAX_LV && !this.collidesL(s.n + 1, nx, ny, r, pd, false, s.land)) { e.x = nx; e.y = ny; e.lv = s.n + 1; e.z = s.n + 1; return true; }
       c = s.b + s.sg * (s.len - EPS);
     }
-    const [nx, ny] = pos(c);
+    const nx = ax ? q : c, ny = ax ? c : q;
     const moved = Math.abs(nx - e.x) + Math.abs(ny - e.y) > 1e-6;
     e.x = nx; e.y = ny;
     this._onStair(e, s);

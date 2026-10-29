@@ -2275,7 +2275,8 @@ def('L2', {
   t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
   await t.waitFor(() => guestOnHost(H, G)?.lv === 1 && Math.hypot(guestOnHost(H, G).x - gp.x, guestOnHost(H, G).y - gp.y) < 0.3, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} ${f2(gp.x)},${f2(gp.y)} · host av ${lvOf(guestOnHost(H, G))} ${f2(guestOnHost(H, G)?.x)},${f2(guestOnHost(H, G)?.y)}`);
   const dmg = [];
-  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0) dmg.push({ t: now(), src: d.src?.species || d.src?.nid || '?', z: gp.z }); });
+  // creature hits only (survival damage — cold, hunger — has the player itself as source; DoTs are ticks)
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ t: now(), src: d.src.species || d.src.nid || '?', z: gp.z }); });
   m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
   MH.ai.aggro(H.game, m, guestOnHost(H, G));
   let minD = 1e9, maxLv = 0, proxZ = 0;
@@ -2329,7 +2330,7 @@ def('L3', {
   await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
   const dmg = [], shotsH = [], seenH = new WeakSet(), seenG = new WeakSet();
   let gArrows = 0;
-  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0) dmg.push({ weapon: d.src?.weapon || '?', lv: gp.lv }); });
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ weapon: d.src.weapon || '?', srcZ: +(d.src.z || 0).toFixed(2), lv: gp.lv }); });
   t.watch(() => {
     for (const pr of H.game.projectiles || []) if (pr.faction === 'bandit' && !seenH.has(pr)) { seenH.add(pr); shotsH.push(+(pr.z1 || 0).toFixed(2)); }
     for (const pr of G.game.projectiles || []) if (pr.cosmetic && !seenG.has(pr)) { seenG.add(pr); gArrows++; }
@@ -2340,7 +2341,7 @@ def('L3', {
   t.metric('archer', { shots: shotsH.length, z1: short(shotsH.slice(0, 6)), hits: dmg.length, guestArrows: gArrows });
   t.check(shotsH.length > 0 && shotsH.some((z) => z === 1), 'the archer shoots at the guest on the rampart (arrows aimed at z 1)', short(shotsH.slice(0, 8)));
   t.check(dmg.length > 0, 'ranged hits reach the guest at lv 1', `${dmg.length} hits, guest ${lvOf(gp)}`);
-  t.check(dmg.every((d) => /bow/.test(d.weapon) && d.lv === 1), 'every hit came from a bow while the guest stood on the wall (no melee)', short(dmg.slice(0, 6)));
+  t.check(dmg.every((d) => /bow|spear/.test(d.weapon) && d.srcZ < 0.5 && d.lv === 1), 'every hit was a shot (bow / thrown spear) from the ground while the guest stood on the wall (no melee)', short(dmg.slice(0, 6)));
   t.check(gArrows > 0, 'arrows visible on the guest (cosmetic copies)', `${gArrows}`);
   sendAway(G, MG, ar.x, ar.y, 40);
   await t.checkDigest(H, G);
@@ -2368,7 +2369,7 @@ def('L4', {
   t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
   await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
   const dmg = [];
-  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0) dmg.push(now()); });
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push(now()); });
   let proxZ = 0, onStairs = 0;
   t.watch(() => { const pr = A.proxyOf(G, m); if (pr) proxZ = Math.max(proxZ, pr.z || 0); if (m.z > 0.05 && m.z < 0.95) onStairs++; }, 8);
   m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
@@ -2378,6 +2379,7 @@ def('L4', {
   t.check(onStairs > 0, 'it was seen mid-stairs (0 < z < 1)', `${onStairs} samples`);
   const bit = await t.tryWait(() => dmg.length > 0, 10000);
   t.check(bit, 'and bites the guest on the rampart', `${dmg.length} hits`);
+  await t.tryWait(() => proxZ >= 0.99, RT() + 1200); // the proxy follows the stream (10 Hz, 150 ms behind)
   t.check(proxZ >= 0.99, 'guest sees the creature proxy up there (z 1)', `max z ${f2(proxZ)}`);
   sendAway(G, MG, m.x, m.y, 30);
   m.x = m.home.x; m.y = m.home.y; m.lv = 0; m.z = 0; // host-side cleanup

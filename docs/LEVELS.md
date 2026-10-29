@@ -124,7 +124,7 @@ from position; no hidden state). On a stair: movement is projected on the stair 
 is eased into the corridor (`[l0 + r, l1 − r]`, side rails), `z = n + u`, `lv` switches at u = 0.5. Leaving
 past the bottom edge needs the entrance free at level n; past the top edge the landing free at level n+1;
 otherwise the entity stops at the edge. Speed on stairs ×0.8 (`levels.speedAt`); water / mud slowdowns only
-at level 0. Steps play `stairs_step` every ~0.45 tiles.
+at level 0. Footsteps on stairs use the hollow `step_stairs` sound (alias `stairs_step`), on wall tops the wall material.
 
 ### 4.4 Wall tops (ramparts)
 

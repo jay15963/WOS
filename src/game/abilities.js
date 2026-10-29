@@ -51,6 +51,7 @@ export function areaTargets(game, x, y, r) {
   const out = [];
   for (const e of game.entities) {
     if (!isMob(e) || e.dead) continue;
+    if (Math.abs((e.z || 0) - (game.player.z || 0)) >= 0.5) continue; // levels: area hits stay on the caster's story
     if (Math.abs(e.x - x) > r + 1 || Math.abs(e.y - y) > r + 1) continue;
     if (Math.hypot(e.x - x, e.y - y) <= r + e.r) out.push(e);
   }

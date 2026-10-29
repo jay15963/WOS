@@ -139,6 +139,11 @@ da árvore), `o.alpha` (0..1, transparência — o jogo usa nas copas que cobrem
   (4 orientações / 5 posições de borda), pegada `o.fw × o.fh`, `Mover` (`build.move` → `struct.relocate`), `Arrasar`
   (`struct.raze`), barra de construção e menu de contexto em `src/ui/buildbar.js`. Detalhes em `docs/SYNC.md` §7.2.
   Save v2 (`wos.save.v1.<seed>` migrado). Fila de trabalho automática (`work.js`): plantas, mineração, desmontar, colheita.
+- **Andares (agente L, `docs/LEVELS.md`)**: `game.levels` (`src/game/levels.js`) — mapa de níveis derivado das construções
+  (topo de muro/porta pronta = piso do andar 1), escadas `block: 'stairs'` (portais no A*), entidades com `lv` (nível de colisão)
+  e `z` (altura em andares, contínua na escada; presença e fluxo de criaturas replicam `z`). `STORY_H` = altura de um andar
+  na tela (= `WALL_H`), `liftOf(e)`, `sameLevel(a, b)` (corpo a corpo só no mesmo nível), `heightK` (bônus de alcance),
+  `hasLOS(..., z0, z1)`. Ganchos de uma linha marcados `levels:` em physics / nav / combat / projectiles / game.js.
 - **Combate**: `content/weapons.js` (perfis por tipo/tier, armaduras, escudos), habilidades em `content/combat.js` (`act` = pose),
   `projectiles.js`, `bandits.js` (`game.camps`), barra de ação dinâmica (`src/ui/actionbar.js`). Sistemas podem expor
   `collect(game, list, view)` para objetos com `o.draw(B, A, t)` entrarem na ordenação por profundidade.
