@@ -113,6 +113,7 @@ function nudgeOut(game, o, auth) {
   const sw = o.fw || 1, sh = o.fh || 1;
   for (const e of game.entities) {
     if (e.dead || e.remote || e.proxy || (e.isMob && !auth)) continue;
+    if (e.lv > 0 || e.z > 0) continue; // levels: up a story (rampart, stairs), not in the way
     if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
     else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
     let best = null, bd = 1e9;
@@ -417,6 +418,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null) {
       return o.type.startsWith('tree_') ? (o.stump ? 'Toco no caminho' : 'Árvore no caminho') : o.type === 'boulder' ? 'Pedregulho no caminho' : 'Algo no caminho';
     }
   }
+  if (def.block === 'stairs') { const r = game.levels?.stairsReason(type, tx, ty, rot); if (r) return r; } // levels: open stairwell
   if (who && Math.hypot(tx + sw / 2 - who.x, ty + sh / 2 - who.y) > MAX_DIST) return 'Muito longe';
   return replace ? { replace } : null;
 }
@@ -613,7 +615,7 @@ defineIntent('struct.raze', {
 // is any player / creature (other than none) inside the door tile? (closing would trap it)
 function doorBusy(game, o) {
   const x0 = o.tx, y0 = o.ty, x1 = o.tx + (o.fw || 1), y1 = o.ty + (o.fh || 1);
-  const inside = (e) => e && !e.dead && e.x + (e.r || 0.25) * 0.8 > x0 && e.x - (e.r || 0.25) * 0.8 < x1 && e.y + (e.r || 0.25) * 0.8 > y0 && e.y - (e.r || 0.25) * 0.8 < y1;
+  const inside = (e) => e && !e.dead && !(e.z > 0) && e.x + (e.r || 0.25) * 0.8 > x0 && e.x - (e.r || 0.25) * 0.8 < x1 && e.y + (e.r || 0.25) * 0.8 > y0 && e.y - (e.r || 0.25) * 0.8 < y1;
   for (const p of allPlayers(game)) if (inside(p)) return true;
   for (const e of game.entities) if (e.isMob && !e.proxy && inside(e)) return true;
   return false;

@@ -25,6 +25,7 @@ import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
 import { buildOcc } from './nav.js';
+import { installLevels, levelsSystem } from './levels.js';
 import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
@@ -59,6 +60,7 @@ export function installSystems(game) {
   initPlayer(game);
   initBuilding(game);
   initRoofs(game);
+  installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   buildOcc(game);
   initEconomy(game);
   initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
@@ -84,6 +86,7 @@ export function installSystems(game) {
 
   for (const s of [
     clock,
+    levelsSystem(),
     controller,
     playerSystem(),
     abilitiesSystem(),

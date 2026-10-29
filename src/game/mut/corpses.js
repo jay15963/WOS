@@ -121,7 +121,8 @@ export function corpseFromMob(game, m, rows) {
   const slots = pawn ? rowsToSlots(rows).slice(0, BANDIT_SLOTS) : 0;
   const name = pawn ? (m.role === 'chief' ? 'Corpo do chefe dos saqueadores' : m.name === 'Saqueadora' ? 'Corpo da saqueadora' : 'Corpo do saqueador') : 0;
   const gear = pawn ? [m.weapon || null, m.offhand || null, m.armor?.body || null, m.armor?.head || null] : 0;
-  net.emit('corpse.add', { list: [[id, pawn ? 'pawn' : m.species, r2(m.x), r2(m.y), pawn ? lieDir(m.facing, id) : facing4(m.facing), r2(game.worldTime),
+  const [bx, by] = game.levels ? game.levels.groundSpot(m.x, m.y) : [m.x, m.y]; // levels: a body up a wall drops to the ground below
+  net.emit('corpse.add', { list: [[id, pawn ? 'pawn' : m.species, r2(bx), r2(by), pawn ? lieDir(m.facing, id) : facing4(m.facing), r2(game.worldTime),
     pawn ? BANDIT_SLOTS : 0, slots, 0, 0, name, pawn ? m.look || 0 : 0, m.scale || 1, m.variant | 0, gear, m.nid || 0]] });
   capCorpses(game);
   return id;
@@ -216,6 +217,7 @@ defineIntent('corpse.player', {
     if (e && Math.hypot(x - e.x, y - e.y) > 8) { x = e.x; y = e.y; } // trust the owner's position within reason
     const W = game.world;
     x = Math.max(1, Math.min(W.W - 1, x)); y = Math.max(1, Math.min(W.H - 1, y));
+    if (game.levels) [x, y] = game.levels.groundSpot(x, y); // levels: died on a wall top / stairs → the body lies on the ground below
     const slots = cleanSlots(a.slots, CORPSE_SLOTS);
     const gear = Array.isArray(a.gear) ? a.gear.slice(0, 4).map((g) => (typeof g === 'string' && ITEMS[g] ? g : null)) : 0;
     const look = e?.look || e?.ent?.look || 0;

@@ -51,6 +51,7 @@ export function areaTargets(game, x, y, r) {
   const out = [];
   for (const e of game.entities) {
     if (!isMob(e) || e.dead) continue;
+    if (Math.abs((e.z || 0) - (game.player.z || 0)) >= 0.5) continue; // levels: area hits stay on the caster's story
     if (Math.abs(e.x - x) > r + 1 || Math.abs(e.y - y) > r + 1) continue;
     if (Math.hypot(e.x - x, e.y - y) <= r + e.r) out.push(e);
   }
@@ -71,7 +72,7 @@ function rangeOk(game, ab, t) {
   if (ab.range === 'melee') return d <= reach(p, t) + 0.15 ? 'ok' : 'far';
   if (d < ab.range[0]) return 'near';
   if (d > ab.range[1] + (t.r || 0.3)) return 'far';
-  if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y)) return 'los';
+  if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) return 'los'; // levels: heights
   return 'ok';
 }
 

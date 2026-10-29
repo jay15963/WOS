@@ -14,18 +14,20 @@ import { facingFrom } from './physics.js';
 import { fireArrow } from './projectiles.js';
 import { applyMobEffect } from './mut/combat.js';
 import { corpseFromMob } from './mut/corpses.js';
+import { heightK } from './levels.js';
 
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // any creature / raider controlled by the sim
 export const isMob = (e) => !!(e && e.isEntity && (e.isMob || e.kind === 'animal'));
 // can the player target & hit it (mobs + breakable props like bandit crates)
 export const attackable = (e) => !!e && ((isMob(e) && !e.dead) || (e.isProp && !e.broken));
-// melee contact distance (center to center); a.reachX = weapon reach of the attacker
-export const reach = (a, b) => a.r + (b.r || 0.3) + (a.reachX ?? 0.62);
-// player attack distance with the current weapon (bow range or melee reach)
+// melee contact distance (center to center); a.reachX = weapon reach of the attacker.
+// levels: melee only on the same story (−1 = out of reach across levels, docs/LEVELS.md §6)
+export const reach = (a, b) => (Math.abs((a.z || 0) - (b.z || 0)) < 0.5 ? a.r + (b.r || 0.3) + (a.reachX ?? 0.62) : -1);
+// player attack distance with the current weapon (bow range or melee reach); ranged: height bonus over the target
 export function attackRange(p, t) {
   const pr = p.wprof;
-  return pr && pr.ranged ? pr.range + (t.r || 0.3) : reach(p, t);
+  return pr && pr.ranged ? pr.range * heightK(p, t) + (t.r || 0.3) : reach(p, t);
 }
 
 // is `t` roughly in front of `e` (4-dir facing, generous cone)
@@ -40,7 +42,9 @@ export const facingVec = (f) => (f === 'e' ? [1, 0] : f === 'w' ? [-1, 0] : f ==
 export function faceTowards(e, t) { e.facing = facingFrom(t.x - e.x, t.y - e.y, e.facing); }
 
 // Line of sight for shots: rock and walls/doors block, trees/water don't (projectiles still collide with trunks).
-export function hasLOS(world, x0, y0, x1, y1) {
+// levels: z0 / z1 = heights (stories) of both ends; the line runs half a story above them and a level-0 wall only
+// blocks where the line is below its top (a rampart shooter sees over the walls around it; docs/LEVELS.md §6).
+export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1);
   const dx = x1 - x0, dy = y1 - y0;
@@ -48,13 +52,16 @@ export function hasLOS(world, x0, y0, x1, y1) {
   const ddx = dx !== 0 ? Math.abs(1 / dx) : 1e9, ddy = dy !== 0 ? Math.abs(1 / dy) : 1e9;
   let mx = dx !== 0 ? (dx > 0 ? tx + 1 - x0 : x0 - tx) * ddx : 1e9;
   let my = dy !== 0 ? (dy > 0 ? ty + 1 - y0 : y0 - ty) * ddy : 1e9;
+  const up = z0 || z1;
   for (let n = 0; n < 64; n++) {
     if (tx === ex && ty === ey) return true;
-    if (mx < my) { mx += ddx; tx += sx; } else { my += ddy; ty += sy; }
+    let f; // fraction of the line where it enters this tile
+    if (mx < my) { f = mx; mx += ddx; tx += sx; } else { f = my; my += ddy; ty += sy; }
     if (tx === ex && ty === ey) return true;
     if (!world.inBounds(tx, ty)) return false;
     const i = ty * world.W + tx;
-    if (world.rock[i] || world.solid[i]) return false;
+    if (world.rock[i]) return false;
+    if (world.solid[i] && (!up || 0.5 + z0 + (z1 - z0) * Math.min(1, f) < 1)) return false;
   }
   return true;
 }
@@ -341,7 +348,7 @@ export function playerShot(game, t, mult = 1, flat = 0, opts = {}) {
   }
   return fireArrow(game, {
     src: p, faction: 'player', x: p.x, y: p.y, tx, ty, angle: ang, target: roll.miss || side ? null : t,
-    range: (p.wprof?.range || 9) + 3, ability: opts.ability, kind: 'arrow',
+    range: (p.wprof?.range || 9) * heightK(p, t) + 3, ability: opts.ability, kind: 'arrow', z1: side ? p.z || 0 : t.z || 0,
     onHit: (g, e, pr) => {
       if (!side && roll.miss && e === t) { playerMiss(g, e); return; }
       const r = !side && e === t ? roll : rollPlayerHit(g, e, mult, flat, false);
@@ -376,7 +383,7 @@ export function combatSystem() {
       const d = dist(p, t);
       if (prof.ranged) {
         if (d > attackRange(p, t)) return;
-        if (!hasLOS(game.world, p.x, p.y, t.x, t.y)) {
+        if (!hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) {
           if (game.time - losT > 2 && !game.ctl?.goal) { losT = game.time; game.events.emit('error', { text: 'Sem linha de tiro' }); }
           return;
         }

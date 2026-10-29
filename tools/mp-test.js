@@ -2753,6 +2753,268 @@ def('J5', {
   await t.checkDigest(H, G);
 });
 
+// L · Andares e escadarias (agent L, docs/LEVELS.md): stairs, ramparts, levels across the network
+// host-side test setup: finished structures through the real op (no work loop) — rows [type, tx, ty, rot]
+function hostBuild(H, rows) {
+  const g = H.game, net = g.net;
+  const list = rows.map(([type, tx, ty, rot = 0]) => [net.newId('s'), type, tx, ty, 0, 1, Math.round(g.worldTime), rot, 1, 0]);
+  net.emit('struct.add', { list });
+  return list.map((r) => r[0]);
+}
+// owner-side setup: stand on a wall top (level 1) at (x, y)
+function upOn(f, x, y) { A.teleport(f, x, y); const p = f.game.player; p.lv = 1; p.z = 1; }
+const lvOf = (e) => `lv ${e?.lv ?? '-'} z ${f2(e?.z ?? 0)}`;
+// a wall row (x..x+n-1, y) with free ground around it, valid on both frames
+const rowSite = (H, G, MH, MG, n, cx, cy, opts = {}) => A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => {
+  const out = [];
+  for (let k = -1; k <= n; k++) for (let dy = -1; dy <= (opts.south ?? 1); dy++) out.push([x + k, y + dy]);
+  return out;
+}, cx, cy, opts);
+
+def('L1', {
+  star: true, title: 'L: guest builds stairs and walks on a rampart', timeout: 180000,
+  expected: 'Guest builds a wall row + stairs (blueprints, real work): same ids on both, level map identical; climbing the stairs raises z 0 → 1 smoothly and ends on the wall top (lv 1, bounded by the edges); the host sees the guest at lv 1 in the same place (avatar + drawn copy); walking along the rampart keeps lv 1; pushing at the edge hops down to lv 0 (host sees z 0); digest equal',
+  api: 'BUILDINGS.stairs_wood (block "stairs", rot), game.levels {active, stairs, isSurface, stairAt}, player {lv, z}, presence st/sts z, session players.av.z / ent.z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.levels?.STORY_H && MG.data.BUILDINGS.stairs_wood, 'levels module / stairs_wood missing');
+  const gp = G.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = rowSite(H, G, MH, MG, 5, gp.x, gp.y, { rMin: 3, rMax: 18, south: 3, avoidPts: [[gp.x, gp.y], [H.game.player.x, H.game.player.y]] });
+  t.assert(site, 'found a free 7×5 site');
+  const { x0: x, y0: y } = site;
+  A.pacify(H, x, y, 20);
+  A.ensure(G, { wood: 40 });
+  const walls = A.place(G, MG, 'wall_wood', [x, y], [x + 4, y]);
+  const stairsL = A.place(G, MG, 'stairs_wood', [x + 1, y + 1], [x + 1, y + 1], 0);
+  t.log(`guest planned ${walls.length} walls + ${stairsL.length} stairs at ${x},${y}`);
+  const ids = await t.waitFor(() => { const L0 = G.game.build.structures.filter((o) => o.blueprint && o.ty >= y && o.ty <= y + 1 && o.tx >= x && o.tx <= x + 4); return L0.length >= 6 && L0; }, RT() + 600, 'guest sees 6 blueprints');
+  const st = ids.find((o) => o.type === 'stairs_wood');
+  t.assert(st, 'stairs blueprint present');
+  t.check(st.fw === 1 && st.fh === 2 && (st.rot | 0) === 0, 'stairs footprint 1×2, rot 0 (ascends north)', `${st.fw}×${st.fh} rot ${st.rot}`);
+  await A.buildAll(t, G, MG, ids.map((o) => o.id), { ms: 30000 });
+  await t.waitFor(() => ids.every((o) => { const h = A.structOn(H, o.id); return h && !h.blueprint; }), RT() + 800, 'host sees every piece finished');
+  const LH = H.game.levels, LG = G.game.levels;
+  const wi = H.game.world.idx(x + 1, y);
+  t.check(LH.active && LG.active && LH.stairs.length === LG.stairs.length, 'level map active on both (stairs registered)', `host ${LH.stairs.length} · guest ${LG.stairs.length}`);
+  t.check(LH.isSurface(1, wi) && LG.isSurface(1, wi), 'wall tops are level-1 surfaces on both');
+  // climb
+  A.teleport(G, x + 1.5, y + 3.5);
+  await A.hostSees(t, H, G);
+  const zs = [];
+  const zw = t.watch(() => zs.push(+(gp.z || 0).toFixed(3)), 4);
+  const rel = A.holdMove(G, 0, -1);
+  await t.waitFor(() => gp.lv === 1 && gp.z === 1 && gp.y < y + 0.9, 5000, 'guest climbs to level 1', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.sleep(400);
+  rel(); zw.stop();
+  const mids = zs.filter((v) => v > 0.05 && v < 0.95);
+  t.check(mids.length >= 3, 'z rises smoothly on the stairs (intermediate heights)', short(zs.filter((_, i) => i % 3 === 0).slice(0, 30)));
+  t.check(gp.lv === 1 && Math.floor(gp.y) === y && gp.y > y + 0.2, 'stands on the wall top, stopped by the north edge (no walking into the air)', `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  const av = () => guestOnHost(H, G), drawn = () => A.avatarOn(H, G.pid);
+  await t.waitFor(() => av() && av().z === 1 && av().lv === 1 && Math.hypot(av().x - gp.x, av().y - gp.y) < 0.3, RT() + 400, 'host avatar of the guest at lv 1 in the same place', () => `host av ${lvOf(av())} ${f2(av()?.x)},${f2(av()?.y)}`);
+  await t.waitFor(() => Math.abs((drawn()?.z ?? 0) - 1) < 0.01 && Math.hypot(drawn().x - gp.x, drawn().y - gp.y) < 0.35, RT() + 600, 'host draws the guest on the wall top (interpolated copy z = 1)');
+  // along the rampart
+  const x1 = gp.x;
+  const rel2 = A.holdMove(G, 1, 0);
+  await t.sleep(700);
+  rel2();
+  t.check(gp.lv === 1 && gp.x > x1 + 1 && Math.floor(gp.y) === y, 'walks along the rampart at lv 1', `${lvOf(gp)} x ${f2(x1)} → ${f2(gp.x)}`);
+  await t.waitFor(() => av()?.lv === 1 && Math.abs(av().x - gp.x) < 0.3, RT() + 400, 'host follows the guest along the rampart');
+  // jump down north (push at the edge)
+  const rel3 = A.holdMove(G, 0, -1);
+  await t.waitFor(() => gp.lv === 0 && gp.z === 0 && gp.y < y, 4000, 'pushing at the edge hops down to the ground', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  rel3();
+  await t.waitFor(() => av() && !(av().z > 0) && av().y < y, RT() + 400, 'host sees the guest back on the ground (z 0)');
+  await t.checkDigest(H, G);
+});
+
+def('L2', {
+  title: 'L: creature cannot melee a player on a wall top', timeout: 150000,
+  expected: 'Guest stands on a rampart with no stairs; a hostile host creature chases it, stays at lv 0 and never lands a bite (melee only on the same level); once the guest is back on the ground next to it, it bites (control); proxies keep z 0',
+  api: 'combat.reach −1 across levels; levels.findPath (no portal → partial → evade); own player.hurt; ents dyn z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = spawnOf(H);
+  const m = A.hostMobs(H, (e) => (e.species === 'wolf' || e.species === 'spider' || e.species === 'boar') && (e.temper || '') !== 'passive' && !env.claimed.has('mob' + e.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  t.assert(m, 'found a hostile creature');
+  env.claimed.add('mob' + m.nid);
+  const site = rowSite(H, G, MH, MG, 3, m.x, m.y, { rMin: 2, rMax: 9 });
+  t.assert(site, 'wall site near the creature');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), RT() + 500, 'guest sees the walls');
+  const gp = G.game.player;
+  upOn(G, x + 1.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1 && Math.hypot(guestOnHost(H, G).x - gp.x, guestOnHost(H, G).y - gp.y) < 0.3, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} ${f2(gp.x)},${f2(gp.y)} · host av ${lvOf(guestOnHost(H, G))} ${f2(guestOnHost(H, G)?.x)},${f2(guestOnHost(H, G)?.y)}`);
+  const dmg = [];
+  // creature hits only (survival damage — cold, hunger — has the player itself as source; DoTs are ticks)
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ t: now(), src: d.src.species || d.src.nid || '?', z: gp.z }); });
+  m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  let minD = 1e9, maxLv = 0, proxZ = 0;
+  const w = t.watch(() => { minD = Math.min(minD, Math.hypot(m.x - gp.x, m.y - gp.y)); maxLv = Math.max(maxLv, m.lv | 0, m.z > 0 ? 1 : 0); const pr = A.proxyOf(G, m); if (pr) proxZ = Math.max(proxZ, pr.z || 0); }, 8);
+  await t.sleep(7000);
+  w.stop();
+  t.metric('melee', { minD: f2(minD), state: m.state, fails: m.nav?.fails ?? 0 });
+  t.check(minD < 2.6, 'the creature came close (below the wall)', `min distance ${f2(minD)} · state ${m.state}`);
+  t.check(maxLv === 0, 'the creature stayed at lv 0 (no stairs to climb)', lvOf(m));
+  t.check(!dmg.length, 'no bite reached the guest on the wall top', `${dmg.length} hits ${short(dmg.slice(0, 3))}`);
+  t.check(proxZ === 0, 'creature proxy on the guest keeps z 0', `max ${f2(proxZ)}`);
+  // control: back on the ground beside it → bitten
+  const s = A.freeSpot(G, MG, m.x, m.y, { rMin: 0.7, rMax: 1.6 });
+  t.assert(s, 'free ground spot next to the creature');
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G);
+  m.calmT = 0; if (m.state !== 'chase') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  const bit = await t.tryWait(() => dmg.length > 0, 9000);
+  t.check(bit, 'on the same level the creature bites (control)', `${dmg.length} hits · creature ${m.state} at ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`);
+  sendAway(G, MG, m.x, m.y, 30);
+  A.pacify(H, m.x, m.y, 6, 120);
+  await t.checkDigest(H, G);
+});
+
+def('L3', {
+  title: 'L: bandit archer shoots a player on a rampart', timeout: 150000,
+  expected: 'Guest on a wall top (lv 1) 6–8 tiles from a bandit archer with height line of sight: the archer shoots (arrows aimed at z 1, flying over walls), the guest takes ranged damage only; arrows visible on both',
+  api: 'combat.hasLOS(world, …, z0, z1); fireArrow {z0, z1}; fx proj z args; own player.hurt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const archers = [];
+  for (const c of H.game.camps || []) for (const mm of c.members || []) if (mm.role === 'archer' && !mm.dead) archers.push(mm);
+  const sp = spawnOf(H);
+  archers.sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  t.assert(archers.length, 'found a bandit archer');
+  const ar = archers[0];
+  let site = null;
+  for (let r = 6; r <= 8 && !site; r++) {
+    const cand = rowSite(H, G, MH, MG, 3, ar.x, ar.y, { rMin: r, rMax: r });
+    if (cand && MH.combat.hasLOS(H.game.world, cand.x0 + 1.5, cand.y0 + 0.5, ar.x, ar.y, 1, ar.z || 0)) site = cand;
+  }
+  t.assert(site, 'wall site 6–8 tiles from the archer with line of sight from the top');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), RT() + 500, 'guest sees the walls');
+  const gp = G.game.player;
+  upOn(G, x + 1.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
+  const dmg = [], shotsH = [], seenH = new WeakSet(), seenG = new WeakSet();
+  let gArrows = 0;
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push({ weapon: d.src.weapon || '?', srcZ: +(d.src.z || 0).toFixed(2), lv: gp.lv }); });
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) if (pr.faction === 'bandit' && !seenH.has(pr)) { seenH.add(pr); shotsH.push(+(pr.z1 || 0).toFixed(2)); }
+    for (const pr of G.game.projectiles || []) if (pr.cosmetic && !seenG.has(pr)) { seenG.add(pr); gArrows++; }
+  }, 8);
+  ar.calmT = 0;
+  MH.ai.aggro(H.game, ar, guestOnHost(H, G));
+  await t.tryWait(() => dmg.length > 0 && gArrows > 0, 30000);
+  t.metric('archer', { shots: shotsH.length, z1: short(shotsH.slice(0, 6)), hits: dmg.length, guestArrows: gArrows });
+  t.check(shotsH.length > 0 && shotsH.some((z) => z === 1), 'the archer shoots at the guest on the rampart (arrows aimed at z 1)', short(shotsH.slice(0, 8)));
+  t.check(dmg.length > 0, 'ranged hits reach the guest at lv 1', `${dmg.length} hits, guest ${lvOf(gp)}`);
+  t.check(dmg.every((d) => /bow|spear/.test(d.weapon) && d.srcZ < 0.5 && d.lv === 1), 'every hit was a shot (bow / thrown spear) from the ground while the guest stood on the wall (no melee)', short(dmg.slice(0, 6)));
+  t.check(gArrows > 0, 'arrows visible on the guest (cosmetic copies)', `${gArrows}`);
+  sendAway(G, MG, ar.x, ar.y, 40);
+  await t.checkDigest(H, G);
+});
+
+def('L4', {
+  title: 'L: creature climbs the stairs to reach a player', timeout: 150000,
+  expected: 'With a staircase up to the rampart, a hostile host creature paths through it (stairs = A* portal), reaches lv 1 and bites the guest standing on the wall top; the guest sees the creature proxy at z 1',
+  api: 'levels.findPath portals, nav.steer(glv), levels.move on stairs, ents dyn z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = spawnOf(H);
+  const m = A.hostMobs(H, (e) => (e.species === 'wolf' || e.species === 'boar') && (e.temper || '') !== 'passive' && !env.claimed.has('mob' + e.nid))
+    .sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  t.need(m, 'no wolf / boar left near the spawn');
+  env.claimed.add('mob' + m.nid);
+  const site = rowSite(H, G, MH, MG, 5, m.x, m.y, { rMin: 3, rMax: 10, south: 3 });
+  t.assert(site, 'rampart site near the creature');
+  const { x0: x, y0: y } = site;
+  const ids = hostBuild(H, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y], ['wall_wood', x + 3, y], ['wall_wood', x + 4, y], ['stairs_wood', x + 1, y + 1, 0]]);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 500, 'guest sees the rampart');
+  const gp = G.game.player;
+  upOn(G, x + 3.5, y + 0.5);
+  A.keepAlive(t, G, { hp: false });
+  t.watch(() => { if (!gp.dead && gp.hp < gp.maxHp * 0.5) gp.hp = gp.maxHp; }, 50);
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 2000, 'host sees the guest on the wall top', () => `guest ${lvOf(gp)} · host av ${lvOf(guestOnHost(H, G))}`);
+  const dmg = [];
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0 && !d.dot && d.src && d.src !== gp) dmg.push(now()); });
+  let proxZ = 0, onStairs = 0;
+  t.watch(() => { const pr = A.proxyOf(G, m); if (pr) proxZ = Math.max(proxZ, pr.z || 0); if (m.z > 0.05 && m.z < 0.95) onStairs++; }, 8);
+  m.calmT = 0; if (m.state === 'evade') { m.state = 'idle'; m.stateT = 1; }
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  const up = await t.tryWait(() => m.lv === 1 && m.z === 1, 20000);
+  t.check(up, 'the creature climbed to lv 1 through the stairs', `${lvOf(m)} state ${m.state} at ${f2(m.x)},${f2(m.y)} fails ${m.nav?.fails ?? 0}`);
+  t.check(onStairs > 0, 'it was seen mid-stairs (0 < z < 1)', `${onStairs} samples`);
+  const bit = await t.tryWait(() => dmg.length > 0, 10000);
+  t.check(bit, 'and bites the guest on the rampart', `${dmg.length} hits`);
+  await t.tryWait(() => proxZ >= 0.99, RT() + 1200); // the proxy follows the stream (10 Hz, 150 ms behind)
+  t.check(proxZ >= 0.99, 'guest sees the creature proxy up there (z 1)', `max z ${f2(proxZ)}`);
+  sendAway(G, MG, m.x, m.y, 30);
+  m.x = m.home.x; m.y = m.home.y; m.lv = 0; m.z = 0; // host-side cleanup
+  A.pacify(H, m.x, m.y, 6, 120);
+  await t.checkDigest(H, G);
+});
+
+def('L5', {
+  title: 'L: saves — old save loads at lv 0, a new one keeps the rampart', timeout: 120000,
+  expected: 'Solo save frame: a player saved on a wall top reloads at lv 1 on it; the same save without level data (an older build) loads at lv 0 and never inside the wall; structures without lv (incl. legacy 10-field rows) load at level 0 and their tops are surfaces',
+  api: 'save.js player.z (optional), levels.restore(p, z), snapshot rows without lv; localStorage wos.save.v2.<seed> (restored after the run)',
+}, async (t) => {
+  const seed = CFG.seed + 17;
+  presetPid('s' + rand(7));
+  const S = t.open('solo-levels', `seed=${seed}`, null);
+  await t.waitFor(() => S.game && S.loadingHidden, CFG.bootMs, 'save frame boot');
+  const M = await A.mods(S);
+  await A.reset(t, S, M, null, null);
+  const g = S.game, p = g.player;
+  const site = A.findSite([S], [M], 'wall_wood', (x, y) => { const o = []; for (let k = -1; k <= 5; k++) for (let dy = -1; dy <= 3; dy++) o.push([x + k, y + dy]); return o; }, p.x, p.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'free site');
+  const { x0: x, y0: y } = site;
+  hostBuild(S, [['wall_wood', x, y], ['wall_wood', x + 1, y], ['wall_wood', x + 2, y], ['stairs_wood', x + 1, y + 1, 0]]);
+  A.teleport(S, x + 1.5, y + 3.5);
+  const rel = A.holdMove(S, 0, -1);
+  await t.waitFor(() => p.lv === 1 && p.z === 1, 5000, 'climbs onto the wall');
+  rel();
+  await t.sleep(200);
+  const at = [p.x, p.y];
+  t.assert(M.save.saveGame(g), 'saveGame() wrote a save');
+  const key = `wos.save.v2.${seed}`;
+  const data = JSON.parse(S.win.localStorage.getItem(key));
+  t.check(data?.player?.z === 1, 'the save records player z 1', String(data?.player?.z));
+  t.check(!data.world.lvs && g.build.structures.every((o) => !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
+  S.reload();
+  await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded (1)');
+  let p2 = S.game.player;
+  t.check(p2.lv === 1 && p2.z === 1 && Math.hypot(p2.x - at[0], p2.y - at[1]) < 0.05, 'reloads standing on the rampart (lv 1)', `${lvOf(p2)} at ${f2(p2.x)},${f2(p2.y)}`);
+  // an older build's save: no player z, plus a legacy 10-field wall row (v3)
+  const old = JSON.parse(JSON.stringify(data));
+  delete old.player.z;
+  old.v = 3;
+  old.world.structs = old.world.structs.map((r) => r.slice(0, 10));
+  old.world.structs.push(['old_wall_lv', 'wall_wood', x + 4, y, 0, 1, 0, 0, 0, 100]);
+  const g2 = S.game;
+  g2.noSave = true; // the page would save itself again on pagehide
+  S.win.localStorage.setItem(key, JSON.stringify(old));
+  S.reload();
+  await t.waitFor(() => S.loads >= 3 && S.game && S.loadingHidden && S.game !== g2, CFG.bootMs, 'reloaded (2: old save)');
+  const g3 = S.game;
+  p2 = g3.player;
+  t.check(!(p2.lv > 0) && !(p2.z > 0), 'old save: the player loads at lv 0', lvOf(p2));
+  const M3 = await A.mods(S);
+  t.check(!M3.physics.collides(g3.world, p2.x, p2.y, p2.r, null, true), 'old save: not stuck inside the wall (nudged out at lv 0)', `${f2(p2.x)},${f2(p2.y)}`);
+  const S3 = g3.build.structures;
+  t.check(S3.some((o) => o.id === 'old_wall_lv') && S3.every((o) => !(o.lv > 0)), 'old rows load as level-0 structures', `${S3.length} structures`);
+  const L3 = g3.levels;
+  t.check(L3.active && L3.isSurface(1, g3.world.idx(x + 4, y)) && L3.isSurface(1, g3.world.idx(x + 1, y)), 'their wall tops are level-1 surfaces, stairs active', `stairs ${L3.stairs.length}`);
+});
+
 // =====================================================================================================
 // S70 H: look sync (character creator)
 def('S70', {

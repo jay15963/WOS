@@ -9,6 +9,7 @@ import { Net } from '../net/net.js';
 import { loadLook } from './look.js';
 import { underOpaqueRoof } from './roofs.js';
 import { BUILDINGS } from './data.js';
+import { STORY_H } from './levels.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
@@ -95,11 +96,11 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
+    p.swimming = !p.dead && !(p.z > 0) && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
-    if (p.rooted || p._atkRootT > 0) mx = my = 0;
-    const spd = p.speed * this.world.speedAt(p.x, p.y);
+    if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
+    const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y)); // levels: stairs slower
     if (mx || my) {
       const x0 = p.x, y0 = p.y;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
@@ -117,7 +118,7 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    let tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    let tx = p.x + mx * look, ty = p.y - 0.4 - (p.z > 0 ? p.z * STORY_H : 0) + my * look; // levels: follow the elevated position
     // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
     const cf = this.camFocus;
     if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) { const fk = clamp(cf.k ?? 0.5, 0, 1); tx += (cf.x - tx) * fk; ty += (cf.y - ty) * fk; }
@@ -171,7 +172,9 @@ export class Game {
     for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); // a body on the ground replaces the dead (corpses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
-    list.sort((a, b) => (a._sy ?? a.y) - (b._sy ?? b.y)); // _sy: depth override (pawn lying in a bed / on a chair)
+    // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
+    for (let i = 0; i < list.length; i++) { const o = list[i]; o._sk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
+    list.sort((a, b) => a._sk - b._sk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
@@ -190,10 +193,14 @@ export class Game {
       if (!o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
       if (o.draw) o.draw(B, A, t);
       else {
+        // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
+        const lz = o.isEntity && o.z > 0 ? o.z * STORY_H : 0, y0 = o.y;
+        if (lz) o.y = y0 - lz;
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
         else if (o.kind === 'pawn') drawPawn(B, A, d, t);
         else drawAnimal(B, A, d, t);
+        if (lz) o.y = y0;
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;

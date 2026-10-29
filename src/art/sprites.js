@@ -27,6 +27,7 @@ import { addApparel } from './apparel.js';
 import { addItems } from './items.js';
 import { addCorpses } from './corpses.js';
 import { addRoofArt } from './roofs.js';
+import { addStairs } from './stairs.js';
 import { CONTRACT } from './contract.js';
 
 export { PPU, CONTRACT };
@@ -45,7 +46,7 @@ export function buildAtlas(opts = {}) {
   // (A.failures): an atlas with failures or placeholders is never cached and refuses multiplayer.
   const failures = [];
   const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
-    addCreatures, addGear, addApparel, addItems, addCorpses, addRoofArt]; // look parts: painted lazily (art/look/lazy.js)
+    addCreatures, addGear, addApparel, addItems, addCorpses, addRoofArt, addStairs]; // look parts: painted lazily (art/look/lazy.js)
   for (const step of steps) {
     try { if (opts.fail === step.name) throw new Error('falha simulada'); step(add); } catch (e) { console.error('[art] ' + step.name + ' failed', e); failures.push(`${step.name}: ${e?.message || e}`); }
   }

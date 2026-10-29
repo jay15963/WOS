@@ -178,7 +178,7 @@ campHooks.crateBreak = (game, o, breaker) => {
 };
 
 // ---------- AI ----------
-function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y); }
+function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0); } // levels: sight over walls from / to a height
 
 // p = the target player (local or a remote avatar); extra effects (stun / bleed) ride on the hit
 function meleeHit(game, m, p, mult, opts = {}) {
@@ -203,7 +203,7 @@ function shootAt(game, m, p, mult, kind = 'arrow', ability) {
   }
   const dmg = Math.max(1, Math.round(m.dmg * mult * (0.85 + Math.random() * 0.3)));
   fireArrow(game, {
-    src: m, faction: 'bandit', x: m.x, y: m.y, tx, ty, range: 13, kind,
+    src: m, faction: 'bandit', x: m.x, y: m.y, tx, ty, range: 13, kind, z1: p.z || 0, // levels: aim at the target's story
     onHit: (g, e, pr) => { hurtPlayer(g, m, e, dmg, { from: { x: pr.ox, y: pr.oy }, ranged: true, ability }); },
   });
 }
@@ -338,7 +338,7 @@ export function updateBandit(game, m, dt) {
           }
         }
       } else {
-        const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85);
+        const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85, t.lv | 0); // levels: the target's story
         go(game, m, dir, sp.speed, dt);
       }
       break;
@@ -348,8 +348,8 @@ export function updateBandit(game, m, dt) {
       m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.3 * dt);
       m.stateT -= dt;
       m.enraged = false;
-      if (m.stateT <= 0) { m.x = m.home.x; m.y = m.home.y; }
-      const dir = steer(game, m, m.home.x, m.home.y, dt, sp.speed * 1.4, 0.8);
+      if (m.stateT <= 0) { m.x = m.home.x; m.y = m.home.y; m.lv = 0; m.z = 0; }
+      const dir = steer(game, m, m.home.x, m.home.y, dt, sp.speed * 1.4, 0.8, 0);
       if (!dir) { m.hp = m.maxHp; m.state = 'idle'; m.stateT = 1.5; m.moving = false; resetNav(m); }
       else go(game, m, dir, sp.speed * 1.4, dt);
       break;

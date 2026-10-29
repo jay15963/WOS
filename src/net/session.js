@@ -13,6 +13,7 @@
 
 import { TrysteroLink, ManualLink, BroadcastLink, NETWORKS } from './links.js';
 import { netlog, PROTO, BUILD, runtime } from './netlog.js';
+import { STORY_H } from '../game/levels.js';
 import { prepareIce } from './rtc.js';
 import { stepGait } from '../game/anim.js';
 import { serializeWorld, applyWorld } from './snapshot.js';
@@ -86,6 +87,7 @@ function packState(p) {
     w: p.weapon || 0, o: p.offhand || 0, ab: p.armor?.body || 0, ah: p.armor?.head || 0,
     hp: Math.round(p.hp || 0), mh: Math.round(p.maxHp || 100), d: p.dead ? 1 : 0, bl: p.blocking ? 1 : 0, lv: p.level || 1,
     ty: p.typing ? 1 : undefined, // chat box open: others see a "typing…" bubble (cosmetic)
+    z: p.z > 0 ? +p.z.toFixed(2) : undefined, // levels: height in stories (omitted on the ground)
   };
 }
 // ---------- chat bubbles (overlay canvas) ----------
@@ -745,19 +747,19 @@ export class Session {
     const e = pl.ent;
     if (!e) { pl.pending = [s, ts]; return; }
     const W = this.game.world;
-    const x = num(s.x, 0, W.W, e.x), y = num(s.y, 0, W.H, e.y);
+    const x = num(s.x, 0, W.W, e.x), y = num(s.y, 0, W.H, e.y), z = num(s.z, 0, 3, 0); // levels: z (stories)
     const clk = clock || pl.clk;
     if (ts && !clock) clk.sample(ts);
     const t = ts || performance.now() / 1000;
     const B = e._buf;
     const prev = B[B.length - 1];
     if (prev && t <= prev.t) { /* out of order / duplicate sample */ } else {
-      if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; } // teleport / respawn: snap
-      // facing, action timeline, head and pose ride with the position (same interpolation delay)
-      B.push({ t, x, y, f: FACINGS.has(s.f) ? s.f : null, a: parseAct(s.a, t), hd: FACINGS.has(s.hd) ? s.hd : null, ps: parsePose(s.ps) });
+      if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; } // teleport / respawn: snap
+      // facing, action timeline, head and pose ride with the position (same interpolation delay); levels: z too
+      B.push({ t, x, y, z, f: FACINGS.has(s.f) ? s.f : null, a: parseAct(s.a, t), hd: FACINGS.has(s.hd) ? s.hd : null, ps: parsePose(s.ps) });
       if (B.length > 24) B.shift();
     }
-    if (!e._seen) { e.x = x; e.y = y; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
+    if (!e._seen) { e.x = x; e.y = y; e.z = z; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
     e.netMoving = !!s.mv;
     pl.lastS = s; pl.lastSAt = performance.now() / 1000;
     e.typing = !!s.ty;
@@ -778,6 +780,7 @@ export class Session {
       if (!s.mv) av.vx = av.vy = 0;
       av._t = t;
       av.x = x; av.y = y; av.facing = FACINGS.has(s.f) ? s.f : e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
+      av.z = z; av.lv = Math.round(z); // levels: the host's AI / hit checks use the latest story
       av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
     }
   }
@@ -866,15 +869,17 @@ export class Session {
         const rt = clk.ready ? now - clk.off - INTERP_DELAY : (B[B.length - 1].t - INTERP_DELAY);
         let a = B[0], b = B[B.length - 1];
         for (let i = B.length - 1; i > 0; i--) if (B[i - 1].t <= rt) { a = B[i - 1]; b = B[i]; break; }
-        let x, y;
-        if (rt <= a.t) { x = a.x; y = a.y; } else if (rt >= b.t) {
+        let x, y, z;
+        if (rt <= a.t) { x = a.x; y = a.y; z = a.z; } else if (rt >= b.t) {
           const ex = Math.min(0.2, rt - b.t), prev = B.length > 1 ? B[B.length - 2] : b, span = Math.max(1e-3, b.t - prev.t);
           x = b.x + ((b.x - prev.x) / span) * ex * (e.netMoving ? 1 : 0);
           y = b.y + ((b.y - prev.y) / span) * ex * (e.netMoving ? 1 : 0);
+          z = b.z;
         } else {
           const k = (rt - a.t) / Math.max(1e-3, b.t - a.t);
-          x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k;
+          x = a.x + (b.x - a.x) * k; y = a.y + (b.y - a.y) * k; z = (a.z || 0) + ((b.z || 0) - (a.z || 0)) * k;
         }
+        e.z = z || 0; e.lv = Math.round(e.z); // levels: drawn at its replicated height
         const d = Math.hypot(x - e.x, y - e.y);
         if (d > 6) { // teleport / respawn: snap, never interpolate across the map
           const last = B[B.length - 1];
@@ -933,7 +938,7 @@ export class Session {
     const dt = Math.min(0.1, Math.max(0, (now - (this._bubT || now)) / 1000)); this._bubT = now;
     const z = game.cam.zoom;
     const draw = (e, name, isSelf) => {
-      const [sx, sy] = game.worldToScreen(e.x, e.y - 1.25);
+      const [sx, sy] = game.worldToScreen(e.x, e.y - 1.25 - (e.z > 0 ? e.z * STORY_H : 0)); // levels: lifted plate
       if (sx < -80 || sy < -80 || sx > cv.clientWidth + 80 || sy > cv.clientHeight + 80) return;
       if (!isSelf) {
         ctx.font = `700 ${z < 40 ? 11 : 12}px "Segoe UI", system-ui, sans-serif`;
