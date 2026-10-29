@@ -24,7 +24,7 @@ function bush(v, berries, empty) {
     const lumps = bushLumps(cx, baseY, w, h, rand);
     const brand = rng(99 + v); // berries independent of lumps → same bush with/without berries
     P.layer((g) => {
-      drawFoliage(g, lumps, pal, rand, { cx, cy: baseY - h * 0.5, R: w * 0.5, RY: h * 0.5, marks: 1.2, drop: 0.5 });
+      drawFoliage(g, lumps, pal, rand, { cx, cy: baseY - h * 0.5, R: w * 0.5, RY: h * 0.5, marks: 1.2, drop: 0.5, sprigs: 0.9 });
       if (berries && !empty) {
         for (let k = 0; k < 7; k++) {
           const bx = cx + (brand() - 0.5) * w * 0.78, by = baseY - h * (0.2 + brand() * 0.6);

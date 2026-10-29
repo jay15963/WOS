@@ -76,14 +76,25 @@ function boulder(v) {
         g.fillStyle = rand() < 0.5 ? rgb(hex(C.dark), 0.35) : 'rgba(255,255,245,0.25)';
         g.beginPath(); circle(g, cx + (rand() - 0.5) * rx * 1.5, cy + (rand() - 0.5) * ry * 1.2, 0.6 + rand() * 0.8); g.fill();
       }
-      // moss patches on top
-      if (C.moss) {
-        for (let k = 0; k < 3; k++) {
+      // lichen rosettes (pale green / rust)
+      for (let k = 0; k < 4; k++) {
+        const x = cx + (rand() - 0.5) * rx * 1.2, y = cy + (rand() - 0.7) * ry * 0.9;
+        const col = k & 1 ? 'rgba(196,170,96,0.7)' : 'rgba(170,186,120,0.75)';
+        for (let j = 0; j < 5; j++) { g.fillStyle = col; g.beginPath(); circle(g, x + (rand() - 0.5) * 4, y + (rand() - 0.5) * 2.4, 0.7 + rand() * 0.9); g.fill(); }
+      }
+      // moss patches on top (heavy on mossy stones, a hint on the others) with fluffy lit edges
+      {
+        const nm = C.moss ? 3 : 1;
+        for (let k = 0; k < nm; k++) {
           const x = tcx + (rand() - 0.5) * rx * 0.7, y = tcy + (rand() - 0.6) * ry * 0.4;
-          for (let j = 0; j < 5; j++) {
+          for (let j = 0; j < 6; j++) {
             g.fillStyle = j % 2 ? '#5f7a35' : '#73903f';
             g.beginPath(); circle(g, x + (rand() - 0.5) * 7, y + (rand() - 0.5) * 3, 1.6 + rand() * 1.8); g.fill();
           }
+          g.fillStyle = 'rgba(170,200,100,0.7)';
+          for (let j = 0; j < 4; j++) { g.beginPath(); circle(g, x - 2 + (rand() - 0.5) * 5, y - 1.5 + (rand() - 0.5) * 1.5, 0.8 + rand() * 0.6); g.fill(); }
+          // moss dripping down the side
+          g.fillStyle = 'rgba(86,110,50,0.6)'; g.beginPath(); g.ellipse(x + 1, y + 4, 2.2, 3.4, 0.1, 0, TAU); g.fill();
         }
       }
       // ground contact darkening
@@ -92,6 +103,24 @@ function boulder(v) {
         g.fillRect(0, 0, P.W, P.H);
       });
     }, OW);
+    // loose pebbles and a few grass blades hugging the base
+    P.layer((g) => {
+      for (let k = 0; k < 3; k++) {
+        const x = cx + (k - 1) * rx * 0.85 + (rand() - 0.5) * 5, y = baseY + 1 + rand() * 2;
+        g.fillStyle = C.mid; g.beginPath(); g.ellipse(x, y, 2 + rand() * 1.4, 1.4 + rand() * 0.6, 0, 0, TAU); g.fill();
+        g.fillStyle = C.high; g.beginPath(); g.ellipse(x - 0.6, y - 0.5, 1, 0.6, 0, 0, TAU); g.fill();
+      }
+    }, 1.2);
+    P.layer((g) => {
+      for (const s of [-1, 1]) {
+        const bx = cx + s * rx * (0.7 + rand() * 0.2);
+        for (let i = 0; i < 5; i++) {
+          const x = bx + (i - 2) * 1.8, h = 5 + rand() * 6, lean = s * (1 + rand() * 3);
+          g.fillStyle = i & 1 ? '#6a8a3a' : '#57752f';
+          g.beginPath(); g.moveTo(x - 1, baseY + 2); g.quadraticCurveTo(x + lean * 0.3, baseY - h * 0.6, x + lean, baseY - h); g.quadraticCurveTo(x + lean * 0.4 + 1, baseY - h * 0.5, x + 1, baseY + 2); g.closePath(); g.fill();
+        }
+      }
+    }, 1.1, 'rgba(28,34,14,0.58)');
   });
 }
 

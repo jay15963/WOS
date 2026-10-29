@@ -57,6 +57,19 @@ function campfire() {
   });
 }
 
+// glowing coal bed + ember cracks on the logs (emissive overlay while lit)
+function campfireCoals() {
+  const rand = rng(31338);
+  return spritePx(80, 60, (g) => {
+    const cx = 40, cy = 37;
+    g.fillStyle = rad(g, cx, cy, 1, 20, [[0, 'rgba(255,170,70,0.85)'], [0.5, 'rgba(230,90,30,0.45)'], [1, 'rgba(160,40,10,0)']]);
+    g.beginPath(); g.ellipse(cx, cy, 21, 10, 0, 0, TAU); g.fill();
+    for (let i = 0; i < 14; i++) { g.fillStyle = i & 1 ? '#ffb040' : '#ffe08a'; g.beginPath(); circle(g, cx + (rand() - 0.5) * 30, cy + (rand() - 0.3) * 10, 0.7 + rand() * 1.1); g.fill(); }
+    g.strokeStyle = 'rgba(255,150,60,0.9)'; g.lineWidth = 1;
+    g.beginPath(); for (let i = 0; i < 6; i++) { const x = cx - 14 + rand() * 28, y = cy - 6 + rand() * 6; g.moveTo(x, y); g.lineTo(x + 3 + rand() * 3, y + (rand() - 0.5) * 2); } g.stroke();
+  });
+}
+
 function torch() {
   return spritePx(26, 72, (g, P) => {
     const cx = 13;
@@ -75,47 +88,6 @@ function torch() {
       g.fillStyle = '#231a14'; g.beginPath(); g.ellipse(cx, 10, 5, 2.2, 0, 0, TAU); g.fill();
       g.fillStyle = '#e0702a'; g.beginPath(); g.ellipse(cx, 9.6, 2.6, 1.1, 0, 0, TAU); g.fill();
     }, 2.6);
-  });
-}
-
-function wallWood() {
-  const rand = rng(4242);
-  return spritePx(68, 94, (g, P) => {
-    const x0 = 3, x1 = 65, top = 6, cap = 30, bot = 90;
-    P.layer((g) => {
-      // front face: vertical planks
-      const n = 4, pw = (x1 - x0) / n;
-      for (let i = 0; i < n; i++) {
-        const px = x0 + i * pw;
-        const tint = (rand() - 0.5) * 0.12;
-        g.fillStyle = lin(g, px, 0, px + pw, 0, [[0, mixc(WOOD.light, '#fff', 0.05 + tint)], [0.5, mixc(WOOD.mid, WOOD.light, 0.3 + tint)], [1, WOOD.dark]]);
-        g.fillRect(px, cap, pw + 0.5, bot - cap);
-        g.strokeStyle = 'rgba(40,24,12,0.35)'; g.lineWidth = 0.9;
-        for (let k = 0; k < 3; k++) { const gx = px + 3 + rand() * (pw - 6); g.beginPath(); g.moveTo(gx, cap + 4 + rand() * 10); g.lineTo(gx + (rand() - 0.5) * 2, bot - 6 - rand() * 14); g.stroke(); }
-        g.fillStyle = 'rgba(30,18,8,0.6)'; g.fillRect(px + pw - 1, cap, 1.4, bot - cap);
-        // knot
-        if (rand() < 0.6) { g.fillStyle = WOOD.deep; g.beginPath(); g.ellipse(px + pw * (0.3 + rand() * 0.4), cap + 14 + rand() * 40, 1.6, 2.4, 0, 0, TAU); g.fill(); }
-      }
-      // cross beams
-      for (const by of [cap + 9, bot - 14]) {
-        g.fillStyle = lin(g, 0, by - 4, 0, by + 4, [[0, WOOD.high], [1, WOOD.dark]]);
-        g.fillRect(x0, by - 4, x1 - x0, 8);
-        g.fillStyle = '#4a4a4e';
-        for (const nx of [x0 + 6, x1 - 6]) { g.beginPath(); circle(g, nx, by, 1.6); g.fill(); }
-      }
-      // ground shade on the face
-      g.fillStyle = lin(g, 0, bot - 16, 0, bot, [[0, 'rgba(20,12,6,0)'], [1, 'rgba(20,12,6,0.45)']]);
-      g.fillRect(x0, bot - 16, x1 - x0, 16);
-      // top face (seen from above), planks running across
-      g.fillStyle = lin(g, 0, top, 0, cap, [[0, '#c29462'], [1, '#a77a4c']]);
-      g.fillRect(x0, top, x1 - x0, cap - top);
-      g.strokeStyle = 'rgba(70,44,22,0.55)'; g.lineWidth = 1;
-      for (let y = top + 6; y < cap - 2; y += 6) { g.beginPath(); g.moveTo(x0, y); g.lineTo(x1, y + (rand() - 0.5)); g.stroke(); }
-      for (let i = 0; i < 4; i++) { const y = top + 2 + i * 6; const x = x0 + 8 + rand() * (x1 - x0 - 16); g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 6); g.stroke(); }
-      g.fillStyle = 'rgba(255,240,210,0.35)'; g.fillRect(x0, top, x1 - x0, 1.6);
-      // lip shadow under the top edge
-      g.fillStyle = 'rgba(25,14,6,0.55)'; g.fillRect(x0, cap, x1 - x0, 2.2);
-    }, OW);
   });
 }
 
@@ -141,6 +113,20 @@ function chest() {
       g.fillStyle = '#c9a24a'; g.fillRect(25.5, 20, 7, 8);
       g.fillStyle = '#2a2018'; g.beginPath(); circle(g, 29, 23.5, 1.2); g.fill(); g.fillRect(28.5, 23.5, 1, 2.5);
       g.fillStyle = 'rgba(20,12,6,0.4)'; g.fillRect(x0, bot - 5, x1 - x0, 5);
+      // lid planks + grain, body board nails, corner brackets, side handles, lock shading
+      g.strokeStyle = 'rgba(80,50,24,0.45)'; g.lineWidth = 0.8;
+      for (const y of [12, 16.5]) { g.beginPath(); g.moveTo(x0 + 1, y); g.quadraticCurveTo(29, y - 2.2, x1 - 1, y); g.stroke(); }
+      g.fillStyle = 'rgba(255,240,210,0.35)'; g.beginPath(); g.moveTo(x0 + 2, lidTop + 3); g.quadraticCurveTo(29, lidTop - 1.4, x1 - 2, lidTop + 3); g.lineTo(x1 - 2, lidTop + 4.2); g.quadraticCurveTo(29, lidTop, x0 + 2, lidTop + 4.2); g.closePath(); g.fill();
+      g.fillStyle = '#2e2e32'; for (const y of [30, 38]) for (const x of [x0 + 3, x1 - 3, 20, 38]) { g.beginPath(); circle(g, x, y - 2.6, 0.7); g.fill(); }
+      g.fillStyle = '#4a4a50';
+      for (const [bx, by, sx, sy] of [[x0, lidBot, 1, 1], [x1, lidBot, -1, 1], [x0, bot, 1, -1], [x1, bot, -1, -1]]) {
+        g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sx * 6, by); g.lineTo(bx, by + sy * 6); g.closePath(); g.fill();
+      }
+      g.strokeStyle = '#3a3a40'; g.lineWidth = 1.4;
+      g.beginPath(); g.arc(x0 + 1, 33, 3, Math.PI * 0.5, Math.PI * 1.5); g.stroke();
+      g.beginPath(); g.arc(x1 - 1, 33, 3, -Math.PI * 0.5, Math.PI * 0.5); g.stroke();
+      g.fillStyle = 'rgba(255,245,200,0.55)'; g.fillRect(25.5, 20, 7, 1.4);
+      g.fillStyle = 'rgba(90,60,20,0.5)'; g.fillRect(25.5, 26.6, 7, 1.4);
     }, OW);
   });
 }
@@ -169,9 +155,23 @@ function bed() {
       g.strokeStyle = 'rgba(30,45,65,0.5)'; g.lineWidth = 1.2;
       for (const y of [72, 92]) { g.beginPath(); g.moveTo(x0 + 2, y); g.quadraticCurveTo(34, y + 3, x1 - 2, y); g.stroke(); }
       g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(x0 + 4, 58, 10, 50);
+      // quilt patchwork + stitching
+      g.save(); g.beginPath(); g.moveTo(x0 + 2, 56); g.quadraticCurveTo(34, 51, x1 - 2, 56); g.lineTo(x1 - 2, 112); g.lineTo(x0 + 2, 112); g.closePath(); g.clip();
+      for (let r = 0; r < 5; r++) for (let c = 0; c < 4; c++) if ((r + c) & 1) { g.fillStyle = 'rgba(170,190,215,0.22)'; g.fillRect(x0 + 2 + c * 14.5, 56 + r * 12, 14.5, 12); }
+      g.strokeStyle = 'rgba(230,236,245,0.35)'; g.lineWidth = 0.7; g.setLineDash([1.6, 1.6]);
+      g.beginPath(); for (let c = 1; c < 4; c++) { g.moveTo(x0 + 2 + c * 14.5, 54); g.lineTo(x0 + 2 + c * 14.5, 112); } for (let r = 1; r < 5; r++) { g.moveTo(x0 + 2, 56 + r * 12); g.lineTo(x1 - 2, 56 + r * 12); } g.stroke();
+      g.setLineDash([]); g.restore();
+      // folded throw at the foot
+      g.fillStyle = '#a3473a'; g.fillRect(x0 + 3, 98, x1 - x0 - 6, 9);
+      g.fillStyle = 'rgba(255,220,200,0.3)'; g.fillRect(x0 + 3, 98, x1 - x0 - 6, 1.4);
+      g.fillStyle = '#d9b45a'; g.fillRect(x0 + 3, 103, x1 - x0 - 6, 1.2);
+      // headboard posts with knobs
+      for (const x of [x0 - 1, x1 - 3]) { g.fillStyle = WOOD.dark; g.fillRect(x, 4, 4, 18); g.fillStyle = WOOD.high; g.beginPath(); circle(g, x + 2, 4, 2.6); g.fill(); }
+      g.strokeStyle = 'rgba(60,36,18,0.5)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(x0 + 6, 13); g.quadraticCurveTo(34, 6, x1 - 6, 13); g.stroke();
       // footboard
       g.fillStyle = lin(g, 0, 110, 0, 120, [[0, '#a77a4c'], [1, WOOD.deep]]);
       g.fillRect(x0 - 1, 111, x1 - x0 + 2, 9);
+      g.fillStyle = 'rgba(255,235,200,0.35)'; g.fillRect(x0 - 1, 111, x1 - x0 + 2, 1.2);
     }, OW);
   });
 }
@@ -245,9 +245,14 @@ const ITEMS = {
 
 export function addBuildings(add) {
   { const c = campfire(); add('campfire', c, 0.5, 40 / (c.origH || c.height)); }
+  { const c = campfireCoals(); add('campfire_coals', c, 0.5, 40 / (c.origH || c.height)); }
   { const c = torch(); add('torch', c, 0.5, 67 / (c.origH || c.height)); }
-  { const c = wallWood(); add('wall_wood', c, 0.5, 91 / (c.origH || c.height)); }
   { const c = chest(); add('chest', c, 0.5, 49 / (c.origH || c.height)); }
   { const c = bed(); add('bed', c, 0.5, 121 / (c.origH || c.height)); }
-  for (const k of Object.keys(ITEMS)) add(k, item(ITEMS[k]), 0.5, 0.82);
+}
+
+// Legacy item icons (item_wood ... item_ore). Items now belong to Art B: these only fill names that no other
+// module registered (called by sprites.js after every step).
+export function addLegacyItems(add, has) {
+  for (const k of Object.keys(ITEMS)) if (!has(k)) add(k, item(ITEMS[k]), 0.5, 0.82);
 }

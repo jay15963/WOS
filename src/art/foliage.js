@@ -51,6 +51,36 @@ export function drawFoliage(g, lumps, pal, rand, opts) {
     const d = ((L.x - cx) / R) * LX + ((L.y - cy) / RY) * LY;
     L.lf = clamp(0.5 + 0.6 * d + (opts.lfBias || 0), 0, 1);
   }
+  // leaf sprigs poking out of the outer lumps (break up the round silhouette; drawn first so lumps cover their stems)
+  const sprigs = opts.sprigs ?? 0;
+  if (sprigs > 0) {
+    const pl = new Path2D(), pd = new Path2D();
+    for (const L of lumps) {
+      const dx = (L.x - cx) / R, dy = (L.y - cy) / RY;
+      if (dx * dx + dy * dy < 0.12) continue;
+      const base = Math.atan2(dy * RY, dx * R);
+      const n = Math.round(sprigs * (0.6 + rand() * 1.6));
+      for (let i = 0; i < n; i++) {
+        const a = base + (rand() - 0.5) * 1.7;
+        if (Math.sin(a) > 0.72) continue; // no sprigs hanging straight down
+        const r0 = L.r * (0.78 + rand() * 0.1), len = 3.5 + rand() * 3.5 + L.r * 0.12;
+        const x0 = L.x + Math.cos(a) * r0, y0 = L.y + Math.sin(a) * r0;
+        const lit = Math.cos(a) * LX + Math.sin(a) * LY > -0.1;
+        const P2 = lit ? pl : pd;
+        for (const da of [-0.38, 0.05, 0.42]) {
+          const aa = a + da + (rand() - 0.5) * 0.2, l = len * (da === 0.05 ? 1 : 0.75);
+          const x1 = x0 + Math.cos(aa) * l, y1 = y0 + Math.sin(aa) * l + l * 0.2;
+          const nx = -Math.sin(aa) * l * 0.32, ny = Math.cos(aa) * l * 0.32;
+          P2.moveTo(x0, y0);
+          P2.quadraticCurveTo((x0 + x1) / 2 + nx, (y0 + y1) / 2 + ny, x1, y1);
+          P2.quadraticCurveTo((x0 + x1) / 2 - nx, (y0 + y1) / 2 - ny, x0, y0);
+          P2.closePath();
+        }
+      }
+    }
+    g.fillStyle = ramp(stops, 0.18); g.fill(pd);
+    g.fillStyle = ramp(stops, 0.5); g.fill(pl);
+  }
   const order = lumps.slice().sort((a, b) => b.y - a.y);
   let first = true;
   for (const L of order) {
