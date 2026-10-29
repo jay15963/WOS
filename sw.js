@@ -2,7 +2,7 @@
 // Same-origin GETs always go to the network with `cache: 'no-cache'` (a cheap 304 revalidation that also
 // bypasses the 10-minute HTTP cache of GitHub Pages), so one boot never mixes modules of two deploys.
 // The SW cache is only the offline fallback. VERSION is written by tools/stamp.mjs ('wos-' + BUILD_ID).
-const VERSION = 'wos-91b874bbf61c';
+const VERSION = 'wos-58d162adb91e';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './src/main.js', './src/ui/hud.css'])).catch(() => {}));
@@ -19,7 +19,9 @@ self.addEventListener('fetch', (e) => {
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     try {
-      const res = await fetch(req, { cache: 'no-cache' });
+      // a navigation Request can't be re-issued with a RequestInit (TypeError → the stale offline copy was served):
+      // navigations fetch the URL afresh instead
+      const res = req.mode === 'navigate' ? await fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : await fetch(req, { cache: 'no-cache' });
       if (res.ok) e.waitUntil(cache.put(req, res.clone()).catch(() => {}));
       return res;
     } catch {

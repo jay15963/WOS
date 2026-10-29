@@ -246,15 +246,9 @@ out vec4 o;
 void main(){
   float a = (vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)).a : texture(uTex, vUV).a) * vA;
   if (a < 0.01) discard;
-  float hole = 0.0;
-  if (vCan > 0.5 && uDap.x > 0.0) {
-    // sun flecks: blobs elongated along the light (longer when the sun is low), only inside the crown shade
-    vec2 pd = vec2(-uSunN.y, uSunN.x);
-    vec2 q = vec2(dot(vW, uSunN) / uDap.z, dot(vW, pd));
-    float n = texture(uNoise, q * 0.21 + vWo).r * 0.6 + texture(uNoise, q * 0.53 - vWo * 1.4 + 0.37).g * 0.4;
-    hole = smoothstep(0.55, 0.66, n) * smoothstep(0.4, 0.9, a) * uDap.x;
-  }
-  o = vec4(a * (1.0 - hole), a * vCan, a, 1.0);
+  // owner: tree shadows must be solid (the old sun-fleck holes read as broken shadows) — R is the plain shadow now;
+  // G (canopy coverage) still feeds the god-ray shafts
+  o = vec4(a, a * vCan, a, 1.0);
 }`;
 
 // Point light: radial falloff, additive into the lightmap (stored at half intensity).

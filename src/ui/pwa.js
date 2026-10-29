@@ -273,7 +273,9 @@ export async function applyUpdate(remote) {
     }
   } catch { /* no service worker (localhost) */ }
   try { for (const k of await caches.keys()) if (k.startsWith('wos-')) await caches.delete(k); } catch { /* ignore */ }
-  location.reload();
+  // a fresh URL so no layer (SW offline copy, HTTP cache of the page) can hand back the old index.html
+  const u = new URL(location.href); u.searchParams.set('v', remote.id || String(Date.now()));
+  location.replace(u.toString());
 }
 
 // after a reload started by applyUpdate: tell the player what happened

@@ -27,9 +27,9 @@ const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still us
 // sprint, E = interact, Tab = backpack, digits 1–9, 0 = hotbar (herbs / food there too). Weapon / off-hand
 // abilities take Q R F in bar order (a 4th / 5th, only sword + shield: G T); heal also on V; Z = next target.
 // Ctrl is never bound (Ctrl+W would close the tab while walking).
-export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyF', 'KeyG', 'KeyT'];
+export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyG', 'KeyT', 'KeyX']; // F = eat (owner); X freed by the removed mining mode
 export const KEYS = {
-  interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyK'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
+  interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyF'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
   inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], help: ['KeyH', 'F1'],
 };
 // key code for each ability of the bar (null = no key)

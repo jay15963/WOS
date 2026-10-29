@@ -29,7 +29,7 @@ export function installHelp(game) {
       </div>
       <div class="hk-col"><h4>Combate</h4>
         ${row(L(KEYS.attack), 'Atacar o alvo (ou o inimigo mais perto)')}
-        ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo, na ordem da barra (G e T só com espada + escudo)')}
+        ${row(L(ABILITY_KEYS), 'Habilidades da arma e do escudo, na ordem da barra (T e X só com espada + escudo)')}
         ${row(L(KEYS.heal), 'Curar (as ervas também vão para a barra 1–5)')}
         ${row(['⇧ Shift'], 'Disparada (correr)')}
         <h4>Tiro longo · Lançar lança</h4>
