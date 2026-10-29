@@ -41,7 +41,7 @@
 import { PAWN } from './pawns.js';
 import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
-import { lookRig } from './look/rig.js';
+import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
@@ -217,9 +217,10 @@ function bedSlot(o) {
 // look layers at one transform (k*: wet darkening; skipLegs: swimming hides bottoms / shoes)
 function stack(B, list, x, y, sx, sy, rot, fl, flip, lift, al, kr = 1, kg = 1, kb = 1, skipLegs = false) {
   for (let i = 0; i < list.length; i++) {
-    const l = list[i];
-    if (skipLegs && l.legs) continue;
-    B.main.add(l.s, x, y, sx, sy, l.r * kr, l.g * kg, l.b * kb, al, 0, rot, fl, flip, 0, lift);
+    const l = list[i], s = l.s;
+    if ((skipLegs && l.legs) || s.failed) continue;
+    s.lu = LOOK_CLOCK.f; // lazy look atlas: still in use
+    B.main.add(s, x, y, sx, sy, l.r * kr, l.g * kg, l.b * kb, al, 0, rot, fl, flip, 0, lift);
   }
 }
 // torso: the look's body stack (skin, clothes, shoes; build scale) + body armour, all on the torso anchor
@@ -295,7 +296,9 @@ export function drawPawn(B, A, p, t) {
   const hsd = hdir === 'w' ? 'e' : hdir;
   const hflip = hdir === 'w' ? -1 : 1;
   const L = p.look || DEFAULT_LOOK;
-  const LK = lookRig(A, L);
+  // look layers (lazy parts: until painted, the base-pawn stand-in in the same colours; own look painted now)
+  let LK = lookRig(A, L);
+  if (!rigReady(LK, !p.isMob && !p.remote && !p.lazyLook)) LK = LK.fb;
   const fl = p.flash || 0;
   const sk = LK.skin, pc = LK.botC;
   const wet = p._wet || 0;
