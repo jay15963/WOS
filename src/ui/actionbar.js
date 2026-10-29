@@ -72,8 +72,10 @@ export function installActionBar(game, root, wrap) {
       if (eat) {
         if (eat.parentElement !== wrap) wrap.appendChild(eat);
         eat.classList.add('ab-eat');
+        // one fixed spot whatever the weapons (muscle memory), well clear of the interact button in both of its
+        // places: landscape — left of the combat arc, half-way up; portrait — on top of the right-hand column
         const es = Math.round(48 * k);
-        const pos = W > H ? { right: 240 * k, bottom: 92 * k } : { right: 196 * k, bottom: 236 * k };
+        const pos = W > H ? { right: 226 * k, bottom: 186 * k } : { right: 21 * k, bottom: 335 * k };
         Object.assign(eat.style, { position: 'absolute', right: `${Math.round(pos.right)}px`, bottom: `${Math.round(pos.bottom)}px`, width: `${es}px`, height: `${es}px`, margin: '0' });
       }
       if (intBtn) {
