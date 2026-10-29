@@ -19,8 +19,9 @@ const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'l
 const MINES_PT = ['rocha e pedregulhos', 'rocha, cobre e carvão', 'rocha, cobre, carvão e ferro', 'todos os minérios', 'todos os minérios'];
 const SLOT_ICON = { main: '🗡️', off: '🛡️', body: '👕', head: '🪖' };
 const x100 = (v) => '×' + (Math.round(v * 100) / 100).toString().replace('.', ',');
+const WIN_KEY = { inv: 'I', craft: 'C', build: 'B', map: 'M' };
 
-function itemStats(id) {
+export function itemStats(id) {
   const d = ITEMS[id];
   const out = [];
   if (d.tool?.chop) out.push(`Corta árvores ${x100(d.tool.chop)}`);
@@ -30,7 +31,7 @@ function itemStats(id) {
   if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}`);
   if (d.shield) out.push(`Bloqueia ${Math.round(d.shield.block * 100)}% do dano`);
   if (d.light) out.push('Ilumina em volta de você');
-  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ' · aquece' : ''}`);
+  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ` · aquece por ${d.food.warm} s` : ''}`);
   if (d.seed) out.push(`Planta: ${CROPS[d.seed]?.name || d.seed}`);
   return out;
 }
@@ -47,6 +48,7 @@ export class Panels {
     this.craftStation = null;
     this.buildTab = 'struct';
     this.scroll = {};
+    this.pos = {};      // desktop window offsets (dragged by the title bar)
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
@@ -76,13 +78,14 @@ export class Panels {
     this.fresh = true;
     this.render();
     this.fresh = false;
-    g.audio?.play('ui', {});
+    g.audio?.play('ui_open', {});
   }
 
   close() {
     if (!this.open) return;
     this.open = null; this.data = null;
     this.el.innerHTML = '';
+    this.g.audio?.play('ui_close', {});
     this.g.ui.modal = false;
   }
 
@@ -91,7 +94,11 @@ export class Panels {
   resetScroll(k) { delete this.scroll[k]; }
 
   frame(title, icon, body, cls = '') {
-    return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
+    // desktop: a window with its shortcut key, draggable by the title bar (position kept per window)
+    const k = WIN_KEY[this.open];
+    const pos = this.pos[this.open];
+    const st = pos ? ` style="translate:${pos[0]}px ${pos[1]}px"` : '';
+    return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"${st}><div class="ph"><span class="pt">${icon}<span>${title}</span>${k ? `<kbd class="pk">${k}</kbd>` : ''}</span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
   }
 
   slots(inv, tag, cols, selected = -1) {
@@ -181,8 +188,8 @@ export class Panels {
       if (!c || !c.store) { this.close(); return; }
       html = this.frame('Baú', buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div><div class="gl">Mochila <small>toque para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
-          <div><div class="gl">Baú <small>toque para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
+          <div class="inv-side"><div class="gl">Mochila <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
+          <div class="chest-side"><div class="gl">Baú <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
@@ -197,6 +204,20 @@ export class Panels {
   bind() {
     const g = this.g, p = g.player, el = this.el;
     el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => this.close()));
+    // desktop windows: drag by the title bar
+    const ph = el.querySelector('.ph'), win = el.querySelector('.panel'), name = this.open;
+    ph?.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('button')) return;
+      const p0 = this.pos[name] || [0, 0], x0 = e.clientX, y0 = e.clientY;
+      const mv = (ev) => {
+        const nx = Math.max(-innerWidth / 2 + 80, Math.min(innerWidth / 2 - 80, p0[0] + ev.clientX - x0));
+        const ny = Math.max(-innerHeight / 2 + 40, Math.min(innerHeight / 2 - 40, p0[1] + ev.clientY - y0));
+        this.pos[name] = [Math.round(nx), Math.round(ny)];
+        win.style.translate = `${this.pos[name][0]}px ${this.pos[name][1]}px`;
+      };
+      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    });
     el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
       const i = +b.dataset.slot;
       if (this.open === 'chest') {

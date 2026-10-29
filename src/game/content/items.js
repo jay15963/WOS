@@ -53,11 +53,11 @@ export const ITEMS = {
   // ---------- food ----------
   berries:      food('Frutas silvestres', '🫐', 'Mata um pouco a fome.', { hunger: 10, heal: 4 }),
   meat:         food('Carne crua', '🥩', 'Melhor assar na fogueira. Comer crua pode fazer mal.', { hunger: 14, heal: 0, sick: 0.35 }),
-  cooked:       food('Carne assada', '🍖', 'Refeição completa. Restaura fome e vida.', { hunger: 40, heal: 28 }),
+  cooked:       food('Carne assada', '🍖', 'Refeição completa e quentinha. Restaura fome e vida.', { hunger: 40, heal: 28, warm: 45 }),
   potato:       food('Batata', '🥔', 'Crua mata pouco a fome. Asse na fogueira.', { hunger: 12, heal: 0 }),
-  baked_potato: food('Batata assada', '🥔', 'Quentinha e nutritiva.', { hunger: 30, heal: 14 }),
+  baked_potato: food('Batata assada', '🥔', 'Quentinha e nutritiva.', { hunger: 30, heal: 14, warm: 40 }),
   corn:         food('Milho', '🌽', 'Cru é duro. Asse na fogueira.', { hunger: 10, heal: 0 }),
-  roast_corn:   food('Milho assado', '🌽', 'Doce e crocante.', { hunger: 26, heal: 10 }),
+  roast_corn:   food('Milho assado', '🌽', 'Doce, crocante e quente.', { hunger: 26, heal: 10, warm: 30 }),
   stew:         food('Ensopado', '🍲', 'Carne, batata e milho no caldeirão. A melhor refeição: aquece o corpo.', { hunger: 60, heal: 45, warm: 120 }, { stack: 20 }),
 
   // ---------- off hand ----------

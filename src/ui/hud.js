@@ -1,6 +1,7 @@
-// DOM HUD (#hud): unit frames, action bar (thumb arc on touch / WoW row on desktop), interact
-// button, quick buttons, minimap + clock/weather, XP bar, buffs, error/feed/banner, build bar,
-// death screen, fullscreen / install. Updates the DOM only when values change.
+// DOM HUD (#hud): unit frames (XP, hunger, body heat, °C inside the player card), action bar (thumb arc
+// on touch / compact row on desktop), desktop hotbar (hotbar.js), interact button, quick buttons, minimap
+// + clock/weather, buffs + job chip, error/feed/banner, build bar, death screen, fullscreen / install /
+// help buttons. Updates the DOM only when values change.
 
 import { BUILDINGS, ITEMS, SPECIES, WEATHER_PT, DOTS } from '../game/data.js';
 import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
@@ -14,14 +15,12 @@ import { installActionBar } from './actionbar.js';
 import { Minimap } from './minimap.js';
 import { Panels } from './panels.js';
 import { econIcon } from './econIcons.js';
-import { foodCount } from '../game/survival.js';
-
-let deferredInstall = null;
-addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredInstall = e;
-  document.dispatchEvent(new Event('wos-installable'));
-});
+import { foodCount, heatState } from '../game/survival.js';
+import { KEYS, keyLabel } from '../game/controller.js';
+import { installHotbar } from './hotbar.js';
+import { installTooltips } from './tooltip.js';
+import { installHelp } from './help.js';
+import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFullscreenChange, openInstallGuide } from './pwa.js';
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
@@ -40,6 +39,7 @@ const TF_CSS = `
 .tf.prop .port { background: radial-gradient(circle at 35% 30%, #6a5a40, #2a2418 70%); }
 `;
 
+// instant buttons (game actions): fire on pointerdown for responsiveness
 function press(el, fn) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -52,6 +52,17 @@ function press(el, fn) {
   el.addEventListener('pointercancel', up);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
 }
+// buttons that need a user activation (fullscreen, install prompt): a touch pointerdown is NOT one,
+// so they run on click; pointerdown only shows the pressed state and keeps the tap off the world
+function tap(el, fn) {
+  el.addEventListener('pointerdown', (e) => { e.stopPropagation(); el.classList.add('down'); });
+  const up = () => el.classList.remove('down');
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointerleave', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); up(); fn(e); });
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
 
 export function installHUD(game, { isNew } = {}) {
   const A = game.A;
@@ -59,42 +70,52 @@ export function installHUD(game, { isNew } = {}) {
   const p = game.player;
   root.innerHTML = `
     <div class="tl">
-      <div class="uf pf" id="pf">
-        <div class="port"><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
-        <div class="ufb">
-          <div class="ufn"><span class="nm" id="pf-nm"></span><span class="cmb" id="pf-cmb">${svgIcon('attack')}</span></div>
-          <div class="bar hp" id="pf-hp"><i></i><b></b></div>
-          <div class="bar en" id="pf-en"><i></i><b></b></div>
-          <div class="bar hu" id="pf-hu"><i></i><b></b></div>
+      <div class="tl-top">
+        <div class="uf pf" id="pf">
+          <div class="port"><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
+          <div class="ufb">
+            <div class="ufn"><span class="nm" id="pf-nm"></span><span class="cmb" id="pf-cmb">${svgIcon('attack')}</span><span class="tmp" id="pf-tmp"></span></div>
+            <div class="bar hp" id="pf-hp"><i></i><b></b></div>
+            <div class="bar en" id="pf-en"><i></i><b></b></div>
+            <div class="bars2">
+              <div class="bar hu" id="pf-hu" data-tip="<b>Fome</b><p>Coma antes de esvaziar: abaixo de 25% você fica fraco e sem comida perde vida.</p>"><i></i><b></b></div>
+              <div class="bar wm" id="pf-wm" data-tip="<b>Calor do corpo</b><p>Cai no frio (noite, chuva, vento, montanha). Fogueira, abrigo fechado, roupas e comida quente aquecem.</p>"><i></i><b></b></div>
+            </div>
+            <div class="bar xpb" id="pf-xp" data-tip="<b>Experiência</b><p>Ganhe XP coletando, construindo, criando e lutando.</p>"><i></i><b></b></div>
+          </div>
+        </div>
+        <div class="uf tf hidden" id="tf">
+          <div class="port"><span class="ini" id="tf-ini"></span><img id="tf-img" alt="" draggable="false"><span class="lv" id="tf-lv"></span></div>
+          <div class="ufb">
+            <div class="ufn"><span class="nm" id="tf-nm"></span></div>
+            <div class="bar hp" id="tf-hp"><i></i><b></b></div>
+            <div class="tsub" id="tf-sub"></div>
+            <div class="tcast hidden" id="tf-cast"><i></i><span></span></div>
+            <div class="tdb" id="tf-db"></div>
+          </div>
+          <button class="tf-x" id="tf-x" aria-label="Limpar alvo">${svgIcon('close')}</button>
         </div>
       </div>
-      <div class="uf tf hidden" id="tf">
-        <div class="port"><span class="ini" id="tf-ini"></span><img id="tf-img" alt="" draggable="false"><span class="lv" id="tf-lv"></span></div>
-        <div class="ufb">
-          <div class="ufn"><span class="nm" id="tf-nm"></span></div>
-          <div class="bar hp" id="tf-hp"><i></i><b></b></div>
-          <div class="tsub" id="tf-sub"></div>
-          <div class="tcast hidden" id="tf-cast"><i></i><span></span></div>
-          <div class="tdb" id="tf-db"></div>
+      <div class="tl-bot">
+        <div class="quick" id="quick">
+          <button class="qb" data-q="inv" data-tip="<b>Mochila e equipamento</b><span class='key'>I</span>">${uiIcon(A, 'bag')}<span class="qk">I</span></button>
+          <button class="qb" data-q="craft" data-tip="<b>Criar itens</b><span class='key'>C</span>">${econIcon(A, 'craft')}<span class="qk">C</span></button>
+          <button class="qb" data-q="build" data-tip="<b>Construir</b><span class='key'>B</span>">${uiIcon(A, 'build')}<span class="qk">B</span></button>
+          <button class="qb" data-q="mine" data-tip="<b>Marcar rochas para minerar</b><span class='key'>X</span>">${econIcon(A, 'mine')}<span class="qk">X</span></button>
+          <button class="qb qb-map" data-q="map" data-tip="<b>Mapa</b><span class='key'>M</span>">${svgIcon('map')}<span class="qk">M</span></button>
+          <button class="qb" data-q="eat" data-tip="<b>Comer a melhor comida</b><span class='key'>${keyLabel(KEYS.eat[0])}</span>">${uiIcon(A, 'eat')}<span class="qk">${keyLabel(KEYS.eat[0])}</span><span class="badge" id="eat-n"></span></button>
         </div>
-        <button class="tf-x" id="tf-x" aria-label="Limpar alvo">${svgIcon('close')}</button>
+        <div class="status" id="status"><div class="buffs" id="buffs"></div></div>
       </div>
-    </div>
-    <div class="buffs" id="buffs"></div>
-    <div class="quick" id="quick">
-      <button class="qb" data-q="inv" title="Mochila e equipamento (I)">${uiIcon(A, 'bag')}<span class="qk">I</span></button>
-      <button class="qb" data-q="craft" title="Criar (C)">${econIcon(A, 'craft')}<span class="qk">C</span></button>
-      <button class="qb" data-q="build" title="Construir (B)">${uiIcon(A, 'build')}<span class="qk">B</span></button>
-      <button class="qb" data-q="mine" title="Minerar (X)">${econIcon(A, 'mine')}<span class="qk">X</span></button>
-      <button class="qb" data-q="eat" title="Comer (Q)">${uiIcon(A, 'eat')}<span class="qk">Q</span><span class="badge" id="eat-n"></span></button>
     </div>
     <div class="tr">
       <div class="sys">
-        <button class="sb" id="btn-full" title="Tela cheia">${svgIcon('full')}</button>
-        <button class="sb hidden" id="btn-install" title="Instalar app">${svgIcon('install')}</button>
+        <button class="sb" id="btn-full" data-tip="<b>Tela cheia</b>">${svgIcon('full')}</button>
+        <button class="sb hidden" id="btn-install" data-tip="<b>Instalar o jogo</b><p>Tela cheia de verdade e ícone na tela inicial.</p>">${svgIcon('install')}</button>
+        <button class="sb" id="btn-help" data-tip="<b>Atalhos e controles</b><span class='key'>H</span>"><span class="qm">?</span></button>
       </div>
       <div class="mmwrap">
-        <div class="mm" id="mm" title="Mapa (M)"><canvas></canvas></div>
+        <div class="mm" id="mm" data-tip="<b>Mapa</b><span class='key'>M</span>"><canvas></canvas></div>
         <div class="mm-info"><span id="clock"></span><span id="weather"></span></div>
       </div>
     </div>
@@ -110,7 +131,6 @@ export function installHUD(game, { isNew } = {}) {
       <button class="bb-b ok" id="bb-ok" title="Construir">${svgIcon('check')}</button>
       <button class="bb-b no" id="bb-no" title="Cancelar (Esc)">${svgIcon('close')}</button>
     </div>
-    <div class="xp" id="xp"><i></i><span></span></div>
     <div class="panels" id="panels"></div>
     <div class="death hidden" id="death">
       <div class="dbox">
@@ -125,6 +145,9 @@ export function installHUD(game, { isNew } = {}) {
   if (!document.getElementById('tf-style')) { const st = document.createElement('style'); st.id = 'tf-style'; st.textContent = TF_CSS; document.head.appendChild(st); }
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;
+  // the job chip (pending blueprints / mining) lives in the status row under the card, never over buttons
+  const chip = root.querySelector('.jobchip');
+  if (chip) $('#status').appendChild(chip);
 
   // ---------- layout mode ----------
   let touchMode = null;
@@ -150,7 +173,7 @@ export function installHUD(game, { isNew } = {}) {
     tf: $('#tf'), tfNm: $('#tf-nm'), tfLv: $('#tf-lv'), tfHp: $('#tf-hp'), tfSub: $('#tf-sub'), tfIni: $('#tf-ini'), tfImg: $('#tf-img'),
     tfCast: $('#tf-cast'), tfCastI: $('#tf-cast i'), tfCastS: $('#tf-cast span'), tfDb: $('#tf-db'),
     buffs: $('#buffs'), eatN: $('#eat-n'), clock: $('#clock'), weather: $('#weather'),
-    xp: $('#xp'), xpI: $('#xp i'), xpS: $('#xp span'),
+    xp: $('#pf-xp'), wm: $('#pf-wm'), tmp: $('#pf-tmp'),
     errs: $('#errs'), feed: $('#feed'), banner: $('#banner'),
     int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'),
     bb: $('#buildbar'), bbNm: $('#bb-nm'), bbHint: $('#bb-hint'), bbIc: $('#bb-ic'), bbOk: $('#bb-ok'),
@@ -162,10 +185,11 @@ export function installHUD(game, { isNew } = {}) {
   press($('#tf-x'), () => { game.ctl.setTarget(null); game.ctl.goal = null; });
   root.querySelectorAll('.qb').forEach((el) => press(el, () => {
     const q = el.dataset.q;
-    game.audio?.play('ui', {});
+    game.audio?.play('ui_click', {});
     if (q === 'eat') eatBest(game);
     else panels.toggle(q);
   }));
+  tap($('#btn-help'), () => game.events.emit('help', {}));
   press(R.mm, () => panels.toggle('map'));
   press(R.bbOk, () => confirmPlace(game));
   press($('#bb-no'), () => exitBuildMode(game));
@@ -175,33 +199,30 @@ export function installHUD(game, { isNew } = {}) {
     respawnPlayer(game);
   });
 
-  // fullscreen
+  // fullscreen (click = user activation; iPhone has no element fullscreen → the install guide instead:
+  // an installed PWA already runs full screen)
   const fullBtn = $('#btn-full');
-  if (!document.fullscreenEnabled && !document.documentElement.webkitRequestFullscreen) fullBtn.classList.add('hidden');
-  press(fullBtn, async () => {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else {
-        const el = document.documentElement;
-        await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
-        try { await screen.orientation?.lock?.('landscape'); } catch { /* not supported */ }
-      }
-    } catch { game.events.emit('error', { text: 'Tela cheia indisponível' }); }
+  const fsIcon = () => { fullBtn.innerHTML = svgIcon(fullscreenElement() ? 'unfull' : 'full'); };
+  if (isStandalone() && !canFullscreen()) fullBtn.classList.add('hidden');
+  tap(fullBtn, async () => {
+    game.audio?.play('ui_click', {});
+    if (!canFullscreen()) { openInstallGuide({ title: 'Tela cheia' }); return; }
+    try { await toggleFullscreen(); } catch { game.events.emit('error', { text: 'Tela cheia indisponível' }); }
+    fsIcon();
   });
-  document.addEventListener('fullscreenchange', () => { fullBtn.innerHTML = svgIcon(document.fullscreenElement ? 'unfull' : 'full'); });
+  onFullscreenChange(fsIcon);
 
-  // install (PWA)
+  // install (PWA): any context that is not the installed app — iOS never fires beforeinstallprompt
   const instBtn = $('#btn-install');
-  const showInstall = () => instBtn.classList.toggle('hidden', !deferredInstall || matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches);
+  const showInstall = () => instBtn.classList.toggle('hidden', isStandalone());
   document.addEventListener('wos-installable', showInstall);
-  addEventListener('appinstalled', () => { deferredInstall = null; showInstall(); game.events.emit('toast', { text: 'App instalado!', kind: 'good' }); });
-  press(instBtn, async () => {
-    if (!deferredInstall) return;
-    deferredInstall.prompt();
-    try { await deferredInstall.userChoice; } catch { /* ignore */ }
-    deferredInstall = null; showInstall();
-  });
+  tap(instBtn, () => { game.audio?.play('ui_click', {}); openInstallGuide({ title: 'Instalar o jogo' }); });
   showInstall();
+
+  // desktop: hotbar (1–0), rich tooltips, shortcuts overlay (H / F1)
+  const hotbar = installHotbar(game, root);
+  installTooltips(game);
+  installHelp(game);
 
   // ---------- minimap ----------
   const mini = new Minimap(game);
@@ -287,10 +308,10 @@ export function installHUD(game, { isNew } = {}) {
   if (isNew) {
     const tips = [
       [1.2, 'Bem-vindo, Sobrevivente!', 'good'],
-      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque no mundo para interagir' : 'WASD para andar · clique para interagir · 1–7 habilidades', 'info'],
+      [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque nas coisas perto de você para usar · pinça = zoom' : 'WASD para andar · E interage · 1–0 barra de itens · H mostra os atalhos', 'info'],
       [7, 'Você está de mãos vazias: soque com cuidado e fuja de lobos', 'warn'],
       [9, game.input.isTouch ? 'Toque em Criar para fazer faca, machado e picareta' : 'Criar (C): faça faca, machado e picareta primitivos', 'info'],
-      [14, 'Construa uma fogueira antes do anoitecer', 'info'],
+      [14, 'A noite é fria: faça uma fogueira, um abrigo fechado ou roupas antes de escurecer', 'warn'],
     ];
     for (const [t, text, kind] of tips) game.later(t, () => ev.emit('toast', { text, kind }));
   } else {
@@ -324,9 +345,12 @@ export function installHUD(game, { isNew } = {}) {
       setBar(R.hp, 'hp', pl.hp / pl.maxHp, `${Math.ceil(pl.hp)} / ${pl.maxHp}`);
       setBar(R.en, 'en', pl.energy / pl.maxEnergy, `${Math.floor(pl.energy)}`);
       setBar(R.hu, 'hu', pl.hunger / pl.maxHunger, `Fome ${Math.ceil(pl.hunger)}%`);
+      const heat = pl.bodyHeat ?? 100;
+      setBar(R.wm, 'wm', heat / 100, `Calor ${Math.ceil(heat)}%`);
+      toggle(R.wm, 'wmlow', 'low', heat < 30);
       toggle(R.pf, 'pfc', 'combat', !!pl.inCombat);
       toggle(R.hp, 'hplow', 'low', pl.hp / pl.maxHp < 0.3 && !pl.dead);
-      toggle(R.hu, 'hulow', 'low', pl.hunger < 20);
+      toggle(R.hu, 'hulow', 'low', pl.hunger < 25);
 
       // target frame
       const t = pl.target;
@@ -399,7 +423,8 @@ export function installHUD(game, { isNew } = {}) {
         pl.buffs.forEach((b, i) => { const el = els[i]?.lastElementChild; if (el) { const v = b.perm ? '' : b.t >= 60 ? Math.ceil(b.t / 60) + 'm' : Math.ceil(b.t) + ''; if (el.textContent !== v) el.textContent = v; } });
       }
 
-      // xp
+      // xp (inside the player card)
+      hotbar.update(dt);
       const need = xpToNext(pl.level);
       const max = pl.level >= MAX_LEVEL;
       setBar(R.xp, 'xp', max ? 1 : pl.xp / need, max ? `Nível ${pl.level} · máximo` : `Nível ${pl.level} · ${Math.floor(pl.xp)} / ${need} XP`);
@@ -412,6 +437,13 @@ export function installHUD(game, { isNew } = {}) {
         const [wn, wi] = WEATHER_PT[g.env.weather] || ['', ''];
         const h = g.env.hour, night = h >= 19.5 || h < 5.5;
         setText(R.weather, 'wx', `${night && g.env.weather === 'clear' ? '☾' : wi} ${night && g.env.weather === 'clear' ? 'Noite' : wn}`);
+        const hs = heatState(pl);
+        if (C.tmp !== hs.key) {
+          C.tmp = hs.key;
+          R.tmp.textContent = hs.text;
+          R.tmp.className = 'tmp ' + hs.cls;
+          R.tmp.dataset.tip = `<b>Sensação térmica: ${hs.text}</b><p>${hs.why}</p>`;
+        }
         const food = foodCount(pl);
         setText(R.eatN, 'eatn', food ? String(food) : '');
         toggle(R.eatN, 'eatnh', 'hidden', !food);

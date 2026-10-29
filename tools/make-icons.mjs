@@ -78,4 +78,6 @@ mkdirSync(new URL('../icons/', import.meta.url), { recursive: true });
 writeFileSync(new URL('../icons/icon-192.png', import.meta.url), render(192, false));
 writeFileSync(new URL('../icons/icon-512.png', import.meta.url), render(512, false));
 writeFileSync(new URL('../icons/icon-maskable-512.png', import.meta.url), render(512, true));
+// iOS home screen: opaque, full-bleed (iOS rounds the corners itself)
+writeFileSync(new URL('../icons/apple-touch-icon-180.png', import.meta.url), render(180, true));
 console.log('icons ok');
