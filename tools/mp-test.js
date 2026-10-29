@@ -2359,8 +2359,8 @@ const lobsOf = (f, seen) => (f.game.projectiles || []).filter((q) => q.lob && !s
 
 def('G1', {
   title: 'G: long shot', timeout: 150000,
-  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; digest equal',
-  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter',
+  expected: 'Guest fires Tiro Longo (aim point) at a creature ~16 tiles away: host flies the authoritative arrow and rolls the landing (within range + scatter); guest copy flies at once and gets the host id + same landing on the ack; the host applies the hit (damage event ability long_shot from the guest avatar) and the guest sees it; 1 arrow leaves the guest bag per shot; an early 2nd request is refused by the host and refunded; aim beyond the range is clamped by the host; aim-assist hysteresis (lock, hop, stay, free, re-lock); a guest shot glued onto a creature walking sideways leads it and lands on its predicted position within scatter; digest equal',
+  api: 'abilities.fireAimed(game, id, x, y); intent lob.fire {ab, w, x, y, ax, ay, amount, crit, skin} → {id, lx, ly}; projectiles {lob, id, lx, ly, cosmetic, owner}; fx proj lob / pend; content/weapons.js lobSpec / lobScatter; ui/aimAssist.js stepLock / assistParams; game.aim {beginMouse, release, lock}; event aimfire',
 }, async (t) => {
   const { H, G, MG } = await pairCtx(t);
   t.need(MG.abilities.fireAimed, 'needs abilities.fireAimed (aimed ground abilities)');
@@ -2432,10 +2432,65 @@ def('G1', {
   gp.inv.remove('arrow', 1);
   let ok2 = null;
   G.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: gp.x, y: gp.y, ax: gp.x + 40, ay: gp.y, amount: 1, crit: 0, skin: 0 }, { refund: { arrow: 1 }, onOk: (r) => { ok2 = r || {}; }, onReject: (w) => { ok2 = { why: w }; } });
+  lastT = now();
   await t.waitFor(() => ok2, RT() + 600, 'host answers the far shot');
   const far = lobsOf(H, seen2)[0];
   t.check(far && Math.hypot(far.lx - far.x0, far.ly - far.y0) <= S.range + W.lobScatter(S, S.range) + 0.01, 'aim 40 tiles away is clamped to the bow range by the host', far ? `${f2(Math.hypot(far.lx - far.x0, far.ly - far.y0))} tiles` : JSON.stringify(ok2));
   if (far) await t.tryWait(() => far.stuck || !(H.game.projectiles || []).includes(far), far.dur * 1000 + 1500);
+  // aim assist hysteresis (pure): lock → hop to a neighbour → stays glued → forced free → re-lock; off = never
+  const AA = await import(new URL('src/ui/aimAssist.js', G.win.location.href).href);
+  const PA = AA.assistParams('normal', false);
+  const tA = { x: 10, y: 10, r: 0.3 }, tB = { x: 12.2, y: 10, r: 0.3 }, tC = { x: 20, y: 10, r: 0.3 }, cs = [tA, tB, tC];
+  const nm = (o) => (o === tA ? 'A' : o === tB ? 'B' : o === tC ? 'C' : '-');
+  let lk = null;
+  const seqOut = [];
+  for (const rx of [10.3, 11.4, 13.5, 16.5, 19.3]) { lk = AA.stepLock(lk, rx, 10, cs, PA, 0, 10); seqOut.push(`${rx}→${nm(lk)}`); }
+  t.check(seqOut.join(' ') === '10.3→A 11.4→B 13.5→B 16.5→- 19.3→C', 'aim assist hysteresis: lock A, hop to B, stay glued, break free, re-lock C', seqOut.join(' '));
+  t.check(AA.stepLock(null, 10, 10, cs, AA.assistParams('off'), 0, 10) === null, 'aim assist off: never locks');
+  // locked shot on a MOVING creature: the guest aim glues onto its proxy and leads it by the flight time
+  const site2 = lobSite(t, H, G, MG, 10);
+  const ga = G.game.aim;
+  if (!site2 || !ga?.beginMouse) t.note('no creature for the moving-target shot (or no game.aim) — skipped');
+  else {
+    const m2 = site2.m;
+    env.claimed.add('mob' + m2.nid);
+    A.teleport(G, site2.s[0], site2.s[1]);
+    await A.hostSees(t, H, G);
+    await t.waitFor(() => A.proxyOf(G, m2), 3000 + CFG.budget, 'moving creature proxy on the guest');
+    // host (authority test setup): the creature walks sideways at 1.2 tiles/s, stunned so its own AI stays out
+    const ux = -(m2.y - site2.s[1]), uy = m2.x - site2.s[0], ul = Math.hypot(ux, uy) || 1, V = 1.2;
+    const x0 = m2.x, y0 = m2.y, tm0 = now();
+    const mover = t.watch(() => {
+      if (m2.dead) return;
+      const sec = Math.min(6, (now() - tm0) / 1000);
+      m2.x = x0 + (ux / ul) * V * sec; m2.y = y0 + (uy / ul) * V * sec; m2.stunT = 2; m2.calmT = 60;
+    }, 16);
+    const wait2 = 2700 - (now() - lastT);
+    if (wait2 > 0) await t.sleep(wait2);
+    gp.cds.long_shot = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+    A.ensure(G, { arrow: 4 });
+    const cv = G.game.R.canvas;
+    const mvTo = (wx, wy) => { const [sx, sy] = G.game.worldToScreen(wx, wy); cv.dispatchEvent(new G.win.PointerEvent('pointermove', { clientX: sx, clientY: sy, pointerType: 'mouse', bubbles: true })); };
+    ga.beginMouse('long_shot');
+    const follow = t.watch(() => { const q = A.proxyOf(G, m2); if (q) mvTo(q.x + 0.35, q.y + 0.3); }, 30);
+    await t.waitFor(() => ga.lock && ga.lock === A.proxyOf(G, m2), 2500, 'guest aim glues onto the moving creature');
+    await t.sleep(800); // velocity estimate settles
+    let fired = null;
+    t.on(G, 'aimfire', (d) => { fired = d; });
+    t.on(G, 'error', (d) => t.log(`guest message: ${d.text}`));
+    const q0 = A.proxyOf(G, m2), qxy = [q0.x, q0.y];
+    follow.stop();
+    const seen3 = new Set(H.game.projectiles || []);
+    ga.release();
+    t.assert(fired, 'locked shot fired by the guest (aim module)');
+    const lead = Math.hypot(fired.x - qxy[0], fired.y - qxy[1]);
+    t.check(lead > 0.6, 'the locked aim leads the moving creature', `${f2(lead)} tiles ahead of the proxy`);
+    const hp3 = await t.waitFor(() => lobsOf(H, seen3)[0], RT() + 600, 'host flies the locked shot');
+    await t.waitFor(() => hp3.stuck || !(H.game.projectiles || []).includes(hp3), hp3.dur * 1000 + 1500, 'locked shot lands on the host');
+    const D3 = Math.hypot(fired.x - gp.x, fired.y - gp.y), off3 = Math.hypot(hp3.lx - m2.x, hp3.ly - m2.y);
+    mover.stop();
+    t.check(off3 <= W.lobScatter(S, D3) + 0.6, "locked shot lands on the moving creature's predicted position (within scatter)", `${f2(off3)} tiles from it · scatter ≤ ${f2(W.lobScatter(S, D3))} at ${f2(D3)} tiles`);
+  }
   await t.sleep(900); // possible arrow recovery (loot.add) settles
   await t.checkDigest(H, G);
 });
