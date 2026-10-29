@@ -329,6 +329,9 @@ export function openCharEditor(opts = {}) {
     </div>`;
   document.body.appendChild(root);
   requestAnimationFrame(() => root.classList.add('in'));
+  // in a running game: modal (single player pauses, like the in-game menu)
+  const ui0 = game?.ui ? { pause: game.ui.pause, modal: game.ui.modal } : null;
+  if (ui0) { game.ui.pause = true; game.ui.modal = true; }
   const Q = (s) => root.querySelector(s);
   const body = Q('.cc-body');
   const thumbs = new Thumbs();
@@ -543,6 +546,7 @@ export function openCharEditor(opts = {}) {
   const close = (out) => {
     alive = false; cancelAnimationFrame(raf); thumbs.destroy();
     removeEventListener('keydown', onKey, true);
+    if (ui0) { game.ui.pause = ui0.pause; game.ui.modal = ui0.modal; }
     root.classList.remove('in'); root.classList.add('out');
     setTimeout(() => root.remove(), 220);
     openNow = null;

@@ -137,6 +137,7 @@ function makePause(game) {
       <div class="pause-nav">
         <button class="mbtn primary wide" data-a="resume">Voltar ao jogo</button>
         ${mp}
+        <button class="mbtn" data-a="look">Aparência<small>Mude o visual do seu personagem</small></button>
         <button class="mbtn" data-a="test">Testar minha rede</button>
         <button class="mbtn" data-a="diag">Diagnóstico de rede</button>
         <button class="mbtn" data-a="settings">Configurações</button>
@@ -151,6 +152,7 @@ function makePause(game) {
     });
     on('room', () => sub((el) => roomPanel(el, game.session)));
     on('leave', () => exitToMenu(game));
+    on('look', () => { api.close(); import('./charcreator.js').then((m) => m.openCharEditor?.({ game, name: game.player.name })).catch(() => {}); }); // agent H
     on('test', () => sub(netTestPanel));
     on('diag', () => sub(diagnosticsPanel));
     on('settings', () => sub((el) => settingsPanel(el, { game, onName: (n) => { if (game.session) game.session.name = n; } })));
