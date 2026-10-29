@@ -11,11 +11,28 @@ import { hiCanvas } from './hipaint.js';
 
 const NONE = { name: '', canvas: null, w: 0.01, h: 0.01, ax: 0.5, ay: 1, u0: 0, v0: 0, u1: 0, v1: 0 };
 
+// Memory: painted canvases (and their tinted copies) are kept in an LRU with a pixel budget; anything not
+// drawn for a few seconds may be dropped (repainted if needed again), the working set never is.
 export class PreviewAtlas {
-  constructor(k = 3) {
+  constructor(k = 3, budget = 9e6) {
     this.k = k; this.defs = lookDefs(); this.sprites = new Map(); this.list = []; this.groups = {}; this.size = 0;
-    this.painted = 0;
+    this.painted = 0; this.lru = new Map(); this.px = 0; this.budget = budget;
   }
+  _touch(s) {
+    s._t = performance.now();
+    this.lru.delete(s.name); this.lru.set(s.name, s);
+  }
+  _grow(n) {
+    this.px += n;
+    if (this.px <= this.budget) return;
+    const now = performance.now();
+    for (const [name, s] of this.lru) {
+      if (this.px <= this.budget || now - s._t < 2500) break;
+      this.px -= s._px; s._px = 0; s._c = null; s._tint.clear(); this.lru.delete(name);
+    }
+  }
+  // drop everything (e.g. when the big editor closes)
+  clear() { for (const s of this.lru.values()) { s._c = null; s._tint.clear(); s._px = 0; } this.lru.clear(); this.px = 0; }
   has(name) { return this.defs.has(name); }
   get(name) {
     let s = this.sprites.get(name);
@@ -26,9 +43,13 @@ export class PreviewAtlas {
     // geometry is known without painting; the canvas is painted on first draw
     const pad = def.pad ?? 10;
     s = {
-      name, _c: null, _tint: new Map(), w: ((def.W + pad * 2) * A.k) / (64 * A.k), h: ((def.H + pad * 2) * A.k) / (64 * A.k),
+      name, _c: null, _tint: new Map(), _px: 0, _t: 0, _A: A, w: ((def.W + pad * 2) * A.k) / (64 * A.k), h: ((def.H + pad * 2) * A.k) / (64 * A.k),
       ax: (def.ax * def.W + pad) / (def.W + pad * 2), ay: (def.ay * def.H + pad) / (def.H + pad * 2),
-      get canvas() { if (!this._c) { this._c = hiCanvas(def, A.k).canvas; A.painted++; } return this._c; },
+      get canvas() {
+        A._touch(this);
+        if (!this._c) { this._c = hiCanvas(def, A.k).canvas; A.painted++; const n = this._c.width * this._c.height; this._px += n; A._grow(n); }
+        return this._c;
+      },
     };
     this.sprites.set(name, s);
     return s;
@@ -54,8 +75,12 @@ function tinted(s, r, g, b) {
   x.fillRect(0, 0, c.width, c.height);
   x.globalCompositeOperation = 'destination-in';
   x.drawImage(src, 0, 0);
-  if (T.size > 24) T.delete(T.keys().next().value);
+  // a few colours per part (slider drags create many): oldest dropped, pixels accounted in the atlas budget
+  const n = c.width * c.height;
+  if (T.size >= 3) { const old = T.keys().next().value, oc = T.get(old); T.delete(old); s._px -= oc.width * oc.height; if (s._A) s._A.px -= oc.width * oc.height; }
   T.set(key, c);
+  s._px = (s._px || 0) + n;
+  s._A?._grow(n);
   return c;
 }
 

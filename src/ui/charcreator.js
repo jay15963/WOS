@@ -27,7 +27,7 @@ function sfx(name, game) {
   try { (game?.audio || window.game?.audio || audioMod?.getAudio?.())?.play?.(name); } catch { /* sound is optional */ }
 }
 const ATLAS = new Map();
-const atlasFor = (k) => { k = Math.max(1, Math.min(7, Math.round(k))); let A = ATLAS.get(k); if (!A) { A = new PreviewAtlas(k); ATLAS.set(k, A); } return A; };
+const atlasFor = (k) => { k = Math.max(1, Math.min(6, Math.round(k))); let A = ATLAS.get(k); if (!A) { A = new PreviewAtlas(k); ATLAS.set(k, A); } return A; };
 const randSeed = () => (Math.random() * 2 ** 31) >>> 0;
 const LOOK_EVENT = 'wos:look';
 
@@ -545,6 +545,7 @@ export function openCharEditor(opts = {}) {
   let armed = 0;
   const close = (out) => {
     alive = false; cancelAnimationFrame(raf); thumbs.destroy();
+    for (const [k, A] of ATLAS) if (k >= 4) { A.clear(); ATLAS.delete(k); } // big preview parts are only for the editor
     removeEventListener('keydown', onKey, true);
     if (ui0) { game.ui.pause = ui0.pause; game.ui.modal = ui0.modal; }
     root.classList.remove('in'); root.classList.add('out');
