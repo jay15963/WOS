@@ -5,7 +5,9 @@
 
 import { registerWork, hitsFor, needToolMsg } from './gathering.js';
 import { bestTool } from './equipment.js';
-import { ORE_ITEM, ORE_MIN_TIER, ORE_NAME_PT, TIER_PT_F } from './content/items.js';
+import { ORE_ITEM as ORE_ITEM_DB, ORE_MIN_TIER, ORE_NAME_PT, TIER_PT_F } from './content/items.js';
+import * as WG from '../world/worldgen.js';
+const ORE_ITEM = WG.ORE_ITEM || ORE_ITEM_DB; // world ore code -> item id (CONTENT §7)
 import { dropLoot } from './loot.js';
 import { gainXp } from './player.js';
 import { updateMasksAround } from './autotile.js';

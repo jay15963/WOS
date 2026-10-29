@@ -103,7 +103,7 @@ function tileFree(game, tx, ty, kind) {
   const i = w.idx(tx, ty);
   if (w.rock[i] || w.water[i] || w.solid[i] || game.occ[i]) return false;
   if (w.noGrow && w.noGrow[i]) return false;
-  if (game.minedSet?.has(i)) return false;
+  if (game.minedSet?.has(i) || w.isMined?.(tx, ty)) return false;
   if (w.roofAt ? w.roofAt(tx, ty) : w.roof?.[i]) return false;
   if (game.camps) for (const c of game.camps) if (Math.hypot(tx + 0.5 - c.x, ty + 0.5 - c.y) < Math.max(7, (c.r || 0) + 1)) return false;
   const minD = kind.startsWith('tree_') ? 1.25 : 0.7;
@@ -153,17 +153,22 @@ function spawnAt(game, kind, tx, ty) {
   return o;
 }
 
+const growKey = (kind) => (kind.startsWith('tree_') ? 'tree' : kind);
 const inView = (v, tx, ty) => tx + 1 > v.x0 - 2 && tx < v.x1 + 2 && ty + 1 > v.y0 - 3 && ty < v.y1 + 4;
 
 function trySpawn(game, k, kind, view) {
   const w = game.world, F = game.flora, ch = F.chunks[k];
   const cx = (k % w.CW) * CHUNK, cy = Math.floor(k / w.CW) * CHUNK;
   const tmpl = ch.tmpl[kind], allowed = ch.synth?.[kind];
-  for (let a = 0; a < 8; a++) {
+  for (let a = 0; a < 12; a++) {
     const tx = cx + Math.floor(rnd() * CHUNK), ty = cy + Math.floor(rnd() * CHUNK);
     if (!w.inBounds(tx, ty) || inView(view, tx, ty)) continue;
     const i = w.idx(tx, ty);
-    if (tmpl) { if (!tmpl.has((w.biome ? w.biome[i] : 0) * 16 + w.ground[i])) continue; }
+    if (w.growWeight) {
+      // world suitability (ground / biome / water / camps...), weighted
+      const wt = w.growWeight(tx, ty, growKey(kind));
+      if (wt <= 0 || rnd() > wt) continue;
+    } else if (tmpl) { if (!tmpl.has((w.biome ? w.biome[i] : 0) * 16 + w.ground[i])) continue; }
     else if (allowed) { if (!w.biome || !allowed.has(w.biome[i]) || w.ground[i] === G.STONE) continue; }
     else return null;
     if (!tileFree(game, tx, ty, kind)) continue;
@@ -198,6 +203,7 @@ function spawnNear(game, kind, x, y, rMin, rMax, count, offscreen) {
     const tx = Math.floor(x + Math.cos(ang) * r), ty = Math.floor(y + Math.sin(ang) * r);
     if (offscreen && inView(view, tx, ty)) continue;
     if (!tileFree(game, tx, ty, kind)) continue;
+    if (game.world.growWeight && game.world.growWeight(tx, ty, growKey(kind)) <= 0) continue;
     const g = game.world.ground[game.world.idx(tx, ty)];
     if (kind !== 'pebble' && kind !== 'boulder' && (g === G.STONE || g === G.SAND)) continue;
     spawnAt(game, kind, tx, ty);

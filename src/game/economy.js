@@ -91,7 +91,7 @@ function guideSystem() {
       if ((p.inv.count('copper_ore') || p.inv.count('iron_ore')) && !built(game, 'furnace') && once(game, 'ore', 'Construa uma fornalha para fundir minério (18 pedra + 3 madeira)')) return;
       if (p.inv.count('copper_bar') >= 2 && !built(game, 'anvil') && once(game, 'anvil', 'Bigorna: forje ferramentas e armas de cobre')) return;
       if ((p.inv.count('seed_potato') || p.inv.count('seed_corn') || p.inv.count('seed_cotton')) && !built(game, 'farm_plot') && once(game, 'seeds', 'Sementes! Faça canteiros (Construir › Agricultura) para plantar')) return;
-      if (game.world.roofAt && game.world.roofAt(Math.floor(p.x), Math.floor(p.y)) && once(game, 'dark', 'Dentro da montanha é escuro: leve uma tocha de mão ou construa tochas')) return;
+      if ((game.world.isCave ? game.world.isCave(Math.floor(p.x), Math.floor(p.y)) : game.world.roofAt?.(Math.floor(p.x), Math.floor(p.y))) && once(game, 'dark', 'Dentro da montanha é escuro: leve uma tocha de mão ou construa tochas')) return;
     },
   };
 }
