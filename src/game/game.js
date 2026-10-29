@@ -58,6 +58,7 @@ export class Game {
     const p = this.player, inp = this.input;
 
     // movement (systems may set p.autoMove / p.rooted)
+    if (p._faceLockT > 0) p._faceLockT -= dt;
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted) mx = my = 0;
@@ -65,7 +66,7 @@ export class Game {
     if (mx || my) {
       const x0 = p.x, y0 = p.y;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
-      p.facing = facingFrom(mx, my, p.facing);
+      if (!(p._faceLockT > 0)) p.facing = facingFrom(mx, my, p.facing); // an attack keeps facing its target briefly
       p.moving = true;
       stepGait(p, Math.hypot(p.x - x0, p.y - y0)); // distance actually travelled (same clock as remote copies)
     } else {
