@@ -2062,7 +2062,7 @@ def('S61', {
   A.ensure(G, { wood: 7, pebble: 3, berries: 4, stick: 2 });
   A.equip(G, 'knife_stone');
   const carried = A.invSnap(G);
-  carried.knife_stone = (carried.knife_stone || 0) + 1;
+  for (const k of ['main', 'off', 'body', 'head']) { const id = gp.equip[k]; if (id) carried[id] = (carried[id] || 0) + 1; }
   const before = new Set(H.game.corpses.map.keys());
   const at = { x: gp.x, y: gp.y };
   MG.player.killPlayer(G.game);
@@ -2073,7 +2073,7 @@ def('S61', {
     'bag + equipped items are in the body (same on both)', `carried ${short(carried)} · body ${short(content(ch))}`);
   t.check(Math.hypot(ch.x - at.x, ch.y - at.y) < 0.6, 'the body lies where the guest died');
   t.check(/^Corpo de /.test(ch.name || ''), 'named "Corpo de <nome>"', ch.name);
-  t.check(!gp.inv.used() && !gp.equip.main, 'the dead guest carries nothing');
+  t.check(!gp.inv.used() && !Object.values(gp.equip).some(Boolean), 'the dead guest carries nothing (bag and equipment)');
   MG.player.respawnPlayer(G.game);
   await t.sleep(200);
   t.check(!gp.inv.used() && !gp.equip.main, 'respawn with nothing carried');

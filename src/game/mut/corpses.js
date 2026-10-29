@@ -66,7 +66,7 @@ export function addCorpse(game, r, { fresh = true } = {}) {
   Object.assign(c, {
     of, x: num(x), y: num(y), f: typeof f === 'string' ? f : 'e', deathT: num(deathT), size: Math.max(0, Math.min(60, size | 0)),
     butchered: !!butchered, owner: owner || null, name: typeof name === 'string' ? name.slice(0, 48) : null,
-    look: look && typeof look === 'object' ? cleanJSON(look, 1200) || null : null, sc: num(sc, 1) || 1, v: v | 0,
+    look: look && typeof look === 'object' ? cleanJSON(look, 4000) || null : null, sc: num(sc, 1) || 1, v: v | 0,
     gear: Array.isArray(gear) ? gear.slice(0, 4).map((g) => (typeof g === 'string' && ITEMS[g] ? g : null)) : null,
   });
   if (c.size > 0) {

@@ -49,7 +49,8 @@ function injectCss() {
   css = true;
   const st = document.createElement('style');
   st.textContent = '.sortbar{display:inline-flex;gap:4px;margin-left:8px;vertical-align:middle}'
-    + '.sortbar .sortb{height:22px;padding:0 7px;border-radius:4px;font-size:11px;font-weight:700;background:var(--panel-3,#3a3226);border:1px solid var(--border,#5a4a36);color:inherit;cursor:pointer}'
-    + '.sortbar .sortb:hover{border-color:var(--border-hi,#c9a45a)}';
+    + '.sortbar .sortb{height:22px!important;min-width:0!important;padding:0 7px!important;border-radius:4px!important;font-size:11px!important;font-weight:700!important;'
+    + 'background:var(--panel-3,#3a3226)!important;border:1px solid var(--border,#5a4a36)!important;color:inherit;cursor:pointer}'
+    + '.sortbar .sortb:hover{border-color:var(--border-hi,#c9a45a)!important}.sortbar .sortb:active{transform:translateY(1px)}';
   document.head.appendChild(st);
 }

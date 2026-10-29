@@ -38,7 +38,7 @@ export function initCorpses(game) {
   game.events.on('death', () => onLocalDeath(game));
   game.events.on('respawn', () => {
     const c = game.player._corpse && game.corpses.map.get(game.player._corpse);
-    if (c && c.store && c.store.used()) game.later(1.2, () => game.events.emit('toast', { text: 'Seus itens ficaram no seu corpo — recupere-os até o fim do 2º dia', kind: 'warn' }));
+    if (c && c.store && c.store.used()) game.later(1.2, () => game.events.emit('toast', { text: 'Seus itens ficaram no seu corpo (até o 2º dia)', kind: 'warn' }));
   });
   game.events.on('corpse', (d) => onCorpseEvent(game, d));
 }
