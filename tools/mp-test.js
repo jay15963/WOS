@@ -3070,6 +3070,206 @@ def('L5', {
   t.check(L3.active && L3.isSurface(1, g3.world.idx(x + 4, y)) && L3.isSurface(1, g3.world.idx(x + 1, y)), 'their wall tops are level-1 surfaces, stairs active', `stairs ${L3.stairs.length}`);
 });
 
+// ---------- L phase 2: stories (upper floors, walls, doors, furniture, collapse, saves) ----------
+// place `type` through build mode on story `lv` (the level bar's choice, game.build.mode.lv): a drag a → b or one tile
+function placeLv(f, M, type, a, b = a, lv = 1, rot = null) {
+  const g = f.game;
+  M.building.enterBuildMode(g, type);
+  const m = g.build.mode;
+  if (!m || m.kind !== 'place') throw new Fail(`${f.label}: enterBuildMode(${type}) refused`);
+  m.lv = lv;
+  if (rot != null) m.rot = rot;
+  if (M.data.BUILDINGS[type].drag && (a[0] !== b[0] || a[1] !== b[1])) { m.anchor = [a[0], a[1]]; m.end = [b[0], b[1]]; m.hover = [b[0], b[1]]; } else m.hover = [a[0], a[1]];
+  m.locked = true;
+  const ok = M.building.commitPlacement(g);
+  M.building.exitBuildMode(g);
+  if (!ok) throw new Fail(`${f.label}: commitPlacement(${type} @ story ${lv}) failed (${f.lastUi(1)})`);
+  return ok;
+}
+// host: finished structures on story lv (struct.add {lv})
+function hostBuildLv(H, rows, lv) {
+  const g = H.game, net = g.net;
+  const list = rows.map(([type, tx, ty, rot = 0]) => [net.newId('s'), type, tx, ty, 0, 1, Math.round(g.worldTime), rot, 1, 0]);
+  net.emit('struct.add', { list, lv });
+  return list.map((r) => r[0]);
+}
+// a 4×4 wall ring at (x, y) with a doorway in the south wall (x + 1), as host rows
+const ringRows = (x, y) => {
+  const rows = [];
+  for (let xx = x; xx < x + 4; xx++) for (let yy = y; yy < y + 4; yy++) if ((xx === x || xx === x + 3 || yy === y || yy === y + 3) && !(xx === x + 1 && yy === y + 3)) rows.push(['wall_wood', xx, yy]);
+  return rows;
+};
+const upperAt = (f, x, y, w = 4, h = 4) => f.game.build.structures.filter((o) => o.lv > 0 && o.tx >= x && o.tx < x + w && o.ty >= y && o.ty < y + h);
+const snapMod = (f) => f.win.Function('u', 'return import(u)')(new URL('src/net/snapshot.js', f.win.location.href).href);
+
+def('L6', {
+  star: true, title: 'L: guest builds a second story and walks in it', timeout: 240000,
+  expected: 'On a finished 4×4 room with stairs up to its west wall, the guest picks story 1 in build mode and plans a floor over the room, a wall row on the north wall, a door on the east wall and a chest (blueprints with lv 1, same ids on both); the chest cannot start before the floor under it is finished; everything is built with real work; both peers derive the same story-1 map (floor surface, walls and the closed door block, 2 stories for J\'s roofs); the host snapshot carries lvs; the guest climbs the stairs, walks onto the upper floor and is stopped by the closed upper door; the host sees it at lv 1 there; digest equal',
+  api: 'game.build.mode.lv (ui/levelbar.js) → build.place {lv} → struct.add {lv}; placeReason(…, lv) → levels.upperReason; levels.{buildStartReason, storeysAt, isSurface, blk}; snapshot lvs',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.levels?.Levels?.prototype?.upperReason && MG.levels.Levels.prototype.drawUpper, 'stories (levels phase 2) missing');
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const o = []; for (let dx = -4; dx <= 5; dx++) for (let dy = -1; dy <= 5; dy++) o.push([x + dx, y + dy]); return o; }, gp.x, gp.y, { rMin: 3, rMax: 22, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free 10×7 site');
+  const { x0: x, y0: y } = site;
+  A.pacify(H, x, y, 22);
+  const base = hostBuild(H, [...ringRows(x, y), ['stairs_wood', x - 2, y + 1, 1]]); // stairs: entrance west, landing on the west wall top
+  await t.waitFor(() => base.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), RT() + 600, 'guest sees the finished ground floor + stairs');
+  A.ensure(G, { wood: 80, rope: 4 });
+  A.teleport(G, x + 1.5, y + 5.5);
+  await A.hostSees(t, H, G);
+  // the guest plans story 1
+  const LG = G.game.levels, LH = H.game.levels;
+  let far = null;
+  for (let r = 8; r < 24 && !far; r++) for (let k = 0; k < 24 && !far; k++) {
+    const tx = Math.floor(x + 1 + Math.cos((k / 24) * 6.283) * r), ty = Math.floor(y + 1 + Math.sin((k / 24) * 6.283) * r);
+    if (G.game.world.inBounds(tx, ty) && !G.game.world.rock[G.game.world.idx(tx, ty)] && !LG.supportedL(tx, ty, 1, true)) far = [tx, ty];
+  }
+  const farR = far && MG.building.placeReason(G.game, 'floor_wood', far[0], far[1], null, 0, null, 1);
+  t.check(far && /apoio/.test(String(farR)), 'a floor with no wall / column within 6 tiles below is refused (support)', `${far} → ${farR}`);
+  t.check(/Vão/.test(String(MG.building.placeReason(G.game, 'floor_wood', x - 1, y + 1, null, 0, null, 1))), 'a floor over the stairs is refused (stairwell)');
+  t.check(/piso/.test(String(MG.building.placeReason(G.game, 'chest', x + 1, y + 1, null, 0, null, 1))), 'a chest in the air is refused (needs a floor)');
+  placeLv(G, MG, 'floor_wood', [x + 1, y + 1], [x + 2, y + 2], 1);
+  placeLv(G, MG, 'wall_wood', [x, y], [x + 3, y], 1);
+  placeLv(G, MG, 'door_wood', [x + 3, y + 1], [x + 3, y + 1], 1);
+  await t.waitFor(() => upperAt(G, x, y).filter((o) => o.type === 'floor_wood').length >= 4, RT() + 900, 'guest sees the planned upper floor'); // (the chest needs it, planned is enough)
+  placeLv(G, MG, 'chest', [x + 2, y + 2], [x + 2, y + 2], 1);
+  const ups = await t.waitFor(() => { const L = upperAt(G, x, y); return L.length >= 10 && L; }, RT() + 900, 'guest sees 10 story-1 blueprints', () => short(upperAt(G, x, y).map((o) => o.type)));
+  const ids = ups.map((o) => o.id);
+  t.check(ups.every((o) => o.blueprint && o.lv === 1), 'all are blueprints on story 1', short(ups.map((o) => `${o.type}@${o.lv}`)));
+  await t.waitFor(() => ids.every((id) => A.structOn(H, id)?.lv === 1), RT() + 400, 'host has the same ids on story 1');
+  const chest = ups.find((o) => o.type === 'chest'), chestH = A.structOn(H, chest.id);
+  t.check(/piso/.test(String(LH.buildStartReason(chestH))), 'the chest cannot start before its floor is finished', String(LH.buildStartReason(chestH)));
+  const order = (o) => (o.type === 'floor_wood' ? 0 : o.type === 'chest' ? 2 : 1);
+  await A.buildAll(t, G, MG, ups.slice().sort((a, b) => order(a) - order(b)).map((o) => o.id), { ms: 40000 });
+  await t.waitFor(() => ids.every((id) => { const h = A.structOn(H, id); return h && !h.blueprint; }), RT() + 800, 'host sees every story-1 piece finished');
+  const W = G.game.world.W, N = W * G.game.world.H, I = (xx, yy) => yy * W + xx;
+  for (const [nm, L] of [['host', LH], ['guest', LG]]) {
+    L.sync();
+    t.check(L.hasUpper && L.storeysAt(x + 1, y + 1) === 2 && L.storeysAt(x + 3, y + 3) === 1, `${nm}: 2 stories over the room (J's eaves on top), 1 where nothing is up`, `${L.storeysAt(x + 1, y + 1)} / ${L.storeysAt(x + 3, y + 3)}`);
+    t.check(L.isSurface(1, I(x + 1, y + 1)) && L.isSurface(1, I(x + 2, y + 2)) && L.isSurface(1, I(x + 3, y + 2)), `${nm}: the upper floor and the wall tops are story-1 surfaces`);
+    t.check(L.blk[1]?.[I(x + 1, y)] && L.blk[1]?.[I(x + 3, y + 1)] && !L.blk[1]?.[I(x + 1, y + 1)], `${nm}: upper walls and the closed upper door block story 1, the floor does not`);
+    t.check(L.isSurface(2, I(x + 1, y)), `${nm}: the upper walls' tops are story-2 surfaces`);
+  }
+  const SN = await snapMod(H);
+  const lvs = new Map(SN.serializeWorld(H.game).lvs || []);
+  t.check(ids.every((id) => lvs.get(id) === 1), 'host snapshot lists the story of every upper piece (lvs)', `${lvs.size} rows`);
+  // climb and walk in
+  A.teleport(G, x - 3.5, y + 1.5);
+  await A.hostSees(t, H, G);
+  const rel = A.holdMove(G, 1, 0);
+  await t.waitFor(() => gp.lv === 1 && gp.x > x + 2.2, 7000, 'guest climbs onto the west wall and walks onto the upper floor', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.sleep(700);
+  rel();
+  t.check(gp.lv === 1 && gp.z === 1 && gp.x < x + 3 - 0.1 && Math.floor(gp.y) === y + 1, 'stopped by the closed upper door (still on story 1)', `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  const relN = A.holdMove(G, 0, -1);
+  await t.sleep(600);
+  relN();
+  t.check(gp.lv === 1 && gp.y > y + 1 - 0.05, 'the upper north wall stops it too', `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && av.lv === 1 && Math.hypot(av.x - gp.x, av.y - gp.y) < 0.3; }, RT() + 600, 'host sees the guest on the upper floor (lv 1)');
+  await t.checkDigest(H, G);
+});
+
+def('L7', {
+  title: 'L: an upper story falls when its supports go', timeout: 150000,
+  expected: 'Host builds a room with a story-1 floor, a wall and a chest with items on top; the guest stands up there. The host removes the ground walls: the host\'s levels system emits lv.collapse, every story-1 piece disappears on both, the chest items and half the materials drop on the ground below (loot on both), the guest falls to lv 0; digest equal',
+  api: 'levels.unsupported() → op lv.collapse {ids, drops}; levels.settle (fall); loot rows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MG.levels?.Levels?.prototype?.unsupported, 'stories (levels phase 2) missing');
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const o = []; for (let dx = -2; dx <= 5; dx++) for (let dy = -1; dy <= 5; dy++) o.push([x + dx, y + dy]); return o; }, gp.x, gp.y, { rMin: 3, rMax: 22, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found a free site');
+  const { x0: x, y0: y } = site;
+  A.pacify(H, x, y, 22);
+  const walls = hostBuild(H, ringRows(x, y));
+  await t.waitFor(() => walls.every((id) => A.structOn(G, id)), RT() + 500, 'guest sees the walls');
+  const fl = [];
+  for (let xx = x; xx < x + 4; xx++) for (let yy = y; yy < y + 4; yy++) fl.push(['floor_wood', xx, yy]);
+  const up = hostBuildLv(H, [...fl, ['wall_wood', x + 1, y], ['chest', x + 2, y + 2]], 1);
+  await t.waitFor(() => up.every((id) => A.structOn(G, id)?.lv === 1), RT() + 500, 'guest sees the upper story');
+  const ch = A.structOn(H, up[up.length - 1]);
+  t.assert(ch?.store, 'upper chest has a store');
+  ch.store.add('stone', 7);
+  H.game.net.emit('chest.set', { id: ch.id, slots: ch.store.toJSON(), by: H.pid, quiet: 1 });
+  await t.waitFor(() => A.structOn(G, ch.id)?.store?.count('stone') === 7, RT() + 400, 'guest sees the stones in the upper chest');
+  t.check(!H.game.levels.unsupported().length, 'nothing unsupported while the walls stand');
+  // the guest upstairs
+  A.teleport(G, x + 1.5, y + 2.5);
+  gp.lv = 1; gp.z = 1;
+  await t.waitFor(() => guestOnHost(H, G)?.lv === 1, RT() + 1500, 'host sees the guest upstairs');
+  const loot0 = (f) => f.game.loot.filter((it) => it.x > x - 2 && it.x < x + 6 && it.y > y - 2 && it.y < y + 6);
+  const stones = (f) => loot0(f).filter((it) => it.item === 'stone').reduce((a, it) => a + it.qty, 0);
+  const s0 = gp.inv.count('stone'), got = () => gp.inv.count('stone') - s0; // (the falling guest may pick them up at once)
+  const n0 = new Set([...H.game.loot, ...G.game.loot].map((it) => it.id));
+  for (const id of walls) H.game.net.emit('struct.remove', { id, by: H.pid, quiet: 1 });
+  await t.waitFor(() => !upperAt(H, x, y).length && !upperAt(G, x, y).length, RT() + 1500, 'every story-1 piece fell on both', () => `host ${upperAt(H, x, y).length} · guest ${upperAt(G, x, y).length}`);
+  const st = await t.tryWait(() => stones(G) + got() >= 7 && stones(H) + got() >= 7, RT() + 1500);
+  t.check(st, 'the chest\'s 7 stones dropped below (on the ground, or already in the falling guest\'s bag)', `ground host ${stones(H)} · guest ${stones(G)} · picked ${got()}`);
+  await t.sleep(RT() + 300);
+  const newL = (f) => f.game.loot.filter((it) => !n0.has(it.id)).map((it) => it.id).sort().join();
+  t.check(newL(H) === newL(G), 'same new loot on both', `host [${newL(H)}] · guest [${newL(G)}]`);
+  await t.waitFor(() => gp.lv === 0 && gp.z === 0, 3000, 'the guest fell to the ground', () => lvOf(gp));
+  await t.waitFor(() => !(guestOnHost(H, G)?.z > 0), RT() + 500, 'host sees the guest on the ground');
+  await t.checkDigest(H, G);
+});
+
+def('L8', {
+  title: 'L: saves keep the stories (v9)', timeout: 120000,
+  expected: 'Solo frame: a room with a story-1 floor, wall and chest, the player standing upstairs; the save is v9 with world.lvs listing every upper piece; after a reload the same pieces are back on story 1 (2 stories, surfaces), the player stands on the upper floor; a v8 save (no lvs, terrain-paths version) still loads',
+  api: 'save.js v9 · world.lvs [[id, lv]] · snapshot applyInner LVS · levels.restore(p, z) on a slab',
+}, async (t) => {
+  const seed = CFG.seed + 23;
+  presetPid('s' + rand(7));
+  const S = t.open('solo-stories', `seed=${seed}`, null);
+  await t.waitFor(() => S.game && S.loadingHidden, CFG.bootMs, 'save frame boot');
+  const M = await A.mods(S);
+  t.need(M.levels?.Levels?.prototype?.upperReason, 'stories (levels phase 2) missing');
+  await A.reset(t, S, M, null, null);
+  const g = S.game, p = g.player;
+  const site = A.findSite([S], [M], 'wall_wood', (x, y) => { const o = []; for (let dx = -1; dx <= 4; dx++) for (let dy = -1; dy <= 4; dy++) o.push([x + dx, y + dy]); return o; }, p.x, p.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'free site');
+  const { x0: x, y0: y } = site;
+  hostBuild(S, ringRows(x, y));
+  const fl = [];
+  for (let xx = x; xx < x + 4; xx++) for (let yy = y; yy < y + 4; yy++) fl.push(['floor_wood', xx, yy]);
+  const up = hostBuildLv(S, [...fl, ['wall_wood', x + 2, y], ['chest', x + 1, y + 2]], 1);
+  await t.sleep(100);
+  A.teleport(S, x + 2.5, y + 2.5);
+  p.lv = 1; p.z = 1;
+  await t.sleep(200);
+  t.assert(M.save.saveGame(g), 'saveGame() wrote a save');
+  const key = `wos.save.v2.${seed}`;
+  const data = JSON.parse(S.win.localStorage.getItem(key));
+  const lvs = new Map(data?.world?.lvs || []);
+  t.check(data.v === 9, 'save version 9 (L stories, after M\'s v8)', `v ${data.v}`);
+  t.check(up.every((id) => lvs.get(id) === 1) && lvs.size === up.length, 'world.lvs lists every upper piece at story 1', `${lvs.size} rows`);
+  t.check(data.player.z === 1, 'player z 1 saved');
+  S.reload();
+  await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded');
+  const g2 = S.game, L2 = g2.levels;
+  const back = up.map((id) => g2.build.structures.find((o) => o.id === id));
+  t.check(back.every((o) => o && o.lv === 1 && !o.blueprint), 'every upper piece is back on story 1', short(back.map((o) => o ? `${o.type}@${o.lv}` : 'missing')));
+  L2.sync();
+  t.check(L2.storeysAt(x + 1, y + 1) === 2 && L2.isSurface(1, g2.world.idx(x + 1, y + 1)) && L2.blk[1]?.[g2.world.idx(x + 2, y)], 'the derived story-1 map is rebuilt (2 stories, floor surface, upper wall blocks)');
+  const p2 = g2.player;
+  t.check(p2.lv === 1 && p2.z === 1 && Math.hypot(p2.x - (x + 2.5), p2.y - (y + 2.5)) < 0.05, 'the player wakes up on the upper floor', `${lvOf(p2)} at ${f2(p2.x)},${f2(p2.y)}`);
+  // a v8 save (M's terrain paths version, no stories) still loads
+  const old = JSON.parse(JSON.stringify(data));
+  old.v = 8; delete old.world.lvs; delete old.player.z;
+  const ids = new Set(up);
+  old.world.structs = old.world.structs.filter((r) => !ids.has(r[0]));
+  g2.noSave = true; // the page would save itself again on pagehide
+  S.win.localStorage.setItem(key, JSON.stringify(old));
+  S.reload();
+  await t.waitFor(() => S.loads >= 3 && S.game && S.loadingHidden && S.game !== g2, CFG.bootMs, 'reloaded (v8 save)');
+  const g3 = S.game;
+  t.check(g3.build.structures.some((o) => o.type === 'wall_wood' && o.tx === x && o.ty === y) && g3.build.structures.every((o) => !(o.lv > 0)), 'v8 save loads (ground floor only)', `${g3.build.structures.length} structures`);
+});
+
 // =====================================================================================================
 // S70 H: look sync (character creator)
 def('S70', {
