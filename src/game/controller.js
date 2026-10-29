@@ -108,6 +108,8 @@ export function pick(game, sx, sy) {
   if (rk) return { type: 'interact', it: rk, wx, wy };
   for (const it of game.loot) if (Math.hypot(wx - it.x, wy - it.y + 0.15) < 0.4 + tol) return { type: 'loot', it, wx, wy };
   if (hitFlat) return { type: 'interact', it: hitFlat, wx, wy };
+  const pj = game.paths?.jobAt?.(Math.floor(wx), Math.floor(wy)); // a blue path plan / red removal mark (paths.js)
+  if (pj) return { type: 'interact', it: pj, wx, wy };
   if (isRock(game, Math.floor(wx), Math.floor(wy))) return { type: 'rock', tx: Math.floor(wx), ty: Math.floor(wy), wx, wy };
   return { type: 'ground', wx, wy };
 }
@@ -134,7 +136,9 @@ export function nearestInteractable(game) {
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;
     consider(describeRock(game, tx + dx, ty + dy), dx === fx && dy === fy ? 0.3 : 0);
+    consider(game.paths?.jobAt?.(tx + dx, ty + dy)); // path plans next to the player (E / action button)
   }
+  consider(game.paths?.jobAt?.(tx, ty));
   return best;
 }
 
@@ -285,7 +289,7 @@ export function installController(game) {
       const it = h.it;
       // a blue blueprint / a frame / a structure marked for deconstruction: start auto-work on it (and the rest of
       // its batch). This is the only way auto-work starts (work.js); it walks there by itself.
-      if (it.kind === 'blueprint' || it.kind === 'decon') { game.work?.begin?.(it); return; }
+      if (it.kind === 'blueprint' || it.kind === 'decon' || it.kind === 'path') { game.work?.begin?.(it); return; }
       if (reachDist(p, it) > it.reach + TAP_SLACK) {
         const s = it.tile ? Math.max(1, it.w || 1) : it.kind === 'tree' ? 0.9 : 0.8;
         tooFar(it.x, it.tile ? it.y : it.y - 0.02, s, s * 0.62);

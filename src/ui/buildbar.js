@@ -45,6 +45,7 @@ const ICON = {
   style: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   farm: '<path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"/><path d="M5 19l8-8"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
+  path: '<path d="M7 21c1.5-4 6-5 6-9s-3-5-3-9"/><path d="M14 21c1-3 5-4.5 5-8.5S16.5 7 16 3" opacity=".6"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ICON.use}</svg>`;
 
@@ -249,14 +250,15 @@ export function installBuildbar(game) {
     if (!show) return;
     if ((wbT -= dt) <= 0) {
       wbT = 0.15;
-      const ic = s.kind === 'decon' ? 'decon' : s.kind === 'farm' ? 'farm' : 'build';
+      const ic = s.kind === 'decon' || s.remove ? 'decon' : s.kind === 'farm' ? 'farm' : s.kind === 'path' ? 'path' : 'build';
       if (last.wbic !== ic) { last.wbic = ic; W$.ic.innerHTML = svg(ic); }
       const n = s.n + (s.blocked || 0);
       const narrow = wb.offsetWidth < 330; // phones: the name goes to the second line, the count stays visible
-      set('wbv', W$.v, s.kind === 'build' && !narrow ? `${s.verb} · ${s.name}` : s.verb);
-      set('wbn', W$.n, s.kind === 'build' ? `· ${n} ${n === 1 ? 'restante' : 'restantes'}` : `· ${n}`);
+      const named = (s.kind === 'build' || s.kind === 'path') && !!s.name, counted = s.kind === 'build' || s.kind === 'path';
+      set('wbv', W$.v, named && !narrow ? `${s.verb} · ${s.name}` : s.verb);
+      set('wbn', W$.n, counted ? `· ${n} ${n === 1 ? 'restante' : 'restantes'}` : `· ${n}`);
       const touch = game.input.isTouch;
-      const pre = s.kind === 'build' && narrow ? s.name + ' · ' : '';
+      const pre = named && narrow ? s.name + ' · ' : '';
       const sub = pre + (s.paused ? (touch ? 'Pausado: você andou · toque em Continuar' : 'Pausado: você andou · Continuar retoma')
         : s.blocked ? `${s.blocked} ${s.blocked === 1 ? 'espera' : 'esperam'} material` : (touch ? 'Automático · andar pausa' : 'Automático · andar pausa · Esc cancela'));
       set('wbs', W$.sm, sub);

@@ -351,3 +351,16 @@ on the terrain and **blending softly and in detail with the ground textures**, l
   save, digest); drawn inside the terrain pass with noisy soft edges and material detail (pebbles, cracks,
   worn ruts), edge scatter; walking speed bonus; flora never regrows on paths, grass decor hidden on them.
 - Floors (inside buildings, square) stay agent K's; paths are terrain. Roofs are J's.
+
+## N · HUD nova (added later, port 5195)
+
+Owner's request: an absurdly better HUD — the current one "looks AI-made". Reference: `docs/ref/hud-reference.jpg`
+(a stylised game HUD kit: warm cream/parchment shapes on dark brown, orange/red/teal/mustard accents,
+diamond portrait frames, ribbon bars with a glowing tip, segmented radial cooldown rings, diamond ability
+clusters with key tags, hand-drawn hatching around elements, a round-counter badge). The owner especially liked
+the **radar-like element** (an arc gauge sitting on an elliptical ring with coloured teardrop markers around
+it — like a compass/radar): "esse design combina muito com o jogo".
+- N reskins and re-lays out every HUD piece (player card, bars, ability buttons, hotbar, minimap → radar,
+  clock/weather badge, target frame, buffs, toasts, chat, build bar, auto-work banner, windows/panels,
+  menus) on desktop and mobile, keeping all behaviour and contracts (B's HUD API, G's aim wiring, A's buildbar,
+  K's Detalhes, M's paths toolbar, H's editor). Theme through CSS variables + a few drawn assets.

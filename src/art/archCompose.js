@@ -3,15 +3,20 @@
 // Reads state only; allocation-free per frame (sprite tables cached per atlas). Night glow of windows / lamps reads
 // KIT_ENV.night (cosmetic, set every frame by the kit system).
 //
-// Base piece = one baked sprite per style × mask; every detail is an overlay drawn right after it (same anchor),
+// Base piece = one sprite per style × mask; every detail is an overlay drawn right after it (same anchor),
 // NE / SE corner pieces are the NW / SW ones mirrored (sx = -1), tones multiply the base colour.
+// Lazy art: style variants, details and decoration are painted on demand into the shared lazy texture (records with
+// u < 0, art/lazyDefs.js). A record not painted yet is requested (want) and skipped this frame by the batch wrapper;
+// styled bases fall back to the baked default look of the piece meanwhile. KIT_ENV.sync (previews) paints at once.
 
 import { BUILDINGS } from '../game/content/buildings.js';
 import { STRUCT_GEOM as SG } from './structures.js';
 import { ARCH_GEOM as AG, SOFT_MASKS } from './arch.js';
 import { DECOR_GEOM as DG, DECOR_ROT2 } from './decor.js';
+import { LAZY_DEFS, LAZY_GROUPS } from './lazyDefs.js';
+import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
-export const KIT_ENV = { night: 0 };
+export const KIT_ENV = { night: 0, sync: false };
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const SOFT = new Set(SOFT_MASKS);
@@ -35,14 +40,58 @@ function setState(o) {
 let TR = 1, TG = 1, TB = 1;
 function tone(k) { if (!BP && k && k.tint) { TR = CR * k.tint[0]; TG = CG * k.tint[1]; TB = CB * k.tint[2]; } else { TR = CR; TG = CG; TB = CB; } }
 
+// ---------- lazy sprites ----------
+let LA = null; // lazy atlas of the atlas being drawn
+// usable now? (baked sprites always; lazy records once painted — else requested, or painted at once in sync mode)
+function ok(s) {
+  if (s.ready === undefined) return true;
+  if (s.ready) { s.lu = LOOK_CLOCK.f; return true; }
+  if (s.failed || !LA) return false;
+  if (KIT_ENV.sync) { LA.paintNow(s); if (s.ready) return true; return false; }
+  LA.want(s);
+  return false;
+}
+const use = (s) => (s && ok(s) ? s : null);
+class LBatch { // forwards to a render batch, dropping lazy sprites that are not painted yet
+  constructor(t) { this.t = t; }
+  add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift) { if (s && ok(s)) this.t.add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift); }
+  addRaw(x, y, w, h, r, g, b, a) { this.t.addRaw(x, y, w, h, r, g, b, a); }
+}
+const WRAP = new WeakMap();
+function wrap(B) {
+  let W = WRAP.get(B);
+  if (!W) { W = {}; for (const k of ['main', 'ground', 'shadow', 'emissive', 'blob', 'fx', 'light', 'decor']) if (B[k]) W[k] = new LBatch(B[k]); WRAP.set(B, W); }
+  return W;
+}
+// paint the lazy art of what is in the world now (after a load / snapshot): a dry draw of every K piece requests its
+// sprites, then up to `budget` ms of painting at once (the loading screen is still up); the rest follows per frame
+const NB = { add() {}, addRaw() {} };
+const NULLB = { main: NB, ground: NB, shadow: NB, emissive: NB, blob: NB, fx: NB, light: NB, decor: NB };
+export function prewarmArch(game, budget = 600) {
+  const A = game.A;
+  if (!A || !game.build) return 0;
+  const T = tables(A);
+  for (const o of game.build.structures) if (o._k || ARCH_TYPES.has(o.type)) { try { drawArch(NULLB, A, o, 0, 0); } catch { /* keep going */ } }
+  const q = T.LA.queue.length;
+  if (q) T.LA.tick(budget);
+  return q;
+}
+// a K sprite by name for other modules (roof props): the record / atlas sprite when drawable now, else null (requested)
+export function archSprite(A, name) {
+  const T = tables(A);
+  LA = T.LA;
+  return use(T.opt(name));
+}
+
 // ---------- sprite tables ----------
 const CACHE = new WeakMap();
 function tables(A) {
   let T = CACHE.get(A);
   if (T) return T;
-  const opt = (n) => (A.has(n) ? A.get(n) : null);
+  const LZ = lookAtlasOf(A);
+  const opt = (n) => (A.has(n) ? A.get(n) : LAZY_DEFS.has(n) ? LZ.get(n) : null);
   const arr = (pre, n = 16) => { const a = []; for (let m = 0; m < n; m++) a.push(opt(pre + m)); return a[0] ? a : null; };
-  T = { opt, blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), flames: [opt('fx_flame_0') || opt('fx_flame'), opt('fx_flame_1') || opt('fx_flame'), opt('fx_flame_2') || opt('fx_flame')],
+  T = { opt, LA: LZ, blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), flames: [opt('fx_flame_0') || opt('fx_flame'), opt('fx_flame_1') || opt('fx_flame'), opt('fx_flame_2') || opt('fx_flame')],
     drop: opt('fx_drop') || opt('fx_soft'), ring: opt('fx_ring'), wall: {}, wallSoft: {}, fence: {}, floorEdge: {}, d: {}, face: {} };
   for (const st of ['plank', 'cut', 'log', 'timber', 'tbrick', 'wattle', 'rough', 'cobble']) {
     T.wall[st] = st === 'plank' ? arr('wall_wood_') : st === 'cut' ? arr('wall_stone_') : arr(`wst_${st}_`);
@@ -70,7 +119,12 @@ function tables(A) {
   CACHE.set(A, T);
   return T;
 }
-const spriteOf = (A, type, v) => (A.groups[type] ? A.pick(type, v | 0) : A.has(type) ? A.get(type) : null);
+const spriteOf = (A, type, v) => {
+  if (A.groups[type]) return A.pick(type, v | 0);
+  if (A.has(type)) return A.get(type);
+  const n = LAZY_GROUPS.get(type);
+  return tables(A).opt(n ? `${type}_${(((v | 0) % n) + n) % n}` : type);
+};
 let FFLIP = 1;
 function faceSprite(A, T, type, v, face) {
   FFLIP = 1;
@@ -96,8 +150,10 @@ const addPlain = (B, s, x, y, sx, a, fl, lift = 0) => { if (s) B.main.add(s, x, 
 
 // ---------- entry ----------
 // returns true when drawn here
-export function drawArch(B, A, o, t, fl) {
+export function drawArch(B0, A, o, t, fl) {
   const type = o.type;
+  const B = wrap(B0);
+  LA = tables(A).LA;
   if (DECOR.has(type)) { drawDecorProp(B, A, o, t, fl); return true; }
   const def = BUILDINGS[type];
   if (!def) return false;
@@ -119,7 +175,7 @@ export function drawArch(B, A, o, t, fl) {
 function drawWall(B, T, o, k, t, fl) {
   const m = (o.mask | 0) & 15, on = k.on, st = k.style;
   const soft = on.soft && SOFT.has(m);
-  const base = (soft && T.wallSoft[st]?.[m]) || T.wall[st]?.[m];
+  const base = (soft && use(T.wallSoft[st]?.[m])) || use(T.wall[st]?.[m]) || T.wall[o.type === 'wall_stone' ? 'cut' : 'plank']?.[m];
   if (!base) return false;
   const x = o.x, y = o.y, D = T.d;
   const front = !(m & 4);
@@ -188,7 +244,7 @@ function overlaysBP(B, T, o) {
 function drawFence(B, T, o, k, t, fl) {
   const m = (o.mask | 0) & 15, on = k ? k.on : {};
   const st = o.type === 'fence_stone' ? 'stone' : o.type === 'hedge' ? 'hedge' : k ? k.style : 'rail';
-  const s = T.fence[st]?.[m];
+  const s = use(T.fence[st]?.[m]) || T.fence.rail?.[m];
   if (!s) return false;
   const x = o.x, y = o.y, D = T.d;
   const sway = st === 'hedge' ? 0.02 : 0;
@@ -220,7 +276,7 @@ function lanternGlow(B, T, x, y, lift, t) {
 // ---------- gates ----------
 function drawGate(B, T, o, k, t, fl) {
   const on = k ? k.on : {}, st = k ? k.style : 'rail';
-  const L = T.gate[st] || T.gate.rail;
+  const L0 = T.gate[st] || T.gate.rail, L = use(L0.h) && use(L0.v) ? L0 : T.gate.rail;
   const orient = o.orient || (o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h');
   const kk = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x = o.x, y = o.y, x0 = x - 0.5, D = T.d;
@@ -256,7 +312,7 @@ function drawGate(B, T, o, k, t, fl) {
 // ---------- doors ----------
 function drawDoorK(B, T, o, k, t, fl) {
   const on = k.on, st = k.style;
-  const L = T.door[st] || T.door.plank;
+  const L0 = T.door[st] || T.door.plank, L = use(L0.h) && use(L0.v) ? L0 : T.door.plank;
   const orient = o.orient || (o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h');
   const kk = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x = o.x, y = o.y, x0 = x - 0.5, D = T.d;
@@ -301,7 +357,8 @@ function edges(B, s, o, m, r, g, b, a) {
 function drawFloor(B, T, o, k, fl) {
   const m = (o.mask | 0) & 15, on = k.on, st = k.style;
   const stone = o.type === 'floor_stone';
-  const tab = T.floorBase[st];
+  let tab = T.floorBase[st];
+  if (!Array.isArray(tab) && !use(tab)) tab = T.floorBase[stone ? 'flag' : 'plank'];
   const base = Array.isArray(tab) ? tab[m] : tab;
   if (!base) return false;
   const x = o.x, y = o.y, D = T.d;
@@ -323,10 +380,11 @@ function drawFloor(B, T, o, k, fl) {
   return true;
 }
 // farm plot overlays (composeWorld draws the plot and its crop)
-export function drawPlotKit(B, A, o) {
+export function drawPlotKit(B0, A, o) {
   const k = o._k;
   if (!k) return;
-  const T = tables(A), m = (o.mask | 0) & 15;
+  const B = wrap(B0), T = tables(A), m = (o.mask | 0) & 15;
+  LA = T.LA;
   setState(o);
   const e = k.on.e_wood ? T.floorEdge.wood : k.on.e_stone ? T.floorEdge.stone : null;
   if (e) edges(B, e, o, m, CR, CG, CB, CA);
@@ -335,7 +393,7 @@ export function drawPlotKit(B, A, o) {
 
 // ---------- decoration props ----------
 function drawDecorProp(B, A, o, t, fl) {
-  const T = tables(A), def = BUILDINGS[o.type], type = o.type;
+  const T = tables(A), def = BUILDINGS[o.type], type = o.type; // (B: wrapped batches, see drawArch)
   setState(o);
   const sc = o.s || 1, x = o.x, y = o.y;
   // flat pieces (rugs, stepping stones)
@@ -364,7 +422,7 @@ function drawDecorProp(B, A, o, t, fl) {
   const w = o.fw || def.size[0], h = o.fh || def.size[1];
   const shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
   if (T.blob) B.blob.add(T.blob, x, y - 0.06 - (h - 1) * 0.5, (0.62 + 0.38 * w) * sc, (0.4 + 0.6 * (h - 1)) * sc, 1, 1, 1, 0.38 * CA);
-  if (type === 'training_dummy' && T.training_dummy_base && T.training_dummy_body) {
+  if (type === 'training_dummy' && use(T.training_dummy_base) && use(T.training_dummy_body)) {
     const dt = t - (o._wobT ?? -99);
     const wob = dt >= 0 && dt < 2.5 ? (o._wobA || 0.6) * Math.exp(-dt * 3.2) * Math.sin(dt * 17) * (o._wobD || 1) * 0.3 : 0;
     B.main.add(T.training_dummy_base, x, y, sc, sc, CR, CG, CB, CA, 0, 0, fl, 1);

@@ -23,6 +23,7 @@ import { installHelp } from './help.js';
 import { openContainer } from './container.js';
 import { applyUiScale } from './uiscale.js';
 import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFullscreenChange, openInstallGuide } from './pwa.js';
+import { PreviewAtlas, drawPawn2D, previewPawn } from '../art/look/preview.js';
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
@@ -74,7 +75,7 @@ export function installHUD(game, { isNew } = {}) {
     <div class="tl">
       <div class="tl-top">
         <div class="uf pf" id="pf">
-          <div class="port"><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
+          <div class="port"><canvas class="face" id="pf-face"></canvas><span class="ini">S</span><span class="lv" id="pf-lv">1</span></div>
           <div class="ufb">
             <div class="ufn"><span class="nm" id="pf-nm"></span><span class="cmb" id="pf-cmb">${svgIcon('attack')}</span><span class="tmp" id="pf-tmp"></span></div>
             <div class="bar hp" id="pf-hp"><i></i><b></b></div>
@@ -143,6 +144,25 @@ export function installHUD(game, { isNew } = {}) {
     <div class="fade" id="fade"></div>
   `;
   const $ = (s) => root.querySelector(s);
+
+  // the player's own face in the card (same painter as the character editor); repainted when the look changes
+  const faceCv = $('#pf-face');
+  let faceA = null;
+  const paintFace = (look) => {
+    try {
+      const d = Math.min(2, devicePixelRatio || 1), w = faceCv.clientWidth || 50;
+      faceCv.width = faceCv.height = Math.round(w * d);
+      const view = 0.92, scale = faceCv.height / view; // head-and-shoulders frame (charcreator FRAMES.head)
+      faceA = faceA || new PreviewAtlas(Math.max(1, Math.min(6, Math.round(scale / 64 + 0.25))));
+      const ctx = faceCv.getContext('2d');
+      ctx.clearRect(0, 0, faceCv.width, faceCv.height);
+      const p = previewPawn(look || game.player.look); p.facing = 's';
+      drawPawn2D(ctx, faceA, p, 0.6, faceCv.width / 2, faceCv.height / 2 + 0.86 * scale, scale, { shadow: false });
+      root.querySelector('.uf .port')?.classList.add('has-face');
+    } catch (e) { console.warn('[hud] face portrait unavailable', e); }
+  };
+  setTimeout(() => paintFace(), 0); // after layout (not rAF: it would wait for a visible tab)
+  addEventListener('wos:look', (e) => paintFace(e.detail || game.player.look));
   if (!document.getElementById('tf-style')) { const st = document.createElement('style'); st.id = 'tf-style'; st.textContent = TF_CSS; document.head.appendChild(st); }
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;

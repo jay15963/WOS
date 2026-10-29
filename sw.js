@@ -2,11 +2,7 @@
 // Same-origin GETs always go to the network with `cache: 'no-cache'` (a cheap 304 revalidation that also
 // bypasses the 10-minute HTTP cache of GitHub Pages), so one boot never mixes modules of two deploys.
 // The SW cache is only the offline fallback. VERSION is written by tools/stamp.mjs ('wos-' + BUILD_ID).
-<<<<<<< HEAD
-const VERSION = 'wos-e1665e84c5aa';
-=======
-const VERSION = 'wos-74af30e430f6';
->>>>>>> main
+const VERSION = 'wos-2743f4e500d0';
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(['./', './index.html', './manifest.webmanifest', './src/main.js', './src/ui/hud.css'])).catch(() => {}));

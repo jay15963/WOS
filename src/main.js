@@ -121,10 +121,14 @@ async function boot() {
     } else if (QS.has('seed')) {
       choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || 1 };
     } else {
-      $('#loading').classList.add('hidden');
-      await nextFrame();
+      // the loading screen stays until EVERYTHING the menu needs is ready (graphics painted, live background
+      // drawn once): painting the atlas under a visible menu made it freeze on slow phones
+      assets.progress((p, label) => status(label || 'Carregando…', 0.05 + (p || 0) * 0.85));
+      await assets.promise;
+      status('Preparando o menu…', 0.93); await nextFrame();
       getAudio()?.music?.setMood?.('menu'); // idempotent (the menu may set it too)
-      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress, assets: assets.promise });
+      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress, assets: assets.promise,
+        onShown: () => $('#loading').classList.add('hidden') });
       $('#loading').classList.remove('hidden');
     }
     status('Preparando…', 0.3); await nextFrame();

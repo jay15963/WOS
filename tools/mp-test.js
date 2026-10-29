@@ -3472,6 +3472,302 @@ def('K5', {
   env.history.push('K5');
 });
 
+// =====================================================================================================
+// M1–M5 — painted terrain paths (agent M): shared path grid (world.path / world.pathPlan), intents path.plan / path.lay /
+// path.dig → ops path.plan / path.set, digest part 'paths', snapshot / save rows
+const frameImport = (f, p) => f.win.Function('u', 'return import(u)')(new URL('src/' + p, f.win.location.href).href);
+const pathCells = (f, tiles) => tiles.map((i) => `${f.game.world.path[i]}/${f.game.world.pathPlan[i]}`).join(' ');
+const gridHash = (a) => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); };
+// a straight row of `n` paintable tiles near (x, y), valid on both peers (MP = frame's mut/paths.js)
+function pathRow(H, MP, x, y, n, { rMin = 2, rMax = 12, avoid = null } = {}) {
+  const w = H.game.world;
+  for (let r = rMin; r <= rMax; r++) for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2, x0 = Math.floor(x + Math.cos(a) * r), y0 = Math.floor(y + Math.sin(a) * r);
+    const tiles = [];
+    for (let d = 0; d < n; d++) {
+      const tx = x0 + d, ty = y0, i = w.idx(tx, ty);
+      if (!w.inBounds(tx, ty) || MP.canPaint(H.game, tx, ty) || w.path[i] || w.pathPlan[i] || (avoid && avoid(tx, ty))) break;
+      tiles.push(i);
+    }
+    if (tiles.length === n) return tiles;
+  }
+  return null;
+}
+// the guest lays every planned tile of `tiles` (its own work loop, auto-work paused); before each (re)start it stands
+// next to the next planned tile (this tests the sync, not the walking) with no fight / aim state left from earlier scenarios
+async function layPaths(t, f, M, tiles, { ms = 30000, code = null } = {}) {
+  const w = f.game.world, W = w.W, p = f.game.player;
+  const nextIdx = () => tiles.find((j) => w.pathPlan[j] && (code == null || w.pathPlan[j] === code));
+  const next = () => { const i = nextIdx(); return i == null ? null : f.game.paths.jobAt(i % W, (i / W) | 0); };
+  const stand = () => {
+    const i = nextIdx();
+    if (i == null) return;
+    p.autoAttack = false; p.target = null; p._atkRootT = 0; p.rooted = false;
+    const s = A.freeSpot(f, M, (i % W) + 0.5, ((i / W) | 0) + 0.5, { rMin: 0, rMax: 1.4 });
+    if (s) A.teleport(f, s[0], s[1]);
+  };
+  await A.workUntil(t, f, next, () => tiles.every((j) => !w.pathPlan[j] || (code != null && w.pathPlan[j] !== code)), ms, 'works the planned path tiles', { retries: 12, stand });
+}
+
+def('M1', {
+  title: 'M: guest paints and lays a dirt path', timeout: 120000,
+  expected: 'Guest paints 8 dirt-path tiles (path.plan, run-length tiles): blue blueprints with identical grid cells on both; the guest lays them with its own work loop (path.lay → path.set): world.path identical on host and guest, plans cleared, dirt is free (no item taken), the guest walks faster on it, digest equal (part "paths")',
+  api: 'game.paths.{paint, jobAt, counts}; world.path / world.pathPlan; intents path.plan / path.lay; ops path.plan / path.set; net.dump("paths")',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(G.game.paths && H.game.world.path, 'needs the painted paths module (game.paths)');
+  const MP = await frameImport(H, 'game/mut/paths.js');
+  A.keepAlive(t, G);
+  const gp = G.game.player;
+  const tiles = pathRow(H, MP, gp.x, gp.y, 8);
+  t.assert(tiles, 'found a free row of 8 paintable tiles');
+  env.history.push('M1');
+  const inv0 = A.invSnap(G);
+  G.game.paths.paint('dirt', tiles);
+  const ms = await t.timeTo(() => tiles.every((i) => H.game.world.pathPlan[i] === 1), RT() + 500, 'host has the 8 blueprints');
+  t.metric('planRoundTripMs', Math.round(ms));
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 1), ONEWAY() + 400, 'guest has the 8 blueprints');
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'blueprint cells identical', pathCells(H, tiles));
+  await layPaths(t, G, MG, tiles);
+  await t.waitFor(() => tiles.every((i) => H.game.world.path[i] === 1 && !H.game.world.pathPlan[i]), ONEWAY() + 600, 'host has the 8 built dirt tiles');
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles) && tiles.every((i) => G.game.world.path[i] === 1), 'built cells identical on both (type 1, no plan)', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
+  const d = A.invDiff(inv0, A.invSnap(G));
+  t.check(!Object.values(d).some((v) => v < 0), 'the dirt path is free (nothing left the guest bag)', short(d));
+  // walking speed bonus on the path (owner side)
+  const W = G.game.world.W, i0 = tiles[3];
+  A.teleport(G, (i0 % W) + 0.5, ((i0 / W) | 0) + 0.5);
+  await t.sleep(250);
+  const onPath = gp.speed;
+  const off = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 3.5, { rMin: 0, rMax: 2, avoid: (x, y) => !!G.game.world.path[G.game.world.idx(Math.floor(x), Math.floor(y))] });
+  if (off) { A.teleport(G, off[0], off[1]); await t.sleep(250); t.check(onPath > gp.speed * 1.02, 'the guest walks faster on the path', `on ${f2(onPath)} · off ${f2(gp.speed)}`); }
+  await t.checkDigest(H, G);
+  t.check(JSON.stringify(H.game.net.dump('paths')) === JSON.stringify(G.game.net.dump('paths')), 'digest rows "paths" identical', short(H.game.net.dump('paths')));
+  env.pathTiles = tiles;
+});
+
+def('M2', {
+  title: 'M: guest removes part of a path (eraser + deconstruct tool)', timeout: 150000,
+  expected: 'Guest lays 4 gravel tiles (4 pebbles leave its bag when laid), then marks 2 for removal with the eraser and 2 with the deconstruct tool (red marks on both), digs them out (path.dig): host and guest grids identical, 75% of the pebbles back (3), the earlier dirt path partly erased too; blueprints under the eraser are cancelled at once; digest equal',
+  api: 'game.paths.paint("remove" | "gravel"), building.deconRect → game.paths.deconRect; intents path.plan (c 15) / path.dig; op path.set {t: 0, give}',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(G.game.paths, 'needs the painted paths module (game.paths)');
+  const MP = await frameImport(H, 'game/mut/paths.js');
+  A.keepAlive(t, G);
+  const gp = G.game.player, w = H.game.world, W = w.W;
+  const tiles = pathRow(H, MP, gp.x, gp.y, 4);
+  t.assert(tiles, 'found a free row of 4 paintable tiles');
+  env.history.push('M2');
+  A.ensure(G, { pebble: 10 });
+  const peb0 = A.count(G, 'pebble');
+  G.game.paths.paint('gravel', tiles);
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 2), RT() + 600, 'gravel blueprints on the guest');
+  t.check(A.count(G, 'pebble') === peb0, 'blueprints are free (no pebble taken when painting)', `${peb0} → ${A.count(G, 'pebble')}`);
+  await layPaths(t, G, MG, tiles);
+  await t.waitFor(() => tiles.every((i) => w.path[i] === 2), ONEWAY() + 600, 'host has the 4 gravel tiles');
+  t.check(A.count(G, 'pebble') === peb0 - 4, '1 pebble per tile left the bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
+  // eraser on 2 tiles, deconstruct tool on the other 2
+  G.game.paths.paint('remove', tiles.slice(0, 2));
+  const n = MG.building.deconRect(G.game, tiles[2] % W, (tiles[2] / W) | 0, tiles[3] % W, (tiles[3] / W) | 0);
+  t.check(n >= 2, 'the deconstruct tool marks painted path tiles', `${n} marked`);
+  await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host has the 4 removal marks');
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 4 removal marks');
+  await layPaths(t, G, MG, tiles, { code: 15 });
+  await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]), ONEWAY() + 600, 'host: the 4 gravel tiles are gone');
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
+  t.check(A.count(G, 'pebble') === peb0 - 4 + 3, '75% of the pebbles came back (3 of 4)', `${A.count(G, 'pebble')} (start ${peb0})`);
+  // part of the M1 dirt path: erase 3 tiles; a blueprint under the eraser is cancelled at once (no work)
+  const old = (env.pathTiles || []).filter((i) => w.path[i] === 1);
+  if (old.length >= 4) {
+    const part = old.slice(0, 3);
+    G.game.paths.paint('remove', part);
+    await t.waitFor(() => part.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host marks 3 dirt tiles for removal');
+    await t.waitFor(() => part.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 3 removal marks');
+    await layPaths(t, G, MG, part, { code: 15 });
+    await t.waitFor(() => part.every((i) => !w.path[i]), ONEWAY() + 600, 'host: 3 dirt tiles removed');
+    t.check(old.slice(3).every((i) => w.path[i] === 1 && G.game.world.path[i] === 1), 'the rest of the dirt path stays on both');
+  } else t.note('no M1 dirt path left — partial erase of it skipped');
+  const bp = pathRow(H, MP, gp.x, gp.y, 2);
+  if (bp) {
+    G.game.paths.paint('flag', bp);
+    await t.waitFor(() => bp.every((i) => w.pathPlan[i] === 3), RT() + 600, 'flagstone blueprints on the host');
+    G.game.paths.paint('remove', bp);
+    await t.waitFor(() => bp.every((i) => !w.pathPlan[i] && !w.path[i]), RT() + 600, 'the eraser cancels blueprints at once (host)');
+  }
+  await t.checkDigest(H, G);
+});
+
+def('M3', {
+  title: 'M: flora never regrows on paths', timeout: 150000,
+  expected: 'With most free tiles of a chunk turned into a path (host ops) and a few plants removed, accelerated host regrowth spawns nothing on a path / plan tile (world.growWeight = 0 there on both peers, every kind); whatever regrew appears on the guest identically; digest equal',
+  api: 'world.growWeight / canGrow (path check); host floraSystem internals game.flora.{ci,t,chunks,dyn} (like S21); ops path.set / obj.add',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const F = H.game.flora;
+  t.need(F && F.chunks?.length && 'ci' in F && 't' in F, 'host flora internals (game.flora.ci/t/chunks) missing — cannot accelerate regrowth');
+  const MP = await frameImport(H, 'game/mut/paths.js');
+  const w = H.game.world, W = w.W, CH = 16, sp = spawnOf(H);
+  // a grassy chunk ~25 tiles from the spawn with room for paths
+  let k = -1, free = [];
+  for (let r = 22; r < 60 && k < 0; r += 6) for (let a = 0; a < 8 && k < 0; a++) {
+    const cx = Math.floor((sp.x + Math.cos(a) * r) / CH), cy = Math.floor((sp.y + Math.sin(a) * r) / CH);
+    if (cx < 0 || cy < 0 || cx >= w.CW || cy >= w.CH) continue;
+    const list = [];
+    for (let y = cy * CH; y < cy * CH + CH; y++) for (let x = cx * CH; x < cx * CH + CH; x++) if (!MP.canPaint(H.game, x, y) && !w.path[w.idx(x, y)] && !w.pathPlan[w.idx(x, y)]) list.push(w.idx(x, y));
+    if (list.length > 120) { k = cy * w.CW + cx; free = list; }
+  }
+  t.assert(k >= 0, 'found a chunk with room for paths');
+  env.history.push('M3');
+  const lay = free.filter((i, n) => n % 5 !== 4);     // 80% of the free tiles: built path
+  const plan = free.filter((i, n) => n % 10 === 4);   // 10%: dirt blueprints
+  const rle = MP.rleTiles;
+  H.game.net.emit('path.set', { t: 1, tiles: rle(lay) });
+  H.game.net.emit('path.plan', { c: 1, tiles: rle(plan) });
+  await t.waitFor(() => lay.every((i) => G.game.world.path[i] === 1), ONEWAY() + 600, 'guest has the chunk paths');
+  const kinds = ['tree', 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'boulder', 'wild_potato', 'wild_cotton', 'wild_corn'];
+  const zero = (f) => [...lay, ...plan].every((i) => kinds.every((kd) => f.game.world.growWeight(i % W, (i / W) | 0, kd) === 0));
+  t.check(zero(H) && zero(G), 'growWeight is 0 on every path / blueprint tile, every kind (host and guest)');
+  // make room: remove some plants of the chunk (host op), then accelerate regrowth with both players away
+  const ids = [];
+  w.forChunks((k % w.CW) * CH + 1, Math.floor(k / w.CW) * CH + 1, (k % w.CW) * CH + 14, Math.floor(k / w.CW) * CH + 14, (c) => { for (const o of c.objects) if (!o.building && (o.type === 'bush' || o.type === 'fibergrass' || o.type === 'pebble' || o.type === 'stick') && ids.length < 6) ids.push(o.id); });
+  if (ids.length) H.game.net.emit('obj.remove', { ids });
+  const cx = (k % w.CW) * CH + 8, cy = Math.floor(k / w.CW) * CH + 8;
+  sendAway(H, MH, cx, cy, 40, 0); sendAway(G, MG, cx, cy, 42, 0.3);
+  await t.sleep(300);
+  const before = new Set(F.dyn.keys()), found = [];
+  const t0 = now();
+  while (now() - t0 < 25000) {
+    F.ci = k; F.t = 0;
+    await t.sleep(25);
+    for (const [id, q] of F.dyn) if (!before.has(id)) { before.add(id); found.push(q); }
+    if (found.length >= 6) break;
+  }
+  const onPath = found.filter((q) => { const i = w.idx(Math.floor(q.x), Math.floor(q.y - 0.05)); return w.path[i] || w.pathPlan[i]; });
+  t.log(`regrowth in chunk ${k}: ${found.length} new (${found.map((q) => q.type).join(' ') || '—'})`);
+  if (!found.length) t.note('nothing regrew in 25 s (chunk full or unsuitable) — the growWeight check above still holds');
+  t.check(!onPath.length, 'nothing regrew on a path or blueprint tile', onPath.map((q) => `${q.type}@${f2(q.x)},${f2(q.y)}`).join(' ') || `${found.length} spawned elsewhere`);
+  await t.sleep(ONEWAY() + 200);
+  t.check(found.every((q) => A.objOn(G, q.id)), 'regrown flora replicated to the guest', `${found.filter((q) => !A.objOn(G, q.id)).length} missing`);
+  await t.checkDigest(H, G);
+});
+
+def('M4', {
+  title: 'M: late joiner gets the paths in the snapshot', timeout: 180000,
+  expected: 'A third client joining after M1–M3 gets world.path / world.pathPlan identical to the host (grid hashes) and digest equal right after the snapshot (part "paths"); its GPU path data is built (pathOn)',
+  api: 'serializeWorld paths {g, p} run-length rows → applyWorld → applyPaths; net.digest parts.paths',
+}, async (t) => {
+  const { H, G, room } = await pairCtx(t);
+  t.need(H.game.world.path, 'needs the painted paths module');
+  if (!H.game.pathGrid?.built) {
+    const MP = await frameImport(H, 'game/mut/paths.js');
+    const tiles = pathRow(H, MP, H.game.player.x, H.game.player.y, 6);
+    if (tiles) H.game.net.emit('path.set', { t: 3, tiles: MP.rleTiles(tiles) });
+    t.note('no paths from earlier scenarios: laid 6 flagstone tiles on the host first');
+  }
+  const pid3 = 'g' + rand(7);
+  const G3 = await bootGuest(t, room, H, { pid: pid3, label: 'guest-3' });
+  t.log('third client synced');
+  const r = await t.checkDigest(H, G3, 'digest equal right after the snapshot (third client)', { ms: CFG.budget * 3 + 800 });
+  if (r.counts) t.metric('counts', r.counts);
+  const hw = H.game.world, gw = G3.game.world;
+  t.check(gridHash(hw.path) === gridHash(gw.path) && gridHash(hw.pathPlan) === gridHash(gw.pathPlan), 'path grids identical (host / third client)', `built ${H.game.pathGrid.built}/${G3.game.pathGrid?.built} · planned ${H.game.pathGrid.planned.size}/${G3.game.pathGrid?.planned.size}`);
+  await t.tryWait(() => G3.game.R?.pathOn === 1, 6000);
+  t.check(G3.game.R?.pathOn === 1 && !!G3.game.R.pathTex, 'third client draws the paths (GPU data built)', `pathOn ${G3.game.R?.pathOn}`);
+  await t.checkDigest(G, G3, 'digest equal between both guests');
+});
+
+def('M5', {
+  title: 'M: paths in the save file (v8) and old saves', timeout: 120000,
+  expected: 'Solo: buildSaveData has v 8 and world.paths {g, p}; clearing the grids and applying the saved world (load) restores them exactly; a v7-style world without paths loads with no error and keeps the grids empty',
+  api: 'save.buildSaveData, net/snapshot.js serializeWorld / applyWorld(…, "load"), mut/paths.js applyPaths / rleGrid',
+}, async (t) => {
+  const S = await bootSolo(t, '', 'solo-paths');
+  t.need(S.game.paths, 'needs the painted paths module');
+  const [MS, MP, MN] = await Promise.all([frameImport(S, 'game/save.js'), frameImport(S, 'game/mut/paths.js'), frameImport(S, 'net/snapshot.js')]);
+  const g = S.game, w = g.world;
+  const tiles = pathRow(S, MP, g.player.x, g.player.y, 10);
+  t.assert(tiles, 'found 10 paintable tiles');
+  g.net.emit('path.set', { t: 4, tiles: MP.rleTiles(tiles.slice(0, 6)) });
+  g.net.emit('path.plan', { c: 2, tiles: MP.rleTiles(tiles.slice(6)) });
+  const data = MS.buildSaveData(g);
+  t.check(data.v >= 8 && data.world?.paths && Array.isArray(data.world.paths.g), 'save data v8 with world.paths', `v ${data.v} · paths ${short(data.world?.paths, 80)}`);
+  const h0 = gridHash(w.path) + '/' + gridHash(w.pathPlan);
+  const snap = JSON.parse(JSON.stringify(data.world));
+  g.net.withApply(() => MP.applyPaths(g, null)); // empty grids
+  t.check(!g.pathGrid.built && !g.pathGrid.planned.size, 'grids cleared');
+  MN.applyWorld(g, snap, 'load');
+  t.check(gridHash(w.path) + '/' + gridHash(w.pathPlan) === h0 && g.pathGrid.built === 6 && g.pathGrid.planned.size === 4, 'load restores the exact grids', `built ${g.pathGrid.built} planned ${g.pathGrid.planned.size}`);
+  const old = { ...snap };
+  delete old.paths;
+  g.net.withApply(() => MP.applyPaths(g, null));
+  let err = null;
+  try { MN.applyWorld(g, old, 'load'); } catch (e) { err = e.message; }
+  t.check(!err && !g.pathGrid.built && !g.pathGrid.planned.size, 'an old save without paths loads (no paths, no error)', err || 'ok');
+});
+
+def('A7', {
+  title: 'A: opt-in auto-work on painted paths (tap a plan, lay the stroke, remove it)', timeout: 150000,
+  expected: 'Guest paints a 6-tile gravel stroke: nothing is laid by itself (1.5 s); a real tap on one plan tile starts a path sequence (banner "Assentando caminho · Cascalho · N restantes") that lays the whole stroke through path.lay (pebbles leave the guest bag, grids identical on both); then red removal marks on the stroke + a tap dig them all out (path.dig); digest equal',
+  api: 'game.paths.paint / jobAt; controller pick → doTap → game.work.begin (sequence kind path) → path.lay / path.dig; game.work.status()',
+}, async (t) => {
+  const { H, G, MG } = await pairCtx(t);
+  t.need(G.game.paths, 'needs the painted paths module (game.paths)');
+  const MP = await frameImport(H, 'game/mut/paths.js');
+  A.keepAlive(t, G);
+  const g = G.game, gp = g.player, w = H.game.world, W = w.W;
+  const tiles = pathRow(H, MP, gp.x, gp.y, 6);
+  t.assert(tiles, 'found a free row of 6 paintable tiles');
+  env.history.push('A7');
+  A.ensure(G, { pebble: 12 });
+  const peb0 = A.count(G, 'pebble');
+  g.paths.paint('gravel', tiles);
+  await t.waitFor(() => tiles.every((i) => g.world.pathPlan[i] === 2 && w.pathPlan[i] === 2), RT() + 600, 'gravel plans on both');
+  g.work.paused = false;
+  t.defer(() => { g.work.cancel(true); g.work.paused = true; });
+  await t.sleep(1500);
+  t.check(!g.work.seq && tiles.every((i) => !w.path[i]) && A.count(G, 'pebble') === peb0, 'painting starts nothing (no tile laid, no pebble taken)');
+  // a real tap on a plan tile (a point the controller's pick resolves to that path job)
+  const tapPlan = async (code) => {
+    const i0 = tiles.find((i) => g.world.pathPlan[i] === code);
+    A.teleport(G, (i0 % W) + 0.5, ((i0 / W) | 0) + 1.6);
+    await A.hostSees(t, H, G);
+    g.cam.x = gp.x; g.cam.y = gp.y - 0.4;
+    await t.sleep(80);
+    let tap = null;
+    for (const i of tiles) for (const [ox, oy] of [[0.5, 0.5], [0.3, 0.8], [0.7, 0.2]]) {
+      if (tap || g.world.pathPlan[i] !== code) continue;
+      const [sx, sy] = g.worldToScreen((i % W) + ox, ((i / W) | 0) + oy);
+      const h = MG.controller.pick(g, sx, sy);
+      if (h.type === 'interact' && h.it?.kind === 'path' && h.it.i === i) tap = { sx, sy };
+    }
+    t.assert(tap, 'a screen point that picks a plan tile of the stroke');
+    g.input.taps.push({ x: tap.sx, y: tap.sy, type: 'touch' });
+    await t.waitFor(() => g.work.seq?.kind === 'path', 2000, 'the tap started a path sequence', () => `ui: ${G.lastUi()}`);
+  };
+  await tapPlan(2);
+  const st = g.work.status();
+  t.check(st && st.kind === 'path' && st.n === 6 && st.name === 'Cascalho' && /Assentando caminho/.test(st.verb), 'status: Assentando caminho · Cascalho · 6', JSON.stringify(st));
+  await t.waitFor(() => tiles.every((i) => w.path[i] === 2 && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
+    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'}`);
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'built cells identical on both', pathCells(H, tiles));
+  t.check(A.count(G, 'pebble') === peb0 - 6, '6 pebbles left the guest bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
+  // removal marks work like deconstruction marks
+  g.paths.paint('remove', tiles);
+  await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15 && g.world.pathPlan[i] === 15), RT() + 600, 'red removal marks on both');
+  await t.sleep(800);
+  t.check(tiles.every((i) => w.path[i] === 2), 'marking removes nothing by itself');
+  await tapPlan(15);
+  t.check(g.work.status()?.verb === 'Removendo caminho', 'status: Removendo caminho', JSON.stringify(g.work.status()));
+  await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence dug the stroke out',
+    () => `left ${tiles.filter((i) => w.path[i]).length} · ${JSON.stringify(g.work.status())}`);
+  await t.sleep(ONEWAY() + 100);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', pathCells(H, tiles));
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));
