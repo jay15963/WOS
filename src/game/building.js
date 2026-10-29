@@ -200,7 +200,8 @@ export function commitPlacement(game) {
   if (h && !h.blueprint) { h.blueprint = true; game.events.emit('toast', { text: 'Você constrói as plantas sozinho quando fica parado; o material sai da mochila quando a obra começa', kind: 'info' }); } // sync-ok: hint flag, not a structure
   game.work?.wake();
   m.anchor = null; m.end = null; m.locked = false;
-  if (!def.drag) exitBuildMode(game);
+  // rows stay in the mode; single props too on desktop (RimWorld-like: right click / Esc ends), touch leaves it
+  if (!def.drag && game.input.isTouch) exitBuildMode(game);
   return true;
 }
 export const confirmPlace = (game) => {
@@ -295,7 +296,9 @@ export function toggleDecon(game, o, on = null) {
 export function deconAt(game, wx, wy) {
   const o = structureAtPoint(game, wx, wy);
   if (!o) { game.events.emit('error', { text: 'Nenhuma construção aqui' }); return; }
-  if (defOf(o).raze && !o.blueprint) { razeStructure(game, o); return; }
+  // campfires: razed at once when next to it, else marked like any other structure
+  const p = game.player;
+  if (defOf(o).raze && !o.blueprint && Math.hypot(p.x - o.x, p.y - (o.cy ?? o.y)) < 2.8) { razeStructure(game, o); return; }
   toggleDecon(game, o);
 }
 

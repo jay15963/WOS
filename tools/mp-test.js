@@ -1493,9 +1493,10 @@ def('S30', {
   const [wx, wy] = site.tiles[0];
   A.place(S1, M, 'wall_wood', [wx, wy]);
   const wall = A.structAt(S1, M, wx, wy, 'main');
-  t.check(wall && wall.blueprint && A.count(S1, 'wood') === w0 - 2, 'blueprint placed, 2 wood paid', `${w0} → ${A.count(S1, 'wood')}`);
+  t.check(wall && wall.blueprint && A.count(S1, 'wood') === w0, 'blueprint placed for free (no wood taken yet)', `${w0} → ${A.count(S1, 'wood')}`);
   await A.buildAll(t, S1, M, [wall.id]);
   t.check(g.world.solid[g.world.idx(wx, wy)] === 1, 'wall completed and solid');
+  t.check(A.count(S1, 'wood') === w0 - 2, '2 wood delivered when the work started', `${w0} → ${A.count(S1, 'wood')}`);
   // chest through the panel
   A.ensure(S1, { wood: 10, stone: 3 });
   const cs = A.findSite([S1], [M], 'chest', (x, y) => [[x, y]], p.x, p.y, { rMin: 2, rMax: 10, avoidPts: [[p.x, p.y]] });

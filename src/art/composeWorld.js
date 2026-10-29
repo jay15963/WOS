@@ -345,7 +345,7 @@ function drawDoor(B, T, o, type, fl, isDoor) {
   const base = isDoor ? 'door_wood' : 'gate_wood';
   let orient = o.orient;
   if (!orient) orient = type.endsWith('_v') ? 'v' : type.endsWith('_h') ? 'h' : o.mask != null && !(o.mask & 10) && (o.mask & 5) ? 'v' : 'h';
-  const k = 1 - 0.86 * clamp01(o._openT ?? (o.open ? 1 : 0));
+  const k = 1 - 0.86 * clamp01(o._openT ?? (+o.open || 0));
   const x0 = o.x - 0.5, y = o.y;
   if (orient === 'h') {
     const frame = P[base + '_h_frame'], leaf = P[base + '_h_leaf'];
