@@ -15,7 +15,7 @@
 //    contact-AO texture kept in sync with walls (R.syncSolid)
 // Everything is spawned only around the visible view and capped (density × quality tier).
 
-import { installQuality, qualityPreset, qualityStepDown } from './quality.js';
+import { installQuality, qualityPreset, qualityStepDown, qualityStepUp } from './quality.js';
 import { installDebug } from './debug.js';
 
 const rnd = Math.random;
@@ -424,6 +424,7 @@ class Ambient {
       else if (cur > 0.55) R.renderScale = Math.max(0.55, cur - 0.15);
       P.slowT = 0; P.coolT = Math.max(P.coolT, 3);
     } else if (P.fastT > 10 && cur < 1 && P.coolT <= 0) { R.renderScale = Math.min(1, cur + 0.1); P.fastT = 0; P.coolT = 6; }
+    else if (P.fastT > 45 && cur >= 1 && P.coolT <= 0 && !P.upgraded) { P.upgraded = true; if (qualityStepUp()) { P.fastT = 0; P.coolT = 8; } }
   }
 
   // climate around the camera: snow share of the precipitation, per-biome colour grade (smoothed)

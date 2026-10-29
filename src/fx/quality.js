@@ -2,7 +2,8 @@
 //   game.quality     -> effective tier 'low' | 'medium' | 'high' (read-only; other systems branch on it)
 //   game.qualityMode -> the player's choice 'auto' | 'low' | 'medium' | 'high' (localStorage 'wos.quality')
 // 'auto' starts from a device guess (GPU string, memory, cores, touch) and steps down when frames stay slow
-// (after the adaptive resolution has had a go); the step-down is remembered for a week.
+// (after the adaptive resolution has had a go); the step-down is remembered for a week, and after 45 s of fast
+// frames at full resolution it may climb back one tier per session (never above the device guess).
 // A tier sets: device-pixel cap, shader level (#define QL 0/1/2 in the renderer), particle cap, ambient
 // FX density (qualityPreset().fx), post grain / bloom.
 // UI: qualitySettings(el, game) renders the settings row (one call from the settings panel).
@@ -83,6 +84,19 @@ export function qualityStepDown() {
   state.tier = TIERS[i - 1];
   lsSet(AUTO_KEY, JSON.stringify({ tier: state.tier, t: Date.now() }));
   if (state.R) state.R.renderScale = 1;
+  push();
+  return true;
+}
+
+// Auto mode only: one tier back up (frames stayed fast for a long time at full resolution), never above the
+// device guess. The ambient system calls it at most once per session. Returns true if it stepped.
+export function qualityStepUp() {
+  if (state.mode !== 'auto') return false;
+  const i = TIERS.indexOf(state.tier), cap = TIERS.indexOf(detectTier(state.R?.gl));
+  if (i >= cap) return false;
+  state.tier = TIERS[i + 1];
+  if (i + 1 >= cap) lsSet(AUTO_KEY, null);
+  else lsSet(AUTO_KEY, JSON.stringify({ tier: state.tier, t: Date.now() }));
   push();
   return true;
 }
