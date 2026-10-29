@@ -79,9 +79,13 @@ export function installAudioDirector(game, audio) {
       if (e.remote && s.lv && e.level > s.lv) audio.play('levelup', { x: e.x, y: e.y, volume: 0.45, world: true });
       s.lv = e.level || s.lv;
       // a remote player got hurt (their own client applied it): a hit for everyone else, unless an echo played one
-      if (e.remote && !e.dead && s.hp != null && e.hp < s.hp - 0.5 && D.hits.length < 8) D.hits.push({ e, t: t + 0.25 });
+      // (real blows only: small ticks — hunger, cold, poison — stay silent; at most one per 1.5 s)
+      if (e.remote && !e.dead && s.hp != null && e.hp < s.hp - Math.max(2, (e.maxHp || 100) * 0.04) && t - (s.hitT || 0) > 1.5 && D.hits.length < 8) { s.hitT = t; D.hits.push({ e, t: t + 0.25 }); }
       s.hp = e.hp;
-      if (e.dead) continue;
+      if (e.dead) {
+        if (e.isMob && (e.rotten || e.rot > 0.5 || e._rot > 0.5 || e.deadT > 120) && near(e, 14)) audio.play('flies', { x: e.x, y: e.y, volume: 0.8 });
+        continue;
+      }
       const k = stepK(e);
       if (k !== s.k) { s.k = k; if (e.moving) footstep(e); }
       if (e.remote && e.kind === 'pawn') {

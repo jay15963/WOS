@@ -109,6 +109,7 @@ const GROUPS = [
   ['Passos', (n) => n.startsWith('step_')],
   ['Combate', (n) => /^(hit|crit|hit_metal|block|shield_up|swing_|bow|arrow_|death)/.test(n)],
   ['Corpo e natação', (n) => /^(swim_|splash_in|splash_out|heartbeat|shiver|breath_cold|stomach|drip_body|queasy)/.test(n)],
+  ['Carcaças', (n) => /^(butcher|bones|flies)$/.test(n)],
   ['Coleta e comida', (n) => /^(chop|mine|pickup|herb_pick|heal|eat|splash|plop|drip|ignite|crackle|tree_)/.test(n)],
   ['Construção', (n) => /^(blueprint|build|decon|raze|rotate|door_|chest_|craft_done|equip)/.test(n)],
   ['Interface', (n) => /^(ui_|hotbar|zoom|error|levelup|sleep|respawn)/.test(n)],

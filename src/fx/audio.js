@@ -59,7 +59,7 @@ export class Audio {
     this.maxVoices = this.lowEnd ? 22 : 36;
     this.stats = { plays: 0, dropped: 0, deduped: 0, created: 0, ended: 0 };
     this._recent = [];
-    this._gapT = Object.create(null);
+    this._gapT = Object.create(null); this._gapN = 0;
     this._hide = 1; this._duck = 1;
     this._near = { water: 0, flow: 0, waterPan: 0, marsh: 0, lush: 0.5, trees: 0, fire: 0, firePan: 0, indoor: 0, wolves: 0 };
     this._timers = { bird: 2, cricket: 0.5, owl: 15, frog: 6, crackle: 0, drip: 2, rumble: 30, blub: 8, gust: 4, howl: 40, wood: 25 };
@@ -753,11 +753,17 @@ const ROUTES = {
   frog(o) { if (spaced.call(this, 'frog', 2.5)) this._sfx('frog', o); },
   duck(o) { if (spaced.call(this, 'duck', 3) && this._sfx('duck', o)) this._sfx('wings', { ...o, delay: 0.12, volume: (o.volume ?? 1) * 0.9, force: true }); },
   chirp(o) { if (spaced.call(this, 'chirp', 1.2)) this._sfx(Math.random() < 0.7 ? 'bird_chirp' : 'bird_warble', o); },
+  // corpses: calling these every frame is fine — they re-trigger at their own pace per spot
+  butcher(o) { if (spaced.call(this, 'butcher' + spot(o), 0.35)) this._sfx('butcher', o); },
+  bones(o) { if (spaced.call(this, 'bones' + spot(o), 0.45)) this._sfx('bones', o); },
+  flies(o) { if (o.x != null && spaced.call(this, 'flies' + spot(o), 2.4)) this._sfx('flies', { ...o, dedupe: 0 }); }, // 3 s buzz every 2.4 s = a seamless loop
 };
+const spot = (o) => (o.x == null ? '' : ':' + Math.round(o.x) + ',' + Math.round(o.y));
 function spaced(key, gap) {
-  const t = this.ctx.currentTime, k = 'route:' + key;
-  if (t - (this._gapT[k] ?? -9) < gap) return false;
-  this._gapT[k] = t;
+  const t = this.ctx.currentTime, k = 'route:' + key, G = this._gapT;
+  if (t - (G[k] ?? -9) < gap) return false;
+  G[k] = t;
+  if (++this._gapN > 200) { this._gapN = 0; for (const n in G) if (t - G[n] > 30) delete G[n]; } // per-spot keys stay bounded
   return true;
 }
 function hitRoute(name, o) {

@@ -264,6 +264,50 @@ export const SFX = {
     for (let k = 0; k < 5; k++) burst(d, sr, r() * 0.4, 0.02, { r, type: 'bp', f: 1500 + r() * 1500, q: 1.5, a: 0.0005, amp: 0.4 });
   } },
 
+  // ---------- corpses (agent I): butchering, bones, flies ----------
+  butcher: { v: 5, sec: 0.5, sr: 24000, gain: 0.3, rev: 0.08, pj: 1.3, vj: 0.15, render(d, sr, r) {
+    // knife slice, a wet squelch and a short tear
+    burst(d, sr, 0, 0.07, { r, type: 'bp', f: 2600 + r() * 1200, f1: 1600, q: 1.4, a: 0.004, amp: 0.55 });
+    burst(d, sr, 0.03, 0.16, { r, color: 'brown', type: 'lp', f: 600, a: 0.01, amp: 0.55 });
+    burst(d, sr, 0.05, 0.18, { r, color: 'pink', type: 'bp', f: 320 + r() * 120, f1: 950, q: 3, a: 0.02, amp: 0.5 });
+    burst(d, sr, 0.14 + r() * 0.08, 0.17, { r, type: 'bp', f: 1500 + r() * 600, q: 1.1, a: 0.01, amp: 0.45, grain: 0.85, grainRate: 900, grainMs: 1.5 });
+    if (r() < 0.5) tone(d, sr, 0.2 + r() * 0.15, 0.04, 260, 520, 0.12, { a: 0.003, dec: 0.035 });
+  } },
+  bones: { v: 4, sec: 0.75, sr: 24000, gain: 0.3, rev: 0.15, pj: 1.3, vj: 0.15, render(d, sr, r) {
+    // dry, hollow bones knocking and sliding against each other
+    const n = 6 + Math.floor(r() * 5);
+    for (let k = 0; k < n; k++) {
+      const t = Math.pow(r(), 1.3) * 0.55;
+      modal(d, sr, t, 900 + r() * 900, [[1, 0.6, 0.03], [2.6, 0.3, 0.02], [4.1, 0.15, 0.012]], (0.35 + r() * 0.5) * (1 - t), { r });
+    }
+    burst(d, sr, 0.05, 0.4, { r, type: 'bp', f: 2400, q: 0.9, amp: 0.15, grain: 0.8, grainRate: 300 });
+  } },
+  flies: { v: 2, sec: 3.0, sr: 16000, gain: 0.1, bus: 'amb', rev: 0.1, pj: 0.8, vj: 0.15, render(d, sr, r) {
+    // a small swarm: each fly a buzzing wingbeat that wanders in pitch and distance (wavetable, cheap)
+    const n = d.length, out = new Float32Array(n), TL = 512, tab = new Float32Array(TL + 1);
+    for (let i = 0; i <= TL; i++) { const x = (2 * Math.PI * i) / TL; tab[i] = Math.sin(x) + 0.5 * Math.sin(2 * x) + 0.3 * Math.sin(3 * x); }
+    for (let k = 0; k < 5 + Math.floor(r() * 3); k++) {
+      const f0 = 170 + r() * 90, wr = 0.4 + r() * 0.8, wp = r() * 6, ar = 0.3 + r() * 0.7, ap = r() * 6;
+      let ph = 0, inc = 0, a = 0;
+      for (let i = 0; i < n; i++) {
+        if ((i & 31) === 0) {
+          const t = i / sr;
+          inc = (TL * f0 * (1 + 0.08 * Math.sin(2 * Math.PI * wr * t + wp) + 0.02 * Math.sin(2 * Math.PI * 7 * t))) / sr;
+          a = 0.35 + 0.65 * Math.pow(0.5 + 0.5 * Math.sin(2 * Math.PI * ar * t + ap), 2);
+        }
+        ph += inc;
+        if (ph >= TL) ph -= TL;
+        const j = ph | 0;
+        out[i] += (tab[j] + (tab[j + 1] - tab[j]) * (ph - j)) * a;
+      }
+    }
+    biquad(out, sr, 'bp', 520, 0.8);
+    normalize(out, 1);
+    const f = Math.floor(0.45 * sr);
+    for (let i = 0; i < f; i++) { const k = i / f; out[i] *= k; out[n - 1 - i] *= k; }
+    mix(d, out, 0, 1);
+  } },
+
   // ---------- construction ----------
   blueprint: { v: 3, sec: 0.46, gain: 0.25, rev: 0.25, pj: 0.6, vj: 0.1, render(d, sr, r) {
     burst(d, sr, 0, 0.22, { r, color: 'pink', type: 'bp', f: 2200, q: 0.8, shape: 'bell', amp: 0.5, grain: 0.4 });
