@@ -200,7 +200,8 @@ export class Renderer {
       sg.at = at; sg.start = B.roof.n; sg.n = 1; sg.tex = tex;
       segs.push(sg);
     }
-    B.roof.addQuad(s.x0, s.y0, s.x1 - s.x0, s.y1 - s.y0, s.u0, s.v0, s.u1, s.v1, a, s.id + 1, 0, 0);
+    const dy = region.dropY || 0; // a collapsing roof drops
+    B.roof.addQuad(s.x0, s.y0 + dy, s.x1 - s.x0, s.y1 - s.y0, s.u0, s.v0, s.u1, s.v1, a, s.id + 1, 0, 0);
   }
   _roofPass(mode, uni, amb) {
     const gl = this.gl, p = this.progRoof, B = this.batches;

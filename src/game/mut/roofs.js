@@ -10,6 +10,7 @@ import { addLootRows } from './loot.js';
 import { lootRow } from './roll.js';
 import { allPlayers, hurtPlayer } from '../players.js';
 import { collapseFx, unsupportedRoofs } from '../roofs.js';
+import { roofStyleOf } from '../content/roofs.js';
 
 defineOp('roof.collapse', {
   doc: 'Finished roof tiles that lost their support fall down: removed with dust, debris and a sound (toast near the camera); some material lands as loot.',
@@ -19,7 +20,7 @@ defineOp('roof.collapse', {
     for (const id of a.ids || []) {
       const o = structById(game, id);
       if (!o || !BUILDINGS[o.type]?.roof) continue;
-      tiles.push([o.tx, o.ty]);
+      tiles.push([o.tx, o.ty, roofStyleOf(o).base]);
       removeStructure(game, o, { quiet: true });
     }
     addLootRows(game, a.drops);

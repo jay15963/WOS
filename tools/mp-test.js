@@ -2343,8 +2343,9 @@ def('J3', {
   const last = east.find((o) => o.tx === x0 + 6 && o.ty === y0);
   for (const o of east) if (o !== last) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 });
   await t.sleep(ONEWAY() + 300);
-  const stillAll = roofIds(H).length === 14 * 5;
-  t.check(stillAll, 'roof still holds while one support is near the east end', `${roofIds(H).length} roof tiles`);
+  // the last east wall (x0+6, y0) still holds what is within 6 tiles of it, e.g. (x0+12, y0); the far corner already fell
+  await t.waitFor(() => !A.structAt(H, MH, x0 + 13, y0 + 4, 'roof'), RT() + 800, 'far corner (8 tiles from the last wall) fell');
+  t.check(A.structAt(H, MH, x0 + 12, y0, 'roof') && A.structAt(G, MG, x0 + 12, y0, 'roof'), 'the last wall still holds the tiles within 6 tiles of it', `${roofIds(H).length} roof tiles`);
   await A.decon(t, G, MG, last.id);
   const gone = (f) => [12, 13].every((dx) => [0, 1, 2, 3, 4].every((dy) => !A.structAt(f, MG, x0 + dx, y0 + dy, 'roof')));
   await t.waitFor(() => gone(H) && gone(G), RT() + 800, 'tiles beyond 6 tiles collapsed on both');

@@ -51,6 +51,8 @@ export function initRoofs(game) {
     caveFade: new Map(),           // tile -> { a, b, t } cave darkness easing after a cave-in
     v: 0,
   };
+  game.roofs.collapsing = new Set(); // tiles whose roof just fell (cosmetic: the old painting drops and fades)
+  game.roofs.falling = [];           // [{ g, t }] old paintings dropping
   game.indoors = { kind: null, region: 0, zoomK: 0, caveK: 0, builtK: 0, _cand: null, _candT: 0, _k: 0 };
   game.roofs.hidden = (x, y) => underOpaqueRoof(game, x, y); // for fx modules (no import of game code)
   // the world asks us to ease cave darkness changes caused by mining (cosmetic)
@@ -182,19 +184,21 @@ export function enclosedRoom(game, tx, ty, max = 220) {
 }
 
 // ---------------- cosmetic: collapse / cave-in dust ----------------
+// tiles: [[tx, ty, col?]] or tile indices; col = roof colour (debris)
 export function collapseFx(game, tiles, { big = false, cave = false } = {}) {
   const J = game.juice, w = game.world, R = game.roofs;
   let cx = 0, cy = 0;
-  const n = Math.min(tiles.length, 60);
+  const n = Math.min(tiles.length, 70);
   for (let k = 0; k < tiles.length; k++) {
     const t = tiles[k];
     const x = Array.isArray(t) ? t[0] : t % w.W, y = Array.isArray(t) ? t[1] : (t / w.W) | 0;
     cx += x + 0.5; cy += y + 0.5;
+    if (R && !cave) R.collapsing.add(w.idx(x, y)); // its painting falls down (rebuildRegions)
     if (k >= n) continue;
-    const col = cave ? [0.58, 0.55, 0.5] : [0.62, 0.5, 0.34];
-    J?.puff(x + 0.5, y + 0.6, cave ? 6 : 7, col, 1.1);
-    J?.chips(x + 0.5, y + 0.5, cave ? [0.5, 0.48, 0.44] : [0.55, 0.4, 0.24], 5, 0.9);
-    if (R) R.fx.push({ x: x + 0.5, y: y + 0.5, t: -k * 0.02, cave });
+    const col = (Array.isArray(t) && t[2]) || (cave ? [0.58, 0.55, 0.5] : [0.62, 0.5, 0.34]);
+    J?.puff(x + 0.5, y + 0.6, cave ? 6 : 5, col, 1.2);
+    J?.chips(x + 0.5, y + 0.5, col, 6, 1.1);
+    if (R) R.fx.push({ x: x + 0.5, y: y + 0.5, t: -Math.random() * 0.25, cave, col });
   }
   if (!tiles.length) return;
   cx /= tiles.length; cy /= tiles.length;
@@ -221,6 +225,13 @@ export function roofsSystem() {
       if (R.dataDirty) { const d = R.dataDirty; R.dataDirty = null; computeData(game, d[0], d[1], d[2], d[3]); }
       updateIndoors(game, dt);
       updateFades(game, dt);
+      for (let k = R.falling.length - 1; k >= 0; k--) {
+        const g = R.falling[k];
+        g.falling += dt;
+        g.dropY = Math.min(1.6, 4.9 * g.falling * g.falling);
+        g.alpha = Math.max(0, 1 - g.falling / 0.55);
+        if (g.falling > 0.6) { R.falling.splice(k, 1); disposeRegion(game, g); }
+      }
       easeCave(game, dt);
       if (!game.net.auth) R.supportDirty.length = 0; // (only the host checks collapses)
       // region art: the dirty ones near the view first (worker; main thread within a frame budget as fallback)
@@ -276,6 +287,7 @@ export function roofsSystem() {
         if (g.alpha <= 0.004) continue;
         for (const s of a.slices) if (s.x1 > v.x0 - 1 && s.x0 < v.x1 + 1 && s.y1 > v.y0 - 1 && s.y0 < v.y1 + 1) { s.drawable.region = g; list.push(s.drawable); }
       }
+      for (const g of R.falling) for (const s of g.art.slices) { s.drawable.region = g; list.push(s.drawable); }
     },
     render(game, B, v, env) {
       const R = game.roofs;
@@ -371,7 +383,12 @@ function rebuildRegions(game) {
     }
     R.regions.set(id, g);
   }
-  for (const o of olds) if (!o.taken) disposeRegion(game, o);
+  for (const o of olds) {
+    if (o.taken) continue;
+    if (o.art && o.gl && [...o.tiles].some((i) => R.collapsing.has(i))) { o.falling = 0; o.dropY = 0; R.falling.push(o); continue; }
+    disposeRegion(game, o);
+  }
+  R.collapsing.clear();
   R.v++;
   // the revealed mask follows the region under the player (re-evaluated next frame)
   game.indoors._maskDirty = true;
@@ -623,14 +640,15 @@ function dustFx(game, dt) {
     f.t += dt;
     if (f.t < 0) continue;
     R.fx.splice(k, 1);
-    const c = f.cave ? [0.55, 0.53, 0.5] : [0.66, 0.56, 0.42];
-    for (let j = 0; j < 3; j++) P.emit({ spr: name, x: f.x + (Math.random() - 0.5) * 0.9, y: f.y + (Math.random() - 0.5) * 0.7, lift: 0.4 + Math.random() * 1.4, vlift: -0.2,
-      vx: (Math.random() - 0.5) * 0.6, vy: (Math.random() - 0.5) * 0.3, drag: 0.6, life: 1.6 + Math.random() * 1.4, size: 0.6 * K, size1: (1.8 + Math.random()) * K,
-      r: c[0], g: c[1], b: c[2], a: 0.42, a1: 0, fadeIn: 0.15, ground: false });
-    // falling debris (rubble / straw) from the roof height
-    for (let j = 0; j < 4; j++) P.emit({ spr: pk, x: f.x + (Math.random() - 0.5) * 0.8, y: f.y + (Math.random() - 0.5) * 0.6, lift: 1.2 + Math.random() * 1.2, vlift: 0,
-      grav: 9, vx: (Math.random() - 0.5) * 0.8, vy: (Math.random() - 0.5) * 0.4, life: 0.6 + Math.random() * 0.3, size: (0.12 + Math.random() * 0.1) * Kp, size1: 0.08 * Kp,
-      r: c[0] * 0.8, g: c[1] * 0.75, b: c[2] * 0.7, a: 1, a1: 0.6 });
+    const c = f.cave ? [0.55, 0.53, 0.5] : [0.68, 0.6, 0.48], rc = f.col || c;
+    // a billowing cloud from the ground and from where the roof was
+    for (let j = 0; j < 4; j++) P.emit({ spr: name, x: f.x + (Math.random() - 0.5) * 1.1, y: f.y + (Math.random() - 0.5) * 0.9, lift: j < 2 ? 0.15 : 0.8 + Math.random() * 1.6, vlift: j < 2 ? 0.35 : -0.15,
+      vx: (Math.random() - 0.5) * 1.1, vy: (Math.random() - 0.5) * 0.6, drag: 0.7, life: 2 + Math.random() * 1.8, size: 0.9 * K, size1: (2.6 + Math.random() * 1.2) * K,
+      r: c[0], g: c[1], b: c[2], a: 0.55, a1: 0, fadeIn: 0.12, ground: false });
+    // falling debris (tiles / straw / rubble) from the roof height
+    for (let j = 0; j < 6; j++) P.emit({ spr: pk, x: f.x + (Math.random() - 0.5) * 0.9, y: f.y + (Math.random() - 0.5) * 0.7, lift: 1 + Math.random() * 1.8, vlift: Math.random() * 0.8,
+      grav: 9, vx: (Math.random() - 0.5) * 1.4, vy: (Math.random() - 0.5) * 0.6, life: 0.7 + Math.random() * 0.4, size: (0.16 + Math.random() * 0.14) * Kp, size1: 0.1 * Kp,
+      r: rc[0] * 0.9, g: rc[1] * 0.85, b: rc[2] * 0.8, a: 1, a1: 0.7, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 9 });
   }
 }
 
