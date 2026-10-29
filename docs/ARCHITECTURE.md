@@ -22,6 +22,10 @@ Rodar localmente: `python tools/serve.py` → http://localhost:5173
 `batch.add(sprite, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recvShadow, lift)`
 - `sway`: balanço de vento (fração da altura, ~0.03 árvores, ~0.12 grama). `lift`: altura acima do chão (pulo/bob).
 - `flash`: 0..1 pisca branco (dano). `flip`: -1 espelha horizontalmente. `recvShadow`: recebe sombra de outros.
+  **Água** (SPRITE_FS "WATER"): `recvShadow` negativo marca um sprite dentro d'água — `-1` pedra / pato (linha d'água 0,055 tile acima da
+  âncora), `-2` planta (0,15 tile; `composeWorld.WATERLINE`: a planta é desenhada 0,15 abaixo para os caules saírem da água em `d.y`),
+  `-3` reflexo (cópia invertida achatada ×0,6). Abaixo da linha ondulada o sprite é refratado, tingido e esmaecido; ambos recebem sombra
+  como `1` (o reflexo não). Decor com `d.w` (worldgen) usa isso; `src/fx/waterline.js` desenha anéis, reflexos e o "chute" (`d._kick`).
 
 Texturas do mundo (src/world/world.js):
 - `tileData` RGBA 1×: R ground id, G random, B tipo de rocha regional (1..4), A minério.
@@ -62,6 +66,9 @@ Biomas e zonas (src/world/worldgen.js):
 - `src/fx/wildlife.js` → `installWildlife(game)` (`game.wildlife`, chamado por installAmbient, `sync: 'cosmetic'`): borboletas, abelhas, libélulas,
   sapos, patos, sombras de peixe, esquilos, passarinhos e coelhos; todos fogem dos jogadores, limitados por espécie (`game.quality`), entram na
   ordenação por profundidade via `collect`.
+- `src/fx/waterline.js` → `installWaterline(game)` (`game.waterline`, chamado por installWildlife, `sync: 'cosmetic'`): anéis que se
+  espalham da base de juncos / pedras / vitórias-régias (seguem `game.env.wind`), reflexo curto dos caules em água calma (qualidade média/alta,
+  mais fraco na chuva), anéis de quem anda na água rasa e o balanço extra dos juncos atravessados (pawns, animais, patos). Limitado e só na tela.
 - `src/fx/ambient.js` → `installAmbient(game)` (`game.ambient`): vida ambiente (vaga-lumes, borboletas, folhas, pássaros,
   peixes, brilhos na água, poeira), respingos de chuva, fumaça + brasas de objetos `fire`, resolução adaptativa
   (`game.R.autoScale = false` desliga).

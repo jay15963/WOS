@@ -77,6 +77,7 @@ out float vRecv;
 out vec2 vLocal;
 out vec2 vW;              // world position on the ground plane (before lift)
 out float vFrost;         // snow lying on this (vegetation) sprite
+out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
 ${SWAY_FN}
 void main(){
@@ -99,6 +100,7 @@ void main(){
   vFlash = aParams.z;
   vRecv = aExtra.x;
   vLocal = c;
+  vH = (aAnchor.y - c.y) * aSize.y;
   vFrost = 0.0;
 #if QL >= 1
   if (uSnow > 0.01 && aParams.x > 0.0) vFrost = uSnow * smoothstep(0.45, 0.75, textureLod(uClim, aPos / uWorldSz, 0.0).r);
@@ -107,8 +109,9 @@ void main(){
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost;
+in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
+uniform highp float uTime;
 uniform sampler2D uTex;
 uniform sampler2D uShadow;
 uniform sampler2D uClim;
@@ -118,9 +121,34 @@ uniform float uShadowStr;
 uniform float uAO;        // 1 while drawing ground / decor: darken next to walls (contact AO)
 out vec4 o;
 void main(){
-  vec4 t = texture(uTex, vUV);
+  // WATER (agent E): recvShadow < 0 flags a sprite standing in water (src/fx/waterline.js) — -1 = stone / duck
+  // (waterline 0.055 tile above the anchor), -2 = plant (reeds: 0.15 tile, the stems rise out of the water);
+  // below the soft wavy waterline the sprite is refracted, tinted toward the water and faded, with a faint
+  // broken lip where it leaves the water; both receive shadows like recv 1. -3 = a reflection (vertically
+  // flipped copy: wobbles, fades with depth, no shadow).
+  vec2 uv = vUV;
+  float sub = 0.0, wl = 0.0;
+  if (vRecv < -0.5) {
+    float deep = vRecv < -1.5 ? 1.0 : 0.0;
+    wl = mix(0.055, 0.15, deep) + (0.012 + 0.01 * deep) * sin(vW.x * 21.0 + uTime * 1.9) + 0.007 * sin(vW.x * 47.0 - uTime * 2.7);
+    sub = vRecv < -2.5 ? 1.0 : 1.0 - smoothstep(wl - 0.03 - 0.03 * deep, wl + 0.025, vH);
+    uv.x += sub * sin(abs(vH) * 60.0 + uTime * 2.4 + vW.x * 9.0) * (vRecv < -2.5 ? 2.4 : 1.2) / float(textureSize(uTex, 0).x); // ≤ 2.4 texels (atlas PAD 4)
+  }
+  vec4 t = texture(uTex, uv);
   if (t.a < 0.003) discard;
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
+  if (vRecv < -0.5) {
+    if (vRecv < -2.5) {
+      // the flipped copy is squashed ×0.6 and anchored 0.09 above the waterline: hide the submerged part
+      c *= smoothstep(0.06, 0.1, abs(vH)) * (1.0 - smoothstep(0.12, 0.42, abs(vH)));
+      c.rgb = mix(c.rgb, vec3(0.09, 0.18, 0.21) * c.a, 0.5);
+    } else {
+      c.rgb = mix(c.rgb, vec3(0.2, 0.4, 0.43) * c.a, sub * 0.4);
+      c *= 1.0 - sub * (0.86 + 0.08 * smoothstep(wl - 0.03, wl - 0.12, vH)); // deeper = more water in front
+      float lip = vH - wl;
+      c.rgb += vec3(0.55, 0.66, 0.7) * exp(-lip * lip * 3000.0) * (0.5 + 0.5 * sin(vW.x * 93.0 + uTime * 3.0)) * 0.16 * c.a;
+    }
+  }
 #if QL >= 1
   if (vFrost > 0.01) {
     // snow settles on the top edges of leaves / needles / blades (texel above is empty)
@@ -137,9 +165,10 @@ void main(){
   }
 #endif
   c.rgb = mix(c.rgb, vec3(c.a), clamp(vFlash, 0.0, 1.0));
-  if (vRecv > 0.0) {
+  float rv = vRecv < 0.0 ? (vRecv < -2.5 ? 0.0 : 1.0) : vRecv; // water flags receive like 1 (reflections: no)
+  if (rv > 0.0) {
     float s = texture(uShadow, gl_FragCoord.xy / uViewport).r;
-    c.rgb *= 1.0 - s * uShadowStr * vRecv;
+    c.rgb *= 1.0 - s * uShadowStr * rv;
   }
   o = c;
 }`;
