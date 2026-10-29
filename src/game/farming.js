@@ -38,7 +38,7 @@ registerWork('plant', {
     const seed = seedToPlant(game.player);
     if (!seed) { game.events.emit('error', { text: 'Sem sementes. Colha plantas silvestres.' }); return null; }
     it.seed = seed;
-    return { type: 'gather', cycle: 0.9, need: 1, label: 'Plantando' };
+    return { type: 'plant', cycle: 0.9, need: 1, label: 'Plantando' };
   },
   finish(game, wk) {
     const it = wk.it, p = game.player;
@@ -54,7 +54,7 @@ registerWork('plant', {
 
 registerWork('harvest', {
   valid: (g, it) => { const c = cropAt(g, it.tx, it.ty); return !!c && c.stage >= 3; },
-  start: () => ({ type: 'gather', cycle: 1.0, need: 1, label: 'Colhendo' }),
+  start: () => ({ type: 'harvest', cycle: 1.0, need: 1, label: 'Colhendo' }),
   finish(game, wk) {
     const it = wk.it;
     if (!cropAt(game, it.tx, it.ty)) return true;

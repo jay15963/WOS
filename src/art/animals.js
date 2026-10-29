@@ -5,7 +5,7 @@
 // Deer has two looks: `deer_*` (stag, antlers) and `deer_doe_*` (spotted doe, no antlers).
 // Layer order per sprite: far legs → near legs → tail → body (+neck) → far ear → head → antlers.
 
-import { spritePxFast as spritePx, rng, OW, TAU, lin, rad, circle, mixc, rgb, hex, atop } from './paint.js';
+import { spritePxFast as spritePx, rng, OW, TAU, lin, rad, circle, mixc, rgb, hex, atop, canvas } from './paint.js';
 import { spline, chain, plant, limbPath, fur, tufts, eyeAt, part, stack, strip, mirror } from './kit.js';
 
 const A = (c, a) => rgb(hex(c), a);
@@ -863,6 +863,32 @@ function frontBackFrames(sp, view, variant) {
   return frames;
 }
 
+// ---------- grazing frame (animation pass): the stand frame with neck + head bent down ----------
+// Region R (design coords, before oy) rotates by `ang` around the withers `pv`; the rest of the frame
+// (body, legs) stays. Cheap canvas surgery on the finished frame: no new painting, same look.
+const GRAZE = {
+  wolf: { pv: [63, 34], ang: 0.5, R: [[60, -30], [140, -30], [140, 62], [80, 62], [73, 47], [61, 45]] },
+  fox: { pv: [52, 28], ang: 0.5, R: [[49, -30], [120, -30], [120, 52], [66, 52], [61, 39], [51, 37]] },
+  boar: { pv: [60, 26], ang: 0.34, R: [[57, -30], [130, -30], [130, 62], [73, 62], [69, 45], [59, 41]] },
+  deer: { pv: [63, 55], ang: 1.15, R: [[59, -60], [150, -60], [150, 86], [82, 86], [75, 61], [61, 59]], E: [[52, 10], [60, 10], [60, 50.5], [56, 50.5], [52, 51.8]] },
+  bear: { pv: [84, 40], ang: 0.3, R: [[80, -30], [170, -30], [170, 72], [104, 72], [98, 55], [82, 51]] },
+};
+function bendFrame(c, S, G) {
+  const out = canvas(c.width + 44, c.height + 34); // room for the lowered head (cropped later)
+  const g = out.getContext('2d');
+  const ox = c.origin.x, oy = c.origin.y + S.oy; // design → canvas px
+  const path = (gg) => { gg.beginPath(); G.R.forEach(([x, y], i) => (i ? gg.lineTo(x + ox, y + oy) : gg.moveTo(x + ox, y + oy))); gg.closePath(); };
+  // everything outside R stays put
+  g.save(); g.beginPath(); g.rect(0, 0, c.width, c.height); G.R.slice().reverse().forEach(([x, y], i) => (i ? g.lineTo(x + ox, y + oy) : g.moveTo(x + ox, y + oy))); g.closePath(); g.clip('evenodd'); g.drawImage(c, 0, 0); g.restore();
+  // R rotated about the withers (clip in the rotated frame so the region moves with the head)
+  const px = G.pv[0] + ox, py = G.pv[1] + oy;
+  g.save(); g.translate(px, py); g.rotate(G.ang); g.translate(-px, -py); path(g); g.clip(); g.drawImage(c, 0, 0); g.restore();
+  // E: leftover of the upright neck above the back line (erased)
+  if (G.E) { g.save(); g.globalCompositeOperation = 'destination-out'; g.beginPath(); G.E.forEach(([x, y], i) => (i ? g.lineTo(x + ox, y + oy) : g.moveTo(x + ox, y + oy))); g.closePath(); g.fill(); g.restore(); }
+  out.origW = c.origW; out.origH = c.origH; out.origin = c.origin; out.needsCrop = true;
+  return out;
+}
+
 export function addAnimals(add) {
   for (const sp of ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox']) {
     const S = SPECIES[sp], F = FRONT[sp];
@@ -874,6 +900,7 @@ export function addAnimals(add) {
       } else {
         const fr = sideFrames(sp, variant);
         for (const k of Object.keys(fr)) add(`${name}_${k}`, fr[k], 0.5, ay);
+        if (GRAZE[sp]) add(`${name}_e_graze`, bendFrame(fr.e, S, GRAZE[sp]), 0.5, ay);
       }
       const fay = (F.foot + F.oy) / F.H;
       const fs = frontBackFrames(sp, 's', variant), fn = frontBackFrames(sp, 'n', variant);

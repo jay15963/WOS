@@ -1499,6 +1499,118 @@ def('S40', {
 });
 
 // =====================================================================================================
+// S42 D: remote action animations (presence stream: action timeline, pose)
+def('S42', {
+  title: 'D: remote action anims', timeout: 150000,
+  expected: "Guest's copy of the host shows the host's chop (same type, duration = work cycle, looping while chopping), a melee swing played from its start (first t < 0.4) and ending, and the sleep pose in the host's bed (pose.o = the bed); host's copy of the guest shows the guest's swing and sitting pose; the copy swims in deep water (from its position)",
+  api: 'presence st/sts s.a = [type, t, dur, loop, item?], s.ps; session.players.get(pid).ent.{action, pose}; juice.lieDown(bed) via useStructure (bed at night)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const hp = H.game.player, gp = G.game.player;
+  const sp = spawnOf(H);
+  const copyH = () => hostOnGuest(H, G);  // drawn copy of the host on the guest
+  const copyG = () => A.avatarOn(H, G.pid); // drawn copy of the guest on the host
+  t.assert(copyH() && copyG(), 'both sides have the other player');
+  // sample the copies at a fine interval
+  const seen = { chop: [], attackG: [], attackH: [] };
+  t.watch(() => {
+    const c = copyH();
+    if (c?.action?.type === 'chop') seen.chop.push([now(), c.action.t, c.action.dur]);
+    if (c?.action?.type === 'attack') seen.attackG.push([now(), c.action.t]);
+    const d = copyG();
+    if (d?.action?.type === 'attack') seen.attackH.push([now(), d.action.t]);
+  }, 2);
+
+  // 1. host chops a tree: the guest sees the chop loop with the host's real cycle
+  const tr = A.pickTree(H, MH, G, sp.x, sp.y, env.claimed);
+  t.assert(tr, 'found a standing tree present on both frames');
+  A.ensure(H, { axe_copper: 1 });
+  A.teleport(H, tr.west[0], tr.west[1]);
+  const gs = A.freeSpot(G, MG, tr.o.x - 4, tr.o.y + 1.5, { rMin: 0, rMax: 3 });
+  if (gs) A.teleport(G, gs[0], gs[1]);
+  await t.sleep(400);
+  let cycle = 0;
+  t.watch(() => { if (hp.work?.type === 'chop') cycle = hp.work.cycle; }, 4);
+  await A.chop(t, H, MH, A.objOn(H, tr.o.id), { until: 'fall' });
+  t.check(seen.chop.length > 5, "guest's copy of the host plays 'chop'", `${seen.chop.length} samples`);
+  const durs = seen.chop.map((r) => r[2]);
+  const medDur = median(durs);
+  t.check(cycle > 0 && Math.abs(medDur - cycle) <= 0.03, 'chop duration on the copy = host work cycle', `copy ${f2(medDur)} s · host ${f2(cycle)} s`);
+  let wraps = 0;
+  for (let i = 1; i < seen.chop.length; i++) if (seen.chop[i][1] < seen.chop[i - 1][1] - 0.3) wraps++;
+  t.check(wraps >= 1, 'the chop loops on the copy (cycle restarts)', `${wraps} restarts`);
+  sendAway(H, MH, tr.o.x, tr.o.y, 6, Math.PI);
+  await t.sleep(600);
+
+  // 2. a melee swing each way: shown from its start, then it ends
+  const swing = async (f, list, label) => {
+    list.length = 0;
+    f.game.player.action = { type: 'attack', t: 0, dur: 0.34 };
+    await t.sleep(900);
+    const ts = list.map((r) => r[1]);
+    t.check(ts.length >= 3, `${label}: copy plays the swing`, `${ts.length} samples`);
+    t.check(ts.length && ts[0] < 0.4, `${label}: swing shown from its start (first t < 0.4)`, ts.length ? `first t ${f2(ts[0])}` : 'none');
+    t.check(ts.length && Math.max(...ts) > 0.7, `${label}: swing plays through`, ts.length ? `max t ${f2(Math.max(...ts))}` : 'none');
+  };
+  await swing(H, seen.attackG, 'host → guest');
+  t.check(!copyH()?.action, "the swing ended on the guest's copy", copyH()?.action?.type || 'none');
+  await swing(G, seen.attackH, 'guest → host');
+
+  // 3. guest sits (resting pose) → host's copy sits
+  gp.pose = { type: 'sit', id: null, o: null };
+  const sat = await t.tryWait(() => copyG()?.pose?.type === 'sit', 2000);
+  t.check(sat, "host's copy of the guest sits", copyG()?.pose?.type || 'none');
+  gp.pose = null;
+  await t.tryWait(() => !copyG()?.pose, 2000);
+  t.check(!copyG()?.pose, 'standing up reaches the host', copyG()?.pose?.type || 'none');
+
+  // 4. host sleeps in its bed at night → guest's copy lies in that bed
+  A.ensure(H, { wood: 10, fiber: 8, leather: 3 });
+  const site = A.findSite([H, G], [MH, MG], 'bed', (x, y) => [[x, y]], hp.x, hp.y, { rMin: 2, rMax: 10, avoidPts: [[hp.x, hp.y], [gp.x, gp.y]] });
+  t.assert(site, 'found a tile for a bed');
+  A.place(H, MH, 'bed', site.tiles[0]);
+  const bed = await t.waitFor(() => A.structAt(H, MH, site.tiles[0][0], site.tiles[0][1], 'main'), 2000, 'host bed blueprint');
+  await A.buildAll(t, H, MH, [bed.id]);
+  H.game.env.hour = 21;
+  await t.waitFor(() => Math.abs(G.game.env.hour - 21) < 0.1, 3000 + CFG.budget, 'guest clock at night');
+  A.pacify(H, hp.x, hp.y, 40); // no creature may be chasing the host ("Não dá para dormir em combate")
+  for (const m of H.game.entities) if (m.isMob && !m.proxy && m.state === 'chase' && m.threat === hp) { m.state = 'idle'; m.stateT = 1; m.threat = null; m.calmT = 600; }
+  await t.sleep(300);
+  hp.combatT = 0; hp.inCombat = false;
+  A.standBy(H, MH, bed);
+  await t.sleep(200);
+  A.useBed(H, MH, bed);
+  t.check(hp.pose?.type === 'sleep', 'host lies down in the bed', hp.pose?.type || 'none');
+  const lay = await t.tryWait(() => copyH()?.pose?.type === 'sleep', 2500);
+  t.check(lay && copyH().pose.o?.id === bed.id, "guest's copy of the host sleeps in that bed", `${copyH()?.pose?.type || 'none'} · bed ${copyH()?.pose?.o?.id ?? '-'} (want ${bed.id})`);
+  const release = A.holdMove(H, 0, 1);
+  t.defer(release);
+  await t.sleep(400);
+  release();
+  const woke = await t.tryWait(() => !copyH()?.pose, 2500);
+  t.check(!hp.pose && woke, 'moving wakes the host up on both sides', `host ${hp.pose?.type || 'up'} · copy ${copyH()?.pose?.type || 'up'}`);
+
+  // 5. swimming is derived from the tile under the avatar on every peer (guest's copy of the host swims too)
+  const W = H.game.world;
+  let deep = null;
+  for (let r = 2; r < 60 && !deep; r += 2) for (let a = 0; a < 24 && !deep; a++) {
+    const x = Math.floor(hp.x + Math.cos(a / 24 * Math.PI * 2) * r), y = Math.floor(hp.y + Math.sin(a / 24 * Math.PI * 2) * r);
+    if (W.waterAt(x, y) === 2 && W.waterAt(x + 1, y) === 2 && W.waterAt(x - 1, y) === 2) deep = [x + 0.5, y + 0.5];
+  }
+  if (!deep) t.note('no deep water near the host — swim sub-check skipped');
+  else {
+    A.teleport(H, deep[0], deep[1]);
+    const near = A.freeSpot(G, MG, deep[0] + 3, deep[1], { rMin: 0, rMax: 5 });
+    if (near) A.teleport(G, near[0], near[1]);
+    const swam = await t.tryWait(() => (copyH()?._swim || 0) > 0.8 && (hp._swim || 0) > 0.8, 4000);
+    t.check(swam, "guest's copy of the host swims in deep water (derived from its position)", `host ${f2(hp._swim || 0)} · copy ${f2(copyH()?._swim || 0)}`);
+    sendAway(H, MH, deep[0], deep[1], 8);
+    hp.wetT = 0; hp._wet = 0; MH.player.removeBuff?.(hp, 'wet'); MH.player.removeBuff?.(hp, 'cold'); // leave the shared pair dry
+  }
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // S30 Single-player regression
 def('S30', {
   title: 'Single-player regression', timeout: 240000,
