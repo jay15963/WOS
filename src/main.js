@@ -124,7 +124,7 @@ async function boot() {
       $('#loading').classList.add('hidden');
       await nextFrame();
       getAudio()?.music?.setMood?.('menu'); // idempotent (the menu may set it too)
-      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress });
+      choice = await showMainMenu({ presetCode: QS.get('sala') || '', progress: assets.progress, assets: assets.promise });
       $('#loading').classList.remove('hidden');
     }
     status('Preparando…', 0.3); await nextFrame();

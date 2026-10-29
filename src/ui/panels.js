@@ -1,5 +1,6 @@
 // HUD panels: Mochila (inventory + equipment paper-doll), Criar (crafting, see crafting.js),
-// Construir (build menu by category + deconstruct), Baú (chest transfer), Mapa (world map).
+// Construir (build menu by category + deconstruct), containers (Baú and any adapter of container.js:
+// backpack beside the container, click / drag to transfer, sort buttons), Mapa (world map).
 // Non-pausing (MMO): the world keeps running; tapping the world closes the panel.
 // Also installs the work bar (build / mining / deconstruct modes) — see workbar.js.
 
@@ -10,17 +11,21 @@ import { dropLoot } from '../game/loot.js';
 import { equipFromSlot, unequip, SLOTS } from '../game/equipment.js';
 import { CROPS } from '../game/farming.js';
 import { svgIcon, uiIcon } from './icons.js';
+import { SORT_MODES, SORT_PT, sortBackpack } from '../game/invsort.js';
 import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
+import { chestAdapter } from './container.js';
+import { uiScale } from './uiscale.js';
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
 const MINES_PT = ['rocha e pedregulhos', 'rocha, cobre e carvão', 'rocha, cobre, carvão e ferro', 'todos os minérios', 'todos os minérios'];
 const SLOT_ICON = { main: '🗡️', off: '🛡️', body: '👕', head: '🪖' };
 const x100 = (v) => '×' + (Math.round(v * 100) / 100).toString().replace('.', ',');
+const WIN_KEY = { inv: 'Tab', craft: 'C', build: 'B', map: 'M' };
 
-function itemStats(id) {
+export function itemStats(id) {
   const d = ITEMS[id];
   const out = [];
   if (d.tool?.chop) out.push(`Corta árvores ${x100(d.tool.chop)}`);
@@ -30,7 +35,7 @@ function itemStats(id) {
   if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}`);
   if (d.shield) out.push(`Bloqueia ${Math.round(d.shield.block * 100)}% do dano`);
   if (d.light) out.push('Ilumina em volta de você');
-  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ' · aquece' : ''}`);
+  if (d.food) out.push(`+${d.food.hunger} fome${d.food.heal ? ` · +${d.food.heal} vida` : ''}${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ` · aquece por ${d.food.warm} s` : ''}`);
   if (d.seed) out.push(`Planta: ${CROPS[d.seed]?.name || d.seed}`);
   return out;
 }
@@ -47,12 +52,16 @@ export class Panels {
     this.craftStation = null;
     this.buildTab = 'struct';
     this.scroll = {};
+    this.pos = {};      // desktop window offsets (dragged by the title bar)
+    this.sortMode = {}; // last sort per container ('inv' | 'chest:<id>'), kept in localStorage
+    try { this.sortMode = JSON.parse(localStorage.getItem('wos.sort') || '{}') || {}; } catch { /* ignore */ }
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
-    // chest contents are shared (op chest.set): refresh an open chest when anyone changes it
-    game.events.on('chest', (d) => { if (this.open === 'chest' && this.data?.chest === d.o) this.render(); });
-    game.events.on('inventory', () => { if (this.open === 'chest') this.render(); });
+    // container contents are shared (op chest.set …): refresh the open one when anyone changes it
+    game.events.on('chest', (d) => { const c = this.container; if (c && (c.event === 'chest' ? c.chest === d.o : true)) this.render(); });
+    game.events.on('container', (d) => { const c = this.container; if (c && (!d?.id || d.id === c.id)) this.render(); });
+    game.events.on('inventory', () => { if (this.container) this.render(); });
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // never keep focus on panel buttons (Space/Enter are game keys)
     el.addEventListener('click', () => setTimeout(() => document.activeElement?.blur?.(), 0));
@@ -65,9 +74,17 @@ export class Panels {
     else this.show(name);
   }
 
+  // the open container adapter (container.js), if any
+  get container() { return this.open === 'chest' || this.open === 'container' ? this.data?.adapter || null : null; }
+
   show(name, data = null) {
     const g = this.g;
     if (g.player.dead) return;
+    if (name === 'chest' && data?.chest && !data.adapter) data = { ...data, adapter: chestAdapter(g, data.chest) };
+    if (name === 'container' && data?.adapter?.event && data.adapter.event !== 'chest' && !this._evs?.has(data.adapter.event)) {
+      (this._evs ||= new Set()).add(data.adapter.event);
+      g.events.on(data.adapter.event, () => { if (this.container?.event === data.adapter.event) this.render(); });
+    }
     if (g.build.mode && (name === 'build' || name === 'craft')) { g.build.mode = null; g.events.emit('buildui', {}); }
     if (name === 'craft') this.craftStation = data?.station || null;
     if (this.open !== name) this.sel = null;
@@ -76,13 +93,14 @@ export class Panels {
     this.fresh = true;
     this.render();
     this.fresh = false;
-    g.audio?.play('ui', {});
+    g.audio?.play('ui_open', {});
   }
 
   close() {
     if (!this.open) return;
     this.open = null; this.data = null;
     this.el.innerHTML = '';
+    this.g.audio?.play('ui_close', {});
     this.g.ui.modal = false;
   }
 
@@ -91,7 +109,17 @@ export class Panels {
   resetScroll(k) { delete this.scroll[k]; }
 
   frame(title, icon, body, cls = '') {
-    return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"><div class="ph"><span class="pt">${icon}<span>${title}</span></span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
+    // desktop: a window with its shortcut key, draggable by the title bar (position kept per window)
+    const k = WIN_KEY[this.open];
+    const pos = this.pos[this.open];
+    const st = pos ? ` style="translate:${pos[0]}px ${pos[1]}px"` : '';
+    return `<div class="panel ${cls}${this.fresh ? '' : ' still'}"${st}><div class="ph"><span class="pt">${icon}<span>${title}</span>${k ? `<kbd class="pk">${k}</kbd>` : ''}</span><button class="px" data-close>${svgIcon('close')}</button></div><div class="pb" data-scroll="pb-${this.open}">${body}</div></div>`;
+  }
+
+  // sort buttons (A→Z · Tipo · Quantidade); the last one used per container is highlighted
+  sortBar(key) {
+    const cur = this.sortMode[key];
+    return `<div class="sortbar"><span>Ordenar</span>${SORT_MODES.map((m) => `<button class="sbt ${cur === m ? 'on' : ''}" data-sort="${m}" data-sortk="${key}">${SORT_PT[m]}</button>`).join('')}</div>`;
   }
 
   slots(inv, tag, cols, selected = -1) {
@@ -130,7 +158,7 @@ export class Panels {
         <p>${def.desc}</p>${stats ? `<ul class="stats">${stats}</ul>` : ''}
         <div class="acts">${acts.join('')}</div>`;
     } else {
-      detail = `<p class="muted">Toque num item para ver detalhes, equipar ou usar.</p>
+      detail = `<p class="muted">${g.input.isTouch ? 'Toque' : 'Clique'} num item para ver detalhes, equipar ou usar.${g.input.isTouch ? '' : ' Arraste itens para a barra (1–0), para o equipamento ou para um baú.'}</p>
         <p class="muted small">Ferramentas na mochila são usadas automaticamente (a melhor). Itens no chão são coletados ao passar perto.</p>`;
     }
     const used = p.inv.used();
@@ -139,7 +167,7 @@ export class Panels {
         ${eq('main')}<div class="dstat"><span title="Armadura">🛡 ${p.armorV ?? p.armorValue ?? 0}</span><span title="Calor das roupas">🔥 ${p.warmth || 0}</span></div>${eq('off')}
         <span></span>${eq('body')}<span></span>
       </div>`;
-    return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };
+    return { title: `Mochila <small>${used}/${p.inv.size}</small>`, body: `<div class="inv2">${doll}<div class="inv-grid">${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6, sel?.kind === 'inv' ? sel.i : -1)}</div><div class="detail detail2">${detail}</div></div>` };
   }
 
   buildBody() {
@@ -176,13 +204,14 @@ export class Panels {
       html = this.frame('Criar', econIcon(A, 'craft'), craftBody(this), 'p-craft');
     } else if (name === 'build') {
       html = this.frame('Construir', uiIcon(A, 'build'), this.buildBody(), 'p-build');
-    } else if (name === 'chest') {
-      const c = this.data?.chest;
-      if (!c || !c.store) { this.close(); return; }
-      html = this.frame('Baú', buildIco(A, 'chest'), `
+    } else if (name === 'chest' || name === 'container') {
+      const c = this.container;
+      if (!c || !c.canOpen()) { this.close(); return; }
+      const how = g.input.isTouch ? 'toque' : 'clique ou arraste';
+      html = this.frame(c.title, c.icon || buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div><div class="gl">Mochila <small>toque para guardar</small></div>${this.slots(p.inv, 'slot', 6)}</div>
-          <div><div class="gl">Baú <small>toque para pegar</small></div>${this.slots(c.store, 'cslot', 5)}</div>
+          <div class="inv-side"><div class="gl">Mochila <small>${how} para guardar</small></div>${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6)}</div>
+          <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how} para pegar</small></div>${this.sortBar(c.id)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
@@ -197,15 +226,29 @@ export class Panels {
   bind() {
     const g = this.g, p = g.player, el = this.el;
     el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => this.close()));
+    // desktop windows: drag by the title bar
+    const ph = el.querySelector('.ph'), win = el.querySelector('.panel'), name = this.open;
+    ph?.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0 || e.target.closest('button')) return;
+      const p0 = this.pos[name] || [0, 0], x0 = e.clientX, y0 = e.clientY;
+      const mv = (ev) => {
+        const s = uiScale(), hw = innerWidth / s / 2, hh = innerHeight / s / 2;
+        const nx = Math.max(-hw + 80, Math.min(hw - 80, p0[0] + (ev.clientX - x0) / s));
+        const ny = Math.max(-hh + 40, Math.min(hh - 40, p0[1] + (ev.clientY - y0) / s));
+        this.pos[name] = [Math.round(nx), Math.round(ny)];
+        win.style.translate = `${this.pos[name][0]}px ${this.pos[name][1]}px`;
+      };
+      const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
+      addEventListener('pointermove', mv); addEventListener('pointerup', up);
+    });
     el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
       const i = +b.dataset.slot;
-      if (this.open === 'chest') {
-        const s = p.inv.slots[i], chest = this.data.chest;
+      const c = this.container;
+      if (c) {
+        const s = p.inv.slots[i];
         if (!s) return;
-        if (chest.store.room(s.id) <= 0) { g.events.emit('error', { text: 'Baú cheio' }); return; }
-        // the whole stack leaves the backpack now; the host stores it (leftovers / refusal come back)
-        const it = p.inv.takeSlot(i);
-        g.net.request('chest.put', { id: chest.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: (why) => g.events.emit('error', { text: why || 'Baú cheio' }) });
+        // the whole stack leaves the backpack now; shared containers get it from the host (leftovers come back)
+        if (c.put(i, s.qty) === false) return;
         g.audio?.play('pickup', {});
         g.events.emit('inventory', {});
         this.render();
@@ -227,13 +270,22 @@ export class Panels {
       }
       this.render();
     }));
+    el.querySelectorAll('[data-sort]').forEach((b) => b.addEventListener('click', () => {
+      const mode = b.dataset.sort, key = b.dataset.sortk;
+      this.sortMode[key] = mode;
+      try { localStorage.setItem('wos.sort', JSON.stringify(this.sortMode)); } catch { /* ignore */ }
+      g.audio?.play('ui_click', {});
+      if (key === 'inv') { this.sel = null; sortBackpack(g, mode); this.render(); return; }
+      const c = this.container;
+      if (!c || c.id !== key) return;
+      // shared containers: the host sorts (e.g. chest.sort → chest.set) and every peer gets the same order
+      c.sort(mode);
+      this.render();
+    }));
     el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
-      const chest = this.data.chest, i = +b.dataset.cslot, s = chest.store.slots[i];
+      const c = this.container, i = +b.dataset.cslot, s = c?.items()[i];
       if (!s) return;
-      const room = p.inv.room(s.id);
-      if (room <= 0) { g.events.emit('error', { text: 'Mochila cheia' }); return; }
-      g.net.request('chest.take', { id: chest.id, slot: i, qty: Math.min(room, s.qty) }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu' }) });
-      g.audio?.play('pickup', {});
+      if (c.take(i, s.qty) !== false) g.audio?.play('pickup', {});
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
       const act = b.dataset.act, sel = this.sel;
@@ -275,7 +327,7 @@ export class Panels {
     const cv = this.el.querySelector('.bigmap');
     const mini = this.g.ui.minimap;
     if (!cv || !mini) return;
-    const size = Math.floor(Math.min(innerWidth * 0.86, innerHeight * 0.72, 620));
+    const sc = uiScale(), size = Math.floor(Math.min((innerWidth / sc) * 0.86, (innerHeight / sc) * 0.72, 620));
     const dpr = Math.min(2, devicePixelRatio || 1);
     cv.style.width = cv.style.height = size + 'px';
     if (cv.width !== size * dpr) { cv.width = cv.height = size * dpr; }
@@ -291,10 +343,8 @@ export class Panels {
       if (this.mapT <= 0) { this.mapT = 0.25; this.drawMap(); }
     }
     if (this.open === 'craft') craftUpdate(this);
-    if (this.open === 'chest' && this.data?.chest) {
-      const c = this.data.chest, p = this.g.player;
-      if (Math.hypot(c.x - p.x, c.y - p.y) > 2.6 || !this.g.build.structures.includes(c)) this.close();
-    }
+    const c = this.container;
+    if (c && !c.canOpen()) this.close();
   }
 }
 

@@ -56,6 +56,10 @@ const P = {
   check: '<path d="M4.5 12.5l5 5L19.5 7"/>',
   drop: '<path d="M12 4v10M8 10l4 4 4-4"/><path d="M5 20h14"/>',
   hand: '<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 10V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 10.5V6a1.5 1.5 0 0 1 3 0v7.5c0 4-2.5 7-6.5 7-2.6 0-4-1.3-5.4-3.4L3.4 13a1.5 1.5 0 0 1 2.5-1.6L8 14"/>',
+  // doors / gates: closed (→ the action closes it) and ajar with its swing arc (→ the action opens it)
+  door_close: '<path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21"/><path d="M3 21h18"/><circle cx="15.5" cy="12.5" r="1.1" fill="currentColor"/><path d="M8 7h8M8 10h3" opacity=".45"/>',
+  door_open: '<path d="M4 21V4.5A1.5 1.5 0 0 1 5.5 3H12"/><path d="M12 3l6 2.2V21l-6-1.6z"/><circle cx="13.8" cy="12.5" r="1" fill="currentColor"/><path d="M2.5 21h19"/><path d="M19.5 9.5a8 8 0 0 1 1.8 5" opacity=".55" stroke-dasharray="1.6 2.2"/>',
+  door: '<path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h11A1.5 1.5 0 0 1 19 4.5V21"/><path d="M3 21h18"/><circle cx="15.5" cy="12.5" r="1.1" fill="currentColor"/>',
   bandage2: '',
 };
 

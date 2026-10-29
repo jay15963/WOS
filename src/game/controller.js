@@ -4,18 +4,39 @@
 // drag rectangles; touch: taps). Auto work (work.js) feeds goals with { auto: true }.
 
 import { steer, resetNav } from './nav.js';
-import { attackable, dist, reach, isMob, attackRange, hasLOS } from './combat.js';
+import { attackable, dist, isMob, attackRange } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
+import { GENERIC_ABILITIES } from './content/combat.js';
 import { describeObject, reachDist } from './gathering.js';
 import { describeStructure, buildTap, exitBuildMode, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
 import { describeRock, designate, designateRect, isRock } from './mining.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
-import { ABILITY_ORDER, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
+import { cancelCraft } from './crafting.js';
+import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
 const SMALL = new Set(['pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'crop']);
+const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still used (a tiny step, no walking)
+
+// Desktop key scheme (shown by the shortcuts overlay, src/ui/help.js) — owner's rule: everything used while
+// walking sits under the left hand on WASD (Space, Shift, Q, E, R, F, 1–5, mouse). Space = attack, Shift =
+// sprint, E = interact, Tab = backpack, digits 1–9, 0 = hotbar (herbs / food there too). Weapon / off-hand
+// abilities take Q R F in bar order (a 4th / 5th, only sword + shield: G T); heal also on V; Z = next target.
+// Ctrl is never bound (Ctrl+W would close the tab while walking).
+export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyF', 'KeyG', 'KeyT'];
+export const KEYS = {
+  interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyK'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
+  inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], mine: ['KeyX'], help: ['KeyH', 'F1'],
+};
+// key code for each ability of the bar (null = no key)
+export function abilityKeys(ids) {
+  let n = 0;
+  return ids.map((id) => (id === 'sprint' ? 'ShiftLeft' : GENERIC_ABILITIES.includes(id) ? 'KeyV' : ABILITY_KEYS[n++] || null));
+}
+export const keyLabel = (code) => (!code ? '' : code.startsWith('Key') ? code.slice(3) : code.startsWith('Digit') ? code.slice(5)
+  : { ShiftLeft: '⇧', ShiftRight: '⇧', Space: 'Espaço', Tab: 'Tab', Escape: 'Esc', F1: 'F1', Enter: 'Enter' }[code] || code);
 
 function objHit(o, wx, wy, tol) {
   const s = o.s || 1;
@@ -135,6 +156,23 @@ export function installController(game) {
       const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
+      if (dist(p, t) > attackRange(p, t) * 1.05) {
+        ctl.flag = { x: t.x, y: t.y, w: 1.15 * (t.scale || 1), h: 0.75 * (t.scale || 1), t: 0 };
+        game.events.emit('error', { text: 'Chegue mais perto' });
+      }
+    },
+    // Space: attack the target, else the nearest enemy (never toggles off; Esc / walking away ends it)
+    attack() {
+      const p = game.player;
+      if (p.dead) return;
+      if (p.autoAttack && attackable(p.target)) return;
+      const t = attackable(p.target) ? p.target : nearestEnemy(game, 10);
+      if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
+      ctl.engage(t);
+      if (dist(p, t) > attackRange(p, t) * 1.05) {
+        ctl.flag = { x: t.x, y: t.y, w: 1.15 * (t.scale || 1), h: 0.75 * (t.scale || 1), t: 0 };
+        game.events.emit('error', { text: 'Chegue mais perto' });
+      }
     },
     cycleTarget() {
       const p = game.player;
@@ -184,6 +222,11 @@ export function installController(game) {
   canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') ctl.mouse = { x: e.clientX, y: e.clientY }; });
   canvas.addEventListener('pointerleave', () => { ctl.mouse = null; });
 
+  // right click cancels a ground aim (game.aim, agent G) before anything else sees it
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 2 && game.aim?.active) { game.aim.cancel?.(); ctl._aimKey = null; e.stopImmediatePropagation(); }
+  }, true);
+
   // ---------- mouse drags for build / decon / mining modes ----------
   // build: the ghost follows the cursor (any tile on screen within reach), left drag = row / area, right click
   // or Esc = cancel the drag, then the mode; right click on a structure outside the modes = its context menu.
@@ -227,9 +270,16 @@ export function installController(game) {
     }
   });
 
+  // Taps / clicks never walk the player (joystick / WASD do): they target or use one specific thing.
+  // Within reach → act; out of reach → highlight it + "Chegue mais perto".
+  const tooFar = (x, y, w = 0.9, h = 0.6) => {
+    ctl.flag = { x, y, w, h, t: 0 };
+    game.events.emit('error', { text: 'Chegue mais perto' });
+  };
   const doTap = (tap) => {
     const p = game.player;
     if (p.dead) return;
+    if (game.aim?.active) { game.aim.tap?.(tap); return; } // aiming: a click fires at that point (game.aim)
     if (game.ui?.modal) { game.events.emit('closepanels', {}); return; }
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
@@ -245,10 +295,12 @@ export function installController(game) {
     if (h.type === 'creature') {
       const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
       const fighting = e.state === 'chase' && e.threat === p;
-      if (p.target === e || temper === 'hostile' || fighting || e.isProp) ctl.engage(e);
-      else {
+      if (p.target === e || temper === 'hostile' || fighting || e.isProp) {
+        ctl.engage(e); // arms the auto attack: it swings as soon as the player walks into range
+        if (dist(p, e) > attackRange(p, e) * 1.05) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1));
+      } else {
         ctl.setTarget(e);
-        if (!ctl.hinted.tap2) { ctl.hinted.tap2 = true; game.events.emit('toast', { text: 'Toque de novo para atacar', kind: 'info' }); }
+        if (!ctl.hinted.tap2) { ctl.hinted.tap2 = true; game.events.emit('toast', { text: isMouse ? 'Clique de novo (ou Espaço) para atacar' : 'Toque de novo para atacar', kind: 'info' }); }
       }
       return;
     }
@@ -259,19 +311,28 @@ export function installController(game) {
         designate(game, it.tx, it.ty, false);
         return;
       }
+      if (reachDist(p, it) > it.reach + TAP_SLACK) {
+        const s = it.tile ? Math.max(1, it.w || 1) : it.kind === 'tree' ? 0.9 : 0.8;
+        tooFar(it.x, it.tile ? it.y : it.y - 0.02, s, s * 0.62);
+        return;
+      }
       ctl.interact(it);
       return;
     }
-    if (h.type === 'rock') { // interior rock: designate for later
+    if (h.type === 'rock') { // interior rock: designate for later (auto work mines it when reachable)
       const r = designate(game, h.tx, h.ty);
       if (r && !ctl.hinted.rockmark) { ctl.hinted.rockmark = true; game.events.emit('toast', { text: 'Rocha marcada: será minerada quando der para alcançar', kind: 'info' }); }
       if (r) game.work?.wake();
       return;
     }
-    if (h.type === 'loot') { ctl.walkTo(h.it.x, h.it.y); return; }
-    if (p.target && !isMouse) { ctl.setTarget(null); ctl.goal = null; return; }
-    if (p.target && isMouse) ctl.setTarget(null);
-    ctl.walkTo(h.wx, h.wy);
+    if (h.type === 'loot') {
+      // loot.js pulls items within ~2.3 tiles into the backpack by itself
+      if (Math.hypot(p.x - h.it.x, p.y - h.it.y) > 2.2) tooFar(h.it.x, h.it.y, 0.6, 0.4);
+      else if (p.inv.room(h.it.item) <= 0) game.events.emit('error', { text: 'Mochila cheia' });
+      return;
+    }
+    // empty ground: nothing happens (a tap on a phone clears the target)
+    if (p.target && !isMouse) { ctl.setTarget(null); if (ctl.goal?.type === 'attack') ctl.goal = null; }
   };
 
   let hoverT = 0;
@@ -279,6 +340,8 @@ export function installController(game) {
     sync: 'owner', // input of the local player
     update(g, dt) {
       const p = g.player, inp = g.input;
+      // build mode: a narrow joystick strip at the left edge, so one-finger paint drags start almost anywhere
+      inp.joyZone = g.build.mode ? 0.2 : 0.45;
       // hover (desktop mouse)
       if (ctl.mouse && !inp.isTouch) {
         const [wx, wy] = g.screenToWorld(ctl.mouse.x, ctl.mouse.y);
@@ -292,29 +355,49 @@ export function installController(game) {
         }
       } else { ctl.hover = null; ctl.hoverPick = null; }
 
-      // keys
+      // keys (scheme: KEYS / abilityKeys above)
       const K = inp.pressed;
+      const any = (list) => list.some((c) => K.has(c));
       if (K.size && !p.dead) {
-        ABILITY_ORDER.forEach((id, i) => { if (K.has('Digit' + (i + 1)) || K.has('Numpad' + (i + 1))) useAbility(g, id); });
-        if (K.has('Tab')) ctl.cycleTarget();
-        if (K.has('KeyE') || K.has('Space')) ctl.interact();
-        if (K.has('KeyF')) ctl.toggleAttack();
-        if (K.has('KeyQ')) eatBest(g);
-        if (K.has('KeyX')) ctl.toggleMineMode();
-        if (K.has('Enter') && g.build.mode) commitPlacement(g);
+        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation) and Enter
+        const codes = abilityKeys(ABILITY_ORDER);
+        ABILITY_ORDER.forEach((id, i) => {
+          const c = codes[i];
+          if (!c || (bm && (c === 'KeyR' || c === 'ShiftLeft'))) return;
+          if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
+          // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
+          if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id); ctl._aimKey = c; return; }
+          useAbility(g, id);
+        });
+        for (let i = 0; i < 10; i++) if (K.has('Digit' + ((i + 1) % 10)) || K.has('Numpad' + ((i + 1) % 10))) g.events.emit('hotbar', { i });
+        if (any(KEYS.target)) ctl.cycleTarget();
+        if (any(KEYS.interact) && !bm) ctl.interact();
+        if (any(KEYS.attack) && !bm) ctl.attack();
+        if (any(KEYS.eat)) eatBest(g);
+        if (any(KEYS.mine)) ctl.toggleMineMode();
+        if (K.has('Enter') && bm) commitPlacement(g);
         if (K.has('KeyR') && g.build.mode?.kind === 'place') rotateBuild(g, inp.keys.has('ShiftLeft') || inp.keys.has('ShiftRight') ? -1 : 1);
         if (K.has('Escape')) {
-          if (g.build.mode) cancelBuild(g);
+          if (g.aim?.active) { g.aim.cancel?.(); ctl._aimKey = null; }
+          else if (g.build.mode) cancelBuild(g);
           else if (g.mining.mode) ctl.toggleMineMode(false);
           else if (g.ui?.modal) g.events.emit('closepanels', {});
           else if (p.target || ctl.goal) { ctl.setTarget(null); ctl.goal = null; }
           else g.events.emit('pausemenu', {});
         }
       }
-      if (K.has('KeyI')) g.events.emit('toggle', { panel: 'inv' });
-      if (K.has('KeyB')) g.events.emit('toggle', { panel: 'build' });
-      if (K.has('KeyC')) g.events.emit('toggle', { panel: 'craft' });
-      if (K.has('KeyM')) g.events.emit('toggle', { panel: 'map' });
+      // aim key released → fire (a quick tap fires at the mouse at once; game.aim decides)
+      if (ctl._aimKey && !inp.keys.has(ctl._aimKey) && !(ctl._aimKey === 'ShiftLeft' && inp.keys.has('ShiftRight'))) { ctl._aimKey = null; g.aim?.release?.(); }
+      // shield block keeps up while its key is held
+      if (p.block) {
+        const c = abilityKeys(ABILITY_ORDER)[ABILITY_ORDER.indexOf('block')];
+        if (c && inp.keys.has(c)) { p.blockHeld = true; ctl._blockKey = true; } else if (ctl._blockKey) { p.blockHeld = false; ctl._blockKey = false; }
+      }
+      if (any(KEYS.inv)) g.events.emit('toggle', { panel: 'inv' });
+      if (any(KEYS.build)) g.events.emit('toggle', { panel: 'build' });
+      if (any(KEYS.craft)) g.events.emit('toggle', { panel: 'craft' });
+      if (any(KEYS.map)) g.events.emit('toggle', { panel: 'map' });
+      if (any(KEYS.help)) g.events.emit('help', {});
 
       // taps / clicks
       for (const t of inp.taps) doTap({ x: t.x, y: t.y, mouse: t.type === 'mouse' });
@@ -324,6 +407,12 @@ export function installController(game) {
       ctl.manual = !!(mx || my);
       if (ctl.manual) {
         if (ctl.goal) ctl.goal = null;
+        // walking cancels the crafting the player is doing (ingredients refunded by cancelCraft)
+        const Q = g.craft?.queue;
+        if (Q?.length && (p.work?.owner === 'craft' || Q[0].t > 0)) {
+          for (let i = Q.length - 1; i >= 0; i--) cancelCraft(g, i);
+          g.events.emit('error', { text: 'Craft cancelado' });
+        }
         if (p.work) { p.work = null; p.action = null; }
       }
 
@@ -338,13 +427,9 @@ export function installController(game) {
           const dir = goal.stall > 1.2 ? null : steer(g, p, goal.x, goal.y, dt, spd, 0.15); // unreachable: give up
           if (!dir) ctl.goal = null; else p.autoMove = dir;
         } else if (goal.type === 'attack') {
+          // armed auto attack: never chases (the player walks); combat.js swings once in range
           const t = goal.target;
           if (!attackable(t) || p.target !== t || !p.autoAttack) ctl.goal = null;
-          else if (p.wprof?.ranged) {
-            // bows: close in only until in range with a clear line of fire
-            const far = dist(p, t) > attackRange(p, t) * 0.9;
-            if ((far || !hasLOS(g.world, p.x, p.y, t.x, t.y)) && !p.cast) p.autoMove = steer(g, p, t.x, t.y, dt, spd, far ? attackRange(p, t) * 0.8 : 0.6);
-          } else if (dist(p, t) > reach(p, t) * 0.92) p.autoMove = steer(g, p, t.x, t.y, dt, spd, reach(p, t) * 0.85);
         } else if (goal.type === 'interact') {
           const it = goal.it;
           if (reachDist(p, it) <= it.reach) {
@@ -405,6 +490,17 @@ export function installController(game) {
       if (m) {
         const k = m.t / 0.9;
         B.blob.add(ring, m.x, m.y, 0.6 * (1 - k * 0.5), 0.38 * (1 - k * 0.5), 1, 1, 1, 0.8 * (1 - k));
+      }
+      // "Chegue mais perto": the tapped thing pulses for a moment
+      const f = ctl.flag;
+      if (f) {
+        f.t += g._dt || 0.016;
+        if (f.t > 1.4) ctl.flag = null;
+        else {
+          const a = Math.sin(Math.min(1, f.t / 1.4) * Math.PI) * (0.65 + 0.35 * Math.sin(f.t * 14));
+          B.blob.add(ring, f.x, f.y, f.w, f.h, 1, 0.78, 0.35, 0.95 * a);
+          if (env.night > 0.1) B.emissive.add(ring, f.x, f.y, f.w, f.h, 0.6, 0.45, 0.2, 0.7 * a * env.night);
+        }
       }
     },
   };

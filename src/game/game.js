@@ -8,6 +8,7 @@ import { stepGait } from './anim.js';
 import { Net } from '../net/net.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
+const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
 
 export class Game {
   constructor({ renderer, atlas, world, env, input, particles }) {
@@ -39,6 +40,26 @@ export class Game {
   defaultZoom() {
     const m = Math.min(this.R.cssW, this.R.cssH);
     return clamp(m / 12.5, 30, 76);
+  }
+
+  // smooth, clamped zoom; the chosen factor (relative to the screen's default) survives reloads
+  stepZoom(dt, req) {
+    const c = this.cam;
+    if (c.zoomK == null) {
+      let k = 1;
+      try { const v = parseFloat(localStorage.getItem('wos.zoom')); if (Number.isFinite(v)) k = v; } catch { /* ignore */ }
+      c.zoomK = clamp(k, 0.45, 2.6);
+      c.zoom = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    }
+    if (req) {
+      const z = clamp(this.defaultZoom() * c.zoomK * Math.exp(req), ZOOM_MIN, ZOOM_MAX);
+      c.zoomK = z / this.defaultZoom();
+      c._zoomSave = 0.8;
+    }
+    const target = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
+    const k = 1 - Math.exp(-dt * 14);
+    c.zoom = Math.abs(target - c.zoom) < 0.01 ? target : c.zoom + (target - c.zoom) * k;
+    if (c._zoomSave > 0 && (c._zoomSave -= dt) <= 0) { try { localStorage.setItem('wos.zoom', c.zoomK.toFixed(3)); } catch { /* ignore */ } }
   }
 
   screenToWorld(sx, sy) {
@@ -77,12 +98,15 @@ export class Game {
 
     for (const s of this.systems) s.update?.(this, dt);
 
-    // zoom
-    if (inp.zoom) this.cam.zoom = clamp(this.cam.zoom * Math.exp(inp.zoom), 22, 110);
+    // zoom: input moves a target, the camera eases toward it (persisted as a factor of the default zoom)
+    this.stepZoom(dt, inp.zoom);
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    const tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    let tx = p.x + mx * look, ty = p.y - 0.4 + my * look;
+    // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
+    const cf = this.camFocus;
+    if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) { const fk = clamp(cf.k ?? 0.5, 0, 1); tx += (cf.x - tx) * fk; ty += (cf.y - ty) * fk; }
     const k = 1 - Math.exp(-dt * 6);
     this.cam.x += (tx - this.cam.x) * k;
     this.cam.y += (ty - this.cam.y) * k;

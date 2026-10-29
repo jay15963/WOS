@@ -5,6 +5,7 @@ import { netlog } from '../net/netlog.js';
 import { probeNetwork, loadTurn, saveTurn, turnEndpoint, setTurnEndpoint, testTurnRelay } from '../net/rtc.js';
 import { normalizeCode, playerName, setPlayerName, MAX_PLAYERS } from '../net/session.js';
 import { audioSettings } from '../fx/audioSettings.js';
+import { uiScaleSetting } from './uiscale.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -164,6 +165,7 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
     location.href = location.pathname;
   };
   audioSettings(el); // F: Geral / Música / Efeitos / Ambiente + mute (replaces the two old audio rows)
+  uiScaleSetting(el); // Tamanho da interface (agent B)
   return () => {};
 }
 
