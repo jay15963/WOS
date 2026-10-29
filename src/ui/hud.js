@@ -20,6 +20,7 @@ import { KEYS, keyLabel } from '../game/controller.js';
 import { installHotbar } from './hotbar.js';
 import { installTooltips } from './tooltip.js';
 import { installHelp } from './help.js';
+import { openContainer } from './container.js';
 import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFullscreenChange, openInstallGuide } from './pwa.js';
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
@@ -145,6 +146,7 @@ export function installHUD(game, { isNew } = {}) {
   if (!document.getElementById('tf-style')) { const st = document.createElement('style'); st.id = 'tf-style'; st.textContent = TF_CSS; document.head.appendChild(st); }
   const panels = new Panels(game, $('#panels'));
   game.ui.panels = panels;
+  game.ui.openContainer = (adapter) => openContainer(game, adapter); // container window (container.js contract)
   // the job chip (pending blueprints / mining) lives in the status row under the card, never over buttons
   const chip = root.querySelector('.jobchip');
   if (chip) $('#status').appendChild(chip);

@@ -2,7 +2,8 @@
 // shortcut — an item id or a building — never the item itself: tools / weapons / shields equip (press again
 // to put away), food is eaten, seeds become the planting choice, buildings enter build mode.
 // Usable items picked up are added to free slots automatically (unless the player removed them before).
-// Also: mouse drag-and-drop between hotbar, backpack, equipment, chest and the build menu (desktop only).
+// Also: mouse drag-and-drop between hotbar, backpack, equipment, an open container (container.js adapter: chest,
+// corpse…) and the build menu (desktop only).
 // The layout is kept per world in this browser (localStorage `wos.hotbar.<seed>`), for hosts and guests alike.
 
 import { ITEMS, BUILDINGS, ABILITIES, ABILITY_ORDER } from '../game/data.js';
@@ -150,7 +151,7 @@ function installDnD(game, hb) {
   const describe = (el) => {
     if (el.dataset.hb != null) { const s = hb.slots[+el.dataset.hb]; return s ? { from: 'hb', i: +el.dataset.hb, ref: s } : null; }
     if (el.dataset.slot != null) { const s = p.inv.slots[+el.dataset.slot]; return s ? { from: 'inv', i: +el.dataset.slot, ref: { k: 'item', id: s.id } } : null; }
-    if (el.dataset.cslot != null) { const c = game.ui.panels?.data?.chest; const s = c?.store?.slots[+el.dataset.cslot]; return s ? { from: 'chest', i: +el.dataset.cslot, ref: { k: 'item', id: s.id } } : null; }
+    if (el.dataset.cslot != null) { const s = game.ui.panels?.container?.items()[+el.dataset.cslot]; return s ? { from: 'box', i: +el.dataset.cslot, ref: { k: 'item', id: s.id } } : null; }
     if (el.dataset.eq != null) { const id = p.equip[el.dataset.eq]; return id ? { from: 'eq', slot: el.dataset.eq, ref: { k: 'item', id } } : null; }
     if (el.dataset.build != null) return { from: 'build', ref: { k: 'build', id: el.dataset.build } };
     return null;
@@ -207,7 +208,7 @@ function installDnD(game, hb) {
   const rerender = () => { game.events.emit('inventory', {}); P()?.render?.(); hb.draw(true); };
 
   function drop(src, t) {
-    const chest = P()?.open === 'chest' ? P().data?.chest : null;
+    const box = P()?.container || null; // open container window (adapter)
     // onto a hotbar slot
     if (t?.dataset?.hb != null) {
       const j = +t.dataset.hb;
@@ -239,25 +240,18 @@ function installDnD(game, hb) {
     }
     // equipment → backpack
     if (src.from === 'eq' && (t?.dataset?.slot != null || t?.classList?.contains('p-inv'))) { unequip(game, src.slot); rerender(); return; }
-    // backpack → chest
-    if (src.from === 'inv' && chest && (t?.dataset?.cslot != null || t?.closest?.('.chest-side'))) {
+    // backpack → container
+    if (src.from === 'inv' && box && (t?.dataset?.cslot != null || t?.closest?.('.chest-side'))) {
       const s = p.inv.slots[src.i];
-      if (!s) return;
-      if (chest.store.room(s.id) <= 0) { game.events.emit('error', { text: 'Baú cheio' }); return; }
-      const it = p.inv.takeSlot(src.i);
-      game.net.request('chest.put', { id: chest.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: (why) => game.events.emit('error', { text: why || 'Baú cheio' }) });
+      if (!s || box.put(src.i, s.qty) === false) return;
       game.audio?.play('pickup', {});
       rerender();
       return;
     }
-    // chest → backpack
-    if (src.from === 'chest' && chest && (t?.dataset?.slot != null || t?.closest?.('.inv-side'))) {
-      const s = chest.store.slots[src.i];
-      if (!s) return;
-      const room = p.inv.room(s.id);
-      if (room <= 0) { game.events.emit('error', { text: 'Mochila cheia' }); return; }
-      game.net.request('chest.take', { id: chest.id, slot: src.i, qty: Math.min(room, s.qty) }, { onReject: (why) => game.events.emit('error', { text: why || 'Não deu' }) });
-      game.audio?.play('pickup', {});
+    // container → backpack
+    if (src.from === 'box' && box && (t?.dataset?.slot != null || t?.closest?.('.inv-side'))) {
+      const s = box.items()[src.i];
+      if (s && box.take(src.i, s.qty) !== false) game.audio?.play('pickup', {});
     }
   }
   return st;

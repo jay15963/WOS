@@ -1,5 +1,6 @@
 // HUD panels: Mochila (inventory + equipment paper-doll), Criar (crafting, see crafting.js),
-// Construir (build menu by category + deconstruct), Baú (chest transfer), Mapa (world map).
+// Construir (build menu by category + deconstruct), containers (Baú and any adapter of container.js:
+// backpack beside the container, click / drag to transfer, sort buttons), Mapa (world map).
 // Non-pausing (MMO): the world keeps running; tapping the world closes the panel.
 // Also installs the work bar (build / mining / deconstruct modes) — see workbar.js.
 
@@ -14,6 +15,7 @@ import { SORT_MODES, SORT_PT, sortBackpack } from '../game/invsort.js';
 import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
+import { chestAdapter } from './container.js';
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -55,9 +57,10 @@ export class Panels {
     game.events.on('toggle', (d) => this.toggle(d.panel));
     game.events.on('closepanels', () => this.close());
     game.events.on('open', (d) => this.show(d.panel, d));
-    // chest contents are shared (op chest.set): refresh an open chest when anyone changes it
-    game.events.on('chest', (d) => { if (this.open === 'chest' && this.data?.chest === d.o) this.render(); });
-    game.events.on('inventory', () => { if (this.open === 'chest') this.render(); });
+    // container contents are shared (op chest.set …): refresh the open one when anyone changes it
+    game.events.on('chest', (d) => { const c = this.container; if (c && (c.event === 'chest' ? c.chest === d.o : true)) this.render(); });
+    game.events.on('container', (d) => { const c = this.container; if (c && (!d?.id || d.id === c.id)) this.render(); });
+    game.events.on('inventory', () => { if (this.container) this.render(); });
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     // never keep focus on panel buttons (Space/Enter are game keys)
     el.addEventListener('click', () => setTimeout(() => document.activeElement?.blur?.(), 0));
@@ -70,9 +73,17 @@ export class Panels {
     else this.show(name);
   }
 
+  // the open container adapter (container.js), if any
+  get container() { return this.open === 'chest' || this.open === 'container' ? this.data?.adapter || null : null; }
+
   show(name, data = null) {
     const g = this.g;
     if (g.player.dead) return;
+    if (name === 'chest' && data?.chest && !data.adapter) data = { ...data, adapter: chestAdapter(g, data.chest) };
+    if (name === 'container' && data?.adapter?.event && data.adapter.event !== 'chest' && !this._evs?.has(data.adapter.event)) {
+      (this._evs ||= new Set()).add(data.adapter.event);
+      g.events.on(data.adapter.event, () => { if (this.container?.event === data.adapter.event) this.render(); });
+    }
     if (g.build.mode && (name === 'build' || name === 'craft')) { g.build.mode = null; g.events.emit('buildui', {}); }
     if (name === 'craft') this.craftStation = data?.station || null;
     if (this.open !== name) this.sel = null;
@@ -192,13 +203,14 @@ export class Panels {
       html = this.frame('Criar', econIcon(A, 'craft'), craftBody(this), 'p-craft');
     } else if (name === 'build') {
       html = this.frame('Construir', uiIcon(A, 'build'), this.buildBody(), 'p-build');
-    } else if (name === 'chest') {
-      const c = this.data?.chest;
-      if (!c || !c.store) { this.close(); return; }
-      html = this.frame('Baú', buildIco(A, 'chest'), `
+    } else if (name === 'chest' || name === 'container') {
+      const c = this.container;
+      if (!c || !c.canOpen()) { this.close(); return; }
+      const how = g.input.isTouch ? 'toque' : 'clique ou arraste';
+      html = this.frame(c.title, c.icon || buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div class="inv-side"><div class="gl">Mochila <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para guardar</small></div>${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6)}</div>
-          <div class="chest-side"><div class="gl">Baú <small>${g.input.isTouch ? 'toque' : 'clique ou arraste'} para pegar</small></div>${this.sortBar('chest:' + c.id)}${this.slots(c.store, 'cslot', 5)}</div>
+          <div class="inv-side"><div class="gl">Mochila <small>${how} para guardar</small></div>${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6)}</div>
+          <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how} para pegar</small></div>${this.sortBar(c.id)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ff5a48"></i>Hostil</span><span><i style="background:#ffd84a"></i>Neutro</span><span><i style="background:#7fdc6a"></i>Passivo</span><span><i style="background:#ffb040"></i>Fogo</span></div>`, 'p-map');
@@ -229,13 +241,12 @@ export class Panels {
     });
     el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
       const i = +b.dataset.slot;
-      if (this.open === 'chest') {
-        const s = p.inv.slots[i], chest = this.data.chest;
+      const c = this.container;
+      if (c) {
+        const s = p.inv.slots[i];
         if (!s) return;
-        if (chest.store.room(s.id) <= 0) { g.events.emit('error', { text: 'Baú cheio' }); return; }
-        // the whole stack leaves the backpack now; the host stores it (leftovers / refusal come back)
-        const it = p.inv.takeSlot(i);
-        g.net.request('chest.put', { id: chest.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: (why) => g.events.emit('error', { text: why || 'Baú cheio' }) });
+        // the whole stack leaves the backpack now; shared containers get it from the host (leftovers come back)
+        if (c.put(i, s.qty) === false) return;
         g.audio?.play('pickup', {});
         g.events.emit('inventory', {});
         this.render();
@@ -263,19 +274,16 @@ export class Panels {
       try { localStorage.setItem('wos.sort', JSON.stringify(this.sortMode)); } catch { /* ignore */ }
       g.audio?.play('ui_click', {});
       if (key === 'inv') { this.sel = null; sortBackpack(g, mode); this.render(); return; }
-      const chest = this.data?.chest;
-      if (!chest) return;
-      // a chest is shared: the host sorts it (chest.sort -> chest.set) and every peer gets the same order
-      g.net.request('chest.sort', { id: chest.id, mode }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu para ordenar' }) });
+      const c = this.container;
+      if (!c || c.id !== key) return;
+      // shared containers: the host sorts (e.g. chest.sort → chest.set) and every peer gets the same order
+      c.sort(mode);
       this.render();
     }));
     el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
-      const chest = this.data.chest, i = +b.dataset.cslot, s = chest.store.slots[i];
+      const c = this.container, i = +b.dataset.cslot, s = c?.items()[i];
       if (!s) return;
-      const room = p.inv.room(s.id);
-      if (room <= 0) { g.events.emit('error', { text: 'Mochila cheia' }); return; }
-      g.net.request('chest.take', { id: chest.id, slot: i, qty: Math.min(room, s.qty) }, { onReject: (why) => g.events.emit('error', { text: why || 'Não deu' }) });
-      g.audio?.play('pickup', {});
+      if (c.take(i, s.qty) !== false) g.audio?.play('pickup', {});
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
       const act = b.dataset.act, sel = this.sel;
@@ -333,10 +341,8 @@ export class Panels {
       if (this.mapT <= 0) { this.mapT = 0.25; this.drawMap(); }
     }
     if (this.open === 'craft') craftUpdate(this);
-    if (this.open === 'chest' && this.data?.chest) {
-      const c = this.data.chest, p = this.g.player;
-      if (Math.hypot(c.x - p.x, c.y - p.y) > 2.6 || !this.g.build.structures.includes(c)) this.close();
-    }
+    const c = this.container;
+    if (c && !c.canOpen()) this.close();
   }
 }
 

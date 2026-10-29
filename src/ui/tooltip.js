@@ -1,4 +1,4 @@
-// Rich hover tooltips (desktop): items in the hotbar / backpack / chest / equipment, buildings, recipes,
+// Rich hover tooltips (desktop): items in the hotbar / backpack / container / equipment, buildings, recipes,
 // abilities and HUD buttons. One floating element, delegated listeners, native `title`s suppressed.
 
 import { ITEMS, BUILDINGS, ABILITIES, ABILITY_ORDER, ITEM_CAT_PT } from '../game/data.js';
@@ -47,7 +47,7 @@ export function installTooltips(game) {
       return itemHTML(s.id, hints(s.id, 'hb'));
     }
     if (el.dataset.slot != null) { const s = p.inv.slots[+el.dataset.slot]; return s ? itemHTML(s.id, (s.qty > 1 ? ` · pilha ${s.qty}` : '') + hints(s.id, 'inv')) : ''; }
-    if (el.dataset.cslot != null) { const s = game.ui.panels?.data?.chest?.store?.slots[+el.dataset.cslot]; return s ? itemHTML(s.id, `<div class="rt-k">Clique ou arraste: pegar ${s.qty > 1 ? s.qty : ''}</div>`) : ''; }
+    if (el.dataset.cslot != null) { const s = game.ui.panels?.container?.items()[+el.dataset.cslot]; return s ? itemHTML(s.id, `<div class="rt-k">Clique ou arraste: pegar ${s.qty > 1 ? s.qty : ''}</div>`) : ''; }
     if (el.dataset.eq != null) { const id = p.equip[el.dataset.eq]; return id ? itemHTML(id, '<div class="rt-k">Equipado · arraste para a mochila para tirar</div>') : ''; }
     if (el.dataset.build != null) return buildHTML(el.dataset.build) + '<div class="rt-k">Clique: construir · arraste para a barra (1–0)</div>';
     if (el.dataset.craft != null) {
