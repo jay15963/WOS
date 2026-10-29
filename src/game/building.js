@@ -207,11 +207,12 @@ export function commitPlacement(game) {
 export const confirmPlace = (game) => {
   const m = game.build.mode;
   if (m?.kind === 'place') commitPlacement(game);
-  else if (m?.kind === 'decon') exitBuildMode(game);
+  else if (m?.kind === 'decon' || m?.tool) exitBuildMode(game);
 };
 // ✕ / Esc / right click: cancel the current drag first, then leave the mode
 export function cancelBuild(game) {
   const m = game.build.mode;
+  if (m?.tool) { m.tool.cancel(game); return; } // modes with their own tool (painted paths: src/game/paths.js)
   if (m?.kind === 'place' && (m.anchor || m.dragging)) { m.anchor = m.end = null; m.locked = false; m.dragging = false; return; }
   if (m?.kind === 'decon' && m.anchor) { m.anchor = m.end = null; return; }
   exitBuildMode(game);
@@ -220,6 +221,7 @@ export function cancelBuild(game) {
 // touch / tap in build mode (mouse and finger drags use buildDrag*)
 export function buildTap(game, wx, wy) {
   const m = game.build.mode;
+  if (m.tool) { m.tool.tap(game, wx, wy); return; }
   if (m.kind === 'decon') { deconAt(game, wx, wy); return; }
   const [tx, ty] = originAt(game, wx, wy);
   const def = BUILDINGS[m.type];
@@ -238,6 +240,7 @@ export function buildTap(game, wx, wy) {
 export function buildDragStart(game, wx, wy) {
   const m = game.build.mode;
   if (!m) return;
+  if (m.tool) { m.tool.dragStart(game, wx, wy); return; }
   if (m.kind === 'decon') { const t = [Math.floor(wx), Math.floor(wy)]; m.anchor = t; m.end = t.slice(); return; }
   const o = originAt(game, wx, wy);
   m.dragging = true;
@@ -247,6 +250,7 @@ export function buildDragStart(game, wx, wy) {
 export function buildDragMove(game, wx, wy) {
   const m = game.build.mode;
   if (!m) return;
+  if (m.tool) { m.tool.dragMove(game, wx, wy); return; }
   if (m.kind === 'decon') { if (m.anchor) m.end = [Math.floor(wx), Math.floor(wy)]; return; }
   if (!m.dragging) return;
   const o = originAt(game, wx, wy);
@@ -257,6 +261,7 @@ export function buildDragMove(game, wx, wy) {
 export function buildDragEnd(game, wx, wy, { commit = true } = {}) {
   const m = game.build.mode;
   if (!m) return false;
+  if (m.tool) return m.tool.dragEnd(game, wx, wy); // a paint stroke always commits on release
   if (m.kind === 'decon') {
     const a = m.anchor; m.anchor = m.end = null;
     if (!a) return false;
@@ -295,6 +300,7 @@ export function toggleDecon(game, o, on = null) {
 
 export function deconAt(game, wx, wy) {
   const o = structureAtPoint(game, wx, wy);
+  if (!o && game.paths?.deconAt(wx, wy)) return; // painted path: marked for removal (src/game/paths.js)
   if (!o) { game.events.emit('error', { text: 'Nenhuma construção aqui' }); return; }
   // campfires: razed at once when next to it, else marked like any other structure
   const p = game.player;
@@ -313,7 +319,7 @@ export function deconRect(game, x0, y0, x1, y1) {
     game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 });
     game.work?.wake();
   }
-  return seen.size;
+  return seen.size + (game.paths?.deconRect(ax, ay, bx, by) || 0); // + painted path tiles marked for removal
 }
 
 export function razeStructure(game, o) {

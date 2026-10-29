@@ -239,6 +239,7 @@ export class World {
     if (!this.inBounds(tx, ty)) return 0;
     const i = this.idx(tx, ty);
     if (this.rock0[i] || this.water[i] || this.solid[i] || this.roof[i]) return 0;
+    if (this.path && (this.path[i] || this.pathPlan[i])) return 0; // painted paths and their blueprints (game/paths.js)
     if (this.tramp[i] > 40) return 0;
     for (const c of this.camps) if ((tx + 0.5 - c.x) ** 2 + (ty + 0.5 - c.y) ** 2 < (c.r || CAMP_R) ** 2) return 0;
     const b = this.biome[i], g = this.ground[i], dw = this.dWater ? this.dWater[i] : 9, dr = this.dRock ? this.dRock[i] : 9;

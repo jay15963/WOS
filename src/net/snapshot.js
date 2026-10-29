@@ -13,6 +13,7 @@
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
 //   props:  [[id, hp, broken, brokenAt]],
+//   paths:  { g, p }  painted paths: run-length [value, count…] of world.path / world.pathPlan (mut/paths.js)
 //   ids, natpos                                                            // save file only
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
@@ -29,6 +30,7 @@ import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
+import { serializePaths, applyPaths } from '../game/mut/paths.js';
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -61,6 +63,7 @@ export function serializeWorld(game, { save = false } = {}) {
     crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
+    paths: serializePaths(game),
   };
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
   return data;
@@ -254,6 +257,9 @@ function applyInner(game, d, mode) {
     else { setPropBroken(game, o, false); o.hp = hp; }
   }
   if (reconcile) for (const o of game.props || []) if (!pIds.has(o.id) && (o.broken || o.hp !== o.maxHp)) { setPropBroken(game, o, false); o.hp = o.maxHp; }
+
+  // ---- painted paths (a snapshot without them = none; an old save without them keeps none) ----
+  if (reconcile || d.paths) applyPaths(game, d.paths);
 
   updateAllMasks(game);
   if (d.ids && typeof d.ids === 'object') for (const k in d.ids) if (k in net.ids && Number.isFinite(d.ids[k])) net.ids[k] = Math.max(net.ids[k], d.ids[k]);

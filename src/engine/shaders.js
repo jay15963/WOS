@@ -496,6 +496,217 @@ void main(){
   o = ACC;
 }`;
 
+// ---------- [paths] painted terrain paths (agent M) ----------
+// Paths are drawn INSIDE the terrain pass, from a per-tile grid (uPath, src/game/paths.js) and a material bank
+// (uPathMat, src/world/pathTex.js). The edge is an iso-line of a C1-smooth signed distance field, pushed around by
+// two noise octaves and by the material / ground heights (pebbles spill out, slab outlines follow the stones, grass
+// tufts creep in): it never shows the tile grid. Relief is lit by the real sun (micro normals from the height,
+// soft cast shadows at QL 2); the gaps of slabs / setts / stepping stones show the ground under them. Built paths
+// also feed the ground height / puddle affinity (rain pools in ruts and joints) and dim the grass wind waves.
+// Blueprints (plans) are tinted blue (removal red) at the end of the ground branch.
+const PATH_FN = `
+// per type (index = type - 1: earth, gravel, flagstones, cobbles, stepping stones)
+const float P_EH[5] = float[5](0.07, 0.30, 0.34, 0.24, 0.3);     // how far the material relief moves the edge (tiles)
+const float P_EW[5] = float[5](0.1, 0.035, 0.03, 0.03, 0.035);   // edge softness (tiles)
+const float P_GAP[5] = float[5](0.0, 0.0, 0.85, 0.38, 1.0);      // share of the real ground seen in the gaps
+const float P_REL[5] = float[5](0.4, 1.0, 0.75, 0.9, 0.8);       // sun relief strength
+const float P_PUD[5] = float[5](1.35, 0.28, 0.6, 0.5, 0.75);     // puddle affinity (rain)
+const float P_HS[5] = float[5](0.016, 0.04, 0.03, 0.034, 0.03); // height scale of the micro normals (tiles per unit)
+const vec3 P_STRAY[3] = vec3[3](vec3(0.6, 0.58, 0.54), vec3(0.68, 0.63, 0.55), vec3(0.5, 0.49, 0.48));
+
+// C1-smooth sample of the 1x path texture (bilinear on smoothstepped coordinates: no creases along tile lines)
+vec4 pathRaw(vec2 p){
+  vec2 q = p - 0.5, i = floor(q), f = q - i;
+  f = f * f * (3.0 - 2.0 * f);
+  return texture(uPath, (i + f + 0.5) / uWorld);
+}
+// smooth coverage at 2x (same smoothstepped-bilinear trick)
+vec2 pathCov(vec2 p){
+  vec2 q = p * 2.0 - 0.5, i = floor(q), f = q - i;
+  f = f * f * (3.0 - 2.0 * f);
+  return texture(uPathF, (i + f + 0.5) / (uWorld * 2.0)).rg;
+}
+// edge distance: the Gaussian coverage near the outline (≈ tiles there), the exact tile distance deep inside / far out
+float pathSd(float c, float sdT){ return mix(sdT, c - 0.36, smoothstep(0.0, 0.18, c) * (1.0 - smoothstep(0.84, 1.0, c))); }
+float pathCode(ivec2 c, int ch){ vec4 t = texelFetch(uPath, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); return floor((ch == 0 ? t.r : t.g) * 255.0 + 0.5); }
+// material sample; earth and gravel get the anti-tiling pair of the ground textures
+vec4 pathMat(float l, vec2 p, float m){
+  vec4 a = textureLod(uPathMat, vec3(p * 0.25, l), LOD);
+#if QL >= 1
+  if (l < 1.5) {
+    vec4 b = textureLod(uPathMat, vec3(ROT * p * 0.23 + vec2(0.31, 0.67), l), max(LOD - 0.12, 0.0));
+    a = mix(a, b, clamp((m - 0.5) * 3.5 + (b.a - a.a) * 2.0 + 0.5, 0.0, 1.0));
+  }
+#endif
+  return a;
+}
+
+void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT, float aaW,
+                inout vec3 col, inout float hgt, inout float pk, out float pathK, out vec2 pw, out float en, out float sdPlan){
+  pathK = 0.0;
+  // organic edge: the sample point wanders, a finer noise frays the iso-line
+  pw = wp + (nB.xy - 0.5) * 0.34 + (nA.zw - 0.5) * 0.2;
+  en = (nB.z - 0.5) * 0.16 + (textureLod(uNoise, wp * 1.9 + 0.37, nLod(1.9)).r - 0.5) * 0.14;
+#if QL >= 1
+  en += (textureLod(uNoise, wp * 4.7 + 0.71, nLod(4.7)).g - 0.5) * 0.07;
+#endif
+  vec4 S = pathRaw(pw);
+  float sdT = S.a * 4.0 - 2.0, sdTP = S.b * 4.0 - 2.0;
+  if (sdT < -1.25 && sdTP < -1.25) return;     // nothing built or planned near
+  vec2 C = pathCov(pw);
+  sdPlan = pathSd(C.g, sdTP);
+  float sdB = pathSd(C.r, sdT), sdE = sdB + en;
+  if (sdE < -0.75) return;
+  // type of the 4 tiles around the warped point (halo tiles carry their nearest type), smooth weights
+  vec2 q = pw - 0.5;
+  ivec2 c0 = ivec2(floor(q));
+  vec2 f = fract(q); f = f * f * (3.0 - 2.0 * f);
+  vec4 T = vec4(pathCode(c0, 0), pathCode(c0 + ivec2(1, 0), 0), pathCode(c0 + ivec2(0, 1), 0), pathCode(c0 + ivec2(1, 1), 0));
+  vec4 inT = vec4(lessThan(T, vec4(127.5))) * vec4(greaterThan(T, vec4(0.5))); // built corners (not halo)
+  T = mod(T, 128.0);
+  vec4 w4 = vec4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+  // the material comes from built corners; halo corners (nearest type) only where none is built
+  w4 *= dot(w4, inT) > 0.0 ? inT : vec4(greaterThan(T, vec4(0.5)));
+  float tA = 0.0, wA = 0.0, tB = 0.0, wB = 0.0;
+  for (int k = 0; k < 4; k++) {
+    float tk = T[k], wk = w4[k];
+    if (wk <= 0.0) continue;
+    if (wA == 0.0 || tk == tA) { tA = tk; wA += wk; }
+    else if (wB == 0.0 || tk == tB) { tB = tk; wB += wk; }
+  }
+  if (wA <= 0.0) return;
+  if (wB > wA) { float s = tA; tA = tB; tB = s; s = wA; wA = wB; wB = s; }
+  vec4 M = pathMat(tA - 1.0, wp, nC.x);
+  int ia = int(tA) - 1;
+  // laid stone: a calmer outline (the stones themselves shape it through their height), earth / gravel fray more
+  if (tA == 3.0 || tA == 5.0) sdE = sdB + en * 0.55;
+  if (wB > 0.02) {
+    // junction of two path types: height-blended like the ground layers
+    vec4 Mb = pathMat(tB - 1.0, wp, nC.x);
+    float bb = clamp(((Mb.a * 0.6 + wB * 1.15) - (M.a * 0.6 + wA * 1.15)) / 0.2 + 0.5, 0.0, 1.0);
+    M = mix(M, Mb, bb);
+    if (bb > 0.5) ia = int(tB) - 1;
+  }
+  // tangent of the path (along the iso-lines) for ruts, footprints and trampled grass streaks
+  vec2 gd = vec2(dFdx(sdB), -dFdy(sdB)) / PPX;
+  float gl = length(gd);
+  vec2 nrm = gl > 0.05 ? gd / gl : vec2(0.0, 1.0), tg = vec2(-nrm.y, nrm.x); // flat middle of wide paths: any direction
+  float h = M.a;
+  vec3 pc = M.rgb;
+  if (ia == 0) {
+    // packed earth: two ruts following the edges (iso-lines of the distance), broken up; a smoother worn middle
+    float sdS = sdB + (nB.z - 0.5) * 0.16;  // ruts follow the slow wobble of the edge, not its fraying
+    float rn = textureLod(uNoise, wp * 0.55 + 0.11, nLod(0.55)).g;
+    float rz = (sdS - 0.3) / 0.11, rut = exp(-rz * rz) * smoothstep(0.28, 0.6, rn + 0.1); // (no pow(): negative base)
+    float cz = (sdS - 0.6) / 0.14, crown = exp(-cz * cz) * smoothstep(0.45, 0.62, sdS + 0.1);
+    // ruts: compacted darker grooves, a little smoother (less grit); a lighter crown between them
+    pc = mix(pc, vec3(dot(pc, vec3(0.333))) * vec3(1.02, 0.98, 0.92), 0.25 * rut) * (1.0 - 0.08 * rut) * (1.0 + 0.035 * crown);
+    h -= 0.14 * rut;
+    pc = mix(pc, pc * vec3(1.05, 1.04, 1.01), smoothstep(0.32, 0.9, sdS) * 0.6);
+#if QL >= 1
+    // footprints along the path (close zoom)
+    if (PPX < 0.03) {
+      vec2 fp = wp * 3.3, fc = floor(fp), fh = hash22(fc + 5.3);
+      if (fh.x < 0.55 * smoothstep(0.08, 0.22, sdS)) {
+        // a sole: toe wider than the heel, pressed in (darker, smoother) with a raised crumbly rim
+        vec2 d = (fp - fc - 0.25 - 0.5 * hash22(fc + 1.7)) / 3.3;
+        float flip = fh.y > 0.5 ? 1.0 : -1.0;
+        float u = dot(d, tg) * flip, v = dot(d, nrm) + (fh.y - 0.5) * 0.01;
+        float r = length(vec2(u / 0.065, v / (u > 0.0 ? 0.036 : 0.026)));
+        if (r < 1.2) {
+          float imp = 1.0 - smoothstep(0.6, 0.98, r), rim = smoothstep(0.85, 1.0, r) * (1.0 - smoothstep(1.0, 1.2, r));
+          pc *= (1.0 - 0.16 * imp) * (1.0 + 0.07 * rim);
+          h -= 0.1 * imp;
+        }
+      }
+    }
+#endif
+  }
+  // sun relief from the material height: micro normals from finite differences of the texture (smooth, no 2×2
+  // screen-quad blocks) + (QL 2) small cast shadows
+  float he = max(PPX, 1.0 / 128.0) * 1.5;
+  vec2 hg = (vec2(pathMat(float(ia), wp + vec2(he, 0.0), nC.x).a, pathMat(float(ia), wp + vec2(0.0, he), nC.x).a) - M.a) / he * P_HS[ia];
+  vec3 N = normalize(vec3(-hg, 1.0));
+  float dif = max(dot(N, Ld), 0.0), flat0 = max(Ld.z, 0.25);
+  float rel = P_REL[ia] * (0.3 + 0.7 * LI);
+  float shade = mix(1.0, (0.42 + 0.66 * dif) / (0.42 + 0.66 * flat0), rel);
+#if QL >= 2
+  if (rel > 0.3 && PPX < 0.05) {
+    float h2 = pathMat(float(ia), wp + normalize(Ld.xy + 1e-4) * 0.03, nC.x).a;
+    shade *= 1.0 - 0.3 * smoothstep(0.03, 0.14, h2 - M.a) * LI; // material only (ruts / prints are not occluders)
+  }
+#endif
+  pc *= shade * mix(vec3(1.0), sunT, dif * 0.6);
+  pc *= 0.955 + 0.09 * nC.z;                              // same large-scale variation as the ground
+  // gaps (joints, between stepping stones): the real ground, a bit greener and in contact shadow
+  float gapK = (1.0 - smoothstep(0.16, 0.25, h)) * step(0.01, P_GAP[ia]);
+  if (gapK > 0.0) {
+    // joints of slabs / setts: grass creeping in · around stepping stones: just the ground, with contact shade
+    vec3 gg = ia == 4 ? col : mix(col, vec3(0.3, 0.37, 0.17) * (0.85 + 0.3 * nB.w), 0.4);
+    vec3 g = mix(M.rgb, gg, P_GAP[ia]) * (1.0 - (ia == 4 ? 0.3 : 0.38) * smoothstep(0.0, 0.15, h));
+    pc = mix(pc, g, gapK);
+  }
+  // damp, darker margin (soil pushed to the sides)
+  pc *= 1.0 - 0.05 * (1.0 - smoothstep(-0.1, 0.45, sdE));
+  // edge: the material relief and the ground height push the iso-line around
+  float ew = max(P_EW[ia], aaW);
+  float m = smoothstep(-ew, ew, sdE + (h - 0.5) * P_EH[ia] - (hgt - 0.5) * 0.1);
+  // outside: trampled grass streaked along the path, stray stones kicked off it
+  if (m < 1.0 && sdE < 0.05) {
+    float halo = smoothstep(-0.6, -0.02, sdE) * (1.0 - m);
+    float st = textureLod(uNoise, vec2(dot(wp, tg) * 0.9, dot(wp, nrm) * 6.0) + 0.3, nLod(6.0)).b;
+    float l0 = dot(col, vec3(0.333));
+    vec3 tr = mix(vec3(l0), col, 0.72) * vec3(1.07, 1.05, 0.9);
+    col = mix(col, tr, halo * (0.3 + 0.45 * smoothstep(0.45, 0.72, st)) * (ia == 0 ? 0.9 : ia == 1 ? 0.5 : 0.25));
+#if QL >= 1
+    if (ia > 0 && PPX < 0.06) {
+      vec2 sp = wp * 6.0, sc = floor(sp), sh = hash22(sc + 9.7 + float(ia) * 3.1);
+      if (sh.x < (ia == 1 ? 0.6 : 0.24) * halo * halo) {
+        vec2 dd = (sp - sc - 0.2 - 0.6 * hash22(sc + 2.3)) / 6.0;
+        float rr = 0.02 + 0.022 * sh.y, d2 = length(dd) / rr;
+        float shd = 1.0 - smoothstep(0.75, 1.3, length(dd + normalize(Ld.xy + 1e-4) * rr * 0.5) / rr);
+        col *= 1.0 - 0.3 * shd * (0.3 + 0.7 * LI);
+        if (d2 < 1.0) {
+          vec3 Np = normalize(vec3(dd / rr * 0.9, sqrt(max(1.0 - d2 * d2, 0.0)) + 0.25));
+          vec3 sc3 = P_STRAY[int(fract(sh.y * 7.31) * 2.99)] * (0.9 + 0.2 * fract(sh.x * 13.7));
+          col = mix(col, sc3 * (0.45 + 0.72 * max(dot(Np, Ld), 0.0)) * sunT, 1.0 - smoothstep(0.8, 1.0, d2));
+          hgt = max(hgt, 0.75);
+        }
+      }
+    }
+#endif
+  }
+  col = mix(col, pc, m);
+  hgt = mix(hgt, h, m);
+  pk = mix(pk, P_PUD[ia], m);
+  pathK = m;
+}
+
+// blueprint tint of planned tiles (blue = lay, red = remove), drawn after water / snow / shadows
+void pathPlanTint(vec2 wp, vec2 pw, float en, float sd, inout vec3 col){
+  float sdP = sd + en * 0.5;
+  if (sdP < -0.06) return;
+  vec2 q = pw - 0.5;
+  ivec2 c0 = ivec2(floor(q));
+  float code = max(max(pathCode(c0, 1), pathCode(c0 + ivec2(1, 0), 1)), max(pathCode(c0 + ivec2(0, 1), 1), pathCode(c0 + ivec2(1, 1), 1)));
+  float prev = step(15.5, code);
+  code = mod(code, 16.0);
+  if (code < 0.5) return;
+  bool rem = code > 14.5;
+  vec3 bp = rem ? vec3(1.0, 0.42, 0.34) : vec3(0.42, 0.72, 1.0);
+  float inside = smoothstep(-0.03, 0.03, sdP);
+  float l0 = dot(col, vec3(0.333));
+  // ghost of the planned material (gravel, slabs, setts…) in the blueprint colour
+  float ghost = rem ? 0.5 : textureLod(uPathMat, vec3(wp * 0.25, min(code, 5.0) - 1.0), LOD + 0.5).a;
+  vec3 tint = vec3(l0) * 0.5 + bp * (0.42 + 0.22 * ghost);
+  float hatch = smoothstep(0.32, 0.5, abs(fract((wp.x + wp.y) * 1.6 - uTime * 0.2) - 0.5));
+  float a = inside * (0.48 + 0.07 * hatch) * (prev > 0.5 ? 0.82 + 0.18 * sin(uTime * 5.0) : 1.0);
+  col = mix(col, tint, a);
+  float line = 1.0 - smoothstep(0.012, 0.035 + PPX * 1.5, abs(sdP - 0.025));
+  col = mix(col, bp * 1.05, line * 0.7);
+}
+`;
+
 // Ground, rock (mountains), water. One fullscreen pass, world-space.
 // Extra uniforms (uRain, uSunWarm, uCloud, uCloudVel...) come from env.extra (0 = neutral defaults).
 export const TERRAIN_FS = `#version 300 es
@@ -531,6 +742,13 @@ uniform sampler2D uClim;    // 1x, linear: R snow affinity (cold biomes), G stru
 uniform float uSnow;        // snow cover 0..1 (builds up while it snows over cold biomes, melts slowly)
 uniform float uSnowPeak;    // permanent snow on the high mountain tops (cold biomes)
 uniform float uClimOn;      // 0 = skip the climate fetch (no snow lying and no walls in view)
+// [paths] painted terrain paths (agent M, src/game/paths.js): bound on units 14 / 15 by the renderer
+uniform sampler2D uPath;          // 1x RGBA linear: R built type (+128 = nearest type, outside) and G plan code (+16 = local
+                                  // preview) read with texelFetch; B plan / A built signed distance (sd = v * 4 - 2 tiles)
+uniform sampler2D uPathF;         // 2x res, linear: R built / G plan coverage (tile grid smoothed by a Gaussian, σ 0.5 tile):
+                                  // the visible outline (iso 0.36) — rounded, never stair-stepped
+uniform sampler2DArray uPathMat;  // path materials (src/world/pathTex.js): RGB albedo (unlit), A height (low = gap)
+uniform float uPathOn;            // 0 = no path / plan in the world: the whole block is skipped
 
 // quality (QL from the renderer: 0 low, 1 medium, 2 high)
 #if QL == 0
@@ -610,7 +828,7 @@ vec3 ripples(vec2 p){
   }
   return acc * 0.7;
 }
-
+${PATH_FN}
 ${WAVE_FN}
 void main(){
   vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
@@ -765,9 +983,13 @@ void main(){
       float scuff = textureLod(uNoise, wp * 1.7, nLod(1.7)).g, scuff2 = textureLod(uNoise, wp * vec2(3.1, 2.3) + 0.4, nLod(3.1)).b;
       col *= 1.0 - tr * (0.09 * smoothstep(0.52, 0.75, scuff) + 0.06 * smoothstep(0.6, 0.8, scuff2));
     }
+    // [paths] painted paths blend into the ground here (see PATH_FN); plans are tinted at the end of the branch
+    float pathK = 0.0, pathEn = 0.0, pathSdP = -2.0;
+    vec2 pathPw = wp;
+    if (uPathOn > 0.5) pathGround(wp, nA, nB, nC, Ld, LI, sunT, aaW, col, hgt, pk, pathK, pathPw, pathEn, pathSdP);
     // wind waves rolling over the grass (matches the decor sway)
     if (F2.r > 0.3 && uWindK > 0.1) {
-      col *= 1.0 + windWave(wp, uWindDir, uWindPh.y) * F2.r * (0.025 + 0.06 * uWindK) * outK;
+      col *= 1.0 + windWave(wp, uWindDir, uWindPh.y) * F2.r * (0.025 + 0.06 * uWindK) * outK * (1.0 - pathK);
     }
 
     // rain wetness: darker, a bit richer; puddles in low spots; marsh keeps standing water (never in caves)
@@ -776,12 +998,12 @@ void main(){
     float lum0 = dot(col, vec3(0.333));
     col = mix(vec3(lum0), col, 1.0 + 0.18 * wet);
     vec3 Hs = normalize(uSun + vec3(0.0, 0.0, 1.0));
-    float level = (wet * 0.42 + marshK * 0.17 + mudK * 0.07) * pk;
+    float level = (wet * 0.42 + (marshK * 0.17 + mudK * 0.07) * (1.0 - pathK)) * pk; // paths: puddles only after rain
     float pm = smoothstep(0.0, 0.05, level - hgt + (nB.y - 0.5) * 0.2);
     // wet sheen from texture micro-relief
     vec2 hgG = vec2(dFdx(hgt), -dFdy(hgt)) / PPX;
     vec3 Ng = normalize(vec3(-hgG * 0.05, 1.0));
-    float sheen = pow(max(dot(Ng, Hs), 0.0), 24.0) * (wet * 0.5 + marshK * 0.3 + mudK * 0.3);
+    float sheen = pow(max(dot(Ng, Hs), 0.0), 24.0) * (wet * 0.5 + (marshK * 0.3 + mudK * 0.3) * (1.0 - pathK));
     col += sheen * 0.10 * uSunI * sunT;
     if (pm > 0.001) {
       vec3 rp = uRain > 0.02 && cave < 0.5 ? ripples(wp) * uRain : vec3(0.0);
@@ -800,7 +1022,7 @@ void main(){
       vec3 Ns = normalize(vec3(-hgG * 0.03, 1.0));
       float sd2 = max(dot(Ns, uSun), 0.0);
       vec3 snC = vec3(0.85, 0.88, 0.93) * (0.8 + 0.2 * sd2 * uSunI + 0.06 * nA.z) * sunT;
-      col = mix(col, snC, m * (1.0 - 0.6 * CV.b));
+      col = mix(col, snC, m * (1.0 - 0.6 * max(CV.b, pathK * 0.5))); // trampled ground / paths keep less snow
     }
     // contact AO at the foot of walls / structures
     col *= 1.0 - 0.3 * smoothstep(0.18, 0.62, CL.g);
@@ -900,6 +1122,7 @@ void main(){
       col = mix(col, wc, edge);
       shadowMask = mix(1.0, 0.55, edge);
     }
+    if (pathSdP > -0.08) pathPlanTint(wp, pathPw, pathEn, pathSdP, col); // [paths] blueprints
     // antialiased transition into the rock outline
     if (sd > -0.5) col = mix(col, vec3(0.075, 0.07, 0.065), smoothstep(-aaW, aaW * 0.4, sd));
   }

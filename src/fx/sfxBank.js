@@ -344,6 +344,32 @@ export const SFX = {
     burst(d, sr, 0.1, 0.6, { r, color: 'brown', type: 'lp', f: 600, amp: 0.5 });
     burst(d, sr, 0, 0.6, { r, color: 'pink', type: 'bp', f: 900, f1: 300, shape: 'bell', amp: 0.35 });
   } },
+  // painted terrain paths (agent M): a brush swish + soft chime (plan), earth tamped, gravel poured, stones set
+  path_paint: { v: 3, sec: 0.5, gain: 0.26, rev: 0.22, pj: 0.7, vj: 0.12, render(d, sr, r) {
+    burst(d, sr, 0, 0.3, { r, color: 'pink', type: 'bp', f: 1500 + r() * 400, f1: 2600, q: 0.7, shape: 'bell', amp: 0.55, grain: 0.5, grainRate: 700 });
+    burst(d, sr, 0.04, 0.22, { r, type: 'hp', f: 4200, amp: 0.12, grain: 0.8, grainRate: 1400 });
+    bellTone(d, sr, 0.06, 784, 0.16, 0.3);
+    bellTone(d, sr, 0.13, 1174.7, 0.12, 0.3);
+  } },
+  path_dirt: { v: 5, sec: 0.34, gain: 0.42, rev: 0.12, pj: 1.4, vj: 0.18, render(d, sr, r) {
+    thump(d, sr, 0, 72 + r() * 18, 40, 0.7, 0.09);
+    burst(d, sr, 0.002, 0.12, { r, color: 'brown', type: 'lp', f: 700 + r() * 250, a: 0.003, amp: 0.65 });
+    burst(d, sr, 0.03, 0.2, { r, color: 'pink', type: 'bp', f: 2300, q: 0.7, a: 0.01, amp: 0.25, grain: 0.75, grainRate: 1100 });
+    for (let k = 0; k < 6; k++) click(d, sr, 0.04 + r() * 0.2, r, 0.06 + r() * 0.08, 2400 + r() * 2000);
+  } },
+  path_gravel: { v: 4, sec: 0.55, gain: 0.36, rev: 0.12, pj: 1, vj: 0.15, render(d, sr, r) {
+    burst(d, sr, 0, 0.42, { r, type: 'bp', f: 2600, q: 0.6, shape: 'bell', amp: 0.35, grain: 0.7, grainRate: 1500 });
+    const n = 34 + Math.floor(r() * 16);
+    for (let k = 0; k < n; k++) mode(d, sr, 0.45 * Math.pow(r(), 1.3), 1700 + r() * 4600, (0.1 + r() * 0.26) * (1 - (k / n) * 0.4), 0.008 + r() * 0.016);
+    thump(d, sr, 0.01, 90, 55, 0.25, 0.06);
+  } },
+  path_stone: { v: 4, sec: 0.42, gain: 0.44, rev: 0.2, pj: 1.2, vj: 0.14, render(d, sr, r) {
+    thump(d, sr, 0, 110 + r() * 30, 60, 0.5, 0.06);
+    modal(d, sr, 0.002, 520 + r() * 180, [[1, 0.6, 0.06], [2.4, 0.38, 0.04], [4.1, 0.2, 0.025]], 0.75, { r });
+    click(d, sr, 0, r, 0.45, 2600);
+    modal(d, sr, 0.09 + r() * 0.04, 640 + r() * 200, [[1, 0.4, 0.04], [2.6, 0.22, 0.03]], 0.4, { r });
+    burst(d, sr, 0.02, 0.16, { r, type: 'bp', f: 3000, q: 0.9, amp: 0.16, grain: 0.8, grainRate: 1300 });
+  } },
   rotate: { v: 3, sec: 0.12, gain: 0.24, bus: 'ui', rev: 0, pj: 0.8, vj: 0.1, render(d, sr, r) {
     modal(d, sr, 0, 1200, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.8, { r });
     modal(d, sr, 0.045, 1450, [[1, 0.6, 0.02], [2.1, 0.3, 0.015]], 0.7, { r });

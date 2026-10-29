@@ -142,7 +142,7 @@ export class Game {
     list.length = 0;
     this.world.forChunks(mx0, my0, mx1, my1, (c) => {
       for (const d of c.decor) {
-        if (d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d);
+        if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d); // _hid: on a painted path
       }
       for (const o of c.objects) {
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);

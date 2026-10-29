@@ -9,4 +9,5 @@ import './camps.js';
 import './combat.js';
 import './bow.js';
 import './env.js';
+import './paths.js'; // painted terrain paths (agent M)
 import './own.js';

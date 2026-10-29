@@ -25,6 +25,7 @@ import { buildOcc } from './nav.js';
 import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
+import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (agent M)
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
@@ -56,6 +57,7 @@ export function installSystems(game) {
   initBuilding(game);
   buildOcc(game);
   initEconomy(game);
+  initPaths(game);                  // path grids exist before a save / snapshot is applied
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -88,6 +90,7 @@ export function installSystems(game) {
     campArtSystem(),
     gatheringSystem(),
     buildingSystem(),
+    pathsSystem(),
     ...economySystems(),
     survivalSystem(),
     lootSystem(),
