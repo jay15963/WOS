@@ -654,7 +654,7 @@ void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT
   if (gapK > 0.0) {
     // joints of slabs / setts: grass creeping in · around stepping stones: just the ground, with contact shade
     vec3 gg = ia == 4 ? col : mix(col, vec3(0.3, 0.37, 0.17) * (0.85 + 0.3 * nB.w), 0.4);
-    vec3 g = mix(M.rgb, gg, P_GAP[ia]) * (1.0 - (ia == 4 ? 0.3 : 0.38) * smoothstep(0.0, 0.15, h));
+    vec3 g = mix(M.rgb, gg, P_GAP[ia]) * (1.0 - (ia == 4 ? 0.16 : 0.38) * smoothstep(0.02, 0.15, h));
     pc = mix(pc, g, gapK);
   }
   // damp, darker margin (soil pushed to the sides)
