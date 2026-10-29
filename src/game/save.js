@@ -3,7 +3,8 @@
 // hinted } — the world part is the SAME serializer as the multiplayer join snapshot (net/snapshot.js), so
 // anything persisted is replicated at join by construction. v1 / v2 saves are migrated into a snapshot and
 // applied through the same path. v4 (round V2): structure rows carry rot / paid / open / moveOf; older rows are
-// legacy (rot 0, paid, closed) and beds saved as 1×1 get a free 1×2 spot (migrateStructRows).
+// legacy (rot 0, paid, closed) and beds saved as 1×1 get a free 1×2 spot (migrateStructRows). v5 (agent K): rows carry
+// style / det at [14], [15]; v4 rows (14 fields) get the default look ('', '').
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -16,7 +17,7 @@ import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
-const VERSION = 4;
+const VERSION = 5; // v5 (agent K): structure rows carry style / det (older rows: default look)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
 const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
@@ -71,7 +72,7 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, 3, VERSION].includes(data.v)) return false;
+  if (!data || ![1, 2, 3, 4, VERSION].includes(data.v)) return false;
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;
@@ -214,6 +215,7 @@ export function migrateStructRows(game, rows) {
         mark(r, hit[0], hit[1], fw, fh, true);
       }
     }
+    while (r.length < 16) r.push(''); // v5: style, det (default look)
     out.push(r);
   }
   return out;

@@ -13,10 +13,13 @@
 //  edge: small prop with 5 placements (o.rot 0 = centred, 1..4 = against the N / E / S / W edge, facing away from it)
 //  move: can be moved ("Mover" keeps its state: chest contents, variant…)   raze: removed at once ("Arrasar", small refund)
 
+import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, extra construction pieces
+
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
   ['struct', 'Estruturas'], ['floor', 'Pisos'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ...DECOR_CATS,
 ];
 
 export const BUILDINGS = {
@@ -87,6 +90,7 @@ export const BUILDINGS = {
   // ---------- farming ----------
   farm_plot:   { name: 'Canteiro', g: 'm', emoji: '🟫', cat: ['farm'], cost: {}, time: 1.5, xp: 2, layer: 'floor', flat: true, connect: 'farm_plot', drag: 'area',
                  desc: 'Terra arada. Plante sementes de batata, milho ou algodão.' },
+  ...DECOR,
 };
 
 for (const id in BUILDINGS) {

@@ -6,7 +6,8 @@
 // Refunds / yields are computed by the authority and travel as owner effects (`give` to `by`).
 //
 // Shared structure fields: id, type, tx, ty, v, rot, progress (< 1 = blueprint), paid (materials delivered),
-// decon, store, working, open (doors), moveOf (a "Mover" blueprint: id of the structure that will move here).
+// decon, store, working, open (doors), moveOf (a "Mover" blueprint: id of the structure that will move here),
+// style / det (agent K: look picked at placement, see mut/kit.js).
 // Derived (setGeom): fw × fh footprint after rotation, x, y (base / sort key), cy (round collision centre).
 // Blueprints are free to place; the builder delivers the cost when work starts (build.hit start + pay).
 
@@ -14,7 +15,7 @@ import { defineIntent, defineOp } from '../../net/registry.js';
 import { BUILDINGS, ITEMS } from '../data.js';
 import { Inventory } from '../inventory.js';
 import { occAdd, occRemove } from '../nav.js';
-import { gridAdd, gridRemove, footprint, updateMasksAround } from '../autotile.js';
+import { gridAdd, gridRemove, footprint, updateMasksAround, wallBehind } from '../autotile.js';
 import { collides } from '../physics.js';
 import { G } from '../../world/worldgen.js';
 import { addLootRows } from './loot.js';
@@ -23,6 +24,8 @@ import { noGrowStamp, removeNatural, findObj } from './objects.js';
 import { removeCropAt, cropAt } from './crops.js';
 import { sortedSlots, SORT_MODES } from '../invsort.js'; // chest.sort (agent B)
 import { allPlayers } from '../players.js';
+import { applyKitFields, kitComplete, kitRemove } from './kit.js'; // agent K: style / detail kits, training dummy
+import { normStyle, cleanDet } from '../content/kits.js';
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
@@ -61,7 +64,7 @@ export function setGeom(o) {
   const [fw, fh] = dimsOf(o.type, o.rot);
   o.fw = fw; o.fh = fh;
   if (def.edge) {
-    const [d, hw] = EDGE_GEOM[o.type] || [0.5, 0.3];
+    const [d, hw] = EDGE_GEOM[o.type] || def.eg || [0.5, 0.3];
     const r = o.rot | 0, tx = o.tx, ty = o.ty;
     let x = tx + 0.5, cy = ty + 0.5, y = ty + 0.5 + d / 2;
     if (r === 1) { cy = ty + EM + d / 2; y = ty + EM + d; }
@@ -132,6 +135,7 @@ export function placeStructure(game, type, tx, ty, opts) {
     progress: Math.max(0, Math.min(1, opts.progress ?? 1)), mask: 0, solid: 0, builtAt: opts.builtAt ?? Math.round(game.worldTime),
   };
   setGeom(o);
+  applyKitFields(game, o, opts.style, opts.det);
   o.paid = o.progress >= 1 || !!opts.paid || costEmpty(def);
   if (opts.moveOf) o.moveOf = opts.moveOf;
   if (def.flat) o.flat = true;
@@ -171,6 +175,7 @@ export function completeStructure(game, o, { silent = false, auth = true } = {})
   if (def.fire) o.fire = true;
   else if (def.workLight) o.fire = false;
   delete o.lit;
+  kitComplete(game, o);
   nudgeOut(game, o, auth);
   updateMasksAround(game, o.tx, o.ty, o.tx + o.fw - 1, o.ty + o.fh - 1); // wall-mounted props, door orientation
   if (!silent) {
@@ -197,6 +202,7 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
   game.build.decon.delete(o);
   o.removed = true;
+  kitRemove(game, o);
   addLootRows(game, drops);
   if (o.type === 'farm_plot') removeCropAt(game, o.tx, o.ty);
   // plans to move this object die with it
@@ -255,13 +261,13 @@ export function setDoorOpen(game, o, open) {
 
 // ---------- ops ----------
 defineOp('struct.add', {
-  doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf].',
-  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf]]', by: 'pid?', give: '{item: qty}?' },
+  doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det].',
+  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]]', by: 'pid?', give: '{item: qty}?' },
   apply(game, a, ctx) {
     for (const r of a.list || []) {
-      const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf] = r;
+      const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det] = r;
       if (!BUILDINGS[type] || game.world.objById.has(id)) continue;
-      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined });
+      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det });
     }
     if (ctx.mine && a.list?.length) game.audio?.play('blueprint', {});
   },
@@ -405,6 +411,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null) {
       return o.type.startsWith('tree_') ? (o.stump ? 'Toco no caminho' : 'Árvore no caminho') : o.type === 'boulder' ? 'Pedregulho no caminho' : 'Algo no caminho';
     }
   }
+  if (def.mount === 'wall' && !(rot >= 1 && rot <= 4 && wallBehind(game, tx, ty, rot))) return 'Encoste numa parede pronta'; // agent K: wall-mounted decor
   if (who && Math.hypot(tx + sw / 2 - who.x, ty + sh / 2 - who.y) > MAX_DIST) return 'Muito longe';
   return replace ? { replace } : null;
 }
@@ -416,14 +423,15 @@ const nonEmpty = (o) => (Object.keys(o).length ? o : undefined);
 const near = (e, o, r) => !e || Math.hypot(e.x - o.x, e.y - (o.cy ?? o.y)) <= r + Math.max(o.fw || 1, o.fh || 1) / 2;
 
 defineIntent('build.place', {
-  doc: 'Place free blueprints of `type` on tiles with orientation `rot` (materials are delivered later, when work starts). A door may replace a wall (wall refunded).',
-  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?' },
+  doc: 'Place free blueprints of `type` on tiles with orientation `rot` and look style / det (materials are delivered later, when work starts). A door may replace a wall (wall refunded).',
+  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?', style: 'styleId?', det: 'detail list?' },
   run(game, a, actor, net) {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
     const tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, MAX_TILES) : [];
     if (!tiles.length) return 'Nada para construir';
     const rot = normRot(a.type, num(a.rot));
+    const style = normStyle(a.type, a.style), det = cleanDet(a.type, a.det);
     const list = [], seen = new Set();
     let first = null;
     for (const t of tiles) {
@@ -437,7 +445,7 @@ defineIntent('build.place', {
         r = null;
       }
       if (r) { first ||= r === 'exists' ? 'Já existe uma construção aqui' : r; continue; }
-      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0]);
+      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0, style, det]);
     }
     if (!list.length) return first || 'Local inválido';
     net.emit('struct.add', { list, by: actor.pid });
@@ -458,7 +466,7 @@ defineIntent('build.move', {
     const r = placeReason(game, src.type, tx, ty, actor.ent, rot, src);
     if (r) return r === 'exists' ? 'Já existe uma construção aqui' : typeof r === 'string' ? r : 'Local inválido';
     for (const b of game.build.structures.filter((q) => q.moveOf === src.id)) net.emit('struct.remove', { id: b.id, quiet: 1 });
-    net.emit('struct.add', { list: [[net.newId('s'), src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id]], by: actor.pid });
+    net.emit('struct.add', { list: [[net.newId('s'), src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id, src.style || '', src.det || '']], by: actor.pid });
   },
 });
 
