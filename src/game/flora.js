@@ -13,6 +13,7 @@ import { mulberry32 } from '../engine/noise.js';
 import { spawnFlora, ageOf, TREE_SOLID, SAPLING_GROW, NOGROW_R } from './mut/objects.js';
 import { floraLook } from './mut/roll.js';
 import { inAnyView, minPlayerDist } from './players.js';
+import { footprint } from './autotile.js';
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
@@ -190,6 +191,27 @@ export function ensureStarter(game, offscreen = false) {
   }
 }
 
+// Natural objects standing on a player structure's footprint (a newer world generator may grow a plant where
+// an old save has a building): removed once after load by the authority (one obj.remove op, 'clear' fx).
+export function clearUnderStructures(game) {
+  const S = game.build?.structures;
+  if (!S || !S.length) return 0;
+  const w = game.world, ids = new Set();
+  for (const s of S) {
+    const tiles = footprint(s);
+    if (!tiles.length) continue;
+    const key = new Set(tiles.map(([x, y]) => x + ',' + y));
+    w.forChunks(s.tx - 1, s.ty - 1, s.tx + 4, s.ty + 4, (c) => {
+      for (const o of c.objects) {
+        if (o.building || o.gone || (!FLORA_SET.has(o.type) && o.type !== 'boulder')) continue;
+        if (key.has(Math.floor(o.x) + ',' + Math.floor(o.y - 0.05))) ids.add(o.id);
+      }
+    });
+  }
+  if (ids.size) game.net.emit('obj.remove', { ids: [...ids], fx: 'clear' });
+  return ids.size;
+}
+
 // ---------- system ----------
 export function floraSystem() {
   let growT = 0;
@@ -209,6 +231,7 @@ export function floraSystem() {
         }
       }
       if (!net.auth) return;
+      if (!F.cleared) { F.cleared = true; clearUnderStructures(game); }
       // regrowth: a few chunks per second, round robin over the whole map
       F.t -= dt;
       if (F.t > 0) return;
