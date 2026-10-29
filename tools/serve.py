@@ -26,7 +26,8 @@ class NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5173
     http.server.ThreadingHTTPServer.allow_reuse_address = False
-    # browsers open many parallel module requests: a deeper listen backlog avoids ERR_CONNECTION_REFUSED (boot stuck)
+    # listen backlog: the default 5 makes Windows refuse connections when a page (or two test iframes) fetch
+    # 150+ uncached ES modules at once (net::ERR_CONNECTION_REFUSED → the module graph silently never runs)
     http.server.ThreadingHTTPServer.request_queue_size = 256
     with http.server.ThreadingHTTPServer(('127.0.0.1', port), NoCacheHandler) as srv:
         print(f'WOS dev server: http://localhost:{port}')

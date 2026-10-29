@@ -132,7 +132,7 @@ export function previewPawn(look) {
 export function atlasView(A) {
   const cache = new Map();
   return {
-    k: 1, list: [], groups: {},
+    k: 1, list: [], groups: {}, lookSync: true, // look parts painted on first use (lazy.js, synchronous here)
     has: (n) => A.has(n),
     get(n) {
       let s = cache.get(n);

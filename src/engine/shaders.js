@@ -110,6 +110,7 @@ precision mediump float;
 in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost;
 flat in vec2 vVr;
 uniform sampler2D uTex;
+uniform sampler2D uLook;  // lazily painted look parts (agent H): sprites with u in [-1, 0)
 uniform sampler2D uShadow;
 uniform sampler2D uClim;
 uniform highp vec2 uWorldSz;
@@ -119,6 +120,7 @@ uniform float uAO;        // 1 while drawing ground / decor: darken next to wall
 out vec4 o;
 void main(){
   vec4 t = texture(uTex, vUV);
+  if (vUV.x < 0.0) t = texture(uLook, vUV + vec2(1.0, 0.0));
   if (t.a < 0.003) discard;
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
 #if QL >= 1
@@ -171,9 +173,10 @@ export const SHADOW_FS = `#version 300 es
 precision mediump float;
 in vec2 vUV; in float vA;
 uniform sampler2D uTex;
+uniform sampler2D uLook;
 out vec4 o;
 void main(){
-  float a = texture(uTex, vUV).a * vA;
+  float a = (vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)).a : texture(uTex, vUV).a) * vA;
   if (a < 0.01) discard;
   o = vec4(a, a, a, 1.0);
 }`;
