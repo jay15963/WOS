@@ -17,6 +17,7 @@ export function eat(game, id) {
   if (f.heal) healEntity(game, p, f.heal);
   if (f.warm) p.warmFoodT = Math.max(p.warmFoodT || 0, f.warm);
   game.audio?.play('eat', { x: p.x, y: p.y });
+  if (!p.action) p.action = { type: 'eat', t: 0, dur: 1.2, item: id }; // eating pose (replicated with presence)
   game.events.emit('inventory', {});
   game.events.emit('toast', { text: `Comeu ${def.name.toLowerCase()} (+${f.hunger} fome)`, kind: 'info' });
   if (f.sick && Math.random() < f.sick) {

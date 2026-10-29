@@ -300,6 +300,7 @@ export function useStructure(game, it) {
       if (p.inCombat || game.entities.some((e) => !e.dead && e !== p && e.state === 'chase' && e.threat === p)) {
         game.events.emit('error', { text: 'Não dá para dormir em combate' }); return;
       }
+      game.juice?.lieDown?.(o); // lie in the bed (pose replicated in the presence stream)
       if (!game.net.auth) { game.events.emit('toast', { text: 'Ponto de renascimento definido. Em multijogador só o anfitrião dorme até o amanhecer.', kind: 'info' }); return; }
       game.events.emit('sleep', {});
       game.later(0.9, () => {

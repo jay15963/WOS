@@ -124,7 +124,7 @@ export class Game {
     for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1) list.push(e);
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
-    list.sort((a, b) => a.y - b.y);
+    list.sort((a, b) => (a._sy ?? a.y) - (b._sy ?? b.y)); // _sy: depth override (pawn lying in a bed / on a chair)
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);

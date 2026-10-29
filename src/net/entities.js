@@ -204,7 +204,7 @@ export class EntityClient {
     let e = this.map.get(nid);
     if (!e) {
       e = { isEntity: true, isMob: true, proxy: true, nid, id: parseInt(nid.slice(1), 36) || 0, x: num(r[17]) / 100, y: num(r[18]) / 100,
-        facing: 's', moving: false, moveT: 0, action: null, flash: 0, dead: false, deadT: 0, state: 'idle', threat: null, _buf: [], dots: [] };
+        facing: 's', moving: false, moveT: 0, action: null, flash: 0, dead: false, deadT: 0, state: 'idle', threat: null, _buf: [], dots: [], _na: null };
       this.map.set(nid, e);
       this.game.entities.push(e); // proxy list (net/entities.js owns guest creatures)
     }
@@ -226,7 +226,7 @@ export class EntityClient {
     e.facing = FACES[bits & 3];
     e.netMoving = !!(bits & 4);
     const dead = !!(bits & 8);
-    if (dead && !e.dead) { e.deadT = 0; e.action = null; e.cast = null; this._untarget(e); }
+    if (dead && !e.dead) { e.deadT = 0; e.action = null; e._na = null; e.cast = null; this._untarget(e); }
     e.dead = dead;
     e.blocking = !!(bits & 16);
     e.stunT = bits & 32 ? 1 : 0;
@@ -242,10 +242,11 @@ export class EntityClient {
     if (chase && e.threat === p && !wasMine) this.game.audio?.play('growl', { x: e.x, y: e.y, volume: e.kind === 'pawn' ? 0.5 : 1 });
     const seq = num(d[7]) | 0;
     if (d[4] && seq !== e._actSeq) {
+      // a new action starts at its real host time (start = sample time - t·dur), shown with the position delay
       e._actSeq = seq;
-      e.action = { type: str(d[4], 16), t: num(d[5]) / 100, dur: Math.max(0.05, num(d[6], 50) / 100), hold: num(d[6]) === 0 };
-      if (!fresh && (e.action.type === 'attack' || e.action.type === 'shoot')) this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
-    } else if (!d[4]) e.action = null;
+      const dur = Math.max(0.05, num(d[6], 50) / 100), hold = num(d[6]) === 0, t0 = num(d[5]) / 100;
+      e._na = { type: str(d[4], 16), start: ht - (hold ? 0 : t0 * dur), dur, hold, t0, sfx: !fresh };
+    } else if (!d[4]) { e._na = null; if (e.action?.hold) e.action = null; } // a finished swing plays out locally
     e.cast = d[8] ? { name: str(d[8], 24), t: num(d[9]) / 100, dur: Math.max(0.05, num(d[10], 100) / 100) } : null;
   }
 
@@ -279,6 +280,12 @@ export class EntityClient {
         e.moving = !e.dead && (e.netMoving || d > 0.005);
       }
       if (e.action && !e.action.hold) { e.action.t += dt / (e.action.dur || 0.5); if (e.action.t >= 1) e.action = null; }
+      const N = e._na;
+      if (N && rt >= N.start) {
+        e._na = null;
+        e.action = { type: N.type, t: N.hold ? N.t0 : Math.min(0.99, (rt - N.start) / N.dur), dur: N.dur, hold: N.hold };
+        if (N.sfx && (N.type === 'attack' || N.type === 'shoot')) this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
+      }
       if (e.cast) e.cast.t = Math.min(e.cast.dur, e.cast.t + dt);
       if (!e.dead && e.state === 'chase' && e.threat === p) fighting = true;
     }
