@@ -19,7 +19,7 @@
 export const ROOF_GEOM = {
   support: 6,            // a built roof tile needs a wall / door / column / rock within this distance (tiles)
   natSupport: 6,         // a mined tile keeps its mountain roof while rock is within this distance
-  eaveH: 26 / 64,        // eave height per storey (tiles) = wall height (art/structures.js WALL_H)
+  eaveH: 1,              // eave height per storey (tiles) = wall height (art/structures.js WALL_H, one story = one tile)
   overhang: 0.3,         // eaves past the walls (tiles), sides and back
   overhangS: 0.12,       // south eaves / rake: short, so the wall face under them stays visible in the 3/4 view
   rake: 0.2,             // gable-end overhang (bargeboards)

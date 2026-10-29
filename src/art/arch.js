@@ -13,9 +13,11 @@
 // kfe_* fences, kg_* gates, kdr_* door leaves, roof_* roof props. Geometry for archCompose.js: ARCH_GEOM.
 
 import { spritePx, rng, OW, TAU, SS, canvas, lin, rad, circle, mixc, tone, clamp, hex, rgb } from './paint.js';
-import { wallTop, wallFront, planks } from './structures.js';
+import { wallTop, wallFront, planks, STORY_PX } from './structures.js';
 
-const FH = 26, OV = 3, EXT = 12, BL = 2, PH = 36;
+// FH = one story of facade (agent L: STORY_PX = one tile); courses keep their 26-px-era sizes (LOG_RH, brick rows)
+const FH = STORY_PX, OV = 3, EXT = 12, BL = 2, PH = 36;
+const LOG_RH = 26 / 3;
 const hash = (a, b) => { let h = (a * 374761393 + b * 668265263) | 0; h = (h ^ (h >>> 13)) * 1274126177; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 const pick = (arr, a, b) => arr[Math.floor(hash(a, b) * arr.length)];
 
@@ -141,8 +143,8 @@ const WSTYLE = {
     },
     front(g, m, x0, x1, top, h) {
       cached(g, 'k_logf', (g, a, b, c) => {
-        const rh = FH / 3;
-        for (let r = -6; r < 4; r++) {
+        const rh = LOG_RH;
+        for (let r = -6; r < Math.ceil(FH / rh) + 2; r++) {
           const y = 64 + r * rh;
           g.fillStyle = LOG.chink; g.fillRect(a, y - 0.8, c - a, rh + 1.6);
           g.fillStyle = lin(g, 0, y, 0, y + rh, [[0, LOG.hi], [0.35, LOG.mid], [1, LOG.dark]]);
@@ -153,11 +155,11 @@ const WSTYLE = {
         }
       });
       // crossed log ends at free ends (the cabin corner)
-      const rh = FH / 3;
+      const rh = LOG_RH;
       for (const side of [!(m & 8) ? 0 : -1, !(m & 2) ? 1 : -1]) {
         if (side < 0) continue;
         const cx = side ? 60 : 4;
-        for (let r = 0; r < 3; r++) {
+        for (let r = 0; r < Math.round(FH / rh); r++) {
           const cy = top + r * rh + rh / 2;
           g.fillStyle = LOG.bark; g.beginPath(); g.ellipse(cx, cy, 5.4, rh / 2 - 0.2, 0, 0, TAU); g.fill();
           g.fillStyle = LOG.end; g.beginPath(); g.ellipse(cx, cy, 4.3, rh / 2 - 1.2, 0, 0, TAU); g.fill();
@@ -197,11 +199,11 @@ const WSTYLE = {
     },
     front(g, m, x0, x1, top, h) {
       cached(g, 'k_wattf', (g, a, b, c) => {
-        g.fillStyle = lin(g, 0, 40, 0, 90, [[0, DAUB.c], [0.6, DAUB.a], [1, DAUB.b]]); g.fillRect(a, 30, c - a, 70);
+        g.fillStyle = lin(g, 0, 40, 0, 64 + FH, [[0, DAUB.c], [0.6, DAUB.a], [1, DAUB.b]]); g.fillRect(a, 30, c - a, FH + 44);
         // stakes faintly showing through
-        for (let k = Math.floor(a / 16) - 1; k * 16 < c; k++) { g.fillStyle = 'rgba(80,56,30,0.18)'; g.fillRect(k * 16 + 6, 30, 3, 70); }
+        for (let k = Math.floor(a / 16) - 1; k * 16 < c; k++) { g.fillStyle = 'rgba(80,56,30,0.18)'; g.fillRect(k * 16 + 6, 30, 3, FH + 44); }
         // patches where the daub fell off: woven wattle
-        for (const [px, py, pw, ph] of [[8, 70, 16, 9], [40, 76, 13, 7], [26, 52, 10, 6]]) {
+        for (const [px, py, pw, ph] of [[8, 64 + FH * 0.22, 16, 9], [40, 64 + FH * 0.48, 13, 7], [24, 64 + FH * 0.74, 10, 6], [26, 52, 10, 6]]) {
           for (const kx of [-64, 0, 64]) {
             const X = px + kx;
             if (X > c || X + pw < a) continue;
@@ -213,7 +215,7 @@ const WSTYLE = {
             g.strokeStyle = 'rgba(90,64,36,0.6)'; g.lineWidth = 0.9; g.beginPath(); g.ellipse(X + pw / 2, py + ph / 2, pw / 2, ph / 2, 0, 0, TAU); g.stroke();
           }
         }
-        for (let i = 0; i < 60; i++) { const x = hash(i, 21) * 64, y = 40 + hash(i, 22) * 50; for (const kx of [-64, 0, 64]) { g.fillStyle = i & 1 ? 'rgba(90,66,40,0.25)' : 'rgba(255,240,210,0.22)'; g.fillRect(x + kx, y, 1.6, 1.2); } }
+        for (let i = 0; i < 60 + FH; i++) { const x = hash(i, 21) * 64, y = 40 + hash(i, 22) * (FH + 24); for (const kx of [-64, 0, 64]) { g.fillStyle = i & 1 ? 'rgba(90,66,40,0.25)' : 'rgba(255,240,210,0.22)'; g.fillRect(x + kx, y, 1.6, 1.2); } }
       });
     },
   },
@@ -221,14 +223,14 @@ const WSTYLE = {
     round: false,
     top(g) { cached(g, 'k_rought', (g, a, b, c, d) => stoneField(g, a, b, c, d, 4, 4, RSTONE, 3, { mortar: '#5c574e', round: 0.6 })); },
     front(g, m, x0, x1, top, h) {
-      cached(g, 'k_roughf', (g, a, b, c) => courses(g, a, c, 64, 90, FH / 3, RSTONE.map((x) => tone(x, 0.78)), 7, { mortar: '#3c3832', round: 3.5, jitter: 1.2, minW: 9, maxW: 20 }));
+      cached(g, 'k_roughf', (g, a, b, c) => courses(g, a, c, 64, 64 + FH, 26 / 3, RSTONE.map((x) => tone(x, 0.78)), 7, { mortar: '#3c3832', round: 3.5, jitter: 1.2, minW: 9, maxW: 20 }));
     },
   },
   cobble: {
     round: false,
     top(g) { cached(g, 'k_cobt', (g, a, b, c, d) => stoneField(g, a, b, c, d, 5, 5, COB, 11, { mortar: '#cfc6b2', round: 1, hiA: 0.45, loA: 0.4, gap: 1.6 })); },
     front(g, m, x0, x1, top, h) {
-      cached(g, 'k_cobf', (g, a, b, c) => courses(g, a, c, 64, 90, FH / 4, COB.map((x) => tone(x, 0.82)), 13, { mortar: '#b8ae98', blob: true, minW: 7, maxW: 13, jitter: 0.6, lo: 'rgba(30,26,20,0.45)' }));
+      cached(g, 'k_cobf', (g, a, b, c) => courses(g, a, c, 64, 64 + FH, 26 / 4, COB.map((x) => tone(x, 0.82)), 13, { mortar: '#b8ae98', blob: true, minW: 7, maxW: 13, jitter: 0.6, lo: 'rgba(30,26,20,0.45)' }));
     },
   },
 };
@@ -351,7 +353,7 @@ export function wallStyleSprite(style, m, soft = false) {
           for (const [on, x, k] of [[!(m & 8), 0, 1], [!(m & 2), 64, -1]]) {
             if (!on) continue;
             g.fillStyle = lin(g, x, 0, x + k * 12, 0, [[0, k > 0 ? 'rgba(255,240,210,0.16)' : 'rgba(15,10,6,0.4)'], [1, 'rgba(0,0,0,0)']]);
-            g.fillRect(Math.min(x, x + k * 12), 30, 12, 70);
+            g.fillRect(Math.min(x, x + k * 12), 30, 12, FH + 44);
           }
         }
         g.restore();
@@ -373,6 +375,9 @@ const wbox = (fn, ow = 2.4) => spritePx(64, 64 + FH, (g, P) => P.layer((g) => fn
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
 const IRON = { dark: '#2c2c31', mid: '#4a4a52', light: '#6e6e78', high: '#9a9aa6' };
 const F0 = 64, F1 = 64 + FH; // front band rows
+// mid-face details (windows, mounted things, door ornaments) were drawn for a 26-px face: centre them in the story
+const FM = F0 + Math.round((FH - 26) * 0.45);
+const WIN0 = F0 + Math.round(Math.max(3, FH * 0.2)), WIN1 = WIN0 + Math.round(Math.max(17, FH * 0.45));
 
 // corner pieces (NW = top corner cap; SW = top corner + down the front). NE / SE = mirrored at draw time.
 function cornerPost(sw) {
@@ -401,7 +406,7 @@ function cornerQuoin(sw) {
     g.fillStyle = lin(g, 0, 50, 16, 64, [[0, L], [1, D]]); g.fillRect(0, 50, 16, 14);
     g.fillStyle = 'rgba(255,255,245,0.5)'; g.fillRect(0, 50, 16, 1.4);
     // alternating long / short dressed stones up the corner
-    const rows = 3, rh = FH / rows;
+    const rows = Math.max(3, Math.round(FH / 8.7)), rh = FH / rows;
     for (let r = 0; r < rows; r++) {
       const w = r & 1 ? 9 : 15, y = F0 + r * rh;
       g.fillStyle = lin(g, 0, y, 0, y + rh, [[0, '#c2baab'], [1, '#968e81']]); g.fillRect(0, y + 0.6, w, rh - 1.2);
@@ -508,17 +513,17 @@ function beams() {
 }
 function band() {
   return wbox((g) => {
-    g.fillStyle = lin(g, 0, F0 + 9, 0, F0 + 14, [[0, '#d6cfc0'], [1, '#9e9688']]); g.fillRect(-2, F0 + 9, 68, 5);
-    g.fillStyle = 'rgba(20,16,12,0.35)'; g.fillRect(-2, F0 + 14, 68, 1.6);
+    g.fillStyle = lin(g, 0, FM + 9, 0, FM + 14, [[0, '#d6cfc0'], [1, '#9e9688']]); g.fillRect(-2, FM + 9, 68, 5);
+    g.fillStyle = 'rgba(20,16,12,0.35)'; g.fillRect(-2, FM + 14, 68, 1.6);
   }, 1.6);
 }
 // windows: frame + cross mullions (+ glow sprite for the emissive layer at night)
 function windowArt(kind, glow) {
   return spritePx(64, 64 + FH, (g, P) => {
-    const x0 = 20, x1 = 44, y0 = F0 + 3, y1 = F0 + 20;
+    const x0 = 20, x1 = 44, y0 = WIN0, y1 = WIN1;
     if (glow) {
       g.fillStyle = 'rgba(255,196,110,0.95)';
-      if (kind === 'oculus') { g.beginPath(); g.ellipse(32, F0 + 11, 7, 7, 0, 0, TAU); g.fill(); }
+      if (kind === 'oculus') { g.beginPath(); g.ellipse(32, FM + 11, 7, 7, 0, 0, TAU); g.fill(); }
       else {
         g.fillRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
         g.fillStyle = 'rgba(255,150,60,0.55)'; g.fillRect(x0 - 3, y1 + 1, x1 - x0 + 6, 3); // light spilling on the sill
@@ -527,18 +532,18 @@ function windowArt(kind, glow) {
     }
     P.layer((g) => {
       if (kind === 'slit') {
-        g.fillStyle = lin(g, 0, F0 + 2, 0, F0 + 22, [[0, '#a8a092'], [1, '#7d766c']]); g.fillRect(27, F0 + 2, 10, 20);
-        g.fillStyle = '#16120e'; g.fillRect(30.4, F0 + 4, 3.2, 16); g.fillRect(28.3, F0 + 10, 7.4, 2.8);
-        g.fillStyle = 'rgba(255,255,245,0.35)'; g.fillRect(27, F0 + 2, 10, 1);
+        g.fillStyle = lin(g, 0, WIN0 - 1, 0, WIN1 + 2, [[0, '#a8a092'], [1, '#7d766c']]); g.fillRect(27, WIN0 - 1, 10, WIN1 - WIN0 + 3);
+        g.fillStyle = '#16120e'; g.fillRect(30.4, WIN0 + 1, 3.2, WIN1 - WIN0 - 1); g.fillRect(28.3, (WIN0 + WIN1) / 2 - 1.4, 7.4, 2.8);
+        g.fillStyle = 'rgba(255,255,245,0.35)'; g.fillRect(27, WIN0 - 1, 10, 1);
         return;
       }
       if (kind === 'oculus') {
-        g.fillStyle = '#b9b1a2'; g.beginPath(); g.ellipse(32, F0 + 11, 10.5, 10.5, 0, 0, TAU); g.fill();
-        g.strokeStyle = 'rgba(60,56,50,0.55)'; g.lineWidth = 0.8; for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU; g.beginPath(); g.moveTo(32 + Math.cos(a) * 7.5, F0 + 11 + Math.sin(a) * 7.5); g.lineTo(32 + Math.cos(a) * 10.5, F0 + 11 + Math.sin(a) * 10.5); g.stroke(); }
-        g.fillStyle = '#5a3b24'; g.beginPath(); g.ellipse(32, F0 + 11, 7.6, 7.6, 0, 0, TAU); g.fill();
-        g.fillStyle = lin(g, 0, F0 + 4, 0, F0 + 18, [[0, '#8fb4d0'], [0.5, '#3a4c60'], [1, '#26303c']]); g.beginPath(); g.ellipse(32, F0 + 11, 6, 6, 0, 0, TAU); g.fill();
-        g.fillStyle = 'rgba(220,240,255,0.5)'; g.beginPath(); g.ellipse(29.6, F0 + 8.6, 2.6, 1.6, -0.6, 0, TAU); g.fill();
-        g.strokeStyle = '#5a3b24'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(26, F0 + 11); g.lineTo(38, F0 + 11); g.moveTo(32, F0 + 5); g.lineTo(32, F0 + 17); g.stroke();
+        g.fillStyle = '#b9b1a2'; g.beginPath(); g.ellipse(32, FM + 11, 10.5, 10.5, 0, 0, TAU); g.fill();
+        g.strokeStyle = 'rgba(60,56,50,0.55)'; g.lineWidth = 0.8; for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU; g.beginPath(); g.moveTo(32 + Math.cos(a) * 7.5, FM + 11 + Math.sin(a) * 7.5); g.lineTo(32 + Math.cos(a) * 10.5, FM + 11 + Math.sin(a) * 10.5); g.stroke(); }
+        g.fillStyle = '#5a3b24'; g.beginPath(); g.ellipse(32, FM + 11, 7.6, 7.6, 0, 0, TAU); g.fill();
+        g.fillStyle = lin(g, 0, FM + 4, 0, FM + 18, [[0, '#8fb4d0'], [0.5, '#3a4c60'], [1, '#26303c']]); g.beginPath(); g.ellipse(32, FM + 11, 6, 6, 0, 0, TAU); g.fill();
+        g.fillStyle = 'rgba(220,240,255,0.5)'; g.beginPath(); g.ellipse(29.6, FM + 8.6, 2.6, 1.6, -0.6, 0, TAU); g.fill();
+        g.strokeStyle = '#5a3b24'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(26, FM + 11); g.lineTo(38, FM + 11); g.moveTo(32, FM + 5); g.lineTo(32, FM + 17); g.stroke();
         return;
       }
       // frame (light timber), lintel, sill
@@ -572,7 +577,7 @@ function windowArt(kind, glow) {
 }
 function winbox() {
   return wbox((g) => {
-    const y = F0 + 22, rand = rng(71);
+    const y = WIN1 + 2, rand = rng(71);
     g.fillStyle = lin(g, 0, y, 0, y + 5, [[0, '#8c5f38'], [1, '#5a3b22']]); g.fillRect(19, y, 26, 5);
     const cols = ['#e8504a', '#f2c94c', '#f08fb0', '#ffffff', '#9b6bd8'];
     for (let i = 0; i < 9; i++) {
@@ -584,7 +589,7 @@ function winbox() {
 }
 function mount(kind) {
   return wbox((g) => {
-    const cy = F0 + 11;
+    const cy = FM + 11;
     switch (kind) {
       case 'shelf': {
         g.fillStyle = lin(g, 0, cy + 2, 0, cy + 5, [[0, '#a87a48'], [1, '#6e4a2c']]); g.fillRect(16, cy + 2, 32, 3);
@@ -674,7 +679,7 @@ function cracksArt(v) {
   const rand = rng(990 + v);
   return wbox((g) => {
     for (let i = 0; i < 2 + v; i++) {
-      let x = 10 + rand() * 44, y = rand() < 0.5 ? F0 + 3 + rand() * 8 : 10 + rand() * 40;
+      let x = 10 + rand() * 44, y = rand() < 0.5 ? F0 + 3 + rand() * (FH - 18) : 10 + rand() * 40;
       g.strokeStyle = 'rgba(26,18,12,0.75)'; g.lineWidth = 0.9; g.beginPath(); g.moveTo(x, y);
       for (let k = 0; k < 4; k++) { x += (rand() - 0.5) * 7; y += 2 + rand() * 4; g.lineTo(x, y); }
       g.stroke();
@@ -704,7 +709,7 @@ function flowersArt() {
 }
 
 // ---------------- doors: styled leaves + entrance details ----------------
-const DH = 25, DV0 = 0.22, DV1 = 0.7;
+const DH = FH - 1, DV0 = 0.22, DV1 = 0.7;
 const DOOR_PAL = {
   plank: ['#7e4e2c', '#633b20', '#a8754a'], panel: ['#8a5a34', '#6a4226', '#b08050'], iron: ['#5e3c22', '#4a2e1a', '#8a6038'],
   arched: ['#7a4c2a', '#5e3820', '#a47048'], rustic: ['#8f7048', '#6e5434', '#b8986a'],
@@ -723,12 +728,12 @@ function doorLeafK(style, half, xa, xb) {
       g.fillStyle = 'rgba(30,18,8,0.7)'; g.fillRect(x + w - 0.7, vy1, 1.2, DH);
     }
     if (style === 'panel') {
-      for (const [y, h] of [[vy1 + 3, 8], [vy1 + 13, 9]]) {
+      for (const [y, h] of [[vy1 + DH * 0.12, DH * 0.32], [vy1 + DH * 0.52, DH * 0.36]]) {
         g.fillStyle = tone(c0, 0.82); g.fillRect(x0 + 2.5, y, x1 - x0 - 5, h);
         g.fillStyle = 'rgba(255,230,190,0.3)'; g.fillRect(x0 + 2.5, y + h - 1, x1 - x0 - 5, 1); g.fillStyle = 'rgba(20,10,4,0.45)'; g.fillRect(x0 + 2.5, y, x1 - x0 - 5, 1);
       }
     } else if (style === 'iron') {
-      for (const y of [vy1 + 3, vy1 + 11, fb - 6]) {
+      for (const y of [vy1 + 3, vy1 + DH / 2 - 1, fb - 6]) {
         g.fillStyle = '#3e3e44'; g.fillRect(x0, y, x1 - x0, 3.2); g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(x0, y, x1 - x0, 0.8);
         g.fillStyle = '#26262a'; for (let x = x0 + 2.5; x < x1 - 1; x += 4.5) { g.beginPath(); circle(g, x, y + 1.6, 0.9); g.fill(); }
       }
@@ -791,20 +796,20 @@ function awning() {
 }
 function doorLantern() {
   return wbox((g) => {
-    const x = 58, y = F0 + 6;
+    const x = 58, y = FM + 6;
     g.strokeStyle = IRON.mid; g.lineWidth = 1.4; g.beginPath(); g.moveTo(x - 3, y - 4); g.lineTo(x + 2, y - 4); g.lineTo(x + 2, y - 1); g.stroke();
     g.fillStyle = IRON.dark; g.beginPath(); g.moveTo(x - 2.5, y); g.lineTo(x + 2, y - 3); g.lineTo(x + 6.5, y); g.closePath(); g.fill();
     g.fillStyle = '#5a5a52'; g.fillRect(x - 1.5, y, 7, 8); g.fillStyle = '#e8c070'; g.fillRect(x - 0.4, y + 1.2, 4.8, 5.6);
     g.fillStyle = IRON.dark; g.fillRect(x - 2, y + 8, 8, 1.8);
   }, 1.6);
 }
-function knocker() { return wbox((g) => { g.strokeStyle = '#c9a24a'; g.lineWidth = 1.6; g.beginPath(); g.arc(32, F0 + 9, 3, 0, TAU); g.stroke(); g.fillStyle = '#a07a2a'; g.beginPath(); circle(g, 32, F0 + 6, 1.6); g.fill(); }, 1.2); }
+function knocker() { return wbox((g) => { g.strokeStyle = '#c9a24a'; g.lineWidth = 1.6; g.beginPath(); g.arc(32, FM + 9, 3, 0, TAU); g.stroke(); g.fillStyle = '#a07a2a'; g.beginPath(); circle(g, 32, FM + 6, 1.6); g.fill(); }, 1.2); }
 function wreath() {
   const rand = rng(1101);
   return wbox((g) => {
-    for (let i = 0; i < 18; i++) { const a = (i / 18) * TAU; g.fillStyle = i & 1 ? '#3f6e2e' : '#4e8238'; g.beginPath(); g.ellipse(32 + Math.cos(a) * 5, F0 + 8 + Math.sin(a) * 5, 2.4, 1.6, a, 0, TAU); g.fill(); }
-    for (let i = 0; i < 5; i++) { const a = rand() * TAU; g.fillStyle = '#c8302a'; g.beginPath(); circle(g, 32 + Math.cos(a) * 5, F0 + 8 + Math.sin(a) * 5, 1.1); g.fill(); }
-    g.fillStyle = '#b02a24'; g.beginPath(); g.moveTo(30, F0 + 13); g.lineTo(34, F0 + 13); g.lineTo(35, F0 + 17); g.lineTo(32, F0 + 15); g.lineTo(29, F0 + 17); g.closePath(); g.fill();
+    for (let i = 0; i < 18; i++) { const a = (i / 18) * TAU; g.fillStyle = i & 1 ? '#3f6e2e' : '#4e8238'; g.beginPath(); g.ellipse(32 + Math.cos(a) * 5, FM + 8 + Math.sin(a) * 5, 2.4, 1.6, a, 0, TAU); g.fill(); }
+    for (let i = 0; i < 5; i++) { const a = rand() * TAU; g.fillStyle = '#c8302a'; g.beginPath(); circle(g, 32 + Math.cos(a) * 5, FM + 8 + Math.sin(a) * 5, 1.1); g.fill(); }
+    g.fillStyle = '#b02a24'; g.beginPath(); g.moveTo(30, FM + 13); g.lineTo(34, FM + 13); g.lineTo(35, FM + 17); g.lineTo(32, FM + 15); g.lineTo(29, FM + 17); g.closePath(); g.fill();
   }, 1.2);
 }
 function doorStep() {
@@ -1224,4 +1229,4 @@ export function addArch(add) {
 }
 
 // geometry for archCompose.js (tiles)
-export const ARCH_GEOM = { FH: FH / 64, PH: PH / 64, postTop: (FR.post + 3) / 64, lanternFlame: { x: 7 / 64, lift: (FR.post + 2 + 5) / 64 } };
+export const ARCH_GEOM = { FH: FH / 64, PH: PH / 64, dlanternLift: (F1 - (FM + 6 + 4)) / 64, sconceLift: (F1 - (FM + 11 - 7)) / 64, postTop: (FR.post + 3) / 64, lanternFlame: { x: 7 / 64, lift: (FR.post + 2 + 5) / 64 } };

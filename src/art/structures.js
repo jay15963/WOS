@@ -10,9 +10,13 @@
 
 import { spritePx, rng, OW, TAU, SS, canvas, lin, rad, circle, mixc, tone, rgb, hex, clamp, leaf, taper } from './paint.js';
 
-export const WALL_H = 26 / 64;   // front face height (tiles)
+// One story of facade (agent L, docs/LEVELS.md §1): a wall face tall enough for a door and windows, one tile on
+// screen. A wall top is the floor of the next story (levels.STORY_H = WALL_H), roofs put their eaves on top of the
+// highest story (content/roofs.js), K's facade bands (art/arch.js) are painted at this height.
+export const STORY_PX = 64;        // px at 64 PPU
+export const WALL_H = STORY_PX / 64;   // front face height (tiles)
 export const FENCE_H = 36 / 64;  // sprite extent above the tile for fences/gates (tiles)
-const FH = 26, OV = 3, EXT = 12, BL = 2;
+const FH = STORY_PX, OV = 3, EXT = 12, BL = 2;
 const PH = 36;                   // fence/gate sprite: px above the tile's north edge
 
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
@@ -206,7 +210,7 @@ function wallFrontTex(g, kind, x0, x1) {
       g.fillStyle = 'rgba(255,220,170,0.12)'; g.fillRect(bx + 0.6, top, 1, FH);
     }
     // rails (top & bottom) with nails
-    for (const [ry, rh] of [[top + 4, 5], [bot - 8, 5]]) {
+    for (const [ry, rh] of FH > 40 ? [[top + 4, 5], [top + Math.round(FH / 2) - 3, 5], [bot - 8, 5]] : [[top + 4, 5], [bot - 8, 5]]) {
       g.fillStyle = lin(g, 0, ry, 0, ry + rh, [[0, WF.railHi], [1, WF.rail]]); g.fillRect(x0, ry, x1 - x0, rh);
       g.fillStyle = 'rgba(30,18,8,0.55)'; g.fillRect(x0, ry + rh, x1 - x0, 1.2);
       g.fillStyle = '#3c3a3a';
@@ -214,7 +218,7 @@ function wallFrontTex(g, kind, x0, x1) {
     }
   } else {
     // brick courses
-    const rows = 3, rh = FH / rows, bwk = 16;
+    const rows = Math.max(3, Math.round(FH / 8.7)), rh = FH / rows, bwk = 16;
     g.fillStyle = SF.mortar; g.fillRect(x0, top, x1 - x0, FH);
     for (let r = 0; r < rows; r++) {
       const py = top + r * rh, off = r & 1 ? 8 : 0;
@@ -405,7 +409,7 @@ function gateV(part) {
 // ---------------- doors ----------------
 // h (in an E-W wall): timber jambs at both tile edges (full wall blocks) + a double door leaf standing in the
 // middle of the tile; v (N-S wall): north/south jamb blocks + the leaf seen from above as a strip.
-const DH = 25; // door leaf height
+const DH = FH - 1; // door leaf height (a full story)
 const DV0 = 0.22, DV1 = 0.7; // door leaf footprint rows (h door)
 const JAMB = { top: ['#8a5f38', '#835a34'], topHi: 'rgba(255,230,190,0.4)' };
 function jambBlock(g, x0, x1, v0, v1, front) {
