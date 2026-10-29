@@ -174,7 +174,9 @@
   .cc-pv-ctrl { bottom: 8px; gap: 6px; padding: 4px; }
   .cc-round { width: 40px; height: 40px; }
   .cc-pv-top { top: 6px; }
-  .cc-tab { min-width: 62px; padding: 7px 6px 6px; font-size: 11px; }
+  .cc-tabs { gap: 3px; padding: 8px 8px 0; }
+  .cc-tab { flex: 1 1 0; min-width: 0; padding: 7px 2px 6px; font-size: 10.5px; }
+  .cc-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cc-grid { grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 7px; }
   .cc-foot { padding: 8px 10px calc(8px + var(--safe-b, 0px)); }
   .cc-btn { flex: 1; min-width: 0; }
