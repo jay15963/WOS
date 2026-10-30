@@ -390,6 +390,7 @@ export function installController(game) {
       if (any(KEYS.build)) g.events.emit('toggle', { panel: 'build' });
       if (any(KEYS.craft)) g.events.emit('toggle', { panel: 'craft' });
       if (any(KEYS.map)) g.events.emit('toggle', { panel: 'map' });
+      if (any(KEYS.site)) g.events.emit('sitemats', {}); // materials of the work site the player stands at (ui/sitepanel.js)
       if (any(KEYS.help)) g.events.emit('help', {});
 
       // taps / clicks

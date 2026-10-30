@@ -19,6 +19,7 @@ export const ACTIONS = [
   ['target', 'Próximo alvo', 'act', ['KeyZ']],
   ['eat', 'Comer', 'act', ['KeyF']],
   ['heal', 'Curar (ervas)', 'act', ['KeyV']],
+  ['site', 'Materiais da obra (perto de plantas)', 'act', ['KeyO']],
   ['ab1', 'Habilidade 1', 'abil', ['KeyQ']],
   ['ab2', 'Habilidade 2', 'abil', ['KeyR']],
   ['ab3', 'Habilidade 3', 'abil', ['KeyG']],

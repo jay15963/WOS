@@ -180,7 +180,7 @@ export class Panels {
     const pathCards = tab !== 'path' ? '' : pathCatalog(g).map((c) => `<button class="bcard" data-path="${c.key}"><span class="bi">${c.icon ? `<img class="spri" src="${c.icon}" alt="" draggable="false">` : `<span class="emo" style="display:block;width:100%;height:100%;border-radius:50%;background:${c.swatch}"></span>`}</span><span class="bt"><b>${c.name}</b><small>${c.desc}</small><small class="bm">${c.meta}</small>${c.remove ? '' : `<span class="costs">${pcost(c.cost)}</span>`}</span></button>`).join('');
     const cards = pathCards || BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
       const b = BUILDINGS[id];
-      const ok = g.creative || p.inv.has(b.cost); // creative.js: everything is free
+      const ok = g.creative || p.inv.has(b.cost); // (a plan is placed for free: missing materials only show in red)
       const entries = Object.entries(b.cost);
       const cost = g.creative && entries.length ? '<span class="cost free">grátis no criativo</span>' : entries.length ? entries.map(([it, n]) => {
         const have = p.inv.count(it);
@@ -192,7 +192,7 @@ export class Panels {
         const [st, dt] = lastLook(g, id), n = detList(dt).length, sn = stylesFor(id).find((s) => s.id === normStyle(id, st))?.name;
         sty = `<span class="bsty" data-style="${id}">✦ Estilos${sn || n ? ` · ${[sn, n ? n + ' det.' : ''].filter(Boolean).join(' · ')}` : ''}</span>`;
       }
-      return `<button class="bcard ${ok ? '' : 'cant'}" data-build="${id}"><span class="bi">${buildIco(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small>${meta ? `<small class="bm">${meta}</small>` : ''}<span class="costs">${cost}</span>${sty}</span></button>`;
+      return `<button class="bcard ${ok ? '' : 'short'}" data-build="${id}"><span class="bi">${buildIco(A, id)}</span><span class="bt"><b>${b.name}</b><small>${b.desc}</small>${meta ? `<small class="bm">${meta}</small>` : ''}<span class="costs">${cost}</span>${sty}</span></button>`;
     }).join('');
     return `<div class="tabs" data-scrollx="btabs">${tabs}<button class="tab tab-go" data-goto="craft">Criar itens ›</button></div>
       <div class="btools"><button class="btn" data-decon>${econIcon(A, 'decon')}Desmontar construções</button><small class="muted">Desmontar devolve 75% do material.</small></div>
@@ -328,7 +328,6 @@ export class Panels {
     }));
     el.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.build;
-      if (!g.creative && !p.inv.has(BUILDINGS[id].cost)) { g.events.emit('error', { text: 'Materiais insuficientes' }); return; }
       this.close();
       enterBuildMode(g, id);
     }));

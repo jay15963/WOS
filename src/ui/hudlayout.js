@@ -86,7 +86,7 @@ export function startHudEditor(game, root = document.getElementById('hud')) {
     if (q.id === 'combat') {
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       for (const c of q.el.children) {
-        if (c.classList.contains('hidden') || c.id === 'ab-int' || c.id === 'ab-rm' || c.dataset.q === 'eat') continue;
+        if (c.classList.contains('hidden') || c.id === 'ab-int' || c.id === 'ab-rm' || c.id === 'ab-bp' || c.dataset.q === 'eat') continue;
         const b = c.getBoundingClientRect();
         if (b.width < 2 || b.height < 2) continue;
         x0 = Math.min(x0, b.left); y0 = Math.min(y0, b.top); x1 = Math.max(x1, b.right); y1 = Math.max(y1, b.bottom);

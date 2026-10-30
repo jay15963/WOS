@@ -422,6 +422,21 @@ Owner's request: the night must have life and danger, and the year must turn.
   green animals at night. **W2** covers: a walker breaks into a closed room with the guest inside (same cracks on
   both, the wall falls on both, the cracks settle at sunrise).
 
+## Plantas grátis e materiais da obra (added later)
+
+- Placing a plan ("planta", a blueprint) never needs materials: the Construir cards always enter build mode;
+  missing materials only show in red. The materials are taken when the work on a plan starts.
+- **Work sites** (game/blueprints.js, local view of the shared structures):
+  - plans whose footprints are at most `LINK` = 3 tiles apart form one site, on any story;
+  - a site's need = the cost of every plan whose work has not started (`o.paid` ones already took theirs);
+    built plans stop being blueprints, so both drop out by themselves.
+- **"Obra" button** (ui/sitepanel.js):
+  - it shows while the player is within 2.6 tiles of a site's plan: on touch beside the use button, on desktop
+    as a chip above the use prompt, key **O** (keymap 'site');
+  - it opens "Materiais da obra": how many plans are left, by type, and every material as have/need ("12/45
+    madeira", green when enough), plus what is still missing;
+  - it updates live and closes when the player walks away.
+
 ## Controles e HUD do jogador (added later)
 
 Owner's request: a settings tab to remap every shortcut on desktop (keyboard keys and mouse buttons, side buttons

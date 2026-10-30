@@ -20,6 +20,7 @@ import { Panels } from './panels.js';
 import { econIcon } from './econIcons.js';
 import { foodCount, heatState } from '../game/survival.js';
 import { KEYS, keyLabel } from '../game/controller.js';
+import { installSitePanel } from './sitepanel.js';
 import { installHotbar } from './hotbar.js';
 import { installTooltips } from './tooltip.js';
 import { installHelp } from './help.js';
@@ -196,6 +197,9 @@ export function installHUD(game, { isNew } = {}) {
   // ---------- input bindings ----------
   press(R.int, () => game.ctl.interact());
   installHudLayout(root); // the player's own arrangement of the touch HUD (Configurações → HUD)
+  // "Obra": the materials of the work site of blueprints the player stands at (ui/sitepanel.js)
+  const site = installSitePanel(game, root, { press, keyLabel: () => keyLabel(KEYS.site?.[0]) });
+  R.bp = site.btn;
   // key chips / tooltips of the left buttons and the use button follow the bindings (keymap.js)
   const keyChips = () => {
     for (const b of R.quickKeys) { const k = keyLabel(KEYS[b.dataset.k]?.[0]); b.querySelector('.qk').textContent = k; b.dataset.tip = `<b>${b.dataset.t}</b>${k ? `<span class='key'>${k}</span>` : ''}`; }
@@ -451,6 +455,19 @@ export function installHUD(game, { isNew } = {}) {
         C.rmAt = R.int.style.right + R.int.style.bottom + innerWidth;
         const cs = getComputedStyle(R.int), r = parseFloat(cs.right) || 0, b = parseFloat(cs.bottom) || 0;
         R.rm.style.right = `${Math.round(r + R.int.offsetWidth + 10)}px`; R.rm.style.bottom = `${Math.round(b + 12)}px`;
+      }
+
+      // work-site materials button: beside the use button (left of "Remover" when that shows), touch; desktop CSS
+      site.update(dt);
+      if (touchMode && !R.bp.classList.contains('hidden')) {
+        const atK = (showInt ? R.int.style.right + R.int.style.bottom : '-') + showRm + innerWidth;
+        if (C.bpAt !== atK) {
+          C.bpAt = atK;
+          if (showInt) {
+            const cs = getComputedStyle(R.int), r = parseFloat(cs.right) || 0, b = parseFloat(cs.bottom) || 0;
+            R.bp.style.right = `${Math.round(r + R.int.offsetWidth + 10 + (showRm ? 56 : 0))}px`; R.bp.style.bottom = `${Math.round(b + 12)}px`;
+          } else { R.bp.style.right = ''; R.bp.style.bottom = ''; }
+        }
       }
 
       // build bar validity
