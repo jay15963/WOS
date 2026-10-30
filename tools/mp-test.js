@@ -2205,16 +2205,17 @@ def('S60', {
   // day 2: rotten
   skipDays(H, 1.05);
   await t.waitFor(() => stageOn(G, MG, b) === 'rotten' && stageOn(H, MH, b) === 'rotten', ONEWAY() + 1500, 'day 2: body B rotten on both');
+  // (an animal body is removable any time: rotten, its action is "Remover corpo"; collecting it is refused)
   const itR = MG.corpses.describeCorpse(G.game, bodyOn(G, b));
-  t.check(itR && itR.prio < 0, 'rotten body is not offered as an action (tap only)', `${itR?.kind} prio ${itR?.prio}`);
+  t.check(itR && itR.kind === 'corpse_discard', 'a rotten animal body offers "Remover corpo"', `${itR?.kind} ${itR?.verb}`);
   const rot = await ask(G, 'corpse.butcher', { id: b, blade: 'knife', tier: 1 });
   t.check(!rot.ok && /podre/i.test(rot.why || ''), 'Coletar on a rotten body: "Está podre demais"', rot.why);
   const errs = [];
   t.on(G, 'error', (d) => errs.push(d?.text));
   const sb = A.freeSpot(G, MG, bodyOn(G, b).x, bodyOn(G, b).y, { rMin: 0.6, rMax: 1.2 });
   if (sb) A.teleport(G, sb[0], sb[1]);
-  MG.gathering.startWork(G.game, itR);
-  t.check(!G.game.player.work && errs.some((e) => /podre/i.test(e || '')), 'the work refuses with "Está podre demais"', short(errs));
+  MG.gathering.startWork(G.game, { o: bodyOn(G, b), corpse: true, x: bodyOn(G, b).x, y: bodyOn(G, b).y, reach: 0.95, kind: 'butcher', verb: 'Coletar', icon: 'gather', prio: 3 });
+  t.check(!G.game.player.work && errs.some((e) => /podre/i.test(e || '')), 'the Coletar work refuses with "Está podre demais"', short(errs));
   const early = await ask(G, 'corpse.bones', { id: b });
   t.check(!early.ok, 'no bones before the skeleton stage', early.why);
   // days 3–5: skeleton → bones
@@ -2323,14 +2324,14 @@ def('S61', {
 });
 
 def('S63', {
-  title: 'I: "Remover corpo" — any body, any time; what it carried falls on the ground', timeout: 90000,
-  expected: 'The guest dies carrying items; the host removes its fresh body through the real work (corpseMenu "Remover corpo" → work corpse_discard → intent corpse.discard): the body is gone on both, the items it carried lie on the ground (same loot on both, same total); a right-click-style menu on a butchered / empty body offers it too; digest equal',
-  api: 'corpses.corpseMenu / discardIt → work corpse_discard → intent corpse.discard → ops loot.add + corpse.remove {fx: dust}',
+  title: 'I: bodies — animals are removed, people are dragged (Arrastar / Largar)', timeout: 90000,
+  expected: 'The guest dies carrying items: its body (a person) can not be removed — the menu offers "Arrastar corpo", a removal request is refused; the host drags it (corpse.drag → dragBy on both), walks off and lets go (corpse.drop): the body lies where the host left it on both, still holding its items. An animal body (a deer) is removed at once from its menu ("Remover corpo"): gone on both; digest equal',
+  api: 'corpses.corpseMenu / dragIt → work corpse_drag → intent corpse.drag {on 1} → op corpse.drag; describeCorpse corpse_drop → intent corpse.drag {on 0, x, y} → op corpse.drop; discardIt → intent corpse.discard (people refused) → op corpse.remove',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
-  t.need(MH.corpses?.corpseMenu && MH.corpses?.discardIt, 'corpse removal missing');
+  t.need(MH.corpses?.corpseMenu && MH.corpses?.dragIt, 'corpse dragging missing');
   A.keepAlive(t, H);
-  const gp = G.game.player;
+  const gp = G.game.player, hp = H.game.player;
   for (let i = 0; i < gp.inv.size; i++) gp.inv.slots[i] = null;
   A.ensure(G, { wood: 5, pebble: 2 });
   const before = new Set(H.game.corpses.map.keys());
@@ -2338,24 +2339,44 @@ def('S63', {
   const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.owner === G.pid), RT() + 800, "guest's body on the host");
   await t.waitFor(() => bodyOn(G, ch.id), ONEWAY() + 600, "guest's body on the guest");
   MG.player.respawnPlayer(G.game);
-  const items = {}; for (const s of ch.store.slots) if (s) items[s.id] = (items[s.id] || 0) + s.qty;
   const menu = MH.corpses.corpseMenu(H.game, ch);
-  t.check(menu.some((m) => m.id === 'discard' && m.label === 'Remover corpo'), 'the body menu offers "Remover corpo"', short(menu.map((m) => m.label)));
+  t.check(menu.some((m) => m.id === 'drag') && !menu.some((m) => m.id === 'discard'), 'a person\'s body: "Arrastar corpo", no "Remover corpo"', short(menu.map((m) => m.label)));
   const s = A.freeSpot(H, MH, ch.x, ch.y, { rMin: 0.6, rMax: 1.2 });
   t.assert(s, 'free spot next to the body');
   A.teleport(H, s[0], s[1]);
-  const lootBefore = new Set(H.game.loot.map((l) => l.id));
-  const invH0 = {}; for (const k of Object.keys(items)) invH0[k] = A.count(H, k);
-  menu.find((m) => m.id === 'discard').run();
-  await t.waitFor(() => !H.game.corpses.map.has(ch.id) && !G.game.corpses.map.has(ch.id), 12000, 'the body is gone on both');
-  await t.sleep(ONEWAY() + 300);
-  const dropped = (f) => { const o = {}; for (const l of f.game.loot) if (!lootBefore.has(l.id) && Math.hypot(l.x - ch.x, l.y - ch.y) < 4) o[l.item] = (o[l.item] || 0) + l.qty; return o; };
-  // (the host stands next to it: its magnet may pick some up — ground + what the host gained = what the body held)
-  await t.sleep(1500);
-  const dh = dropped(H), dg = dropped(G), sum = {};
-  for (const k of Object.keys(items)) sum[k] = (dh[k] || 0) + (A.count(H, k) - (invH0[k] || 0));
-  t.check(Object.keys(items).every((k) => sum[k] === items[k]), 'what it carried fell on the ground (or into the host bag)', `body ${short(items)} · ground ${short(dh)} · ground+host ${short(sum)}`);
-  t.check(JSON.stringify(dh) === JSON.stringify(dg), 'the same loot on the ground on both', `host ${short(dh)} · guest ${short(dg)}`);
+  let refused = null;
+  H.game.net.request('corpse.discard', { id: ch.id }, { onReject: (why) => { refused = why || 'refused'; } });
+  await t.waitFor(() => refused, 2000, 'removing a person\'s body is refused');
+  t.check(H.game.corpses.map.has(ch.id), 'the body is still there');
+  // drag it
+  menu.find((m) => m.id === 'drag').run();
+  await t.waitFor(() => ch.dragBy === H.pid && bodyOn(G, ch.id)?.dragBy === H.pid, 6000 + RT(), 'the host drags it (on both)');
+  const x0 = ch.x, y0 = ch.y;
+  const to = A.freeSpot(H, MH, x0 + 3, y0, { rMin: 0, rMax: 2 });
+  t.assert(to, 'a free spot 3 tiles away');
+  A.teleport(H, to[0], to[1]);
+  await t.sleep(1200); // (its drawing follows the host)
+  const it = MH.corpses.describeCorpse(H.game, ch);
+  t.check(it?.kind === 'corpse_drop', 'its action is now "Largar corpo"', it?.verb);
+  H.game.ctl.interact(it);
+  await t.waitFor(() => !ch.dragBy && !bodyOn(G, ch.id)?.dragBy, 6000 + RT(), 'let go on both');
+  const gch = bodyOn(G, ch.id);
+  t.check(Math.hypot(ch.x - x0, ch.y - y0) > 1.5 && Math.hypot(ch.x - hp.x, ch.y - hp.y) < 2, 'the body lies where the host left it', `${f2(x0)},${f2(y0)} → ${f2(ch.x)},${f2(ch.y)} (host ${f2(hp.x)},${f2(hp.y)})`);
+  t.check(gch && Math.abs(gch.x - ch.x) < 0.01 && Math.abs(gch.y - ch.y) < 0.01, 'same place on the guest', gch ? `${f2(gch.x)},${f2(gch.y)}` : 'none');
+  t.check((ch.store?.slots || []).some(Boolean), 'it still holds what it carried');
+  // an animal body is removed at once
+  const MO = await fimp(H, 'game/mobs.js'), MC = await fimp(H, 'game/combat.js');
+  const ds = A.freeSpot(H, MH, hp.x + 2, hp.y, { rMin: 0, rMax: 2, r: 0.3 });
+  const deer = MO.spawnLoose(H.game, 'deer', ds[0], ds[1]);
+  const b0 = new Set(H.game.corpses.map.keys());
+  MC.killMob(H.game, deer, hp);
+  const dc = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !b0.has(c.id) && c.of === 'deer'), RT() + 800, 'the deer body');
+  await t.waitFor(() => bodyOn(G, dc.id), ONEWAY() + 600, 'the deer body on the guest');
+  const dm = MH.corpses.corpseMenu(H.game, dc);
+  t.check(dm.some((m) => m.id === 'discard' && m.label === 'Remover corpo'), 'an animal body offers "Remover corpo"', short(dm.map((m) => m.label)));
+  A.teleport(H, dc.x + 0.7, dc.y);
+  dm.find((m) => m.id === 'discard').run();
+  await t.waitFor(() => !H.game.corpses.map.has(dc.id) && !G.game.corpses.map.has(dc.id), 12000, 'the animal body is gone on both');
   await t.checkDigest(H, G);
 });
 

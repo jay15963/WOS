@@ -318,18 +318,64 @@ defineIntent('corpse.bones', {
 });
 
 defineIntent('corpse.discard', {
-  doc: '"Remover corpo" (any stage, any time, end of the local work): the body is gone; whatever it carried falls on the ground as loot, a skeleton gives its bones to the actor.',
+  doc: '"Remover corpo" (end of the local work): animals / monsters any time, people (pawn bodies: players, raiders) only as bones — they are dragged instead (corpse.drag). The body is gone; whatever it carried falls on the ground as loot, a skeleton gives its bones to the actor.',
   args: { id: 'corpseId' },
   run(game, a, actor, net) {
     const c = corpseById(game, a.id);
     if (!c) return 'Já foi removido';
     if (!near(actor.ent, c)) return 'Chegue mais perto';
+    if (isPawnCorpse(c) && stageOf(game, c) !== 'skeleton') return 'Corpos de pessoas não somem: arraste-o (só a ossada pode ser removida)';
+    if (c.dragBy) return 'Alguém está arrastando este corpo';
     const rows = [];
     for (const s of c.store?.slots || []) if (s && s.qty > 0 && ITEMS[s.id]) rows.push(lootRow(net, c.x, c.y, s.id, s.qty, 0.7));
     if (rows.length) net.emit('loot.add', { list: rows });
     const sk = stageOf(game, c) === 'skeleton', n = sk ? bonesOf(c) : 0;
     net.emit('corpse.remove', { ids: [c.id], by: actor.pid, give: n ? { bone: n } : undefined, xp: 0, fx: sk ? 'bones' : 'dust',
       toast: rows.length ? 'Corpo removido · o que ele carregava ficou no chão' : 'Corpo removido', toastKind: 'info' });
+  },
+});
+
+// ---------- dragging a person's body (owner's request: people's bodies are moved, not removed) ----------
+// corpse.drag {id, on: 1}: start (a pawn body, not bones, nobody else on it, in reach); {id, on: 0, x, y}: drop it
+// where the dragger leaves it (x, y within reach of the dragger's known position, else right there). While dragged,
+// every peer draws the body behind its dragger (corpses.js, cosmetic); only the drop moves it (op corpse.drop).
+const DRAG_REACH = 2.6;
+defineIntent('corpse.drag', {
+  doc: 'Start (on 1) / stop (on 0, at x, y) dragging a person\'s body (pawn corpse, not bones).',
+  args: { id: 'corpseId', on: '0|1', x: 'number?', y: 'number?' },
+  run(game, a, actor, net) {
+    const c = corpseById(game, a.id);
+    if (!c) return 'Este corpo não existe mais';
+    if (num(a.on)) {
+      if (!isPawnCorpse(c)) return 'Só corpos de pessoas são arrastados';
+      if (stageOf(game, c) === 'skeleton') return 'Restou só a ossada';
+      if (c.dragBy && c.dragBy !== actor.pid) return 'Alguém já está arrastando este corpo';
+      for (const o of game.corpses.map.values()) if (o !== c && o.dragBy === actor.pid) return 'Você já está arrastando um corpo';
+      if (!near(actor.ent, c, DRAG_REACH)) return 'Chegue mais perto';
+      net.emit('corpse.drag', { id: c.id, by: actor.pid });
+      return;
+    }
+    if (c.dragBy !== actor.pid) return 'Você não está arrastando este corpo';
+    const e = actor.ent;
+    let x = num(a.x, c.x), y = num(a.y, c.y);
+    if (e && Math.hypot(x - e.x, y - e.y) > DRAG_REACH) { x = e.x; y = e.y; } // (trust the dragger's spot within reach)
+    net.emit('corpse.drop', { id: c.id, x: r2(x), y: r2(y) });
+  },
+});
+defineOp('corpse.drag', {
+  doc: 'Someone starts dragging a body (its drawing follows them on every peer).',
+  args: { id: 'corpseId', by: 'pid' },
+  apply(game, a) { const c = corpseById(game, a.id); if (c) { c.dragBy = a.by; game.corpses.v++; } },
+});
+defineOp('corpse.drop', {
+  doc: 'A dragged body is left at (x, y).',
+  args: { id: 'corpseId', x: 'number', y: 'number' },
+  apply(game, a) {
+    const c = corpseById(game, a.id);
+    if (!c) return;
+    c.dragBy = null; c.x = num(a.x, c.x); c.y = num(a.y, c.y);
+    game.corpses.v++;
+    game.events.emit('corpsedrop', { c });
   },
 });
 

@@ -7,15 +7,14 @@
 import { siteNear, siteMaterials } from '../game/blueprints.js';
 import { BUILDINGS, ITEMS } from '../game/data.js';
 import { itemIco, buildIco } from './econIcons.js';
-
-const LIST_IC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l1 2h2v15H5V6h2z"/><path d="M9 4.5h6"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5"/></svg>';
+import { uiIcon } from './icons.js';
 
 export function installSitePanel(game, root, { press, keyLabel }) {
   const btn = document.createElement('button');
   btn.className = 'ab ab-bp hidden';
   btn.id = 'ab-bp';
   btn.title = 'Materiais da obra';
-  btn.innerHTML = `<span class="ic">${LIST_IC}</span><span class="lbl">Obra</span><span class="key"></span>`;
+  btn.innerHTML = `<span class="ic">${uiIcon(game.A, 'clipboard')}</span><span class="lbl">Obra</span><span class="key"></span>`;
   root.querySelector('#ab')?.appendChild(btn);
   const card = document.createElement('div');
   card.className = 'sitecard hidden';

@@ -95,6 +95,10 @@ export class Input {
 
   // is this pointer driving the joystick? (build-mode paint drags ignore it)
   isJoyPointer(id) { return this.joy.id === id; }
+  // has the joystick finger stayed put (never dragged out of the dead zone)? — a long press there is a context menu
+  joyStill(id) { const p = this.pointers.get(id); return !!p && p.joy && Math.hypot(p.x - p.sx, p.y - p.sy) < 12; }
+  // give the joystick finger up (a long press opened a context menu): no walking, no tap when it lifts
+  releaseJoy(id) { const p = this.pointers.get(id); if (p?.joy) { p.joy = false; p.pinched = true; this._endJoy(); this._gesture(); } }
 
   _down(e) {
     e.preventDefault();

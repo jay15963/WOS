@@ -24,7 +24,7 @@ export const SPECIES = {
   // winter nights (seasons.js): frozen dead that walk out of the dark (kind 'pawn', faction 'walker', walkers.js);
   // they carry ice swords / ice spears (as strong as stone) and crumble to snow at sunrise
   walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 9.5, r: 0.24, scale: 1.04, xp: 2.4, social: true,
-            loot: [] }, // (now and then its ice weapon: walkers.js)
+            loot: [] }, // (XP only: walkers.js)
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 8.5, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },

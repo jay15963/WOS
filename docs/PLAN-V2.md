@@ -436,6 +436,23 @@ Owner's request: the night must have life and danger, and the year must turn.
 
   Layouts saved by groups are converted (`wos.hudlayout` v2).
 
+## Corpos: arrastar pessoas, remover animais (added later)
+
+- **Animals and monsters:** their bodies can be removed any time (context menu, the touch "Remover" button; when
+  butchered or rotten, removing is their tap action).
+- **People's bodies** (players and NPCs such as the raiders: pawn corpses): never removed before the bones.
+  - They are dragged: "Arrastar corpo" (touch button beside the use button, context menu, or the tap action of
+    an empty body) → intent `corpse.drag {on: 1}` → op `corpse.drag` (dragBy).
+  - Every peer draws the body behind its dragger (corpses.js, cosmetic); the dragger walks at 72% speed.
+  - "Largar corpo" (its use action while dragged) → `corpse.drag {on: 0, x, y}` → op `corpse.drop` at that spot.
+  - The host lets go of a body whose dragger left or died. `corpse.discard` refuses people's bodies.
+- **Winter walkers:** shatter (no body) and give XP only, no drop.
+- **Touch long press on the joystick side:** a finger that starts the joystick but stays still ~0.5 s over
+  something with a context menu opens the menu and gives up the joystick (input.js `joyStill` / `releaseJoy`).
+  A finger that drags first stays the joystick.
+- **HUD icons** (icon agent): bold cream-and-ink glyphs with an outline everywhere (`icons.js` `glyph`,
+  `hud-icons.css`). "Remover" / "Arrastar" and "Obra" sit above the use button on touch, clear of the message feed.
+
 ## Plantas grátis e materiais da obra (added later)
 
 - Placing a plan ("planta", a blueprint) never needs materials: the Construir cards always enter build mode;

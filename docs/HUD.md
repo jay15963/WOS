@@ -13,6 +13,7 @@ Nada de retângulos escuros translúcidos com desfoque nem pílulas na fonte do 
 | `src/ui/hud-theme.css` | fonte, **tokens**, primitivas `.n-*`, peles da UI injetada por outros módulos (barra de construção e menu de contexto do A, Detalhes do K, barra de caminhos do M, avisos `notify.js`, mira do G) |
 | `src/ui/hud.css` | layout + peles do HUD em jogo (cartão, alvo, radar, barra de ações, atalhos, janelas, dicas, ajuda, morte) |
 | `src/ui/menu.css` | menu principal (layout do B), pausa, configurações, sala, chat, aviso de instalação — seção final "N · theme alignment" |
+| `src/ui/hud-icons.css` | **ícones** (carregado por último): glifos em negrito com contorno de tinta (`icons.js` `glyph`), halos e placas nos botões de toque, tamanhos dos glifos, contorno nos sprites de itens/construções |
 | `src/ui/hudtheme.js` | `installHudTheme()`: texturas procedurais (`--n-hatch` hachura, `--n-grain` papel) e o sprite de símbolos SVG (`nIcon(nome)` → `<svg><use href="#n-nome"/></svg>`) |
 | `src/ui/radar.js` | o radar (minimapa elíptico + arco do sol + gotas na borda) |
 | `vendor/barlow-condensed/` | fonte Barlow Condensed (OFL 1.1, `@fontsource/barlow-condensed` 5.2.6): 600, 700, 700 itálico, 800 itálico |

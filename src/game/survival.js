@@ -331,6 +331,7 @@ export function survivalSystem() {
       let spd = 1;
       if (hungry) { spd *= H.hungrySpeed; p.energy = Math.max(0, p.energy - dt * 11 * (1 - H.hungryRegen)); }
       if (chilled) spd *= T.chilledSpeed;
+      if (game._dragCorpse) spd *= 0.72; // dragging a body (corpses.js)
       if (spd !== 1) p.speed *= spd;
 
       hungerWarnT -= dt;

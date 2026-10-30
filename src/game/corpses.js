@@ -25,7 +25,13 @@ const r2 = (v) => Math.round(v * 100) / 100;
 export function initCorpses(game) {
   game.corpses = {
     map: new Map(), v: 0, fading: [],
-    forNear(x, y, r, fn) { for (const c of this.map.values()) if (Math.abs(c.x - x) <= r && Math.abs(c.y - y) <= r) { const it = describeCorpse(game, c); if (it) fn(it); } },
+    forNear(x, y, r, fn) {
+      for (const c of this.map.values()) {
+        // (a body I drag is always at hand: its action is "Largar")
+        if (c.dragBy && c.dragBy === game.net.pid) { const it = describeCorpse(game, c); if (it) fn(it); continue; }
+        if (Math.abs(c.x - x) <= r && Math.abs(c.y - y) <= r) { const it = describeCorpse(game, c); if (it) fn(it); }
+      }
+    },
     pickAt(wx, wy, tol) {
       let best = null, bd = 1e9;
       for (const c of this.map.values()) {
@@ -94,11 +100,17 @@ export function describeCorpse(game, c) {
   const st = stageOf(game, c);
   if (st === 'gone') return null;
   const base = { o: c, corpse: true, x: c.x, y: c.y, reach: 0.95 };
+  // dragged: by me → "Largar" right here (it is behind me); by someone else → hands off
+  if (c.dragBy) {
+    if (c.dragBy !== game.net.pid) return null;
+    const p = game.player;
+    return { ...base, x: p.x, y: p.y, kind: 'corpse_drop', verb: 'Largar corpo', icon: 'hand', prio: 6 };
+  }
   if (st === 'skeleton') return { ...base, kind: 'corpse_bones', verb: c.of === 'spider' ? 'Remover restos' : 'Remover ossada', icon: 'skull', prio: 1 };
-  // a body with nothing left to do with it (an empty pawn body, a butchered carcass) can still be removed
-  if (isPawnCorpse(c)) return c.store ? { ...base, kind: 'corpse_open', verb: 'Revistar', icon: 'bag', prio: 3, name: c.name } : { ...discardIt(c), prio: -1 };
-  if (c.butchered) return { ...discardIt(c), prio: -1 };
-  if (st === 'rotten') return { ...base, kind: 'butcher', verb: 'Coletar', icon: 'gather', prio: -1 }; // tap → "Está podre demais"
+  // people (players, raiders): searched while they carry something, else dragged — never removed before the bones
+  if (isPawnCorpse(c)) return c.store ? { ...base, kind: 'corpse_open', verb: 'Revistar', icon: 'bag', prio: 3, name: c.name } : dragIt(c);
+  // animals / monsters: butchered or too rotten → removed (any time from the context menu / the "Remover" button)
+  if (c.butchered || st === 'rotten') return { ...discardIt(c), prio: 1 };
   return { ...base, kind: 'butcher', verb: 'Coletar', icon: 'gather', prio: 3 };
 }
 
@@ -171,7 +183,47 @@ registerWork('corpse_bones', {
   },
 });
 
-// "Remover corpo": any body, any stage (what it carried falls on the ground; a skeleton gives its bones)
+// people's bodies (pawn corpses) are dragged, not removed: "Arrastar corpo" (start) / "Largar corpo" (drop)
+export const canDiscard = (game, c) => !isPawnCorpse(c) || stageOf(game, c) === 'skeleton';
+export const canDrag = (game, c) => isPawnCorpse(c) && stageOf(game, c) !== 'skeleton' && !c.dragBy;
+export const dragIt = (c) => ({ o: c, corpse: true, x: c.x, y: c.y, reach: 0.95, kind: 'corpse_drag', verb: 'Arrastar corpo', icon: 'hand', prio: 1 });
+registerWork('corpse_drag', {
+  valid: (g, it) => !gone(g, it.o) && canDrag(g, it.o),
+  start(game, it) { if (!canDrag(game, it.o)) { err(game, 'Não dá para arrastar este corpo'); return null; } return { type: 'pick', cycle: 0.25, need: 1, label: 'Pegando o corpo', instantHit: true }; },
+  finish(game, wk) {
+    game.net.request('corpse.drag', { id: wk.it.o.id, on: 1 }, { onReject: (why) => why && err(game, why) });
+    return true;
+  },
+});
+registerWork('corpse_drop', {
+  valid: (g, it) => !gone(g, it.o) && it.o.dragBy === g.net.pid,
+  start() { return { type: 'pick', cycle: 0.2, need: 1, label: 'Largando', instantHit: true }; },
+  finish(game, wk) { dropCorpse(game, wk.it.o); return true; },
+});
+// drop the body I drag where it is drawn (behind me)
+export function dropCorpse(game, c) {
+  const v = DRAG.get(c);
+  game.net.request('corpse.drag', { id: c.id, on: 0, x: r2(v ? v.x : game.player.x), y: r2(v ? v.y : game.player.y) }, { onReject: (why) => why && err(game, why) });
+}
+// where a dragged body is drawn: behind its dragger (the side it faces away from), eased (cosmetic, per peer)
+const DRAG = new WeakMap();
+function draggerOf(game, pid) {
+  if (pid === game.net.pid) return game.player;
+  return game.session?.players?.get?.(pid)?.ent || null;
+}
+function dragView(game, c, dt) {
+  const e = draggerOf(game, c.dragBy);
+  let v = DRAG.get(c);
+  if (!v) DRAG.set(c, (v = { x: c.x, y: c.y, view: {} }));
+  if (e) {
+    const f = e.facing || 's', bx = f === 'e' ? -0.75 : f === 'w' ? 0.75 : 0, by = f === 'n' ? 0.55 : f === 's' ? -0.45 : 0.05;
+    const k = 1 - Math.exp(-(dt || 0.016) * 9);
+    v.x += (e.x + bx - v.x) * k; v.y += (e.y + by - v.y) * k;
+  }
+  return v;
+}
+
+// "Remover corpo": animals / monsters any time, people only as bones (what it carried falls on the ground; a skeleton gives its bones)
 const DISCARD_TIME = { s: 1.2, m: 1.8, l: 2.6, p: 2.2 };
 export const discardIt = (c) => ({ o: c, corpse: true, x: c.x, y: c.y, reach: 0.95, kind: 'corpse_discard', verb: 'Remover corpo', icon: 'skull', prio: 0 });
 registerWork('corpse_discard', {
@@ -187,11 +239,15 @@ registerWork('corpse_discard', {
     return true;
   },
 });
-// the context menu of a body (desktop right click, touch long press): its usual action + "Remover corpo"
+// the context menu of a body (desktop right click, touch long press): its usual action + "Remover corpo" (animals,
+// monsters, bones) or "Arrastar corpo" (people)
 export function corpseMenu(game, c) {
   const out = [], it = describeCorpse(game, c);
-  if (it && it.kind !== 'corpse_bones') out.push({ id: 'use', label: it.verb, icon: 'use', run: () => game.ctl?.interact?.(describeCorpse(game, c)) });
-  out.push({ id: 'discard', label: 'Remover corpo', icon: 'trash', run: () => game.ctl?.interact?.(discardIt(c)) });
+  if (!it) return out;
+  if (it.kind !== 'corpse_bones' && it.kind !== 'corpse_drag' && it.kind !== 'corpse_discard') out.push({ id: 'use', label: it.verb, icon: 'use', run: () => game.ctl?.interact?.(describeCorpse(game, c)) });
+  if (it.kind === 'corpse_drop') return out;
+  if (canDrag(game, c)) out.push({ id: 'drag', label: 'Arrastar corpo', icon: 'hand', run: () => game.ctl?.interact?.(dragIt(c)) });
+  else if (canDiscard(game, c)) out.push({ id: 'discard', label: it.kind === 'corpse_bones' ? it.verb : 'Remover corpo', icon: 'trash', run: () => game.ctl?.interact?.(it.kind === 'corpse_bones' ? it : discardIt(c)) });
   return out;
 }
 
@@ -267,6 +323,15 @@ export function corpsesSystem() {
         if (b2) game.audio?.play('flies', { x: b2.x, y: b2.y, volume: 0.5 });
       }
       for (let i = C.fading.length - 1; i >= 0; i--) if (game.time - C.fading[i].t0 > 0.6) C.fading.splice(i, 1);
+      // dragged bodies follow their draggers (drawn there); the host lets go of a body whose dragger left or died
+      let mine = false;
+      for (const c of C.map.values()) {
+        if (!c.dragBy) { if (DRAG.has(c)) DRAG.delete(c); continue; }
+        const v = dragView(game, c, dt), e = draggerOf(game, c.dragBy);
+        if (c.dragBy === game.net.pid) mine = true;
+        if (game.net.auth && (!e || e.dead)) game.net.emit('corpse.drop', { id: c.id, x: r2(v.x), y: r2(v.y) });
+      }
+      game._dragCorpse = mine; // (survival.js: dragging a body slows you down)
       // derived, cosmetic: c.rotten = the flies stage (also read by audio code); recomputed from shared time
       rotT -= dt;
       if (rotT <= 0) { rotT = 0.5; for (const c of C.map.values()) { const a = corpseAge(game, c); c.rotten = a >= 0.95 && a < 1.95; } }
@@ -274,10 +339,12 @@ export function corpsesSystem() {
     render(game, B, v) {
       const A = game.A, t = game.time, C = game.corpses;
       const nFly = game.quality === 'low' ? 3 : 5;
-      for (const c of C.map.values()) {
+      for (const c0 of C.map.values()) {
+        let c = c0;
+        if (c0.dragBy) { const d = DRAG.get(c0); if (d) c = Object.assign(d.view, c0, { x: d.x, y: d.y }); } // (drawn behind its dragger)
         if (c.x < v.x0 - 2 || c.x > v.x1 + 2 || c.y < v.y0 - 2 || c.y > v.y1 + 2) continue;
-        const age = corpseAge(game, c);
-        drawCorpse(B, A, c, age, t - (c._t0 ?? -100), t);
+        const age = corpseAge(game, c0);
+        drawCorpse(B, A, c, age, t - (c0._t0 ?? -100), t);
         if (age > 0.9 && age < 2) drawFlies(B, A, c, Math.min(1, (age - 0.9) * 10) * Math.min(1, (2 - age) * 10), t, nFly);
       }
       for (const f of C.fading) {

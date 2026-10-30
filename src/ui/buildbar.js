@@ -359,18 +359,22 @@ export function installBuildbar(game) {
   };
   const stopHold = () => { if (hold) { clearTimeout(hold.timer); hold = null; } };
   canvas.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'touch' || isJoy(e.pointerId)) return;
+    if (e.pointerType !== 'touch') return;
     touches.set(e.pointerId, { sx: e.clientX, sy: e.clientY });
     if (touches.size >= 2 || pinching()) { stopPaint(); stopHold(); return; }
     if (game.player.dead || game.ui?.modal) return;
     const m = game.build.mode;
-    if (m) { paint = { id: e.pointerId, sx: e.clientX, sy: e.clientY, on: false }; return; }
+    if (m) { if (!isJoy(e.pointerId)) paint = { id: e.pointerId, sx: e.clientX, sy: e.clientY, on: false }; return; }
     if (game.mining?.mode) return;
+    // long press = context menu, also with the finger that started the joystick on the left side of the screen, as
+    // long as it never dragged: then the joystick is given up (no walking) and the menu opens
     hold = { id: e.pointerId, x: e.clientX, y: e.clientY, timer: setTimeout(() => {
       const h = hold; hold = null;
       if (!h || touches.size !== 1 || pinching() || game.build.mode) return;
+      const I = game.input, joy = isJoy(h.id);
+      if (joy && !I.joyStill?.(h.id)) return;
       const o = structureUnder(h.x, h.y);
-      if (o && openMenu(o, h.x, h.y)) navigator.vibrate?.(12);
+      if (o && openMenu(o, h.x, h.y)) { if (joy) I.releaseJoy?.(h.id); navigator.vibrate?.(12); }
     }, 520) };
   });
   addEventListener('pointermove', (e) => {

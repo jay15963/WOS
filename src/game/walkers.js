@@ -1,7 +1,7 @@
 // Winter nights (owner's request): the frozen dead — "Andarilhos do Gelo" (SPECIES.walker, kind 'pawn', faction
 // 'walker') — walk out of the dark in small groups with ice swords / ice spears (as strong as stone), use the
 // raiders' brain (bandits.js updateBandit: melee specials, spear throws as 'ice_spear') and crumble to snow at
-// sunrise or when the winter ends (no body, no loot, no XP). Killed by a player, one may leave its ice weapon.
+// sunrise or when the winter ends (no body, no loot, no XP). Killed by a player: XP only (they shatter, nothing drops).
 // Host only: walkersTick runs from mobsSystem's slow tick (sync 'host'); guests see them through the entity
 // stream (species 'walker': the art draws them, agent "seasons visuals").
 //
@@ -25,8 +25,7 @@ import { mobBlocked } from './nav.js';
 import { allocMob, levelForDistance, litNear } from './mobs.js';
 import { allPlayers, minPlayerDist, inAnyView } from './players.js';
 import { makeLook } from './bandits.js';
-import { killMob, lootable, hasLOS, faceTowards, dist } from './combat.js';
-import { lootRows } from './mut/roll.js';
+import { killMob, hasLOS, faceTowards, dist } from './combat.js';
 import { BUILDINGS } from './data.js';
 import { enclosedRoom } from './roofs.js';
 import { steer, resetNav } from './nav.js';
@@ -160,11 +159,7 @@ export function walkerBrain(game, m, dt) {
   return true;
 }
 
-function walkerDeath(game, m) {
-  const out = [];
-  if (m.weapon && lootable(m.weapon) && game.net.roll() < 0.25) lootRows(game.net, out, m.x, m.y, m.weapon, 1);
-  return { rows: out, toast: null };
-}
+function walkerDeath() { return { rows: [], toast: null }; } // (owner: XP only — the ice shatters, nothing drops)
 
 function spawnWalker(game, x, y, group, home) {
   const sp = SPECIES.walker, w = game.world, R = () => game.net.roll();

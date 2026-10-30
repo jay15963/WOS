@@ -1,0 +1,122 @@
+/* =====================================================================================================
+   HUD icons (loaded after hud-theme.css, hud.css and menu.css).
+   Glyphs (icons.js glyph(): svg.hgi) are bold two-tone shapes with their own ink outline; this file sizes them so
+   they fill their buttons, adds a soft ink halo where they sit on the translucent touch glass (snow / sand behind),
+   gives labels and small chips solid plates, and lifts the item slots so dark items keep their contrast.
+   ===================================================================================================== */
+
+.hgi { overflow: visible; }
+
+/* ---------- left quick buttons (bag / craft / build / map / eat) ---------- */
+.qb, .desktop .qb { padding: 6px; }
+.qb > .hgi { filter: drop-shadow(0 1.5px 0 rgba(20, 12, 6, 0.55)); }
+.touch .qb > .hgi { opacity: 1; filter: drop-shadow(0 0 1.5px rgba(20, 12, 6, 0.75)) drop-shadow(0 1.5px 0 rgba(20, 12, 6, 0.6)); }
+/* touch glass: a slightly denser centre behind the glyph (the edge stays translucent) */
+.touch .qb, .touch .ab:not(.ab-int) { background: radial-gradient(circle, rgba(30, 18, 10, 0.42) 0 46%, var(--n-glass) 72%); }
+.touch .qb.down, .touch .ab:not(.ab-int):is(.down, .cool, .ready, .queued, .active, .nostock) { background: var(--n-glass-on); }
+.touch .ab-atk.on { background: radial-gradient(circle, rgba(92, 30, 22, 0.62) 0 46%, rgba(92, 30, 22, 0.42) 72%); }
+.touch .qb, .touch .ab:not(.ab-int) { box-shadow: 0 0 0 1.5px rgba(36, 22, 13, 0.7), inset 0 0 0 2px var(--n-glass-ring); }
+.touch .ab.queued { box-shadow: 0 0 0 1.5px var(--n-ink), inset 0 0 0 2px #fff1b0, 0 0 12px 3px rgba(247, 217, 122, 0.5); }
+.touch .ab.active { box-shadow: 0 0 0 1.5px var(--n-ink), inset 0 0 0 2px var(--n-teal-hi), 0 0 12px 3px rgba(134, 220, 205, 0.5); }
+.touch .ab.nostock { box-shadow: 0 0 0 1.5px var(--n-ink), inset 0 0 0 2px var(--n-coral); }
+.touch .ab-atk.on { box-shadow: 0 0 0 1.5px var(--n-ink), inset 0 0 0 2.5px var(--n-coral-hi); }
+
+/* ---------- action bar: glyphs fill the face ---------- */
+.ab .ic { width: 66%; height: 66%; filter: drop-shadow(0 1.5px 0 rgba(20, 12, 6, 0.55)); }
+.touch .ab .ic { opacity: 1; filter: drop-shadow(0 0 1.5px rgba(20, 12, 6, 0.75)) drop-shadow(0 1.5px 0 rgba(20, 12, 6, 0.6)); }
+.touch .ab-atk .ic { width: 60%; height: 60%; }
+.desktop .ab .ic { width: 70%; height: 70%; }
+/* states keep their look over the rules above */
+.ab.noen .ic, .touch .ab.noen .ic { filter: saturate(0) brightness(0.8) drop-shadow(0 1px 0 rgba(36, 22, 13, 0.9)); }
+.ab.nostock .ic, .touch .ab.nostock .ic { filter: saturate(0) brightness(0.6); }
+.ab.far .ic, .touch .ab.far .ic { filter: drop-shadow(0 0 2px rgba(229, 87, 74, 0.95)) drop-shadow(0 0 1px var(--n-ink)); }
+/* cooldown seconds: bigger and outlined, over the dimmed glyph */
+.ab .cdt { font-size: 22px; text-shadow: var(--n-ts), 0 0 6px rgba(20, 12, 6, 0.85); }
+.ab.cool .ic { opacity: 0.75; }
+
+/* interact diamond: bigger glyph, verb tag on a solid plate */
+.ab-int .ic { width: 52%; height: 52%; filter: drop-shadow(0 1px 0 rgba(36, 22, 13, 0.45)); }
+.touch .ab-int .ic { width: 54%; height: 54%; filter: drop-shadow(0 0 1.5px rgba(20, 12, 6, 0.55)); }
+.touch .ab-int::before { background: radial-gradient(circle at 50% 40%, rgba(255, 250, 240, 0.72), rgba(242, 228, 196, 0.6) 60%, rgba(216, 194, 148, 0.55)); border-color: var(--n-ink); }
+.desktop .ab-int .ic { width: 25px; height: 25px; }
+.ab-int .lbl { font-size: 13.5px; }
+
+/* phones: "eat" in the combat cluster */
+#ab .qb.ab-eat { padding: 6px; }
+
+/* touch: "Remover corpo" + "Obra" round buttons: denser plate, bolder halo'd glyph, readable label */
+.touch .ab.ab-rm, .touch .ab.ab-bp { background: radial-gradient(circle, rgba(36, 22, 13, 0.82) 0 50%, rgba(36, 22, 13, 0.66) 74%); border: 2px solid var(--n-mustard-hi);
+  box-shadow: 0 0 0 1.5px var(--n-ink), 0 2px 6px rgba(0, 0, 0, 0.4); color: var(--n-cream-hi); align-items: center; justify-content: center; }
+.touch .ab-rm .ic, .touch .ab-bp .ic { width: 60%; height: 60%; }
+.ab-rm .ic svg:not(.hgi), .ab-bp .ic svg:not(.hgi) { stroke-width: 2.6; filter: drop-shadow(0 0 1px var(--n-ink)) drop-shadow(0 1px 0 var(--n-ink)); }
+.touch .ab-rm .lbl, .touch .ab-bp .lbl { bottom: -14px; padding: 1px 7px 2px; border-radius: 2px; font: 700 11.5px/1.1 var(--n-fd); letter-spacing: 0.5px; text-transform: uppercase;
+  color: var(--n-cream-hi); background: var(--n-ink); box-shadow: 0 0 0 1.5px rgba(247, 217, 122, 0.6); }
+.desktop .ab-bp .ic { width: 20px; height: 20px; }
+
+/* ---------- buffs (diamonds) and target debuffs ---------- */
+.bf { padding: 3px; }
+.bf > .hgi { filter: drop-shadow(0 1px 0 rgba(20, 12, 6, 0.6)); }
+.tf .tdb > b { padding: 1.5px; }
+@media (max-height: 520px), (max-width: 640px) {
+  .bf { width: 25px; height: 25px; padding: 3px; }
+}
+
+/* ---------- status bar caps (heart / bolt / food / flame): more glyph, less rim ---------- */
+.rb > .cap { padding: 3px; }
+.rb-hu > .cap, .rb-wm > .cap, .rb-xpb > .cap { padding: 2.5px; }
+@media (max-height: 520px), (max-width: 640px) {
+  .rb > .cap { padding: 2.5px; }
+  .rb-hu > .cap, .rb-wm > .cap { width: 15px; height: 15px; margin-top: -7.5px; padding: 1.5px; }
+}
+
+/* ---------- system diamonds (menu / fullscreen / install / help) ---------- */
+.sb > .svgi:not(.hgi) { width: 18px; height: 18px; stroke-width: 2.6; filter: drop-shadow(0 0 0.8px var(--n-ink)) drop-shadow(0 0 0.8px var(--n-ink)) drop-shadow(0 1px 0 var(--n-ink)); }
+.sb .qm { font-size: 21px; text-shadow: var(--n-ts); }
+.touch .sb::before { background: radial-gradient(circle, rgba(30, 18, 10, 0.5), rgba(30, 18, 10, 0.34)); }
+.touch .sb.down::before { background: var(--n-glass-on); }
+/* menu: three cream bars with an ink outline instead of the ☰ text glyph (font dependent, thin) */
+#hud #btn-menu > span { font-size: 0 !important; width: 16px; height: 13px; display: block;
+  background: linear-gradient(var(--n-cream-hi), var(--n-cream-hi)) 0 0 / 100% 3px no-repeat, linear-gradient(var(--n-cream-hi), var(--n-cream-hi)) 0 5px / 100% 3px no-repeat, linear-gradient(var(--n-cream-hi), var(--n-cream-hi)) 0 10px / 100% 3px no-repeat;
+  filter: drop-shadow(0 0 0.8px var(--n-ink)) drop-shadow(0 0 0.8px var(--n-ink)) drop-shadow(0 1px 0 var(--n-ink)); }
+
+/* ---------- radar chips: the season name gets a plate like the others ---------- */
+.rd-season { position: relative; isolation: isolate; display: inline-flex; align-items: center; height: 19px; margin-left: 0; padding: 0 8px; border-radius: 0;
+  font: 700 12.5px/1 var(--n-fd); letter-spacing: 0.6px; text-transform: uppercase; white-space: nowrap; background: none; box-shadow: none; }
+.rd-season::before { content: ''; position: absolute; inset: 0; z-index: -1; transform: skewX(-16deg); border-radius: 2px; background: var(--n-ink); box-shadow: 0 0 0 1px rgba(242, 228, 196, 0.25); }
+.rd-season:empty { display: none; }
+.rd-season.s-winter { background: none; box-shadow: none; color: #0c2236; }
+.rd-season.s-winter::before { background: linear-gradient(180deg, #eef8ff, #a9d4f2); box-shadow: 0 0 0 1.5px var(--n-ink); }
+.rd-wx i { width: 15px; height: 15px; }
+@media (max-height: 520px), (max-width: 640px) {
+  .rd-season { height: 16px; font-size: 11px; padding: 0 6px; }
+}
+
+/* ---------- panels: glyphs in titles / buttons / tips ---------- */
+.pt > .hgi { width: 26px; height: 26px; margin: -3px 0; filter: none; }
+.btn .hgi { width: 19px; height: 19px; margin: -2px -1px; }
+.tip .hgi { width: 19px; height: 19px; }
+.jobchip .hgi { width: 20px; height: 20px; }
+.wb-ic > .hgi { width: 100%; height: 100%; }
+
+/* ---------- item / building tiles: a warm light behind the sprite (dark items stay visible) ---------- */
+.slot.full, .hb.full, .ri, .cqi, .bcard .bi, .wb-ic {
+  background-image: radial-gradient(circle at 50% 46%, rgba(255, 226, 170, 0.26), rgba(255, 226, 170, 0.08) 48%, transparent 66%), var(--n-tile-full);
+  background-size: 100% 100%; background-position: center; background-repeat: no-repeat;
+}
+.slot.sel, .hb.on, .cqi.cur {
+  background-image: radial-gradient(circle at 50% 46%, rgba(255, 232, 180, 0.32), rgba(255, 226, 170, 0.1) 48%, transparent 66%), var(--n-tile-on);
+}
+.eqs.full { background: radial-gradient(circle at 50% 40%, rgba(255, 226, 170, 0.22), transparent 62%), radial-gradient(circle at 50% 40%, #573a22, #301d0f); }
+.slot .spri, .hb .hi .spri, .ri .spri, .bcard .bi .spri { filter: drop-shadow(0 1.5px 0 rgba(20, 12, 6, 0.55)); }
+.hb .hi { filter: none; }
+/* the outlined sprites keep a margin for their outline: a little less tile padding keeps them as big as before */
+.slot { padding: 6px; }
+.hb { padding: 5px; }
+.ri { padding: 5px; }
+.bcard .bi { padding: 4px; }
+@media (max-height: 520px), (max-width: 640px) {
+  .slot { padding: 5px; }
+  .bcard .bi { padding: 3px; }
+}
+/* slot counts: a touch bigger */
+.slot .n, .hb .hn { font-size: 15px; }

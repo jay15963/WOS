@@ -9,7 +9,7 @@ import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
-import { discardIt } from '../game/corpses.js';
+import { discardIt, dragIt, canDrag, canDiscard } from '../game/corpses.js';
 import { installHudLayout } from './hudlayout.js';
 import { attackable, dist, attackRange } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
@@ -211,8 +211,8 @@ export function installHUD(game, { isNew } = {}) {
   keyChips();
   addEventListener('keymap', keyChips);
   // touch: "Remover corpo" next to the use button while a body is the target (desktop: right click on the body)
-  R.rm.querySelector('.ic').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
-  press(R.rm, () => { const n = game.ctl.near; if (n?.corpse && n.o) game.ctl.interact(discardIt(n.o)); });
+  R.rm.querySelector('.ic').innerHTML = uiIcon(A, 'trash'); // (icon agent's glyph: bold, outlined)
+  press(R.rm, () => { const n = game.ctl.near; if (!n?.corpse || !n.o) return; game.ctl.interact(canDrag(game, n.o) ? dragIt(n.o) : discardIt(n.o)); });
   press($('#tf-x'), () => { game.ctl.setTarget(null); game.ctl.goal = null; });
   root.querySelectorAll('.qb').forEach((el) => press(el, () => {
     const q = el.dataset.q;
@@ -451,13 +451,23 @@ export function installHUD(game, { isNew } = {}) {
         const ic = near.kind === 'door' ? (near.verb === 'Fechar' ? 'door_close' : 'door_open') : near.icon;
         if (C.intk !== key) { C.intk = key; R.intLbl.textContent = near.verb; R.intIc.innerHTML = uiIcon(A, ic); }
       }
-      const showRm = showInt && touchMode && !!near?.corpse && near.kind !== 'corpse_bones' && near.kind !== 'corpse_discard'; // (those two already remove it)
+      // animals / monsters: "Remover"; people: "Arrastar" (never removed before the bones) — not when the use button does it
+      const rmMode = !(showInt && touchMode && near?.corpse && near.o) ? '' : ['corpse_bones', 'corpse_discard', 'corpse_drag', 'corpse_drop'].includes(near.kind) ? ''
+        : canDrag(g, near.o) ? 'drag' : canDiscard(g, near.o) ? 'rm' : '';
+      const showRm = !!rmMode;
       toggle(R.rm, 'rmv', 'hidden', !showRm);
+      if (rmMode && C.rmMode !== rmMode) {
+        C.rmMode = rmMode;
+        R.rm.querySelector('.ic').innerHTML = uiIcon(A, rmMode === 'drag' ? 'hand' : 'trash');
+        R.rm.querySelector('.lbl').textContent = rmMode === 'drag' ? 'Arrastar' : 'Remover';
+        R.rm.title = rmMode === 'drag' ? 'Arrastar o corpo' : 'Remover o corpo';
+      }
       if (showRm && C.rmAt !== R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth) {
         // to the left of the use button, a little higher (wherever the action bar / the player's layout put it)
         C.rmAt = R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth;
+        // (above it, centred: beside it they covered the message feed at the bottom centre)
         const cs = getComputedStyle(R.int), [tx, ty] = trOf(R.int), r = (parseFloat(cs.right) || 0) - tx, b = (parseFloat(cs.bottom) || 0) - ty;
-        R.rm.style.right = `${Math.round(r + R.int.offsetWidth + 10)}px`; R.rm.style.bottom = `${Math.round(b + 12)}px`;
+        R.rm.style.right = `${Math.round(r + (R.int.offsetWidth - 46) / 2)}px`; R.rm.style.bottom = `${Math.round(b + R.int.offsetHeight + 18)}px`;
       }
 
       // work-site materials button: beside the use button (left of "Remover" when that shows), touch; desktop CSS
@@ -467,8 +477,9 @@ export function installHUD(game, { isNew } = {}) {
         if (C.bpAt !== atK) {
           C.bpAt = atK;
           if (showInt) {
+            // above the use button too (left of "Remover" when that shows)
             const cs = getComputedStyle(R.int), [tx, ty] = trOf(R.int), r = (parseFloat(cs.right) || 0) - tx, b = (parseFloat(cs.bottom) || 0) - ty;
-            R.bp.style.right = `${Math.round(r + R.int.offsetWidth + 10 + (showRm ? 56 : 0))}px`; R.bp.style.bottom = `${Math.round(b + 12)}px`;
+            R.bp.style.right = `${Math.round(r + (R.int.offsetWidth - 46) / 2 + (showRm ? 58 : 0))}px`; R.bp.style.bottom = `${Math.round(b + R.int.offsetHeight + 18)}px`;
           } else { R.bp.style.right = ''; R.bp.style.bottom = ''; }
         }
       }
