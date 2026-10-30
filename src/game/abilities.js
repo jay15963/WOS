@@ -2,15 +2,16 @@
 // energy, range/LOS/ammo/item checks, casts (Aimed Shot), leaps (Disengage), shield block (hold),
 // and every effect (CONTENT §4). Simulation only; the HUD reads abilityState() / p.cast.
 
-import { ABILITIES, ABILITY_ORDER, GCD, ITEMS } from './data.js';
+import { ABILITIES, ABILITY_ORDER, GCD, ITEMS, SPECIES } from './data.js';
 import { barFor, lobSpec, lobFlight } from './content/weapons.js';
 import { moveCircle, facingFrom, collides } from './physics.js';
 import { addBuff, removeBuff, enterCombat } from './player.js';
 import {
   rollPlayerHit, applyPlayerHit, healEntity, reach, dist, attackable, isMob, faceTowards, facingVec,
-  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect, canSkin,
+  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect, canSkin, beatsDummy,
 } from './combat.js';
 import { aggro } from './ai.js';
+import { heightK } from './levels.js';
 import { fireLob, retargetLob } from './projectiles.js';
 
 const SPIN_DIRS = ['s', 'e', 'n', 'w'];
@@ -71,7 +72,7 @@ function rangeOk(game, ab, t) {
   const d = dist(p, t);
   if (ab.range === 'melee') return d <= reach(p, t) + 0.15 ? 'ok' : 'far';
   if (d < ab.range[0]) return 'near';
-  if (d > ab.range[1] + (t.r || 0.3)) return 'far';
+  if (d > ab.range[1] * (ab.ammo ? heightK(p, t) : 1) + (t.r || 0.3)) return 'far'; // (bow abilities: height bonus)
   if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) return 'los'; // levels: heights
   return 'ok';
 }
@@ -79,13 +80,42 @@ function rangeOk(game, ab, t) {
 const ammoCount = (p, ab) => (ab.ammo ? p.inv.count(ab.ammo) : -1);
 const itemCount = (p, ab) => (ab.item ? p.inv.count(ab.item) : -1);
 
+// the best enemy an ability reaches from here (range / line of fire ok): who is after me first, then hostiles, then the
+// nearest; passive animals last
+function abilityFoe(game, ab, prefer = null) {
+  const p = game.player, R = (Math.max(rangeMax(ab), 3) + 1) * (ab.ammo ? heightK(p, null) : 1);
+  let best = null, bs = 1e9;
+  for (const e of game.entities) {
+    if (!isMob(e) || !attackable(e) || dist(p, e) > R) continue;
+    if (rangeOk(game, ab, e) !== 'ok') continue;
+    const tmp = e.temper || SPECIES[e.species]?.temper;
+    let s = dist(p, e);
+    if (e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid)) s -= 6;
+    else if (tmp === 'hostile') s -= 1.5;
+    else if (tmp === 'passive') s += 8;
+    if (e === prefer) s -= 1;
+    if (s < bs) { bs = s; best = e; }
+  }
+  return best;
+}
+// (HUD: is some enemy in reach for this ability? cached per ability for a moment)
+const altCache = new Map();
+function altInReach(game, id, ab) {
+  const c = altCache.get(id), now = game.time;
+  if (c && now - c.t < 0.3) return c.v;
+  const v = !!abilityFoe(game, ab);
+  altCache.set(id, { t: now, v });
+  return v;
+}
+
 // HUD-facing state for an ability button
 export function abilityState(game, id) {
   const p = game.player, ab = ABILITIES[id];
   const cd = p.cds[id] || 0;
   const gcd = ab.offGcd ? 0 : p.gcdT;
   const t = attackable(p.target) ? p.target : null;
-  const rs = ab.target ? (t ? rangeOk(game, ab, t) : 'ok') : 'ok';
+  let rs = ab.target ? (t ? rangeOk(game, ab, t) : 'ok') : 'ok';
+  if (rs !== 'ok' && altInReach(game, id, ab)) rs = 'ok'; // (another enemy in reach: the ability goes to it)
   const ammo = ammoCount(p, ab), items = itemCount(p, ab);
   const stocked = (ammo < 0 || ammo > 0) && (items < 0 || items > 0);
   const active = (id === 'block' && !!p.block) || (p.cast && p.cast.id === id) || (id === 'sprint' && p.buffs.some((b) => b.id === 'sprint'))
@@ -148,10 +178,15 @@ export function useAbility(game, id) {
 
   let t = null;
   if (ab.target) {
+    // the marked target only when the ability reaches it from here; else the best enemy it reaches (who is after me
+    // first, then the nearest) — the same rule as the attack (combat.bestFoe)
     t = attackable(p.target) ? p.target : null;
-    if (!t) {
-      t = nearestEnemy(game, rangeMax(ab));
-      if (t) { p.target = t; game.events.emit('target', { target: t }); }
+    if (!t || t.dummy || rangeOk(game, ab, t) !== 'ok') {
+      // (a training dummy is the last choice of everything: any creature this reaches first)
+      const o = abilityFoe(game, ab, t?.dummy ? null : t);
+      if (o && (!t?.dummy || beatsDummy(game, o))) t = o;
+      else if (!t) t = nearestEnemy(game, rangeMax(ab));
+      if (t && t !== p.target) { if (game.ctl?.setTarget) game.ctl.setTarget(t); else { p.target = t; game.events.emit('target', { target: t }); } }
     }
     if (!t) return err('Sem alvo');
     const rs = rangeOk(game, ab, t);
@@ -178,9 +213,16 @@ export function useAbility(game, id) {
 // real projectile and resolves the hit. A guest shows its own copy at once and bends it onto the host's landing.
 
 // flight / accuracy spec of this ability with the current main hand (null = wrong weapon)
+const aimK = new Map(); // (spec, height factor) → the spec with the longer range
 export function aimSpec(game, id) {
   const ab = ABILITIES[id], S = lobSpec(game.player.equip?.main);
-  return ab?.lob && S && S.type === ab.lob ? S : null;
+  if (!(ab?.lob && S && S.type === ab.lob)) return null;
+  const k = heightK(game.player, null);
+  if (k === 1) return S;
+  const key = S.type + '|' + S.range + '|' + k;
+  let X = aimK.get(key);
+  if (!X) { X = { ...S, range: S.range * k }; aimK.set(key, X); }
+  return X;
 }
 
 // why the ability cannot start aiming now ('' = silent no), or null when it can

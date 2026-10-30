@@ -9,7 +9,7 @@
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
-import { reach, dist, faceTowards, mobEffect } from './combat.js';
+import { reach, dist, faceTowards, mobEffect, hasLOS } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer, allPlayers } from './players.js';
 import { stepGait } from './anim.js';
@@ -20,11 +20,18 @@ const FLEE_LEASH = 26;    // passive animals fleeing start curving back home pas
 const BORED = 45;         // seconds without exchanging blows before evading (scaled with LEASH)
 const SUN_LEASH = 4;      // cave monsters: seconds out in the daylight before they go back to their nest
 
+// how far a hostile notices a player (owner): animals a little further than they used to — still about where the
+// player sees them first (the default view, a little zoomed out) — and only in sight (line of sight) past a few
+// tiles; people (raiders) and the winter walkers see as far as the most zoomed-out view (PAWN_SIGHT): only the radar /
+// map shows them before they see you
+export const PAWN_SIGHT = 18;
 export function aggroRadius(m, p) {
   const sp = SPECIES[m.species];
-  const k = Math.max(0.35, Math.min(1.6, 1 + 0.15 * (m.level - p.level)));
+  if (sp?.pawn) return m.aggroR ?? PAWN_SIGHT;
+  const k = Math.max(0.35, Math.min(1.25, 1 + 0.15 * (m.level - p.level)));
   return (m.aggroR ?? sp.aggro ?? 0) * k;
 }
+const SMELL = 3; // tiles: this close an animal notices you even out of sight
 
 // who this creature cares about: its threat while chasing, else the nearest player
 export function pickTarget(game, m) {
@@ -205,7 +212,7 @@ export function updateCreature(game, m, dt) {
       if (m.thinkT <= 0) {
         m.thinkT = 0.25 + Math.random() * 0.1;
         if (!p.dead) {
-          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0)) { aggro(game, m, p); break; }
+          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { aggro(game, m, p); break; }
           if (sp.temper === 'passive') {
             const sk = sp.skittish || 0;
             if (d < Math.max(2.2, sk) || (d < 4.5 && p.moving)) { startFlee(m, p, (sk ? 3.5 : 2.5) + Math.random() * 1.5); break; }

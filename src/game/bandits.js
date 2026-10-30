@@ -92,7 +92,7 @@ function spawnBandit(game, camp, role, slot) {
     home: { x, y }, state: 'idle', stateT: rand() * 4, swingT: 0, stunT: 0,
     look: makeLook(rand, female, chief), weapon: kit.main || null, offhand: off ? kit.off : null, armor: { body: kit.body || null, head: kit.head || null },
     wprof: wp, shield: off && off.type === 'shield' ? off : null, reachX: wp.reach, swingDur: wp.swing * (chief ? 1.05 : 1.15),
-    armorV: equipArmor({ off: off ? kit.off : null, body: kit.body, head: kit.head }), aggroR: role === 'archer' ? 10 : sp.aggro,
+    armorV: equipArmor({ off: off ? kit.off : null, body: kit.body, head: kit.head }), aggroR: sp.aggro, // (ai.PAWN_SIGHT: the most zoomed-out view)
     xpMul: chief ? 4.5 : sp.xp, specialT: 3 + rand() * 4, blockT: 4, throwT: 2, onDeath: banditDeath, patrol: rand() < 0.35 && !chief,
   };
   m.maxHp = m.hp;

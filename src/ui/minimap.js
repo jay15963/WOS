@@ -100,8 +100,8 @@ export class Minimap {
     const dot = full ? 2 : 2.5;
     for (const e of g.entities) {
       if (e.dead) continue;
-      if (e.remote || e.faction === 'bandit') {
-        // other players (blue) and raiders (red)
+      if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
+        // other players (blue), raiders and winter walkers (red)
         const X = toX(e.x), Y = toY(e.y);
         if (X < 0 || Y < 0 || X > W || Y > H) continue;
         if (!full && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;

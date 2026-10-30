@@ -111,7 +111,7 @@ export function installRadar(game, root, mini) {
       const dd = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
       if (dd > 90) continue;
       if (e === p.target) { add(e.x, e.y, 'tgt', 1); continue; }
-      if (e.faction === 'bandit') { if (dd < 80) add(e.x, e.y, 'h', 2); continue; }
+      if (e.faction === 'bandit' || e.faction === 'walker') { if (dd < 80) add(e.x, e.y, 'h', 2); continue; }
       if (e.kind !== 'animal' || e.isProp) continue;
       const t = e.temper || SPECIES[e.species]?.temper;
       if (t === 'hostile' && dd < 66) add(e.x, e.y, 'h', 2);

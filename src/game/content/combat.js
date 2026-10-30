@@ -14,19 +14,19 @@ export const SPECIES = {
             loot: [['meat', 2, 3, 1], ['leather', 1, 2, 0.9, 'skin']] },
   boar:   { name: 'Javali', temper: 'neutral', hp: 58, dmg: 6, swing: 2.0, speed: 4.0, r: 0.32, scale: 1, xp: 1.1, minD: 14,
             loot: [['meat', 2, 3, 1], ['leather', 1, 1, 0.6, 'skin']] },
-  wolf:   { name: 'Lobo', temper: 'hostile', hp: 42, dmg: 4.5, swing: 1.8, speed: 4.4, aggro: 7, r: 0.32, scale: 1, xp: 1.0, social: true, minD: 30,
+  wolf:   { name: 'Lobo', temper: 'hostile', hp: 42, dmg: 4.5, swing: 1.8, speed: 4.4, aggro: 8.5, r: 0.32, scale: 1, xp: 1.0, social: true, minD: 30,
             loot: [['meat', 1, 2, 1], ['leather', 1, 1, 0.7, 'skin']] },
-  spider: { name: 'Aranha da caverna', temper: 'hostile', hp: 36, dmg: 3.6, swing: 1.25, speed: 5.0, aggro: 6, r: 0.26, scale: 1, xp: 1.1, social: true, minD: 32,
+  spider: { name: 'Aranha da caverna', temper: 'hostile', hp: 36, dmg: 3.6, swing: 1.25, speed: 5.0, aggro: 7.5, r: 0.26, scale: 1, xp: 1.1, social: true, minD: 32,
             poison: { chance: 0.4, dur: 6, tick: 1.5, k: 0.45 }, // k × dmg per tick
             loot: [['fiber', 1, 2, 0.7], ['rope', 1, 1, 0.15]] },
-  bear:   { name: 'Urso', temper: 'hostile', elite: true, hp: 210, dmg: 13, swing: 2.3, speed: 4.1, aggro: 6, r: 0.45, scale: 1.45, xp: 3.5, lvl: 3, minD: 55,
+  bear:   { name: 'Urso', temper: 'hostile', elite: true, hp: 210, dmg: 13, swing: 2.3, speed: 4.1, aggro: 7.5, r: 0.45, scale: 1.45, xp: 3.5, lvl: 3, minD: 55,
             loot: [['meat', 3, 5, 1], ['leather', 2, 3, 1, 'skin']] },
   // winter nights (seasons.js): frozen dead that walk out of the dark (kind 'pawn', faction 'walker', walkers.js);
   // they carry ice swords / ice spears (as strong as stone) and crumble to snow at sunrise
-  walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 9.5, r: 0.24, scale: 1.04, xp: 2.4, social: true,
+  walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,
             loot: [] }, // (XP only: walkers.js)
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
-  bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 8.5, r: 0.24, scale: 1, xp: 1.8, social: true,
+  bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 18, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },
 };
 

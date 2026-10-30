@@ -217,7 +217,7 @@ function roofPreview(game, type, style, det, W, H) {
   if (/(^|\.)moss(\.|$)/.test(det)) { g.fillStyle = 'rgba(86,118,52,0.7)'; for (const [x, y] of [[-0.5, 0.75], [0.3, 0.6], [0.55, 0.85], [-0.2, 0.5]]) { g.beginPath(); g.ellipse(cx + x * half, top + (eave - top) * y, 5, 2.4, 0, 0, Math.PI * 2); g.fill(); } }
   if (/(^|\.)chimney(\.|$)/.test(det)) { g.fillStyle = '#8f887b'; g.fillRect(cx + half * 0.45, top + 8, 9, 18); g.fillStyle = '#3a3530'; g.fillRect(cx + half * 0.45 - 1.5, top + 6, 12, 3); }
   if (/(^|\.)vane(\.|$)/.test(det)) { g.strokeStyle = '#3e3e44'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx, top); g.lineTo(cx, top - 9); g.moveTo(cx - 5, top - 7); g.lineTo(cx + 6, top - 7); g.stroke(); }
-  const A = game.A, pid = /(^|\.)skylight(\.|$)/.test(det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(det) ? 'dormer_pl' : /(^|\.)dormer(\.|$)/.test(det) ? 'dormer' : null;
+  const A = game.A, pid = /(^|\.)dormer_pl(\.|$)/.test(det) ? 'dormer_pl' : /(^|\.)dormer(\.|$)/.test(det) ? 'dormer' : null;
   KIT_ENV.sync = true;
   const ps = pid ? archSprite(A, ROOF_PROPS[pid]) : null;
   KIT_ENV.sync = false;

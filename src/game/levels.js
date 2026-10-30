@@ -34,8 +34,9 @@ const EPS = 1e-3;
 export const liftOf = (e) => (e && e.z > 0 ? e.z * STORY_H : 0);
 // same story (melee, contact): heights closer than half a story
 export const sameLevel = (a, b) => Math.abs((a?.z || 0) - (b?.z || 0)) < 0.5;
-// ranged height advantage: +12 % range per story above the target (max 2 stories)
-export const heightK = (a, b) => 1 + 0.12 * Math.max(0, Math.min(2, (a?.z || 0) - (b?.z || 0)));
+// ranged height advantage (owner): +20 % range per story above the target (b = null: the ground), up to +100 %
+export const HEIGHT_PER_STORY = 0.2, HEIGHT_MAX = 1;
+export const heightK = (a, b) => 1 + Math.min(HEIGHT_MAX, HEIGHT_PER_STORY * Math.max(0, (a?.z || 0) - (b?.z || 0)));
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];

@@ -12,6 +12,7 @@ import { aggro } from '../ai.js';
 import { fireLob, hostProjId } from '../projectiles.js';
 import { dropLoot } from './loot.js';
 import { r3 } from './roll.js';
+import { heightK } from '../levels.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const LAST = new Map(); // host: `${pid}|${ability}` → worldTime of the last accepted throw
@@ -37,7 +38,7 @@ defineIntent('lob.fire', {
     // aim: clamped to the weapon's range
     let dx = num(a.ax, ox) - ox, dy = num(a.ay, oy) - oy, d = Math.hypot(dx, dy);
     if (d < 0.05) { dx = 0; dy = 1; d = 1; }
-    const D = Math.min(Math.max(d, 1), S.range);
+    const D = Math.min(Math.max(d, 1), S.range * heightK(src, null)); // (+20 % per story up high, levels.js)
     const ax = ox + (dx / d) * D, ay = oy + (dy / d) * D;
     // scatter: centre-weighted inside the radius for this distance (host randomness → everybody's same landing)
     const R = lobScatter(S, D), ang = net.roll() * Math.PI * 2, rr = R * net.roll();

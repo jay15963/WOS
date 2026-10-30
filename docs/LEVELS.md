@@ -163,8 +163,10 @@ doors, chests, beds and stations (used only from their own story); blueprints ar
 ## 6. Combat across levels
 
 - Melee only on the same story (`sameLevel`: `|z_a − z_b| < 0.5`).
-- Ranged across stories with height LOS (`combat.hasLOS(…, z0, z1)`), projectiles `z0 → z1`, +12 % range per
-  story of advantage (max 2), AoE only on the caster's story.
+- Ranged across stories with height LOS (`combat.hasLOS(…, z0, z1)`), projectiles `z0 → z1`, +20 % range per
+  story of advantage, up to +100 % (`levels.heightK`): the bow's auto attack, the bow abilities (Tiro Mirado, Tiro
+  Múltiplo) and the aimed long shot / spear throw (range ring, landing, host clamp in `mut/bow.js`); AoE only on
+  the caster's story.
 
 ## 7. Sync
 

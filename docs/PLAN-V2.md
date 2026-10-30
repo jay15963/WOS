@@ -328,8 +328,7 @@ it is no longer a cave. A roof system for both buildings and caves:
   build-mode view shows the world grid faintly.
 - **Roof details are placed by the roof** (later request): the player picks the detail, the roof decides where
   it goes (decoration.js `placeRoofProps`): dormers on the slope facing the camera (every 3 tiles, second row
-  from the eave) or on both side slopes of a front-gable roof (every 4 tiles); skylights spread over the middle
-  of every visible slope; one weathervane near the middle of the ridge. Each prop is drawn for its slope (the
+  from the eave) or on both side slopes of a front-gable roof (every 4 tiles); one weathervane near the middle of the ridge. Each prop is drawn for its slope (the
   roof art keeps `tileF` / `tileP`, the facet and pitch under each tile): stretched on the front slope, sheared
   on the sides (east = the west sprite mirrored), none on a north slope. Chimneys are not a choice: they appear
   over every hearth / oven / furnace inside, and smoke only while it burns.
@@ -404,9 +403,16 @@ Owner's request: the night must have life and danger, and the year must turn.
   - Walkers: `art/walker.js` (3 looks, dark frost-crusted armor, shoulder crystals, glowing eyes, no lying body)
     and `fx/walkerfx.js` (mist, cold light, ice shatter + `ice_shatter` sound). Ice weapons are in `art/gear.js`
     (`proj_ice_spear`); fur clothes in `art/apparel.js`.
-- **Walkers break in** (later request: hiding indoors must not be safe). They sense the living through walls (14
-  tiles) and are drawn to light (50 tiles, indoors too). When what they want is shut in a room (roofs.enclosedRoom),
-  they pick the closest wall / door / fence of it, stand outside and hit it.
+- **Walkers break in** (later request: hiding indoors must not be safe) — winter nights play almost like a tower
+  defense (walkers.js `walkerBrain`):
+  - What they want: a living player they see (line of sight) up to 18 tiles (`ai.PAWN_SIGHT`, the most zoomed-out
+    view) or feel through walls up to 14; else the nearest light up to 40 tiles (campfires, torches, lamps, indoors
+    too; a torch in a player's hand up to 22). Further away they roam where they came from — not the whole map.
+  - They walk there. A wall / door / fence in the way is broken when they stop getting anywhere (2.5 s), when
+    there is no way, or when the only way is a long detour (a path longer than 1.5 × the straight line + 6 tiles):
+    the first breakable piece on the straight line (`breachToward`). A gap close by is taken.
+  - What they want shut in a room (roofs.enclosedRoom): the closest wall / door of it from outside; a wall on the
+    way to that spot (a yard around the house) is broken first. Then they hang around the light / fight.
   - Every hit is op `struct.dmg` {id, d}: the same damage on every peer. The cracks grow in 4 stages from the middle
     of the top and front faces (art `siege_crack_{t,f}0..3`, fx/rockfx.js), tremble and throw splinters / chips.
   - At 1 it breaks (`struct.remove` fx `smash`: pieces drop with dust, the screen shakes nearby).
@@ -446,7 +452,8 @@ Owner's request: the night must have life and danger, and the year must turn.
   - Every peer draws the body behind its dragger (corpses.js, cosmetic); the dragger walks at 72% speed.
   - "Largar corpo" (its use action while dragged) → `corpse.drag {on: 0, x, y}` → op `corpse.drop` at that spot.
   - The host lets go of a body whose dragger left or died. `corpse.discard` refuses people's bodies.
-- **Winter walkers:** shatter (no body) and give XP only, no drop.
+- **Winter walkers:** shatter (no body) and give XP only, no drop. They show on the radar and the minimap like
+  the raiders (red).
 - **Touch long press on the joystick side:** a finger that starts the joystick but stays still ~0.5 s over
   something with a context menu opens the menu and gives up the joystick (input.js `joyStill` / `releaseJoy`).
   A finger that drags first stays the joystick.
@@ -532,3 +539,22 @@ it — like a compass/radar): "esse design combina muito com o jogo".
   clock/weather badge, target frame, buffs, toasts, chat, build bar, auto-work banner, windows/panels,
   menus) on desktop and mobile, keeping all behaviour and contracts (B's HUD API, G's aim wiring, A's buildbar,
   K's Detalhes, M's paths toolbar, H's editor). Theme through CSS variables + a few drawn assets.
+
+## Alvos, visão e alcance (added later)
+
+- **Attack / auto attack target** (combat.js `bestFoe` / `canHitNow`): the marked target only while it can be hit
+  from here (range, line of fire); else the best enemy in reach — who is after me first, then hostiles, then the
+  nearest, passive animals last. The attack button never toggles the bow off. A player's arrow at a target passes
+  trunks and loose rocks (walls and rock still stop it).
+- **Abilities** use the same rule (abilities.js `abilityFoe`): the marked target when the ability reaches it, else
+  the best enemy it reaches.
+- **The training dummy is the last choice of everything**: with the dummy marked, any creature in reach that is not
+  a calm green animal (`combat.beatsDummy`) takes the attack, the auto attack and the abilities. Alone, the dummy is
+  still hit (training).
+- **Bow reach flash** (fx/rangeflash.js, local): on starting the attack with a bow and on every auto shot, a soft
+  low-opacity disc with a dashed rim blinks around the player at the auto attack's reach (with the height bonus).
+- **Height**: +20 % range per story above the target, up to +100 % (docs/LEVELS.md §6).
+- **Sight** (ai.js `aggroRadius`): wolves 8.5, spiders / bears 7.5 tiles (a higher level adds at most 25 %), and past
+  3 tiles only in sight (line of sight) — about where the player sees them first. Raiders and winter walkers see
+  18 tiles (`PAWN_SIGHT`, the most zoomed-out view): only the radar and the map show them before they see you.
+- **Skylights** left the game (roof details: dormers and the weathervane).

@@ -1559,12 +1559,6 @@ export function roofDormer(style, glow) {
     }, 2.2);
   }, { pad: 10 });
 }
-function roofSkylight() {
-  return spritePx(40, 40, (g, P) => P.layer((g) => {
-    g.fillStyle = '#5a3b24'; g.fillRect(6, 8, 28, 24); g.fillStyle = lin(g, 8, 10, 32, 30, [[0, '#a8d0ec'], [1, '#4a6a88']]); g.fillRect(9, 11, 22, 18);
-    g.fillStyle = '#5a3b24'; g.fillRect(19, 11, 2, 18); g.fillStyle = 'rgba(255,255,255,0.45)'; g.beginPath(); g.moveTo(10, 26); g.lineTo(16, 12); g.lineTo(18, 12); g.lineTo(12, 26); g.closePath(); g.fill();
-  }, 2.2), { pad: 8 });
-}
 // Props lying on a roof slope, drawn from a small 3D model in tile units around the tile centre (agent J's roofs show
 // a slope as screen y = y − h): u east, v south, h up from the slope height at the centre. face 's' = the slope facing
 // the camera (rises to the north, looks stretched), 'w' = a west slope (rises to the east, looks sheared); an east slope
@@ -1579,30 +1573,6 @@ function slopeFrame(W, H, face, p, yaw = 0) {
   };
 }
 function polyPath(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
-// a glazed roof window flush with the slope: frame, two panes, a curb edge on its south side and a glint
-export function roofSkylightOn(face, p) {
-  const W = 96, H = 112;
-  return spritePx(W, H, (g0, Pn) => Pn.layer((g) => {
-    const { hs, P } = slopeFrame(W, H, face, p);
-    const ls = 0.3 / Math.hypot(1, p); // half its length up the slope, seen from above
-    const [hu, hv] = face === 's' ? [0.27, ls] : [ls, 0.27]; // half sizes in plan (u, v)
-    const e = 0.03, t = 0.05;
-    const q = (u, v, dh = 0) => P(u, v, hs(u, v) + e + dh);
-    const rect = (a, b, c, d, dh = 0) => [q(a, c, dh), q(b, c, dh), q(b, d, dh), q(a, d, dh)];
-    // curb: the frame's south face (visible from the camera)
-    polyPath(g, [q(-hu, hv), q(hu, hv), q(hu, hv, -0.06), q(-hu, hv, -0.06)]); g.fillStyle = '#3a2414'; g.fill();
-    polyPath(g, rect(-hu, hu, -hv, hv)); g.fillStyle = '#5a3b24'; g.fill();
-    const gl = rect(-hu + t, hu - t, -hv + t, hv - t), ys = gl.map((c) => c[1]);
-    polyPath(g, gl); g.fillStyle = lin(g, 0, Math.min(...ys), 0, Math.max(...ys), [[0, '#a8d0ec'], [1, '#4a6a88']]); g.fill();
-    // the mullion splits the long side
-    const mb = face === 's' ? rect(-0.012, 0.012, -hv + t, hv - t) : rect(-hu + t, hu - t, -0.012, 0.012);
-    polyPath(g, mb); g.fillStyle = '#5a3b24'; g.fill();
-    // glint across one pane
-    const [a0, a1, b0, b1] = face === 's' ? [-hu + t, -0.02, -hv + t, hv - t] : [-hu + t, hu - t, 0.02, hv - t];
-    const L = (x, y) => (face === 's' ? q(a0 + (a1 - a0) * x, b0 + (b1 - b0) * y) : q(a0 + (a1 - a0) * y, b0 + (b1 - b0) * x));
-    polyPath(g, [L(0.15, 0.95), L(0.6, 0.05), L(0.8, 0.05), L(0.35, 0.95)]); g.fillStyle = 'rgba(255,255,255,0.42)'; g.fill();
-  }, 2.2), { pad: 8 });
-}
 // a dormer on a west slope (mirrored for the east one): a little gabled box sitting in the slope, its window turned
 // down the slope. Seen side-on from this camera its gable would be edge-on, so it is drawn turned (phi) toward the
 // camera — window to the south-west, its cheek and roof running back up into the slope; glow = the lit panes only
@@ -1708,9 +1678,7 @@ function archSprites(S) {
   // roof props (agent J's roofs)
   for (const st of ['wood', 'plaster']) A('roof_dormer_' + st, () => roofDormer(st, false));
   A('roof_dormer_glow', () => roofDormer('wood', true), true);
-  A('roof_skylight_glass', roofSkylight);
   for (let k = 0; k < PROP_PITCH.length; k++) {
-    for (const f of ['s', 'w']) A(`roof_skylight_${f}${k}`, () => roofSkylightOn(f, PROP_PITCH[k]));
     for (const st of ['wood', 'plaster']) A(`roof_dormer_${st}_w${k}`, () => roofDormerSide(st, PROP_PITCH[k], false));
     A(`roof_dormer_glow_w${k}`, () => roofDormerSide('wood', PROP_PITCH[k], true), true);
   }

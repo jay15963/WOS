@@ -2,7 +2,7 @@
 //  - KIT_ENV.night for the night glow of windows / lamps (art/archCompose.js)
 //  - training dummies: floating numbers for every hit (op dummy.hit → event 'dummyhit'), a DPS readout on the
 //    nameplate / target frame (local, from the hits seen), straw puffs
-//  - roof props (details dormer / dormer_pl / skylight on finished roof tiles): K's sprites on agent J's roof slope
+//  - roof props (details dormer / dormer_pl on finished roof tiles): K's sprites on agent J's roof slope
 //    (roofPropAt: lift, depth key, the region's fade), dormer windows glow at night while a light burns inside
 //  - localhost only: game.debugK.showcase() builds a decorated base next to the player through ops
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
@@ -16,13 +16,11 @@ import { roofPropAt } from './roofs.js';
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const DPS_WIN = 5; // s
 
-const PROP_RE = /(^|\.)(dormer|dormer_pl|skylight)(\.|$)/;
+const PROP_RE = /(^|\.)(dormer|dormer_pl)(\.|$)/; // (an old 'skylight' in a roof's details is ignored)
 // The roof decides where its props go (a roof is laid by the paint bucket, every tile carrying the same details), per
 // roof region (game.roofs) once its art is painted — the slopes (roofPropAt.face) come with it:
 //  - dormers on the slope that faces the camera (the second row up from its eave, one every 3 tiles), or, on a
 //    front-gable roof, on both side slopes (the column next to each eave, one every 4 tiles); never at the ends
-//  - skylights spread over the middle of every slope that can be seen (west, east, south; never on a ridge or hip line):
-//    a row along the middle of the slope (a second one every 5 tiles across big slopes), one every 4 tiles
 // Returns [[roof tile structure, prop id]].
 function placeRoofProps(g) {
   const R = g.roofs, w = g.world, out = [];
@@ -74,25 +72,6 @@ function placeRoofProps(g) {
       }
       for (const o of picks) out.push([o, dormer]);
     }
-    if (has(/(^|\.)skylight(\.|$)/)) {
-      for (const f of [1, 2, 3]) {
-        // well inside the slope: the same slope on both sides, up and across
-        const cand = list.filter((o) => face(o.tx, o.ty) === f && face(o.tx - 1, o.ty) === f && face(o.tx + 1, o.ty) === f && face(o.tx, o.ty - 1) === f && face(o.tx, o.ty + 1) === f);
-        if (!cand.length) continue;
-        const across = f === 3 ? (o) => o.ty : (o) => o.tx, along = f === 3 ? (o) => o.tx : (o) => o.ty;
-        let c0 = 1e9, c1 = -1e9;
-        for (const o of cand) { c0 = Math.min(c0, across(o)); c1 = Math.max(c1, across(o)); }
-        const rows = c1 - c0 <= 4 ? [Math.round((c0 + c1) / 2)] : [];
-        for (let c = c0 + 2; c1 - c0 > 4 && c <= c1; c += 5) rows.push(c);
-        for (const c of rows) {
-          const line = cand.filter((o) => across(o) === c).sort((a, b) => along(a) - along(b));
-          if (!line.length) continue;
-          const a0 = along(line[0]);
-          const pick = line.length >= 3 ? line.filter((o) => (along(o) - a0) % 4 === 1) : [];
-          for (const o of pick.length ? pick : [line[line.length >> 1]]) out.push([o, 'skylight']);
-        }
-      }
-    }
   }
   return out;
 }
@@ -137,10 +116,10 @@ export function decorSystem(game) {
         const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false, glowS: '', flip: 1 });
         // the sprite for its slope: facing the camera (stretched), or a side slope (sheared; east = west mirrored), by pitch
         const pk = r.pitch < 0.57 ? 0 : r.pitch < 0.85 ? 1 : 2, side = r.face === 1 || r.face === 2;
-        d.sprite = id === 'skylight' ? (r.face ? `roof_skylight_${side ? 'w' : 's'}${pk}` : ROOF_PROPS[id]) : side ? `${ROOF_PROPS[id]}_w${pk}` : ROOF_PROPS[id];
+        d.sprite = side ? `${ROOF_PROPS[id]}_w${pk}` : ROOF_PROPS[id];
         d.glowS = side ? `roof_dormer_glow_w${pk}` : 'roof_dormer_glow';
         d.flip = r.face === 2 ? -1 : 1;
-        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.glow = id !== 'skylight' && r.lit; // (only with a light inside, like J's gable windows)
+        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.glow = r.lit; // (only with a light inside, like J's gable windows)
         list.push(d); k++;
       }
     },

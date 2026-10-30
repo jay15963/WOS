@@ -372,6 +372,13 @@ export function canHitNow(game, p, t) {
   if (dist(p, t) > attackRange(p, t)) return false;
   return !prof.ranged || hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0);
 }
+// a creature worth leaving a training dummy for (owner: the dummy is the last choice of everything): anything but a
+// calm passive animal (green) — those don't pull the player away from training
+export function beatsDummy(game, e) {
+  if (!e || e.dummy || !isMob(e)) return false;
+  const tmp = e.temper || SPECIES[e.species]?.temper;
+  return tmp !== 'passive' || (e.state === 'chase' && (e.threat === game.player || e.threat?.pid === game.net?.pid));
+}
 // the best enemy to attack within maxD: who is after me first, then hostiles, then the nearest; one I can hit right
 // now (range + line of fire) beats one I can't; passive animals only when nothing else is around
 export function bestFoe(game, maxD, prefer = null) {
@@ -416,11 +423,12 @@ export function combatSystem() {
       if (!p.autoAttack || !attackable(t) || p.charge || p.spin || p.cast || p.leap || p.stunT > 0) return;
       const prof = p.wprof || weaponProfile(p.equip?.main || null);
       // the target can't be hit from here (out of range / behind a wall) but another enemy can: switch to it
+      // ...and a training dummy gives way to any creature in reach (the last choice of everything)
       retargetT -= dt;
-      if (retargetT <= 0 && !canHitNow(game, p, t)) {
+      if (retargetT <= 0 && (t.dummy || !canHitNow(game, p, t))) {
         retargetT = 0.35;
-        const o = bestFoe(game, prof.ranged ? attackRange(p, t) + 1 : 3.5, t);
-        if (o && o !== t && canHitNow(game, p, o)) { game.ctl?.setTarget?.(o); p.target = o; p.autoAttack = true; return; }
+        const o = bestFoe(game, prof.ranged ? attackRange(p, t) + 1 : 3.5, t.dummy ? null : t);
+        if (o && o !== t && canHitNow(game, p, o) && (!t.dummy || beatsDummy(game, o))) { game.ctl?.setTarget?.(o); p.target = o; p.autoAttack = true; return; }
       }
       const d = dist(p, t);
       if (prof.ranged) {
@@ -437,6 +445,7 @@ export function combatSystem() {
         p.weapon = p.equip?.main ?? p.weapon;
         p.action = { type: 'shoot', t: 0, dur: 0.6 };
         p.swingT = p.swing;
+        game.events.emit('rangeflash'); // (fx/rangeflash.js: a soft glimpse of how far the bow reaches)
         // shooting while walking: the player stops for the draw (no kiting), then walks on
         faceTowards(p, t); p._faceLockT = p._atkRootT = 0.45;
         game.later(0.36, () => {

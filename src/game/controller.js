@@ -5,7 +5,7 @@
 // which then feeds goals with { auto: true }; Esc cancels it.
 
 import { steer, resetNav } from './nav.js';
-import { attackable, dist, isMob, attackRange, bestFoe, canHitNow } from './combat.js';
+import { attackable, dist, isMob, attackRange, bestFoe, canHitNow, beatsDummy } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
 import { GENERIC_ABILITIES } from './content/combat.js';
 import { describeObject, reachDist } from './gathering.js';
@@ -15,7 +15,7 @@ import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
 import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
-import { liftOf, STORY_H } from './levels.js';
+import { liftOf, STORY_H, heightK } from './levels.js';
 import { BIND, shortLabel } from './keymap.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
@@ -77,7 +77,7 @@ export function describeAny(game, o) {
 function nearbyFoe(game, prefer = null) {
   const p = game.player, pr = p.wprof;
   // a bow looks a bit past its range (then "Chegue mais perto"); melee a little around
-  const r = pr && pr.ranged ? (pr.range || 8) + 4 : 3.5;
+  const r = pr && pr.ranged ? (pr.range || 8) * heightK(p, null) + 4 : 3.5; // (up high: +20 % per story)
   return bestFoe(game, r, prefer) || nearestEnemy(game, r);
 }
 
@@ -185,8 +185,12 @@ export function installController(game) {
       const p = game.player;
       if (p.dead) return;
       const cur = attackable(p.target) ? p.target : null;
-      if (p.autoAttack && cur && canHitNow(game, p, cur)) return;
-      const t = (cur && canHitNow(game, p, cur) ? cur : nearbyFoe(game, cur)) || cur;
+      if (p.wprof?.ranged) game.events.emit('rangeflash'); // (fx/rangeflash.js: how far the bow reaches)
+      // a training dummy is the last choice: any creature in reach first
+      const alt = cur?.dummy ? nearbyFoe(game, null) : null;
+      const swap = alt && beatsDummy(game, alt) && canHitNow(game, p, alt) ? alt : null;
+      if (p.autoAttack && cur && canHitNow(game, p, cur) && !swap) return;
+      const t = swap || (cur && canHitNow(game, p, cur) ? cur : nearbyFoe(game, cur)) || cur;
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
       if (dist(p, t) > attackRange(p, t) * 1.05) {

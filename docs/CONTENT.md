@@ -133,7 +133,7 @@ construir. Estações e móveis (`station`, `slots`, `decor: true`) **não** tê
 - **Telhados (agente J):** o kit `roof` usa os estilos de J (`ROOF_STYLES` / `ROOF_TYPE_STYLES` em `content/roofs.js`, ids explícitos,
   nunca `''`) e os detalhes de J (`moss`, `chimney`, `vane`, `trim`) + os de K: forma (`end_gable` / `end_hip`), empena (`gab_*`),
   cumeeira (`r_board` / `r_tile` / `r_bound`), `barge`, `weather`, cores (`t_*`) — `roofArtStyle(o)` transforma esses em um estilo
-  derivado que o pintor de J lê (`artSpec` → `spec.styles`) — e os adereços no telhado (`dormer`, `dormer_pl`, `skylight`), sprites
+  derivado que o pintor de J lê (`artSpec` → `spec.styles`) — e os adereços no telhado (`dormer`, `dormer_pl`; a claraboia saiu do jogo), sprites
   de K desenhados sobre a água do telhado com `roofPropAt` de J. Janelas com vidro têm ids que começam com `window` (`window`,
   `window_shutters`, `window_curtains`, `window_round`): os raios de sol de J entram por elas.
 
