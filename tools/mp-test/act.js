@@ -138,7 +138,7 @@ export async function reset(t, H, MH, G, MG) {
   // that would interrupt work and fights); scenarios about the night set their own clock and restore it
   const EH = H.game.env;
   if (EH.hour >= 17.5 || EH.hour < 6.5) EH.hour = 9;
-  for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && !e.proxy && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; try { MH.combat.killMob(H.game, e, null); } catch { /* ignore */ } }
+  for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && !e.proxy && (e.faction === 'walker' || e.spawner?.hunt || e.spawner?.loose)) { e.noCorpse = true; try { MH.combat.killMob(H.game, e, null); } catch { /* ignore */ } } // (+ creatures made by earlier scenarios: ensureMobs)
   const sp = H.game.world.spawn;
   pacify(H, sp.x, sp.y, 24, 90); // the spawn ring holds only passive animals; strays from earlier scenarios calm down
   const a = freeSpot(H, MH, sp.x, sp.y, { rMin: 0, rMax: 4 });

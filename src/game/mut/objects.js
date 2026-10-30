@@ -6,7 +6,7 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { occAdd, occRemove } from '../nav.js';
 import { addLootRows } from './loot.js';
-import { lootRow, lootRows, ri, r3 } from './roll.js';
+import { lootRow, lootRows, ri, r3, lootPiles } from './roll.js';
 
 export const TREE_SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16 };
 export const SAPLING_GROW = 1440;  // s (2 in-game days) from sapling to full tree
@@ -220,10 +220,12 @@ export function treeLandDrops(game, o) {
 
 function forageDrops(net, o, knife) {
   const rows = [], at = (id, n) => lootRows(net, rows, o.x, o.y - 0.2, id, n, 0.6);
+  const pile = (id, n) => lootPiles(net, rows, o.x, o.y - 0.2, id, n, 0.7); // big yields in a few piles
   switch (o.type) {
     case 'fibergrass': at('fiber', ri(net, 2, 3) + (knife ? 1 : 0)); break;
-    case 'bush': at('fiber', ri(net, 2, 3) + (knife ? 1 : 0)); at('stick', 1); break;
-    case 'berrybush': at('berries', ri(net, 2, 4)); at('stick', 1); break;
+    // bushes are the base of thatch building: ~6 of them roof 40 tiles of thatch (40 sticks + 80 fibre)
+    case 'bush': pile('fiber', ri(net, 12, 15) + (knife ? 2 : 0)); pile('stick', ri(net, 6, 8)); break;
+    case 'berrybush': at('berries', ri(net, 2, 4)); pile('fiber', ri(net, 9, 12) + (knife ? 2 : 0)); pile('stick', ri(net, 6, 8)); break;
     case 'herbbush': at('herb', ri(net, 1, 2)); if (net.roll() < 0.4) at('stick', 1); break;
     case 'wild_potato': at('potato', ri(net, 1, 2)); at('seed_potato', ri(net, 1, 2)); break;
     case 'wild_corn': at('corn', ri(net, 1, 2)); at('seed_corn', ri(net, 1, 2)); break;

@@ -20,6 +20,12 @@ export function lootRows(net, rows, x, y, item, n, spread = 1) {
   for (let k = 0; k < n; k++) rows.push(lootRow(net, x, y, item, 1, spread));
   return rows;
 }
+// the same n items in a few piles (at most `piles` rows): big yields don't scatter dozens of loose items
+export function lootPiles(net, rows, x, y, item, n, spread = 1, piles = 3) {
+  const k = Math.max(1, Math.min(piles, n));
+  for (let i = 0; i < k; i++) { const q = Math.floor(n / k) + (i < n % k ? 1 : 0); if (q > 0) rows.push(lootRow(net, x, y, item, q, spread)); }
+  return rows;
+}
 
 // visual variant / scale / flip of a new flora object (same distributions as the world generator)
 export function floraLook(net, kind) {

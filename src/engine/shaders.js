@@ -233,16 +233,24 @@ float seasonal(inout vec3 u, float cls, float hs){
   float bl = uSeaA.w;
   if (bl > 0.001 && cls < 7.5) {
     u = mix(u, u * vec3(0.98, 1.1, 0.8) + vec3(0.015, 0.03, 0.0), leaf * bl * 0.7);
-    float bloomy = cls < 1.5 ? step(hs, 0.62) : shrub ? step(hs, 0.65) : 0.0;
+    // (fewer plants than before: a regular grid of dots over whole crowns read as a pattern, not as flowers)
+    float bloomy = cls < 1.5 ? step(hs, 0.4) : shrub ? step(hs, 0.28) : 0.0;
     if (bloomy > 0.5) {
-      highp vec2 bp = tp / 5.0, bc = floor(bp);
-      vec2 bf = fract(bp) - 0.5;
-      float bh = sh12(bc + hs * 61.0);
-      vec2 bo = (vec2(sh12(bc + 3.1), sh12(bc + 7.7)) - 0.5) * 0.3;
-      float bd = length(bf - bo);
-      float bk2 = (1.0 - smoothstep(0.26, 0.44, bd)) * step(bh, 0.72 * bl) * leaf;
-      vec3 bcol = hs < 0.22 || (shrub && hs < 0.4) ? vec3(1.0, 0.72, 0.84) : vec3(1.0, 0.97, 0.95);
-      u = mix(u, bcol * clamp(0.62 + lum * 1.5, 0.55, 1.15), bk2);
+      // blossoms recolour the crown's own lit leaf clusters (the art's highlights) inside soft clumps (value noise,
+      // ~9-texel features): they follow the leaves' shapes — no dots, no grid
+      // two octaves, the second turned ~37°, so the clumps have organic edges (one lattice reads as squares)
+      highp vec2 cp = tp / 10.0 + hs * 37.0, cq = mat2(0.8, -0.6, 0.6, 0.8) * tp / 4.5 + hs * 17.0;
+      vec2 ci = floor(cp), cf = fract(cp), qi = floor(cq), qf = fract(cq);
+      cf = cf * cf * (3.0 - 2.0 * cf); qf = qf * qf * (3.0 - 2.0 * qf);
+      float n1 = mix(mix(sh12(ci), sh12(ci + vec2(1.0, 0.0)), cf.x), mix(sh12(ci + vec2(0.0, 1.0)), sh12(ci + vec2(1.0, 1.0)), cf.x), cf.y);
+      float n2 = mix(mix(sh12(qi), sh12(qi + vec2(1.0, 0.0)), qf.x), mix(sh12(qi + vec2(0.0, 1.0)), sh12(qi + vec2(1.0, 1.0)), qf.x), qf.y);
+      float clump = smoothstep(0.5, 0.7, n1 * 0.62 + n2 * 0.38 + (bl - 1.0) * 0.4);
+      float hl = smoothstep(0.22, 0.36, lum);                      // the lit side of each leaf cluster
+      float bk2 = clump * hl * leaf;
+      if (bk2 > 0.01) {
+        vec3 bcol = hs < 0.18 || (shrub && hs < 0.14) ? vec3(1.0, 0.8, 0.88) : vec3(1.0, 0.95, 0.88);
+        u = mix(u, bcol * clamp(0.55 + lum * 1.3, 0.6, 1.02), bk2 * 0.72);
+      }
     }
   }
   return keep;
