@@ -1,7 +1,8 @@
 // Held gear (Art B): tools & weapons in material tiers, shields (front/side/back), hand torch, bows (+ draw frames),
 // a building hammer and projectiles. Every shape is generated once per type and re-skinned per material.
 // Held sprites point UP with the anchor at the grip (grip centered horizontally so flips mirror in place).
-// Names: held_<itemId> (CONTENT §2), held_<shield>_e / _n, held_bow_*_draw1/_draw, held_hammer, proj_arrow, proj_spear.
+// Names: held_<itemId> (CONTENT §2), held_<shield>_e / _n, held_bow_*_draw1/_draw, held_hammer, proj_arrow, proj_spear,
+// proj_ice_spear (the winter walkers' thrown ice spear; sword_ice / spear_ice: translucent crystal blades with inner light).
 // Legacy contract names (weapon_sword, weapon_axe, weapon_spear, weapon_club, tool_pickaxe) are aliases of iron tiers.
 // GEAR is exported so items.js can paint the same objects as inventory icons.
 
@@ -453,6 +454,68 @@ function hammerPaint() {
   ] };
 }
 
+// ---------- ice (winter walkers): translucent crystal with light running through it ----------
+const ICE = { hi: '#f4fdff', light: '#c9f0fb', mid: '#8fd4ec', dark: '#3f8db0', deep: '#24607e', glow: 'rgba(170,250,255,0.95)' };
+// crystal body: a pale gradient, darker facet on one side, inner light veins and a bright edge
+function iceFill(g, path, x0, y0, x1, y1, seed, veins = 3) {
+  const rand = rng(seed);
+  g.beginPath(); path(g);
+  g.fillStyle = lin(g, x0, y0, x1, y1, [[0, ICE.light], [0.45, ICE.mid], [1, ICE.dark]]); g.fill();
+  g.save(); g.beginPath(); path(g); g.clip();
+  g.fillStyle = 'rgba(36,96,126,0.35)'; g.fillRect((x0 + x1) / 2, y0, x1 - x0, y1 - y0);   // shaded facet
+  g.strokeStyle = ICE.glow; g.lineWidth = 0.7;
+  for (let i = 0; i < veins; i++) {
+    const x = x0 + (x1 - x0) * (0.3 + rand() * 0.4), ya = y0 + (y1 - y0) * rand() * 0.3;
+    g.beginPath(); g.moveTo(x, ya);
+    for (let y = ya; y < y1; y += 4 + rand() * 4) g.lineTo(x + (rand() - 0.5) * (x1 - x0) * 0.35, y);
+    g.stroke();
+  }
+  g.fillStyle = 'rgba(255,255,255,0.55)'; for (let i = 0; i < 4; i++) { g.beginPath(); circle(g, x0 + rand() * (x1 - x0), y0 + rand() * (y1 - y0), 0.5 + rand() * 0.5); g.fill(); }
+  g.restore();
+}
+const ICE_HAFT = { wood: '#5a6670', woodD: '#2c343c', wrap: '#3a4048', wrapD: '#1c2026' }; // frozen dark wood, hide wrap
+
+T.sword.paintIce = () => {
+  const cx = 14;
+  const blade = [[cx, 0], [cx + 3.2, 6], [cx + 4.4, 18], [cx + 3.4, 32], [cx + 3.6, 43.5], [cx - 3.6, 43.5], [cx - 3.4, 32], [cx - 4.4, 18], [cx - 3.2, 6]];
+  const bladeP = (g) => { g.moveTo(blade[0][0], blade[0][1]); blade.slice(1).forEach((p) => g.lineTo(p[0], p[1])); g.closePath(); };
+  return [
+    (g) => {
+      haft(g, ICE_HAFT, cx, 46, 58, 4.6, [47, 57], 131);
+      // a pommel of clear ice
+      g.fillStyle = lin(g, cx - 3.5, 57, cx + 3.5, 63, [[0, ICE.hi], [0.5, ICE.mid], [1, ICE.dark]]);
+      g.beginPath(); g.moveTo(cx, 56.5); g.lineTo(cx + 3.4, 60); g.lineTo(cx, 64); g.lineTo(cx - 3.4, 60); g.closePath(); g.fill();
+    },
+    (g) => {
+      iceFill(g, bladeP, cx - 4.4, 0, cx + 4.4, 44, 141, 3);
+      // central ridge + edge light
+      g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(cx - 0.3, 2); g.lineTo(cx - 0.6, 42); g.stroke();
+      g.strokeStyle = ICE.hi; g.lineWidth = 0.7; g.beginPath(); g.moveTo(cx - 0.4, 1); g.lineTo(cx - 3.3, 7); g.lineTo(cx - 4.2, 18); g.lineTo(cx - 3.3, 32); g.stroke();
+      // guard: jagged ice crystals growing sideways
+      g.fillStyle = lin(g, cx - 10, 42, cx + 10, 48, [[0, ICE.light], [0.5, ICE.mid], [1, ICE.dark]]);
+      g.beginPath(); g.moveTo(cx - 11, 43); g.lineTo(cx - 5, 43.6); g.lineTo(cx - 3, 42); g.lineTo(cx + 3, 42); g.lineTo(cx + 5, 43.6); g.lineTo(cx + 11, 43);
+      g.lineTo(cx + 6, 46.6); g.lineTo(cx + 2, 47.4); g.lineTo(cx - 2, 47.4); g.lineTo(cx - 6, 46.6); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.7)'; g.lineWidth = 0.6; g.beginPath(); g.moveTo(cx - 10, 43.3); g.lineTo(cx + 10, 43.3); g.stroke();
+    },
+  ];
+};
+T.spear.paintIce = () => {
+  const cx = 11;
+  const head = [[cx, -3], [cx + 3.4, 5], [cx + 4.6, 15], [cx + 2.2, 24], [cx - 2.2, 24], [cx - 4.6, 15], [cx - 3.4, 5]];
+  const headP = (g) => { g.moveTo(head[0][0], head[0][1]); head.slice(1).forEach((p) => g.lineTo(p[0], p[1])); g.closePath(); };
+  return [
+    (g) => haft(g, ICE_HAFT, cx, 18, 97, 3.6, [72, 84], 151, 0),
+    (g) => {
+      iceFill(g, headP, cx - 4.6, -3, cx + 4.6, 24, 161, 2);
+      g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(cx - 0.3, -1); g.lineTo(cx - 0.4, 22); g.stroke();
+      // frost-bound socket: shards wrapped around the haft
+      g.fillStyle = lin(g, cx - 4, 22, cx + 4, 31, [[0, ICE.light], [1, ICE.dark]]);
+      g.beginPath(); g.moveTo(cx - 3.2, 22); g.lineTo(cx + 3.2, 22); g.lineTo(cx + 4.2, 26); g.lineTo(cx + 2.4, 31); g.lineTo(cx - 2.4, 31); g.lineTo(cx - 4.2, 26); g.closePath(); g.fill();
+      g.strokeStyle = ICE.glow; g.lineWidth = 0.6; g.beginPath(); g.moveTo(cx - 2.6, 26); g.lineTo(cx + 2.6, 26); g.stroke();
+    },
+  ];
+};
+
 // ---------- registry ----------
 // GEAR[itemId] = { W, H, gx, gy, layers: [fn...] }  (px, pointing up, grip at gx, gy)
 export const GEAR = {};
@@ -478,6 +541,7 @@ for (const id in SHIELD) {
   GEAR[id + '_e'] = { ...shieldPaint(id, 'e'), type: 'shield' };
   GEAR[id + '_n'] = { ...shieldPaint(id, 'n'), type: 'shield' };
 }
+for (const type of ['sword', 'spear']) { const D = T[type]; GEAR[type + '_ice'] = { W: D.W, H: D.H, gx: D.W / 2, gy: D.gy, layers: D.paintIce(), type }; }
 GEAR.torch_hand = { ...torchPaint(), type: 'torch' };
 GEAR.hammer = { ...hammerPaint(), type: 'hammer' };
 
@@ -507,6 +571,20 @@ function spearProj() {
   });
 }
 
+// the walkers' thrown ice spear (pointing east like proj_spear)
+function iceSpearProj() {
+  return spritePx(86, 16, (g, P) => {
+    const cy = 8;
+    P.layer((g) => {
+      g.fillStyle = lin(g, 0, cy - 1.6, 0, cy + 1.6, [[0, '#7c8a96'], [1, ICE_HAFT.woodD]]); g.fillRect(2, cy - 1.6, 62, 3.2);
+      g.fillStyle = ICE_HAFT.wrap; g.fillRect(38, cy - 1.9, 10, 3.8);
+      const head = (g) => { g.moveTo(85, cy); g.lineTo(76, cy - 3.6); g.lineTo(66, cy - 4.4); g.lineTo(58, cy - 2.4); g.lineTo(58, cy + 2.4); g.lineTo(66, cy + 4.4); g.lineTo(76, cy + 3.6); g.closePath(); };
+      iceFill(g, head, 58, cy - 4.4, 85, cy + 4.4, 171, 2);
+      g.strokeStyle = 'rgba(255,255,255,0.9)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(60, cy - 0.4); g.lineTo(83, cy - 0.3); g.stroke();
+    }, 1.8);
+  });
+}
+
 export function addGear(add) {
   for (const id in GEAR) {
     const D = GEAR[id];
@@ -518,4 +596,5 @@ export function addGear(add) {
   }
   add('proj_arrow', arrowProj(), 0.5, 0.5);
   add('proj_spear', spearProj(), 0.5, 0.5);
+  add('proj_ice_spear', iceSpearProj(), 0.5, 0.5);
 }

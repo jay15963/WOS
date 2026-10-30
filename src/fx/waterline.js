@@ -10,6 +10,7 @@
 // Everything is drawn in B.ground (on the water surface, under the stems), capped and culled to the view.
 
 import { WATERLINE } from '../art/composeWorld.js';
+import { SEASON } from '../art/season.js';
 
 const SCAN = 0.5;   // s between scans of the view
 const TAU = Math.PI * 2;
@@ -58,7 +59,7 @@ class Waterline {
   }
 
   update(g, dt) {
-    if (!this.ring) return;
+    if (!this.ring || SEASON.ice > 0.5) return; // winter: the water is frozen still (no rings, no wading)
     this.t += dt;
     const v = g.view(), w = g.world;
     this.scanT -= dt;
@@ -104,7 +105,7 @@ class Waterline {
   }
 
   render(g, B, v, env) {
-    if (!this.ring) return;
+    if (!this.ring || SEASON.ice > 0.5) return;
     const t = this.t, R = this.ring, K = this.kRing;
     const [wind, wx, wy] = this._windNow();
     const rain = env?.rain || 0;

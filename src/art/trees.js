@@ -2,8 +2,69 @@
 
 import { sprite, rng, OW, TAU, lin, rad, atop, fill, taper, leaf, ramp, rgb, hex, smoothClosed, blobPts, circle } from './paint.js';
 import { mkLump, drawFoliage } from './foliage.js';
+import { lazyDef, LAZY_DEFS } from './lazyDefs.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+// ---------------- BARE CROWNS (winter twins, art/season.js) ----------------
+// A central leader from (x0, y0) plus limbs set off along it at rising heights (low ones spreading wide, high ones
+// steeper), each growing sympodially (a continuation + a side branch per fork) inside the crown ellipse
+// (ccx, ccy, rx, ry); tapered, with a lit left edge, then a few fine twigs at the tips. Returns the tips.
+// o: { limbs, w (limb width), up (pull toward vertical), depth, bark, twig, twigs (false = no twigs) }
+function bareCrown(g, rand, x0, y0, ccx, ccy, rx, ry, o) {
+  const segs = [], tips = [];
+  const up = o.up ?? 0.15, depth = o.depth ?? 4;
+  const env = (x, y) => ((x - ccx) / rx) ** 2 + ((y - ccy) / ry) ** 2;
+  const reach = (x, y, a) => { let L = 4; while (L < 220 && env(x + Math.cos(a) * L, y + Math.sin(a) * L) < 0.9) L += 3; return L; };
+  const grow = (x, y, a, len, w, d) => {
+    if (env(x + Math.cos(a) * len, y + Math.sin(a) * len) > 1) len *= 0.6;
+    const x1 = x + Math.cos(a) * len, y1 = y + Math.sin(a) * len;
+    const bend = (rand() - 0.5) * len * 0.28;
+    segs.push([x, y, (x + x1) / 2 - Math.sin(a) * bend, (y + y1) / 2 + Math.cos(a) * bend, x1, y1, w, Math.max(0.9, w * 0.7)]);
+    if (d <= 0 || w < 1.2) { tips.push([x1, y1, a]); return; }
+    const side = rand() < 0.5 ? -1 : 1;
+    const ca = a + (rand() - 0.5) * 0.4 + (-Math.PI / 2 - a) * up * 0.4;
+    grow(x1, y1, ca, len * (0.7 + rand() * 0.14), w * 0.74, d - 1);
+    let sa = a + side * (0.5 + rand() * 0.4);
+    sa += (-Math.PI / 2 - sa) * up;
+    grow(x1, y1, sa, len * (0.55 + rand() * 0.18), w * 0.56, d - 1);
+    if (d >= 2 && rand() < 0.3) { const oa = a - side * (0.6 + rand() * 0.3); grow(x1, y1, oa + (-Math.PI / 2 - oa) * up, len * 0.45, w * 0.45, d - 2); }
+  };
+  // leader
+  grow(x0, y0, -Math.PI / 2 + (rand() - 0.5) * 0.2, reach(x0, y0, -Math.PI / 2) * 0.38, o.w, depth);
+  const n = o.limbs || 5;
+  for (let i = 0; i < n; i++) {
+    const t = n === 1 ? 0.5 : i / (n - 1), side = i % 2 ? 1 : -1;
+    const sx = x0 + (rand() - 0.5) * 3, sy = y0 - t * ry * 0.5 - rand() * 4;
+    const a = -Math.PI / 2 + side * (1.2 - t * 0.65 + (rand() - 0.5) * 0.2);
+    grow(sx, sy, a, reach(sx, sy, a) * (0.36 + rand() * 0.08), o.w * (0.9 - t * 0.35), depth - (t > 0.7 ? 1 : 0));
+  }
+  const B = o.bark;
+  g.fillStyle = B.mid;
+  for (const q of segs) { g.beginPath(); taper(g, ...q); g.fill(); }
+  g.fillStyle = B.light;
+  for (const q of segs) if (q[6] > 2.4) { g.beginPath(); taper(g, q[0] - q[6] * 0.22, q[1], q[2] - q[6] * 0.22, q[3], q[4] - q[7] * 0.2, q[5], q[6] * 0.34, q[7] * 0.28); g.fill(); }
+  if (o.twigs !== false) {
+    g.strokeStyle = o.twig || B.dark; g.lineCap = 'round';
+    for (const [x, y, a] of tips) {
+      for (let k = 0; k < 2; k++) {
+        const ta = a + (rand() - 0.5) * 1.1 + (-Math.PI / 2 - a) * up * 0.5, tl = 3 + rand() * 4;
+        g.lineWidth = 0.9; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(ta) * tl, y + Math.sin(ta) * tl); g.stroke();
+      }
+    }
+  }
+  return tips;
+}
+// willow: long thin whips hanging from the tips (drawn in their own thin-outlined layer)
+function whips(g, rand, tips, len, col, baseY) {
+  g.strokeStyle = col; g.lineCap = 'round'; g.lineWidth = 0.8;
+  for (const [x, y] of tips) {
+    for (let k = 0; k < 2; k++) {
+      const out = (rand() - 0.5) * 8, L = len * (0.55 + rand() * 0.6), y1 = Math.min(baseY - 6, y + L);
+      g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + out * 1.3, y + 3, x + out + (rand() - 0.5) * 3, y1); g.stroke();
+    }
+  }
+}
 
 const BARK = { deep: '#2e2016', dark: '#47311f', mid: '#664730', light: '#87643f', high: '#a07b52' };
 
@@ -64,7 +125,7 @@ function drawTrunk(g, cx, baseY, topY, wb, wt, lean, rand, bark, shadeTo) {
 }
 
 // ---------------- OAK ----------------
-function oak(v) {
+function oak(v, bare = false) {
   const rand = rng(1000 + v * 77);
   const shapes = [
     { W: 2.7, rx: 72, ry: 60, n: 6, trunk: 40, ox: 0 },
@@ -89,7 +150,7 @@ function oak(v) {
       for (const side of [-1, 1]) {
         g.beginPath(); taper(g, tx, ty + 14, tx + side * 10, ty, tx + side * (22 + rand() * 8), ty - 18 - rand() * 8, 11, 5); g.fill();
       }
-      drawTrunk(g, cx, baseY, ty + 2, 28, 17, lean, rand, BARK, ccy + S.ry * 1.02);
+      drawTrunk(g, cx, baseY, ty + 2, 28, 17, lean, rand, BARK, bare ? 0 : ccy + S.ry * 1.02);
       // exposed roots spreading into the ground
       for (const s of [-1, 1]) {
         g.fillStyle = BARK.mid;
@@ -111,6 +172,11 @@ function oak(v) {
       }
       g.restore();
     });
+    if (bare) {
+      const r2 = rng(1500 + v * 31);
+      P.layer((g) => bareCrown(g, r2, cx + lean, ccy + S.ry * 0.4, ccx, ccy, S.rx * 1.02, S.ry * 0.98, { limbs: 5, w: 10, up: 0.08, bark: BARK }), 1.6);
+      return;
+    }
     // canopy
     const all = [];
     const n = S.n;
@@ -341,7 +407,7 @@ const BIRCH_PALS = [
   { deep: '#45551f', dark: '#5e7128', mid: '#7c9033', light: '#9cae43', high: '#bcc65d' },
   { deep: '#3a5024', dark: '#4f6a2d', mid: '#698838', light: '#86a647', high: '#a6bf5f' },
 ];
-function birch(v) {
+function birch(v, bare = false) {
   const rand = rng(3000 + v * 191);
   const S = [{ W: 2.0, rx: 42, ry: 64, trunk: 62 }, { W: 2.1, rx: 46, ry: 58, trunk: 58 }, { W: 1.9, rx: 38, ry: 70, trunk: 64 }][v % 3];
   const pal = BIRCH_PALS[v % BIRCH_PALS.length];
@@ -384,10 +450,17 @@ function birch(v) {
         g.beginPath(); smoothClosed(g, blobPts(cx + (rand() - 0.5) * 9, baseY - 2 - rand() * 12, 3 + rand() * 3, 2 + rand() * 2.5, rand, 7, 0.3)); g.fill();
       }
       // shade under canopy
-      g.fillStyle = lin(g, 0, topY, 0, ccy + S.ry + 6, [[0, 'rgba(40,44,30,0.9)'], [0.75, 'rgba(40,44,30,0.55)'], [1, 'rgba(40,44,30,0)']]);
-      g.fillRect(0, 0, W, ccy + S.ry + 6);
+      if (!bare) {
+        g.fillStyle = lin(g, 0, topY, 0, ccy + S.ry + 6, [[0, 'rgba(40,44,30,0.9)'], [0.75, 'rgba(40,44,30,0.55)'], [1, 'rgba(40,44,30,0)']]);
+        g.fillRect(0, 0, W, ccy + S.ry + 6);
+      }
       g.restore();
     });
+    if (bare) {
+      const r2 = rng(3500 + v * 23);
+      P.layer((g) => bareCrown(g, r2, tx, topY + 26, tx, ccy - S.ry * 0.05, S.rx * 0.95, S.ry * 0.95, { limbs: 6, w: 5, up: 0.32, depth: 3, bark: { mid: '#d9d4c6', light: '#f4f1e8', dark: '#4a443c' }, twig: '#5a5046' }), 1.4);
+      return;
+    }
     // side clumps (behind the main mass, airy silhouette)
     for (const C of sideC) {
       P.layer((g) => {
@@ -559,7 +632,7 @@ const MAPLE_PALS = [
   { deep: '#4f3c12', dark: '#836116', mid: '#b5891f', light: '#d9ad33', high: '#f0cd5c' },   // golden
 ];
 const MAPLE_BARK = { deep: '#2c241e', dark: '#463a30', mid: '#625345', light: '#80705f', high: '#9a8a78' };
-function maple(v) {
+function maple(v, bare = false) {
   const rand = rng(6100 + v * 89);
   const S = [{ W: 2.5, rx: 62, ry: 58, trunk: 44, ox: 0 }, { W: 2.4, rx: 58, ry: 62, trunk: 46, ox: -5 }, { W: 2.6, rx: 66, ry: 56, trunk: 42, ox: 4 }][v % 3];
   const pal = MAPLE_PALS[v % MAPLE_PALS.length];
@@ -573,9 +646,14 @@ function maple(v) {
       g.fillStyle = MAPLE_BARK.mid;
       for (const side of [-1, 1]) { g.beginPath(); taper(g, tx, ty + 16, tx + side * 12, ty, tx + side * (26 + rand() * 6), ty - 22, 9, 4); g.fill(); }
       g.beginPath(); taper(g, tx, ty + 10, tx + 2, ty - 6, tx + (rand() - 0.5) * 8, ty - 30, 8, 3.5); g.fill();
-      drawTrunk(g, cx, baseY, ty + 2, 24, 14, lean, rand, MAPLE_BARK, ccy + S.ry);
+      drawTrunk(g, cx, baseY, ty + 2, 24, 14, lean, rand, MAPLE_BARK, bare ? 0 : ccy + S.ry);
       for (const s of [-1, 1]) { g.fillStyle = MAPLE_BARK.mid; g.beginPath(); taper(g, cx + s * 8, baseY - 4, cx + s * 14, baseY - 1, cx + s * 20, baseY + 2, 5, 1.4); g.fill(); }
     });
+    if (bare) {
+      const r2 = rng(6150 + v * 29);
+      P.layer((g) => bareCrown(g, r2, cx + lean, ccy + S.ry * 0.35, ccx, ccy, S.rx, S.ry, { limbs: 5, w: 9, up: 0.16, bark: MAPLE_BARK }), 1.6);
+      return;
+    }
     const all = [];
     const n = 7, a0 = rand() * TAU;
     for (let i = 0; i < n; i++) {
@@ -597,7 +675,7 @@ const WILLOW_PAL = [
   { deep: '#2f4219', dark: '#45602a', mid: '#628236', light: '#83a447', high: '#a8c563' },
   { deep: '#32461c', dark: '#4a652c', mid: '#678838', light: '#8aaa4a', high: '#b0c968' },
 ];
-function willow(v) {
+function willow(v, bare = false) {
   const rand = rng(6400 + v * 97);
   const pal = WILLOW_PAL[v % WILLOW_PAL.length];
   const stops = [pal.deep, pal.dark, pal.mid, pal.light, pal.high];
@@ -610,7 +688,7 @@ function willow(v) {
     // trunk: short, thick, leaning, splitting into arching limbs that carry the curtains
     const limbs = [];
     P.layer((g) => {
-      drawTrunk(g, cx, baseY, ccy + 40, 30, 18, lean, rand, BARK, ccy + 70);
+      drawTrunk(g, cx, baseY, ccy + 40, 30, 18, lean, rand, BARK, bare ? 0 : ccy + 70);
       g.fillStyle = BARK.mid;
       for (const [s, k] of [[-1, 1], [1, 1], [-1, 0.55], [1, 0.6]]) {
         const x0 = cx + lean, y0 = ccy + 46, x1 = ccx + s * R * 0.78 * k, y1 = ccy + 4 - k * 8;
@@ -618,6 +696,16 @@ function willow(v) {
         g.beginPath(); taper(g, x0, y0, (x0 + x1) / 2 + s * 4, y1 - 6, x1, y1, 10 * k + 3, 3); g.fill();
       }
     });
+    if (bare) {
+      // winter: the arching limbs and long bare whips hanging from them
+      const r2 = rng(6450 + v * 17);
+      let tips = [];
+      P.layer((g) => {
+        for (const [lx, ly] of limbs) tips = tips.concat(bareCrown(g, r2, lx, ly + 4, ccx, ccy - 6, R * 1.05, RY * 1.05, { limbs: 3, w: 4, up: 0.1, depth: 3, bark: BARK, twigs: false }));
+      }, 1.4);
+      P.layer((g) => { whips(g, r2, tips, 64, '#7d6a34', baseY); whips(g, r2, tips, 48, '#958243', baseY); }, 0.5, 'rgba(40,30,16,0.7)');
+      return;
+    }
     // a hanging strand: out from its origin, arching, then falling with a little sway; narrow leaves along it
     const strand = (g, x0, y0, len, dir, t) => {
       const out = dir * (6 + rand() * 8), x1 = x0 + out + (rand() - 0.5) * 6, y1 = Math.min(baseY - 3, y0 + len);
@@ -766,7 +854,7 @@ const ASPEN_PALS = [
   { deep: '#3c4f1c', dark: '#566f26', mid: '#759130', light: '#97b23e', high: '#bfd15e' },
   { deep: '#4a4e18', dark: '#6a6c20', mid: '#8f8e2a', light: '#b4ae38', high: '#d8cd5a' },  // turning yellow
 ];
-function aspen(v) {
+function aspen(v, bare = false) {
   const rand = rng(7100 + v * 71);
   const pal = ASPEN_PALS[v % ASPEN_PALS.length];
   return sprite(1.5, 3.8, (g, P) => {
@@ -778,9 +866,14 @@ function aspen(v) {
       g.save(); g.beginPath(); taper(g, cx, baseY + 1, cx + 1, (baseY + crownB) / 2, cx + 2, topY + 40, 10, 4, 14); g.clip();
       g.fillStyle = '#3a3630';
       for (let i = 0; i < 9; i++) { const y = baseY - 6 - rand() * 60; g.beginPath(); g.ellipse(cx + (rand() - 0.5) * 5, y, 1.6 + rand() * 1.6, 0.8, 0, 0, TAU); g.fill(); }
-      g.fillStyle = 'rgba(40,44,30,0.85)'; g.fillRect(0, 0, W, crownB + 8);
+      if (!bare) { g.fillStyle = 'rgba(40,44,30,0.85)'; g.fillRect(0, 0, W, crownB + 8); }
       g.restore();
     });
+    if (bare) {
+      const r2 = rng(7150 + v * 13);
+      P.layer((g) => bareCrown(g, r2, cx + 2, crownB - 4, cx, (topY + crownB) / 2, 24, (crownB - topY) / 2 + 4, { limbs: 7, w: 4, up: 0.5, depth: 3, bark: { mid: '#cfcab8', light: '#f0eee2', dark: '#55524a' }, twig: '#6a665a' }), 1.3);
+      return;
+    }
     P.layer((g) => {
       const lumps = [];
       const n = 12;
@@ -827,6 +920,17 @@ function snag(v) {
       }
     });
   });
+}
+
+// winter twins of the broadleaf trees, painted lazily when the leaves start to fall (art/season.js bareTwin):
+// <group>_bare_<n>, same canvas / anchor as <group>_<n> (the trunk lines up exactly)
+const BARE_TWINS = { tree_oak: [oak, 5], tree_maple: [maple, 3], tree_willow: [willow, 2], tree_birch: [birch, 3], tree_aspen: [aspen, 2] };
+for (const grp in BARE_TWINS) {
+  const [fn, n] = BARE_TWINS[grp];
+  for (let i = 0; i < n; i++) {
+    const name = `${grp}_bare_${i}`;
+    lazyDef(name, () => { const c = fn(i, true); LAZY_DEFS.get(name).ay = 1 - 9 / (c.origH || c.height); return c; }, 0.5, 1);
+  }
 }
 
 export function addTrees(add) {

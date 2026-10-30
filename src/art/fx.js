@@ -60,6 +60,17 @@ export function addFx(add) {
     g.beginPath(); leaf(g, 3, 13, 15, 5, 4, 0.5); g.fill();
     g.strokeStyle = 'rgba(40,60,20,0.8)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(4, 12.5); g.lineTo(13.5, 6); g.stroke();
   }, 1.1, 'rgba(30,36,16,0.8)')), 0.5, 0.5);
+  // seasons: a blossom petal (spring, white → tinted pink) and an ice shard (winter walkers shattering)
+  add('fx_petal', spritePx(12, 12, (g, P) => P.layer((g) => {
+    g.fillStyle = lin(g, 2, 3, 10, 9, [[0, '#ffffff'], [1, '#f1dde4']]);
+    g.beginPath(); g.ellipse(6, 6, 4.4, 2.7, 0.5, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(226,160,184,0.6)'; g.beginPath(); g.ellipse(3.8, 7.4, 1.3, 0.8, 0.5, 0, TAU); g.fill();
+  }, 0.7, 'rgba(150,96,112,0.5)')), 0.5, 0.5);
+  add('fx_shard', spritePx(12, 20, (g, P) => P.layer((g) => {
+    g.fillStyle = lin(g, 2, 2, 10, 18, [[0, '#ffffff'], [0.45, '#d4f2fc'], [1, '#7cc2de']]);
+    g.beginPath(); g.moveTo(6, 1); g.lineTo(10, 8); g.lineTo(7.5, 19); g.lineTo(3, 12.5); g.lineTo(2.5, 6); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.95)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(6, 2.2); g.lineTo(5.6, 15); g.stroke();
+  }, 0.9, 'rgba(36,86,116,0.65)')), 0.5, 0.5);
   add('fx_drop', spritePx(4, 32, (g) => {
     g.fillStyle = lin(g, 0, 0, 0, 32, [[0, 'rgba(255,255,255,0)'], [0.7, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0.95)']]);
     g.beginPath(); g.moveTo(2, 0); g.lineTo(3, 30); g.quadraticCurveTo(2, 32, 1, 30); g.closePath(); g.fill();

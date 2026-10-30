@@ -61,6 +61,7 @@ export function sunShaft(env) {
 const COLD = { pine: 0.9, mountain: 1, rocky: 0.45, tundra: 1, taiga: 0.9, snow: 1, glacier: 1, alpine: 1 };
 const BIOME_LIST = ['meadow', 'forest', 'pine', 'birch', 'marsh', 'shore', 'rocky', 'water', 'mountain'];
 
+const SEA0 = [0, 0, 0, 0]; // no season data yet
 // prepend the quality define right after the version line
 const ql = (src, level) => src.replace('#version 300 es', `#version 300 es\n#define QL ${level}`);
 
@@ -576,6 +577,10 @@ export class Renderer {
       if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.uniform1i(p.u.uClim, 2); }
       if (p.u.uWorldSz) gl.uniform2f(p.u.uWorldSz, this.world.W, this.world.H);
       if (p.u.uSnow) gl.uniform1f(p.u.uSnow, (env.extra && env.extra.uSnow) || 0);
+      // seasons (src/fx/seasonfx.js): sprites with a season class follow them (src/art/season.js)
+      const SA = (env.extra && env.extra.uSeaA) || SEA0, SB = (env.extra && env.extra.uSeaB) || SEA0;
+      if (p.u.uSeaA) gl.uniform4f(p.u.uSeaA, SA[0], SA[1], SA[2], SA[3]);
+      if (p.u.uSeaB) gl.uniform4f(p.u.uSeaB, SB[0], SB[1], SB[2], SB[3]);
       const ao = p.u.uAO;
       if (ao) gl.uniform1f(ao, this.solidNear ? 1 : 0);   // contact AO next to walls on floors and ground plants
       B.ground.draw();
@@ -588,7 +593,7 @@ export class Renderer {
         B.main.upload();
         let k = 0, i = 0;
         const segs = this.roofSeg;
-        const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); };
+        const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); if (rp.u.uRoofSnow) gl.uniform1f(rp.u.uRoofSnow, SA[0]); };
         while (i < segs.length) {
           const at = segs[i].at;
           if (at > k) { B.main.drawRange(k, at); k = at; }

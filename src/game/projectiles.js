@@ -352,7 +352,7 @@ function drawShadows(game, B, A, v) {
     if (pr.stuck || pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
     if (pr.lob) {
       // lob: the shadow slides along the ground path, longer and softer the higher the shaft flies
-      const L = pr.kind === 'spear' ? 1.3 : 0.85, h = Math.max(0, pr.lift);
+      const L = pr.kind === 'spear' || pr.kind === 'ice_spear' ? 1.3 : 0.85, h = Math.max(0, pr.lift);
       const a = Math.max(0.6, 1 - h / 7);
       B.blob.add(blob, pr.x, pr.y, (L + h * 0.06) / blob.w, (0.2 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir);
       continue;
@@ -366,13 +366,14 @@ function drawProjectile(game, B, A, pr) {
   const arrow = A.has('proj_arrow') ? A.get('proj_arrow') : null;
   const spear = A.has('proj_spear') ? A.get('proj_spear') : arrow;
   const spark = A.has('fx_spark') ? A.get('fx_spark') : null;
+  const ice = pr.kind === 'ice_spear'; // winter walkers' ice spear (art: proj_ice_spear, else the spear)
   const a = Math.max(0, pr.alpha);
   let rot = pr.rot;
   if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(pr.rot)) * 0.3 + 0.55, Math.cos(pr.rot) || 0.01);
   let lift = pr.lift + (pr.pz || 0) * STORY_H; // levels: shots from / to a height
-  const spr = pr.kind === 'spear' ? spear : arrow;
+  const spr = ice ? (A.has('proj_ice_spear') ? A.get('proj_ice_spear') : spear) : pr.kind === 'spear' ? spear : arrow;
   if (pr.lob && spr) {
-    let x = pr.x, sc = (pr.kind === 'spear' ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
+    let x = pr.x, sc = (pr.kind === 'spear' || ice ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
     if (pr.stuck && pr.ground) {
       // planted steeply: the tip in the ground at the landing point, the shaft leaning back toward the shooter
       rot = Math.atan2(1.6, Math.cos(pr.gdir) * 0.9 || 0.01);
@@ -383,7 +384,7 @@ function drawProjectile(game, B, A, pr) {
     return;
   }
   if (spr) {
-    const sc = pr.kind === 'spear' && spr === arrow ? 1.5 : 1;
+    const sc = (pr.kind === 'spear' || ice) && spr === arrow ? 1.5 : 1;
     B.main.add(spr, pr.x, pr.y, sc, sc, 1, 1, 1, a, 0, rot, 0, 1, 0, lift);
   } else if (spark) {
     // stand-in until proj_arrow exists: a dark shaft streak + a pale fletch/tip glint

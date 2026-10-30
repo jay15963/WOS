@@ -1,6 +1,6 @@
 // Apparel overlays (Art B), drawn in the exact pawn body/head boxes so they line up in every facing:
-//   wear_<id>_{s,n,e}: body tunic_cloth, armor_leather, armor_copper, armor_iron (fixed material colors, NOT tinted)
-//                      head hat_straw, hood_leather, helmet_copper, helmet_iron
+//   wear_<id>_{s,n,e}: body tunic_cloth, armor_leather, armor_copper, armor_iron, coat_fur (fixed material colors, NOT tinted)
+//                      head hat_straw, hood_leather, helmet_copper, helmet_iron, hat_fur
 //   hat_bandana_{s,n,e} (bandit headscarf, white → tinted with look.hatColor)
 //   face_mask_{s,e} (tinted with look.hatColor), face_scar_{s,e}, face_eyepatch_{s,e} (fixed colors)
 // WEAR exports the painters so items.js can draw the same pieces as inventory icons.
@@ -21,6 +21,24 @@ function above(g, d, y, k = 4) {
 const hemCurve = (g, d, y, k = 4) => { if (d === 'e') { g.moveTo(8, y); g.quadraticCurveTo(29, y + k * 0.7, 50, y - k * 0.2); } else { g.moveTo(2, y); g.quadraticCurveTo(28, y + k, 54, y); } };
 // shoulder pad centers per facing
 const SHOULDERS = { s: [[12.5, 19], [43.5, 19]], n: [[12.5, 19], [43.5, 19]], e: [[26, 18]] };
+
+// winter fur: a band of soft overlapping tufts along a polyline (cream with a darker underside and light tips)
+const FUR = { base: '#e6dac2', dark: '#b29c7c', light: '#fbf6ea', strand: 'rgba(120,96,64,0.45)' };
+function furBand(g, pts, r, rand, F = FUR) {
+  const tufts = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x0, y0] = pts[i], [x1, y1] = pts[i + 1], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(L / (r * 0.9)));
+    for (let k = 0; k < n; k++) { const u = (k + rand() * 0.5) / n; tufts.push([x0 + (x1 - x0) * u + (rand() - 0.5) * r * 0.5, y0 + (y1 - y0) * u + (rand() - 0.5) * r * 0.4, r * (0.85 + rand() * 0.35)]); }
+  }
+  g.fillStyle = F.dark;
+  for (const [x, y, rr] of tufts) { g.beginPath(); circle(g, x, y + rr * 0.25, rr); g.fill(); }
+  g.fillStyle = F.base;
+  for (const [x, y, rr] of tufts) { g.beginPath(); circle(g, x - rr * 0.12, y - rr * 0.1, rr * 0.86); g.fill(); }
+  g.fillStyle = F.light;
+  for (const [x, y, rr] of tufts) { g.beginPath(); g.ellipse(x - rr * 0.32, y - rr * 0.38, rr * 0.42, rr * 0.28, -0.5, 0, TAU); g.fill(); }
+  g.strokeStyle = F.strand; g.lineWidth = 0.55;
+  for (const [x, y, rr] of tufts) for (let k = 0; k < 2; k++) { const a = rand() * TAU, q = rr * (0.3 + rand() * 0.5); g.beginPath(); g.moveTo(x + Math.cos(a) * q, y + Math.sin(a) * q); g.lineTo(x + Math.cos(a) * (q + 1.4), y + Math.sin(a) * (q + 1.4) + 0.6); g.stroke(); }
+}
 
 function shade(g, d, top, bot) {
   g.fillStyle = lin(g, 8, top, 46, bot, [[0, 'rgba(255,250,235,0.28)'], [0.45, 'rgba(0,0,0,0)'], [1, 'rgba(20,12,6,0.32)']]);
@@ -184,9 +202,45 @@ const BODY = {
   },
 };
 
+// winter fur coat: thick hide (warm browns) with a cream fur collar, front edge, hem and cuffs, wooden toggles
+BODY.coat_fur = function coatFur(g, d, rand) {
+  const C = { base: '#7c5233', light: '#ad7b4c', dark: '#4a2d18', seam: '#2f1c0e', toggle: '#e4cf9e', belt: '#3a2414', buckle: '#c9a24e' };
+  const hem = 51;
+  g.save(); g.beginPath(); bodyPath(g, d); g.clip();
+  g.beginPath(); above(g, d, hem + 2, 3); g.fillStyle = C.base; g.fill();
+  g.save(); g.beginPath(); above(g, d, hem + 2, 3); g.clip();
+  shade(g, d, 10, hem);
+  // hide texture: soft mottling and a few creases
+  for (let i = 0; i < 14; i++) { g.fillStyle = rand() < 0.5 ? A(C.light, 0.18) : A(C.dark, 0.2); g.beginPath(); g.ellipse(6 + rand() * 44, 18 + rand() * 30, 1.5 + rand() * 2.5, 0.8 + rand(), rand() * 3, 0, TAU); g.fill(); }
+  g.strokeStyle = A(C.dark, 0.55); g.lineWidth = 0.9;
+  if (d === 'e') { g.beginPath(); g.moveTo(22, 22); g.quadraticCurveTo(20, 36, 22, 50); g.moveTo(31, 42); g.quadraticCurveTo(33, 46, 32, 51); g.stroke(); }
+  else { for (const x of [16, 40]) { g.beginPath(); g.moveTo(x, 20); g.quadraticCurveTo(x + (x < 28 ? -2 : 2), 36, x, 51); g.stroke(); } }
+  if (d === 'n') { g.strokeStyle = A(C.seam, 0.8); g.lineWidth = 1.1; g.beginPath(); g.moveTo(28, 15); g.lineTo(28, 51); g.stroke(); g.strokeStyle = A(C.toggle, 0.5); g.lineWidth = 0.6; g.setLineDash([1.2, 1.4]); g.beginPath(); g.moveTo(29.4, 16); g.lineTo(29.4, 50); g.stroke(); g.setLineDash([]); }
+  g.restore();
+  // belt (under the front fur edge)
+  g.strokeStyle = C.belt; g.lineWidth = 2.8; g.beginPath(); hemCurve(g, d, 40, 3.5); g.stroke();
+  if (d === 'e') { g.fillStyle = C.buckle; g.beginPath(); rrect(g, 33, 39, 4.4, 3.6, 0.8); g.fill(); }
+  // front edge with toggles (s: centre, e: the leading side)
+  if (d === 's') {
+    furBand(g, [[28, 17], [28.5, 30], [28, 42], [28.5, 50]], 2.6, rand);
+    g.strokeStyle = C.seam; g.lineWidth = 0.9;
+    for (const y of [24, 32]) { g.fillStyle = C.toggle; g.beginPath(); g.ellipse(24.5, y, 2.3, 0.95, 0, 0, TAU); g.fill(); g.stroke(); g.beginPath(); g.moveTo(26.8, y); g.lineTo(29.5, y); g.stroke(); }
+  } else if (d === 'e') {
+    furBand(g, [[37, 16], [39.5, 28], [41, 40], [40, 50]], 2.5, rand);
+    g.fillStyle = C.toggle; g.strokeStyle = C.seam; g.lineWidth = 0.9;
+    for (const y of [24, 32]) { g.beginPath(); g.ellipse(36.5, y, 2.1, 0.9, 0.15, 0, TAU); g.fill(); g.stroke(); }
+  }
+  // hem trim
+  furBand(g, d === 'e' ? [[13, 50], [24, 51.6], [36, 51.2], [45, 49]] : [[5, 49.5], [16, 51.5], [28, 52.2], [40, 51.5], [51, 49.5]], 2.5, rand);
+  g.restore();
+  // big collar ruff around the neck and over the shoulders (stands out of the silhouette)
+  if (d === 'e') furBand(g, [[17, 19], [21, 14], [28, 11.5], [35, 13], [40, 17.5]], 3.6, rand);
+  else furBand(g, [[9.5, 20], [14, 15], [21, 12.5], [28, 12], [35, 12.5], [42, 15], [46.5, 20]], 3.8, rand);
+};
+
 // ---------------- head wear ----------------
 // flags: hides hair? (compose.js reads WEAR_HIDES_HAIR)
-export const WEAR_HIDES_HAIR = { hat_straw: 'tall', hood_leather: true, helmet_copper: true, helmet_iron: true, bandana: 'tall' };
+export const WEAR_HIDES_HAIR = { hat_straw: 'tall', hood_leather: true, helmet_copper: true, helmet_iron: true, bandana: 'tall', hat_fur: true };
 
 const HEAD = {
   hat_straw(g, d, rand) {
@@ -373,6 +427,55 @@ function eyepatch(g, d) {
     g.fillStyle = '#211a15'; g.beginPath(); g.ellipse(HX + 10, HY + 2.8, 3.2, 3.6, 0.1, 0, TAU); g.fill();
   }
 }
+
+// winter fur cap with ear flaps: a dome of brown hide, a thick cream fur band around the head, fur-lined flaps over
+// the ears (and the neck at the back) with the ties hanging
+HEAD.hat_fur = function hatFur(g, d, rand) {
+  const C = { base: '#7a4f30', light: '#a77548', dark: '#452a16', seam: '#2c190c', tie: '#5a3a22' };
+  const domeFill = (x0, y0, x1, y1) => lin(g, x0, y0, x1, y1, [[0, C.light], [0.5, C.base], [1, C.dark]]);
+  const flap = (x, y, w, h, side) => {
+    // ear flap: fur lining showing at its edge, hide outside
+    g.fillStyle = FUR.dark; g.beginPath(); g.moveTo(x - w / 2 - 0.8, y); g.lineTo(x + w / 2 + 0.8, y); g.quadraticCurveTo(x + w / 2 + 1.2, y + h + 1.2, x, y + h + 2); g.quadraticCurveTo(x - w / 2 - 1.2, y + h + 1.2, x - w / 2 - 0.8, y); g.closePath(); g.fill();
+    g.fillStyle = FUR.base; g.beginPath(); g.moveTo(x - w / 2 - 0.2, y); g.lineTo(x + w / 2 + 0.2, y); g.quadraticCurveTo(x + w / 2 + 0.6, y + h + 0.4, x, y + h + 1.2); g.quadraticCurveTo(x - w / 2 - 0.6, y + h + 0.4, x - w / 2 - 0.2, y); g.closePath(); g.fill();
+    g.fillStyle = domeFill(x - w / 2, y, x + w / 2, y + h); g.beginPath(); g.moveTo(x - w / 2 + 1.2, y); g.lineTo(x + w / 2 - 1.2, y); g.quadraticCurveTo(x + w / 2 - 0.6, y + h - 1.2, x, y + h - 0.6); g.quadraticCurveTo(x - w / 2 + 0.6, y + h - 1.2, x - w / 2 + 1.2, y); g.closePath(); g.fill();
+    g.strokeStyle = A(C.seam, 0.6); g.lineWidth = 0.7; g.beginPath(); g.moveTo(x, y + 1); g.lineTo(x, y + h - 2); g.stroke();
+    g.strokeStyle = C.tie; g.lineWidth = 1; g.beginPath(); g.moveTo(x, y + h); g.quadraticCurveTo(x + side * 1.5, y + h + 4, x + side * 0.6, y + h + 7); g.stroke();
+  };
+  if (d === 's' || d === 'n') {
+    if (d === 'n') {
+      // back flap over the neck
+      g.fillStyle = FUR.dark; g.beginPath(); g.moveTo(HX - 17, HY - 5); g.lineTo(HX + 17, HY - 5); g.quadraticCurveTo(HX + 18, HY + 12, HX, HY + 15); g.quadraticCurveTo(HX - 18, HY + 12, HX - 17, HY - 5); g.closePath(); g.fill();
+      g.fillStyle = domeFill(HX - 16, HY - 5, HX + 16, HY + 13); g.beginPath(); g.moveTo(HX - 15.5, HY - 5); g.lineTo(HX + 15.5, HY - 5); g.quadraticCurveTo(HX + 16.4, HY + 10.6, HX, HY + 13.4); g.quadraticCurveTo(HX - 16.4, HY + 10.6, HX - 15.5, HY - 5); g.closePath(); g.fill();
+      g.strokeStyle = A(C.seam, 0.55); g.lineWidth = 0.8; for (const x of [-7, 0, 7]) { g.beginPath(); g.moveTo(HX + x, HY - 3); g.lineTo(HX + x * 0.9, HY + 11); g.stroke(); }
+    }
+    flap(HX - 18.2, HY - 6, 9, 15, -1);
+    flap(HX + 18.2, HY - 6, 9, 15, 1);
+    // dome
+    const dome = (gg) => { gg.moveTo(HX - 18.5, HY - 7); gg.bezierCurveTo(HX - 19.5, HY - 19, HX - 10, HY - 25, HX, HY - 25); gg.bezierCurveTo(HX + 10, HY - 25, HX + 19.5, HY - 19, HX + 18.5, HY - 7); gg.closePath(); };
+    g.beginPath(); dome(g); g.fillStyle = domeFill(HX - 18, HY - 25, HX + 16, HY - 6); g.fill();
+    g.save(); g.beginPath(); dome(g); g.clip();
+    g.strokeStyle = A(C.seam, 0.55); g.lineWidth = 0.9;
+    for (const x of [-9, 0, 9]) { g.beginPath(); g.moveTo(HX + x * 0.3, HY - 25); g.quadraticCurveTo(HX + x * 1.05, HY - 18, HX + x * 1.2, HY - 7); g.stroke(); }
+    for (let i = 0; i < 8; i++) { g.fillStyle = A(C.light, 0.22); g.beginPath(); g.ellipse(HX - 14 + rand() * 28, HY - 22 + rand() * 13, 1.6, 0.8, rand(), 0, TAU); g.fill(); }
+    g.fillStyle = 'rgba(255,240,215,0.28)'; g.beginPath(); g.ellipse(HX - 7, HY - 19, 6, 2.6, -0.4, 0, TAU); g.fill();
+    g.restore();
+    // thick fur band around the head
+    furBand(g, [[HX - 20, HY - 6.5], [HX - 12, HY - 9.5], [HX, HY - 10.5], [HX + 12, HY - 9.5], [HX + 20, HY - 6.5]], 3.7, rand);
+    return;
+  }
+  // side view (facing +x): back flap, near ear flap, dome, band
+  g.fillStyle = FUR.dark; g.beginPath(); g.moveTo(HX - 19, HY - 6); g.quadraticCurveTo(HX - 22, HY + 6, HX - 15, HY + 13); g.lineTo(HX - 8, HY + 10); g.lineTo(HX - 8, HY - 6); g.closePath(); g.fill();
+  g.fillStyle = domeFill(HX - 20, HY - 6, HX - 8, HY + 12); g.beginPath(); g.moveTo(HX - 18, HY - 6); g.quadraticCurveTo(HX - 20.6, HY + 5, HX - 14.6, HY + 11.4); g.lineTo(HX - 9, HY + 8.8); g.lineTo(HX - 9, HY - 6); g.closePath(); g.fill();
+  flap(HX - 3, HY - 6, 10, 16, 1);
+  const dome = (gg) => { gg.moveTo(HX - 20, HY - 6); gg.bezierCurveTo(HX - 22, HY - 19, HX - 9, HY - 26, HX + 1, HY - 25.5); gg.bezierCurveTo(HX + 12, HY - 25, HX + 19, HY - 17, HX + 18, HY - 7); gg.closePath(); };
+  g.beginPath(); dome(g); g.fillStyle = domeFill(HX - 20, HY - 26, HX + 18, HY - 6); g.fill();
+  g.save(); g.beginPath(); dome(g); g.clip();
+  g.strokeStyle = A(C.seam, 0.55); g.lineWidth = 0.9;
+  for (const x of [-8, 2, 11]) { g.beginPath(); g.moveTo(HX + x * 0.4, HY - 26); g.quadraticCurveTo(HX + x, HY - 18, HX + x * 1.1, HY - 6); g.stroke(); }
+  g.fillStyle = 'rgba(255,240,215,0.28)'; g.beginPath(); g.ellipse(HX - 6, HY - 19, 6, 2.6, -0.3, 0, TAU); g.fill();
+  g.restore();
+  furBand(g, [[HX - 21, HY - 5], [HX - 10, HY - 9], [HX + 3, HY - 10.5], [HX + 13, HY - 9.5], [HX + 19.5, HY - 6.5]], 3.6, rand);
+};
 
 export const WEAR = { body: BODY, head: HEAD };
 
