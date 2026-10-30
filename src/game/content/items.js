@@ -106,6 +106,9 @@ for (const type in TOOL_TYPES) {
   }
 }
 Object.assign(ITEMS, {
+  // the winter walkers' weapons (seasons / winter nights): as strong as stone, dropped now and then
+  sword_ice:     { name: 'Espada de gelo', emoji: '🗡️', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'ice', weapon: { type: 'sword' }, desc: 'Lâmina de gelo que nunca derrete, tirada de um Andarilho do Gelo. Golpe, Redemoinho e Investida.' },
+  spear_ice:     { name: 'Lança de gelo', emoji: '🔱', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'ice', weapon: { type: 'spear' }, desc: 'Lança de gelo eterno de um Andarilho do Gelo. Alcance longo (1,8 m).' },
   club_wood:     { name: 'Clava', emoji: '🏏', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'wood', weapon: { type: 'club' }, desc: 'Porrete de madeira. Atordoa.' },
   club_iron:     { name: 'Maça de ferro', emoji: '🔨', stack: 1, cat: 'weapon', slot: 'main', tier: 3, mat: 'iron', weapon: { type: 'club' }, desc: 'Maça pesada de ferro. Atordoa.' },
   bow_wood:      { name: 'Arco simples', emoji: '🏹', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'wood', weapon: { type: 'bow', twoHanded: true }, desc: 'Ataque à distância. Gasta flechas. Ocupa as duas mãos.' },

@@ -11,6 +11,7 @@ export const TIERS = {
   primitive: { name: 'primitiva', dmg: 0.72, speed: 1.06, rank: 0 },
   wood:      { name: 'de madeira', dmg: 0.9, speed: 1.0, rank: 1 },
   stone:     { name: 'de pedra', dmg: 1.0, speed: 1.0, rank: 1 },
+  ice:       { name: 'de gelo', dmg: 1.0, speed: 1.0, rank: 1 }, // the winter walkers' weapons: as strong as stone
   copper:    { name: 'de cobre', dmg: 1.35, speed: 0.96, rank: 2 },
   iron:      { name: 'de ferro', dmg: 1.75, speed: 0.93, rank: 3 },
   composite: { name: 'composto', dmg: 1.7, speed: 0.92, rank: 3, range: 1.5 },

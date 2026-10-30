@@ -37,6 +37,7 @@ import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
 import { decorSystem } from './decoration.js'; // agent K: dummy readouts, window glow, showcase (dev)
 import { initCorpses, corpsesSystem } from './corpses.js';
+import { seasonSystem } from './seasons.js'; // spring / summer / autumn / winter from the shared clock
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -92,6 +93,7 @@ export function installSystems(game) {
 
   for (const s of [
     clock,
+    seasonSystem(),                 // game.season + world.frozen before anything moves (seasons.js)
     levelsSystem(),
     controller,
     playerSystem(),
