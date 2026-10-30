@@ -367,6 +367,33 @@ export class Levels {
     return hit;
   }
 
+  // how deep a body of radius r at (x, y) sits inside blocked tiles / round props of level k (0 = free). A body that
+  // is already inside something (a stair corner it slid into, a wall built over it…) may always move to where it
+  // sits less deep or as deep (move): it slides out instead of being frozen in place.
+  penL(k, x, y, r, pd, sw, cur) {
+    let p = 0;
+    const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      if (this.tileFree(k, tx, ty, pd, sw, cur)) continue;
+      const cx = x < tx ? tx : x > tx + 1 ? tx + 1 : x, cy = y < ty ? ty : y > ty + 1 ? ty + 1 : y;
+      const d = Math.hypot(x - cx, y - cy);
+      if (d < r) p = Math.max(p, r - d + (x > tx && x < tx + 1 && y > ty && y < ty + 1 ? 1 : 0)); // (centre inside: deepest)
+    }
+    this.game.world.forChunks(x - r - 1, y - r - 1, x + r + 1, y + r + 1, (c) => {
+      for (const o of c.objects) {
+        if (!o.solid || o.stump || o.fall || (o.lv | 0) !== k) continue;
+        const rr = r + o.solid, d = Math.hypot(x - o.x, y - (o.cy ?? o.y));
+        if (d < rr) p = Math.max(p, rr - d);
+      }
+    });
+    return p;
+  }
+  // may a body stuck at (e.x, e.y) step to (x, y)? (only when it is inside something now, and not deeper after)
+  _eases(k, e, x, y, pd, sw, cur) {
+    const p0 = this.penL(k, e.x, e.y, e.r, pd, sw, cur);
+    return p0 > 1e-4 && this.penL(k, x, y, e.r, pd, sw, cur) <= p0 + 1e-6;
+  }
+
   // probe for steering (nav.steer local avoidance)
   blockedFor(e, x, y) {
     const k = e.lv | 0;
@@ -388,10 +415,12 @@ export class Levels {
       const s = this.stairAt(k, e.x, e.y);
       if (s) { if (this._stairStep(e, s, sx, sy, pd)) moved = true; continue; }
       const sw = !!e.canSwim && !k;
-      if (!this.collidesL(k, e.x + sx, e.y, e.r, pd, sw, this._tile(e.x, e.y), stuckOn)) { e.x += sx; moved = true; }
+      let cur = this._tile(e.x, e.y);
+      if (sx && (!this.collidesL(k, e.x + sx, e.y, e.r, pd, sw, cur, stuckOn) || this._eases(k, e, e.x + sx, e.y, pd, sw, cur))) { e.x += sx; moved = true; }
       const s1 = this.stairAt(k, e.x, e.y);
       if (s1) { this._onStair(e, s1); continue; }
-      if (!this.collidesL(k, e.x, e.y + sy, e.r, pd, sw, this._tile(e.x, e.y), stuckOn)) { e.y += sy; moved = true; }
+      cur = this._tile(e.x, e.y);
+      if (sy && (!this.collidesL(k, e.x, e.y + sy, e.r, pd, sw, cur, stuckOn) || this._eases(k, e, e.x, e.y + sy, pd, sw, cur))) { e.y += sy; moved = true; }
       const s2 = this.stairAt(k, e.x, e.y);
       if (s2) this._onStair(e, s2);
     }

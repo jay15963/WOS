@@ -1,8 +1,8 @@
 // Work-site materials (owner's request): next to the use button a "Obra" button shows while the local player stands
 // at a site of blueprints (game/blueprints.js): it opens the list of materials still needed to finish the whole
 // site against what the player carries ("12/45 madeira"), live — plans that are built or started drop out.
-// Desktop: also the key of the 'site' action (O). The card closes on the button again, ✕, Esc, or when the player
-// walks away from the site.
+// Desktop: also the key of the 'site' action (O). The card closes on the button again, ✕, Esc, a tap / click
+// outside it, or as soon as the player moves; its header (with ✕) stays in view when the list scrolls.
 
 import { siteNear, siteMaterials } from '../game/blueprints.js';
 import { BUILDINGS, ITEMS } from '../game/data.js';
@@ -21,14 +21,21 @@ export function installSitePanel(game, root, { press, keyLabel }) {
   card.className = 'sitecard hidden';
   card.id = 'sitecard';
   root.appendChild(card);
-  let open = false, site = null, shown = false, t = 0, key = '', placed = '';
+  let open = false, site = null, shown = false, t = 0, key = '', placed = '', at = null;
 
   const close = () => { open = false; card.classList.add('hidden'); };
-  const toggleCard = () => { if (open) close(); else if (site) { open = true; key = ''; render(); card.classList.remove('hidden'); } };
+  const toggleCard = () => {
+    if (open) { close(); return; }
+    if (!site) return;
+    open = true; key = ''; at = [game.player.x, game.player.y];
+    render(); card.classList.remove('hidden');
+  };
   press(btn, toggleCard);
   game.events.on('sitemats', toggleCard);
   card.addEventListener('click', (e) => { if (e.target.closest('[data-x]')) close(); });
   addEventListener('keydown', (e) => { if (open && e.code === 'Escape') close(); });
+  // a tap / click anywhere else closes it (the button toggles it itself)
+  addEventListener('pointerdown', (e) => { if (open && !card.contains(e.target) && !btn.contains(e.target)) close(); }, true);
 
   function render() {
     const A = game.A, p = game.player, s = site;
@@ -61,10 +68,12 @@ export function installSitePanel(game, root, { press, keyLabel }) {
       t = 0.25;
       const p = game.player;
       const busy = p.dead || !!game.build.mode;
-      site = busy ? null : siteNear(game, p.x, p.y, open ? 6 : undefined); // (an open card follows a little further)
+      site = busy ? null : siteNear(game, p.x, p.y);
       const on = !!site;
       if (on !== shown) { shown = on; btn.classList.toggle('hidden', !on); }
       if (!site && open) close();
+      // moving closes it (the list is for a look while standing at the site)
+      if (open && at && Math.hypot(p.x - at[0], p.y - at[1]) > 0.3) close();
       if (open) render();
       const kl = keyLabel?.() || '';
       if (kl !== placed) { placed = kl; btn.querySelector('.key').textContent = kl; }

@@ -422,6 +422,20 @@ Owner's request: the night must have life and danger, and the year must turn.
   green animals at night. **W2** covers: a walker breaks into a closed room with the guest inside (same cracks on
   both, the wall falls on both, the cracks settle at sunrise).
 
+## Ajustes de jogabilidade e HUD (added later)
+
+- The campfire has no collision (walk right up to it; `block: 0`).
+- Inventory: an item's actions (Equipar, Comer, Largar…) sit right under its name, never below the fold on a phone.
+- "Materiais da obra": its header (with the close button) stays in view while the list scrolls. It closes when
+  the player moves or taps / clicks outside it.
+- Touch HUD layout (hudlayout.js): every piece moves on its own:
+  - each left button (Mochila, Criar, Construir, Mapa), Comer, Atacar, every ability slot (by position; reapplied
+    when the weapon changes the abilities), Usar, Remover, Obra;
+  - each corner button (menu, tela cheia, instalar, ajuda);
+  - the life card, the target, the effects, the radar and the item bar.
+
+  Layouts saved by groups are converted (`wos.hudlayout` v2).
+
 ## Plantas grátis e materiais da obra (added later)
 
 - Placing a plan ("planta", a blueprint) never needs materials: the Construir cards always enter build mode;

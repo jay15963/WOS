@@ -1,4 +1,6 @@
-// Mobile HUD layout: the player moves the HUD blocks wherever they like (Configurações → HUD → "Organizar a HUD").
+// Mobile HUD layout: the player moves every HUD piece wherever they like (Configurações → HUD → "Organizar a HUD"):
+// each button on its own (bag, craft, build, map, eat, attack, every ability slot, use, remove, work site, the corner
+// buttons), the life card, the target, the effects, the radar and the item bar.
 // Offsets (HUD css px, i.e. client px / ui scale) are kept per orientation in localStorage `wos.hudlayout`
 // = { land: { block: [dx, dy] }, port: { … } } and applied as the CSS `translate` property, which composes with each
 // block's own position / transform (the action bar keeps placing its buttons; the offset rides on top).
@@ -6,27 +8,67 @@
 
 import { uiScale } from './uiscale.js';
 
-// [id, selector inside #hud, label]
+// [id, selector inside #hud | (root) => element, label]
+const abSlot = (k) => (root) => root.querySelectorAll('#ab .ab-s')[k] || null; // ability slots (rebuilt with the weapon)
 export const BLOCKS = [
-  ['card', '.tl-top', 'Vida e alvo'],
-  ['quick', '#quick', 'Mochila · Criar · Construir'],
-  ['status', '#status', 'Efeitos ativos'],
-  ['sys', '.tr .sys', 'Tela cheia · Ajuda'],
-  ['radar', '#radar', 'Radar e relógio'],
-  ['combat', '#ab', 'Combate (tudo)'],
-  ['interact', '#ab-int', 'Usar'],
+  ['card', '#pf', 'Vida e energia'],
+  ['target', '#tf', 'Alvo'],
+  ['inv', '#quick .qb[data-q=inv]', 'Mochila'],
+  ['craft', '#quick .qb[data-q=craft]', 'Criar'],
+  ['build', '#quick .qb[data-q=build]', 'Construir'],
+  ['map', '#quick .qb[data-q=map]', 'Mapa'],
   ['eat', '.qb[data-q=eat]', 'Comer'],
+  ['status', '#status', 'Efeitos ativos'],
+  ['menu', '#btn-menu', 'Menu'],
+  ['full', '#btn-full', 'Tela cheia'],
+  ['install', '#btn-install', 'Instalar'],
+  ['help', '#btn-help', 'Ajuda'],
+  ['radar', '#radar', 'Radar e relógio'],
+  ['hotbar', '.hotbar', 'Barra de itens'],
+  ['atk', '#ab .ab-atk', 'Atacar'],
+  ...[0, 1, 2, 3, 4, 5, 6].map((k) => ['ab' + (k + 1), abSlot(k), 'Habilidade ' + (k + 1)]),
+  ['interact', '#ab-int', 'Usar'],
+  ['rm', '#ab-rm', 'Remover corpo'],
+  ['bp', '#ab-bp', 'Obra'],
 ];
+// layouts saved before the pieces were split: a group's offset goes to each of its pieces; children that were moved
+// inside a moved group (use inside combat, eat inside quick) add both
+const SPLIT = { card: ['card', 'target'], quick: ['inv', 'craft', 'build', 'map'], sys: ['menu', 'full', 'install', 'help'], combat: ['atk', 'ab1', 'ab2', 'ab3', 'ab4', 'ab5', 'ab6', 'ab7'] };
+function migrate(L) {
+  if (!L || !(L.quick || L.sys || L.combat)) return L;
+  const add = (a, b) => [(a?.[0] || 0) + (b?.[0] || 0), (a?.[1] || 0) + (b?.[1] || 0)];
+  if (L.combat) { L.interact = add(L.interact, L.combat); }
+  if (L.quick) { L.eat = add(L.eat, L.quick); }
+  for (const [g, parts] of Object.entries(SPLIT)) {
+    if (!L[g] || g === 'card') continue;
+    for (const k of parts) if (!L[k]) L[k] = L[g].slice(0, 2);
+    delete L[g];
+  }
+  return L;
+}
+const elOfBlock = (root, sel) => (typeof sel === 'function' ? sel(root) : root.querySelector(sel));
 const KEY = 'wos.hudlayout';
 const orient = () => (innerWidth > innerHeight ? 'land' : 'port');
 const zf = () => uiScale() || 1;
 
-function readAll() { try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); return d && typeof d === 'object' ? d : {}; } catch { return {}; } }
+function readAll() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!d || typeof d !== 'object') return {};
+    if (!d.v2) {
+      // the old "Vida e alvo" block was the whole top-left: its offset belongs to both cards now
+      for (const o of ['land', 'port']) if (d[o]?.card && !d[o].target) d[o].target = d[o].card.slice(0, 2);
+      for (const o of ['land', 'port']) if (d[o]) migrate(d[o]);
+      d.v2 = 1;
+    }
+    return d;
+  } catch { return {}; }
+}
 function writeAll(d) { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* ignore */ } }
 export const hasCustomLayout = () => Object.values(readAll()).some((o) => o && Object.keys(o).length);
 
 const touchOn = (root) => !!root?.classList.contains('touch');
-const elOf = (root, sel) => root.querySelector(sel);
+const elOf = elOfBlock;
 
 // put the saved offsets on the blocks (or clear them: desktop / no layout)
 export function applyHudLayout(root = document.getElementById('hud')) {
@@ -53,6 +95,11 @@ export function installHudLayout(root) {
   const check = () => { const k = orient() + touchOn(root); if (k !== last) { last = k; applyHudLayout(root); } };
   addEventListener('resize', check);
   new MutationObserver(check).observe(root, { attributes: true, attributeFilter: ['class'] });
+  // pieces made later or remade (ability slots on a weapon change, the menu button, the item bar): put them back
+  let pend = 0;
+  const mo = new MutationObserver(() => { if (!pend) pend = requestAnimationFrame(() => { pend = 0; applyHudLayout(root); }); });
+  mo.observe(root, { childList: true });
+  for (const sel of ['#ab', '#quick', '.tr .sys', '.tl-top']) { const c = root.querySelector(sel); if (c) mo.observe(c, { childList: true }); }
   check();
 }
 
@@ -79,31 +126,19 @@ export function startHudEditor(game, root = document.getElementById('hud')) {
     ov.appendChild(h);
     handles.push({ id, el, h });
   }
-  // the box of a block: the combat bar is a size-less box holding absolutely placed buttons (their union, without
-  // the use / eat buttons that have handles of their own); an empty block (no effects yet) gets a spot to place it
+  // the box of a piece (an empty one — no effects yet — gets a spot to place it); small pieces above big ones
   const rectOf = (q) => {
     const r = q.el.getBoundingClientRect();
-    if (q.id === 'combat') {
-      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-      for (const c of q.el.children) {
-        if (c.classList.contains('hidden') || c.id === 'ab-int' || c.id === 'ab-rm' || c.id === 'ab-bp' || c.dataset.q === 'eat') continue;
-        const b = c.getBoundingClientRect();
-        if (b.width < 2 || b.height < 2) continue;
-        x0 = Math.min(x0, b.left); y0 = Math.min(y0, b.top); x1 = Math.max(x1, b.right); y1 = Math.max(y1, b.bottom);
-      }
-      if (x1 > x0) return { left: x0, top: y0, width: x1 - x0, height: y1 - y0 };
-    }
     if (q.id === 'status' && (r.width < 2 || r.height < 2)) return { left: r.left, top: r.top, width: 120, height: 30 };
     return r;
   };
-  // the handle boxes follow the blocks (combat sits under the use / eat handles)
   const place = () => {
     for (const q of handles) {
       const r = rectOf(q);
       const ok = r.width > 2 && r.height > 2;
       q.h.style.display = ok ? '' : 'none';
       if (!ok) continue;
-      Object.assign(q.h.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, zIndex: q.id === 'combat' ? 1 : 2 });
+      Object.assign(q.h.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, zIndex: r.width * r.height > 20000 ? 1 : 2 });
     }
   };
   const set = (q, dx, dy) => { L[q.id] = [Math.round(dx), Math.round(dy)]; q.el.style.translate = `${L[q.id][0]}px ${L[q.id][1]}px`; };
@@ -173,7 +208,8 @@ export function hudLayoutPane(el, { game = null } = {}) {
   const inGame = !!(game && document.getElementById('hud'));
   el.innerHTML = `
     <h3>Posição dos botões</h3>
-    <p class="muted">Arraste a vida, o radar, os botões de combate, de usar e de comer para onde ficar melhor para os seus dedos.
+    <p class="muted">Arraste cada peça da HUD para onde ficar melhor para os seus dedos: cada botão (mochila, criar, construir, mapa, comer,
+      atacar, cada habilidade, usar), a vida, o alvo, o radar, a barra de itens e os botões do canto.
       Cada orientação da tela (deitada ou em pé) guarda a sua própria arrumação, e ela fica salva para as próximas vezes.</p>
     ${inGame ? '<div class="row"><button class="mbtn primary" data-a="edit">Organizar a HUD</button></div>'
       : '<p class="muted">Entre num mundo e abra <b>Configurações</b> pelo menu do jogo para organizar.</p>'}

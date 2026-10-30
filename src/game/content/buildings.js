@@ -74,7 +74,7 @@ export const BUILDINGS = {
   cooking_pot: { name: 'Caldeirão', g: 'm', emoji: '🍲', cat: ['prod'], cost: { copper_bar: 2, stone: 6 }, time: 4, xp: 12, block: 'tile', station: true, move: true,
                  workLight: L(1, 0.6, 0.3, 3.2, 0.9, 0.25, 0.3), warm: 2.5, warmWorking: true,
                  desc: 'Prepara ensopados e assa alimentos.' },
-  campfire:    { name: 'Fogueira', g: 'f', emoji: '🔥', cat: ['light', 'prod'], cost: { wood: 3, pebble: 4 }, time: 3, xp: 15, block: 0.3, station: true, fire: true, warm: 4.5, raze: true,
+  campfire:    { name: 'Fogueira', g: 'f', emoji: '🔥', cat: ['light', 'prod'], cost: { wood: 3, pebble: 4 }, time: 3, xp: 15, block: 0, station: true, fire: true, warm: 4.5, raze: true, // (no collision: walk right up to / through it)
                  light: L(1, 0.62, 0.3, 6, 1.3, 0.25, 0.3),
                  desc: 'Luz, calor e cozinha. Renasça perto dela.' },
 

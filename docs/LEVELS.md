@@ -125,8 +125,17 @@ On a stair: movement projected on the stair axis, lateral eased into the corrido
 `lv` switches at u = 0.5. Speed ×0.8; hollow `step_stairs` footsteps; wall material on wall tops.
 The bottom and top steps are also entered and left **sideways** (`side0` / `side1`: the tiles beside them):
 pushing past a rail in the first / last third of the stair steps off onto the ground (bottom) or onto the wall
-top / upper floor (top) when that side is free. Never stuck: ~3 s of pushing without moving on a stair or an
-upper story, boxed in on all four sides, drops the player to the nearest free ground (toast).
+top / upper floor (top) when that side is free.
+
+**Never stuck.** A body that already sits inside blocked geometry may always move to where it sits less or
+equally deep (`levels.penL` / `_eases`), so it slides out instead of freezing. Two cases this covers:
+- the corner trap: next to an end step, in the diagonal tile, the body overlapping the step that is only open from
+  its entrance or sides;
+- a wall built over a player.
+
+As a last resort, ~2 s of pushing without moving with all 8 directions blocked, on any level, puts the player on
+the nearest free spot (the ground when up high; toast). A fuzz test moves a body randomly around 4 stairs set
+against walls (`tools`-style headless run): 0 stuck positions in ~1500 runs (8 in 512 before).
 
 ### 4.4 Wall tops (ramparts)
 

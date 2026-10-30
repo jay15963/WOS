@@ -1,7 +1,7 @@
 // Core game: owns world, entities, camera, environment; runs update + builds render batches.
 
 import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../art/compose.js';
-import { moveCircle, facingFrom } from './physics.js';
+import { moveCircle, facingFrom, collides } from './physics.js';
 import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
 import { stepGait } from './anim.js';
@@ -104,17 +104,23 @@ export class Game {
     if (mx || my) {
       const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
-      // never stuck up there: ~3 s of pushing without moving on a stair / an upper story → down to the nearest free ground
-      const L = this.levels;
-      if (L?.hasUpper || L?.active) {
-        // (truly stuck: up high, off any stair, and no step free in any of the four directions)
-        const lv = p.lv | 0, boxed = () => [[0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2]].every(([ox, oy]) => L.collidesL(lv, p.x + ox, p.y + oy, p.r || 0.25, false, false, L._tile(p.x, p.y)));
-        if ((mx || my) && lv > 0 && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !L.stairAt(lv, p.x, p.y) && boxed()) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;
-        if (p._stuckT > 3) {
-          p._stuckT = 0;
-          const [gx, gy] = L.groundSpot(p.x, p.y, p.r || 0.25);
-          p.x = gx; p.y = gy; p.lv = 0; p._hop = null; p._fallV = 0.01;
-          this.events.emit('toast', { text: 'Você estava preso: desceu para o chão', kind: 'info' });
+      // never stuck anywhere: ~2 s of pushing without moving while no step is free in any of 8 directions → the nearest
+      // free spot (on the ground when up high); levels.move already lets a body slide out of what it overlaps
+      if ((mx || my) && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !p.rooted && !(p.stunT > 0)) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;
+      if (p._stuckT > 2) {
+        p._stuckT = 0;
+        const L = this.levels, r = p.r || 0.25, lv = p.lv | 0;
+        const L8 = [[0.22, 0], [-0.22, 0], [0, 0.22], [0, -0.22], [0.16, 0.16], [-0.16, 0.16], [0.16, -0.16], [-0.16, -0.16]];
+        const hit = (x, y) => (L?.active || L?.hasUpper ? L.collidesL(lv, x, y, r, false, false, L._tile(p.x, p.y)) : collides(this.world, x, y, r, null, false));
+        if (!(L?.stairAt?.(lv, p.x, p.y)) && L8.every(([ox, oy]) => hit(p.x + ox, p.y + oy))) {
+          let spot = null;
+          if (L?.active || L?.hasUpper) spot = L.groundSpot(p.x, p.y, r);
+          else for (let n = 1; n < 90 && !spot; n++) { const a = n * 2.4, d = 0.25 + n * 0.06, x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d; if (!collides(this.world, x, y, r, null, false)) spot = [x, y]; }
+          if (spot) {
+            p.x = spot[0]; p.y = spot[1];
+            if (lv > 0) { p.lv = 0; p._hop = null; p._fallV = 0.01; }
+            this.events.emit('toast', { text: lv > 0 ? 'Você estava preso: desceu para o chão' : 'Você estava preso: foi para o lugar livre mais perto', kind: 'info' });
+          }
         }
       }
       if (!(p._faceLockT > 0)) p.facing = facingFrom(mx, my, p.facing); // an attack keeps facing its target briefly

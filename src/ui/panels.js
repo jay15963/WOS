@@ -156,8 +156,8 @@ export class Panels {
       const stats = itemStats(id).map((s) => `<li>${s}</li>`).join('');
       detail = `
         <div class="it-head">${itemIco(A, id)}<div><b>${def.name}</b><small>${ITEM_CAT_PT[def.cat] || ''}${def.tier != null ? ` · era ${ERA_PT[def.tier]}` : ''}${qty > 1 ? ` · × ${qty}` : ''}</small></div></div>
-        <p>${def.desc}</p>${stats ? `<ul class="stats">${stats}</ul>` : ''}
-        <div class="acts">${acts.join('')}</div>`;
+        <div class="acts">${acts.join('')}</div>
+        <p>${def.desc}</p>${stats ? `<ul class="stats">${stats}</ul>` : ''}`; // (the actions right under the name: never below the fold on a phone)
     } else {
       detail = `<p class="muted">${g.input.isTouch ? 'Toque' : 'Clique'} num item para ver detalhes, equipar ou usar.${g.input.isTouch ? '' : ' Arraste itens para a barra (1–0), para o equipamento ou para um baú.'}</p>
         <p class="muted small">Ferramentas na mochila são usadas automaticamente (a melhor). Itens no chão são coletados ao passar perto.</p>`;

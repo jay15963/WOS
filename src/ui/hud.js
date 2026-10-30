@@ -36,6 +36,9 @@ const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
 // target frame extras (portraits for raiders / crates, debuffs, enemy cast bar): styled in hud.css
 
 // instant buttons (game actions): fire on pointerdown for responsiveness
+// the player's layout offset of a HUD piece (hudlayout.js: CSS translate) as [dx, dy] px
+function trOf(el) { const m = /(-?[\d.]+)px\s+(-?[\d.]+)px/.exec(el.style.translate || ''); return m ? [+m[1], +m[2]] : [0, 0]; }
+
 function press(el, fn) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -450,21 +453,21 @@ export function installHUD(game, { isNew } = {}) {
       }
       const showRm = showInt && touchMode && !!near?.corpse && near.kind !== 'corpse_bones' && near.kind !== 'corpse_discard'; // (those two already remove it)
       toggle(R.rm, 'rmv', 'hidden', !showRm);
-      if (showRm && C.rmAt !== R.int.style.right + R.int.style.bottom + innerWidth) {
-        // to the left of the use button, a little higher (wherever the action bar put it)
-        C.rmAt = R.int.style.right + R.int.style.bottom + innerWidth;
-        const cs = getComputedStyle(R.int), r = parseFloat(cs.right) || 0, b = parseFloat(cs.bottom) || 0;
+      if (showRm && C.rmAt !== R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth) {
+        // to the left of the use button, a little higher (wherever the action bar / the player's layout put it)
+        C.rmAt = R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth;
+        const cs = getComputedStyle(R.int), [tx, ty] = trOf(R.int), r = (parseFloat(cs.right) || 0) - tx, b = (parseFloat(cs.bottom) || 0) - ty;
         R.rm.style.right = `${Math.round(r + R.int.offsetWidth + 10)}px`; R.rm.style.bottom = `${Math.round(b + 12)}px`;
       }
 
       // work-site materials button: beside the use button (left of "Remover" when that shows), touch; desktop CSS
       site.update(dt);
       if (touchMode && !R.bp.classList.contains('hidden')) {
-        const atK = (showInt ? R.int.style.right + R.int.style.bottom : '-') + showRm + innerWidth;
+        const atK = (showInt ? R.int.style.right + R.int.style.bottom + R.int.style.translate : '-') + showRm + innerWidth;
         if (C.bpAt !== atK) {
           C.bpAt = atK;
           if (showInt) {
-            const cs = getComputedStyle(R.int), r = parseFloat(cs.right) || 0, b = parseFloat(cs.bottom) || 0;
+            const cs = getComputedStyle(R.int), [tx, ty] = trOf(R.int), r = (parseFloat(cs.right) || 0) - tx, b = (parseFloat(cs.bottom) || 0) - ty;
             R.bp.style.right = `${Math.round(r + R.int.offsetWidth + 10 + (showRm ? 56 : 0))}px`; R.bp.style.bottom = `${Math.round(b + 12)}px`;
           } else { R.bp.style.right = ''; R.bp.style.bottom = ''; }
         }
