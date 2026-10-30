@@ -2353,6 +2353,50 @@ def('S63', {
   await t.checkDigest(H, G);
 });
 
+def('C1', {
+  title: 'Creative world: the host\'s mode reaches the guest; instant free building, no damage, full bars', timeout: 90000,
+  expected: 'With the host world in creative mode, a guest resync carries it (snapshot mode): game.creative on both. The guest places 3 walls with an empty bag: finished at once on both (no blueprint), same ids; a host-side creature hit on the guest does nothing; the guest\'s bars stay full; a guest "Desmontar" removes a wall at once; back to survival afterwards (resync) for the scenarios after it; digest equal',
+  api: 'creative.js (game.creative, creativeSystem), snapshot mode, build.place / build.decon (creative), combat.dealDamage (creative), players.hurtPlayer → player.hurt',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  try {
+    H.game.creative = true;
+    G.game.net.forceResync();
+    await t.waitFor(() => G.game.net.synced && G.game.creative === true, 15000, 'the guest got the creative mode with the snapshot');
+    for (let i = 0; i < gp.inv.size; i++) gp.inv.slots[i] = null;
+    const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => [[x, y], [x + 1, y], [x + 2, y], [x, y + 1], [x + 1, y + 1], [x + 2, y + 1]], gp.x, gp.y, { rMin: 2, rMax: 8 });
+    t.assert(site, 'found a free 3×2 site');
+    const n0 = H.game.build.structures.length;
+    G.game.net.request('build.place', { type: 'wall_wood', tiles: [[site.x0, site.y0], [site.x0 + 1, site.y0], [site.x0 + 2, site.y0]] });
+    const walls = (f) => f.game.build.structures.filter((o) => o.type === 'wall_wood' && o.ty === site.y0 && o.tx >= site.x0 && o.tx <= site.x0 + 2);
+    await t.waitFor(() => walls(H).length === 3 && walls(G).length === 3, RT() + 1500, 'the walls exist on both');
+    t.check(walls(H).every((o) => !o.blueprint) && walls(G).every((o) => !o.blueprint), 'finished at once on both, with an empty bag', `host ${walls(H).map((o) => f2(o.progress)).join(',')}`);
+    t.check(JSON.stringify(walls(H).map((o) => o.id).sort()) === JSON.stringify(walls(G).map((o) => o.id).sort()), 'same ids on both');
+    t.check(H.game.build.structures.length - n0 === 3, 'nothing else was placed');
+    const av = [...H.game.session.players.values()].find((p) => p.pid === G.pid)?.av;
+    const hp0 = gp.hp;
+    if (av) MH.players.hurtPlayer(H.game, null, av, 40, { noDodge: true });
+    await t.sleep(RT() + 400);
+    t.check(gp.hp >= hp0 && !gp.dead, 'a hit from the host does nothing to the guest', `hp ${hp0} → ${gp.hp}`);
+    gp.energy = 1; gp.hunger = 1; gp.bodyHeat = 1;
+    await t.sleep(300);
+    t.check(gp.energy === gp.maxEnergy && gp.hunger === gp.maxHunger && gp.bodyHeat === 100, 'the guest\'s bars stay full', `energy ${f2(gp.energy)} hunger ${f2(gp.hunger)} heat ${f2(gp.bodyHeat)}`);
+    const w0 = walls(G)[0];
+    G.game.net.request('build.decon', { ids: [w0.id], on: 1 });
+    await t.waitFor(() => !H.game.build.structures.includes(walls(H).find((o) => o.id === w0.id)) && walls(H).length === 2 && walls(G).length === 2, RT() + 1500, '"Desmontar" removes it at once on both');
+    await t.checkDigest(H, G);
+    // leave the arena as it was (the stories / creature scenarios after this one walk around here)
+    G.game.net.request('build.decon', { ids: walls(G).map((o) => o.id), on: 1 });
+    await t.waitFor(() => !walls(H).length && !walls(G).length, RT() + 1500, 'the test walls are gone');
+  } finally {
+    // the scenarios after this one play survival
+    H.game.creative = false;
+    G.game.net.forceResync();
+    await t.waitFor(() => G.game.net.synced && G.game.creative === false, 15000, 'back to survival on the guest');
+  }
+});
+
 def('S62', {
   title: 'Survival: dying of cold does not kill again after the respawn', timeout: 90000,
   expected: 'The guest freezes to death (body heat ~0, hypothermia hits); after "Renascer" its body heat is back to ≥ 75%, it is dry, no hypothermia, and 6 s later it is still alive with its half HP (no cold damage); the host sees it alive; digest equal',

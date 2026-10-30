@@ -205,6 +205,17 @@ defineIntent('path.plan', {
       lay.push(i);
     }
     if (cancel.length) net.emit('path.plan', { c: 0, tiles: rleTiles(cancel), by: actor.pid });
+    if (game.creative) {
+      // creative (creative.js): laid / removed at once, no materials; loose plants and pebbles cleared first
+      if (mark.length) net.emit('path.set', { t: 0, tiles: rleTiles(mark), by: actor.pid });
+      if (lay.length) {
+        const ids = [];
+        for (const i of lay) for (const o of objectsOnTile(game, i % W, (i / W) | 0)) if (CLEARABLE.has(o.type)) ids.push(o.id);
+        if (ids.length) net.emit('obj.remove', { ids, fx: 'clear', by: actor.pid });
+        net.emit('path.set', { t: c, tiles: rleTiles(lay), by: actor.pid });
+      }
+      return { lay: lay.length, mark: mark.length, cancel: cancel.length };
+    }
     if (mark.length) net.emit('path.plan', { c: PATH_REMOVE, tiles: rleTiles(mark), by: actor.pid });
     if (lay.length) net.emit('path.plan', { c, tiles: rleTiles(lay), by: actor.pid });
     if (!lay.length && !mark.length && !cancel.length) return c === 0 || c === PATH_REMOVE ? 'Nenhum caminho aqui' : 'Não dá para abrir caminho aqui';

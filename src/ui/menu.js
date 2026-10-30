@@ -1,5 +1,7 @@
 // Main menu (title screen). Shown before any world exists; resolves with the player's choice:
-//   { mode: 'single', seed, fresh? } | { mode: 'host', seed, fresh? } | { mode: 'join', session, welcome }
+//   { mode: 'single' | 'host', worldId, seed, gameMode: 'survival' | 'creative', fresh? } | { mode: 'join', session, welcome }
+// Worlds: up to 10 saved worlds in this browser (ui/worlds.js) — "Continuar" (the last one), "Mundos" (list: play,
+// delete, create with name / seed / mode); hosting a room picks one of them or creates one.
 // Background: a painted fallback while the graphics load, then the live engine showcase (showcase.js).
 // Also: install popup "Aviso importante" in browser tabs (pwa.js), update check, menu music.
 
@@ -9,6 +11,7 @@ import { BUILD, BUILD_DATE } from '../net/netlog.js';
 import { startShowcase } from './showcase.js';
 import { isStandalone, openInstallGuide, checkUpdate, announceUpdate } from './pwa.js';
 import * as AUD from '../fx/audio.js';
+import { listWorlds, lastWorld, worldInfo, createWorld, deleteWorld, agoLabel, MAX_WORLDS } from './worlds.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ls = {
@@ -99,8 +102,9 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
     const root = document.createElement('div');
     root.id = 'menu';
     root.className = 'menu enter';
-    const seed = lastSeed();
-    const info = saveInfo(seed);
+    const last = lastWorld();
+    const info = last ? worldInfo(last.id) : null;
+    const nWorlds = listWorlds().length;
     const installable = !isStandalone();
     let n = 0;
     root.innerHTML = `
@@ -119,8 +123,8 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           <div class="mc-stage"><div class="mc-avatar"></div></div>
         </section>
         <nav class="menu-nav">
-          ${info ? btn('continue', 'play', 'Continuar', `Dia ${info.day} · nível ${info.level} · mundo ${seed}`, 'primary', n++) : ''}
-          ${btn('new', 'new', 'Novo mundo', info ? 'Apaga o progresso e começa do zero' : 'Comece sua sobrevivência', info ? '' : 'primary', n++)}
+          ${last ? btn('continue', 'play', 'Continuar', `${esc(last.name)} · ${info ? `dia ${info.day} · nível ${info.level}` : 'novo'}${last.mode === 'creative' ? ' · criativo' : ''}`, 'primary', n++) : ''}
+          ${btn('worlds', 'new', 'Mundos', nWorlds ? `${nWorlds} de ${MAX_WORLDS} · escolha ou crie um mundo` : 'Crie seu primeiro mundo', last ? '' : 'primary', n++)}
           ${btn('mp', 'mp', 'Multijogador', 'Criar sala ou entrar com código', '', n++)}
           ${btn('settings', 'gear', 'Configurações', 'Nome, som, qualidade', '', n++)}
         </nav>
@@ -199,16 +203,63 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
       root.classList.add('has-avatar');
     }).catch(() => { /* customiser not installed yet: the name field alone */ });
 
-    const newWorld = (mode) => (el) => {
+    // ---------- worlds (ui/worlds.js) ----------
+    const play = (w, mode = 'single', fresh = false) => finish({ mode, worldId: w.id, seed: w.seed, gameMode: w.mode, fresh });
+    const modeChip = (m) => (m === 'creative' ? '<span class="wchip creative">Criativo</span>' : '<span class="wchip">Sobrevivência</span>');
+    // the list: play (or host) a world, delete it (asks first), create one (up to MAX_WORLDS)
+    const worldsPanel = (mode) => (el) => {
+      const list = listWorlds();
+      const full = list.length >= MAX_WORLDS;
       el.innerHTML = `
-        <h2>${mode === 'host' ? 'Sala com mundo novo' : 'Novo mundo'}</h2>
-        <p>${info ? '<b>Atenção:</b> isto apaga todos os mundos salvos neste navegador e começa do zero.' : 'Um mundo novo será gerado.'}</p>
+        <h2>${mode === 'host' ? 'Criar sala' : 'Mundos'} <small class="wcount">${list.length}/${MAX_WORLDS}</small></h2>
+        ${mode === 'host' ? '<p>Qual mundo seus amigos vão visitar? O modo do mundo vale para todos na sala.</p>' : ''}
+        <div class="wlist">${list.length ? list.map((w) => {
+          const inf = worldInfo(w.id);
+          return `<div class="wrow" data-id="${esc(w.id)}">
+            <button class="wplay" data-a="play"><b>${esc(w.name)}</b>${modeChip(w.mode)}
+              <small>${inf ? `Dia ${inf.day} · nível ${inf.level}` : 'Ainda não jogado'} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
+            <button class="wdel" data-a="del" title="Apagar mundo" aria-label="Apagar ${esc(w.name)}">✕</button>
+          </div>`;
+        }).join('') : '<p class="muted">Nenhum mundo ainda.</p>'}</div>
+        <div class="row"><button class="mbtn primary" data-a="new" ${full ? 'disabled' : ''}>Criar mundo</button>${mode === 'host' ? '<button class="mbtn" data-a="back">Voltar</button>' : ''}</div>
+        ${full ? `<p class="muted">Limite de ${MAX_WORLDS} mundos: apague um para criar outro.</p>` : ''}`;
+      el.querySelector('[data-a=back]')?.addEventListener('click', () => open(mpPanel));
+      el.querySelector('[data-a=new]').onclick = () => { if (!full) open(newWorld(mode)); };
+      for (const row of el.querySelectorAll('.wrow')) {
+        const w = list.find((q) => q.id === row.dataset.id);
+        row.querySelector('[data-a=play]').onclick = () => play(w, mode);
+        row.querySelector('[data-a=del]').onclick = () => {
+          row.classList.add('ask');
+          row.innerHTML = `<span class="wask">Apagar <b>${esc(w.name)}</b> para sempre?</span>
+            <button class="mbtn danger" data-a="yes">Apagar</button><button class="mbtn" data-a="no">Cancelar</button>`;
+          row.querySelector('[data-a=no]').onclick = () => open(worldsPanel(mode));
+          row.querySelector('[data-a=yes]').onclick = () => { deleteWorld(w.id); open(worldsPanel(mode)); };
+        };
+      }
+    };
+    const newWorld = (mode) => (el) => {
+      const n = listWorlds().length + 1;
+      el.innerHTML = `
+        <h2>Criar mundo</h2>
+        <label class="mfield">Nome<input data-k="name" maxlength="28" placeholder="Mundo ${n}" autocomplete="off" spellcheck="false"></label>
+        <div class="wmodes" role="radiogroup" aria-label="Modo de jogo">
+          <button class="wmode on" data-m="survival" role="radio" aria-checked="true"><b>Sobrevivência</b><small>Colete, crie e sobreviva: fome, frio, criaturas.</small></button>
+          <button class="wmode" data-m="creative" role="radio" aria-checked="false"><b>Criativo</b><small>Construa e crie sem recursos, na hora. Vida, energia e fôlego infinitos; criaturas não atacam.</small></button>
+        </div>
         <label class="mfield">Semente do mundo (deixe vazio para aleatória)<input data-k="seed" inputmode="numeric" placeholder="aleatória"></label>
-        <div class="row"><button class="mbtn primary" data-a="go">${info ? 'Apagar e criar' : 'Criar mundo'}</button><button class="mbtn" data-a="back">Cancelar</button></div>`;
-      el.querySelector('[data-a=back]').onclick = closePanel;
+        <div class="row"><button class="mbtn primary" data-a="go">${mode === 'host' ? 'Criar e abrir sala' : 'Criar mundo'}</button><button class="mbtn" data-a="back">Cancelar</button></div>`;
+      let gm = 'survival';
+      for (const b of el.querySelectorAll('.wmode')) b.onclick = () => {
+        gm = b.dataset.m;
+        for (const q of el.querySelectorAll('.wmode')) { q.classList.toggle('on', q === b); q.setAttribute('aria-checked', String(q === b)); }
+      };
+      el.querySelector('[data-k=name]').addEventListener('keydown', (e) => e.stopPropagation());
+      el.querySelector('[data-a=back]').onclick = () => (listWorlds().length ? open(worldsPanel(mode)) : closePanel());
       el.querySelector('[data-a=go]').onclick = () => {
         const v = parseInt(el.querySelector('[data-k=seed]').value, 10);
-        finish({ mode, seed: Number.isFinite(v) ? v : randomSeed(), fresh: true });
+        const w = createWorld({ name: el.querySelector('[data-k=name]').value, seed: Number.isFinite(v) ? v : undefined, mode: gm });
+        if (!w) { open(worldsPanel(mode)); return; }
+        play(w, mode, true);
       };
     };
 
@@ -222,16 +273,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
         <div class="row"><button class="mbtn" data-a="test">Testar minha rede</button><button class="mbtn" data-a="diag">Diagnóstico</button></div>
         <p class="muted">Mundo compartilhado: árvores, construções, minas, plantações, itens no chão e criaturas são os mesmos para todos
            (o anfitrião é o dono do mundo). Todos precisam da mesma versão do jogo — use “Procurar atualização” se a sala recusar.</p>`);
-      el.querySelector('[data-a=host]').onclick = () => open((b) => {
-        b.innerHTML = `<h2>Criar sala</h2><p>Qual mundo seus amigos vão visitar?</p>
-          <div class="row">
-            ${info ? `<button class="mbtn primary" data-a="cur">Meu mundo atual<small>Dia ${info.day} · mundo ${seed}</small></button>` : ''}
-            <button class="mbtn ${info ? '' : 'primary'}" data-a="new">Mundo novo</button>
-            <button class="mbtn" data-a="back">Voltar</button></div>`;
-        b.querySelector('[data-a=back]').onclick = () => open(mpPanel);
-        if (info) b.querySelector('[data-a=cur]').onclick = () => finish({ mode: 'host', seed });
-        b.querySelector('[data-a=new]').onclick = () => open(newWorld('host'));
-      });
+      el.querySelector('[data-a=host]').onclick = () => open(worldsPanel('host'));
       el.querySelector('[data-a=join]').onclick = () => open((b) => joinPanel(b, {
         presetCode,
         makeSession: () => new Session(),
@@ -241,8 +283,8 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
       el.querySelector('[data-a=diag]').onclick = () => open(diagnosticsPanel);
     };
 
-    root.querySelector('[data-a=continue]')?.addEventListener('click', () => finish({ mode: 'single', seed }));
-    root.querySelector('[data-a=new]').onclick = () => open(newWorld('single'));
+    root.querySelector('[data-a=continue]')?.addEventListener('click', () => play(last));
+    root.querySelector('[data-a=worlds]').onclick = () => open(nWorlds ? worldsPanel('single') : newWorld('single'));
     root.querySelector('[data-a=mp]').onclick = () => open(mpPanel);
     root.querySelector('[data-a=settings]').onclick = () => open((el) => settingsPanel(el, { onName: () => { nameInp.value = playerName(); } }));
     root.querySelector('[data-a=install]')?.addEventListener('click', () => openInstallGuide({ title: 'Instalar o jogo' }));

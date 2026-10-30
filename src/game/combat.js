@@ -127,6 +127,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
   if (dst.dead) return 0;
   if (dst.proxy) return opts.dot ? 0 : routeHit(game, src, dst, amount, opts);
   const p = game.player;
+  if (dst === p && game.creative) { if (!opts.dot) game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' }); return 0; } // creative.js
   const dtype = opts.dtype || 'phys';
   if (dst.state === 'evade') {
     game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });

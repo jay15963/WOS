@@ -20,7 +20,8 @@ import { Game } from './game/game.js';
 import { installSystems, addSystem } from './game/systems.js';
 import { installAmbient } from './fx/ambient.js';
 import { getAudio } from './fx/audio.js';
-import { showMainMenu, wipeWorlds } from './ui/menu.js';
+import { showMainMenu } from './ui/menu.js';
+import { touchWorld } from './ui/worlds.js';
 import { installNetUI } from './ui/netui.js';
 import { applyQuality } from './ui/netpanels.js';
 import { Session, playerName, normalizeCode, newRoomCode, GRAPHICS_BROKEN } from './net/session.js';
@@ -136,10 +137,10 @@ async function boot() {
     status('Preparando…', 0.3); await nextFrame();
     const { renderer, atlas } = await assets.promise;
 
-    if (choice.fresh && !FLAGS.noSave) wipeWorlds();
     const guest = choice.mode === 'join';
     const seed = guest ? choice.welcome.seed : choice.seed;
-    if (!guest && !FLAGS.noSave) { try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
+    // a world of the list (ui/worlds.js): it goes to the top; worlds without an id (dev ?seed=) save by seed as before
+    if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
     const world = new World(generateWorld(seed));
@@ -152,6 +153,10 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave;
+    if (!guest) {
+      game.worldId = choice.worldId;                    // save key (save.js) / hotbar layout of this world
+      game.creative = choice.gameMode === 'creative';   // a new world's mode (a saved world keeps its own: snapshot `mode`)
+    }
     game.audio = getAudio().attach(game); // procedural audio: unlocks on the first gesture, music moods follow the game
     if (guest) {
       // the role must be known BEFORE installSystems: a guest runs no host systems, no world save,

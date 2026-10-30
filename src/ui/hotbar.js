@@ -4,7 +4,7 @@
 // Usable items picked up are added to free slots automatically (unless the player removed them before).
 // Also: mouse drag-and-drop between hotbar, backpack, equipment, an open container (container.js adapter: chest,
 // corpse…) and the build menu (desktop only).
-// The layout is kept per world in this browser (localStorage `wos.hotbar.<seed>`), for hosts and guests alike.
+// The layout is kept per world in this browser (localStorage `wos.hotbar.<world id>`), for hosts and guests alike.
 
 import { ITEMS, BUILDINGS, ABILITIES, ABILITY_ORDER } from '../game/data.js';
 import { useAbility } from '../game/abilities.js';
@@ -22,7 +22,7 @@ const autoKind = (d, id) => !!d && (d.weapon || d.tool || d.slot === 'off' || d.
 
 export function installHotbar(game, root) {
   const A = game.A, p = game.player;
-  const key = `${KEY}.${game.world.seed}${game.net.role === 'guest' ? '.guest' : ''}`;
+  const key = `${KEY}.${game.worldId ?? game.world.seed}${game.net.role === 'guest' ? '.guest' : ''}`; // (world list id, ui/worlds.js)
   const S = load();
   const bar = document.createElement('div');
   bar.className = 'hotbar';
@@ -118,7 +118,7 @@ export function installHotbar(game, root) {
         n = c > 1 || (c === 1 && !d?.slot) ? String(c) : '';
         key = `i${s.id}|${n}|${on}|${dim}`;
       } else if (s?.k === 'build') {
-        dim = !p.inv.has(BUILDINGS[s.id]?.cost || {});
+        dim = !game.creative && !p.inv.has(BUILDINGS[s.id]?.cost || {});
         on = game.build.mode?.type === s.id;
         key = `b${s.id}|${on}|${dim}`;
       }

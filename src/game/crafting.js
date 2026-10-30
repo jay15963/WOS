@@ -43,6 +43,7 @@ function fuelAvailable(game) {
 // UI-facing state of a recipe
 export function recipeState(game, id) {
   const r = RECIPES[id], p = game.player;
+  if (game.creative) return { ok: true, have: true, stationOk: true, station: null, reason: null, missing: {}, queueFull: false }; // creative.js
   const missing = {};
   let have = true;
   for (const k in r.in) { const n = p.inv.count(k); if (n < r.in[k]) { have = false; missing[k] = r.in[k] - n; } }
@@ -57,6 +58,7 @@ export function recipeState(game, id) {
 
 export function enqueue(game, id, n = 1) {
   const r = RECIPES[id], p = game.player, Q = game.craft.queue;
+  if (game.creative) { for (let k = 0; k < n; k++) complete(game, { id }, null); return n; } // creative.js: no ingredients, at once
   let made = 0;
   for (let k = 0; k < n; k++) {
     if (Q.length >= MAX_QUEUE) { if (!made) game.events.emit('error', { text: 'Fila de criação cheia' }); break; }
@@ -111,7 +113,7 @@ function complete(game, e, st) {
   if (left) game.events.emit('error', { text: 'Mochila cheia: item no chão' });
   game.audio?.play('craft_done', { x: p.x, y: p.y });
   game.juice.puff(st ? st.x : p.x, (st ? st.y : p.y) - 0.3, 5, [0.85, 0.8, 0.7], 0.5);
-  gainXp(game, Math.max(2, Math.round(r.time)));
+  if (!game.creative) gainXp(game, Math.max(2, Math.round(r.time))); // (creative: no free levels)
   // first weapon / armour piece goes straight to its empty slot
   if (def?.slot && !p.equip[def.slot] && got && !(def.slot === 'off' && ITEMS[p.equip.main]?.weapon?.twoHanded)) {
     const wasTool = def.cat === 'tool';

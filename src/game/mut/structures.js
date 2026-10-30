@@ -486,13 +486,32 @@ defineIntent('build.place', {
         r = null;
       }
       if (r) { first ||= r === 'exists' ? 'Já existe uma construção aqui' : r; continue; }
-      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), 0, Math.round(game.worldTime), rot, costEmpty(def) ? 1 : 0, 0, style, det]);
+      // creative (creative.js): finished at once, no materials — a roof only where a finished support holds it
+      const now = game.creative && !(def.roof && !roofSupported(game, tx, ty, true));
+      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), now ? 1 : 0, Math.round(game.worldTime), rot, now || costEmpty(def) ? 1 : 0, 0, style, det]);
     }
     if (!list.length) return first || 'Local inválido';
+    if (game.creative) creativeClear(game, list, net, actor, lv);
     net.emit('struct.add', lv ? { list, by: actor.pid, lv } : { list, by: actor.pid });
     return { placed: list.length };
   },
 });
+
+// creative build.place: what the work would clear before building (loose plants, pebbles, crops) goes first
+function creativeClear(game, list, net, actor, lv) {
+  if (lv) return;
+  const ids = [], give = {};
+  for (const r of list) {
+    if (!r[5]) continue;
+    const def = BUILDINGS[r[1]], [fw, fh] = dimsOf(r[1], r[7]);
+    if (def?.roof) continue;
+    for (let y = r[3]; y < r[3] + fh; y++) for (let x = r[2]; x < r[2] + fw; x++) {
+      for (const n of objectsOnTile(game, x, y)) if (CLEARABLE.has(n.type)) ids.push(n.id);
+      if (def?.layer !== 'floor' && cropAt(game, x, y)) net.emit('crop.remove', { tx: x, ty: y });
+    }
+  }
+  if (ids.length) net.emit('obj.remove', { ids: [...new Set(ids)], fx: 'clear', by: actor.pid });
+}
 
 defineIntent('build.move', {
   doc: '"Mover": a plan to move a finished structure to (tx, ty, rot); when it is built the object moves keeping its state.',
@@ -507,7 +526,9 @@ defineIntent('build.move', {
     const r = placeReason(game, src.type, tx, ty, actor.ent, rot, src, src.lv | 0);
     if (r) return r === 'exists' ? 'Já existe uma construção aqui' : typeof r === 'string' ? r : 'Local inválido';
     for (const b of game.build.structures.filter((q) => q.moveOf === src.id)) net.emit('struct.remove', { id: b.id, quiet: 1 });
-    net.emit('struct.add', { list: [[net.newId('s'), src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id, src.style || '', src.det || '']], by: actor.pid, lv: src.lv | 0 || undefined }); // levels: same story
+    const pid = net.newId('s');
+    net.emit('struct.add', { list: [[pid, src.type, tx, ty, src.v | 0, 0, Math.round(game.worldTime), rot, 1, src.id, src.style || '', src.det || '']], by: actor.pid, lv: src.lv | 0 || undefined }); // levels: same story
+    if (game.creative) net.emit('struct.relocate', { id: pid, src: src.id, by: actor.pid, xp: 0, toast: `${def.name} ${def.g === 'm' ? 'movido' : 'movida'}` }); // creative: at once
   },
 });
 
@@ -583,6 +604,12 @@ defineIntent('build.decon', {
         continue;
       }
       const want = a.on == null ? !game.build.decon.has(o) : !!a.on;
+      if (want && game.creative) { // creative: gone at once (no refund: nothing was paid); what a chest held falls out
+        const drops = [];
+        if (o.store) for (const s of o.store.slots) if (s) drops.push(lootRow(net, o.x, o.y - 0.3, s.id, s.qty, 0.8));
+        net.emit('struct.remove', { id: o.id, by: actor.pid, drops: drops.length ? drops : undefined, quiet: 1 });
+        continue;
+      }
       (want ? set : clear).push(o.id);
     }
     if (set.length) net.emit('struct.decon', { ids: set, on: 1 });

@@ -322,6 +322,17 @@ it is no longer a cave. A roof system for both buildings and caves:
   opens impact cracks from the middle of the tile, faster with a better pickaxe; the last hit breaks the block
   along them into wedges that drop into the hole (src/fx/rockfx.js, terrain shader `uMine`).
 
+## Mundos salvos e modo criativo (added later)
+
+Owner's request: create worlds and keep them in a list (at most 10 per browser), and a creative mode to test buildings.
+- **Worlds** (src/ui/worlds.js): registry `wos.worlds` = [{ id, name, seed, mode, created, played }]; a world saves under
+  `wos.save.v2.<id>` (game.worldId) and keeps its hotbar under `wos.hotbar.<id>`. Saves from before the list join it with
+  id = their seed (keys unchanged). Menu: "Continuar" (last world), "Mundos" (play / delete with a confirmation / create
+  with name, seed and mode); hosting a room picks a world from the same list. Creating a world never wipes the others.
+- **Creative** (src/game/creative.js): building finished at once without materials (build.place / move / decon, paths),
+  crafting without ingredients, no damage, bars always full (endless running), creatures never pick a fight. A world
+  setting carried by the snapshot (`mode`), so the host's world decides for everyone and the save keeps it. Scenario **C1**.
+
 ## K · Detalhes de arquitetura e decoração (added later, port 5192)
 
 Owner's request: much more detail for interior and exterior decoration (including a **straw training dummy**

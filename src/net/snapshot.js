@@ -69,6 +69,7 @@ export function serializeWorld(game, { save = false } = {}) {
     props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
+    mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
@@ -96,6 +97,7 @@ export function applyWorld(game, d, mode = 'net') {
 function applyInner(game, d, mode) {
   const w = game.world, net = game.net;
   const reconcile = mode === 'net';
+  game.creative = d.mode === 'creative';
   if (Number.isFinite(d.wt)) game.worldTime = d.wt;
   if (d.env) {
     if (Number.isFinite(d.env.h)) game.env.hour = d.env.h;

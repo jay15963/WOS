@@ -23,8 +23,9 @@ import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
 const VERSION = 9; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K) · v8 painted paths (M) · v9 stories (L: world.lvs = upper pieces' story; older = all on the ground)
-// guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name
-const key = (game, v = 2) => `wos.save.v${v}.${game.world.seed}${game.saveSuffix || ''}`;
+// guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name.
+// A world of the world list (ui/worlds.js) saves under its id (game.worldId; old worlds: id = their seed)
+const key = (game, v = 2) => `wos.save.v${v}.${game.worldId ?? game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
 
 export function hasSave(game) {
@@ -63,6 +64,7 @@ export function saveGame(game) {
     return true;
   } catch (e) {
     console.warn('save falhou', e);
+    if (!game._saveWarned) { game._saveWarned = true; game.events?.emit('error', { text: 'Não deu para salvar: o navegador está sem espaço. Apague um mundo no menu.' }); }
     return false;
   }
 }

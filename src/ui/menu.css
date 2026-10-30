@@ -450,3 +450,26 @@ html .cc-name { font: 700 13px var(--n-fd); letter-spacing: 3px; color: var(--n-
   .pause-nav .mbtn { min-height: 44px; padding: 6px 12px; font-size: 15px; }
   .pause-nav .mbtn small { font-size: 11.5px; }
 }
+
+/* ---------- worlds list (menu.js worldsPanel / newWorld, ui/worlds.js) ---------- */
+.mpanel .wcount { font-size: .6em; opacity: .65; font-weight: 600; margin-left: 6px; }
+.wlist { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px; }
+.wrow { display: flex; align-items: stretch; gap: 6px; }
+.wrow .wplay { flex: 1; min-width: 0; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(255, 244, 220, 0.08); border: 1.5px solid rgba(247, 217, 122, 0.28); color: inherit; font: inherit; cursor: pointer; }
+.wrow .wplay:hover, .wrow .wplay:focus-visible { background: rgba(255, 244, 220, 0.16); border-color: rgba(247, 217, 122, 0.6); }
+.wrow .wplay b { font-size: 1.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.wrow .wplay small { flex-basis: 100%; opacity: .7; font-size: .82em; }
+.wrow .wdel { width: 42px; flex: none; border-radius: 10px; border: 1.5px solid rgba(220, 120, 100, 0.35); background: rgba(120, 30, 20, 0.18); color: #f0b4a4; font-size: 1.05em; cursor: pointer; }
+.wrow .wdel:hover { background: rgba(160, 40, 28, 0.35); }
+.wrow.ask { align-items: center; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: rgba(120, 30, 20, 0.22); }
+.wrow.ask .wask { flex: 1 1 100%; margin-bottom: 4px; }
+.wchip { font-size: .7em; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 4px; background: rgba(255, 244, 220, 0.16); }
+.wchip.creative { background: linear-gradient(180deg, #7fd0ff, #3f8fd0); color: #0c2236; }
+.wmodes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.wmode { text-align: left; padding: 10px 12px; border-radius: 10px; border: 1.5px solid rgba(247, 217, 122, 0.25); background: rgba(255, 244, 220, 0.06); color: inherit; font: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.wmode small { opacity: .72; font-size: .8em; line-height: 1.3; }
+.wmode.on { border-color: #f7d97a; background: rgba(247, 217, 122, 0.16); box-shadow: 0 0 0 1px rgba(247, 217, 122, 0.4) inset; }
+.mbtn.danger { background: linear-gradient(180deg, #c8553f, #8e2f20); color: #fff3ea; }
+.mbtn[disabled] { opacity: .45; pointer-events: none; }
+@media (max-width: 520px) { .wmodes { grid-template-columns: 1fr; } }

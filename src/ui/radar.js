@@ -30,7 +30,7 @@ export function radarMarkup() {
       <div class="rd-marks"></div>
       <div class="rd-clock" data-tip="<b>Hora do dia</b><p>O arco mostra o sol (ou a lua) no céu. A noite é fria: prepare fogo e abrigo antes da barra encher.</p>"><b id="clock"></b></div>
     </div>
-    <div class="mm-info rd-info"><span class="rd-day">Dia <b id="rd-dayn"></b></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span></div>
+    <div class="mm-info rd-info"><span class="rd-day">Dia <b id="rd-dayn"></b></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
   </div>`;
 }
 
@@ -38,7 +38,7 @@ export function installRadar(game, root, mini) {
   const disc = root.querySelector('.rd-disc');
   const mm = root.querySelector('#mm'), cv = mm.querySelector('canvas'), ctx = cv.getContext('2d');
   const svg = root.querySelector('.rd-svg'), marks = root.querySelector('.rd-marks');
-  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi') };
+  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi'), mode: root.querySelector('#rd-mode') };
   let W = 0, H = 0, fill = null, tip = null, tipG = null, len = 0;
   const C = {};
 
@@ -142,6 +142,7 @@ export function installRadar(game, root, mini) {
 
   // ---------- clock, day arc, weather (4 Hz) ----------
   const sky = (g) => {
+    if (C.creative !== !!g.creative) { C.creative = !!g.creative; R.mode?.classList.toggle('hidden', !C.creative); } // creative.js
     const E = g.env, h = E.hour;
     const night = h >= DUSK || h < DAWN;
     const f = night ? (((h - DUSK + 24) % 24) / (24 - DUSK + DAWN)) : (h - DAWN) / (DUSK - DAWN);

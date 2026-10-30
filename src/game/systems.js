@@ -22,6 +22,7 @@ import { initBuilding, buildingSystem } from './building.js';
 import { initRoofs, roofsSystem } from './roofs.js';
 import { raysSystem } from '../fx/rays.js';
 import { initRockFx, rockFxSystem } from '../fx/rockfx.js';
+import { creativeSystem } from './creative.js';
 import { roofSupportSystem } from './mut/roofs.js';
 import { survivalSystem } from './survival.js';
 import { lootSystem } from './loot.js';
@@ -109,6 +110,7 @@ export function installSystems(game) {
     pathsSystem(),
     ...economySystems(),
     survivalSystem(),
+    creativeSystem(),               // after survival: the bars end every frame full (creative.js)
     lootSystem(),
     corpsesSystem(),
     juice,
