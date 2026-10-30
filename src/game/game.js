@@ -102,8 +102,21 @@ export class Game {
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
     const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y)); // levels: stairs slower
     if (mx || my) {
-      const x0 = p.x, y0 = p.y;
+      const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
+      // never stuck up there: ~3 s of pushing without moving on a stair / an upper story → down to the nearest free ground
+      const L = this.levels;
+      if (L?.hasUpper || L?.active) {
+        // (truly stuck: up high, off any stair, and no step free in any of the four directions)
+        const lv = p.lv | 0, boxed = () => [[0.2, 0], [-0.2, 0], [0, 0.2], [0, -0.2]].every(([ox, oy]) => L.collidesL(lv, p.x + ox, p.y + oy, p.r || 0.25, false, false, L._tile(p.x, p.y)));
+        if ((mx || my) && lv > 0 && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !L.stairAt(lv, p.x, p.y) && boxed()) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;
+        if (p._stuckT > 3) {
+          p._stuckT = 0;
+          const [gx, gy] = L.groundSpot(p.x, p.y, p.r || 0.25);
+          p.x = gx; p.y = gy; p.lv = 0; p._hop = null; p._fallV = 0.01;
+          this.events.emit('toast', { text: 'Você estava preso: desceu para o chão', kind: 'info' });
+        }
+      }
       if (!(p._faceLockT > 0)) p.facing = facingFrom(mx, my, p.facing); // an attack keeps facing its target briefly
       p.moving = true;
       stepGait(p, Math.hypot(p.x - x0, p.y - y0)); // distance actually travelled (same clock as remote copies)

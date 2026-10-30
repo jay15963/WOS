@@ -123,6 +123,10 @@ new piece works per story.
 
 On a stair: movement projected on the stair axis, lateral eased into the corridor (side rails), `z = n + u`,
 `lv` switches at u = 0.5. Speed ×0.8; hollow `step_stairs` footsteps; wall material on wall tops.
+The bottom and top steps are also entered and left **sideways** (`side0` / `side1`: the tiles beside them):
+pushing past a rail in the first / last third of the stair steps off onto the ground (bottom) or onto the wall
+top / upper floor (top) when that side is free. Never stuck: ~3 s of pushing without moving on a stair or an
+upper story, boxed in on all four sides, drops the player to the nearest free ground (toast).
 
 ### 4.4 Wall tops (ramparts)
 
@@ -185,10 +189,16 @@ doors, chests, beds and stations (used only from their own story); blueprints ar
 - **Roofs** (J): `roofEaveH(storeys)` with `game.build.storeysAt / storeysIn` — the eaves sit on top of the
   highest story; J's region art is repainted when the upper stories under it change.
 - **Reveal** (cosmetic, local player, view level `V = round(player.z)`): inside a building (J's roof region, else
-  the upper slab right above the player) every upper piece above V on it or on its wall ring fades to 0; from
-  outside a multi-story house shows its stacked facades under the roof.
+  a closed room on the ground with no slab right overhead — under a stairwell —, else the upper slab right above
+  the player) every upper piece above V on it or on its wall ring fades to 0; from outside a multi-story house
+  shows its stacked facades under the roof. A slab right above the player (a second story, a balcony / veranda)
+  also counts as indoors for the camera (`game.indoors` kind 'built', region −1).
+- **One owner per faded piece**: a piece the reveal fades is left alone by the cutaway, and a piece the cutaway
+  wants back is handed over by the reveal (two fades writing one `o.alpha` used to settle half-way).
 - **Culling**: furniture and entities under an opaque upper floor (not faded) are not drawn (they would poke
   through the slab), nor pickable.
+- **Window glow** (K): the additive night glow of a window is skipped while its face is covered — an upper floor
+  or a stair right in front of the wall, or someone standing before it (archCompose `faceCovered`).
 - **Cutaway** (RimWorld-style, cosmetic): walls of the local player's room whose north tile is inside the room
   (south walls, inner partitions) and the walls just south of the player fade to 0.22; on an upper story the
   room is the floor slab around the player. Everything eases back when the player leaves.

@@ -165,7 +165,7 @@ export function unsupportedRoofs(game, rects) {
 
 // enclosed room around (tx, ty): tiles bounded by walls / doors / rock (≤ max tiles), + the wall ring around it.
 // Returns null when it is open (or too big). Used to fill a room with roof plans in one tap.
-export function enclosedRoom(game, tx, ty, max = 220) {
+export function enclosedRoom(game, tx, ty, max = 220, info = null) { // info.big: gave up because the room is larger than max
   const w = game.world, W = w.W;
   if (!w.inBounds(tx, ty)) return null;
   const wallish = (i) => w.rock[i] === 1 || (() => { const o = game.build.grid.main.get(i); return !!o && BUILDINGS[o.type]?.connect === 'wall'; })();
@@ -182,7 +182,7 @@ export function enclosedRoom(game, tx, ty, max = 220) {
       if (wallish(j)) { if (!w.rock[j]) ring.add(j); continue; }
       if (dx && dy) continue; // corners only collect walls
       seen.add(j);
-      if (seen.size > max) return null;
+      if (seen.size > max) { if (info) info.big = true; return null; }
       q.push(j);
     }
   }
@@ -570,6 +570,11 @@ function updateIndoors(game, dt) {
       const i = ty * w.W + tx;
       if (w.broof[i]) { kind = 'built'; region = R.regionOf[i]; }
       else if (w.roof[i] && !w.rock[i]) { kind = 'cave'; region = R.caveOf[i]; } // (the cave whose ceiling fades)
+      else if (game.levels?.hasUpper) {
+        // under an upper floor (agent L's slab: a second story, a balcony) — indoors for the camera too (no roof region)
+        const V = Math.round(p.z || 0), N = w.W * w.H;
+        for (let k = V + 1; k <= 3 && !kind; k++) { const f = game.build.grid.floor.get(i + k * N); if (f && !f.blueprint && !BUILDINGS[f.type]?.roof) { kind = 'built'; region = -1; } }
+      }
     }
   }
   // debounce: a doorway shuffle never flips the camera back and forth
@@ -940,7 +945,11 @@ export function roofPropAt(game, tx, ty) {
   const g = R.regions.get(R.regionOf[w.idx(tx, ty)]), a = g?.art;
   if (!a) return null;
   const s = a.slices.find((q) => q.col === tx && ty >= q.ya && ty <= q.yb);
-  return { lift: roofHeightAt(game, tx, ty), key: s ? s.key : ty + 1, alpha: g.alpha, lit: regionLit(game, g) };
+  // face: the slope under the tile centre (1 west, 2 east, 3 south — facing the camera —, 4 north, 0 unknown); pitch: its rise per tile
+  const i = w.idx(tx, ty);
+  let lo = 0, hi = a.tiles.length - 1, m = -1;
+  while (lo <= hi) { const c = (lo + hi) >> 1, v = a.tiles[c]; if (v === i) { m = c; break; } if (v < i) lo = c + 1; else hi = c - 1; }
+  return { lift: roofHeightAt(game, tx, ty), key: s ? s.key : ty + 1, alpha: g.alpha, lit: regionLit(game, g), face: m >= 0 ? a.tileF?.[m] | 0 : 0, pitch: m >= 0 ? a.tileP?.[m] || 1 : 1 };
 }
 
 // a light burns inside roof region g (its gable windows and dormers glow at night)

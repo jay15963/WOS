@@ -257,7 +257,9 @@ export class Levels {
     else if (r === 1) { ax = 0; sg = 1; b = tx; len = fw; l0 = ty; l1 = ty + fh; ent = id(tx - 1, ty); land = id(tx + fw, ty); for (let k = 0; k < len; k++) tiles.push(id(tx + k, ty)); }
     else { ax = 0; sg = -1; b = tx + fw; len = fw; l0 = ty; l1 = ty + fh; ent = id(tx + fw, ty); land = id(tx - 1, ty); for (let k = 0; k < len; k++) tiles.push(id(tx + fw - 1 - k, ty)); }
     if (tiles.some((i) => i < 0)) return;
-    const s = { o, n, ax, sg, b, len, l0, l1, ent, land, tiles, i0: tiles[0], i1: tiles[len - 1], idx: this.stairs.length };
+    // the tiles beside the bottom / top step: a stair is also entered and left sideways at its ends
+    const sides = (i) => { const x = i % W, y = (i - x) / W; return (ax ? [id(x - 1, y), id(x + fw, y)] : [id(x, y - 1), id(x, y + fh)]).filter((j) => j >= 0); };
+    const s = { o, n, ax, sg, b, len, l0, l1, ent, land, tiles, i0: tiles[0], i1: tiles[len - 1], side0: sides(tiles[0]), side1: sides(tiles[len - 1]), idx: this.stairs.length };
     this.stairs.push(s);
     for (const k of [n, n + 1]) {
       if (k > MAX_LV) continue;
@@ -334,7 +336,7 @@ export class Levels {
     const A = this.st[k], sid = A ? A[i] : 0;
     if (sid) {
       const s = this.stairs[sid - 1];
-      return s.n === k ? i === s.i0 && cur === s.ent : i === s.i1 && cur === s.land;
+      return s.n === k ? i === s.i0 && (cur === s.ent || cur === i || s.side0.includes(cur)) : i === s.i1 && (cur === s.land || cur === i || s.side1.includes(cur));
     }
     if (k === 0) return !tileBlocked(w, tx, ty, pd, sw);
     const S = this.surf[k];
@@ -427,6 +429,20 @@ export class Levels {
     const mq = Math.max(Math.abs(dq), 0.6 * Math.hypot(sx, sy) + 0.02);
     const q = q0 + Math.max(-mq, Math.min(mq, qt - q0));
     const u = (s.sg * (c - s.b)) / s.len;
+    // pushing past a side rail at the bottom end (to the ground beside it) or at the top end (onto the wall top /
+    // upper floor beside it): step off sideways when that side is free
+    const qw = q0 + dq;
+    if ((qw < lo || qw > hi) && Math.abs(dq) > 1e-5 && u >= 0 && u <= 1 && (u < 0.32 || u > 0.68)) {
+      const top = u > 0.68, lvl = top ? s.n + 1 : s.n;
+      // (kept inside that step along the stair, so the edge of the body never touches the tile past its end)
+      const st = top ? s.i1 : s.i0, W = this.game.world.W, t0 = ax ? (st / W) | 0 : st % W;
+      const ca = Math.max(t0 + r + 0.01, Math.min(t0 + 1 - r - 0.01, c));
+      const nx = ax ? qw : ca, ny = ax ? ca : qw;
+      if (lvl <= MAX_LV && !this.collidesL(lvl, nx, ny, r, pd, false, top ? s.i1 : s.i0)) {
+        e.x = nx; e.y = ny; e.lv = lvl; e.z = lvl; e._fallV = 0;
+        return true;
+      }
+    }
     if (u < 0) {
       const nx = ax ? q : c, ny = ax ? c : q;
       if (!this.collidesL(s.n, nx, ny, r, pd, false, s.ent)) { e.x = nx; e.y = ny; e.lv = s.n; e.z = s.n; return true; }
@@ -769,6 +785,7 @@ function reveal(game, dt) {
       let tiles = null;
       const reg = I?.kind === 'built' ? game.roofs?.regions?.get(I.region) : null;
       if (reg) tiles = new Set(reg.tiles);
+      else if (V === 0 && !game.build.grid.floor.get(ty * w.W + tx + N) && (() => { const r = roomOf(game, tx, ty); if (r) tiles = new Set(r.map(([x, y]) => y * w.W + x)); return !!r; })()) { /* a closed room on the ground: its walls / ring */ }
       else if (V < MAX_LV && game.build.grid.floor.get(ty * w.W + tx + (V + 1) * N)) {
         tiles = new Set();
         const F = game.build.grid.floor, q = [ty * w.W + tx], off = (V + 1) * N;
@@ -793,8 +810,9 @@ function reveal(game, dt) {
     }
   }
   for (const o of C.want) C.live.add(o);
-  const k = 1 - Math.exp(-dt * 7);
+  const k = 1 - Math.exp(-dt * 7), CW = L._cut?.want;
   for (const o of C.live) {
+    if (!C.want.has(o) && CW?.has(o)) { C.live.delete(o); continue; } // easing back: the cutaway owns it now (one owner per piece)
     const to = C.want.has(o) && !o.removed ? 0 : 1;
     const a = o.alpha ?? 1;
     const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
@@ -866,7 +884,7 @@ function cutaway(game, dt) {
   for (const o of C.want) C.live.add(o);
   const k = 1 - Math.exp(-dt * 9), R = L._rev?.want;
   for (const o of C.live) {
-    if (R?.has(o) && C.want.has(o)) continue; // the reveal fades it out completely (one owner per piece)
+    if (R?.has(o)) { if (!C.want.has(o)) C.live.delete(o); continue; } // the reveal fades it out completely (one owner per piece)
     const to = C.want.has(o) && !o.removed ? CUT_A : 1;
     const a = o.alpha ?? 1;
     const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
@@ -905,7 +923,8 @@ export function levelsSystem() {
       if (typeof bar === 'object' && bar) bar.update(dt);
     },
     render(game, B) {
-      // stairs ghost: mark the landing tile (green when a surface is there to step onto)
+      // stairs ghost: mark where it lets you off upstairs — the landing ahead and the two tiles beside the top step
+      // (green when a surface is there to step onto; the landing red when nothing at all is up there)
       const m = game.build?.mode, A = game.A;
       if (!m || m.kind !== 'place' || BUILDINGS[m.type]?.block !== 'stairs' || !A.has('fx_ring')) return;
       const L = game.levels, ring = A.get('fx_ring'), pulse = 0.7 + 0.3 * Math.sin(game.time * 5);
@@ -914,8 +933,13 @@ export function levelsSystem() {
         const r = m.rot & 3, fw = r & 1 ? h0 : w0, fh = r & 1 ? w0 : h0;
         const lx = r === 0 ? g.tx : r === 2 ? g.tx : r === 1 ? g.tx + fw : g.tx - 1;
         const ly = r === 0 ? g.ty - 1 : r === 2 ? g.ty + fh : g.ty;
-        const up = Math.min(MAX_LV, (m.lv | 0) + 1), ok = L.isSurface(up, L._tile(lx + 0.5, ly + 0.5));
-        B.fx.add(ring, lx + 0.5, ly + 0.6 - up * STORY_H, 0.8, 0.5, ok ? 0.5 : 1, ok ? 1 : 0.85, ok ? 0.55 : 0.45, 0.75 * pulse);
+        const up = Math.min(MAX_LV, (m.lv | 0) + 1), surf = (x, y) => L.isSurface(up, L._tile(x + 0.5, y + 0.5));
+        const tx1 = r === 1 ? g.tx + fw - 1 : g.tx, ty1 = r === 2 ? g.ty + fh - 1 : g.ty; // the top step
+        const sides = r & 1 ? [[tx1, ty1 - 1], [tx1, ty1 + 1]] : [[tx1 - 1, ty1], [tx1 + 1, ty1]];
+        let any = surf(lx, ly);
+        for (const [sx, sy] of sides) if (surf(sx, sy)) { any = true; B.fx.add(ring, sx + 0.5, sy + 0.6 - up * STORY_H, 0.7, 0.45, 0.5, 1, 0.55, 0.6 * pulse); }
+        const ok = surf(lx, ly);
+        B.fx.add(ring, lx + 0.5, ly + 0.6 - up * STORY_H, 0.8, 0.5, ok ? 0.5 : any ? 0.8 : 1, ok ? 1 : any ? 0.8 : 0.85, ok ? 0.55 : any ? 0.8 : 0.45, (ok || !any ? 0.75 : 0.35) * pulse);
       }
     },
   };

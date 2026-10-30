@@ -25,7 +25,7 @@ import { buildSprite } from './artcompat.js';
 import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
-import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
@@ -94,9 +94,10 @@ export function enterBuildMode(game, type, opts = {}) {
   const touch = game.input.isTouch;
   if (src) {
     if (!h.movehint) { h.movehint = true; game.events.emit('toast', { text: touch ? 'Toque no novo lugar, ⟳ para girar e ✓ para confirmar' : 'Clique no novo lugar · R gira · Esc cancela', kind: 'info' }); }
-  } else if (def.roof && !h.roofhint) {
+  } else if (def.roof) {
+    if (h.roofhint) return;
     h.roofhint = true;
-    game.events.emit('toast', { text: (touch ? 'Toque dentro de uma sala fechada para cobrir tudo, ou arraste uma área' : 'Clique dentro de uma sala fechada para cobrir tudo, ou arraste uma área') + ' · ⟳ troca o estilo · o teto precisa de apoio a até 6 tiles', kind: 'info' });
+    game.events.emit('toast', { text: (touch ? 'Toque dentro de um cômodo fechado e confirme: o telhado cobre tudo de uma vez' : 'Clique dentro de um cômodo fechado: o telhado cobre tudo de uma vez') + ' · vermelho = falta coluna (o teto precisa de apoio a até 6 tiles)', kind: 'info' });
   } else if (def.drag && !h['drag_' + def.drag]) {
     h['drag_' + def.drag] = true;
     game.events.emit('toast', {
@@ -200,13 +201,20 @@ function updatePreview(game) {
   const def = BUILDINGS[m.type];
   const origin = m.anchor || m.hover;
   const target = m.anchor ? (m.end || m.hover) : m.hover;
-  let tiles = def.drag && m.anchor && !m.move ? dragTiles(def.drag, origin[0], origin[1], target[0], target[1]) : [m.hover];
-  // roofs: a single tile inside a closed room covers the whole room and its walls
+  let tiles = def.drag && m.anchor && !m.move && !def.roof ? dragTiles(def.drag, origin[0], origin[1], target[0], target[1]) : [m.hover];
+  // roofs: a paint bucket — the closed room under the cursor (its interior + the wall ring), never single tiles
   m.room = false;
-  if (def.roof && tiles.length === 1) {
-    const room = m._roomAt && m._roomAt[0] === tiles[0][0] && m._roomAt[1] === tiles[0][1] && m._roomV === game.build.v ? m._room : (m._room = enclosedRoom(game, tiles[0][0], tiles[0][1]));
-    m._roomAt = tiles[0]; m._roomV = game.build.v;
-    if (room) { tiles = room.slice(0, MAX_TILES); m.room = true; }
+  if (def.roof) {
+    const h = m.hover;
+    if (!(m._roomAt && m._roomAt[0] === h[0] && m._roomAt[1] === h[1] && m._roomV === game.build.v)) {
+      const info = {};
+      m._room = enclosedRoom(game, h[0], h[1], 330, info);
+      if (m._room && m._room.length > MAX_ROOF_TILES) { m._room = null; info.big = true; }
+      m._big = !!info.big;
+    }
+    const room = m._room;
+    m._roomAt = h; m._roomV = game.build.v;
+    if (room) { tiles = room; m.room = true; } else tiles = [h];
   }
   // wall-mounted decor snaps to the wall next to the hovered tile (keeps the chosen side when it has one)
   if (def.mount && !m.move && !wallBehind(game, m.hover[0], m.hover[1], m.rot, m.lv | 0)) {
@@ -233,6 +241,14 @@ function updatePreview(game) {
     for (const t of out) t.mask = computeMask(game, m.type, t.tx, t.ty, extra, m.lv | 0); // sync-ok: ghost preview tile, not a structure
   }
   m.tiles = out; m.n = nOk; m.valid = nOk > 0; m.reason = nOk ? null : firstReason;
+  if (def.roof) {
+    // all or nothing: outside a closed room nothing fills; a room with any tile it cannot cover (red: no wall / column /
+    // rock within reach to hold it up) is not filled until those spots get support
+    const bad = out.filter((t) => !t.ok).length;
+    if (!m.room) { m.valid = false; m.reason = m._big ? 'Cômodo grande demais para um telhado só: divida com paredes' : 'Toque dentro de um cômodo fechado (paredes, portas ou pedra em volta) para cobrir'; for (const t of out) t.ok = false; }
+    else if (!out.length) { m.valid = false; m.reason = 'Este cômodo já tem telhado'; }
+    else if (bad) { m.valid = false; m.reason = firstReason === NO_SUPPORT ? `Falta apoio em ${bad} ${bad > 1 ? 'pontos' : 'ponto'}: coloque colunas onde está vermelho` : firstReason; }
+  }
   // materials are only needed when the work starts: tell the player what is missing for all of it
   m.short = null;
   if (!m.move && nOk && !game.creative) {
@@ -298,7 +314,7 @@ export function buildTap(game, wx, wy) {
   if (m.kind === 'brush') { const x = Math.floor(wx), y = Math.floor(wy); brushRect(game, x, y, x, y); return; }
   const [tx, ty] = originAt(game, wx, wy);
   const def = BUILDINGS[m.type];
-  if (def.drag && !m.move) {
+  if (def.drag && !m.move && !def.roof) { // (roofs: a paint bucket — tap a room, tap again / ✓ to fill)
     if (!m.anchor) { m.anchor = [tx, ty]; m.hover = [tx, ty]; m.end = null; m.locked = true; return; }
     const tgt = m.end || m.anchor;
     if (tgt[0] === tx && tgt[1] === ty) { commitPlacement(game); return; }
@@ -325,7 +341,7 @@ export function buildDragStart(game, wx, wy) {
   const o = originAt(game, wx, wy);
   m.dragging = true;
   m.hover = o; m.locked = true;
-  if (BUILDINGS[m.type].drag && !m.move) { m.anchor = o; m.end = o.slice(); }
+  if (BUILDINGS[m.type].drag && !m.move && !BUILDINGS[m.type].roof) { m.anchor = o; m.end = o.slice(); }
 }
 export function buildDragMove(game, wx, wy) {
   const m = game.build.mode;
@@ -687,6 +703,13 @@ export function buildingSystem() {
       const bar = A.has('bp_bar') ? A.get('bp_bar') : null;
       const badge = A.has('bp_nomat') ? A.get('bp_nomat') : null;
       const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+      // build mode: the world grid over the ground, faint but visible (every tile edge in view)
+      if (game.build.mode && A.has('fx_solid')) {
+        const s = A.get('fx_solid'), lw = 0.035, ga = 0.17;
+        const x0 = Math.floor(v.x0) - 1, x1 = Math.ceil(v.x1) + 1, y0 = Math.floor(v.y0) - 1, y1 = Math.ceil(v.y1) + 2;
+        for (let x = x0; x <= x1; x++) B.ground.add(s, x, y0, lw / s.w, (y1 - y0) / s.h, 1, 1, 1, ga);
+        for (let y = y0; y <= y1; y++) B.ground.add(s, (x0 + x1) / 2, y - lw / 2, (x1 - x0) / s.w, lw / s.h, 1, 1, 1, ga);
+      }
       for (const o of S) {
         if (o.x < v.x0 - 3 || o.x > v.x1 + 3 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
         if (o.lv) continue; // levels: upper plans / marks are drawn on their story (levels.drawUpper)
@@ -747,11 +770,13 @@ export function buildingSystem() {
       // ghost preview: blue = ok, red = invalid; footprint grid under it
       const G0 = GHOST_O;
       if (BUILDINGS[m.type].roof) {
-        const He = roofEaveH();
+        const He = roofEaveH(), sol = A.has('fx_solid') ? A.get('fx_solid') : null;
         for (const g of m.tiles) {
           if (!tile) break;
-          B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.35, g.ok ? 1 : 0.3, 0.6 * pulse, 0, 0, 0, 1, 0, He);
-          if (soft) B.ground.add(soft, g.tx + 0.5, g.ty + 0.85, 1.2, 0.9, 0.3, 0.5, 0.8, 0.16 * pulse); // its footprint on the ground
+          B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse, 0, 0, 0, 1, 0, He);
+          // the ground under it: a pale wash where it fills, a strong red square where a column is missing
+          if (sol) B.ground.add(sol, g.tx + 0.5, g.ty, 1 / sol.w, 1 / sol.h, g.ok ? 0.45 : 1, g.ok ? 0.7 : 0.2, g.ok ? 1 : 0.15, (g.ok ? 0.12 : 0.5) * pulse);
+          else if (soft) B.ground.add(soft, g.tx + 0.5, g.ty + 0.85, 1.2, 0.9, 0.3, 0.5, 0.8, 0.16 * pulse);
         }
         return;
       }

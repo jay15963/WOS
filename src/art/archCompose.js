@@ -16,7 +16,27 @@ import { DECOR_GEOM as DG, DECOR_ROT2 } from './decor.js';
 import { LAZY_DEFS, LAZY_GROUPS } from './lazyDefs.js';
 import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
-export const KIT_ENV = { night: 0, sync: false };
+export const KIT_ENV = { night: 0, sync: false, game: null, ents: [] }; // game / ents: set each frame by decoration.js
+
+// The night glow of a window is drawn after everything (additive), so nothing in front of the wall would hide it: skip
+// it when the face is covered — an upper floor or a stair right in front of the wall, or someone standing before it.
+function faceCovered(o) {
+  const g = KIT_ENV.game, w = g?.world;
+  if (!w || o.ty + 1 >= w.H) return false;
+  const lv = o.lv | 0, N = w.W * w.H, i = (o.ty + 1) * w.W + o.tx, G = g.build?.grid;
+  if (G) {
+    const up = G.floor?.get(i + (lv + 1) * N);
+    if (up && !up.blueprint) return true;
+    const st = G.main?.get(i + lv * N);
+    if (st && BUILDINGS[st.type]?.block === 'stairs') return true;
+  }
+  const cx = o.tx + 0.5, y0 = o.ty + 1;
+  for (const e of KIT_ENV.ents) {
+    const ez = (e.z || 0) - lv;
+    if (Math.abs(e.x - cx) < 0.62 && e.y > y0 - 0.05 && e.y < y0 + 1.5 + Math.max(0, ez)) return true;
+  }
+  return false;
+}
 // wall-mounted decor was placed for a 26-px face: raise it to the middle of today's taller story (agent L)
 const MOUNT_UP = Math.max(0, SG.FH - 26 / 64) * 0.5;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -244,7 +264,7 @@ function drawWall(B, T, o, k, t, fl) {
     if (win) {
       addPlain(B, D[win], x, y, 1, 1, fl);
       const n = KIT_ENV.night;
-      if (!BP && n > 0.05 && win !== 'slit') {
+      if (!BP && n > 0.05 && win !== 'slit' && !faceCovered(o)) {
         const g = win === 'oculus' ? D.oculus_glow : D.win_glow;
         const f = 0.88 + 0.08 * Math.sin(t * 2.1 + o.tx * 1.7) + 0.04 * Math.sin(t * 7.3 + o.ty);
         if (g) B.emissive.add(g, x, y, 1, 1, 1, 0.78, 0.45, n * f, 0, 0, 0, 1);

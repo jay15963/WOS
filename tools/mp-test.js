@@ -1808,7 +1808,7 @@ def('S50', {
   const hp0 = p.hp;
   await t.tryWait(() => p.hp >= hp0 + 9, 3500);
   t.check(p.hp >= hp0 + 9, 'heals over time (~5% of max HP per second)', `${f2(hp0)} → ${f2(p.hp)}`);
-  MG.combat.dealDamage(G.game, { x: p.x + 1, y: p.y, level: 1 }, p, 3, {});
+  MG.combat.dealDamage(G.game, { x: p.x + 1, y: p.y, level: 1 }, p, 3, { noDodge: true }); // (a dodge chance from earlier gear would make it flaky)
   const hpHit = p.hp;
   t.check(!p.buffs?.some?.((b) => b.id === 'heal'), 'taking damage interrupts the herbs', short((p.buffs || []).map((b) => b.id)));
   await t.sleep(1600);

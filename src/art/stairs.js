@@ -70,13 +70,13 @@ function stairsS() {
       for (let i = 0; i < N_STEPS; i++) {
         const hT = rise * (i + 1), hB = rise * i;
         const ty0 = Y((i + 1) * sd, hT), ty1 = Y(i * sd, hT);
-        // riser (front face of the step)
-        g.fillStyle = lin(g, 0, ty1, 0, Y(i * sd, hB), [[0, RS.base], [1, RS.dark]]);
+        // riser (front face of the step): dark, so each step reads as a step up
+        g.fillStyle = lin(g, 0, ty1, 0, Y(i * sd, hB), [[0, RS.dark], [1, RS.gap]]);
         g.fillRect(x0, ty1, x1 - x0, Y(i * sd, hB) - ty1);
         tread(g, x0, ty0, x1 - x0, ty1 - ty0, 'h', i);
         // nosing: lit edge, shadow on the riser below it
-        g.fillStyle = TR.hi; g.fillRect(x0, ty1 - 1.6, x1 - x0, 1.4);
-        g.fillStyle = 'rgba(25,14,6,0.45)'; g.fillRect(x0, ty1, x1 - x0, 1.2);
+        g.fillStyle = TR.hi; g.fillRect(x0, ty1 - 2.2, x1 - x0, 2);
+        g.fillStyle = 'rgba(25,14,6,0.55)'; g.fillRect(x0, ty1, x1 - x0, 1.6);
         // contact shade along the stringers
         g.fillStyle = 'rgba(30,18,8,0.22)'; g.fillRect(x0, ty0, 2.2, ty1 - ty0); g.fillRect(x1 - 2.2, ty0, 2.2, ty1 - ty0);
       }
@@ -146,15 +146,22 @@ function stairsE() {
         g.fillStyle = TR.hi; g.fillRect(xb - 1.4, B - DEP - h, 1.4, DEP); // lit nosing (east edge)
         if (i > 0) { g.fillStyle = 'rgba(25,14,6,0.35)'; g.fillRect(xb, B - DEP - h + rise, 2, DEP); } // shadow on the lower step
       }
-      // south stringer: the stepped profile from the ground to each tread
+      // south stringer: an OPEN staircase — the stepped edge of the treads on a diagonal beam, held by posts, with the
+      // ground visible under it (a solid profile down to the ground read as a block two tiles deep)
+      const SB = 11; // beam depth (px)
       g.fillStyle = lin(g, 0, B - RISE, 0, B, [[0, SG.mid], [1, SG.dark]]);
       g.beginPath(); g.moveTo(W, B);
       for (let i = 0; i < N_STEPS; i++) { const h = rise * (i + 1); g.lineTo(W - i * sw, B - h); g.lineTo(W - (i + 1) * sw, B - h); }
-      g.lineTo(0, B); g.closePath(); g.fill();
+      g.lineTo(0, B - RISE + SB); g.lineTo(W - sw * 0.6, B); g.closePath(); g.fill();
       g.strokeStyle = SG.hi; g.lineWidth = 1.2; g.beginPath();
       for (let i = 0; i < N_STEPS; i++) { const h = rise * (i + 1); g.moveTo(W - i * sw, B - h + 0.8); g.lineTo(W - (i + 1) * sw, B - h + 0.8); }
       g.stroke();
-      g.fillStyle = 'rgba(15,10,6,0.35)'; g.fillRect(0, B - 5, W, 5);
+      // posts from the beam down to the ground (high end and middle), with a contact shade
+      for (const [px, top] of [[5, B - RISE + SB - 1], [W * 0.42, B - RISE * 0.58 + SB - 1]]) {
+        g.fillStyle = lin(g, px - 3, 0, px + 3, 0, [[0, SG.top], [1, SG.dark]]);
+        g.fillRect(px - 3, top, 6, B - top);
+        g.fillStyle = 'rgba(15,10,6,0.35)'; g.fillRect(px - 5, B - 3, 10, 3);
+      }
       // near (south) handrail
       {
         const [[ax, ay], [bx, by]] = [[W - 6, B - rise - 2], [6, B - RISE - 2]];

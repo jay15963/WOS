@@ -49,9 +49,10 @@ export function installWorkbar(game, root) {
         set('nm', R.nm, def.name);
         const per = game.creative ? 'grátis no criativo' : Object.entries(def.cost).map(([k, n]) => `${n} ${ITEMS[k].name.toLowerCase()}`).join(' + ') || 'grátis';
         const n = m.n || 0;
-        set('cost', R.cost, n > 1 ? `${n} tiles · ${per} cada` : per);
+        set('cost', R.cost, n > 1 ? (game.creative ? `${n} tiles · ${per}` : `${n} tiles · ${per} cada`) : per);
         let hint;
         if (!m.valid && m.reason) hint = m.reason;
+        else if (def.roof) hint = touch ? (m.locked ? 'Toque de novo ou ✓ para cobrir o cômodo' : 'Toque dentro de um cômodo fechado') : 'Clique dentro de um cômodo para cobrir · Esc cancela';
         else if (def.drag) hint = touch ? (m.anchor ? (m.end ? 'Toque ✓ (ou no fim de novo) para construir' : 'Toque no fim da linha / canto · ✓ = só este') : 'Toque onde começa') : 'Clique ou arraste · botão direito cancela';
         else hint = touch ? (m.locked ? 'Toque de novo ou ✓ para construir' : 'Toque no local') : 'Clique para construir · Esc cancela';
         set('hint', R.hint, hint);

@@ -247,14 +247,18 @@ export function rasterRegion(spec) {
     chimneys.push({ x: cx, y: ys - 0.02, top: top + 0.02, fire, always: !fire });
   };
   for (const [fx, fy, id] of spec.fires || []) addChimney(Math.min(bx0 + bw - 0.3, Math.max(bx0 + 0.3, fx)), fy, id);
+  // (a chimney is never a detail: only over hearths / ovens / furnaces — the fires above); the weathervane is one per
+  // roof, on the tile that asked for it nearest the middle of the roof
   const vanes = [];
+  const mcx = (spec.x0 + spec.x1 + 1) / 2, mcy = (spec.y0 + spec.y1 + 1) / 2;
+  let vb = null, vd = 1e9;
   for (let n = 0; n < nT; n++) {
     const d = spec.det[n] | 0;
-    if (!d) continue;
-    const i = T[n], tx = i % W + 0.5, ty = ((i / W) | 0) + 0.5;
-    if (d & DET.chimney) addChimney(tx, ty, null);
-    if (d & DET.vane) vanes.push([tx, ty, n]);
+    if (!(d & DET.vane)) continue;
+    const i = T[n], tx = i % W + 0.5, ty = ((i / W) | 0) + 0.5, dd = Math.hypot(tx - mcx, ty - mcy);
+    if (dd < vd) { vd = dd; vb = [tx, ty, n]; }
   }
+  if (vb) vanes.push(vb);
   for (const [vx, vy, n] of vanes) {
     // on the local ridge: move to the highest point of the tile column
     let best = vy, bh2 = -1e9;
@@ -520,15 +524,18 @@ export function rasterRegion(spec) {
     live.push(s);
   }
   // ---- per-tile roof height (sun-shadow casters) ----
-  const tileH = new Float32Array(nT);
+  // (+ the facet under its centre — 1 west, 2 east, 3 south, 4 north slope — and that slope's pitch: roof props)
+  const tileH = new Float32Array(nT), tileF = new Uint8Array(nT), tileP = new Float32Array(nT);
   for (let n = 0; n < nT; n++) {
     const i = T[n], tx = i % W + 0.5, ty = ((i / W) | 0) + 0.5;
-    tileH[n] = Math.max(He, evalH(tx, ty)[0]);
+    const [h, K] = evalH(tx, ty);
+    tileH[n] = Math.max(He, h);
+    if (K >= 0) { hRect(rects[K], tx, ty); tileF[n] = HF; tileP[n] = rects[K].p; }
   }
   // plain data (structured-clone / transfer friendly: the worker sends it back); attachArt adds the lookups
   return {
     res, w: IW, h: IH, sx0, sy0, sx1: sx0 + IW / res, sy1: sy0 + IH / res,
-    color: out, owner, src, slices: live, tileH, chimneys, windows, rects: rects.length, maxRise, tiles: T,
+    color: out, owner, src, slices: live, tileH, tileF, tileP, chimneys, windows, rects: rects.length, maxRise, tiles: T,
   };
 }
 

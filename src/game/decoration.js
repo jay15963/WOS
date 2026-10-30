@@ -16,6 +16,87 @@ import { roofPropAt } from './roofs.js';
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const DPS_WIN = 5; // s
 
+const PROP_RE = /(^|\.)(dormer|dormer_pl|skylight)(\.|$)/;
+// The roof decides where its props go (a roof is laid by the paint bucket, every tile carrying the same details), per
+// roof region (game.roofs) once its art is painted — the slopes (roofPropAt.face) come with it:
+//  - dormers on the slope that faces the camera (the second row up from its eave, one every 3 tiles), or, on a
+//    front-gable roof, on both side slopes (the column next to each eave, one every 4 tiles); never at the ends
+//  - skylights spread over the middle of every slope that can be seen (west, east, south; never on a ridge or hip line):
+//    a row along the middle of the slope (a second one every 5 tiles across big slopes), one every 4 tiles
+// Returns [[roof tile structure, prop id]].
+function placeRoofProps(g) {
+  const R = g.roofs, w = g.world, out = [];
+  if (!R?.regionOf) return out;
+  const byReg = new Map();
+  for (const o of g.build.structures) {
+    if (!o.roof || o.blueprint || !o.det || !PROP_RE.test(o.det)) continue;
+    const rid = R.regionOf[w.idx(o.tx, o.ty)];
+    if (!rid) continue;
+    let l = byReg.get(rid);
+    if (!l) byReg.set(rid, (l = []));
+    l.push(o);
+  }
+  for (const [rid, list] of byReg) {
+    const reg = R.regions.get(rid);
+    if (!reg?.art) continue; // (roofs.v bumps when the art lands: placed again then)
+    const inR = (x, y) => w.inBounds(x, y) && R.regionOf[w.idx(x, y)] === rid;
+    const FC = new Map();
+    const face = (x, y) => {
+      if (!inR(x, y)) return 0;
+      const k = y * w.W + x;
+      let f = FC.get(k);
+      if (f === undefined) FC.set(k, (f = roofPropAt(g, x, y)?.face | 0));
+      return f;
+    };
+    const has = (re) => list.some((o) => re.test(o.det));
+    const nF = [0, 0, 0, 0, 0];
+    for (const o of list) nF[face(o.tx, o.ty)]++;
+    const dormer = has(/(^|\.)dormer_pl(\.|$)/) ? 'dormer_pl' : has(/(^|\.)dormer(\.|$)/) ? 'dormer' : null;
+    if (dormer) {
+      const picks = [];
+      if (nF[3] >= 3 && nF[3] >= Math.max(nF[1], nF[2])) {
+        const ok = (o) => face(o.tx, o.ty) === 3 && face(o.tx - 1, o.ty) === 3 && face(o.tx + 1, o.ty) === 3;
+        const row2 = list.filter((o) => ok(o) && face(o.tx, o.ty + 1) === 3 && !inR(o.tx, o.ty + 2));
+        const row1 = list.filter((o) => ok(o) && !inR(o.tx, o.ty + 1));
+        const row = (row2.length ? row2 : row1).sort((a, b) => a.tx - b.tx);
+        const pick = row.filter((o) => (o.tx - reg.x0) % 3 === 1);
+        picks.push(...(pick.length ? pick : row.slice(row.length >> 1, (row.length >> 1) + 1)));
+      } else {
+        for (const f of [1, 2]) {
+          const d = f === 1 ? -1 : 1; // toward that slope's eave
+          const ok = (o) => face(o.tx, o.ty) === f && face(o.tx, o.ty - 1) === f && face(o.tx, o.ty + 1) === f;
+          const col2 = list.filter((o) => ok(o) && face(o.tx + d, o.ty) === f && !inR(o.tx + 2 * d, o.ty));
+          const col1 = list.filter((o) => ok(o) && !inR(o.tx + d, o.ty));
+          const col = (col2.length ? col2 : col1).sort((a, b) => a.ty - b.ty);
+          const pick = col.filter((o) => (o.ty - reg.y0) % 4 === 2);
+          picks.push(...(pick.length ? pick : col.slice(col.length >> 1, (col.length >> 1) + 1)));
+        }
+      }
+      for (const o of picks) out.push([o, dormer]);
+    }
+    if (has(/(^|\.)skylight(\.|$)/)) {
+      for (const f of [1, 2, 3]) {
+        // well inside the slope: the same slope on both sides, up and across
+        const cand = list.filter((o) => face(o.tx, o.ty) === f && face(o.tx - 1, o.ty) === f && face(o.tx + 1, o.ty) === f && face(o.tx, o.ty - 1) === f && face(o.tx, o.ty + 1) === f);
+        if (!cand.length) continue;
+        const across = f === 3 ? (o) => o.ty : (o) => o.tx, along = f === 3 ? (o) => o.tx : (o) => o.ty;
+        let c0 = 1e9, c1 = -1e9;
+        for (const o of cand) { c0 = Math.min(c0, across(o)); c1 = Math.max(c1, across(o)); }
+        const rows = c1 - c0 <= 4 ? [Math.round((c0 + c1) / 2)] : [];
+        for (let c = c0 + 2; c1 - c0 > 4 && c <= c1; c += 5) rows.push(c);
+        for (const c of rows) {
+          const line = cand.filter((o) => across(o) === c).sort((a, b) => along(a) - along(b));
+          if (!line.length) continue;
+          const a0 = along(line[0]);
+          const pick = line.length >= 3 ? line.filter((o) => (along(o) - a0) % 4 === 1) : [];
+          for (const o of pick.length ? pick : [line[line.length >> 1]]) out.push([o, 'skylight']);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 export function decorSystem(game) {
   const dummies = new Set();
   game.events.on('dummyhit', (d) => {
@@ -33,33 +114,48 @@ export function decorSystem(game) {
   game.events.on('worldreset', () => prewarmArch(game, 500));
   let acc = 0;
   // roof props: cached list of roof tiles carrying a prop detail (rebuilt when structures change), pooled drawables
-  const PROP_RE = /(^|\.)(dormer|dormer_pl|skylight)(\.|$)/;
   let props = [], propsV = -1;
   const pool = [];
   function drawRoofProp(B, A) {
     const s = archSprite(A, this.sprite); // lazily painted (requested until ready)
     if (!s) return;
-    B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, 1, 0, this.lift);
-    if (this.glow && KIT_ENV.night > 0.05 && A.has('roof_dormer_glow')) B.emissive.add(A.get('roof_dormer_glow'), this.x, this.wy, 1, 1, 1, 0.8, 0.5, 0.85 * KIT_ENV.night * this.a, 0, 0, 0, 1, 0, this.lift);
+    B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, this.flip, 0, this.lift);
+    if (this.glow && KIT_ENV.night > 0.05 && A.has(this.glowS)) B.emissive.add(A.get(this.glowS), this.x, this.wy, 1, 1, 1, 0.8, 0.5, 0.85 * KIT_ENV.night * this.a, 0, 0, 0, this.flip, 0, this.lift);
   }
   return {
     sync: 'cosmetic', // glow, readouts and roof-prop sprites only
     collect(g, list, v) {
       if (!g.roofs) return;
-      if (g.build.v !== propsV) { propsV = g.build.v; props = g.build.structures.filter((o) => o.roof && !o.blueprint && o.det && PROP_RE.test(o.det)); }
+      const pv = g.build.v + ':' + g.roofs.v;
+      if (pv !== propsV) { propsV = pv; props = placeRoofProps(g); }
       let k = 0;
-      for (const o of props) {
+      for (const [o, id] of props) {
         if (o.tx < v.x0 - 2 || o.tx > v.x1 + 2 || o.ty < v.y0 - 2 || o.ty > v.y1 + 4) continue;
         const r = roofPropAt(g, o.tx, o.ty);
         if (!r || r.alpha <= 0.02) continue;
-        const id = /(^|\.)skylight(\.|$)/.test(o.det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(o.det) ? 'dormer_pl' : 'dormer';
-        const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false });
-        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.sprite = ROOF_PROPS[id]; d.glow = id !== 'skylight' && r.lit; // (only with a light inside, like J's gable windows)
+        if (r.face === 4) continue; // (a north slope is seen edge-on)
+        const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false, glowS: '', flip: 1 });
+        // the sprite for its slope: facing the camera (stretched), or a side slope (sheared; east = west mirrored), by pitch
+        const pk = r.pitch < 0.57 ? 0 : r.pitch < 0.85 ? 1 : 2, side = r.face === 1 || r.face === 2;
+        d.sprite = id === 'skylight' ? (r.face ? `roof_skylight_${side ? 'w' : 's'}${pk}` : ROOF_PROPS[id]) : side ? `${ROOF_PROPS[id]}_w${pk}` : ROOF_PROPS[id];
+        d.glowS = side ? `roof_dormer_glow_w${pk}` : 'roof_dormer_glow';
+        d.flip = r.face === 2 ? -1 : 1;
+        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.glow = id !== 'skylight' && r.lit; // (only with a light inside, like J's gable windows)
         list.push(d); k++;
       }
     },
     update(g, dt) {
       KIT_ENV.night = g.env?.env?.night || 0;
+      // who stands near the view (a lit window right behind someone must not glow through them: archCompose)
+      KIT_ENV.game = g;
+      const E = KIT_ENV.ents; E.length = 0;
+      if (KIT_ENV.night > 0.05 && !g.headless) {
+        const v = g.view?.();
+        const inV = (e) => !v || (e.x > v.x0 - 1 && e.x < v.x1 + 1 && e.y > v.y0 - 1 && e.y < v.y1 + 3);
+        if (g.player && !g.player.dead) E.push(g.player);
+        for (const pl of g.session?.players?.values?.() || []) if (pl.ent && !pl.ent.dead && inV(pl.ent)) E.push(pl.ent);
+        for (const e of g.entities || []) if (e !== g.player && !e.dead && !e.isProp && inV(e)) { E.push(e); if (E.length > 64) break; }
+      }
       acc += dt;
       if (acc < 0.25) return;
       acc = 0;

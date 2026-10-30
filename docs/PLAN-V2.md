@@ -321,6 +321,18 @@ it is no longer a cave. A roof system for both buildings and caves:
 - **Mining cracks** (later request): cracks follow the pickaxe — each hit's progress (op `rock.prog`, shared)
   opens impact cracks from the middle of the tile, faster with a better pickaxe; the last hit breaks the block
   along them into wedges that drop into the hole (src/fx/rockfx.js, terrain shader `uMine`).
+- **Roof paint bucket** (later request): a roof is never placed tile by tile — tapping inside a closed room
+  (walls, doors or rock around it) fills the whole room and its wall ring at once, all or nothing: tiles with no
+  support within reach turn red ("Falta apoio em N pontos: coloque colunas onde está vermelho") and nothing is
+  placed until columns fix them (building.js updatePreview; up to 420 tiles per roof, `MAX_ROOF_TILES`). The
+  build-mode view shows the world grid faintly.
+- **Roof details are placed by the roof** (later request): the player picks the detail, the roof decides where
+  it goes (decoration.js `placeRoofProps`): dormers on the slope facing the camera (every 3 tiles, second row
+  from the eave) or on both side slopes of a front-gable roof (every 4 tiles); skylights spread over the middle
+  of every visible slope; one weathervane near the middle of the ridge. Each prop is drawn for its slope (the
+  roof art keeps `tileF` / `tileP`, the facet and pitch under each tile): stretched on the front slope, sheared
+  on the sides (east = the west sprite mirrored), none on a north slope. Chimneys are not a choice: they appear
+  over every hearth / oven / furnace inside, and smoke only while it burns.
 
 ## Mundos salvos e modo criativo (added later)
 

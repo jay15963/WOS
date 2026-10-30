@@ -34,6 +34,7 @@ import { ROOF_STYLES, defaultRoofStyle } from '../content/roofs.js';
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
+export const MAX_ROOF_TILES = 420; // a roof is laid on a whole room at once (paint bucket: building.js)
 export const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_cotton', 'wild_corn']);
 export const CLEAR_YIELD = { pebble: { pebble: 1 }, stick: { stick: 1 }, fibergrass: { fiber: 2 }, bush: { fiber: 2, stick: 1 }, berrybush: { berries: 2, stick: 1 }, herbbush: { herb: 1 },
   wild_potato: { potato: 1, seed_potato: 1 }, wild_cotton: { cotton: 2, seed_cotton: 1 }, wild_corn: { corn: 1, seed_corn: 1 } };
@@ -448,7 +449,8 @@ function roofReason(game, type, tx, ty, who) {
   if (game.build.grid.roof.get(i)) return 'exists';
   for (const o of objectsOnTile(game, tx, ty)) if (o.type.startsWith('tree_') && !o.stump) return 'Árvore no caminho';
   if (!roofSupported(game, tx, ty, false)) return NO_SUPPORT;
-  if (who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST) return 'Muito longe';
+  // (a roof covers a whole room at once — the far side of a big hall is still part of the room in reach)
+  if (who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST + 20) return 'Muito longe';
   return null;
 }
 // a valid style id for a roof type (unknown → the type's default)
@@ -464,12 +466,12 @@ const near = (e, o, r) => !e || Math.hypot(e.x - o.x, e.y - (o.cy ?? o.y)) <= r 
 
 defineIntent('build.place', {
   doc: 'Place free blueprints of `type` on tiles with orientation `rot` and look style / det (materials are delivered later, when work starts). A door may replace a wall (wall refunded). Looks are fixed once built.',
-  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140)', rot: 'int?', style: 'styleId?', det: 'detailString?', lv: 'story 0..3? (levels)' },
+  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140; a roof ≤ 420)', rot: 'int?', style: 'styleId?', det: 'detailString?', lv: 'story 0..3? (levels)' },
   run(game, a, actor, net) {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
     const lv = def.roof ? 0 : Math.max(0, Math.min(3, num(a.lv) | 0)); // levels: the story of the whole drag
-    const tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, MAX_TILES) : [];
+    const tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, def.roof ? MAX_ROOF_TILES : MAX_TILES) : [];
     if (!tiles.length) return 'Nada para construir';
     const rot = normRot(a.type, num(a.rot));
     const style = normStyle(a.type, a.style), det = cleanDet(a.type, a.det);
