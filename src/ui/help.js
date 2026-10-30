@@ -15,7 +15,7 @@ export function installHelp(game) {
   const render = () => {
     const desk = `
       <div class="hk-col"><h4>Movimento e mundo</h4>
-        ${row(['W', 'A', 'S', 'D'], 'Andar (ou setas)')}
+        ${row(L([KEYS.up[0], KEYS.left[0], KEYS.down[0], KEYS.right[0]].filter(Boolean)), 'Andar')}
         ${row(L(KEYS.interact), 'Interagir com o que está perto (cortar, minerar, abrir…)')}
         ${row(['Clique'], 'Usar a coisa clicada (chegue perto antes) · no chão: tirar o foco')}
         ${row(['Roda', '+', '−'], 'Zoom')}

@@ -1,6 +1,8 @@
 // Shared panel builders for the main menu and the in-game menu: diagnostics, network test,
 // settings, room (host) view, join-by-code flow and manual pairing. Each returns a cleanup fn.
 
+import { keybindsPane } from './keybinds.js';
+import { hudLayoutPane } from './hudlayout.js';
 import { netlog } from '../net/netlog.js';
 import { probeNetwork, loadTurn, saveTurn, turnEndpoint, setTurnEndpoint, testTurnRelay } from '../net/rtc.js';
 import { normalizeCode, playerName, setPlayerName, MAX_PLAYERS } from '../net/session.js';
@@ -114,8 +116,13 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
   const set = (k, v) => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
   const turn = loadTurn() || {};
   const audioOn = get('wos.audio.enabled', '1') !== '0';
+  // second tab: key remapping on a desktop, the HUD layout on a phone / tablet (both saved in this browser)
+  const touch = !!(game?.input?.isTouch || document.getElementById('hud')?.classList.contains('touch') || matchMedia('(pointer: coarse)').matches);
   el.innerHTML = `
     <h2>Configurações</h2>
+    <div class="st-tabs" role="tablist"><button class="on" data-tab="geral" role="tab">Geral</button><button data-tab="ctl" role="tab">${touch ? 'HUD' : 'Controles'}</button></div>
+    <div class="st-pane" data-pane="ctl" hidden></div>
+    <div class="st-pane" data-pane="geral">
     <label class="mfield">Seu nome (aparece para outros jogadores)<input data-k="name" maxlength="18" value="${esc(playerName())}"></label>
     <label class="toggle"><input type="checkbox" data-k="audio" ${audioOn ? 'checked' : ''}> Som ligado</label>
     <label class="mfield">Volume<input type="range" data-k="vol" min="0" max="100" value="${Math.round(+get('wos.audio.volume', '0.8') * 100)}"></label>
@@ -136,8 +143,20 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
       <label class="mfield" style="flex:1">Senha<input data-k="turnPass" type="password" value="${esc(turn.credential || '')}"></label>
     </div>
     <h3>Dados</h3>
-    <div class="row"><button class="mbtn danger" data-a="wipe">Apagar todos os dados deste navegador</button></div>`;
+    <div class="row"><button class="mbtn danger" data-a="wipe">Apagar todos os dados deste navegador</button></div>
+    </div>`;
   const q = (k) => el.querySelector(`[data-k=${k}]`);
+  let ctlCleanup = null;
+  const ctlPane = el.querySelector('[data-pane=ctl]'), geral = el.querySelector('[data-pane=geral]');
+  for (const t of el.querySelectorAll('.st-tabs button')) t.onclick = () => {
+    for (const b of el.querySelectorAll('.st-tabs button')) b.classList.toggle('on', b === t);
+    const ctl = t.dataset.tab === 'ctl';
+    ctlPane.hidden = !ctl; geral.hidden = ctl;
+    if (ctl && !ctlPane.childElementCount) {
+      if (touch) hudLayoutPane(ctlPane, { game });
+      else ctlCleanup = keybindsPane(ctlPane, { game });
+    }
+  };
   q('name').onchange = () => { setPlayerName(q('name').value); onName?.(playerName()); if (game) game.player.name = playerName(); };
   q('audio').onchange = () => { set('wos.audio.enabled', q('audio').checked ? '1' : '0'); if (game?.audio) game.audio.enabled = q('audio').checked; };
   q('vol').oninput = () => { const v = +q('vol').value / 100; set('wos.audio.volume', String(v)); if (game?.audio) game.audio.volume = v; };
@@ -166,7 +185,7 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
   audioSettings(el); // F: Geral / Música / Efeitos / Ambiente + mute (replaces the two old audio rows)
   uiScaleSetting(el); // Tamanho da interface (agent B)
   aimAssistSetting(el); // Mira assistida: Forte / Normal / Desligada (agent G, src/ui/aimAssist.js)
-  return () => {};
+  return () => { ctlCleanup?.(); };
 }
 
 export { applyQuality } from '../fx/quality.js'; // graphics quality lives in src/fx/quality.js (agent C)

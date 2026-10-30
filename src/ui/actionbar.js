@@ -9,7 +9,7 @@ import { abilityState, useAbility, holdAbility, releaseAbility } from '../game/a
 import { attackable } from '../game/combat.js';
 import { combatIcon } from './combaticons.js';
 import { uiIcon } from './icons.js';
-import { abilityKeys, keyLabel } from '../game/controller.js';
+import { abilityKeys, keyLabel, KEYS } from '../game/controller.js';
 import { uiScale } from './uiscale.js';
 
 // styles: hud.css ("action bar" section) — glassy touch buttons, segmented cooldown rings, key tags
@@ -38,8 +38,10 @@ export function installActionBar(game, root, wrap) {
   const atk = document.createElement('button');
   atk.className = 'ab ab-atk';
   atk.dataset.ab = 'attack';
-  atk.innerHTML = `<span class="ic"></span><span class="key">Esp · 🖱</span><span class="ammo hidden"></span>`;
-  atk.title = 'Atacar (Espaço ou clique esquerdo)';
+  const atkLbl = () => { const k = keyLabel(KEYS.attack[0]); atk.querySelector('.key').textContent = k ? `${k} · 🖱` : '🖱'; atk.title = `Atacar (${k ? k + ' ou ' : ''}clique esquerdo)`; };
+  atk.innerHTML = `<span class="ic"></span><span class="key"></span><span class="ammo hidden"></span>`;
+  atkLbl();
+  addEventListener('keymap', () => { atkLbl(); barKey = ''; rebuild(); }); // remapped keys (keymap.js): new labels
   wrap.appendChild(atk);
   press(atk, () => game.ctl.toggleAttack());
   const atkIc = atk.querySelector('.ic'), atkAmmo = atk.querySelector('.ammo');

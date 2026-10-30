@@ -13,6 +13,7 @@ import { enterBuildMode, exitBuildMode } from '../game/building.js';
 import { equipItem, equipFromSlot, unequip } from '../game/equipment.js';
 import { CROPS } from '../game/farming.js';
 import { itemIco, buildIco } from './econIcons.js';
+import { BIND, shortLabel } from '../game/keymap.js';
 
 const N = 10;
 const KEY = 'wos.hotbar'; // + '.<seed>' (+ '.guest'): one layout per world
@@ -26,9 +27,12 @@ export function installHotbar(game, root) {
   const S = load();
   const bar = document.createElement('div');
   bar.className = 'hotbar';
-  bar.innerHTML = Array.from({ length: N }, (_, i) => `<button class="hb" data-hb="${i}"><span class="hi"></span><span class="hn"></span><span class="hk">${(i + 1) % 10}</span></button>`).join('');
+  bar.innerHTML = Array.from({ length: N }, (_, i) => `<button class="hb" data-hb="${i}"><span class="hi"></span><span class="hn"></span><span class="hk"></span></button>`).join('');
   root.appendChild(bar);
   const els = [...bar.children];
+  const keyLbls = () => els.forEach((el, i) => { el.querySelector('.hk').textContent = shortLabel(BIND['hot' + (i + 1)][0]); });
+  keyLbls();
+  addEventListener('keymap', keyLbls); // remapped keys (keymap.js)
   const last = new Array(N).fill(null);
 
   function load() {

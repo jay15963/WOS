@@ -333,6 +333,19 @@ Owner's request: create worlds and keep them in a list (at most 10 per browser),
   crafting without ingredients, no damage, bars always full (endless running), creatures never pick a fight. A world
   setting carried by the snapshot (`mode`), so the host's world decides for everyone and the save keeps it. Scenario **C1**.
 
+## Controles e HUD do jogador (added later)
+
+Owner's request: a settings tab to remap every shortcut on desktop (keyboard keys and mouse buttons, side buttons
+included) and, on phones, a tab to place the HUD freely — both kept for the next sessions.
+- **Keys** (src/game/keymap.js, src/ui/keybinds.js): 36 actions × 2 bindings (movement, actions, abilities 1–5, hotbar
+  1–10, windows, chat, zoom, build mode), saved in `wos.keys` (only the changes), applied in place to the live tables
+  (controller KEYS / ABILITY_KEYS, input movement / zoom); middle / side mouse buttons are keys 'Mouse1/3/4' (pointer
+  events: the side buttons never make the browser go back). A key taken from another action is announced. HUD key
+  chips follow (event 'keymap'). Labels use the player's keyboard layout when the browser gives it.
+- **HUD layout** (src/ui/hudlayout.js): Configurações → HUD → "Organizar a HUD": drag the card, quick column, effects,
+  system buttons, radar, the combat bar, the use and eat buttons; per orientation in `wos.hudlayout`, applied as CSS
+  `translate` on top of each block's own placement; "Restaurar padrão".
+
 ## K · Detalhes de arquitetura e decoração (added later, port 5192)
 
 Owner's request: much more detail for interior and exterior decoration (including a **straw training dummy**

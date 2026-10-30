@@ -10,6 +10,7 @@ import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
 import { discardIt } from '../game/corpses.js';
+import { installHudLayout } from './hudlayout.js';
 import { attackable, dist, attackRange } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
 import { combatIcon } from './combaticons.js';
@@ -95,11 +96,11 @@ export function installHUD(game, { isNew } = {}) {
       </div>
       <div class="tl-bot">
         <div class="quick" id="quick">
-          <button class="qb" data-q="inv" data-tip="<b>Mochila e equipamento</b><span class='key'>Tab</span>">${uiIcon(A, 'bag')}<span class="qk">Tab</span></button>
-          <button class="qb" data-q="craft" data-tip="<b>Criar itens</b><span class='key'>C</span>">${econIcon(A, 'craft')}<span class="qk">C</span></button>
-          <button class="qb" data-q="build" data-tip="<b>Construir</b><span class='key'>B</span>">${uiIcon(A, 'build')}<span class="qk">B</span></button>
-          <button class="qb qb-map" data-q="map" data-tip="<b>Mapa</b><span class='key'>M</span>">${svgIcon('map')}<span class="qk">M</span></button>
-          <button class="qb" data-q="eat" data-tip="<b>Comer a melhor comida</b><span class='key'>${keyLabel(KEYS.eat[0])}</span>">${uiIcon(A, 'eat')}<span class="qk">${keyLabel(KEYS.eat[0])}</span><span class="badge" id="eat-n"></span></button>
+          <button class="qb" data-q="inv" data-k="inv" data-t="Mochila e equipamento">${uiIcon(A, 'bag')}<span class="qk"></span></button>
+          <button class="qb" data-q="craft" data-k="craft" data-t="Criar itens">${econIcon(A, 'craft')}<span class="qk"></span></button>
+          <button class="qb" data-q="build" data-k="build" data-t="Construir">${uiIcon(A, 'build')}<span class="qk"></span></button>
+          <button class="qb qb-map" data-q="map" data-k="map" data-t="Mapa">${svgIcon('map')}<span class="qk"></span></button>
+          <button class="qb" data-q="eat" data-k="eat" data-t="Comer a melhor comida">${uiIcon(A, 'eat')}<span class="qk"></span><span class="badge" id="eat-n"></span></button>
         </div>
         <div class="status" id="status"><div class="buffs" id="buffs"></div></div>
       </div>
@@ -187,12 +188,21 @@ export function installHUD(game, { isNew } = {}) {
     xp: $('#pf-xp'), wm: $('#pf-wm'), tmp: $('#pf-tmp'),
     errs: $('#errs'), feed: $('#feed'), banner: $('#banner'),
     int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'), rm: $('#ab-rm'),
+    quickKeys: [...root.querySelectorAll('#quick .qb[data-k]')], intKey: $('#ab-int .key'),
     bb: $('#buildbar'), bbNm: $('#bb-nm'), bbHint: $('#bb-hint'), bbIc: $('#bb-ic'), bbOk: $('#bb-ok'),
     death: $('#death'), deathSub: $('#death-sub'), respawn: $('#btn-respawn'), fade: $('#fade'),
     mm: $('#mm'),
   };
   // ---------- input bindings ----------
   press(R.int, () => game.ctl.interact());
+  installHudLayout(root); // the player's own arrangement of the touch HUD (Configurações → HUD)
+  // key chips / tooltips of the left buttons and the use button follow the bindings (keymap.js)
+  const keyChips = () => {
+    for (const b of R.quickKeys) { const k = keyLabel(KEYS[b.dataset.k]?.[0]); b.querySelector('.qk').textContent = k; b.dataset.tip = `<b>${b.dataset.t}</b>${k ? `<span class='key'>${k}</span>` : ''}`; }
+    if (R.intKey) R.intKey.textContent = keyLabel(KEYS.interact[0]);
+  };
+  keyChips();
+  addEventListener('keymap', keyChips);
   // touch: "Remover corpo" next to the use button while a body is the target (desktop: right click on the body)
   R.rm.querySelector('.ic').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
   press(R.rm, () => { const n = game.ctl.near; if (n?.corpse && n.o) game.ctl.interact(discardIt(n.o)); });

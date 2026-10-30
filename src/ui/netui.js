@@ -1,6 +1,7 @@
 // In-game menu (☰ / Esc), room chip (code · players · ping), chat bar, and the session system hook.
 
 import { Session, MAX_PLAYERS } from '../net/session.js';
+import { BIND } from '../game/keymap.js';
 import { diagnosticsPanel, netTestPanel, settingsPanel, roomPanel } from './netpanels.js';
 import { saveGame } from '../game/save.js';
 
@@ -53,7 +54,7 @@ export function installNetUI(game) {
   chatInput.onblur = () => setTimeout(() => { if (document.activeElement !== chatInput && chat.classList.contains('hidden')) setTyping(false); }, 0);
   chip.querySelector('.chat-b').onclick = (e) => { e.stopPropagation(); openChat(); };
   addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || !game.session || pause.isOpen()) return;
+    if (!BIND.chat.includes(e.code) || !game.session || pause.isOpen()) return; // (remappable: keymap.js)
     if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
     if (game.build?.mode) return; // Enter confirms building there
     e.preventDefault();

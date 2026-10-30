@@ -17,6 +17,7 @@
 
 import { BUILDINGS, SPECIES } from '../game/data.js';
 import { corpseMenu } from '../game/corpses.js';
+import { BIND } from '../game/keymap.js';
 import {
   rotateBuild, commitPlacement, cancelBuild, exitBuildMode, rotLabel, rotCount, structureMenu, structureAtPoint,
   buildDragStart, buildDragMove, buildDragEnd, dimsOf,
@@ -271,7 +272,7 @@ export function installBuildbar(game) {
     if ((wbPlaceT -= dt) <= 0) { wbPlaceT = 0.5; placeBanner(); }
   };
   press(R.det, () => { const m = game.build.mode; if (m?.type) details.toggle(m.type); });
-  addEventListener('keydown', (e) => { if (e.code === 'KeyT' && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
+  addEventListener('keydown', (e) => { if (BIND.details.includes(e.code) && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
 
   // ---------- context menu ----------
   let menu = null;

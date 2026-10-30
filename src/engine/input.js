@@ -35,10 +35,13 @@ export class Input {
     addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
       if (e.code === 'Tab' || e.code === 'F1' || (e.code === 'Space' && e.target === document.body)) e.preventDefault();
+      // a remapped key that the browser would also use (quick find, menu bar…): the game keeps it (never with Ctrl / ⌘)
+      else if (this.bind && !e.ctrlKey && !e.metaKey && /^(Slash|Quote|Backquote|AltLeft|AltRight|F\d+)$/.test(e.code) && Object.values(this.bind).some((l) => l.includes(e.code))) e.preventDefault();
       if (!this.keys.has(e.code)) {
         this.pressed.add(e.code);
-        if (e.code === 'Equal' || e.code === 'NumpadAdd') this.zoom += 0.18;
-        if (e.code === 'Minus' || e.code === 'NumpadSubtract') this.zoom -= 0.18;
+        const B = this.bind;
+        if (B ? B.zoomIn.includes(e.code) : (e.code === 'Equal' || e.code === 'NumpadAdd')) this.zoom += 0.18;
+        if (B ? B.zoomOut.includes(e.code) : (e.code === 'Minus' || e.code === 'NumpadSubtract')) this.zoom -= 0.18;
       }
       this.keys.add(e.code);
     });
@@ -57,6 +60,22 @@ export class Input {
       this.zoom -= Math.max(-0.3, Math.min(0.3, d * 0.0016));
     }, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // middle / side mouse buttons behave as keys 'Mouse1' / 'Mouse3' / 'Mouse4' (remappable, game/keymap.js); the side
+    // buttons would otherwise make the browser go back / forward and the middle one start auto-scroll
+    // (pointer events: the canvas cancels pointerdown, which suppresses the compatibility mouse events, so a
+    // mouseup handler would never see the side button — and the browser would navigate)
+    const btnCode = (e) => (e.pointerType === 'mouse' && (e.button === 1 || e.button === 3 || e.button === 4) ? 'Mouse' + e.button : null);
+    const typing = (e) => e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+    addEventListener('pointerdown', (e) => {
+      const c = btnCode(e);
+      if (!c) return;
+      if (e.button !== 1 || !typing(e)) e.preventDefault();
+      if (typing(e) || this.captureMouse) return;
+      if (!this.keys.has(c)) this.pressed.add(c);
+      this.keys.add(c);
+    }, true);
+    addEventListener('pointerup', (e) => { const c = btnCode(e); if (!c) return; if (e.button !== 1) e.preventDefault(); this.keys.delete(c); }, true);
+    for (const n of ['mousedown', 'mouseup', 'auxclick']) addEventListener(n, (e) => { if (e.button === 3 || e.button === 4) e.preventDefault(); }, true);
     // iOS Safari: block the page's own pinch zoom (two-finger gestures belong to the game)
     for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, (e) => e.preventDefault(), { passive: false });
   }
@@ -161,11 +180,11 @@ export class Input {
   // analog movement vector, length <= 1
   move() {
     let x = 0, y = 0;
-    const k = this.keys;
-    if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
-    if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
-    if (k.has('KeyW') || k.has('ArrowUp')) y -= 1;
-    if (k.has('KeyS') || k.has('ArrowDown')) y += 1;
+    const k = this.keys, B = this.bind, on = (l) => l.some((c) => k.has(c));
+    if (B ? on(B.left) : (k.has('KeyA') || k.has('ArrowLeft'))) x -= 1;
+    if (B ? on(B.right) : (k.has('KeyD') || k.has('ArrowRight'))) x += 1;
+    if (B ? on(B.up) : (k.has('KeyW') || k.has('ArrowUp'))) y -= 1;
+    if (B ? on(B.down) : (k.has('KeyS') || k.has('ArrowDown'))) y += 1;
     if (x || y) { const l = Math.hypot(x, y); return [x / l, y / l]; }
     if (this.joy.active) {
       const l = Math.hypot(this.joy.x, this.joy.y);

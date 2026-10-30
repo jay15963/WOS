@@ -16,6 +16,7 @@ import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
 import { ABILITY_ORDER, ABILITIES, SPECIES, TEMPER_COLOR, BUILDINGS } from './data.js';
 import { liftOf, STORY_H } from './levels.js';
+import { BIND, shortLabel } from './keymap.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
@@ -27,18 +28,21 @@ const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still us
 // sprint, E = interact, Tab = backpack, digits 1–9, 0 = hotbar (herbs / food there too). Weapon / off-hand
 // abilities take Q R F in bar order (a 4th / 5th, only sword + shield: G T); heal also on V; Z = next target.
 // Ctrl is never bound (Ctrl+W would close the tab while walking).
-export const ABILITY_KEYS = ['KeyQ', 'KeyR', 'KeyG', 'KeyT', 'KeyX']; // F = eat (owner); X freed by the removed mining mode
-export const KEYS = {
-  interact: ['KeyE'], attack: ['Space'], target: ['KeyZ'], eat: ['KeyF'], heal: ['KeyV'], sprint: ['ShiftLeft', 'ShiftRight'],
-  inv: ['Tab', 'KeyI'], craft: ['KeyC'], build: ['KeyB'], map: ['KeyM'], help: ['KeyH', 'F1'],
-};
-// key code for each ability of the bar (null = no key)
-export function abilityKeys(ids) {
+// Every key is remappable (src/game/keymap.js, Configurações → Controles): KEYS is the live binding table and
+// ABILITY_KEYS the first key of each ability slot (both updated in place).
+export const ABILITY_KEYS = [];
+const refreshAb = () => { ABILITY_KEYS.length = 0; for (let n = 1; n <= 5; n++) ABILITY_KEYS.push(BIND['ab' + n][0] || null); };
+refreshAb();
+if (typeof addEventListener === 'function') addEventListener('keymap', refreshAb);
+export const KEYS = BIND;
+// the codes that fire each ability of the bar (sprint: the sprint keys, heal: the heal keys, others: slots 1..5)
+export function abilityCodes(ids) {
   let n = 0;
-  return ids.map((id) => (id === 'sprint' ? 'ShiftLeft' : GENERIC_ABILITIES.includes(id) ? 'KeyV' : ABILITY_KEYS[n++] || null));
+  return ids.map((id) => (id === 'sprint' ? BIND.sprint : GENERIC_ABILITIES.includes(id) ? BIND.heal : BIND['ab' + ++n] || []));
 }
-export const keyLabel = (code) => (!code ? '' : code.startsWith('Key') ? code.slice(3) : code.startsWith('Digit') ? code.slice(5)
-  : { ShiftLeft: '⇧', ShiftRight: '⇧', Space: 'Espaço', Tab: 'Tab', Escape: 'Esc', F1: 'F1', Enter: 'Enter' }[code] || code);
+// the first key of each ability of the bar (labels; null = no key)
+export const abilityKeys = (ids) => abilityCodes(ids).map((l) => l[0] || null);
+export const keyLabel = (code) => shortLabel(code);
 
 function objHit(o, wx, wy, tol) {
   const s = o.s || 1;
@@ -228,6 +232,7 @@ export function installController(game) {
     },
   };
   game.ctl = ctl;
+  game.input.bind = BIND; // movement / zoom keys and the mouse buttons as keys (engine/input.js)
 
   const canvas = game.R.canvas;
   canvas.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') ctl.mouse = { x: e.clientX, y: e.clientY }; });
@@ -348,23 +353,23 @@ export function installController(game) {
       const K = inp.pressed;
       const any = (list) => list.some((c) => K.has(c));
       if (K.size && !p.dead) {
-        const bm = !!g.build.mode; // build mode owns R / Shift+R (rotation), T (Detalhes, agent K) and Enter
-        const codes = abilityKeys(ABILITY_ORDER);
+        const bm = !!g.build.mode; // build mode owns its keys (rotate / Shift+rotate, Detalhes, confirm)
+        const codes = abilityCodes(ABILITY_ORDER);
+        const buildOwn = bm ? new Set([...BIND.rotate, ...BIND.details, ...BIND.confirm, ...BIND.sprint]) : null;
         ABILITY_ORDER.forEach((id, i) => {
-          const c = codes[i];
-          if (!c || (bm && (c === 'KeyR' || c === 'KeyT' || c === 'ShiftLeft'))) return;
-          if (!(K.has(c) || (c === 'ShiftLeft' && K.has('ShiftRight')))) return;
+          const c = codes[i].find((q) => K.has(q) && !(buildOwn && buildOwn.has(q)));
+          if (!c) return;
           // ground-aimed abilities (aim: 'ground'): the aim module (game.aim, agent G) takes over while held
           if (ABILITIES[id]?.aim && g.aim?.beginMouse) { g.aim.beginMouse(id, { key: c }); ctl._aimKey = c; return; }
           useAbility(g, id);
         });
-        for (let i = 0; i < 10; i++) if (K.has('Digit' + ((i + 1) % 10)) || K.has('Numpad' + ((i + 1) % 10))) g.events.emit('hotbar', { i });
+        for (let i = 0; i < 10; i++) if (any(BIND['hot' + (i + 1)])) g.events.emit('hotbar', { i });
         if (any(KEYS.target)) ctl.cycleTarget();
         if (any(KEYS.interact) && !bm) ctl.interact();
         if (any(KEYS.attack) && !bm) ctl.attack();
         if (any(KEYS.eat)) eatBest(g);
-        if (K.has('Enter') && bm) commitPlacement(g);
-        if (K.has('KeyR') && g.build.mode?.kind === 'place') rotateBuild(g, inp.keys.has('ShiftLeft') || inp.keys.has('ShiftRight') ? -1 : 1);
+        if (any(BIND.confirm) && bm) commitPlacement(g);
+        if (any(BIND.rotate) && g.build.mode?.kind === 'place') rotateBuild(g, BIND.sprint.some((c) => inp.keys.has(c)) ? -1 : 1);
         if (K.has('Escape')) {
           if (g.aim?.active) { g.aim.cancel?.(); ctl._aimKey = null; }
           else if (g.build.mode) cancelBuild(g);
@@ -375,11 +380,11 @@ export function installController(game) {
         }
       }
       // aim key released → fire (a quick tap fires at the mouse at once; game.aim decides)
-      if (ctl._aimKey && !inp.keys.has(ctl._aimKey) && !(ctl._aimKey === 'ShiftLeft' && inp.keys.has('ShiftRight'))) { ctl._aimKey = null; g.aim?.release?.(); }
+      if (ctl._aimKey && !inp.keys.has(ctl._aimKey)) { ctl._aimKey = null; g.aim?.release?.(); }
       // shield block keeps up while its key is held
       if (p.block) {
-        const c = abilityKeys(ABILITY_ORDER)[ABILITY_ORDER.indexOf('block')];
-        if (c && inp.keys.has(c)) { p.blockHeld = true; ctl._blockKey = true; } else if (ctl._blockKey) { p.blockHeld = false; ctl._blockKey = false; }
+        const cs = abilityCodes(ABILITY_ORDER)[ABILITY_ORDER.indexOf('block')] || [];
+        if (cs.some((c) => inp.keys.has(c))) { p.blockHeld = true; ctl._blockKey = true; } else if (ctl._blockKey) { p.blockHeld = false; ctl._blockKey = false; }
       }
       if (any(KEYS.inv)) g.events.emit('toggle', { panel: 'inv' });
       if (any(KEYS.build)) g.events.emit('toggle', { panel: 'build' });
@@ -389,7 +394,8 @@ export function installController(game) {
 
       // taps / clicks
       // (a right click is the context menu only — buildbar.js — never a tap: it must not also open a chest / station)
-      for (const t of inp.taps) if (t.button !== 2) doTap({ x: t.x, y: t.y, mouse: t.type === 'mouse' });
+      // (only the left button taps: the middle / side buttons are remappable keys — keymap.js)
+      for (const t of inp.taps) if (!t.button) doTap({ x: t.x, y: t.y, mouse: t.type === 'mouse' });
 
       // manual movement cancels goals & work
       const [mx, my] = inp.move();

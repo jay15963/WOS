@@ -1015,3 +1015,16 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .rd-mode { margin-left: 6px; padding: 1px 8px; border-radius: 3px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
   background: linear-gradient(180deg, #7fd0ff, #3f8fd0); color: #0c2236; box-shadow: 0 0 0 1.5px rgba(12, 34, 54, 0.7); }
 .rd-mode.hidden { display: none; }
+
+/* ---------- touch HUD layout editor (hudlayout.js) ---------- */
+#hud.hud-editing #ab-int.hidden, #hud.hud-editing #tf.hidden { display: grid !important; opacity: .55; }
+.hud-edit { position: fixed; inset: 0; z-index: 9000; background: rgba(10, 6, 2, 0.35); touch-action: none; }
+.hud-edit .he-bar { position: absolute; left: 50%; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; gap: 8px; align-items: center;
+  padding: 8px 10px 8px 14px; border-radius: 10px; background: rgba(36, 22, 13, 0.92); color: #f3e3c3; font-weight: 700; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); white-space: nowrap; z-index: 5; }
+.hud-edit .he-b { padding: 7px 12px; border-radius: 7px; border: 1.5px solid rgba(247, 217, 122, 0.5); background: rgba(255, 244, 220, 0.08); color: inherit; font: inherit; }
+.hud-edit .he-b.ok { background: linear-gradient(180deg, #f7d97a, #d9a640); color: #2a1a0c; border-color: #f7d97a; }
+.hud-edit .he-h { position: absolute; border: 2px dashed rgba(247, 217, 122, 0.85); border-radius: 10px; background: rgba(247, 217, 122, 0.08); cursor: grab; touch-action: none; }
+.hud-edit .he-h.on { border-style: solid; background: rgba(247, 217, 122, 0.18); cursor: grabbing; }
+.hud-edit .he-h span { position: absolute; left: 50%; top: -11px; transform: translateX(-50%); padding: 1px 7px; border-radius: 4px; background: #f7d97a; color: #2a1a0c;
+  font-size: 10px; font-weight: 800; white-space: nowrap; pointer-events: none; }
+@media (max-width: 560px) { .hud-edit .he-bar { flex-wrap: wrap; justify-content: center; white-space: normal; width: calc(100% - 24px); } }
