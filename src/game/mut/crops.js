@@ -4,13 +4,13 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { addLootRows } from './loot.js';
 import { lootRows, ri } from './roll.js';
-import { DAY_LENGTH } from '../calendar.js';
 
-// grow: seconds of world time to ripen — one in-game day (calendar: 13 min), faster in the rain, never in winter
+// grow: seconds of world time to ripen — 8 minutes for every crop (owner), faster in the rain, never in winter
+export const CROP_GROW_S = 8 * 60;
 export const CROPS = {
-  potato: { name: 'Batata', seed: 'seed_potato', grow: DAY_LENGTH, yield: [['potato', 3, 4], ['seed_potato', 1, 2]] },
-  corn:   { name: 'Milho', seed: 'seed_corn', grow: DAY_LENGTH, yield: [['corn', 2, 3], ['seed_corn', 1, 2]] },
-  cotton: { name: 'Algodão', seed: 'seed_cotton', grow: DAY_LENGTH, yield: [['cotton', 3, 4], ['seed_cotton', 1, 2]] },
+  potato: { name: 'Batata', seed: 'seed_potato', grow: CROP_GROW_S, yield: [['potato', 3, 4], ['seed_potato', 1, 2]] },
+  corn:   { name: 'Milho', seed: 'seed_corn', grow: CROP_GROW_S, yield: [['corn', 2, 3], ['seed_corn', 1, 2]] },
+  cotton: { name: 'Algodão', seed: 'seed_cotton', grow: CROP_GROW_S, yield: [['cotton', 3, 4], ['seed_cotton', 1, 2]] },
 };
 export const stageOf = (g) => (g >= 1 ? 3 : g >= 0.62 ? 2 : g >= 0.28 ? 1 : 0);
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);

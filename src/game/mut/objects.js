@@ -223,9 +223,9 @@ function forageDrops(net, o, knife) {
   const pile = (id, n) => lootPiles(net, rows, o.x, o.y - 0.2, id, n, 0.7); // big yields in a few piles
   switch (o.type) {
     case 'fibergrass': at('fiber', ri(net, 2, 3) + (knife ? 1 : 0)); break;
-    // bushes are the base of thatch building: ~6 of them roof 40 tiles of thatch (40 sticks + 80 fibre)
-    case 'bush': pile('fiber', ri(net, 12, 15) + (knife ? 2 : 0)); pile('stick', ri(net, 6, 8)); break;
-    case 'berrybush': at('berries', ri(net, 2, 4)); pile('fiber', ri(net, 9, 12) + (knife ? 2 : 0)); pile('stick', ri(net, 6, 8)); break;
+    // bushes are the base of thatch building: ~12 of them roof 40 tiles of thatch (40 sticks + 80 fibre)
+    case 'bush': pile('fiber', ri(net, 6, 8) + (knife ? 1 : 0)); pile('stick', ri(net, 3, 4)); break;
+    case 'berrybush': at('berries', ri(net, 2, 4)); pile('fiber', ri(net, 5, 6) + (knife ? 1 : 0)); pile('stick', ri(net, 3, 4)); break;
     case 'herbbush': at('herb', ri(net, 1, 2)); if (net.roll() < 0.4) at('stick', 1); break;
     case 'wild_potato': at('potato', ri(net, 1, 2)); at('seed_potato', ri(net, 1, 2)); break;
     case 'wild_corn': at('corn', ri(net, 1, 2)); at('seed_corn', ri(net, 1, 2)); break;

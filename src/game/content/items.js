@@ -47,9 +47,9 @@ export const ITEMS = {
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
 
   // ---------- seeds ----------
-  seed_potato: { name: 'Semente de batata', emoji: '🌰', stack: 40, cat: 'seed', seed: 'potato', desc: 'Plante num canteiro: fica pronta em um dia (não cresce no inverno). Vem de batatas silvestres.' },
-  seed_cotton: { name: 'Semente de algodão', emoji: '🌱', stack: 40, cat: 'seed', seed: 'cotton', desc: 'Plante num canteiro: fica pronto em um dia (não cresce no inverno). Vem de algodão silvestre.' },
-  seed_corn:   { name: 'Semente de milho', emoji: '🌾', stack: 40, cat: 'seed', seed: 'corn', desc: 'Plante num canteiro: fica pronto em um dia (não cresce no inverno). Vem de milho silvestre.' },
+  seed_potato: { name: 'Semente de batata', emoji: '🌰', stack: 40, cat: 'seed', seed: 'potato', desc: 'Plante num canteiro: fica pronta em 8 minutos (não cresce no inverno). Vem de batatas silvestres.' },
+  seed_cotton: { name: 'Semente de algodão', emoji: '🌱', stack: 40, cat: 'seed', seed: 'cotton', desc: 'Plante num canteiro: fica pronto em 8 minutos (não cresce no inverno). Vem de algodão silvestre.' },
+  seed_corn:   { name: 'Semente de milho', emoji: '🌾', stack: 40, cat: 'seed', seed: 'corn', desc: 'Plante num canteiro: fica pronto em 8 minutos (não cresce no inverno). Vem de milho silvestre.' },
 
   // ---------- food ----------
   berries:      food('Frutas silvestres', '🫐', 'Mata um pouco a fome.', { hunger: 10, heal: 4 }),
