@@ -2406,7 +2406,7 @@ def('C1', {
 // W1 seasons: winter on both, frozen water, a walker (Andarilho do Gelo) replicated, crumbling at sunrise
 def('W1', {
   title: 'Seasons: winter night on both (frozen water), a walker replicated with its ice weapon, crumbles at sunrise', timeout: 120000,
-  expected: 'The host jumps the clock to a winter night (day 9, 23 h): the guest follows; game.season is winter on both and the water is frozen on both (no swimming in deep water, walkable); a walker spawned next to the guest is a pawn proxy on the guest with species walker and an ice weapon; at sunrise (6.6 h) it crumbles: dead on both, no body; passive animals are absent at night and back in the morning (host); digest equal',
+  expected: 'The host jumps the clock to a winter night (day 5 of year 1, 23 h — calendar: a 7-day year): the guest follows; game.season is winter on both and the water is frozen on both (no swimming in deep water, walkable); a walker spawned next to the guest is a pawn proxy on the guest with species walker and an ice weapon; at sunrise (6.6 h, spring of year 2) it crumbles: dead on both, no body; passive animals are absent at night and back in the morning (host); the year turns on both; digest equal',
   api: 'seasons.js (seasonSystem, game.season, world.frozen / liquidAt), op env.skip, walkers.js spawnWalkerAt / walkersTick (killMob noCorpse), mobs.js ACTIVE / isNight, entity stream species / weapon',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -2418,8 +2418,8 @@ def('W1', {
     for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
   });
   A.keepAlive(t, G);
-  H.game.net.emit('env.skip', { hour: 23, day: 9, wt: wt0 + 1, by: H.game.net.pid });
-  await t.waitFor(() => G.game.env.dayIndex === 9 && Math.abs(G.game.env.hour - 23) < 0.2, 3000 + CFG.budget, 'the guest clock follows to day 9, 23 h');
+  H.game.net.emit('env.skip', { hour: 23, day: 5, wt: wt0 + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.env.dayIndex === 5 && Math.abs(G.game.env.hour - 23) < 0.2, 3000 + CFG.budget, 'the guest clock follows to day 5, 23 h');
   await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 2000, 'winter on both', () => `${H.game.season?.id} / ${G.game.season?.id}`);
   t.check(H.game.world.frozen && G.game.world.frozen, 'the water is frozen on both');
   const w = G.game.world;
@@ -2448,11 +2448,12 @@ def('W1', {
   const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the walker');
   t.check(px.species === 'walker' && px.kind === 'pawn' && /^(sword|spear)_ice$/.test(px.weapon || ''), 'walker proxy: species walker, pawn, ice weapon', `${px.species} ${px.kind} ${px.weapon}`);
   // sunrise: it crumbles
-  H.game.net.emit('env.skip', { hour: 6.6, day: 10, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  H.game.net.emit('env.skip', { hour: 6.6, day: 8, wt: H.game.worldTime + 1, by: H.game.net.pid }); // (spring of year 2)
   await t.waitFor(() => m.dead && A.proxyOf(G, m)?.dead !== false, 12000, 'the walker crumbles at sunrise (dead on the host)');
   await t.waitFor(() => !A.proxyOf(G, m) || A.proxyOf(G, m).dead, RT() + 1500, 'dead on the guest too');
   t.check(![...H.game.corpses.map.values()].some((c) => c.of === 'walker'), 'no body left');
   await t.waitFor(() => A.hostMobs(H, (e) => e.temper === 'passive').length > 0, 6000, 'passive animals are back in the morning');
+  await t.waitFor(() => H.game.season?.year === 2 && G.game.season?.year === 2 && G.game.season?.id === 'spring', 2000, 'a new year (spring of year 2) on both', () => `${H.game.season?.year} / ${G.game.season?.year} ${G.game.season?.id}`);
   await t.checkDigest(H, G);
   env.history.push('W1');
 });
@@ -2482,7 +2483,7 @@ def('W2', {
   A.teleport(G, x0 + 2.5, y0 + 2.5);
   await A.hostSees(t, H, G);
   H.game._walkT = 1e9; // (no natural spawns during the scenario)
-  H.game.net.emit('env.skip', { hour: 22, day: 9, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
   await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night on both');
   H.game._walkT = 1e9;
   const s = A.freeSpot(H, MH, x0 + 7.5, y0 + 2.5, { rMin: 0, rMax: 2, r: 0.3 });
@@ -2497,7 +2498,7 @@ def('W2', {
   await t.waitFor(() => m.state === 'chase' || m.state === 'siege', 6000, 'the walker comes in', () => m.state);
   // sunrise: it crumbles; the cracks left on the other walls settle
   for (const id of ids) { const o = H.game.build.structures.find((q) => q.id === id); if (o && !o.removed) { H.game.net.emit('struct.dmg', { id, d: 0.3, x: o.x + 1, y: o.y }); break; } }
-  H.game.net.emit('env.skip', { hour: 6.8, day: 10, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  H.game.net.emit('env.skip', { hour: 6.8, day: 6, wt: H.game.worldTime + 1, by: H.game.net.pid });
   await t.waitFor(() => m.dead, 12000, 'the walker crumbles at sunrise');
   await t.waitFor(() => !H.game.build.structures.some((o) => o.dmg > 0) && !G.game.build.structures.some((o) => o.dmg > 0), 6000 + RT(), 'the cracks settle on both');
   await t.checkDigest(H, G);

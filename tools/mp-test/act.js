@@ -134,6 +134,11 @@ export async function reset(t, H, MH, G, MG) {
     delete g.input.move;
     try { g.events.emit('closepanels', {}); } catch { /* ignore */ }
   }
+  // daylight for every scenario (a run lasts longer than a day: the night brings hunting wolf packs and winter walkers
+  // that would interrupt work and fights); scenarios about the night set their own clock and restore it
+  const EH = H.game.env;
+  if (EH.hour >= 17.5 || EH.hour < 6.5) EH.hour = 9;
+  for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && !e.proxy && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; try { MH.combat.killMob(H.game, e, null); } catch { /* ignore */ } }
   const sp = H.game.world.spawn;
   pacify(H, sp.x, sp.y, 24, 90); // the spawn ring holds only passive animals; strays from earlier scenarios calm down
   const a = freeSpot(H, MH, sp.x, sp.y, { rMin: 0, rMax: 4 });

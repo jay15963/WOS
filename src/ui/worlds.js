@@ -3,6 +3,7 @@
 // and its hotbar layout under `wos.hotbar.<id>` (hotbar.js). Worlds from before the list (one save per seed,
 // `wos.save.v2.<seed>`) join it on first use with id = String(seed), so their keys stay as they were.
 // Guests keep their per-host player saves keyed by the host's seed (+ '.guest'), outside the list.
+import { elapsedOf, formatElapsed, dateOf } from '../game/calendar.js';
 
 export const MAX_WORLDS = 10;
 const KEY = 'wos.worlds', LAST = 'wos.world';
@@ -40,11 +41,13 @@ export function listWorlds() { return migrate().slice().sort((a, b) => (b.played
 export function getWorld(id) { return migrate().find((w) => w.id === id) || null; }
 export function lastWorld() { const id = ls.get(LAST); return (id && getWorld(id)) || listWorlds()[0] || null; }
 
-// day / level of a world's save (null: never saved yet)
+// day / level of a world's save and how long it has lived ("2 anos e 3 dias": calendar.js) — null: never saved yet
 export function worldInfo(id) {
   const raw = ls.get(`wos.save.v2.${id}`) || ls.get(`wos.save.v1.${id}`);
   if (!raw) return null;
-  try { const d = JSON.parse(raw); return { day: d.env?.day ?? d.world?.env?.d ?? d.day ?? 1, level: d.player?.level ?? d.level ?? 1 }; } catch { return { day: 1, level: 1 }; }
+  let day = 1, level = 1;
+  try { const d = JSON.parse(raw); day = d.env?.day ?? d.world?.env?.d ?? d.day ?? 1; level = d.player?.level ?? d.level ?? 1; } catch { /* unreadable: defaults */ }
+  return { day, level, age: formatElapsed(elapsedOf(day)), date: dateOf(day) };
 }
 
 export function randomSeed() { const a = new Uint32Array(1); crypto.getRandomValues(a); return (a[0] % 2147483000) + 1; }

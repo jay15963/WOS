@@ -28,7 +28,7 @@ const SYNTH = {
   pebble:      { meadow: 0.012, forest: 0.008, pine: 0.01, birch: 0.008, marsh: 0.004, shore: 0.02, rocky: 0.03 },
   stick:       { meadow: 0.004, forest: 0.016, pine: 0.016, birch: 0.014, marsh: 0.006, rocky: 0.002 },
   fibergrass:  { meadow: 0.016, forest: 0.006, pine: 0.004, birch: 0.01, marsh: 0.016, shore: 0.006 },
-  wild_potato: { meadow: 0.0025, forest: 0.002, birch: 0.002 },
+  wild_potato: { meadow: 0.0075, forest: 0.006, birch: 0.006, pine: 0.002 }, // (3x: food to stock before the winter)
   wild_corn:   { meadow: 0.0025, birch: 0.001 },
   wild_cotton: { meadow: 0.0015, shore: 0.0025, marsh: 0.001 },
 };
@@ -181,7 +181,7 @@ export function ensureStarter(game, offscreen = false) {
     [['fibergrass', 'bush'], 'fibergrass', 7, 2.5, 13],
     [['boulder'], 'boulder', 2, 6, 22],
     [['herbbush'], 'herbbush', 1, 6, 26],
-    [['wild_potato'], 'wild_potato', 1, 8, 30],
+    [['wild_potato'], 'wild_potato', 3, 8, 30],
     [['wild_corn'], 'wild_corn', 1, 8, 30],
     [['wild_cotton'], 'wild_cotton', 1, 8, 30],
   ];

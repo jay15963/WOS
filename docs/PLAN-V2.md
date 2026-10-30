@@ -354,10 +354,18 @@ Owner's request: the night must have life and danger, and the year must turn.
   (spiders) live in cave nests only, day and night; out of the cave in daylight they give up after ~4 s and go
   back (ai.js `SUN_LEASH`). Nothing nocturnal appears within **3x the radius of any light** (campfire, torch,
   brazier, lamp, a working furnace, a player's hand torch: `litNear`). Creatures out of their hours walk away and
-  vanish once nobody sees them (never mid-fight).
+  vanish once nobody sees them (never mid-fight). In winter the green animals are very rare (one den in 6, one
+  animal each): food is stocked during the rest of the year (wild potatoes are 3x as common).
 - **The bed only sets the respawn point** (the night is never skipped; lying down is just a pose).
-- **Seasons** (seasons.js): a cycle of 11 days, spring (day 1), summer (days 2-7), autumn (day 8, the day before
-  winter), winter (days 9-11), then again; a new world starts on a spring morning. `game.season` is a pure function
+- **Calendar** (calendar.js, later request): a day lasts 13 min of play, 8 min of daylight (06:00-19:00) and 5 of
+  night (19:00-06:00: `advanceClock`, `hourRate`). A **year has 7 days**: spring (day 1), summer (days 2-3), autumn
+  (day 4, the day before winter), winter (days 5-7), so a year is 91 min. A new world starts on the first spring
+  morning of year 1. `dateOf(day)` gives { year, day of the year, season }; `elapsedOf` / `formatElapsed` give how
+  long a world has lived ("3 anos e 4 dias"). The HUD shows "Ano N · Dia D" under the radar (the tooltip has the
+  long date and the world's age); the world list and "Continuar" show the age. A pure function of the shared clock,
+  meant to date more things later.
+- **Seasons** (seasons.js): the calendar's year; positions are relative to the seasons' first days (`START`,
+  `CYCLE`), never hard-coded numbers. `game.season` is a pure function
   of the shared clock (env day / hour), the same on every peer with no extra sync: `id`, `day`, `toWinter`, smooth
   visual weights (`snow`, `ice`, `autumn`, `bare`, `bloom`, `winter`), gameplay `frozen` / `coldC`. HUD: a season
   chip under the radar and a notice when each season starts.
@@ -402,10 +410,10 @@ Owner's request: the night must have life and danger, and the year must turn.
   - Every hit is op `struct.dmg` {id, d}: the same damage on every peer. The cracks grow in 4 stages from the middle
     of the top and front faces (art `siege_crack_{t,f}0..3`, fx/rockfx.js), tremble and throw splinters / chips.
   - At 1 it breaks (`struct.remove` fx `smash`: pieces drop with dust, the screen shakes nearby).
-  - Pace (walker-seconds to break, one walker): wood 240, stone 800. A group of 3 breaks a wooden wall in ~80 s
-    (about 3 a night) and a stone one in ~4.5 min (about 1 a night).
+  - Pace (walker-seconds to break, one walker): wood 105, stone 350 (doubled by request, on the 5-min night).
+    A group of 3 breaks a wooden wall in ~35 s (about 6-7 a night) and a stone one in ~2 min (about 2 a night).
   - Seeing a player in reach, they fight. At sunrise the cracks left settle (`struct.dmg` 0); what broke stays broken.
-- **Every winter brings more walkers** (walkers.js `WINTER_GROWTH`, winter number = (day - 1) / 11 + 1):
+- **Every winter brings more walkers** (walkers.js `WINTER_GROWTH`, winter number = the calendar year):
   - winter 1: up to 3 around a player, in groups of 1-3, every 25-40 s;
   - each winter after: +2 around a player and +1 per group, and the groups come 30% sooner;
   - caps: 9 around a player, groups of 5, a group every 12 s at the soonest.

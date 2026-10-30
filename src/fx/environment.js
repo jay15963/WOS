@@ -2,6 +2,7 @@
 // env.extra holds extra shader uniforms (terrain + post) applied generically by the renderer.
 
 import { clamp, lerp, smoothstep, mulberry32 } from '../engine/noise.js';
+import { advanceClock, DAY_LENGTH, dateOf, formatDate, clockHHMM } from '../game/calendar.js';
 
 // hour, ambient light, tint (gain), lift (shadow tint), saturation, contrast, sky (water reflection)
 // moonlit blue night → lavender pre-dawn → pink dawn → golden morning → neutral noon → warm afternoon →
@@ -38,7 +39,7 @@ export class Environment {
   constructor(seed = 1) {
     this.hour = 8.2;            // in-game hour 0..24
     this.dayIndex = 1;
-    this.dayLength = 720;       // real seconds per in-game day
+    this.dayLength = DAY_LENGTH; // real seconds per in-game day (calendar.js: 8 min of daylight + 5 of night)
     this.rand = mulberry32(seed);
     this.weather = 'clear';
     this.weatherT = 150 + this.rand() * 150;
@@ -87,8 +88,7 @@ export class Environment {
 
   update(dt) {
     this.t += dt;
-    this.hour += (dt / this.dayLength) * 24;
-    if (this.hour >= 24) { this.hour -= 24; this.dayIndex++; }
+    advanceClock(this, dt); // daylight runs slower than the night (calendar.js)
     this.weatherT -= dt;
     if (this.weatherT <= 0) {
       const r = this.rand();
@@ -255,7 +255,7 @@ export class Environment {
   }
 
   clockString() {
-    const hh = Math.floor(this.hour), mm = Math.floor((this.hour - hh) * 60);
-    return `Dia ${this.dayIndex} · ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+    return `${formatDate(dateOf(this.dayIndex, this.hour))} · ${clockHHMM(this.hour)}`;
   }
+
 }

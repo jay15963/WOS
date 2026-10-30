@@ -13,8 +13,9 @@
 // to light (LIGHT_R: campfires, torches, lamps… even indoors). When what they want is shut inside a room (walls,
 // doors, rock all around — roofs.enclosedRoom) they break in: they pick the closest wall / door / fence of it, stand
 // outside and hit it (op struct.dmg — cracks and splinters on every peer, rockfx.js) until it breaks
-// (struct.remove fx 'smash': it falls apart). One walker needs SIEGE_S walker-seconds for a piece: a wooden one
-// falls about 3 times a night to a group of 3, a stone one about once. Seeing a player in reach, they fight.
+// (struct.remove fx 'smash': it falls apart). One walker needs SIEGE_S walker-seconds for a piece: in a night (5 min
+// of play, ~4.4 of them dark enough for walkers) a group of 3 breaks a wooden one about 6–7 times, a stone one about
+// twice. Seeing a player in reach, they fight.
 // At sunrise the cracks of the night settle (struct.dmg 0).
 
 import { SPECIES } from './data.js';
@@ -49,9 +50,9 @@ function winterNumbers(game) {
 // ---------- the siege ----------
 const SENSE = 14;     // tiles: they feel the living through walls this close (same story, the ground)
 const LIGHT_R = 50;   // tiles: light draws them from this far
-// walker-seconds of hitting to break a piece (one walker); wood the default. 3 walkers: wood ~80 s, stone ~4.5 min
-const SIEGE_S = { wall_stone: 800 };
-const SIEGE_WOOD = 240;
+// walker-seconds of hitting to break a piece (one walker); wood the default. 3 walkers: wood ~35 s, stone ~2 min
+const SIEGE_S = { wall_stone: 350 };
+const SIEGE_WOOD = 105;
 const breakable = (o) => { const d = o && !o.blueprint && !o.removed && !o.lv && BUILDINGS[o.type]; return !!d && (d.connect === 'wall' || d.connect === 'fence') && (d.block === 'tile' || d.block === 'door'); };
 
 // what it wants now: the nearest living player it senses, else the nearest light; shut = inside a room it is not in

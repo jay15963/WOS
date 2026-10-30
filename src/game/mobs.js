@@ -2,7 +2,8 @@
 // dynamic cave spiders in mined roofed tunnels, sleep outside ~40 tiles, corpse cleanup and
 // light separation. Raiders (bandits.js) are mobs too: updated here with their own brain.
 //
-// Day and night (owner's rules): passive animals (green: rabbit, fox, deer) are out by day only; predators
+// Day and night (owner's rules): passive animals (green: rabbit, fox, deer) are out by day only (and in winter only
+// one den in 6, one animal each: hunting is for the rest of the year); predators
 // (wolves) by night only, and many more of them: their dens fill at dusk and hunting packs roam out of the dark
 // toward the players (3x wolves per pack in winter); boars and bears (not nocturnal) any time; monsters
 // (spiders) live in caves only. Nothing nocturnal appears within 3x the radius of a light (campfires, torches,
@@ -47,10 +48,13 @@ const QUOTA = { wolf: 20, boar: 14, deer: 14, rabbit: 20, fox: 12, bear: 5 };
 export const ACTIVE = { rabbit: 'day', fox: 'day', deer: 'day', wolf: 'night', boar: 'always', bear: 'always', spider: 'cave', walker: 'night' };
 export const isNight = (game) => nightK(game.env?.hour ?? 12) > 0.5;
 const winterNow = (game) => game.season?.id === 'winter';
-// pack size now (wolves: 3x in winter)
-const packSize = (game, s) => s.count * (s.species === 'wolf' && winterNow(game) ? 3 : 1);
+// pack size now (wolves: 3x in winter; the green animals: one at a time in winter)
+const packSize = (game, s) => (s.species === 'wolf' && winterNow(game) ? s.count * 3 : (s.when || ACTIVE[s.species]) === 'day' && winterNow(game) ? 1 : s.count);
+// winter: only one den in WINTER_PREY of the green animals' stays out (very little to hunt: stock food before it)
+const WINTER_PREY = 6;
 function activeNow(game, s, night) {
   const when = s.when || ACTIVE[s.species] || 'always';
+  if (when === 'day' && winterNow(game) && s.id % WINTER_PREY) return false;
   return when === 'day' ? !night : when === 'night' ? night : true;
 }
 

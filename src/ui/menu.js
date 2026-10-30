@@ -123,7 +123,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           <div class="mc-stage"><div class="mc-avatar"></div></div>
         </section>
         <nav class="menu-nav">
-          ${last ? btn('continue', 'play', 'Continuar', `${esc(last.name)} · ${info ? `dia ${info.day} · nível ${info.level}` : 'novo'}${last.mode === 'creative' ? ' · criativo' : ''}`, 'primary', n++) : ''}
+          ${last ? btn('continue', 'play', 'Continuar', `${esc(last.name)} · ${info ? `${info.age.toLowerCase()} · nível ${info.level}` : 'novo'}${last.mode === 'creative' ? ' · criativo' : ''}`, 'primary', n++) : ''}
           ${btn('worlds', 'new', 'Mundos', nWorlds ? `${nWorlds} de ${MAX_WORLDS} · escolha ou crie um mundo` : 'Crie seu primeiro mundo', last ? '' : 'primary', n++)}
           ${btn('mp', 'mp', 'Multijogador', 'Criar sala ou entrar com código', '', n++)}
           ${btn('settings', 'gear', 'Configurações', 'Nome, som, qualidade', '', n++)}
@@ -217,7 +217,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           const inf = worldInfo(w.id);
           return `<div class="wrow" data-id="${esc(w.id)}">
             <button class="wplay" data-a="play"><b>${esc(w.name)}</b>${modeChip(w.mode)}
-              <small>${inf ? `Dia ${inf.day} · nível ${inf.level}` : 'Ainda não jogado'} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
+              <small>${inf ? `${inf.age} · Ano ${inf.date.year}, dia ${inf.date.day} · nível ${inf.level}` : 'Ainda não jogado'} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
             <button class="wdel" data-a="del" title="Apagar mundo" aria-label="Apagar ${esc(w.name)}">✕</button>
           </div>`;
         }).join('') : '<p class="muted">Nenhum mundo ainda.</p>'}</div>

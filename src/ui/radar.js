@@ -10,6 +10,7 @@
 // Keeps the old hooks: #mm (tap → map), #mm canvas, #clock, #weather.
 
 import { SPECIES, WEATHER_PT } from '../game/data.js';
+import { dateOf, formatDate, formatElapsed, elapsedOf, SEASON_LEN } from '../game/calendar.js';
 import { respawnPoint } from '../game/player.js';
 import { nIcon } from './hudtheme.js';
 
@@ -30,7 +31,7 @@ export function radarMarkup() {
       <div class="rd-marks"></div>
       <div class="rd-clock" data-tip="<b>Hora do dia</b><p>O arco mostra o sol (ou a lua) no céu. A noite é fria: prepare fogo e abrigo antes da barra encher.</p>"><b id="clock"></b></div>
     </div>
-    <div class="mm-info rd-info"><span class="rd-day">Dia <b id="rd-dayn"></b></span><span class="rd-season" id="rd-season"></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
+    <div class="mm-info rd-info"><span class="rd-day" id="rd-date">Ano <b id="rd-year"></b> · Dia <b id="rd-dayn"></b></span><span class="rd-season" id="rd-season"></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
   </div>`;
 }
 
@@ -38,7 +39,7 @@ export function installRadar(game, root, mini) {
   const disc = root.querySelector('.rd-disc');
   const mm = root.querySelector('#mm'), cv = mm.querySelector('canvas'), ctx = cv.getContext('2d');
   const svg = root.querySelector('.rd-svg'), marks = root.querySelector('.rd-marks');
-  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi'), mode: root.querySelector('#rd-mode'), season: root.querySelector('#rd-season') };
+  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi'), mode: root.querySelector('#rd-mode'), season: root.querySelector('#rd-season'), year: root.querySelector('#rd-year'), date: root.querySelector('#rd-date') };
   let W = 0, H = 0, fill = null, tip = null, tipG = null, len = 0;
   const C = {};
 
@@ -161,8 +162,12 @@ export function installRadar(game, root, mini) {
     const hh = Math.floor(h), mi = Math.floor((h - hh) * 60);
     const clk = `${String(hh).padStart(2, '0')}:${String(mi).padStart(2, '0')}`;
     if (C.clk !== clk) { C.clk = clk; R.clock.textContent = clk; }
-    const day = String(E.dayIndex ?? 1);
-    if (C.day !== day) { C.day = day; R.day.textContent = day; }
+    // the calendar (calendar.js): year and day of the year (1..7)
+    const dt = dateOf(E.dayIndex ?? 1, h), day = dt.year + '.' + dt.day;
+    if (C.day !== day) {
+      C.day = day; R.day.textContent = String(dt.day); R.year.textContent = String(dt.year);
+      R.date.title = `${formatDate(dt, true)} · o mundo existe há ${formatElapsed(elapsedOf(E.dayIndex ?? 1))}`;
+    }
     // the season (seasons.js): its name, and how long until the winter
     const S = g.season;
     const sk = S ? S.id + S.toWinter : '';
@@ -170,7 +175,7 @@ export function installRadar(game, root, mini) {
       C.sk = sk;
       R.season.textContent = S.name;
       R.season.className = 'rd-season s-' + S.id;
-      R.season.title = S.id === 'winter' ? `Inverno: dia ${S.day} de 3` : S.toWinter <= 1 ? 'O inverno começa amanhã' : `Inverno em ${S.toWinter} dias`;
+      R.season.title = S.id === 'winter' ? `Inverno: dia ${S.day} de ${SEASON_LEN.winter}` : S.toWinter <= 1 ? 'O inverno começa amanhã' : `Inverno em ${S.toWinter} dias`;
     }
     const w = E.weather, clearNight = night && w === 'clear';
     const wn = clearNight ? 'Noite' : (WEATHER_PT[w] || [''])[0];

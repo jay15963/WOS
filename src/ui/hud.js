@@ -324,11 +324,12 @@ export function installHUD(game, { isNew } = {}) {
   });
   // seasons (seasons.js): what each one brings
   ev.on('season', (d) => {
+    const yr = game.season?.year || 1;
     const T = {
-      spring: ['Primavera! O inverno acabou: a água descongela e tudo volta a crescer.', 'good'],
-      summer: ['Verão: dias longos. Prepare-se para o inverno (a cada 8 dias).', 'info'],
+      spring: [`Primavera do Ano ${yr}! O inverno acabou: a água descongela e tudo volta a crescer.`, 'good'],
+      summer: ['Verão: 2 dias até o outono. Estoque comida (no inverno quase não há caça), lenha e roupa de frio.', 'info'],
       autumn: ['Outono: o inverno começa amanhã e dura 3 dias. Roupa de frio, lenha, comida e tochas!', 'warn'],
-      winter: ['Inverno! A água congelou, nada cresce, faz muito frio e as noites trazem lobos e os Andarilhos do Gelo.', 'warn'],
+      winter: ['Inverno! A água congelou, nada cresce, a caça some, faz muito frio e as noites trazem lobos e os Andarilhos do Gelo.', 'warn'],
     }[d.id];
     if (T) game.events.emit('toast', { text: T[0], kind: T[1] });
   });

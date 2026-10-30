@@ -966,8 +966,8 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
       const h3 = hash2(x, y, seed + 931);
       let wild = null;
       if (b === B.MEADOW || ((b === B.FOREST || b === B.BIRCH) && Math.abs(fo - FT) < 0.09 && g !== G.MOSS)) {
-        if (h3 < 0.0011) wild = 'wild_potato';
-        else if (b === B.MEADOW && h3 < 0.002 && fert[i] > -0.05 && dWater[i] > 3) wild = 'wild_corn';
+        if (h3 < 0.0033) wild = 'wild_potato'; // (3x: food to stock before the winter)
+        else if (b === B.MEADOW && h3 < 0.0042 && fert[i] > -0.05 && dWater[i] > 3) wild = 'wild_corn';
       }
       if (!wild && (b === B.MEADOW || b === B.SHORE) && dWater[i] > 1.4 && dWater[i] < 9 && g !== G.GRAVEL && h3 > 0.996) wild = 'wild_cotton';
       if (wild) {

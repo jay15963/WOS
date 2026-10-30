@@ -10,7 +10,7 @@
 // Nothing here touches game state.
 
 import { SEASON, seasonHash } from '../art/season.js';
-import { seasonOf } from '../game/seasons.js';
+import { seasonOf, START } from '../game/seasons.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -45,14 +45,14 @@ class SeasonFx {
     const c = S.c ?? 0;
     // art modules
     SEASON.snow = S.snow || 0; SEASON.ice = S.ice || 0; SEASON.autumn = S.autumn || 0; SEASON.bloom = S.bloom || 0;
-    SEASON.bare = S.bare || 0; SEASON.winter = S.winter || 0; SEASON.wane = c > 5 && c < 9.5 ? 1 : 0;
+    SEASON.bare = S.bare || 0; SEASON.winter = S.winter || 0; SEASON.wane = c > START.autumn - 1 && c < START.winter + 1.5 ? 1 : 0; // (late summer → early winter)
     // blizzard: a storm in winter (smoothed like the weather)
     const bzT = SEASON.winter * Math.max(0, (E.storm || 0) * 1.1 - 0.1);
     this.bz += (bzT - this.bz) * (1 - Math.exp(-dt / 4));
     const a = this.A, b = this.B;
     a[0] = SEASON.snow; a[1] = SEASON.ice; a[2] = SEASON.autumn; a[3] = SEASON.bloom;
     // crowns keep their autumn colours on the way to winter until the leaves have dropped (not in spring)
-    b[0] = SEASON.bare; b[1] = SEASON.winter; b[2] = SEASON.wane && c > 7.5 ? 1 : SEASON.autumn; b[3] = this.bz;
+    b[0] = SEASON.bare; b[1] = SEASON.winter; b[2] = SEASON.wane && c > START.autumn + 0.5 ? 1 : SEASON.autumn; b[3] = this.bz;
     if (X) { X.uSeaA = a; X.uSeaB = b; }
     E.snow = Math.max(SEASON.snow, (E.snowCover || 0) * Math.min(1, (E.snowAt || 0) * 4)); // footsteps (audio surfaceAt)
     E.season = S.id;

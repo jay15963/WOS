@@ -1,6 +1,6 @@
 // Localhost-only visual debug helpers (never installed on a deployed build): game.debug.*
 //   setTime(h)            jump the clock (single player only)
-//   skipTo(day, h)        jump to a day / hour through op env.skip (host; seasons: 1 spring, 8 autumn, 9-11 winter)
+//   skipTo(day, h)        jump to a day / hour through op env.skip (host; calendar: year of 7 days — 1 spring, 2-3 summer, 4 autumn, 5-7 winter)
 //   setWeather(w, inst)   'clear'|'cloudy'|'rain'|'storm'|'fog'; inst (default true) skips the 14 s blend (single player)
 //   snow(v)               snow cover 0..1 (cosmetic)
 //   strike(dist)          lightning now (0 = overhead … 1 = far; cosmetic)
@@ -27,8 +27,8 @@ export function installDebug(game) {
   const E = game.env;
   game.debug = {
     setTime(h) { if (!solo()) return false; E.hour = ((+h % 24) + 24) % 24; return E.clockString(); },
-    // jump to a day / hour through the shared clock op (host: every peer follows); seasons: day 1 spring, 2-7 summer,
-    // 8 autumn, 9-11 winter, then again (seasons.js)
+    // jump to a day / hour through the shared clock op (host: every peer follows); calendar: day 1 spring, 2-3 summer,
+    // 4 autumn, 5-7 winter, then a new year (calendar.js / seasons.js)
     skipTo(day, h = 8) {
       if (!game.net?.auth) { console.warn('[debug] só o anfitrião'); return false; }
       const dl = E.dayLength || 720, dd = Math.max(1, day | 0) - E.dayIndex + (((+h % 24) + 24) % 24 - E.hour) / 24;
