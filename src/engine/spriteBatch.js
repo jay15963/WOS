@@ -1,9 +1,10 @@
 // Instanced sprite batch. One instance = one textured quad in world space.
 // Layout per instance (20 floats):
-//  pos(2) size(2) anchor(2) uv(4) color(4) params(4: sway, rot, flash, flip) extra(2: recvShadow, lift)
+//  pos(2) size(2) anchor(2) uv(4) color(4) params(4: sway, rot, flash, flip) extra(3: recvShadow, lift, season class)
+// season class (src/art/season.js SC): how the sprite follows the seasons in the sprite shader (0 = never).
 
-export const STRIDE = 20;
-const ATTR = [[1, 2], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 2]];
+export const STRIDE = 21;
+const ATTR = [[1, 2], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 3]];
 
 export class SpriteBatch {
   constructor(gl, capacity = 4096) {
@@ -31,7 +32,7 @@ export class SpriteBatch {
       gl.vertexAttribDivisor(loc, 1);
       off += size * 4;
     };
-    attr(1, 2); attr(2, 2); attr(3, 2); attr(4, 4); attr(5, 4); attr(6, 4); attr(7, 2);
+    attr(1, 2); attr(2, 2); attr(3, 2); attr(4, 4); attr(5, 4); attr(6, 4); attr(7, 3);
     gl.bindVertexArray(null);
   }
 
@@ -45,7 +46,7 @@ export class SpriteBatch {
   }
 
   // s = sprite {w,h,ax,ay,u0,v0,u1,v1}
-  add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0) {
+  add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0, sc = 0) {
     if (this.n >= this.cap) this._grow();
     const d = this.data, o = this.n++ * STRIDE;
     d[o] = x; d[o + 1] = y;
@@ -54,7 +55,7 @@ export class SpriteBatch {
     d[o + 6] = s.u0; d[o + 7] = s.v0; d[o + 8] = s.u1; d[o + 9] = s.v1;
     d[o + 10] = r; d[o + 11] = g; d[o + 12] = b; d[o + 13] = a;
     d[o + 14] = sway; d[o + 15] = rot; d[o + 16] = flash; d[o + 17] = flip;
-    d[o + 18] = recv; d[o + 19] = lift;
+    d[o + 18] = recv; d[o + 19] = lift; d[o + 20] = sc;
   }
 
   // Raw quad without sprite (used for lights): world size w,h centered.
@@ -64,7 +65,7 @@ export class SpriteBatch {
     d[o] = x; d[o + 1] = y; d[o + 2] = w; d[o + 3] = h; d[o + 4] = 0.5; d[o + 5] = 0.5;
     d[o + 6] = 0; d[o + 7] = 0; d[o + 8] = 1; d[o + 9] = 1;
     d[o + 10] = r; d[o + 11] = g; d[o + 12] = b; d[o + 13] = a;
-    d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0;
+    d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0; d[o + 20] = 0;
   }
 
   // free quad (roof slices): world rect x, y (top-left), w × h, uv rect, colour, params (anchor 0, 0)
@@ -74,7 +75,7 @@ export class SpriteBatch {
     d[o] = x; d[o + 1] = y; d[o + 2] = w; d[o + 3] = h; d[o + 4] = 0; d[o + 5] = 0;
     d[o + 6] = u0; d[o + 7] = v0; d[o + 8] = u1; d[o + 9] = v1;
     d[o + 10] = r; d[o + 11] = g; d[o + 12] = b; d[o + 13] = a;
-    d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0;
+    d[o + 14] = 0; d[o + 15] = 0; d[o + 16] = 0; d[o + 17] = 1; d[o + 18] = 0; d[o + 19] = 0; d[o + 20] = 0;
   }
 
   upload() {

@@ -42,6 +42,8 @@ import { PAWN } from './pawns.js';
 import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
+import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
+import { lookAtlasOf } from './look/lazy.js';
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
@@ -275,10 +277,44 @@ function blinking(t, ph0) {
   return bt < 0.12 || (((ph0 * 3.7) % 1) < 0.35 && bt > 0.26 && bt < 0.36);
 }
 
+// ---------- winter walkers (art/walker.js) ----------
+// lazily painted overlays: a record once painted (stamped as in use), else null (asked for)
+const WKS = new WeakMap();
+function wkSprite(A, name) {
+  let M = WKS.get(A);
+  if (!M) WKS.set(A, (M = new Map()));
+  let r = M.get(name);
+  if (r === undefined) { const LA = lookAtlasOf(A); r = LA.has(name) ? LA.get(name) : null; M.set(name, r); }
+  if (!r || r.failed) return null;
+  if (r.ready) { r.lu = LOOK_CLOCK.f; return r; }
+  lookAtlasOf(A).want(r);
+  return null;
+}
+// hide-and-scale armour with ice on the shoulders, over the look's body (same box / anchor as wear_*)
+function walkerTorso(B, A, part, sd, x, y, sx, sy, rot, fl, flip, lift, al) {
+  const s = wkSprite(A, part + sd);
+  if (s) B.main.add(s, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, lift);
+}
+// face frost + the cold eye glow (emissive: it shines in the dark)
+function walkerHead(B, T, A, d, flip, x, y, l, r, fl, al, t, ph0) {
+  const s = d !== 'n' ? wkSprite(A, 'wk_face_' + d) : null;
+  if (s) B.main.add(s, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
+  if (d === 'n' || !T.soft) return;
+  const pulse = 0.85 + 0.15 * Math.sin(t * 2.3 + ph0);
+  const cs = Math.cos(r), sn = Math.sin(r);
+  for (const [ex, el] of WALKER_EYES[d]) {
+    const dx = ex * flip, gx = x + dx * cs + el * sn, gl = l + el * cs - dx * sn;
+    B.emissive.add(T.soft, gx, y + 0.001, 0.2 / T.soft.w, 0.13 / T.soft.h, 0.35, 0.85, 1, 0.55 * pulse * al, 0, 0, 0, 1, 0, gl);
+    if (T.spark) B.emissive.add(T.spark, gx, y + 0.002, 0.075 / T.spark.w, 0.055 / T.spark.h, 0.75, 1, 1, 0.95 * al, 0, 0, 0, 1, 0, gl);
+  }
+}
+
 // ---------- pawns (humanoids) ----------
 export function drawPawn(B, A, p, t) {
   const T = tables(A);
   tick(p, t);
+  const walker = p.species === 'walker';
+  if (walker && p.dead) return; // walkers leave no body: they shatter into ice (src/fx/walkerfx.js)
   // respawn: rise from the ground (derived from the replicated dead flag on every peer)
   if (p._wd && !p.dead) p._riseAt = t;
   p._wd = !!p.dead;
@@ -295,7 +331,7 @@ export function drawPawn(B, A, p, t) {
   if (hf && hf !== dir && hf !== OPP[dir] && !p.dead && (!act || pose === 'cast' || pose === 'shoot') && !p.pose) hdir = hf;
   const hsd = hdir === 'w' ? 'e' : hdir;
   const hflip = hdir === 'w' ? -1 : 1;
-  const L = p.look || DEFAULT_LOOK;
+  const L = walker ? walkerLook(p) : p.look || DEFAULT_LOOK;
   // look layers (lazy parts: until painted, the base-pawn stand-in in the same colours; own look painted now)
   let LK = lookRig(A, L);
   if (!rigReady(LK, !p.isMob && !p.remote && !p.lazyLook)) LK = LK.fb;
@@ -857,6 +893,7 @@ export function drawPawn(B, A, p, t) {
   // long hair behind the shoulders, then the body
   drawHairBack(B, LK, hsd, hflip, hx, y, hl, hr, fl, al);
   drawTorso(B, T, LK, armor, sd, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
+  if (walker) walkerTorso(B, A, 'wk_armor_', sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, flip, bl, al);
   if (swim < 0.5) rigFeet(true);
   if (swim > 0.01 && T.soft) {
     // the water line hides the lower body; a slow ripple ring spreads around the swimmer
@@ -865,7 +902,8 @@ export function drawPawn(B, A, p, t) {
     if (T.ring) { const u = (t * 0.7 + ph0) % 1; B.main.add(T.ring, x, y + 0.03, 0.5 + u * 0.7, 0.4 + u * 0.55, 0.85, 0.95, 1, 0.35 * (1 - u) * swim, 0, 0, 0, 1, 0, 0.01); }
   }
   // head
-  drawHead(B, T, L, LK, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut, hairR, hairL);
+  drawHead(B, T, L, LK, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
+  if (walker) { walkerTorso(B, A, 'wk_ice_', sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, flip, bl, al); walkerHead(B, T, A, hsd, hflip, hx, y, hl, hr, fl, al, t, ph0); }
   // in front of the body
   if (showW && wsp && !wBehind) rigWeapon();
   if (showO && osp && !oBehind) rigOff();

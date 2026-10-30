@@ -24,6 +24,7 @@ import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
 import { TREE_SPECIES } from './trees.js';
 import { drawArch, ARCH_TYPES, drawPlotKit } from './archCompose.js'; // agent K: styles, details, decoration
+import { SEASON, SC, TREE_SC, bareTwin, hash01, seasonHash } from './season.js'; // seasons: classes for the sprite shader, bare twins
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -161,7 +162,7 @@ export function drawStatic(B, A, o, t) {
     if (o.stump) {
       const s = T.stump || A.pick('tree_stump', 0);
       B.blob.add(T.blob, o.x, o.y, 0.7 * o.s, 0.5 * o.s, 1, 1, 1, 0.5);
-      B.main.add(s, o.x + shakeX(o, t), o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f);
+      B.main.add(s, o.x + shakeX(o, t), o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f, 0, 0, SC.SNOW);
       B.shadow.add(s, o.x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, 0, f);
       return;
     }
@@ -169,7 +170,7 @@ export function drawStatic(B, A, o, t) {
     if (age < 0.35 && T.sapling) {
       const k = 0.7 + age * 1.4;
       B.blob.add(T.blob, o.x, o.y, 0.45 * k, 0.35 * k, 1, 1, 1, 0.4);
-      B.main.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 1, 0.08, 0, fl, f);
+      B.main.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 1, 0.08, 0, fl, f, 0, 0, SC.OAK + SC.NOTWIN);
       B.shadow.add(T.sapling, o.x, o.y, k, k, 1, 1, 1, 0.8, 0.08, 0, 0, f);
       return;
     }
@@ -193,8 +194,19 @@ export function drawStatic(B, A, o, t) {
     if (o.alpha != null) alpha *= o.alpha; // optional see-through (e.g. canopy over the player)
     B.blob.add(T.blob, o.x, o.y, 1.05 * sc, 0.85 * sc, 1, 1, 1, 0.6 * (fall > 0 ? 1 - clamp01(fall) : 1));
     const sway = fall > 0 ? 0 : TREE_SWAY[grp] ?? 0.03;
-    B.main.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f);
-    B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
+    // seasons: broadleaf crowns drop their leaves over a bare twin (lazily painted, art/trees.js); it is asked
+    // for already in late autumn so it is ready when the leaves go
+    const tsc = TREE_SC[grp] || 0, broad = tsc && tsc < SC.BARE;
+    const bareK = broad ? SEASON.bare : 0;
+    const bs = broad && (bareK > 0.001 || (SEASON.autumn > 0.5 && SEASON.wane)) ? bareTwin(A, s, grp) : null;
+    if (bs && bareK > 0.001) {
+      B.main.add(bs, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f, 0, 0, SC.BARE + seasonHash(o));
+      B.shadow.add(bs, x, o.y, sc, sc, 1, 1, 1, sa, sway, rot, 0, f);
+      if (bareK >= 0.999) return;
+    }
+    const twin = bs && bareK > 0.001;
+    B.main.add(s, x, o.y, sc, sc, 1, 1, 1, alpha, sway, rot, fl, f, 0, 0, (broad && !twin ? tsc + SC.NOTWIN : tsc) + (tsc ? seasonHash(o) : 0));
+    B.shadow.add(s, x, o.y, sc, sc, 1, 1, 1, sa * (twin ? 1 - bareK : 1), sway, rot, 0, f);
     return;
   }
   if (type === 'bush' || type === 'berrybush' || type === 'herbbush') {
@@ -206,7 +218,7 @@ export function drawStatic(B, A, o, t) {
     const x = o.x + (shk > 0 ? Math.sin(t * 50) * 0.035 * shk : 0);
     const rot = shk > 0 ? Math.sin(t * 38) * 0.05 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.95 * o.s, 0.62 * o.s, 1, 1, 1, 0.55);
-    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, o.alpha ?? 1, 0.05, rot, fl, f, 0.5);
+    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, o.alpha ?? 1, 0.05, rot, fl, f, 0.5, 0, (sp === 2 ? SC.CONIFER : SC.SHRUB) + seasonHash(o));
     B.shadow.add(s, x, o.y, o.s, o.s, 1, 1, 1, 0.85, 0.05, rot, 0, f);
     return;
   }
@@ -214,7 +226,7 @@ export function drawStatic(B, A, o, t) {
     const s = (o.v | 0) >= 8000 && A.groups.boulder_moss ? A.pick('boulder_moss', o.v) : A.pick('boulder', o.v); // ≥ 8000: mossy (woods)
     const x = o.x + shakeX(o, t, 0.03);
     B.blob.add(T.blob, o.x, o.y, 1.0 * o.s, 0.55 * o.s, 1, 1, 1, 0.5);
-    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f);
+    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f, 0, 0, SC.SNOW);
     // cracks spread over the rock as it is worked (o.prog comes from the host's ops) — animation pass (D)
     const pg = o.prog || 0;
     if (pg > 0.12 && T.cracks.length) {
@@ -239,7 +251,7 @@ export function drawStatic(B, A, o, t) {
     const rot = shk > 0 ? Math.sin(t * 38) * 0.06 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.6 * sc, 0.32 * sc, 1, 1, 1, 0.4);
     const sway = type === 'fibergrass' ? 0.11 : type === 'wild_corn' ? 0.06 : 0.07;
-    B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.5);
+    B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.5, 0, SC.GRASS);
     B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 0.75, sway, rot, 0, f);
     return;
   }
@@ -493,12 +505,36 @@ const UNTINTED = new Set(['flower', 'bloom', 'mushroom', 'heather', 'thistle']);
 export const WATERLINE = 0.15; // plant waterline above the sprite anchor (tiles) — keep equal to SPRITE_FS "WATER" (recv -2)
 // d.w (worldgen): stands in water → recv -2 (plants) / -1 (stones) = the sprite shader's soft wavy waterline (SPRITE_FS "WATER");
 // d._kick (src/fx/waterline.js, cosmetic): something waded through the clump → it sways harder for a moment.
+// seasons (art/season.js): ground litter goes under the snow (lilies under the ice); in winter most tufts hide
+// under the snow and the rest stand short and frosted, flowers and mushrooms are gone; spring adds flowers
+const DECOR_SC = { flower: SC.FLOWER, bloom: SC.FLOWER, heather: SC.FLOWER, thistle: SC.FLOWER, mushroom: 0 };
 export function drawDecor(B, A, d) {
   const s = d._s || (d._s = A.groups[d.t] ? A.pick(d.t, d.v) : A.pick('grass', d.v));
-  const t = d.t;
-  if (FLAT_DECOR.has(t)) { B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, 1, 0, 0, 0, d.f, d.w && t === 'riverstone' ? -1 : 1); return; }
+  const t = d.t, S = SEASON;
+  if (FLAT_DECOR.has(t)) {
+    const a = t === 'lily' ? 1 - S.ice : t === 'riverstone' || t === 'scree' ? 1 - S.snow * 0.6 : 1 - S.snow;
+    if (a > 0.01) B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, a, 0, 0, 0, d.f, d.w && t === 'riverstone' ? -1 : 1);
+    return;
+  }
+  const cls = DECOR_SC[t] ?? SC.GRASS;
+  const h = d._hr ?? (d._hr = hash01(d.x, d.y));
+  let sy = d.s;
+  if (S.snow > 0.001 || S.autumn > 0.001) {
+    if (cls === SC.GRASS) {
+      if (!d.w && h < S.snow * 0.68) return;   // under the snow
+      sy *= 1 - (d.w ? 0.2 : 0.42) * S.snow;
+    } else if (h < S.snow * 1.05 || (cls === SC.FLOWER && h < S.autumn * 0.45)) return;
+  }
   const tint = UNTINTED.has(t) ? GRASS_TINT[0] : GRASS_TINT[(d.v >> 2) & 7];
   const sway = (DECOR_SWAY[t] ?? 0.11) * (d._kick ? 1 + d._kick * 0.9 : 1);
   // in water the sprite sinks by the shader's plant waterline (0.15 tile): the stems leave the water at d.y
-  B.decor.add(s, d.x, d.w ? d.y + WATERLINE : d.y, d.s, d.s, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, d.w ? -2 : 1);
+  B.decor.add(s, d.x, d.w ? d.y + WATERLINE : d.y, d.s, sy, tint[0], tint[1], tint[2], 1, sway, 0, 0, d.f, d.w ? -2 : 1, 0, cls ? cls + 0.001 + 0.997 * h : 0);
+  // spring: a flower comes up beside some of the tufts
+  if (S.bloom > 0.02 && cls === SC.GRASS && !d.w && A.groups.flower) {
+    if (h > 1 - 0.16 * S.bloom) {
+      const fs = d._fs || (d._fs = A.pick('flower', (h * 977) | 0));
+      const k = Math.min(1, (h - (1 - 0.16 * S.bloom)) * 40);
+      B.decor.add(fs, d.x + (h - 0.92) * 2.2, d.y + 0.04, d.s * 0.85 * k, d.s * 0.85 * k, 1, 1, 1, 1, 0.05, 0, 0, d.f, 1, 0, SC.FLOWER);
+    }
+  }
 }

@@ -17,7 +17,7 @@ layout(location=3) in vec2 aAnchor;
 layout(location=4) in vec4 aUV;
 layout(location=5) in vec4 aColor;
 layout(location=6) in vec4 aParams; // sway, rot, flash, flip
-layout(location=7) in vec2 aExtra;  // recvShadow, lift
+layout(location=7) in vec3 aExtra;  // recvShadow, lift, season class (src/art/season.js SC)
 uniform vec2 uCam;
 uniform vec2 uScale;   // clip units per world unit
 uniform float uTime;
@@ -118,6 +118,8 @@ ${SPRITE_ATTRIBS}
 uniform sampler2D uClim;  // R = snow affinity (cold biomes), G = structure occupancy (contact AO)
 uniform vec2 uWorldSz;
 uniform float uSnow;      // snow cover 0..1 (env.extra.uSnow)
+uniform vec4 uSeaA;       // seasons (src/fx/seasonfx.js): snow, ice, autumn, bloom
+uniform vec4 uSeaB;       // bare, winter, autumn colour of the crowns (stays on until the leaves drop), blizzard
 out vec2 vUV;
 out vec4 vColor;
 out float vFlash;
@@ -127,6 +129,7 @@ out vec2 vW;              // world position on the ground plane (before lift)
 out float vFrost;         // snow lying on this (vegetation) sprite
 out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
+flat out vec4 vSea;       // season class, per-plant hash, 1 = no bare twin under it (keep the trunk), seasonal snow
 ${SWAY_FN}
 void main(){
   vec2 c = aCorner;
@@ -153,12 +156,26 @@ void main(){
 #if QL >= 1
   if (uSnow > 0.01 && aParams.x > 0.0) vFrost = uSnow * smoothstep(0.45, 0.75, textureLod(uClim, aPos / uWorldSz, 0.0).r);
 #endif
+  // seasons: class 1-3 broadleaf crowns (oak / birch-aspen / willow), 4 bare broadleaf, 5 conifer, 6 shrub,
+  // 7 grass & undergrowth, 8 flowers, 9 snow only (rocks, stumps, crops…); +16 = no bare twin drawn under it;
+  // the fraction is the plant's own 0..1 hash (art/season.js seasonHash; else one from the position)
+  vSea = vec4(0.0);
+  if (aExtra.z > 0.5) {
+    float sc = floor(aExtra.z + 1e-4), hs = aExtra.z - sc;
+    float nb = step(15.5, sc), cls = sc - 16.0 * nb;
+    if (hs < 1e-4) hs = fract(sin(dot(floor(aPos * 8.0), vec2(12.9898, 78.233))) * 43758.5453);
+    float sk = cls < 3.5 ? 0.7 : cls > 7.5 && cls < 8.5 ? 0.45 : cls > 6.5 && cls < 7.5 ? 0.85 : 1.0;
+    vSea = vec4(cls, hs, nb, uSeaA.x * sk);
+    vFrost = max(vFrost, vSea.w);
+  }
 }`;
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
+in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
+flat in vec4 vSea;
+uniform highp vec4 uSeaA, uSeaB; // seasons (see SPRITE_VS)
 uniform highp float uTime;
 uniform sampler2D uTex;
 uniform sampler2D uLook;  // lazily painted look parts (agent H): sprites with u in [-1, 0)
@@ -169,6 +186,67 @@ uniform vec2 uViewport;
 uniform float uShadowStr;
 uniform float uAO;        // 1 while drawing ground / decor: darken next to walls (contact AO)
 out vec4 o;
+float sh12(highp vec2 p){ highp vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+// atlas or lazy texture (agent H) — the frost cap samples the texel above
+vec4 texAt(vec2 uv){ return uv.x < 0.0 ? texture(uLook, uv + vec2(1.0, 0.0)) : texture(uTex, uv); }
+vec2 texSz(){ return vec2(vUV.x < 0.0 ? textureSize(uLook, 0) : textureSize(uTex, 0)); }
+// SEASONS (src/fx/seasonfx.js -> uSeaA / uSeaB; class per sprite, see SPRITE_VS): autumn colours on green
+// foliage (each plant turns at its own pace, leaf patches mottled), leaves dropping off broadleaf crowns into
+// winter (the bare twin is drawn under them), dry frosted grass, fresh spring green and blossoms. Works on
+// unpremultiplied colour u; returns 0 when this leaf patch has dropped.
+float seasonal(inout vec3 u, float cls, float hs){
+  float lum = dot(u, vec3(0.3, 0.59, 0.11));
+  // green (or olive-yellow) foliage, never bark / outlines / pale birch bark (saturation)
+  float mx = max(u.r, max(u.g, u.b)), mn = min(u.r, min(u.g, u.b));
+  float leaf = smoothstep(0.03, 0.14, (u.g - max(u.r * 0.9, u.b)) / max(u.g, 0.04)) * smoothstep(0.12, 0.25, (mx - mn) / max(mx, 0.04));
+  if (leaf < 0.01 || cls > 8.5) return 1.0;
+  highp vec2 tp = vUV * texSz();
+  float ph = sh12(floor(tp / 3.0) + hs * 97.0);   // leaf-patch hash
+  float keep = 1.0;
+  bool broad = cls < 3.5, shrub = cls > 5.5 && cls < 6.5, grass = cls > 6.5 && cls < 7.5;
+  if (broad || shrub || grass) {
+    // autumn (on the way to winter the crowns keep their colour until the leaves drop: uSeaB.z)
+    float auK = grass ? uSeaA.z : uSeaB.z;
+    if (auK > 0.001) {
+      float tk = clamp(auK * 1.35 - hs * 0.35, 0.0, 1.0);
+      float pk = smoothstep(ph - 0.2, ph + 0.2, tk * 1.2);
+      vec3 h1, h2;
+      if (grass) { h1 = vec3(0.9, 0.72, 0.34); h2 = hs < 0.3 ? vec3(0.82, 0.48, 0.22) : vec3(0.78, 0.7, 0.42); }
+      else if (cls < 1.5) {
+        h1 = hs < 0.32 ? vec3(0.95, 0.52, 0.14) : hs < 0.62 ? vec3(1.0, 0.72, 0.18) : hs < 0.8 ? vec3(0.82, 0.25, 0.12) : vec3(0.72, 0.5, 0.2);
+        h2 = hs < 0.5 ? vec3(0.98, 0.8, 0.26) : vec3(0.78, 0.36, 0.14);
+      } else if (cls < 2.5) { h1 = vec3(1.0, 0.8, 0.2); h2 = vec3(0.96, 0.66, 0.14); }
+      else if (cls < 3.5) { h1 = vec3(0.86, 0.82, 0.3); h2 = vec3(0.95, 0.72, 0.22); }
+      else { h1 = hs < 0.5 ? vec3(0.84, 0.2, 0.12) : vec3(0.95, 0.5, 0.14); h2 = vec3(0.62, 0.16, 0.2); }
+      vec3 tgt = mix(h1, h2, step(0.62, sh12(floor(tp / 5.0) + hs * 13.0))) * (lum * 1.95 + 0.02);
+      tgt = mix(vec3(dot(tgt, vec3(0.3, 0.59, 0.11))), tgt, 0.88);
+      u = mix(u, tgt, leaf * pk);
+    }
+    // winter: broadleaf crowns drop their leaves patch by patch, shrubs and grass dry out under the frost
+    float bk = clamp(uSeaB.x * 1.3 - hs * 0.3, 0.0, 1.0);
+    if (broad && bk > 0.001) keep = 1.0 - leaf * step(ph, bk * 1.02);
+    float dry = (shrub || grass) ? max(uSeaB.x, uSeaA.x * 0.8) : 0.0;
+    if (dry > 0.001) u = mix(u, vec3(0.5, 0.42, 0.33) * (lum * 1.7 + 0.03), leaf * dry * (grass ? 0.85 : 0.7));
+  }
+  if (cls > 4.5 && cls < 5.5 && uSeaB.y > 0.001) u = mix(u, u * vec3(0.84, 0.92, 1.0), leaf * uSeaB.y * 0.8); // conifers darken in the cold
+  // spring: fresh light green, blossoms on some trees and shrubs
+  float bl = uSeaA.w;
+  if (bl > 0.001 && cls < 7.5) {
+    u = mix(u, u * vec3(0.98, 1.1, 0.8) + vec3(0.015, 0.03, 0.0), leaf * bl * 0.7);
+    float bloomy = cls < 1.5 ? step(hs, 0.62) : shrub ? step(hs, 0.65) : 0.0;
+    if (bloomy > 0.5) {
+      highp vec2 bp = tp / 5.0, bc = floor(bp);
+      vec2 bf = fract(bp) - 0.5;
+      float bh = sh12(bc + hs * 61.0);
+      vec2 bo = (vec2(sh12(bc + 3.1), sh12(bc + 7.7)) - 0.5) * 0.3;
+      float bd = length(bf - bo);
+      float bk2 = (1.0 - smoothstep(0.26, 0.44, bd)) * step(bh, 0.72 * bl) * leaf;
+      vec3 bcol = hs < 0.22 || (shrub && hs < 0.4) ? vec3(1.0, 0.72, 0.84) : vec3(1.0, 0.97, 0.95);
+      u = mix(u, bcol * clamp(0.62 + lum * 1.5, 0.55, 1.15), bk2);
+    }
+  }
+  return keep;
+}
 void main(){
   // WATER (agent E): recvShadow < 0 flags a sprite standing in water (src/fx/waterline.js) — -1 = stone / duck
   // (waterline 0.055 tile above the anchor), -2 = plant (reeds: 0.15 tile, the stems rise out of the water);
@@ -187,6 +265,14 @@ void main(){
   if (vUV.x < 0.0) t = texture(uLook, vUV + vec2(1.0, 0.0)); // lazily painted look parts (agent H)
   if (t.a < 0.003) discard;
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
+  if (vSea.x > 0.5) {
+    vec3 su = c.rgb / max(c.a, 1e-3);
+    float keep = seasonal(su, vSea.x, vSea.y);
+    if (keep < 0.5) discard;
+    c.rgb = su * c.a;
+    // a crown dropping its leaves fades its trunk and outlines into the bare twin drawn under it
+    if (vSea.x < 3.5 && vSea.z < 0.5) c *= 1.0 - clamp(uSeaB.x * 1.3 - vSea.y * 0.3, 0.0, 1.0);
+  }
   if (vRecv < -0.5) {
     if (vRecv < -2.5) {
       // the flipped copy is squashed ×0.6 and anchored 0.09 above the waterline: hide the submerged part
@@ -199,16 +285,25 @@ void main(){
       c.rgb += vec3(0.55, 0.66, 0.7) * exp(-lip * lip * 3000.0) * (0.5 + 0.5 * sin(vW.x * 93.0 + uTime * 3.0)) * 0.16 * c.a;
     }
   }
-#if QL >= 1
   if (vFrost > 0.01) {
-    // snow settles on the top edges of leaves / needles / blades (texel above is empty)
-    float dv = 2.5 / float(textureSize(uTex, 0).y);
-    float up = min(texture(uTex, vec2(vUV.x, max(vUV.y - dv, vVr.x))).a, texture(uTex, vec2(vUV.x, max(vUV.y - dv * 2.6, vVr.x))).a);
-    float cap = smoothstep(0.12, 0.6, t.a - up * 0.9);
+    // snow settles on the top edges of leaves / needles / blades (texel above is empty); in winter it also
+    // lies on the lit upper faces (snow-laden pines, frosted shrubs)
     float lum = dot(c.rgb, vec3(0.3, 0.59, 0.11)) / max(c.a, 1e-3);
+    float sea = step(0.01, vSea.w);
+    float body = mix(1.0, smoothstep(0.1, 0.2, lum), sea);   // winter snow lies inside the dark outline
+#if QL >= 1
+    float dv = (2.5 + 2.0 * vSea.w) / texSz().y;
+    float up = min(texAt(vec2(vUV.x, max(vUV.y - dv, vVr.x))).a, texAt(vec2(vUV.x, max(vUV.y - dv * 2.6, vVr.x))).a);
+    float cap = smoothstep(0.12, 0.6, t.a - up * 0.9) * body;
+#else
+    float cap = 0.0;
+#endif
+    float heavy = vSea.w * body * smoothstep(0.22, 0.6, lum) * (vSea.x > 3.5 && vSea.x < 6.5 ? 0.6 : 0.4);
+    if (vSea.x > 5.5 && vSea.x < 6.5) heavy += vSea.w * body * (1.0 - smoothstep(0.12, 0.55, vLocal.y)) * (0.55 + 0.3 * sh12(floor(vUV * texSz() / 4.0))); // a mound of snow on shrubs
     vec3 sn = vec3(0.88, 0.91, 0.97) * (0.78 + 0.3 * smoothstep(0.1, 0.45, lum)) * c.a;
-    c.rgb = mix(c.rgb, sn, vFrost * (cap * 0.85 + 0.1));
+    c.rgb = mix(c.rgb, sn, clamp(vFrost * (cap * 0.85 + 0.1) + heavy, 0.0, 0.95));
   }
+#if QL >= 1
   if (uAO > 0.0) {
     float so = texture(uClim, (vW + vec2(0.0, -0.08)) / uWorldSz).g;
     c.rgb *= 1.0 - uAO * 0.3 * smoothstep(0.18, 0.62, so);
@@ -314,6 +409,7 @@ uniform vec2 uTexSz;
 uniform float uMode;       // 0 scene, 1 light occluder
 uniform vec3 uAmbR;        // ambient × 0.5 (light map scale)
 uniform float uWet;
+uniform float uRoofSnow;   // winter snow on the roofs (src/fx/seasonfx.js)
 out vec4 o;
 void main(){
   vec2 ow = texelFetch(uOwner, ivec2(min(vUV * uTexSz, uTexSz - 1.0)), 0).rg * 255.0;
@@ -323,6 +419,15 @@ void main(){
   if (a < 0.004) discard;
   if (uMode > 0.5) { o = vec4(uAmbR * a, a); return; }
   c.rgb *= 1.0 - 0.17 * uWet;   // rain-darkened roof
+  if (uRoofSnow > 0.01) {
+    // a blanket of snow that keeps the roof's own shading (lit / shaded slopes, eaves) and its dark outlines
+    float lum = dot(c.rgb, vec3(0.3, 0.59, 0.11)) / max(c.a, 1e-3);
+    vec2 sp = floor(vUV * uTexSz / 3.0);
+    float gr = fract(sin(dot(sp, vec2(12.9898, 78.233))) * 43758.5453);
+    vec3 sn = vec3(0.88, 0.91, 0.96) * clamp(0.5 + lum * 1.25, 0.55, 1.08) * (0.97 + 0.06 * gr);
+    float m = uRoofSnow * smoothstep(0.06, 0.16, lum) * (0.88 + 0.12 * gr);
+    c.rgb = mix(c.rgb, sn * c.a, m);
+  }
   o = c * vA.x;
 }`;
 
@@ -907,6 +1012,8 @@ uniform float uSnow;        // snow cover 0..1 (builds up while it snows over co
 uniform float uSnowPeak;    // permanent snow on the high mountain tops (cold biomes)
 uniform float uClimOn;      // 0 = skip the climate fetch (no snow lying and no walls in view)
 uniform sampler2D uRoofT;   // roofData: B = built roof over the tile (dry, no snow)
+uniform vec4 uSeaA;         // seasons (src/fx/seasonfx.js): snow lying everywhere (winter), ice on the water, autumn, spring bloom
+uniform vec4 uSeaB;         // bare trees, winter, autumn colour of the crowns (until they drop), blizzard
 uniform vec4 uMine[8];      // rock being mined (src/fx/rockfx.js): tx, ty, crack 0..1 | 1 + break progress, hit pulse
 uniform int uMineN;
 // [paths] painted terrain paths (agent M, src/game/paths.js): bound on units 13–15 by the renderer
@@ -1016,6 +1123,40 @@ vec3 vorCell(vec2 p){
 vec3 crackCell(vec2 d, vec2 tile){
   return vorCell(vec2(atan(d.y, d.x) * 1.4, log(length(d) + 0.16) * 1.9) + tile * 3.17);
 }
+// frozen water (winter): a still sheet of ice — clear dark ice over the deep, milky near the shore, trapped air,
+// cracks (Voronoi edges with a bright lip), frost feathers and wind-blown snow; at the shore the snow takes over
+vec3 iceSurface(vec2 wp, float depth, float wl, vec4 nA, vec4 nB, vec4 nC, vec3 sunT){
+  vec2 nn = textureLod(uNoise, wp * 0.21, nLod(0.21)).xy - 0.5;
+  vec3 N = normalize(vec3(nn * 0.22, 1.0));
+  vec3 ic = mix(vec3(0.5, 0.66, 0.72), vec3(0.17, 0.33, 0.42), smoothstep(0.25, 0.9, depth));
+  float air = textureLod(uNoise, wp * 0.13 + 0.37, nLod(0.13)).b;
+  float shore = 1.0 - smoothstep(0.26, 0.5, wl);
+  ic = mix(ic, vec3(0.8, 0.87, 0.91), clamp(smoothstep(0.52, 0.85, air) * 0.4 + shore * 0.55, 0.0, 1.0));
+  // sky sheen + a broad soft sun glint (no waves)
+  vec3 H = normalize(uSun + vec3(0.0, 0.0, 1.0));
+  float nh = max(dot(N, H), 0.0);
+  ic = mix(ic, uSky, 0.16) + pow(nh, 36.0) * 0.16 * uSunI * sunT;
+#if QL >= 1
+  vec3 vc = vorCell(wp * 0.4 + 3.1);
+  float cw = 0.018 + 0.016 * nB.z;
+  float split = smoothstep(0.42, 0.62, textureLod(uNoise, wp * 0.09 + 0.31, nLod(0.09)).g + (nA.y - 0.5) * 0.3); // which edges cracked
+  float crack = (1.0 - smoothstep(cw * 0.45, cw, vc.x)) * split;
+  float lip = max(0.0, (1.0 - smoothstep(cw, cw * 3.0, vc.x)) * split - crack);
+  ic *= mix(1.0, 0.95 + 0.08 * vc.z, 0.6);                              // plates catch the light a shade apart
+  float fine = (1.0 - smoothstep(0.012, 0.035, vorCell(wp * 1.6 + 11.0).x)) * smoothstep(0.5, 0.72, nC.w + (nA.y - 0.5) * 0.4);
+  ic = mix(ic, ic * vec3(0.5, 0.58, 0.62), clamp(crack * 0.7 + fine * 0.35, 0.0, 1.0));
+  ic += vec3(0.24, 0.28, 0.3) * lip * (0.2 + 0.4 * uSunI);
+#else
+  float n1 = textureLod(uNoise, wp * 0.19, nLod(0.19)).r;
+  ic *= 1.0 - 0.35 * (1.0 - smoothstep(0.006, 0.02, abs(n1 - 0.5)));
+#endif
+  // frost feathers, then drifting snow (thicker toward the shore and in the lee of the drifts)
+  float fr = textureLod(uNoise, wp * 0.55 + 0.7, nLod(0.55)).g;
+  ic = mix(ic, vec3(0.85, 0.9, 0.94), smoothstep(0.6, 0.85, fr) * 0.32);
+  float dr = smoothstep(0.42, 0.78, nC.y * 0.55 + nA.w * 0.25 + nB.y * 0.2 + shore * 0.7) * uSeaA.x;
+  vec3 snC = vec3(0.86, 0.89, 0.94) * (0.84 + 0.16 * uSunI) * sunT;
+  return mix(ic, snC, dr * 0.9);
+}
 void main(){
   vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
   PPX = max(abs(dFdx(wp.x)), 1e-5);
@@ -1034,8 +1175,9 @@ void main(){
   float outK = 1.0 - cave;
   vec4 CL = vec4(0.0);
   if (uClimOn > 0.5) CL = texture(uClim, wp / uWorld);
-  float roofB = (uWet > 0.01 || uSnow > 0.01) ? texture(uRoofT, wp / uWorld).b : 0.0;
+  float roofB = (uWet > 0.01 || uSnow > 0.01 || uSeaA.x > 0.01) ? texture(uRoofT, wp / uWorld).b : 0.0;
   float snowA = smoothstep(0.45, 0.75, CL.r) * outK * (1.0 - roofB);   // where snow can lie (cold biomes, outdoors)
+  float snowS = max(uSnow * snowA, uSeaA.x * outK * (1.0 - roofB));   // snow lying now (cold biomes after snowfall; winter: everywhere)
   vec3 sunT = vec3(1.0) + uSunWarm * outK;
   // relief light: the sun outdoors, a soft fixed top-left light underground (torches do the rest)
   vec3 Ld = normalize(mix(uSun, vec3(-0.35, -0.45, 0.82), cave));
@@ -1127,7 +1269,7 @@ void main(){
       rock = mix(rock, alb * 0.1, (1.0 - smoothstep(gw * 0.5, gw, vc.x)) * keep);
     }
     // snow on the cold massifs: permanent on the high tops, everywhere after snowfall (flat, upward faces)
-    float capS = max(uSnow, uSnowPeak * smoothstep(0.35, 0.95, Fr.g)) * snowA;
+    float capS = max(max(uSnow, uSnowPeak * smoothstep(0.35, 0.95, Fr.g)) * snowA, snowS);
     if (capS > 0.01) {
       float m = smoothstep(0.3, 0.62, capS * 1.15 + (N.z - 0.9) * 2.4 + (RT.a - 0.5) * 0.6 + (nB.y - 0.5) * 0.35 - 0.28) * (1.0 - cliff * 0.75);
       vec3 snC = vec3(0.86, 0.89, 0.95) * (0.56 + 0.56 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * uSunI * outK);
@@ -1171,6 +1313,8 @@ void main(){
       float gn = nB.y;
       float turf = smoothstep(0.42, 0.85, F2.r + (nC.y - 0.5) * 0.8 + (nB.w - 0.5) * 0.3) * soilK * (1.0 - CV.b);
       vec3 turfC = vec3(0.33, 0.36, 0.185) * (0.82 + 0.36 * gn) * (0.9 + 0.2 * nA.z);
+      turfC = mix(turfC, turfC * vec3(1.45, 1.08, 0.82), uSeaA.z * (0.6 + 0.4 * nC.y));   // autumn: golden turf
+      turfC = mix(turfC, turfC * vec3(1.02, 1.16, 0.86), uSeaA.w);                       // spring: fresh green
       col = mix(col, turfC, turf * (0.42 + 0.2 * smoothstep(0.42, 0.66, gn)));
     }
 
@@ -1183,11 +1327,11 @@ void main(){
       col = mix(col, col * vec3(0.8, 0.86, 0.78), hum * forK * 0.35);
     }
     // tiny flower heads scattered through lush grass, in colour patches
-    if (QL >= 1 && F2.r > 0.5 && PPX < 0.035) {
+    if (QL >= 1 && F2.r > 0.5 - 0.18 * uSeaA.w && PPX < 0.035) {
       vec2 fp = wp * 3.3;
       vec2 fc = floor(fp), fh = hash22(fc + 3.17);
       float patchK = smoothstep(0.52, 0.8, nC.y * 0.7 + nA.x * 0.3);
-      if (fh.x < patchK * smoothstep(0.5, 0.85, F2.r) * 0.55) {
+      if (fh.x < patchK * smoothstep(0.5 - 0.2 * uSeaA.w, 0.85, F2.r) * 0.55 * (1.0 + 1.7 * uSeaA.w) * (1.0 - 0.75 * uSeaA.z)) {
         vec2 fd = fract(fp) - (0.2 + 0.6 * hash22(fc + 9.21));
         float fr = length(fd) / 0.075;
         if (fr < 1.0) {
@@ -1196,6 +1340,26 @@ void main(){
           col = mix(col, fcol * (0.75 + 0.35 * (1.0 - fr)), (1.0 - smoothstep(0.55, 1.0, fr)) * 0.85);
         }
       }
+    }
+    // autumn: a warm cast and fallen leaves scattered in drifts (they stay under the snow, gone by spring)
+    float litK = max(uSeaA.z, uSeaB.x * step(0.5, uSeaB.z)) * outK * (1.0 - roofB);
+    if (litK > 0.01) {
+      float soilG = dot(bw, vec4(lessThan(gids, vec4(1.5)))) + forK;
+      col = mix(col, col * vec3(1.07, 0.99, 0.84), litK * 0.4 * min(soilG + F2.r * 0.5, 1.0));
+#if QL >= 1
+      if (PPX < 0.05) {
+        vec2 lp = wp * 4.6, lc = floor(lp), lh = hash22(lc + 5.3);
+        float dens = smoothstep(0.3, 0.75, nC.y * 0.55 + nA.x * 0.25 + forK * 0.35 + F2.r * 0.15) * (1.0 - CV.b * 0.8);
+        if (lh.x < dens * litK * 0.9) {
+          vec2 ld = fract(lp) - (0.25 + 0.5 * hash22(lc + 1.7));
+          float an = lh.y * 6.2832, ca = cos(an), sa = sin(an);
+          vec2 lq = vec2(ca * ld.x - sa * ld.y, sa * ld.x + ca * ld.y) / vec2(0.15, 0.085);
+          float e = length(lq);
+          vec3 lc3 = lh.y < 0.3 ? vec3(0.66, 0.27, 0.08) : lh.y < 0.6 ? vec3(0.8, 0.52, 0.13) : lh.y < 0.82 ? vec3(0.56, 0.16, 0.08) : vec3(0.52, 0.37, 0.17);
+          col = mix(col, lc3 * (0.82 + 0.28 * (1.0 - e)) * (0.9 + 0.2 * nB.x), (1.0 - smoothstep(0.65, 1.0, e)) * 0.92);
+        }
+      }
+#endif
     }
     // trampled ground (bandit camps and their trails): packed dusty earth, scuffed by many feet
     float tr = CV.b;
@@ -1216,7 +1380,7 @@ void main(){
     }
 
     // rain wetness: darker, a bit richer; puddles in low spots; marsh keeps standing water (never in caves)
-    float wet = uWet * outK * (1.0 - roofB) * (1.0 - 0.9 * snowA * step(0.02, uSnow));
+    float wet = uWet * outK * (1.0 - roofB) * (1.0 - 0.9 * max(snowA * step(0.02, uSnow), snowS));
     col *= 1.0 - 0.2 * wet * min(pk, 1.0);
     float lum0 = dot(col, vec3(0.333));
     col = mix(vec3(lum0), col, 1.0 + 0.18 * wet);
@@ -1239,12 +1403,13 @@ void main(){
     }
 
     // snow cover on the ground of cold biomes (bumps first, then a full blanket)
-    if (uSnow > 0.01 && snowA > 0.01) {
-      float sn = uSnow * snowA;
+    if (snowS > 0.01) {
+      float sn = snowS;
       float m = smoothstep(0.3, 0.6, sn * 1.3 + (hgt - 0.5) * 0.6 + (nB.y - 0.5) * 0.45 + (nA.z - 0.5) * 0.25 - 0.3);
       vec3 Ns = normalize(vec3(-hgG * 0.03, 1.0));
       float sd2 = max(dot(Ns, uSun), 0.0);
       vec3 snC = vec3(0.85, 0.88, 0.93) * (0.8 + 0.2 * sd2 * uSunI + 0.06 * nA.z) * sunT;
+      snC *= mix(vec3(1.0), vec3(0.93, 0.96, 1.03), smoothstep(0.35, 0.75, nC.y + (0.5 - hgt) * 0.4)) * (0.96 + 0.06 * nB.w); // drifts, bluish hollows
       col = mix(col, snC, m * (1.0 - 0.6 * max(CV.b, pathK * 0.5))); // trampled ground / paths keep less snow
     }
     // contact AO at the foot of walls / structures
@@ -1315,7 +1480,7 @@ void main(){
         cc = mix(cc, alb * 0.16, (1.0 - smoothstep(0.05 - aaW * 0.5, 0.05 + aaW * 0.5, ce)) * lipK);
         // weather on the mountain top
         cc *= 1.0 - 0.16 * uWet;
-        if (uSnow > 0.01) cc = mix(cc, vec3(0.85, 0.88, 0.93) * (0.62 + 0.4 * dif * uSunI) * sunT, smoothstep(0.3, 0.7, uSnow * snowA + (nB.y - 0.5) * 0.4) * 0.9);
+        if (snowS > 0.01) cc = mix(cc, vec3(0.85, 0.88, 0.93) * (0.62 + 0.4 * dif * uSunI) * sunT, smoothstep(0.3, 0.7, snowS + (nB.y - 0.5) * 0.4) * 0.9);
         col = mix(col, cc, cm);
         shadowMask = mix(shadowMask, 0.6, cm);
       }
@@ -1326,11 +1491,14 @@ void main(){
     float fl = length(flow);
     // gentle swash: lake shores breathe in and out (rivers keep a steady edge)
     float swb = smoothstep(0.1, 0.24, wl) * (1.0 - smoothstep(0.3, 0.45, wl)) * (1.0 - smoothstep(0.1, 0.4, fl));
-    float swash = (0.5 + 0.5 * sin(uTime * 0.85 + nA.x * 8.0 + dot(wp, vec2(0.13, 0.07)))) * 0.03 * swb;
-    col *= 1.0 - 0.3 * smoothstep(0.16, 0.255, wl + 0.03 * swb);   // wet dark sand at the waterline
+    float iceK = uSeaA.y;   // winter: the water is frozen (no swash, no waves)
+    float swash = (0.5 + 0.5 * sin(uTime * 0.85 + nA.x * 8.0 + dot(wp, vec2(0.13, 0.07)))) * 0.03 * swb * (1.0 - iceK);
+    col *= 1.0 - 0.3 * smoothstep(0.16, 0.255, wl + 0.03 * swb) * (1.0 - 0.8 * iceK);   // wet dark sand at the waterline
     wl += swash;
     if (wl > 0.235) {
       float depth = smoothstep(0.26, 1.0, wl) * (1.0 - 0.4 * smoothstep(0.2, 0.7, fl));
+      vec3 wc = vec3(0.0);
+      if (iceK < 0.999) {
       float ph0 = fract(uTime * 0.22), ph1 = fract(uTime * 0.22 + 0.5);
       float mw = abs(ph0 * 2.0 - 1.0);
       vec2 b1 = wp * 0.31 + uTime * vec2(0.021, 0.013);
@@ -1355,7 +1523,7 @@ void main(){
       float dd = 0.05 + depth * 1.95;
       vec3 Tr = exp(-vec3(2.4, 0.92, 0.66) * dd);
       vec3 deepCol = vec3(0.026, 0.10, 0.16);
-      vec3 wc = bottom * Tr + deepCol * (1.0 - Tr.g);
+      wc = bottom * Tr + deepCol * (1.0 - Tr.g);
       // sky + cloud reflection
       float cr = textureLod(uNoise, (wp + N.xy * 3.0) * 0.0105 + uCloudVel * uTime, 0.0).r;
       vec3 sky = uSky * (0.85 + 0.45 * smoothstep(0.45, 0.78, cr) * (0.25 + uCloud));
@@ -1394,6 +1562,8 @@ void main(){
       }
       vec3 foamCol = vec3(0.86, 0.91, 0.92) * (0.65 + 0.35 * uSunI);
       wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * 0.5);
+      }
+      if (iceK > 0.001) wc = mix(wc, iceSurface(wp, depth, wl, nA, nB, nC, sunT), iceK);
       float edge = smoothstep(0.255 - aaW * 0.4, 0.255 + aaW * 0.4, wl);
       col = mix(col, wc, edge);
       shadowMask = mix(1.0, 0.55, edge);
@@ -1449,6 +1619,7 @@ uniform float uCamCave;   // camera inside a cave (0..1): deeper vignette
 uniform vec4 uBolt;       // lightning strike: world x, y, radius, intensity
 uniform float uGrain;     // film grain amount (0 = off)
 uniform float uBloom;     // soft bloom around strong lights
+uniform vec4 uSeaB;       // seasons: bare, winter (precipitation falls as snow), -, blizzard (winter storm)
 // explicit light shafts (renderer.addShaft): A = (x, y opening, x, y landing), B = (height, width at the
 // opening, width at the landing, intensity), C = (r, g, b, haze)
 uniform vec4 uShA[8], uShB[8], uShC[8];
@@ -1492,16 +1663,18 @@ float rainLayer(vec2 wp, float scale, float speed, float seed, float dens){
 }
 
 // world-space snowflakes (one layer): slow fall, drift with the wind, each flake wobbling on its own
+float SNOWX = 1.6;   // sideways drift per unit of fall (blizzards blow it almost flat)
+float SNOWS = 1.0;   // flake stretch along the drift (blizzard streaks)
 float snowLayer(vec2 wp, float scale, float speed, float seed, float dens){
   vec2 p = wp * scale;
   p.y -= uTime * speed;
-  p.x -= uTime * speed * uRainDir.x * 1.6;
+  p.x -= uTime * speed * uRainDir.x * SNOWX;
   vec2 cell = floor(p), f = fract(p) - 0.5;
   float h = hash12(cell + seed);
   if (h > dens) return 0.0;
   vec2 c0 = (vec2(hash12(cell + seed + 3.1), hash12(cell + seed + 7.7)) - 0.5) * 0.55;
   c0.x += sin(uTime * (0.7 + h * 1.3) + h * 40.0) * 0.14;
-  float r = length(f - c0);
+  float r = length((f - c0) * vec2(1.0 / SNOWS, 1.0));
   float sz = 0.05 + 0.06 * hash12(cell + seed + 1.3);
   return 1.0 - smoothstep(sz * 0.25, sz, r);
 }
@@ -1720,6 +1893,7 @@ void main(){
   // precipitation: rain streaks (parallax layers), snowflakes over cold biomes
   if (uRain > 0.01 && outK > 0.01) {
     float snowK = uHasField > 0.5 ? smoothstep(0.45, 0.75, texture(uClim, wp / uWorld).r) : 0.0;
+    snowK = max(snowK, smoothstep(0.2, 0.7, uSeaB.y));   // winter: it snows everywhere
     vec3 rc = mix(uFogCol * 1.15, vec3(0.75, 0.8, 0.88), 0.4) * (0.55 + 0.45 * uDay);
     if (snowK < 0.99) {
       float r = rainLayer(wp, 1.5, 22.0, 1.0, 0.7 * uRain) * 0.6;
@@ -1732,11 +1906,14 @@ void main(){
       c = mix(c, rc, clamp(r, 0.0, 1.0) * 0.62 * outK * (1.0 - snowK));
     }
     if (snowK > 0.01) {
-      float sf = snowLayer(wp, 1.1, 1.1, 2.0, 0.55 * uRain) + snowLayer(wp + 7.3, 1.7, 0.85, 6.0, 0.6 * uRain) * 0.8;
+      float bz = uSeaB.w;
+      SNOWX = 1.6 + bz * 4.5; SNOWS = 1.0 + bz * 1.6;
+      float sf = snowLayer(wp, 1.1, 1.1 + bz * 1.4, 2.0, 0.55 * uRain) + snowLayer(wp + 7.3, 1.7, 0.85 + bz * 1.2, 6.0, 0.6 * uRain) * 0.8;
 #if QL >= 1
-      sf += snowLayer(wp + 19.1, 2.6, 0.62, 11.0, 0.65 * uRain) * 0.6;
+      sf += snowLayer(wp + 19.1, 2.6, 0.62 + bz, 11.0, 0.65 * uRain) * 0.6;
 #endif
-      vec3 scol = vec3(0.93, 0.95, 1.0) * clamp(max(L, vec3(0.42)) * (0.75 + 0.25 * uDay), 0.0, 1.25);
+      if (bz > 0.01) sf += snowLayer(wp + 31.7, 0.75, 2.4, 17.0, 0.75 * bz) + snowLayer(wp + 3.9, 3.4, 1.8, 23.0, 0.8 * bz) * 0.5; // blizzard
+      vec3 scol = vec3(0.93, 0.95, 1.0) * clamp(max(L, vec3(0.42 + 0.4 * bz)) * (0.75 + 0.25 * uDay), 0.0, 1.25);
       c = mix(c, scol, clamp(sf, 0.0, 1.0) * 0.85 * outK * snowK);
     }
   }

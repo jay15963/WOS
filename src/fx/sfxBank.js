@@ -624,6 +624,15 @@ export const SFX = {
     const n = 6 + Math.floor(r() * 5);
     for (let k = 0; k < n; k++) tone(d, sr, k * 0.04, 0.02, 2200 + r() * 300, 2800, 0.8, { a: 0.002, dec: 0.018 });
   } },
+  // a winter walker shattering: a sharp ice crack, glassy shards tinkling down, a soft whoosh of snow
+  ice_shatter: { v: 3, sec: 1.1, sr: 24000, gain: 0.5, rev: 0.32, pj: 1, vj: 0.12, render(d, sr, r) {
+    click(d, sr, 0, r, 0.9, 3200);
+    burst(d, sr, 0, 0.05, { r, type: 'bp', f: 2600, q: 0.8, a: 0.0005, amp: 0.8 });
+    thump(d, sr, 0, 170, 60, 0.4, 0.07);
+    const n = 24 + Math.floor(r() * 10);
+    for (let k = 0; k < n; k++) mode(d, sr, 0.02 + 0.65 * Math.pow(r(), 1.8), 2600 + r() * 5400, (0.08 + r() * 0.22) * (1 - (k / n) * 0.6), 0.03 + r() * 0.08);
+    burst(d, sr, 0.03, 0.6, { r, color: 'pink', type: 'bp', f: 1800, q: 0.6, a: 0.08, amp: 0.25, grain: 0.5, grainRate: 1600 });
+  } },
   water_blub: { v: 4, sec: 0.16, gain: 0.1, bus: 'amb', rev: 0.3, pj: 2, vj: 0.3, render(d, sr, r) {
     bubble(d, sr, 0, r, 0.8);
     burst(d, sr, 0, 0.08, { r, color: 'brown', type: 'lp', f: 500, amp: 0.4 });

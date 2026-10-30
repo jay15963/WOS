@@ -383,6 +383,19 @@ Owner's request: the night must have life and danger, and the year must turn.
   `ice_spear`) and use the raiders' brain (bandits.js updateBandit, per-species numbers). They crumble to snow at
   sunrise or when the winter ends: no body, no loot, no XP. Killed by a player, one leaves its ice weapon 25% of
   the time. Art: the seasons visual agent (vegetation by season, snow, ice, walker look, ice weapons, shatter).
+- **Visual** (agent "seasons visuals", cosmetic, reads `game.season` only):
+  - `fx/seasonfx.js` feeds `uSeaA` (snow, ice, autumn, bloom) / `uSeaB` (bare, winter, crown autumn, blizzard) to the
+    shaders and spawns petals (spring), breath puffs (winter) and glints on the snow.
+  - The sprite batch carries a season class per sprite (16th `add()` argument: tree / shrub / grass / conifer…)
+    for autumn recolouring, leaf drop over lazily painted bare twins (`art/season.js`, `art/trees.js`), snow caps
+    and spring blossoms.
+  - Terrain: snow over every biome, the ice surface (no waves, cracks, frost), golden turf and leaf litter, and
+    more flowers in spring.
+  - Snow on roofs (`uRoofSnow`), snowfall instead of rain and blizzards; wildlife, water sounds and the
+    waterline go quiet on ice.
+  - Walkers: `art/walker.js` (3 looks, dark frost-crusted armor, shoulder crystals, glowing eyes, no lying body)
+    and `fx/walkerfx.js` (mist, cold light, ice shatter + `ice_shatter` sound). Ice weapons are in `art/gear.js`
+    (`proj_ice_spear`); fur clothes in `art/apparel.js`.
 - **Walkers break in** (later request: hiding indoors must not be safe). They sense the living through walls (14
   tiles) and are drawn to light (50 tiles, indoors too). When what they want is shut in a room (roofs.enclosedRoom),
   they pick the closest wall / door / fence of it, stand outside and hit it.

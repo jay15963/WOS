@@ -21,6 +21,9 @@ import { installStatusFx } from './status.js';
 import { installBrush } from './brush.js';
 
 import { installWildlife } from './wildlife.js';
+import { installSeasonFx } from './seasonfx.js';
+import { installWalkerFx } from './walkerfx.js';
+import { SEASON } from '../art/season.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -37,11 +40,19 @@ const GRADE = {
   water: { tint: [0.99, 1.0, 1.02], lift: [0, 0.002, 0.006], sat: 1.02, mist: 0.08 },
   mountain: { tint: [0.97, 0.985, 1.03], lift: [0, 0.002, 0.01], sat: 0.92, mist: 0.03 },
 };
+const AUTUMN_LEAF = [[1.45, 0.82, 0.32], [1.5, 1.05, 0.36], [1.35, 0.55, 0.3], [1.15, 0.78, 0.42], [1.5, 1.2, 0.4]];
 const SNOW_GRADE = { tint: [0.98, 1.0, 1.045], lift: [0.004, 0.006, 0.012], sat: 0.9, mist: 0.04 };
+// seasons (art/season.js weights): fresh spring, warm golden autumn, cold blue winter (summer: the biome grade)
+const SEASON_GRADE = [
+  ['bloom', { tint: [1.0, 1.03, 0.975], lift: [0.002, 0.004, 0], sat: 1.1, mist: 0.04 }],
+  ['autumn', { tint: [1.05, 1.0, 0.89], lift: [0.007, 0.003, 0], sat: 1.07, mist: 0.07 }],
+  ['winter', { tint: [0.93, 0.985, 1.08], lift: [0, 0.007, 0.02], sat: 0.82, mist: 0.06 }],
+];
 
 export function installAmbient(game) {
   installQuality(game);
   installDebug(game);
+  installSeasonFx(game);  // seasons: shader weights, petals, breath, snow glints (cosmetic)
   const sys = new Ambient(game);
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
@@ -49,6 +60,7 @@ export function installAmbient(game) {
   installWildlife(game); // critters (butterflies, bees, dragonflies, frogs, ducks, fish, squirrels, birds, rabbits)
   installStatusFx(game);  // local player's status screen effects (cosmetic)
   installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
+  installWalkerFx(game);  // winter walkers: cold mist, glowing eyes, shattering into ice (cosmetic)
 }
 
 class Ambient {
@@ -147,8 +159,8 @@ class Ambient {
     if (g.env.env.extra) g.env.env.extra.uCamCave = this.camCave;
 
     // ---------- rain splashes on the ground ----------
-    if (env.rain > 0.05) {
-      this.acc.rain += dt * env.rain * 55 * areaK;
+    if (env.rain > 0.05 && SEASON.winter < 0.6) {
+      this.acc.rain += dt * env.rain * 55 * areaK * (1 - SEASON.winter);
       while (this.acc.rain > 1) {
         this.acc.rain -= 1;
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
@@ -156,6 +168,7 @@ class Ambient {
         if (w.isRock(tx, ty) || (w.caveDark && w.caveDark(x, y) > 0.25) || w.roofAt?.(tx, ty) === 2) continue; // no rain underground / under roofs
         if (g.R.coldAt && g.R.coldAt(x, y) > 0.6) continue;                       // it snows here (post shader)
         if (w.waterAt(tx, ty)) {
+          if (SEASON.ice > 0.5) continue; // frozen
           // ripples are drawn by the terrain shader; add a droplet jumping off the surface now and then
           if (rnd() < 0.35) P.emit({ spr: this.S.spark, x, y, vx: (rnd() - 0.5) * 0.4, vy: (rnd() - 0.5) * 0.2, lift: 0.02, vlift: 0.8 + rnd() * 0.7, grav: 7, life: 0.25, size: (0.08) * K.spark, size1: (0.05) * K.spark, r: 0.82, g: 0.88, b: 0.95, a: 0.6, a1: 0 });
           continue;
@@ -184,16 +197,18 @@ class Ambient {
     }
 
     // ---------- falling leaves under trees ----------
-    if (this.trees.length) {
-      this.acc.leaf += dt * (0.8 + env.wind * 4 + gusty * 10) * Math.min(1, this.trees.length / 12) * areaK;
+    // seasons: autumn showers of coloured leaves (until the crowns are bare), none from bare winter crowns
+    const leafK = (1 + SEASON.autumn * 4 + SEASON.bare * SEASON.wane * 3 * (1 - SEASON.bare)) * (1 - SEASON.bare * 0.92);
+    if (this.trees.length && leafK > 0.05) {
+      this.acc.leaf += dt * (0.8 + env.wind * 4 + gusty * 10) * Math.min(1, this.trees.length / 12) * areaK * leafK;
       while (this.acc.leaf > 1) {
         this.acc.leaf -= 1;
         const o = this.trees[Math.floor(rnd() * this.trees.length)];
         if (o.stump || o.fall) continue;
         const s = o.s || 1, pine = o.type === 'tree_pine';
         if (pine && rnd() < 0.7) continue;
-        const autumn = rnd();
-        const c = o.type === 'tree_birch' ? [1.35, 1.2, 0.45] : autumn < 0.45 ? [1, 1, 1] : autumn < 0.8 ? [1.3, 0.95, 0.5] : [1.25, 0.72, 0.42];
+        const autumn = rnd(), au = !pine && rnd() < SEASON.autumn + SEASON.bare * SEASON.wane;
+        const c = au ? AUTUMN_LEAF[Math.floor(rnd() * AUTUMN_LEAF.length)] : o.type === 'tree_birch' ? [1.35, 1.2, 0.45] : autumn < 0.45 ? [1, 1, 1] : autumn < 0.8 ? [1.3, 0.95, 0.5] : [1.25, 0.72, 0.42];
         const sp = 0.25 + env.wind * 1.1; // ≤ ~1.4 tiles/s: leaves float, never shoot
         P.emit({ spr: this.S.leaf, x: o.x + (rnd() - 0.5) * 1.3 * s, y: o.y + (rnd() - 0.3) * 0.5, lift: (1.2 + rnd() * 1.3) * s,
           vx: env.windDir[0] * sp + (rnd() - 0.5) * 0.3, vy: env.windDir[1] * sp * 0.6 + (rnd() - 0.5) * 0.2, vlift: -0.25 - rnd() * 0.2, grav: 0.02, drag: 0.05,
@@ -203,7 +218,7 @@ class Ambient {
 
     // ---------- fireflies (night) ----------
     const night = env.night;
-    const wantFly = night > 0.45 && env.rain < 0.25 ? Math.round(26 * areaK * (night - 0.3)) : 0;
+    const wantFly = night > 0.45 && env.rain < 0.25 ? Math.round(26 * areaK * (night - 0.3) * (1 - SEASON.winter) * (1 - SEASON.autumn * 0.7)) : 0;
     if (this.fireflies.length < wantFly) {
       this.acc.fly += dt * 6;
       while (this.acc.fly > 1 && this.fireflies.length < wantFly) {
@@ -223,7 +238,7 @@ class Ambient {
       f.ang += (Math.sin(this.t * 0.9 + f.ph) * 1.8 + (rnd() - 0.5) * 2) * dt;
       f.x += Math.cos(f.ang) * f.sp * dt; f.y += Math.sin(f.ang) * f.sp * dt * 0.7;
       f.lift = Math.max(0.15, f.lift + Math.sin(this.t * 1.3 + f.ph * 3) * dt * 0.25);
-      if (f.t > f.life || night < 0.3 || f.x < v.x0 - 3 || f.x > v.x1 + 3 || f.y < v.y0 - 3 || f.y > v.y1 + 3) this.fireflies.splice(k, 1);
+      if (f.t > f.life || night < 0.3 || SEASON.winter > 0.5 || f.x < v.x0 - 3 || f.x > v.x1 + 3 || f.y < v.y0 - 3 || f.y > v.y1 + 3) this.fireflies.splice(k, 1);
     }
 
     // ---------- butterflies (day, near flowers) ----------
@@ -308,7 +323,7 @@ class Ambient {
     }
 
     // ---------- water sparkles ----------
-    if (env.sunI > 0.35 && env.rain < 0.2) {
+    if (env.sunI > 0.35 && env.rain < 0.2 && SEASON.ice < 0.5) {
       this.acc.spark += dt * 6 * env.sunI * areaK;
       while (this.acc.spark > 1) {
         this.acc.spark -= 1;
@@ -335,6 +350,7 @@ class Ambient {
 
     // ---------- fish jumping ----------
     this.nextFish -= dt;
+    if (this.nextFish <= 0 && SEASON.ice > 0.3) this.nextFish = 5;
     if (this.nextFish <= 0) {
       this.nextFish = 3 + rnd() * 7;
       for (let tries = 0; tries < 10; tries++) {
@@ -442,7 +458,7 @@ class Ambient {
   _climate(g, dt) {
     const E = g.env, env = E.env, w = g.world, R = g.R, cam = g.cam;
     const cold = R.coldAt ? R.coldAt(cam.x, cam.y + 0.4) : 0;
-    const sk = Math.min(1, Math.max(0, (cold - 0.45) / 0.3));
+    const sk = Math.max(Math.min(1, Math.max(0, (cold - 0.45) / 0.3)), Math.min(1, Math.max(0, (SEASON.winter - 0.2) * 2))); // winter: snow everywhere
     this.snowAt += (sk - this.snowAt) * (1 - Math.exp(-dt * 2));
     env.snowAt = this.snowAt * env.rain;
     env.bloomK = this.lights.length ? 1 : 0;   // the post bloom only pays its taps when a light is in view
@@ -466,6 +482,12 @@ class Ambient {
       }
       T.sat = n ? T.sat / n : 1; T.mist = n ? T.mist / n : 0;
       T.sat += (SNOW_GRADE.sat - T.sat) * sn; T.mist += (SNOW_GRADE.mist - T.mist) * sn;
+      for (const [k, G] of SEASON_GRADE) {
+        const q = SEASON[k] || 0;
+        if (q <= 0.001) continue;
+        for (let c = 0; c < 3; c++) { T.tint[c] += (G.tint[c] - T.tint[c]) * q; T.lift[c] += (G.lift[c] - T.lift[c]) * q; }
+        T.sat += (G.sat - T.sat) * q; T.mist += (G.mist - T.mist) * q;
+      }
       // underground the cave look takes over
       const ck = 1 - this.camCave;
       for (let c = 0; c < 3; c++) { T.tint[c] = 1 + (T.tint[c] - 1) * ck; T.lift[c] *= ck; }
@@ -564,7 +586,7 @@ class Ambient {
       for (const d of this.drips) B.fx.add(drop, d.x, d.y, 0.05 * K.drop, 0.11 * K.drop, 0.85, 0.92, 1, 0.8, 0, 0, 0, 1, 0, Math.max(0, d.lift));
     }
     // bioluminescent mushrooms at night (about a third of them glow)
-    if (env.night > 0.2 && this.mushrooms.length) {
+    if (env.night > 0.2 && this.mushrooms.length && SEASON.snow < 0.5) { // (under the snow in winter)
       const soft = this.spr(this.S.soft), K = this.K;
       for (const d of this.mushrooms) {
         if (d.v % 3 !== 0) continue;

@@ -7,12 +7,22 @@
 // Sprites: src/art/critters.js (cr_*), rabbits reuse rabbit_e / rabbit_e_walk.
 
 import { installWaterline } from './waterline.js';
+import { SEASON } from '../art/season.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
 const SCAN = 0.8; // s between habitat scans
 
 // per-kind caps (high quality); low ×0.5, medium ×0.8
+// seasons (art/season.js): no insects or frogs in the cold, fewer in autumn; ducks and fish only on open water;
+// fewer birds, squirrels and rabbits about in the snow
+function seasonCap(kind) {
+  const S = SEASON, cold = Math.max(S.winter, S.snow);
+  if (kind === 'butterfly' || kind === 'bee' || kind === 'dragonfly' || kind === 'frog') return (1 - cold) * (1 - 0.6 * S.autumn);
+  if (kind === 'duck' || kind === 'fish') return 1 - S.ice;
+  if (kind === 'bird' || kind === 'squirrel' || kind === 'rabbit') return 1 - 0.5 * cold;
+  return 1;
+}
 const CAP = { butterfly: 10, bee: 7, dragonfly: 5, frog: 6, duck: 7, fish: 6, squirrel: 3, bird: 8, rabbit: 3 };
 const FLOWERS = new Set(['flower', 'bloom', 'heather', 'thistle']);
 const TREE_OK = new Set(['tree_oak', 'tree_pine', 'tree_birch']);
@@ -62,7 +72,7 @@ class Wildlife {
   // ---------------------------------------------------------------- helpers
   capOf(kind) {
     const q = this.g.quality;
-    return Math.round(CAP[kind] * (q === 'low' ? 0.5 : q === 'medium' ? 0.8 : 1));
+    return Math.round(CAP[kind] * (q === 'low' ? 0.5 : q === 'medium' ? 0.8 : 1) * seasonCap(kind));
   }
   add(kind, props) {
     if (this.n[kind] >= this.capOf(kind)) return null;
@@ -236,6 +246,7 @@ class Wildlife {
     for (let k = L.length - 1; k >= 0; k--) {
       const c = L[k];
       c.t += dt;
+      if (c.t < c.life && seasonCap(c.kind) < 0.05) c.t = c.life; // out of season (insects in the cold, ducks on the ice)
       this['_' + c.kind](c, dt, env);
       const out = c.x < v.x0 - 7 || c.x > v.x1 + 7 || c.y < v.y0 - 7 || c.y > v.y1 + 8;
       if (c.dead || out || (c.t > c.life && c.a <= 0.01)) {

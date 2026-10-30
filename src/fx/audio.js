@@ -533,25 +533,28 @@ export class Audio {
     this._param(this.bWind2.f.frequency, 1100 + gust * 700 + cold * 900, 'wf2', 1.0);
     this._set(this.bLeaves, N.trees * (0.25 + wind) * 0.035 * out, 0.8);
     const rain = env.rain || 0;
-    this._set(this.bRain, rain * 0.075 * (1 - cave * 0.93) * (1 - indoor * 0.4), 1.2);
-    this._set(this.bRain2, rain * 0.05 * (1 - cave * 0.8) * (1 - indoor * 0.6), 1.2);
-    this._set(this.bRoof, rain * indoor * (1 - cave) * 0.11, 1.0);
-    this._set(this.bRiver, N.flow * 0.12, 0.8);
+    // seasons: snow falls silently (env.snowAt = the snowy share), frozen water is still, no insects in the cold
+    const SE = game.season || {}, ice = SE.ice || 0, winter = SE.winter || 0;
+    const wetRain = Math.max(0, rain - (env.snowAt || 0));
+    this._set(this.bRain, wetRain * 0.075 * (1 - cave * 0.93) * (1 - indoor * 0.4), 1.2);
+    this._set(this.bRain2, wetRain * 0.05 * (1 - cave * 0.8) * (1 - indoor * 0.6), 1.2);
+    this._set(this.bRoof, wetRain * indoor * (1 - cave) * 0.11, 1.0);
+    this._set(this.bRiver, N.flow * 0.12 * (1 - ice), 0.8);
     if (this.bRiver.p) this._param(this.bRiver.p.pan, N.waterPan * 0.6, 'rp', 0.5);
     const tt = performance.now() / 1000;
     const lap = 0.5 + 0.5 * Math.sin(tt * 1.7) * Math.sin(tt * 0.6);
-    this._set(this.bLake, N.water * (0.05 + 0.06 * lap) * (1 - N.flow * 0.5) + swim * (0.06 + 0.04 * lap), 0.3);
+    this._set(this.bLake, (N.water * (0.05 + 0.06 * lap) * (1 - N.flow * 0.5) + swim * (0.06 + 0.04 * lap)) * (1 - ice), 0.3);
     if (this.bLake.p) this._param(this.bLake.p.pan, N.waterPan * 0.6 * (1 - swim), 'lp', 0.5);
     this._set(this.bFire, N.fire * 0.05 * (1 + warm * 0.5), 0.3);
     if (this.bFire.p) this._param(this.bFire.p.pan, N.firePan * (1 - warm * 0.5), 'fp', 0.3);
     const day = env.day || 0, night = (env.night || 0) * (1 - cave), hour = env.hour ?? 12;
-    this._set(this.bInsect, night * (1 - rain) * (0.3 + N.lush) * 0.011, 2);
+    this._set(this.bInsect, night * (1 - rain) * (0.3 + N.lush) * 0.011 * (1 - winter), 2);
 
     const calm = (1 - rain) * (1 - Math.max(0, wind - 0.6) * 1.5) * (1 - cave);
     const voice = (name, vol, o = {}) => this._sfx(name, { pan: (rnd() - 0.5) * 1.6, volume: vol, indoor: false, ...o });
     // rain grains: drops on leaves outside, drumming on the roof inside
-    if (rain > 0.1) {
-      const outRate = rain * 9 * (1 - indoor) * (1 - cave), roofRate = rain * 16 * indoor * (1 - cave);
+    if (wetRain > 0.1) {
+      const outRate = wetRain * 9 * (1 - indoor) * (1 - cave), roofRate = wetRain * 16 * indoor * (1 - cave);
       const cap = this.lowEnd ? 0.5 : 1;
       if (rnd() < outRate * dt * cap) voice('rain_drop', 0.6 + rnd() * 0.6);
       if (rnd() < roofRate * dt * cap) this._sfx('roof_drop', { pan: (rnd() - 0.5) * 1.4, volume: 0.6 + rnd() * 0.5 });
@@ -577,7 +580,7 @@ export class Audio {
     const dawn = hour > 5 && hour < 8.5;
     const chorus = dawn ? 2.4 : 1;
     if (day > 0.2 && calm > 0.2) {
-      T.bird -= dt * day * calm * chorus * (0.4 + N.lush * 0.5 + N.trees * 0.8);
+      T.bird -= dt * day * calm * chorus * (0.4 + N.lush * 0.5 + N.trees * 0.8) * (1 - 0.65 * winter);
       if (T.bird <= 0) {
         T.bird = 1.2 + rnd() * 3.5;
         const k = rnd();
@@ -589,17 +592,17 @@ export class Audio {
     }
     // night: crickets, owls, frogs, a distant wolf howl
     if (night > 0.4 && rain < 0.4) {
-      T.cricket -= dt * night * (0.5 + N.lush);
+      T.cricket -= dt * night * (0.5 + N.lush) * (winter > 0.4 ? 0 : 1);
       if (T.cricket <= 0) { T.cricket = 0.25 + rnd() * 0.6; voice('cricket', 0.5 + rnd() * 0.7); }
       T.owl -= dt * N.trees;
       if (T.owl <= 0) { T.owl = 18 + rnd() * 30; voice('owl', 0.7 + rnd() * 0.4); }
-      T.frog -= dt * (N.marsh * 2 + N.water * 0.6);
+      T.frog -= dt * (N.marsh * 2 + N.water * 0.6) * (winter > 0.4 || ice > 0.4 ? 0 : 1);
       if (T.frog <= 0) { T.frog = 2 + rnd() * 5; voice('frog', 0.6 + rnd() * 0.6); }
       T.howl -= dt * (N.wolves > 0 ? 1 : 0.15);
       if (T.howl <= 0) { T.howl = 45 + rnd() * 80; voice('wolf_howl', N.wolves > 0 ? 0.8 : 0.35, { lp: 2600 }); }
     }
     // lakes: an occasional blub / fish
-    if (N.water > 0.3 && cave < 0.3) {
+    if (N.water > 0.3 && cave < 0.3 && ice < 0.4) {
       T.blub -= dt * N.water;
       if (T.blub <= 0) { T.blub = 5 + rnd() * 12; voice(rnd() < 0.7 ? 'water_blub' : 'plop', 0.5 + rnd() * 0.5, { pan: N.waterPan * 0.7 }); }
     }
