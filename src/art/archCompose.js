@@ -259,7 +259,7 @@ function drawWall(B, T, o, k, t, fl) {
     }
     if (on.flowers) addPlain(B, D.flowers, x, y, 1, 1, fl);
   }
-  if (on.ivy) addPlain(B, D['ivy_' + (((o.tx * 7 + o.ty * 3) % 3 + 3) % 3)], x, y, hash(o.tx + 1, o.ty) < 0.5 ? 1 : -1, 1, fl);
+  if (on.ivy && front) addPlain(B, D['ivy_' + (((o.tx * 7 + o.ty * 3) % 3 + 3) % 3)], x, y, hash(o.tx + 1, o.ty) < 0.5 ? 1 : -1, 1, fl); // (ivy needs a visible face)
   overlaysBP(B, T, o);
   return true;
 }

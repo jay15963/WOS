@@ -388,7 +388,8 @@ export function installController(game) {
       if (any(KEYS.help)) g.events.emit('help', {});
 
       // taps / clicks
-      for (const t of inp.taps) doTap({ x: t.x, y: t.y, mouse: t.type === 'mouse' });
+      // (a right click is the context menu only — buildbar.js — never a tap: it must not also open a chest / station)
+      for (const t of inp.taps) if (t.button !== 2) doTap({ x: t.x, y: t.y, mouse: t.type === 'mouse' });
 
       // manual movement cancels goals & work
       const [mx, my] = inp.move();

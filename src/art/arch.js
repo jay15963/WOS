@@ -1008,10 +1008,11 @@ function ivy(v) {
         g.beginPath(); g.ellipse(lx, ly, 2.4 + rand(), 1.8, rand() * 3, 0, TAU); g.fill();
       }
     };
+    // it climbs the front face only (rows F0..F1): nothing grows over the wall's top
     const n = 2 + (v % 2);
-    for (let i = 0; i < n; i++) vine(10 + rand() * 44, 30 + rand() * 18, F1 - 1);
-    // some leaves spilling over the top face edge
-    for (let i = 0; i < 10; i++) { g.fillStyle = greens[i & 3]; g.beginPath(); g.ellipse(6 + rand() * 52, 54 + rand() * 10, 2.6, 1.9, rand() * 3, 0, TAU); g.fill(); }
+    for (let i = 0; i < n; i++) vine(10 + rand() * 44, F0 + 3 + rand() * FH * 0.3, F1 - 1);
+    // a few leaves just at the top edge of the face
+    for (let i = 0; i < 8; i++) { g.fillStyle = greens[i & 3]; g.beginPath(); g.ellipse(6 + rand() * 52, F0 + 2 + rand() * 4, 2.4, 1.7, rand() * 3, 0, TAU); g.fill(); }
   }, 1.2);
 }
 function moss(v) {
@@ -1508,7 +1509,8 @@ function floorScatter(kind, v) {
 // ---------------- roof props (agent J's roofs; phase 2 wiring: drawn on the slope via J's roofPropAt) ----------------
 function roofDormer(style, glow) {
   return spritePx(48, 56, (g, P) => {
-    if (glow) { g.fillStyle = 'rgba(255,196,110,0.95)'; g.fillRect(17, 28, 14, 13); return; }
+    // the lit panes only (the mullion cross and the frame stay dark), so it reads as a window in the dormer
+    if (glow) { g.fillStyle = 'rgba(255,196,110,0.95)'; g.fillRect(17, 28, 14, 13); g.clearRect(23, 28, 2, 13); g.clearRect(17, 33.5, 14, 1.6); return; }
     P.layer((g) => {
       g.fillStyle = style === 'plaster' ? '#e6d8bc' : '#7e5634'; g.fillRect(10, 22, 28, 30);
       g.fillStyle = '#5a3b24'; g.fillRect(15, 26, 18, 17); g.fillStyle = '#26303c'; g.fillRect(17, 28, 14, 13);

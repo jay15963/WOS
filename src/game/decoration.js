@@ -3,7 +3,7 @@
 //  - training dummies: floating numbers for every hit (op dummy.hit → event 'dummyhit'), a DPS readout on the
 //    nameplate / target frame (local, from the hits seen), straw puffs
 //  - roof props (details dormer / dormer_pl / skylight on finished roof tiles): K's sprites on agent J's roof slope
-//    (roofPropAt: lift, depth key, the region's fade), dormer windows glow at night
+//    (roofPropAt: lift, depth key, the region's fade), dormer windows glow at night while a light burns inside
 //  - localhost only: game.debugK.showcase() builds a decorated base next to the player through ops
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
 
@@ -40,7 +40,7 @@ export function decorSystem(game) {
     const s = archSprite(A, this.sprite); // lazily painted (requested until ready)
     if (!s) return;
     B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, 1, 0, this.lift);
-    if (this.glow && KIT_ENV.night > 0.05 && A.has('roof_dormer_glow')) B.emissive.add(A.get('roof_dormer_glow'), this.x, this.wy, 1, 1, 1, 0.8, 0.5, KIT_ENV.night * this.a, 0, 0, 0, 1, 0, this.lift);
+    if (this.glow && KIT_ENV.night > 0.05 && A.has('roof_dormer_glow')) B.emissive.add(A.get('roof_dormer_glow'), this.x, this.wy, 1, 1, 1, 0.8, 0.5, 0.85 * KIT_ENV.night * this.a, 0, 0, 0, 1, 0, this.lift);
   }
   return {
     sync: 'cosmetic', // glow, readouts and roof-prop sprites only
@@ -54,7 +54,7 @@ export function decorSystem(game) {
         if (!r || r.alpha <= 0.02) continue;
         const id = /(^|\.)skylight(\.|$)/.test(o.det) ? 'skylight' : /(^|\.)dormer_pl(\.|$)/.test(o.det) ? 'dormer_pl' : 'dormer';
         const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false });
-        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.sprite = ROOF_PROPS[id]; d.glow = id !== 'skylight';
+        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.sprite = ROOF_PROPS[id]; d.glow = id !== 'skylight' && r.lit; // (only with a light inside, like J's gable windows)
         list.push(d); k++;
       }
     },

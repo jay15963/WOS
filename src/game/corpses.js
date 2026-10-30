@@ -69,6 +69,10 @@ function onCorpseEvent(game, d) {
     if (e) e._corpseId = c.id;
     if (d.src === game.net.pid) game.player._corpse = c.id;
   }
+  if (d.removed && d.fx === 'dust') { // removed by hand ("Remover corpo")
+    game.corpses.fading.push({ c, t0: game.time });
+    game.juice.puff(c.x, c.y, 10, [0.62, 0.55, 0.45], 0.7);
+  }
   if (d.removed && d.fx === 'bones') {
     game.corpses.fading.push({ c, t0: game.time });
     game.juice.chips(c.x, c.y - 0.1, [0.92, 0.88, 0.78], 10, 0.55);
@@ -91,8 +95,9 @@ export function describeCorpse(game, c) {
   if (st === 'gone') return null;
   const base = { o: c, corpse: true, x: c.x, y: c.y, reach: 0.95 };
   if (st === 'skeleton') return { ...base, kind: 'corpse_bones', verb: c.of === 'spider' ? 'Remover restos' : 'Remover ossada', icon: 'skull', prio: 1 };
-  if (isPawnCorpse(c)) return c.store ? { ...base, kind: 'corpse_open', verb: 'Revistar', icon: 'bag', prio: 3, name: c.name } : null;
-  if (c.butchered) return null;
+  // a body with nothing left to do with it (an empty pawn body, a butchered carcass) can still be removed
+  if (isPawnCorpse(c)) return c.store ? { ...base, kind: 'corpse_open', verb: 'Revistar', icon: 'bag', prio: 3, name: c.name } : { ...discardIt(c), prio: -1 };
+  if (c.butchered) return { ...discardIt(c), prio: -1 };
   if (st === 'rotten') return { ...base, kind: 'butcher', verb: 'Coletar', icon: 'gather', prio: -1 }; // tap → "Está podre demais"
   return { ...base, kind: 'butcher', verb: 'Coletar', icon: 'gather', prio: 3 };
 }
@@ -165,6 +170,30 @@ registerWork('corpse_bones', {
     return true;
   },
 });
+
+// "Remover corpo": any body, any stage (what it carried falls on the ground; a skeleton gives its bones)
+const DISCARD_TIME = { s: 1.2, m: 1.8, l: 2.6, p: 2.2 };
+export const discardIt = (c) => ({ o: c, corpse: true, x: c.x, y: c.y, reach: 0.95, kind: 'corpse_discard', verb: 'Remover corpo', icon: 'skull', prio: 0 });
+registerWork('corpse_discard', {
+  valid: (g, it) => !gone(g, it.o),
+  start(game, it) {
+    if (gone(game, it.o)) { err(game, 'Já foi removido'); return null; }
+    const { need, cycle } = hitsFor(DISCARD_TIME[sizeOf(it.o)] || 2, 2);
+    return { type: 'gather_bones', cycle, need, label: 'Removendo o corpo' };
+  },
+  hit(game, wk) { const c = wk.it.o; game.juice.puff(c.x, c.y, 3, [0.62, 0.55, 0.45], 0.4); },
+  finish(game, wk) {
+    game.net.request('corpse.discard', { id: wk.it.o.id }, { onReject: (why) => why && err(game, why) });
+    return true;
+  },
+});
+// the context menu of a body (desktop right click, touch long press): its usual action + "Remover corpo"
+export function corpseMenu(game, c) {
+  const out = [], it = describeCorpse(game, c);
+  if (it && it.kind !== 'corpse_bones') out.push({ id: 'use', label: it.verb, icon: 'use', run: () => game.ctl?.interact?.(describeCorpse(game, c)) });
+  out.push({ id: 'discard', label: 'Remover corpo', icon: 'trash', run: () => game.ctl?.interact?.(discardIt(c)) });
+  return out;
+}
 
 // ---------- transfer window (container adapter for the chest window) ----------
 export function openCorpse(game, c) {

@@ -2193,7 +2193,7 @@ def('S60', {
   t.check((gainG.meat || 0) >= 1, 'Coletar gives meat to the guest', short(gainG));
   t.check(!Object.keys(gainH).length && xpH.total === 0, 'the host got nothing', short(gainH));
   t.check(xpG.total > 0, 'small XP reward to the guest', f2(xpG.total));
-  t.check(!MG.corpses.describeCorpse(G.game, bodyOn(G, a)), 'a butchered fresh body offers nothing more');
+  { const itB0 = MG.corpses.describeCorpse(G.game, bodyOn(G, a)); t.check(!itB0 || itB0.kind === 'corpse_discard', 'a butchered fresh body offers nothing more than "Remover corpo"', itB0?.verb); }
   const again = await ask(G, 'corpse.butcher', { id: a, blade: 'knife', tier: 1 });
   t.check(!again.ok && /coletado/i.test(again.why || ''), 'a second Coletar is refused', again.why);
   // day 2: rotten
@@ -2314,6 +2314,43 @@ def('S61', {
   t.check(itB?.kind === 'corpse_bones' && itB.verb === 'Remover ossada', 'the action becomes "Remover ossada"', `${itB?.kind} ${itB?.verb}`);
   await t.checkDigest(H, G);
   env.history.push('S61');
+});
+
+def('S63', {
+  title: 'I: "Remover corpo" — any body, any time; what it carried falls on the ground', timeout: 90000,
+  expected: 'The guest dies carrying items; the host removes its fresh body through the real work (corpseMenu "Remover corpo" → work corpse_discard → intent corpse.discard): the body is gone on both, the items it carried lie on the ground (same loot on both, same total); a right-click-style menu on a butchered / empty body offers it too; digest equal',
+  api: 'corpses.corpseMenu / discardIt → work corpse_discard → intent corpse.discard → ops loot.add + corpse.remove {fx: dust}',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(MH.corpses?.corpseMenu && MH.corpses?.discardIt, 'corpse removal missing');
+  A.keepAlive(t, H);
+  const gp = G.game.player;
+  for (let i = 0; i < gp.inv.size; i++) gp.inv.slots[i] = null;
+  A.ensure(G, { wood: 5, pebble: 2 });
+  const before = new Set(H.game.corpses.map.keys());
+  MG.player.killPlayer(G.game);
+  const ch = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.owner === G.pid), RT() + 800, "guest's body on the host");
+  await t.waitFor(() => bodyOn(G, ch.id), ONEWAY() + 600, "guest's body on the guest");
+  MG.player.respawnPlayer(G.game);
+  const items = {}; for (const s of ch.store.slots) if (s) items[s.id] = (items[s.id] || 0) + s.qty;
+  const menu = MH.corpses.corpseMenu(H.game, ch);
+  t.check(menu.some((m) => m.id === 'discard' && m.label === 'Remover corpo'), 'the body menu offers "Remover corpo"', short(menu.map((m) => m.label)));
+  const s = A.freeSpot(H, MH, ch.x, ch.y, { rMin: 0.6, rMax: 1.2 });
+  t.assert(s, 'free spot next to the body');
+  A.teleport(H, s[0], s[1]);
+  const lootBefore = new Set(H.game.loot.map((l) => l.id));
+  const invH0 = {}; for (const k of Object.keys(items)) invH0[k] = A.count(H, k);
+  menu.find((m) => m.id === 'discard').run();
+  await t.waitFor(() => !H.game.corpses.map.has(ch.id) && !G.game.corpses.map.has(ch.id), 12000, 'the body is gone on both');
+  await t.sleep(ONEWAY() + 300);
+  const dropped = (f) => { const o = {}; for (const l of f.game.loot) if (!lootBefore.has(l.id) && Math.hypot(l.x - ch.x, l.y - ch.y) < 4) o[l.item] = (o[l.item] || 0) + l.qty; return o; };
+  // (the host stands next to it: its magnet may pick some up — ground + what the host gained = what the body held)
+  await t.sleep(1500);
+  const dh = dropped(H), dg = dropped(G), sum = {};
+  for (const k of Object.keys(items)) sum[k] = (dh[k] || 0) + (A.count(H, k) - (invH0[k] || 0));
+  t.check(Object.keys(items).every((k) => sum[k] === items[k]), 'what it carried fell on the ground (or into the host bag)', `body ${short(items)} · ground ${short(dh)} · ground+host ${short(sum)}`);
+  t.check(JSON.stringify(dh) === JSON.stringify(dg), 'the same loot on the ground on both', `host ${short(dh)} · guest ${short(dg)}`);
+  await t.checkDigest(H, G);
 });
 
 def('S62', {

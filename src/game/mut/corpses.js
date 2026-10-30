@@ -6,7 +6,8 @@
 //
 // Ops:     corpse.add · corpse.set · corpse.butcher · corpse.remove
 // Intents: corpse.player (a player died: its items go into the body) · corpse.put · corpse.take ·
-//          corpse.butcher ("Coletar", day 1, animals) · corpse.bones ("Remover ossada"); sorting a body goes through
+//          corpse.butcher ("Coletar", day 1, animals) · corpse.bones ("Remover ossada") · corpse.discard ("Remover corpo",
+//          any stage: what it carried falls on the ground); sorting a body goes through
 //          the shared store.sort intent (mut/structures.js, kind 'corpse' → sortBody below)
 //
 // Shared corpse fields (snapshot / digest): id, of ('pawn' | species), x, y, f (facing), deathT, size, store
@@ -17,7 +18,7 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { ITEMS, ITEM_ALIASES, SPECIES } from '../data.js';
 import { Inventory } from '../inventory.js';
-import { ri } from './roll.js';
+import { ri, lootRow } from './roll.js';
 import { sortedSlots, SORT_MODES } from '../invsort.js';
 
 export const CORPSE_SLOTS = 30;      // a player carries 24 + 4 equipped
@@ -195,14 +196,14 @@ defineOp('corpse.butcher', {
 });
 
 defineOp('corpse.remove', {
-  doc: 'Bodies disappear: bones collected ("Remover ossada", fx bones, bones as give) or expired after 5 days / cap (host).',
-  args: { ids: '[corpseId]', by: 'pid?', give: '{item: qty}?', xp: 'number?', fx: "'bones'?", quiet: '0|1', toast: 'string?' },
+  doc: 'Bodies disappear: bones collected ("Remover ossada", fx bones, bones as give), a body removed by hand ("Remover corpo", fx dust) or expired after 5 days / cap (host).',
+  args: { ids: '[corpseId]', by: 'pid?', give: '{item: qty}?', xp: 'number?', fx: "'bones'|'dust'?", quiet: '0|1', toast: 'string?' },
   apply(game, a) {
     for (const id of a.ids || []) {
       const c = corpseById(game, id);
       if (!c) continue;
       if (a.fx === 'bones') game.audio?.play('bones', { x: c.x, y: c.y });
-      removeCorpse(game, c, a.fx === 'bones' ? 'bones' : null);
+      removeCorpse(game, c, a.fx === 'bones' || a.fx === 'dust' ? a.fx : null);
     }
   },
 });
@@ -313,6 +314,22 @@ defineIntent('corpse.bones', {
     const n = bonesOf(c);
     net.emit('corpse.remove', { ids: [c.id], by: actor.pid, give: n ? { bone: n } : undefined, xp: 1, fx: 'bones',
       toast: n ? undefined : 'Restos removidos', toastKind: 'info' });
+  },
+});
+
+defineIntent('corpse.discard', {
+  doc: '"Remover corpo" (any stage, any time, end of the local work): the body is gone; whatever it carried falls on the ground as loot, a skeleton gives its bones to the actor.',
+  args: { id: 'corpseId' },
+  run(game, a, actor, net) {
+    const c = corpseById(game, a.id);
+    if (!c) return 'Já foi removido';
+    if (!near(actor.ent, c)) return 'Chegue mais perto';
+    const rows = [];
+    for (const s of c.store?.slots || []) if (s && s.qty > 0 && ITEMS[s.id]) rows.push(lootRow(net, c.x, c.y, s.id, s.qty, 0.7));
+    if (rows.length) net.emit('loot.add', { list: rows });
+    const sk = stageOf(game, c) === 'skeleton', n = sk ? bonesOf(c) : 0;
+    net.emit('corpse.remove', { ids: [c.id], by: actor.pid, give: n ? { bone: n } : undefined, xp: 0, fx: sk ? 'bones' : 'dust',
+      toast: rows.length ? 'Corpo removido · o que ele carregava ficou no chão' : 'Corpo removido', toastKind: 'info' });
   },
 });
 

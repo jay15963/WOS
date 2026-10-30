@@ -15,7 +15,8 @@
 //   player moved (sequence paused), ▶ Continuar.
 // Purely local UI: every action goes through building.js / work.js (intents to the host).
 
-import { BUILDINGS } from '../game/data.js';
+import { BUILDINGS, SPECIES } from '../game/data.js';
+import { corpseMenu } from '../game/corpses.js';
 import {
   rotateBuild, commitPlacement, cancelBuild, exitBuildMode, rotLabel, rotCount, structureMenu, structureAtPoint,
   buildDragStart, buildDragMove, buildDragEnd, dimsOf,
@@ -42,6 +43,7 @@ const ICON = {
   build: '<path d="M13.5 3.5l7 7-2.6 2.6-7-7z"/><path d="M12.2 7.8 3.5 16.5a2 2 0 0 0 2.8 2.8l8.7-8.7"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  trash: '<path d="M4 7h16M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>',
   style: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   farm: '<path d="M5 19c0-8.3 5.7-14 14-14 0 8.3-5.7 14-14 14z"/><path d="M5 19l8-8"/>',
   play: '<path d="M8 5.5v13l10.5-6.5z"/>',
@@ -274,14 +276,16 @@ export function installBuildbar(game) {
   // ---------- context menu ----------
   let menu = null;
   const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
+  // a structure's menu, or a body's (o.corpse-like: an entry of game.corpses — "Remover corpo")
   const openMenu = (o, sx, sy) => {
     closeMenu();
-    const items = structureMenu(game, o);
+    const body = game.corpses?.map?.get?.(o.id) === o;
+    const items = body ? corpseMenu(game, o) : structureMenu(game, o);
     if (!items.length) return false;
-    const def = BUILDINGS[o.type];
+    const title = body ? (o.name || `Corpo de ${(SPECIES[o.of]?.name || 'animal').toLowerCase()}`) : `${o.blueprint ? (o.moveOf ? 'Mudança: ' : 'Planta: ') : ''}${BUILDINGS[o.type].name}`;
     menu = document.createElement('div');
     menu.className = 'asm';
-    menu.innerHTML = `<h4>${o.blueprint ? (o.moveOf ? 'Mudança: ' : 'Planta: ') : ''}${def.name}</h4>` + items.map((it, i) =>
+    menu.innerHTML = `<h4>${title}</h4>` + items.map((it, i) =>
       `<button data-i="${i}" class="${it.disabled ? 'dis' : ''}">${svg(it.icon)}<span>${it.label}</span></button>`).join('');
     root.appendChild(menu);
     const W = root.clientWidth || innerWidth, H = root.clientHeight || innerHeight;
@@ -307,9 +311,20 @@ export function installBuildbar(game) {
   addEventListener('keydown', (e) => { if (menu && e.code === 'Escape') closeMenu(); });
   const structureUnder = (sx, sy) => {
     let o = null;
-    try { const h = pick(game, sx, sy); if (h.type === 'interact' && h.it?.o?.building) o = h.it.o; else if (h.type === 'creature') return null; } catch { /* ignore */ }
+    try { const h = pick(game, sx, sy); if (h.type === 'interact' && (h.it?.o?.building || h.it?.corpse)) o = h.it.o; else if (h.type === 'creature') return null; } catch { /* ignore */ }
+    if (!o) o = corpseNear(...game.screenToWorld(sx, sy));
     if (!o) { const [wx, wy] = game.screenToWorld(sx, sy); o = structureAtPoint(game, wx, wy, { roof: true }) || structureAtPoint(game, wx, wy + 0.5); }
     return o;
+  };
+  // a body lying under the point (also skeletons and butchered carcasses, which have no tap action)
+  const corpseNear = (wx, wy) => {
+    let best = null, bd = 0.75;
+    for (const c of game.corpses?.map?.values?.() || []) {
+      if (c.removed || game.roofs?.hidden?.(c.x, c.y)) continue;
+      const d = Math.hypot(c.x - wx, (c.y - 0.15 - wy) * 1.3);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
   };
   game.events.on('structmenu', (d) => {
     if (game.build.mode || game.player.dead) return;

@@ -339,7 +339,7 @@ export function roofsSystem() {
       for (const g of R.regions.values()) {
         const a = g.art;
         if (!a || !a.windows.length || g.alpha < 0.3 || a.sx1 < v.x0 || a.sx0 > v.x1 || a.sy1 < v.y0 || a.sy0 > v.y1) continue;
-        if (!g.lights.some((id) => { const o = w.objById.get(id); return o && o.light && o.fire !== false && o.lit !== false; })) continue;
+        if (!regionLit(game, g)) continue;
         for (const wd of a.windows) {
           const fl = 0.85 + 0.15 * Math.sin(game.time * 7 + wd.x * 3) * Math.sin(game.time * 4.3 + wd.y);
           B.emissive.add(glow, wd.x, wd.y, wd.s * 2.2 * kg, wd.s * 1.8 * kg, 1, 0.66, 0.3, 0.55 * night * g.alpha * fl, 0, 0, 0, 1, 0, wd.h);
@@ -640,9 +640,13 @@ function smokeChimneys(game, dt) {
   for (const g of R.regions.values()) {
     const a = g.art;
     if (!a || !a.chimneys.length || a.sx1 < v.x0 - 2 || a.sx0 > v.x1 + 2 || a.sy1 < v.y0 - 3 || a.sy0 > v.y1 + 2) continue;
+    // a chimney over a hearth smokes while it burns; a chimney added as a roof detail smokes while any hearth of
+    // the house burns ("solta fumaça quando há fogo embaixo") — never on its own
+    const fireLit = (id) => { const f = game.world.objById.get(id); return !!f && f.fire !== false && f.lit !== false && (!BUILDINGS[f.type].warmWorking || f.working); };
+    const anyFire = a.chimneys.some((c) => c.fire && fireLit(c.fire));
+    if (!anyFire) continue;
     for (const c of a.chimneys) {
-      const f = c.fire ? game.world.objById.get(c.fire) : null;
-      const lit = f ? (f.fire !== false && f.lit !== false && (!BUILDINGS[f.type].warmWorking || f.working)) : c.always;
+      const lit = c.fire ? fireLit(c.fire) : anyFire;
       if (!lit) continue;
       if (Math.random() > dt * 7) continue;
       P.emit({ spr: 'fx_smoke', x: c.x + (Math.random() - 0.5) * 0.08, y: c.y, lift: c.top + 0.05, vlift: 0.5 + Math.random() * 0.25,
@@ -936,7 +940,13 @@ export function roofPropAt(game, tx, ty) {
   const g = R.regions.get(R.regionOf[w.idx(tx, ty)]), a = g?.art;
   if (!a) return null;
   const s = a.slices.find((q) => q.col === tx && ty >= q.ya && ty <= q.yb);
-  return { lift: roofHeightAt(game, tx, ty), key: s ? s.key : ty + 1, alpha: g.alpha };
+  return { lift: roofHeightAt(game, tx, ty), key: s ? s.key : ty + 1, alpha: g.alpha, lit: regionLit(game, g) };
+}
+
+// a light burns inside roof region g (its gable windows and dormers glow at night)
+export function regionLit(game, g) {
+  const w = game.world;
+  return !!g?.lights?.some((id) => { const o = w.objById.get(id); return o && o.light && o.fire !== false && o.lit !== false; });
 }
 
 export { DET };

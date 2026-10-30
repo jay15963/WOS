@@ -34,26 +34,38 @@ export function installHotbar(game, root) {
   function load() {
     try {
       const d = JSON.parse(localStorage.getItem(key) || 'null');
-      if (d && Array.isArray(d.slots)) return { slots: Array.from({ length: N }, (_, i) => d.slots[i] || null), skip: new Set(d.skip || []) };
+      if (d && Array.isArray(d.slots)) return { slots: Array.from({ length: N }, (_, i) => d.slots[i] || null), skip: new Set(d.skip || []), home: d.home && typeof d.home === 'object' ? d.home : {} };
     } catch { /* ignore */ }
-    return { slots: new Array(N).fill(null), skip: new Set() };
+    return { slots: new Array(N).fill(null), skip: new Set(), home: {} };
   }
-  const save = () => { if (game.noSave) return; try { localStorage.setItem(key, JSON.stringify({ slots: S.slots, skip: [...S.skip].slice(-60) })); } catch { /* ignore */ } };
+  const save = () => { if (game.noSave) return; try { localStorage.setItem(key, JSON.stringify({ slots: S.slots, skip: [...S.skip].slice(-60), home: S.home })); } catch { /* ignore */ } };
 
   const has = (k, id) => S.slots.findIndex((s) => s && s.k === k && s.id === id);
   const owned = (id) => p.inv.count(id) + Object.values(p.equip || {}).filter((x) => x === id).length;
 
-  // put usable items the player owns into free slots
+  // an item that ran out leaves its slot (no grey "ghost" left behind); its slot is remembered (S.home) so it comes
+  // back to the same place when the player gets it again
+  const prune = () => {
+    let changed = false;
+    for (let i = 0; i < N; i++) {
+      const s = S.slots[i];
+      if (s?.k === 'item' && owned(s.id) === 0) { S.home[s.id] = i; S.slots[i] = null; changed = true; }
+    }
+    if (changed) save();
+  };
+  // put usable items the player owns into free slots (back to their old slot when it is still free)
   const autofill = () => {
     let changed = false;
     const ids = new Set();
     for (const s of p.inv.slots) if (s) ids.add(s.id);
     for (const k of ['main', 'off']) if (p.equip?.[k]) ids.add(p.equip[k]);
     for (const id of ids) {
-      if (!autoKind(ITEMS[id], id) || S.skip.has(id) || has('item', id) >= 0) continue;
-      const free = S.slots.indexOf(null);
+      const home = S.home[id];
+      if ((!autoKind(ITEMS[id], id) && home == null) || S.skip.has(id) || has('item', id) >= 0) continue;
+      const free = home != null && !S.slots[home] ? home : S.slots.indexOf(null);
       if (free < 0) break;
       S.slots[free] = { k: 'item', id };
+      delete S.home[id];
       changed = true;
     }
     if (changed) save();
@@ -61,7 +73,7 @@ export function installHotbar(game, root) {
   };
 
   const set = (i, v) => {
-    if (v) { const j = has(v.k, v.id); if (j >= 0 && j !== i) S.slots[j] = null; S.skip.delete(v.id); }
+    if (v) { const j = has(v.k, v.id); if (j >= 0 && j !== i) S.slots[j] = null; S.skip.delete(v.id); delete S.home[v.id]; }
     else if (S.slots[i]) S.skip.add(S.slots[i].id);
     S.slots[i] = v;
     save();
@@ -125,8 +137,8 @@ export function installHotbar(game, root) {
     el.addEventListener('contextmenu', (e) => { e.preventDefault(); if (S.slots[i]) set(i, null); });
   });
   game.events.on('hotbar', (d) => use(d.i));
-  game.events.on('inventory', () => { autofill(); draw(); });
-  game.events.on('gear', () => draw());
+  game.events.on('inventory', () => { prune(); autofill(); draw(); });
+  game.events.on('gear', () => { prune(); autofill(); draw(); });
   game.events.on('buildui', () => draw());
   autofill();
   draw(true);

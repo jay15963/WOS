@@ -9,6 +9,7 @@ import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
 import { confirmPlace, exitBuildMode } from '../game/building.js';
 import { respawnPlayer, respawnPoint } from '../game/player.js';
+import { discardIt } from '../game/corpses.js';
 import { attackable, dist, attackRange } from '../game/combat.js';
 import { uiIcon, svgIcon, itemIcon, buildIcon, spriteURL } from './icons.js';
 import { combatIcon } from './combaticons.js';
@@ -116,6 +117,7 @@ export function installHUD(game, { isNew } = {}) {
     <div class="feed" id="feed"></div>
     <div class="ab-wrap" id="ab">
       <button class="ab ab-int hidden" id="ab-int"><span class="ic"></span><span class="lbl"></span><span class="key">E</span></button>
+      <button class="ab ab-rm hidden" id="ab-rm" title="Remover corpo"><span class="ic"></span><span class="lbl">Remover</span></button>
     </div>
     <div class="buildbar hidden" id="buildbar">
       <span class="bb-ic" id="bb-ic"></span>
@@ -184,13 +186,16 @@ export function installHUD(game, { isNew } = {}) {
     buffs: $('#buffs'), eatN: $('#eat-n'),
     xp: $('#pf-xp'), wm: $('#pf-wm'), tmp: $('#pf-tmp'),
     errs: $('#errs'), feed: $('#feed'), banner: $('#banner'),
-    int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'),
+    int: $('#ab-int'), intIc: $('#ab-int .ic'), intLbl: $('#ab-int .lbl'), rm: $('#ab-rm'),
     bb: $('#buildbar'), bbNm: $('#bb-nm'), bbHint: $('#bb-hint'), bbIc: $('#bb-ic'), bbOk: $('#bb-ok'),
     death: $('#death'), deathSub: $('#death-sub'), respawn: $('#btn-respawn'), fade: $('#fade'),
     mm: $('#mm'),
   };
   // ---------- input bindings ----------
   press(R.int, () => game.ctl.interact());
+  // touch: "Remover corpo" next to the use button while a body is the target (desktop: right click on the body)
+  R.rm.querySelector('.ic').innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7"/><path d="M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
+  press(R.rm, () => { const n = game.ctl.near; if (n?.corpse && n.o) game.ctl.interact(discardIt(n.o)); });
   press($('#tf-x'), () => { game.ctl.setTarget(null); game.ctl.goal = null; });
   root.querySelectorAll('.qb').forEach((el) => press(el, () => {
     const q = el.dataset.q;
@@ -417,6 +422,14 @@ export function installHUD(game, { isNew } = {}) {
         // doors / gates: the icon shows what the action does (open → ajar door, close → shut door)
         const ic = near.kind === 'door' ? (near.verb === 'Fechar' ? 'door_close' : 'door_open') : near.icon;
         if (C.intk !== key) { C.intk = key; R.intLbl.textContent = near.verb; R.intIc.innerHTML = uiIcon(A, ic); }
+      }
+      const showRm = showInt && touchMode && !!near?.corpse && near.kind !== 'corpse_bones' && near.kind !== 'corpse_discard'; // (those two already remove it)
+      toggle(R.rm, 'rmv', 'hidden', !showRm);
+      if (showRm && C.rmAt !== R.int.style.right + R.int.style.bottom + innerWidth) {
+        // to the left of the use button, a little higher (wherever the action bar put it)
+        C.rmAt = R.int.style.right + R.int.style.bottom + innerWidth;
+        const cs = getComputedStyle(R.int), r = parseFloat(cs.right) || 0, b = parseFloat(cs.bottom) || 0;
+        R.rm.style.right = `${Math.round(r + R.int.offsetWidth + 10)}px`; R.rm.style.bottom = `${Math.round(b + 12)}px`;
       }
 
       // build bar validity

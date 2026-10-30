@@ -85,7 +85,7 @@ export const KITS = {
       { id: 'painting', name: 'Quadro', cat: 'wall', group: 'mnt', front: true },
       { id: 'shield', name: 'Escudo', cat: 'wall', group: 'mnt', front: true },
       { id: 'sconce', name: 'Arandela', cat: 'wall', group: 'mnt', front: true, light: L(1, 0.72, 0.4, 3.2, 0.85, 0.3, 0.55) },
-      { id: 'ivy', name: 'Hera', cat: 'nature' },
+      { id: 'ivy', name: 'Hera', cat: 'nature', front: true },
       { id: 'moss', name: 'Musgo', cat: 'nature' },
       { id: 'cracks', name: 'Rachaduras', cat: 'nature' },
       { id: 'weather', name: 'Desgaste', cat: 'nature' },
