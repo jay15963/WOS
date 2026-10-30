@@ -13,10 +13,12 @@ import { reach, dist, faceTowards, mobEffect } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer, allPlayers } from './players.js';
 import { stepGait } from './anim.js';
+import { nightK } from './seasons.js';
 
 export const LEASH = 120; // max distance from home while chasing (was 26: chases gave up far too soon)
 const FLEE_LEASH = 26;    // passive animals fleeing start curving back home past this distance
 const BORED = 45;         // seconds without exchanging blows before evading (scaled with LEASH)
+const SUN_LEASH = 4;      // cave monsters: seconds out in the daylight before they go back to their nest
 
 export function aggroRadius(m, p) {
   const sp = SPECIES[m.species];
@@ -82,6 +84,20 @@ export function evade(m, calm = 0) {
   m.cast = null;
   m.blocking = false;
   resetNav(m);
+}
+
+// somewhere 9-13 tiles further from the player than the creature is now (going home for the night / the day)
+function leaveSpot(game, m, p) {
+  const w = game.world;
+  let ax = m.x - p.x, ay = m.y - p.y;
+  const L = Math.hypot(ax, ay) || 1;
+  ax /= L; ay /= L;
+  for (let k = 0; k < 6; k++) {
+    const a = Math.atan2(ay, ax) + (Math.random() - 0.5) * 1.2, r = 9 + Math.random() * 4;
+    const x = m.x + Math.cos(a) * r, y = m.y + Math.sin(a) * r;
+    if (!mobBlocked(w, x, y, m.r) && w.waterAt(Math.floor(x), Math.floor(y)) !== 2) return [x, y];
+  }
+  return [m.home.x, m.home.y];
 }
 
 export function pickWander(game, m, rMax = 5) {
@@ -200,16 +216,17 @@ export function updateCreature(game, m, dt) {
         m.moving = false;
         m.stateT -= dt;
         if (m.stateT <= 0) {
-          m.wp = pickWander(game, m);
+          m.wp = m.leaving && !p.dead ? leaveSpot(game, m, p) : pickWander(game, m);
           m.state = 'wander';
           m.stateT = 8;
           resetNav(m);
         }
       } else {
         m.stateT -= dt;
-        const dir = steer(game, m, m.wp[0], m.wp[1], dt, sp.speed * 0.32, 0.3);
-        if (!dir || m.stateT <= 0) { m.state = 'idle'; m.stateT = 2 + Math.random() * 5; m.moving = false; }
-        else go(game, m, dir, sp.speed * 0.32, dt);
+        const ws = sp.speed * (m.leaving ? 0.55 : 0.32);
+        const dir = steer(game, m, m.wp[0], m.wp[1], dt, ws, 0.3);
+        if (!dir || m.stateT <= 0) { m.state = 'idle'; m.stateT = m.leaving ? 0.3 : 2 + Math.random() * 5; m.moving = false; }
+        else go(game, m, dir, ws, dt);
       }
       // slow regen when calm
       if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.05 * dt);
@@ -235,6 +252,12 @@ export function updateCreature(game, m, dt) {
       const t = m.threat;
       const homeD = Math.hypot(m.x - m.home.x, m.y - m.home.y);
       if (!t || t.dead || t.gone || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 3)) { evade(m, homeD > LEASH ? 4 : 9); break; }
+      if (m.cave) {
+        // out of the cave in the daylight: a few seconds, then back to the nest (at night or underground: as usual)
+        const sun = !game.world.isCave(Math.floor(m.x), Math.floor(m.y)) && nightK(game.env?.hour ?? 12) < 0.5;
+        m.sunT = sun ? (m.sunT || 0) + dt : Math.max(0, (m.sunT || 0) - dt);
+        if (m.sunT > SUN_LEASH) { m.sunT = 0; evade(m, 10); break; }
+      }
       if (t === game.player) enterCombat(t, 1);
       const rng = reach(m, t);
       if (d <= rng) {

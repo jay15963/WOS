@@ -82,7 +82,7 @@ export const BUILDINGS = {
   chest:       { name: 'Baú', g: 'm', emoji: '🧰', cat: ['furn'], cost: { wood: 8 }, time: 4, xp: 10, block: 0.28, slots: 20, edge: true, move: true,
                  desc: 'Guarda até 20 pilhas de itens. Gire para encostar numa parede.' },
   bed:         { name: 'Cama', g: 'f', emoji: '🛏️', cat: ['furn'], cost: { wood: 8, fiber: 6, leather: 2 }, size: [1, 2], time: 6, xp: 15, block: 'tile', rotate: true, move: true,
-                 desc: 'Define o ponto de renascimento. Durma à noite. Ocupa 1×2.' },
+                 desc: 'Define o ponto de renascimento (a noite não passa mais dormindo). Ocupa 1×2.' },
   table_wood:  { name: 'Mesa', g: 'f', emoji: '🪑', cat: ['furn'], cost: { wood: 6 }, size: [2, 1], time: 4, xp: 6, block: 'tile', rotate: true, move: true,
                  desc: 'Mesa de madeira.' },
   chair_wood:  { name: 'Cadeira', g: 'f', emoji: '🪑', cat: ['furn'], cost: { wood: 3 }, time: 2.5, xp: 3, block: 0.2, edge: true, move: true,

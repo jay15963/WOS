@@ -17,7 +17,8 @@
 //     bloom,              // spring blossoms / flowers (fades into summer during the first summer day)
 //     winter,             // winter weight (cold grade, breath, snowfall instead of rain)
 //     frozen,             // GAMEPLAY: water is ice (walkable, no swimming, no fishing) — ice ≥ 0.5
-//     coldC,              // GAMEPLAY: °C added to the felt temperature (winter −24, autumn −6, spring −3)
+//     coldC,              // GAMEPLAY: °C added to the felt temperature in autumn (−6) / spring (−3); winter
+//                         //   replaces the biome climate instead (survival.js SURVIVAL.temp.winter, by `winter`)
 //   }
 //
 // Visual code (art / shaders / fx) only READS game.season; gameplay reads id / frozen / coldC.
@@ -57,7 +58,7 @@ export function seasonState(c, out = {}) {
   out.winter = ss(7.9, 8.15, u) * (1 - ss(10.9, 11.15, u));
   const autumnK = ss(6.9, 7.15, u) * (1 - ss(7.9, 8.15, u)), springK = ss(10.9, 11.15, u) * (1 - ss(11.9, 12.15, u));
   out.frozen = out.ice >= 0.5;
-  out.coldC = -24 * out.winter - 6 * autumnK - 3 * springK;
+  out.coldC = -6 * autumnK - 3 * springK;
   return out;
 }
 

@@ -29,7 +29,7 @@ export function fireArrow(game, o) {
   const L = Math.hypot(ux, uy) || 1;
   ux /= L; uy /= L;
   if (o.angle) { const c = Math.cos(o.angle), s = Math.sin(o.angle); const rx = ux * c - uy * s; uy = ux * s + uy * c; ux = rx; }
-  const speed = o.speed || (o.kind === 'spear' ? 13 : 17);
+  const speed = o.speed || (o.kind === 'spear' || o.kind === 'ice_spear' ? 13 : 17);
   const maxD = o.range ?? 12;
   const arcD = Math.max(1.2, Math.min(maxD, L));
   const pr = {
@@ -139,7 +139,7 @@ function landLob(game, pr) {
   const roofed = inside && w.roofAt(tx, ty) !== 0 && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
   const wall = !inside || w.rock[i] || w.solid[i] || roofed;
   pr.blocked = !!wall;
-  const water = inside && !wall && w.waterAt(tx, ty) > 0;
+  const water = inside && !wall && w.liquidAt(tx, ty) > 0; // (frozen: it lands on the ice)
   game.audio?.play('arrow_land', { x: pr.x, y: pr.y, volume: pr.kind === 'spear' ? 1.1 : 0.7 });
   let gone = false;
   if (water) { J?.splash(pr.x, pr.y, pr.kind === 'spear' ? 0.9 : 0.55); gone = true; }
@@ -167,7 +167,7 @@ export function fireCosmetic(game, id, a) {
   }
   const [kind, x, y, tx, ty, angle, speed, range, faction, h1, z0, z1] = a;
   const zc = (v) => Math.max(0, Math.min(3, n(v) / 100)); // levels: heights of the shot (stories)
-  const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' ? 'spear' : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit', z0: zc(z0), z1: zc(z1) });
+  const pr = fireArrow(game, { id, cosmetic: true, kind: kind === 'spear' || kind === 'ice_spear' ? kind : 'arrow', x: n(x), y: n(y), tx: n(tx), ty: n(ty), angle: n(angle), speed: n(speed, 17), range: n(range, 12), faction: faction === 'player' ? 'player' : 'bandit', z0: zc(z0), z1: zc(z1) });
   pr.h1 = n(h1, 0.35);
   return pr;
 }

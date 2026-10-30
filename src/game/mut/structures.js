@@ -320,12 +320,27 @@ defineOp('struct.complete', {
 });
 
 defineOp('struct.remove', {
-  doc: 'A structure / blueprint is removed (decon, raze, cancel, door replacing a wall); refund as give, chest contents as drops.',
-  args: { id: 'structId', by: 'pid?', give: '{item: qty}?', giveAt: '[x, y]?', drops: 'lootRows?', quiet: '0|1', toast: 'string?', fx: "'decon'|'raze'?" },
+  doc: 'A structure / blueprint is removed (decon, raze, cancel, door replacing a wall, broken by winter walkers); refund as give, chest contents as drops.',
+  args: { id: 'structId', by: 'pid?', give: '{item: qty}?', giveAt: '[x, y]?', drops: 'lootRows?', quiet: '0|1', toast: 'string?', fx: "'decon'|'raze'|'smash'?" },
   apply(game, a) {
     const o = structById(game, a.id);
     if (!o) return;
-    removeStructure(game, o, { drops: a.drops, quiet: !!a.quiet, fx: a.fx === 'raze' ? 'raze' : null });
+    if (a.fx === 'smash') game.rockFx?.structBreak?.(game, o); // broken by the walkers: it falls apart (rockfx.js)
+    removeStructure(game, o, { drops: a.drops, quiet: !!a.quiet, fx: a.fx === 'raze' || a.fx === 'smash' ? 'raze' : null });
+  },
+});
+
+// winter walkers hitting a wall / door / fence (walkers.js): its damage 0..1 (cracks on every peer, rockfx.js);
+// 0 = it settled (sunrise). The host breaks it with struct.remove fx 'smash' at 1.
+defineOp('struct.dmg', {
+  doc: 'Siege damage of a structure (0..1) from a hit at (x, y) — cosmetic cracks and splinters; 0 clears it.',
+  args: { id: 'structId', d: '0..1', x: 'number?', y: 'number?' },
+  apply(game, a) {
+    const o = structById(game, a.id);
+    if (!o) return;
+    const d = Math.max(0, Math.min(1, num(a.d)));
+    if (d > 0) o.dmg = d; else delete o.dmg;
+    game.rockFx?.structHit?.(game, o, d > 0 && Number.isFinite(a.x) ? a.x : null, a.y);
   },
 });
 

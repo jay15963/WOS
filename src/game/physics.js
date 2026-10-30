@@ -11,7 +11,7 @@ export function tileBlocked(world, tx, ty, passDoors = false, swim = false) {
   if (!world.inBounds(tx, ty)) return true;
   const i = world.idx(tx, ty);
   const s = world.solid[i];
-  return world.rock[i] === 1 || (world.water[i] === 2 && !swim) || s === 1 || (s === 2 && !passDoors);
+  return world.rock[i] === 1 || (world.water[i] === 2 && !swim && !world.frozen) || s === 1 || (s === 2 && !passDoors); // frozen: ice (seasons.js)
 }
 
 export function collides(world, x, y, r, ignore = null, passDoors = false, swim = false) {

@@ -13,6 +13,7 @@ const PATHS = {
   equipment: 'game/equipment.js', data: 'game/data.js', autotile: 'game/autotile.js', items: 'game/content/items.js',
   worldgen: 'world/worldgen.js', stats: 'game/stats.js', controller: 'game/controller.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
   corpses: 'game/corpses.js', mcorpses: 'game/mut/corpses.js', levels: 'game/levels.js', players: 'game/players.js',
+  mobs: 'game/mobs.js', seasons: 'game/seasons.js', walkers: 'game/walkers.js',
 };
 const CACHE = new WeakMap();
 export async function mods(f) {
@@ -172,6 +173,18 @@ export function pickTree(A, MA, B, x, y, claimed, { r = 40, sides = 1, maxS = 1.
 
 export function mobs(f, pred = () => true) { return f.game.entities.filter((e) => e.isMob && pred(e)); }
 export function hostMobs(H, pred = () => true) { return mobs(H, (e) => !e.proxy && !e.dead && pred(e)); }
+// host: at least n live creatures of `species` matching pred; missing ones are spawned on their own spawners
+// (when 'always') at free spots around (x, y) — wolves are out at night only and spiders live in caves now
+export function ensureMobs(H, M, species, n, x, y, pred = () => true) {
+  const have = hostMobs(H, (m) => m.species === species && pred(m));
+  for (let k = have.length, tries = 0; k < n && tries < 12; tries++) {
+    const a = (tries / 12) * Math.PI * 2, s = freeSpot(H, M, x + Math.cos(a) * 4, y + Math.sin(a) * 4, { rMin: 0, rMax: 3, r: 0.36 });
+    if (!s) continue;
+    have.push(M.mobs.spawnLoose(H.game, species, s[0], s[1]));
+    k++;
+  }
+  return have;
+}
 export function nidOf(m) { return m?.nid ?? null; }
 export function proxyOf(G, m) {
   const nid = nidOf(m);

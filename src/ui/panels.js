@@ -34,7 +34,7 @@ export function itemStats(id) {
   if (d.tool?.mine) out.push(`Minera ${x100(d.tool.mine)} · ${MINES_PT[d.tier]}`);
   if (d.tool?.skin) out.push('Tira couro dos animais · fibra mais rápida');
   if (d.weapon) out.push(`Arma: ${WTYPE_PT[d.weapon.type] || d.weapon.type}${d.weapon.twoHanded ? ' · duas mãos' : ''}`);
-  if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}`);
+  if (d.armor) out.push(`Armadura +${d.armor.value}${d.armor.warmth ? ` · calor +${d.armor.warmth}` : ''}${d.armor.insul ? ` · roupa de frio (segura ${Math.round(d.armor.insul * 100)}% do calor)` : ''}`);
   if (d.shield) out.push(`Bloqueia ${Math.round(d.shield.block * 100)}% do dano`);
   if (d.light) out.push('Ilumina em volta de você');
   if (d.food) out.push(`+${d.food.hunger} fome${d.food.sick ? ' · risco de indigestão' : ''}${d.food.warm ? ` · aquece por ${d.food.warm} s` : ''}`);

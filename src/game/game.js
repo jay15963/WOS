@@ -96,7 +96,7 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && !(p.z > 0) && this.world.waterAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js)
+    p.swimming = !p.dead && !(p.z > 0) && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js); not on ice
     let [mx, my] = inp.move();
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)

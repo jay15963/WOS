@@ -18,6 +18,7 @@ import { aggro, aggroRadius, evade, go, fleeDir, tickStatus, pickWander, pickTar
 import { enterCombat } from './player.js';
 import { fireArrow } from './projectiles.js';
 import { allocMob, levelForDistance } from './mobs.js';
+import { walkerBrain } from './walkers.js';
 import { lootRows, ri } from './mut/roll.js';
 import { campHooks } from './mut/camps.js';
 import { hurtPlayer, minPlayerDist } from './players.js';
@@ -49,7 +50,7 @@ const CHIEF_KITS = [
 const pick = (r, a) => a[Math.floor(r() * a.length) % a.length];
 
 // ---------- raiders ----------
-function makeLook(rand, female, chief) {
+export function makeLook(rand, female, chief) {
   return {
     skin: pick(rand, SKINS), hair: female ? pick(rand, HAIR_F) : pick(rand, HAIR_M), hairColor: pick(rand, HAIRC),
     shirt: chief ? [0.56, 0.12, 0.1] : pick(rand, SHIRTS), beard: !female && rand() < 0.55,
@@ -195,7 +196,7 @@ function meleeHit(game, m, p, mult, opts = {}) {
 function shootAt(game, m, p, mult, kind = 'arrow', ability) {
   // lead the target a little when moving (remote avatars carry a velocity estimate)
   let tx = p.x, ty = p.y;
-  const tFly = dist(m, p) / (kind === 'spear' ? 13 : 17);
+  const tFly = dist(m, p) / (kind === 'spear' || kind === 'ice_spear' ? 13 : 17);
   if (p.vx != null) { tx += p.vx * tFly * 0.55; ty += p.vy * tFly * 0.55; }
   else if (p.moving) {
     const f = facingVec(p.facing);
@@ -222,7 +223,7 @@ function special(game, m, p, d) {
   } else if (type === 'spear' && d > 2.6 && d < 7.5 && m.throwT <= 0 && canSee(game, m, p)) {
     m.throwT = 14;
     m.action = { type: 'throw', t: 0, dur: 0.5 };
-    game.later(0.28, () => { if (!m.dead && !(m.stunT > 0)) shootAt(game, m, p, 1.3, 'spear'); });
+    game.later(0.28, () => { if (!m.dead && !(m.stunT > 0)) shootAt(game, m, p, 1.3, m.species === 'walker' ? 'ice_spear' : 'spear'); });
   } else if (type === 'spear') {
     m.action = { type: 'pierce', t: 0, dur: 0.4 };
     meleeHit(game, m, p, 1.6, { ability: 'pierce' });
@@ -247,7 +248,7 @@ function special(game, m, p, d) {
 export function updateBandit(game, m, dt) {
   if (m.proxy) { game.net.violation('updateBandit num proxy'); return; }
   const p = pickTarget(game, m);
-  const sp = SPECIES.bandit;
+  const sp = SPECIES[m.species] || SPECIES.bandit; // raiders, winter walkers (walkers.js)
   if (!tickStatus(game, m, dt)) { m.blocking = false; return; }
   const d = dist(m, p);
   const camp = m.campRef;
@@ -255,6 +256,9 @@ export function updateBandit(game, m, dt) {
   m.specialT -= dt; m.blockT -= dt; m.throwT -= dt;
   if (m.blocking) { m.blockLeft -= dt; if (m.blockLeft <= 0) m.blocking = false; }
   if (m.spinT > 0) { m.spinT -= dt; m.facing = ['s', 'e', 'n', 'w'][Math.floor(m.spinT * 16) % 4]; }
+
+  // winter walkers: drawn to the living / to light, they break into rooms (walkers.js)
+  if (m.faction === 'walker' && !m.cast && walkerBrain(game, m, dt)) return;
 
   // telegraphed casts
   if (m.cast) {

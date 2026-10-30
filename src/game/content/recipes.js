@@ -40,6 +40,8 @@ export const RECIPES = {
   shield_wood:       R('shield_wood', { wood: 6, rope: 2 }, 'workbench', 6, 'weapons'),
   armor_leather:     R('armor_leather', { leather: 6, rope: 2 }, 'workbench', 8, 'armor'),
   hood_leather:      R('hood_leather', { leather: 3, rope: 1 }, 'workbench', 5, 'armor'),
+  coat_fur:          R('coat_fur', { leather: 5, fiber: 6, rope: 1 }, 'workbench', 8, 'armor'),   // winter clothes
+  hat_fur:           R('hat_fur', { leather: 2, fiber: 3 }, 'workbench', 4, 'armor'),
 
   // ---------- era 2: stonecutter / furnace / anvil ----------
   stone_blocks:      R('stone_block', { stone: 3 }, 'stonecutter', 3, 'materials', { qty: 2 }),

@@ -188,6 +188,10 @@ Existentes: `wolf, boar, deer, rabbit, bear`. Novas: `spider` Aranha da caverna 
 `fox` Raposa (pequena, florestas, foge). Saqueadores: `kind: 'pawn'`, `faction: 'bandit'`, nome "Saqueador",
 "Chefe dos saqueadores" (elite) em acampamentos (`world.zones` tipo `bandit_camp`).
 Sprites: `spider_{s,n,e}`, `fox_{s,n,e}` (+ `_e_walk`).
+Horários (mobs.js `ACTIVE`): coelho, raposa e cervo só de dia; lobo só de noite; javali e urso sempre; aranha só
+em ninhos de caverna. Inverno: `walker` "Andarilho do Gelo" (`kind: 'pawn'`, `faction: 'walker'`, noites de
+inverno, walkers.js) com `sword_ice` / `spear_ice` (material `ice`, força de pedra). Roupa de frio: `coat_fur`
+"Casaco de pele" e `hat_fur` "Gorro de pele" (`armor.insul`).
 
 ## 9. Donos de arquivos nesta rodada
 - **Arte A — mundo e construções:** `src/art/trees.js, plants.js, rocks.js, foliage.js, buildings.js`, novos arquivos de

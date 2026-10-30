@@ -2,7 +2,7 @@
 // Scans src/**/*.js line by line (comments ignored). A line ending with `// sync-ok: <reason>` is exempt
 // (the reason is mandatory and reviewable). Rules:
 //   R1  raw world mutation (addObject / removeObject / mineRock) outside world.js, game/mut/**, net/snapshot.js
-//   R2  entity list mutation outside game/mut/**, net/entities.js, net/session.js, game/game.js, mobs.js, bandits.js
+//   R2  entity list mutation outside game/mut/**, net/entities.js, net/session.js, game/game.js, mobs.js, bandits.js, walkers.js
 //   R3  ground-loot list mutation outside game/mut/loot.js, game/systems.js
 //   R4  assignment to a replicated field outside game/mut/**, autotile.js (mask/orient), net/snapshot.js
 //   R5  tile grid writes (solid[], noGrow[], occ[], path[] / pathPlan[]) outside game/mut/**, world/world.js, game/nav.js
@@ -57,7 +57,7 @@ function codeOf(line, state) {
 
 const RULES = [
   { id: 'R1', re: /\b(addObject|removeObject|mineRock)\s*\(/, ok: (f) => f === 'src/world/world.js' || inMut(f) || f === 'src/net/snapshot.js', msg: 'mutação direta do mundo fora de uma op (use defineOp em src/game/mut/)' },
-  { id: 'R2', re: /\bentities\.(push|splice|unshift|pop|shift)\b|\bentities\s*=(?!=)/, ok: (f) => inMut(f) || ['src/net/entities.js', 'src/net/session.js', 'src/game/game.js', 'src/game/mobs.js', 'src/game/bandits.js'].includes(f), msg: 'lista de entidades alterada fora dos módulos de criaturas/rede' },
+  { id: 'R2', re: /\bentities\.(push|splice|unshift|pop|shift)\b|\bentities\s*=(?!=)/, ok: (f) => inMut(f) || ['src/net/entities.js', 'src/net/session.js', 'src/game/game.js', 'src/game/mobs.js', 'src/game/bandits.js', 'src/game/walkers.js'].includes(f), msg: 'lista de entidades alterada fora dos módulos de criaturas/rede' },
   { id: 'R3', re: /\bloot\.(push|splice)\b|\bgame\.loot\s*=(?!=)/, ok: (f) => f === 'src/game/mut/loot.js' || f === 'src/game/systems.js', msg: 'itens no chão alterados fora de mut/loot.js (use loot.add / loot.take)' },
   { id: 'R4', re: /\.(stump|stumpAt|fall|fallDir|gone|prog|born|progress|blueprint|mask|orient|working|fire|lit|broken|brokenAt|stage|growth|removed|store|decon)\s*(=(?!=)|\+=|-=)/, ok: (f, m) => inMut(f) || f === 'src/net/snapshot.js' || (f === 'src/game/autotile.js' && /\.(mask|orient)/.test(m[0])), msg: 'campo replicado alterado fora de uma op' },
   { id: 'R5', re: /\bsolid\[[^\]]+\]\s*=(?!=)|\bnoGrow\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)|\bocc\[[^\]]+\]\s*(=(?!=)|\+\+|--|\+=|-=)|\bpath(?:Plan)?\[[^\]]+\]\s*=(?!=)/, ok: (f) => inMut(f) || f === 'src/world/world.js' || f === 'src/game/nav.js', msg: 'grade de tiles alterada fora de uma op' },

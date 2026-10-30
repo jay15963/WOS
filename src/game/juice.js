@@ -194,7 +194,7 @@ export class Juice {
     const sx = lat ? 0 : side, sy = lat ? side * 0.4 : 0;
     const me = e === this.g.player;
     if (e.z > 0) { if (me) this.g.audio?.play('step', { x: e.x, y: e.y, volume: 0.25, surface: this.g.levels?.surfaceOf(e) }); return; } // levels: stairs / wall top (no ground dust)
-    if (w.waterAt(tx, ty) === 1) {
+    if (w.liquidAt(tx, ty) === 1) {
       this.splash(e.x + sx, e.y + sy, 0.7);
       if (me) this.g.audio?.play('splash', { x: e.x, y: e.y, volume: 0.35 });
     } else {
@@ -233,7 +233,7 @@ export class Juice {
   // swimming in deep water (from the tile under the avatar, same on every peer) and the wet look after it:
   // e._swim 0..1 and e._wet 0..1 are read by art/compose.js; splashes while swimming, drips while drying
   water(e, dt) {
-    const deep = this.g.world.waterAt(Math.floor(e.x), Math.floor(e.y)) === 2;
+    const deep = this.g.world.liquidAt(Math.floor(e.x), Math.floor(e.y)) === 2;
     e._swim = (e._swim || 0) + ((deep ? 1 : 0) - (e._swim || 0)) * Math.min(1, dt * 5);
     if (deep) {
       e._wet = 1;

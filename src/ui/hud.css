@@ -1011,6 +1011,13 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .touch .ab-rm .lbl { position: absolute; left: 50%; bottom: -13px; transform: translateX(-50%); font-size: 10px; font-weight: 700; white-space: nowrap;
   padding: 1px 6px; border-radius: 3px; background: rgba(36, 22, 13, 0.8); color: #f3e3c3; }
 
+/* season chip under the radar (radar.js #rd-season, seasons.js) */
+.rd-season { margin-left: 6px; padding: 0 6px; border-radius: 3px; font-weight: 800; letter-spacing: .03em; }
+.rd-season.s-spring { color: #ffd0e4; }
+.rd-season.s-summer { color: #ffe38a; }
+.rd-season.s-autumn { color: #ffb066; }
+.rd-season.s-winter { color: #0c2236; background: linear-gradient(180deg, #e8f6ff, #a9d4f2); box-shadow: 0 0 0 1.5px rgba(12, 34, 54, 0.6); }
+
 /* creative world chip under the radar (radar.js #rd-mode) */
 .rd-mode { margin-left: 6px; padding: 1px 8px; border-radius: 3px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
   background: linear-gradient(180deg, #7fd0ff, #3f8fd0); color: #0c2236; box-shadow: 0 0 0 1.5px rgba(12, 34, 54, 0.7); }

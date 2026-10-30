@@ -15,6 +15,7 @@
 
 import { ITEMS, BUILDINGS, FOOD_IDS } from './data.js';
 import { addBuff, removeBuff, hasBuff } from './player.js';
+import { seasonOf } from './seasons.js';
 import { healEntity, dealDamage } from './combat.js';
 
 export const SURVIVAL = {
@@ -38,7 +39,14 @@ export const SURVIVAL = {
     night: -7,            // extra at full night
     rain: -4, storm: -7, wet: -2, wind: -5, // wind × env.wind (0..1.2)
     cave: 3,              // inside a mountain cave: no rain / wind, a bit warmer
-    fire: 22,             // °C at a fire, fading to 0 at 1.25 × its warm radius
+    fire: 26,             // °C at a fire, fading to 0 at 1.25 × its warm radius (winter + winter clothes: normal by the fire)
+    torch: 14,            // °C from a hand torch (off hand): less than a fire, it goes with you
+    // winter (seasons.js, by season.winter): the biomes' climate gives way to the winter's (snow everywhere):
+    // base −1 °C, a little colder where the biome is colder; rain falls as snow (soaks much less)
+    winter: { base: -1, biomeK: 0.3, snowSoak: 0.3 },
+    // winter clothes (items armor.insul, up to 0.8): the felt gap below comfort shrinks to (1 − insul) of it;
+    // the gap that remains also makes you hungrier (normal temperature = normal hunger)
+    coldHunger: 0.7, coldHungerSpan: 15, // hunger × (1 + 0.7 × gap / 15), gap capped at 15 °C
     shelter: 7, roof: 3,  // enclosed room (walls / doors / rock all around) + roof over the player (built or a cave)
     porchWind: 0.6,       // wind × under a roof that is not enclosed (porch, pavilion)
     cloth: 3,             // per point of clothing warmth (tunic 2, leather 1, hood 1…)
@@ -163,22 +171,29 @@ export function feltTemp(game, p, shelter) {
   const T = SURVIVAL.temp, E = game.env, e = E.cur || E.env || {};
   const wet = E.wet ?? E.env?.wet ?? 0;
   const biome = game.world.biomeAt?.(p.x, p.y);
-  const base = T.biome[biome] ?? T.biomeDefault;
+  const S = game.season || seasonOf(game), bb = T.biome[biome] ?? T.biomeDefault;
+  const wb = T.winter.base + (bb - T.biomeDefault) * T.winter.biomeK;
+  const base = bb + (wb - bb) * (S.winter || 0) + (S.coldC || 0); // the season: winter's own climate, cooler autumn / spring
   const h = E.hour ?? 12;
   const night = h < 12 ? 1 - ss(4.6, 6.3, h) : ss(18.7, 20.4, h);
   const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * night;
   const covered = shelter.enclosed || shelter.cave;
   const rain = covered || shelter.roof ? 0 : (e.rain || 0) * T.rain + (e.storm || 0) * T.storm + wet * T.wet;
   const wind = covered ? 0 : (e.wind || 0) * T.wind * (shelter.roof ? T.porchWind : 1);
-  const fire = fireHeat(game, p.x, p.y);
+  // heat sources: a fire, or the hand torch held in the off hand (the stronger one counts)
+  const torch = p.offhand === 'torch_hand' || p.equip?.off === 'torch_hand' ? T.torch : 0;
+  const fire = Math.max(fireHeat(game, p.x, p.y), torch);
   const room = (shelter.enclosed ? T.shelter : 0) + (shelter.roof ? T.roof : 0) + (shelter.cave && !shelter.enclosed ? T.cave : 0);
   const cloth = (p.warmth || 0) * T.cloth;
   const food = p.warmFoodT > 0 ? T.warmFood : 0;
   // water: swimming is icy; wet clothes chill (scaled by how soaked) and double the wind chill
   const Wt = SURVIVAL.wet, wk = Math.min(1, (p.wetT || 0) / 60);
   const water = p.swimming ? Wt.swim : wk > 0 ? Wt.chill * wk + wind * wk : 0;
-  const c = base + day + rain + wind + fire + room + cloth + food + water;
-  return { c, base, day, rain, wind, fire, room, cloth, food, water };
+  const raw = base + day + rain + wind + fire + room + cloth + food + water;
+  // winter clothes keep the heat in: only (1 − insul) of the gap below comfort is felt
+  const ins = Math.max(0, Math.min(0.8, p.insul || 0));
+  const c = raw < T.comfort ? T.comfort - (T.comfort - raw) * (1 - ins) : raw;
+  return { c, raw, base, day, rain, wind, fire, torch: torch && fire === torch ? torch : 0, room, cloth, food, water, insul: c - raw, season: S.id };
 }
 
 // HUD readout: { key, text, cls, why }
@@ -189,8 +204,9 @@ export function heatState(p) {
   const cls = c < 0 ? 'freeze' : c < SURVIVAL.temp.comfort ? 'cold' : c > 26 ? 'hot' : 'ok';
   const parts = [];
   const add = (v, t) => { if (Math.abs(v) >= 0.5) parts.push(`${v > 0 ? '+' : '−'}${Math.round(Math.abs(v))}° ${t}`); };
-  parts.push(`${Math.round(f.base)}° aqui`);
-  add(f.day, 'hora do dia'); add(f.rain, 'chuva'); add(f.wind, 'vento'); add(f.fire, 'fogo'); add(f.room, 'abrigo'); add(f.cloth, 'roupas'); add(f.food, 'comida quente');
+  parts.push(`${Math.round(f.base)}° aqui${f.season === 'winter' ? ' (inverno)' : f.season === 'autumn' ? ' (outono)' : f.season === 'spring' ? ' (primavera)' : ''}`);
+  add(f.day, 'hora do dia'); add(f.rain, 'chuva'); add(f.wind, 'vento'); add(f.fire, f.torch ? 'tocha de mão' : 'fogo'); add(f.room, 'abrigo'); add(f.cloth, 'roupas'); add(f.food, 'comida quente');
+  add(f.insul || 0, 'roupa de frio');
   add(f.water, p.swimming ? 'água gelada' : 'roupa molhada');
   const wetNote = p.swimming ? ' Nadando: o corpo esfria muito rápido.' : p.wetT > 0 ? ` Molhado: seca em ~${Math.ceil(p.wetT)} s (muito mais rápido perto do fogo).` : '';
   const why = parts.join(' · ') + (c < SURVIVAL.temp.comfort ? '. Abaixo de 12° o corpo esfria.' : '. Confortável: o corpo se aquece.') + wetNote;
@@ -236,7 +252,7 @@ export function survivalSystem() {
       const wasWet = (p.wetT || 0) > 0;
       if (p.swimming) p.wetT = W.soaked;
       else {
-        const rainNow = shelter.enclosed || shelter.roof ? 0 : (ec.rain || 0);
+        const rainNow = (shelter.enclosed || shelter.roof ? 0 : (ec.rain || 0)) * (1 - (1 - T.winter.snowSoak) * (game.season?.winter || 0)); // winter: snow
         if (rainNow > 0.2 && (p.wetT || 0) < W.rainMax) p.wetT = Math.min(W.rainMax, (p.wetT || 0) + rainNow * W.rainSoak * dt);
         else if (p.wetT > 0) {
           const hr = E.hour ?? 12, sunny = hr > 7 && hr < 18 && (ec.cloud ?? 0) < 0.5 && rainNow < 0.05;
@@ -262,7 +278,7 @@ export function survivalSystem() {
       const heat = p.bodyHeat;
 
       // warm buff (fire / warm meal): better regen (player.js) and a little less hunger
-      const warm = f.fire > 3 || p.warmFoodT > 0;
+      const warm = (f.fire > 3 && !f.torch) || p.warmFoodT > 0;
       if (warm) { if (!hasBuff(p, 'warm')) addBuff(p, 'warm', 1, { perm: true }); } else removeBuff(p, 'warm');
       // chilled: a cold body, or swimming / wet clothes away from a fire
       const chilled = heat < T.chilled || p.swimming || (wetNow && !warm);
@@ -303,6 +319,7 @@ export function survivalSystem() {
       if (p.work) drain *= H.work;
       if (p.inCombat) drain *= H.combat;
       if (chilled) drain *= H.chilled;
+      if (d < 0) drain *= 1 + T.coldHunger * Math.min(1, -d / T.coldHungerSpan); // cold body burns food: keep it warm
       if (p.swimming) drain *= W.hungerSwim; // icy water + effort
       if (warm) drain *= H.nearFire;
       p.hunger = Math.max(0, p.hunger - drain * dt);

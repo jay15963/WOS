@@ -30,7 +30,7 @@ export function radarMarkup() {
       <div class="rd-marks"></div>
       <div class="rd-clock" data-tip="<b>Hora do dia</b><p>O arco mostra o sol (ou a lua) no céu. A noite é fria: prepare fogo e abrigo antes da barra encher.</p>"><b id="clock"></b></div>
     </div>
-    <div class="mm-info rd-info"><span class="rd-day">Dia <b id="rd-dayn"></b></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
+    <div class="mm-info rd-info"><span class="rd-day">Dia <b id="rd-dayn"></b></span><span class="rd-season" id="rd-season"></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
   </div>`;
 }
 
@@ -38,7 +38,7 @@ export function installRadar(game, root, mini) {
   const disc = root.querySelector('.rd-disc');
   const mm = root.querySelector('#mm'), cv = mm.querySelector('canvas'), ctx = cv.getContext('2d');
   const svg = root.querySelector('.rd-svg'), marks = root.querySelector('.rd-marks');
-  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi'), mode: root.querySelector('#rd-mode') };
+  const R = { clock: root.querySelector('#clock'), day: root.querySelector('#rd-dayn'), wx: root.querySelector('#weather'), wxi: root.querySelector('#rd-wxi'), mode: root.querySelector('#rd-mode'), season: root.querySelector('#rd-season') };
   let W = 0, H = 0, fill = null, tip = null, tipG = null, len = 0;
   const C = {};
 
@@ -163,6 +163,15 @@ export function installRadar(game, root, mini) {
     if (C.clk !== clk) { C.clk = clk; R.clock.textContent = clk; }
     const day = String(E.dayIndex ?? 1);
     if (C.day !== day) { C.day = day; R.day.textContent = day; }
+    // the season (seasons.js): its name, and how long until the winter
+    const S = g.season;
+    const sk = S ? S.id + S.toWinter : '';
+    if (S && C.sk !== sk) {
+      C.sk = sk;
+      R.season.textContent = S.name;
+      R.season.className = 'rd-season s-' + S.id;
+      R.season.title = S.id === 'winter' ? `Inverno: dia ${S.day} de 3` : S.toWinter <= 1 ? 'O inverno começa amanhã' : `Inverno em ${S.toWinter} dias`;
+    }
     const w = E.weather, clearNight = night && w === 'clear';
     const wn = clearNight ? 'Noite' : (WEATHER_PT[w] || [''])[0];
     if (C.wn !== wn) { C.wn = wn; R.wx.textContent = wn; R.wxi.innerHTML = nIcon(clearNight ? 'moon' : WX_ICON[w] || 'sun'); }

@@ -1037,6 +1037,45 @@ function cracksArt(v) {
     }
   }, 0);
 }
+// siege cracks (winter walkers hitting a wall / door / fence: fx/rockfx.js): stage 0..3 grows from the middle of the
+// top face (and of the front face when `front`) out to the edges, thicker and branching, a dark hole at the end —
+// the same look as a rock being mined
+export function siegeCrackArt(stage, front) {
+  return wbox((g) => {
+    const crack = (cx, cy, sy, seed) => {
+      const rand = rng(7700 + seed * 13 + stage * 101);
+      const n = 3 + stage, L = 9 + stage * 7.5, wdt = 1.1 + stage * 0.45;
+      const lines = [];
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + (rand() - 0.5) * 0.9;
+        let x = cx, y = cy, dx = Math.cos(a), dy = Math.sin(a) * sy;
+        const pts = [[x, y]];
+        const steps = Math.max(2, Math.round(L * (0.7 + rand() * 0.5) / 4));
+        for (let k = 0; k < steps; k++) { x += dx * 4 + (rand() - 0.5) * 3; y += dy * 4 + (rand() - 0.5) * 3 * sy; pts.push([x, y]); }
+        lines.push([pts, wdt]);
+        if (stage >= 2) { // branches off the middle
+          const m = pts[(pts.length / 2) | 0], b = a + (rand() < 0.5 ? 0.9 : -0.9);
+          let bx = m[0], by = m[1];
+          const bp = [[bx, by]];
+          for (let k = 0; k < 2 + stage - 2; k++) { bx += Math.cos(b) * 3.5 + (rand() - 0.5) * 2; by += Math.sin(b) * 3.5 * sy + (rand() - 0.5) * 2; bp.push([bx, by]); }
+          lines.push([bp, wdt * 0.6]);
+        }
+      }
+      const path = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let k = 1; k < pts.length; k++) g.lineTo(pts[k][0], pts[k][1]); };
+      g.lineCap = 'round'; g.lineJoin = 'round';
+      // a lit lip along each crack, then the dark gap
+      for (const [pts, wd] of lines) { g.save(); g.translate(0.8, 0.9); path(pts); g.strokeStyle = 'rgba(255,236,200,0.22)'; g.lineWidth = wd; g.stroke(); g.restore(); }
+      for (const [pts, wd] of lines) { path(pts); g.strokeStyle = 'rgba(16,9,4,0.88)'; g.lineWidth = wd; g.stroke(); }
+      if (stage >= 3) { // the middle is caving in
+        g.beginPath();
+        for (let k = 0; k < 7; k++) { const a = (k / 7) * Math.PI * 2, r = 3.5 + rand() * 3; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r * sy); }
+        g.closePath(); g.fillStyle = 'rgba(12,7,3,0.9)'; g.fill();
+      }
+    };
+    crack(32, 30, 1, 1);
+    if (front) crack(32, F0 + FH * 0.48, 1.25, 2);
+  }, 0);
+}
 function weatherArt() {
   return wbox((g) => {
     for (let i = 0; i < 7; i++) {
@@ -1643,6 +1682,7 @@ function archSprites(S) {
   for (let v = 0; v < 3; v++) A('kd_ivy_' + v, () => ivy(v));
   for (let v = 0; v < 2; v++) A('kd_moss_' + v, () => moss(v));
   for (let v = 0; v < 2; v++) A('kd_cracks_' + v, () => cracksArt(v));
+  for (let k = 0; k < 4; k++) { A('siege_crack_t' + k, () => siegeCrackArt(k, false)); A('siege_crack_f' + k, () => siegeCrackArt(k, true)); }
   A('kd_weather', weatherArt); A('kd_flowers', flowersArt);
   // doors
   for (const st of ['panel', 'iron', 'arched', 'rustic']) {

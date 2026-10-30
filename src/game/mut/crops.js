@@ -85,7 +85,7 @@ defineOp('crop.remove', {
 export function growCrops(game) {
   const net = game.net;
   const rain = game.env.env?.rain || 0;
-  const mult = 1 + (rain > 0.2 ? 0.5 : 0);
+  const mult = game.season?.id === 'winter' ? 0 : 1 + (rain > 0.2 ? 0.5 : 0); // winter: the crops stop growing
   const now = game.worldTime;
   for (const c of game.farm.crops.values()) {
     const el = Math.max(0, now - (c.lastT ?? now));

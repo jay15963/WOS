@@ -2,6 +2,12 @@
 // dynamic cave spiders in mined roofed tunnels, sleep outside ~40 tiles, corpse cleanup and
 // light separation. Raiders (bandits.js) are mobs too: updated here with their own brain.
 //
+// Day and night (owner's rules): passive animals (green: rabbit, fox, deer) are out by day only; predators
+// (wolves) by night only, and many more of them: their dens fill at dusk and hunting packs roam out of the dark
+// toward the players (3x wolves per pack in winter); boars and bears (not nocturnal) any time; monsters
+// (spiders) live in caves only. Nothing nocturnal appears within 3x the radius of a light (campfires, torches,
+// lamps, a hand torch). Creatures out of their hours go home and vanish once nobody sees them.
+//
 // Bare-hands balance: the ring around the spawn only holds passive animals (rabbit, fox, deer) and
 // neutral boars; wolves start ~30 tiles out, spiders hug the mountains (~32+), bears ~55+, camps ~60+.
 // Multiplayer: creatures live on the HOST only (spawners, AI, respawns: mobsSystem is sync 'host'); they
@@ -14,6 +20,10 @@ import { updateCreature } from './ai.js';
 import { updateBandit } from './bandits.js';
 import { mobBlocked } from './nav.js';
 import { allPlayers, minPlayerDist, inAnyView } from './players.js';
+import { nightK } from './seasons.js';
+import { BUILDINGS } from './data.js';
+import { ITEMS } from './content/items.js';
+import { walkersTick } from './walkers.js';
 
 const SLEEP = 40;
 // creature ids from the authority: nid 'm<base36>' for the network, numeric id for the art (gait phase)
@@ -32,7 +42,45 @@ function countTrees(world, x, y, r) {
 
 export const levelForDistance = (d, extra = 0) => Math.max(1, Math.min(18, 1 + Math.floor(d / 24) + extra));
 
-const QUOTA = { wolf: 14, boar: 14, deer: 14, rabbit: 20, fox: 12, spider: 12, bear: 5 };
+const QUOTA = { wolf: 20, boar: 14, deer: 14, rabbit: 20, fox: 12, bear: 5 };
+// when each species is out: 'day' | 'night' | 'always' | 'cave' (a cave nest: day and night)
+export const ACTIVE = { rabbit: 'day', fox: 'day', deer: 'day', wolf: 'night', boar: 'always', bear: 'always', spider: 'cave', walker: 'night' };
+export const isNight = (game) => nightK(game.env?.hour ?? 12) > 0.5;
+const winterNow = (game) => game.season?.id === 'winter';
+// pack size now (wolves: 3x in winter)
+const packSize = (game, s) => s.count * (s.species === 'wolf' && winterNow(game) ? 3 : 1);
+function activeNow(game, s, night) {
+  const when = s.when || ACTIVE[s.species] || 'always';
+  return when === 'day' ? !night : when === 'night' ? night : true;
+}
+
+// ---------- light keeps the night away ----------
+// lights: [x, y, protected radius^2] for structures with a light (campfires, torches, braziers, lamps, a working
+// furnace) and players holding a hand torch; refreshed by the slow tick
+const LIGHT_K = 3;
+function collectLights(game) {
+  const out = game._spawnLights || (game._spawnLights = []);
+  out.length = 0;
+  for (const o of game.build.structures) {
+    if (o.blueprint || o.removed) continue;
+    const def = BUILDINGS[o.type];
+    const L = def?.light || (o.working && def?.workLight);
+    if (!L || o.fire === false || o.lit === false) continue;
+    const r = L.radius * LIGHT_K;
+    out.push(o.x, o.y, r * r);
+  }
+  const hand = ITEMS.torch_hand?.light?.radius || 5;
+  for (const q of allPlayers(game)) {
+    if (q.dead) continue;
+    if (q.light || q.offhand === 'torch_hand' || q.equip?.off === 'torch_hand') { const r = (q.light?.radius || hand) * LIGHT_K; out.push(q.x, q.y, r * r); }
+  }
+  return out;
+}
+export function litNear(game, x, y) {
+  const L = game._spawnLights || collectLights(game);
+  for (let i = 0; i < L.length; i += 3) { const dx = L[i] - x, dy = L[i + 1] - y; if (dx * dx + dy * dy < L[i + 2]) return true; }
+  return false;
+}
 
 export function createSpawners(game) {
   const w = game.world, rand = mulberry32((w.seed | 0) * 31 + 7);
@@ -57,7 +105,6 @@ export function createSpawners(game) {
     if (trees <= 2 && lush > 0.5 && d > minD('deer')) cands.push('deer');
     if (trees <= 3 && lush > 0.42 && d > minD('rabbit')) cands.push('rabbit');
     if ((trees >= 4 || (wooded && trees >= 2)) && d > minD('fox')) cands.push('fox');
-    if (dRock < 3.2 && (biome === 'rocky' || biome === 'mountain' || dRock < 1.6) && d > minD('spider')) cands.push('spider');
     if (dRock < 6 && d > minD('bear') && trees <= 6) cands.push('bear');
     if (!cands.length) continue;
     const species = cands[Math.floor(rand() * cands.length)];
@@ -72,11 +119,25 @@ export function createSpawners(game) {
       : species === 'fox' ? 1
       : species === 'rabbit' ? 1 + (rand() < 0.5 ? 1 : 0)
       : 1 + Math.floor(rand() * 2) + (species === 'deer' && rand() < 0.3 ? 1 : 0);
-    spawners.push({ id: spawners.length + 1, species, x: x + 0.5, y: y + 0.5, level, count, members: [] });
+    spawners.push({ id: spawners.length + 1, species, x: x + 0.5, y: y + 0.5, level, count, members: [], when: ACTIVE[species] });
     have[species]++;
   }
   game.spawners = spawners;
-  for (const s of spawners) for (let n = 0; n < s.count; n++) spawnMember(game, s);
+  // only what is out at this hour (the rest fills in when its time comes: mobsSystem slow tick)
+  const night = isNight(game);
+  collectLights(game);
+  for (const s of spawners) {
+    if (!activeNow(game, s, night) || (s.when === 'night' && litNear(game, s.x, s.y))) continue;
+    for (let n = 0; n < packSize(game, s); n++) spawnMember(game, s);
+  }
+}
+
+// host / tests: one creature at (x, y) on its own spawner (any time of day with when 'always')
+export function spawnLoose(game, species, x, y, { level = null, when = 'always' } = {}) {
+  const w = game.world, d = Math.hypot(x - w.spawn.x, y - w.spawn.y);
+  const s = { id: game.spawners.length + 1, species, x, y, level: level ?? levelForDistance(d, SPECIES[species]?.lvl || 0), count: 1, members: [], when, loose: true };
+  game.spawners.push(s);
+  return spawnMember(game, s);
 }
 
 export function spawnMember(game, s) {
@@ -124,15 +185,43 @@ function caveSpawn(game) {
     if (caves.some((s) => Math.hypot(s.x - x, s.y - y) < 10)) continue;
     if (mobBlocked(w, x, y, 0.26)) continue;
     const dSpawn = Math.hypot(x - w.spawn.x, y - w.spawn.y);
-    const s = { id: game.spawners.length + 1, species: 'spider', x, y, level: levelForDistance(dSpawn, 1), count: 1 + (Math.random() < 0.5 ? 1 : 0), members: [], cave: true };
+    const s = { id: game.spawners.length + 1, species: 'spider', x, y, level: levelForDistance(dSpawn, 1), count: 1 + (Math.random() < 0.5 ? 1 : 0), members: [], cave: true, when: 'cave' };
     game.spawners.push(s);
     for (let n = 0; n < s.count; n++) spawnMember(game, s);
     return;
   }
 }
 
+// ---------- night hunts: wolf packs come out of the dark toward the players ----------
+// every ~30-50 s at night, around a random player with fewer than 2 (winter 3) packs within 50 tiles: a pack of
+// 2-3 (x3 in winter) appears 24-34 tiles away, out of sight and away from any light, and roams a spot ~9 tiles
+// from that player (in the dark): close enough to smell them. They go home at dawn.
+function nightHunt(game) {
+  const w = game.world, L = allPlayers(game).filter((q) => !q.dead);
+  if (!L.length) return;
+  const p = L[Math.floor(Math.random() * L.length)];
+  const winter = winterNow(game);
+  const packs = game.spawners.filter((s) => s.hunt && s.members.some((m) => !m.dead) && Math.hypot(s.x - p.x, s.y - p.y) < 50).length;
+  if (packs >= (winter ? 3 : 2)) return;
+  const ok = (x, y, r) => { const tx = Math.floor(x), ty = Math.floor(y); return w.inBounds(tx, ty) && !mobBlocked(w, x, y, r) && !w.waterAt(tx, ty)
+    && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y); };
+  for (let k = 0; k < 16; k++) {
+    const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 10;
+    const x = p.x + Math.cos(a) * r, y = p.y + Math.sin(a) * r;
+    if (!ok(x, y, 0.32) || minPlayerDist(game, x, y) < 22 || inAnyView(game, x, y, 3, 3)) continue;
+    // the spot they roam: between them and the player, ~9 tiles from the player, in the dark
+    let hx = p.x + Math.cos(a) * 9, hy = p.y + Math.sin(a) * 9;
+    if (!ok(hx, hy, 0.32)) { hx = x; hy = y; }
+    const dSpawn = Math.hypot(x - w.spawn.x, y - w.spawn.y);
+    const s = { id: game.spawners.length + 1, species: 'wolf', x, y, level: levelForDistance(dSpawn, Math.random() < 0.3 ? 1 : 0), count: 2 + (Math.random() < 0.4 ? 1 : 0), members: [], when: 'night', hunt: true };
+    game.spawners.push(s);
+    for (let n = 0; n < packSize(game, s); n++) { const m = spawnMember(game, s); m.home = { x: hx + (Math.random() - 0.5) * 3, y: hy + (Math.random() - 0.5) * 3 }; }
+    return;
+  }
+}
+
 export function mobsSystem() {
-  let slowT = 0, caveT = 8;
+  let slowT = 0, caveT = 8, huntT = 20;
   return {
     sync: 'host', // creatures are simulated by the host only
     update(game, dt) {
@@ -155,7 +244,7 @@ export function mobsSystem() {
         let d = 1e9;
         for (const q of allPlayers(game)) d = Math.min(d, Math.abs(m.x - q.x) + Math.abs(m.y - q.y));
         if (d > SLEEP * 1.4 && m.state !== 'evade' && m.state !== 'chase') { m.moving = false; continue; }
-        if (m.faction === 'bandit') updateBandit(game, m, dt);
+        if (m.faction === 'bandit' || m.faction === 'walker') updateBandit(game, m, dt);
         else updateCreature(game, m, dt);
         awake.push(m);
       }
@@ -175,25 +264,40 @@ export function mobsSystem() {
           }
         }
       }
-      // respawns (slow tick)
+      // schedule + respawns (slow tick)
       slowT -= dt;
       if (slowT <= 0) {
         slowT = 1;
+        const night = isNight(game);
+        collectLights(game);
+        const drop = (s, k, m) => { s.members.splice(k, 1); const i = E.indexOf(m); if (i >= 0) E.splice(i, 1); }; // host-only creature list
         for (let si = game.spawners.length - 1; si >= 0; si--) {
           const s = game.spawners[si];
+          const on = activeNow(game, s, night);
           for (let k = s.members.length - 1; k >= 0; k--) {
             const m = s.members[k];
-            if (!m.dead || game.worldTime < m.respawnAt) continue;
+            if (!m.dead) {
+              // out of its hours: home, and gone once nobody sees it (never in the middle of a fight)
+              if (on) { m.leaving = false; continue; }
+              m.leaving = true;
+              if (m.state !== 'chase' && m.state !== 'flee' && !inAnyView(game, m.x, m.y, 3, 3)) drop(s, k, m);
+              continue;
+            }
+            if (game.worldTime < m.respawnAt) continue;
             if (minPlayerDist(game, s.x, s.y) < 18) continue; // never pop in on anyone's screen
-            s.members.splice(k, 1);
-            const i = E.indexOf(m);
-            if (i >= 0) E.splice(i, 1); // host-only creature list
-            if (s.cave) continue; // cave nests don't refill; new ones appear while you dig
+            drop(s, k, m);
+            if (s.cave || s.hunt || s.loose || !on) continue; // nests / hunting packs don't refill; out of hours: later
             spawnMember(game, s);
           }
-          if (s.cave && !s.members.length) game.spawners.splice(si, 1);
+          // its hours came: fill up to the pack size, one at a time, out of sight (nocturnal ones not by a light)
+          if (on && !s.cave && !s.hunt && !s.loose && s.members.length < packSize(game, s) && minPlayerDist(game, s.x, s.y) >= 18
+            && !inAnyView(game, s.x, s.y, 3, 3) && !(s.when === 'night' && litNear(game, s.x, s.y))) spawnMember(game, s);
+          if ((s.cave || s.hunt || s.loose) && !s.members.length) game.spawners.splice(si, 1);
         }
+        walkersTick(game, night); // winter nights: the frozen dead (walkers.js)
       }
+      huntT -= dt;
+      if (huntT <= 0) { huntT = 30 + Math.random() * 20; if (isNight(game)) nightHunt(game); }
       caveT -= dt;
       if (caveT <= 0) { caveT = 15 + Math.random() * 10; caveSpawn(game); }
     },

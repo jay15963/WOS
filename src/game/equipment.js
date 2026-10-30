@@ -41,12 +41,12 @@ export const hasTool = (p, kind) => !!bestTool(p, kind);
 export function equipChanged(game) {
   const p = game.player;
   p.equipV = (p.equipV || 0) + 1;
-  let armor = 0, warmth = 0;
+  let armor = 0, warmth = 0, insul = 0;
   for (const s of SLOTS) {
     const d = ITEMS[p.equip[s]];
-    if (d?.armor) { armor += d.armor.value || 0; warmth += d.armor.warmth || 0; }
+    if (d?.armor) { armor += d.armor.value || 0; warmth += d.armor.warmth || 0; insul += d.armor.insul || 0; }
   }
-  p.armorValue = armor; p.warmth = warmth;
+  p.armorValue = armor; p.warmth = warmth; p.insul = Math.min(0.8, insul); // winter clothes (survival.js)
   syncVisual(p, true);
   game.events.emit('equipchange', {});
   game.events.emit('equip', {});

@@ -74,6 +74,9 @@ export const ITEMS = {
   armor_leather: { name: 'Armadura de couro', emoji: '🦺', stack: 1, cat: 'armor', slot: 'body', tier: 1, armor: { value: 5, warmth: 1 }, desc: 'Couro curtido. Proteção leve.' },
   armor_copper:  { name: 'Armadura de cobre', emoji: '🦺', stack: 1, cat: 'armor', slot: 'body', tier: 2, armor: { value: 9 }, desc: 'Placas de cobre sobre couro.' },
   armor_iron:    { name: 'Armadura de ferro', emoji: '🦺', stack: 1, cat: 'armor', slot: 'body', tier: 3, armor: { value: 14 }, desc: 'Cota pesada de ferro.' },
+  // winter clothes (seasons): `insul` keeps the body's heat in — the cold takes only (1 − insul) of it (survival.js)
+  coat_fur:      { name: 'Casaco de pele', emoji: '🧥', stack: 1, cat: 'armor', slot: 'body', tier: 1, armor: { value: 3, warmth: 1, insul: 0.5 }, desc: 'Roupa de frio: o corpo perde só metade do calor. No inverno, sozinha não basta: com fogueira fica normal, com tocha de mão se mantém.' },
+  hat_fur:       { name: 'Gorro de pele', emoji: '🧢', stack: 1, cat: 'armor', slot: 'head', tier: 1, armor: { value: 1, insul: 0.2 }, desc: 'Roupa de frio para a cabeça: segura mais um pouco do calor do corpo.' },
   hat_straw:     { name: 'Chapéu de palha', emoji: '👒', stack: 1, cat: 'armor', slot: 'head', tier: 0, armor: { value: 1 }, desc: 'Trançado de fibras. Protege do sol.' },
   hood_leather:  { name: 'Capuz de couro', emoji: '🪖', stack: 1, cat: 'armor', slot: 'head', tier: 1, armor: { value: 3, warmth: 1 }, desc: 'Capuz quente de couro.' },
   helmet_copper: { name: 'Elmo de cobre', emoji: '🪖', stack: 1, cat: 'armor', slot: 'head', tier: 2, armor: { value: 5 }, desc: 'Elmo de cobre martelado.' },

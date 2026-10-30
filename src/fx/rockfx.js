@@ -5,12 +5,49 @@
 // one by one (~0.3 s), its pieces slump into the hole and dust rises (the puff of tile.mine).
 // The terrain shader reads up to 8 tiles near the view (renderer.mine: tx, ty, crack 0..1 or 1 + break progress,
 // hit pulse 0..1 for the tremble).
+//
+// Walls / doors / fences hit by winter walkers (op struct.dmg → o.dmg 0..1, walkers.js) crack the same way: every
+// hit trembles the piece's cracks and throws splinters / chips, the cracks spread as the damage grows (wall-face
+// crack sprites over the piece, depth-sorted right after it), and the last hit (struct.remove fx 'smash') breaks it
+// into pieces that drop around its tile with dust.
+
+import { archSprite } from '../art/archCompose.js';
+import { BUILDINGS } from '../game/data.js';
 
 const MAXN = 8;
 const BREAK_T = 0.32;
 
 export function initRockFx(game) {
-  game.rockFx = { hitT: new Map(), breaking: new Map() };
+  game.rockFx = { hitT: new Map(), breaking: new Map(), walls: new Set(), structHit, structBreak };
+}
+
+const isStone = (o) => o.type === 'wall_stone' || BUILDINGS[o.type]?.mat === 'stone';
+const WOOD_COL = [0.56, 0.4, 0.24], STONE_COL = [0.6, 0.58, 0.55];
+
+// op struct.dmg applied (every peer): o.dmg is set; (x, y) = the hitter (null: it settled)
+function structHit(game, o, x, y) {
+  const F = game.rockFx;
+  if (!F) return;
+  if (o.dmg > 0) F.walls.add(o); else F.walls.delete(o);
+  if (x == null || game.headless) return;
+  o._hitT = game.time; o._hitX = x; o._hitY = y;
+  const col = isStone(o) ? STONE_COL : WOOD_COL;
+  // splinters / chips fly off the face toward the hitter, a thud
+  const dx = x - o.x, dy = y - (o.y - 0.5), L = Math.hypot(dx, dy) || 1;
+  game.juice?.chips(o.x + (dx / L) * 0.35, o.y - 0.3 + (dy / L) * 0.2, col, 4 + Math.round(o.dmg * 4), 0.55);
+  game.audio?.play(isStone(o) ? 'pick' : 'build_hit', { x: o.x, y: o.y, volume: 0.55 + o.dmg * 0.3 });
+}
+
+// op struct.remove fx 'smash' (before the piece is removed): it falls apart into pieces + dust
+function structBreak(game, o) {
+  const F = game.rockFx;
+  F?.walls.delete(o);
+  if (game.headless) return;
+  const col = isStone(o) ? STONE_COL : WOOD_COL, w = game.world;
+  breakFx(game, o.ty * w.W + o.tx, { col, fx: o._hitX, fy: o._hitY, lift: 0.7, n: 8 });
+  game.juice?.puff(o.x, o.y - 0.25, 12, isStone(o) ? [0.7, 0.68, 0.64] : [0.66, 0.56, 0.42], 0.9);
+  const p = game.player;
+  if (p && Math.hypot(p.x - o.x, p.y - o.y) < 9) game.juice?.shake?.(0.25); // (felt nearby only)
 }
 
 // a hit landed on rock tile i (op applier, or the local swing ahead of the host's reply); (x, y) = the miner
@@ -27,10 +64,35 @@ export function onRockBreak(game, i, col) {
   F.breaking.set(i, { t: 0, col, fx: h?.x, fy: h?.y, spawned: false });
 }
 
+// drawable: the cracks over a damaged piece (right after it in the depth order); 4 stages that grow from the middle of
+// its top (and of its front face when it faces the camera), trembling for 0.18 s after a hit
+function drawCracks(B, A) {
+  const o = this.o, d = o.dmg || 0;
+  if (!(d > 0) || o.removed) return;
+  const k = this.game.time - (o._hitT || -9), sh = k < 0.18 ? (1 - k / 0.18) * 0.035 * Math.sin(k * 90) : 0;
+  const stage = Math.min(3, Math.floor(d * 4)), front = !((o.mask | 0) & 4);
+  const s = archSprite(A, (front ? 'siege_crack_f' : 'siege_crack_t') + stage);
+  if (!s) return;
+  const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1;
+  B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1), 0, 0, 0, 1);
+}
+
 export function rockFxSystem() {
-  const tmp = [];
+  const tmp = [], pool = [];
   return {
     sync: 'cosmetic',
+    collect(game, list, v) {
+      const F = game.rockFx;
+      if (!F?.walls.size) return;
+      let k = 0;
+      for (const o of F.walls) {
+        if (o.removed || !(o.dmg > 0)) { F.walls.delete(o); continue; }
+        if (o.x < v.x0 - 2 || o.x > v.x1 + 2 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
+        const d = pool[k] || (pool[k] = { draw: drawCracks, y: 0, o: null, game });
+        d.o = o; d.y = (o._sy ?? o.y) + 0.002; d.game = game;
+        list.push(d); k++;
+      }
+    },
     update(game, dt) {
       const F = game.rockFx;
       if (!F) return;
@@ -72,10 +134,11 @@ function breakFx(game, i, b) {
   if (b.fx != null) { dx = b.fx - (x + 0.5); dy = b.fy - (y + 0.5); const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L; }
   const K = 1 / Math.max(0.01, A.get(name).w);
   // they slump into the hole it leaves (a heap on the new floor), only a little toward the miner
-  for (let j = 0; j < 5; j++) {
+  const n = b.n || 5, L0 = b.lift || 0.25;
+  for (let j = 0; j < n; j++) {
     const s = (0.2 + Math.random() * 0.22) * K, sh = 0.85 + Math.random() * 0.25, k = (Math.random() * 3) | 0;
     P.emit({ spr: k && A.has('fx_rubble_' + k) ? 'fx_rubble_' + k : name, x: x + 0.2 + Math.random() * 0.6, y: y + 0.15 + Math.random() * 0.45,
-      lift: 0.25 + Math.random() * 0.45, vlift: 0.3 + Math.random() * 0.9, grav: 11, bounce: 0.25,
+      lift: L0 + Math.random() * 0.45, vlift: 0.3 + Math.random() * 0.9, grav: 11, bounce: 0.25,
       vx: dx * 0.3 + (Math.random() - 0.5) * 0.7, vy: dy * 0.2 + (Math.random() - 0.5) * 0.35, drag: 2.2,
       rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 9, life: 0.9 + Math.random() * 0.4, hold: 0.55,
       size: s, size1: s * 0.85, r: col[0] * sh, g: col[1] * sh, b: col[2] * sh, a: 1, a1: 0 });

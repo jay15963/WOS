@@ -317,7 +317,8 @@ export function killMob(game, m, killer) {
   }
   m.respawnAt = game.worldTime + (m.elite ? 300 : 100) + Math.random() * 80;
   game.net.emit('mob.die', die);
-  corpseFromMob(game, m, rows); // I · corpses (replaces the kill loot drop)
+  if (!m.noCorpse) corpseFromMob(game, m, rows); // I · corpses (replaces the kill loot drop)
+  else if (rows?.length) game.net.emit('loot.add', { list: rows }); // walkers shatter: no body, the drop lies on the ground
 }
 
 // ---------- player auto attack ----------

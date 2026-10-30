@@ -345,6 +345,62 @@ Owner's request: create worlds and keep them in a list (at most 10 per browser),
   crafting without ingredients, no damage, bars always full (endless running), creatures never pick a fight. A world
   setting carried by the snapshot (`mode`), so the host's world decides for everyone and the save keeps it. Scenario **C1**.
 
+## Noite, estações e inverno (added later)
+
+Owner's request: the night must have life and danger, and the year must turn.
+- **Who is out when** (mobs.js, host): passive animals (green: rabbit, fox, deer) by day only; predators (wolves)
+  by night only, and many more of them. Their dens fill at dusk, and hunting packs (`nightHunt`) come out of the
+  dark toward the players and roam a spot ~9 tiles from them. Boars and bears (not nocturnal) any time. Monsters
+  (spiders) live in cave nests only, day and night; out of the cave in daylight they give up after ~4 s and go
+  back (ai.js `SUN_LEASH`). Nothing nocturnal appears within **3x the radius of any light** (campfire, torch,
+  brazier, lamp, a working furnace, a player's hand torch: `litNear`). Creatures out of their hours walk away and
+  vanish once nobody sees them (never mid-fight).
+- **The bed only sets the respawn point** (the night is never skipped; lying down is just a pose).
+- **Seasons** (seasons.js): a cycle of 11 days, spring (day 1), summer (days 2-7), autumn (day 8, the day before
+  winter), winter (days 9-11), then again; a new world starts on a spring morning. `game.season` is a pure function
+  of the shared clock (env day / hour), the same on every peer with no extra sync: `id`, `day`, `toWinter`, smooth
+  visual weights (`snow`, `ice`, `autumn`, `bare`, `bloom`, `winter`), gameplay `frozen` / `coldC`. HUD: a season
+  chip under the radar and a notice when each season starts.
+- **Winter**:
+  - water freezes (`world.frozen`; `liquidAt` / `blocked` / `speedAt` / swimming treat it as ice: walkable, no
+    swimming), and crops stop growing;
+  - wolf packs are 3x bigger;
+  - it is much colder: the biomes' climate gives way to the winter's (survival.js `SURVIVAL.temp.winter`), and rain
+    falls as snow (it soaks much less).
+- **Winter clothes and the hand torch** (survival.js): winter clothes (`coat_fur` "Casaco de pele", `hat_fur`
+  "Gorro de pele", `armor.insul` up to 0.8) keep the heat in: only (1 - insul) of the gap below comfort is felt.
+  The hand torch (off hand) warms by +14 deg C, against 26 for a fire at its center. On a winter night (~ -11 deg C in
+  a meadow), the heat loss is:
+  - nothing: ~1.9 %/s;
+  - winter clothes: ~0.6 %/s;
+  - hand torch: ~0.75 %/s;
+  - clothes + torch: ~0.2 %/s (holds);
+  - clothes + fire: normal.
+  The gap below comfort also makes you hungrier (up to 1.7x), so a normal temperature means normal hunger.
+- **Andarilhos do Gelo** (walkers.js, SPECIES.walker): the frozen dead walk out of the dark on winter nights in
+  groups of 1-3 (at most ~3 around a player, 24-34 tiles away, out of sight and away from lights). They carry ice
+  swords / ice spears (`sword_ice` / `spear_ice`, `mat: 'ice'`, as strong as stone; the spear is thrown as
+  `ice_spear`) and use the raiders' brain (bandits.js updateBandit, per-species numbers). They crumble to snow at
+  sunrise or when the winter ends: no body, no loot, no XP. Killed by a player, one leaves its ice weapon 25% of
+  the time. Art: the seasons visual agent (vegetation by season, snow, ice, walker look, ice weapons, shatter).
+- **Walkers break in** (later request: hiding indoors must not be safe). They sense the living through walls (14
+  tiles) and are drawn to light (50 tiles, indoors too). When what they want is shut in a room (roofs.enclosedRoom),
+  they pick the closest wall / door / fence of it, stand outside and hit it.
+  - Every hit is op `struct.dmg` {id, d}: the same damage on every peer. The cracks grow in 4 stages from the middle
+    of the top and front faces (art `siege_crack_{t,f}0..3`, fx/rockfx.js), tremble and throw splinters / chips.
+  - At 1 it breaks (`struct.remove` fx `smash`: pieces drop with dust, the screen shakes nearby).
+  - Pace (walker-seconds to break, one walker): wood 240, stone 800. A group of 3 breaks a wooden wall in ~80 s
+    (about 3 a night) and a stone one in ~4.5 min (about 1 a night).
+  - Seeing a player in reach, they fight. At sunrise the cracks left settle (`struct.dmg` 0); what broke stays broken.
+- **Every winter brings more walkers** (walkers.js `WINTER_GROWTH`, winter number = (day - 1) / 11 + 1):
+  - winter 1: up to 3 around a player, in groups of 1-3, every 25-40 s;
+  - each winter after: +2 around a player and +1 per group, and the groups come 30% sooner;
+  - caps: 9 around a player, groups of 5, a group every 12 s at the soonest.
+- Debug (localhost, host): `game.debug.skipTo(day, hour)` jumps the shared clock (op `env.skip`). Scenario
+  **W1** covers: winter on both, frozen water, a walker replicated with its ice weapon, crumbling at sunrise, no
+  green animals at night. **W2** covers: a walker breaks into a closed room with the guest inside (same cracks on
+  both, the wall falls on both, the cracks settle at sunrise).
+
 ## Controles e HUD do jogador (added later)
 
 Owner's request: a settings tab to remap every shortcut on desktop (keyboard keys and mouse buttons, side buttons

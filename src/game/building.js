@@ -576,7 +576,7 @@ export function describeStructure(game, o) {
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
   if (o.door) return structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 });
   if (o.type === 'chest') return structIt(o, { kind: 'chest', verb: 'Abrir', icon: 'chest', prio: 3, use: true });
-  if (o.type === 'bed') return structIt(o, { kind: 'bed', verb: 'Dormir', icon: 'bed', prio: 3, use: true });
+  if (o.type === 'bed') return structIt(o, { kind: 'bed', verb: 'Renascer aqui', icon: 'bed', prio: 3, use: true });
   if (def.station) return structIt(o, { kind: 'station', verb: o.type === 'campfire' ? 'Cozinhar' : 'Criar', icon: 'craft', prio: o.type === 'campfire' ? 1 : 3, use: true, reach: 1.4 });
   if (o.type === 'farm_plot') return game.farm?.describePlot(game, o) || null;
   return null;
@@ -598,22 +598,11 @@ export function useStructure(game, it) {
       game.events.emit('open', { panel: 'craft', station: o.type });
       return;
     case 'bed': {
+      // the bed only marks where you come back (owner: the night is not skipped any more, it is part of the game);
+      // lying down is just a pose (replicated in the presence stream), moving gets up
       p.respawn = o.id;
-      const h = game.env.hour;
-      const night = h >= 19.5 || h < 5.5;
-      if (!night) { game.events.emit('toast', { text: 'Ponto de renascimento definido. Durma à noite.', kind: 'info' }); return; }
-      if (p.inCombat || game.entities.some((e) => !e.dead && e !== p && e.state === 'chase' && e.threat === p)) {
-        game.events.emit('error', { text: 'Não dá para dormir em combate' }); return;
-      }
-      game.juice?.lieDown?.(o); // lie in the bed (pose replicated in the presence stream)
-      if (!game.net.auth) { game.events.emit('toast', { text: 'Ponto de renascimento definido. Em multijogador só o anfitrião dorme até o amanhecer.', kind: 'info' }); return; }
-      game.events.emit('sleep', {});
-      game.later(0.9, () => {
-        game.net.request('env.sleep', {}, {
-          onOk: () => { p.hp = p.maxHp; p.energy = p.maxEnergy; p.hunger = Math.max(0, p.hunger - 15); },
-          onReject: (why) => game.events.emit('error', { text: why || 'Não deu para dormir' }),
-        });
-      });
+      game.events.emit('toast', { text: 'Ponto de renascimento definido nesta cama', kind: 'good' });
+      if (!p.inCombat) game.juice?.lieDown?.(o);
       return;
     }
   }
@@ -634,7 +623,7 @@ export function structureMenu(game, o) {
     out.push({ id: 'cancel', label: o.moveOf ? 'Cancelar mudança' : 'Cancelar planta', icon: 'close', run: () => toggleDecon(game, o) });
     return out;
   }
-  if (it && it.use) out.push({ id: 'use', label: it.kind === 'chest' ? 'Abrir baú' : it.kind === 'bed' ? 'Dormir' : it.verb, icon: it.icon, run: goUse });
+  if (it && it.use) out.push({ id: 'use', label: it.kind === 'chest' ? 'Abrir baú' : it.kind === 'bed' ? 'Renascer aqui' : it.verb, icon: it.icon, run: goUse });
   if (def.move && !o.moveOf) out.push({ id: 'move', label: 'Mover', icon: 'move', run: () => enterBuildMode(game, o.type, { move: o }) });
   if (def.raze) out.push({ id: 'raze', label: 'Arrasar', icon: 'raze', run: () => razeStructure(game, o) });
   else if (game.build.decon.has(o)) {
