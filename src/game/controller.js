@@ -5,7 +5,7 @@
 // which then feeds goals with { auto: true }; Esc cancels it.
 
 import { steer, resetNav } from './nav.js';
-import { attackable, dist, isMob, attackRange } from './combat.js';
+import { attackable, dist, isMob, attackRange, bestFoe, canHitNow } from './combat.js';
 import { useAbility, nearestEnemy } from './abilities.js';
 import { GENERIC_ABILITIES } from './content/combat.js';
 import { describeObject, reachDist } from './gathering.js';
@@ -74,10 +74,11 @@ export function describeAny(game, o) {
 
 // Space / attack button without a target: only a creature close to the PLAYER (the weapon's reach plus a step for
 // melee, the bow's range for ranged) — never some far creature on screen (a click targets what is near the mouse)
-function nearbyFoe(game) {
+function nearbyFoe(game, prefer = null) {
   const p = game.player, pr = p.wprof;
-  const r = pr && pr.ranged ? (pr.range || 8) : 2.2;
-  return nearestEnemy(game, r);
+  // a bow looks a bit past its range (then "Chegue mais perto"); melee a little around
+  const r = pr && pr.ranged ? (pr.range || 8) + 4 : 3.5;
+  return bestFoe(game, r, prefer) || nearestEnemy(game, r);
 }
 
 export function pick(game, sx, sy) {
@@ -175,24 +176,17 @@ export function installController(game) {
       ctl.goal = { type: 'attack', target: t };
       resetNav(p);
     },
-    toggleAttack() {
-      const p = game.player;
-      if (p.dead) return;
-      if (p.autoAttack && attackable(p.target)) { p.autoAttack = false; if (ctl.goal?.type === 'attack') ctl.goal = null; return; }
-      const t = attackable(p.target) ? p.target : nearbyFoe(game);
-      if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
-      ctl.engage(t);
-      if (dist(p, t) > attackRange(p, t) * 1.05) {
-        ctl.flag = { x: t.x, y: t.y, w: 1.15 * (t.scale || 1), h: 0.75 * (t.scale || 1), t: 0 };
-        game.events.emit('error', { text: 'Chegue mais perto' });
-      }
-    },
-    // Space: attack the target, else the nearest enemy (never toggles off; Esc / walking away ends it)
+    // the touch attack button: the same as Space — every tap attacks (a second tap never turns it off: tapping in a
+    // hurry used to switch the bow off); clearing the target (✕ on the target frame) stops attacking
+    toggleAttack() { ctl.attack(); },
+    // Space / attack button: keep the target if it can be hit from here, else the best enemy around (who is after me
+    // first, then the nearest one I can hit), else the current target
     attack() {
       const p = game.player;
       if (p.dead) return;
-      if (p.autoAttack && attackable(p.target)) return;
-      const t = attackable(p.target) ? p.target : nearbyFoe(game);
+      const cur = attackable(p.target) ? p.target : null;
+      if (p.autoAttack && cur && canHitNow(game, p, cur)) return;
+      const t = (cur && canHitNow(game, p, cur) ? cur : nearbyFoe(game, cur)) || cur;
       if (!t) { game.events.emit('error', { text: 'Sem alvo' }); return; }
       ctl.engage(t);
       if (dist(p, t) > attackRange(p, t) * 1.05) {

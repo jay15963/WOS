@@ -322,7 +322,7 @@ export function killMob(game, m, killer) {
 }
 
 // ---------- player auto attack ----------
-let noAmmoT = 0, losT = 0;
+let noAmmoT = 0, losT = 0, retargetT = 0;
 export function hasAmmo(p, prof = p.wprof) { return !prof?.ammo || p.inv.count(prof.ammo) > 0; }
 export function useAmmo(game, prof, n = 1) {
   const p = game.player;
@@ -364,6 +364,35 @@ export function playerShot(game, t, mult = 1, flat = 0, opts = {}) {
   });
 }
 
+// ---------- smart targeting (owner: "the attack must go for the nearest enemy") ----------
+// can the local player hit t from where it stands now (range, and a line of fire for a bow)?
+export function canHitNow(game, p, t) {
+  if (!attackable(t)) return false;
+  const prof = p.wprof || weaponProfile(p.equip?.main || null);
+  if (dist(p, t) > attackRange(p, t)) return false;
+  return !prof.ranged || hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0);
+}
+// the best enemy to attack within maxD: who is after me first, then hostiles, then the nearest; one I can hit right
+// now (range + line of fire) beats one I can't; passive animals only when nothing else is around
+export function bestFoe(game, maxD, prefer = null) {
+  const p = game.player;
+  let best = null, bs = 1e9;
+  for (const e of game.entities) {
+    if (!attackable(e) || !isMob(e)) continue;
+    const d = dist(p, e);
+    if (d > maxD) continue;
+    const tmp = e.temper || SPECIES[e.species]?.temper;
+    let s = d;
+    if (e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid)) s -= 6;
+    else if (tmp === 'hostile') s -= 1.5;
+    else if (tmp === 'passive') s += 8;
+    if (!canHitNow(game, p, e)) s += 5;
+    if (e === prefer) s -= 1;
+    if (s < bs) { bs = s; best = e; }
+  }
+  return best;
+}
+
 // clear the local player's target shortly after it died / broke (any peer: 'kill' comes from mob.die / prop.set)
 function onKill(game, target) {
   const p = game.player;
@@ -386,11 +415,18 @@ export function combatSystem() {
       if (t && !attackable(t) && p.autoAttack) p.autoAttack = false;
       if (!p.autoAttack || !attackable(t) || p.charge || p.spin || p.cast || p.leap || p.stunT > 0) return;
       const prof = p.wprof || weaponProfile(p.equip?.main || null);
+      // the target can't be hit from here (out of range / behind a wall) but another enemy can: switch to it
+      retargetT -= dt;
+      if (retargetT <= 0 && !canHitNow(game, p, t)) {
+        retargetT = 0.35;
+        const o = bestFoe(game, prof.ranged ? attackRange(p, t) + 1 : 3.5, t);
+        if (o && o !== t && canHitNow(game, p, o)) { game.ctl?.setTarget?.(o); p.target = o; p.autoAttack = true; return; }
+      }
       const d = dist(p, t);
       if (prof.ranged) {
         if (d > attackRange(p, t)) return;
         if (!hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) {
-          if (game.time - losT > 2 && !game.ctl?.goal) { losT = game.time; game.events.emit('error', { text: 'Sem linha de tiro' }); }
+          if (game.time - losT > 2.5) { losT = game.time; game.events.emit('error', { text: 'Sem linha de tiro: saia de trás da parede / rocha' }); }
           return;
         }
         enterCombat(p, 2);

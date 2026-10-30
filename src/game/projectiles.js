@@ -293,8 +293,9 @@ export function projectilesSystem() {
             done = true;
             break;
           }
-          // trunks, boulders, tents, crates
-          const ob = pr.d > 0.4 ? hitsSolidObject(w, nx, ny, nl) : null;
+          // trunks, boulders, tents, crates (an arrow shot at a target threads past them: the line of fire already
+          // checked walls and rock — trunks used to eat most shots in a forest)
+          const ob = pr.d > 0.4 && !(pr.target && pr.faction === 'player') ? hitsSolidObject(w, nx, ny, nl) : null;
           if (ob) {
             pr.x = nx - pr.ux * 0.12; pr.y = ny - pr.uy * 0.12;
             if (ob.isProp && pr.faction === 'player' && pr.src && !pr.cosmetic) pr.onHit?.(game, ob, pr);
