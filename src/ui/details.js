@@ -52,6 +52,23 @@ const CSS = `
 :is(#hud,body) .kdet .kf .ksum{flex:1;color:#bfae88;font-size:11px;font-weight:500;line-height:1.2}
 .touch :is(#hud,body) .kdet .kc span{font-size:11.5px}
 @media (max-height:520px){:is(#hud,body) .kdet.sheet{height:62vh}}
+/* landscape phone: full height on the right (the world and the ghost stay visible on the left), compact chrome */
+html :is(#hud,body) .kdet.sheet.land{left:auto;right:calc(var(--safe-r,0px) + 6px);top:calc(var(--safe-t,0px) + 6px);bottom:calc(var(--safe-b,0px) + 6px);height:auto;width:min(50vw,500px);border-radius:14px}
+html :is(#hud,body) .kdet.sheet.land .kh{padding:5px 8px 4px 10px;gap:7px}
+html :is(#hud,body) .kdet.sheet.land .kh img{width:26px;height:26px}
+html :is(#hud,body) .kdet.sheet.land .kh b{font-size:13px}
+html :is(#hud,body) .kdet.sheet.land .kh small{display:none}
+html :is(#hud,body) .kdet.sheet.land .kx{width:28px;height:28px}
+html :is(#hud,body) .kdet.sheet.land .ktabs{padding:4px 6px;gap:3px}
+html :is(#hud,body) .kdet.sheet.land .ktab{font-size:11px;padding:4px 8px}
+html :is(#hud,body) .kdet.sheet.land .kbody{padding:2px 6px 6px}
+html :is(#hud,body) .kdet.sheet.land .kgrid{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:5px}
+html :is(#hud,body) .kdet.sheet.land .kc span{font-size:10.5px;min-height:2.1em}
+html :is(#hud,body) .kdet.sheet.land .kdesc{font-size:11px;margin:2px 2px 3px}
+html :is(#hud,body) .kdet.sheet.land .kf{padding:4px 6px}
+html :is(#hud,body) .kdet.sheet.land .kb{padding:6px 9px;font-size:11px}
+html :is(#hud,body) .kdet.sheet.land .kf .ksum{font-size:10.5px}
+body.kdet-land #levelbar{right:calc(var(--safe-r,0px) + min(50vw,500px) * var(--ui,1) + 18px)!important}
 .abb .det{background:rgba(150,110,40,.75);border-color:rgba(240,200,120,.5)}
 .abb .det.off{display:none}
 .bcard .bsty{display:inline-block;margin-top:3px;padding:2px 8px;border-radius:999px;background:rgba(226,182,92,.18);color:#ffdc96;font-size:10.5px;border:1px solid rgba(226,182,92,.4);cursor:pointer;align-self:flex-start}
@@ -238,7 +255,7 @@ export function installDetails(game) {
     game.audio?.play('ui_click', {});
     render();
   };
-  const close = () => { if (!el) return; el.remove(); el = null; S = null; game.audio?.play('ui_close', {}); };
+  const close = () => { if (!el) return; el.remove(); el = null; S = null; document.body.classList.remove('kdet-land'); game.audio?.play('ui_close', {}); };
   const tabsOf = (type) => {
     const kit = kitOf(type);
     const sty = stylesFor(type), dets = detailsFor(type);
@@ -277,7 +294,8 @@ export function installDetails(game) {
   function render() {
     if (!el || !S) return;
     const type = S.type, def = BUILDINGS[type], [st, dt] = look();
-    el.className = 'kdet ' + (touch() || innerWidth < 760 ? 'sheet' : 'side');
+    el.className = 'kdet ' + (touch() || innerWidth < 760 ? (innerWidth > innerHeight * 1.2 ? 'sheet land' : 'sheet') : 'side');
+    document.body.classList.toggle('kdet-land', el.classList.contains('land')); // the story selector moves aside (levelbar.js)
     const tabs = tabsOf(type), dets = detailsFor(type), sty = stylesFor(type);
     const cur = normStyle(type, st), curDet = cleanDet(type, dt);
     const nOn = (cat) => (cat === 'style' ? (cur ? 1 : 0) : dets.filter((d) => d.cat === cat && hasDet(curDet, d.id)).length);

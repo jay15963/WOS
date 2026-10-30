@@ -143,6 +143,7 @@ export function installPathbar(game) {
   };
   const costText = (T, n) => {
     const p = game.player, parts = [];
+    if (game.creative) return 'grátis no criativo';
     for (const k in T.cost) { const need = T.cost[k] * Math.max(1, n), have = p.inv.count(k); parts.push(`${need} ${(ITEMS[k]?.name || k).toLowerCase()}${have < need ? ` (tem ${have})` : ''}`); }
     return parts.length ? parts.join(', ') : 'grátis';
   };

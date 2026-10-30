@@ -1028,3 +1028,6 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .hud-edit .he-h span { position: absolute; left: 50%; top: -11px; transform: translateX(-50%); padding: 1px 7px; border-radius: 4px; background: #f7d97a; color: #2a1a0c;
   font-size: 10px; font-weight: 800; white-space: nowrap; pointer-events: none; }
 @media (max-width: 560px) { .hud-edit .he-bar { flex-wrap: wrap; justify-content: center; white-space: normal; width: calc(100% - 24px); } }
+
+/* creative.js: free costs */
+.cost.free { padding: 1px 8px; border-radius: 4px; background: linear-gradient(180deg, #7fd0ff, #3f8fd0); color: #0c2236; font-weight: 800; }

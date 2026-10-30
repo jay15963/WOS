@@ -235,7 +235,7 @@ function updatePreview(game) {
   m.tiles = out; m.n = nOk; m.valid = nOk > 0; m.reason = nOk ? null : firstReason;
   // materials are only needed when the work starts: tell the player what is missing for all of it
   m.short = null;
-  if (!m.move && nOk) {
+  if (!m.move && nOk && !game.creative) {
     const need = {};
     for (const k in def.cost) need[k] = def.cost[k] * nOk;
     const miss = [];

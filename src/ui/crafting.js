@@ -23,7 +23,7 @@ export function craftBody(P) {
   });
   const cards = ids.map((id) => {
     const r = RECIPES[id], out = ITEMS[r.out], s = recipeState(g, id);
-    const ing = Object.entries(r.in).map(([k, n]) => {
+    const ing = g.creative ? '<span class="cost free">grátis no criativo</span>' : Object.entries(r.in).map(([k, n]) => {
       const have = p.inv.count(k);
       return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[k].name}">${itemIco(A, k)}${have}/${n}</span>`;
     }).join('');

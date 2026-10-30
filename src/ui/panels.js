@@ -176,13 +176,13 @@ export class Panels {
     const tab = this.buildTab;
     const cats = BUILD_CATS.flatMap((c) => (c[0] === 'floor' ? [c, PATH_TAB] : [c])); // "Caminhos" after "Pisos"
     const tabs = cats.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-btab="${k}">${n}</button>`).join('');
-    const pcost = (cost) => { const e = Object.entries(cost); return e.length ? e.map(([it, n]) => `<span class="cost ${p.inv.count(it) >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${p.inv.count(it)}/${n}</span>`).join('') : '<span class="cost">grátis</span>'; };
+    const pcost = (cost) => { const e = Object.entries(cost); if (g.creative && e.length) return '<span class="cost free">grátis no criativo</span>'; return e.length ? e.map(([it, n]) => `<span class="cost ${p.inv.count(it) >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${p.inv.count(it)}/${n}</span>`).join('') : '<span class="cost">grátis</span>'; };
     const pathCards = tab !== 'path' ? '' : pathCatalog(g).map((c) => `<button class="bcard" data-path="${c.key}"><span class="bi">${c.icon ? `<img class="spri" src="${c.icon}" alt="" draggable="false">` : `<span class="emo" style="display:block;width:100%;height:100%;border-radius:50%;background:${c.swatch}"></span>`}</span><span class="bt"><b>${c.name}</b><small>${c.desc}</small><small class="bm">${c.meta}</small>${c.remove ? '' : `<span class="costs">${pcost(c.cost)}</span>`}</span></button>`).join('');
     const cards = pathCards || BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
       const b = BUILDINGS[id];
-      const ok = p.inv.has(b.cost);
+      const ok = g.creative || p.inv.has(b.cost); // creative.js: everything is free
       const entries = Object.entries(b.cost);
-      const cost = entries.length ? entries.map(([it, n]) => {
+      const cost = g.creative && entries.length ? '<span class="cost free">grátis no criativo</span>' : entries.length ? entries.map(([it, n]) => {
         const have = p.inv.count(it);
         return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${have}/${n}</span>`;
       }).join('') : '<span class="cost">grátis</span>';
@@ -328,7 +328,7 @@ export class Panels {
     }));
     el.querySelectorAll('[data-build]').forEach((b) => b.addEventListener('click', () => {
       const id = b.dataset.build;
-      if (!p.inv.has(BUILDINGS[id].cost)) { g.events.emit('error', { text: 'Materiais insuficientes' }); return; }
+      if (!g.creative && !p.inv.has(BUILDINGS[id].cost)) { g.events.emit('error', { text: 'Materiais insuficientes' }); return; }
       this.close();
       enterBuildMode(g, id);
     }));

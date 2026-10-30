@@ -47,7 +47,7 @@ export function installWorkbar(game, root) {
         const def = BUILDINGS[m.type];
         set('ic', R.ic, buildIco(A, m.type), true);
         set('nm', R.nm, def.name);
-        const per = Object.entries(def.cost).map(([k, n]) => `${n} ${ITEMS[k].name.toLowerCase()}`).join(' + ') || 'grátis';
+        const per = game.creative ? 'grátis no criativo' : Object.entries(def.cost).map(([k, n]) => `${n} ${ITEMS[k].name.toLowerCase()}`).join(' + ') || 'grátis';
         const n = m.n || 0;
         set('cost', R.cost, n > 1 ? `${n} tiles · ${per} cada` : per);
         let hint;

@@ -213,7 +213,7 @@ export function installBuildbar(game) {
   };
   // bottom wrapper placement: lowest spot (centred when possible) that avoids the joystick zone (touch), the
   // ability cluster / interact button, the hotbar and the left quick column
-  const BOT_OBST = ['.ab', '.ab-int', '.hotbar', '.tl-bot', '.tr', '.awb'];
+  const BOT_OBST = ['.ab', '.ab-int', '.hotbar', '.tl-bot', '.tr', '.awb', '.kdet.sheet.land']; // (+ the Detalhes side sheet of a landscape phone)
   const placeBottom = () => {
     const z = zf(), rr = root.getBoundingClientRect(), W = rr.width / z, H = rr.height / z;
     // the buttons must fit; the card strip wraps its text to the room left (natural width measured unconstrained)
@@ -225,7 +225,8 @@ export function installBuildbar(game) {
       const r = el.getBoundingClientRect();
       if (r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden') obs.push({ l: (r.left - rr.left) / z, r: (r.right - rr.left) / z, t: (r.top - rr.top) / z, b: (r.bottom - rr.top) / z });
     }
-    if (game.input.isTouch || root.classList.contains('touch')) obs.push({ l: 0, r: W * (game.input.joyZone ?? 0.2), t: H * 0.25, b: H }); // where a finger starts the joystick
+    // where a finger starts the joystick (not while the Detalhes side sheet is open: nobody walks then, and the bar needs the room)
+    if ((game.input.isTouch || root.classList.contains('touch')) && !root.querySelector('.kdet.sheet.land')) obs.push({ l: 0, r: W * (game.input.joyZone ?? 0.2), t: H * 0.25, b: H });
     const safeB = parseFloat(getComputedStyle(root).getPropertyValue('--safe-b')) || 0;
     const bottoms = [H - safeB - 10, ...obs.map((o) => o.t - gap)].filter((b) => b - h > H * 0.3).sort((a, b) => b - a);
     for (const bt of bottoms) {
