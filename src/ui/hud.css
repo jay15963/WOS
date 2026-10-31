@@ -734,6 +734,9 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .bigmap { display: block; border-radius: 4px; box-shadow: 0 0 0 2px var(--n-ink), 0 0 0 4px rgba(242, 228, 196, 0.35), 0 0 0 6px var(--n-ink); }
 .legend { display: flex; gap: 14px; font: 700 13px var(--n-fd); letter-spacing: 0.5px; text-transform: uppercase; color: var(--n-text-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; box-shadow: 0 0 0 1.5px var(--n-ink); vertical-align: -1px; }
+/* camera yaw: radar turns with the view (map window toggle, ui/minimap.js radarTurns) */
+.mm-rot { display: flex; align-items: center; gap: 6px; margin-top: 8px; font: 700 12px var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-text-2); cursor: pointer; }
+.mm-rot input { width: 16px; height: 16px; accent-color: var(--n-teal, #4cc2b4); }
 
 /* ======================= death / fade ======================= */
 .fade { position: absolute; inset: 0; z-index: 3; background: #000; opacity: 0; transition: opacity .8s; pointer-events: none; }

@@ -13,6 +13,7 @@ import { SPECIES, WEATHER_PT } from '../game/data.js';
 import { dateOf, formatDate, formatElapsed, elapsedOf, SEASON_LEN } from '../game/calendar.js';
 import { respawnPoint } from '../game/player.js';
 import { nIcon } from './hudtheme.js';
+import { radarYaw } from './minimap.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const RING = 5;      // ring distance outside the disc (px)
@@ -99,7 +100,9 @@ export function installRadar(game, root, mini) {
     if (!W) return;
     const span = W / PX_TILE, spanY = span * (H / W);
     const hx = span / 2, hy = spanY / 2;
-    const inside = (x, y) => { const u = (x - p.x) / hx, v = (y - p.y) / hy; return u * u + v * v < 0.86; };
+    // (the disc turned with the camera: positions as the radar shows them, minimap.radarYaw)
+    const cr = radarYaw(g), rc = Math.cos(cr), rs = Math.sin(cr);
+    const inside = (x, y) => { const dx = x - p.x, dy = y - p.y, u = (rc * dx + rs * dy) / hx, v = (-rs * dx + rc * dy) / hy; return u * u + v * v < 0.86; };
     cand.length = 0;
     const add = (x, y, cls, pri) => {
       if (inside(x, y)) return;
@@ -129,7 +132,7 @@ export function installRadar(game, root, mini) {
     for (const m of cand) {
       if (n >= MAXM) break;
       if (m.cls === 'n' && ++nn > 3) continue;
-      const a = Math.atan2(m.y - p.y, m.x - p.x);
+      const a = Math.atan2(m.y - p.y, m.x - p.x) - cr;
       const rx = W / 2 + RING, ry = H / 2 + RING;
       const x = W / 2 + Math.cos(a) * rx, y = H / 2 + Math.sin(a) * ry;
       const s = Math.max(0.72, Math.min(1.08, 1.16 - m.d / 110));

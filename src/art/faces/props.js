@@ -139,7 +139,7 @@ class XBatch {
   constructor(k) { this.k = k; this.t = null; }
   add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0, sc = 0) {
     if (!s || !this.t) return;
-    if (X.drop && s === X.drop && (this.k === 'main' || this.k === 'shadow')) return; // (the folded art replaces it)
+    if (X.drop && s === X.drop && this.k === 'main') return; // (the faces replace it; its sun shadow stays)
     const dx = x - X.cx, dy = y - X.cy;
     this.t.add(s, X.cx + X.c * dx - X.s * dy, X.cy + X.s * dx + X.c * dy, sx, sy, r, g, b, a, sway, this.k === 'blob' ? rot + X.rotAdd : rot, flash, flip, recv, lift + X.lift, sc);
   }
@@ -251,8 +251,59 @@ function drawFold(B, A, o, t, fr, h0) {
   return true;
 }
 
+// ---------- open frames (pergola, garden arch): posts, beams and lattice at their own places ----------
+// Pieces that are mostly air: a billboard would face the screen whole and a fold would lay the posts behind the
+// lattice down flat. Their art is cut in parts (painter px / rows of the base sprite, frame W px wide, E px of headroom,
+// D tiles deep): 'post' = a column of the art standing at each [x px, v] of `at`, always facing the camera (round
+// enough); 'flat' = rows lying at height h (px) from ground row v0 to v1; 'card' = rows standing at ground row v.
+const PARTS = {
+  pergola: { W: 128, E: 70, D: 2, p: [
+    { k: 'post', x0: 2, x1: 18, r0: Y0(70, 1.86, 74), r1: Y0(70, 1.86, 0), at: [[10, 0.18], [118, 0.18], [10, 1.86], [118, 1.86]] },
+    { k: 'flat', x0: 0, x1: 128, r0: Y0(70, 0.04, 78), r1: Y0(70, 2.0, 78), v0: 0.04, v1: 2.0, h: 78 },
+  ] },
+  garden_arch: { W: 64, E: 92, D: 1, p: [
+    { k: 'post', x0: 0, x1: 12, r0: Y0(92, 0.7, 72), r1: Y0(92, 0.7, -2), at: [[6, 0.7]] },
+    { k: 'post', x0: 52, x1: 64, r0: Y0(92, 0.7, 72), r1: Y0(92, 0.7, -2), at: [[58, 0.7]] },
+    { k: 'card', x0: 0, x1: 64, r0: 0, r1: Y0(92, 0.7, 72), v: 0.7 },
+  ] },
+};
+function Y0(E, v, h) { return E + v * 64 - h; }
+const PTS = [];
+function drawParts(B, A, o, fr, h0) {
+  const F = B.faces, Pt = PARTS[o.type];
+  const s = F && Pt ? sprite(A, o.type) : null;
+  if (!s) return false;
+  const col = tintOf(o), c = CAMV.c, sn = CAMV.s, D = Pt.D;
+  const mx = fr.cx, oy = fr.cy - D / 2; // (these pieces do not rotate: the art's frame is the world's; mx = its middle)
+  const du = (x) => (x - Pt.W / 2) / 64, up = (r) => (Pt.E + 64 * D - r) / 64; // art px → tiles from the anchor
+  const wxOf = (x) => mx + du(x);
+  PTS.length = 0;
+  for (const q of Pt.p) {
+    if (q.k === 'post') for (const [x, v] of q.at) PTS.push([-sn * wxOf(x) + c * (oy + v) - 1e-3, q, x, v]);
+    else PTS.push([-sn * mx + c * (oy + (q.k === 'flat' ? (q.v0 + q.v1) / 2 : q.v)), q, 0, 0]);
+  }
+  PTS.sort((a, b) => a[0] - b[0]); // farther first
+  for (const [, q, x, v] of PTS) {
+    UV[0] = uOf(s, du(q.x0), 1); UV[2] = uOf(s, du(q.x1), 1); UV[1] = vOf(s, up(q.r0)); UV[3] = vOf(s, up(q.r1));
+    if (q.k === 'post') {
+      const px = wxOf(x), py = oy + v, hw = (q.x1 - q.x0) / 128, ht = h0 + (Y0(Pt.E, v, 0) - q.r0) / 64, hb = h0 + (Y0(Pt.E, v, 0) - q.r1) / 64;
+      F.quad(px - c * hw, py - sn * hw, ht, px + c * hw, py + sn * hw, ht, px + c * hw, py + sn * hw, hb, px - c * hw, py - sn * hw, hb, UV, col[0], col[1], col[2], col[3]);
+    } else if (q.k === 'flat') {
+      const x0 = wxOf(q.x0), x1 = wxOf(q.x1), y0 = oy + q.v0, y1 = oy + q.v1, h = h0 + q.h / 64;
+      F.quad(x0, y0, h, x1, y0, h, x1, y1, h, x0, y1, h, UV, col[0], col[1], col[2], col[3]);
+    } else {
+      const x0 = wxOf(q.x0), x1 = wxOf(q.x1), y = oy + q.v, ht = h0 + (Y0(Pt.E, q.v, 0) - q.r0) / 64, hb = h0 + (Y0(Pt.E, q.v, 0) - q.r1) / 64;
+      F.quad(x0, y, ht, x1, y, ht, x1, y, hb, x0, y, hb, UV, col[0], col[1], col[2], col[3]);
+    }
+  }
+  // its contact shadow / sun shadow / sway from the painter, without the art itself
+  paint(B, A, o, NOW, fr, Math.atan2(sn, c), h0, s);
+  return true;
+}
+let NOW = 0;
+
 // ---------- the kind ----------
-const folded = (o, def) => !!def.rotate && PROF[o.type] !== undefined;
+const folded = (o, def) => (!!def.rotate && PROF[o.type] !== undefined) || PARTS[o.type] !== undefined;
 export function drawPropTurned(B, A, o, t) {
   const def = BUILDINGS[o.type];
   if (!def) return false;
@@ -261,6 +312,8 @@ export function drawPropTurned(B, A, o, t) {
   if (LV && !lv && !o._ghost && LV.culled(o)) return true; // (under a slab: hidden, as for the sprites)
   if (lv && (o.alpha ?? 1) <= 0.02) return true;
   const fr = frame(o, def), h0 = lv * STORY_H;
+  NOW = t;
+  if (PARTS[o.type] && drawParts(B, A, o, fr, h0)) return true;
   if (folded(o, def) && drawFold(B, A, o, t, fr, h0)) return true;
   paint(B, A, o, t, fr, Math.atan2(CAMV.s, CAMV.c), h0, null);
   return true;

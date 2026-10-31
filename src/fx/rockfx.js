@@ -11,8 +11,10 @@
 // crack sprites over the piece, depth-sorted right after it), and the last hit (struct.remove fx 'smash') breaks it
 // into pieces that drop around its tile with dust.
 
-import { archSprite } from '../art/archCompose.js';
+import { archSprite, CAMV } from '../art/archCompose.js';
 import { BUILDINGS } from '../game/data.js';
+import { STRUCT_GEOM } from '../art/structures.js';
+import { boxDepth } from '../art/faces/registry.js';
 
 const MAXN = 8;
 const BREAK_T = 0.32;
@@ -73,9 +75,38 @@ function drawCracks(B, A) {
   const stage = Math.min(3, Math.floor(d * 4)), front = !((o.mask | 0) & 4);
   const s = archSprite(A, (front ? 'siege_crack_f' : 'siege_crack_t') + stage);
   if (!s) return;
-  const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1;
-  B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1), 0, 0, 0, 1);
+  const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1, a = Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1);
+  if (this.game.cam.rot && B.faces) { crackFaces(B.faces, A, o, d, stage, fl, a, sh); return; }
+  B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, a, 0, 0, 0, 1);
 }
+// camera turned (docs/CAMERA-ROTATION.md): the wall is a box of faces — its cracks go on its top and on every open side
+// that faces the camera, like the wall's own layers (the crack art is drawn in the wall's frame: top tile, then face)
+const UVC = [0, 0, 0, 0];
+function crackUV(s, y0, y1, fl) { // rows y0..y1 of the 1 × 2 wall frame (tiles from its top)
+  const fu = (x) => s.ax + (x - 0.5) / s.w, fv = (y) => s.ay + (y - 2) / s.h;
+  const ua = s.u0 + (s.u1 - s.u0) * fu(0), ub = s.u0 + (s.u1 - s.u0) * fu(1);
+  UVC[0] = fl < 0 ? ub : ua; UVC[2] = fl < 0 ? ua : ub; UVC[1] = s.v0 + (s.v1 - s.v0) * fv(y0); UVC[3] = s.v0 + (s.v1 - s.v0) * fv(y1);
+  return UVC;
+}
+function crackFaces(F, A, o, d, stage, fl, a, sh) {
+  const m = (o.mask | 0) & 15, hb = (o.lv | 0) * (STRUCT_GEOM.FH), ht = hb + STRUCT_GEOM.FH;
+  const x0 = o.tx + sh * CAMV.c, y0 = o.ty + sh * CAMV.s, x1 = x0 + 1, y1 = y0 + 1;
+  const vis = (nx, ny) => -CAMV.s * nx + CAMV.c * ny > 0.02;
+  const f = archSprite(A, 'siege_crack_f' + stage), t = archSprite(A, 'siege_crack_t' + stage);
+  if (f) {
+    const uv = crackUV(f, 1, 2, fl);
+    const q = (ax, ay, bx, by) => F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, uv, 1, 1, 1, a);
+    if (!(m & 4) && vis(0, 1)) q(x0, y1, x1, y1);
+    if (!(m & 1) && vis(0, -1)) q(x1, y0, x0, y0);
+    if (!(m & 2) && vis(1, 0)) q(x1, y1, x1, y0);
+    if (!(m & 8) && vis(-1, 0)) q(x0, y0, x0, y1);
+  }
+  const top = t || f;
+  if (top) F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, crackUV(top, 0, 1, fl), 1, 1, 1, a);
+}
+
+// camera turned: right after the wall box it is on (game.js depth key)
+function crackDepth(rc, rs) { return boxDepth(this.o, rc, rs) + 0.002; }
 
 export function rockFxSystem() {
   const tmp = [], pool = [];
@@ -88,8 +119,8 @@ export function rockFxSystem() {
       for (const o of F.walls) {
         if (o.removed || !(o.dmg > 0)) { F.walls.delete(o); continue; }
         if (o.x < v.x0 - 2 || o.x > v.x1 + 2 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
-        const d = pool[k] || (pool[k] = { draw: drawCracks, y: 0, o: null, game });
-        d.o = o; d.y = (o._sy ?? o.y) + 0.002; d.game = game;
+        const d = pool[k] || (pool[k] = { draw: drawCracks, x: 0, y: 0, o: null, game, zkRot: crackDepth });
+        d.o = o; d.x = o.x; d.y = (o._sy ?? o.y) + 0.002; d.game = game;
         list.push(d); k++;
       }
     },

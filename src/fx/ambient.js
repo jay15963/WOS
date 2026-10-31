@@ -134,15 +134,17 @@ class Ambient {
       if (RF && w.broof) { const ti = Math.floor(o.y - 0.05) * w.W + Math.floor(o.x), rg = w.broof[ti] && RF.regions.get(RF.regionOf[ti]); if (rg && rg.alpha > 0.5) continue; }
       const I = typeof o.fire === 'number' ? o.fire : 1;
       const lift = (o.light && o.light.lift != null ? o.light.lift : 0.3) + 0.15;
+      const lp = g.cam.rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // camera turned: where the piece is drawn (art/faces/props.js)
+      const ox = lp ? lp[0] : o.x, oy = lp ? lp[1] : o.y;
       f.acc = (f.acc || 0) + dt * I;
       while (f.acc > 0.11) {
         f.acc -= 0.11;
         const wx = env.windDir[0] * env.wind, wy = env.windDir[1] * env.wind;
-        P.emit({ spr: this.S.smoke, x: o.x + (rnd() - 0.5) * 0.15, y: o.y + 0.02, vx: wx * 0.5 + (rnd() - 0.5) * 0.12, vy: wy * 0.3,
+        P.emit({ spr: this.S.smoke, x: ox + (rnd() - 0.5) * 0.15, y: oy + 0.02, vx: wx * 0.5 + (rnd() - 0.5) * 0.12, vy: wy * 0.3,
           lift: lift + 0.2, vlift: 0.55 + rnd() * 0.3, drag: 0.25, life: 2.6 + rnd() * 1.6, size: (0.35) * K.smoke, size1: (1.5 + rnd() * 0.6) * K.smoke,
           r: 0.55, g: 0.53, b: 0.52, a: 0.32, a1: 0, rot: rnd() * TAU, vr: (rnd() - 0.5) * 0.6, fadeIn: 0.35, ground: false });
         if (rnd() < 0.55) {
-          P.emit({ spr: this.S.spark, x: o.x + (rnd() - 0.5) * 0.25, y: o.y + 0.02, vx: (rnd() - 0.5) * 0.5 + wx * 0.4, vy: (rnd() - 0.5) * 0.2,
+          P.emit({ spr: this.S.spark, x: ox + (rnd() - 0.5) * 0.25, y: oy + 0.02, vx: (rnd() - 0.5) * 0.5 + wx * 0.4, vy: (rnd() - 0.5) * 0.2,
             lift: lift, vlift: 1.0 + rnd() * 1.4, grav: 0.35, drag: 0.6, life: 0.7 + rnd() * 1.1, size: (0.16 + rnd() * 0.12) * K.spark, size1: (0.04) * K.spark,
             r: 1.0, g: 0.62 + rnd() * 0.25, b: 0.2, a: 1, a1: 0.2, layer: 'emissive', ground: false });
         }
@@ -551,11 +553,13 @@ class Ambient {
         const seed = o.x * 3.1 + o.y * 1.7;
         const fl = o.fire ? 0.84 + 0.1 * Math.sin(t * 9.3 + seed) * Math.sin(t * 5.1 + seed * 2) + 0.06 * Math.sin(t * 23 + seed) : 1;
         const R = L.radius || 4, I = L.intensity ?? 1, lift = L.lift ?? 0.3;
-        if (o.fire && dark > 0.05) B.light.addRaw(o.x, o.y + 0.1, R * 2.3, R * 1.7, L.r, L.g * 0.8, L.b * 0.6, 0.11 * I * fl * dark);
+        const lp = g.cam.rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // camera turned: where the piece is drawn
+        const ox = lp ? lp[0] : o.x, oy = lp ? lp[1] : o.y;
+        if (o.fire && dark > 0.05) B.light.addRaw(ox, oy + 0.1, R * 2.3, R * 1.7, L.r, L.g * 0.8, L.b * 0.6, 0.11 * I * fl * dark);
         const a = (0.015 + 0.17 * dark) * I * fl;
         if (a > 0.01) {
           const s = (o.fire ? 1.3 : 1.0) * (0.4 + 0.16 * Math.min(R, 7)) * K.glow;
-          B.emissive.add(glow, o.x, o.y, s, s * 0.85, L.r, L.g * 0.85, L.b * 0.7, a, 0, 0, 0, 1, 0, lift);
+          B.emissive.add(glow, ox, oy, s, s * 0.85, L.r, L.g * 0.85, L.b * 0.7, a, 0, 0, 0, 1, 0, lift);
         }
       }
     }

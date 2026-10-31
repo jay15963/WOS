@@ -19,6 +19,7 @@ import { installWorkbar } from './workbar.js';
 import { chestAdapter } from './container.js';
 import { uiScale } from './uiscale.js';
 import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
+import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -223,7 +224,7 @@ export class Panels {
           <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how} para pegar</small></div>${this.sortBar(c.id)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
-      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div>`, 'p-map');
+      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>`, 'p-map');
     }
     this.el.innerHTML = html;
     this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });
@@ -338,6 +339,7 @@ export class Panels {
     if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));
     const map = el.querySelector('.bigmap');
     if (map) map.addEventListener('click', () => this.close());
+    el.querySelector('[data-mmrot]')?.addEventListener('change', (e) => setRadarTurns(e.target.checked));
   }
 
   drawMap() {

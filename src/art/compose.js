@@ -44,6 +44,7 @@ import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
 import { lookAtlasOf } from './look/lazy.js';
+import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
@@ -383,12 +384,15 @@ export function drawPawn(B, A, p, t) {
     const breath = Math.sin(t * 1.35 + ph0);
     const nx = px + ux * 0.2, ny = py + uy * 0.2;
     p._zx = nx; p._zy = ny; // where the Zzz rise from (juice.js)
-    const tilt = ang + 0.14 * (ph0 % 2 > 1 ? 1 : -1) + breath * 0.015;
-    const hl = 0.02;
-    drawHead(B, T, L, LK, null, 's', 1, nx, ny, hl, tilt, fl, 1, true, tilt, hl);
+    let tilt = ang + 0.14 * (ph0 % 2 > 1 ? 1 : -1) + breath * 0.015;
+    let hl = 0.02, ny2 = ny, ra = ang;
+    // camera turned (docs/CAMERA-ROTATION.md): the bed is solid faces — lie on its mattress (the point that shows where
+    // the 0° drawing does, raised to the mattress) and turn with the view
+    if (po && (CAMV.s || CAMV.c !== 1)) { const hm = 0.14, cr = Math.atan2(CAMV.s, CAMV.c); ny2 = ny + hm; hl += hm; tilt -= cr; ra = ang - cr; }
+    drawHead(B, T, L, LK, null, 's', 1, nx, ny2, hl, tilt, fl, 1, true, tilt, hl);
     // body under the blanket, chest rising slowly
-    const cx = nx + ux * 0.02, cy = ny + uy * 0.02;
-    B.main.add(T.cover, cx, cy, 0.86, 1 + breath * 0.025, BLANKET[0], BLANKET[1], BLANKET[2], 1, 0, ang, fl, 1, 0, hl + 0.01);
+    const cx = nx + ux * 0.02, cy = ny2 + uy * 0.02;
+    B.main.add(T.cover, cx, cy, 0.86, 1 + breath * 0.025, BLANKET[0], BLANKET[1], BLANKET[2], 1, 0, ra, fl, 1, 0, hl + 0.01);
     return;
   }
   const sit = PS && PS.type === 'sit' ? PS : null;

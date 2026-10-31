@@ -41,12 +41,13 @@ export function rangeFlashSystem(game) {
       // its edge: short dashes, slowly turning
       const night = env?.night || 0, px = 1 / g.cam.zoom, n = Math.max(36, Math.min(160, Math.round((R * Math.PI * 2) / 0.75)));
       const dl = Math.max(0.55, 20 * px) / dot.w, dh = Math.max(0.2, 9 * px) / dot.h;
+      const cr = g.cam.rot || 0; // camera yaw: a dash lies along the circle as the screen shows it
       for (let k = 0; k < n; k++) {
         const an = (k / n) * Math.PI * 2 + g.time * 0.05;
         const x = p.x + Math.cos(an) * R, y = p.y + Math.sin(an) * R;
         if (x < v.x0 - 1 || x > v.x1 + 1 || y < v.y0 - 1 || y > v.y1 + 1) continue;
-        L.add(dot, x, y, dl, dh, COL[0], COL[1], COL[2], RIM * a, 0, an + Math.PI / 2);
-        if (night > 0.1) B.emissive.add(dot, x, y, dl, dh, COL[0] * 0.5, COL[1] * 0.5, COL[2] * 0.5, 0.6 * a * night, 0, an + Math.PI / 2); // (readable in the dark)
+        L.add(dot, x, y, dl, dh, COL[0], COL[1], COL[2], RIM * a, 0, an + Math.PI / 2 - cr);
+        if (night > 0.1) B.emissive.add(dot, x, y, dl, dh, COL[0] * 0.5, COL[1] * 0.5, COL[2] * 0.5, 0.6 * a * night, 0, an + Math.PI / 2 - cr); // (readable in the dark)
       }
     },
   };

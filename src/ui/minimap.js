@@ -8,6 +8,18 @@ import { SPECIES } from '../game/data.js';
 const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
 const INK = '#24160d', CREAM = '#f6ead0', TEAL = '#4cc2b4', FIRE = '#ffa040';
 
+// camera yaw (game.cam.rot, docs/CAMERA-ROTATION.md): the radar disc turns with the view by default (up on the radar =
+// up on the screen; the compass needle shows north), the big map stays north-up; both show a cone where the camera
+// looks while it is turned. Preference 'wos.radarRot' ('0' = the radar stays north-up), set in the map window.
+let RADAR_ROT = null;
+export function radarTurns() {
+  if (RADAR_ROT == null) { try { RADAR_ROT = localStorage.getItem('wos.radarRot') !== '0'; } catch { RADAR_ROT = true; } }
+  return RADAR_ROT;
+}
+export function setRadarTurns(on) { RADAR_ROT = !!on; try { localStorage.setItem('wos.radarRot', on ? '1' : '0'); } catch { /* ignore */ } }
+// the yaw the radar is drawn with (0 = north-up)
+export const radarYaw = (game) => (radarTurns() ? game.cam.rot || 0 : 0);
+
 const GROUND = [[92, 76, 52], [74, 60, 40], [176, 158, 116], [118, 112, 100], [72, 80, 52], [78, 64, 46], [104, 100, 94], [70, 86, 46]];
 const ROCK = [[96, 94, 90], [104, 101, 96], [128, 122, 106], [76, 78, 84], [150, 148, 142]];
 const GRASS = [86, 112, 54];
@@ -79,13 +91,21 @@ export class Minimap {
     if (full) { sx = 0; sy = 0; sw = w.W; sh = w.H; }
     else { sw = span; sh = span * (H / W); sx = p.x - sw / 2; sy = p.y - sh / 2; }
     const kx = W / sw, ky = H / sh;
-    ctx.drawImage(this.base, sx, sy, sw, sh, 0, 0, W, H);
+    const cr = full ? 0 : radarYaw(g); // (the radar turned with the camera: everything below in the turned frame)
+    if (cr) {
+      const c = Math.abs(Math.cos(cr)), s = Math.abs(Math.sin(cr)), sw2 = c * sw + s * sh, sh2 = s * sw + c * sh;
+      ctx.save();
+      ctx.translate(W / 2, H / 2); ctx.rotate(-cr); ctx.translate(-W / 2, -H / 2);
+      ctx.drawImage(this.base, p.x - sw2 / 2, p.y - sh2 / 2, sw2, sh2, W / 2 - (sw2 * kx) / 2, H / 2 - (sh2 * ky) / 2, sw2 * kx, sh2 * ky);
+    } else ctx.drawImage(this.base, sx, sy, sw, sh, 0, 0, W, H);
     const toX = (x) => (x - sx) * kx, toY = (y) => (y - sy) * ky;
+    // (turned: what the disc shows is a circle around the player, wider than the unturned rectangle in one direction)
+    const M = cr ? Math.max(W, H) / 2 : 0, out = (X, Y, e) => (cr ? Math.hypot(X - W / 2, Y - H / 2) > M + e : X < -e || Y < -e || X > W + e || Y > H + e);
     // structures
     for (const o of g.build.structures) {
       if (!o.fire && o.type !== 'bed' && o.type !== 'chest') continue;
       const X = toX(o.x), Y = toY(o.y);
-      if (X < -4 || Y < -4 || X > W + 4 || Y > H + 4) continue;
+      if (out(X, Y, 4)) continue;
       if (o.fire) {
         ctx.fillStyle = 'rgba(255,150,60,0.35)';
         ctx.beginPath(); ctx.arc(X, Y, 4.5, 0, Math.PI * 2); ctx.fill();
@@ -103,7 +123,7 @@ export class Minimap {
       if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
         // other players (blue), raiders and winter walkers (red)
         const X = toX(e.x), Y = toY(e.y);
-        if (X < 0 || Y < 0 || X > W || Y > H) continue;
+        if (out(X, Y, 0)) continue;
         if (!full && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
         ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
@@ -112,7 +132,7 @@ export class Minimap {
       }
       if (e.kind !== 'animal') continue;
       const X = toX(e.x), Y = toY(e.y);
-      if (X < 0 || Y < 0 || X > W || Y > H) continue;
+      if (out(X, Y, 0)) continue;
       if (!full && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
       ctx.fillStyle = DOT[SPECIES[e.species]?.temper] || DOT.neutral;
       ctx.beginPath(); ctx.arc(X, Y, e === p.target ? dot + 1.2 : dot * (e.elite ? 1.4 : 1), 0, Math.PI * 2); ctx.fill();
@@ -127,6 +147,12 @@ export class Minimap {
     // player arrow
     const X = toX(p.x), Y = toY(p.y);
     const ang = { s: Math.PI / 2, n: -Math.PI / 2, e: 0, w: Math.PI }[p.facing] ?? 0;
+    // camera turned: a soft cone toward where the view looks (up on the screen)
+    if (g.cam.rot || g.cam.rotTo) {
+      const [ux, uy] = g.toWorldDir(0, -1), va = Math.atan2(uy, ux), R = full ? 16 : 22;
+      ctx.fillStyle = 'rgba(255,236,190,0.2)';
+      ctx.beginPath(); ctx.moveTo(X, Y); ctx.arc(X, Y, R, va - 0.6, va + 0.6); ctx.closePath(); ctx.fill();
+    }
     ctx.save();
     ctx.translate(X, Y); ctx.rotate(ang);
     // soft light under the player, then a cream arrow with an ink outline
@@ -137,5 +163,6 @@ export class Minimap {
     ctx.beginPath(); ctx.moveTo(s, 0); ctx.lineTo(-s * 0.7, s * 0.65); ctx.lineTo(-s * 0.35, 0); ctx.lineTo(-s * 0.7, -s * 0.65); ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
+    if (cr) ctx.restore();
   }
 }
