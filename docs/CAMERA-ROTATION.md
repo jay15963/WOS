@@ -188,7 +188,7 @@ Pedido do dono: **todas** as estruturas (baú, luzes, cama, mesa, cadeira, larei
 no mundo enquanto a câmera gira, como as paredes; só vegetação e criaturas (jogador, NPCs, bichos) continuam sprites em
 pé. O kit `art/faces/solid.js` faz isso a partir da **arte da própria peça**; cada tipo é só uma entrada de tabela
 (`defineSolid(tipo, spec)`, hoje em `art/faces/solidTypes.js`). Tipo na tabela sai do `props.js` (o tipo de face `solid`
-tem `prio: 1`); tipo fora da tabela continua como antes (outdoor / arte dobrada). Prontos: **baú** (com a tampa aberta
+tem `prio: 1`); tipo fora da tabela continua como antes (em pé de frente para a tela / arte dobrada). Prontos: **baú** (com a tampa aberta
 `chest_open`), **barril**, **mesa**, **cadeira**, **cama**, **tocha** (de chão; a de parede continua o sprite do
 suporte) e a **pilha de caixotes**.
 
@@ -336,7 +336,7 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   aparece na borda; o nariz não sai do perfil. Bichos na diagonal = perfil encurtado (sem vista 3/4 própria).
   Sentado e o rodopio usam a vista mais perto. Bichinhos do ambiente só trocam de lado (não giram de verdade).
 - **Peças sólidas:** falta converter os outros ~55 tipos de móveis / estações / luzes / jardim para a tabela de
-  `art/faces/solid.js` (até lá: outdoor de 4 vistas ou arte dobrada do `props.js`). Quem senta fica na frente do encosto
+  `art/faces/solid.js` (até lá: em pé com 4 vistas ou arte dobrada do `props.js`). Quem senta fica na frente do encosto
   quando a câmera olha a cadeira por trás (a pessoa é desenhada logo depois da peça inteira; precisaria de um
   desenhável à parte para o encosto, como a frente da escada). A mancha de terra pintada em volta do barril some ao
   girar (fica fora do sólido). Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px). Faces não recebem
