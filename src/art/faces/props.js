@@ -13,7 +13,8 @@
 // Flat pieces (rugs, stepping stones, floors, farm plots) are not here: they lie on the ground and turn whole.
 import { registerFaces, boxDepth } from './registry.js';
 import { drawStatic } from '../composeWorld.js';
-import { CAMV, KIT_ENV, archSprite } from '../archCompose.js';
+import { CAMV, KIT_ENV, archSprite, FACE_ALT } from '../archCompose.js';
+import { LAZY_DEFS } from '../lazyDefs.js';
 import { BUILDINGS } from '../../game/content/buildings.js';
 import { STORY_H } from '../../game/levels.js';
 
@@ -51,13 +52,14 @@ export const PROF = {
   table_wood: P3(0.15, 0.85, 27, 8, 120),
   table_wood_e: PE(0.12, 1.86, 27, 10, 54),
   // decoration (decor.js)
-  bookshelf: P3(0.55, 0.9, 68, 6, 122), bookshelf_e: PE(0.12, 1.88, 64, 18, 46),
-  dresser: P3(0.5, 0.88, 30, 12, 116), dresser_e: PE(0.15, 1.85, 30, 14, 50),
+  bookshelf: P3(0.55, 0.9, 68, 6, 122), bookshelf_e: PE(0.12, 1.88, 64, 18, 46), bookshelf_back: P3(0.55, 0.9, 66, 8, 120),
+  dresser: P3(0.5, 0.88, 30, 12, 116), dresser_e: PE(0.15, 1.85, 30, 14, 50), dresser_back: P3(0.5, 0.88, 30, 12, 116),
   bench_wood: P3(0.32, 0.7, 16, 6, 122), bench_wood_e: PE(0.12, 1.88, 16, 20, 44),
   bench_stone: P3(0.32, 0.7, 16, 6, 122), bench_stone_e: PE(0.1, 1.9, 15, 18, 46),
   weapon_rack: CARD(0.55), weapon_rack_e: BILL,
   fireplace: { p: [[0.3, 60], [0.55, 60], [0.55, 30], [0.8, 30], [0.8, 0]], s: [-0.906, 0.906] },
   fireplace_e: PE(0.15, 1.85, 58, 10, 54),
+  fireplace_back: { p: [[0.3, 60], [0.55, 60], [0.55, 30], [0.8, 30], [0.8, 0]], s: [-0.906, 0.906] },
   washtub: P3(0.5, 1.06, 22, 14, 114), washtub_e: PE(0.91, 2.29, 22, 12, 52),
   planter: P3(0.4, 0.8, 16, 8, 120), planter_e: PE(0.15, 1.85, 16, 18, 46),
   woodpile: P3(0.45, 0.75, 31, 8, 120), woodpile_e: PE(0.15, 1.85, 28, 16, 48),
@@ -82,8 +84,10 @@ function namesOf(A, type) {
   let L = NAMES.get(type);
   if (L && A0 === A) return L;
   if (A0 !== A) { NAMES.clear(); A0 = A; }
-  const has = (n) => A.has(n) || !!archSprite(A, n) || PROF[n] !== undefined;
-  L = [type, has(type + '_n') ? type + '_n' : null, has(type + '_e') ? type + '_e' : null];
+  const has = (n) => A.has(n) || LAZY_DEFS.has(n); // (a lazy record exists before it is painted)
+  // (+ the back / side views painted for the turned camera only: decor.js `_back` / `_side`)
+  const pick = (a, b) => (has(type + a) ? type + a : has(type + b) ? type + b : null);
+  L = [type, pick('_n', '_back'), pick('_e', '_side')];
   NAMES.set(type, L);
   return L;
 }
@@ -167,8 +171,10 @@ function paint(B, A, o, t, fr, ang, h0, drop) {
     o.x = fr.cx; o.y = fr.cy + fr.ev; o.cy = fr.cy;
     if (S.face) o.face = fr.vf;
     if (def && S.fw != null && fr.W != null) { o.fw = fr.W; o.fh = fr.D; o.tx = fr.cx - fr.W / 2; o.ty = fr.cy - fr.D / 2; }
+    FACE_ALT.on = true;
     drawStatic(XB, A, o, t);
   } finally {
+    FACE_ALT.on = false;
     o.x = S.x; o.y = S.y; o.face = S.face; o.tx = S.tx; o.ty = S.ty; o.fw = S.fw; o.fh = S.fh; o.cy = S.cy;
     for (const k of KEYS) XB[k].t = null;
   }
@@ -218,7 +224,7 @@ function drawFold(B, A, o, t, fr, h0) {
   if (sd && fv && p.length > 1) {
     const vi = FACE_I[fr.vf], fxL = fl < 0 ? -sd[1] : sd[0], fxR = fl < 0 ? -sd[0] : sd[1];
     const v0 = p[0][0], v1 = fv[0], hh = fv[1];
-    for (const e of [1, -1]) { // +1: the art's right side (x = xR), −1: its left
+    for (let e = 1; e >= -1; e -= 2) { // +1: the art's right side (x = xR), −1: its left
       const nx = e * RC, ny = e * RS; // its outward normal in the world
       if (-CAMV.s * nx + CAMV.c * ny <= 0.02) continue;
       const [pn, pf] = viewName(A, o.type, FACE_N[(vi + (e > 0 ? 1 : 3)) % 4]);
@@ -268,7 +274,8 @@ const PARTS = {
   ] },
 };
 function Y0(E, v, h) { return E + v * 64 - h; }
-const PTS = [];
+const PTS = [], PTP = []; // (reused entries: no allocation per frame)
+const ptAt = (k, d, q, x, v) => { const e = PTP[k] || (PTP[k] = [0, null, 0, 0]); e[0] = d; e[1] = q; e[2] = x; e[3] = v; PTS.push(e); };
 function drawParts(B, A, o, fr, h0) {
   const F = B.faces, Pt = PARTS[o.type];
   const s = F && Pt ? sprite(A, o.type) : null;
@@ -278,9 +285,10 @@ function drawParts(B, A, o, fr, h0) {
   const du = (x) => (x - Pt.W / 2) / 64, up = (r) => (Pt.E + 64 * D - r) / 64; // art px → tiles from the anchor
   const wxOf = (x) => mx + du(x);
   PTS.length = 0;
+  let k = 0;
   for (const q of Pt.p) {
-    if (q.k === 'post') for (const [x, v] of q.at) PTS.push([-sn * wxOf(x) + c * (oy + v) - 1e-3, q, x, v]);
-    else PTS.push([-sn * mx + c * (oy + (q.k === 'flat' ? (q.v0 + q.v1) / 2 : q.v)), q, 0, 0]);
+    if (q.k === 'post') for (const [x, v] of q.at) ptAt(k++, -sn * wxOf(x) + c * (oy + v) - 1e-3, q, x, v);
+    else ptAt(k++, -sn * mx + c * (oy + (q.k === 'flat' ? (q.v0 + q.v1) / 2 : q.v)), q, 0, 0);
   }
   PTS.sort((a, b) => a[0] - b[0]); // farther first
   for (const [, q, x, v] of PTS) {

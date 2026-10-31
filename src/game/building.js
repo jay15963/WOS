@@ -397,7 +397,8 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
   // move plans are not in the grid
   for (const o of game.build.structures) if (o.moveOf && tx >= o.tx && tx < o.tx + o.fw && ty >= o.ty && ty < o.ty + o.fh) return o;
   // roof plans (blue, at eave height) and roofs whose region is faded out (player inside) are picked last
-  const rb = structureAt(game, tx, Math.floor(wy + roofEaveH()), 'roof');
+  const He = roofEaveH(), r = game.cam.rot || 0; // (turned: down the screen from the click, the roof plan's tile)
+  const rb = r ? structureAt(game, Math.floor(wx - Math.sin(r) * He), Math.floor(wy + Math.cos(r) * He), 'roof') : structureAt(game, tx, Math.floor(wy + He), 'roof');
   if (rb && rb.blueprint) return rb;
   return null;
 }
@@ -638,8 +639,9 @@ export function structureMenu(game, o) {
 // ---------- camera turned (game.cam.rot, docs/CAMERA-ROTATION.md) ----------
 // Marks that stand up on the screen (progress bars, badges, rings) keep their place relative to the footprint as the
 // camera sees it; flat marks in the air (roof plans) lie at their height as faces. At 0° none of this runs.
-// world point at view offset (dx right, dy down the screen) from (x, y)
-function vAt(game, x, y, dx, dy) { const [wx, wy] = game.toWorldDir(dx, dy); return [x + wx, y + wy]; }
+// world point at view offset (dx right, dy down the screen) from (x, y) (a shared array: read it at once)
+const VP = [0, 0];
+function vAt(game, x, y, dx, dy) { const r = game.cam.rot || 0, c = Math.cos(r), s = Math.sin(r); VP[0] = x + c * dx - s * dy; VP[1] = y + s * dx + c * dy; return VP; }
 // half extents of a fw × fh footprint as the turned camera sees it (its bounding box on the screen)
 function vHalf(game, fw, fh) { const r = game.cam.rot || 0, c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r)); return [0.5 * (c * fw + s * fh), 0.5 * (s * fw + c * fh)]; }
 // a 1×1 flat sprite (bp_tile) at height h over tile (tx, ty), turned with the world
@@ -746,9 +748,13 @@ export function buildingSystem() {
           const ok = canSupply(game, o), He = roofEaveH(game.build.storeysAt?.(o.tx, o.ty) || 1); // (agent L: highest story)
           if (tile && !(rot && airTile(B, tile, o.tx, o.ty, He, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3))) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
           if (bar && (o.progress || 0) > 0.001) {
-            const [bx, by] = rot ? vAt(game, o.tx + 0.5, o.ty + 0.5, -0.35, -0.1) : [o.tx + 0.15, o.ty - He + 0.4], bl = rot ? He : 0;
-            B.fx.add(bar, bx, by, 0.7, 1, 0.08, 0.1, 0.12, 0.75, 0, 0, 0, 1, 0, bl);
-            B.fx.add(bar, bx + (rot ? game.toWorldDir(0.02, 0)[0] : 0.02), by + (rot ? game.toWorldDir(0.02, 0)[1] : 0), 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95, 0, 0, 0, 1, 0, bl);
+            if (!rot) {
+              B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
+              B.fx.add(bar, o.tx + 0.17, o.ty - He + 0.4, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            } else { // (at eave height over the tile, as the camera sees it)
+              let P = vAt(game, o.tx + 0.5, o.ty + 0.5, -0.35, -0.1); B.fx.add(bar, P[0], P[1], 0.7, 1, 0.08, 0.1, 0.12, 0.75, 0, 0, 0, 1, 0, He);
+              P = vAt(game, o.tx + 0.5, o.ty + 0.5, -0.33, -0.1); B.fx.add(bar, P[0], P[1], 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95, 0, 0, 0, 1, 0, He);
+            }
           }
           continue;
         }
@@ -762,15 +768,22 @@ export function buildingSystem() {
           const ok = canSupply(game, o);
           if (tile) for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) B.ground.add(tile, o.tx + x + 0.5, o.ty + y + 1, 1, 1, 0.42, 0.7, 1, 0.55, 0, 0, 0, 1, 0);
           else if (ring) B.fx.add(ring, o.tx + sw / 2, o.ty + sh / 2 + 0.1, 0.9 * sw, 0.6 * sh, 0.55, 0.8, 1, 0.65, 0, ringRot(sw, sh));
-          // over the footprint's top edge as the camera sees it (turned: its bounding box on the screen)
-          const hh = rot ? vHalf(game, sw, sh)[1] : sh / 2, top = o.ty - 0.15;
-          const at = (dx, dy) => (rot ? vAt(game, o.tx + sw / 2, o.ty + sh / 2, dx, dy - hh) : [o.tx + sw / 2 + dx, top + dy + 0.15]);
+          // over the footprint's top edge (turned: of its bounding box as the camera sees it)
+          const top = o.ty - 0.15, hh = rot ? vHalf(game, sw, sh)[1] : 0;
           if (bar && (o.progress || 0) > 0.001) {
-            const W = Math.min(1.2, 0.5 + sw * 0.35), [x0, y0] = at(-W / 2, -0.15), [x1, y1] = at(-W / 2 + 0.02, -0.15);
-            B.fx.add(bar, x0, y0, W, 1, 0.08, 0.1, 0.12, 0.75);
-            B.fx.add(bar, x1, y1, (W - 0.04) * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            const W = Math.min(1.2, 0.5 + sw * 0.35), x0 = o.tx + sw / 2 - W / 2;
+            if (!rot) {
+              B.fx.add(bar, x0, top, W, 1, 0.08, 0.1, 0.12, 0.75);
+              B.fx.add(bar, x0 + 0.02, top, (W - 0.04) * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            } else {
+              let P = vAt(game, o.tx + sw / 2, o.ty + sh / 2, -W / 2, -hh - 0.15); B.fx.add(bar, P[0], P[1], W, 1, 0.08, 0.1, 0.12, 0.75);
+              P = vAt(game, o.tx + sw / 2, o.ty + sh / 2, -W / 2 + 0.02, -hh - 0.15); B.fx.add(bar, P[0], P[1], (W - 0.04) * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            }
           }
-          if (!ok && badge) { const bs = def.drag ? 0.6 : 0.85, [bx, by] = at(0, -0.17); B.fx.add(badge, bx, by, bs, bs, 1, 1, 1, 0.75 + 0.25 * pulse, 0, 0, 0, 1, 0, 0.1 * pulse); }
+          if (!ok && badge) {
+            const bs = def.drag ? 0.6 : 0.85, P = rot ? vAt(game, o.tx + sw / 2, o.ty + sh / 2, 0, -hh - 0.17) : null;
+            B.fx.add(badge, P ? P[0] : o.tx + sw / 2, P ? P[1] : top - 0.02, bs, bs, 1, 1, 1, 0.75 + 0.25 * pulse, 0, 0, 0, 1, 0, 0.1 * pulse);
+          }
           if (o.moveOf && ring) { const src = game.world.objById.get(o.moveOf); if (src) B.fx.add(ring, src.x, src.cy ?? src.y, 1.1 * (src.fw || 1), 0.7 * (src.fh || 1), 0.5, 0.75, 1, 0.5 * pulse, 0, ringRot(src.fw || 1, src.fh || 1)); }
         }
         if (game.build.decon.has(o) && ring) {

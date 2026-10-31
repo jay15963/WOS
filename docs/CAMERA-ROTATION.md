@@ -45,6 +45,60 @@ calculados para o ângulo do momento.
 - **Personagens e bichos:** a vista desenhada = a direção deles menos a da câmera (`viewFacing`), em 4 vistas.
 - Coisas de um andar de cima desenhadas como sprite sobem reto na tela (levels.drawUpper).
 
+## Móveis, estações, decoração e modo construção (`art/faces/props.js`)
+
+Toda peça construída com chão próprio (móveis, estações, decoração, luzes, jardim) é desenhada enquanto girada pelo
+tipo `prop` das faces. Pisos, tapetes, pedras de passagem e canteiros de horta continuam no chão (`uFlat`) e giram
+inteiros com o mundo.
+
+- **Peças de 1 tile** (baú, cadeiras, barril, velas, lamparinas, tocha, braseiro, fornalha, bigorna, poço, estátua,
+  espantalho, boneco de treino…): continuam em pé, mas **paradas no lugar delas**. O próprio pintor desenha a peça como
+  em 0° em volta do centro do corpo e tudo o que ele solta (arte, sombra de contato, sombra do sol, chamas, brilhos,
+  fumaça da panela, rachaduras) vai para o mesmo lugar na tela em relação a esse centro (`XB`). A arte mostrada é o
+  lado que a câmera vê da peça (s / n / e / w, espelhado como em 0°). Guarda-roupa, estante aberta e quadro de avisos
+  ganharam vistas de lado e de trás (`<tipo>_side` / `<tipo>_back` em `decor.js`), usadas **só** com a câmera girada —
+  em 0° nada muda.
+- **Peças de vários tiles** (cama, mesa, bancada, cortador de pedra, tear, estante de livros, cômoda, bancos, lareira,
+  tina, floreira, lenha, carroça, suportes): a **arte dobrada**. Da vista que a câmera vê mais de frente sai um perfil
+  da arte 3/4 (`PROF`, nos números do próprio pintor `Y(v, h)`): o cartão de trás (o que fica acima do topo: cabeceira,
+  painel de ferramentas, chaminé), o topo deitado na altura dele, a frente em pé, o chão na frente; na vista exata é o
+  sprite pixel por pixel, no meio do caminho gira como peça sólida. O lado que aparece recebe a frente da arte vista
+  daquele lado (a vista `_e`, espelhada do outro lado). Vistas de quina de armações (suporte de armas, tear, varal vistos
+  de ponta) ficam em pé (`BILL`) — num cartão a ponta virava um poste alto. Estante de livros, cômoda e lareira têm
+  costas pintadas (`_back`).
+- **Estruturas abertas** (pérgola, arco de jardim, `PARTS`): postes em pé de frente para a câmera nos lugares deles,
+  treliça deitada na altura dela, o arco em pé no próprio plano.
+- **Luz, fumaça, halos:** a luz da peça, a fumaça / brasas e o halo de `fx/ambient.js` saem de onde a peça é desenhada
+  (`lightAt` do tipo da face; `game.js` e `ambient.js` perguntam enquanto girada). A lamparina de madeira espelhada
+  agora espelha o brilho junto.
+- **Quem dorme / senta:** logo depois da cama / cadeira na profundidade; deitado no colchão (o ponto que em 0° aparece
+  no mesmo lugar, levantado até o colchão) e girando com a cama.
+- **Profundidade:** peça dobrada pelo ponto mais à frente do chão dela (`boxDepth`), peça em pé pela frente do corpo como
+  a câmera vê.
+
+### Modo construção girado (`game/building.js`)
+
+- **Fantasmas** (verde / vermelho) desenhados pelo mesmo tipo de face da peça pronta (paredes como caixas, cercas como
+  painéis, móveis dobrados…), e uma **seta no chão** mostra para onde a frente vai ficar — o giro (R / ⟳) é em direções
+  do mundo ("Virado para o sul" = sul do mundo, onde quer que ele esteja na tela).
+- Marcas da planta: grade azul no chão (gira com o mundo), barra de progresso e selo de "falta material" em cima da
+  peça como a câmera vê, anéis de desmontar / mover / pincel de estilo girando com peças compridas; plantas de telhado,
+  telhado marcado para desmontar e o balde de tinta do telhado como faces deitadas na altura do beiral.
+- **Toque / clique** (`game/controller.js pick`, menu de toque longo): o teste é feito em espaço de tela — o alto de uma
+  peça, árvore ou criatura é acertado subindo pela tela, em qualquer ângulo; o mais à frente é o de maior profundidade.
+  O anel do alvo de quem está num andar de cima sobe reto na tela.
+
+### Mira, alcance e radar
+
+- **Mira** (`ui/aim.js`): o arrasto do celular é na tela (virado para o mundo), o foco da câmera mede a tela girada,
+  os traços do anel de alcance seguem o círculo na tela; o **flash de alcance** do arco idem.
+- **Rachaduras** de paredes atacadas (`fx/rockfx.js`) vão para as faces da caixa da parede (topo + lados abertos que
+  se veem), ordenadas logo depois dela.
+- **Radar** (`ui/radar.js`, `ui/minimap.js`): por padrão **gira com a câmera** (o que está à direita na tela está à
+  direita no radar; as gotas da borda no ângulo da tela; a bússola mostra o norte). Opção no mapa grande: "Radar gira
+  com a câmera" (`wos.radarRot`). O mapa grande fica sempre com o norte para cima. Enquanto girada, um cone claro no
+  radar e no mapa mostra para onde a vista olha.
+
 ## O que falta
 
 - **8 direções** dos personagens: hoje 4 vistas; as diagonais pedem o rig em 5 vistas (o resto espelhado).
@@ -52,5 +106,9 @@ calculados para o ângulo do momento.
   desenhada.
 - Portão aparece como um trecho de cerca (a folha do portão tem um quadro próprio); a luz das lâmpadas de dentro
   ainda clareia o telhado girado (o telhado não entra no mapa de luz enquanto girado).
-- Fantasmas do modo construção (o que você está posicionando) continuam sprites.
-- O minimapa / radar fica com o norte para cima (a bússola mostra o giro).
+- **Móveis em pé** (peças de 1 tile, armações vistas de ponta): 4 vistas, trocam de vista a 45° como os personagens;
+  poste de lampião e estandarte não têm vista de lado (em 0° também giram só pelo espelho do mundo). Barracas dos
+  bandidos continuam em pé de frente para a tela.
+- Faces de móveis não recebem a sombra do sol / o piscar de dano (como as paredes); o andaime de obra continua sprite.
+- Desmontar com um toque pega o tile do chão sob o dedo (como em 0°); o giro de uma peça (R / ⟳) continua em
+  direções do mundo (a seta no chão mostra para onde).
