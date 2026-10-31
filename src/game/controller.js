@@ -106,12 +106,13 @@ export function pick(game, sx, sy) {
   if (best) return { type: 'creature', e: best, wx, wy };
   let hit = null, hitFlat = null;
   const LV = game.levels?.hasUpper ? game.levels : null; // levels: upper pieces are drawn lifted (faded / covered ones are not pickable)
-  game.world.forChunks(wx - 2, wy - 1, wx + 2, wy + 3 + (LV ? 3 * STORY_H : 0), (c) => {
+  const lr = LV ? game.cam?.rot || 0 : 0, lm = LV ? 3 * STORY_H : 0; // (levels, camera turned: the lift is up the screen)
+  game.world.forChunks(wx - 2 - (lr ? lm : 0), wy - 1 - (lr ? lm : 0), wx + 2 + (lr ? lm : 0), wy + 3 + lm, (c) => {
     for (const o of c.objects) {
-      const ly = LV && o.lv ? wy + o.lv * STORY_H : wy;
-      if (Math.abs(o.x - wx) > 2.5 || o.y < ly - 0.6 || o.y > ly + 2.6) continue;
+      const lz = LV && o.lv ? o.lv * STORY_H : 0, lx = lr && lz ? wx - Math.sin(lr) * lz : wx, ly = lr && lz ? wy + Math.cos(lr) * lz : wy + lz;
+      if (Math.abs(o.x - lx) > 2.5 || o.y < ly - 0.6 || o.y > ly + 2.6) continue;
       if (LV && (o.lv ? (o.alpha ?? 1) < 0.5 : LV.culled(o))) continue;
-      if (!objHit(o, wx, ly, tol) || (hid(o.x, o.y) && !o.door)) continue;
+      if (!objHit(o, lx, ly, tol) || (hid(o.x, o.y) && !o.door)) continue;
       const d = describeAny(game, o);
       if (!d) continue;
       if (o.flat) { if (!hitFlat) hitFlat = d; continue; }

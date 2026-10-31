@@ -589,56 +589,7 @@ export function drawFenceFaces(F, A, o, h0 = 0, t = 0) {
   return any;
 }
 
-// stairs (1×2, one story in 5 steps): solid steps in the plank colours of art/stairs.js, climbing from the entrance
-export function drawStairFaces(F, A, o, h0 = 0) {
-  if (!F) return false;
-  const T = tables(A), uv = solidUV(T);
-  if (!uv) return false;
-  setState(o);
-  const r = (o.rot | 0) & 3, N = 5, L = 2, RISE = SG.FH, a = CA;
-  // d: the way up; the footprint starts at the entrance edge
-  const d = [[0, -1], [1, 0], [0, 1], [-1, 0]][r];
-  const fw = o.fw || (r & 1 ? 2 : 1), fh = o.fh || (r & 1 ? 1 : 2);
-  const tread = [0.78 * CR, 0.6 * CG, 0.41 * CB], side = [0.48 * CR, 0.32 * CG, 0.2 * CB];
-  const boxes = [];
-  for (let k2 = 0; k2 < N; k2++) {
-    const s0 = (k2 * L) / N, s1 = ((k2 + 1) * L) / N, hk = h0 + ((k2 + 1) * RISE) / N;
-    let bx0, by0, bx1, by1;
-    if (d[1] < 0) { bx0 = o.tx; bx1 = o.tx + fw; by1 = o.ty + fh - s0; by0 = o.ty + fh - s1; }
-    else if (d[1] > 0) { bx0 = o.tx; bx1 = o.tx + fw; by0 = o.ty + s0; by1 = o.ty + s1; }
-    else if (d[0] > 0) { by0 = o.ty; by1 = o.ty + fh; bx0 = o.tx + s0; bx1 = o.tx + s1; }
-    else { by0 = o.ty; by1 = o.ty + fh; bx1 = o.tx + fw - s0; bx0 = o.tx + fw - s1; }
-    const cxx = (bx0 + bx1) / 2, cyy = (by0 + by1) / 2;
-    boxes.push([-CAMV.s * cxx + CAMV.c * cyy + hk * 0.5, bx0, by0, bx1, by1, hk]);
-  }
-  boxes.sort((p, q) => p[0] - q[0]);
-  for (const [, bx0, by0, bx1, by1, hk] of boxes) flatBox(F, uv, bx0, by0, bx1, by1, h0, hk, tread, side, a);
-  return true;
-}
-
-// an upper floor (story lv): its flat layers laid at its height, a thin slab edge on the sides that show
-export function drawFloorFaces(F, A, o, h = 1, t = 0) {
-  if (!F) return false;
-  const T = tables(A);
-  LA = T.LA;
-  recordPiece(A, o, null, t, false, null);
-  if (!RG.length) return false;
-  for (const r of RG) {
-    const sp = r[0], sx = r[3], sy = r[4];
-    const l = r[1] - sp.ax * sp.w * sx, tp = r[2] - sp.ay * sp.h * sy, rr = l + sp.w * sx, bt = tp + sp.h * sy;
-    F.quad(l, tp, h, rr, tp, h, rr, bt, h, l, bt, h, [sp.u0, sp.v0, sp.u1, sp.v1], r[5], r[6], r[7], r[8]);
-  }
-  const uv = solidUV(T);
-  if (uv) {
-    const m = (o.mask | 0) & 15, x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1, hb = h - 0.12, c = [0.42, 0.29, 0.18], a = o.alpha ?? 1;
-    const q = (ax, ay, bx, by, nx, ny) => { const z = shadeOf(nx, ny); F.quad(ax, ay, h, bx, by, h, bx, by, hb, ax, ay, hb, uv, c[0] * z, c[1] * z, c[2] * z, a); };
-    if (!(m & 4) && vis(0, 1)) q(x0, y1, x1, y1, 0, 1);
-    if (!(m & 1) && vis(0, -1)) q(x1, y0, x0, y0, 0, -1);
-    if (!(m & 2) && vis(1, 0)) q(x1, y1, x1, y0, 1, 0);
-    if (!(m & 8) && vis(-1, 0)) q(x0, y0, x0, y1, -1, 0);
-  }
-  return true;
-}
+// (stairs and upper floors: art/faces/levels.js)
 
 // something hung on a wall (painting, trophy, herbs, curtains, pot hooks): flat on that wall's face
 export function drawMountFaces(F, A, o) {

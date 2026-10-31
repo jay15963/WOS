@@ -191,7 +191,8 @@ export function originAt(game, wx, wy) {
   const m = game.build.mode;
   if (!m || m.kind !== 'place') return [Math.floor(wx), Math.floor(wy)];
   const [fw, fh] = dimsOf(m.type, m.rot);
-  wy += (m.lv | 0) * (game.levels?.STORY ?? 1); // levels: the ghost of an upper story is drawn lifted
+  const lz = (m.lv | 0) * (game.levels?.STORY ?? 1), rot = game.cam?.rot || 0; // levels: the ghost of an upper story is drawn lifted
+  if (rot) { wx -= Math.sin(rot) * lz; wy += Math.cos(rot) * lz; } else wy += lz; // (camera turned: straight up the screen)
   return [Math.floor(wx - fw / 2 + 0.5), Math.floor(wy - fh / 2 + 0.5)];
 }
 
@@ -773,7 +774,8 @@ export function buildingSystem() {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
         const glv = m.lv | 0, gl = glv ? glv * (game.levels?.STORY ?? 1) : 0; // levels: ghost on the chosen story
-        if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
+        if (tile && gl && game.cam.rot && B.faces) { for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) B.faces.quad4(x, y, gl, tile.u0, tile.v0, x + 1, y, gl, tile.u1, tile.v0, x + 1, y + 1, gl, tile.u1, tile.v1, x, y + 1, gl, tile.u0, tile.v1, r, gg, b, 0.7 * pulse); } // levels, camera turned: flat on its story
+        else if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
         else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, 0, 0, 1, 0, gl);
         G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
         G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
@@ -781,7 +783,7 @@ export function buildingSystem() {
         setGeom(G0);
         G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot, glv) : false;
         G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse; G0.lv = glv; // sync-ok: scratch ghost
-        if (glv && game.levels) game.levels.drawUpper(B, A, G0, t);
+        if ((glv || (game.cam.rot && BUILDINGS[m.type].block === 'stairs')) && game.levels) game.levels.drawUpper(B, A, G0, t); // (levels: a stairs ghost as faces while the camera is turned)
         else if (art && CW.drawGhost) CW.drawGhost(B, A, G0, t);
         else {
           const [s, sc] = ghostSprite(A, m.type, g.mask);

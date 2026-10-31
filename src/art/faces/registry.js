@@ -5,11 +5,19 @@
 //   - draw: put its faces into B.faces (engine/faceBatch.js) — false = draw its sprite as always (art not ready…)
 //   - depth: its view depth for the painter's sort (larger = nearer the camera); default boxDepth (the front-most point
 //     of its footprint box, + a tiny bit per story). rc / rs = cos / sin of the camera yaw.
-// The first kind whose test passes wins (registration order). game.js asks faceKindOf(o) only while turned.
+//   - prio: optional; kinds are tried by prio (higher first, default 0), then registration order — a catch-all kind
+//     (levels' upperSprite) uses a negative prio so it never shadows a kind registered after it
+// The first kind whose test passes wins. game.js asks faceKindOf(o) only while turned.
 import { BUILDINGS } from '../../game/content/buildings.js';
 
 export const FACE_KINDS = [];
-export function registerFaces(k) { FACE_KINDS.push(k); return k; }
+export function registerFaces(k) {
+  const p = k.prio ?? 0;
+  let i = FACE_KINDS.length;
+  while (i > 0 && (FACE_KINDS[i - 1].prio ?? 0) < p) i--;
+  FACE_KINDS.splice(i, 0, k);
+  return k;
+}
 
 export function faceKindOf(o) {
   if (!o || o.isEntity || o.draw) return null;

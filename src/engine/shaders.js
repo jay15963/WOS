@@ -904,7 +904,7 @@ void pathGround(vec2 wp, vec4 nA, vec4 nB, vec4 nC, vec3 Ld, float LI, vec3 sunT
     if (bb > 0.5) ia = int(tB) - 1;
   }
   // tangent of the path (along the iso-lines) for ruts, footprints and trampled grass streaks
-  vec2 gd = vec2(dFdx(sdB), -dFdy(sdB)) / PPX;
+  vec2 gd = v2w(vec2(dFdx(sdB), -dFdy(sdB))) / PPX; // (screen → world: any camera yaw)
   float gl = length(gd);
   vec2 nrm = gl > 0.05 ? gd / gl : vec2(0.0, 1.0), tg = vec2(-nrm.y, nrm.x); // flat middle of wide paths: any direction
   float h = M.a;
@@ -1293,7 +1293,7 @@ void main(){
     // ================= ROCK =================
     vec4 bw;
     vec4 RT = blend4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td), wp * 0.9, nC.x, f, bw);
-    vec2 hg = vec2(dFdx(RT.a), -dFdy(RT.a)) / PPX;          // texture height slope (per tile)
+    vec2 hg = v2w(vec2(dFdx(RT.a), -dFdy(RT.a))) / PPX;     // texture height slope (per tile; screen → world: any camera yaw)
     vec2 outward = -gr / max(length(gr), 1e-3);
     float cliff = 1.0 - smoothstep(0.06, 0.62, sd);
     vec2 hgM = vec2(Fx.g - Fr.g, Fy.g - Fr.g) / 0.18;        // massif height slope (inward)
@@ -1447,7 +1447,7 @@ void main(){
     float level = (wet * 0.42 + (marshK * 0.17 + mudK * 0.07) * (1.0 - pathK)) * pk; // paths: puddles only after rain
     float pm = smoothstep(0.0, 0.05, level - hgt + (nB.y - 0.5) * 0.2);
     // wet sheen from texture micro-relief
-    vec2 hgG = vec2(dFdx(hgt), -dFdy(hgt)) / PPX;
+    vec2 hgG = v2w(vec2(dFdx(hgt), -dFdy(hgt))) / PPX; // (screen → world: any camera yaw)
     vec3 Ng = normalize(vec3(-hgG * 0.05, 1.0));
     float sheen = pow(max(dot(Ng, Hs), 0.0), 24.0) * (wet * 0.5 + (marshK * 0.3 + mudK * 0.3) * (1.0 - pathK));
     col += sheen * 0.10 * uSunI * sunT;
@@ -1512,7 +1512,7 @@ void main(){
         vec3 alb = mix(CT.rgb, vec3(0.5, 0.41, 0.31), 0.34) * (0.86 + 0.12 * nC.z);
         float moss = smoothstep(0.56, 0.72, textureLod(uNoise, cw * 0.16 + 0.13, nLod(0.16)).g + (nB.x - 0.5) * 0.35);
         alb = mix(alb, vec3(0.3, 0.33, 0.19), moss * 0.55 * (1.0 - snowA));
-        vec2 hg2 = vec2(dFdx(CT.a), -dFdy(CT.a)) / PPX;
+        vec2 hg2 = v2w(vec2(dFdx(CT.a), -dFdy(CT.a))) / PPX; // (screen → world)
         vec3 Nc = normalize(vec3(-hg2 * 0.3, 1.0));
         float dif = max(dot(Nc, uSun), 0.0);
         vec3 cc = alb * (0.56 + 0.62 * dif * (0.3 + 0.7 * uSunI)) * mix(vec3(1.0), sunT, dif * uSunI);
@@ -1656,6 +1656,7 @@ uniform vec4 uIndoorFx;    // local player: x = in a cave (0..1), y = in a build
 uniform vec2 uCam, uView, uWorld;
 uniform vec2 uRot; // camera yaw (cos, sin)
 vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
+vec2 w2v(vec2 d){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y); }
 uniform float uTime;
 uniform float uCloud;   // cloud cover 0..1
 uniform float uDay;     // daylight 0..1
@@ -1870,7 +1871,8 @@ void main(){
   vec3 sunC = vec3(1.0, 0.85, 0.6);
 #if QL >= 1
   if (uRays > 0.01 && outK > 0.01) {
-    vec2 stepUV = vec2(uShadowDir.x, -(uShadowDir.y + 1.0)) / uView;   // uv per unit of height (uv y is up)
+    vec2 sdV = w2v(uShadowDir);                                        // (the shadow direction on screen: any camera yaw)
+    vec2 stepUV = vec2(sdV.x, -(sdV.y + 1.0)) / uView;                 // uv per unit of height (uv y is up)
     float gaps = 0.0, litAir = 0.0, can = 0.0, wsum = 0.0;
     // interleaved-gradient dither (smooth, no clumps) hides the stair-step copies of the shadows
     float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * SHSTEP * 0.45;
@@ -1954,27 +1956,29 @@ void main(){
 
   // precipitation: rain streaks (parallax layers), snowflakes over cold biomes
   if (uRain > 0.01 && outK > 0.01) {
+    // (camera turned: it falls down the screen — the layers in view space, still anchored to the ground when panning)
+    vec2 pw = uRot.y != 0.0 && dot(uRot, uRot) > 0.5 ? w2v(wp - uCam) + uCam : wp;
     float snowK = uHasField > 0.5 ? smoothstep(0.45, 0.75, texture(uClim, wp / uWorld).r) : 0.0;
     snowK = max(snowK, smoothstep(0.2, 0.7, uSeaB.y));   // winter: it snows everywhere
     vec3 rc = mix(uFogCol * 1.15, vec3(0.75, 0.8, 0.88), 0.4) * (0.55 + 0.45 * uDay);
     if (snowK < 0.99) {
-      float r = rainLayer(wp, 1.5, 22.0, 1.0, 0.7 * uRain) * 0.6;
+      float r = rainLayer(pw, 1.5, 22.0, 1.0, 0.7 * uRain) * 0.6;
 #if QL >= 1
-      r += rainLayer(wp + 13.1, 2.2, 17.0, 5.0, 0.75 * uRain) * 0.45;
+      r += rainLayer(pw + 13.1, 2.2, 17.0, 5.0, 0.75 * uRain) * 0.45;
 #endif
 #if QL >= 2
-      r += rainLayer(wp + 27.7, 3.2, 13.0, 9.0, 0.8 * uRain) * 0.3;
+      r += rainLayer(pw + 27.7, 3.2, 13.0, 9.0, 0.8 * uRain) * 0.3;
 #endif
       c = mix(c, rc, clamp(r, 0.0, 1.0) * 0.62 * outK * (1.0 - snowK));
     }
     if (snowK > 0.01) {
       float bz = uSeaB.w;
       SNOWX = 1.6 + bz * 4.5; SNOWS = 1.0 + bz * 1.6;
-      float sf = snowLayer(wp, 1.1, 1.1 + bz * 1.4, 2.0, 0.55 * uRain) + snowLayer(wp + 7.3, 1.7, 0.85 + bz * 1.2, 6.0, 0.6 * uRain) * 0.8;
+      float sf = snowLayer(pw, 1.1, 1.1 + bz * 1.4, 2.0, 0.55 * uRain) + snowLayer(pw + 7.3, 1.7, 0.85 + bz * 1.2, 6.0, 0.6 * uRain) * 0.8;
 #if QL >= 1
-      sf += snowLayer(wp + 19.1, 2.6, 0.62 + bz, 11.0, 0.65 * uRain) * 0.6;
+      sf += snowLayer(pw + 19.1, 2.6, 0.62 + bz, 11.0, 0.65 * uRain) * 0.6;
 #endif
-      if (bz > 0.01) sf += snowLayer(wp + 31.7, 0.75, 2.4, 17.0, 0.75 * bz) + snowLayer(wp + 3.9, 3.4, 1.8, 23.0, 0.8 * bz) * 0.5; // blizzard
+      if (bz > 0.01) sf += snowLayer(pw + 31.7, 0.75, 2.4, 17.0, 0.75 * bz) + snowLayer(pw + 3.9, 3.4, 1.8, 23.0, 0.8 * bz) * 0.5; // blizzard
       vec3 scol = vec3(0.93, 0.95, 1.0) * clamp(max(L, vec3(0.42 + 0.4 * bz)) * (0.75 + 0.25 * uDay), 0.0, 1.25);
       c = mix(c, scol, clamp(sf, 0.0, 1.0) * 0.85 * outK * snowK);
     }

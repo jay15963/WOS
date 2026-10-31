@@ -190,6 +190,21 @@ function slabEdge() {
   }, { pad: 2 });
 }
 
+// the geometry / palette the painters above use, for the camera-rotation faces (art/faces/levels.js): px at 64 PPU;
+// d = along the climb from the entrance edge, h = height, u = across (x in the S / N sprites)
+const hex = (s) => [parseInt(s.slice(1, 3), 16) / 255, parseInt(s.slice(3, 5), 16) / 255, parseInt(s.slice(5, 7), 16) / 255];
+export const STAIR_ART = {
+  W: 64, D: 128, RISE, N: N_STEPS, POST,
+  tread: [10, 54],                      // treads between the stringers (x in stairsS)
+  stringers: [[3, 10], [54, 61]],       // side beams
+  posts: [6.5, 57.5], postD: [6, 64, 122], postW: 5.2, capW: 6, capH: 2.2, railW: 3,
+  SB: 11, legsD: [123, 128 - 128 * 0.42], legW: 6, // stairsE: beam depth under the high end; legs (posts down to the ground)
+  hS: 128 + RISE + POST + 6,            // sprite heights (bottom = the ground at the entrance / high end)
+  hN: Math.ceil(128 + Math.max(RISE / N_STEPS, RISE - 64) + POST + 12),
+  hE: 64 + RISE + POST + 8,
+  col: { sgTop: hex(SG.top), sgMid: hex(SG.mid), sgDark: hex(SG.dark), railA: hex(RL.a), railB: hex(RL.b), railC: hex(RL.c), cap: hex('#c89a62'), riser: hex(RS.dark) },
+};
+
 export function addStairs(add) {
   add('stairs_wood', stairsS(), 0.5, 1);
   add('stairs_wood_n', stairsN(), 0.5, 1);

@@ -239,7 +239,7 @@ export class Game {
         o._fk = fk;
         if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
         else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
-        else o._zk = -rs * o.x + rc * (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0);
+        else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
       }
     }
     list.sort((a, b) => a._zk - b._zk);
