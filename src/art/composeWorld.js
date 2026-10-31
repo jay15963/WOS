@@ -357,6 +357,8 @@ export function drawStatic(B, A, o, t) {
   overlays(B, T, o, w, t);
 }
 
+// the torch flame for other drawers (camera rotation: art/faces/solid.js puts it on the 3D wick)
+export function torchFlame(B, A, x, y, lift, sc, t, k = 1) { smallFlame(B, tables(A), x, y, lift, sc, t, k); }
 function smallFlame(B, T, x, y, lift, sc, t, k) {
   const seed = x * 2.3 + y;
   const ph = t * 11 + seed;

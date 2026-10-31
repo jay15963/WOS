@@ -203,6 +203,30 @@ function installShowcase(game) {
     p.x = x0 + W / 2; p.y = y0 + Hh + 0.5;
     return { n, at: [x0, y0], W, H: Hh };
   };
+  // furniture review (camera rotation, art/faces/solid.js): each type in a row, once per rotation, then a blueprint
+  // (half built) and a ghost-free plan row; opts.lv = the same rows on that story too (needs a floor: opts.floor)
+  H.props = (types = ['chest', 'barrel', 'table_wood', 'chair_wood', 'bed', 'torch', 'crates'], opts = {}) => {
+    if (!net.auth) return 'só no anfitrião';
+    const p = game.player, step = 3, rot = (t) => (BUILDINGS[t]?.edge ? 5 : BUILDINGS[t]?.rotate ? 4 : 1);
+    const W = 6 * step + 2, Hh = types.length * step + 2;
+    const at = freeRect(p.x, p.y, W, Hh);
+    if (!at) return 'sem espaço';
+    const [x0, y0] = at;
+    clear(x0 - 1, y0 - 1, W + 2, Hh + 2);
+    const rows = [], plans = [];
+    types.forEach((t, j) => {
+      const y = y0 + 1 + j * step;
+      for (let r = 0; r < rot(t); r++) rows.push([t, x0 + 1 + r * step, y, r]);
+      plans.push([t, x0 + 1 + 5 * step, y, 0]);
+    });
+    let n = put(rows);
+    n += put(plans, 0.4);
+    if (opts.floor) { const fl = []; for (let y = y0; y < y0 + Hh; y++) for (let x = x0; x < x0 + W; x++) fl.push(['floor_wood', x, y, 0]); n += put(fl, 1, 1); }
+    if (opts.lv) n += put(rows, 1, opts.lv);
+    p.x = x0 + W / 2; p.y = y0 + Hh + 0.5;
+    game.cam.x = x0 + W / 2; game.cam.y = y0 + Hh / 2;
+    return { n, at: [x0, y0], W, H: Hh };
+  };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {
     if (!net.auth) return 'só no anfitrião';

@@ -1034,8 +1034,13 @@ function rigPose(Q, C, sd, flip) {
     else { h1x = -0.2; h2x = 0.2; h1l = h2l = 0.16; }
   }
 
-  const bx0 = seat ? seat.x : p.x, by0 = seat ? seat.y - 0.06 : p.y;
-  if (seat) { lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); p._sobj = seat; }
+  let bx0 = seat ? seat.x : p.x, by0 = seat ? seat.y - 0.06 : p.y;
+  if (seat) {
+    lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); p._sobj = seat;
+    // camera turned: on the seat of the 3D chair (art/faces/solid.js seatAt; eased from the 0° spot)
+    const sa = (CAMV.s || CAMV.c !== 1) && seat._fk?.seatAt ? seat._fk.seatAt(seat) : null;
+    if (sa) { bx0 = sa[0]; by0 = sa[1]; lift += sa[2]; }
+  }
   const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)
   const x = bx0 + ox, y = by0 + oy;
   const bl = lift + LEG;

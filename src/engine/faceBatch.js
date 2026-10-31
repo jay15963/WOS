@@ -4,6 +4,7 @@
 // Non-instanced: 6 vertices per quad, VS floats each (x, y, h, u, v, r, g, b, a); drawn in depth order with the
 // sprites (renderer: faceSeg, marked object by object with emMark).
 const VS = 9;
+const QI = [0, 5, 10, 0, 10, 15]; // (quadF: corner offsets of the two triangles a b c, a c d)
 
 export class FaceBatch {
   constructor(gl, cap = 1024) {
@@ -52,6 +53,20 @@ export class FaceBatch {
     const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; o += VS; };
     V(ax, ay, ah, au, av); V(bx, by, bh, bu, bv); V(cx, cy, ch, cu, cv);
     V(ax, ay, ah, au, av); V(cx, cy, ch, cu, cv); V(dx, dy, dh, du, dv);
+  }
+
+  // a quad copied from src at float offset o: 4 corners × (x, y, h, u, v) in quad4 order (cached geometry:
+  // art/faces/solid.js); no closure, no allocation
+  quadF(src, o, r, g, b, a) {
+    if (this.n >= this.cap) this._grow();
+    const d = this.data;
+    let w = this.n++ * 6 * VS;
+    for (let k = 0; k < 6; k++) {
+      const s = o + QI[k];
+      d[w] = src[s]; d[w + 1] = src[s + 1]; d[w + 2] = src[s + 2]; d[w + 3] = src[s + 3]; d[w + 4] = src[s + 4];
+      d[w + 5] = r; d[w + 6] = g; d[w + 7] = b; d[w + 8] = a;
+      w += VS;
+    }
   }
 
   upload() {

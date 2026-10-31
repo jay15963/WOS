@@ -22,7 +22,7 @@ const FACE_I = { s: 0, w: 1, n: 2, e: 3 };            // facing index (= rot of 
 const FACE_N = ['s', 'w', 'n', 'e'];
 const FV = [[0, 1], [-1, 0], [0, -1], [1, 0]];          // world vector of each facing
 // edge pieces: [body depth along the facing, half width] (= game/mut/structures.js EDGE_GEOM, else def.eg)
-const EDGE_GEOM = { chest: [0.56, 0.37], torch: [0.14, 0.08], chair_wood: [0.5, 0.26], flower_pot: [0.34, 0.2], banner: [0.3, 0.3], lamp_post: [0.3, 0.14] };
+export const EDGE_GEOM = { chest: [0.56, 0.37], torch: [0.14, 0.08], chair_wood: [0.5, 0.26], flower_pot: [0.34, 0.2], banner: [0.3, 0.3], lamp_post: [0.3, 0.14] };
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 // ---------- profiles of the art (folded art) ----------
@@ -183,7 +183,7 @@ function paint(B, A, o, t, fr, ang, h0, drop) {
 // ---------- folded art ----------
 // blueprint / ghost / fade tint (the painters' setState)
 const TN = [1, 1, 1, 1];
-function tintOf(o) {
+export function tintOf(o) {
   const p = o.progress, bp = p != null && p < 1, a = o.alpha ?? 1;
   if (o._ghost) { if (o._ghost === 2) { TN[0] = 1.6; TN[1] = 0.42; TN[2] = 0.36; } else { TN[0] = 0.36; TN[1] = 0.78; TN[2] = 2.1; } TN[3] = a * 0.72; }
   else if (bp) { TN[0] = 0.34 * 1.15; TN[1] = 0.72 * 1.15; TN[2] = 2.0 * 1.15; TN[3] = a * (0.62 + 0.3 * clamp01(p)); }
