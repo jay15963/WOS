@@ -12,6 +12,8 @@
 // into pieces that drop around its tile with dust.
 
 import { archSprite } from '../art/archCompose.js';
+import { drawCrackFaces } from '../art/faces/walls.js'; // camera turned: the cracks on the piece's faces
+import { boxDepth } from '../art/faces/registry.js';
 import { BUILDINGS } from '../game/data.js';
 
 const MAXN = 8;
@@ -71,11 +73,15 @@ function drawCracks(B, A) {
   if (!(d > 0) || o.removed) return;
   const k = this.game.time - (o._hitT || -9), sh = k < 0.18 ? (1 - k / 0.18) * 0.035 * Math.sin(k * 90) : 0;
   const stage = Math.min(3, Math.floor(d * 4)), front = !((o.mask | 0) & 4);
-  const s = archSprite(A, (front ? 'siege_crack_f' : 'siege_crack_t') + stage);
+  const turned = !!this.game.cam?.rot;
+  const s = archSprite(A, (front || turned ? 'siege_crack_f' : 'siege_crack_t') + stage);
   if (!s) return;
-  const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1;
-  B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1), 0, 0, 0, 1);
+  const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1, al = Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1);
+  if (turned) { drawCrackFaces(B, A, o, s, al, fl < 0, sh); return; } // (on the top and every side that shows)
+  B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, al, 0, 0, 0, 1);
 }
+// camera turned: right after the piece it cracks (its box depth)
+function cracksZ(rc, rs) { return boxDepth(this.o, rc, rs) + 0.002; }
 
 export function rockFxSystem() {
   const tmp = [], pool = [];
@@ -88,8 +94,8 @@ export function rockFxSystem() {
       for (const o of F.walls) {
         if (o.removed || !(o.dmg > 0)) { F.walls.delete(o); continue; }
         if (o.x < v.x0 - 2 || o.x > v.x1 + 2 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
-        const d = pool[k] || (pool[k] = { draw: drawCracks, y: 0, o: null, game });
-        d.o = o; d.y = (o._sy ?? o.y) + 0.002; d.game = game;
+        const d = pool[k] || (pool[k] = { draw: drawCracks, zkRot: cracksZ, x: 0, y: 0, o: null, game });
+        d.o = o; d.x = o.x; d.y = (o._sy ?? o.y) + 0.002; d.game = game;
         list.push(d); k++;
       }
     },

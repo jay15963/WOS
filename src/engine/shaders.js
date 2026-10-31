@@ -389,10 +389,13 @@ ${SWAY_FN}
 void main(){
   vec2 c = aCorner;
   vec2 local = (c - aAnchor) * aSize;
-  local = rotLocal(local, aParams.y);
+  // world mode (flash < 0: camera-rotation faces, art/faces/kit.js): the quad is laid in world axes turned by rot — an
+  // upright part is a panel along that direction, a part below the anchor a footprint on the ground (no view turn)
+  bool wm = aParams.z < -0.5;
+  if (!wm) local = rotLocal(local, aParams.y);
   if (aParams.x > 0.0) local = swayLocal(c, local);
   float h = max(0.0, -local.y) + aExtra.y;
-  vec2 base = toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
+  vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
   vec2 w = aPos + base + uShadowDir * h;
   vec2 clip = toView(w - uCam) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
