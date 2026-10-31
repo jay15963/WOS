@@ -86,7 +86,8 @@ export class Renderer {
     this.emSeg = [];
     this._emLast = 0;
     this.faceSeg = []; // [f0, f1, at]: computed faces [f0, f1) drawn after main [0, at) (same marks as the glows)
-    this.faceTex = []; // the texture of each face segment (null = the atlas; a roof's painted image)
+    this.faceTex = []; // the texture of each face segment (null = the atlas; a roof handle from roofFaceTex)
+    this._roofFaces = []; // [f0, f1, handle] roof faces drawn this frame (camera turned): the light occluder redraws them
     this._fLast = 0;
     this._fTex = null;
     this._segPool = [];
@@ -106,6 +107,7 @@ export class Renderer {
       emissive: new SpriteBatch(gl, 4096), // additive, unaffected by darkness (fire, sparks)
       roof: new SpriteBatch(gl, 256),      // roof slices (roofSlice), drawn in segments inside the main sort
       faces: new FaceBatch(gl, 512),       // computed faces (camera rotation: walls as boxes), segments in the main sort
+      shadowFaces: new FaceBatch(gl, 256), // sun-shadow casters as ground faces (camera turned: roofs, game/roofs.js)
     };
 
     this.renderScale = 1;
@@ -242,6 +244,16 @@ export class Renderer {
     const own = new Uint8Array(art.owner.buffer, art.owner.byteOffset, art.owner.length * 2); // little endian: lo, hi
     const owner = createTexture(gl, { width: art.w, height: art.h, data: own, internal: gl.RG8, format: gl.RG, filter: gl.NEAREST });
     return { color, owner, w: art.w, h: art.h };
+  }
+  // camera rotation (game/roofs.js, art/roofFacets.js): a roof's turned atlas (plan image + strips) for the computed
+  // faces — setFaceTex(handle): the scene pass adds rain / snow on it (snow above v = planV: the plan image), the light
+  // pass redraws it as an occluder (lamps inside never light the roof)
+  roofFaceTex(art) {
+    const gl = this.gl, color = createTexture(gl, { width: art.w, height: art.h, data: art.color, mipmap: true });
+    // (slopes seen at a glancing angle: anisotropic filtering keeps the courses crisp where the device has it)
+    if (this._aniso === undefined) this._aniso = gl.getExtension('EXT_texture_filter_anisotropic') || null;
+    if (this._aniso) gl.texParameterf(gl.TEXTURE_2D, this._aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(4, gl.getParameter(this._aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));
+    return { color, roof: true, planV: art.geom?.planV ?? 0, w: art.w, h: art.h };
   }
   deleteRoofTex(h) {
     if (!h) return;
@@ -450,6 +462,7 @@ export class Renderer {
     this._emLast = 0;
     this.faceSeg.length = 0;
     this.faceTex.length = 0;
+    this._roofFaces.length = 0;
     this._fLast = 0;
     this._fTex = null;
     this.shaftN = 0;
@@ -533,6 +546,19 @@ export class Renderer {
         if (p.u.uNoise) { gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.noiseTex); gl.uniform1i(p.u.uNoise, 4); }
       }
       B.shadow.draw();
+      gl.blendEquation(gl.FUNC_ADD);
+    }
+    if (B.shadowFaces.n) {
+      // camera turned: roofs cast their shadows as faces on the ground (game/roofs.js turnedShadows), MAX blend
+      gl.enable(gl.BLEND);
+      gl.blendEquation(gl.MAX);
+      const pf = this.progFace;
+      gl.useProgram(pf.p);
+      gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
+      gl.uniform1i(pf.u.uTex, 0); if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
+      B.shadowFaces.upload();
+      B.shadowFaces.drawRange(0, B.shadowFaces.n);
       gl.blendEquation(gl.FUNC_ADD);
     }
     if (this.level >= 1 && ((env.extra && env.extra.uRays) || 0) > 0.01) {
@@ -648,7 +674,7 @@ export class Renderer {
       let k = 0, i = 0, j = 0, q = 0;
       const segs = this.roofSeg, em = this.emSeg, nE = em.length / 3, fs = this.faceSeg, nF = fs.length / 3;
       const pf = this.progFace;
-      let faceUni = false;
+      let faceUni = false, roofFx = false;
       const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); if (rp.u.uRoofSnow) gl.uniform1f(rp.u.uRoofSnow, SA[0]); };
       const snow = (env.extra && env.extra.uSnow) || 0;
       for (;;) {
@@ -663,12 +689,19 @@ export class Renderer {
             faceUni = true;
             gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
             gl.uniform1i(pf.u.uTex, 0); if (pf.u.uLook) gl.uniform1i(pf.u.uLook, 3);
+            if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
+            roofFx = false;
           }
           const f0 = fs[q * 3], tex = this.faceTex[q];
           let f1 = fs[q * 3 + 1];
           q++;
           while (q < nF && fs[q * 3 + 2] === at && this.faceTex[q] === tex && fs[q * 3] === f1) { f1 = fs[q * 3 + 1]; q++; }
-          if (tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); }
+          // (a roof handle: its atlas, rain / snow on it, remembered for the light occluder)
+          const isRoof = !!(tex && tex.roof);
+          if (pf.u.uRoofFx && (isRoof || roofFx)) gl.uniform4f(pf.u.uRoofFx, isRoof ? env.wet || 0 : 0, isRoof ? SA[0] : 0, isRoof ? tex.planV : 0, 0);
+          roofFx = isRoof;
+          if (isRoof) this._roofFaces.push(f0, f1, tex);
+          if (tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, isRoof ? tex.color : tex); }
           B.faces.drawRange(f0, f1);
           if (tex) gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
           gl.useProgram(p.p);
@@ -732,6 +765,20 @@ export class Renderer {
       gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       this._roofPass(1, spriteUniforms, env.ambient);
       for (const sg of this.roofSeg) this._roofSegment(sg);
+    }
+    if (this._roofFaces.length) {
+      // the same for the roofs drawn as faces while the camera is turned (uRoofFx.w = 1: ambient × coverage; glows and
+      // eave shadows skipped)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+      const pf = this.progFace, RF = this._roofFaces;
+      gl.useProgram(pf.p);
+      gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
+      gl.uniform1i(pf.u.uTex, 0);
+      gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 1);
+      if (pf.u.uAmbR) gl.uniform3f(pf.u.uAmbR, amb[0] * 0.5, amb[1] * 0.5, amb[2] * 0.5);
+      gl.activeTexture(gl.TEXTURE0);
+      for (let i = 0; i < RF.length; i += 3) { gl.bindTexture(gl.TEXTURE_2D, RF[i + 2].color); B.faces.drawRange(RF[i], RF[i + 1]); }
+      gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
     }
     const bloom = this.level >= 1 ? this.fx.bloom * (env.bloomK ?? 1) : 0;
     if (bloom > 0) {
