@@ -283,7 +283,7 @@ export function installHUD(game, { isNew } = {}) {
       const qel = ex.el.querySelector('.q');
       if (qel) qel.textContent = `+${ex.qty}`;
       else { let m = ex.el.querySelector('.x'); if (!m) { m = document.createElement('span'); m.className = 'x'; ex.el.appendChild(m); } m.textContent = `×${ex.n}`; }
-      ex.el.classList.remove('bump'); void ex.el.offsetWidth; ex.el.classList.add('bump');
+      if (now - (ex.bt || 0) > 250) { ex.bt = now; ex.el.classList.remove('bump'); void ex.el.offsetWidth; ex.el.classList.add('bump'); } // (a restart forces a layout: at most 4× / s)
       return;
     }
     const el = document.createElement('div');
@@ -371,7 +371,7 @@ export function installHUD(game, { isNew } = {}) {
   };
   const toggle = (el, k, cls, on) => { if (C[k] !== on) { C[k] = on; el.classList.toggle(cls, on); } };
 
-  let slowT = 0, buffV = -1, buffT = 0, modeT = 0;
+  let slowT = 0, buffV = -1, buffK = null, buffT = 0, modeT = 0;
 
   return {
     sync: 'cosmetic', // HUD
@@ -489,8 +489,10 @@ export function installHUD(game, { isNew } = {}) {
 
       // buffs (structure on change, timers at 4 Hz)
       buffT -= dt;
-      if (buffV !== pl.buffsV) {
-        buffV = pl.buffsV;
+      const bk = buffV !== pl.buffsV ? pl.buffs.map((b) => `${b.id}:${b.name}:${b.desc}:${b.good}:${b.icon}`).join('|') : buffK;
+      buffV = pl.buffsV;
+      if (bk !== buffK) { // rebuilt only when the list differs (a buff added and removed again in one frame changes nothing)
+        buffK = bk;
         R.buffs.innerHTML = pl.buffs.map((b) => `<div class="bf ${b.good ? 'good' : 'bad'}" title="${b.name}${b.desc ? ' — ' + b.desc : ''}">${combatIcon(A, b.icon)}<span class="bt"></span></div>`).join('');
         buffT = 0;
       }

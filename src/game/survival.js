@@ -250,7 +250,8 @@ export function survivalSystem() {
       // soaking / drying (p.swimming comes from game.update: deep water)
       const W = SURVIVAL.wet, E = game.env, ec = E.cur || {};
       const wasWet = (p.wetT || 0) > 0;
-      if (p.swimming) p.wetT = W.soaked;
+      if (game.creative) p.wetT = 0; // creative: never wet (creativeSystem also zeroes it each frame: soaking here would flip it every frame)
+      else if (p.swimming) p.wetT = W.soaked;
       else {
         const rainNow = (shelter.enclosed || shelter.roof ? 0 : (ec.rain || 0)) * (1 - (1 - T.winter.snowSoak) * (game.season?.winter || 0)); // winter: snow
         if (rainNow > 0.2 && (p.wetT || 0) < W.rainMax) p.wetT = Math.min(W.rainMax, (p.wetT || 0) + rainNow * W.rainSoak * dt);
@@ -281,7 +282,7 @@ export function survivalSystem() {
       const warm = (f.fire > 3 && !f.torch) || p.warmFoodT > 0;
       if (warm) { if (!hasBuff(p, 'warm')) addBuff(p, 'warm', 1, { perm: true }); } else removeBuff(p, 'warm');
       // chilled: a cold body, or swimming / wet clothes away from a fire
-      const chilled = heat < T.chilled || p.swimming || (wetNow && !warm);
+      const chilled = !game.creative && (heat < T.chilled || p.swimming || (wetNow && !warm)); // (creative removes 'cold' every frame)
       if (chilled) { if (!hasBuff(p, 'cold')) addBuff(p, 'cold', 1, { perm: true, name: 'Com frio', desc: 'Corpo frio: mais lento, com mais fome e sem recuperar vida. Aqueça-se.' }); }
       else removeBuff(p, 'cold');
       const hypo = heat < T.hypo;
