@@ -753,8 +753,9 @@ Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
   const lift = (o.lv | 0) * STORY_H, def = BUILDINGS[o.type];
   let PB = this._pb;
   if (!PB || PB.main !== B.main) PB = this._pb = { ...B, ground: B.main, blob: B.main, decor: B.main };
-  const y0 = o.y, cy0 = o.cy, ty0 = o.ty;
-  o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift;
+  const y0 = o.y, cy0 = o.cy, ty0 = o.ty, x0 = o.x, r = this.game.cam?.rot || 0;
+  if (r) { o.x = x0 + Math.sin(r) * lift; o.y = y0 - Math.cos(r) * lift; } // camera turned: up the screen
+  else { o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift; }
   try {
     if (o.blueprint && !o._ghost && A.has('bp_tile')) { // RimWorld-blue plan grid on its story (building.js draws the ground ones)
       const tile = A.get('bp_tile');
@@ -779,7 +780,7 @@ Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
       const se = !south && !(below && isWallTop(BUILDINGS[below.type])) ? archSprite(A, 'slab_edge') : null; // lazy (art/stairs.js)
       if (se) B.main.add(se, o.tx + 0.5, ty0 + 1 - lift, 1, 1, 1, 1, 1, a, 0, 0, 0, 1, 0, 0);
     }
-  } finally { o.y = y0; o.cy = cy0; o.ty = ty0; }
+  } finally { o.x = x0; o.y = y0; o.cy = cy0; o.ty = ty0; }
   const Lg = o.light;
   if (Lg) {
     const tt = this.game.time, f = Lg.flicker ? 1 - Lg.flicker * (0.5 + 0.5 * Math.sin(tt * 11 + o.x * 3) * Math.sin(tt * 7.3 + o.y)) : 1, d = Lg.radius * 2 * (0.96 + 0.04 * f);

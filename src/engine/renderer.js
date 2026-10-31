@@ -86,7 +86,9 @@ export class Renderer {
     this.emSeg = [];
     this._emLast = 0;
     this.faceSeg = []; // [f0, f1, at]: computed faces [f0, f1) drawn after main [0, at) (same marks as the glows)
+    this.faceTex = []; // the texture of each face segment (null = the atlas; a roof's painted image)
     this._fLast = 0;
+    this._fTex = null;
     this._segPool = [];
     this.fsVao = gl.createVertexArray();
     this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
@@ -279,8 +281,16 @@ export class Renderer {
     const B = this.batches, e = B.emissive.n, f = B.faces.n;
     if (e > this._emLast) this.emSeg.push(this._emLast, e, B.main.n);
     this._emLast = e;
-    if (f > this._fLast) this.faceSeg.push(this._fLast, f, B.main.n);
+    if (f > this._fLast) { this.faceSeg.push(this._fLast, f, B.main.n); this.faceTex.push(this._fTex); }
     this._fLast = f;
+    this._fTex = null;
+  }
+  // the faces added from now on use texture tex (null = the atlas); the ones before keep theirs
+  setFaceTex(tex) {
+    const B = this.batches, f = B.faces.n;
+    if (f > this._fLast) { this.faceSeg.push(this._fLast, f, B.main.n); this.faceTex.push(this._fTex); }
+    this._fLast = f;
+    this._fTex = tex;
   }
 
   _roofSegment(sg) {
@@ -439,7 +449,9 @@ export class Renderer {
     this.emSeg.length = 0;
     this._emLast = 0;
     this.faceSeg.length = 0;
+    this.faceTex.length = 0;
     this._fLast = 0;
+    this._fTex = null;
     this.shaftN = 0;
   }
 
@@ -652,11 +664,13 @@ export class Renderer {
             gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
             gl.uniform1i(pf.u.uTex, 0); if (pf.u.uLook) gl.uniform1i(pf.u.uLook, 3);
           }
-          const f0 = fs[q * 3];
+          const f0 = fs[q * 3], tex = this.faceTex[q];
           let f1 = fs[q * 3 + 1];
           q++;
-          while (q < nF && fs[q * 3 + 2] === at) { f1 = fs[q * 3 + 1]; q++; }
+          while (q < nF && fs[q * 3 + 2] === at && this.faceTex[q] === tex && fs[q * 3] === f1) { f1 = fs[q * 3 + 1]; q++; }
+          if (tex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex); }
           B.faces.drawRange(f0, f1);
+          if (tex) gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
           gl.useProgram(p.p);
           continue;
         }

@@ -44,6 +44,16 @@ export class FaceBatch {
     V(ax, ay, ah, u0, v0); V(cx, cy, ch, u1, v1); V(dx, dy, dh, u0, v1);
   }
 
+  // a quad with its own uv at each corner (roof surfaces: the painted image under each corner)
+  quad4(ax, ay, ah, au, av, bx, by, bh, bu, bv, cx, cy, ch, cu, cv, dx, dy, dh, du, dv, r, g, b, a) {
+    if (this.n >= this.cap) this._grow();
+    const d = this.data;
+    let o = this.n++ * 6 * VS;
+    const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; o += VS; };
+    V(ax, ay, ah, au, av); V(bx, by, bh, bu, bv); V(cx, cy, ch, cu, cv);
+    V(ax, ay, ah, au, av); V(cx, cy, ch, cu, cv); V(dx, dy, dh, du, dv);
+  }
+
   upload() {
     if (!this.n) return;
     const gl = this.gl;

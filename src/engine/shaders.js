@@ -366,8 +366,9 @@ layout(location=1) out vec4 oE;
 void main(){
   vec4 t = vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)) : texture(uTex, vUV);
   if (t.a < 0.01) discard;
-  vec4 c = vec4(t.rgb * vC.rgb, t.a) * vC.a;
-  o = c; oE = vec4(0.0, 0.0, 0.0, c.a);
+  vec4 c = vec4(t.rgb * vC.rgb, t.a) * abs(vC.a);
+  if (vC.a < 0.0) { o = vec4(0.0); oE = vec4(c.rgb, 0.0); } // a glow (lit window) on the face: to the glow layer
+  else { o = c; oE = vec4(0.0, 0.0, 0.0, c.a); }
 }`;
 
 // Sun shadow: sprite silhouette sheared along uShadowDir by its height above the anchor.

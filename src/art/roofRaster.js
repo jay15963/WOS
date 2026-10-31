@@ -539,6 +539,55 @@ export function rasterRegion(spec) {
   };
 }
 
+// the roof's shape on the main thread (camera rotation: game/roofs.js builds a sloped mesh from it): the same
+// rectangles, planes and overhangs as rasterRegion, and the height of the roof surface at any world point
+// (-1e9 where there is no roof)
+export function roofShape(spec) {
+  const G = ROOF_GEOM, He = spec.eaveH ?? G.eaveH, e = G.overhang, er = G.rake;
+  const eS = G.overhangS ?? 0.12, erS = Math.min(er, eS);
+  const W = spec.W, bx0 = spec.x0, by0 = spec.y0, bw = spec.x1 - spec.x0 + 1, bh = spec.y1 - spec.y0 + 1;
+  const T = spec.tiles, nT = T.length;
+  const inR = new Int32Array(bw * bh);
+  for (let n = 0; n < nT; n++) { const i = T[n], x = i % W - bx0, y = ((i / W) | 0) - by0; inR[y * bw + x] = n + 1; }
+  const SX = spec.styles || {};
+  const rects = maximalRects(inR, bw, bh);
+  for (const r of rects) {
+    const cnt = {};
+    let best = null, bn = 0;
+    for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) {
+      const k = spec.style[inR[y * bw + x] - 1];
+      cnt[k] = (cnt[k] || 0) + 1;
+      if (cnt[k] > bn) { bn = cnt[k]; best = k; }
+    }
+    const S = SX[best] || ROOF_STYLES[best] || ROOF_STYLES.thatch;
+    r.X0 = r.x0 + bx0; r.X1 = r.x1 + bx0; r.Y0 = r.y0 + by0; r.Y1 = r.y1 + by0;
+    const w = r.X1 - r.X0, d = r.Y1 - r.Y0;
+    r.ns = w <= d * G.frontGable;
+    r.hip = S.ends === 'hip';
+    const span = r.ns ? w : d;
+    r.p = Math.min(S.pitch, G.maxRise / Math.max(0.5, span / 2));
+    r.c = r.ns ? (r.X0 + r.X1) / 2 : (r.Y0 + r.Y1) / 2;
+    if (r.ns) { r.dx0 = r.X0 - e; r.dx1 = r.X1 + e; r.dy0 = r.Y0 - (r.hip ? e : er); r.dy1 = r.Y1 + (r.hip ? eS : erS); }
+    else { r.dx0 = r.X0 - (r.hip ? e : er); r.dx1 = r.X1 + (r.hip ? e : er); r.dy0 = r.Y0 - e; r.dy1 = r.Y1 + eS; }
+  }
+  const plane = (p, a, off, kick = 0.4) => (a >= off ? He + p * (a - off) : He - (off - a) * p * kick);
+  const hRect = (r, x, y) => {
+    if (x < r.dx0 || x > r.dx1 || y < r.dy0 || y > r.dy1) return -1e9;
+    const p = r.p;
+    let h;
+    if (r.ns) {
+      h = Math.min(plane(p, x - r.dx0, e), plane(p, r.dx1 - x, e));
+      if (r.hip) h = Math.min(h, plane(p, r.dy1 - y, eS), plane(p, y - r.dy0, e, 1));
+    } else {
+      h = Math.min(plane(p, r.dy1 - y, eS), plane(p, y - r.dy0, e, 1));
+      if (r.hip) h = Math.min(h, plane(p, x - r.dx0, e), plane(p, r.dx1 - x, e));
+    }
+    return h;
+  };
+  const hAt = (x, y) => { let H = -1e9; for (const r of rects) { const h = hRect(r, x, y); if (h > H) H = h; } return H; };
+  return { rects, He, e, eS, er, erS, hAt };
+}
+
 // lookups on a finished art (main thread): slice / world tile under a screen-world point (x, sy)
 export function attachArt(art) {
   const { res, w: IW, h: IH, sx0, sy0, owner, src, color, tiles } = art;

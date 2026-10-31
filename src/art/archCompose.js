@@ -273,7 +273,7 @@ function drawWall(B, T, o, k, t, fl) {
     }
     if (on.winbox) addPlain(B, D.winbox, x, y, 1, 1, fl);
     const mt = on.shelf ? 'shelf' : on.hooks ? 'hooks' : on.antlers ? 'antlers' : on.pennant ? 'pennant' : on.painting ? 'painting' : on.shield ? 'shield' : on.sconce ? 'sconce' : null;
-    if (mt) {
+    if (mt && !FACE_SIDE) {
       addPlain(B, D[mt], x, y, 1, 1, fl);
       if (mt === 'sconce' && !BP) smallFlame(B, T, x + 4 / 64, y, AG.sconceLift, 1, t, 0.8);
     }
@@ -441,38 +441,223 @@ export function drawPlotKit(B0, A, o) {
   if (k.on.straw) B.ground.add(T.d['fl_straw_' + (hash(o.tx, o.ty) < 0.5 ? 0 : 1)], o.x, o.y, 1, 1, CR, CG, CB, CA, 0, 0, 0, 1, 1);
 }
 
-// ---------- camera rotation: a wall / door as a box of computed faces ----------
+// ---------- camera rotation: pieces as computed faces (docs/CAMERA-ROTATION.md) ----------
 // CAMV: the camera yaw (cos, sin) and the light's direction on the ground (game.js sets them every frame).
-// The top of the box shows the top half of the wall's own sprite; every side that faces the camera shows the facade
-// half of a straight piece of the same style (its windows / details are not drawn on the faces yet), shaded by its
-// angle to the light. Inner sides (a wall / door next to it) are never drawn.
+// A piece's own painters draw it into a recorder (the same layers as in the north view: base, trims, windows,
+// posts, ivy, glows…); every layer drawn in the piece's frame is then laid on the faces: its top half on the top of
+// the box, its facade half on each side that faces the camera (the facade drawn as if that side's neighbours were
+// left and right). Inner sides (another wall next to it) are never drawn.
 export const CAMV = { c: 1, s: 0, lx: 0.5, ly: 0.7 };
-const uvBox = (s, x0, y0, x1, y1) => { // tiles in a wall sprite's 1 × 2 frame (anchor bottom-centre) → atlas uv
-  const fu = (x) => s.ax + (x - 0.5) / s.w, fv = (y) => s.ay + (y - 2) / s.h;
-  return [s.u0 + (s.u1 - s.u0) * fu(x0), s.v0 + (s.v1 - s.v0) * fv(y0), s.u0 + (s.u1 - s.u0) * fu(x1), s.v0 + (s.v1 - s.v0) * fv(y1)];
+let FACE_SIDE = false;      // recording the facade of a back / end side: no shelves / paintings on it
+let CUR_LIGHT = null;       // light batch the recordings forward their light pools to (or none)
+class RecB { constructor(a) { this.a = a; } add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0) { if (s) this.a.push([s, x, y, sx, sy, r, g, b, a, lift || 0, rot || 0]); } addRaw() {} }
+const RM = [], RE = [], RG = [];
+const FWD_LIGHT = { add() {}, addRaw(x, y, w, h, r, g, b, a) { if (CUR_LIGHT) CUR_LIGHT.addRaw(x, y, w, h, r, g, b, a); } };
+const RB = { main: new RecB(RM), emissive: new RecB(RE), ground: new RecB(RG), decor: new RecB(RG), shadow: NB, blob: NB, fx: NB, light: FWD_LIGHT };
+// a sprite's frame (w tiles wide, fh tall, anchor bottom-centre): tiles x0..x1, y0..y1 from its top-left → atlas uv
+const uvF = (s, x0, y0, x1, y1, fh, flip = false) => {
+  const fu = (x) => s.ax + (x - 0.5) / s.w, fv = (y) => s.ay + (y - fh) / s.h;
+  const ua = s.u0 + (s.u1 - s.u0) * fu(x0), ub = s.u0 + (s.u1 - s.u0) * fu(x1);
+  return [flip ? ub : ua, s.v0 + (s.v1 - s.v0) * fv(y0), flip ? ua : ub, s.v0 + (s.v1 - s.v0) * fv(y1)];
 };
-export function drawWallFaces(F, A, o, h0 = 0) {
-  if (!F || o.open) return true; // (an open door: nothing in the way)
+const uvBox = (s, x0, y0, x1, y1) => uvF(s, x0, y0, x1, y1, 2);
+// draw piece o as its painters would, with another mask, into the recorder (RM main, RE glows, RG flat)
+function recordPiece(A, o, mask, t, side, light) {
+  RM.length = 0; RE.length = 0; RG.length = 0;
+  const m0 = o.mask;
+  if (mask != null) o.mask = mask; // sync-ok: drawn with another mask for this frame only, restored right below
+  FACE_SIDE = side; CUR_LIGHT = light;
+  try { drawArch(RB, A, o, t, 0); } finally { o.mask = m0; FACE_SIDE = false; CUR_LIGHT = null; } // sync-ok: restores the mask
+}
+const vis = (nx, ny) => -CAMV.s * nx + CAMV.c * ny > 0.02; // a side whose outside faces the viewer
+const shadeOf = (nx, ny) => 0.8 - 0.2 * (nx * CAMV.lx + ny * CAMV.ly);
+// the frame-aligned layers of a recording (drawn at the piece's anchor, unscaled, unlifted)
+const layers = (L, o) => L.filter((r) => Math.abs(r[1] - o.x) < 1e-3 && Math.abs(r[2] - o.y) < 1e-3 && Math.abs(Math.abs(r[3]) - 1) < 1e-3 && Math.abs(r[4] - 1) < 1e-3 && !r[9] && !r[10]);
+// one side of a box: corners left → right as seen from outside, from height hb to ht, every layer's facade on it
+function sideQuads(F, Ls, ax, ay, bx, by, hb, ht, k, emis) {
+  for (const r of Ls) {
+    const uv = uvBox(r[0], 0, 1, 1, 2);
+    if (r[3] < 0) { const u = uv[0]; uv[0] = uv[2]; uv[2] = u; }
+    const a = emis ? -r[8] : r[8];
+    F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, uv, r[5] * k, r[6] * k, r[7] * k, a);
+  }
+}
+const solidUV = (T) => { const s = T.opt('fx_solid'); if (!s || !ok(s)) return null; const u = (s.u0 + s.u1) / 2, v = (s.v0 + s.v1) / 2; return [u, v, u, v]; };
+// a box of flat colour (stairs, chimneys, slab edges): the sides that face the viewer, then the top
+function flatBox(F, uv, x0, y0, x1, y1, hb, ht, col, side, a) {
+  const S = (nx, ny) => shadeOf(nx, ny);
+  if (vis(0, 1)) F.quad(x0, y1, ht, x1, y1, ht, x1, y1, hb, x0, y1, hb, uv, side[0] * S(0, 1), side[1] * S(0, 1), side[2] * S(0, 1), a);
+  if (vis(0, -1)) F.quad(x1, y0, ht, x0, y0, ht, x0, y0, hb, x1, y0, hb, uv, side[0] * S(0, -1), side[1] * S(0, -1), side[2] * S(0, -1), a);
+  if (vis(1, 0)) F.quad(x1, y1, ht, x1, y0, ht, x1, y0, hb, x1, y1, hb, uv, side[0] * S(1, 0), side[1] * S(1, 0), side[2] * S(1, 0), a);
+  if (vis(-1, 0)) F.quad(x0, y0, ht, x0, y1, ht, x0, y1, hb, x0, y0, hb, uv, side[0] * S(-1, 0), side[1] * S(-1, 0), side[2] * S(-1, 0), a);
+  F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, uv, col[0], col[1], col[2], a);
+}
+
+// a wall: its layers on the top; the facades on the sides that show. A door: a dark plank box (its leaf art has its
+// own frames); an open door / gate: nothing in the way.
+export function drawWallFaces(F, A, o, h0 = 0, t = 0, lightB = null) {
+  if (!F) return false;
+  if (o.open) return true;
   const T = tables(A);
   LA = T.LA;
-  const k = o._k, def = BUILDINGS[o.type];
-  setState(o); tone(k);
-  const fb = o.type === 'wall_stone' || def.mat === 'stone' ? 'cut' : 'plank';
-  const st = k && T.wall[k.style] ? k.style : fb, m = (o.mask | 0) & 15;
-  const top = use(T.wall[st]?.[m]) || use(T.wall[fb]?.[m]), side = use(T.wall[st]?.[10]) || use(T.wall[fb]?.[10]);
-  if (!top || !side) return false;
-  const door = def.block === 'door', H = SG.FH, hb = h0, ht = h0 + H;
-  const x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1, { c, s, lx, ly } = CAMV;
-  const tu = uvBox(top, 0, 0, 1, 1), fu = uvBox(side, 0, 1, 1, 2);
-  const dk = door ? 0.72 : 1; // (a door reads darker than the wall around it)
-  const sh = (nx, ny) => (0.8 - 0.2 * (nx * lx + ny * ly)) * dk;
-  const vis = (nx, ny) => -s * nx + c * ny > 0.02; // its outside faces the viewer
-  const q = (ax, ay, bx, by, k2) => F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, fu, TR * k2, TG * k2, TB * k2, CA);
-  if (!(m & 4) && vis(0, 1)) q(x0, y1, x1, y1, sh(0, 1));
-  if (!(m & 1) && vis(0, -1)) q(x1, y0, x0, y0, sh(0, -1));
-  if (!(m & 2) && vis(1, 0)) q(x1, y1, x1, y0, sh(1, 0));
-  if (!(m & 8) && vis(-1, 0)) q(x0, y0, x0, y1, sh(-1, 0));
-  F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, tu, TR * dk, TG * dk, TB * dk, CA);
+  const def = BUILDINGS[o.type];
+  const m = (o.mask | 0) & 15, H = SG.FH, hb = h0, ht = h0 + H;
+  const x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1;
+  const sS = !(m & 4) && vis(0, 1), sN = !(m & 1) && vis(0, -1), sE = !(m & 2) && vis(1, 0), sW = !(m & 8) && vis(-1, 0);
+  if (def.block === 'door' || !o._k) {
+    // a door (its leaf art has its own frames), or a wall of the default look (drawn by the base painters, not the
+    // style kits): a box with the plain wall art — top from the piece's own sprite, sides from a straight piece
+    const k = o._k;
+    setState(o); tone(k);
+    const fb = o.type === 'wall_stone' || def.mat === 'stone' ? 'cut' : 'plank';
+    const top = use(T.wall[fb]?.[m]), side = use(T.wall[fb]?.[10]);
+    if (!top || !side) return false;
+    const dk = def.block === 'door' ? 0.72 : 1, tu = uvBox(top, 0, 0, 1, 1), fu = uvBox(side, 0, 1, 1, 2);
+    const q = (ax, ay, bx, by, nx, ny) => { const z = shadeOf(nx, ny) * dk; F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, fu, TR * z, TG * z, TB * z, CA); };
+    if (sS) q(x0, y1, x1, y1, 0, 1);
+    if (sN) q(x1, y0, x0, y0, 0, -1);
+    if (sE) q(x1, y1, x1, y0, 1, 0);
+    if (sW) q(x0, y0, x0, y1, -1, 0);
+    F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, tu, TR * dk, TG * dk, TB * dk, CA);
+    return true;
+  }
+  // facades first (the top's rim overlaps them)
+  if (sS || sN) {
+    recordPiece(A, o, m & 10, t, !sS, lightB);
+    const L = layers(RM, o), E = layers(RE, o);
+    if (!L.length) return false;
+    if (sS) { sideQuads(F, L, x0, y1, x1, y1, hb, ht, shadeOf(0, 1), false); sideQuads(F, E, x0, y1, x1, y1, hb, ht, 1, true); }
+    else { sideQuads(F, L, x1, y0, x0, y0, hb, ht, shadeOf(0, -1), false); sideQuads(F, E, x1, y0, x0, y0, hb, ht, 1, true); }
+  }
+  if (sE || sW) {
+    // along the east side, south is on the left; along the west side, north is
+    const me = sE ? ((m & 4) ? 8 : 0) | ((m & 1) ? 2 : 0) : ((m & 1) ? 8 : 0) | ((m & 4) ? 2 : 0);
+    recordPiece(A, o, me, t, true, (sS || sN) ? null : lightB);
+    const L = layers(RM, o), E = layers(RE, o);
+    if (sE) { sideQuads(F, L, x1, y1, x1, y0, hb, ht, shadeOf(1, 0), false); sideQuads(F, E, x1, y1, x1, y0, hb, ht, 1, true); }
+    else { sideQuads(F, L, x0, y0, x0, y1, hb, ht, shadeOf(-1, 0), false); sideQuads(F, E, x0, y0, x0, y1, hb, ht, 1, true); }
+  }
+  recordPiece(A, o, m, t, false, null);
+  const L = layers(RM, o);
+  if (!L.length) return false;
+  for (const r of L) {
+    const uv = uvBox(r[0], 0, 0, 1, 1);
+    if (r[3] < 0) { const u = uv[0]; uv[0] = uv[2]; uv[2] = u; }
+    F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, uv, r[5], r[6], r[7], r[8]);
+  }
+  return true;
+}
+
+// a fence / hedge / stone wall run / gate: thin panels through the tile's middle (one per axis it runs along), each
+// with the piece's own art drawn as a straight run; seen from both sides. An open gate: nothing in the way.
+const FENCE_FH = (64 + 36) / 64, FENCE_FOOT = (36 + 32) / 64; // its frame (PH = 36 px above the tile) and its foot
+export function drawFenceFaces(F, A, o, h0 = 0, t = 0) {
+  if (!F) return false;
+  if (o.open) return true;
+  const T = tables(A);
+  LA = T.LA;
+  const def = BUILDINGS[o.type], m = (o.mask | 0) & 15;
+  const k = o._k, gate = def.block === 'door';
+  const draw = (mask) => {
+    RM.length = 0; RE.length = 0; RG.length = 0;
+    const m0 = o.mask; o.mask = mask; // sync-ok: drawn with another mask for this frame only, restored right below
+    try {
+      setState(o); tone(k);
+      if (gate) drawFence(wrap(RB), T, o, k ? { ...k, style: T.fence[k.style] ? k.style : 'rail' } : null, t, 0);
+      else drawArch(RB, A, o, t, 0);
+    } finally { o.mask = m0; } // sync-ok: restores the mask
+    return layers(RM, o);
+  };
+  const panel = (L, ax, ay, bx, by) => {
+    for (const r of L) {
+      const uv = uvF(r[0], 0, 0, 1, FENCE_FOOT, FENCE_FH);
+      if (r[3] < 0) { const u = uv[0]; uv[0] = uv[2]; uv[2] = u; }
+      F.quad(ax, ay, h0 + FENCE_FOOT, bx, by, h0 + FENCE_FOOT, bx, by, h0, ax, ay, h0, uv, r[5], r[6], r[7], r[8]);
+    }
+  };
+  const x0 = o.tx, y0 = o.ty, cx = x0 + 0.5, cy = y0 + 0.5;
+  const ns = !!(m & 5), ew = !!(m & 10) || !ns;
+  let any = false;
+  // the panel farther from the viewer first
+  const order = [];
+  if (ew) order.push(['ew', -CAMV.s * cx + CAMV.c * cy]);
+  if (ns) order.push(['ns', -CAMV.s * cx + CAMV.c * cy + 0.001]);
+  for (const [ax] of order) {
+    if (ax === 'ew') { const L = draw(gate ? 10 : m & 10); if (L.length) { any = true; panel(L, x0, cy, x0 + 1, cy); } }
+    else { const L = draw(((m & 1) ? 8 : 0) | ((m & 4) ? 2 : 0)); if (L.length) { any = true; panel(L, cx, y0, cx, y0 + 1); } }
+  }
+  return any;
+}
+
+// stairs (1×2, one story in 5 steps): solid steps in the plank colours of art/stairs.js, climbing from the entrance
+export function drawStairFaces(F, A, o, h0 = 0) {
+  if (!F) return false;
+  const T = tables(A), uv = solidUV(T);
+  if (!uv) return false;
+  setState(o);
+  const r = (o.rot | 0) & 3, N = 5, L = 2, RISE = SG.FH, a = CA;
+  // d: the way up; the footprint starts at the entrance edge
+  const d = [[0, -1], [1, 0], [0, 1], [-1, 0]][r];
+  const fw = o.fw || (r & 1 ? 2 : 1), fh = o.fh || (r & 1 ? 1 : 2);
+  const tread = [0.78 * CR, 0.6 * CG, 0.41 * CB], side = [0.48 * CR, 0.32 * CG, 0.2 * CB];
+  const boxes = [];
+  for (let k2 = 0; k2 < N; k2++) {
+    const s0 = (k2 * L) / N, s1 = ((k2 + 1) * L) / N, hk = h0 + ((k2 + 1) * RISE) / N;
+    let bx0, by0, bx1, by1;
+    if (d[1] < 0) { bx0 = o.tx; bx1 = o.tx + fw; by1 = o.ty + fh - s0; by0 = o.ty + fh - s1; }
+    else if (d[1] > 0) { bx0 = o.tx; bx1 = o.tx + fw; by0 = o.ty + s0; by1 = o.ty + s1; }
+    else if (d[0] > 0) { by0 = o.ty; by1 = o.ty + fh; bx0 = o.tx + s0; bx1 = o.tx + s1; }
+    else { by0 = o.ty; by1 = o.ty + fh; bx1 = o.tx + fw - s0; bx0 = o.tx + fw - s1; }
+    const cxx = (bx0 + bx1) / 2, cyy = (by0 + by1) / 2;
+    boxes.push([-CAMV.s * cxx + CAMV.c * cyy + hk * 0.5, bx0, by0, bx1, by1, hk]);
+  }
+  boxes.sort((p, q) => p[0] - q[0]);
+  for (const [, bx0, by0, bx1, by1, hk] of boxes) flatBox(F, uv, bx0, by0, bx1, by1, h0, hk, tread, side, a);
+  return true;
+}
+
+// an upper floor (story lv): its flat layers laid at its height, a thin slab edge on the sides that show
+export function drawFloorFaces(F, A, o, h = 1, t = 0) {
+  if (!F) return false;
+  const T = tables(A);
+  LA = T.LA;
+  recordPiece(A, o, null, t, false, null);
+  if (!RG.length) return false;
+  for (const r of RG) {
+    const sp = r[0], sx = r[3], sy = r[4];
+    const l = r[1] - sp.ax * sp.w * sx, tp = r[2] - sp.ay * sp.h * sy, rr = l + sp.w * sx, bt = tp + sp.h * sy;
+    F.quad(l, tp, h, rr, tp, h, rr, bt, h, l, bt, h, [sp.u0, sp.v0, sp.u1, sp.v1], r[5], r[6], r[7], r[8]);
+  }
+  const uv = solidUV(T);
+  if (uv) {
+    const m = (o.mask | 0) & 15, x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1, hb = h - 0.12, c = [0.42, 0.29, 0.18], a = o.alpha ?? 1;
+    const q = (ax, ay, bx, by, nx, ny) => { const z = shadeOf(nx, ny); F.quad(ax, ay, h, bx, by, h, bx, by, hb, ax, ay, hb, uv, c[0] * z, c[1] * z, c[2] * z, a); };
+    if (!(m & 4) && vis(0, 1)) q(x0, y1, x1, y1, 0, 1);
+    if (!(m & 1) && vis(0, -1)) q(x1, y0, x0, y0, 0, -1);
+    if (!(m & 2) && vis(1, 0)) q(x1, y1, x1, y0, 1, 0);
+    if (!(m & 8) && vis(-1, 0)) q(x0, y0, x0, y1, -1, 0);
+  }
+  return true;
+}
+
+// something hung on a wall (painting, trophy, herbs, curtains, pot hooks): flat on that wall's face
+export function drawMountFaces(F, A, o) {
+  if (!F || !o._mount) return false;
+  const r = o.rot | 0;
+  if (r < 1 || r > 4) return false;
+  const s = spriteOf(A, o.type, o.v);
+  if (!s || !ok(s)) return false;
+  setState(o);
+  const gm = DG.mount[o.type], gs = gm?.s ?? 0.66, gl = gm?.l ?? (typeof gm === 'number' ? gm : 0.04);
+  const W = gs, Hh = 0.6875 * gs, hb = gl + MOUNT_UP, ht = hb + Hh, e = 0.035, cx = o.tx + 0.5, cy = o.ty + 0.5, hw = W / 2;
+  const uv = [s.u0, s.v0, s.u1, s.v1];
+  // rot 1: on the wall to the north (seen from the south) · 2: east (seen from the west) · 3: south · 4: west
+  let ax, ay, bx, by;
+  if (r === 1) { const y = o.ty + e; ax = cx - hw; ay = y; bx = cx + hw; by = y; }
+  else if (r === 3) { const y = o.ty + 1 - e; ax = cx + hw; ay = y; bx = cx - hw; by = y; }
+  else if (r === 2) { const x = o.tx + 1 - e; ax = x; ay = cy - hw; bx = x; by = cy + hw; }
+  else { const x = o.tx + e; ax = x; ay = cy + hw; bx = x; by = cy - hw; }
+  F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, uv, CR, CG, CB, CA);
   return true;
 }
 

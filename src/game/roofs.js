@@ -24,7 +24,8 @@
 import { BUILDINGS } from './data.js';
 import { ROOF_GEOM, ROOF_STYLES, ROOF_TYPE_STYLES, roofEaveH, DET, detBits } from './content/roofs.js';
 import { roofArtStyle } from './content/kits.js'; // agent K: style overrides from the Detalhes kit
-import { rasterRegion, attachArt } from '../art/roofRaster.js';
+import { rasterRegion, attachArt, roofShape } from '../art/roofRaster.js';
+import { CAMV } from '../art/archCompose.js';
 
 const STYLE_KEYS = Object.keys(ROOF_STYLES);
 const STYLE_IDX = Object.fromEntries(STYLE_KEYS.map((k, i) => [k, i + 1]));
@@ -303,6 +304,17 @@ export function roofsSystem() {
     collect(game, list, v) {
       const R = game.roofs;
       if (!R || !R.regions.size) return;
+      if (game.cam?.rot) {
+        // camera turned: each roof as a sloped mesh (its painted image as the texture), depth-sorted as one piece
+        for (const g of R.regions.values()) {
+          if (!g.art || !g.spec || g.alpha <= 0.004) continue;
+          if (g.x1 + 2 < v.x0 || g.x0 - 2 > v.x1 || g.y1 + 2 < v.y0 || g.y0 - 2 > v.y1) continue;
+          const d = g.meshDrawable || (g.meshDrawable = { isRoof: true, region: g, game, draw: drawRoofMesh, zkRot: roofDepth });
+          d.x = (g.x0 + g.x1 + 1) / 2; d.y = g.y1 + 1;
+          list.push(d);
+        }
+        return;
+      }
       for (const g of R.regions.values()) {
         const a = g.art;
         if (!a || a.sx1 < v.x0 - 1 || a.sx0 > v.x1 + 1 || a.sy1 < v.y0 - 1 || a.sy0 > v.y1 + 1) continue;
@@ -452,6 +464,7 @@ function artSpec(game, g) {
 function buildArt(game, g, W) {
   g.artDirty = false;
   const spec = artSpec(game, g);
+  g.spec = spec; // (camera rotation: the mesh is built from the same shape, roofMesh)
   if (W) {
     const jid = ++W.next;
     g.pending = jid;
@@ -476,6 +489,130 @@ function setArt(game, g, art) {
   game.roofs.v++;
 }
 function drawSlice() { this.R.roofSlice(this.region, this.slice); }
+
+// ---------------- camera rotation: the roof as a mesh ----------------
+// The surface sampled on a grid (lines through the ridges and the wall lines, so the slopes stay planar), textured
+// with the region's painted image: a roof point (x, y, h) is where the north view painted it, (x, y − h). Gable ends
+// and steps between roofs are vertical faces down to the eaves (the south ones painted in the image, the others in
+// a plaster colour); chimneys are small stone boxes.
+function axisCoords(a, b, step, breaks) {
+  const L = [a, b, ...breaks.filter((v) => v > a + 1e-3 && v < b - 1e-3)].sort((p, q) => p - q);
+  const out = [L[0]];
+  for (let i = 1; i < L.length; i++) {
+    const s = L[i - 1], e2 = L[i], n = Math.max(1, Math.round((e2 - s) / step));
+    for (let k = 1; k <= n; k++) out.push(s + ((e2 - s) * k) / n);
+  }
+  return out;
+}
+function roofMesh(game, g) {
+  const a = g.art;
+  if (!a || !g.spec) return null;
+  if (g._meshArt === a) return g._mesh;
+  const S = roofShape(g.spec), He = S.He;
+  const U = (x) => (x - a.sx0) / (a.sx1 - a.sx0), V = (sy) => (sy - a.sy0) / (a.sy1 - a.sy0);
+  const quads = [], skirts = [];
+  let bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+  for (const r of S.rects) {
+    bx0 = Math.min(bx0, r.dx0); by0 = Math.min(by0, r.dy0); bx1 = Math.max(bx1, r.dx1); by1 = Math.max(by1, r.dy1);
+    const xs = axisCoords(r.dx0, r.dx1, 0.5, [r.X0, r.X1, ...(r.ns ? [r.c] : [])]);
+    const ys = axisCoords(r.dy0, r.dy1, 0.5, [r.Y0, r.Y1, ...(!r.ns ? [r.c] : [])]);
+    for (let j = 0; j + 1 < ys.length; j++) for (let i = 0; i + 1 < xs.length; i++) {
+      const P = [[xs[i], ys[j]], [xs[i + 1], ys[j]], [xs[i + 1], ys[j + 1]], [xs[i], ys[j + 1]]].map(([x, y]) => { const h = S.hAt(x, y); return [x, y, h]; });
+      if (P.some((q) => q[2] < -1e8)) continue;
+      const hc = (P[0][2] + P[1][2] + P[2][2] + P[3][2]) / 4;
+      quads.push({ cx: (xs[i] + xs[i + 1]) / 2, cy: (ys[j] + ys[j + 1]) / 2, hc, P, uv: P.map(([x, y, h]) => [U(x), V(y - h)]) });
+    }
+    // the four edges of its domain: a vertical face where the roof stands above the eaves and nothing higher is outside
+    const edge = (xa, ya, xb, yb, nx, ny) => {
+      const n = Math.max(1, Math.round(Math.hypot(xb - xa, yb - ya) / 0.5));
+      for (let k = 0; k < n; k++) {
+        const f0 = k / n, f1 = (k + 1) / n;
+        const p0 = [xa + (xb - xa) * f0, ya + (yb - ya) * f0], p1 = [xa + (xb - xa) * f1, ya + (yb - ya) * f1];
+        const h0 = S.hAt(p0[0], p0[1]), h1 = S.hAt(p1[0], p1[1]);
+        const mx = (p0[0] + p1[0]) / 2 + nx * 0.02, my = (p0[1] + p1[1]) / 2 + ny * 0.02, ho = S.hAt(mx, my);
+        const base = ho > -1e8 ? ho : He;
+        if (Math.max(h0, h1) < base + 0.03) continue;
+        skirts.push({ p0, p1, h0, h1, base, nx, ny, cx: (p0[0] + p1[0]) / 2, cy: (p0[1] + p1[1]) / 2, south: ny > 0.5 });
+      }
+    };
+    edge(r.dx0, r.dy1, r.dx1, r.dy1, 0, 1); // south (left → right seen from the south)
+    edge(r.dx1, r.dy0, r.dx0, r.dy0, 0, -1);
+    edge(r.dx1, r.dy1, r.dx1, r.dy0, 1, 0);
+    edge(r.dx0, r.dy0, r.dx0, r.dy1, -1, 0);
+  }
+  const chim = (a.chimneys || []).map((c) => ({ x: c.x, y: c.y - 0.15, top: c.top, base: Math.max(He, S.hAt(c.x, c.y - 0.15)) - 0.3 }));
+  g._mesh = { quads, skirts, chim, U, V, bx0, by0, bx1, by1 };
+  g._meshArt = a;
+  return g._mesh;
+}
+function roofDepth(rc, rs) { // the front-most point of its footprint, as seen by the camera
+  const M = roofMesh(this.game, this.region);
+  if (!M) return this.y;
+  let d = -1e9;
+  for (const [x, y] of [[M.bx0, M.by0], [M.bx1, M.by0], [M.bx0, M.by1], [M.bx1, M.by1]]) d = Math.max(d, -rs * x + rc * y);
+  return d;
+}
+const PLASTER = [0.86, 0.8, 0.68], STONE_C = [0.55, 0.53, 0.5];
+function drawRoofMesh(B) {
+  const g = this.region, game = this.game, R = game.R, F = B.faces;
+  const M = roofMesh(game, g), tex = g.gl?.color;
+  const A = game.A, sol = A.has('fx_solid') ? A.get('fx_solid') : null;
+  if (!M || !tex || !F || !R.setFaceTex) return;
+  const al = g.alpha ?? 1;
+  if (al <= 0.004) return;
+  const r = game.cam.rot || 0, c = Math.cos(r), s = Math.sin(r);
+  const lx = CAMV.lx, ly = CAMV.ly;
+  const vis = (nx, ny) => -s * nx + c * ny > 0.02, shade = (nx, ny) => 0.8 - 0.2 * (nx * lx + ny * ly);
+  const dy = g.dropY || 0;
+  const suv = sol ? [(sol.u0 + sol.u1) / 2, (sol.v0 + sol.v1) / 2, (sol.u0 + sol.u1) / 2, (sol.v0 + sol.v1) / 2] : null;
+  const skirt = (q, col) => { // a flat-coloured gable end / step face
+    const { p0, p1, h0, h1, base } = q, t0 = Math.max(h0, base), t1 = Math.max(h1, base);
+    F.quad(p0[0], p0[1] + dy, t0, p1[0], p1[1] + dy, t1, p1[0], p1[1] + dy, base, p0[0], p0[1] + dy, base, suv, col[0], col[1], col[2], al);
+  };
+  // the gable ends / steps that are not painted (west, east, north): plaster
+  R.setFaceTex(null);
+  if (suv) for (const q of M.skirts) if (!q.south && vis(q.nx, q.ny)) { const k = shade(q.nx, q.ny); skirt(q, [PLASTER[0] * k, PLASTER[1] * k, PLASTER[2] * k]); }
+  // the surface (back to front: depth along the view, higher = nearer), then the painted south gables
+  R.setFaceTex(tex);
+  const o = M._ord || (M._ord = M.quads.map((_, i) => i)), dk = M._dk || (M._dk = new Float32Array(M.quads.length));
+  for (let i = 0; i < M.quads.length; i++) { const q = M.quads[i]; dk[i] = -s * q.cx + c * q.cy + q.hc * 0.7; }
+  o.sort((p, q) => dk[p] - dk[q]);
+  for (const i of o) {
+    const q = M.quads[i], P = q.P, uv = q.uv;
+    F.quad4(P[0][0], P[0][1] + dy, P[0][2], uv[0][0], uv[0][1], P[1][0], P[1][1] + dy, P[1][2], uv[1][0], uv[1][1], P[2][0], P[2][1] + dy, P[2][2], uv[2][0], uv[2][1], P[3][0], P[3][1] + dy, P[3][2], uv[3][0], uv[3][1], 1, 1, 1, al);
+  }
+  for (const q of M.skirts) if (q.south && vis(0, 1)) {
+    const { p0, p1, h0, h1, base } = q, t0 = Math.max(h0, base), t1 = Math.max(h1, base);
+    F.quad4(p0[0], p0[1] + dy, t0, M.U(p0[0]), M.V(p0[1] - t0), p1[0], p1[1] + dy, t1, M.U(p1[0]), M.V(p1[1] - t1), p1[0], p1[1] + dy, base, M.U(p1[0]), M.V(p1[1] - base), p0[0], p0[1] + dy, base, M.U(p0[0]), M.V(p0[1] - base), 1, 1, 1, al);
+  }
+  // chimneys (stone boxes over the roof)
+  if (suv && M.chim.length) {
+    R.setFaceTex(null);
+    for (const ch of M.chim) {
+      const x0 = ch.x - 0.17, x1 = ch.x + 0.17, y0 = ch.y - 0.15 + dy, y1 = ch.y + 0.15 + dy, hb = ch.base, ht = ch.top;
+      const sq = (ax, ay, bx, by, nx, ny) => { const k = shade(nx, ny); F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, suv, STONE_C[0] * k, STONE_C[1] * k, STONE_C[2] * k, al); };
+      if (vis(0, 1)) sq(x0, y1, x1, y1, 0, 1);
+      if (vis(0, -1)) sq(x1, y0, x0, y0, 0, -1);
+      if (vis(1, 0)) sq(x1, y1, x1, y0, 1, 0);
+      if (vis(-1, 0)) sq(x0, y0, x0, y1, -1, 0);
+      F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, suv, STONE_C[0] * 0.75, STONE_C[1] * 0.75, STONE_C[2] * 0.75, al);
+    }
+  }
+}
+// camera turned: does a roof tile in front of the local player cover it on screen?
+function occludesTurned(game, g, p) {
+  if (p.dead || game.indoors.region === g.id) return false;
+  const a = g.art, w = game.world, r = game.cam.rot || 0, c = Math.cos(r), s = Math.sin(r);
+  const pvx = c * p.x + s * p.y, pvy = -s * p.x + c * p.y;
+  if (p.x < g.x0 - 6 || p.x > g.x1 + 7 || p.y < g.y0 - 6 || p.y > g.y1 + 7) return false;
+  for (let n = 0; n < a.tiles.length; n++) {
+    const i = a.tiles[n], tx = (i % w.W) + 0.5, ty = ((i / w.W) | 0) + 0.5;
+    const vx = c * tx + s * ty, vy = -s * tx + c * ty;
+    if (vy <= pvy + 0.1 || Math.abs(vx - pvx) > 0.85) continue;
+    if (vy - a.tileH[n] - 0.5 < pvy - 0.4) return true; // its roof reaches up the screen over the player's body
+  }
+  return false;
+}
 
 // one painter worker per page (module worker); null when unavailable (then paint on the main thread)
 function workerOf(game) {
@@ -603,11 +740,10 @@ function updateFades(game, dt) {
       setRevealMask(game, g, g.reveal * g.reveal * (3 - 2 * g.reveal));
     } else if (I._maskDirty && g.reveal > 0) setRevealMask(game, g, g.reveal);
     // a roof in front of the local player turns see-through
-    const to = g.art && occludes(game, g, p) ? 0.32 : 1;
+    const to = g.art && (game.cam?.rot ? occludesTurned(game, g, p) : occludes(game, g, p)) ? 0.32 : 1;
     g.occl += (to - g.occl) * Math.min(1, dt / 0.3);
     const rv = g.reveal * g.reveal * (3 - 2 * g.reveal);
-    // (camera turned: the roof slices are painted for the north view, so they fade away — prototype)
-    g.alpha = Math.min(1 - rv, g.occl, 1 - (game.cam?.rotFade || 0));
+    g.alpha = Math.min(1 - rv, g.occl);
   }
   I._maskDirty = false;
 }

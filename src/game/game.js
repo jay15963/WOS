@@ -10,7 +10,7 @@ import { loadLook } from './look.js';
 import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { BUILDINGS } from './data.js';
 import { STORY_H } from './levels.js';
-import { drawWallFaces, CAMV } from '../art/archCompose.js';
+import { drawWallFaces, drawFenceFaces, drawStairFaces, drawFloorFaces, drawMountFaces, CAMV } from '../art/archCompose.js';
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
@@ -19,8 +19,28 @@ const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
 // player's zoom. The blend (indoors.zoomK) is a ~1 s smoothstep both ways.
 const INDOOR_ZOOM = { cave: 1.45, built: 1.32 };
 
-// camera rotation: walls / doors are drawn as boxes of computed faces while the camera is turned (art/archCompose.js)
+// camera rotation: the pieces drawn as computed faces while the camera is turned (art/archCompose.js)
 const wallLike = (o) => { if (!o.building || o.isEntity) return false; const d = BUILDINGS[o.type]; return !!d && d.connect === 'wall' && (d.block === 'tile' || d.block === 'door') && !d.roof; };
+// 'w' wall / door · 'f' fence / gate · 's' stairs · 'u' upper floor · 'm' hung on a wall · null = a sprite as always
+function faceKind(o) {
+  if (!o.building || o.isEntity || o.draw) return null;
+  const d = BUILDINGS[o.type];
+  if (!d || d.roof) return null;
+  if (d.connect === 'wall' && (d.block === 'tile' || d.block === 'door')) return 'w';
+  if (d.connect === 'fence' && (d.block === 'tile' || d.block === 'door')) return 'f';
+  if (d.block === 'stairs') return 's';
+  if (d.layer === 'floor' && o.lv > 0) return 'u';
+  if (d.mount && o._mount && (o.rot | 0) > 0) return 'm';
+  return null;
+}
+function drawFaces(B, A, o, k, t) {
+  const h0 = (o.lv | 0) * STORY_H;
+  if (k === 'w') return drawWallFaces(B.faces, A, o, h0, t, B.light);
+  if (k === 'f') return drawFenceFaces(B.faces, A, o, h0, t);
+  if (k === 's') return drawStairFaces(B.faces, A, o, h0);
+  if (k === 'u') return drawFloorFaces(B.faces, A, o, h0, t);
+  return drawMountFaces(B.faces, A, o);
+}
 // the side of a creature the camera sees: its facing turned into view space (4 views; 8 need the diagonal rig art)
 const FV = { e: [1, 0], w: [-1, 0], n: [0, -1], s: [0, 1] };
 function viewFacing(f, c, s) {
@@ -235,10 +255,17 @@ export class Game {
     if (!rot) for (let i = 0; i < list.length; i++) { const o = list[i]; o._zk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
     else {
       // camera turned: depth = how far down the screen (the turned y); a wall box by its front-most point
-      const ex = 0.5 * (Math.abs(rc) + Math.abs(rs));
       for (let i = 0; i < list.length; i++) {
-        const o = list[i];
-        o._zk = wallLike(o) ? -rs * (o.tx + 0.5) + rc * (o.ty + 0.5) + ex + (o.lv | 0) * 0.001 : -rs * o.x + rc * (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0);
+        const o = list[i], fk = faceKind(o);
+        o._fk = fk;
+        if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
+        else if (fk === 'm') { // hung on a wall: just in front of that wall's face
+          const r = o.rot | 0, px = o.tx + 0.5 + (r === 2 ? 0.47 : r === 4 ? -0.47 : 0), py = o.ty + 0.5 + (r === 1 ? -0.47 : r === 3 ? 0.47 : 0);
+          o._zk = -rs * px + rc * py + 0.02;
+        } else if (fk) { // a box over its footprint: by its front-most point
+          const fw = o.fw || 1, fh = o.fh || 1;
+          o._zk = -rs * (o.tx + fw / 2) + rc * (o.ty + fh / 2) + 0.5 * (Math.abs(rs) * fw + Math.abs(rc) * fh) + (o.lv | 0) * 0.001 + (fk === 'u' ? (o.lv | 0) * 0.5 : 0);
+        } else o._zk = -rs * o.x + rc * (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0);
       }
     }
     list.sort((a, b) => a._zk - b._zk);
@@ -263,7 +290,7 @@ export class Game {
       // who is drawn while its own cave's ceiling fades out)
       if (!o.draw && ((underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) || (o !== pl && underCaveCeiling(this, o.x, o.y)))) continue;
       if (o.draw) o.draw(B, A, t);
-      else if (rot && wallLike(o)) { if (!drawWallFaces(B.faces, A, o, (o.lv | 0) * STORY_H)) drawStatic(B, A, drawProxy(A, o), t); } // a box of faces
+      else if (rot && o._fk && drawFaces(B, A, o, o._fk, t)) { /* computed faces (walls, fences, stairs, upper floors, things on walls) */ }
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
