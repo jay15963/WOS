@@ -606,7 +606,8 @@ function updateFades(game, dt) {
     const to = g.art && occludes(game, g, p) ? 0.32 : 1;
     g.occl += (to - g.occl) * Math.min(1, dt / 0.3);
     const rv = g.reveal * g.reveal * (3 - 2 * g.reveal);
-    g.alpha = Math.min(1 - rv, g.occl);
+    // (camera turned: the roof slices are painted for the north view, so they fade away — prototype)
+    g.alpha = Math.min(1 - rv, g.occl, 1 - (game.cam?.rotFade || 0));
   }
   I._maskDirty = false;
 }

@@ -939,7 +939,7 @@ export class Session {
     const dt = Math.min(0.1, Math.max(0, (now - (this._bubT || now)) / 1000)); this._bubT = now;
     const z = game.cam.zoom;
     const draw = (e, name, isSelf) => {
-      const [sx, sy] = game.worldToScreen(e.x, e.y - 1.25 - (e.z > 0 ? e.z * STORY_H : 0)); // levels: lifted plate
+      const [sx, sy] = game.worldToScreen(e.x, e.y, 1.25 + (e.z > 0 ? e.z * STORY_H : 0)); // levels: lifted plate
       if (sx < -80 || sy < -80 || sx > cv.clientWidth + 80 || sy > cv.clientHeight + 80) return;
       if (!isSelf) {
         ctx.font = `700 ${z < 40 ? 11 : 12}px "Segoe UI", system-ui, sans-serif`;

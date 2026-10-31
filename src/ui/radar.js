@@ -29,6 +29,7 @@ export function radarMarkup() {
       <svg class="rd-svg" aria-hidden="true"></svg>
       <div class="mm" id="mm" data-tip="<b>Radar</b><p>Gotas na borda apontam o que está fora do mapa: <b style='color:#c9473b'>hostil</b>, <b style='color:#a77e1c'>neutro</b>, <b style='color:#23766d'>jogadores</b>, <b style='color:#b5591e'>sua casa</b>.</p><p>O arco em cima é o caminho do sol: cheio = vai anoitecer.</p><span class='key'>M</span>"><canvas></canvas></div>
       <div class="rd-marks"></div>
+      <button class="rd-north hidden" id="rd-north" type="button" aria-label="Câmera para o norte" data-tip="<b>Câmera girada</b><p>A agulha aponta o norte. Toque para voltar a câmera ao norte.</p><p>Girar: arraste com o botão do meio do mouse · no celular, gire dois dedos como um volante.</p>"><i></i><b>N</b></button>
       <div class="rd-clock" data-tip="<b>Hora do dia</b><p>O arco mostra o sol (ou a lua) no céu. A noite é fria: prepare fogo e abrigo antes da barra encher.</p>"><b id="clock"></b></div>
     </div>
     <div class="mm-info rd-info"><span class="rd-day" id="rd-date">Ano <b id="rd-year"></b> · Dia <b id="rd-dayn"></b></span><span class="rd-season" id="rd-season"></span><span class="rd-wx"><i id="rd-wxi"></i><span id="weather"></span></span><span class="rd-mode hidden" id="rd-mode">Criativo</span></div>
@@ -183,8 +184,19 @@ export function installRadar(game, root, mini) {
   };
 
   let t = 0, st = 0;
+  // camera turned (game.cam.rot): a compass on the radar, its needle at north; a tap turns the camera back
+  const north = root.querySelector('#rd-north');
+  let nOn = false, nRot = null;
+  north?.addEventListener('pointerdown', (e) => e.stopPropagation());
+  north?.addEventListener('click', (e) => { e.stopPropagation(); game.camRotReset = true; });
   return {
     update(g, dt) {
+      if (north) {
+        const r = g.cam.rot || 0, on = !!(r || g.cam.rotTo);
+        if (on !== nOn) { nOn = on; north.classList.toggle('hidden', !on); }
+        const deg = Math.round((-r * 180) / Math.PI);
+        if (on && deg !== nRot) { nRot = deg; north.style.setProperty('--nr', deg + 'deg'); }
+      }
       t -= dt; st -= dt;
       if (st <= 0) { st = 0.25; sky(g); }
       if (t > 0) return;

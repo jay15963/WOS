@@ -143,7 +143,7 @@ export function installOverlay(game) {
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
         const label = (e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
-        const [sx, sy0] = g.worldToScreen(e.x, e.y - spriteTop(e) - liftOf(e)); // levels: lifted plate
+        const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e)); // levels: lifted plate
         let sy = sy0 - 6;
         const cast = e.cast && e.cast.dur ? e.cast : null;
         const hgt = fs + 3 + (showBar ? bh + 4 : 0) + (cast ? 13 : 0);
@@ -205,7 +205,7 @@ export function installOverlay(game) {
       // progress bar (gathering / cooking)
       const wk = p.work;
       if (wk && !p.dead) {
-        const [sx, sy] = g.worldToScreen(p.x, p.y - 1.55 - liftOf(p));
+        const [sx, sy] = g.worldToScreen(p.x, p.y, 1.55 + liftOf(p));
         const bw2 = small ? 64 : 78, bh2 = small ? 6 : 7;
         ctx.fillStyle = 'rgba(40,25,14,0.9)';
         ctx.fillRect(sx - bw2 / 2 - 3, sy - bh2 - 16, bw2 + 6, bh2 + 20);
@@ -222,7 +222,7 @@ export function installOverlay(game) {
       for (const f of fct) {
         const k = f.t / f.life;
         const top = f.e === p ? 1.25 : spriteTop(f.e);
-        const [sx0, sy0] = g.worldToScreen(f.x, f.y - top);
+        const [sx0, sy0] = g.worldToScreen(f.x, f.y, top);
         const rise = f.vy * f.t + (f.big ? 10 * Math.min(1, f.t * 8) : 0);
         const sx = sx0 + f.ox + f.drift * k;
         const sy = sy0 - 14 - rise;

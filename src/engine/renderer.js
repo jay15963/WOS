@@ -34,6 +34,7 @@
 // `#define QL n` (src/fx/quality.js picks the level; game.quality = 'low'|'medium'|'high').
 
 import { createContext, createProgram, createTexture, createTextureArray, createTarget, deleteTarget } from './gl.js';
+import { FaceBatch } from './faceBatch.js';
 import { SpriteBatch } from './spriteBatch.js';
 import * as S from './shaders.js';
 
@@ -77,12 +78,15 @@ export class Renderer {
     this.progAmbient = createProgram(gl, ql(S.FULL_VS, 0), ql(S.AMBIENT_FS, 0)); // [world] ambient light with cave darkness
     this.progDecal = createProgram(gl, ql(S.DECAL_VS, 0), ql(S.DECAL_FS, 0));    // [world] per-tile terrain decals (ore, rubble)
     this.progRoof = createProgram(gl, ql(S.ROOF_VS, 0), ql(S.ROOF_FS, 0));       // procedural roof slices (scene + light occluder)
+    this.progFace = createProgram(gl, ql(S.FACE_VS, 0), ql(S.FACE_FS, 0));       // computed faces (camera rotation: walls as boxes)
     this.roofSeg = [];                      // [{ at (main batch index), start, n, tex }] for this frame
     // glow sprites (B.emissive) sorted with the sprites: [e0, e1, at] = emissive [e0, e1) drawn after main [0, at)
     // (game.render marks them object by object: emMark) — whatever stands in front hides them (owner: no flame over
     // a character, no lit back window over a roof)
     this.emSeg = [];
     this._emLast = 0;
+    this.faceSeg = []; // [f0, f1, at]: computed faces [f0, f1) drawn after main [0, at) (same marks as the glows)
+    this._fLast = 0;
     this._segPool = [];
     this.fsVao = gl.createVertexArray();
     this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
@@ -99,6 +103,7 @@ export class Renderer {
       light: new SpriteBatch(gl, 512),     // point lights (use addRaw)
       emissive: new SpriteBatch(gl, 4096), // additive, unaffected by darkness (fire, sparks)
       roof: new SpriteBatch(gl, 256),      // roof slices (roofSlice), drawn in segments inside the main sort
+      faces: new FaceBatch(gl, 512),       // computed faces (camera rotation: walls as boxes), segments in the main sort
     };
 
     this.renderScale = 1;
@@ -271,9 +276,11 @@ export class Renderer {
   // the glow sprites added since the last mark belong to the sprites drawn so far (call before each depth-sorted
   // object, and once after them)
   emMark() {
-    const B = this.batches, e = B.emissive.n;
+    const B = this.batches, e = B.emissive.n, f = B.faces.n;
     if (e > this._emLast) this.emSeg.push(this._emLast, e, B.main.n);
     this._emLast = e;
+    if (f > this._fLast) this.faceSeg.push(this._fLast, f, B.main.n);
+    this._fLast = f;
   }
 
   _roofSegment(sg) {
@@ -431,6 +438,8 @@ export class Renderer {
     this.roofSeg.length = 0;
     this.emSeg.length = 0;
     this._emLast = 0;
+    this.faceSeg.length = 0;
+    this._fLast = 0;
     this.shaftN = 0;
   }
 
@@ -467,9 +476,11 @@ export class Renderer {
     const viewW = this.w / cam.ppt, viewH = this.h / cam.ppt;
     const sx = 2 / viewW, sy = 2 / viewH;
 
+    const rc = Math.cos(cam.rot || 0), rs = Math.sin(cam.rot || 0); // camera yaw (game.cam.rot)
     const spriteUniforms = (prog) => {
       gl.uniform2f(prog.u.uCam, cam.x, cam.y);
       gl.uniform2f(prog.u.uScale, sx, sy);
+      if (prog.u.uRot) gl.uniform2f(prog.u.uRot, rc, rs);
       gl.uniform1f(prog.u.uTime, time);
       gl.uniform1f(prog.u.uWind, env.wind);
       // [world] wind direction + CPU-accumulated sway / wave phases (travelling wind waves)
@@ -529,6 +540,7 @@ export class Renderer {
       gl.useProgram(p.p);
       gl.uniform2f(u.uCam, cam.x, cam.y);
       gl.uniform2f(u.uView, viewW, viewH);
+      if (u.uRot) gl.uniform2f(u.uRot, rc, rs);
       gl.uniform2f(u.uWorld, W.W, W.H);
       gl.uniform1f(u.uTime, time);
       gl.uniform2f(u.uShadowDir, env.shadowDir[0], env.shadowDir[1]);
@@ -607,7 +619,9 @@ export class Renderer {
       if (p.u.uSeaB) gl.uniform4f(p.u.uSeaB, SB[0], SB[1], SB[2], SB[3]);
       const ao = p.u.uAO;
       if (ao) gl.uniform1f(ao, this.solidNear ? 1 : 0);   // contact AO next to walls on floors and ground plants
+      if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 1); // floors, rugs: flat on the ground (they turn whole with the camera)
       B.ground.draw();
+      if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 0);
       B.blob.draw();
       B.decor.draw();
       if (ao) gl.uniform1f(ao, 0);
@@ -618,14 +632,34 @@ export class Renderer {
       gl.drawBuffers(DB2);
       B.main.upload();
       if (B.emissive.n) B.emissive.upload();
-      let k = 0, i = 0, j = 0;
-      const segs = this.roofSeg, em = this.emSeg, nE = em.length / 3;
+      if (B.faces.n) B.faces.upload();
+      let k = 0, i = 0, j = 0, q = 0;
+      const segs = this.roofSeg, em = this.emSeg, nE = em.length / 3, fs = this.faceSeg, nF = fs.length / 3;
+      const pf = this.progFace;
+      let faceUni = false;
       const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); if (rp.u.uRoofSnow) gl.uniform1f(rp.u.uRoofSnow, SA[0]); };
       const snow = (env.extra && env.extra.uSnow) || 0;
       for (;;) {
-        const ra = i < segs.length ? segs[i].at : Infinity, ea = j < nE ? em[j * 3 + 2] : Infinity, at = Math.min(ra, ea);
+        const ra = i < segs.length ? segs[i].at : Infinity, ea = j < nE ? em[j * 3 + 2] : Infinity, fa = q < nF ? fs[q * 3 + 2] : Infinity;
+        const at = Math.min(ra, ea, fa);
         if (at === Infinity) break;
         if (at > k) { B.main.drawRange(k, Math.min(at, B.main.n)); k = at; }
+        if (fa <= ea && fa <= ra) {
+          // computed faces of the objects drawn so far (walls as boxes while the camera is turned)
+          gl.useProgram(pf.p);
+          if (!faceUni) {
+            faceUni = true;
+            gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
+            gl.uniform1i(pf.u.uTex, 0); if (pf.u.uLook) gl.uniform1i(pf.u.uLook, 3);
+          }
+          const f0 = fs[q * 3];
+          let f1 = fs[q * 3 + 1];
+          q++;
+          while (q < nF && fs[q * 3 + 2] === at) { f1 = fs[q * 3 + 1]; q++; }
+          B.faces.drawRange(f0, f1);
+          gl.useProgram(p.p);
+          continue;
+        }
         if (ea <= ra) {
           // the glows of the objects drawn so far: unlit, no sun shadow, no snow (as the old last pass)
           gl.uniform1f(p.u.uEmis, 1); gl.uniform1f(p.u.uShadowStr, 0); if (p.u.uSnow) gl.uniform1f(p.u.uSnow, 0);
@@ -661,6 +695,7 @@ export class Renderer {
       gl.useProgram(p.p);
       gl.uniform2f(u.uCam, cam.x, cam.y);
       gl.uniform2f(u.uView, viewW, viewH);
+      if (u.uRot) gl.uniform2f(u.uRot, rc, rs);
       gl.uniform2f(u.uWorld, this.world.W, this.world.H);
       gl.uniform3f(u.uAmb, amb[0], amb[1], amb[2]);
       gl.uniform3f(u.uCaveAmb, 0.12, 0.125, 0.15);
@@ -705,6 +740,7 @@ export class Renderer {
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.noiseTex); gl.uniform1i(u.uNoise, 2);
       gl.uniform2f(u.uCam, cam.x, cam.y);
       gl.uniform2f(u.uView, viewW, viewH);
+      if (u.uRot) gl.uniform2f(u.uRot, rc, rs);
       gl.uniform1f(u.uTime, time);
       gl.uniform1f(u.uCloud, env.cloud);
       gl.uniform1f(u.uDay, env.day);

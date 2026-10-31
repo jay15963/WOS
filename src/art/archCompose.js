@@ -441,6 +441,41 @@ export function drawPlotKit(B0, A, o) {
   if (k.on.straw) B.ground.add(T.d['fl_straw_' + (hash(o.tx, o.ty) < 0.5 ? 0 : 1)], o.x, o.y, 1, 1, CR, CG, CB, CA, 0, 0, 0, 1, 1);
 }
 
+// ---------- camera rotation: a wall / door as a box of computed faces ----------
+// CAMV: the camera yaw (cos, sin) and the light's direction on the ground (game.js sets them every frame).
+// The top of the box shows the top half of the wall's own sprite; every side that faces the camera shows the facade
+// half of a straight piece of the same style (its windows / details are not drawn on the faces yet), shaded by its
+// angle to the light. Inner sides (a wall / door next to it) are never drawn.
+export const CAMV = { c: 1, s: 0, lx: 0.5, ly: 0.7 };
+const uvBox = (s, x0, y0, x1, y1) => { // tiles in a wall sprite's 1 × 2 frame (anchor bottom-centre) → atlas uv
+  const fu = (x) => s.ax + (x - 0.5) / s.w, fv = (y) => s.ay + (y - 2) / s.h;
+  return [s.u0 + (s.u1 - s.u0) * fu(x0), s.v0 + (s.v1 - s.v0) * fv(y0), s.u0 + (s.u1 - s.u0) * fu(x1), s.v0 + (s.v1 - s.v0) * fv(y1)];
+};
+export function drawWallFaces(F, A, o, h0 = 0) {
+  if (!F || o.open) return true; // (an open door: nothing in the way)
+  const T = tables(A);
+  LA = T.LA;
+  const k = o._k, def = BUILDINGS[o.type];
+  setState(o); tone(k);
+  const fb = o.type === 'wall_stone' || def.mat === 'stone' ? 'cut' : 'plank';
+  const st = k && T.wall[k.style] ? k.style : fb, m = (o.mask | 0) & 15;
+  const top = use(T.wall[st]?.[m]) || use(T.wall[fb]?.[m]), side = use(T.wall[st]?.[10]) || use(T.wall[fb]?.[10]);
+  if (!top || !side) return false;
+  const door = def.block === 'door', H = SG.FH, hb = h0, ht = h0 + H;
+  const x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1, { c, s, lx, ly } = CAMV;
+  const tu = uvBox(top, 0, 0, 1, 1), fu = uvBox(side, 0, 1, 1, 2);
+  const dk = door ? 0.72 : 1; // (a door reads darker than the wall around it)
+  const sh = (nx, ny) => (0.8 - 0.2 * (nx * lx + ny * ly)) * dk;
+  const vis = (nx, ny) => -s * nx + c * ny > 0.02; // its outside faces the viewer
+  const q = (ax, ay, bx, by, k2) => F.quad(ax, ay, ht, bx, by, ht, bx, by, hb, ax, ay, hb, fu, TR * k2, TG * k2, TB * k2, CA);
+  if (!(m & 4) && vis(0, 1)) q(x0, y1, x1, y1, sh(0, 1));
+  if (!(m & 1) && vis(0, -1)) q(x1, y0, x0, y0, sh(0, -1));
+  if (!(m & 2) && vis(1, 0)) q(x1, y1, x1, y0, sh(1, 0));
+  if (!(m & 8) && vis(-1, 0)) q(x0, y0, x0, y1, sh(-1, 0));
+  F.quad(x0, y0, ht, x1, y0, ht, x1, y1, ht, x0, y1, ht, tu, TR * dk, TG * dk, TB * dk, CA);
+  return true;
+}
+
 // ---------- decoration props ----------
 // how far above its anchor a decoration's art touches the ground (tiles): the lowest solid row of the sprite (feet,
 // base; the faint baked ground shadow does not count), measured once per sprite. The art draws a 1-tile piece

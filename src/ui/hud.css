@@ -313,6 +313,11 @@ html, body {
   -webkit-mask-image: radial-gradient(closest-side, #000 44%, rgba(0, 0, 0, 0.5) 74%, transparent 100%); mask-image: radial-gradient(closest-side, #000 44%, rgba(0, 0, 0, 0.5) 74%, transparent 100%);
 }
 .rd-disc { position: relative; }
+/* camera turned: a compass on the radar (needle = north); tap = north again */
+.rd-north { position: absolute; left: -6px; bottom: -4px; z-index: 4; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #2a1a0e; background: #f3e6c8; box-shadow: 0 2px 0 rgba(0,0,0,.35); pointer-events: auto; cursor: pointer; display: grid; place-items: center; padding: 0; }
+.rd-north.hidden { display: none; }
+.rd-north i { position: absolute; left: 50%; top: 50%; width: 4px; height: 24px; margin: -12px 0 0 -2px; transform: rotate(var(--nr, 0deg)); background: linear-gradient(#c9473b 0 50%, #3a2a1c 50% 100%); border-radius: 2px; }
+.rd-north b { position: absolute; left: 50%; top: 50%; transform: rotate(var(--nr, 0deg)) translate(-50%, -150%); transform-origin: 0 0; font: 900 10px/1 system-ui, sans-serif; color: #2a1a0e; }
 .mm {
   position: relative; width: 186px; height: 120px; border-radius: 50%; overflow: hidden; pointer-events: auto; cursor: pointer;
   background: #1d120a; box-shadow: 0 0 0 2px var(--n-ink);

@@ -568,3 +568,8 @@ it — like a compass/radar): "esse design combina muito com o jogo".
   over everything (a candle behind the player burned on the player's face; the lit windows of the back wall showed
   over the roof). They are now drawn in depth order into a glow layer of the scene that whatever stands in front
   covers (docs/ARCHITECTURE.md, render pipeline).
+
+## Câmera giratória — protótipo (added later)
+
+- Faces calculadas (docs/CAMERA-ROTATION.md): botão do meio do mouse / dois dedos como volante; bússola no radar
+  volta ao norte; paredes e portas como caixas de faces; telhados somem enquanto girada (lacuna conhecida).

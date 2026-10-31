@@ -20,6 +20,10 @@ export class Input {
     this.pressed = new Set();   // keys pressed this frame
     this.taps = [];             // [{x, y, button, type}] css px
     this.zoom = 0;              // zoom request this frame (log factor; + = closer)
+    this.rotate = 0;            // camera yaw request this frame (radians; game.cam.rot): middle-mouse drag, two-finger twist
+    this.rotReset = false;      // double middle click: back to north
+    this._mdrag = null;         // middle-button drag { x, moved, t }
+    this._lastMid = 0;
     this.joy = { id: null, ox: 0, oy: 0, x: 0, y: 0, active: false, t: 0 };
     this.joyEl = joyEl;
     this.pointers = new Map();
@@ -75,6 +79,24 @@ export class Input {
       this.keys.add(c);
     }, true);
     addEventListener('pointerup', (e) => { const c = btnCode(e); if (!c) return; if (e.button !== 1) e.preventDefault(); this.keys.delete(c); }, true);
+    // camera rotation: drag with the middle button held (right = the camera turns right); a double middle click
+    // turns it back to north
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'mouse' || e.button !== 1) return;
+      const now = performance.now();
+      if (now - this._lastMid < 320) this.rotReset = true;
+      this._lastMid = now;
+      this._mdrag = { x: e.clientX, moved: 0 };
+    });
+    addEventListener('pointermove', (e) => {
+      const d = this._mdrag;
+      if (!d) return;
+      if (!(e.buttons & 4)) { this._mdrag = null; return; }
+      const dx = e.clientX - d.x;
+      d.x = e.clientX; d.moved += Math.abs(dx);
+      this.rotate += dx * 0.0062;
+    });
+    addEventListener('pointerup', (e) => { if (e.button === 1) this._mdrag = null; });
     for (const n of ['mousedown', 'mouseup', 'auxclick']) addEventListener(n, (e) => { if (e.button === 3 || e.button === 4) e.preventDefault(); }, true);
     // iOS Safari: block the page's own pinch zoom (two-finger gestures belong to the game)
     for (const n of ['gesturestart', 'gesturechange']) document.addEventListener(n, (e) => e.preventDefault(), { passive: false });
@@ -125,7 +147,7 @@ export class Input {
     this.pointers.set(e.pointerId, p);
     this._gesture();
     const free = this._touchList().filter((q) => !q.joy);
-    if (free.length === 2) this.pinchDist = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
+    if (free.length === 2) { this.pinchDist = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y); this.twistA = Math.atan2(free[1].y - free[0].y, free[1].x - free[0].x); this.gLock = null; this.zAcc = this.tAcc = 0; }
   }
 
   _move(e) {
@@ -147,8 +169,21 @@ export class Input {
     if (p.type !== 'touch') return;
     const free = this._touchList().filter((q) => !q.joy);
     if (free.length >= 2) {
+      // two fingers: spread / pinch = zoom, twist like a steering wheel = turn the camera; the first one to move
+      // clearly takes the gesture until the fingers lift (no zoom while turning, no turning while zooming)
       const d = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
-      if (this.pinchDist > 0 && d > 0) this.zoom += Math.log(d / this.pinchDist);
+      const ang = Math.atan2(free[1].y - free[0].y, free[1].x - free[0].x);
+      const dz = this.pinchDist > 0 && d > 0 ? Math.log(d / this.pinchDist) : 0;
+      let da = this.twistA == null ? 0 : ang - this.twistA;
+      if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+      this.twistA = ang;
+      if (this.gLock === 'zoom') this.zoom += dz;
+      else if (this.gLock === 'rot') this.rotate -= da; // (the world turns with the fingers)
+      else {
+        this.zAcc = (this.zAcc || 0) + dz; this.tAcc = (this.tAcc || 0) + da;
+        if (Math.abs(this.tAcc) > 0.17) { this.gLock = 'rot'; this.rotate -= this.tAcc; }
+        else if (Math.abs(this.zAcc) > 0.1) { this.gLock = 'zoom'; this.zoom += this.zAcc; }
+      }
       this.pinchDist = d;
       this.gestureT = performance.now();
     }
@@ -162,6 +197,8 @@ export class Input {
     const free = this._touchList().filter((q) => !q.joy);
     if (free.length === 2) this.pinchDist = Math.hypot(free[0].x - free[1].x, free[0].y - free[1].y);
     else this.pinchDist = 0;
+    if (free.length < 2) { this.twistA = null; this.gLock = null; this.zAcc = this.tAcc = 0; }
+    else this.twistA = Math.atan2(free[1].y - free[0].y, free[1].x - free[0].x);
     this._gesture();
     if (cancel || p.pinched) return;
     const moved = Math.hypot(p.x - p.sx, p.y - p.sy);
@@ -199,5 +236,5 @@ export class Input {
     return [0, 0];
   }
 
-  endFrame() { this.pressed.clear(); this.taps.length = 0; this.zoom = 0; }
+  endFrame() { this.pressed.clear(); this.taps.length = 0; this.zoom = 0; this.rotate = 0; this.rotReset = false; }
 }

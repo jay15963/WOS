@@ -26,6 +26,11 @@ uniform vec2 uWindDir; // wind direction (world, y down)
 uniform vec2 uWindPh;  // accumulated phases: x = sway oscillation, y = travelling wind waves
 uniform vec4 uPush[12]; // vegetation pushers (src/fx/brush.js): x, y, radius, strength
 uniform int uPushN;
+uniform vec2 uRot;     // camera yaw (cos, sin): the view turns the world around the camera (game.cam.rot)
+uniform float uFlat;   // 1 = flat on the ground (floors, rugs): turns whole with the world; 0 = upright (billboard)
+vec2 rotR(){ return dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; }
+vec2 toView(vec2 d){ vec2 r = rotR(); return vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y); }
+vec2 toWorld(vec2 v){ vec2 r = rotR(); return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 `;
 
 // Cave ceilings (game/roofs.js): roofData A = the ceiling drawn over a cave the local player is not inside,
@@ -136,10 +141,12 @@ void main(){
   vec2 local = (c - aAnchor) * aSize;
   local = rotLocal(local, aParams.y);
   if (aParams.x > 0.0) local = swayLocal(c, local);
-  vec2 w = aPos + local;
-  vW = w;
-  w.y -= aExtra.y;
-  vec2 clip = (w - uCam) * uScale;
+  // camera yaw: an upright sprite turns only its anchor with the world (it keeps facing the screen); a flat one turns
+  // whole; the lift goes straight up the screen
+  vec2 v = uFlat > 0.5 ? toView(aPos + local - uCam) : toView(aPos - uCam) + local;
+  vW = uFlat > 0.5 ? aPos + local : aPos + toWorld(local);
+  v.y -= aExtra.y;
+  vec2 clip = v * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -330,6 +337,39 @@ void main(){
   else { o = c; oE = vec4(0.0, 0.0, 0.0, c.a); }
 }`;
 
+// Computed faces (engine/faceBatch.js): world (x, y) + height per vertex, turned with the camera like the sprites and
+// lifted straight up the screen; textured from the atlas (or the lazy look atlas, u < 0), premultiplied like them.
+// Second output: the glow layer (a face hides the glow behind it).
+export const FACE_VS = `#version 300 es
+layout(location=0) in vec3 aP;
+layout(location=1) in vec2 aUV;
+layout(location=2) in vec4 aC;
+uniform vec2 uCam, uScale, uRot;
+out vec2 vUV;
+out vec4 vC;
+void main(){
+  vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
+  vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
+  v.y -= aP.z;
+  vec2 clip = v * uScale;
+  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+  vUV = aUV; vC = aC;
+}`;
+export const FACE_FS = `#version 300 es
+precision mediump float;
+in vec2 vUV;
+in vec4 vC;
+uniform sampler2D uTex;
+uniform sampler2D uLook;
+layout(location=0) out vec4 o;
+layout(location=1) out vec4 oE;
+void main(){
+  vec4 t = vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)) : texture(uTex, vUV);
+  if (t.a < 0.01) discard;
+  vec4 c = vec4(t.rgb * vC.rgb, t.a) * vC.a;
+  o = c; oE = vec4(0.0, 0.0, 0.0, c.a);
+}`;
+
 // Sun shadow: sprite silhouette sheared along uShadowDir by its height above the anchor.
 // Output (MAX blend): R = shadow used for lighting everywhere, with DAPPLED light holes punched into tree
 // crowns (sun through the leaves, drifting with the wind); G = canopy coverage without holes (G - R = sunlit
@@ -351,9 +391,9 @@ void main(){
   local = rotLocal(local, aParams.y);
   if (aParams.x > 0.0) local = swayLocal(c, local);
   float h = max(0.0, -local.y) + aExtra.y;
-  vec2 base = vec2(local.x, max(local.y, 0.0) * 0.6);
+  vec2 base = toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
   vec2 w = aPos + base + uShadowDir * h;
-  vec2 clip = (w - uCam) * uScale;
+  vec2 clip = toView(w - uCam) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -405,7 +445,7 @@ out vec2 vUV;
 flat out vec2 vA;   // alpha, owner id
 void main(){
   vec2 w = aPos + aCorner * aSize;
-  vec2 clip = (w - uCam) * uScale;
+  vec2 clip = toView(w - uCam) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vUV = mix(aUV.xy, aUV.zw, aCorner);
   vA = aColor.rg;
@@ -454,11 +494,13 @@ out vec4 o;
 uniform sampler2D uCave;   // R = cave darkness (see world.js caveData)
 uniform sampler2D uRoofT;  // roofData: R interior darkness, G revealed region, B built roof
 uniform vec2 uCam, uView, uWorld;
+uniform vec2 uRot; // camera yaw (cos, sin)
+vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 uniform vec3 uAmb, uCaveAmb;
 uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (0 = unset)
 ${CEIL_FN}
 void main(){
-  vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
+  vec2 wp = uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
   float c = texture(uCave, wp / uWorld).r;
   if (c > 0.004) c *= 1.0 - ceilNear(wp); // a drawn cave ceiling is outdoors (game/roofs.js)
   c = pow(c, 1.4);   // keep the spill onto the surrounding rock tight
@@ -478,7 +520,7 @@ out vec2 vW;
 out float vKind;
 void main(){
   vec2 w = aPos + (aCorner - aAnchor) * aSize;
-  vec2 clip = (w - uCam) * uScale;
+  vec2 clip = toView(w - uCam) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vW = w;
   vKind = aColor.r;
@@ -704,7 +746,7 @@ void rubble(vec2 wp, float sc, float seed, vec3 Ld, vec2 sdir, float shade){
 
 void main(){
   vec2 wp = vW;
-  PPX = max(abs(dFdx(wp.x)), 1e-5);
+  PPX = max(length(dFdx(wp)), 1e-5); // (any camera yaw)
   vec4 nA = texture(uNoise, wp * 0.093);
   vec4 nB = texture(uNoise, wp * 0.29 + 0.5);
   vec4 CV = texture(uCave, wp / uWorld);
@@ -998,6 +1040,8 @@ precision highp sampler2DArray;
 in vec2 vUV;
 out vec4 o;
 uniform vec2 uCam, uView, uWorld;
+uniform vec2 uRot; // camera yaw (cos, sin)
+vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 uniform float uTime;
 uniform sampler2D uTile;    // R ground id, G random, B rock type (regional 1..4), A ore (1 copper, 2 iron, 3 coal, 4 gold, 5 jade)
 uniform sampler2D uField;   // 4x res, linear: R rock mask, G rock height, B water depth, A shore wetness
@@ -1172,8 +1216,8 @@ vec3 iceSurface(vec2 wp, float depth, float wl, vec4 nA, vec4 nB, vec4 nC, vec3 
   return mix(ic, snC, dr * 0.9);
 }
 void main(){
-  vec2 wp = uCam + vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
-  PPX = max(abs(dFdx(wp.x)), 1e-5);
+  vec2 wp = uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
+  PPX = max(length(dFdx(wp)), 1e-5); // (any camera yaw)
   LOD = max(log2(PPX * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
   float aaW = PPX * 1.25;
 
@@ -1609,6 +1653,8 @@ uniform sampler2D uRoofT;  // roofData: R interior darkness, G revealed region, 
 uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (as AMBIENT_FS)
 uniform vec4 uIndoorFx;    // local player: x = in a cave (0..1), y = in a building, z = interior zoom blend
 uniform vec2 uCam, uView, uWorld;
+uniform vec2 uRot; // camera yaw (cos, sin)
+vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 uniform float uTime;
 uniform float uCloud;   // cloud cover 0..1
 uniform float uDay;     // daylight 0..1
@@ -1756,7 +1802,7 @@ void main(){
   }
   uv += lens;
 
-  vec2 wp = uCam + vec2(uv.x - 0.5, 0.5 - uv.y) * uView;
+  vec2 wp = uCam + v2w(vec2(uv.x - 0.5, 0.5 - uv.y) * uView);
   float cave = uHasField > 0.5 ? texture(uCave, wp / uWorld).r : 0.0;
   if (cave > 0.004) cave *= 1.0 - ceilNear(wp); // a drawn cave ceiling is outdoors (fog, rain, flashes)
   // revealed interior of a building (the roof faded for the local player): no sky effects inside
@@ -1876,7 +1922,7 @@ void main(){
   for (int i = 0; i < 8; i++) {
     if (i >= uShN) break;
     vec4 A = uShA[i], Q = uShB[i], C = uShC[i];
-    vec2 p0 = A.xy - vec2(0.0, Q.x), p1 = A.zw, ab = p1 - p0;
+    vec2 p0 = A.xy + v2w(vec2(0.0, -Q.x)), p1 = A.zw, ab = p1 - p0; // (lifted straight up the screen)
     float t = clamp(dot(wp - p0, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
     float dd = length(wp - (p0 + ab * t)) / max(mix(Q.y, Q.z, t) * 0.5, 0.02);
     float beam = (1.0 - smoothstep(0.55, 1.0, dd)) * smoothstep(0.0, 0.15, t);
