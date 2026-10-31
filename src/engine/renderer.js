@@ -62,6 +62,8 @@ const COLD = { pine: 0.9, mountain: 1, rocky: 0.45, tundra: 1, taiga: 0.9, snow:
 const BIOME_LIST = ['meadow', 'forest', 'pine', 'birch', 'marsh', 'shore', 'rocky', 'water', 'mountain'];
 
 const SEA0 = [0, 0, 0, 0]; // no season data yet
+// scene draw buffers: the colour only / the colour + the glow layer (sprites, roofs and glows of the main pass)
+const DB1 = [0x8CE0], DB2 = [0x8CE0, 0x8CE1], ZERO4 = new Float32Array(4); // (COLOR_ATTACHMENT0 / 1)
 // prepend the quality define right after the version line
 const ql = (src, level) => src.replace('#version 300 es', `#version 300 es\n#define QL ${level}`);
 
@@ -76,6 +78,11 @@ export class Renderer {
     this.progDecal = createProgram(gl, ql(S.DECAL_VS, 0), ql(S.DECAL_FS, 0));    // [world] per-tile terrain decals (ore, rubble)
     this.progRoof = createProgram(gl, ql(S.ROOF_VS, 0), ql(S.ROOF_FS, 0));       // procedural roof slices (scene + light occluder)
     this.roofSeg = [];                      // [{ at (main batch index), start, n, tex }] for this frame
+    // glow sprites (B.emissive) sorted with the sprites: [e0, e1, at] = emissive [e0, e1) drawn after main [0, at)
+    // (game.render marks them object by object: emMark) — whatever stands in front hides them (owner: no flame over
+    // a character, no lit back window over a roof)
+    this.emSeg = [];
+    this._emLast = 0;
     this._segPool = [];
     this.fsVao = gl.createVertexArray();
     this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
@@ -261,6 +268,14 @@ export class Renderer {
     gl.uniform1i(p.u.uOwner, 1);
     B.roof.upload();
   }
+  // the glow sprites added since the last mark belong to the sprites drawn so far (call before each depth-sorted
+  // object, and once after them)
+  emMark() {
+    const B = this.batches, e = B.emissive.n;
+    if (e > this._emLast) this.emSeg.push(this._emLast, e, B.main.n);
+    this._emLast = e;
+  }
+
   _roofSegment(sg) {
     const gl = this.gl, p = this.progRoof;
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, sg.tex.owner);
@@ -383,7 +398,13 @@ export class Renderer {
     this.cssW = cw; this.cssH = ch;
     this.canvas.width = w; this.canvas.height = h;
     deleteTarget(gl, this.scene); deleteTarget(gl, this.shadow); deleteTarget(gl, this.light);
+    if (this.sceneE) gl.deleteTexture(this.sceneE);
     this.scene = createTarget(gl, w, h);
+    // the glow layer: a second colour attachment of the scene
+    this.sceneE = createTexture(gl, { width: w, height: h, filter: gl.LINEAR });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.sceneE, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.shadow = createTarget(gl, Math.ceil(w / 2), Math.ceil(h / 2));
     this.light = createTarget(gl, Math.ceil(w / 2), Math.ceil(h / 2));
     return true;
@@ -408,6 +429,8 @@ export class Renderer {
   clearBatches() {
     for (const b of Object.values(this.batches)) b.clear();
     this.roofSeg.length = 0;
+    this.emSeg.length = 0;
+    this._emLast = 0;
     this.shaftN = 0;
   }
 
@@ -499,6 +522,7 @@ export class Renderer {
     // 2. scene
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fbo);
     gl.viewport(0, 0, this.w, this.h);
+    gl.drawBuffers(DB2); gl.clearBufferfv(gl.COLOR, 1, ZERO4); gl.drawBuffers(DB1); // (glow layer: empty)
     gl.disable(gl.BLEND);
     {
       const p = this.progTerrain, u = p.u, W = this.world;
@@ -587,26 +611,42 @@ export class Renderer {
       B.blob.draw();
       B.decor.draw();
       if (ao) gl.uniform1f(ao, 0);
-      if (!this.roofSeg.length) B.main.draw();
-      else {
-        // main sprites up to each roof slice, the slice, … (roof slices are depth-sorted with the sprites)
-        B.main.upload();
-        let k = 0, i = 0;
-        const segs = this.roofSeg;
-        const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); if (rp.u.uRoofSnow) gl.uniform1f(rp.u.uRoofSnow, SA[0]); };
-        while (i < segs.length) {
-          const at = segs[i].at;
-          if (at > k) { B.main.drawRange(k, at); k = at; }
-          this._roofPass(0, roofUni, env.ambient);
-          // consecutive segments at the same position share the program
-          while (i < segs.length && segs[i].at === at) { this._roofSegment(segs[i]); i++; }
-          gl.useProgram(p.p);
-          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
-          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
-          if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.activeTexture(gl.TEXTURE0); }
+      // main sprites up to each roof slice / glow group, the slice / the glows, … (all depth-sorted together; at the
+      // same spot the glows go first, so a roof over them hides them). Both layers are written: a sprite or a roof
+      // hides the glow behind it.
+      this.emMark(); // (glows added after the sorted objects: on top of everything)
+      gl.drawBuffers(DB2);
+      B.main.upload();
+      if (B.emissive.n) B.emissive.upload();
+      let k = 0, i = 0, j = 0;
+      const segs = this.roofSeg, em = this.emSeg, nE = em.length / 3;
+      const roofUni = (rp) => { spriteUniforms(rp); gl.uniform1f(rp.u.uWet, env.wet || 0); if (rp.u.uRoofSnow) gl.uniform1f(rp.u.uRoofSnow, SA[0]); };
+      const snow = (env.extra && env.extra.uSnow) || 0;
+      for (;;) {
+        const ra = i < segs.length ? segs[i].at : Infinity, ea = j < nE ? em[j * 3 + 2] : Infinity, at = Math.min(ra, ea);
+        if (at === Infinity) break;
+        if (at > k) { B.main.drawRange(k, Math.min(at, B.main.n)); k = at; }
+        if (ea <= ra) {
+          // the glows of the objects drawn so far: unlit, no sun shadow, no snow (as the old last pass)
+          gl.uniform1f(p.u.uEmis, 1); gl.uniform1f(p.u.uShadowStr, 0); if (p.u.uSnow) gl.uniform1f(p.u.uSnow, 0);
+          const e0 = em[j * 3];
+          let e1 = em[j * 3 + 1];
+          j++;
+          while (j < nE && em[j * 3 + 2] === at) { e1 = em[j * 3 + 1]; j++; } // (contiguous: one draw)
+          B.emissive.drawRange(e0, e1);
+          gl.uniform1f(p.u.uEmis, 0); gl.uniform1f(p.u.uShadowStr, env.shadowStr); if (p.u.uSnow) gl.uniform1f(p.u.uSnow, snow);
+          continue;
         }
-        if (k < B.main.n) B.main.drawRange(k, B.main.n);
+        this._roofPass(0, roofUni, env.ambient);
+        // consecutive segments at the same position share the program
+        while (i < segs.length && segs[i].at === at) { this._roofSegment(segs[i]); i++; }
+        gl.useProgram(p.p);
+        gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
+        if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.activeTexture(gl.TEXTURE0); }
       }
+      if (k < B.main.n) B.main.drawRange(k, B.main.n);
+      gl.drawBuffers(DB1);
       B.fx.draw();
     }
 
@@ -660,6 +700,7 @@ export class Renderer {
       const p = this.progPost, u = p.u;
       gl.useProgram(p.p);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.scene.tex); gl.uniform1i(u.uScene, 0);
+      if (u.uEmis) { gl.activeTexture(gl.TEXTURE8); gl.bindTexture(gl.TEXTURE_2D, this.sceneE); gl.uniform1i(u.uEmis, 8); }
       gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.light.tex); gl.uniform1i(u.uLight, 1);
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.noiseTex); gl.uniform1i(u.uNoise, 2);
       gl.uniform2f(u.uCam, cam.x, cam.y);
@@ -695,18 +736,6 @@ export class Renderer {
       this._setExtra(p, env.extra);
       gl.bindVertexArray(this.fsVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-    }
-    if (B.emissive.n) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.ONE, gl.ONE);
-      const p = this.progSprite;
-      gl.useProgram(p.p);
-      spriteUniforms(p);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
-      gl.uniform1i(p.u.uTex, 0);
-      gl.uniform1f(p.u.uShadowStr, 0);
-      if (p.u.uSnow) gl.uniform1f(p.u.uSnow, 0);
-      B.emissive.draw();
     }
     gl.bindVertexArray(null);
 

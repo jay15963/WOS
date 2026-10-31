@@ -15,9 +15,15 @@ Rodar localmente: `python tools/serve.py` → http://localhost:5173
 1. **shadow** (½ res): silhuetas de sprites cisalhadas na direção do sol (`batches.shadow`), blend MAX.
 2. **scene**: shader de terreno (chão misturado por ruído, água animada, montanhas com relevo/sombra)
    → `batches.blob` (sombras de contato) → `batches.decor` (grama) → `batches.main` (ordenado por y)
-   → `batches.fx` (partículas alfa).
+   → `batches.fx` (partículas alfa). A cena tem uma 2ª camada, a **camada de brilho**: `batches.emissive` (chamas,
+   janelas acesas, olhos que brilham…) é desenhado *junto* com `main`, na ordem de profundidade — o brilho de cada
+   objeto logo depois dele (`game.render` chama `R.emMark()` antes de cada objeto; `renderer.emSeg`), e no mesmo ponto
+   antes de uma fatia de telhado. Todo sprite / telhado desenhado depois apaga o brilho atrás dele (blend
+   premultiplicado nas duas camadas; o sprite de brilho escreve só na camada de brilho, `uEmis`). Nada de chama por
+   cima de um personagem nem janela dos fundos por cima do telhado.
 3. **light** (½ res): limpa com luz ambiente; `batches.light` (luzes pontuais aditivas, `addRaw`).
-4. **post** → tela: cena × luz, nuvens, névoa, grading, vinheta. Depois `batches.emissive` (aditivo, brilha à noite).
+4. **post** → tela: cena × luz, nuvens, névoa, grading, vinheta; por fim soma a camada de brilho (aditiva, brilha à
+   noite, já escondida onde algo fica na frente).
 
 `batch.add(sprite, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recvShadow, lift)`
 - `sway`: balanço de vento (fração da altura, ~0.03 árvores, ~0.12 grama). `lift`: altura acima do chão (pulo/bob).

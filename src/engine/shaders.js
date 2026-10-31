@@ -185,7 +185,9 @@ uniform highp vec2 uWorldSz;
 uniform vec2 uViewport;
 uniform float uShadowStr;
 uniform float uAO;        // 1 while drawing ground / decor: darken next to walls (contact AO)
-out vec4 o;
+uniform float uEmis;      // 1 = a glow sprite (flames, lit windows…): it goes to the glow layer only
+layout(location=0) out vec4 o;
+layout(location=1) out vec4 oE; // glow layer (renderer: depth-sorted with the sprites, added in the post pass)
 float sh12(highp vec2 p){ highp vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 // atlas or lazy texture (agent H) — the frost cap samples the texel above
 vec4 texAt(vec2 uv){ return uv.x < 0.0 ? texture(uLook, uv + vec2(1.0, 0.0)) : texture(uTex, uv); }
@@ -323,7 +325,9 @@ void main(){
     float s = texture(uShadow, gl_FragCoord.xy / uViewport).r;
     c.rgb *= 1.0 - s * uShadowStr * rv;
   }
-  o = c;
+  // (premultiplied-over blend on both layers: alpha 0 = added; a sprite in front hides the glow behind it)
+  if (uEmis > 0.5) { o = vec4(0.0); oE = vec4(c.rgb, 0.0); }
+  else { o = c; oE = vec4(0.0, 0.0, 0.0, c.a); }
 }`;
 
 // Sun shadow: sprite silhouette sheared along uShadowDir by its height above the anchor.
@@ -418,13 +422,15 @@ uniform float uMode;       // 0 scene, 1 light occluder
 uniform vec3 uAmbR;        // ambient × 0.5 (light map scale)
 uniform float uWet;
 uniform float uRoofSnow;   // winter snow on the roofs (src/fx/seasonfx.js)
-out vec4 o;
+layout(location=0) out vec4 o;
+layout(location=1) out vec4 oE; // glow layer: the roof covers what glows behind it
 void main(){
   vec2 ow = texelFetch(uOwner, ivec2(min(vUV * uTexSz, uTexSz - 1.0)), 0).rg * 255.0;
   if (abs(ow.r + ow.g * 256.0 - vA.y) > 0.5) discard;
   vec4 c = texture(uTex, vUV);
   float a = c.a * vA.x;
   if (a < 0.004) discard;
+  oE = vec4(0.0, 0.0, 0.0, a);
   if (uMode > 0.5) { o = vec4(uAmbR * a, a); return; }
   c.rgb *= 1.0 - 0.17 * uWet;   // rain-darkened roof
   if (uRoofSnow > 0.01) {
@@ -1595,6 +1601,7 @@ precision highp float;
 in vec2 vUV;
 out vec4 o;
 uniform sampler2D uScene, uLight, uNoise, uField;
+uniform sampler2D uEmis;  // glow layer (flames, lit windows…), already hidden where something stands in front
 uniform sampler2D uCave;  // R = cave darkness (no sky effects underground)
 uniform sampler2D uClim;  // R = snow affinity: precipitation falls as snow over cold biomes
 uniform sampler2D uShadow; // sprite sun shadows (canopy light shafts, high quality)
@@ -1974,6 +1981,7 @@ void main(){
   float gr = hash12(floor(gl_FragCoord.xy * 0.75) + floor(uTime * 18.0) * vec2(37.0, 17.0)) - 0.5;
   c += gr * uGrain * (0.6 + 0.4 * (1.0 - smoothstep(0.0, 0.6, lum)));
 #endif
+  c += texture(uEmis, uv).rgb; // (additive, unaffected by darkness and grading)
   c += (hash12(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
   o = vec4(c, 1.0);
 }`;

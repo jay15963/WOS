@@ -564,3 +564,7 @@ it — like a compass/radar): "esse design combina muito com o jogo".
   A piece placed at an edge / against a wall (anchored at the front-bottom of its body) is drawn that much lower;
   a piece on a tile keeps its art and its contact shadow moves under its feet; the sun shadow pivots on the feet.
   Flames: DECOR_GEOM heights above that ground, × the piece's scale.
+- **Depth of glows** (owner: "no depth problems"): flames, lit windows and other glows used to be drawn in a last pass
+  over everything (a candle behind the player burned on the player's face; the lit windows of the back wall showed
+  over the roof). They are now drawn in depth order into a glow layer of the scene that whatever stands in front
+  covers (docs/ARCHITECTURE.md, render pipeline).

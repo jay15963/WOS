@@ -209,7 +209,9 @@ export class Game {
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
     const LV = this.levels?.hasUpper ? this.levels : null; // levels: upper stories in the world
+    R.emMark?.(); // (glows of the ground decor: under everything)
     for (const o of list) {
+      R.emMark?.(); // the glows of the object drawn before this one go right after it (renderer.emSeg)
       // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
       // walls / doors whose front faces show below the eaves; same under a cave ceiling (never the local player,
       // who is drawn while its own cave's ceiling fades out)
@@ -234,6 +236,7 @@ export class Game {
         B.light.addRaw(o.x, o.y - (L.lift ?? 0.3), d, d, L.r, L.g, L.b, L.intensity * f);
       }
     }
+    R.emMark?.(); // (the last object's glows)
     for (const s of this.systems) s.render?.(this, B, v, env);
     this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
 
