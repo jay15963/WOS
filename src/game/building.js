@@ -25,6 +25,7 @@ import { buildSprite } from './artcompat.js';
 import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
+import { faceKindOf } from '../art/faces/index.js'; // camera turned: ghosts drawn like the finished piece (faces)
 import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
@@ -634,6 +635,35 @@ export function structureMenu(game, o) {
   return out;
 }
 
+// ---------- camera turned (game.cam.rot, docs/CAMERA-ROTATION.md) ----------
+// Marks that stand up on the screen (progress bars, badges, rings) keep their place relative to the footprint as the
+// camera sees it; flat marks in the air (roof plans) lie at their height as faces. At 0° none of this runs.
+// world point at view offset (dx right, dy down the screen) from (x, y)
+function vAt(game, x, y, dx, dy) { const [wx, wy] = game.toWorldDir(dx, dy); return [x + wx, y + wy]; }
+// half extents of a fw × fh footprint as the turned camera sees it (its bounding box on the screen)
+function vHalf(game, fw, fh) { const r = game.cam.rot || 0, c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r)); return [0.5 * (c * fw + s * fh), 0.5 * (s * fw + c * fh)]; }
+// a 1×1 flat sprite (bp_tile) at height h over tile (tx, ty), turned with the world
+const UVT = [0, 0, 0, 0];
+function airTile(B, s, tx, ty, h, r, g, b, a) {
+  const F = B.faces;
+  if (!F || !s) return false;
+  const du = s.u1 - s.u0, dv = s.v1 - s.v0;
+  UVT[0] = s.u0 + du * (s.ax - 0.5 / s.w); UVT[2] = s.u0 + du * (s.ax + 0.5 / s.w);
+  UVT[1] = s.v0 + dv * (s.ay - 1 / s.h); UVT[3] = s.v0 + dv * s.ay;
+  F.quad(tx, ty, h, tx + 1, ty, h, tx + 1, ty + 1, h, tx, ty + 1, h, UVT, r, g, b, a);
+  return true;
+}
+// a flat arrow on the ground from (x, y) toward (dx, dy) (the facing of a ghost: rotation is in world directions)
+function arrowAt(B, A, x, y, dx, dy, len, r, g, b, a) {
+  const F = B.faces, s = A.has('fx_solid') ? A.get('fx_solid') : null;
+  if (!F || !s) return;
+  const u = (s.u0 + s.u1) / 2, v = (s.v0 + s.v1) / 2;
+  UVT[0] = u; UVT[1] = v; UVT[2] = u; UVT[3] = v;
+  const px = -dy, py = dx, w = len * 0.42, h = 0.03, tx = x + dx * len, ty = y + dy * len, sx = x + dx * len * 0.45, sy = y + dy * len * 0.45, k = len * 0.13;
+  F.quad(sx - px * w, sy - py * w, h, tx, ty, h, tx, ty, h, sx + px * w, sy + py * w, h, UVT, r, g, b, a); // head
+  F.quad(x - px * k, y - py * k, h, sx - px * k, sy - py * k, h, sx + px * k, sy + py * k, h, x + px * k, y + py * k, h, UVT, r, g, b, a); // shaft
+}
+
 // ---------- system ----------
 const LID = { o: null, t: 0 }; // chest whose lid is up for the local player
 // door swing: ease with a little overshoot at the end (cosmetic, every peer animates the shared o.open)
@@ -692,6 +722,8 @@ export function buildingSystem() {
       const bar = A.has('bp_bar') ? A.get('bp_bar') : null;
       const badge = A.has('bp_nomat') ? A.get('bp_nomat') : null;
       const pulse = 0.75 + 0.25 * Math.sin(t * 5);
+      const rot = game.cam.rot || 0; // camera turned: marks follow the view (vAt, airTile)
+      const ringRot = (sw, sh) => (rot && sw !== sh ? -rot : 0); // a long footprint's ring turns with it
       // build mode: the world grid over the ground, faint but visible (every tile edge in view)
       if (game.build.mode && A.has('fx_solid')) {
         const s = A.get('fx_solid'), lw = 0.035, ga = 0.17;
@@ -712,35 +744,38 @@ export function buildingSystem() {
         if (o.blueprint && def.roof) {
           // roof plan: a blue grid in the air (eave height), red-ish when no finished support is near yet
           const ok = canSupply(game, o), He = roofEaveH(game.build.storeysAt?.(o.tx, o.ty) || 1); // (agent L: highest story)
-          if (tile) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
+          if (tile && !(rot && airTile(B, tile, o.tx, o.ty, He, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3))) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
           if (bar && (o.progress || 0) > 0.001) {
-            B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
-            B.fx.add(bar, o.tx + 0.17, o.ty - He + 0.4, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            const [bx, by] = rot ? vAt(game, o.tx + 0.5, o.ty + 0.5, -0.35, -0.1) : [o.tx + 0.15, o.ty - He + 0.4], bl = rot ? He : 0;
+            B.fx.add(bar, bx, by, 0.7, 1, 0.08, 0.1, 0.12, 0.75, 0, 0, 0, 1, 0, bl);
+            B.fx.add(bar, bx + (rot ? game.toWorldDir(0.02, 0)[0] : 0.02), by + (rot ? game.toWorldDir(0.02, 0)[1] : 0), 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95, 0, 0, 0, 1, 0, bl);
           }
           continue;
         }
         if (def.roof) {
           // a finished roof tile marked for deconstruction: red tile on the roof surface
-          if (game.build.decon.has(o) && tile) { const pl = 0.8 + 0.2 * Math.sin(t * 6); B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, 1, 0.35, 0.3, 0.55 * pl, 0, 0, 0, 1, 0, roofHeightAt(game, o.tx, o.ty)); }
+          if (game.build.decon.has(o) && tile) { const pl = 0.8 + 0.2 * Math.sin(t * 6), rh = roofHeightAt(game, o.tx, o.ty); if (!(rot && airTile(B, tile, o.tx, o.ty, rh, 1, 0.35, 0.3, 0.55 * pl))) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, 1, 0.35, 0.3, 0.55 * pl, 0, 0, 0, 1, 0, rh); }
           continue;
         }
         if (o.blueprint) {
           // RimWorld blueprint: blue grid over the footprint, progress bar once the frame is up, missing-material badge
           const ok = canSupply(game, o);
           if (tile) for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) B.ground.add(tile, o.tx + x + 0.5, o.ty + y + 1, 1, 1, 0.42, 0.7, 1, 0.55, 0, 0, 0, 1, 0);
-          else if (ring) B.fx.add(ring, o.tx + sw / 2, o.ty + sh / 2 + 0.1, 0.9 * sw, 0.6 * sh, 0.55, 0.8, 1, 0.65);
-          const top = o.ty - 0.15;
+          else if (ring) B.fx.add(ring, o.tx + sw / 2, o.ty + sh / 2 + 0.1, 0.9 * sw, 0.6 * sh, 0.55, 0.8, 1, 0.65, 0, ringRot(sw, sh));
+          // over the footprint's top edge as the camera sees it (turned: its bounding box on the screen)
+          const hh = rot ? vHalf(game, sw, sh)[1] : sh / 2, top = o.ty - 0.15;
+          const at = (dx, dy) => (rot ? vAt(game, o.tx + sw / 2, o.ty + sh / 2, dx, dy - hh) : [o.tx + sw / 2 + dx, top + dy + 0.15]);
           if (bar && (o.progress || 0) > 0.001) {
-            const W = Math.min(1.2, 0.5 + sw * 0.35), x0 = o.tx + sw / 2 - W / 2;
-            B.fx.add(bar, x0, top, W, 1, 0.08, 0.1, 0.12, 0.75);
-            B.fx.add(bar, x0 + 0.02, top, (W - 0.04) * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            const W = Math.min(1.2, 0.5 + sw * 0.35), [x0, y0] = at(-W / 2, -0.15), [x1, y1] = at(-W / 2 + 0.02, -0.15);
+            B.fx.add(bar, x0, y0, W, 1, 0.08, 0.1, 0.12, 0.75);
+            B.fx.add(bar, x1, y1, (W - 0.04) * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
           }
-          if (!ok && badge) { const bs = def.drag ? 0.6 : 0.85; B.fx.add(badge, o.tx + sw / 2, top - 0.02, bs, bs, 1, 1, 1, 0.75 + 0.25 * pulse, 0, 0, 0, 1, 0, 0.1 * pulse); }
-          if (o.moveOf && ring) { const src = game.world.objById.get(o.moveOf); if (src) B.fx.add(ring, src.x, src.cy ?? src.y, 1.1 * (src.fw || 1), 0.7 * (src.fh || 1), 0.5, 0.75, 1, 0.5 * pulse); }
+          if (!ok && badge) { const bs = def.drag ? 0.6 : 0.85, [bx, by] = at(0, -0.17); B.fx.add(badge, bx, by, bs, bs, 1, 1, 1, 0.75 + 0.25 * pulse, 0, 0, 0, 1, 0, 0.1 * pulse); }
+          if (o.moveOf && ring) { const src = game.world.objById.get(o.moveOf); if (src) B.fx.add(ring, src.x, src.cy ?? src.y, 1.1 * (src.fw || 1), 0.7 * (src.fh || 1), 0.5, 0.75, 1, 0.5 * pulse, 0, ringRot(src.fw || 1, src.fh || 1)); }
         }
         if (game.build.decon.has(o) && ring) {
           const pl = 0.85 + 0.15 * Math.sin(t * 6);
-          B.fx.add(ring, o.tx + sw / 2, o.ty + sh / 2 + 0.1, 0.95 * sw * pl, 0.65 * sh * pl, 1, 0.35, 0.3, 0.85);
+          B.fx.add(ring, o.tx + sw / 2, o.ty + sh / 2 + 0.1, 0.95 * sw * pl, 0.65 * sh * pl, 1, 0.35, 0.3, 0.85, 0, ringRot(sw, sh));
         }
       }
       const m = game.build.mode;
@@ -751,7 +786,7 @@ export function buildingSystem() {
         for (const o of S) {
           if (o.type !== m.type || !o.blueprint) continue;
           const inside = o.tx <= bx && o.tx + (o.fw || 1) > ax && o.ty <= by && o.ty + (o.fh || 1) > ay;
-          B.fx.add(ring, o.tx + (o.fw || 1) / 2, o.ty + (o.fh || 1) / 2 + 0.1, 0.9 * (o.fw || 1), 0.6 * (o.fh || 1), 1, 0.82, 0.35, inside ? 0.95 * pulse : 0.3);
+          B.fx.add(ring, o.tx + (o.fw || 1) / 2, o.ty + (o.fh || 1) / 2 + 0.1, 0.9 * (o.fw || 1), 0.6 * (o.fh || 1), 1, 0.82, 0.35, inside ? 0.95 * pulse : 0.3, 0, ringRot(o.fw || 1, o.fh || 1));
         }
         if (a0 && tile) for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) B.ground.add(tile, x + 0.5, y + 1, 1, 1, 1, 0.85, 0.4, 0.35, 0, 0, 0, 1, 0);
       }
@@ -762,7 +797,7 @@ export function buildingSystem() {
         const He = roofEaveH(), sol = A.has('fx_solid') ? A.get('fx_solid') : null;
         for (const g of m.tiles) {
           if (!tile) break;
-          B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse, 0, 0, 0, 1, 0, He);
+          if (!(rot && airTile(B, tile, g.tx, g.ty, He, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse))) B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse, 0, 0, 0, 1, 0, He);
           // the ground under it: a pale wash where it fills, a strong red square where a column is missing
           if (sol) B.ground.add(sol, g.tx + 0.5, g.ty, 1 / sol.w, 1 / sol.h, g.ok ? 0.45 : 1, g.ok ? 0.7 : 0.2, g.ok ? 1 : 0.15, (g.ok ? 0.12 : 0.5) * pulse);
           else if (soft) B.ground.add(soft, g.tx + 0.5, g.ty + 0.85, 1.2, 0.9, 0.3, 0.5, 0.8, 0.16 * pulse);
@@ -773,15 +808,19 @@ export function buildingSystem() {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
         const glv = m.lv | 0, gl = glv ? glv * (game.levels?.STORY ?? 1) : 0; // levels: ghost on the chosen story
-        if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
-        else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, 0, 0, 1, 0, gl);
+        if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) { if (!(gl && rot && airTile(B, tile, g.tx + x, g.ty + y, gl, r, gg, b, 0.7 * pulse))) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl); }
+        else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, ringRot(fw, fh), 0, 1, 0, gl);
         G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
         G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
         G0._cm = G0._k?.on.carpet ? g.mask : 0;
         setGeom(G0);
         G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot, glv) : false;
         G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse; G0.lv = glv; // sync-ok: scratch ghost
-        if (glv && game.levels) game.levels.drawUpper(B, A, G0, t);
+        const fk = rot ? faceKindOf(G0) : null; // camera turned: the ghost is drawn as the finished piece is (faces)
+        if (fk && fk.draw(B, A, G0, t)) {
+          // rotation is in world directions: an arrow on the ground shows where its front will face
+          if (rotCount(m.type) > 1 && !BUILDINGS[m.type].mount) { const f = FRONT[G0.face] || FRONT.s, cx = BUILDINGS[m.type].edge ? G0.x : g.tx + fw / 2, cy = BUILDINGS[m.type].edge ? G0.cy : g.ty + fh / 2; arrowAt(B, A, cx + f[0] * 0.1, cy + f[1] * 0.1, f[0], f[1], 0.42 + 0.5 * Math.abs(f[0] ? fw : fh) * 0.5, r, gg, b, 0.75 * pulse); }
+        } else if (glv && game.levels) game.levels.drawUpper(B, A, G0, t);
         else if (art && CW.drawGhost) CW.drawGhost(B, A, G0, t);
         else {
           const [s, sc] = ghostSprite(A, m.type, g.mask);

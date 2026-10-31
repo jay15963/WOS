@@ -239,6 +239,7 @@ export class Game {
         o._fk = fk;
         if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
         else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+        else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
         else o._zk = -rs * o.x + rc * (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0);
       }
     }
@@ -285,7 +286,8 @@ export class Game {
         const f = L.flicker ? 1 - L.flicker * (0.5 + 0.5 * Math.sin(t * 11 + o.x * 3) * Math.sin(t * 7.3 + o.y)) : 1;
         const d = L.radius * 2 * (0.96 + 0.04 * f);
         const lh = L.lift ?? 0.3;
-        B.light.addRaw(o.x + rs * lh, o.y - rc * lh, d, d, L.r, L.g, L.b, L.intensity * f);
+        const lp = rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // (turned: where a face kind drew the piece, art/faces/props.js)
+        B.light.addRaw((lp ? lp[0] : o.x) + rs * lh, (lp ? lp[1] : o.y) - rc * lh, d, d, L.r, L.g, L.b, L.intensity * f);
       }
     }
     R.emMark?.(); // (the last object's glows)
