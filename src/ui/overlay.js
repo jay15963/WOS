@@ -97,7 +97,7 @@ export function installOverlay(game) {
       for (let i = fct.length - 1; i >= 0; i--) {
         const f = fct[i];
         f.t += dt;
-        if (!f.e.dead || f.e.kind !== 'animal') { f.x = f.e.x; f.y = f.e.y - liftOf(f.e); } // levels: up a story
+        if (!f.e.dead || f.e.kind !== 'animal') { f.x = f.e.x; f.y = f.e.y; f.lz = liftOf(f.e); } // levels: up a story (straight up the screen)
         if (f.t >= f.life) fct.splice(i, 1);
       }
     },
@@ -222,7 +222,7 @@ export function installOverlay(game) {
       for (const f of fct) {
         const k = f.t / f.life;
         const top = f.e === p ? 1.25 : spriteTop(f.e);
-        const [sx0, sy0] = g.worldToScreen(f.x, f.y, top);
+        const [sx0, sy0] = g.worldToScreen(f.x, f.y, top + (f.lz || 0));
         const rise = f.vy * f.t + (f.big ? 10 * Math.min(1, f.t * 8) : 0);
         const sx = sx0 + f.ox + f.drift * k;
         const sy = sy0 - 14 - rise;

@@ -86,24 +86,30 @@ export class LookAtlas {
     r.queued = false;
     if (r.ready || r.failed) return;
     const t0 = performance.now();
-    if (!r.canvas) {
-      try {
-        const def = this.defs.get(r.name) || LAZY_DEFS.get(r.name);
-        const c = crop(def.canvas ? def.canvas() : atlasCanvas(def)); // (agent K's defs bring their own painter)
-        if (!c) { r.failed = true; return; } // nothing painted (never drawn)
-        const [ax, ay] = anchorOf(c, def.ax, def.ay);
-        r.canvas = c; r.pw = c.width; r.ph = c.height; r.w = c.width / PPU; r.h = c.height / PPU; r.ax = ax; r.ay = ay;
-        this.painted++;
-      } catch (e) {
-        r.failed = true;
-        if (this.failures.length < 20) this.failures.push(`${r.name}: ${e?.message || e}`);
-        console.error('[look] part failed', r.name, e);
-        return;
-      }
-    }
+    if (!r.canvas && !this._paint(r)) return;
     this._place(r);
     this.ms += performance.now() - t0;
   }
+  // paint a part's canvas (cropped, anchored) without placing it; false = failed
+  _paint(r) {
+    try {
+      const def = this.defs.get(r.name) || LAZY_DEFS.get(r.name);
+      const c = crop(def.canvas ? def.canvas() : atlasCanvas(def)); // (agent K's defs bring their own painter)
+      if (!c) { r.failed = true; return false; } // nothing painted (never drawn)
+      const [ax, ay] = anchorOf(c, def.ax, def.ay);
+      r.canvas = c; r.pw = c.width; r.ph = c.height; r.w = c.width / PPU; r.h = c.height / PPU; r.ax = ax; r.ay = ay;
+      this.painted++;
+      return true;
+    } catch (e) {
+      r.failed = true;
+      if (this.failures.length < 20) this.failures.push(`${r.name}: ${e?.message || e}`);
+      console.error('[look] part failed', r.name, e);
+      return false;
+    }
+  }
+  // camera rotation (art/look/turn.js): a 3/4 part is made from the painted canvases of two cardinal parts, which
+  // need not be placed in the texture themselves
+  prepare(r) { if (!r.canvas && !r.failed) { const t0 = performance.now(); this._paint(r); this.ms += performance.now() - t0; } return r.canvas; }
   _alloc(r) {
     const w = r.pw + PAD, h = r.ph + PAD;
     for (const s of this.shelves) if (s.h >= h && s.h <= h * 1.6 + 8 && s.x + w <= this.W) { r.x = s.x; r.y = s.y; s.x += w; return true; }

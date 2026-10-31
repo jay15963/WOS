@@ -104,6 +104,7 @@ class WalkerFx {
   render(g, B) {
     const night = g.env.env.night || 0;
     if (night < 0.05) return;
-    for (const e of this.list) B.light.addRaw(e.x, e.y - 0.55, 2.6, 2.6, 0.45, 0.8, 1, 0.38 * night);
+    const [ux, uy] = g.toWorldDir ? g.toWorldDir(0, -0.55) : [0, -0.55]; // (up the screen, camera turned or not)
+    for (const e of this.list) B.light.addRaw(e.x + ux, e.y + uy, 2.6, 2.6, 0.45, 0.8, 1, 0.38 * night);
   }
 }

@@ -44,12 +44,42 @@ import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
 import { lookAtlasOf } from './look/lazy.js';
+import { diagRig, diagReady, diagPart, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND } from './look/turn.js'; // camera rotation: 3/4 views
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
 export const artHooks = { warn: null };
 // cosmetic environment fed by the game every frame (juice.js): wind for idle hair, world clock for idle life
-export const animEnv = { wx: 0.15, wy: 0, gust: 0, wt: 0 };
+export const animEnv = { wx: 0.15, wy: 0, gust: 0, wt: 0, rc: 1, rs: 0, yaw: 0 };
+
+// ---------- camera yaw (game.js sets animEnv.rc / rs / yaw while the view is turned, back to 1 / 0 / 0 after) ----------
+// The rigs place their parts with screen-space offsets around the creature (x: right, y: toward the camera); with the
+// camera turned, this batch adapter turns those offsets into world offsets around an origin (the creature's ground
+// point), so the parts stay together on screen. Sprite rotations and lifts are screen-space already. At 0°: B itself.
+class ViewBatch {
+  constructor() { this.dst = null; this.ox = 0; this.oy = 0; }
+  add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift, sc) {
+    if (!this.dst) return;
+    const dx = x - this.ox, dy = y - this.oy, c = animEnv.rc, sn = animEnv.rs;
+    this.dst.add(s, this.ox + c * dx - sn * dy, this.oy + sn * dx + c * dy, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift, sc);
+  }
+  addRaw(x, y, w, h, r, g, b, a) {
+    if (!this.dst) return;
+    const dx = x - this.ox, dy = y - this.oy, c = animEnv.rc, sn = animEnv.rs;
+    this.dst.addRaw(this.ox + c * dx - sn * dy, this.oy + sn * dx + c * dy, w, h, r, g, b, a);
+  }
+}
+const VB_KEYS = ['main', 'shadow', 'blob', 'emissive', 'fx', 'decor', 'ground', 'light'];
+const VB = {};
+for (const k of VB_KEYS) VB[k] = new ViewBatch();
+export function viewB(B, ox, oy) {
+  if (animEnv.rs === 0 && animEnv.rc === 1) return B;
+  for (const k of VB_KEYS) { const v = VB[k]; v.dst = B[k] || null; v.ox = ox; v.oy = oy; }
+  return VB;
+}
+// a screen-space offset (dx right, dy toward the camera) from (ox, oy) as a world point (VX, VY)
+export let VX = 0, VY = 0;
+export function viewPt(ox, oy, dx, dy) { VX = ox + animEnv.rc * dx - animEnv.rs * dy; VY = oy + animEnv.rs * dx + animEnv.rc * dy; }
 
 const TAU = Math.PI * 2;
 const HALF_PI = Math.PI / 2;
@@ -270,6 +300,79 @@ function drawHead(B, T, L, LK, armor, d, flip, x, y, l, r, fl, al, shut, hairR, 
 // long hair hanging behind the shoulders (front view): before the torso, at the head transform
 function drawHairBack(B, LK, d, flip, x, y, l, r, fl, al) { stack(B, LK.hairBack[d], x, y, 1, 1, r, fl, flip, l, al); }
 
+// ---------- 3/4 views (camera rotation; art/look/turn.js) ----------
+// D: the look's 3/4 rig ('se' front-side or 'ne' back-side), mir: -1 for sw / nw. Parts outside the look (armour,
+// bandana, legacy masks, walker overlays) are turned the same way (diagPart: null until painted).
+const TURN_W = TURN_KIND.body.w;
+function drawTorsoD(B, T, LK, D, armor, x, y, sx, sy, rot, fl, mir, lift, al, legsOn = true) {
+  sx *= LK.sx; sy *= LK.sy * LK.hk;
+  stack(B, D.body, x, y, sx, sy, rot, fl, mir, lift, al, WK, WK, WB, !legsOn);
+  const pd = TURN_VIEW[D.view].pd;
+  const wb = armor && wear(T, armor.body, pd) ? diagPart(T.A, `wear_${armor.body}_${pd}`, D.view, 'body') : null;
+  if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, mir, 0, lift);
+}
+function drawHeadD(B, T, L, LK, D, armor, mir, x, y, l, r, fl, al, shut, hairR, hairL) {
+  const A = T.A, v = D.view, pd = TURN_VIEW[v].pd, sk = LK.skin, hat = Array.isArray(L.hatColor) ? L.hatColor : HAT_COL;
+  const whN = armor && wear(T, armor.head, pd) ? `wear_${armor.head}_${pd}` : null;
+  const wh = whN ? diagPart(A, whN, v, 'head') : null;
+  stack(B, D.head, x, y, 1, 1, r, fl, mir, l, al);
+  if (shut && D.lids && D.lids.ready) { D.lids.lu = LOOK_CLOCK.f; B.main.add(D.lids, x, y, 1, 1, sk[0], sk[1], sk[2], al, 0, r, fl, mir, 0, l); }
+  const fN = LK.legacyFace && v === 'se' && T.face[L.face] ? T.face[L.face].s : null;
+  const fs = fN ? diagPart(A, fN.name, v, 'head') : null;
+  if (fs && L.face !== 'mask') B.main.add(fs, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, mir, 0, l);
+  if (!(whN && armor.head === 'helmet_iron')) stack(B, D.brows, x, y, 1, 1, r, fl, mir, l, al);
+  stack(B, D.beard, x, y, 1, 1, r, fl, mir, l, al);
+  if (fs && L.face === 'mask') B.main.add(fs, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, mir, 0, l);
+  const hides = whN ? WEAR_HIDES_HAIR[armor.head] : L.hat === 'bandana' ? 'tall' : null;
+  if (D.hair.length && !(hides === true || (hides === 'tall' && LK.tall))) stack(B, D.hair, x, y, 1, 1, hairR, fl, mir, hairL, al);
+  const bandana = L.hat === 'bandana' && !whN && T.hat[pd] ? diagPart(A, T.hat[pd].name, v, 'head') : null;
+  if (bandana) B.main.add(bandana, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, mir, 0, l);
+  if (wh) B.main.add(wh, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, mir, 0, l);
+}
+// are the 3/4 parts outside the look painted? (asks for the missing ones)
+function diagExtras(T, L, LK, armor, walker, v, urgent) {
+  const A = T.A, pd = TURN_VIEW[v].pd;
+  let ok = true;
+  const want = (name, kind) => { if (name && !diagPart(A, name, v, kind, urgent)) ok = false; };
+  if (armor) {
+    if (wear(T, armor.body, pd)) want(`wear_${armor.body}_${pd}`, 'body');
+    if (wear(T, armor.head, pd)) want(`wear_${armor.head}_${pd}`, 'head');
+  }
+  if (L.hat === 'bandana' && T.hat[pd]) want(T.hat[pd].name, 'head');
+  if (LK.legacyFace && v === 'se' && T.face[L.face]?.s) want(T.face[L.face].s.name, 'head');
+  if (walker) { want('wk_armor_' + pd, 'body'); want('wk_ice_' + pd, 'body'); if (v === 'se') want('wk_face_s', 'head'); }
+  return ok;
+}
+// a 3/4 pose from the front / back pose P and the side pose E (both unflipped): sideways offsets keep most of
+// their width (the 3/4 art does), forward ones (the side pose's x, the front pose's depth) go along the diagonal;
+// heights average; held items turn by their direction vectors; draw order from the front / back pose
+const KXP = 0.88, KXE = 0.6, KYP = 0.75, KYE = 0.5, KRP = 0.65, KRE = 0.5;
+let VA = 0, VL = 1;
+function vecBlend(rP, lP, rE, lE) {
+  const xs = KXP * Math.sin(rP) * lP + KXE * Math.sin(rE) * lE, u = (Math.cos(rP) * lP + Math.cos(rE) * lE) / 2;
+  VA = Math.atan2(xs, u); VL = Math.hypot(xs, u);
+}
+function blendPose(Q, P, E, mir) {
+  Object.assign(Q, P);
+  const bx = P.bx0, by = P.by0;
+  const X = (a, b) => bx + mir * (KXP * (a - bx) + KXE * (b - bx));
+  const Y = (a, b) => by + KYP * (a - by) + KYE * (b - by);
+  Q.x = X(P.x, E.x); Q.y = Y(P.y, E.y); Q.hx = X(P.hx, E.hx);
+  Q.lift = (P.lift + E.lift) / 2; Q.bl = (P.bl + E.bl) / 2; Q.hl = (P.hl + E.hl) / 2; Q.hairL = (P.hairL + E.hairL) / 2;
+  Q.sx = (P.sx + E.sx) / 2; Q.sy = (P.sy + E.sy) / 2;
+  Q.rot = mir * (KRP * P.rot + KRE * E.rot); Q.hr = mir * (KRP * P.hr + KRE * E.hr); Q.hairR = mir * (KRP * P.hairR + KRE * E.hairR);
+  Q.wx = X(P.wx, E.wx); Q.wy = Y(P.wy, E.wy); Q.wl = (P.wl + E.wl) / 2;
+  vecBlend(P.wRot, P.wSy, E.wRot, E.wSy);
+  Q.wRot = mir * VA; Q.wSy = Math.min(1.15, Math.max(0.5, VL)); Q.wSx = (P.wSx + E.wSx) / 2; Q.wFlip = mir;
+  Q.ox2 = X(P.ox2, E.ox2); Q.oy2 = Y(P.oy2, E.oy2); Q.ol = (P.ol + E.ol) / 2;
+  vecBlend(P.oRot, 1, E.oRot, 1);
+  Q.oRot = mir * VA; Q.oSc = (P.oSc + E.oSc) / 2; Q.oSy = Q.oSc * Math.min(1.1, Math.max(0.55, VL)); Q.oFlip = mir;
+  Q.hx1 = X(P.hx1, E.hx1); Q.h1dy = KYP * P.h1dy + KYE * E.h1dy; Q.h1l = (P.h1l + E.h1l) / 2; Q.hs1 = (P.hs1 + E.hs1) / 2;
+  Q.hx2 = X(P.hx2, E.hx2); Q.h2dy = KYP * P.h2dy + KYE * E.h2dy; Q.h2l = (P.h2l + E.h2l) / 2; Q.hs2 = (P.hs2 + E.hs2) / 2;
+  if (Q.twoHand) { const L2 = 0.13 * Q.wSy; Q.tgx = Q.wx + Math.sin(Q.wRot) * L2; Q.tgl = Q.wl + Math.cos(Q.wRot) * L2; }
+  return Q;
+}
+
 // eyes closed now? (blink schedule from the pawn's phase: irregular, sometimes a double blink)
 function blinking(t, ph0) {
   const per = 3.1 + 1.8 * ((ph0 * 7.31) % 1);
@@ -291,18 +394,22 @@ function wkSprite(A, name) {
   return null;
 }
 // hide-and-scale armour with ice on the shoulders, over the look's body (same box / anchor as wear_*)
+// (sd: a view, or a 3/4 rig D: the overlay turned the same way)
 function walkerTorso(B, A, part, sd, x, y, sx, sy, rot, fl, flip, lift, al) {
-  const s = wkSprite(A, part + sd);
+  const s = typeof sd === 'object' ? diagPart(A, part + TURN_VIEW[sd.view].pd, sd.view, 'body') : wkSprite(A, part + sd);
   if (s) B.main.add(s, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, lift);
 }
 // face frost + the cold eye glow (emissive: it shines in the dark)
 function walkerHead(B, T, A, d, flip, x, y, l, r, fl, al, t, ph0) {
-  const s = d !== 'n' ? wkSprite(A, 'wk_face_' + d) : null;
+  const dv = typeof d === 'object' ? d.view : null; // 3/4 head (camera rotation)
+  if (dv) d = dv === 'se' ? 's' : 'n';
+  const s = d === 'n' ? null : dv ? diagPart(A, 'wk_face_s', dv, 'head') : wkSprite(A, 'wk_face_' + d);
   if (s) B.main.add(s, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
   if (d === 'n' || !T.soft) return;
   const pulse = 0.85 + 0.15 * Math.sin(t * 2.3 + ph0);
   const cs = Math.cos(r), sn = Math.sin(r);
-  for (const [ex, el] of WALKER_EYES[d]) {
+  for (const [ex0, el] of WALKER_EYES[d]) {
+    const ex = dv ? turnX(ex0, el, dv, 'head') : ex0;
     const dx = ex * flip, gx = x + dx * cs + el * sn, gl = l + el * cs - dx * sn;
     B.emissive.add(T.soft, gx, y + 0.001, 0.2 / T.soft.w, 0.13 / T.soft.h, 0.35, 0.85, 1, 0.55 * pulse * al, 0, 0, 0, 1, 0, gl);
     if (T.spark) B.emissive.add(T.spark, gx, y + 0.002, 0.075 / T.spark.w, 0.055 / T.spark.h, 0.75, 1, 1, 0.95 * al, 0, 0, 0, 1, 0, gl);
@@ -351,6 +458,7 @@ export function drawPawn(B, A, p, t) {
 
   if (p.dead) {
     p._sy = undefined;
+    B = viewB(B, p.x, p.y);
     const u = clamp01((p.deadT || 0) * 2.4);
     // knees buckle (squash), then topple sideways with a small bounce
     const buckle = u < 0.22 ? smooth(u / 0.22) : 1;
@@ -375,14 +483,15 @@ export function drawPawn(B, A, p, t) {
   // ---- resting poses (replicated: p.pose) ----
   const PS = p.pose && !act && !p.moving ? p.pose : null;
   const po = PS && PS.o && !PS.o.gone && !PS.o.removed ? PS.o : null;
-  p._sy = undefined; // depth key override while lying in a bed / sitting on a chair (game.js sort)
+  p._sy = undefined; p._sobj = null; // depth key override while lying in a bed / sitting on a chair (game.js sort; _sobj: turned camera)
   if (PS && PS.type === 'sleep' && T.cover) {
     let ux, uy, ang, px, py;
-    if (po) { bedSlot(po); px = BX; py = BY; ang = BR; ux = BUX; uy = BUY; p._sy = Math.max(p.y, po.y + 0.02); }
-    else { ux = -flip; uy = 0; ang = flip * HALF_PI; px = p.x + flip * 0.36; py = p.y - 0.08; } // on the ground
+    // (camera turned: in a bed, world positions and the bed's world angle minus the yaw; on the ground, screen-space)
+    if (po) { bedSlot(po); px = BX; py = BY; ang = BR - animEnv.yaw; ux = BUX; uy = BUY; p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
+    else { B = viewB(B, p.x, p.y); ux = -flip; uy = 0; ang = flip * HALF_PI; px = p.x + flip * 0.36; py = p.y - 0.08; } // on the ground
     const breath = Math.sin(t * 1.35 + ph0);
     const nx = px + ux * 0.2, ny = py + uy * 0.2;
-    p._zx = nx; p._zy = ny; // where the Zzz rise from (juice.js)
+    if (po) { p._zx = nx; p._zy = ny; } else { viewPt(p.x, p.y, nx - p.x, ny - p.y); p._zx = VX; p._zy = VY; } // where the Zzz rise from (juice.js)
     const tilt = ang + 0.14 * (ph0 % 2 > 1 ? 1 : -1) + breath * 0.015;
     const hl = 0.02;
     drawHead(B, T, L, LK, null, 's', 1, nx, ny, hl, tilt, fl, 1, true, tilt, hl);
@@ -394,6 +503,109 @@ export function drawPawn(B, A, p, t) {
   const sit = PS && PS.type === 'sit' ? PS : null;
   const seat = sit ? po : null;
 
+  // camera turned (game.js): a 3/4 view 'se' / 'ne' (sw / nw mirrored) — the front / back pose blended with the side
+  // pose, drawn with 3/4 parts (art/look/turn.js) once they are painted; until then the nearest side (p.facing)
+  let D = null, mir = 1;
+  const dv = p._dv;
+  if (dv && !sit && pose !== 'whirlwind' && LK.LA) {
+    const urgent = !p.isMob && !p.remote && !p.lazyLook;
+    const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
+    if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, walker, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
+  }
+  const C = PIN;
+  C.p = p; C.t = t; C.T = T; C.LK = LK; C.M = M; C.O = O; C.act = act; C.k = k; C.pose = pose; C.sit = sit; C.seat = seat; C.ph0 = ph0; C.fl = fl;
+  const pd = D ? TURN_VIEW[D.view].pd : sd;
+  const Q = D ? blendPose(QC, rigPose(QP, C, pd, 1), rigPose(QE, C, 'e', 1), mir) : rigPose(QC, C, sd, flip);
+  pose = Q.pose;
+  const { x, y, bx0, by0, lift, bl, sx, sy, rot, al, swim, stroke, hx, hl, hr, hairR, hairL, f1, f1l, f2, f2l, feetFront } = Q;
+  const { showW, wsp, wType, wx, wy, wl, wSx, wSy, wRot, wFlip, wBehind, ghost, grip, twoHand, tgx, tgl } = Q;
+  const { showO, osp, oType, ox2, oy2, ol, oSc, oRot, oFlip, oBehind, offGrip } = Q;
+  const { h1, h1b, hx1, h1dy, h1l, hs1, h2, h2b, hx2, h2dy, h2l, hs2, food, bundle, herbAt, r1, g1, b1 } = Q;
+  const hand = T.hand;
+  const sdir = D ? mir : sd === 'e' ? flip : 1; // sprite flip of side-facing things (bundle, herbs, flame lean)
+  // the head: the 3/4 head with the body, a cardinal one when it turns toward something
+  const HD = D && (hdir === dir || !dv.includes(hdir)) ? D : null; // (a turn only toward the diagonal's own sides)
+  const shut = (HD ? !!HD.lids : !!lids) && (blinking(t, ph0) || fl > 0.6 || (pose === 'heal' && k > 0.5 && k < 0.62));
+
+  B = viewB(B, bx0, by0); // (camera turned: the rig's screen-space offsets around the body → world)
+  // contact shadow (shrinks a little while airborne)
+  if (T.blob) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al * (1 - swim));
+
+  // fill the rig scratch (module-level helpers below draw feet / weapon / off-hand item from it)
+  R.B = B; R.T = T; R.x = x; R.y = y; R.sd = D ? 'd' : sd; R.flip = flip; R.pd = pd; R.mir = mir; R.al = al; R.fl = fl; R.k = k; R.pose = pose;
+  R.feetFront = feetFront; R.seat = !!seat; R.f1 = f1; R.f1l = f1l; R.f2 = f2; R.f2l = f2l;
+  R.ft = LK.feet[D ? 'e' : sd]; R.fr = LK.footTint[0]; R.fg = LK.footTint[1]; R.fb = LK.footTint[2]; R.pr = pc[0] * WK; R.pg = pc[1] * WK; R.pb = pc[2] * WB;
+  R.wsp = wsp; R.wx = wx; R.wy = wy; R.wl = wl; R.wSx = wSx; R.wSy = wSy; R.wRot = wRot; R.wFlip = wFlip; R.ghost = ghost;
+  R.wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back to the hand (src/ui/aim.js)
+  R.grip = grip; R.twoHand = twoHand; R.tgx = tgx; R.tgl = tgl; R.sr = r1; R.sg = g1; R.sb = b1;
+  R.osp = osp; R.ox = ox2; R.oy = oy2; R.ol = ol; R.oSc = oSc; R.oSy = Q.oSy; R.oRot = oRot; R.oFlip = oFlip; R.offGrip = offGrip; R.food = food;
+
+  // behind the body
+  if (swim < 0.5) rigFeet(false);
+  if (showO && osp && oBehind) rigOff();
+  if (showW && wsp && wBehind) rigWeapon();
+  if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
+  if (hand && h2 && h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
+  // long hair behind the shoulders, then the body
+  if (HD) stack(B, HD.hairBack, hx, y, 1, 1, hr, fl, mir, hl, al); else drawHairBack(B, LK, hsd, hflip, hx, y, hl, hr, fl, al);
+  if (D) drawTorsoD(B, T, LK, D, armor, x, y, sx, sy, rot, fl, mir, bl, al, swim < 0.5); else drawTorso(B, T, LK, armor, sd, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
+  if (walker) walkerTorso(B, A, 'wk_armor_', D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al);
+  if (swim < 0.5) rigFeet(true);
+  if (swim > 0.01 && T.soft) {
+    // the water line hides the lower body; a slow ripple ring spreads around the swimmer
+    const wa = 0.85 * swim;
+    B.main.add(T.soft, x, y + 0.02, 1.9, 0.75, WATER[0], WATER[1], WATER[2], wa, 0, 0, 0, 1, 0, 0.03);
+    if (T.ring) { const u = (t * 0.7 + ph0) % 1; B.main.add(T.ring, x, y + 0.03, 0.5 + u * 0.7, 0.4 + u * 0.55, 0.85, 0.95, 1, 0.35 * (1 - u) * swim, 0, 0, 0, 1, 0, 0.01); }
+  }
+  // head
+  if (HD) drawHeadD(B, T, L, LK, HD, armor, mir, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
+  else drawHead(B, T, L, LK, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
+  if (walker) { walkerTorso(B, A, 'wk_ice_', D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al); walkerHead(B, T, A, HD ? HD : hsd, HD ? mir : hflip, hx, y, hl, hr, fl, al, t, ph0); }
+  // in front of the body
+  if (showW && wsp && !wBehind) rigWeapon();
+  if (showO && osp && !oBehind) rigOff();
+  if (hand && h1 && !h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
+  if (hand && h2 && !h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
+  if (bundle && h1 && h2) B.main.add(bundle, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.55, 0.55, 1, 1, 1, al, 0, 0, fl, sdir, 0, bl + (h1l + h2l) / 2);
+  // herbs peek out between the palms / from under the pressing hand
+  if (herbAt === 1 && h1 && h2 && T.herb) B.main.add(T.herb, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.7, 0.7, 1, 1, 1, al, 0, 0, fl, 1, 0, bl + (h1l + h2l) / 2 + 0.05);
+  if (herbAt === 2 && h2 && T.herb) B.main.add(T.herb, hx2 + sdir * 0.05, y + h2dy, 0.7, 0.7, 1, 1, 1, al, 0, 0.4, fl, 1, 0, bl + h2l - 0.04);
+
+  // hand torch flame (emissive) at the tip
+  const torchOn = showO && oType === 'torch' ? 1 : showW && wType === 'torch' ? 2 : 0;
+  if (torchOn) {
+    const r = torchOn === 1 ? oRot : wRot;
+    const ty = torchOn === 1 ? oy2 : wy;
+    const tk = torchOn === 1 ? Q.oSy / oSc : 1; // (3/4: the torch seen shorter)
+    const tx = (torchOn === 1 ? ox2 : wx) + Math.sin(r) * TORCH_TIP * tk, tl = (torchOn === 1 ? ol : wl) + Math.cos(r) * TORCH_TIP * tk;
+    const fph = t * 11 + ph0;
+    const fk = 0.9 + 0.12 * Math.sin(fph) + 0.06 * Math.sin(fph * 2.3);
+    const lean = -r * 0.4 + (p.moving ? -(D ? mir : flip) * 0.25 : 0) + 0.1 * Math.sin(fph * 0.6) + animEnv.wx * 0.25;
+    B.emissive.add(T.flames[0], tx, ty, 0.34 * fk, 0.46 * fk, 1, 1, 1, 0.95, 0, lean, 0, 1, 0, tl - 0.02);
+    B.emissive.add(T.flames[1], tx, ty, 0.22, 0.3 * (0.8 + 0.2 * Math.sin(fph * 1.7)), 1, 1, 1, 0.8, 0, lean - 0.1, 0, 1, 0, tl);
+    if (T.glow) B.emissive.add(T.glow, tx, ty, 0.75, 0.75, 1, 0.6, 0.3, 0.22 + 0.04 * Math.sin(fph * 1.3), 0, 0, 0, 1, 0, tl + 0.12);
+  }
+
+  if (D) B.shadow.add(T.body[pd], x, y, sx * LK.sx * TURN_W, sy * LK.sy * LK.hk, 1, 1, 1, 0.9 * al, 0, rot, 0, mir, 0, bl);
+  else B.shadow.add(body, x, y, sx * LK.sx, sy * LK.sy * LK.hk, 1, 1, 1, 0.9 * al, 0, rot, 0, flip, 0, bl);
+  const hsd2 = HD ? pd : hsd, hflip2 = HD ? mir : hflip;
+  B.shadow.add(HD ? T.head[pd] : head, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip2, 0, hl);
+  const topS = headTop(T, L, LK, armor, hsd2);
+  if (topS) B.shadow.add(topS, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip2, 0, hl);
+  if (showW && wsp) B.shadow.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, 0.8 * al * R.wA, 0, wRot, 0, wFlip, 0, wl);
+  if (showO && osp) B.shadow.add(osp, ox2, oy2, oSc, Q.oSy, 1, 1, 1, 0.8 * al, 0, oRot, 0, oFlip, 0, ol);
+}
+
+// ---------- pawn pose (one view) ----------
+// Everything the pawn's parts need for a view sd ('s' | 'n' | 'e') and flip, from the replicated state: body / head
+// transform, feet, held items, hands (+ which go behind the body). drawPawn draws it; a 3/4 view (camera rotation)
+// blends the front / back pose with the side pose (blendPose). C: inputs (PIN), Q: outputs (no allocation).
+const PIN = { p: null, t: 0, T: null, LK: null, M: null, O: null, act: null, k: 0, pose: null, sit: null, seat: null, ph0: 0, fl: 0 };
+const QC = {}, QP = {}, QE = {};
+function rigPose(Q, C, sd, flip) {
+  const { p, t, T, LK, M, O, act, k, sit, seat, ph0, fl } = C;
+  let pose = C.pose;
+  const sk = LK.skin;
   // ---- locomotion / idle ----
   const mk = sit ? 0 : p._mk ?? (p.moving ? 1 : 0);
   const run = clamp01(((p._gs || 0) - 4.7) / 1.6) * mk;
@@ -819,7 +1031,7 @@ export function drawPawn(B, A, p, t) {
   }
 
   const bx0 = seat ? seat.x : p.x, by0 = seat ? seat.y - 0.06 : p.y;
-  if (seat) { lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); }
+  if (seat) { lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); p._sobj = seat; }
   const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)
   const x = bx0 + ox, y = by0 + oy;
   const bl = lift + LEG;
@@ -832,10 +1044,6 @@ export function drawPawn(B, A, p, t) {
   const wind = animEnv.wx * (0.6 + 0.7 * animEnv.gust) * idle;
   const hairR = hr + hk * (wind * 0.035 * Math.sin(t * 1.7 + ph0) + wind * 0.02 + (sd === 'e' ? -flip * (0.012 + 0.035 * run) * mk : 0) + mk * 0.012 * Math.sin(2 * ph - 1.1));
   const hairL = hl - mk * 0.006 * Math.cos(2 * ph - 0.9) * hk;
-  const shut = !!lids && (blinking(t, ph0) || fl > 0.6 || (pose === 'heal' && k > 0.5 && k < 0.62));
-
-  // contact shadow (shrinks a little while airborne)
-  if (T.blob) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al * (1 - swim));
 
   // item positions
   let wx = 0, wl = 0, wy = y + wDy;
@@ -875,65 +1083,17 @@ export function drawPawn(B, A, p, t) {
   let tgx = 0, tgl = 0;
   if (twoHand) { const L2 = 0.13 * wSy; tgx = wx + Math.sin(wRot) * L2; tgl = wl + Math.cos(wRot) * L2; }
 
-  // fill the rig scratch (module-level helpers below draw feet / weapon / off-hand item from it)
-  R.B = B; R.T = T; R.x = x; R.y = y; R.sd = sd; R.flip = flip; R.al = al; R.fl = fl; R.k = k; R.pose = pose;
-  R.feetFront = feetFront; R.seat = !!seat; R.f1 = f1; R.f1l = f1l; R.f2 = f2; R.f2l = f2l;
-  R.ft = LK.feet[sd]; R.fr = LK.footTint[0]; R.fg = LK.footTint[1]; R.fb = LK.footTint[2]; R.pr = pc[0] * WK; R.pg = pc[1] * WK; R.pb = pc[2] * WB;
-  R.wsp = wsp; R.wx = wx; R.wy = wy; R.wl = wl; R.wSx = wSx; R.wSy = wSy; R.wRot = wRot; R.wFlip = wFlip; R.ghost = ghost;
-  R.wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back to the hand (src/ui/aim.js)
-  R.grip = grip; R.twoHand = twoHand; R.tgx = tgx; R.tgl = tgl; R.sr = r1; R.sg = g1; R.sb = b1;
-  R.osp = osp; R.ox = ox2; R.oy = oy2; R.ol = ol; R.oSc = oSc; R.oRot = oRot; R.oFlip = oFlip; R.offGrip = offGrip; R.food = food;
-
-  // behind the body
-  if (swim < 0.5) rigFeet(false);
-  if (showO && osp && oBehind) rigOff();
-  if (showW && wsp && wBehind) rigWeapon();
-  if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
-  if (hand && h2 && h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
-  // long hair behind the shoulders, then the body
-  drawHairBack(B, LK, hsd, hflip, hx, y, hl, hr, fl, al);
-  drawTorso(B, T, LK, armor, sd, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
-  if (walker) walkerTorso(B, A, 'wk_armor_', sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, flip, bl, al);
-  if (swim < 0.5) rigFeet(true);
-  if (swim > 0.01 && T.soft) {
-    // the water line hides the lower body; a slow ripple ring spreads around the swimmer
-    const wa = 0.85 * swim;
-    B.main.add(T.soft, x, y + 0.02, 1.9, 0.75, WATER[0], WATER[1], WATER[2], wa, 0, 0, 0, 1, 0, 0.03);
-    if (T.ring) { const u = (t * 0.7 + ph0) % 1; B.main.add(T.ring, x, y + 0.03, 0.5 + u * 0.7, 0.4 + u * 0.55, 0.85, 0.95, 1, 0.35 * (1 - u) * swim, 0, 0, 0, 1, 0, 0.01); }
-  }
-  // head
-  drawHead(B, T, L, LK, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
-  if (walker) { walkerTorso(B, A, 'wk_ice_', sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, flip, bl, al); walkerHead(B, T, A, hsd, hflip, hx, y, hl, hr, fl, al, t, ph0); }
-  // in front of the body
-  if (showW && wsp && !wBehind) rigWeapon();
-  if (showO && osp && !oBehind) rigOff();
-  if (hand && h1 && !h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
-  if (hand && h2 && !h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
-  if (bundle && h1 && h2) B.main.add(bundle, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.55, 0.55, 1, 1, 1, al, 0, 0, fl, sd === 'e' ? flip : 1, 0, bl + (h1l + h2l) / 2);
-  // herbs peek out between the palms / from under the pressing hand
-  if (herbAt === 1 && h1 && h2 && T.herb) B.main.add(T.herb, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.7, 0.7, 1, 1, 1, al, 0, 0, fl, 1, 0, bl + (h1l + h2l) / 2 + 0.05);
-  if (herbAt === 2 && h2 && T.herb) B.main.add(T.herb, hx2 + (sd === 'e' ? flip * 0.05 : 0.05), y + h2dy, 0.7, 0.7, 1, 1, 1, al, 0, 0.4, fl, 1, 0, bl + h2l - 0.04);
-
-  // hand torch flame (emissive) at the tip
-  const torchOn = showO && oType === 'torch' ? 1 : showW && wType === 'torch' ? 2 : 0;
-  if (torchOn) {
-    const r = torchOn === 1 ? oRot : wRot;
-    const ty = torchOn === 1 ? oy2 : wy;
-    const tx = (torchOn === 1 ? ox2 : wx) + Math.sin(r) * TORCH_TIP, tl = (torchOn === 1 ? ol : wl) + Math.cos(r) * TORCH_TIP;
-    const fph = t * 11 + ph0;
-    const fk = 0.9 + 0.12 * Math.sin(fph) + 0.06 * Math.sin(fph * 2.3);
-    const lean = -r * 0.4 + (p.moving ? -flip * 0.25 : 0) + 0.1 * Math.sin(fph * 0.6) + animEnv.wx * 0.25;
-    B.emissive.add(T.flames[0], tx, ty, 0.34 * fk, 0.46 * fk, 1, 1, 1, 0.95, 0, lean, 0, 1, 0, tl - 0.02);
-    B.emissive.add(T.flames[1], tx, ty, 0.22, 0.3 * (0.8 + 0.2 * Math.sin(fph * 1.7)), 1, 1, 1, 0.8, 0, lean - 0.1, 0, 1, 0, tl);
-    if (T.glow) B.emissive.add(T.glow, tx, ty, 0.75, 0.75, 1, 0.6, 0.3, 0.22 + 0.04 * Math.sin(fph * 1.3), 0, 0, 0, 1, 0, tl + 0.12);
-  }
-
-  B.shadow.add(body, x, y, sx * LK.sx, sy * LK.sy * LK.hk, 1, 1, 1, 0.9 * al, 0, rot, 0, flip, 0, bl);
-  B.shadow.add(head, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip, 0, hl);
-  const topS = headTop(T, L, LK, armor, hsd);
-  if (topS) B.shadow.add(topS, hx, y, 1, 1, 1, 1, 1, 0.9 * al, 0, hr, 0, hflip, 0, hl);
-  if (showW && wsp) B.shadow.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, 0.8 * al * R.wA, 0, wRot, 0, wFlip, 0, wl);
-  if (showO && osp) B.shadow.add(osp, ox2, oy2, oSc, oSc, 1, 1, 1, 0.8 * al, 0, oRot, 0, oFlip, 0, ol);
+  Q.x = x; Q.y = y; Q.bx0 = bx0; Q.by0 = by0; Q.lift = lift; Q.bl = bl; Q.sx = sx; Q.sy = sy;
+  Q.rot = rot; Q.al = al; Q.swim = swim; Q.stroke = stroke; Q.hx = hx; Q.hl = hl; Q.hr = hr; Q.hairR = hairR;
+  Q.hairL = hairL; Q.f1 = f1; Q.f1l = f1l; Q.f2 = f2; Q.f2l = f2l; Q.feetFront = feetFront; Q.showW = showW; Q.wsp = wsp;
+  Q.wType = wType; Q.wx = wx; Q.wy = wy; Q.wl = wl; Q.wSx = wSx; Q.wSy = wSy; Q.wRot = wRot; Q.wFlip = wFlip;
+  Q.wBehind = wBehind; Q.ghost = ghost; Q.slung = slung; Q.grip = grip; Q.twoHand = twoHand; Q.tgx = tgx; Q.tgl = tgl; Q.showO = showO;
+  Q.osp = osp; Q.oType = oType; Q.ox2 = ox2; Q.oy2 = oy2; Q.ol = ol; Q.oSc = oSc; Q.oRot = oRot; Q.oFlip = oFlip;
+  Q.oBehind = oBehind; Q.offGrip = offGrip; Q.h1 = h1; Q.h1b = h1b; Q.hx1 = hx1; Q.h1dy = h1dy; Q.h1l = h1l; Q.hs1 = hs1;
+  Q.h2 = h2; Q.h2b = h2b; Q.hx2 = hx2; Q.h2dy = h2dy; Q.h2l = h2l; Q.hs2 = hs2; Q.food = food; Q.bundle = bundle;
+  Q.herbAt = herbAt; Q.pose = pose; Q.r1 = r1; Q.g1 = g1; Q.b1 = b1;
+  Q.oSy = oSc;
+  return Q;
 }
 
 // ---------- rig helpers (read the scratch filled by drawPawn; no per-frame allocation) ----------
@@ -941,11 +1101,12 @@ const R = {
   B: null, T: null, x: 0, y: 0, sd: 's', flip: 1, al: 1, fl: 0, k: 0, pose: null,
   feetFront: false, seat: false, f1: 0, f1l: 0, f2: 0, f2l: 0, ft: null, fr: 0, fg: 0, fb: 0, pr: 0, pg: 0, pb: 0,
   wsp: null, wx: 0, wy: 0, wl: 0, wSx: 1, wSy: 1, wRot: 0, wFlip: 1, ghost: 0, grip: false, twoHand: false, tgx: 0, tgl: 0, sr: 1, sg: 1, sb: 1,
-  osp: null, ox: 0, oy: 0, ol: 0, oSc: 1, oRot: 0, oFlip: 1, offGrip: false, food: null,
+  osp: null, ox: 0, oy: 0, ol: 0, oSc: 1, oSy: 1, oRot: 0, oFlip: 1, offGrip: false, food: null,
+  pd: 's', mir: 1, // 3/4 view (sd 'd'): the front / back pose it blends with the side one, mirrored for sw / nw
 };
 // boots: walking feet behind the body; sitting feet stick out in front (behind when seen from the back)
 function rigFeet(front) {
-  const ft = R.ft || R.T.foot[R.sd];
+  const ft = R.ft || R.T.foot[R.sd === 'd' ? 'e' : R.sd];
   const { B, x, y, sd, flip, al, fl, fr, fg, fb } = R;
   if (!ft || front !== (R.feetFront && sd !== 'n')) return;
   if (R.feetFront) {
@@ -964,7 +1125,12 @@ function rigFeet(front) {
     }
     return;
   }
-  if (sd === 'e') {
+  if (sd === 'd') {
+    // 3/4 view: the side boots (toes toward the facing side), feet apart sideways, striding along the diagonal
+    const m = R.mir, sg = R.pd === 's' ? -1 : 1, fy = R.pd === 's' ? 0.35 : -0.35;
+    B.main.add(ft, x + m * (KXP * -sg * 0.125 + KXE * (R.f2 * 1.5 - 0.025)), y + KYP * R.f2 * fy - 0.005, 0.85, 1, fr * 0.82, fg * 0.82, fb * 0.82, al, 0, -m * R.f2l * 2.5, fl, m, 0, R.f2l * 1.15);
+    B.main.add(ft, x + m * (KXP * sg * 0.125 + KXE * (R.f1 * 1.5 + 0.025)), y + KYP * R.f1 * fy, 0.85, 1, fr, fg, fb, al, 0, -m * R.f1l * 2.5, fl, m, 0, R.f1l * 1.15);
+  } else if (sd === 'e') {
     // side view: longer visible stride; the swinging boot tips up a little
     B.main.add(ft, x + flip * (R.f2 * 1.5 - 0.025), y - 0.005, 1, 1, fr * 0.78, fg * 0.78, fb * 0.78, al, 0, -flip * R.f2l * 2.5, fl, flip, 0, R.f2l * 1.3);
     B.main.add(ft, x + flip * (R.f1 * 1.5 + 0.025), y, 1, 1, fr, fg, fb, al, 0, -flip * R.f1l * 2.5, fl, flip, 0, R.f1l * 1.3);
@@ -974,6 +1140,13 @@ function rigFeet(front) {
     B.main.add(ft, x - sg * 0.125, y + R.f2 * fy, 1, 1, fr, fg, fb, al, 0, 0, fl, 1, 0, R.f2l);
   }
 }
+// a swing curve of a pose seen from sd (fills W_*)
+function swingOf(pose, sd, kk) {
+  if (pose === 'heavy') { if (sd === 'e') swing(kk, 0.55, -1.75, 1.7, 0.45, 0.62); else swing(kk, 0, -1, 1, 0.45, 0.62); }
+  else if (pose === 'cleave') { if (sd === 'e') swing(kk, 0.55, -1.7, 2.6, 0.38, 0.56); else if (sd === 's') swing(kk, -0.5, -1.9, 2.0, 0.38, 0.56); else swing(kk, 0.4, 2.2, -2.0, 0.38, 0.56); }
+  else if (pose === 'smash') swing(kk, 0.55, -2.4, 2.0, 0.42, 0.56);
+  else if (sd === 'e') swing(kk, 0.55, -1.35, 2.15); else if (sd === 's') swing(kk, -0.5, -1.15, 2.5); else swing(kk, 0.4, 2.3, -0.95, 0.4, 0.6);
+}
 // held weapon / tool + motion trail on fast swings + the hand(s) on its grip
 function rigWeapon() {
   const { B, wsp, wx, wy, wl, wSx, wSy, wFlip, al, fl, k, pose, sd, flip } = R;
@@ -982,11 +1155,10 @@ function rigWeapon() {
     for (let i = 2; i >= 1; i--) {
       const kk = k - i * 0.035;
       // the same curve a little earlier (W_* are scratch values; nothing reads them after this)
-      if (pose === 'heavy') { if (sd === 'e') swing(kk, 0.55, -1.75, 1.7, 0.45, 0.62); else swing(kk, 0, -1, 1, 0.45, 0.62); }
-      else if (pose === 'cleave') { if (sd === 'e') swing(kk, 0.55, -1.7, 2.6, 0.38, 0.56); else if (sd === 's') swing(kk, -0.5, -1.9, 2.0, 0.38, 0.56); else swing(kk, 0.4, 2.2, -2.0, 0.38, 0.56); }
-      else if (pose === 'smash') swing(kk, 0.55, -2.4, 2.0, 0.42, 0.56);
-      else if (sd === 'e') swing(kk, 0.55, -1.35, 2.15); else if (sd === 's') swing(kk, -0.5, -1.15, 2.5); else swing(kk, 0.4, 2.3, -0.95, 0.4, 0.6);
-      B.main.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, (0.3 * hit / i) * al * R.wA, 0, R.ghost === 1 ? flip * W_ANG : W_ANG, 0.55, wFlip, 0, wl);
+      let ga;
+      if (sd === 'd') { swingOf(pose, R.pd, kk); const aP = W_ANG; swingOf(pose, 'e', kk); vecBlend(aP, 1, W_ANG, 1); ga = R.mir * VA; }
+      else { swingOf(pose, sd, kk); ga = R.ghost === 1 ? flip * W_ANG : W_ANG; }
+      B.main.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, (0.3 * hit / i) * al * R.wA, 0, ga, 0.55, wFlip, 0, wl);
     }
   }
   B.main.add(wsp, wx, wy, wSx, wSy, 1, 1, 1, al * R.wA, 0, R.wRot, fl, wFlip, 0, wl);
@@ -998,7 +1170,7 @@ function rigWeapon() {
 }
 function rigOff() {
   const { B, al, fl } = R;
-  B.main.add(R.osp, R.ox, R.oy, R.oSc, R.oSc, 1, 1, 1, al, 0, R.oRot, fl, R.oFlip, 0, R.ol);
+  B.main.add(R.osp, R.ox, R.oy, R.oSc, R.oSy, 1, 1, 1, al, 0, R.oRot, fl, R.oFlip, 0, R.ol);
   if (R.T.hand && R.offGrip) B.main.add(R.T.hand, R.ox, R.oy, 1, 1, R.sr, R.sg, R.sb, al, 0, 0, fl, 1, 0, R.ol);
 }
 function rigFood(x, y, l) { if (R.food) R.B.main.add(R.food, x, y, 0.42, 0.42, 1, 1, 1, R.al, 0, 0, R.fl, 1, 0, l + 0.03); }
@@ -1027,14 +1199,19 @@ function seedOf(a) {
 }
 export function drawAnimal(B, A, a, t) {
   const T = tables(A);
+  B = viewB(B, a.x, a.y); // (camera turned: screen-space offsets around the body → world)
   let key = a.species;
   if (key === 'deer' && (a.variant === 1 || (a.variant == null && ((a.id ?? 0) & 1))) && T.animal.deer_doe) key = 'deer_doe';
   let S = T.animal[key];
   if (!S) { artHooks.warn?.(key + '_s'); S = T.animal.wolf; }
   if (!S) return;
-  const dir = a.facing || 'e';
+  // camera turned (game.js): a 3/4 view ('se' / 'ne', sw / nw mirrored) is the side art foreshortened, the nose a
+  // little down toward the camera / up away from it
+  const dv = a.dead ? null : a._dv;
+  const dir = dv ? (dv === 'se' || dv === 'ne' ? 'e' : 'w') : a.facing || 'e';
   const sd = dir === 'w' ? 'e' : dir;
   const flip = dir === 'w' ? -1 : 1;
+  const dk = dv ? 0.84 : 1, dTilt = dv ? flip * (dv[0] === 's' ? 0.06 : -0.05) : 0;
   const sc = a.scale || 1;
   const fl = a.flash || 0;
   const sp = a.species;
@@ -1150,8 +1327,9 @@ export function drawAnimal(B, A, a, t) {
     if (rear && k > 0.58 && k < 0.7) { const u = 1 - Math.abs((k - 0.62) / 0.08); sy *= 1 - 0.08 * clamp01(u); sx *= 1 + 0.06 * clamp01(u); }
   }
   if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.05 * fl; } // hit flinch
+  if (dv) { sx *= dk; ox *= dk; rot += dTilt; oy += (dv[0] === 's' ? 0.5 : -0.5) * Math.abs(ox); } // (3/4: a lunge goes along the diagonal)
   const x = a.x + ox, y = a.y + oy;
-  const bw = sd === 'e' ? spr.w * 0.62 : spr.w * 0.72;
+  const bw = sd === 'e' ? spr.w * 0.62 * dk : spr.w * 0.72;
   if (T.blob) B.blob.add(T.blob, a.x, a.y, bw * sc * (1 - lift), 0.55 * sc * (1 - lift), 1, 1, 1, 0.7);
   B.main.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 1, 0, rot, fl, flip, 0, lift);
   B.shadow.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);

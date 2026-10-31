@@ -578,7 +578,8 @@ class Ambient {
     // caves: faint cool light around the player so they can still make out the walls (torches do the rest)
     if (this.eye > 0.03) {
       const p = g.player;
-      B.light.addRaw(p.x, p.y - 0.35, 4.6, 4.6, 0.62, 0.68, 0.85, 0.3 * this.eye);
+      const [ux, uy] = g.toWorldDir ? g.toWorldDir(0, -0.35) : [0, -0.35]; // (up the screen, camera turned or not)
+      B.light.addRaw(p.x + ux, p.y + uy, 4.6, 4.6, 0.62, 0.68, 0.85, 0.3 * this.eye);
     }
     // falling cave drips
     if (this.drips.length) {
@@ -607,7 +608,7 @@ class Ambient {
         if (a < 0.02) continue;
         B.emissive.add(soft, f.x, f.y, 0.42 * K.soft, 0.42 * K.soft, 0.55, 0.85, 0.25, a * 0.45, 0, 0, 0, 1, 0, f.lift);
         B.emissive.add(core, f.x, f.y, 0.13 * K.spark, 0.13 * K.spark, 0.95, 1.0, 0.6, a, 0, 0, 0, 1, 0, f.lift);
-        if (lights < 10 && bl > 0.5) { lights++; B.light.addRaw(f.x, f.y - f.lift, 1.8, 1.8, 0.55, 0.9, 0.35, 0.3 * a); }
+        if (lights < 10 && bl > 0.5) { lights++; const [ux, uy] = g.toWorldDir ? g.toWorldDir(0, -f.lift) : [0, -f.lift]; B.light.addRaw(f.x + ux, f.y + uy, 1.8, 1.8, 0.55, 0.9, 0.35, 0.3 * a); }
       }
     }
     // butterflies: two flapping wings + shadow

@@ -354,7 +354,7 @@ function slashFx(game, x, y, dir, n, spread, len) {
   const a0 = Math.atan2(dir[1], dir[0]);
   for (let i = 0; i < n; i++) {
     const a = a0 + (n > 1 ? (i / (n - 1) - 0.5) * spread : 0);
-    J.emit({ spr: s, x: x + Math.cos(a) * len, y: y + Math.sin(a) * len * 0.75, vx: Math.cos(a) * 2, vy: Math.sin(a) * 1.4, life: 0.26, size: 0.9, size1: 1.25, rot: a + Math.PI / 2, a: 0.85, a1: 0, layer: 'emissive', lift: 0.45, ground: false });
+    J.emit({ spr: s, x: x + Math.cos(a) * len, y: y + Math.sin(a) * len * 0.75, vx: Math.cos(a) * 2, vy: Math.sin(a) * 1.4, life: 0.26, size: 0.9, size1: 1.25, rot: a + Math.PI / 2, wrot: true, a: 0.85, a1: 0, layer: 'emissive', lift: 0.45, ground: false });
   }
 }
 
@@ -423,7 +423,7 @@ function effect(game, id, ab, t) {
       hits.sort((a, b) => a[0] - b[0]);
       hits.forEach(([along, e], n) => melee(game, e, 1.5, 2, { ability: id, knock: 0.25 }, 0.1 + along * 0.025 + n * 0.01));
       const sp = J.spr('fx_slash', 'fx_spark');
-      if (sp) for (let k = 0; k < 5; k++) J.emit({ spr: sp, x: p.x + dir[0] * (0.6 + k * 0.7), y: p.y + dir[1] * (0.6 + k * 0.7), life: 0.18 + k * 0.03, size: 0.7, size1: 0.2, rot: Math.atan2(dir[1], dir[0]), a: 0.9, a1: 0, layer: 'emissive', lift: 0.5, ground: false });
+      if (sp) for (let k = 0; k < 5; k++) J.emit({ spr: sp, x: p.x + dir[0] * (0.6 + k * 0.7), y: p.y + dir[1] * (0.6 + k * 0.7), life: 0.18 + k * 0.03, size: 0.7, size1: 0.2, rot: Math.atan2(dir[1], dir[0]), wrot: true, a: 0.9, a1: 0, layer: 'emissive', lift: 0.5, ground: false });
       break;
     }
     case 'sweep': {

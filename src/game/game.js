@@ -1,6 +1,6 @@
 // Core game: owns world, entities, camera, environment; runs update + builds render batches.
 
-import { drawPawn, drawAnimal, drawStatic, drawDecor } from '../art/compose.js';
+import { drawPawn, drawAnimal, drawStatic, drawDecor, animEnv } from '../art/compose.js';
 import { moveCircle, facingFrom, collides } from './physics.js';
 import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
@@ -12,6 +12,7 @@ import { BUILDINGS } from './data.js';
 import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
+import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
@@ -212,6 +213,7 @@ export class Game {
     // (turned: tall sprites may reach out in any world direction)
     const mx0 = v.x0 - (rot ? 4 : 3), mx1 = v.x1 + (rot ? 4 : 3), my0 = v.y0 - (rot ? 4 : 1.5), my1 = v.y1 + 4;
     CAMV.c = rc; CAMV.s = rs;
+    animEnv.rc = rc; animEnv.rs = rs; animEnv.yaw = rot; // creature rigs: screen-space offsets → world (art/compose.js viewB)
     { const sd = env.shadowDir || [0, 0], L = Math.hypot(sd[0], sd[1]) || 1; CAMV.lx = -sd[0] / L; CAMV.ly = -sd[1] / L; } // light comes from there
 
     const list = this._draw;
@@ -241,6 +243,8 @@ export class Game {
         else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
         else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
       }
+      // a pawn in a bed / on a seat (art/compose.js _sobj): just in front of it, whichever way the camera looks
+      for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity && o._sobj && o._sy != null && o._sobj._zk != null) o._zk = o._sobj._zk + 0.02; }
     }
     list.sort((a, b) => a._zk - b._zk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
@@ -270,13 +274,15 @@ export class Game {
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
         const lz = o.isEntity && o.z > 0 ? o.z * STORY_H : 0, x0 = o.x, y0 = o.y;
         if (lz) { o.x = x0 + rs * lz; o.y = y0 - rc * lz; } // (straight up the screen)
-        const f0 = o.facing;
-        if (rot && o.isEntity && f0) o.facing = viewFacing(f0, rc, rs); // what the camera sees of it
+        // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
+        // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters
+        const f0 = o.facing, h0 = o.headFacing;
+        if (rot && o.isEntity && f0) { o.facing = viewFacing8(o, t, rot); if (h0) o.headFacing = viewFacing(h0, rc, rs); }
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
         else if (o.kind === 'pawn') drawPawn(B, A, d, t);
         else drawAnimal(B, A, d, t);
-        o.facing = f0;
+        if (rot && o.isEntity && f0) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
@@ -292,14 +298,15 @@ export class Game {
     for (const s of this.systems) s.render?.(this, B, v, env);
     this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
 
-    // player lantern glow at night (keeps the area readable on mobile)
+    // player lantern glow at night (keeps the area readable on mobile); (turned: up the screen)
     if (env.night > 0.05) {
       const p = this.player;
-      B.light.addRaw(p.x, p.y - 0.3, 9, 9, 1.0, 0.82, 0.6, 0.55 * env.night);
+      B.light.addRaw(p.x + rs * 0.3, p.y - rc * 0.3, 9, 9, 1.0, 0.82, 0.6, 0.55 * env.night);
     }
 
     const dpr = R.dpr;
     const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr, rot };
     R.render(cam, env, t);
+    animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0; // (other drawers of creatures: menu showcase, previews)
   }
 }
