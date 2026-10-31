@@ -90,7 +90,7 @@ export function onRoofStruct(game, o, what, wasBlueprint = false) {
   }
   if (def?.support && what === 'remove' && !wasBlueprint) R.supportDirty.push([o.tx, o.ty, o.tx + (o.fw || 1) - 1, o.ty + (o.fh || 1) - 1]);
   // fires under a roof change its chimneys; anything solid changes the indoor light
-  if ((def?.fire || def?.warm || def?.workLight) && !o.moveOf) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) R.artDirty.add(w.idx(x, y));
+  if ((def?.fire || def?.warm || def?.workLight || (R.turned && def?.connect === 'wall')) && !o.moveOf) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) R.artDirty.add(w.idx(x, y)); // (walls: the eave shadow of the turned pieces)
   markData(R, o.tx - 6, o.ty - 6, o.tx + (o.fw || 1) + 6, o.ty + (o.fh || 1) + 6);
 }
 // rock mined: a support of nearby built roofs may be gone; the indoor light changes
@@ -326,16 +326,24 @@ export function roofsSystem() {
     },
     collect(game, list, v) {
       const R = game.roofs;
-      if (!R || !R.regions.size) return;
+      if (!R || (!R.regions.size && !(game.cam?.rot && R.falling.length))) return;
       if (game.cam?.rot) {
-        // camera turned: each roof as 3D pieces in view columns, depth-sorted with the sprites (turnedDraws)
-        const rot = game.cam.rot;
+        // camera turned: each roof as 3D pieces in view columns, depth-sorted with the sprites (turnedDraws); while the
+        // camera turns, the views are recomputed within a budget per frame, the stalest first
+        const rot = game.cam.rot, q = Math.round(rot / ROT_Q), todo = tmpList;
+        todo.length = 0;
         for (const g of R.regions.values()) {
           if (g.alpha <= 0.004 || g.x1 + 3 < v.x0 || g.x0 - 3 > v.x1 || g.y1 + 3 < v.y0 || g.y0 - 3 > v.y1) continue;
-          const T = turnedDraws(game, g, rot);
+          todo.push(g);
+        }
+        for (const g of R.falling) todo.push(g);
+        todo.sort((a, b) => (b._tv ? Math.abs(b._tv.q - q) : 1e9) - (a._tv ? Math.abs(a._tv.q - q) : 1e9));
+        const t0 = performance.now();
+        for (const g of todo) {
+          const T = turnedDraws(game, g, rot, performance.now() - t0 > VIEW_BUDGET_MS);
           if (T) for (const d of T) list.push(d);
         }
-        for (const g of R.falling) { const T = turnedDraws(game, g, rot); if (T) for (const d of T) list.push(d); }
+        todo.length = 0;
         return;
       }
       for (const g of R.regions.values()) {
@@ -547,6 +555,7 @@ function drawSlice() { this.R.roofSlice(this.region, this.slice); }
 // cached) turnedView gives what faces the camera, in a painter's order, cut into view columns one tile wide: each column
 // is a drawable depth-sorted with the sprites (key = the front-most point of its pieces, clamped into the walls).
 const ROT_Q = Math.PI / 720;
+const VIEW_BUDGET_MS = 2.5; // per frame for recomputing the views of the roofs in sight while the camera turns
 let geomT = -1, geomMs = 0;
 function regionGeom(game, g) {
   if (g.tgeom && (g.tart || g.tgeomSpec === g.spec)) return g.tgeom;
@@ -565,12 +574,12 @@ function regionShape(g) {
   if (!g.tshape || g.tshape.spec !== g.spec) { g.tshape = roofShape(g.spec); g.tshape.spec = g.spec; }
   return g.tshape;
 }
-function turnedDraws(game, g, rot) {
+function turnedDraws(game, g, rot, late = false) {
   const G = regionGeom(game, g);
   if (!G) return null;
   const q = Math.round(rot / ROT_Q);
   let T = g._tv;
-  if (!T || T.q !== q || T.G !== G) {
+  if (!T || T.G !== G || (T.q !== q && !late)) { // (late: over this frame's budget — last frame's view, a step behind)
     // (keys relative to the region's middle: corrected to the exact angle every frame, colDepth — an absolute depth at
     // the quantized angle would be off by the angle step × the distance from the world's origin)
     const a = q * ROT_Q, c = Math.cos(a), s = Math.sin(a), V = turnedView(G, c, s);

@@ -169,6 +169,22 @@ function build(spec) {
     items.push({ k: 'f', fp: P, gA: fc.A, gB: fc.B, layer: 0, pri: 0, dk: [r.X0, r.Y0, r.X1, r.Y1],
       polys: [{ p, st: -1, col: [st.base[0] * k, st.base[1] * k, st.base[2] * k] }] });
   }
+  // along a wall line of rectangle r (outward n), the parts whose outside is not inside another rectangle's walls
+  const exposed = (r, axisX, line, nx, ny, a0, a1) => {
+    const hid = [];
+    for (const q of R) {
+      if (q === r) continue;
+      const ox = axisX ? null : line + nx * 1e-3, oy = axisX ? line + ny * 1e-3 : null;
+      if (axisX) { if (oy > q.Y0 && oy < q.Y1) hid.push([q.X0, q.X1]); }
+      else if (ox > q.X0 && ox < q.X1) hid.push([q.Y0, q.Y1]);
+    }
+    hid.sort((a, b) => a[0] - b[0]);
+    const out = [];
+    let cur = a0;
+    for (const [h0, h1] of hid) { if (h1 <= cur) continue; if (h0 >= a1) break; if (h0 > cur + 1e-6) out.push([cur, Math.min(h0, a1)]); cur = Math.max(cur, h1); }
+    if (cur < a1 - 1e-6) out.push([cur, a1]);
+    return out;
+  };
   // ---- 2. steps along the domain edges (fascia, bargeboards, a higher roof over a lower one) ----
   const boards = new Map();
   const boardStrip = (c) => { const key = colKey(c); let b = boards.get(key); if (!b) { b = Strip(strips, 'board', 4, 16, { col: c }); boards.set(key, b); } return b; };
@@ -184,6 +200,8 @@ function build(spec) {
     for (const [ax, ay, bx, by, nx, ny] of E4) {
       const L = Math.hypot(bx - ax, by - ay), dx = (bx - ax) / L, dy = (by - ay) / L;
       const rake = !r.hip && (r.ns ? ny !== 0 : nx !== 0), thk = rake ? BOARD_H : thick;
+      // (a rake over a lower roof: no step face where the gable behind it shows — the opening under the rake shows it)
+      const gab = rake ? exposed(r, ny !== 0, ny > 0 ? r.Y1 : ny < 0 ? r.Y0 : nx > 0 ? r.X1 : r.X0, nx, ny, ny !== 0 ? r.X0 : r.Y0, ny !== 0 ? r.X1 : r.Y1) : null;
       const P = (t) => [ax + dx * t, ay + dy * t];
       // breakpoints: every rectangle's domain / wall / ridge lines crossing this edge
       const br = [0, L];
@@ -224,6 +242,7 @@ function build(spec) {
           if (d0 < 0) { t0 = tm; i0 = im; o0 = im; } else { t1 = tm; i1 = im; o1 = im; }
         }
         boardsP.push([t0, t1, i0, i1, Math.max(i0 - thk, o0), Math.max(i1 - thk, o1)]);
+        if (gab) { const [mx, my] = P((t0 + t1) / 2), am = ny !== 0 ? mx : my; if (gab.some(([q0, q1]) => am > q0 && am < q1)) continue; }
         if (i0 - thk > o0 + 0.004 || i1 - thk > o1 + 0.004) stepsP.push([t0, t1, i0 - thk, i1 - thk, Math.min(o0, i0 - thk), Math.min(o1, i1 - thk)]);
       }
       const merge = (L2) => {
@@ -263,22 +282,6 @@ function build(spec) {
     }
   }
   // ---- 3. gable faces at the wall lines (+ windows), eave shadows on the walls ----
-  // along a wall line of rectangle r (outward n), the parts whose outside is not inside another rectangle's walls
-  const exposed = (r, axisX, line, nx, ny, a0, a1) => {
-    const hid = [];
-    for (const q of R) {
-      if (q === r) continue;
-      const ox = axisX ? null : line + nx * 1e-3, oy = axisX ? line + ny * 1e-3 : null;
-      if (axisX) { if (oy > q.Y0 && oy < q.Y1) hid.push([q.X0, q.X1]); }
-      else if (ox > q.X0 && ox < q.X1) hid.push([q.Y0, q.Y1]);
-    }
-    hid.sort((a, b) => a[0] - b[0]);
-    const out = [];
-    let cur = a0;
-    for (const [h0, h1] of hid) { if (h1 <= cur) continue; if (h0 >= a1) break; if (h0 > cur + 1e-6) out.push([cur, Math.min(h0, a1)]); cur = Math.max(cur, h1); }
-    if (cur < a1 - 1e-6) out.push([cur, a1]);
-    return out;
-  };
   const sides = (r) => [
     // [axisX (runs along x), line, nx, ny, a0, a1, from (a seen left on the outside), point(a)]
     [true, r.Y1, 0, 1, r.X0, r.X1], [true, r.Y0, 0, -1, r.X0, r.X1], [false, r.X1, 1, 0, r.Y0, r.Y1], [false, r.X0, -1, 0, r.Y0, r.Y1],
@@ -624,9 +627,12 @@ export function turnedView(G, c, s) {
     }
     return a > b ? null : [a, b];
   };
-  // "i before j" edges
+  // "i before j" edges (pairs sharing a view line: a sweep over the vx ranges)
   const succ = Array.from({ length: N }, () => []), indeg = new Int32Array(N);
-  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+  const byLo = Array.from({ length: N }, (_, i) => i).sort((p, q) => lo[p] - lo[q]);
+  for (let ii = 0; ii < N; ii++) for (let jj = ii + 1; jj < N; jj++) {
+    const i = byLo[ii], j = byLo[jj];
+    if (lo[j] > hi[i] - 1e-4) break;
     const a = Math.max(lo[i], lo[j]), b = Math.min(hi[i], hi[j]);
     if (b - a < 1e-4) continue;
     const m = (a + b) / 2, si = span(i, m), sj = span(j, m);
