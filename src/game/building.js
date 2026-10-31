@@ -26,7 +26,7 @@ import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
 import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
-import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt } from './roofs.js';
+import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt, roofTileFace, liftedPoint } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
 
@@ -397,7 +397,8 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
   // move plans are not in the grid
   for (const o of game.build.structures) if (o.moveOf && tx >= o.tx && tx < o.tx + o.fw && ty >= o.ty && ty < o.ty + o.fh) return o;
   // roof plans (blue, at eave height) and roofs whose region is faded out (player inside) are picked last
-  const rb = structureAt(game, tx, Math.floor(wy + roofEaveH()), 'roof');
+  const [lx, ly] = liftedPoint(game, wx, wy, roofEaveH()); // (agent J: the camera may be turned)
+  const rb = structureAt(game, Math.floor(lx), Math.floor(ly), 'roof');
   if (rb && rb.blueprint) return rb;
   return null;
 }
@@ -455,7 +456,8 @@ export function deconRect(game, x0, y0, x1, y1, roof = null, lv = 0) {
   }
   if (roof) {
     const b = roofPick(game, x1 + 0.5, y1 + 0.5);
-    const ex = b ? b.tx : x1, ey = b ? b.ty : Math.floor(y1 + roofEaveH() + 0.5);
+    const lp = liftedPoint(game, x1 + 0.5, y1 + 0.5, roofEaveH()); // (agent J: the camera may be turned)
+    const ex = b ? b.tx : Math.floor(lp[0]), ey = b ? b.ty : Math.floor(lp[1]);
     x0 = roof[0]; y0 = roof[1]; x1 = ex; y1 = ey;
   }
   const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
@@ -713,16 +715,24 @@ export function buildingSystem() {
         if (o.blueprint && def.roof) {
           // roof plan: a blue grid in the air (eave height), red-ish when no finished support is near yet
           const ok = canSupply(game, o), He = roofEaveH(game.build.storeysAt?.(o.tx, o.ty) || 1); // (agent L: highest story)
-          if (tile) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
+          // (agent J: camera turned — a face at eave height that turns with the world, roofTileFace)
+          if (tile && !roofTileFace(game, B, tile, o.tx, o.ty, He, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3)) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, ok ? 0.5 : 0.95, ok ? 0.78 : 0.55, ok ? 1 : 0.5, 0.42 + (o.progress || 0) * 0.3, 0, 0, 0, 1, 0, He);
           if (bar && (o.progress || 0) > 0.001) {
-            B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
-            B.fx.add(bar, o.tx + 0.17, o.ty - He + 0.4, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            const rr = game.cam?.rot || 0; // (agent J: camera turned — its left end where the bar sits over the tile at the eaves)
+            if (rr) {
+              const c = Math.cos(rr), s = Math.sin(rr), bx = o.tx + 0.5 - 0.35 * c, by = o.ty + 0.4 - 0.35 * s;
+              B.fx.add(bar, bx, by, 0.7, 1, 0.08, 0.1, 0.12, 0.75, 0, 0, 0, 1, 0, He);
+              B.fx.add(bar, bx + 0.02 * c, by + 0.02 * s, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95, 0, 0, 0, 1, 0, He);
+            } else {
+              B.fx.add(bar, o.tx + 0.15, o.ty - He + 0.4, 0.7, 1, 0.08, 0.1, 0.12, 0.75);
+              B.fx.add(bar, o.tx + 0.17, o.ty - He + 0.4, 0.66 * Math.min(1, o.progress), 0.62, 0.55, 0.9, 0.45, 0.95);
+            }
           }
           continue;
         }
         if (def.roof) {
           // a finished roof tile marked for deconstruction: red tile on the roof surface
-          if (game.build.decon.has(o) && tile) { const pl = 0.8 + 0.2 * Math.sin(t * 6); B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, 1, 0.35, 0.3, 0.55 * pl, 0, 0, 0, 1, 0, roofHeightAt(game, o.tx, o.ty)); }
+          if (game.build.decon.has(o) && tile) { const pl = 0.8 + 0.2 * Math.sin(t * 6); if (!roofTileFace(game, B, tile, o.tx, o.ty, roofHeightAt(game, o.tx, o.ty), 1, 0.35, 0.3, 0.55 * pl, true)) B.fx.add(tile, o.tx + 0.5, o.ty + 1, 1, 1, 1, 0.35, 0.3, 0.55 * pl, 0, 0, 0, 1, 0, roofHeightAt(game, o.tx, o.ty)); } // (turned: laid on the slope)
           continue;
         }
         if (o.blueprint) {
@@ -763,7 +773,7 @@ export function buildingSystem() {
         const He = roofEaveH(), sol = A.has('fx_solid') ? A.get('fx_solid') : null;
         for (const g of m.tiles) {
           if (!tile) break;
-          B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse, 0, 0, 0, 1, 0, He);
+          if (!roofTileFace(game, B, tile, g.tx, g.ty, He, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse)) B.fx.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, g.ok ? 0.42 : 1, g.ok ? 0.72 : 0.3, g.ok ? 1 : 0.25, (g.ok ? 0.6 : 0.95) * pulse, 0, 0, 0, 1, 0, He); // (agent J: turned → a face)
           // the ground under it: a pale wash where it fills, a strong red square where a column is missing
           if (sol) B.ground.add(sol, g.tx + 0.5, g.ty, 1 / sol.w, 1 / sol.h, g.ok ? 0.45 : 1, g.ok ? 0.7 : 0.2, g.ok ? 1 : 0.15, (g.ok ? 0.12 : 0.5) * pulse);
           else if (soft) B.ground.add(soft, g.tx + 0.5, g.ty + 0.85, 1.2, 0.9, 0.3, 0.5, 0.8, 0.16 * pulse);

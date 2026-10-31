@@ -304,42 +304,7 @@ export function rasterRegion(spec) {
         }
         const tint = (1 + 0.06 * Math.sin(x * 0.9 + yd * 0.6) * Math.sin(yd * 1.3 - x * 0.45)) * (0.9 + 0.1 * smooth(0, 1.6, V))
           * (1 + (vnoise(x * 0.45 + 31, yd * 0.45) - 0.5) * 0.14);
-        let lum = 1, base = s.base;
-        const rowH = s.rowH, cw = s.cellW;
-        if (s.pattern === 'scale') {
-          let row = Math.floor(V / rowH), fv = V / rowH - row;
-          let uu = U / cw + (row & 1) * 0.5, cell = Math.floor(uu), fu = uu - cell - 0.5;
-          let arc = 0.62 * (1 - Math.sqrt(Math.max(0, 1 - 4 * fu * fu)));
-          let t;
-          if (fv >= arc) t = fv - arc;
-          else { row--; uu = U / cw + (row & 1) * 0.5; cell = Math.floor(uu); fu = uu - cell - 0.5; arc = 0.62 * (1 - Math.sqrt(Math.max(0, 1 - 4 * fu * fu))); t = fv + 1 - arc; }
-          const jit = (hash(cell, row) - 0.5) * s.jitter * 3;
-          lum = (t < 0.06 ? 0.42 : t < 0.17 ? 1.22 : 1.08 - 0.32 * smooth(0.2, 1.3, t)) * (1 + jit);
-          lum *= 1 - 0.16 * smooth(0.3, 0.5, Math.abs(fu)) * smooth(0.5, 1.2, t);
-        } else if (s.pattern === 'shake') {
-          const row = Math.floor(V / rowH), fv = V / rowH - row;
-          const uu = U / cw + hash(row, 7) * 0.9, cell = Math.floor(uu), fu = uu - cell;
-          const jit = (hash(cell, row) - 0.5) * s.jitter * 3.2;
-          lum = (fu < 0.07 ? 0.45 : 1) * (fv < 0.1 ? 1.2 : fv > 0.8 ? 0.72 - 0.15 * smooth(0.8, 1, fv) : 1) * (1 + jit);
-          lum *= 0.94 + 0.06 * Math.sin(U * 130 + cell * 3.1) * Math.sin(V * 9 + cell);
-          if (hash(cell, row + 99) < 0.08) lum *= 0.82; // a weathered shake
-        } else if (s.pattern === 'thatch') {
-          const si = Math.floor(U * 26), sf = U * 26 - si;              // strands ~2 px wide
-          const ragged = (hash(si, 77) - 0.5) * 0.16 + Math.sin(U * 3.1) * 0.04;
-          const row = Math.floor((V + ragged) / rowH), fv = (V + ragged) / rowH - row;
-          const st = hash(si + row * 131, row) * 0.55 + hash(Math.floor(U * 9) + row * 17, row + 3) * 0.45;
-          const groove = 1 - 0.18 * Math.abs(sf - 0.5) * 2;               // round strands
-          lum = (0.78 + 0.36 * st) * groove;
-          lum *= fv < 0.1 ? 1.16 + 0.1 * st : fv > 0.72 ? 1 - 0.45 * smooth(0.72, 1, fv) : 1; // fringe / shadow under the next course
-          if (fv < 0.025) lum *= 0.55;
-        } else { // slab
-          const row = Math.floor(V / rowH), fv = V / rowH - row;
-          const uu = U / cw + (row & 1) * 0.5 + hash(row, 3) * 0.2, cell = Math.floor(uu), fu = uu - cell;
-          const jit = (hash(cell, row) - 0.5) * s.jitter * 3;
-          const edge = Math.min(fu, 1 - fu) * cw, ev = Math.min(fv, 1 - fv) * rowH;
-          lum = (edge < 0.02 || ev < 0.018 ? 0.48 : fv > 0.82 ? 0.82 : fv < 0.16 ? 1.16 : 1) * (1 + jit);
-          lum *= 0.94 + 0.12 * vnoise(U * 9 + cell, V * 9);
-        }
+        const lum = patLum(s, U, V);
         // ridge cap along the top of this rectangle's roof
         const capW = s.ridge === 'bound' ? 0.16 : 0.1;
         let shade = r.sh[f];
@@ -376,37 +341,13 @@ export function rasterRegion(spec) {
         R *= shade; Gc *= shade; B *= shade;
       } else if (k === FACE) {
         // gable face: plaster with timber, planks or stone; a small window in the middle
-        const gc = s.gableCol, tm = s.timber;
         const hb = h - He, u = x - r.c, half = r.half - e;
-        let c = gc, lum = 1;
-        if (s.gable === 'planks') {
-          const bw2 = 0.16, q = (x - r.X0) / bw2, fu = q - Math.floor(q);
-          lum = (fu < 0.1 ? 0.5 : 1) * (1 + (hash(Math.floor(q), 5) - 0.5) * 0.16) * (0.95 + 0.05 * Math.sin(hb * 60 + Math.floor(q)));
-        } else if (s.gable === 'stone') {
-          const row = Math.floor(hb / 0.16), fv = hb / 0.16 - row, uu = (x - r.X0) / 0.3 + (row & 1) * 0.5, fu = uu - Math.floor(uu);
-          lum = (fv < 0.12 || fu < 0.06 ? 0.55 : 1) * (1 + (hash(Math.floor(uu), row) - 0.5) * 0.2);
-        } else {
-          // plaster with a timber frame: tie beam at the bottom, king post, diagonal braces
-          lum = 0.96 + 0.08 * vnoise(x * 6, hb * 6);
-          const beam = hb < 0.1, post = Math.abs(u) < 0.05, brace = Math.abs(Math.abs(u) - (hb * 0.9)) < 0.05 && hb > 0.1;
-          if (beam || post || brace) { c = tm; lum = 0.9 + 0.2 * vnoise(x * 20, hb * 3); }
-        }
-        // window (or vent) in the middle of a tall enough face
-        const winH = Math.min(0.62, (r.rise - 0.1) * 0.3), wy = r.rise * 0.36;
-        if (winH > 0.16 && half > 0.7) {
-          const du = Math.abs(u), dv = hb - wy, hw = winH * 0.46, hh = winH * 0.5;
-          if (du < hw + 0.05 && dv > -hh - 0.06 && dv < -hh + 0.005) { c = tm; lum = 1.25; }       // sill
-          else if (du < hw && Math.abs(dv) < hh) {
-            const frame = du > hw - 0.045 || Math.abs(dv) > hh - 0.045 || du < 0.022 || Math.abs(dv) < 0.02;
-            if (frame) { c = tm; lum = 1; }
-            else { c = GLASS; lum = 1 + 0.9 * smooth(0.6, 1, 1 - Math.abs((u + dv) * 6 - 0.6)) + (dv > 0 ? 0.25 : 0); } // sky glint
-          }
-        }
+        const c = gableRGB(s, x, x - r.X0, u, hb, r.rise, half > 0.7, GC);
         // shade: vertical face facing the camera, darker right under the roof (eave shadow)
         const top = hRect(r, x, r.Y1) - He;
         const ao = 1 - 0.38 * smooth(top - 0.35, top, hb);
         const sh = 0.78 * ao * (1 + 0.06 * (u < 0 ? 1 : -1) * 0);
-        R = c[0] * lum * sh; Gc = c[1] * lum * sh; B = c[2] * lum * sh;
+        R = c[0] * sh; Gc = c[1] * sh; B = c[2] * sh;
       } else if (k === BOARD) {
         // bargeboard (7) / fascia (8): dark wood, light top edge
         const d = src[j] >= 0 ? spec.det[src[j]] | 0 : 0;
@@ -539,9 +480,9 @@ export function rasterRegion(spec) {
   };
 }
 
-// the roof's shape on the main thread (camera rotation: game/roofs.js builds a sloped mesh from it): the same
-// rectangles, planes and overhangs as rasterRegion, and the height of the roof surface at any world point
-// (-1e9 where there is no roof)
+// the roof's shape (camera rotation: art/roofFacets.js builds the 3D facets from it, game/roofs.js picks / occludes with
+// it): the same rectangles, planes and overhangs as rasterRegion; surf(x, y) = height of the roof surface at a world
+// point (-1e9 where there is no roof) and sets shape.K / shape.F (rectangle index / facet 1 W 2 E 3 S 4 N under it)
 export function roofShape(spec) {
   const G = ROOF_GEOM, He = spec.eaveH ?? G.eaveH, e = G.overhang, er = G.rake;
   const eS = G.overhangS ?? 0.12, erS = Math.min(er, eS);
@@ -550,42 +491,75 @@ export function roofShape(spec) {
   const inR = new Int32Array(bw * bh);
   for (let n = 0; n < nT; n++) { const i = T[n], x = i % W - bx0, y = ((i / W) | 0) - by0; inR[y * bw + x] = n + 1; }
   const SX = spec.styles || {};
+  const ST = new Array(nT);
+  for (let n = 0; n < nT; n++) ST[n] = SX[spec.style[n]] || ROOF_STYLES[spec.style[n]] || ROOF_STYLES.thatch;
   const rects = maximalRects(inR, bw, bh);
-  for (const r of rects) {
+  let maxRise = 0;
+  rects.forEach((r, k) => {
     const cnt = {};
     let best = null, bn = 0;
     for (let y = r.y0; y < r.y1; y++) for (let x = r.x0; x < r.x1; x++) {
-      const k = spec.style[inR[y * bw + x] - 1];
-      cnt[k] = (cnt[k] || 0) + 1;
-      if (cnt[k] > bn) { bn = cnt[k]; best = k; }
+      const q = spec.style[inR[y * bw + x] - 1];
+      cnt[q] = (cnt[q] || 0) + 1;
+      if (cnt[q] > bn) { bn = cnt[q]; best = q; }
     }
     const S = SX[best] || ROOF_STYLES[best] || ROOF_STYLES.thatch;
+    r.k = k; r.S = S;
     r.X0 = r.x0 + bx0; r.X1 = r.x1 + bx0; r.Y0 = r.y0 + by0; r.Y1 = r.y1 + by0;
     const w = r.X1 - r.X0, d = r.Y1 - r.Y0;
     r.ns = w <= d * G.frontGable;
     r.hip = S.ends === 'hip';
     const span = r.ns ? w : d;
     r.p = Math.min(S.pitch, G.maxRise / Math.max(0.5, span / 2));
+    r.half = span / 2 + e;
     r.c = r.ns ? (r.X0 + r.X1) / 2 : (r.Y0 + r.Y1) / 2;
+    r.rise = r.p * span / 2;
+    if (r.rise > maxRise) maxRise = r.rise;
     if (r.ns) { r.dx0 = r.X0 - e; r.dx1 = r.X1 + e; r.dy0 = r.Y0 - (r.hip ? e : er); r.dy1 = r.Y1 + (r.hip ? eS : erS); }
     else { r.dx0 = r.X0 - (r.hip ? e : er); r.dx1 = r.X1 + (r.hip ? e : er); r.dy0 = r.Y0 - e; r.dy1 = r.Y1 + eS; }
-  }
+    const inv = 1 / Math.hypot(r.p, 1);
+    r.sh = [0, 0.5 + 0.62 * (-LX * r.p + LZ) * inv, 0.5 + 0.62 * (LX * r.p + LZ) * inv, 0.5 + 0.62 * (LY * r.p + LZ) * inv, 0.5 + 0.62 * (-LY * r.p + LZ) * inv];
+  });
   const plane = (p, a, off, kick = 0.4) => (a >= off ? He + p * (a - off) : He - (off - a) * p * kick);
-  const hRect = (r, x, y) => {
+  let HF = 0;
+  const hRect = (r, x, y) => { // (as rasterRegion: the facet as a side value)
     if (x < r.dx0 || x > r.dx1 || y < r.dy0 || y > r.dy1) return -1e9;
     const p = r.p;
-    let h;
+    let h, f;
     if (r.ns) {
-      h = Math.min(plane(p, x - r.dx0, e), plane(p, r.dx1 - x, e));
-      if (r.hip) h = Math.min(h, plane(p, r.dy1 - y, eS), plane(p, y - r.dy0, e, 1));
+      const hw = plane(p, x - r.dx0, e), he = plane(p, r.dx1 - x, e);
+      if (hw <= he) { h = hw; f = 1; } else { h = he; f = 2; }
+      if (r.hip) {
+        const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e, 1);
+        if (hs < h && hs <= hn) { h = hs; f = 3; } else if (hn < h) { h = hn; f = 4; }
+      }
     } else {
-      h = Math.min(plane(p, r.dy1 - y, eS), plane(p, y - r.dy0, e, 1));
-      if (r.hip) h = Math.min(h, plane(p, x - r.dx0, e), plane(p, r.dx1 - x, e));
+      const hs = plane(p, r.dy1 - y, eS), hn = plane(p, y - r.dy0, e, 1);
+      if (hs <= hn) { h = hs; f = 3; } else { h = hn; f = 4; }
+      if (r.hip) {
+        const hw = plane(p, x - r.dx0, e), he = plane(p, r.dx1 - x, e);
+        if (hw < h && hw <= he) { h = hw; f = 1; } else if (he < h) { h = he; f = 2; }
+      }
     }
+    HF = f;
     return h;
   };
-  const hAt = (x, y) => { let H = -1e9; for (const r of rects) { const h = hRect(r, x, y); if (h > H) H = h; } return H; };
-  return { rects, He, e, eS, er, erS, hAt };
+  const shape = { rects, He, e, eS, er, erS, maxRise, W, bx0, by0, bw, bh, inR, T, nT, ST, K: -1, F: 0, hRect };
+  shape.surf = (x, y) => {
+    let H = -1e9, K = -1, F = 0;
+    for (let k = 0; k < rects.length; k++) { const h = hRect(rects[k], x, y); if (h > H) { H = h; K = k; F = HF; } }
+    shape.K = K; shape.F = F;
+    return H;
+  };
+  shape.hAt = shape.surf;
+  // region tile (order index) nearest a world point inside rectangle r
+  shape.tileIn = (r, x, y) => {
+    const tx = Math.min(r.x1 - 1, Math.max(r.x0, Math.floor(x) - bx0)), ty = Math.min(r.y1 - 1, Math.max(r.y0, Math.floor(y) - by0));
+    return inR[ty * bw + tx] - 1;
+  };
+  // region tile (order index) at a world tile, -1 outside the region
+  shape.tileAt = (tx, ty) => { const x = tx - bx0, y = ty - by0; return x < 0 || y < 0 || x >= bw || y >= bh ? -1 : inR[y * bw + x] - 1; };
+  return shape;
 }
 
 // lookups on a finished art (main thread): slice / world tile under a screen-world point (x, sy)
@@ -603,6 +577,83 @@ export function attachArt(art) {
   return art;
 }
 
-const TRIM = [0.86, 0.84, 0.78], GLASS = [0.2, 0.27, 0.33], STONE = [0.58, 0.55, 0.52];
-const clamp255 = (v) => (v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0);
+export const TRIM = [0.86, 0.84, 0.78], GLASS = [0.2, 0.27, 0.33], STONE = [0.58, 0.55, 0.52];
+export const clamp255 = (v) => (v <= 0 ? 0 : v >= 1 ? 255 : (v * 255 + 0.5) | 0);
 function nearestChim(list, x, y) { let b = null, bd = 1e9; for (const c of list) { const d = Math.abs(c.x - x) + Math.abs(c.y - y); if (d < bd) { bd = d; b = c; } } return b; }
+const GC = [0, 0, 0];
+export { hash, smooth, vnoise, LX, LY, LZ };
+
+// luminance of a style's covering at course coordinates U (along the courses, parallel to the eave) and V (up the
+// slope): fish-scale tiles / wood shakes / thatch / stone slabs (shared by the north view and the turned facets)
+export function patLum(s, U, V) {
+  let lum = 1;
+  const rowH = s.rowH, cw = s.cellW;
+  if (s.pattern === 'scale') {
+    let row = Math.floor(V / rowH), fv = V / rowH - row;
+    let uu = U / cw + (row & 1) * 0.5, cell = Math.floor(uu), fu = uu - cell - 0.5;
+    let arc = 0.62 * (1 - Math.sqrt(Math.max(0, 1 - 4 * fu * fu)));
+    let t;
+    if (fv >= arc) t = fv - arc;
+    else { row--; uu = U / cw + (row & 1) * 0.5; cell = Math.floor(uu); fu = uu - cell - 0.5; arc = 0.62 * (1 - Math.sqrt(Math.max(0, 1 - 4 * fu * fu))); t = fv + 1 - arc; }
+    const jit = (hash(cell, row) - 0.5) * s.jitter * 3;
+    lum = (t < 0.06 ? 0.42 : t < 0.17 ? 1.22 : 1.08 - 0.32 * smooth(0.2, 1.3, t)) * (1 + jit);
+    lum *= 1 - 0.16 * smooth(0.3, 0.5, Math.abs(fu)) * smooth(0.5, 1.2, t);
+  } else if (s.pattern === 'shake') {
+    const row = Math.floor(V / rowH), fv = V / rowH - row;
+    const uu = U / cw + hash(row, 7) * 0.9, cell = Math.floor(uu), fu = uu - cell;
+    const jit = (hash(cell, row) - 0.5) * s.jitter * 3.2;
+    lum = (fu < 0.07 ? 0.45 : 1) * (fv < 0.1 ? 1.2 : fv > 0.8 ? 0.72 - 0.15 * smooth(0.8, 1, fv) : 1) * (1 + jit);
+    lum *= 0.94 + 0.06 * Math.sin(U * 130 + cell * 3.1) * Math.sin(V * 9 + cell);
+    if (hash(cell, row + 99) < 0.08) lum *= 0.82; // a weathered shake
+  } else if (s.pattern === 'thatch') {
+    const si = Math.floor(U * 26), sf = U * 26 - si;              // strands ~2 px wide
+    const ragged = (hash(si, 77) - 0.5) * 0.16 + Math.sin(U * 3.1) * 0.04;
+    const row = Math.floor((V + ragged) / rowH), fv = (V + ragged) / rowH - row;
+    const st = hash(si + row * 131, row) * 0.55 + hash(Math.floor(U * 9) + row * 17, row + 3) * 0.45;
+    const groove = 1 - 0.18 * Math.abs(sf - 0.5) * 2;               // round strands
+    lum = (0.78 + 0.36 * st) * groove;
+    lum *= fv < 0.1 ? 1.16 + 0.1 * st : fv > 0.72 ? 1 - 0.45 * smooth(0.72, 1, fv) : 1; // fringe / shadow under the next course
+    if (fv < 0.025) lum *= 0.55;
+  } else { // slab
+    const row = Math.floor(V / rowH), fv = V / rowH - row;
+    const uu = U / cw + (row & 1) * 0.5 + hash(row, 3) * 0.2, cell = Math.floor(uu), fu = uu - cell;
+    const jit = (hash(cell, row) - 0.5) * s.jitter * 3;
+    const edge = Math.min(fu, 1 - fu) * cw, ev = Math.min(fv, 1 - fv) * rowH;
+    lum = (edge < 0.02 || ev < 0.018 ? 0.48 : fv > 0.82 ? 0.82 : fv < 0.16 ? 1.16 : 1) * (1 + jit);
+    lum *= 0.94 + 0.12 * vnoise(U * 9 + cell, V * 9);
+  }
+  return lum;
+}
+
+// colour of a gable face (unshaded): plaster with a timber frame (tie beam, king post, braces), planks or stone, and a
+// small window in the middle when the face is big enough (win). a = coordinate along the face (tiles), ar = the same
+// from the face's start (pattern phase), u = from the ridge line, hb = height above the eaves, rise = the ridge's.
+export function gableRGB(s, a, ar, u, hb, rise, win, out) {
+  const gc = s.gableCol, tm = s.timber;
+  let c = gc, lum = 1;
+  if (s.gable === 'planks') {
+    const bw2 = 0.16, q = ar / bw2, fu = q - Math.floor(q);
+    lum = (fu < 0.1 ? 0.5 : 1) * (1 + (hash(Math.floor(q), 5) - 0.5) * 0.16) * (0.95 + 0.05 * Math.sin(hb * 60 + Math.floor(q)));
+  } else if (s.gable === 'stone') {
+    const row = Math.floor(hb / 0.16), fv = hb / 0.16 - row, uu = ar / 0.3 + (row & 1) * 0.5, fu = uu - Math.floor(uu);
+    lum = (fv < 0.12 || fu < 0.06 ? 0.55 : 1) * (1 + (hash(Math.floor(uu), row) - 0.5) * 0.2);
+  } else {
+    // plaster with a timber frame: tie beam at the bottom, king post, diagonal braces
+    lum = 0.96 + 0.08 * vnoise(a * 6, hb * 6);
+    const beam = hb < 0.1, post = Math.abs(u) < 0.05, brace = Math.abs(Math.abs(u) - (hb * 0.9)) < 0.05 && hb > 0.1;
+    if (beam || post || brace) { c = tm; lum = 0.9 + 0.2 * vnoise(a * 20, hb * 3); }
+  }
+  // window (or vent) in the middle of a tall enough face
+  const winH = Math.min(0.62, (rise - 0.1) * 0.3), wy = rise * 0.36;
+  if (winH > 0.16 && win) {
+    const du = Math.abs(u), dv = hb - wy, hw = winH * 0.46, hh = winH * 0.5;
+    if (du < hw + 0.05 && dv > -hh - 0.06 && dv < -hh + 0.005) { c = tm; lum = 1.25; }       // sill
+    else if (du < hw && Math.abs(dv) < hh) {
+      const frame = du > hw - 0.045 || Math.abs(dv) > hh - 0.045 || du < 0.022 || Math.abs(dv) < 0.02;
+      if (frame) { c = tm; lum = 1; }
+      else { c = GLASS; lum = 1 + 0.9 * smooth(0.6, 1, 1 - Math.abs((u + dv) * 6 - 0.6)) + (dv > 0 ? 0.25 : 0); } // sky glint
+    }
+  }
+  out[0] = c[0] * lum; out[1] = c[1] * lum; out[2] = c[2] * lum;
+  return out;
+}

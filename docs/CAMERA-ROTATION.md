@@ -62,12 +62,44 @@ calculados para o ângulo do momento.
     vistas do lado do cômodo, desenhadas logo depois da parede (na vista norte elas nunca apareciam: `DECOR_GEOM.mount`
     guarda só a altura e `drawDecorProp` lia `g.l` / `g.s` → altura NaN; corrigido). **Rachaduras de cerco** (`fx/rockfx.js`): no topo e em
     cada lado à mostra (porta: nas faces das folhas; cerca: um cartão no meio).
-- **Telhados:** malha inclinada (`game/roofs.js roofMesh`, `art/roofRaster.roofShape` = os mesmos retângulos e
-  planos do pintor): a superfície numa grade que passa pelas cumeeiras e pelas linhas das paredes, com a imagem
-  pintada do telhado como textura (um ponto (x, y, h) do telhado é onde a vista norte o pintou, (x, y − h)); oitões e
-  degraus entre telhados como faces verticais até o beiral (os do sul pintados, os outros em reboco); chaminés como
-  caixas de pedra. Ordenado como uma peça só (pelo ponto mais à frente); some quando o jogador entra (como sempre) e
-  fica translúcido quando esconde o jogador.
+- **Telhados** (`art/roofFacets.js`, `game/roofs.js`): peças 3D de verdade, com arte própria em cada face — uma água
+  tem a mesma cara vista de qualquer lado.
+  - **Geometria exata** (`turnedGeom`, a partir de `art/roofRaster.roofShape` = os mesmos retângulos, planos e beirais
+    do pintor da vista norte): a superfície é o MÁXIMO dos retângulos do MÍNIMO dos seus planos. O domínio de cada
+    retângulo é cortado pelas linhas das paredes (onde o beiral fica mais raso), cada plano fica com a parte convexa em
+    que é o mais baixo do seu retângulo e os outros retângulos mais altos ali são subtraídos (recorte de polígonos
+    convexos): tacaniças (hip), rincões dos L / T / U e alas que morrem num telhado mais alto saem exatos.
+  - **Arte em planta:** a superfície é pintada vista de cima (ortográfica, alinhada ao mundo) num atlas por região: as
+    fiadas seguem o beiral de cada água (telhas escama / tabuinhas / palha / lajes por estilo, com a luz fixa da vista
+    norte por água), cumeeiras (telha / amarrada / tábua), arestas das tacaniças, calhas dos rincões, musgo, desgaste,
+    tom, acabamentos claros nas beiradas (`trim`). Um ponto (x, y, h) do telhado usa o texel (x, y) — sem esticar.
+  - **Faces verticais:** testeiras nos beirais, bargeboards nas empenas (cor da tábua do estilo ou `trim`), degraus
+    onde um telhado mais alto fica sobre um mais baixo (material da empena sob uma tábua), **empenas** na linha da
+    parede (reboco com enxaimel / tábuas / pedra pelo estilo; janela quando a empena é grande, que **brilha à noite**
+    com uma luz acesa dentro, na camada de brilho), sombra suave do beiral nas paredes. Empenas só onde o lado de fora
+    não é dentro de outro retângulo; sob o beiral de uma empena sobre um telhado mais baixo aparece a própria empena.
+  - **Chaminés** de pedra sobre as lareiras (o pé segue a água, capa mais larga, boca escura; a fumaça sai do meio da
+    boca), **cata-vento** (haste em cruz, seta, cruz dos pontos cardeais: visível de qualquer lado).
+  - **Ordem de desenho:** por ângulo (passos de 0,25°, guardado), só as faces viradas para a câmera (uma água com
+    subida ≥ 1 na direção da vista fica escondida pela da frente); peças em planta disjuntas ordenadas na direção da
+    vista (na mesma linha de vista, a mais perto da câmera vai depois; o que está em cima do telhado depois da água
+    embaixo), ordenação topológica. Depois cortadas em **colunas de vista** de 1 tile: cada coluna é um desenhável
+    ordenado com os sprites (chave = o ponto mais à frente das paredes a meio tile da coluna, para nenhuma caixa de
+    parede passar por cima do beiral; um sprite em pé sob o beiral, na frente da parede, fica por cima — como no
+    norte). Chaves relativas ao meio da região, corrigidas pelo ângulo exato a cada quadro. Girando, as vistas são
+    recalculadas dentro de 2,5 ms por quadro (as mais atrasadas primeiro).
+  - **Pintura:** no worker (`roofWorker.js`, modo 2 / 3), junto com a arte norte depois que a câmera girou uma vez
+    (lembrado em `localStorage wos.roofTurn`: quem gira a câmera já recebe a arte pronta na próxima sessão); até lá,
+    a mesma geometria em cores lisas por água. Quem nunca gira não paga nada.
+  - **Luz / clima:** o telhado girado entra no mapa de luz como oclusor (`uRoofFx.w`: lâmpadas de dentro não clareiam
+    o telhado), escurece com a chuva e recebe a neve só nas águas (não nas empenas) — `FACE_FS uRoofFx`. Sombras do sol:
+    as peças e o volume das paredes projetados no chão ao longo do sol (`batches.shadowFaces`, MAX como os sprites):
+    certas em qualquer ângulo.
+  - **Interação:** tocar no telhado (desmontar etc., `roofPick`) lança um raio da tela para a câmera (subir na tela =
+    subir em altura) contra a superfície de todas as regiões; o telhado fica translúcido só quando o raio do peito /
+    cabeça do jogador na tela bate no telhado na frente dele; desabamento: as peças descem e somem; plantas de
+    telhado, o fantasma do telhado e a marca vermelha de desmontar viram faces que giram com o mundo (a marca deitada
+    na água), `roofTileFace` / `liftedPoint`; some quando o jogador entra (como sempre).
 - **Escadas (níveis, `art/faces/levels.js`):** a arte de verdade da escada (`art/stairs.js`) em faces calculadas, nas 4
   rotações e em qualquer andar: cada degrau com a pisada de `stairs_wood` no topo e o espelho (riser) de
   `stairs_wood` na frente, as duas longarinas com o perfil em degraus de `stairs_wood_e` nos lados (a viga diagonal por
@@ -152,15 +184,16 @@ calculados para o ângulo do momento.
 
 ## O que falta
 
-- Telhado com tacaniça (hip): as linhas diagonais ficam aproximadas na grade; a parte de baixo do beiral não é
-  desenhada.
-- A luz das lâmpadas de dentro ainda clareia o telhado girado (o telhado não entra no mapa de luz enquanto girado).
+- Telhados: a parte de baixo do beiral não é desenhada (com a câmera a 45° ela nunca aparece: a parede ou a própria
+  água da frente a escondem); na primeira girada da sessão (quem nunca girou) os telhados aparecem em cores lisas até
+  o worker pintar (~0,1–0,3 s por casa); a ordem das peças vem de um ângulo até 0,25° atrás (giro rápido: alguns
+  quadros).
 - Estruturas: tochas de parede continuam sprite (são da área de luzes / móveis); os pilares / postes de canto das
   paredes ficam pintados nas faces (não saem da caixa); faces não recebem sombra de outras coisas (como antes). Ao
   sair de 0° as sebes / muros de pedra / postes mudam alguns pixels (a arte da vista norte não tem topo nem
   espessura; em 3D têm).
 - Fantasmas do modo construção (o que você está posicionando) continuam sprites (menos escadas e pisos num andar de
-  cima, e os quadrados do fantasma num andar).
+  cima, os quadrados do fantasma num andar e o fantasma do telhado: faces).
 - Escadas / pisos girados não projetam sombra do sol (as faces não entram no mapa de sombras) nem recebem neve; na
   vista de lado a escada não tem o contorno escuro do sprite.
 - Em 0° um baú / mesa num andar de cima sumia embaixo da laje do próprio tile (âncora acima da borda sul): agora a

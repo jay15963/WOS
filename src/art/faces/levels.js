@@ -13,6 +13,7 @@
 // of two surfaces is the nearer one (the view looks down at 45°), so a face that never crosses a band boundary can be
 // ordered by the band it sits in; the stringer side faces, posts, legs and rails are clipped to the bands.
 import { registerFaces, boxDepth } from './registry.js';
+import { shade as faceShade } from './kit.js';
 import { CAMV, KIT_ENV, archSprite } from '../archCompose.js';
 import { STAIR_ART as SA } from '../stairs.js';
 import { WALL_H } from '../structures.js';
@@ -37,7 +38,7 @@ function state(o) {
   else { CR = CG = CB = 1; CA = a; }
 }
 const viewK = (nx, ny) => -CAMV.s * nx + CAMV.c * ny;          // > 0: a side whose outside faces the viewer
-const shadeOf = (nx, ny) => 0.8 - 0.2 * (nx * CAMV.lx + ny * CAMV.ly); // (as the walls, art/archCompose.js)
+const shadeOf = (nx, ny) => faceShade(nx, ny); // (the walls' light, art/faces/kit.js)
 
 // ---------- sprite pixel → atlas uv (a sprite painted W × H px, anchor ax, ay of that nominal box) ----------
 function pxMap(s, W, H, ax = 0.5, ay = 1) {

@@ -361,12 +361,33 @@ in vec2 vUV;
 in vec4 vC;
 uniform sampler2D uTex;
 uniform sampler2D uLook;
+// roof faces (camera turned, game/roofs.js; 0 for everything else): x rain darkening, y snow (above v = z: the roof's
+// plan image), w 1 = light-occluder pass (writes the outdoor ambient uAmbR × coverage; glows / eave shadows skipped)
+uniform vec4 uRoofFx;
+uniform vec3 uAmbR;
 layout(location=0) out vec4 o;
 layout(location=1) out vec4 oE;
 void main(){
   vec4 t = vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)) : texture(uTex, vUV);
   if (t.a < 0.01) discard;
+  if (uRoofFx.w > 0.5) {
+    if (vC.a < 0.0 || max(vC.r, max(vC.g, vC.b)) < 0.002) discard;
+    float a = t.a * vC.a;
+    o = vec4(uAmbR * a, a); oE = vec4(0.0); return;
+  }
   vec4 c = vec4(t.rgb * vC.rgb, t.a) * abs(vC.a);
+  if (uRoofFx.x + uRoofFx.y > 0.0 && vC.a > 0.0) {
+    c.rgb *= 1.0 - 0.17 * uRoofFx.x;   // rain-darkened roof
+    if (uRoofFx.y > 0.01 && vUV.y < uRoofFx.z) {
+      // a blanket of snow on the slopes that keeps their shading (as ROOF_FS)
+      float lum = dot(c.rgb, vec3(0.3, 0.59, 0.11)) / max(c.a, 1e-3);
+      vec2 sp = floor(vUV * vec2(textureSize(uTex, 0)) / 3.0);
+      float gr = fract(sin(dot(sp, vec2(12.9898, 78.233))) * 43758.5453);
+      vec3 sn = vec3(0.88, 0.91, 0.96) * clamp(0.5 + lum * 1.25, 0.55, 1.08) * (0.97 + 0.06 * gr);
+      float m = uRoofFx.y * smoothstep(0.06, 0.16, lum) * (0.88 + 0.12 * gr);
+      c.rgb = mix(c.rgb, sn * c.a, m);
+    }
+  }
   if (vC.a < 0.0) { o = vec4(0.0); oE = vec4(c.rgb, 0.0); } // a glow (lit window) on the face: to the glow layer
   else { o = c; oE = vec4(0.0, 0.0, 0.0, c.a); }
 }`;

@@ -473,7 +473,7 @@ function recordPiece(A, o, mask, t, side, light, k = null) {
   try { drawArch(RB, A, o, t, 0); } finally { o.mask = m0; FACE_SIDE = false; CUR_LIGHT = null; K_OVER = null; } // sync-ok: restores the mask
 }
 const vis = (nx, ny) => -CAMV.s * nx + CAMV.c * ny > 0.02; // a side whose outside faces the viewer
-const shadeOf = (nx, ny) => 0.8 - 0.2 * (nx * CAMV.lx + ny * CAMV.ly);
+const shadeOf = (nx, ny) => { const k = 1 + 0.26 * (nx * CAMV.lx + ny * CAMV.ly - CAMV.ly); return k < 0.6 ? 0.6 : k > 1.24 ? 1.24 : k; }; // (= faces/kit.js shade)
 // the frame-aligned layers of a recording (drawn at the piece's anchor, unscaled, unlifted)
 const layers = (L, o) => L.filter((r) => Math.abs(r[1] - o.x) < 1e-3 && Math.abs(r[2] - o.y) < 1e-3 && Math.abs(Math.abs(r[3]) - 1) < 1e-3 && Math.abs(r[4] - 1) < 1e-3 && !r[9] && !r[10]);
 const solidUV = (T) => { const s = T.opt('fx_solid'); if (!s || !ok(s)) return null; const u = (s.u0 + s.u1) / 2, v = (s.v0 + s.v1) / 2; return [u, v, u, v]; };
