@@ -4,6 +4,7 @@
 //   eg: [depth, halfWidth] edge props: body depth N-S / half width E-W in tiles (setGeom)
 //   mount: 'wall'          wall-mounted: must lean against a finished wall or rock (drawn up on the wall face)
 //   dummy: true            training dummy: attackable forever (mut/kit.js dummy.hit)
+//   block: 0 = no collision (owner: small pieces — candles, lamps, pots, stools… — never get in the way)
 //   mat: 'wood'|'stone'|'plant' (tone filters of the style kits)   flame: n small candle / lantern flames (no smoke, no crackle)
 // Sprite = type (+ `_e` / `_n` facing variants for rotating 2×1 pieces, `_<v>` variants). Strings in pt-BR.
 
@@ -29,7 +30,7 @@ export const DECOR = {
                   desc: 'Gavetas, uma bacia e um espelhinho.' },
   bench_wood:   { name: 'Banco de madeira', g: 'm', emoji: '🪑', cat: ['deco', 'garden'], decor: true, cost: { wood: 4 }, size: [2, 1], time: 2.5, xp: 3, block: 'tile', rotate: true, move: true,
                   desc: 'Banco comprido para a casa ou o jardim.' },
-  stool:        { name: 'Banquinho', g: 'm', emoji: '🪑', cat: ['deco'], decor: true, cost: { wood: 2 }, time: 1.5, xp: 2, block: 0.16, edge: true, move: true, eg: [0.3, 0.16],
+  stool:        { name: 'Banquinho', g: 'm', emoji: '🪑', cat: ['deco'], decor: true, cost: { wood: 2 }, time: 1.5, xp: 2, block: 0, edge: true, move: true, eg: [0.3, 0.16],
                   desc: 'Banquinho de três pés.' },
   chair_fine:   { name: 'Cadeira estofada', g: 'f', emoji: '🪑', cat: ['deco'], decor: true, cost: { wood: 3, cloth: 1 }, time: 3, xp: 4, block: 0.2, edge: true, move: true, eg: [0.5, 0.26],
                   desc: 'Madeira escura e almofada vermelha.' },
@@ -43,17 +44,17 @@ export const DECOR = {
                   desc: 'Caixotes empilhados.' },
   sacks:        { name: 'Sacos de grãos', g: 'm', emoji: '🌾', cat: ['deco', 'garden'], decor: true, cost: { fiber: 4 }, time: 1.5, xp: 2, block: 0.26, edge: true, move: true, eg: [0.42, 0.32],
                   desc: 'Sacos de estopa cheios.' },
-  jars:         { name: 'Potes e jarros', g: 'm', emoji: '🏺', cat: ['deco'], decor: true, cost: { stone: 2 }, time: 1.5, xp: 2, block: 0.2, edge: true, move: true, eg: [0.36, 0.3],
+  jars:         { name: 'Potes e jarros', g: 'm', emoji: '🏺', cat: ['deco'], decor: true, cost: { stone: 2 }, time: 1.5, xp: 2, block: 0, edge: true, move: true, eg: [0.36, 0.3],
                   desc: 'Potes de barro de vários tamanhos.' },
-  candles:      { name: 'Velas', g: 'f', emoji: '🕯️', cat: ['deco', 'light'], decor: true, cost: { fiber: 1, wood: 1 }, time: 1, xp: 2, block: 0.08, edge: true, move: true, eg: [0.2, 0.14], flame: 3,
+  candles:      { name: 'Velas', g: 'f', emoji: '🕯️', cat: ['deco', 'light'], decor: true, cost: { fiber: 1, wood: 1 }, time: 1, xp: 2, block: 0, edge: true, move: true, eg: [0.2, 0.14], flame: 3,
                   light: L(1, 0.76, 0.42, 2.6, 0.75, 0.35, 0.2), desc: 'Três velas num prato. Luz suave.' },
-  candelabra:   { name: 'Candelabro', g: 'm', emoji: '🕯️', cat: ['deco', 'light'], decor: true, cost: { copper_bar: 1 }, time: 2, xp: 4, block: 0.14, edge: true, move: true, eg: [0.24, 0.18], flame: 5,
+  candelabra:   { name: 'Candelabro', g: 'm', emoji: '🕯️', cat: ['deco', 'light'], decor: true, cost: { copper_bar: 1 }, time: 2, xp: 4, block: 0, edge: true, move: true, eg: [0.24, 0.18], flame: 5,
                   light: L(1, 0.76, 0.42, 4.2, 1.0, 0.3, 1.0), desc: 'Candelabro de pé com cinco velas.' },
   herbs_hang:   { name: 'Ervas penduradas', g: 'f', emoji: '🌿', cat: ['deco'], decor: true, cost: { fiber: 3 }, time: 1.2, xp: 2, block: 0, edge: true, mount: 'wall', move: true, eg: [0.12, 0.34],
                   desc: 'Maços de ervas secando na parede.' },
   curtain:      { name: 'Cortinas', g: 'f', emoji: '🪟', cat: ['deco'], decor: true, cost: { cloth: 2 }, time: 1.2, xp: 2, block: 0, edge: true, mount: 'wall', move: true, eg: [0.1, 0.42],
                   desc: 'Cortinas de tecido presas na parede.' },
-  plant_pot:    { name: 'Planta em vaso', g: 'f', emoji: '🪴', cat: ['deco', 'garden'], decor: true, cost: { stone: 2, fiber: 2 }, time: 1.5, xp: 2, block: 0.2, edge: true, move: true, eg: [0.34, 0.22],
+  plant_pot:    { name: 'Planta em vaso', g: 'f', emoji: '🪴', cat: ['deco', 'garden'], decor: true, cost: { stone: 2, fiber: 2 }, time: 1.5, xp: 2, block: 0, edge: true, move: true, eg: [0.34, 0.22],
                   desc: 'Samambaia, arbusto ou arvorezinha num vaso.' },
   rug_round:    { name: 'Tapete redondo', g: 'm', emoji: '⭕', cat: ['deco'], decor: true, cost: { cloth: 4 }, size: [2, 2], time: 2, xp: 4, layer: 'rug', flat: true, move: true,
                   desc: 'Tapete trançado redondo, 2×2.' },
@@ -77,9 +78,9 @@ export const DECOR = {
                   desc: 'Boneco de palha para treinar golpes. Nunca quebra; mostra o dano e um pouco de experiência.' },
 
   // ---------- garden / exterior ----------
-  lamp_stone:   { name: 'Lanterna de pedra', g: 'f', emoji: '🏮', cat: ['garden', 'light'], decor: true, cost: { stone: 6 }, time: 3, xp: 5, block: 0.18, edge: true, move: true, eg: [0.3, 0.18], flame: 1,
+  lamp_stone:   { name: 'Lanterna de pedra', g: 'f', emoji: '🏮', cat: ['garden', 'light'], decor: true, cost: { stone: 6 }, time: 3, xp: 5, block: 0, edge: true, move: true, eg: [0.3, 0.18], flame: 1,
                   light: L(1, 0.78, 0.46, 4.6, 1.0, 0.18, 0.6), desc: 'Pilar de pedra com chama protegida.' },
-  lamp_wood:    { name: 'Poste de lanterna', g: 'm', emoji: '🏮', cat: ['garden', 'light'], decor: true, cost: { wood: 4, fiber: 1 }, time: 2.5, xp: 4, block: 0.14, edge: true, move: true, eg: [0.26, 0.14], flame: 1,
+  lamp_wood:    { name: 'Poste de lanterna', g: 'm', emoji: '🏮', cat: ['garden', 'light'], decor: true, cost: { wood: 4, fiber: 1 }, time: 2.5, xp: 4, block: 0, edge: true, move: true, eg: [0.26, 0.14], flame: 1,
                   light: L(1, 0.8, 0.5, 5.2, 1.05, 0.12, 1.25), desc: 'Poste de madeira com lanterna pendurada.' },
   flower_bed:   { name: 'Canteiro de flores', g: 'm', emoji: '🌷', cat: ['garden'], decor: true, cost: { fiber: 2, pebble: 2 }, time: 1.5, xp: 2, block: 0, move: true, drag: 'area',
                   desc: 'Flores coloridas num canteiro com pedrinhas.' },
@@ -89,7 +90,7 @@ export const DECOR = {
                   desc: 'Pedras chatas para fazer trilhas.' },
   well:         { name: 'Poço', g: 'm', emoji: '🪣', cat: ['garden'], decor: true, cost: { stone: 10, wood: 4, rope: 1 }, time: 6, xp: 10, block: 0.46, move: true,
                   desc: 'Poço de pedra com telhadinho e balde.' },
-  signpost:     { name: 'Placa', g: 'f', emoji: '🪧', cat: ['garden'], decor: true, cost: { wood: 2 }, time: 1.2, xp: 2, block: 0.1, edge: true, move: true, eg: [0.2, 0.3],
+  signpost:     { name: 'Placa', g: 'f', emoji: '🪧', cat: ['garden'], decor: true, cost: { wood: 2 }, time: 1.2, xp: 2, block: 0, edge: true, move: true, eg: [0.2, 0.3],
                   desc: 'Placa de madeira indicando o caminho.' },
   bench_stone:  { name: 'Banco de pedra', g: 'm', emoji: '🪨', cat: ['garden'], decor: true, cost: { stone: 6 }, size: [2, 1], time: 3, xp: 4, block: 'tile', rotate: true, move: true,
                   desc: 'Banco de laje de pedra.' },
@@ -107,7 +108,7 @@ export const DECOR = {
                   desc: 'Carroça de madeira carregada de sacos.' },
   scarecrow:    { name: 'Espantalho', g: 'm', emoji: '🧑‍🌾', cat: ['garden'], decor: true, cost: { wood: 2, fiber: 4, cloth: 1 }, time: 2.5, xp: 3, block: 0.16, move: true,
                   desc: 'Espanta os passarinhos da plantação.' },
-  birdhouse:    { name: 'Casinha de passarinho', g: 'f', emoji: '🐦', cat: ['garden'], decor: true, cost: { wood: 2 }, time: 1.5, xp: 2, block: 0.1, edge: true, move: true, eg: [0.2, 0.14],
+  birdhouse:    { name: 'Casinha de passarinho', g: 'f', emoji: '🐦', cat: ['garden'], decor: true, cost: { wood: 2 }, time: 1.5, xp: 2, block: 0, edge: true, move: true, eg: [0.2, 0.14],
                   desc: 'Casinha no alto de um poste.' },
   beehive:      { name: 'Colmeia', g: 'f', emoji: '🐝', cat: ['garden'], decor: true, cost: { wood: 3, fiber: 2 }, time: 2, xp: 3, block: 0.24, edge: true, move: true, eg: [0.38, 0.24],
                   desc: 'Colmeia de palha num banquinho; abelhas por perto.' },

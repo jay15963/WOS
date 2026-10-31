@@ -2,79 +2,15 @@
 //  - KIT_ENV.night for the night glow of windows / lamps (art/archCompose.js)
 //  - training dummies: floating numbers for every hit (op dummy.hit → event 'dummyhit'), a DPS readout on the
 //    nameplate / target frame (local, from the hits seen), straw puffs
-//  - roof props (details dormer / dormer_pl on finished roof tiles): K's sprites on agent J's roof slope
-//    (roofPropAt: lift, depth key, the region's fade), dormer windows glow at night while a light burns inside
 //  - localhost only: game.debugK.showcase() builds a decorated base next to the player through ops
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
 
 import { KIT_ENV, archSprite, prewarmArch } from '../art/archCompose.js';
 import { BUILDINGS } from './data.js';
 import { DUMMY_NAME } from './mut/kit.js';
-import { ROOF_PROPS } from './content/kits.js';
-import { roofPropAt } from './roofs.js';
 
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const DPS_WIN = 5; // s
-
-const PROP_RE = /(^|\.)(dormer|dormer_pl)(\.|$)/; // (an old 'skylight' in a roof's details is ignored)
-// The roof decides where its props go (a roof is laid by the paint bucket, every tile carrying the same details), per
-// roof region (game.roofs) once its art is painted — the slopes (roofPropAt.face) come with it:
-//  - dormers on the slope that faces the camera (the second row up from its eave, one every 3 tiles), or, on a
-//    front-gable roof, on both side slopes (the column next to each eave, one every 4 tiles); never at the ends
-// Returns [[roof tile structure, prop id]].
-function placeRoofProps(g) {
-  const R = g.roofs, w = g.world, out = [];
-  if (!R?.regionOf) return out;
-  const byReg = new Map();
-  for (const o of g.build.structures) {
-    if (!o.roof || o.blueprint || !o.det || !PROP_RE.test(o.det)) continue;
-    const rid = R.regionOf[w.idx(o.tx, o.ty)];
-    if (!rid) continue;
-    let l = byReg.get(rid);
-    if (!l) byReg.set(rid, (l = []));
-    l.push(o);
-  }
-  for (const [rid, list] of byReg) {
-    const reg = R.regions.get(rid);
-    if (!reg?.art) continue; // (roofs.v bumps when the art lands: placed again then)
-    const inR = (x, y) => w.inBounds(x, y) && R.regionOf[w.idx(x, y)] === rid;
-    const FC = new Map();
-    const face = (x, y) => {
-      if (!inR(x, y)) return 0;
-      const k = y * w.W + x;
-      let f = FC.get(k);
-      if (f === undefined) FC.set(k, (f = roofPropAt(g, x, y)?.face | 0));
-      return f;
-    };
-    const has = (re) => list.some((o) => re.test(o.det));
-    const nF = [0, 0, 0, 0, 0];
-    for (const o of list) nF[face(o.tx, o.ty)]++;
-    const dormer = has(/(^|\.)dormer_pl(\.|$)/) ? 'dormer_pl' : has(/(^|\.)dormer(\.|$)/) ? 'dormer' : null;
-    if (dormer) {
-      const picks = [];
-      if (nF[3] >= 3 && nF[3] >= Math.max(nF[1], nF[2])) {
-        const ok = (o) => face(o.tx, o.ty) === 3 && face(o.tx - 1, o.ty) === 3 && face(o.tx + 1, o.ty) === 3;
-        const row2 = list.filter((o) => ok(o) && face(o.tx, o.ty + 1) === 3 && !inR(o.tx, o.ty + 2));
-        const row1 = list.filter((o) => ok(o) && !inR(o.tx, o.ty + 1));
-        const row = (row2.length ? row2 : row1).sort((a, b) => a.tx - b.tx);
-        const pick = row.filter((o) => (o.tx - reg.x0) % 3 === 1);
-        picks.push(...(pick.length ? pick : row.slice(row.length >> 1, (row.length >> 1) + 1)));
-      } else {
-        for (const f of [1, 2]) {
-          const d = f === 1 ? -1 : 1; // toward that slope's eave
-          const ok = (o) => face(o.tx, o.ty) === f && face(o.tx, o.ty - 1) === f && face(o.tx, o.ty + 1) === f;
-          const col2 = list.filter((o) => ok(o) && face(o.tx + d, o.ty) === f && !inR(o.tx + 2 * d, o.ty));
-          const col1 = list.filter((o) => ok(o) && !inR(o.tx + d, o.ty));
-          const col = (col2.length ? col2 : col1).sort((a, b) => a.ty - b.ty);
-          const pick = col.filter((o) => (o.ty - reg.y0) % 4 === 2);
-          picks.push(...(pick.length ? pick : col.slice(col.length >> 1, (col.length >> 1) + 1)));
-        }
-      }
-      for (const o of picks) out.push([o, dormer]);
-    }
-  }
-  return out;
-}
 
 export function decorSystem(game) {
   const dummies = new Set();
@@ -92,37 +28,8 @@ export function decorSystem(game) {
   prewarmArch(game, 700);
   game.events.on('worldreset', () => prewarmArch(game, 500));
   let acc = 0;
-  // roof props: cached list of roof tiles carrying a prop detail (rebuilt when structures change), pooled drawables
-  let props = [], propsV = -1;
-  const pool = [];
-  function drawRoofProp(B, A) {
-    const s = archSprite(A, this.sprite); // lazily painted (requested until ready)
-    if (!s) return;
-    B.main.add(s, this.x, this.wy, 1, 1, 1, 1, 1, this.a, 0, 0, 0, this.flip, 0, this.lift);
-    if (this.glow && KIT_ENV.night > 0.05 && A.has(this.glowS)) B.emissive.add(A.get(this.glowS), this.x, this.wy, 1, 1, 1, 0.8, 0.5, 0.85 * KIT_ENV.night * this.a, 0, 0, 0, this.flip, 0, this.lift);
-  }
   return {
-    sync: 'cosmetic', // glow, readouts and roof-prop sprites only
-    collect(g, list, v) {
-      if (!g.roofs) return;
-      const pv = g.build.v + ':' + g.roofs.v;
-      if (pv !== propsV) { propsV = pv; props = placeRoofProps(g); }
-      let k = 0;
-      for (const [o, id] of props) {
-        if (o.tx < v.x0 - 2 || o.tx > v.x1 + 2 || o.ty < v.y0 - 2 || o.ty > v.y1 + 4) continue;
-        const r = roofPropAt(g, o.tx, o.ty);
-        if (!r || r.alpha <= 0.02) continue;
-        if (r.face === 4) continue; // (a north slope is seen edge-on)
-        const d = pool[k] || (pool[k] = { draw: drawRoofProp, x: 0, y: 0, wy: 0, lift: 0, a: 1, sprite: '', glow: false, glowS: '', flip: 1 });
-        // the sprite for its slope: facing the camera (stretched), or a side slope (sheared; east = west mirrored), by pitch
-        const pk = r.pitch < 0.57 ? 0 : r.pitch < 0.85 ? 1 : 2, side = r.face === 1 || r.face === 2;
-        d.sprite = side ? `${ROOF_PROPS[id]}_w${pk}` : ROOF_PROPS[id];
-        d.glowS = side ? `roof_dormer_glow_w${pk}` : 'roof_dormer_glow';
-        d.flip = r.face === 2 ? -1 : 1;
-        d.x = o.tx + 0.5; d.wy = o.ty + 1; d.y = r.key + 0.001; d.lift = r.lift; d.a = r.alpha; d.glow = r.lit; // (only with a light inside, like J's gable windows)
-        list.push(d); k++;
-      }
-    },
+    sync: 'cosmetic', // glow and readouts only
     update(g, dt) {
       KIT_ENV.night = g.env?.env?.night || 0;
       // who stands near the view (a lit window right behind someone must not glow through them: archCompose)
@@ -234,11 +141,10 @@ function installShowcase(game) {
     rows.push(['training_dummy', kx + 2, ky1 + 2, 0], ['training_dummy', kx + 5, ky1 + 2, 0], ['brazier', kx + 1, ky1 + 1, 0], ['brazier', kx + 6, ky1 + 1, 0],
       ['lamp_stone', kx - 1, ky1 + 2, 0], ['statue', kx + 3, ky1 + 4, 0], ['woodpile', kx + 4, ky1 + 4, 0], ['haystack', kx1 + 1, ky1 + 3, 0], ['cart', kx + 5, ky1 + 4, 0],
       ['fountain', hx1 + 1, gy0 + 1, 0], ['garden_arch', hx + 3, gy1 + 1, 0], ['pergola', kx1 + 2, ky + 2, 0], ['bench_stone', kx1 + 2, ky + 4, 0], ['plant_pot', kx1 + 4, ky + 2, 0]);
-    // roof over the cottage (agent J's roofs with K's details): slate, plaster gable, tile ridge, dark boards, dormers
+    // roof over the cottage (agent J's roofs with K's details): slate, plaster gable, tile ridge, dark boards
     if (opts.roof !== false && BUILDINGS.roof_stone) {
       for (let y = hy; y <= hy1; y++) for (let x = hx; x <= hx1; x++) {
-        const dm = y === hy1 - 1 && (x === hx + 1 || x === hx1 - 1) ? '.dormer' : '';
-        rows.push(['roof_stone', x, y, 0, 'slate', 'barge.end_gable.gab_plaster.r_tile' + dm]);
+        rows.push(['roof_stone', x, y, 0, 'slate', 'barge.end_gable.gab_plaster.r_tile']);
       }
     }
     const n = put(rows);

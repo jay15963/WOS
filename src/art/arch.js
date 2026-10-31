@@ -1545,80 +1545,6 @@ function floorScatter(kind, v) {
   }, { pad: 2 });
 }
 
-// ---------------- roof props (agent J's roofs; phase 2 wiring: drawn on the slope via J's roofPropAt) ----------------
-export function roofDormer(style, glow) {
-  return spritePx(48, 56, (g, P) => {
-    // the lit panes only (the mullion cross and the frame stay dark), so it reads as a window in the dormer
-    if (glow) { g.fillStyle = 'rgba(255,196,110,0.95)'; g.fillRect(17, 28, 14, 13); g.clearRect(23, 28, 2, 13); g.clearRect(17, 33.5, 14, 1.6); return; }
-    P.layer((g) => {
-      g.fillStyle = style === 'plaster' ? '#e6d8bc' : '#7e5634'; g.fillRect(10, 22, 28, 30);
-      g.fillStyle = '#5a3b24'; g.fillRect(15, 26, 18, 17); g.fillStyle = '#26303c'; g.fillRect(17, 28, 14, 13);
-      g.fillStyle = '#5a3b24'; g.fillRect(23, 28, 2, 13); g.fillRect(17, 33.5, 14, 1.6);
-      g.fillStyle = lin(g, 0, 4, 0, 24, [[0, '#6e5a4a'], [1, '#3e3028']]); g.beginPath(); g.moveTo(4, 26); g.lineTo(24, 4); g.lineTo(44, 26); g.lineTo(40, 26); g.lineTo(24, 9); g.lineTo(8, 26); g.closePath(); g.fill();
-      g.fillStyle = '#4a2f1c'; g.beginPath(); g.moveTo(6, 27); g.lineTo(24, 7); g.lineTo(42, 27); g.lineTo(39, 27); g.lineTo(24, 11); g.lineTo(9, 27); g.closePath(); g.fill();
-    }, 2.2);
-  }, { pad: 10 });
-}
-// Props lying on a roof slope, drawn from a small 3D model in tile units around the tile centre (agent J's roofs show
-// a slope as screen y = y − h): u east, v south, h up from the slope height at the centre. face 's' = the slope facing
-// the camera (rises to the north, looks stretched), 'w' = a west slope (rises to the east, looks sheared); an east slope
-// is the 'w' sprite mirrored, a north slope (seen edge-on) gets none. PROP_PITCH: the baked pitches (rise per tile).
-export const PROP_PITCH = [0.45, 0.7, 1.0];
-const PROP_PT = 64; // sprite px per tile (PPU)
-function slopeFrame(W, H, face, p, yaw = 0) {
-  const ox = W / 2, oy = H - PROP_PT / 2; // the anchor is the tile's south edge: its centre is half a tile above
-  return {
-    hs: face === 's' ? (u, v) => -p * v : (u) => p * u,
-    P: (u, v, h) => [ox + (u + yaw * v) * PROP_PT, oy + (v - h) * PROP_PT],
-  };
-}
-function polyPath(g, pts) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
-// a dormer on a west slope (mirrored for the east one): a little gabled box sitting in the slope, its window turned
-// down the slope. Seen side-on from this camera its gable would be edge-on, so it is drawn turned (phi) toward the
-// camera — window to the south-west, its cheek and roof running back up into the slope; glow = the lit panes only
-export function roofDormerSide(style, p, glow, phi = 0.87) {
-  const W = 176, H = 128;
-  return spritePx(W, H, (g0, Pn) => {
-    const { P } = slopeFrame(W, H, 'w', p);
-    const sn = Math.sin(phi), cs = Math.cos(phi);
-    const u0 = -0.2, v0 = 0.06, a = 0.27, Hw = 0.34, gr = 0.24, o = 0.05, yMax = 0.62;
-    // local x along the (turned) window wall, y straight up the slope (east) into the roof, h world height
-    const L = (x, y, h) => P(u0 + x * sn + y, v0 + x * cs, h);
-    const surf = (x, y) => p * (u0 + x * sn + y);
-    // where a line at height h running up the slope meets it — or, on a shallow roof, its end tucked down into it
-    const meetY = (x, h) => Math.min(yMax, Math.max(0, h / p - u0 - x * sn));
-    const back = (x, h) => { const y = meetY(x, h); return L(x, y, Math.min(h, surf(x, y))); };
-    const hb = surf(a, 0), he = hb + Hw, hr = he + gr, hx = he - 0.035;
-    const wv = 0.14, w0 = 0.08, w1 = Hw - 0.05, wm = (w0 + w1) / 2;
-    const quad = (x0, x1, h0, h1) => [L(x0, 0, hb + h0), L(x1, 0, hb + h0), L(x1, 0, hb + h1), L(x0, 0, hb + h1)];
-    const bars = (g) => { polyPath(g, quad(-0.014, 0.014, w0, w1)); g.fill(); polyPath(g, quad(-wv, wv, wm - 0.014, wm + 0.014)); g.fill(); };
-    if (glow) {
-      polyPath(g0, quad(-wv, wv, w0, w1)); g0.fillStyle = 'rgba(255,196,110,0.95)'; g0.fill();
-      g0.globalCompositeOperation = 'destination-out'; bars(g0); g0.globalCompositeOperation = 'source-over';
-      return;
-    }
-    const wall = style === 'plaster' ? '#e6d8bc' : '#7e5634', wallS = style === 'plaster' ? '#d2c3a2' : '#6c482a';
-    Pn.layer((g) => {
-      // the north half of its roof (behind the ridge)
-      polyPath(g, [L(-a - o, -o, hx), L(0, -o, hr), back(0, hr), back(-a - o, hx)]); g.fillStyle = '#3e3028'; g.fill();
-      // its south cheek, a triangle back to the slope
-      polyPath(g, [L(a, 0, hb), L(a, 0, he), back(a, he), L(a, meetY(a, he), surf(a, meetY(a, he)))]); g.fillStyle = wallS; g.fill();
-      // the south half of its roof
-      const sr = [L(a + o, -o, hx), L(0, -o, hr), back(0, hr), back(a + o, hx)], ys = sr.map((c) => c[1]);
-      polyPath(g, sr); g.fillStyle = lin(g, 0, Math.min(...ys), 0, Math.max(...ys), [[0, '#6e5a4a'], [1, '#4a3a30']]); g.fill();
-      // the window wall (down to the slope on its low side) with its gable, and the window
-      polyPath(g, [L(-a, 0, surf(-a, 0)), L(a, 0, hb), L(a, 0, he), L(0, 0, hr - 0.02), L(-a, 0, he)]); g.fillStyle = wall; g.fill();
-      polyPath(g, quad(-wv - 0.03, wv + 0.03, w0 - 0.03, w1 + 0.025)); g.fillStyle = '#5a3b24'; g.fill();
-      polyPath(g, quad(-wv, wv, w0, w1)); g.fillStyle = '#26303c'; g.fill();
-      g.fillStyle = '#5a3b24'; bars(g);
-      // barge boards over the gable + the ridge line
-      g.strokeStyle = '#4a2f1c'; g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round';
-      const b0 = L(-a - o, -o, hx), b1 = L(0, -o, hr), b2 = L(a + o, -o, hx), r1 = back(0, hr);
-      g.beginPath(); g.moveTo(b0[0], b0[1]); g.lineTo(b1[0], b1[1]); g.lineTo(b2[0], b2[1]); g.stroke();
-      g.lineWidth = 1.6; g.strokeStyle = '#3a2618'; g.beginPath(); g.moveTo(b1[0], b1[1]); g.lineTo(r1[0], r1[1]); g.stroke();
-    }, 2.2);
-  }, { pad: 10 });
-}
 // ---------------- registration ----------------
 export const FLOOR_STYLES = ['herring', 'parquet', 'wide', 'cobble', 'tiles', 'checker'];
 export const FENCE_STYLES = { picket: 'fence_wood', board: 'fence_wood', wattle: 'fence_wood', stone: 'fence_stone', hedge: 'hedge' };
@@ -1675,13 +1601,6 @@ function archSprites(S) {
   for (const k of ['wood', 'stone', 'inlay', 'carpet', 'body']) S('kfx_' + k, () => floorStrip(k), 0.5, 0.5);
   S('kf_inlay', floorInlay, 0.5, 1);
   for (const k of ['straw', 'leaves', 'moss']) for (let v = 0; v < 2; v++) S(`kf_${k}_${v}`, () => floorScatter(k, v), 0.5, 1);
-  // roof props (agent J's roofs)
-  for (const st of ['wood', 'plaster']) A('roof_dormer_' + st, () => roofDormer(st, false));
-  A('roof_dormer_glow', () => roofDormer('wood', true), true);
-  for (let k = 0; k < PROP_PITCH.length; k++) {
-    for (const st of ['wood', 'plaster']) A(`roof_dormer_${st}_w${k}`, () => roofDormerSide(st, PROP_PITCH[k], false));
-    A(`roof_dormer_glow_w${k}`, () => roofDormerSide('wood', PROP_PITCH[k], true), true);
-  }
 }
 export function addArch(add) {
   archSprites((n, f, ax, ay, baked) => { if (baked) add(n, f(), ax, ay); });

@@ -952,7 +952,7 @@ export function roofPropAt(game, tx, ty) {
   return { lift: roofHeightAt(game, tx, ty), key: s ? s.key : ty + 1, alpha: g.alpha, lit: regionLit(game, g), face: m >= 0 ? a.tileF?.[m] | 0 : 0, pitch: m >= 0 ? a.tileP?.[m] || 1 : 1 };
 }
 
-// a light burns inside roof region g (its gable windows and dormers glow at night)
+// a light burns inside roof region g (its gable windows glow at night)
 export function regionLit(game, g) {
   const w = game.world;
   return !!g?.lights?.some((id) => { const o = w.objById.get(id); return o && o.light && o.fire !== false && o.lit !== false; });

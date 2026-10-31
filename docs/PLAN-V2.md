@@ -327,10 +327,8 @@ it is no longer a cave. A roof system for both buildings and caves:
   placed until columns fix them (building.js updatePreview; up to 420 tiles per roof, `MAX_ROOF_TILES`). The
   build-mode view shows the world grid faintly.
 - **Roof details are placed by the roof** (later request): the player picks the detail, the roof decides where
-  it goes (decoration.js `placeRoofProps`): dormers on the slope facing the camera (every 3 tiles, second row
-  from the eave) or on both side slopes of a front-gable roof (every 4 tiles); one weathervane near the middle of the ridge. Each prop is drawn for its slope (the
-  roof art keeps `tileF` / `tileP`, the facet and pitch under each tile): stretched on the front slope, sheared
-  on the sides (east = the west sprite mirrored), none on a north slope. Chimneys are not a choice: they appear
+  it goes: one weathervane near the middle of the ridge. Windows on the roof (skylights, dormers) left the game
+  (owner). Chimneys are not a choice: they appear
   over every hearth / oven / furnace inside, and smoke only while it burns.
 
 ## Mundos salvos e modo criativo (added later)
@@ -557,4 +555,12 @@ it — like a compass/radar): "esse design combina muito com o jogo".
 - **Sight** (ai.js `aggroRadius`): wolves 8.5, spiders / bears 7.5 tiles (a higher level adds at most 25 %), and past
   3 tiles only in sight (line of sight) — about where the player sees them first. Raiders and winter walkers see
   18 tiles (`PAWN_SIGHT`, the most zoomed-out view): only the radar and the map show them before they see you.
-- **Skylights** left the game (roof details: dormers and the weathervane).
+- **Windows on the roof** (skylights and dormers / "água-furtada") left the game: the only roof detail on top is
+  the weathervane.
+- **Small pieces don't block** (block 0, like the campfire): candles, candelabra, torch, stone / wood lanterns,
+  lamp post, stool, jars, potted plant, signpost, birdhouse.
+- **Decorations stand on the ground** (they used to float, flames below the candles): the art of a 1-tile piece
+  stands about mid-tile; archCompose `footOf` measures where each sprite touches the ground (its lowest solid row).
+  A piece placed at an edge / against a wall (anchored at the front-bottom of its body) is drawn that much lower;
+  a piece on a tile keeps its art and its contact shadow moves under its feet; the sun shadow pivots on the feet.
+  Flames: DECOR_GEOM heights above that ground, × the piece's scale.

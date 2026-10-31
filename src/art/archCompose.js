@@ -442,6 +442,36 @@ export function drawPlotKit(B0, A, o) {
 }
 
 // ---------- decoration props ----------
+// how far above its anchor a decoration's art touches the ground (tiles): the lowest solid row of the sprite (feet,
+// base; the faint baked ground shadow does not count), measured once per sprite. The art draws a 1-tile piece
+// standing about mid-tile (Y(0.55…0.9, 0)): right for a piece placed on a tile (anchor = the tile's bottom edge), but a
+// piece placed at an edge / against a wall is anchored at the front-bottom of its body (structures.setGeom), so it is
+// drawn that much lower — it used to float above its shadow / hang on the wall (owner)
+const FOOT = new WeakMap(), FOOT_DEF = 0.4;
+let footCv = null;
+function footOf(A, s) {
+  if (!s) return FOOT_DEF;
+  const known = FOOT.get(s);
+  if (known !== undefined) return known;
+  const lazy = s.u0 < 0 || s.canvas, src = lazy ? s.canvas : A.canvas;
+  if (!src || !(s.pw > 0) || !(s.ph > 0) || typeof document === 'undefined') return FOOT_DEF; // (not painted yet: ask again)
+  let f = FOOT_DEF;
+  try {
+    const AS = A.size, sx = lazy ? 0 : s.u0 * AS, sy = lazy ? 0 : s.v0 * AS, W = s.pw, H = s.ph;
+    footCv = footCv || document.createElement('canvas');
+    footCv.width = W; footCv.height = H;
+    const g = footCv.getContext('2d', { willReadFrequently: true });
+    g.clearRect(0, 0, W, H);
+    g.drawImage(src, sx, sy, W, H, 0, 0, W, H);
+    const d = g.getImageData(0, 0, W, H).data;
+    let row = -1;
+    for (let y = H - 1; y >= 0 && row < 0; y--) { let n = 0; for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 150 && ++n >= 2) { row = y; break; } }
+    if (row >= 0) f = Math.max(0, Math.min(1.2, (s.ay * H - (row + 1)) * (s.h / H)));
+  } catch { /* keep the default */ }
+  FOOT.set(s, f);
+  return f;
+}
+
 function drawDecorProp(B, A, o, t, fl) {
   const T = tables(A), def = BUILDINGS[o.type], type = o.type; // (B: wrapped batches, see drawArch)
   setState(o);
@@ -471,27 +501,35 @@ function drawDecorProp(B, A, o, t, fl) {
   const ff = o.face ? FFLIP : 1;
   const w = o.fw || def.size[0], h = o.fh || def.size[1];
   const shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
-  if (T.blob) B.blob.add(T.blob, x, y - 0.06 - (h - 1) * 0.5, (0.62 + 0.38 * w) * sc, (0.4 + 0.6 * (h - 1)) * sc, 1, 1, 1, 0.38 * CA);
+  // where it stands: an edge piece's art drawn lower so its base lands on its anchor; a piece on a tile keeps its
+  // art, its contact shadow goes up under its feet
+  const one = h < 2 && !rot2, foot = one ? footOf(A, s) * sc : 0;
+  const yd = def.edge ? y + foot : y, yb = one && !def.edge ? y - foot : y;
+  // the sun shadow pivots on the feet, not on the sprite's bottom edge (it hung off them by foot): cast from there
+  // with the art lowered by the same height (shadow shader: h = height above the anchor + lift)
+  const ys = yd - foot, ls = -0.8 * foot;
+  if (T.blob) B.blob.add(T.blob, x, yb - 0.06 - (h - 1) * 0.5, (0.62 + 0.38 * w) * sc, (0.4 + 0.6 * (h - 1)) * sc, 1, 1, 1, 0.38 * CA);
   if (type === 'training_dummy' && use(T.training_dummy_base) && use(T.training_dummy_body)) {
     const dt = t - (o._wobT ?? -99);
     const wob = dt >= 0 && dt < 2.5 ? (o._wobA || 0.6) * Math.exp(-dt * 3.2) * Math.sin(dt * 17) * (o._wobD || 1) * 0.3 : 0;
-    B.main.add(T.training_dummy_base, x, y, sc, sc, CR, CG, CB, CA, 0, 0, fl, 1);
-    B.main.add(T.training_dummy_body, x, y, sc, sc, CR, CG, CB, CA, 0, wob, Math.max(fl, o.flash || 0), 1);
-    if (!BP) B.shadow.add(T.training_dummy_body, x, y, sc, sc * 0.8, 1, 1, 1, CA, 0, wob, 0, 1);
+    B.main.add(T.training_dummy_base, x, yd, sc, sc, CR, CG, CB, CA, 0, 0, fl, 1);
+    B.main.add(T.training_dummy_body, x, yd, sc, sc, CR, CG, CB, CA, 0, wob, Math.max(fl, o.flash || 0), 1);
+    if (!BP) B.shadow.add(T.training_dummy_body, x, ys, sc, sc * 0.8, 1, 1, 1, CA, 0, wob, 0, 1, 0, ls);
     return;
   }
   const sway = type === 'scarecrow' || type === 'garden_arch' ? 0.015 : type === 'drying_rack' ? 0.02 : 0;
-  B.main.add(s, x + shk, y, sc * ff, sc, CR, CG, CB, CA, sway, 0, fl, 1);
-  if (!BP && h < 2 && !rot2) B.shadow.add(s, x, y, sc * ff, sc * 0.8, 1, 1, 1, CA, sway, 0, 0, 1);
+  B.main.add(s, x + shk, yd, sc * ff, sc, CR, CG, CB, CA, sway, 0, fl, 1);
+  if (!BP && h < 2 && !rot2) B.shadow.add(s, x, ys, sc * ff, sc * 0.8, 1, 1, 1, CA, sway, 0, 0, 1, 0, ls);
   else if (!BP && rot2 && h < 2) B.shadow.add(s, x, y, sc * ff, sc * 0.7, 1, 1, 1, CA, 0, 0, 0, 1);
   if (BP) { overlaysBP(B, T, o); return; }
   // flames, glows, little animations
   const n = KIT_ENV.night;
   switch (type) {
-    case 'candles': for (const [dx, lift] of DG.candles) smallFlame(B, T, x + dx * ff, y, lift, sc, t, 0.55); break;
-    case 'candelabra': for (const [dx, lift] of DG.candelabra) smallFlame(B, T, x + dx, y, lift, sc, t, 0.55); break;
-    case 'lamp_stone': if (T.lamp_stone_glow) B.emissive.add(T.lamp_stone_glow, x, y, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); smallFlame(B, T, x, y, DG.lamp_stone[0][1] - 0.06, sc, t, 0.6); break;
-    case 'lamp_wood': if (T.lamp_wood_glow) B.emissive.add(T.lamp_wood_glow, x, y, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); break;
+    // (flames: DECOR_GEOM heights above the ground the art stands on — yd − foot — × the piece's scale)
+    case 'candles': for (const [dx, lift] of DG.candles) smallFlame(B, T, x + dx * ff * sc, yd, foot + lift * sc, sc, t, 0.55); break;
+    case 'candelabra': for (const [dx, lift] of DG.candelabra) smallFlame(B, T, x + dx * sc, yd, foot + lift * sc, sc, t, 0.55); break;
+    case 'lamp_stone': if (T.lamp_stone_glow) B.emissive.add(T.lamp_stone_glow, x, yd, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); smallFlame(B, T, x, yd, foot + (DG.lamp_stone[0][1] - 0.06) * sc, sc, t, 0.6); break;
+    case 'lamp_wood': if (T.lamp_wood_glow) B.emissive.add(T.lamp_wood_glow, x, yd, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); break;
     case 'fireplace': {
       if (o.face && o.face !== 's') { if (T.glow) B.emissive.add(T.glow, x + (o.face === 'w' ? -0.3 : o.face === 'e' ? 0.3 : 0), y - 0.4, 1.2, 1.2, 1, 0.55, 0.25, 0.25, 0, 0, 0, 1, 0, 0.2); break; }
       const seed = x * 1.7 + y;

@@ -209,7 +209,7 @@ export const KITS = {
   },
   // agent J's built roofs (types roof_thatch / roof_wood / roof_stone, layer 'roof'): styles are J's ROOF_STYLES (built below),
   // J's details (moss, chimney, vane, trim) + K's overrides that roofArtStyle(o) turns into a derived style for J's painter
-  // (ends, gable, ridge, bargeboards, weathering, tone) + roof props drawn by K on the slope (dormers)
+  // (ends, gable, ridge, bargeboards, weathering, tone); no windows on the roof (skylights / dormers: removed by the owner)
   roof: {
     name: 'Telhado', explicit: true, // style ids stay explicit (J's rows / tests expect the id even for the default)
     tabs: [['style', 'Material'], ['trim', 'Forma e acabamento'], ['wall', 'No telhado'], ['nature', 'Tempo'], ['tone', 'Cor']],
@@ -227,8 +227,6 @@ export const KITS = {
       { id: 'trim', name: ROOF_DETAILS.trim?.name || 'Acabamento', cat: 'trim', desc: ROOF_DETAILS.trim?.desc },
       // (chimneys are not a choice: the roof puts one over every hearth / oven / furnace inside — roofRaster)
       { id: 'vane', name: ROOF_DETAILS.vane?.name || 'Cata-vento', cat: 'wall', desc: 'Um cata-vento no alto da cumeeira (o telhado escolhe o lugar).' },
-      { id: 'dormer', name: 'Água-furtada', cat: 'wall', group: 'prop', desc: 'Janelinhas na água da frente, espaçadas pelo telhado; brilham à noite com luz dentro.' },
-      { id: 'dormer_pl', name: 'Água-furtada de reboco', cat: 'wall', group: 'prop', desc: 'Como a água-furtada, em reboco claro.' },
       { id: 'moss', name: ROOF_DETAILS.moss?.name || 'Musgo', cat: 'nature', desc: ROOF_DETAILS.moss?.desc },
       { id: 'weather', name: 'Desgaste', cat: 'nature' },
       { id: 't_light', name: 'Mais claro', cat: 'tone', group: 'tone', tint: [1.14, 1.12, 1.08] },
@@ -244,7 +242,6 @@ for (const type in ROOF_TYPE_STYLES) ROOF_TYPE_STYLES[type].forEach((id, i) => {
 });
 
 // roof props (K's sprites on J's roof slope, drawn per roof tile with the detail): sprite names per detail id
-export const ROOF_PROPS = { dormer: 'roof_dormer_wood', dormer_pl: 'roof_dormer_plaster' }; // (no skylight: removed by the owner)
 
 // ---------- lookup ----------
 const INFER_CACHE = new Map();

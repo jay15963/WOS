@@ -975,7 +975,8 @@ function pergola() {
 }
 
 // ---------------- registration ----------------
-// flame / glow spots (tiles relative to the anchor: [dx, lift])
+// flame / glow spots: [dx, lift] in tiles, lift measured from the ground the piece stands on (archCompose draws the
+// art so its base lands there: footOf)
 export const DECOR_GEOM = {
   candles: [[-0.12, 0.2], [0.02, 0.26], [0.13, 0.18]],
   candelabra: [[-14 / 64, 50 / 64], [-7 / 64, 54 / 64], [0, 58 / 64], [7 / 64, 54 / 64], [14 / 64, 50 / 64]],

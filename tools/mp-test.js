@@ -3935,7 +3935,7 @@ def('K4', {
 
 def('K5', {
   title: 'K: roof details (with J) — guest styles a roof plan, brush, finish', timeout: 200000,
-  expected: 'Over a walled room the guest places roof plans with "Telha de barro" + hip ends / dormers / warm tone (Detalhes): same style + canonical det on both and the same derived painter style (roofArtStyle key); the style brush repaints the plans (slate + chimney) on both; once finished the roof is painted on both, the dormer tiles get a slope position (roofPropAt) and a restyle is refused; digest equal',
+  expected: 'Over a walled room the guest places roof plans with "Telha de barro" + hip ends / warm tone (Detalhes): same style + canonical det on both and the same derived painter style (roofArtStyle key); the style brush repaints the plans (slate + weathervane) on both; once finished the roof is painted on both, its tiles get a slope position (roofPropAt) and a restyle is refused; digest equal',
   api: 'build mode roof_stone + setBuildLook → build.place {style, det} (room fill) → struct.add; struct.style (brush); kits.roofArtStyle(o) → J artSpec spec.styles; roofs.roofPropAt',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -3951,34 +3951,34 @@ def('K5', {
   t.defer(() => { for (const o of roofs(H)) H.game.net.emit('struct.remove', { id: o.id, quiet: 1 }); for (const id of wallIds) H.game.net.emit('struct.remove', { id, quiet: 1 }); });
   await t.waitFor(() => A.structAt(G, MG, x0, y0, 'main') && !A.structAt(G, MG, x0, y0, 'main').blueprint, ONEWAY() + 600, 'guest has the walled room');
   A.teleport(G, x0 + 2.5, y0 + 6); await A.hostSees(t, H, G);
-  placeStyled(G, MG, 'roof_stone', 'terracotta', 't_warm.dormer.end_hip', [x0 + 2, y0 + 1]);
-  const want = KG.kits.cleanDet('roof_stone', 't_warm.dormer.end_hip');
+  placeStyled(G, MG, 'roof_stone', 'terracotta', 't_warm.end_hip', [x0 + 2, y0 + 1]);
+  const want = KG.kits.cleanDet('roof_stone', 't_warm.end_hip');
   await t.waitFor(() => roofs(H).length >= 6 && roofs(G).length === roofs(H).length, RT() + 1200, 'roof plans for the room on both');
   const key = (f, K) => roofs(f).map((o) => `${o.id}:${o.style}:${o.det}:${K.kits.roofArtStyle(o)?.key || '-'}`).sort().join(' ');
   t.check(roofs(H).every((o) => o.style === 'terracotta' && o.det === want && o.blueprint), 'plans: terracotta + canonical det on the host', short(roofs(H).slice(0, 2).map(look)));
   t.check(key(H, KH) === key(G, KG), 'same plans, looks and derived painter style on both', short(key(G, KG), 160));
   t.check(/end_hip/.test(KH.kits.roofArtStyle(roofs(H)[0])?.key || '') && KH.kits.roofArtStyle(roofs(H)[0]).style.ends === 'hip', 'derived style turns hip ends on for J\'s painter', KH.kits.roofArtStyle(roofs(H)[0])?.key);
-  // brush the plans to slate + chimney (dormers kept)
+  // brush the plans to slate + weathervane
   const g = G.game;
-  MG.building.setBuildLook(g, 'roof_stone', 'slate', 'chimney.dormer');
+  MG.building.setBuildLook(g, 'roof_stone', 'slate', 'vane');
   MG.building.enterStyleBrush(g, 'roof_stone');
   MG.building.buildDragStart(g, x0 + 0.5, y0 + 0.5);
   MG.building.buildDragEnd(g, x0 + 4.5, y0 + 3.5);
   MG.building.exitBuildMode(g);
-  const want2 = KG.kits.cleanDet('roof_stone', 'chimney.dormer');
-  await t.waitFor(() => [H, G].every((f) => roofs(f).every((o) => o.style === 'slate' && o.det === want2)), RT() + 800, 'brushed to slate + chimney on both');
+  const want2 = KG.kits.cleanDet('roof_stone', 'vane');
+  await t.waitFor(() => [H, G].every((f) => roofs(f).every((o) => o.style === 'slate' && o.det === want2)), RT() + 800, 'brushed to slate + weathervane on both');
   // the host finishes them (test shortcut, like J's scenarios) → painted region on both
   for (const o of roofs(H)) H.game.net.emit('struct.complete', { id: o.id, by: H.game.net.pid, xp: 0 });
   await t.waitFor(() => roofs(G).every((o) => !o.blueprint) && regionAt(H, x0 + 2, y0 + 1)?.art && regionAt(G, x0 + 2, y0 + 1)?.art, 9000, 'roof finished and painted on both');
   const RG = await fimp(G, 'game/roofs.js');
   const pr = RG.roofPropAt(G.game, x0 + 2, y0 + 1);
-  t.check(pr && pr.lift > 0.3 && Number.isFinite(pr.key), 'dormer tile has a slope position on the guest (roofPropAt)', JSON.stringify(pr));
+  t.check(pr && pr.lift > 0.3 && Number.isFinite(pr.key), 'a roof tile has a slope position on the guest (roofPropAt)', JSON.stringify(pr));
   let refused = null;
   g.net.request('struct.style', { ids: [roofs(G)[0].id], type: 'roof_stone', style: 'stone', det: '' }, { onReject: (why) => { refused = why || 'refused'; } });
   await t.waitFor(() => refused, RT() + 600, 'finished roof: restyle refused');
   t.check(roofs(H).every((o) => o.style === 'slate') && roofs(G).every((o) => o.style === 'slate'), 'finished roof keeps its look on both');
   let drew = true; for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log(e.message); } }
-  t.check(drew, 'both render the styled roof with dormers');
+  t.check(drew, 'both render the styled roof');
   await t.checkDigest(H, G);
   env.history.push('K5');
 });
