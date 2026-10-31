@@ -492,7 +492,7 @@ function flatBox(F, uv, x0, y0, x1, y1, hb, ht, col, side, a) {
 }
 // camera rotation: the K internals the structure face builders use (art/faces/walls.js, doors.js, fences.js)
 export const ARCH_FACES = {
-  tables, use, ok, setState, tone, recordPiece, layers, RM, RE, RG, CONVEX, MOUNT_UP, hash, spriteOf, drawFence, wrap, RB, smallFlame, lanternGlow,
+  tables, use, ok, setState, tone, recordPiece, layers, RM, RE, RG, CONVEX, MOUNT_UP, hash, spriteOf, drawFence, wrap, RB, smallFlame, lanternGlow, footOf,
   col: () => STATE, // (current state colours: see setState / tone)
   prep(A) { const T = tables(A); LA = T.LA; return T; }, // (the sprite tables of atlas A; lazy art requested from its look atlas)
 };
