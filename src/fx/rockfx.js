@@ -13,8 +13,9 @@
 
 import { archSprite } from '../art/archCompose.js';
 import { drawCrackFaces } from '../art/faces/walls.js'; // camera turned: the cracks on the piece's faces
-import { boxDepth } from '../art/faces/registry.js';
 import { BUILDINGS } from '../game/data.js';
+import { STRUCT_GEOM } from '../art/structures.js';
+import { boxDepth } from '../art/faces/registry.js';
 
 const MAXN = 8;
 const BREAK_T = 0.32;

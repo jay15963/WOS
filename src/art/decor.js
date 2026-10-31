@@ -81,8 +81,34 @@ function book(g, x, y, w, h, col) {
 const BOOKS = ['#8a2e2a', '#2f4f7a', '#3f6a34', '#a07a2a', '#5a2f6a', '#7a4a2a', '#2a5a5a', '#b05a2a'];
 
 // ---------------- interior ----------------
-function shelfWood() {
+function shelfWood(view = 's') {
   const rand = rng(2001);
+  if (view === 'side') return mk(1, 66, (g, P, Y, W) => { // seen from its right side: posts, shelf ends, what peeks out
+    const x0 = 21, x1 = W - 21, vA = 0.2, vB = 0.86, H = 74;
+    P.layer((g) => {
+      g.fillStyle = DARKW.mid; g.fillRect(x0 - 2, Y(vB, H), 3, Y(vB, 0) - Y(vB, H)); // back panel edge
+      leg(g, x1, Y(vB, H), Y(vB, 0), 4.5, WOOD.mid);
+      for (const h of [4, 26, 50]) {
+        plankTop(g, x0, Y(vA, h + 3), x1, Y(vB, h + 3), '#a87a48', 'y', 1);
+        g.fillStyle = WOOD.dark; g.fillRect(x0, Y(vB, h + 3), x1 - x0, 3);
+      }
+      const peek = [['#b8703e', 26, 11], ['#7d8c9a', 30, 9], ['#c9a86a', 52, 8], ['#6e8a4a', 10, 7]];
+      for (const [c, h, s] of peek) { g.fillStyle = c; g.fillRect(x0 + 3 + rand() * 4, Y(vB, h + 3 + s), x1 - x0 - 9, s); }
+      for (let i = 0; i < 3; i++) book(g, x0 + 2 + i * 4.6, Y(vB, 72 - (i % 2) * 2), 4, 14 - i * 2, BOOKS[(rand() * 8) | 0]);
+      g.fillStyle = WOOD.high; g.fillRect(x0 - 2, Y(vB, H) - 3, x1 - x0 + 4, 4);
+    }, OW);
+  });
+  if (view === 'back') return mk(1, 66, (g, P, Y, W) => { // its back panel
+    const x0 = 13, x1 = W - 13, v1 = 0.9, H = 74;
+    P.layer((g) => {
+      face(g, x0, x1, Y(v1, H), Y(v1, 0), DARKW.mid);
+      g.strokeStyle = 'rgba(20,10,4,0.4)'; g.lineWidth = 1; g.beginPath();
+      for (let x = x0 + 6; x < x1 - 2; x += 6.5) { g.moveTo(x, Y(v1, H) + 2); g.lineTo(x, Y(v1, 2)); }
+      g.stroke();
+      leg(g, x0 + 2, Y(v1, H), Y(v1, 0), 4.5, WOOD.mid); leg(g, x1 - 2, Y(v1, H), Y(v1, 0), 4.5, WOOD.mid);
+      g.fillStyle = WOOD.high; g.fillRect(x0 - 1, Y(v1, H) - 3, x1 - x0 + 2, 4);
+    }, OW);
+  });
   return mk(1, 66, (g, P, Y, W) => {
     const x0 = 13, x1 = W - 13, v0 = 0.56, v1 = 0.9, H = 74;
     P.layer((g) => {
@@ -136,7 +162,30 @@ function bookshelf(east) {
     }, OW);
   });
 }
-function wardrobe() {
+function wardrobe(view = 's') {
+  if (view === 'side') return mk(1, 70, (g, P, Y, W) => { // seen from its right side (front = doors on the right)
+    const x0 = 19, x1 = W - 18, vA = 0.24, vB = 0.92, H = 68;
+    P.layer((g) => {
+      box(g, x0, x1, Y(vA, H), Y(vB, H), Y(vB, 0), '#8f6440', DARKW.mid, 'y', 2);
+      g.fillStyle = 'rgba(20,10,4,0.3)'; g.fillRect(x0 + 3, Y(vB, H) + 5, x1 - x0 - 9, Y(vB, 8) - Y(vB, H) - 5); // side panel
+      g.fillStyle = 'rgba(255,230,190,0.18)'; g.fillRect(x0 + 3, Y(vB, H) + 5, x1 - x0 - 9, 1);
+      g.fillStyle = tone(DARKW.light, 0.9); g.fillRect(x1 - 4, Y(vB, H) + 3, 4, Y(vB, 4) - Y(vB, H) - 3); // the doors' edge
+      g.fillStyle = '#c9a24a'; g.beginPath(); circle(g, x1 - 1, Y(vB, H) + 27, 1.2); g.fill();
+      g.fillStyle = DARKW.high; g.fillRect(x0 - 1, Y(vB, H) - 1, x1 - x0 + 3, 3.5); // crown
+      g.fillStyle = DARKW.dark; g.fillRect(x0, Y(vB, 4), x1 - x0, 4);
+    }, OW);
+  });
+  if (view === 'back') return mk(1, 70, (g, P, Y, W) => { // its back: plain boards
+    const x0 = 11, x1 = W - 11, v0 = 0.5, v1 = 0.92, H = 68;
+    P.layer((g) => {
+      box(g, x0, x1, Y(v0, H), Y(v1, H), Y(v1, 0), '#8f6440', DARKW.mid, 'x', 2);
+      g.strokeStyle = 'rgba(20,10,4,0.4)'; g.lineWidth = 1; g.beginPath();
+      for (let x = x0 + 7; x < x1 - 2; x += 7) { g.moveTo(x, Y(v1, H) + 2); g.lineTo(x, Y(v1, 3)); }
+      g.stroke();
+      g.fillStyle = DARKW.high; g.fillRect(x0 - 2, Y(v1, H) - 1, x1 - x0 + 4, 3.5);
+      g.fillStyle = DARKW.dark; g.fillRect(x0, Y(v1, 4), x1 - x0, 4);
+    }, OW);
+  });
   return mk(1, 70, (g, P, Y, W) => {
     const x0 = 11, x1 = W - 11, v0 = 0.5, v1 = 0.92, H = 68;
     P.layer((g) => {
@@ -150,6 +199,34 @@ function wardrobe() {
       g.fillStyle = '#c9a24a'; g.beginPath(); circle(g, W / 2 - 3, fy0 + 24, 1.4); g.fill(); g.beginPath(); circle(g, W / 2 + 3, fy0 + 24, 1.4); g.fill();
       g.fillStyle = DARKW.high; g.fillRect(x0 - 2, Y(v1, H) - 1, x1 - x0 + 4, 3.5); // crown
       g.fillStyle = DARKW.dark; g.fillRect(x0, fb, x1 - x0, 4);
+    }, OW);
+  });
+}
+// the back of a 2×1 cabinet (camera rotation: seen from behind): plain boards over the same box
+function cabinetBack(E, x0, x1, v0, v1, H, top, col, n = 9) {
+  return mk(2, E, (g, P, Y, W) => {
+    P.layer((g) => {
+      box(g, x0, x1, Y(v0, H), Y(v1, H), Y(v1, 0), top, col, 'x', 2);
+      g.strokeStyle = 'rgba(20,10,4,0.35)'; g.lineWidth = 1; g.beginPath();
+      for (let k = 1; k < n; k++) { const x = x0 + ((x1 - x0) * k) / n; g.moveTo(x, Y(v1, H) + 2); g.lineTo(x, Y(v1, 2)); }
+      g.stroke();
+      g.fillStyle = 'rgba(255,230,190,0.2)'; g.fillRect(x0, Y(v1, H), x1 - x0, 1);
+    }, OW);
+  });
+}
+function fireplaceBack() { // the chimney's back: stone courses up to the breast, the hearth's back below
+  return mk(2, 60, (g, P, Y, W) => {
+    const x0 = 6, x1 = W - 6, v1 = 0.8;
+    P.layer((g) => {
+      stoneTop(g, x0 + 14, Y(0.3, 60), x1 - 14, Y(0.55, 60));
+      g.fillStyle = '#5a554d'; g.fillRect(x0 + 14, Y(0.55, 60), x1 - x0 - 28, 30);
+      g.fillStyle = '#4a453e'; g.fillRect(x0, Y(v1, 30), x1 - x0, 30);
+      stoneTop(g, x0, Y(0.48, 30), x1, Y(v1, 30));
+      for (const [ya, yb, xa, xb] of [[Y(0.55, 60), Y(0.55, 30), x0 + 14, x1 - 14], [Y(v1, 30), Y(v1, 0), x0, x1]]) {
+        g.save(); g.beginPath(); g.rect(xa, ya, xb - xa, yb - ya); g.clip();
+        for (let r = 0; r < 6; r++) for (let k = 0; k < 10; k++) { const X = xa + k * 14 - (r & 1 ? 7 : 0), Yy = ya + r * 6; g.fillStyle = ['#9a9386', '#8c857a', '#a8a092', '#948d80'][(k * 3 + r) % 4]; g.fillRect(X + 0.6, Yy + 0.6, 12.8, 4.8); }
+        g.restore();
+      }
     }, OW);
   });
 }
@@ -918,8 +995,30 @@ function dryingRack(east) {
     for (let i = 0; i < 3; i++) { const x = 86 + i * 9; g.fillStyle = greens[i % 2]; g.beginPath(); g.moveTo(x - 1.5, Y(0.6, 45)); g.lineTo(x - 4.5, Y(0.6, 28)); g.quadraticCurveTo(x, Y(0.6, 24), x + 4.5, Y(0.6, 28)); g.lineTo(x + 1.5, Y(0.6, 45)); g.closePath(); g.fill(); }
   }, OW));
 }
-function noticeBoard() {
+function noticeBoard(view = 's') {
   const rand = rng(2701);
+  if (view === 'side') return mk(1, 62, (g, P, Y, W) => { // edge-on: one post in front of the other, the board's edge, the roof's slopes
+    const cx = W / 2, b = Y(0.62, 0);
+    ground(g, cx, b, 8, 4);
+    P.layer((g) => {
+      leg(g, cx, b - 54, b, 4.4, WOOD.mid);
+      g.fillStyle = '#6a4428'; g.fillRect(cx - 2.5, b - 46, 5, 28); // the board, edge-on
+      g.fillStyle = 'rgba(255,230,190,0.3)'; g.fillRect(cx - 2.5, b - 46, 1.2, 28);
+      g.fillStyle = lin(g, 0, b - 60, 0, b - 46, [[0, '#a3302a'], [1, '#6e1e18']]);
+      g.beginPath(); g.moveTo(cx - 9, b - 45); g.lineTo(cx, b - 60); g.lineTo(cx + 9, b - 45); g.lineTo(cx + 6, b - 44); g.lineTo(cx, b - 54); g.lineTo(cx - 6, b - 44); g.closePath(); g.fill();
+    }, OW);
+  });
+  if (view === 'back') return mk(1, 62, (g, P, Y, W) => { // its back: the boards, no notes
+    const cx = W / 2, b = Y(0.62, 0);
+    ground(g, cx, b, 18, 4);
+    P.layer((g) => {
+      for (const d of [-1, 1]) leg(g, cx + d * 20, b - 54, b, 4.4, WOOD.mid);
+      g.fillStyle = lin(g, 0, b - 46, 0, b - 18, [[0, '#8a5c36'], [1, '#5e3c22']]); g.fillRect(cx - 22, b - 46, 44, 28);
+      g.strokeStyle = 'rgba(30,18,8,0.45)'; g.lineWidth = 1; g.beginPath(); for (let y = b - 39; y < b - 18; y += 7) { g.moveTo(cx - 22, y); g.lineTo(cx + 22, y); } g.stroke();
+      g.fillStyle = WOOD.dark; g.fillRect(cx - 18, b - 34, 36, 3);
+      g.fillStyle = lin(g, 0, b - 60, 0, b - 48, [[0, '#8a2822'], [1, '#5a1812']]); g.beginPath(); g.moveTo(cx - 28, b - 47); g.lineTo(cx, b - 60); g.lineTo(cx + 28, b - 47); g.lineTo(cx + 24, b - 45); g.lineTo(cx, b - 56); g.lineTo(cx - 24, b - 45); g.closePath(); g.fill();
+    }, OW);
+  });
   return mk(1, 62, (g, P, Y, W) => {
     const cx = W / 2, b = Y(0.62, 0);
     ground(g, cx, b, 18, 4);
@@ -991,6 +1090,13 @@ function decorSprites(S) {
   const A = (n, f, baked = false) => S(n, f, 0.5, 1, baked);
   A('shelf_wood', () => shelfWood()); A('bookshelf', () => bookshelf(false)); A('bookshelf_e', () => bookshelf(true));
   A('wardrobe', () => wardrobe()); A('dresser', () => dresser(false)); A('dresser_e', () => dresser(true));
+  // seen from the side / from behind (camera rotation only, art/faces/props.js: `_side` / `_back`, never used at 0°)
+  A('wardrobe_side', () => wardrobe('side')); A('wardrobe_back', () => wardrobe('back'));
+  A('shelf_wood_side', () => shelfWood('side')); A('shelf_wood_back', () => shelfWood('back'));
+  A('notice_board_side', () => noticeBoard('side')); A('notice_board_back', () => noticeBoard('back'));
+  A('bookshelf_back', () => cabinetBack(66, 8, 120, 0.55, 0.9, 66, DARKW.high, DARKW.mid));
+  A('dresser_back', () => cabinetBack(44, 12, 116, 0.5, 0.88, 30, '#a87a48', WOOD.mid, 8));
+  A('fireplace_back', () => fireplaceBack());
   A('bench_wood', () => benchWood(false)); A('bench_wood_e', () => benchWood(true));
   A('stool', () => stool());
   A('chair_fine', () => chairFine('s')); A('chair_fine_n', () => chairFine('n')); A('chair_fine_e', () => chairFine('e'));

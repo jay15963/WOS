@@ -116,7 +116,7 @@ function tables(A) {
   const opt = (n) => (A.has(n) ? A.get(n) : LAZY_DEFS.has(n) ? LZ.get(n) : null);
   const arr = (pre, n = 16) => { const a = []; for (let m = 0; m < n; m++) a.push(opt(pre + m)); return a[0] ? a : null; };
   T = { opt, LA: LZ, blob: opt('fx_blob'), glow: opt('fx_glow') || opt('fx_soft'), flames: [opt('fx_flame_0') || opt('fx_flame'), opt('fx_flame_1') || opt('fx_flame'), opt('fx_flame_2') || opt('fx_flame')],
-    drop: opt('fx_drop') || opt('fx_soft'), ring: opt('fx_ring'), wall: {}, wallSoft: {}, fence: {}, floorEdge: {}, d: {}, face: {} };
+    drop: opt('fx_drop') || opt('fx_soft'), ring: opt('fx_ring'), wall: {}, wallSoft: {}, fence: {}, floorEdge: {}, d: {}, face: {}, faceT: {} };
   for (const st of ['plank', 'cut', 'log', 'timber', 'tbrick', 'wattle', 'rough', 'cobble']) {
     T.wall[st] = st === 'plank' ? arr('wall_wood_') : st === 'cut' ? arr('wall_stone_') : arr(`wst_${st}_`);
     const s = []; for (let m = 0; m < 16; m++) s.push(opt(`wst_${st}_s${m}`)); T.wallSoft[st] = s;
@@ -163,11 +163,15 @@ const spriteOf = (A, type, v) => {
   return tables(A).opt(n ? `${type}_${(((v | 0) % n) + n) % n}` : type);
 };
 let FFLIP = 1;
+// camera rotation (art/faces/props.js sets it while it draws a turned piece): pieces whose art has no back / side view
+// at 0° show `<type>_back` / `<type>_side` when the camera sees them from there (never used at 0°)
+export const FACE_ALT = { on: false };
 function faceSprite(A, T, type, v, face) {
   FFLIP = 1;
   const base = spriteOf(A, type, v);
   if (!face || face === 's') return base;
-  let fv = T.face[type];
+  let fv = FACE_ALT.on ? T.faceT[type] : T.face[type];
+  if (!fv && FACE_ALT.on) fv = T.faceT[type] = [T.opt(type + '_n') || T.opt(type + '_back'), T.opt(type + '_e') || T.opt(type + '_side')];
   if (!fv) fv = T.face[type] = [T.opt(type + '_n'), T.opt(type + '_e')];
   if (face === 'n') { if (fv[0]) return fv[0]; FFLIP = -1; return base; }
   if (face === 'w') FFLIP = -1;
@@ -583,7 +587,7 @@ function drawDecorProp(B, A, o, t, fl) {
     case 'candles': for (const [dx, lift] of DG.candles) smallFlame(B, T, x + dx * ff * sc, yd, foot + lift * sc, sc, t, 0.55); break;
     case 'candelabra': for (const [dx, lift] of DG.candelabra) smallFlame(B, T, x + dx * sc, yd, foot + lift * sc, sc, t, 0.55); break;
     case 'lamp_stone': if (T.lamp_stone_glow) B.emissive.add(T.lamp_stone_glow, x, yd, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); smallFlame(B, T, x, yd, foot + (DG.lamp_stone[0][1] - 0.06) * sc, sc, t, 0.6); break;
-    case 'lamp_wood': if (T.lamp_wood_glow) B.emissive.add(T.lamp_wood_glow, x, yd, sc, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); break;
+    case 'lamp_wood': if (T.lamp_wood_glow) B.emissive.add(T.lamp_wood_glow, x, yd, sc * ff, sc, 1, 1, 1, 0.55 + 0.4 * n, 0, 0, 0, 1); break; // (mirrored with its lamp: the lantern hangs on one side)
     case 'fireplace': {
       if (o.face && o.face !== 's') { if (T.glow) B.emissive.add(T.glow, x + (o.face === 'w' ? -0.3 : o.face === 'e' ? 0.3 : 0), y - 0.4, 1.2, 1.2, 1, 0.55, 0.25, 0.25, 0, 0, 0, 1, 0, 0.2); break; }
       const seed = x * 1.7 + y;

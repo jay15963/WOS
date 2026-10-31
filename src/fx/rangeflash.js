@@ -41,6 +41,7 @@ export function rangeFlashSystem(game) {
       // its edge: short dashes, slowly turning
       const night = env?.night || 0, px = 1 / g.cam.zoom, n = Math.max(36, Math.min(160, Math.round((R * Math.PI * 2) / 0.75)));
       const dl = Math.max(0.55, 20 * px) / dot.w, dh = Math.max(0.2, 9 * px) / dot.h;
+      const cr = g.cam.rot || 0; // camera yaw: a dash lies along the circle as the screen shows it
       for (let k = 0; k < n; k++) {
         const an = (k / n) * Math.PI * 2 + g.time * 0.05;
         const x = p.x + Math.cos(an) * R, y = p.y + Math.sin(an) * R;

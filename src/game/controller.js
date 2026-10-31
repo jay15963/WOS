@@ -44,22 +44,34 @@ export function abilityCodes(ids) {
 export const abilityKeys = (ids) => abilityCodes(ids).map((l) => l[0] || null);
 export const keyLabel = (code) => shortLabel(code);
 
+// camera yaw (game.cam.rot, docs/CAMERA-ROTATION.md): "up" on the screen is height, so a tall sprite is hit along the
+// view's up — tests are made in view space (VR = cos / sin of the yaw, set by pick; at 0° plain world deltas)
+const VR = { c: 1, s: 0 };
+const vdx = (dx, dy) => VR.c * dx + VR.s * dy, vdy = (dx, dy) => -VR.s * dx + VR.c * dy;
 function objHit(o, wx, wy, tol) {
   const s = o.s || 1;
+  const dx = vdx(wx - o.x, wy - o.y), dy = vdy(wx - o.x, wy - o.y); // the point relative to the anchor, as on the screen
   if (o.type.startsWith('tree_')) {
-    if (o.stump) return Math.hypot(wx - o.x, wy - (o.y - 0.15)) < 0.45 + tol;
+    if (o.stump) return Math.hypot(dx, dy + 0.15) < 0.45 + tol;
     const h = 2.1 * s * (o.age ?? 1);
-    return Math.abs(wx - o.x) < 0.5 * s * (o.age ?? 1) + tol && wy < o.y + 0.25 && wy > o.y - h;
+    return Math.abs(dx) < 0.5 * s * (o.age ?? 1) + tol && dy < 0.25 && dy > -h;
   }
   if (o.building) {
     const def = BUILDINGS[o.type];
     const sw = o.fw || def?.size[0] || 1, sh = o.fh || def?.size[1] || 1;
     const top = def?.flat ? 0 : def?.block === 'tile' || def?.block === 'door' ? 0.55 : 0.9;
-    return wx >= o.tx - tol && wx < o.tx + sw + tol && wy > o.ty - top && wy < o.ty + sh + tol * 0.5;
+    if (!VR.s && VR.c === 1) return wx >= o.tx - tol && wx < o.tx + sw + tol && wy > o.ty - top && wy < o.ty + sh + tol * 0.5;
+    // turned: the footprint, or a point of the body up to `top` above it (the click moved down the screen onto the ground)
+    const ux = -VR.s, uy = VR.c; // world direction of "down the screen"
+    for (let k = 0; k <= 4; k++) {
+      const h = (top * k) / 4, x = wx + ux * h, y = wy + uy * h;
+      if (x >= o.tx - tol && x < o.tx + sw + tol && y >= o.ty - tol * 0.5 && y < o.ty + sh + tol * 0.5) return true;
+    }
+    return false;
   }
-  if (SMALL.has(o.type)) return Math.hypot(wx - o.x, wy - (o.y - 0.12)) < 0.36 + tol;
+  if (SMALL.has(o.type)) return Math.hypot(dx, dy + 0.12) < 0.36 + tol;
   const r = (o.type === 'boulder' ? 0.5 : 0.45) * s + tol;
-  return Math.hypot(wx - o.x, wy - (o.y - 0.3 * s)) < r;
+  return Math.hypot(dx, dy + 0.3 * s) < r;
 }
 
 // descriptor for any world object (natural, structure, crop)
@@ -84,6 +96,8 @@ function nearbyFoe(game, prefer = null) {
 export function pick(game, sx, sy) {
   const [wx, wy] = game.screenToWorld(sx, sy);
   const tol = 14 / game.cam.zoom;
+  const rot = game.cam.rot || 0;
+  VR.c = rot ? Math.cos(rot) : 1; VR.s = rot ? Math.sin(rot) : 0;
   const hid = (x, y) => !!game.roofs?.hidden?.(x, y); // inside a building whose roof covers it (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
@@ -92,38 +106,40 @@ export function pick(game, sx, sy) {
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
     const rx = (pawn ? 0.42 : 0.55) * sc + tol, ry = (pawn ? 0.78 : 0.5) * sc + tol;
-    const dx = (wx - e.x) / rx, dy = (wy - (e.y - liftOf(e) - (pawn ? 0.7 : 0.35) * sc)) / ry; // levels: lifted
+    const dx = vdx(wx - e.x, wy - e.y) / rx, dy = (vdy(wx - e.x, wy - e.y) + liftOf(e) + (pawn ? 0.7 : 0.35) * sc) / ry; // levels: lifted
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = e; }
   }
   // breakable props (bandit crates)
   for (const o of game.props || []) {
     if (o.broken) continue;
-    const dx = (wx - o.x) / (0.5 + tol), dy = (wy - (o.y - 0.3)) / (0.45 + tol);
+    const dx = vdx(wx - o.x, wy - o.y) / (0.5 + tol), dy = (vdy(wx - o.x, wy - o.y) + 0.3) / (0.45 + tol);
     const d = dx * dx + dy * dy;
     if (d < bd) { bd = d; best = o; }
   }
   if (best) return { type: 'creature', e: best, wx, wy };
   let hit = null, hitFlat = null;
   const LV = game.levels?.hasUpper ? game.levels : null; // levels: upper pieces are drawn lifted (faded / covered ones are not pickable)
-  const lr = LV ? game.cam?.rot || 0 : 0, lm = LV ? 3 * STORY_H : 0; // (levels, camera turned: the lift is up the screen)
-  game.world.forChunks(wx - 2 - (lr ? lm : 0), wy - 1 - (lr ? lm : 0), wx + 2 + (lr ? lm : 0), wy + 3 + lm, (c) => {
+  // (turned: tall things reach out in any world direction; nearest = farthest down the screen, the depth key)
+  const m = rot ? 3.2 : 0, up = LV ? 3 * STORY_H : 0;
+  game.world.forChunks(wx - 2 - m, wy - 1 - m, wx + 2 + m, wy + 3 + up + m, (c) => {
     for (const o of c.objects) {
-      const lz = LV && o.lv ? o.lv * STORY_H : 0, lx = lr && lz ? wx - Math.sin(lr) * lz : wx, ly = lr && lz ? wy + Math.cos(lr) * lz : wy + lz;
-      if (Math.abs(o.x - lx) > 2.5 || o.y < ly - 0.6 || o.y > ly + 2.6) continue;
+      const lh = LV && o.lv ? o.lv * STORY_H : 0, lx = wx - VR.s * lh, ly = wy + VR.c * lh; // levels: lifted a story
+      const ox = vdx(o.x - lx, o.y - ly), oy = vdy(o.x - lx, o.y - ly);
+      if (Math.abs(ox) > 2.5 + m * 0.3 || oy < -0.6 - m * 0.5 || oy > 2.6 + m * 0.3) continue;
       if (LV && (o.lv ? (o.alpha ?? 1) < 0.5 : LV.culled(o))) continue;
       if (!objHit(o, lx, ly, tol) || (hid(o.x, o.y) && !o.door)) continue;
       const d = describeAny(game, o);
       if (!d) continue;
       if (o.flat) { if (!hitFlat) hitFlat = d; continue; }
-      if (!hit || o.y > hit.o.y) hit = d;
+      if (!hit || (rot ? (o._zk ?? vdy(o.x, o.y)) > (hit.o._zk ?? vdy(hit.o.x, hit.o.y)) : o.y > hit.o.y)) hit = d;
     }
   });
   if (!hit) hit = game.corpses?.pickAt(wx, wy, tol) || null; // bodies on the ground (corpses.js)
   if (hit) return { type: 'interact', it: hit, wx, wy };
   const rk = describeRock(game, Math.floor(wx), Math.floor(wy));
   if (rk) return { type: 'interact', it: rk, wx, wy };
-  for (const it of game.loot) if (Math.hypot(wx - it.x, wy - it.y + 0.15) < 0.4 + tol) return { type: 'loot', it, wx, wy };
+  for (const it of game.loot) if (Math.hypot(vdx(wx - it.x, wy - it.y), vdy(wx - it.x, wy - it.y) + 0.15) < 0.4 + tol) return { type: 'loot', it, wx, wy };
   if (hitFlat) return { type: 'interact', it: hitFlat, wx, wy };
   const pj = game.paths?.jobAt?.(Math.floor(wx), Math.floor(wy)); // a blue path plan / red removal mark (paths.js)
   if (pj) return { type: 'interact', it: pj, wx, wy };
@@ -479,7 +495,8 @@ export function installController(game) {
       if (n && !p.work && !g.build.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
         const s = n.tile ? Math.max(1, n.w || 1) : n.kind === 'tree' ? 0.9 : 0.8;
         const a = 0.35 + 0.15 * Math.sin(g.time * 4);
-        B.blob.add(ring, n.x, n.tile ? n.y : n.y - 0.02, s, s * 0.62, 1, 0.95, 0.8, a);
+        const nr = n.tile && (n.w || 1) !== (n.h || 1) ? -(g.cam.rot || 0) : 0; // (turned: a long piece's ring turns with it)
+        B.blob.add(ring, n.x, n.tile ? n.y : n.y - 0.02, s, s * 0.62, 1, 0.95, 0.8, a, 0, nr);
       }
       // mode cursor (desktop hover / decon drag rectangle)
       const bm = g.build.mode;

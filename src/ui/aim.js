@@ -254,7 +254,7 @@ export function installAim(game) {
     R.has = false;
     if (S.mode === 'touch') {
       if (!S.moved) return; // hold without dragging: the default target (aimUpdate)
-      const dx = S.fx - S.cx, dy = S.fy - S.cy;
+      const [dx, dy] = game.toWorldDir(S.fx - S.cx, S.fy - S.cy); // the drag is on the screen (camera yaw: turned to the world)
       const L = Math.hypot(dx, dy) || 1;
       if (L < S.R * DEAD) return; // back in the dead zone (a release here cancels)
       const tilt = Math.max(0, Math.min(1, (L / S.R - DEAD) / (1 - DEAD))); // beyond the rim: clamped, never cancels
@@ -393,9 +393,9 @@ export function installAim(game) {
       // camera focus: ease toward the aim point (keeps the landing point on screen for long bows), then the landing
       let kT = 0;
       if (S.active && S.has) {
-        const v = g.view(), Sx = aimSpec(g, S.id);
-        const hw = (v.x1 - v.x0) / 2 - 1.6, hh = (v.y1 - v.y0) / 2 - 1.6;
-        const dx = Math.abs(S.x - p.x), dy = Math.abs(S.y - p.y), d = Math.hypot(dx, dy);
+        const z = g.cam.zoom, Sx = aimSpec(g, S.id);
+        const hw = g.R.cssW / z / 2 - 1.6, hh = g.R.cssH / z / 2 - 1.6; // (the screen in tiles; camera yaw: the aim in view space)
+        const av = g.toViewDir(S.x - p.x, S.y - p.y), dx = Math.abs(av[0]), dy = Math.abs(av[1]), d = Math.hypot(dx, dy);
         const need = Math.max(dx > hw ? 1 - hw / dx : 0, dy > hh ? 1 - hh / dy : 0);
         // mouse: only a nudge (the cursor is on screen already, a big ease would make the point drift under it)
         kT = S.mode === 'mouse' ? 0.1 * Math.min(1, d / (Sx?.range || 18)) : Math.min(0.92, Math.max(0.12 + 0.3 * (d / (Sx?.range || 18)), need));
