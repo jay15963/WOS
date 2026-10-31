@@ -11,12 +11,15 @@
 // Golden and long in the morning, shorter at noon, warm late in the afternoon, none at night / under heavy cloud.
 // Quality: high 22 shafts + motes, medium 14 + motes, low 7 without motes.
 
+import { CAMV } from '../art/archCompose.js'; // camera yaw (docs/CAMERA-ROTATION.md)
+
 const MAXN = { high: 22, medium: 14, low: 7 };
 
 export function drawShaft(B, A, x, y, h, dx, dy, width, r, g, b, a) {
   const s = A.has('fx_shaft') ? A.get('fx_shaft') : null;
   if (!s || a <= 0.003) return;
-  const sx = dx * h, sy = dy * h + h;                  // screen vector from the top of the shaft to the landing point
+  const vx = CAMV.c * dx + CAMV.s * dy, vy = -CAMV.s * dx + CAMV.c * dy; // (camera turned: the ground offset as seen on screen)
+  const sx = vx * h, sy = vy * h + h;                  // screen vector from the top of the shaft to the landing point
   const len = Math.hypot(sx, sy);
   if (len < 0.05) return;
   B.emissive.add(s, x, y, width / s.w, len / s.h, r, g, b, a, 0, Math.atan2(-sx, sy), 0, 1, 0, h);
@@ -71,9 +74,10 @@ export function raysSystem() {
         drawShaft(B, A, s.x, s.y, s.h, sd[0], sd[1], s.w * 2.2, cr, cg, cb, 0.09 * a);
         // the bright patch on the floor (light map: it lights the dark floor) + a faint glow on top
         const pl = Math.min(2.6, s.h * sdl), px = s.x + sd[0] * s.h * 0.5, py = s.y + sd[1] * s.h * 0.5 + 0.35;
-        B.light.addRaw(lx, ly + 0.3, s.w * 1.7 + 0.4, s.w * 1.2 + 0.3, cr, cg, cb, a);
+        const ox = -CAMV.s * 0.3, oy = CAMV.c * 0.3; // (a little down the screen, whatever the camera yaw)
+        B.light.addRaw(lx + ox, ly + oy, s.w * 1.7 + 0.4, s.w * 1.2 + 0.3, cr, cg, cb, a);
         if (pl > 0.8) B.light.addRaw(px, py, s.w * 1.3 + pl * 0.4, s.w * 0.9 + pl * 0.3, cr, cg, cb, 0.45 * a);
-        if (glow) B.emissive.add(glow, lx, ly + 0.3, (s.w * 1.4) / glow.w, (s.w * 0.8) / glow.h, cr, cg, cb, 0.05 * a, 0, 0, 0, 1, 0, 0.01);
+        if (glow) B.emissive.add(glow, lx + ox, ly + oy, (s.w * 1.4) / glow.w, (s.w * 0.8) / glow.h, cr, cg, cb, 0.05 * a, 0, 0, 0, 1, 0, 0.01);
         // dust motes drifting in the beam
         if (motes && emitN > 0 && Math.random() < 0.5 * vis) {
           emitN--;

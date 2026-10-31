@@ -16,11 +16,12 @@ import { BUILDINGS } from './data.js';
 import { tileBlocked } from './physics.js';
 import { walkable } from './nav.js';
 import { WALL_H } from '../art/structures.js';
-import { enclosedRoom } from './roofs.js';
+import { enclosedRoom, underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { ROOF_GEOM } from './content/roofs.js';
 import { wallBehind as wallBehindL } from './autotile.js';
 import { drawStatic } from '../art/composeWorld.js';
 import { archSprite } from '../art/archCompose.js'; // K's lazy sprites (painted on demand)
+import { drawStairFaces, stairZk, layFlat } from '../art/faces/levels.js'; // camera rotation (docs/CAMERA-ROTATION.md)
 import { drawProxy } from './artcompat.js';
 import { lootRow } from './mut/roll.js';
 
@@ -102,7 +103,7 @@ export class Levels {
       const def = BUILDINGS[o.type];
       if (!def) continue;
       const lv = o.lv | 0;
-      if (lv) { upper++; sig = (sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = o.y + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it)
+      if (lv) { upper++; sig = (sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = Math.max(o.y, o.ty + (o.fh || 1)) + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it); a piece anchored above its tile's south edge (edge props: chest, table…) still sorts after the slab of its own tile (it vanished under it)
       if (o.blueprint) continue;
       if (def.block === 'stairs') { this._addStair(o, lv); continue; }
       if (isWallTop(def) && lv < MAX_LV) { mark(this.surf, lv + 1, o); tops++; } // wall / door tops: the next story's floor
@@ -204,9 +205,9 @@ export class Levels {
   // building.structureAtPoint / controller.pick ask it before the ground
   pickUpper(wx, wy, layers = ['main', 'rug', 'floor']) {
     if (!this.hasUpper) return null;
-    const g = this.game, w = g.world, N = w.W * w.H, G = g.build.grid;
+    const g = this.game, w = g.world, N = w.W * w.H, G = g.build.grid, r = g.cam?.rot || 0, rs = r ? Math.sin(r) : 0, rc = r ? Math.cos(r) : 1;
     for (let k = MAX_LV; k >= 1; k--) {
-      const tx = Math.floor(wx), ty = Math.floor(wy + k * STORY_H);
+      const tx = Math.floor(wx - rs * k * STORY_H), ty = Math.floor(wy + rc * k * STORY_H); // (camera turned: the lift is up the screen)
       if (!w.inBounds(tx, ty)) continue;
       for (const L of layers) {
         const o = G[L].get(ty * w.W + tx + k * N);
@@ -750,12 +751,12 @@ class Heap {
 Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
   const a = o.alpha ?? 1;
   if (a <= 0.02) return;
-  const lift = (o.lv | 0) * STORY_H, def = BUILDINGS[o.type];
+  const lift = (o.lv | 0) * STORY_H, def = BUILDINGS[o.type], r = this.game.cam?.rot || 0;
+  if (r && B.faces) return drawUpperRot(this, B, A, o, t, lift, a); // camera turned (docs/CAMERA-ROTATION.md)
   let PB = this._pb;
   if (!PB || PB.main !== B.main) PB = this._pb = { ...B, ground: B.main, blob: B.main, decor: B.main };
-  const y0 = o.y, cy0 = o.cy, ty0 = o.ty, x0 = o.x, r = this.game.cam?.rot || 0;
-  if (r) { o.x = x0 + Math.sin(r) * lift; o.y = y0 - Math.cos(r) * lift; } // camera turned: up the screen
-  else { o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift; }
+  const y0 = o.y, cy0 = o.cy, ty0 = o.ty, x0 = o.x;
+  o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift;
   try {
     if (o.blueprint && !o._ghost && A.has('bp_tile')) { // RimWorld-blue plan grid on its story (building.js draws the ground ones)
       const tile = A.get('bp_tile');
@@ -787,6 +788,69 @@ Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
     B.light.addRaw(o.x, o.y - lift - (Lg.lift ?? 0.3), d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
   }
 };
+// camera turned: the piece's sprites lifted straight up the screen (its position moved along the view's up while it is
+// drawn), its flat layers (rugs, a floor's ghost, sills) laid at the story's height as faces in drawing order (closing
+// the face segment after each, so a flat layer stays under what is drawn after it), the plan grid as flat faces too,
+// the decon ring and the light lifted up the screen. (Upper floors / walls / stairs are face kinds: art/faces.)
+function drawUpperRot(L, B, A, o, t, lift, a) {
+  const g = L.game, R = g.R, rot = g.cam.rot, sn = Math.sin(rot), cs = Math.cos(rot), dx = sn * lift, dy = -cs * lift;
+  let PB = L._pbr;
+  if (!PB || PB.main !== B.main) {
+    const flat = { add(s, x, y, sx = 1, sy = 1, r = 1, gg = 1, b = 1, al = 1, sway = 0, rt = 0, fl = 0, flip = 1) { layFlat(B.faces, s, x - PB._dx, y - PB._dy, sx, sy, r, gg, b, al, rt, flip, PB._h); R?.setFaceTex?.(null); }, addRaw() {} };
+    PB = L._pbr = { ...B, ground: flat, decor: flat, blob: B.main, _dx: 0, _dy: 0, _h: 0 };
+  }
+  const fw = o.fw || 1, fh = o.fh || 1, x0 = o.x, y0 = o.y, cy0 = o.cy, tx0 = o.tx, ty0 = o.ty;
+  if (BUILDINGS[o.type]?.block === 'stairs') { drawStairFaces(B.faces, A, o, lift, 2); R?.setFaceTex?.(null); return; } // (a stairs ghost)
+  // a piece standing on its footprint (anchor = the middle of its south edge, the front in the north view) stands on
+  // the middle of the footprint's edge toward the camera
+  let ax = 0, ay = 0;
+  if (tx0 != null && Math.abs(x0 - (tx0 + fw / 2)) < 1e-3 && Math.abs(y0 - (ty0 + fh)) < 1e-3) {
+    const ext = 0.5 * (Math.abs(sn) * fw + Math.abs(cs) * fh);
+    ax = tx0 + fw / 2 - sn * ext - x0; ay = ty0 + fh / 2 + cs * ext - y0;
+  }
+  PB._dx = dx + ax; PB._dy = dy + ay; PB._h = lift;
+  if (o.blueprint && !o._ghost && A.has('bp_tile')) { // the blue plan grid flat on its story
+    const s = A.get('bp_tile');
+    for (let y = ty0; y < ty0 + fh; y++) for (let x = tx0; x < tx0 + fw; x++) B.faces.quad4(x, y, lift + 0.002, s.u0, s.v0, x + 1, y, lift + 0.002, s.u1, s.v0, x + 1, y + 1, lift + 0.002, s.u1, s.v1, x, y + 1, lift + 0.002, s.u0, s.v1, 0.42, 0.7, 1, 0.5 * a);
+    R?.setFaceTex?.(null);
+  }
+  o.x = x0 + PB._dx; o.y = y0 + PB._dy; o.tx = tx0 + PB._dx; o.ty = ty0 + PB._dy; if (cy0 != null) o.cy = cy0 + PB._dy; // sync-ok: drawn lifted this frame only, restored right below
+  try { drawStatic(PB, A, drawProxy(A, o), t); } finally { o.x = x0; o.y = y0; o.cy = cy0; o.tx = tx0; o.ty = ty0; } // sync-ok: restores the position
+  if (!o._ghost && g.build.decon.has(o) && A.has('fx_ring')) B.fx.add(A.get('fx_ring'), tx0 + fw / 2, ty0 + fh / 2 + 0.1, 0.95 * fw, 0.65 * fh, 1, 0.35, 0.3, 0.85, 0, 0, 0, 1, 0, lift);
+  const Lg = o.light;
+  if (Lg) {
+    const tt = g.time, f = Lg.flicker ? 1 - Lg.flicker * (0.5 + 0.5 * Math.sin(tt * 11 + o.x * 3) * Math.sin(tt * 7.3 + o.y)) : 1, d = Lg.radius * 2 * (0.96 + 0.04 * f), h = lift + (Lg.lift ?? 0.3);
+    B.light.addRaw(o.x + sn * h, o.y - cs * h, d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
+  }
+}
+// camera turned: the depth key of an entity up a story (game.js; base = its turned y). It sorts after the surface it
+// stands on — a wall top's / slab's front-most corner can be up to ~1.07 tiles ahead of the feet at a diagonal yaw, so
+// a small margin over the one tile per story —; on a stair it sorts between the stair's back (steps, far stringer) and
+// its front part (near stringer, handrail: stairFront below), the nearer climber last.
+Levels.prototype.zkRot = function zkRot(e, base, rc, rs) {
+  const z = e.z > 0 ? e.z : 0;
+  const s = this._active ? this.stairAt(e.lv | 0, e.x, e.y) : null;
+  if (s) { const k = stairZk(s.o, rc, rs); return k + 0.0002 + 1e-5 * Math.max(-5, Math.min(5, base + z - k)); }
+  return base + z + Math.min(z, 1) * 0.12;
+};
+// camera turned: the front part of each finished stair in view (art/faces/levels.js), sorted just after the stair and
+// whoever climbs it; hidden like the stair itself (under an opaque roof / a cave ceiling)
+const FRONT = new WeakMap();
+function stairFront(game, o) {
+  let d = FRONT.get(o);
+  if (!d) {
+    d = {
+      o, get x() { return o.x; }, get y() { return o.y; },
+      zkRot: (rc, rs) => stairZk(o, rc, rs) + 0.0004,
+      draw: (B, A) => {
+        if (o.removed || underOpaqueRoof(game, o.x, o.y) || underCaveCeiling(game, o.x, o.y)) return;
+        drawStairFaces(B.faces, A, o, (o.lv | 0) * STORY_H, 1);
+      },
+    };
+    FRONT.set(o, d);
+  }
+  return d;
+}
 // hidden under an opaque upper floor? (entities and furniture below a slab whose story is not faded for the player)
 Levels.prototype.culled = function culled(o) {
   const g = this.game;
@@ -876,11 +940,14 @@ const isWallish = (o) => { const d = o && BUILDINGS[o.type]; return !!d && d.con
 function cutaway(game, dt) {
   const L = game.levels, p = game.player, w = game.world, C = L._cut || (L._cut = { key: '', want: new Set(), live: new Set() });
   const lv = p.lv | 0, tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05);
-  const key = p.dead ? '' : `${tx},${ty},${lv},${game.build.v}`;
+  // camera turned: "in front" is toward the camera (16 yaw steps), not the south (docs/CAMERA-ROTATION.md)
+  const rq = game.cam?.rot ? Math.round(game.cam.rot / (Math.PI / 8)) : 0;
+  const key = p.dead ? '' : `${tx},${ty},${lv},${game.build.v},${rq}`;
   if (key !== C.key) {
     C.key = key;
     C.want.clear();
-    if (key && w.inBounds(tx, ty)) {
+    if (key && w.inBounds(tx, ty) && rq) cutawayRot(game, C, lv, tx, ty, rq * (Math.PI / 8));
+    else if (key && w.inBounds(tx, ty)) {
       const G = game.build.grid.main, W = w.W;
       const wallAt = (x, y) => { if (!w.inBounds(x, y)) return null; const o = G.get(y * W + x + lv * W * w.H); return isWallish(o) && !o.blueprint ? o : null; };
       // the room around the player (interior tiles + the wall ring), from J's flood fill
@@ -922,6 +989,43 @@ function cutaway(game, dt) {
     if (na >= 1) { delete o.alpha; C.live.delete(o); } else o.alpha = na; // sync-ok: cosmetic fade (COSMETIC_FIELDS 'alpha')
   }
 }
+// the cutaway with the camera turned: the same three rules with the view's directions — room walls whose neighbour on
+// the far side (away from the camera) is inside the room, the walls on the near side of the slab around the player,
+// and the walls right in front of the player on screen (with the stories stacked on them)
+const DIR4 = [[0, -1], [1, 0], [0, 1], [-1, 0]];
+function cutawayRot(game, C, lv, tx, ty, rot) {
+  const w = game.world, G = game.build.grid.main, W = w.W, sn = Math.sin(rot), cs = Math.cos(rot);
+  const wallAt = (x, y) => { if (!w.inBounds(x, y)) return null; const o = G.get(y * W + x + lv * W * w.H); return isWallish(o) && !o.blueprint ? o : null; };
+  // toward the camera = (-sin, cos) on the ground; the grid directions within ~67° of it (or of the opposite)
+  const near = DIR4.filter(([dx, dy]) => -sn * dx + cs * dy > 0.38), far = DIR4.filter(([dx, dy]) => -sn * dx + cs * dy < -0.38);
+  const room = lv === 0 ? game.roofs && roomOf(game, tx, ty) : null;
+  if (room) {
+    const inner = new Set();
+    for (const [x, y] of room) if (!wallAt(x, y)) inner.add(y * W + x);
+    for (const [x, y] of room) { const o = wallAt(x, y); if (o && far.some(([dx, dy]) => inner.has((y + dy) * W + x + dx))) C.want.add(o); }
+  } else if (lv > 0) {
+    const F = game.build.grid.floor, off = lv * W * w.H, inner = new Set(), q = [ty * W + tx];
+    if (F.get(q[0] + off)) inner.add(q[0]); else q.length = 0;
+    while (q.length && inner.size < 400) {
+      const i = q.pop(), x = i % W;
+      for (const j of [i - 1, i + 1, i - W, i + W]) {
+        if (j < 0 || j >= W * w.H || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1) || inner.has(j) || !F.get(j + off) || wallAt(j % W, (j / W) | 0)) continue;
+        inner.add(j); q.push(j);
+      }
+    }
+    if (inner.size < 400) for (const i of inner) for (const [dx, dy] of near) { const o = wallAt(i % W + dx, ((i / W) | 0) + dy); if (o) C.want.add(o); }
+  }
+  // in front of the player on screen: the row right in front (3 wide) and the column in front (longer per story up)
+  for (let k = lv; k <= MAX_LV; k++) {
+    const R = 3 + (k - lv);
+    for (let y = ty - R; y <= ty + R; y++) for (let x = tx - R; x <= tx + R; x++) {
+      const dx = x - tx, dy = y - ty, vx = cs * dx + sn * dy, vy = -sn * dx + cs * dy;
+      if (!((vy > 0.5 && vy <= 1.5 && Math.abs(vx) <= 1.5) || (Math.abs(vx) < 0.75 && vy > 0.5 && vy <= 2.5 + (k - lv)))) continue;
+      const o = w.inBounds(x, y) ? G.get(y * W + x + k * W * w.H) : null;
+      if (o && isWallish(o) && !o.blueprint) C.want.add(o);
+    }
+  }
+}
 // enclosed room around a tile (J's roofs.enclosedRoom; recomputed when the tile or the structures change)
 const roomOf = (game, tx, ty) => enclosedRoom(game, tx, ty, 220);
 
@@ -953,6 +1057,15 @@ export function levelsSystem() {
       }
       if (typeof bar === 'object' && bar) bar.update(dt);
     },
+    // camera turned: the front part of each finished stair in view, as a drawable of its own (stairFront)
+    collect(game, list, v) {
+      const L = game.levels;
+      if (!game.cam?.rot || !L?._active) return;
+      for (const s of L.stairs) {
+        const o = s.o;
+        if (o.x > v.x0 - 4 && o.x < v.x1 + 4 && o.y > v.y0 - 4 && o.y < v.y1 + 4) list.push(stairFront(game, o));
+      }
+    },
     render(game, B) {
       // stairs ghost: mark where it lets you off upstairs — the landing ahead and the two tiles beside the top step
       // (green when a surface is there to step onto; the landing red when nothing at all is up there)
@@ -968,9 +1081,11 @@ export function levelsSystem() {
         const tx1 = r === 1 ? g.tx + fw - 1 : g.tx, ty1 = r === 2 ? g.ty + fh - 1 : g.ty; // the top step
         const sides = r & 1 ? [[tx1, ty1 - 1], [tx1, ty1 + 1]] : [[tx1 - 1, ty1], [tx1 + 1, ty1]];
         let any = surf(lx, ly);
-        for (const [sx, sy] of sides) if (surf(sx, sy)) { any = true; B.fx.add(ring, sx + 0.5, sy + 0.6 - up * STORY_H, 0.7, 0.45, 0.5, 1, 0.55, 0.6 * pulse); }
+        // (camera turned: the ring at the tile's middle, lifted straight up the screen)
+        const rot = game.cam?.rot || 0, RY = (y) => (rot ? y + 0.5 : y + 0.6 - up * STORY_H), rl = rot ? up * STORY_H - 0.1 : 0;
+        for (const [sx, sy] of sides) if (surf(sx, sy)) { any = true; B.fx.add(ring, sx + 0.5, RY(sy), 0.7, 0.45, 0.5, 1, 0.55, 0.6 * pulse, 0, 0, 0, 1, 0, rl); }
         const ok = surf(lx, ly);
-        B.fx.add(ring, lx + 0.5, ly + 0.6 - up * STORY_H, 0.8, 0.5, ok ? 0.5 : any ? 0.8 : 1, ok ? 1 : any ? 0.8 : 0.85, ok ? 0.55 : any ? 0.8 : 0.45, (ok || !any ? 0.75 : 0.35) * pulse);
+        B.fx.add(ring, lx + 0.5, RY(ly), 0.8, 0.5, ok ? 0.5 : any ? 0.8 : 1, ok ? 1 : any ? 0.8 : 0.85, ok ? 0.55 : any ? 0.8 : 0.45, (ok || !any ? 0.75 : 0.35) * pulse, 0, 0, 0, 1, 0, rl);
       }
     },
   };

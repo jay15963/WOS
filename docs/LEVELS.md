@@ -190,7 +190,8 @@ doors, chests, beds and stations (used only from their own story); blueprints ar
   drawn by the same painters with its base lifted.
 - **Upper pieces** (`levels.drawUpper`, game.js hook): the normal painters with the base lifted by
   `lv · STORY_H`, every sprite (floor / blob / sill too) into the sorted batch; depth key
-  `_sy = y + 0.001·lv − (floor 0.0006 | rug 0.0003)` (slab, then rugs, then what stands on it); upper blueprints
+  `_sy = max(y, ty + fh) + 0.001·lv − (floor 0.0006 | rug 0.0003)` (slab, then rugs, then what stands on it — a piece
+  anchored above its tile's south edge, like a chest, still after the slab of its own tile); upper blueprints
   get the blue plan grid, decon marks the red ring; an overhanging upper floor shows a beam under its south edge
   (`slab_edge`, painted on demand through K's lazy registry); K's door canopy below an upper wall is re-drawn in front of it
   (`archCompose.archSprite`, lazy too). K's lazy style / detail sprites and the baked default looks (their fallback) are
@@ -215,6 +216,9 @@ doors, chests, beds and stations (used only from their own story); blueprints ar
   room is the floor slab around the player. Everything eases back when the player leaves.
 - **Picking**: `levels.pickUpper` (upper pieces under the cursor, lifted, faded ones skipped) before the ground in
   `structureAtPoint` and `controller.pick`; a decon drag that starts on an upper piece marks that story.
+- **Camera turned** (docs/CAMERA-ROTATION.md): stairs, upper floors and the depth of the rest of a story are computed
+  faces / keys in `art/faces/levels.js`; people on a stair sort between its back and front parts (`Levels.zkRot`,
+  `stairFront`); the cutaway uses the view's directions (`cutawayRot`).
 
 ## 9. Build mode on a story
 
