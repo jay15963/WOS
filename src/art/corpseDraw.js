@@ -5,7 +5,7 @@
 // Pawns are drawn by the pawn rig itself (drawPawn dead pose) through a tinting batch wrapper, so look parts
 // and gear follow the rig; animals use their side sprite with the same lying transform as drawAnimal.
 
-import { drawPawn } from './compose.js';
+import { drawPawn, viewPt, VX, VY } from './compose.js'; // viewPt: screen-space offsets → world (camera turned)
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -90,7 +90,8 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     px.deadT = tsince;
     const flip = px.facing === 'w' ? -1 : 1, side = -flip; // facing e/w → lies to the side it faced away from
     // blood under a fresh body
-    if (T.soft && age < 0.6) B.decor.add(T.soft, c.x + side * 0.3, c.y + 0.02, 1.3 / T.soft.w, 0.55 / T.soft.w, 0.32, 0.04, 0.04, 0.45 * (1 - sm(0.2, 0.6, age)) * clamp01(tsince * 1.5), 0, 0, 0, 1, 1, 0);
+    if (T.soft && age < 0.6) viewPt(c.x, c.y, side * 0.3, 0.02);
+    if (T.soft && age < 0.6) B.decor.add(T.soft, VX, VY, 1.3 / T.soft.w, 0.55 / T.soft.w, 0.32, 0.04, 0.04, 0.45 * (1 - sm(0.2, 0.6, age)) * clamp01(tsince * 1.5), 0, 0, 0, 1, 1, 0);
     if (bodyA > 0.01) {
       mix3(tint, FRESH_P, ROT_P, rotK);
       const sunk = 1 - 0.07 * rotK;
@@ -101,13 +102,16 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
       W.decor.set(B.decor, tint[0], tint[1], tint[2], bodyA); W.ground.set(B.ground, 1, 1, 1, bodyA);
       drawPawn(W, A, px, t);
       if (rotK > 0.05 && T.rot[0]) {
-        B.decor.add(T.rot[0], c.x + side * 0.28, c.y - 0.05, 0.95, 0.9, 1, 1, 1, 0.75 * rotK * bodyA, 0, side * 0.2, 0, flip, 1, 0.02);
-        B.decor.add(T.rot[1], c.x + side * 0.62, c.y - 0.08, 0.55, 0.55, 1, 1, 1, 0.6 * rotK * bodyA, 0, -side * 0.4, 0, -flip, 1, 0.04);
+        viewPt(c.x, c.y, side * 0.28, -0.05);
+        B.decor.add(T.rot[0], VX, VY, 0.95, 0.9, 1, 1, 1, 0.75 * rotK * bodyA, 0, side * 0.2, 0, flip, 1, 0.02);
+        viewPt(c.x, c.y, side * 0.62, -0.08);
+        B.decor.add(T.rot[1], VX, VY, 0.55, 0.55, 1, 1, 1, 0.6 * rotK * bodyA, 0, -side * 0.4, 0, -flip, 1, 0.04);
       }
     }
     const K = T.skel.p;
     if (K && skelA > 0.01) {
-      if (T.blob) B.blob.add(T.blob, c.x + side * 0.35, c.y, 1.0, 0.45, 1, 1, 1, 0.3 * skelA);
+      viewPt(c.x, c.y, side * 0.35, 0);
+      if (T.blob) B.blob.add(T.blob, VX, VY, 1.0, 0.45, 1, 1, 1, 0.3 * skelA);
       B.decor.add(K, c.x, c.y, shrink, shrink, bone[0], bone[1], bone[2], skelA, 0, side * HALF_PI, 0, flip, 1, gone * 0.25);
     }
     return;
@@ -137,11 +141,13 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   }
   const rot = flip * HALF_PI * k;
   const off = s.h * s.ay * 0.45 * sc;
-  const x = c.x - flip * off * k, y = c.y + 0.05 * k;
+  viewPt(c.x, c.y, -flip * off * k, 0.05 * k);
+  const x = VX, y = VY;
   // blood pool under a fresh body / carcass
   if (T.soft && (age < 0.6 || c.butchered) && age < 1.9) {
     const ba = (c.butchered ? 0.55 : 0.4) * (1 - sm(0.3, 1.9, age)) * clamp01(tsince * 1.5);
-    B.decor.add(T.soft, c.x, c.y + 0.05, (s.h * s.ay * sc * 1.3) / T.soft.w, (s.w * sc * 0.85) / T.soft.w, 0.32, 0.04, 0.04, ba, 0, 0, 0, 1, 1, 0);
+    viewPt(c.x, c.y, 0, 0.05);
+    B.decor.add(T.soft, VX, VY, (s.h * s.ay * sc * 1.3) / T.soft.w, (s.w * sc * 0.85) / T.soft.w, 0.32, 0.04, 0.04, ba, 0, 0, 0, 1, 1, 0);
   }
   if (bodyA > 0.01) {
     if (T.blob) B.blob.add(T.blob, c.x, c.y, s.w * 0.8 * sc, 0.7 * sc, 1, 1, 1, 0.5 * bodyA);
@@ -156,8 +162,10 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     }
     if (rotK > 0.05 && T.rot[0]) {
       const L = s.w * sc;
-      B.decor.add(T.rot[0], c.x, c.y - L * 0.08, L * 0.6, L * 0.55, 1, 1, 1, 0.7 * rotK * bodyA, 0, flip * 1.3, 0, flip, 1, 0.03);
-      B.decor.add(T.rot[1], c.x + flip * 0.08, c.y + L * 0.2, L * 0.34, L * 0.34, 1, 1, 1, 0.55 * rotK * bodyA, 0, -flip * 0.8, 0, -flip, 1, 0.05);
+      viewPt(c.x, c.y, 0, -L * 0.08);
+      B.decor.add(T.rot[0], VX, VY, L * 0.6, L * 0.55, 1, 1, 1, 0.7 * rotK * bodyA, 0, flip * 1.3, 0, flip, 1, 0.03);
+      viewPt(c.x, c.y, flip * 0.08, L * 0.2);
+      B.decor.add(T.rot[1], VX, VY, L * 0.34, L * 0.34, 1, 1, 1, 0.55 * rotK * bodyA, 0, -flip * 0.8, 0, -flip, 1, 0.05);
     }
   }
   const K = T.skel[sz];
@@ -173,7 +181,8 @@ export function drawFlies(B, A, c, amount, t, n = 5) {
   const T = tables(A);
   if (!T.fly || amount <= 0.02) return;
   const ph = c._ph || 0;
-  const cx = c.of === 'pawn' ? c.x + (c.f === 'w' ? 1 : -1) * 0.4 : c.x, cy = c.y - 0.05;
+  viewPt(c.x, c.y, c.of === 'pawn' ? (c.f === 'w' ? 1 : -1) * 0.4 : 0, -0.05);
+  const cx = VX, cy = VY;
   for (let i = 0; i < n; i++) {
     const a = t * (2.1 + i * 0.37) + ph + i * 1.7, b = t * (3.3 + i * 0.29) + i;
     const x = cx + Math.sin(a) * (0.32 + 0.08 * i), y = cy + Math.sin(b * 0.5) * 0.12;

@@ -469,9 +469,10 @@ export function installController(game) {
         const sc = t.scale || 1;
         const c = RING_COL[t.temper || SPECIES[t.species]?.temper] || RING_COL.neutral;
         const pulse = 0.85 + 0.15 * Math.sin(g.time * 5);
-        const ty = t.y - liftOf(t); // levels: ring under its feet up a story
-        B.blob.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
-        if (env.night > 0.1) B.emissive.add(ring, t.x, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
+        const lz = liftOf(t), [ux, uy] = lz && g.cam.rot ? g.toWorldDir(0, -lz) : [0, -lz]; // levels: ring under its feet up a story (up the screen)
+        const tx = t.x + ux, ty = t.y + uy;
+        B.blob.add(ring, tx, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0], c[1], c[2], 0.95);
+        if (env.night > 0.1) B.emissive.add(ring, tx, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
       if (n && !p.work && !g.build.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {

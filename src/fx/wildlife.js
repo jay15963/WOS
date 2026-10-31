@@ -537,6 +537,8 @@ class Wildlife {
     B.blob.add(this.S.blob, c.x, c.y, w * k, w * 0.5 * k, 1, 1, 1, a * c.a / (1 + c.lift * 1.5));
   }
   _draw(B, c, t) {
+    // camera turned: a critter faces the other way when the world's east points left on screen; headings minus the yaw
+    const yaw = this.g.cam?.rot || 0, fx = Math.cos(yaw) < 0 ? -1 : 1;
     const S = this.S, a = c.a;
     switch (c.kind) {
       case 'butterfly': {
@@ -554,20 +556,20 @@ class Wildlife {
       case 'dragonfly': {
         const s = S.df[c.v] || S.df[0];
         this._shadow(B, c, 0.22, 0.18);
-        B.main.add(s, c.x, c.y, 0.9 + 0.1 * Math.sin(t * 50 + c.ph), 0.9, 1, 1, 1, a * (0.85 + 0.15 * Math.sin(t * 60)), 0, c.rot || 0, 0, 1, 0, c.lift);
+        B.main.add(s, c.x, c.y, 0.9 + 0.1 * Math.sin(t * 50 + c.ph), 0.9, 1, 1, 1, a * (0.85 + 0.15 * Math.sin(t * 60)), 0, (c.rot || 0) - yaw, 0, 1, 0, c.lift);
         break;
       }
       case 'frog': {
         const s = c.st === 1 ? S.frogJump : S.frog[c.v] || S.frog[0];
         this._shadow(B, c, 0.2, 0.35);
         const breath = c.st === 0 ? 1 + Math.sin(t * 3 + c.ph) * 0.03 : 1;
-        B.main.add(s, c.x, c.y, 0.85 * breath, 0.85, 1, 1, 1, a, 0, 0, 0, c.flip, 0, c.lift);
+        B.main.add(s, c.x, c.y, 0.85 * breath, 0.85, 1, 1, 1, a, 0, 0, 0, c.flip * fx, 0, c.lift);
         break;
       }
       case 'duck': {
         const s = c.st === 2 ? S.duckFly : c.v === 2 ? S.duckling : S.duck[c.v] || S.duck[0];
         if (c.st === 2) this._shadow(B, c, 0.4, 0.25);
-        B.main.add(s, c.x, c.y, 0.85, 0.85, 1, 1, 1, a, 0, c.st === 2 ? 0 : Math.sin(t * 1.6 + c.ph) * 0.04, 0, c.flip, c.st === 2 ? 0 : -1, c.lift); // -1: waterline
+        B.main.add(s, c.x, c.y, 0.85, 0.85, 1, 1, 1, a, 0, c.st === 2 ? 0 : Math.sin(t * 1.6 + c.ph) * 0.04, 0, c.flip * fx, c.st === 2 ? 0 : -1, c.lift); // -1: waterline
         break;
       }
       case 'fish': {
@@ -579,7 +581,7 @@ class Wildlife {
         const s = c.st === 3 ? S.sq.climb : c.st === 0 ? S.sq.sit : S.sq.run;
         if (!s) break;
         if (c.st < 3) this._shadow(B, c, 0.2, 0.3);
-        B.main.add(s, c.x, c.y + (c.st === 3 ? 0.05 : 0), 0.85, 0.85, 1, 1, 1, a, 0, 0, 0, c.st === 3 ? 1 : c.flip, 0, c.lift);
+        B.main.add(s, c.x, c.y + (c.st === 3 ? 0.05 : 0), 0.85, 0.85, 1, 1, 1, a, 0, 0, 0, c.st === 3 ? 1 : c.flip * fx, 0, c.lift);
         break;
       }
       case 'bird': {
@@ -589,7 +591,7 @@ class Wildlife {
         if (!s) break;
         this._shadow(B, c, 0.16, 0.3);
         const flap = flying ? 0.7 + 0.3 * Math.sin(t * 28 + c.ph) : 1;
-        B.main.add(s, c.x, c.y, 0.9, 0.9 * flap, 1, 1, 1, a, 0, 0, 0, c.flip, 0, c.lift);
+        B.main.add(s, c.x, c.y, 0.9, 0.9 * flap, 1, 1, 1, a, 0, 0, 0, c.flip * fx, 0, c.lift);
         break;
       }
       case 'rabbit': {
@@ -597,7 +599,7 @@ class Wildlife {
         if (!s) break;
         this._shadow(B, c, 0.32, 0.4);
         const sc = 0.55, chew = c.st === 0 ? 1 + Math.sin(t * 9 + c.ph) * 0.015 : 1;
-        B.main.add(s, c.x, c.y, sc * chew, sc, 1, 1, 1, a, 0, 0, 0, c.flip, 0, c.lift);
+        B.main.add(s, c.x, c.y, sc * chew, sc, 1, 1, 1, a, 0, 0, 0, c.flip * fx, 0, c.lift);
         break;
       }
     }

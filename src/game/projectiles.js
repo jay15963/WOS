@@ -36,7 +36,7 @@ export function fireArrow(game, o) {
     kind: o.kind || 'arrow', src: o.src, faction: o.faction || 'player', target: o.target || null,
     x: o.x + ux * 0.3, y: o.y + uy * 0.3 - 0.02, ox: o.x, oy: o.y, ux, uy, speed,
     d: 0, maxD, arcD, arcH: Math.min(0.9, 0.05 * arcD + 0.08), h1: o.target ? 0.5 * (o.target.scale || 1) : 0.35,
-    lift: H0, rot: Math.atan2(uy, ux), stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
+    lift: H0, rot: Math.atan2(uy, ux), vgx: ux, vgy: uy, vl: 0, stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
     cosmetic: !!o.cosmetic, id: o.id || null,
     z0: o.z0 ?? (o.src?.z || 0), z1: o.z1 ?? (o.target ? o.target.z || 0 : o.src?.z || 0), zL: L, pz: 0, // levels: heights
   };
@@ -72,7 +72,7 @@ export function fireLob(game, o) {
     lob: true, kind: o.proj === 'spear' ? 'spear' : 'arrow', faction: 'player', id: o.id || null, cosmetic: !!o.cosmetic,
     src: o.src || null, owner: o.owner || null, onLand: o.onLand || null,
     x: o.x, y: o.y, x0: o.x, y0: o.y, ax: o.lx, ay: o.ly, lx: o.lx, ly: o.ly, k0: 0, k: 0,
-    dur: Math.max(0.1, o.dur), apex: Math.max(0, o.apex), t: 0, lift: H0, rot: Math.atan2(gy - 2 * o.apex, gx),
+    dur: Math.max(0.1, o.dur), apex: Math.max(0, o.apex), t: 0, lift: H0, rot: Math.atan2(gy - 2 * o.apex, gx), vgx: gx, vgy: gy, vl: 2 * o.apex,
     gdir: Math.atan2(gy / gl, gx / gl), stuck: false, ground: false, alpha: 1, d: 0, whoosh: false, pend: null,
   };
   P.push(pr);
@@ -116,7 +116,7 @@ function stepLob(game, pr, dt) {
   pr.x = _a[0]; pr.y = _a[1]; pr.lift = _a[2]; pr.k = k;
   // screen-space direction: ground motion minus the lift change
   const vx = _a[0] - _b[0], vy = (_a[1] - _b[1]) - (_a[2] - _b[2]);
-  if (vx * vx + vy * vy > 1e-8) pr.rot = Math.atan2(vy, vx);
+  if (vx * vx + vy * vy > 1e-8) { pr.rot = Math.atan2(vy, vx); pr.vgx = vx; pr.vgy = _a[1] - _b[1]; pr.vl = _a[2] - _b[2]; } // (vg*, vl: a turned camera re-aims it)
   if (!pr.whoosh && k > 0.42) { pr.whoosh = true; game.audio?.play('arrow_whoosh', { x: pr.x, y: pr.y, volume: pr.kind === 'spear' ? 0.9 : 0.6 }); }
   if (pr.kind === 'arrow' && pr.lift > 0.6 && game.juice) {
     const sp = game.juice.spr('fx_soft');
@@ -308,6 +308,7 @@ export function projectilesSystem() {
           pr.x = nx; pr.y = ny; pr.d = nd; pr.lift = nl; pr.pz = pz;
           // screen-space direction: ground velocity minus the lift change
           pr.rot = Math.atan2(pr.uy * s - (nl - sl), pr.ux * s);
+          pr.vgx = pr.ux * s; pr.vgy = pr.uy * s; pr.vl = nl - sl; // (ground motion + lift change: a turned camera re-aims it)
           if (nl <= 0.03 || nd >= pr.maxD + 4) { stick(game, pr, true); done = true; break; }
         }
       }
@@ -323,8 +324,10 @@ export function projectilesSystem() {
       let n = 0;
       for (const pr of P) {
         if (pr.x < v.x0 - 1 || pr.x > v.x1 + 1 || pr.y < v.y0 - 1 || pr.y > v.y1 + 2) continue;
-        const d = pool[n] || (pool[n] = { type: 'fx_proj', x: 0, y: 0, pr: null, draw(B, A) { drawProjectile(game, B, A, this.pr); } });
-        d.pr = pr; d.x = pr.x; d.y = pr.y + 0.05 + (pr.lob && !pr.stuck ? pr.lift * 0.8 : 0) + (pr.pz || 0); n++; // high lobs draw over trees; levels: +1 tile of depth per story
+        // (zkRot: a turned camera sorts by the turned ground point plus the same bias)
+        const d = pool[n] || (pool[n] = { type: 'fx_proj', x: 0, y: 0, pr: null, bias: 0, draw(B, A) { drawProjectile(game, B, A, this.pr); }, zkRot(rc, rs) { return -rs * this.pr.x + rc * this.pr.y + this.bias; } });
+        d.bias = 0.05 + (pr.lob && !pr.stuck ? pr.lift * 0.8 : 0) + (pr.pz || 0);
+        d.pr = pr; d.x = pr.x; d.y = pr.y + d.bias; n++; // high lobs draw over trees; levels: +1 tile of depth per story
         list.push(d);
       }
     },
@@ -355,7 +358,7 @@ function drawShadows(game, B, A, v) {
       // lob: the shadow slides along the ground path, longer and softer the higher the shaft flies
       const L = pr.kind === 'spear' || pr.kind === 'ice_spear' ? 1.3 : 0.85, h = Math.max(0, pr.lift);
       const a = Math.max(0.6, 1 - h / 7);
-      B.blob.add(blob, pr.x, pr.y, (L + h * 0.06) / blob.w, (0.2 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir);
+      B.blob.add(blob, pr.x, pr.y, (L + h * 0.06) / blob.w, (0.2 + h * 0.03) / blob.h, 1, 1, 1, a, 0, pr.gdir - (game.cam.rot || 0)); // (screen angle)
       continue;
     }
     // shadow on the ground under the shaft (sizes are multiples of the sprite's own size)
@@ -369,19 +372,24 @@ function drawProjectile(game, B, A, pr) {
   const spark = A.has('fx_spark') ? A.get('fx_spark') : null;
   const ice = pr.kind === 'ice_spear'; // winter walkers' ice spear (art: proj_ice_spear, else the spear)
   const a = Math.max(0, pr.alpha);
-  let rot = pr.rot;
-  if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(pr.rot)) * 0.3 + 0.55, Math.cos(pr.rot) || 0.01);
+  // camera turned: the screen direction = the world motion turned into the view, minus the lift change
+  const yaw = game.cam.rot || 0;
+  let rv = pr.rot;
+  if (yaw && pr.vgx != null) { const [vx, vy] = game.toViewDir(pr.vgx, pr.vgy); if (vx * vx + vy * vy > 1e-10 || pr.vl) rv = Math.atan2(vy - pr.vl, vx); }
+  let rot = rv;
+  if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(rv)) * 0.3 + 0.55, Math.cos(rv) || 0.01);
   let lift = pr.lift + (pr.pz || 0) * STORY_H; // levels: shots from / to a height
   const spr = ice ? (A.has('proj_ice_spear') ? A.get('proj_ice_spear') : spear) : pr.kind === 'spear' ? spear : arrow;
   if (pr.lob && spr) {
-    let x = pr.x, sc = (pr.kind === 'spear' || ice ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
+    let x = pr.x, y = pr.y, sc = (pr.kind === 'spear' || ice ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
     if (pr.stuck && pr.ground) {
       // planted steeply: the tip in the ground at the landing point, the shaft leaning back toward the shooter
-      rot = Math.atan2(1.6, Math.cos(pr.gdir) * 0.9 || 0.01);
+      rot = Math.atan2(1.6, Math.cos(pr.gdir - yaw) * 0.9 || 0.01);
       const half = (spr.w * 0.36);
-      x -= Math.cos(rot) * half; lift = Math.sin(rot) * half; sc = 1;
+      if (yaw) { const [dx, dy] = game.toWorldDir(-Math.cos(rot) * half, 0); x += dx; y += dy; } else x -= Math.cos(rot) * half; // (screen-space offset)
+      lift = Math.sin(rot) * half; sc = 1;
     }
-    B.main.add(spr, x, pr.y, sc, sc, 1, 1, 1, a, 0, rot, 0, 1, 0, lift);
+    B.main.add(spr, x, y, sc, sc, 1, 1, 1, a, 0, rot, 0, 1, 0, lift);
     return;
   }
   if (spr) {

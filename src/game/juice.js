@@ -381,7 +381,7 @@ export class Juice {
     if (!s) return;
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
-      this.emit({ spr: s, x: p.x + Math.cos(a) * 1.3, y: p.y + Math.sin(a) * 0.9, vx: -Math.sin(a) * 3, vy: Math.cos(a) * 2, life: 0.3, size: s === 'fx_slash' ? 0.9 : 0.5, size1: s === 'fx_slash' ? 1.2 : 1.1, rot: a + Math.PI / 2, a: 0.85, a1: 0, layer: 'emissive', lift: 0.4, ground: false });
+      this.emit({ spr: s, x: p.x + Math.cos(a) * 1.3, y: p.y + Math.sin(a) * 0.9, vx: -Math.sin(a) * 3, vy: Math.cos(a) * 2, life: 0.3, size: s === 'fx_slash' ? 0.9 : 0.5, size1: s === 'fx_slash' ? 1.2 : 1.1, rot: a + Math.PI / 2, wrot: true, a: 0.85, a1: 0, layer: 'emissive', lift: 0.4, ground: false });
     }
     const r = this.spr('fx_ring');
     if (r) this.emit({ spr: r, x: p.x, y: p.y, life: 0.4, size: 0.8, size1: 4.6, r: 1, g: 0.9, b: 0.7, a: 0.7, a1: 0, layer: 'emissive', lift: 0.02 });

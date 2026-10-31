@@ -429,7 +429,7 @@ export function installAim(game) {
         const x = p.x + Math.cos(a) * Rr, y = p.y + Math.sin(a) * Rr;
         if (x < v.x0 - 1 || x > v.x1 + 1 || y < v.y0 - 1 || y > v.y1 + 1) continue;
         const near = P ? Math.pow(Math.max(0, Math.cos(a - aimA)), 10) : 0;
-        B.blob.add(dot, x, y, dl, dh, col[0], col[1], col[2], (0.55 + 0.45 * near) * dim, 0, a + Math.PI / 2);
+        B.blob.add(dot, x, y, dl, dh, col[0], col[1], col[2], (0.55 + 0.45 * near) * dim, 0, a + Math.PI / 2 - (g.cam.rot || 0)); // (screen angle: world angle minus the camera yaw)
       }
       if (!P) return;
       const dx = P.x - p.x, dy = P.y - p.y, d = Math.hypot(dx, dy);
