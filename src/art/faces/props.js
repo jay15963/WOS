@@ -138,12 +138,12 @@ function frame(o, def) {
 }
 
 // ---------- the batch that moves what a painter draws (0° frame around the centre → the turned view) ----------
-const X = { cx: 0, cy: 0, c: 1, s: 0, lift: 0, drop: null, rotAdd: 0, lx: 0, ly: 0 };
+const X = { cx: 0, cy: 0, c: 1, s: 0, lift: 0, drop: null, scaf: null, rotAdd: 0, lx: 0, ly: 0 };
 class XBatch {
   constructor(k) { this.k = k; this.t = null; }
   add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0, sc = 0) {
     if (!s || !this.t) return;
-    if (X.drop && s === X.drop && this.k === 'main') return; // (the faces replace it; its sun shadow stays)
+    if (this.k === 'main' && ((X.drop && s === X.drop) || s === X.scaf)) return; // (the faces replace it; its sun shadow stays. The scaffold: a 3D frame, faces/scaffold.js)
     const dx = x - X.cx, dy = y - X.cy;
     this.t.add(s, X.cx + X.c * dx - X.s * dy, X.cy + X.s * dx + X.c * dy, sx, sy, r, g, b, a, sway, this.k === 'blob' ? rot + X.rotAdd : rot, flash, flip, recv, lift + X.lift, sc);
   }
@@ -161,7 +161,7 @@ const SAVE = { x: 0, y: 0, face: '', tx: 0, ty: 0, fw: 0, fh: 0, cy: 0 };
 // centre (the camera yaw: upright sprites keep facing the screen; + the residual turn for folded pieces)
 function paint(B, A, o, t, fr, ang, h0, drop) {
   for (const k of KEYS) XB[k].t = B[k] || null;
-  X.cx = fr.cx; X.cy = fr.cy; X.c = Math.cos(ang); X.s = Math.sin(ang); X.lift = h0; X.drop = drop;
+  X.cx = fr.cx; X.cy = fr.cy; X.c = Math.cos(ang); X.s = Math.sin(ang); X.lift = h0; X.drop = drop; X.scaf = A.has('scaffold_0') ? A.get('scaffold_0') : null;
   X.rotAdd = ang - Math.atan2(CAMV.s, CAMV.c); X.lx = CAMV.s * h0; X.ly = -CAMV.c * h0;
   const S = SAVE;
   S.x = o.x; S.y = o.y; S.face = o.face; S.tx = o.tx; S.ty = o.ty; S.fw = o.fw; S.fh = o.fh; S.cy = o.cy;

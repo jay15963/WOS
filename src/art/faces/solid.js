@@ -501,11 +501,7 @@ export function drawSolid(B, A, o, t) {
   }
   // flames / glows on their 3D spots (camera-facing like particles, anchored to the world point)
   if (!bp) for (let k = 0; k < e.fx.length; k += 4) e.fx[k].draw(B, A, o, t, e.fx[k + 1], e.fx[k + 2], e.fx[k + 3], ta);
-  // scaffold while it is being built (a sprite, as for the walls)
-  if (bp && !o._ghost && (o.progress || 0) > 0.02 && T0.opt) {
-    const sc = T0.opt('scaffold_0');
-    if (sc && K.ok(sc)) B.main.add(sc, o.tx + (o.fw || 1) / 2, o.ty + (o.fh || 1), o.fw || 1, 1, 1, 1, 1, 0.9 * (o.alpha ?? 1), 0, 0, 0, 1, 0, e.h0);
-  }
+  // (the scaffold while it is being built: a 3D frame around it, faces/scaffold.js via game.js)
   return true;
 }
 // depth: the front-most point of the model's footprint as the camera sees it (+ a bit per story)
