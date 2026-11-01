@@ -753,7 +753,7 @@ Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
   const lift = (o.lv | 0) * STORY_H;
   if (B.faces) drawUpperRot(this, B, A, o, t, lift, a); // (at every camera angle: docs/CAMERA-ROTATION.md)
 };
-// camera turned: the piece's sprites lifted straight up the screen (its position moved along the view's up while it is
+// (at every camera angle) the piece's sprites lifted straight up the screen (its position moved along the view's up while it is
 // drawn), its flat layers (rugs, a floor's ghost, sills) laid at the story's height as faces in drawing order (closing
 // the face segment after each, so a flat layer stays under what is drawn after it), the plan grid as flat faces too,
 // the decon ring and the light lifted up the screen. (Upper floors / walls / stairs are face kinds: art/faces.)
@@ -793,7 +793,7 @@ function drawUpperRot(L, B, A, o, t, lift, a) {
     B.light.addRaw(o.x + sn * h, o.y - cs * h, d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
   }
 }
-// camera turned: the depth key of an entity up a story (game.js; base = its turned y). It sorts after the surface it
+// the depth key of an entity up a story (game.js; base = its turned y). It sorts after the surface it
 // stands on — a wall top's / slab's front-most corner can be up to ~1.07 tiles ahead of the feet at a diagonal yaw, so
 // a small margin over the one tile per story —; on a stair it sorts between the stair's back (steps, far stringer) and
 // its front part (near stringer, handrail: stairFront below), the nearer climber last.
@@ -803,7 +803,7 @@ Levels.prototype.zkRot = function zkRot(e, base, rc, rs) {
   if (s) { const k = stairZk(s.o, rc, rs); return k + 0.0002 + 1e-5 * Math.max(-5, Math.min(5, base + z - k)); }
   return base + z + Math.min(z, 1) * 0.12;
 };
-// camera turned: the front part of each finished stair in view (art/faces/levels.js), sorted just after the stair and
+// the front part of each finished stair in view (art/faces/levels.js), sorted just after the stair and
 // whoever climbs it; hidden like the stair itself (under an opaque roof / a cave ceiling)
 const FRONT = new WeakMap();
 function stairFront(game, o) {
@@ -919,7 +919,7 @@ export function levelsSystem() {
       }
       if (typeof bar === 'object' && bar) bar.update(dt);
     },
-    // camera turned: the front part of each finished stair in view, as a drawable of its own (stairFront)
+    // (at every camera angle) the front part of each finished stair in view, as a drawable of its own (stairFront)
     collect(game, list, v) {
       const L = game.levels;
       if (!L?._active) return; // (3D at every angle)

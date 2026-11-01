@@ -20,7 +20,7 @@
 //     (camera zoom lock in game.js, screen effects in the post shader, audio / survival read world.roofAt);
 //   - fades: the region the local player is under fades out (~0.35 s); a roof in front of the player goes
 //     see-through (0.32); chimneys smoke while a fire burns under them; cave-ins and collapses kick up dust.
-//   - camera turned (game.cam.rot ≠ 0, docs/CAMERA-ROTATION.md): each region as true 3D pieces (art/roofFacets.js:
+//   - at every camera angle (0° too, docs/CAMERA-ROTATION.md): each region as true 3D pieces (art/roofFacets.js:
 //     exact facets textured with a plan-view painting, fascia / bargeboards / steps, gables with windows that glow,
 //     chimneys, weathervane), painted in the worker once the camera has turned (a flat-coloured stand-in until then),
 //     drawn as view columns depth-sorted with the sprites, ray-cast for picking / occlusion, shadows as ground faces.
@@ -644,7 +644,7 @@ function turnedShadows(game, B, env, x0, y0, x1, y1) {
     }
   }
 }
-// camera turned: a flat tile mark at height h over tile (tx, ty) as a face that turns with the world (roof plans, the
+// a flat tile mark at height h over tile (tx, ty) as a face that turns with the world (roof plans, the
 // roof ghost, a finished roof tile marked for deconstruction — game/building.js); drape: laid on the roof's surface.
 // false when it cannot (the caller draws its sprite as always).
 export function roofTileFace(game, B, spr, tx, ty, h, r, g, b, a, drape = false) {
@@ -666,7 +666,7 @@ export function liftedPoint(game, wx, wy, h) {
   const r = game.cam?.rot || 0;
   return r ? [wx - Math.sin(r) * h, wy + Math.cos(r) * h] : [wx, wy + h];
 }
-// camera turned: the roof tile under a screen point (x, y = the ground point under it, game.screenToWorld): a ray
+// the roof tile under a screen point (x, y = the ground point under it, game.screenToWorld): a ray
 // toward the camera (up the screen = up in height) through every region; the front-most hit wins
 function roofPickTurned(game, x, y) {
   const R = game.roofs, rot = game.cam.rot || 0, c = Math.cos(rot), s = Math.sin(rot), W = game.world.W;
