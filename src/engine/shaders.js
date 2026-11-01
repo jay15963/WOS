@@ -394,6 +394,7 @@ out vec2 vUV;
 out vec4 vC;
 out highp float vD;
 out highp vec2 vV;
+out highp vec3 vW;              // world (x, y, h): roofs lit by the lamps around them (light-occluder pass)
 void main(){
   vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
   vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
@@ -401,7 +402,7 @@ void main(){
   vec2 clip = v * uScale;
   vD = v.y + 2.0 * aP.z + aZ; vV = v; // (depth: view y + h)
   gl_Position = vec4(clip.x, -clip.y, -vD * uZ, 1.0);
-  vUV = aUV; vC = aC;
+  vUV = aUV; vC = aC; vW = aP;
 }`;
 export const FACE_FS = `#version 300 es
 precision mediump float;
@@ -409,13 +410,20 @@ in vec2 vUV;
 in vec4 vC;
 in highp float vD;
 in highp vec2 vV;
+in highp vec3 vW;
 uniform sampler2D uTex;
 uniform sampler2D uLook;
 ${CUT_FN}
 // roof faces (camera turned, game/roofs.js; 0 for everything else): x rain darkening, y snow (above v = z: the roof's
-// plan image), w 1 = light-occluder pass (writes the outdoor ambient uAmbR × coverage; glows / eave shadows skipped)
+// plan image), w 1 = light-occluder pass (writes the outdoor ambient uAmbR × coverage + the outdoor lamps around it;
+// glows / eave shadows skipped)
 uniform vec4 uRoofFx;
 uniform vec3 uAmbR;
+// outdoor point lights near the view (game.js roofLights; lamps under a roof never light it): x, y, h, radius / colour
+// × intensity × 0.5 (the light map scale); the same falloff as LIGHT_FS by the 3D distance, softly by the slope's facing
+uniform highp vec4 uRL[24];
+uniform vec4 uRC[24];
+uniform int uRN;
 layout(location=0) out vec4 o;
 layout(location=1) out vec4 oE;
 void main(){
@@ -428,7 +436,22 @@ void main(){
   if (uRoofFx.w > 0.5) {
     if (A < 0.0 || max(vC.r, max(vC.g, vC.b)) < 0.002) discard;
     float a = t.a * A;
-    o = vec4(uAmbR * a, a); oE = vec4(0.0); return;
+    vec3 Ls = uAmbR;
+    if (uRN > 0) {
+      highp vec3 n = cross(dFdx(vW), dFdy(vW));
+      n = dot(n, n) > 1e-12 ? normalize(n) : vec3(0.0, 0.0, 1.0);
+      if (n.z < 0.0) n = -n; // (facing up / out of the slope)
+      for (int i = 0; i < 24; i++) {
+        if (i >= uRN) break;
+        highp vec3 dv = uRL[i].xyz - vW;
+        highp float dd = length(dv), q = dd / uRL[i].w;
+        float f = max(0.0, 1.0 - q * q);
+        if (f <= 0.0) continue;
+        f = f * f * (0.6 + 0.4 * f);
+        Ls += uRC[i].rgb * f * (0.45 + 0.55 * max(dot(n, dv / max(dd, 1e-3)), 0.0));
+      }
+    }
+    o = vec4(Ls * a, a); oE = vec4(0.0); return;
   }
   vec4 c = vec4(t.rgb * vC.rgb, t.a) * abs(A);
   c.rgb = mix(c.rgb, vec3(c.a), fl);

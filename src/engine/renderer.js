@@ -817,6 +817,9 @@ export class Renderer {
       gl.uniform1i(pf.u.uTex, 0);
       gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 1);
       if (pf.u.uAmbR) gl.uniform3f(pf.u.uAmbR, amb[0] * 0.5, amb[1] * 0.5, amb[2] * 0.5);
+      // the outdoor lamps around the roofs (game.js roofLights): their light reaches the slopes, by the 3D distance
+      const RLs = this.roofLights;
+      if (pf.u.uRN) { gl.uniform1i(pf.u.uRN, RLs?.n || 0); if (RLs?.n) { gl.uniform4fv(pf.u.uRL, RLs.P); gl.uniform4fv(pf.u.uRC, RLs.C); } }
       gl.activeTexture(gl.TEXTURE0);
       for (let i = 0; i < RF.length; i += 3) { gl.bindTexture(gl.TEXTURE_2D, RF[i + 2].color); B.faces.drawRange(RF[i], RF[i + 1]); }
       gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);

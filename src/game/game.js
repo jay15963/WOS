@@ -30,6 +30,7 @@ function viewFacing(f, c, s) {
   return Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 'e' : 'w') : (vy > 0 ? 's' : 'n');
 }
 
+const byD = (a, b) => a.d - b.d; // (roof lights: nearest the middle of the view first)
 const DZ = { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0 }; // (a renderer without depth)
 // depth of a pawn at rest (art/compose.js pose: p._sobj = its bed / seat): lying flat where it is drawn (each part at its
 // own height: the mattress, the pillow, the ground) a little toward the camera, sitting as a card through the seat at
@@ -295,6 +296,17 @@ export class Game {
     const LV = this.levels?.hasUpper ? this.levels : null; // levels: upper stories in the world
     const Z = R.depth || DZ; // depth shape of what each drawable adds (engine/spriteBatch.js depthState)
     R.emMark?.(); // (glows of the ground decor: under everything)
+    // outdoor lamps that light the roofs around them (renderer roof light-occluder pass; lamps under a roof never do)
+    const RLc = this._rlc || (this._rlc = []), roofG = this.build.grid.roof, wld = this.world;
+    let RLn = 0;
+    const roofLight = (x, y, h, rad, r, g, b, I) => {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      const ro = wld.inBounds(tx, ty) ? roofG.get(wld.idx(tx, ty)) : null;
+      if (ro && !ro.blueprint) return; // (inside a roofed house)
+      const c = RLc[RLn] || (RLc[RLn] = { x: 0, y: 0, h: 0, r: 0, cr: 0, cg: 0, cb: 0, d: 0 });
+      RLn++;
+      c.x = x; c.y = y; c.h = h; c.r = rad; c.cr = r * I * 0.5; c.cg = g * I * 0.5; c.cb = b * I * 0.5; c.d = Math.hypot(x - this.cam.x, y - this.cam.y);
+    };
     for (const o of list) {
       R.emMark?.(); // the glows of the object drawn before this one go right after it (renderer.emSeg)
       // anything under an opaque roof is hidden by it (and its flames would glow through): skip it, except the
@@ -337,6 +349,7 @@ export class Game {
         const lh = L.lift ?? 0.3;
         const lp = o._fk?.lightAt ? o._fk.lightAt(o) : null; // (where a face kind drew the piece, art/faces/props.js)
         B.light.addRaw((lp ? lp[0] : o.x) + rs * lh, (lp ? lp[1] : o.y) - rc * lh, d, d, L.r, L.g, L.b, L.intensity * f);
+        if (RLn < 96) roofLight(lp ? lp[0] : o.x, lp ? lp[1] : o.y, lh + (o.lv | 0) * STORY_H, d / 2, L.r, L.g, L.b, L.intensity * f);
       }
     }
     R.emMark?.(); // (the last object's glows)
@@ -350,6 +363,15 @@ export class Game {
     if (env.night > 0.05) {
       const p = this.player;
       B.light.addRaw(p.x + rs * 0.3, p.y - rc * 0.3, 9, 9, 1.0, 0.82, 0.6, 0.55 * env.night);
+      if (RLn < 96) roofLight(p.x, p.y, 0.3 + (p.z > 0 ? p.z * STORY_H : 0), 4.5, 1.0, 0.82, 0.6, 0.55 * env.night);
+    }
+    // the 24 nearest the middle of the view go to the roofs (FACE_FS uRL / uRC)
+    {
+      const RL = R.roofLights || (R.roofLights = { n: 0, P: new Float32Array(96), C: new Float32Array(96) });
+      if (RLn > 24) { for (let i = RLn; i < RLc.length; i++) RLc[i].d = 1e9; RLc.sort(byD); } // (no allocation: stale entries last)
+      const n = Math.min(24, RLn);
+      for (let i = 0; i < n; i++) { const c = RLc[i], k = i * 4; RL.P[k] = c.x; RL.P[k + 1] = c.y; RL.P[k + 2] = c.h; RL.P[k + 3] = c.r; RL.C[k] = c.cr; RL.C[k + 1] = c.cg; RL.C[k + 2] = c.cb; RL.C[k + 3] = 0; }
+      RL.n = n;
     }
 
     const dpr = R.dpr;
