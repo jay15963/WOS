@@ -102,9 +102,9 @@ defineSolid('fountain', {
   V: 2, k: FK, piv: pivOf(1.45, 2, FK, 1),
   parts: [
     lathe(0, 1.45, [[0, 56], [14, 56]]),
-    lathe(0, 1.45, [[14, 49], [14.6, 49]], { px: [-30, 1.45, 14], sh: false }), // (the water)
+    lathe(0, 1.45, [[14, 49], [14.6, 49]], { n: 10, px: [-30, 1.45, 14], sh: false }), // (the water)
     lathe(0, 1.45, [[13, 6], [46, 6]], { n: 8, sh: false, z: 0.01 }),
-    lathe(0, 1.45, [[44, 13], [46, 20], [50, 20]], { px: [-10, 1.45, 47], sh: false, z: 0.02 }), // (the bowl's stone)
+    lathe(0, 1.45, [[44, 13], [46, 20], [50, 20]], { n: 10, px: [-10, 1.45, 47], sh: false, z: 0.02 }), // (the bowl's stone)
     lathe(0, 1.45, [[50, 16], [50.6, 16]], { n: 10, px: [-10, 1.45, 50], sh: false, z: 0.03 }), // (its water)
     lathe(0, 1.45, [[50, 2.4], [60, 2.4], [61, 3.4], [66.4, 1.6]], { n: 6, sh: false, z: 0.04 }),
   ],
@@ -187,7 +187,7 @@ function bees(B, A, o, t, x, y, lift, a) {
 const HK = 0.3;
 defineSolid('haystack', {
   k: HK, piv: pivOf(0.66, 1, HK, 0.5),
-  parts: [lathe(0, 0.66, [[0, 27], [10, 26.5], [20, 24], [28, 19.5], [34, 14], [39, 7], [42, 1]]), card(8, 17, 0.66, 38, 56, { t: 2, sh: false })],
+  parts: [lathe(0, 0.66, [[0, 27], [14, 25.5], [26, 20.5], [35, 13], [42, 1]], { n: 10 }), card(8, 17, 0.66, 38, 56, { t: 2, sh: false })],
   blob: [1, 1, 0.5, 0.42],
 });
 
@@ -199,7 +199,7 @@ defineSolid('scarecrow', {
     lathe(0, 0.62, [[0, 2.2], [66, 2.2]], { n: 6, tilt: true }), // (casts the art's silhouette)
     card(-29, 29, 0.62, 14, 53, { t: 4, sh: false, tilt: true }),
     lathe(0, 0.62, [[50.4, 5.5], [54, 7.2], [61, 7.2], [64, 5]], { n: 8, sh: false, tilt: true }),
-    lathe(0, 0.62, [[61.8, 14], [64.2, 14]], { sh: false, tilt: true, z: 0.01 }),
+    lathe(0, 0.62, [[61.8, 14], [64.2, 14]], { n: 10, sh: false, tilt: true, z: 0.01 }),
     lathe(0, 0.62, [[64.2, 7], [70, 6.5], [73, 4]], { n: 8, sh: false, tilt: true, z: 0.02 }),
   ],
   tilt: (o, t) => Math.sin(t * 1.9 + (o.tx | 0) * 0.7) * 0.022, tiltAt: [0, 0.62, 0],
@@ -254,8 +254,8 @@ defineSolid('garden_arch', {
 defineSolid('pergola', {
   V: 2,
   parts: [
-    lathe(-54, 0.18, [[0, 3.5], [72, 3.5]], { n: 6, sh: false }), lathe(54, 0.18, [[0, 3.5], [72, 3.5]], { n: 6, sh: false }),
-    lathe(-54, 1.86, [[0, 3.5], [72, 3.5]], { n: 6, sh: false }), lathe(54, 1.86, [[0, 3.5], [72, 3.5]], { n: 6, sh: false }),
+    lathe(-54, 0.18, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }), lathe(54, 0.18, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }),
+    lathe(-54, 1.86, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }), lathe(54, 1.86, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }),
     box(-62, 62, 0.13, 0.23, 70, 76), box(-62, 62, 1.81, 1.91, 70, 76),
     quad([[-64, 0, 80], [64, 0, 80], [64, 2.04, 80], [-64, 2.04, 80]], { z: 2, sh: false }),
     SHADOW(1, 80),
@@ -286,9 +286,9 @@ defineSolid('training_dummy', {
   parts: [
     box(-14, 14, 0.597, 0.643, 0, 4.5, NS), box(-2.5, 2.5, 0.565, 0.675, 0, 4.5, NS), box(-2.5, 2.5, 0.61, 0.63, 4, 10, NS),
     lathe(0, 0.62, [[8, 2.2], [62, 2]], { n: 6, sh: false, tilt: true }),
-    lathe(0, 0.62, [[12, 10.5], [16, 12], [30, 13.5], [44, 11.5], [46, 10]], { n: 10, tilt: true }),
+    lathe(0, 0.62, [[12, 10.5], [18, 12.5], [32, 13.5], [46, 10]], { n: 8, tilt: true }),
     card(-26.5, 26.5, 0.62, 37, 48, { t: 8, sh: false, tilt: true }),
-    lathe(0, 0.62, [[45, 6], [49, 8], [58, 8.4], [63, 6], [66.5, 2.5]], { n: 8, sh: false, tilt: true, z: 0.01 }),
+    lathe(0, 0.62, [[45, 6], [50, 8.2], [60, 8], [66.5, 2.5]], { n: 6, sh: false, tilt: true, z: 0.01 }),
   ],
   // the hit wobble of archCompose (o._wobT / _wobA / _wobD), about the top of the foot
   tilt: (o, t) => { const dt = t - (o._wobT ?? -99); return dt >= 0 && dt < 2.5 ? (o._wobA || 0.6) * Math.exp(-dt * 3.2) * Math.sin(dt * 17) * (o._wobD || 1) * 0.3 : 0; },
