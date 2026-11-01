@@ -257,7 +257,7 @@ function installShowcase(game) {
     net.emit('obj.add', { list: [{ id: net.newId('o'), type: 'tree_oak', x: T.x, y: T.y, v: 0, s: 1, born: game.worldTime - 1e7 }] });
     const spots = {
       table_n: [x0 + 16, y0 + 9.7], table_s: [x0 + 16, y0 + 11.45], table_e: [x0 + 17.35, y0 + 10.6], table_w: [x0 + 14.65, y0 + 10.6],
-      door_out: [ax + 1.5, ay1 + 1.3], door_in: [ax + 1.5, ay1 - 0.3], door_mid: [ax + 1.5, ay1 + 0.55], door_e: [ax1 + 0.55, ay + 1.55],
+      door_out: [ax + 1.5, ay1 + 1.3], door_in: [ax + 1.5, ay1 - 0.3], door_mid: [ax + 1.5, ay1 + 0.55], door_e: [ax1 + 0.55, ay + 1.55], door_e_out: [ax1 + 1.35, ay + 1.5], door_e_in: [ax1 - 0.35, ay + 1.5],
       stair_bot: [ax1 + 1.5, ay + 3.7, 0.15, 0], stair_mid: [ax1 + 1.5, ay + 3.0, 0.5, 0], stair_top: [ax1 + 1.5, ay + 2.25, 0.9, 0],
       upper_top: [ax1 + 1.5, ay + 1.5, 1, 1], walkway: [ax1 + 2.5, ay + 0.5, 1, 1], upper_a: [ax + 2.5, ay + 2.5, 1, 1], upper_edge: [ax + 2.5, ay1 - 0.4, 1, 1],
       tree_n: [T.x, T.y - 0.45], tree_s: [T.x, T.y + 0.6], torch: [x0 + 13.5, y0 + 12.5], bed: [x0 + 20.4, y0 + 10],
@@ -265,17 +265,56 @@ function installShowcase(game) {
     };
     H._depthSpots = spots;
     // the doors of house A open (walking through them)
-    setTimeout(() => { for (const o of game.build.structures) if (o.door && !o.open && !o.lv && o.tx >= ax && o.tx <= ax1 && o.ty >= ay && o.ty <= ay1) game.net.request('door.toggle', { id: o.id, open: 1 }); }, 400);
+    setTimeout(() => { for (const o of game.build.structures) if (o.door && !o.open && !o.lv && o.tx >= ax && o.tx <= ax1 && o.ty >= ay && o.ty <= ay1) net.emit('door.set', { id: o.id, open: 1, by: net.pid }); }, 400);
     return { n, at: [x0, y0], spots: Object.keys(spots) };
   };
-  // stand the player on a spot of depthScene ([x, y, z, lv]); the camera on it
-  H.depthAt = (name, dx = 0, dy = 0) => {
+  // a walled courtyard (cutout review): a ring of stone walls two stories high with battlements (its top is a
+  // wall-walk), a gate, a roofed hut in a corner; spots: court, court_s (right behind the south wall), walk (on the
+  // south wall-walk), out_n (outside, behind the north wall), hut (inside the roofed hut)
+  H.fortScene = () => {
+    if (!net.auth) return 'só no anfitrião';
+    const p = game.player, W = 15, Hh = 13;
+    const at = freeRect(p.x, p.y, W, Hh);
+    if (!at) return 'sem espaço';
+    const [x0, y0] = at;
+    clear(x0 - 1, y0 - 1, W + 2, Hh + 2);
+    const fx = x0 + 1, fy = y0 + 2, fx1 = fx + 12, fy1 = fy + 9;
+    const ring = rect('wall_stone', fx, fy, fx1, fy1, 'cut', 'crenel', [[fx + 6, fy1]]);
+    const hx = fx + 1, hy = fy + 1, hx1 = hx + 3, hy1 = hy + 3; // the hut against the NW corner
+    const hut = rect('wall_wood', hx, hy, hx1, hy1, 'plank', 'post', [[hx + 1, hy1]]).filter((r) => r[1] !== fx && r[2] !== fy);
+    let n = put([...ring, ['door_wood', fx + 6, fy1, 0, 'plank', ''], ...hut, ['door_wood', hx + 1, hy1, 0, 'plank', ''], ['campfire', fx + 9, fy + 5, 0]]);
+    n += put(ring.map((r) => [...r.slice(0, 4), 'cut', 'crenel']), 1, 1); // the second story of the ring (over the gate too)
+    n += put([['wall_stone', fx + 6, fy1, 0, 'cut', 'crenel']], 1, 1);
+    const roof = []; for (let y = hy; y <= hy1; y++) for (let x = hx; x <= hx1; x++) roof.push(['roof_stone', x, y, 0, 'slate', 'barge.end_gable.gab_plaster.r_tile']);
+    n += put(roof);
+    H._depthSpots = { ...(H._depthSpots || {}),
+      court: [fx + 7.5, fy + 5.5], court_s: [fx + 9.5, fy1 - 0.45], walk: [fx + 9.5, fy1 + 0.5, 2, 2], out_n: [fx + 9.5, fy - 0.35], hut: [hx + 2.5, hy + 2.5],
+      walk_w: [fx + 0.5, fy + 5.5, 2, 2] };
+    return { n, at: [x0, y0] };
+  };
+  // stand the player on a spot of depthScene / fortScene ([x, y, z, lv]); the camera on it. pose: 'sleep' (the nearest
+  // bed) / 'sit' (the nearest chair)
+  H.depthAt = (name, dx = 0, dy = 0, pose = '') => {
     const s = H._depthSpots?.[name];
     if (!s) return 'sem ponto';
     const P = game.player;
     P.x = s[0] + dx; P.y = s[1] + dy; P.z = s[2] || 0; P.lv = s[3] || 0; P._hop = null; P._fallV = 0; P.pose = null; // sync-ok: dev review (localhost)
+    if (pose) {
+      let best = null, bd = 9;
+      for (const o of game.build.structures) if (o.type === (pose === 'sleep' ? 'bed' : 'chair_wood')) { const d = Math.hypot(o.x - P.x, o.y - P.y); if (d < bd) { bd = d; best = o; } }
+      if (best) P.pose = { type: pose, id: best.id, o: best }; // sync-ok: dev review (localhost)
+    }
     game.cam.x = P.x; game.cam.y = P.y - 0.4 - P.z; // sync-ok: camera (local)
     return [P.x, P.y, P.z, P.lv];
+  };
+  // another survivor standing on a spot (a remote player / NPC look-alike, cosmetic, local only)
+  H.depthDummy = (name, dx = 0, dy = 0) => {
+    const s = H._depthSpots?.[name];
+    if (!s) return 'sem ponto';
+    const d = { isEntity: true, kind: 'pawn', name: 'Outro', x: s[0] + dx, y: s[1] + dy, z: s[2] || 0, lv: s[3] || 0, r: 0.24, facing: 's', moving: false, moveT: 0, action: null, flash: 0, weapon: 'sword', hp: 100, maxHp: 100, lazyLook: true, remote: true,
+      look: { skin: [0.62, 0.44, 0.32], hair: 'short', hairColor: [0.5, 0.3, 0.12], shirt: [0.7, 0.2, 0.2] } };
+    game.entities.push(d); // sync-ok: dev review (local only, never shared)
+    return game.entities.length;
   };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {

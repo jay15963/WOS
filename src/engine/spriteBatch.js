@@ -23,7 +23,7 @@ const ATTR = [[1, 2], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 4], [8, 4]];
 
 // the depth state shared by the batches of a renderer (game.js sets the reference of each drawable)
 export function depthState() {
-  return { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0, SOLID: 0.97, ORD: 2e-4 };
+  return { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0, SOLID: 0.97, ORD: 2e-4, gt: undefined, gm: undefined };
 }
 
 export class SpriteBatch {
@@ -172,22 +172,24 @@ export class SpriteBatch {
   }
 }
 
-// [a, b) of a batch in the depth pass: sub-ranges by depth test (before zEnd) and depth write (outside the nw runs)
+// [a, b) of a batch in the depth pass: sub-ranges by depth test (before zEnd) and depth write (outside the nw runs);
+// the GL state is cached in the shared depth state (Z.gt / Z.gm: the renderer resets them around the pass)
 export function zSplit(T, a, b) {
-  const gl = T.gl, nw = T.nw, e = Math.min(b, T.zEnd);
+  const gl = T.gl, nw = T.nw, Z = T.Z, e = Math.min(b, T.zEnd);
+  const test = (on) => { if (Z.gt !== on) { if (on) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST); Z.gt = on; } };
+  const mask = (on) => { if (Z.gm !== on) { gl.depthMask(on); Z.gm = on; } };
   if (a < e) {
-    gl.enable(gl.DEPTH_TEST);
-    if (T.noWrite) { gl.depthMask(false); T._draw(a, e); }
+    test(true);
+    if (T.noWrite) { mask(false); T._draw(a, e); }
     else {
       // the runs are sorted: skip those before a
       let i = 0, k = a;
       while (i < nw.length && nw[i + 1] <= k) i += 2;
       while (k < e) {
-        if (i < nw.length && nw[i] <= k) { const j = Math.min(e, nw[i + 1]); gl.depthMask(false); T._draw(k, j); k = j; i += 2; }
-        else { const j = i < nw.length ? Math.min(e, nw[i]) : e; gl.depthMask(true); T._draw(k, j); k = j; }
+        if (i < nw.length && nw[i] <= k) { const j = Math.min(e, nw[i + 1]); mask(false); T._draw(k, j); k = j; i += 2; }
+        else { const j = i < nw.length ? Math.min(e, nw[i]) : e; mask(true); T._draw(k, j); k = j; }
       }
     }
-    gl.depthMask(true);
   }
-  if (b > e) { gl.disable(gl.DEPTH_TEST); T._draw(Math.max(a, e), b); gl.enable(gl.DEPTH_TEST); }
+  if (b > e) { test(false); T._draw(Math.max(a, e), b); }
 }

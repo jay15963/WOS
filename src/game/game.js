@@ -336,10 +336,11 @@ export class Game {
       }
     }
     R.emMark?.(); // (the last object's glows)
-    Z.ref = false; Z.mode = 0; Z.bias = 0; Z.sb = 0;
+    Z.ref = false; Z.mode = 0; Z.bias = 0; Z.sb = 0; Z.ord = 0;
+    // particles: sparks / embers (glow layer) where they fly, behind what stands in front of them (depth-tested)
+    this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
     R.depthEnd?.(); // (overlays from here on: drawn over the world, no depth test)
     for (const s of this.systems) s.render?.(this, B, v, env);
-    this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
 
     // player lantern glow at night (keeps the area readable on mobile); (turned: up the screen)
     if (env.night > 0.05) {

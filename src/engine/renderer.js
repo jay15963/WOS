@@ -701,6 +701,7 @@ export class Renderer {
       gl.drawBuffers(DB2);
       gl.depthMask(true); gl.clearDepth(1); gl.clear(gl.DEPTH_BUFFER_BIT);
       gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+      this.depth.gt = true; this.depth.gm = true; // (spriteBatch.js zSplit: the cached GL state)
       B.main.zOn = B.faces.zOn = B.emissive.zOn = true;
       if (p.u.uACut) gl.uniform1f(p.u.uACut, ALPHA_CUT);
       B.main.upload();
@@ -756,9 +757,8 @@ export class Renderer {
         }
         this._roofPass(0, roofUni, env.ambient);
         // consecutive segments at the same position share the program (the old 0° roof slices: no depth)
-        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.DEPTH_TEST); this.depth.gt = false;
         while (i < segs.length && segs[i].at === at) { this._roofSegment(segs[i]); i++; }
-        gl.enable(gl.DEPTH_TEST);
         gl.useProgram(p.p);
         gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
@@ -766,7 +766,7 @@ export class Renderer {
       }
       if (k < B.main.n) B.main.drawRange(k, B.main.n);
       B.main.zOn = B.faces.zOn = B.emissive.zOn = false;
-      gl.disable(gl.DEPTH_TEST);
+      gl.disable(gl.DEPTH_TEST); gl.depthMask(true); this.depth.gt = this.depth.gm = undefined;
       if (p.u.uACut) gl.uniform1f(p.u.uACut, 0.003);
       gl.drawBuffers(DB1);
       B.fx.draw();

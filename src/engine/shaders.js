@@ -54,11 +54,12 @@ uniform highp vec4 uCutA, uCutB;
 uniform float uACut;
 const int BAYER[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
 bool cutOpen(highp float d, highp vec2 V){
-  if (uCutA.w < 0.01) return false;
+  highp vec2 e = (V - uCutA.xy) / uCutA.z * vec2(1.9, 1.12); // (the body: half 0.5 wide, 0.85 tall at radius 0.95)
+  float r2 = dot(e, e);
+  if (uCutA.w < 0.01 || r2 >= 1.0) return false; // (most fragments: outside the ellipse)
   highp float dp = max(2.0 * uCutB.x - V.y, V.y + 2.0 * uCutB.y);
-  float k = smoothstep(0.8, 1.4, d - dp) * smoothstep(0.5, 0.8, (d - V.y) * 0.5 - uCutB.y);
-  highp vec2 e = (V - uCutA.xy) / uCutA.z;
-  k *= uCutA.w * (1.0 - smoothstep(0.45, 1.0, length(vec2(e.x * 1.25, e.y * 0.8))));
+  float k = uCutA.w * (1.0 - smoothstep(0.45, 1.0, sqrt(r2)));
+  k *= smoothstep(0.15, 0.6, d - dp) * smoothstep(0.5, 0.8, (d - V.y) * 0.5 - uCutB.y);
   if (k < 0.01) return false;
   ivec2 q = ivec2(gl_FragCoord.xy) & 3;
   return (float(BAYER[q.y * 4 + q.x]) + 0.5) / 16.0 < k * 0.78;
