@@ -26,7 +26,7 @@ export const SPECIES = {
   walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,
             loot: [] }, // (XP only: walkers.js)
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
-  bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 18, r: 0.24, scale: 1, xp: 1.8, social: true,
+  bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },
 };
 

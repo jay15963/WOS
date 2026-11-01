@@ -240,7 +240,11 @@ export class Game {
         const o = list[i], fk = faceKindOf(o); // (art/faces: the pieces drawn as computed faces)
         o._fk = fk;
         if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
-        else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+        else if (fk) {
+          o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+          const fd = fk.front?.(o); // (a chair's backrest / a bed's headboard nearer the camera than its sitter: drawn after it)
+          if (fd) list.push(fd);
+        }
         else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
         else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
       }

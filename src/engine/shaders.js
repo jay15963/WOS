@@ -370,12 +370,16 @@ layout(location=1) out vec4 oE;
 void main(){
   vec4 t = vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)) : texture(uTex, vUV);
   if (t.a < 0.01) discard;
+  // alpha > 1.5 carries a hit flash (art/faces/solid.js encA): 2 + 2·level + 0.25 + alpha / 2, flash = (level + 1) / 16
+  float A = vC.a, fl = 0.0;
+  if (A > 1.5) { float L = floor((A - 2.0) * 0.5); A = (A - 2.25 - 2.0 * L) * 2.0; fl = (L + 1.0) / 16.0; }
   if (uRoofFx.w > 0.5) {
-    if (vC.a < 0.0 || max(vC.r, max(vC.g, vC.b)) < 0.002) discard;
-    float a = t.a * vC.a;
+    if (A < 0.0 || max(vC.r, max(vC.g, vC.b)) < 0.002) discard;
+    float a = t.a * A;
     o = vec4(uAmbR * a, a); oE = vec4(0.0); return;
   }
-  vec4 c = vec4(t.rgb * vC.rgb, t.a) * abs(vC.a);
+  vec4 c = vec4(t.rgb * vC.rgb, t.a) * abs(A);
+  c.rgb = mix(c.rgb, vec3(c.a), fl);
   if (uRoofFx.x + uRoofFx.y > 0.0 && vC.a > 0.0) {
     c.rgb *= 1.0 - 0.17 * uRoofFx.x;   // rain-darkened roof
     if (uRoofFx.y > 0.01 && vUV.y < uRoofFx.z) {

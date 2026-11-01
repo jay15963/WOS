@@ -170,8 +170,17 @@ calculados para o ângulo do momento.
   (`art/corpseDraw.js`): um corpo deitado fica deitado de lado na tela, sangue / manchas / moscas juntos.
 - **Bichos:** a diagonal é a arte de lado encurtada (×0,84) com o focinho um pouco para baixo (vindo para a câmera) /
   para cima (indo embora); o bote vai na diagonal.
-- **Na cama:** a cabeça e o cobertor giram com a cama (ângulo da cama − giro); a profundidade fica logo na frente da
-  cama / cadeira em qualquer giro (`_sobj`). Dormindo no chão e o Zzz: na tela.
+- **Na cama:** deitado **ao longo da cama** como a tela a mostra (ângulo da cama − giro, uma vez só: antes o giro era
+  descontado duas vezes — a 45° o corpo ficava torto e a 180° de cabeça para baixo fora da cama), a cabeça no
+  travesseiro do modelo (`restAt` da cama sólida: o ponto do travesseiro na altura do colchão; o pescoço 0,17 para os pés,
+  a cabeça vai para a cabeceira), o corpo sob o cobertor. A profundidade fica logo na frente da cama / cadeira em
+  qualquer giro (`_sobj`); a cabeceira vista do lado da cabeça é desenhada depois (abaixo, `cover`). Dormindo no chão e
+  o Zzz: na tela.
+- **Sentado numa cadeira:** virado para onde a cadeira está virada no mundo (`facing.js`: sentado, o ângulo é o da
+  cadeira, não o do alvo / movimento) e com as **8 vistas**: a pose 3/4 de sentado (frente / costas misturada com a de
+  lado, coxas e botas encurtadas na diagonal: `rigFeet` 'd'); de trás vê-se as costas contra o encosto, de lado o
+  perfil. O corpo no assento do modelo (`seatAt`: o ponto do assento, o traseiro na altura dele — `PELVIS` medido na
+  cadeira de madeira).
 - **Projéteis** (`game/projectiles.js`): flechas / lanças apontam pelo voo na tela (movimento no mundo girado − subida),
   inclusive as cravadas; sombra do arremesso na direção da tela; ordem por profundidade girada (`zkRot`).
 - **Luzes e efeitos:** luz do jogador, do Andarilho, da caverna e dos vaga-lumes sobem reto na tela; anel do alvo
@@ -187,9 +196,13 @@ Pedido do dono: **todas** as estruturas (baú, luzes, cama, mesa, cadeira, larei
 no mundo enquanto a câmera gira, como as paredes; só vegetação e criaturas (jogador, NPCs, bichos) continuam sprites em
 pé. O kit `art/faces/solid.js` faz isso a partir da **arte da própria peça**; cada tipo é só uma entrada de tabela
 (`defineSolid(tipo, spec)`, em `art/faces/solidTypes.js` e nas tabelas por área: `solidLights.js` = luzes, fogo e
-estações; `solidGarden.js` = jardim, exterior, colunas e o acampamento dos bandidos). Tipo na tabela sai do `props.js` (o tipo de face `solid` tem `prio: 1`); tipo fora da tabela continua como
-antes (em pé de frente para a tela / arte dobrada). Prontos: **baú** (com a tampa aberta `chest_open`), **barril**,
-**mesa**, **cadeira**, **cama**, **pilha de caixotes** e, em `solidLights.js`: **fogueira**, **braseiro**, **caldeirão**,
+estações, `solidFurniture.js` = móveis e decoração de dentro, `solidGarden.js` = jardim, exterior, colunas e o
+acampamento dos bandidos). Tipo na tabela sai do `props.js` (o tipo de face `solid` tem `prio: 1`); tipo fora da tabela
+continua como antes (em pé de frente para a tela / arte dobrada). Depois o dono pediu **nada de cara de sprite em 0°**:
+o 3D vale em todos os ângulos, 0° também (outro trabalho liga as faces em 0°); o kit não achata mais perto de 0° (a
+profundidade de verdade sempre; `k` só diz como a arte desenha a profundidade). Prontos: **baú** (refeito como caixa com
+arte própria, aberto também), **barril**, **mesa**, **cadeira**, **cama**, **pilha de caixotes**, os móveis de
+`solidFurniture.js` e o jardim de `solidGarden.js` (abaixo) e, em `solidLights.js`: **fogueira**, **braseiro**, **caldeirão**,
 **fornalha**, **bigorna**, **bancada**, **mesa de cantaria**, **tear**, **lareira**, **velas**, **candelabro**,
 **lanterna de pedra**, **poste de lanterna**, **poste com lanterna** e a **tocha** — de chão e **de parede** (as quatro
 paredes).
@@ -198,39 +211,51 @@ paredes).
 
 - **Textura projetiva, como nas paredes:** um ponto (x, y, h) da peça pega o texel onde a arte daquela vista mostra
   esse ponto (em 0°: coluna = 64·x, linha = 64·y − 64·h a partir da âncora do sprite). A vista que a câmera vê em 0° (a
-  do lado para onde a peça está virada) texturiza o modelo: topos, a frente e a metade da frente de uma peça redonda —
-  então em 0° (e com o giro → 0) é o sprite pixel por pixel, sem pulo quando a câmera começa a girar. Cada outro lado
+  do lado para onde a peça está virada) texturiza o modelo: topos, a frente e o quarto da frente de uma peça redonda —
+  então na vista exata a frente é a arte. Cada outro lado
   pega a arte da vista que olha para ele (`<tipo>_n` / `_back`, `<tipo>_e` / `_side`, oeste = leste espelhado), **ajustada
   parte por parte** (os pintores nem sempre desenham a peça no mesmo lugar / tamanho em cada vista: cada vista pode
   listar as mesmas partes nos números da própria arte). Texel transparente = buraco (pernas, vãos e contornos saem da
   arte numa caixa simples).
 - **Contorno:** o contorno escuro da arte (2,6 px) faz parte do sólido: cada parte cresce por ele dos lados, atrás do
   topo e abaixo do chão (senão em 0°+ε a peça perdia o contorno).
-- **Arte achatada (`k`):** arte antiga desenha a profundidade mais curta do que é (a tampa do baú: 17 px para 0,56 de
-  tile; a elipse do topo do barril). `k` = profundidade na arte / profundidade de verdade, `piv` = a linha em volta da
-  qual achata (0 = a âncora = a frente do corpo; uma peça redonda: o eixo). O modelo tem a profundidade de verdade e,
-  perto de 0°, é achatado de volta ao longo da vista; o achatamento some nos primeiros `SQ_RAMP` (0,5 rad) de giro
-  (`k1` = 1). Peça redonda usa `k1 = k`: achatada em qualquer ângulo, o que numa peça redonda é igual de todos os lados
-  (o barril fica com a cara da arte).
+- **Arte achatada (`k`):** arte antiga desenha a profundidade mais curta do que é (a elipse do topo do barril). `k` =
+  profundidade na arte / profundidade de verdade, `piv` = a linha em volta da qual achata (0 = a âncora = a frente do
+  corpo; uma peça redonda: o eixo). O modelo tem a profundidade de verdade em qualquer ângulo, 0° também (a arte
+  esticada sobre ela; `ramp: false` das luzes virou o padrão). Peça redonda pode usar `k1 = k`: achatada ao longo da
+  vista em qualquer ângulo, o que numa peça redonda é igual de todos os lados (barril, banquinho, mesa redonda, vasos,
+  potes, sacos: a cara da arte).
+- **Arte própria das faces (`uv`):** uma textura pintada com cada face nas proporções de verdade (o baú: `CHEST_UV` em
+  `art/buildings.js chestUV` — frente, costas, lados, topo, tampa, dentro e o conteúdo); cada face de uma parte pega o
+  retângulo dela (`uv: { s, n, e, w, t, i, q }`), sem projeção.
+- **No lugar do corpo:** a arte nem sempre desenha a peça onde o corpo dela está (a cadeira 0,2 tile atrás da frente, a
+  estante de livros no meio do tile); o modelo é posto no corpo (`align: 'center'`, padrão das peças de borda, ou
+  `'back'`: encostado na borda de trás — estantes, cômoda, guarda-roupa, suporte de armas), então encostado numa parede
+  ele chega nela sem atravessar. `geo` dá o tamanho de verdade de uma parte que a arte desenha mais curta (a cama
+  enche os dois tiles: a cabeceira na borda, encostada na parede; a arte esticada junto).
 - **Sem amostrar vizinhos do atlas:** cada face é recortada (no carregamento do modelo, na CPU) no retângulo da imagem
   do sprite: nenhuma mudança de shader, nenhum custo por quadro.
-- **Luz e estado:** lados com a luz das paredes (`kit.shade`, entrando junto com o giro para não pular em 0°), topo sem
-  sombreado, lados de dentro (`open`) mais escuros; planta / fantasma / obra / desaparecer (`props.tintOf`), andaime
-  da obra (sprite), tremor do golpe (para o lado da tela), sombra de contato do pintor (presa ao mundo), sombra do sol
-  (caixas: `kit.shadowRect`, achatada junto perto de 0°; peças redondas: a silhueta da arte atravessada ao sol).
+- **Luz e estado:** lados com a luz das paredes (`kit.shade`), topo sem sombreado, lados de dentro (`open`) mais
+  escuros; planta / fantasma / obra / desaparecer (`props.tintOf`), andaime da obra (sprite), tremor do golpe (para o
+  lado da tela), **piscar de golpe** (`o.flash`) e o clarear das plantas (0,14, como o sprite) — o alfa da face leva o
+  flash (`encA`: 2 + 2·nível + 0,25 + alfa/2, 16 níveis, decodificado no `FACE_FS`), **rachaduras** de dano (`o.hp` /
+  `maxHp` como `overlays`, e as de cerco do `fx/rockfx.js`) nas faces que aparecem (`solidCracks`), sombra de contato
+  do pintor (presa ao mundo), a **mancha de terra** que o pintor desenha em volta do pé (`decal`: `decal_dirt` no chão,
+  achatada ao longo da vista como a peça — antes sumia ao girar), sombra do sol (caixas: `kit.shadowRect`; peças
+  redondas: a silhueta da arte atravessada ao sol).
 - **Ordem:** as partes da peça de trás para frente (pelo centro; `z` corrige), e dentro de uma parte: lados de dentro,
   lados, topo. A peça entra na ordem geral pelo ponto mais à frente do modelo (achatado como ele); num andar de cima
   nunca antes do piso do próprio tile (`floorUp`).
 - **Chamas, brilhos, luz:** `fx` põe a chama / brilho do pintor no ponto 3D (a chama continua de frente para a tela,
   como partícula, mas presa ao pavio); `light` é onde a poça de luz, o halo e a fumaça de `fx/ambient.js` saem
-  (`lightAt`). Quem **senta** senta no assento do modelo (`seat`, `art/compose.js` pergunta `seatAt` enquanto girada,
-  saindo do lugar de 0° junto com o giro); quem **dorme** deita no colchão como antes.
+  (`lightAt`). Quem **senta** senta no assento do modelo (`seat`, `art/compose.js` pergunta `seatAt`); quem **dorme**
+  deita com a cabeça no travesseiro (`rest`, `restAt`). As partes `cover` (encosto, cabeceira) mais perto da câmera que
+  o assento / o corpo vão para um desenhável próprio (`solidFront`, empurrado por `game.js` logo depois da peça) que é
+  desenhado depois de quem senta / dorme: de trás, o encosto fica na frente das costas.
 - **Desempenho:** modelo, UVs recortadas e posições no mundo dependem só da peça: feitos uma vez por objeto (`WeakMap`,
   refeitos quando muda lugar, giro, estado, andar ou o lugar de um sprite preguiçoso no atlas). Por quadro: visibilidade
   de cada lado, ordem das partes e cores (cópia direta para `B.faces` com `FaceBatch.quadF`, sem alocação). Peças
   seguidas na ordem sem sprite no meio saem numa chamada de desenho só.
-- Em 0° nada muda (sprites de sempre).
-
 ### Como converter um tipo (uma entrada na tabela)
 
 Números lidos do pintor da arte (`art/stations.js`, `decor.js`, `buildings.js`…): `x` = px a partir da coluna do meio
@@ -244,14 +269,19 @@ da arte, `v` = linha do chão em tiles (o `Y(v, h) = E + 64v − h` dos pintores
 | `lathe` | `[x, v, [[h, r], …]]` (+ `n` lados) | peça redonda: barril, vaso, jarro, balde, banquinho, poste, tocha |
 | `quad` | `[[x, v, h] × 4]` | uma face inclinada (tampa, telhadinho) |
 
-Por parte: `sh: false` (sem sombra do sol), `z` (ajuste da ordem), `top: 'strip' | 'none'`. Por tipo: `k`, `k1`, `piv`,
+Por parte: `sh: false` (sem sombra do sol), `z` (ajuste da ordem), `top: 'strip' | 'none' | 'open'` (+ `band`), `geo`,
+`uv`, `cover`, `solo` (todos os lados da própria arte: tábua, espelho, quadro), `sx` (torno esticado em x: tina oval).
+Por tipo: `k`, `k1`, `piv`,
 `V`, `ow` (contorno), `foot: true` (peças de decoração encostáveis: a arte é desenhada mais baixa pelo pé,
 `archCompose.footOf`), `views: { n | e: { parts, k, piv, V, seat… } }` (a mesma lista de partes nos números da arte
 daquela vista), `borrow: { n: 'mirror', e: 'front' | 'edge' }` (vista sem arte: o verso espelha a frente; o lado mostra a
 frente como se fosse a frente — bom para peças redondas / simétricas — ou `'edge'`, as colunas da borda da frente
 esticadas no lado — caixas compridas), `when(o)` (false = fica com o `props.js`), `state(o)` + `variants` (outra arte
 para um estado; `only: true` = os outros lados emprestam dela), `fx: [{ at: [x, v, h], draw(B, A, o, t, x, y, lift,
-a) }]`, `light: [x, v, h]`, `seat: [x, v, h]`, `blob: false | [sx, sy, dy, a]`.
+a, fs) }]` (`always`: também na planta / fantasma), `light: [x, v, h]`, `seat: [x, v, h]`, `rest: [x, v, h]`,
+`blob: false | [sx, sy, dy, a]`, `decal: [x, v, rx, ry, a]`, `align`, `fixed` (desenhada virada para o sul seja qual
+for a frente: o estandarte, como em 0°), `scale` + `hang(o)` (arte em escala e o modelo àquela altura: coisa de parede
+solta), `pt` (a parte cujo encaixe põe os pontos), `uvS` (o sprite das faces `uv`).
 
 Exemplo (a mesa: uma caixa vazada, a vista de lado com os próprios números):
 
@@ -307,7 +337,7 @@ esticado das linhas de cima). Coisas redondas no chão (anel de pedras, prato, a
 
 ### Jardim, exterior e acampamentos (`art/faces/solidGarden.js`)
 
-Todos com `ramp: false` (profundidade de verdade em qualquer ângulo, 0° também) e ocupando a pegada; arte que desenha
+Profundidade de verdade em qualquer ângulo, 0° também, e ocupando a pegada; arte que desenha
 coisas redondas achatadas (elipses) mapeia a textura com `k`, e `piv` põe o centro de verdade onde ele deve ficar
 (`piv = (d_arte − k·d_real) / (1 − k)`); uma parte movida em profundidade leva as alturas junto (64 px por tile) para
 continuar com a arte dela; superfícies que a arte nunca mostra (águas de telhadinho, o topo de um cepo) são cheias com
@@ -340,7 +370,7 @@ um texel da arte (`px`).
   lona), **tenda cônica** (cone com as varas saindo em leque no topo), **caixotes**; a **fogueira** do acampamento usa a
   fogueira 3D de `solidLights.js` (um objeto do mundo de um tipo de construção pega o tamanho da construção).
 - **O kit ganhou** (genérico, em `solid.js`): `px` (parte cheia com um texel), `tilt` / `tiltAt` (partes que inclinam:
-  golpe, vento), `fx` com `bp: true` (desenhado também na planta / obra), objetos do mundo (`world`; corpo ancorado no
+  golpe, vento), `fx` com `always` (desenhado também na planta / obra; o mesmo nome dos móveis), objetos do mundo (`world`; corpo ancorado no
   meio da frente `o.x, o.y`), `views.n` também para o verso emprestado (espelhado) e faces inclinadas: um `quad`
   inclinado tem o lado de fora para cima (vertical: para a vista de 0°); até 45° é um topo (visto de todo lado: a câmera
   olha de cima a 45°), mais íngreme é visto enquanto `v > −1` (normal × tan da inclinação).
@@ -356,9 +386,41 @@ antes até dos sprites dela) e os outros depois; a barra de progresso continua d
 de frente para a tela das peças sólidas / `props.js` (`XB` o descarta) e o andaime que era pintado nas faces das
 paredes (a gravação o ignora). Custo: 4 quads por peça em obra, nada guardado.
 
-Conferir: `game.debugK.props(['tipo', …])` (vitrine: cada tipo em todas as rotações + uma planta), câmera
-`game.cam.rot = game.cam.rotTo = 0.003` contra `0` (deve ser o mesmo quadro), 45°, 90°, 135°, 180°, 270°, noite
-(`game.debug.setTime(22)`), num andar de cima; `solidEntry(o)` devolve o modelo guardado de uma peça.
+### Móveis e decoração de dentro (`art/faces/solidFurniture.js`)
+
+- **Cadeira estofada** (encosto `cover`, assento), **banquinho** (assento redondo achatado como a arte, três pés numa
+  caixa vazada), **mesa redonda** (pé, tampo com a toalha caindo, vela), **mesinha** (caixa vazada + o vaso com a flor
+  como caixa no plano da arte: um torno entortaria a arte chapada).
+- **Estante** (painel de trás, três prateleiras, dois postes, as coisas de cada prateleira em pé onde a arte as põe;
+  vistas de lado e de trás com os próprios números), **estante de livros** (painel, laterais, poste do meio, tampo, três
+  prateleiras, os livros em pé, a vela; o pintor pintava o tampo da prateleira **por cima dos livros** — a estante era
+  um armário liso; agora os livros aparecem), **cômoda** (gaveteiro, espelho em pé `solo`: o verso é a moldura, vela,
+  a bacia pintada no tampo), **guarda-roupa** (uma caixa alta, vistas de lado e de trás). Todas encostadas no fundo
+  (`align: 'back'`).
+- **Suporte de armas** (a armação como tábua, as lanças encostadas numa face inclinada — pés para a frente —, a espada e
+  o escudo pendurados), **suporte de armadura** (tábua do pé, poste, a armadura como caixa: a malha na frente, os ombros
+  esticados no topo; o elmo), **tina** (torno oval `sx`, a água no aro).
+- **Estandarte** (`fixed`: virado para o sul como em 0°): poste e travessa sólidos, o **pano** pendurado na travessa
+  como uma tábua no plano do estandarte, balançando nele como em 0° (desenhado a cada quadro: `bannerCloth`), sombra do
+  pano como caixa fina.
+- **Vasos** (`flower_pot`, `plant_pot`): o vaso é o sólido (redondo, achatado como a arte); a planta / as flores ficam
+  **em pé como vegetação, presas no eixo do vaso** — `<tipo>_<v>_leaf` é a mesma pintura com o miolo do vaso recortado
+  (o contorno fica), desenhada em pé no ponto do eixo (`fx` `always`): vaso + planta = o sprite inteiro em qualquer giro.
+- **Potes** e **sacos**: tornos (um por pote / saco), achatados como a arte em qualquer ângulo, um só faz a sombra.
+- **Coisas de parede soltas** (quadro, troféu, cortina, ervas, ganchos sem parede atrás — `o._mount` falso): uma tábua
+  fina virada para a frente dela, na escala (0,66) e na altura em que ficaria na parede (`hang`). Na parede: as faces
+  planas de `faces/structures.js` (`drawMountFaces`), presas à face da parede em qualquer giro (conferidas na casa).
+- **Baú** (`solidTypes.js`): corpo de 16 px e tampa de 9 px rentes na pegada inteira, faixas de ferro passando pela
+  frente, tampa e costas nos mesmos x, fechadura só na frente, cantoneiras e alça nos lados; aberto (o jogador usando,
+  qualquer frente): paredes de dentro escuras, o conteúdo no fundo, a tampa em pé na borda de trás. **Cama:** enche os
+  dois tiles (`geo`; a cabeceira encostada na parede), a cabeceira `cover`, `rest` no travesseiro.
+- **Desempenho** (vitrine `game.debugK.showcase()`, giro 0,7, `game.debug.bench(150)` sem cabeça): com estes tipos ou
+  com o caminho antigo (`props.js`) a diferença fica no ruído (~2,4–3,1 ms de CPU de render dos dois jeitos); os nomes
+  de sprite das plantas / do pano são guardados (nada de texto por quadro).
+
+Conferir: `game.debugK.props(['tipo', …])` (vitrine: cada tipo em todas as rotações + uma planta), câmera 0°, 45°,
+90°, 135°, 180°, 270°, noite (`game.debug.setTime(22)`), num andar de cima e **numa casa mobiliada** (peças encostadas
+em cada parede, alguém sentado / dormindo); `solidEntry(o)` devolve o modelo guardado de uma peça.
 
 ## Móveis, estações, decoração e modo construção (`art/faces/props.js`)
 
@@ -430,7 +492,8 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   profundidade de peças de cima usa a borda sul do tile (`levels.rebuild`).
 - Personagens: a 3/4 é feita da vista de frente / costas (não há arte pintada em diagonal): o braço de lá ainda
   aparece na borda; o nariz não sai do perfil. Bichos na diagonal = perfil encurtado (sem vista 3/4 própria).
-  Sentado e o rodopio usam a vista mais perto. Bichinhos do ambiente só trocam de lado (não giram de verdade).
+  Sentado no chão e o rodopio usam a vista mais perto (sentado numa cadeira: 3/4). Bichinhos do ambiente só trocam de
+  lado (não giram de verdade).
 - **Peças sólidas:** falta converter os outros tipos de móveis / jardim para a tabela de `art/faces/solid.js` (até lá:
   em pé com 4 vistas ou arte dobrada do `props.js`); luzes, fogo e estações já estão (`solidLights.js`). Nelas: o topo
   de arte chapada (fornalha, postes, lanterna de pedra) é a borda de cima da arte esticada (a arte não tem topo); o
@@ -438,16 +501,21 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   de lado pegam a arte de lado (pedra / transparente); a fumaça de um fogo de baixo atravessa um piso de cima (como
   antes); o halo de `fx/ambient.js` continua por cima de tudo (como em 0°); uma tocha de parede no lado norte de uma
   parede sobe um pouco acima do topo dela vista de longe (é mais alta que a parede na arte); o anel de pedras / o prato
-  são círculos de verdade (a arte os desenhava achatados). Quem senta fica na frente do encosto
-  quando a câmera olha a cadeira por trás (a pessoa é desenhada logo depois da peça inteira; precisaria de um
-  desenhável à parte para o encosto, como a frente da escada). A mancha de terra pintada em volta do barril some ao
-  girar (fica fora do sólido). Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px). Faces não recebem
-  rachaduras de dano.
+  são círculos de verdade (a arte os desenhava achatados). Móveis: a arte de quem só tem a vista de frente é esticada
+  na profundidade de verdade (a cama, a tina) e os lados sem arte emprestam a frente; a cômoda vista de lado perde o
+  espelho (fino, a arte de lado não o tem); o pano do estandarte some visto de lado (é plano); coisas de parede soltas
+  flutuam na altura da parede (como em 0°); a planta de um vaso é um cartão em pé (vegetação), não gira com o vaso; os
+  potes / sacos / vasos ficam achatados ao longo da vista como a arte. Sentado: a pose 3/4 só aparece quando as peças
+  3/4 do visual já estão pintadas (até lá o lado mais perto); a altura do corpo no assento vem de uma medida
+  (`PELVIS` 0,476) tirada da cadeira de madeira. Quem dorme / senta é um sprite: o encosto / a cabeceira na frente dele
+  é um desenhável à parte (com o buffer de profundidade por pixel isto pode virar profundidade de verdade). As posições
+  3D de quem senta / dorme valem com a câmera girada (`CAMV` fora de 0°); quando as faces forem ligadas em 0° a mesma
+  condição em `art/compose.js` precisa incluir 0°.
 - **Móveis em pé** (os do `props.js`: peças de 1 tile, armações vistas de ponta): 4 vistas, trocam de vista a 45° como os
   personagens; poste de lampião e estandarte não têm vista de lado (em 0° também giram só pelo espelho do mundo).
   O estandarte do acampamento dos bandidos (tipo `banner`, objeto do mundo) fica com quem converter o estandarte (o kit
   já desenha objetos do mundo de um tipo da tabela).
-- Faces de móveis não recebem a sombra do sol / o piscar de dano (como as paredes).
+- Faces de móveis não recebem a sombra do sol (como as paredes).
 - **Jardim / acampamento:** as flores da floreira são uma massa na caixa (a arte não as separa da caixa: só o canteiro
   de flores tem as flores como vegetação em pé); a frente e o verso de uma peça sem vista de trás são a mesma arte
   espelhada (o espantalho, a estátua, as barracas: duas entradas); o cepo da lenha não aparece na vista de lado da arte

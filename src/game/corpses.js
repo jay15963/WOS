@@ -271,7 +271,8 @@ export function corpseAdapter(game, c) {
       const p = game.player, s = p.inv.slots[i];
       if (!s || !c.store) return false;
       if (c.store.room(s.id) <= 0) { game.events.emit('error', { text: 'Não cabe mais nada' }); return false; }
-      const it = n >= s.qty ? p.inv.takeSlot(i) : (p.inv.remove(s.id, n), { id: s.id, qty: n });
+      const it = p.inv.takeFrom(i, n);
+      if (!it) return false;
       net.request('corpse.put', { id: c.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: fail('Não cabe mais nada') });
       return true;
     },

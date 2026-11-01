@@ -442,6 +442,7 @@ html, body {
 .dnd-src { opacity: .45; }
 .dnd-ghost { position: fixed; left: 0; top: 0; width: 44px; height: 44px; z-index: 300; pointer-events: none; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
 .dnd-ghost .emo { font-size: 28px; }
+.dnd-ghost .n { position: absolute; right: -4px; bottom: -4px; font: italic 800 15px/1 var(--n-fd); color: var(--n-cream-hi); text-shadow: var(--n-ts); }
 body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 
 /* ======================= rich tooltip (desktop): parchment card ======================= */
@@ -679,8 +680,14 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .slot .spri { filter: drop-shadow(0 1px 0 rgba(20, 12, 6, 0.8)); }
 .slot .n { position: absolute; right: 5px; bottom: 3px; font: italic 800 14px/1 var(--n-fd); color: var(--n-cream-hi); text-shadow: var(--n-ts); }
 .inv-wrap { display: flex; gap: 12px; }
-.sortbar { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; font: 700 12.5px var(--n-fd); letter-spacing: 1px; text-transform: uppercase; color: var(--n-text-2); }
+.sortbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; font: 700 12.5px var(--n-fd); letter-spacing: 1px; text-transform: uppercase; color: var(--n-text-2); }
 .sortbar > span { margin-right: 4px; }
+.sortbar .xfer { margin-left: auto; white-space: nowrap; }
+/* container window: tap = 1 unit, hold = the whole stack (the bar fills while held) */
+.p-chest .slot { touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.p-chest .slot.holding::after { content: ''; position: absolute; left: 5px; right: 5px; bottom: 3px; height: 4px; border-radius: 2px;
+  background: var(--n-mustard-hi); box-shadow: 0 0 0 1px var(--n-ink); transform-origin: left center; animation: xfer-hold .35s linear forwards; pointer-events: none; }
+@keyframes xfer-hold { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .sbt, .tab, .btn { position: relative; isolation: isolate; }
 .sbt::before, .tab::before, .btn::before {
   content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 3px; transform: skewX(-12deg);

@@ -17,9 +17,32 @@ import { itemIco, buildIco, econIcon } from './econIcons.js';
 import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
 import { chestAdapter } from './container.js';
+import { Inventory } from '../game/inventory.js';
 import { uiScale } from './uiscale.js';
 import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
 import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// a container slot: a tap / click moves one unit (go(false)); shift-click moves the whole stack (go(true)), and so does
+// holding HOLD_MS on a touch screen (with a mouse, holding is the drag-and-drop of hotbar.js); moving cancels the hold
+const HOLD_MS = 350;
+function holdPress(b, go) {
+  let t = 0, x0 = 0, y0 = 0, fired = false;
+  const stop = () => { if (t) clearTimeout(t); t = 0; b.classList.remove('holding'); };
+  b.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    stop();
+    x0 = e.clientX; y0 = e.clientY; fired = false;
+    if (e.pointerType === 'mouse') return; // (mouse: shift-click for the stack; holding drags)
+    b.classList.add('holding');
+    t = setTimeout(() => { t = 0; b.classList.remove('holding'); fired = true; go(true); }, HOLD_MS);
+  });
+  b.addEventListener('pointermove', (e) => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 6) stop(); });
+  b.addEventListener('pointerleave', stop);
+  b.addEventListener('pointercancel', stop);
+  b.addEventListener('contextmenu', (e) => e.preventDefault()); // (a long press on a phone)
+  b.addEventListener('click', (e) => { stop(); if (fired) { fired = false; return; } go(e.shiftKey); });
+}
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -119,9 +142,11 @@ export class Panels {
   }
 
   // sort buttons (A→Z · Tipo · Quantidade); the last one used per container is highlighted
-  sortBar(key) {
+  desktopHud() { return !!document.getElementById('hud')?.classList.contains('desktop'); }
+
+  sortBar(key, extra = '') {
     const cur = this.sortMode[key];
-    return `<div class="sortbar"><span>Ordenar</span>${SORT_MODES.map((m) => `<button class="sbt ${cur === m ? 'on' : ''}" data-sort="${m}" data-sortk="${key}">${SORT_PT[m]}</button>`).join('')}</div>`;
+    return `<div class="sortbar"><span>Ordenar</span>${SORT_MODES.map((m) => `<button class="sbt ${cur === m ? 'on' : ''}" data-sort="${m}" data-sortk="${key}">${SORT_PT[m]}</button>`).join('')}${extra}</div>`;
   }
 
   slots(inv, tag, cols, selected = -1) {
@@ -217,11 +242,12 @@ export class Panels {
     } else if (name === 'chest' || name === 'container') {
       const c = this.container;
       if (!c || !c.canOpen()) { this.close(); return; }
-      const how = g.input.isTouch ? 'toque' : 'clique ou arraste';
+      const how = g.input.isTouch ? 'toque: 1 · segure: a pilha' : 'clique: 1 · shift+clique: a pilha · arraste';
+      const hotTip = this.desktopHud() ? '<p>O que está na barra rápida (1–0) fica na mochila.</p>' : '';
       html = this.frame(c.title, c.icon || buildIco(A, 'chest'), `
         <div class="chest-wrap">
-          <div class="inv-side"><div class="gl">Mochila <small>${how} para guardar</small></div>${this.sortBar('inv')}${this.slots(p.inv, 'slot', 6)}</div>
-          <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how} para pegar</small></div>${this.sortBar(c.id)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
+          <div class="inv-side"><div class="gl">Mochila <small>${how}</small></div>${this.sortBar('inv', `<button class="sbt xfer" data-xfer="put" data-tip="<b>Guardar tudo</b><p>Passa a mochila inteira para ${esc(c.label || c.title)}.</p>${hotTip}">Guardar tudo ›</button>`)}${this.slots(p.inv, 'slot', 6)}</div>
+          <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how}</small></div>${this.sortBar(c.id, `<button class="sbt xfer" data-xfer="take" data-tip="<b>Pegar tudo</b><p>Passa tudo o que couber para a mochila.</p>">‹ Pegar tudo</button>`)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>`, 'p-map');
@@ -251,22 +277,62 @@ export class Panels {
       const up = () => { removeEventListener('pointermove', mv); removeEventListener('pointerup', up); };
       addEventListener('pointermove', mv); addEventListener('pointerup', up);
     });
-    el.querySelectorAll('[data-slot]').forEach((b) => b.addEventListener('click', () => {
+    // container open: a tap / click moves 1 unit, holding moves the whole stack (a bar fills while held), shift-click
+    // too; shared containers get it from the host (leftovers come back)
+    const box = this.container;
+    const putSlot = (i, all) => {
+      const s = p.inv.slots[i];
+      if (!s || !box || box.put(i, all ? s.qty : 1) === false) return;
+      g.audio?.play('pickup', {});
+      g.events.emit('inventory', {});
+      this.render();
+    };
+    const takeSlot = (i, all) => {
+      const s = box?.items()[i];
+      if (s && box.take(i, all ? s.qty : 1) !== false) g.audio?.play('pickup', {});
+    };
+    el.querySelectorAll('[data-slot]').forEach((b) => {
       const i = +b.dataset.slot;
-      const c = this.container;
-      if (c) {
-        const s = p.inv.slots[i];
-        if (!s) return;
-        // the whole stack leaves the backpack now; shared containers get it from the host (leftovers come back)
-        if (c.put(i, s.qty) === false) return;
-        g.audio?.play('pickup', {});
-        g.events.emit('inventory', {});
-        this.render();
-      } else {
+      if (box) { holdPress(b, (all) => putSlot(i, all)); return; }
+      b.addEventListener('click', () => {
         const same = this.sel?.kind === 'inv' && this.sel.i === i;
         this.sel = same || !p.inv.slots[i] ? null : { kind: 'inv', i };
         this.render();
+      });
+    });
+    if (box) el.querySelectorAll('[data-cslot]').forEach((b) => holdPress(b, (all) => takeSlot(+b.dataset.cslot, all)));
+    el.querySelectorAll('[data-xfer]').forEach((b) => b.addEventListener('click', () => {
+      const c = this.container;
+      if (!c) return;
+      let n = 0;
+      if (b.dataset.xfer === 'put') {
+        // the whole backpack, but what is on the (desktop) hotbar stays
+        const hot = new Set(this.desktopHud() ? (g.ui?.hotbar?.slots || []).filter((s) => s?.k === 'item').map((s) => s.id) : []);
+        for (let i = 0; i < p.inv.size; i++) {
+          const s = p.inv.slots[i];
+          if (!s || hot.has(s.id)) continue;
+          if (c.put(i, s.qty) === false) break;
+          n++;
+        }
+        if (n) g.events.emit('inventory', {});
+      } else {
+        // what fits, counted on a copy of the backpack (a guest's backpack fills only when the host answers)
+        const sim = new Inventory(p.inv.size);
+        sim.load(p.inv.toJSON());
+        const items = c.items().slice();
+        let full = false;
+        for (let i = 0; i < items.length; i++) {
+          const s = items[i];
+          if (!s) continue;
+          const k = Math.min(s.qty, sim.room(s.id));
+          if (k <= 0) { full = true; continue; }
+          sim.add(s.id, k);
+          if (c.take(i, k) !== false) n++;
+        }
+        if (full) g.events.emit('error', { text: n ? 'Nem tudo coube na mochila' : 'Mochila cheia' });
       }
+      if (n) g.audio?.play('pickup', {});
+      this.render();
     }));
     el.querySelectorAll('[data-eq]').forEach((b) => b.addEventListener('click', () => {
       const slot = b.dataset.eq;
@@ -291,11 +357,6 @@ export class Panels {
       // shared containers: the host sorts (store.sort → chest.set / corpse.set) and every peer gets the same order
       c.sort(mode);
       this.render();
-    }));
-    el.querySelectorAll('[data-cslot]').forEach((b) => b.addEventListener('click', () => {
-      const c = this.container, i = +b.dataset.cslot, s = c?.items()[i];
-      if (!s) return;
-      if (c.take(i, s.qty) !== false) g.audio?.play('pickup', {});
     }));
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
       const act = b.dataset.act, sel = this.sel;

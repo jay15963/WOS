@@ -6,14 +6,12 @@
 // things squashed (ellipses) maps its texture with k, and piv puts the true centre where it belongs (piv = (d_art −
 // k·d_true) / (1 − k), d = v − V). A part moved in depth keeps its art by moving its heights with it (64 px per tile).
 // Surfaces the art never shows (roof slopes, a stump's top) are filled with one texel of the art (px).
-import { defineSolid as define } from './solid.js';
+import { defineSolid } from './solid.js';
 import { CAMV, ARCH_FACES as K, archSprite } from '../archCompose.js';
 import { tintOf } from './props.js';
 import { bq } from './kit.js';
 
 // ---------- little helpers ----------
-// (ramp: false — the true depth at every angle, 0° included: never squashed back to the old art)
-const defineSolid = (type, spec) => define(type, { ramp: false, ...spec });
 const box = (x0, x1, v0, v1, h0, h1, o) => ({ box: [x0, x1, v0, v1, h0, h1], ...o });
 const card = (x0, x1, v, h0, h1, o) => ({ card: [x0, x1, v, h0, h1], ...o });
 const lathe = (x, v, pr, o) => ({ lathe: [x, v, pr], ...o });
@@ -269,7 +267,7 @@ defineSolid('flower_bed', {
   s: 'flower_bed_base',
   parts: [box(-28, 28, 0.08, 0.94, 0, 2, NS)],
   blob: false,
-  fx: [{ at: [0, 0.51, 0], bp: true, draw: bedFlowers }],
+  fx: [{ at: [0, 0.51, 0], always: true, draw: bedFlowers }],
 });
 function bedFlowers(B, A, o, t, x, y, lift, a) {
   const F = B.faces, vi = (((o.v | 0) % 3) + 3) % 3, s = F ? archSprite(A, 'flower_bed_plants_' + vi) : null;

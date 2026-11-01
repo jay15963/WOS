@@ -430,7 +430,7 @@ export async function chestPut(t, f, M, chest, item) {
     const i = g.player.inv.slots.findIndex((s) => s && s.id === item);
     return i >= 0 && f.doc.querySelector(`[data-slot="${i}"]`);
   }, 3000, `${f.label}: chest panel shows inventory slot with ${item}`);
-  btn.click();
+  btn.dispatchEvent(new f.doc.defaultView.MouseEvent('click', { bubbles: true, shiftKey: true })); // (a plain click moves 1 unit; shift = the stack)
   await t.sleep(30);
   g.events.emit('closepanels', {});
 }
