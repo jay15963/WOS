@@ -14,6 +14,7 @@
 //    only the radar / map shows them first) or feel through walls up to SENSE; else the nearest light up to LIGHT_R
 //    (campfires, torches, lamps… even indoors; a torch in a player's hand up to LIGHT_HAND). Further away they roam
 //    where they came from (the raiders' brain).
+//  - creative world (creative.js): none of this — no light, no breaking, no hunting; they roam like the raiders.
 //  - they walk there (nav.steer). A wall / door / fence in the way gets broken: when they stop getting anywhere
 //    (STALL_S), when there is no way at all, or when the only way is a long detour (a path longer than DETOUR × the
 //    straight line) — the first breakable piece on the straight line to it (breachToward). A gap close by is taken.
@@ -163,6 +164,7 @@ function breachToward(game, m, gx, gy, skip) {
 }
 
 function hitPiece(game, m, o) {
+  if (game.creative) return; // (a swing already on its way when the world became creative)
   const inc = m.swingDur / (SIEGE_S[o.type] || SIEGE_WOOD);
   const d = Math.min(1, (o.dmg || 0) + inc);
   game.net.emit('struct.dmg', { id: o.id, d: +d.toFixed(4), x: +m.x.toFixed(2), y: +m.y.toFixed(2) });
@@ -192,6 +194,8 @@ function stalled(o, m, dt) {
 // host: the walker part of the brain; true = it handled this frame (bandits.updateBandit skips its own)
 export function walkerBrain(game, m, dt) {
   if (m.calmT > 0) return handOff(m); // (tests / debug: a calmed one keeps to itself)
+  // creative (creative.js): not drawn by light, never breaks anything, hunts nobody — they just roam
+  if (game.creative) { m.goal = null; return handOff(m); }
   m.goalT = (m.goalT || 0) - dt;
   if (m.goalT <= 0) {
     m.goalT = 0.8 + Math.random() * 0.5;
