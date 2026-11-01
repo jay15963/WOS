@@ -4,6 +4,7 @@
 // v (0 = north edge, 1 = south edge of the footprint) and a height h (px) to sprite y.
 
 import { spritePx, rng, OW, TAU, lin, rad, circle, mixc, tone, rgb, hex, leaf, taper, smoothClosed, blobPts } from './paint.js';
+import { lazyDef } from './lazyDefs.js';
 
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
 const IRON = { dark: '#2c2c31', mid: '#4a4a52', light: '#6e6e78', high: '#9a9aa6' };
@@ -158,7 +159,9 @@ function stonecutter() {
 }
 
 // ---------------- furnace (1×1) ----------------
-function furnaceBody(g, Y, W, rand, glowOnly) {
+// back: the furnace seen from behind (camera rotation, art/faces/solidLights.js): no mouth / soot / tools, the chimney on
+// the left rising out of the dome's back (drawn at its own depth, v 0.897)
+function furnaceBody(g, Y, W, rand, glowOnly, back = false) {
   const cx = W / 2;
   const base = Y(0.95, 0), top = Y(0.95, 46);
   const mouthY = Y(0.95, 8), mouthH = 15, mouthW = 18;
@@ -172,12 +175,13 @@ function furnaceBody(g, Y, W, rand, glowOnly) {
     g.fillRect(cx, Y(0.55, 66) - 7, 18, 14);
     return;
   }
-  // chimney (behind, back right)
-  g.fillStyle = lin(g, cx + 3, 0, cx + 15, 0, [[0, '#8d857a'], [1, '#5f5951']]);
-  g.fillRect(cx + 3, Y(0.55, 64), 12, Y(0.55, 12) - Y(0.55, 64));
-  for (let y = Y(0.55, 64) + 4; y < Y(0.55, 12); y += 6) { g.fillStyle = 'rgba(30,26,22,0.4)'; g.fillRect(cx + 3, y, 12, 1); }
-  g.fillStyle = '#2a2420'; g.beginPath(); g.ellipse(cx + 9, Y(0.55, 64), 6, 2.4, 0, 0, TAU); g.fill();
-  g.fillStyle = '#9c948a'; g.fillRect(cx + 2, Y(0.55, 66) - 1, 14, 3);
+  // chimney (behind, back right; from behind: on the left, nearer)
+  const chx = back ? cx - 15 : cx + 3, chv = back ? 0.897 : 0.55, chb = back ? 30 : 12;
+  g.fillStyle = lin(g, chx, 0, chx + 12, 0, [[0, '#8d857a'], [1, '#5f5951']]);
+  g.fillRect(chx, Y(chv, 64), 12, Y(chv, chb) - Y(chv, 64));
+  for (let y = Y(chv, 64) + 4; y < Y(chv, chb); y += 6) { g.fillStyle = 'rgba(30,26,22,0.4)'; g.fillRect(chx, y, 12, 1); }
+  g.fillStyle = '#2a2420'; g.beginPath(); g.ellipse(chx + 6, Y(chv, 64), 6, 2.4, 0, 0, TAU); g.fill();
+  g.fillStyle = '#9c948a'; g.fillRect(chx - 1, Y(chv, 66) - 1, 14, 3);
   // domed body of fieldstones and clay
   g.beginPath();
   g.moveTo(cx - 25, base); g.lineTo(cx - 25, top + 18); g.bezierCurveTo(cx - 25, top - 4, cx + 25, top - 4, cx + 25, top + 18); g.lineTo(cx + 25, base); g.closePath();
@@ -194,8 +198,9 @@ function furnaceBody(g, Y, W, rand, glowOnly) {
   }
   g.fillStyle = lin(g, cx - 25, 0, cx + 25, 0, [[0, 'rgba(255,240,210,0.15)'], [0.5, 'rgba(0,0,0,0)'], [1, 'rgba(20,14,10,0.4)']]); g.fillRect(cx - 26, top - 4, 52, base - top + 4);
   // soot above the mouth
-  g.fillStyle = rad(g, cx, mouthY - mouthH - 2, 0, 14, [[0, 'rgba(20,16,12,0.6)'], [1, 'rgba(20,16,12,0)']]); g.fillRect(cx - 16, mouthY - mouthH - 16, 32, 22);
+  if (!back) { g.fillStyle = rad(g, cx, mouthY - mouthH - 2, 0, 14, [[0, 'rgba(20,16,12,0.6)'], [1, 'rgba(20,16,12,0)']]); g.fillRect(cx - 16, mouthY - mouthH - 16, 32, 22); }
   g.restore();
+  if (back) return;
   // arched mouth with a stone lintel
   g.fillStyle = '#7a6b5c';
   g.beginPath(); g.moveTo(cx - mouthW / 2 - 4, mouthY + 1); g.lineTo(cx - mouthW / 2 - 4, mouthY - mouthH + 5); g.quadraticCurveTo(cx, mouthY - mouthH - 8, cx + mouthW / 2 + 4, mouthY - mouthH + 5); g.lineTo(cx + mouthW / 2 + 4, mouthY + 1); g.closePath(); g.fill();
@@ -206,6 +211,14 @@ function furnaceBody(g, Y, W, rand, glowOnly) {
   g.strokeStyle = IRON.mid; g.lineWidth = 1.6; g.beginPath(); g.moveTo(cx - 28, base - 1); g.lineTo(cx - 20, top + 10); g.stroke();
   g.fillStyle = '#7a5232'; g.beginPath(); g.moveTo(cx + 20, base + 2); g.lineTo(cx + 30, base - 6); g.lineTo(cx + 26, base - 12); g.lineTo(cx + 16, base - 4); g.closePath(); g.fill();
 }
+function furnaceBack() {
+  const rand = rng(503);
+  return mk(1, 60, (g, P, Y, W) => {
+    ground(g, W / 2, Y(0.98, 0), 30, 7, 0.3);
+    P.layer((g) => furnaceBody(g, Y, W, rand, false, true), OW);
+  });
+}
+lazyDef('furnace_back', furnaceBack, 0.5, 1); // (only drawn while the camera is turned: never baked)
 function furnace(glow) {
   const rand = rng(503);
   return mk(1, 60, (g, P, Y, W) => {

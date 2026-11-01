@@ -187,10 +187,13 @@ calculados para o ângulo do momento.
 Pedido do dono: **todas** as estruturas (baú, luzes, cama, mesa, cadeira, lareira…) são objetos 3D de verdade, parados
 no mundo enquanto a câmera gira, como as paredes; só vegetação e criaturas (jogador, NPCs, bichos) continuam sprites em
 pé. O kit `art/faces/solid.js` faz isso a partir da **arte da própria peça**; cada tipo é só uma entrada de tabela
-(`defineSolid(tipo, spec)`, hoje em `art/faces/solidTypes.js`). Tipo na tabela sai do `props.js` (o tipo de face `solid`
-tem `prio: 1`); tipo fora da tabela continua como antes (em pé de frente para a tela / arte dobrada). Prontos: **baú** (com a tampa aberta
-`chest_open`), **barril**, **mesa**, **cadeira**, **cama**, **tocha** (de chão; a de parede continua o sprite do
-suporte) e a **pilha de caixotes**.
+(`defineSolid(tipo, spec)`, em `art/faces/solidTypes.js` e nas tabelas por área: `solidLights.js` = luzes, fogo e
+estações). Tipo na tabela sai do `props.js` (o tipo de face `solid` tem `prio: 1`); tipo fora da tabela continua como
+antes (em pé de frente para a tela / arte dobrada). Prontos: **baú** (com a tampa aberta `chest_open`), **barril**,
+**mesa**, **cadeira**, **cama**, **pilha de caixotes** e, em `solidLights.js`: **fogueira**, **braseiro**, **caldeirão**,
+**fornalha**, **bigorna**, **bancada**, **mesa de cantaria**, **tear**, **lareira**, **velas**, **candelabro**,
+**lanterna de pedra**, **poste de lanterna**, **poste com lanterna** e a **tocha** — de chão e **de parede** (as quatro
+paredes).
 
 ### Como funciona
 
@@ -260,6 +263,49 @@ defineSolid('table_wood', {
 });
 ```
 
+### Luzes, fogo e estações (`art/faces/solidLights.js`)
+
+Pedido do dono (depois): **nada de cara de sprite em 0°** — o 3D vale em todos os ângulos, 0° também (outro trabalho
+liga as faces em 0° e um buffer de profundidade por pixel). Então estas peças têm a **profundidade de verdade em
+qualquer ângulo** (`ramp: false`: sem achatar perto de 0°); `k` só diz como a arte desenha a profundidade, e a arte é
+esticada sobre a profundidade real (uma arte de frente chapada — fornalha, postes, lanterna de pedra — vira o topo
+esticado das linhas de cima). Coisas redondas no chão (anel de pedras, prato, aro) viram círculos de verdade.
+
+- **Fogueira:** anel de 10 pedras (cada uma um sólido) em volta de um monte baixo de cinza e lenha; brasas
+  (`campfire_coals`) deitadas sobre o monte; chamas, chama que estala e brilho no centro do anel.
+- **Braseiro:** bacia redonda com as brasas na boca, três pernas de ferro inclinadas de verdade (pés no anel que `k`
+  dá); fogo na boca. **Caldeirão:** anel de 8 pedras, cinza / lenha com brasas, tripé de três pernas inclinadas até o
+  ápice, corrente, caldeirão, alça e concha; fogo sob o caldeirão e o **vapor** saindo da boca enquanto cozinha.
+- **Fornalha:** cúpula de pedra (a boca e as juntas acesas como **brilho sobre a face**, só quando trabalha), chaminé
+  saindo de trás da cúpula (com a brasa no topo), atiçador encostado e fole; a chama da boca só aparece de frente
+  (some girando para os lados / de trás). **Vista de trás pintada** (`furnace_back`, `art/stations.js`, preguiçosa: só com
+  a câmera girada): cúpula sem boca e a chaminé do outro lado — antes as costas mostravam uma segunda boca.
+- **Bigorna:** cepo redondo, cintura, mesa com o chifre e o martelo deitado em cima.
+- **Bancada / cantaria / tear** (2×1, `model: 'front'`: a mesma peça virada para qualquer lado; a arte `_n` / `_e` só
+  pinta): bancada vazada com o painel de ferramentas atrás; mesa de pedra com o bloco sendo lavrado, a pilha de blocos
+  e as pedras no chão; tear (o quadro como uma tábua grossa), o banco do tecelão e o cesto de algodão.
+- **Lareira:** **uma lareira de pedra só, ocupando a pegada inteira** (2×1: `k` 0,5 leva a profundidade da arte até a
+  parede de trás e a borda da frente), a mesma de todos os lados (`model: 'front'`; a arte de lado / de trás só pinta):
+  o peito da chaminé subindo pela parede, a lareira com uma **boca de verdade** (dois batentes, a verga, a parede do
+  fundo — o fogo queima dentro, visto só de frente), a prateleira do consolo saindo para a frente e as duas velas.
+- **Velas / candelabro** (peças de borda, `foot`): prato com três velas / tripé, haste, braços e cinco velas nos
+  copinhos, cada chama no pavio. **Lanterna de pedra:** base, fuste, colar, a cabeça com uma janela acesa **em cada
+  lado** (brilho sobre as faces) e a chama dentro, telhadinho. **Postes** (de madeira e com lanterna): base, poste,
+  braço e a lanterna redonda pendurada — o vidro aceso em volta toda (brilho sobre as faces) e o halo nela.
+- **Tocha de parede** (`o._mount`): placa de ferro na face da parede, braço e a tocha saindo **inclinada para fora**
+  (`lean`), chama no topo da cabeça; o mesmo modelo nas quatro paredes (`torch_wall_e` pinta os lados). Desenhada logo
+  depois da parede em que está enquanto aquela face aparece (`depth`); com a face virada para longe a parede a esconde.
+- **Luz / fumaça / halo:** `light` de cada peça é o ponto no chão sob a chama (fogueira no centro do anel, lareira dentro
+  da boca, postes sob a lanterna, tocha de parede sob a cabeça): a poça de luz (`game.js`), o halo, as brasas e a fumaça
+  (`fx/ambient.js`) saem dali.
+- **O kit ganhou** (genérico, em `solid.js`): `lean` (eixo inclinado de um torno), `glow` (arte de brilho sobre as faces,
+  para a camada de brilho), `model: 'front'`, `ramp: false`, `lift` (arte desenhada acima do chão da peça; por parte: só
+  a textura dela), `depth` por tipo, `blob` / `fx` / `light` das variantes; um torno pega cada **quarto** da arte da vista
+  que olha para ele (antes metade da frente / metade de trás: de lado ficava uma coluna esticada); o `n` de um torno
+  agora vale (o contorno o perdia).
+- Teste numa casa de verdade (paredes, piso, porta, telhado, peças encostadas em cada parede, andar de cima) de dia e de
+  noite em 0°, 45°, 90°, 135°, 180°, 270°.
+
 Conferir: `game.debugK.props(['tipo', …])` (vitrine: cada tipo em todas as rotações + uma planta), câmera
 `game.cam.rot = game.cam.rotTo = 0.003` contra `0` (deve ser o mesmo quadro), 45°, 90°, 135°, 180°, 270°, noite
 (`game.debug.setTime(22)`), num andar de cima; `solidEntry(o)` devolve o modelo guardado de uma peça.
@@ -324,7 +370,7 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   água da frente a escondem); na primeira girada da sessão (quem nunca girou) os telhados aparecem em cores lisas até
   o worker pintar (~0,1–0,3 s por casa); a ordem das peças vem de um ângulo até 0,25° atrás (giro rápido: alguns
   quadros).
-- Estruturas: tochas de parede continuam sprite (são da área de luzes / móveis); os pilares / postes de canto das
+- Estruturas: os pilares / postes de canto das
   paredes ficam pintados nas faces (não saem da caixa); faces não recebem sombra de outras coisas (como antes). Ao
   sair de 0° as sebes / muros de pedra / postes mudam alguns pixels (a arte da vista norte não tem topo nem
   espessura; em 3D têm).
@@ -335,8 +381,14 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
 - Personagens: a 3/4 é feita da vista de frente / costas (não há arte pintada em diagonal): o braço de lá ainda
   aparece na borda; o nariz não sai do perfil. Bichos na diagonal = perfil encurtado (sem vista 3/4 própria).
   Sentado e o rodopio usam a vista mais perto. Bichinhos do ambiente só trocam de lado (não giram de verdade).
-- **Peças sólidas:** falta converter os outros ~55 tipos de móveis / estações / luzes / jardim para a tabela de
-  `art/faces/solid.js` (até lá: em pé com 4 vistas ou arte dobrada do `props.js`). Quem senta fica na frente do encosto
+- **Peças sólidas:** falta converter os outros tipos de móveis / jardim para a tabela de `art/faces/solid.js` (até lá:
+  em pé com 4 vistas ou arte dobrada do `props.js`); luzes, fogo e estações já estão (`solidLights.js`). Nelas: o topo
+  de arte chapada (fornalha, postes, lanterna de pedra) é a borda de cima da arte esticada (a arte não tem topo); o
+  caldeirão / pote visto de trás é a frente espelhada; as velas do consolo da lareira e a ponta do quadro do tear vistas
+  de lado pegam a arte de lado (pedra / transparente); a fumaça de um fogo de baixo atravessa um piso de cima (como
+  antes); o halo de `fx/ambient.js` continua por cima de tudo (como em 0°); uma tocha de parede no lado norte de uma
+  parede sobe um pouco acima do topo dela vista de longe (é mais alta que a parede na arte); o anel de pedras / o prato
+  são círculos de verdade (a arte os desenhava achatados). Quem senta fica na frente do encosto
   quando a câmera olha a cadeira por trás (a pessoa é desenhada logo depois da peça inteira; precisaria de um
   desenhável à parte para o encosto, como a frente da escada). A mancha de terra pintada em volta do barril some ao
   girar (fica fora do sólido). Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px). Faces não recebem
