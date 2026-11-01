@@ -1768,6 +1768,7 @@ uniform float uFog;
 uniform vec3 uFogCol;
 uniform vec3 uTint;
 uniform float uSat, uContrast, uVig, uFlash;
+uniform vec2 uPop;         // the bright cartoon look (owner): x vibrance (greys gain the most), y midtone gamma (> 1 brighter)
 uniform vec3 uAmb;        // ambient light (light above it = fire / torch light: keeps warmth and saturation)
 uniform vec3 uCaveAmb;    // ambient inside mined caves (see AMBIENT_FS)
 uniform vec3 uLift;       // shadow tint added in the darks
@@ -2102,6 +2103,14 @@ void main(){
   c = (c - 0.45) * uContrast * (1.0 - 0.1 * uFeelA.z) + 0.45;
   vec3 hi = max(c - 0.82, 0.0);
   c = c - hi + hi / (1.0 + hi * 2.2);
+  // the bright cartoon look: vibrance (dull colours gain the most, strong ones barely: no blotches) and midtones up
+  // (black stays black, white stays white)
+  {
+    float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+    float s0 = (mx - mn) / max(mx, 1e-3), l2 = dot(c, vec3(0.299, 0.587, 0.114));
+    c = max(mix(vec3(l2), c, 1.0 + uPop.x * (1.0 - 0.6 * s0)), 0.0);
+    c = pow(c, vec3(1.0 / uPop.y));
+  }
   vec2 v = vUV - 0.5;
   float vg = dot(v, v) * uVig * (1.0 + uCamCave * 0.7) * (1.0 + smoothstep(0.7, 1.0, uFeelA.z) * 1.3);
   c *= 1.0 - vg;

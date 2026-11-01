@@ -91,6 +91,7 @@ export class Renderer {
     this._emLast = 0;
     this.faceSeg = []; // [f0, f1, at]: computed faces [f0, f1) drawn after main [0, at) (same marks as the glows)
     this.faceTex = []; // the texture of each face segment (null = the atlas; a roof handle from roofFaceTex)
+    this.pop = { vib: 0.45, gamma: 1.17 }; // the bright cartoon look (post: uPop); game.debug can tune it
     this._roofFaces = []; // [f0, f1, handle] roof faces drawn this frame (camera turned): the light occluder redraws them
     this._fLast = 0;
     this._fTex = null;
@@ -854,6 +855,8 @@ export class Renderer {
       gl.uniform3fv(u.uFogCol, env.fogCol);
       gl.uniform3fv(u.uTint, env.tint);
       gl.uniform1f(u.uSat, env.sat);
+      // the bright cartoon look (owner): stronger by day, milder at night (night still reads as night)
+      if (u.uPop) { const dk = env.day ?? 1, P = this.pop; gl.uniform2f(u.uPop, P.vib * (0.6 + 0.4 * dk), 1 + (P.gamma - 1) * (0.5 + 0.5 * dk)); }
       gl.uniform1f(u.uContrast, env.contrast);
       gl.uniform1f(u.uVig, env.vignette);
       gl.uniform1f(u.uFlash, env.flash || 0);
