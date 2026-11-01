@@ -27,6 +27,7 @@ import { applyQuality } from './ui/netpanels.js';
 import { Session, playerName, normalizeCode, newRoomCode, GRAPHICS_BROKEN } from './net/session.js';
 import { netlog, runtime } from './net/netlog.js';
 import { installNetDebug } from './net/digest.js';
+import { applyLook } from './fx/look.js';
 
 const $ = (s) => document.querySelector(s);
 // Yield so the screen can paint; the timeout keeps boot going in background tabs (no rAF there).
@@ -64,6 +65,7 @@ function loadAssets() {
     const atlasLookup = startAtlasLookup();
     await nextFrame();
     const renderer = new Renderer($('#gl'));
+    applyLook(renderer); // the player's "Cores" / "Brilho" (fx/look.js)
     try { applyQuality(renderer, localStorage.getItem('wos.quality') || 'auto'); } catch { /* ignore */ }
     report(0.2, 'Pintando o terreno…'); await nextFrame();
     renderer.setGroundTextures(TEX, generateGroundTextures());

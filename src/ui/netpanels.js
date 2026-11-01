@@ -10,6 +10,7 @@ import { audioSettings } from '../fx/audioSettings.js';
 import { uiScaleSetting } from './uiscale.js';
 import { aimAssistSetting } from './aimAssist.js';
 import { qualitySettings } from '../fx/quality.js';
+import { lookSettings } from '../fx/look.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -161,6 +162,7 @@ export function settingsPanel(el, { game = null, onName = null } = {}) {
   q('audio').onchange = () => { set('wos.audio.enabled', q('audio').checked ? '1' : '0'); if (game?.audio) game.audio.enabled = q('audio').checked; };
   q('vol').oninput = () => { const v = +q('vol').value / 100; set('wos.audio.volume', String(v)); if (game?.audio) game.audio.volume = v; };
   qualitySettings(q('qualityrow'), game); // graphics quality row (agent C, src/fx/quality.js)
+  lookSettings(q('qualityrow'), game); // "Cores" / "Brilho" (src/fx/look.js)
   const saveT = () => {
     const urls = q('turnUrls').value.split(',').map((s) => s.trim()).filter(Boolean);
     saveTurn(urls.length ? { urls, username: q('turnUser').value.trim() || undefined, credential: q('turnPass').value || undefined } : null);
