@@ -826,7 +826,7 @@ export function buildingSystem() {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
         const glv = m.lv | 0, gl = glv ? glv * (game.levels?.STORY ?? 1) : 0; // levels: ghost on the chosen story
-        if (tile && gl && game.cam.rot && B.faces) { for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) B.faces.quad4(x, y, gl, tile.u0, tile.v0, x + 1, y, gl, tile.u1, tile.v0, x + 1, y + 1, gl, tile.u1, tile.v1, x, y + 1, gl, tile.u0, tile.v1, r, gg, b, 0.7 * pulse); } // levels, camera turned: flat on its story
+        if (tile && gl && B.faces) { for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) B.faces.quad4(x, y, gl, tile.u0, tile.v0, x + 1, y, gl, tile.u1, tile.v0, x + 1, y + 1, gl, tile.u1, tile.v1, x, y + 1, gl, tile.u0, tile.v1, r, gg, b, 0.7 * pulse); } // levels, camera turned: flat on its story
         else if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
         else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, 0, 0, 1, 0, gl);
         G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
@@ -835,7 +835,7 @@ export function buildingSystem() {
         setGeom(G0);
         G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot, glv) : false;
         G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse; G0.lv = glv; // sync-ok: scratch ghost
-        const fk = rot ? faceKindOf(G0) : null; // camera turned: the ghost is drawn as the finished piece is (faces)
+        const fk = faceKindOf(G0); // the ghost is drawn as the finished piece is (faces)
         if (fk && fk.draw(B, A, G0, t)) {
           // rotation is in world directions: an arrow on the ground shows where its front will face
           if (rotCount(m.type) > 1 && !BUILDINGS[m.type].mount) { const f = FRONT[G0.face] || FRONT.s, cx = BUILDINGS[m.type].edge ? G0.x : g.tx + fw / 2, cy = BUILDINGS[m.type].edge ? G0.cy : g.ty + fh / 2; arrowAt(B, A, cx + f[0] * 0.1, cy + f[1] * 0.1, f[0], f[1], 0.42 + 0.5 * Math.abs(f[0] ? fw : fh) * 0.5, r, gg, b, 0.75 * pulse); }

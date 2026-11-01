@@ -73,12 +73,13 @@ function drawCracks(B, A) {
   const o = this.o, d = o.dmg || 0;
   if (!(d > 0) || o.removed) return;
   const k = this.game.time - (o._hitT || -9), sh = k < 0.18 ? (1 - k / 0.18) * 0.035 * Math.sin(k * 90) : 0;
-  const stage = Math.min(3, Math.floor(d * 4)), front = !((o.mask | 0) & 4);
-  const turned = !!this.game.cam?.rot;
-  const s = archSprite(A, (front || turned ? 'siege_crack_f' : 'siege_crack_t') + stage);
+  const stage = Math.min(3, Math.floor(d * 4));
+  const s = archSprite(A, 'siege_crack_f' + stage);
   if (!s) return;
   const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1, al = Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1);
-  if (turned) { drawCrackFaces(B, A, o, s, al, fl < 0, sh); return; } // (on the top and every side that shows)
+  // on the top and every side that shows (3D at every camera angle), laid on the piece's faces: a little toward the
+  // camera in the depth buffer (renderer: coplanar faces)
+  if (B.faces) { const zb = B.faces.bias; B.faces.bias = 0.006; drawCrackFaces(B, A, o, s, al, fl < 0, sh); B.faces.bias = zb; return; }
   B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, al, 0, 0, 0, 1);
 }
 // camera turned: right after the piece it cracks (its box depth)

@@ -30,6 +30,21 @@ function viewFacing(f, c, s) {
   return Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 'e' : 'w') : (vy > 0 ? 's' : 'n');
 }
 
+const DZ = { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0 }; // (a renderer without depth)
+// depth of a pawn at rest (art/compose.js pose: p._sobj = its bed / seat): lying flat on the mattress (or the ground) a
+// little toward the camera, sitting as a card through the seat at its height (the backrest hides its back when the
+// camera looks from behind; its legs hang in front of the seat)
+function restDepth(B, o, m0, e0, lz, turned) {
+  const po = o._sobj, PS = o.pose;
+  if (o.moving || o.dead) return;
+  if (PS.type === 'sleep') { B.main.depthOf(m0, B.main.n, NaN, 0, lz + (po ? 0.16 : 0.02), 1, 0.4); return; }
+  if (!po || PS.type !== 'sit') return;
+  const sa = turned && po._fk?.seatAt ? po._fk.seatAt(po) : null; // (as art/compose.js places the sitter)
+  const x = sa ? sa[0] : po.x, y = sa ? sa[1] : po.y - 0.06, h = lz + 0.13 + (sa ? sa[2] : 0);
+  B.main.depthOf(m0, B.main.n, x, y, h, 0, 0.1);
+  B.emissive.depthOf(e0, B.emissive.n, x, y, h, 0, 0.1);
+}
+
 export class Game {
   constructor({ renderer, atlas, world, env, input, particles }) {
     this.R = renderer;
@@ -203,6 +218,20 @@ export class Game {
     return { x0: this.cam.x - hw, y0: this.cam.y - hh, x1: this.cam.x + hw, y1: this.cam.y + hh };
   }
 
+  // the cutout around the local player (engine/shaders.js CUT_FN): its body on the screen (view units from the camera)
+  // and its card's depth; structures clearly in front of it open in a soft dithered circle. Eased in after a respawn /
+  // while alive; off when dead or in a menu showcase.
+  cutout(cam, rc, rs) {
+    const p = this.player, C = this._cut || (this._cut = { x: 0, y: 0, r: 1, k: 0, yP: 0, hP: 0 });
+    const want = p && !p.dead && !this.noCut ? 1 : 0;
+    C.k += (want - C.k) * Math.min(1, (this._dt || 0.016) * 6);
+    if (C.k < 0.01 || !p) { C.k = want ? C.k : 0; return C; }
+    const hP = p.z > 0 ? p.z * STORY_H : 0, dx = p.x - cam.x, dy = p.y - cam.y;
+    C.yP = -rs * dx + rc * dy; C.hP = hP;
+    C.x = rc * dx + rs * dy; C.y = C.yP - hP - 0.55 * (p.scale || 1); C.r = 0.95 * (p.scale || 1);
+    return C;
+  }
+
   render() {
     const R = this.R, B = R.batches, A = this.A, t = this.time;
     R.resize();
@@ -233,20 +262,19 @@ export class Game {
     // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
     // depth key: `_zk` — NOT `_sk`, which is the pawn rig's stride blend (art/compose.js): sharing the name made
     // side-view boots fly far from the body (the stride became the pawn's y)
-    if (!rot) for (let i = 0; i < list.length; i++) { const o = list[i]; o._zk = (o._sy ?? o.y) + (o.isEntity && o.z > 0 ? o.z : 0); }
-    else {
-      // camera turned: depth = how far down the screen (the turned y); a wall box by its front-most point
-      for (let i = 0; i < list.length; i++) {
-        const o = list[i], fk = faceKindOf(o); // (art/faces: the pieces drawn as computed faces)
-        o._fk = fk;
-        if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
-        else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
-        else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
-        else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
-      }
-      // a pawn in a bed / on a seat (art/compose.js _sobj): just in front of it, whichever way the camera looks
-      for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity && o._sobj && o._sy != null && o._sobj._zk != null) o._zk = o._sobj._zk + 0.02; }
+    // 3D at every camera angle (docs/CAMERA-ROTATION.md): the pieces with a face kind are always computed faces; the
+    // painter's order = how far down the screen (the turned y), a wall box by its front-most point. (Only the blending
+    // of soft pixels needs it: the depth buffer decides what hides what, pixel by pixel.)
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i], fk = faceKindOf(o); // (art/faces: the pieces drawn as computed faces)
+      o._fk = fk;
+      if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
+      else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+      else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
+      else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
     }
+    // a pawn in a bed / on a seat (art/compose.js _sobj): just in front of it, whichever way the camera looks
+    for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity && o._sobj && o._sy != null && o._sobj._zk != null) o._zk = o._sobj._zk + 0.02; }
     list.sort((a, b) => a._zk - b._zk);
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
@@ -261,6 +289,7 @@ export class Game {
       if (a !== target) o.alpha = Math.abs(a - target) < 0.01 ? target : a + (target - a) * fk;
     }
     const LV = this.levels?.hasUpper ? this.levels : null; // levels: upper stories in the world
+    const Z = R.depth || DZ; // depth shape of what each drawable adds (engine/spriteBatch.js depthState)
     R.emMark?.(); // (glows of the ground decor: under everything)
     for (const o of list) {
       R.emMark?.(); // the glows of the object drawn before this one go right after it (renderer.emSeg)
@@ -268,8 +297,17 @@ export class Game {
       // walls / doors whose front faces show below the eaves; same under a cave ceiling (never the local player,
       // who is drawn while its own cave's ceiling fades out)
       if (!o.draw && ((underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) || (o !== pl && underCaveCeiling(this, o.x, o.y)))) continue;
+      // depth (docs/CAMERA-ROTATION.md "Profundidade por pixel"): faces are exact and the sprites of a face kind /
+      // drawable stand where they are drawn (their own anchor and lift); a creature or a plant is one card through
+      // its foot (its parts never hide each other: drawing order on the card), a creature up a story stands at its
+      // height, a little toward the camera (its feet over the floor it stands on); tree crowns may open in the cutout;
+      // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
+      Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
+      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = o.z > 0 ? o.z * STORY_H : 0; Z.bias = 0.02; }
+      else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
+      const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);
-      else if (rot && o._fk && o._fk.draw(B, A, o, t)) { /* computed faces (art/faces) */ }
+      else if (o._fk && o._fk.draw(B, A, o, t)) { /* computed faces (art/faces) */ }
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
@@ -285,6 +323,7 @@ export class Game {
         else drawAnimal(B, A, d, t);
         if (rot && o.isEntity && f0) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
+        if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz, !!rot);
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;
@@ -292,11 +331,13 @@ export class Game {
         const f = L.flicker ? 1 - L.flicker * (0.5 + 0.5 * Math.sin(t * 11 + o.x * 3) * Math.sin(t * 7.3 + o.y)) : 1;
         const d = L.radius * 2 * (0.96 + 0.04 * f);
         const lh = L.lift ?? 0.3;
-        const lp = rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // (turned: where a face kind drew the piece, art/faces/props.js)
+        const lp = o._fk?.lightAt ? o._fk.lightAt(o) : null; // (where a face kind drew the piece, art/faces/props.js)
         B.light.addRaw((lp ? lp[0] : o.x) + rs * lh, (lp ? lp[1] : o.y) - rc * lh, d, d, L.r, L.g, L.b, L.intensity * f);
       }
     }
     R.emMark?.(); // (the last object's glows)
+    Z.ref = false; Z.mode = 0; Z.bias = 0; Z.sb = 0;
+    R.depthEnd?.(); // (overlays from here on: drawn over the world, no depth test)
     for (const s of this.systems) s.render?.(this, B, v, env);
     this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
 
@@ -307,7 +348,8 @@ export class Game {
     }
 
     const dpr = R.dpr;
-    const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr, rot };
+    const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr, rot, cut: null };
+    cam.cut = this.cutout(cam, rc, rs);
     R.render(cam, env, t);
     animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0; // (other drawers of creatures: menu showcase, previews)
   }

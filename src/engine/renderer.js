@@ -35,7 +35,7 @@
 
 import { createContext, createProgram, createTexture, createTextureArray, createTarget, deleteTarget } from './gl.js';
 import { FaceBatch } from './faceBatch.js';
-import { SpriteBatch } from './spriteBatch.js';
+import { SpriteBatch, depthState } from './spriteBatch.js';
 import * as S from './shaders.js';
 
 // house sway values by object / decor type (prefix match); 0 = rigid
@@ -65,6 +65,10 @@ const BIOME_LIST = ['meadow', 'forest', 'pine', 'birch', 'marsh', 'shore', 'rock
 const SEA0 = [0, 0, 0, 0]; // no season data yet
 // scene draw buffers: the colour only / the colour + the glow layer (sprites, roofs and glows of the main pass)
 const DB1 = [0x8CE0], DB2 = [0x8CE0, 0x8CE1], ZERO4 = new Float32Array(4); // (COLOR_ATTACHMENT0 / 1)
+// depth of the world (docs/CAMERA-ROTATION.md "Profundidade por pixel"): clip z = −d · DEPTH_K, d = view y + height
+// relative to the camera (tiles; |d| < 256 everywhere on screen), 24-bit buffer: ~3e-5 tile per step
+const DEPTH_K = 1 / 256;
+const ALPHA_CUT = 0.25; // a depth-writing fragment fainter than this is dropped (its soft edge would hide what follows)
 // prepend the quality define right after the version line
 const ql = (src, level) => src.replace('#version 300 es', `#version 300 es\n#define QL ${level}`);
 
@@ -95,21 +99,24 @@ export class Renderer {
     this.fx = { grain: 0.022, bloom: 1 };   // post extras (quality.js sets them per tier)
     this.solidNear = true;                  // walls in view (syncSolid): enables the contact-AO fetches
 
+    // depth state shared by the batches (engine/spriteBatch.js depthState: game.js sets the reference per drawable)
+    const Z = (this.depth = depthState());
     this.batches = {
       shadow: new SpriteBatch(gl, 2048),   // sun-shadow casters (silhouettes)
       decal: new SpriteBatch(gl, 1024),    // [world] per-tile terrain decals (addRaw: r = kind 0 ore / 1 rubble)
       ground: new SpriteBatch(gl, 2048),   // flat ground sprites under everything (floors, farm plots, rugs)
       blob: new SpriteBatch(gl, 1024),     // contact shadows (dark ellipses) drawn on ground
       decor: new SpriteBatch(gl, 8192),    // ground plants, drawn before sorted sprites
-      main: new SpriteBatch(gl, 8192),     // y-sorted world sprites (caller sorts)
+      main: new SpriteBatch(gl, 8192, Z), // y-sorted world sprites (caller sorts); depth-tested
       fx: new SpriteBatch(gl, 4096),       // alpha particles (smoke, dust, rain, leaves)
       light: new SpriteBatch(gl, 512),     // point lights (use addRaw)
-      emissive: new SpriteBatch(gl, 4096), // additive, unaffected by darkness (fire, sparks)
+      emissive: new SpriteBatch(gl, 4096, Z), // additive, unaffected by darkness (fire, sparks); depth-tested
       roof: new SpriteBatch(gl, 256),      // roof slices (roofSlice), drawn in segments inside the main sort
-      faces: new FaceBatch(gl, 512),       // computed faces (camera rotation: walls as boxes), segments in the main sort
+      faces: new FaceBatch(gl, 512, Z),    // computed faces (walls as boxes…), segments in the main sort; depth-tested
       shadowFaces: new FaceBatch(gl, 256), // sun-shadow casters as ground faces (camera turned: roofs, game/roofs.js)
     };
 
+    this.batches.emissive.noWrite = true; this.batches.emissive.zb = 0.1; // (glows only test the depth: whatever stands in front hides them)
     this.renderScale = 1;
     this.maxDpr = 2;
     this.w = this.h = 0;
@@ -297,6 +304,11 @@ export class Renderer {
     this._fLast = f;
     this._fTex = null;
   }
+  // the sorted drawables end here: what is added after (systems' overlays, particles) is drawn without the depth test
+  depthEnd() {
+    const B = this.batches;
+    B.main.zEnd = B.main.n; B.faces.zEnd = B.faces.n; B.emissive.zEnd = B.emissive.n;
+  }
   // the faces added from now on use texture tex (null = the atlas); the ones before keep theirs
   setFaceTex(tex) {
     const B = this.batches, f = B.faces.n;
@@ -428,11 +440,17 @@ export class Renderer {
     this.canvas.width = w; this.canvas.height = h;
     deleteTarget(gl, this.scene); deleteTarget(gl, this.shadow); deleteTarget(gl, this.light);
     if (this.sceneE) gl.deleteTexture(this.sceneE);
+    if (this.sceneZ) gl.deleteRenderbuffer(this.sceneZ);
     this.scene = createTarget(gl, w, h);
-    // the glow layer: a second colour attachment of the scene
+    // the glow layer: a second colour attachment of the scene; the depth of the world (render: the sorted pass)
     this.sceneE = createTexture(gl, { width: w, height: h, filter: gl.LINEAR });
+    this.sceneZ = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.sceneZ);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, w, h);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.scene.fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, this.sceneE, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.sceneZ);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.shadow = createTarget(gl, Math.ceil(w / 2), Math.ceil(h / 2));
     this.light = createTarget(gl, Math.ceil(w / 2), Math.ceil(h / 2));
@@ -517,6 +535,17 @@ export class Renderer {
         gl.uniform1i(prog.u.uPushN, n);
         if (n && prog.u.uPush) gl.uniform4fv(prog.u.uPush, this._push, 0, 48);
       }
+      depthUni(prog);
+    };
+    // depth (DEPTH_FN) and the cutout around the local player (CUT_FN; cam.cut from game.js, view units)
+    const cut = cam.cut;
+    const depthUni = (prog) => {
+      if (prog.u.uZ) gl.uniform1f(prog.u.uZ, DEPTH_K);
+      if (prog.u.uACut) gl.uniform1f(prog.u.uACut, 0.003);
+      if (prog.u.uCutA) {
+        gl.uniform4f(prog.u.uCutA, cut ? cut.x : 0, cut ? cut.y : 0, cut ? cut.r : 1, cut ? cut.k : 0);
+        gl.uniform4f(prog.u.uCutB, cut ? cut.yP : 0, cut ? cut.hP : 0, 0, 0);
+      }
     };
 
     gl.disable(gl.DEPTH_TEST);
@@ -556,6 +585,7 @@ export class Renderer {
       gl.useProgram(pf.p);
       gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
       gl.uniform1i(pf.u.uTex, 0); if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
+      if (pf.u.uCutA) gl.uniform4f(pf.u.uCutA, 0, 0, 1, 0); // (no cutout in the shadows)
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
       B.shadowFaces.upload();
       B.shadowFaces.drawRange(0, B.shadowFaces.n);
@@ -665,9 +695,14 @@ export class Renderer {
       if (ao) gl.uniform1f(ao, 0);
       // main sprites up to each roof slice / glow group, the slice / the glows, … (all depth-sorted together; at the
       // same spot the glows go first, so a roof over them hides them). Both layers are written: a sprite or a roof
-      // hides the glow behind it.
+      // hides the glow behind it. The depth buffer of the world on top: the sorted drawables test it and write it
+      // (opaque pixels), the glows only test it; overlays added after them (depthEnd) are drawn without it.
       this.emMark(); // (glows added after the sorted objects: on top of everything)
       gl.drawBuffers(DB2);
+      gl.depthMask(true); gl.clearDepth(1); gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+      B.main.zOn = B.faces.zOn = B.emissive.zOn = true;
+      if (p.u.uACut) gl.uniform1f(p.u.uACut, ALPHA_CUT);
       B.main.upload();
       if (B.emissive.n) B.emissive.upload();
       if (B.faces.n) B.faces.upload();
@@ -690,6 +725,7 @@ export class Renderer {
             gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
             gl.uniform1i(pf.u.uTex, 0); if (pf.u.uLook) gl.uniform1i(pf.u.uLook, 3);
             if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
+            depthUni(pf); if (pf.u.uACut) gl.uniform1f(pf.u.uACut, ALPHA_CUT);
             roofFx = false;
           }
           const f0 = fs[q * 3], tex = this.faceTex[q];
@@ -719,14 +755,19 @@ export class Renderer {
           continue;
         }
         this._roofPass(0, roofUni, env.ambient);
-        // consecutive segments at the same position share the program
+        // consecutive segments at the same position share the program (the old 0° roof slices: no depth)
+        gl.disable(gl.DEPTH_TEST);
         while (i < segs.length && segs[i].at === at) { this._roofSegment(segs[i]); i++; }
+        gl.enable(gl.DEPTH_TEST);
         gl.useProgram(p.p);
         gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
         gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
         if (p.u.uClim) { gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.climTex); gl.activeTexture(gl.TEXTURE0); }
       }
       if (k < B.main.n) B.main.drawRange(k, B.main.n);
+      B.main.zOn = B.faces.zOn = B.emissive.zOn = false;
+      gl.disable(gl.DEPTH_TEST);
+      if (p.u.uACut) gl.uniform1f(p.u.uACut, 0.003);
       gl.drawBuffers(DB1);
       B.fx.draw();
     }

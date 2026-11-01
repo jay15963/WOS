@@ -264,6 +264,8 @@ function installShowcase(game) {
       wall_n: [ax + 3.5, ay - 0.3], wall_s: [ax + 3.5, ay1 + 1.3],
     };
     H._depthSpots = spots;
+    // the doors of house A open (walking through them)
+    setTimeout(() => { for (const o of game.build.structures) if (o.door && !o.open && !o.lv && o.tx >= ax && o.tx <= ax1 && o.ty >= ay && o.ty <= ay1) game.net.request('door.toggle', { id: o.id, open: 1 }); }, 400);
     return { n, at: [x0, y0], spots: Object.keys(spots) };
   };
   // stand the player on a spot of depthScene ([x, y, z, lv]); the camera on it
@@ -271,7 +273,7 @@ function installShowcase(game) {
     const s = H._depthSpots?.[name];
     if (!s) return 'sem ponto';
     const P = game.player;
-    P.x = s[0] + dx; P.y = s[1] + dy; P.z = s[2] || 0; P.lv = s[3] || 0; P._hop = null; P._fallV = 0; // sync-ok: dev review (localhost)
+    P.x = s[0] + dx; P.y = s[1] + dy; P.z = s[2] || 0; P.lv = s[3] || 0; P._hop = null; P._fallV = 0; P.pose = null; // sync-ok: dev review (localhost)
     game.cam.x = P.x; game.cam.y = P.y - 0.4 - P.z; // sync-ok: camera (local)
     return [P.x, P.y, P.z, P.lv];
   };
