@@ -11,7 +11,7 @@ import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { BUILDINGS } from './data.js';
 import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
-import { faceKindOf, boxDepth } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
+import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
@@ -273,7 +273,7 @@ export class Game {
       // who is drawn while its own cave's ceiling fades out)
       if (!o.draw && ((underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) || (o !== pl && underCaveCeiling(this, o.x, o.y)))) continue;
       if (o.draw) o.draw(B, A, t);
-      else if (rot && o._fk && o._fk.draw(B, A, o, t)) { /* computed faces (art/faces) */ }
+      else if (rot && o._fk && drawFacesTurned(B, A, o, t, R)) { /* computed faces (art/faces; + a 3D scaffold while being built) */ }
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)

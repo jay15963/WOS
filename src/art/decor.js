@@ -715,15 +715,17 @@ function lampWood(glow) {
     }, 2.6);
   }, glow ? { pad: 12 } : undefined);
 }
-function flowerBed(v) {
+// part: 'base' = the bed only, 'plants' = the flowers only (art/faces/solidGarden.js: the bed as a solid, the flowers
+// standing on it as vegetation; together they are the full art)
+function flowerBed(v, part) {
   const rand = rng(2200 + v);
   const pals = [['#e0506a', '#f29bc0', '#f7f7f2'], ['#f4d35e', '#ee6c4d', '#f08a3a'], ['#7fb0f0', '#c58fe0', '#f7f7f2']];
   return mk(1, 20, (g, P, Y, W) => {
-    P.layer((g) => {
+    if (part !== 'plants') P.layer((g) => {
       g.fillStyle = '#4a3322'; g.beginPath(); if (g.roundRect) g.roundRect(4, Y(0.08, 0), W - 8, Y(0.94, 0) - Y(0.08, 0), 8); else g.rect(4, Y(0.08, 0), W - 8, Y(0.94, 0) - Y(0.08, 0)); g.fill();
       for (let i = 0; i < 22; i++) { const a = (i / 22) * TAU, x = W / 2 + Math.cos(a) * 27, y = Y(0.51, 0) + Math.sin(a) * 25; g.fillStyle = ['#a8a092', '#bcb4a6', '#8f887b'][i % 3]; g.beginPath(); g.ellipse(x, y, 3.4, 2.4, a, 0, TAU); g.fill(); }
     }, 1.8);
-    P.layer((g) => {
+    if (part !== 'base') P.layer((g) => {
       for (let i = 0; i < 26; i++) {
         const x = 12 + rand() * (W - 24), v0 = 0.18 + rand() * 0.66, h = 5 + rand() * 9, y = Y(v0, 0);
         g.strokeStyle = '#4b7a32'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x, y); g.lineTo(x + (rand() - 0.5) * 3, y - h); g.stroke();
@@ -1130,6 +1132,9 @@ function decorSprites(S) {
   A('lamp_stone', () => lampStone(false)); A('lamp_stone_glow', () => lampStone(true), true);
   A('lamp_wood', () => lampWood(false)); A('lamp_wood_glow', () => lampWood(true), true);
   for (let v = 0; v < 3; v++) A('flower_bed_' + v, () => flowerBed(v));
+  // the bed and its flowers apart (the 3D faces only, art/faces/solidGarden.js)
+  A('flower_bed_base', () => flowerBed(0, 'base'));
+  for (let v = 0; v < 3; v++) A('flower_bed_plants_' + v, () => flowerBed(v, 'plants'));
   A('planter', () => planter(false)); A('planter_e', () => planter(true));
   for (let v = 0; v < 3; v++) A('stepping_' + v, () => stepping(v));
   A('well', () => well()); A('signpost', () => signpost());

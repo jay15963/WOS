@@ -34,10 +34,12 @@ function specialsOf(T) {
   for (const e of ['n', 's', 'w']) if (D['cren_' + e]) M.set(D['cren_' + e], D.cren_s);
   for (const f in T.crenw) for (const e of ['n', 's', 'w']) if (T.crenw[f][e]) M.set(T.crenw[f][e], T.crenw[f].s);
   for (const f of STONE_FAMS) if (T.bt[f]) M.set(T.bt[f], BT);
+  const sc = T.opt('scaffold_0');
+  if (sc) M.set(sc, SKIP); // (the scaffold: a 3D frame around the piece, faces/scaffold.js)
   SPECIAL.set(T, M);
   return M;
 }
-const BT = { buttress: true };
+const BT = { buttress: true }, SKIP = { skip: true };
 const SOFT = new Set(SOFT_MASKS);
 const WIN = ['window', 'window_shutters', 'window_curtains', 'window_round'];
 
@@ -66,7 +68,7 @@ export function drawWallFaces(B, A, o, h0 = 0, t = 0) {
   K.recordPiece(A, o, m, t, false, null, kOver);
   TOP.length = 0;
   let cren = null;
-  for (const r of K.layers(K.RM, o)) { const sp = CM.get(r[0]); if (sp === BT) continue; if (sp) cren = cren || r; else TOP.push(r); }
+  for (const r of K.layers(K.RM, o)) { const sp = CM.get(r[0]); if (sp === BT || sp === SKIP) continue; if (sp) cren = cren || r; else TOP.push(r); }
   if (!TOP.length) return false;
   const C = K.col(), bp = C.bp, a = C.a;
   if (!bp) shadowRect(B, T, x0 + 0.5, y0, 0, 1, 1, H, a, h0);
