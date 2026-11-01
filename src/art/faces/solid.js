@@ -565,6 +565,14 @@ function build(A, o, def, spec, st, e) {
     for (const p of e.P) { if (p.y0 < a) a = p.y0; if (p.y1 > b) b = p.y1; }
     const sh = al === 'back' ? -D / 2 + 0.015 - a : -(a + b) / 2;
     if (Math.abs(sh) > 1e-4) for (const p of e.P) { p.y0 += sh; p.y1 += sh; p.ay += sh; for (let k = 1; k < p.q.length; k += 3) p.q[k] += sh; }
+    // a model built from a side view's art (a chair facing east / west): that art's depth runs ACROSS the piece (local
+    // x), drawn as off-centre there (a chair 0.23 tiles north of its body, its seat too): centred across as well
+    if (MV & 1) {
+      let c = 1e9, d = -1e9;
+      for (const p of e.P) { if (p.x0 < c) c = p.x0; if (p.x1 > d) d = p.x1; }
+      const sx = -(c + d) / 2;
+      if (Math.abs(sx) > 1e-4) for (const p of e.P) { p.x0 += sx; p.x1 += sx; p.ax += sx; for (let k = 0; k < p.q.length; k += 3) p.q[k] += sx; }
+    }
   }
   for (let j = 0; j < e.P.length; j++) for (let i = 0; i < 4; i++) fitPart(e.P[j], j, i);
   // faces, part by part: far sides from inside (open), sides, tops
