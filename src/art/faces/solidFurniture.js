@@ -247,7 +247,7 @@ defineSolid('sacks', {
 // decor.js wallBox art (64 × 44, anchor bottom-centre: row r = height 44 − r on the board's plane), drawn at 0.66 scale
 // and the height it would hang on a wall (DECOR_GEOM.mount + the mount lift): a thin board facing its way
 const hung = (type, card) => defineSolid(type, {
-  scale: 0.66, lift: () => (DECOR_GEOM.mount[type] ?? 0.04) + K.MOUNT_UP,
+  scale: 0.66, hang: () => (DECOR_GEOM.mount[type] ?? 0.04) + K.MOUNT_UP,
   parts: [{ card, t: 2, solo: true }],
   blob: false,
 });

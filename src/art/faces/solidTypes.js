@@ -2,8 +2,7 @@
 // Numbers are read off each painter: x px from the art's centre column, v = ground row in tiles (the anchor row is V),
 // h px above the ground. A view whose art draws the piece differently lists the same parts again in its own numbers.
 import { defineSolid } from './solid.js';
-import { torchFlame } from '../composeWorld.js';
-import { TORCH_FLAME_LIFT, CHEST_UV } from '../buildings.js';
+import { CHEST_UV } from '../buildings.js';
 
 // ---- chest: a real box with its own face art (art/buildings.js chestUV, CHEST_UV: each face in true proportions) —
 // body 16 px and lid 9 px flush over the whole footprint (EDGE_GEOM 0.56 deep), the bands over front / lid / back, the
@@ -67,15 +66,7 @@ defineSolid('bed', {
   },
 });
 
-// ---- torch (buildings.js torch 26×72 anchored on row 67, pole foot on row 66): a thin pole, the flame on top ----
-defineSolid('torch', {
-  when: (o) => !(o._mount && (o.face === 's' || o.face === 'e' || o.face === 'w')), // (wall torches: the bracket sprite)
-  k: 0.44, k1: 0.44, piv: -1 / 64,
-  parts: [{ lathe: [0, 1 - 1 / 64, [[0, 3.6], [3, 3.2], [44, 2.8], [45, 4.6], [56, 5]]], n: 8 }],
-  fx: [{ at: [0, 1, TORCH_FLAME_LIFT * 64], draw: (B, A, o, t, x, y, lift) => { if (o.fire !== false && o.lit !== false) torchFlame(B, A, x, y, lift, 1, t, 1); } }],
-  light: [0, 1, 0],
-  blob: [0.35, 0.25],
-});
+// (torch: faces/solidLights.js, with the wall torches)
 
 // ---- stack of crates (decor.js crates, mk(1, 46)): three boxes; no side art: each side shows the front of its crate ----
 defineSolid('crates', {
