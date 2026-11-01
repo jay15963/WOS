@@ -227,6 +227,54 @@ function installShowcase(game) {
     game.cam.x = x0 + W / 2; game.cam.y = y0 + Hh / 2;
     return { n, at: [x0, y0], W, H: Hh };
   };
+  // depth review (docs/CAMERA-ROTATION.md "Profundidade por pixel"): a house with doors next to its corners, an upper
+  // floor with posts, an outdoor stair along it up to a walkway between two upper floors, a 2×1 table with chairs, a
+  // bed, a tree and lights. Returns the spots to stand on (game.debugK.depthAt(name) moves the player there).
+  H.depthScene = () => {
+    if (!net.auth) return 'só no anfitrião';
+    const p = game.player, W = 22, Hh = 15;
+    const at = freeRect(p.x, p.y, W, Hh);
+    if (!at) return 'sem espaço';
+    const [x0, y0] = at;
+    clear(x0 - 1, y0 - 1, W + 2, Hh + 2);
+    const ax = x0 + 1, ay = y0 + 2, ax1 = ax + 4, ay1 = ay + 4; // house A (5×5)
+    const bx = x0 + 9, by = y0 + 2, bx1 = bx + 3, by1 = by + 3; // house B (4×4)
+    const rows = [...rect('wall_wood', ax, ay, ax1, ay1, 'plank', 'post', [[ax + 1, ay1], [ax1, ay + 1]]),
+      ['door_wood', ax + 1, ay1, 0, 'plank', ''], ['door_wood', ax1, ay + 1, 0, 'plank', ''], // doors right next to a corner
+      ...area('floor_wood', ax + 1, ay + 1, ax1 - 1, ay1 - 1, 'plank', ''),
+      ...rect('wall_stone', bx, by, bx1, by1, 'cut', '', [[bx + 1, by1]]), ['door_wood', bx + 1, by1, 0, 'plank', ''],
+      ['stairs_wood', ax1 + 1, ay + 2, 0], // along A's east wall, up to the north
+      ['table_wood', x0 + 15, y0 + 10, 0], ['chair_wood', x0 + 15, y0 + 11, 0], ['chair_wood', x0 + 16, y0 + 9, 2], ['bed', x0 + 19, y0 + 9, 0],
+      ['torch', x0 + 13, y0 + 12, 0], ['brazier', x0 + 18, y0 + 12, 0], ['barrel', x0 + 13, y0 + 9, 0]];
+    let n = put(rows);
+    // upper story: floors over both houses, the stair landing and a walkway between them, posts on A's north edge
+    const up = [...area('floor_wood', ax + 1, ay + 1, ax1 - 1, ay1 - 1, 'plank', ''), ...area('floor_wood', bx + 1, by + 1, bx1 - 1, by1 - 1, 'plank', ''),
+      ['floor_wood', ax1 + 1, ay + 1, 0, 'plank', ''], ...area('floor_wood', ax1 + 1, ay, bx - 1, ay, 'plank', ''),
+      ...area('fence_wood', ax, ay, ax1 - 1, ay, 'rail', 'cap_flat')];
+    n += put(up, 1, 1);
+    // a tree near the houses
+    const T = { x: x0 + 7.5, y: y0 + 12.9 };
+    net.emit('obj.add', { list: [{ id: net.newId('o'), type: 'tree_oak', x: T.x, y: T.y, v: 0, s: 1, born: game.worldTime - 1e7 }] });
+    const spots = {
+      table_n: [x0 + 16, y0 + 9.7], table_s: [x0 + 16, y0 + 11.45], table_e: [x0 + 17.35, y0 + 10.6], table_w: [x0 + 14.65, y0 + 10.6],
+      door_out: [ax + 1.5, ay1 + 1.3], door_in: [ax + 1.5, ay1 - 0.3], door_mid: [ax + 1.5, ay1 + 0.55], door_e: [ax1 + 0.55, ay + 1.55],
+      stair_bot: [ax1 + 1.5, ay + 3.7, 0.15, 0], stair_mid: [ax1 + 1.5, ay + 3.0, 0.5, 0], stair_top: [ax1 + 1.5, ay + 2.25, 0.9, 0],
+      upper_top: [ax1 + 1.5, ay + 1.5, 1, 1], walkway: [ax1 + 2.5, ay + 0.5, 1, 1], upper_a: [ax + 2.5, ay + 2.5, 1, 1], upper_edge: [ax + 2.5, ay1 - 0.4, 1, 1],
+      tree_n: [T.x, T.y - 0.45], tree_s: [T.x, T.y + 0.6], torch: [x0 + 13.5, y0 + 12.5], bed: [x0 + 20.4, y0 + 10],
+      wall_n: [ax + 3.5, ay - 0.3], wall_s: [ax + 3.5, ay1 + 1.3],
+    };
+    H._depthSpots = spots;
+    return { n, at: [x0, y0], spots: Object.keys(spots) };
+  };
+  // stand the player on a spot of depthScene ([x, y, z, lv]); the camera on it
+  H.depthAt = (name, dx = 0, dy = 0) => {
+    const s = H._depthSpots?.[name];
+    if (!s) return 'sem ponto';
+    const P = game.player;
+    P.x = s[0] + dx; P.y = s[1] + dy; P.z = s[2] || 0; P.lv = s[3] || 0; P._hop = null; P._fallV = 0; // sync-ok: dev review (localhost)
+    game.cam.x = P.x; game.cam.y = P.y - 0.4 - P.z; // sync-ok: camera (local)
+    return [P.x, P.y, P.z, P.lv];
+  };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {
     if (!net.auth) return 'só no anfitrião';
