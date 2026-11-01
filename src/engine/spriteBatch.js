@@ -122,13 +122,13 @@ export class SpriteBatch {
   }
 
   // rewrite the depth shape of instances [a, b) (a drawable whose pose is known only after it was drawn: a sleeper,
-  // a sitter); x = NaN keeps each one's own reference point
-  depthOf(a, b, x, y, h, mode, bias) {
+  // a sitter); x = NaN keeps each one's reference point, h = NaN takes each one's own lift (+ hAdd)
+  depthOf(a, b, x, y, h, mode, bias, hAdd = 0) {
     const d = this.data;
     for (let i = a; i < b; i++) {
       const o = i * STRIDE;
       if (x === x) { d[o + 22] = x; d[o + 23] = y; }
-      d[o + 24] = h; d[o + 21] = mode; d[o + 25] += bias;
+      d[o + 24] = h === h ? h : d[o + 19] + hAdd; d[o + 21] = mode; d[o + 25] += bias;
     }
   }
 

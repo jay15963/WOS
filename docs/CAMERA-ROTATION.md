@@ -54,7 +54,8 @@ pela borda do piso de cima, afundado no piso de cima em 0°). Uma ordem por obje
   - Criaturas (jogador, NPCs, outros jogadores, bichos): **um cartão só pelo pé** (todas as partes do boneco no mesmo
     plano: a ordem do rig decide entre elas); num andar / escada o pé verdadeiro (x, y) na altura `z · STORY_H` (o
     sprite continua levantado reto na tela); viés 0,02 (os pés sobre o piso em que pisam).
-  - Quem **dorme** (pose sleep): deitado no colchão (altura 0,16; no chão 0,02), viés 0,4. Quem **senta**: cartão pelo
+  - Quem **dorme** (pose sleep): deitado onde é desenhado (cada parte na altura dela: colchão, travesseiro, chão), viés
+    0,4. Quem **senta**: cartão pelo
     assento (o mesmo ponto que `art/compose.js` usa; `seatAt` com a câmera girada) na altura dele, viés 0,1 — o encosto
     esconde as costas quando a câmera olha a cadeira por trás (`game.js restDepth`, depois do desenho).
   - Árvores, pedras, plantas e o resto sem tipo de face: cartão pelo pé (o objeto).

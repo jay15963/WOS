@@ -31,13 +31,13 @@ function viewFacing(f, c, s) {
 }
 
 const DZ = { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0 }; // (a renderer without depth)
-// depth of a pawn at rest (art/compose.js pose: p._sobj = its bed / seat): lying flat on the mattress (or the ground) a
-// little toward the camera, sitting as a card through the seat at its height (the backrest hides its back when the
-// camera looks from behind; its legs hang in front of the seat)
+// depth of a pawn at rest (art/compose.js pose: p._sobj = its bed / seat): lying flat where it is drawn (each part at its
+// own height: the mattress, the pillow, the ground) a little toward the camera, sitting as a card through the seat at
+// its height (the backrest hides its back when the camera looks from behind; its legs hang in front of the seat)
 function restDepth(B, o, m0, e0, lz, turned) {
   const po = o._sobj, PS = o.pose;
   if (o.moving || o.dead) return;
-  if (PS.type === 'sleep') { B.main.depthOf(m0, B.main.n, NaN, 0, lz + (po ? 0.16 : 0.02), 1, 0.4); return; }
+  if (PS.type === 'sleep') { B.main.depthOf(m0, B.main.n, NaN, 0, NaN, 1, 0.4, lz); return; }
   if (!po || PS.type !== 'sit') return;
   const sa = turned && po._fk?.seatAt ? po._fk.seatAt(po) : null; // (as art/compose.js places the sitter)
   const x = sa ? sa[0] : po.x, y = sa ? sa[1] : po.y - 0.06, h = lz + 0.13 + (sa ? sa[2] : 0);
