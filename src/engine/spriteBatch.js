@@ -174,22 +174,22 @@ export class SpriteBatch {
 
 // [a, b) of a batch in the depth pass: sub-ranges by depth test (before zEnd) and depth write (outside the nw runs);
 // the GL state is cached in the shared depth state (Z.gt / Z.gm: the renderer resets them around the pass)
+function zTest(gl, Z, on) { if (Z.gt !== on) { if (on) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST); Z.gt = on; } }
+function zMask(gl, Z, on) { if (Z.gm !== on) { gl.depthMask(on); Z.gm = on; } }
 export function zSplit(T, a, b) {
   const gl = T.gl, nw = T.nw, Z = T.Z, e = Math.min(b, T.zEnd);
-  const test = (on) => { if (Z.gt !== on) { if (on) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST); Z.gt = on; } };
-  const mask = (on) => { if (Z.gm !== on) { gl.depthMask(on); Z.gm = on; } };
   if (a < e) {
-    test(true);
-    if (T.noWrite) { mask(false); T._draw(a, e); }
+    zTest(gl, Z, true);
+    if (T.noWrite) { zMask(gl, Z, false); T._draw(a, e); }
     else {
       // the runs are sorted: skip those before a
       let i = 0, k = a;
       while (i < nw.length && nw[i + 1] <= k) i += 2;
       while (k < e) {
-        if (i < nw.length && nw[i] <= k) { const j = Math.min(e, nw[i + 1]); mask(false); T._draw(k, j); k = j; i += 2; }
-        else { const j = i < nw.length ? Math.min(e, nw[i]) : e; mask(true); T._draw(k, j); k = j; }
+        if (i < nw.length && nw[i] <= k) { const j = Math.min(e, nw[i + 1]); zMask(gl, Z, false); T._draw(k, j); k = j; i += 2; }
+        else { const j = i < nw.length ? Math.min(e, nw[i]) : e; zMask(gl, Z, true); T._draw(k, j); k = j; }
       }
     }
   }
-  if (b > e) { test(false); T._draw(Math.max(a, e), b); }
+  if (b > e) { zTest(gl, Z, false); T._draw(Math.max(a, e), b); }
 }
