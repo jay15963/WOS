@@ -55,9 +55,8 @@ calculados para o ângulo do momento.
     o trecho visto de cima no topo (a sebe com o contorno ondulado da arte subindo nas bordas). **Portões:** dois postes altos e duas folhas (arte real de cada estilo) nas duas
     faces; aberto, as folhas giram nos gonzos; arco com flores atravessando a linha do portão; plaquinha na frente.
     Sombras pelas silhuetas da própria arte (modo mundo).
-  - **Colunas** (`column_wood` / `column_stone`, fuste redondo): cartão virado para a câmera onde a vista norte pinta o
-    fuste (o pé a 0,78 do tile; o billboard comum girava só a âncora, a borda sul, e a coluna saía do lugar), sombra
-    pela silhueta virada de frente para o sol.
+  - **Colunas** (`column_wood` / `column_stone`): peças sólidas (`art/faces/solidGarden.js`): sapata, fuste redondo e
+    capitel no meio do tile (o tipo de face `column` de `structures.js` fica só de reserva).
   - **Coisas penduradas** (quadro, troféu, ervas, cortina, ganchos): planas na face da parede em que foram postas, só
     vistas do lado do cômodo, desenhadas logo depois da parede (na vista norte elas nunca apareciam: `DECOR_GEOM.mount`
     guarda só a altura e `drawDecorProp` lia `g.l` / `g.s` → altura NaN; corrigido). **Rachaduras de cerco** (`fx/rockfx.js`): no topo e em
@@ -188,7 +187,7 @@ Pedido do dono: **todas** as estruturas (baú, luzes, cama, mesa, cadeira, larei
 no mundo enquanto a câmera gira, como as paredes; só vegetação e criaturas (jogador, NPCs, bichos) continuam sprites em
 pé. O kit `art/faces/solid.js` faz isso a partir da **arte da própria peça**; cada tipo é só uma entrada de tabela
 (`defineSolid(tipo, spec)`, em `art/faces/solidTypes.js` e nas tabelas por área: `solidLights.js` = luzes, fogo e
-estações). Tipo na tabela sai do `props.js` (o tipo de face `solid` tem `prio: 1`); tipo fora da tabela continua como
+estações; `solidGarden.js` = jardim, exterior, colunas e o acampamento dos bandidos). Tipo na tabela sai do `props.js` (o tipo de face `solid` tem `prio: 1`); tipo fora da tabela continua como
 antes (em pé de frente para a tela / arte dobrada). Prontos: **baú** (com a tampa aberta `chest_open`), **barril**,
 **mesa**, **cadeira**, **cama**, **pilha de caixotes** e, em `solidLights.js`: **fogueira**, **braseiro**, **caldeirão**,
 **fornalha**, **bigorna**, **bancada**, **mesa de cantaria**, **tear**, **lareira**, **velas**, **candelabro**,
@@ -306,6 +305,57 @@ esticado das linhas de cima). Coisas redondas no chão (anel de pedras, prato, a
 - Teste numa casa de verdade (paredes, piso, porta, telhado, peças encostadas em cada parede, andar de cima) de dia e de
   noite em 0°, 45°, 90°, 135°, 180°, 270°.
 
+### Jardim, exterior e acampamentos (`art/faces/solidGarden.js`)
+
+Todos com `ramp: false` (profundidade de verdade em qualquer ângulo, 0° também) e ocupando a pegada; arte que desenha
+coisas redondas achatadas (elipses) mapeia a textura com `k`, e `piv` põe o centro de verdade onde ele deve ficar
+(`piv = (d_arte − k·d_real) / (1 − k)`); uma parte movida em profundidade leva as alturas junto (64 px por tile) para
+continuar com a arte dela; superfícies que a arte nunca mostra (águas de telhadinho, o topo de um cepo) são cheias com
+um texel da arte (`px`).
+
+- **Bancos** (madeira: caixa vazada; pedra: laje sobre dois blocos), **floreira** (caixa + a massa de flores em cima),
+  **lenha** (pilha, cepo com o cabo do machado), **carroça** (caixa, sacos, estacas, rodas dos dois lados — as de trás
+  pegam a arte das da frente vista de trás, `views.n` — e os varais inclinados), **varal** (dois cavaletes em A, a vara,
+  couros e ervas pendurados: estrutura aberta de verdade).
+- **Chafariz** (2×2): tanque redondo de verdade no meio da pegada, a água, o pedestal, a bacia com a água dela, a bica;
+  gotas saindo da bacia e caindo no tanque e o anel na água, em espaço do mundo. **Poço:** anel de pedra, a água escura,
+  postes, sarilho com a manivela, corda e balde, telhadinho de duas águas (as águas em `px`, as empenas com a arte).
+- **Estátua** (pedestal quadrado de verdade e a figura — guerreiro ou coruja — como um corpo redondo com a arte em
+  volta), **totem** (tronco com o chapéu e as asas como tábuas), **colmeia** (banquinho e a colmeia de palha; abelhas
+  voando em volta, no mundo), **monte de feno** (com os dentes do forcado), **espantalho** (poste, camisa na travessa,
+  cabeça, chapéu de aba de verdade; balança ao vento: `tilt`), **casinha de passarinho** (poste sob a casa, a casa,
+  telhado de duas águas com as empenas), **quadro de avisos** (postes, quadro, telhado como a vista de lado o desenha:
+  cumeeira ao longo do quadro, empenas nas pontas), **placa** (poste e as duas setas como tábuas).
+- **Arco de jardim** (dois postes com rosas e o arco como uma treliça fina) e **pérgola** (quatro postes, duas vigas, as
+  ripas e folhas deitadas em cima): postes e vigas de verdade, nada de cartão virado para a tela; a sombra do sol é a
+  silhueta da arte (uma parte só de sombra, `SHADOW`).
+- **Canteiro de flores:** o canteiro é sólido com a arte sem as flores (`flower_bed_base`, preguiçosa) e as flores
+  (`flower_bed_plants_<v>`: as duas camadas da arte separadas, juntas são a arte inteira) são vegetação — um sprite em
+  pé na borda do canteiro mais perto da câmera, subindo sobre ele em qualquer ângulo (também na planta / obra).
+- **Boneco de treino:** pé em cruz, poste, tronco de palha, braços, cabeça; **balança quando apanha** (a mesma conta do
+  `archCompose`: `o._wobT` / `_wobA` / `_wobD`) pelo `tilt` do kit.
+- **Colunas:** sapata, fuste redondo, capitel (a de madeira com as mãos-francesas), no meio do tile.
+- **Acampamento dos bandidos** (objetos do mundo, não construções: `world: [l, p]`): **barraca de lona** (cumeeira ao
+  longo da profundidade, as duas águas inclinadas de verdade, a empena da frente com a entrada, a de trás na cor da
+  lona), **tenda cônica** (cone com as varas saindo em leque no topo), **caixotes**; a **fogueira** do acampamento usa a
+  fogueira 3D de `solidLights.js` (um objeto do mundo de um tipo de construção pega o tamanho da construção).
+- **O kit ganhou** (genérico, em `solid.js`): `px` (parte cheia com um texel), `tilt` / `tiltAt` (partes que inclinam:
+  golpe, vento), `fx` com `bp: true` (desenhado também na planta / obra), objetos do mundo (`world`; corpo ancorado no
+  meio da frente `o.x, o.y`), `views.n` também para o verso emprestado (espelhado) e faces inclinadas: um `quad`
+  inclinado tem o lado de fora para cima (vertical: para a vista de 0°); até 45° é um topo (visto de todo lado: a câmera
+  olha de cima a 45°), mais íngreme é visto enquanto `v > −1` (normal × tan da inclinação).
+
+### Andaime de obra em 3D (`art/faces/scaffold.js`)
+
+Com a câmera girada o andaime (`scaffold_0`) de **qualquer** peça em construção (paredes, portas, cercas, portões,
+colunas, móveis, estações, decoração, coisas de parede) é uma armação parada no mundo em volta da pegada: quatro
+painéis com os postes, as duas travessas, a diagonal e a tábua de cima (a arte em ordem do mundo: visto por trás fica
+espelhado); painéis vizinhos se cruzam no eixo de cada poste, então cada poste de canto é um poste de qualquer lado.
+`game.js` chama `drawFacesTurned`: os painéis vistos por dentro antes da peça (fechando o segmento de faces: ficam
+antes até dos sprites dela) e os outros depois; a barra de progresso continua de frente para a tela. Tirados: o sprite
+de frente para a tela das peças sólidas / `props.js` (`XB` o descarta) e o andaime que era pintado nas faces das
+paredes (a gravação o ignora). Custo: 4 quads por peça em obra, nada guardado.
+
 Conferir: `game.debugK.props(['tipo', …])` (vitrine: cada tipo em todas as rotações + uma planta), câmera
 `game.cam.rot = game.cam.rotTo = 0.003` contra `0` (deve ser o mesmo quadro), 45°, 90°, 135°, 180°, 270°, noite
 (`game.debug.setTime(22)`), num andar de cima; `solidEntry(o)` devolve o modelo guardado de uma peça.
@@ -395,7 +445,15 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   rachaduras de dano.
 - **Móveis em pé** (os do `props.js`: peças de 1 tile, armações vistas de ponta): 4 vistas, trocam de vista a 45° como os
   personagens; poste de lampião e estandarte não têm vista de lado (em 0° também giram só pelo espelho do mundo).
-  Barracas dos bandidos continuam em pé de frente para a tela.
-- Faces de móveis não recebem a sombra do sol / o piscar de dano (como as paredes); o andaime de obra continua sprite.
+  O estandarte do acampamento dos bandidos (tipo `banner`, objeto do mundo) fica com quem converter o estandarte (o kit
+  já desenha objetos do mundo de um tipo da tabela).
+- Faces de móveis não recebem a sombra do sol / o piscar de dano (como as paredes).
+- **Jardim / acampamento:** as flores da floreira são uma massa na caixa (a arte não as separa da caixa: só o canteiro
+  de flores tem as flores como vegetação em pé); a frente e o verso de uma peça sem vista de trás são a mesma arte
+  espelhada (o espantalho, a estátua, as barracas: duas entradas); o cepo da lenha não aparece na vista de lado da arte
+  (fica ao lado da pilha); arte "de frente" esticada sobre a profundidade de verdade (topos das caixas, o pedestal da
+  estátua, o banquinho da colmeia) parece lisa; a empena da frente da barraca de lona corta o alto da entrada (a arte
+  desenha a entrada mais alta que a cumeeira de trás); o varal / a pérgola / o arco não balançam; o andaime tem sempre
+  o tamanho da arte (2 tiles de altura), também em peças baixas.
 - Desmontar com um toque pega o tile do chão sob o dedo (como em 0°); o giro de uma peça (R / ⟳) continua em
   direções do mundo (a seta no chão mostra para onde).
