@@ -36,7 +36,8 @@ export function chestAdapter(game, o) {
       const p = game.player, s = p.inv.slots[i];
       if (!s || !o.store) return false;
       if (o.store.room(s.id) <= 0) { game.events.emit('error', { text: 'Baú cheio' }); return false; }
-      const it = n >= s.qty ? p.inv.takeSlot(i) : (p.inv.remove(s.id, n), { id: s.id, qty: n });
+      const it = p.inv.takeFrom(i, n);
+      if (!it) return false;
       game.net.request('chest.put', { id: o.id, item: it.id, qty: it.qty }, { refund: { [it.id]: it.qty }, onReject: err('Baú cheio') });
       return true;
     },

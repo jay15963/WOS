@@ -515,7 +515,7 @@ def('S11', {
 def('S12', {
   title: 'Guest deconstructs a chest with items', timeout: 120000,
   expected: 'Structure gone on both; 75% refund only to the guest; chest contents appear as loot with identical ids',
-  api: 'chest panel [data-slot] click (chest.put intent → chest.set); toggleDecon (build.decon → struct.decon); decon work (decon.hit → struct.remove {refund, drops}); o.store',
+  api: 'chest panel [data-slot] shift-click (chest.put intent → chest.set); toggleDecon (build.decon → struct.decon); decon work (decon.hit → struct.remove {refund, drops}); o.store',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.ensure(H, { wood: 10 });
@@ -2284,10 +2284,10 @@ def('S61', {
   t.check(/Corpo de /.test(H.doc.querySelector('.p-chest .pt')?.textContent || ''), 'window title "Corpo de <nome>"', H.doc.querySelector('.p-chest .pt')?.textContent);
   const wood0 = A.count(H, 'wood');
   const wi = ch.store.slots.findIndex((q) => q && q.id === 'wood');
-  H.doc.querySelector(`[data-cslot="${wi}"]`)?.click();
+  H.doc.querySelector(`[data-cslot="${wi}"]`)?.dispatchEvent(new H.doc.defaultView.MouseEvent('click', { bubbles: true, shiftKey: true })); // (shift: the whole stack)
   await t.waitFor(() => A.count(H, 'wood') >= wood0 + 7 && !content(bodyOn(G, ch.id)).wood, RT() + 600, 'host takes the wood (gone from the body on both)');
   const si = H.game.player.inv.slots.findIndex((q) => q && q.id === 'stone');
-  H.doc.querySelector(`[data-slot="${si}"]`)?.click();
+  H.doc.querySelector(`[data-slot="${si}"]`)?.dispatchEvent(new H.doc.defaultView.MouseEvent('click', { bubbles: true, shiftKey: true }));
   await t.waitFor(() => content(bodyOn(G, ch.id)).stone === 4 && content(ch).stone === 4, RT() + 600, 'host puts 4 stones into the body (on both)');
   H.doc.querySelector(`[data-sort="name"][data-sortk="corpse:${ch.id}"]`)?.click();
   const names = (c) => c.store.slots.filter(Boolean).map((q) => MH.data.ITEMS[q.id].name);
