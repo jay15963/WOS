@@ -1,24 +1,20 @@
 // Camera rotation — the construction scaffold (art/structures.js scaffold_0: two posts, two ledgers, a diagonal brace,
 // a plank on top) as a 3D frame fixed in the world while the camera is turned, around ANY piece being built.
 //
-// Four braced panels stand on a rectangle around the footprint, each with the scaffold art (in world order: a panel
-// seen from behind reads mirrored, like a real frame). Adjacent panels meet on the posts' axes, so each corner post is
-// drawn by two crossed panels and reads as a post from every side. At 0° the sprite stands on the footprint's south
-// edge, its posts 6 px in from the sides: the south panel is laid exactly there (at 0°+ε it is the sprite pixel for
-// pixel) and the other panels fade in over the first SQ_RAMP of yaw (the old art's extra copies of a deep station fade
-// out). Drawn in two halves around the piece (game.js drawFacesTurned): the panels seen from inside go before the piece,
-// the rest after it; the progress bar stays screen-facing (game/building.js).
-import { CAMV, ARCH_FACES as K, ARCH_TYPES } from '../archCompose.js';
+// Four braced panels stand on a rectangle around the footprint (its posts 6 px in from the sides, as the sprite draws
+// them), each with the scaffold art (in world order: a panel seen from behind reads mirrored, like a real frame).
+// Adjacent panels meet on the posts' axes, so each corner post is drawn by two crossed panels and reads as a post from
+// every side. Drawn in two halves around the piece (game.js drawFacesTurned): the panels seen from inside go before the
+// piece, the rest after it; the progress bar stays screen-facing (game/building.js).
+import { CAMV, ARCH_FACES as K } from '../archCompose.js';
 import { BUILDINGS } from '../../game/content/buildings.js';
 import { STORY_H } from '../../game/levels.js';
 import { artQuad, shade } from './kit.js';
-import { SQ_RAMP } from './solid.js';
 
 // the art's frame: anchor (32, 138) = the middle of the south edge on the ground; posts on columns 6 and 58; the
 // whole image (12 px of padding around the 64 × 138 frame) is laid, artQuad clips it to the sprite's own image
 const OX = 32, OY = 138, PA = 6, PB = 58, C0 = -14, C1 = 78, R0 = -14, R1 = 152;
 const HT = (OY - R0) / 64, HB = (OY - R1) / 64;
-const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 // does o show a scaffold (as the painters draw one at 0°: work started on a blueprint; not torches, floors, rugs,
 // roofs, stairs)
@@ -37,40 +33,32 @@ function sprite(A) {
   return SPR;
 }
 // one panel: art column PA on (ax, ay), PB on (bx, by); n = its outward normal
-function panel(F, s, ax, ay, bx, by, nx, ny, h0, R, a) {
+function panel(F, s, ax, ay, bx, by, nx, ny, h0, a) {
   const vx = (bx - ax) / (PB - PA), vy = (by - ay) / (PB - PA);
   const lx = ax + vx * (C0 - PA), ly = ay + vy * (C0 - PA), rx = ax + vx * (C1 - PA), ry = ay + vy * (C1 - PA);
   const out = -CAMV.s * nx + CAMV.c * ny > 0;
-  const z = 1 + ((out ? shade(nx, ny) : shade(-nx, -ny) * 0.72) - 1) * R; // (the side lit like the walls, eased in from 0°)
+  const z = out ? shade(nx, ny) : shade(-nx, -ny) * 0.72; // (the side lit like the walls; seen from inside: darker)
   artQuad(F, s, false, OX, OY, C0, R0, C1, R1, lx, ly, h0 + HT, rx, ry, h0 + HT, lx, ly, h0 + HB, z, z, z, a);
 }
-// half 0: the panels whose outside faces away from the camera (behind the piece); 1: the others (+ the fading copies)
+// half 0: the panels whose outside faces away from the camera (behind the piece); 1: the others
 export function drawScaffold(B, A, o, half) {
   const F = B.faces, s = F ? sprite(A) : null;
   if (!s) return;
   const def = BUILDINGS[o.type], sz = def?.size || [1, 1], fw = o.fw || sz[0], fh = o.fh || sz[1];
   const x0 = o.tx ?? o.x - fw / 2, y0 = o.ty ?? o.y - fh, y1 = y0 + fh;
-  const xa = x0 + (PA * fw) / 64, xb = x0 + (PB * fw) / 64, yb = y0 + (PA * fh) / 64;
-  const h0 = (o.lv | 0) * STORY_H, C = CAMV.c, S = CAMV.s;
-  const R = smooth(Math.abs(Math.atan2(S, C)) / SQ_RAMP), a = 0.9 * (o.alpha ?? 1);
-  // panels: 0 south (the sprite's), 1 north, 2 east, 3 west; centre depths for their order
-  PD[0] = -S * (xa + xb) / 2 + C * y1; PD[1] = -S * (xa + xb) / 2 + C * yb;
-  PD[2] = -S * xb + C * (yb + y1) / 2; PD[3] = -S * xa + C * (yb + y1) / 2;
+  const xa = x0 + (PA * fw) / 64, xb = x0 + (PB * fw) / 64, yb = y0 + (PA * fh) / 64, y2 = y1 - (PA * fh) / 64;
+  const h0 = (o.lv | 0) * STORY_H, C = CAMV.c, S = CAMV.s, a = 0.9 * (o.alpha ?? 1);
+  // panels: 0 south, 1 north, 2 east, 3 west; centre depths for their order
+  PD[0] = -S * (xa + xb) / 2 + C * y2; PD[1] = -S * (xa + xb) / 2 + C * yb;
+  PD[2] = -S * xb + C * (yb + y2) / 2; PD[3] = -S * xa + C * (yb + y2) / 2;
   PO.sort(byDepth);
   for (let q = 0; q < 4; q++) {
     const i = PO[q], nx = i === 2 ? 1 : i === 3 ? -1 : 0, ny = i === 0 ? 1 : i === 1 ? -1 : 0;
     if ((-S * nx + C * ny > 0.02 ? 1 : 0) !== half) continue;
-    const ai = i === 0 ? a : a * R;
-    if (ai < 0.004) continue;
-    if (i === 0) panel(F, s, xa, y1, xb, y1, 0, 1, h0, R, ai);
-    else if (i === 1) panel(F, s, xa, yb, xb, yb, 0, -1, h0, R, ai);
-    else if (i === 2) panel(F, s, xb, y1, xb, yb, 1, 0, h0, R, ai);
-    else panel(F, s, xa, y1, xa, yb, -1, 0, h0, R, ai);
-  }
-  // the old art stacks one more copy per tile of depth (art/composeWorld.js overlays, not the decoration painters):
-  // they fade out as the frame fades in
-  if (half && fh > 1 && R < 1 && !(o._k || ARCH_TYPES.has(o.type))) {
-    for (let k = 1; k < fh; k++) panel(F, s, xa, y1 - k, xb, y1 - k, 0, 1, h0, R, a * (1 - R));
+    if (i === 0) panel(F, s, xa, y2, xb, y2, 0, 1, h0, a);
+    else if (i === 1) panel(F, s, xa, yb, xb, yb, 0, -1, h0, a);
+    else if (i === 2) panel(F, s, xb, y2, xb, yb, 1, 0, h0, a);
+    else panel(F, s, xa, y2, xa, yb, -1, 0, h0, a);
   }
 }
 
