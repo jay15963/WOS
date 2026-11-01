@@ -553,8 +553,9 @@ it — like a compass/radar): "esse design combina muito com o jogo".
   low-opacity disc with a dashed rim blinks around the player at the auto attack's reach (with the height bonus).
 - **Height**: +20 % range per story above the target, up to +100 % (docs/LEVELS.md §6).
 - **Sight** (ai.js `aggroRadius`): wolves 8.5, spiders / bears 7.5 tiles (a higher level adds at most 25 %), and past
-  3 tiles only in sight (line of sight) — about where the player sees them first. Raiders and winter walkers see
-  18 tiles (`PAWN_SIGHT`, the most zoomed-out view): only the radar and the map show them before they see you.
+  3 tiles only in sight (line of sight) — about where the player sees them first. Winter walkers see 18 tiles
+  (`PAWN_SIGHT`, the most zoomed-out view): only the radar and the map show them before they see you. Raiders see
+  12 tiles (combat.js `bandit.aggro`), a bit past the default view.
 - **Windows on the roof** (skylights and dormers / "água-furtada") left the game: the only roof detail on top is
   the weathervane.
 - **Small pieces don't block** (block 0, like the campfire): candles, candelabra, torch, stone / wood lanterns,
