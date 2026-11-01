@@ -18,7 +18,7 @@
 //
 // Texturing is projective, as for the walls: a surface point gets the texel where the art of a view shows it.
 //   - the piece's own facing view (the art drawn at 0°) textures the model: at 0° and as the yaw → 0 the faces are the
-//     sprite pixel for pixel; tops always come from it, the front (and the front half of a lathe) too;
+//     sprite pixel for pixel; tops always come from it, the front too (a lathe: each quarter from the view facing it);
 //   - each other side takes the art of the view that looks at it (<type>_n / _back, <type>_e / _side, w = e mirrored)
 //     fitted part by part: views[letter].parts lists the same parts in that view's own art numbers (painters are not
 //     always consistent between views); a view without its own list uses the main one. A view without art borrows
@@ -27,8 +27,10 @@
 //     side: boxes, crates).
 //   - squashed art: some old art draws depth shorter than it is (chest lid, barrel top ellipse): k = art depth / true
 //     depth of that view (default 1), piv = the ground row the squash is about (tiles from the anchor row; 0 = the
-//     anchor = the front of the body; a lathe: its axis). The model has the true depth at every angle, 0° included
-//     (k only maps the texture); k1 < 1 squashes the model along the view by k1 at every angle (default 1: none).
+//     anchor = the front of the body; a lathe: its axis). The model has the true depth; near 0° it is squashed back
+//     along the view by k, eased to k1 (default 1 = the true depth) over the first SQ_RAMP of yaw, so the 0° frame is
+//     still the sprite. Round things keep the art's look at every angle with k1 = k (a squash along the view is the
+//     same from all sides of a round thing).
 // Other spec fields: V (anchor row, default 1), ow, foot (decor edge pieces: the art is drawn lower by its foot,
 // archCompose.footOf), when(o) (false = not drawn by this kit, e.g. wall torches), state(o) → variant name and
 // variants: { open: { s: sprite, only: true (no other views: they borrow it), k, parts… } }, fx: [{ at: [x, v, h],
@@ -36,6 +38,16 @@
 // (the light pool, halo and smoke: default the first fx point), seat: [x, v, h] (where a sitter sits while turned),
 // blob: false | [sx, sy, dy, a] (the contact shadow; default the painters' one). Points are in the 0° view's numbers
 // (views[letter].fx / .light / .seat for a view drawn differently). An fx with bp: true is drawn on blueprints too.
+// More (faces/solidLights.js uses them): ramp: false (the true depth at every angle, no squash near 0°) · model: 'front'
+// (the model always from the front art's parts, whatever way the piece faces; the other views only texture it) ·
+// lift: px the painter draws the art above the piece's ground (wall-hung art; per part: that part's texture in the
+// model's art only) · lathe lean: [px of art x, px of ground row] per px of height (a leaning axis: a wall torch, legs)
+// · glow: { s: sprite, a(o, t) → strength (0 = off), parts: [indices], all: also the sides borrowing that art } —
+// the glow art laid over those parts' faces like the art, to the glow layer (coals, lit glass, a furnace mouth) ·
+// depth(o, rc, rs, d) → d (its own view depth). Variants may set blob / fx / light of their own.
+// world: [w, d] — a world object that is not a building (a raider camp's tent / crate) drawn by this kit: its body
+// (tiles), anchored at the middle of its front (o.x, o.y); a world object of a building type (the camp's campfire)
+// takes the building's size. views.n may list the parts of a back borrowed from the front mirrored.
 //
 // Performance: the model, its UVs (clipped to the sprite's image: never samples atlas neighbours) and its world
 // positions depend only on the piece, so they are built once per object (WeakMap; rebuilt when its place, rotation,
@@ -58,7 +70,7 @@ const VCX = [0, 1, 0, -1], VCY = [1, 0, -1, 0];  // local direction toward the c
 
 // ---------- the views of one object (scratch, rebuilt per build) ----------
 // S sprite, m flip, c / r axes, a anchor (local), k / piv / V, spec (the art description: parts / fx), edge (borrow)
-const FR = [0, 1, 2, 3].map(() => ({ S: null, m: 1, cx: 0, cy: 0, rx: 0, ry: 0, ax: 0, ay: 0, k: 1, k1: 1, piv: 0, V: 1, ow: 0, spec: null, own: false, edge: false }));
+const FR = [0, 1, 2, 3].map(() => ({ S: null, m: 1, cx: 0, cy: 0, rx: 0, ry: 0, ax: 0, ay: 0, k: 1, k1: 1, piv: 0, V: 1, ow: 0, lift: 0, spec: null, own: false, edge: false }));
 const has = (A, n) => A.has(n) || LAZY_DEFS.has(n);
 function spriteNamed(A, n) {
   const s = A.has(n) ? A.get(n) : K.tables(A).opt(n);
@@ -87,6 +99,7 @@ function views(A, o, spec, sp, W, D) {
     const vs = from === 's' ? (i === 2 && (sp.views?.n || spec.views?.n)) || sp : (sp.views?.[from] || spec.views?.[from] || null);
     F.spec = vs && vs.parts ? vs : sp;
     F.k = vs?.k ?? sp.k ?? 1; F.piv = vs?.piv ?? sp.piv ?? 0; F.V = vs?.V ?? sp.V ?? 1; F.ow = vs?.ow ?? sp.ow ?? OW; F.k1 = vs?.k1 ?? sp.k1 ?? 1;
+    F.lift = (vs?.lift ?? sp.lift ?? 0) / 64; // (art drawn lifted: a point at height h shows at h − lift)
     if (from !== 's' && vs && vs.k === undefined) F.k = 1;
     if (from !== 's' && vs && vs.piv === undefined) F.piv = 0;
     if (from !== 's' && vs && vs.V === undefined) F.V = 1;
@@ -103,7 +116,7 @@ function artView(F, x, v, h) { VP.X = F.m * x / 64; VP.d = F.piv + (v - F.V - F.
 // ---------- the model (local tiles: origin = body centre on the ground, +y = the piece's front) ----------
 // part: { t: 0 box / 1 lathe / 2 quad, x0 x1 y0 y1 h0 h1 (bbox), ax ay (lathe axis), pr (lathe profile: h, r pairs),
 //         n (sides), q (quad corners), open, top, sh, z, fit: 4 views × 6 (sX oX sd od sh oh) }
-function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, pr: [], n: 12, q: [], open: false, top: '', sh: true, z: 0, card: false, px: null, tilt: false, fit: new Float32Array(24) }; }
+function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, lx: 0, ly: 0, tl: 0, pr: [], n: 12, q: [], open: false, top: '', sh: true, z: 0, card: false, px: null, tilt: false, fit: new Float32Array(24) }; }
 // the art's dark outline (ow px around the silhouette) belongs to the solid: each part grows by it — sideways, its top's
 // back edge, and below the ground for parts standing on it (a card's thin top covers the outline above it)
 const GROWN = new WeakMap();
@@ -114,7 +127,7 @@ function grown(ps, ow) {
   const low = (h) => (h <= 0.5 ? h - ow : h);
   if (ps.box) { const b = ps.box; g = { box: [b[0] - ow, b[1] + ow, b[2] - ow / 64, b[3], low(b[4]), b[5]] }; }
   else if (ps.card) { const c = ps.card; g = { card: [c[0] - ow, c[1] + ow, c[2], low(c[3]), c[4]], t: ps.t }; }
-  else { const [x, v, pr] = ps.lathe, q = pr.map(([h, r]) => [h, r + ow]); if (pr[0][0] <= 0.5) q.unshift([pr[0][0] - ow, pr[0][1] + ow]); g = { lathe: [x, v, q] }; }
+  else { const [x, v, pr] = ps.lathe, q = pr.map(([h, r]) => [h, r + ow]); if (pr[0][0] <= 0.5) q.unshift([pr[0][0] - ow, pr[0][1] + ow]); g = { lathe: [x, v, q], lean: ps.lean }; }
   g.ow = ow;
   GROWN.set(ps, g);
   return g;
@@ -128,10 +141,15 @@ function specBox(F, ps) {
   if (ps.box) { const b = ps.box; pt(b[0], b[2], b[4]); pt(b[1], b[3], b[5]); }
   else if (ps.card) { const c = ps.card, t = (ps.t ?? 3) / 128; pt(c[0], c[2] - t, c[3]); pt(c[1], c[2] + t, c[4]); }
   else if (ps.lathe) {
-    const [x, v, pr] = ps.lathe; let rm = 0, ha = 1e9, hb = -1e9;
+    const [x, v, pr] = ps.lathe, ln = ps.lean; let rm = 0, ha = 1e9, hb = -1e9;
     for (const [h, r] of pr) { if (r > rm) rm = r; if (h < ha) ha = h; if (h > hb) hb = h; }
-    artView(F, x, v, 0); const R = rm / 64;
-    X0 = VP.X - R; X1 = VP.X + R; d0 = VP.d - R; d1 = VP.d + R; h0 = ha / 64; h1 = hb / 64;
+    const R = rm / 64;
+    // (a leaning axis: its ends at the lowest and highest heights)
+    for (const hh of ln ? [ha, hb] : [0]) {
+      artView(F, ln ? x + ln[0] * hh : x, ln ? v + (ln[1] * hh) / 64 : v, 0);
+      if (VP.X - R < X0) X0 = VP.X - R; if (VP.X + R > X1) X1 = VP.X + R; if (VP.d - R < d0) d0 = VP.d - R; if (VP.d + R > d1) d1 = VP.d + R;
+    }
+    h0 = ha / 64; h1 = hb / 64;
   } else if (ps.quad) for (const p of ps.quad) pt(p[0], p[1], p[2]);
   BB[0] = X0; BB[1] = X1; BB[2] = d0; BB[3] = d1; BB[4] = h0; BB[5] = h1;
   return BB;
@@ -142,16 +160,21 @@ function buildModel(F, list, P) {
   for (let j = 0; j < list.length; j++) {
     const p = P[j] || (P[j] = mkPart());
     let ps = list[j];
-    p.open = !!ps.open; p.top = ps.top || ''; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card;
+    p.open = !!ps.open; p.top = ps.top || ''; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card; p.n = ps.n || 12; p.tl = (ps.lift || 0) / 64;
     p.px = ps.px || null; p.tilt = !!ps.tilt;
     ps = grown(ps, F.ow);
     const L = (x, v, h) => { artView(F, x, v, h); LP.x = F.ax + F.rx * VP.X + F.cx * VP.d; LP.y = F.ay + F.ry * VP.X + F.cy * VP.d; LP.h = VP.h; return LP; };
+    p.lx = p.ly = 0;
     if (ps.lathe) {
-      const [x, v, pr] = ps.lathe;
-      p.t = 1; L(x, v, 0); p.ax = LP.x; p.ay = LP.y; p.n = ps.n || 12;
+      const [x, v, pr] = ps.lathe, ln = ps.lean;
+      p.t = 1; L(x, v, 0); p.ax = LP.x; p.ay = LP.y;
+      // lean [px of art x, px of ground row] per px of height → the axis's local shift per tile of height
+      if (ln) { L(x + 64 * ln[0], v + ln[1], 0); p.lx = LP.x - p.ax; p.ly = LP.y - p.ay; }
       p.pr.length = 0; let rm = 0;
       for (const [h, r] of pr) { p.pr.push(h / 64, r / 64); if (r > rm) rm = r; }
-      rm /= 64; p.x0 = p.ax - rm; p.x1 = p.ax + rm; p.y0 = p.ay - rm; p.y1 = p.ay + rm; p.h0 = p.pr[0]; p.h1 = p.pr[p.pr.length - 2];
+      rm /= 64; p.h0 = p.pr[0]; p.h1 = p.pr[p.pr.length - 2];
+      const xa = p.ax + p.lx * p.h0, xb = p.ax + p.lx * p.h1, ya = p.ay + p.ly * p.h0, yb = p.ay + p.ly * p.h1;
+      p.x0 = Math.min(xa, xb) - rm; p.x1 = Math.max(xa, xb) + rm; p.y0 = Math.min(ya, yb) - rm; p.y1 = Math.max(ya, yb) + rm;
     } else if (ps.quad) {
       p.t = 2; p.q.length = 0; p.x0 = p.y0 = p.h0 = 1e9; p.x1 = p.y1 = p.h1 = -1e9;
       for (const c of ps.quad) { L(c[0], c[1], c[2]); p.q.push(LP.x, LP.y, LP.h); bbAdd(p, LP.x, LP.y, LP.h); }
@@ -192,7 +215,7 @@ function texel(p, i, x, y, h) {
   toView(F, x, y, h);
   const X = f[o] * VQ.X + f[o + 1], d = f[o + 2] * VQ.d + f[o + 3], hh = f[o + 4] * VQ.h + f[o + 5];
   CR.c = S.ax * S.pw + F.m * 64 * X;
-  CR.r = S.ay * S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh);
+  CR.r = S.ay * S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh + F.lift + (S === FR[MV].S ? p.tl : 0));
   return CR;
 }
 
@@ -217,6 +240,8 @@ function clipAxis(src, n, dst, k, lim, keepLess) {
 }
 // the entry being built, its quads / per-quad flags, and the world transform
 let E = null, CA = 1, SA = 0, WX = 0, WY = 0, H0 = 0;
+let GL = null; // (glow pass: the glow art the faces of the 0° view are drawn with)
+let MV = 0;    // (the view the model is built from: a part's own lift moves its texture in that view only)
 function pushQuad(i0, i1, i2, i3, S, flag, nx, ny) {
   const e = E;
   if (e.nq * 20 + 20 > e.q.length) { const g = new Float32Array(Math.max(e.q.length * 2, 400)); g.set(e.q); e.q = g; const gn = new Float32Array(g.length / 10); gn.set(e.qn); e.qn = gn; const gf = new Uint8Array(g.length / 20); gf.set(e.qf); e.qf = gf; }
@@ -235,6 +260,7 @@ function pushQuad(i0, i1, i2, i3, S, flag, nx, ny) {
 let PXS = null, PXC = 0, PXR = 0;
 // one planar face: corners PA[0..3] (local x, y, h) with their texels, clipped to the sprite's image → quads
 function emitFace(S, flag, nx, ny) {
+  if (GL && S !== GL) return; // (glow pass: only the faces textured by the glow art)
   if (PXS) { S = PXS; for (let k = 0; k < PN; k++) { PA[k * 5 + 3] = PXC; PA[k * 5 + 4] = PXR; } }
   const W = S.pw - 0.5, Hh = S.ph - 0.5;
   let n = clipAxis(PA, PN, PB, 3, 0.5, false);
@@ -262,7 +288,7 @@ function texEdge(p, f, nx, ny, n) {
     const t = dF - dB > 1e-5 ? (dF - VQ.d) / (dF - dB) : 0;
     const X = fi[o] * (Xe + inw * t) + fi[o + 1], d = fi[o + 2] * dF + fi[o + 3], hh = fi[o + 4] * VQ.h + fi[o + 5];
     PA[s + 3] = F.S.ax * F.S.pw + F.m * 64 * X;
-    PA[s + 4] = F.S.ay * F.S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh);
+    PA[s + 4] = F.S.ay * F.S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh + F.lift);
   }
 }
 // a top / card top as a strip: the front face's top rows (view f) stretched over it
@@ -291,6 +317,7 @@ function boxFaces(p, f, flagPass) {
     corner(0, sd[2] ? p.x1 : p.x0, sd[3] ? p.y1 : p.y0, p.h1); corner(1, sd[4] ? p.x1 : p.x0, sd[5] ? p.y1 : p.y0, p.h1);
     corner(2, sd[6] ? p.x1 : p.x0, sd[7] ? p.y1 : p.y0, p.h0); corner(3, sd[8] ? p.x1 : p.x0, sd[9] ? p.y1 : p.y0, p.h0);
     const i = viewOf(nx, ny);
+    if (GL && FR[i].edge) continue;
     if (FR[i].edge) texEdge(p, f, nx, ny, 4); else texCorners(p, i, 4);
     emitFace(FR[FR[i].edge ? f : i].S, flagPass, nx, ny);
   }
@@ -303,32 +330,33 @@ function boxTop(p, f) {
   emitFace(FR[f].S, 1, 0, 0);
 }
 function latheFaces(p, f) {
-  const n = p.n, pr = p.pr, b = (f + 2) & 3, cfx = VCX[f], cfy = VCY[f];
+  const n = p.n, pr = p.pr, lx = p.lx, ly = p.ly;
   for (let j = 0; j < n; j++) {
     const a0 = (j / n) * Math.PI * 2, a1 = ((j + 1) / n) * Math.PI * 2, am = (a0 + a1) / 2;
     const s0 = Math.sin(a0), c0 = Math.cos(a0), s1 = Math.sin(a1), c1 = Math.cos(a1), nx = Math.sin(am), ny = Math.cos(am);
-    const i = nx * cfx + ny * cfy >= 0 ? f : b; // front half from the 0° view, back half from the opposite one
+    const i = viewOf(nx, ny); // (each quarter from the view that looks at it, as a box's sides)
     for (let k = 0; k + 3 < pr.length; k += 2) {
       const ha = pr[k], ra = pr[k + 1], hb = pr[k + 2], rb = pr[k + 3];
       if (hb - ha < 1e-5) continue;
       PN = 4;
-      corner(0, p.ax + rb * s0, p.ay + rb * c0, hb); corner(1, p.ax + rb * s1, p.ay + rb * c1, hb);
-      corner(2, p.ax + ra * s1, p.ay + ra * c1, ha); corner(3, p.ax + ra * s0, p.ay + ra * c0, ha);
+      const xa = p.ax + lx * ha, ya = p.ay + ly * ha, xb = p.ax + lx * hb, yb = p.ay + ly * hb; // (the axis at both heights)
+      corner(0, xb + rb * s0, yb + rb * c0, hb); corner(1, xb + rb * s1, yb + rb * c1, hb);
+      corner(2, xa + ra * s1, ya + ra * c1, ha); corner(3, xa + ra * s0, ya + ra * c0, ha);
       texCorners(p, i, 4);
       emitFace(FR[i].S, 0, nx, ny);
     }
   }
   // the cap (an n-gon as a fan of quads), from the 0° view
-  const ht = pr[pr.length - 2], rt = pr[pr.length - 1];
+  const ht = pr[pr.length - 2], rt = pr[pr.length - 1], cx = p.ax + lx * ht, cy = p.ay + ly * ht;
   if (rt <= 0) return;
   for (let j = 1; j + 1 < n; j += 2) {
     PN = 4;
     const ang = (q) => (q / n) * Math.PI * 2;
     const k3 = Math.min(j + 2, n - 1);
-    corner(0, p.ax + rt * Math.sin(0), p.ay + rt * Math.cos(0), ht);
-    corner(1, p.ax + rt * Math.sin(ang(j)), p.ay + rt * Math.cos(ang(j)), ht);
-    corner(2, p.ax + rt * Math.sin(ang(j + 1)), p.ay + rt * Math.cos(ang(j + 1)), ht);
-    corner(3, p.ax + rt * Math.sin(ang(k3)), p.ay + rt * Math.cos(ang(k3)), ht);
+    corner(0, cx + rt * Math.sin(0), cy + rt * Math.cos(0), ht);
+    corner(1, cx + rt * Math.sin(ang(j)), cy + rt * Math.cos(ang(j)), ht);
+    corner(2, cx + rt * Math.sin(ang(j + 1)), cy + rt * Math.cos(ang(j + 1)), ht);
+    corner(3, cx + rt * Math.sin(ang(k3)), cy + rt * Math.cos(ang(k3)), ht);
     texCorners(p, f, 4);
     emitFace(FR[f].S, 1, 0, 0);
   }
@@ -348,12 +376,25 @@ function quadFace(p, f) {
   else { nx /= L; ny /= L; emitFace(FR[f].S, 3, nx, ny); }
 }
 
+// the glow art laid over part p like its art (spec.glow: a lit window, coals, a furnace mouth): the faces textured by the
+// 0° view again with the glow sprite G (all: also the sides borrowing that art), flagged 8 (drawn to the glow layer)
+const GSV = [null, null, null, null];
+function glowPart(p, f, G, all) {
+  const S0 = FR[f].S, n0 = E.nq;
+  for (let i = 0; i < 4; i++) { GSV[i] = FR[i].S; if (i === f || (all && FR[i].S === S0 && !FR[i].edge)) FR[i].S = G; }
+  GL = G;
+  if (p.t === 0) { boxFaces(p, f, 0); boxTop(p, f); } else if (p.t === 1) latheFaces(p, f); else quadFace(p, f);
+  GL = null;
+  for (let i = 0; i < 4; i++) FR[i].S = GSV[i];
+  for (let n = n0; n < E.nq; n++) E.qf[n] |= 8;
+}
+
 // ---------- per object ----------
 const ENT = new WeakMap();
 function mkEntry() {
   return { type: '', tx: NaN, ty: 0, rot: 0, x: 0, y: 0, cy: 0, lv: 0, st: '', S: [null, null, null, null], su: new Float32Array(8), ok: false,
     q: new Float32Array(400), qn: new Float32Array(40), qf: new Uint8Array(20), nq: 0, P: [], pq: [], pcx: [], pcy: [], pz: [],
-    fpx: new Float32Array(4), fpy: new Float32Array(4), k0: 1, k1: 1, pvx: 0, pvy: 0, A: 0, fi: 0, h0: 0, sh: [], fx: [], lp: null, seat: null, f: 0, Sf: null, mf: 1, tpx: 0, tpy: 0, tph: null };
+    fpx: new Float32Array(4), fpy: new Float32Array(4), k0: 1, k1: 1, pvx: 0, pvy: 0, A: 0, fi: 0, h0: 0, sh: [], fx: [], lp: null, seat: null, f: 0, Sf: null, mf: 1, ga: null, tpx: 0, tpy: 0, tph: null };
 }
 // the variant (state) of o
 function stateOf(o, spec) { return spec.state ? spec.state(o) || '' : ''; }
@@ -378,11 +419,18 @@ function build(A, o, def, spec, st, e) {
   const [W, D, bx, by] = bodyOf(o, def);
   if (!views(A, o, spec, sp, W, D)) return e;
   const f = FI[o.face || 's'] ?? 0, Ff = FR[f];
+  // the view the model is built from: the 0° one, or always the front (model: 'front' — the same shape whatever way the
+  // piece faces; the other views' art only textures it, part by part)
+  const Fm = sp.model === 'front' ? FR[0] : Ff;
+  MV = Fm === Ff ? f : 0;
+  const gs = sp.glow, G = gs ? spriteNamed(A, gs.s) : null;
+  if (gs && !G) return e;
+  e.ga = gs ? gs.a : null;
   for (let i = 0; i < 4; i++) { e.S[i] = FR[i].S; e.su[i * 2] = FR[i].S.u0; e.su[i * 2 + 1] = FR[i].S.v0; }
   e.f = f; e.Sf = Ff.S; e.mf = Ff.m;
   e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H;
-  const list = Ff.spec.parts;
-  buildModel(Ff, list, e.P);
+  const list = Fm.spec.parts;
+  buildModel(Fm, list, e.P);
   for (let j = 0; j < e.P.length; j++) for (let i = 0; i < 4; i++) fitPart(e.P[j], j, i);
   // faces, part by part: far sides from inside (open), sides, tops
   E = e;
@@ -391,11 +439,12 @@ function build(A, o, def, spec, st, e) {
   for (let j = 0; j < e.P.length; j++) {
     const p = e.P[j];
     e.pq[j] = e.nq;
-    // (a part filled with one texel of the 0° art)
-    if (p.px) { const S0 = Ff.S; PXS = S0; PXC = S0.ax * S0.pw + Ff.m * p.px[0]; PXR = S0.ay * S0.ph + 64 * (p.px[1] - Ff.V) - p.px[2]; } else PXS = null;
+    // (a part filled with one texel of the art its numbers are written in)
+    if (p.px) { const S0 = Fm.S; PXS = S0; PXC = S0.ax * S0.pw + Fm.m * p.px[0]; PXR = S0.ay * S0.ph + 64 * (p.px[1] - Fm.V) - p.px[2]; } else PXS = null;
     if (p.t === 0) { if (p.open) boxFaces(p, f, 2); boxFaces(p, f, 0); boxTop(p, f); }
     else if (p.t === 1) latheFaces(p, f);
     else quadFace(p, f);
+    if (G && (!gs.parts || gs.parts.includes(j))) glowPart(p, Fm === Ff ? f : 0, G, gs.all);
     const cx = (p.x0 + p.x1) / 2, cy = (p.y0 + p.y1) / 2;
     e.pcx[j] = WX + CA * cx - SA * cy; e.pcy[j] = WY + SA * cx + CA * cy; e.pz[j] = p.h0 * 1e-3 + p.z;
     if (p.x0 < gx0) gx0 = p.x0; if (p.x1 > gx1) gx1 = p.x1; if (p.y0 < gy0) gy0 = p.y0; if (p.y1 > gy1) gy1 = p.y1;
@@ -403,10 +452,10 @@ function build(A, o, def, spec, st, e) {
   e.pq[e.P.length] = e.nq;
   E = null; PXS = null;
   // the lean pivot (spec.tilt)
-  if (sp.tiltAt) { artView(Ff, sp.tiltAt[0], sp.tiltAt[1], sp.tiltAt[2]); const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d; e.tpx = WX + CA * lx - SA * ly; e.tpy = WY + SA * lx + CA * ly; e.tph = H0 + VP.h; }
+  if (sp.tiltAt) { artView(Fm, sp.tiltAt[0], sp.tiltAt[1], sp.tiltAt[2]); const lx = Fm.ax + Fm.rx * VP.X + Fm.cx * VP.d, ly = Fm.ay + Fm.ry * VP.X + Fm.cy * VP.d; e.tpx = WX + CA * lx - SA * ly; e.tpy = WY + SA * lx + CA * ly; e.tph = H0 + VP.h; }
   // footprint corners (depth), the squash pivot (0° view), shadows, fx points
   for (let c = 0; c < 4; c++) { const lx = c & 1 ? gx1 : gx0, ly = c & 2 ? gy1 : gy0; e.fpx[c] = WX + CA * lx - SA * ly; e.fpy[c] = WY + SA * lx + CA * ly; }
-  e.k0 = Ff.k; e.k1 = Ff.k1;
+  e.k0 = sp.ramp === false ? Ff.k1 : Ff.k; e.k1 = Ff.k1; // (ramp: false — the true depth at every angle, 0° too)
   { const lx = Ff.ax + Ff.cx * Ff.piv, ly = Ff.ay + Ff.cy * Ff.piv; e.pvx = WX + CA * lx - SA * ly; e.pvy = WY + SA * lx + CA * ly; }
   e.sh.length = 0;
   for (const p of e.P) {
@@ -423,17 +472,18 @@ function build(A, o, def, spec, st, e) {
     }
   }
   e.fx.length = 0;
-  for (const fx of Ff.spec.fx || spec.fx || []) {
-    artView(Ff, fx.at[0], fx.at[1], fx.at[2]);
-    const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d;
+  for (const fx of Fm.spec.fx || sp.fx || []) {
+    artView(Fm, fx.at[0], fx.at[1], fx.at[2]);
+    const lx = Fm.ax + Fm.rx * VP.X + Fm.cx * VP.d, ly = Fm.ay + Fm.ry * VP.X + Fm.cy * VP.d;
     e.fx.push(fx, WX + CA * lx - SA * ly, WY + SA * lx + CA * ly, H0 + VP.h);
   }
-  const seat = Ff.spec.seat || sp.seat;
-  if (seat) { artView(Ff, seat[0], seat[1], seat[2]); const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d; e.seat = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
+  const seat = Fm.spec.seat || sp.seat;
+  if (seat) { artView(Fm, seat[0], seat[1], seat[2]); const lx = Fm.ax + Fm.rx * VP.X + Fm.cx * VP.d, ly = Fm.ay + Fm.ry * VP.X + Fm.cy * VP.d; e.seat = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
   else e.seat = null;
-  const la = Ff.spec.light || spec.light;
-  if (la) { artView(Ff, la[0], la[1], la[2]); const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d; e.lp = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
+  const la = Fm.spec.light || sp.light;
+  if (la) { artView(Fm, la[0], la[1], la[2]); const lx = Fm.ax + Fm.rx * VP.X + Fm.cx * VP.d, ly = Fm.ay + Fm.ry * VP.X + Fm.cy * VP.d; e.lp = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
   else e.lp = e.fx.length ? [e.fx[1], e.fx[2]] : null;
+  e.bl = sp.blob; // (a variant's own contact shadow: a wall torch has none)
   e.ok = true;
   return e;
 }
@@ -460,42 +510,46 @@ export function drawSolid(B, A, o, t) {
   K.prep(A);
   const e = entryOf(A, o);
   if (!e) return drawPropTurned(B, A, o, t); // (art not painted yet: the old way meanwhile)
-  const C = CAMV.c, S = CAMV.s, yaw = Math.atan2(S, C), spc = SOLID[o.type];
+  const C = CAMV.c, S = CAMV.s, yaw = Math.atan2(S, C), R = smooth(Math.abs(yaw) / SQ_RAMP), spc = SOLID[o.type];
   const tn = tintOf(o), tr = tn[0], tg = tn[1], tb = tn[2], ta = tn[3];
   const bp = (o.progress != null && o.progress < 1) || !!o._ghost;
-  // squash (k1 < 1: the same at every angle), hit shake (sideways on the screen), lean of the tilt parts
-  const kk = e.k1, sq = Math.abs(kk - 1) > 1e-4, shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
+  // squash of the 0° view easing out, hit shake (sideways on the screen), lean of the tilt parts
+  const kk = e.k0 + (e.k1 - e.k0) * R, sq = Math.abs(kk - 1) > 1e-4, shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
   const ccx = -S, ccy = C, mv = sq || shk !== 0;
   const th = spc.tilt && e.tph != null ? spc.tilt(o, t) || 0 : 0, tc = Math.cos(th), ts = Math.sin(th);
   // parts back to front
   const np = e.P.length, one = np === 1;
   if (!one) { partsReset(); for (let j = 0; j < np; j++) part(-S * e.pcx[j] + C * e.pcy[j] + e.pz[j], j); }
   const q = e.q, qn = e.qn, qf = e.qf, PS = one ? null : partsSorted();
+  const ga = !bp && e.ga ? e.ga(o, t) : 0; // (glow art over the faces: its strength now, 0 = off)
   for (let pi = 0; pi < np; pi++) {
     const j = one ? 0 : PS[pi].k, tl = th !== 0 && e.P[j].tilt;
     for (let n = e.pq[j]; n < e.pq[j + 1]; n++) {
-      const fl = qf[n];
+      const fl = qf[n] & 7, gw = qf[n] & 8;
+      if (gw && ga <= 0) continue;
       let z = 1;
       if (fl !== 1) {
         const v = -S * qn[n * 2] + C * qn[n * 2 + 1];
         if (fl === 2 ? v > -0.02 : fl === 4 ? v <= -1 : v <= 0.02) continue;
-        if (fl === 4) { const m = Math.hypot(qn[n * 2], qn[n * 2 + 1]); z = shade(qn[n * 2] / m, qn[n * 2 + 1] / m); }
-        else z = shade(qn[n * 2], qn[n * 2 + 1]);
-        if (fl === 2) z *= 0.72;
+        if (!gw) {
+          const m = fl === 4 ? Math.hypot(qn[n * 2], qn[n * 2 + 1]) : 1; // (a steep slope: its unit normal)
+          z = 1 + (shade(qn[n * 2] / m, qn[n * 2 + 1] / m) - 1) * R; if (fl === 2) z *= 0.72;
+        }
       }
-      if (!mv && !tl) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ta); continue; }
+      const ca = gw ? -ga * ta : ta; // (a < 0: to the glow layer, FACE_FS; never on a blueprint, so untinted)
+      if (!mv && !tl) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ca); continue; }
       for (let k = 0; k < 20; k += 5) {
         let x = q[n * 20 + k], y = q[n * 20 + k + 1], h = q[n * 20 + k + 2];
         if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
         if (tl) { const u = (x - e.tpx) * C + (y - e.tpy) * S, w = h - e.tph, du = u * tc + w * ts - u; x += du * C; y += du * S; h = e.tph - u * ts + w * tc; }
         SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = h; SCR[k + 3] = q[n * 20 + k + 3]; SCR[k + 4] = q[n * 20 + k + 4];
       }
-      F.quadF(SCR, 0, tr * z, tg * z, tb * z, ta);
+      F.quadF(SCR, 0, tr * z, tg * z, tb * z, ca);
     }
   }
   const T0 = K.tables(A);
   // contact shadow (as the painters: under the front of the footprint, fixed in the world) and sun shadows
-  const bl = SOLID[o.type].blob;
+  const bl = e.bl;
   if (!lv && T0.blob && B.blob && bl !== false) {
     const w = o.fw || 1, h = o.fh || 1;
     if (bl) B.blob.add(T0.blob, o.x, o.y - (bl[2] || 0), bl[0], bl[1], 1, 1, 1, (bl[3] ?? 0.5) * ta, 0, -yaw);
@@ -529,7 +583,7 @@ export function solidDepth(o, rc, rs) {
   let d = -1e9;
   if (e && e.ok && e.tx === o.tx && e.ty === o.ty && e.rot === (o.rot | 0) && e.type === o.type) {
     // (squashed along the view like the model)
-    const kk = e.k1, dp = -rs * e.pvx + rc * e.pvy;
+    const yaw = Math.atan2(rs, rc), kk = e.k0 + (e.k1 - e.k0) * smooth(Math.abs(yaw) / SQ_RAMP), dp = -rs * e.pvx + rc * e.pvy;
     for (let c = 0; c < 4; c++) { const v = dp + kk * (-rs * e.fpx[c] + rc * e.fpy[c] - dp); if (v > d) d = v; }
   } else {
     const def = BUILDINGS[o.type] || worldDef(SOLID[o.type]);
@@ -538,6 +592,8 @@ export function solidDepth(o, rc, rs) {
     const ex = (ca * W + sa * D) / 2, ey = (sa * W + ca * D) / 2;
     d = -rs * bx + rc * by + Math.abs(rs) * ex + Math.abs(rc) * ey;
   }
+  const sp = SOLID[o.type];
+  if (sp && sp.depth) d = sp.depth(o, rc, rs, d); // (e.g. a wall torch: right after the face of the wall it hangs on)
   // (on an upper story: never before the floor tiles it stands on — levels.js floorUp sorts by its tile's front)
   return (o.lv | 0) > 0 ? Math.max(d + (o.lv | 0) * 0.001, boxDepth(o, rc, rs)) : d;
 }
