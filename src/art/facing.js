@@ -33,7 +33,9 @@ export function faceAngle(o, t) {
   let a = null;
   const vx = o._fvx || 0, vy = o._fvy || 0;
   const acting = o.action && o.action.t < 1;
-  if (o.moving && !acting && vx * vx + vy * vy > 0.12) a = Math.atan2(vy, vx);
+  const seat = o.pose?.type === 'sit' ? o.pose.o : null;
+  if (seat && LETTER[seat.face] !== undefined) a = LETTER[seat.face]; // (sitting: the chair's way, whatever it looks at)
+  else if (o.moving && !acting && vx * vx + vy * vy > 0.12) a = Math.atan2(vy, vx);
   else {
     const tg = o.target && !o.target.dead ? o.target : o.threat;
     if (tg && Number.isFinite(tg.x) && Number.isFinite(tg.y) && tg !== o) {

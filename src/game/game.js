@@ -11,7 +11,7 @@ import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { BUILDINGS } from './data.js';
 import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
-import { faceKindOf, boxDepth } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
+import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
@@ -34,12 +34,12 @@ const DZ = { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0 }; //
 // depth of a pawn at rest (art/compose.js pose: p._sobj = its bed / seat): lying flat where it is drawn (each part at its
 // own height: the mattress, the pillow, the ground) a little toward the camera, sitting as a card through the seat at
 // its height (the backrest hides its back when the camera looks from behind; its legs hang in front of the seat)
-function restDepth(B, o, m0, e0, lz, turned) {
+function restDepth(B, o, m0, e0, lz) {
   const po = o._sobj, PS = o.pose;
   if (o.moving || o.dead) return;
   if (PS.type === 'sleep') { B.main.depthOf(m0, B.main.n, NaN, 0, NaN, 1, 0.4, lz); return; }
   if (!po || PS.type !== 'sit') return;
-  const sa = turned && po._fk?.seatAt ? po._fk.seatAt(po) : null; // (as art/compose.js places the sitter)
+  const sa = po._fk?.seatAt ? po._fk.seatAt(po) : null; // (as art/compose.js places the sitter)
   const x = sa ? sa[0] : po.x, y = sa ? sa[1] : po.y - 0.06, h = lz + 0.13 + (sa ? sa[2] : 0);
   B.main.depthOf(m0, B.main.n, x, y, h, 0, 0.1);
   B.emissive.depthOf(e0, B.emissive.n, x, y, h, 0, 0.1);
@@ -269,7 +269,11 @@ export class Game {
       const o = list[i], fk = faceKindOf(o); // (art/faces: the pieces drawn as computed faces)
       o._fk = fk;
       if (o.zkRot) o._zk = o.zkRot(rc, rs); // (a roof: its front-most point)
-      else if (fk) o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+      else if (fk) {
+        o._zk = fk.depth ? fk.depth(o, rc, rs) : boxDepth(o, rc, rs);
+        const fd = fk.front?.(o); // (a chair's backrest / a bed's headboard nearer the camera than its sitter: drawn after it)
+        if (fd) list.push(fd);
+      }
       else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
       else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
     }
@@ -307,7 +311,7 @@ export class Game {
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);
-      else if (o._fk && o._fk.draw(B, A, o, t)) { /* computed faces (art/faces) */ }
+      else if (o._fk && drawFacesTurned(B, A, o, t, R)) { /* computed faces (art/faces; + a 3D scaffold while being built) */ }
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
@@ -323,7 +327,7 @@ export class Game {
         else drawAnimal(B, A, d, t);
         if (rot && o.isEntity && f0) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
-        if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz, !!rot);
+        if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz);
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }
       const L = o.light;

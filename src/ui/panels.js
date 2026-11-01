@@ -18,10 +18,13 @@ import { craftBody, craftBind, craftUpdate } from './crafting.js';
 import { installWorkbar } from './workbar.js';
 import { chestAdapter } from './container.js';
 import { Inventory } from '../game/inventory.js';
+import { uiScale } from './uiscale.js';
+import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
+import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// a container slot: a tap / click moves one unit (go(false)), holding HOLD_MS moves the whole stack (go(true)), and so
-// does shift-click; moving the pointer (a drag, hotbar.js) cancels the hold
+// a container slot: a tap / click moves one unit (go(false)); shift-click moves the whole stack (go(true)), and so does
+// holding HOLD_MS on a touch screen (with a mouse, holding is the drag-and-drop of hotbar.js); moving cancels the hold
 const HOLD_MS = 350;
 function holdPress(b, go) {
   let t = 0, x0 = 0, y0 = 0, fired = false;
@@ -30,6 +33,7 @@ function holdPress(b, go) {
     if (e.button !== 0) return;
     stop();
     x0 = e.clientX; y0 = e.clientY; fired = false;
+    if (e.pointerType === 'mouse') return; // (mouse: shift-click for the stack; holding drags)
     b.classList.add('holding');
     t = setTimeout(() => { t = 0; b.classList.remove('holding'); fired = true; go(true); }, HOLD_MS);
   });
@@ -39,9 +43,6 @@ function holdPress(b, go) {
   b.addEventListener('contextmenu', (e) => e.preventDefault()); // (a long press on a phone)
   b.addEventListener('click', (e) => { stop(); if (fired) { fired = false; return; } go(e.shiftKey); });
 }
-import { uiScale } from './uiscale.js';
-import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
-import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
 
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
@@ -241,7 +242,7 @@ export class Panels {
     } else if (name === 'chest' || name === 'container') {
       const c = this.container;
       if (!c || !c.canOpen()) { this.close(); return; }
-      const how = g.input.isTouch ? 'toque: 1 · segure: a pilha' : 'clique: 1 · segure: a pilha · arraste';
+      const how = g.input.isTouch ? 'toque: 1 · segure: a pilha' : 'clique: 1 · shift+clique: a pilha · arraste';
       const hotTip = this.desktopHud() ? '<p>O que está na barra rápida (1–0) fica na mochila.</p>' : '';
       html = this.frame(c.title, c.icon || buildIco(A, 'chest'), `
         <div class="chest-wrap">

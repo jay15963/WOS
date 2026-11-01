@@ -487,17 +487,21 @@ export function drawPawn(B, A, p, t) {
   p._sy = undefined; p._sobj = null; // depth key override while lying in a bed / sitting on a chair (game.js sort; _sobj: turned camera)
   if (PS && PS.type === 'sleep' && T.cover) {
     let ux, uy, ang, px, py;
-    // (camera turned: in a bed, world positions and the bed's world angle minus the yaw; on the ground, screen-space)
-    if (po) { bedSlot(po); px = BX; py = BY; ang = BR - animEnv.yaw; ux = BUX; uy = BUY; p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
+    // (camera turned: in a bed, world positions and the bed's world angle minus the yaw; on the ground, screen-space;
+    // a bed drawn as a solid (art/faces/solid.js restAt): the head on its pillow at the mattress height)
+    const rq = po && po._fk?.restAt ? po._fk.restAt(po) : null; // (3D at every camera angle, 0° too)
+    if (rq) { px = rq[0]; py = rq[1]; ang = rq[3] - animEnv.yaw; ux = -Math.sin(rq[3]); uy = Math.cos(rq[3]); p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
+    else if (po) { bedSlot(po); px = BX; py = BY; ang = BR - animEnv.yaw; ux = BUX; uy = BUY; p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
     else { B = viewB(B, p.x, p.y); ux = -flip; uy = 0; ang = flip * HALF_PI; px = p.x + flip * 0.36; py = p.y - 0.08; } // on the ground
     const breath = Math.sin(t * 1.35 + ph0);
-    const nx = px + ux * 0.2, ny = py + uy * 0.2;
+    const nx = px + ux * (rq ? 0.17 : 0.2), ny = py + uy * (rq ? 0.17 : 0.2); // (the neck: the head lies on the pillow toward the headboard)
     if (po) { p._zx = nx; p._zy = ny; } else { viewPt(p.x, p.y, nx - p.x, ny - p.y); p._zx = VX; p._zy = VY; } // where the Zzz rise from (juice.js)
     let tilt = ang + 0.14 * (ph0 % 2 > 1 ? 1 : -1) + breath * 0.015;
     let hl = 0.02, ny2 = ny, ra = ang;
-    // camera turned (docs/CAMERA-ROTATION.md): the bed is solid faces — lie on its mattress (the point that shows where
-    // the 0° drawing does, raised to the mattress) and turn with the view
-    if (po && (CAMV.s || CAMV.c !== 1)) { const hm = 0.14, cr = Math.atan2(CAMV.s, CAMV.c); ny2 = ny + hm; hl += hm; tilt -= cr; ra = ang - cr; }
+    // (the angle already holds the yaw: lying along the bed at any camera angle; the solid bed: at its pillow's height;
+    // a bed still drawn as folded art: the point that shows where the 0° drawing does, raised to the mattress)
+    if (rq) hl += rq[2];
+    else if (po && po._fk) { const hm = 0.14; ny2 = ny + hm; hl += hm; }
     drawHead(B, T, L, LK, null, 's', 1, nx, ny2, hl, tilt, fl, 1, true, tilt, hl);
     // body under the blanket, chest rising slowly
     const cx = nx + ux * 0.02, cy = ny2 + uy * 0.02;
@@ -511,7 +515,7 @@ export function drawPawn(B, A, p, t) {
   // pose, drawn with 3/4 parts (art/look/turn.js) once they are painted; until then the nearest side (p.facing)
   let D = null, mir = 1;
   const dv = p._dv;
-  if (dv && !sit && pose !== 'whirlwind' && LK.LA) {
+  if (dv && (!sit || seat) && pose !== 'whirlwind' && LK.LA) { // (sitting on a chair too: facing the chair's way)
     const urgent = !p.isMob && !p.remote && !p.lazyLook;
     const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
     if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, walker, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
@@ -1038,7 +1042,7 @@ function rigPose(Q, C, sd, flip) {
   if (seat) {
     lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); p._sobj = seat;
     // camera turned: on the seat of the 3D chair (art/faces/solid.js seatAt; eased from the 0° spot)
-    const sa = (CAMV.s || CAMV.c !== 1) && seat._fk?.seatAt ? seat._fk.seatAt(seat) : null;
+    const sa = seat._fk?.seatAt ? seat._fk.seatAt(seat) : null; // (3D at every camera angle, 0° too)
     if (sa) { bx0 = sa[0]; by0 = sa[1]; lift += sa[2]; }
   }
   const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)
@@ -1117,10 +1121,17 @@ const R = {
 function rigFeet(front) {
   const ft = R.ft || R.T.foot[R.sd === 'd' ? 'e' : R.sd];
   const { B, x, y, sd, flip, al, fl, fr, fg, fb } = R;
-  if (!ft || front !== (R.feetFront && sd !== 'n')) return;
+  if (!ft || front !== (R.feetFront && sd !== 'n' && !(sd === 'd' && R.pd === 'n'))) return;
   if (R.feetFront) {
     const fz = R.seat ? 0.02 : 0;
-    if (sd === 'e') {
+    if (sd === 'd') {
+      // 3/4 (camera turned): the side view's thighs and boots, narrower, the knees toward the facing diagonal
+      const m = R.mir, fy = R.pd === 's' ? 0.09 : -0.09, th = R.T.thigh, hip = R.seat ? 0.2 : 0.07;
+      B.main.add(ft, x + m * 0.1, y + fy - 0.01, 0.85, 1, fr * 0.8, fg * 0.8, fb * 0.8, al, 0, 0, fl, m, 0, fz);
+      if (th) B.main.add(th, x - m * 0.015, y - 0.01 + fy * 0.4, 0.78, 1, R.pr * 0.85, R.pg * 0.85, R.pb * 0.85, al, 0, 0, fl, m, 0, hip + 0.01);
+      B.main.add(ft, x + m * 0.19, y + fy + 0.01, 0.85, 1, fr, fg, fb, al, 0, 0, fl, m, 0, fz);
+      if (th) B.main.add(th, x + m * 0.01, y + 0.01 + fy * 0.4, 0.78, 1, R.pr, R.pg, R.pb, al, 0, 0, fl, m, 0, hip);
+    } else if (sd === 'e') {
       // thighs forward from the hip, boots at the knees' end
       const th = R.T.thigh, hip = R.seat ? 0.2 : 0.07;
       B.main.add(ft, x + flip * 0.22, y - 0.01, 1, 1, fr * 0.8, fg * 0.8, fb * 0.8, al, 0, 0, fl, flip, 0, fz);
