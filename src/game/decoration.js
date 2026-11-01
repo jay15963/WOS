@@ -282,14 +282,15 @@ function installShowcase(game) {
     const ring = rect('wall_stone', fx, fy, fx1, fy1, 'cut', 'crenel', [[fx + 6, fy1]]);
     const hx = fx + 1, hy = fy + 1, hx1 = hx + 3, hy1 = hy + 3; // the hut against the NW corner
     const hut = rect('wall_wood', hx, hy, hx1, hy1, 'plank', 'post', [[hx + 1, hy1]]).filter((r) => r[1] !== fx && r[2] !== fy);
-    let n = put([...ring, ['door_wood', fx + 6, fy1, 0, 'plank', ''], ...hut, ['door_wood', hx + 1, hy1, 0, 'plank', ''], ['campfire', fx + 9, fy + 5, 0]]);
+    let n = put([...ring, ['door_wood', fx + 6, fy1, 0, 'plank', ''], ...hut, ['door_wood', hx + 1, hy1, 0, 'plank', ''], ['campfire', fx + 9, fy + 5, 0],
+      ['torch', fx + 7, fy + 1, 1], ['torch', fx + 11, fy + 3, 2], ['lamp_post', fx + 5, fy + 7, 0], ['brazier', fx + 3, fy + 7, 0]]);
     n += put(ring.map((r) => [...r.slice(0, 4), 'cut', 'crenel']), 1, 1); // the second story of the ring (over the gate too)
     n += put([['wall_stone', fx + 6, fy1, 0, 'cut', 'crenel']], 1, 1);
     const roof = []; for (let y = hy; y <= hy1; y++) for (let x = hx; x <= hx1; x++) roof.push(['roof_stone', x, y, 0, 'slate', 'barge.end_gable.gab_plaster.r_tile']);
     n += put(roof);
     H._depthSpots = { ...(H._depthSpots || {}),
       court: [fx + 7.5, fy + 5.5], court_s: [fx + 9.5, fy1 - 0.45], walk: [fx + 9.5, fy1 + 0.5, 2, 2], out_n: [fx + 9.5, fy - 0.35], hut: [hx + 2.5, hy + 2.5],
-      walk_w: [fx + 0.5, fy + 5.5, 2, 2] };
+      walk_w: [fx + 0.5, fy + 5.5, 2, 2], fire_n: [fx + 9.5, fy + 4.4], fire_s: [fx + 9.5, fy + 6.3], wtorch: [fx + 7.5, fy + 1.55], wtorch_e: [fx + 11.4, fy + 3.5] };
     return { n, at: [x0, y0] };
   };
   // stand the player on a spot of depthScene / fortScene ([x, y, z, lv]); the camera on it. pose: 'sleep' (the nearest

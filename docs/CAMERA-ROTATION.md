@@ -15,14 +15,86 @@ calculados para o ângulo do momento.
 
 ## Como funciona
 
-- `game.cam.rot` (radianos) segue `rot To` com suavização; `rotFade` (0..1) enquanto girada. Em 0° tudo é desenhado
-  exatamente como antes.
+- `game.cam.rot` (radianos) segue `rot To` com suavização. **3D em todos os ângulos, 0° também** (pedido do dono: "não
+  gostei do fato de que no ângulo 0 o jogo fica com o visual de antes"): toda peça que tem tipo de face (paredes, portas,
+  cercas, portões, escadas, pisos de cima, telhados, peças sólidas, móveis do `props.js`, fantasmas da construção,
+  rachaduras) é sempre desenhada em faces; `faceKindOf` é perguntado sempre; o caminho antigo de 0° (telhados em fatias
+  `roofSlice`, `levels.drawUpper` levantando sprites, o recorte de paredes de 0°) não roda mais. Só vegetação e criaturas
+  continuam sprites em pé.
+- **Profundidade por pixel** (seção abaixo): um buffer de profundidade na cena decide o que esconde o quê, pixel a
+  pixel; a ordem de pintor continua só para misturar os pixels suaves.
 - Uma transformação só: o mundo gira em volta da câmera; a altura sobe reta na tela (`y − h`, como sempre).
   - Shaders: `uRot` (cos, sen). Sprites em pé (personagens, árvores, itens, móveis) giram só a âncora e continuam de
     frente para a tela; sprites deitados (`uFlat`: pisos, tapetes, decalques) giram inteiros. Terreno, luz ambiente
     e pós-processamento convertem tela → mundo pela rotação; sombras do sol e feixes de luz também.
   - JS: `game.screenToWorld` / `worldToScreen(x, y, h)` (h = altura na tela: plaquinhas de nome), `view()` (a caixa
-    em volta da tela girada), profundidade = o y girado.
+    em volta da tela girada), ordem de pintor = o y girado.
+
+## Profundidade por pixel (buffer de profundidade)
+
+Pedido do dono: "não quero nenhum problema de profundidade nesse jogo" (jogador desenhado embaixo da mesa 2×1, dentro
+da porta no canto da parede, perna da escada de fora por cima da casa, jogador no topo da escada coberto pelos degraus /
+pela borda do piso de cima, afundado no piso de cima em 0°). Uma ordem por objeto não acerta peças grandes em 3D em
+ângulos quaisquer; agora cada pixel tem profundidade.
+
+- **Fórmula:** a projeção é oblíqua — um ponto com y de vista (para a câmera) `y` e altura `h` aparece na tela em
+  `y − h`, e o raio que passa por um pixel anda em (+y, +h). Então a profundidade para a câmera é **d = y + h** (maior =
+  mais perto), relativa à câmera. No clip: `z = −d / 256` (|d| < 256 em toda a tela; buffer de 24 bits ≈ 3·10⁻⁵ tile por
+  passo), teste `LEQUAL`.
+- **Buffer:** `renderer.resize` põe um renderbuffer `DEPTH_COMPONENT24` na FBO da cena (junto da cor e da camada de
+  brilho). Limpo no começo da passada ordenada.
+- **Faces** (`engine/faceBatch.js`, `FACE_VS`): exatas por vértice (planas). Cada quad leva um viés (10º float): o viés
+  do desenhável + um viés minúsculo crescente por quad (`Z.ord × 2·10⁻⁴`: camadas coplanares de uma peça — base,
+  acabamentos, janelas, hera — mantêm a ordem) + `faces.bias` (algo deitado de propósito sobre outra superfície:
+  rachaduras 0,006, tapetes / sombras de peças de cima 0,01, piso de cima sobre o topo de parede `zBias` 0,004).
+- **Sprites** (`engine/spriteBatch.js`, 26 floats por instância: modo + referência x, y, altura, viés): um **cartão em
+  pé** pelo ponto de referência (d = 2·y_ref − S, S = y da tela) cuja parte abaixo do pé fica **deitada** na altura do pé
+  (d = S + 2·h_ref) — o "V" não é linear no quad, então o fragmento calcula a profundidade (`gl_FragDepth`; o sprite já
+  descarta texels). Modos: 0 cartão, 1 deitado (quem dorme), 2 cartão que pode abrir no recorte (copas de árvore).
+  - Criaturas (jogador, NPCs, outros jogadores, bichos): **um cartão só pelo pé** (todas as partes do boneco no mesmo
+    plano: a ordem do rig decide entre elas); num andar / escada o pé verdadeiro (x, y) na altura `z · STORY_H` (o
+    sprite continua levantado reto na tela); viés 0,02 (os pés sobre o piso em que pisam).
+  - Quem **dorme** (pose sleep): deitado no colchão (altura 0,16; no chão 0,02), viés 0,4. Quem **senta**: cartão pelo
+    assento (o mesmo ponto que `art/compose.js` usa; `seatAt` com a câmera girada) na altura dele, viés 0,1 — o encosto
+    esconde as costas quando a câmera olha a cadeira por trás (`game.js restDepth`, depois do desenho).
+  - Árvores, pedras, plantas e o resto sem tipo de face: cartão pelo pé (o objeto).
+  - Sprites de um tipo de face (chamas, brilhos, peças em pé do `props.js`, andaime): no próprio ponto deles (âncora +
+    `lift`), viés 0,3 (`Z.sb`: na frente das faces da própria peça). Peças de cima desenhadas como sprite
+    (`levels.drawUpper` → `drawUpperRot`): cartão pelo ponto da peça na altura do andar.
+- **Quem escreve / quem só testa:** na passada ordenada (`main`, `faces`, `emissive`) tudo testa; escrevem os pixels
+  opacos — um fragmento que escreve e tem alfa < 0,25 é descartado (`ALPHA_CUT`: a borda suave não esconde o que vem
+  depois); sprites / faces translúcidos (alfa < 0,97: copa esmaecida, fantasmas, plantas azuis, telhados sumindo) só
+  testam (`nw`: o lote divide a chamada onde a escrita muda). Brilhos (`emissive`) só testam, viés +0,1: fogo nunca por
+  cima de quem está na frente, janela de trás nunca por cima do telhado. Partículas (faíscas, brasas, poeira na camada de
+  brilho) são desenhadas antes de `R.depthEnd()` e também testam. Depois de `depthEnd` (sobreposições dos sistemas:
+  fantasmas e grade da construção, anéis, marcas) e nas outras passadas (chão, decalques, grama, sombras de contato no
+  chão, fumaça / chuva `fx`, sombras do sol, luz, pós, HUD) não há teste — como antes.
+- Coplanar de propósito: camadas de uma peça (ordem do quad), rachaduras / tapetes / piso sobre parede (viés), ameias de
+  uma parede com outra parede empilhada em cima não são desenhadas (`walls.js stacked`: furavam a face da de cima).
+
+## Recorte em volta do jogador (cutout)
+
+O dono: "estou no térreo e as estruturas dos andares de cima ficam invisíveis mesmo sem eu estar atrás" (pátio aberto
+de uma fortaleza: o anel inteiro do andar de cima sumia). Agora nada some por regra; só abre o que cobre o jogador.
+
+- `CUT_FN` (sprites e faces): fragmentos de **estruturas** (todas as faces; sprites só no modo 2 = copas de árvore) que
+  estão **na frente do jogador local** (d − d do cartão dele > 0,15…0,6), **acima da cintura** dele (altura − pés >
+  0,5…0,8: mesa / cadeira na frente das pernas não abrem) e dentro de uma **elipse do corpo** na tela (meia largura 0,5,
+  meia altura 0,85, centro no peito) ficam furados num pontilhado (Bayer 4×4, até 78 %, borda suave): o jogador aparece
+  através da parede, do piso de cima, do telhado, da escada, da copa. Pixel furado não escreve profundidade (o que está
+  atrás aparece). Em qualquer ângulo; outros jogadores / NPCs desenhados normalmente; `game.cutout` (entra / sai
+  suave, desligado morto).
+- **Revelar** (`levels.js reveal`) só **dentro de um prédio com telhado** (a região de telhado em volta do jogador): os
+  andares de cima somem para ver o cômodo, como antes. Os ramos "sala fechada no térreo" (o pátio) e "laje inteira
+  acima" foram retirados. O **cutaway** (paredes do cômodo / na frente do jogador a 0,22) e o telhado translúcido
+  (0,32 quando cobria o jogador) foram aposentados: o recorte faz isso só onde cobre.
+- Conferir: `game.debugK.fortScene()` (pátio murado de dois andares com ameias, adarve em cima, cabana com telhado,
+  fogueira, tochas de parede) e os pontos `court`, `court_s`, `walk`, `out_n`, `hut`, `fire_n`, `wtorch`;
+  `game.debugK.depthScene()` (casa com portas ao lado do canto, piso de cima com mureta, escada de fora ao longo da casa
+  até uma passarela entre dois andares de cima, mesa 2×1, cadeiras, cama, árvore, tocha, braseiro) e os pontos
+  `table_n|s|e|w`, `door_out|mid|in`, `door_e(_out|_in)`, `stair_bot|mid|top`, `upper_top`, `walkway`, `upper_edge`,
+  `tree_n|s`, `wall_n|s`, `torch`, `bed`; `game.debugK.depthAt(ponto, dx, dy, 'sleep' | 'sit')` põe o jogador lá,
+  `game.debugK.depthDummy(ponto)` põe outro sobrevivente (local).
 - **Estruturas** (`art/faces/structures.js` registra; construtores em `art/faces/walls.js`, `doors.js`, `fences.js`;
   ferramentas em `art/faces/kit.js`). Regra de arte: um ponto (xr, yr) do tile na altura h foi pintado pela vista
   norte no pixel `col = 64·xr`, `linha = R0 + 64·yr − 64·h` do quadro da peça (R0 = 64 nas paredes / portas, 36 nas
@@ -88,16 +160,15 @@ calculados para o ângulo do momento.
     parede passar por cima do beiral; um sprite em pé sob o beiral, na frente da parede, fica por cima — como no
     norte). Chaves relativas ao meio da região, corrigidas pelo ângulo exato a cada quadro. Girando, as vistas são
     recalculadas dentro de 2,5 ms por quadro (as mais atrasadas primeiro).
-  - **Pintura:** no worker (`roofWorker.js`, modo 2 / 3), junto com a arte norte depois que a câmera girou uma vez
-    (lembrado em `localStorage wos.roofTurn`: quem gira a câmera já recebe a arte pronta na próxima sessão); até lá,
-    a mesma geometria em cores lisas por água. Quem nunca gira não paga nada.
+  - **Pintura:** no worker (`roofWorker.js`, modo 3: junto com a arte norte, que ainda serve para luz / raios / o mapa
+    de telhados), sempre (3D em 0° também); até a arte chegar, a mesma geometria em cores lisas por água.
   - **Luz / clima:** o telhado girado entra no mapa de luz como oclusor (`uRoofFx.w`: lâmpadas de dentro não clareiam
     o telhado), escurece com a chuva e recebe a neve só nas águas (não nas empenas) — `FACE_FS uRoofFx`. Sombras do sol:
     as peças e o volume das paredes projetados no chão ao longo do sol (`batches.shadowFaces`, MAX como os sprites):
     certas em qualquer ângulo.
   - **Interação:** tocar no telhado (desmontar etc., `roofPick`) lança um raio da tela para a câmera (subir na tela =
-    subir em altura) contra a superfície de todas as regiões; o telhado fica translúcido só quando o raio do peito /
-    cabeça do jogador na tela bate no telhado na frente dele; desabamento: as peças descem e somem; plantas de
+    subir em altura) contra a superfície de todas as regiões; o telhado na frente do jogador abre no recorte em volta
+    dele (não fica mais translúcido inteiro); desabamento: as peças descem e somem; plantas de
     telhado, o fantasma do telhado e a marca vermelha de desmontar viram faces que giram com o mundo (a marca deitada
     na água), `roofTileFace` / `liftedPoint`; some quando o jogador entra (como sempre).
 - **Escadas (níveis, `art/faces/levels.js`):** a arte de verdade da escada (`art/stairs.js`) em faces calculadas, nas 4
@@ -122,9 +193,8 @@ calculados para o ângulo do momento.
 - **Gente em cima de muralha / piso:** a profundidade de quem está num andar ganha uma margem (o canto da frente do
   topo da parede pode ficar até ~1,07 tile à frente dos pés na diagonal) — o personagem nunca some atrás da parede em
   que anda.
-- **Recorte / revelar (cutaway / reveal):** com a câmera girada "na frente" é o lado da câmera (16 passos de giro):
-  paredes do cômodo cujo vizinho do lado de longe está dentro, paredes do lado de perto da laje e as que estão na frente
-  do jogador na tela (mais uma por andar) ficam translúcidas; o revelar (andares acima somem) não depende do giro.
+- **Recorte / revelar:** ver "Recorte em volta do jogador" (o cutaway de paredes translúcidas foi aposentado; o revelar
+  vale só dentro de prédio com telhado).
 - **Modo construção num andar:** o cursor sobe reto na tela (`building.originAt`), os quadrados do fantasma deitados no
   andar, o fantasma de escada em faces, os anéis do patamar subindo reto; `levels.pickUpper` e a escolha de peças de
   cima no `controller` também sobem pela rotação.
@@ -230,7 +300,7 @@ paredes).
   refeitos quando muda lugar, giro, estado, andar ou o lugar de um sprite preguiçoso no atlas). Por quadro: visibilidade
   de cada lado, ordem das partes e cores (cópia direta para `B.faces` com `FaceBatch.quadF`, sem alocação). Peças
   seguidas na ordem sem sprite no meio saem numa chamada de desenho só.
-- Em 0° nada muda (sprites de sempre).
+- Em 0° também são as peças em 3D (3D em todos os ângulos; ver "Profundidade por pixel").
 
 ### Como converter um tipo (uma entrada na tabela)
 
@@ -367,9 +437,16 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
 ## O que falta
 
 - Telhados: a parte de baixo do beiral não é desenhada (com a câmera a 45° ela nunca aparece: a parede ou a própria
-  água da frente a escondem); na primeira girada da sessão (quem nunca girou) os telhados aparecem em cores lisas até
-  o worker pintar (~0,1–0,3 s por casa); a ordem das peças vem de um ângulo até 0,25° atrás (giro rápido: alguns
-  quadros).
+  água da frente a escondem); ao carregar o mundo os telhados aparecem em cores lisas até o worker pintar (~0,1–0,3 s
+  por casa); a ordem das peças vem de um ângulo até 0,25° atrás (giro rápido: alguns quadros).
+- Profundidade: sprites são cartões (um plano em pé pelo pé): o braço de um personagem ao lado de uma peça é cortado
+  pela peça como uma tábua, não como um corpo redondo; a copa de uma árvore é plana na altura do tronco; peças de 1 tile
+  do `props.js` (ainda sprites) ficam num plano na frente do corpo. A borda suave (alfa 0,25…0,97) de um sprite que
+  escreve profundidade ainda esconde o que for desenhado depois atrás dela (1 px; só onde a ordem de pintor erra).
+  Sobreposições dos sistemas (fantasmas da construção, anéis) continuam por cima de tudo, sem teste. A luz da janela no
+  mapa de luz / o halo de `fx/ambient.js` não são cortados por profundidade (camadas de luz em tela).
+- Recorte: o pontilhado mostra o chão / o vazio de dentro de uma parede grossa onde a elipse passa da silhueta do
+  jogador (porta no canto); o oclusor de luz do telhado não abre (a luz lá dentro não vaza pelo furo).
 - Estruturas: os pilares / postes de canto das
   paredes ficam pintados nas faces (não saem da caixa); faces não recebem sombra de outras coisas (como antes). Ao
   sair de 0° as sebes / muros de pedra / postes mudam alguns pixels (a arte da vista norte não tem topo nem
@@ -388,9 +465,8 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   de lado pegam a arte de lado (pedra / transparente); a fumaça de um fogo de baixo atravessa um piso de cima (como
   antes); o halo de `fx/ambient.js` continua por cima de tudo (como em 0°); uma tocha de parede no lado norte de uma
   parede sobe um pouco acima do topo dela vista de longe (é mais alta que a parede na arte); o anel de pedras / o prato
-  são círculos de verdade (a arte os desenhava achatados). Quem senta fica na frente do encosto
-  quando a câmera olha a cadeira por trás (a pessoa é desenhada logo depois da peça inteira; precisaria de um
-  desenhável à parte para o encosto, como a frente da escada). A mancha de terra pintada em volta do barril some ao
+  são círculos de verdade (a arte os desenhava achatados). (Quem senta atrás do encosto: resolvido pela profundidade
+  por pixel.) A mancha de terra pintada em volta do barril some ao
   girar (fica fora do sólido). Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px). Faces não recebem
   rachaduras de dano.
 - **Móveis em pé** (os do `props.js`: peças de 1 tile, armações vistas de ponta): 4 vistas, trocam de vista a 45° como os
