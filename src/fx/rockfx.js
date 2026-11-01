@@ -78,11 +78,11 @@ function drawCracks(B, A) {
   const s = archSprite(A, (front || turned ? 'siege_crack_f' : 'siege_crack_t') + stage);
   if (!s) return;
   const fl = (o.tx * 7 + o.ty * 3) & 1 ? 1 : -1, al = Math.min(1, 0.55 + (d * 4 - stage) * 0.45) * (o.alpha ?? 1);
-  if (turned) { drawCrackFaces(B, A, o, s, al, fl < 0, sh); return; } // (on the top and every side that shows)
+  if (turned) { if (o._fk?.cracks) o._fk.cracks(B, A, o, s, al, fl < 0, sh); else drawCrackFaces(B, A, o, s, al, fl < 0, sh); return; } // (on the top and every side that shows; a solid piece: on its own faces)
   B.main.add(s, o.x + sh, o.y, fl, 1, 1, 1, 1, al, 0, 0, 0, 1);
 }
 // camera turned: right after the piece it cracks (its box depth)
-function cracksZ(rc, rs) { return boxDepth(this.o, rc, rs) + 0.002; }
+function cracksZ(rc, rs) { const o = this.o; return (o._fk?.cracks && o._zk != null ? o._zk : boxDepth(o, rc, rs)) + 0.002; }
 
 export function rockFxSystem() {
   const tmp = [], pool = [];

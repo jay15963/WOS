@@ -3,25 +3,27 @@
 // h px above the ground. A view whose art draws the piece differently lists the same parts again in its own numbers.
 import { defineSolid } from './solid.js';
 import { torchFlame } from '../composeWorld.js';
-import { TORCH_FLAME_LIFT } from '../buildings.js';
+import { TORCH_FLAME_LIFT, CHEST_UV } from '../buildings.js';
 
-// ---- chest (art/buildings.js chest / chest_n / chest_e): a box; the old art draws its depth short (k) ----
-// chest 58×52 anchored on row 49 (no Y(v, h)): a pixel row r at height h is ground row v = 1 + (r − 49 + h) / 64
-const CHEST = { box: [-23, 23, 1 - 19 / 64, 1 - 2 / 64, 0, 25] }; // lid rows 5..22 (its arc included), front 22..47
+// ---- chest: a real box with its own face art (art/buildings.js chestUV, CHEST_UV: each face in true proportions) —
+// body 16 px and lid 9 px flush over the whole footprint (EDGE_GEOM 0.56 deep), the bands over front / lid / back, the
+// lock only on the front; open (o._lid, any facing): dark inside walls, the contents on the bottom, the lid standing up
+// on the back edge ----
+const U = CHEST_UV, B0 = 1 - 0.56;
+const CHEST_BODY = { box: [-23, 23, B0, 1, 0, 16], uv: { s: U.fb, n: U.bb, e: U.sb, w: U.sb } };
 defineSolid('chest', {
-  k: (17 / 64) / 0.56, piv: -2 / 64, // the lid's 17 px are the body's 0.56 tiles; squashed about the front
-  parts: [CHEST],
-  views: {
-    n: { k: (17 / 64) / 0.56, piv: -2 / 64, parts: [CHEST] },
-    // chest_e 46×82 anchored on row 79: end panel rows 52..78, lid 22..52 (the body's 0.74 tiles)
-    e: { k: (30 / 64) / 0.74, piv: -1 / 64, parts: [{ box: [-18, 18, 1 - 31 / 64, 1 - 1 / 64, 0, 26] }] },
-  },
-  // open while the local player uses it (o._lid; the art exists for the front only): chest_open 58×60 on row 57 —
-  // body front rows 34..55, the opening 28..34 (drawn very flat), the lid standing behind it (rows 1..30)
-  state: (o) => (o._lid && (o.face || 's') === 's' ? 'open' : ''),
+  ow: 0, uvS: 'chest_uv',
+  parts: [CHEST_BODY, { box: [-23, 23, B0, 1, 16, 25], uv: { s: U.fl, n: U.bl, e: U.sl, w: U.sl, t: U.top } }],
+  state: (o) => (o._lid ? 'open' : ''),
   variants: {
-    open: { s: 'chest_open', only: true, k: (6 / 64) / 0.56, piv: -2 / 64,
-      parts: [{ box: [-23, 23, 1 - 8 / 64, 1 - 2 / 64, 0, 21] }, { card: [-23, 23, 1 - 9.5 / 64, 21, 48] }] },
+    open: {
+      parts: [
+        { box: [-22.5, 22.5, B0 + 0.008, 0.992, 5, 16], open: true, uv: { i: U.inner }, z: -0.03, sh: false },
+        { quad: [[-22.5, B0 + 0.008, 5], [22.5, B0 + 0.008, 5], [22.5, 0.992, 5], [-22.5, 0.992, 5]], uv: { q: U.con }, z: -0.02, sh: false },
+        CHEST_BODY,
+        { box: [-23, 23, B0, B0 + 9 / 64, 16, 52], uv: { s: U.lin, n: [U.top[2], U.top[3], U.top[0], U.top[1]], e: [...U.sl, 1], w: [...U.sl, 1], t: U.fl } },
+      ],
+    },
   },
 });
 
@@ -40,7 +42,7 @@ defineSolid('table_wood', {
 
 // ---- chair (stations.js chair / chair_wood_n / chair_wood_e): seat box + backrest board ----
 defineSolid('chair_wood', {
-  parts: [{ box: [-14, 14, 0.35, 0.8, 0, 17], open: true }, { card: [-13, 13, 0.35, 17, 46] }],
+  parts: [{ box: [-14, 14, 0.35, 0.8, 0, 17], open: true }, { card: [-13, 13, 0.35, 17, 46], cover: true }],
   seat: [0, 0.6, 17], // (where a sitter sits while turned: art/compose.js)
   views: {
     n: { parts: [{ box: [-14, 14, 0.25, 0.7, 0, 17], open: true }, { card: [-13, 13, 0.75, 17, 46] }], seat: [0, 0.45, 17] },
@@ -48,10 +50,16 @@ defineSolid('chair_wood', {
   },
 });
 
-// ---- bed (buildings.js bed / bed_n / bed_e, Y(v, h) = 64v − 7 − h: anchor row v = 2): frame + headboard ----
+// ---- bed (buildings.js bed / bed_n / bed_e, Y(v, h) = 64v − 7 − h: anchor row v = 2): frame + headboard. The art
+// draws the mattress from v 0.594; the model fills the two tiles (geo: the headboard at the tile edge, a bed against a
+// wall touches it), its art stretched along. rest: the pillow (art numbers) where a sleeper's head lies ----
 defineSolid('bed', {
   V: 2,
-  parts: [{ box: [-29, 29, 0.594, 1.98, 0, 9] }, { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4 }],
+  parts: [
+    { box: [-29, 29, 0.594, 1.98, 0, 9], geo: [-30, 30, 0.004, 1.996, 0, 9] },
+    { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4, geo: [-31, 31, 0.035, 9, 31], cover: true },
+  ],
+  rest: [0, 0.766, 9],
   views: {
     n: { V: 2, parts: [{ box: [-29, 29, 0.3, 1.98, 0, 9] }, { card: [-30, 30, 1.98 - 2 / 64, 9, 22], t: 4 }] },
     e: { parts: [{ box: [-58, 60, 0.1, 0.9, 0, 13] }, { box: [-62, -54, 0.1, 0.9, 13, 32] }] },

@@ -51,6 +51,14 @@ function ground(g, cx, y, rx, ry, a = 0.3) {
   g.fillStyle = rad(g, cx, y, 0, rx, [[0, `rgba(40,28,16,${a})`], [1, 'rgba(40,28,16,0)']]);
   g.save(); g.translate(cx, y); g.scale(1, ry / rx); g.beginPath(); g.arc(0, 0, rx, 0, TAU); g.restore(); g.fill();
 }
+// the same patch on its own (alpha 1, radius 32 px): camera rotation draws it on the ground under solid pieces
+// (art/faces/solid.js decal), scaled to rx × ry and faded to the painter's alpha
+function decalDirt() {
+  return spritePx(64, 64, (g) => {
+    g.fillStyle = rad(g, 32, 32, 0, 32, [[0, 'rgba(40,28,16,1)'], [1, 'rgba(40,28,16,0)']]);
+    g.beginPath(); g.arc(32, 32, 32, 0, TAU); g.fill();
+  }, { crop: false });
+}
 function leaves(g, x, y, rx, ry, rand, n = 14, pal = GREENS) {
   g.fillStyle = mixc(pal[3], '#000', 0.2); g.beginPath(); smoothClosed(g, blobPts(x, y, rx, ry, rand, 9, 0.14)); g.fill();
   for (let i = 0; i < n; i++) {
@@ -1104,7 +1112,7 @@ function decorSprites(S) {
   A('candles', () => candles()); A('candelabra', () => candelabra());
   A('herbs_hang', () => herbsHang()); A('curtain', () => curtain()); A('painting', () => painting()); A('trophy', () => trophy()); A('pot_hooks', () => potHooks());
   for (let v = 0; v < 3; v++) A('plant_pot_' + v, () => plantPot(v));
-  S('rug_round', rugRound, 0.5, 0.5); S('rug_fur', rugFur, 0.5, 0.5);
+  S('rug_round', rugRound, 0.5, 0.5); S('rug_fur', rugFur, 0.5, 0.5); S('decal_dirt', decalDirt, 0.5, 0.5);
   A('weapon_rack', () => weaponRack(false)); A('weapon_rack_e', () => weaponRack(true));
   A('armor_stand', () => armorStand());
   A('fireplace', () => fireplace(false)); A('fireplace_e', () => fireplace(true));

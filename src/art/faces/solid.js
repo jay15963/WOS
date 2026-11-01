@@ -101,7 +101,7 @@ function artView(F, x, v, h) { VP.X = F.m * x / 64; VP.d = F.piv + (v - F.V - F.
 // ---------- the model (local tiles: origin = body centre on the ground, +y = the piece's front) ----------
 // part: { t: 0 box / 1 lathe / 2 quad, x0 x1 y0 y1 h0 h1 (bbox), ax ay (lathe axis), pr (lathe profile: h, r pairs),
 //         n (sides), q (quad corners), open, top, sh, z, fit: 4 views × 6 (sX oX sd od sh oh) }
-function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, pr: [], n: 12, q: [], open: false, top: '', sh: true, z: 0, card: false, fit: new Float32Array(24) }; }
+function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, fit: new Float32Array(24) }; }
 // the art's dark outline (ow px around the silhouette) belongs to the solid: each part grows by it — sideways, its top's
 // back edge, and below the ground for parts standing on it (a card's thin top covers the outline above it)
 const GROWN = new WeakMap();
@@ -115,6 +115,12 @@ function grown(ps, ow) {
   else { const [x, v, pr] = ps.lathe, q = pr.map(([h, r]) => [h, r + ow]); if (pr[0][0] <= 0.5) q.unshift([pr[0][0] - ow, pr[0][1] + ow]); g = { lathe: [x, v, q] }; }
   g.ow = ow;
   GROWN.set(ps, g);
+  return g;
+}
+const GEO = new WeakMap();
+function geoOf(ps) {
+  let g = GEO.get(ps);
+  if (!g) { g = ps.box ? { box: ps.geo } : ps.card ? { card: ps.geo, t: ps.gt ?? ps.t } : ps.quad ? { quad: ps.geo } : { lathe: ps.geo }; GEO.set(ps, g); }
   return g;
 }
 // a part spec's bbox in view F's coordinates: [X0, X1, d0, d1, h0, h1]
@@ -140,8 +146,11 @@ function buildModel(F, list, P) {
   for (let j = 0; j < list.length; j++) {
     const p = P[j] || (P[j] = mkPart());
     let ps = list[j];
-    p.open = !!ps.open; p.top = ps.top || ''; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card;
-    ps = grown(ps, F.ow);
+    p.open = !!ps.open; p.top = ps.top || ''; p.band = ps.band || 6; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card; p.cover = !!ps.cover;
+    p.uv = ps.uv || null;
+    // geo: the part's true size (same format, these art numbers) when the art draws it shorter / smaller than the
+    // footprint (a bed reaching the wall): the model is the geo, the art box only says where its texture is
+    ps = ps.geo ? geoOf(ps) : p.uv ? ps : grown(ps, F.ow);
     const L = (x, v, h) => { artView(F, x, v, h); LP.x = F.ax + F.rx * VP.X + F.cx * VP.d; LP.y = F.ay + F.ry * VP.X + F.cy * VP.d; LP.h = VP.h; return LP; };
     if (ps.lathe) {
       const [x, v, pr] = ps.lathe;
@@ -162,6 +171,15 @@ function buildModel(F, list, P) {
 }
 const LP = { x: 0, y: 0, h: 0 };
 function bbAdd(p, x, y, h) { if (x < p.x0) p.x0 = x; if (x > p.x1) p.x1 = x; if (y < p.y0) p.y0 = y; if (y > p.y1) p.y1 = y; if (h < p.h0) p.h0 = h; if (h > p.h1) p.h1 = h; }
+// an art point (x px, v, h px) of the 0° view F → a local model point (LP), through part j's fit (identity unless the
+// part has a geo or the model was centred)
+function artLocal(e, F, j, x, v, h) {
+  artView(F, x, v, h);
+  const f = e.P[j].fit, o = e.f * 6;
+  const X = (VP.X - f[o + 1]) / f[o], d = (VP.d - f[o + 3]) / f[o + 2], hh = (VP.h - f[o + 5]) / f[o + 4];
+  LP.x = F.ax + F.rx * X + F.cx * d; LP.y = F.ay + F.ry * X + F.cy * d; LP.h = hh;
+  return LP;
+}
 // view coordinates of a local point in view F
 const VQ = { X: 0, d: 0, h: 0 };
 function toView(F, x, y, h) { const dx = x - F.ax, dy = y - F.ay; VQ.X = dx * F.rx + dy * F.ry; VQ.d = dx * F.cx + dy * F.cy; VQ.h = h; return VQ; }
@@ -216,7 +234,14 @@ function clipAxis(src, n, dst, k, lim, keepLess) {
 let E = null, CA = 1, SA = 0, WX = 0, WY = 0, H0 = 0;
 function pushQuad(i0, i1, i2, i3, S, flag, nx, ny) {
   const e = E;
-  if (e.nq * 20 + 20 > e.q.length) { const g = new Float32Array(Math.max(e.q.length * 2, 400)); g.set(e.q); e.q = g; const gn = new Float32Array(g.length / 10); gn.set(e.qn); e.qn = gn; const gf = new Uint8Array(g.length / 20); gf.set(e.qf); e.qf = gf; }
+  if (e.nq * 20 + 20 > e.q.length) {
+    const g = new Float32Array(Math.max(e.q.length * 2, 400)); g.set(e.q); e.q = g;
+    const gn = new Float32Array(g.length / 10); gn.set(e.qn); e.qn = gn;
+    const gf = new Uint8Array(g.length / 20); gf.set(e.qf); e.qf = gf;
+    const gm = new Uint8Array(g.length / 20); gm.set(e.qm); e.qm = gm;
+    const gb = new Float32Array(g.length / 20 * 4); gb.set(e.qb); e.qb = gb;
+  }
+  e.qm[e.nq] = 0;
   const q = e.q, du = (S.u1 - S.u0) / S.pw, dv = (S.v1 - S.v0) / S.ph;
   let o = e.nq * 20;
   for (const i of [i0, i1, i2, i3]) {
@@ -291,10 +316,81 @@ function boxFaces(p, f, flagPass) {
 }
 function boxTop(p, f) {
   if (p.top === 'none') return;
+  if (p.top === 'open') { openTop(p, f); return; }
   PN = 4;
   corner(0, p.x0, p.y0, p.h1); corner(1, p.x1, p.y0, p.h1); corner(2, p.x1, p.y1, p.h1); corner(3, p.x0, p.y1, p.h1);
   if (p.top === 'strip') texStrip(p, f, 4); else texCorners(p, f, 4);
   emitFace(FR[f].S, 1, 0, 0);
+}
+// ---------- dedicated face art (uv: a texture painted with each face in its true proportions, e.g. CHEST_UV) ----------
+// part.uv = { s | n | e | w (sides: front +y, back, +x, −x local), t (top), i (inside walls of an open box), q (a quad):
+// [c0, r0, c1, r1] px of the uv sprite, top-left → bottom-right as the face is seen from outside (reversed numbers
+// mirror it; a 5th element 1 turns it a quarter: its width runs down the face) }
+function uvCorners(S, r) {
+  // (half a texel inside the rect: never the neighbour's border)
+  const ia = r[0] < r[2] ? 0.5 : -0.5, ib = r[1] < r[3] ? 0.5 : -0.5;
+  const c0 = r[0] + ia, c1 = r[2] - ia, r0 = r[1] + ib, r1 = r[3] - ib;
+  if (r[4]) { PA[3] = c0; PA[4] = r1; PA[8] = c0; PA[9] = r0; PA[13] = c1; PA[14] = r0; PA[18] = c1; PA[19] = r1; }
+  else { PA[3] = c0; PA[4] = r0; PA[8] = c1; PA[9] = r0; PA[13] = c1; PA[14] = r1; PA[18] = c0; PA[19] = r1; }
+}
+function uvBox(p, S, pass) {
+  for (const sd of SIDES) {
+    const r = pass === 2 ? p.uv.i : p.uv[sd[1] > 0 ? 's' : sd[1] < 0 ? 'n' : sd[0] > 0 ? 'e' : 'w'];
+    if (!r) continue;
+    PN = 4;
+    corner(0, sd[2] ? p.x1 : p.x0, sd[3] ? p.y1 : p.y0, p.h1); corner(1, sd[4] ? p.x1 : p.x0, sd[5] ? p.y1 : p.y0, p.h1);
+    corner(2, sd[6] ? p.x1 : p.x0, sd[7] ? p.y1 : p.y0, p.h0); corner(3, sd[8] ? p.x1 : p.x0, sd[9] ? p.y1 : p.y0, p.h0);
+    uvCorners(S, r);
+    pushQuad(0, 1, 2, 3, S, pass, sd[0], sd[1]);
+  }
+  if (pass === 0 && p.uv.t && p.top !== 'none') {
+    PN = 4;
+    corner(0, p.x0, p.y0, p.h1); corner(1, p.x1, p.y0, p.h1); corner(2, p.x1, p.y1, p.h1); corner(3, p.x0, p.y1, p.h1);
+    uvCorners(S, p.uv.t);
+    pushQuad(0, 1, 2, 3, S, 1, 0, 0);
+  }
+}
+function uvQuad(p, S) {
+  PN = 4;
+  for (let k = 0; k < 4; k++) corner(k, p.q[k * 3], p.q[k * 3 + 1], p.q[k * 3 + 2]);
+  uvCorners(S, p.uv.q);
+  const ux = p.q[3] - p.q[0], uy = p.q[4] - p.q[1], uh = p.q[5] - p.q[2], vx = p.q[9] - p.q[0], vy = p.q[10] - p.q[1], vh = p.q[11] - p.q[2];
+  let nx = uy * vh - uh * vy, ny = uh * vx - ux * vh;
+  const nh = ux * vy - uy * vx, L = Math.hypot(nx, ny);
+  if (L < Math.abs(nh) * 0.35) pushQuad(0, 1, 2, 3, S, 1, 0, 0);
+  else { nx /= L; ny /= L; pushQuad(0, 1, 2, 3, S, 0, nx, ny); }
+}
+
+// the top of an open box (top: 'open', the chest with its lid up): art that draws the opening squashed (a few rows for
+// the whole depth) would be stretched over the true depth once turned. Two quads (a front band `band` px deep, the
+// rest): near 0° their rows are the projective ones (the sprite); turned, the front band shows those rows unstretched
+// and the rest the darkest row behind them (drawSolid blends the rows with the squash: e.qm / e.qb)
+function openTop(p, f) {
+  const F = FR[f], S = F.S, cx = VCX[f], cy = VCY[f];
+  const fa = cx ? (cx > 0 ? p.x1 : p.x0) : (cy > 0 ? p.y1 : p.y0), fz = cx ? (cx > 0 ? p.x0 : p.x1) : (cy > 0 ? p.y0 : p.y1);
+  const L = Math.abs(fa - fz), sg = Math.sign(fa - fz) || 1, s0 = Math.min(L, p.band / 64), cut = fa - sg * s0;
+  texel(p, f, cx ? fa : (p.x0 + p.x1) / 2, cy ? fa : (p.y0 + p.y1) / 2, p.h1);
+  const rF = CR.r;
+  texel(p, f, cx ? fz : (p.x0 + p.x1) / 2, cy ? fz : (p.y0 + p.y1) / 2, p.h1);
+  const rM = Math.max(rF - p.band, CR.r + 0.5), dv = (S.v1 - S.v0) / S.ph;
+  const clampC = (c) => (c < 0.5 ? 0.5 : c > S.pw - 0.5 ? S.pw - 0.5 : c), clampR = (r) => (r < 0.5 ? 0.5 : r > S.ph - 0.5 ? S.ph - 0.5 : r);
+  for (let k = 0; k < 2; k++) {
+    const a = k ? cut : fa, b = k ? fz : cut;
+    if (Math.abs(a - b) < 1e-5) continue;
+    PN = 4;
+    if (cx) { corner(0, b, p.y0, p.h1); corner(1, b, p.y1, p.h1); corner(2, a, p.y1, p.h1); corner(3, a, p.y0, p.h1); }
+    else { corner(0, p.x0, b, p.h1); corner(1, p.x1, b, p.h1); corner(2, p.x1, a, p.h1); corner(3, p.x0, a, p.h1); }
+    texCorners(p, f, 4);
+    for (let q = 0; q < 4; q++) { PA[q * 5 + 3] = clampC(PA[q * 5 + 3]); PA[q * 5 + 4] = clampR(PA[q * 5 + 4]); }
+    pushQuad(0, 1, 2, 3, S, 1, 0, 0);
+    const n = E.nq - 1;
+    E.qm[n] = 1;
+    // turned: rows by the distance from the front (1:1) down to rM, then rM
+    for (let q = 0; q < 4; q++) {
+      const s = Math.abs(fa - (cx ? PA[q * 5] : PA[q * 5 + 1]));
+      E.qb[n * 4 + q] = S.v0 + dv * clampR(Math.max(rM, rF - 64 * s));
+    }
+  }
 }
 function latheFaces(p, f) {
   const n = p.n, pr = p.pr, b = (f + 2) & 3, cfx = VCX[f], cfy = VCY[f];
@@ -343,13 +439,23 @@ function quadFace(p, f) {
 const ENT = new WeakMap();
 function mkEntry() {
   return { type: '', tx: NaN, ty: 0, rot: 0, x: 0, y: 0, cy: 0, lv: 0, st: '', S: [null, null, null, null], su: new Float32Array(8), ok: false,
-    q: new Float32Array(400), qn: new Float32Array(40), qf: new Uint8Array(20), nq: 0, P: [], pq: [], pcx: [], pcy: [], pz: [],
-    fpx: new Float32Array(4), fpy: new Float32Array(4), k0: 1, k1: 1, pvx: 0, pvy: 0, A: 0, fi: 0, h0: 0, sh: [], fx: [], lp: null, seat: null, f: 0, Sf: null, mf: 1 };
+    q: new Float32Array(400), qn: new Float32Array(40), qf: new Uint8Array(20), qm: new Uint8Array(20), qb: new Float32Array(80), nq: 0, P: [], pq: [], pcx: [], pcy: [], pz: [],
+    fpx: new Float32Array(4), fpy: new Float32Array(4), k0: 1, k1: 1, pvx: 0, pvy: 0, A: 0, fi: 0, h0: 0, sh: [], fx: [], lp: null, seat: null, rest: null, f: 0, Sf: null, mf: 1,
+    // who sits / lies on it: parts flagged `cover` that are nearer the camera than this point (refx, refy) are drawn by
+    // a drawable of their own right after the sitter (fd: game.js pushes it when fdOn); pf = per part, this frame
+    nCover: 0, refx: 0, refy: 0, pf: new Uint8Array(8), fdOn: false, pend: false, fd: null,
+    dc: null, // ground decal: [x, y, sx, sy, a] (art/faces/solid.js decal)
+    US: null, uu: 0, uv0: 0, // dedicated face art of uv parts and its atlas place
+  };
 }
 // the variant (state) of o
 function stateOf(o, spec) { return spec.state ? spec.state(o) || '' : ''; }
-function bodyOf(o, def) {
-  if (def.edge) { const g = EDGE_GEOM[o.type] || def.eg || [0.5, 0.3]; BODY[0] = 2 * g[1]; BODY[1] = g[0]; BODY[2] = o.x; BODY[3] = o.cy ?? o.y; }
+function bodyOf(o, def, fixed) {
+  if (def.edge) {
+    const g = EDGE_GEOM[o.type] || def.eg || [0.5, 0.3];
+    BODY[0] = 2 * g[1]; BODY[1] = g[0]; BODY[2] = o.x; BODY[3] = o.cy ?? o.y;
+    if (fixed) BODY[1] = 2 * (o.y - BODY[3]); // (drawn facing south whatever its facing: anchored on o.y)
+  }
   else { const sz = def.size || [1, 1], fw = o.fw || sz[0], fh = o.fh || sz[1]; BODY[0] = sz[0]; BODY[1] = sz[1]; BODY[2] = o.tx + fw / 2; BODY[3] = o.ty + fh / 2; }
   return BODY;
 }
@@ -358,19 +464,34 @@ function valid(e, o, st) {
   if (e.type !== o.type || e.tx !== o.tx || e.ty !== o.ty || e.rot !== (o.rot | 0) || e.x !== o.x || e.y !== o.y || e.lv !== (o.lv | 0) || e.st !== st || e.face !== o.face) return false;
   // lazy art moved / evicted (look atlas): rebuild; drawing them keeps them alive (K.ok stamps their last use)
   for (let i = 0; i < 4; i++) { const S = e.S[i]; if (!S || !K.ok(S) || S.u0 !== e.su[i * 2] || S.v0 !== e.su[i * 2 + 1]) return false; }
+  const U = e.US;
+  if (U && (!K.ok(U) || U.u0 !== e.uu || U.v0 !== e.uv0)) return false;
   return true;
 }
 function build(A, o, def, spec, st, e) {
   e.type = o.type; e.tx = o.tx; e.ty = o.ty; e.rot = o.rot | 0; e.x = o.x; e.y = o.y; e.lv = o.lv | 0; e.st = st; e.face = o.face; e.nq = 0; e.ok = false;
   const sp = st && spec.variants?.[st] ? { ...spec, ...spec.variants[st] } : spec;
-  const [W, D, bx, by] = bodyOf(o, def);
+  const [W, D, bx, by] = bodyOf(o, def, spec.fixed);
   if (!views(A, o, spec, sp, W, D)) return e;
-  const f = FI[o.face || 's'] ?? 0, Ff = FR[f];
+  const f = spec.fixed ? 0 : FI[o.face || 's'] ?? 0, Ff = FR[f];
   for (let i = 0; i < 4; i++) { e.S[i] = FR[i].S; e.su[i * 2] = FR[i].S.u0; e.su[i * 2 + 1] = FR[i].S.v0; }
   e.f = f; e.Sf = Ff.S; e.mf = Ff.m;
+  // the dedicated face art of uv parts (spec.uvS)
+  const un = sp.uvS || spec.uvS;
+  e.US = un ? spriteNamed(A, un) : null;
+  if (un && !e.US) return e;
+  if (e.US) { e.uu = e.US.u0; e.uv0 = e.US.v0; }
   e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H;
   const list = Ff.spec.parts;
   buildModel(Ff, list, e.P);
+  // centred in its body (edge pieces, spec.center): the art does not always draw a piece where its body is (a chair
+  // 0.2 tiles behind its front); a piece against a wall then reaches it without going through (the fits keep the art on it)
+  if (spec.center ?? !!def.edge) {
+    let a = 1e9, b = -1e9;
+    for (const p of e.P) { if (p.y0 < a) a = p.y0; if (p.y1 > b) b = p.y1; }
+    const sh = -(a + b) / 2;
+    if (Math.abs(sh) > 1e-4) for (const p of e.P) { p.y0 += sh; p.y1 += sh; p.ay += sh; for (let k = 1; k < p.q.length; k += 3) p.q[k] += sh; }
+  }
   for (let j = 0; j < e.P.length; j++) for (let i = 0; i < 4; i++) fitPart(e.P[j], j, i);
   // faces, part by part: far sides from inside (open), sides, tops
   E = e;
@@ -379,8 +500,10 @@ function build(A, o, def, spec, st, e) {
   for (let j = 0; j < e.P.length; j++) {
     const p = e.P[j];
     e.pq[j] = e.nq;
-    if (p.t === 0) { if (p.open) boxFaces(p, f, 2); boxFaces(p, f, 0); boxTop(p, f); }
+    if (p.t === 0 && p.uv) { if (p.open) uvBox(p, e.US, 2); uvBox(p, e.US, 0); }
+    else if (p.t === 0) { if (p.open) boxFaces(p, f, 2); boxFaces(p, f, 0); boxTop(p, f); }
     else if (p.t === 1) latheFaces(p, f);
+    else if (p.uv) uvQuad(p, e.US);
     else quadFace(p, f);
     const cx = (p.x0 + p.x1) / 2, cy = (p.y0 + p.y1) / 2;
     e.pcx[j] = WX + CA * cx - SA * cy; e.pcy[j] = WY + SA * cx + CA * cy; e.pz[j] = p.h0 * 1e-3 + p.z;
@@ -403,20 +526,39 @@ function build(A, o, def, spec, st, e) {
       // a round thing: the 0° art's silhouette across the sun, standing on its axis (lift: the art's ground above its anchor)
       const wx = WX + CA * p.ax - SA * p.ay, wy = WY + SA * p.ax + CA * p.ay;
       toView(Ff, p.ax, p.ay, 0);
-      e.sh.push(1, wx, wy, 0, 0, 0, 0, H0 + Ff.k * (VQ.d - Ff.piv) + Ff.piv);
+      const da = p.fit[e.f * 6 + 2] * VQ.d + p.fit[e.f * 6 + 3]; // (the axis in the art: before a centring shift)
+      e.sh.push(1, wx, wy, 0, 0, 0, 0, H0 + Ff.k * (da - Ff.piv) + Ff.piv);
     }
   }
+  // points of the 0° view's art → the model (through part pt's fit: a geo stretch, the centring) → world
+  const pj = Math.min(spec.pt ?? 0, e.P.length - 1);
   e.fx.length = 0;
   for (const fx of Ff.spec.fx || spec.fx || []) {
-    artView(Ff, fx.at[0], fx.at[1], fx.at[2]);
-    const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d;
-    e.fx.push(fx, WX + CA * lx - SA * ly, WY + SA * lx + CA * ly, H0 + VP.h);
+    artLocal(e, Ff, pj, fx.at[0], fx.at[1], fx.at[2]);
+    e.fx.push(fx, WX + CA * LP.x - SA * LP.y, WY + SA * LP.x + CA * LP.y, H0 + LP.h);
   }
   const seat = Ff.spec.seat || sp.seat;
-  if (seat) { artView(Ff, seat[0], seat[1], seat[2]); const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d; e.seat = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
+  if (seat) { artLocal(e, Ff, pj, seat[0], seat[1], seat[2]); e.seat = [WX + CA * LP.x - SA * LP.y, WY + SA * LP.x + CA * LP.y, LP.h]; }
   else e.seat = null;
+  // where a sleeper's head lies (rest: the pillow): [x, y, h]
+  const rs = Ff.spec.rest || sp.rest;
+  if (rs) { artLocal(e, Ff, pj, rs[0], rs[1], rs[2]); e.rest = [WX + CA * LP.x - SA * LP.y, WY + SA * LP.x + CA * LP.y, H0 + LP.h]; }
+  else e.rest = null;
+  // parts that may hide a sitter / sleeper (cover), compared with the seat, else the body centre
+  e.nCover = 0;
+  for (const p of e.P) if (p.cover) e.nCover++;
+  if (e.pf.length < e.P.length) e.pf = new Uint8Array(e.P.length + 4);
+  e.refx = e.seat ? e.seat[0] : WX; e.refy = e.seat ? e.seat[1] : WY;
+  // a dirt patch the painter drew on the ground around the foot (ground(): kept on the ground, screen-aligned like
+  // the art's round patch): [x px, v, rx px, ry px, alpha]
+  const dc = Ff.spec.decal || sp.decal;
+  if (dc) {
+    artLocal(e, Ff, pj, dc[0], dc[1], 0);
+    e.dc = e.dc || new Float32Array(5);
+    e.dc[0] = WX + CA * LP.x - SA * LP.y; e.dc[1] = WY + SA * LP.x + CA * LP.y; e.dc[2] = dc[2] / 32; e.dc[3] = dc[3] / 32; e.dc[4] = dc[4] ?? 0.3;
+  } else e.dc = null;
   const la = Ff.spec.light || spec.light;
-  if (la) { artView(Ff, la[0], la[1], la[2]); const lx = Ff.ax + Ff.rx * VP.X + Ff.cx * VP.d, ly = Ff.ay + Ff.ry * VP.X + Ff.cy * VP.d; e.lp = [WX + CA * lx - SA * ly, WY + SA * lx + CA * ly]; }
+  if (la) { artLocal(e, Ff, pj, la[0], la[1], la[2]); e.lp = [WX + CA * LP.x - SA * LP.y, WY + SA * LP.x + CA * LP.y]; }
   else e.lp = e.fx.length ? [e.fx[1], e.fx[2]] : null;
   e.ok = true;
   return e;
@@ -435,27 +577,38 @@ function entryOf(A, o) {
 // ---------- draw ----------
 const SCR = new Float32Array(20);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
-export function drawSolid(B, A, o, t) {
-  const F = B.faces;
-  if (!F) return false;
-  const g = KIT_ENV.game, LV = g?.levels?.hasUpper ? g.levels : null, lv = o.lv | 0;
-  if (LV && !lv && !o._ghost && LV.culled(o)) return true; // (under a slab: hidden, as for the sprites)
-  if (lv && (o.alpha ?? 1) <= 0.02) return true;
-  K.prep(A);
-  const e = entryOf(A, o);
-  if (!e) return drawPropTurned(B, A, o, t); // (art not painted yet: the old way meanwhile)
-  const C = CAMV.c, S = CAMV.s, yaw = Math.atan2(S, C), R = smooth(Math.abs(yaw) / SQ_RAMP);
-  const tn = tintOf(o), tr = tn[0], tg = tn[1], tb = tn[2], ta = tn[3];
-  const bp = (o.progress != null && o.progress < 1) || !!o._ghost;
+const BP_FLASH = 0.14; // (composeWorld: a blueprint's darks lifted a little, as its sprite)
+// alpha with a hit flash for FACE_FS: 2 + 2·level + 0.25 + alpha / 2 (16 levels; robust to mediump varyings)
+export function encA(a, fl) {
+  if (!(fl > 0.03)) return a;
+  const L = Math.min(15, Math.max(0, Math.round(fl * 16) - 1));
+  return 2 + 2 * L + 0.25 + 0.5 * (a < 0 ? 0 : a > 1 ? 1 : a);
+}
+// the look of a piece this frame (shared by its two drawables): yaw, squash easing, shake, tint, flash
+export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false };
+function frameState(o, e, t) {
+  // (faces at every angle, 0° included: no easing toward the sprite any more — the true depth, side shading and open
+  // tops always; k1 < 1 only for round things that keep the art's flat look at every angle)
+  const C = CAMV.c, S = CAMV.s, yaw = Math.atan2(S, C), R = 1;
+  const tn = tintOf(o), bp = (o.progress != null && o.progress < 1) || !!o._ghost;
+  FS.C = C; FS.S = S; FS.yaw = yaw; FS.R = R; FS.bp = bp;
+  FS.tr = tn[0]; FS.tg = tn[1]; FS.tb = tn[2]; FS.ta = tn[3];
+  FS.fl = bp ? BP_FLASH : o.flash || 0; FS.a = encA(tn[3], FS.fl);
   // squash of the 0° view easing out, hit shake (sideways on the screen)
-  const kk = e.k0 + (e.k1 - e.k0) * R, sq = Math.abs(kk - 1) > 1e-4, shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
-  const ccx = -S, ccy = C, mv = sq || shk !== 0;
-  // parts back to front
+  FS.kk = e.k1; FS.sq = Math.abs(FS.kk - 1) > 1e-4;
+  FS.shk = o.shake > 0 ? Math.sin(t * 57) * 0.025 * o.shake : 0;
+  FS.mv = FS.sq || FS.shk !== 0;
+}
+// the parts of e back to front: sel 0 = all, 1 = all but the covering parts in front (e.pf), 2 = only those
+function emitParts(F, e, sel) {
+  const C = FS.C, S = FS.S, R = FS.R, kk = FS.kk, sq = FS.sq, shk = FS.shk, ccx = -S, ccy = C;
+  const tr = FS.tr, tg = FS.tg, tb = FS.tb, ta = FS.a;
   const np = e.P.length, one = np === 1;
   if (!one) { partsReset(); for (let j = 0; j < np; j++) part(-S * e.pcx[j] + C * e.pcy[j] + e.pz[j], j); }
-  const q = e.q, qn = e.qn, qf = e.qf, PS = one ? null : partsSorted();
+  const q = e.q, qn = e.qn, qf = e.qf, qm = e.qm, PS = one ? null : partsSorted();
   for (let pi = 0; pi < np; pi++) {
     const j = one ? 0 : PS[pi].k;
+    if (sel && (sel === 2) !== (e.pf[j] === 1)) continue;
     for (let n = e.pq[j]; n < e.pq[j + 1]; n++) {
       const fl = qf[n];
       let z = 1;
@@ -465,16 +618,51 @@ export function drawSolid(B, A, o, t) {
         z = 1 + (shade(qn[n * 2], qn[n * 2 + 1]) - 1) * R;
         if (fl === 2) z *= 0.72;
       }
-      if (!mv) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ta); continue; }
+      const m = qm[n];
+      if (!FS.mv && !m) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ta); continue; }
       for (let k = 0; k < 20; k += 5) {
         let x = q[n * 20 + k], y = q[n * 20 + k + 1];
         if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
-        SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = q[n * 20 + k + 2]; SCR[k + 3] = q[n * 20 + k + 3]; SCR[k + 4] = q[n * 20 + k + 4];
+        SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = q[n * 20 + k + 2]; SCR[k + 3] = q[n * 20 + k + 3];
+        const v0 = q[n * 20 + k + 4];
+        SCR[k + 4] = m ? v0 + R * (e.qb[n * 4 + k / 5] - v0) : v0; // (an open top: its rows once turned)
       }
       F.quadF(SCR, 0, tr * z, tg * z, tb * z, ta);
     }
   }
+}
+export function drawSolid(B, A, o, t) {
+  const F = B.faces;
+  if (!F) return false;
+  const g = KIT_ENV.game, LV = g?.levels?.hasUpper ? g.levels : null, lv = o.lv | 0;
+  if (LV && !lv && !o._ghost && LV.culled(o)) return true; // (under a slab: hidden, as for the sprites)
+  if (lv && (o.alpha ?? 1) <= 0.02) return true;
+  K.prep(A);
+  const e = entryOf(A, o);
+  if (!e) return drawPropTurned(B, A, o, t); // (art not painted yet: the old way meanwhile)
+  frameState(o, e, t);
+  const C = FS.C, S = FS.S, yaw = FS.yaw, kk = FS.kk, sq = FS.sq, ccx = -S, ccy = C, ta = FS.ta, bp = FS.bp;
+  // someone may sit / lie on it: the covering parts nearer the camera than the seat wait for the drawable drawn right
+  // after the sitter (game.js pushed it this frame: fdOn)
+  let sel = 0;
+  if (e.fdOn) {
+    e.fdOn = false;
+    const dr = -S * e.refx + C * e.refy + 0.04;
+    let any = 0;
+    for (let j = 0; j < e.P.length; j++) { const f = e.P[j].cover && -S * e.pcx[j] + C * e.pcy[j] > dr ? 1 : 0; e.pf[j] = f; any |= f; }
+    if (any) { sel = 1; e.pend = true; }
+  }
   const T0 = K.tables(A);
+  // the painter's dirt patch around the foot: on the ground, squashed along the view like the model
+  if (e.dc && B.ground && !lv) {
+    const DS = decalSprite(T0);
+    if (DS) {
+      let x = e.dc[0], y = e.dc[1];
+      if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
+      B.ground.add(DS, x, y, e.dc[2], e.dc[3], 1, 1, 1, e.dc[4] * ta, 0, -yaw, 0, 1, 1);
+    }
+  }
+  emitParts(F, e, sel);
   // contact shadow (as the painters: under the front of the footprint, fixed in the world) and sun shadows
   const bl = SOLID[o.type].blob;
   if (!lv && T0.blob && B.blob && bl !== false) {
@@ -499,8 +687,14 @@ export function drawSolid(B, A, o, t) {
       else shadowArt(B, e.Sf, sh[k + 1], sh[k + 2], Math.atan2(CAMV.lx, -CAMV.ly), e.mf < 0, ta, sh[k + 7]);
     }
   }
-  // flames / glows on their 3D spots (camera-facing like particles, anchored to the world point)
-  if (!bp) for (let k = 0; k < e.fx.length; k += 4) e.fx[k].draw(B, A, o, t, e.fx[k + 1], e.fx[k + 2], e.fx[k + 3], ta);
+  // flames / glows / plants on their 3D spots (camera-facing like particles, anchored to the world point); `always`:
+  // drawn on a blueprint / ghost too (tint and flash in FS)
+  for (let k = 0; k < e.fx.length; k += 4) { const fx = e.fx[k]; if (!bp || fx.always) fx.draw(B, A, o, t, e.fx[k + 1], e.fx[k + 2], e.fx[k + 3], ta, FS); }
+  // damage cracks (o.hp, as composeWorld's overlays) on the faces that show
+  if (o.hp != null && o.maxHp > 0 && o.hp < o.maxHp * 0.75) {
+    const r = o.hp / o.maxHp, cs = T0.opt('crack_' + (r < 0.25 ? 2 : r < 0.5 ? 1 : 0));
+    if (cs) solidCracks(B, A, o, cs, 0.85 * ta, false, 0);
+  }
   // scaffold while it is being built (a sprite, as for the walls)
   if (bp && !o._ghost && (o.progress || 0) > 0.02 && T0.opt) {
     const sc = T0.opt('scaffold_0');
@@ -508,13 +702,64 @@ export function drawSolid(B, A, o, t) {
   }
   return true;
 }
+// the covering parts in front of whoever sits / lies on it (game.js: a drawable right after the sitter)
+function drawFront(B, A, t) {
+  const o = this.o, e = ENT.get(o);
+  if (!e || !e.pend || !B.faces) return;
+  e.pend = false;
+  frameState(o, e, t);
+  emitParts(B.faces, e, 2);
+}
+function frontZ() { return (this.o._zk ?? 0) + 0.03; }
+// game.js (camera turned): the extra drawable of a piece with covering parts, or null
+export function solidFront(o) {
+  const e = ENT.get(o);
+  if (!e || !e.ok || !e.nCover) return null;
+  e.fdOn = true;
+  const d = e.fd || (e.fd = { o, draw: drawFront, zkRot: frontZ, x: 0, y: 0, _zk: 0 });
+  d.x = o.x; d.y = o.y;
+  return d;
+}
+// the generic dirt patch (art/decor.js ground(): a radial brown fade) as a 64 px sprite, drawn scaled to rx × ry
+function decalSprite(T) {
+  const s = T.opt ? T.opt('decal_dirt') : null;
+  return s && K.ok(s) ? s : null;
+}
+// cracks on a damaged piece (o.hp; fx/rockfx.js siege damage): the crack sprite over each box side that shows and its
+// top; a round part: a card through its axis facing the camera
+const CUV = [0, 0, 0, 0];
+export function solidCracks(B, A, o, s, alpha, flip, sh) {
+  const F = B.faces, e = ENT.get(o);
+  if (!F || !s || !e || !e.ok || !K.ok(s)) return;
+  CUV[0] = flip ? s.u1 : s.u0; CUV[2] = flip ? s.u0 : s.u1; CUV[1] = s.v0; CUV[3] = s.v1;
+  const C = CAMV.c, S = CAMV.s, ca = Math.cos(e.A), sa = Math.sin(e.A);
+  const [, , bx, by] = bodyOf(o, BUILDINGS[o.type], SOLID[o.type]?.fixed);
+  const ox = bx + sh * C, oy = by + sh * S;
+  const wx = (lx, ly) => ox + ca * lx - sa * ly, wy = (lx, ly) => oy + sa * lx + ca * ly;
+  for (const p of e.P) {
+    if (p.h1 - p.h0 < 6 / 64) continue;
+    const h0 = e.h0 + Math.max(0, p.h0), h1 = e.h0 + p.h1;
+    if (p.t === 1) {
+      const px = wx(p.ax, p.ay), py = wy(p.ax, p.ay), r = (p.x1 - p.x0) / 2;
+      F.quad(px - C * r, py - S * r, h1, px + C * r, py + S * r, h1, px + C * r, py + S * r, h0, px - C * r, py - S * r, h0, CUV, 1, 1, 1, alpha);
+      continue;
+    }
+    for (const sd of SIDES) {
+      const nx = ca * sd[0] - sa * sd[1], ny = sa * sd[0] + ca * sd[1];
+      if (-S * nx + C * ny <= 0.02) continue;
+      const ax = sd[2] ? p.x1 : p.x0, ay = sd[3] ? p.y1 : p.y0, bx2 = sd[4] ? p.x1 : p.x0, by2 = sd[5] ? p.y1 : p.y0, z = shade(nx, ny);
+      F.quad(wx(ax, ay), wy(ax, ay), h1, wx(bx2, by2), wy(bx2, by2), h1, wx(bx2, by2), wy(bx2, by2), h0, wx(ax, ay), wy(ax, ay), h0, CUV, z, z, z, alpha);
+    }
+    if (p.top !== 'none') F.quad(wx(p.x0, p.y0), wy(p.x0, p.y0), h1, wx(p.x1, p.y0), wy(p.x1, p.y0), h1, wx(p.x1, p.y1), wy(p.x1, p.y1), h1, wx(p.x0, p.y1), wy(p.x0, p.y1), h1, CUV, 1, 1, 1, alpha);
+  }
+}
 // depth: the front-most point of the model's footprint as the camera sees it (+ a bit per story)
 export function solidDepth(o, rc, rs) {
   const e = ENT.get(o);
   let d = -1e9;
   if (e && e.ok && e.tx === o.tx && e.ty === o.ty && e.rot === (o.rot | 0) && e.type === o.type) {
     // (squashed along the view like the model)
-    const yaw = Math.atan2(rs, rc), kk = e.k0 + (e.k1 - e.k0) * smooth(Math.abs(yaw) / SQ_RAMP), dp = -rs * e.pvx + rc * e.pvy;
+    const kk = e.k1, dp = -rs * e.pvx + rc * e.pvy;
     for (let c = 0; c < 4; c++) { const v = dp + kk * (-rs * e.fpx[c] + rc * e.fpy[c] - dp); if (v > d) d = v; }
   } else {
     const def = BUILDINGS[o.type];
@@ -536,16 +781,23 @@ export function solidLightAt(o) {
   return LQ;
 }
 
-// where someone sitting on it sits while turned (art/compose.js): [x, y, lift added]. At 0° the painters put the sitter
-// at the anchor (o.y − 0.06, lifted 0.13) where the art shows the seat; turned, the seat of the model (spec.seat), with
-// the lift that keeps the 0° look (eased in like the squash)
-const SQ = [0, 0, 0];
+// where someone sitting on it sits (art/compose.js): [x, y, lift added] — on the seat of the model (spec.seat), the
+// sitting body's bottom on the seat's height: the rig adds 0.13 to its base and its bottom is PELVIS above that base
+// (measured on the wooden chair, whose 0° sprite showed the sitter right on the seat)
+const SQ = [0, 0, 0], PELVIS = 0.476;
 export function solidSeatAt(o) {
   const e = ENT.get(o);
   if (!e || !e.ok || !e.seat) return null;
-  const R = smooth(Math.abs(Math.atan2(CAMV.s, CAMV.c)) / SQ_RAMP), zx = o.x, zy = o.y - 0.06;
-  SQ[0] = zx + R * (e.seat[0] - zx); SQ[1] = zy + R * (e.seat[1] - zy); SQ[2] = -R * (zy - e.seat[1]);
+  SQ[0] = e.seat[0]; SQ[1] = e.seat[1]; SQ[2] = e.h0 + e.seat[2] - PELVIS - 0.13; // (a story up: this replaces the lifted spot game.js gave the pawn)
   return SQ;
+}
+// where a sleeper's head lies (art/compose.js): [x, y, h] on the pillow of the model, and the bed's world angle
+const RQ = [0, 0, 0, 0];
+export function solidRestAt(o) {
+  const e = ENT.get(o);
+  if (!e || !e.ok || !e.rest) return null;
+  RQ[0] = e.rest[0]; RQ[1] = e.rest[1]; RQ[2] = e.rest[2]; RQ[3] = e.A;
+  return RQ;
 }
 // (dev / tests: the cached model of a piece, or null)
 export function solidEntry(o) { return ENT.get(o) || null; }
@@ -563,4 +815,7 @@ export const SOLID_KIND = registerFaces({
   depth: solidDepth,
   lightAt: solidLightAt,
   seatAt: solidSeatAt,
+  restAt: solidRestAt,
+  front: solidFront,   // (game.js: the covering parts drawn after a sitter / sleeper)
+  cracks: solidCracks, // (fx/rockfx.js: siege cracks on the faces)
 });
