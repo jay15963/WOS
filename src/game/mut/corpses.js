@@ -267,7 +267,7 @@ defineIntent('corpse.take', {
     const n = Math.min(s.qty, Math.max(0, num(a.qty) | 0));
     if (n <= 0) return 'Mochila cheia';
     const inv = storeClone(c);
-    inv.remove(s.id, n);
+    inv.takeFrom(num(a.slot, -1) | 0, n); // (from that slot: several takes in a row stay right)
     net.emit('corpse.set', { id: c.id, slots: inv.toJSON(), by: actor.pid, give: { [s.id]: n } });
   },
 });

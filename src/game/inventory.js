@@ -80,6 +80,16 @@ export class Inventory {
     return left;
   }
 
+  // take n from slot i itself (the whole stack when n >= its qty) → { id, qty } | null
+  takeFrom(i, n) {
+    const s = this.slots[i];
+    if (!s || !(n > 0)) return null;
+    if (n >= s.qty) return this.takeSlot(i);
+    s.qty -= n;
+    this.version++;
+    return { id: s.id, qty: n };
+  }
+
   takeSlot(i) {
     const s = this.slots[i];
     this.slots[i] = null;

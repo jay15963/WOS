@@ -22,8 +22,8 @@ const SUN_LEASH = 4;      // cave monsters: seconds out in the daylight before t
 
 // how far a hostile notices a player (owner): animals a little further than they used to — still about where the
 // player sees them first (the default view, a little zoomed out) — and only in sight (line of sight) past a few
-// tiles; people (raiders) and the winter walkers see as far as the most zoomed-out view (PAWN_SIGHT): only the radar /
-// map shows them before they see you
+// tiles; the winter walkers see as far as the most zoomed-out view (PAWN_SIGHT): only the radar / map shows them
+// before they see you; raiders see less (their species aggro, 12: a bit past the default view)
 export const PAWN_SIGHT = 18;
 export function aggroRadius(m, p) {
   const sp = SPECIES[m.species];
