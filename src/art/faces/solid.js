@@ -344,6 +344,7 @@ function quadFace(p, f) {
   const L = Math.hypot(nx, ny);
   if (Math.abs(nh) > L * 0.02 ? nh < 0 : nx * VCX[f] + ny * VCY[f] < 0) { nx = -nx; ny = -ny; nh = -nh; }
   if (L < nh) emitFace(FR[f].S, 1, 0, 0);
+  else if (nh > L * 0.02) emitFace(FR[f].S, 4, nx / nh, ny / nh); // (a steep slope: its normal × tan(slope); seen while v > −1)
   else { nx /= L; ny /= L; emitFace(FR[f].S, 3, nx, ny); }
 }
 
@@ -358,10 +359,13 @@ function mkEntry() {
 function stateOf(o, spec) { return spec.state ? spec.state(o) || '' : ''; }
 function bodyOf(o, def) {
   if (def.edge) { const g = EDGE_GEOM[o.type] || def.eg || [0.5, 0.3]; BODY[0] = 2 * g[1]; BODY[1] = g[0]; BODY[2] = o.x; BODY[3] = o.cy ?? o.y; }
+  else if (o.tx == null) { const sz = def.size || [1, 1]; BODY[0] = sz[0]; BODY[1] = sz[1]; BODY[2] = o.x; BODY[3] = o.y - sz[1] / 2; } // (a world object: anchored at its front)
   else { const sz = def.size || [1, 1], fw = o.fw || sz[0], fh = o.fh || sz[1]; BODY[0] = sz[0]; BODY[1] = sz[1]; BODY[2] = o.tx + fw / 2; BODY[3] = o.ty + fh / 2; }
   return BODY;
 }
 const BODY = [1, 1, 0, 0];
+// the body of a world object type that is not a building (spec.world = its size [w, d] in tiles)
+const worldDef = (spec) => (spec && spec.world ? spec._wd || (spec._wd = { size: spec.world }) : null);
 function valid(e, o, st) {
   if (e.type !== o.type || e.tx !== o.tx || e.ty !== o.ty || e.rot !== (o.rot | 0) || e.x !== o.x || e.y !== o.y || e.lv !== (o.lv | 0) || e.st !== st || e.face !== o.face) return false;
   // lazy art moved / evicted (look atlas): rebuild; drawing them keeps them alive (K.ok stamps their last use)
@@ -434,7 +438,7 @@ function build(A, o, def, spec, st, e) {
   return e;
 }
 function entryOf(A, o) {
-  const def = BUILDINGS[o.type], spec = SOLID[o.type];
+  const spec = SOLID[o.type], def = BUILDINGS[o.type] || worldDef(spec);
   if (!def || !spec) return null;
   const st = stateOf(o, spec);
   let e = ENT.get(o);
@@ -474,8 +478,9 @@ export function drawSolid(B, A, o, t) {
       let z = 1;
       if (fl !== 1) {
         const v = -S * qn[n * 2] + C * qn[n * 2 + 1];
-        if (fl === 2 ? v > -0.02 : v <= 0.02) continue;
-        z = shade(qn[n * 2], qn[n * 2 + 1]);
+        if (fl === 2 ? v > -0.02 : fl === 4 ? v <= -1 : v <= 0.02) continue;
+        if (fl === 4) { const m = Math.hypot(qn[n * 2], qn[n * 2 + 1]); z = shade(qn[n * 2] / m, qn[n * 2 + 1] / m); }
+        else z = shade(qn[n * 2], qn[n * 2 + 1]);
         if (fl === 2) z *= 0.72;
       }
       if (!mv && !tl) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ta); continue; }
@@ -527,7 +532,7 @@ export function solidDepth(o, rc, rs) {
     const kk = e.k1, dp = -rs * e.pvx + rc * e.pvy;
     for (let c = 0; c < 4; c++) { const v = dp + kk * (-rs * e.fpx[c] + rc * e.fpy[c] - dp); if (v > d) d = v; }
   } else {
-    const def = BUILDINGS[o.type];
+    const def = BUILDINGS[o.type] || worldDef(SOLID[o.type]);
     const [W, D, bx, by] = def ? bodyOf(o, def) : [1, 1, o.x, o.y];
     const fi = FI[o.face || 's'] ?? 0, a = (fi * Math.PI) / 2, ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
     const ex = (ca * W + sa * D) / 2, ey = (sa * W + ca * D) / 2;
@@ -564,9 +569,11 @@ export const SOLID_KIND = registerFaces({
   id: 'solid',
   prio: 1, // (before props.js: a type in the table leaves the billboards / folded art)
   test: (o, d) => {
-    if (!d || !o.building) return false;
     const sp = SOLID[o.type];
     if (!sp || (sp.when && !sp.when(o))) return false;
+    // (a world object — a raider camp's tent, crate, campfire — of a type in the table: drawn the same way)
+    if (!o.building) return !!(sp.world || BUILDINGS[o.type]);
+    if (!d) return false;
     return !(d.mount && o._mount && (o.rot | 0) > 0);
   },
   draw: drawSolid,

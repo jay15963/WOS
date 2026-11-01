@@ -6,12 +6,14 @@
 // things squashed (ellipses) maps its texture with k, and piv puts the true centre where it belongs (piv = (d_art −
 // k·d_true) / (1 − k), d = v − V). A part moved in depth keeps its art by moving its heights with it (64 px per tile).
 // Surfaces the art never shows (roof slopes, a stump's top) are filled with one texel of the art (px).
-import { defineSolid } from './solid.js';
+import { defineSolid as define } from './solid.js';
 import { CAMV, ARCH_FACES as K, archSprite } from '../archCompose.js';
 import { tintOf } from './props.js';
 import { bq } from './kit.js';
 
 // ---------- little helpers ----------
+// (ramp: false — the true depth at every angle, 0° included: never squashed back to the old art)
+const defineSolid = (type, spec) => define(type, { ramp: false, ...spec });
 const box = (x0, x1, v0, v1, h0, h1, o) => ({ box: [x0, x1, v0, v1, h0, h1], ...o });
 const card = (x0, x1, v, h0, h1, o) => ({ card: [x0, x1, v, h0, h1], ...o });
 const lathe = (x, v, pr, o) => ({ lathe: [x, v, pr], ...o });
@@ -306,4 +308,32 @@ defineSolid('column_stone', {
   k: QK, piv: QP,
   parts: [box(-12, 12, 0.677, 0.79, 0, 8, { top: 'strip', sh: false }), lathe(0, 0.733, [[8, 8], [46, 8]], { n: 8 }), box(-14, 14, 0.682, 0.784, 44, 54, { top: 'strip', sh: false })],
   blob: [0.62, 0.62, 0.5, 0.36],
+});
+
+// ---------- raider camps (art/stations.js tent / crate; world objects, not buildings: world = their size) ----------
+// canvas A-frame tent (tent_0, 2 tiles wide): the ridge along its depth at 68 px, the two slopes down to ±50 px, the
+// front gable with the open entrance, the back gable in the canvas colour
+defineSolid('tent_0', {
+  world: [2, 1],
+  parts: [
+    quad([[0, 0.2, 68], [0, 0.95, 68], [-50, 0.95, 0], [-50, 0.2, 0]]),
+    quad([[0, 0.95, 68], [0, 0.2, 68], [50, 0.2, 0], [50, 0.95, 0]]),
+    quad([[-1, 0.95, 68], [1, 0.95, 68], [50, 0.98, 0], [-50, 0.98, 0]], NS), // (gables lean out a hair: their outward side is the upper one)
+    quad([[1, 0.2, 68], [-1, 0.2, 68], [-50, 0.17, 0], [50, 0.17, 0]], { px: [-30, 0.5, 30], sh: false }),
+    SHADOW(0.58, 68),
+  ],
+  blob: [2.1, 1.1, 0.42, 0.4],
+});
+// conical hide tent (tent_1): the cone (its round base drawn very flat: k 0.15) with the poles fanning out of the top
+const PK = 0.15;
+defineSolid('tent_1', {
+  world: [1.5, 1.5], k: PK, piv: pivOf(0.85, 1, PK, 0.25),
+  parts: [lathe(0, 0.85, [[0, 48], [6, 44], [40, 26], [90, 4], [98, 1]]), lathe(0, 0.85, [[96, 1.5], [112, 9]], { n: 6, sh: false })],
+  blob: [1.6, 1.6, 0.75, 0.4],
+});
+// supply crate (crate_0: 42 × 27 px, 0.34 deep)
+defineSolid('crate_0', {
+  world: [0.7, 0.7],
+  parts: [box(-21, 21, 0.54, 0.88, 0, 27)],
+  blob: [0.75, 0.55, 0.3, 0.4],
 });
