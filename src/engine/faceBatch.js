@@ -48,6 +48,7 @@ export class FaceBatch {
   // depth bias of the next quad, and its write flag
   _z(a) {
     const Z = this.Z;
+    if (a > 1.5) { const L = Math.floor((a - 2) * 0.5); a = (a - 2.25 - 2 * L) * 2; } // (a hit flash rides on the alpha: solid.js encA)
     if (a < Z.SOLID) {
       const i = this.n - 1, nw = this.nw, k = nw.length;
       if (k && nw[k - 1] === i) nw[k - 1] = i + 1; else nw.push(i, i + 1);
