@@ -297,11 +297,11 @@ export class Game {
     const Z = R.depth || DZ; // depth shape of what each drawable adds (engine/spriteBatch.js depthState)
     R.emMark?.(); // (glows of the ground decor: under everything)
     // outdoor lamps that light the roofs around them (renderer roof light-occluder pass; lamps under a roof never do)
-    const RLc = this._rlc || (this._rlc = []), roofG = this.build.grid.roof, wld = this.world;
+    const RLc = this._rlc || (this._rlc = []), roofG = this.build?.grid?.roof || null, wld = this.world; // (the menu showcase has no build)
     let RLn = 0;
     const roofLight = (x, y, h, rad, r, g, b, I) => {
       const tx = Math.floor(x), ty = Math.floor(y);
-      const ro = wld.inBounds(tx, ty) ? roofG.get(wld.idx(tx, ty)) : null;
+      const ro = roofG && wld.inBounds(tx, ty) ? roofG.get(wld.idx(tx, ty)) : null;
       if (ro && !ro.blueprint) return; // (inside a roofed house)
       const c = RLc[RLn] || (RLc[RLn] = { x: 0, y: 0, h: 0, r: 0, cr: 0, cg: 0, cb: 0, d: 0 });
       RLn++;
