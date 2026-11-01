@@ -175,10 +175,11 @@ export function unsupportedRoofs(game, rects) {
 
 // enclosed room around (tx, ty): tiles bounded by walls / doors / rock (≤ max tiles), + the wall ring around it.
 // Returns null when it is open (or too big). Used to fill a room with roof plans in one tap.
-export function enclosedRoom(game, tx, ty, max = 220, info = null) { // info.big: gave up because the room is larger than max
-  const w = game.world, W = w.W;
+// lv: the story whose walls close the room (levels: a room on an upper floor; rock only counts on the ground)
+export function enclosedRoom(game, tx, ty, max = 220, info = null, lv = 0) { // info.big: gave up because the room is larger than max
+  const w = game.world, W = w.W, off = (lv | 0) * W * w.H;
   if (!w.inBounds(tx, ty)) return null;
-  const wallish = (i) => w.rock[i] === 1 || (() => { const o = game.build.grid.main.get(i); return !!o && BUILDINGS[o.type]?.connect === 'wall'; })();
+  const wallish = (i) => (!off && w.rock[i] === 1) || (() => { const o = game.build.grid.main.get(i + off); return !!o && BUILDINGS[o.type]?.connect === 'wall'; })();
   const s0 = ty * W + tx;
   if (wallish(s0)) return null;
   const seen = new Set([s0]), q = [s0], ring = new Set();

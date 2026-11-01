@@ -208,9 +208,10 @@ function updatePreview(game) {
   m.room = false;
   if (def.roof) {
     const h = m.hover;
-    if (!(m._roomAt && m._roomAt[0] === h[0] && m._roomAt[1] === h[1] && m._roomV === game.build.v)) {
+    if (!(m._roomAt && m._roomAt[0] === h[0] && m._roomAt[1] === h[1] && m._roomV === game.build.v && m._roomLv === (m.lv | 0))) {
       const info = {};
-      m._room = enclosedRoom(game, h[0], h[1], 330, info);
+      m._roomLv = m.lv | 0; // levels: the room closed by the walls of the chosen story (ui/levelbar.js); the roof sits on top
+      m._room = enclosedRoom(game, h[0], h[1], 330, info, m._roomLv);
       if (m._room && m._room.length > MAX_ROOF_TILES) { m._room = null; info.big = true; }
       m._big = !!info.big;
     }

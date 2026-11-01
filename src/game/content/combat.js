@@ -77,7 +77,7 @@ export const ABILITIES = {
                  desc: 'Agita a tocha à frente: dano de fogo, queimadura e espanta animais por 4 s.' },
   heal:        { name: 'Ervas medicinais', icon: 'heal', cost: 10, cd: 25, range: 0, item: 'herb', act: 'heal',
                  desc: 'Gasta 1 erva medicinal: cura 40% da vida em 8 s. Interrompida ao sofrer dano.' },
-  sprint:      { name: 'Disparada', icon: 'sprint', cost: 20, cd: 20, range: 0, offGcd: true,
+  sprint:      { name: 'Disparada', icon: 'sprint', cost: 20, cd: 10, range: 0, offGcd: true,
                  desc: '+65% de velocidade por 5 s. Dá mais fome.' },
 };
 // Generic abilities always on the bar (after weapon / off-hand ones).

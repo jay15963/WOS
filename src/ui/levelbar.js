@@ -1,7 +1,8 @@
 // Story selector of build mode (agent L, docs/LEVELS.md): "Andar: Térreo ▲ ▼" while placing, PageUp / PageDown on
 // desktop. The chosen story is game.build.mode.lv (building.js passes it to placeReason / build.place); it starts at the
 // story the player stands on. Shown only when there is something to build on above the ground (a wall, a stair, an
-// upper floor) or the player is up there.
+// upper floor) or the player is up there. Roofs too: the story picks the room whose walls close it (a room on an upper
+// floor); the roof itself always sits on top of the stories under it.
 
 const NAMES = ['Térreo', '1º andar', '2º andar', '3º andar'];
 const MAX = 3;
@@ -28,7 +29,7 @@ export function installLevelbar(game) {
   document.body.appendChild(el);
 
   let lastMode = null, shown = false;
-  const mode = () => { const m = game.build.mode; return m && m.kind === 'place' && !BUILD_ROOF(game, m.type) ? m : null; };
+  const mode = () => { const m = game.build.mode; return m && m.kind === 'place' ? m : null; };
   const set = (m, lv) => {
     const v = Math.max(0, Math.min(MAX, lv | 0));
     if (m.lv === v) return;
@@ -58,5 +59,3 @@ export function installLevelbar(game) {
   };
 }
 
-// roofs always sit on top of the building (their height comes from the stories under them)
-const BUILD_ROOF = (game, type) => !!game.build && !!(typeof type === 'string' && type.startsWith('roof_'));
