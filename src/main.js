@@ -22,6 +22,7 @@ import { installAmbient } from './fx/ambient.js';
 import { getAudio } from './fx/audio.js';
 import { showMainMenu } from './ui/menu.js';
 import { touchWorld } from './ui/worlds.js';
+import { setYearLength } from './game/calendar.js';
 import { installNetUI } from './ui/netui.js';
 import { applyQuality } from './ui/netpanels.js';
 import { Session, playerName, normalizeCode, newRoomCode, GRAPHICS_BROKEN } from './net/session.js';
@@ -158,6 +159,7 @@ async function boot() {
     if (!guest) {
       game.worldId = choice.worldId;                    // save key (save.js) / hotbar layout of this world
       game.creative = choice.gameMode === 'creative';   // a new world's mode (a saved world keeps its own: snapshot `mode`)
+      game.yearLen = setYearLength(choice.yearLen);     // its year length (calendar.js; a saved world: snapshot `year`)
     }
     game.audio = getAudio().attach(game); // procedural audio: unlocks on the first gesture, music moods follow the game
     if (guest) {

@@ -1,9 +1,9 @@
-// Saved worlds of this browser (up to MAX_WORLDS): registry `wos.worlds` = [{ id, name, seed, mode, created, played }]
-// (mode 'survival' | 'creative', creative.js). A world's save lives under `wos.save.v2.<id>` (game.worldId, save.js)
+// Saved worlds of this browser (up to MAX_WORLDS): registry `wos.worlds` = [{ id, name, seed, mode, year, created, played }]
+// (mode 'survival' | 'creative', creative.js; year 'short' | 'normal' | 'long', calendar.js — missing = short). A world's save lives under `wos.save.v2.<id>` (game.worldId, save.js)
 // and its hotbar layout under `wos.hotbar.<id>` (hotbar.js). Worlds from before the list (one save per seed,
 // `wos.save.v2.<seed>`) join it on first use with id = String(seed), so their keys stay as they were.
 // Guests keep their per-host player saves keyed by the host's seed (+ '.guest'), outside the list.
-import { elapsedOf, formatElapsed, dateOf } from '../game/calendar.js';
+import { elapsedOf, formatElapsed, dateOf, yearKind } from '../game/calendar.js';
 
 export const MAX_WORLDS = 10;
 const KEY = 'wos.worlds', LAST = 'wos.world';
@@ -47,20 +47,21 @@ export function worldInfo(id) {
   if (!raw) return null;
   let day = 1, level = 1;
   try { const d = JSON.parse(raw); day = d.env?.day ?? d.world?.env?.d ?? d.day ?? 1; level = d.player?.level ?? d.level ?? 1; } catch { /* unreadable: defaults */ }
-  return { day, level, age: formatElapsed(elapsedOf(day)), date: dateOf(day) };
+  const yk = getWorld(id)?.year || 'short'; // (the menu runs no world: dates in that world's own year)
+  return { day, level, age: formatElapsed(elapsedOf(day, yk)), date: dateOf(day, 0, yk) };
 }
 
 export function randomSeed() { const a = new Uint32Array(1); crypto.getRandomValues(a); return (a[0] % 2147483000) + 1; }
 
 // a new world in the list (null when it is full)
-export function createWorld({ name, seed, mode }) {
+export function createWorld({ name, seed, mode, year }) {
   const list = migrate();
   if (list.length >= MAX_WORLDS) return null;
   const s = Number.isFinite(seed) && seed > 0 ? Math.floor(seed) : randomSeed();
   let id;
   do id = 'w' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); while (list.some((w) => w.id === id)); // sync-ok: a local save-slot id of this browser, never shared state
   const n = list.length + 1;
-  const w = { id, name: String(name || '').trim().slice(0, 28) || `Mundo ${n}`, seed: s, mode: mode === 'creative' ? 'creative' : 'survival', created: Date.now(), played: Date.now() };
+  const w = { id, name: String(name || '').trim().slice(0, 28) || `Mundo ${n}`, seed: s, mode: mode === 'creative' ? 'creative' : 'survival', year: yearKind(year), created: Date.now(), played: Date.now() };
   list.push(w);
   write(list);
   return w;

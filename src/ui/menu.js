@@ -12,6 +12,7 @@ import { startShowcase } from './showcase.js';
 import { isStandalone, openInstallGuide, checkUpdate, announceUpdate } from './pwa.js';
 import * as AUD from '../fx/audio.js';
 import { listWorlds, lastWorld, worldInfo, createWorld, deleteWorld, agoLabel, MAX_WORLDS } from './worlds.js';
+const YEAR_LIST = { short: 'curto', normal: 'normal', long: 'longo' }; // ("ano curto" in the world list; calendar.YEAR_PT names the setting)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const ls = {
@@ -204,7 +205,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
     }).catch(() => { /* customiser not installed yet: the name field alone */ });
 
     // ---------- worlds (ui/worlds.js) ----------
-    const play = (w, mode = 'single', fresh = false) => finish({ mode, worldId: w.id, seed: w.seed, gameMode: w.mode, fresh });
+    const play = (w, mode = 'single', fresh = false) => finish({ mode, worldId: w.id, seed: w.seed, gameMode: w.mode, yearLen: w.year || 'short', fresh });
     const modeChip = (m) => (m === 'creative' ? '<span class="wchip creative">Criativo</span>' : '<span class="wchip">Sobrevivência</span>');
     // the list: play (or host) a world, delete it (asks first), create one (up to MAX_WORLDS)
     const worldsPanel = (mode) => (el) => {
@@ -217,7 +218,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           const inf = worldInfo(w.id);
           return `<div class="wrow" data-id="${esc(w.id)}">
             <button class="wplay" data-a="play"><b>${esc(w.name)}</b>${modeChip(w.mode)}
-              <small>${inf ? `${inf.age} · Ano ${inf.date.year}, dia ${inf.date.day} · nível ${inf.level}` : 'Ainda não jogado'} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
+              <small>${inf ? `${inf.age} · Ano ${inf.date.year}, dia ${inf.date.day} · nível ${inf.level}` : 'Ainda não jogado'} · ano ${YEAR_LIST[w.year] || YEAR_LIST.short} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
             <button class="wdel" data-a="del" title="Apagar mundo" aria-label="Apagar ${esc(w.name)}">✕</button>
           </div>`;
         }).join('') : '<p class="muted">Nenhum mundo ainda.</p>'}</div>
@@ -246,18 +247,28 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           <button class="wmode on" data-m="survival" role="radio" aria-checked="true"><b>Sobrevivência</b><small>Colete, crie e sobreviva: fome, frio, criaturas.</small></button>
           <button class="wmode" data-m="creative" role="radio" aria-checked="false"><b>Criativo</b><small>Construa e crie sem recursos, na hora. Vida, energia e fôlego infinitos; criaturas não atacam.</small></button>
         </div>
+        <div class="wsub">Duração do ano <small>(as estações crescem junto)</small></div>
+        <div class="wmodes wyears" role="radiogroup" aria-label="Duração do ano">
+          <button class="wmode" data-y="short" role="radio" aria-checked="false"><b>Curta</b><small>7 dias · 3 de inverno</small></button>
+          <button class="wmode on" data-y="normal" role="radio" aria-checked="true"><b>Normal</b><small>12 dias · 5 de inverno</small></button>
+          <button class="wmode" data-y="long" role="radio" aria-checked="false"><b>Longa</b><small>22 dias · 8 de inverno</small></button>
+        </div>
         <label class="mfield">Semente do mundo (deixe vazio para aleatória)<input data-k="seed" inputmode="numeric" placeholder="aleatória"></label>
         <div class="row"><button class="mbtn primary" data-a="go">${mode === 'host' ? 'Criar e abrir sala' : 'Criar mundo'}</button><button class="mbtn" data-a="back">Cancelar</button></div>`;
-      let gm = 'survival';
-      for (const b of el.querySelectorAll('.wmode')) b.onclick = () => {
+      let gm = 'survival', yl = 'normal';
+      for (const b of el.querySelectorAll('.wmode[data-m]')) b.onclick = () => {
         gm = b.dataset.m;
-        for (const q of el.querySelectorAll('.wmode')) { q.classList.toggle('on', q === b); q.setAttribute('aria-checked', String(q === b)); }
+        for (const q of el.querySelectorAll('.wmode[data-m]')) { q.classList.toggle('on', q === b); q.setAttribute('aria-checked', String(q === b)); }
+      };
+      for (const b of el.querySelectorAll('.wmode[data-y]')) b.onclick = () => {
+        yl = b.dataset.y;
+        for (const q of el.querySelectorAll('.wmode[data-y]')) { q.classList.toggle('on', q === b); q.setAttribute('aria-checked', String(q === b)); }
       };
       el.querySelector('[data-k=name]').addEventListener('keydown', (e) => e.stopPropagation());
       el.querySelector('[data-a=back]').onclick = () => (listWorlds().length ? open(worldsPanel(mode)) : closePanel());
       el.querySelector('[data-a=go]').onclick = () => {
         const v = parseInt(el.querySelector('[data-k=seed]').value, 10);
-        const w = createWorld({ name: el.querySelector('[data-k=name]').value, seed: Number.isFinite(v) ? v : undefined, mode: gm });
+        const w = createWorld({ name: el.querySelector('[data-k=name]').value, seed: Number.isFinite(v) ? v : undefined, mode: gm, year: yl });
         if (!w) { open(worldsPanel(mode)); return; }
         play(w, mode, true);
       };

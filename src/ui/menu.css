@@ -472,7 +472,10 @@ html .cc-name { font: 700 13px var(--n-fd); letter-spacing: 3px; color: var(--n-
 .wmode.on { border-color: #f7d97a; background: rgba(247, 217, 122, 0.16); box-shadow: 0 0 0 1px rgba(247, 217, 122, 0.4) inset; }
 .mbtn.danger { background: linear-gradient(180deg, #c8553f, #8e2f20); color: #fff3ea; }
 .mbtn[disabled] { opacity: .45; pointer-events: none; }
-@media (max-width: 520px) { .wmodes { grid-template-columns: 1fr; } }
+.wyears { grid-template-columns: 1fr 1fr 1fr; margin-top: 4px; }
+.wsub { margin-top: 12px; font-weight: 700; font-size: .92em; }
+.wsub small { opacity: .7; font-weight: 600; }
+@media (max-width: 520px) { .wmodes { grid-template-columns: 1fr; } .wyears { grid-template-columns: 1fr 1fr 1fr; } }
 
 /* ---------- settings tabs (netpanels.js settingsPanel): Geral · Controles (desktop) / HUD (touch) ---------- */
 .st-tabs { display: flex; gap: 6px; margin: 4px 0 12px; border-bottom: 1.5px solid rgba(247, 217, 122, 0.25); }

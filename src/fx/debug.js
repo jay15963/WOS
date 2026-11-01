@@ -1,6 +1,6 @@
 // Localhost-only visual debug helpers (never installed on a deployed build): game.debug.*
 //   setTime(h)            jump the clock (single player only)
-//   skipTo(day, h)        jump to a day / hour through op env.skip (host; calendar: year of 7 days — 1 spring, 2-3 summer, 4 autumn, 5-7 winter)
+//   skipTo(day, h)        jump to a day / hour through op env.skip (host; calendar.js: the world's year — short: 1 spring, 2-3 summer, 4 autumn, 5-7 winter)
 //   setWeather(w, inst)   'clear'|'cloudy'|'rain'|'storm'|'fog'; inst (default true) skips the 14 s blend (single player)
 //   snow(v)               snow cover 0..1 (cosmetic)
 //   strike(dist)          lightning now (0 = overhead … 1 = far; cosmetic)

@@ -23,6 +23,7 @@
 // Runs inside net.applying (world mutation guard).
 
 import { BUILDINGS, ITEMS, ITEM_ALIASES } from '../game/data.js';
+import { setYearLength } from '../game/calendar.js';
 import { BUILD } from './netlog.js';
 import { occAdd, occRemove } from '../game/nav.js';
 import { updateAllMasks } from '../game/autotile.js';
@@ -70,6 +71,7 @@ export function serializeWorld(game, { save = false } = {}) {
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
+    year: game.yearLen && game.yearLen !== 'short' ? game.yearLen : undefined, // the world's year length (calendar.js)
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
@@ -98,6 +100,7 @@ function applyInner(game, d, mode) {
   const w = game.world, net = game.net;
   const reconcile = mode === 'net';
   game.creative = d.mode === 'creative';
+  game.yearLen = setYearLength(d.year); // (missing = the short year of older worlds)
   if (Number.isFinite(d.wt)) game.worldTime = d.wt;
   if (d.env) {
     if (Number.isFinite(d.env.h)) game.env.hour = d.env.h;
