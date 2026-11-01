@@ -32,6 +32,7 @@ defineSolid('barrel', {
   foot: true, k: 4.6 / 13, k1: 4.6 / 13, piv: 0.6 - 1, // (decor edge piece: drawn lower by its foot; squashed about its axis,
   // at every angle: a round thing looks the same from all sides, so it keeps the art's flat top)
   parts: [{ lathe: [0, 0.6, [[0, 13], [18, 15], [36, 13]]], n: 12 }],
+  decal: [0, 0.62, 16, 5], // (its painted dirt patch, kept on the ground)
 });
 
 // ---- table (art/stations.js table / table_wood_e): one see-through box (legs and gaps come from the art) ----

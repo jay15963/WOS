@@ -99,7 +99,7 @@ const bookParts = (v0, v1, cardV, back) => [
   { card: [-56, 56, back ? v1 : v0, 0, 66] },
   { box: [-58, -55, v0, v1, 0, 66], sh: false }, { box: [55, 58, v0, v1, 0, 66], sh: false },
   { box: [-2, 2, v1 - 0.06, v1, 0, 66], sh: false },
-  { box: [-58, 58, v0, v1, 64, 68], top: 'strip' },
+  { box: [-58, 58, v0, v1, 66, 68] },
   ...BOOK_H.map((h) => ({ box: [-56, 56, v0, v1, h, h + 3], sh: false })),
   ...BOOK_H.map((h) => ({ card: [-54, 54, cardV, h + 3, h + 21], sh: false, z: -0.01 })),
   { box: [34, 41, 0.68, 0.72, 66, 80], sh: false },
