@@ -292,6 +292,87 @@ function chestOpen() {
   });
 }
 
+// The chest as a real box (camera rotation, art/faces/solid.js uv faces): one texture with each face in its true
+// proportions — 46 px wide, 36 deep, body 16 tall, lid 9 — so the body and lid meet flush, the iron bands run over the
+// front, the lid and the back at the same x, the lock is only on the front. Rects (px) in CHEST_UV.
+export const CHEST_UV = {
+  fb: [1, 1, 47, 17], fl: [1, 19, 47, 28], bb: [49, 1, 95, 17], bl: [49, 19, 95, 28], sb: [97, 1, 133, 17], sl: [97, 19, 133, 28],
+  top: [1, 30, 47, 66], lin: [49, 30, 95, 66], con: [97, 30, 143, 66], inner: [135, 1, 151, 17],
+};
+function chestUV() {
+  const rand = rng(4243);
+  return spritePx(152, 68, (g) => {
+    const U = CHEST_UV, BAND = [7, 35], IRON = '#56565c';
+    const edge = (r, a = 0.85) => { g.strokeStyle = `rgba(28,16,6,${a})`; g.lineWidth = 1; g.strokeRect(r[0] + 0.5, r[1] + 0.5, r[2] - r[0] - 1, r[3] - r[1] - 1); };
+    const bands = (r, light = true) => { for (const b of BAND) { g.fillStyle = IRON; g.fillRect(r[0] + b, r[1], 4, r[3] - r[1]); if (light) { g.fillStyle = 'rgba(255,255,255,0.32)'; g.fillRect(r[0] + b, r[1], 1.1, r[3] - r[1]); } g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(r[0] + b + 3.2, r[1], 0.8, r[3] - r[1]); } };
+    const planks = (r, rows, col = 'rgba(40,24,12,0.45)') => { g.strokeStyle = col; g.lineWidth = 1; for (const y of rows) { g.beginPath(); g.moveTo(r[0], r[1] + y); g.lineTo(r[2], r[1] + y); g.stroke(); } };
+    const brackets = (r, all) => {
+      g.fillStyle = '#4a4a50';
+      const cs = all ? [[r[0], r[1], 1, 1], [r[2], r[1], -1, 1], [r[0], r[3], 1, -1], [r[2], r[3], -1, -1]] : [[r[0], r[3], 1, -1], [r[2], r[3], -1, -1]];
+      for (const [bx, by, sx, sy] of cs) { g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + sx * 5, by); g.lineTo(bx, by + sy * 5); g.closePath(); g.fill(); }
+    };
+    const fill = (r, stops, horiz) => { g.fillStyle = horiz ? lin(g, r[0], 0, r[2], 0, stops) : lin(g, 0, r[1], 0, r[3], stops); g.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]); };
+    // front: body planks, bands, lock plate under the seam
+    fill(U.fb, [[0, WOOD.light], [0.6, WOOD.mid], [1, WOOD.dark]], true);
+    planks(U.fb, [6, 11]);
+    bands(U.fb);
+    g.fillStyle = 'rgba(20,12,6,0.4)'; g.fillRect(U.fb[0], U.fb[3] - 3, 46, 3);
+    brackets(U.fb, false);
+    g.fillStyle = '#c9a24a'; g.fillRect(U.fb[0] + 19.5, U.fb[1], 7, 7); g.fillStyle = 'rgba(255,240,190,0.5)'; g.fillRect(U.fb[0] + 19.5, U.fb[1], 7, 1);
+    g.fillStyle = '#2a2018'; g.beginPath(); circle(g, U.fb[0] + 23, U.fb[1] + 3.2, 1.2); g.fill(); g.fillRect(U.fb[0] + 22.5, U.fb[1] + 3.2, 1, 2.4);
+    edge(U.fb);
+    // front of the lid: lighter lip, bands, the hasp, a dark seam at the bottom
+    fill(U.fl, [[0, '#c39566'], [1, WOOD.mid]]);
+    bands(U.fl);
+    g.fillStyle = '#c9a24a'; g.fillRect(U.fl[0] + 20.5, U.fl[1] + 4, 5, 5);
+    g.fillStyle = 'rgba(25,14,6,0.55)'; g.fillRect(U.fl[0], U.fl[3] - 1.5, 46, 1.5);
+    g.fillStyle = 'rgba(255,240,210,0.35)'; g.fillRect(U.fl[0], U.fl[1], 46, 1.2);
+    edge(U.fl);
+    // back: darker boards, bands, hinges across the seam
+    fill(U.bb, [[0, WOOD.mid], [1, WOOD.deep]], true);
+    planks(U.bb, [5, 10]);
+    bands(U.bb, false);
+    g.fillStyle = 'rgba(20,12,6,0.45)'; g.fillRect(U.bb[0], U.bb[3] - 3, 46, 3);
+    brackets(U.bb, false);
+    for (const hx of [14, 25]) { g.fillStyle = '#3e3e44'; g.fillRect(U.bb[0] + hx, U.bb[1], 7, 3); }
+    edge(U.bb);
+    fill(U.bl, [[0, '#b88b5d'], [1, WOOD.dark]]);
+    bands(U.bl, false);
+    for (const hx of [14, 25]) { g.fillStyle = '#3e3e44'; g.fillRect(U.bl[0] + hx, U.bl[3] - 3, 7, 3); g.fillStyle = 'rgba(255,255,255,0.3)'; g.fillRect(U.bl[0] + hx, U.bl[3] - 3, 7, 0.8); }
+    g.fillStyle = 'rgba(25,14,6,0.55)'; g.fillRect(U.bl[0], U.bl[3] - 1.5, 46, 1.5);
+    edge(U.bl);
+    // ends: panel with corner brackets and a rope handle; the lid's end above
+    fill(U.sb, [[0, WOOD.mid], [1, WOOD.dark]]);
+    planks(U.sb, [6, 11]);
+    brackets(U.sb, true);
+    g.strokeStyle = '#c8b27a'; g.lineWidth = 1.6; g.beginPath(); g.arc(U.sb[0] + 18, U.sb[1] + 4, 4, 0.1, Math.PI - 0.1); g.stroke();
+    g.fillStyle = '#3a3a40'; g.fillRect(U.sb[0] + 13, U.sb[1] + 3, 2, 2); g.fillRect(U.sb[0] + 21, U.sb[1] + 3, 2, 2);
+    edge(U.sb);
+    fill(U.sl, [[0, '#b48a5a'], [1, WOOD.mid]]);
+    g.fillStyle = 'rgba(25,14,6,0.55)'; g.fillRect(U.sl[0], U.sl[3] - 1.5, 36, 1.5);
+    g.fillStyle = 'rgba(255,240,210,0.3)'; g.fillRect(U.sl[0], U.sl[1], 36, 1.2);
+    edge(U.sl);
+    // the lid seen from above: planks across, bands front to back, light toward the front edge
+    fill(U.top, [[0, WOOD.mid], [0.55, '#b48a5a'], [1, '#c39566']]);
+    planks(U.top, [9, 18, 27], 'rgba(80,50,24,0.45)');
+    g.fillStyle = 'rgba(255,240,210,0.25)'; g.fillRect(U.top[0] + 2, U.top[3] - 6, 42, 2);
+    bands(U.top);
+    edge(U.top);
+    // the lid's underside (open), the inside walls, the contents on the bottom
+    fill(U.lin, [[0, WOOD.dark], [1, WOOD.mid]]);
+    planks(U.lin, [9, 18, 27], 'rgba(30,18,8,0.5)');
+    edge(U.lin);
+    fill(U.inner, [[0, '#3a2414'], [1, '#2a1a0e']]);
+    planks(U.inner, [5, 10], 'rgba(10,6,2,0.5)');
+    fill(U.con, [[0, '#2a1a0e'], [1, '#22150b']]);
+    for (const [x, y, rx, ry, c] of [[9, 9, 6, 4, '#9c6e43'], [22, 7, 5, 3.5, '#8a857e'], [34, 11, 6, 4, '#b8233a'], [13, 24, 7, 4.5, '#5f7a3a'], [30, 26, 5, 3.5, '#c9a24a'], [38, 22, 4, 3, '#e8d6a8']]) {
+      g.fillStyle = c; g.beginPath(); g.ellipse(U.con[0] + x + (rand() - 0.5), U.con[1] + y, rx, ry, rand() - 0.5, 0, TAU); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.25)'; g.beginPath(); g.ellipse(U.con[0] + x - rx * 0.3, U.con[1] + y - ry * 0.3, rx * 0.35, ry * 0.3, 0, 0, TAU); g.fill();
+    }
+    g.fillStyle = '#e6c56a'; for (let i = 0; i < 7; i++) { g.beginPath(); circle(g, U.con[0] + 26 + rand() * 8, U.con[1] + 25 + rand() * 5, 1.3); g.fill(); }
+  }, { crop: false });
+}
+
 // chest seen from the back (turned north): plain boards, hinges, no lock
 function chestBack() {
   return spritePx(58, 52, (g, P) => {
@@ -464,6 +545,7 @@ export function addBuildings(add) {
   { const c = chestBack(); add('chest_n', c, 0.5, 49 / (c.origH || c.height)); }
   add('chest_e', chestSide(), 0.5, 79 / 82);
   { const c = chestOpen(); add('chest_open', c, 0.5, 57 / (c.origH || c.height)); }
+  add('chest_uv', chestUV(), 0, 0); // (the chest's faces as a real box: art/faces/solid.js, CHEST_UV)
   add('torch_wall_s', torchWall(false), 0.5, 1);
   add('torch_wall_e', torchWall(true), 0.5, 1);
 }
