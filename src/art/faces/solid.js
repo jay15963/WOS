@@ -14,20 +14,20 @@
 // art's dark outline (ow px, default 2.6) sideways, at the back of its top and below the ground.
 //
 // Texturing is projective, as for the walls: a surface point gets the texel where the art of a view shows it.
-//   - the piece's own facing view (the art drawn at 0°) textures the model: at 0° and as the yaw → 0 the faces are the
-//     sprite pixel for pixel; tops always come from it, the front too (a lathe: each quarter from the view facing it);
+//   - the piece's own facing view (the art drawn at 0°) textures the model: tops always come from it, the front too
+//     (a lathe: each quarter from the view facing it);
 //   - each other side takes the art of the view that looks at it (<type>_n / _back, <type>_e / _side, w = e mirrored)
 //     fitted part by part: views[letter].parts lists the same parts in that view's own art numbers (painters are not
 //     always consistent between views); a view without its own list uses the main one. A view without art borrows
 //     (spec.borrow): n 'mirror' (the front mirrored, default) · e / w 'front' (the front art as if that side were the
 //     front, default: right for round / symmetric pieces) or 'edge' (the edge columns of the front stretched over the
 //     side: boxes, crates).
-//   - squashed art: some old art draws depth shorter than it is (chest lid, barrel top ellipse): k = art depth / true
-//     depth of that view (default 1), piv = the ground row the squash is about (tiles from the anchor row; 0 = the
-//     anchor = the front of the body; a lathe: its axis). The model has the true depth; near 0° it is squashed back
-//     along the view by k, eased to k1 (default 1 = the true depth) over the first SQ_RAMP of yaw, so the 0° frame is
-//     still the sprite. Round things keep the art's look at every angle with k1 = k (a squash along the view is the
-//     same from all sides of a round thing).
+//   - squashed art: some old art draws depth shorter than it is (a barrel's top ellipse): k = art depth / true depth of
+//     that view (default 1: texture rows = k × depth), piv = the ground row the squash is about (tiles from the anchor
+//     row; 0 = the anchor = the front of the body; a lathe: its axis). The model has the true depth at every angle, 0°
+//     included (the sprite look is retired); round things may keep the art's flat look with k1 = k (the model squashed
+//     along the view at every angle: the same from all sides of a round thing).
+//   - dedicated face art (uv): a part's faces from rects of a texture painted in true proportions (the chest, CHEST_UV).
 // Other spec fields: V (anchor row, default 1), ow, foot (decor edge pieces: the art is drawn lower by its foot,
 // archCompose.footOf), when(o) (false = not drawn by this kit, e.g. wall torches), state(o) → variant name and
 // variants: { open: { s: sprite, only: true (no other views: they borrow it), k, parts… } }, fx: [{ at: [x, v, h],
@@ -35,7 +35,14 @@
 // (the light pool, halo and smoke: default the first fx point), seat: [x, v, h] (where a sitter sits while turned),
 // blob: false | [sx, sy, dy, a] (the contact shadow; default the painters' one). Points are in the 0° view's numbers
 // (views[letter].fx / .light / .seat for a view drawn differently).
-// More (faces/solidLights.js uses them): ramp: false (the true depth at every angle, no squash near 0°) · model: 'front'
+// Placing: align 'center' (default for edge pieces) | 'back' (against the back edge: shelves, cabinets): the model moved
+// into its body (the art does not always draw a piece where its body is). Per part: geo (the true size when the art
+// draws it shorter: a bed reaching the wall), uv, cover (may hide a sitter / sleeper from behind: drawn after them),
+// solo (every side from its own art: a board, a mirror), sx (a lathe stretched along x: an oval tub), top 'open' + band.
+// Per type: seat / rest (sitter / sleeper points), decal [x, v, rx, ry, a] (the painter's dirt patch kept on the ground),
+// fixed (drawn facing south whatever its facing: the banner), scale + hang(o) (art drawn scaled, the model that high:
+// things hung on a wall standing free), pt (the part whose fit places the points), fx.always (drawn on blueprints too).
+// More (faces/solidLights.js uses them): model: 'front'
 // (the model always from the front art's parts, whatever way the piece faces; the other views only texture it) ·
 // lift: px the painter draws the art above the piece's ground (wall-hung art; per part: that part's texture in the
 // model's art only) · lathe lean: [px of art x, px of ground row] per px of height (a leaning axis: a wall torch, legs)
@@ -56,7 +63,6 @@ import { shade, shadowRect, shadowArt, partsReset, part, partsSorted } from './k
 
 export const SOLID = Object.create(null);
 export function defineSolid(type, spec) { SOLID[type] = spec; return spec; }
-export const SQ_RAMP = 0.5; // yaw (radians) over which squashed art eases to the true depth
 const OW = 2.6;             // the painters' outline (art/paint.js OW): px every part grows by (spec.ow)
 
 const FI = { s: 0, w: 1, n: 2, e: 3 };             // view / facing index (= rot of a 'rotate' piece)
@@ -629,7 +635,6 @@ function entryOf(A, o) {
 
 // ---------- draw ----------
 const SCR = new Float32Array(20);
-const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const BP_FLASH = 0.14; // (composeWorld: a blueprint's darks lifted a little, as its sprite)
 // alpha with a hit flash for FACE_FS: 2 + 2·level + 0.25 + alpha / 2 (16 levels; robust to mediump varyings)
 export function encA(a, fl) {

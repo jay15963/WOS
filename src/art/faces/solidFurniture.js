@@ -16,13 +16,13 @@ function sprite(A, n) {
 // the plant of a pot as an upright sprite standing on the pot's axis (the pot is the solid; the painting with the pot's
 // inside cut out, `<sprite>_leaf`): anchored on the axis point, lifted by (v of the axis − 1) so it sits on the pot as
 // the art draws it, whatever the yaw (a round pot looks the same from every side)
-const potPlant = (type, va) => ({
-  at: [0, va, 0], always: true,
-  draw(B, A, o, t, x, y, lift, a, fs) {
-    const s = sprite(A, `${type}_${(((o.v | 0) % 3) + 3) % 3}_leaf`);
+const potPlant = (type, va) => {
+  const NM = [0, 1, 2].map((i) => `${type}_${i}_leaf`); // (no string built per frame)
+  return { at: [0, va, 0], always: true, draw(B, A, o, t, x, y, lift, a, fs) {
+    const s = sprite(A, NM[(((o.v | 0) % 3) + 3) % 3]);
     if (s) B.main.add(s, x, y, 1, 1, fs.tr, fs.tg, fs.tb, a, 0, 0, fs.fl, 1, 0, lift + va - 1);
-  },
-});
+  } };
+};
 
 // ---- chairs and stools (a sitter sits on `seat`; the backrest hides the sitter's back from behind: cover) ----
 // chair_fine (decor.js chairFine 's' / 'n' / 'e', mk(1, 40)): seat box (legs from the art) + upholstered backrest
@@ -184,9 +184,9 @@ defineSolid('washtub', {
 // from the bar as a board in the banner's plane and swings in it as at 0° (the art faces south whatever the facing:
 // fixed) ----
 const PG_X = 3, PG_H = 105.4; // the cloth's top attachment (stations.js PROP_GEOM.bannerX / bannerLift on the pole's row)
-const CUV = [0, 0, 0, 0];
+const CUV = [0, 0, 0, 0], CLOTH = ['banner_cloth_0', 'banner_cloth_1', 'banner_cloth_2'];
 function bannerCloth(B, A, o, t, x, y, lift, a, fs) {
-  const F = B.faces, s = sprite(A, 'banner_cloth_' + (((o.v | 0) % 3) + 3) % 3);
+  const F = B.faces, s = sprite(A, CLOTH[(((o.v | 0) % 3) + 3) % 3]);
   if (!F || !s) return;
   const seed = o.x * 0.93 + o.y * 1.31;
   const w = Math.sin(t * 1.7 + seed) * 0.6 + Math.sin(t * 3.9 + seed * 2) * 0.3 + 0.35;
@@ -229,14 +229,14 @@ defineSolid('plant_pot', {
 // ---- clusters of round things (jars, sacks): lathes, squashed like the art at every angle; one casts the shadow (the
 // art's silhouette) ----
 // jars (decor.js jars, mk(1, 30)): jar(x, v, h, w) — mouth 0.4 w, belly 0.85 w at 0.45 h, foot 0.6 w
-const jar = ([x, v, h, w], sh) => ({ lathe: [x, v, [[0, 0.6 * w], [0.45 * h, 0.9 * w], [h, 0.42 * w]]], n: 8, sh });
+const jar = ([x, v, h, w], sh) => ({ lathe: [x, v, [[0, 0.6 * w], [0.45 * h, 0.9 * w], [h, 0.42 * w]]], n: 7, sh });
 defineSolid('jars', {
   foot: true, k: 0.45, k1: 0.45, piv: 0.82 - 1,
   parts: [jar([-14, 0.7, 20, 8], false), jar([2, 0.86, 26, 10], true), jar([15, 0.74, 14, 7], false), jar([-6, 0.94, 12, 6], false)],
   pt: 1,
 });
 // sacks (decor.js sacks, mk(1, 30)): sack(x, v, h, w) — a soft bag, its tied neck on top
-const sack = ([x, v, h, w], sh) => ({ lathe: [x, v, [[0, w], [0.6 * h, w + 1], [h, 0.5 * w], [h + 3, 0.3 * w]]], n: 8, sh });
+const sack = ([x, v, h, w], sh) => ({ lathe: [x, v, [[0, w], [0.6 * h, w + 1], [h + 3, 0.35 * w]]], n: 7, sh });
 defineSolid('sacks', {
   foot: true, k: 0.4, k1: 0.4, piv: 0.84 - 1,
   parts: [sack([-12, 0.8, 22, 10], false), sack([11, 0.78, 20, 9.5], false), sack([0, 0.92, 18, 10], true)],
