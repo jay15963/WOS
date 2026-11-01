@@ -153,6 +153,8 @@ function bookshelf(east) {
       face(g, x0, x1, Y(v0, H), Y(v0, 0), DARKW.dark);
       leg(g, x0 + 2.5, Y(v1, H), Y(v1, 0), 5, DARKW.light); leg(g, x1 - 2.5, Y(v1, H), Y(v1, 0), 5, DARKW.light); leg(g, W / 2, Y(v1, H), Y(v1, 0), 4, DARKW.light);
       for (const h of [3, 23, 44]) {
+        // the shelf's top first, the books standing on it (the top used to be painted over them: a plain cabinet)
+        plankTop(g, x0, Y(v0, h + 3), x1, Y(v1, h + 3), DARKW.high, 'x', 1);
         let x = x0 + 5;
         while (x < x1 - 8) {
           if (Math.abs(x - W / 2) < 3) { x += 4; continue; }
@@ -161,7 +163,6 @@ function bookshelf(east) {
           book(g, x, Y(0.78, h + 3 + hh), w, hh, BOOKS[(rand() * 8) | 0]);
           x += w + 0.4;
         }
-        plankTop(g, x0, Y(v0, h + 3), x1, Y(v1, h + 3), DARKW.high, 'x', 1);
         g.fillStyle = DARKW.mid; g.fillRect(x0, Y(v1, h + 3), x1 - x0, 3);
       }
       plankTop(g, x0 - 2, Y(v0, H + 2), x1 + 2, Y(v1, H + 2), DARKW.high, 'x', 2);
@@ -468,11 +469,13 @@ function curtain() {
     }
   });
 }
-function plantPot(v) {
+// leaf: the plant alone (camera rotation: the pot is a solid, the plant an upright sprite on it — art/faces/solid.js):
+// no dirt patch, the pot's inside cut out (its outline stays, so pot + plant = the whole sprite)
+function plantPot(v, plantOnly = false) {
   const rand = rng(2100 + v);
   return mk(1, v === 2 ? 64 : 40, (g, P, Y, W) => {
     const cx = W / 2, b = Y(0.6, 0);
-    ground(g, cx, Y(0.62, 0), 13, 4);
+    if (!plantOnly) ground(g, cx, Y(0.62, 0), 13, 4);
     P.layer((g) => {
       if (v === 2) { g.fillStyle = '#6a4428'; g.fillRect(cx - 1.6, Y(0.6, 46), 3.2, 32); leaves(g, cx, Y(0.6, 48), 17, 13, rand, 20); }
       else if (v === 1) leaves(g, cx, Y(0.6, 22), 15, 11, rand, 16, ['#4a7d34', '#57903c', '#62a046', '#366028']);
@@ -485,6 +488,12 @@ function plantPot(v) {
       g.fillStyle = '#c0703e'; g.fillRect(cx - 11, Y(0.6, 17), 22, 4);
       g.fillStyle = 'rgba(255,230,200,0.35)'; g.fillRect(cx - 11, Y(0.6, 17), 22, 1);
     }, 2.4);
+    if (plantOnly) {
+      g.globalCompositeOperation = 'destination-out';
+      g.beginPath(); g.moveTo(cx - 10, Y(0.6, 15)); g.lineTo(cx + 10, Y(0.6, 15)); g.lineTo(cx + 7, b); g.lineTo(cx - 7, b); g.closePath(); g.fill();
+      g.fillRect(cx - 11, Y(0.6, 17), 22, 4);
+      g.globalCompositeOperation = 'source-over';
+    }
   });
 }
 function rugRound() {
@@ -1111,7 +1120,7 @@ function decorSprites(S) {
   A('table_round', () => tableRound()); A('table_small', () => tableSmall()); A('barrel', () => barrel()); A('crates', () => crates()); A('sacks', () => sacks()); A('jars', () => jars());
   A('candles', () => candles()); A('candelabra', () => candelabra());
   A('herbs_hang', () => herbsHang()); A('curtain', () => curtain()); A('painting', () => painting()); A('trophy', () => trophy()); A('pot_hooks', () => potHooks());
-  for (let v = 0; v < 3; v++) A('plant_pot_' + v, () => plantPot(v));
+  for (let v = 0; v < 3; v++) { A('plant_pot_' + v, () => plantPot(v)); A('plant_pot_' + v + '_leaf', () => plantPot(v, true)); }
   S('rug_round', rugRound, 0.5, 0.5); S('rug_fur', rugFur, 0.5, 0.5); S('decal_dirt', decalDirt, 0.5, 0.5);
   A('weapon_rack', () => weaponRack(false)); A('weapon_rack_e', () => weaponRack(true));
   A('armor_stand', () => armorStand());

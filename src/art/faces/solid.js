@@ -57,7 +57,7 @@ const VCX = [0, 1, 0, -1], VCY = [1, 0, -1, 0];  // local direction toward the c
 
 // ---------- the views of one object (scratch, rebuilt per build) ----------
 // S sprite, m flip, c / r axes, a anchor (local), k / piv / V, spec (the art description: parts / fx), edge (borrow)
-const FR = [0, 1, 2, 3].map(() => ({ S: null, m: 1, cx: 0, cy: 0, rx: 0, ry: 0, ax: 0, ay: 0, k: 1, k1: 1, piv: 0, V: 1, ow: 0, spec: null, own: false, edge: false }));
+const FR = [0, 1, 2, 3].map(() => ({ S: null, m: 1, cx: 0, cy: 0, rx: 0, ry: 0, ax: 0, ay: 0, k: 1, k1: 1, piv: 0, V: 1, ow: 0, sc: 1, L: 0, spec: null, own: false, edge: false }));
 const has = (A, n) => A.has(n) || LAZY_DEFS.has(n);
 function spriteNamed(A, n) {
   const s = A.has(n) ? A.get(n) : K.tables(A).opt(n);
@@ -85,6 +85,7 @@ function views(A, o, spec, sp, W, D) {
     const vs = from === 's' ? sp : (sp.views?.[from] || spec.views?.[from] || null);
     F.spec = vs && vs.parts ? vs : sp;
     F.k = vs?.k ?? sp.k ?? 1; F.piv = vs?.piv ?? sp.piv ?? 0; F.V = vs?.V ?? sp.V ?? 1; F.ow = vs?.ow ?? sp.ow ?? OW; F.k1 = vs?.k1 ?? sp.k1 ?? 1;
+    F.sc = sp.scale || 1; F.L = sp.lift ? sp.lift(o) : 0; // (art drawn scaled / lifted: things hung on a wall standing free)
     if (from !== 's' && vs && vs.k === undefined) F.k = 1;
     if (from !== 's' && vs && vs.piv === undefined) F.piv = 0;
     if (from !== 's' && vs && vs.V === undefined) F.V = 1;
@@ -96,12 +97,19 @@ function views(A, o, spec, sp, W, D) {
 }
 // art numbers (x px, v tiles, h px) of view F → its view coordinates (X across, d toward the camera, h; tiles)
 const VP = { X: 0, d: 0, h: 0 };
-function artView(F, x, v, h) { VP.X = F.m * x / 64; VP.d = F.piv + (v - F.V - F.piv) / F.k; VP.h = h / 64; return VP; }
+function artView(F, x, v, h) { VP.X = F.sc * F.m * x / 64; VP.d = F.sc * (F.piv + (v - F.V - F.piv) / F.k); VP.h = F.L + F.sc * h / 64; return VP; }
+// view coordinates (X, d, h tiles) → image px of view F's art (artView's inverse) → CR
+function artPx(F, X, d, h) {
+  const S = F.S, q = 1 / F.sc;
+  CR.c = S.ax * S.pw + F.m * 64 * X * q;
+  CR.r = S.ay * S.ph + 64 * (F.k * (d * q - F.piv) + F.piv - (h - F.L) * q);
+  return CR;
+}
 
 // ---------- the model (local tiles: origin = body centre on the ground, +y = the piece's front) ----------
 // part: { t: 0 box / 1 lathe / 2 quad, x0 x1 y0 y1 h0 h1 (bbox), ax ay (lathe axis), pr (lathe profile: h, r pairs),
 //         n (sides), q (quad corners), open, top, sh, z, fit: 4 views × 6 (sX oX sd od sh oh) }
-function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, fit: new Float32Array(24) }; }
+function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, sx: 1, solo: false, fit: new Float32Array(24) }; }
 // the art's dark outline (ow px around the silhouette) belongs to the solid: each part grows by it — sideways, its top's
 // back edge, and below the ground for parts standing on it (a card's thin top covers the outline above it)
 const GROWN = new WeakMap();
@@ -112,7 +120,7 @@ function grown(ps, ow) {
   const low = (h) => (h <= 0.5 ? h - ow : h);
   if (ps.box) { const b = ps.box; g = { box: [b[0] - ow, b[1] + ow, b[2] - ow / 64, b[3], low(b[4]), b[5]] }; }
   else if (ps.card) { const c = ps.card; g = { card: [c[0] - ow, c[1] + ow, c[2], low(c[3]), c[4]], t: ps.t }; }
-  else { const [x, v, pr] = ps.lathe, q = pr.map(([h, r]) => [h, r + ow]); if (pr[0][0] <= 0.5) q.unshift([pr[0][0] - ow, pr[0][1] + ow]); g = { lathe: [x, v, q] }; }
+  else { const [x, v, pr] = ps.lathe, q = pr.map(([h, r]) => [h, r + ow]); if (pr[0][0] <= 0.5) q.unshift([pr[0][0] - ow, pr[0][1] + ow]); g = { lathe: [x, v, q], sx: ps.sx }; }
   g.ow = ow;
   GROWN.set(ps, g);
   return g;
@@ -134,8 +142,8 @@ function specBox(F, ps) {
   else if (ps.lathe) {
     const [x, v, pr] = ps.lathe; let rm = 0, ha = 1e9, hb = -1e9;
     for (const [h, r] of pr) { if (r > rm) rm = r; if (h < ha) ha = h; if (h > hb) hb = h; }
-    artView(F, x, v, 0); const R = rm / 64;
-    X0 = VP.X - R; X1 = VP.X + R; d0 = VP.d - R; d1 = VP.d + R; h0 = ha / 64; h1 = hb / 64;
+    artView(F, x, v, 0); const R = rm / 64 * F.sc, RX = R * (ps.sx || 1);
+    X0 = VP.X - RX; X1 = VP.X + RX; d0 = VP.d - R; d1 = VP.d + R; h0 = VP.h + F.sc * ha / 64; h1 = VP.h + F.sc * hb / 64;
   } else if (ps.quad) for (const p of ps.quad) pt(p[0], p[1], p[2]);
   BB[0] = X0; BB[1] = X1; BB[2] = d0; BB[3] = d1; BB[4] = h0; BB[5] = h1;
   return BB;
@@ -147,17 +155,17 @@ function buildModel(F, list, P) {
     const p = P[j] || (P[j] = mkPart());
     let ps = list[j];
     p.open = !!ps.open; p.top = ps.top || ''; p.band = ps.band || 6; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card; p.cover = !!ps.cover;
-    p.uv = ps.uv || null;
+    p.uv = ps.uv || null; p.solo = !!ps.solo;
     // geo: the part's true size (same format, these art numbers) when the art draws it shorter / smaller than the
     // footprint (a bed reaching the wall): the model is the geo, the art box only says where its texture is
     ps = ps.geo ? geoOf(ps) : p.uv ? ps : grown(ps, F.ow);
     const L = (x, v, h) => { artView(F, x, v, h); LP.x = F.ax + F.rx * VP.X + F.cx * VP.d; LP.y = F.ay + F.ry * VP.X + F.cy * VP.d; LP.h = VP.h; return LP; };
     if (ps.lathe) {
       const [x, v, pr] = ps.lathe;
-      p.t = 1; L(x, v, 0); p.ax = LP.x; p.ay = LP.y; p.n = ps.n || 12;
+      p.t = 1; L(x, v, 0); p.ax = LP.x; p.ay = LP.y; p.n = ps.n || 12; p.sx = list[j].sx || 1;
       p.pr.length = 0; let rm = 0;
       for (const [h, r] of pr) { p.pr.push(h / 64, r / 64); if (r > rm) rm = r; }
-      rm /= 64; p.x0 = p.ax - rm; p.x1 = p.ax + rm; p.y0 = p.ay - rm; p.y1 = p.ay + rm; p.h0 = p.pr[0]; p.h1 = p.pr[p.pr.length - 2];
+      rm /= 64; p.x0 = p.ax - rm * p.sx; p.x1 = p.ax + rm * p.sx; p.y0 = p.ay - rm; p.y1 = p.ay + rm; p.h0 = p.pr[0]; p.h1 = p.pr[p.pr.length - 2];
     } else if (ps.quad) {
       p.t = 2; p.q.length = 0; p.x0 = p.y0 = p.h0 = 1e9; p.x1 = p.y1 = p.h1 = -1e9;
       for (const c of ps.quad) { L(c[0], c[1], c[2]); p.q.push(LP.x, LP.y, LP.h); bbAdd(p, LP.x, LP.y, LP.h); }
@@ -203,12 +211,9 @@ function fitPart(p, j, i) {
 // image px (col, row) of local point (x, y, h) of part p seen in view i → CR
 const CR = { c: 0, r: 0 };
 function texel(p, i, x, y, h) {
-  const F = FR[i], f = p.fit, o = i * 6, S = F.S;
+  const F = FR[i], f = p.fit, o = i * 6;
   toView(F, x, y, h);
-  const X = f[o] * VQ.X + f[o + 1], d = f[o + 2] * VQ.d + f[o + 3], hh = f[o + 4] * VQ.h + f[o + 5];
-  CR.c = S.ax * S.pw + F.m * 64 * X;
-  CR.r = S.ay * S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh);
-  return CR;
+  return artPx(F, f[o] * VQ.X + f[o + 1], f[o + 2] * VQ.d + f[o + 3], f[o + 4] * VQ.h + f[o + 5]);
 }
 
 // ---------- faces → clipped quads ----------
@@ -280,8 +285,8 @@ function texEdge(p, f, nx, ny, n) {
     toView(F, PA[s], PA[s + 1], PA[s + 2]);
     const t = dF - dB > 1e-5 ? (dF - VQ.d) / (dF - dB) : 0;
     const X = fi[o] * (Xe + inw * t) + fi[o + 1], d = fi[o + 2] * dF + fi[o + 3], hh = fi[o + 4] * VQ.h + fi[o + 5];
-    PA[s + 3] = F.S.ax * F.S.pw + F.m * 64 * X;
-    PA[s + 4] = F.S.ay * F.S.ph + 64 * (F.k * (d - F.piv) + F.piv - hh);
+    artPx(F, X, d, hh);
+    PA[s + 3] = CR.c; PA[s + 4] = CR.r;
   }
 }
 // a top / card top as a strip: the front face's top rows (view f) stretched over it
@@ -309,7 +314,7 @@ function boxFaces(p, f, flagPass) {
     PN = 4;
     corner(0, sd[2] ? p.x1 : p.x0, sd[3] ? p.y1 : p.y0, p.h1); corner(1, sd[4] ? p.x1 : p.x0, sd[5] ? p.y1 : p.y0, p.h1);
     corner(2, sd[6] ? p.x1 : p.x0, sd[7] ? p.y1 : p.y0, p.h0); corner(3, sd[8] ? p.x1 : p.x0, sd[9] ? p.y1 : p.y0, p.h0);
-    const i = viewOf(nx, ny);
+    const i = p.solo ? f : viewOf(nx, ny); // (solo: a board / mirror / picture: every side from its own art)
     if (FR[i].edge) texEdge(p, f, nx, ny, 4); else texCorners(p, i, 4);
     emitFace(FR[FR[i].edge ? f : i].S, flagPass, nx, ny);
   }
@@ -393,10 +398,10 @@ function openTop(p, f) {
   }
 }
 function latheFaces(p, f) {
-  const n = p.n, pr = p.pr, b = (f + 2) & 3, cfx = VCX[f], cfy = VCY[f];
+  const n = p.n, pr = p.pr, b = (f + 2) & 3, cfx = VCX[f], cfy = VCY[f], X = p.sx; // (sx: an oval, stretched along local x)
   for (let j = 0; j < n; j++) {
     const a0 = (j / n) * Math.PI * 2, a1 = ((j + 1) / n) * Math.PI * 2, am = (a0 + a1) / 2;
-    const s0 = Math.sin(a0), c0 = Math.cos(a0), s1 = Math.sin(a1), c1 = Math.cos(a1), nx = Math.sin(am), ny = Math.cos(am);
+    const s0 = Math.sin(a0) * X, c0 = Math.cos(a0), s1 = Math.sin(a1) * X, c1 = Math.cos(a1), nl = Math.hypot(Math.sin(am) / X, Math.cos(am)), nx = Math.sin(am) / X / nl, ny = Math.cos(am) / nl;
     const i = nx * cfx + ny * cfy >= 0 ? f : b; // front half from the 0° view, back half from the opposite one
     for (let k = 0; k + 3 < pr.length; k += 2) {
       const ha = pr[k], ra = pr[k + 1], hb = pr[k + 2], rb = pr[k + 3];
@@ -415,10 +420,10 @@ function latheFaces(p, f) {
     PN = 4;
     const ang = (q) => (q / n) * Math.PI * 2;
     const k3 = Math.min(j + 2, n - 1);
-    corner(0, p.ax + rt * Math.sin(0), p.ay + rt * Math.cos(0), ht);
-    corner(1, p.ax + rt * Math.sin(ang(j)), p.ay + rt * Math.cos(ang(j)), ht);
-    corner(2, p.ax + rt * Math.sin(ang(j + 1)), p.ay + rt * Math.cos(ang(j + 1)), ht);
-    corner(3, p.ax + rt * Math.sin(ang(k3)), p.ay + rt * Math.cos(ang(k3)), ht);
+    corner(0, p.ax, p.ay + rt, ht);
+    corner(1, p.ax + rt * X * Math.sin(ang(j)), p.ay + rt * Math.cos(ang(j)), ht);
+    corner(2, p.ax + rt * X * Math.sin(ang(j + 1)), p.ay + rt * Math.cos(ang(j + 1)), ht);
+    corner(3, p.ax + rt * X * Math.sin(ang(k3)), p.ay + rt * Math.cos(ang(k3)), ht);
     texCorners(p, f, 4);
     emitFace(FR[f].S, 1, 0, 0);
   }
@@ -484,12 +489,14 @@ function build(A, o, def, spec, st, e) {
   e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H;
   const list = Ff.spec.parts;
   buildModel(Ff, list, e.P);
-  // centred in its body (edge pieces, spec.center): the art does not always draw a piece where its body is (a chair
-  // 0.2 tiles behind its front); a piece against a wall then reaches it without going through (the fits keep the art on it)
-  if (spec.center ?? !!def.edge) {
+  // placed in its body (spec.align 'center', default for edge pieces, or 'back': against the back edge — shelves,
+  // cabinets, racks): the art does not always draw a piece where its body is (a chair 0.2 tiles behind its front, a
+  // bookshelf in the middle of its tile); against a wall it then reaches it without going through (the fits keep the art on it)
+  const al = spec.align ?? (def.edge ? 'center' : null);
+  if (al) {
     let a = 1e9, b = -1e9;
     for (const p of e.P) { if (p.y0 < a) a = p.y0; if (p.y1 > b) b = p.y1; }
-    const sh = -(a + b) / 2;
+    const sh = al === 'back' ? -D / 2 + 0.015 - a : -(a + b) / 2;
     if (Math.abs(sh) > 1e-4) for (const p of e.P) { p.y0 += sh; p.y1 += sh; p.ay += sh; for (let k = 1; k < p.q.length; k += 3) p.q[k] += sh; }
   }
   for (let j = 0; j < e.P.length; j++) for (let i = 0; i < 4; i++) fitPart(e.P[j], j, i);
@@ -514,7 +521,9 @@ function build(A, o, def, spec, st, e) {
   // footprint corners (depth), the squash pivot (0° view), shadows, fx points
   for (let c = 0; c < 4; c++) { const lx = c & 1 ? gx1 : gx0, ly = c & 2 ? gy1 : gy0; e.fpx[c] = WX + CA * lx - SA * ly; e.fpy[c] = WY + SA * lx + CA * ly; }
   e.k0 = Ff.k; e.k1 = Ff.k1;
-  { const lx = Ff.ax + Ff.cx * Ff.piv, ly = Ff.ay + Ff.cy * Ff.piv; e.pvx = WX + CA * lx - SA * ly; e.pvy = WY + SA * lx + CA * ly; }
+  // (points of the 0° view's art → the model, through part pt's fit: a geo stretch, the placing in the body → world)
+  const pj = Math.min(spec.pt ?? 0, e.P.length - 1);
+  { artLocal(e, Ff, pj, 0, Ff.V + Ff.piv, 0); e.pvx = WX + CA * LP.x - SA * LP.y; e.pvy = WY + SA * LP.x + CA * LP.y; } // (the squash pivot)
   e.sh.length = 0;
   for (const p of e.P) {
     if (!p.sh || p.h1 - p.h0 < 2 / 64) continue;
@@ -530,8 +539,6 @@ function build(A, o, def, spec, st, e) {
       e.sh.push(1, wx, wy, 0, 0, 0, 0, H0 + Ff.k * (da - Ff.piv) + Ff.piv);
     }
   }
-  // points of the 0° view's art → the model (through part pt's fit: a geo stretch, the centring) → world
-  const pj = Math.min(spec.pt ?? 0, e.P.length - 1);
   e.fx.length = 0;
   for (const fx of Ff.spec.fx || spec.fx || []) {
     artLocal(e, Ff, pj, fx.at[0], fx.at[1], fx.at[2]);

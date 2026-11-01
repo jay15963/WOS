@@ -395,7 +395,9 @@ function rug(v) {
     g.strokeStyle = 'rgba(30,18,12,0.6)'; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0 - 1, y1 - y0 - 1);
   }, { crop: false });
 }
-function flowerPot(v) {
+// leaf: the plant alone (camera rotation: the pot is a solid, the plant an upright sprite on it — art/faces/solid.js):
+// the same painting with the pot's inside cut out (its outline stays, so pot + plant = the whole sprite)
+function flowerPot(v, plantOnly = false) {
   const rand = rng(508 + v);
   const pet = [['#c8323a', '#f06a5a'], ['#e8b020', '#ffe07a'], ['#5a6ad0', '#9aa8f0']][v % 3];
   return mk(0.6, 18, (g, P, Y, W) => {
@@ -421,6 +423,12 @@ function flowerPot(v) {
       g.fillStyle = 'rgba(255,230,200,0.4)'; g.fillRect(cx - 10, base - 17, 20, 1);
       g.fillStyle = '#4a3020'; g.beginPath(); g.ellipse(cx, base - 16.6, 8, 1.4, 0, 0, TAU); g.fill();
     }, 2.4);
+    if (plantOnly) {
+      g.globalCompositeOperation = 'destination-out';
+      g.beginPath(); g.moveTo(cx - 9, base - 15); g.lineTo(cx + 9, base - 15); g.lineTo(cx + 6.5, base); g.lineTo(cx - 6.5, base); g.closePath(); g.fill();
+      g.fillRect(cx - 10, base - 17, 20, 4);
+      g.globalCompositeOperation = 'source-over';
+    }
   });
 }
 
@@ -849,6 +857,7 @@ export function addStations(add) {
   A('chair_wood', chair());
   for (let v = 0; v < 2; v++) add('rug_' + v, rug(v), 0.5, 0.5); // centred: drawn rotated about the footprint centre
   for (let v = 0; v < 3; v++) A('flower_pot_' + v, flowerPot(v));
+  for (let v = 0; v < 3; v++) A('flower_pot_' + v + '_leaf', flowerPot(v, true));
   A('banner_pole', bannerPole());
   for (let v = 0; v < 3; v++) add('banner_cloth_' + v, bannerCloth(v), 0.5, 0);
   for (let v = 0; v < 3; v++) A('banner_' + v, bannerFull(v));
