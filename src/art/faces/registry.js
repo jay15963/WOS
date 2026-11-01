@@ -1,13 +1,15 @@
-// Camera rotation (docs/CAMERA-ROTATION.md): the pieces drawn as computed faces while the camera is turned.
+// Camera rotation (docs/CAMERA-ROTATION.md): the pieces drawn as computed faces (at every camera angle, 0° too).
 // Each area registers its pieces in its own module (faces/*.js, imported by faces/index.js):
 //   registerFaces({ id, test(o, def) → bool, draw(B, A, o, t) → bool, depth?(o, rc, rs) → number })
-//   - test: is o (a world object; def = BUILDINGS[o.type] or undefined) drawn by this kind while the camera is turned
+//   - test: is o (a world object; def = BUILDINGS[o.type] or undefined) drawn by this kind
 //   - draw: put its faces into B.faces (engine/faceBatch.js) — false = draw its sprite as always (art not ready…)
 //   - depth: its view depth for the painter's sort (larger = nearer the camera); default boxDepth (the front-most point
 //     of its footprint box, + a tiny bit per story). rc / rs = cos / sin of the camera yaw.
 //   - prio: optional; kinds are tried by prio (higher first, default 0), then registration order — a catch-all kind
 //     (levels' upperSprite) uses a negative prio so it never shadows a kind registered after it
-// The first kind whose test passes wins. game.js asks faceKindOf(o) only while turned.
+//   - zBias: optional; depth-buffer bias of its faces toward the camera (tiles of d = view y + h; game.js): a piece
+//     laid on another one's surface on purpose (an upper floor over a wall top)
+// The first kind whose test passes wins. game.js asks faceKindOf(o) at every camera angle (3D at 0° too).
 import { BUILDINGS } from '../../game/content/buildings.js';
 
 export const FACE_KINDS = [];

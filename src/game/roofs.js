@@ -20,7 +20,7 @@
 //     (camera zoom lock in game.js, screen effects in the post shader, audio / survival read world.roofAt);
 //   - fades: the region the local player is under fades out (~0.35 s); a roof in front of the player goes
 //     see-through (0.32); chimneys smoke while a fire burns under them; cave-ins and collapses kick up dust.
-//   - camera turned (game.cam.rot ≠ 0, docs/CAMERA-ROTATION.md): each region as true 3D pieces (art/roofFacets.js:
+//   - at every camera angle (0° too, docs/CAMERA-ROTATION.md): each region as true 3D pieces (art/roofFacets.js:
 //     exact facets textured with a plan-view painting, fascia / bargeboards / steps, gables with windows that glow,
 //     chimneys, weathervane), painted in the worker once the camera has turned (a flat-coloured stand-in until then),
 //     drawn as view columns depth-sorted with the sprites, ray-cast for picking / occlusion, shadows as ground faces.
@@ -63,7 +63,7 @@ export function initRoofs(game) {
   game.roofs.collapsing = new Set(); // tiles whose roof just fell (cosmetic: the old painting drops and fades)
   // camera rotation: paint the turned art (3D pieces) too — from the first turn on, or from the start for a player who
   // turned the camera in an earlier session (local preference, cosmetic)
-  try { game.roofs.turned = typeof localStorage !== 'undefined' && localStorage.getItem('wos.roofTurn') === '1'; } catch { game.roofs.turned = false; }
+  game.roofs.turned = true; // (3D at every camera angle: the pieces are always drawn)
   game.roofs.falling = [];           // [{ g, t }] old paintings dropping
   // cave ceilings (cosmetic, see "cave ceilings" below)
   Object.assign(game.roofs, { caveOf: new Int32Array(N), caves: new Map(), caveNext: 1, caveDirty: new Set(), caveAll: true, crumble: new Map(), cracks: new Map(), peek: new Map() });
@@ -282,7 +282,6 @@ export function roofsSystem() {
           }
         }
         // camera rotation: once the camera has turned, every region also gets its turned art (3D pieces, roofFacets.js)
-        if (!R.turned && (game.cam?.rot || game.cam?.rotTo)) { R.turned = true; try { localStorage.setItem('wos.roofTurn', '1'); } catch { /* ignore */ } }
         if (R.turned) {
           tmpList.length = 0;
           for (const g of R.regions.values()) if (g.spec && !g.artDirty && !g.pending && !g.tpending && g.tspec !== g.spec) tmpList.push(g);
@@ -327,33 +326,23 @@ export function roofsSystem() {
     },
     collect(game, list, v) {
       const R = game.roofs;
-      if (!R || (!R.regions.size && !(game.cam?.rot && R.falling.length))) return;
-      if (game.cam?.rot) {
-        // camera turned: each roof as 3D pieces in view columns, depth-sorted with the sprites (turnedDraws); while the
-        // camera turns, the views are recomputed within a budget per frame, the stalest first
-        const rot = game.cam.rot, q = Math.round(rot / ROT_Q), todo = tmpList;
-        todo.length = 0;
-        for (const g of R.regions.values()) {
-          if (g.alpha <= 0.004 || g.x1 + 3 < v.x0 || g.x0 - 3 > v.x1 || g.y1 + 3 < v.y0 || g.y0 - 3 > v.y1) continue;
-          todo.push(g);
-        }
-        for (const g of R.falling) todo.push(g);
-        todo.sort((a, b) => (b._tv ? Math.abs(b._tv.q - q) : 1e9) - (a._tv ? Math.abs(a._tv.q - q) : 1e9));
-        const t0 = performance.now();
-        for (const g of todo) {
-          const T = turnedDraws(game, g, rot, performance.now() - t0 > VIEW_BUDGET_MS);
-          if (T) for (const d of T) list.push(d);
-        }
-        todo.length = 0;
-        return;
-      }
+      if (!R || (!R.regions.size && !R.falling.length)) return;
+      // each roof as 3D pieces in view columns, depth-sorted with the sprites (turnedDraws), at every camera angle;
+      // while the camera turns, the views are recomputed within a budget per frame, the stalest first
+      const rot = game.cam.rot || 0, q = Math.round(rot / ROT_Q), todo = tmpList;
+      todo.length = 0;
       for (const g of R.regions.values()) {
-        const a = g.art;
-        if (!a || a.sx1 < v.x0 - 1 || a.sx0 > v.x1 + 1 || a.sy1 < v.y0 - 1 || a.sy0 > v.y1 + 1) continue;
-        if (g.alpha <= 0.004) continue;
-        for (const s of a.slices) if (s.x1 > v.x0 - 1 && s.x0 < v.x1 + 1 && s.y1 > v.y0 - 1 && s.y0 < v.y1 + 1) { s.drawable.region = g; list.push(s.drawable); }
+        if (g.alpha <= 0.004 || g.x1 + 3 < v.x0 || g.x0 - 3 > v.x1 || g.y1 + 3 < v.y0 || g.y0 - 3 > v.y1) continue;
+        todo.push(g);
       }
-      for (const g of R.falling) for (const s of g.art.slices) { s.drawable.region = g; list.push(s.drawable); }
+      for (const g of R.falling) todo.push(g);
+      todo.sort((a, b) => (b._tv ? Math.abs(b._tv.q - q) : 1e9) - (a._tv ? Math.abs(a._tv.q - q) : 1e9));
+      const t0 = performance.now();
+      for (const g of todo) {
+        const T = turnedDraws(game, g, rot, performance.now() - t0 > VIEW_BUDGET_MS);
+        if (T) for (const d of T) list.push(d);
+      }
+      todo.length = 0;
     },
     render(game, B, v, env) {
       const R = game.roofs;
@@ -362,7 +351,7 @@ export function roofsSystem() {
       const A = game.A, top = A.has('fx_solid') ? A.get('fx_solid') : null, card = A.has('fx_solid_b') ? A.get('fx_solid_b') : null;
       if (!top || !card) return;
       const w = game.world, sx0 = v.x0 - 4, sx1 = v.x1 + 4, sy0 = v.y0 - 3, sy1 = v.y1 + 4;
-      if (game.cam?.rot && B.shadowFaces) { turnedShadows(game, B, env, sx0, sy0, sx1, sy1); return; } // (window glows: in the pieces)
+      if (B.shadowFaces) { turnedShadows(game, B, env, sx0, sy0, sx1, sy1); return; } // (window glows: in the pieces)
       for (const g of R.regions.values()) {
         const a = g.art;
         if (!a || g.x1 + 1 < sx0 || g.x0 > sx1 || g.y1 + 1 < sy0 || g.y0 > sy1) continue;
@@ -655,11 +644,11 @@ function turnedShadows(game, B, env, x0, y0, x1, y1) {
     }
   }
 }
-// camera turned: a flat tile mark at height h over tile (tx, ty) as a face that turns with the world (roof plans, the
+// a flat tile mark at height h over tile (tx, ty) as a face that turns with the world (roof plans, the
 // roof ghost, a finished roof tile marked for deconstruction — game/building.js); drape: laid on the roof's surface.
 // false when it cannot (the caller draws its sprite as always).
 export function roofTileFace(game, B, spr, tx, ty, h, r, g, b, a, drape = false) {
-  if (!game.cam?.rot || !B.faces || !game.R?.setFaceTex || !spr) return false;
+  if (!B.faces || !game.R?.setFaceTex || !spr) return false;
   game.R.setFaceTex(null);
   const R = game.roofs, w = game.world, rg = drape && R && w.inBounds(tx, ty) ? R.regions.get(R.regionOf[w.idx(tx, ty)]) : null, S = rg && regionShape(rg);
   if (!S) { B.faces.quad(tx, ty, h, tx + 1, ty, h, tx + 1, ty + 1, h, tx, ty + 1, h, [spr.u0, spr.v0, spr.u1, spr.v1], r, g, b, a); return true; }
@@ -677,21 +666,7 @@ export function liftedPoint(game, wx, wy, h) {
   const r = game.cam?.rot || 0;
   return r ? [wx - Math.sin(r) * h, wy + Math.cos(r) * h] : [wx, wy + h];
 }
-// camera turned: does the roof hide the local player? (a ray from the player's chest / head on screen toward the camera
-// meets the roof's surface in front of the player)
-function occludesTurned(game, g, p) {
-  if (p.dead || game.indoors.region === g.id) return false;
-  if (p.x < g.x0 - 5 || p.x > g.x1 + 6 || p.y < g.y0 - 5 || p.y > g.y1 + 6) return false;
-  const S = regionShape(g);
-  if (!S) return false;
-  const r = game.cam.rot || 0, c = Math.cos(r), s = Math.sin(r), top = S.He + S.maxRise + 0.1;
-  for (const dh of [0.45, 0.95]) {
-    const gx = p.x + s * dh, gy = p.y - c * dh;
-    for (let t = top; t > dh + 0.05; t -= 0.05) if (S.surf(gx - s * t, gy + c * t) >= t) return true;
-  }
-  return false;
-}
-// camera turned: the roof tile under a screen point (x, y = the ground point under it, game.screenToWorld): a ray
+// the roof tile under a screen point (x, y = the ground point under it, game.screenToWorld): a ray
 // toward the camera (up the screen = up in height) through every region; the front-most hit wins
 function roofPickTurned(game, x, y) {
   const R = game.roofs, rot = game.cam.rot || 0, c = Math.cos(rot), s = Math.sin(rot), W = game.world.W;
@@ -841,39 +816,18 @@ function updateFades(game, dt) {
       g.reveal = tr > g.reveal ? Math.min(1, g.reveal + k) : Math.max(0, g.reveal - k);
       setRevealMask(game, g, g.reveal * g.reveal * (3 - 2 * g.reveal));
     } else if (I._maskDirty && g.reveal > 0) setRevealMask(game, g, g.reveal);
-    // a roof in front of the local player turns see-through
-    const to = g.art && (game.cam?.rot ? occludesTurned(game, g, p) : occludes(game, g, p)) ? 0.32 : 1;
-    g.occl += (to - g.occl) * Math.min(1, dt / 0.3);
+    // (a roof in front of the local player: the cutout around the player opens it, engine/shaders.js CUT_FN)
     const rv = g.reveal * g.reveal * (3 - 2 * g.reveal);
-    g.alpha = Math.min(1 - rv, g.occl);
+    g.alpha = 1 - rv;
   }
   I._maskDirty = false;
-}
-
-// does region g hide the local player? (a roof pixel in front of the player's head / chest on screen)
-function occludes(game, g, p) {
-  if (p.dead || game.indoors.region === g.id) return false;
-  const a = g.art;
-  if (p.x < a.sx0 || p.x > a.sx1 || p.y - 1.3 > a.sy1 || p.y < a.sy0) return false;
-  for (const dy of [0.45, 0.95]) {
-    const s = a.sliceAt(p.x, p.y - dy);
-    if (s && s.key > p.y + 0.02) return true;
-  }
-  return false;
 }
 
 // roof slice drawn at screen-world point (x, sy) of region g, if opaque (picking: decon taps, occlusion)
 export function roofPick(game, x, sy) {
   const R = game.roofs;
   if (!R) return null;
-  if (game.cam?.rot) return roofPickTurned(game, x, sy);
-  for (const g of R.regions.values()) {
-    const a = g.art;
-    if (!a || g.alpha < 0.5 || x < a.sx0 || x > a.sx1 || sy < a.sy0 || sy > a.sy1) continue;
-    const src = a.srcAt(x, sy);
-    if (src >= 0) return { region: g, tile: src, tx: src % game.world.W, ty: (src / game.world.W) | 0 };
-  }
-  return null;
+  return roofPickTurned(game, x, sy); // (the 3D pieces at every camera angle)
 }
 
 // ---------------- cosmetic fx ----------------
@@ -894,7 +848,7 @@ function smokeChimneys(game, dt) {
       const lit = c.fire ? fireLit(c.fire) : anyFire;
       if (!lit) continue;
       if (Math.random() > dt * 7) continue;
-      const cy = game.cam?.rot ? c.y - 0.13 : c.y; // (turned: out of the flue's middle, not its front face)
+      const cy = c.y - 0.13; // (out of the flue's middle, not its front face)
       P.emit({ spr: 'fx_smoke', x: c.x + (Math.random() - 0.5) * 0.08, y: cy, lift: c.top + 0.05, vlift: 0.5 + Math.random() * 0.25,
         vx: wind.x * 0.55 + (Math.random() - 0.5) * 0.1, vy: wind.y * 0.3, drag: 0.25, life: 3 + Math.random() * 1.5,
         size: 0.32 * K, size1: (1.5 + Math.random() * 0.6) * K, r: 0.62, g: 0.6, b: 0.6, a: 0.34, a1: 0, rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.5, fadeIn: 0.3, ground: false });

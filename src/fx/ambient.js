@@ -134,7 +134,7 @@ class Ambient {
       if (RF && w.broof) { const ti = Math.floor(o.y - 0.05) * w.W + Math.floor(o.x), rg = w.broof[ti] && RF.regions.get(RF.regionOf[ti]); if (rg && rg.alpha > 0.5) continue; }
       const I = typeof o.fire === 'number' ? o.fire : 1;
       const lift = (o.light && o.light.lift != null ? o.light.lift : 0.3) + 0.15;
-      const lp = g.cam.rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // camera turned: where the piece is drawn (art/faces/props.js)
+      const lp = o._fk?.lightAt ? o._fk.lightAt(o) : null; // where a face kind draws the piece (art/faces/props.js)
       const ox = lp ? lp[0] : o.x, oy = lp ? lp[1] : o.y;
       f.acc = (f.acc || 0) + dt * I;
       while (f.acc > 0.11) {
@@ -553,7 +553,7 @@ class Ambient {
         const seed = o.x * 3.1 + o.y * 1.7;
         const fl = o.fire ? 0.84 + 0.1 * Math.sin(t * 9.3 + seed) * Math.sin(t * 5.1 + seed * 2) + 0.06 * Math.sin(t * 23 + seed) : 1;
         const R = L.radius || 4, I = L.intensity ?? 1, lift = L.lift ?? 0.3;
-        const lp = g.cam.rot && o._fk?.lightAt ? o._fk.lightAt(o) : null; // camera turned: where the piece is drawn
+        const lp = o._fk?.lightAt ? o._fk.lightAt(o) : null; // where a face kind draws the piece
         const ox = lp ? lp[0] : o.x, oy = lp ? lp[1] : o.y;
         if (o.fire && dark > 0.05) B.light.addRaw(ox, oy + 0.1, R * 2.3, R * 1.7, L.r, L.g * 0.8, L.b * 0.6, 0.11 * I * fl * dark);
         const a = (0.015 + 0.17 * dark) * I * fl;

@@ -288,6 +288,7 @@ registerFaces({
   draw: (B, A, o, t) => drawFloorFaces(B.faces, A, o, (o.lv | 0) * STORY_H, t),
   // after the walls of the story below (their tops are under it), before anything of its own story (walls, people)
   depth: (o, rc, rs) => boxDepth(o, rc, rs) - 0.0005,
+  zBias: 0.004, // (depth buffer: laid on a wall top of the story below, a hair above it)
 });
 registerFaces({
   id: 'upperSprite',

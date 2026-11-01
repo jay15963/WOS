@@ -16,11 +16,10 @@ import { BUILDINGS } from './data.js';
 import { tileBlocked } from './physics.js';
 import { walkable } from './nav.js';
 import { WALL_H } from '../art/structures.js';
-import { enclosedRoom, underOpaqueRoof, underCaveCeiling } from './roofs.js';
+import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
 import { ROOF_GEOM } from './content/roofs.js';
 import { wallBehind as wallBehindL } from './autotile.js';
 import { drawStatic } from '../art/composeWorld.js';
-import { archSprite } from '../art/archCompose.js'; // K's lazy sprites (painted on demand)
 import { drawStairFaces, stairZk, layFlat } from '../art/faces/levels.js'; // camera rotation (docs/CAMERA-ROTATION.md)
 import { drawProxy } from './artcompat.js';
 import { lootRow } from './mut/roll.js';
@@ -751,49 +750,15 @@ class Heap {
 Levels.prototype.drawUpper = function drawUpper(B, A, o, t) {
   const a = o.alpha ?? 1;
   if (a <= 0.02) return;
-  const lift = (o.lv | 0) * STORY_H, def = BUILDINGS[o.type], r = this.game.cam?.rot || 0;
-  if (r && B.faces) return drawUpperRot(this, B, A, o, t, lift, a); // camera turned (docs/CAMERA-ROTATION.md)
-  let PB = this._pb;
-  if (!PB || PB.main !== B.main) PB = this._pb = { ...B, ground: B.main, blob: B.main, decor: B.main };
-  const y0 = o.y, cy0 = o.cy, ty0 = o.ty, x0 = o.x;
-  o.y = y0 - lift; if (cy0 != null) o.cy = cy0 - lift; o.ty = ty0 - lift;
-  try {
-    if (o.blueprint && !o._ghost && A.has('bp_tile')) { // RimWorld-blue plan grid on its story (building.js draws the ground ones)
-      const tile = A.get('bp_tile');
-      for (let y = 0; y < (o.fh || 1); y++) for (let x = 0; x < (o.fw || 1); x++) B.main.add(tile, o.tx + x + 0.5, ty0 + y + 1 - lift, 1, 1, 0.42, 0.7, 1, 0.5 * a, 0, 0, 0, 1, 0);
-    }
-    drawStatic(PB, A, drawProxy(A, o), t);
-    // K's canopy over the door right below sticks out in front of this wall (drawn first, it would hide under it)
-    if (isWallTop(def) && !o._ghost) {
-      const g = this.game, w = g.world, d = g.build.grid.main.get(ty0 * w.W + o.tx + ((o.lv | 0) - 1) * w.W * w.H);
-      const vert = d && (d.orient ? d.orient === 'v' : d.mask != null && !(d.mask & 10) && (d.mask & 5)); // (archCompose.drawDoorK's rule)
-      const aw = d && d.door && !d.blueprint && d._k?.on?.awning && !vert ? archSprite(A, 'kd_awning') : null; // (null until painted)
-      if (aw) {
-        const tn = d._k.tint || [1, 1, 1];
-        B.main.add(aw, d.x, d.y, 1, 1, tn[0], tn[1], tn[2], d.alpha ?? 1, 0, 0, 0, 1, 0, ((o.lv | 0) - 1) * STORY_H);
-      }
-    }
-    if (!o._ghost && this.game.build.decon.has(o) && A.has('fx_ring')) B.main.add(A.get('fx_ring'), o.tx + (o.fw || 1) / 2, ty0 + (o.fh || 1) / 2 + 0.1 - lift, 0.95 * (o.fw || 1), 0.65 * (o.fh || 1), 1, 0.35, 0.3, 0.85);
-    // the slab's front beam where an upper floor overhangs (nothing under its south edge)
-    if (def.layer === 'floor' && !o.blueprint) {
-      const g = this.game, w = g.world, N = w.W * w.H, i = ty0 * w.W + o.tx, lv = o.lv | 0;
-      const below = g.build.grid.main.get(i + (lv - 1) * N), south = g.build.grid.floor.get(i + w.W + lv * N);
-      const se = !south && !(below && isWallTop(BUILDINGS[below.type])) ? archSprite(A, 'slab_edge') : null; // lazy (art/stairs.js)
-      if (se) B.main.add(se, o.tx + 0.5, ty0 + 1 - lift, 1, 1, 1, 1, 1, a, 0, 0, 0, 1, 0, 0);
-    }
-  } finally { o.x = x0; o.y = y0; o.cy = cy0; o.ty = ty0; }
-  const Lg = o.light;
-  if (Lg) {
-    const tt = this.game.time, f = Lg.flicker ? 1 - Lg.flicker * (0.5 + 0.5 * Math.sin(tt * 11 + o.x * 3) * Math.sin(tt * 7.3 + o.y)) : 1, d = Lg.radius * 2 * (0.96 + 0.04 * f);
-    B.light.addRaw(o.x, o.y - lift - (Lg.lift ?? 0.3), d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
-  }
+  const lift = (o.lv | 0) * STORY_H;
+  if (B.faces) drawUpperRot(this, B, A, o, t, lift, a); // (at every camera angle: docs/CAMERA-ROTATION.md)
 };
-// camera turned: the piece's sprites lifted straight up the screen (its position moved along the view's up while it is
+// (at every camera angle) the piece's sprites lifted straight up the screen (its position moved along the view's up while it is
 // drawn), its flat layers (rugs, a floor's ghost, sills) laid at the story's height as faces in drawing order (closing
 // the face segment after each, so a flat layer stays under what is drawn after it), the plan grid as flat faces too,
 // the decon ring and the light lifted up the screen. (Upper floors / walls / stairs are face kinds: art/faces.)
 function drawUpperRot(L, B, A, o, t, lift, a) {
-  const g = L.game, R = g.R, rot = g.cam.rot, sn = Math.sin(rot), cs = Math.cos(rot), dx = sn * lift, dy = -cs * lift;
+  const g = L.game, R = g.R, rot = g.cam.rot || 0, sn = Math.sin(rot), cs = Math.cos(rot), dx = sn * lift, dy = -cs * lift;
   let PB = L._pbr;
   if (!PB || PB.main !== B.main) {
     const flat = { add(s, x, y, sx = 1, sy = 1, r = 1, gg = 1, b = 1, al = 1, sway = 0, rt = 0, fl = 0, flip = 1) { layFlat(B.faces, s, x - PB._dx, y - PB._dy, sx, sy, r, gg, b, al, rt, flip, PB._h); R?.setFaceTex?.(null); }, addRaw() {} };
@@ -809,13 +774,18 @@ function drawUpperRot(L, B, A, o, t, lift, a) {
     ax = tx0 + fw / 2 - sn * ext - x0; ay = ty0 + fh / 2 + cs * ext - y0;
   }
   PB._dx = dx + ax; PB._dy = dy + ay; PB._h = lift;
+  // depth: the piece stands on its story (a card through that point at the floor's height, engine/spriteBatch.js);
+  // its flat layers and contact shadow lie on the slab, a little toward the camera
+  const Z = R?.depth, zb = B.faces.bias;
+  if (Z) { Z.ref = true; Z.x = x0 + ax; Z.y = y0 + ay; Z.h = lift; Z.bias += 0.01; }
+  B.faces.bias = 0.01;
   if (o.blueprint && !o._ghost && A.has('bp_tile')) { // the blue plan grid flat on its story
     const s = A.get('bp_tile');
     for (let y = ty0; y < ty0 + fh; y++) for (let x = tx0; x < tx0 + fw; x++) B.faces.quad4(x, y, lift + 0.002, s.u0, s.v0, x + 1, y, lift + 0.002, s.u1, s.v0, x + 1, y + 1, lift + 0.002, s.u1, s.v1, x, y + 1, lift + 0.002, s.u0, s.v1, 0.42, 0.7, 1, 0.5 * a);
     R?.setFaceTex?.(null);
   }
   o.x = x0 + PB._dx; o.y = y0 + PB._dy; o.tx = tx0 + PB._dx; o.ty = ty0 + PB._dy; if (cy0 != null) o.cy = cy0 + PB._dy; // sync-ok: drawn lifted this frame only, restored right below
-  try { drawStatic(PB, A, drawProxy(A, o), t); } finally { o.x = x0; o.y = y0; o.cy = cy0; o.tx = tx0; o.ty = ty0; } // sync-ok: restores the position
+  try { drawStatic(PB, A, drawProxy(A, o), t); } finally { o.x = x0; o.y = y0; o.cy = cy0; o.tx = tx0; o.ty = ty0; B.faces.bias = zb; } // sync-ok: restores the position
   if (!o._ghost && g.build.decon.has(o) && A.has('fx_ring')) B.fx.add(A.get('fx_ring'), tx0 + fw / 2, ty0 + fh / 2 + 0.1, 0.95 * fw, 0.65 * fh, 1, 0.35, 0.3, 0.85, 0, 0, 0, 1, 0, lift);
   const Lg = o.light;
   if (Lg) {
@@ -823,7 +793,7 @@ function drawUpperRot(L, B, A, o, t, lift, a) {
     B.light.addRaw(o.x + sn * h, o.y - cs * h, d, d, Lg.r, Lg.g, Lg.b, Lg.intensity * f * a);
   }
 }
-// camera turned: the depth key of an entity up a story (game.js; base = its turned y). It sorts after the surface it
+// the depth key of an entity up a story (game.js; base = its turned y). It sorts after the surface it
 // stands on — a wall top's / slab's front-most corner can be up to ~1.07 tiles ahead of the feet at a diagonal yaw, so
 // a small margin over the one tile per story —; on a stair it sorts between the stair's back (steps, far stringer) and
 // its front part (near stringer, handrail: stairFront below), the nearer climber last.
@@ -833,7 +803,7 @@ Levels.prototype.zkRot = function zkRot(e, base, rc, rs) {
   if (s) { const k = stairZk(s.o, rc, rs); return k + 0.0002 + 1e-5 * Math.max(-5, Math.min(5, base + z - k)); }
   return base + z + Math.min(z, 1) * 0.12;
 };
-// camera turned: the front part of each finished stair in view (art/faces/levels.js), sorted just after the stair and
+// the front part of each finished stair in view (art/faces/levels.js), sorted just after the stair and
 // whoever climbs it; hidden like the stair itself (under an opaque roof / a cave ceiling)
 const FRONT = new WeakMap();
 function stairFront(game, o) {
@@ -863,12 +833,13 @@ Levels.prototype.culled = function culled(o) {
   return false;
 };
 
-// ---------- reveal (cosmetic): the stories above the local player inside its building fade out ----------
-// Building = J's roof region over the player, else the upper floor slab right above it (4-connected). Upper pieces of
-// higher stories on it (and on the ring of walls around it) fade to 0, so the player sees its own story; things under
-// the slab the player stands on are culled (they would poke through it).
+// ---------- reveal (cosmetic): the stories above the local player inside its roofed building fade out ----------
+// Building = J's roof region over the player (indoors). Upper pieces of higher stories on it (and on the ring of walls
+// around it) fade to 0, so the player sees its own story; things under the slab the player stands on are culled (they
+// would poke through it). Out in the open (a courtyard, under a walkway or a slab without a roof) nothing fades: the
+// cutout around the player (engine/shaders.js CUT_FN) opens only what really covers it.
 function reveal(game, dt) {
-  const L = game.levels, p = game.player, w = game.world, N = w.W * w.H;
+  const L = game.levels, p = game.player, w = game.world;
   const C = L._rev || (L._rev = { key: '', want: new Set(), live: new Set() });
   if (!L.hasUpper && !C.live.size) return;
   const V = Math.round(p.z || 0), tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05), I = game.indoors;
@@ -880,19 +851,6 @@ function reveal(game, dt) {
       let tiles = null;
       const reg = I?.kind === 'built' ? game.roofs?.regions?.get(I.region) : null;
       if (reg) tiles = new Set(reg.tiles);
-      else if (V === 0 && !game.build.grid.floor.get(ty * w.W + tx + N) && (() => { const r = roomOf(game, tx, ty); if (r) tiles = new Set(r.map(([x, y]) => y * w.W + x)); return !!r; })()) { /* a closed room on the ground: its walls / ring */ }
-      else if (V < MAX_LV && game.build.grid.floor.get(ty * w.W + tx + (V + 1) * N)) {
-        tiles = new Set();
-        const F = game.build.grid.floor, q = [ty * w.W + tx], off = (V + 1) * N;
-        tiles.add(q[0]);
-        while (q.length && tiles.size < 600) {
-          const i = q.pop(), x = i % w.W;
-          for (const j of [i - 1, i + 1, i - w.W, i + w.W]) {
-            if (j < 0 || j >= N || (j === i - 1 && x === 0) || (j === i + 1 && x === w.W - 1) || tiles.has(j) || !F.get(j + off)) continue;
-            tiles.add(j); q.push(j);
-          }
-        }
-      }
       if (tiles) {
         const near = (i) => tiles.has(i) || tiles.has(i - 1) || tiles.has(i + 1) || tiles.has(i - w.W) || tiles.has(i + w.W);
         for (const o of game.build.structures) {
@@ -905,9 +863,8 @@ function reveal(game, dt) {
     }
   }
   for (const o of C.want) C.live.add(o);
-  const k = 1 - Math.exp(-dt * 7), CW = L._cut?.want;
+  const k = 1 - Math.exp(-dt * 7);
   for (const o of C.live) {
-    if (!C.want.has(o) && CW?.has(o)) { C.live.delete(o); continue; } // easing back: the cutaway owns it now (one owner per piece)
     const to = C.want.has(o) && !o.removed ? 0 : 1;
     const a = o.alpha ?? 1;
     const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
@@ -931,103 +888,8 @@ function collapseCheck(game) {
   net.emit('lv.collapse', { ids: bad.map((o) => o.id), drops: drops.length ? drops : undefined });
 }
 
-// ---------- cutaway (cosmetic): tall walls that hide the room / the player fade (RimWorld-like) ----------
-// A story is one tile tall, so a wall's top face covers the tile north of it. Walls of the local player's room whose
-// north side is inside the room (south walls, interior partitions) and walls right in front of the player fade to
-// CUT_A while the player is there; everything eases back afterwards. Only o.alpha (cosmetic) is written.
-const CUT_A = 0.22;
-const isWallish = (o) => { const d = o && BUILDINGS[o.type]; return !!d && d.connect === 'wall' && (d.block === 'tile' || d.block === 'door'); };
-function cutaway(game, dt) {
-  const L = game.levels, p = game.player, w = game.world, C = L._cut || (L._cut = { key: '', want: new Set(), live: new Set() });
-  const lv = p.lv | 0, tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05);
-  // camera turned: "in front" is toward the camera (16 yaw steps), not the south (docs/CAMERA-ROTATION.md)
-  const rq = game.cam?.rot ? Math.round(game.cam.rot / (Math.PI / 8)) : 0;
-  const key = p.dead ? '' : `${tx},${ty},${lv},${game.build.v},${rq}`;
-  if (key !== C.key) {
-    C.key = key;
-    C.want.clear();
-    if (key && w.inBounds(tx, ty) && rq) cutawayRot(game, C, lv, tx, ty, rq * (Math.PI / 8));
-    else if (key && w.inBounds(tx, ty)) {
-      const G = game.build.grid.main, W = w.W;
-      const wallAt = (x, y) => { if (!w.inBounds(x, y)) return null; const o = G.get(y * W + x + lv * W * w.H); return isWallish(o) && !o.blueprint ? o : null; };
-      // the room around the player (interior tiles + the wall ring), from J's flood fill
-      const room = lv === 0 ? game.roofs && roomOf(game, tx, ty) : null;
-      if (room) {
-        const inner = new Set();
-        for (const [x, y] of room) if (!wallAt(x, y)) inner.add(y * W + x);
-        for (const [x, y] of room) { const o = wallAt(x, y); if (o && inner.has((y - 1) * W + x)) C.want.add(o); }
-      } else if (lv > 0) {
-        // upper story: the floor slab around the player (4-connected, walls stop it) and its walls whose north is on it
-        const F = game.build.grid.floor, off = lv * W * w.H, inner = new Set(), q = [ty * W + tx];
-        if (F.get(q[0] + off)) inner.add(q[0]); else q.length = 0;
-        while (q.length && inner.size < 400) {
-          const i = q.pop(), x = i % W;
-          for (const j of [i - 1, i + 1, i - W, i + W]) {
-            if (j < 0 || j >= W * w.H || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1) || inner.has(j) || !F.get(j + off) || wallAt(j % W, (j / W) | 0)) continue;
-            inner.add(j); q.push(j);
-          }
-        }
-        if (inner.size < 400) for (const i of inner) { const o = wallAt(i % W, ((i / W) | 0) + 1); if (o) C.want.add(o); }
-      }
-      // walls just south of the player (their top face is drawn over its body), and the stories stacked on them
-      // (each story is one more tile of facade over the player)
-      for (let k = lv; k <= MAX_LV; k++) {
-        for (let y = ty + 1; y <= ty + 2 + (k - lv); y++) for (let x = tx - 1; x <= tx + 1; x++) {
-          const o = w.inBounds(x, y) ? G.get(y * W + x + k * W * w.H) : null;
-          if (o && isWallish(o) && !o.blueprint && (y === ty + 1 || x === tx)) C.want.add(o);
-        }
-      }
-    }
-  }
-  for (const o of C.want) C.live.add(o);
-  const k = 1 - Math.exp(-dt * 9), R = L._rev?.want;
-  for (const o of C.live) {
-    if (R?.has(o)) { if (!C.want.has(o)) C.live.delete(o); continue; } // the reveal fades it out completely (one owner per piece)
-    const to = C.want.has(o) && !o.removed ? CUT_A : 1;
-    const a = o.alpha ?? 1;
-    const na = Math.abs(to - a) < 0.01 ? to : a + (to - a) * k;
-    if (na >= 1) { delete o.alpha; C.live.delete(o); } else o.alpha = na; // sync-ok: cosmetic fade (COSMETIC_FIELDS 'alpha')
-  }
-}
-// the cutaway with the camera turned: the same three rules with the view's directions — room walls whose neighbour on
-// the far side (away from the camera) is inside the room, the walls on the near side of the slab around the player,
-// and the walls right in front of the player on screen (with the stories stacked on them)
-const DIR4 = [[0, -1], [1, 0], [0, 1], [-1, 0]];
-function cutawayRot(game, C, lv, tx, ty, rot) {
-  const w = game.world, G = game.build.grid.main, W = w.W, sn = Math.sin(rot), cs = Math.cos(rot);
-  const wallAt = (x, y) => { if (!w.inBounds(x, y)) return null; const o = G.get(y * W + x + lv * W * w.H); return isWallish(o) && !o.blueprint ? o : null; };
-  // toward the camera = (-sin, cos) on the ground; the grid directions within ~67° of it (or of the opposite)
-  const near = DIR4.filter(([dx, dy]) => -sn * dx + cs * dy > 0.38), far = DIR4.filter(([dx, dy]) => -sn * dx + cs * dy < -0.38);
-  const room = lv === 0 ? game.roofs && roomOf(game, tx, ty) : null;
-  if (room) {
-    const inner = new Set();
-    for (const [x, y] of room) if (!wallAt(x, y)) inner.add(y * W + x);
-    for (const [x, y] of room) { const o = wallAt(x, y); if (o && far.some(([dx, dy]) => inner.has((y + dy) * W + x + dx))) C.want.add(o); }
-  } else if (lv > 0) {
-    const F = game.build.grid.floor, off = lv * W * w.H, inner = new Set(), q = [ty * W + tx];
-    if (F.get(q[0] + off)) inner.add(q[0]); else q.length = 0;
-    while (q.length && inner.size < 400) {
-      const i = q.pop(), x = i % W;
-      for (const j of [i - 1, i + 1, i - W, i + W]) {
-        if (j < 0 || j >= W * w.H || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1) || inner.has(j) || !F.get(j + off) || wallAt(j % W, (j / W) | 0)) continue;
-        inner.add(j); q.push(j);
-      }
-    }
-    if (inner.size < 400) for (const i of inner) for (const [dx, dy] of near) { const o = wallAt(i % W + dx, ((i / W) | 0) + dy); if (o) C.want.add(o); }
-  }
-  // in front of the player on screen: the row right in front (3 wide) and the column in front (longer per story up)
-  for (let k = lv; k <= MAX_LV; k++) {
-    const R = 3 + (k - lv);
-    for (let y = ty - R; y <= ty + R; y++) for (let x = tx - R; x <= tx + R; x++) {
-      const dx = x - tx, dy = y - ty, vx = cs * dx + sn * dy, vy = -sn * dx + cs * dy;
-      if (!((vy > 0.5 && vy <= 1.5 && Math.abs(vx) <= 1.5) || (Math.abs(vx) < 0.75 && vy > 0.5 && vy <= 2.5 + (k - lv)))) continue;
-      const o = w.inBounds(x, y) ? G.get(y * W + x + k * W * w.H) : null;
-      if (o && isWallish(o) && !o.blueprint) C.want.add(o);
-    }
-  }
-}
-// enclosed room around a tile (J's roofs.enclosedRoom; recomputed when the tile or the structures change)
-const roomOf = (game, tx, ty) => enclosedRoom(game, tx, ty, 220);
+// (the old cutaway — walls of the player's room and in front of it faded to 0.22 — is retired: the cutout around the
+// player opens only what covers it, at every camera angle)
 
 // ---------- system ----------
 // Every peer keeps the derived map fresh; the owner settles its own player (falls, jump down), the authority
@@ -1049,7 +911,7 @@ export function levelsSystem() {
       }
       p._lx = p.x; p._ly = p.y; // (stair / wall-top footsteps: juice + audio 'step' with surfaceOf)
       if (game.net.auth && L.hasUpper) collapseCheck(game);
-      if (!game.headless) { cutaway(game, dt); reveal(game, dt); }
+      if (!game.headless) reveal(game, dt);
       // build mode: the story to build on (src/ui/levelbar.js), loaded lazily like the build bar
       if (!bar && typeof document !== 'undefined' && game.R?.canvas && !game.headless) {
         bar = 1;
@@ -1057,10 +919,10 @@ export function levelsSystem() {
       }
       if (typeof bar === 'object' && bar) bar.update(dt);
     },
-    // camera turned: the front part of each finished stair in view, as a drawable of its own (stairFront)
+    // (at every camera angle) the front part of each finished stair in view, as a drawable of its own (stairFront)
     collect(game, list, v) {
       const L = game.levels;
-      if (!game.cam?.rot || !L?._active) return;
+      if (!L?._active) return; // (3D at every angle)
       for (const s of L.stairs) {
         const o = s.o;
         if (o.x > v.x0 - 4 && o.x < v.x1 + 4 && o.y > v.y0 - 4 && o.y < v.y1 + 4) list.push(stairFront(game, o));

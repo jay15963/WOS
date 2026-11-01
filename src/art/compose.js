@@ -489,7 +489,7 @@ export function drawPawn(B, A, p, t) {
     let ux, uy, ang, px, py;
     // (camera turned: in a bed, world positions and the bed's world angle minus the yaw; on the ground, screen-space;
     // a bed drawn as a solid (art/faces/solid.js restAt): the head on its pillow at the mattress height)
-    const rq = po && (CAMV.s || CAMV.c !== 1) && po._fk?.restAt ? po._fk.restAt(po) : null;
+    const rq = po && po._fk?.restAt ? po._fk.restAt(po) : null; // (3D at every camera angle, 0° too)
     if (rq) { px = rq[0]; py = rq[1]; ang = rq[3] - animEnv.yaw; ux = -Math.sin(rq[3]); uy = Math.cos(rq[3]); p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
     else if (po) { bedSlot(po); px = BX; py = BY; ang = BR - animEnv.yaw; ux = BUX; uy = BUY; p._sy = Math.max(p.y, po.y + 0.02); p._sobj = po; }
     else { B = viewB(B, p.x, p.y); ux = -flip; uy = 0; ang = flip * HALF_PI; px = p.x + flip * 0.36; py = p.y - 0.08; } // on the ground
@@ -501,7 +501,7 @@ export function drawPawn(B, A, p, t) {
     // (the angle already holds the yaw: lying along the bed at any camera angle; the solid bed: at its pillow's height;
     // a bed still drawn as folded art: the point that shows where the 0° drawing does, raised to the mattress)
     if (rq) hl += rq[2];
-    else if (po && (CAMV.s || CAMV.c !== 1)) { const hm = 0.14; ny2 = ny + hm; hl += hm; }
+    else if (po && po._fk) { const hm = 0.14; ny2 = ny + hm; hl += hm; }
     drawHead(B, T, L, LK, null, 's', 1, nx, ny2, hl, tilt, fl, 1, true, tilt, hl);
     // body under the blanket, chest rising slowly
     const cx = nx + ux * 0.02, cy = ny2 + uy * 0.02;
@@ -1042,7 +1042,7 @@ function rigPose(Q, C, sd, flip) {
   if (seat) {
     lift += 0.13; p._sy = Math.max(p.y, seat.y + 0.02); p._sobj = seat;
     // camera turned: on the seat of the 3D chair (art/faces/solid.js seatAt; eased from the 0° spot)
-    const sa = (CAMV.s || CAMV.c !== 1) && seat._fk?.seatAt ? seat._fk.seatAt(seat) : null;
+    const sa = seat._fk?.seatAt ? seat._fk.seatAt(seat) : null; // (3D at every camera angle, 0° too)
     if (sa) { bx0 = sa[0]; by0 = sa[1]; lift += sa[2]; }
   }
   const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)

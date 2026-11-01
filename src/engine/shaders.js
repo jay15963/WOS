@@ -17,7 +17,8 @@ layout(location=3) in vec2 aAnchor;
 layout(location=4) in vec4 aUV;
 layout(location=5) in vec4 aColor;
 layout(location=6) in vec4 aParams; // sway, rot, flash, flip
-layout(location=7) in vec3 aExtra;  // recvShadow, lift, season class (src/art/season.js SC)
+layout(location=7) in vec4 aExtra;  // recvShadow, lift, season class (src/art/season.js SC), depth mode
+layout(location=8) in vec4 aDepth;  // depth reference: x, y, height, bias (engine/spriteBatch.js)
 uniform vec2 uCam;
 uniform vec2 uScale;   // clip units per world unit
 uniform float uTime;
@@ -31,6 +32,38 @@ uniform float uFlat;   // 1 = flat on the ground (floors, rugs): turns whole wit
 vec2 rotR(){ return dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; }
 vec2 toView(vec2 d){ vec2 r = rotR(); return vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y); }
 vec2 toWorld(vec2 v){ vec2 r = rotR(); return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
+`;
+
+// DEPTH of the world (docs/CAMERA-ROTATION.md "Profundidade por pixel"): the view is an oblique projection — a point
+// at view y (toward the camera) and height h shows at screen y = view y − h, and the ray through a pixel runs along
+// (+view y, +h): the depth toward the camera is d = view y + h (larger = nearer). Relative to the camera, as window
+// depth (1 − d · uZ) / 2 (uZ = 1 / half the depth range, renderer.js), so LEQUAL keeps the nearest. S = screen y in
+// view units; a sprite is a card standing at view y yF (d = 2·yF − S) whose part below its foot (height hF) lies flat
+// (d = S + 2·hF), or flat at hF; + its bias. The card's kink is not linear across the quad: sprites write their depth
+// per fragment (gl_FragDepth; they discard texels anyway), faces are planar (interpolated).
+
+
+// CUTOUT around the local player (renderer.render cam.cut): fragments of structures (faces) and tree crowns (depth
+// mode 2) that stand clearly in front of the player, above its waist, near its body on the screen, open in a soft
+// dithered circle — the player is never lost behind a wall, an upper floor, a roof or a crown, at any camera angle.
+// uCutA = (centre x, y in view units from the camera, radius, strength), uCutB = (the player's card view y, its feet
+// height). Discarded pixels write no depth: what is behind shows. uACut: alpha below which a depth-writing fragment
+// is dropped (its soft edge would hide what is drawn after it); translucent sprites / faces keep their soft pixels.
+const CUT_FN = `
+uniform highp vec4 uCutA, uCutB;
+uniform float uACut;
+const int BAYER[16] = int[16](0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5);
+bool cutOpen(highp float d, highp vec2 V){
+  highp vec2 e = (V - uCutA.xy) / uCutA.z * vec2(1.9, 1.12); // (the body: half 0.5 wide, 0.85 tall at radius 0.95)
+  float r2 = dot(e, e);
+  if (uCutA.w < 0.01 || r2 >= 1.0) return false; // (most fragments: outside the ellipse)
+  highp float dp = max(2.0 * uCutB.x - V.y, V.y + 2.0 * uCutB.y);
+  float k = uCutA.w * (1.0 - smoothstep(0.45, 1.0, sqrt(r2)));
+  k *= smoothstep(0.15, 0.6, d - dp) * smoothstep(0.5, 0.8, (d - V.y) * 0.5 - uCutB.y);
+  if (k < 0.01) return false;
+  ivec2 q = ivec2(gl_FragCoord.xy) & 3;
+  return (float(BAYER[q.y * 4 + q.x]) + 0.5) / 16.0 < k * 0.78;
+}
 `;
 
 // Cave ceilings (game/roofs.js): roofData A = the ceiling drawn over a cave the local player is not inside,
@@ -135,6 +168,8 @@ out float vFrost;         // snow lying on this (vegetation) sprite
 out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
 flat out vec4 vSea;       // season class, per-plant hash, 1 = no bare twin under it (keep the trunk), seasonal snow
+out highp vec2 vV;        // screen position (view units, from the camera): its depth, the cutout (CUT_FN)
+flat out highp vec4 vZ;   // depth: card view y, foot height, bias, mode
 ${SWAY_FN}
 void main(){
   vec2 c = aCorner;
@@ -147,6 +182,7 @@ void main(){
   vW = uFlat > 0.5 ? aPos + local : aPos + toWorld(local);
   v.y -= aExtra.y;
   vec2 clip = v * uScale;
+  vV = v; vZ = vec4(toView(aDepth.xy - uCam).y, aDepth.z, aDepth.w, aExtra.w);
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -182,6 +218,9 @@ precision mediump float;
 in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
 flat in vec4 vSea;
+in highp vec2 vV; flat in highp vec4 vZ;
+uniform highp float uZ;
+${CUT_FN}
 uniform highp vec4 uSeaA, uSeaB; // seasons (see SPRITE_VS)
 uniform highp float uTime;
 uniform sampler2D uTex;
@@ -280,7 +319,11 @@ void main(){
   }
   vec4 t = texture(uTex, uv);
   if (vUV.x < 0.0) t = texture(uLook, vUV + vec2(1.0, 0.0)); // lazily painted look parts (agent H)
-  if (t.a < 0.003) discard;
+  if (t.a < (vColor.a > 0.97 && uEmis < 0.5 ? max(uACut, 0.003) : 0.003)) discard;
+  // depth (see DEPTH above): a card at view y vZ.x (below its foot at height vZ.y: flat) or flat (mode 1), + bias
+  highp float dz = (vZ.w > 0.5 && vZ.w < 1.5 ? vV.y + 2.0 * vZ.y : max(2.0 * vZ.x - vV.y, vV.y + 2.0 * vZ.y)) + vZ.z;
+  if (vZ.w > 1.5 && cutOpen(dz, vV)) discard;
+  gl_FragDepth = clamp(0.5 - 0.5 * dz * uZ, 0.0, 1.0);
   vec4 c = vec4(t.rgb * vColor.rgb, t.a) * vColor.a;
   if (vSea.x > 0.5) {
     vec3 su = c.rgb / max(c.a, 1e-3);
@@ -344,23 +387,31 @@ export const FACE_VS = `#version 300 es
 layout(location=0) in vec3 aP;
 layout(location=1) in vec2 aUV;
 layout(location=2) in vec4 aC;
+layout(location=3) in float aZ; // depth bias (engine/faceBatch.js)
 uniform vec2 uCam, uScale, uRot;
+uniform float uZ;               // (depth: see SPRITE_FS)
 out vec2 vUV;
 out vec4 vC;
+out highp float vD;
+out highp vec2 vV;
 void main(){
   vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
   vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
   v.y -= aP.z;
   vec2 clip = v * uScale;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+  vD = v.y + 2.0 * aP.z + aZ; vV = v; // (depth: view y + h)
+  gl_Position = vec4(clip.x, -clip.y, -vD * uZ, 1.0);
   vUV = aUV; vC = aC;
 }`;
 export const FACE_FS = `#version 300 es
 precision mediump float;
 in vec2 vUV;
 in vec4 vC;
+in highp float vD;
+in highp vec2 vV;
 uniform sampler2D uTex;
 uniform sampler2D uLook;
+${CUT_FN}
 // roof faces (camera turned, game/roofs.js; 0 for everything else): x rain darkening, y snow (above v = z: the roof's
 // plan image), w 1 = light-occluder pass (writes the outdoor ambient uAmbR × coverage; glows / eave shadows skipped)
 uniform vec4 uRoofFx;
@@ -369,10 +420,11 @@ layout(location=0) out vec4 o;
 layout(location=1) out vec4 oE;
 void main(){
   vec4 t = vUV.x < 0.0 ? texture(uLook, vUV + vec2(1.0, 0.0)) : texture(uTex, vUV);
-  if (t.a < 0.01) discard;
   // alpha > 1.5 carries a hit flash (art/faces/solid.js encA): 2 + 2·level + 0.25 + alpha / 2, flash = (level + 1) / 16
   float A = vC.a, fl = 0.0;
   if (A > 1.5) { float L = floor((A - 2.0) * 0.5); A = (A - 2.25 - 2.0 * L) * 2.0; fl = (L + 1.0) / 16.0; }
+  if (t.a < (A > 0.97 ? max(uACut, 0.01) : 0.01)) discard;
+  if (A > 0.0 && uRoofFx.w < 0.5 && cutOpen(vD, vV)) discard;
   if (uRoofFx.w > 0.5) {
     if (A < 0.0 || max(vC.r, max(vC.g, vC.b)) < 0.002) discard;
     float a = t.a * A;

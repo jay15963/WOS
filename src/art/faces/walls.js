@@ -105,7 +105,7 @@ export function drawWallFaces(B, A, o, h0 = 0, t = 0) {
     if (dNW) diag(L, E, x0, y0 + Rr, x0 + Rr, y0, 64 - RC, 64, -SQ, -SQ);
   }
   for (const r of TOP) tq(F, r[0], r[3] < 0, 32, 128, 0, 0, 64, 64, x0, y0, x1, y1, ht, r[5], r[6], r[7], r[8]);
-  if (cren) merlons(F, CM.get(cren[0]), cren, m, x0, y0, ht);
+  if (cren && !stacked(o)) merlons(F, CM.get(cren[0]), cren, m, x0, y0, ht); // (under the next story: inside its wall)
   // stone buttresses: a pier against the middle of each open side that shows
   if (k.on.buttress) {
     const s = T.bt[CORNER_FAM[k.style]];
@@ -122,6 +122,13 @@ export function drawWallFaces(B, A, o, h0 = 0, t = 0) {
   return true;
 }
 
+// a wall / door of the next story stands on this one (its merlons would poke through that wall's faces)
+function stacked(o) {
+  const g = KIT_ENV.game, w = g?.world, lv = o.lv | 0;
+  if (!w || !g.build?.grid || lv >= 3 || !w.inBounds(o.tx, o.ty)) return false;
+  const u = g.build.grid.main.get(o.ty * w.W + o.tx + (lv + 1) * w.W * w.H), d = u && BUILDINGS[u.type];
+  return !!d && d.connect === 'wall' && !u.blueprint;
+}
 // crenels: two merlons on each open edge of the top (the north view's sizes), each a little box with the art of the
 // south merlon (its top and its face)
 function merlons(F, s, r, m, x0, y0, ht) {
