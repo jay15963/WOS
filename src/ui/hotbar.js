@@ -3,7 +3,8 @@
 // to put away), food is eaten, seeds become the planting choice, buildings enter build mode.
 // Usable items picked up are added to free slots automatically (unless the player removed them before).
 // Also: mouse drag-and-drop between hotbar, backpack, equipment, an open container (container.js adapter: chest,
-// corpse…) and the build menu (desktop only).
+// corpse…) and the build menu (desktop only). Right button on an item stack: a click splits it in half (in the
+// backpack: into a free slot; with a container open: half goes to the other side), a drag carries half the stack.
 // The layout is kept per world in this browser (localStorage `wos.hotbar.<world id>`), for hosts and guests alike.
 
 import { ITEMS, BUILDINGS, ABILITIES, ABILITY_ORDER } from '../game/data.js';
@@ -174,14 +175,19 @@ function installDnD(game, hb) {
   };
   const icon = (ref) => (ref.k === 'build' ? buildIco(A, ref.id) : itemIco(A, ref.id));
 
+  const STACK = '[data-slot],[data-cslot]';
+  const qtyOf = (src) => (src.from === 'inv' ? p.inv.slots[src.i]?.qty : src.from === 'box' ? game.ui.panels?.container?.items()[src.i]?.qty : 1) || 0;
   document.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'mouse' || e.button !== 0 || !document.getElementById('hud')?.classList.contains('desktop')) return;
-    const el = e.target.closest?.(SRC);
+    const right = e.button === 2; // right button: half the stack
+    if (e.pointerType !== 'mouse' || (e.button !== 0 && !right) || !document.getElementById('hud')?.classList.contains('desktop')) return;
+    const el = e.target.closest?.(right ? STACK : SRC);
     if (!el || !el.closest('#hud')) return;
     const info = describe(el);
     if (!info) return;
-    st.drag = { el, info, x0: e.clientX, y0: e.clientY, on: false };
+    st.drag = { el, info, x0: e.clientX, y0: e.clientY, on: false, half: right };
   }, true);
+  // no browser menu on item slots (the right button splits)
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest?.(STACK + ',[data-hb]')?.closest('#hud')) e.preventDefault(); }, true);
 
   addEventListener('pointermove', (e) => {
     const d = st.drag;
@@ -191,7 +197,8 @@ function installDnD(game, hb) {
       d.on = true;
       ghost = document.createElement('div');
       ghost.className = 'dnd-ghost';
-      ghost.innerHTML = icon(d.info.ref);
+      const hq = d.half ? Math.ceil(qtyOf(d.info) / 2) : 0;
+      ghost.innerHTML = icon(d.info.ref) + (hq > 1 ? `<span class="n">${hq}</span>` : '');
       document.body.appendChild(ghost);
       document.body.classList.add('dnd-on');
       d.el.classList.add('dnd-src');
@@ -205,6 +212,7 @@ function installDnD(game, hb) {
   addEventListener('pointerup', (e) => {
     const d = st.drag;
     st.drag = null;
+    if (d && !d.on && d.half) { split(d.info); return; } // a right click: split in half
     if (!d || !d.on) return;
     ghost?.remove(); ghost = null;
     over?.classList.remove('dnd-over'); over = null;
@@ -217,14 +225,33 @@ function installDnD(game, hb) {
     addEventListener('click', kill, { capture: true, once: true });
     setTimeout(() => removeEventListener('click', kill, { capture: true }), 50);
     const t = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-hb],[data-slot],[data-cslot],[data-eq],.p-chest,.p-inv,.panel');
-    drop(d.info, t);
+    drop(d.info, t, d.half);
   });
 
   const P = () => game.ui.panels;
   const rerender = () => { game.events.emit('inventory', {}); P()?.render?.(); hb.draw(true); };
 
-  function drop(src, t) {
+  // right click on a stack: half of it to the other side of an open container, else into a free backpack slot
+  function split(src) {
+    const box = P()?.container || null, q = qtyOf(src);
+    if (!q) return;
+    if (src.from === 'box' && box) { if (box.take(src.i, Math.ceil(q / 2)) !== false) game.audio?.play('pickup', {}); return; }
+    if (src.from !== 'inv') return;
+    if (box) { if (box.put(src.i, Math.ceil(q / 2)) !== false) { game.audio?.play('pickup', {}); rerender(); } return; }
+    if (q < 2) return;
+    const S = p.inv.slots, k = S.findIndex((s) => !s);
+    if (k < 0) { game.events.emit('error', { text: 'Sem espaço na mochila para dividir' }); return; }
+    const n = Math.floor(q / 2);
+    S[src.i].qty -= n;
+    S[k] = { id: S[src.i].id, qty: n };
+    p.inv.version++;
+    game.audio?.play('ui_click', {});
+    rerender();
+  }
+
+  function drop(src, t, half = false) {
     const box = P()?.container || null; // open container window (adapter)
+    const part = (q) => (half ? Math.ceil(q / 2) : q); // right-button drag: half the stack
     // onto a hotbar slot
     if (t?.dataset?.hb != null) {
       const j = +t.dataset.hb;
@@ -240,8 +267,9 @@ function installDnD(game, hb) {
       const j = +t.dataset.slot;
       if (j === src.i) return;
       const S = p.inv.slots, a = S[src.i], b = S[j];
-      const max = ITEMS[a.id]?.stack || 99;
-      if (b && b.id === a.id && b.qty < max) { const k = Math.min(max - b.qty, a.qty); b.qty += k; a.qty -= k; if (!a.qty) S[src.i] = null; }
+      const max = ITEMS[a.id]?.stack || 99, n = part(a.qty);
+      if (b && b.id === a.id && b.qty < max) { const k = Math.min(max - b.qty, n); b.qty += k; a.qty -= k; if (!a.qty) S[src.i] = null; }
+      else if (half && n < a.qty) { if (b) return; S[j] = { id: a.id, qty: n }; a.qty -= n; } // half into an empty slot (onto another item: nothing)
       else { S[src.i] = b; S[j] = a; }
       p.inv.version++;
       rerender();
@@ -259,7 +287,7 @@ function installDnD(game, hb) {
     // backpack → container
     if (src.from === 'inv' && box && (t?.dataset?.cslot != null || t?.closest?.('.chest-side'))) {
       const s = p.inv.slots[src.i];
-      if (!s || box.put(src.i, s.qty) === false) return;
+      if (!s || box.put(src.i, part(s.qty)) === false) return;
       game.audio?.play('pickup', {});
       rerender();
       return;
@@ -267,7 +295,7 @@ function installDnD(game, hb) {
     // container → backpack
     if (src.from === 'box' && box && (t?.dataset?.slot != null || t?.closest?.('.inv-side'))) {
       const s = box.items()[src.i];
-      if (s && box.take(src.i, s.qty) !== false) game.audio?.play('pickup', {});
+      if (s && box.take(src.i, part(s.qty)) !== false) game.audio?.play('pickup', {});
     }
   }
   return st;

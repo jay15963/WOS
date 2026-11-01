@@ -442,6 +442,7 @@ html, body {
 .dnd-src { opacity: .45; }
 .dnd-ghost { position: fixed; left: 0; top: 0; width: 44px; height: 44px; z-index: 300; pointer-events: none; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
 .dnd-ghost .emo { font-size: 28px; }
+.dnd-ghost .n { position: absolute; right: -4px; bottom: -4px; font: italic 800 15px/1 var(--n-fd); color: var(--n-cream-hi); text-shadow: var(--n-ts); }
 body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 
 /* ======================= rich tooltip (desktop): parchment card ======================= */
