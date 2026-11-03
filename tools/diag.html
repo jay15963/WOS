@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WOS · 8 vistas</title>
+<style>
+  body { margin: 0; background: #2b2a26; color: #e6e2d8; font: 12px system-ui, sans-serif; }
+  h2 { margin: 10px 8px 2px; font-size: 13px; color: #d9b45a; }
+  .row { display: flex; gap: 2px; padding: 0 8px; align-items: flex-end; }
+  .lab { width: 92px; font-size: 11px; color: #b8b2a4; align-self: center; }
+  canvas { display: block; background: #6d7a52; }
+  .hd { display: flex; gap: 2px; padding: 0 8px 0 100px; }
+  .hd span { text-align: center; color: #c9c2b2; }
+  #info { padding: 6px 8px; color: #a29d92; }
+</style>
+</head>
+<body>
+<div id="info">8 vistas (S, SE, E, NE, N, NW, W, SW) pelo compose do jogo · ?set=people|gear|animals|states|all · ?scale=64 (1×) · ?t=0.3</div>
+<div id="out"></div>
+<script type="module">
+// Sheet of every view of the game's creatures, drawn through the game's own compose (art/compose.js) into a fake
+// batch set replayed on 2D canvases (same anchor / scale / rotation / lift / mirror / multiply tint as the shader).
+// Uses the real game atlas (atlas resolution) and its lazy look texture (painted synchronously here).
+import { buildAtlas } from '../src/art/sprites.js';
+import { drawPawn, drawAnimal, animEnv } from '../src/art/compose.js';
+import { lookAtlasOf } from '../src/art/look/lazy.js';
+import { DEFAULT_LOOK, randomLook, cleanLook } from '../src/game/look.js';
+const Q = new URLSearchParams(location.search);
+const scale = +(Q.get('scale') || 128), set = Q.get('set') || 'people', T0 = +(Q.get('t') || 0.3);
+const VIEWS = ['s', 'se', 'e', 'ne', 'n', 'nw', 'w', 'sw'];
+const NEAR = { se: 's', ne: 'n', sw: 's', nw: 'n' };
+const t0 = performance.now();
+const G = buildAtlas();
+const tAtlas = performance.now() - t0;
+// a view of the game atlas: sprites sliced on first use; lazy look parts painted on first request
+const cache = new Map();
+const NONE = null;
+const A = {
+  k: 1, list: G.list, groups: G.groups, lookSync: true, canvas: G.canvas, size: G.size,
+  has: (n) => G.has(n),
+  get(n) {
+    let s = cache.get(n);
+    if (s) return s;
+    if (!G.has(n)) return NONE;
+    const r = G.get(n);
+    s = { ...r, _c: null, get canvas() { if (!this._c) { const c = document.createElement('canvas'); c.width = r.pw; c.height = r.ph; c.getContext('2d').drawImage(G.canvas, r.u0 * G.size, r.v0 * G.size, r.pw, r.ph, 0, 0, r.pw, r.ph); this._c = c; } return this._c; } };
+    cache.set(n, s);
+    return s;
+  },
+};
+const tintC = new Map();
+function tinted(s, r, g, b) {
+  const src = s.canvas;
+  if (!src) return null;
+  if (r > 0.995 && g > 0.995 && b > 0.995) return src;
+  const key = s.name + '|' + ((r * 255) | 0) + ',' + ((g * 255) | 0) + ',' + ((b * 255) | 0);
+  let c = tintC.get(key);
+  if (c) return c;
+  c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const x = c.getContext('2d');
+  x.drawImage(src, 0, 0); x.globalCompositeOperation = 'multiply';
+  x.fillStyle = `rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)})`; x.fillRect(0, 0, c.width, c.height);
+  x.globalCompositeOperation = 'destination-in'; x.drawImage(src, 0, 0);
+  tintC.set(key, c);
+  return c;
+}
+class B2 { constructor() { this.items = []; } add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0) { if (s && s.name) this.items.push([s, x, y, sx, sy, r, g, b, a, rot, flip, lift, flash]); } addRaw() {} }
+const SINK = { add() {}, addRaw() {} };
+const BS = { main: new B2(), blob: new B2(), shadow: SINK, emissive: new B2(), fx: SINK, decor: SINK, light: SINK, ground: SINK, decal: SINK };
+function replay(ctx, list, ox, oy, cx, cy, add = false) {
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  for (const it of list) {
+    const [s, x, y, sx, sy, r, g, b, a, rot, flip, lift, flash] = it;
+    const img = tinted(s, r, g, b);
+    if (!img) continue;
+    const w = s.w * sx * scale, h = s.h * sy * scale;
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, a);
+    if (add) ctx.globalCompositeOperation = 'lighter';
+    ctx.translate(cx + (x - ox) * scale, cy + (y - oy - lift) * scale);
+    if (rot) ctx.rotate(rot);
+    if (flip < 0) { ctx.scale(-1, 1); ctx.drawImage(img, (s.ax - 1) * w, -s.ay * h, w, h); }
+    else ctx.drawImage(img, -s.ax * w, -s.ay * h, w, h);
+    ctx.restore();
+  }
+}
+// draw creature o in view v at canvas (cx, cy)
+function drawView(ctx, o, v, cx, cy, t) {
+  for (const k of ['main', 'blob', 'emissive']) BS[k].items.length = 0;
+  const f0 = o.facing;
+  if (v.length === 2) { o._dv = v; o.facing = NEAR[v] || 's'; if (o.kind !== 'pawn') o.facing = v[1] === 'e' ? 'e' : 'w'; }
+  else { o._dv = null; o.facing = v; }
+  animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0;
+  if (o.kind === 'pawn') drawPawn(BS, A, o, t); else drawAnimal(BS, A, o, t);
+  o.facing = f0;
+  // blob shadow
+  ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(cx, cy, scale * 0.3, scale * 0.12, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  replay(ctx, BS.main.items, o.x, o.y, cx, cy);
+  replay(ctx, BS.emissive.items, o.x, o.y, cx, cy, true);
+}
+const out = document.querySelector('#out');
+function header() {
+  const h = document.createElement('div'); h.className = 'hd';
+  for (const v of VIEWS) { if (Q.get('views') && !Q.get('views').split(',').includes(v)) continue; const s = document.createElement('span'); s.style.width = cellW + 'px'; s.textContent = v.toUpperCase(); h.appendChild(s); }
+  out.appendChild(h);
+}
+let cellW = Math.round(scale * 1.1), cellH = Math.round(scale * 1.5);
+function section(title, items, { w = 1.1, h = 1.5 } = {}) {
+  cellW = Math.round(scale * w); cellH = Math.round(scale * h);
+  const hh = document.createElement('h2'); hh.textContent = title; out.appendChild(hh);
+  header();
+  const only = Q.get('rows') ? Q.get('rows').split(',').map(Number) : null, vs = Q.get('views') ? Q.get('views').split(',') : null;
+  for (const [ri, [label, mk, t = T0]] of items.entries()) {
+    if (only && !only.includes(ri)) continue;
+    const row = document.createElement('div'); row.className = 'row';
+    const l = document.createElement('div'); l.className = 'lab'; l.textContent = label; row.appendChild(l);
+    const id0 = nid;
+    for (const v of VIEWS) {
+      if (vs && !vs.includes(v)) continue;
+      const c = document.createElement('canvas'); c.width = cellW; c.height = cellH;
+      nid = id0; const o = mk(); // (the same creature in every view: the deer's look follows its id)
+      try { drawView(c.getContext('2d'), o, v, cellW / 2, cellH - scale * 0.14, t); } catch (e) { console.error(label, v, e); }
+      row.appendChild(c);
+    }
+    out.appendChild(row);
+  }
+}
+let nid = 1;
+const pawn = (look, extra = {}) => () => ({ isEntity: true, kind: 'pawn', id: nid++, x: 0, y: 0, facing: 's', moving: false, moveT: 0, action: null, flash: 0, look, weapon: null, offhand: null, armor: null, hp: 1, maxHp: 1, ...extra });
+const beast = (species, extra = {}) => () => ({ isEntity: true, kind: 'animal', id: nid++, nid: 'a' + nid, x: 0, y: 0, species, facing: 'e', moving: false, moveT: 0, action: null, flash: 0, hp: 1, maxHp: 1, state: 'chase', ...extra });
+const L0 = cleanLook(DEFAULT_LOOK);
+const R = (i) => randomLook(i);
+if (set === 'people' || set === 'all') {
+  section('Pessoas', [
+    ['padrão', pawn(L0)],
+    ...Array.from({ length: +(Q.get('n') || 8) }, (_, k) => k + 1 + +(Q.get('seed') || 0)).map((i) => ['aleatório ' + i, pawn(R(i))]),
+  ]);
+}
+if (set === 'gear' || set === 'all') {
+  section('Equipamento', [
+    ['espada', pawn(R(11), { weapon: 'sword_iron' })],
+    ['machado+escudo', pawn(R(12), { weapon: 'axe_iron', offhand: 'shield_wood' })],
+    ['lança', pawn(R(13), { weapon: 'spear_iron' })],
+    ['arco', pawn(R(14), { weapon: 'bow_wood' })],
+    ['tocha', pawn(R(15), { weapon: 'knife_iron', offhand: 'torch_hand' })],
+    ['armadura couro', pawn(R(16), { weapon: 'sword_iron', armor: { body: 'armor_leather', head: 'hood_leather' } })],
+    ['armadura ferro', pawn(R(17), { weapon: 'sword_iron', offhand: 'shield_iron', armor: { body: 'armor_iron', head: 'helmet_iron' } })],
+    ['bandido', pawn({ ...R(18), hat: 'bandana', face: 'mask' }, { weapon: 'club_wood' })],
+    ['andarilho', pawn(null, { species: 'walker', id: 7 })],
+  ]);
+}
+if (set === 'states' || set === 'all') {
+  const L = R(21);
+  section('Estados', [
+    ['andando 0', pawn(L, { moving: true, moveT: 0.05, _mk: 1, _sk: 1, _gs: 3 })],
+    ['andando 1', pawn(L, { moving: true, moveT: 0.21, _mk: 1, _sk: 1, _gs: 3 })],
+    ['golpe', pawn(L, { weapon: 'sword_iron', action: { type: 'attack', t: 0.5 } })],
+    ['machado', pawn(L, { action: { type: 'chop', t: 0.5 } })],
+    ['estocada', pawn(L, { weapon: 'spear_iron', action: { type: 'attack', t: 0.45 } })],
+    ['arco', pawn(L, { weapon: 'bow_wood', action: { type: 'shoot', t: 0.5 } })],
+    ['colher', pawn(L, { action: { type: 'gather', t: 0.5 } })],
+    ['ferido', pawn(L, { flash: 0.8 })],
+    ['nadando', pawn(L, { _swim: 1 })],
+    ['morto', pawn(L, { dead: true, deadT: 5 })],
+  ]);
+}
+if (set === 'animals' || set === 'all') {
+  const sp = ['wolf', 'fox', 'deer', 'boar', 'bear', 'rabbit', 'spider'];
+  section('Bichos', [
+    ...sp.map((s) => [s, beast(s, s === 'deer' ? { variant: 0 } : {})]),
+    ['corça', beast('deer', { variant: 1 })],
+    ...sp.map((s) => [s + ' anda', beast(s, { moving: true, moveT: 0.07, _gph: 1.2 })]),
+  ], { w: 1.9, h: 1.7 });
+}
+// ?parts=lk_head_round,lk_hair_short… : each part's front / side / back drawings and its two 3/4 paintings (zoomed)
+if (Q.get('parts')) {
+  const { lookDefs } = await import('../src/art/look/index.js');
+  const { threeQuarter, kindOf } = await import('../src/art/look/turn.js');
+  const { PAINT_DEFS } = await import('../src/art/lazyDefs.js');
+  const { spritePxFast } = await import('../src/art/paint.js');
+  const D = lookDefs(), def = (n) => D.get(n) || PAINT_DEFS.get(n);
+  const z = +(Q.get('z') || 4);
+  const hh = document.createElement('h2'); hh.textContent = 'Peças: frente · 3/4 frente (se) · lado · 3/4 costas (ne) · costas'; out.appendChild(hh);
+  for (const base of Q.get('parts').split(',')) {
+    const row = document.createElement('div'); row.className = 'row';
+    const l = document.createElement('div'); l.className = 'lab'; l.textContent = base + ' (' + kindOf(base + '_s') + ')'; row.appendChild(l);
+    const cells = [['s'], ['se'], ['e'], ['ne'], ['n']];
+    for (const [v] of cells) {
+      let c = null;
+      const t1 = performance.now();
+      if (v.length === 2) { const pd = v === 'se' ? 's' : 'n'; c = threeQuarter(def(base + '_' + pd), def(base + '_e'), kindOf(base + '_' + pd), v); }
+      else if (def(base + '_' + v)) { const d0 = def(base + '_' + v); c = spritePxFast(d0.W, d0.H, (g, P) => d0.paint(P), { pad: 14 }); }
+      const cv = document.createElement('canvas');
+      if (c) {
+        cv.width = c.width * z; cv.height = c.height * z;
+        const g = cv.getContext('2d'); g.imageSmoothingEnabled = false; g.drawImage(c, 0, 0, cv.width, cv.height);
+        g.strokeStyle = 'rgba(255,255,0,0.35)'; g.beginPath(); g.moveTo(cv.width / 2, 0); g.lineTo(cv.width / 2, cv.height); g.stroke();
+        cv.title = v + ' ' + Math.round(performance.now() - t1) + ' ms';
+      } else { cv.width = 40; cv.height = 40; }
+      row.appendChild(cv);
+    }
+    out.appendChild(row);
+  }
+}
+const st = lookAtlasOf(A).stats();
+document.querySelector('#info').textContent += ` · atlas ${Math.round(tAtlas)} ms · peças ${st.painted} pintadas em ${st.paintMs} ms · total ${Math.round(performance.now() - t0)} ms`;
+window.diagDone = true;
+</script>
+</body>
+</html>

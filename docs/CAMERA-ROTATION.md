@@ -216,31 +216,67 @@ de uma fortaleza: o anel inteiro do andar de cima sumia). Agora nada some por re
   própria letra. A vista desenhada = ângulo − giro da câmera, em passos de 45° com histerese (troca 25° depois do
   centro, não 22,5°): nem a câmera girando nem a criatura virando fazem piscar. `game.js` põe `o._dv` ('se' / 'sw' /
   'ne' / 'nw') e `o.facing` = o lado mais perto durante o desenho e devolve tudo depois. Em 0° nada disso roda.
-- **Peças 3/4** (`art/look/turn.js`): cada peça do visual (corpo, roupas, cabeça, rosto, cabelo, barba, pálpebras) e
-  as de fora do visual (armadura `wear_*`, bandana, máscaras antigas, gelo / armadura / rosto dos Andarilhos) viram uma
-  vista 3/4 a partir da frente (`se`) ou das costas (`ne`), linha por linha: o contorno fica (uma cabeça / tronco a 45°
-  tem quase a mesma silhueta) e o conteúdo de dentro desliza para o lado para onde o corpo olha, como uma superfície
-  enrolada num cilindro — olhos, nariz, boca, botões, risca do cabelo andam; o olho de lá estreita. O raio de cada linha
-  segue o corpo (o contorno do tronco; uma esfera no crânio, cilindro das bochechas para baixo: queixo e barba andam
-  com o rosto), então o alto da cabeça continua redondo. No cabelo de frente, a parte de trás da cabeça da vista de lado
-  vem por baixo, apertada na borda de perto (senão o lado de perto ficava careca). sw / nw = espelho.
-  Pintadas sob demanda na textura preguiçosa do visual (`look/lazy.js`, `LA.prepare` pinta as fontes sem colocá-las),
-  só quando uma câmera girada mostra aquela vista; até ficarem prontas desenha-se o lado mais perto (sem buraco). O
-  jogador local pinta na hora (como as peças normais).
+- **Peças 3/4: pintura nova, não sprite esticado** (`art/look/turn.js`). Pedido do dono: a diagonal parecia "um
+  sprite esticado"; agora cada peça é **repintada** em 3/4. Cada camada da peça é pintada pela própria pintura dela na
+  vista de frente (ou de costas, para 'ne') **e** na vista de lado, crua (antes do contorno, em 2×). As duas pinturas
+  vão para um boneco 3D simples da peça: em cada linha uma elipse com a largura da pintura de frente e a profundidade
+  da de lado. O boneco gira 45° (42°: o rosto fica legível) e a câmera o vê: as superfícies viradas para a frente
+  pegam a pintura de frente, as viradas para o lado pegam a de lado, numa faixa estreita de mistura (±9°) na normal de
+  45°. Depois a camada ganha o **contorno de novo** (mesma largura e cor da original: o mesmo traço). Resultado: a
+  silhueta muda de verdade (tronco mais estreito com o lado aparecendo, queixo e rosto virados, nuca e cabelo de trás
+  do lado de perto), nada fica "deslizado" dentro de um contorno fixo. 'sw' / 'nw' = espelho.
+  - **Tronco** (`body`): boneco = o corpo nu (`lk_skin`) ∪ o contorno da peça (saias, armaduras). O **braço de perto**
+    (o direito: na frente fica à esquerda da tela, nas costas à direita) sai da pintura de frente / costas e o tronco
+    continua por baixo dele (espelho do tronco ao lado, sem copiar a dobra do braço); quem traz o braço de perto é a
+    pintura de lado (o braço dela cai sobre o lado do tronco, onde ele fica na 3/4). O braço de longe dobra junto com
+    o tronco na borda de lá (atrás do peito). Ombros ficam com o tronco (o braço começa na axila).
+  - **Cabeça** (`head`): boneco = a cabeça redonda nua. **Rosto** (`decal`: olhos, íris, pálpebras, nariz, boca,
+    sobrancelhas, bochechas, marcas, cicatrizes, pintura, rugas, máscaras antigas, rosto do Andarilho): só a pintura de
+    frente, deitada na cabeça girada (as duas pinturas não concordam onde o olho fica em 3D: misturar dobrava o olho).
+    **Orelha** (`ears`): só a de lado (a orelha de perto). **Avental** (`panel`): só a frente (de lado ele é uma borda).
+  - **Cabelo, barba, chapéus, capacetes, capuz, bandana** (`hair`): boneco = o contorno da própria peça (linhas vazias
+    de uma vista pegam a linha mais próxima da mesma pintura; volume arredondado), e o que fica **atrás da cabeça ou do
+    tronco** no raio da câmera não é desenhado (a mecha do lado de lá do rosto, o rabo de cavalo atrás da nuca);
+    ilhas pequenas que sobram somem. Crista fina (moicano) = o perfil.
+  - **Capas** (poncho, xale: `cape`): no tronco, sem separar braço. **Botas** (`foot`): a bota girada (a ponta na
+    diagonal), usada pelos pés andando e sentado.
+  - Fontes: as peças do visual (`look/index.js`) e as pinturas registradas em `art/lazyDefs.js` `PAINT_DEFS`
+    (armaduras `wear_*`, bandana, máscaras antigas, armadura / gelo / rosto do Andarilho).
+  Pintadas sob demanda na textura preguiçosa do visual (`look/lazy.js`), só quando uma câmera girada mostra aquela
+  vista; até ficarem prontas desenha-se o lado mais perto (sem buraco). O jogador local: assim que a câmera gira, as
+  duas 3/4 dele (se, ne) entram na fila em segundo plano; se for preciso antes, pinta no máximo 12 ms por quadro.
+  Custo por peça (2×, uma vez): 1–2 ms (rosto, orelha), ~2–4 ms (tronco, roupas, cabeça), ~3–6 ms (cabelo), contra
+  4–8 ms do deslizamento antigo.
+- **Mãos e itens na 3/4:** posições como antes (frente / costas misturada com a de lado), e agora **atrás do corpo**
+  quando a profundidade deles (de lado da pose de frente / costas e para a frente da de lado) fica atrás: a mão de
+  longe some atrás do tronco (aparece na borda, onde a arte dobra o braço de lá), escudo / tocha no braço de lá idem.
 - **Pose 3/4** (`art/compose.js`): a pose do boneco virou uma função (`rigPose`) que calcula tudo de uma vista (corpo,
   cabeça, pés, mãos, item na mão / na outra mão, quem fica atrás do corpo). Na diagonal roda a da frente / costas e a
   de lado e mistura (`blendPose`): deslocamentos de lado ficam quase inteiros (a arte 3/4 também), os para a frente
   (o x da vista de lado, a profundidade da de frente) vão na diagonal, alturas na média, itens na mão giram pelo vetor
-  de direção (encurtam quando apontam para a câmera), ordem de desenho da vista de frente / costas. Pés: as botas de
-  lado, passada na diagonal. Rastro dos golpes misturado igual. Andar, atacar, habilidades, bloquear, arco, lança,
-  ferramentas, comer / curar, nadar, escadas: tudo pela mesma pose. Sentado e o rodopio ficam na vista mais perto.
+  de direção (encurtam quando apontam para a câmera), ordem de desenho da vista de frente / costas. Pés: a bota 3/4
+  (ponta na diagonal), passada na diagonal. Rastro dos golpes misturado igual. Andar, atacar, habilidades,
+  bloquear, arco, lança, ferramentas, comer / curar, nadar, escadas: tudo pela mesma pose. Sentado e o rodopio ficam na
+  vista mais perto.
   Cabeça virada para algo: num corpo 3/4 só para os dois lados da diagonal (a cabeça de lado / frente / costas).
 - **A pose em volta da criatura** (`viewB` / `viewPt`): o rig monta as partes com deslocamentos de tela em volta do
   corpo; com a câmera girada um adaptador do lote vira esses deslocamentos em deslocamentos do mundo em volta do ponto
   no chão (antes as mãos / pés / cabeça descolavam do corpo girado). Vale para pessoas, bichos, mortos e corpos no chão
   (`art/corpseDraw.js`): um corpo deitado fica deitado de lado na tela, sangue / manchas / moscas juntos.
-- **Bichos:** a diagonal é a arte de lado encurtada (×0,84) com o focinho um pouco para baixo (vindo para a câmera) /
-  para cima (indo embora); o bote vai na diagonal.
+- **Bichos: quadros 3/4 próprios** (`art/beast34.js`, especificação de cada espécie em `art/animals.js` /
+  `art/creatures.js`): lobo, raposa, cervo e corça, javali, urso, coelho, aranha — parado e os 4 passos (coelho: 3),
+  'se' e 'ne' (sw / nw espelho). Feitos das pinturas da própria espécie, não do sprite de lado: o corpo da pintura de
+  lado fica na **diagonal do chão** (a frente mais baixa vindo para a câmera, mais alta indo embora: a profundidade
+  tão curta quanto a arte de frente / costas a desenha, ×0,22) e é **varrido pela largura do corpo** (cópias a cada
+  ~1 px do flanco de lá, mais escuro e menor — costas e peito / anca arredondados — ao de perto, que é a pintura como
+  ela é); pernas de lá no lado de lá (mais para cima e para o lado), pernas de perto na frente; cauda uma só, no
+  meio; **cabeça** vindo para a câmera girada como as peças do boneco (cabeça de frente + de lado num boneco girado:
+  os dois olhos, focinho na diagonal, a orelha de perto; galhada do cervo inclinada linha a linha como a de lado),
+  indo embora a cabeça de lado varrida (nuca, orelha e bochecha de perto; o pescoço longo do cervo por cima). Cada
+  parte com o próprio contorno. Pintados sob demanda na textura preguiçosa (`<espécie>_se`, `_se_walk`, `_se_w1..w3`,
+  `_ne…`); corpo / cauda / cabeça são pintados uma vez para todos os quadros da espécie (os quadros irmãos são pedidos
+  juntos), ~10 ms por quadro. Até ficarem prontos: o lado encurtado de antes. Bote e passadas na diagonal como antes;
+  morto: de lado no chão (como antes). O ajudante `beast34(spec, view)` é genérico (outros bichos podem usar).
 - **Na cama:** deitado **ao longo da cama** como a tela a mostra (ângulo da cama − giro, uma vez só: antes o giro era
   descontado duas vezes — a 45° o corpo ficava torto e a 180° de cabeça para baixo fora da cama), a cabeça no
   travesseiro do modelo (`restAt` da cama sólida: o ponto do travesseiro na altura do colchão; o pescoço 0,17 para os pés,
@@ -570,10 +606,15 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   vista de lado a escada não tem o contorno escuro do sprite.
 - Em 0° um baú / mesa num andar de cima sumia embaixo da laje do próprio tile (âncora acima da borda sul): agora a
   profundidade de peças de cima usa a borda sul do tile (`levels.rebuild`).
-- Personagens: a 3/4 é feita da vista de frente / costas (não há arte pintada em diagonal): o braço de lá ainda
-  aparece na borda; o nariz não sai do perfil. Bichos na diagonal = perfil encurtado (sem vista 3/4 própria).
-  Sentado no chão e o rodopio usam a vista mais perto (sentado numa cadeira: 3/4). Bichinhos do ambiente só trocam de
-  lado (não giram de verdade).
+- Personagens 3/4: repintadas de frente + lado num boneco simples (não há uma terceira pintura feita à mão): onde as
+  duas pinturas discordam aparece uma costura leve na faixa de 45° (ex.: a bainha de uma pintura que só existe numa
+  vista); o nariz não sai do contorno da bochecha (é desenho de frente); cabelos muito irregulares (black power,
+  moicano) ficam um pouco recortados na borda de perto; vindo de costas (ne) a barba não aparece (como em 'n').
+  Sentado no chão e o rodopio usam a vista mais perto (sentado numa cadeira: 3/4). Bichos 3/4: o urso / javali vistos
+  de trás têm costas meio retas (a varredura); pastar / olhar em volta usam o quadro parado. Bichinhos do ambiente só
+  trocam de lado (não giram de verdade). Ferramenta de revisão: `tools/diag.html` (folha das 8 vistas pelo compose do
+  jogo: `?set=people|gear|states|animals`, `?parts=lk_hair_long,…` mostra frente / 3/4 / lado / 3/4 costas / costas de
+  cada peça).
 - **Peças sólidas:** falta converter os outros tipos de móveis / jardim para a tabela de `art/faces/solid.js` (até lá:
   em pé com 4 vistas ou arte dobrada do `props.js`); luzes, fogo e estações já estão (`solidLights.js`). Nelas: o topo
   de arte chapada (fornalha, postes, lanterna de pedra) é a borda de cima da arte esticada (a arte não tem topo); o
