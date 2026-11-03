@@ -1434,16 +1434,16 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   vec4 Bt = textureLod(uGround, vec3(ROT * vec2(u, ht * 1.2) * 0.19 + vec2(0.37, 0.11), rid), tl);
   vec3 alb = mix(A.rgb, Bt.rgb, 0.3 + 0.3 * (Bt.a - A.a)) * 1.08 * vec3(1.03, 1.0, 0.95);
   // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
-  float sv = ht * 0.95 + (nA.x - 0.5) * 0.7 + sin(u * 0.31 + nB.z * 2.0) * 0.22;
-  float band = floor(sv), fb = fract(sv);
-  alb *= 0.9 + 0.16 * hash12(vec2(band * 1.37, rid * 7.1));
+  float sv = ht * 1.15 + (nA.x - 0.5) * 0.5 + sin(u * 0.27 + nB.z * 2.0) * 0.16;
+  float band = floor(sv), fb = fract(sv), bh = hash12(vec2(band * 1.37, rid * 7.1));
+  alb *= (0.84 + 0.3 * bh) * mix(vec3(1.0), mix(vec3(1.1, 1.0, 0.84), vec3(0.88, 0.94, 1.04), step(0.5, hash12(vec2(band, 9.0 + rid)))), 0.55);
   float seam = 0.05 + 0.08 * hash12(vec2(band * 3.1, 2.0 + rid));
   alb *= 1.0 - seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
   float stk = textureLod(uNoise, vec2(u * 0.7, ht * 0.045) + 0.53, nLod(0.7)).b;
-  alb *= 0.9 + 0.2 * stk;
+  alb *= 0.93 + 0.12 * stk;
   // vertical cracks (long, a bit wavy)
   float cn = textureLod(uNoise, vec2(u * 0.33, ht * 0.05 + u * 0.01) + 0.21, nLod(0.33)).r;
-  alb *= 1.0 - 0.45 * (1.0 - smoothstep(0.012, 0.03, abs(cn - 0.5)));
+  alb *= 1.0 - 0.3 * (1.0 - smoothstep(0.008, 0.022, abs(cn - 0.5))) * smoothstep(0.4, 0.6, textureLod(uNoise, vec2(u * 0.05, ht * 0.11) + 0.7, nLod(0.05)).b);
   // the face's own light
   vec3 N = normalize(vec3(-g, 1.0));
   float dif = max(dot(N, Ld), 0.0);
@@ -1456,6 +1456,16 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   // the lip at the top edge catches the light; snow there and on the ledges above the snow line
   float lip = 1.0 - smoothstep(0.0, 0.2, tile.y - ht);
   c = mix(c, c * 1.32 + alb * 0.05, lip * 0.75);
+  // ledges at the top of each band: a lit shelf with a shadow under it, moss / grass on it where it is wet
+  float ledge = smoothstep(0.86, 0.95, fb) * (1.0 - smoothstep(0.97, 1.0, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53), nLod(0.09)).r);
+  c = mix(c, c * 1.28, ledge);
+  c *= 1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.06, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53 - 0.53), nLod(0.09)).r);
+  c = mix(c, vec3(0.27, 0.36, 0.14) * sh * 1.1, ledge * smoothstep(0.35, 0.7, lush + (nB.y - 0.5) * 0.4) * (1.0 - snowK) * 0.85);
+  // the foot: darker, with fallen blocks against it
+  float foot = 1.0 - smoothstep(0.0, 0.22, up);
+  c *= 1.0 - 0.25 * foot;
+  vec3 fv = vorCell(vec2(u, ht) * 2.6 + 1.3);
+  c = mix(c, alb * (0.7 + 0.4 * fv.z) * sh, foot * step(fv.y, 0.55) * smoothstep(0.04, 0.14, fv.x) * 0.8);
   float sk = snowK * clamp(lip + smoothstep(0.82, 1.0, fb) * 0.75 * smoothstep(0.4, 0.8, nB.y), 0.0, 1.0);
   c = mix(c, vec3(0.86, 0.89, 0.95) * (0.56 + 0.5 * dif) * sunT, sk);
   return c;
@@ -1625,8 +1635,8 @@ void main(){
     float bev = smoothstep(OW, OW + 0.02, sd) * (1.0 - smoothstep(OW + 0.06, OW + 0.22, sd));
     float cs = smoothstep(0.12, 0.35, textureLod(uRoofT, rq / uWorld, 0.0).a); // a cave ceiling continues the massif: a seam, not a cliff
     bev *= 1.0 - 0.85 * cs;
-    rock = mix(rock, rock * (1.32 + 0.3 * facing * (0.3 + 0.7 * LI)) + alb * 0.04, bev);
-    float olm = (1.0 - smoothstep(OW - aaW * 0.5, OW + aaW * 0.5, sd)) * (1.0 - 0.72 * cs);
+    rock = mix(rock, rock * (1.32 + 0.3 * facing * (0.3 + 0.7 * LI)) + alb * 0.04, bev * (1.0 - uMesh));
+    float olm = (1.0 - smoothstep(OW - aaW * 0.5, OW + aaW * 0.5, sd)) * (1.0 - 0.72 * cs) * (1.0 - uMesh); // (relief: a knoll, no outline)
     rock = mix(rock, alb * 0.15, olm);
     col = rock;
     shadowMask = 0.4;
@@ -1760,9 +1770,9 @@ void main(){
 
     // ---------- mountains: ambient occlusion + cast shadow ----------
     float prox = F2.a;
-    if (sd > -1.6) col *= 1.0 - 0.36 * pow(1.0 - clamp(-sd / 1.35, 0.0, 1.0), 2.0);
+    if (sd > -1.6 && uMesh < 0.5) col *= 1.0 - 0.36 * pow(1.0 - clamp(-sd / 1.35, 0.0, 1.0), 2.0);
     col *= 1.0 - 0.1 * (1.0 - smoothstep(0.0, 0.6, prox));
-    if (prox < 0.95 && uShadowStr > 0.01 && cave < 0.98) {
+    if (prox < 0.95 && uShadowStr > 0.01 && cave < 0.98 && uMesh < 0.5) { // (relief: the real relief shadows below)
       float sl = length(uShadowDir);
       vec2 sdir = uShadowDir / max(sl, 1e-3);
       float maxD = min(4.2, 2.6 * sl + 0.4);
@@ -1913,7 +1923,7 @@ void main(){
     }
     if (pathSdP > -0.08) pathPlanTint(wp, pathPw, pathEn, pathSdP, col); // [paths] blueprints
     // antialiased transition into the rock outline
-    if (sd > -0.5) col = mix(col, vec3(0.075, 0.07, 0.065), smoothstep(-aaW, aaW * 0.4, sd));
+    if (sd > -0.5) col = mix(col, uMesh > 0.5 ? col * 0.8 : vec3(0.075, 0.07, 0.065), smoothstep(-aaW, aaW * 0.4, sd)); // (relief: no black ring)
   }
 
   // ---------- terrain height: smooth shading, scree on steep ground, rock faces, shadows of the relief ----------
@@ -1921,14 +1931,28 @@ void main(){
     vec2 gs = texture(uHgtG, (wp * 4.0 + 0.5) / uHgtSz).rg; // (smooth normals: the gradient of the fine surface)
     float sf = length(gs);
     vec3 Ns = normalize(vec3(-gs, 1.0));
-    float hs = (0.34 + 0.86 * max(dot(Ns, Ld), 0.0)) / (0.34 + 0.86 * max(Ld.z, 0.05));
-    col *= mix(1.0, hs, outK);
+    float hs = (0.22 + 0.98 * max(dot(Ns, Ld), 0.0)) / (0.22 + 0.98 * max(Ld.z, 0.05));
+    // curvature over ~1.6 tiles: valley floors and hollows darker, ridges and crests lighter (a soft rim on the crest)
+    vec2 uvF = (wp * 4.0 + 0.5) / uHgtSz, dk = vec2(6.4, 0.0) / uHgtSz;
+    float hC = texture(uHgtG, uvF).b;
+    float curv = (texture(uHgtG, uvF + dk).b + texture(uHgtG, uvF - dk).b + texture(uHgtG, uvF + dk.yx * uHgtSz.x / uHgtSz.y).b + texture(uHgtG, uvF - dk.yx * uHgtSz.x / uHgtSz.y).b) * 0.25 - hC;
+    float ao = clamp(curv * 0.55, -0.16, 0.3);
+    col *= mix(1.0, hs * (1.0 - ao), outK);
     // steep but walkable ground turns to scree / bare earth, then to rock
     float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
     col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8));
     vec3 KT = texture(uHgtK, wp / uWorld).rgb;
     float kt = KT.r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
     float cl = smoothstep(0.72 + 0.2 * nB.w, 1.25 + 0.25 * nA.y, max(kt * 0.92, sf * 0.8)) * smoothstep(0.12, 0.45, sf + 0.25 * kt);
+    // talus: fallen rocks scattered on the gentle ground at the foot of rock faces (not under water / snow / on edits)
+    float tal = smoothstep(0.8, 1.4, kt) * (1.0 - cl) * (1.0 - smoothstep(0.15, 0.3, wl)) * (1.0 - KT.b) * (1.0 - KT.g);
+    if (tal > 0.02) {
+      vec3 vc = vorCell(wp * 3.1 + 5.1);
+      float st = step(vc.y, 0.2 * tal + 0.03) * smoothstep(0.1, 0.22, vc.x);
+      vec3 rc = vec3(0.5, 0.48, 0.45) * (0.75 + 0.4 * vc.z) * (0.8 + 0.35 * max(dot(Ns, Ld), 0.0));
+      col = mix(col, rc, st * min(1.0, tal * 1.6) * (1.0 - snowS * 0.7));
+      col *= 1.0 - 0.1 * tal * (1.0 - st); // (the ground among the stones: a little darker)
+    }
     if (cl > 0.003) {
       ivec2 tq = ivec2(floor(wp));
       float c0 = texelFetch(uHgtC, tq, 0).r, c1 = texelFetch(uHgtC, tq + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tq + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tq + ivec2(1, 1), 0).r;

@@ -149,7 +149,7 @@ async function boot() {
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
     const gen = generateWorld(seed);
-    if (FLAGS.hills) sculptHills(gen); // (dev: docs/TERRAIN-HEIGHT.md — every peer that opens the world needs the flag)
+    if (FLAGS.hills || (guest && choice.welcome.hills)) sculptHills(gen); // (dev: docs/TERRAIN-HEIGHT.md — a guest follows its host)
     const world = new World(gen);
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));

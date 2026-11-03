@@ -88,15 +88,38 @@ export function sculptHills(gen) {
       else h = Math.max(h, (3.6 + 0.5 * n(x, y, 4)) * ck * (1 - smoothstep(5, 15, yc - y)) * smoothstep(0.0, 1.7, yc - y));
     }
     // mountain: a smooth massif with ridges and a steep rocky crown, snow above SNOW_LINE
-    const dm = Math.hypot(x - MT.x, y - MT.y) + 3 * m(x, y, 7), tm = dm / MT.r;
+    const ex = (x - MT.x) * 0.8 + (y - MT.y) * 0.6, ey = -(x - MT.x) * 0.6 + (y - MT.y) * 0.8; // (a ridge, not a cone)
+    const dm = Math.hypot(ex * 0.82, ey * 1.25) + 3 * m(x, y, 7) + 1.6 * n(x + 3, y, 3.5), tm = dm / MT.r;
     if (tm < 1) {
       const ang = Math.atan2(y - MT.y, x - MT.x);
       const ridge = 1 - Math.abs(n(Math.cos(ang) * 6 + 50, Math.sin(ang) * 6 + 50, 2.2)); // radial ridges and gullies
       let hm = MT.h * Math.pow(1 - tm, 1.35) + 2.2 * (ridge - 0.5) * (1 - tm) * tm * 4 + 0.8 * n(x, y, 4);
-      hm += 3.6 * Math.pow(smoothstep(0.34, 0.0, tm), 1.6); // the steep rocky crown, up to a point
+      hm += 3.6 * Math.pow(smoothstep(0.34, 0.0, tm), 1.6) * (0.75 + 0.5 * m(x * 1.7, y * 1.7, 2.5)); // the rocky crown, ragged
+      hm += 1.4 * n(x, y, 2.6) * smoothstep(0.55, 0.1, tm); // knobs and notches along the summit ridge
       h = Math.max(h, hm * smoothstep(1, 0.92, tm));
     }
     C[y * CW + x] = Math.max(0, h);
+  }
+  // rock masses become rocky knolls: interior corners rise with the depth inside the rock (cliffy sides, a rough top)
+  {
+    const dIn = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) dIn[i] = gen.rock[i] ? 99 : 0;
+    for (let pass = 0; pass < 2; pass++) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const xx = pass ? W - 1 - x : x, yy = pass ? H - 1 - y : y, i = yy * W + xx;
+      if (!dIn[i]) continue;
+      let m = dIn[i];
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const ax = xx + dx, ay = yy + dy; m = Math.min(m, ax < 0 || ay < 0 || ax >= W || ay >= H ? 99 : dIn[ay * W + ax] + 1); }
+      dIn[i] = m;
+    }
+    for (let y = 1; y < H; y++) for (let x = 1; x < W; x++) {
+      let d = 99;
+      for (let k = 0; k < 4; k++) d = Math.min(d, dIn[(y - (k >> 1)) * W + x - (k & 1)]);
+      if (!d || d >= 99) continue; // (a corner touching open ground stays at the ground)
+      const md = Math.hypot(x - MT.x, y - MT.y);
+      if (md < MT.r + 4) continue;
+      C[y * CW + x] += Math.min(5.5, 1.6 + (d - 1) * 1.1) * (0.85 + 0.3 * m(x, y, 3)) + 0.4 * n(x, y, 2.2);
+    }
+    if (gen.roof) for (let i = 0; i < W * H; i++) if (gen.rock[i]) gen.roof[i] = 0; // (mined open, not caves: docs/TERRAIN-HEIGHT.md)
   }
 
   // ---------- tiles: the sea, rock / water / ground / biome on the new relief ----------

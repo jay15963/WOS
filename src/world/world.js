@@ -169,6 +169,12 @@ export class World {
     this.rock[i] = 0;
     this.ore[i] = 0;
     this.ground[i] = G.STONE;
+    // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
+    if (this.height.any) {
+      const L = this.height, lo = L.tileMin(tx, ty), CW = this.W + 1, cut = [];
+      for (let k = 0; k < 4; k++) { const o = (ty + (k >> 1)) * CW + tx + (k & 1); if (L.t[o] > lo + 1e-4) cut.push([o, lo]); }
+      if (cut.length) L.setTerrain(cut);
+    }
     this.lastLost = this._naturalRoof(tx, ty);
     const M = ROOF_GEOM.natSupport + CAVE_DK.length;
     this._buildTileData(tx - 1, ty - 1, tx + 1, ty + 1);

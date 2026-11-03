@@ -179,7 +179,7 @@ export class HeightLayer {
     if (ey) { const p = v === 0 ? a : c, q = v === 0 ? b : e; lo = Math.min(p, q); hi = Math.max(p, q); }
     else if (ex) { const p = u === 0 ? a : b, q = u === 0 ? c : e; lo = Math.min(p, q); hi = Math.max(p, q); }
     else { lo = Math.min(a, b, c, e); hi = Math.max(a, b, c, e); }
-    const mg = (hi - lo) * 0.2;
+    const mg = (hi - lo) * 0.45; // (flat tiles: range 0 → still exactly flat)
     lo = lo >= 0 ? Math.max(0, lo - mg) : lo - mg; hi += mg;
     return h < lo ? lo : h > hi ? hi : h;
   }
@@ -207,7 +207,12 @@ export class HeightLayer {
       const k = (j - j0) * TW + i - i0, gx = (T[k + 1] - T[k - 1]) * SUB / 2, gy = (T[k + TW] - T[k - TW]) * SUB / 2;
       const st = Math.sqrt(gx * gx + gy * gy);
       let h = T[k];
-      if (st > 1.1) h = Math.max(0, h + (vnoise(i * 0.17, j * 0.17) - 0.5 + (vnoise(i * 0.43 + 31, j * 0.43) - 0.5) * 0.35) * 0.55 * Math.min(1, (st - 1.1) / 2.2));
+      if (st > 1.1) {
+        // gullies and ribs running down the face (noise stretched along the slope), plus a finer roughness
+        const dx = gx / st, dy = gy / st, a = i * dx + j * dy, b = -i * dy + j * dx;
+        const nz = (vnoise(a * 0.05, b * 0.42) - 0.5) + (vnoise(a * 0.16 + 17, b * 0.9) - 0.5) * 0.35;
+        h = Math.max(0, h + nz * 0.6 * Math.min(1, (st - 1.1) / 2.2));
+      }
       if (i >= 0 && j >= 0 && i < this.FW && j < this.FH) F[j * FW + i] = h;
     }
     // slopes (the steepest fine triangle of each tile, in stories per tile) and cliff flags
