@@ -156,6 +156,7 @@ export function useAbility(game, id) {
   const p = game.player, ab = ABILITIES[id];
   const err = (text) => { game.events.emit('error', { text }); return false; };
   if (!ab || ab.auto || p.dead) return false;
+  if (game.ballista?.mounted && id !== 'heal') return err('Saia da balista primeiro'); // (ballista.js)
   if (!ABILITY_ORDER.includes(id)) return err('Não disponível com esta arma');
   if (p.charge || p.leap) return false;
   if (p.stunT > 0) return err('Atordoado');
@@ -229,6 +230,7 @@ export function aimSpec(game, id) {
 export function aimCheck(game, id) {
   const p = game.player, ab = ABILITIES[id];
   if (!ab || !ab.aim || p.dead) return '';
+  if (game.ballista?.mounted) return 'Saia da balista primeiro'; // (ballista.js)
   if (!ABILITY_ORDER.includes(id)) return 'Não disponível com esta arma';
   if (p.charge || p.leap) return '';
   if (p.stunT > 0) return 'Atordoado';

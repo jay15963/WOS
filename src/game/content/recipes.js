@@ -70,6 +70,7 @@ export const RECIPES = {
   shield_iron:       R('shield_iron', { iron_bar: 5, wood: 2 }, 'anvil', 9, 'weapons'),
   helmet_iron:       R('helmet_iron', { iron_bar: 5, leather: 1 }, 'anvil', 9, 'armor'),
   armor_iron:        R('armor_iron', { iron_bar: 10, leather: 2 }, 'anvil', 14, 'armor'),
+  ballista_bolts:    R('ballista_bolt', { iron_bar: 1, wood: 2 }, 'anvil', 6, 'weapons', { qty: 2 }), // ammo of the ballista (ballista.js)
 
   // ---------- era 4: steel ----------
   knife_steel:       R('knife_steel', { steel_bar: 1, wood: 1 }, 'anvil', 7, 'tools'),

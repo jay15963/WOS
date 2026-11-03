@@ -75,6 +75,9 @@ export function serializeWorld(game, { save = false } = {}) {
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
+  // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
+  const ball = game.build.structures.filter((o) => o.type === 'ballista' && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
+  if (ball.length) data.ball = ball;
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
   return data;
 }
@@ -228,6 +231,15 @@ function applyInner(game, d, mode) {
       if ((o.style || '') !== style || (o.det || '') !== det) applyKitFields(game, o, style, det); // masks: updateAllMasks below
     }
     net.seeId(id);
+  }
+
+  // ---- ballistas: aim and operator (game/ballista.js) ----
+  const BAL = new Map(arr(d.ball).filter((r) => Array.isArray(r)).map((r) => [r[0], r]));
+  for (const o of game.build.structures) {
+    if (o.type !== 'ballista') continue;
+    const r = BAL.get(o.id);
+    if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
+    if (r && r[2] && reconcile) o.user = String(r[2]).slice(0, 40); else delete o.user;
   }
 
   // ---- crops ----

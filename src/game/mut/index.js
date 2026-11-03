@@ -15,3 +15,5 @@ import './own.js';
 import './kit.js';
 import './corpses.js';
 import './levels.js';
+import './giants.js';   // ice giants: smash telegraph, thrown ice rock
+import './ballista.js'; // the ballista: operator, aim, shots

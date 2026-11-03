@@ -23,6 +23,7 @@ import { installBrush } from './brush.js';
 import { installWildlife } from './wildlife.js';
 import { installSeasonFx } from './seasonfx.js';
 import { installWalkerFx } from './walkerfx.js';
+import { installGiantFx } from './giantfx.js';
 import { SEASON } from '../art/season.js';
 
 const rnd = Math.random;
@@ -61,6 +62,7 @@ export function installAmbient(game) {
   installStatusFx(game);  // local player's status screen effects (cosmetic)
   installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
   installWalkerFx(game);  // winter walkers: cold mist, glowing eyes, shattering into ice (cosmetic)
+  installGiantFx(game);   // ice giants (smash telegraph, thrown rocks, footsteps) and the ballista's shots (cosmetic)
 }
 
 class Ambient {

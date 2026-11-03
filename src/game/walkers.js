@@ -39,6 +39,7 @@ import { enclosedRoom } from './roofs.js';
 import { steer, resetNav } from './nav.js';
 import { go, aggro, aggroRadius } from './ai.js';
 import { CYCLE } from './seasons.js';
+import { giantsTick } from './giants.js'; // ice giants: rarer, with the walkers on winter nights
 
 let groupSeq = 0;
 
@@ -165,7 +166,7 @@ function breachToward(game, m, gx, gy, skip) {
 
 function hitPiece(game, m, o) {
   if (game.creative) return; // (a swing already on its way when the world became creative)
-  const inc = m.swingDur / (SIEGE_S[o.type] || SIEGE_WOOD);
+  const inc = (m.swingDur * (m.siegeMul || 1)) / (SIEGE_S[o.type] || SIEGE_WOOD); // (an ice giant: siegeMul × faster, giants.js)
   const d = Math.min(1, (o.dmg || 0) + inc);
   game.net.emit('struct.dmg', { id: o.id, d: +d.toFixed(4), x: +m.x.toFixed(2), y: +m.y.toFixed(2) });
   if (d >= 1) game.net.emit('struct.remove', { id: o.id, fx: 'smash' });
@@ -230,7 +231,7 @@ export function walkerBrain(game, m, dt) {
 
 // walk to what it wants; a wall in the way (no way / a long detour / not getting anywhere) gets broken
 function approach(game, m, goal, gx, gy, dt) {
-  const sp = SPECIES.walker, w = game.world;
+  const sp = SPECIES[m.species] || SPECIES.walker, w = game.world;
   const dG = Math.hypot(gx - m.x, gy - m.y);
   if (dG < (goal.kind === 'light' ? 2.6 : 1)) return handOff(m); // there: they hang around the light
   const A = m.ap || (m.ap = { px: m.x, py: m.y, st: 0, path: null });
@@ -261,7 +262,7 @@ function approach(game, m, goal, gx, gy, dt) {
 
 // walk to the spot next to the piece, then hit it until it breaks
 function siegeStep(game, m, dt) {
-  const sp = SPECIES.walker, S = m.siege, o = S.o;
+  const sp = SPECIES[m.species] || SPECIES.walker, S = m.siege, o = S.o;
   const dw = Math.hypot(o.x - m.x, (o.y - 0.5) - m.y);
   if (dw > 1.3) {
     const dir = steer(game, m, S.stand[0], S.stand[1], dt, sp.speed * 0.75, 0.2, 0);
@@ -278,9 +279,11 @@ function siegeStep(game, m, dt) {
   faceTowards(m, { x: o.x, y: o.y - 0.5 });
   if (m.swingT <= 0) {
     m.swingT = m.swingDur * (0.9 + Math.random() * 0.2);
-    m.action = { type: m.wprof?.act === 'stab' ? 'stab' : 'attack', t: 0, dur: 0.4 };
-    game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
-    game.later(0.22, () => { if (!m.dead && !o.removed && m.siege?.o === o) hitPiece(game, m, o); });
+    // (an ice giant: its club raised high and brought down on the wall — giants.js)
+    const big = m.species === 'giant';
+    m.action = big ? { type: 'smash', t: 0, dur: 1.1 } : { type: m.wprof?.act === 'stab' ? 'stab' : 'attack', t: 0, dur: 0.4 };
+    game.audio?.play(big ? 'swing_heavy' : 'swing', { x: m.x, y: m.y, volume: big ? 0.9 : 0.5 });
+    game.later(big ? 0.62 : 0.22, () => { if (!m.dead && !o.removed && m.siege?.o === o) hitPiece(game, m, o); });
   }
   return true;
 }
@@ -363,9 +366,11 @@ export function walkersTick(game, night) {
     }
     // ...and the walls they cracked settle (what they broke stays broken)
     if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0) game.net.emit('struct.dmg', { id: o.id, d: 0 });
+    giantsTick(game, false);
     game._walkT = 4;
     return;
   }
+  giantsTick(game, true);
   game._walkT = (game._walkT ?? 4) - 1;
   if (game._walkT > 0) return;
   game._walkT = winterNumbers(game).every;

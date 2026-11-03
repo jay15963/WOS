@@ -43,6 +43,7 @@ import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
+import { giantLook, GIANT_EYES } from './giant.js'; // ice giants (species 'giant'): the same, twice as big
 import { lookAtlasOf } from './look/lazy.js';
 import { diagRig, diagReady, diagPart, diagSprite, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
 import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
@@ -342,7 +343,7 @@ function drawHeadD(B, T, L, LK, D, armor, mir, x, y, l, r, fl, al, shut, hairR, 
   if (wh) B.main.add(wh, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, mir, 0, l);
 }
 // are the 3/4 parts outside the look painted? (asks for the missing ones)
-function diagExtras(T, L, LK, armor, walker, v, urgent) {
+function diagExtras(T, L, LK, armor, OV, v, urgent) {
   const A = T.A, pd = TURN_VIEW[v].pd;
   let ok = true;
   const want = (name) => { if (!name) return; const r = diagSprite(A, name, v); if (r && !r.failed && !diagPart(A, name, v, urgent)) ok = false; }; // (nothing to paint: fine)
@@ -352,7 +353,7 @@ function diagExtras(T, L, LK, armor, walker, v, urgent) {
   }
   if (L.hat === 'bandana' && T.hat[pd]) want(T.hat[pd].name);
   if (LK.legacyFace && v === 'se' && T.face[L.face]?.s) want(T.face[L.face].s.name);
-  if (walker) { want('wk_armor_' + pd); want('wk_ice_' + pd); if (v === 'se') want('wk_face_s'); }
+  if (OV) { want(OV.armor + pd); want(OV.ice + pd); if (v === 'se') want(OV.face + 's'); if (OV.crown) want(OV.crown + pd); }
   return ok;
 }
 // a 3/4 pose from the front / back pose P and the side pose E (both unflipped): sideways offsets keep most of
@@ -407,7 +408,13 @@ function blinking(t, ph0) {
   return bt < 0.12 || (((ph0 * 3.7) % 1) < 0.35 && bt > 0.26 && bt < 0.36);
 }
 
-// ---------- winter walkers (art/walker.js) ----------
+// ---------- pawn species with a fixed look and overlays: winter walkers (art/walker.js), ice giants (art/giant.js) ----------
+// look(p): the look object · armor / ice / face / crown: overlay name prefixes (+ view letter) · eyes: glow points per view
+// · eyeC: glow colour · scale: the whole rig drawn that many times bigger around its ground point (drawScaled)
+const PAWN_OV = {
+  walker: { look: walkerLook, armor: 'wk_armor_', ice: 'wk_ice_', face: 'wk_face_', crown: null, eyes: WALKER_EYES, eyeC: [0.35, 0.85, 1], scale: 1 },
+  giant: { look: giantLook, armor: 'wk_armor_gi_', ice: 'wk_ice_gi_', face: 'wk_face_gi_', crown: 'hat_gicrown_', eyes: GIANT_EYES, eyeC: [0.45, 0.92, 1], scale: 2 },
+};
 // lazily painted overlays: a record once painted (stamped as in use), else null (asked for)
 const WKS = new WeakMap();
 function wkSprite(A, name) {
@@ -427,28 +434,57 @@ function walkerTorso(B, A, part, sd, x, y, sx, sy, rot, fl, flip, lift, al) {
   if (s) B.main.add(s, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, lift);
 }
 // face frost + the cold eye glow (emissive: it shines in the dark)
-function walkerHead(B, T, A, d, flip, x, y, l, r, fl, al, t, ph0) {
+function walkerHead(B, T, A, d, flip, x, y, l, r, fl, al, t, ph0, OV = PAWN_OV.walker) {
   const dv = typeof d === 'object' ? d.view : null; // 3/4 head (camera rotation)
   if (dv) d = dv === 'se' ? 's' : 'n';
-  const s = d === 'n' ? null : dv ? diagPart(A, 'wk_face_s', dv) : wkSprite(A, 'wk_face_' + d);
+  const s = d === 'n' ? null : dv ? diagPart(A, OV.face + 's', dv) : wkSprite(A, OV.face + d);
   if (s) B.main.add(s, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
+  // a crown of ice on the skull (giants): every view
+  const cn = OV.crown ? (dv ? diagPart(A, OV.crown + (dv === 'se' ? 's' : 'n'), dv) : wkSprite(A, OV.crown + d)) : null;
+  if (cn) B.main.add(cn, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
   if (d === 'n' || !T.soft) return;
   const pulse = 0.85 + 0.15 * Math.sin(t * 2.3 + ph0);
-  const cs = Math.cos(r), sn = Math.sin(r);
-  for (const [ex0, el] of WALKER_EYES[d]) {
+  const cs = Math.cos(r), sn = Math.sin(r), ec = OV.eyeC;
+  for (const [ex0, el] of OV.eyes[d]) {
     const ex = dv ? turnX(ex0, el, dv) : ex0;
     const dx = ex * flip, gx = x + dx * cs + el * sn, gl = l + el * cs - dx * sn;
-    B.emissive.add(T.soft, gx, y + 0.001, 0.2 / T.soft.w, 0.13 / T.soft.h, 0.35, 0.85, 1, 0.55 * pulse * al, 0, 0, 0, 1, 0, gl);
+    B.emissive.add(T.soft, gx, y + 0.001, 0.2 / T.soft.w, 0.13 / T.soft.h, ec[0], ec[1], ec[2], 0.55 * pulse * al, 0, 0, 0, 1, 0, gl);
     if (T.spark) B.emissive.add(T.spark, gx, y + 0.002, 0.075 / T.spark.w, 0.055 / T.spark.h, 0.75, 1, 1, 0.95 * al, 0, 0, 0, 1, 0, gl);
   }
 }
 
+// ---------- a pawn drawn bigger (ice giants) ----------
+// The rig places its parts around the creature's ground point (x, y): this batch adapter scales every offset, size
+// and lift by k around that point (a uniform scale, so it commutes with viewB's camera turn), then the action poses
+// of a giant are remapped: the smash held high quivers (its wind-up, giants.js), the rock is in its hand until thrown.
+class ScaleBatch {
+  constructor() { this.dst = null; this.ox = 0; this.oy = 0; this.k = 1; }
+  add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift, sc) {
+    if (!this.dst) return;
+    const k = this.k;
+    this.dst.add(s, this.ox + (x - this.ox) * k, this.oy + (y - this.oy) * k, sx * k, sy * k, r, g, b, a, sway, rot, flash, flip, recv, (lift || 0) * k, sc);
+  }
+  addRaw(x, y, w, h, r, g, b, a) { if (this.dst) this.dst.addRaw(this.ox + (x - this.ox) * this.k, this.oy + (y - this.oy) * this.k, w * this.k, h * this.k, r, g, b, a); }
+}
+const SB = {};
+for (const k of VB_KEYS) SB[k] = new ScaleBatch();
+let SCALING = false;
+function drawScaled(B, A, p, t, k) {
+  for (const n of VB_KEYS) { const v = SB[n]; v.dst = B[n] || null; v.ox = p.x; v.oy = p.y; v.k = k; }
+  const a0 = p.action, w0 = p.weapon;
+  if (a0 && a0.type === 'smash' && a0.hold) p.action = { type: 'smash', t: 0.405 + 0.01 * Math.sin(t * 38), hold: true }; // (quivering, high)
+  if (a0 && a0.type === 'throw' && (a0.t || 0) < 0.56) p.weapon = 'rock_ice';
+  SCALING = true;
+  try { drawPawn(SB, A, p, t); } finally { SCALING = false; p.action = a0; p.weapon = w0; }
+}
+
 // ---------- pawns (humanoids) ----------
 export function drawPawn(B, A, p, t) {
+  const OV = PAWN_OV[p.species] || null, walker = !!OV;
+  if (OV && OV.scale !== 1 && !SCALING) return drawScaled(B, A, p, t, OV.scale); // (an ice giant: the rig twice as big)
   const T = tables(A);
   tick(p, t);
-  const walker = p.species === 'walker';
-  if (walker && p.dead) return; // walkers leave no body: they shatter into ice (src/fx/walkerfx.js)
+  if (walker && p.dead) return; // walkers / giants leave no body: they shatter into ice (src/fx/walkerfx.js)
   // respawn: rise from the ground (derived from the replicated dead flag on every peer)
   if (p._wd && !p.dead) p._riseAt = t;
   p._wd = !!p.dead;
@@ -465,7 +501,7 @@ export function drawPawn(B, A, p, t) {
   if (hf && hf !== dir && hf !== OPP[dir] && !p.dead && (!act || pose === 'cast' || pose === 'shoot') && !p.pose) hdir = hf;
   const hsd = hdir === 'w' ? 'e' : hdir;
   const hflip = hdir === 'w' ? -1 : 1;
-  const L = walker ? walkerLook(p) : p.look || DEFAULT_LOOK;
+  const L = OV ? OV.look(p) : p.look || DEFAULT_LOOK;
   // look layers (lazy parts: until painted, the base-pawn stand-in in the same colours; own look painted now)
   let LK = lookRig(A, L);
   if (!rigReady(LK, !p.isMob && !p.remote && !p.lazyLook)) LK = LK.fb;
@@ -546,7 +582,7 @@ export function drawPawn(B, A, p, t) {
   if (dv && (!sit || seat) && pose !== 'whirlwind' && LK.LA) { // (sitting on a chair too: facing the chair's way)
     const urgent = !p.isMob && !p.remote && !p.lazyLook;
     const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
-    if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, walker, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
+    if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, OV, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
   }
   const C = PIN;
   C.p = p; C.t = t; C.T = T; C.LK = LK; C.M = M; C.O = O; C.act = act; C.k = k; C.pose = pose; C.sit = sit; C.seat = seat; C.ph0 = ph0; C.fl = fl;
@@ -585,7 +621,7 @@ export function drawPawn(B, A, p, t) {
   // long hair behind the shoulders, then the body
   if (HD) stack(B, HD.hairBack, hx, y, 1, 1, hr, fl, mir, hl, al); else drawHairBack(B, LK, hsd, hflip, hx, y, hl, hr, fl, al);
   if (D) drawTorsoD(B, T, LK, D, armor, x, y, sx, sy, rot, fl, mir, bl, al, swim < 0.5); else drawTorso(B, T, LK, armor, sd, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
-  if (walker) walkerTorso(B, A, 'wk_armor_', D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al);
+  if (walker) walkerTorso(B, A, OV.armor, D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al);
   if (swim < 0.5) rigFeet(true);
   if (swim > 0.01 && T.soft) {
     // the water line hides the lower body; a slow ripple ring spreads around the swimmer
@@ -596,7 +632,7 @@ export function drawPawn(B, A, p, t) {
   // head
   if (HD) drawHeadD(B, T, L, LK, HD, armor, mir, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
   else drawHead(B, T, L, LK, armor, hsd, hflip, hx, y, hl, hr, fl, al, shut && !walker, hairR, hairL);
-  if (walker) { walkerTorso(B, A, 'wk_ice_', D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al); walkerHead(B, T, A, HD ? HD : hsd, HD ? mir : hflip, hx, y, hl, hr, fl, al, t, ph0); }
+  if (walker) { walkerTorso(B, A, OV.ice, D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al); walkerHead(B, T, A, HD ? HD : hsd, HD ? mir : hflip, hx, y, hl, hr, fl, al, t, ph0, OV); }
   // in front of the body
   if (showW && wsp && !wBehind) rigWeapon();
   if (showO && osp && !oBehind) rigOff();

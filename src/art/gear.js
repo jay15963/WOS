@@ -516,6 +516,41 @@ T.spear.paintIce = () => {
   ];
 };
 
+// the ice giants' club (art/giant.js, game/giants.js): a gnarled frozen log, its head swallowed by glacier ice with
+// crystals growing out of it (the giant's rig draws it at twice the size)
+T.club.paintIce = () => {
+  const cx = 15;
+  return [
+    (g) => {
+      g.beginPath(); g.moveTo(cx - 2.6, 58); g.lineTo(cx - 3.2, 40); g.bezierCurveTo(cx - 8, 30, cx - 7.5, 14, cx, 10); g.bezierCurveTo(cx + 7.5, 14, cx + 8, 30, cx + 3.2, 40); g.lineTo(cx + 2.6, 58); g.closePath();
+      g.fillStyle = lin(g, cx - 8, 0, cx + 8, 0, [[0, '#8d8a84'], [0.5, '#5e5a54'], [1, '#34312d']]); g.fill();
+      g.strokeStyle = 'rgba(30,28,24,0.6)'; g.lineWidth = 0.7; g.beginPath(); g.moveTo(cx + 1.5, 16); g.quadraticCurveTo(cx + 4, 28, cx + 0.5, 42); g.stroke();
+      g.fillStyle = ICE_HAFT.wrap; g.fillRect(cx - 3.2, 46, 6.4, 9);
+      g.strokeStyle = ICE_HAFT.wrapD; g.lineWidth = 0.8; for (let y = 47; y < 55; y += 1.8) { g.beginPath(); g.moveTo(cx - 3.2, y); g.lineTo(cx + 3.2, y + 1); g.stroke(); }
+    },
+    (g) => {
+      const head = (g) => { g.moveTo(cx, 0); g.lineTo(cx + 8, 4); g.lineTo(cx + 10.5, 13); g.lineTo(cx + 8.5, 24); g.lineTo(cx + 3.5, 31); g.lineTo(cx - 3.5, 31); g.lineTo(cx - 8.5, 24); g.lineTo(cx - 10.5, 13); g.lineTo(cx - 8, 4); g.closePath(); };
+      iceFill(g, head, cx - 10.5, 0, cx + 10.5, 31, 181, 3);
+      for (const [x, y, a, L] of [[cx - 8, 8, -2.4, 7], [cx + 8.5, 10, -0.6, 7.5], [cx - 9.5, 19, 3.0, 6], [cx + 9.5, 20, 0.1, 6], [cx, 1, -1.57, 6]]) {
+        const tx = x + Math.cos(a) * L, ty = y + Math.sin(a) * L, nx = -Math.sin(a) * 1.8, ny = Math.cos(a) * 1.8;
+        g.fillStyle = lin(g, x + nx, y + ny, x - nx, y - ny, [[0, ICE.light], [1, ICE.dark]]);
+        g.beginPath(); g.moveTo(x + nx, y + ny); g.lineTo(tx, ty); g.lineTo(x - nx, y - ny); g.closePath(); g.fill();
+      }
+      g.strokeStyle = 'rgba(255,255,255,0.85)'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(cx - 6, 5); g.lineTo(cx - 8.8, 13); g.lineTo(cx - 7, 23); g.stroke();
+    },
+  ];
+};
+// a boulder of ice in the giant's hand before it throws it (game/giants.js; the flying one: proj_ice_rock, art/giant.js)
+function iceRockHeld() {
+  const cx = 16;
+  return { W: 32, H: 32, gx: cx, gy: 24, layers: [(g) => {
+    const head = (g) => { g.moveTo(cx, 3); g.lineTo(cx + 9, 6); g.lineTo(cx + 13, 15); g.lineTo(cx + 10, 25); g.lineTo(cx, 29); g.lineTo(cx - 10, 26); g.lineTo(cx - 13, 16); g.lineTo(cx - 9, 6); g.closePath(); };
+    iceFill(g, head, cx - 13, 3, cx + 13, 29, 191, 2);
+    g.fillStyle = 'rgba(70,80,90,0.4)'; g.beginPath(); g.ellipse(cx + 3, 18, 5, 3.4, 0.4, 0, TAU); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.7)'; g.beginPath(); g.ellipse(cx - 4, 9, 4, 1.8, -0.5, 0, TAU); g.fill();
+  }] };
+}
+
 // ---------- registry ----------
 // GEAR[itemId] = { W, H, gx, gy, layers: [fn...] }  (px, pointing up, grip at gx, gy)
 export const GEAR = {};
@@ -541,7 +576,8 @@ for (const id in SHIELD) {
   GEAR[id + '_e'] = { ...shieldPaint(id, 'e'), type: 'shield' };
   GEAR[id + '_n'] = { ...shieldPaint(id, 'n'), type: 'shield' };
 }
-for (const type of ['sword', 'spear']) { const D = T[type]; GEAR[type + '_ice'] = { W: D.W, H: D.H, gx: D.W / 2, gy: D.gy, layers: D.paintIce(), type }; }
+for (const type of ['sword', 'spear', 'club']) { const D = T[type]; GEAR[type + '_ice'] = { W: D.W, H: D.H, gx: D.W / 2, gy: D.gy, layers: D.paintIce(), type }; }
+GEAR.rock_ice = { ...iceRockHeld(), type: 'rock' }; // (the ice giants' throw)
 GEAR.torch_hand = { ...torchPaint(), type: 'torch' };
 GEAR.hammer = { ...hammerPaint(), type: 'hammer' };
 

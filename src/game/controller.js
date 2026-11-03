@@ -201,6 +201,7 @@ export function installController(game) {
     attack() {
       const p = game.player;
       if (p.dead) return;
+      if (game.ballista?.onAttack?.()) return; // (on a ballista: the attack fires it — ballista.js)
       const cur = attackable(p.target) ? p.target : null;
       if (p.wprof?.ranged) game.events.emit('rangeflash'); // (fx/rangeflash.js: how far the bow reaches)
       // a training dummy is the last choice: any creature in reach first
@@ -229,6 +230,7 @@ export function installController(game) {
     interact(it) {
       const p = game.player;
       if (p.dead) return;
+      if (game.ballista?.onInteract?.()) return; // (on a ballista: E / the use button gets off it)
       it = it || ctl.near;
       if (!it) {
         if (attackable(p.target)) { ctl.engage(p.target); return; }
@@ -302,6 +304,7 @@ export function installController(game) {
     if (p.dead) return;
     if (game.aim?.active) { game.aim.tap?.(tap); return; } // aiming: a click fires at that point (game.aim)
     if (game.ui?.modal) { game.events.emit('closepanels', {}); return; }
+    if (game.ballista?.onTap?.(tap)) return; // (on a ballista: a click fires it, taps do nothing — ballista.js)
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
     if (game.build.mode) { if (!isMouse) buildTap(game, wx, wy); return; }

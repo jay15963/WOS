@@ -5,6 +5,7 @@
 // def: { v: variants, sec, sr?, gain, bus: 'sfx'|'ui'|'amb', rev (reverb send), pj (pitch jitter, semitones),
 //        vj (level jitter 0..1), gap (min s between two plays, non-spatial), render(d, sr, r, k) }
 
+import { SIEGE_SFX } from './sfxSiege.js';
 import { buf, mulberry, hashStr, burst, mode, modal, tone, voiced, ks, biquad, normalize, fadeIO, trim, dcBlock, mix, toBuffer, adEnv } from './sfxDsp.js';
 
 const SR = 32000;
@@ -715,7 +716,8 @@ Object.assign(SFX, {
   bandit_death: vox(0.7, (d, sr, r) => voiced(d, sr, 0, 0.6, (u) => 145 * Math.pow(0.62, u), (u) => adEnv(u, 0.06, 0.94), { formants: F_A, tilt: 1.1, harm: 22, noise: 0.15, rough: 0.06, r }), { gain: 0.32 }),
 });
 
-export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'fox', 'spider', 'bandit']);
+export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'fox', 'spider', 'bandit', 'giant']);
+Object.assign(SFX, SIEGE_SFX); // ice giants and the ballista (sfxSiege.js)
 
 // names that other code may call with a different meaning / older name
 export const ALIAS = { ui: 'ui_click', build: 'build_hit', fire: 'ignite', craft: 'craft_done', thud: 'arrow_ground', stairs_step: 'step_stairs' };

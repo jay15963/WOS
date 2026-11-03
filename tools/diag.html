@@ -16,7 +16,7 @@
 </style>
 </head>
 <body>
-<div id="info">8 vistas (S, SE, E, NE, N, NW, W, SW) pelo compose do jogo · ?set=people|gear|animals|states|all · ?scale=64 (1×) · ?t=0.3</div>
+<div id="info">8 vistas (S, SE, E, NE, N, NW, W, SW) pelo compose do jogo · ?set=people|gear|animals|states|giant|all · ?scale=64 (1×) · ?t=0.3</div>
 <div id="out"></div>
 <script type="module">
 // Sheet of every view of the game's creatures, drawn through the game's own compose (art/compose.js) into a fake
@@ -172,6 +172,20 @@ if (set === 'animals' || set === 'all') {
     ['corça', beast('deer', { variant: 1 })],
     ...sp.map((s) => [s + ' anda', beast(s, { moving: true, moveT: 0.07, _gph: 1.2 })]),
   ], { w: 1.9, h: 1.7 });
+}
+if (set === 'giant' || set === 'all') {
+  const G = (extra = {}) => pawn(null, { species: 'giant', id: 3, weapon: 'club_ice', scale: 2, ...extra });
+  section('Gigante de gelo', [
+    ['parado', G()],
+    ['andando', G({ moving: true, moveT: 0.07, _mk: 1, _sk: 1, _gs: 2.6 })],
+    ['ergue (esmagar)', G({ action: { type: 'smash', t: 0.3, dur: 1 } })],
+    ['no alto (aviso)', G({ action: { type: 'smash', t: 0.41, hold: true } })],
+    ['golpe', G({ action: { type: 'smash', t: 0.6, dur: 0.55 } })],
+    ['arremesso (pedra)', G({ action: { type: 'throw', t: 0.43, hold: true } })],
+    ['solta', G({ action: { type: 'throw', t: 0.62, dur: 0.5 } })],
+    ['ferido', G({ flash: 0.8 })],
+    ['outro rosto', G({ id: 4 })],
+  ], { w: 2.3, h: 3.0 });
 }
 // ?parts=lk_head_round,lk_hair_short… : each part's front / side / back drawings and its two 3/4 paintings (zoomed)
 if (Q.get('parts')) {

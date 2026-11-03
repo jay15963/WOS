@@ -221,6 +221,7 @@ export function playerSystem() {
 
 // small push used by knockback (creatures never get pushed through doors)
 export function knock(game, e, fromX, fromY, dist) {
+  if (e.heavy) dist *= 0.15; // (an ice giant barely moves, giants.js)
   const dx = e.x - fromX, dy = e.y - fromY, L = Math.hypot(dx, dy) || 1;
   if (e === game.player) moveCircle(game.world, e, (dx / L) * dist, (dy / L) * dist);
   else moveMob(game, e, (dx / L) * dist, (dy / L) * dist);

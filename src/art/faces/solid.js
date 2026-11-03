@@ -45,6 +45,9 @@
 // Per type: seat / rest (sitter / sleeper points), decal [x, v, rx, ry, a] (the painter's dirt patch kept on the ground),
 // fixed (drawn facing south whatever its facing: the banner), scale + hang(o) (art drawn scaled, the model that high:
 // things hung on a wall standing free), pt (the part whose fit places the points), fx.always (drawn on blueprints too).
+// Turning parts (faces/solidDefense.js, the ballista): per part spin: true — it turns about a vertical axis through
+// spec.spinAt [x, v, h] to the world angle spec.spin(o, t) (radians, atan2 of the world direction its front points to;
+// built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot).
 // More (faces/solidLights.js uses them): model: 'front'
 // (the model always from the front art's parts, whatever way the piece faces; the other views only texture it) ·
 // lift: px the painter draws the art above the piece's ground (wall-hung art; per part: that part's texture in the
@@ -130,7 +133,7 @@ function artPx(F, X, d, h, tl) {
 // ---------- the model (local tiles: origin = body centre on the ground, +y = the piece's front) ----------
 // part: { t: 0 box / 1 lathe / 2 quad, x0 x1 y0 y1 h0 h1 (bbox), ax ay (lathe axis), pr (lathe profile: h, r pairs),
 //         n (sides), q (quad corners), open, top, sh, z, fit: 4 views × 6 (sX oX sd od sh oh) }
-function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, lx: 0, ly: 0, tl: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, sx: 1, solo: false, px: null, tilt: false, fit: new Float32Array(24) }; }
+function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, lx: 0, ly: 0, tl: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, sx: 1, solo: false, px: null, tilt: false, spin: false, vis: null, fit: new Float32Array(24) }; }
 // the art's dark outline (ow px around the silhouette) belongs to the solid: each part grows by it — sideways, its top's
 // back edge, and below the ground for parts standing on it (a card's thin top covers the outline above it)
 const GROWN = new WeakMap();
@@ -182,7 +185,7 @@ function buildModel(F, list, P) {
     let ps = list[j];
     p.open = !!ps.open; p.top = ps.top || ''; p.band = ps.band || 6; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card; p.cover = !!ps.cover;
     p.n = ps.n || 12; p.tl = (ps.lift || 0) / 64; p.uv = ps.uv || null; p.solo = !!ps.solo; p.sx = ps.sx || 1;
-    p.px = ps.px || null; p.tilt = !!ps.tilt;
+    p.px = ps.px || null; p.tilt = !!ps.tilt; p.spin = !!ps.spin; p.vis = ps.vis || null;
     // geo: the part's true size (same format, these art numbers) when the art draws it shorter / smaller than the
     // footprint (a bed reaching the wall): the model is the geo, the art box only says where its texture is
     ps = ps.geo ? geoOf(ps) : p.uv ? ps : grown(ps, F.ow);
@@ -508,6 +511,7 @@ function mkEntry() {
     dc: null, // ground decal: [x, y, sx, sy, a] (art/faces/solid.js decal)
     US: null, uu: 0, uv0: 0, // dedicated face art of uv parts and its atlas place
     tpx: 0, tpy: 0, tph: null, // the lean pivot (spec.tilt)
+    spx: 0, spy: 0, spn: false, // the turning axis (spec.spin)
   };
 }
 // the variant (state) of o
@@ -606,6 +610,8 @@ function build(A, o, def, spec, st, e) {
   { artLocal(e, Fm, MV, pj, 0, Fm.V + Fm.piv, 0); e.pvx = WX + CA * LP.x - SA * LP.y; e.pvy = WY + SA * LP.x + CA * LP.y; } // (the squash pivot)
   const tp = sp.tiltAt; // (the lean pivot of the tilt parts)
   if (tp) { artLocal(e, Fm, MV, pj, tp[0], tp[1], tp[2]); e.tpx = WX + CA * LP.x - SA * LP.y; e.tpy = WY + SA * LP.x + CA * LP.y; e.tph = H0 + LP.h; } else e.tph = null;
+  const spa = sp.spinAt; // (the turning axis of the spin parts)
+  if (spa && sp.spin) { artLocal(e, Fm, MV, pj, spa[0], spa[1], spa[2]); e.spx = WX + CA * LP.x - SA * LP.y; e.spy = WY + SA * LP.x + CA * LP.y; e.spn = true; } else e.spn = false;
   e.sh.length = 0;
   for (const p of e.P) {
     if (!p.sh || p.h1 - p.h0 < 2 / 64) continue;
@@ -674,7 +680,7 @@ export function encA(a, fl) {
   return 2 + 2 * L + 0.25 + 0.5 * (a < 0 ? 0 : a > 1 ? 1 : a);
 }
 // the look of a piece this frame (shared by its two drawables): yaw, squash easing, shake, tint, flash
-export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0 };
+export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0, sn: false, sc: 1, ss: 0, o: null, t: 0 };
 function frameState(o, e, t) {
   // (faces at every angle, 0° included: no easing toward the sprite any more — the true depth, side shading and open
   // tops always; k1 < 1 only for round things that keep the art's flat look at every angle)
@@ -691,35 +697,50 @@ function frameState(o, e, t) {
   // the lean of the tilt parts (spec.tilt: a dummy's wobble, a scarecrow's sway)
   const sp = SOLID[o.type], th = sp.tilt && e.tph != null ? sp.tilt(o, t) || 0 : 0;
   FS.th = th; FS.tc = Math.cos(th); FS.ts = Math.sin(th);
+  // the turn of the spin parts: the world angle asked for minus the way the model was built facing (its front, local +y)
+  const sa = e.spn ? (sp.spin(o, t) || 0) - (e.A + Math.PI / 2) : 0;
+  FS.sn = e.spn; FS.sc = Math.cos(sa); FS.ss = Math.sin(sa); FS.o = o; FS.t = t;
 }
 // the parts of e back to front: sel 0 = all, 1 = all but the covering parts in front (e.pf), 2 = only those
 function emitParts(F, e, sel) {
   const C = FS.C, S = FS.S, R = FS.R, kk = FS.kk, sq = FS.sq, shk = FS.shk, ccx = -S, ccy = C;
   const tr = FS.tr, tg = FS.tg, tb = FS.tb, ta = FS.a;
   const np = e.P.length, one = np === 1;
-  if (!one) { partsReset(); for (let j = 0; j < np; j++) part(-S * e.pcx[j] + C * e.pcy[j] + e.pz[j], j); }
+  const sn = FS.sn, sc = FS.sc, ss = FS.ss, spx = e.spx, spy = e.spy;
+  if (!one) {
+    partsReset();
+    for (let j = 0; j < np; j++) {
+      let cx = e.pcx[j], cy = e.pcy[j];
+      if (sn && e.P[j].spin) { const dx = cx - spx, dy = cy - spy; cx = spx + sc * dx - ss * dy; cy = spy + ss * dx + sc * dy; }
+      part(-S * cx + C * cy + e.pz[j], j);
+    }
+  }
   const q = e.q, qn = e.qn, qf = e.qf, qm = e.qm, PS = one ? null : partsSorted();
   const ga = FS.ga; // (glow art over the faces: its strength now, 0 = off)
   const th = FS.th, tc = FS.tc, ts = FS.ts;
   for (let pi = 0; pi < np; pi++) {
-    const j = one ? 0 : PS[pi].k, tl = th !== 0 && e.P[j].tilt;
+    const j = one ? 0 : PS[pi].k, tl = th !== 0 && e.P[j].tilt, spn = sn && e.P[j].spin;
     if (sel && (sel === 2) !== (e.pf[j] === 1)) continue;
+    if (e.P[j].vis && !e.P[j].vis(FS.o, FS.t)) continue; // (hidden this frame)
     for (let n = e.pq[j]; n < e.pq[j + 1]; n++) {
       const fl = qf[n] & 7, gw = qf[n] & 8;
       if (gw && ga <= 0) continue;
       let z = 1;
       if (fl !== 1) {
-        const v = -S * qn[n * 2] + C * qn[n * 2 + 1];
+        let nx = qn[n * 2], ny = qn[n * 2 + 1];
+        if (spn) { const rx = sc * nx - ss * ny; ny = ss * nx + sc * ny; nx = rx; } // (a turning part: its normal turns with it)
+        const v = -S * nx + C * ny;
         if (fl === 2 ? v > -0.02 : fl === 4 ? v <= -1 : v <= 0.02) continue;
         if (!gw) {
-          const u = fl === 4 ? Math.hypot(qn[n * 2], qn[n * 2 + 1]) : 1; // (a steep slope: its unit normal)
-          z = 1 + (shade(qn[n * 2] / u, qn[n * 2 + 1] / u) - 1) * R; if (fl === 2) z *= 0.72;
+          const u = fl === 4 ? Math.hypot(nx, ny) : 1; // (a steep slope: its unit normal)
+          z = 1 + (shade(nx / u, ny / u) - 1) * R; if (fl === 2) z *= 0.72;
         }
       }
       const m = qm[n], ca = gw ? -ga * FS.ta : ta; // (a < 0: to the glow layer, FACE_FS; never on a blueprint, so untinted)
-      if (!FS.mv && !m && !tl) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ca); continue; }
+      if (!FS.mv && !m && !tl && !spn) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ca); continue; }
       for (let k = 0; k < 20; k += 5) {
         let x = q[n * 20 + k], y = q[n * 20 + k + 1], h = q[n * 20 + k + 2];
+        if (spn) { const dx = x - spx, dy = y - spy; x = spx + sc * dx - ss * dy; y = spy + ss * dx + sc * dy; }
         if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
         if (tl) { const u = (x - e.tpx) * C + (y - e.tpy) * S, w = h - e.tph, du = u * tc + w * ts - u; x += du * C; y += du * S; h = e.tph - u * ts + w * tc; }
         SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = h; SCR[k + 3] = q[n * 20 + k + 3];

@@ -7,4 +7,5 @@ import './solidTypes.js'; // pieces converted to real 3D (art/faces/solid.js kit
 import './solidFurniture.js'; // interior furniture and decoration (solid pieces)
 import './solidLights.js'; // lights, fire and production stations (the same kit)
 import './solidGarden.js'; // (the garden / outdoor pieces, the raiders' camps and the columns)
+import './solidDefense.js'; // defense pieces: the ballista (turning top)
 export { drawFacesTurned } from './scaffold.js'; // (a piece being built: its scaffold as a 3D frame around it)

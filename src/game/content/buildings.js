@@ -21,7 +21,7 @@ import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, 
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
-  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['prod', 'Produção'], ['def', 'Defesa'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
   ...DECOR_CATS,
 ];
 
@@ -78,8 +78,14 @@ export const BUILDINGS = {
                  light: L(1, 0.62, 0.3, 6, 1.3, 0.25, 0.3),
                  desc: 'Luz, calor e cozinha. Renasça perto dela.' },
 
+  // ---------- defense ----------
+  // ballista (ballista.js): one operator at a time (E / a tap mounts it), the bow turns slowly toward the aim, the
+  // attack button fires a ballista bolt from the operator's backpack. 3D: art/faces/solidDefense.js
+  ballista:    { name: 'Balista', g: 'f', emoji: '🏹', cat: ['def'], cost: { steel_bar: 4, wood: 10, rope: 3 }, time: 10, xp: 30, block: 0.42, rotate: true,
+                 desc: 'Arma de cerco contra os gigantes de gelo: dano enorme e longo alcance. Entre nela (E ou toque) e mire; o botão de ataque dispara uma flecha de balista da sua mochila.' },
+
   // ---------- furniture ----------
-  chest:       { name: 'Baú', g: 'm', emoji: '🧰', cat: ['furn'], cost: { wood: 8 }, time: 4, xp: 10, block: 0.28, slots: 20, edge: true, move: true,
+  chest:      { name: 'Baú', g: 'm', emoji: '🧰', cat: ['furn'], cost: { wood: 8 }, time: 4, xp: 10, block: 0.28, slots: 20, edge: true, move: true,
                  desc: 'Guarda até 20 pilhas de itens. Gire para encostar numa parede.' },
   bed:         { name: 'Cama', g: 'f', emoji: '🛏️', cat: ['furn'], cost: { wood: 8, fiber: 6, leather: 2 }, size: [1, 2], time: 6, xp: 15, block: 'tile', rotate: true, move: true,
                  desc: 'Define o ponto de renascimento (a noite não passa mais dormindo). Ocupa 1×2.' },
