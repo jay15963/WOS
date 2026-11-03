@@ -277,6 +277,33 @@ de uma fortaleza: o anel inteiro do andar de cima sumia). Agora nada some por re
   `_ne…`); corpo / cauda / cabeça são pintados uma vez para todos os quadros da espécie (os quadros irmãos são pedidos
   juntos), ~10 ms por quadro. Até ficarem prontos: o lado encurtado de antes. Bote e passadas na diagonal como antes;
   morto: de lado no chão (como antes). O ajudante `beast34(spec, view)` é genérico (outros bichos podem usar).
+- **Gigante de gelo: corpo e esqueleto próprios** (`art/giantBody.js` + `art/giantRig.js`; não é mais o boneco de pessoa
+  esticado). Cada **peça** é um pequeno modelo 3D de elipsoides (como a criação, abaixo) pintado por traçado de raios em
+  cada vista: tronco curvado com corcova e cristais de gelo nas costas, cabeça pequena (sobrancelha de gelo, presas, barba
+  gelada, coroa de cristais; os olhos brilham no `emissive`), ombreiras de gelo (direita / esquerda), punho, pé — em s,
+  se, e, ne, n (sw / w / nw espelhadas; numa vista espelhada as ombreiras trocam de lado) —, e braço, antebraço, coxa,
+  canela e a clava pintados uma vez só, ao longo de −z, com luz de frente (o rig os gira para qualquer lado). Modelado em
+  px "unidade" e pintado `GS` = 1,8× maior (nítido no tamanho de verdade: ~3 tiles com a coroa, ~3× uma pessoa, a cabeça
+  na altura do topo de uma parede de 2 andares). Um
+  **esqueleto 3D** (`SK`: pelve, quadris, ombros, pescoço; IK de dois ossos nos braços e pernas) é posado a cada quadro e
+  projetado na vista (a mesma câmera 18° das peças): tronco e cabeça na pelve / pescoço (girados / achatados como a
+  coluna e a linha dos ombros), membros de junta a junta (rotação + escala no comprimento: encurtam quando apontam para a
+  câmera), a clava na mão direita pelo vetor de direção dela. Ordem: frente / costas — pernas, tronco, braços, cabeça (de
+  costas a cabeça antes, escondida pela corcova; a clava sai do braço quando vai para trás do corpo ou vem para a câmera);
+  lado e 3/4 — lado de lá (mais escuro), tronco, cabeça, lado de cá. Animações (função do estado replicado: `facing`,
+  `moving` / `moveT`, `action {type, t, hold}`, `flash`, `dead` / `deadT`): parado (respira, balança), andar pesado (passo a
+  cada 1,6 tile, ~1,7 por segundo, `GIANT_GAIT`: pé plantado, o outro sobe e avança, o corpo despenca quando o pé pisa e
+  pende para a perna de apoio, braços contra as pernas; poeira e tremor em cada pisada: fx/giantfx.js), esmagar (clava no
+  alto nas duas mãos atrás da cabeça, tremendo enquanto `hold`; desce e bate no chão à frente, ~2 tiles; volta), arremessar (a mão esquerda tira a pedra da neve, ergue sobre a cabeça,
+  arremessa), ferido (joga o corpo para trás), estilhaçar (as peças voam e somem). **8 vistas também em 0°** (o ângulo de
+  frente do `facing.js` escolhe a vista: um gigante andando na diagonal aparece na 3/4). Até as peças ficarem prontas
+  (~36 sprites preguiçosos, ~15 ms cada, todas as vistas pedidas quando o primeiro aparece) desenha-se o boneco antigo
+  (`drawScaled`). Profundidade: um cartão só pelo pé, como toda criatura (as peças na ordem acima). Revisão: `tools/diag.html?set=giant`
+  (8 vistas: parado, 4 momentos do passo, erguer, no alto, descer, golpe, pegar a pedra, arremesso, solta, ferido,
+  estilhaça).
+- **Operador da balista:** `game/ballista.js` marca quem opera a cada quadro em todos os pares (`_opA` = o ângulo
+  desenhado da balista); `facing.js` usa esse ângulo como frente (como a cadeira) e `game.js` pede as **8 vistas também
+  em 0°** para ele; `compose.js` põe as duas mãos nas manoplas atrás do molinete (o que carrega fica guardado).
 - **Bichos da criação** (vaca, ovelha, porco, galinha e os filhotes; docs/LIVESTOCK.md): não usam o `beast34` — são
   um **modelo 3D** de elipsoides (`art/livestock.js`) pintado por traçado de raios em cada vista (e, se, s, ne, n),
   então as diagonais são vistas de verdade do mesmo bicho (as manchas da vaca no mesmo lugar em todas). Só os três
@@ -534,9 +561,14 @@ um texel da arte (`px`).
   pés de ferro, prato giratório, poste) fica; o topo (garfo, coronha, quadro com as duas meadas de corda, braços
   recurvados, a corda puxada até a garra, o sarilho e a flecha no trilho) **gira em volta do poste** para a mira.
 - **O kit ganhou** (genérico, em `solid.js`): partes `spin: true` giram num eixo vertical em `spinAt` [x, v, h] para o
-  ângulo do mundo `spin(o, t)` (vértices, normais — visibilidade e luz — e a ordem das partes giram juntos; sem sombra do
-  sol própria: a balista põe uma sombra suave sob os braços pelo `fx`); partes com `vis(o, t)` falso somem naquele quadro
-  (depois do disparo: sem flecha no trilho, corda reta até recarregar).
+  ângulo do mundo `spin(o, t)` (vértices, normais — visibilidade e luz — e a ordem das partes giram juntos); uma caixa
+  `spin` com sombra (`sh` não falso) projeta a **sombra do sol girada junto** (sombra tipo 2: o retângulo da caixa girado
+  em volta do eixo a cada quadro; as finas / que somem levam `sh: false`); partes com `vis(o, t)` falso somem naquele
+  quadro (depois do disparo: sem flecha no trilho, corda reta até recarregar). Sob os braços fica só um sombreado de
+  contato fraco no chão (`fx`).
+- Braços grossos (vigas de 13 px nos de dentro, ferragens na saída do quadro, na junta e nas pontas), coronha mais larga,
+  e as **manoplas do operador**: dois cabos saindo do suporte do molinete para trás na altura das mãos (o operador fica
+  0,98 atrás do poste e as segura).
 - O ângulo desenhado é `o._aimD` (game/ballista.js: quem opera vê o próprio na hora; os outros, suavizado até o ângulo
   compartilhado `o.aim`).
 
