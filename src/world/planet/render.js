@@ -126,8 +126,8 @@ export function renderTileWindow(win, scale = 2, opts = {}) {
     if (wc) {
       const depth = (win.wlevel ? win.wlevel[i] : 0) - (h00 + h10 + h01 + h11) / 4;
       if (win.biome[i] === BIOME.SEA_ICE) c = [214, 226, 236];
-      else if (wc === 3) c = [10, 26, 62];
-      else if (wc === 2) c = ramp([[40, 104, 150], [22, 64, 116], [14, 44, 92]], clamp(depth / 4, 0, 1));
+      else if (wc === 3) c = [6, 14, 40];
+      else if (wc === 2) c = ramp([[46, 116, 164], [32, 90, 146], [26, 74, 130]], clamp(depth / 5, 0, 1));
       else c = win.biome[i] === BIOME.REEF ? [70, 186, 180] : [72, 150, 176];
       if (win.flowX && (win.flowX[i] || win.flowY[i])) c = [c[0] * 0.9, c[1] * 1.0, c[2] * 1.08];
     } else {
