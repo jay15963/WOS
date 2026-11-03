@@ -290,6 +290,8 @@ export class Audio {
     this.bRoof = bed(this.brown, 'bandpass', 380, 0.7, A);
     this.bRiver = bed(this.pink, 'bandpass', 650, 0.6, O, true);
     this.bLake = bed(this.brown, 'lowpass', 380, 0.7, O, true);
+    this.bFall = bed(this.white, 'lowpass', 1300, 0.5, O, true); // waterfalls: a deep roar (fx/waterfalls.js)
+    this.bFall2 = bed(this.pink, 'bandpass', 2400, 0.6, O, true);  // and their hiss
     this.bFire = bed(this.brown, 'lowpass', 260, 0.7, A, true);
     this.bCave = bed(this.brown, 'lowpass', 110, 0.8, A);
     // night insect chorus: narrow band, amplitude-modulated (~24 Hz pulses)
@@ -547,6 +549,12 @@ export class Audio {
     const lap = 0.5 + 0.5 * Math.sin(tt * 1.7) * Math.sin(tt * 0.6);
     this._set(this.bLake, (N.water * (0.05 + 0.06 * lap) * (1 - N.flow * 0.5) + swim * (0.06 + 0.04 * lap)) * (1 - ice), 0.3);
     if (this.bLake.p) this._param(this.bLake.p.pan, N.waterPan * 0.6 * (1 - swim), 'lp', 0.5);
+    // waterfalls around (fx/waterfalls.js): a roar that swells as you near the plunge, panned toward it
+    const WF = game.waterfalls?.list?.length ? game.waterfalls.near(this.lx, this.ly) : null, fk = WF ? WF.k * (1 - ice) * (1 - cave * 0.5) : 0;
+    this._set(this.bFall, fk * 0.16, 0.6);
+    this._set(this.bFall2, fk * 0.06, 0.6);
+    if (this.bFall.p) this._param(this.bFall.p.pan, (WF ? WF.pan : 0) * 0.7, 'wfp', 0.5);
+    if (this.bFall2.p) this._param(this.bFall2.p.pan, (WF ? WF.pan : 0) * 0.7, 'wfp2', 0.5);
     this._set(this.bFire, N.fire * 0.05 * (1 + warm * 0.5), 0.3);
     if (this.bFire.p) this._param(this.bFire.p.pan, N.firePan * (1 - warm * 0.5), 'fp', 0.3);
     const day = env.day || 0, night = (env.night || 0) * (1 - cave), hour = env.hour ?? 12;

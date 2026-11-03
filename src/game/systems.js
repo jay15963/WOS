@@ -48,6 +48,7 @@ import { installFishing, fishingSystem } from './fishing.js'; // fishing with a 
 import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
 import { installBallistaUi } from '../ui/ballistaUi.js';
 import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
+import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -139,6 +140,7 @@ export function installSystems(game) {
     stockSystem(),                  // the farm clock: domestication, hunger, births, growth (host)
     stockFxSystem(),                // ropes, feeder range, fertile soil marks (cosmetic)
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
+    waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);

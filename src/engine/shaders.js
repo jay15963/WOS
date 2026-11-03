@@ -1515,6 +1515,38 @@ vec3 masonry(vec2 wp, float ht, vec2 g, vec3 Ld, float LI, vec3 sunT){
   float dif = max(dot(N, Ld), 0.0);
   return c * (0.48 + 0.78 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * LI);
 }
+// WATERFALL (docs/TERRAIN-HEIGHT.md "Cachoeiras"): where the water surface itself is steep (a river stepping down
+// between two levels, a lake spilling over an edge) the water is a falling sheet on the face of the mesh: streaks racing
+// down it (faster where steeper), white water growing toward the foot, a dark glassy tongue at the lip, glints of the
+// sun and the sky running down. g = the surface gradient (downhill = -g), k = 0..1 how much of a fall it is.
+vec3 waterfall(vec2 wp, float ht, vec2 g, float k, vec3 Ld, float LI, vec3 sunT, vec4 nA, vec4 nB, out float foamO){
+  float s = length(g);
+  vec2 d = -g / max(s, 1e-3), pp = vec2(-d.y, d.x);
+  float u = dot(wp, pp), v = dot(wp, d) + ht * 0.6; // across / down the fall (tiles; the height adds the drop)
+  float spd = 1.6 + 0.7 * min(s, 3.0);
+  // (noise channels: R 4, G 8, B 16 cells per unit — streaks ~0.15–0.3 tile wide, stretched ~8× down the fall)
+  float n1 = textureLod(uNoise, vec2(u * 1.1, v * 0.14 - uTime * spd * 0.14), nLod(1.1) + 1.0).r;
+  float n2 = textureLod(uNoise, vec2(u * 0.75 + 0.37, v * 0.09 - uTime * spd * 0.09), nLod(0.75) + 1.4).g;
+  float n3 = textureLod(uNoise, vec2(u * 0.45 + 0.71, v * 0.055 - uTime * spd * 0.055), nLod(0.45) + 1.6).b;
+  float streak = n1 * 0.45 + n2 * 0.35 + n3 * 0.3;
+  // white water: more of it with the steepness and down the face (aeration), torn sheets in between
+  float aer = clamp(0.35 + 0.35 * smoothstep(0.6, 2.2, s) + 0.2 * k, 0.0, 0.9);
+  float white = smoothstep(0.6 - aer * 0.45, 0.82 - aer * 0.4, streak);
+  vec3 deep = vec3(0.09, 0.24, 0.28), glass = vec3(0.32, 0.5, 0.54);
+  vec3 c = mix(deep, glass, smoothstep(0.3, 0.7, n2));
+  vec3 Nf = normalize(vec3(-g * 0.35 + (vec2(n2, n3) - 0.5) * 0.9, 1.0));
+  float dif = max(dot(Nf, Ld), 0.0);
+  // (foam scatters light: bright even in the shade of the face)
+  vec3 foamC = vec3(0.9, 0.95, 0.97) * (0.8 + 0.3 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * LI);
+  c = c * (0.65 + 0.55 * dif * (0.3 + 0.7 * LI)) + uSky * 0.2;
+  c = mix(c, foamC, white);
+  // glints running down the sheet (sun and moon), a soft sky sheen
+  vec3 H = normalize(Ld + vec3(0.0, 0.0, 1.0));
+  float gl = pow(max(dot(Nf, H), 0.0), 40.0) * smoothstep(0.5, 0.8, n1);
+  c += gl * (0.5 * LI + 0.15 * uNight) * sunT;
+  foamO = white;
+  return c;
+}
 void main(){
   vec2 wp = uMesh > 0.5 ? vT.xy : uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
   float hT = uMesh > 0.5 ? vT.z : 0.0;
@@ -1574,8 +1606,20 @@ void main(){
   // water level (needed by both paths)
   vec2 wq = wp + warp * 0.3;
   float wl = fieldAt(wq).b + (nB.x - 0.5) * 0.08 + (nA.w - 0.5) * 0.05;
-  // (relief: water lies flat at its own level — never on a steep face, never up a hill above the water next to it)
-  if (uMesh > 0.5) wl -= smoothstep(0.55, 1.0, texture(uHgtK, wp / uWorld).r * 5.33) * 2.0 + smoothstep(0.2, 0.6, hT - texture(uHgtK, wp / uWorld).a * 40.0) * 2.0;
+  // (relief: water lies flat at its own level — never on a steep face, never up a hill above the water next to it;
+  // a steep face INSIDE the water is a waterfall, drawn after the relief: fallK; a gentler one, rapids: rapK)
+  float fallK = 0.0, rapK = 0.0, ktW = 0.0;
+  vec2 gW = vec2(0.0);
+  if (uMesh > 0.5) {
+    vec4 KW = texture(uHgtK, wp / uWorld);
+    gW = texture(uHgtG, (wp * 4.0 + 0.5) / uHgtSz).rg;
+    ktW = KW.r * 5.33;
+    float sw = length(gW), above = smoothstep(0.2, 0.6, hT - KW.a * 40.0);
+    float inW = smoothstep(0.3, 0.52, wl) * (1.0 - above);
+    fallK = inW * smoothstep(0.42, 0.75, max(sw, ktW * 0.9));
+    rapK = inW * smoothstep(0.06, 0.3, sw) * (1.0 - fallK);
+    wl -= smoothstep(0.55, 1.0, ktW) * 2.0 + above * 2.0;
+  }
 
   // ---------- rock being mined: cracks follow the pickaxe; the last hit breaks the block along them ----------
   float mCrk = 0.0, mPulse = 0.0;
@@ -1939,8 +1983,21 @@ void main(){
         float st = textureLod(uNoise, sp2, nLod(1.7)).b;
         foam += smoothstep(0.7, 0.88, st) * 0.3 * smoothstep(0.15, 0.6, fl) * (1.0 - depth * 0.4);
       }
+      if (uMesh > 0.5 && (rapK > 0.01 || ktW > 0.3)) {
+        // rapids (the river surface slopes): white water torn into streaks racing downhill, standing waves across
+        vec2 rd = -gW / max(length(gW), 1e-3), rp2 = vec2(-rd.y, rd.x);
+        float ru = dot(wp, rp2), rv = dot(wp, rd), rs = 1.2 + 2.5 * length(gW);
+        float r1 = textureLod(uNoise, vec2(ru * 0.8, rv * 0.18 - uTime * rs * 0.18), nLod(0.8)).r;
+        float r2 = textureLod(uNoise, vec2(ru * 0.7 + 0.3, rv * 0.15 - uTime * rs * 0.15), nLod(0.7)).g;
+        float stand = 0.5 + 0.5 * sin(rv * 7.0 + r1 * 4.0);
+        foam += rapK * smoothstep(0.55, 0.85, r1 * 0.55 + r2 * 0.35 + stand * 0.25) * 0.9;
+        // the foot of a fall / a face going into the water: churning foam spreading from it
+        float ft = smoothstep(0.3, 0.8, ktW) * (1.0 - fallK);
+        float churn = textureLod(uNoise, wp * 0.9 + vec2(uTime * 0.11, -uTime * 0.07), nLod(0.9)).r * 0.6 + textureLod(uNoise, wp * 0.6 - vec2(uTime * 0.05, uTime * 0.02), nLod(0.6)).b * 0.5;
+        foam += ft * smoothstep(0.35, 0.75, churn + ft * 0.3) * 0.95;
+      }
       vec3 foamCol = vec3(0.86, 0.91, 0.92) * (0.65 + 0.35 * uSunI);
-      wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * 0.5);
+      wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * (uMesh > 0.5 ? mix(0.5, 0.85, max(rapK, smoothstep(0.3, 0.8, ktW))) : 0.5));
       }
       if (iceK > 0.001) wc = mix(wc, iceSurface(wp, depth, wl, nA, nB, nC, sunT), iceK);
       float edge = smoothstep(0.255 - aaW * 0.4, 0.255 + aaW * 0.4, wl);
@@ -1995,7 +2052,15 @@ void main(){
         cr = mix(cr, ef, smoothstep(0.15, 0.7, KT.b)); // dug / heaped by players
       }
       if (KT.g > 0.02) cr = mix(cr, masonry(wp, hT, gs, Ld, LI, sunT), smoothstep(0.15, 0.6, KT.g)); // a building's foundation
-      col = mix(col, cr, cl);
+      col = mix(col, cr, cl * (1.0 - fallK));
+    }
+    // waterfalls: the water spilling down a steep face (frozen in winter: an ice curtain)
+    if (fallK > 0.01) {
+      float fo;
+      vec3 wf = waterfall(wp, hT, gW, fallK, Ld, LI, sunT, nA, nB, fo);
+      if (uSeaA.y > 0.01) wf = mix(wf, vec3(0.74, 0.85, 0.9) * (0.62 + 0.38 * max(dot(Ns, Ld), 0.0)) * (0.92 + 0.12 * nB.z), uSeaA.y);
+      col = mix(col, wf, fallK);
+      shadowMask = mix(shadowMask, 0.6, fallK);
     }
     // relief shadows: march toward the sun over the fine surface (the ray climbs 1 / |shadowDir| per tile)
     if (uShadowStr > 0.01 && LI > 0.02) {

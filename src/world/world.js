@@ -149,7 +149,7 @@ export class World {
     this.wlevel.attach(c, d.wlevel instanceof Float32Array && d.wlevel.length === CT ? d.wlevel : new Float32Array(CT));
     this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
     this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
-    r.ready = true; r.decor = !!d.decor;
+    r.ready = true; r.decor = !!d.decor; r.features = Array.isArray(d.features) && d.features.length ? d.features : null; // (the planet's waterfalls / springs / craters)
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
     if (d.decor) for (const dd of d.decor) this.chunkAt(dd.x, dd.y).decor.push(dd);
