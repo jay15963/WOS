@@ -264,7 +264,7 @@ function approach(game, m, goal, gx, gy, dt) {
 function siegeStep(game, m, dt) {
   const sp = SPECIES[m.species] || SPECIES.walker, S = m.siege, o = S.o;
   const dw = Math.hypot(o.x - m.x, (o.y - 0.5) - m.y);
-  if (dw > 1.3) {
+  if (dw > Math.max(1.3, (m.r || 0.3) + 1)) { // (a big body — an ice giant — strikes from farther: it cannot stand that close)
     const dir = steer(game, m, S.stand[0], S.stand[1], dt, sp.speed * 0.75, 0.2, 0);
     if (dir) go(game, m, dir, sp.speed * 0.75, dt); else m.moving = false;
     if (stalled(S, m, dt) || (m.nav && m.nav.fails > 4)) {
