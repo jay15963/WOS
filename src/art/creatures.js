@@ -246,7 +246,7 @@ const SPIDER_FRAMES = { e: [0, 0, ''], e_walk: [6, 0, '_walk'], e_w1: [0, 5, '_w
 function spider34(frame) {
   const [sh, lift] = SPIDER_FRAMES[frame], rand = rng(9393);
   return {
-    W: SW, H: SH, cx: SW / 2, foot: FOOT, wb: 12, wl: 16, farOff: [3, -3],
+    W: SW, H: SH, cx: SW / 2, foot: FOOT, wb: 12, wl: 16, farOff: [3, -3], key: 'spider',
     far: (P) => P.layer((g) => { for (const p of sideLegs(sh, lift, true)) leg(g, p, true, rand); }, OWS * 0.85),
     near: (P) => P.layer((g) => { for (const p of sideLegs(sh, lift, false)) leg(g, p, false, rand); }, OWS * 0.85),
     body: (P) => P.layer((g) => abdomen(g, 42, 36, 25, 18, rand, 'e'), OWS),

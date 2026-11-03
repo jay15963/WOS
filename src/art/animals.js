@@ -911,7 +911,7 @@ function spec34(sp, variant, frame) {
     if (stag) P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) antlersFront(g, S, 0, 0, r, mixc(S.antler, S.antlerDark, 0.5), 1); else { antlersFront(g, S, 0, 0, r, S.antlerDark, 1.05); antlersFront(g, S, 0, 0, r, S.antler, 0.75); } }, 2.1);
     P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) backHead(g, sp, S, 0, 0, r * 0.92); else frontHead(g, sp, S, 0, 0, r, rand); }, back ? S.ow * 0.9 : S.ow);
   };
-  const base = { W: S.W, H: S.H, cx: S.W / 2, foot: S.foot + S.oy, wb: F.barrel.rx * 0.7, wl: (F.front.x + F.hind.x) / 2 };
+  const base = { W: S.W, H: S.H, cx: S.W / 2, foot: S.foot + S.oy, wb: F.barrel.rx * 0.7, wl: (F.front.x + F.hind.x) / 2, key: sp === 'rabbit' ? null : sp + (variant || '') };
   if (sp === 'rabbit') {
     return { ...base, farOff: [0, 0], far: (P) => rabbitPaint(frame, pick(P, [0])), body: (P) => rabbitPaint(frame, pick(P, [1, 2])), near: (P) => rabbitPaint(frame, pick(P, [3])),
       head: { side: (P, dx) => rabbitPaint(frame, pick(P, [4], dx)), front: faceOn(false), back: faceOn(true) } };

@@ -541,6 +541,8 @@ export function drawPawn(B, A, p, t) {
   // pose, drawn with 3/4 parts (art/look/turn.js) once they are painted; until then the nearest side (p.facing)
   let D = null, mir = 1;
   const dv = p._dv;
+  // camera turned: the local player's two 3/4 rigs are painted in the background before they are needed
+  if (LK.LA && p._q34 !== LK && (animEnv.rs !== 0 || animEnv.rc !== 1) && !p.isMob && !p.remote && !p.lazyLook) { p._q34 = LK; diagReady(diagRig(A, LK, 'se'), A, false); diagReady(diagRig(A, LK, 'ne'), A, false); }
   if (dv && (!sit || seat) && pose !== 'whirlwind' && LK.LA) { // (sitting on a chair too: facing the chair's way)
     const urgent = !p.isMob && !p.remote && !p.lazyLook;
     const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
@@ -1154,9 +1156,9 @@ function rigFeet(front) {
     if (sd === 'd') {
       // 3/4 (camera turned): the side view's thighs and boots, narrower, the knees toward the facing diagonal
       const m = R.mir, fy = R.pd === 's' ? 0.09 : -0.09, th = R.T.thigh, hip = R.seat ? 0.2 : 0.07;
-      B.main.add(ft, x + m * 0.1, y + fy - 0.01, 0.85, 1, fr * 0.8, fg * 0.8, fb * 0.8, al, 0, 0, fl, m, 0, fz);
+      B.main.add(ft, x + m * 0.1, y + fy - 0.01, R.ftq, 1, fr * 0.8, fg * 0.8, fb * 0.8, al, 0, 0, fl, m, 0, fz);
       if (th) B.main.add(th, x - m * 0.015, y - 0.01 + fy * 0.4, 0.78, 1, R.pr * 0.85, R.pg * 0.85, R.pb * 0.85, al, 0, 0, fl, m, 0, hip + 0.01);
-      B.main.add(ft, x + m * 0.19, y + fy + 0.01, 0.85, 1, fr, fg, fb, al, 0, 0, fl, m, 0, fz);
+      B.main.add(ft, x + m * 0.19, y + fy + 0.01, R.ftq, 1, fr, fg, fb, al, 0, 0, fl, m, 0, fz);
       if (th) B.main.add(th, x + m * 0.01, y + 0.01 + fy * 0.4, 0.78, 1, R.pr, R.pg, R.pb, al, 0, 0, fl, m, 0, hip);
     } else if (sd === 'e') {
       // thighs forward from the hip, boots at the knees' end
@@ -1379,7 +1381,7 @@ export function drawAnimal(B, A, a, t) {
     const Q = S.q && S.q[dv[0] === 's' ? 'se' : 'ne'], r = Q ? Q.get(spr) : null;
     if (r && !r.failed) {
       r.lu = LOOK_CLOCK.f;
-      if (r.ready) { spr = r; dk = 1; dTilt = 0; } else lookAtlasOf(A).want(r);
+      if (r.ready) { spr = r; dk = 1; dTilt = 0; } else { const LA = lookAtlasOf(A); LA.want(r); for (const q of Q.values()) LA.want(q); } // (its other frames right after: they share the body and head)
     }
     sx *= dk; ox *= dk; rot += dTilt; oy += (dv[0] === 's' ? 0.5 : -0.5) * Math.abs(ox); // (a lunge goes along the diagonal)
   }
@@ -1389,9 +1391,10 @@ export function drawAnimal(B, A, a, t) {
   B.main.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 1, 0, rot, fl, flip, 0, lift);
   B.shadow.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
   // glowing spider eyes (visible at night)
-  if (sp === 'spider' && sd !== 'n' && T.spark) {
+  if (sp === 'spider' && sd !== 'n' && T.spark && !(dv && dv[0] === 'n')) {
     const pulse = 0.55 + 0.2 * Math.sin(t * 3 + ph0);
-    if (sd === 'e') B.emissive.add(T.spark, x + flip * 0.44 * sc * sx, y, 0.18 * sc, 0.14 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + 0.52 * sc * sy);
+    if (dv && dk === 1) for (let i = 0; i < 2; i++) B.emissive.add(T.spark, x + flip * (0.2 + i * 0.07) * sc * sx, y, 0.13 * sc, 0.12 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + (0.5 - i * 0.02) * sc * sy); // (3/4: the turned face)
+    else if (sd === 'e') B.emissive.add(T.spark, x + flip * 0.44 * sc * sx, y, 0.18 * sc, 0.14 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + 0.52 * sc * sy);
     else for (let i = -1; i <= 1; i += 2) B.emissive.add(T.spark, x + i * 0.055 * sc, y, 0.13 * sc, 0.13 * sc, 1, 0.25, 0.15, pulse, 0, 0, 0, 1, 0, lift + 0.48 * sc * sy);
   }
 }

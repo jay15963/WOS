@@ -42,8 +42,8 @@ const OCC_TOL = 2 * SS; // (px: hair lying on the head is never hidden by it)
 
 // ---------------- recording painter: the raw layers of a part (no outline yet) ----------------
 export class Rec {
-  constructor(W, H, pad, keep = false) {
-    this.W = W; this.H = H; this.pad = pad; this.keep = keep; // (keep: the layer canvases too)
+  constructor(W, H, pad, keep = false, pixels = true) {
+    this.W = W; this.H = H; this.pad = pad; this.keep = keep; this.pixels = pixels; // (keep: the layer canvases too)
     this.cw = (W + pad * 2) * SS; this.ch = (H + pad * 2) * SS;
     this.layers = [];
   }
@@ -52,7 +52,7 @@ export class Rec {
     g.lineJoin = 'round'; g.lineCap = 'round';
     g.setTransform(SS, 0, 0, SS, this.pad * SS, this.pad * SS);
     fn(g);
-    this.layers.push({ px: g.getImageData(0, 0, this.cw, this.ch).data, c: this.keep ? c : null, ow, col, opacity });
+    this.layers.push({ px: this.pixels ? g.getImageData(0, 0, this.cw, this.ch).data : null, c: this.keep ? c : null, ow, col, opacity });
   }
 }
 function record(def, pad) {
@@ -183,8 +183,6 @@ function sample(px, W, H, y, x, fw) {
 const smoothstep = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 // ---------------- the 3/4 projection of one layer ----------------
-// pxF: the front (or back) drawing, pxS: the side drawing (either may be null), X / Z: stand-in extents per row
-// (front width / side depth). Returns an ImageData-sized RGBA buffer (premultiplied → straight).
 // the ellipse of a row (NaN-safe), as [cx, rx, cz, rz] or null
 function rowEll(X, Z, y) {
   let lo = X[y * 2], hi = X[y * 2 + 1], zl = Z[y * 2], zh = Z[y * 2 + 1];
@@ -194,16 +192,22 @@ function rowEll(X, Z, y) {
   if (!hasZ) { const r = (hi - lo) / 2; zl = -r; zh = r; }
   return [(lo + hi) / 2, Math.max(1, (hi - lo) / 2), (zl + zh) / 2, Math.max(1, (zh - zl) / 2)];
 }
-// depth toward the camera of the visible point of a row ellipse at screen x xq (−Infinity: the ray misses it)
+// depth toward the camera of the visible point of a row ellipse e = [cx, rx, cz, rz, C, M, t0] at screen x xq
+// (−Infinity: the ray misses it)
 function depthAt(e, xq, cg, sg) {
-  const [cx, rx, cz, rz] = e, C = cx * cg + cz * sg, M = Math.hypot(rx * cg, rz * sg), t0 = Math.atan2(rz * sg, rx * cg);
-  const u = (xq - C) / M;
+  const u = (xq - e[4]) / e[5];
   if (u <= -1 || u >= 1) return -Infinity;
-  const a = Math.acos(u);
-  let best = -Infinity;
-  for (const t of [t0 + a, t0 - a]) best = Math.max(best, -(cx + rx * Math.cos(t)) * sg + (cz + rz * Math.sin(t)) * cg);
-  return best;
+  const a = Math.acos(u), t1 = e[6] + a, t2 = e[6] - a;
+  return Math.max(-(e[0] + e[1] * Math.cos(t1)) * sg + (e[2] + e[3] * Math.sin(t1)) * cg, -(e[0] + e[1] * Math.cos(t2)) * sg + (e[2] + e[3] * Math.sin(t2)) * cg);
 }
+// rows of a drawing that have something
+function rowsOf(px, W, H) {
+  const R = new Uint8Array(H);
+  if (px) for (let y = 0; y < H; y++) for (let x = 0, o = y * W * 4 + 3; x < W; x++, o += 4) if (px[o]) { R[y] = 1; break; }
+  return R;
+}
+// The 3/4 projection of one layer. pxF: the front (or back) drawing, pxS: the side drawing (either may be null),
+// X / Z: stand-in extents per row (front width / side depth). Returns an RGBA buffer the size of the layer canvas.
 // occ: an occluder stand-in ({ X, Z }: the bare head) — what lies behind it on the camera's ray is not drawn (a hair
 // strand on the far side of the face)
 export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
@@ -212,7 +216,9 @@ export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
   const back = view === 'ne', g = GAMMA[view], cg = Math.cos(g), sg = Math.sin(g);
   const bX = -sg, bZ = cg; // toward the camera, in the creature's (X: its left, Z: its front) frame
   const seam = back ? 135 * DEG : 45 * DEG;
+  const rF = rowsOf(pxF, W, H), rS = rowsOf(frontOnly ? null : pxS, W, H);
   for (let y = 0; y < H; y++) {
+    if (!rF[y] && !rS[y]) continue; // (nothing to lay on this row)
     let lo = X[y * 2], hi = X[y * 2 + 1], zl = Z[y * 2], zh = Z[y * 2 + 1];
     const hasX = !Number.isNaN(lo), hasZ = !Number.isNaN(zl);
     if (!hasX && !hasZ) continue;
@@ -220,6 +226,7 @@ export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
     if (!hasZ) { const r = (hi - lo) / 2; zl = -r; zh = r; }
     const cx = (lo + hi) / 2, rx = Math.max(1, (hi - lo) / 2), cz = (zl + zh) / 2, rz = Math.max(1, (zh - zl) / 2);
     const oe = occ ? rowEll(occ.X, occ.Z, y) : null;
+    if (oe) oe.push(oe[0] * cg + oe[2] * sg, Math.hypot(oe[1] * cg, oe[3] * sg), Math.atan2(oe[3] * sg, oe[1] * cg));
     const thin = rx < 0.4 * rz; // (a crest seen from 45°: its profile)
     // x'(t) = C + M cos(t − t0) over the ellipse (cx + rx cos t, cz + rz sin t)
     const C = cx * cg + cz * sg, M = Math.hypot(rx * cg, rz * sg), t0 = Math.atan2(rz * sg, rx * cg);
@@ -415,6 +422,7 @@ function near(lab, drop, i, W, H) {
 // · foot: own outlines (a boot turned 45°)
 export function kindOf(name) {
   if (/^lk_over_(poncho|shawl)_/.test(name)) return 'cape';
+  if (/^lk_over_apron_/.test(name)) return 'panel'; // (a flat front panel: the side drawing shows its edge)
   if (/^lk_(skin|top|trim|neck|pat|over|bot|shoe)_|^wear_(tunic|armor|coat)|^wk_(armor|ice)_/.test(name)) return 'body';
   if (/^lk_head_/.test(name)) return 'head';
   if (/^lk_ears_/.test(name)) return 'ears';
@@ -423,7 +431,7 @@ export function kindOf(name) {
   if (/^lk_foot_/.test(name)) return 'foot';
   return 'decal';
 }
-const BOX = { body: 'body', cape: 'body', head: 'head', hair: 'head', decal: 'head', ears: 'head', back: null, foot: null };
+const BOX = { body: 'body', cape: 'body', panel: 'body', head: 'head', hair: 'head', decal: 'head', ears: 'head', back: null, foot: null };
 
 const defOf = (name) => lookDefs().get(name) || PAINT_DEFS.get(name) || null;
 const sideName = (name) => name.replace(/_[sn]$/, '_e');
@@ -433,7 +441,7 @@ export function threeQuarter(dF, dS, kind, view) {
   const pd = view === 'ne' ? 'n' : 's', box = BOX[kind];
   const pad = Math.max(PADQ, dF?.pad ?? 0);
   const F = kind === 'ears' ? null : record(dF, pad);
-  const S = kind === 'decal' || kind === 'back' ? null : record(dS, pad);
+  const S = kind === 'decal' || kind === 'back' || kind === 'panel' ? null : record(dS, pad);
   const R = F || S;
   if (!R) return null;
   const C = box ? canon(box, pd) : null;
@@ -463,7 +471,7 @@ export function threeQuarter(dF, dS, kind, view) {
   const layers = [];
   for (let i = 0; i < n; i++) {
     const lf = F?.layers[i], ls = S?.layers[i], L = lf || ls;
-    let px = projectLayer(R, lf?.px || null, ls?.px || null, X, Z, view, kind === 'decal' || kind === 'back', own ? occluder(pd) : null);
+    let px = projectLayer(R, lf?.px || null, ls?.px || null, X, Z, view, kind === 'decal' || kind === 'back' || kind === 'panel', own ? occluder(pd) : null);
     if (armsS && armsS[i]) projectArm(R, armsS[i], M.nearX, M.sideC, view, true, ARM_K, 1, px);
     layers.push({ px, ow: L.ow, col: L.col, opacity: L.opacity });
   }
@@ -521,14 +529,17 @@ export function diagRig(A, LK, view) {
   C[view] = D;
   return D;
 }
-// are all parts of a 3/4 rig painted and placed? urgent: paint the missing ones now (the local player)
+// are all parts of a 3/4 rig painted and placed? urgent: paint the missing ones now (the local player; at most
+// URGENT_MS per frame — a whole new rig is ~15 parts of a few ms: the rest the next frames, the nearest side meanwhile)
+const URGENT_MS = 12;
 export function diagReady(D, A, urgent = false) {
   const LA = lookAtlasOf(A);
   if (D.ready && D.epoch === LA.epoch) return true;
   let ok = true;
+  const t0 = urgent ? performance.now() : 0;
   for (const r of D.need) {
     if (r.ready || r.failed) continue;
-    if (urgent) LA.paintNow(r); else LA.want(r);
+    if (urgent && performance.now() - t0 < URGENT_MS) LA.paintNow(r); else LA.want(r);
     if (!r.ready && !r.failed) ok = false;
   }
   D.ready = ok; D.epoch = LA.epoch;

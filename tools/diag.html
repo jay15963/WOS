@@ -134,7 +134,7 @@ const R = (i) => randomLook(i);
 if (set === 'people' || set === 'all') {
   section('Pessoas', [
     ['padrão', pawn(L0)],
-    ...[1, 2, 3, 4, 5, 6, 7, 8].map((i) => ['aleatório ' + i, pawn(R(i))]),
+    ...Array.from({ length: +(Q.get('n') || 8) }, (_, k) => k + 1 + +(Q.get('seed') || 0)).map((i) => ['aleatório ' + i, pawn(R(i))]),
   ]);
 }
 if (set === 'gear' || set === 'all') {
@@ -168,7 +168,7 @@ if (set === 'states' || set === 'all') {
 if (set === 'animals' || set === 'all') {
   const sp = ['wolf', 'fox', 'deer', 'boar', 'bear', 'rabbit', 'spider'];
   section('Bichos', [
-    ...sp.map((s) => [s, beast(s)]),
+    ...sp.map((s) => [s, beast(s, s === 'deer' ? { variant: 0 } : {})]),
     ['corça', beast('deer', { variant: 1 })],
     ...sp.map((s) => [s + ' anda', beast(s, { moving: true, moveT: 0.07, _gph: 1.2 })]),
   ], { w: 1.9, h: 1.7 });

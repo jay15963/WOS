@@ -17,7 +17,8 @@
 //            far(P), body(P), near(P), top?(P), tail?(P)  raw layers via P.layer (top: on the near flank; tail: not swept)
 //            head?: { side(P, dx), front(P, x, y, s), back(P, x, y, s), spread?: [layer i] }  side head (shifted by
 //                   dx) / face-on heads; spread: thin branching layers (antlers) leaned instead of laid on the head
-//            headOver?, k?, m? }  (headOver: going away the head stays over the body — a long neck)     depth shear (default 0.22), margin above and below (default 14)
+//            headOver?, k?, m?,   (headOver: going away the head stays over the body — a long neck)
+//            key? }               (frames of one look that share body, tail and head: painted once for all of them)     depth shear (default 0.22), margin above and below (default 14)
 
 import { SS, canvas, spritePxFast } from './paint.js';
 import { Rec, extents, smoothE, projectLayer, stretch, GAMMA } from './look/turn.js';
@@ -79,19 +80,24 @@ function headQ(spec, view) {
     c.getContext('2d').putImageData(new ImageData(px, F.cw, F.ch), 0, 0);
     layers.push({ c, ow: L.ow, col: L.col, opacity: L.opacity });
   }
-  if (globalThis.B34_DEBUG) globalThis.B34_DEBUG.push({ F, S, layers, s, hx, sb, fb });
   return { layers, hx };
 }
 
+// the parts that are the same in every frame of a species (body, tail, head) are kept, laid out, for the next frames
+// painted with it (a few species, then dropped: the frames are asked for together)
+const STATIC = new Map();
 export function beast34(spec, view) {
   const g0 = GAMMA[view], cg = Math.cos(g0), sg = Math.sin(g0), k = spec.k ?? K_DEPTH, m = spec.m ?? 14;
   const { W, H, cx } = spec, Ho = H + m * 2;
   const rec = (fn) => { if (!fn) return null; const R = new Rec(W, H, PAD, true); fn(R); return R; };
-  const far = rec(spec.far), near = rec(spec.near), body = rec(spec.body), top = rec(spec.top), tail = rec(spec.tail);
+  const skey = spec.key ? spec.key + ':' + view : null;
+  let cached = skey ? STATIC.get(skey) : null;
+  const far = rec(spec.far), near = rec(spec.near);
+  const body = cached ? null : rec(spec.body), top = cached ? null : rec(spec.top), tail = cached ? null : rec(spec.tail);
   // the head: turned from its face-on and side drawings coming toward the camera; going away (the face hidden) the
   // side drawing, swept across the head's width like the body (the back of the head, the near ear and cheek)
-  const head = spec.head && cg >= 0 ? headQ(spec, view) : null;
-  const headS = spec.head && cg < 0 ? rec((P) => spec.head.side(P, 0)) : null;
+  const head = !cached && spec.head && cg >= 0 ? headQ(spec, view) : null;
+  const headS = !cached && spec.head && cg < 0 ? rec((P) => spec.head.side(P, 0)) : null;
   // side design (x, y) → 3/4 box, for a part at sideways offset X (+ = its left: the far flank)
   const T = (X) => [sg, cg * k, 0, 1, W / 2 + X * cg - cx * sg, m - X * sg * k - cx * cg * k];
   const draw = (lg, c, M, dx = 0, dy = 0) => { lg.save(); lg.transform(M[0], M[1], M[2], M[3], M[4], M[5]); lg.drawImage(c, -PAD + dx, -PAD + dy, c.width / SS, c.height / SS); lg.restore(); };
@@ -134,6 +140,17 @@ export function beast34(spec, view) {
       for (const L of head.layers) P.layer((lg) => draw(lg, L.c, M), L.ow, L.col, L.opacity);
     },
   };
+  if (skey && !cached) {
+    // laid out once (raw layers in the 3/4 box), replayed by the other frames
+    const lay = (fn) => { const R = new Rec(W, Ho, PAD, true, false); fn(R); return R.layers; };
+    cached = { body: lay(parts.body), head: lay(parts.head) };
+    STATIC.set(skey, cached);
+    if (STATIC.size > 3) STATIC.delete(STATIC.keys().next().value);
+  }
+  if (cached) {
+    const replay = (list) => (P) => { for (const L of list) P.layer((lg) => { lg.setTransform(1, 0, 0, 1, 0, 0); lg.drawImage(L.c, 0, 0); }, L.ow, L.col, L.opacity); };
+    parts.body = replay(cached.body); parts.head = replay(cached.head);
+  }
   // back to front: coming toward the camera the head is in front, going away it is behind the body (a head up on a
   // long neck stays over it: headOver)
   const order = cg >= 0 ? ['far', 'body', 'near', 'head'] : spec.headOver ? ['far', 'body', 'head', 'near'] : ['head', 'far', 'body', 'near'];
