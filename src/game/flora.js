@@ -131,6 +131,8 @@ function spawnAt(game, kind, tx, ty) {
   if (kind.startsWith('tree_')) look.v = treeSpecies(w, kind, tx, ty, R()) * 16 + (look.v & 15);
   else if (kind === 'bush') look.v = bushSpecies(w, tx, ty, R()) * 1000 + (look.v % 1000);
   else if (kind === 'boulder' && boulderMossy(w, tx, ty)) look.v = 8000 + (look.v % 1000);
+  const fl = w.source?.floraLook; // (the planet: the species of the tile's biome, world/planetSource.js)
+  if (fl) { const pv = fl(w, kind, tx, ty, R(), look.v); if (pv !== undefined) look.v = pv; }
   return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, look);
 }
 
@@ -189,6 +191,8 @@ function spawnNear(game, kind, x, y, rMin, rMax, count, offscreen) {
     if (game.world.growWeight && game.world.growWeight(tx, ty, growKey(kind)) <= 0) continue;
     const g = game.world.ground.get(game.world.idx(tx, ty));
     if (kind !== 'pebble' && kind !== 'boulder' && (g === G.STONE || g === G.SAND)) continue;
+    const pg = game.world.pground ? game.world.pground.get(game.world.idx(tx, ty)) : 0; // (the planet: nothing on snow, ice, salt; only stones on ash)
+    if (pg === 8 || pg === 9 || pg === 11 || (pg === 10 && kind !== 'pebble' && kind !== 'boulder')) continue;
     spawnAt(game, kind, tx, ty);
     made++;
   }

@@ -260,9 +260,12 @@ function boughPts(x, top, wl, wr, H, droop, fingers, rand, ex = 1.8) {
 function polyPath(g, pts) { g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); }
 
 function pine(v) {
-  const rand = rng(2000 + v * 131);
-  const S = PINE_SHAPES[v % PINE_SHAPES.length];
-  const pal = PINE_PALS[v % PINE_PALS.length];
+  return conifer(rng(2000 + v * 131), PINE_SHAPES[v % PINE_SHAPES.length], PINE_PALS[v % PINE_PALS.length]);
+}
+// the layered conifer painter (shape S as PINE_SHAPES; the planet's spruce / redwood use it too, art/planetFlora.js):
+// o.bark, o.tw (trunk width at the foot), o.trunk(g, cx, baseY, lowest) paints a custom trunk instead
+export function conifer(rand, S, pal, o = {}) {
+  const PB = o.bark || PINE_BARK;
   const stops = [pal.deep, pal.dark, pal.mid, pal.light, pal.high];
   const deep = hex(pal.deep);
   return sprite(S.W, S.H, (g, P) => {
@@ -282,18 +285,19 @@ function pine(v) {
       }
     }, 0);
     // ---- trunk ----
-    const tw = S.trunk > 30 ? 15 : 13;
+    const tw = o.tw || (S.trunk > 30 ? 15 : 13);
     P.layer((g) => {
-      drawTrunk(g, cx, baseY, S.top + 20, tw, 5, lean * 0.4, rand, PINE_BARK, lowest + 4);
+      if (o.trunk) { o.trunk(g, cx, baseY, lowest, rand); return; }
+      drawTrunk(g, cx, baseY, S.top + 20, tw, 5, lean * 0.4, rand, PB, lowest + 4);
       g.save(); g.beginPath(); trunkPath(g, cx, baseY, S.top + 20, tw, 5, lean * 0.4, rand); g.clip();
       for (let i = 0; i < 10; i++) { // scaly reddish bark plates
         const y = lowest + 4 + rand() * (baseY - lowest - 6), x = cx - 5 + rand() * 8;
-        g.fillStyle = rgb(hex(rand() < 0.5 ? PINE_BARK.high : PINE_BARK.light), 0.5);
+        g.fillStyle = rgb(hex(rand() < 0.5 ? PB.high : PB.light), 0.5);
         g.beginPath(); g.ellipse(x, y, 1.5 + rand() * 1.5, 2.4 + rand() * 2, (rand() - 0.5) * 0.4, 0, TAU); g.fill();
       }
       g.restore();
       if (S.trunk > 30) { // dead stub branches on old trees
-        g.fillStyle = PINE_BARK.mid;
+        g.fillStyle = PB.mid;
         g.beginPath(); taper(g, cx + 2, lowest + 14, cx + 9, lowest + 9, cx + 15, lowest + 10, 3.4, 1.3); g.fill();
         g.beginPath(); taper(g, cx - 2, lowest + 4, cx - 8, lowest, cx - 13, lowest - 1, 3, 1.2); g.fill();
       }
@@ -949,4 +953,4 @@ export function addTrees(add) {
   put('tree_sapling_0', sapling(0), 5);
 }
 
-export { OAK_PALS, BARK };
+export { OAK_PALS, BARK, drawTrunk, trunkPath, bareCrown, footLitter };

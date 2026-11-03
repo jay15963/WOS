@@ -9,7 +9,7 @@
 //     the snow in the sun (falling autumn leaves: ambient.js)
 // Nothing here touches game state.
 
-import { SEASON, seasonHash } from '../art/season.js';
+import { SEASON, SEASON_LOCAL, seasonHash } from '../art/season.js';
 import { seasonOf, START } from '../game/seasons.js';
 
 const rnd = Math.random;
@@ -20,6 +20,8 @@ export function installSeasonFx(game) {
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.seasonFx = sys;
+  // the winter of the zone at any point (art: the planet's tropical flora, composeWorld.js noWinter)
+  SEASON_LOCAL.winterAt = (x, y) => { const w = game.world, L = game.seasons; return L && w?.zoneAt ? L[w.zoneAt(Math.floor(x), Math.floor(y))]?.winter || 0 : SEASON.winter; };
   return sys;
 }
 

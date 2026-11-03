@@ -76,14 +76,16 @@ export class World {
     // chunk-backed (a chunk keeps its 64 × 64 corners, the 65th row / column is the next chunk's first): hBase the
     // source's terrain, hT with the players' edits, hC the surface (+ building bases) — read through this.height
     // (heightPaged.js). wlevel: water surface per tile (stories; the planet's lakes on plateaus), pground: the planet's own
-    // ground id (volcanic ash / snow: the terrain shader's climate channel).
+    // ground id (8 snow … 13 dry: their own texture layers), prock / pbiome: the planet's own rock type (5 basalt, 6
+    // sandstone: rock faces) and biome id (255 = none: the closed canopy's shade, the wild fauna's spawn tables,
+    // docs/FAUNA.md; camps).
     L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
+    L('prock', Uint8Array, 0); L('pbiome', Uint8Array, 255);
     // season zone per tile (docs/PLANET.md §5, game/seasons.js): bits 0-2 the zone (0 tropical · 1 warm · 2 temperate ·
     // 3 subpolar · 4 polar — the planet's climate at that tile, altitude included), bit 3 (ABYSS) the abyssal ocean (water
-    // class 3: no boat goes there). A bounded / synthetic world: temperate everywhere. pbiome: the planet's own biome id
-    // (planet/biomes.js BIOME, 255 = none) — per-biome spawns (the wild fauna's tables, docs/FAUNA.md; camps)
-    L('zone', Uint8Array, 2); L('pbiome', Uint8Array, 255);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.zone, this.pbiome];
+    // class 3: no boat goes there). A bounded / synthetic world: temperate everywhere.
+    L('zone', Uint8Array, 2);
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome, this.zone];
     // frozen water by season zone (game/seasons.js writes it every frame from the shared clock, the same on every peer):
     // iceZ[zone] = 1 while the water of that zone is ice (walkable, no swimming / boats / fishing)
     this.iceZ = new Uint8Array(5);
@@ -158,6 +160,7 @@ export class World {
     this.hBase.attach(c, hb); this.hT.attach(c, hb.slice()); this.hC.attach(c, hb.slice());
     this.wlevel.attach(c, d.wlevel instanceof Float32Array && d.wlevel.length === CT ? d.wlevel : new Float32Array(CT));
     this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
+    this.prock.attach(c, d.prock instanceof Uint8Array && d.prock.length === CT ? d.prock : new Uint8Array(CT));
     this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
     r.ready = true; r.decor = !!d.decor;
     this.loaded++; this.live.add(c);
@@ -341,6 +344,7 @@ export class World {
     this.rock.set(i, 0);
     this.ore.set(i, 0);
     this.ground.set(i, G.STONE);
+    if (this.pground.get(i)) this.pground.set(i, G.STONE); // (the planet's look follows: a mined floor)
     this.markDirty(i);
     // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
     if (this.height.any) {

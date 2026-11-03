@@ -270,6 +270,42 @@ export function sampleSegment(p, sg) {
 const POND_MAX = 96;
 const RK_RIVER = 1, RK_WASH = 2, RK_FJORD = 3, RK_CREEK = 4, RK_DELTA = 5;
 
+// ground-cover decor kind for a tile of biome b on ground g (r: a roll 0..1, T: °C, st: steepness), null = none
+function decorKind(b, g, r, T, st) {
+  const B = BIOME;
+  if (g === PG.SNOW || g === PG.ICE) return b === B.TUNDRA || b === B.ALPINE || b === B.TAIGA ? (r < 0.35 ? 'snowtuft' : r < 0.5 ? 'lichen' : null) : null;
+  if (g === PG.SALT || g === PG.STONE) return null;
+  if (g === PG.ASH) return r < 0.7 ? 'ash' : r < 0.85 ? 'drygrass' : null;
+  if (b === B.SNOW_PEAKS || b === B.ICE_SHEET) return g === PG.GRAVEL ? (r < 0.4 ? 'scree' : r < 0.55 ? 'lichen' : null) : null;
+  if (g === PG.GRAVEL && st > 0.5) return r < 0.25 ? 'scree' : r < 0.5 ? 'drygrass' : null;
+  switch (b) {
+    case B.POLAR_DESERT: return r < 0.5 ? 'lichen' : r < 0.7 ? 'snowtuft' : 'drygrass';
+    case B.TUNDRA: return r < 0.18 ? 'cottongrass' : r < 0.4 ? 'lichen' : r < 0.52 ? 'heather' : r < 0.56 ? 'bloom' : 'grass';
+    case B.TAIGA: return r < 0.2 ? 'needles' : r < 0.32 ? 'moss' : r < 0.4 ? 'fern' : r < 0.43 ? 'mushroom' : 'grass';
+    case B.TEMPERATE_FOREST: return r < 0.12 ? 'fern' : r < 0.16 ? 'mushroom' : r < 0.24 ? 'litter' : r < 0.28 ? 'bloom' : 'grass';
+    case B.TEMPERATE_RAINFOREST: return r < 0.36 ? 'fern' : r < 0.5 ? 'moss' : r < 0.54 ? 'mushroom' : 'grass';
+    case B.STEPPE: return r < 0.3 ? 'drygrass' : r < 0.62 ? 'tallgrass' : r < 0.67 ? 'thistle' : r < 0.7 ? 'flower' : 'grass';
+    case B.MEDITERRANEAN: return r < 0.38 ? 'drygrass' : r < 0.52 ? 'heather' : r < 0.6 ? 'thistle' : r < 0.65 ? 'bloom' : 'grass';
+    case B.COLD_DESERT: case B.DESERT_ROCKY: case B.BADLANDS: return r < 0.75 ? 'drygrass' : 'grass';
+    case B.DESERT_DUNES: return 'drygrass';
+    case B.SAVANNA: return r < 0.55 ? 'savgrass' : r < 0.8 ? 'drygrass' : r < 0.9 ? 'tallgrass' : 'grass';
+    case B.TROPICAL_DRY: return r < 0.22 ? 'savgrass' : r < 0.4 ? 'drygrass' : r < 0.5 ? 'jungleplant' : r < 0.55 ? 'fern' : 'grass';
+    case B.RAINFOREST: return r < 0.34 ? 'jungleplant' : r < 0.6 ? 'fern' : r < 0.63 ? 'mushroom' : r < 0.86 ? 'litter' : r < 0.93 ? 'moss' : 'grass';
+    case B.CLOUD_FOREST: return r < 0.42 ? 'fern' : r < 0.62 ? 'moss' : r < 0.72 ? 'jungleplant' : r < 0.75 ? 'mushroom' : 'grass';
+    case B.MANGROVE: return r < 0.4 ? 'pneumato' : r < 0.6 ? 'reed' : 'grass';
+    case B.SWAMP: return r < 0.38 ? 'reed' : r < 0.6 ? 'tallgrass' : r < 0.72 ? 'jungleplant' : 'grass';
+    case B.MARSH: return r < 0.4 ? 'reed' : r < 0.7 ? 'tallgrass' : r < 0.76 ? (T < 6 ? 'cottongrass' : 'flower') : 'grass';
+    case B.ALPINE: return r < 0.2 ? 'heather' : r < 0.36 ? 'bloom' : r < 0.42 ? 'lichen' : 'grass';
+    case B.VOLCANIC: return r < 0.6 ? 'ash' : r < 0.85 ? 'drygrass' : 'grass';
+    case B.BEACH: return r < 0.6 ? 'drygrass' : 'grass';
+    case B.ROCKY_SHORE: return r < 0.3 ? 'drygrass' : r < 0.4 ? 'heather' : 'grass';
+    case B.CLIFF: return r < 0.2 ? 'heather' : r < 0.3 ? 'bloom' : 'grass';
+    case B.HEATH: return r < 0.45 ? 'heather' : r < 0.53 ? 'bloom' : 'grass';
+    case B.FLOODPLAIN: return r < 0.08 ? 'flower' : r < 0.45 ? 'tallgrass' : 'grass';
+  }
+  return T > 22 && g === PG.DRY ? 'drygrass' : 'grass';
+}
+
 export function generateChunk(p, cx, cy, opts = {}) {
   const tStart = typeof performance !== 'undefined' ? performance.now() : 0;
   cx = ((cx % CW) + CW) % CW;
@@ -629,9 +665,9 @@ export function generateChunk(p, cx, cy, opts = {}) {
       case BIOME.TROPICAL_DRY: g = gn > 0.3 ? PG.CLAY : PG.SOIL; break;
       case BIOME.DESERT_ROCKY: g = gn > 0.2 ? PG.GRAVEL : gn < -0.4 ? PG.SAND : PG.DRY; break;
       case BIOME.COLD_DESERT: g = gn > 0.15 ? PG.GRAVEL : PG.DRY; break;
-      case BIOME.BADLANDS: g = gn > 0.3 ? PG.SAND : PG.CLAY; break;
+      case BIOME.BADLANDS: g = gn > 0.32 ? PG.DRY : gn < -0.45 ? PG.SAND : PG.CLAY; break;
       case BIOME.ALPINE: g = gn > 0.25 ? PG.GRAVEL : PG.SOIL; break;
-      case BIOME.MARSH: case BIOME.SWAMP: g = gn > 0.05 ? PG.MARSH : PG.MUD; break;
+      case BIOME.MARSH: case BIOME.SWAMP: g = gn > -0.2 ? PG.MARSH : PG.MUD; break;
       case BIOME.MEDITERRANEAN: g = gn > 0 ? PG.DRY : PG.SOIL; break;
       case BIOME.HEATH: g = gn > 0.1 ? PG.MOSS : PG.SOIL; break;
       case BIOME.ROCKY_SHORE: g = gn > 0 ? PG.STONE : PG.GRAVEL; break;
@@ -641,29 +677,63 @@ export function generateChunk(p, cx, cy, opts = {}) {
     if (rK[i] === RK_WASH && rD[i] < rHW[i] + 0.5) g = gh < 0.5 ? PG.GRAVEL : PG.SAND;
     if (rCan[i] > 0.25 && rK[i] && rD[i] - rHW[i] < 3.5 + 0.5 * rHW[i] + 3 * rCan[i] && rD[i] > rHW[i]) g = gh < 0.6 ? PG.GRAVEL : PG.SAND;
     else if (rK[i] && rD[i] - rHW[i] < 1.2 && b !== BIOME.SNOW_PEAKS) g = rFlat[i] > 0.4 ? PG.SAND : PG.GRAVEL;
-    if (steep[i] > 1.1) g = PG.STONE; else if (steep[i] > 0.7 && g !== PG.SNOW) g = PG.GRAVEL;
-    // snow: altitude (T), aspect (slopes facing the pole keep it), slope (steep faces shed it), noisy edge
+    // slopes are ground, not rock: scree on steep ground, stony patches up high (crests, above the trees),
+    // bare stone only on the steepest faces; sand / snow / salt keep their own ground
+    const st = steep[i], soft = g === PG.SAND || g === PG.SNOW || g === PG.SALT || g === PG.ICE;
+    const hiK = clamp((hS[i] - 3.5) / 5, 0, 1) * clamp(mtn[i] * 3, 0, 1) * clamp((7 - T) / 7 + (ridge[i] - 0.7) * 2, 0, 1); // (above the trees, crests)
+    if (st > 1.1 && g !== PG.SNOW) g = gn > 0.15 ? PG.STONE : PG.GRAVEL;
+    else if (!soft && st > 0.62 + 0.22 * gn) g = PG.GRAVEL;
+    else if (!soft && hiK > 0 && 1.1 * gn + 0.9 * hiK * (ridge[i] - 0.55) + 0.25 * (gh - 0.5) > 0.22) g = PG.GRAVEL;
+    // permanent snow (glaciers, firn above the snow line; the seasons add the winter snow on top): only where the
+    // mean year is well below freezing — altitude (T), aspect (slopes facing the pole keep it), slope (steep faces
+    // shed it), noisy edge
     {
       const hs = y < H / 2 ? 1 : -1, dhdy = (hS[i + WW] - hS[i - WW]) * 0.5;
       const Ts = T - 2.4 * clamp(dhdy * hs * 1.5, -1, 1) + 6 * fbm(x, y, sd + 91, 64, 3) + 2.5 * fbm(x, y, sd + 92, 16, 2);
-      let sp = clamp((-3.5 - Ts) / 3, 0, 1);
+      let sp = clamp((-8.5 - Ts) / 3, 0, 1);
       if (steep[i] > 0.8) sp *= 0.15;
       if (sp > 0 && hash01(X0 + wx, Y0 + wy, sd + 93) < sp && b !== BIOME.BEACH) g = PG.SNOW;
     }
+    // high snow is rugged: the wind scours the crests and convex slopes down to frost-shattered scree, bare rock
+    // breaks through in outcrops (below), the snow stays in the hollows
+    let scour = -1, curv = 0;
+    if (g === PG.SNOW && (b === BIOME.SNOW_PEAKS || hS[i] > 7)) {
+      curv = (hS[i] * 4 - hS[i - 1] - hS[i + 1] - hS[i - WW] - hS[i + WW]); // (> 0: a crest / knob)
+      scour = fbm(x, y, sd + 98, 40, 3) + 0.35 * fbm(x, y, sd + 99, 10, 2) + 1.2 * (ridge[i] - 0.62) * clamp(mtn[i] * 2, 0, 1) + 0.9 * st + 1.6 * clamp(curv, -0.3, 0.3);
+      if (scour > 0.42) g = PG.GRAVEL;
+    }
     groundW[i] = g;
-    // rock: cliff faces, mountain cores along the ridges, sea stacks
+    // rock (mineable massif): cliff faces, tors / knolls in blobs along the crests, outcrops on steep ground, sea
+    // stacks — the mountain slopes themselves stay walkable ground (gravel, meadow, snow)
     let r = 0;
-    if (steep[i] > 1.25) r = 1;
-    if (mtn[i] > 0.35 && ridge[i] > 0.81 - 0.05 * mtn[i] && hS[i] > 5) r = 1;
+    if (st > 1.25) r = 1;
+    else if (mtn[i] > 0.22 && hS[i] > 3) {
+      const crest = ridge[i] - (0.87 - 0.05 * mtn[i]);
+      if (crest > 0 || st > 0.72) {
+        // tors in blobs along the crest (a knob or a slope under them: a broad flat top stays ground)
+        const ob = fbm(x, y, sd + 96, 48, 3) + 0.45 * fbm(x, y, sd + 97, 12, 2);
+        const cv = hS[i] * 4 - hS[i - 1] - hS[i + 1] - hS[i - WW] - hS[i + WW];
+        if (crest > 0 && ob > 0.24 - crest * 0.9 - 0.04 * hiK && fbm(x, y, sd + 95, 10, 2) > 0.04 && (cv > 0.02 || st > 0.25)) r = 1;
+        else if (st > 0.72 && ob > 0.24) r = 1;
+      }
+    }
+    // (outcrops through the snow: broken tors on knobs and slopes — a broad flat summit stays scree and snow)
+    if (scour > 0.72 && (st > 0.28 || curv > 0.06) && fbm(x, y, sd + 97, 12, 2) > 0.16) r = 1;
     if (stack[i] && hS[i] > 0.6) r = 1;
     if (b === BIOME.BEACH || rK[i] && rD[i] < rHW[i] + 1) r = 0;
     rockW[i] = r;
-    if (r) {
+    // regional rock under every land tile (the colour of faces, knolls and scree): basalt on the volcanoes and their
+    // coasts, strata of sandstone / limestone / slate in canyons and mesas, granite / slate / limestone / marble elsewhere
+    if (wx >= M && wy >= M && wx < M + S && wy < M + S) {
       const rt = fbm(x, y, sd + 60, 1024, 3);
-      const strata = [6, 2, 6, 3, 2][((Math.floor(hS[i] / 0.9) % 5) + 5) % 5];
-      rockTW[i] = coneM[i] > 150 ? 5 : rCan[i] > 0.25 || b === BIOME.BADLANDS || b === BIOME.DESERT_ROCKY ? strata : rt < -0.1 ? 3 : rt < 0.05 ? 1 : rt < 0.15 ? 2 : 4;
-      if (g !== PG.SNOW) groundW[i] = PG.STONE;
+      // (canyons and mesas are one sandstone region, the shader draws its strata along the height; a limestone
+      // region here and there)
+      const mesa = b === BIOME.BADLANDS || mb === BIOME.BADLANDS;
+      const strata = rt > 0.22 && !mesa ? 2 : 6;
+      const arid = mesa || b === BIOME.DESERT_ROCKY || mb === BIOME.DESERT_ROCKY || mb === BIOME.DESERT_DUNES;
+      rockTW[i] = coneM[i] > 150 || b === BIOME.VOLCANIC ? 5 : rCan[i] > 0.25 || arid ? strata : P < 450 && T > 10 && rt > -0.25 ? 6 : rt < -0.1 ? 3 : rt < 0.05 ? 1 : rt < 0.15 ? 2 : 4;
     }
+    if (r && g !== PG.SNOW) groundW[i] = PG.STONE;
   }
   // ---------- 9. chunk layers ----------
   const NT = S * S;
@@ -675,6 +745,15 @@ export function generateChunk(p, cx, cy, opts = {}) {
   const dRockIn = new Float32Array(NW), dRiv = new Float32Array(NW);
   for (let i = 0; i < NW; i++) dRockIn[i] = rockW[i] ? 99 : 0;
   chamfer(dRockIn, WW, WW, 9);
+  // rocky knolls: rock stands up out of the slope with its depth (tors and outcrops read as rock, not as paint on
+  // the ground; mining cuts a tile down to its lowest corner). Corners are re-averaged; the depth field is exact well
+  // inside the margin, so neighbouring chunks agree.
+  for (let y = 0; y <= S; y++) for (let x = 0; x <= S; x++) {
+    const wx = x + M, wy = y + M;
+    const a = (wy - 1) * WW + wx - 1, b = a + 1, c = a + WW, d = c + 1;
+    const bump = ((rockW[a] ? Math.min(dRockIn[a], 4) : 0) + (rockW[b] ? Math.min(dRockIn[b], 4) : 0) + (rockW[c] ? Math.min(dRockIn[c], 4) : 0) + (rockW[d] ? Math.min(dRockIn[d], 4) : 0)) * 0.25 * 0.58;
+    if (bump > 0 && !(water[a] || water[b] || water[c] || water[d])) height[y * CWn + x] = Math.round((height[y * CWn + x] + bump) * 1024) / 1024;
+  }
   for (let wy = 0; wy < WW; wy++) for (let wx = 0; wx < WW; wx++) {
     const i = wy * WW + wx;
     let edge = 0;
@@ -696,8 +775,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
       const v1 = 1 - Math.abs(gnoise(gx / 7, gy / 7, sd + 62, 0));
       const v2 = 1 - Math.abs(gnoise(gx / 5, gy / 5, sd + 63, 0));
       const hh = hash01(gx, gy, sd + 64);
-      if (dep >= 5 && v2 > 0.965 && hh < 0.6) L.ore[t] = hh < 0.3 ? 4 : 5;
-      else if (dep >= 2.5 && v1 > 0.94) L.ore[t] = 2;
+      if (dep >= 2.2 && v2 > 0.96 && hh < 0.6) L.ore[t] = hh < 0.3 ? 4 : 5; // (small tors and knolls: the veins run near their surface)
+      else if (dep >= 1.4 && v1 > 0.935) L.ore[t] = 2;
       else if (dep >= 1 && dep < 7 && v2 > 0.93) L.ore[t] = rt === 2 || rt === 6 ? 3 : 1;
       else if (dep >= 1 && dep < 7 && v1 > 0.955 && (rt === 2 || rt === 6)) L.ore[t] = 3;
     }
@@ -708,11 +787,13 @@ export function generateChunk(p, cx, cy, opts = {}) {
   let k = 0;
   const nid = () => cidx * 16384 + (++k);
   const treeP = (i, x, y) => {
-    if (water[i] || rockW[i] || steep[i] > 0.9 || groundW[i] === PG.SNOW) return 0;
+    const g0 = groundW[i];
+    if (water[i] || rockW[i] || steep[i] > 0.9 || g0 === PG.SNOW || g0 === PG.ICE || g0 === PG.SALT || g0 === PG.STONE) return 0;
     const bm = BIOME_LIST[biomeW[i]];
     if (!bm.td) return 0;
     const grove = fbm(x, y, sd + 70, 128, 3);
-    let pr = bm.td * clamp(0.55 + grove * 1.4, 0.05, 1.6);
+    const open = biomeW[i] === BIOME.SAVANNA || biomeW[i] === BIOME.STEPPE || biomeW[i] === BIOME.MEDITERRANEAN;
+    let pr = open ? bm.td * clamp(0.1 + grove * 4.5 + 0.35 * fbm(x, y, sd + 69, 32, 2), 0, 3.2) : bm.td * clamp(0.55 + grove * 1.4, 0.05, 1.6);
     if (rK[i] && rD[i] - rHW[i] < 1.5) pr *= 0.3;
     if (biomeW[i] === BIOME.MANGROVE) pr = bm.td;
     return pr;
@@ -733,8 +814,12 @@ export function generateChunk(p, cx, cy, opts = {}) {
     // mangroves stand in the shallow water too
     if (water[i]) {
       if (wcls[i] === 1 && coastT[i] === COAST.MANGROVE && dLand2[i] < 7 && Ttile[i] > 15 && tR[i] < 0.22) objects.push({ id: nid(), type: 'tree_mangrove', v: Math.floor(h1 * 16), x: x + 0.5 + jx, y: y + 0.6 + jy, s: 0.85 + h2 * 0.3, f, w: 1 });
-      else if (opts.decor !== false && wcls[i] === 1 && dLand2[i] <= 1.5 && wkind[i] !== 1 && hash01(gx, gy, sd + 75) < 0.35 && Ttile[i] > -2) decor.push({ t: 'reed', v: Math.floor(h1 * 997), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.4, f, w: 1 });
-      else if (opts.decor !== false && wcls[i] === 1 && wkind[i] === 1 && b === BIOME.REEF && h1 < 0.08) decor.push({ t: 'coral', v: Math.floor(h2 * 4), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.4, f, w: 1 });
+      else if (opts.decor === false || wcls[i] !== 1) { /* (deep water: nothing) */ }
+      else if (coastT[i] === COAST.MANGROVE && dLand2[i] < 9 && Ttile[i] > 15 && h3 < 0.45) decor.push({ t: 'pneumato', v: Math.floor(h1 * 2), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.5, f, w: 1 });
+      else if (dLand2[i] <= 1.5 && wkind[i] !== 1 && hash01(gx, gy, sd + 75) < 0.35 && Ttile[i] > -2) decor.push({ t: 'reed', v: Math.floor(h1 * 997), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.4, f, w: 1 });
+      else if ((wkind[i] === 2 || wkind[i] === 4) && Ttile[i] > 8 && dLand2[i] < 5 && hash01(gx, gy, sd + 99) < 0.1) decor.push({ t: 'lily', v: Math.floor(h1 * 4), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.3, f, w: 1 });
+      else if (wkind[i] === 1 && b === BIOME.REEF && h1 < 0.16) decor.push({ t: 'coral', v: Math.floor(h2 * 4), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.5, f, w: 1 });
+      else if (wkind[i] === 1 && dLand2[i] < 3 && (coastT[i] === COAST.ROCKY || coastT[i] === COAST.CLIFF) && Ttile[i] > 0 && h2 < 0.1) decor.push({ t: 'seaweed', v: Math.floor(h1 * 3), x: x + h1, y: y + h2, s: 0.8 + h3 * 0.4, f, w: 1 });
       continue;
     }
     if (rockW[i]) continue;
@@ -743,8 +828,10 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const pr = tP[i];
     if (pr > 0 && tR[i] < pr) {
       let ok = true;
+      // (closed forests — rainforests, mangroves — only keep the trunks a tile apart: the crowns close over them)
+      const dense = b === BIOME.RAINFOREST || b === BIOME.CLOUD_FOREST || b === BIOME.TEMPERATE_RAINFOREST || b === BIOME.MANGROVE;
       if (tR[i] > pr * 0.2) for (let dy = -1; dy <= 1 && ok; dy++) for (let dx = -1; dx <= 1; dx++) {
-        if (!dx && !dy) continue;
+        if ((!dx && !dy) || (dense && dx && dy)) continue;
         const j = i + dy * WW + dx;
         if (tR[j] < tP[j] && tR[j] < tR[i]) { ok = false; break; }
       }
@@ -758,49 +845,61 @@ export function generateChunk(p, cx, cy, opts = {}) {
       }
     }
     // bushes / plants
-    const bd = bm.bd || 0;
+    const g = groundW[i];
+    const bare = g === PG.SNOW || g === PG.ICE || g === PG.SALT || g === PG.STONE; // (nothing grows there)
+    const bd = bare ? 0 : bm.bd || 0;
     if (bd && h1 < bd * (0.6 + 0.8 * (fbm(gx, gy, sd + 80, 64, 2) + 0.5))) {
       const kind = pickWeighted(bm.b, h2);
-      if (kind) { objects.push({ id: nid(), type: kind, v: Math.floor(h3 * 1000), x: x + 0.5 + jx * 0.7, y: y + 0.6, s: 0.8 + h2 * 0.35, f }); continue; }
+      if (kind && !(g === PG.ASH && kind !== 'shrub_desert' && kind !== 'dead_bush')) { objects.push({ id: nid(), type: kind, v: Math.floor(h3 * 1000), x: x + 0.5 + jx * 0.7, y: y + 0.6, s: 0.8 + h2 * 0.35, f }); continue; }
     }
-    // boulders near rock and on rocky ground
-    const g = groundW[i];
+    // boulders near rock and on rocky ground (lichen-crusted in the cold and up high)
     const nearRock = dRockIn[i] === 0 && (rockW[i - 1] || rockW[i + 1] || rockW[i - WW] || rockW[i + WW]);
     const pB = nearRock ? 0.05 : g === PG.GRAVEL || g === PG.STONE ? 0.02 : b === BIOME.ROCKY_SHORE || b === BIOME.ALPINE || b === BIOME.TUNDRA ? 0.012 : 0.0015;
     const h4 = hash01(gx, gy, sd + 81);
+    if (h4 < pB && (b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE || b === BIOME.SNOW_PEAKS || b === BIOME.ICE_SHEET || g === PG.SNOW) && (h3 < 0.6 || g === PG.SNOW || b === BIOME.SNOW_PEAKS)) { objects.push({ id: nid(), type: 'lichen_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.7 + h2 * 0.5, f }); continue; }
+    if (h4 < pB && (b === BIOME.BADLANDS || b === BIOME.DESERT_ROCKY || b === BIOME.DESERT_DUNES || (g === PG.CLAY && b !== BIOME.TROPICAL_DRY))) { objects.push({ id: nid(), type: 'desert_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.65 + h2 * 0.5, f }); continue; }
     if (h4 < pB) { objects.push({ id: nid(), type: 'boulder', v: (b === BIOME.TEMPERATE_FOREST || b === BIOME.TAIGA || b === BIOME.RAINFOREST || b === BIOME.TEMPERATE_RAINFOREST ? 8000 : 0) + Math.floor(h1 * 7919), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.6 + h2 * 0.55, f }); continue; }
     // small gatherables: pebbles, sticks, fibre grass, wild crops, wild wheat on fertile soil
     const h5 = hash01(gx, gy, sd + 82);
     const woods = bm.td > 0.15;
-    const pPeb = g === PG.GRAVEL || g === PG.STONE || b === BIOME.BEACH || b === BIOME.ROCKY_SHORE ? 0.05 : 0.006;
+    const pPeb = g === PG.SNOW || g === PG.ICE || g === PG.SALT ? 0 : g === PG.GRAVEL || g === PG.STONE || b === BIOME.BEACH || b === BIOME.ROCKY_SHORE ? 0.05 : 0.006;
     if (h5 < pPeb) { objects.push({ id: nid(), type: 'pebble', v: Math.floor(h1 * 4), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.8 + h2 * 0.35, f }); continue; }
-    if (woods && h5 > 0.99 - 0.006) { objects.push({ id: nid(), type: 'stick', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.3, f }); continue; }
-    const grassy = (bm.gr || 0) > 0.4 && g !== PG.SNOW;
+    if (woods && !bare && g !== PG.ASH && h5 > 0.99 - 0.006) { objects.push({ id: nid(), type: 'stick', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.3, f }); continue; }
+    const grassy = (bm.gr || 0) > 0.4 && !bare && g !== PG.ASH;
     if (grassy && h5 > 0.5 && h5 < 0.5 + 0.012 * bm.gr) { objects.push({ id: nid(), type: 'fibergrass', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.35, f }); continue; }
     if (L.fertile[y * S + x] && grassy && Ttile[i] > 4 && h5 > 0.3 && h5 < 0.3 + 0.006) { objects.push({ id: nid(), type: 'wild_wheat', v: 0, x: x + 0.5 + jx, y: y + 0.55, s: 0.9 + h2 * 0.2, f }); continue; }
     if ((b === BIOME.STEPPE || b === BIOME.TEMPERATE_FOREST || b === BIOME.FLOODPLAIN) && h5 > 0.2 && h5 < 0.2 + 0.0025) { objects.push({ id: nid(), type: h1 < 0.5 ? 'wild_potato' : h1 < 0.8 ? 'wild_corn' : 'wild_cotton', v: 0, x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.9 + h2 * 0.2, f }); continue; }
-    // decor
+    // decor: the ground cover of each biome (density from its grass value), then sparse details (crusts, shells,
+    // wrack, ripples, cracked mud, scree, lichen) by biome and ground
     if (opts.decor === false) continue;
-    const gr = (bm.gr || 0) * (0.7 + 0.6 * (fbm(gx, gy, sd + 83, 32, 2) + 0.5));
+    const patchy = b === BIOME.SAVANNA || b === BIOME.STEPPE || b === BIOME.DESERT_ROCKY || b === BIOME.COLD_DESERT || b === BIOME.MEDITERRANEAN;
+    const gn2 = fbm(gx, gy, sd + 83, 32, 2) + 0.5;
+    // (open lands: tufts in patches with bare dusty ground between them, a few tiles across)
+    const gr = (bm.gr || 0) * (patchy ? 0.04 + 1.35 * smoothstep(-0.14, 0.14, fbm(gx, gy, sd + 89, 16, 2) + 0.25 * (gn2 - 0.5)) : 0.7 + 0.6 * gn2);
     const n = Math.floor(gr * 2.2 + hash01(gx, gy, sd + 84));
+    const T = Ttile[i];
     for (let q = 0; q < n; q++) {
       const a1 = hash01(gx * 7 + q, gy * 13 - q, sd + 85), a2 = hash01(gx * 11 - q, gy * 3 + q, sd + 86), a3 = hash01(gx + q * 31, gy - q * 17, sd + 87);
-      let t = 'grass', v = Math.floor(a3 * 997);
-      if (g === PG.SNOW) t = a3 < 0.3 ? 'snowtuft' : 'lichen';
-      else if (b === BIOME.TUNDRA) t = a3 < 0.25 ? 'cottongrass' : a3 < 0.5 ? 'lichen' : 'grass';
-      else if (b === BIOME.MARSH || b === BIOME.SWAMP) t = a3 < 0.45 ? 'reed' : a3 < 0.75 ? 'tallgrass' : 'grass';
-      else if (b === BIOME.STEPPE || b === BIOME.SAVANNA || b === BIOME.MEDITERRANEAN) t = a3 < 0.35 ? 'drygrass' : a3 < 0.7 ? 'tallgrass' : 'grass';
-      else if (b === BIOME.TEMPERATE_FOREST || b === BIOME.RAINFOREST || b === BIOME.CLOUD_FOREST || b === BIOME.TEMPERATE_RAINFOREST) t = a3 < 0.12 ? 'fern' : a3 < 0.16 ? 'mushroom' : 'grass';
-      else if (b === BIOME.TAIGA) t = a3 < 0.2 ? 'needles' : a3 < 0.3 ? 'moss' : 'grass';
-      else if (b === BIOME.HEATH || b === BIOME.ALPINE) t = a3 < 0.3 ? 'heather' : a3 < 0.37 ? 'bloom' : 'grass';
-      else if (b === BIOME.FLOODPLAIN) t = a3 < 0.08 ? 'flower' : a3 < 0.45 ? 'tallgrass' : 'grass';
-      else if (b === BIOME.VOLCANIC) t = 'ash';
-      if (t === 'flower') v = Math.floor(a1 * 4);
+      const t = decorKind(b, g, a3, T, steep[i]);
+      if (!t) continue;
+      const v = t === 'flower' ? Math.floor(a1 * 4) : Math.floor(a3 * 997);
       decor.push({ t, v, x: x + a1, y: y + a2, s: 0.75 + a3 * 0.45, f: a1 < 0.5 ? -1 : 1 });
     }
-    if (b === BIOME.BEACH && h4 > 0.95) decor.push({ t: 'shell', v: Math.floor(h1 * 2), x: x + h1, y: y + h2, s: 0.9, f });
-    if (b === BIOME.SALT_FLAT && h4 > 0.8) decor.push({ t: 'saltcrust', v: Math.floor(h1 * 3), x: x + h1, y: y + h2, s: 1, f });
-    if (b === BIOME.DESERT_DUNES && h4 > 0.9) decor.push({ t: 'sandripple', v: Math.floor(h1 * 3), x: x + h1, y: y + h2, s: 1, f });
+    const hd = hash01(gx, gy, sd + 88), pd = (t, k = 3) => decor.push({ t, v: Math.floor(h1 * k), x: x + h1, y: y + h2, s: 0.85 + h3 * 0.3, f });
+    const dw = ds[i];
+    if (b === BIOME.BEACH) {
+      if (dw < 3 && hd < 0.05) pd('seaweed');
+      else if (dw < 4 && hd > 0.985) pd('driftwood', 1);
+      else if (hd > 0.94) pd('shell', 2);
+    } else if (b === BIOME.SALT_FLAT) { if (hd < 0.3) pd('saltcrust'); else if (hd > 0.97) pd('crackedmud'); }
+    else if (b === BIOME.DESERT_DUNES) { if (hd < 0.07) pd('sandripple'); }
+    else if (g === PG.SAND && (b === BIOME.DESERT_ROCKY || b === BIOME.BADLANDS) && hd < 0.08) pd('sandripple');
+    else if ((g === PG.CLAY || g === PG.DRY || g === PG.MUD) && (b === BIOME.DESERT_ROCKY || b === BIOME.BADLANDS || b === BIOME.COLD_DESERT || b === BIOME.SAVANNA || b === BIOME.STEPPE) && hd < 0.035) pd('crackedmud');
+    else if (b === BIOME.VOLCANIC && hd < 0.25) pd('ash');
+    else if ((b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE) && hd < 0.12) pd('lichen');
+    else if (b === BIOME.ROCKY_SHORE && dw < 2.5 && hd < 0.08) pd('seaweed');
+    if ((g === PG.GRAVEL || g === PG.STONE) && hd > 0.93 && b !== BIOME.BEACH) pd('scree', 2);
+    if (g === PG.SNOW && (b === BIOME.TUNDRA || b === BIOME.ALPINE || b === BIOME.TAIGA) && hd > 0.975) pd('snowtuft');
   }
   // volcano craters inside the chunk
   for (const v of p.volcanoes) {

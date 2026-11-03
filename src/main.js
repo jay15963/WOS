@@ -17,7 +17,7 @@ import { World } from './world/world.js';
 import { makeSource } from './world/source.js';
 import { Streamer, streamerSystem } from './world/streamer.js';
 import { allPlayers } from './game/players.js';
-import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
+import { generateGroundTextures, generatePlanetGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
 import { Game } from './game/game.js';
@@ -76,6 +76,7 @@ function loadAssets() {
     try { applyQuality(renderer, localStorage.getItem('wos.quality') || 'auto'); } catch { /* ignore */ }
     report(0.2, 'Pintando o terreno…'); await nextFrame();
     renderer.setGroundTextures(TEX, generateGroundTextures());
+    if (PLANET || QS.get('source') === 'planet') renderer.setPlanetGround(generatePlanetGroundTextures()); // (the planet's own grounds / rocks: 8 more layers)
     report(0.5, 'Desenhando criaturas e plantas…'); await nextFrame();
     const cached = await atlasLookup;
     const t0 = performance.now();
@@ -161,6 +162,7 @@ async function boot() {
     const worldT0 = performance.now(); // (the world part of the boot: source + chunks + systems, without the graphics)
     const world = new World(await (earlySrc || makeSource(srcKind, seed, srcOpts)));
     if (world.wrap) new Streamer(world); // (a planet streams its chunks; the classic world is loaded whole)
+    if (world.source?.kind === 'planet' && !renderer.hasPlanetGround) renderer.setPlanetGround(generatePlanetGroundTextures()); // (a saved planet world / a guest)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 
@@ -170,6 +172,8 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave;
+    const spw = world.source?.kind === 'planet' && (world.spawn || world.source.spawn);
+    if (spw) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, spw.x, spw.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {
       game.worldId = choice.worldId;                    // save key (save.js) / hotbar layout of this world
       game.creative = choice.gameMode === 'creative';   // a new world's mode (a saved world keeps its own: snapshot `mode`)

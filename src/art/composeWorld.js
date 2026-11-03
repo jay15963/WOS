@@ -24,7 +24,9 @@ import { STRUCT_GEOM as G } from './structures.js';
 import { PROP_GEOM as PG } from './stations.js';
 import { TREE_SPECIES } from './trees.js';
 import { drawArch, ARCH_TYPES, drawPlotKit } from './archCompose.js'; // agent K: styles, details, decoration
-import { SEASON, SC, TREE_SC, bareTwin, hash01, seasonHash } from './season.js'; // seasons: classes for the sprite shader, bare twins
+import { SEASON, SEASON_LOCAL, SC, TREE_SC, bareTwin, hash01, seasonHash } from './season.js'; // seasons: classes for the sprite shader, bare twins
+import { PLANET_SPECIES, SPECIES_OF, PLANET_DECOR } from './planetFlora.js'; // the planet's flora (lazy art, species of the classic kinds)
+import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -147,8 +149,46 @@ const TREE_SWAY = { tree_oak: 0.03, tree_pine: 0.022, tree_birch: 0.04, tree_dea
 function treeGroup(A, type, v) {
   const L = TREE_SPECIES[type];
   const g = L ? L[(v >> 4) % L.length] : type;
-  return A.groups[g] ? g : A.groups[type] ? type : 'tree_oak';
+  return A.groups[g] || PLANET_SPECIES[g] ? g : A.groups[type] ? type : 'tree_oak';
 }
+// a lazily painted planet sprite (art/planetFlora.js): the record once painted (stamped as in use), else null (asked
+// for; the caller draws the classic stand-in meanwhile)
+const LZR = new WeakMap();
+function lazyRec(A, name) {
+  let M = LZR.get(A);
+  if (!M) LZR.set(A, (M = new Map()));
+  let r = M.get(name);
+  if (r === undefined) { const LA = lookAtlasOf(A); r = LA.has(name) ? LA.get(name) : null; M.set(name, r); }
+  if (!r || r.failed) return null;
+  if (r.ready) { r.lu = LOOK_CLOCK.f; return r; }
+  lookAtlasOf(A).want(r);
+  return null;
+}
+const lazyPick = (A, grp, i, n) => lazyRec(A, `${grp}_${((i % n) + n) % n}`);
+// the lazy sprite name of a planet object / decor (null: classic art)
+function planetArtName(A, o) {
+  const t = o.type || o.t, v = o.v | 0;
+  let g = null, i = v;
+  if (o.t) { if (PLANET_DECOR[t]) g = t; }
+  else if (t.startsWith('tree_')) { g = treeGroup(A, t, v); i = v & 15; }
+  else if (t === 'bush' || t === 'fibergrass' || t === 'boulder') { g = v >= 1000 ? planetSp(t, v, 1000) : null; i = v % 1000; }
+  const e = g && (PLANET_SPECIES[g] || PLANET_DECOR[g]);
+  return e ? `${g}_${i % e.n}` : null;
+}
+// ?planet=1 (main.js): paint the planet's flora around the arrival right away, so the first frames show it (the rest
+// is painted on demand as it comes into view)
+export function prewarmPlanetFlora(A, world, x, y, r = 22) {
+  const LA = lookAtlasOf(A), names = new Set(), t0 = performance.now();
+  world.forChunks(x - r, y - r, x + r, y + r, (c) => {
+    for (const o of c.objects) { const n = planetArtName(A, o); if (n) names.add(n); }
+    for (const d of c.decor) { const n = planetArtName(A, d); if (n) names.add(n); }
+  });
+  for (const n of names) { const rec = LA.get(n); if (rec) LA.paintNow(rec); }
+  return { sprites: names.size, ms: Math.round(performance.now() - t0) };
+}
+const planetSp = (kind, v, unit) => { const T = SPECIES_OF[kind]; return T ? T[(v / unit) | 0] : undefined; };
+// the planet's tropical flora has no winter where it grows (art/season.js SEASON_LOCAL): no season class = no snow
+const noWinter = (e, x, y) => !!e?.tropical && !(SEASON_LOCAL.winterAt && SEASON_LOCAL.winterAt(x, y) > 0.01);
 let NOW = 0; // frame time for helpers that do not receive t
 export function drawStatic(B, A, o, t) {
   NOW = t;
@@ -175,7 +215,9 @@ export function drawStatic(B, A, o, t) {
       return;
     }
     const grp = o._tg || (o._tg = treeGroup(A, type, o.v | 0));
-    const s = A.pick(grp, o.v & 15);
+    const pe = PLANET_SPECIES[grp];
+    const s = pe ? lazyPick(A, grp, o.v & 15, pe.n) || A.pick(A.groups[type] ? type : 'tree_oak', o.v & 15) : A.pick(grp, o.v & 15);
+    if (pe && s.u0 < 0) { o._cw = s.w * o.s * 0.4; o._ch = s.h * o.s * 0.85; } // (how far its crown hides who walks behind it: game.js)
     let x = o.x, rot = 0, alpha = 1;
     const shk = o.shake || 0;
     if (shk > 0) { x += Math.sin(t * 57) * 0.045 * shk; rot = Math.sin(t * 43 + 1.3) * 0.028 * shk; }
@@ -193,10 +235,10 @@ export function drawStatic(B, A, o, t) {
     const sa = alpha;
     if (o.alpha != null) alpha *= o.alpha; // optional see-through (e.g. canopy over the player)
     B.blob.add(T.blob, o.x, o.y, 1.05 * sc, 0.85 * sc, 1, 1, 1, 0.6 * (fall > 0 ? 1 - clamp01(fall) : 1));
-    const sway = fall > 0 ? 0 : TREE_SWAY[grp] ?? 0.03;
+    const sway = fall > 0 ? 0 : TREE_SWAY[grp] ?? pe?.sway ?? 0.03;
     // seasons: broadleaf crowns drop their leaves over a bare twin (lazily painted, art/trees.js); it is asked
     // for already in late autumn so it is ready when the leaves go
-    const tsc = TREE_SC[grp] || 0, broad = tsc && tsc < SC.BARE;
+    const tsc = noWinter(pe, o.x, o.y) ? 0 : TREE_SC[grp] || 0, broad = tsc && tsc < SC.BARE;
     const bareK = broad ? SEASON.bare : 0;
     const bs = broad && (bareK > 0.001 || (SEASON.autumn > 0.5 && SEASON.wane)) ? bareTwin(A, s, grp) : null;
     if (bs && bareK > 0.001) {
@@ -212,21 +254,24 @@ export function drawStatic(B, A, o, t) {
   if (type === 'bush' || type === 'berrybush' || type === 'herbbush') {
     // bush species from o.v (worldgen / regrowth): ≥ 1000 → wild rose (1) / juniper shrub (2)
     const sp = type === 'bush' ? ((o.v | 0) / 1000) | 0 : 0;
+    const pg = sp > 2 ? SPECIES_OF.bush[sp] : null, pe = pg && PLANET_SPECIES[pg]; // (the planet's desert / tundra plants)
     const name = type === 'berrybush' && o.empty ? 'berrybush_empty' : sp && A.groups[BUSH_SP[sp]] ? BUSH_SP[sp] : type;
-    const s = A.pick(name, (o.v | 0) % 1000);
+    const s = (pe && lazyPick(A, pg, (o.v | 0) % 1000, pe.n)) || A.pick(name, (o.v | 0) % 1000);
     const shk = o.shake || 0;
     const x = o.x + (shk > 0 ? Math.sin(t * 50) * 0.035 * shk : 0);
     const rot = shk > 0 ? Math.sin(t * 38) * 0.05 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.95 * o.s, 0.62 * o.s, 1, 1, 1, 0.55);
-    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, o.alpha ?? 1, 0.05, rot, fl, f, 0.5, 0, (sp === 2 ? SC.CONIFER : SC.SHRUB) + seasonHash(o));
-    B.shadow.add(s, x, o.y, o.s, o.s, 1, 1, 1, 0.85, 0.05, rot, 0, f);
+    const bsw = pe ? pe.sway : 0.05;
+    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, o.alpha ?? 1, bsw, rot, fl, f, 0.5, 0, noWinter(pe, o.x, o.y) ? 0 : (pe ? pe.sc : sp === 2 ? SC.CONIFER : SC.SHRUB) + seasonHash(o));
+    B.shadow.add(s, x, o.y, o.s, o.s, 1, 1, 1, 0.85, bsw, rot, 0, f);
     return;
   }
   if (type === 'boulder') {
-    const s = (o.v | 0) >= 8000 && A.groups.boulder_moss ? A.pick('boulder_moss', o.v) : A.pick('boulder', o.v); // ≥ 8000: mossy (woods)
+    const bg = (o.v | 0) >= 20000 ? planetSp('boulder', o.v | 0, 1000) : null; // ≥ 20000: the planet's lichen rock / termite mound
+    const s = (bg && lazyPick(A, bg, (o.v | 0) % 1000, PLANET_SPECIES[bg].n)) || ((o.v | 0) >= 8000 && A.groups.boulder_moss ? A.pick('boulder_moss', o.v) : A.pick('boulder', o.v)); // ≥ 8000: mossy (woods)
     const x = o.x + shakeX(o, t, 0.03);
     B.blob.add(T.blob, o.x, o.y, 1.0 * o.s, 0.55 * o.s, 1, 1, 1, 0.5);
-    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f, 0, 0, SC.SNOW);
+    B.main.add(s, x, o.y, o.s, o.s, 1, 1, 1, 1, 0, 0, fl, f, 0, 0, bg && noWinter(PLANET_SPECIES[bg], o.x, o.y) ? 0 : SC.SNOW);
     // cracks spread over the rock as it is worked (o.prog comes from the host's ops) — animation pass (D)
     const pg = o.prog || 0;
     if (pg > 0.12 && T.cracks.length) {
@@ -245,13 +290,14 @@ export function drawStatic(B, A, o, t) {
     return;
   }
   if (type === 'fibergrass' || type === 'wild_potato' || type === 'wild_cotton' || type === 'wild_corn' || type === 'wild_wheat') {
-    const s = spriteOf(A, type, o.v); if (!s) return;
+    const fg = type === 'fibergrass' && (o.v | 0) >= 1000 ? planetSp('fibergrass', o.v | 0, 1000) : null; // (tussock, dune grass, papyrus)
+    const s = (fg && lazyPick(A, fg, (o.v | 0) % 1000, PLANET_SPECIES[fg].n)) || spriteOf(A, type, (o.v | 0) % 1000); if (!s) return;
     const sc = o.s || 1;
     const shk = o.shake || 0;
     const rot = shk > 0 ? Math.sin(t * 38) * 0.06 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.6 * sc, 0.32 * sc, 1, 1, 1, 0.4);
     const sway = type === 'fibergrass' ? 0.11 : type === 'wild_corn' ? 0.06 : type === 'wild_wheat' ? 0.1 : 0.07;
-    B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.5, 0, SC.GRASS);
+    B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.5, 0, fg && noWinter(PLANET_SPECIES[fg], o.x, o.y) ? 0 : SC.GRASS);
     B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 0.75, sway, rot, 0, f);
     return;
   }
@@ -511,8 +557,25 @@ export const WATERLINE = 0.15; // plant waterline above the sprite anchor (tiles
 // under the snow and the rest stand short and frosted, flowers and mushrooms are gone; spring adds flowers
 const DECOR_SC = { flower: SC.FLOWER, bloom: SC.FLOWER, heather: SC.FLOWER, thistle: SC.FLOWER, mushroom: 0 };
 export function drawDecor(B, A, d) {
-  const s = d._s || (d._s = A.groups[d.t] ? A.pick(d.t, d.v) : A.pick('grass', d.v));
   const t = d.t, S = SEASON;
+  const pd = PLANET_DECOR[t];
+  let s = d._s;
+  if (!s) {
+    if (pd) { s = lazyPick(A, t, d.v | 0, pd.n); if (!s) return; } // (the planet's own details: lazily painted, nothing until then)
+    else d._s = s = A.groups[t] ? A.pick(t, d.v) : A.pick('grass', d.v);
+  }
+  if (pd) {
+    s.lu = LOOK_CLOCK.f;
+    if (pd.flat) {
+      const a = t === 'coral' ? 0.55 : t === 'lichen' || t === 'ash' ? 1 - S.snow * 0.7 : 1 - S.snow;
+      if (a > 0.01) B.ground.add(s, d.x, d.y, d.s, d.s, t === 'coral' ? 0.8 : 1, t === 'coral' ? 0.95 : 1, 1, a, 0, 0, 0, d.f, 1);
+      return;
+    }
+    const h = d._hr ?? (d._hr = hash01(d.x, d.y)), nw = noWinter(pd, d.x, d.y), sn = nw ? 0 : S.snow;
+    if (pd.sc !== SC.SNOW && !d.w && h < sn * 0.6) return; // (under the snow)
+    B.decor.add(s, d.x, d.w ? d.y + WATERLINE : d.y, d.s, d.s * (1 - 0.3 * sn), 1, 1, 1, 1, pd.sway * (d._kick ? 1 + d._kick * 0.9 : 1), 0, 0, d.f, d.w ? -2 : 1, 0, nw ? 0 : (pd.sc ?? SC.GRASS) + 0.001 + 0.997 * h);
+    return;
+  }
   if (FLAT_DECOR.has(t)) {
     const a = t === 'lily' ? 1 - S.ice : t === 'riverstone' || t === 'scree' ? 1 - S.snow * 0.6 : 1 - S.snow;
     if (a > 0.01) B.ground.add(s, d.x, d.y, d.s, d.s, 1, 1, 1, a, 0, 0, 0, d.f, d.w && t === 'riverstone' ? -1 : 1);
