@@ -465,7 +465,7 @@ export function decksSystem() {
       D.had = D.any;
       const k = Math.min(1, dt * 14);
       for (const e of game.entities) {
-        const t = !D.any || e.dead || e.lv > 0 || e.z > 0 ? 0 : D.heightAt(e.x, e.y);
+        const t = !D.any || e.dead || e.lv > 0 || e.z > 0 || (e.pose && e._sobj) ? 0 : D.heightAt(e.x, e.y); // (on a seat: the seat of the lifted model already counts the deck)
         const c = e._dh || 0;
         if (t === c) continue;
         e._dh = Math.abs(t - c) < 0.003 ? t : c + (t - c) * k;
