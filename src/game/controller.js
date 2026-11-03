@@ -136,6 +136,7 @@ export function pick(game, sx, sy) {
     }
   });
   if (!hit) hit = game.corpses?.pickAt(wx, wy, tol) || null; // bodies on the ground (corpses.js)
+  if (!hit) hit = game.boats?.pickAt?.(wx, wy, tol) || null; // boats (boats.js): get in / out
   if (hit) return { type: 'interact', it: hit, wx, wy };
   const rk = describeRock(game, Math.floor(wx), Math.floor(wy));
   if (rk) return { type: 'interact', it: rk, wx, wy };
@@ -169,6 +170,7 @@ export function nearestInteractable(game) {
   game.corpses?.forNear(p.x, p.y, 3, consider); // bodies on the ground (corpses.js)
   game.stock?.forNear(consider); // farm animals: tie / release (livestock.js)
   consider(game.fishing?.near?.()); // fishing: cast / pull (fishing.js)
+  game.boats?.forNear?.(consider); // boats: get in / out (boats.js)
   const tx = Math.floor(p.x), ty = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;

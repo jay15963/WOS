@@ -35,6 +35,7 @@ export function faceAngle(o, t) {
   const acting = o.action && o.action.t < 1;
   const seat = o.pose?.type === 'sit' ? o.pose.o : null;
   if (o._opA != null) a = o._opA; // (on a ballista: the way it points, game/ballista.js)
+  else if (seat && Number.isFinite(seat.ang)) a = seat.ang; // (a boat's bench: the bow's way, game/boats.js)
   else if (seat && LETTER[seat.face] !== undefined) a = LETTER[seat.face]; // (sitting: the chair's way, whatever it looks at)
   else if (o.moving && !acting && vx * vx + vy * vy > 0.12) a = Math.atan2(vy, vx);
   else {

@@ -44,8 +44,8 @@ function restDepth(B, o, m0, e0, lz) {
   if (!po || PS.type !== 'sit') return;
   const sa = po._fk?.seatAt ? po._fk.seatAt(po) : null; // (as art/compose.js places the sitter)
   const x = sa ? sa[0] : po.x, y = sa ? sa[1] : po.y - 0.06, h = lz + 0.13 + (sa ? sa[2] : 0);
-  B.main.depthOf(m0, B.main.n, x, y, h, 0, 0.1);
-  B.emissive.depthOf(e0, B.emissive.n, x, y, h, 0, 0.1);
+  B.main.depthOf(m0, B.main.n, x, y, h, 0, 0.1 + (o._zb || 0)); // (_zb: under a bridge deck in a boat, boats.js)
+  B.emissive.depthOf(e0, B.emissive.n, x, y, h, 0, 0.1 + (o._zb || 0));
 }
 
 export class Game {
@@ -143,7 +143,7 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && !(p.z > 0) && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y), p._ud) === 2; // deep water: slow + cold (survival.js); not on ice / a deck (under a bridge: p._ud)
+    p.swimming = !p.dead && !(p.z > 0) && !p._boat && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y), p._ud) === 2; // deep water: slow + cold (survival.js); not on ice / a deck (under a bridge: p._ud) / in a boat
     // camera yaw: middle-mouse drag / two-finger twist (input.rotate), double middle click = north again
     const C = this.cam;
     if (inp.rotReset || this.camRotReset) { this.camRotReset = false; C.rotTo = Math.round(C.rot / (Math.PI * 2)) * Math.PI * 2; }
@@ -345,7 +345,7 @@ export class Game {
       // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
       Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
       Z.g = HG && Number.isFinite(o.x) && Number.isFinite(o.y) ? HG.heightAt(o.x, o.y) : 0; // (computed faces stand on the terrain; sprites are lifted on the GPU)
-      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0); Z.bias = 0.02; } // (_dh: standing on a pier / bridge deck, decks.js)
+      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0); Z.bias = 0.02 + (o._zb || 0); } // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);

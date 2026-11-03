@@ -1557,7 +1557,8 @@ void main(){
   // water level (needed by both paths)
   vec2 wq = wp + warp * 0.3;
   float wl = fieldAt(wq).b + (nB.x - 0.5) * 0.08 + (nA.w - 0.5) * 0.05;
-  if (uMesh > 0.5) wl -= smoothstep(0.04, 0.3, hT) * 2.0; // (water lies at sea level only: never up a cliff or a hill)
+  // (relief: water lies flat at its own level — never on a steep face, never up a hill above the water next to it)
+  if (uMesh > 0.5) wl -= smoothstep(0.55, 1.0, texture(uHgtK, wp / uWorld).r * 5.33) * 2.0 + smoothstep(0.2, 0.6, hT - texture(uHgtK, wp / uWorld).a * 40.0) * 2.0;
 
   // ---------- rock being mined: cracks follow the pickaxe; the last hit breaks the block along them ----------
   float mCrk = 0.0, mPulse = 0.0;

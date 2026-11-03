@@ -68,6 +68,21 @@ const DB1 = [0x8CE0], DB2 = [0x8CE0, 0x8CE1], ZERO4 = new Float32Array(4); // (C
 // depth of the world (docs/CAMERA-ROTATION.md "Profundidade por pixel"): clip z = −d · DEPTH_K, d = view y + height
 // relative to the camera (tiles; |d| < 256 everywhere on screen), 24-bit buffer: ~3e-5 tile per step
 const DEPTH_K = 1 / 256;
+// per tile: the highest water level within 3 tiles (stories / 40 × 255; the terrain shader draws no water above it)
+function waterLevels(w, L) {
+  const W = L.W, H = L.H, out = new Uint8Array(W * H), wl = w.wlevel;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let m = -1;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      const i = yy * W + xx;
+      if (w.water[i]) m = Math.max(m, wl ? wl[i] : 0);
+    }
+    out[y * W + x] = m < 0 ? 0 : Math.min(255, Math.round((m / 40) * 255));
+  }
+  return out;
+}
 // float → half float bits (terrain gradient texture)
 const _f32 = new Float32Array(1), _u32 = new Uint32Array(_f32.buffer);
 function toHalf(v) {
@@ -235,6 +250,7 @@ export class Renderer {
     this.hgtGTex = createTexture(gl, { width: fw, height: fh, data: this._hgtG, internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, filter: gl.LINEAR });
     this.hgtCTex = createTexture(gl, { width: on ? L.W + 1 : 1, height: on ? L.H + 1 : 1, data: on ? L.c : new Float32Array(1), internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST });
     this._hgtK = new Uint8Array(on ? L.W * L.H * 4 : 4);
+    this._wlv = on ? waterLevels(this.world, L) : null;
     if (on) this._kHeight(0, 0, L.W - 1, L.H - 1);
     this.hgtKTex = createTexture(gl, { width: on ? L.W : 1, height: on ? L.H : 1, data: this._hgtK, filter: gl.LINEAR });
     if (L) L.dirty = null;
@@ -250,7 +266,7 @@ export class Renderer {
       K[k] = Math.min(255, Math.round(L.tileSlope(x, y) * 48));
       K[k + 1] = P && (P[o] > -Infinity || P[o + 1] > -Infinity || P[o + CW] > -Infinity || P[o + CW + 1] > -Infinity) ? 255 : 0;
       K[k + 2] = ed(o) || ed(o + 1) || ed(o + CW) || ed(o + CW + 1) ? 255 : 0;
-      K[k + 3] = 255;
+      K[k + 3] = this._wlv ? this._wlv[y * L.W + x] : 0;
     }
   }
   // central-difference gradient of the fine surface (stories per tile) + the height itself, as half floats, for a fine rect

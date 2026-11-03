@@ -20,6 +20,7 @@
 //   paths:  { g, p }  painted paths: run-length [value, count…] of world.path / world.pathPlan (mut/paths.js)
 //   ids, natpos                                                            // save file only
 //   stock:  [[species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp]]  owned farm animals (save file only, livestock.js)
+//   boats:  [[id, x, y, h, v, at, seats|0, pets|0]]  boats (game/boats.js; a save drops the riders: 0)
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
@@ -90,6 +91,8 @@ export function serializeWorld(game, { save = false } = {}) {
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
   const ball = game.build.structures.filter((o) => o.type === 'ballista' && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
   if (ball.length) data.ball = ball;
+  // boats (game/boats.js): pose and riders (a save drops the riders: everyone is ashore after a load)
+  if (game.boats?.map.size) data.boats = [...game.boats.map.values()].map((b) => [b.id, r3(b.x), r3(b.y), r3(b.h), b.v | 0, Math.round(b.at || 0), save ? 0 : b.seats.slice(), save ? 0 : b.pets.map((q) => q.slice())]);
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; data.stock = stockRows(game); } // (stock: the farm's animals; guests see them in the entity stream)
   return data;
 }
@@ -257,6 +260,21 @@ function applyInner(game, d, mode) {
     const r = BAL.get(o.id);
     if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
     if (r && r[2] && reconcile) o.user = String(r[2]).slice(0, 40); else delete o.user;
+  }
+
+  // ---- boats (game/boats.js): add / update; a 'net' snapshot removes the ones it does not list ----
+  if (game.boats) {
+    const Bt = game.boats, bIds = new Set();
+    for (const r of arr(d.boats)) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+      const b = Bt.add(r);
+      if (!b) continue;
+      bIds.add(b.id);
+      Bt.setRiders(b, Array.isArray(r[6]) ? r[6] : [0, 0, 0, 0, 0, 0], Array.isArray(r[7]) ? r[7] : [], null);
+      if (!reconcile || Math.hypot(b._x - b.x, b._y - b.y) > 3) { b._x = b.x; b._y = b.y; b._h = b.h; b._buf = null; }
+      net.seeId(b.id);
+    }
+    if (reconcile) for (const id of [...Bt.map.keys()]) if (!bIds.has(id)) Bt.remove(id);
   }
 
   // ---- crops ----

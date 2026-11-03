@@ -37,6 +37,20 @@ function vnoise(x, y) { // value noise (crags on the rock faces)
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
 
+// the surface where water lies is the water: corners touching water tiles rise to their water level (the sea at 0, a
+// lake on a plateau at its own level) — the seabed is not drawn; swimmers float on the surface (planet: gen.wlevel)
+export function foldWater(corners, W, H, water, wlevel) {
+  if (!corners || !water) return corners;
+  const CW = W + 1, out = corners.slice();
+  for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
+    const i = ty * W + tx;
+    if (!water[i]) continue;
+    const lv = wlevel ? wlevel[i] : 0;
+    for (let k = 0; k < 4; k++) { const o = (ty + (k >> 1)) * CW + tx + (k & 1); if (out[o] < lv) out[o] = lv; }
+  }
+  return out;
+}
+
 // the layer of the world being played (set by World): ground height for helpers that only see entities (levels.js)
 let ACTIVE = null;
 export function setActiveHeight(L) { ACTIVE = L; }
@@ -211,7 +225,8 @@ export class HeightLayer {
         // gullies and ribs running down the face (noise stretched along the slope), plus a finer roughness
         const dx = gx / st, dy = gy / st, a = i * dx + j * dy, b = -i * dy + j * dx;
         const nz = (vnoise(a * 0.05, b * 0.42) - 0.5) + (vnoise(a * 0.16 + 17, b * 0.9) - 0.5) * 0.35;
-        h = Math.max(0, h + nz * 0.6 * Math.min(1, (st - 1.1) / 2.2));
+        const r = h + nz * 0.6 * Math.min(1, (st - 1.1) / 2.2);
+        h = h >= 0 ? Math.max(0, r) : r;
       }
       if (i >= 0 && j >= 0 && i < this.FW && j < this.FH) F[j * FW + i] = h;
     }

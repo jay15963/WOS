@@ -471,6 +471,7 @@ export function decksSystem() {
       D.had = D.any;
       const k = Math.min(1, dt * 14), w = game.world;
       for (const e of game.entities) {
+        if (e._boat) continue; // (riding a boat: boats.js lifts it)
         // (under a bridge deck — e._ud, kept here for everyone this peer sees: at the water, not on the boards; on a seat:
         // the seat of the lifted model already counts the deck)
         const ud = D.any && deckTrack(w, e);

@@ -47,6 +47,7 @@ import { installStock, stockSystem, stockFxSystem } from './livestock.js'; // fa
 import { installFishing, fishingSystem } from './fishing.js'; // fishing with a rod
 import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
 import { installBallistaUi } from '../ui/ballistaUi.js';
+import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -83,6 +84,7 @@ export function installSystems(game) {
   initPaths(game);                  // path grids exist before a save / snapshot is applied
   installStock(game);               // farm animals: game.stock (interaction / feeder / labels)
   installFishing(game);             // fishing: game.fishing (bobbers, the rod's work)
+  installBoats(game);               // boats: game.boats (before the save / snapshot loads them)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -117,6 +119,8 @@ export function installSystems(game) {
     projectilesSystem(),
     ballistaSystem(),               // bolts in flight, drawn aim, reload (+ host: operators gone)
     ballistaOwnerSystem(),          // the local operator (after abilities: it roots the player)
+    boatsSystem(),                  // boats: drawn pose, riders / animals on their places, wake (+ host: launch, tidy)
+    boatOwnerSystem(),              // the local rider: seated, rowing at the oars (after abilities: it roots the player)
     banditsSystem(),
     campArtSystem(),
     gatheringSystem(),
