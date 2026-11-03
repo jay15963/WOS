@@ -1,0 +1,69 @@
+// Planet constants shared by the macro generator, the chunk generator, the preview tools and the
+// streaming engine (docs/PLANET.md). Pure data, no DOM.
+//
+// The world is a flat cylinder: x wraps (W tiles), y runs from the north pole (y = 0) to the south pole
+// (y = H - 1). Latitude follows an equal-area mapping (sin(lat) is linear in y), so each climate band gets
+// the same share of tiles a real sphere gives it (tropics ~40 %, polar caps ~8 %).
+
+export const W = 16384;          // planet width in tiles (wraps)
+export const H = 8192;           // planet height in tiles (pole to pole)
+export const CELL = 32;          // macro cell = 32 x 32 tiles
+export const MW = W / CELL;      // 512 macro columns
+export const MH = H / CELL;      // 256 macro rows
+export const CHUNK = 64;         // chunk = 64 x 64 tiles
+export const CW = W / CHUNK;     // 256 chunk columns
+export const CHH = H / CHUNK;    // 128 chunk rows
+export const SEAM_HALF = 16;     // cells: the seam ocean is forced to abyss for |x| < 16 cells (1024 tiles wide)
+
+// water classes (per tile and per macro cell)
+export const WATER = { LAND: 0, SHALLOW: 1, DEEP: 2, ABYSS: 3 };
+export const ABYSS_M = -1500;    // macro sea floor deeper than this is abyssal ocean (boats can't enter)
+
+export const wrapX = (x) => ((x % W) + W) % W;
+export const wrapCX = (cx) => ((cx % MW) + MW) % MW;
+
+// ---------- vertical scale ----------
+// ONE place to tune how physical elevation (metres) becomes game height (stories; 1 story = one built floor
+// = 1 tile up the screen, game/levels.js STORY_H). Square-root curve: lowlands 0..2 (0..280 m),
+// hills 2..5 (280..1000 m), mountains 10 (3000 m) .. 15.6 (6000 m) .. 19.5 (8800 m). Odd: the sea floor
+// mirrors it below 0. Only + - * / sqrt: bit-identical on every browser.
+export const STORY_A = 2.89;
+export const STORY_B = 150;
+export function metersToStories(m) {
+  return m >= 0 ? STORY_A * (Math.sqrt(1 + m / STORY_B) - 1) : -STORY_A * (Math.sqrt(1 - m / STORY_B) - 1);
+}
+export function storiesToMeters(s) {
+  const a = (s >= 0 ? s : -s) / STORY_A + 1;
+  const m = STORY_B * (a * a - 1);
+  return s >= 0 ? m : -m;
+}
+// metres per story around an elevation m (slope of the curve)
+export function metersPerStory(m) {
+  const a = m >= 0 ? m : -m;
+  return (2 * STORY_B / STORY_A) * Math.sqrt(1 + a / STORY_B);
+}
+
+// ---------- latitude ----------
+// sin(latitude) of tile row y (+1 north pole, 0 equator, -1 south pole)
+export const sinLatAt = (y) => 1 - (2 * (y + 0.5)) / H;
+// latitude in degrees (display only: uses Math.asin, never feed it back into the generation)
+export const latitudeAt = (y) => (Math.asin(Math.max(-1, Math.min(1, sinLatAt(y)))) * 180) / Math.PI;
+// sin(lat) of macro row cy
+export const sinLatCell = (cy) => 1 - (2 * (cy + 0.5)) / MH;
+
+// Season zones for the content phase (from the warmest / coldest month of a place):
+//   0 tropical  — no winter
+//   1 warm      — mild winter, no snow
+//   2 temperate — winter like the current game
+//   3 subpolar  — a long hard winter every year
+//   4 polar     — permanent winter (walkers every night)
+export const SEASON_ZONES = ['tropical', 'warm', 'temperate', 'subpolar', 'polar'];
+export const SEASON_ZONES_PT = ['Tropical (sem inverno)', 'Quente (inverno ameno)', 'Temperado', 'Subpolar (inverno longo)', 'Polar (inverno eterno)'];
+export function seasonZoneOf(tMean, tAmp) {
+  const warm = tMean + tAmp * 0.5, cold = tMean - tAmp * 0.5;
+  if (warm < 2) return 4;
+  if (cold < -12 || warm < 10) return 3;
+  if (cold < 1) return 2;
+  if (cold < 15) return 1;
+  return 0;
+}
