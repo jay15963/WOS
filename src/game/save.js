@@ -10,6 +10,9 @@
 // roof is re-derived from the mined tiles with the support rule, so old worlds dug wide open lose those ceilings.
 // v7 (agent K): every construction piece (not only roofs) carries style / det; rows are the same 16 fields, so nothing
 // to migrate beyond v6 (older rows get '' / '' = the default look).
+// v10 (planet engine, docs/STREAMING.md): tile indices are planet indices (y * 16384 + x), paths are sparse runs, the save
+// names its world source (`src`: classic / synth / planet). Older saves (256-wide indices) cannot be read: they are
+// dropped with a message (the world list keeps the name; a new world is made from the same seed).
 // Guests (game.saveSuffix = '.guest') save ONLY their player (inventory, equipment, level, hints, crafting
 // queue, fuel bank): the world belongs to the host. ?nosave=1 (game.noSave) disables every write.
 
@@ -22,11 +25,19 @@ import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
 
-const VERSION = 9; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K) · v8 painted paths (M) · v9 stories (L: world.lvs = upper pieces' story; older = all on the ground)
+const VERSION = 10; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K) · v8 painted paths (M) · v9 stories (L: world.lvs = upper pieces' story; older = all on the ground) · v10 planet engine (docs/STREAMING.md)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name.
 // A world of the world list (ui/worlds.js) saves under its id (game.worldId; old worlds: id = their seed)
 const key = (game, v = 2) => `wos.save.v${v}.${game.worldId ?? game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
+
+// the world source a saved world was made with (main.js picks it before the world exists): 'classic' | 'synth' | 'planet'
+export function savedSource(worldId, seed) {
+  try {
+    const d = JSON.parse(localStorage.getItem(`wos.save.v2.${worldId ?? seed}`) || 'null');
+    return d && d.v === VERSION && typeof d.src === 'string' ? d.src : null;
+  } catch { return null; }
+}
 
 export function hasSave(game) {
   try { return !!(localStorage.getItem(key(game)) || localStorage.getItem(key(game, 1))); } catch { return false; }
@@ -46,7 +57,7 @@ function savePlayer(game) {
 export function buildSaveData(game) {
   const guest = game.net.role === 'guest';
   const data = {
-    v: VERSION, seed: game.world.seed, savedAt: Date.now(),
+    v: VERSION, seed: game.world.seed, src: game.world.source?.kind || 'classic', savedAt: Date.now(),
     player: savePlayer(game), craft: saveCraft(game), fuel: saveFuel(game), hinted: game.ctl?.hinted || {},
   };
   if (guest) { data.guest = 1; return data; } // never world data in a guest save
@@ -79,7 +90,13 @@ function readSave(game) {
 export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
-  if (!data || ![1, 2, 3, 4, 5, 6, 7, 8, VERSION].includes(data.v)) return false;
+  if (!data) return false;
+  if (data.v !== VERSION) {
+    // a world saved before the planet engine: its tile indices mean other tiles now — dropped (once, with a message)
+    try { localStorage.removeItem(key(game)); localStorage.removeItem(key(game, 1)); } catch { /* ignore */ }
+    game.later?.(1.2, () => game.events.emit('toast', { text: 'Este mundo era de uma versão antiga do jogo e não pôde ser aberto: um mundo novo foi criado com a mesma semente.', kind: 'warn' }));
+    return false;
+  }
   if (game.net.role === 'guest') {
     loadPlayer(game, data.player || {}, data);
     return true;
@@ -87,7 +104,7 @@ export function loadGame(game) {
   const away = Math.max(0, Math.min(OFFLINE_CAP, (Date.now() - (data.savedAt || Date.now())) / 1000));
   const wt = (data.worldTime || 0) + away;
   const snap = data.v >= 3 ? { ...(data.world || {}) } : migrateLegacy(game, data, wt);
-  if (data.v < VERSION && Array.isArray(snap.structs)) snap.structs = migrateStructRows(game, snap.structs);
+  if (Array.isArray(snap.structs) && snap.structs.some((r) => Array.isArray(r) && r.length < 16)) snap.structs = migrateStructRows(game, snap.structs); // (short rows: pad them)
   snap.wt = wt;
   snap.env = data.env ? { h: data.env.hour, d: data.env.day, w: data.env.weather } : snap.env;
   applyWorld(game, snap, 'load');
@@ -189,16 +206,16 @@ export function migrateStructRows(game, rows) {
   const dims = (r) => (r.length <= 10 && GREW[r[1]] ? GREW[r[1]] : dimsOf(r[1], r.length > 10 ? r[10] | 0 : 0));
   const mark = (r, tx, ty, fw, fh, on) => {
     const L = BUILDINGS[r[1]].layer;
-    for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) { const k = L + ':' + w.idx(x, y); if (on) occ.set(k, r); else if (occ.get(k) === r) occ.delete(k); }
+    for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) { const k = L + ':' + w.idx(x, y); if (on) occ.set(k, r); else if (occ.get(k) === r) occ.delete(k); } // sync-ok: a local Map of the migration (not the occupancy grid)
   };
   const valid = rows.filter((r) => Array.isArray(r) && BUILDINGS[r[1]]);
   for (const r of valid) { const [fw, fh] = dims(r); mark(r, r[2], r[3], fw, fh, true); }
   const free = (r, tx, ty, fw, fh) => {
     const L = BUILDINGS[r[1]].layer;
     for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
-      if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return false;
+      if (!w.inside(x, y, 1)) return false;
       const i = w.idx(x, y);
-      if (w.rock[i] || w.water[i]) return false;
+      if (w.rock.get(i) || w.water.get(i)) return false;
       const o = occ.get(L + ':' + i);
       if (o && o !== r) return false;
     }

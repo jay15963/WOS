@@ -11,6 +11,7 @@ import { netlog } from './netlog.js';
 import { checkAtlas } from '../game/artcheck.js';
 import { artWarnings } from '../game/artcompat.js';
 import { pathRows } from '../game/mut/paths.js';
+import { chunkOfI } from '../world/store.js';
 
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
@@ -18,7 +19,20 @@ export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', '
 export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
 
 const fnv = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
-function fnvBytes(a) { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); }
+// hash of a store layer (docs/STREAMING.md): a sparse one by its non-zero tiles; a chunk-backed one (rock, roof) by the
+// pages of the chunks holding a mined tile only (`only`: the same set on every peer — the rest is the pristine source)
+function fnvLayer(w, L, only = null) {
+  const dirtyOnly = !!only;
+  let h = 2166136261;
+  const mix = (v) => { h ^= v & 255; h = Math.imul(h, 16777619) >>> 0; h ^= (v >>> 8) & 255; h = Math.imul(h, 16777619) >>> 0; h ^= (v >>> 16) & 255; h = Math.imul(h, 16777619) >>> 0; };
+  for (const c of L.chunks()) {
+    if (dirtyOnly && !only.has(c)) continue;
+    const p = L.pages[c];
+    if (dirtyOnly) { mix(c); for (let l = 0; l < p.length; l++) { h ^= p[l]; h = Math.imul(h, 16777619) >>> 0; } continue; }
+    for (let l = 0; l < p.length; l++) if (p[l]) { mix(c * 4096 + l); h ^= p[l]; h = Math.imul(h, 16777619) >>> 0; }
+  }
+  return (h >>> 0).toString(36);
+}
 const r10 = (v) => Math.round((v || 0) * 10);
 
 export function dumpPart(game, part) {
@@ -37,8 +51,11 @@ export function dumpPart(game, part) {
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
     case 'structs': return game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
       game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '', o.lv | 0]).sort(cmp); // (lv: levels, agent L)
-    case 'tiles': return [['rock', fnvBytes(w.rock)], ['solid', fnvBytes(w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
-      ['roof', fnvBytes(w.roof)], ['broof', fnvBytes(w.broof)]];
+    case 'tiles': {
+      const mc = new Set(game.minedTiles.map((i) => chunkOfI(i)));
+      return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
+        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof)]];
+    }
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
     case 'props': return (game.props || []).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0]).sort(cmp);

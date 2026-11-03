@@ -66,7 +66,7 @@ const DETOUR = 1.5, DETOUR_ADD = 6; // a way longer than this × the straight li
 const STALL_S = 2.5;    // s without getting anywhere (< 0.8 tile): break what is in the way
 const breakable = (o) => { const d = o && !o.blueprint && !o.removed && !o.lv && BUILDINGS[o.type]; return !!d && (d.connect === 'wall' || d.connect === 'fence') && (d.block === 'tile' || d.block === 'door'); };
 const handTorch = (q) => q.offhand === 'torch_hand' || q.equip?.off === 'torch_hand';
-const openTile = (w, x, y) => w.inBounds(x, y) && !w.blocked(x, y) && w.solid[y * w.W + x] !== 2; // (doors stop them)
+const openTile = (w, x, y) => w.inBounds(x, y) && !w.blocked(x, y) && w.solid.get(w.idx(x, y)) !== 2; // (doors stop them)
 
 // what it wants now: a living player it sees / feels, else the nearest light; shut = inside a room it is not in
 function pickGoal(game, m) {
@@ -109,14 +109,14 @@ function pickGoal(game, m) {
 
 // the piece of the room's ring to break: the closest breakable one, and a free spot outside next to it
 function pickBreach(game, m, room, skip) {
-  const w = game.world, G = game.build.grid.main, inRoom = new Set(room.map(([x, y]) => y * w.W + x));
+  const w = game.world, G = game.build.grid.main, inRoom = new Set(room.map(([x, y]) => w.idx(x, y)));
   let best = null, bd = 1e9;
   for (const [x, y] of room) {
-    const o = G.get(y * w.W + x);
+    const o = G.get(w.idx(x, y));
     if (!breakable(o) || skip?.has(o.id)) continue;
     for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
       const sx = x + dx, sy = y + dy;
-      if (!w.inBounds(sx, sy) || inRoom.has(sy * w.W + sx) || w.blocked(sx, sy)) continue;
+      if (!w.inBounds(sx, sy) || inRoom.has(w.idx(sx, sy)) || w.blocked(sx, sy)) continue;
       const d = Math.hypot(sx + 0.5 - m.x, sy + 0.5 - m.y);
       if (d < bd) { bd = d; best = { o, stand: [sx + 0.5, sy + 0.5] }; }
     }
@@ -142,7 +142,7 @@ function breachToward(game, m, gx, gy, skip) {
     if (mx < my) { mx += ddx; tx += sx; } else { my += ddy; ty += sy; }
     if (!w.inBounds(tx, ty)) break;
     if (openTile(w, tx, ty)) continue;
-    const o = G.get(ty * w.W + tx);
+    const o = G.get(w.idx(tx, ty));
     if (breakable(o) && !skip?.has(o.id) && (openTile(w, px, py) || (px === Math.floor(m.x) && py === Math.floor(m.y)))) return { o, stand: [px + 0.5, py + 0.5] };
     hit = [tx, ty];
     break;
@@ -151,7 +151,7 @@ function breachToward(game, m, gx, gy, skip) {
   let best = null, bs = 1e9;
   for (let y = hit[1] - 4; y <= hit[1] + 4; y++) for (let x = hit[0] - 4; x <= hit[0] + 4; x++) {
     if (!w.inBounds(x, y)) continue;
-    const o = G.get(y * w.W + x);
+    const o = G.get(w.idx(x, y));
     if (!breakable(o) || skip?.has(o.id)) continue;
     const dg = Math.hypot(x + 0.5 - gx, y + 0.5 - gy);
     for (const [ox, oy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {

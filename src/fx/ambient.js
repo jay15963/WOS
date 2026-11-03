@@ -133,7 +133,7 @@ class Ambient {
       const o = f.o;
       if (!o.fire || o.dead) continue;
       // under a closed roof the smoke leaves through the chimney (src/game/roofs.js)
-      if (RF && w.broof) { const ti = Math.floor(o.y - 0.05) * w.W + Math.floor(o.x), rg = w.broof[ti] && RF.regions.get(RF.regionOf[ti]); if (rg && rg.alpha > 0.5) continue; }
+      if (RF && w.broof) { const ti = w.idx(Math.floor(o.x), Math.floor(o.y - 0.05)), rg = w.broof.get(ti) && RF.regions.get(RF.regionOf.get(ti)); if (rg && rg.alpha > 0.5) continue; }
       const I = typeof o.fire === 'number' ? o.fire : 1;
       const lift = (o.light && o.light.lift != null ? o.light.lift : 0.3) + 0.15;
       const lp = o._fk?.lightAt ? o._fk.lightAt(o) : null; // where a face kind draws the piece (art/faces/props.js)
@@ -230,8 +230,8 @@ class Ambient {
         const x = v.x0 + rnd() * (v.x1 - v.x0), y = v.y0 + rnd() * (v.y1 - v.y0);
         const tx = Math.floor(x), ty = Math.floor(y);
         if (w.isRock(tx, ty)) continue;
-        const i = ty * w.W + tx;
-        const ok = (w.lush && w.lush[i] > 0.45) || (w.dWater && w.dWater[i] < 4);
+        const i = w.idx(tx, ty);
+        const ok = (w.lush && w.lush.get(i) > 0.45) || (w.dWater && w.dWater.get(i) < 4);
         if (!ok || (w.caveDark && w.caveDark(x, y) > 0.2) || w.roofAt?.(tx, ty)) continue; // never indoors
         this.fireflies.push({ x, y, lift: 0.3 + rnd() * 0.9, ph: rnd() * TAU, sp: 0.25 + rnd() * 0.35, ang: rnd() * TAU, t: 0, life: 10 + rnd() * 14, blink: 0.4 + rnd() * 0.5 });
       }
@@ -427,10 +427,10 @@ class Ambient {
     // cave floor tiles in view
     const caveTiles = [];
     if (w.isCave) {
-      const x0 = Math.max(0, Math.floor(v.x0)), x1 = Math.min(w.W - 1, Math.ceil(v.x1));
-      const y0 = Math.max(0, Math.floor(v.y0)), y1 = Math.min(w.H - 1, Math.ceil(v.y1));
+      const x0 = Math.max(w.minX, Math.floor(v.x0)), x1 = Math.min(w.maxX, Math.ceil(v.x1));
+      const y0 = Math.max(w.minY, Math.floor(v.y0)), y1 = Math.min(w.maxY, Math.ceil(v.y1));
       for (let y = y0; y <= y1 && caveTiles.length < 400; y++) for (let x = x0; x <= x1; x++) {
-        if (w.isCave(x, y)) caveTiles.push(y * w.W + x);
+        if (w.isCave(x, y)) caveTiles.push(w.idx(x, y));
       }
     }
     this.fires = fires; this.trees = trees; this.flowers = flowers; this.mushrooms = mushrooms;
@@ -535,12 +535,12 @@ class Ambient {
     const t = this.t;
     // terrain decals (ore deposits, rubble) for the visible tiles — see world.js chunk.decals
     if (B.decal) {
-      const w = g.world, W = w.W, x0 = v.x0 - 1, x1 = v.x1 + 1, y0 = v.y0 - 1, y1 = v.y1 + 1;
+      const w = g.world, W = w.W, x0 = v.x0 - 1, x1 = v.x1 + 1, y0 = v.y0 - 1, y1 = v.y1 + 1, mx = (x0 + x1) / 2;
       w.forChunks(x0, y0, x1, y1, (c) => {
-        const L = c.decals;
-        if (!L) return;
+        const L = w.decalsOf(c); // (built lazily per bucket)
+        if (!L.length) return;
         for (let k = 0; k < L.length; k++) {
-          const e = L[k], i = e >> 1, tx = i % W, ty = (i / W) | 0;
+          const e = L[k], i = e >> 1, tx = w.near(i % W, mx), ty = (i / W) | 0;
           if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
           B.decal.addRaw(tx + 0.5, ty + 0.5, 1, 1, e & 1, 0, 0, 1);
         }

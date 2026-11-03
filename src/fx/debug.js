@@ -78,13 +78,13 @@ export function installDebug(game) {
           const tx = px + dx, ty = py + dy;
           if (!w.inBounds(tx, ty)) continue;
           const i = w.idx(tx, ty);
-          let deep = w.rock[i] && w.roof[i];
+          let deep = w.rock.get(i) && w.roof.get(i);
           for (let k = -2; k <= 2 && deep; k++) for (let j = -2; j <= 2; j++) if (!w.isRock(tx + j, ty + k)) { deep = false; break; }
           if (deep) { tgt = [tx, ty]; break; }
         }
       }
       if (!tgt) return 'nenhuma montanha por perto';
-      const mine = (tx, ty) => { if (w.inBounds(tx, ty) && w.rock[w.idx(tx, ty)]) net.emit('tile.mine', { tx, ty, drops: [], by: net.pid, xp: 0 }); };
+      const mine = (tx, ty) => { if (w.inBounds(tx, ty) && w.rock.get(w.idx(tx, ty))) net.emit('tile.mine', { tx, ty, drops: [], by: net.pid, xp: 0 }); };
       // tunnel from the target back towards the player until open ground
       let [cx, cy] = tgt;
       const L = Math.hypot(px - cx, py - cy), sx = (px - cx) / L, sy = (py - cy) / L;
@@ -140,7 +140,7 @@ export function installDebug(game) {
       if (!Array.isArray(t)) return t;
       const [cx, cy] = t, wld = game.world;
       for (let y = cy - (h >> 1); y < cy + (h >> 1); y++) for (let x = cx - (w >> 1); x < cx + (w >> 1); x++) {
-        if (wld.inBounds(x, y) && wld.rock[wld.idx(x, y)]) game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: game.net.pid, xp: 0 });
+        if (wld.inBounds(x, y) && wld.rock.get(wld.idx(x, y))) game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: game.net.pid, xp: 0 });
       }
       return [cx, cy, w, h];
     },

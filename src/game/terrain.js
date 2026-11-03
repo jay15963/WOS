@@ -24,13 +24,13 @@ export const TERRAIN_MODES = {
 
 // ---------- plots: the pads buildings stand on (derived from the replicated structures) ----------
 function rebuildPlots(game) {
-  const L = game.world.height, CW = L.W + 1, map = new Map();
+  const L = game.world.height, map = new Map(); // (corner index: L.ci — the planet store, docs/STREAMING.md)
   for (const o of game.build.structures) {
     if (!Number.isFinite(o.bz) || o.lv > 0 || !ON_PAD(o.type)) continue;
     const [fw, fh] = dimsOf(o.type, o.rot | 0);
     for (let y = o.ty; y <= o.ty + fh; y++) for (let x = o.tx; x <= o.tx + fw; x++) {
-      if (x < 0 || y < 0 || x > L.W || y > L.H) continue;
-      const i = y * CW + x, v = map.get(i);
+      if (y < 0 || y >= L.H) continue;
+      const i = L.ci(x, y), v = map.get(i);
       if (v == null || o.bz > v) map.set(i, o.bz);
     }
   }

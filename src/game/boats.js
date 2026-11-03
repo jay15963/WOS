@@ -119,18 +119,18 @@ export class Boats {
   reason(tx, ty, who, lv = 0) {
     const g = this.game, w = g.world, G = g.build.grid;
     if (lv > 0) return 'Só no térreo (na água)';
-    if (!w.inBounds(tx, ty) || tx < 2 || ty < 2 || tx >= w.W - 2 || ty >= w.H - 2) return 'Fora do mapa';
+    if (!w.inside(tx, ty, 2)) return 'Fora do mapa';
     const i = w.idx(tx, ty);
     if (G.main.get(i)?.type === 'boat') return 'exists';
-    if (!w.water[i] || w.rock[i]) return 'O barco vai na água, encostado na margem ou num trapiche';
+    if (!w.water.get(i) || w.rock.get(i)) return 'O barco vai na água, encostado na margem ou num trapiche';
     if (G.deck.has(i)) return 'Trapiche ou ponte no caminho';
-    if (G.main.has(i) || w.solid[i]) return 'Algo no caminho';
+    if (G.main.has(i) || w.solid.get(i)) return 'Algo no caminho';
     let side = false;
     for (let dy = -1; dy <= 1 && !side; dy++) for (let dx = -1; dx <= 1; dx++) {
       const x = tx + dx, y = ty + dy;
       if ((!dx && !dy) || !w.inBounds(x, y)) continue;
       const j = w.idx(x, y);
-      if ((!w.water[j] && !w.rock[j]) || G.deck.has(j)) { side = true; break; }
+      if ((!w.water.get(j) && !w.rock.get(j)) || G.deck.has(j)) { side = true; break; }
     }
     if (!side) return 'Encoste na margem ou num trapiche';
     for (const b of this.map.values()) if (Math.hypot(b.x - tx - 0.5, b.y - ty - 0.5) < 2.6) return 'Já tem um barco aqui';
@@ -190,7 +190,7 @@ export class Boats {
       const [x, y] = hullPt(b.x, b.y, b.h, u, s), tx = Math.floor(x), ty = Math.floor(y);
       if (!w.inBounds(tx, ty) || w.liquidAt(tx, ty) === 2 || collides(w, x, y, r, null, true, false)) return;
       for (const o of this.map.values()) if (inHull(o.x, o.y, o.h, x, y, 0.15)) return;
-      const i = ty * w.W + tx, wet = w.water[i] && !(w.deck && w.deck[i]) && !w.frozen;
+      const i = w.idx(tx, ty), wet = w.water.get(i) && !(w.deck && w.deck.get(i)) && !w.frozen;
       const sc = Math.hypot(x - fx, y - fy) + (wet ? 0.7 : 0) - 0.3 * (u / 1.5);
       if (sc < bs) { bs = sc; best = [r2(x), r2(y)]; }
     };
@@ -355,8 +355,8 @@ function oarRoom(w, b, dt) {
       if (blocked) break;
       const [x, y] = hullPt(b._x, b._y, b._h, uo + Math.sin(sw) * d, sd * (hw + Math.cos(sw) * d)), tx = Math.floor(x), ty = Math.floor(y);
       if (!w.inBounds(tx, ty)) { blocked = true; break; }
-      const i = ty * w.W + tx;
-      if (!w.water[i] || w.rock[i] || (w.deck && w.deck[i]) || w.solid[i]) blocked = true;
+      const i = w.idx(tx, ty);
+      if (!w.water.get(i) || w.rock.get(i) || (w.deck && w.deck.get(i)) || w.solid.get(i)) blocked = true;
     }
     oi[j] += ((blocked ? 1 : 0) - oi[j]) * k;
   }
@@ -364,7 +364,7 @@ function oarRoom(w, b, dt) {
   if (w.deck) for (const u of HULL_U) for (const s of HULL_S) {
     if (ub) break;
     const [x, y] = hullPt(b._x, b._y, b._h, u, s), tx = Math.floor(x), ty = Math.floor(y);
-    if (w.inBounds(tx, ty) && w.deck[ty * w.W + tx] === 2) ub = true;
+    if (w.inBounds(tx, ty) && w.deck.get(w.idx(tx, ty)) === 2) ub = true;
   }
   b._ub = ub;
 }
@@ -386,7 +386,7 @@ function drive(game, B, b, C, dt) {
     // the river's current (worldgen flow: rivers only, lakes are still): the oars and the drag act on the speed
     // through the water, so an idle boat drifts downstream and a rower easily beats it
     const ci = w.inBounds(Math.floor(C.x), Math.floor(C.y)) ? w.idx(Math.floor(C.x), Math.floor(C.y)) : -1;
-    const cux = ci >= 0 && w.flowX ? w.flowX[ci] * BOAT.current : 0, cuy = ci >= 0 && w.flowY ? w.flowY[ci] * BOAT.current : 0;
+    const cux = ci >= 0 && w.flowX ? w.flowX.get(ci) * BOAT.current : 0, cuy = ci >= 0 && w.flowY ? w.flowY.get(ci) * BOAT.current : 0;
     const c = Math.cos(C.h), n = Math.sin(C.h), rvx = C.vx - cux, rvy = C.vy - cuy;
     let vf = rvx * c + rvy * n, vl = -rvx * n + rvy * c;
     let turn = 0;
@@ -423,6 +423,7 @@ function drive(game, B, b, C, dt) {
       if (sp > 0.9 && game.time - (C.bumpT || 0) > 0.6) { C.bumpT = game.time; game.audio?.play('build_hit', { x: C.x, y: C.y, volume: 0.35 }); game.juice?.shake?.(0.08); }
     }
   }
+  if (game.world.wrap) C.x = game.world.wrapPos(C.x); // (the planet wraps: canonical x, the drawing takes the nearest image)
   b._x = C.x; b._y = C.y; b._h = C.h; b._buf = null;
   // report: a few times a second while it moves / turns, and once when it settles
   C.sendT -= dt;
@@ -460,7 +461,7 @@ const isBoatPose = (e) => !!e.pose?.o?._boatSeat;
 // riders / animals under a finished bridge: drawn behind its deck (game.js depth bias) — they pass under it, as the hull
 // (art/faces/solidBoat.js: the same bias on its faces while any of it is under a bridge, b._ub)
 export const UNDER = -1.5;
-const underDeck = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return !!w.deck && w.inBounds(tx, ty) && w.deck[ty * w.W + tx] === 2; };
+const underDeck = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return !!w.deck && w.inBounds(tx, ty) && w.deck.get(w.idx(tx, ty)) === 2; };
 // an animal stands on the floor at its spot of the layout (Boats.layout: across the hull, heads turned to either side)
 function placePet(B, b, m, L) {
   const [u, s, across, dir] = L;
@@ -773,9 +774,9 @@ export function installBoatDebug(game) {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const x = px + dx, y = py + dy;
-        if (!w.inBounds(x, y) || !w.water[w.idx(x, y)] || game.build.grid.main.has(w.idx(x, y)) || game.build.grid.deck.has(w.idx(x, y))) continue;
+        if (!w.inBounds(x, y) || !w.water.get(w.idx(x, y)) || game.build.grid.main.has(w.idx(x, y)) || game.build.grid.deck.has(w.idx(x, y))) continue;
         let side = false;
-        for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.inBounds(x + ex, y + ey) && ((!w.water[w.idx(x + ex, y + ey)] && !w.rock[w.idx(x + ex, y + ey)]) || game.build.grid.deck.has(w.idx(x + ex, y + ey)))) side = true;
+        for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.inBounds(x + ex, y + ey) && ((!w.water.get(w.idx(x + ex, y + ey)) && !w.rock.get(w.idx(x + ex, y + ey))) || game.build.grid.deck.has(w.idx(x + ex, y + ey)))) side = true;
         if (!side) continue;
         const lp = launchPose(game, x, y);
         if (lp) return { tx: x, ty: y, pose: lp };

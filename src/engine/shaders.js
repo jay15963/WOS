@@ -20,6 +20,7 @@ layout(location=6) in vec4 aParams; // sway, rot, flash, flip
 layout(location=7) in vec4 aExtra;  // recvShadow, lift, season class (src/art/season.js SC), depth mode
 layout(location=8) in vec4 aDepth;  // depth reference: x, y, height, bias (engine/spriteBatch.js)
 uniform vec2 uCam;
+vec2 cw(vec2 d){ d.x -= 16384.0 * floor(d.x / 16384.0 + 0.5); return d; } // the planet wraps (docs/STREAMING.md): a point's image nearest the camera
 uniform vec2 uScale;   // clip units per world unit
 uniform float uTime;
 uniform float uWind;   // 0..1 wind strength
@@ -43,16 +44,15 @@ const HGT_FN = `
 uniform highp sampler2D uHgt;
 uniform float uHgtOn;
 const float HSUB = 4.0;
-highp float hgtF(ivec2 c){ return texelFetch(uHgt, clamp(c, ivec2(0), textureSize(uHgt, 0) - 1), 0).r; }
+highp float hgtF(ivec2 c){ return texelFetch(uHgt, c & (textureSize(uHgt, 0) - 1), 0).r; } // (a ring around the camera: terrainWindow.js)
 highp float hgtTri(highp float a, highp float b, highp float c, highp float d, highp vec2 f){
   if (abs(a - d) <= abs(b - c)) return f.x >= f.y ? a + f.x * (b - a) + f.y * (d - b) : a + f.y * (c - a) + f.x * (d - c);
   return f.x + f.y <= 1.0 ? a + f.x * (b - a) + f.y * (c - a) : d + (1.0 - f.x) * (c - d) + (1.0 - f.y) * (b - d);
 }
 highp float groundH(highp vec2 p){
   if (uHgtOn < 0.5) return 0.0;
-  ivec2 sz = textureSize(uHgt, 0) - 1;
-  highp vec2 q = clamp(p * HSUB, vec2(0.0), vec2(sz));
-  ivec2 t = min(ivec2(floor(q)), sz - 1);
+  highp vec2 q = p * HSUB;
+  ivec2 t = ivec2(floor(q));
   return hgtTri(hgtF(t), hgtF(t + ivec2(1, 0)), hgtF(t + ivec2(0, 1)), hgtF(t + ivec2(1, 1)), q - vec2(t));
 }
 `;
@@ -177,7 +177,7 @@ vec2 rotLocal(vec2 l, float r){
 export const SPRITE_VS = `#version 300 es
 ${SPRITE_ATTRIBS}
 uniform sampler2D uClim;  // R = snow affinity (cold biomes), G = structure occupancy (contact AO)
-uniform vec2 uWorldSz;
+uniform highp vec2 uWorldSz; // the terrain window ring (src/world/terrainWindow.js WIN): textures REPEAT
 uniform float uSnow;      // snow cover 0..1 (env.extra.uSnow)
 uniform vec4 uSeaA;       // seasons (src/fx/seasonfx.js): snow, ice, autumn, bloom
 uniform vec4 uSeaB;       // bare, winter, autumn colour of the crowns (stays on until the leaves drop), blizzard
@@ -187,7 +187,7 @@ out vec4 vColor;
 out float vFlash;
 out float vRecv;
 out vec2 vLocal;
-out vec2 vW;              // world position on the ground plane (before lift)
+out highp vec2 vW;        // world position on the ground plane (before lift; highp: the planet is 16384 tiles wide)
 out float vFrost;         // snow lying on this (vegetation) sprite
 out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
@@ -202,12 +202,12 @@ void main(){
   if (aParams.x > 0.0) local = swayLocal(c, local);
   // camera yaw: an upright sprite turns only its anchor with the world (it keeps facing the screen); a flat one turns
   // whole; the lift goes straight up the screen
-  vec2 v = uFlat > 0.5 ? toView(aPos + local - uCam) : toView(aPos - uCam) + local;
+  vec2 v = uFlat > 0.5 ? toView(cw(aPos + local - uCam)) : toView(cw(aPos - uCam)) + local;
   vW = uFlat > 0.5 ? aPos + local : aPos + toWorld(local);
   float g = groundH(aDepth.xy); // terrain height under the reference point (its foot): everything stands on the ground
   v.y -= aExtra.y + g;
   vec2 clip = v * uScale;
-  vV = v; vZ = vec4(toView(aDepth.xy - uCam).y, aDepth.z + g, aDepth.w, aExtra.w);
+  vV = v; vZ = vec4(toView(cw(aDepth.xy - uCam)).y, aDepth.z + g, aDepth.w, aExtra.w);
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -240,7 +240,7 @@ void main(){
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
+in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in highp vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
 flat in vec4 vSea;
 in highp vec2 vV; flat in highp vec4 vZ;
@@ -423,8 +423,9 @@ out vec4 vC;
 out highp float vD;
 out highp vec2 vV;
 out highp vec3 vW;              // world (x, y, h): roofs lit by the lamps around them (light-occluder pass)
+vec2 cw(vec2 d){ d.x -= 16384.0 * floor(d.x / 16384.0 + 0.5); return d; } // the planet wraps (docs/STREAMING.md): a point's image nearest the camera
 void main(){
-  vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
+  vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = cw(aP.xy - uCam);
   vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
   if (uFaceG > 0.5) v.y -= groundH(aP.xy);
   v.y -= aP.z;
@@ -527,7 +528,7 @@ void main(){
   float h = max(0.0, -local.y) + aExtra.y;
   vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
   vec2 w = aPos + base + uShadowDir * h;
-  vec2 sv = toView(w - uCam);
+  vec2 sv = toView(cw(w - uCam));
   sv.y -= groundH(w); // (laid on the terrain where it lands)
   vec2 clip = sv * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
@@ -581,7 +582,7 @@ out vec2 vUV;
 flat out vec2 vA;   // alpha, owner id
 void main(){
   vec2 w = aPos + aCorner * aSize;
-  vec2 clip = toView(w - uCam) * uScale;
+  vec2 clip = toView(cw(w - uCam)) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vUV = mix(aUV.xy, aUV.zw, aCorner);
   vA = aColor.rg;
@@ -662,7 +663,7 @@ out vec2 vW;
 out float vKind;
 void main(){
   vec2 w = aPos + (aCorner - aAnchor) * aSize;
-  vec2 dv = toView(w - uCam);
+  vec2 dv = toView(cw(w - uCam));
   float g = groundH(w);
   dv.y -= g;
   vec2 clip = dv * uScale;
@@ -696,7 +697,7 @@ void darken(float a){ over(vec3(0.0), a); }
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float nLod(float s){ return max(log2(PPX * s * 256.0), 0.0); }
-vec4 tileAt(ivec2 c){ return texelFetch(uTile, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); }
+vec4 tileAt(ivec2 c){ return texelFetch(uTile, (c & (ivec2(uWorld) - 1)), 0); }
 float oreOf(ivec2 c){ return floor(tileAt(c).a * 255.0 + 0.5); }
 vec4 fieldAt(vec2 p){ return texture(uField, p / uWorld); }
 
@@ -981,7 +982,7 @@ vec2 pathCov(vec2 p){
 }
 // edge distance: the Gaussian coverage near the outline (≈ tiles there), the exact tile distance deep inside / far out
 float pathSd(float c, float sdT){ return mix(sdT, c - 0.36, smoothstep(0.0, 0.18, c) * (1.0 - smoothstep(0.84, 1.0, c))); }
-float pathCode(ivec2 c, int ch){ vec4 t = texelFetch(uPath, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); return floor((ch == 0 ? t.r : t.g) * 255.0 + 0.5); }
+float pathCode(ivec2 c, int ch){ vec4 t = texelFetch(uPath, (c & (ivec2(uWorld) - 1)), 0); return floor((ch == 0 ? t.r : t.g) * 255.0 + 0.5); }
 // material sample; earth and gravel get the anti-tiling pair of the ground textures
 vec4 pathMat(float l, vec2 p, float m){
   vec4 a = textureLod(uPathMat, vec3(p * 0.25, l), LOD);
@@ -1232,7 +1233,7 @@ uniform highp sampler2D uHgtF; // the fine surface itself (R32F, nearest; relief
 uniform highp sampler2D uHgtC; // corner heights (R32F, nearest: the tile's lowest / highest corner)
 uniform sampler2D uHgtK;    // per tile (RG8, linear between tile centres): R steepest slope (× 5.33: a smooth "rock here"
                             // field), G a building pad on / next to the tile (its steep sides are a masonry foundation)
-uniform vec2 uHgtSz;        // fine grid size (4W + 1, 4H + 1)
+uniform vec2 uHgtSz;        // fine ring size (4 × the terrain window: the textures repeat)
 uniform float uSnowLine;    // permanent snow above this height (stories)
 ${CUT_FN}
 uniform float uTime;
@@ -1298,7 +1299,7 @@ float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yz
 vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float nLod(float s){ return max(log2(PPX * s * 256.0), 0.0); }
 
-vec4 tileAt(ivec2 c){ return texelFetch(uTile, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); }
+vec4 tileAt(ivec2 c){ return texelFetch(uTile, (c & (ivec2(uWorld) - 1)), 0); }
 float gidOf(vec4 t){ return floor(t.r * 255.0 + 0.5); }
 float ridOf(vec4 t){ return 8.0 + clamp(floor(t.b * 255.0 + 0.5) - 1.0, 0.0, 3.0); }
 vec4 fieldAt(vec2 p){ return texture(uField, p / uWorld); }
@@ -1983,7 +1984,8 @@ void main(){
     }
     if (cl > 0.003) {
       ivec2 tq = ivec2(floor(wp));
-      float c0 = texelFetch(uHgtC, tq, 0).r, c1 = texelFetch(uHgtC, tq + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tq + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tq + ivec2(1, 1), 0).r;
+      ivec2 cm = textureSize(uHgtC, 0) - 1; // (a ring: terrainWindow.js)
+      float c0 = texelFetch(uHgtC, tq & cm, 0).r, c1 = texelFetch(uHgtC, (tq + ivec2(1, 0)) & cm, 0).r, c2 = texelFetch(uHgtC, (tq + ivec2(0, 1)) & cm, 0).r, c3 = texelFetch(uHgtC, (tq + ivec2(1, 1)) & cm, 0).r;
       vec4 tile = vec4(min(min(c0, c1), min(c2, c3)), max(max(c0, c1), max(c2, c3)), 0.0, 0.0);
       vec3 cr = cliffRock(wp, hT, gs, tile, vec4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td)), f, Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
       if (KT.b > 0.02) {

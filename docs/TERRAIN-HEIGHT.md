@@ -41,7 +41,7 @@ par concorda, em qualquer ordem que tenha recebido as edições). Cada célula f
 cujas pontas diferem menos (`triH`): uma borda em qualquer direção fica uma linha limpa, nunca um serrote. **CPU e GPU usam
 a mesma regra** (`height.js triH` = `shaders.js HGT_FN` / `TERRAIN_VS`): pés, profundidade e toque concordam exatamente.
 
-**Acessores** (nada de array fora deles — a engine de streaming vai paginar esta camada):
+**Acessores** (nada de array fora deles — no motor de streaming a camada é paginada por pedaço: `world/heightPaged.js`, docs/STREAMING.md §1):
 `world.heightAt(x, y)`, `cornerH(ix, iy)`, `tileSlope(tx, ty)` (o triângulo fino mais íngreme do tile, andares por tile),
 `isCliff(tx, ty)`, `cliffBetween(ax, ay, bx, by)`, `world.hasHeight`; na camada: `gradAt`, `tileMin / tileMax`,
 `maxIn(rect)` (o mais alto em blocos de 16 tiles: recorte da vista), `terrainH / plotH`, `setTerrain(list)`, `diff()` /
@@ -133,8 +133,8 @@ na direção da câmera pelo mais alto do terreno em volta).
 
 (Medido no fim, num relevo mais calmo e com todos os detalhes: no SwiftShader as diferenças ficam perto do ruído.) A
 malha tem ~18–22 mil células finas no zoom padrão (só um `texelFetch` por vértice — 4 por célula —, nenhum trabalho de
-CPU por quadro). Memória: superfície fina R32F + gradiente RGBA16F ≈ 12,6 MB num mapa 256² (a engine de streaming vai
-paginar por pedaço).
+CPU por quadro). Memória: superfície fina R32F + gradiente RGBA16F ≈ 12,6 MB num mapa 256² (no motor de streaming:
+anéis de 512 tiles em volta da câmera, docs/STREAMING.md §5).
 
 ---
 

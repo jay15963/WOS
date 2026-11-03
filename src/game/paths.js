@@ -22,7 +22,9 @@ import { initPathGrids, canPaint, rleTiles } from './mut/paths.js';
 import { registerWork, hitsFor } from './gathering.js';
 import { exitBuildMode } from './building.js';
 import { ITEMS } from './data.js';
-import { createTexture, createTextureArray } from '../engine/gl.js';
+import { createTextureArray } from '../engine/gl.js';
+import { Layer } from '../world/store.js';
+import { fillLayer4 } from '../world/terrainWindow.js'; // (GPU copies: channels of the terrain window ring)
 import { loadPathLayers, PATH_TEX } from '../world/pathTex.js';
 
 export { PATH_TYPES, PATH_BY_KEY, PATH_REMOVE };
@@ -49,16 +51,17 @@ const CW = [0, 1].map((par) => Float32Array.from([-2, -1, 0, 1, 2].map((dx) => {
 
 // ---------- setup ----------
 export function initPaths(game) {
-  const w = game.world, N = w.W * w.H;
+  const w = game.world;
   initPathGrids(game);
   w.pathSurface = PATH_SURFACE; // footsteps (src/fx/audio.js surfaceAt)
   const V = {
-    data: new Uint8Array(N * 4),     // GPU copy: R type (+128 nearest, outside), G plan code (+16 preview), B plan sd, A built sd
-    cov: new Uint8Array(N * 8),      // GPU copy, 2x res RG: built / plan coverage
-    dir: new Float32Array(N * 3),    // scratch per built tile: path direction (x, y) + σ along it
-    preview: new Uint8Array(N),      // local stroke / pending requests (code + 16)
+    // (sparse store layers over the planet: pages only around painted tiles)
+    data: new Layer('pathData', Uint8Array, 0, { sparse: true, comps: 4 }), // GPU copy: R type (+128 nearest, outside), G plan code (+16 preview), B plan sd, A built sd
+    cov: new Layer('pathCov', Uint8Array, 0, { sparse: true, comps: 8 }),   // GPU copy, 2x res RG per tile: [(sub y * 2 + sub x) * 2 + built / plan] coverage
+    dir: new Layer('pathDir', Float32Array, 0, { sparse: true, comps: 3 }), // scratch per built tile: path direction (x, y) + σ along it
+    preview: new Layer('pathPrev', Uint8Array, 0, { sparse: true }),        // local stroke / pending requests (code + 16)
     prevList: [],                    // tiles set in `preview`
-    mark: new Uint32Array(N), gen: 0, // scratch: tiles wanted in the preview this refresh
+    mark: new Map(), gen: 0,         // scratch: tiles wanted in the preview this refresh
     stroke: null,                    // { tiles: Set, ok: Map } while painting
     pending: [],                     // [{ tiles: [] }] sent, waiting for the host
     layers: null, layersP: null,     // material layers (CPU) once generated
@@ -68,8 +71,8 @@ export function initPaths(game) {
   game._paths = V;
   game.paths = {
     types: PATH_TYPES,
-    at: (tx, ty) => (w.inBounds(tx, ty) ? w.path[w.idx(tx, ty)] : 0),
-    planAt: (tx, ty) => (w.inBounds(tx, ty) ? w.pathPlan[w.idx(tx, ty)] : 0),
+    at: (tx, ty) => (w.inBounds(tx, ty) ? w.path.get(w.idx(tx, ty)) : 0),
+    planAt: (tx, ty) => (w.inBounds(tx, ty) ? w.pathPlan.get(w.idx(tx, ty)) : 0),
     counts: () => ({ built: game.pathGrid.built, planned: game.pathGrid.planned.size }),
     enter: (key) => enterPathMode(game, key),
     // paint / erase from code: tiles = [[tx, ty]…] or tile indices (tests, hotbar…)
@@ -78,7 +81,7 @@ export function initPaths(game) {
     deconAt: (wx, wy) => deconTiles(game, [w.idx(Math.floor(wx), Math.floor(wy))], true),
     deconRect: (x0, y0, x1, y1) => {
       const list = [];
-      for (let y = Math.max(0, y0); y <= Math.min(w.H - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(w.W - 1, x1); x++) list.push(w.idx(x, y));
+      for (let y = Math.max(w.minY, y0); y <= Math.min(w.maxY, y1); y++) for (let x = Math.max(w.minX, x0); x <= Math.min(w.maxX, x1); x++) list.push(w.idx(x, y));
       return deconTiles(game, list, false);
     },
     layers: () => ensureLayers(game),
@@ -87,6 +90,8 @@ export function initPaths(game) {
   };
   // work: the auto-work queue picks planned tiles too
   game.work?.providers?.push(PROVIDER);
+  // decor that arrives with a streamed chunk (or comes back near the camera) hides on the painted paths too
+  w.onDecor = (c) => { if (game.pathGrid?.built) { const x0 = (c & 255) * 64, y0 = (c >>> 8) * 64; refreshDecor(game, x0, y0, x0 + 63, y0 + 63); } };
   if (typeof document !== 'undefined' && !game.headless) ensureLayers(game);
   return game.paths;
 }
@@ -153,7 +158,7 @@ function okLocal(game, i, code) {
   const S = game._paths.stroke, w = game.world;
   let v = S.ok.get(i);
   if (v !== undefined) return v;
-  const tx = i % w.W, ty = (i / w.W) | 0, P = w.path[i], Q = w.pathPlan[i];
+  const tx = i % w.W, ty = (i / w.W) | 0, P = w.path.get(i), Q = w.pathPlan.get(i);
   if (code === PATH_REMOVE) v = !!(P || Q);
   else v = !(P === code && !Q) && Q !== code && !canPaint(game, tx, ty);
   S.ok.set(i, v);
@@ -214,11 +219,12 @@ function refreshPreview(game) {
   const gen = ++V.gen;
   let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1, n = 0;
   const touch = (i) => { const x = i % w.W, y = (i / w.W) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
-  const want = (i, c) => { M[i] = gen; if (P[i] !== c + 16) { if (!P[i]) V.prevList.push(i); P[i] = c + 16; touch(i); } };
+  const want = (i, c) => { M.set(i, gen); const pv = P.get(i); if (pv !== c + 16) { if (!pv) V.prevList.push(i); P.set(i, c + 16); touch(i); } };
   for (const q of V.pending) for (const i of q.tiles) want(i, q.code);
   if (V.stroke && m?.kind === 'path') for (const i of V.stroke.tiles) if (okLocal(game, i, m.code)) { want(i, m.code); n++; }
   let k = 0;
-  for (const i of V.prevList) { if (M[i] === gen) V.prevList[k++] = i; else { P[i] = 0; touch(i); } }
+  for (const i of V.prevList) { if (M.get(i) === gen) V.prevList[k++] = i; else { P.set(i, 0); touch(i); } }
+  M.clear();
   V.prevList.length = k;
   if (m?.kind === 'path') m.n = n;
   if (x1 >= 0) markGpu(game, x0, y0, x1, y1);
@@ -321,7 +327,7 @@ export const PATH_TOOL = {
 // deconstruct tool on tiles without structures: built paths are marked for removal, path blueprints cancelled
 function deconTiles(game, list, single) {
   const w = game.world, mine = [];
-  for (const i of list) if (i >= 0 && i < w.path.length && (w.path[i] || w.pathPlan[i]) && w.pathPlan[i] !== PATH_REMOVE) mine.push(i);
+  for (const i of list) if (i >= 0 && i < w.W * w.H && (w.path.get(i) || w.pathPlan.get(i)) && w.pathPlan.get(i) !== PATH_REMOVE) mine.push(i);
   if (!mine.length) return 0;
   requestPlan(game, PATH_REMOVE, mine, { quiet: !single });
   return mine.length;
@@ -331,7 +337,7 @@ function deconTiles(game, list, single) {
 function jobIt(game, tx, ty) {
   const w = game.world;
   if (!w.inBounds(tx, ty)) return null;
-  const i = w.idx(tx, ty), c = w.pathPlan[i];
+  const i = w.idx(tx, ty), c = w.pathPlan.get(i);
   if (!c) return null;
   const rem = c === PATH_REMOVE;
   return { kind: 'path', key: 'p' + i, i, c, tile: true, tx, ty, w: 1, h: 1, x: tx + 0.5, y: ty + 0.5, reach: 0.75, verb: rem ? 'Remover caminho' : 'Abrir caminho', icon: 'build', prio: 2 };
@@ -348,7 +354,7 @@ const PROVIDER = {
     for (const i of S) {
       const x = i % W, y = (i / W) | 0, d = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y);
       if (d >= bd) continue;
-      const c = Q[i];
+      const c = Q.get(i);
       if (c !== PATH_REMOVE && PATH_TYPES[c] && affordable(p, PATH_TYPES[c].cost) < 1) {
         if (Wk && !Wk.told.has('path' + c) && d < 14) { Wk.told.add('path' + c); game.events.emit('toast', { text: `Caminho parado · falta material: ${missingFor(game, PATH_TYPES[c].cost, 1)}`, kind: 'warn' }); }
         continue;
@@ -369,8 +375,8 @@ function patchOf(game, it) {
   for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
     const x = it.tx + dx, y = it.ty + dy;
     if (!w.inBounds(x, y)) continue;
-    const i = y * W + x;
-    if (Q[i] !== it.c || Math.hypot(dx, dy) > 1.6 || Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) > 2.4) continue;
+    const i = w.idx(x, y);
+    if (Q.get(i) !== it.c || Math.hypot(dx, dy) > 1.6 || Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) > 2.4) continue;
     out.push([Math.hypot(dx, dy), i]);
   }
   out.sort((a, b) => a[0] - b[0]);
@@ -381,17 +387,17 @@ const LAY_LABEL = { dirt: 'Batendo a terra', gravel: 'Espalhando cascalho', flag
 const CHIP = { dirt: [0.55, 0.43, 0.3], gravel: [0.6, 0.58, 0.54], flag: [0.62, 0.6, 0.55], cobble: [0.55, 0.55, 0.56], steps: [0.62, 0.6, 0.56] };
 
 registerWork('path', {
-  valid: (g, it) => g.world.pathPlan[it.i] === it.c,
+  valid: (g, it) => g.world.pathPlan.get(it.i) === it.c,
   start(game, it) {
     const w = game.world, p = game.player;
     const rem = it.c === PATH_REMOVE;
     // something was built / grew on the blueprint meanwhile (or the path to remove is gone): drop that plan
-    if (rem ? !w.path[it.i] : canPaint(game, it.tx, it.ty)) { game.net.request('path.plan', { c: 0, tiles: rleTiles([it.i]) }); return null; }
+    if (rem ? !w.path.get(it.i) : canPaint(game, it.tx, it.ty)) { game.net.request('path.plan', { c: 0, tiles: rleTiles([it.i]) }); return null; }
     let tiles = patchOf(game, it);
     if (!tiles.includes(it.i)) tiles.unshift(it.i);
     tiles = tiles.slice(0, PATH_PATCH);
     let per;
-    if (rem) per = (i) => Math.max(0.15, (PATH_TYPES[w.path[i]]?.time || 0.3) * 0.5);
+    if (rem) per = (i) => Math.max(0.15, (PATH_TYPES[w.path.get(i)]?.time || 0.3) * 0.5);
     else {
       const T = PATH_TYPES[it.c];
       const n = Math.min(tiles.length, affordable(p, T.cost));
@@ -402,16 +408,16 @@ registerWork('path', {
     let total = 0;
     for (const i of tiles) total += per(i);
     const { need, cycle } = hitsFor(Math.max(0.5, total), 1);
-    const T = PATH_TYPES[rem ? w.path[it.i] || 1 : it.c];
+    const T = PATH_TYPES[rem ? w.path.get(it.i) || 1 : it.c];
     return { type: !rem && T.key === 'dirt' ? 'plant' : 'build', cycle, need, tiles, code: it.c, label: rem ? 'Removendo caminho' : LAY_LABEL[T.key] || 'Abrindo caminho' };
   },
   hit(game, wk) {
-    const it = wk.it, w = game.world, T = PATH_TYPES[wk.code === PATH_REMOVE ? w.path[it.i] || 1 : wk.code];
+    const it = wk.it, w = game.world, T = PATH_TYPES[wk.code === PATH_REMOVE ? w.path.get(it.i) || 1 : wk.code];
     game.juice.chips(it.x, it.y, CHIP[T.key], 4, 0.25);
     game.audio?.play(T.key === 'dirt' ? 'path_dirt' : 'build_hit', { x: it.x, y: it.y, volume: 0.4 });
   },
   finish(game, wk) {
-    const w = game.world, p = game.player, tiles = wk.tiles.filter((i) => w.pathPlan[i] === wk.code);
+    const w = game.world, p = game.player, tiles = wk.tiles.filter((i) => w.pathPlan.get(i) === wk.code);
     if (!tiles.length) return true;
     let sx = 0, sy = 0;
     for (const i of tiles) { sx += i % w.W; sy += (i / w.W) | 0; }
@@ -439,25 +445,24 @@ registerWork('path', {
 
 // ---------- GPU data + decor (cosmetic, from the shared grids) ----------
 function rebuildData(game, x0, y0, x1, y1) {
-  const w = game.world, W = w.W, H = w.H, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, D = V.data;
+  const w = game.world, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, D = V.data;
   const { dx: ODX, dy: ODY, d: ODD } = OFF, NO = ODD.length;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = y * W + x, o = i * 4, b = P[i], pv = PV[i], pl = pv || Q[i];
+    const i = w.idx(x, y), b = P.get(i), pv = PV.get(i), pl = pv || Q.get(i);
     const inB = b > 0, inP = pl > 0;
     let dB = 0, dP = 0, nt = 0;
     for (let k = 0; k < NO && (!dB || !dP); k++) {
       const xx = x + ODX[k], yy = y + ODY[k];
       let bj = 0, pj = 0;
-      if (xx >= 0 && yy >= 0 && xx < W && yy < H) { const j = yy * W + xx; bj = P[j]; pj = PV[j] || Q[j]; }
+      if (w.inBounds(xx, yy)) { const j = w.idx(xx, yy); bj = P.get(j); pj = PV.get(j) || Q.get(j); }
       if (!dB && (bj > 0) !== inB) { dB = ODD[k]; if (!inB) nt = bj; }
       if (!dP && (pj > 0) !== inP) dP = ODD[k];
     }
     const sdB = dB ? (inB ? dB - 0.5 : 0.5 - dB) : inB ? 2 : -2;
     const sdP = dP ? (inP ? dP - 0.5 : 0.5 - dP) : inP ? 2 : -2;
-    D[o] = inB ? b : nt ? 128 + nt : 0;
-    D[o + 1] = pl;
-    D[o + 2] = enc(sdP);
-    D[o + 3] = enc(sdB);
+    const r = inB ? b : nt ? 128 + nt : 0, eP = enc(sdP), eB = enc(sdB);
+    if (!r && !pl && !eP && !eB && !D.pages[((i >>> 20) << 8) | ((i & 16383) >>> 6)]) continue; // (nothing here: no page)
+    D.set4(i, 0, r); D.set4(i, 1, pl); D.set4(i, 2, eP); D.set4(i, 3, eB);
   }
 }
 // Built coverage = oriented Gaussian splats: each built tile spreads along the local path direction (structure tensor
@@ -466,11 +471,11 @@ function rebuildData(game, x0, y0, x1, y1) {
 const GW5 = (() => { const a = new Float32Array(25); for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) a[(dy + 2) * 5 + dx + 2] = Math.exp(-(dx * dx + dy * dy) / (2 * 1.3 * 1.3)); return a; })();
 const SPLAT_R = 3;
 function tileDirs(game, x0, y0, x1, y1) {
-  const w = game.world, W = w.W, H = w.H, P = w.path, Dr = game._paths.dir;
-  const on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && P[y * W + x] > 0;
-  for (let y = Math.max(0, y0); y <= Math.min(H - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
-    const i = y * W + x;
-    if (!P[i]) continue;
+  const w = game.world, P = w.path, Dr = game._paths.dir;
+  const on = (x, y) => w.inBounds(x, y) && P.get(w.idx(x, y)) > 0;
+  for (let y = Math.max(w.minY, y0); y <= Math.min(w.maxY, y1); y++) for (let x = Math.max(w.minX, x0); x <= Math.min(w.maxX, x1); x++) {
+    const i = w.idx(x, y);
+    if (!P.get(i)) continue;
     let sxx = 0, syy = 0, sxy = 0;
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       if ((!dx && !dy) || !on(x + dx, y + dy)) continue;
@@ -481,44 +486,45 @@ function tileDirs(game, x0, y0, x1, y1) {
     const th = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(th), uy = Math.sin(th);
     // a path end (nothing ahead or behind along the direction) keeps a round tip
     const end = !on(Math.round(x + ux), Math.round(y + uy)) || !on(Math.round(x - ux), Math.round(y - uy));
-    Dr[i * 3] = ux; Dr[i * 3 + 1] = uy; Dr[i * 3 + 2] = end ? 0.5 : 0.5 + 0.75 * a;
+    Dr.setc(i, 0, ux); Dr.setc(i, 1, uy); Dr.setc(i, 2, end ? 0.5 : 0.5 + 0.75 * a);
   }
 }
 function rebuildCov(game, x0, y0, x1, y1, planOnly = false) {
-  const w = game.world, W = w.W, H = w.H, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, C = V.cov, Dr = V.dir, W2 = W * 2;
+  const w = game.world, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, C = V.cov, Dr = V.dir;
   if (!planOnly) tileDirs(game, x0 - SPLAT_R, y0 - SPLAT_R, x1 + SPLAT_R, y1 + SPLAT_R);
   const SC2 = 2 * COV_S * COV_S;
-  for (let sy = Math.max(0, y0 * 2); sy <= Math.min(H * 2 - 1, y1 * 2 + 1); sy++) {
+  x0 = Math.max(w.minX, x0); x1 = Math.min(w.maxX, x1); y0 = Math.max(w.minY, y0); y1 = Math.min(w.maxY, y1);
+  for (let sy = y0 * 2; sy <= y1 * 2 + 1; sy++) {
     const by = sy >> 1, wy = CW[sy & 1], qy = (sy + 0.5) / 2;
-    for (let sx = Math.max(0, x0 * 2); sx <= Math.min(W2 - 1, x1 * 2 + 1); sx++) {
+    for (let sx = x0 * 2; sx <= x1 * 2 + 1; sx++) {
       const bx = sx >> 1, wx = CW[sx & 1], qx = (sx + 0.5) / 2;
       let cb = 0, cp = 0;
       for (let dy = -SPLAT_R; dy <= SPLAT_R; dy++) {
         const yy = by + dy;
-        if (yy < 0 || yy >= H) continue;
-        const row = yy * W;
+        if (yy < w.minY || yy > w.maxY) continue;
         for (let dx = -SPLAT_R; dx <= SPLAT_R; dx++) {
           const xx = bx + dx;
-          if (xx < 0 || xx >= W) continue;
-          const j = row + xx;
-          if (P[j] && !planOnly) {
-            const ex = qx - xx - 0.5, ey = qy - yy - 0.5, ux = Dr[j * 3], uy = Dr[j * 3 + 1], sa = Dr[j * 3 + 2];
+          if (!w.inBounds(xx, yy)) continue;
+          const j = w.idx(xx, yy);
+          if (!planOnly && P.get(j)) {
+            const ex = qx - xx - 0.5, ey = qy - yy - 0.5, ux = Dr.getc(j, 0), uy = Dr.getc(j, 1), sa = Dr.getc(j, 2);
             const u = ex * ux + ey * uy, v = -ex * uy + ey * ux;
             cb += Math.exp(-(u * u) / (2 * sa * sa) - (v * v) / SC2) / (Math.PI * SC2 * (sa / COV_S));
           }
-          if (dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2 && (PV[j] || Q[j])) cp += wy[dy + 2] * wx[dx + 2];
+          if (dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2 && (PV.get(j) || Q.get(j))) cp += wy[dy + 2] * wx[dx + 2];
         }
       }
-      const o = (sy * W2 + sx) * 2;
-      if (!planOnly) C[o] = cb >= 1 ? 255 : Math.round(cb * 255);
-      C[o + 1] = cp >= 1 ? 255 : Math.round(cp * 255);
+      const i = w.idx(bx, by), k = ((sy & 1) * 2 + (sx & 1)) * 2;
+      const vb = cb >= 1 ? 255 : Math.round(cb * 255), vp = cp >= 1 ? 255 : Math.round(cp * 255);
+      if (!planOnly) C.setc(i, k, vb);
+      C.setc(i, k + 1, vp);
     }
   }
 }
 // built coverage at a world point (bilinear on the 2x field, like the shader without the noise)
 function covAt(V, w, x, y) {
-  const W2 = w.W * 2, H2 = w.H * 2, C = V.cov, fx = x * 2 - 0.5, fy = y * 2 - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), u = fx - x0, v = fy - y0;
-  const s = (xx, yy) => C[((Math.min(H2 - 1, Math.max(0, yy)) * W2) + Math.min(W2 - 1, Math.max(0, xx))) * 2];
+  const C = V.cov, fx = x * 2 - 0.5, fy = y * 2 - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), u = fx - x0, v = fy - y0;
+  const s = (xx, yy) => { const by = yy >> 1; if (by < w.minY || by > w.maxY) return 0; return C.getc(w.idx(xx >> 1, by), ((yy & 1) * 2 + (xx & 1)) * 2); };
   const a = s(x0, y0) + (s(x0 + 1, y0) - s(x0, y0)) * u, b = s(x0, y0 + 1) + (s(x0 + 1, y0 + 1) - s(x0, y0 + 1)) * u;
   return (a + (b - a) * v) / 255;
 }
@@ -527,44 +533,40 @@ function refreshDecor(game, x0, y0, x1, y1) {
   w.forChunks(x0, y0, x1 + 1, y1 + 1, (c) => {
     for (const d of c.decor) {
       if (d.x < x0 || d.x > x1 + 1 || d.y < y0 || d.y > y1 + 1) continue;
-      const tx = Math.floor(d.x), ty = Math.floor(d.y), t = w.inBounds(tx, ty) ? w.path[w.idx(tx, ty)] : 0;
+      const tx = Math.floor(d.x), ty = Math.floor(d.y), t = w.inBounds(tx, ty) ? w.path.get(w.idx(tx, ty)) : 0;
       // grass keeps growing between stepping stones; elsewhere only edge tufts stay
       d._hid = t !== PATH_STEPS && covAt(V, w, d.x, d.y) - COV_ISO > DECOR_HIDE ? 1 : 0;
     }
   });
 }
-function subUpload(gl, tex, rowLen, x0, y0, w, h, format, data) {
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rowLen);
-  gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, x0);
-  gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y0);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, x0, y0, w, h, format, gl.UNSIGNED_BYTE, data);
-  gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-  gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
-  gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
-}
-// re-upload a tile rect of both GPU copies (the textures are created on the first call)
+// the GPU copies are two channels of the terrain window (src/world/terrainWindow.js): register them once, then a tile
+// rect re-upload is an invalidation of the window
 function upload(game, x0, y0, x1, y1) {
-  const R = game.R, V = game._paths, w = game.world, gl = R?.gl;
-  if (!gl) return;
-  if (!R.pathTex) {
-    R.pathTex = createTexture(gl, { width: w.W, height: w.H, data: V.data });
-    R.pathCovTex = createTexture(gl, { width: w.W * 2, height: w.H * 2, data: V.cov, internal: gl.RG8, format: gl.RG });
+  const R = game.R, V = game._paths, win = R?.win;
+  if (!win) return;
+  if (!win.tex.path) {
+    const gl = R.gl;
+    win.add('path', { scale: 1, comps: 4, fill: (X0, Y0, tw, th, out) => fillLayer4(V.data, X0, Y0, tw, th, out) });
+    win.add('pathCov', { scale: 2, comps: 2, filter: gl.LINEAR, fill: (X0, Y0, tw, th, out) => {
+      const C = V.cov, OW = tw * 2;
+      for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) {
+        const i = game.world.idx(X0 + tx, Y0 + ty), p = C.pages[((i >>> 20) << 8) | ((i & 16383) >>> 6)];
+        if (!p) continue;
+        const l = ((((i >>> 8) & 4032) | (i & 63))) * 8;
+        for (let k = 0; k < 4; k++) { const o = ((ty * 2 + (k >> 1)) * OW + tx * 2 + (k & 1)) * 2; out[o] = p[l + k * 2]; out[o + 1] = p[l + k * 2 + 1]; }
+      }
+    } });
+    R.pathTex = win.tex.path; R.pathCovTex = win.tex.pathCov;
     return;
   }
-  subUpload(gl, R.pathTex, w.W, x0, y0, x1 - x0 + 1, y1 - y0 + 1, gl.RGBA, V.data);
-  subUpload(gl, R.pathCovTex, w.W * 2, x0 * 2, y0 * 2, (x1 - x0 + 1) * 2, (y1 - y0 + 1) * 2, gl.RG, V.cov);
+  win.invalidate(x0, y0, x1, y1, ['path', 'pathCov']);
 }
 // bounding box of every built / planned / previewed tile (full rebuilds after a load / snapshot)
 function contentBox(game) {
   const w = game.world, W = w.W, P = w.path, Q = w.pathPlan, PV = game._paths.preview;
   let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
-  for (let i = 0; i < P.length; i++) {
-    if (!(P[i] | Q[i] | PV[i])) continue;
-    const x = i % W, y = (i / W) | 0;
-    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-  }
+  const box = (i) => { const x = i % W, y = (i / W) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+  P.forEach(box); Q.forEach(box); PV.forEach(box);
   return x1 < 0 ? null : [x0, y0, x1, y1];
 }
 
@@ -580,24 +582,24 @@ function syncGpu(game) {
   if (V.full) {
     // whole grid: clear, then rebuild around the content only
     V.full = false;
-    V.data.fill(0); // type 0, plan 0, both distances −2 (byte 0)
-    V.cov.fill(0);
+    V.data.clear(); // type 0, plan 0, both distances −2 (byte 0)
+    V.cov.clear(); V.dir.clear();
     d = contentBox(game);
     const prevHid = !!V.anyHid;
     if (d) {
-      rebuildData(game, Math.max(0, d[0] - SD_R), Math.max(0, d[1] - SD_R), Math.min(w.W - 1, d[2] + SD_R), Math.min(w.H - 1, d[3] + SD_R));
-      rebuildCov(game, Math.max(0, d[0] - SPLAT_R - 2), Math.max(0, d[1] - SPLAT_R - 2), Math.min(w.W - 1, d[2] + SPLAT_R + 2), Math.min(w.H - 1, d[3] + SPLAT_R + 2));
+      rebuildData(game, Math.max(w.minX, d[0] - SD_R), Math.max(w.minY, d[1] - SD_R), Math.min(w.maxX, d[2] + SD_R), Math.min(w.maxY, d[3] + SD_R));
+      rebuildCov(game, d[0] - SPLAT_R - 2, d[1] - SPLAT_R - 2, d[2] + SPLAT_R + 2, d[3] + SPLAT_R + 2);
     }
-    if (prevHid || d) w.forChunks(0, 0, w.W, w.H, (c) => { for (const q of c.decor) if (q._hid) q._hid = 0; });
-    if (d) refreshDecor(game, Math.max(0, d[0] - 4), Math.max(0, d[1] - 4), Math.min(w.W - 1, d[2] + 4), Math.min(w.H - 1, d[3] + 4));
+    if (prevHid || d) for (const c of w.buckets()) { for (const q of c.decor) if (q._hid) q._hid = 0; }
+    if (d) refreshDecor(game, d[0] - 4, d[1] - 4, d[2] + 4, d[3] + 4);
     V.anyHid = !!d;
-    if (R?.gl && !game.headless) { if (R.pathTex) upload(game, 0, 0, w.W - 1, w.H - 1); else upload(game, 0, 0, 0, 0); }
+    if (R?.gl && !game.headless) { if (R.pathTex) upload(game, -1e9, 0, 1e9, w.H - 1); else upload(game, 0, 0, 0, 0); }
   } else {
     const M5 = SPLAT_R + 2; // a tile change moves the directions of its neighbours (2), whose splats reach 3 further
-    const x0 = Math.max(0, d[0] - M5), y0 = Math.max(0, d[1] - M5), x1 = Math.min(w.W - 1, d[2] + M5), y1 = Math.min(w.H - 1, d[3] + M5);
-    rebuildData(game, Math.max(0, d[0] - SD_R), Math.max(0, d[1] - SD_R), Math.min(w.W - 1, d[2] + SD_R), Math.min(w.H - 1, d[3] + SD_R));
+    const x0 = Math.max(w.minX, d[0] - M5), y0 = Math.max(w.minY, d[1] - M5), x1 = Math.min(w.maxX, d[2] + M5), y1 = Math.min(w.maxY, d[3] + M5);
+    rebuildData(game, Math.max(w.minX, d[0] - SD_R), Math.max(w.minY, d[1] - SD_R), Math.min(w.maxX, d[2] + SD_R), Math.min(w.maxY, d[3] + SD_R));
     rebuildCov(game, x0, y0, x1, y1, planOnly);
-    if (!planOnly) { refreshDecor(game, Math.max(0, d[0] - 4), Math.max(0, d[1] - 4), Math.min(w.W - 1, d[2] + 4), Math.min(w.H - 1, d[3] + 4)); V.anyHid = true; }
+    if (!planOnly) { refreshDecor(game, d[0] - 4, d[1] - 4, d[2] + 4, d[3] + 4); V.anyHid = true; }
     if (R?.gl && !game.headless) upload(game, x0, y0, x1, y1);
   }
   if (R) R.pathOn = any && V.gpuReady ? 1 : 0;
@@ -626,7 +628,7 @@ export function pathsSystem() {
       // walking on a path (floors and paths never share a tile; not while up on a wall top / upper story)
       if (!p.dead && !(p.lv > 0)) {
         const tx = Math.floor(p.x), ty = Math.floor(p.y);
-        if (w.inBounds(tx, ty)) { const t = w.path[w.idx(tx, ty)]; if (t) p.speed *= PATH_TYPES[t].speed; }
+        if (w.inBounds(tx, ty)) { const t = w.path.get(w.idx(tx, ty)); if (t) p.speed *= PATH_TYPES[t].speed; }
       }
       const m = game.build.mode;
       if (m?.kind === 'path') {

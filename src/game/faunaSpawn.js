@@ -2,8 +2,8 @@
 //
 // 1) spawnsForChunk(grid, rng, opts) — PURE (no game, no DOM, no Math.random): the creature groups of one chunk from
 //    its layers and the per-biome tables (content/fauna.js FAUNA_SPAWNS). The streaming engine calls it per chunk when
-//    a chunk becomes active (seeded by the chunk's planet coordinates: chunkRng), the ?planet=1 hook below for the whole
-//    cut. Same grid + same rng = same groups, on any peer.
+//    a chunk loads (seeded by the chunk's planet coordinates: chunkRng) — chunkFauna below. Same grid + same rng = same
+//    groups, on any peer.
 //      grid = { size,                       tiles per side (64 for a planet chunk)
 //               biome: Uint8Array(size²),   planet biome ids (world/planet/biomes.js BIOME_LIST)
 //               water?: Uint8Array,         0 land · 1 shallow · 2 deep · 3 abyss
@@ -15,10 +15,10 @@
 //      opts = { tables?, density? (× every row), gap? (tiles between groups, default 6), exclude?(x, y) → true to skip }
 //    → [{ species, x, y, count, when, biome, on }]   x, y = tile centre (+ x0 / y0); when = the species' hours
 //
-// 2) createFaunaSpawners(game, { levelFor, whenOf, firstId }) — the ?planet=1 hook (mobs.js createSpawners): the
-//    in-game cut walked in 64 × 64 blocks aligned to the planet's chunks (world.planetAt), each block through
-//    spawnsForChunk with its own chunk seed, turned into mobs.js spawners (level by distance from the spawn like every
-//    spawner, min distance from the spawn per species, fish schools as livestock fish spawners).
+// 2) chunkFauna(game, c, { levelFor, whenOf }) — the streamed planet's hook (mobs.js planetSpawners, when chunk c loads
+//    on the host, docs/STREAMING.md): the chunk's layers from the world (`pbiome`: the planet's biome ids), its own
+//    chunk seed, the groups turned into mobs.js spawners (level by distance from the spawn like every spawner, min
+//    distance from the spawn per species, fish schools as livestock fish spawners); they leave with the chunk.
 
 import { FAUNA_SPAWNS, FAUNA } from './content/fauna.js';
 import { SPECIES } from './data.js';
@@ -91,47 +91,42 @@ export function spawnsForChunk(grid, rng, opts = {}) {
   return out;
 }
 
-// ---------- the ?planet=1 hook ----------
-export function createFaunaSpawners(game, { levelFor, whenOf = null, firstId = 1 } = {}) {
+// ---------- the streamed planet's hook (mobs.js planetSpawners: a chunk loads on the host) ----------
+// The chunk's layers read from the world (`pbiome` = the planet's biome ids, world/planetSource.js), its own chunk seed,
+// then the groups as mobs.js spawners: level by distance from the spawn like every spawner, the species' min distance
+// from the spawn, fish schools as livestock fish spawners. Same chunk → same spawners on every load.
+export function chunkFauna(game, c, { levelFor, whenOf = null } = {}) {
   const w = game.world;
-  if (!w.planetBiome) return [];
-  const W = w.W, H = w.H, at = w.planetAt || { x0: 0, y0: 0 }, seed = at.seed ?? w.seed ?? 1;
-  const sx = w.spawn.x, sy = w.spawn.y;
-  // tree tiles (the 'trees' rows: monkeys)
-  const trees = new Uint8Array(W * H);
-  for (const o of w.objects || []) if (o.type?.startsWith('tree_')) { const tx = Math.floor(o.x), ty = Math.floor(o.y); if (tx >= 0 && ty >= 0 && tx < W && ty < H) trees[ty * W + tx] = 1; }
-  const out = [];
-  let id = firstId;
-  // blocks aligned to the planet's chunks (the cut starts on a chunk corner)
-  const ox = ((at.x0 % CHUNK) + CHUNK) % CHUNK, oy = ((at.y0 % CHUNK) + CHUNK) % CHUNK;
-  for (let by = -oy; by < H; by += CHUNK) for (let bx = -ox; bx < W; bx += CHUNK) {
-    const S = CHUNK, biome = new Uint8Array(S * S), water = new Uint8Array(S * S), rock = new Uint8Array(S * S), tr = new Uint8Array(S * S), height = new Float32Array((S + 1) * (S + 1));
-    let inside = 0;
-    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      const tx = bx + x, ty = by + y, j = y * S + x;
-      if (tx < 1 || ty < 1 || tx >= W - 1 || ty >= H - 1) { biome[j] = 255; continue; } // (outside the cut: no table)
-      const i = ty * W + tx;
-      biome[j] = w.planetBiome[i]; water[j] = w.planetWater ? w.planetWater[i] : w.water[i]; rock[j] = w.rock[i]; tr[j] = trees[i];
-      inside++;
+  if (!w.pbiome) return [];
+  const S = CHUNK, cx = c & 255, cy = c >>> 8, x0 = cx * S, y0 = cy * S;
+  const biome = new Uint8Array(S * S), water = new Uint8Array(S * S), rock = new Uint8Array(S * S), trees = new Uint8Array(S * S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = w.idx(x0 + x, y0 + y), j = y * S + x;
+    biome[j] = w.pbiome.get(i); water[j] = w.water.get(i); rock[j] = w.rock.get(i);
+  }
+  w.forChunks(x0, y0, x0 + S - 1, y0 + S - 1, (bk) => {
+    for (const o of bk.objects) {
+      if (!o.type?.startsWith('tree_')) continue;
+      const lx = Math.floor(w.dx(o.x, x0)), ly = Math.floor(o.y) - y0;
+      if (lx >= 0 && ly >= 0 && lx < S && ly < S) trees[ly * S + lx] = 1;
     }
-    if (!inside) continue;
-    if (w.height?.any) for (let y = 0; y <= S; y++) for (let x = 0; x <= S; x++) height[y * (S + 1) + x] = w.height.cornerH(bx + x, by + y);
-    const pcx = Math.floor((at.x0 + bx) / CHUNK), pcy = Math.floor((at.y0 + by) / CHUNK);
-    const rng = chunkRng(seed, pcx, pcy);
-    const list = spawnsForChunk({ size: S, biome, water, rock, height: w.height?.any ? height : null, trees: tr, x0: bx, y0: by }, rng, {
-      exclude: (x, y) => out.some((s) => Math.abs(s.x - x) < 5 && Math.abs(s.y - y) < 5),
-    });
-    for (const g of list) {
-      const sp = SPECIES[g.species];
-      if (!sp) continue;
-      const d = Math.hypot(g.x - sx, g.y - sy);
-      if (d < (sp.minD ?? 8)) continue; // (the bare-hands start stays fair)
-      const lvl = levelFor ? levelFor(d, (sp.lvl || 0) + (rng() < 0.3 ? 1 : 0)) : 1;
-      const s = { id: id++, species: g.species, x: g.x, y: g.y, level: lvl, count: g.count, members: [], when: whenOf?.(g.species) || g.when, biome: g.biome };
-      if (g.species === 'fish') { s.fish = true; s.level = 1; s.when = 'always'; }
-      else if (FAUNA[g.species]) s.fauna = true;
-      out.push(s);
-    }
+  });
+  let height = null;
+  if (w.height?.any) {
+    height = new Float32Array((S + 1) * (S + 1));
+    for (let y = 0; y <= S; y++) for (let x = 0; x <= S; x++) height[y * (S + 1) + x] = w.height.cornerH(x0 + x, y0 + y);
+  }
+  const rng = chunkRng(w.seed, cx, cy), sx = w.spawn.x, sy = w.spawn.y, out = [];
+  for (const g of spawnsForChunk({ size: S, biome, water, rock, height, trees, x0, y0 }, rng)) {
+    const sp = SPECIES[g.species];
+    if (!sp) continue;
+    const d = Math.hypot(w.dx(g.x, sx), g.y - sy);
+    if (d < (sp.minD ?? 8)) continue; // (the bare-hands start stays fair)
+    const lvl = levelFor ? levelFor(d, (sp.lvl || 0) + (rng() < 0.3 ? 1 : 0)) : 1;
+    const s = { id: 0, species: g.species, x: g.x, y: g.y, level: lvl, count: g.count, members: [], when: whenOf?.(g.species) || g.when, biome: g.biome };
+    if (g.species === 'fish') { s.fish = true; s.level = 1; s.when = 'always'; }
+    else if (FAUNA[g.species]) s.fauna = true;
+    out.push(s);
   }
   return out;
 }

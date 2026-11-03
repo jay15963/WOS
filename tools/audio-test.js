@@ -21,8 +21,8 @@ function fakeWorld({ room = false, cave = false, lake = false, fire = false } = 
     inBounds: (x, y) => x >= 0 && y >= 0 && x < W && y < H, idx: (x, y) => y * W + x,
     caveDark: () => (cave ? 1 : 0), isCave: () => cave,
   };
-  if (room) for (let k = 28; k <= 36; k++) for (const [x, y] of [[k, 28], [k, 36], [28, k], [36, k]]) { w.rock[y * W + x] = 1; w.solid[y * W + x] = 1; }
-  if (lake) for (let y = 24; y < 31; y++) for (let x = 34; x < 44; x++) w.water[y * W + x] = 1;
+  if (room) for (let k = 28; k <= 36; k++) for (const [x, y] of [[k, 28], [k, 36], [28, k], [36, k]]) { w.rock.set(y * W + x, 1); w.solid.set(y * W + x, 1); }
+  if (lake) for (let y = 24; y < 31; y++) for (let x = 34; x < 44; x++) w.water.set(y * W + x, 1);
   const objs = [];
   for (let k = 0; k < 18; k++) objs.push({ type: 'tree_oak', x: 20 + ((k * 37) % 24), y: 20 + ((k * 53) % 24) });
   if (fire) objs.push({ type: 'campfire', fire: true, x: 34, y: 33 });

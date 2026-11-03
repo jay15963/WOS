@@ -1,5 +1,5 @@
 // Painted terrain paths (agent M): every shared change of the path grid and its blueprint layer.
-// Grids (Uint8Array W*H, created by initPathGrids before any save / snapshot is applied):
+// Grids (sparse store layers over the planet, created by initPathGrids before any save / snapshot is applied):
 //   world.path     built path type per tile (0 none, 1..5 = content/paths.js PATH_TYPES)
 //   world.pathPlan plan code per tile (0 none, 1..5 = lay that type: blue blueprint, 15 = remove the path here)
 // Ops:     path.plan {c, tiles}  ·  path.set {t, tiles, by?, xp?, give?}
@@ -7,9 +7,11 @@
 //          path.lay  {t, tiles}  a worker laid a patch of planned tiles (it paid the materials: request refund)
 //          path.dig  {tiles}     a worker removed marked tiles (75% of the materials back as `give`)
 // Tile lists travel run-length encoded: [start, len, start, len…] over sorted tile indices (rleTiles / unrleTiles).
-// Snapshot / save: { g, p } = rleGrid(world.path), rleGrid(world.pathPlan) as [value, count, …] runs.
+// Snapshot / save: { s: 2, g, p } = rleGrid(world.path), rleGrid(world.pathPlan) as [start, count, value, …] runs of
+// the non-empty tiles (the planet is 134M tiles: only what is painted travels).
 // Derived (every peer, from the grids): game.pathGrid = { planned: Set of planned tiles, built, dirty rect, v }.
 
+import { Layer, CS, CW } from '../../world/store.js'; // sparse path grids (docs/STREAMING.md)
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { objectsOnTile, CLEARABLE, CLEAR_YIELD } from './structures.js';
 import { BUILDINGS } from '../data.js';
@@ -19,9 +21,9 @@ const validCode = (c) => Number.isInteger(c) && ((c >= 0 && c <= PATH_COUNT) || 
 
 // ---------- grids + derived bookkeeping ----------
 export function initPathGrids(game) {
-  const w = game.world, N = w.W * w.H;
-  if (!w.path || w.path.length !== N) w.path = new Uint8Array(N);
-  if (!w.pathPlan || w.pathPlan.length !== N) w.pathPlan = new Uint8Array(N);
+  const w = game.world;
+  if (!(w.path instanceof Layer)) w.path = new Layer('path', Uint8Array, 0, { sparse: true });
+  if (!(w.pathPlan instanceof Layer)) w.pathPlan = new Layer('pathPlan', Uint8Array, 0, { sparse: true });
   game.pathGrid = { planned: new Set(), built: 0, dirty: null, v: 0 };
   return game.pathGrid;
 }
@@ -39,7 +41,8 @@ export function pathChanged(game, x0, y0, x1, y1, built = true) {
 function rebuildIndex(game) {
   const w = game.world, s = PG(game), P = w.path, Q = w.pathPlan;
   s.planned.clear(); s.built = 0;
-  for (let i = 0; i < P.length; i++) { if (P[i]) s.built++; if (Q[i]) s.planned.add(i); }
+  P.forEach(() => { s.built++; });
+  Q.forEach((i) => { s.planned.add(i); });
   pathChanged(game, 0, 0, w.W - 1, w.H - 1);
 }
 
@@ -66,28 +69,25 @@ export function unrleTiles(runs, N, max = PATH_MAX_PAINT) {
   }
   return out;
 }
-export function rleGrid(a) {
+// [start, count, value, …] runs of equal non-zero values over consecutive tile indices of a sparse layer
+export function rleGrid(L) {
   const out = [];
-  for (let i = 0; i < a.length;) {
-    const v = a[i];
-    let n = 1;
-    while (i + n < a.length && a[i + n] === v) n++;
-    out.push(v, n);
-    i += n;
-  }
+  let s = -1, n = 0, v = 0;
+  L.forEach((i, x) => {
+    if (n && i === s + n && x === v) { n++; return; }
+    if (n) out.push(s, n, v);
+    s = i; n = 1; v = x;
+  });
+  if (n) out.push(s, n, v);
   return out;
 }
-function unrleGrid(runs, out, ok) {
-  out.fill(0);
+function unrleGrid(runs, L, ok, N) {
+  L.clear();
   if (!Array.isArray(runs)) return;
-  let i = 0;
-  for (let k = 0; k + 1 < runs.length && i < out.length; k += 2) {
-    const v = runs[k], n = runs[k + 1];
-    if (!Number.isInteger(n) || n <= 0) break;
-    const val = ok(v) ? v : 0;
-    const e = Math.min(out.length, i + n);
-    if (val) out.fill(val, i, e);
-    i = e;
+  for (let k = 0; k + 2 < runs.length; k += 3) {
+    const s = runs[k], n = runs[k + 1], v = runs[k + 2];
+    if (!Number.isInteger(s) || !Number.isInteger(n) || n <= 0 || s < 0 || !ok(v)) continue;
+    for (let i = s; i < Math.min(N, s + n); i++) L.set(i, v);
   }
 }
 
@@ -96,10 +96,10 @@ function unrleGrid(runs, out, ok) {
 // trees / stumps / boulders (small loose things — pebbles, sticks, bushes — are cleared when the path is laid)
 export function canPaint(game, tx, ty) {
   const w = game.world;
-  if (!w.inBounds(tx, ty) || tx < 1 || ty < 1 || tx >= w.W - 1 || ty >= w.H - 1) return 'Fora do mapa';
+  if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
   const i = w.idx(tx, ty);
-  if (w.rock[i]) return 'Rocha no caminho';
-  if (w.water[i]) return 'Não dá para abrir caminho na água';
+  if (w.rock.get(i)) return 'Rocha no caminho';
+  if (w.water.get(i)) return 'Não dá para abrir caminho na água';
   const G = game.build?.grid;
   if (G) {
     const f = G.floor?.get(i);
@@ -116,7 +116,7 @@ export function canPaint(game, tx, ty) {
 }
 // floors / rugs / farm plots refuse tiles with a path or a path blueprint (exclusive per tile) — structures.js placeReason
 export function pathBlocksFloor(w, i) {
-  return !!(w.path && (w.path[i] || (w.pathPlan[i] > 0 && w.pathPlan[i] !== PATH_REMOVE)));
+  return !!(w.path && (w.path.get(i) || (w.pathPlan.get(i) > 0 && w.pathPlan.get(i) !== PATH_REMOVE)));
 }
 
 const addCost = (acc, cost, k) => { for (const id in cost) acc[id] = (acc[id] || 0) + cost[id] * k; return acc; };
@@ -156,7 +156,7 @@ defineOp('path.plan', {
     const w = game.world, c = a.c | 0;
     if (!validCode(c)) return;
     const s = PG(game), Q = w.pathPlan;
-    const r = setTiles(game, unrleTiles(a.tiles, Q.length), (i) => { Q[i] = c; if (c) s.planned.add(i); else s.planned.delete(i); }, false);
+    const r = setTiles(game, unrleTiles(a.tiles, w.W * w.H), (i) => { Q.set(i, c); if (c) s.planned.add(i); else s.planned.delete(i); }, false);
     if (r && !ctx.mine && c) game.audio?.play('path_paint', { x: r.x, y: r.y, volume: 0.6 });
   },
 });
@@ -168,9 +168,10 @@ defineOp('path.set', {
     const w = game.world, t = a.t | 0;
     if (!(t >= 0 && t <= PATH_COUNT)) return;
     const s = PG(game), P = w.path, Q = w.pathPlan;
-    const r = setTiles(game, unrleTiles(a.tiles, P.length), (i) => {
-      if (P[i] && !t) s.built--; else if (!P[i] && t) s.built++;
-      P[i] = t; Q[i] = 0; s.planned.delete(i);
+    const r = setTiles(game, unrleTiles(a.tiles, w.W * w.H), (i) => {
+      const b = P.get(i);
+      if (b && !t) s.built--; else if (!b && t) s.built++;
+      P.set(i, t); Q.set(i, 0); s.planned.delete(i);
     });
     if (!r || ctx.mine) return; // the worker's own client played its feedback already
     const T = PATH_TYPES[t];
@@ -186,14 +187,14 @@ defineIntent('path.plan', {
   run(game, a, actor, net) {
     const w = game.world, W = w.W, c = a.c;
     if (!validCode(c)) return 'Caminho desconhecido';
-    const list = unrleTiles(a.tiles, w.path.length, PATH_MAX_PAINT);
+    const list = unrleTiles(a.tiles, w.W * w.H, PATH_MAX_PAINT);
     if (!list.length) return 'Nada para pintar';
     const e = actor.ent, P = w.path, Q = w.pathPlan;
     const lay = [], cancel = [], mark = [];
     for (const i of list) {
       const tx = i % W, ty = (i / W) | 0;
       if (e && Math.hypot(tx + 0.5 - e.x, ty + 0.5 - e.y) > PATH_PAINT_DIST) continue;
-      const cur = Q[i], built = P[i];
+      const cur = Q.get(i), built = P.get(i);
       if (c === 0) { if (cur) cancel.push(i); continue; }
       if (c === PATH_REMOVE) {
         if (cur && cur !== PATH_REMOVE) cancel.push(i); // the eraser on a blueprint cancels it at once
@@ -230,14 +231,14 @@ defineIntent('path.lay', {
     const w = game.world, W = w.W, t = a.t;
     const T = Number.isInteger(t) && t > 0 ? PATH_TYPES[t] : null;
     if (!T) return 'Caminho desconhecido';
-    const list = unrleTiles(a.tiles, w.path.length, PATH_PATCH * 2);
+    const list = unrleTiles(a.tiles, w.W * w.H, PATH_PATCH * 2);
     const e = actor.ent, ok = [], stale = [], back = {};
     for (const i of list) {
       const tx = i % W, ty = (i / W) | 0;
-      if (w.pathPlan[i] !== t || (e && Math.hypot(tx + 0.5 - e.x, ty + 0.5 - e.y) > PATH_REACH)) continue;
+      if (w.pathPlan.get(i) !== t || (e && Math.hypot(tx + 0.5 - e.x, ty + 0.5 - e.y) > PATH_REACH)) continue;
       if (canPaint(game, tx, ty)) { stale.push(i); continue; } // something was built / grew there: drop the plan
       ok.push(i);
-      const old = w.path[i];
+      const old = w.path.get(i);
       if (old && old !== t) addCost(back, PATH_TYPES[old].cost, PATH_REFUND); // replaced path: 75% back
     }
     if (stale.length) net.emit('path.plan', { c: 0, tiles: rleTiles(stale), by: actor.pid });
@@ -258,14 +259,14 @@ defineIntent('path.dig', {
   args: { tiles: `tile runs (≤ ${PATH_PATCH * 2})` },
   run(game, a, actor, net) {
     const w = game.world, W = w.W;
-    const list = unrleTiles(a.tiles, w.path.length, PATH_PATCH * 2);
+    const list = unrleTiles(a.tiles, w.W * w.H, PATH_PATCH * 2);
     const e = actor.ent, ok = [], stale = [], back = {};
     for (const i of list) {
       const tx = i % W, ty = (i / W) | 0;
-      if (w.pathPlan[i] !== PATH_REMOVE || (e && Math.hypot(tx + 0.5 - e.x, ty + 0.5 - e.y) > PATH_REACH)) continue;
-      if (!w.path[i]) { stale.push(i); continue; }
+      if (w.pathPlan.get(i) !== PATH_REMOVE || (e && Math.hypot(tx + 0.5 - e.x, ty + 0.5 - e.y) > PATH_REACH)) continue;
+      if (!w.path.get(i)) { stale.push(i); continue; }
       ok.push(i);
-      addCost(back, PATH_TYPES[w.path[i]].cost, PATH_REFUND);
+      addCost(back, PATH_TYPES[w.path.get(i)].cost, PATH_REFUND);
     }
     if (stale.length) net.emit('path.plan', { c: 0, tiles: rleTiles(stale), by: actor.pid });
     if (!ok.length) return 'Nada para remover';
@@ -278,31 +279,35 @@ defineIntent('path.dig', {
 export function serializePaths(game) {
   const w = game.world;
   if (!w.path) return undefined;
-  return { g: rleGrid(w.path), p: rleGrid(w.pathPlan) };
+  return { s: 2, g: rleGrid(w.path), p: rleGrid(w.pathPlan) };
 }
 // mode 'net' (join / resync): the snapshot is the truth (missing = no paths) · 'load': a save without paths keeps none
 export function applyPaths(game, d) {
   const w = game.world;
   if (!w.path) initPathGrids(game);
-  const ok = d && typeof d === 'object';
-  unrleGrid(ok ? d.g : null, w.path, (v) => Number.isInteger(v) && v > 0 && v <= PATH_COUNT);
-  unrleGrid(ok ? d.p : null, w.pathPlan, (v) => validCode(v) && v > 0);
+  const ok = d && typeof d === 'object' && d.s === 2; // (older run format: dropped with the old worlds)
+  const N = w.W * w.H;
+  unrleGrid(ok ? d.g : null, w.path, (v) => Number.isInteger(v) && v > 0 && v <= PATH_COUNT, N);
+  unrleGrid(ok ? d.p : null, w.pathPlan, (v) => validCode(v) && v > 0, N);
   rebuildIndex(game);
 }
 // digest rows: one per 16×16 chunk holding any path / plan: [chunk, hash(path), hash(plan)]
 export function pathRows(game) {
   const w = game.world, out = [];
   if (!w.path) return out;
-  const W = w.W, H = w.H, P = w.path, Q = w.pathPlan;
-  for (let cy = 0; cy < H; cy += 16) for (let cx = 0; cx < W; cx += 16) {
-    let hp = 2166136261, hq = 2166136261, any = 0;
-    for (let y = cy; y < Math.min(H, cy + 16); y++) for (let x = cx; x < Math.min(W, cx + 16); x++) {
-      const i = y * W + x, p = P[i], q = Q[i];
-      any |= p | q;
-      hp ^= p; hp = Math.imul(hp, 16777619) >>> 0;
-      hq ^= q; hq = Math.imul(hq, 16777619) >>> 0;
+  const P = w.path, Q = w.pathPlan, keys = new Set([...P.chunks(), ...Q.chunks()]);
+  for (const c of [...keys].sort((a, b) => a - b)) {
+    const X0 = (c & (CW - 1)) * CS, Y0 = (c >>> 8) * CS;
+    for (let by = Y0; by < Y0 + CS; by += 16) for (let bx = X0; bx < X0 + CS; bx += 16) {
+      let hp = 2166136261, hq = 2166136261, any = 0;
+      for (let y = by; y < by + 16; y++) for (let x = bx; x < bx + 16; x++) {
+        const i = w.idx(x, y), p = P.get(i), q = Q.get(i);
+        any |= p | q;
+        hp ^= p; hp = Math.imul(hp, 16777619) >>> 0;
+        hq ^= q; hq = Math.imul(hq, 16777619) >>> 0;
+      }
+      if (any) out.push([`${bx / 16},${by / 16}`, (hp >>> 0).toString(36), (hq >>> 0).toString(36)]);
     }
-    if (any) out.push([`${cx / 16},${cy / 16}`, (hp >>> 0).toString(36), (hq >>> 0).toString(36)]);
   }
   return out;
 }

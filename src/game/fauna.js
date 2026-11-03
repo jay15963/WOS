@@ -91,7 +91,8 @@ function climbBlocked(w, x, y, r) {
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     if (!w.inBounds(tx, ty)) return true;
     const i = w.idx(tx, ty);
-    if ((w.water[i] === 2 && !w.frozen) || w.solid[i] === 1 || w.solid[i] === 2) {
+    const wa = w.water.get(i), so = w.solid.get(i);
+    if ((wa === 2 && !w.frozen) || so === 1 || so === 2) {
       const cx = Math.max(tx, Math.min(x, tx + 1)), cy = Math.max(ty, Math.min(y, ty + 1));
       if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return true;
     }
@@ -99,7 +100,7 @@ function climbBlocked(w, x, y, r) {
   let hit = false;
   w.forChunks(x - r - 1, y - r - 1, x + r + 1, y + r + 1, (c) => {
     if (hit) return;
-    for (const o of c.objects) { if (!o.solid || o.stump || o.fall) continue; const rr = r + o.solid; if ((x - o.x) ** 2 + (y - (o.cy ?? o.y)) ** 2 < rr * rr) { hit = true; return; } }
+    for (const o of c.objects) { if (!o.solid || o.stump || o.fall) continue; const rr = r + o.solid; if (w.dx(x, o.x) ** 2 + (y - (o.cy ?? o.y)) ** 2 < rr * rr) { hit = true; return; } }
   });
   return hit;
 }
@@ -188,11 +189,12 @@ function migrate(game, m) {
   if (s._migT == null) s._migT = game.worldTime + 50 + R() * 60;
   if (game.worldTime < s._migT || m.state === 'flee' || m.state === 'chase') return;
   s._migT = game.worldTime + 70 + R() * 90;
-  const w = game.world, b0 = w.planetBiome ? w.planetBiome[w.idx(Math.floor(s.x), Math.floor(s.y))] : -1;
+  const w = game.world, bio = (x, y) => (w.pbiome ? w.pbiome.get(w.idx(Math.floor(x), Math.floor(y))) : 255), b0 = bio(s.x, s.y);
   for (let k = 0; k < 10; k++) {
     const a = R() * Math.PI * 2, r = 6 + R() * 7, x = s.x + Math.cos(a) * r, y = s.y + Math.sin(a) * r;
-    if (Math.hypot(x - s.x0, y - s.y0) > 40 || !w.inBounds(Math.floor(x), Math.floor(y)) || blockedFor(game, m, x, y) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
-    if (b0 >= 0 && w.planetBiome[w.idx(Math.floor(x), Math.floor(y))] !== b0) continue;
+    if (Math.hypot(w.dx(x, s.x0), y - s.y0) > 40 || !w.inBounds(Math.floor(x), Math.floor(y)) || blockedFor(game, m, x, y) || w.waterAt(Math.floor(x), Math.floor(y))) continue;
+    if (b0 !== 255 && bio(x, y) !== b0) continue;
+    if (s.chunk != null && w.chunkIndex?.(x, y) !== s.chunk) continue; // (a chunk's spawner stays in its chunk: it leaves with it)
     s.x = x; s.y = y;
     for (const o of s.members) if (!o.dead) o.home = { x: x + (R() - 0.5) * 3, y: y + (R() - 0.5) * 3 };
     return;
@@ -343,7 +345,7 @@ function roamBrain(game, m, dt, F) {
       if (!m.fleeDir || m.fleeRe <= 0) {
         m.fleeRe = 0.35;
         // seals make for the water; goats for the rocks
-        const pref = F.toWater ? (x, y) => w.liquidAt(Math.floor(x), Math.floor(y), true) > 0 : F.move === 'climb' ? (x, y) => !!w.rock[w.idx(Math.floor(x), Math.floor(y))] || w.isCliff?.(Math.floor(x), Math.floor(y)) : null;
+        const pref = F.toWater ? (x, y) => w.liquidAt(Math.floor(x), Math.floor(y), true) > 0 : F.move === 'climb' ? (x, y) => !!w.rock.get(w.idx(Math.floor(x), Math.floor(y))) || w.isCliff?.(Math.floor(x), Math.floor(y)) : null;
         m.fleeDir = fleeDirF(game, m, from, pref);
       }
       const dir = m.fleeDir;
@@ -466,7 +468,7 @@ function landSpot(game, m, F) {
     if (!w.inBounds(tx, ty)) continue;
     const wa = w.liquidAt(tx, ty, true);
     if (F.perch === 'water' ? wa !== 1 && !(wa === 0 && k > 8) : wa) continue; // herons wade in shallow water
-    if (wa === 0 && (w.rock[w.idx(tx, ty)] ? F.perch !== 'rock' : mobBlocked(w, x, y, m.r))) continue;
+    if (wa === 0 && (w.rock.get(w.idx(tx, ty)) ? F.perch !== 'rock' : mobBlocked(w, x, y, m.r))) continue;
     return { x, y };
   }
   return { x: m.home.x, y: m.home.y };
