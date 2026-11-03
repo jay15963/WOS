@@ -121,6 +121,8 @@ Pedido do dono: os lobos atacam os animais da criação, para que cercados faça
   atirou (menos que a vara). Flechas comuns num peixe marcado também.
 - Peixe cru (6 de fome, pode fazer mal) → **Peixe assado** na fogueira / caldeirão (22 de fome).
 - Inverno: a água congela — "Água congelada", sem pesca; os peixes ficam sob o gelo (não aparecem).
+- Os peixes nadam **por baixo** de pontes e trapiches como na água aberta (`liquidAt(…, under)`); a boia não cai num
+  deque (lança-se na água aberta).
 
 ## Trigo, solo fértil e pão
 
