@@ -619,9 +619,9 @@ radar).
   está em cima é desenhado no topo (`e._dh`, suavizado; game.js soma no levantamento e na profundidade); itens no
   chão de um deque também (desenháveis na ordem de profundidade, `decksSystem.collect`).
 - **Sync:** as peças são estruturas comuns (`build.place` / `struct.add` / `build.hit` / `struct.remove`, snapshot,
-  save, digest) — só a op nova `deck.collapse {ids, drops}`. Cenários **W1** (o convidado planeja e constrói ponte e
+  save, digest) — só a op nova `deck.collapse {ids, drops}`. Cenários **D1** (o convidado planeja e constrói ponte e
   trapiche com trabalho de verdade, recusas, mesmo mapa de deque e guarda-corpos nos dois, os dois atravessam sem nadar)
-  e **W2** (desmontar o meio — nada cai —, depois a cabeceira — confirmação, a metade solta cai nos dois).
+  e **D2** (desmontar o meio — nada cai —, depois a cabeceira — confirmação, a metade solta cai nos dois).
 - **Radar / mapa:** as peças em tons de tábua sobre a água.
 - **Teste:** `game.debug.deckScene({ plan, dry, only, span })` (localhost: a travessia de rio e a margem rasa mais
   perto, prontas ou em planta), `game.debug.deckAt('bridge' | 'pier' | 'bank', k)`.

@@ -4284,7 +4284,7 @@ def('A7', {
 });
 
 // =====================================================================================================
-// W: piers and bridges (game/decks.js, docs/PLAN-V2.md "Trapiche e ponte")
+// D: piers and bridges — decks (game/decks.js, docs/PLAN-V2.md "Trapiche e ponte")
 // the nearest crossing / shallow bank from the host player (the dev helper's finder, dry: nothing is built)
 function deckSites(t, H) {
   t.need(H.game.debug?.deckScene && H.game.decks, 'piers / bridges (game/decks.js) missing');
@@ -4313,8 +4313,8 @@ async function walkAcross(t, f, from, to, ex, ey, ms = 12000) {
   return st;
 }
 
-def('W1', {
-  star: true, title: 'W: guest builds a pier and a bridge across a river, both walk across', timeout: 300000,
+def('D1', {
+  star: true, title: 'D: guest builds a pier and a bridge across a river, both walk across', timeout: 300000,
   expected: 'The guest plans a bridge (bank → water → bank, drag) and a 4-piece pier from a shallow bank: blueprints with the same ids on both; deep water refuses a pier, a lone water piece refuses a bridge; a far piece cannot start before the one before it (host decks.startReason); the guest builds every piece with real work from the bank outward; both derive the same deck map (world.deck) and railings (world.rail); the guest walks across the bridge without swimming, lifted on the deck (_dh), the host sees it on the far bank; the host walks back across; the guest walks to the end of the pier; digest equal',
   api: 'BUILDINGS.pier_wood / bridge_wood (layer deck); build.place (deck batch: decks.orderDeckTiles); build.hit start → decks.startReason; world.deck / world.rail (decks.js); player._dh',
 }, async (t) => {
@@ -4374,8 +4374,8 @@ def('W1', {
   await t.checkDigest(H, G);
 });
 
-def('W2', {
-  title: 'W: deconstructing the middle of a bridge, then an abutment', timeout: 240000,
+def('D2', {
+  title: 'D: deconstructing the middle of a bridge, then an abutment', timeout: 240000,
   expected: 'The host lays a finished bridge (dev helper); the guest deconstructs the middle piece with real work: it disappears on both, each half stays (still joined to its bank: no collapse), the gap is water again on both; the guest marks the far abutment — the first tap only warns ("A ponte vai cair"), the second marks it — and deconstructs it: the host drops the water pieces between the gap and that bank into the water (deck.collapse) on both, the near half stays; digest equal',
   api: 'decks.unsupported / lostWithout (building.confirmSupports) → host deckSupportSystem → op deck.collapse {ids, drops}; world.deck',
 }, async (t) => {
