@@ -64,7 +64,7 @@ export const BUILDINGS = {
   // tiles in a straight line, ends on the other bank)
   pier_wood:   { name: 'Trapiche', g: 'm', emoji: '🛶', cat: ['water'], cost: { wood: 3, rope: 1 }, time: 3, xp: 4, layer: 'deck', deck: 'pier', connect: 'pier', drag: 'area',
                  desc: 'Deque de tábuas sobre estacas, só em água rasa. Comece na margem e vá emendando: as pontas, os pilares e a escada se ajeitam sozinhos. Dá para pôr luzes, baús e pescar da beirada.' },
-  bridge_wood: { name: 'Ponte', g: 'f', emoji: '🌉', cat: ['water'], cost: { wood: 4, stone: 2, rope: 1 }, time: 4, xp: 5, layer: 'deck', deck: 'bridge', connect: 'bridge', drag: 'line',
+  bridge_wood: { name: 'Ponte', g: 'f', emoji: '🌉', cat: ['water'], cost: { wood: 4, stone: 2, rope: 1 }, time: 4, xp: 5, layer: 'deck', deck: 'bridge', connect: 'bridge', drag: 'span',
                  desc: 'Comece na margem, empilhe o corpo da ponte sobre a água (até 8 tiles, em linha reta) e termine na outra margem. Cada peça só começa depois da anterior pronta. Guarda-corpos dos dois lados.' },
 
   // ---------- production ----------
