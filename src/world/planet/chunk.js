@@ -273,8 +273,10 @@ const RK_RIVER = 1, RK_WASH = 2, RK_FJORD = 3, RK_CREEK = 4, RK_DELTA = 5;
 // ground-cover decor kind for a tile of biome b on ground g (r: a roll 0..1, T: °C, st: steepness), null = none
 function decorKind(b, g, r, T, st) {
   const B = BIOME;
-  if (g === PG.SNOW || g === PG.ICE) return r < 0.35 ? 'snowtuft' : r < 0.5 ? 'lichen' : null;
-  if (g === PG.SALT) return null;
+  if (g === PG.SNOW || g === PG.ICE) return b === B.TUNDRA || b === B.ALPINE || b === B.TAIGA ? (r < 0.35 ? 'snowtuft' : r < 0.5 ? 'lichen' : null) : null;
+  if (g === PG.SALT || g === PG.STONE) return null;
+  if (g === PG.ASH) return r < 0.7 ? 'ash' : r < 0.85 ? 'drygrass' : null;
+  if (b === B.SNOW_PEAKS || b === B.ICE_SHEET) return g === PG.GRAVEL ? (r < 0.4 ? 'scree' : r < 0.55 ? 'lichen' : null) : null;
   if (g === PG.GRAVEL && st > 0.5) return r < 0.25 ? 'scree' : r < 0.5 ? 'drygrass' : null;
   switch (b) {
     case B.POLAR_DESERT: return r < 0.5 ? 'lichen' : r < 0.7 ? 'snowtuft' : 'drygrass';
@@ -692,6 +694,14 @@ export function generateChunk(p, cx, cy, opts = {}) {
       if (steep[i] > 0.8) sp *= 0.15;
       if (sp > 0 && hash01(X0 + wx, Y0 + wy, sd + 93) < sp && b !== BIOME.BEACH) g = PG.SNOW;
     }
+    // high snow is rugged: the wind scours the crests and convex slopes down to frost-shattered scree, bare rock
+    // breaks through in outcrops (below), the snow stays in the hollows
+    let scour = -1, curv = 0;
+    if (g === PG.SNOW && (b === BIOME.SNOW_PEAKS || hS[i] > 7)) {
+      curv = (hS[i] * 4 - hS[i - 1] - hS[i + 1] - hS[i - WW] - hS[i + WW]); // (> 0: a crest / knob)
+      scour = fbm(x, y, sd + 98, 40, 3) + 0.35 * fbm(x, y, sd + 99, 10, 2) + 1.2 * (ridge[i] - 0.62) * clamp(mtn[i] * 2, 0, 1) + 0.9 * st + 1.6 * clamp(curv, -0.3, 0.3);
+      if (scour > 0.34) g = PG.GRAVEL;
+    }
     groundW[i] = g;
     // rock (mineable massif): cliff faces, tors / knolls in blobs along the crests, outcrops on steep ground, sea
     // stacks — the mountain slopes themselves stay walkable ground (gravel, meadow, snow)
@@ -700,11 +710,15 @@ export function generateChunk(p, cx, cy, opts = {}) {
     else if (mtn[i] > 0.22 && hS[i] > 3) {
       const crest = ridge[i] - (0.87 - 0.05 * mtn[i]);
       if (crest > 0 || st > 0.72) {
+        // tors in blobs along the crest (a knob or a slope under them: a broad flat top stays ground)
         const ob = fbm(x, y, sd + 96, 48, 3) + 0.45 * fbm(x, y, sd + 97, 12, 2);
-        if (crest > 0 && ob > 0.16 - crest * 2.2 - 0.08 * hiK) r = 1;
+        const cv = hS[i] * 4 - hS[i - 1] - hS[i + 1] - hS[i - WW] - hS[i + WW];
+        if (crest > 0 && ob > 0.24 - crest * 0.9 - 0.04 * hiK && fbm(x, y, sd + 95, 10, 2) > 0.04 && (cv > 0.02 || st > 0.25)) r = 1;
         else if (st > 0.72 && ob > 0.24) r = 1;
       }
     }
+    // (outcrops through the snow: broken tors on knobs and slopes — a broad flat summit stays scree and snow)
+    if (scour > 0.72 && (st > 0.28 || curv > 0.06) && fbm(x, y, sd + 97, 12, 2) > 0.16) r = 1;
     if (stack[i] && hS[i] > 0.6) r = 1;
     if (b === BIOME.BEACH || rK[i] && rD[i] < rHW[i] + 1) r = 0;
     rockW[i] = r;
@@ -712,9 +726,10 @@ export function generateChunk(p, cx, cy, opts = {}) {
     // coasts, strata of sandstone / limestone / slate in canyons and mesas, granite / slate / limestone / marble elsewhere
     if (wx >= M && wy >= M && wx < M + S && wy < M + S) {
       const rt = fbm(x, y, sd + 60, 1024, 3);
-      const band = ((Math.floor(hS[i] / 0.9) % 6) + 6) % 6;
+      // (canyons and mesas are one sandstone region, the shader draws its strata along the height; a limestone
+      // region here and there)
       const mesa = b === BIOME.BADLANDS || mb === BIOME.BADLANDS;
-      const strata = (mesa ? [6, 6, 6, 2, 6, 6] : [6, 2, 6, 3, 2, 6])[band];
+      const strata = rt > 0.22 && !mesa ? 2 : 6;
       const arid = mesa || b === BIOME.DESERT_ROCKY || mb === BIOME.DESERT_ROCKY || mb === BIOME.DESERT_DUNES;
       rockTW[i] = coneM[i] > 150 || b === BIOME.VOLCANIC ? 5 : rCan[i] > 0.25 || arid ? strata : P < 450 && T > 10 && rt > -0.25 ? 6 : rt < -0.1 ? 3 : rt < 0.05 ? 1 : rt < 0.15 ? 2 : 4;
     }
@@ -730,6 +745,15 @@ export function generateChunk(p, cx, cy, opts = {}) {
   const dRockIn = new Float32Array(NW), dRiv = new Float32Array(NW);
   for (let i = 0; i < NW; i++) dRockIn[i] = rockW[i] ? 99 : 0;
   chamfer(dRockIn, WW, WW, 9);
+  // rocky knolls: rock stands up out of the slope with its depth (tors and outcrops read as rock, not as paint on
+  // the ground; mining cuts a tile down to its lowest corner). Corners are re-averaged; the depth field is exact well
+  // inside the margin, so neighbouring chunks agree.
+  for (let y = 0; y <= S; y++) for (let x = 0; x <= S; x++) {
+    const wx = x + M, wy = y + M;
+    const a = (wy - 1) * WW + wx - 1, b = a + 1, c = a + WW, d = c + 1;
+    const bump = ((rockW[a] ? Math.min(dRockIn[a], 4) : 0) + (rockW[b] ? Math.min(dRockIn[b], 4) : 0) + (rockW[c] ? Math.min(dRockIn[c], 4) : 0) + (rockW[d] ? Math.min(dRockIn[d], 4) : 0)) * 0.25 * 0.42;
+    if (bump > 0 && !(water[a] || water[b] || water[c] || water[d])) height[y * CWn + x] = Math.round((height[y * CWn + x] + bump) * 1024) / 1024;
+  }
   for (let wy = 0; wy < WW; wy++) for (let wx = 0; wx < WW; wx++) {
     const i = wy * WW + wx;
     let edge = 0;
@@ -751,8 +775,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
       const v1 = 1 - Math.abs(gnoise(gx / 7, gy / 7, sd + 62, 0));
       const v2 = 1 - Math.abs(gnoise(gx / 5, gy / 5, sd + 63, 0));
       const hh = hash01(gx, gy, sd + 64);
-      if (dep >= 3.5 && v2 > 0.96 && hh < 0.6) L.ore[t] = hh < 0.3 ? 4 : 5;
-      else if (dep >= 2.5 && v1 > 0.94) L.ore[t] = 2;
+      if (dep >= 2.2 && v2 > 0.96 && hh < 0.6) L.ore[t] = hh < 0.3 ? 4 : 5; // (small tors and knolls: the veins run near their surface)
+      else if (dep >= 1.4 && v1 > 0.935) L.ore[t] = 2;
       else if (dep >= 1 && dep < 7 && v2 > 0.93) L.ore[t] = rt === 2 || rt === 6 ? 3 : 1;
       else if (dep >= 1 && dep < 7 && v1 > 0.955 && (rt === 2 || rt === 6)) L.ore[t] = 3;
     }
@@ -763,7 +787,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
   let k = 0;
   const nid = () => cidx * 16384 + (++k);
   const treeP = (i, x, y) => {
-    if (water[i] || rockW[i] || steep[i] > 0.9 || groundW[i] === PG.SNOW) return 0;
+    const g0 = groundW[i];
+    if (water[i] || rockW[i] || steep[i] > 0.9 || g0 === PG.SNOW || g0 === PG.ICE || g0 === PG.SALT || g0 === PG.STONE) return 0;
     const bm = BIOME_LIST[biomeW[i]];
     if (!bm.td) return 0;
     const grove = fbm(x, y, sd + 70, 128, 3);
@@ -820,25 +845,26 @@ export function generateChunk(p, cx, cy, opts = {}) {
       }
     }
     // bushes / plants
-    const bd = bm.bd || 0;
+    const g = groundW[i];
+    const bare = g === PG.SNOW || g === PG.ICE || g === PG.SALT || g === PG.STONE; // (nothing grows there)
+    const bd = bare ? 0 : bm.bd || 0;
     if (bd && h1 < bd * (0.6 + 0.8 * (fbm(gx, gy, sd + 80, 64, 2) + 0.5))) {
       const kind = pickWeighted(bm.b, h2);
-      if (kind) { objects.push({ id: nid(), type: kind, v: Math.floor(h3 * 1000), x: x + 0.5 + jx * 0.7, y: y + 0.6, s: 0.8 + h2 * 0.35, f }); continue; }
+      if (kind && !(g === PG.ASH && kind !== 'shrub_desert' && kind !== 'dead_bush')) { objects.push({ id: nid(), type: kind, v: Math.floor(h3 * 1000), x: x + 0.5 + jx * 0.7, y: y + 0.6, s: 0.8 + h2 * 0.35, f }); continue; }
     }
-    // boulders near rock and on rocky ground
-    const g = groundW[i];
+    // boulders near rock and on rocky ground (lichen-crusted in the cold and up high)
     const nearRock = dRockIn[i] === 0 && (rockW[i - 1] || rockW[i + 1] || rockW[i - WW] || rockW[i + WW]);
     const pB = nearRock ? 0.05 : g === PG.GRAVEL || g === PG.STONE ? 0.02 : b === BIOME.ROCKY_SHORE || b === BIOME.ALPINE || b === BIOME.TUNDRA ? 0.012 : 0.0015;
     const h4 = hash01(gx, gy, sd + 81);
-    if (h4 < pB && (b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE) && h3 < 0.6) { objects.push({ id: nid(), type: 'lichen_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.7 + h2 * 0.5, f }); continue; }
+    if (h4 < pB && (b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE || b === BIOME.SNOW_PEAKS || b === BIOME.ICE_SHEET || g === PG.SNOW) && (h3 < 0.6 || g === PG.SNOW || b === BIOME.SNOW_PEAKS)) { objects.push({ id: nid(), type: 'lichen_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.7 + h2 * 0.5, f }); continue; }
     if (h4 < pB) { objects.push({ id: nid(), type: 'boulder', v: (b === BIOME.TEMPERATE_FOREST || b === BIOME.TAIGA || b === BIOME.RAINFOREST || b === BIOME.TEMPERATE_RAINFOREST ? 8000 : 0) + Math.floor(h1 * 7919), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.6 + h2 * 0.55, f }); continue; }
     // small gatherables: pebbles, sticks, fibre grass, wild crops, wild wheat on fertile soil
     const h5 = hash01(gx, gy, sd + 82);
     const woods = bm.td > 0.15;
-    const pPeb = g === PG.GRAVEL || g === PG.STONE || b === BIOME.BEACH || b === BIOME.ROCKY_SHORE ? 0.05 : 0.006;
+    const pPeb = g === PG.SNOW || g === PG.ICE || g === PG.SALT ? 0 : g === PG.GRAVEL || g === PG.STONE || b === BIOME.BEACH || b === BIOME.ROCKY_SHORE ? 0.05 : 0.006;
     if (h5 < pPeb) { objects.push({ id: nid(), type: 'pebble', v: Math.floor(h1 * 4), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.8 + h2 * 0.35, f }); continue; }
-    if (woods && h5 > 0.99 - 0.006) { objects.push({ id: nid(), type: 'stick', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.3, f }); continue; }
-    const grassy = (bm.gr || 0) > 0.4 && g !== PG.SNOW;
+    if (woods && !bare && g !== PG.ASH && h5 > 0.99 - 0.006) { objects.push({ id: nid(), type: 'stick', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.3, f }); continue; }
+    const grassy = (bm.gr || 0) > 0.4 && !bare && g !== PG.ASH;
     if (grassy && h5 > 0.5 && h5 < 0.5 + 0.012 * bm.gr) { objects.push({ id: nid(), type: 'fibergrass', v: Math.floor(h1 * 3), x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.85 + h2 * 0.35, f }); continue; }
     if (L.fertile[y * S + x] && grassy && Ttile[i] > 4 && h5 > 0.3 && h5 < 0.3 + 0.006) { objects.push({ id: nid(), type: 'wild_wheat', v: 0, x: x + 0.5 + jx, y: y + 0.55, s: 0.9 + h2 * 0.2, f }); continue; }
     if ((b === BIOME.STEPPE || b === BIOME.TEMPERATE_FOREST || b === BIOME.FLOODPLAIN) && h5 > 0.2 && h5 < 0.2 + 0.0025) { objects.push({ id: nid(), type: h1 < 0.5 ? 'wild_potato' : h1 < 0.8 ? 'wild_corn' : 'wild_cotton', v: 0, x: x + 0.5 + jx, y: y + 0.5 + jy, s: 0.9 + h2 * 0.2, f }); continue; }
@@ -872,7 +898,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
     else if ((b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE) && hd < 0.12) pd('lichen');
     else if (b === BIOME.ROCKY_SHORE && dw < 2.5 && hd < 0.08) pd('seaweed');
     if ((g === PG.GRAVEL || g === PG.STONE) && hd > 0.93 && b !== BIOME.BEACH) pd('scree', 2);
-    if (g === PG.SNOW && b !== BIOME.ICE_SHEET && hd > 0.975) pd('snowtuft');
+    if (g === PG.SNOW && (b === BIOME.TUNDRA || b === BIOME.ALPINE || b === BIOME.TAIGA) && hd > 0.975) pd('snowtuft');
   }
   // volcano craters inside the chunk
   for (const v of p.volcanoes) {

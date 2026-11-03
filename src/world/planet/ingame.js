@@ -88,6 +88,16 @@ export function buildPlanetWorld(seed, opts = {}) {
   {
     const rnd = mulberry32(seed * 53 + 11);
     const need = { pebble: 10, stick: 8, fibergrass: 8, berrybush: 2, herbbush: 1 };
+    // (only where the planet grows them: nothing on snow / ice / salt / bare stone, plants on living ground, sticks
+    // where there are trees)
+    const PGr = win.ground, grows = (type, i) => {
+      const gg = PGr[i], bm = BIOME_LIST[win.biome[i]] || {};
+      if (gg === 8 || gg === 9 || gg === 11 || gg === 6) return type === 'pebble' && gg === 6;
+      if (type === 'pebble') return true;
+      if (type === 'stick') return (bm.td || 0) > 0.005 && gg !== 10;
+      if (type === 'fibergrass') return (bm.gr || 0) > 0.2 && gg !== 10;
+      return (bm.gr || 0) > 0.3 && gg !== 10 && gg !== 3;
+    };
     for (const o of objects) if (need[o.type] !== undefined && sq(o.x - spawn.x) + sq(o.y - spawn.y) < 14 * 14) need[o.type]--;
     let id = 1073741824; // above every chunk object id (cidx * 16384 + k)
     const occ = new Set(objects.map((o) => Math.floor(o.y) * W + Math.floor(o.x)));
@@ -98,7 +108,7 @@ export function buildPlanetWorld(seed, opts = {}) {
         if (r2 < 9 || r2 > 169) continue;
         if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) continue;
         const i = y * W + x;
-        if (!okSpawn(i) || occ.has(i)) continue;
+        if (!okSpawn(i) || occ.has(i) || !grows(type, i)) continue;
         occ.add(i);
         objects.push({ id: id++, type, v: Math.floor(rnd() * (type === 'pebble' ? 4 : type.endsWith('bush') ? 1000 : 3)), x: x + 0.5, y: y + 0.6, s: 0.9, f: rnd() < 0.5 ? -1 : 1 });
         c++;

@@ -1437,7 +1437,7 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   }
   if (wz > 0.01) A = mix(A, textureLod(uGround, vec3(wp * 0.25 * 0.9, rid), LOD), wz);
   vec4 Bt = textureLod(uGround, vec3(ROT * vec2(u, ht * 1.2) * 0.19 + vec2(0.37, 0.11), rid), tl);
-  vec3 alb = mix(A.rgb, Bt.rgb, 0.3 + 0.3 * (Bt.a - A.a)) * 1.08 * vec3(1.03, 1.0, 0.95);
+  vec3 alb = mix(A.rgb, Bt.rgb, (0.3 + 0.3 * (Bt.a - A.a)) * (1.0 - wz)) * 1.08 * vec3(1.03, 1.0, 0.95); // (gentle rock: the plane texture only, no streaks)
   alb = mix(vec3(dot(alb, vec3(0.333))), alb, 0.85); // (the textures' speckle a little calmer on big faces)
   // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
   float sv = ht * 1.15 + (nA.x - 0.5) * 0.5 + sin(u * 0.27 + nB.z * 2.0) * 0.16;
@@ -1448,9 +1448,13 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   if (ssK > 0.01) {
     // sandstone (canyons, mesas): thin beds in cream, orange, brick red and a purple-brown, thicker ones every few bands
     float sb = ht * 2.3 + (nA.x - 0.5) * 0.6 + sin(u * 0.21 + nB.z * 2.0) * 0.2, sbi = floor(sb), sh2 = hash12(vec2(sbi * 2.17, 3.3));
-    vec3 sc = sh2 < 0.25 ? vec3(1.2, 1.1, 0.92) : sh2 < 0.55 ? vec3(1.08, 0.88, 0.72) : sh2 < 0.85 ? vec3(0.9, 0.66, 0.56) : vec3(0.74, 0.58, 0.58);
+    vec3 sc = sh2 < 0.22 ? vec3(1.32, 1.2, 0.98) : sh2 < 0.52 ? vec3(1.1, 0.86, 0.68) : sh2 < 0.82 ? vec3(0.86, 0.58, 0.46) : vec3(0.66, 0.5, 0.52);
     sc *= 1.0 - 0.14 * (1.0 - smoothstep(0.0, 0.08, fract(sb)));
     bandT = mix(bandT, sc, ssK);
+    // desert varnish: dark brown streaks running down from the ledges (long noise along the height)
+    float vn = textureLod(uNoise, vec2(u * 0.42, ht * 0.045) + 0.71, nLod(0.42)).g;
+    float varn = smoothstep(0.56, 0.74, vn) * smoothstep(0.25, 0.6, textureLod(uNoise, vec2(u * 0.07, ht * 0.11) + 0.29, nLod(0.07)).b);
+    bandT *= mix(vec3(1.0), vec3(0.52, 0.42, 0.38), varn * ssK * 0.75);
   }
   alb *= mix(1.0, 0.84 + 0.3 * bh, fz) * mix(vec3(1.0), bandT, mix(0.55, 0.85, ssK) * fz);
   if (bsK > 0.01) {
@@ -1465,10 +1469,10 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   alb *= 1.0 - fz * seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
   float near = 1.0 - smoothstep(0.018, 0.04, PPX); // (crisp detail only up close: calm shapes at a glance)
   float stk = textureLod(uNoise, vec2(u * 0.35, ht * 0.03) + 0.53, nLod(0.35)).b;
-  alb *= 1.0 + (stk - 0.5) * 0.1 * near;
+  alb *= 1.0 + (stk - 0.5) * 0.1 * near * fz;
   // vertical cracks (long, a bit wavy)
   float cn = textureLod(uNoise, vec2(u * 0.33, ht * 0.05 + u * 0.01) + 0.21, nLod(0.33)).r;
-  alb *= 1.0 - 0.28 * near * (1.0 - smoothstep(0.008, 0.022, abs(cn - 0.5))) * smoothstep(0.45, 0.62, textureLod(uNoise, vec2(u * 0.05, ht * 0.11) + 0.7, nLod(0.05)).b);
+  alb *= 1.0 - 0.28 * near * fz * (1.0 - smoothstep(0.008, 0.022, abs(cn - 0.5))) * smoothstep(0.45, 0.62, textureLod(uNoise, vec2(u * 0.05, ht * 0.11) + 0.7, nLod(0.05)).b); // (faces only: on gentle rock they would streak)
   // the face's own light
   vec3 N = normalize(vec3(-g, 1.0));
   float dif = max(dot(N, Ld), 0.0);
@@ -1703,6 +1707,8 @@ void main(){
       // large soft drifts (blue in the hollows), polished ice catching the sky, salt a touch less blinding
       float dr = smoothstep(0.35, 0.75, nC.y * 0.6 + nA.w * 0.4);
       col = mix(col, col * mix(vec3(1.02, 1.02, 1.01), vec3(0.95, 0.97, 1.01), dr), snowG * 0.8);
+      float sg = sin(dot(wp, vec2(0.55, 1.6)) + nC.x * 7.0 + nA.y * 2.5);
+      col *= mix(vec3(1.0), mix(vec3(0.93, 0.95, 1.0), vec3(1.03), smoothstep(-0.2, 0.6, sg)), snowG * smoothstep(0.35, 0.7, nC.w + 0.2));
       col = mix(col, mix(col, uSky * 0.9 + col * 0.35, 0.22 + 0.12 * nB.x), iceG);
       col *= 1.0 - 0.06 * saltG * (1.0 - nC.z);
     }

@@ -162,6 +162,7 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave;
+    if (PLANET) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, gen.spawn.x, gen.spawn.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {
       game.worldId = choice.worldId;                    // save key (save.js) / hotbar layout of this world
       game.creative = choice.gameMode === 'creative';   // a new world's mode (a saved world keeps its own: snapshot `mode`)

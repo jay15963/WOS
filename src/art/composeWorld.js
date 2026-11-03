@@ -165,6 +165,27 @@ function lazyRec(A, name) {
   return null;
 }
 const lazyPick = (A, grp, i, n) => lazyRec(A, `${grp}_${((i % n) + n) % n}`);
+// the lazy sprite name of a planet object / decor (null: classic art)
+function planetArtName(A, o) {
+  const t = o.type || o.t, v = o.v | 0;
+  let g = null, i = v;
+  if (o.t) { if (PLANET_DECOR[t]) g = t; }
+  else if (t.startsWith('tree_')) { g = treeGroup(A, t, v); i = v & 15; }
+  else if (t === 'bush' || t === 'fibergrass' || t === 'boulder') { g = v >= 1000 ? planetSp(t, v, 1000) : null; i = v % 1000; }
+  const e = g && (PLANET_SPECIES[g] || PLANET_DECOR[g]);
+  return e ? `${g}_${i % e.n}` : null;
+}
+// ?planet=1 (main.js): paint the planet's flora around the arrival right away, so the first frames show it (the rest
+// is painted on demand as it comes into view)
+export function prewarmPlanetFlora(A, world, x, y, r = 22) {
+  const LA = lookAtlasOf(A), names = new Set(), t0 = performance.now();
+  world.forChunks(x - r, y - r, x + r, y + r, (c) => {
+    for (const o of c.objects) { const n = planetArtName(A, o); if (n) names.add(n); }
+    for (const d of c.decor) { const n = planetArtName(A, d); if (n) names.add(n); }
+  });
+  for (const n of names) { const rec = LA.get(n); if (rec) LA.paintNow(rec); }
+  return { sprites: names.size, ms: Math.round(performance.now() - t0) };
+}
 const planetSp = (kind, v, unit) => { const T = SPECIES_OF[kind]; return T ? T[(v / unit) | 0] : undefined; };
 let NOW = 0; // frame time for helpers that do not receive t
 export function drawStatic(B, A, o, t) {
