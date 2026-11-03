@@ -4719,7 +4719,7 @@ def('D2', {
   await A.hostSees(t, H, G);
   const mo = A.structOn(G, ids[mid]);
   t.check(MG.building.toggleDecon(G.game, mo, true) === true, 'marking the middle piece needs no confirmation (each half keeps its bank)');
-  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[mid])), RT() + 500, 'host marks the middle piece');
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[mid])) && G.game.build.decon.has(A.structOn(G, ids[mid])), RT() + 800, 'host marks the middle piece (and the guest sees it)');
   const mk = () => { const q = A.structOn(G, ids[mid]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
   await A.workUntil(t, G, mk, () => !A.structOn(G, ids[mid]), 30000, 'deconstructs the middle piece', { stand: () => A.teleport(G, b[mid - 1][0] + 0.5, b[mid - 1][1] + 0.5) });
   await t.waitFor(() => !A.structOn(H, ids[mid]), RT() + 500, 'the middle piece is gone on the host');
@@ -4732,7 +4732,7 @@ def('D2', {
   const fo = A.structOn(G, ids[n - 1]);
   const first = MG.building.toggleDecon(G.game, fo, true), second = MG.building.toggleDecon(G.game, fo, true);
   t.check(first === false && second === true, 'the far abutment asks for a second tap (the bridge would fall)', `${first} / ${second}`);
-  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[n - 1])), RT() + 500, 'host marks the far abutment');
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[n - 1])) && G.game.build.decon.has(A.structOn(G, ids[n - 1])), RT() + 800, 'host marks the far abutment (and the guest sees it)');
   const mk2 = () => { const q = A.structOn(G, ids[n - 1]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
   await A.workUntil(t, G, mk2, () => !A.structOn(G, ids[n - 1]), 30000, 'deconstructs the far abutment', { stand: () => A.standBy(G, MG, A.structOn(G, ids[n - 1]) || fo) });
   const fell = ids.slice(mid + 1);
