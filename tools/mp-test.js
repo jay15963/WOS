@@ -5024,7 +5024,7 @@ def('P6', {
   await t.tryWait(() => { tried ||= pack2.some((m) => m.state === 'hunt'); return false; }, 10000);
   t.check(!penned.dead && penned.hp === penned.maxHp, `the penned sheep stays unhurt (the pack ${tried ? 'tried and gave up' : 'never went for it'})`, `${pack2.map((m) => m.state).join('/')} · hp ${f2(penned.hp)}`);
   // a wolf that got a glimpse anyway (a gap, a corner): no path through the fence → it gives up, the sheep is unhurt
-  for (const m of pack2) { m.state = 'hunt'; m.prey = penned; m.huntT = 0; m.nav = null; }
+  pack2.forEach((m, i) => { m.x = x0 - 2.5; m.y = y0 + 1.5 + i * 1.5; m.state = 'hunt'; m.prey = penned; m.huntT = 0; m.nav = null; }); // (back next to the pen)
   const gave = await t.tryWait(() => pack2.every((m) => m.state !== 'hunt'), 12000);
   await t.sleep(1500);
   t.check(gave && !penned.dead && penned.hp === penned.maxHp, 'sent at it, they find no way in and give up; the sheep is unhurt', `${pack2.map((m) => `${m.state} ${f2(Math.hypot(m.x - penned.x, m.y - penned.y))}`).join(' / ')} · hp ${f2(penned.hp)}/${penned.maxHp}`);
