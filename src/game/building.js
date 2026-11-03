@@ -465,6 +465,7 @@ export function toggleDecon(game, o, on = null) {
 
 export function deconAt(game, wx, wy) {
   const o = structureAtPoint(game, wx, wy, { roof: true });
+  if (!o && game.boats?.deconAt?.(wx, wy)) return; // an empty boat: taken apart (src/game/boats.js)
   if (!o && game.paths?.deconAt(wx, wy)) return; // painted path: marked for removal (src/game/paths.js)
   if (!o) { game.events.emit('error', { text: 'Nenhuma construção aqui' }); return; }
   // campfires: razed at once when next to it, else marked like any other structure

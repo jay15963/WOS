@@ -66,6 +66,10 @@ export const BUILDINGS = {
                  desc: 'Deque de tábuas sobre estacas, só em água rasa. Comece na margem e vá emendando: as pontas, os pilares e a escada se ajeitam sozinhos. Dá para pôr luzes, baús e pescar da beirada.' },
   bridge_wood: { name: 'Ponte', g: 'f', emoji: '🌉', cat: ['water'], cost: { wood: 4, stone: 2, rope: 1 }, time: 4, xp: 5, layer: 'deck', deck: 'bridge', connect: 'bridge', drag: 'span',
                  desc: 'Comece na margem, empilhe o corpo da ponte sobre a água (até 8 tiles, em linha reta) e termine na outra margem. Cada peça só começa depois da anterior pronta. Guarda-corpos dos dois lados.' },
+  // boat (game/boats.js): built on a water tile next to the bank or a pier; when finished it is launched as a boat
+  // (not a structure any more): 4 seats, room for tied animals, rowed by whoever sits at the oars. 3D: art/faces/solidBoat.js
+  boat:        { name: 'Barco', g: 'm', emoji: '🚣', cat: ['water'], cost: { wood: 16, rope: 4 }, size: [1, 1], time: 9, xp: 25, block: 0, boat: true,
+                 desc: 'Barco a remo para 4 pessoas. Construa na água, encostado na margem ou num trapiche. Entre com E (ou um toque); quem senta nos remos conduz com o direcional. Animais amarrados entram junto (espaço para 4: vaca ocupa 2, galinha meio). Sai com E perto da margem.' },
 
   // ---------- production ----------
   workbench:  { name: 'Bancada de trabalho', g: 'f', emoji: '🛠️', cat: ['prod'], cost: { wood: 10, stone: 4 }, size: [2, 1], time: 6, xp: 20, block: 'tile', station: true, rotate: true, move: true,

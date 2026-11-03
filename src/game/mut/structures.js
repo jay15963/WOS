@@ -414,6 +414,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
   const def = BUILDINGS[type], w = game.world;
   if (!def) return 'Construção desconhecida';
   if (def.roof) return roofReason(game, type, tx, ty, who);
+  if (def.boat) return game.boats ? game.boats.reason(tx, ty, who, lv) : 'Barcos indisponíveis'; // a boat on the water (game/boats.js)
   if (def.deck) { // piers / bridges (game/decks.js)
     const r = deckReason(game, type, tx, ty, lv, batch);
     if (r) return r;
@@ -578,7 +579,7 @@ defineIntent('build.hit', {
       }
       const ids = [], give = {};
       if (o.lv) { const why = game.levels?.buildStartReason(o); if (why) return why; } // levels: the floor under it first
-      if (!o.lv && game.decks?.any) { game.decks.sync(); const why = game.decks.startReason(o); if (why) return why; } // piers / bridges: from the bank, piece by piece; the deck under small things first
+      if (!o.lv && game.decks?.any && !def.boat) { game.decks.sync(); const why = game.decks.startReason(o); if (why) return why; } // piers / bridges: from the bank, piece by piece; the deck under small things first
       for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) {
         if (!o.lv) for (const n of objectsOnTile(game, x, y)) {
           if (CLEARABLE.has(n.type)) { ids.push(n.id); addTo(give, CLEAR_YIELD[n.type] || {}); }
@@ -612,6 +613,7 @@ defineIntent('build.hit', {
       net.emit('struct.relocate', { id: o.id, src: src.id, by: actor.pid, xp: 2, toast: `${def.name} ${def.g === 'm' ? 'movido' : 'movida'}` });
       return;
     }
+    if (def.boat && game.boats) { net.emit('boat.launch', game.boats.launchArgs(o, actor.pid, { xp: def.xp || 3, toast: 'Barco pronto: entre nele (E ou um toque)' })); return; } // (game/boats.js: it floats)
     const msg = msgBuilt(def);
     net.emit('struct.complete', { id: o.id, by: actor.pid, xp: def.xp || 3, toast: o.type === 'bed' ? msg + ' · ponto de renascimento definido' : msg, respawn: o.type === 'bed' ? o.id : undefined });
   },
