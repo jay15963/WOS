@@ -359,6 +359,10 @@ html, body {
 .rd-m.corpse { background: var(--n-cream); }
 .rd-m.corpse::after { background: var(--n-ink); }
 .rd-m.tgt { background: #fffaf0; box-shadow: 0 0 8px 2px var(--n-glow-c); }
+/* an ice giant (radar.js): a bigger red drop in an ice ring, an ice crystal in it (minimap.js giantMark) */
+.rd-m.gi { width: 18px; height: 18px; margin: -9px 0 0 -9px; background: var(--n-coral); box-shadow: 0 0 0 2px #bfeaf8, 0 0 7px 2px rgba(236, 90, 76, 0.55); }
+.rd-m.gi::after { width: 6px; height: 9px; margin: -4.5px 0 0 -3px; border-radius: 0; background: #bfeaf8; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+.rd-m.gi.tgt { box-shadow: 0 0 0 2px #fffaf0, 0 0 9px 3px var(--n-glow-c); }
 .rd-clock { position: absolute; left: 50%; top: -30px; z-index: 3; transform: translateX(-50%); padding: 0 11px; height: 22px; display: grid; place-items: center; isolation: isolate; pointer-events: auto; }
 .rd-clock::before { content: ''; position: absolute; inset: 0; z-index: -1; transform: skewX(-16deg); border-radius: 3px; background: linear-gradient(180deg, #fffaf0, #ead6ab); border: 2px solid var(--n-ink); box-shadow: 0 2px 0 rgba(20, 12, 6, 0.4); }
 .rd-clock b { font: italic 800 17px/1 var(--n-fd); color: var(--n-ink); letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
@@ -741,6 +745,8 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 .bigmap { display: block; border-radius: 4px; box-shadow: 0 0 0 2px var(--n-ink), 0 0 0 4px rgba(242, 228, 196, 0.35), 0 0 0 6px var(--n-ink); }
 .legend { display: flex; gap: 14px; font: 700 13px var(--n-fd); letter-spacing: 0.5px; text-transform: uppercase; color: var(--n-text-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; box-shadow: 0 0 0 1.5px var(--n-ink); vertical-align: -1px; }
+.legend i.lg-gi { position: relative; width: 12px; height: 12px; background: #ec5a4c; box-shadow: 0 0 0 1.5px var(--n-ink), 0 0 0 3px #bfeaf8; margin: 0 7px 0 2px; vertical-align: -2px; }
+.legend i.lg-gi::after { content: ''; position: absolute; left: 3px; top: 1.5px; width: 6px; height: 9px; background: #bfeaf8; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
 /* camera yaw: radar turns with the view (map window toggle, ui/minimap.js radarTurns) */
 .mm-rot { display: flex; align-items: center; gap: 6px; margin-top: 8px; font: 700 12px var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; color: var(--n-text-2); cursor: pointer; }
 .mm-rot input { width: 16px; height: 16px; accent-color: var(--n-teal, #4cc2b4); }

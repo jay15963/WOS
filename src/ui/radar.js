@@ -28,7 +28,7 @@ export function radarMarkup() {
   return `<div class="radar" id="radar">
     <div class="rd-disc">
       <svg class="rd-svg" aria-hidden="true"></svg>
-      <div class="mm" id="mm" data-tip="<b>Radar</b><p>Gotas na borda apontam o que está fora do mapa: <b style='color:#c9473b'>hostil</b>, <b style='color:#a77e1c'>neutro</b>, <b style='color:#23766d'>jogadores</b>, <b style='color:#b5591e'>sua casa</b>.</p><p>O arco em cima é o caminho do sol: cheio = vai anoitecer.</p><span class='key'>M</span>"><canvas></canvas></div>
+      <div class="mm" id="mm" data-tip="<b>Radar</b><p>Gotas na borda apontam o que está fora do mapa: <b style='color:#c9473b'>hostil</b> (a gota grande com cristal de gelo: <b style='color:#c9473b'>gigante de gelo</b>), <b style='color:#a77e1c'>neutro</b>, <b style='color:#23766d'>jogadores</b>, <b style='color:#b5591e'>sua casa</b>.</p><p>O arco em cima é o caminho do sol: cheio = vai anoitecer.</p><span class='key'>M</span>"><canvas></canvas></div>
       <div class="rd-marks"></div>
       <button class="rd-north hidden" id="rd-north" type="button" aria-label="Câmera para o norte" data-tip="<b>Câmera girada</b><p>A agulha aponta o norte. Toque para voltar a câmera ao norte.</p><p>Girar: arraste com o botão do meio do mouse · no celular, gire dois dedos como um volante.</p>"><i></i><b>N</b></button>
       <div class="rd-clock" data-tip="<b>Hora do dia</b><p>O arco mostra o sol (ou a lua) no céu. A noite é fria: prepare fogo e abrigo antes da barra encher.</p>"><b id="clock"></b></div>
@@ -114,6 +114,7 @@ export function installRadar(game, root, mini) {
       if (e.remote) { add(e.x, e.y, 'pl', 0); continue; }
       const dd = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
       if (dd > 90) continue;
+      if (e.species === 'giant') { add(e.x, e.y, e === p.target ? 'gi tgt' : 'gi', 1); continue; } // (an ice giant: its own bigger drop)
       if (e === p.target) { add(e.x, e.y, 'tgt', 1); continue; }
       if (e.faction === 'bandit' || e.faction === 'walker') { if (dd < 80) add(e.x, e.y, 'h', 2); continue; }
       if (e.kind !== 'animal' || e.isProp) continue;

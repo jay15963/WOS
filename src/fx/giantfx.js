@@ -51,11 +51,13 @@ class GiantFx {
   update(g, dt) {
     this.subscribe(g);
     if (g.headless) return;
-    // telegraphs: count down, then the blow lands
+    // telegraphs: the roar as it winds up, the club whooshing down, then the blow lands (every peer: op giant.tele)
     const T = g.teles;
     if (T && T.length) for (let i = T.length - 1; i >= 0; i--) {
       const q = T[i];
+      if (!q.roar) { q.roar = true; g.audio?.play('giant_roar', { x: q.x, y: q.y, volume: 0.7 }); }
       q.t += dt;
+      if (!q.down && q.t >= q.dur - 0.2) { q.down = true; g.audio?.play('swing_heavy', { x: q.x, y: q.y, volume: 0.85, pitch: 0.7 }); }
       if (q.t >= q.dur) { this.slam(g, q); T.splice(i, 1); }
     }
     // giant footsteps (on its own gait clock, art/giantRig.js: a thud when a foot lands)
@@ -70,7 +72,7 @@ class GiantFx {
       for (let n = 0; n < 4; n++) P.emit({ spr: this.spr.dust, x: e.x + side + (rnd() - 0.5) * 0.4, y: e.y + (rnd() - 0.5) * 0.15, lift: 0.04, vx: (rnd() - 0.5) * 0.8, vy: (rnd() - 0.5) * 0.3, vlift: 0.2,
         drag: 2.5, life: 0.6 + rnd() * 0.4, size: 0.3 * K.dust, size1: 0.8 * K.dust, r: 0.9, g: 0.94, b: 1, a: 0.45, a1: 0, ground: false });
       g.audio?.play('giant_step', { x: e.x, y: e.y, volume: 0.8 });
-      this.shakeAt(e.x, e.y, 0.07, 9);
+      this.shakeAt(e.x, e.y, 0.05, 9); // (about three steps a second)
     }
   }
 
@@ -113,11 +115,12 @@ class GiantFx {
     return true;
   }
   rockTrail(g, pr, dt) {
+    if (!pr.rel) { pr.rel = true; g.audio?.play('swing_heavy', { x: pr.x, y: pr.y, volume: 0.85, pitch: 0.72 }); } // (the hurl, on every peer)
     pr._tr = (pr._tr || 0) + dt;
     if (pr._tr < 0.04 || g.headless) return;
     pr._tr = 0;
     g.particles.emit({ spr: this.spr.soft, x: pr.x + (rnd() - 0.5) * 0.2, y: pr.y, lift: pr.lift, vlift: -0.2, drag: 1.5, life: 0.5 + rnd() * 0.3, size: 0.25 * this.K.soft, size1: 0.55 * this.K.soft, r: 0.88, g: 0.95, b: 1, a: 0.4, a1: 0, ground: false });
-    if (!pr.whoosh && pr.k > 0.4) { pr.whoosh = true; g.audio?.play('swing_heavy', { x: pr.x, y: pr.y, volume: 0.7 }); }
+    if (!pr.whoosh && pr.k > 0.45) { pr.whoosh = true; g.audio?.play('swing_heavy', { x: pr.x, y: pr.y, volume: 0.45, pitch: 0.85, force: true }); } // (passing by)
   }
   rockLand(g, pr, wall) {
     const P = g.particles, K = this.K, S = this.spr, x = pr.lx, y = pr.ly;

@@ -282,7 +282,8 @@ function siegeStep(game, m, dt) {
     // (an ice giant: its club raised high and brought down on the wall — giants.js)
     const big = m.species === 'giant';
     m.action = big ? { type: 'smash', t: 0, dur: 1.1 } : { type: m.wprof?.act === 'stab' ? 'stab' : 'attack', t: 0, dur: 0.4 };
-    game.audio?.play(big ? 'swing_heavy' : 'swing', { x: m.x, y: m.y, volume: big ? 0.9 : 0.5 });
+    if (big) game.later(0.42, () => { if (!m.dead) game.audio?.play('swing_heavy', { x: m.x, y: m.y, volume: 0.9, pitch: 0.72 }); }); // (the club coming down, not going up)
+    else game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
     game.later(big ? 0.62 : 0.22, () => { if (!m.dead && !o.removed && m.siege?.o === o) hitPiece(game, m, o); });
   }
   return true;

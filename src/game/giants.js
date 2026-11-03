@@ -149,8 +149,7 @@ function smash(game, m, t) {
   m.lastCombatT = game.worldTime;
   // the club rises (a new action object: guests start it too), then holds high (another one: they see it held)
   m.action = { type: 'smash', t: 0, dur: (SMASH.wind * SMASH.raise) / 0.41 };
-  game.net.emit('giant.tele', { x: r2(ix), y: r2(iy), r: SMASH.r, dur: SMASH.wind + 0.08, k: 'smash' });
-  game.audio?.play('giant_roar', { x: m.x, y: m.y, volume: 0.7 });
+  game.net.emit('giant.tele', { x: r2(ix), y: r2(iy), r: SMASH.r, dur: SMASH.wind + 0.08, k: 'smash' }); // (every peer: the circle, the roar, the blow — fx/giantfx.js)
   m.cast = {
     name: 'Esmagar', t: 0, dur: SMASH.wind, raised: false,
     step(dt) {
@@ -201,8 +200,7 @@ function throwRock(game, m, t, d) {
       lx = Math.max(0.5, Math.min(W.W - 0.5, lx)); ly = Math.max(0.5, Math.min(W.H - 0.5, ly));
       const id = hostProjId();
       const fx = (m.facing === 'e' ? 0.5 : m.facing === 'w' ? -0.5 : 0), fy = (m.facing === 's' ? 0.3 : m.facing === 'n' ? -0.3 : 0);
-      game.net.emit('giant.rock', { id, x: r2(m.x + fx), y: r2(m.y + fy), lx: r2(lx), ly: r2(ly), dur: r2(dur), apex: r2(apex) });
-      game.audio?.play('swing_heavy', { x: m.x, y: m.y, volume: 0.9 });
+      game.net.emit('giant.rock', { id, x: r2(m.x + fx), y: r2(m.y + fy), lx: r2(lx), ly: r2(ly), dur: r2(dur), apex: r2(apex) }); // (its whoosh on every peer: fx/giantfx.js)
       const pr = game.projectiles?.find((q) => q.id === id);
       const L = m.level;
       if (pr) pr.onLand = (g, p) => {

@@ -6,7 +6,16 @@ import { SPECIES } from '../game/data.js';
 
 // theme colours (hud-theme.css tokens): coral hostile, mustard neutral, olive passive, teal players
 const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
-const INK = '#24160d', CREAM = '#f6ead0', TEAL = '#4cc2b4', FIRE = '#ffa040';
+const INK = '#24160d', CREAM = '#f6ead0', TEAL = '#4cc2b4', FIRE = '#ffa040', ICE = '#bfeaf8';
+// an ice giant (species 'giant'): a big red disc in an ice ring with an ice crystal in it — also the map's legend
+export function giantMark(ctx, X, Y, r) {
+  ctx.fillStyle = 'rgba(236,90,76,0.25)'; ctx.beginPath(); ctx.arc(X, Y, r + 3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = DOT.hostile; ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.strokeStyle = ICE; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, r + 1.4, 0, Math.PI * 2); ctx.stroke();
+  const k = r * 0.62;
+  ctx.fillStyle = ICE; ctx.beginPath(); ctx.moveTo(X, Y - k); ctx.lineTo(X + k * 0.6, Y); ctx.lineTo(X, Y + k); ctx.lineTo(X - k * 0.6, Y); ctx.closePath(); ctx.fill();
+}
 
 // camera yaw (game.cam.rot, docs/CAMERA-ROTATION.md): the radar disc turns with the view by default (up on the radar =
 // up on the screen; the compass needle shows north), the big map stays north-up; both show a cone where the camera
@@ -118,8 +127,10 @@ export class Minimap {
     }
     // creatures
     const dot = full ? 2 : 2.5;
+    const giants = [];
     for (const e of g.entities) {
       if (e.dead) continue;
+      if (e.species === 'giant') { giants.push(e); continue; } // (drawn last, on top: giantMark)
       if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
         // other players (blue), raiders and winter walkers (red)
         const X = toX(e.x), Y = toY(e.y);
@@ -137,6 +148,13 @@ export class Minimap {
       ctx.fillStyle = DOT[SPECIES[e.species]?.temper] || DOT.neutral;
       ctx.beginPath(); ctx.arc(X, Y, e === p.target ? dot + 1.2 : dot * (e.elite ? 1.4 : 1), 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = e === p.target ? '#fff' : 'rgba(36,22,13,0.85)'; ctx.lineWidth = e === p.target ? 1.4 : 0.8; ctx.stroke();
+    }
+    // ice giants: their own bigger mark, seen from farther (the threat of the winter nights)
+    for (const e of giants) {
+      const X = toX(e.x), Y = toY(e.y);
+      if (out(X, Y, 0) || (!full && Math.hypot(e.x - p.x, e.y - p.y) > 70)) continue;
+      giantMark(ctx, X, Y, full ? 3.6 : 4.4);
+      if (e === p.target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, (full ? 3.6 : 4.4) + 3, 0, Math.PI * 2); ctx.stroke(); }
     }
     // spawn camp marker
     {
