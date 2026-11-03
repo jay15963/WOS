@@ -710,7 +710,8 @@ const WEAPON_CLASS = (w) => {
   if (/bow/.test(s)) return 'light';
   return 'light';
 };
-const speciesOf = (e) => (e ? (e.species === 'bandit' || (e.kind === 'pawn' && e.isMob) ? 'bandit' : e.species) : null);
+// (a pawn creature with a voice of its own — the ice giant — keeps it; other pawn mobs speak like the raiders)
+const speciesOf = (e) => (e ? (e.species === 'bandit' || (e.kind === 'pawn' && e.isMob && !SPECIES_VOX.has(e.species)) ? 'bandit' : e.species) : null);
 const METAL = /iron|copper|bronze|steel|chain|plate/;
 const ROUTES = {
   step(o) {

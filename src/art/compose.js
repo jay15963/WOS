@@ -43,7 +43,8 @@ import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
-import { giantLook, GIANT_EYES } from './giant.js'; // ice giants (species 'giant'): the same, twice as big
+import { giantLook, GIANT_EYES } from './giant.js'; // ice giants (species 'giant'): the old stand-in (pawn rig ×1.8)
+import { drawGiant } from './giantRig.js'; // ice giants: their own body (art/giantBody.js) on a 3D skeleton, 8 views
 import { lookAtlasOf } from './look/lazy.js';
 import { diagRig, diagReady, diagPart, diagSprite, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
 import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
@@ -488,7 +489,10 @@ function drawScaled(B, A, p, t, k) {
 }
 
 // ---------- pawns (humanoids) ----------
+const GENV = { viewB: null, animEnv: null };
 export function drawPawn(B, A, p, t) {
+  // an ice giant: its own body and rig (art/giantRig.js); the pawn stand-in below only until its parts are painted
+  if (p.species === 'giant' && !SCALING) { GENV.viewB = viewB; GENV.animEnv = animEnv; if (drawGiant(B, A, p, t, GENV)) return; }
   const OV = PAWN_OV[p.species] || null, walker = !!OV;
   if (OV && OV.scale !== 1 && !SCALING) return drawScaled(B, A, p, t, OV.scale); // (an ice giant: the rig twice as big)
   const T = tables(A);
@@ -1115,6 +1119,14 @@ function rigPose(Q, C, sd, flip) {
         if (sd === 'e') oBehind = false;
       }
     }
+  }
+  // on a ballista (game/ballista.js marks its operator every frame: _opA, the aim): both hands on the grips behind the
+  // windlass (art/faces/solidDefense.js), leaning into it; what it carries put away meanwhile
+  if (p._opA != null && !act && !sit && !swimming) {
+    showW = false; showO = false; h1 = h2 = true; h1b = h2b = false;
+    if (sd === 'e') { h1x = flip * 0.21; h1l = 0.32; h2x = flip * 0.17; h2l = 0.31; h2b = flip > 0; rot += flip * 0.06; headRot -= flip * 0.03; }
+    else if (sd === 's') { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.31; h1dy = h2dy = 0.13; oy += 0.015; }
+    else { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.33; h1b = h2b = true; oy -= 0.015; }
   }
   p._pk = act ? k : 1;
   // raised shield (block / blocking flag)

@@ -13,17 +13,19 @@ const click = (d, sr, t, r, amp = 0.5, f = 3500) => burst(d, sr, t, 0.006, { r, 
 const crunch = (d, sr, t, r, f, amp, dur = 0.05) => burst(d, sr, t, dur, { r, type: 'bp', f, q: 1.1, a: 0.002, amp, grain: 0.8, grainRate: 2600, grainMs: 1.6 });
 
 export const SIEGE_SFX = {
-  giant_step: { v: 4, sec: 0.6, sr: 22050, gain: 0.55, rev: 0.25, pj: 1, vj: 0.15, render(d, sr, r) {
-    thump(d, sr, 0, 62 + r() * 10, 30, 1, 0.22);
-    burst(d, sr, 0.005, 0.18, { r, color: 'brown', type: 'lp', f: 500, f1: 180, a: 0.003, amp: 0.6 });
+  // (about two a second while one walks: short, little reverb, so the steps stay apart)
+  giant_step: { v: 4, sec: 0.45, sr: 22050, gain: 0.5, rev: 0.16, pj: 1, vj: 0.15, render(d, sr, r) {
+    thump(d, sr, 0, 62 + r() * 10, 30, 1, 0.18);
+    burst(d, sr, 0.005, 0.15, { r, color: 'brown', type: 'lp', f: 500, f1: 180, a: 0.003, amp: 0.6 });
     crunch(d, sr, 0.01, r, 1400 + r() * 500, 0.35, 0.09); // packed snow
   } },
-  giant_roar: { v: 2, sec: 1.5, sr: 22050, gain: 0.5, rev: 0.4, pj: 1.2, vj: 0.12, render(d, sr, r) {
-    const n = Math.ceil(1.3 * sr), tmp = new Float32Array(n);
-    voiced(tmp, sr, 0, 1.3, (u) => 62 + 26 * Math.sin(Math.PI * Math.min(1, u * 1.4)) - 14 * u + 3 * Math.sin(u * 40), (u) => Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.15)), 0.7),
+  // (it starts every smash wind-up, ~1.2 s: done before the blow lands)
+  giant_roar: { v: 2, sec: 1.25, sr: 22050, gain: 0.5, rev: 0.35, pj: 1.2, vj: 0.12, render(d, sr, r) {
+    const n = Math.ceil(1.1 * sr), tmp = new Float32Array(n);
+    voiced(tmp, sr, 0, 1.1, (u) => 62 + 26 * Math.sin(Math.PI * Math.min(1, u * 1.4)) - 14 * u + 3 * Math.sin(u * 40), (u) => Math.pow(Math.sin(Math.PI * Math.min(1, u * 1.15)), 0.7),
       { formants: [[380 + r() * 60, 3, 1], [820 + r() * 120, 4, 0.55], [2200, 5, 0.18]], tilt: 0.9, noise: 0.35, rough: 0.75, am: 0.35, amRate: 22, r });
     mix(d, tmp, 0, 0.9);
-    burst(d, sr, 0, 1.2, { r, color: 'brown', type: 'lp', f: 300, shape: 'bell', amp: 0.3 });
+    burst(d, sr, 0, 1.0, { r, color: 'brown', type: 'lp', f: 300, shape: 'bell', amp: 0.3 });
   } },
   giant_smash: { v: 3, sec: 1.6, sr: 22050, gain: 0.75, rev: 0.4, pj: 0.8, vj: 0.1, render(d, sr, r) {
     thump(d, sr, 0, 58, 26, 1.1, 0.42);

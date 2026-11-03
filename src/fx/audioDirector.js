@@ -156,6 +156,7 @@ export function installAudioDirector(game, audio) {
   }
 
   function footstep(e) {
+    if (e.species === 'giant') return; // (its own thud on its own gait: fx/giantfx.js)
     if (e.kind === 'pawn') { audio.play('step', { x: e.x, y: e.y, volume: 0.24, surface: e.z > 0 ? game.levels?.surfaceOf(e) : undefined }); return; } // levels: stairs / wall top
     const sp = e.species, heavy = sp === 'bear' || sp === 'boar' || (e.scale || 1) > 1.25;
     const tiny = sp === 'rabbit' || sp === 'fox' || sp === 'spider';

@@ -34,7 +34,8 @@ export function faceAngle(o, t) {
   const vx = o._fvx || 0, vy = o._fvy || 0;
   const acting = o.action && o.action.t < 1;
   const seat = o.pose?.type === 'sit' ? o.pose.o : null;
-  if (seat && LETTER[seat.face] !== undefined) a = LETTER[seat.face]; // (sitting: the chair's way, whatever it looks at)
+  if (o._opA != null) a = o._opA; // (on a ballista: the way it points, game/ballista.js)
+  else if (seat && LETTER[seat.face] !== undefined) a = LETTER[seat.face]; // (sitting: the chair's way, whatever it looks at)
   else if (o.moving && !acting && vx * vx + vy * vy > 0.12) a = Math.atan2(vy, vx);
   else {
     const tg = o.target && !o.target.dead ? o.target : o.threat;

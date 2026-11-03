@@ -448,8 +448,9 @@ A guest's work loop never mutates on local completion: when its local `wk.hits �
 | `env.skip` | `{hour, day, wt}` | `env.hour/dayIndex`, `game.worldTime`, toast |
 
 Owner message (`{t:'own', n, a}`, host → one guest; local pid → immediate):
-`player.hurt {src: nid|null, sx, sy, slv, amount, crit, ability, dtype, ranged, from, noDodge, poison?:{dur,tick,dmg}, bleed?:{dur,tick,dmg}, stun?: dur}`
-→ owner: `dealDamage(game, proxyOf(src) || {x:sx, y:sy, level:slv}, game.player, amount, opts)`, then
+`player.hurt {src: nid|null, sx, sy, slv, amount, crit, ability, dtype, ranged, from, noDodge, knock?, noKnock, poison?:{dur,tick,dmg}, bleed?:{dur,tick,dmg}, stun?: dur}`
+→ owner: `dealDamage(game, proxyOf(src) || {x:sx, y:sy, level:slv}, game.player, amount, opts)` (o empurrão `knock` — o
+esmagar do gigante: 0,5 — e `noKnock` vão junto: o dono se move, a posição volta pelo stream), then
 `addDot(game, p, 'poison'|'bleed', …)` / `stunPlayer(game, dur)`.
 
 ### 3.5 Host AI with several players

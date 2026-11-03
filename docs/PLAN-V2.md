@@ -677,13 +677,17 @@ also be killed with normal weapons, much more slowly.
   walkerBrain), crumbles at sunrise like them, red on the radar / map, sees 18 tiles. Creative worlds: like the walkers
   there (no hunting, no breaking, no light).
   - Numbers: life 380 × (1 + 0.25 (L − 1)) × 1.1 (elite), level ≥ 4 (L4 732, L6 941, L8 1150); armour 12; speed 2.7
-    tiles/s (walkers 3.7, a player 4); body radius 0.42 (fits a 1-tile gap); knockback × 0.15; stuns last half (elite).
-  - **Esmagar** (in reach, 1.7 tiles): the club rises over 0.7 s and is held high, quivering — 1.15 s of wind-up with a
-    cast bar and a danger circle on the ground (radius 1.25, where it will land, up to 1.45 tiles in front; op
-    `giant.tele`, fx/giantfx.js) — then the blow lands on that spot: 40 × (1 + 0.16 (L − 1)) ± 10 % (L4 ≈ 59, L6 ≈ 72;
-    6 % crits × 1.4), armour applies. Step out of the circle to dodge; a stun / shield bash during the wind-up cancels it.
-    One smash every ≥ 3 s + the wind-up.
-  - **Arremessar** (in sight, 4.5–15 tiles, every 7–10 s): it lifts an ice rock (0.85 s) and lobs it where the player
+    tiles/s (walkers 3.7, a player 4); body radius 0.8 (passa num vão de 2 tiles, não de 1 — quebra a parede);
+    `scale` 2.4 (placa de nome, seleção, anel de alvo); knockback × 0.15; stuns last half (elite).
+  - **Esmagar** (in reach, ~2.1 tiles): the club rises over 0.7 s and is held high, quivering — 1.15 s of wind-up with a
+    cast bar and a danger circle on the ground (radius 1.25, where it will land, 1.3–2.1 tiles in front: o braço longo;
+    op `giant.tele`, fx/giantfx.js) — then the blow lands on that spot: 40 × (1 + 0.16 (L − 1)) ± 10 % (L4 ≈ 59, L6 ≈ 72;
+    6 % crits × 1.4), armour applies, **e empurra 0,5 tile** (de um ponto entre o gigante e a marca: quem está em cima da
+    marca também é jogado para trás). O empurrão vale para o convidado também: `player.hurt` leva `knock` / `noKnock` ao
+    dono, que se move (antes só o host era empurrado; IG2 confere). Step out of the circle to dodge; a stun / shield bash
+    during the wind-up cancels it. One smash every ≥ 3 s + the wind-up.
+  - **Arremessar** (in sight, 4.5–15 tiles, every 7–10 s): it lifts an ice rock (0.85 s; a mão esquerda tira a pedra da
+    neve e ergue sobre a cabeça — a clava fica na direita; a pedra sai da mão erguida, 3 tiles de altura) and lobs it where the player
     will be (55 % lead, ≤ 0.45 tile scatter): flight 0.55 + 0.055 s per tile, apex 0.8 + 0.12 tiles, a landing ring that
     tightens as it falls (op `giant.rock`: the same flight on every peer, projectiles.js `LOB_KINDS.ice_rock`). Hits
     whoever is within 1 tile of the landing point: a walker's hit at the giant's level, 6 × (1 + 0.16 (L − 1)) × 1.06
@@ -697,13 +701,28 @@ also be killed with normal weapons, much more slowly.
   - Killed: XP (× 7), it shatters (no body) and leaves a little metal frozen in it: 70 % 1–2 iron bars, 30 % a steel bar.
   - With normal weapons: a level-10 player with a steel sword (~30 damage per second against its armour) needs ~30 s on
     a level-6 giant (941 life); a level-5 player with an iron sword ~40 s on a level-4 one — while dodging the smashes.
-  - Art: the humanoid rig drawn 1.8× around its ground point with a 1.3× longer, broader body (art/compose.js PAWN_OV
-    `scale` / `hk` / `bx`), a fixed look (glacier-blue skin, frosted beard, bare feet) and lazily painted overlays in
-    art/giant.js — glacier-ice carapace with icicles and a fur flap, ice crags on the shoulders, a brow ridge of ice and
-    tusks, a crown of ice crystals, glowing eyes — all repainted in 3/4 by art/look/turn.js (8 views). Its club
-    (`held_club_ice`) and the rock in its hand (`held_rock_ice`) are baked with the gear. Footsteps thud and shake the
-    camera nearby, the smash bursts into ice and snow, it shatters like a walker but bigger (fx/giantfx.js,
-    fx/walkerfx.js). Sounds: giant_step / roar / smash / hurt / death, ice_rock_land (fx/sfxSiege.js).
+  - **Arte (refeita): corpo próprio**, não mais o boneco de pessoa esticado (pedido do dono: "sem cara de gigante") —
+    art/giantBody.js + art/giantRig.js (detalhes em docs/CAMERA-ROTATION.md): ~3 tiles com a coroa, ~3× uma pessoa (a
+    cabeça na altura do topo de uma parede de 2 andares); tronco curvado e pesado com corcova e cristais de gelo nas
+    costas, ombros largos com ombreiras de gelo, braços longos até os joelhos com braçadeiras e punhos de gelo, pernas
+    grossas com faixas de couro e pés descalços, cabeça pequena projetada para a frente (sobrancelha de gelo, presas,
+    barba gelada, coroa de cristais, olhos que brilham), tanga de pele e couro, clava de madeira com crosta de gelo. Cada
+    peça é um modelo 3D de elipsoides pintado por traçado de raios nas vistas s / se / e / ne / n; um esqueleto 3D posa
+    tudo a cada quadro, **8 vistas também em 0°**. Animações: parado, andar pesado (passo de 1,6 tile, ~1,7 por segundo,
+    o corpo despenca a cada pisada), esmagar (clava no alto nas duas mãos, tremendo; golpe no chão à frente), arremesso,
+    ferido, estilhaçar (as peças voam). Até as peças ficarem prontas: o boneco antigo (art/giant.js + compose PAWN_OV).
+    Revisão: `tools/diag.html?set=giant`.
+  - Efeitos: cada pisada levanta poeira e treme a câmera perto (fx/giantfx.js, no ritmo do passo novo: `GIANT_GAIT`); o
+    esmagar estoura gelo e neve; estilhaça como o andarilho, maior (fx/walkerfx.js).
+  - Sons (fx/sfxSiege.js): giant_step / roar / smash / hurt / death, ice_rock_land. Corrigido: as vozes do gigante
+    (ferido, morte, raiva) tocavam como bandido (`speciesOf` em fx/audio.js punha todo "pawn" criatura como bandido); o
+    passo genérico de pessoa (audioDirector) dobrava o do gigante noutro ritmo; o rugido e o assobio do arremesso só
+    tocavam no host — agora saem dos ops em todos os pares (rugido no começo do `giant.tele`, assobio da clava descendo
+    0,2 s antes do golpe, assobio da pedra ao sair da mão). Passo mais curto (0,45 s, pouca reverberação), rugido de
+    ~1,1 s (termina antes do golpe).
+  - Radar / mapa: marca própria — gota (fora do radar) / disco (dentro e no mapa grande) vermelho maior, num anel de gelo
+    com um cristal no meio, visto até 70 tiles no radar (ui/radar.js, ui/minimap.js `giantMark`); legenda "Gigante" no
+    mapa (ui/panels.js).
 - **Balista** (building `ballista`, build menu "Defesa": 4 steel bars, 10 wood, 3 rope, 10 s; game/ballista.js,
   mut/ballista.js): a real 3D piece (art/faces/solidDefense.js, its own face art): a cross of heavy beams, an iron
   turntable and a post stay; the top — yoke, stock, the front frame with two rope skeins, swept-back arms, the string
@@ -715,7 +734,21 @@ also be killed with normal weapons, much more slowly.
   - Getting on: the use button / E next to it ("Operar"), or a tap / click on it; one operator at a time (the host
     refuses a second: "Já tem alguém operando esta balista"). On it the player stands behind it (0.98 tiles behind the
     post) and only turns it; abilities are off. Getting off: E / the use button, which says **Sair** (on phones it
-    takes the use button's place). The host takes off an operator that left, died or is > 4 tiles away.
+    takes the use button's place). The host takes off an operator that left, died, is > 4 tiles away **ou saiu do andar
+    dela** (caiu do adarve).
+  - **Pose do operador** (todos os pares, local e remoto): `ballistaSystem` marca quem opera (`_opA` = o ângulo
+    desenhado); o corpo vira para a mira em 8 vistas (também em 0°: art/facing.js, game.js) e as duas mãos ficam nas
+    **manoplas** — dois cabos que saem do suporte do molinete para trás, na altura das mãos (art/compose.js; a arma e a
+    outra mão ficam guardadas). BA1 confere que o host desenha o convidado assim.
+  - **Arte**: braços grossos (vigas de 13 px, ferragens na saída do quadro, na junta e nas pontas), coronha mais larga; a
+    parte que gira tem **sombra do sol própria** que gira junto (kit sólido: caixas `spin` com sombra), só um sombreado de
+    contato fraco no chão sob os braços.
+  - **Num andar de cima / adarve** (`lv` ≥ 1, construída sobre o topo de paredes ou um piso de cima): só sobe quem está
+    naquele andar ("Suba até a balista" do chão); o operador fica atrás dela onde há piso (`seatSpot`: num adarve de uma
+    parede só, ao lado dela ao longo da parede); a flecha sai na altura do andar (op `ballista.shot`: o andar vem da
+    própria balista), voa reta 1,2 tile e mergulha um andar a cada 4,5 tiles (`boltZ`) — passa por cima das paredes de
+    baixo enquanto está alta, para nas paredes / portas do andar em que está e na rocha (`boltStops`), acerta o que está na
+    altura dela (`boltReaches`: um gigante é alto, 3,4 andares); a linha de mira mergulha junto. Cenário **BA3**.
   - Desktop: the top turns smoothly and slowly toward the mouse pointer (0.95 rad/s ≈ 54°/s, eased in the last ~16°);
     the attack key / button or a left click fires along where it points now; the camera leans along the aim.
   - Phones: the attack button works like the long shot: press and drag = a stick that sets where it should point (it
@@ -733,5 +766,8 @@ also be killed with normal weapons, much more slowly.
     `[id, aim, user]` (a save drops the operator).
 - Scenarios: **IG1** (a giant replicated, breaks a stone wall 8× faster than a walker, on both), **IG2** (smash
   telegraph → heavy hit, dodged by stepping out; the thrown rock: small damage), **BA1** (mount, slow turn seen by the
-  host, 2 bolts kill a giant on both, reload refused + refunded, XP to the guest), **BA2** (one operator, leaving, aim in
-  the snapshot, the host takes a gone operator off).
+  host, 2 bolts kill a giant on both, reload refused + refunded, XP to the guest; o host desenha o convidado nas
+  manoplas), **BA2** (one operator, leaving, aim in the snapshot, the host takes a gone operator off), **BA3** (balista
+  no topo de um bloco de paredes: do chão é recusado, do adarve sobe; o convidado fica no andar enquanto ela gira; a
+  flecha sai no andar 1, passa por cima da parede de baixo e mergulha num gigante: 55 %). IG2 também confere o empurrão
+  do esmagar no convidado (≥ 0,3 tile, visto pelo host).

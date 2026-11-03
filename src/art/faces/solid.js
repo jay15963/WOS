@@ -52,7 +52,8 @@
 // from h; a cloth hanging from a pole above, a vine on an arch): cosmetic, a few vertices per frame.
 // Turning parts (faces/solidDefense.js, the ballista): per part spin: true — it turns about a vertical axis through
 // spec.spinAt [x, v, h] to the world angle spec.spin(o, t) (radians, atan2 of the world direction its front points to;
-// built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot).
+// built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot)
+// · a spin box part with a sun shadow (sh not false) casts it turned with it (vis parts: give them sh: false).
 // More (faces/solidLights.js uses them): model: 'front'
 // (the model always from the front art's parts, whatever way the piece faces; the other views only texture it) ·
 // lift: px the painter draws the art above the piece's ground (wall-hung art; per part: that part's texture in the
@@ -699,8 +700,9 @@ function build(A, o, def, spec, st, e) {
     if (!p.sh || p.h1 - p.h0 < 2 / 64) continue;
     if (p.t === 0) {
       // shadowRect: start of the footprint (middle of its back edge along local y), direction, width, length
+      // (a turning part: kind 2, turned about the spin axis every frame)
       const cx = (p.x0 + p.x1) / 2, sx = WX + CA * cx - SA * p.y0, sy = WY + SA * cx + CA * p.y0;
-      e.sh.push(0, sx, sy, e.A, p.x1 - p.x0, p.y1 - p.y0, p.h1 - Math.max(0, p.h0), H0 + Math.max(0, p.h0));
+      e.sh.push(p.spin && sp.spin ? 2 : 0, sx, sy, e.A, p.x1 - p.x0, p.y1 - p.y0, p.h1 - Math.max(0, p.h0), H0 + Math.max(0, p.h0));
     } else if (p.t === 1) {
       // a round thing: the 0° art's silhouette across the sun, standing on its axis (lift: the art's ground above its anchor)
       const wx = WX + CA * p.ax - SA * p.ay, wy = WY + SA * p.ax + CA * p.ay;
@@ -892,6 +894,10 @@ export function drawSolid(B, A, o, t) {
           px = ux - ax * L / 2; py = uy - ay * L / 2;
         }
         shadowRect(B, T0, px, py, sh[k + 3], W, L, sh[k + 6], ta, sh[k + 7]);
+      } else if (sh[k] === 2) {
+        // a turning part (the ballista's top): its box shadow turned about the spin axis with it
+        const dx = sh[k + 1] - e.spx, dy = sh[k + 2] - e.spy, c = FS.sn ? FS.sc : 1, s = FS.sn ? FS.ss : 0;
+        shadowRect(B, T0, e.spx + c * dx - s * dy, e.spy + s * dx + c * dy, sh[k + 3] + Math.atan2(s, c), sh[k + 4], sh[k + 5], sh[k + 6], ta, sh[k + 7]);
       }
       else shadowArt(B, e.Sf, sh[k + 1], sh[k + 2], Math.atan2(CAMV.lx, -CAMV.ly), e.mf < 0, ta, sh[k + 7]);
     }

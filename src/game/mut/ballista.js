@@ -22,6 +22,7 @@ defineIntent('ballista.use', {
     if (!src || src.dead) return 'Você está morto';
     const [px, py] = pivotOf(o);
     if (Math.hypot(src.x - px, src.y - py) > BALLISTA.reach + 0.6) return 'Chegue mais perto da balista';
+    if (Math.abs((src.z || 0) - (o.lv | 0)) > 0.6) return (o.lv | 0) > (src.z || 0) ? 'Suba até a balista' : 'Desça até a balista'; // (up a story: from that story only)
     if (o.user && o.user !== me) {
       const q = playerByPid(game, o.user);
       if (q && !q.dead) return 'Já tem alguém operando esta balista';
@@ -76,7 +77,7 @@ defineOp('ballista.shot', {
   apply(game, a, ctx) {
     const o = game.world.objById.get(a.id), v = ang(a.a) ?? 0;
     if (isBallista(o)) { o.aim = v; o._reload = BALLISTA.reload; o.shake = 0.6; }
-    spawnBolt(game, { sid: String(a.sid || ''), x: num(a.x), y: num(a.y), a: v, by: a.by }, !!game.net.auth);
+    spawnBolt(game, { sid: String(a.sid || ''), x: num(a.x), y: num(a.y), a: v, by: a.by, lv: isBallista(o) ? o.lv | 0 : 0 }, !!game.net.auth); // (up a story: from that height)
     game.events?.emit('ballistashot', { x: num(a.x), y: num(a.y), a: v }); // (fx/giantfx.js: the thump, dust, sound)
     void ctx;
   },

@@ -142,6 +142,10 @@ against walls (`tools`-style headless run): 0 stuck positions in ~1500 runs (8 i
 Tops of finished walls and doors are surfaces of the next story: a wall line with a staircase next to it is a
 rampart; fences on it are railings.
 
+A **balista** (game/ballista.js) também sobe: construída num topo de parede / piso de cima, só opera quem está naquele
+andar; o operador fica onde há piso (`seatSpot`, `collidesL`); a flecha sai na altura do andar e mergulha (`boltZ`),
+parando nas paredes do andar em que está (`boltStops`) — docs/PLAN-V2.md "Gigantes de gelo e balista", cenário BA3.
+
 ### 4.5 Jump down
 
 Pushing against an edge for ~0.9 s while not moving: a short hop to the free tile beyond, one story down
