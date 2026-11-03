@@ -10,7 +10,7 @@
 //   hurt (it rocks back) · death: it shatters, the pieces flying apart and fading (fx/walkerfx.js adds the shards).
 // drawGiant returns false while its parts are still being painted (compose.js then draws the old stand-in).
 
-import { SK, EYES, PHI, GIANT_PARTS } from './giantBody.js';
+import { SK as SKU, EYES as EYESU, PHI, GS, GIANT_PARTS } from './giantBody.js';
 import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 import { viewFacing8 } from './facing.js';
 
@@ -20,8 +20,13 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smooth = (u) => { u = clamp01(u); return u * u * (3 - 2 * u); };
 const easeIn = (u) => { u = clamp01(u); return u * u * u; };
 const easeOut = (u) => { u = clamp01(u); return 1 - (1 - u) * (1 - u); };
-// walk: the gait phase per moveT unit (moveT grows 0.25 per tile on every peer): one step every 0.9 tiles
-export const GIANT_GAIT = Math.PI / (0.25 * 0.9);
+// walk: the gait phase per moveT unit (moveT grows 0.25 per tile on every peer): one heavy step every 1.35 tiles (about
+// two a second at its pace)
+export const GIANT_GAIT = Math.PI / (0.25 * 0.9 * GS);
+// the skeleton at the painted size (the poses below are in unit px and scaled after: scaleQ)
+const SK = { ...SKU, hip: SKU.hip.map((v) => v * GS), shoulder: SKU.shoulder.map((v) => v * GS), neck: SKU.neck.map((v) => v * GS) };
+for (const k of ['pelvis', 'uarm', 'farm', 'fist', 'thigh', 'shin', 'ankle', 'club', 'clubTip']) SK[k] = SKU[k] * GS;
+const EYES = EYESU.map((e) => e.map((v) => v * GS));
 // the 8 views: the painted view, mirror, the yaw the body faces on the screen (x right, y toward the camera)
 const VIEW8 = {
   s: ['s', 1, Math.PI / 2], se: ['se', 1, Math.PI / 4], e: ['e', 1, 0], ne: ['ne', 1, -Math.PI / 4], n: ['n', 1, -Math.PI / 2],
@@ -55,14 +60,14 @@ const nrm3 = (o) => { const l = Math.hypot(o[0], o[1], o[2]) || 1; o[0] /= l; o[
 // pel: pelvis (x, y, z) · pitch (forward lean), roll (+ = toward its right) · fR / fL: fist centres · club: the club's
 // direction from the right fist (unit) · aR / aL: ankles · two: the left fist on the haft below the right one
 const N = (v) => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
-const P = (o) => ({ pel: [0, 0, SK.pelvis], pitch: 0.05, roll: 0, fR: [8, -36, 41], fL: [10, 36, 40], club: N([0.75, -0.1, -0.65]), aR: [0, -14, SK.ankle], aL: [0, 14, SK.ankle], two: 0, ...o });
-const REST = P({ fR: [10, -38, 42], fL: [12, 38, 41] });
-const SMASH_UP = P({ pel: [-2, 0, 54], pitch: -0.16, fR: [-5, -8, 128], club: N([-0.55, 0.05, 0.83]), aR: [-4, -16, SK.ankle], aL: [8, 16, SK.ankle], two: 1 });
-const SMASH_HIT = P({ pel: [6, 0, 49], pitch: 0.44, fR: [40, -10, 36], club: N([0.8, -0.28, -0.53]), aR: [-9, -16, SK.ankle], aL: [13, 16, SK.ankle], two: 1 });
-const THROW_DOWN = P({ pel: [3, 0, 50], pitch: 0.36, fL: [24, 22, 14], fR: [12, -34, 46], aR: [6, -15, SK.ankle], aL: [-4, 15, SK.ankle] });
-const THROW_UP = P({ pel: [-3, 0, 55], pitch: -0.14, roll: 0.07, fL: [-18, 25, 124], fR: [16, -33, 54], club: N([0.6, -0.2, -0.77]), aR: [8, -15, SK.ankle], aL: [-7, 15, SK.ankle] });
-const THROW_REL = P({ pel: [5, 0, 52], pitch: 0.3, roll: -0.04, fL: [38, 12, 88], fR: [10, -34, 46], aR: [8, -15, SK.ankle], aL: [-7, 15, SK.ankle] });
-const THROW_FOL = P({ pel: [4, 0, 52], pitch: 0.24, fL: [30, 8, 50], fR: [8, -35, 44], aR: [8, -15, SK.ankle], aL: [-7, 15, SK.ankle] });
+const P = (o) => ({ pel: [0, 0, SKU.pelvis], pitch: 0.05, roll: 0, fR: [10, -40, 37], fL: [12, 40, 36], club: N([0.75, -0.1, -0.65]), aR: [0, -15, SKU.ankle], aL: [0, 15, SKU.ankle], two: 0, ...o });
+const REST = P({});
+const SMASH_UP = P({ pel: [-2, 0, 54], pitch: -0.16, fR: [-5, -8, 128], club: N([-0.55, 0.05, 0.83]), aR: [-4, -17, SKU.ankle], aL: [8, 17, SKU.ankle], two: 1 });
+const SMASH_HIT = P({ pel: [6, 0, 49], pitch: 0.44, fR: [40, -10, 36], club: N([0.8, -0.28, -0.53]), aR: [-9, -17, SKU.ankle], aL: [13, 17, SKU.ankle], two: 1 });
+const THROW_DOWN = P({ pel: [3, 0, 50], pitch: 0.36, fL: [24, 22, 14], fR: [12, -36, 42], aR: [6, -16, SKU.ankle], aL: [-4, 16, SKU.ankle] });
+const THROW_UP = P({ pel: [-3, 0, 55], pitch: -0.14, roll: 0.07, fL: [-18, 26, 124], fR: [16, -35, 50], club: N([0.6, -0.2, -0.77]), aR: [8, -16, SKU.ankle], aL: [-7, 16, SKU.ankle] });
+const THROW_REL = P({ pel: [5, 0, 52], pitch: 0.3, roll: -0.04, fL: [38, 12, 88], fR: [10, -36, 42], aR: [8, -16, SKU.ankle], aL: [-7, 16, SKU.ankle] });
+const THROW_FOL = P({ pel: [4, 0, 52], pitch: 0.24, fL: [30, 8, 50], fR: [8, -37, 40], aR: [8, -16, SKU.ankle], aL: [-7, 16, SKU.ankle] });
 
 // the current pose (scratch, no allocation)
 const Q = { pel: V(), pitch: 0, roll: 0, k: 1, fR: V(), fL: V(), club: V(), aR: V(), aL: V(), two: 0, lR: 0, lL: 0, rock: false, hp: 0, nod: 0 };
@@ -104,19 +109,24 @@ function pose(p, t, ph0) {
   // step and rocks over the standing leg; the arms swing against the legs, the club arm less)
   const mk = p._mk ?? (p.moving ? 1 : 0);
   if (mk > 0.01) {
-    const g = (p.moveT || 0) * GIANT_GAIT, s = Math.sin(g), c = Math.cos(g), S = 25 * mk, H = 10 * mk;
+    const g = (p.moveT || 0) * GIANT_GAIT, s = Math.sin(g), c = Math.cos(g), S = 25 * mk, H = 11 * mk;
     Q.aR[0] += S * s; Q.aL[0] -= S * s;
     Q.lR = H * Math.max(0, c) ** 1.4; Q.lL = H * Math.max(0, -c) ** 1.4;
     Q.aR[2] += Q.lR; Q.aL[2] += Q.lL;
-    Q.pel[2] -= 4.5 * mk * s * s; Q.pel[1] += 3.2 * mk * c; Q.roll -= 0.05 * mk * c; Q.pitch += 0.09 * mk;
+    // (the stomp: the body drops hard as a foot lands and rises slowly)
+    const drop = Math.pow(s * s, 1.6);
+    Q.pel[2] -= 6 * mk * drop; Q.k *= 1 - 0.025 * mk * drop; Q.pel[1] += 4 * mk * c; Q.roll -= 0.07 * mk * c; Q.pitch += 0.1 * mk;
     Q.fL[0] += 11 * mk * s; Q.fL[2] += 3 * mk * Math.abs(s); Q.fR[0] -= 5 * mk * s;
-    Q.nod -= 0.04 * mk * s * s;
+    Q.nod -= 0.05 * mk * drop;
   }
   // hit flinch: it rocks back, the head jerks
   const fl = p.flash || 0;
   if (fl > 0.05) { const f = fl * fl; Q.pitch -= 0.16 * f; Q.pel[0] -= 3 * f; Q.nod -= 0.2 * f; Q.fR[1] -= 4 * f; Q.fL[1] += 4 * f; }
   // two hands on the haft: the left fist below the right one
   if (Q.two > 0.01) { const tx = Q.fR[0] - Q.club[0] * 13, ty = Q.fR[1] - Q.club[1] * 13 + 6, tz = Q.fR[2] - Q.club[2] * 13; Q.fL[0] = lerp(Q.fL[0], tx, Q.two); Q.fL[1] = lerp(Q.fL[1], ty, Q.two); Q.fL[2] = lerp(Q.fL[2], tz, Q.two); }
+  // unit px → the painted size
+  for (const v of [Q.pel, Q.fR, Q.fL, Q.aR, Q.aL]) { v[0] *= GS; v[1] *= GS; v[2] *= GS; }
+  Q.lR *= GS; Q.lL *= GS;
 }
 
 // ---------- skeleton ----------
@@ -149,7 +159,7 @@ function skeleton() {
   torsoPt(J.sR, set3(tmp, SK.shoulder[0], -SK.shoulder[1], SK.shoulder[2]));
   torsoPt(J.sL, set3(tmp, SK.shoulder[0], SK.shoulder[1], SK.shoulder[2]));
   // arms: elbows bend back and out when low, out and forward when raised
-  const up = (f) => clamp01((f[2] - 70) / 40);
+  const up = (f) => clamp01((f[2] / GS - 70) / 40);
   let u = up(Q.fR);
   ik(J.eR, J.fR, J.sR, Q.fR, SK.uarm, ARM, [-1 + 1.3 * u, -0.7 - 0.5 * u, -0.2 * u]);
   u = up(Q.fL);
@@ -239,10 +249,10 @@ export function drawGiant(B, A, p, t, env) {
   const CL = item(S.club, cbx, cby, 1, Math.max(0.3, Math.hypot(PR.x, PR.y) / (SK.club * CPH)), Math.atan2(-PR.x, PR.y), 1);
   // the ice rock in the left hand (throw)
   const rockS = Q.rock ? spr(A, 'proj_ice_rock') : null;
-  const RK = rockS ? at(rockS, set3(tv2, J.fL[0] + 2, J.fL[1], J.fL[2] + 7), 1, Math.sin(t * 3) * 0.2, 0.78, 0.78) : null;
+  const RK = rockS ? at(rockS, set3(tv2, J.fL[0] + 3, J.fL[1], J.fL[2] + 11), 1, Math.sin(t * 3) * 0.2, 1.05, 1.05) : null; // (the size it flies at: fx/giantfx.js)
   // pauldrons on the shoulders
-  const PRr = at(S.pR, torsoPt(tv0, set3(tv1, SK.shoulder[0], -SK.shoulder[1], SK.shoulder[2] + 3)), mir, trot);
-  const PLl = at(S.pL, torsoPt(tv0, set3(tv1, SK.shoulder[0], SK.shoulder[1], SK.shoulder[2] + 3)), mir, trot);
+  const PRr = at(S.pR, torsoPt(tv0, set3(tv1, SK.shoulder[0], -SK.shoulder[1], SK.shoulder[2] + 3 * GS)), mir, trot);
+  const PLl = at(S.pL, torsoPt(tv0, set3(tv1, SK.shoulder[0], SK.shoulder[1], SK.shoulder[2] + 3 * GS)), mir, trot);
   // legs and feet (a lifted foot tips its toes down)
   const TR = limb(S.thigh, J.hR, J.kR, SK.thigh), SR = limb(S.shin, J.kR, J.aR, SK.shin);
   const TL = limb(S.thigh, J.hL, J.kL, SK.thigh), SL = limb(S.shin, J.kL, J.aL, SK.shin);
@@ -254,10 +264,10 @@ export function drawGiant(B, A, p, t, env) {
   // side. The club leaves its arm when it goes behind the body (front view) or comes toward the camera (back view).
   ORDER.length = 0;
   const lat = CY, fwd = SY;
-  const clubD = proj(set3(tv1, J.fR[0] + Q.club[0] * 26, J.fR[1] + Q.club[1] * 26, J.fR[2] + Q.club[2] * 26)).d, torsoD = proj(set3(tv2, Q.pel[0] - 4, Q.pel[1], Q.pel[2])).d;
+  const clubD = proj(set3(tv1, J.fR[0] + Q.club[0] * 26 * GS, J.fR[1] + Q.club[1] * 26 * GS, J.fR[2] + Q.club[2] * 26 * GS)).d, torsoD = proj(set3(tv2, Q.pel[0] - 4 * GS, Q.pel[1], Q.pel[2])).d;
   const armR = [UR, PRr, FR, CL, XR], armL = [UL, PLl, FL, XL, RK];
   if (Math.abs(lat) < 0.3) {
-    const front = fwd > 0, clubOut = front ? clubD < torsoD - 6 : clubD > torsoD + 6;
+    const front = fwd > 0, clubOut = front ? clubD < torsoD - 6 * GS : clubD > torsoD + 6 * GS;
     if (clubOut) armR[3] = null;
     if (front) ORDER.push(clubOut ? CL : null, TL, SL, KL, TR, SR, KR, T, ...armL, ...armR, H);
     else ORDER.push(H, TL, SL, KL, TR, SR, KR, UL, FL, XL, RK, UR, FR, armR[3], XR, T, PLl, PRr, clubOut ? CL : null);
@@ -280,7 +290,7 @@ export function drawGiant(B, A, p, t, env) {
   let al = 1, burst = 0, flash = fl;
   if (dead) { burst = Math.max(0, dk - 0.08); al = 1 - smooth((dk - 0.55) / 0.8); flash = Math.max(fl, 0.55 * (1 - dk)); }
   const T0 = opt(A, 'fx_blob');
-  if (T0) B2.blob.add(T0, ox, oy + 0.02, 1.55, 1.05, 1, 1, 1, 0.7 * (dead ? 1 - smooth(dk / 0.5) : 1));
+  if (T0) B2.blob.add(T0, ox, oy + 0.02, 1.55 * GS, 1.05 * GS, 1, 1, 1, 0.7 * (dead ? 1 - smooth(dk / 0.5) : 1));
   let i = 0;
   for (const it of ORDER) {
     if (!it) continue;
@@ -289,7 +299,7 @@ export function drawGiant(B, A, p, t, env) {
     if (burst > 0) {
       // shatter: every piece flies off on its own arc, spinning, and fades (the torso mostly sinks)
       const big = it === T, h1 = hash(i), h2 = hash(i + 31), h3 = hash(i + 57), sp = big ? 0.25 : 1;
-      x += (h1 - 0.5) * 150 * sp * burst; y += (-(40 + 70 * h2) * sp * burst + 320 * burst * burst) * (big ? 0.3 : 1);
+      x += (h1 - 0.5) * 150 * GS * sp * burst; y += (-(40 + 70 * h2) * GS * sp * burst + 320 * GS * burst * burst) * (big ? 0.3 : 1);
       rot += (h3 - 0.5) * 9 * burst * sp;
     }
     B2.main.add(it.s, ox + x * PX, oy, it.sx, it.sy, it.k, it.k, Math.min(1, it.k * 1.04), al, 0, rot, flash, it.flip, 0, -y * PX);
@@ -304,8 +314,8 @@ export function drawGiant(B, A, p, t, env) {
       if (SY * 0.9 - CY * (e[1] > 0 ? 0.42 : -0.42) < -0.05) continue; // (the eye looking away from the camera)
       projDir(e);
       const ex = H.x + PR.x * c - PR.y * s, ey = H.y + PR.x * s + PR.y * c;
-      B2.emissive.add(soft, ox + ex * PX, oy + 0.001, 0.2 / soft.w, 0.14 / soft.h, 0.45, 0.92, 1, 0.6 * pulse, 0, 0, 0, 1, 0, -ey * PX);
-      if (spark) B2.emissive.add(spark, ox + ex * PX, oy + 0.002, 0.08 / spark.w, 0.06 / spark.h, 0.75, 1, 1, 0.95, 0, 0, 0, 1, 0, -ey * PX);
+      B2.emissive.add(soft, ox + ex * PX, oy + 0.001, 0.26 / soft.w, 0.18 / soft.h, 0.45, 0.92, 1, 0.6 * pulse, 0, 0, 0, 1, 0, -ey * PX);
+      if (spark) B2.emissive.add(spark, ox + ex * PX, oy + 0.002, 0.1 / spark.w, 0.075 / spark.h, 0.75, 1, 1, 0.95, 0, 0, 0, 1, 0, -ey * PX);
     }
   }
   return true;

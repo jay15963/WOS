@@ -15,11 +15,14 @@
 //   gi_uarm · gi_farm · gi_thigh · gi_shin · gi_club   limbs and the club, painted along −z (pointing down), lit from
 //                   the front so the rig can turn them any way
 // SK: the rest skeleton the parts were modelled on (the rig poses it). EYES: the eye points on the head (glow).
+// Everything is modelled in 'unit' px and painted GS times bigger (a giant about three times a person: ~3 tiles with
+// its crown), so the sprites are sharp at their real size; the rig scales the skeleton the same way.
 
 import { spritePxFast as spritePx, SS, hex } from './paint.js';
 import { lazyDef } from './lazyDefs.js';
 
 export const PHI = (18 * Math.PI) / 180;
+export const GS = 1.8; // (the model's scale: unit px → painted px)
 export const VIEWS5 = ['s', 'se', 'e', 'ne', 'n'];
 export const YAW5 = { e: 0, se: Math.PI / 4, s: Math.PI / 2, ne: -Math.PI / 4, n: -Math.PI / 2 };
 const OUTL = 'rgba(14,20,28,0.94)';
@@ -27,8 +30,8 @@ const OUTL = 'rgba(14,20,28,0.94)';
 // ---------- the rest skeleton (px; torso joints relative to the pelvis, limbs along their own −z) ----------
 export const SK = {
   pelvis: 56,                          // pelvis height above the ground
-  hip: [0, 13, -3],                    // hip joints (± y) from the pelvis
-  shoulder: [2, 29, 37],               // shoulder joints (± y) from the pelvis
+  hip: [0, 14, -3],                    // hip joints (± y) from the pelvis
+  shoulder: [2, 31, 37],               // shoulder joints (± y) from the pelvis
   neck: [13, 0, 45],                   // neck joint from the pelvis
   uarm: 30, farm: 27, fist: 6,         // upper arm, forearm (elbow → wrist), wrist → fist centre
   thigh: 28, shin: 26, ankle: 7.5,     // leg bones; ankle height above the sole
@@ -105,13 +108,13 @@ function torso() {
   const P = [];
   P.push(E([6, 0, 13], [20, 21, 16], SKIN));                                    // belly
   P.push(E([11, 0, 9], [15, 17, 12], SKIN));                                    // gut
-  P.push(E([9, 0, 29], [20, 26, 14], SKIN));                                    // chest
-  for (const s of [1, -1]) P.push(E([17, 10 * s, 30], [8, 11, 8], SKIN, { br: 4 })); // pecs
-  P.push(E([-9, 0, 35], [17, 23, 15], SKIN));                                   // the hump of the upper back
-  P.push(E([5, 0, 41], [11, 16, 8], SKIN));                                     // traps
+  P.push(E([9, 0, 29], [20, 28, 14], SKIN));                                    // chest
+  for (const s of [1, -1]) P.push(E([17, 11 * s, 30], [8, 12, 8], SKIN, { br: 4 })); // pecs
+  P.push(E([-9, 0, 35], [18, 26, 16], SKIN));                                   // the hump of the upper back
+  P.push(E([5, 0, 41], [12, 19, 9], SKIN));                                     // traps
   for (const s of [1, -1]) {
-    P.push(E([2, 29 * s, 37], [12, 11.5, 12], SKIN));                           // deltoids (the arms hang here)
-    P.push(E([-1, 19 * s, 22], [13, 9, 13], SKIN));                             // lats
+    P.push(E([2, 31 * s, 37], [13, 12.5, 13], SKIN));                           // deltoids (the arms hang here)
+    P.push(E([-1, 21 * s, 22], [14, 10, 14], SKIN));                            // lats
   }
   P.push(E([2, 0, 3], [17.5, 23, 4.2], BELT, { g: 'belt' }));                   // belt
   P.push(E([16.8, 0, 3], [3, 4.2, 3.6], BONE, { g: 'bone' }));                  // a bone toggle
@@ -150,22 +153,22 @@ function head() {
   return [P, F];
 }
 function upperArm() {
-  return [[seg([0, 0, 0], [0, 0, -SK.uarm], 9.5, SKIN), E([3, 0, -13], [8, 8.5, 10], SKIN), E([-1, 0, -24], [7, 7.5, 6], SKIN)], []];
+  return [[seg([0, 0, 0], [0, 0, -SK.uarm], 10.5, SKIN), E([3, 0, -13], [9.5, 9.5, 11], SKIN), E([-1, 0, -24], [8, 8.5, 6.5], SKIN)], []];
 }
 function forearm() {
   const L = SK.farm;
-  return [[seg([0, 0, 0], [0, 0, -L], 8.6, SKIN), E([0, 0, -L + 8], [9.4, 9.4, 6], ICE, { g: 'ice' }),
+  return [[seg([0, 0, 0], [0, 0, -L], 9.6, SKIN), E([0, 0, -L + 8], [10.4, 10.4, 6.5], ICE, { g: 'ice' }),
     seg([-7, 0, -L + 12], [-13, 0, -L + 17], 1.8, ICE, { g: 'ice' }), seg([-5, 5, -L + 7], [-10, 9, -L + 10], 1.6, ICE, { g: 'ice' }), seg([-5, -5, -L + 7], [-10, -9, -L + 10], 1.6, ICE, { g: 'ice' })], []];
 }
 function fist() {
-  return [[E([0, 0, 0], [8.5, 8, 8], SKIN), E([5, 0, 2.5], [4, 7.6, 3.8], SKIN), E([-5, 0, 5.5], [4.2, 7, 3.2], ICE, { g: 'ice' })], []];
+  return [[E([0, 0, 0], [10, 9.5, 9.5], SKIN), E([6, 0, 3], [4.6, 9, 4.4], SKIN), E([-6, 0, 6.5], [4.8, 8.2, 3.6], ICE, { g: 'ice' })], []];
 }
-function thigh() { return [[seg([0, 0, 0], [0, 0, -SK.thigh], 11, SKIN), E([2, 0, -10], [11.5, 11, 10], SKIN)], []]; }
-function shin() { return [[seg([0, 0, 0], [0, 0, -SK.shin], 9, SKIN), E([0, 0, -SK.shin + 11], [9.8, 9.8, 8], WRAP, { g: 'wrap' })], []]; }
+function thigh() { return [[seg([0, 0, 0], [0, 0, -SK.thigh], 12.5, SKIN), E([2, 0, -10], [13, 12.5, 11], SKIN)], []]; }
+function shin() { return [[seg([0, 0, 0], [0, 0, -SK.shin], 10.5, SKIN), E([0, 0, -SK.shin + 11], [11.3, 11.3, 8.5], WRAP, { g: 'wrap' })], []]; }
 function foot() {
-  const P = [E([5, 0, -3], [11, 8, 4.6], SKIN), E([13, 0, -4.6], [4.5, 8, 3.4], SKIN)];
-  for (const y of [-4.6, 0, 4.6]) P.push(E([16.2, y, -5], [3, 2.5, 2.5], SKIN, { br: 1.2 }));
-  P.push(E([0, 0, 0.5], [8, 8, 4.2], WRAP, { g: 'wrap' }));
+  const P = [E([5, 0, -3], [12.5, 9.5, 5], SKIN), E([14, 0, -4.6], [5, 9.5, 3.6], SKIN)];
+  for (const y of [-5.4, 0, 5.4]) P.push(E([17.6, y, -5], [3.3, 2.9, 2.7], SKIN, { br: 1.2 }));
+  P.push(E([0, 0, 0.5], [9.5, 9.5, 4.6], WRAP, { g: 'wrap' }));
   return [P, []];
 }
 function club() {
@@ -231,7 +234,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
     let nx = 0, ny = 0, nz = 0;
     for (let j = 0; j < Q.length; j++) {
       const o = Q[j];
-      if (j !== k && (o.p.g !== p.g || Math.abs(P3[0] - o.c[0]) > o.ex + o.p.br + 2)) continue;
+      if (j !== k && (o.p.g !== p.g || Math.abs(P3[0] - o.c[0]) > o.ex + o.p.br + 2 || Math.abs(sy - o.sy) > o.ey + o.p.br + 2)) continue;
       const dx = P3[0] - o.c[0], dy = P3[1] - o.c[1], dz = P3[2] - o.c[2], A0 = o.A[0], A1 = o.A[1], A2 = o.A[2];
       const a0 = A0[0] * dx + A0[1] * dy + A0[2] * dz, a1 = A1[0] * dx + A1[1] * dy + A1[2] * dz, a2 = A2[0] * dx + A2[1] * dy + A2[2] * dz;
       let w = 1;
@@ -296,12 +299,18 @@ function boxOf(parts, yaw) {
   return [hw * 2, top + bot, hw, top];
 }
 
+// a model (unit px) GS times bigger: centres, semi-axes, blend radii, marks
+function scaled([parts, feats]) {
+  for (const p of parts) { p.c = mul3(p.c, GS); p.a = mul3(p.a, GS); p.br *= GS; }
+  return [parts, feats.map((f) => ({ ...f, c: mul3(f.c, GS), r: f.r * GS }))];
+}
+
 // ---------- registration (painted on demand into the look texture) ----------
 const MODELS = { torso, head, fist, foot, paulR: () => pauldron(-1), paulL: () => pauldron(1), uarm: upperArm, farm: forearm, thigh, shin, club };
 const OW = { torso: 2.6, head: 2.2, fist: 2.2, foot: 2.2, paulR: 2.2, paulL: 2.2, uarm: 2.4, farm: 2.4, thigh: 2.4, shin: 2.4, club: 2.2 };
 export const GIANT_PARTS = [];
 function def(name, kind, yaw, limb) {
-  const model = MODELS[kind]();
+  const model = scaled(MODELS[kind]());
   const [W, H, hw, top] = boxOf(model[0], yaw);
   lazyDef(name, () => spritePx(W, H, (g, P) => P.layer((lg) => render(lg, P, model[0], model[1], yaw, hw, top, { light: limb ? LIGHT_LIMB : LIGHT_BODY, limb }), OW[kind], OUTL)), hw / W, top / H);
   GIANT_PARTS.push(name);

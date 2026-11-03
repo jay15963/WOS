@@ -40,7 +40,7 @@ export function giantNumbers(game, k = (game.season?.year || 1) - 1) {
   };
 }
 export const SIEGE_MUL = 8;        // × a walker's pace on walls / doors / fences (stone: ~44 s alone, wood: ~13 s)
-export const SMASH = { wind: 1.15, raise: 0.6, reach: 1.45, r: 1.25, mult: 1, recover: 0.55 }; // wind-up s, raise part, impact radius (tiles)
+export const SMASH = { wind: 1.15, raise: 0.6, reach: 2.1, near: 1.3, r: 1.25, mult: 1, recover: 0.55 }; // wind-up s, raise part, where the club lands (tiles ahead: near..reach), impact radius (tiles)
 export const ROCK = { min: 4.5, max: 15, cast: 0.85, r: 1.0, cd: [7, 10], dur: [0.55, 0.055], apex: [0.8, 0.12], scatter: 0.45, lead: 0.55 };
 const SWING = 3.0;                 // s between smashes
 
@@ -140,7 +140,7 @@ export function giantChase(game, m, t, d, dt) {
 // the slam: wind-up (cast + ground telegraph), the club comes down on the marked spot
 function smash(game, m, t) {
   const dx = t.x - m.x, dy = t.y - m.y, L = Math.hypot(dx, dy) || 1;
-  const k = Math.max(0.9, Math.min(L, SMASH.reach));
+  const k = Math.max(SMASH.near, Math.min(L, SMASH.reach)); // (where its club lands: ~2 tiles out at arm's length)
   const ix = m.x + (dx / L) * k, iy = m.y + (dy / L) * k;
   // the push comes from a point between the giant and the impact: someone standing right on the mark is still thrown
   // back (away from the giant), someone at the rim outward (from = the impact itself gave no direction at its centre)
@@ -199,7 +199,8 @@ function throwRock(game, m, t, d) {
       const W = game.world;
       lx = Math.max(0.5, Math.min(W.W - 0.5, lx)); ly = Math.max(0.5, Math.min(W.H - 0.5, ly));
       const id = hostProjId();
-      const fx = (m.facing === 'e' ? 0.5 : m.facing === 'w' ? -0.5 : 0), fy = (m.facing === 's' ? 0.3 : m.facing === 'n' ? -0.3 : 0);
+      // (from its raised left hand: a little ahead and to its left; the release height is LOB_KINDS.ice_rock.h0)
+      const F = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }[m.facing] || [0, 1], fx = F[0] * 0.6 + F[1] * 0.3, fy = F[1] * 0.6 - F[0] * 0.3;
       game.net.emit('giant.rock', { id, x: r2(m.x + fx), y: r2(m.y + fy), lx: r2(lx), ly: r2(ly), dur: r2(dur), apex: r2(apex) }); // (its whoosh on every peer: fx/giantfx.js)
       const pr = game.projectiles?.find((q) => q.id === id);
       const L = m.level;

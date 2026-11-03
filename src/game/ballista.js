@@ -48,7 +48,7 @@ export const BALLISTA = {
 };
 const STEP = 0.2;
 const FLAT = 1.2, DESC = 4.5; // (up a story: the bolt flies level FLAT tiles, then drops a story every DESC tiles)
-const GIANT_TALL = 1.8;      // stories an ice giant stands tall (a bolt at that height still hits it)
+const GIANT_TALL = 3.4;      // stories an ice giant stands tall (a bolt at that height still hits it)
 
 // ---------- helpers ----------
 export const isBallista = (o) => !!o && o.building && o.type === 'ballista' && !o.removed;

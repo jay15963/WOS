@@ -13,7 +13,7 @@ const click = (d, sr, t, r, amp = 0.5, f = 3500) => burst(d, sr, t, 0.006, { r, 
 const crunch = (d, sr, t, r, f, amp, dur = 0.05) => burst(d, sr, t, dur, { r, type: 'bp', f, q: 1.1, a: 0.002, amp, grain: 0.8, grainRate: 2600, grainMs: 1.6 });
 
 export const SIEGE_SFX = {
-  // (about three a second while one walks: short, little reverb, so the steps stay apart)
+  // (about two a second while one walks: short, little reverb, so the steps stay apart)
   giant_step: { v: 4, sec: 0.45, sr: 22050, gain: 0.5, rev: 0.16, pj: 1, vj: 0.15, render(d, sr, r) {
     thump(d, sr, 0, 62 + r() * 10, 30, 1, 0.18);
     burst(d, sr, 0.005, 0.15, { r, color: 'brown', type: 'lp', f: 500, f1: 180, a: 0.003, amp: 0.6 });

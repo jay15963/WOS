@@ -35,7 +35,7 @@ class GiantFx {
     for (const k in this.spr) { const s = A && A.has(this.spr[k]) ? A.get(this.spr[k]) : null; this.K[k] = s ? 1 / Math.max(0.01, s.w) : 1; }
     this.steps = new WeakMap();
     // the ice rock (game/giants.js throwRock → op giant.rock → projectiles.fireLob)
-    LOB_KINDS.ice_rock = { h0: 2.3, shadow: 1.25, draw: (g, B, A2, pr) => this.drawRock(g, B, A2, pr), trail: (g, pr, dt) => this.rockTrail(g, pr, dt), land: (g, pr, wall) => this.rockLand(g, pr, wall) };
+    LOB_KINDS.ice_rock = { h0: 3.0, shadow: 1.25, draw: (g, B, A2, pr) => this.drawRock(g, B, A2, pr), trail: (g, pr, dt) => this.rockTrail(g, pr, dt), land: (g, pr, wall) => this.rockLand(g, pr, wall) };
     this.subbed = false; // (game.events exists once the systems are installed: subscribed on the first frame)
   }
   subscribe(g) {
@@ -68,11 +68,11 @@ class GiantFx {
       const k = Math.floor(((e.moveT || 0) * GIANT_GAIT - Math.PI / 2) / Math.PI), k0 = this.steps.get(e);
       this.steps.set(e, k);
       if (k0 == null || k0 === k) continue;
-      const P = g.particles, K = this.K, side = (k & 1 ? 1 : -1) * 0.22;
-      for (let n = 0; n < 4; n++) P.emit({ spr: this.spr.dust, x: e.x + side + (rnd() - 0.5) * 0.4, y: e.y + (rnd() - 0.5) * 0.15, lift: 0.04, vx: (rnd() - 0.5) * 0.8, vy: (rnd() - 0.5) * 0.3, vlift: 0.2,
-        drag: 2.5, life: 0.6 + rnd() * 0.4, size: 0.3 * K.dust, size1: 0.8 * K.dust, r: 0.9, g: 0.94, b: 1, a: 0.45, a1: 0, ground: false });
-      g.audio?.play('giant_step', { x: e.x, y: e.y, volume: 0.8 });
-      this.shakeAt(e.x, e.y, 0.05, 9); // (about three steps a second)
+      const P = g.particles, K = this.K, side = (k & 1 ? 1 : -1) * 0.33;
+      for (let n = 0; n < 7; n++) { const a = rnd() * TAU, sp = 0.5 + rnd() * 0.9; P.emit({ spr: this.spr.dust, x: e.x + side + Math.cos(a) * 0.25, y: e.y + Math.sin(a) * 0.12, lift: 0.04, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.45, vlift: 0.25,
+        drag: 2.2, life: 0.7 + rnd() * 0.5, size: 0.4 * K.dust, size1: 1.1 * K.dust, r: 0.9, g: 0.94, b: 1, a: 0.5, a1: 0, ground: false }); }
+      g.audio?.play('giant_step', { x: e.x, y: e.y, volume: 0.85 });
+      this.shakeAt(e.x, e.y, 0.1, 10); // (about two heavy steps a second)
     }
   }
 

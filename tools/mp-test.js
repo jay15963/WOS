@@ -2545,8 +2545,8 @@ function hurtLog(t, f) {
 }
 
 def('IG1', {
-  title: 'Ice giants: a giant spawns, is replicated (pawn ×2, ice club) and breaks a stone wall much faster than a walker, on both', timeout: 120000,
-  expected: 'Winter night; the guest stands inside a closed 5×5 room of stone walls; a giant spawned outside (giants.spawnGiantAt) is a pawn proxy on the guest (species giant, scale 2, weapon club_ice, elite); it senses the guest through the walls and hits the closest wall: one hit (op struct.dmg) is ≥ 6× a walker\'s hit on stone (giant: swingDur × SIEGE_MUL / 350); the same damage (cracks) on both; the wall falls on both and the giant comes in; the spawn numbers grow with the winters (giantNumbers); digest equal',
+  title: 'Ice giants: a giant spawns, is replicated (pawn ×2.4, ice club) and breaks a stone wall much faster than a walker, on both', timeout: 120000,
+  expected: 'Winter night; the guest stands inside a closed 5×5 room of stone walls; a giant spawned outside (giants.spawnGiantAt) is a pawn proxy on the guest (species giant, scale 2.4, weapon club_ice, elite); it senses the guest through the walls and hits the closest wall: one hit (op struct.dmg) is ≥ 6× a walker\'s hit on stone (giant: swingDur × SIEGE_MUL / 350); the same damage (cracks) on both; the wall falls on both and the giant comes in; the spawn numbers grow with the winters (giantNumbers); digest equal',
   api: 'giants.js spawnGiantAt / giantNumbers / SIEGE_MUL, walkers.js walkerBrain (siege), op struct.dmg / struct.remove fx smash, entity stream (species giant, scale)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -2573,7 +2573,7 @@ def('IG1', {
   t.assert(s, 'free spot for the giant');
   const m = MH.giants.spawnGiantAt(H.game, s[0], s[1]);
   const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
-  t.check(px.species === 'giant' && px.kind === 'pawn' && px.scale === 2 && px.weapon === 'club_ice' && px.elite, 'giant proxy: species giant, pawn, scale 2, ice club, elite', `${px.species} ${px.kind} ${px.scale} ${px.weapon} ${px.elite}`);
+  t.check(px.species === 'giant' && px.kind === 'pawn' && px.scale === 2.4 && px.weapon === 'club_ice' && px.elite, 'giant proxy: species giant, pawn, scale 2.4, ice club, elite', `${px.species} ${px.kind} ${px.scale} ${px.weapon} ${px.elite}`);
   const hit = await t.waitFor(() => H.game.build.structures.find((o) => ids.includes(o.id) && o.dmg > 0), 25000, 'the giant hits a wall of the room', () => `giant ${m.state} at ${f2(m.x)},${f2(m.y)}`);
   const walkerInc = (2.0 * 1.15) / 350; // (a walker: swing ~2 s × 1.15 per hit, 350 walker-seconds for stone)
   t.check(hit.dmg >= walkerInc * 6, 'one giant hit on stone ≥ 6× a walker\'s', `${hit.dmg.toFixed(4)} vs walker ~${walkerInc.toFixed(4)}`);
