@@ -6,9 +6,10 @@ vales contínuos, chão inclinado onde não é penhasco, penhascos como faces de
 encostas. Depois o dono pediu também **mexer no terreno** (cavar / aterrar / aplanar / suavizar) e **construir no
 relevo** (a casa fica numa base nivelada, com fundação).
 
-Estado: protótipo completo atrás da bandeira de teste `?hills=1` (só em localhost). **Sem a bandeira o mundo é plano e tudo
+Estado: protótipo completo atrás das bandeiras de teste `?hills=1` (a vitrine) e `?planet=1` (um recorte do gerador do
+planeta: as alturas de verdade dele, `world.heightStories`), só em localhost. **Sem bandeira o mundo é plano e tudo
 roda exatamente como antes** (todas as alturas 0: nenhum gancho roda, o terreno continua sendo um triângulo de tela
-inteira). O gerador do planeta (outro agente, `src/world/planet/`) vai preencher as mesmas alturas.
+inteira).
 
 Código: `src/world/height.js` (dados e regras), `src/world/hills.js` (a vitrine `?hills=1`), `src/engine/shaders.js`
 (`HGT_FN`, `TERRAIN_VS`, terreno: faces de rocha / terra / fundação, sombras do relevo), `src/engine/renderer.js`
@@ -28,6 +29,7 @@ construções, ferramenta, subida mais lenta), ganchos de uma linha marcados "te
 | `t` | o terreno com as edições dos jogadores (cavar / aterrar / aplanar / suavizar, penhasco cortado) |
 | `plot` | a base das construções em cada canto (derivada das estruturas em todo par) |
 | `c` | a superfície em que tudo pisa: `max(t, plot)` |
+| água | onde há água a superfície **é a água**: os cantos que tocam um tile de água sobem até o nível dela (`foldWater`: o mar em 0, um lago num planalto no nível dele, `gen.wlevel` do planeta) — o fundo não é desenhado, quem nada boia na superfície |
 | `f` | a superfície fina: 4 × 4 amostras por tile, `(4W + 1) × (4H + 1)` — o que é desenhado e o que `heightAt` lê |
 
 **Superfície lisa.** Cada amostra fina vem de um spline Catmull-Rom sobre os cantos (uma rampa uniforme continua plana,
@@ -97,7 +99,16 @@ Girando a câmera (`game.cam.rot`) o jogador vê os outros lados.
   - **Faces de terra** (`earthFace`): onde os jogadores cavaram / aterraram, o barranco é terra em camadas com pedrinhas
     e raízes, não rocha.
   - **Fundação** (`masonry`): os lados íngremes do platô de uma construção são fiadas de pedra com argamassa.
-  - **Neve** acima de `SNOW_LINE` com borda ruidosa; **água só no nível do mar** (nunca subindo um morro ou um penhasco).
+  - **Neve** acima de `SNOW_LINE` com borda ruidosa (agarra no chão suave, some na rocha íngreme); **água deitada no nível
+    dela** (nunca numa face íngreme nem acima da água vizinha: `uHgtK.a` = o nível d'água mais alto em 3 tiles).
+  - **Leitura do relevo**: luz direcional forte pela normal lisa + **curvatura** (~1,6 tile): fundos de vale e grotas mais
+    escuros, cristas e lombadas mais claras (uma borda clara nas cristas), sombras do relevo com o sol baixo.
+  - **Rocha**: sulcos e costelas descendo a face (o ruído da aspereza é esticado ao longo da encosta), faixas de estrato
+    largas com cores próprias (ocre / cinza-azulado), saliências (topo claro, sombra embaixo, musgo / capim nelas onde é
+    úmido), pé mais escuro com blocos caídos, e **tálus** (pedras soltas) no chão suave ao pé dos penhascos.
+  - **Maciços de rocha** (os tiles de rocha de antes): com relevo viram **morrotes rochosos** de verdade (vitrine: os cantos
+    de dentro sobem com a profundidade na rocha; planeta: a altura dele), desenhados com a rocha das faces, sem o anel
+    preto; minerar um tile corta o morrote até o canto mais baixo do tile (corte a céu aberto, em todo par).
   - **Sombras do relevo**: marcha em direção ao sol sobre a superfície (o raio sobe 1 / |shadowDir| por tile): morros e
     penhascos fazem sombra no chão, na mesma direção das sombras dos sprites.
   - **Recorte em volta do jogador**: o terreno na frente dele (morro, parede de cânion, borda de buraco) abre no mesmo
@@ -194,15 +205,27 @@ acima de 9). Nada fica em penhasco / no mar / acima da linha das árvores. Ponto
 `rampTop`, `lake`, `mountain`, `coast`, `canyon`). Cada par que abre o mundo precisa da bandeira (é só de teste).
 
 Capturas em `shots/height_<feição>_<ângulo>.png` (0°, 45°, 135°, 180°): `plateau`, `canyon`, `coast`, `hills`, `peak`,
-`ramp`, `ridge` (o jogador no fundo de um buraco cavado, escondido pela borda: o recorte abre), `ridgecanyon` (90° / 270°:
-a parede do cânion entre a câmera e o jogador), `night`, `dig`, `flatten`, `foundation`.
+`ramp` e `slope` (o jogador subindo encostas), `ridge` (o jogador no fundo de um buraco cavado, escondido pela borda: o
+recorte abre), `ridgecanyon` (90° / 270°: a parede do cânion entre a câmera e o jogador), `night`, `dig`, `flatten`,
+`foundation`; e do planeta de verdade (`?planet=1&seed=4242&px=…&py=…`, lugares achados por
+`node tools/planet-shots.mjs 4242 <pasta> auto`): `height_planet_mountains_*` (10288, 2256), `height_planet_canyon_*`
+(15024, 5712), `height_planet_volcano_*` (4720, 8176), `height_planet_cliffs_*` (6768, 3888; 90° / 270° para as falésias
+viradas a oeste).
 
 ## 8. Para o gerador do planeta
 
-- Escrever `gen.heightCorners` (Float32Array `(W + 1) × (H + 1)`, andares, ≥ 0 = acima do nível do mar) — ou entregar o
-  mesmo array à camada por pedaço. Tudo o mais (superfície fina, penhascos, desenho, regras) sai daí.
-- **Água**: classes 1 raso / 2 fundo / 3 abissal nos tiles; os cantos de água no nível do mar = 0. Lagos em planaltos
-  ainda não (a água é desenhada só na altura 0: ver "Falta").
+- Já ligado: com `?planet=1` o `World` lê `gen.heightStories` (`(W + 1) × (H + 1)`, andares) e `gen.wlevel` (nível da
+  superfície da água por tile): lagos e rios em altitude ficam no nível deles. Tudo o mais (superfície fina, penhascos,
+  desenho, regras) sai daí. A engine de streaming pode entregar o mesmo array por pedaço.
+- **O que se viu** (semente 4242, janelas de 256): alturas 0–14,5 por janela, encostas suaves, paredes de cânion e
+  falésias de 1 tile. O desenho aguenta tranquilo até ~20–25 andares. Para o relevo **ler** na tela padrão: falésias
+  costeiras de **3–6 andares** (as de ~1 andar quase não aparecem), paredes de cânion 4–6, e mais relevo local nas
+  montanhas (a janela das montanhas sobe ~11 andares em 100+ tiles: suave demais; algo como 1000 m → 7 andares ou um
+  realce do relevo local ×1,5 deixaria as cordilheiras visíveis como cordilheiras). Os tiles de rocha (`rock = 1`) sobre a
+  montanha inteira deixam tudo "maciço branco" e não caminhável: melhor rocha só nas faces íngremes / afloramentos e
+  chão de pedra / cascalho / neve nas encostas (o shader já pinta rocha onde é íngreme).
+- **Água**: classes 1 raso / 2 fundo / 3 abissal nos tiles; o nível em `wlevel` (o mar em 0). Cachoeiras (`features`)
+  hoje aparecem como uma face de rocha entre os dois níveis (ver "Falta").
 - **Escala**: seguir a tabela da seção 2 (relevo local ≤ ~8 andares por tela; penhascos 2–6 andares de uma vez; montanhas
   largas; neve ≥ 9). Valores muito altos (≥ 30) ficam fora da tela e precisam de mais margem na grade (cresce sozinha).
 - **Penhascos**: um degrau de cantos em 1 tile (ou 2) vira uma face de rocha lisa e áspera; para bordas orgânicas, ruído
@@ -216,7 +239,7 @@ a parede do cânion entre a câmera e o jogador), `night`, `dig`, `flatten`, `fo
 
 - **Túneis com teto em penhascos / planaltos** (uma segunda camada: o piso do túnel abaixo da superfície), hoje só corte a
   céu aberto; maciços de rocha continuam com cavernas.
-- **Lagos e rios acima do nível do mar** (nível d'água por região) e **cachoeiras**.
+- **Cachoeiras** (o degrau entre dois níveis de água é desenhado como rocha) e a água "caindo" pela borda de um lago.
 - **Pular penhascos pequenos** (descer ≤ 1 andar empurrando a borda, como no `levels.js`), **escadas construídas** ligando o
   chão a um planalto (hoje: rampas de terra), escadas / rampas de pedra para portas altas.
 - Ferramenta: item **Pá** próprio (hoje a picareta), prévia do pincel mostrando o resultado, aplanar em área arrastando.
