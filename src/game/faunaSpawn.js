@@ -43,18 +43,21 @@ export function spawnsForChunk(grid, rng, opts = {}) {
   const any = (x, y, r, f) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const u = x + dx, v = y + dy; if (u >= 0 && v >= 0 && u < S && v < S && f(u, v)) return true; } return false; };
   const tileH = (x, y) => (Hc ? (Hc[y * (S + 1) + x] + Hc[y * (S + 1) + x + 1] + Hc[(y + 1) * (S + 1) + x] + Hc[(y + 1) * (S + 1) + x + 1]) / 4 : 0);
   const steep = (x, y) => Hc && Math.max(Math.abs(Hc[y * (S + 1) + x] - Hc[(y + 1) * (S + 1) + x + 1]), Math.abs(Hc[y * (S + 1) + x + 1] - Hc[(y + 1) * (S + 1) + x])) > 0.9;
+  // where a group of this row stands for the biome tile (x, y): [x, y] or null. Water tiles carry the water biomes
+  // (river, lake, ocean…), so a land biome's water creature ('shallow' / 'water') takes the water next to its shore
+  const near = (x, y, r, f) => { let b = null, bd = 1e9; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const u = x + dx, v = y + dy; if (u >= 0 && v >= 0 && u < S && v < S && f(u, v) && dx * dx + dy * dy < bd) { bd = dx * dx + dy * dy; b = [u, v]; } } return b; };
   const fits = (on, x, y) => {
     const i = y * S + x, w = wat(x, y), land = w === 0 && !(Rk && Rk[i]);
     switch (on || 'land') {
-      case 'land': return land;
-      case 'shore': return land && any(x, y, 2, (u, v) => wat(u, v) > 0);
-      case 'rock': return land && any(x, y, 3, (u, v) => (Rk && Rk[v * S + u]) || (u < S && v < S && steep(u, v)));
-      case 'trees': return land && (!Tr || any(x, y, 3, (u, v) => Tr[v * S + u]));
-      case 'shallow': return w === 1;
-      case 'deep': return w >= 2;
-      case 'far': return w >= 2 && !any(x, y, 10, (u, v) => wat(u, v) === 0);
-      case 'water': return w >= 1 && !any(x, y, 1, (u, v) => wat(u, v) === 0);
-      default: return land;
+      case 'land': return land ? [x, y] : null;
+      case 'shore': return land && any(x, y, 2, (u, v) => wat(u, v) > 0) ? [x, y] : null;
+      case 'rock': return land && any(x, y, 3, (u, v) => (Rk && Rk[v * S + u]) || (u < S && v < S && steep(u, v))) ? [x, y] : null;
+      case 'trees': return land && (!Tr || any(x, y, 3, (u, v) => Tr[v * S + u])) ? [x, y] : null;
+      case 'shallow': return w === 1 ? [x, y] : land ? near(x, y, 3, (u, v) => wat(u, v) === 1) : null;
+      case 'deep': return w >= 2 ? [x, y] : null;
+      case 'far': return w >= 2 && !any(x, y, 10, (u, v) => wat(u, v) === 0) ? [x, y] : null;
+      case 'water': return w >= 1 && !any(x, y, 1, (u, v) => wat(u, v) === 0) ? [x, y] : land ? near(x, y, 3, (u, v) => wat(u, v) >= 1 && !any(u, v, 1, (a, b) => wat(a, b) === 0)) : null;
+      default: return land ? [x, y] : null;
     }
   };
   // tiles of each biome present
@@ -71,8 +74,9 @@ export function spawnsForChunk(grid, rng, opts = {}) {
       let k = Math.floor(ex) + (rng() < ex - Math.floor(ex) ? 1 : 0);
       for (; k > 0; k--) {
         for (let t = 0; t < 32; t++) {
-          const i = L[Math.floor(rng() * L.length)], x = i % S, y = (i / S) | 0;
-          if (!fits(row.on, x, y)) continue;
+          const i = L[Math.floor(rng() * L.length)], at = fits(row.on, i % S, (i / S) | 0);
+          if (!at) continue;
+          const [x, y] = at;
           if (row.alt && Hc) { const h = tileH(x, y); if (h < row.alt[0] || h > row.alt[1]) continue; }
           const wx = x0 + x + 0.5, wy = y0 + y + 0.5;
           if (out.some((o) => Math.abs(o.x - wx) < gap && Math.abs(o.y - wy) < gap)) continue;

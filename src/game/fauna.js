@@ -50,25 +50,26 @@ export function setupFauna(game, m, s) {
   const w = game.world;
   if (F.move === 'swim') {
     m.noPush = true;
-    const sp = waterNear(w, s.x, s.y, 4, 2) || [s.x, s.y];
+    const sp = waterNear(w, s.x, s.y, 4, 2, roll) || [s.x, s.y];
     m.x = sp[0]; m.y = sp[1]; m.home = { x: m.x, y: m.y };
   } else if (F.move === 'fly') {
     m.noPush = true;
-    m.state = 'perch'; m.stateT = 4 + roll() * 20;
+    if (F.soar) { m.state = 'fly'; m.fmode = FLY; m.flyT = 30 + roll() * 120; } // (soarers: up in the air most of the time)
+    else { m.state = 'perch'; m.stateT = 4 + roll() * 20; }
   } else if (F.ambush?.hide === 'water' || F.toWater) {
     // crocodiles lurk in the water: home on a water tile next to the bank
     const wp = waterNear(w, s.x, s.y, 4, 1);
     if (wp) { m.x = wp[0]; m.y = wp[1]; m.home = { x: m.x, y: m.y }; }
   }
 }
-// a water tile (class ≥ min) within r tiles of (x, y), nearest first-ish
-function waterNear(w, x, y, r, min = 1) {
-  let best = null, bd = 1e9;
+// a water tile (class ≥ min) within r tiles of (x, y): the nearest, or one at random (roll: a pod spreads out)
+function waterNear(w, x, y, r, min = 1, roll = null) {
+  let best = null, bd = 1e9, n = 0;
   for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     const tx = Math.floor(x) + dx, ty = Math.floor(y) + dy;
     if (!w.inBounds(tx, ty) || w.liquidAt(tx, ty, true) < min) continue;
-    const d = dx * dx + dy * dy;
-    if (d < bd) { bd = d; best = [tx + 0.5, ty + 0.5]; }
+    const d = roll ? 0 : dx * dx + dy * dy;
+    if (roll ? roll() * ++n < 1 : d < bd) { bd = d; best = [tx + 0.2 + (roll ? roll() * 0.6 : 0.3), ty + 0.2 + (roll ? roll() * 0.6 : 0.3)]; }
   }
   return best;
 }
@@ -472,7 +473,7 @@ function landSpot(game, m, F) {
 }
 function takeOff(game, m, from = null) {
   setMode(m, FLY, true); setMode(m, TREE, false);
-  m.state = 'fly'; m.flyT = 10 + R() * 20; m.land = null;
+  m.state = 'fly'; m.flyT = m.fauna?.soar ? 70 + R() * 110 : 25 + R() * 40; m.land = null;
   const a = from ? Math.atan2(m.y - from.y, m.x - from.x) + (R() - 0.5) : R() * Math.PI * 2;
   m.wp = [m.x + Math.cos(a) * 10, m.y + Math.sin(a) * 10];
   m.orbit = null;
@@ -489,7 +490,7 @@ function birdBrain(game, m, dt, F) {
   if (think) m.thinkT = 0.3 + R() * 0.1;
   const fspd = sp.speed * 2; // flying
   if (m.state === 'flee' || m.fearT > 0) { if (m.fearT > 0) m.fearT -= dt; takeOff(game, m, m.fleeFrom || pickTarget(game, m)); m.flockLead = null; }
-  if (m.state === 'idle' || m.state === 'wander' || m.state === 'chase' || m.state === 'evade') m.state = 'perch';
+  if (m.state === 'idle' || m.state === 'wander' || m.state === 'chase' || m.state === 'evade') { m.state = m.fmode & FLY ? 'fly' : 'perch'; m.flyT ??= 8; }
   if (m.state === 'perch') {
     m.moving = false;
     m.stateT -= dt;
@@ -553,7 +554,7 @@ function birdBrain(game, m, dt, F) {
       // landed (unless someone is right there)
       if (seePlayer(game, m, (F.flush || 5) * 1.2)) { m.flyT = 6; m.land = null; return; }
       setMode(m, FLY, false); setMode(m, TREE, !!m.land.tree);
-      m.state = 'perch'; m.stateT = (m._eat > game.worldTime ? 25 : 14) + R() * 30; m.moving = false; m.land = null;
+      m.state = 'perch'; m.stateT = m._eat > game.worldTime ? 25 + R() * 20 : (F.soar ? 8 : 12) + R() * (F.soar ? 10 : 22); m.moving = false; m.land = null;
       if (m.spawner) for (const o of m.spawner.members) if (o.flockLead === m) { o.flockLead = null; setMode(o, FLY, false); o.state = 'perch'; o.stateT = m.stateT + R() * 4; o.moving = false; o.x += (R() - 0.5) * 0.8; o.y += (R() - 0.5) * 0.8; if (m.fmode & TREE) setMode(o, TREE, true); }
     }
     return;

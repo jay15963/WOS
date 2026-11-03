@@ -412,6 +412,7 @@ const Q = {};
   const skin = M('#8a8580', { fur: 0.1, tex: (Pb) => (fr(Pb[2] / 3.2 + vnoise(Pb[0] / 6, Pb[1] / 6, 0) * 0.8) < 0.12 ? col3('#77726d') : null) });
   const tusk = M('#efe6d0', { fur: 0, gloss: 0.3 });
   Q.elephant = {
+    wide: 1.3,
     H: 78, coat: skin, atk: 'tusk',
     masses: [[0, 2, 38, 22, 23], [24, 6, 21, 21, 24], [-24, 2, 20, 21, 22]],
     neck: { b: [36, 12], t: [46, 12], r: 15, g: [52, 30] },

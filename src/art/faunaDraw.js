@@ -43,11 +43,11 @@ const K = {
   polar_bear: { k: 'quad', f: 8, bob: 0.03, rock: 0.03, run: 'gallop', cat: true },
   arctic_fox: { k: 'quad', f: 16, bob: 0.04, rock: 0.03, run: 'gallop', cat: true },
   monkey: { k: 'quad', f: 16, bob: 0.05, rock: 0.04, run: 'bound' },
-  vulture: { k: 'bird', f: 18, glide: 0.8 },
-  eagle: { k: 'bird', f: 18, glide: 0.7 },
-  parrot: { k: 'bird', f: 24, glide: 0.1 },
-  seagull: { k: 'bird', f: 22, glide: 0.5 },
-  heron: { k: 'bird', f: 12, glide: 0.35 },
+  vulture: { k: 'bird', f: 18, glide: 0.85, alt: [5.5, 8] },
+  eagle: { k: 'bird', f: 18, glide: 0.75, alt: [6, 8.5] },
+  parrot: { k: 'bird', f: 24, glide: 0.15, alt: [2.6, 3.8] },
+  seagull: { k: 'bird', f: 22, glide: 0.55, alt: [3.2, 5] },
+  heron: { k: 'bird', f: 12, glide: 0.4, alt: [2.8, 4] },
   rattlesnake: { k: 'snake', f: 10 },
   crocodile: { k: 'croc', f: 9, bob: 0.01 },
   crab: { k: 'crab', f: 26, bob: 0.01 },
@@ -122,11 +122,11 @@ function headingOf(a) {
 // a flier's height (tiles): eased toward its cruising height (a slow swell, by its id) while flying, to its perch
 // (the ground, a tree's crown) landed
 function altOf(a, t, fly, perch = 0) {
-  const sd = seedOf(a), cruise = 1.7 + sd * 1.6 + Math.sin(t * 0.4 + sd * 20) * 0.25;
+  const A = K[a.species]?.alt || [2, 3.5], sd = seedOf(a), cruise = A[0] + sd * (A[1] - A[0]) + Math.sin(t * 0.4 + sd * 20) * 0.3;
   const dt = a._fat == null ? 0 : Math.min(0.1, t - a._fat);
   a._fat = t;
   const goal = fly ? cruise : perch;
-  a._alt = (a._alt ?? goal) + (goal - (a._alt ?? goal)) * Math.min(1, dt * (fly ? 1.6 : 2.6));
+  a._alt = (a._alt ?? goal) + (goal - (a._alt ?? goal)) * Math.min(1, dt * (fly ? 0.9 : 1.8)); // (climbs out slower than it lands)
   return a._alt;
 }
 
@@ -152,7 +152,9 @@ export function drawFauna(B, A, a, t, world = null) {
   const tint = (a.variant | 0) & 1 ? TINT[sp] || NOTINT : NOTINT;
   const ph0 = seedOf(a) * TAU;
   const tx = Math.floor(a.x), ty = Math.floor(a.y);
-  const deep = world && (G.k === 'swim' || G.k === 'croc' || G.k === 'seal' || sp === 'polar_bear') ? world.liquidAt(tx, ty) === 2 : false;
+  // in the water: swimmers always; a crocodile in any water (it lurks in the shallows too); seals and polar bears in deep water
+  const liq = world && (G.k === 'swim' || G.k === 'croc' || G.k === 'seal' || sp === 'polar_bear') ? world.liquidAt(tx, ty) : 0;
+  const deep = G.k === 'croc' ? liq >= 1 : liq === 2;
   const wet = G.k === 'swim' || deep;
 
   // ---- death: it sinks and keels over, then lies on its side (legs out; the flat ones flip onto the back) — the
@@ -248,6 +250,7 @@ export function drawFauna(B, A, a, t, world = null) {
   }
   if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.05 * fl; } // hit flinch
   const spr = frame(T, key, view, fr, cut, dir);
+  a._flift = lift > 0.05 ? lift : 0; // (cosmetic: the nameplate goes up with a flier / a monkey in a tree, ui/overlay.js)
   const x = a.x + ox, y = a.y + oy;
   // the shape under the water (flat, turned to where it swims) and the ring of ripples at the water line
   if (under && T.LA) {

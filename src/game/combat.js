@@ -401,7 +401,7 @@ export function bestFoe(game, maxD, prefer = null) {
   let best = null, bs = 1e9;
   for (const e of game.entities) {
     if (!attackable(e) || !isMob(e)) continue;
-    if ((e.tame || SPECIES[e.species]?.noAuto) && e !== prefer) continue; // (fish, the farm's animals: only when marked)
+    if ((e.tame || SPECIES[e.species]?.noAuto || e.fmode & 2) && e !== prefer) continue; // (fish, the farm's animals, wild fauna hidden in wait: only when marked)
     const d = dist(p, e);
     if (d > maxD) continue;
     const tmp = e.temper || SPECIES[e.species]?.temper;

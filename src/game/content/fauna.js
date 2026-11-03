@@ -2,7 +2,8 @@
 // Three tables:
 //   FAUNA_SPECIES  combat stats, merged into SPECIES (content/combat.js): temper, hp, dmg, swing, speed (tiles / s),
 //                  aggro (sight, tiles), r, scale, xp, lvl (levels above the distance level), minD (tiles from the world
-//                  spawn), loot rows [item, min, max, chance, 'skin'?] (butchering, mut/corpses.js), size (corpse class)
+//                  spawn), loot rows [item, min, max, chance, 'skin'?] (butchering, mut/corpses.js), size (corpse class),
+//                  ambient (birds, crabs: no nameplate unless marked, ui/overlay.js)
 //   FAUNA          behaviour (game/fauna.js): move ('walk' | 'climb' | 'amphib' | 'swim' | 'fly'), when ('day' |
 //                  'night' | 'always'), herd (flees together), territorial (tiles: a neutral one charges a player this
 //                  close), ambush ({ r, hide: 'water' | 'grass', warn? }), stalk (creeps, then pounces), rest ('day':
@@ -45,7 +46,7 @@ export const FAUNA_SPECIES = {
                  poison: { chance: 0.6, dur: 6, tick: 1.5, k: 0.5 }, loot: [] },
   rattlesnake: { name: 'Cascavel', temper: 'hostile', hp: 20, dmg: 4, swing: 1.6, speed: 3.2, aggro: 2.4, r: 0.2, scale: 1.2, xp: 1, minD: 14, size: 's',
                  poison: { chance: 0.8, dur: 8, tick: 1.5, k: 0.55 }, loot: [meat(1, 1, 0.6), skin(1, 1, 0.5)] },
-  vulture:     { name: 'Abutre', temper: 'passive', hp: 24, dmg: 0, swing: 2, speed: 3.2, r: 0.26, scale: 1, xp: 0.5, minD: 8, size: 's', noAuto: true,
+  vulture:     { name: 'Abutre', temper: 'passive', hp: 24, dmg: 0, swing: 2, speed: 3.2, r: 0.26, scale: 1, xp: 0.5, minD: 8, size: 's', noAuto: true, ambient: true,
                  loot: [meat(1, 1, 0.7), ['feather', 2, 4, 1]] },
   // ---- savanna ----
   zebra:       { name: 'Zebra', temper: 'passive', hp: 66, dmg: 0, swing: 2, speed: 6.2, r: 0.4, scale: 1, xp: 0.9, minD: 10, size: 'm',
@@ -61,22 +62,22 @@ export const FAUNA_SPECIES = {
                  loot: [meat(1, 1)] },
   jaguar:      { name: 'Onça-pintada', temper: 'hostile', elite: true, hp: 125, dmg: 12, swing: 1.7, speed: 5.2, aggro: 8, r: 0.4, scale: 1.15, xp: 2.6, lvl: 2, minD: 40, size: 'm',
                  loot: [meat(2, 3), skin(2, 2)] },
-  parrot:      { name: 'Arara', temper: 'passive', hp: 8, dmg: 0, swing: 2, speed: 3, r: 0.16, scale: 1.2, xp: 0.2, minD: 4, size: 's', noAuto: true,
+  parrot:      { name: 'Arara', temper: 'passive', hp: 8, dmg: 0, swing: 2, speed: 3, r: 0.16, scale: 1.2, xp: 0.2, minD: 4, size: 's', noAuto: true, ambient: true,
                  loot: [['feather', 1, 3, 1], meat(1, 1, 0.4)] },
   // ---- swamp / mangrove / marsh ----
-  crocodile:   { name: 'Crocodilo', temper: 'hostile', hp: 170, dmg: 14, swing: 2.2, speed: 3.4, aggro: 3.8, r: 0.45, scale: 1, xp: 2.6, lvl: 2, minD: 30, size: 'l',
+  crocodile:   { name: 'Crocodilo', temper: 'hostile', hp: 170, dmg: 14, swing: 2.2, speed: 3.4, aggro: 3.8, r: 0.45, scale: 1, xp: 2.6, lvl: 2, minD: 24, size: 'l',
                  loot: [meat(3, 4), skin(3, 4)] },
-  heron:       { name: 'Garça', temper: 'passive', hp: 16, dmg: 0, swing: 2, speed: 2.6, r: 0.2, scale: 1.15, xp: 0.3, minD: 6, size: 's', noAuto: true,
+  heron:       { name: 'Garça', temper: 'passive', hp: 16, dmg: 0, swing: 2, speed: 2.6, r: 0.2, scale: 1.15, xp: 0.3, minD: 6, size: 's', noAuto: true, ambient: true,
                  loot: [meat(1, 1), ['feather', 2, 3, 1]] },
   // ---- mountains / alpine ----
   mountain_goat: { name: 'Cabra-montês', temper: 'passive', hp: 42, dmg: 0, swing: 2, speed: 5.2, r: 0.3, scale: 1.1, xp: 0.7, minD: 10, size: 's',
                  loot: [meat(2, 2), skin(1, 1, 0.8), ['wool', 1, 1, 0.5]] },
-  eagle:       { name: 'Águia', temper: 'passive', hp: 22, dmg: 0, swing: 2, speed: 3, r: 0.22, scale: 1.1, xp: 0.5, minD: 8, size: 's', noAuto: true,
+  eagle:       { name: 'Águia', temper: 'passive', hp: 22, dmg: 0, swing: 2, speed: 3, r: 0.22, scale: 1.1, xp: 0.5, minD: 8, size: 's', noAuto: true, ambient: true,
                  loot: [['feather', 2, 4, 1]] },
   // ---- coast / beach ----
-  crab:        { name: 'Caranguejo', temper: 'neutral', hp: 12, dmg: 2, swing: 1.4, speed: 3, r: 0.16, scale: 1.25, xp: 0.3, minD: 4, size: 's',
+  crab:        { name: 'Caranguejo', temper: 'neutral', hp: 12, dmg: 2, swing: 1.4, speed: 3, r: 0.16, scale: 1.25, xp: 0.3, minD: 4, size: 's', ambient: true,
                  loot: [meat(1, 1)] },
-  seagull:     { name: 'Gaivota', temper: 'passive', hp: 8, dmg: 0, swing: 2, speed: 3, r: 0.16, scale: 1.1, xp: 0.2, minD: 4, size: 's', noAuto: true,
+  seagull:     { name: 'Gaivota', temper: 'passive', hp: 8, dmg: 0, swing: 2, speed: 3, r: 0.16, scale: 1.1, xp: 0.2, minD: 4, size: 's', noAuto: true, ambient: true,
                  loot: [['feather', 1, 2, 1]] },
   // ---- ocean (seen from the shore / a boat) ----
   dolphin:     { name: 'Golfinho', temper: 'passive', hp: 70, dmg: 0, swing: 2, speed: 6, r: 0.4, scale: 1, xp: 0.8, minD: 20, size: 'm', noAuto: true,
@@ -126,6 +127,8 @@ export const FAUNA = {
 //   d   expected groups in a 64 × 64 chunk made only of that biome (scaled by the biome's share of the chunk)
 //   on  'land' (default) | 'shore' (land ≤ 2 tiles from water) | 'rock' (land ≤ 3 tiles from rock, or steep)
 //       'shallow' (water class 1) | 'deep' (class 2+) | 'far' (deep, ≥ 10 tiles from land) | 'water' (any water)
+//       (water tiles carry the water biomes — river, lake, ocean: in a land biome's table 'shallow' / 'water' take the
+//       water next to that biome's shore, within 3 tiles)
 //       'trees' (land with ≥ 2 trees within 3 tiles; needs grid.trees)
 // ---------------------------------------------------------------------------------------------------------------------
 const SEA = [{ sp: 'fish', d: 1.4, n: [2, 4], on: 'water' }];
@@ -164,11 +167,11 @@ export const FAUNA_SPAWNS = {
   tropical_dry: [{ sp: 'elephant', d: 0.25, n: [2, 5] }, { sp: 'monkey', d: 0.6, n: [4, 8], on: 'trees' }, { sp: 'jaguar', d: 0.15, n: [1, 1] }, { sp: 'boar', d: 0.5, n: [1, 3] },
     { sp: 'parrot', d: 0.5, n: [3, 6] }, { sp: 'gazelle', d: 0.3, n: [3, 6] }],
   rainforest: [{ sp: 'monkey', d: 1, n: [4, 9], on: 'trees' }, { sp: 'jaguar', d: 0.3, n: [1, 1] }, { sp: 'parrot', d: 1, n: [3, 7] }, { sp: 'boar', d: 0.35, n: [1, 3] },
-    { sp: 'crocodile', d: 0.3, n: [1, 1], on: 'shallow' }, { sp: 'rattlesnake', d: 0.15, n: [1, 1] }],
+    { sp: 'crocodile', d: 0.6, n: [1, 1], on: 'shallow' }, { sp: 'rattlesnake', d: 0.15, n: [1, 1] }],
   cloud_forest: [{ sp: 'monkey', d: 0.7, n: [3, 7], on: 'trees' }, { sp: 'parrot', d: 0.7, n: [3, 6] }, { sp: 'jaguar', d: 0.15, n: [1, 1] }, { sp: 'deer', d: 0.3, n: [1, 2] }],
-  mangrove: [{ sp: 'crocodile', d: 0.8, n: [1, 2], on: 'shallow' }, { sp: 'heron', d: 0.8, n: [1, 3], on: 'shallow' }, { sp: 'crab', d: 1.2, n: [2, 5], on: 'shore' },
+  mangrove: [{ sp: 'crocodile', d: 1.4, n: [1, 2], on: 'shallow' }, { sp: 'heron', d: 0.8, n: [1, 3], on: 'shallow' }, { sp: 'crab', d: 1.2, n: [2, 5], on: 'shore' },
     { sp: 'monkey', d: 0.25, n: [3, 6], on: 'trees' }, { sp: 'fish', d: 0.8, n: [2, 3], on: 'water' }],
-  swamp: [{ sp: 'crocodile', d: 0.8, n: [1, 2], on: 'shallow' }, { sp: 'heron', d: 0.8, n: [1, 3], on: 'shallow' }, { sp: 'boar', d: 0.4, n: [1, 3] },
+  swamp: [{ sp: 'crocodile', d: 1.5, n: [1, 2], on: 'shallow' }, { sp: 'heron', d: 1.2, n: [1, 3], on: 'shallow' }, { sp: 'boar', d: 0.4, n: [1, 3] },
     { sp: 'parrot', d: 0.3, n: [3, 5] }, { sp: 'rattlesnake', d: 0.2, n: [1, 1] }],
   marsh: [{ sp: 'heron', d: 0.9, n: [1, 3], on: 'shallow' }, { sp: 'moose', d: 0.2, n: [1, 1] }, { sp: 'deer', d: 0.4, n: [1, 3] }, { sp: 'boar', d: 0.4, n: [1, 3] },
     { sp: 'fox', d: 0.3, n: [1, 1] }],
