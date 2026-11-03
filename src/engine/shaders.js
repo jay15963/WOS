@@ -20,6 +20,7 @@ layout(location=6) in vec4 aParams; // sway, rot, flash, flip
 layout(location=7) in vec4 aExtra;  // recvShadow, lift, season class (src/art/season.js SC), depth mode
 layout(location=8) in vec4 aDepth;  // depth reference: x, y, height, bias (engine/spriteBatch.js)
 uniform vec2 uCam;
+vec2 cw(vec2 d){ d.x -= 16384.0 * floor(d.x / 16384.0 + 0.5); return d; } // the planet wraps (docs/STREAMING.md): a point's image nearest the camera
 uniform vec2 uScale;   // clip units per world unit
 uniform float uTime;
 uniform float uWind;   // 0..1 wind strength
@@ -178,11 +179,11 @@ void main(){
   if (aParams.x > 0.0) local = swayLocal(c, local);
   // camera yaw: an upright sprite turns only its anchor with the world (it keeps facing the screen); a flat one turns
   // whole; the lift goes straight up the screen
-  vec2 v = uFlat > 0.5 ? toView(aPos + local - uCam) : toView(aPos - uCam) + local;
+  vec2 v = uFlat > 0.5 ? toView(cw(aPos + local - uCam)) : toView(cw(aPos - uCam)) + local;
   vW = uFlat > 0.5 ? aPos + local : aPos + toWorld(local);
   v.y -= aExtra.y;
   vec2 clip = v * uScale;
-  vV = v; vZ = vec4(toView(aDepth.xy - uCam).y, aDepth.z, aDepth.w, aExtra.w);
+  vV = v; vZ = vec4(toView(cw(aDepth.xy - uCam)).y, aDepth.z, aDepth.w, aExtra.w);
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -395,8 +396,9 @@ out vec4 vC;
 out highp float vD;
 out highp vec2 vV;
 out highp vec3 vW;              // world (x, y, h): roofs lit by the lamps around them (light-occluder pass)
+vec2 cw(vec2 d){ d.x -= 16384.0 * floor(d.x / 16384.0 + 0.5); return d; } // the planet wraps (docs/STREAMING.md): a point's image nearest the camera
 void main(){
-  vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
+  vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = cw(aP.xy - uCam);
   vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
   v.y -= aP.z;
   vec2 clip = v * uScale;
@@ -497,7 +499,7 @@ void main(){
   float h = max(0.0, -local.y) + aExtra.y;
   vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
   vec2 w = aPos + base + uShadowDir * h;
-  vec2 clip = toView(w - uCam) * uScale;
+  vec2 clip = toView(cw(w - uCam)) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -549,7 +551,7 @@ out vec2 vUV;
 flat out vec2 vA;   // alpha, owner id
 void main(){
   vec2 w = aPos + aCorner * aSize;
-  vec2 clip = toView(w - uCam) * uScale;
+  vec2 clip = toView(cw(w - uCam)) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vUV = mix(aUV.xy, aUV.zw, aCorner);
   vA = aColor.rg;
@@ -624,7 +626,7 @@ out vec2 vW;
 out float vKind;
 void main(){
   vec2 w = aPos + (aCorner - aAnchor) * aSize;
-  vec2 clip = toView(w - uCam) * uScale;
+  vec2 clip = toView(cw(w - uCam)) * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vW = w;
   vKind = aColor.r;

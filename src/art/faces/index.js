@@ -10,4 +10,5 @@ import './solidGarden.js'; // (the garden / outdoor pieces, the raiders' camps a
 import './deck.js';       // piers and bridges: procedural pieces from their neighbours (game/decks.js)
 import './solidFarm.js'; // the farm: the feeder (docs/LIVESTOCK.md)
 import './solidDefense.js'; // defense pieces: the ballista (turning top)
+import './solidBoat.js'; // the rowboat (game/boats.js): the whole model turns and moves
 export { drawFacesTurned } from './scaffold.js'; // (a piece being built: its scaffold as a 3D frame around it)

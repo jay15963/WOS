@@ -212,6 +212,21 @@ export class Minimap {
         ctx.fillStyle = CREAM; ctx.fillRect(X - 1.5, Y - 1.5, 3, 3);
       }
     }
+    // boats (game/boats.js): a little hull along its heading — wood, the bow pointed; teal edge when you are aboard
+    if (g.boats?.map.size) {
+      const mine = g.boats.mine?.();
+      for (const b of g.boats.map.values()) {
+        const X = toX(b._x), Y = toY(b._y);
+        if (out(X, Y, 8)) continue;
+        const L = Math.max(5, 2.1 * kx), Wd = Math.max(2.2, 0.7 * kx), c = Math.cos(b._h), s = Math.sin(b._h);
+        const P = (u, v) => [X + c * u * L - s * v * Wd, Y + s * u * L + c * v * Wd];
+        ctx.beginPath();
+        const pts = [P(1, 0), P(0.45, 1), P(-0.95, 0.85), P(-0.95, -0.85), P(0.45, -1)];
+        ctx.moveTo(pts[0][0], pts[0][1]); for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k][0], pts[k][1]); ctx.closePath();
+        ctx.fillStyle = '#b07a45'; ctx.fill();
+        ctx.strokeStyle = b === mine ? TEAL : INK; ctx.lineWidth = b === mine ? 1.6 : 1; ctx.stroke();
+      }
+    }
     // creatures
     const dot = full ? 2 : 2.5;
     const giants = [];

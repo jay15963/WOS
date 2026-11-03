@@ -233,7 +233,7 @@ export class Juice {
   // swimming in deep water (from the tile under the avatar, same on every peer) and the wet look after it:
   // e._swim 0..1 and e._wet 0..1 are read by art/compose.js; splashes while swimming, drips while drying
   water(e, dt) {
-    const deep = this.g.world.liquidAt(Math.floor(e.x), Math.floor(e.y), e._ud) === 2; // (under a bridge deck: e._ud)
+    const deep = !e._boat && this.g.world.liquidAt(Math.floor(e.x), Math.floor(e.y), e._ud) === 2; // (under a bridge deck: e._ud; riding a boat: dry, boats.js)
     e._swim = (e._swim || 0) + ((deep ? 1 : 0) - (e._swim || 0)) * Math.min(1, dt * 5);
     if (deep) {
       e._wet = 1;
