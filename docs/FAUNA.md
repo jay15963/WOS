@@ -12,7 +12,7 @@ Arquivos:
 |---|---|
 | `src/game/content/fauna.js` | dados puros: `FAUNA_SPECIES` (números de combate, coleta), `FAUNA` (comportamento), `FAUNA_SPAWNS` (tabelas por bioma) |
 | `src/game/fauna.js` | os cérebros (só no anfitrião): `setupFauna`, `faunaBrain`, `blockedFor` |
-| `src/game/faunaSpawn.js` | `spawnsForChunk` (puro), `chunkRng`, `createFaunaSpawners` (o gancho do `?planet=1`) |
+| `src/game/faunaSpawn.js` | `spawnsForChunk` (puro), `chunkRng`, `chunkFauna` (o gancho do planeta em pedaços: `mobs.js planetSpawners`) |
 | `src/art/fauna.js` | os modelos 3D (kit da criação), os quadros, os nomes dos sprites, o que vai para o atlas |
 | `src/art/faunaDraw.js` | o desenho de cada quadro (andar, correr, pastar, atacar, voar, nadar, morrer), `FMODE`, `faunaKey` |
 | `tools/diag.html?set=fauna&g=…` | folhas de 8 vistas por grupo (polar, taiga, steppe, desert, savanna, jungle, swamp, mountain, coast, ocean) |
@@ -179,10 +179,13 @@ const groups = spawnsForChunk({
 
 O motor transforma cada grupo num spawner (`{ species, x, y, level: levelForDistance(d, sp.lvl), count, when, fauna: true }`
 — `fish: true` para `fish`), respeitando `SPECIES[sp].minD`; `mobs.js spawnMember` faz o resto (`setupFauna`).
-Hoje, no `?planet=1`, `mobs.js createSpawners` pula o sorteio clássico e chama `createFaunaSpawners(game, { levelFor,
-whenOf, firstId })` (`faunaSpawn.js`), que percorre o recorte em blocos 64 × 64 alinhados aos chunks do planeta
-(`world.planetAt`), cada um com `chunkRng(seed, cx, cy)` do chunk do planeta — o mesmo bloco dá os mesmos bichos em
-qualquer recorte. A criação (`createStockSpawners`) continua como antes.
+Ligado no mundo em pedaços (docs/STREAMING.md "Regiões ativas"): na fonte `planet` (`?source=planet`, `?planet=1`),
+quando um chunk carrega no anfitrião, `mobs.js planetSpawners` chama `chunkFauna(game, c, { levelFor, whenOf })`
+(`faunaSpawn.js`) em vez da regra clássica do entorno: ele lê as camadas do chunk no mundo (`pbiome` = o bioma do
+planeta por tile, nova camada por chunk que o `planetSource` entrega; `water`, `rock`, alturas dos cantos, árvores dos
+baldes), sorteia com `chunkRng(seed, cx, cy)` e devolve os geradores; eles só enchem com o chunk ativo e saem com ele
+(o mesmo chunk volta com os mesmos geradores). A fonte sintética (`synth`) continua com a regra clássica (não tem bioma
+do planeta). Uma manada que migra fica dentro do próprio chunk.
 
 ---
 
@@ -259,8 +262,10 @@ Testes (`tools/mp-test.html?run=FA1,FA2`):
 - `game/game.js`: `drawFauna` antes de `drawAnimal`. `art/corpseDraw.js`: corpo de fauna deitado sem girar, chave de
   arte (leão macho) e tamanho do esqueleto.
 - `game/ai.js`: `bite` exportado; `m.speedK` multiplica a velocidade da perseguição.
-- `game/mobs.js`: `createSpawners` no `?planet=1` usa `createFaunaSpawners` (o sorteio clássico é pulado); `spawnMember`
-  chama `setupFauna`; a separação ignora `noPush` (aves e nadadores).
+- `game/mobs.js`: `planetSpawners` (planeta em pedaços) usa `chunkFauna` na fonte `planet`; `spawnMember` chama
+  `setupFauna`; a separação ignora `noPush` (aves e nadadores).
+- `world/world.js` + `world/planetSource.js`: camada por chunk `pbiome` (o bioma do planeta por tile; 255 = nenhum nas
+  fontes clássica / sintética).
 - `game/content/combat.js`: `...FAUNA_SPECIES` no `SPECIES`. `game/mut/corpses.js`: tamanho do corpo por `SPECIES.size`.
 - `net/entities.js`: `fmode << 4` no campo da criação. `ui/overlay.js`: sem plaqueta sobre bicho escondido / voando /
   ambiente, placa erguida com a altura cosmética. `game/combat.js`: o ataque automático não escolhe bicho escondido.
@@ -270,7 +275,9 @@ Testes (`tools/mp-test.html?run=FA1,FA2`):
 
 ## 7. Falta / ideias
 
-- Vegetação e chão dos biomas no `?planet=1` ainda são os do mundo clássico (acácia vira carvalho etc.) — o agente de
+- Peixes: as tabelas pedem cardumes no mar e nos lagos (`fish`); se o gerador por chunk da criação também puser
+  peixes, tirar uma das duas fontes.
+- Vegetação e chão dos biomas no planeta ainda são os do mundo clássico (acácia vira carvalho etc.) — o agente de
   vegetação está nisso; a savana aparece verde, mas os bichos nascem nos biomas certos.
 - Estações por latitude: hoje o inverno é global, então "no inverno os bichos do dia saem menos" vale até na savana.
 - A banquisa ainda é água no jogo: focas e ursos-polares ficam no deserto polar / na margem.
