@@ -8,7 +8,7 @@ import { MW, MH, CELL, SEAM_HALF, ABYSS_M, sinLatCell, metersToStories } from '.
 import { rng32, fbm, ridged, clamp, smoothstep, smooth01, hash01, ihash } from './noise.js';
 import { N, DL8, cxOf, cyOf, tileX, tileY, nbTable, distField, blur } from './grid.js';
 import { buildContinents, buildPlates, boundaryUplift, pickHotspots } from './tectonics.js';
-import { computeClimate } from './climate.js';
+import { computeClimate, seaIceAt } from './climate.js';
 import { computeHydrology, buildRivers, priorityFlood, RIVER_Q } from './hydro.js';
 import { BIOME, landBiome } from './biomes.js';
 
@@ -75,6 +75,7 @@ export function generatePlanet(seed = 1) {
   for (let i = 0; i < N; i++) isCrust[i] = crust[i] >= 0 ? 1 : 0;
   const crustB = blur(isCrust, 2);
   const bnd = boundaryUplift(seed, plate, plates, crustB);
+  bnd.U = blur(blur(bnd.U, 1), 1); // the warped plate edges are jagged at cell scale
   lap('plates');
 
   // ---------- base elevation ----------
@@ -85,6 +86,7 @@ export function generatePlanet(seed = 1) {
   const dActive = distField(activeSrc, 10);
   const elev = new Float32Array(N);
   const plateau = new Float32Array(N);
+  const iceT = new Float32Array(N); // ice sheet thickness (m)
   const S = seed * 1009;
   const brokenIds = new Set(conts.filter((c) => c.style === 'broken').map((c) => c.id));
   const fragC = new Float32Array(N);
@@ -105,6 +107,7 @@ export function generatePlanet(seed = 1) {
       e += 1600 * bm * rn * rn * smooth01(d / 4);
       e += 170 * fbm(tx, ty, S + 5, 512, 4) * smooth01(d / 3);
       e -= 300 * smoothstep(0.2, 0.6, -reg) * smooth01(d / 8);
+      if (crust[i] === 50) { iceT[i] = 2300 * smooth01(d / 12); e += iceT[i] + 700 * ridged(tx, ty, S + 15, 1024, 4) * smooth01(d / 4); } // ice dome + buried ranges
     } else {
       const dd = -d;
       const shelfW = (1.6 + 4.6 * (fbm(tx, ty, S + 6, 2048, 2) * 0.5 + 0.5)) * (dActive[i] < 8 ? 0.45 : 1);
@@ -202,9 +205,9 @@ export function generatePlanet(seed = 1) {
       const f = smoothstep(SEAM_HALF + 4, SEAM_HALF, sdist);
       elev[i] = Math.min(elev[i], -1800 - 2600 * f + 300 * fbm(tileX(i), tileY(i), S + 11, 1024, 2));
     }
-    // the polar edge rows: open (frozen) ocean
+    // the north polar edge: open (frozen) ocean
     const y = cyOf(i);
-    if (y < 2 || y >= MH - 2) elev[i] = Math.min(elev[i], -2000);
+    if (y < 2) elev[i] = Math.min(elev[i], -2000);
   }
   // no volcano inside the walls / seam
   for (let k = volcanoes.length - 1; k >= 0; k--) {
@@ -228,10 +231,14 @@ export function generatePlanet(seed = 1) {
         if (r < 0 || elev[i] <= 0) continue;
         const dx = Math.abs(cxOf(i) - cxOf(r)), dy = Math.abs(cyOf(i) - cyOf(r));
         const len = dx && dy ? 1.4142135623730951 : 1;
-        const F = (0.0095 * Math.sqrt(A[i])) / len;
+        const F = (0.0075 * Math.sqrt(A[i])) / len;
         const er = Math.max(elev[r], 0);
         if (elev[i] > er) elev[i] = (elev[i] + F * er) / (1 + F);
       }
+    }
+    {
+      const b1 = blur(elev, 1);
+      for (let i = 0; i < N; i++) if (elev[i] > 0 && b1[i] > 0) elev[i] = elev[i] * 0.45 + b1[i] * 0.55;
     }
     for (let pass = 0; pass < 4; pass++) {
       const ne = elev.slice();
@@ -263,7 +270,7 @@ export function generatePlanet(seed = 1) {
   }
 
   // ---------- climate ----------
-  const clim = computeClimate(elev, ocean);
+  const clim = computeClimate(elev, ocean, seed);
   const { tMean, tAmp, precip, dOcean } = clim;
   lap('climate');
 
@@ -337,7 +344,9 @@ export function generatePlanet(seed = 1) {
     let mn = elev[i], mx = elev[i];
     for (let k = 0; k < 8; k++) { const j = T8[i * 8 + k]; if (j >= 0) { if (elev[j] < mn) mn = elev[j]; if (elev[j] > mx) mx = elev[j]; } }
     relief[i] = clamp((Math.max(0, mx) - Math.max(0, mn)) / 1500, 0, 1);
-    mtn[i] = smoothstep(350, 2300, elev[i]) * (0.35 + 0.65 * relief[i]) + 0.5 * smoothstep(1800, 4000, elev[i]);
+    const bed = elev[i] - iceT[i];
+    mtn[i] = smoothstep(350, 2300, bed) * (0.35 + 0.65 * relief[i]) + 0.5 * smoothstep(1800, 4000, bed);
+    if (iceT[i] > 200) relief[i] *= 0.4;
     void x; void y;
   }
   const dDelta = distField((i) => deltas.some((dl) => dl.cell === i), 4);
@@ -346,7 +355,7 @@ export function generatePlanet(seed = 1) {
     const e = elev[i];
     const T = tMean[i] + 1.6 * fbm(tx, ty, S + 37, 1024, 3), P = precip[i] * (1 + 0.18 * fbm(tx, ty, S + 38, 1024, 3));
     if (ocean[i]) {
-      const ice = T + 6 * fbm(tx, ty, S + 39, 2048, 4) + 2 * fbm(tx, ty, S + 43, 256, 2) < -3;
+      const ice = seaIceAt(seed, tx, ty, tMean[i], false);
       biome[i] = ice ? BIOME.SEA_ICE : e < ABYSS_M ? BIOME.ABYSS : e > -40 ? BIOME.SHALLOWS : BIOME.OCEAN;
       if (biome[i] === BIOME.SHALLOWS && T > 23) biome[i] = BIOME.REEF;
       continue;
@@ -371,7 +380,7 @@ export function generatePlanet(seed = 1) {
     if (fjordP[i] > 0.4) flags[i] |= FLAG.FJORD;
     if (dDelta[i] < 2.5) flags[i] |= FLAG.DELTA;
     // lake districts: glaciated / flat wet lowlands
-    if (relief[i] < 0.18 && P > 350 && ((T < 4 && T > -9) || (P > 1600 && relief[i] < 0.06)) && dOcean[i] > 1) flags[i] |= FLAG.LAKES;
+    if (relief[i] < 0.18 && P > 350 && T < 4 && T > -9 && dOcean[i] > 1) flags[i] |= FLAG.LAKES;
   }
   // coast type of every cell within 3 cells of a coastline
   {
@@ -442,7 +451,7 @@ export function generatePlanet(seed = 1) {
 
   return {
     version: PLANET_VERSION, seed, W: MW * CELL, H: MH * CELL, CELL, MW, MH,
-    elev, cone, surf: hyd.surf, sd, plateau, relief, mtn,
+    elev, cone, iceT, surf: hyd.surf, sd, plateau, relief, mtn,
     crust, plate, plates: plates.map((p) => ({ id: p.id, vx: p.vx, vy: p.vy, continental: p.continental, area: p.area })),
     bkind: bnd.kind, bconv: bnd.bconv,
     tMean, tAmp, precip, dOcean, ocean, water, biome, coast, flags, comp,

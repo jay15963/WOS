@@ -6,6 +6,7 @@ import { BIOME_LIST, BIOME, PG } from './biomes.js';
 import { clamp, fbm } from './noise.js';
 import { baseHeight, riverNode, riverHalfWidth, crPoint, lakeLevelNear, lakeIdNear } from './chunk.js';
 import { storiesToMeters } from './consts.js';
+import { seaIceAt } from './climate.js';
 
 export const LAYERS = ['satellite', 'relief', 'biome', 'temp', 'rain', 'rivers', 'plates', 'water', 'seasons'];
 export const LAYER_PT = { satellite: 'Satélite', relief: 'Relevo', biome: 'Biomas', temp: 'Temperatura', rain: 'Chuva', rivers: 'Rios e lagos', plates: 'Placas', water: 'Classes de água', seasons: 'Estações' };
@@ -81,7 +82,7 @@ export function renderMacro(planet, layer = 'satellite') {
 export function satColor(planet, i, sh) {
   const e = planet.elev[i];
   if (planet.ocean[i]) {
-    if (planet.biome[i] === BIOME.SEA_ICE) return [210, 222, 232];
+    if (planet.biome[i] === BIOME.SEA_ICE) return [222, 232, 240];
     return ramp(SEA, 1 + Math.max(-6000, e) / 6000);
   }
   const b = BIOME_LIST[planet.biome[i]];
@@ -108,6 +109,7 @@ function drawMacroRivers(planet, out, alpha) {
 
 // ---------- tile-scale image of an assembled tile window ----------
 // win = { w, h, height (corners (w+1)*(h+1), stories), water, ground, biome, rock, objects } -> RGBA (scale px per tile)
+const ROCK_C = [null, [128, 122, 116], [176, 168, 146], [92, 92, 98], [210, 206, 200], [60, 56, 58], [186, 112, 72]];
 const GROUND_C = [[118, 96, 64], [86, 70, 44], [222, 204, 150], [150, 142, 128], [88, 102, 64], [104, 86, 62], [132, 128, 122], [72, 104, 52], [242, 244, 248], [200, 222, 236], [56, 50, 50], [240, 236, 228], [176, 100, 64], [176, 154, 110]];
 export function renderTileWindow(win, scale = 2, opts = {}) {
   const { w, h } = win, Wp = w * scale, Hp = h * scale;
@@ -132,7 +134,7 @@ export function renderTileWindow(win, scale = 2, opts = {}) {
       const g = GROUND_C[win.ground[i]] || [255, 0, 255];
       const bc = bm.c;
       c = [g[0] * 0.55 + bc[0] * 0.45, g[1] * 0.55 + bc[1] * 0.45, g[2] * 0.55 + bc[2] * 0.45];
-      if (win.rock[i]) c = win.ground[i] === PG.SNOW ? [230, 232, 238] : [112, 106, 100];
+      if (win.rock[i]) c = win.ground[i] === PG.SNOW ? [230, 232, 238] : ROCK_C[win.rockType[i]] || [112, 106, 100];
       c = c.map((v) => v * sh);
     }
     for (let py = 0; py < scale; py++) for (let px = 0; px < scale; px++) {
@@ -205,8 +207,9 @@ export function renderDetail(planet, w = 2048, h = 1024, opts = {}) {
     let c;
     const lv = lakeLevelNear(planet, x, y);
     if (hh < 0 && o.oceanNear) {
-      const ice = o.T + 6 * fbm(x, y, sd + 39, 2048, 4) + 2 * fbm(x, y, sd + 43, 256, 2) + 1.2 * fbm(x, y, sd + 40, 64, 2) < -3;
-      c = ice ? [212 + 14 * fbm(x, y, sd + 41, 32, 2), 224, 234] : ramp(SEA, 1 + Math.max(-6000, o.em) / 6000);
+      const ice = seaIceAt(planet.seed, x, y, o.T);
+      const tex = fbm(x, y, sd + 41, 64, 3);
+      c = ice === 1 ? [222 + 30 * tex, 232 + 20 * tex, 240 + 10 * tex] : ice === 2 ? [190, 210, 224] : ramp(SEA, 1 + Math.max(-6000, o.em) / 6000);
       wet[i] = ice ? 2 : 1;
       hgt[i] = ice ? 0.2 : 0;
     } else if (lv === lv && hh < metersToStories(lv) + 0.05) {
@@ -237,7 +240,8 @@ export function renderDetail(planet, w = 2048, h = 1024, opts = {}) {
     const i = py * w + px;
     const hx0 = hgt[py * w + Math.max(0, px - 1)], hx1 = hgt[py * w + Math.min(w - 1, px + 1)];
     const hy0 = hgt[Math.max(0, py - 1) * w + px], hy1 = hgt[Math.min(h - 1, py + 1) * w + px];
-    const sh = wet[i] === 1 ? 1 : shadeAt(hx0, hx1, hy0, hy1, k / Math.max(1, 0.5 + 0.08 * Math.max(0, hgt[i])));
+    let sh = wet[i] === 1 ? 1 : shadeAt(hx0, hx1, hy0, hy1, k / Math.max(1, 0.5 + 0.08 * Math.max(0, hgt[i])));
+    if (col[i * 3 + 2] > 225 && col[i * 3] > 200) sh = 0.8 + 0.22 * sh; // snow and ice: soft shading
     out[i * 4] = col[i * 3] * sh; out[i * 4 + 1] = col[i * 3 + 1] * sh; out[i * 4 + 2] = col[i * 3 + 2] * sh; out[i * 4 + 3] = 255;
   }
   // rivers: splines through the macro river nodes, width by flow (at least a thin line)

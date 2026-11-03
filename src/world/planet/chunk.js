@@ -14,11 +14,14 @@ import { W, H, CELL, MW, MH, CHUNK, CW, ABYSS_M, metersToStories, storiesToMeter
 import { fbm, ridged, gnoise, hash01, ihash, clamp, smoothstep, smooth01, dxWrap } from './noise.js';
 import { BIOME, BIOME_LIST, PG, landBiome, pickWeighted } from './biomes.js';
 import { coneSum, COAST, FLAG } from './macro.js';
+import { seaIceAt } from './climate.js';
 
 export const MARGIN = 16;
 const S = CHUNK;
 const SEED_OFF = 0x51f15e;
 
+// fbm (~±0.3 typical) mapped to a roughly uniform 0..1
+const u01 = (v) => (v < -0.3 ? 0 : v > 0.3 ? 1 : (v + 0.3) / 0.6);
 const cellIdx = (cx, cy) => (cy < 0 ? 0 : cy >= MH ? MH - 1 : cy) * MW + ((cx % MW) + MW) % MW;
 
 // Catmull-Rom weights
@@ -34,19 +37,24 @@ export function macroAt(p, x, y, o) {
   const u = x / CELL - 0.5, v = y / CELL - 0.5;
   const i0 = Math.floor(u), j0 = Math.floor(v), fu = u - i0, fv = v - j0;
   crw(fu, WU); crw(fv, WV);
+  // separable Catmull-Rom, each 1D pass clamped to its two inner samples (no overshoot, still continuous)
   const E = p.elev, C = p.cone;
-  let e = 0, mn = 1e9, mx = -1e9;
+  let e = 0, r1 = 0, r2 = 0;
   for (let b = 0; b < 4; b++) {
     const cy = j0 - 1 + b;
-    let row = 0;
+    let row = 0, v1 = 0, v2 = 0;
     for (let a = 0; a < 4; a++) {
       const c = cellIdx(i0 - 1 + a, cy), val = E[c] - C[c];
       row += WU[a] * val;
-      if ((a === 1 || a === 2) && (b === 1 || b === 2)) { if (val < mn) mn = val; if (val > mx) mx = val; }
+      if (a === 1) v1 = val; else if (a === 2) v2 = val;
     }
+    const lo = v1 < v2 ? v1 : v2, hi = v1 < v2 ? v2 : v1;
+    row = row < lo ? lo : row > hi ? hi : row;
+    if (b === 1) r1 = row; else if (b === 2) r2 = row;
     e += WV[b] * row;
   }
-  o.e = e < mn ? mn : e > mx ? mx : e;
+  const lo = r1 < r2 ? r1 : r2, hi = r1 < r2 ? r2 : r1;
+  o.e = e < lo ? lo : e > hi ? hi : e;
   const c00 = cellIdx(i0, j0), c10 = cellIdx(i0 + 1, j0), c01 = cellIdx(i0, j0 + 1), c11 = cellIdx(i0 + 1, j0 + 1);
   const w00 = (1 - fu) * (1 - fv), w10 = fu * (1 - fv), w01 = (1 - fu) * fv, w11 = fu * fv;
   const bl = (A) => A[c00] * w00 + A[c10] * w10 + A[c01] * w01 + A[c11] * w11;
@@ -119,8 +127,11 @@ export function lakeLevelNear(p, x, y) {
     if (lv !== lv) continue;
     const lx = (ci + a) * CELL, ly = (cj + b) * CELL;
     const ddx = Math.max(lx - x, 0, x - lx - CELL), ddy = Math.max(ly - y, 0, y - ly - CELL);
-    if (ddx * ddx + ddy * ddy > LAKE_REACH * LAKE_REACH) continue;
-    if (!(lv <= best)) { best = lv; _lakeId = p.lakeId[c]; }
+    const d2 = ddx * ddx + ddy * ddy;
+    if (d2 > LAKE_REACH * LAKE_REACH) continue;
+    // away from the lake cells the surface sinks a little: the shore curves instead of following the cell edge
+    const f = Math.sqrt(d2) / LAKE_REACH, lvf = lv - (f * f) * 60 * (1 + fbm(x, y, p.seed + 77, 64, 2) * 2);
+    if (!(lvf <= best)) { best = lvf; _lakeId = p.lakeId[c]; }
   }
   return best;
 }
@@ -160,7 +171,7 @@ export function riverNode(p, c) {
   return [x + (hash01(c, 1, s) - 0.5) * CELL * 0.55, y + (hash01(c, 2, s) - 0.5) * CELL * 0.55];
 }
 // river half width (tiles) from relative flow
-export const riverHalfWidth = (q, kind) => (kind === 3 ? clamp(3 + 1.6 * Math.sqrt(q), 3.5, 9) : kind === 2 ? clamp(0.6 + 0.35 * Math.sqrt(q), 0.6, 3) : clamp(0.35 + 0.6 * Math.sqrt(q), 0.5, 20));
+export const riverHalfWidth = (q, kind) => (kind === 3 ? clamp(3 + 1.6 * Math.sqrt(q), 3.5, 9) : kind === 2 ? clamp(0.6 + 0.35 * Math.sqrt(q), 0.6, 3) : kind === 4 ? clamp(0.3 + 0.3 * Math.sqrt(q), 0.35, 0.7) : clamp(0.35 + 0.6 * Math.sqrt(q), 0.5, 20));
 
 // all river segments (macro cell -> downstream cell) whose spline may touch the tile rect [x0, x1) x [y0, y1)
 // (unwrapped coordinates near x0). Segment: { c, d, P: [8 control coords], hw0, hw1, L0, L1, kind, can0, can1, fall, tf, flat }
@@ -200,7 +211,7 @@ export function riverSegments(p, x0, y0, x1, y1) {
     out.push({
       c, d, P: [P0[0], P0[1], P1[0], P1[1], P2[0], P2[1], P3[0], P3[1]], hw0, hw1, L0, L1, kind: kd,
       can0: p.canyon[c], can1: p.rkind[d] ? p.canyon[d] : p.canyon[c], fall: p.fall[c], tf: 0.35 + hash01(c, 7, p.seed) * 0.3,
-      flat: clamp(1 - p.relief[c] * 3, 0, 1) * smoothstep(900, 100, p.elev[c]), toSea: !!p.ocean[d], spring: kind === 1 && um < 0 && !hasLakeIn(p, c),
+      flat: clamp(1 - p.relief[c] * 3, 0, 1) * smoothstep(900, 100, p.elev[c]), toSea: !!p.ocean[d], spring: (kind === 1 || kind === 4) && um < 0 && !hasLakeIn(p, c),
     });
   }
   return out;
@@ -228,8 +239,10 @@ export function sampleSegment(p, sg) {
   const n = Math.max(4, Math.ceil(len / 1.5));
   const pts = [];
   const sd = p.seed * 11 + 3;
-  const mAmp = sg.kind === 1 ? (1.5 + 2.2 * Math.max(sg.hw0, sg.hw1)) * (0.25 + 0.75 * sg.flat) * (1 - 0.8 * Math.max(sg.can0, sg.can1)) : sg.kind === 2 ? 2 : 1;
-  const lam = sg.kind === 1 ? clamp(16 + 9 * Math.max(sg.hw0, sg.hw1), 16, 128) : 32;
+  // meanders: wide loops on flat floodplains, entrenched loops in canyons, wiggles everywhere else
+  const hwm = Math.max(sg.hw0, sg.hw1), can = Math.max(sg.can0, sg.can1);
+  const mAmp = sg.kind === 3 ? 1 : (2.5 + 2.6 * hwm) * (0.45 + 0.55 * sg.flat) * (1 + 0.7 * can) * (sg.kind === 4 ? 1.8 : 1);
+  const lam = sg.kind === 1 ? clamp(16 + 9 * hwm, 16, 128) : 64;
   const lamP = lam <= 32 ? 32 : lam <= 64 ? 64 : 128;
   for (let k = 0; k <= n; k++) {
     const t = k / n;
@@ -237,7 +250,7 @@ export function sampleSegment(p, sg) {
     const tl = Math.sqrt(tx * tx + ty * ty) || 1;
     const dx = tx / tl, dy = ty / tl;
     const taper = smooth01(Math.min(t, 1 - t) * 3.2);
-    const off = mAmp * taper * fbm(x, y, sd, lamP, 3);
+    const off = mAmp * taper * (2.2 * fbm(x, y, sd, lamP, 3) + 0.6 * fbm(x, y, sd + 1, 16, 2));
     const hw = sg.hw0 + (sg.hw1 - sg.hw0) * t;
     let L;
     if (sg.fall > 0) L = t < sg.tf ? sg.L0 : t < sg.tf + 0.04 ? sg.L0 + (sg.L1 - sg.L0) * ((t - sg.tf) / 0.04) : sg.L1;
@@ -247,7 +260,8 @@ export function sampleSegment(p, sg) {
   return pts;
 }
 
-const RK_RIVER = 1, RK_WASH = 2, RK_FJORD = 3, RK_DELTA = 4;
+const POND_MAX = 96;
+const RK_RIVER = 1, RK_WASH = 2, RK_FJORD = 3, RK_CREEK = 4, RK_DELTA = 5;
 
 export function generateChunk(p, cx, cy, opts = {}) {
   const tStart = typeof performance !== 'undefined' ? performance.now() : 0;
@@ -274,15 +288,18 @@ export function generateChunk(p, cx, cy, opts = {}) {
   for (let i = 0; i < NW; i++) { ds[i] = sea0[i] ? 0 : 99; dl[i] = sea0[i] ? 99 : 0; }
   chamfer(ds, WW, WW, M - 1); chamfer(dl, WW, WW, M - 1);
   const coastT = new Uint8Array(NW), beachW = new Float32Array(NW), shallowW = new Float32Array(NW);
-  const lagoon = new Uint8Array(NW), stack = new Uint8Array(NW), cliffTop = new Float32Array(NW);
+  const lagoon = new Uint8Array(NW), stack = new Uint8Array(NW), cliffTop = new Float32Array(NW), shelf = new Uint8Array(NW);
   for (let wy = 0; wy < WW; wy++) for (let wx = 0; wx < WW; wx++) {
     const i = wy * WW + wx;
-    if (ds[i] >= M - 1 && dl[i] >= M - 1) continue;
+    if (sea0[i] ? dl[i] >= M - 1 : ds[i] >= M - 1) continue; // (all coast profiles fade out before the distance cap)
     const x = X0 + wx + 0.5, y = Y0 + wy + 0.5;
     const jx = fbm(x, y, sd + 20, 128, 2) * 28, jy = fbm(x, y, sd + 21, 128, 2) * 28;
     const ct = p.coast[cellIdx(Math.floor((x + jx) / CELL), Math.floor((y + jy) / CELL))] || COAST.BEACH;
     coastT[i] = ct;
-    const n = (fbm(x, y, sd + 22, 256, 3) + 1) * 0.5;
+    const n = u01(fbm(x, y, sd + 22, 256, 3));
+    // cliff height along the coast: high headlands, low stretches, coves with small beaches between them
+    const cliffH = ct === COAST.CLIFF ? 0.4 + 6 * u01(fbm(x, y, sd + 24, 512, 3)) * (0.45 + 0.55 * u01(fbm(x, y, sd + 28, 128, 2))) : 0;
+    const cove = ct === COAST.CLIFF && cliffH < 1.4;
     let bw = 0, sw = 2;
     switch (ct) {
       case COAST.BEACH: bw = 3 + 6 * n; sw = 3 + 5 * n; break;
@@ -291,28 +308,28 @@ export function generateChunk(p, cx, cy, opts = {}) {
       case COAST.DELTA: bw = 2 + 4 * n; sw = 6 + 6 * n; break;
       case COAST.MANGROVE: bw = 0; sw = 6 + 6 * n; break;
       case COAST.ROCKY: bw = n > 0.65 ? 1.5 : 0; sw = 1 + 2 * n; break;
-      case COAST.CLIFF: bw = n > 0.75 ? 1.2 : 0; sw = 0.6 + n; break;
+      case COAST.CLIFF: bw = cove ? 2 + 3 * n : 0; sw = cove ? 2 + 2 * n : 0.6; break;
       case COAST.FJORD: bw = 0; sw = 0.8; break;
       case COAST.ICE: bw = 0; sw = 1; break;
     }
     beachW[i] = bw; shallowW[i] = sw;
     if (!sea0[i]) {
       const d = ds[i];
-      if (bw > 0 && d <= bw + 6) {
+      if (bw > 0 && d <= Math.min(bw + 6, 14)) {
         const target = 0.08 + 0.05 * (d / (bw + 1));
-        const t = smoothstep(bw * 0.6, bw + 6, d);
+        const t = smoothstep(bw * 0.6, Math.min(bw + 6, 14), d);
         if (hS[i] > target) hS[i] = target + (hS[i] - target) * t;
       }
       if (ct === COAST.MANGROVE && d < 12) { const target = 0.06; if (hS[i] > target) hS[i] = target + (hS[i] - target) * smoothstep(4, 14, d); }
-      if (ct === COAST.DUNES && d > bw && d < bw + 14) {
+      if (ct === COAST.DUNES && d > bw && d < 14) {
         const dn = 1 - Math.abs(gnoise(x / 9, y / 30, sd + 23, 0));
-        hS[i] += 0.9 * dn * dn * smoothstep(bw, bw + 3, d) * (1 - smoothstep(bw + 8, bw + 14, d));
+        hS[i] += 0.9 * dn * dn * smoothstep(bw, bw + 3, d) * (1 - smoothstep(Math.min(bw + 6, 11), 14, d));
       }
-      if (ct === COAST.CLIFF || ct === COAST.ICE || (ct === COAST.FJORD && n > 0.4) || (ct === COAST.ROCKY && n > 0.55)) {
-        const cH = ct === COAST.CLIFF ? 1.8 + 3.6 * smooth01((fbm(x, y, sd + 24, 512, 2) + 0.6) * 0.9) : ct === COAST.ICE ? 1.4 + 1.6 * n : 1 + 1.4 * n;
-        const tgt = cH * (1 - smoothstep(10, 34, d));
-        if (d >= 1.5 + bw && hS[i] < tgt) hS[i] = tgt;
-        if (d < 1.5 + bw && hS[i] > 0.15) hS[i] = 0.1;
+      if ((ct === COAST.CLIFF && !cove) || ct === COAST.ICE || (ct === COAST.FJORD && n > 0.4) || (ct === COAST.ROCKY && n > 0.6)) {
+        const cH = ct === COAST.CLIFF ? cliffH : ct === COAST.ICE ? 1.4 + 1.6 * n : 0.8 + 1.4 * n;
+        // the cliff top rises straight from the water (no beach strip), the headland blends inland
+        const tgt = cH * (1 - smoothstep(3 + 5 * n, 14, d));
+        if (d >= 0.5 && hS[i] < tgt) hS[i] = tgt;
         cliffTop[i] = cH;
       }
     } else {
@@ -325,7 +342,9 @@ export function generateChunk(p, cx, cy, opts = {}) {
         else if (d < b0 && hS[i] > -1.5) { lagoon[i] = 1; hS[i] = Math.max(hS[i], -0.3 - 0.1 * (d / b0)); }
       }
       // sea stacks off cliffs
-      if (ct === COAST.CLIFF && d >= 1 && d < 6 && fbm(x, y, sd + 26, 16, 2) > 0.3 - 0.02 * d) { stack[i] = 1; hS[i] = 1.2 + 2.4 * n; sea0[i] = 0; }
+      if (ct === COAST.CLIFF && cliffH > 2.2 && d >= 1.5 && d < 7 && fbm(x, y, sd + 26, 16, 2) > 0.27 - 0.01 * d) { stack[i] = 1; hS[i] = cliffH * (0.5 + 0.4 * n); sea0[i] = 0; }
+      // wave-cut rock shelves in front of the high cliffs
+      else if (ct === COAST.CLIFF && cliffH > 1.8 && d < 2.5 + 3 * u01(fbm(x, y, sd + 29, 64, 2)) && fbm(x, y, sd + 30, 32, 2) > -0.05) { hS[i] = Math.max(hS[i], -0.18); shelf[i] = 1; }
       // warm shallow seas: reef flats
       if (Tt[i] > 23 && d > 5 && d < 34 && emI[i] > -200 && fbm(x, y, sd + 27, 128, 3) > 0.12) hS[i] = Math.max(hS[i], -0.22);
     }
@@ -352,7 +371,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
   };
   for (const sg of segs) {
     const pts = sampleSegment(p, sg);
-    const reach = sg.kind === RK_FJORD ? 12 : 4 + sg.flat * 18 + 6 * Math.max(sg.can0, sg.can1);
+    const reach = sg.kind === RK_FJORD ? 12 : sg.kind === RK_CREEK ? 3 : 4 + sg.flat * 18 + 34 * Math.max(sg.can0, sg.can1);
     for (let k = 8; k < pts.length; k += 8) {
       const a = k - 8;
       stampCapsule(pts[a], pts[a + 1], pts[k], pts[k + 1], pts[a + 2], pts[k + 2], pts[a + 3], pts[k + 3], pts[k + 4], pts[k + 5], pts[k + 6], sg.kind, sg.flat, reach);
@@ -403,11 +422,14 @@ export function generateChunk(p, cx, cy, opts = {}) {
       else if (d < hw + 12) hS[i] = Math.min(hS[i], 0.2 + (d - hw) * 0.85);
       continue;
     }
-    const depth = k === RK_WASH ? -0.05 : k === RK_DELTA ? 0.35 : clamp(0.3 + 0.12 * hw, 0.3, 2.4);
+    const depth = k === RK_WASH ? -0.05 : k === RK_DELTA || k === RK_CREEK ? 0.3 : clamp(0.3 + 0.12 * hw, 0.3, 2.4);
+    const h0 = hS[i];
     if (d < hw) {
-      hS[i] = Math.min(hS[i], L - depth);
+      // a river whose level is above the local ground (a perched stretch of the spline) sinks onto the ground
+      const Lr = L < h0 + 0.3 ? L : h0 + 0.3;
+      hS[i] = Math.min(hS[i], Lr - depth);
       if (k !== RK_WASH) {
-        water[i] = 1; wlevel[i] = L; wkind[i] = 3;
+        water[i] = 1; wlevel[i] = Lr; wkind[i] = 3;
         const fs = 0.35 + 0.65 * (1 - d / Math.max(0.6, hw));
         flowX[i] = rDX[i] * fs; flowY[i] = rDY[i] * fs;
       }
@@ -415,16 +437,24 @@ export function generateChunk(p, cx, cy, opts = {}) {
     }
     const e = d - hw;
     if (can > 0.25) {
-      // canyon: a flat floor and near-vertical walls (benches on the deep ones)
-      const F = 1 + 0.6 * hw + 4 * can;
-      if (e < F) hS[i] = Math.min(hS[i], L + 0.15);
-      else if (e < F + 3 && hS[i] - L > 4) hS[i] = Math.min(hS[i], L + (hS[i] - L) * 0.55);
+      // canyon: a flat floor, then walls in strata bands (a steep riser, then a bench) up to the plateau rim
+      const F = 1.5 + 0.5 * hw + 3 * can, Wt = F + 6 + 26 * can;
+      const D = hS[i] - L - 0.12;
+      if (e < F) hS[i] = Math.min(hS[i], L + 0.12);
+      else if (e < Wt && D > 0.6) {
+        const xg = X0 + (i % WW) + 0.5, yg = Y0 + ((i - (i % WW)) / WW) + 0.5;
+        const t = clamp((e - F) / (Wt - F) + 0.1 * fbm(xg, yg, sd + 90, 32, 2), 0, 1);
+        const k = D > 5 ? 4 : D > 2.5 ? 3 : 2, tb = t * k, band = Math.floor(tb), fr = tb - band;
+        let prof = (band + smooth01(fr / 0.12)) / k;
+        if (e < F + 2) prof = Math.min(prof, (e - F) * 0.08); // talus at the foot
+        hS[i] = Math.min(hS[i], L + 0.12 + D * clamp(prof, 0, 1));
+      }
     } else {
       const V = 2 + hw * 1.2 + flat * 16;
       const target = L + 0.18 + 0.02 * e;
       if (hS[i] > target) hS[i] = target + (hS[i] - target) * smooth01(e / V);
     }
-    if (e < 1.5 && hS[i] < L + 0.12) hS[i] = L + 0.12;
+    if (e < 1.5 && hS[i] < L + 0.12) hS[i] = Math.min(L + 0.12, h0 + 0.3);
   }
   // ---------- 5. lakes and ponds ----------
   const lakeSalt = new Uint8Array(NW);
@@ -444,27 +474,44 @@ export function generateChunk(p, cx, cy, opts = {}) {
     }
     // ponds (small lakes): lake districts, wet lowlands, rare oases
     const sdp = p.seed * 17 + 9;
-    for (let ccy = cya; ccy <= cyb; ccy++) for (let ccx = cxa; ccx <= cxb; ccx++) {
+    // (a pond reaches at most POND_MAX tiles from its centre: gather every cell that close to the window)
+    const pxa = Math.floor((X0 - POND_MAX) / CELL), pxb = Math.floor((X0 + WW + POND_MAX) / CELL);
+    const pya = Math.max(0, Math.floor((Y0 - POND_MAX) / CELL)), pyb = Math.min(MH - 1, Math.floor((Y0 + WW + POND_MAX) / CELL));
+    for (let ccy = pya; ccy <= pyb; ccy++) for (let ccx = pxa; ccx <= pxb; ccx++) {
       const c = cellIdx(ccx, ccy);
       if (p.ocean[c] || p.lakeId[c] || p.relief[c] > 0.3 || p.sd[c] < 1.5) continue;
       const f = p.flags[c], P = p.precip[c], T = p.tMean[c];
-      const dens = f & FLAG.LAKES ? 2.2 : P > 650 && T > -6 && p.relief[c] < 0.15 ? 0.25 : P < 300 && P > 60 && T > 14 ? 0.04 : 0.08;
+      const dens = f & FLAG.LAKES ? 1.3 : P > 650 && T > -6 && T < 16 && p.relief[c] < 0.15 ? 0.18 : P < 300 && P > 60 && T > 14 ? 0.04 : 0.06;
       const n = Math.floor(dens + hash01(c, 1, sdp));
       for (let k = 0; k < n; k++) {
         const px = ccx * CELL + 4 + hash01(c, 10 + k, sdp) * (CELL - 8), py = ccy * CELL + 4 + hash01(c, 20 + k, sdp) * (CELL - 8);
-        const r = 3.5 + 14 * hash01(c, 30 + k, sdp) * hash01(c, 40 + k, sdp) + (f & FLAG.LAKES ? 6 : 0);
-        if (px + r * 1.4 < X0 || px - r * 1.4 > X0 + WW || py + r * 1.4 < Y0 || py - r * 1.4 > Y0 + WW) continue;
-        const lvl = baseHeight(p, px, py, {}) - 0.12;
-        if (lvl < 0.05) continue;
-        for (let wy = Math.max(0, Math.floor(py - r * 1.5 - Y0)); wy <= Math.min(WW - 1, Math.ceil(py + r * 1.5 - Y0)); wy++) {
-          for (let wx = Math.max(0, Math.floor(px - r * 1.5 - X0)); wx <= Math.min(WW - 1, Math.ceil(px + r * 1.5 - X0)); wx++) {
+        const r = 4 + 16 * hash01(c, 30 + k, sdp) * hash01(c, 40 + k, sdp) + (f & FLAG.LAKES ? 7 : 0);
+        // elongated along a random axis, shoreline from noise at two scales and from the terrain itself
+        let ux = hash01(c, 50 + k, sdp) * 2 - 1, uy = hash01(c, 60 + k, sdp) * 2 - 1;
+        const ul = Math.sqrt(ux * ux + uy * uy) || 1; ux /= ul; uy /= ul;
+        const asp = 1 + 1.8 * hash01(c, 70 + k, sdp);
+        const R = Math.min(POND_MAX, r * asp * 1.7);
+        if (px + R < X0 || px - R > X0 + WW || py + R < Y0 || py - R > Y0 + WW) continue;
+        const lvl = baseHeight(p, px, py, {}) - 0.05;
+        if (lvl < 0.2) continue;
+        // only on flat ground: the terrain along the pond's axis must stay near its level
+        let flatOk = true;
+        for (const t of [-1, 1]) for (const q of [0.6, 1.1]) {
+          const hq = baseHeight(p, px + ux * r * asp * q * t, py + uy * r * asp * q * t, {}), hc = baseHeight(p, px - uy * r * q * t, py + ux * r * q * t, {});
+          if (Math.abs(hq - lvl) > 0.45 || Math.abs(hc - lvl) > 0.45) flatOk = false;
+        }
+        if (!flatOk) continue;
+        const lamP = r < 8 ? 16 : r < 16 ? 32 : 64;
+        for (let wy = Math.max(0, Math.floor(py - R - Y0)); wy <= Math.min(WW - 1, Math.ceil(py + R - Y0)); wy++) {
+          for (let wx = Math.max(0, Math.floor(px - R - X0)); wx <= Math.min(WW - 1, Math.ceil(px + R - X0)); wx++) {
             const i = wy * WW + wx, x = X0 + wx + 0.5, y = Y0 + wy + 0.5;
             if (sea0[i] || wkind[i] === 3 || rK[i] === RK_RIVER) continue;
-            const de = Math.sqrt((x - px) ** 2 + (y - py) ** 2) / r + 0.32 * fbm(x, y, sdp + k, 32, 2);
-            if (de < 1) {
-              hS[i] = Math.min(hS[i], lvl - 0.2 - 0.6 * (1 - de));
-              water[i] = 1; wlevel[i] = lvl; wkind[i] = 4;
-            } else if (de < 1.35 && hS[i] < lvl + 0.1) hS[i] = lvl + 0.1;
+            const dx = x - px, dy = y - py;
+            const al = (dx * ux + dy * uy) / asp, ac = -dx * uy + dy * ux;
+            const de = Math.sqrt(al * al + ac * ac) / r + 1.1 * fbm(x, y, sdp + k, lamP, 3) + 0.4 * fbm(x, y, sdp + k + 7, 8, 2);
+            if (de < 0.85) hS[i] = Math.min(hS[i], lvl - 0.15 - 0.7 * (0.85 - de));
+            if (de < 1 && hS[i] < lvl) { water[i] = 1; wlevel[i] = lvl; wkind[i] = 4; }
+            else if (de < 1.3 && hS[i] < lvl + 0.08) hS[i] = Math.min(lvl + 0.08, hS[i] + 0.3);
           }
         }
       }
@@ -522,16 +569,17 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const T = Tt[i] - 0.0065 * (Math.max(0, hm) - Math.max(0, emI[i])) + 1.2 * fbm(x, y, sd + 50, 256, 2);
     Ttile[i] = T;
     const P = Pt[i] * (1 + 0.22 * fbm(x, y, sd + 51, 256, 2));
-    const mb = p.biome[cellOf[i]];
+    // macro biome at a jittered position (no cell-square patches)
+    const mb = p.biome[cellIdx(Math.floor((x + 30 * fbm(x, y, sd + 94, 128, 3)) / CELL), Math.floor((y + 30 * fbm(x, y, sd + 95, 128, 3)) / CELL))];
     if (water[i]) {
       const wk = wkind[i];
       let b;
-      if (wk === 1) b = T < -3.5 ? BIOME.SEA_ICE : wcls[i] === 3 ? BIOME.ABYSS : wcls[i] === 2 ? BIOME.OCEAN : (Tt[i] > 23 && hS[i] > -0.3 && dLand2[i] > 4 ? BIOME.REEF : BIOME.SHALLOWS);
+      if (wk === 1) b = seaIceAt(p.seed, x, y, Tt[i]) ? BIOME.SEA_ICE : wcls[i] === 3 ? BIOME.ABYSS : wcls[i] === 2 ? BIOME.OCEAN : (Tt[i] > 23 && hS[i] > -0.3 && dLand2[i] > 4 ? BIOME.REEF : BIOME.SHALLOWS);
       else if (wk === 5) b = BIOME.LAGOON;
       else if (wk === 3) b = T < -8 ? BIOME.SEA_ICE : BIOME.RIVER;
       else b = lakeSalt[i] ? BIOME.SALT_LAKE : T < -6 ? BIOME.SEA_ICE : BIOME.LAKE;
       biomeW[i] = b;
-      groundW[i] = wk === 3 ? (wcls[i] === 2 ? PG.MUD : rFlat[i] < 0.3 ? PG.GRAVEL : PG.SAND) : wcls[i] >= 2 ? PG.MUD : PG.SAND;
+      groundW[i] = wk === 3 ? (wcls[i] === 2 ? PG.MUD : rFlat[i] < 0.3 ? PG.GRAVEL : PG.SAND) : shelf[i] ? PG.STONE : wcls[i] >= 2 ? PG.MUD : PG.SAND;
       continue;
     }
     const ctx = { relief: relief[i], med: mb === BIOME.MEDITERRANEAN, coast: Math.min(dOc[i], ds[i] / CELL), erg: fbm(x, y, sd + 52, 1024, 2) + 0.2 - relief[i] * 1.2 + (mb === BIOME.DESERT_DUNES ? 0.4 : -0.2), plateau: plat[i], heath: fbm(x, y, sd + 53, 512, 2) };
@@ -577,9 +625,17 @@ export function generateChunk(p, cx, cy, opts = {}) {
       case BIOME.ICE_SHEET: g = gn > 0.3 ? PG.ICE : PG.SNOW; break;
     }
     if (rK[i] === RK_WASH && rD[i] < rHW[i] + 0.5) g = gh < 0.5 ? PG.GRAVEL : PG.SAND;
+    if (rCan[i] > 0.25 && rK[i] && rD[i] - rHW[i] < 3.5 + 0.5 * rHW[i] + 3 * rCan[i] && rD[i] > rHW[i]) g = gh < 0.6 ? PG.GRAVEL : PG.SAND;
     else if (rK[i] && rD[i] - rHW[i] < 1.2 && b !== BIOME.SNOW_PEAKS) g = rFlat[i] > 0.4 ? PG.SAND : PG.GRAVEL;
     if (steep[i] > 1.1) g = PG.STONE; else if (steep[i] > 0.7 && g !== PG.SNOW) g = PG.GRAVEL;
-    if (T < -5.5 && b !== BIOME.BEACH) g = PG.SNOW;
+    // snow: altitude (T), aspect (slopes facing the pole keep it), slope (steep faces shed it), noisy edge
+    {
+      const hs = y < H / 2 ? 1 : -1, dhdy = (hS[i + WW] - hS[i - WW]) * 0.5;
+      const Ts = T - 2.4 * clamp(dhdy * hs * 1.5, -1, 1) + 6 * fbm(x, y, sd + 91, 64, 3) + 2.5 * fbm(x, y, sd + 92, 16, 2);
+      let sp = clamp((-3.5 - Ts) / 3, 0, 1);
+      if (steep[i] > 0.8) sp *= 0.15;
+      if (sp > 0 && hash01(X0 + wx, Y0 + wy, sd + 93) < sp && b !== BIOME.BEACH) g = PG.SNOW;
+    }
     groundW[i] = g;
     // rock: cliff faces, mountain cores along the ridges, sea stacks
     let r = 0;
@@ -590,7 +646,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
     rockW[i] = r;
     if (r) {
       const rt = fbm(x, y, sd + 60, 1024, 3);
-      rockTW[i] = coneM[i] > 150 ? 5 : b === BIOME.BADLANDS || b === BIOME.DESERT_ROCKY ? 6 : rt < -0.2 ? 3 : rt < 0.1 ? 1 : rt < 0.32 ? 2 : 4;
+      const strata = [6, 2, 6, 3, 2][((Math.floor(hS[i] / 0.9) % 5) + 5) % 5];
+      rockTW[i] = coneM[i] > 150 ? 5 : rCan[i] > 0.25 || b === BIOME.BADLANDS || b === BIOME.DESERT_ROCKY ? strata : rt < -0.1 ? 3 : rt < 0.05 ? 1 : rt < 0.15 ? 2 : 4;
       if (g !== PG.SNOW) groundW[i] = PG.STONE;
     }
   }

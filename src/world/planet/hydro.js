@@ -44,7 +44,8 @@ export function priorityFlood(elev, seedLevel) {
   return { fill, parent, order, n };
 }
 
-export function runoffOf(P, T) { return Math.max(0, P - 0.85 * Math.min(P, pet(T))); }
+// (ice sheets and permafrost: the water stays frozen, glaciers carry it instead of rivers)
+export function runoffOf(P, T) { const r = Math.max(0, P - 0.85 * Math.min(P, pet(T))); return T < -9 ? 0 : T < -4 ? r * (T + 9) / 5 : r; }
 
 export function computeHydrology(elev, ocean, tMean, precip) {
   const T8 = nbTable();
@@ -153,7 +154,7 @@ export function computeHydrology(elev, ocean, tMean, precip) {
   return { lakes, lakeId, lakeLevel, down, order: f2.order, nOrder: f2.n, Q, A, R, surf };
 }
 
-// River network: kind per cell (0 none, 1 river, 2 dry wash, 3 fjord), relative flow (Q / RIVER_Q),
+// River network: kind per cell (0 none, 1 river, 2 dry wash, 3 fjord, 4 creek), relative flow (Q / RIVER_Q),
 // main upstream branch, distance to the mouth (cells), river surface level (stories, monotone downstream),
 // waterfall drop (stories, on the upstream cell of a step).
 export function buildRivers(h, elev, ocean, precip, tMean, opts) {
@@ -167,9 +168,19 @@ export function buildRivers(h, elev, ocean, precip, tMean, opts) {
     const q = Q[i] / RIVER_Q;
     const inLake = lakeId[i] > 0;
     if (!inLake && ((q >= 1 && A[i] >= RIVER_A) || (fj[i] > 0.4 && q >= 0.3 && A[i] >= 4))) kind[i] = 1;
-    else if (!inLake && A[i] >= 26 && precip[i] < 420 && cany[i] > 0.15) kind[i] = 2;
-    else if (!inLake && q >= 0.25 && A[i] >= 14 && cany[i] > 0.4) kind[i] = 2;
+    else if (!inLake && A[i] >= 20 && precip[i] < 420 && cany[i] > 0.15) kind[i] = 2;
+    else if (!inLake && A[i] >= 5 && cany[i] > 0.35) kind[i] = 2;
     flow[i] = q;
+  }
+  // creeks: small headwater streams that feed a river or a lake within 3 cells
+  for (let i = 0; i < N; i++) {
+    if (kind[i] || ocean[i] || lakeId[i] || A[i] < 4 || Q[i] < RIVER_Q * 0.4) continue;
+    let j = down[i];
+    for (let s = 0; s < 2 && j >= 0; s++) {
+      if (kind[j] === 1 || lakeId[j]) { kind[i] = 4; break; }
+      if (ocean[j] || kind[j] === 2) break;
+      j = down[j];
+    }
   }
   // main upstream branch = the inflowing river cell with the largest discharge
   for (let i = 0; i < N; i++) {
@@ -186,7 +197,7 @@ export function buildRivers(h, elev, ocean, precip, tMean, opts) {
     const toSea = d < 0 || ocean[d];
     mouthD[i] = toSea ? 1 : lakeId[d] ? 0 : Math.min(65535, mouthD[d] + 1);
     if (kind[i] === 1 && fj[i] > 0.4 && (toSea || kind[d] === 3) && mouthD[i] <= 8) kind[i] = 3;
-    const inc = kind[i] === 3 ? 0 : cany[i] * (kind[i] === 2 ? 2.2 : 3.2);
+    const inc = kind[i] === 3 ? 0 : cany[i] * (kind[i] === 2 ? 3.2 : 4.6);
     canyon[i] = kind[i] === 3 ? 0 : cany[i];
     let L = kind[i] === 3 ? 0 : metersToStories(Math.max(0, surf[i])) - inc;
     const Ld = d < 0 || ocean[d] ? 0 : lakeId[d] ? metersToStories(surf[d]) : kind[d] ? level[d] : metersToStories(Math.max(0, surf[d]));
@@ -194,7 +205,7 @@ export function buildRivers(h, elev, ocean, precip, tMean, opts) {
     if (kind[i] === 3) L = 0;
     level[i] = L;
     const drop = L - Ld;
-    if (drop > 1.25 && kind[i] !== 2) fall[i] = drop;
+    if (drop > 1.25 && kind[i] !== 2 && kind[i] !== 4) fall[i] = drop;
   }
   void T8; void tMean; void clamp;
   return { kind, flow, upMain, mouthD, level, fall, canyon };

@@ -8,8 +8,26 @@
 // A weaker isotropic humidity spread from all coasts is mixed in. ITCZ wet belt, dry subtropical highs.
 
 import { MW, MH, sinLatCell } from './consts.js';
-import { clamp, smoothstep } from './noise.js';
-import { N, nbTable, distField, blur } from './grid.js';
+import { clamp, smoothstep, fbm, ridged } from './noise.js';
+import { N, nbTable, distField, blur, tileX, tileY } from './grid.js';
+
+// Large-scale temperature anomaly (°C): planetary waves, so isotherms (and the tundra / taiga / ice limits)
+// meander with longitude instead of following latitude lines.
+export const tempAnomaly = (seed, x, y) => 11 * fbm(x, y, seed * 3 + 501, 4096, 3) + 4 * fbm(x, y, seed * 3 + 502, 1024, 2);
+// Sea ice at a tile point of ocean with mean temperature T: 0 open water, 1 pack ice, 2 thin floe / lead edge.
+// The pack edge advances and retreats with longitude (open water reaches high latitudes in places, the ice
+// reaches lower in others); inside the pack, leads (cracks) of open water; floes at the edge.
+export function seaIceScore(seed, x, y, T) {
+  return T + 40 * fbm(x, y, seed * 3 + 511, 4096, 3) + 16 * fbm(x, y, seed * 3 + 512, 1024, 3) + 5 * fbm(x, y, seed * 3 + 513, 128, 2);
+}
+export function seaIceAt(seed, x, y, T, fine = true) {
+  const sc = seaIceScore(seed, x, y, T);
+  if (sc > -1) return 0;
+  if (!fine) return 1;
+  if (sc > -5) return fbm(x, y, seed * 3 + 514, 64, 3) * 14 + sc + 3 < 0 ? 2 : 0; // floes
+  if (sc > -16 && ridged(x, y, seed * 3 + 515, 512, 3) > 0.87) return 0;          // leads
+  return 1;
+}
 
 // sea-level mean temperature by |sin(lat)| (equator 27 °C, 30° ~25, 45° ~16, 60° ~0, pole -25)
 export function baseTemp(s) {
@@ -39,7 +57,18 @@ export function westward(s) {
 export const pet = (T) => clamp(55 * (T + 4), 0, 1750);
 const qsat = (T) => { const a = clamp((T + 14) / 42, 0.02, 1.15); return a * a + 0.03; };
 
-export function computeClimate(elev, ocean) {
+// extra blur along y (the zonal sweeps work row by row)
+function blurY(a, r) {
+  const out = new Float32Array(N);
+  for (let x = 0; x < MW; x++) for (let y = 0; y < MH; y++) {
+    let s = 0, n = 0;
+    for (let k = -r; k <= r; k++) { const yy = y + k; if (yy < 0 || yy >= MH) continue; s += a[yy * MW + x]; n++; }
+    out[y * MW + x] = s / n;
+  }
+  return out;
+}
+
+export function computeClimate(elev, ocean, seed = 1) {
   const T8 = nbTable();
   const tMean = new Float32Array(N), tAmp = new Float32Array(N), precip = new Float32Array(N);
   const anom = new Float32Array(N), evapF = new Float32Array(N).fill(1);
@@ -71,7 +100,7 @@ export function computeClimate(elev, ocean) {
   for (let i = 0; i < N; i++) {
     const y = (i - (i % MW)) / MW, s = Math.abs(sinLatCell(y));
     const e = elev[i];
-    let T = baseTemp(s) + (ocean[i] ? anom[i] : anomB[i] * 1.6 * clamp(1 - dOcean[i] / 10, 0, 1));
+    let T = baseTemp(s) + (ocean[i] ? anom[i] : anomB[i] * 1.6 * clamp(1 - dOcean[i] / 10, 0, 1)) + tempAnomaly(seed, tileX(i), tileY(i));
     if (!ocean[i]) {
       const cont = smoothstep(0, 30, dOcean[i]);
       T += (s < 0.5 ? 1.2 : -2.6 * smoothstep(0.5, 0.9, s)) * cont;
@@ -140,7 +169,7 @@ export function computeClimate(elev, ocean) {
     const y = (i - (i % MW)) / MW, lr = latRain(Math.abs(sinLatCell(y)));
     precip[i] = pz[i] + hum[i] * 0.06 * lr * 0.5;
   }
-  const pb = blur(blur(precip, 2), 1);
+  const pb = blurY(blur(blur(precip, 2), 1), 3);
   for (let i = 0; i < N; i++) precip[i] = pb[i] * 40000;
   return { tMean, tAmp, precip, dOcean };
 }

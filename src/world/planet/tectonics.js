@@ -34,6 +34,22 @@ export function buildContinents(seed, rng) {
   const owner = new Int16Array(N).fill(-1);
   const conts = [];
   let distLand = new Float32Array(N).fill(1e9);
+  // the south polar continent (like Antarctica): a band along the south edge with an irregular coast, cut by
+  // the seam ocean (so x = 0 stays land-free); the map edge itself is the pole, under the ice.
+  {
+    let got = 0;
+    for (let i = 0; i < N; i++) {
+      const x = cxOf(i), y = cyOf(i), tx = tileX(i);
+      // deep bays (the sea reaches the pole in places) and long peninsulas
+      const u = clamp(0.5 + 1.9 * fbm(tx, 0, seed + 74, 4096, 3), 0, 1);
+      const pen = Math.max(0, fbm(tx, 0, seed + 77, 1024, 2) - 0.12) * 90;
+      const reach = -2 + 24 * u * u + pen + 9 * fbm(tx, tileY(i), seed + 75, 1024, 3) + 3 * fbm(tx, tileY(i), seed + 78, 256, 2);
+      const gapW = SEAM_HALF + 5 + 8 * clamp(0.5 + 1.7 * fbm(0, tileY(i), seed + 76, 1024, 2), 0, 1);
+      if (y >= MH - 1 - reach && seamDist(x) >= gapW) { owner[i] = 50; got++; }
+    }
+    conts.push({ id: 50, seed: (MH - 2) * MW + (MW >> 1), area: got, style: 'antarctic', cx: MW >> 1, cy: MH - 6 });
+    distLand = distField((i) => owner[i] >= 0, GAP + 2);
+  }
   // small-angle rotation from exact ops (deterministic)
   const rot = (vx, vy, a) => { const a2 = a * a, ca = 1 - a2 / 2 + (a2 * a2) / 24 - (a2 * a2 * a2) / 720, sa = a - (a2 * a) / 6 + (a2 * a2 * a) / 120; return [vx * ca - vy * sa, vx * sa + vy * ca]; };
   const cellAt = (x, y) => { const cy = Math.round(y); if (cy < 0 || cy >= MH) return -1; return cy * MW + ((Math.round(x) % MW) + MW) % MW; };
