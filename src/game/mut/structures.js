@@ -174,7 +174,7 @@ function setSolid(game, o) {
   if (def.block !== 'tile' && def.block !== 'door') return;
   if (o.lv) return; // levels: upper stories block through the level map (levels.blk)
   const v = def.block === 'door' && o.open ? 0 : 1;
-  for (const [x, y] of footprint(o)) if (w.inBounds(x, y)) w.solid[w.idx(x, y)] = v;
+  for (const [x, y] of footprint(o)) if (w.inBounds(x, y)) w.solid.set(w.idx(x, y), v);
 }
 
 export function completeStructure(game, o, { silent = false, auth = true } = {}) {
@@ -212,7 +212,7 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   if (!o.lv) noGrowStamp(game, o.tx, o.ty, o.fw, o.fh, -1);
   w.removeObject(o);
   occRemove(game, o);
-  if (!wasBlueprint && !o.lv && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
+  if (!wasBlueprint && !o.lv && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid.set(w.idx(x, y), 0);
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
   game.build.decon.delete(o);
   o.removed = true;
@@ -240,7 +240,7 @@ export function relocateStructure(game, o, tx, ty, rot, auth = true) {
   if (!o.lv) noGrowStamp(game, ox, oy, ofw, ofh, -1);
   w.removeObject(o);
   occRemove(game, o);
-  if (blocks) for (const [x, y] of footprint(o)) w.solid[w.idx(x, y)] = 0;
+  if (blocks) for (const [x, y] of footprint(o)) w.solid.set(w.idx(x, y), 0);
   o.tx = tx; o.ty = ty; o.rot = normRot(o.type, rot);
   setGeom(o);
   w.addObject(o);
@@ -429,12 +429,12 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
   const G2 = game.build.grid;
   let replace = null;
   for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
-    if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return 'Fora do mapa';
+    if (!w.inside(x, y, 1)) return 'Fora do mapa';
     const i = w.idx(x, y);
-    if (w.rock[i]) return 'Rocha no caminho';
+    if (w.rock.get(i)) return 'Rocha no caminho';
     const dk = G2.deck.get(i); // a pier / bridge piece: only small things on it (game/decks.js)
     if (dk && !(layer === 'main' && deckFriendly(type))) return 'Trapiche ou ponte no caminho (aqui só coisas pequenas)';
-    if (w.water[i] && !dk) return 'Não dá para construir na água';
+    if (w.water.get(i) && !dk) return 'Não dá para construir na água';
     const cur = G2[layer].get(i);
     const self = ignore && cur === ignore;
     if (cur && !self) {
@@ -445,12 +445,12 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     if (layer === 'main' && G2.floor.get(i)?.type === 'farm_plot') return 'Canteiro no caminho';
     if (type === 'farm_plot') {
       if (G2.main.has(i) || G2.rug.has(i)) return 'Construção no caminho';
-      if (BAD_FARM.has(w.ground[i])) return 'Solo ruim para plantar';
+      if (BAD_FARM.has(w.ground.get(i))) return 'Solo ruim para plantar';
     }
     if (layer === 'rug' && G2.floor.get(i)?.type === 'farm_plot') return 'Canteiro no caminho';
     // painted paths (mut/paths.js) and floors / rugs / plots never share a tile (roofs over a path are fine)
-    if ((layer === 'floor' || layer === 'rug') && w.path && (w.path[i] || (w.pathPlan[i] && w.pathPlan[i] !== 15))) return 'Caminho no local (remova o caminho antes)';
-    if (layer === 'main' && w.solid[i] && !replace && !(ignore && G2.main.get(i) === ignore)) return 'Algo no caminho';
+    if ((layer === 'floor' || layer === 'rug') && w.path && (w.path.get(i) || (w.pathPlan.get(i) && w.pathPlan.get(i) !== 15))) return 'Caminho no local (remova o caminho antes)';
+    if (layer === 'main' && w.solid.get(i) && !replace && !(ignore && G2.main.get(i) === ignore)) return 'Algo no caminho';
     for (const o of objectsOnTile(game, x, y)) {
       if (CLEARABLE.has(o.type)) continue;
       if (o.type === 'crop') { if (layer !== 'floor') return 'Plantação no caminho'; continue; }
@@ -469,11 +469,11 @@ export const MAX_DIST = 22;
 export const NO_SUPPORT = 'Sem apoio: precisa de parede, coluna ou rocha a até 6 tiles';
 function roofReason(game, type, tx, ty, who) {
   const w = game.world;
-  if (!w.inBounds(tx, ty) || tx < 1 || ty < 1 || tx >= w.W - 1 || ty >= w.H - 1) return 'Fora do mapa';
+  if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
   const i = w.idx(tx, ty);
-  if (w.rock[i]) return 'Rocha no caminho';
-  if (w.water[i]) return 'Não dá para construir na água';
-  if (w.roof[i]) return 'Já tem teto de rocha';
+  if (w.rock.get(i)) return 'Rocha no caminho';
+  if (w.water.get(i)) return 'Não dá para construir na água';
+  if (w.roof.get(i)) return 'Já tem teto de rocha';
   if (game.build.grid.roof.get(i)) return 'exists';
   for (const o of objectsOnTile(game, tx, ty)) if (o.type.startsWith('tree_') && !o.stump) return 'Árvore no caminho';
   if (!roofSupported(game, tx, ty, false)) return NO_SUPPORT;

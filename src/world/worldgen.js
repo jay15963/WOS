@@ -86,13 +86,13 @@ export function groveAt(seed, x, y, cell = 13, salt = 0) {
   return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
 }
 // Tree species index for a tree of gameplay `type` at tile (tx, ty) — encoded as o.v = species * 16 + variant
-// (composeWorld TREE_SPECIES). `w` = world / generator fields { seed, W, biome, dWater, dRock, ground };
+// (composeWorld TREE_SPECIES). `w` = world / generator view { seed, idx, biome, dWater, dRock, ground } (layers: get(i));
 // r = one uniform roll (worldgen hash or the host's net.roll for regrowth).
 //   tree_oak: 0 oak · 1 maple (autumn groves) · 2 willow (banks)   tree_pine: 0 conifer · 1 scots pine · 2 juniper (dry, rocky)
 //   tree_birch: 0 birch · 1 aspen (near water)                     tree_dead: 0 dead · 1 snag
 export function treeSpecies(w, type, tx, ty, r) {
-  const i = ty * w.W + tx;
-  const b = w.biome[i], dw = w.dWater[i], dr = w.dRock[i], g = w.ground[i];
+  const i = w.idx(tx, ty);
+  const b = w.biome.get(i), dw = w.dWater.get(i), dr = w.dRock.get(i), g = w.ground.get(i);
   switch (type) {
     case 'tree_oak':
       if (dw < 3.2 && b !== B.PINE && b !== B.ROCKY) return r < 0.7 ? 2 : 0;
@@ -108,13 +108,16 @@ export function treeSpecies(w, type, tx, ty, r) {
 }
 // Bush species (o.v = species * 1000 + variant): 0 bush · 1 wild rose (meadows, birch groves) · 2 juniper shrub (pines, rocky)
 export function bushSpecies(w, tx, ty, r) {
-  const i = ty * w.W + tx, b = w.biome[i];
+  const b = w.biome.get(w.idx(tx, ty));
   if (b === B.PINE || b === B.ROCKY) return r < 0.55 ? 2 : 0;
   if (b === B.MEADOW || b === B.BIRCH) return r < 0.35 ? 1 : 0;
   return 0;
 }
 // Boulder look: mossy in the woods (o.v ≥ 8000)
-export const boulderMossy = (w, tx, ty) => { const b = w.biome[ty * w.W + tx]; return b === B.FOREST || b === B.BIRCH || b === B.PINE || b === B.MARSH; };
+export const boulderMossy = (w, tx, ty) => { const b = w.biome.get(w.idx(tx, ty)); return b === B.FOREST || b === B.BIRCH || b === B.PINE || b === B.MARSH; };
+
+// a raw array seen through the layer API (get(i)): the helpers shared with the live world read layers
+const view = (a) => ({ get: (i) => a[i] });
 
 function distanceField(W, H, isSource) {
   // multi-source two-pass chamfer (octile-ish weights)
@@ -446,7 +449,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
     if (inB(x, y) && (c.x - x - 0.5) ** 2 + (c.y - y - 0.5) ** 2 < 5) herbMask[idx(x, y)] = 1;
   }
 
-  const SPW = { seed, W, biome, dWater, dRock, ground }; // species helpers' view of the generator
+  const SPW = { seed, W, idx, biome: view(biome), dWater: view(dWater), dRock: view(dRock), ground: view(ground) }; // species helpers' view of the generator
   const treeFree = (x, y, R) => {
     for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (inB(x + dx, y + dy) && occupied[idx(x + dx, y + dy)] === 1) return false;
     return true;
@@ -1051,7 +1054,7 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
   // Last objects of the list (older ids stay the same: saves keep working); the same fertile grid the game uses
   // (soil.js), so a fresh world near a river has wheat to find before any regrowth.
   {
-    const fg = fertileGrid({ W, H, water, flowX, flowY, inBounds: inB, idx });
+    const fg = fertileGrid({ W, H, water: view(water), flowX: view(flowX), flowY: view(flowY), inBounds: inB, idx });
     const ok = (j) => fg[j] && freeTile(j) && !nearSpawn((j % W) + 0.5, ((j / W) | 0) + 0.5) && ground[j] !== G.GRAVEL && ground[j] !== G.STONE && ground[j] !== G.MUD
       && (biome[j] === B.MEADOW || biome[j] === B.SHORE || biome[j] === B.BIRCH || biome[j] === B.FOREST);
     for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {

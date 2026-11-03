@@ -1,7 +1,7 @@
 // Boot: graphics load in the background while the main menu is shown; the world is generated only
 // after the player chooses (single player, host a room, or join one — a guest gets the host's seed).
 // Dev shortcuts: ?seed=N starts single player directly; ?sala=CODE opens the join screen;
-// ?planet=1[&px=..&py=..&psize=256|512] plays a cut of the planet generator (docs/PLANET.md, no saves).
+// ?planet=1[&px=..&py=..] plays the planet generator streamed (?source=planet, docs/PLANET.md / STREAMING.md; no saves).
 // Test flags (automated two-client harness, docs/SYNC.md §4.6): ?mp=host&sala=CODE hosts directly,
 // ?sala=CODE&autojoin=1 joins directly, ?nosave=1, ?link=bc (BroadcastChannel), ?pid=ID, and on localhost
 // ?fakebuild=X / ?fakeart=<sprite|ph:sprite> / ?fakepaintfail=1; window.wosDebug.setHidden(bool).
@@ -12,10 +12,12 @@ import { buildAtlas, buildAtlasAsync } from './art/sprites.js';
 import { startAtlasLookup, storeAtlas } from './engine/atlasCache.js';
 import { checkAtlas } from './game/artcheck.js';
 import { BUILD_ID, BUILD_FILES } from './version.js';
-import { generateWorld } from './world/worldgen.js';
 import { World } from './world/world.js';
-import { sculptHills } from './world/hills.js';
-import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
+import { makeSource } from './world/source.js';
+import { Streamer, streamerSystem } from './world/streamer.js';
+import { allPlayers } from './game/players.js';
+import { savedSource } from './game/save.js';
+import { generateGroundTextures, generatePlanetGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
 import { Game } from './game/game.js';
@@ -48,7 +50,7 @@ const status = (t, p) => {
 // ---------- test / dev flags (docs/SYNC.md §4.6) ----------
 const QS = new URLSearchParams(location.search);
 const DEV = /^(localhost|127\.|\[::1\])/.test(location.hostname);
-const PLANET = DEV && QS.has('planet');     // dev: a classic-size world cut from the planet generator (src/world/planet/ingame.js)
+const PLANET = DEV && QS.has('planet');     // dev: the planet generator as the world source (= ?source=planet, docs/STREAMING.md)
 const FLAGS = {
   noSave: QS.has('nosave') || PLANET,       // no save writes, no wos.seed, no menu snapshot
   mpHost: QS.get('mp') === 'host',          // skip the menu and host room ?sala=CODE (seed ?seed)
@@ -73,7 +75,8 @@ function loadAssets() {
     applyLook(renderer); // the player's "Cores" / "Brilho" (fx/look.js)
     try { applyQuality(renderer, localStorage.getItem('wos.quality') || 'auto'); } catch { /* ignore */ }
     report(0.2, 'Pintando o terreno…'); await nextFrame();
-    renderer.setGroundTextures(TEX, generateGroundTextures(PLANET)); // (the planet's own grounds / rocks: 8 more layers)
+    renderer.setGroundTextures(TEX, generateGroundTextures());
+    if (PLANET || QS.get('source') === 'planet') renderer.setPlanetGround(generatePlanetGroundTextures()); // (the planet's own grounds / rocks: 8 more layers)
     report(0.5, 'Desenhando criaturas e plantas…'); await nextFrame();
     const cached = await atlasLookup;
     const t0 = performance.now();
@@ -141,18 +144,24 @@ async function boot() {
         onShown: () => $('#loading').classList.add('hidden') });
       $('#loading').classList.remove('hidden');
     }
+    const guest = choice.mode === 'join';
+    const seed = guest ? choice.welcome.seed : choice.seed;
+    // the world source (docs/STREAMING.md): the host's for a guest; ?source= (?planet=1 = the planet generator); the one a
+    // saved world was made with; classic. A planet starts now (its macro map is made in a worker while the graphics load).
+    const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
+    const srcOpts = { px: QS.get('px'), py: QS.get('py'), hills: !!(FLAGS.hills || (guest && choice.welcome.hills)) }; // (?hills=1: the classic world's terrain-height showcase)
+    const earlySrc = srcKind === 'planet' ? makeSource(srcKind, seed, srcOpts) : null;
     status('Preparando…', 0.3); await nextFrame();
     const { renderer, atlas } = await assets.promise;
 
-    const guest = choice.mode === 'join';
-    const seed = guest ? choice.welcome.seed : choice.seed;
     // a world of the list (ui/worlds.js): it goes to the top; worlds without an id (dev ?seed=) save by seed as before
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const gen = PLANET ? (await import('./world/planet/ingame.js')).buildPlanetWorld(seed, { px: QS.get('px'), py: QS.get('py'), size: QS.get('psize') }) : generateWorld(seed);
-    if (!PLANET && (FLAGS.hills || (guest && choice.welcome.hills))) sculptHills(gen); // (dev: docs/TERRAIN-HEIGHT.md — a guest follows its host)
-    const world = new World(gen);
+    const worldT0 = performance.now(); // (the world part of the boot: source + chunks + systems, without the graphics)
+    const world = new World(await (earlySrc || makeSource(srcKind, seed, srcOpts)));
+    if (world.wrap) new Streamer(world); // (a planet streams its chunks; the classic world is loaded whole)
+    if (world.source?.kind === 'planet' && !renderer.hasPlanetGround) renderer.setPlanetGround(generatePlanetGroundTextures()); // (a saved planet world / a guest)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 
@@ -162,7 +171,8 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave;
-    if (PLANET) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, gen.spawn.x, gen.spawn.y)); // (lazy art: no pop-in at the arrival)
+    const spw = world.source?.kind === 'planet' && (world.spawn || world.source.spawn);
+    if (spw) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, spw.x, spw.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {
       game.worldId = choice.worldId;                    // save key (save.js) / hotbar layout of this world
       game.creative = choice.gameMode === 'creative';   // a new world's mode (a saved world keeps its own: snapshot `mode`)
@@ -179,6 +189,7 @@ async function boot() {
     }
     installAmbient(game);
     installSystems(game);
+    addSystem(game, streamerSystem(allPlayers)); // chunk loading around the players / camera (docs/STREAMING.md)
     installNetDebug(game);
     game.player.name = playerName();
     const netui = installNetUI(game);
@@ -205,6 +216,8 @@ async function boot() {
     }
     netlog.fact('Modo', choice.mode === 'single' ? 'um jogador' : choice.mode === 'host' ? 'anfitrião' : 'convidado');
     $('#loading').classList.add('hidden');
+    window.wosBootMs = Math.round(performance.now()); // (boot time to playable: docs/STREAMING.md budgets)
+    window.wosWorldMs = Math.round(performance.now() - worldT0);
     startLoop(game, renderer, input, false);
   } catch (err) {
     console.error(err);
@@ -231,8 +244,10 @@ function startLoop(game, renderer, input, syncing) {
     if (!(hidden() && live())) {
       // single player pauses while the in-game menu is open; multiplayer keeps running
       const paused = game.ui?.pause && !(game.session && game.session.state !== 'closed');
+      const ft0 = performance.now();
       if (!paused) game.update(dt);
       game.render();
+      frameCpu(game, performance.now() - ft0); // (main-thread time per frame: hitches, docs/STREAMING.md)
       input.endFrame();
       // menu background: a small snapshot of the world, taken right after rendering
       snapT -= dt;
@@ -260,6 +275,18 @@ function startLoop(game, renderer, input, syncing) {
     };
     wk.postMessage(1);
   } catch (e) { console.warn('[boot] background clock unavailable', e); }
+}
+
+// main-thread CPU time of the frames (update + render): game.frameStats(reset) → { n, avg, p95, max, over8, over16 }
+function frameCpu(game, ms) {
+  const F = game._fcpu || (game._fcpu = { a: new Float32Array(1200), n: 0 });
+  F.a[F.n % F.a.length] = ms; F.n++;
+  game.frameStats ||= (reset = false) => {
+    const n = Math.min(F.n, F.a.length), v = Array.from(F.a.slice(0, n)).sort((p, q) => p - q);
+    const o = { n, avg: +(v.reduce((s, x) => s + x, 0) / Math.max(1, n)).toFixed(2), p95: +(v[Math.floor(n * 0.95)] || 0).toFixed(2), max: +(v[n - 1] || 0).toFixed(2), over8: v.filter((x) => x > 8).length, over16: v.filter((x) => x > 16).length };
+    if (reset) F.n = 0;
+    return o;
+  };
 }
 
 function takeSnapshot(glCanvas) {

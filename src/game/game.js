@@ -16,7 +16,6 @@ import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in
 import { slopeSpeed } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 
-const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
 // interiors (game.indoors from src/game/roofs.js): under a roof the camera eases to a fixed, closer zoom (a reduced
 // field of view; never farther than the player's own zoom) and zoom input is ignored; leaving eases back to the
@@ -56,8 +55,7 @@ export class Game {
     this.env = env;
     this.input = input;
     this.particles = particles;
-    this.time = 0;
-    for (const o of world.objects) o.solid = SOLID[o.type] || 0;
+    this.time = 0; // (natural props get their o.solid when their chunk is installed: world.js NATURAL_SOLID)
 
     this.player = {
       isEntity: true, kind: 'pawn', name: 'Sobrevivente', x: world.spawn.x, y: world.spawn.y, r: 0.24,
@@ -116,7 +114,7 @@ export class Game {
   screenToWorld(sx, sy) {
     const z = this.cam.zoom, vx = (sx - this.R.cssW / 2) / z, vy = (sy - this.R.cssH / 2) / z;
     const cx = this.cam.x + this.shakeOff.x, cy = this.cam.y + this.shakeOff.y, W = this.world;
-    if (!W.hasHeight) { const [dx, dy] = this.toWorldDir(vx, vy); return [cx + dx, cy + dy]; }
+    if (!W.hasHeight) { const [dx, dy] = this.toWorldDir(vx, vy); return [W.wrapPos(cx + dx), cy + dy]; } // (canonical x: the planet wraps)
     // a point at height t on the ray shows here when it sits at view y = vy + t: the highest t on the surface is the one
     // seen (march down from the highest ground, then refine)
     const at = (t) => { const [dx, dy] = this.toWorldDir(vx, vy + t); return [cx + dx, cy + dy]; };
@@ -130,7 +128,7 @@ export class Game {
   // h: tiles straight up the screen above the ground there (a nameplate over a head)
   worldToScreen(wx, wy, h = 0) {
     const z = this.cam.zoom;
-    const [vx, vy] = this.toViewDir(wx - this.cam.x - this.shakeOff.x, wy - this.cam.y - this.shakeOff.y);
+    const [vx, vy] = this.toViewDir(this.world.dx(wx, this.cam.x + this.shakeOff.x), wy - this.cam.y - this.shakeOff.y);
     return [vx * z + this.R.cssW / 2, (vy - h - this.world.heightAt(wx, wy)) * z + this.R.cssH / 2];
   }
 
@@ -190,7 +188,9 @@ export class Game {
       p.moving = false;
     }
 
-    for (const s of this.systems) s.update?.(this, dt);
+    if (this._prof) { // (dev: the slowest systems — game._prof = new Map() then read it)
+      for (const s of this.systems) { const t0 = performance.now(); s.update?.(this, dt); const ms = performance.now() - t0, k = s.name || s._pk || (s._pk = this.systems.indexOf(s) + ':' + String(s.update).slice(0, 120).replace(/\s+/g, ' ')); if (ms > (this._prof.get(k) || 0)) this._prof.set(k, +ms.toFixed(2)); }
+    } else for (const s of this.systems) s.update?.(this, dt);
 
     // zoom: input moves a target, the camera eases toward it (persisted as a factor of the default zoom)
     this.stepZoom(dt, inp.zoom);
@@ -202,9 +202,11 @@ export class Game {
     // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
     const cf = this.camFocus;
     if (cf && Number.isFinite(cf.x) && Number.isFinite(cf.y)) { const fk = clamp(cf.k ?? 0.5, 0, 1); tx += (cf.x - tx) * fk; ty += (cf.y - ty) * fk; }
-    const k = 1 - Math.exp(-dt * 6);
-    this.cam.x += (tx - this.cam.x) * k;
+    const k = 1 - Math.exp(-dt * 6), W0 = this.world;
+    this.cam.x += W0.dx(tx, this.cam.x) * k; // (the planet wraps: the camera follows across the seam without a jump — it may
+    // leave 0..W; the ring textures, the shaders (cw) and the drawing (near) take any x; a teleport re-centres it)
     this.cam.y += (ty - this.cam.y) * k;
+    if (W0.wrap) for (const e of this.entities) if (e.x < 0 || e.x >= W0.W) e.x = W0.wrapPos(e.x); // (positions stay canonical)
 
     for (const e of this.entities) { if (e.flash > 0) e.flash = Math.max(0, e.flash - dt * 6); if (e.dead) e.deadT = (e.deadT || 0) + dt; }
     this.particles.update(dt);
@@ -260,6 +262,7 @@ export class Game {
     const R = this.R, B = R.batches, A = this.A, t = this.time;
     R.resize();
     R.clearBatches();
+    const rt0 = this._prof ? performance.now() : 0;
     const env = this.env.compute();
     const v = this.view();
     const rot = this.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
@@ -271,17 +274,23 @@ export class Game {
 
     const list = this._draw;
     list.length = 0;
+    // the planet wraps (docs/STREAMING.md): near the seam, what lies across it is drawn shifted by a planet width (its
+    // x is set back after the frame: positions stay canonical)
+    const wld0 = this.world, seam = wld0.wrap && (mx0 < 0 || mx1 > wld0.W), shifted = this._shifted || (this._shifted = []);
+    const sh = (o) => { if (!seam) return; const nx = wld0.near(o.x, this.cam.x); if (nx !== o.x) { shifted.push(o, o.x); o.x = nx; } };
     const HG = this.world.height.any ? this.world.height : null; // terrain height (docs/TERRAIN-HEIGHT.md)
     this.world.forChunks(mx0, my0, mx1, my1, (c) => {
       for (const d of c.decor) {
+        if (seam) sh(d);
         if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d); // _hid: on a painted path
       }
       for (const o of c.objects) {
         if (o.roof) continue; // roof tiles: drawn by the roof regions (src/game/roofs.js collect)
+        if (seam) sh(o);
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
-    for (const e of this.entities) if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); // a body on the ground replaces the dead (corpses.js)
+    for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); } // a body on the ground replaces the dead (corpses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
     // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
@@ -404,7 +413,10 @@ export class Game {
     const dpr = R.dpr;
     const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr, rot, cut: null };
     cam.cut = this.cutout(cam, rc, rs);
-    R.render(cam, env, t);
+    if (this._prof) { const t1 = performance.now(); R.render(cam, env, t); const ms = performance.now() - t1; if (ms > (this._prof.get('R.render') || 0)) this._prof.set('R.render', +ms.toFixed(2)); if (t1 - rt0 > (this._prof.get('render.cpu') || 0)) this._prof.set('render.cpu', +(t1 - rt0).toFixed(2)); }
+    else R.render(cam, env, t);
+    for (let k = shifted.length - 2; k >= 0; k -= 2) shifted[k].x = shifted[k + 1]; // (back to canonical positions)
+    shifted.length = 0;
     animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0; // (other drawers of creatures: menu showcase, previews)
   }
 }

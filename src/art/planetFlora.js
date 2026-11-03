@@ -51,6 +51,7 @@ export const PLANET_SPECIES = {
   papyrus: { n: 2, sc: SC.GRASS, sway: 0.09 },
   lichen_rock: { n: 3, sc: SC.SNOW, sway: 0 },
   termite_mound: { n: 2, sc: SC.SNOW, sway: 0 },
+  desert_rock: { n: 3, sc: SC.SNOW, sway: 0 },
 };
 // kind → species index → art group (composeWorld): built from the table
 export const SPECIES_OF = {};
@@ -900,6 +901,24 @@ function lichenRock(v) {
     });
   });
 }
+// a sandstone boulder of the deserts: rounded by the wind, red-orange beds, dark varnish, a pale sand skirt
+function desertRock(v) {
+  const rand = rng(49500 + v * 57);
+  const sz = [[24, 17], [18, 14], [30, 15]][v % 3];
+  return sprite(1.2, 0.95, (g, P) => {
+    const cx = P.W / 2, baseY = P.H - 7, [rx, ry] = sz;
+    P.layer((g) => { groundShadow(g, cx + 2, baseY, rx * 1.05, 4, 0.4); g.fillStyle = 'rgba(214,170,120,0.5)'; g.beginPath(); g.ellipse(cx - 3, baseY + 1, rx * 1.1, 3.4, 0, 0, TAU); g.fill(); }, 0);
+    P.layer((g) => {
+      const pts = blobPts(cx, baseY - ry, rx, ry, rand, 9, 0.12);
+      g.beginPath(); smoothClosed(g, pts); g.fillStyle = lin(g, cx - rx, baseY - ry * 2, cx + rx, baseY, [[0, '#e0a070'], [0.5, '#b86a40'], [1, '#6e3a24']]); g.fill();
+      g.save(); g.beginPath(); smoothClosed(g, pts); g.clip();
+      for (let k = 0; k < 5; k++) { const y = baseY - ry * 2 + (k + 0.5) * ry * 0.42; g.strokeStyle = k & 1 ? 'rgba(255,220,180,0.35)' : 'rgba(90,40,24,0.35)'; g.lineWidth = 1.4; g.beginPath(); g.moveTo(cx - rx, y + (rand() - 0.5) * 2); g.quadraticCurveTo(cx, y - 2 + (rand() - 0.5) * 3, cx + rx, y + (rand() - 0.5) * 2); g.stroke(); }
+      for (let k = 0; k < 4; k++) { const x = cx - rx * 0.6 + rand() * rx * 1.2; g.fillStyle = 'rgba(60,32,22,0.35)'; g.beginPath(); g.ellipse(x, baseY - ry * 0.9, 1.6, ry * 0.7, 0, 0, TAU); g.fill(); }
+      g.fillStyle = 'rgba(255,240,220,0.22)'; g.beginPath(); g.ellipse(cx - rx * 0.3, baseY - ry * 1.5, rx * 0.5, ry * 0.35, -0.3, 0, TAU); g.fill();
+      g.restore();
+    });
+  });
+}
 function termiteMound(v) {
   const rand = rng(50000 + v * 59);
   return sprite(1.3, v ? 1.7 : 2.2, (g, P) => {
@@ -1066,10 +1085,10 @@ function crackedmud(v) {
 const TREE_FN = { tree_palm: palm, tree_acacia: acacia, tree_baobab: baobab, tree_jungle: jungle, tree_kapok: kapok, tree_olive: olive, tree_fern: treeFern,
   tree_mangrove: mangrove, tree_spruce: spruce, tree_larch: larch, tree_redwood: redwood, tree_cypress: cypress, tree_dwarf: dwarf, bamboo };
 const PLANT_FN = { cactus, cactus_tall: cactusTall, agave, banana, shrub_desert: shrubDesert, dead_bush: deadBush, tundra_shrub: tundraShrub, tussock, dune_grass: duneGrass,
-  papyrus, lichen_rock: lichenRock, termite_mound: termiteMound };
+  papyrus, lichen_rock: lichenRock, termite_mound: termiteMound, desert_rock: desertRock };
 const DECOR_FN = { snowtuft, cottongrass, savgrass, jungleplant, pneumato, lichen: lichenPatch, saltcrust, seaweed, coral, ash: ashDecor, sandripple, crackedmud };
 // foot (px under the anchor) per plant group: the bushes / boulders anchor like their classic kinds
-const PLANT_FOOT = { banana: 6, cactus: 6, cactus_tall: 6, agave: 6, shrub_desert: 6, dead_bush: 6, tundra_shrub: 5, tussock: 5, dune_grass: 5, papyrus: 5, lichen_rock: 7, termite_mound: 6 };
+const PLANT_FOOT = { desert_rock: 7, banana: 6, cactus: 6, cactus_tall: 6, agave: 6, shrub_desert: 6, dead_bush: 6, tundra_shrub: 5, tussock: 5, dune_grass: 5, papyrus: 5, lichen_rock: 7, termite_mound: 6 };
 const reg = (name, fn, foot, flat = false) => lazyDef(name, () => { const c = fn(); if (!flat) LAZY_DEFS.get(name).ay = 1 - foot / (c.origH || c.height); return c; }, 0.5, flat ? 0.5 : 1);
 for (const grp in TREE_FN) {
   const e = PLANET_SPECIES[grp];

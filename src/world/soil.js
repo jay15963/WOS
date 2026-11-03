@@ -8,11 +8,12 @@ export const FERTILE_R = 5; // tiles from the river (tile centre to tile centre)
 export function riverAt(w, tx, ty) {
   if (!w.inBounds(tx, ty)) return false;
   const i = w.idx(tx, ty);
-  return w.water[i] > 0 && Math.hypot(w.flowX[i], w.flowY[i]) > 0.2;
+  return w.water.get(i) > 0 && Math.hypot(w.flowX.get(i), w.flowY.get(i)) > 0.2;
 }
 
-// the fertile grid (1 = within FERTILE_R of a river edge) of any world-like { W, H, water, flowX, flowY, inBounds,
-// idx } — the live world, or the generator's raw layers (worldgen seeds wild wheat on it: the same grid)
+// the fertile grid (1 = within FERTILE_R of a river edge) of a small world-like { W, H, water, flowX, flowY (get(i)),
+// inBounds, idx } — the generator's raw layers (worldgen seeds wild wheat on it; the classic source serves it as the
+// world's `fertile` layer: the same grid). Planet sources make the layer per chunk.
 export function fertileGrid(w) {
   const W = w.W, H = w.H, g = new Uint8Array(W * H);
   const R = FERTILE_R, R2 = R * R + 0.01;
@@ -35,9 +36,9 @@ export function fertileGrid(w) {
 }
 
 // is the land tile (tx, ty) fertile (within FERTILE_R of a river)? Water and rock are never fertile.
+// (the world's `fertile` layer comes from the source: derived from the pristine world, the same on every peer)
 export function fertileAt(w, tx, ty) {
   if (!w || !w.inBounds(tx, ty)) return false;
-  const g = w._fertile || (w._fertile = fertileGrid(w)); // (derived from the pristine world: the same on every peer)
   const i = w.idx(tx, ty);
-  return g[i] === 1 && !w.water[i] && !w.rock0?.[i];
+  return w.fertile.get(i) === 1 && !w.water.get(i) && !w.rock0.get(i);
 }

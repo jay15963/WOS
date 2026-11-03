@@ -253,7 +253,7 @@ export class Panels {
           <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how}</small></div>${this.sortBar(c.id, `<button class="sbt xfer" data-xfer="take" data-tip="<b>Pegar tudo</b><p>Passa tudo o que couber para a mochila.</p>">‹ Pegar tudo</button>`)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
-      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>`, 'p-map');
+      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>${this.g.world.wrap ? '<div class="mm-zoom"><button class="n-btn" data-mmz="0.5">+</button><button class="n-btn" data-mmz="2">−</button><button class="n-btn" data-mmz="0">Centrar</button></div>' : ''}`, 'p-map');
     }
     this.el.innerHTML = html;
     this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });
@@ -403,7 +403,29 @@ export class Panels {
     if (this.open === 'craft') craftBind(this, el);
     if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));
     const map = el.querySelector('.bigmap');
-    if (map) map.addEventListener('click', () => this.close());
+    if (map) {
+      // planet map (docs/STREAMING.md): wheel = zoom, drag = pan, a click without dragging closes it
+      const mini = g.ui.minimap;
+      let drag = null;
+      map.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, moved: false }; map.setPointerCapture?.(e.pointerId); });
+      map.addEventListener('pointermove', (e) => {
+        if (!drag || !mini || !g.world.wrap) return;
+        const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+        drag.moved = true; drag.x = e.clientX; drag.y = e.clientY;
+        const k = mini.mapRect(true).span / (map.clientWidth || 1);
+        mini.pan(-dx * k, -dy * k); this.drawMap();
+      });
+      map.addEventListener('pointerup', () => { const d = drag; drag = null; if (d && !d.moved) this.close(); });
+      map.addEventListener('wheel', (e) => { if (!mini || !g.world.wrap) return; e.preventDefault(); mini.zoom(e.deltaY > 0 ? 1.25 : 0.8); this.drawMap(); }, { passive: false });
+    }
+    el.querySelectorAll('[data-mmz]').forEach((b) => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mini = g.ui.minimap, k = +b.dataset.mmz;
+      if (!mini) return;
+      if (k) mini.zoom(k); else mini.resetView();
+      this.drawMap();
+    }));
     el.querySelector('[data-mmrot]')?.addEventListener('change', (e) => setRadarTurns(e.target.checked));
   }
 

@@ -3,8 +3,8 @@
 // the game's weather, fireflies and ambient life (fx/ambient.js) and a slow cinematic camera.
 // Nothing here is shared or saved; stop() frees the world textures before the real world is uploaded.
 
-import { generateWorld } from '../world/worldgen.js';
 import { World } from '../world/world.js';
+import { ClassicSource } from '../world/source.js';
 import { generateNoiseTexture } from '../world/terrainTex.js';
 import { Environment } from '../fx/environment.js';
 import { Particles } from '../fx/particles.js';
@@ -28,12 +28,12 @@ function findSpot(world) {
       const tx = Math.floor(zx + Math.cos(a) * r), ty = Math.floor(zy + Math.sin(a) * r);
       if (tx < 12 || ty < 12 || tx > W - 12 || ty > H - 12) continue;
       const i = ty * W + tx;
-      if (world.rock[i] || world.water[i]) continue;
-      const dw = world.dWater?.[i] ?? 9, dr = world.dRock?.[i] ?? 9;
+      if (world.rock.get(i) || world.water.get(i)) continue;
+      const dw = world.dWater?.get(i) ?? 9, dr = world.dRock?.get(i) ?? 9;
       if (dw < 2.5 || dw > 6 || dr < 5) continue;
       // some water in the frame (a river bend / lake shore), not a sea
       let wet = 0, cells = 0;
-      for (let y = ty - 5; y <= ty + 5; y++) for (let x = tx - 8; x <= tx + 8; x++) { cells++; if (world.water[y * W + x]) wet++; }
+      for (let y = ty - 5; y <= ty + 5; y++) for (let x = tx - 8; x <= tx + 8; x++) { cells++; if (world.water.get(y * W + x)) wet++; }
       const wf = wet / cells;
       let trees = 0, near = 0;
       world.forChunks(tx - 9, ty - 9, tx + 9, ty + 9, (c) => {
@@ -52,7 +52,7 @@ function findSpot(world) {
 }
 
 export function startShowcase({ renderer, atlas, onReady = null, onFail = null }) {
-  const world = new World(generateWorld(SEED));
+  const world = new World(new ClassicSource(SEED));
   renderer.setWorld(world);
   renderer.setNoise(256, generateNoiseTexture(SEED));
   const env = new Environment(SEED);
@@ -98,7 +98,7 @@ export function startShowcase({ renderer, atlas, onReady = null, onFail = null }
     const a = 2.2 + k * 0.7, r = 6.5 + k * 1.3;
     const d = { isEntity: true, kind: 'animal', species: k === 2 ? 'rabbit' : 'deer', name: '', x: fx + Math.cos(a) * r, y: fy + Math.sin(a) * r * 0.6, r: 0.3, facing: k ? 'e' : 'w', moving: false, moveT: 0, action: null, flash: 0, scale: 1, hp: 1, maxHp: 1, _t: k * 3 };
     const tx = Math.floor(d.x), ty = Math.floor(d.y);
-    if (world.inBounds(tx, ty) && !world.rock[ty * world.W + tx] && world.water[ty * world.W + tx] !== 2) { deer.push(d); game.entities.push(d); } // sync-ok: menu showcase
+    if (world.inBounds(tx, ty) && !world.rock.get(world.idx(tx, ty)) && world.water.get(world.idx(tx, ty)) !== 2) { deer.push(d); game.entities.push(d); } // sync-ok: menu showcase
   }
   installAmbient(game);
   const amb = game.ambient;

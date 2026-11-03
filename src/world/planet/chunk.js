@@ -700,7 +700,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
     if (g === PG.SNOW && (b === BIOME.SNOW_PEAKS || hS[i] > 7)) {
       curv = (hS[i] * 4 - hS[i - 1] - hS[i + 1] - hS[i - WW] - hS[i + WW]); // (> 0: a crest / knob)
       scour = fbm(x, y, sd + 98, 40, 3) + 0.35 * fbm(x, y, sd + 99, 10, 2) + 1.2 * (ridge[i] - 0.62) * clamp(mtn[i] * 2, 0, 1) + 0.9 * st + 1.6 * clamp(curv, -0.3, 0.3);
-      if (scour > 0.34) g = PG.GRAVEL;
+      if (scour > 0.42) g = PG.GRAVEL;
     }
     groundW[i] = g;
     // rock (mineable massif): cliff faces, tors / knolls in blobs along the crests, outcrops on steep ground, sea
@@ -751,7 +751,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
   for (let y = 0; y <= S; y++) for (let x = 0; x <= S; x++) {
     const wx = x + M, wy = y + M;
     const a = (wy - 1) * WW + wx - 1, b = a + 1, c = a + WW, d = c + 1;
-    const bump = ((rockW[a] ? Math.min(dRockIn[a], 4) : 0) + (rockW[b] ? Math.min(dRockIn[b], 4) : 0) + (rockW[c] ? Math.min(dRockIn[c], 4) : 0) + (rockW[d] ? Math.min(dRockIn[d], 4) : 0)) * 0.25 * 0.42;
+    const bump = ((rockW[a] ? Math.min(dRockIn[a], 4) : 0) + (rockW[b] ? Math.min(dRockIn[b], 4) : 0) + (rockW[c] ? Math.min(dRockIn[c], 4) : 0) + (rockW[d] ? Math.min(dRockIn[d], 4) : 0)) * 0.25 * 0.58;
     if (bump > 0 && !(water[a] || water[b] || water[c] || water[d])) height[y * CWn + x] = Math.round((height[y * CWn + x] + bump) * 1024) / 1024;
   }
   for (let wy = 0; wy < WW; wy++) for (let wx = 0; wx < WW; wx++) {
@@ -857,6 +857,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const pB = nearRock ? 0.05 : g === PG.GRAVEL || g === PG.STONE ? 0.02 : b === BIOME.ROCKY_SHORE || b === BIOME.ALPINE || b === BIOME.TUNDRA ? 0.012 : 0.0015;
     const h4 = hash01(gx, gy, sd + 81);
     if (h4 < pB && (b === BIOME.TUNDRA || b === BIOME.POLAR_DESERT || b === BIOME.ALPINE || b === BIOME.SNOW_PEAKS || b === BIOME.ICE_SHEET || g === PG.SNOW) && (h3 < 0.6 || g === PG.SNOW || b === BIOME.SNOW_PEAKS)) { objects.push({ id: nid(), type: 'lichen_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.7 + h2 * 0.5, f }); continue; }
+    if (h4 < pB && (b === BIOME.BADLANDS || b === BIOME.DESERT_ROCKY || b === BIOME.DESERT_DUNES || (g === PG.CLAY && b !== BIOME.TROPICAL_DRY))) { objects.push({ id: nid(), type: 'desert_rock', v: Math.floor(h1 * 997), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.65 + h2 * 0.5, f }); continue; }
     if (h4 < pB) { objects.push({ id: nid(), type: 'boulder', v: (b === BIOME.TEMPERATE_FOREST || b === BIOME.TAIGA || b === BIOME.RAINFOREST || b === BIOME.TEMPERATE_RAINFOREST ? 8000 : 0) + Math.floor(h1 * 7919), x: x + 0.5 + jx * 0.5, y: y + 0.6, s: 0.6 + h2 * 0.55, f }); continue; }
     // small gatherables: pebbles, sticks, fibre grass, wild crops, wild wheat on fertile soil
     const h5 = hash01(gx, gy, sd + 82);

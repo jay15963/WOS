@@ -109,7 +109,7 @@ function leaveSpot(game, m, p) {
 }
 
 // (a deck — a pier / bridge, game/decks.js — is ground: a spot on one is fine, deep water is not)
-const deepAt = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return w.waterAt(tx, ty) === 2 && !(w.deck && w.inBounds(tx, ty) && w.deck[w.idx(tx, ty)]); };
+const deepAt = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return w.waterAt(tx, ty) === 2 && !(w.deck && w.inBounds(tx, ty) && w.deck.get(w.idx(tx, ty))); };
 export function pickWander(game, m, rMax = 5) {
   const w = game.world;
   // now and then a stroll onto a pier / bridge near home (they would only cross one on a path otherwise)

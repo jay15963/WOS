@@ -14,7 +14,7 @@ export const FLORA_KIND = {
   // plants: bushes give fibre + sticks, the grasses fibre, the rocks stone
   cactus: ['bush', 3], cactus_tall: ['bush', 4], agave: ['bush', 5], shrub_desert: ['bush', 6], dead_bush: ['bush', 7], tundra_shrub: ['bush', 8], banana: ['bush', 9],
   tussock: ['fibergrass', 1], dune_grass: ['fibergrass', 2], papyrus: ['fibergrass', 3],
-  lichen_rock: ['boulder', 20], termite_mound: ['boulder', 21],
+  lichen_rock: ['boulder', 20], termite_mound: ['boulder', 21], desert_rock: ['boulder', 22],
 };
 // ground details with their own art (the rest of the planet's decor uses the classic kinds)
 export const FLORA_DECOR = new Set(['snowtuft', 'lichen', 'cottongrass', 'saltcrust', 'seaweed', 'coral', 'ash', 'sandripple', 'savgrass', 'jungleplant',

@@ -965,23 +965,27 @@ function extraLayers(n, B, S) {
   ]);
 }
 
-// 12 layers (0..7 ground, 8..11 rock); planet = true adds the planet's 8 (12..19)
-export function generateGroundTextures(planet = false) {
+// the 12 classic layers (0..7 ground, 8..11 rock)
+export function generateGroundTextures() {
   const t00 = performance.now();
-  const n = TEX, S = 9173;
-  let B = null;
   times.length = 0;
-  let layers = cacheHit, cached = !!cacheHit;
+  let layers = cacheHit;
+  const cached = !!layers;
   cacheHit = null;
-  if (!layers) { B = new Bank(n, 4242); layers = baseLayers(n, B, S); storeCache('layers', cacheKey, layers); }
-  if (planet) {
-    let ex = extraHit;
-    extraHit = null;
-    if (!ex) { cached = false; ex = extraLayers(n, B || new Bank(n, 4242), S); storeCache('extra', extraKey, ex); }
-    layers = layers.concat(ex);
-  }
-  texStats.ms = performance.now() - t00; texStats.cached = cached; texStats.layers = layers.length;
+  if (!layers) { layers = baseLayers(TEX, new Bank(TEX, 4242), 9173); storeCache('layers', cacheKey, layers); }
+  texStats.ms = performance.now() - t00; texStats.cached = cached;
   return layers;
+}
+// the planet's 8 (layers 12..19: snow, ice, ash, salt, red clay, dry ground, basalt, sandstone), painted only when a
+// planet world is played (renderer.setPlanetGround)
+export function generatePlanetGroundTextures() {
+  const t00 = performance.now();
+  let ex = extraHit;
+  const cached = !!ex;
+  extraHit = null;
+  if (!ex) { ex = extraLayers(TEX, new Bank(TEX, 4242), 9173); storeCache('extra', extraKey, ex); }
+  texStats.planetMs = performance.now() - t00; texStats.planetCached = cached;
+  return ex;
 }
 
 // Shader noise: RGBA tileable, each channel a different frequency (R 4, G 8, B 16, A 12 cells).

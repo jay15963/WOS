@@ -19,7 +19,7 @@ export function initMining(game) {
   game.minedSet = new Set();
 }
 
-export const isRock = (game, tx, ty) => game.world.inBounds(tx, ty) && game.world.rock[game.world.idx(tx, ty)] === 1;
+export const isRock = (game, tx, ty) => game.world.inBounds(tx, ty) && game.world.rock.get(game.world.idx(tx, ty)) === 1;
 
 // an open, walkable 4-neighbour to stand on
 export function mineable(game, tx, ty) {
@@ -28,7 +28,7 @@ export function mineable(game, tx, ty) {
     const x = tx + dx, y = ty + dy;
     if (!w.inBounds(x, y)) continue;
     const i = w.idx(x, y);
-    if (!w.rock[i] && w.water[i] !== 2 && w.solid[i] !== 1) return true;
+    if (!w.rock.get(i) && w.water.get(i) !== 2 && w.solid.get(i) !== 1) return true;
   }
   return false;
 }
@@ -47,22 +47,22 @@ export function describeRock(game, tx, ty) {
 export function pickaxeProblem(game, i) {
   const tool = bestTool(game.player, 'mine');
   if (!tool) return needToolMsg('mine');
-  const ore = game.world.ore[i];
+  const ore = game.world.ore.get(i);
   const min = ORE_MIN_TIER[ore] || 0;
   if (tool.tier < min) return `Precisa de picareta ${TIER_PT_F[min]} ou melhor para ${ORE_NAME_PT[ore]}`;
   return null;
 }
 
 registerWork('rock', {
-  valid: (g, it) => g.world.rock[g.world.idx(it.tx, it.ty)] === 1,
+  valid: (g, it) => g.world.rock.get(g.world.idx(it.tx, it.ty)) === 1,
   start(game, it) {
     const w = game.world, i = w.idx(it.tx, it.ty);
     const prob = pickaxeProblem(game, i);
     if (prob) { game.events.emit('error', { text: prob }); return null; }
     const tool = bestTool(game.player, 'mine');
-    const total = BASE * (HARD[w.rockType[i]] || 1) * (ORE_HARD[w.ore[i]] || 1) / tool.speed;
+    const total = BASE * (HARD[w.rockType.get(i)] || 1) * (ORE_HARD[w.ore.get(i)] || 1) / tool.speed;
     const { need, cycle } = hitsFor(total, 2);
-    return { type: 'mine', cycle, need, hits: Math.floor((game.rockHits.get(i) || 0) * need), label: w.ore[i] ? `Minerando ${ORE_NAME_PT[w.ore[i]]}` : 'Minerando', tool: tool.id };
+    return { type: 'mine', cycle, need, hits: Math.floor((game.rockHits.get(i) || 0) * need), label: w.ore.get(i) ? `Minerando ${ORE_NAME_PT[w.ore.get(i)]}` : 'Minerando', tool: tool.id };
   },
   // feedback now, progress and the mined tile on the host (mut/tiles.js)
   hit(game, wk) {

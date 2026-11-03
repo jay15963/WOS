@@ -2,7 +2,7 @@
 // player and everything the renderer needs to draw roofs (agent J).
 //
 // Shared / deterministic part (runs inside op appliers on every peer, never reads the local player):
-//   - world.broof[i] = style index + 1 of the FINISHED roof tile at i (0 = none) — onRoofStruct() from
+//   - world.broof.set(i, style index + 1 of the FINISHED roof tile at i (0 = none) — onRoofStruct() from)
 //     placeStructure / completeStructure / removeStructure (mut/structures.js);
 //   - support: a roof tile needs a support within ROOF_GEOM.support (6) tiles, Euclidean between tile centres:
 //     a wall / door / column (def.support) on layer 'main', natural rock, or the map edge. Placing a roof plan
@@ -25,6 +25,7 @@
 //     chimneys, weathervane), painted in the worker once the camera has turned (a flat-coloured stand-in until then),
 //     drawn as view columns depth-sorted with the sprites, ray-cast for picking / occlusion, shadows as ground faces.
 
+import { Layer } from '../world/store.js'; // sparse per-tile layers (docs/STREAMING.md)
 import { BUILDINGS } from './data.js';
 import { ROOF_GEOM, ROOF_STYLES, ROOF_TYPE_STYLES, roofEaveH, DET, detBits } from './content/roofs.js';
 import { roofArtStyle } from './content/kits.js'; // agent K: style overrides from the Detalhes kit
@@ -33,6 +34,9 @@ import { turnedGeom, turnedView, rasterTurned } from '../art/roofFacets.js'; // 
 import { CAMV } from '../art/archCompose.js';
 import { shade as faceShade } from '../art/faces/kit.js'; // (the walls' light: gables match the wall under them)
 
+// 4 / 5 (with itself) neighbour tiles of (x, y) inside the world (x wraps on the planet)
+function nb4(w, x, y) { const o = []; if (w.inBounds(x - 1, y)) o.push(w.idx(x - 1, y)); if (w.inBounds(x + 1, y)) o.push(w.idx(x + 1, y)); if (w.inBounds(x, y - 1)) o.push(w.idx(x, y - 1)); if (w.inBounds(x, y + 1)) o.push(w.idx(x, y + 1)); return o; }
+function nb5(w, x, y) { const o = nb4(w, x, y); o.push(w.idx(x, y)); return o; }
 const STYLE_KEYS = Object.keys(ROOF_STYLES);
 const STYLE_IDX = Object.fromEntries(STYLE_KEYS.map((k, i) => [k, i + 1]));
 export const styleIndex = (o) => STYLE_IDX[o.style] || STYLE_IDX[ROOF_TYPE_STYLES[o.type]?.[0]] || 1;
@@ -45,15 +49,15 @@ export const isRoofType = (type) => !!BUILDINGS[type]?.roof;
 export const isSupportType = (type) => !!BUILDINGS[type]?.support;
 
 export function initRoofs(game) {
-  const w = game.world, N = w.W * w.H;
+  const w = game.world;
   game.roofs = {
-    regionOf: new Int32Array(N),   // cosmetic: region id per tile (0 = none)
+    regionOf: new Layer('regionOf', Int32Array, 0, { sparse: true }), // cosmetic: region id per tile (0 = none; sparse store layer)
     regions: new Map(),
     nextId: 1,
     dirty: new Set(),              // tiles whose finished roof changed (regions to rebuild)
     artDirty: new Set(),           // tiles whose region art must be redrawn (fires appear / go)
     supportDirty: [],              // [x0, y0, x1, y1] where a finished support disappeared (host: collapse check)
-    data: new Uint8Array(N * 4),   // roofData texture (R dark, G revealed, B coverage)
+    data: new Layer('roofData', Uint8Array, 0, { sparse: true, comps: 4 }), // roofData texture (R dark, G revealed, B coverage, A cave ceiling): get4 / set4
     dataDirty: null,               // tile rect of roofData to recompute (light / coverage)
     upload: null,                  // tile rect of roofData to upload
     fx: [],                        // pending cosmetic fx (dust of collapses / cave-ins)
@@ -66,7 +70,7 @@ export function initRoofs(game) {
   game.roofs.turned = true; // (3D at every camera angle: the pieces are always drawn)
   game.roofs.falling = [];           // [{ g, t }] old paintings dropping
   // cave ceilings (cosmetic, see "cave ceilings" below)
-  Object.assign(game.roofs, { caveOf: new Int32Array(N), caves: new Map(), caveNext: 1, caveDirty: new Set(), caveAll: true, crumble: new Map(), cracks: new Map(), peek: new Map() });
+  Object.assign(game.roofs, { caveOf: new Layer('caveOf', Int32Array, 0, { sparse: true }), caves: new Map(), caveNext: 1, caveDirty: new Set(), caveAll: true, crumble: new Map(), cracks: new Map(), peek: new Map() });
   game.indoors = { kind: null, region: 0, zoomK: 0, caveK: 0, builtK: 0, _cand: null, _candT: 0, _k: 0 };
   // for fx modules (no import of game code): hidden by an opaque built roof or by a cave ceiling
   game.roofs.hidden = (x, y) => underOpaqueRoof(game, x, y) || underCaveCeiling(game, x, y);
@@ -82,8 +86,8 @@ export function onRoofStruct(game, o, what, wasBlueprint = false) {
   const def = BUILDINGS[o.type], w = game.world;
   if (def?.roof) {
     const i = w.idx(o.tx, o.ty);
-    if (what === 'complete') { w.broof[i] = styleIndex(o); R.supportDirty.push([o.tx, o.ty, o.tx, o.ty]); } // (host: still held up?)
-    else if (what === 'remove' && !wasBlueprint) w.broof[i] = 0;
+    if (what === 'complete') { w.broof.set(i, styleIndex(o)); R.supportDirty.push([o.tx, o.ty, o.tx, o.ty]); } // (host: still held up?)
+    else if (what === 'remove' && !wasBlueprint) w.broof.set(i, 0);
     else return;
     R.dirty.add(i);
     markData(R, o.tx - 6, o.ty - 6, o.tx + 6, o.ty + 6);
@@ -122,7 +126,7 @@ function markUpload(R, x0, y0, x1, y1) {
 // a support on tile i? completed: only finished supports count; exclude: Set of structures treated as gone
 export function supportAt(game, i, completed = true, exclude = null) {
   const w = game.world;
-  if (w.rock[i]) return true;
+  if (w.rock.get(i)) return true;
   const o = game.build.grid.main.get(i);
   if (!o || !BUILDINGS[o.type]?.support || o.moveOf) return false;
   if (completed && o.blueprint) return false;
@@ -133,12 +137,12 @@ export function roofSupported(game, tx, ty, completed = true, exclude = null) {
   const w = game.world, N = SUPPORT, N2 = N * N;
   for (let dy = -N; dy <= N; dy++) {
     const y = ty + dy;
-    if (y < 0 || y >= w.H) return true;
+    if (y < w.minY || y > w.maxY) return true;
     const r = Math.floor(Math.sqrt(N2 - dy * dy));
     for (let dx = -r; dx <= r; dx++) {
       const x = tx + dx;
-      if (x < 0 || x >= w.W) return true;
-      if (supportAt(game, y * w.W + x, completed, exclude)) return true;
+      if (!w.inBounds(x, y)) return true;
+      if (supportAt(game, w.idx(x, y), completed, exclude)) return true;
     }
   }
   return false;
@@ -179,18 +183,18 @@ export function unsupportedRoofs(game, rects) {
 export function enclosedRoom(game, tx, ty, max = 220, info = null, lv = 0) { // info.big: gave up because the room is larger than max
   const w = game.world, W = w.W, off = (lv | 0) * W * w.H;
   if (!w.inBounds(tx, ty)) return null;
-  const wallish = (i) => (!off && w.rock[i] === 1) || (() => { const o = game.build.grid.main.get(i + off); return !!o && BUILDINGS[o.type]?.connect === 'wall'; })();
-  const s0 = ty * W + tx;
+  const wallish = (i) => (!off && w.rock.get(i) === 1) || (() => { const o = game.build.grid.main.get(i + off); return !!o && BUILDINGS[o.type]?.connect === 'wall'; })();
+  const s0 = w.idx(tx, ty);
   if (wallish(s0)) return null;
   const seen = new Set([s0]), q = [s0], ring = new Set();
   while (q.length) {
     const i = q.pop(), x = i % W, y = (i - x) / W;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
       const nx = x + dx, ny = y + dy;
-      if (!w.inBounds(nx, ny) || nx < 1 || ny < 1 || nx >= W - 1 || ny >= w.H - 1) return null;
-      const j = ny * W + nx;
+      if (!w.inside(nx, ny, 1)) return null;
+      const j = w.idx(nx, ny);
       if (seen.has(j) || ring.has(j)) continue;
-      if (wallish(j)) { if (!w.rock[j]) ring.add(j); continue; }
+      if (wallish(j)) { if (!w.rock.get(j)) ring.add(j); continue; }
       if (dx && dy) continue; // corners only collect walls
       seen.add(j);
       if (seen.size > max) { if (info) info.big = true; return null; }
@@ -250,7 +254,7 @@ export function roofsSystem() {
       if (!R) return;
       if (R.dirty.size) rebuildRegions(game);
       if (R.artDirty.size) {
-        for (const i of R.artDirty) { const id = R.regionOf[i]; if (id) { const g = R.regions.get(id); if (g) g.artDirty = true; } }
+        for (const i of R.artDirty) { const id = R.regionOf.get(i); if (id) { const g = R.regions.get(id); if (g) g.artDirty = true; } }
         R.artDirty.clear();
       }
       if (R.dataDirty) { const d = R.dataDirty; R.dataDirty = null; computeData(game, d[0], d[1], d[2], d[3]); }
@@ -386,42 +390,36 @@ export function roofsSystem() {
 
 // ---------------- regions ----------------
 function rebuildRegions(game) {
-  const R = game.roofs, w = game.world, W = w.W, RG = R.regionOf, B = w.broof;
+  const R = game.roofs, w = game.world, W = w.W, RG = R.regionOf, B = w.broof, D = R.data;
   const seeds = [];
   const affected = new Set();
   for (const i of R.dirty) {
     seeds.push(i);
-    const x = i % W;
-    for (const j of [i, i - 1, i + 1, i - W, i + W]) {
-      if (j < 0 || j >= RG.length || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1)) continue;
-      if (RG[j]) affected.add(RG[j]);
-    }
+    const x = i % W, y = (i / W) | 0;
+    for (const j of nb5(w, x, y)) { const r = RG.get(j); if (r) affected.add(r); }
   }
   // tiles that lost their roof leave the revealed mask
-  for (const i of R.dirty) if (!B[i] && R.data[i * 4 + 1]) { R.data[i * 4 + 1] = 0; markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
+  for (const i of R.dirty) if (!B.get(i) && D.get4(i, 1)) { D.set4(i, 1, 0); markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
   R.dirty.clear();
   const olds = [];
   for (const id of affected) {
     const g = R.regions.get(id);
     if (!g) continue;
-    for (const i of g.tiles) { if (RG[i] === id) RG[i] = 0; seeds.push(i); }
+    for (const i of g.tiles) { if (RG.get(i) === id) RG.set(i, 0); seeds.push(i); }
     R.regions.delete(id);
     olds.push(g);
   }
   const q = [];
   for (const s of seeds) {
-    if (!B[s] || RG[s]) continue;
+    if (!B.get(s) || RG.get(s)) continue;
     const id = R.nextId++, tiles = [];
-    RG[s] = id; q.length = 0; q.push(s);
+    RG.set(s, id); q.length = 0; q.push(s);
     let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
     while (q.length) {
       const i = q.pop(), x = i % W, y = (i - x) / W;
       tiles.push(i);
       if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      if (x > 0 && B[i - 1] && !RG[i - 1]) { RG[i - 1] = id; q.push(i - 1); }
-      if (x < W - 1 && B[i + 1] && !RG[i + 1]) { RG[i + 1] = id; q.push(i + 1); }
-      if (y > 0 && B[i - W] && !RG[i - W]) { RG[i - W] = id; q.push(i - W); }
-      if (y < w.H - 1 && B[i + W] && !RG[i + W]) { RG[i + W] = id; q.push(i + W); }
+      for (const j of nb4(w, x, y)) if (B.get(j) && !RG.get(j)) { RG.set(j, id); q.push(j); }
     }
     tiles.sort((a, b) => a - b);
     const g = { id, tiles: Int32Array.from(tiles), x0, y0, x1, y1, cx: (x0 + x1 + 1) / 2, cy: (y0 + y1 + 1) / 2,
@@ -431,7 +429,7 @@ function rebuildRegions(game) {
     for (const o of olds) {
       if (o.taken || o.x1 < x0 || o.x0 > x1 || o.y1 < y0 || o.y0 > y1) continue;
       let n = 0;
-      for (const i of o.tiles) if (RG[i] === id) n++;
+      for (const i of o.tiles) if (RG.get(i) === id) n++;
       if (n > bn) { bn = n; best = o; }
     }
     if (best) {
@@ -479,7 +477,7 @@ function artSpec(game, g) {
     const def = BUILDINGS[o.type];
     if (o.blueprint || o.moveOf || !def) continue;
     if (o.tx < g.x0 || o.tx > g.x1 || o.ty < g.y0 || o.ty > g.y1) continue;
-    if (game.roofs.regionOf[w.idx(o.tx, o.ty)] !== g.id) continue;
+    if (game.roofs.regionOf.get(w.idx(o.tx, o.ty)) !== g.id) continue;
     if (def.light || def.workLight) g.lights.push(o.id);
     if ((def.fire || def.workLight) && (def.warm || 0) >= 2.5) fires.push([o.x, o.cy ?? o.y - 0.3, o.id]); // hearths, not torches
   }
@@ -651,7 +649,7 @@ function turnedShadows(game, B, env, x0, y0, x1, y1) {
 export function roofTileFace(game, B, spr, tx, ty, h, r, g, b, a, drape = false) {
   if (!B.faces || !game.R?.setFaceTex || !spr) return false;
   game.R.setFaceTex(null);
-  const R = game.roofs, w = game.world, rg = drape && R && w.inBounds(tx, ty) ? R.regions.get(R.regionOf[w.idx(tx, ty)]) : null, S = rg && regionShape(rg);
+  const R = game.roofs, w = game.world, rg = drape && R && w.inBounds(tx, ty) ? R.regions.get(R.regionOf.get(w.idx(tx, ty))) : null, S = rg && regionShape(rg);
   if (!S) { B.faces.quad(tx, ty, h, tx + 1, ty, h, tx + 1, ty + 1, h, tx, ty + 1, h, [spr.u0, spr.v0, spr.u1, spr.v1], r, g, b, a); return true; }
   // laid on the roof: four quarters, each corner on the surface (the tile folds over a ridge / hip)
   const at = (x, y) => { const v = S.surf(x, y); return v > -1e8 ? v + 0.03 : h; };
@@ -720,18 +718,19 @@ function workerOf(game) {
 
 // ---------------- roofData (light under built roofs, revealed region, coverage) ----------------
 function computeData(game, x0, y0, x1, y1) {
-  const w = game.world, W = w.W, H = w.H, D = game.roofs.data, B = w.broof, S = w.solid, K = w.rock;
-  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W - 1, x1); y1 = Math.min(H - 1, y1);
+  const w = game.world, D = game.roofs.data, B = w.broof, S = w.solid, K = w.rock;
+  x0 = Math.max(w.minX, x0); y0 = Math.max(w.minY, y0); x1 = Math.min(w.maxX, x1); y1 = Math.min(w.maxY, y1);
   const MD = BUILT_DK.length - 1, M = MD + 1;
-  const wx0 = Math.max(0, x0 - M), wy0 = Math.max(0, y0 - M), wx1 = Math.min(W - 1, x1 + M), wy1 = Math.min(H - 1, y1 + M);
+  const wx0 = Math.max(w.minX, x0 - M), wy0 = Math.max(w.minY, y0 - M), wx1 = Math.min(w.maxX, x1 + M), wy1 = Math.min(w.maxY, y1 + M);
   const ww = wx1 - wx0 + 1, wh = wy1 - wy0 + 1, n = ww * wh;
   const dist = new Uint8Array(n).fill(255), q = new Int32Array(n);
+  const Kw = new Uint8Array(n), Sw = new Uint8Array(n), Bw = new Uint8Array(n);
   let qh = 0, qt = 0;
   // sky = open tile without any roof (built or natural); walls / closed doors / rock stop the light
   for (let y = wy0; y <= wy1; y++) for (let x = wx0; x <= wx1; x++) {
-    const i = y * W + x;
-    if (K[i] || S[i] === 1 || B[i] || w.roof[i]) continue;
-    const j = (y - wy0) * ww + (x - wx0);
+    const i = w.idx(x, y), j = (y - wy0) * ww + (x - wx0);
+    Kw[j] = K.get(i); Sw[j] = S.get(i); Bw[j] = B.get(i) ? 1 : 0;
+    if (Kw[j] || Sw[j] === 1 || Bw[j] || w.roof.get(i)) continue;
     dist[j] = 0; q[qt++] = j;
   }
   while (qh < qt) {
@@ -741,37 +740,37 @@ function computeData(game, x0, y0, x1, y1) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (nx < 0 || ny < 0 || nx >= ww || ny >= wh) continue;
-      const k = ny * ww + nx, i = (ny + wy0) * W + nx + wx0;
-      if (dist[k] <= d + 1 || K[i] || S[i] === 1) continue;
+      const k = ny * ww + nx;
+      if (dist[k] <= d + 1 || Kw[k] || Sw[k] === 1) continue;
       dist[k] = d + 1; q[qt++] = k;
     }
   }
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = y * W + x, o = i * 4;
+    const i = w.idx(x, y), jj = (y - wy0) * ww + (x - wx0);
     let dk = 0;
-    if (B[i]) {
-      if (S[i] === 1) { // walls under the roof: as dark as the darkest open neighbour under it
+    if (Bw[jj]) {
+      if (Sw[jj] === 1) { // walls under the roof: as dark as the darkest open neighbour under it
         let m = 0;
         for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const nx = x + dx, ny = y + dy;
           if (nx < wx0 || ny < wy0 || nx > wx1 || ny > wy1) continue;
-          const j = ny * W + nx;
-          if (!B[j] || S[j] === 1) continue;
-          m = Math.max(m, BUILT_DK[Math.min(MD, dist[(ny - wy0) * ww + (nx - wx0)])]);
+          const j = (ny - wy0) * ww + (nx - wx0);
+          if (!Bw[j] || Sw[j] === 1) continue;
+          m = Math.max(m, BUILT_DK[Math.min(MD, dist[j])]);
         }
         dk = m || 1;
-      } else dk = BUILT_DK[Math.min(MD, dist[(y - wy0) * ww + (x - wx0)])];
+      } else dk = BUILT_DK[Math.min(MD, dist[jj])];
     }
-    D[o] = Math.round(dk * 255);
-    D[o + 2] = B[i] ? 255 : 0;
+    D.set4(i, 0, Math.round(dk * 255));
+    D.set4(i, 2, Bw[jj] ? 255 : 0);
   }
   markUpload(game.roofs, x0, y0, x1, y1);
 }
 
 // G channel: revealed amount of region g's tiles (+ the ring around them, softened by the GPU filter)
 function setRevealMask(game, g, k) {
-  const w = game.world, W = w.W, D = game.roofs.data, v = Math.round(k * 255);
-  for (const i of g.tiles) D[i * 4 + 1] = v;
+  const D = game.roofs.data, v = Math.round(k * 255);
+  for (const i of g.tiles) D.set4(i, 1, v);
   markUpload(game.roofs, g.x0, g.y0, g.x1, g.y1);
 }
 
@@ -782,9 +781,9 @@ function updateIndoors(game, dt) {
   if (!p.dead) {
     const tx = Math.floor(p.x), ty = Math.floor(p.y - 0.05);
     if (w.inBounds(tx, ty)) {
-      const i = ty * w.W + tx;
-      if (w.broof[i]) { kind = 'built'; region = R.regionOf[i]; }
-      else if (w.roof[i] && !w.rock[i]) { kind = 'cave'; region = R.caveOf[i]; } // (the cave whose ceiling fades)
+      const i = w.idx(tx, ty);
+      if (w.broof.get(i)) { kind = 'built'; region = R.regionOf.get(i); }
+      else if (w.roof.get(i) && !w.rock.get(i)) { kind = 'cave'; region = R.caveOf.get(i); } // (the cave whose ceiling fades)
       else if (game.levels?.hasUpper) {
         // under an upper floor (agent L's slab: a second story, a balcony) — indoors for the camera too (no roof region)
         const V = Math.round(p.z || 0), N = w.W * w.H;
@@ -884,12 +883,12 @@ function dustFx(game, dt) {
 function easeCave(game, dt) {
   const F = game.roofs.caveFade, w = game.world;
   if (!F.size) return;
-  const D = w.caveData, W = w.W;
+  const D = w.caveDk, W = w.W;
   let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
   for (const [i, f] of F) {
     f.t = Math.min(1, f.t + dt / 1.4);
     const u = f.t * f.t * (3 - 2 * f.t);
-    D[i * 4] = Math.round(f.a + (f.b - f.a) * u);
+    D.set(i, Math.round(f.a + (f.b - f.a) * u));
     const x = i % W, y = (i - x) / W;
     if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
     if (f.t >= 1) F.delete(i);
@@ -902,10 +901,10 @@ export function underOpaqueRoof(game, x, y) {
   const R = game.roofs, w = game.world;
   if (!R || !R.regions.size) return false;
   const tx = Math.floor(x), ty = Math.floor(y - 0.05);
-  if (tx < 0 || ty < 0 || tx >= w.W || ty >= w.H) return false;
-  const i = ty * w.W + tx;
-  if (!w.broof[i]) return false;
-  const g = R.regions.get(R.regionOf[i]);
+  if (!w.inBounds(tx, ty)) return false;
+  const i = w.idx(tx, ty);
+  if (!w.broof.get(i)) return false;
+  const g = R.regions.get(R.regionOf.get(i));
   return !!(g && g.art && g.alpha >= 0.985);
 }
 
@@ -921,31 +920,33 @@ export function underOpaqueRoof(game, x, y) {
 // Everything here derives from the shared rock / roof grids, so every peer shows the same caves.
 const CRACK_T = 0.42;   // cracks spreading before the first tile breaks
 const BREAK_T = 0.35;   // a tile's ceiling crumbling away (its chunks drop one by one, terrain shader)
-const isCaveTile = (w, i) => w.roof[i] === 1 && w.rock[i] === 0;
+const isCaveTile = (w, i) => w.roof.get(i) === 1 && w.rock.get(i) === 0;
 
 function rebuildCaves(game) {
   const R = game.roofs, w = game.world, W = w.W, CO = R.caveOf, D = R.data;
   const seeds = [], olds = [];
   if (R.caveAll) {
+    // every cave tile is a mined tile (the natural roof only covers rock until it is dug): seed from them, not
+    // from the whole planet
     R.caveAll = false;
     for (const g of R.caves.values()) olds.push(g);
-    R.caves.clear(); CO.fill(0);
-    for (let i = 0; i < CO.length; i++) if (isCaveTile(w, i)) seeds.push(i); else if (D[i * 4 + 3] && !R.crumble.has(i)) D[i * 4 + 3] = 0;
-    markUpload(R, 0, 0, W - 1, w.H - 1);
+    R.caves.clear(); CO.clear();
+    for (const i of game.minedTiles || []) if (isCaveTile(w, i)) seeds.push(i);
+    for (const c of [...D.chunks()]) { // (ceilings left over from a replaced snapshot)
+      const p = D.pages[c];
+      for (let l = 0; l < p.length; l += 4) if (p[l + 3]) { const x = ((c & 255) << 6) + ((l >> 2) & 63), y = ((c >>> 8) << 6) + (l >> 8), i = w.idx(x, y); if (!isCaveTile(w, i) && !R.crumble.has(i)) { p[l + 3] = 0; markUpload(R, x, y, x, y); } }
+    }
   } else {
     const aff = new Set();
     for (const i of R.caveDirty) {
       seeds.push(i);
-      const x = i % W;
-      for (const j of [i, i - 1, i + 1, i - W, i + W]) {
-        if (j < 0 || j >= CO.length || (j === i - 1 && x === 0) || (j === i + 1 && x === W - 1)) continue;
-        if (CO[j]) aff.add(CO[j]);
-      }
+      const x = i % W, y = (i / W) | 0;
+      for (const j of nb5(w, x, y)) { const c = CO.get(j); if (c) aff.add(c); }
     }
     for (const id of aff) {
       const g = R.caves.get(id);
       if (!g) continue;
-      for (const i of g.tiles) { if (CO[i] === id) CO[i] = 0; seeds.push(i); }
+      for (const i of g.tiles) { if (CO.get(i) === id) CO.set(i, 0); seeds.push(i); }
       R.caves.delete(id);
       olds.push(g);
     }
@@ -955,27 +956,24 @@ function rebuildCaves(game) {
   for (const s of seeds) {
     if (!isCaveTile(w, s)) {
       // left every cave (its roof fell, or the snapshot changed it): no ceiling unless it is still crumbling
-      if (D[s * 4 + 3] && !R.crumble.has(s)) { D[s * 4 + 3] = 0; markUpload(R, s % W, (s / W) | 0, s % W, (s / W) | 0); }
+      if (D.get4(s, 3) && !R.crumble.has(s)) { D.set4(s, 3, 0); markUpload(R, s % W, (s / W) | 0, s % W, (s / W) | 0); }
       continue;
     }
-    if (CO[s]) continue;
+    if (CO.get(s)) continue;
     const id = R.caveNext++, tiles = [];
-    CO[s] = id; q.length = 0; q.push(s);
+    CO.set(s, id); q.length = 0; q.push(s);
     let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
     while (q.length) {
       const i = q.pop(), x = i % W, y = (i - x) / W;
       tiles.push(i);
       if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
-      if (x > 0 && !CO[i - 1] && isCaveTile(w, i - 1)) { CO[i - 1] = id; q.push(i - 1); }
-      if (x < W - 1 && !CO[i + 1] && isCaveTile(w, i + 1)) { CO[i + 1] = id; q.push(i + 1); }
-      if (y > 0 && !CO[i - W] && isCaveTile(w, i - W)) { CO[i - W] = id; q.push(i - W); }
-      if (y < w.H - 1 && !CO[i + W] && isCaveTile(w, i + W)) { CO[i + W] = id; q.push(i + W); }
+      for (const j of nb4(w, x, y)) if (!CO.get(j) && isCaveTile(w, j)) { CO.set(j, id); q.push(j); }
     }
     // keep the fade of the cave it grew from / split off (no flash while the player digs inside it)
     let reveal = 0;
     for (const o of olds) {
       if (o.reveal <= reveal || o.x1 < x0 || o.x0 > x1 || o.y1 < y0 || o.y0 > y1) continue;
-      for (const i of o.tiles) if (CO[i] === id) { reveal = o.reveal; break; }
+      for (const i of o.tiles) if (CO.get(i) === id) { reveal = o.reveal; break; }
     }
     R.caves.set(id, { id, tiles: Int32Array.from(tiles), x0, y0, x1, y1, reveal, av: -1 });
   }
@@ -991,7 +989,7 @@ function updateCaves(game, dt) {
     const e = g.reveal * g.reveal * (3 - 2 * g.reveal), v = Math.round(255 * (1 - e));
     if (v === g.av) continue;
     g.av = v;
-    for (const i of g.tiles) D[i * 4 + 3] = w.broof[i] ? 0 : Math.min(v, R.peek.get(i) ?? 255);
+    for (const i of g.tiles) D.set4(i, 3, w.broof.get(i) ? 0 : Math.min(v, R.peek.get(i) ?? 255));
     markUpload(R, g.x0, g.y0, g.x1, g.y1);
   }
   peekCaves(game);
@@ -1007,17 +1005,17 @@ function updateCaves(game, dt) {
       a = Math.round(c.a * (1 - u)); gc = 255;
       if (u >= 1) { R.crumble.delete(i); gc = 0; }
     }
-    D[i * 4 + 3] = a;
-    D[i * 4 + 1] = gc;
+    D.set4(i, 3, a);
+    D.set4(i, 1, gc);
     markUpload(R, c.x, c.y, c.x, c.y);
   }
   for (const [i, c] of R.cracks) {
     if (c.d > 0) { c.d -= dt; continue; }  // waits for the cave-in next to it
     c.v -= dt / 45;
     const x = i % W, y = (i - x) / W;
-    if (c.v <= 0 || !isCaveTile(w, i)) { R.cracks.delete(i); if (!R.crumble.has(i) && !w.broof[i]) D[i * 4 + 1] = 0; markUpload(R, x, y, x, y); continue; }
-    if (R.crumble.has(i) || w.broof[i]) continue;
-    D[i * 4 + 1] = Math.round(255 * Math.min(1, c.v));
+    if (c.v <= 0 || !isCaveTile(w, i)) { R.cracks.delete(i); if (!R.crumble.has(i) && !w.broof.get(i)) D.set4(i, 1, 0); markUpload(R, x, y, x, y); continue; }
+    if (R.crumble.has(i) || w.broof.get(i)) continue;
+    D.set4(i, 1, Math.round(255 * Math.min(1, c.v)));
     markUpload(R, x, y, x, y);
   }
 }
@@ -1032,14 +1030,14 @@ function peekCaves(game) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const x = px + dx, y = py + dy;
       if (!w.inBounds(x, y)) continue;
-      const id = R.caveOf[y * W + x];
+      const id = R.caveOf.get(w.idx(x, y));
       if (id && !(I.kind === 'cave' && I.region === id)) near.add(id);
     }
     if (near.size) for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
       const x = px + dx, y = py + dy;
       if (!w.inBounds(x, y)) continue;
-      const i = y * W + x;
-      if (!near.has(R.caveOf[i])) continue;
+      const i = w.idx(x, y);
+      if (!near.has(R.caveOf.get(i))) continue;
       const d = Math.hypot(x + 0.5 - p.x, y + 0.5 - (p.y - 0.05));
       const v = Math.round(255 * Math.min(1, Math.max(0, (d - 1.6) / 1.6)));
       if (v < 255) next.set(i, v);
@@ -1049,10 +1047,10 @@ function peekCaves(game) {
   // tiles that leave the peek get their cave's value back; the others its minimum with the peek
   for (const i of old.keys()) if (!next.has(i)) next.set(i, 255);
   for (const [i, v] of next) {
-    const g = R.caves.get(R.caveOf[i]);
-    const base = g && g.av >= 0 && !w.broof[i] ? g.av : 0;
+    const g = R.caves.get(R.caveOf.get(i));
+    const base = g && g.av >= 0 && !w.broof.get(i) ? g.av : 0;
     const a = Math.min(base, v);
-    if (D[i * 4 + 3] !== a) { D[i * 4 + 3] = a; markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
+    if (D.get4(i, 3) !== a) { D.set4(i, 3, a); markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
     if (v >= 255) next.delete(i);
   }
   R.peek = next;
@@ -1064,11 +1062,11 @@ function caveCrumble(game, tiles, ex, ey, quiet) {
   const crack = quiet ? CRACK_T * 0.6 : CRACK_T;
   let far = 0;
   for (const t of tiles) {
-    const [x, y] = t, i = y * W + x, d = Math.hypot(x + 0.5 - ex, y + 0.5 - ey);
+    const [x, y] = t, i = w.idx(x, y), d = Math.hypot(x + 0.5 - ex, y + 0.5 - ey);
     const delay = crack + d * 0.11 + Math.random() * 0.1;
     far = Math.max(far, delay);
     const old = R.crumble.get(i);
-    R.crumble.set(i, { x, y, t: -delay, crack, a: old ? old.a : D[i * 4 + 3], g: D[i * 4 + 1], col: t[2] || null, fell: false, n: R.crumble.size });
+    R.crumble.set(i, { x, y, t: -delay, crack, a: old ? old.a : D.get4(i, 3), g: D.get4(i, 1), col: t[2] || null, fell: false, n: R.crumble.size });
   }
   // the ceiling left around the hole stays cracked for a while (shown once the hole is there, fading over ~45 s)
   for (const t of tiles) {
@@ -1076,7 +1074,7 @@ function caveCrumble(game, tiles, ex, ey, quiet) {
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const nx = x + dx, ny = y + dy;
       if (!w.inBounds(nx, ny)) continue;
-      const j = ny * W + nx;
+      const j = w.idx(nx, ny);
       if (!isCaveTile(w, j) || R.crumble.has(j)) continue;
       const v = 0.42 - Math.hypot(dx, dy) * 0.1, c = R.cracks.get(j);
       if (!c || c.v < v) R.cracks.set(j, { v, d: Math.max(0, far * 0.5 - 0.1) });
@@ -1117,16 +1115,16 @@ export function underCaveCeiling(game, x, y) {
   const R = game.roofs, w = game.world;
   if (!R) return false;
   const tx = Math.floor(x), ty = Math.floor(y - 0.05);
-  if (tx < 0 || ty < 0 || tx >= w.W || ty >= w.H) return false;
-  const i = ty * w.W + tx;
-  return R.data[i * 4 + 3] >= 128 && !w.rock[i];
+  if (!w.inBounds(tx, ty)) return false;
+  const i = w.idx(tx, ty);
+  return R.data.get4(i, 3) >= 128 && !w.rock.get(i);
 }
 
 // height of the built roof surface over tile (tx, ty) (eave height when unknown)
 export function roofHeightAt(game, tx, ty) {
   const R = game.roofs, w = game.world;
   if (!R || !w.inBounds(tx, ty)) return roofEaveH();
-  const i = w.idx(tx, ty), g = R.regions.get(R.regionOf[i]), a = g?.art;
+  const i = w.idx(tx, ty), g = R.regions.get(R.regionOf.get(i)), a = g?.art;
   if (!a) return roofEaveH();
   let lo = 0, hi = a.tiles.length - 1;
   while (lo <= hi) { const m = (lo + hi) >> 1, v = a.tiles[m]; if (v === i) return a.tileH[m]; if (v < i) lo = m + 1; else hi = m - 1; }
@@ -1138,7 +1136,7 @@ export function roofHeightAt(game, tx, ty) {
 export function roofPropAt(game, tx, ty) {
   const R = game.roofs, w = game.world;
   if (!R || !w.inBounds(tx, ty)) return null;
-  const g = R.regions.get(R.regionOf[w.idx(tx, ty)]), a = g?.art;
+  const g = R.regions.get(R.regionOf.get(w.idx(tx, ty))), a = g?.art;
   if (!a) return null;
   const s = a.slices.find((q) => q.col === tx && ty >= q.ya && ty <= q.yb);
   // face: the slope under the tile centre (1 west, 2 east, 3 south — facing the camera —, 4 north, 0 unknown); pitch: its rise per tile

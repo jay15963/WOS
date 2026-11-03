@@ -69,8 +69,8 @@ SAMPLES.push([2.05, 0], [-1.88, 0]);
 // a tile a hull may float over: water (deep or shallow, a bridge over it is fine), no rock, nothing solid, no pier
 export function boatable(w, tx, ty) {
   if (!w.inBounds(tx, ty)) return false;
-  const i = ty * w.W + tx;
-  return w.water[i] > 0 && !w.rock[i] && !w.solid[i] && !(w.deck && w.deck[i] === 1);
+  const i = w.idx(tx, ty);
+  return w.water.get(i) > 0 && !w.rock.get(i) && !w.solid.get(i) && !(w.deck && w.deck.get(i) === 1);
 }
 // does a hull fit at (x, y, h)? (other boats: their shared pose; inset shrinks the outline a little: the host checks
 // a driver's rounded numbers with some slack)
@@ -88,7 +88,7 @@ export function hullFree(game, x, y, h, self = null, inset = 0) {
     const x0 = Math.floor(x - 2.2), x1 = Math.floor(x + 2.2), y0 = Math.floor(y - 2.2), y1 = Math.floor(y + 2.2);
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
       if (!w.inBounds(tx, ty)) continue;
-      const b = RU[ty * w.W + tx];
+      const b = RU.get(w.idx(tx, ty));
       if (!b) continue;
       const g = 0.03 - inset; // (the host's check is a little more lenient: the driver's numbers are rounded)
       for (let k = 0; k <= 4; k++) {
@@ -110,7 +110,7 @@ export function launchPose(game, tx, ty) {
   for (let k = 0; k < 16; k++) {
     const h = (k / 16) * Math.PI * 2 - Math.PI, c = Math.cos(h), n = Math.sin(h);
     let open = 0;
-    for (let d = 1; d <= 7; d++) { const qx = Math.floor(tx + 0.5 + c * d), qy = Math.floor(ty + 0.5 + n * d); if (w.inBounds(qx, qy) && w.water[qy * w.W + qx] && !w.rock[qy * w.W + qx]) open++; else break; }
+    for (let d = 1; d <= 7; d++) { const qx = Math.floor(tx + 0.5 + c * d), qy = Math.floor(ty + 0.5 + n * d); if (w.inBounds(qx, qy) && w.water.get(w.idx(qx, qy)) && !w.rock.get(w.idx(qx, qy))) open++; else break; }
     for (const off of [0, 0.3, 0.6, 0.9, 1.2, 1.5, 1.8]) {
       const x = tx + 0.5 + c * off, y = ty + 0.5 + n * off;
       if (!hullFree(game, x, y, h, null, 0.04)) continue;

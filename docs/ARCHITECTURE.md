@@ -7,7 +7,11 @@ Rodar localmente: `python tools/serve.py` → http://localhost:5173
 (`?seed=123` troca a semente do mundo). Em localhost o service worker é desativado.
 
 ## Coordenadas
-- 1 unidade de mundo = 1 tile. x → direita, **y → baixo** (sul). Mapa 256×256.
+- 1 unidade de mundo = 1 tile. x → direita, **y → baixo** (sul). O mundo é um **planeta de 16384 × 8192 tiles** (x dá a
+  volta) guardado em chunks de 64×64 — `docs/STREAMING.md`. O mapa clássico de 256×256 é a fonte padrão, na origem
+  (`?source=classic`); `?source=synth` / `?source=planet` (`?planet=1`) carregam o planeta em pedaços.
+- Camadas por tile: `world.rock.get(world.idx(x, y))` / `.set(i, v)` (nunca `y * W + x` com x fora de 0..W−1); distâncias
+  em x pela costura: `world.dx(a, b)`; bordas do mapa: `world.inBounds` / `world.inside(x, y, margem)`.
 - Entidades/objetos usam `x, y` = posição dos **pés/base** (ponto de contato com o chão).
 - `game.cam.zoom` = px CSS por tile. `game.screenToWorld(sx, sy)` / `worldToScreen(wx, wy)`.
 
@@ -33,7 +37,8 @@ Rodar localmente: `python tools/serve.py` → http://localhost:5173
   `-3` reflexo (cópia invertida achatada ×0,6). Abaixo da linha ondulada o sprite é refratado, tingido e esmaecido; ambos recebem sombra
   como `1` (o reflexo não). Decor com `d.w` (worldgen) usa isso; `src/fx/waterline.js` desenha anéis, reflexos e o "chute" (`d._kick`).
 
-Texturas do mundo (src/world/world.js):
+Texturas do mundo (janela em anel de 512×512 tiles em volta da câmera, `src/world/terrainWindow.js`; os sombreadores
+leem `wp / uWorld` com `uWorld = 512` e REPEAT — docs/STREAMING.md §5):
 - `tileData` RGBA 1×: R ground id, G random, B tipo de rocha regional (1..4), A minério.
 - `field` RGBA 4×/tile, linear: R máscara de rocha, G altura da rocha, B profundidade da água, A umidade da margem.
 - `field2` RGBA 1×, linear: R exuberância (grama), GB direção do fluxo do rio, A proximidade de rocha (0 = rocha, 1 = ≥ 4 tiles).

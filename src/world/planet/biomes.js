@@ -75,7 +75,7 @@ export const isWaterBiome = (b) => b <= BIOME.RIVER;
 // natural object / decor kinds that do not exist in the game yet (the content phase paints them)
 export const NEW_KINDS = {
   trees: ['tree_palm', 'tree_acacia', 'tree_baobab', 'tree_jungle', 'tree_kapok', 'tree_mangrove', 'tree_spruce', 'tree_larch', 'tree_redwood', 'tree_cypress', 'tree_olive', 'tree_fern', 'tree_dwarf', 'bamboo'],
-  plants: ['cactus', 'cactus_tall', 'agave', 'banana', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'papyrus', 'lichen_rock', 'termite_mound'],
+  plants: ['cactus', 'cactus_tall', 'agave', 'banana', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'papyrus', 'lichen_rock', 'termite_mound', 'desert_rock'],
   decor: ['snowtuft', 'lichen', 'cottongrass', 'saltcrust', 'seaweed', 'coral', 'ash', 'sandripple'],
 };
 

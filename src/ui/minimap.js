@@ -1,4 +1,4 @@
-// Minimap: the world is rasterized once (1 px per tile) from rock/water/ground/objects, then a
+// Minimap: the world around the player rasterized per chunk (1 px per tile) from rock/water/ground/objects, then a
 // window around the player is blitted each refresh with creature / structure dots on top.
 // Drawn inside the radar disc (radar.js) and the map window; dot colours follow the HUD theme (hud-theme.css).
 
@@ -33,31 +33,77 @@ const GROUND = [[92, 76, 52], [74, 60, 40], [176, 158, 116], [118, 112, 100], [7
 const ROCK = [[96, 94, 90], [104, 101, 96], [128, 122, 106], [76, 78, 84], [150, 148, 142]];
 const GRASS = [86, 112, 54];
 
+// Planet scale (docs/STREAMING.md "Mapa"): no whole-world raster. A RING canvas of RING × RING tiles (1 px / tile) holds
+// the chunks around the player, rasterized when they load (the classic world: all of it up front); the big map draws
+// the source's coarse planet image (macro) under them and the chunks discovered so far (fog of war: `seen`), with
+// zoom (wheel / buttons) and pan (drag) — Minimap.view = { cx, cy, span } (null = fit the world / around the player).
+const RING = 1024, RM = RING - 1, RC = RING / 64;
+
 export class Minimap {
   constructor(game) {
     this.g = game;
     const w = game.world;
     this.base = document.createElement('canvas');
-    this.base.width = w.W; this.base.height = w.H;
+    this.base.width = RING; this.base.height = RING;
     this.bctx = this.base.getContext('2d');
-    this.img = this.bctx.createImageData(w.W, w.H);
-    for (let y = 0; y < w.H; y++) for (let x = 0; x < w.W; x++) this._px(x, y);
-    this._stampObjects(0, 0, w.W - 1, w.H - 1);
-    this.bctx.putImageData(this.img, 0, 0);
+    this.img = this.bctx.createImageData(64, 64);
+    this.slot = new Int32Array(RC * RC).fill(-1); // chunk key rasterized in each ring slot
+    this.seen = new Set();                         // chunks discovered (rasterized once at least)
+    this.view = null;
+    this.macro = null;
+    const M = w.source?.macro?.();
+    if (M) {
+      const c = document.createElement('canvas');
+      c.width = M.w; c.height = M.h;
+      const im = c.getContext('2d').createImageData(M.w, M.h);
+      im.data.set(M.rgba);
+      c.getContext('2d').putImageData(im, 0, 0);
+      this.macro = { canvas: c, tpp: M.tpp }; // tpp: tiles per macro pixel
+    }
+    if (!w.wrap) for (let cy = Math.floor(w.by0 / 64); cy <= Math.floor((w.by1 - 1) / 64); cy++) for (let cx = Math.floor(w.bx0 / 64); cx <= Math.floor((w.bx1 - 1) / 64); cx++) this._raster(cx, cy);
   }
 
-  _px(x, y) {
-    const w = this.g.world, i = w.idx(x, y), d = this.img.data, o = i * 4;
+  // rasterize chunk (cx, cy) into its ring slot (it must be loaded)
+  _raster(cx, cy) {
+    const w = this.g.world, c = cy * 256 + (cx & 255);
+    if (!w.isLoaded(c)) return false;
+    const x0 = cx * 64, y0 = cy * 64;
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) this._px(x0 + x, y0 + y, (y * 64 + x) * 4);
+    this._stampObjects(x0, y0, x0 + 63, y0 + 63);
+    this.bctx.putImageData(this.img, x0 & RM, y0 & RM);
+    this.slot[((cy & (RC - 1)) * RC) + (cx & (RC - 1))] = c;
+    this.seen.add(c);
+    return true;
+  }
+  // keep the ring filled around (x, y): a few new chunks per call (they load as the player moves)
+  _sync(x, y) {
+    const w = this.g.world, pcx = Math.floor(x / 64), pcy = Math.floor(y / 64);
+    let n = 0;
+    const max = this.slot.includes(-1) && !this._warm ? 64 : 1; // (one new chunk per call while playing: ~1 ms)
+    this._warm = true;
+    for (let r = 0; r <= RC / 2 - 1 && n < max; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || n >= max) continue;
+      const cx = pcx + dx, cy = pcy + dy;
+      if (cy < 0 || cy >= 128) continue;
+      const c = cy * 256 + (cx & 255);
+      if (this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] === c || !w.isLoaded(c)) continue;
+      if (this._raster(cx, cy)) n++;
+    }
+  }
+
+  _px(x, y, o) {
+    const w = this.g.world, i = w.idx(x, y), d = this.img.data;
     let c;
-    if (w.rock[i]) {
-      c = ROCK[w.rockType[i]] || ROCK[0];
-      const k = w.ore[i] ? 1.15 : 1;
-      c = [c[0] * k, c[1] * k, c[2] * (w.ore[i] ? 0.9 : 1)];
-    } else if (w.water[i] === 2) c = [38, 72, 96];
-    else if (w.water[i] === 1) c = [72, 116, 128];
+    if (!w.inBounds(x, y)) c = [29, 18, 10];
+    else if (w.rock.get(i)) {
+      c = ROCK[w.rockType.get(i)] || ROCK[0];
+      const k = w.ore.get(i) ? 1.15 : 1;
+      c = [c[0] * k, c[1] * k, c[2] * (w.ore.get(i) ? 0.9 : 1)];
+    } else if (w.water.get(i) >= 2) c = w.water.get(i) === 3 ? [22, 44, 72] : [38, 72, 96];
+    else if (w.water.get(i) === 1) c = [72, 116, 128];
     else {
-      const g = GROUND[w.ground[i]] || GROUND[0];
-      const l = (w.lush ? w.lush[i] : 0) * 0.55;
+      const g = GROUND[w.ground.get(i)] || GROUND[0];
+      const l = w.lush.get(i) * 0.55;
       c = [g[0] + (GRASS[0] - g[0]) * l, g[1] + (GRASS[1] - g[1]) * l, g[2] + (GRASS[2] - g[2]) * l];
     }
     const n = ((x * 73 + y * 151) & 7) - 3.5;
@@ -70,7 +116,7 @@ export class Minimap {
       for (const o of ch.objects) {
         const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
         if (tx < x0 || ty < y0 || tx > x1 || ty > y1 || !w.inBounds(tx, ty)) continue;
-        const k = w.idx(tx, ty) * 4;
+        const k = ((ty - y0) * 64 + (tx - x0)) * 4;
         let c = null;
         if (o.type.startsWith('tree_') && !o.stump) c = o.type === 'tree_pine' ? [34, 62, 36] : [44, 76, 38];
         else if (o.type === 'boulder') c = [128, 124, 116];
@@ -81,23 +127,63 @@ export class Minimap {
     });
   }
 
-  // re-rasterize a small tile region (mining, building, felled tree)
+  // re-rasterize a small tile region (mining, building, felled tree): its chunk(s), when they are in the ring
   updateTiles(tx, ty, r = 2) {
-    const w = this.g.world;
-    const x0 = Math.max(0, tx - r), y0 = Math.max(0, ty - r), x1 = Math.min(w.W - 1, tx + r), y1 = Math.min(w.H - 1, ty + r);
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this._px(x, y);
-    this._stampObjects(x0, y0, x1, y1);
-    this.bctx.putImageData(this.img, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+    const done = new Set();
+    for (const [x, y] of [[tx - r, ty - r], [tx + r, ty - r], [tx - r, ty + r], [tx + r, ty + r]]) {
+      const cx = Math.floor(x / 64), cy = Math.floor(y / 64), c = cy * 256 + (cx & 255);
+      if (done.has(c) || this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] !== c) continue;
+      done.add(c);
+      this._raster(cx, cy);
+    }
   }
 
-  // draw into ctx (css px size W×H); span = tiles visible across; full = whole map
+  // the rect of the world the big map shows: the classic world whole, the planet around the player (zoom / pan: view)
+  mapRect(full) {
+    const g = this.g, w = g.world, p = g.player;
+    if (this.view) return this.view;
+    if (!w.wrap) { const bw = w.bx1 - w.bx0, bh = w.by1 - w.by0, s = Math.max(bw, bh); return { cx: w.bx0 + bw / 2, cy: w.by0 + bh / 2, span: s }; }
+    return { cx: p.x, cy: p.y, span: full ? 512 : 64 };
+  }
+  zoom(k) { const r = { ...this.mapRect(true) }; r.span = Math.max(48, Math.min(this.g.world.W, r.span * k)); this.view = r; }
+  pan(dx, dy) { const r = { ...this.mapRect(true) }; r.cx = this.g.world.wrapPos(r.cx + dx); r.cy = Math.max(0, Math.min(this.g.world.H, r.cy + dy)); this.view = r; }
+  resetView() { this.view = null; }
+
+  // the world under the map: the macro planet image (when zoomed out / undiscovered), then the discovered chunks
+  _blit(ctx, sx, sy, sw, sh, kx, ky) {
+    const w = this.g.world, M = this.macro;
+    if (M && w.wrap) {
+      // the planet picture, repeated across the seam
+      const t = M.tpp, mx = sx / t, my = sy / t, mw = sw / t, mh = sh / t, PWm = w.W / t;
+      ctx.imageSmoothingEnabled = sw > 2048;
+      for (let k = Math.floor(mx / PWm); k * PWm < mx + mw; k++) {
+        const ox = k * PWm, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + PWm);
+        if (a1 <= a0) continue;
+        const b0 = Math.max(0, my), b1 = Math.min(M.canvas.height, my + mh);
+        if (b1 <= b0) continue;
+        ctx.drawImage(M.canvas, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - mx) * t * kx, (b0 - my) * t * ky, (a1 - a0) * t * kx, (b1 - b0) * t * ky);
+      }
+      ctx.imageSmoothingEnabled = false;
+    }
+    // discovered chunks in the ring
+    const cx0 = Math.floor(sx / 64), cx1 = Math.floor((sx + sw) / 64), cy0 = Math.max(0, Math.floor(sy / 64)), cy1 = Math.min(127, Math.floor((sy + sh) / 64));
+    if (cx1 - cx0 > RC * 2 || cy1 - cy0 > RC * 2) return; // (zoomed far out: the planet picture is enough)
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const c = cy * 256 + (cx & 255);
+      if (this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] !== c) continue;
+      ctx.drawImage(this.base, (cx * 64) & RM, (cy * 64) & RM, 64, 64, (cx * 64 - sx) * kx, (cy * 64 - sy) * ky, 64 * kx + 0.5, 64 * ky + 0.5);
+    }
+  }
+
+  // draw into ctx (css px size W×H); span = tiles visible across; full = the big map (mapRect)
   draw(ctx, W, H, span, full = false) {
     const g = this.g, p = g.player, w = g.world;
+    this._sync(p.x, p.y);
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = '#1d120a';
     ctx.fillRect(0, 0, W, H);
     let sx, sy, sw, sh;
-    if (full) { sx = 0; sy = 0; sw = w.W; sh = w.H; }
+    if (full) { const r = this.mapRect(true); sw = r.span; sh = r.span * (H / W); sx = r.cx - sw / 2; sy = r.cy - sh / 2; }
     else { sw = span; sh = span * (H / W); sx = p.x - sw / 2; sy = p.y - sh / 2; }
     const kx = W / sw, ky = H / sh;
     const cr = full ? 0 : radarYaw(g); // (the radar turned with the camera: everything below in the turned frame)
@@ -105,9 +191,12 @@ export class Minimap {
       const c = Math.abs(Math.cos(cr)), s = Math.abs(Math.sin(cr)), sw2 = c * sw + s * sh, sh2 = s * sw + c * sh;
       ctx.save();
       ctx.translate(W / 2, H / 2); ctx.rotate(-cr); ctx.translate(-W / 2, -H / 2);
-      ctx.drawImage(this.base, p.x - sw2 / 2, p.y - sh2 / 2, sw2, sh2, W / 2 - (sw2 * kx) / 2, H / 2 - (sh2 * ky) / 2, sw2 * kx, sh2 * ky);
-    } else ctx.drawImage(this.base, sx, sy, sw, sh, 0, 0, W, H);
-    const toX = (x) => (x - sx) * kx, toY = (y) => (y - sy) * ky;
+      ctx.save(); ctx.translate(W / 2 - (sw2 * kx) / 2, H / 2 - (sh2 * ky) / 2);
+      this._blit(ctx, p.x - sw2 / 2, p.y - sh2 / 2, sw2, sh2, kx, ky);
+      ctx.restore();
+    } else this._blit(ctx, sx, sy, sw, sh, kx, ky);
+    const mxC = sx + sw / 2; // (positions nearest the map centre: the planet wraps)
+    const toX = (x) => (w.near(x, mxC) - sx) * kx, toY = (y) => (y - sy) * ky;
     // (turned: what the disc shows is a circle around the player, wider than the unturned rectangle in one direction)
     const M = cr ? Math.max(W, H) / 2 : 0, out = (X, Y, e) => (cr ? Math.hypot(X - W / 2, Y - H / 2) > M + e : X < -e || Y < -e || X > W + e || Y > H + e);
     // structures
@@ -150,7 +239,7 @@ export class Minimap {
         // other players (blue), raiders and winter walkers (red)
         const X = toX(e.x), Y = toY(e.y);
         if (out(X, Y, 0)) continue;
-        if (!full && !e.remote && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
+        if (!full && !e.remote && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
         ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = e.remote ? CREAM : INK; ctx.lineWidth = 1; ctx.stroke();
@@ -159,7 +248,7 @@ export class Minimap {
       if (e.kind !== 'animal') continue;
       const X = toX(e.x), Y = toY(e.y);
       if (out(X, Y, 0)) continue;
-      if (!full && Math.hypot(e.x - p.x, e.y - p.y) > 40) continue;
+      if (!full && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
       ctx.fillStyle = DOT[SPECIES[e.species]?.temper] || DOT.neutral;
       ctx.beginPath(); ctx.arc(X, Y, e === p.target ? dot + 1.2 : dot * (e.elite ? 1.4 : 1), 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = e === p.target ? '#fff' : 'rgba(36,22,13,0.85)'; ctx.lineWidth = e === p.target ? 1.4 : 0.8; ctx.stroke();
@@ -167,7 +256,7 @@ export class Minimap {
     // ice giants: their own bigger mark, seen from farther (the threat of the winter nights)
     for (const e of giants) {
       const X = toX(e.x), Y = toY(e.y);
-      if (out(X, Y, 0) || (!full && Math.hypot(e.x - p.x, e.y - p.y) > 70)) continue;
+      if (out(X, Y, 0) || (!full && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 70)) continue;
       giantMark(ctx, X, Y, full ? 3.6 : 4.4);
       if (e === p.target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, (full ? 3.6 : 4.4) + 3, 0, Math.PI * 2); ctx.stroke(); }
     }
