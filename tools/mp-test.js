@@ -4632,7 +4632,7 @@ def('D2', {
   await A.hostSees(t, H, G);
   const mo = A.structOn(G, ids[mid]);
   t.check(MG.building.toggleDecon(G.game, mo, true) === true, 'marking the middle piece needs no confirmation (each half keeps its bank)');
-  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[mid])), RT() + 500, 'host marks the middle piece');
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[mid])) && G.game.build.decon.has(A.structOn(G, ids[mid])), RT() + 800, 'host marks the middle piece (and the guest sees it)');
   const mk = () => { const q = A.structOn(G, ids[mid]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
   await A.workUntil(t, G, mk, () => !A.structOn(G, ids[mid]), 30000, 'deconstructs the middle piece', { stand: () => A.teleport(G, b[mid - 1][0] + 0.5, b[mid - 1][1] + 0.5) });
   await t.waitFor(() => !A.structOn(H, ids[mid]), RT() + 500, 'the middle piece is gone on the host');
@@ -4645,7 +4645,7 @@ def('D2', {
   const fo = A.structOn(G, ids[n - 1]);
   const first = MG.building.toggleDecon(G.game, fo, true), second = MG.building.toggleDecon(G.game, fo, true);
   t.check(first === false && second === true, 'the far abutment asks for a second tap (the bridge would fall)', `${first} / ${second}`);
-  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[n - 1])), RT() + 500, 'host marks the far abutment');
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[n - 1])) && G.game.build.decon.has(A.structOn(G, ids[n - 1])), RT() + 800, 'host marks the far abutment (and the guest sees it)');
   const mk2 = () => { const q = A.structOn(G, ids[n - 1]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
   await A.workUntil(t, G, mk2, () => !A.structOn(G, ids[n - 1]), 30000, 'deconstructs the far abutment', { stand: () => A.standBy(G, MG, A.structOn(G, ids[n - 1]) || fo) });
   const fell = ids.slice(mid + 1);
@@ -4967,17 +4967,6 @@ function boatSite(t, H) {
   const b = s.bridge, ex = Math.sign(b[1][0] - b[0][0]), ey = Math.sign(b[1][1] - b[0][1]);
   return { b, ex, ey, bank: b[0], far: b[b.length - 1], tile: b[1] };
 }
-// can a walker (no swimming) get from (x, y) to tile (tx, ty) within r tiles? (which bank a point is on)
-function walkLinked(f, x, y, tx, ty, r = 16) {
-  const w = f.game.world, sx = Math.floor(x), sy = Math.floor(y), seen = new Set([sy * w.W + sx]), q = [[sx, sy]];
-  const ok = (a, b) => w.inBounds(a, b) && Math.abs(a - sx) <= r && Math.abs(b - sy) <= r && !w.rock[w.idx(a, b)] && !w.solid[w.idx(a, b)] && w.liquidAt(a, b) !== 2;
-  while (q.length) {
-    const [a, b] = q.pop();
-    if (a === tx && b === ty) return true;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const na = a + dx, nb = b + dy, k = nb * w.W + na; if (!seen.has(k) && ok(na, nb)) { seen.add(k); q.push([na, nb]); } }
-  }
-  return false;
-}
 // a boat launched by the host at the crossing (dev helper), nobody aboard; removed at the end
 async function hostBoat(t, H, G, site) {
   const r = H.game.debug.boatScene({ at: site.tile, board: false });
@@ -4997,7 +4986,9 @@ async function rowUntil(t, f, ex, ey, cond, ms) {
   const rel = A.holdMove(f, ex, ey);
   try { return await t.tryWait(cond, ms); } finally { rel(); }
 }
-const onFarBank = (f, site, x, y) => !walkLinked(f, x, y, site.bank[0], site.bank[1]) && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
+// on the far side of the crossing: nearer its far bank than its near one, never in deep water (shallows may link the
+// two banks somewhere upstream, so walking connectivity cannot tell the sides apart)
+const onFarBank = (f, site, x, y) => Math.hypot(x - site.far[0] - 0.5, y - site.far[1] - 0.5) < Math.hypot(x - site.bank[0] - 0.5, y - site.bank[1] - 0.5) - 1.5 && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
 
 def('B1', {
   star: true, title: 'B: guest builds a boat, two players board, the guest rows across a river, both step off on the far bank', timeout: 300000,

@@ -8,11 +8,12 @@
 export const BOAT = {
   stern: -1.9, bow: 2.12,       // hull ends along its axis (tiles from the centre)
   speed: 2.6,                   // tiles/s at full stroke (walking: 4)
+  back: 0.45,                   // × speed backing water (the stick behind the boat)
   accel: 1.6,                   // tiles/s² while rowing
   turn: 1.3,                    // rad/s turning toward the stick / keys
   drag: 0.5, dragRow: 0.18,     // forward drag (1/s): it glides when the oars stop
   side: 3.4,                    // lateral drag (1/s): the keel kills side slip
-  seatH: 0.19, floorH: 0.07,    // bench tops / floor boards above the water (tiles)
+  seatH: 0.24, floorH: 0.07,    // bench tops / floor boards above the water (tiles)
   reach: 1.4,                   // boarding: this close to the hull (tiles)
   room: 6, players: 4,          // places in all / players at most
   hz: 10,                       // driver reports per second while it moves
@@ -31,7 +32,7 @@ export function halfW(u) {
   return HW[HW.length - 1];
 }
 // height of the gunwale (the sheer rises toward the bow and the stern)
-export const sheer = (u) => 0.32 + (u > 0 ? 0.11 * (u / 2.12) ** 2 : 0.06 * (u / 1.9) ** 2);
+export const sheer = (u) => 0.3 + (u > 0 ? 0.11 * (u / 2.12) ** 2 : 0.06 * (u / 1.9) ** 2);
 // half-width at the waterline (the sides flare out above it)
 export const waterW = (u) => halfW(u) * 0.8;
 

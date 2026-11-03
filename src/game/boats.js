@@ -313,6 +313,7 @@ function bob(b, t, dt) {
 }
 
 // ---------- the driver (owner side) ----------
+const WIGGLE = [0, 0.02, -0.02, 0.05, -0.05];
 function drive(game, B, b, C, dt) {
   const inp = game.input, w = game.world;
   if (C.b !== b) { C.b = b; C.x = b.x; C.y = b.y; C.h = b.h; C.vx = b.vx || 0; C.vy = b.vy || 0; C.w = 0; C.sx = NaN; C.sendT = 0; }
@@ -331,25 +332,28 @@ function drive(game, B, b, C, dt) {
       const want = Math.atan2(my, mx), d = angDiff(want, C.h);
       const rate = Math.min(BOAT.turn, Math.abs(d) * 3.2 + 0.15);
       turn = Math.sign(d) * Math.min(Math.abs(d), rate * dt);
-      vf += BOAT.accel * mag * Math.max(0, Math.cos(d)) * dt;
+      // ahead: pull; well behind: back water (slower) while it turns — wedged in a narrow river it backs straight out
+      const cd = Math.cos(d);
+      vf += BOAT.accel * mag * (cd > 0 ? cd : cd < -0.35 ? cd * 0.6 : 0) * dt;
       C.rowing = true;
     }
     vf *= Math.exp(-dt * (C.rowing ? BOAT.dragRow : BOAT.drag));
     vl *= Math.exp(-dt * BOAT.side);
-    vf = Math.max(-0.6, Math.min(BOAT.speed * Math.max(0.35, mag), vf));
+    vf = Math.max(-BOAT.speed * BOAT.back, Math.min(BOAT.speed * Math.max(0.35, mag), vf));
     if (Math.abs(vf) < 0.01 && !C.rowing) vf = 0;
     // turn (kept when the turned hull would hit something)
     if (turn && hullFree(game, C.x, C.y, C.h + turn, b)) C.h += turn; else turn = 0;
     C.w = turn / Math.max(dt, 1e-3);
     const c2 = Math.cos(C.h), n2 = Math.sin(C.h);
     C.vx = c2 * vf - n2 * vl; C.vy = n2 * vf + c2 * vl;
-    // move, sliding along the bank; a hard knock stops it
+    // move; against a bank it eases its heading a little (the hull lines up with a channel) or slides along; a hard
+    // knock stops it
     const nx = C.x + C.vx * dt, ny = C.y + C.vy * dt;
-    if (hullFree(game, nx, ny, C.h, b)) { C.x = nx; C.y = ny; }
-    else {
+    const pose = (x, y) => { for (const dh of WIGGLE) if (hullFree(game, x, y, C.h + dh, b)) { C.x = x; C.y = y; C.h += dh; return true; } return false; };
+    if (!pose(nx, ny)) {
       const sp = Math.hypot(C.vx, C.vy);
-      if (hullFree(game, nx, C.y, C.h, b)) { C.x = nx; C.vy *= -0.15; }
-      else if (hullFree(game, C.x, ny, C.h, b)) { C.y = ny; C.vx *= -0.15; }
+      if (pose(nx, C.y)) C.vy *= -0.15;
+      else if (pose(C.x, ny)) C.vx *= -0.15;
       else { C.vx *= -0.2; C.vy *= -0.2; }
       if (sp > 0.9 && game.time - (C.bumpT || 0) > 0.6) { C.bumpT = game.time; game.audio?.play('build_hit', { x: C.x, y: C.y, volume: 0.35 }); game.juice?.shake?.(0.08); }
     }
@@ -365,23 +369,37 @@ function drive(game, B, b, C, dt) {
 }
 
 // a rider / an animal on its spot of the drawn boat (every peer; the local player: also its gameplay position)
+// (riders sit on their place like on a chair — art/compose.js seat pose: legs down, the 3/4 views — facing the bow at
+// its true angle (art/facing.js seat.ang); e._dh lifts the sprite to the bench, seatAt only puts the pelvis on it)
 function placeRider(B, b, e, k) {
   const [u, s] = BOAT.places[k];
   const [x, y, dh] = B.spot(b, u, s, BOAT.seatH);
   e.x = x; e.y = y; e._dh = dh; e._boat = b; e.lv = 0; e.z = 0;
   e.moving = false;
+  e._zb = underDeck(B.game.world, x, y) ? UNDER : 0;
   if (!e.action && !e.dead) {
-    e.pose = e.pose?.type === 'sit' && !e.pose.o ? e.pose : SIT;
-    if (!(e._faceLockT > 0)) e.facing = facingFrom(Math.cos(b._h), Math.sin(b._h), e.facing);
+    const S = (b._st ||= [])[k] || (b._st[k] = { x: 0, y: 0, face: 's', ang: 0, _zk: 0, _fk: SEAT_FK, _boatSeat: true });
+    const rot = B.game.cam?.rot || 0;
+    S.x = x; S.y = y; S.ang = b._h; S.face = facingFrom(Math.cos(b._h), Math.sin(b._h), S.face);
+    S._zk = -Math.sin(rot) * x + Math.cos(rot) * y - 0.02; // (game.js: the sitter right after its seat = its own depth)
+    if (e.pose?.o !== S) e.pose = { type: 'sit', id: null, o: S };
+    if (!(e._faceLockT > 0)) e.facing = S.face;
   }
 }
-const SIT = { type: 'sit', id: null, o: null };
+const PELVIS = 0.476; // (art/faces/solid.js: the sitting body's bottom above its base, past the rig's 0.13)
+const SEAT_Q = [0, 0, 0];
+const SEAT_FK = { seatAt(S) { SEAT_Q[0] = S.x; SEAT_Q[1] = S.y; SEAT_Q[2] = -PELVIS - 0.13; return SEAT_Q; } };
+const isBoatPose = (e) => !!e.pose?.o?._boatSeat;
+// riders / animals under a finished bridge: drawn behind its deck (game.js depth bias) — they pass under it
+const UNDER = -1.6;
+const underDeck = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return !!w.deck && w.inBounds(tx, ty) && w.deck[ty * w.W + tx] === 2; };
 // an animal stands on the floor at its place, facing the bow (a big one a little toward the middle of the hull)
 function placePet(B, b, m, k) {
   const [u, s0] = BOAT.places[k] || BOAT.places[1];
   const s = s0 * ((m.scale || 1) > 1.15 || m.species === 'cow' ? 0.7 : 1);
   const [x, y, dh] = B.spot(b, u, s, BOAT.floorH);
   m.x = x; m.y = y; m._dh = dh; m._boat = b; m.moving = false;
+  m._zb = underDeck(B.game.world, x, y) ? UNDER : 0;
   m.facing = facingFrom(Math.cos(b._h), Math.sin(b._h), m.facing);
 }
 function placeAll(game, B, b, hostSide) {
@@ -486,7 +504,8 @@ export function boatOwnerSystem() {
           C.on = false; C.k = -1; C.deadSent = false;
           if (C.b) C.b = null;
           p._boat = null; p._dh = 0;
-          if (p.pose === SIT || (p.pose?.type === 'sit' && !p.pose.o)) p.pose = null;
+          if (isBoatPose(p)) p.pose = null;
+          p._zb = 0;
           game.events.emit('boat', { on: false });
         }
         const L = B.land;
@@ -512,6 +531,7 @@ export function boatOwnerSystem() {
       p.rooted = true; // (no walking: the oars take the movement input — abilities.js resets it every frame before this)
       p.autoMove = null;
       p.swimming = false;
+      p.wetT = 0; p._wet = 0; // (dry in a boat: no soaking, no drips — survival.js / juice.js)
       if (k === 0) drive(game, B, b, C, dt);
       else if (C.b === b) C.b = null;
       placeRider(B, b, p, k);
@@ -589,7 +609,7 @@ function mark(game, B) {
   unmark(B, now);
 }
 function unmark(B, now) {
-  for (const e of B.marked) if (!now || !now.has(e)) { if (e._boat) { e._boat = null; e._dh = 0; } }
+  for (const e of B.marked) if (!now || !now.has(e)) { if (e._boat) { e._boat = null; e._dh = 0; e._zb = 0; if (isBoatPose(e)) e.pose = null; } }
   B.marked.clear();
   if (now) for (const e of now) B.marked.add(e);
 }
@@ -617,21 +637,24 @@ function wake(game, B, dt) {
     if (v && (b._x < v.x0 - 3 || b._x > v.x1 + 3 || b._y < v.y0 - 3 || b._y > v.y1 + 4)) continue;
     const sp = b._spd || 0;
     b._wT = (b._wT || 0) - dt;
-    if (sp > 0.25 && b._wT <= 0 && F.length < 90) {
-      b._wT = 0.09 / Math.min(1.6, 0.5 + sp * 0.4);
-      const c = Math.cos(b._h), n = Math.sin(b._h), k = Math.min(1, sp / BOAT.speed);
-      // the bow wave: two streaks pushed out and back
+    if (sp > 0.35 && b._wT <= 0 && F.length < 110) {
+      b._wT = 0.07;
+      const c = Math.cos(b._h), n = Math.sin(b._h), k = Math.min(1, sp / BOAT.speed), j = ((b._wn = (b._wn || 0) + 1) * 0.618) % 1;
+      // the bow wave: a short streak off each side that stays in the water and drifts out (the arms of a V)
       for (const sd of [-1, 1]) {
-        const [x, y] = hullPt(b._x, b._y, b._h, BOAT.bow - 0.25, sd * 0.22);
-        F.push({ k: 0, x, y, vx: -c * 0.25 * sp + n * sd * 0.55 * k, vy: -n * 0.25 * sp - c * sd * 0.55 * k, t: 0, life: 1.5, a: 0.5 * k, s: 0.35, h: Math.atan2(-n * 0.6 - c * sd, -c * 0.6 + n * sd) });
+        const [x, y] = hullPt(b._x, b._y, b._h, BOAT.bow - 0.35 - j * 0.2, sd * (halfW(BOAT.bow - 0.45) + 0.04));
+        const ox = n * sd, oy = -c * sd; // (outward)
+        F.push({ k: 0, x, y, vx: ox * 0.3 * sp, vy: oy * 0.3 * sp, t: 0, life: 1.6, a: 0.95 * k, s: 0.5, h: Math.atan2(-n + oy * 0.36, -c + ox * 0.36) });
       }
-      // the stern: a broad trail
-      const [x, y] = hullPt(b._x, b._y, b._h, BOAT.stern + 0.1, 0);
-      F.push({ k: 1, x, y, vx: -c * 0.15, vy: -n * 0.15, t: 0, life: 1.9, a: 0.42 * k, s: 0.75, h: b._h });
+      // the stern: soft foam that spreads and fades
+      if ((b._wn & 1) === 0) {
+        const [x, y] = hullPt(b._x, b._y, b._h, BOAT.stern - 0.05, (j - 0.5) * 0.4);
+        F.push({ k: 1, x, y, vx: 0, vy: 0, t: 0, life: 2, a: 0.7 * k, s: 0.55, h: b._h });
+      }
     }
     // idle: a slow ring around the hull now and then
     b._rT = (b._rT || 0) - dt;
-    if (b._rT <= 0 && F.length < 90) { b._rT = sp > 0.25 ? 0.7 : 1.9; F.push({ k: 2, x: b._x, y: b._y, vx: b._vx * 0.3 || 0, vy: b._vy * 0.3 || 0, t: 0, life: 2.6, a: sp > 0.25 ? 0.18 : 0.24, s: 1, h: b._h }); }
+    if (b._rT <= 0 && sp < 0.35 && F.length < 110) { b._rT = 1.9; F.push({ k: 2, x: b._x, y: b._y, vx: 0, vy: 0, t: 0, life: 2.6, a: 0.2, s: 1, h: b._h }); }
   }
 }
 function oarSplash(game, b) {
@@ -645,31 +668,32 @@ function oarSplash(game, b) {
 function drawWake(game, Bt) {
   const F = game.boats?.fx, A = game.A;
   if (!F || !F.length || !Bt.ground) return;
-  const ring = A.has('fx_ring') ? A.get('fx_ring') : null, soft = A.has('fx_soft') ? A.get('fx_soft') : null;
+  const ring = A.has('fx_ripple') ? A.get('fx_ripple') : A.has('fx_ring') ? A.get('fx_ring') : null, soft = A.has('fx_soft') ? A.get('fx_soft') : null;
   for (const f of F) {
     const u = f.t / f.life, fade = (1 - u) * (u < 0.12 ? u / 0.12 : 1);
-    if (f.k === 0 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 0.9) / soft.w, (0.12 + u * 0.18) / soft.h, 0.92, 0.97, 1, f.a * fade, 0, f.h);
-    else if (f.k === 1 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 1.4) / soft.w, (0.32 + u * 0.7) / soft.h, 0.9, 0.96, 1, f.a * fade, 0, f.h);
-    else if (f.k === 2 && ring) Bt.ground.add(ring, f.x, f.y, (3.1 + u * 1.6) / ring.w, (1.25 + u * 1.3) / ring.h, 0.85, 0.95, 1, f.a * fade, 0, f.h);
+    if (f.k === 0 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 0.7) / soft.w, (0.2 + u * 0.16) / soft.h, 1, 1, 1, f.a * fade, 0, f.h, 0, 1, 1);
+    else if (f.k === 1 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 1.1) / soft.w, (f.s * 0.8 + u * 0.8) / soft.h, 1, 1, 1, f.a * fade, 0, f.h, 0, 1, 1);
+    else if (f.k === 2 && ring) Bt.ground.add(ring, f.x, f.y, (4.3 + u * 1.4) / ring.w, (1.5 + u * 1.2) / ring.h, 0.85, 0.95, 1, f.a * fade, 0, f.h);
     else if (f.k === 3 && ring) Bt.ground.add(ring, f.x, f.y, (0.25 + u * 0.8) / ring.w, (0.25 + u * 0.8) / ring.h, 0.9, 0.97, 1, f.a * fade, 0, 0);
   }
 }
 
 // ---------- dev helpers (localhost: game.debug exists) ----------
-// game.debug.boatScene({ riders: 0..3 stand-ins, pets: ['cow', 'sheep'], board: true, frozen }) — a finished boat on the
-// nearest bank (host); returns { id, x, y, h }. game.debug.boatAt(id) puts the camera on it.
+// game.debug.boatScene({ riders: 0..3 stand-ins, pets: ['cow', 'sheep'], board: true, at: [tx, ty], near: [x, y] }) — a
+// boat launched on the nearest bank / pier (host; at: that water tile); returns { id, x, y, h }. game.debug.boatAt(id)
+// puts the camera on it.
 export function installBoatDebug(game) {
   const G = game.debug;
   if (!G || G.boatScene) return;
-  G.boatSite = (r0 = 0) => {
-    const w = game.world, p = game.player, px = Math.floor(p.x), py = Math.floor(p.y);
+  G.boatSite = (r0 = 0, from = null) => {
+    const w = game.world, p = game.player, px = Math.floor(from ? from[0] : p.x), py = Math.floor(from ? from[1] : p.y);
     for (let r = r0; r < 90; r++) {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const x = px + dx, y = py + dy;
         if (!w.inBounds(x, y) || !w.water[w.idx(x, y)] || game.build.grid.main.has(w.idx(x, y)) || game.build.grid.deck.has(w.idx(x, y))) continue;
         let side = false;
-        for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.inBounds(x + ex, y + ey) && !w.water[w.idx(x + ex, y + ey)] && !w.rock[w.idx(x + ex, y + ey)]) side = true;
+        for (const [ex, ey] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (w.inBounds(x + ex, y + ey) && ((!w.water[w.idx(x + ex, y + ey)] && !w.rock[w.idx(x + ex, y + ey)]) || game.build.grid.deck.has(w.idx(x + ex, y + ey)))) side = true;
         if (!side) continue;
         const lp = launchPose(game, x, y);
         if (lp) return { tx: x, ty: y, pose: lp };
@@ -680,7 +704,7 @@ export function installBoatDebug(game) {
   G.boatScene = (opts = {}) => {
     const net = game.net, p = game.player;
     if (!net.auth) return 'só o anfitrião';
-    const s = opts.at ? { tx: opts.at[0], ty: opts.at[1], pose: launchPose(game, opts.at[0], opts.at[1]) } : G.boatSite(opts.r0 || 0);
+    const s = opts.pose ? { pose: opts.pose } : opts.at ? { tx: opts.at[0], ty: opts.at[1], pose: launchPose(game, opts.at[0], opts.at[1]) } : G.boatSite(opts.r0 || 0, opts.near || null);
     if (!s || !s.pose) return null;
     const id = net.newId('s');
     net.emit('boat.launch', { id, x: s.pose[0], y: s.pose[1], h: s.pose[2], v: 0, at: Math.round(game.worldTime) });
