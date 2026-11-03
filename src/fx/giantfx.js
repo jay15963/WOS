@@ -10,7 +10,7 @@
 
 import { LOB_KINDS } from '../game/projectiles.js';
 import { archSprite } from '../art/archCompose.js';
-import { PAWN_GAIT } from '../art/compose.js';
+import { GIANT_GAIT } from '../art/giantRig.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -58,12 +58,12 @@ class GiantFx {
       q.t += dt;
       if (q.t >= q.dur) { this.slam(g, q); T.splice(i, 1); }
     }
-    // giant footsteps (on the gait clock, like juice.footsteps)
+    // giant footsteps (on its own gait clock, art/giantRig.js: a thud when a foot lands)
     const v = g.view();
     for (const e of g.entities) {
       if (e.species !== 'giant' || e.dead || !e.moving) continue;
       if (e.x < v.x0 - 2 || e.x > v.x1 + 2 || e.y < v.y0 - 2 || e.y > v.y1 + 3) continue;
-      const k = Math.floor(((e.moveT || 0) * PAWN_GAIT - Math.PI / 2) / Math.PI), k0 = this.steps.get(e);
+      const k = Math.floor(((e.moveT || 0) * GIANT_GAIT - Math.PI / 2) / Math.PI), k0 = this.steps.get(e);
       this.steps.set(e, k);
       if (k0 == null || k0 === k) continue;
       const P = g.particles, K = this.K, side = (k & 1 ? 1 : -1) * 0.22;

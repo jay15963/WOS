@@ -177,14 +177,17 @@ if (set === 'giant' || set === 'all') {
   const G = (extra = {}) => pawn(null, { species: 'giant', id: 3, weapon: 'club_ice', scale: 2, ...extra });
   section('Gigante de gelo', [
     ['parado', G()],
-    ['andando', G({ moving: true, moveT: 0.07, _mk: 1, _sk: 1, _gs: 2.6 })],
+    // (the walk: a step every 0.225 of moveT — art/giantRig.js GIANT_GAIT; four moments of one stride)
+    ...[0, 0.056, 0.1125, 0.169].map((m, i) => ['andando ' + (i + 1), G({ moving: true, moveT: m, _mk: 1, _sk: 1, _gs: 2.6 })]),
     ['ergue (esmagar)', G({ action: { type: 'smash', t: 0.3, dur: 1 } })],
     ['no alto (aviso)', G({ action: { type: 'smash', t: 0.41, hold: true } })],
-    ['golpe', G({ action: { type: 'smash', t: 0.6, dur: 0.55 } })],
+    ['desce', G({ action: { type: 'smash', t: 0.48, dur: 0.55 } })],
+    ['golpe', G({ action: { type: 'smash', t: 0.56, dur: 0.55 } })],
+    ['pega a pedra', G({ action: { type: 'throw', t: 0.14, dur: 2 } })],
     ['arremesso (pedra)', G({ action: { type: 'throw', t: 0.43, hold: true } })],
-    ['solta', G({ action: { type: 'throw', t: 0.62, dur: 0.5 } })],
+    ['solta', G({ action: { type: 'throw', t: 0.5, dur: 0.5 } })],
     ['ferido', G({ flash: 0.8 })],
-    ['outro rosto', G({ id: 4 })],
+    ['estilhaça', G({ dead: true, deadT: 0.3 })],
   ], { w: 2.3, h: 3.0 });
 }
 // ?parts=lk_head_round,lk_hair_short… : each part's front / side / back drawings and its two 3/4 paintings (zoomed)

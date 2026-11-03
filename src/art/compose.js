@@ -43,7 +43,8 @@ import { TORCH_TIP } from './gear.js';
 import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
-import { giantLook, GIANT_EYES } from './giant.js'; // ice giants (species 'giant'): the same, twice as big
+import { giantLook, GIANT_EYES } from './giant.js'; // ice giants (species 'giant'): the old stand-in (pawn rig ×1.8)
+import { drawGiant } from './giantRig.js'; // ice giants: their own body (art/giantBody.js) on a 3D skeleton, 8 views
 import { lookAtlasOf } from './look/lazy.js';
 import { diagRig, diagReady, diagPart, diagSprite, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
 import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
@@ -487,7 +488,10 @@ function drawScaled(B, A, p, t, k) {
 }
 
 // ---------- pawns (humanoids) ----------
+const GENV = { viewB: null, animEnv: null };
 export function drawPawn(B, A, p, t) {
+  // an ice giant: its own body and rig (art/giantRig.js); the pawn stand-in below only until its parts are painted
+  if (p.species === 'giant' && !SCALING) { GENV.viewB = viewB; GENV.animEnv = animEnv; if (drawGiant(B, A, p, t, GENV)) return; }
   const OV = PAWN_OV[p.species] || null, walker = !!OV;
   if (OV && OV.scale !== 1 && !SCALING) return drawScaled(B, A, p, t, OV.scale); // (an ice giant: the rig twice as big)
   const T = tables(A);
