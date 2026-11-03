@@ -11,7 +11,8 @@
 //   field2 1×, RGBA linear : R lush, GB river flow, A rock proximity (0 at rock .. 1 at ≥ 4 tiles)
 //   field  4×, RGBA linear : R rock mask, G rock height, B water depth, A shore wetness
 //   cave   1×, RGBA linear : R cave darkness (world.caveDk), G ore nearby, B trampled ground, A mined floor
-//   clim   1×, RGBA linear : R snow affinity (cold biomes, blurred ~3 tiles), G structure occupancy (contact AO)
+//   clim   1×, RGBA linear : R snow affinity (cold biomes, blurred ~3 tiles), G structure occupancy (contact AO),
+//                            B the planet's closed canopy (shade on the forest floor), A its permanent snow / ice
 //   + channels other modules register (renderer: 'roof'; paths: 'path' 1× / 'pathCov' 2× RG) with their own fill.
 
 import { createTexture } from '../engine/gl.js';
@@ -291,7 +292,7 @@ export class TerrainWindow {
 }
 
 // ---------- gathering: the layers over a tile rect + MD margin, by page copies ----------
-const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid', 'pground'];
+const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid', 'pground', 'prock', 'pbiome'];
 const GF32 = ['lush', 'flowX', 'flowY'];
 export function gatherTerrain(w, x0, y0, tw, th, coldLut) {
   const DW = tw + 2 * MD, DH = th + 2 * MD, gx0 = x0 - MD, gy0 = y0 - MD, N = DW * DH;

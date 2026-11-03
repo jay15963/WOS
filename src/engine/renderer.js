@@ -33,7 +33,7 @@
 // Quality: setQuality(0|1|2) switches the terrain / sprite / light / post programs compiled with
 // `#define QL n` (src/fx/quality.js picks the level; game.quality = 'low'|'medium'|'high').
 
-import { createContext, createProgram, createTexture, createTextureArray, createTarget, deleteTarget } from './gl.js';
+import { createContext, createProgram, createTexture, createTextureArray, setTextureArrayLayers, createTarget, deleteTarget } from './gl.js';
 import { FaceBatch } from './faceBatch.js';
 import { SpriteBatch, depthState } from './spriteBatch.js';
 import * as S from './shaders.js';
@@ -188,9 +188,18 @@ export class Renderer {
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.lookTex); gl.uniform1i(p.u.uLook, 3);
   }
 
+  // ground layers 0..11 (classic grounds + rocks); room for the planet's 12..19 (snow, ice, ash, salt, red clay, dry
+  // ground, basalt, sandstone), uploaded once a planet world needs them (setPlanetGround)
   setGroundTextures(size, layers) {
-    this.groundTex = createTextureArray(this.gl, size, layers);
+    this.groundTex = createTextureArray(this.gl, size, layers, 20);
+    this._groundSize = size; this._groundN = layers.length;
   }
+  setPlanetGround(layers) {
+    if (!this.groundTex || this._groundN >= 20) return;
+    setTextureArrayLayers(this.gl, this.groundTex, this._groundSize, 12, layers);
+    this._groundN = 20;
+  }
+  get hasPlanetGround() { return this._groundN >= 20; }
 
   setNoise(size, data) {
     const gl = this.gl;
@@ -724,7 +733,7 @@ export class Renderer {
       if (p.u.uSeaA) gl.uniform4f(p.u.uSeaA, SA[0], SA[1], SA[2], SA[3]);
       if (p.u.uSeaB) gl.uniform4f(p.u.uSeaB, SB[0], SB[1], SB[2], SB[3]);
       const ao = p.u.uAO;
-      if (ao) gl.uniform1f(ao, this.solidNear ? 1 : 0);   // contact AO next to walls on floors and ground plants
+      if (ao) gl.uniform1f(ao, this.solidNear || this.world.source?.kind === 'planet' ? 1 : 0);   // contact AO next to walls on floors and ground plants (+ the planet's canopy shade)
       if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 1); // floors, rugs: flat on the ground (they turn whole with the camera)
       B.ground.draw();
       if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 0);

@@ -59,11 +59,12 @@ export function createTexture(gl, {
   return t;
 }
 
-export function createTextureArray(gl, size, layers /* array of Uint8Array RGBA */) {
+// depth: layers allocated (≥ layers.length; the rest are filled later with setTextureArrayLayers)
+export function createTextureArray(gl, size, layers /* array of Uint8Array RGBA */, depth = layers.length) {
   const t = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, size, size, layers.length, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, size, size, Math.max(depth, layers.length), 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
   layers.forEach((data, i) => {
     gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, data);
   });
@@ -73,6 +74,14 @@ export function createTextureArray(gl, size, layers /* array of Uint8Array RGBA 
   gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
   gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
   return t;
+}
+
+// upload layers [first, first + layers.length) of an array texture (then its mipmaps again)
+export function setTextureArrayLayers(gl, t, size, first, layers) {
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  layers.forEach((data, i) => gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, first + i, size, size, 1, gl.RGBA, gl.UNSIGNED_BYTE, data));
+  gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
 }
 
 export function createTarget(gl, w, h, filter = gl.LINEAR) {

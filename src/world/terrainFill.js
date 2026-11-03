@@ -8,6 +8,13 @@
 // contents as the old world-sized textures (see src/world/terrainWindow.js).
 
 export const MD = 12, MS = 3, FR = 4, CR = 3;
+// the planet's grounds 8..13 have their own texture layers: the tile shows them while the classic ground under them is
+// still their stand-in (planet/biomes.js GROUND_CLASSIC; a mined tile turns to stone and shows stone)
+const PG_CLASSIC = [0, 1, 2, 3, 4, 5, 6, 7, 6, 6, 3, 2, 0, 0];
+// canopy shade of the planet's closed forests by planet biome (planet/biomes.js ids: taiga 12, temperate forest 13,
+// temperate rainforest 14, rainforest 23, cloud forest 24, mangrove 25, swamp 26)
+const CANOPY = new Uint8Array(64);
+CANOPY[23] = 255; CANOPY[24] = 210; CANOPY[14] = 170; CANOPY[25] = 140; CANOPY[12] = 90; CANOPY[26] = 80; CANOPY[13] = 70;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 // scratch buffers reused between calls (one thread each)
@@ -44,10 +51,11 @@ export function computeTerrain(inp) {
   // ---- per tile: tile, field2, cave, clim
   const T = out.tile, F2 = out.field2, CV = out.cave, CL = out.clim, CO = out.cold;
   const Gd = u8.ground, RT = u8.rockType, O = u8.ore, K0 = u8.rock0, CD = u8.caveDk, TR = u8.tramp, SO = u8.solid, IN = u8.inb;
-  const LU = f32.lush, FX = f32.flowX, FY = f32.flowY;
+  const LU = f32.lush, FX = f32.flowX, FY = f32.flowY, PGr = u8.pground, PR = u8.prock, PB = u8.pbiome;
   for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) {
     const X = x0 + tx, Y = y0 + ty, o = (ty * tw + tx) * 4, j = (ty + MD) * DW + tx + MD;
-    T[o] = Gd[j]; T[o + 1] = (X * 73 + Y * 151) & 255; T[o + 2] = RT[j]; T[o + 3] = O[j];
+    const pgj = PGr ? PGr[j] : 0;
+    T[o] = pgj >= 8 && PG_CLASSIC[pgj] === Gd[j] ? pgj : Gd[j]; T[o + 1] = (X * 73 + Y * 151) & 255; T[o + 2] = (PR && PR[j]) || RT[j]; T[o + 3] = O[j];
     F2[o] = clamp(LU[j] * 255, 0, 255); F2[o + 1] = clamp(128 + FX[j] * 127, 0, 255); F2[o + 2] = clamp(128 + FY[j] * 127, 0, 255);
     F2[o + 3] = clamp(Math.round((dOut[j] / 4) * 255), 0, 255);
     const ore = O[j - DW - 1] | O[j - DW] | O[j - DW + 1] | O[j - 1] | O[j] | O[j + 1] | O[j + DW - 1] | O[j + DW] | O[j + DW + 1];
@@ -56,9 +64,8 @@ export function computeTerrain(inp) {
     let a = 0;
     for (let d = -CR; d <= CR; d++) a += ctmp[(ty + CR + d) * cw + tx + CR];
     const cv = Math.round(Math.min(1, a * kb) * 255), s = inside ? SO[j] : 0;
-    // B / A: the planet's own ground (world/planet/biomes.js: 10 volcanic ash / basalt, 8–9 permanent snow / ice)
-    const pg = u8.pground ? u8.pground[j] : 0;
-    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = pg === 10 ? 255 : 0; CL[o + 3] = pg === 8 || pg === 9 ? 255 : 0;
+    // B: the planet's closed canopy (shade), A: its permanent snow / ice (world/planet/biomes.js PG 8, 9)
+    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = PB ? CANOPY[PB[j]] : 0; CL[o + 3] = pgj === 8 || pgj === 9 ? 255 : 0;
     CO[ty * tw + tx] = cv; out.walls[ty * tw + tx] = s;
   }
   // ---- field (FR×): rock mask / massif height / water depth / wetness, blurred over the rect + MS

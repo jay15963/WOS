@@ -75,10 +75,12 @@ export class World {
     // chunk-backed (a chunk keeps its 64 × 64 corners, the 65th row / column is the next chunk's first): hBase the
     // source's terrain, hT with the players' edits, hC the surface (+ building bases) — read through this.height
     // (heightPaged.js). wlevel: water surface per tile (stories; the planet's lakes on plateaus), pground: the planet's own
-    // ground id (volcanic ash / snow: the terrain shader's climate channel), pbiome: the planet's own biome id (255 = none;
-    // the wild fauna's spawn tables, docs/FAUNA.md).
-    L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0); L('pbiome', Uint8Array, 255);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.pbiome];
+    // ground id (8 snow … 13 dry: their own texture layers), prock / pbiome: the planet's own rock type (5 basalt, 6
+    // sandstone: rock faces) and biome id (255 = none: the closed canopy's shade, the wild fauna's spawn tables,
+    // docs/FAUNA.md).
+    L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
+    L('prock', Uint8Array, 0); L('pbiome', Uint8Array, 255);
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome];
     this.hills = source.hills || false; // (dev showcase ?hills=1: its landmarks; a guest sculpts the same classic world, world/hills.js)
     L('solid', Uint8Array, 0, true);   // buildings / walls occupancy (sparse: only where something stands)
     L('broof', Uint8Array, 0, true);   // built roofs (src/game/roofs.js)
@@ -148,6 +150,7 @@ export class World {
     this.hBase.attach(c, hb); this.hT.attach(c, hb.slice()); this.hC.attach(c, hb.slice());
     this.wlevel.attach(c, d.wlevel instanceof Float32Array && d.wlevel.length === CT ? d.wlevel : new Float32Array(CT));
     this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
+    this.prock.attach(c, d.prock instanceof Uint8Array && d.prock.length === CT ? d.prock : new Uint8Array(CT));
     this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
     r.ready = true; r.decor = !!d.decor;
     this.loaded++; this.live.add(c);
@@ -321,6 +324,7 @@ export class World {
     this.rock.set(i, 0);
     this.ore.set(i, 0);
     this.ground.set(i, G.STONE);
+    if (this.pground.get(i)) this.pground.set(i, G.STONE); // (the planet's look follows: a mined floor)
     this.markDirty(i);
     // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
     if (this.height.any) {

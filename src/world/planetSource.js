@@ -2,8 +2,9 @@
 // ?source=planet (or ?planet=1). generatePlanet(seed) → the macro planet (512 × 256 typed arrays, postMessage-able)
 // is made once on the main thread (spawn, map, synchronous fallback) and handed to the chunk workers; each chunk is
 // generateChunk(planet, cx, cy, { decor }) adapted to the engine's ChunkData (src/world/source.js):
-//   ground ids 8–13 / rock types 5–6 → the classic ones (planet/biomes.js GROUND_CLASSIC / ROCK_CLASSIC), biomes → their
-//   classic class (BIOME_LIST[b].cl), new plant / tree kinds → existing art (the same table as planet/ingame.js),
+//   ground ids 8–13 / rock types 5–6 → the classic ones (planet/biomes.js GROUND_CLASSIC / ROCK_CLASSIC; the planet's own
+//   ids ride along as pground / prock / pbiome for the looks), biomes → their classic class (BIOME_LIST[b].cl), the
+//   planet's plant / tree kinds → a classic kind + an art species (planet/flora.js, art/planetFlora.js),
 //   lush 0..255 → 0..1, `height` (65 × 65 corners, stories) → world.cornerH, water 3 (abyss) → deep for the game.
 // Object ids are the planet's: (cy * 256 + cx) * 16384 + k → chunkOfId.
 
@@ -13,22 +14,17 @@ import { G, BIOME_ID } from './worldgen.js';
 const ID_PER_CHUNK = 16384, ID_MAX = 1073741824;
 const DECOR_MAX = 1600;
 
-// new tree / plant kinds of the planet → art the game has (planet/ingame.js)
-const TREE_MAP = {
-  tree_oak: 'tree_oak', tree_pine: 'tree_pine', tree_birch: 'tree_birch', tree_dead: 'tree_dead',
-  tree_palm: 'tree_oak', tree_acacia: 'tree_oak', tree_baobab: 'tree_oak', tree_jungle: 'tree_oak', tree_kapok: 'tree_oak', tree_olive: 'tree_oak', tree_fern: 'tree_oak',
-  tree_spruce: 'tree_pine', tree_larch: 'tree_pine', tree_redwood: 'tree_pine', tree_cypress: 'tree_pine', tree_dwarf: 'tree_birch', bamboo: 'tree_birch',
-};
-const DRY_PLANTS = new Set(['cactus', 'cactus_tall', 'agave', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'termite_mound', 'papyrus']);
-const KEEP = new Set(['bush', 'berrybush', 'herbbush', 'boulder', 'pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
-const DECOR_MAP = { lichen: 'moss', cottongrass: 'tallgrass', ash: 'scree' };
+// the planet's natural kinds are classic kinds + an art species (planet/flora.js, art/planetFlora.js); decor kinds with
+// their own art join the classic ones
+const KEEP = new Set(['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead', 'bush', 'berrybush', 'herbbush', 'boulder', 'pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
 const DECOR_OK = new Set(['grass', 'tallgrass', 'flower', 'reed', 'mushroom', 'fern', 'bloom', 'heather', 'drygrass', 'thistle', 'litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood']);
 
 let PM = null; // the planet modules
 async function mods() {
   if (PM) return PM;
-  const [idx, bio, ren] = await Promise.all([import('./planet/index.js'), import('./planet/biomes.js'), import('./planet/render.js').catch(() => null)]);
-  return (PM = { ...idx, GROUND_CLASSIC: bio.GROUND_CLASSIC, ROCK_CLASSIC: bio.ROCK_CLASSIC, BIOME_LIST: bio.BIOME_LIST, renderMacro: ren?.renderMacro });
+  const [idx, bio, ren, fl] = await Promise.all([import('./planet/index.js'), import('./planet/biomes.js'), import('./planet/render.js').catch(() => null), import('./planet/flora.js')]);
+  for (const k of fl.FLORA_DECOR) DECOR_OK.add(k);
+  return (PM = { ...idx, GROUND_CLASSIC: bio.GROUND_CLASSIC, ROCK_CLASSIC: bio.ROCK_CLASSIC, BIOME_LIST: bio.BIOME_LIST, renderMacro: ren?.renderMacro, floraObject: fl.floraObject, regrowV: fl.regrowV });
 }
 
 // the chunk generator of a worker (chunkWorker.js): init = { kind: 'planet', seed, planet }
@@ -58,6 +54,8 @@ export async function makePlanetSource(seed, opts = {}) {
       return { w: m.MW, h: m.MH, rgba, tpp: PW / m.MW };
     },
     chunkOfId: (id) => (typeof id === 'number' && id >= 0 && id < ID_MAX ? Math.floor(id / ID_PER_CHUNK) : -1),
+    // regrowth (game/flora.js): the planet species of the tile's planet biome for a regrown classic kind (undefined: classic)
+    floraLook: (w, kind, tx, ty, r, v) => m.regrowV(kind, w.pbiome ? w.pbiome.at(tx, ty) : 0, r, v),
   };
   console.info(`[planet] seed ${seed}: planet ${src.timings.planet} ms, spawn ${spawn.x.toFixed(1)}, ${spawn.y.toFixed(1)}`);
   return src;
@@ -105,14 +103,11 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
   const X0 = cx * CS, Y0 = cy * CS;
   const objects = [];
   for (const o of p.objects || []) {
-    if (o.w) continue; // (nothing standing in water yet)
-    let t = o.type, v = o.v;
-    if (t.startsWith('tree_') || t === 'bamboo') { const n = TREE_MAP[t] || 'tree_oak'; if (n !== t) v = v & 15; t = n; }
-    else if (DRY_PLANTS.has(t)) { v = 2000 + (v % 1000); t = 'bush'; }
-    else if (t === 'lichen_rock') t = 'boulder';
-    else if (!KEEP.has(t)) continue;
+    if (o.w && o.type !== 'tree_mangrove') continue; // (only mangroves stand in the water)
+    const fo = m.floraObject(o.type, o.v);
+    if (!fo && !KEEP.has(o.type)) continue;
     o.x += X0; o.y += Y0;
-    objects.push(t === o.type && v === o.v ? o : { ...o, type: t, v });
+    objects.push(fo ? { ...o, type: fo.type, v: fo.v } : o);
   }
   let dec = null;
   if (decor && p.decor) {
@@ -121,14 +116,14 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
     const step = Math.max(1, p.decor.length / DECOR_MAX);
     for (let k = 0; k < p.decor.length; k += step) {
       const d = p.decor[Math.floor(k)];
-      const t = DECOR_MAP[d.t] || d.t;
+      const t = d.t;
       if (!DECOR_OK.has(t)) continue;
       const lx = Math.floor(d.x), ly = Math.floor(d.y);
       if (lx < 0 || ly < 0 || lx >= CS || ly >= CS) continue;
       const l = ly * CS + lx;
       if (rock[l] || (water[l] && !d.w)) continue;
       d.x += X0; d.y += Y0;
-      dec.push(t === d.t ? d : { ...d, t });
+      dec.push(d);
     }
   }
   // heights (65 × 65 corners, stories): the corners of a water tile rise to its water level (the sea at 0, a lake on a
@@ -147,7 +142,7 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
   return {
     cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
     flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights, objects, decor: dec,
-    wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground, pbiome: p.biome, // (pbiome: the fauna's spawn tables)
+    wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground, prock: p.rockType, pbiome: p.biome, // (pbiome: looks + the fauna's spawn tables)
   };
 }
 
