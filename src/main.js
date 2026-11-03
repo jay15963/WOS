@@ -1,6 +1,7 @@
 // Boot: graphics load in the background while the main menu is shown; the world is generated only
 // after the player chooses (single player, host a room, or join one — a guest gets the host's seed).
-// Dev shortcuts: ?seed=N starts single player directly; ?sala=CODE opens the join screen.
+// Dev shortcuts: ?seed=N starts single player directly; ?sala=CODE opens the join screen;
+// ?planet=1[&px=..&py=..&psize=256|512] plays a cut of the planet generator (docs/PLANET.md, no saves).
 // Test flags (automated two-client harness, docs/SYNC.md §4.6): ?mp=host&sala=CODE hosts directly,
 // ?sala=CODE&autojoin=1 joins directly, ?nosave=1, ?link=bc (BroadcastChannel), ?pid=ID, and on localhost
 // ?fakebuild=X / ?fakeart=<sprite|ph:sprite> / ?fakepaintfail=1; window.wosDebug.setHidden(bool).
@@ -46,8 +47,9 @@ const status = (t, p) => {
 // ---------- test / dev flags (docs/SYNC.md §4.6) ----------
 const QS = new URLSearchParams(location.search);
 const DEV = /^(localhost|127\.|\[::1\])/.test(location.hostname);
+const PLANET = DEV && QS.has('planet');     // dev: a classic-size world cut from the planet generator (src/world/planet/ingame.js)
 const FLAGS = {
-  noSave: QS.has('nosave'),                 // no save writes, no wos.seed, no menu snapshot
+  noSave: QS.has('nosave') || PLANET,       // no save writes, no wos.seed, no menu snapshot
   mpHost: QS.get('mp') === 'host',          // skip the menu and host room ?sala=CODE (seed ?seed)
   autojoin: QS.has('autojoin'),             // skip the menu and join room ?sala=CODE
   code: normalizeCode(QS.get('sala') || ''),
@@ -124,7 +126,7 @@ async function boot() {
       status(`Entrando na sala ${FLAGS.code}…`, 0.1);
       const session = new Session();
       try { choice = { mode: 'join', session, welcome: await session.join(FLAGS.code) }; } catch (e) { fail(e.message); return; }
-    } else if (QS.has('seed')) {
+    } else if (QS.has('seed') || PLANET) {
       choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || 1 };
     } else {
       // the loading screen stays until EVERYTHING the menu needs is ready (graphics painted, live background
@@ -146,7 +148,7 @@ async function boot() {
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const world = new World(generateWorld(seed));
+    const world = new World(PLANET ? (await import('./world/planet/ingame.js')).buildPlanetWorld(seed, { px: QS.get('px'), py: QS.get('py'), size: QS.get('psize') }) : generateWorld(seed));
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 
