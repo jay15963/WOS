@@ -679,10 +679,10 @@ def('S14', {
   }
   let td = true;
   for (let y = ty - 1; y <= ty + 1; y++) for (let x = tx - 1; x <= tx + 1; x++) {
-    const k = H.game.world.idx(x, y) * 4;
-    for (let b = 0; b < 4; b++) if (H.game.world.tileData[k + b] !== G.game.world.tileData[k + b]) td = false;
+    const k = H.game.world.idx(x, y), a = H.game.world, b = G.game.world; // (the GPU tile texture is made from these layers)
+    for (const L of ['ground', 'rockType', 'ore', 'rock']) if (a[L].get(k) !== b[L].get(k)) td = false;
   }
-  t.check(td, 'tile textures (tileData 3×3) identical');
+  t.check(td, 'tile layers (ground / rock type / ore / rock 3×3) identical');
   if (wall) {
     const mh = A.structOn(H, wall.id)?.mask, mg = A.structOn(G, wall.id)?.mask;
     t.check(mh === mg, 'adjacent wall mask identical after mining', `host ${mh} guest ${mg} (before ${wall.mask0})`);
@@ -1059,24 +1059,24 @@ def('S21', {
   const { H, G, MH, MG } = await pairCtx(t);
   const F = H.game.flora;
   // (objects come from the frame's realm: no instanceof checks against this page's Map/Array)
-  t.need(F && F.chunks?.length && 'ci' in F && 't' in F && typeof F.dyn?.keys === 'function', 'host flora internals (game.flora.ci/t/chunks/dyn) missing — cannot accelerate regrowth');
+  t.need(F && F.keys?.length && 'ci' in F && 't' in F && typeof F.dyn?.keys === 'function', 'host flora internals (game.flora.ci/t/keys/dyn) missing — cannot accelerate regrowth');
   const sp = spawnOf(H);
   const tr = A.pickTree(H, MH, G, sp.x + 10, sp.y, env.claimed, { r: 40 });
   t.assert(tr, 'found a tree');
-  const o = tr.o, W = H.game.world, CH = 16;
-  const k = Math.min(W.CH - 1, Math.floor(o.y / CH)) * W.CW + Math.min(W.CW - 1, Math.floor(o.x / CH));
+  const o = tr.o, W = H.game.world, CH = 16, BKW = W.W / CH; // (flora records per 16×16 bucket: key = by * BKW + bx)
+  const k = Math.floor(o.y / CH) * BKW + Math.floor(o.x / CH);
   A.ensure(G, { axe_steel: 1 });
   A.teleport(G, tr.west[0], tr.west[1]);
   await A.chop(t, G, MG, A.objOn(G, o.id), { tool: 'axe_steel', until: 'stump' });
   t.log(`chunk ${k} now lacks a ${o.type}`);
-  const cx = (k % W.CW) * CH + 8, cy = Math.floor(k / W.CW) * CH + 8;
+  const cx = (k % BKW) * CH + 8, cy = Math.floor(k / BKW) * CH + 8;
   sendAway(H, MH, cx, cy, 42, 0); sendAway(G, MG, cx, cy, 44, 0.3);
   await t.sleep(300);
   const before = new Set(F.dyn.keys());
   const found = [];
   const t0 = now();
   while (now() - t0 < 45000) {
-    F.ci = k; F.t = 0;
+    F.ci = Math.max(0, F.keys.indexOf(k)); F.t = 0;
     await t.sleep(25);
     for (const [id, q] of F.dyn) if (!before.has(id)) { before.add(id); found.push({ id, q, inH: A.inView(H, q.x, q.y), inG: A.inView(G, q.x, q.y) }); }
     if (found.some((x) => A.isTree(x.q))) break;
@@ -3382,7 +3382,7 @@ def('J4', {
   const w = H.game.world, sp = spawnOf(H);
   // a solid mountain block (all rock, roof0 in the middle) closest to the spawn
   let best = null, bd = 1e9;
-  for (let cy = 12; cy < w.H - 12; cy += 2) for (let cx = 12; cx < w.W - 12; cx += 2) {
+  for (let cy = w.by0 + 12; cy < w.by1 - 12; cy += 2) for (let cx = w.bx0 + 12; cx < w.bx1 - 12; cx += 2) {
     const i = w.idx(cx, cy);
     if (!w.rock.get(i) || !w.roof0.get(i)) continue;
     const d = Math.hypot(cx - sp.x, cy - sp.y);
@@ -3402,7 +3402,7 @@ def('J4', {
   for (let y = cy - 7; y < cy + 7; y++) for (let x = cx - 7; x < cx + 7; x++) if (w.rock.get(w.idx(x, y))) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
   await t.waitFor(() => G.game.world.rock.get(G.game.world.idx(cx, cy)) === 0, RT() + 1000, 'guest has the mined box');
   await t.sleep(ONEWAY() + 300);
-  const eqRoof = () => { const a = H.game.world.roof, b = G.game.world.roof; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return -1; };
+  const eqRoof = () => { const A0 = H.game.world, B0 = G.game.world; for (let y = A0.by0; y < A0.by1; y++) for (let x = A0.bx0; x < A0.bx1; x++) { const i = A0.idx(x, y); if (A0.roof.get(i) !== B0.roof.get(i)) return i; } return -1; };
   const diffAt = eqRoof();
   t.check(diffAt < 0, 'world.roof identical on both', diffAt < 0 ? 'equal' : `first difference at tile ${diffAt}`);
   t.check(H.game.world.roofAt(cx, cy) === 0 && G.game.world.roofAt(cx, cy) === 0, 'the centre of the opened hall is open sky on both');
@@ -3462,7 +3462,7 @@ def('J6', {
   // a solid mountain block (all rock, mountain roof) far from the ones other scenarios dug
   const taken = [...env.claimed].filter((k) => typeof k === 'string' && k.startsWith('mountain')).map((k) => k.slice(8).split(',').map(Number));
   let best = null, bd = 1e9;
-  for (let cy = 14; cy < w.H - 14; cy += 2) for (let cx = 14; cx < w.W - 14; cx += 2) {
+  for (let cy = w.by0 + 14; cy < w.by1 - 14; cy += 2) for (let cx = w.bx0 + 14; cx < w.bx1 - 14; cx += 2) {
     const i = w.idx(cx, cy);
     if (!w.rock.get(i) || !w.roof0.get(i) || taken.some(([x, y]) => Math.hypot(x - cx, y - cy) < 30)) continue;
     const d = Math.hypot(cx - sp.x, cy - sp.y);
@@ -4439,21 +4439,21 @@ def('M2', {
 def('M3', {
   title: 'M: flora never regrows on paths', timeout: 150000,
   expected: 'With most free tiles of a chunk turned into a path (host ops) and a few plants removed, accelerated host regrowth spawns nothing on a path / plan tile (world.growWeight = 0 there on both peers, every kind); whatever regrew appears on the guest identically; digest equal',
-  api: 'world.growWeight / canGrow (path check); host floraSystem internals game.flora.{ci,t,chunks,dyn} (like S21); ops path.set / obj.add',
+  api: 'world.growWeight / canGrow (path check); host floraSystem internals game.flora.{ci,t,keys,chunks (Map by bucket),dyn} (like S21); ops path.set / obj.add',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const F = H.game.flora;
-  t.need(F && F.chunks?.length && 'ci' in F && 't' in F, 'host flora internals (game.flora.ci/t/chunks) missing — cannot accelerate regrowth');
+  t.need(F && F.keys?.length && 'ci' in F && 't' in F, 'host flora internals (game.flora.ci/t/keys) missing — cannot accelerate regrowth');
   const MP = await frameImport(H, 'game/mut/paths.js');
-  const w = H.game.world, W = w.W, CH = 16, sp = spawnOf(H);
+  const w = H.game.world, W = w.W, CH = 16, BKW = W / CH, sp = spawnOf(H); // (flora buckets: key = by * BKW + bx)
   // a grassy chunk ~25 tiles from the spawn with room for paths
   let k = -1, free = [];
   for (let r = 22; r < 60 && k < 0; r += 6) for (let a = 0; a < 8 && k < 0; a++) {
     const cx = Math.floor((sp.x + Math.cos(a) * r) / CH), cy = Math.floor((sp.y + Math.sin(a) * r) / CH);
-    if (cx < 0 || cy < 0 || cx >= w.CW || cy >= w.CH) continue;
+    if (!w.inBounds(cx * CH, cy * CH)) continue;
     const list = [];
     for (let y = cy * CH; y < cy * CH + CH; y++) for (let x = cx * CH; x < cx * CH + CH; x++) if (!MP.canPaint(H.game, x, y) && !w.path.get(w.idx(x, y)) && !w.pathPlan.get(w.idx(x, y))) list.push(w.idx(x, y));
-    if (list.length > 120) { k = cy * w.CW + cx; free = list; }
+    if (list.length > 120) { k = cy * BKW + cx; free = list; }
   }
   t.assert(k >= 0, 'found a chunk with room for paths');
   env.history.push('M3');
@@ -4468,15 +4468,15 @@ def('M3', {
   t.check(zero(H) && zero(G), 'growWeight is 0 on every path / blueprint tile, every kind (host and guest)');
   // make room: remove some plants of the chunk (host op), then accelerate regrowth with both players away
   const ids = [];
-  w.forChunks((k % w.CW) * CH + 1, Math.floor(k / w.CW) * CH + 1, (k % w.CW) * CH + 14, Math.floor(k / w.CW) * CH + 14, (c) => { for (const o of c.objects) if (!o.building && (o.type === 'bush' || o.type === 'fibergrass' || o.type === 'pebble' || o.type === 'stick') && ids.length < 6) ids.push(o.id); });
+  w.forChunks((k % BKW) * CH + 1, Math.floor(k / BKW) * CH + 1, (k % BKW) * CH + 14, Math.floor(k / BKW) * CH + 14, (c) => { for (const o of c.objects) if (!o.building && (o.type === 'bush' || o.type === 'fibergrass' || o.type === 'pebble' || o.type === 'stick') && ids.length < 6) ids.push(o.id); });
   if (ids.length) H.game.net.emit('obj.remove', { ids });
-  const cx = (k % w.CW) * CH + 8, cy = Math.floor(k / w.CW) * CH + 8;
+  const cx = (k % BKW) * CH + 8, cy = Math.floor(k / BKW) * CH + 8;
   sendAway(H, MH, cx, cy, 40, 0); sendAway(G, MG, cx, cy, 42, 0.3);
   await t.sleep(300);
   const before = new Set(F.dyn.keys()), found = [];
   const t0 = now();
   while (now() - t0 < 25000) {
-    F.ci = k; F.t = 0;
+    F.ci = Math.max(0, F.keys.indexOf(k)); F.t = 0;
     await t.sleep(25);
     for (const [id, q] of F.dyn) if (!before.has(id)) { before.add(id); found.push(q); }
     if (found.length >= 6) break;

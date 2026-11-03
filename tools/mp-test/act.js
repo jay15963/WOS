@@ -205,8 +205,8 @@ export function authAvatarOn(f, pid) { const pl = f.session?.players?.get?.(pid)
 export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
   const w = f.game.world, out = [];
   const minTier = M.items.ORE_MIN_TIER || [];
-  const x0 = Math.max(1, Math.floor(cx - maxR)), x1 = Math.min(w.W - 2, Math.floor(cx + maxR));
-  const y0 = Math.max(1, Math.floor(cy - maxR)), y1 = Math.min(w.H - 2, Math.floor(cy + maxR));
+  const x0 = Math.max(w.bx0 + 1, Math.floor(cx - maxR)), x1 = Math.min(w.bx1 - 2, Math.floor(cx + maxR));
+  const y0 = Math.max(w.by0 + 1, Math.floor(cy - maxR)), y1 = Math.min(w.by1 - 2, Math.floor(cy + maxR));
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const i = w.idx(tx, ty);
     if (w.rock.get(i) !== 1 || !w.ore.get(i) || (minTier[w.ore.get(i)] || 0) > maxTier) continue;
