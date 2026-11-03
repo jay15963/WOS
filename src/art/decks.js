@@ -119,12 +119,14 @@ function rope() {
   });
 }
 
+// patchy: drifts with thin spots where the boards show through
 function snow(seed) {
-  const nz = noise2(seed, 7, 7), sp = noise2(seed + 4, 1, 1);
+  const nz = noise2(seed, 7, 7), n2 = noise2(seed + 2, 3, 3), sp = noise2(seed + 4, 1, 1);
   return tex(64, 64, (x, y) => {
-    const n = nz(x, y), s = sp(x * 2.3, y * 1.9);
+    const n = nz(x, y), m = n2(x, y), s = sp(x * 2.3, y * 1.9);
     const k = 0.9 + 0.12 * n + (s > 0.93 ? 0.08 : 0);
-    return [232 * k, 238 * k, 248 * k, 200 + 55 * n];
+    const c = Math.max(0, Math.min(1, (n * 0.7 + m * 0.5 - 0.3) / 0.45));
+    return [232 * k, 238 * k, 248 * k, 70 + 185 * c * c * (3 - 2 * c)];
   });
 }
 

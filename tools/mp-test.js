@@ -4283,6 +4283,138 @@ def('A7', {
   await t.checkDigest(H, G);
 });
 
+// =====================================================================================================
+// W: piers and bridges (game/decks.js, docs/PLAN-V2.md "Trapiche e ponte")
+// the nearest crossing / shallow bank from the host player (the dev helper's finder, dry: nothing is built)
+function deckSites(t, H) {
+  t.need(H.game.debug?.deckScene && H.game.decks, 'piers / bridges (game/decks.js) missing');
+  const r = H.game.debug.deckScene({ dry: true }), S = H.game.debug._decks;
+  return { bridge: r.bridge ? S.bridge.slice() : null, pier: r.pier ? r.pier.slice() : null };
+}
+const deckAtOn = (f, x, y) => f.game.build.grid.deck.get(f.game.world.idx(x, y)) || null;
+const walkedTo = (p, x, y, ex, ey) => (p.x - (x + 0.5)) * ex + (p.y - (y + 0.5)) * ey;
+// build the planned pieces in order from the bank, standing on the piece before each (or on the bank)
+async function buildDeckLine(t, f, M, ids, tiles, bank) {
+  for (let k = 0; k < ids.length; k++) {
+    const id = ids[k], at = k === 0 ? bank : tiles[k - 1];
+    const stand = () => A.teleport(f, at[0] + 0.5, at[1] + 0.5);
+    const mk = () => { const q = A.structOn(f, id); return q && q.blueprint ? M.building.describeStructure(f.game, q) : null; };
+    await A.workUntil(t, f, mk, () => !A.structOn(f, id)?.blueprint, 40000, `builds ${A.structOn(f, id)?.type} piece ${k + 1}/${ids.length}`, { stand });
+  }
+}
+// hold a direction until the player gets past (x, y) along (ex, ey); records swimming and the highest deck lift
+async function walkAcross(t, f, from, to, ex, ey, ms = 12000) {
+  const p = f.game.player, st = { swim: false, dh: 0 };
+  A.teleport(f, from[0] + 0.5, from[1] + 0.5);
+  const rel = A.holdMove(f, ex, ey);
+  t.watch(() => { if (p.swimming) st.swim = true; st.dh = Math.max(st.dh, p._dh || 0); }, 40);
+  st.ok = await t.tryWait(() => walkedTo(p, to[0], to[1], ex, ey) > 0, ms);
+  rel();
+  return st;
+}
+
+def('W1', {
+  star: true, title: 'W: guest builds a pier and a bridge across a river, both walk across', timeout: 300000,
+  expected: 'The guest plans a bridge (bank → water → bank, drag) and a 4-piece pier from a shallow bank: blueprints with the same ids on both; deep water refuses a pier, a lone water piece refuses a bridge; a far piece cannot start before the one before it (host decks.startReason); the guest builds every piece with real work from the bank outward; both derive the same deck map (world.deck) and railings (world.rail); the guest walks across the bridge without swimming, lifted on the deck (_dh), the host sees it on the far bank; the host walks back across; the guest walks to the end of the pier; digest equal',
+  api: 'BUILDINGS.pier_wood / bridge_wood (layer deck); build.place (deck batch: decks.orderDeckTiles); build.hit start → decks.startReason; world.deck / world.rail (decks.js); player._dh',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sites = deckSites(t, H);
+  t.need(sites.bridge && sites.pier, 'no crossing / shallow bank near the spawn on this seed');
+  const b = sites.bridge, n = b.length, ex = Math.sign(b[1][0] - b[0][0]), ey = Math.sign(b[1][1] - b[0][1]);
+  const bank = [b[0][0] - ex, b[0][1] - ey], far = b[n - 1];
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, b[0][0], b[0][1], 30);
+  A.ensure(G, { wood: 120, stone: 40, rope: 30 });
+  A.teleport(G, bank[0] + 0.5, bank[1] + 0.5);
+  await A.hostSees(t, H, G);
+  // refusals (the guest's preview runs the host's rules)
+  const wG = G.game.world;
+  let deep = null;
+  for (const [x, y] of b) if (wG.water[wG.idx(x, y)] === 2) { deep = [x, y]; break; }
+  if (deep) t.check(/rasa/.test(String(MG.building.placeReason(G.game, 'pier_wood', deep[0], deep[1], null))), 'a pier on deep water is refused (only shallow water)', String(MG.building.placeReason(G.game, 'pier_wood', deep[0], deep[1], null)));
+  t.check(/terra|margem/.test(String(MG.building.placeReason(G.game, 'bridge_wood', b[2][0], b[2][1], null))), 'a lone bridge piece over the water is refused (start on land)', String(MG.building.placeReason(G.game, 'bridge_wood', b[2][0], b[2][1], null)));
+  // the bridge: one drag bank → bank
+  A.place(G, MG, 'bridge_wood', b[0], far);
+  const bridge = await t.waitFor(() => { const L = b.map(([x, y]) => deckAtOn(G, x, y)); return L.every(Boolean) && L; }, RT() + 1200, 'guest sees the whole bridge plan', () => `${b.filter(([x, y]) => deckAtOn(G, x, y)).length}/${n}`);
+  const ids = bridge.map((o) => o.id);
+  t.check(bridge.every((o) => o.blueprint && o.type === 'bridge_wood'), 'every piece is a bridge blueprint');
+  await t.waitFor(() => ids.every((id) => A.structOn(H, id)), RT() + 500, 'host has the same ids');
+  const farH = A.structOn(H, ids[n - 2]);
+  H.game.decks.sync();
+  t.check(/anterior/.test(String(H.game.decks.startReason(farH))), 'a water piece cannot start before the one before it', String(H.game.decks.startReason(farH)));
+  await buildDeckLine(t, G, MG, ids, b, bank);
+  await t.waitFor(() => ids.every((id) => { const o = A.structOn(H, id); return o && !o.blueprint; }), RT() + 800, 'host sees every bridge piece finished');
+  // the same deck map and railings on both
+  await t.sleep(200);
+  const deckRow = (f) => b.map(([x, y]) => { const i = f.game.world.idx(x, y); return `${f.game.world.deck?.[i] | 0}:${f.game.world.rail?.[i] | 0}`; }).join(' ');
+  t.check(deckRow(H) === deckRow(G) && b.every(([x, y]) => G.game.world.deck[G.game.world.idx(x, y)] === 2), 'same deck map + railings on both (every tile walkable)', `host ${deckRow(H)} · guest ${deckRow(G)}`);
+  // the guest walks across
+  const wk = await walkAcross(t, G, bank, far, ex, ey);
+  t.check(wk.ok, 'the guest walks across the bridge to the far bank', `at ${f2(G.game.player.x)},${f2(G.game.player.y)} far ${far}`);
+  t.check(!wk.swim, 'never swimming on the bridge');
+  t.check(wk.dh > 0.25, 'lifted on the deck while crossing (cosmetic _dh)', f2(wk.dh));
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && walkedTo(av, far[0], far[1], ex, ey) > -0.3; }, RT() + 1500, 'host sees the guest on the far bank');
+  // and the host walks back
+  const hk = await walkAcross(t, H, far, b[0], -ex, -ey);
+  t.check(hk.ok && !hk.swim, 'the host walks back across (no swimming)', `at ${f2(H.game.player.x)},${f2(H.game.player.y)}`);
+  // the pier: 4 pieces out from a shallow bank
+  const [px, py, pex, pey] = sites.pier, pt = [1, 2, 3, 4].map((k) => [px + pex * k, py + pey * k]);
+  A.teleport(G, px + 0.5, py + 0.5);
+  await A.hostSees(t, H, G);
+  A.place(G, MG, 'pier_wood', pt[0], pt[3]);
+  const pier = await t.waitFor(() => { const L = pt.map(([x, y]) => deckAtOn(G, x, y)); return L.every(Boolean) && L; }, RT() + 1200, 'guest sees the pier plan');
+  const pids = pier.map((o) => o.id);
+  await t.waitFor(() => pids.every((id) => A.structOn(H, id)), RT() + 500, 'host has the same pier ids');
+  await buildDeckLine(t, G, MG, pids, pt, [px, py]);
+  await t.waitFor(() => pids.every((id) => { const o = A.structOn(H, id); return o && !o.blueprint; }), RT() + 800, 'host sees the pier finished');
+  const pk = await walkAcross(t, G, [px, py], pt[3], pex, pey, 6000);
+  const gp = G.game.player;
+  t.check(pk.ok && !pk.swim && Math.abs((gp._dh || 0) - 0.2) < 0.03, 'the guest walks to the end of the pier, on its deck (no swimming)', `at ${f2(gp.x)},${f2(gp.y)} dh ${f2(gp._dh)}`);
+  await t.checkDigest(H, G);
+});
+
+def('W2', {
+  title: 'W: deconstructing the middle of a bridge, then an abutment', timeout: 240000,
+  expected: 'The host lays a finished bridge (dev helper); the guest deconstructs the middle piece with real work: it disappears on both, each half stays (still joined to its bank: no collapse), the gap is water again on both; the guest marks the far abutment — the first tap only warns ("A ponte vai cair"), the second marks it — and deconstructs it: the host drops the water pieces between the gap and that bank into the water (deck.collapse) on both, the near half stays; digest equal',
+  api: 'decks.unsupported / lostWithout (building.confirmSupports) → host deckSupportSystem → op deck.collapse {ids, drops}; world.deck',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.debug?.deckScene, 'piers / bridges (game/decks.js) missing');
+  const r = H.game.debug.deckScene({ only: 'bridge', span: 4 });
+  t.need(r.bridge, 'no crossing of 4+ water tiles near the spawn on this seed');
+  const b = H.game.debug._decks.bridge.slice(), n = b.length, ex = Math.sign(b[1][0] - b[0][0]), ey = Math.sign(b[1][1] - b[0][1]);
+  const all = await t.waitFor(() => { const L = b.map(([x, y]) => deckAtOn(G, x, y)); return L.every((o) => o && !o.blueprint) && L; }, RT() + 1200, 'guest sees the finished bridge');
+  const ids = all.map((o) => o.id), mid = n >> 1;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, b[0][0], b[0][1], 30);
+  // the middle piece
+  A.teleport(G, b[mid - 1][0] + 0.5, b[mid - 1][1] + 0.5);
+  await A.hostSees(t, H, G);
+  const mo = A.structOn(G, ids[mid]);
+  t.check(MG.building.toggleDecon(G.game, mo, true) === true, 'marking the middle piece needs no confirmation (each half keeps its bank)');
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[mid])), RT() + 500, 'host marks the middle piece');
+  const mk = () => { const q = A.structOn(G, ids[mid]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
+  await A.workUntil(t, G, mk, () => !A.structOn(G, ids[mid]), 30000, 'deconstructs the middle piece', { stand: () => A.teleport(G, b[mid - 1][0] + 0.5, b[mid - 1][1] + 0.5) });
+  await t.waitFor(() => !A.structOn(H, ids[mid]), RT() + 500, 'the middle piece is gone on the host');
+  await t.sleep(RT() + 400);
+  const left = (f) => ids.filter((id) => A.structOn(f, id)).length;
+  t.check(left(H) === n - 1 && left(G) === n - 1, 'both halves stay (no collapse)', `host ${left(H)} · guest ${left(G)} of ${n - 1}`);
+  const wm = (f) => f.game.world.deck[f.game.world.idx(b[mid][0], b[mid][1])] | 0;
+  t.check(wm(H) === 0 && wm(G) === 0, 'the gap is water again on both');
+  // the far abutment: a warning first, then marked; its half falls
+  const fo = A.structOn(G, ids[n - 1]);
+  const first = MG.building.toggleDecon(G.game, fo, true), second = MG.building.toggleDecon(G.game, fo, true);
+  t.check(first === false && second === true, 'the far abutment asks for a second tap (the bridge would fall)', `${first} / ${second}`);
+  await t.waitFor(() => H.game.build.decon.has(A.structOn(H, ids[n - 1])), RT() + 500, 'host marks the far abutment');
+  const mk2 = () => { const q = A.structOn(G, ids[n - 1]); return q && G.game.build.decon.has(q) ? MG.building.describeStructure(G.game, q) : null; };
+  await A.workUntil(t, G, mk2, () => !A.structOn(G, ids[n - 1]), 30000, 'deconstructs the far abutment', { stand: () => A.standBy(G, MG, A.structOn(G, ids[n - 1]) || fo) });
+  const fell = ids.slice(mid + 1);
+  await t.waitFor(() => fell.every((id) => !A.structOn(H, id) && !A.structOn(G, id)), RT() + 1500, 'the far half fell into the water on both', () => `host ${fell.filter((id) => A.structOn(H, id)).length} · guest ${fell.filter((id) => A.structOn(G, id)).length}`);
+  t.check(ids.slice(0, mid).every((id) => A.structOn(H, id) && A.structOn(G, id)), 'the near half stays on both');
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

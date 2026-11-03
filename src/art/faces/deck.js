@@ -18,6 +18,7 @@ import { seen, shade, shadowRect } from './kit.js';
 import { tintOf } from './props.js';
 import { KIT_ENV } from '../archCompose.js';
 import { PIER_H, LOW_H, RAMP, ghostShapes } from '../../game/decks.js';
+import { BUILDINGS } from '../../game/content/buildings.js';
 
 const QF = 28; // per quad: 4 corners × (x, y, h, u, v), r g b, nx ny, flags, stage, (spare)
 const TWO = 1, SNOW = 2; // flags: two-sided board (never culled) · snow cap (drawn with the season's snow only)
@@ -336,8 +337,10 @@ function ghostDesc(o) {
   let key = m.type + ':' + g.build.v;
   for (const t of m.tiles) key += t.ok ? `|${t.tx},${t.ty}` : '';
   if (key !== GK) { GK = key; GM = ghostShapes(g, m.type, m.tiles); }
-  return GM.get(g.world.idx(o.tx, o.ty)) || null;
+  return GM.get(g.world.idx(o.tx, o.ty)) || (BUILDINGS[o.type]?.deck === 'pier' ? LONE_PIER : (LONE_BRIDGE.wet = !!g.world.water[g.world.idx(o.tx, o.ty)], LONE_BRIDGE)); // (a red ghost: a lone piece)
 }
+const LONE_PIER = { k: 'pier', nb: 0, land: 0, axis: 1, end: 0, piles: 3 | (3 << 3) | (3 << 6) | (3 << 9), open: 15, v: 0, sig: 'lone' };
+const LONE_BRIDGE = { k: 'bridge', axis: 1, wet: true, h0: 0.3, hm: 0.3, h1: 0.3, prev: 0, next: 0, bent: 0, postHi: true, ramp: 1, rails: 10, sig: 'lone' };
 
 // ---------- drawing ----------
 const SH_T = { opt: null };

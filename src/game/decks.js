@@ -504,7 +504,7 @@ export function installDecks(game, itemSprite) {
 }
 
 // ---------- dev helpers (localhost: game.debug exists) ----------
-// game.debug.deckScene({ plan, span }) — the nearest river crossing (a straight line bank → 2..8 water tiles → bank,
+// game.debug.deckScene({ plan, span, dry, only: 'bridge' | 'pier' }) — the nearest river crossing (a straight line bank → 2..8 water tiles → bank,
 // deepest first) gets a bridge and the nearest shallow bank a pier (4 out, a T at the end), finished (plan: blueprints);
 // returns { bridge: [x0, y0, x1, y1], pier: [x, y, dx, dy] }. game.debug.deckAt('bridge' | 'pier' | 'bank', k) puts the
 // player there.
@@ -538,16 +538,17 @@ export function installDeckDebug(game) {
       }
     }
     const put = (type, tiles) => {
+      if (opts.dry) return; // (only find the sites: a placement preview test)
       const list = tiles.map(([x, y]) => [net.newId('s'), type, x, y, 0, opts.plan ? 0 : 1, Math.round(game.worldTime), 0, opts.plan ? 0 : 1, 0, '', '']);
       net.emit('struct.add', { list, by: net.pid });
     };
-    if (best) {
+    if (best && opts.only !== 'pier') {
       const [x, y, ex, ey, n] = best, t = [];
       for (let k = 0; k <= n + 1; k++) t.push([x + ex * k, y + ey * k]);
       put('bridge_wood', t);
       S.bridge = t;
     }
-    if (pier) {
+    if (pier && opts.only !== 'bridge') {
       const [x, y, ex, ey] = pier, t = [];
       for (let k = 1; k <= 4; k++) t.push([x + ex * k, y + ey * k]);
       t.push([x + ex * 4 - ey, y + ey * 4 + ex], [x + ex * 4 + ey, y + ey * 4 - ex]);
