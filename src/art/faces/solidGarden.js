@@ -165,12 +165,17 @@ defineSolid('well', {
 });
 
 // ---------- statue (decor.js statue_0 / _1): base slab, column, cap, the figure (warrior or owl) ----------
-// the art draws the square pedestal's tops 5–6 px deep for 28–34 px: k ≈ 0.18, centred in the tile; the figure is a
-// round body wrapped in its art (front half the front, back half the front mirrored)
-const SK = 6 / 34;
+// the art draws the square pedestal's tops 5–6 px deep for 28–34 px: k ≈ 0.18, centred in the tile. The figure is two
+// crossed boards with its art (a round body wrapped in a flat drawing broke into shards turning): the front board
+// shows it from the front, the board across it shows it from the side (the side view is the front art: e = statue_<v>)
+const SK = 6 / 34, SP = pivOf(0.613, 1, SK, 0.5), sdp = (px) => (px * SK) / 64;
+const ST_PED = [box(-17, 17, 0.566, 0.66, 0, 8, NS), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, NS)];
+const ST_EDGE = box(-1.5, 1.5, 0.613 - sdp(15), 0.613 + sdp(15), 38, 95, NS), ST_FACE = card(-15, 15, 0.613, 38, 95, { t: 3 });
 defineSolid('statue', {
-  k: SK, piv: pivOf(0.613, 1, SK, 0.5),
-  parts: [box(-17, 17, 0.566, 0.66, 0, 8, NS), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, NS), lathe(0, 0.613, [[38, 15], [93, 15]], { n: 10 })],
+  k: SK, piv: SP,
+  parts: [...ST_PED, ST_FACE, ST_EDGE],
+  views: { e: { k: SK, piv: SP, parts: [...ST_PED, ST_EDGE, ST_FACE] } },
+  state: (o) => ((o.v | 0) & 1 ? 'b' : 'a'), variants: { a: { e: 'statue_0' }, b: { e: 'statue_1' } },
   blob: [0.75, 0.75, 0.5, 0.4],
 });
 
