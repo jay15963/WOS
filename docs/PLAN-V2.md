@@ -850,5 +850,27 @@ casco, puro: as regras e o modelo 3D usam o mesmo), `src/game/mut/boats.js` (int
   `juice.js` / `fx/status.js` / `fx/audio.js` / `fx/audioDirector.js` / `fx/waterline.js` (seco a bordo), `decks.js`
   (não levanta quem vai no barco), `mobs.js` (animais a bordo não pensam), `art/facing.js` (`seat.ang`),
   `art/faces/solid.js` (`move`), `net/snapshot.js`, `net/digest.js`, `systems.js`, `art/contract.js`, `art/faces/index.js`.
-- **Lacunas:** sem correnteza nos rios; os remos atravessam um pilar de ponte; o radar não mostra barcos; a roda de proa
-  pode passar um pouco acima do deque de uma ponte baixa; um animal grande (vaca) encosta nos vizinhos dentro do barco.
+- **Depois (sobras feitas):**
+  - **Correnteza:** nos rios (o `flowX / flowY` do gerador do mundo: 0,35–1 no rio, 0 em lagos) o barco com alguém nos
+    remos desce devagar com a água (0,42 tile/s por unidade de correnteza: ~0,3 tile/s no meio do rio) — os remos e o
+    arrasto valem em relação à água, então quem rema vence fácil (rio acima ~0,9 tile/s de ré, rio abaixo ~2,8). Barco
+    vazio fica amarrado onde ficou (não some rio abaixo).
+  - **Ré de verdade:** o direcional mais de ~125° atrás da proa rema de ré com a popa virando para ele (reto para trás:
+    sem virar) — num rio estreito o barco sai de ré em vez de atravessar e entalar.
+  - **Pilares de ponte:** o casco respeita as paredes da água debaixo das pontes (`world.railU`: os cavaletes de apoio e
+    as faces de pedra das cabeceiras) — passa entre os cavaletes, encostando ajeita a proa até ±0,1 rad para alinhar com
+    o vão. Os **remos se recolhem** (ao longo da borda) do lado em que atravessariam a margem, um trapiche, uma ponte ou
+    um pilar; o outro lado continua remando.
+  - **Debaixo da ponte:** o barco inteiro (casco, roda de proa, remos) ganha o mesmo viés de profundidade dos que vão
+    nele enquanto alguma parte está sob um deque (`b._ub`): a ponte o cobre; a roda de proa ficou mais baixa (+0,08).
+  - **Animais arrumados:** os animais ficam em fila no meio do barco, **atravessados** (cabeças para um lado e para o
+    outro), cada um com o espaço da espécie (vaca 0,6 × 1,35, ovelha 0,48 × 0,95, porco 0,48 × 0,9, galinha 0,32 × 0,42;
+    filhotes × 0,6) nos trechos que nenhum jogador sentado ocupa, os maiores na parte mais larga — a mesma arrumação em
+    todos os clientes (`Boats.layout`). A regra dos 6 lugares não muda.
+  - **Radar / mapa:** um barquinho de madeira na direção da proa (borda verde-azulada no seu).
+  - **Esteira mais visível** em água rasa clara: um vale mais escuro sob cada crista de espuma e anéis abrindo atrás da
+    popa.
+  - Lobos não caçam animais amarrados (`ai.js isPrey`), então os que vão no barco ficam a salvo; jogadores encostados
+    na margem ainda podem ser mordidos.
+- **Lacunas:** a ponte em diagonal (outro trabalho) não existe; com 4 jogadores o lugar dos animais é o banco da frente
+  (2 animais).

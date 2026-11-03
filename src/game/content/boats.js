@@ -9,6 +9,7 @@ export const BOAT = {
   stern: -1.9, bow: 2.12,       // hull ends along its axis (tiles from the centre)
   speed: 2.6,                   // tiles/s at full stroke (walking: 4)
   back: 0.45,                   // × speed backing water (the stick behind the boat)
+  current: 0.42,                // tiles/s of drift per unit of river flow (world.flowX / flowY, worldgen: 0.35..1 on rivers, 0 on lakes)
   accel: 1.6,                   // tiles/s² while rowing
   turn: 1.3,                    // rad/s turning toward the stick / keys
   drag: 0.5, dragRow: 0.18,     // forward drag (1/s): it glides when the oars stop
@@ -22,6 +23,13 @@ export const BOAT = {
   playerOrder: [0, 5, 3, 4, 1, 2], // which free place a boarding player takes (the oars first)
   animalOrder: [1, 2, 3, 4, 5],    // animals never sit at the oars
 };
+// room an animal takes standing across the hull, by species: [thickness along the hull, length across it] (tiles; young:
+// × 0.6) — the animals stand in single file down the middle, in the stretches no seated player takes
+export const ANIMAL_ROOM = { cow: [0.6, 1.35], sheep: [0.48, 0.95], pig: [0.48, 0.9], chicken: [0.32, 0.42] };
+export function roomOf(m) {
+  const r = ANIMAL_ROOM[m?.species] || ANIMAL_ROOM.sheep, k = (m?.variant | 0) & 2 ? 0.6 : 1;
+  return [r[0] * k, r[1] * k];
+}
 
 // gunwale half-width along the hull (stations u → half-width)
 const HU = [-1.9, -1.5, -0.9, -0.2, 0.5, 1.1, 1.55, 1.85, 2.12];
@@ -73,6 +81,22 @@ export function hullFree(game, x, y, h, self = null, inset = 0) {
     const px = x + u * c + s * n, py = y + u * n - s * c;
     if (!boatable(w, Math.floor(px), Math.floor(py))) return false;
     if (boats) for (const o of boats.values()) if (o !== self && Math.abs(o.x - px) < 2.2 && Math.abs(o.y - py) < 2.2 && inHull(o.x, o.y, o.h, px, py)) return false;
+  }
+  // the walls at the water under a bridge (world.railU, game/decks.js: support bents, abutment faces): none inside the hull
+  const RU = w.railU;
+  if (RU) {
+    const x0 = Math.floor(x - 2.2), x1 = Math.floor(x + 2.2), y0 = Math.floor(y - 2.2), y1 = Math.floor(y + 2.2);
+    for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
+      if (!w.inBounds(tx, ty)) continue;
+      const b = RU[ty * w.W + tx];
+      if (!b) continue;
+      const g = 0.03 - inset; // (the host's check is a little more lenient: the driver's numbers are rounded)
+      for (let k = 0; k <= 4; k++) {
+        const f = k / 4;
+        if (((b & 1) && inHull(x, y, h, tx + f, ty, g)) || ((b & 4) && inHull(x, y, h, tx + f, ty + 1, g))
+          || ((b & 8) && inHull(x, y, h, tx, ty + f, g)) || ((b & 2) && inHull(x, y, h, tx + 1, ty + f, g))) return false;
+      }
+    }
   }
   return true;
 }

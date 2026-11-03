@@ -5075,6 +5075,8 @@ async function rowUntil(t, f, ex, ey, cond, ms) {
 }
 // on the far side of the crossing: nearer its far bank than its near one, never in deep water (shallows may link the
 // two banks somewhere upstream, so walking connectivity cannot tell the sides apart)
+// the boat's bow has reached the far bank of the crossing (an island / sandbar mid-river can be nearer before that)
+const bowAtFar = (site, b) => (b.x - site.far[0] - 0.5) * site.ex + (b.y - site.far[1] - 0.5) * site.ey > -2.9;
 const onFarBank = (f, site, x, y) => Math.hypot(x - site.far[0] - 0.5, y - site.far[1] - 0.5) < Math.hypot(x - site.bank[0] - 0.5, y - site.bank[1] - 0.5) - 1.5 && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
 
 def('B1', {
@@ -5124,12 +5126,13 @@ def('B1', {
     st.maxD = Math.max(st.maxD, Math.hypot(bH._x - bG._x, bH._y - bG._y));
   }, 50);
   const x0 = bH.x, y0 = bH.y;
-  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return L && onFarBank(G, site, L[0], L[1]); };
-  const ok = await rowUntil(t, G, ex, ey, crossed, 25000);
+  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return bowAtFar(site, bG) && L && onFarBank(G, site, L[0], L[1]); };
+  const relRow = A.holdMove(G, ex, ey); // (kept pressed against the far bank: the river's current would carry it off)
+  t.defer(relRow);
+  const ok = await t.tryWait(crossed, 25000);
   t.check(ok, 'the guest rows until the far bank is in reach', `boat ${f2(bG.x)},${f2(bG.y)} h ${f2(bG.h)}`);
   t.check(Math.hypot(bH.x - x0, bH.y - y0) > 1.5, 'the boat moved on the host (boat.pos)', `${f2(x0)},${f2(y0)} → ${f2(bH.x)},${f2(bH.y)}`);
-  await t.sleep(700);
-  t.check(Math.hypot(bH._x - bG._x, bH._y - bG._y) < 0.3, 'both draw it at the same spot once it settles', `host ${f2(bH._x)},${f2(bH._y)} guest ${f2(bG._x)},${f2(bG._y)}`);
+  await t.sleep(300);
   t.check(st.maxD < 2.5, 'drawn close together while rowing (latency only)', f2(st.maxD));
   t.check(!st.swim, 'nobody swims aboard');
   const hOnG = A.avatarOn(G, H.pid), gOnH = A.avatarOn(H, G.pid);
@@ -5137,9 +5140,12 @@ def('B1', {
   // off: the guest on the far bank; the host takes the oars, then gets off too
   G.game.boats.leave();
   await t.waitFor(() => !bH.seats.includes(G.pid) && !bG.seats.includes(G.pid), RT() + 1500, 'the guest got off (both)');
+  relRow();
   await t.sleep(250);
   t.check(!gp._boat && !gp.rooted && onFarBank(G, site, gp.x, gp.y), 'the guest stands on the far bank', `${f2(gp.x)},${f2(gp.y)}`);
   await t.waitFor(() => bH.seats[0] === H.pid && bG.seats[0] === H.pid, RT() + 800, 'the host took the oars (next passenger)');
+  await t.sleep(900);
+  t.check(Math.hypot(bH._x - bG._x, bH._y - bG._y) < 0.3, 'both draw it at the same spot (the new driver lets it drift)', `host ${f2(bH._x)},${f2(bH._y)} guest ${f2(bG._x)},${f2(bG._y)}`);
   H.game.boats.leave();
   await t.waitFor(() => !bH.seats.some(Boolean) && !bG.seats.some(Boolean), RT() + 1500, 'the host got off: the boat is empty on both');
   await t.sleep(250);
@@ -5203,13 +5209,16 @@ def('B2', {
   t.check(!r2.ok && /cheio/.test(r2.why || ''), 'the host cannot board: the boat is full', r2.why);
   // across, with the animals
   const x0 = bH.x, y0 = bH.y;
-  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return L && onFarBank(G, site, L[0], L[1]); };
-  const ok = await rowUntil(t, G, site.ex, site.ey, crossed, 25000);
+  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return bowAtFar(site, bG) && L && onFarBank(G, site, L[0], L[1]); };
+  const relRow = A.holdMove(G, site.ex, site.ey); // (kept pressed against the far bank: the river's current would carry it off)
+  t.defer(relRow);
+  const ok = await t.tryWait(crossed, 25000);
   t.check(ok, 'the guest rows across with its animals', `boat ${f2(bG.x)},${f2(bG.y)}`);
   await t.sleep(500);
   t.check(herd.every(inH) && Math.hypot(bH.x - x0, bH.y - y0) > 1.5, 'host: the animals moved with the boat', `${f2(x0)},${f2(y0)} → ${f2(bH.x)},${f2(bH.y)}`);
   G.game.boats.leave();
   await t.waitFor(() => !bH.pets.length && !bG.pets.length && !bH.seats.includes(G.pid), RT() + 1500, 'the guest and its animals got off (both)');
+  relRow();
   await t.sleep(400);
   const wH = H.game.world;
   t.check(herd.every((m) => m.tiedTo === G.pid && !m._boat && wH.liquidAt(Math.floor(m.x), Math.floor(m.y)) !== 2 && Math.hypot(m.x - gp.x, m.y - gp.y) < 4.5),

@@ -191,7 +191,7 @@ function hullParts() {
   // the foredeck: a little triangle of planks over the bow, and the stem post rising from it
   const fd = 1.62, Wd = halfW(fd) - T, Gd = sheer(fd) + 0.005, tip = 2.06, Gt = sheer(tip) + 0.005;
   out.push({ quad: [P3(-Wd, fd, Gd), P3(Wd, fd, Gd), P3(0.01, tip, Gt), P3(-0.01, tip, Gt)], uv: { q: U.deck }, ...SP });
-  out.push({ box: [-2.4, 2.4, vv(2.02), vv(2.16), 0, hp(sheer(2.12) + 0.13)], uv: { s: U.stem, n: U.stem, e: U.stem, w: U.stem, t: U.end }, ...SP });
+  out.push({ box: [-2.4, 2.4, vv(2.02), vv(2.16), 0, hp(sheer(2.12) + 0.08)], uv: { s: U.stem, n: U.stem, e: U.stem, w: U.stem, t: U.end }, ...SP });
   // thwarts on their posts (two posts on the long ones): the fore bench, the oars', the aft bench, the stern seat
   const thwart = (u, d) => {
     const w = halfW(u) - T - 0.006, h0 = BOAT.seatH - 0.035, h1 = BOAT.seatH;
@@ -244,11 +244,15 @@ export function drawBoat(B, A, b, t) {
   // the water darkens under the hull
   const bl = A.has('fx_blob') ? A.get('fx_blob') : null;
   if (bl && B.blob) B.blob.add(bl, b._x, b._y, 4.6 / bl.w, 1.5 / bl.h, 1, 1, 1, 0.42, 0, b._h - yaw);
+  // under a bridge (game/boats.js b._ub): the whole boat behind its deck, like the riders (the deck covers it as it passes)
+  const F = B.faces, ob = F ? F.bias : 0;
+  if (F && b._ub) F.bias = ob + UNDER;
   PROXY._boat = b;
   drawSolid(B, A, PROXY, t);
   PROXY._boat = null;
-  if (B.faces) oars(B.faces, S, b);
+  if (F) { oars(F, S, b); F.bias = ob; }
 }
+const UNDER = -1.5; // (= game/boats.js UNDER: the riders' bias under a deck)
 
 // ---- the oars: a thin bar from the handle through the oarlock out to the blade, as faces ----
 const UVT = [0, 0, 0, 0];
@@ -280,10 +284,13 @@ function oars(F, S, b) {
   for (const sd of [1, -1]) {
     PIV[0] = uo; PIV[1] = sd * (halfW(uo) - 0.02); PIV[2] = sheer(uo) + 0.05;
     // nobody at the oars: shipped along the gunwale; someone, not rowing: blades resting on the water; rowing: the stroke
+    // pulled in where the oar would go through a bank, a pier or under a bridge (game/boats.js b._oi, eased per side)
     let sw, tipH;
     if (!manned) { sw = -1.4; tipH = sheer(uo) + 0.06; }
     else { sw = -0.25 * (1 - k) + swing * k; tipH = 0.015 + lift * k + 0.02 * (1 - k); }
-    const out = manned ? 1.4 : 1.15, inb = manned ? 0.55 : 0.22;
+    const shp = manned ? (b._oi ? b._oi[sd > 0 ? 0 : 1] : 0) : 1;
+    if (manned && shp > 0) { sw += (-1.4 - sw) * shp; tipH += (sheer(uo) + 0.06 - tipH) * shp; }
+    const out = 1.4 + (1.15 - 1.4) * shp, inb = 0.55 + (0.22 - 0.55) * shp;
     const dh = tipH - PIV[2], hz = Math.sqrt(Math.max(0.05, out * out - dh * dh)) / out; // (horizontal share of its direction)
     const du = Math.sin(sw) * hz, ds = sd * Math.cos(sw) * hz, dz = dh / out;
     for (let j = 0; j < 3; j++) { const d = j === 0 ? du : j === 1 ? ds : dz; TIP[j] = PIV[j] + d * out; HAND[j] = PIV[j] - d * inb; BL0[j] = PIV[j] + d * (out - 0.4); }
@@ -294,7 +301,7 @@ function oars(F, S, b) {
     strip(F, S, BOAT_UV.oar, b, HAND, BL0, SIDE, 0.022, 1);
     strip(F, S, BOAT_UV.oar, b, HAND, BL0, UP, 0.022, lit * 0.85);
     // the blade: upright in the water during the drive, feathered flat on the recovery / at rest
-    const fe = manned ? (drive ? 0.15 : 0.85) * k + 0.8 * (1 - k) : 1;
+    const fe = (manned ? (drive ? 0.15 : 0.85) * k + 0.8 * (1 - k) : 1) * (1 - shp) + shp;
     BE[0] = SIDE[0] * fe; BE[1] = SIDE[1] * fe; BE[2] = 1 - fe;
     const el = Math.hypot(BE[0], BE[1], BE[2]) || 1; BE[0] /= el; BE[1] /= el; BE[2] /= el;
     strip(F, S, BOAT_UV.blade, b, BL0, TIP, BE, 0.085, 0.95);

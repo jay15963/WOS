@@ -19,7 +19,7 @@
 // the oars to the next passenger. Winter: frozen water holds the boat (it does not move).
 // Cosmetic per peer: the drawn pose, bobbing and rocking, the oars' stroke (from the drawn speed), the wake.
 
-import { BOAT, halfW, hullPt, inHull, hullNear, hullFree, launchPose } from './content/boats.js';
+import { BOAT, halfW, hullPt, inHull, hullNear, hullFree, launchPose, roomOf } from './content/boats.js';
 import { collides, facingFrom } from './physics.js';
 import { registerWork } from './gathering.js';
 import { allPlayers } from './players.js';
@@ -141,6 +141,37 @@ export class Boats {
   }
   // host: the launch of a finished boat blueprint → op args (boat.launch)
   launchArgs(o, by, extra = {}) { return launchArgs(this.game, o, by, extra); }
+
+  // where the animals stand: single file down the middle, across the hull, each taking the room of its species
+  // (content/boats.js roomOf), in the stretches no seated player takes, the biggest nearest the widest part; the same
+  // on every peer (shared seats / pets + species) -> [[u, s, across, side]] in b.pets order
+  layout(b) {
+    let key = '';
+    for (const q of b.seats) key += q ? '1' : '0';
+    const ents = b.pets.map((q) => this.petEnt(q[0]));
+    for (const m of ents) key += '|' + (m ? m.species + ((m.variant | 0) & 2 ? 'y' : '') : '?');
+    if (b._layK === key && b._lay) return b._lay;
+    const occ = [];
+    for (let k = 0; k < BOAT.room; k++) if (b.seats[k]) { const u = BOAT.places[k][0]; occ.push(u - 0.27, u + 0.27); }
+    const R = ents.map((m) => roomOf(m)), order = ents.map((m, i) => i).sort((i, j) => R[j][0] - R[i][0] || i - j);
+    const out = new Array(ents.length);
+    let n = 0;
+    for (const i of order) {
+      const [t, len] = R[i];
+      let at = null;
+      for (const u of LAY_U) {
+        if (u - t / 2 < LAY_LO || u + t / 2 > LAY_HI || 2 * halfW(u) * 1.1 < len) continue;
+        let free = true;
+        for (let k = 0; k < occ.length && free; k += 2) if (u + t / 2 + 0.02 > occ[k] && u - t / 2 - 0.02 < occ[k + 1]) free = false;
+        if (free) { at = u; break; }
+      }
+      if (at == null) { const p = BOAT.places[b.pets[i][2]] || BOAT.places[1]; out[i] = [p[0], p[1] * 0.7, false, 1]; continue; } // (no room left: its place)
+      occ.push(at - t / 2, at + t / 2);
+      out[i] = [at, 0, true, n++ % 2 ? -1 : 1];
+    }
+    b._layK = key; b._lay = out;
+    return out;
+  }
 
   // places taken (players and animals) / players aboard / the first free place for a player or an animal (-1: none)
   used(b) { let n = 0; for (const q of b.seats) if (q) n++; return n + b.pets.length; }
@@ -313,8 +344,34 @@ function bob(b, t, dt) {
   void dt;
 }
 
+// ---------- cosmetic: oars pulled in where they would go through a bank / a pier / under a bridge; the hull under a bridge ----------
+const OAR_SW = [-0.6, 0, 0.6], OAR_D = [0.55, 0.95, 1.35], HULL_U = [-1.85, -1.2, -0.6, 0, 0.6, 1.2, 1.95], HULL_S = [0, 0.55, -0.55];
+function oarRoom(w, b, dt) {
+  const oi = b._oi || (b._oi = [0, 0]), uo = BOAT.places[0][0], hw = halfW(uo), k = Math.min(1, dt * 5);
+  for (let j = 0; j < 2; j++) {
+    const sd = j ? -1 : 1;
+    let blocked = false;
+    for (const sw of OAR_SW) for (const d of OAR_D) {
+      if (blocked) break;
+      const [x, y] = hullPt(b._x, b._y, b._h, uo + Math.sin(sw) * d, sd * (hw + Math.cos(sw) * d)), tx = Math.floor(x), ty = Math.floor(y);
+      if (!w.inBounds(tx, ty)) { blocked = true; break; }
+      const i = ty * w.W + tx;
+      if (!w.water[i] || w.rock[i] || (w.deck && w.deck[i]) || w.solid[i]) blocked = true;
+    }
+    oi[j] += ((blocked ? 1 : 0) - oi[j]) * k;
+  }
+  let ub = false;
+  if (w.deck) for (const u of HULL_U) for (const s of HULL_S) {
+    if (ub) break;
+    const [x, y] = hullPt(b._x, b._y, b._h, u, s), tx = Math.floor(x), ty = Math.floor(y);
+    if (w.inBounds(tx, ty) && w.deck[ty * w.W + tx] === 2) ub = true;
+  }
+  b._ub = ub;
+}
+
 // ---------- the driver (owner side) ----------
-const WIGGLE = [0, 0.02, -0.02, 0.05, -0.05];
+const BACK_A = 2.2; // rad: the stick this far behind the bow backs the boat
+const WIGGLE = [0, 0.02, -0.02, 0.05, -0.05, 0.1, -0.1]; // (radians tried against a bank / a bridge pier: the hull lines up with the gap)
 function drive(game, B, b, C, dt) {
   const inp = game.input, w = game.world;
   if (C.b !== b) { C.b = b; C.x = b.x; C.y = b.y; C.h = b.h; C.vx = b.vx || 0; C.vy = b.vy || 0; C.w = 0; C.sx = NaN; C.sendT = 0; }
@@ -326,27 +383,34 @@ function drive(game, B, b, C, dt) {
     C.vx = C.vy = C.w = 0;
     if (mag > 0.2 && game.time - C.iceT > 4) { C.iceT = game.time; game.events.emit('error', { text: 'O barco está preso no gelo' }); }
   } else {
-    const c = Math.cos(C.h), n = Math.sin(C.h);
-    let vf = C.vx * c + C.vy * n, vl = -C.vx * n + C.vy * c;
+    // the river's current (worldgen flow: rivers only, lakes are still): the oars and the drag act on the speed
+    // through the water, so an idle boat drifts downstream and a rower easily beats it
+    const ci = w.inBounds(Math.floor(C.x), Math.floor(C.y)) ? w.idx(Math.floor(C.x), Math.floor(C.y)) : -1;
+    const cux = ci >= 0 && w.flowX ? w.flowX[ci] * BOAT.current : 0, cuy = ci >= 0 && w.flowY ? w.flowY[ci] * BOAT.current : 0;
+    const c = Math.cos(C.h), n = Math.sin(C.h), rvx = C.vx - cux, rvy = C.vy - cuy;
+    let vf = rvx * c + rvy * n, vl = -rvx * n + rvy * c;
     let turn = 0;
     if (mag > 0.15) {
       const want = Math.atan2(my, mx), d = angDiff(want, C.h);
-      const rate = Math.min(BOAT.turn, Math.abs(d) * 3.2 + 0.15);
-      turn = Math.sign(d) * Math.min(Math.abs(d), rate * dt);
-      // ahead: pull; well behind: back water (slower) while it turns — wedged in a narrow river it backs straight out
-      const cd = Math.cos(d);
-      vf += BOAT.accel * mag * (cd > 0 ? cd : cd < -0.35 ? cd * 0.6 : 0) * dt;
+      // the stick well behind the boat (> ~125°): back water, the stern turning toward it (straight back: no turn, so a
+      // boat in a narrow river backs out instead of wedging itself across); else turn the bow toward it and pull
+      const back = Math.abs(d) > BACK_A, dt2 = back ? angDiff(want + Math.PI, C.h) : d;
+      const rate = Math.min(BOAT.turn, Math.abs(dt2) * 3.2 + 0.15);
+      turn = Math.sign(dt2) * Math.min(Math.abs(dt2), rate * dt);
+      const cd = Math.cos(dt2);
+      vf += BOAT.accel * mag * (back ? -BOAT.back * Math.max(0, cd) : Math.max(0, cd)) * dt;
       C.rowing = true;
     }
     vf *= Math.exp(-dt * (C.rowing ? BOAT.dragRow : BOAT.drag));
     vl *= Math.exp(-dt * BOAT.side);
     vf = Math.max(-BOAT.speed * BOAT.back, Math.min(BOAT.speed * Math.max(0.35, mag), vf));
     if (Math.abs(vf) < 0.01 && !C.rowing) vf = 0;
+    if (Math.abs(vl) < 0.01 && !C.rowing) vl = 0;
     // turn (kept when the turned hull would hit something)
     if (turn && hullFree(game, C.x, C.y, C.h + turn, b)) C.h += turn; else turn = 0;
     C.w = turn / Math.max(dt, 1e-3);
     const c2 = Math.cos(C.h), n2 = Math.sin(C.h);
-    C.vx = c2 * vf - n2 * vl; C.vy = n2 * vf + c2 * vl;
+    C.vx = c2 * vf - n2 * vl + cux; C.vy = n2 * vf + c2 * vl + cuy;
     // move; against a bank it eases its heading a little (the hull lines up with a channel) or slides along; a hard
     // knock stops it
     const nx = C.x + C.vx * dt, ny = C.y + C.vy * dt;
@@ -393,18 +457,23 @@ const PELVIS = 0.476; // (art/faces/solid.js: the sitting body's bottom above it
 const SEAT_Q = [0, 0, 0];
 const SEAT_FK = { seatAt(S) { SEAT_Q[0] = S.x; SEAT_Q[1] = S.y; SEAT_Q[2] = S.h - PELVIS - 0.13; return SEAT_Q; } };
 const isBoatPose = (e) => !!e.pose?.o?._boatSeat;
-// riders / animals under a finished bridge: drawn behind its deck (game.js depth bias) — they pass under it
-const UNDER = -1.6;
+// riders / animals under a finished bridge: drawn behind its deck (game.js depth bias) — they pass under it, as the hull
+// (art/faces/solidBoat.js: the same bias on its faces while any of it is under a bridge, b._ub)
+export const UNDER = -1.5;
 const underDeck = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return !!w.deck && w.inBounds(tx, ty) && w.deck[ty * w.W + tx] === 2; };
-// an animal stands on the floor at its place, facing the bow (a big one a little toward the middle of the hull)
-function placePet(B, b, m, k) {
-  const [u, s0] = BOAT.places[k] || BOAT.places[1];
-  const s = s0 * ((m.scale || 1) > 1.15 || m.species === 'cow' ? 0.7 : 1);
+// an animal stands on the floor at its spot of the layout (Boats.layout: across the hull, heads turned to either side)
+function placePet(B, b, m, L) {
+  const [u, s, across, dir] = L;
   const [x, y, dh] = B.spot(b, u, s, BOAT.floorH);
   m.x = x; m.y = y; m._dh = dh; m._boat = b; m.moving = false;
   m._zb = underDeck(B.game.world, x, y) ? UNDER : 0;
-  m.facing = facingFrom(Math.cos(b._h), Math.sin(b._h), m.facing);
+  if (across) m.facing = facingFrom(dir * Math.sin(b._h), -dir * Math.cos(b._h), m.facing);
+  else m.facing = facingFrom(Math.cos(b._h), Math.sin(b._h), m.facing);
 }
+// candidate spots down the middle of the hull, the widest first
+const LAY_LO = -1.72, LAY_HI = 1.78, LAY_U = [];
+for (let u = LAY_LO; u <= LAY_HI + 1e-6; u += 0.02) LAY_U.push(Math.round(u * 100) / 100);
+LAY_U.sort((a, b) => Math.abs(a - 0.15) - Math.abs(b - 0.15) || a - b);
 function placeAll(game, B, b, hostSide) {
   for (let k = 0; k < BOAT.room; k++) {
     const pid = b.seats[k];
@@ -412,10 +481,12 @@ function placeAll(game, B, b, hostSide) {
     const e = B.riderEnt(pid);
     if (e && !e.dead) placeRider(B, b, e, k);
   }
-  for (const q of b.pets) {
-    const m = B.petEnt(q[0]);
+  if (!b.pets.length) return;
+  const L = B.layout(b);
+  for (let i = 0; i < b.pets.length; i++) {
+    const m = B.petEnt(b.pets[i][0]);
     if (!m || m.dead) continue;
-    placePet(B, b, m, q[2]);
+    placePet(B, b, m, L[i]);
     if (hostSide) { m.state = 'idle'; m.stateT = 2; }
   }
 }
@@ -458,6 +529,7 @@ export function boatsSystem() {
         b._vx = dt > 0 ? (b._x - x0) / dt : 0; b._vy = dt > 0 ? (b._y - y0) / dt : 0;
         b._lx = b._x; b._ly = b._y; b._lh = b._h;
         bob(b, game.time, dt);
+        oarRoom(game.world, b, dt);
         // the oars: a stroke while it moves or turns with someone at them
         const rowing = !!b.seats[0] && (b._spd > 0.25 || Math.abs(b._turn) > 0.25) && !game.world.frozen;
         b._rowK = (b._rowK || 0) + ((rowing ? 1 : 0) - (b._rowK || 0)) * Math.min(1, dt * 4);
@@ -654,6 +726,7 @@ function wake(game, B, dt) {
         const [x, y] = hullPt(b._x, b._y, b._h, BOAT.stern - 0.05, (j - 0.5) * 0.4);
         F.push({ k: 1, x, y, vx: 0, vy: 0, t: 0, life: 2, a: 0.7 * k, s: 0.55, h: b._h });
       }
+      if (b._wn % 5 === 0) { const [x, y] = hullPt(b._x, b._y, b._h, BOAT.stern - 0.3, 0); F.push({ k: 4, x, y, vx: 0, vy: 0, t: 0, life: 1.8, a: 0.55 * k, s: 1, h: b._h }); } // (rings spreading behind it)
     }
     // idle: a slow ring around the hull now and then
     b._rT = (b._rT || 0) - dt;
@@ -674,10 +747,16 @@ function drawWake(game, Bt) {
   const ring = A.has('fx_ripple') ? A.get('fx_ripple') : A.has('fx_ring') ? A.get('fx_ring') : null, soft = A.has('fx_soft') ? A.get('fx_soft') : null;
   for (const f of F) {
     const u = f.t / f.life, fade = (1 - u) * (u < 0.12 ? u / 0.12 : 1);
+    // (foam reads on bright shallow water too: a darker trough under each white crest)
+    if ((f.k === 0 || f.k === 1) && soft) {
+      const L = f.k ? f.s + u * 1.1 : f.s + u * 0.7, T = f.k ? f.s * 0.8 + u * 0.8 : 0.2 + u * 0.16;
+      Bt.ground.add(soft, f.x, f.y, (L * 1.3) / soft.w, (T * 1.6 + 0.08) / soft.h, 0.05, 0.2, 0.24, 0.4 * f.a * fade, 0, f.h, 0, 1, 1);
+    }
     if (f.k === 0 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 0.7) / soft.w, (0.2 + u * 0.16) / soft.h, 1, 1, 1, f.a * fade, 0, f.h, 0, 1, 1);
     else if (f.k === 1 && soft) Bt.ground.add(soft, f.x, f.y, (f.s + u * 1.1) / soft.w, (f.s * 0.8 + u * 0.8) / soft.h, 1, 1, 1, f.a * fade, 0, f.h, 0, 1, 1);
     else if (f.k === 2 && ring) Bt.ground.add(ring, f.x, f.y, (4.3 + u * 1.4) / ring.w, (1.5 + u * 1.2) / ring.h, 0.85, 0.95, 1, f.a * fade, 0, f.h);
     else if (f.k === 3 && ring) Bt.ground.add(ring, f.x, f.y, (0.25 + u * 0.8) / ring.w, (0.25 + u * 0.8) / ring.h, 0.9, 0.97, 1, f.a * fade, 0, 0);
+    else if (f.k === 4 && ring) Bt.ground.add(ring, f.x, f.y, (0.5 + u * 1.5) / ring.w, (0.4 + u * 1.1) / ring.h, 0.95, 1, 1, f.a * fade, 0, f.h, 0, 1, 1);
   }
 }
 
