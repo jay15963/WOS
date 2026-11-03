@@ -170,6 +170,7 @@ export class World {
     this.rock[i] = 0;
     this.ore[i] = 0;
     this.ground[i] = G.STONE;
+    if (this.groundLook) this.groundLook[i] = G.STONE;
     // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
     if (this.height.any) {
       const L = this.height, lo = L.tileMin(tx, ty), CW = this.W + 1, cut = [];
@@ -412,9 +413,11 @@ export class World {
     x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(this.W - 1, x1); y1 = Math.min(this.H - 1, y1);
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const i = this.idx(x, y), o = i * 4;
-      this.tileData[o] = this.ground[i];
+      // (?planet=1: the planet's own ground / rock looks — 8 snow … 13 dry, 5 basalt, 6 sandstone — over the classic ids
+      // the game plays with)
+      this.tileData[o] = this.groundLook ? this.groundLook[i] : this.ground[i];
       this.tileData[o + 1] = (x * 73 + y * 151) & 255;
-      this.tileData[o + 2] = this.rockType[i];
+      this.tileData[o + 2] = this.rockLook ? this.rockLook[i] : this.rockType[i];
       this.tileData[o + 3] = this.ore[i];
       this.field2[o] = clamp(this.lush[i] * 255, 0, 255);
       this.field2[o + 1] = clamp(128 + this.flowX[i] * 127, 0, 255);

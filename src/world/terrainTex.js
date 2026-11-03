@@ -671,6 +671,212 @@ function marble(n, B, seed) {
   return T.bytes();
 }
 
+// ---------------------------------------------------------------- the planet's own grounds and rocks
+// (layers 12..19, painted only when the planet is played: generateGroundTextures(true))
+// wind-packed snow: soft drifts, sastrugi ridges across the wind, blue hollows, glinting grains, a few stones
+function snowGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.9, 0.915, 0.94], 0.5);
+  T.mod(B.view('macro', 4, 3, 0.5, 71, 313), 0.035, [0.97, 0.99, 1.03], 0.35);
+  const sa = anisoField(n, 3, 14, 3, 0.55, R), w = B.view('patch', 6, 3, 0.5, 141, 37);
+  const { r, g, b, h } = T;
+  for (let i = 0; i < n * n; i++) {
+    const v = sa[i] + w[i] * 0.4, ridge = smooth(0.55, 0.95, 1 - Math.abs(v) * 2.4);
+    h[i] += v * 0.22 + ridge * 0.1;
+    // the lee of each ridge a little bluer and darker, the crest bright
+    const k = 1 + ridge * 0.03 - smooth(0.0, 0.35, -v) * 0.03;
+    r[i] *= k * (1 - 0.015 * smooth(0.1, 0.4, -v)); g[i] *= k; b[i] *= k * (1 + 0.01 * smooth(0.1, 0.4, -v));
+  }
+  T.mod(B.view('grain', 96, 3, 0.6, 51, 9), 0.018, null, 0.04);
+  for (let k = 0; k < 2600; k++) T.disc(R() * n, R() * n, 0.5 + R() * 0.5, R() < 0.6 ? [0.97, 0.98, 1.0] : [0.78, 0.82, 0.9], 0.55);
+  for (let k = 0; k < 9; k++) { const g2 = 0.38 + R() * 0.12; T.pebble(R() * n, R() * n, 1.4 + R() * 2.4, [g2, g2 * 0.98, g2 * 1.02], { h: 0.62, rim: 0.4, shadow: 0.12, flat: 0.5 }); }
+  return T.bytes();
+}
+
+// glacier ice: blue-white, wind-polished plates, deep blue cracks with lit lips, trapped bubbles, snow dust
+function iceGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.66, 0.78, 0.85], 0.45);
+  T.mod(B.view('macro', 4, 3, 0.5, 222, 17), 0.08, [0.95, 1.0, 1.04], 0.2);
+  const wx = B.view('mid', 16, 3, 0.55, 33, 99), wy = B.view('mid', 16, 3, 0.55, 199, 11, true);
+  for (let i = 0; i < wx.length; i++) { wx[i] *= 16; wy[i] *= 16; }
+  const W = worley(n, 4, R, 0.9, wx, wy);
+  // only some plate edges crack (long wavy crevasses), the rest is smooth blue ice with banding (foliation)
+  const cm = B.view('macro', 4, 3, 0.5, 97, 410, true), fo = anisoField(n, 2, 10, 3, 0.55, R);
+  const { r, g, b, h } = T;
+  for (let i = 0; i < n * n; i++) {
+    const idv = W.id[W.cell[i]], e = W.e[i], on = smooth(-0.05, 0.12, cm[i]);
+    const crack = (1 - smooth(0.004, 0.022, e)) * on, lip = smooth(0.022, 0.045, e) * (1 - smooth(0.045, 0.09, e)) * on;
+    const k = (1 + (idv - 0.5) * 0.06 + fo[i] * 0.05) * (1 - 0.5 * crack) * (1 + 0.1 * lip);
+    r[i] *= k * (1 - 0.25 * crack); g[i] *= k * (1 - 0.08 * crack); b[i] *= k;
+    h[i] += (idv - 0.5) * 0.06 + fo[i] * 0.08 - crack * 0.3;
+  }
+  // trapped air (pale specks), then drifts of snow dust in patches
+  for (let k = 0; k < 1400; k++) T.disc(R() * n, R() * n, 0.5 + R() * 1.1, [0.82, 0.9, 0.95], 0.35);
+  const sp = B.view('patch', 6, 3, 0.5, 377, 211, true), m = new Float32Array(n * n);
+  const fine = B.view('grain', 96, 3, 0.6, 7, 77);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.15, 0.45, sp[i] + fine[i] * 0.3) * 0.75;
+  T.paint(m, [0.88, 0.91, 0.95], 0.56, 0.6);
+  return T.bytes();
+}
+
+// volcanic ash and cinders: near-black grit, rust-red scoria, pale pumice, wind-rippled
+function ashGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.215, 0.2, 0.195], 0.45);
+  T.mod(B.view('macro', 4, 3, 0.5, 81, 404), 0.12, [1.06, 1.0, 0.95], 0.2);
+  T.mod(B.view('mid', 16, 3, 0.55, 19, 91), 0.08, null, 0.15);
+  // oxidised patches (rust brown), fine grit
+  const ox = B.view('patch', 6, 3, 0.5, 199, 77), m = new Float32Array(n * n);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.2, 0.5, ox[i]) * 0.45;
+  T.paint(m, [0.33, 0.22, 0.18], 0.5, 0.2);
+  const w = B.view('patch', 6, 3, 0.5, 23, 330), rip = new Float32Array(n * n), K = (2 * Math.PI) / n;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const i = y * n + x; rip[i] = Math.sin((x * 14 + y * 5) * K + w[i] * 6) * smooth(-0.3, 0.2, -ox[i]); }
+  T.mod(rip, 0.05, null, 0.1);
+  for (let k = 0; k < 3400; k++) { const t = R(); T.disc(R() * n, R() * n, 0.5 + R() * 0.8, t < 0.5 ? [0.12, 0.11, 0.11] : t < 0.85 ? [0.32, 0.3, 0.29] : [0.42, 0.27, 0.2], 0.55); }
+  // scoria lumps (vesicular, dark red-brown) and a few pale pumice stones
+  for (let k = 0; k < 300; k++) {
+    const t = R(), c = t < 0.55 ? [0.2, 0.17, 0.16] : t < 0.85 ? [0.36, 0.22, 0.17] : [0.62, 0.6, 0.55];
+    const v = 0.85 + R() * 0.3;
+    T.pebble(R() * n, R() * n, 1.4 + Math.pow(R(), 1.8) * 4, [c[0] * v, c[1] * v, c[2] * v], { h: 0.7 + R() * 0.2, rim: 0.55, shadow: 0.3 });
+  }
+  for (let k = 0; k < 500; k++) T.disc(R() * n, R() * n, 0.5 + R() * 0.4, [0.08, 0.075, 0.075], 0.6, -0.04);
+  return T.bytes();
+}
+
+// salt flat: bright crust in polygon plates with raised white rims, greyer plates, brine stains
+function saltGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.92, 0.91, 0.88], 0.4);
+  T.mod(B.view('macro', 4, 3, 0.5, 33, 133), 0.04, [1.0, 0.99, 0.97], 0.15);
+  const wx = B.view('mid', 16, 3, 0.55, 77, 7), wy = B.view('mid', 16, 3, 0.55, 7, 177, true);
+  for (let i = 0; i < wx.length; i++) { wx[i] *= 9; wy[i] *= 9; }
+  const W = worley(n, 6, R, 0.75, wx, wy);
+  const { r, g, b, h } = T;
+  for (let i = 0; i < n * n; i++) {
+    const idv = W.id[W.cell[i]], e = W.e[i];
+    const rim = 1 - smooth(0.0, 0.07, e), groove = 1 - smooth(0.0, 0.012, e);
+    const plate = (1 + (idv - 0.5) * 0.06) * (0.97 - 0.04 * smooth(0.1, 0.4, e));
+    r[i] = r[i] * plate + (0.98 - r[i]) * rim * 0.75; g[i] = g[i] * plate + (0.975 - g[i]) * rim * 0.75; b[i] = b[i] * plate + (0.96 - b[i]) * rim * 0.75;
+    r[i] *= 1 - groove * 0.1; g[i] *= 1 - groove * 0.095; b[i] *= 1 - groove * 0.085;
+    h[i] += rim * 0.32 - groove * 0.2 + (idv - 0.5) * 0.06;
+  }
+  const st = B.view('patch', 6, 3, 0.5, 255, 66, true), m = new Float32Array(n * n);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.3, 0.6, st[i]) * 0.3;
+  T.paint(m, [0.78, 0.72, 0.62], null);
+  T.mod(B.view('grain', 96, 3, 0.6, 333, 3), 0.03, null, 0.05);
+  for (let k = 0; k < 1800; k++) T.disc(R() * n, R() * n, 0.4 + R() * 0.6, R() < 0.7 ? [1.0, 1.0, 0.99] : [0.7, 0.68, 0.64], 0.5);
+  return T.bytes();
+}
+
+// red clay / laterite: mottled brick-red and ochre, shallow rills, drying cracks, ironstone pebbles
+function clayGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.6, 0.33, 0.21], 0.45);
+  T.mod(B.view('macro', 4, 3, 0.5, 404, 40), 0.1, [1.0, 0.92, 0.85], 0.15);
+  const mo = B.view('patch', 6, 3, 0.5, 66, 260), m = new Float32Array(n * n);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.1, 0.45, mo[i]) * 0.55;
+  T.paint(m, [0.7, 0.45, 0.25], 0.5, 0.3);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.2, 0.5, -mo[i]) * 0.4;
+  T.paint(m, [0.48, 0.24, 0.17], 0.4, 0.3);
+  T.mod(B.view('grain', 96, 3, 0.6, 140, 40), 0.07, null, 0.1);
+  // rills: thin wavy channels running down (darker, low)
+  const rl = anisoField(n, 6, 3, 3, 0.5, R), rm = B.view('mid', 16, 3, 0.55, 90, 290);
+  for (let i = 0; i < n * n; i++) { const c = (1 - smooth(0.0, 0.035, Math.abs(rl[i]))) * smooth(0.0, 0.3, rm[i]); T.r[i] *= 1 - 0.1 * c; T.g[i] *= 1 - 0.12 * c; T.b[i] *= 1 - 0.1 * c; T.h[i] -= 0.1 * c; }
+  const Wc = worley(n, 10, R, 0.9);
+  for (let i = 0; i < n * n; i++) {
+    const c = (1 - smooth(0.008, 0.035, Wc.e[i])) * smooth(0.0, 0.3, mo[i] + 0.1);
+    if (c <= 0) continue;
+    const k = 1 - 0.35 * c; T.r[i] *= k; T.g[i] *= k; T.b[i] *= k; T.h[i] -= c * 0.15;
+  }
+  for (let k = 0; k < 2200; k++) T.disc(R() * n, R() * n, 0.5 + R() * 0.8, R() < 0.5 ? [0.4, 0.2, 0.13] : [0.74, 0.5, 0.32], 0.5);
+  for (let k = 0; k < 110; k++) { const v = 0.8 + R() * 0.35; T.pebble(R() * n, R() * n, 1.3 + Math.pow(R(), 1.7) * 3, [0.36 * v, 0.2 * v, 0.14 * v], { h: 0.75, rim: 0.5, shadow: 0.3 }); }
+  return T.bytes();
+}
+
+// dry hardpan / desert pavement / steppe dust: pale tan crust, varnished pebbles, cracked patches, straw bits
+function dryGround(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.66, 0.565, 0.43], 0.42);
+  T.mod(B.view('macro', 4, 3, 0.5, 9, 250), 0.08, [1.0, 0.95, 0.88], 0.15);
+  T.mod(B.view('mid', 16, 3, 0.55, 260, 140), 0.05, null, 0.12);
+  T.mod(B.view('grain', 96, 3, 0.6, 18, 288), 0.08, null, 0.12);
+  // crusted, cracked patches (paler) and darker dusty hollows
+  const cp = B.view('patch', 6, 3, 0.5, 120, 320, true), m = new Float32Array(n * n);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.15, 0.4, cp[i]) * 0.5;
+  T.paint(m, [0.74, 0.66, 0.53], 0.36, 0.3);
+  const Wc = worley(n, 14, R, 0.9);
+  for (let i = 0; i < n * n; i++) {
+    const c = (1 - smooth(0.008, 0.03, Wc.e[i])) * smooth(0.1, 0.35, cp[i]);
+    if (c <= 0) continue;
+    const k = 1 - 0.3 * c; T.r[i] *= k; T.g[i] *= k; T.b[i] *= k; T.h[i] -= c * 0.12;
+  }
+  for (let k = 0; k < 2600; k++) T.disc(R() * n, R() * n, 0.5 + R() * 0.8, R() < 0.5 ? [0.52, 0.43, 0.32] : [0.78, 0.7, 0.57], 0.45);
+  // desert pavement: small dark-varnished and pale pebbles, denser in the hollows
+  const cols = [[0.42, 0.3, 0.22], [0.5, 0.4, 0.3], [0.62, 0.55, 0.45], [0.34, 0.26, 0.2], [0.7, 0.64, 0.55]];
+  for (let k = 0; k < 560; k++) {
+    const x = R() * n, y = R() * n;
+    if (cp[Math.floor(y) * n + Math.floor(x)] > 0.25 && R() < 0.7) continue;
+    const c = cols[Math.floor(R() * cols.length)], v = 0.88 + R() * 0.24;
+    T.pebble(x, y, 1.2 + Math.pow(R(), 1.8) * 3.2, [c[0] * v, c[1] * v, c[2] * v], { h: 0.7, rim: 0.5, shadow: 0.32 });
+  }
+  // dry straw bits
+  for (let k = 0; k < 160; k++) { const x = R() * n, y = R() * n, a = R() * 6.28, l = 2.5 + R() * 4; T.line(x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 0.35, R() < 0.5 ? [0.8, 0.72, 0.5] : [0.62, 0.55, 0.38], 0.7, 0.55); }
+  return T.bytes();
+}
+
+// basalt: dark grey columns seen from the top (hexagon-ish joints), vesicles, rusty lichen
+function basalt(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.25, 0.25, 0.265], 0.5);
+  T.mod(B.view('macro', 4, 3, 0.5, 55, 155), 0.1, [1, 1, 1.03], 0.25);
+  const bx = B.view('mid', 16, 3, 0.55, 410, 70), by = B.view('mid', 16, 3, 0.55, 70, 410, true);
+  for (let i = 0; i < bx.length; i++) { bx[i] *= 10; by[i] *= 10; }
+  const W = worley(n, 6, R, 0.55, bx, by), jm = B.view('macro', 4, 3, 0.5, 260, 260);
+  const { r, g, b, h } = T;
+  for (let i = 0; i < n * n; i++) {
+    const idv = W.id[W.cell[i]], e = W.e[i], on = 0.35 + 0.65 * smooth(-0.15, 0.2, jm[i]); // (joints weathered away in places)
+    const joint = (1 - smooth(0.01, 0.045, e)) * on, bev = smooth(0.045, 0.1, e) * (1 - smooth(0.1, 0.2, e)) * on;
+    const tilt = (Math.cos(idv * 6.28) * W.ox[i] + Math.sin(idv * 6.28) * W.oy[i]) * 0.5;
+    const k = (1 + (idv - 0.5) * 0.16) * (1 - 0.55 * joint) * (1 + 0.08 * bev);
+    r[i] *= k; g[i] *= k; b[i] *= k;
+    h[i] = clamp(0.5 + (idv - 0.5) * 0.3 + tilt * 0.3 - joint * 0.4 + bev * 0.05, 0, 1);
+  }
+  T.mod(B.view('grain', 96, 3, 0.6, 99, 19), 0.07, null, 0.04);
+  for (let k = 0; k < 900; k++) { const x = R() * n, y = R() * n, rr = 0.6 + R() * 1.1; T.disc(x + 0.4, y + 0.5, rr, [0.36, 0.36, 0.37], 0.35); T.disc(x, y, rr * 0.8, [0.1, 0.1, 0.11], 0.6, -0.08); }
+  lichen(T, n, B, R, [[0.62, 0.42, 0.2], [0.5, 0.52, 0.4]], 0.28);
+  return T.bytes();
+}
+
+// sandstone: warm orange-red with cross-bedded layers (cream / orange / red), facets, pits and dark varnish
+function sandstone(n, B, seed) {
+  const T = new Tex(n, seed), R = T.rand;
+  T.fill([0.74, 0.45, 0.28], 0.5);
+  T.mod(B.view('macro', 4, 3, 0.5, 150, 50), 0.08, [1, 0.95, 0.9], 0.25);
+  const wv = B.view('patch', 6, 3, 0.5, 44, 144), K = (2 * Math.PI) / n;
+  const { r, g, b, h } = T;
+  const band = [[1.12, 1.08, 0.98], [1.0, 0.92, 0.84], [0.92, 0.74, 0.66], [1.06, 0.95, 0.8], [0.86, 0.66, 0.6]];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const i = y * n + x;
+    // gently curving beds, cross-bedding inside them
+    const bed = (y * 12 + x * 2) / n + wv[i] * 1.6, bi = ((Math.floor(bed) % 5) + 5) % 5, bf = bed - Math.floor(bed);
+    const xb = Math.sin((x * 30 - y * 18) * K + bi * 1.3) * 0.5 + 0.5;
+    const c = band[bi], seam = 1 - smooth(0.0, 0.07, Math.min(bf, 1 - bf));
+    const k = (1 - 0.18 * seam) * (0.95 + 0.06 * xb);
+    r[i] *= c[0] * k; g[i] *= c[1] * k; b[i] *= c[2] * k;
+    h[i] += (bi - 2) * 0.03 + xb * 0.06 - seam * 0.12;
+  }
+  facets(T, n, B, R, { big: 3, small: 8, crack: 0.18, tilt: 0.8, smallK: 0.3, var1: 0.07 });
+  T.mod(B.view('grain', 96, 3, 0.6, 61, 261), 0.06);
+  // weathering pits (tafoni) and patches of dark desert varnish
+  for (let k = 0; k < 160; k++) { const x = R() * n, y = R() * n, rr = 1 + R() * 3; T.disc(x + 0.6, y + 0.8, rr * 1.15, [0.86, 0.6, 0.42], 0.3); T.disc(x, y, rr, [0.42, 0.24, 0.16], 0.55, -0.15); }
+  const vn = B.view('mid', 16, 3, 0.55, 300, 30, true), m = new Float32Array(n * n);
+  for (let i = 0; i < m.length; i++) m[i] = smooth(0.35, 0.6, vn[i]) * 0.4;
+  T.paint(m, [0.3, 0.2, 0.16]);
+  for (let k = 0; k < 1600; k++) T.disc(R() * n, R() * n, 0.5 + R() * 0.8, R() < 0.5 ? [0.9, 0.66, 0.46] : [0.5, 0.28, 0.18], 0.4);
+  return T.bytes();
+}
+
 const times = [];
 export const _layerTimes = () => times.map((t) => t.toFixed(0)).join(' ');
 export const texStats = { ms: 0, cached: false };
@@ -679,17 +885,20 @@ export const texStats = { ms: 0, cached: false };
 // Generation is deterministic, so the layers are cached per browser. The key hashes the source of
 // every generator function: editing any of them invalidates the cache automatically.
 // The read starts when this module is imported (main.js generates the world first, so it is
-// usually ready in time); the write happens a few seconds after boot.
+// usually ready in time); the write happens a few seconds after boot. The planet's 8 extra layers
+// (12..19) are cached apart ('extra'): the classic world never paints nor stores them.
 const DB = 'wos-cache', STORE = 'terrain';
-function srcHash() {
-  const fns = [fade, addOctave, fbmField, anisoField, worley, smooth, Bank, Tex, soil, sand, gravel, marsh, mud, stoneFloor,
-    forestFloor, facets, lichen, granite, limestone, slate, marble, generateGroundTextures];
+const BASE_FNS = () => [fade, addOctave, fbmField, anisoField, worley, smooth, Bank, Tex, soil, sand, gravel, marsh, mud, stoneFloor,
+  forestFloor, facets, lichen, granite, limestone, slate, marble, baseLayers];
+const EXTRA_FNS = () => [fade, addOctave, fbmField, anisoField, worley, smooth, Bank, Tex, facets, lichen, snowGround, iceGround, ashGround,
+  saltGround, clayGround, dryGround, basalt, sandstone, extraLayers];
+function srcHash(fns) {
   let h = 2166136261 >>> 0;
   const str = fns.map((f) => f.toString()).join('|') + TEX + LX + LY + LZ;
   for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
   return 'v1-' + h.toString(36);
 }
-let cacheKey = null, cacheHit = null;
+let cacheKey = null, cacheHit = null, extraKey = null, extraHit = null;
 function openDB() {
   return new Promise((res, rej) => {
     const r = indexedDB.open(DB, 1);
@@ -698,44 +907,36 @@ function openDB() {
     r.onerror = () => rej(r.error);
   });
 }
+const okLayers = (v, key, n) => v && v.key === key && v.layers && v.layers.length === n && v.layers.every((l) => l.length === TEX * TEX * 4);
 try {
   if (typeof indexedDB !== 'undefined' && typeof window !== 'undefined') {
-    cacheKey = srcHash();
+    cacheKey = srcHash(BASE_FNS()); extraKey = srcHash(EXTRA_FNS());
     openDB().then((db) => {
-      const g = db.transaction(STORE, 'readonly').objectStore(STORE).get('layers');
-      g.onsuccess = () => {
-        const v = g.result;
-        if (v && v.key === cacheKey && v.layers && v.layers.length === 12 && v.layers.every((l) => l.length === TEX * TEX * 4)) cacheHit = v.layers;
-        db.close();
-      };
-      g.onerror = () => db.close();
+      const tx = db.transaction(STORE, 'readonly'), st = tx.objectStore(STORE);
+      const g = st.get('layers'), e = st.get('extra');
+      g.onsuccess = () => { if (okLayers(g.result, cacheKey, 12)) cacheHit = g.result.layers; };
+      e.onsuccess = () => { if (okLayers(e.result, extraKey, 8)) extraHit = e.result.layers; };
+      tx.oncomplete = () => db.close();
+      tx.onerror = () => db.close();
     }).catch(() => {});
   }
 } catch { /* no cache */ }
 
-function storeCache(layers) {
-  if (!cacheKey) return;
+function storeCache(entry, key, layers) {
+  if (!key) return;
   setTimeout(() => {
     openDB().then((db) => {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put({ key: cacheKey, layers }, 'layers');
+      tx.objectStore(STORE).put({ key, layers }, entry);
       tx.oncomplete = () => db.close();
       tx.onerror = () => db.close();
     }).catch(() => {});
   }, 4000);
 }
 
-export function generateGroundTextures() {
-  const t00 = performance.now();
-  if (cacheHit) {
-    const c = cacheHit;
-    cacheHit = null;
-    texStats.ms = performance.now() - t00; texStats.cached = true;
-    return c;
-  }
-  const n = TEX, S = 9173;
-  const B = new Bank(n, 4242);
-  const gens = [
+const timed = (gens) => gens.map((g) => { const t0 = performance.now(); const r = g(); times.push(performance.now() - t0); return r; });
+function baseLayers(n, B, S) {
+  return timed([
     () => soil(n, B, S + 1, false),   // 0 soil
     () => soil(n, B, S + 2, true),    // 1 rich soil
     () => sand(n, B, S + 3),          // 2 sand
@@ -748,11 +949,38 @@ export function generateGroundTextures() {
     () => limestone(n, B, S + 12),    // 9 limestone
     () => slate(n, B, S + 13),        // 10 slate
     () => marble(n, B, S + 14),       // 11 marble
-  ];
+  ]);
+}
+// the planet's grounds (ids 8..13 -> layers 12..17) and rocks (5 basalt, 6 sandstone -> 18, 19)
+function extraLayers(n, B, S) {
+  return timed([
+    () => snowGround(n, B, S + 21),   // 12 snow
+    () => iceGround(n, B, S + 22),    // 13 glacier ice
+    () => ashGround(n, B, S + 23),    // 14 volcanic ash
+    () => saltGround(n, B, S + 24),   // 15 salt crust
+    () => clayGround(n, B, S + 25),   // 16 red clay
+    () => dryGround(n, B, S + 26),    // 17 dry hardpan
+    () => basalt(n, B, S + 27),       // 18 basalt
+    () => sandstone(n, B, S + 28),    // 19 sandstone
+  ]);
+}
+
+// 12 layers (0..7 ground, 8..11 rock); planet = true adds the planet's 8 (12..19)
+export function generateGroundTextures(planet = false) {
+  const t00 = performance.now();
+  const n = TEX, S = 9173;
+  let B = null;
   times.length = 0;
-  const layers = gens.map((g) => { const t0 = performance.now(); const r = g(); times.push(performance.now() - t0); return r; });
-  texStats.ms = performance.now() - t00; texStats.cached = false;
-  storeCache(layers);
+  let layers = cacheHit, cached = !!cacheHit;
+  cacheHit = null;
+  if (!layers) { B = new Bank(n, 4242); layers = baseLayers(n, B, S); storeCache('layers', cacheKey, layers); }
+  if (planet) {
+    let ex = extraHit;
+    extraHit = null;
+    if (!ex) { cached = false; ex = extraLayers(n, B || new Bank(n, 4242), S); storeCache('extra', extraKey, ex); }
+    layers = layers.concat(ex);
+  }
+  texStats.ms = performance.now() - t00; texStats.cached = cached; texStats.layers = layers.length;
   return layers;
 }
 

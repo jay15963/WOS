@@ -8,21 +8,15 @@ import { generatePlanet } from './macro.js';
 import { assembleWindow } from './window.js';
 import { findSpawn } from './spawn.js';
 import { BIOME_LIST, GROUND_CLASSIC, ROCK_CLASSIC } from './biomes.js';
+import { floraObject, regrowV, FLORA_DECOR } from './flora.js';
 import { CHUNK, CHH } from './consts.js';
 import { BIOMES, BIOME_ID } from '../worldgen.js';
 import { mulberry32 } from '../../engine/noise.js';
 
 const sq = (v) => v * v;
 
-const TREE_MAP = {
-  tree_oak: 'tree_oak', tree_pine: 'tree_pine', tree_birch: 'tree_birch', tree_dead: 'tree_dead',
-  tree_palm: 'tree_oak', tree_acacia: 'tree_oak', tree_baobab: 'tree_oak', tree_jungle: 'tree_oak', tree_kapok: 'tree_oak', tree_olive: 'tree_oak', tree_fern: 'tree_oak',
-  tree_spruce: 'tree_pine', tree_larch: 'tree_pine', tree_redwood: 'tree_pine', tree_cypress: 'tree_pine', tree_dwarf: 'tree_birch', bamboo: 'tree_birch',
-};
-const DRY_PLANTS = new Set(['cactus', 'cactus_tall', 'agave', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'termite_mound']);
-const KEEP = new Set(['bush', 'berrybush', 'herbbush', 'boulder', 'pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
-const DECOR_MAP = { lichen: 'moss', cottongrass: 'tallgrass', ash: 'scree' };
-const DECOR_OK = new Set(['grass', 'tallgrass', 'flower', 'reed', 'mushroom', 'fern', 'bloom', 'heather', 'drygrass', 'thistle', 'litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood']);
+const KEEP = new Set(['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead', 'bush', 'berrybush', 'herbbush', 'boulder', 'pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
+const DECOR_OK = new Set(['grass', 'tallgrass', 'flower', 'reed', 'mushroom', 'fern', 'bloom', 'heather', 'drygrass', 'thistle', 'litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood', ...FLORA_DECOR]);
 
 function distanceField(W, H, isSource) {
   const d = new Float32Array(W * H).fill(1e9);
@@ -80,17 +74,15 @@ export function buildPlanetWorld(seed, opts = {}) {
     }
   }
   const spawn = { x: spx + 0.5, y: spy + 0.5 };
-  // objects: placeholders onto existing art; nothing standing in water; clear the arrival spot
+  // objects: the planet's kinds as classic kinds + an art species (flora.js); only mangroves stand in the water;
+  // clear the arrival spot
   const objects = [];
   for (const o of win.objects) {
-    if (o.w) continue;
-    let t = o.type, v = o.v;
-    if (t.startsWith('tree_') || t === 'bamboo') { const m = TREE_MAP[t] || 'tree_oak'; if (m !== t) v = v & 15; t = m; }
-    else if (DRY_PLANTS.has(t) || t === 'papyrus') { v = 2000 + (v % 1000); t = 'bush'; }
-    else if (t === 'lichen_rock') t = 'boulder';
-    else if (!KEEP.has(t)) continue;
+    const fo = floraObject(o.type, o.v);
+    if (o.w && o.type !== 'tree_mangrove') continue;
+    if (!fo && !KEEP.has(o.type)) continue;
     if (sq(o.x - spawn.x) + sq(o.y - spawn.y) < 2.4 * 2.4) continue;
-    objects.push({ ...o, type: t, v });
+    objects.push(fo ? { ...o, type: fo.type, v: fo.v } : o);
   }
   // the first gatherables near the spawn (like generateWorld guarantees)
   {
@@ -115,11 +107,10 @@ export function buildPlanetWorld(seed, opts = {}) {
   }
   const decor = [];
   for (const d of win.decor) {
-    const t = DECOR_MAP[d.t] || d.t;
-    if (!DECOR_OK.has(t)) continue;
+    if (!DECOR_OK.has(d.t)) continue;
     const i = Math.floor(d.y) * W + Math.floor(d.x);
     if (i < 0 || i >= N || rock[i] || (water[i] && !d.w)) continue;
-    decor.push(t === d.t ? d : { ...d, t });
+    decor.push(d);
   }
   // zones: spawn + dominant classic biome per 16 x 16 block (spawn tables)
   const zones = [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }];
@@ -136,6 +127,9 @@ export function buildPlanetWorld(seed, opts = {}) {
     timings, seed, W, H, rock, water, ground, rockType, ore: win.ore, roof, tramp: new Uint8Array(N), lush,
     flowX: win.flowX, flowY: win.flowY, objects, decor, spawn, dWater, dRock, biome, zones,
     heightStories: win.height, planetBiome: win.biome, planetGround: win.ground, planetWater: win.water, wlevel: win.wlevel, fertilePlanet: win.fertile,
+    groundLook: win.ground.slice(), rockLook: win.rockType.map((v) => v || 1), // (the terrain shader's own layers for them)
     planetAt: { seed, x0: win.x0, y0: win.y0 },
+    // regrowth (game/flora.js): the planet species of the biome for a regrown classic kind (undefined: classic)
+    floraLook: (kind, tx, ty, r, v) => regrowV(kind, win.biome[ty * W + tx], r, v),
   };
 }

@@ -49,12 +49,12 @@ export const BIOME_LIST = [
   T({ key: 'desert_dunes', pt: 'Deserto de dunas', c: [226, 196, 128], g: PG.SAND, t: {}, td: 0, b: { dead_bush: 1 }, bd: 0.002, gr: 0, fert: 0, haz: 3, cl: 5 }),
   T({ key: 'desert_rocky', pt: 'Deserto rochoso', c: [192, 150, 104], g: PG.DRY, t: { tree_acacia: 1 }, td: 0.001, b: { cactus: 2, cactus_tall: 1, shrub_desert: 3, agave: 1, dead_bush: 2 }, bd: 0.015, gr: 0.04, fert: 0.05, haz: 3, cl: 6 }),
   T({ key: 'badlands', pt: 'Mesas e cânions', c: [184, 106, 66], g: PG.CLAY, t: { tree_pine: 1 }, td: 0.002, b: { shrub_desert: 3, cactus: 1, dead_bush: 1 }, bd: 0.012, gr: 0.05, fert: 0.1, haz: 2, cl: 6 }),
-  T({ key: 'savanna', pt: 'Savana', c: [176, 158, 74], g: PG.DRY, t: { tree_acacia: 5, tree_baobab: 1 }, td: 0.018, b: { bush: 2, termite_mound: 1 }, bd: 0.02, gr: 0.75, fert: 0.45, haz: 2, cl: 0 }),
-  T({ key: 'tropical_dry', pt: 'Floresta tropical seca', c: [110, 126, 52], g: PG.SOIL, t: { tree_jungle: 3, tree_acacia: 2, tree_baobab: 1, bamboo: 1 }, td: 0.2, b: { bush: 3, berrybush: 1 }, bd: 0.05, gr: 0.5, fert: 0.5, haz: 2, cl: 1 }),
-  T({ key: 'rainforest', pt: 'Floresta tropical', c: [22, 86, 34], g: PG.MOSS, t: { tree_jungle: 6, tree_kapok: 1, tree_palm: 1, bamboo: 1 }, td: 0.55, b: { bush: 2, herbbush: 2, berrybush: 1 }, bd: 0.07, gr: 0.6, fert: 0.4, haz: 2, cl: 1 }),
-  T({ key: 'cloud_forest', pt: 'Floresta nebular', c: [42, 96, 68], g: PG.MOSS, t: { tree_jungle: 3, tree_fern: 3, tree_oak: 1 }, td: 0.45, b: { herbbush: 2, bush: 1 }, bd: 0.06, gr: 0.7, fert: 0.4, haz: 1, cl: 1 }),
+  T({ key: 'savanna', pt: 'Savana', c: [176, 158, 74], g: PG.DRY, t: { tree_acacia: 5, tree_baobab: 1 }, td: 0.03, b: { bush: 3, termite_mound: 1, tussock: 2 }, bd: 0.02, gr: 0.75, fert: 0.45, haz: 2, cl: 0 }),
+  T({ key: 'tropical_dry', pt: 'Floresta tropical seca', c: [110, 126, 52], g: PG.SOIL, t: { tree_jungle: 3, tree_acacia: 2, tree_baobab: 1, bamboo: 1 }, td: 0.2, b: { bush: 3, banana: 1, berrybush: 1 }, bd: 0.05, gr: 0.5, fert: 0.5, haz: 2, cl: 1 }),
+  T({ key: 'rainforest', pt: 'Floresta tropical', c: [22, 86, 34], g: PG.MOSS, t: { tree_jungle: 7, tree_kapok: 1, tree_palm: 2, bamboo: 1, tree_fern: 1 }, td: 0.6, b: { banana: 4, bush: 1, herbbush: 2, berrybush: 1 }, bd: 0.1, gr: 0.6, fert: 0.4, haz: 2, cl: 1 }),
+  T({ key: 'cloud_forest', pt: 'Floresta nebular', c: [42, 96, 68], g: PG.MOSS, t: { tree_jungle: 3, tree_fern: 3, tree_oak: 1 }, td: 0.45, b: { herbbush: 2, banana: 2, bush: 1 }, bd: 0.07, gr: 0.7, fert: 0.4, haz: 1, cl: 1 }),
   T({ key: 'mangrove', pt: 'Mangue', c: [52, 92, 62], g: PG.MUD, t: { tree_mangrove: 1 }, td: 0.3, b: {}, bd: 0, gr: 0.2, fert: 0.3, haz: 2, cl: 4 }),
-  T({ key: 'swamp', pt: 'Pântano tropical', c: [66, 92, 56], g: PG.MARSH, t: { tree_jungle: 2, tree_dead: 1, tree_palm: 1 }, td: 0.1, b: { papyrus: 3, bush: 1 }, bd: 0.08, gr: 0.8, fert: 0.4, haz: 2, cl: 4 }),
+  T({ key: 'swamp', pt: 'Pântano tropical', c: [66, 92, 56], g: PG.MARSH, t: { tree_jungle: 2, tree_dead: 1, tree_palm: 1 }, td: 0.1, b: { papyrus: 3, banana: 1, bush: 1 }, bd: 0.08, gr: 0.8, fert: 0.4, haz: 2, cl: 4 }),
   T({ key: 'marsh', pt: 'Brejo / turfeira', c: [92, 116, 78], g: PG.MARSH, t: { tree_dead: 2, tree_birch: 2 }, td: 0.03, b: { bush: 1 }, bd: 0.02, gr: 0.85, fert: 0.35, haz: 1, cl: 4 }),
   T({ key: 'alpine', pt: 'Prado alpino', c: [126, 136, 102], g: PG.SOIL, t: { tree_dwarf: 2, tree_pine: 1 }, td: 0.01, b: { tundra_shrub: 2, bush: 1 }, bd: 0.02, gr: 0.6, fert: 0.3, haz: 2, cl: 0 }),
   T({ key: 'snow_peaks', pt: 'Picos nevados', c: [240, 242, 247], g: PG.SNOW, t: {}, td: 0, gr: 0, fert: 0, haz: 3, cl: 8 }),
@@ -75,7 +75,7 @@ export const isWaterBiome = (b) => b <= BIOME.RIVER;
 // natural object / decor kinds that do not exist in the game yet (the content phase paints them)
 export const NEW_KINDS = {
   trees: ['tree_palm', 'tree_acacia', 'tree_baobab', 'tree_jungle', 'tree_kapok', 'tree_mangrove', 'tree_spruce', 'tree_larch', 'tree_redwood', 'tree_cypress', 'tree_olive', 'tree_fern', 'tree_dwarf', 'bamboo'],
-  plants: ['cactus', 'cactus_tall', 'agave', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'papyrus', 'lichen_rock', 'termite_mound'],
+  plants: ['cactus', 'cactus_tall', 'agave', 'banana', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'papyrus', 'lichen_rock', 'termite_mound'],
   decor: ['snowtuft', 'lichen', 'cottongrass', 'saltcrust', 'seaweed', 'coral', 'ash', 'sandripple'],
 };
 

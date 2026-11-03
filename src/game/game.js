@@ -309,7 +309,7 @@ export class Game {
     // canopies in front of the player (and their target) fade so they never vanish behind a tree
     const pl = this.player, tg = pl.target && !pl.target.dead ? pl.target : null;
     const fk = 1 - Math.exp(-(this._dt || 0.016) * 8);
-    const hides = (o, e, s) => { const dx = rc * (o.x - e.x) + rs * (o.y - e.y), dy = -rs * (o.x - e.x) + rc * (o.y - e.y); return dy > 0 && dy < 2.6 * s && Math.abs(dx) < 1.15 * s; }; // (in view space)
+    const hides = (o, e, s) => { const dx = rc * (o.x - e.x) + rs * (o.y - e.y), dy = -rs * (o.x - e.x) + rc * (o.y - e.y); return dy > 0 && dy < (o._ch || 2.6 * s) && Math.abs(dx) < (o._cw || 1.15 * s); }; // (in view space; _ch / _cw: the planet's big crowns, art/composeWorld.js)
     for (const o of list) {
       if (o.isEntity || o.draw || !o.type?.startsWith('tree_') || o.stump) continue;
       const s = o.s || 1;

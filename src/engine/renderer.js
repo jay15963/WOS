@@ -446,11 +446,18 @@ export class Renderer {
     }
     this._solid = new Uint8Array(N);
     if (world.solid) for (let i = 0; i < N; i++) { const v = world.solid[i]; this._solid[i] = v; D[i * 4 + 1] = v === 1 ? 255 : v ? 128 : 0; }
-    // the planet's own ground (world/planet/biomes.js PG): B volcanic ash / basalt, A permanent snow / ice (the classic
-    // ground ids have neither: the terrain shader tints them in)
+    // the planet's own ground (world/planet/biomes.js PG): A = permanent snow / ice (snow on the rock faces, no scree / wet
+    // there); the grounds themselves have their own texture layers (12..19, tileData)
     const PGd = world.planetGround;
-    this._climPG = false;
-    if (PGd && PGd.length === N) for (let i = 0; i < N; i++) { const g = PGd[i]; if (g === 10) { D[i * 4 + 2] = 255; this._climPG = true; } else if (g === 8 || g === 9) { D[i * 4 + 3] = 255; this._climPG = true; } }
+    this._climPG = this._canopy = false;
+    if (PGd && PGd.length === N) for (let i = 0; i < N; i++) { const g = PGd[i]; if (g === 8 || g === 9) { D[i * 4 + 3] = 255; this._climPG = true; } }
+    // B = the closed canopy of the planet's dense forests (deep shade on the forest floor), by planet biome
+    const PB = world.planetBiome;
+    if (PB && PB.length === N) {
+      const SH = new Uint8Array(64); // (world/planet/biomes.js ids: temperate rainforest 14, rainforest 23, cloud forest 24, mangrove 25, swamp 26, taiga 12)
+      SH[23] = 255; SH[24] = 210; SH[14] = 170; SH[25] = 140; SH[12] = 90; SH[26] = 80; SH[13] = 70;
+      for (let i = 0; i < N; i++) { const v = SH[PB[i]]; if (v) { D[i * 4 + 2] = v; this._climPG = this._canopy = true; } }
+    }
     if (this.climTex) gl.deleteTexture(this.climTex);
     this.climTex = createTexture(gl, { width: W, height: H, data: D });
   }
@@ -838,7 +845,7 @@ export class Renderer {
       if (p.u.uSeaA) gl.uniform4f(p.u.uSeaA, SA[0], SA[1], SA[2], SA[3]);
       if (p.u.uSeaB) gl.uniform4f(p.u.uSeaB, SB[0], SB[1], SB[2], SB[3]);
       const ao = p.u.uAO;
-      if (ao) gl.uniform1f(ao, this.solidNear ? 1 : 0);   // contact AO next to walls on floors and ground plants
+      if (ao) gl.uniform1f(ao, this.solidNear || this._canopy ? 1 : 0);   // contact AO next to walls on floors and ground plants (+ the planet's canopy shade)
       if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 1); // floors, rugs: flat on the ground (they turn whole with the camera)
       B.ground.draw();
       if (p.u.uFlat) gl.uniform1f(p.u.uFlat, 0);

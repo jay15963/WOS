@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>WOS · flora do planeta</title>
+<style>
+  body { margin: 0; background: #6d6247; font: 12px system-ui, sans-serif; color: #f4ecd8; }
+  h2 { margin: 10px 12px 2px; font-size: 13px; font-weight: 600; }
+  .row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 6px; padding: 4px 10px 8px; }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; }
+  figcaption { font-size: 10px; opacity: 0.8; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+// The planet's flora painted straight from the painters (src/art/planetFlora.js): every variant (and bare twin),
+// on a ground-coloured strip, at the game's 1x (PPU 64). ?g=tree_palm,cactus shows only those groups.
+import { FLORA_PAINTERS, PLANET_SPECIES, PLANET_DECOR } from '../src/art/planetFlora.js';
+const want = new URLSearchParams(location.search).get('g');
+const only = want ? new Set(want.split(',')) : null;
+const out = document.getElementById('out');
+const t0 = performance.now();
+let n = 0;
+const sections = [['Árvores', Object.keys(PLANET_SPECIES).filter((k) => PLANET_SPECIES[k].kind.startsWith('tree_'))],
+  ['Plantas', Object.keys(PLANET_SPECIES).filter((k) => !PLANET_SPECIES[k].kind.startsWith('tree_'))], ['Decoração', Object.keys(PLANET_DECOR)]];
+for (const [title, groups] of sections) {
+  const h = document.createElement('h2'); h.textContent = title; out.appendChild(h);
+  const row = document.createElement('div'); row.className = 'row'; out.appendChild(row);
+  for (const g of groups) {
+    if (only && !only.has(g)) continue;
+    const e = PLANET_SPECIES[g] || PLANET_DECOR[g];
+    for (let v = 0; v < e.n; v++) for (const bare of e.twin ? [false, true] : [false]) {
+      const c = FLORA_PAINTERS[g](v, bare); n++;
+      const f = document.createElement('figure');
+      f.appendChild(c); c.style.width = c.width + 'px';
+      const cap = document.createElement('figcaption'); cap.textContent = `${g}_${bare ? 'bare_' : ''}${v}`; f.appendChild(cap);
+      row.appendChild(f);
+    }
+  }
+}
+window.floraReady = { n, ms: Math.round(performance.now() - t0) };
+document.title += ` (${n} sprites, ${window.floraReady.ms} ms)`;
+</script>
+</body>
+</html>

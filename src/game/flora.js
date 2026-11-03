@@ -113,6 +113,7 @@ function spawnAt(game, kind, tx, ty) {
   if (kind.startsWith('tree_')) look.v = treeSpecies(w, kind, tx, ty, R()) * 16 + (look.v & 15);
   else if (kind === 'bush') look.v = bushSpecies(w, tx, ty, R()) * 1000 + (look.v % 1000);
   else if (kind === 'boulder' && boulderMossy(w, tx, ty)) look.v = 8000 + (look.v % 1000);
+  if (w.floraLook) { const pv = w.floraLook(kind, tx, ty, R(), look.v); if (pv !== undefined) look.v = pv; } // (?planet=1: the biome's own species)
   return spawnFlora(game, kind, tx + 0.5 + jx, ty + 0.6 + jy, look);
 }
 

@@ -73,7 +73,7 @@ function loadAssets() {
     applyLook(renderer); // the player's "Cores" / "Brilho" (fx/look.js)
     try { applyQuality(renderer, localStorage.getItem('wos.quality') || 'auto'); } catch { /* ignore */ }
     report(0.2, 'Pintando o terreno…'); await nextFrame();
-    renderer.setGroundTextures(TEX, generateGroundTextures());
+    renderer.setGroundTextures(TEX, generateGroundTextures(PLANET)); // (the planet's own grounds / rocks: 8 more layers)
     report(0.5, 'Desenhando criaturas e plantas…'); await nextFrame();
     const cached = await atlasLookup;
     const t0 = performance.now();

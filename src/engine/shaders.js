@@ -390,8 +390,9 @@ void main(){
   }
 #if QL >= 1
   if (uAO > 0.0) {
-    float so = texture(uClim, (vW + vec2(0.0, -0.08)) / uWorldSz).g;
-    c.rgb *= 1.0 - uAO * 0.3 * smoothstep(0.18, 0.62, so);
+    vec4 cl = texture(uClim, (vW + vec2(0.0, -0.08)) / uWorldSz);
+    c.rgb *= 1.0 - uAO * 0.3 * smoothstep(0.18, 0.62, cl.g);
+    c.rgb *= 1.0 - uAO * 0.28 * cl.b; // (the planet's closed canopy: the forest floor plants in its shade)
   }
 #endif
   c.rgb = mix(c.rgb, vec3(c.a), clamp(vFlash, 0.0, 1.0));
@@ -1236,14 +1237,14 @@ uniform vec2 uHgtSz;        // fine grid size (4W + 1, 4H + 1)
 uniform float uSnowLine;    // permanent snow above this height (stories)
 ${CUT_FN}
 uniform float uTime;
-uniform sampler2D uTile;    // R ground id, G random, B rock type (regional 1..4), A ore (1 copper, 2 iron, 3 coal, 4 gold, 5 jade)
+uniform sampler2D uTile;    // R ground id (0..7; the planet's 8..13), G random, B rock type (regional 1..4; planet 5 basalt, 6 sandstone), A ore
 uniform sampler2D uField;   // 4x res, linear: R rock mask, G rock height, B water depth, A shore wetness
 uniform sampler2D uCave;    // 1x res, linear: R cave darkness (mined under a roof), G ore nearby, B trampled ground, A mined floor
 // (ore deposits and loose rubble are drawn by the DECAL pass right after this one)
 uniform sampler2D uField2;  // 1x res, linear: R lushness, GB river flow (0.5 = none), A distance to rock (1 = 4+ tiles)
 uniform sampler2D uNoise;   // tileable noise RGBA
 uniform sampler2D uShadow;  // sprite sun-shadows (screen space)
-uniform sampler2DArray uGround; // 0..7 ground, 8..11 rock types; A = height
+uniform sampler2DArray uGround; // 0..7 ground, 8..11 rock types, the planet's 12..17 grounds + 18, 19 rocks; A = height
 uniform vec2 uShadowDir;
 uniform float uShadowStr;
 uniform vec3 uSun;          // light dir (x, y-down, z-up), normalized
@@ -1288,8 +1289,9 @@ uniform float uPathOn;            // 0 = no path / plan in the world: the whole 
 #endif
 
 const mat2 ROT = mat2(0.8253, 0.5646, -0.5646, 0.8253);
-// per ground id: puddle affinity (soil, rich, sand, gravel, marsh, mud, stone, forest floor)
-const float PUD[8] = float[8](0.9, 1.0, 0.3, 0.12, 1.6, 1.4, 0.5, 0.8);
+// per ground id: puddle affinity (soil, rich, sand, gravel, marsh, mud, stone, forest floor; the planet's snow, ice, ash,
+// salt, red clay, dry ground)
+const float PUD[14] = float[14](0.9, 1.0, 0.3, 0.12, 1.6, 1.4, 0.5, 0.8, 0.1, 0.05, 0.5, 1.5, 1.2, 0.45);
 
 float LOD;   // mip level for ground textures
 float PPX;   // world units per device pixel
@@ -1300,7 +1302,8 @@ float nLod(float s){ return max(log2(PPX * s * 256.0), 0.0); }
 
 vec4 tileAt(ivec2 c){ return texelFetch(uTile, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); }
 float gidOf(vec4 t){ return floor(t.r * 255.0 + 0.5); }
-float ridOf(vec4 t){ return 8.0 + clamp(floor(t.b * 255.0 + 0.5) - 1.0, 0.0, 3.0); }
+float layOf(float g){ return g < 7.5 ? g : g + 4.0; } // ground id → texture layer (the planet's grounds 8..13 → 12..17)
+float ridOf(vec4 t){ float r = floor(t.b * 255.0 + 0.5); return r > 4.5 ? min(r, 6.0) + 13.0 : 8.0 + clamp(r - 1.0, 0.0, 3.0); } // (5, 6 → 18, 19)
 vec4 fieldAt(vec2 p){ return texture(uField, p / uWorld); }
 float ridgeN(vec2 p, float l){
   vec4 n = textureLod(uNoise, p * 0.032 + 0.13, l);
@@ -1440,7 +1443,24 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   float sv = ht * 1.15 + (nA.x - 0.5) * 0.5 + sin(u * 0.27 + nB.z * 2.0) * 0.16;
   float band = floor(sv), fb = fract(sv), bh = hash12(vec2(band * 1.37, rid * 7.1));
   float fz = smoothstep(1.0, 1.8, s); // (strata, ledges and seams belong to faces: gentle rock is just rock, no contour lines)
-  alb *= mix(1.0, 0.84 + 0.3 * bh, fz) * mix(vec3(1.0), mix(vec3(1.1, 1.0, 0.84), vec3(0.88, 0.94, 1.04), step(0.5, hash12(vec2(band, 9.0 + rid)))), 0.55 * fz);
+  float ssK = dot(vec4(equal(rids, vec4(19.0))), vec4(0.25)), bsK = dot(vec4(equal(rids, vec4(18.0))), vec4(0.25));
+  vec3 bandT = mix(vec3(1.1, 1.0, 0.84), vec3(0.88, 0.94, 1.04), step(0.5, hash12(vec2(band, 9.0 + rid))));
+  if (ssK > 0.01) {
+    // sandstone (canyons, mesas): thin beds in cream, orange, brick red and a purple-brown, thicker ones every few bands
+    float sb = ht * 2.3 + (nA.x - 0.5) * 0.6 + sin(u * 0.21 + nB.z * 2.0) * 0.2, sbi = floor(sb), sh2 = hash12(vec2(sbi * 2.17, 3.3));
+    vec3 sc = sh2 < 0.25 ? vec3(1.2, 1.1, 0.92) : sh2 < 0.55 ? vec3(1.08, 0.88, 0.72) : sh2 < 0.85 ? vec3(0.9, 0.66, 0.56) : vec3(0.74, 0.58, 0.58);
+    sc *= 1.0 - 0.14 * (1.0 - smoothstep(0.0, 0.08, fract(sb)));
+    bandT = mix(bandT, sc, ssK);
+  }
+  alb *= mix(1.0, 0.84 + 0.3 * bh, fz) * mix(vec3(1.0), bandT, mix(0.55, 0.85, ssK) * fz);
+  if (bsK > 0.01) {
+    // basalt: tall prismatic columns, each a shade apart, dark joints between them and a few cross-joints
+    float cu = u * 2.6 + (nB.x - 0.5) * 0.5, ci = floor(cu), cf = fract(cu), chs = hash12(vec2(ci, 5.1));
+    float jt = 1.0 - smoothstep(0.0, 0.09, min(cf, 1.0 - cf));
+    float xj = (1.0 - smoothstep(0.0, 0.05, abs(fract(ht * 0.7 + chs * 3.0) - 0.5) - 0.44)) * step(0.55, chs);
+    float face = 0.86 + 0.24 * chs + 0.1 * (cf - 0.5);
+    alb = mix(alb, alb * face * (1.0 - 0.55 * jt) * (1.0 - 0.35 * xj), bsK * fz);
+  }
   float seam = 0.05 + 0.08 * hash12(vec2(band * 3.1, 2.0 + rid));
   alb *= 1.0 - fz * seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
   float near = 1.0 - smoothstep(0.018, 0.04, PPX); // (crisp detail only up close: calm shapes at a glance)
@@ -1599,6 +1619,7 @@ void main(){
 
   vec3 col;
   float shadowMask = 1.0;
+  float softG = 0.0; // sand / snow / ice / salt ground here: it slumps, never shows scree
 
   if (sd > 0.0 && uMesh < 0.5) {
     // ================= ROCK ================= (relief: rock tiles take the rock of the faces below, mesh block)
@@ -1661,7 +1682,7 @@ void main(){
     // ================= GROUND =================
     vec4 bw;
     float ia = gidOf(ta), ib = gidOf(tb), ic = gidOf(tc), id = gidOf(td);
-    vec4 GT = blend4(ia, ib, ic, id, wp, nC.x, f, bw);
+    vec4 GT = blend4(layOf(ia), layOf(ib), layOf(ic), layOf(id), wp, nC.x, f, bw);
     col = GT.rgb;
     float hgt = GT.a;
     vec4 isMarsh = vec4(equal(vec4(ia, ib, ic, id), vec4(4.0)));
@@ -1669,13 +1690,26 @@ void main(){
     float marshK = dot(bw, isMarsh), mudK = dot(bw, isMud);
     float pk = PUD[int(ia)] * bw.x + PUD[int(ib)] * bw.y + PUD[int(ic)] * bw.z + PUD[int(id)] * bw.w;
 
-    // the planet's volcanic ground: dark ash and basalt (slate rock texture, a warm-black cast, cinders)
+    // the planet's own grounds (8 snow, 9 ice, 10 ash, 11 salt, 12 red clay, 13 dry)
+    vec4 gidv = vec4(ia, ib, ic, id);
+    float snowG = dot(bw, vec4(equal(gidv, vec4(8.0)))), iceG = dot(bw, vec4(equal(gidv, vec4(9.0))));
+    float saltG = dot(bw, vec4(equal(gidv, vec4(11.0))));
+    softG = snowG + iceG + saltG + dot(bw, vec4(equal(gidv, vec4(2.0))));
+    float rq0 = floor(ta.b * 255.0 + 0.5);
+    vec3 rockTint = rq0 > 5.5 ? vec3(1.18, 0.82, 0.62) : rq0 > 4.5 ? vec3(0.62, 0.6, 0.6) : vec3(1.0);
+    float gravG = dot(bw, vec4(equal(gidv, vec4(3.0))));
+    if (gravG > 0.01 && rq0 > 4.5) col = mix(col, col * rockTint, gravG * 0.85);
+    if (snowG + iceG + saltG > 0.01) {
+      // large soft drifts (blue in the hollows), polished ice catching the sky, salt a touch less blinding
+      float dr = smoothstep(0.35, 0.75, nC.y * 0.6 + nA.w * 0.4);
+      col = mix(col, col * mix(vec3(1.02, 1.02, 1.01), vec3(0.95, 0.97, 1.01), dr), snowG * 0.8);
+      col = mix(col, mix(col, uSky * 0.9 + col * 0.35, 0.22 + 0.12 * nB.x), iceG);
+      col *= 1.0 - 0.06 * saltG * (1.0 - nC.z);
+    }
+    // the planet's closed forests: the floor lies in deep, cool shade under the canopy, with sun flecks
     if (CL.b > 0.01) {
-      vec3 bas = textureLod(uGround, vec3(wp * 0.22, 10.0), LOD).rgb * vec3(0.55, 0.52, 0.52);
-      bas = mix(bas, vec3(0.16, 0.14, 0.135), smoothstep(0.4, 0.7, nB.y) * 0.6);
-      bas *= 0.85 + 0.3 * smoothstep(0.55, 0.8, textureLod(uNoise, wp * 0.9, nLod(0.9)).g);
-      col = mix(col, bas, CL.b);
-      hgt = mix(hgt, 0.4, CL.b);
+      float fleck = smoothstep(0.62, 0.8, textureLod(uNoise, wp * 0.21 + 0.13, nLod(0.21)).g + (nB.x - 0.5) * 0.3);
+      col = mix(col, col * vec3(0.66, 0.72, 0.62), CL.b * (1.0 - fleck * 0.8) * outK);
     }
     // gentle large-scale variation (no dark stains)
     col *= 0.955 + 0.09 * nC.z;
@@ -1780,6 +1814,19 @@ void main(){
       col = mix(col, pc, pm * 0.85);
     }
 
+    // sparkling grains on snow / ice / salt (sun-facing specks), the wet salt flat turns into a mirror of the sky
+    float glG = dot(bw, vec4(greaterThan(gidv, vec4(7.5)) ) * vec4(lessThan(gidv, vec4(9.5))));
+    glG += dot(bw, vec4(equal(gidv, vec4(11.0)))) * 0.6;
+#if QL >= 1
+    if (glG > 0.01 && PPX < 0.05) {
+      vec2 gp = wp * 9.0, gc = floor(gp), gh = hash22(gc + 1.7);
+      float tw = 0.5 + 0.5 * sin(uTime * (2.0 + 3.0 * gh.y) + gh.x * 40.0 + dot(uCam, vec2(3.1, 2.3)));
+      float gl = step(0.93, gh.x) * (1.0 - smoothstep(0.0, 0.09, length(fract(gp) - 0.5 - (gh - 0.5) * 0.6)));
+      col += vec3(0.9, 0.95, 1.0) * gl * tw * glG * uSunI * (0.6 + 0.4 * sunT.r) * 0.55;
+    }
+#endif
+    float saltW = dot(bw, vec4(equal(gidv, vec4(11.0)))) * wet;
+    if (saltW > 0.01) col = mix(col, uSky * (0.82 + 0.3 * smoothstep(0.45, 0.78, textureLod(uNoise, wp * 0.0105 + uCloudVel * uTime, 0.0).r)), saltW * 0.6 * smoothstep(0.3, 0.7, hgt + 0.3));
     // snow cover on the ground of cold biomes (bumps first, then a full blanket)
     if (snowS > 0.01) {
       float sn = snowS;
@@ -1788,7 +1835,7 @@ void main(){
       float sd2 = max(dot(Ns, uSun), 0.0);
       vec3 snC = vec3(0.85, 0.88, 0.93) * (0.8 + 0.2 * sd2 * uSunI + 0.06 * nA.z) * sunT;
       snC *= mix(vec3(1.0), vec3(0.93, 0.96, 1.03), smoothstep(0.35, 0.75, nC.y + (0.5 - hgt) * 0.4)) * (0.96 + 0.06 * nB.w); // drifts, bluish hollows
-      col = mix(col, snC, m * (1.0 - 0.6 * max(CV.b, pathK * 0.5))); // trampled ground / paths keep less snow
+      col = mix(col, snC, m * (1.0 - 0.6 * max(CV.b, pathK * 0.5)) * (1.0 - 0.7 * min(softG, 1.0) * step(0.5, CL.a))); // trampled ground / paths keep less snow
     }
     // contact AO at the foot of walls / structures
     col *= 1.0 - 0.3 * smoothstep(0.18, 0.62, CL.g);
@@ -1966,7 +2013,9 @@ void main(){
     // steep but walkable ground turns to scree / bare earth, then to rock
     vec3 KT = texture(uHgtK, wp / uWorld).rgb;
     float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
-    col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8) * (1.0 - KT.b));
+    float rq1 = floor(ta.b * 255.0 + 0.5); // (scree of the regional rock: red under sandstone, near black under basalt)
+    vec3 scrC = rq1 > 5.5 ? vec3(0.56, 0.33, 0.22) : rq1 > 4.5 ? vec3(0.23, 0.22, 0.22) : vec3(0.42, 0.37, 0.31);
+    col = mix(col, mix(col, scrC * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8) * (1.0 - KT.b) * (1.0 - 0.8 * min(softG, 1.0)));
     // ground the players dug / heaped: turned soil (grass grows back only where it was not touched)
     if (KT.b > 0.02) col = mix(col, earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB) * mix(1.0, 1.0 - ao, outK), smoothstep(0.3, 0.9, KT.b) * smoothstep(0.03, 0.25, sf + 0.1) * (1.0 - snowS * 0.8));
     float kt = KT.r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
