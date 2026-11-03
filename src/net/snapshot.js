@@ -17,6 +17,7 @@
 //   corpses:[[id, of, x, y, f, deathT, size, slots|0, butchered, owner|0, name|0, look|0, sc, v, gear|0, 0]]  (mut/corpses.js)
 //   paths:  { g, p }  painted paths: run-length [value, count…] of world.path / world.pathPlan (mut/paths.js)
 //   ids, natpos                                                            // save file only
+//   stock:  [[species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp]]  owned farm animals (save file only, livestock.js)
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
@@ -36,6 +37,7 @@ import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
+import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -75,7 +77,7 @@ export function serializeWorld(game, { save = false } = {}) {
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
-  if (save) { data.ids = { ...net.ids }; data.natpos = natpos; }
+  if (save) { data.ids = { ...net.ids }; data.natpos = natpos; data.stock = stockRows(game); } // (stock: the farm's animals; guests see them in the entity stream)
   return data;
 }
 
@@ -288,6 +290,7 @@ function applyInner(game, d, mode) {
   }
   // ---- painted paths (a snapshot without them = none; an old save without them keeps none) ----
   if (reconcile || d.paths) applyPaths(game, d.paths);
+  if (mode === 'load') stashStock(game, d.stock); // owned farm animals: back on the host's first farm tick (livestock.js)
 
   updateAllMasks(game);
   if (d.ids && typeof d.ids === 'object') for (const k in d.ids) if (k in net.ids && Number.isFinite(d.ids[k])) net.ids[k] = Math.max(net.ids[k], d.ids[k]);

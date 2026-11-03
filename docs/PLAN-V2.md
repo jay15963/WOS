@@ -574,3 +574,12 @@ it — like a compass/radar): "esse design combina muito com o jogo".
 
 - Faces calculadas (docs/CAMERA-ROTATION.md): botão do meio do mouse / dois dedos como volante; bússola no radar
   volta ao norte; paredes e portas como caixas de faces; telhados somem enquanto girada (lacuna conhecida).
+
+## Agropecuária (added later)
+
+Pedido do dono: vaca, porco, galinha, ovelha e peixe; pesca com vara (o tiro longo com flecha / lança também pesca,
+mas dá menos); corda para levar até 5 animais; alimentador que domestica os animais no alcance dele (vaca: trigo,
+ovelha: pouco trigo, galinha: milho, porco: qualquer comida); reprodução quando bem alimentados (dois), filhotes que
+crescem, morte de fome; abate com 1 golpe de faca; trigo só em solo fértil (até 5 tiles de um rio) e pão na fornalha;
+rebalanço das colheitas e da comida (só o pão dá 30 e a carne assada 40). Tudo em **docs/LIVESTOCK.md** (números,
+regras, multijogador, arte em 3D com 8 vistas). Cenários **P1–P5**.

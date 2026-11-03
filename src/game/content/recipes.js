@@ -27,6 +27,7 @@ export const RECIPES = {
   rope:              R('rope', { fiber: 3 }, 'hand', 2, 'materials'),
   torch_hand:        R('torch_hand', { stick: 1, fiber: 1 }, 'hand', 2, 'weapons'),
   hat_straw:         R('hat_straw', { fiber: 6 }, 'hand', 5, 'armor'),
+  rod_wood:          R('rod_wood', { stick: 2, fiber: 3 }, 'hand', 4, 'tools'), // fishing rod (docs/LIVESTOCK.md)
 
   // ---------- era 1: workbench ----------
   sticks:            R('stick', { wood: 1 }, 'workbench', 1.5, 'materials', { qty: 3 }),
@@ -50,6 +51,7 @@ export const RECIPES = {
   iron_bar:          R('iron_bar', { iron_ore: 2 }, 'furnace', 8, 'materials', { fuel: 1 }),
   gold_bar:          R('gold_bar', { gold_ore: 2 }, 'furnace', 8, 'materials', { fuel: 1 }),
   steel_bar:         R('steel_bar', { iron_bar: 1, coal: 2 }, 'furnace', 10, 'materials', { fuel: 1 }),
+  bread:             R('bread', { wheat: 2 }, 'furnace', 6, 'food', { fuel: 1 }), // the fornalha bakes bread (docs/LIVESTOCK.md)
 
   knife_copper:      R('knife_copper', { copper_bar: 1, wood: 1 }, 'anvil', 5, 'tools'),
   axe_copper:        R('axe_copper', { copper_bar: 2, wood: 2 }, 'anvil', 7, 'tools'),
@@ -88,6 +90,7 @@ export const RECIPES = {
   cooked:            R('cooked', { meat: 1 }, ROAST, 4, 'food'),
   baked_potato:      R('baked_potato', { potato: 1 }, ROAST, 4, 'food'),
   roast_corn:        R('roast_corn', { corn: 1 }, ROAST, 4, 'food'),
+  fish_cooked:       R('fish_cooked', { fish_raw: 1 }, ROAST, 4, 'food'),
   stew:              R('stew', { meat: 1, potato: 1, corn: 1 }, 'cooking_pot', 8, 'food', { qty: 2 }),
 };
 

@@ -118,6 +118,7 @@ export function installOverlay(game) {
       plates.length = 0;
       for (const e of g.entities) {
         if (!(e.isMob || e.kind === 'animal') || e.dead) continue;
+        if (e.water && e !== p.target) continue; // (fish: no plate unless marked)
         if (e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2.5) continue;
         if (g.roofs?.hidden?.(e.x, e.y)) continue; // inside a building whose roof hides it
         const d = Math.hypot(e.x - p.x, e.y - p.y);
@@ -141,7 +142,8 @@ export function installOverlay(game) {
         const bandit = e.faction === 'bandit';
         const col = bandit ? '#ff5a48' : TEMPER_COLOR[temper];
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
-        const label = (e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
+        const fl = g.stock?.label?.(e); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js)
+        const label = (fl ? fl[0] : e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
         const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e)); // levels: lifted plate
         let sy = sy0 - 6;
@@ -185,7 +187,7 @@ export function installOverlay(game) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = INK;
         ctx.strokeText(label, sx, sy);
-        ctx.fillStyle = pl.isT ? '#ffffff' : e.elite && bandit ? '#ffb070' : col;
+        ctx.fillStyle = pl.isT ? '#ffffff' : fl ? fl[1] : e.elite && bandit ? '#ffb070' : col;
         ctx.fillText(label, sx, sy);
         if (pl.isT) {
           ctx.fillStyle = col;

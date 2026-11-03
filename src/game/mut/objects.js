@@ -7,12 +7,13 @@ import { defineIntent, defineOp } from '../../net/registry.js';
 import { occAdd, occRemove } from '../nav.js';
 import { addLootRows } from './loot.js';
 import { lootRow, lootRows, ri, r3, lootPiles } from './roll.js';
+import { fertileAt } from '../../world/soil.js';
 
 export const TREE_SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16 };
 export const SAPLING_GROW = 1440;  // s (2 in-game days) from sapling to full tree
 export const NOGROW_R = 3;
 export const PICK_ITEM = { pebble: 'pebble', stick: 'stick' };
-export const FORAGE_KINDS = new Set(['fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_corn', 'wild_cotton']);
+export const FORAGE_KINDS = new Set(['fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_corn', 'wild_cotton', 'wild_wheat']);
 export const TREE_WOOD = { tree_oak: [4, 5], tree_pine: [3, 5], tree_birch: [3, 4], tree_dead: [2, 3] };
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -222,7 +223,7 @@ function forageDrops(net, o, knife) {
   const rows = [], at = (id, n) => lootRows(net, rows, o.x, o.y - 0.2, id, n, 0.6);
   const pile = (id, n) => lootPiles(net, rows, o.x, o.y - 0.2, id, n, 0.7); // big yields in a few piles
   switch (o.type) {
-    case 'fibergrass': at('fiber', ri(net, 2, 3) + (knife ? 1 : 0)); break;
+    case 'fibergrass': at('fiber', ri(net, 2, 3) + (knife ? 1 : 0)); if (net.roll() < 0.12 && fertileAt(net.game?.world, Math.floor(o.x), Math.floor(o.y - 0.05))) at('seed_wheat', 1); break; // (by a river: now and then a wheat seed)
     // bushes are the base of thatch building: ~12 of them roof 40 tiles of thatch (40 sticks + 80 fibre)
     case 'bush': pile('fiber', ri(net, 6, 8) + (knife ? 1 : 0)); pile('stick', ri(net, 3, 4)); break;
     case 'berrybush': at('berries', ri(net, 2, 4)); pile('fiber', ri(net, 5, 6) + (knife ? 1 : 0)); pile('stick', ri(net, 3, 4)); break;
@@ -230,6 +231,7 @@ function forageDrops(net, o, knife) {
     case 'wild_potato': at('potato', ri(net, 1, 2)); at('seed_potato', ri(net, 1, 2)); break;
     case 'wild_corn': at('corn', ri(net, 1, 2)); at('seed_corn', ri(net, 1, 2)); break;
     case 'wild_cotton': at('cotton', ri(net, 2, 3)); at('seed_cotton', 1); break;
+    case 'wild_wheat': at('wheat', ri(net, 1, 2)); at('seed_wheat', ri(net, 1, 2)); break; // (river banks: fertile soil, src/world/soil.js)
   }
   return rows;
 }

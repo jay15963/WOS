@@ -581,6 +581,7 @@ export function describeStructure(game, o) {
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
   if (o.door) return structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 });
   if (o.type === 'chest') return structIt(o, { kind: 'chest', verb: 'Abrir', icon: 'chest', prio: 3, use: true });
+  if (def.feed) return structIt(o, { kind: 'feeder', verb: 'Abrir alimentador', icon: 'chest', prio: 3, use: true }); // (livestock.js)
   if (o.type === 'bed') return structIt(o, { kind: 'bed', verb: 'Renascer aqui', icon: 'bed', prio: 3, use: true });
   if (def.station) return structIt(o, { kind: 'station', verb: o.type === 'campfire' ? 'Cozinhar' : 'Criar', icon: 'craft', prio: o.type === 'campfire' ? 1 : 3, use: true, reach: 1.4 });
   if (o.type === 'farm_plot') return game.farm?.describePlot(game, o) || null;
@@ -601,6 +602,9 @@ export function useStructure(game, it) {
       return;
     case 'station':
       game.events.emit('open', { panel: 'craft', station: o.type });
+      return;
+    case 'feeder': // (livestock.js: the food the animals around eat)
+      game.stock?.openFeeder(o);
       return;
     case 'bed': {
       // the bed only marks where you come back (owner: the night is not skipped any more, it is part of the game);

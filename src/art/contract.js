@@ -3,7 +3,7 @@
 // refuses multiplayer. Pure data (no imports): tools/check-sync.mjs (R12) imports it in node.
 // Every creature species (non-pawn) needs <sp>_{s,n,e}; every structure / flora / crop kind one name.
 
-export const CREATURE_SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider'];
+export const CREATURE_SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider', 'cow', 'sheep', 'pig', 'chicken', 'fish'];
 
 export const CONTRACT = [
   'fx_blob', 'fx_soft', 'fx_spark', 'fx_smoke', 'fx_leaf', 'fx_drop', 'fx_ring', 'fx_flame', 'fx_splash', 'fx_dust', 'fx_slash', 'fx_star',
@@ -29,6 +29,8 @@ export const CONTRACT = [
   'corpse_skel_s', 'corpse_skel_m', 'corpse_skel_l', 'corpse_skel_pawn', 'corpse_carcass_s', 'corpse_carcass_m', 'corpse_carcass_l', 'corpse_rot_0', 'fx_fly', 'item_bone',
   // agent K: stone wall / hedge (baked default look; src/art/arch.js)
   'fence_stone', 'hedge',
+  // livestock (docs/LIVESTOCK.md, art/livestock.js): the feeder, wheat, the young, swimming fish, rope / bobber
+  'feeder', 'crop_wheat_0', 'wild_wheat_0', 'fish_top', 'fx_rope', 'fx_bobber', 'held_rod_wood',
 ];
 
 // agent K: building kinds whose art is painted lazily (art/lazyDefs.js, shared lazy texture) — never baked, never in the

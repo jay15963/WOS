@@ -4,13 +4,18 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { addLootRows } from './loot.js';
 import { lootRows, ri } from './roll.js';
+import { fertileAt } from '../../world/soil.js';
 
-// grow: seconds of world time to ripen — 8 minutes for every crop (owner), faster in the rain, never in winter
+// grow: seconds of world time to ripen — 8 minutes for every crop (owner), faster in the rain, never in winter.
+// yield rows [item, min, max]: one plot gives little (docs/LIVESTOCK.md "Plantações": the old 3-4 potatoes per plot
+// were far too much); the seed row gives the seed back with a small surplus, so a field grows slowly.
+// fertile: only on fertile soil (src/world/soil.js: within 5 tiles of a river)
 export const CROP_GROW_S = 8 * 60;
 export const CROPS = {
-  potato: { name: 'Batata', seed: 'seed_potato', grow: CROP_GROW_S, yield: [['potato', 3, 4], ['seed_potato', 1, 2]] },
-  corn:   { name: 'Milho', seed: 'seed_corn', grow: CROP_GROW_S, yield: [['corn', 2, 3], ['seed_corn', 1, 2]] },
-  cotton: { name: 'Algodão', seed: 'seed_cotton', grow: CROP_GROW_S, yield: [['cotton', 3, 4], ['seed_cotton', 1, 2]] },
+  potato: { name: 'Batata', seed: 'seed_potato', grow: CROP_GROW_S, yield: [['potato', 1, 2], ['seed_potato', 1, 2]] },
+  corn:   { name: 'Milho', seed: 'seed_corn', grow: CROP_GROW_S, yield: [['corn', 1, 2], ['seed_corn', 1, 2]] },
+  cotton: { name: 'Algodão', seed: 'seed_cotton', grow: CROP_GROW_S, yield: [['cotton', 2, 3], ['seed_cotton', 1, 2]] },
+  wheat:  { name: 'Trigo', seed: 'seed_wheat', grow: CROP_GROW_S, fertile: true, yield: [['wheat', 2, 3], ['seed_wheat', 1, 2]] },
 };
 export const stageOf = (g) => (g >= 1 ? 3 : g >= 0.62 ? 2 : g >= 0.28 ? 1 : 0);
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -50,7 +55,7 @@ const plotAt = (game, tx, ty) => {
 // ---------- ops ----------
 defineOp('crop.add', {
   doc: 'A seed is planted on a farm plot (absolute host time `at` starts its growth clock).',
-  args: { tx: 'int', ty: 'int', kind: "'potato'|'corn'|'cotton'", growth: '0..1', at: 'worldTime', by: 'pid', xp: 'number' },
+  args: { tx: 'int', ty: 'int', kind: "'potato'|'corn'|'cotton'|'wheat'", growth: '0..1', at: 'worldTime', by: 'pid', xp: 'number' },
   apply(game, a) {
     if (!CROPS[a.kind] || cropAt(game, a.tx, a.ty)) return;
     plantCrop(game, a.kind, a.tx, a.ty, a.growth || 0, a.at);
@@ -109,6 +114,7 @@ defineIntent('farm.plant', {
     if (!kind) return 'Semente desconhecida';
     if (!plotAt(game, tx, ty)) return 'Sem canteiro aqui';
     if (cropAt(game, tx, ty)) return 'Já plantado';
+    if (CROPS[kind].fertile && !fertileAt(game.world, tx, ty)) return 'Solo não fértil: o trigo só cresce até 5 tiles de um rio';
     net.emit('crop.add', { tx, ty, kind, growth: 0, at: Math.round(game.worldTime), by: actor.pid, xp: 1 });
   },
 });

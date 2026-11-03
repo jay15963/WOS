@@ -38,6 +38,7 @@ export function nearestEnemy(game, maxD = 12, filter) {
   let best = null, bd = 1e9;
   for (const e of game.entities) {
     if (!isMob(e) || e.dead || (filter && !filter(e))) continue;
+    if (e.tame || e.water) continue; // (the farm's animals and fish: never by chance)
     let d = dist(p, e);
     if (d > maxD) continue;
     if (e.state === 'chase' && e.threat === p) d -= 4;
