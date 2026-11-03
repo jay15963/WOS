@@ -737,20 +737,49 @@ function flowerBed(v, part) {
     }, 1.2);
   });
 }
-function planter(east) {
+// bare: the box and its soil without the flowers (camera rotation, art/faces/solidGarden.js: the flowers are upright
+// plants of their own, planterPlants)
+function planter(east, bare = false) {
   const rand = rng(east ? 2302 : 2301);
-  const flowers = (g, x0, x1, y0, y1) => { for (let i = 0; i < 22; i++) { const x = x0 + rand() * (x1 - x0), y = y0 + rand() * (y1 - y0); g.fillStyle = GREENS[i % 4]; g.beginPath(); g.ellipse(x, y, 3.2, 2.2, rand() * 3, 0, TAU); g.fill(); } flowerDots(g, x0, x1, y0 - 2, y1, rand, 16); };
+  const flowers = (g, x0, x1, y0, y1) => { if (bare) return; for (let i = 0; i < 22; i++) { const x = x0 + rand() * (x1 - x0), y = y0 + rand() * (y1 - y0); g.fillStyle = GREENS[i % 4]; g.beginPath(); g.ellipse(x, y, 3.2, 2.2, rand() * 3, 0, TAU); g.fill(); } flowerDots(g, x0, x1, y0 - 2, y1, rand, 16); };
+  const soil = (g, x0, y0, x1, y1) => {
+    g.fillStyle = '#4a3322'; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    if (bare) for (let i = 0; i < 30; i++) { g.fillStyle = i & 1 ? 'rgba(110,80,52,0.55)' : 'rgba(30,20,12,0.45)'; g.beginPath(); circle(g, x0 + 2 + rand() * (x1 - x0 - 4), y0 + 1.5 + rand() * (y1 - y0 - 3), 0.8 + rand() * 0.8); g.fill(); }
+  };
   if (east) return mkv(1, 2, 30, (g, P, Y, W) => P.layer((g) => {
     box(g, 18, W - 18, Y(0.15, 16), Y(1.85, 16), Y(1.85, 0), '#8f6440', WOOD.mid, 'y', 2);
-    g.fillStyle = '#4a3322'; g.fillRect(21, Y(0.2, 16), W - 42, Y(1.8, 16) - Y(0.2, 16));
+    soil(g, 21, Y(0.2, 16), W - 21, Y(1.8, 16));
     flowers(g, 20, W - 20, Y(0.25, 22), Y(1.8, 18));
   }, OW));
   return mk(2, 30, (g, P, Y, W) => P.layer((g) => {
     box(g, 8, W - 8, Y(0.4, 16), Y(0.8, 16), Y(0.8, 0), '#8f6440', WOOD.mid, 'x', 2);
-    g.fillStyle = '#4a3322'; g.fillRect(11, Y(0.43, 16), W - 22, Y(0.77, 16) - Y(0.43, 16));
+    soil(g, 11, Y(0.43, 16), W - 11, Y(0.77, 16));
     flowers(g, 12, W - 12, Y(0.42, 24), Y(0.78, 18));
     g.fillStyle = WOOD.dark; g.fillRect(8, Y(0.8, 4), W - 16, 2.4);
   }, OW));
+}
+// the planter's flowers as upright plants along its length (stems, leaves, blooms on a baseline at Y(0.6, 0)): the 3D
+// planter stands them on its soil in four slices, each over its own stretch of the box
+function planterPlants() {
+  const rand = rng(2303);
+  const pals = [['#e0506a', '#f29bc0', '#f7f7f2'], ['#f4d35e', '#ee6c4d', '#f08a3a'], ['#c58fe0', '#7fb0f0', '#f7f7f2']];
+  return mk(2, 30, (g, P, Y, W) => {
+    P.layer((g) => {
+      const base = Y(0.6, 0);
+      for (let i = 0; i < 34; i++) { // leafy tufts first
+        const x = 12 + rand() * (W - 24), h = 4 + rand() * 5;
+        g.fillStyle = GREENS[i % 4]; g.beginPath(); g.ellipse(x, base - h * 0.5, 3.4, h * 0.6, (rand() - 0.5) * 0.8, 0, TAU); g.fill();
+      }
+      for (let i = 0; i < 30; i++) {
+        const x = 12 + rand() * (W - 24), h = 7 + rand() * 9, pal = pals[(rand() * 3) | 0];
+        g.strokeStyle = '#4b7a32'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(x, base); g.lineTo(x + (rand() - 0.5) * 3, base - h); g.stroke();
+        g.fillStyle = GREENS[(rand() * 3) | 0]; g.beginPath(); g.ellipse(x + 2, base - h * 0.45, 2.6, 1.3, 0.6, 0, TAU); g.fill();
+        const c = pal[(rand() * 3) | 0];
+        g.fillStyle = c; for (let k = 0; k < 4; k++) { const a = k * 1.57 + rand(); g.beginPath(); g.ellipse(x + Math.cos(a) * 1.8, base - h + Math.sin(a) * 1.4, 1.6, 1.1, a, 0, TAU); g.fill(); }
+        g.fillStyle = '#ffe680'; g.beginPath(); circle(g, x, base - h, 0.8); g.fill();
+      }
+    }, 1.2);
+  });
 }
 function stepping(v) {
   const rand = rng(2400 + v);
@@ -1136,6 +1165,8 @@ function decorSprites(S) {
   A('flower_bed_base', () => flowerBed(0, 'base'));
   for (let v = 0; v < 3; v++) A('flower_bed_plants_' + v, () => flowerBed(v, 'plants'));
   A('planter', () => planter(false)); A('planter_e', () => planter(true));
+  // the planter without its flowers and the flowers as upright plants (the 3D faces only, art/faces/solidGarden.js)
+  A('planter_base', () => planter(false, true)); A('planter_base_e', () => planter(true, true)); A('planter_plants', () => planterPlants());
   for (let v = 0; v < 3; v++) A('stepping_' + v, () => stepping(v));
   A('well', () => well()); A('signpost', () => signpost());
   A('bench_stone', () => benchStone(false)); A('bench_stone_e', () => benchStone(true));

@@ -125,7 +125,7 @@ defineSolid('dresser', {
   align: 'back',
   parts: [
     { box: [-52, 52, 0.5, 0.88, 0, 30] },
-    { card: [6, 24, 0.56, 30, 60], solo: true, sh: false },
+    { card: [6, 24, 0.56, 30, 60], t: 4, solo: true, sh: false },
     { box: [37, 46, 0.66, 0.7, 30, 41], sh: false },
   ],
   views: {
@@ -174,10 +174,11 @@ defineSolid('armor_stand', {
 });
 // washtub (decor.js washtub, mk(2, 30) / mkv(1, 2, 30)): an oval tub (a lathe stretched along its length), the water
 // on its rim; the art draws the oval 50 × 18: squashed (k) as it is seen from the front
+// (the same tub whichever way it faces: model 'front'; the _e art draws it 40 × 100, its fit only textures)
 defineSolid('washtub', {
-  align: 'center', k: 18 / 30, piv: 0.78 - 1,
+  model: 'front', k: 18 / 30, piv: 0.78 - 1,
   parts: [{ lathe: [0, 0.78, [[0, 29], [3, 30], [22, 31]]], sx: 50 / 31, n: 12 }],
-  views: { e: { V: 2, k: 44 / 50, piv: 1.6 - 2, parts: [{ lathe: [0, 1.6, [[0, 49], [3, 50], [22, 51]]], sx: 20 / 50 }] } },
+  views: { e: { V: 2, k: 44 / 50, piv: 1.6 - 2, parts: [{ lathe: [0, 1.6, [[0, 19], [3, 20], [22, 20.5]]], sx: 50 / 20.5 }] } },
 });
 
 // ---- banner (stations.js bannerPole + bannerCloth, composeWorld drawBanner): the pole and its crossbar; the cloth hangs
@@ -194,9 +195,18 @@ function bannerCloth(B, A, o, t, x, y, lift, a, fs) {
   const L = -s.ax * s.w * k, R = (1 - s.ax) * s.w * k, T = -s.ay * s.h, D = (1 - s.ay) * s.h;
   // (u right, v down the cloth) turned by th in its plane → world (along x) and height
   const px = (u, v) => x + u * cs - v * sn, ph = (u, v) => lift - (u * sn + v * cs);
-  CUV[0] = s.u0; CUV[1] = s.v0; CUV[2] = s.u1; CUV[3] = s.v1;
-  const z = shade(0, CAMV.c >= 0 ? 1 : -1);
-  F.quad(px(L, T), y, ph(L, T), px(R, T), y, ph(R, T), px(R, D), y, ph(R, D), px(L, D), y, ph(L, D), CUV, fs.tr * z, fs.tg * z, fs.tb * z, fs.a);
+  // the cloth hangs in soft folds (four strips in a shallow zigzag across its plane): seen from the side it is never a
+  // bare line; the folds breathe with the wind
+  const fd = 0.08 + 0.015 * Math.sin(t * 2.3 + seed);
+  for (let k = 0; k < 4; k++) {
+    const ua = L + ((R - L) * k) / 4, ub = L + ((R - L) * (k + 1)) / 4, ya = y + (k & 1 ? fd : 0), yb = y + (k & 1 ? 0 : fd);
+    let nx = -(yb - ya), ny = ub - ua;
+    const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+    if (-CAMV.s * nx + CAMV.c * ny < 0) { nx = -nx; ny = -ny; } // (two-sided: the side facing the camera)
+    const z = shade(nx, ny);
+    CUV[0] = s.u0 + ((s.u1 - s.u0) * k) / 4; CUV[2] = s.u0 + ((s.u1 - s.u0) * (k + 1)) / 4; CUV[1] = s.v0; CUV[3] = s.v1;
+    F.quad(px(ua, T), ya, ph(ua, T), px(ub, T), yb, ph(ub, T), px(ub, D), yb, ph(ub, D), px(ua, D), ya, ph(ua, D), CUV, fs.tr * z, fs.tg * z, fs.tb * z, fs.a);
+  }
   if (!fs.bp && B.shadow) shadowRect(B, K.tables(A), x, y - 0.015, 0, s.w, 0.03, s.h, a, lift - s.h);
 }
 defineSolid('banner', {

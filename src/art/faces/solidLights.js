@@ -45,15 +45,17 @@ const candle = (k) => (B, A, o, t, x, y, lift, a) => { if (a > 0.05) K.smallFlam
 
 // ---------- campfire (buildings.js campfire: 80 × 60, anchor row 40, no Y(v, h): v = 1 + (row − 40 + h) / 64) ----------
 // a ring of 10 stones (radius 27 px drawn 13 px deep: k) around the ash bed and the crossed logs (a low mound)
-const CF_V = 1 - 3 / 64; // the ring's centre (row 37)
+// The art's ring is wider than a tile: the model's ring (radius 22) fits the tile, centred on it; each stone takes the
+// colour of its stone in the art (px)
+const CF_V = 1 - 3 / 64, CFK = 13 / 27; // the ring's centre (row 37)
 const CF_STONES = [];
 for (let i = 0; i < 10; i++) {
-  const a = (i / 10) * Math.PI * 2 + 0.15;
-  CF_STONES.push({ lathe: [27 * Math.cos(a), CF_V + (13 * Math.sin(a)) / 64, [[0, 7], [4, 3.5]]], n: 5, sh: false });
+  const a = (i / 10) * Math.PI * 2 + 0.15, c = Math.cos(a), s = Math.sin(a);
+  CF_STONES.push({ lathe: [22 * c, CF_V + (22 * CFK * s) / 64, [[0, 6], [2.5, 5.2], [4.5, 2.6]]], n: 6, sh: false, px: [27 * c - 1.5, CF_V + (13 * s) / 64, 1.5] });
 }
 defineSolid('campfire', {
-  k: 13 / 27, piv: CF_V - 1, ramp: false,
-  parts: [{ lathe: [0, CF_V, [[0, 23], [2, 20], [7, 9], [9, 0]]], n: 10, sh: false }, ...CF_STONES],
+  k: CFK, piv: CF_V - 1, align: CF_V,
+  parts: [{ lathe: [0, CF_V, [[0, 19], [2, 16.5], [6, 8], [8, 0]]], n: 10, sh: false }, ...CF_STONES],
   glow: { s: 'campfire_coals', parts: [0], a: (o, t) => { if (!lit(o)) return 0; const s = o.x * 1.7 + o.y; return 0.75 + 0.2 * Math.sin(t * 3.1 + s) * Math.sin(t * 7.7 + s); } },
   fx: [{ at: [0, CF_V, 3.4], draw(B, A, o, t, x, y, lift, a) {
     if (!lit(o)) return;
@@ -63,18 +65,19 @@ defineSolid('campfire', {
     if (T.flames[0]) B.emissive.add(T.flames[(t * 3 | 0) % 3], sx(x, dx), sy(y, dx), 0.35, 0.6 * pop, 1, 1, 1, 0.7 * pop * a, 0, 0, 0, 1, 0, lift + 0.2);
   } }],
   light: [0, CF_V, 0],
-  blob: [0.9, 0.5, 3 / 64, 0.35],
+  blob: [0.95, 0.95, 0.5, 0.35],
 });
 
 // ---------- brazier (stations.js brazier, mk(1, 40)): iron bowl on three splayed legs ----------
 // the rim is drawn 15 × 4.2 (k); the legs' feet sit on the ring that k gives (the art draws them further apart in depth)
+const BZ_LEG = [-13.6, 0.75, 8.3]; // (the legs' iron)
 defineSolid('brazier', {
-  k: 0.28, piv: 0.62 - 1, ramp: false,
+  k: 0.28, piv: 0.62 - 1, align: 0.62,
   parts: [
     { lathe: [0, 0.62, [[36, 0], [40, 9], [45, 13], [50, 15]]], n: 12 },
-    { lathe: [-16, 0.6603, [[0, 1.3], [40, 1.3]]], lean: [0.205, -0.033], n: 4, sh: false },
-    { lathe: [16, 0.6603, [[0, 1.3], [40, 1.3]]], lean: [-0.205, -0.033], n: 4, sh: false },
-    { lathe: [0, 0.539, [[0, 1.3], [40, 1.3]]], lean: [0, 0.0986], n: 4, sh: false },
+    { lathe: [-16, 0.6603, [[0, 1.6], [40, 1.3]]], lean: [0.205, -0.033], n: 5, ow: 0.8, sh: false, px: BZ_LEG },
+    { lathe: [16, 0.6603, [[0, 1.6], [40, 1.3]]], lean: [-0.205, -0.033], n: 5, ow: 0.8, sh: false, px: BZ_LEG },
+    { lathe: [0, 0.539, [[0, 1.6], [40, 1.3]]], lean: [0, 0.0986], n: 5, ow: 0.8, sh: false, px: BZ_LEG },
   ],
   glow: { s: 'brazier_coals', parts: [0], a: (o, t) => (lit(o) ? flick(o, t) : 0) },
   fx: [{ at: [0, 0.62, 47.4], draw(B, A, o, t, x, y, lift, a) {
@@ -87,24 +90,27 @@ defineSolid('brazier', {
     if (T.glow) B.emissive.add(T.glow, x, y, 1.4, 1.1, 1, 0.55, 0.25, 0.22 * flick(o, t) * a, 0, 0, 0, 1, 0, lift);
   } }],
   light: [0, 0.62, 0],
-  blob: [0.85, 0.42, 0.38, 0.38],
+  blob: [0.75, 0.75, 0.5, 0.38],
 });
 
 // ---------- cooking pot (stations.js cookingPot, mk(1, 40)): fire ring, tripod, chain and cauldron ----------
-const CP_STONES = [];
+// The ring and the cauldron keep the art's look (projective, k); thin or hidden things take their own colour (px): the
+// tripod's three legs stand on a circle outside the stones (30 px) and meet right over the cauldron (the art draws the
+// apex behind it), the chain hangs straight down, the stones are each one stone colour, the stew fills the rim.
+const CP_STONES = [], CPK = 0.4, cpv = (dy) => 0.62 + (dy / 64) * CPK; // (a true depth offset, px → art row)
 for (let i = 0; i < 8; i++) {
   const a = (i / 8) * Math.PI * 2;
-  CP_STONES.push({ lathe: [21 * Math.cos(a), 0.62 + (8.5 * Math.sin(a)) / 64, [[0, 6.5], [3.5, 2.5]]], n: 5, sh: false });
+  CP_STONES.push({ lathe: [21 * Math.cos(a), 0.62 + (8.5 * Math.sin(a)) / 64, [[0, 6.5], [2.5, 5.5], [4.5, 2.5]]], n: 6, sh: false, px: [0, 0.753, 2] });
 }
+const CP_LEG = (fx, fy) => ({ lathe: [fx, cpv(fy), [[0, 2.2], [62, 1.7]]], lean: [-fx / 62, ((0.62 - cpv(fy)) * 64) / 62], n: 5, ow: 0.8, px: [-7.2, 0.85, 55.4] });
 defineSolid('cooking_pot', {
-  k: 0.4, piv: 0.62 - 1, ramp: false,
+  k: CPK, piv: 0.62 - 1, align: 0.62,
   parts: [
     { lathe: [0, 0.62, [[0, 20], [2, 18], [5, 10], [7, 0]]], n: 10, sh: false },
-    { lathe: [0, 0.62, [[12, 6], [16, 13], [22, 16], [28, 16], [32, 15.5]]], n: 12 },
-    { lathe: [-24, 0.7069, [[0, 1.5], [64.5, 1.5]]], lean: [0.372, -0.0862], n: 4, sh: false },
-    { lathe: [24, 0.7069, [[0, 1.5], [64.5, 1.5]]], lean: [-0.372, -0.0862], n: 4, sh: false },
-    { lathe: [3, 0.4469, [[0, 1.5], [64.5, 1.5]]], lean: [-0.0465, 0.1718], n: 4, sh: false },
-    { lathe: [0, 0.62, [[34, 0.6], [62, 0.6]]], n: 4, sh: false },
+    { lathe: [0, 0.62, [[16, 5], [19, 12], [24, 15.5], [29, 16], [32, 15.5], [32.6, 13]]], n: 12, px: { t: [-4, 0.62, 31.6] } },
+    CP_LEG(-26, 15), CP_LEG(26, 15), CP_LEG(0, -30),
+    { lathe: [0, 0.62, [[58, 3], [62.5, 2.6]]], n: 6, ow: 0, sh: false, px: [0, 0.55, 58.5] }, // (the lashing)
+    { lathe: [0, 0.62, [[33, 0.7], [59, 0.7]]], n: 4, ow: 0.5, sh: false, px: [0, 0.62, 45] },  // (the chain)
     { card: [-13, 13, 0.62, 32, 50], t: 0.4, sh: false, z: 0.01 },
     { card: [3, 15, 0.62, 30, 46], t: 0.4, sh: false, z: 0.01 },
     ...CP_STONES,
@@ -128,24 +134,28 @@ defineSolid('cooking_pot', {
     }
   } }],
   light: [0, 0.62, 0],
-  blob: [0.85, 0.42, 0.38, 0.38],
+  blob: [0.95, 0.95, 0.5, 0.38],
 });
 
 // ---------- furnace (stations.js furnace, mk(1, 60)): stone dome with its mouth, chimney behind ----------
-// the art draws the dome flat (front only): k stretches its upper rows over the dome's top; the back is furnace_back
-// (stations.js, painted only for the turned camera)
+// the art draws the dome flat (a front elevation): k stretches its upper rows over the dome's top. The model stands
+// in the middle of the tile (align: the dome's axis); the chimney rises out of the dome's back, the poker leans on it,
+// the bellows lie at its foot (their own colours). The sides and the back show furnace_back (stations.js, painted only
+// for the turned camera): no second mouth on the sides.
 const FU = { k: 0.2, piv: 0.872 - 1 };
-const FU_DOME = { lathe: [0, 0.872, [[0, 25], [26, 25], [33, 20], [37, 12], [39, 0]]], n: 12 };
-const FU_CHIM = [[0, 6], [64, 6], [64, 7], [66, 7]];
+const FU_DOME = { lathe: [0, 0.872, [[0, 25], [26, 25], [33, 20], [37, 12], [39, 0]]], n: 14 };
+const FU_CHIM = [[0, 6], [64, 6], [64, 7], [66, 7], [66.5, 5.5]];
+const FU_BACK = { ...FU, parts: [FU_DOME, { lathe: [-9, 0.897, FU_CHIM], n: 8 }, { lathe: [28, 0.95, [[0, 0.8], [36, 0.8]]], n: 4 }, { box: [-30, -16, 0.95 - 1 / 64, 0.95 + 1 / 64, 0, 12] }] };
+const FU_BEL = [23, 0.95, 5];
 defineSolid('furnace', {
-  ...FU, ramp: false,
+  ...FU, e: 'furnace_back', align: 0.872,
   parts: [
     FU_DOME,
-    { lathe: [9, 0.847, FU_CHIM], n: 8, sh: false, lift: -19 }, // (out of the dome's back; the art draws it 19 px higher)
-    { lathe: [-28, 0.95, [[0, 0.8], [36, 0.8]]], lean: [0.216, 0], n: 4, sh: false },
-    { box: [16, 30, 0.95 - 1 / 64, 0.95 + 1 / 64, 0, 12], sh: false },
+    { lathe: [9, 0.847, FU_CHIM], n: 8, sh: false, lift: -19, px: { t: [9, 0.55, 64] } }, // (out of the dome's back; the art draws it 19 px higher; its sooty mouth)
+    { lathe: [-28, 0.95, [[0, 1.2], [36, 1]]], lean: [0.216, 0], n: 5, ow: 0.6, sh: false, px: [-25.6, 0.95, 11.5] },
+    { box: [16, 30, 0.95 - 1 / 64, 0.95 + 1 / 64, 0, 9], sh: false, px: { n: FU_BEL, e: FU_BEL, w: FU_BEL, t: FU_BEL } },
   ],
-  views: { n: { ...FU, parts: [FU_DOME, { lathe: [-9, 0.897, FU_CHIM], n: 8 }, { lathe: [28, 0.95, [[0, 0.8], [36, 0.8]]], n: 4 }, { box: [-30, -16, 0.95 - 1 / 64, 0.95 + 1 / 64, 0, 12] }] } },
+  views: { n: FU_BACK, e: FU_BACK },
   glow: { s: 'furnace_glow', parts: [0, 1], a: (o, t) => (o.working || o.fire === true || o.lit === true ? flick(o, t) : 0) },
   fx: [{ at: [0, 0.945, 9.6], draw(B, A, o, t, x, y, lift, a) {
     if (!(o.working || o.fire === true || o.lit === true)) return;
@@ -156,19 +166,30 @@ defineSolid('furnace', {
     if (T.glow) B.emissive.add(T.glow, x, y, 1.1, 0.8, 1, 0.5, 0.2, 0.2 * f1 * k, 0, 0, 0, 1, 0, lift);
   } }],
   light: [0, 0.95, 0],
-  blob: [0.85, 0.42, 0.13, 0.38],
+  blob: [0.95, 0.95, 0.5, 0.4],
 });
 
-// ---------- anvil (stations.js anvil, mk(1, 26)): stump, waist, face with the horn, the hammer lying on it ----------
-const AV = 0.9;
+// ---------- anvil (stations.js anvil, mk(1, 26)): stump, foot, waist, face with the heel and the horn, the hammer ----------
+// The art draws the iron seen from the front only (its top a 1 px highlight) and 3 px above the stump's top: the model
+// stands on the stump (geo: 3 px lower), each block with its true depth (ad: true px → art rows), the front from the
+// art, tops and ends in the iron's own colours (px). The horn tapers in three steps to its tip; the hammer lies on the face.
+const AV = 0.9, AK = 4 / 11.5, ad = (px) => (px / 2) * AK / 64;
+const AVB = (x0, x1, d, h0, h1, o) => ({ box: [x0, x1, AV - ad(d), AV + ad(d), h0, h1], geo: [x0, x1, AV - ad(d), AV + ad(d), h0 - 3, h1 - 3], sh: false, ...o });
+const A_HI = [-15, AV, 34], A_MID = [2, AV, 31], A_DK = [0, AV, 25], A_SIDE = { n: A_MID, e: A_MID, w: A_MID, t: A_HI };
 defineSolid('anvil', {
-  k: 4 / 11.5, piv: AV - 1, ramp: false,
+  k: AK, piv: AV - 1, align: AV,
   parts: [
     { lathe: [0, AV, [[0, 13], [18, 11]]], n: 10 },
-    { box: [-7, 7, AV - 2 / 64, AV + 2 / 64, 21, 30], sh: false },
-    { box: [-23, 12, AV - 1.5 / 64, AV + 1.5 / 64, 30, 36], sh: false },
-    { box: [-3, 15, AV - 1.5 / 64, AV + 1.5 / 64, 35, 42], sh: false, z: 0.01 },
+    AVB(-9, 9, 14, 21, 24, { px: { n: A_MID, e: A_MID, w: A_MID, t: A_MID } }),        // foot
+    AVB(-6, 6, 8, 23.5, 30.5, { px: { n: A_DK, e: A_DK, w: A_DK, t: A_DK } }),          // waist
+    AVB(-9, 12, 12, 30, 36, { px: A_SIDE, sh: true }),                                   // face and heel
+    AVB(-14, -9, 9, 30.5, 36, { px: A_SIDE }),                                           // the horn, three steps
+    AVB(-19, -14, 6, 31.5, 35.8, { px: A_SIDE }),
+    AVB(-23.5, -19, 3, 33, 35.4, { px: A_SIDE }),
+    { box: [3, 15, AV - ad(2.5), AV + ad(2.5), 33, 35.4], px: [6, AV, 38.6], sh: false, z: 0.01 },  // hammer: handle
+    { box: [-2.5, 3, AV - ad(6), AV + ad(6), 33, 37.5], px: [0, AV, 39], sh: false, z: 0.01 },     // and head
   ],
+  blob: [0.62, 0.5, 0.5, 0.42],
 });
 
 // ---------- workbench (stations.js workbench / _n / _e): the bench (legs and shelf from the art) + the tool board ----------
@@ -182,36 +203,51 @@ defineSolid('workbench', {
 });
 
 // ---------- stonecutter (stations.js stonecutter / _e): slab table, the block being dressed, dressed blocks, stones ----------
+// the dressed blocks are three blocks (two side by side, one on them) as the art draws them; the rough stones on the
+// ground are round stones inside the footprint
+const SC_ST = [[0, 6.5], [3, 5.6], [6, 2.5]];
 defineSolid('stonecutter', {
   model: 'front',
   parts: [
     { box: [-58, 58, 0.18, 0.86, 0, 26], open: true },
     { box: [-36, -10, 0.43, 0.555, 26, 40], sh: false },
-    { box: [28, 55, 0.52, 0.6, 26, 44], sh: false },
-    { box: [-57, -31, 0.93, 1, 0, 7], sh: false },
+    { box: [28, 41, 0.522, 0.6, 26, 35], sh: false }, { box: [42, 55, 0.522, 0.6, 26, 35], sh: false },
+    { box: [35, 48, 0.508, 0.586, 35, 44], sh: false, z: 0.01 },
+    { lathe: [-48, 0.9, SC_ST], n: 7, sh: false, px: [-48, 1, 2.5] }, { lathe: [-37, 0.93, [[0, 5], [2.5, 4.2], [4.5, 1.8]]], n: 6, sh: false, px: [-38, 1, 1.5] },
   ],
   views: {
     e: { V: 2, parts: [
       { box: [-24, 24, 0.12, 1.86, 0, 26], open: true },
       { box: [-14, 12, 0.964, 1.089, 26, 40] },
-      { box: [-22, 5, 0.43, 0.51, 26, 44] },
-      { box: [14, 30, 1.9, 1.98, 0, 7] },
+      { box: [-22, -9, 0.43, 0.51, 26, 35] }, { box: [-8, 5, 0.43, 0.51, 26, 35] }, { box: [-15, -2, 0.417, 0.495, 35, 44] },
+      { lathe: [22, 1.92, SC_ST] }, { lathe: [22, 1.92, SC_ST] },
     ] },
   },
 });
 
-// ---------- loom (stations.js loom / _n / _e): the frame (a thick card), the weaver's bench, the cotton basket ----------
+// ---------- loom (stations.js loom / _n / _e): the frame, the weaver's bench, the cotton basket ----------
+// The frame is solid wood, not a board: two square uprights on long feet (they keep it standing, seen from the side),
+// the top beam, the cloth beam and the warp with the cloth between them. Front from loom, back from loom_n; the
+// wood's ends and tops in their own colours (loom_e draws the frame skewed: only the bench and basket take it).
 const BASKET = [[0, 7], [12, 9], [17, 6]];
+const LM = 0.6, lmd = (px) => px / 64; // (the frame's plane; true px → rows)
+const LM_W = [-50, LM, 35], LM_D = [-50, LM, 2], LM_T = [0, LM, 69], LM_C = [0, LM, 18];
+const LOOM = (bench, basket) => [
+  bench, basket,
+  { box: [-53, -47, LM - lmd(3), LM + lmd(3), 0, 70], px: { e: LM_W, w: LM_W, t: LM_T } },
+  { box: [47, 53, LM - lmd(3), LM + lmd(3), 0, 70], px: { e: LM_W, w: LM_W, t: LM_T } },
+  { box: [-56, -44, LM - lmd(15), LM + lmd(15), 0, 4.5], sh: false, px: { n: LM_D, e: LM_D, w: LM_D, t: LM_D } },
+  { box: [44, 56, LM - lmd(15), LM + lmd(15), 0, 4.5], sh: false, px: { n: LM_D, e: LM_D, w: LM_D, t: LM_D } },
+  { box: [-54, 54, LM - lmd(3.5), LM + lmd(3.5), 64, 70], sh: false, px: { e: LM_T, w: LM_T, t: LM_T } },
+  { box: [-52, 52, LM - lmd(3.5), LM + lmd(3.5), 15, 22], sh: false, px: { e: LM_C, w: LM_C, t: LM_C } },
+  { card: [-47, 47, LM, 22, 64], t: 1.5, sh: false, z: -0.005 },
+];
 defineSolid('loom', {
   model: 'front',
-  parts: [
-    { card: [-54, 54, 0.6, 0, 70], t: 6 },
-    { box: [-22, 22, 0.95 - 8 / 64, 0.95, 0, 17], open: true },
-    { lathe: [52, 0.9 - 9 / 64, BASKET], n: 8, sh: false },
-  ],
+  parts: LOOM({ box: [-22, 22, 0.95 - 8 / 64, 0.95, 0, 17], open: true }, { lathe: [52, 0.9 - 9 / 64, BASKET], n: 8, sh: false }),
   views: {
-    n: { parts: [{ card: [-54, 54, 0.6, 0, 70], t: 6 }, { box: [-22, 22, 0.22 - 8 / 64, 0.22, 0, 17], open: true }, { lathe: [-52, 0.95 - 9 / 64, BASKET], n: 8 }] },
-    e: { V: 2, parts: [{ box: [-24, 4, 0.25, 1.7, 0, 72] }, { box: [8, 24, 0.6, 1.5, 0, 19], open: true }, { lathe: [14, 0.3 - 8 / 64, [[0, 6], [11, 8], [16, 6]]], n: 8 }] },
+    n: { parts: LOOM({ box: [-22, 22, 0.22 - 8 / 64, 0.22, 0, 17], open: true }, { lathe: [-52, 0.95 - 9 / 64, BASKET], n: 8 }) },
+    e: { V: 2, parts: [{ box: [8, 24, 0.6, 1.5, 0, 19], open: true }, { lathe: [14, 0.3 - 8 / 64, [[0, 6], [11, 8], [16, 6]]], n: 8 }] },
   },
 });
 
@@ -290,7 +326,7 @@ defineSolid('lamp_stone', {
   parts: [
     { box: [-11, 11, 0.5, 0.6, 0, 6], sh: false },
     { box: [-5, 5, LS - ls(5), LS + ls(5), 6, 30], sh: false },
-    { box: [-10, 10, LS - ls(10), LS + ls(10), 29, 33], sh: false },
+    { box: [-10, 10, LS - ls(10), LS + ls(10), 29, 33], sh: false, px: { t: [-8, 0.6, 31] } },
     { box: [-8.5, 8.5, LS - ls(8.5), LS + ls(8.5), 33, 49], sh: false },
     { lathe: [0, LS, [[49, 13], [54.5, 3], [56, 2.2], [58, 0]]], n: 8 },
   ],
