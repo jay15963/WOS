@@ -4,8 +4,8 @@
 // view (raw, before its outline), both drawings are laid on a simple 3D stand-in of the part (one ellipse per row:
 // its width from the front drawing, its depth from the side one), the stand-in is turned 45° and seen by the
 // camera — the front drawing covers the surfaces that face front, the side drawing the ones that face the side,
-// blended over a narrow band — and the layer gets its outline afterwards (same width and colour as the original:
-// the same artist's line). So a 3/4 torso is narrower with its side showing and the near arm on it (the side
+// blended over a wide band (±18°: a detail only one drawing has fades out) — and the layer gets its outline
+// afterwards (same width and colour as the original: the same artist's line). So a 3/4 torso is narrower with its side showing and the near arm on it (the side
 // drawing's arm), the far arm folds behind the chest; a 3/4 head shows the near ear and cheek from the side
 // drawing and the face from the front drawing, turned; hair, beards, hats, armour follow the same turn.
 // Small face features (eyes, nose, mouth, brows, marks, paint…) come from the front drawing only, laid on a
@@ -31,14 +31,20 @@ import { bodyPath, PAWN, NECK, FEET } from '../pawns.js';
 
 // camera azimuth around the creature for a 3/4 view: 0 = its front, 90° = its right side, 180° = its back
 const DEG = Math.PI / 180;
-export const GAMMA = { se: 42 * DEG, ne: 138 * DEG };
+export const GAMMA = { se: 42 * DEG, ne: 138 * DEG, sl: 8 * DEG, nl: 66 * DEG }; // (sl / nl: a head turned toward the camera on a se / ne body: art/beast34.js)
 // blend band (half width) between the front / back drawing and the side drawing, around the 45° normals
-const BAND = 9 * DEG;
+const BAND = 18 * DEG; // (wide: a detail drawn in one view only fades out over the turn instead of ending on a seam)
 // the source drawing of a view and the way its content slides (+1: to the right); w: 3/4 width of the torso
 export const VIEW = { se: { pd: 's', sg: 1 }, ne: { pd: 'n', sg: -1 } };
 export const KIND = { body: { w: 0.88 }, head: { w: 1 } };
 const PADQ = 14;
 const OCC_TOL = 2 * SS; // (px: hair lying on the head is never hidden by it)
+const SIDE_MAX = 108 * DEG; // a front-only part seen from behind: the surface up to this normal (its near side)
+const RAGGED_FILL = 6 * SS; // px: the widest gap between two curls closed along a ragged hair's turned outline
+// very irregular hair (curls, coils, locs, a wild mane): its turned outline follows the volume (projectLayer fillEdge);
+// a crest (mohawk): its side drawing all round (the spikes in profile, foreshortened), not blended with the front one
+const RAGGED = /^lk_hairx?_(\w+_)?(afro|curly|long_curly|wild|puff|twists|dreads|long_dreads)_[sn]$/, CREST = /^lk_hairx?_(\w+_)?mohawk_[sn]$/;
+export const hairStyle = (name) => (RAGGED.test(name) ? 'ragged' : CREST.test(name) ? 'crest' : null);
 
 // ---------------- recording painter: the raw layers of a part (no outline yet) ----------------
 export class Rec {
@@ -210,7 +216,9 @@ function rowsOf(px, W, H) {
 // X / Z: stand-in extents per row (front width / side depth). Returns an RGBA buffer the size of the layer canvas.
 // occ: an occluder stand-in ({ X, Z }: the bare head) — what lies behind it on the camera's ray is not drawn (a hair
 // strand on the far side of the face)
-export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
+// fillEdge (px): ragged hair — gaps between curls along the stand-in's outline are filled with the hair next to them,
+// so the turned edge follows the smooth volume instead of the curls cut off by it (a jagged edge)
+export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null, sideOnly = false, fillEdge = 0) {
   const W = R.cw, H = R.ch, ax = (R.pad + R.W / 2) * SS;
   const out = new Uint8ClampedArray(W * H * 4);
   const back = view === 'ne', g = GAMMA[view], cg = Math.cos(g), sg = Math.sin(g);
@@ -246,9 +254,10 @@ export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
       const nX = ct / rx, nZ = st / rz;
       let eta = Math.atan2(-nX, nZ); // normal: 0 front, 90° its right side, 180° back
       if (back && eta < 0) eta += Math.PI * 2;
+      if (sideOnly === true && back && eta > SIDE_MAX) continue; // (a beard from behind: only its near side, not its back on the neck)
       // how much of the side drawing (wS) vs the front / back one (wF)
       let wS = back ? 1 - smoothstep(seam - BAND, seam + BAND, eta) : smoothstep(seam - BAND, seam + BAND, eta);
-      if (thin) wS = 1;
+      if (thin || sideOnly) wS = 1;
       if (frontOnly || !pxS) wS = 0;
       const wF = pxF ? 1 - wS : 0;
       // footprints of one output px in the sources (squeezed near the folds)
@@ -269,8 +278,24 @@ export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
       const o = (y * W + i) * 4;
       out[o] = r / cw; out[o + 1] = gg / cw; out[o + 2] = b / cw; out[o + 3] = Math.min(255, am / Math.max(wF, wS));
     }
+    if (fillEdge) edgeFill(out, W, y, i0, i1, ax + C, M, fillEdge);
   }
   return out;
+}
+// the outer part of a row (|u| > 0.55 of the turned ellipse): a see-through pixel with hair within `n` px further in
+// takes that hair (a curl's gap closed); the face's hole in the middle of the row stays
+function edgeFill(out, W, y, i0, i1, c, M, n) {
+  for (let i = i0; i <= i1; i++) {
+    const u = (i + 0.5 - c) / M, o = (y * W + i) * 4;
+    if (Math.abs(u) < 0.55 || Math.abs(u) >= 1 || out[o + 3] > 150) continue;
+    const step = u > 0 ? -1 : 1;
+    for (let k = 1; k <= n; k++) {
+      const j = i + step * k;
+      if (j < i0 || j > i1) break;
+      const q = (y * W + j) * 4;
+      if (out[q + 3] > 200) { const a = out[o + 3] / 255, b = 1 - a; out[o] = out[o] * a + out[q] * b; out[o + 1] = out[o + 1] * a + out[q + 1] * b; out[o + 2] = out[o + 2] * a + out[q + 2] * b; out[o + 3] = 255; break; }
+    }
+  }
 }
 
 // ---------------- arms (torso box) ----------------
@@ -384,6 +409,40 @@ function over(a, b) {
   return a;
 }
 
+// ragged hair: the turned outline smoothed — an opening (thin spikes, one-pixel jags off) then a closing (notches
+// between curls filled with the hair next to them), radius r px; the curls bigger than that stay
+function smoothOutline(px, W, H, r = 2 * SS) {
+  const n = W * H, A = new Uint8Array(n);
+  for (let i = 0; i < n; i++) A[i] = px[i * 4 + 3] > 110 ? 1 : 0;
+  const morph = (src, grow) => {
+    const t = new Uint8Array(n), o = new Uint8Array(n);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let v = grow ? 0 : 1;
+      for (let k = -r; k <= r; k++) { const xx = x + k; const q = xx < 0 || xx >= W ? 0 : src[y * W + xx]; if (grow ? q : !q) { v = grow ? 1 : 0; break; } }
+      t[y * W + x] = v;
+    }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let v = grow ? 0 : 1;
+      for (let k = -r; k <= r; k++) { const yy = y + k; const q = yy < 0 || yy >= H ? 0 : t[yy * W + x]; if (grow ? q : !q) { v = grow ? 1 : 0; break; } }
+      o[y * W + x] = v;
+    }
+    return o;
+  };
+  const opened = morph(morph(A, false), true), M = morph(morph(opened, true), false);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (A[i] && !M[i]) { px[i * 4 + 3] = 0; continue; } // (a spike / jag cut off)
+    if (!A[i] && M[i]) { // (a notch filled: the nearest hair's colour)
+      let best = -1;
+      for (let d = 1; d <= r + 2 && best < 0; d++) for (let dy = -d; dy <= d && best < 0; dy++) for (let dx = -d; dx <= d; dx++) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < W && yy < H && A[yy * W + xx] && M[yy * W + xx]) { best = yy * W + xx; break; }
+      }
+      if (best >= 0) { px[i * 4] = px[best * 4]; px[i * 4 + 1] = px[best * 4 + 1]; px[i * 4 + 2] = px[best * 4 + 2]; px[i * 4 + 3] = 255; }
+    }
+  }
+}
+
 // tiny islands left by the projection (a strand's tip past what hides it): dropped from every layer
 export function dropCrumbs(layers, W, H, minA = 14 * SS * SS) {
   const n = W * H, lab = new Int32Array(n), on = new Uint8Array(n), stack = new Int32Array(n);
@@ -429,15 +488,57 @@ export function kindOf(name) {
   if (/^lk_hairb/.test(name)) return 'back';
   if (/^lk_(hair|hairx|beard)_|^wear_|^hat_/.test(name)) return 'hair';
   if (/^lk_foot_/.test(name)) return 'foot';
+  if (/^lk_nose_/.test(name)) return 'nose';
   return 'decal';
 }
-const BOX = { body: 'body', cape: 'body', panel: 'body', head: 'head', hair: 'head', decal: 'head', ears: 'head', back: null, foot: null };
+const BOX = { body: 'body', cape: 'body', panel: 'body', head: 'head', hair: 'head', decal: 'head', nose: 'head', ears: 'head', back: null, foot: null };
+
+// ---------------- the nose in 3/4 ----------------
+// The front drawing (shading, nostrils) lies on the turned face like the other face marks; under it, the nose's
+// profile: the side drawing's nose (what sticks out past the face) put at the face's midline, its depth stretched
+// so the tip just breaks the cheek's outline on the turned side (a 3/4 nose reads, a long one more than a button).
+// Only what reaches the cheek's outline is kept (inside the face the front drawing is the nose: the profile's bridge
+// line there was a dark slash across the cheek)
+const NOSE_OUT = (OW + 1.2) * SS, NOSE_IN = 1.5 * SS, NOSE_EDGE = (OW + 1.5) * SS; // (OW: past the head's own outline)
+function noseBump(R, pxS, C, view) {
+  const W = R.cw, H = R.ch, ax = (R.pad + R.W / 2) * SS, g = GAMMA[view], cg = Math.cos(g), sg = Math.sin(g);
+  const out = new Uint8ClampedArray(W * H * 4);
+  if (!pxS || !C || view !== 'se') return out;
+  // the tip: the side drawing's furthest pixel past the face line
+  let tipY = -1, protr = 0;
+  for (let y = 0; y < H; y++) {
+    const zf = C.Z[y * 2 + 1];
+    if (Number.isNaN(zf)) continue;
+    for (let x = W - 1, o = (y * W + W - 1) * 4 + 3; x >= 0; x--, o -= 4) if (pxS[o] > 60) { const d = x + 0.5 - ax - zf; if (d > protr) { protr = d; tipY = y; } break; }
+  }
+  if (tipY < 0 || protr < SS) return out;
+  const e = rowEll(C.X, C.Z, tipY);
+  const gap = e[0] * cg + e[2] * sg + Math.hypot(e[1] * cg, e[3] * sg) - (e[0] * cg + C.Z[tipY * 2 + 1] * sg);
+  const E = Math.min(2.6, Math.max(1, (gap + NOSE_OUT + 0.15 * (protr - 5 * SS)) / (protr * sg)));
+  for (let y = 0; y < H; y++) {
+    const zf = C.Z[y * 2 + 1], r = rowEll(C.X, C.Z, y);
+    if (Number.isNaN(zf) || !r) continue;
+    const mid = r[0] * cg + zf * sg, rim = r[0] * cg + r[2] * sg + Math.hypot(r[1] * cg, r[3] * sg);
+    for (let i = 0; i < W; i++) {
+      const xs = i + 0.5 - ax, Zs = zf + (xs - mid) / (sg * E);
+      if (Zs < zf - NOSE_IN || xs < rim - NOSE_EDGE) continue;
+      sample(pxS, W, H, y, ax + Zs, 1 / E);
+      if (ACC[3] < 1) continue;
+      const k = smoothstep(zf - NOSE_IN, zf + 0.5 * SS, Zs) * smoothstep(rim - NOSE_EDGE, rim - NOSE_EDGE * 0.4, xs), o = (y * W + i) * 4;
+      out[o] = ACC[0] / ACC[3]; out[o + 1] = ACC[1] / ACC[3]; out[o + 2] = ACC[2] / ACC[3]; out[o + 3] = Math.min(255, ACC[3]) * k;
+    }
+  }
+  return out;
+}
 
 const defOf = (name) => lookDefs().get(name) || PAINT_DEFS.get(name) || null;
 const sideName = (name) => name.replace(/_[sn]$/, '_e');
 
-// the padded 3/4 canvas of a part (sources: front / back def, side def)
-export function threeQuarter(dF, dS, kind, view) {
+// the padded 3/4 canvas of a part (sources: front / back def, side def). behind: a part drawn in the front view only
+// (a beard) seen from the back-side: its front drawing gives the volume, the side drawing the pixels, and the head
+// hides the rest (the edge along the near jaw shows)
+export function threeQuarter(dF, dS, kind, view, behind = false, style = null) {
+  const ragged = style === 'ragged', crest = style === 'crest';
   const pd = view === 'ne' ? 'n' : 's', box = BOX[kind];
   const pad = Math.max(PADQ, dF?.pad ?? 0);
   const F = kind === 'ears' ? null : record(dF, pad);
@@ -453,11 +554,14 @@ export function threeQuarter(dF, dS, kind, view) {
     for (const L of F.layers) { const src = L.px; L.px = keep(src, M.near); fillHole(L.px, M.near, src, M.body, R.cw, R.ch); }
     if (ARM_OVER) armsS = S.layers.map((L) => only(L.px, M.side));
   }
-  let X = F ? extents(F, pd === 'n') : null, Z = S ? extents(S) : null;
-  // hair, beards, hats: their own outline (fall back on the head's where a drawing has nothing), hidden behind the head
+  // hair, beards, hats: their own outline (fall back on the head's where a drawing has nothing), hidden behind the head;
+  // the volume from the outlined layers only (a mohawk's crest, not the faint stubble of its shaved sides: that lies on
+  // the bare head)
   const own = kind === 'hair';
+  const main = (Rr) => (Rr && own && Rr.layers.some((L) => L.ow > 0) ? { cw: Rr.cw, ch: Rr.ch, pad: Rr.pad, W: Rr.W, layers: Rr.layers.filter((L) => L.ow > 0) } : Rr);
+  let X = F ? extents(main(F), pd === 'n') : null, Z = S ? extents(main(S)) : null;
   if (C && own) { const X1 = X ? fillE(stretch(X, Z), C.X) : C.X; Z = Z ? fillE(stretch(Z, X), C.Z) : C.Z; X = X1; }
-  else if (C) { X = union(C.X, X); Z = union(C.Z, Z); }
+  else if (C) { X = union(C.X, X); Z = kind === 'nose' ? C.Z : union(C.Z, Z); } // (the nose: on the bare head; its profile: noseBump)
   X = X && smoothE(X, own ? 6 : 2); Z = Z && smoothE(Z, own ? 6 : 2);
   // hair volumes are roundish: a row the side drawing shows thin (a cut-out in front of the ear) gets depth toward the face
   if (own && X && Z) for (let i = 0; i < X.length; i += 2) {
@@ -471,11 +575,14 @@ export function threeQuarter(dF, dS, kind, view) {
   const layers = [];
   for (let i = 0; i < n; i++) {
     const lf = F?.layers[i], ls = S?.layers[i], L = lf || ls;
-    let px = projectLayer(R, lf?.px || null, ls?.px || null, X, Z, view, kind === 'decal' || kind === 'back' || kind === 'panel', own ? occluder(pd) : null);
+    if (kind === 'nose') layers.push({ px: noseBump(R, ls?.px || null, C, view), ow: L.ow, col: L.col, opacity: L.opacity }); // (under the face marks)
+    const faint = own && C && L.ow === 0 && (F || S).layers.some((Q) => Q.ow > 0); // (stubble: on the bare head)
+    let px = projectLayer(R, behind ? null : lf?.px || null, kind === 'nose' ? null : ls?.px || null, faint ? C.X : X, faint ? C.Z : Z, view, kind === 'decal' || kind === 'nose' || kind === 'back' || kind === 'panel', own && !(crest && !faint) ? occluder(pd) : null, crest && !faint ? 2 : behind, ragged && !faint ? RAGGED_FILL : 0); // (a crest: its profile all round, standing on the head)
     if (armsS && armsS[i]) projectArm(R, armsS[i], M.nearX, M.sideC, view, true, ARM_K, 1, px);
     layers.push({ px, ow: L.ow, col: L.col, opacity: L.opacity });
   }
   if (own) dropCrumbs(layers, R.cw, R.ch);
+  if (ragged) for (const L of layers) if (L.ow > 0) smoothOutline(L.px, R.cw, R.ch);
   // composite with the layers' own outlines (paint.js FastPainter: same dilation, same crop / anchor handling)
   const tmp = canvas(R.cw, R.ch), tg = tmp.getContext('2d');
   return spritePxFast(R.W, R.H, (g, P) => {
@@ -493,8 +600,8 @@ export function diagSprite(A, name, view) {
   if (!LAZY_DEFS.has(key)) {
     const dF = defOf(name);
     if (!dF) return null;
-    const dS = defOf(sideName(name)), kind = kindOf(name);
-    LAZY_DEFS.set(key, { ax: dF.ax ?? 0.5, ay: dF.ay ?? 1, canvas: () => threeQuarter(dF, dS, kind, view) || emptyCanvas() });
+    const dS = defOf(sideName(name)), kind = kindOf(name), behind = view === 'ne' && /_s$/.test(name); // (a beard seen from behind)
+    LAZY_DEFS.set(key, { ax: dF.ax ?? 0.5, ay: dF.ay ?? 1, canvas: () => threeQuarter(dF, dS, kind, view, behind && kind === 'hair', hairStyle(name)) || emptyCanvas() });
   }
   return lookAtlasOf(A).get(key);
 }
@@ -520,7 +627,7 @@ export function diagRig(A, LK, view) {
   D.head = stackOf(A, D, LK.head[pd], view);
   D.hair = stackOf(A, D, LK.hair[pd], view);
   D.brows = stackOf(A, D, LK.brows[pd], view);
-  D.beard = stackOf(A, D, LK.beard[pd], view);
+  D.beard = stackOf(A, D, view === 'ne' ? LK.beard.s : LK.beard[pd], view); // (no back drawing: from behind, its edge)
   D.hairBack = stackOf(A, D, LK.hairBack[pd], view);
   const ls = LK.lids[pd];
   if (ls) { D.lids = diagSprite(A, ls.name, view); if (D.lids) D.need.push(D.lids); }

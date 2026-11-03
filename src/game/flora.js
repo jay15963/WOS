@@ -53,9 +53,10 @@ export function initFlora(game) {
     (ch.tmpl[o.type] ||= new Set()).add(tmplKey(w.idx(tx, ty)));
     totals[o.type] = (totals[o.type] || 0) + 1;
   }
-  // kinds absent from the generated world: synthesize targets from the biome mix of each chunk
+  // kinds absent from the generated world: synthesize targets from the biome mix of each chunk (wild wheat: the
+  // generator seeds a few patches, the fertile chunks without one still get a regrowth target)
   for (const kind in SYNTH) {
-    if (totals[kind]) continue;
+    if (totals[kind] && kind !== 'wild_wheat') continue;
     const dens = SYNTH[kind];
     const allowed = new Set(Object.keys(dens).map((b) => B[b]));
     for (let cy = 0; cy < w.CH; cy++) for (let cx = 0; cx < w.CW; cx++) {
@@ -68,7 +69,7 @@ export function initFlora(game) {
       }
       if (sum <= 0) continue;
       const ch = F.chunks[cy * w.CW + cx];
-      ch.target[kind] = sum;
+      ch.target[kind] = Math.max(ch.target[kind] || 0, sum);
       ch.synth ||= {};
       ch.synth[kind] = allowed;
     }

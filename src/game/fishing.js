@@ -11,6 +11,7 @@ import { FISH } from './content/livestock.js';
 import { registerWork } from './gathering.js';
 import { allPlayers } from './players.js';
 import { fishHostTick } from './mut/fish.js';
+import { ROD_RELEASE } from '../art/compose.js'; // (the cast swing: when the bobber leaves the rod tip)
 
 const hasRod = (p) => p.inv.count('rod_wood') > 0 || p.equip?.main === 'rod_wood';
 const DIRS = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] };
@@ -66,7 +67,7 @@ registerWork('fish_cast', {
       onReject: (why) => { F.pending = false; game.events.emit('error', { text: why || 'Não deu para lançar a linha' }); },
     });
     game.audio?.play('swing', { x: p.x, y: p.y, volume: 0.5 });
-    F._castT = game.time;
+    F._castT = game.time; p._fishT0 = game.time; // (the cast swing starts now: art/compose.js rodPhase)
     return { type: 'fish', cycle: 1e6, need: 1, label: 'Pescando', tool: 'rod_wood' };
   },
   finish: () => true,
@@ -81,6 +82,10 @@ registerWork('fish_pull', {
     F._pullT = game.time;
     game.net.request('fish.pull', {});
     game.audio?.play('swing', { x: game.player.x, y: game.player.y, volume: 0.4 });
+    // the pull: the cast work ends here, the rod is yanked up (an action every peer plays: the presence stream)
+    const p = game.player;
+    if (p.work?.it?.kind === 'fish_cast') p.work = null;
+    p.action = { type: 'reel', t: 0, dur: 0.6 };
     return null;
   },
   finish: () => true,
@@ -89,6 +94,7 @@ registerWork('fish_pull', {
 export function installFishing(game) {
   game.fishing = {
     bobs: new Map(), host: new Map(), pending: false,
+    reels: new Map(), // pid → { x, y, t0, ok }: a line just pulled out (cosmetic: the bobber flies back to the rod)
     near: () => near(game),
     bobberOf: (pid) => game.fishing.host.get(pid) || null,
     anglerOf: (pid) => allPlayers(game).find((q) => (q === game.player ? game.net.pid : q.pid) === pid) || null,
@@ -99,6 +105,31 @@ export function installFishing(game) {
       if (p.work?.it?.kind === 'fish_cast') { p.work = null; p.action = null; }
     },
   };
+}
+
+// ---------- cosmetics: the cast, the bobber's flight, the line, the pull (every peer, from replicated state) ----------
+const FLY = (d) => 0.26 + d * 0.05; // s the bobber flies (1.6..6.5 tiles away)
+// when the bobber leaves the rod tip on this peer: the angler's cast swing (as this peer saw it start) + its release,
+// never before the host's bobber arrived; a cast this peer has not seen start yet gets a moment to show up
+function flyStart(game, b, e) {
+  if (b.fly != null) return b.fly;
+  const c = e?._fishT0;
+  if (c != null && c > b.t0 - 3) return (b.fly = Math.max(b.t0, c + ROD_RELEASE));
+  if (game.time > b.t0 + 0.35) return (b.fly = b.t0 + 0.35);
+  return Infinity;
+}
+const flyDist = (b, e) => (e ? Math.hypot(b.x - e.x, b.y - e.y) : 3);
+// every angler this peer draws: the start of a cast (an action turning into 'fish'), the bite (the rod tip dips)
+function anglers(game) {
+  const F = game.fishing, out = [game.player];
+  for (const pl of game.session?.players?.values?.() || []) if (pl.ent) out.push(pl.ent);
+  for (const e of out) {
+    const on = e.action?.type === 'fish' && !e.dead;
+    if (on && !e._fishOn && e !== game.player) e._fishT0 = game.time; // (the local player: at the cast itself)
+    e._fishOn = on;
+    const pid = e === game.player ? game.net.pid : e.pid, b = pid ? F.bobs.get(pid) : null;
+    e._fishBite = !!(b && game.worldTime >= b.bite && game.worldTime <= b.until);
+  }
 }
 
 // rod tip of a player (cosmetic): the rod is held in the hand on the screen's side toward the bobber (a side view) or
@@ -118,8 +149,16 @@ export function fishingSystem() {
     update(game, dt) {
       const F = game.fishing, p = game.player, net = game.net;
       const me = F.bobs.get(net.pid);
-      // walked off / changed work: reel the line in
-      if (me && p.work?.it?.kind !== 'fish_cast' && (game.time - (F._castT || 0)) > 0.5) { if (!F._stopT || game.time - F._stopT > 1) { F._stopT = game.time; net.request('fish.stop', {}); } }
+      // walked off / changed work: reel the line in (not right after a pull: its answer is on the way)
+      if (me && p.work?.it?.kind !== 'fish_cast' && (game.time - (F._castT || 0)) > 0.5 && !(game.time - (F._pullT ?? -9) < 2.5)) { if (!F._stopT || game.time - F._stopT > 1) { F._stopT = game.time; net.request('fish.stop', {}); } }
+      anglers(game);
+      // the bobber lands: a little splash where it hits the water
+      for (const [pid, b] of F.bobs) {
+        if (b.landed) continue;
+        const e = anglerEnt(game, pid), f0 = flyStart(game, b, e);
+        if (game.time >= f0 + FLY(flyDist(b, e))) { b.landed = true; game.juice?.splash?.(b.x, b.y, 0.35); game.audio?.play('arrow_land', { x: b.x, y: b.y, volume: 0.35 }); }
+      }
+      for (const [pid, r] of F.reels) if (game.time - r.t0 > 0.6) F.reels.delete(pid);
       // the bite: a splash, the sound, a prompt (owner) — every peer sees the bobber go under
       for (const [pid, b] of F.bobs) {
         if (!b.splashed && game.worldTime >= b.bite) {
@@ -143,15 +182,63 @@ export function fishingSystem() {
         o.draw = (B, A, t) => drawLine(game, B, A, b, e, t);
         list.push(o);
       }
+      for (const [pid, r] of F.reels) {
+        const e = anglerEnt(game, pid);
+        if (!e || r.x < v.x0 - 4 || r.x > v.x1 + 4 || r.y < v.y0 - 4 || r.y > v.y1 + 4) continue;
+        const o = r._d || (r._d = { x: 0, y: 0, draw: null });
+        o.x = e.x; o.y = e.y + 0.05;
+        o.draw = (B, A, t) => drawReel(game, B, A, r, e, t);
+        list.push(o);
+      }
     },
   };
 }
+// the rod tip of an angler: where its rig drew it this frame (art/compose.js), else a guess beside it
+function tipAt(game, e, b) {
+  const r = e._rodTip;
+  if (r && game.time - r[3] < 0.12) return r;
+  return tipOf(game, e, b);
+}
+// one sagging line from (x0, y0, h0) to (x1, y1, h1) in N straight pieces (screen-space angles: a turned camera)
+function line(B, s, rc, rs, x0, y0, h0, x1, y1, h1, sag, N = 9) {
+  let px = x0, py = y0, ph = h0;
+  for (let i = 1; i <= N; i++) {
+    const u = i / N, x = x0 + (x1 - x0) * u, y = y0 + (y1 - y0) * u, h = h0 + (h1 - h0) * u - Math.sin(u * Math.PI) * sag;
+    const dx = x - px, dy = y - py, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy - (h - ph), len = Math.hypot(vx, vy);
+    if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, len / s.w * 1.04, 0.014 / s.h, 0.93, 0.93, 0.88, 0.8, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
+    px = x; py = y; ph = h;
+  }
+}
+// a line just pulled: the bobber (and the catch) flies back out of the water to the rod tip
+function drawReel(game, B, A, r, e, t) {
+  if (e.dead || !A.has('fx_solid')) return;
+  const u = Math.min(1, (game.time - r.t0) / 0.45);
+  if (u >= 1) return;
+  const rot = game.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
+  const [tx, ty, th] = tipAt(game, e, r);
+  const k = 1 - (1 - u) * (1 - u), x = r.x + (tx - r.x) * k, y = r.y + (ty - r.y) * k;
+  const h = 0.04 + (th - 0.35 - 0.04) * k + Math.sin(k * Math.PI) * 0.6;
+  line(B, A.get('fx_solid'), rc, rs, tx, ty, th, x, y, h + 0.05, 0.02, 5);
+  if (A.has('fx_bobber')) B.main.add(A.get('fx_bobber'), x, y, 0.85, 0.85, 1, 1, 1, 1, 0, 0, 0, 1, 0, h);
+  if (r.ok && A.has('item_fish_raw')) B.main.add(A.get('item_fish_raw'), x, y, 0.55, 0.55, 1, 1, 1, 1, 0, 1.2 + Math.sin(t * 30) * 0.3, 0, 1, 0, h - 0.3);
+}
 
-// the bobber on the water (bobbing; under at the bite, twitching) and the line from the rod tip, sagging
+// the bobber: flying out from the rod tip in an arc (the cast), then on the water (bobbing; under at the bite,
+// twitching), and the line from the rod tip to it, sagging
 function drawLine(game, B, A, b, e, t) {
   const rot = game.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
   const wt = game.worldTime, bite = wt >= b.bite && wt <= b.until;
-  const land = Math.min(1, (game.time - b.t0) / 0.35);
+  const f0 = flyStart(game, b, e), fd = FLY(flyDist(b, e)), u = (game.time - f0) / fd;
+  if (u < 1) {
+    if (!e || e.dead || !A.has('fx_solid')) return;
+    const [tx, ty, th] = tipAt(game, e, b);
+    if (u < 0) { if (A.has('fx_bobber')) B.main.add(A.get('fx_bobber'), tx, ty, 0.7, 0.7, 1, 1, 1, 1, 0, 0, 0, 1, 0, th - 0.22); return; } // (on the rod while it swings)
+    const d = Math.hypot(b.x - tx, b.y - ty), x = tx + (b.x - tx) * u, y = ty + (b.y - ty) * u;
+    const h = th + (0.04 - th) * u + 4 * u * (1 - u) * (0.35 + d * 0.07);
+    line(B, A.get('fx_solid'), rc, rs, tx, ty, th, x, y, h + 0.05, 0.03 * u, 7);
+    if (A.has('fx_bobber')) B.main.add(A.get('fx_bobber'), x, y, 0.8, 0.8, 1, 1, 1, 1, 0, u * 9, 0, 1, 0, h);
+    return;
+  }
   const bob = bite ? -0.1 + Math.sin(t * 30) * 0.03 : Math.sin(t * 2.4) * 0.025;
   const bh = 0.04 + bob;
   if (A.has('fx_bobber')) B.main.add(A.get('fx_bobber'), b.x, b.y, 0.85, bite ? 0.55 : 0.85, 1, 1, 1, bite ? 0.75 : 1, 0, 0, 0, 1, 0, bh);
@@ -160,16 +247,7 @@ function drawLine(game, B, A, b, e, t) {
     B.ground.add(A.get('fx_ring'), b.x, b.y, 0.4 + k * (bite ? 1.4 : 0.7), (0.4 + k * (bite ? 1.4 : 0.7)) * 0.6, 0.85, 0.95, 1, (1 - k) * (bite ? 0.7 : 0.35));
   }
   if (!e || e.dead || !A.has('fx_solid')) return;
-  const s = A.get('fx_solid');
-  const [tx, ty, th] = tipOf(game, e, b);
+  const [tx, ty, th] = tipAt(game, e, b);
   const d = Math.hypot(b.x - tx, b.y - ty), sag = bite ? 0.05 : Math.min(0.6, 0.15 + d * 0.06);
-  const N = 9;
-  let px = tx, py = ty, ph = th;
-  for (let i = 1; i <= N; i++) {
-    const u = (i / N) * land;
-    const x = tx + (b.x - tx) * u, y = ty + (b.y - ty) * u, h = th + (bh + 0.05 - th) * u - Math.sin(u * Math.PI) * sag * u;
-    const dx = x - px, dy = y - py, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy - (h - ph), len = Math.hypot(vx, vy);
-    if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, len / s.w * 1.04, 0.014 / s.h, 0.93, 0.93, 0.88, 0.8, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
-    px = x; py = y; ph = h;
-  }
+  line(B, A.get('fx_solid'), rc, rs, tx, ty, th, b.x, b.y, bh + 0.05, sag);
 }

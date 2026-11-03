@@ -282,7 +282,7 @@ function waterPoint(game, m, x, y, jit) {
   for (let k = 0; k < 6; k++) {
     const px = x + (game.net.roll() - 0.5) * jit * 2, py = y + (game.net.roll() - 0.5) * jit * 2;
     let ok = true;
-    for (let s = 1; s <= 5 && ok; s++) { const u = s / 5; if (!w.liquidAt(Math.floor(m.x + (px - m.x) * u), Math.floor(m.y + (py - m.y) * u))) ok = false; }
+    for (let s = 1; s <= 5 && ok; s++) { const u = s / 5; if (!w.liquidAt(Math.floor(m.x + (px - m.x) * u), Math.floor(m.y + (py - m.y) * u), true)) ok = false; } // (under: bridges and piers are water for a fish)
     if (ok) return [px, py];
   }
   return null;
@@ -291,7 +291,7 @@ function swimTo(game, m, x, y, spd, dt) {
   const w = game.world, dx = x - m.x, dy = y - m.y, d = Math.hypot(dx, dy);
   if (d < 0.15) { m.moving = false; return false; }
   const s = Math.min(d, spd * dt), nx = m.x + (dx / d) * s, ny = m.y + (dy / d) * s;
-  if (!w.liquidAt(Math.floor(nx), Math.floor(ny))) { m.moving = false; return false; }
+  if (!w.liquidAt(Math.floor(nx), Math.floor(ny), true)) { m.moving = false; return false; } // (swims under decks too)
   m.x = nx; m.y = ny;
   m.facing = facingFrom(dx, dy, m.facing);
   m.moving = true;
@@ -416,7 +416,7 @@ export function untie(game, m, why = 'hand') {
 
 // ---------- slaughter (host; combat.js dealDamage): a domesticated animal dies from one knife hit ----------
 export function slaughter(game, src, m) {
-  if (!m.stock || !m.tame || m.dead) return false;
+  if (!m.stock || !m.tame || m.dead || src?.isMob) return false; // (a predator's bite is no slaughter)
   const w = src === game.player ? src.equip?.main : m.lastHitW;
   if (typeof w !== 'string' || !w.startsWith('knife_')) return false;
   const sp = SPECIES[m.species], baby = isBabyM(m);

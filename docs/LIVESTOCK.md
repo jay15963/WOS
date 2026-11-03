@@ -32,6 +32,27 @@ trigo, ícones, vara, corda, boia), `src/art/livestockDraw.js` (desenho em 8 vis
 - Nomes na plaquinha: "Vaca · domesticada" (dourado), "· com fome" (laranja, barriga < 30 %), "· faminta!" (vermelho),
   "· amarrada". O ataque automático nunca escolhe um animal da criação nem um peixe (só um alvo marcado).
 
+### Lobos (e ursos) caçam a criação à noite
+
+Pedido do dono: os lobos atacam os animais da criação, para que cercados façam sentido (`game/ai.js` `lookForPrey` /
+`huntStep`, números em `content/livestock.js` `PREY`; só no anfitrião).
+
+- À noite, um lobo parado / passeando que **vê** um animal da criação (selvagem ou domesticado, nunca um amarrado: esse
+  está com um jogador) a até **11 tiles** vai atrás dele, e a matilha (os do mesmo spawner a até 14 tiles) vai junto.
+  Ursos também, com 40 % da chance.
+- **Nem toda noite**: cada matilha sorteia uma vez por noite (45 %) se vai atrás da criação; mata **um** animal por noite
+  e depois deixa a criação em paz (40 s de calma, e o sorteio da noite já gasto).
+- **Cerca protege**: a cerca bloqueia a visão (linha de visão) e o caminho; um lobo que vê o bicho mas não acha
+  caminho (o `steer` falha 3 vezes) desiste e deixa aquele animal em paz por 90 s. Desiste também depois de 30 s, se o
+  bicho fugir para longe (22 tiles) ou se amanhecer.
+- **Os bichos fogem**: o caçado e os vizinhos (4 tiles) correm de um lobo a menos de 6 tiles; uma mordida também o faz
+  correr (`aggro` → fuga dos passivos).
+- Um **jogador à vista ainda vem primeiro**: o lobo larga a caça e ataca o jogador.
+- Mordida contra bicho: o dano do lobo ×2 (uma matilha derruba uma ovelha em poucas mordidas, uma vaca em ~6). A mordida
+  de um predador nunca conta como abate de faca.
+- O bicho morto deixa o **corpo** como qualquer caça (`corpse.add` da espécie: carnear com faca dá a tabela da espécie);
+  se era do jogador, todos recebem "Os lobos mataram uma ovelha da criação!" (`stock.note`).
+
 ## Corda (amarrar e levar)
 
 - Com uma corda na mochila, perto de uma vaca / ovelha / porco / galinha: "Amarrar vaca" (E / Usar, ou um toque /
@@ -84,6 +105,13 @@ trigo, ícones, vara, corda, boia), `src/art/livestockDraw.js` (desenho em 8 vis
 - **Vara de pescar** (`rod_wood`, à mão: 2 gravetos + 3 fibras). Basta tê-la na mochila (ou na mão).
 - Perto da água, "Pescar" (E / Usar): a linha vai para a água à frente (1,6 a 6,5 tiles; em leque se reto não houver
   água); o jogador fica parado segurando a vara, a boia (vermelha e branca) balança com ondinhas.
+- **Animação** (`art/compose.js` `rodPhase` / `rodAim`, `game/fishing.js`): o **arremesso** recua a vara por cima do
+  ombro (0,32 s) e a joga para a frente; a boia sai da ponta aos 0,44 s e **voa em arco** até a água (0,3–0,6 s,
+  conforme a distância), onde espirra ao cair. **Esperando**, a vara fica apontada para a água (~50° da vertical,
+  um pouco para o lado da mão), a ponta balançando; na **mordida** a ponta afunda e treme. **Puxar** dá um puxão para
+  cima e para trás (ação `reel`, 0,6 s) e a boia volta voando até a vara (com um peixe pendurado se pegou). A vara é
+  apontada em 3D e projetada para a vista desenhada (as 8 vistas e a câmera girada: de frente ela aparece curta e para
+  cima, de costas longa), e a linha sai da ponta desenhada (`_rodTip`).
 - Um peixe de verdade perto da boia (3,5 tiles) nada até ela; a mordida vem em 3–9 s (com 3+ peixes perto, 25 % mais
   rápido; sem peixe por perto: 9–16 s, um peixe de passagem). A boia afunda, espirra, soa e aparece "Puxe! (E / Usar)":
   o botão de usar vira **"Puxar!"**.
@@ -93,6 +121,8 @@ trigo, ícones, vara, corda, boia), `src/art/livestockDraw.js` (desenho em 8 vis
   atirou (menos que a vara). Flechas comuns num peixe marcado também.
 - Peixe cru (6 de fome, pode fazer mal) → **Peixe assado** na fogueira / caldeirão (22 de fome).
 - Inverno: a água congela — "Água congelada", sem pesca; os peixes ficam sob o gelo (não aparecem).
+- Os peixes nadam **por baixo** de pontes e trapiches como na água aberta (`liquidAt(…, under)`); a boia não cai num
+  deque (lança-se na água aberta).
 
 ## Trigo, solo fértil e pão
 
@@ -100,6 +130,12 @@ trigo, ícones, vara, corda, boia), `src/art/livestockDraw.js` (desenho em 8 vis
   mundo gerado, igual em todos os clientes.
 - **Semente de trigo**: do **trigo silvestre** (cresce sozinho só no solo fértil, campos e margens: colher dá 1–2 trigo +
   1–2 sementes) e, às vezes (12 %), colhendo fibra perto do rio.
+- **Trigo silvestre desde o começo**: a geração do mundo já planta **moitas** (1 + 2–5 pés) no solo fértil das margens
+  (campos, margens, bétulas e beira de mata; nunca no cascalho, pedra ou lama), ~40–50 pés num mundo, metade a até 60
+  tiles do início (`world/worldgen.js`, a mesma grade fértil de `soil.js` `fertileGrid`; determinístico pela semente:
+  todos os clientes concordam). São os **últimos** objetos gerados: os ids antigos não mudam e saves antigos continuam
+  valendo (pés que caíram sob construções somem no carregamento, `clearUnderStructures`). Colhidos, voltam pelo
+  rebrote como os outros (o alvo de rebrote do trigo continua cobrindo todo pedaço fértil do mapa).
 - O trigo só cresce num canteiro em solo fértil. Ao posicionar canteiros com sementes de trigo na mochila, o solo fértil
   em volta fica verde e os canteiros fora dele vermelhos; no canteiro, o botão diz "Solo não fértil" (e o anfitrião
   recusa o plantio fora dele).
@@ -135,19 +171,25 @@ Só o pão chega a 30 e a carne assada a 40; batata e milho viraram complemento.
   (domesticado 1, com fome 2, faminto 4, do jogador 8) e `[14]` o pid de quem o leva na corda; nome / variante (bit 2 =
   filhote) / tamanho vão no registro estático (crescer reenvia).
 - Intents `stock.tie` / `stock.untie` → op `stock.rope` (corda de volta = `give`, toast); `stock.note` = aviso para
-  todos (nascimento, fome). O alimentador é um contêiner compartilhado (`chest.put` / `chest.take` / `store.sort`; comer
+  todos (nascimento, fome, lobos). Lobos caçando: estado `hunt` só no anfitrião (no fluxo de entidades aparece como
+  andando / atacando); a morte é o caminho de sempre (`mob.die` + `corpse.add`). O alimentador é um contêiner compartilhado (`chest.put` / `chest.take` / `store.sort`; comer
   = `chest.set`), então o conteúdo está no snapshot, no salvamento e no digest (`structs`).
 - Abate = `mob.hit` (leva `w`, a arma da mão) → `mob.die` + `corpse.add` (esquartejado) + `loot.add`. Peixe de tiro:
   `mob.die {give}`.
 - Pesca: intents `fish.cast` / `fish.pull` / `fish.stop` → ops `fish.bob` (boia, hora da mordida no relógio do anfitrião,
   convertida para o relógio de cada cliente) / `fish.end` (peixes = `give`). Sessões são de segundos: não vão para o
-  snapshot nem para o digest.
+  snapshot nem para o digest. A animação é cosmética e derivada em cada cliente: o início do arremesso = quando a ação
+  `fish` do pescador começou ali (o próprio jogador: no arremesso), o voo da boia não começa antes de `fish.bob`
+  chegar, a mordida pelo `bite` / `until` da boia, o puxão é a ação `reel` no fluxo de presença, e a boia voltando
+  (`fishing.reels`) sai do `fish.end`.
 - Salvamento (só do anfitrião): `world.stock` = `[[espécie, x, y, variante, barriga, nasceu, adulto, procria, tamanho,
   nível, vida]]` dos animais do jogador (amarrados uma vez, domesticados, nascidos na criação); voltam no primeiro tique
   da criação. Saves antigos não têm a lista. Cordas não são salvas (soltos ao carregar).
 - Cenários `tools/mp-test.js`: **P1** amarrar e levar (máx. 5, soltar), **P2** alimentador domestica e alimenta,
   **P3** nascimento, crescimento (pulo de dias) e morte de fome, **P4** abate com faca (convidado), **P5** pesca com vara
-  (cedo demais / na hora) e tiro longo.
+  (cedo demais / na hora) e tiro longo, **P6** lobos matam uma ovelha à noite (corpo nos dois, aviso) e um cercado
+  fechado a protege (desistem sem caminho), **P7** o arremesso, a boia no ar, a espera e o puxão vistos pelo outro
+  jogador.
 
 ## Arte
 

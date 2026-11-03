@@ -13,7 +13,8 @@
 // edges (depth 1..6), iron deeper (≥ 3), small gold / jade pockets deep inside (≥ 6).
 // Roof (gen.roof): 1 where the ORIGINAL rock is ≥ 2 tiles deep; mined tiles there become dark caves.
 // Small natural objects (hand-gathered, no `solid`): pebble (v 0..3), stick (0..2), fibergrass (0..2),
-// wild_potato, wild_cotton, wild_corn. Generated after the trees/bushes/boulders so their ids are stable.
+// wild_potato, wild_cotton, wild_corn. Generated after the trees/bushes/boulders so their ids are stable; wild_wheat
+// patches on the fertile river banks (soil.js) come last of all.
 // Guarantee: ≥ 10 pebbles, 8 sticks, 8 fibergrass, 2 berry bushes and 1 herb bush reachable within 14 tiles of spawn.
 // Herb bushes (`herbbush`, medicinal herbs with little green berries): clusters in shady / damp spots.
 // Species (art only, inside the gameplay kinds): trees o.v = species * 16 + variant (treeSpecies), bushes
@@ -26,6 +27,7 @@
 // gen.timings = { section: ms } (generation profile).
 
 import { mulberry32, hash2, clamp, smoothstep } from '../engine/noise.js';
+import { fertileGrid } from './soil.js'; // (wild wheat on the river banks)
 
 // Same Perlin / fBm as engine/noise.js (bit-identical results), specialised for worldgen speed:
 // typed gradient tables, no period handling, lacunarity 2 / gain 0.5.
@@ -1045,6 +1047,30 @@ export function generateWorld(seed = 1337, W = 256, H = 256) {
   }
 
   lap('guar');
+  // ---------- wild wheat patches on the fertile river banks (docs/LIVESTOCK.md) ----------
+  // Last objects of the list (older ids stay the same: saves keep working); the same fertile grid the game uses
+  // (soil.js), so a fresh world near a river has wheat to find before any regrowth.
+  {
+    const fg = fertileGrid({ W, H, water, flowX, flowY, inBounds: inB, idx });
+    const ok = (j) => fg[j] && freeTile(j) && !nearSpawn((j % W) + 0.5, ((j / W) | 0) + 0.5) && ground[j] !== G.GRAVEL && ground[j] !== G.STONE && ground[j] !== G.MUD
+      && (biome[j] === B.MEADOW || biome[j] === B.SHORE || biome[j] === B.BIRCH || biome[j] === B.FOREST);
+    for (let y = 2; y < H - 2; y++) for (let x = 2; x < W - 2; x++) {
+      const i = idx(x, y);
+      if (!fg[i] || hash2(x, y, seed + 951) > (biome[i] === B.MEADOW ? 0.0075 : 0.004) || !ok(i)) continue;
+      const hv = hash2(x, y, seed + 952), cx = x + 0.5 + (hv - 0.5) * 0.4, cy = y + 0.55;
+      addSmall('wild_wheat', 0, cx, cy, 0.9 + hv * 0.22, hv < 0.5 ? -1 : 1);
+      // a little patch: 2..5 stalks around it
+      const nb = 2 + Math.floor(hash2(x, y, seed + 953) * 4);
+      for (let k = 0; k < nb; k++) {
+        const a = hash2(x + k, y, seed + 954) * Math.PI * 2, r = 0.9 + hash2(x, y + k, seed + 955) * 0.7;
+        const ox = cx + Math.cos(a) * r, oy = cy + Math.sin(a) * r * 0.8;
+        const j = idx(Math.floor(ox), Math.floor(oy));
+        if (ok(j)) addSmall('wild_wheat', 0, ox, oy, 0.85 + hash2(x, y + k, seed + 956) * 0.25, a < 3.14 ? 1 : -1);
+      }
+    }
+  }
+
+  lap('wheat');
   // ---------- ore veins (clustered, by depth inside the rock) ----------
   {
     const orand = mulberry32(seed * 131 + 77);

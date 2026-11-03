@@ -4957,6 +4957,133 @@ def('P5', {
   await t.checkDigest(H, G);
 });
 
+// a wolf pack of two on the host at (x, y), set to go after farm animals tonight (ai.js packMood), ignoring players
+async function preyPack(H, x, y) {
+  const MO = await fimp(H, 'game/mobs.js');
+  const a = MO.spawnLoose(H.game, 'wolf', x, y), s = a.spawner, b = MO.spawnMember(H.game, s);
+  s._preyN = H.game.env.dayIndex - (H.game.env.hour < 12 ? 1 : 0); s._preyOk = true; s._preyKills = 0; s._preyCalm = 0;
+  for (const m of [a, b]) { m.calmT = 600; m.stateT = 0; m.preyT = 0; m.thinkT = 0; }
+  return [a, b];
+}
+
+def('P6', {
+  title: 'P: wolves hunt farm animals at night; a closed fence pen keeps them out', timeout: 150000,
+  expected: 'Night. A wolf pack set to hunt tonight next to a sheep of the farm in the open (away from the players): the wolves go for it (state hunt), the sheep runs, they kill it; its body lies there for butchering (corpse.add of a sheep, on both peers); everyone gets "Os lobos mataram uma ovelha da criação!"; the pack leaves the farm alone the rest of the night. A sheep inside a closed ring of fences next to a second pack stays unhurt (the fence mostly hides it; sent at it, the wolves find no path through the fence, give up and leave it alone a while); digest equal',
+  api: 'ai.js lookForPrey / huntStep / bitePrey (PREY in content/livestock.js) → combat.dealDamage → killMob → corpse.add; stock.note; nav.steer fails → give up',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug, 'livestock not merged');
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const MC = await fimp(H, 'game/combat.js');
+  const hp = H.game.player, gp = G.game.player, made = [];
+  H.game.env.hour = 22;
+  t.defer(() => { H.game.env.hour = 9; for (const e of made) if (!e.dead) { e.noCorpse = true; MC.killMob(H.game, e, null); } });
+  await t.waitFor(() => Math.abs(G.game.env.hour - 22) < 0.1, 8000 + CFG.budget, 'guest clock at night');
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  // 1) a sheep in the open, ~16 tiles from the players (the wolves are out of their sight)
+  const away = [[hp.x, hp.y], [gp.x, gp.y]];
+  let sp = null;
+  for (let r = 15; r < 26 && !sp; r += 2) for (let a = 0; a < 12 && !sp; a++) {
+    const x = hp.x + Math.cos(a * 0.52) * r, y = hp.y + Math.sin(a * 0.52) * r, q = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 1, r: 0.45 });
+    const w = q && A.freeSpot(H, MH, q[0] + 4, q[1], { rMin: 0, rMax: 1, r: 0.4 });
+    if (q && w && away.every(([px, py]) => Math.hypot(px - q[0], py - q[1]) > 14) && A.clearLine(H, MH, w[0], w[1], q[0], q[1], 0.35)) sp = [q, w];
+  }
+  t.assert(sp, 'an open spot for the sheep and the pack');
+  const sheep = H.game.stock.debug.spawn('sheep', sp[0][0], sp[0][1], { owned: true });
+  sheep.stateT = 30;
+  made.push(sheep);
+  const pack = await preyPack(H, sp[1][0], sp[1][1]);
+  made.push(...pack);
+  let hunted = false, fled = false;
+  const dead = await t.tryWait(() => { hunted ||= pack.some((m) => m.state === 'hunt' && m.prey === sheep); fled ||= sheep.state === 'flee'; return sheep.dead; }, 30000, 50);
+  t.check(hunted, 'the wolves went for the sheep (hunt)', pack.map((m) => m.state).join('/'));
+  t.check(fled, 'the sheep ran from them');
+  t.check(dead, 'the pack killed the sheep', `hp ${f2(sheep.hp)} · ${pack.map((m) => `${m.state} ${f2(Math.hypot(m.x - sheep.x, m.y - sheep.y))}`).join(' / ')}`);
+  if (dead) {
+    const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((o) => o.of === 'sheep' && Math.hypot(o.x - sheep.x, o.y - sheep.y) < 1.5), RT() + 800, 'its body on the host');
+    await t.waitFor(() => bodyOn(G, c.id), ONEWAY() + 800, 'its body on the guest');
+    await t.waitFor(() => notes.some((s) => /Os lobos mataram uma ovelha da criação/.test(s)), ONEWAY() + 800, 'the guest hears of it', () => notes.join(' | '));
+    await t.sleep(1500);
+    t.check(pack.every((m) => m.state !== 'hunt'), 'the pack lets the farm alone after the kill', pack.map((m) => m.state).join('/'));
+  }
+  // 2) a sheep in a closed ring of fences: out of reach
+  const ring = (x0, y0) => { const o = []; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 5; x++) if (x === x0 || y === y0 || x === x0 + 4 || y === y0 + 4) o.push([x, y]); return o; };
+  const site = A.findSite([H, G], [MH, MG], 'fence_wood', (x, y) => { const o = []; for (let yy = y - 1; yy < y + 6; yy++) for (let xx = x - 3; xx < x + 6; xx++) o.push([xx, yy]); return o; }, hp.x, hp.y, { rMin: 16, rMax: 40, avoidPts: away });
+  t.assert(site, 'an open area for the pen (and the pack west of it)');
+  const x0 = site.x0, y0 = site.y0, net = H.game.net, wt = Math.round(H.game.worldTime);
+  net.emit('struct.add', { list: ring(x0, y0).map(([x, y]) => [net.newId('s'), 'fence_wood', x, y, 0, 1, wt, 0, 1, 0, '', '']), by: H.pid });
+  await t.waitFor(() => ring(x0, y0).every(([x, y]) => A.structAt(G, MG, x, y)), ONEWAY() + 1200, 'the pen stands on both');
+  const penned = H.game.stock.debug.spawn('sheep', x0 + 2.5, y0 + 2.5, { owned: true });
+  penned.stateT = 30;
+  made.push(penned);
+  const pack2 = await preyPack(H, x0 - 2.5, y0 + 2.5);
+  made.push(...pack2);
+  // the fence mostly hides it (fences block the line of sight); a glimpse past a post: no way in, they give up
+  let tried = false;
+  await t.tryWait(() => { tried ||= pack2.some((m) => m.state === 'hunt'); return false; }, 10000);
+  t.check(!penned.dead && penned.hp === penned.maxHp, `the penned sheep stays unhurt (the pack ${tried ? 'tried and gave up' : 'never went for it'})`, `${pack2.map((m) => m.state).join('/')} · hp ${f2(penned.hp)}`);
+  // a wolf that got a glimpse anyway (a gap, a corner): no path through the fence → it gives up, the sheep is unhurt
+  pack2.forEach((m, i) => { m.x = x0 - 2.5; m.y = y0 + 1.5 + i * 1.5; m.state = 'hunt'; m.prey = penned; m.huntT = 0; m.nav = null; }); // (back next to the pen)
+  const gave = await t.tryWait(() => pack2.every((m) => m.state !== 'hunt'), 12000);
+  await t.sleep(1500);
+  t.check(gave && !penned.dead && penned.hp === penned.maxHp, 'sent at it, they find no way in and give up; the sheep is unhurt', `${pack2.map((m) => `${m.state} ${f2(Math.hypot(m.x - penned.x, m.y - penned.y))}`).join(' / ')} · hp ${f2(penned.hp)}/${penned.maxHp}`);
+  t.check(pack2.every((m) => m.preyBan?.nid === penned.nid), 'and leave that one alone for a while', pack2.map((m) => m.preyBan?.nid || '-').join('/'));
+  await t.checkDigest(H, G);
+});
+
+def('P7', {
+  title: 'P: the fishing cast, wait and pull seen by the other peer', timeout: 120000,
+  expected: "The guest casts: the host's copy of the guest plays the cast (action fish, the rod swung back over the shoulder then out over the water: its drawn tip moves back, then toward the bobber), the bobber flies out from the rod tip in an arc and splashes where it lands (landed on both); waiting, the rod points at the water (tip on the bobber's side); the pull: the host's copy plays the reel action (rod yanked up) and the bobber flies back to it (reels ghost on both); digest equal",
+  api: 'fishing.js anglers (_fishT0, _fishBite) / flyStart / drawLine / drawReel; art/compose.js rodPhase + rodAim (_rodTip); action reel on the presence stream',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.fishing?.reels && G.game.fishing?.reels, 'fishing animation not merged');
+  A.keepAlive(t, G);
+  const g = G.game, gp = g.player, w = H.game.world;
+  let spot = null, dir = null;
+  for (let r = 3; r < 40 && !spot; r += 1) for (let a = 0; a < 24 && !spot; a++) {
+    const x = gp.x + Math.cos(a * 0.26) * r, y = gp.y + Math.sin(a * 0.26) * r, i = w.idx(Math.floor(x), Math.floor(y));
+    if (w.water[i] || w.rock[i] || w.solid[i] || !A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) continue;
+    for (const [d, dx, dy] of [['e', 1, 0], ['w', -1, 0]]) { // (a side view on the host: the swing reads on the ground plane)
+      let wet = 0;
+      for (let k = 2; k <= 4; k++) if (w.liquidAt(Math.floor(x + dx * k), Math.floor(y + dy * k))) wet++;
+      if (wet === 3) { spot = [x, y]; dir = d; break; }
+    }
+  }
+  t.assert(spot, 'a shore spot facing open water');
+  A.teleport(G, spot[0], spot[1]);
+  gp.facing = dir;
+  await A.hostSees(t, H, G, 4000);
+  A.ensure(G, { rod_wood: 1 });
+  await t.waitFor(() => g.fishing.near()?.kind === 'fish_cast', 2000, 'the use action says "Pescar"');
+  const copy = () => A.avatarOn(H, G.pid);
+  const tips = [];
+  let t0 = 0;
+  A.interact(G, g.fishing.near());
+  const b = await t.waitFor(() => H.game.fishing.bobs.get(G.pid), RT() + 1500, 'the bobber reaches the host');
+  await t.waitFor(() => copy()?.action?.type === 'fish', 2500, "the host's copy of the guest plays the fishing action");
+  t0 = H.game.time;
+  await t.tryWait(() => { const c = copy(), r = c?._rodTip; if (r && H.game.time - r[3] < 0.2) tips.push([H.game.time - t0, r[0] - c.x, r[1] - c.y, r[2]]); return H.game.time - t0 > 1.4; }, 2500, 30);
+  const c = copy(), bx = b.x - c.x, by = b.y - c.y, L = Math.hypot(bx, by) || 1;
+  const along = (q) => (q[1] * bx + q[2] * by) / L; // (+ toward the bobber)
+  t.check(tips.length > 8, "the host draws the guest's rod tip (the cast is drawn)", `${tips.length} samples`);
+  if (tips.length > 8) {
+    const back = Math.min(...tips.filter((q) => q[0] < 0.5).map(along)), out = along(tips[tips.length - 1]);
+    t.check(back < out - 0.3, 'the rod swings back over the shoulder, then out over the water', `back ${f2(back)} → out ${f2(out)}`);
+    t.check(out > 0.2, 'waiting, the rod tip is out on the bobber side', f2(out));
+  }
+  t.check(c._fishT0 != null && H.game.time - c._fishT0 < 3, "the host saw the cast start (its own clock)", f2(H.game.time - (c._fishT0 ?? -99)));
+  await t.waitFor(() => H.game.fishing.bobs.get(G.pid)?.landed && G.game.fishing.bobs.get(G.pid)?.landed, 3000, 'the bobber landed (splash) on both');
+  // the pull (early: no fish, the reel still plays)
+  let reel = false;
+  A.interact(G, g.fishing.near());
+  await t.waitFor(() => { reel ||= copy()?.action?.type === 'reel'; return reel; }, 2500, "the host's copy plays the pull (reel)");
+  await t.waitFor(() => H.game.fishing.reels.has(G.pid) && G.game.fishing.reels.has(G.pid), RT() + 1500, 'the bobber flies back to the rod on both');
+  await t.waitFor(() => !H.game.fishing.bobs.has(G.pid) && !G.game.fishing.bobs.has(G.pid), RT() + 1500, 'the line is out on both');
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));
