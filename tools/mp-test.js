@@ -2768,7 +2768,10 @@ def('BA2', {
   await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the host gets off (both)');
   // an operator that is gone (left the game): the host takes it off
   H.game.net.emit('ballista.set', { id: bid, user: 'ghost' });
-  await t.waitFor(() => oG.user === 'ghost', RT() + 1500, '(a gone operator on both)');
+  // (the host may take it off on its next 0.5 s check before the guest's poll sees it: watch for it instead)
+  let ghostG = false;
+  t.watch(() => { if (oG.user === 'ghost') ghostG = true; }, 10);
+  await t.waitFor(() => ghostG || !oH.user, RT() + 1500, '(a gone operator on both, or already taken off by the host)');
   await t.waitFor(() => !oH.user && !oG.user, 2000 + RT(), 'the host takes a gone operator off (both)');
   await t.checkDigest(H, G);
   env.history.push('BA2');
