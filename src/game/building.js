@@ -30,6 +30,7 @@ import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_RO
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt, roofTileFace, liftedPoint } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
+import { orderDeckTiles } from './decks.js'; // piers / bridges
 
 export { placeStructure, completeStructure, removeStructure, placeReason, defOf, REFUND, dimsOf, rotCount } from './mut/structures.js';
 
@@ -227,8 +228,11 @@ function updatePreview(game) {
   const ghost = new Set();
   const out = [];
   let nOk = 0, firstReason = null;
+  const batch = def.deck ? new Map() : null; // piers / bridges: each piece anchors on the ones before it (decks.js)
+  if (batch && multi) tiles = orderDeckTiles(game, m.type, tiles);
   for (const [tx, ty] of tiles) {
-    let r = placeReason(game, m.type, tx, ty, p, m.rot, m.move, m.lv | 0); // levels: the chosen story
+    let r = placeReason(game, m.type, tx, ty, p, m.rot, m.move, m.lv | 0, batch); // levels: the chosen story
+    if (batch && !r) batch.set(game.world.idx(tx, ty), m.type);
     if (r === 'exists' && multi) continue;
     let replace = null;
     if (r && typeof r === 'object') { replace = r.replace; r = null; }
@@ -394,7 +398,7 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
   const up = game.levels?.pickUpper(wx, wy); // levels: upper stories are drawn lifted, over the ground
   if (up) return up;
   const tx = Math.floor(wx), ty = Math.floor(wy);
-  const g = structureAt(game, tx, ty, 'main') || structureAt(game, tx, ty, 'rug') || structureAt(game, tx, ty, 'floor');
+  const g = structureAt(game, tx, ty, 'main') || structureAt(game, tx, ty, 'rug') || structureAt(game, tx, ty, 'floor') || structureAt(game, tx, ty, 'deck');
   if (g) return g;
   // move plans are not in the grid
   for (const o of game.build.structures) if (o.moveOf && tx >= o.tx && tx < o.tx + o.fw && ty >= o.ty && ty < o.ty + o.fh) return o;
@@ -408,6 +412,25 @@ export function structureAtPoint(game, wx, wy, { roof = false } = {}) {
 // removing these supports would drop roof tiles: ask for a second tap within 6 s (same set) before marking them
 const CONFIRM = { key: '', t: 0 };
 function confirmSupports(game, list) {
+  // piers / bridges (decks.js): never with something on them; a bridge piece that holds others up asks for a second tap
+  const D = game.decks;
+  if (D?.any) {
+    const inList = new Set(list);
+    const busy = list.find((o) => !o.blueprint && BUILDINGS[o.type]?.deck && D.busy(o) && !inList.has(game.build.grid.main.get(game.world.idx(o.tx, o.ty))));
+    if (busy) { game.events.emit('error', { text: 'Tire antes o que está em cima do trapiche / da ponte' }); return false; }
+    const dk = list.filter((o) => !o.blueprint && BUILDINGS[o.type]?.deck && !game.build.decon.has(o));
+    const fall = dk.length ? D.lostWithout(new Set(dk)) : [];
+    if (fall.length) {
+      const key = 'deck:' + dk.map((o) => o.id).sort().join(',');
+      if (!(CONFIRM.key === key && game.time - CONFIRM.t < 6)) {
+        CONFIRM.key = key; CONFIRM.t = game.time;
+        game.events.emit('toast', { text: `A ponte vai cair na água (${fall.length} ${fall.length > 1 ? 'peças' : 'peça'})! ${game.input.isTouch ? 'Toque' : 'Clique'} de novo para confirmar`, kind: 'warn' });
+        game.audio?.play('ui_click', {});
+        return false;
+      }
+      CONFIRM.key = '';
+    }
+  }
   const sup = list.filter((o) => !o.blueprint && BUILDINGS[o.type]?.support && !game.build.decon.has(o));
   const held = game.levels?.hasUpper ? list.filter((o) => !o.blueprint && !game.build.decon.has(o)) : []; // levels: what upper pieces stand on
   if (!sup.length && !held.length) return true;
@@ -464,7 +487,7 @@ export function deconRect(game, x0, y0, x1, y1, roof = null, lv = 0) {
   }
   const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
   for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) {
-    for (const L of roof ? ['roof'] : ['main', 'rug', 'floor']) { const o = structureAt(game, x, y, L); if (o) seen.add(o); }
+    for (const L of roof ? ['roof'] : ['main', 'rug', 'floor', 'deck']) { const o = structureAt(game, x, y, L); if (o) seen.add(o); }
   }
   if (!roof && !seen.size) for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) { const o = structureAt(game, x, y, 'roof'); if (o?.blueprint) seen.add(o); }
   if (seen.size && !confirmSupports(game, [...seen])) return 0;
@@ -488,11 +511,13 @@ export function toggleDoor(game, o) {
 export function canSupply(game, o) {
   if (!o.blueprint || o.moveOf) return true;
   if (defOf(o).roof && !roofSupported(game, o.tx, o.ty, true)) return false;
+  if (!o.lv && game.decks?.any && game.decks.startReason(o)) return false; // piers / bridges: piece by piece from the bank (decks.js)
   if (o.paid) return true;
   return game.player.inv.has(defOf(o).cost);
 }
 export function missingText(game, o) {
   if (defOf(o).roof && o.blueprint && !roofSupported(game, o.tx, o.ty, true)) return 'apoio (termine as paredes ou colunas perto)';
+  if (o.blueprint && !o.lv && game.decks?.any && game.decks.startReason(o)) return defOf(o).deck ? 'a peça anterior pronta (a partir da margem)' : 'o trapiche / a ponte embaixo pronto';
   const cost = defOf(o).cost, p = game.player, miss = [];
   for (const k in cost) { const have = p.inv.count(k); if (have < cost[k]) miss.push(`${cost[k] - have} ${(ITEMS[k]?.name || k).toLowerCase()}`); }
   return miss.join(', ');
@@ -569,7 +594,7 @@ export function structIt(o, extra) {
   const def = defOf(o);
   const sw = o.fw || def.size[0], sh = o.fh || def.size[1];
   if (def.roof) return { o, tile: true, tx: o.tx, ty: o.ty, w: 1, h: 1, x: o.tx + 0.5, y: o.ty + 0.5, reach: 2.6, ...extra }; // from a ladder: interiors behind a closed door too
-  if (def.block === 'tile' || def.block === 'door' || def.flat || sw > 1 || sh > 1)
+  if (def.block === 'tile' || def.block === 'door' || def.flat || def.deck || sw > 1 || sh > 1)
     return { o, tile: true, tx: o.tx, ty: o.ty, w: sw, h: sh, x: o.tx + sw / 2, y: o.ty + sh / 2, reach: 0.6, ...extra };
   return { o, x: o.x, y: o.cy ?? o.y, reach: 0.85, ...extra };
 }

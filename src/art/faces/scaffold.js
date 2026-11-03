@@ -22,7 +22,7 @@ const HT = (OY - R0) / 64, HB = (OY - R1) / 64;
 export function scaffolded(o) {
   if (o._ghost || !(o.progress > 0.02 && o.progress < 1)) return false;
   const d = BUILDINGS[o.type];
-  return !!d && !d.roof && !d.flat && d.layer !== 'floor' && d.layer !== 'rug' && d.block !== 'stairs' && o.type !== 'torch';
+  return !!d && !d.roof && !d.flat && d.layer !== 'floor' && d.layer !== 'rug' && d.layer !== 'deck' && d.block !== 'stairs' && o.type !== 'torch'; // (piers / bridges show their own stages: faces/deck.js)
 }
 
 // panel order scratch (no allocation per frame)

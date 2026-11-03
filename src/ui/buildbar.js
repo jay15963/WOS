@@ -153,7 +153,7 @@ export function installBuildbar(game) {
   const batchBlueprint = () => {
     const lb = game.build.lastBatch;
     if (!lb) return null;
-    for (const [x, y] of lb.tiles) for (const L of ['main', 'floor', 'rug', 'roof']) {
+    for (const [x, y] of lb.tiles) for (const L of ['main', 'floor', 'rug', 'roof', 'deck']) {
       const o = game.build.grid[L] ? structureAt(game, x, y, L) : null;
       if (o && o.blueprint && o.type === lb.type) return o;
     }

@@ -66,7 +66,7 @@ export class Minimap {
         if (o.type.startsWith('tree_') && !o.stump) c = o.type === 'tree_pine' ? [34, 62, 36] : [44, 76, 38];
         else if (o.type === 'boulder') c = [128, 124, 116];
         else if (o.type === 'berrybush') c = [120, 52, 70];
-        else if (o.building) c = o.type === 'wall_wood' ? [150, 112, 70] : o.fire ? [240, 150, 60] : [190, 150, 100];
+        else if (o.building) c = o.type === 'wall_wood' ? [150, 112, 70] : o.fire ? [240, 150, 60] : o.type === 'pier_wood' ? [168, 128, 82] : o.type === 'bridge_wood' ? [182, 150, 108] : [190, 150, 100]; // (piers / bridges: planks over the water)
         if (c) { d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; }
       }
     });

@@ -6,7 +6,7 @@
 // included); an open one is 0 (everyone passes). They never open by themselves. The value-2 paths below
 // (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
-import { collides, moveCircle } from './physics.js';
+import { collides, moveCircle, railCross } from './physics.js';
 
 // ---------- occupancy (solid round props per tile) ----------
 export function buildOcc(game) {
@@ -93,7 +93,7 @@ export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false) {
   let my = dy !== 0 ? (dy > 0 ? ty + 1 - y0 : y0 - ty) * ddy : 1e9;
   for (let n = 0; n < 96; n++) {
     if (tx === ex && ty === ey) return true;
-    if (mx < my) { mx += ddx; tx += sx; } else { my += ddy; ty += sy; }
+    if (mx < my) { if (w.rail && railCross(w, tx, ty, sx, 0)) return false; mx += ddx; tx += sx; } else { if (w.rail && railCross(w, tx, ty, 0, sy)) return false; my += ddy; ty += sy; } // (bridge railings: decks.js)
     if (tx === ex && ty === ey) return true; // goal tile itself may hold the target's prop
     if (hard ? (w.blocked(tx, ty) || (!doors && w.solid[ty * w.W + tx] === 2)) : !walkable(game, tx, ty, doors)) return false;
   }
@@ -164,6 +164,7 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false) {
       const nx = cx + dx, ny = cy + dy;
       if (!free(nx, ny)) continue;
       if (dx && dy && (!walkable(game, cx + dx, cy, doors) || !walkable(game, cx, cy + dy, doors))) continue; // no corner cutting
+      if (w.rail && railCross(w, cx, cy, dx, dy)) continue; // bridge railings (decks.js)
       const ni = ny * W + nx;
       if (closed[ni] === stamp) continue;
       const ng = gArr[cur] + cost;

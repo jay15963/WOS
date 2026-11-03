@@ -227,7 +227,7 @@ export class Game {
     const want = p && !p.dead && !this.noCut ? 1 : 0;
     C.k += (want - C.k) * Math.min(1, (this._dt || 0.016) * 6);
     if (C.k < 0.01 || !p) { C.k = want ? C.k : 0; return C; }
-    const hP = p.z > 0 ? p.z * STORY_H : 0, dx = p.x - cam.x, dy = p.y - cam.y;
+    const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0), dx = p.x - cam.x, dy = p.y - cam.y;
     C.yP = -rs * dx + rc * dy; C.hP = hP;
     C.x = rc * dx + rs * dy; C.y = C.yP - hP - 0.55 * (p.scale || 1); C.r = 0.95 * (p.scale || 1);
     return C;
@@ -319,7 +319,7 @@ export class Game {
       // height, a little toward the camera (its feet over the floor it stands on); tree crowns may open in the cutout;
       // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
       Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
-      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = o.z > 0 ? o.z * STORY_H : 0; Z.bias = 0.02; }
+      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0); Z.bias = 0.02; } // (_dh: standing on a pier / bridge deck, decks.js)
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);
@@ -327,7 +327,7 @@ export class Game {
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
-        const lz = o.isEntity && o.z > 0 ? o.z * STORY_H : 0, x0 = o.x, y0 = o.y;
+        const lz = o.isEntity ? (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) : 0, x0 = o.x, y0 = o.y; // (+ a pier / bridge deck under it)
         if (lz) { o.x = x0 + rs * lz; o.y = y0 - rc * lz; } // (straight up the screen)
         // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
         // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters

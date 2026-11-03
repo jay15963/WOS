@@ -51,7 +51,7 @@ const FB = { pebble: ['item_stone', 0.6], stick: ['item_wood', 0.7], copper_ore:
   steel_bar: ['item_ore', 0.9], gold_bar: ['item_ore', 0.9], potato: ['item_berries', 0.9], baked_potato: ['item_cooked', 0.8], corn: ['item_berries', 0.9],
   roast_corn: ['item_cooked', 0.8], stew: ['item_cooked', 0.9], cotton: ['item_fiber', 0.9], cloth: ['item_leather', 0.8], rope: ['item_fiber', 0.9],
   herb: ['item_fiber', 0.8], arrow: ['item_wood', 0.6] };
-function itemSprite(A, id) {
+export function itemSprite(A, id) {
   const def = ITEMS[id];
   if (def && A.has(def.sprite)) return [def.sprite, 1];
   const fb = FB[id];
@@ -111,6 +111,7 @@ export function lootSystem() {
       for (const it of game.loot) {
         if (it.x < v.x0 - 1 || it.x > v.x1 + 1 || it.y < v.y0 - 1 || it.y > v.y1 + 1) continue;
         if (game.roofs?.hidden?.(it.x, it.y)) continue; // under an opaque roof
+        if (game.decks?.any && game.decks.onDeck(it.x, it.y)) continue; // on a pier / bridge: drawn on its top (decks.js)
         const [name, sc] = itemSprite(A, it.item);
         if (!A.has(name)) continue;
         const s = A.get(name);
