@@ -66,8 +66,9 @@ ChunkData = { ground, water (0 terra · 1 raso · 2 fundo · 3 abissal), rock, r
   (a costura do x fica sempre num oceano largo), mares polares, cordilheiras, biomas por latitude / altura / umidade,
   árvores e plantas; ~6–8 ms por chunk num worker.
 - **planet** (`?source=planet` ou `?planet=1[&px=&py=]`, `planetSource.js`): o gerador real (`src/world/planet`,
-  docs/PLANET.md). `generatePlanet(seed)` (~1,9 s) roda uma vez na thread principal (spawn por `findSpawn`, imagem do mapa
-  por `renderMacro`, fallback síncrono) e o objeto do planeta (arrays, ~13 MB) vai para cada worker no `init`; cada chunk
+  docs/PLANET.md). `generatePlanet(seed)` (~1,9 s) roda uma vez num worker (`planetWorker.js`, começa junto com a carga dos
+  gráficos); a thread principal fica com o objeto (spawn por `findSpawn`, imagem do mapa por `renderMacro`, fallback
+  síncrono) e o manda (arrays, ~13 MB) para cada worker de chunks no `init`; cada chunk
   é `generateChunk(planet, cx, cy, { decor })` (~40 ms no worker) adaptado: chão 8–13 e rochas 5–6 → os clássicos
   (`GROUND_CLASSIC` / `ROCK_CLASSIC`), bioma → a sua classe clássica (`BIOME_LIST[b].cl`), árvores / plantas novas → arte
   existente (a mesma tabela de `planet/ingame.js`), `lush` 0..255 → 0..1, posições do chunk → do planeta, `height`
@@ -181,11 +182,17 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
 - Geração de chunk no worker: synth 6–8 ms, planet ~40–45 ms (3 workers); instalar o resultado na thread principal:
   ≤ 6,2 ms (objetos + decor + ganchos); conteúdo da janela no worker ~4,4 ms/chunk, envio às texturas ≤ 2,4 ms.
 - Memória com 4 jogadores longe: camadas de tiles 30 MB, ~32 mil objetos, heap JS ~95–110 MB, janela da GPU 24,5 MB.
-- Mundo clássico: 16 chunks, camadas 2,2 MB; gerar o mundo ~0,4 s (como antes); `get` de camada ~4 ns.
+- Partida (parte do mundo: fonte + chunks + sistemas, sem os gráficos; `window.wosWorldMs`): clássico ~0,6 s (gerar o mapa
+  ~0,4 s, como antes), synth ~0,3 s, planet ~1,3 s (o planeta macro no worker em paralelo com os gráficos). O total em dev
+  é dominado pela pintura do atlas (sem cache em localhost; em produção o atlas vem do IndexedDB).
+- Mundo clássico: 16 chunks (+ rocha em volta para a janela), camadas ~7 MB; `get` de camada ~4 ns.
 - Medir: `game.streamStats()` (HUD de streaming, ligado em localhost no planeta ou com `?stream=1`), `game.frameStats(reset)`,
   `game._prof = new Map()` (o sistema mais lento por quadro), `game.debug.bench(n)`.
 
 ## 10. Ferramentas de dev
+
+- Cenário **ST1** (`tools/mp-test.html?run=ST1`): anfitrião no planeta sintético, convidado gera os mesmos chunks, o
+  anfitrião muda um chunk a 3000 tiles (o convidado o carrega sob demanda), os dois cruzam a costura, digest igual.
 
 - `?source=classic|synth|planet` · `?stream=1` (HUD) · `game._extraAnchors = [{x, y}]` (simula jogadores longe).
 - `world.stats` (gerados síncronos / assíncronos, tempo de instalar), `world.streamer.stats`, `R.win.stats`.
