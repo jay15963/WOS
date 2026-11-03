@@ -5,7 +5,8 @@
 // faceSeg, marked object by object with emMark).
 // Depth: exact per vertex (d = view y + h); the bias is the shared depth state's (spriteBatch.js depthState: the
 // drawable's bias + a tiny growing one per quad, so coplanar layers of one piece keep their order) + `bias` (a face laid
-// on another one on purpose: things hung on a wall, cracks, a rug on a floor). Quads with an alpha below Z.SOLID
+// on another one on purpose: things hung on a wall, cracks, a rug on a floor). Terrain height: every vertex is lifted by the
+// shared state's Z.g (the ground under the drawable, set by game.js; docs/TERRAIN-HEIGHT.md). Quads with an alpha below Z.SOLID
 // (fading, glows: a < 0) never write depth.
 import { depthState, zSplit } from './spriteBatch.js';
 
@@ -62,9 +63,9 @@ export class FaceBatch {
     if (this.n >= this.cap) this._grow();
     const d = this.data;
     let o = this.n++ * 6 * VS;
-    const z = this._z(a);
+    const z = this._z(a), gz = this.Z.g || 0;
     const u0 = uv[0], v0 = uv[1], u1 = uv[2], v1 = uv[3];
-    const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; d[o + 9] = z; o += VS; };
+    const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h + gz; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; d[o + 9] = z; o += VS; };
     V(ax, ay, ah, u0, v0); V(bx, by, bh, u1, v0); V(cx, cy, ch, u1, v1);
     V(ax, ay, ah, u0, v0); V(cx, cy, ch, u1, v1); V(dx, dy, dh, u0, v1);
   }
@@ -74,8 +75,8 @@ export class FaceBatch {
     if (this.n >= this.cap) this._grow();
     const d = this.data;
     let o = this.n++ * 6 * VS;
-    const z = this._z(a);
-    const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; d[o + 9] = z; o += VS; };
+    const z = this._z(a), gz = this.Z.g || 0;
+    const V = (x, y, h, u, v) => { d[o] = x; d[o + 1] = y; d[o + 2] = h + gz; d[o + 3] = u; d[o + 4] = v; d[o + 5] = r; d[o + 6] = g; d[o + 7] = b; d[o + 8] = a; d[o + 9] = z; o += VS; };
     V(ax, ay, ah, au, av); V(bx, by, bh, bu, bv); V(cx, cy, ch, cu, cv);
     V(ax, ay, ah, au, av); V(cx, cy, ch, cu, cv); V(dx, dy, dh, du, dv);
   }
@@ -86,10 +87,10 @@ export class FaceBatch {
     if (this.n >= this.cap) this._grow();
     const d = this.data;
     let w = this.n++ * 6 * VS;
-    const z = this._z(a);
+    const z = this._z(a), gz = this.Z.g || 0;
     for (let k = 0; k < 6; k++) {
       const s = o + QI[k];
-      d[w] = src[s]; d[w + 1] = src[s + 1]; d[w + 2] = src[s + 2]; d[w + 3] = src[s + 3]; d[w + 4] = src[s + 4];
+      d[w] = src[s]; d[w + 1] = src[s + 1]; d[w + 2] = src[s + 2] + gz; d[w + 3] = src[s + 3]; d[w + 4] = src[s + 4];
       d[w + 5] = r; d[w + 6] = g; d[w + 7] = b; d[w + 8] = a; d[w + 9] = z;
       w += VS;
     }

@@ -18,7 +18,7 @@ export function tileBlocked(world, tx, ty, passDoors = false, swim = false, onDe
   if (!world.inBounds(tx, ty)) return true;
   const i = world.idx(tx, ty);
   const s = world.solid[i];
-  return world.rock[i] === 1 || (world.water[i] === 2 && !swim && !world.frozen && !(onDeck && world.deck && world.deck[i])) || s === 1 || (s === 2 && !passDoors); // frozen: ice (seasons.js); deck: a pier / bridge (decks.js)
+  return world.rock[i] === 1 || (world.water[i] === 2 && !swim && !world.frozen && !(onDeck && world.deck && world.deck[i])) || s === 1 || (s === 2 && !passDoors) || world.isCliff(tx, ty); // frozen: ice (seasons.js); deck: a pier / bridge (decks.js); terrain cliffs (world/height.js)
 }
 
 // ---------- decks: on a bridge or under it (game/decks.js) ----------

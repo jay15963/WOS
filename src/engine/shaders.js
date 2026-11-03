@@ -34,6 +34,29 @@ vec2 toView(vec2 d){ vec2 r = rotR(); return vec2(r.x * d.x + r.y * d.y, -r.y * 
 vec2 toWorld(vec2 v){ vec2 r = rotR(); return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 `;
 
+// TERRAIN HEIGHT (docs/TERRAIN-HEIGHT.md, src/world/height.js): the smooth surface as a fine grid of 4 × 4 samples per
+// tile (R32F, (4W + 1) × (4H + 1), texel (i, j) = world (i / 4, j / 4), stories); each fine cell is two triangles split
+// along the diagonal whose ends differ less — the same rule as height.js triH (CPU and GPU agree exactly). uHgtOn 0 = the flat
+// world (no fetch). Everything that stands on the ground is lifted by groundH at its reference point in the vertex
+// shaders.
+const HGT_FN = `
+uniform highp sampler2D uHgt;
+uniform float uHgtOn;
+const float HSUB = 4.0;
+highp float hgtF(ivec2 c){ return texelFetch(uHgt, clamp(c, ivec2(0), textureSize(uHgt, 0) - 1), 0).r; }
+highp float hgtTri(highp float a, highp float b, highp float c, highp float d, highp vec2 f){
+  if (abs(a - d) <= abs(b - c)) return f.x >= f.y ? a + f.x * (b - a) + f.y * (d - b) : a + f.y * (c - a) + f.x * (d - c);
+  return f.x + f.y <= 1.0 ? a + f.x * (b - a) + f.y * (c - a) : d + (1.0 - f.x) * (c - d) + (1.0 - f.y) * (b - d);
+}
+highp float groundH(highp vec2 p){
+  if (uHgtOn < 0.5) return 0.0;
+  ivec2 sz = textureSize(uHgt, 0) - 1;
+  highp vec2 q = clamp(p * HSUB, vec2(0.0), vec2(sz));
+  ivec2 t = min(ivec2(floor(q)), sz - 1);
+  return hgtTri(hgtF(t), hgtF(t + ivec2(1, 0)), hgtF(t + ivec2(0, 1)), hgtF(t + ivec2(1, 1)), q - vec2(t));
+}
+`;
+
 // DEPTH of the world (docs/CAMERA-ROTATION.md "Profundidade por pixel"): the view is an oblique projection — a point
 // at view y (toward the camera) and height h shows at screen y = view y − h, and the ray through a pixel runs along
 // (+view y, +h): the depth toward the camera is d = view y + h (larger = nearer). Relative to the camera, as window
@@ -158,6 +181,7 @@ uniform vec2 uWorldSz;
 uniform float uSnow;      // snow cover 0..1 (env.extra.uSnow)
 uniform vec4 uSeaA;       // seasons (src/fx/seasonfx.js): snow, ice, autumn, bloom
 uniform vec4 uSeaB;       // bare, winter, autumn colour of the crowns (stays on until the leaves drop), blizzard
+${HGT_FN}
 out vec2 vUV;
 out vec4 vColor;
 out float vFlash;
@@ -180,9 +204,10 @@ void main(){
   // whole; the lift goes straight up the screen
   vec2 v = uFlat > 0.5 ? toView(aPos + local - uCam) : toView(aPos - uCam) + local;
   vW = uFlat > 0.5 ? aPos + local : aPos + toWorld(local);
-  v.y -= aExtra.y;
+  float g = groundH(aDepth.xy); // terrain height under the reference point (its foot): everything stands on the ground
+  v.y -= aExtra.y + g;
   vec2 clip = v * uScale;
-  vV = v; vZ = vec4(toView(aDepth.xy - uCam).y, aDepth.z, aDepth.w, aExtra.w);
+  vV = v; vZ = vec4(toView(aDepth.xy - uCam).y, aDepth.z + g, aDepth.w, aExtra.w);
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -390,6 +415,9 @@ layout(location=2) in vec4 aC;
 layout(location=3) in float aZ; // depth bias (engine/faceBatch.js)
 uniform vec2 uCam, uScale, uRot;
 uniform float uZ;               // (depth: see SPRITE_FS)
+uniform float uFaceG;           // 1 = lay each vertex on the terrain (sun-shadow faces on the ground); scene faces already
+                                // carry their piece's ground height (engine/faceBatch.js Z.g)
+${HGT_FN}
 out vec2 vUV;
 out vec4 vC;
 out highp float vD;
@@ -398,6 +426,7 @@ out highp vec3 vW;              // world (x, y, h): roofs lit by the lamps aroun
 void main(){
   vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, d = aP.xy - uCam;
   vec2 v = vec2(r.x * d.x + r.y * d.y, -r.y * d.x + r.x * d.y);
+  if (uFaceG > 0.5) v.y -= groundH(aP.xy);
   v.y -= aP.z;
   vec2 clip = v * uScale;
   vD = v.y + 2.0 * aP.z + aZ; vV = v; // (depth: view y + h)
@@ -486,6 +515,7 @@ out vec2 vW;          // ground position of the shadow fragment (dapple pattern 
 out float vCan;       // 1 for canopy casters
 flat out vec2 vWo;    // wind drift of the dapples
 ${SWAY_FN}
+${HGT_FN}
 void main(){
   vec2 c = aCorner;
   vec2 local = (c - aAnchor) * aSize;
@@ -497,7 +527,9 @@ void main(){
   float h = max(0.0, -local.y) + aExtra.y;
   vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
   vec2 w = aPos + base + uShadowDir * h;
-  vec2 clip = toView(w - uCam) * uScale;
+  vec2 sv = toView(w - uCam);
+  sv.y -= groundH(w); // (laid on the terrain where it lands)
+  vec2 clip = sv * uScale;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
   vec2 tc = c;
   if (aParams.w < 0.0) tc.x = 1.0 - tc.x;
@@ -603,8 +635,12 @@ vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return
 uniform vec3 uAmb, uCaveAmb;
 uniform float uIndoorAmb;  // ambient factor deep inside a revealed building (0 = unset)
 ${CEIL_FN}
+${HGT_FN}
 void main(){
-  vec2 wp = uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
+  vec2 sv = vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
+  vec2 wp = uCam + v2w(sv);
+  // terrain height: the ground point seen through this pixel (a few fixed-point steps along the view ray)
+  if (uHgtOn > 0.5) for (int k = 0; k < 4; k++) wp = uCam + v2w(sv + vec2(0.0, groundH(wp)));
   float c = texture(uCave, wp / uWorld).r;
   if (c > 0.004) c *= 1.0 - ceilNear(wp); // a drawn cave ceiling is outdoors (game/roofs.js)
   c = pow(c, 1.4);   // keep the spill onto the surrounding rock tight
@@ -620,12 +656,17 @@ void main(){
 // Output is premultiplied "over" compositing on the finished terrain, so cost is paid only on those tiles.
 export const DECAL_VS = `#version 300 es
 ${SPRITE_ATTRIBS}
+${HGT_FN}
+uniform float uZ;
 out vec2 vW;
 out float vKind;
 void main(){
   vec2 w = aPos + (aCorner - aAnchor) * aSize;
-  vec2 clip = toView(w - uCam) * uScale;
-  gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+  vec2 dv = toView(w - uCam);
+  float g = groundH(w);
+  dv.y -= g;
+  vec2 clip = dv * uScale;
+  gl_Position = vec4(clip.x, -clip.y, -(dv.y + 2.0 * g + 0.02) * uZ, 1.0); // (on the terrain: tested against its depth)
   vW = w;
   vKind = aColor.r;
 }`;
@@ -1138,14 +1179,61 @@ void pathPlanTint(vec2 wp, vec2 pw, float en, float sd, inout vec3 col){
 
 // Ground, rock (mountains), water. One fullscreen pass, world-space.
 // Extra uniforms (uRain, uSunWarm, uCloud, uCloudVel...) come from env.extra (0 = neutral defaults).
+// Terrain vertex shader. uMesh 0: one flat full-screen triangle (the world of before, no heights). uMesh 1: the 3D
+// terrain mesh (docs/TERRAIN-HEIGHT.md) — the fine height grid around the view drawn as strips: one instance per fine
+// row (uGrid.w & 4: per column), 6 vertices per cell from gl_VertexID, each cell split on the same diagonal rule as
+// HGT_FN; strips nearest the camera first (uGrid.w & 2 flips them). uGrid = first fine x, y, cells per strip, flags.
+// Corners lifted straight up the screen by their height, depth d = view y + h. vT = world (x, y, h).
+export const TERRAIN_VS = `#version 300 es
+uniform vec2 uCam, uScale, uRot;
+uniform float uMesh, uZ;
+uniform ivec4 uGrid;
+uniform int uGridN;   // strips
+${HGT_FN}
+out vec2 vUV;
+out highp vec3 vT;
+const ivec2 CA[6] = ivec2[6](ivec2(0, 0), ivec2(1, 0), ivec2(1, 1), ivec2(0, 0), ivec2(1, 1), ivec2(0, 1));
+const ivec2 CB[6] = ivec2[6](ivec2(0, 0), ivec2(1, 0), ivec2(0, 1), ivec2(1, 0), ivec2(1, 1), ivec2(0, 1));
+void main(){
+  if (uMesh < 0.5) {
+    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+    vUV = p; vT = vec3(0.0);
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+    return;
+  }
+  int q = gl_VertexID / 6, k = gl_VertexID - q * 6, r = gl_InstanceID;
+  if ((uGrid.w & 2) != 0) r = uGridN - 1 - r;
+  ivec2 t = uGrid.xy + ((uGrid.w & 4) != 0 ? ivec2(r, q) : ivec2(q, r));
+  float a = hgtF(t), b = hgtF(t + ivec2(1, 0)), c = hgtF(t + ivec2(0, 1)), d = hgtF(t + ivec2(1, 1));
+  ivec2 o = abs(a - d) <= abs(b - c) ? CA[k] : CB[k];
+  float h = o.x == 0 ? (o.y == 0 ? a : c) : (o.y == 0 ? b : d);
+  vec2 wp = vec2(t + o) / HSUB;
+  vec2 ro = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot, dd = wp - uCam;
+  vec2 v = vec2(ro.x * dd.x + ro.y * dd.y, -ro.y * dd.x + ro.x * dd.y);
+  v.y -= h;
+  vec2 clip = v * uScale;
+  gl_Position = vec4(clip.x, -clip.y, -(v.y + 2.0 * h) * uZ, 1.0);
+  vUV = vec2(clip.x, -clip.y) * 0.5 + 0.5;
+  vT = vec3(wp, h);
+}`;
+
 export const TERRAIN_FS = `#version 300 es
 precision highp float;
 precision highp sampler2DArray;
 in vec2 vUV;
+in highp vec3 vT;           // terrain mesh (uMesh 1): world x, y, height (TERRAIN_VS)
 out vec4 o;
 uniform vec2 uCam, uView, uWorld;
 uniform vec2 uRot; // camera yaw (cos, sin)
 vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
+uniform float uMesh;        // 1 = drawn as the 3D terrain mesh (world/height.js); 0 = the flat world of before
+uniform highp sampler2D uHgtG; // smooth gradient of the fine surface (RG16F, linear: dh/dx, dh/dy in stories per tile)
+uniform highp sampler2D uHgtF; // the fine surface itself (R32F, nearest; relief shadows)
+uniform highp sampler2D uHgtC; // corner heights (R32F, nearest: the tile's lowest / highest corner)
+uniform sampler2D uHgtK;    // steepest slope per tile (R8, linear between tile centres: a smooth "rock here" field; × 5.33)
+uniform vec2 uHgtSz;        // fine grid size (4W + 1, 4H + 1)
+uniform float uSnowLine;    // permanent snow above this height (stories)
+${CUT_FN}
 uniform float uTime;
 uniform sampler2D uTile;    // R ground id, G random, B rock type (regional 1..4), A ore (1 copper, 2 iron, 3 coal, 4 gold, 5 jade)
 uniform sampler2D uField;   // 4x res, linear: R rock mask, G rock height, B water depth, A shore wetness
@@ -1319,8 +1407,57 @@ vec3 iceSurface(vec2 wp, float depth, float wl, vec4 nA, vec4 nB, vec4 nC, vec3 
   vec3 snC = vec3(0.86, 0.89, 0.94) * (0.84 + 0.16 * uSunI) * sunT;
   return mix(ic, snC, dr * 0.9);
 }
+// CLIFF faces (docs/TERRAIN-HEIGHT.md: terrain steeper than ~0.8 story per tile): the regional rock laid on the face
+// (u along it, v up it), horizontal strata with their own tones and seams, vertical cracks, darker toward the foot,
+// a lit lip at the top, moss low on wet faces, snow on the lip and ledges above the snow line. g = the triangle's slope,
+// tile = (lowest, highest corner), rid = rock layer.
+vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float LI, vec3 sunT, float lush, float snowK, vec4 nA, vec4 nB){
+  float s = length(g);
+  vec2 gn = g / max(s, 1e-3);
+  // triplanar on the two vertical planes: a face looking along x shows (y, h), one looking along y shows (x, h)
+  float wx = smoothstep(0.2, 0.8, gn.x * gn.x);
+  float u = mix(wp.x, wp.y, wx);
+  vec2 fx = vec2(wp.y, ht * 1.2), fy = vec2(wp.x, ht * 1.2);
+  float tl = max(log2(max(length(dFdx(fy)), length(dFdy(fy))) * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
+  vec4 A = textureLod(uGround, vec3(fy * 0.25, rid), tl), A2 = textureLod(uGround, vec3(fx * 0.25 + 0.41, rid), tl);
+  A = mix(A, A2, wx);
+  vec4 Bt = textureLod(uGround, vec3(ROT * vec2(u, ht * 1.2) * 0.19 + vec2(0.37, 0.11), rid), tl);
+  vec3 alb = mix(A.rgb, Bt.rgb, 0.3 + 0.3 * (Bt.a - A.a)) * 1.08 * vec3(1.03, 1.0, 0.95);
+  // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
+  float sv = ht * 0.95 + (nA.x - 0.5) * 0.7 + sin(u * 0.31 + nB.z * 2.0) * 0.22;
+  float band = floor(sv), fb = fract(sv);
+  alb *= 0.86 + 0.22 * hash12(vec2(band * 1.37, rid * 7.1));
+  float seam = 0.1 + 0.14 * hash12(vec2(band * 3.1, 2.0 + rid));
+  alb *= 1.0 - seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
+  float stk = textureLod(uNoise, vec2(u * 0.7, ht * 0.045) + 0.53, nLod(0.7)).b;
+  alb *= 0.9 + 0.2 * stk;
+  // vertical cracks (long, a bit wavy)
+  float cn = textureLod(uNoise, vec2(u * 0.33, ht * 0.05 + u * 0.01) + 0.21, nLod(0.33)).r;
+  alb *= 1.0 - 0.45 * (1.0 - smoothstep(0.012, 0.03, abs(cn - 0.5)));
+  // the face's own light
+  vec3 N = normalize(vec3(-g, 1.0));
+  float dif = max(dot(N, Ld), 0.0);
+  float sh = 0.46 + 0.8 * dif * (0.3 + 0.7 * LI);
+  float up = clamp((ht - tile.x) / max(tile.y - tile.x, 0.3), 0.0, 1.0);
+  vec3 c = alb * sh * (0.7 + 0.3 * smoothstep(0.0, 0.45, up)) * mix(vec3(1.0), sunT, dif * LI);
+  // moss low on wet faces
+  float moss = smoothstep(0.45, 0.85, lush + (nB.x - 0.5) * 0.6) * (1.0 - smoothstep(0.15, 0.65, up)) * (1.0 - snowK);
+  c = mix(c, vec3(0.22, 0.29, 0.13) * sh, moss * 0.62);
+  // the lip at the top edge catches the light; snow there and on the ledges above the snow line
+  float lip = 1.0 - smoothstep(0.0, 0.2, tile.y - ht);
+  c = mix(c, c * 1.32 + alb * 0.05, lip * 0.75);
+  float sk = snowK * clamp(lip + smoothstep(0.82, 1.0, fb) * 0.75 * smoothstep(0.4, 0.8, nB.y), 0.0, 1.0);
+  c = mix(c, vec3(0.86, 0.89, 0.95) * (0.56 + 0.5 * dif) * sunT, sk);
+  return c;
+}
 void main(){
-  vec2 wp = uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
+  vec2 wp = uMesh > 0.5 ? vT.xy : uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
+  float hT = uMesh > 0.5 ? vT.z : 0.0;
+  if (uMesh > 0.5) {
+    // the cutout around the local player opens the hills / cliffs in front of it (what is behind them shows)
+    highp vec2 V = vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView;
+    if (cutOpen(V.y + 2.0 * hT, V)) discard;
+  }
   PPX = max(length(dFdx(wp)), 1e-5); // (any camera yaw)
   LOD = max(log2(PPX * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
   float aaW = PPX * 1.25;
@@ -1340,6 +1477,10 @@ void main(){
   float roofB = (uWet > 0.01 || uSnow > 0.01 || uSeaA.x > 0.01) ? texture(uRoofT, wp / uWorld).b : 0.0;
   float snowA = smoothstep(0.45, 0.75, CL.r) * outK * (1.0 - roofB);   // where snow can lie (cold biomes, outdoors)
   float snowS = max(uSnow * snowA, uSeaA.x * outK * (1.0 - roofB));   // snow lying now (cold biomes after snowfall; winter: everywhere)
+  // terrain height: permanent snow above the snow line (noisy edge)
+  float snowH = uMesh > 0.5 ? smoothstep(uSnowLine - 1.2, uSnowLine + 0.9, hT + (nB.y - 0.5) * 1.8 + (nA.z - 0.5) * 0.9) * outK : 0.0;
+  snowS = max(snowS, snowH);
+  snowA = max(snowA, snowH);
   vec3 sunT = vec3(1.0) + uSunWarm * outK;
   // relief light: the sun outdoors, a soft fixed top-left light underground (torches do the rest)
   vec3 Ld = normalize(mix(uSun, vec3(-0.35, -0.45, 0.82), cave));
@@ -1367,6 +1508,7 @@ void main(){
   // water level (needed by both paths)
   vec2 wq = wp + warp * 0.3;
   float wl = fieldAt(wq).b + (nB.x - 0.5) * 0.08 + (nA.w - 0.5) * 0.05;
+  if (uMesh > 0.5) wl -= smoothstep(0.04, 0.3, hT) * 2.0; // (water lies at sea level only: never up a cliff or a hill)
 
   // ---------- rock being mined: cracks follow the pickaxe; the last hit breaks the block along them ----------
   float mCrk = 0.0, mPulse = 0.0;
@@ -1733,6 +1875,42 @@ void main(){
     if (pathSdP > -0.08) pathPlanTint(wp, pathPw, pathEn, pathSdP, col); // [paths] blueprints
     // antialiased transition into the rock outline
     if (sd > -0.5) col = mix(col, vec3(0.075, 0.07, 0.065), smoothstep(-aaW, aaW * 0.4, sd));
+  }
+
+  // ---------- terrain height: smooth shading, scree on steep ground, rock faces, shadows of the relief ----------
+  if (uMesh > 0.5) {
+    vec2 gs = texture(uHgtG, (wp * 4.0 + 0.5) / uHgtSz).rg; // (smooth normals: the gradient of the fine surface)
+    float sf = length(gs);
+    vec3 Ns = normalize(vec3(-gs, 1.0));
+    float hs = (0.34 + 0.86 * max(dot(Ns, Ld), 0.0)) / (0.34 + 0.86 * max(Ld.z, 0.05));
+    col *= mix(1.0, hs, outK);
+    // steep but walkable ground turns to scree / bare earth, then to rock
+    float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
+    col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8));
+    float kt = texture(uHgtK, wp / uWorld).r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
+    float cl = smoothstep(0.72 + 0.2 * nB.w, 1.25 + 0.25 * nA.y, max(kt * 0.92, sf * 0.8)) * smoothstep(0.12, 0.45, sf + 0.25 * kt);
+    if (cl > 0.003) {
+      ivec2 tc = ivec2(floor(wp));
+      float c0 = texelFetch(uHgtC, tc, 0).r, c1 = texelFetch(uHgtC, tc + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tc + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tc + ivec2(1, 1), 0).r;
+      vec4 tile = vec4(min(min(c0, c1), min(c2, c3)), max(max(c0, c1), max(c2, c3)), 0.0, 0.0);
+      vec3 cr = cliffRock(wp, hT, gs, tile, ridOf(tileAt(tc)), Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
+      col = mix(col, cr, cl);
+    }
+    // relief shadows: march toward the sun over the fine surface (the ray climbs 1 / |shadowDir| per tile)
+    if (uShadowStr > 0.01 && LI > 0.02) {
+      float sl2 = max(length(uShadowDir), 0.05);
+      vec2 sdir = uShadowDir / sl2;
+      float ts = 0.0;
+      float hb = 0.08 + 0.1 * sf; // (rough steep ground must not shadow itself)
+      for (int k = 1; k <= 10; k++) {
+        float t = 0.2 + float(k * k) * 0.18;
+        vec2 pk = wp - sdir * t;
+        float hr = hT + t / sl2 + hb;
+        float hp = texelFetch(uHgtF, clamp(ivec2(pk * 4.0 + 0.5), ivec2(0), ivec2(uHgtSz) - 1), 0).r;
+        ts = max(ts, smoothstep(0.0, 0.4, hp - hr));
+      }
+      col *= 1.0 - ts * min(uShadowStr * 1.15, 0.64) * outK * vec3(1.0, 0.95, 0.84);
+    }
   }
 
   // ---------- sprite sun shadows (slightly cool) ----------

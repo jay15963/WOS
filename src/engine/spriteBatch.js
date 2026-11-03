@@ -12,6 +12,8 @@
 //          (Z.ref false) a sprite is its own reference: its anchor and its lift.
 //   mode 1 (flat): lying at height h (a sleeper on a mattress, a rug on an upper floor).
 //   mode 2 (card, see-through): a card that the cutout around the local player may open (tree crowns).
+//   g: terrain height under the current drawable (docs/TERRAIN-HEIGHT.md): computed faces add it to every vertex (sprites
+//   are lifted on the GPU by the ground at their reference point instead).
 //   bias: toward the camera (tiles of d; Z.sb: sprites only — the flames, glows and billboards of a piece drawn as
 //   faces stay in front of its own faces); each sprite of a drawable also gets a tiny growing bias (Z.ord), so its
 //   layers drawn on the same plane keep their order.
@@ -23,7 +25,7 @@ const ATTR = [[1, 2], [2, 2], [3, 2], [4, 4], [5, 4], [6, 4], [7, 4], [8, 4]];
 
 // the depth state shared by the batches of a renderer (game.js sets the reference of each drawable)
 export function depthState() {
-  return { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0, SOLID: 0.97, ORD: 2e-4, gt: undefined, gm: undefined };
+  return { ref: false, x: 0, y: 0, h: 0, mode: 0, bias: 0, sb: 0, ord: 0, g: 0, SOLID: 0.97, ORD: 2e-4, gt: undefined, gm: undefined };
 }
 
 export class SpriteBatch {
