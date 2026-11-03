@@ -291,7 +291,7 @@ export class TerrainWindow {
 }
 
 // ---------- gathering: the layers over a tile rect + MD margin, by page copies ----------
-const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid', 'pground'];
+const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid', 'pground', 'zone'];
 const GF32 = ['lush', 'flowX', 'flowY'];
 export function gatherTerrain(w, x0, y0, tw, th, coldLut) {
   const DW = tw + 2 * MD, DH = th + 2 * MD, gx0 = x0 - MD, gy0 = y0 - MD, N = DW * DH;

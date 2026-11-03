@@ -1870,12 +1870,14 @@ void main(){
     float fl = length(flow);
     // gentle swash: lake shores breathe in and out (rivers keep a steady edge)
     float swb = smoothstep(0.1, 0.24, wl) * (1.0 - smoothstep(0.3, 0.45, wl)) * (1.0 - smoothstep(0.1, 0.4, fl));
-    float iceK = uSeaA.y;   // winter: the water is frozen (no swash, no waves)
+    // the abyssal ocean (clim B on deep water, world/terrainFill.js): darker, a long swell with whitecaps, never frozen
+    float abyss = CL.b * smoothstep(0.82, 0.98, wl);
+    float iceK = uSeaA.y * (1.0 - abyss);   // winter: the water is frozen (no swash, no waves)
     float swash = (0.5 + 0.5 * sin(uTime * 0.85 + nA.x * 8.0 + dot(wp, vec2(0.13, 0.07)))) * 0.03 * swb * (1.0 - iceK);
     col *= 1.0 - 0.3 * smoothstep(0.16, 0.255, wl + 0.03 * swb) * (1.0 - 0.8 * iceK);   // wet dark sand at the waterline
     wl += swash;
     if (wl > 0.235) {
-      float depth = smoothstep(0.26, 1.0, wl) * (1.0 - 0.4 * smoothstep(0.2, 0.7, fl));
+      float depth = max(smoothstep(0.26, 1.0, wl) * (1.0 - 0.4 * smoothstep(0.2, 0.7, fl)), abyss);
       vec3 wc = vec3(0.0);
       if (iceK < 0.999) {
       float ph0 = fract(uTime * 0.22), ph1 = fract(uTime * 0.22 + 0.5);
@@ -1889,6 +1891,9 @@ void main(){
       vec2 nn = (mix(n0, n1, mw) - 0.85) * (0.7 + fl * 0.5);
       vec3 rp = uRain > 0.02 ? ripples(wp) * uRain : vec3(0.0);
       nn += rp.xy * 1.3;
+      // open-ocean swell: two long wave trains crossing (abyss only)
+      float sw1 = dot(wp, vec2(0.23, 0.11)) - uTime * 0.95, sw2 = dot(wp, vec2(-0.09, 0.2)) - uTime * 0.7;
+      if (abyss > 0.01) nn += abyss * (vec2(0.23, 0.11) * cos(sw1) * 1.6 + vec2(-0.09, 0.2) * cos(sw2) * 1.3 + (nC.xy - 0.5) * 0.25);
       vec3 N = normalize(vec3(nn * 0.55, 1.0));
 
       // sandy bottom seen through clear water (refracted), absorbed with depth
@@ -1901,7 +1906,7 @@ void main(){
 #endif
       float dd = 0.05 + depth * 1.95;
       vec3 Tr = exp(-vec3(2.4, 0.92, 0.66) * dd);
-      vec3 deepCol = vec3(0.026, 0.10, 0.16);
+      vec3 deepCol = mix(vec3(0.026, 0.10, 0.16), vec3(0.006, 0.03, 0.068), abyss);
       wc = bottom * Tr + deepCol * (1.0 - Tr.g);
       // sky + cloud reflection
       float cr = textureLod(uNoise, (wp + N.xy * 3.0) * 0.0105 + uCloudVel * uTime, 0.0).r;
@@ -1939,6 +1944,7 @@ void main(){
         float st = textureLod(uNoise, sp2, nLod(1.7)).b;
         foam += smoothstep(0.7, 0.88, st) * 0.3 * smoothstep(0.15, 0.6, fl) * (1.0 - depth * 0.4);
       }
+      if (abyss > 0.01) foam += abyss * smoothstep(0.8, 0.97, 0.5 + 0.25 * sin(sw1) + 0.25 * sin(sw2) + (fn - 0.5) * 0.5) * 0.45; // whitecaps on the swell crests
       vec3 foamCol = vec3(0.86, 0.91, 0.92) * (0.65 + 0.35 * uSunI);
       wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * 0.5);
       }

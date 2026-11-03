@@ -1,6 +1,6 @@
 // Terrain window contents of a tile rect (pure: runs on the main thread or in src/world/terrainWorker.js).
 // Input = the world layers over the rect + a margin of MD tiles, gathered by terrainWindow.js (gatherTerrain):
-//   { tw, th, x0, y0, DW, DH, u8: { rock, water, rock0, ground, rockType, ore, biome, caveDk, tramp, solid, inb },
+//   { tw, th, x0, y0, DW, DH, u8: { rock, water, rock0, ground, rockType, ore, biome, caveDk, tramp, solid, pground, zone, inb },
 //     f32: { lush, flowX, flowY }, coldLut }
 // (row-major DW × DH, origin at (x0 − MD, y0 − MD); `inb` = 1 inside the world, outside tiles hold the nearest edge
 // tile's values like the old clamped textures).
@@ -56,9 +56,10 @@ export function computeTerrain(inp) {
     let a = 0;
     for (let d = -CR; d <= CR; d++) a += ctmp[(ty + CR + d) * cw + tx + CR];
     const cv = Math.round(Math.min(1, a * kb) * 255), s = inside ? SO[j] : 0;
-    // B / A: the planet's own ground (world/planet/biomes.js: 10 volcanic ash / basalt, 8–9 permanent snow / ice)
-    const pg = u8.pground ? u8.pground[j] : 0;
-    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = pg === 10 ? 255 : 0; CL[o + 3] = pg === 8 || pg === 9 ? 255 : 0;
+    // B / A: the planet's own ground (world/planet/biomes.js: 10 volcanic ash / basalt, 8–9 permanent snow / ice); on
+    // water B = the abyssal ocean (zone layer bit 8: darker water, a long swell)
+    const pg = u8.pground ? u8.pground[j] : 0, abyss = wat[j] && u8.zone && u8.zone[j] & 8;
+    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = pg === 10 || abyss ? 255 : 0; CL[o + 3] = pg === 8 || pg === 9 ? 255 : 0;
     CO[ty * tw + tx] = cv; out.walls[ty * tw + tx] = s;
   }
   // ---- field (FR×): rock mask / massif height / water depth / wetness, blurred over the rect + MS

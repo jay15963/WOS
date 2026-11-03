@@ -35,7 +35,7 @@ async function mods() {
 export async function workerGenerator(init) {
   const m = await mods();
   const planet = init.planet || m.generatePlanet(init.seed);
-  return (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o);
+  return (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet);
 }
 
 export async function makePlanetSource(seed, opts = {}) {
@@ -51,7 +51,12 @@ export async function makePlanetSource(seed, opts = {}) {
     kind: 'planet', seed, wrap: true, bounds: null, zones: [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }], spawn,
     timings: { planet: Math.round(t1 - t0) },
     worker: { url: new URL('./chunkWorker.js', import.meta.url).href, init: { kind: 'planet', seed, planet: stripPlanet(planet) } },
-    chunk: (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o),
+    chunk: (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet),
+    // the climate of a point (game/seasons.js: local seasons, survival temperatures): the planet's annual mean °C at that
+    // place corrected by the lapse rate for its own height h (stories), the seasonal amplitude, the rain (mm / year), its
+    // season zone (0 tropical .. 4 polar) and the latitude (degrees, display only)
+    climateAt: (x, y, h = 0, out = {}) => climatePoint(m, planet, x, y, h, out),
+    planet, // (the macro planet: the map, tools)
     macro: () => {
       if (!m.renderMacro) return null;
       const rgba = m.renderMacro(planet, 'satellite');
@@ -82,8 +87,34 @@ function stripPlanet(p) {
   return o;
 }
 
+// climate of a point (see source.climateAt): macro climate + lapse rate for the point's own height (stories)
+const CO = {};
+export function climatePoint(m, planet, x, y, h, out) {
+  m.macroAt(planet, x, y, CO);
+  const T = CO.T - 0.0065 * (Math.max(0, m.storiesToMeters(h || 0)) - Math.max(0, CO.e));
+  out.T = T; out.tAmp = CO.tAmp; out.P = CO.P; out.zone = m.seasonZoneOf(T, CO.tAmp); out.lat = m.latitudeAt(y);
+  return out;
+}
+
+// season zone per tile (0 tropical .. 4 polar, world.js `zone` layer): the macro climate sampled per 4 × 4 block, the
+// lapse rate per tile from its own height (snowy peaks are polar anywhere); | 8 on the abyssal ocean
+function zonesOf(m, planet, p, cx, cy) {
+  const z = new Uint8Array(CT), Hc = p.height, N1 = CS + 1, X0 = cx * CS, Y0 = cy * CS;
+  for (let by = 0; by < CS; by += 4) for (let bx = 0; bx < CS; bx += 4) {
+    m.macroAt(planet, X0 + bx + 2, Y0 + by + 2, CO);
+    const T0 = CO.T, amp = CO.tAmp, e0 = Math.max(0, CO.e);
+    for (let y = by; y < by + 4; y++) for (let x = bx; x < bx + 4; x++) {
+      const l = y * CS + x;
+      const h = Hc ? (Hc[y * N1 + x] + Hc[y * N1 + x + 1] + Hc[(y + 1) * N1 + x] + Hc[(y + 1) * N1 + x + 1]) * 0.25 : 0;
+      const T = T0 - 0.0065 * (Math.max(0, m.storiesToMeters(h)) - e0);
+      z[l] = m.seasonZoneOf(T, amp) | (p.water[l] === 3 ? 8 : 0);
+    }
+  }
+  return z;
+}
+
 // the planet's chunk → the engine's ChunkData
-export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
+export function adaptChunk(m, p, cx, cy, { decor = true } = {}, planet = null) {
   const GC = m.GROUND_CLASSIC, RC = m.ROCK_CLASSIC, BL = m.BIOME_LIST;
   const rock = p.rock, water = new Uint8Array(CT), ground = new Uint8Array(CT), rockType = new Uint8Array(CT), biome = new Uint8Array(CT), lush = new Float32Array(CT);
   for (let l = 0; l < CT; l++) {
@@ -148,6 +179,7 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
     cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
     flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights, objects, decor: dec,
     wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground,
+    zone: planet ? zonesOf(m, planet, p, cx, cy) : null, pbiome: p.biome,
   };
 }
 
