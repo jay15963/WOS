@@ -78,7 +78,7 @@ function headQ(spec, view) {
     const px = (Hd.spread || []).includes(i) && lf && ls ? spreadLayer(F, lf.px, ls.px, view) : projectLayer(F, lf ? lf.px : null, ls ? ls.px : null, X, Z, view, false);
     const c = canvas(F.cw, F.ch);
     c.getContext('2d').putImageData(new ImageData(px, F.cw, F.ch), 0, 0);
-    layers.push({ c, ow: L.ow, col: L.col, opacity: L.opacity });
+    layers.push({ c, ow: L.ow, col: L.col, opacity: L.opacity, spread: (Hd.spread || []).includes(i) });
   }
   return { layers, hx };
 }
@@ -96,7 +96,9 @@ export function beast34(spec, view) {
   const body = cached ? null : rec(spec.body), top = cached ? null : rec(spec.top), tail = cached ? null : rec(spec.tail);
   // the head: turned from its face-on and side drawings coming toward the camera; going away (the face hidden) the
   // side drawing, swept across the head's width like the body (the back of the head, the near ear and cheek)
-  const head = !cached && spec.head && cg >= 0 ? headQ(spec, view) : null;
+  // (going away, antlers still spread from the back drawing: they stand out of the head on both sides)
+  const spreadN = spec.head && spec.head.spread && spec.head.spread.length;
+  const head = !cached && spec.head && (cg >= 0 || spreadN) ? headQ(spec, view) : null;
   const headS = !cached && spec.head && cg < 0 ? rec((P) => spec.head.side(P, 0)) : null;
   // side design (x, y) → 3/4 box, for a part at sideways offset X (+ = its left: the far flank)
   const T = (X) => [sg, cg * k, 0, 1, W / 2 + X * cg - cx * sg, m - X * sg * k - cx * cg * k];
@@ -130,14 +132,15 @@ export function beast34(spec, view) {
     head: (P) => {
       if (headS) {
         const hw = spec.hw ?? 5, n = Math.max(3, Math.ceil((2 * hw) / 0.8) + 1);
-        for (const L of headS.layers) {
+        for (const [i, L] of headS.layers.entries()) {
+          if (spreadN && spec.head.spread.includes(i)) continue;
           const dark = tint(L.c, 0.18);
           P.layer((lg) => { for (let i = 0; i < n; i++) { const X = hw * (1 - (2 * i) / (n - 1)); draw(lg, X > 0.01 ? dark : L.c, T(X)); } }, L.ow, L.col, L.opacity);
         }
       }
       if (!head) return;
       const z = head.hx - cx, M = [1, 0, 0, 1, z * sg, m + z * cg * k];
-      for (const L of head.layers) P.layer((lg) => draw(lg, L.c, M), L.ow, L.col, L.opacity);
+      for (const L of head.layers) if (!headS || L.spread) P.layer((lg) => draw(lg, L.c, M), L.ow, L.col, L.opacity);
     },
   };
   if (skey && !cached) {
