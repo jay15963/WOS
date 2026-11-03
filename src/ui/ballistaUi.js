@@ -162,10 +162,11 @@ export function installBallistaUi(game) {
           const tx = Math.floor(mx + ux * d), ty = Math.floor(my + uy * d);
           if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || w.solid[ty * w.W + tx]) { end = d; break; }
         }
-        const sx = Math.max(0.12, 7 * px) / dot.w, sy = Math.max(0.06, 3 * px) / dot.h, rot = Math.atan2(...g.toViewDir(ux, uy).reverse());
+        const sx = Math.max(0.34, 17 * px) / dot.w, sy = Math.max(0.13, 6 * px) / dot.h, rot = Math.atan2(...g.toViewDir(ux, uy).reverse());
         const ph = (g.time * 2.2) % 1;
-        for (let k = ph * 0.9; k < end; k += 0.9) {
-          const f = Math.min(1, k / 3) * (1 - Math.max(0, (k - end + 2) / 2) * 0.6);
+        for (let k = ph * 0.75; k < end; k += 0.75) {
+          const f = Math.min(1, 0.35 + k / 3) * (1 - Math.max(0, (k - end + 2) / 2) * 0.6);
+          B.fx.add(dot, mx + ux * k, my + uy * k, sx * 1.35, sy * 1.6, 0.1, 0.07, 0.03, alpha * f * 0.45, 0, rot, 0, 1, 0, BALLISTA.h0); // (dark halo: reads on snow)
           B.fx.add(dot, mx + ux * k, my + uy * k, sx, sy, col[0], col[1], col[2], alpha * f, 0, rot, 0, 1, 0, BALLISTA.h0);
         }
         return [mx + ux * end, my + uy * end, end < BALLISTA.range];

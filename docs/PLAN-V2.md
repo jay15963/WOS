@@ -574,3 +574,75 @@ it — like a compass/radar): "esse design combina muito com o jogo".
 
 - Faces calculadas (docs/CAMERA-ROTATION.md): botão do meio do mouse / dois dedos como volante; bússola no radar
   volta ao norte; paredes e portas como caixas de faces; telhados somem enquanto girada (lacuna conhecida).
+
+## Gigantes de gelo e balista (added later)
+
+Owner's request: ice giants that come in very few the first winter and more every winter after, break structures fast,
+throw ice rocks (small damage, a walker's hit) and smash slowly and very hard (a chance to dodge); and a ballista made
+with steel, with its own iron bolts, a 3D piece that turns, absurd damage (two bolts kill a giant), controlled with the
+mouse on desktop (it follows the pointer slowly) and with the attack button as a long-shot stick on phones. Giants can
+also be killed with normal weapons, much more slowly.
+
+- **Gigante de Gelo** (`SPECIES.giant`, kind 'pawn', faction 'walker'; game/giants.js, host): walks with the winter
+  walkers — the same nights, the same brain to find the living / lights and to break into rooms (walkers.js
+  walkerBrain), crumbles at sunrise like them, red on the radar / map, sees 18 tiles. Creative worlds: like the walkers
+  there (no hunting, no breaking, no light).
+  - Numbers: life 380 × (1 + 0.25 (L − 1)) × 1.1 (elite), level ≥ 4 (L4 732, L6 941, L8 1150); armour 12; speed 2.7
+    tiles/s (walkers 3.7, a player 4); body radius 0.42 (fits a 1-tile gap); knockback × 0.15; stuns last half (elite).
+  - **Esmagar** (in reach, 1.7 tiles): the club rises over 0.7 s and is held high, quivering — 1.15 s of wind-up with a
+    cast bar and a danger circle on the ground (radius 1.25, where it will land, up to 1.45 tiles in front; op
+    `giant.tele`, fx/giantfx.js) — then the blow lands on that spot: 40 × (1 + 0.16 (L − 1)) ± 10 % (L4 ≈ 59, L6 ≈ 72;
+    6 % crits × 1.4), armour applies. Step out of the circle to dodge; a stun / shield bash during the wind-up cancels it.
+    One smash every ≥ 3 s + the wind-up.
+  - **Arremessar** (in sight, 4.5–15 tiles, every 7–10 s): it lifts an ice rock (0.85 s) and lobs it where the player
+    will be (55 % lead, ≤ 0.45 tile scatter): flight 0.55 + 0.055 s per tile, apex 0.8 + 0.12 tiles, a landing ring that
+    tightens as it falls (op `giant.rock`: the same flight on every peer, projectiles.js `LOB_KINDS.ice_rock`). Hits
+    whoever is within 1 tile of the landing point: a walker's hit at the giant's level, 6 × (1 + 0.16 (L − 1)) × 1.06
+    ± 15 % (L4 ≈ 9). Moving dodges it.
+  - **Walls**: SIEGE_MUL = 8 × a walker's pace — a stone wall ~44 s for one giant (a walker: 350 s), wood ~13 s (105 s).
+  - **Spawning** (giantsTick, from walkersTick on winter nights; k = the winter, 0 = the first): at most
+    1 + ⌊k / 2⌋ giants around a player (max 4: winters 1–2 one, 3–4 two, 5–6 three); a spawn try every (150–210 s) /
+    (1 + 0.3 k) (≥ 55 s), each succeeding 50 % + 15 % per winter (≤ 95 %); the first try 40–100 s into the night;
+    26–36 tiles from a player, out of every view, away from lights, roofs and caves. With the short year (3 winter days)
+    that is about 0–2 giants a night in the first winter; longer years have more winter nights (calendar.js).
+  - Killed: XP (× 7), it shatters (no body) and leaves a little metal frozen in it: 70 % 1–2 iron bars, 30 % a steel bar.
+  - With normal weapons: a level-10 player with a steel sword (~30 damage per second against its armour) needs ~30 s on
+    a level-6 giant (941 life); a level-5 player with an iron sword ~40 s on a level-4 one — while dodging the smashes.
+  - Art: the humanoid rig drawn 1.8× around its ground point with a 1.3× longer, broader body (art/compose.js PAWN_OV
+    `scale` / `hk` / `bx`), a fixed look (glacier-blue skin, frosted beard, bare feet) and lazily painted overlays in
+    art/giant.js — glacier-ice carapace with icicles and a fur flap, ice crags on the shoulders, a brow ridge of ice and
+    tusks, a crown of ice crystals, glowing eyes — all repainted in 3/4 by art/look/turn.js (8 views). Its club
+    (`held_club_ice`) and the rock in its hand (`held_rock_ice`) are baked with the gear. Footsteps thud and shake the
+    camera nearby, the smash bursts into ice and snow, it shatters like a walker but bigger (fx/giantfx.js,
+    fx/walkerfx.js). Sounds: giant_step / roar / smash / hurt / death, ice_rock_land (fx/sfxSiege.js).
+- **Balista** (building `ballista`, build menu "Defesa": 4 steel bars, 10 wood, 3 rope, 10 s; game/ballista.js,
+  mut/ballista.js): a real 3D piece (art/faces/solidDefense.js, its own face art): a cross of heavy beams, an iron
+  turntable and a post stay; the top — yoke, stock, the front frame with two rope skeins, swept-back arms, the string
+  pulled to the claw, the windlass, the bolt on the rail — turns about the post to its aim at every camera angle (solid
+  kit `spin` parts). After a shot the bolt is gone and the string hangs straight until reloaded (`vis` parts).
+  - Ammo: **Flecha de balista** (`ballista_bolt`, anvil: 1 iron bar + 2 wood → 2, stack 20), taken from the operator's
+    backpack, one per shot (refunded when the host refuses the shot). No ammo slot on the ballista: whoever operates it
+    brings the bolts.
+  - Getting on: the use button / E next to it ("Operar"), or a tap / click on it; one operator at a time (the host
+    refuses a second: "Já tem alguém operando esta balista"). On it the player stands behind it (0.98 tiles behind the
+    post) and only turns it; abilities are off. Getting off: E / the use button, which says **Sair** (on phones it
+    takes the use button's place). The host takes off an operator that left, died or is > 4 tiles away.
+  - Desktop: the top turns smoothly and slowly toward the mouse pointer (0.95 rad/s ≈ 54°/s, eased in the last ~16°);
+    the attack key / button or a left click fires along where it points now; the camera leans along the aim.
+  - Phones: the attack button works like the long shot: press and drag = a stick that sets where it should point (it
+    still turns slowly), release = it fires as soon as it lines up (≤ 2.5 s), back to the centre or onto "Cancelar" =
+    no shot, a quick tap = straight ahead. The attack button shows the bolt, the bolts left and the reload ring; the
+    ability buttons hide while on it.
+  - The bolt: 30 tiles/s, 34 tiles, a heavy shaft with a streak and a shadow; it pierces every creature in its way (each
+    once) and stops in the first ice giant, a wall / door or rock (trunks and loose rocks do not stop it); damage
+    ignores armour: a giant loses 55 % of its life per bolt (two bolts kill it), anything else at least 600 and its whole
+    life (one bolt); never players. Reload 3 s (the host refuses earlier shots). XP goes to the operator.
+  - Sync: shared fields `o.user` (operator pid) and `o.aim` (world angle), set by op `ballista.set`; the operator's
+    client turns the top and reports the angle (intent `ballista.aim`, ≤ 8 a second while turning), everyone else eases
+    the drawn angle (`o._aimD`) toward it; a shot is intent `ballista.fire` → op `ballista.shot` (every peer flies the
+    same bolt, the host's copy resolves the hits) → op `ballista.end` (where it stopped). Snapshot / save: `ball` rows
+    `[id, aim, user]` (a save drops the operator).
+- Scenarios: **IG1** (a giant replicated, breaks a stone wall 8× faster than a walker, on both), **IG2** (smash
+  telegraph → heavy hit, dodged by stepping out; the thrown rock: small damage), **BA1** (mount, slow turn seen by the
+  host, 2 bolts kill a giant on both, reload refused + refunded, XP to the guest), **BA2** (one operator, leaving, aim in
+  the snapshot, the host takes a gone operator off).

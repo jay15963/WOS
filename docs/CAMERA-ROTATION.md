@@ -484,6 +484,18 @@ um texel da arte (`px`).
   inclinado tem o lado de fora para cima (vertical: para a vista de 0°); até 45° é um topo (visto de todo lado: a câmera
   olha de cima a 45°), mais íngreme é visto enquanto `v > −1` (normal × tan da inclinação).
 
+### Defesa (`art/faces/solidDefense.js`): a balista
+
+- Feita só de caixas e fitas com **arte própria das faces** (`uv`, `ballista_uv`, como o baú): a base (cruz de vigas,
+  pés de ferro, prato giratório, poste) fica; o topo (garfo, coronha, quadro com as duas meadas de corda, braços
+  recurvados, a corda puxada até a garra, o sarilho e a flecha no trilho) **gira em volta do poste** para a mira.
+- **O kit ganhou** (genérico, em `solid.js`): partes `spin: true` giram num eixo vertical em `spinAt` [x, v, h] para o
+  ângulo do mundo `spin(o, t)` (vértices, normais — visibilidade e luz — e a ordem das partes giram juntos; sem sombra do
+  sol própria: a balista põe uma sombra suave sob os braços pelo `fx`); partes com `vis(o, t)` falso somem naquele quadro
+  (depois do disparo: sem flecha no trilho, corda reta até recarregar).
+- O ângulo desenhado é `o._aimD` (game/ballista.js: quem opera vê o próprio na hora; os outros, suavizado até o ângulo
+  compartilhado `o.aim`).
+
 ### Andaime de obra em 3D (`art/faces/scaffold.js`)
 
 Com a câmera girada o andaime (`scaffold_0`) de **qualquer** peça em construção (paredes, portas, cercas, portões,
