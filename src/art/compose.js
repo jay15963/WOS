@@ -44,7 +44,7 @@ import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
 import { lookAtlasOf } from './look/lazy.js';
-import { diagRig, diagReady, diagPart, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND } from './look/turn.js'; // camera rotation: 3/4 views
+import { diagRig, diagReady, diagPart, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
 import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
@@ -309,24 +309,24 @@ function drawTorsoD(B, T, LK, D, armor, x, y, sx, sy, rot, fl, mir, lift, al, le
   sx *= LK.sx; sy *= LK.sy * LK.hk;
   stack(B, D.body, x, y, sx, sy, rot, fl, mir, lift, al, WK, WK, WB, !legsOn);
   const pd = TURN_VIEW[D.view].pd;
-  const wb = armor && wear(T, armor.body, pd) ? diagPart(T.A, `wear_${armor.body}_${pd}`, D.view, 'body') : null;
+  const wb = armor && wear(T, armor.body, pd) ? diagPart(T.A, `wear_${armor.body}_${pd}`, D.view) : null;
   if (wb) B.main.add(wb, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, mir, 0, lift);
 }
 function drawHeadD(B, T, L, LK, D, armor, mir, x, y, l, r, fl, al, shut, hairR, hairL) {
   const A = T.A, v = D.view, pd = TURN_VIEW[v].pd, sk = LK.skin, hat = Array.isArray(L.hatColor) ? L.hatColor : HAT_COL;
   const whN = armor && wear(T, armor.head, pd) ? `wear_${armor.head}_${pd}` : null;
-  const wh = whN ? diagPart(A, whN, v, 'head') : null;
+  const wh = whN ? diagPart(A, whN, v) : null;
   stack(B, D.head, x, y, 1, 1, r, fl, mir, l, al);
   if (shut && D.lids && D.lids.ready) { D.lids.lu = LOOK_CLOCK.f; B.main.add(D.lids, x, y, 1, 1, sk[0], sk[1], sk[2], al, 0, r, fl, mir, 0, l); }
   const fN = LK.legacyFace && v === 'se' && T.face[L.face] ? T.face[L.face].s : null;
-  const fs = fN ? diagPart(A, fN.name, v, 'head') : null;
+  const fs = fN ? diagPart(A, fN.name, v) : null;
   if (fs && L.face !== 'mask') B.main.add(fs, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, mir, 0, l);
   if (!(whN && armor.head === 'helmet_iron')) stack(B, D.brows, x, y, 1, 1, r, fl, mir, l, al);
   stack(B, D.beard, x, y, 1, 1, r, fl, mir, l, al);
   if (fs && L.face === 'mask') B.main.add(fs, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, mir, 0, l);
   const hides = whN ? WEAR_HIDES_HAIR[armor.head] : L.hat === 'bandana' ? 'tall' : null;
   if (D.hair.length && !(hides === true || (hides === 'tall' && LK.tall))) stack(B, D.hair, x, y, 1, 1, hairR, fl, mir, hairL, al);
-  const bandana = L.hat === 'bandana' && !whN && T.hat[pd] ? diagPart(A, T.hat[pd].name, v, 'head') : null;
+  const bandana = L.hat === 'bandana' && !whN && T.hat[pd] ? diagPart(A, T.hat[pd].name, v) : null;
   if (bandana) B.main.add(bandana, x, y, 1, 1, hat[0], hat[1], hat[2], al, 0, r, fl, mir, 0, l);
   if (wh) B.main.add(wh, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, mir, 0, l);
 }
@@ -334,14 +334,14 @@ function drawHeadD(B, T, L, LK, D, armor, mir, x, y, l, r, fl, al, shut, hairR, 
 function diagExtras(T, L, LK, armor, walker, v, urgent) {
   const A = T.A, pd = TURN_VIEW[v].pd;
   let ok = true;
-  const want = (name, kind) => { if (name && !diagPart(A, name, v, kind, urgent)) ok = false; };
+  const want = (name) => { if (name && !diagPart(A, name, v, urgent)) ok = false; };
   if (armor) {
-    if (wear(T, armor.body, pd)) want(`wear_${armor.body}_${pd}`, 'body');
-    if (wear(T, armor.head, pd)) want(`wear_${armor.head}_${pd}`, 'head');
+    if (wear(T, armor.body, pd)) want(`wear_${armor.body}_${pd}`);
+    if (wear(T, armor.head, pd)) want(`wear_${armor.head}_${pd}`);
   }
-  if (L.hat === 'bandana' && T.hat[pd]) want(T.hat[pd].name, 'head');
-  if (LK.legacyFace && v === 'se' && T.face[L.face]?.s) want(T.face[L.face].s.name, 'head');
-  if (walker) { want('wk_armor_' + pd, 'body'); want('wk_ice_' + pd, 'body'); if (v === 'se') want('wk_face_s', 'head'); }
+  if (L.hat === 'bandana' && T.hat[pd]) want(T.hat[pd].name);
+  if (LK.legacyFace && v === 'se' && T.face[L.face]?.s) want(T.face[L.face].s.name);
+  if (walker) { want('wk_armor_' + pd); want('wk_ice_' + pd); if (v === 'se') want('wk_face_s'); }
   return ok;
 }
 // a 3/4 pose from the front / back pose P and the side pose E (both unflipped): sideways offsets keep most of
@@ -353,7 +353,14 @@ function vecBlend(rP, lP, rE, lE) {
   const xs = KXP * Math.sin(rP) * lP + KXE * Math.sin(rE) * lE, u = (Math.cos(rP) * lP + Math.cos(rE) * lE) / 2;
   VA = Math.atan2(xs, u); VL = Math.hypot(xs, u);
 }
-function blendPose(Q, P, E, mir) {
+// a hand / held item of the 3/4 pose: behind the body when it is on the far side and not forward enough (its depth
+// toward the camera from the front / back pose's sideways offset and the side pose's forward one); a far hand that
+// would hide wholly behind the torso peeks out at its edge (where the 3/4 art folds the far arm)
+function behind3(view, pB, eB, lat, fwd) {
+  const g = TURN_G[view], z = -lat * Math.sin(g) + fwd * Math.cos(g);
+  return z < -0.06 || (pB && eB && z < 0.06);
+}
+function blendPose(Q, P, E, mir, view = 'se') {
   Object.assign(Q, P);
   const bx = P.bx0, by = P.by0;
   const X = (a, b) => bx + mir * (KXP * (a - bx) + KXE * (b - bx));
@@ -370,6 +377,14 @@ function blendPose(Q, P, E, mir) {
   Q.oRot = mir * VA; Q.oSc = (P.oSc + E.oSc) / 2; Q.oSy = Q.oSc * Math.min(1.1, Math.max(0.55, VL)); Q.oFlip = mir;
   Q.hx1 = X(P.hx1, E.hx1); Q.h1dy = KYP * P.h1dy + KYE * E.h1dy; Q.h1l = (P.h1l + E.h1l) / 2; Q.hs1 = (P.hs1 + E.hs1) / 2;
   Q.hx2 = X(P.hx2, E.hx2); Q.h2dy = KYP * P.h2dy + KYE * E.h2dy; Q.h2l = (P.h2l + E.h2l) / 2; Q.hs2 = (P.hs2 + E.hs2) / 2;
+  // which hands / items are behind the body (sideways: + = its left; the back pose sees it mirrored)
+  const sl = view === 'ne' ? -1 : 1;
+  Q.h1b = behind3(view, P.h1b, E.h1b, sl * (P.hx1 - P.x), E.hx1 - E.x);
+  Q.h2b = behind3(view, P.h2b, E.h2b, sl * (P.hx2 - P.x), E.hx2 - E.x);
+  if (Q.h1b && P.h1 && !P.h1b) { const d = Q.hx1 - Q.x; if (Math.abs(d) < 0.27) Q.hx1 = Q.x + (d < 0 ? -0.27 : 0.27); }
+  if (Q.h2b && P.h2 && !P.h2b) { const d = Q.hx2 - Q.x; if (Math.abs(d) < 0.27) Q.hx2 = Q.x + (d < 0 ? -0.27 : 0.27); }
+  if (P.showO && P.osp) Q.oBehind = behind3(view, P.oBehind, E.oBehind, sl * (P.ox2 - P.x), E.ox2 - E.x);
+  if (P.showW && P.wsp) Q.wBehind = behind3(view, P.wBehind, E.wBehind, sl * (P.wx - P.x), E.wx - E.x);
   if (Q.twoHand) { const L2 = 0.13 * Q.wSy; Q.tgx = Q.wx + Math.sin(Q.wRot) * L2; Q.tgl = Q.wl + Math.cos(Q.wRot) * L2; }
   return Q;
 }
@@ -397,20 +412,20 @@ function wkSprite(A, name) {
 // hide-and-scale armour with ice on the shoulders, over the look's body (same box / anchor as wear_*)
 // (sd: a view, or a 3/4 rig D: the overlay turned the same way)
 function walkerTorso(B, A, part, sd, x, y, sx, sy, rot, fl, flip, lift, al) {
-  const s = typeof sd === 'object' ? diagPart(A, part + TURN_VIEW[sd.view].pd, sd.view, 'body') : wkSprite(A, part + sd);
+  const s = typeof sd === 'object' ? diagPart(A, part + TURN_VIEW[sd.view].pd, sd.view) : wkSprite(A, part + sd);
   if (s) B.main.add(s, x, y, sx, sy, 1, 1, 1, al, 0, rot, fl, flip, 0, lift);
 }
 // face frost + the cold eye glow (emissive: it shines in the dark)
 function walkerHead(B, T, A, d, flip, x, y, l, r, fl, al, t, ph0) {
   const dv = typeof d === 'object' ? d.view : null; // 3/4 head (camera rotation)
   if (dv) d = dv === 'se' ? 's' : 'n';
-  const s = d === 'n' ? null : dv ? diagPart(A, 'wk_face_s', dv, 'head') : wkSprite(A, 'wk_face_' + d);
+  const s = d === 'n' ? null : dv ? diagPart(A, 'wk_face_s', dv) : wkSprite(A, 'wk_face_' + d);
   if (s) B.main.add(s, x, y, 1, 1, 1, 1, 1, al, 0, r, fl, flip, 0, l);
   if (d === 'n' || !T.soft) return;
   const pulse = 0.85 + 0.15 * Math.sin(t * 2.3 + ph0);
   const cs = Math.cos(r), sn = Math.sin(r);
   for (const [ex0, el] of WALKER_EYES[d]) {
-    const ex = dv ? turnX(ex0, el, dv, 'head') : ex0;
+    const ex = dv ? turnX(ex0, el, dv) : ex0;
     const dx = ex * flip, gx = x + dx * cs + el * sn, gl = l + el * cs - dx * sn;
     B.emissive.add(T.soft, gx, y + 0.001, 0.2 / T.soft.w, 0.13 / T.soft.h, 0.35, 0.85, 1, 0.55 * pulse * al, 0, 0, 0, 1, 0, gl);
     if (T.spark) B.emissive.add(T.spark, gx, y + 0.002, 0.075 / T.spark.w, 0.055 / T.spark.h, 0.75, 1, 1, 0.95 * al, 0, 0, 0, 1, 0, gl);
@@ -523,7 +538,7 @@ export function drawPawn(B, A, p, t) {
   const C = PIN;
   C.p = p; C.t = t; C.T = T; C.LK = LK; C.M = M; C.O = O; C.act = act; C.k = k; C.pose = pose; C.sit = sit; C.seat = seat; C.ph0 = ph0; C.fl = fl;
   const pd = D ? TURN_VIEW[D.view].pd : sd;
-  const Q = D ? blendPose(QC, rigPose(QP, C, pd, 1), rigPose(QE, C, 'e', 1), mir) : rigPose(QC, C, sd, flip);
+  const Q = D ? blendPose(QC, rigPose(QP, C, pd, 1), rigPose(QE, C, 'e', 1), mir, D.view) : rigPose(QC, C, sd, flip);
   pose = Q.pose;
   const { x, y, bx0, by0, lift, bl, sx, sy, rot, al, swim, stroke, hx, hl, hr, hairR, hairL, f1, f1l, f2, f2l, feetFront } = Q;
   const { showW, wsp, wType, wx, wy, wl, wSx, wSy, wRot, wFlip, wBehind, ghost, grip, twoHand, tgx, tgl } = Q;
@@ -542,7 +557,7 @@ export function drawPawn(B, A, p, t) {
   // fill the rig scratch (module-level helpers below draw feet / weapon / off-hand item from it)
   R.B = B; R.T = T; R.x = x; R.y = y; R.sd = D ? 'd' : sd; R.flip = flip; R.pd = pd; R.mir = mir; R.al = al; R.fl = fl; R.k = k; R.pose = pose;
   R.feetFront = feetFront; R.seat = !!seat; R.f1 = f1; R.f1l = f1l; R.f2 = f2; R.f2l = f2l;
-  R.ft = LK.feet[D ? 'e' : sd]; R.fr = LK.footTint[0]; R.fg = LK.footTint[1]; R.fb = LK.footTint[2]; R.pr = pc[0] * WK; R.pg = pc[1] * WK; R.pb = pc[2] * WB;
+  R.ft = D ? (D.foot && D.foot.ready ? D.foot : LK.feet.e) : LK.feet[sd]; R.ftq = D && R.ft === D.foot ? 1 : 0.85; R.fr = LK.footTint[0]; R.fg = LK.footTint[1]; R.fb = LK.footTint[2]; R.pr = pc[0] * WK; R.pg = pc[1] * WK; R.pb = pc[2] * WB;
   R.wsp = wsp; R.wx = wx; R.wy = wy; R.wl = wl; R.wSx = wSx; R.wSy = wSy; R.wRot = wRot; R.wFlip = wFlip; R.ghost = ghost;
   R.wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back to the hand (src/ui/aim.js)
   R.grip = grip; R.twoHand = twoHand; R.tgx = tgx; R.tgl = tgl; R.sr = r1; R.sg = g1; R.sb = b1;
@@ -1112,7 +1127,7 @@ function rigPose(Q, C, sd, flip) {
 // ---------- rig helpers (read the scratch filled by drawPawn; no per-frame allocation) ----------
 const R = {
   B: null, T: null, x: 0, y: 0, sd: 's', flip: 1, al: 1, fl: 0, k: 0, pose: null,
-  feetFront: false, seat: false, f1: 0, f1l: 0, f2: 0, f2l: 0, ft: null, fr: 0, fg: 0, fb: 0, pr: 0, pg: 0, pb: 0,
+  feetFront: false, seat: false, f1: 0, f1l: 0, f2: 0, f2l: 0, ft: null, ftq: 1, fr: 0, fg: 0, fb: 0, pr: 0, pg: 0, pb: 0,
   wsp: null, wx: 0, wy: 0, wl: 0, wSx: 1, wSy: 1, wRot: 0, wFlip: 1, ghost: 0, grip: false, twoHand: false, tgx: 0, tgl: 0, sr: 1, sg: 1, sb: 1,
   osp: null, ox: 0, oy: 0, ol: 0, oSc: 1, oSy: 1, oRot: 0, oFlip: 1, offGrip: false, food: null,
   pd: 's', mir: 1, // 3/4 view (sd 'd'): the front / back pose it blends with the side one, mirrored for sw / nw
@@ -1121,6 +1136,7 @@ const R = {
 function rigFeet(front) {
   const ft = R.ft || R.T.foot[R.sd === 'd' ? 'e' : R.sd];
   const { B, x, y, sd, flip, al, fl, fr, fg, fb } = R;
+  if (ft && ft.lu !== undefined) ft.lu = LOOK_CLOCK.f; // (lazy look texture: still in use)
   if (!ft || front !== (R.feetFront && sd !== 'n' && !(sd === 'd' && R.pd === 'n'))) return;
   if (R.feetFront) {
     const fz = R.seat ? 0.02 : 0;
@@ -1148,8 +1164,8 @@ function rigFeet(front) {
   if (sd === 'd') {
     // 3/4 view: the side boots (toes toward the facing side), feet apart sideways, striding along the diagonal
     const m = R.mir, sg = R.pd === 's' ? -1 : 1, fy = R.pd === 's' ? 0.35 : -0.35;
-    B.main.add(ft, x + m * (KXP * -sg * 0.125 + KXE * (R.f2 * 1.5 - 0.025)), y + KYP * R.f2 * fy - 0.005, 0.85, 1, fr * 0.82, fg * 0.82, fb * 0.82, al, 0, -m * R.f2l * 2.5, fl, m, 0, R.f2l * 1.15);
-    B.main.add(ft, x + m * (KXP * sg * 0.125 + KXE * (R.f1 * 1.5 + 0.025)), y + KYP * R.f1 * fy, 0.85, 1, fr, fg, fb, al, 0, -m * R.f1l * 2.5, fl, m, 0, R.f1l * 1.15);
+    B.main.add(ft, x + m * (KXP * -sg * 0.125 + KXE * (R.f2 * 1.5 - 0.025)), y + KYP * R.f2 * fy - 0.005, R.ftq, 1, fr * 0.82, fg * 0.82, fb * 0.82, al, 0, -m * R.f2l * 2.5, fl, m, 0, R.f2l * 1.15);
+    B.main.add(ft, x + m * (KXP * sg * 0.125 + KXE * (R.f1 * 1.5 + 0.025)), y + KYP * R.f1 * fy, R.ftq, 1, fr, fg, fb, al, 0, -m * R.f1l * 2.5, fl, m, 0, R.f1l * 1.15);
   } else if (sd === 'e') {
     // side view: longer visible stride; the swinging boot tips up a little
     B.main.add(ft, x + flip * (R.f2 * 1.5 - 0.025), y - 0.005, 1, 1, fr * 0.78, fg * 0.78, fb * 0.78, al, 0, -flip * R.f2l * 2.5, fl, flip, 0, R.f2l * 1.3);

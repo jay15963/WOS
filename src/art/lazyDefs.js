@@ -12,5 +12,9 @@ export function lazyDef(name, canvas, ax = 0.5, ay = 1) {
   const m = /^(.*)_(\d+)$/.exec(name);
   if (m) LAZY_GROUPS.set(m[1], Math.max(LAZY_GROUPS.get(m[1]) || 0, +m[2] + 1));
 }
+// painter-level definitions { W, H, ax, ay, pad, paint(P) } of baked / lazy parts outside the look (armour, bandana,
+// legacy masks, winter-walker overlays): the camera rotation repaints them in 3/4 (art/look/turn.js)
+export const PAINT_DEFS = new Map();
+export function paintDef(name, def) { PAINT_DEFS.set(name, def); }
 // does a kind have lazy art (exact, _0, _h or a group)?
 export const lazyKind = (k) => LAZY_DEFS.has(k) || LAZY_DEFS.has(k + '_0') || LAZY_DEFS.has(k + '_h') || LAZY_GROUPS.has(k);

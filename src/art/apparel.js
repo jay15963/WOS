@@ -8,6 +8,7 @@
 import { spritePxFast as spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
 import { BW, BH, FEET, HW, HH, NECK, HX, HY, bodyPath } from './pawns.js';
 import { spline, rrect } from './kit.js';
+import { paintDef } from './lazyDefs.js';
 
 const A = (c, a) => rgb(hex(c), a);
 const DIRS = ['s', 'n', 'e'];
@@ -478,6 +479,17 @@ HEAD.hat_fur = function hatFur(g, d, rand) {
 };
 
 export const WEAR = { body: BODY, head: HEAD };
+
+// painter-level defs of the same parts (camera rotation: art/look/turn.js repaints them in 3/4)
+const pdef = (W, H, ay, ow, fn) => ({ W, H, ax: 0.5, ay, pad: 10, paint: (P) => P.layer(fn, ow) });
+for (const id in BODY) for (const d of DIRS) paintDef(`wear_${id}_${d}`, pdef(BW, BH, FEET / BH, 2.2, (g) => BODY[id](g, d, rng(id.length * 31 + d.charCodeAt(0)))));
+for (const id in HEAD) for (const d of DIRS) paintDef(`wear_${id}_${d}`, pdef(HW, HH, NECK / HH, 2.6, (g) => HEAD[id](g, d, rng(id.length * 37 + d.charCodeAt(0)))));
+for (const d of DIRS) paintDef('hat_bandana_' + d, pdef(HW, HH, NECK / HH, 2.4, (g) => bandana(g, d)));
+for (const d of ['s', 'e']) {
+  paintDef('face_mask_' + d, pdef(HW, HH, NECK / HH, 2, (g) => faceMask(g, d)));
+  paintDef('face_scar_' + d, pdef(HW, HH, NECK / HH, 0, (g) => scar(g, d)));
+  paintDef('face_eyepatch_' + d, pdef(HW, HH, NECK / HH, 0.8, (g) => eyepatch(g, d)));
+}
 
 export function addApparel(add) {
   for (const id in BODY) for (const d of DIRS) {

@@ -9,7 +9,7 @@
 
 import { spritePxFast as spritePx, rng, TAU, lin, circle, rgb, hex } from './paint.js';
 import { BW, BH, FEET, HW, HH, NECK, HX, HY, bodyPath } from './pawns.js';
-import { lazyDef } from './lazyDefs.js';
+import { lazyDef, paintDef } from './lazyDefs.js';
 
 const A = (c, a) => rgb(hex(c), a);
 const DIRS = ['s', 'n', 'e'];
@@ -155,3 +155,9 @@ for (const d of DIRS) {
   lazyDef('wk_ice_' + d, () => { const r = rand(); return spritePx(BW, BH, (g, P) => P.layer((g) => walkerIce(g, d, r), 2.2, '#0b0d11')); }, 0.5, FEET / BH);
 }
 for (const d of ['s', 'e']) lazyDef('wk_face_' + d, () => spritePx(HW, HH, (g, P) => P.layer((g) => walkerFace(g, d), 0)), 0.5, NECK / HH);
+// painter-level defs (camera rotation: art/look/turn.js repaints them in 3/4)
+for (const d of DIRS) {
+  paintDef('wk_armor_' + d, { W: BW, H: BH, ax: 0.5, ay: FEET / BH, pad: 10, paint: (P) => P.layer((g) => walkerArmor(g, d, rng(911 + d.charCodeAt(0))), 2.8, '#0b0d11') });
+  paintDef('wk_ice_' + d, { W: BW, H: BH, ax: 0.5, ay: FEET / BH, pad: 10, paint: (P) => P.layer((g) => walkerIce(g, d, rng(911 + d.charCodeAt(0))), 2.2, '#0b0d11') });
+}
+for (const d of ['s', 'e']) paintDef('wk_face_' + d, { W: HW, H: HH, ax: 0.5, ay: NECK / HH, pad: 10, paint: (P) => P.layer((g) => walkerFace(g, d), 0) });
