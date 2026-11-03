@@ -1,6 +1,5 @@
 // Planet biomes, ground ids and the natural object kinds per biome (docs/PLANET.md §5).
-// The content phase paints the placeholder kinds listed in NEW_KINDS; the in-game preview maps them onto
-// existing art (ingame.js).
+// The kinds listed in NEW_KINDS have their own art (src/art/planetFlora.js) and play as classic kinds (flora.js).
 
 import { G } from '../worldgen.js';
 

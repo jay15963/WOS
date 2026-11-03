@@ -13,6 +13,12 @@
 import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
 export const SEASON = { snow: 0, ice: 0, autumn: 0, bloom: 0, bare: 0, winter: 0, wane: 0 };
+// Seasons by place (the planet: tropics without winter, polar lands with a long one). SEASON above is the one global
+// clock; a per-position source plugs in here: winterAt(x, y) → 0..1 how much winter there is at that world point
+// (null = not known yet). Until it exists the planet's tropical flora (art/planetFlora.js `tropical`) is drawn without
+// winter (no snow, no drying) — it only grows where there is none.
+// TODO(latitude seasons): set SEASON_LOCAL.winterAt and feed the local weights to the sprite / terrain shaders.
+export const SEASON_LOCAL = { winterAt: null };
 export const SC = { OAK: 1, BIRCH: 2, WILLOW: 3, BARE: 4, CONIFER: 5, SHRUB: 6, GRASS: 7, FLOWER: 8, SNOW: 9, NOTWIN: 16 };
 
 // tree art group → class (groups with a lazily painted bare twin: art/trees.js `<group>_bare_<n>`)

@@ -2,7 +2,7 @@
 // (collision, harvest, regrowth, network) and is drawn as an art species inside it (src/art/planetFlora.js):
 //   trees           o.v = species * 16 + variant      (composeWorld TREE_SPECIES: the classic species keep 0..2)
 //   bush / fibergrass / boulder   o.v = species * 1000 + variant
-// Pure data (no DOM): the in-game adapter (ingame.js) and the art read it.
+// Pure data (no DOM): the world source (src/world/planetSource.js), the old cut (ingame.js) and the art read it.
 
 import { BIOME_LIST, pickWeighted } from './biomes.js';
 

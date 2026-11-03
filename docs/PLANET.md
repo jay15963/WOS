@@ -164,12 +164,36 @@ repetição). Etapas:
 7. classes de água (rasa pela profundidade / largura de praia, abissal pelo fundo macro);
 8. **alturas nos cantos** (média dos 4 tiles; 65 × 65 por chunk) e inclinação;
 9. bioma por tile (clima interpolado com ruído + lapse local + contexto: praia, falésia, mangue, várzea / oásis
-   ao lado de rio grande, terra vulcânica na parte alta do cone, salar), chão, **rocha** (faces íngremes ≥ 1,25
-   andar por tile, cristas das montanhas, rochedos), tipo de rocha (estratos nos cânions, basalto nos vulcões),
-   minérios (veios por ruído dentro da rocha), **neve** por altitude + inclinação (faces íngremes sem neve) +
-   orientação (encosta virada para o polo guarda mais neve) com borda pontilhada;
-10. objetos naturais (árvores sem aglomerar — o menor hash entre os vizinhos —, arbustos, pedregulhos, seixos,
-    gravetos, capim de fibra, trigo selvagem no solo fértil, batata / milho / algodão selvagens), decoração.
+   ao lado de rio grande, terra vulcânica na parte alta do cone, salar), chão, rocha, tipo de rocha, minérios, neve:
+   - **encostas são chão, não rocha**: cascalho (tálus) onde é íngreme (≥ 0,62 andar por tile, com ruído), manchas de
+     cascalho nas partes altas acima das árvores e nas cristas, pedra nua só nas faces mais íngremes; o prado alpino é
+     terra com capim / urze / flores; areia, neve, sal e gelo guardam o próprio chão;
+   - **rocha (`rock = 1`, minerável) só em**: faces de penhasco (≥ 1,25 andar por tile), **tors / morrotes** em
+     manchas ao longo das cristas (ruído de 48 + 12 tiles, só onde há lombada ou encosta: um cume largo e plano fica
+     chão), afloramentos em encosta íngreme, rochedos do mar e afloramentos que furam a neve dos picos. Os tiles de rocha
+     **sobem com a profundidade** (0,58 andar por tile de profundidade, até 4): um afloramento é um morrote de rocha de
+     verdade no relevo (minerar corta o tile até o canto mais baixo). Nas janelas de montanha da semente 4242 a rocha
+     caiu de 11–16 % para 1–3 % da terra; 96–99 % da terra é caminhável;
+   - **picos nevados ásperos**: na neve alta o vento varre cristas, lombadas e encostas (ruído + crista + curvatura +
+     inclinação) até o cascalho de gelifração; a neve fica nas baixadas; afloramentos de rocha furam a neve;
+   - **neve permanente** (chão `SNOW`) só onde a média do ano fica bem abaixo de zero (−8,5 °C com ruído, orientação e
+     inclinação; o bioma de picos nevados e o manto de gelo são neve): a tundra no verão não fica branca — a neve do
+     inverno é das estações;
+   - **tipo de rocha regional em todo tile de terra** (não só nos de rocha: é a cor das faces, dos morrotes e do
+     cascalho): basalto nos vulcões e na terra vulcânica, arenito em cânions, mesas e desertos (calcário em manchas),
+     arenito também nas terras secas quentes, granito / ardósia / calcário / mármore no resto;
+   - minérios: veios por ruído dentro da rocha; como os afloramentos são pequenos, o ferro aparece a ≥ 1,4 tile de
+     profundidade e ouro / jade a ≥ 2,2;
+10. objetos naturais (árvores sem aglomerar — o menor hash entre os vizinhos; nas florestas fechadas só os vizinhos
+    em cruz, então as copas se fecham; na savana, estepe e mata mediterrânea as árvores vêm em **bosques** com campo
+    aberto entre eles —, arbustos e plantas da tabela do bioma, pedregulhos (com líquen no frio e no alto, de arenito
+    nos desertos), seixos, gravetos, capim de fibra, trigo selvagem no solo fértil, batata / milho / algodão
+    selvagens) — **nada cresce em neve, gelo, sal ou pedra nua** (nem galho, fruta, flor ou capim; na cinza só seixos,
+    arbustos do deserto e capim seco) — e a **cobertura do chão por bioma** (`decorKind`: a densidade vem da coluna
+    "grama" da tabela; nas terras abertas em manchas com chão nu entre elas) + detalhes esparsos: crosta de sal, lama
+    rachada, ondulações de areia, conchas / madeira trazida pelo mar / algas na praia, líquen na tundra e no alto,
+    cinza e escória no vulcão, cascalho solto nas encostas, raízes respiratórias do mangue, lírios em lagoas quentes,
+    corais nos recifes, algas em costões. Tabela dos tipos em §6.
 
 **Tempo: ~25 ms por chunk** (desktop, média; 15–45 ms conforme o lugar). Saída ~97 KB de arrays + objetos.
 
@@ -182,8 +206,8 @@ repetição). Etapas:
   water:   Uint8Array           0 terra, 1 rasa, 2 funda, 3 abissal
   wlevel:  Float32Array         nível da superfície da água (andares) nos tiles de água (mar 0)
   biome:   Uint8Array           id de bioma (§5)
-  rock:    Uint8Array           1 = massa de rocha mineravel (como o `rock` atual)
-  rockType:Uint8Array           1 granito 2 calcário 3 ardósia 4 mármore 5 basalto 6 arenito
+  rock:    Uint8Array           1 = massa de rocha minerável (faces, tors, afloramentos; os cantos dela sobem com a profundidade)
+  rockType:Uint8Array           rocha regional de todo tile de terra: 1 granito 2 calcário 3 ardósia 4 mármore 5 basalto 6 arenito
   ore:     Uint8Array           ids de ORE do jogo (1 cobre, 2 ferro, 3 carvão, 4 ouro, 5 jade)
   flowX, flowY: Float32Array    correnteza dos rios (−1..1, como hoje)
   fertile: Uint8Array           1 = até 5 tiles da margem de um rio (mesma regra de soil.js)
@@ -246,6 +270,10 @@ clássico usado no `?planet=1`.
 | 35 | `heath` | Charneca | tree_birch×1 tree_pine×1 | 0.01 | bush×2 berrybush×1 | 0.04 | 0.7 | Terra | 0.3 | 1 | meadow |
 | 36 | `floodplain` | Várzea | tree_oak×2 tree_birch×1 | 0.03 | bush×1 berrybush×1 | 0.02 | 0.9 | Terra fértil | 1 | 0 | meadow |
 
+Mudanças da fase de conteúdo na tabela: floresta tropical `tree_jungle 7, kapok 1, palm 2, bamboo 1, fern 1` com
+densidade 0,6 e `banana 4` no sub-bosque; floresta nebular, pântano e floresta seca ganham bananeira; savana com
+`td 0,03` em bosques e `tussock` (touceiras) entre os arbustos; `desert_rock` nos desertos.
+
 Classificação (resumo): acima de ~1500 m (ou 900 m íngreme) → picos nevados (T < −7,5), prado alpino (< 0,5 °C),
 floresta nebular (trópicos úmidos); T < −13 manto de gelo; −13…−6 tundra / deserto polar; −6…2,5 taiga / tundra;
 2,5…12 deserto frio / estepe / taiga / floresta temperada / úmida / charneca; 12…20 desertos / mediterrânea
@@ -260,23 +288,68 @@ tropical. Terras áridas altas com planalto → mesas e cânions. Planícies bai
 
 ---
 
-## 6. Tipos novos (a fase de conteúdo pinta)
+## 6. Tipos novos — chão, rocha, flora (pintados)
 
 **Chão** (`PG`): 0–7 = os `G.*` atuais com os mesmos números; novos: 8 `SNOW` neve · 9 `ICE` gelo · 10 `ASH` cinza
 vulcânica · 11 `SALT` sal · 12 `CLAY` argila vermelha / laterita · 13 `DRY` chão seco (estepe, deserto, savana).
-`GROUND_CLASSIC` dá o substituto atual de cada um (usado no `?planet=1`). O `worldgen.js` não foi alterado.
+O jogo continua jogando com o chão clássico (`GROUND_CLASSIC`: velocidade, escavar, sons); **o visual é o do planeta**:
+cada um tem a própria camada de textura (`src/world/terrainTex.js`, camadas 12–17 do `uGround`): neve com sastrugi e
+ondas de vento (azul nas baixadas, brilho de grãos ao sol), gelo azul polido com crevasses e neve soprada, cinza preta
+com escória vermelha e pedra-pomes, crosta de sal em placas poligonais de borda branca (vira espelho do céu quando
+chove), argila vermelha mosqueada com sulcos e rachaduras, chão seco com pavimento de seixos envernizados, crosta
+rachada e palha. O tile mostra o chão do planeta enquanto o chão clássico embaixo for o substituto dele (`world.pground`;
+um tile minerado vira pedra e mostra pedra). Cascalho e tálus pegam a cor da rocha regional (vermelhos sob arenito,
+quase pretos sob basalto). A neve / gelo do planeta continuam no canal A do clima (neve nas bordas e saliências das
+faces); o canal B é a **sombra do dossel** das florestas fechadas (floresta tropical, nebular, temperada úmida, mangue,
+pântano, taiga), com manchas de sol — também nas plantas do chão.
 
-**Rocha**: 1–4 atuais + 5 basalto, 6 arenito (`ROCK_CLASSIC`: basalto → ardósia, arenito → calcário).
+**Rocha**: 1–4 atuais + 5 basalto, 6 arenito (`ROCK_CLASSIC`: basalto → ardósia, arenito → calcário para o jogo; o visual
+lê `world.prock`). Camadas 18 (basalto: topos de colunas em hexágonos, juntas escuras, vesículas, líquen ferrugem) e 19
+(arenito: estratos curvos creme / laranja / vermelho com estratificação cruzada, alvéolos, verniz). Nas **faces** o
+arenito desenha camadas finas ao longo da altura (creme, laranja, ferrugem, marrom-arroxeado) com verniz do deserto
+escorrendo das saliências; o basalto desenha **colunas** prismáticas com juntas e cortes transversais.
 
-**Objetos que ainda não têm arte** (`NEW_KINDS`): árvores `tree_palm`, `tree_acacia`, `tree_baobab`,
-`tree_jungle`, `tree_kapok`, `tree_mangrove` (em pé na água rasa, `w: 1`), `tree_spruce`, `tree_larch`,
-`tree_redwood`, `tree_cypress`, `tree_olive`, `tree_fern`, `tree_dwarf`, `bamboo`; plantas `cactus`,
-`cactus_tall`, `agave`, `shrub_desert`, `dead_bush`, `tussock`, `tundra_shrub`, `dune_grass`, `papyrus`,
-`lichen_rock`, `termite_mound`; decoração `snowtuft`, `lichen`, `cottongrass`, `saltcrust`, `seaweed`, `coral`,
-`ash`, `sandripple`. No `?planet=1` viram carvalho / pinheiro / bétula / arbusto de zimbro / pedregulho, e a
-decoração nova some.
+**Flora** (`src/art/planetFlora.js`, pintada **sob demanda** na textura preguiçosa — não entra no atlas fixo). Cada tipo do
+planeta é jogado como um tipo clássico (`src/world/planet/flora.js FLORA_KIND`: colisão, coleta, rebrota e rede iguais)
+e desenhado como uma espécie dentro dele:
 
----
+| tipo do planeta | joga como | arte (variantes) | estações |
+|---|---|---|---|
+| `tree_palm` coqueiro | `tree_oak` sp 3 | tronco curvo anelado, leque de folhas pinadas, cocos (3) | tropical |
+| `tree_acacia` acácia-guarda-chuva | `tree_oak` 4 | tronco bifurcado, copa chata larga (3) | tropical |
+| `tree_baobab` baobá | `tree_oak` 5 | tronco-garrafa, galhos curtos (2 + 2 sem folhas) | tropical |
+| `tree_jungle` árvore da selva | `tree_oak` 6 | dossel: copa larga e irregular, sapopemas, cipós (2) · sub-bosque (2) | tropical |
+| `tree_kapok` sumaúma | `tree_oak` 7 | emergente, sapopemas enormes, copa em guarda-chuva (2) | tropical |
+| `tree_olive` oliveira | `tree_oak` 8 | tronco retorcido oco, copa prateada solta, azeitonas (3) | perene |
+| `tree_fern` samambaia-açu | `tree_oak` 9 | tronco fibroso, roseta de frondes (2) | tropical |
+| `tree_mangrove` mangue | `tree_oak` 10 | raízes-escora na água rasa, copa baixa e larga (3) | tropical |
+| `tree_spruce` abeto | `tree_pine` 3 | conífera estreita escura azulada (3) | perene, neve |
+| `tree_larch` lariço | `tree_pine` 4 | conífera leve; dourado no outono, sem agulhas no inverno (2 + 2) | caducifólio |
+| `tree_redwood` sequoia | `tree_pine` 5 | tronco vermelho fibroso enorme, copa alta (2) | perene, neve |
+| `tree_cypress` cipreste | `tree_pine` 6 | coluna em chama verde-escura (2) | perene, neve |
+| `tree_dwarf` bétula-anã | `tree_birch` 2 | arbusto-árvore torto pelo vento (3) | laranja, perde as folhas |
+| `bamboo` bambu | `tree_birch` 3 | touceira de colmos com nós e leques de folhas (2) | tropical |
+| `cactus` / `cactus_tall` | `bush` 3 / 4 | palma, barril com flores; saguaro com braços (3 / 2) | tropical |
+| `agave` | `bush` 5 | roseta azulada, uma com haste florida (2) | tropical |
+| `shrub_desert` | `bush` 6 | arbusto cinza-esverdeado (sálvia), um em flor (3) | vermelho no outono |
+| `dead_bush` | `bush` 7 | emaranhado seco (2) | neve |
+| `tundra_shrub` | `bush` 8 | salgueiro-anão / mirtilo rasteiro (3) | vermelho no outono |
+| `banana` bananeira / helicônia | `bush` 9 | pseudocaules e folhas enormes rasgadas, cacho / flores (3) | tropical |
+| `tussock` / `dune_grass` / `papyrus` | `fibergrass` 1 / 2 / 3 | touceira com espigas (3), capim de duna (2), papiro (2) | dourado / tropical |
+| `lichen_rock` / `termite_mound` / `desert_rock` | `boulder` 20 / 21 / 22 | rocha com líquen (3), cupinzeiro-catedral (2), pedra de arenito (3) | neve / tropical |
+
+`o.v` = espécie × 16 + variante (árvores) ou espécie × 1000 + variante (bush, fibergrass, boulder); as espécies
+clássicas continuam 0–2 (o mundo atual não muda). A rebrota pede ao planeta a espécie do bioma do tile
+(`source.floraLook` → `regrowV`). **Decoração nova** (`PLANET_DECOR`): `snowtuft`, `cottongrass`, `savgrass` (capim
+dourado da savana), `jungleplant` (folhas grandes do chão da selva), `pneumato` (raízes respiratórias), e no chão
+`lichen`, `saltcrust`, `seaweed`, `coral`, `ash`, `sandripple`, `crackedmud`.
+
+**Estações**: as decíduas (baobá, lariço, bétula-anã) usam as classes do shader (dourado / laranja, perdem as folhas
+sobre o gêmeo sem folhas); arbustos avermelham, capins douram. As espécies `tropical` (palmeira, acácia, baobá, selva,
+sumaúma, samambaia-açu, mangue, bambu, cactos, agave, bananeira, papiro, cupinzeiro, capim da savana, plantas da selva,
+raízes, corais) **não recebem inverno** enquanto as estações forem um relógio só do mundo: `art/season.js
+SEASON_LOCAL.winterAt(x, y)` é o gancho para as estações por latitude (TODO: o chão ainda recebe a neve do inverno
+global). Prévia: `tools/flora.html` (todas as variantes pintadas direto, `?g=tree_palm,cactus`).
 
 ## 7. Interface para o motor de streaming
 
@@ -315,6 +388,8 @@ const ch = generateChunk(planet, cx, cy);     // ~25 ms; opts.decor = false pula
   navegador (`shots/planet_<camada>_<seed>.png`, `planet_detail_<seed>.png`, `planet_zoom_<lugar>.png`; `auto` acha
   cânion, falésias, laguna, delta, fiorde, montanhas, dunas, rio, vulcão, distrito de lagos e o início).
 - `node tools/planet-seams.mjs [seed] [n]` — emendas entre chunks (incl. x = 0), repetição, planeta bit a bit.
+- `tools/flora.html[?g=grupo,…]` — toda a flora do planeta (árvores, plantas, decoração; gêmeos sem folhas) pintada
+  direto dos pintores, em 1×, com o tempo de pintura no título.
 - `node tools/planet-abyss.mjs [sementes] [n]` — nenhum abissal a < 6 células da terra (macro) nem a < 150 tiles
   de um tile de terra (janelas de 7×7 chunks em fozes de fiorde, falésias, ilhas vulcânicas, margens de subducção,
   costas e na borda da plataforma) e nenhum caminho de água não abissal juntando dois territórios.
@@ -334,6 +409,9 @@ const ch = generateChunk(planet, cx, cy);     // ~25 ms; opts.decor = false pula
 | `generateChunk` | ~25 ms em média (15–45), ~97 KB de arrays + ~250 objetos (+ ~6000 decorações) |
 | `findSpawn` | ~70 ms (gera 1 chunk) |
 | imagem "Detalhe" 2048×1024 | ~2,6 s |
+| flora do planeta (111 sprites: todas as variantes + gêmeos) | ~480 ms para pintar tudo; por cena 45–62 partes, 60–380 ms espalhados pelos quadros (a textura preguiçosa vai de 1024² a 2048² numa floresta tropical); o atlas fixo **não muda** (4096², 828 sprites, 21 % ocupado) |
+| chão do planeta (8 camadas 512²) | ~340 ms na primeira vez (depois do cache do IndexedDB), só quando o mundo é um planeta; 8 MB a mais no array de chão (as camadas 12–19 são reservadas sempre) |
+| aquecimento na chegada | a flora num raio de 22 tiles do início é pintada na carga (sem árvores trocando na frente do jogador) |
 
 Celular: espere 3–5× mais (planeta ~6–10 s — faça em worker, uma vez por mundo, com barra de progresso).
 
@@ -346,7 +424,10 @@ Celular: espere 3–5× mais (planeta ~6–10 s — faça em worker, uma vez por
 - Córregos em encostas uniformes ainda podem correr quase paralelos; os rios grandes formam árvores.
 - Paredes de cânion e falésias são degraus de altura com rocha nas faces (1 tile); a forma final de penhasco é
   com o agente de relevo (`height` nos cantos).
-- Vulcões não têm lava / atividade (só `active` nas `features`); recifes são só bioma + raso.
+- Vulcões não têm lava / atividade (só `active` nas `features`); recifes são bioma + raso + corais desenhados.
+- Estações por latitude ainda não existem: a flora tropical fica sem inverno, mas o chão recebe a neve do inverno global.
+- As faces de rocha do arenito / basalto são desenhadas pelo shader sobre as texturas de cima (camadas, colunas); de
+  perto ainda repetem um pouco.
 - Os nomes de continentes, oceanos e rios não existem ainda.
 - Só foi comparado bit a bit em motores V8 (Node e Chrome); a matemática é toda exata, mas Firefox / Safari ainda
   não foram testados (compare a impressão digital em `tools/planet.html`).

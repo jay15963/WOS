@@ -2,8 +2,9 @@
 // ?source=planet (or ?planet=1). generatePlanet(seed) → the macro planet (512 × 256 typed arrays, postMessage-able)
 // is made once on the main thread (spawn, map, synchronous fallback) and handed to the chunk workers; each chunk is
 // generateChunk(planet, cx, cy, { decor }) adapted to the engine's ChunkData (src/world/source.js):
-//   ground ids 8–13 / rock types 5–6 → the classic ones (planet/biomes.js GROUND_CLASSIC / ROCK_CLASSIC), biomes → their
-//   classic class (BIOME_LIST[b].cl), new plant / tree kinds → existing art (the same table as planet/ingame.js),
+//   ground ids 8–13 / rock types 5–6 → the classic ones (planet/biomes.js GROUND_CLASSIC / ROCK_CLASSIC; the planet's own
+//   ids ride along as pground / prock / pbiome for the looks), biomes → their classic class (BIOME_LIST[b].cl), the
+//   planet's plant / tree kinds → a classic kind + an art species (planet/flora.js, art/planetFlora.js),
 //   lush 0..255 → 0..1, `height` (65 × 65 corners, stories) → world.cornerH, water 3 (abyss) → deep for the game.
 // Object ids are the planet's: (cy * 256 + cx) * 16384 + k → chunkOfId.
 

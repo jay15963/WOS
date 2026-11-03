@@ -7,7 +7,7 @@
 //   trees      tree_oak / tree_pine / tree_birch with o.v = species * 16 + variant (TREE_SPECIES, art/trees.js)
 //   plants     bush (fibre + sticks), fibergrass (fibre) and boulder (pickaxe) with o.v = species * 1000 + variant
 //   decor      d.t = the group name (drawn like the classic decor, art/composeWorld.js drawDecor)
-// PLANET_SPECIES below is the table both the planet adapter (world/planet/ingame.js) and composeWorld read.
+// PLANET_SPECIES below (+ world/planet/flora.js FLORA_KIND: kind / species) is what composeWorld reads.
 
 import { sprite, rng, OW, TAU, lin, rad, atop, taper, leaf, ramp, rgb, hex, mixc, circle, smoothClosed, blobPts } from './paint.js';
 import { mkLump, drawFoliage, bushLumps } from './foliage.js';
@@ -20,37 +20,38 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const FOOT = 9; // px between the trunk base and the sprite bottom (like art/trees.js)
 
 // ---------------------------------------------------------------- species table
-// art group → { n: variants, sc: season class, sway, twin: has a bare twin (<group>_bare_<i>) } + kind / sp (the classic
+// art group → { n: variants, sc: season class, sway, twin: has a bare twin (<group>_bare_<i>), tropical: grows only
+// where there is no winter (no snow / drying on it: art/season.js SEASON_LOCAL) } + kind / sp (the classic
 // gameplay kind and the species index in it: world/planet/flora.js FLORA_KIND)
 export const PLANET_SPECIES = {
   // trees: the index continues TREE_SPECIES of the kind (classic species keep 0..2)
-  tree_palm: { n: 3, sc: SC.CONIFER, sway: 0.045 },
-  tree_acacia: { n: 3, sc: SC.CONIFER, sway: 0.025 },
-  tree_baobab: { n: 2, sc: SC.BIRCH, sway: 0.012, twin: true },
-  tree_jungle: { n: 4, sc: SC.CONIFER, sway: 0.02 },
-  tree_kapok: { n: 2, sc: SC.CONIFER, sway: 0.015 },
+  tree_palm: { n: 3, sc: SC.CONIFER, sway: 0.045, tropical: true },
+  tree_acacia: { n: 3, sc: SC.CONIFER, sway: 0.025, tropical: true },
+  tree_baobab: { n: 2, sc: SC.BIRCH, sway: 0.012, twin: true, tropical: true },
+  tree_jungle: { n: 4, sc: SC.CONIFER, sway: 0.02, tropical: true },
+  tree_kapok: { n: 2, sc: SC.CONIFER, sway: 0.015, tropical: true },
   tree_olive: { n: 3, sc: SC.CONIFER, sway: 0.025 },
-  tree_fern: { n: 2, sc: SC.CONIFER, sway: 0.05 },
-  tree_mangrove: { n: 3, sc: SC.CONIFER, sway: 0.02 },
+  tree_fern: { n: 2, sc: SC.CONIFER, sway: 0.05, tropical: true },
+  tree_mangrove: { n: 3, sc: SC.CONIFER, sway: 0.02, tropical: true },
   tree_spruce: { n: 3, sc: SC.CONIFER, sway: 0.02 },
   tree_larch: { n: 2, sc: SC.BIRCH, sway: 0.025, twin: true },
   tree_redwood: { n: 2, sc: SC.CONIFER, sway: 0.01 },
   tree_cypress: { n: 2, sc: SC.CONIFER, sway: 0.03 },
   tree_dwarf: { n: 3, sc: SC.OAK, sway: 0.04 }, // (no bare twin: its leaves drop off the stems)
-  bamboo: { n: 2, sc: SC.CONIFER, sway: 0.06 },
+  bamboo: { n: 2, sc: SC.CONIFER, sway: 0.06, tropical: true },
   // plants (classic bush species 0..2: bush, wild rose, juniper)
-  cactus: { n: 3, sc: SC.SNOW, sway: 0 },
-  cactus_tall: { n: 2, sc: SC.SNOW, sway: 0 },
-  agave: { n: 2, sc: SC.SNOW, sway: 0.01 },
+  cactus: { n: 3, sc: SC.SNOW, sway: 0, tropical: true },
+  cactus_tall: { n: 2, sc: SC.SNOW, sway: 0, tropical: true },
+  agave: { n: 2, sc: SC.SNOW, sway: 0.01, tropical: true },
   shrub_desert: { n: 3, sc: SC.SHRUB, sway: 0.04 },
   dead_bush: { n: 2, sc: SC.SNOW, sway: 0.03 },
   tundra_shrub: { n: 3, sc: SC.SHRUB, sway: 0.03 },
-  banana: { n: 3, sc: SC.CONIFER, sway: 0.05 },
+  banana: { n: 3, sc: SC.CONIFER, sway: 0.05, tropical: true },
   tussock: { n: 3, sc: SC.GRASS, sway: 0.1 },
   dune_grass: { n: 2, sc: SC.GRASS, sway: 0.12 },
-  papyrus: { n: 2, sc: SC.GRASS, sway: 0.09 },
+  papyrus: { n: 2, sc: SC.GRASS, sway: 0.09, tropical: true },
   lichen_rock: { n: 3, sc: SC.SNOW, sway: 0 },
-  termite_mound: { n: 2, sc: SC.SNOW, sway: 0 },
+  termite_mound: { n: 2, sc: SC.SNOW, sway: 0, tropical: true },
   desert_rock: { n: 3, sc: SC.SNOW, sway: 0 },
 };
 // kind → species index → art group (composeWorld): built from the table
@@ -64,9 +65,9 @@ for (const g in PLANET_SPECIES) {
 }
 // decor kinds painted here: flat ones lie on the ground (no sway); `w`: also in shallow water
 export const PLANET_DECOR = {
-  snowtuft: { n: 3, sway: 0.06, sc: SC.SNOW }, cottongrass: { n: 3, sway: 0.14 }, savgrass: { n: 4, sway: 0.15 },
-  jungleplant: { n: 4, sway: 0.05, sc: SC.CONIFER }, pneumato: { n: 2, sway: 0, sc: SC.SNOW },
-  lichen: { n: 3, flat: true }, saltcrust: { n: 3, flat: true }, seaweed: { n: 3, flat: true }, coral: { n: 4, flat: true },
+  snowtuft: { n: 3, sway: 0.06, sc: SC.SNOW }, cottongrass: { n: 3, sway: 0.14 }, savgrass: { n: 4, sway: 0.15, tropical: true },
+  jungleplant: { n: 4, sway: 0.05, sc: SC.CONIFER, tropical: true }, pneumato: { n: 2, sway: 0, sc: SC.SNOW, tropical: true },
+  lichen: { n: 3, flat: true }, saltcrust: { n: 3, flat: true }, seaweed: { n: 3, flat: true }, coral: { n: 4, flat: true, tropical: true },
   ash: { n: 3, flat: true }, sandripple: { n: 3, flat: true }, crackedmud: { n: 3, flat: true },
 };
 
