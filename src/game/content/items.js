@@ -45,21 +45,29 @@ export const ITEMS = {
   arrow:       { name: 'Flecha', emoji: '➶', stack: 99, cat: 'ammo', desc: 'Munição para arcos.' },
   bone:        mat('Ossos', '🦴', 'Ossos limpos recolhidos de uma ossada. Restos de um ser que já viveu por aqui.'),
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
+  // livestock (docs/LIVESTOCK.md): animal feed and animal products
+  wheat:       mat('Trigo', '🌾', 'Espigas de trigo. Alimenta vacas e ovelhas no alimentador; vira pão na fornalha.'),
+  wool:        mat('Lã', '🧶', 'Lã de ovelha. Ainda sem uso.'),
+  feather:     mat('Pena', '🪶', 'Pena de galinha. Ainda sem uso.'),
 
   // ---------- seeds ----------
   seed_potato: { name: 'Semente de batata', emoji: '🌰', stack: 40, cat: 'seed', seed: 'potato', desc: 'Plante num canteiro: fica pronta em 8 minutos (não cresce no inverno). Vem de batatas silvestres.' },
   seed_cotton: { name: 'Semente de algodão', emoji: '🌱', stack: 40, cat: 'seed', seed: 'cotton', desc: 'Plante num canteiro: fica pronto em 8 minutos (não cresce no inverno). Vem de algodão silvestre.' },
   seed_corn:   { name: 'Semente de milho', emoji: '🌾', stack: 40, cat: 'seed', seed: 'corn', desc: 'Plante num canteiro: fica pronto em 8 minutos (não cresce no inverno). Vem de milho silvestre.' },
+  seed_wheat:  { name: 'Semente de trigo', emoji: '🌾', stack: 40, cat: 'seed', seed: 'wheat', desc: 'Só cresce em solo fértil: até 5 tiles de um rio. Fica pronto em 8 minutos (não cresce no inverno). Vem do trigo silvestre da beira dos rios.' },
 
   // ---------- food ----------
-  berries:      food('Frutas silvestres', '🫐', 'Mata um pouco a fome.', { hunger: 10, heal: 4 }),
+  berries:      food('Frutas silvestres', '🫐', 'Mata um pouco a fome.', { hunger: 6, heal: 4 }),
   meat:         food('Carne crua', '🥩', 'Melhor assar na fogueira. Comer crua pode fazer mal.', { hunger: 14, heal: 0, sick: 0.35 }),
   cooked:       food('Carne assada', '🍖', 'Refeição completa e quentinha. Enche bem a barriga (barriga cheia = a vida regenera).', { hunger: 40, heal: 28, warm: 45 }),
-  potato:       food('Batata', '🥔', 'Crua mata pouco a fome. Asse na fogueira.', { hunger: 12, heal: 0 }),
-  baked_potato: food('Batata assada', '🥔', 'Quentinha e nutritiva.', { hunger: 30, heal: 14, warm: 40 }),
-  corn:         food('Milho', '🌽', 'Cru é duro. Asse na fogueira.', { hunger: 10, heal: 0 }),
-  roast_corn:   food('Milho assado', '🌽', 'Doce, crocante e quente.', { hunger: 26, heal: 10, warm: 30 }),
-  stew:         food('Ensopado', '🍲', 'Carne, batata e milho no caldeirão. A melhor refeição: aquece o corpo.', { hunger: 60, heal: 45, warm: 120 }, { stack: 20 }),
+  potato:       food('Batata', '🥔', 'Crua mata bem pouco a fome. Asse na fogueira.', { hunger: 4, heal: 0 }),
+  baked_potato: food('Batata assada', '🥔', 'Quentinha, mas mata pouco a fome.', { hunger: 12, heal: 6, warm: 30 }),
+  corn:         food('Milho', '🌽', 'Cru é duro e mata bem pouco a fome. Asse na fogueira (ou dê às galinhas).', { hunger: 3, heal: 0 }),
+  roast_corn:   food('Milho assado', '🌽', 'Doce e crocante, mas mata pouco a fome.', { hunger: 10, heal: 5, warm: 25 }),
+  bread:        food('Pão', '🍞', 'Pão de trigo assado na fornalha. Mata bem a fome.', { hunger: 30, heal: 12, warm: 20 }),
+  fish_raw:     food('Peixe cru', '🐟', 'Melhor assar na fogueira. Cru pode fazer mal.', { hunger: 6, heal: 0, sick: 0.3 }),
+  fish_cooked:  food('Peixe assado', '🐟', 'Peixe assado na fogueira: leve e nutritivo.', { hunger: 22, heal: 16, warm: 30 }),
+  stew:         food('Ensopado', '🍲', 'Carne, batata e milho no caldeirão. A melhor refeição: aquece o corpo.', { hunger: 50, heal: 45, warm: 120 }, { stack: 20 }),
 
   // ---------- off hand ----------
   shield_wood:   { name: 'Escudo de madeira', emoji: '🛡️', stack: 1, cat: 'offhand', slot: 'off', tier: 1, mat: 'wood', shield: { block: 0.25 }, armor: { value: 2 }, desc: 'Bloqueia parte do dano. Habilidades de escudo.' },
@@ -115,6 +123,9 @@ Object.assign(ITEMS, {
   club_wood:     { name: 'Clava', emoji: '🏏', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'wood', weapon: { type: 'club' }, desc: 'Porrete de madeira. Atordoa.' },
   club_iron:     { name: 'Maça de ferro', emoji: '🔨', stack: 1, cat: 'weapon', slot: 'main', tier: 3, mat: 'iron', weapon: { type: 'club' }, desc: 'Maça pesada de ferro. Atordoa.' },
   bow_wood:      { name: 'Arco simples', emoji: '🏹', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'wood', weapon: { type: 'bow', twoHanded: true }, desc: 'Ataque à distância. Gasta flechas. Ocupa as duas mãos.' },
+  // fishing (docs/LIVESTOCK.md): used from the backpack like the tools; held in the hand while fishing
+  rod_wood:      { name: 'Vara de pescar', emoji: '🎣', stack: 1, cat: 'tool', slot: 'main', tier: 0, mat: 'wood', weapon: { type: 'rod' }, tool: { fish: 1 },
+                   desc: 'Perto da água, "Pescar" (E / Usar) lança a linha. Quando a boia afundar, puxe na hora (E / Usar)! Dá mais peixe que flechas e lanças.' },
   bow_composite: { name: 'Arco composto', emoji: '🏹', stack: 1, cat: 'weapon', slot: 'main', tier: 4, mat: 'composite', weapon: { type: 'bow', twoHanded: true }, desc: 'Arco potente de madeira, aço e couro. Ocupa as duas mãos.' },
 });
 

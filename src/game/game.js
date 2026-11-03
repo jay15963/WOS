@@ -13,6 +13,7 @@ import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
+import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
@@ -336,7 +337,7 @@ export class Game {
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
         else if (o.kind === 'pawn') drawPawn(B, A, d, t);
-        else drawAnimal(B, A, d, t);
+        else if (!drawStock(B, A, d, t, this.world.frozen)) drawAnimal(B, A, d, t);
         if (rot && o.isEntity && f0) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
         if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz);

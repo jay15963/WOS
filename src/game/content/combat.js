@@ -21,6 +21,19 @@ export const SPECIES = {
             loot: [['fiber', 1, 2, 0.7], ['rope', 1, 1, 0.15]] },
   bear:   { name: 'Urso', temper: 'hostile', elite: true, hp: 210, dmg: 13, swing: 2.3, speed: 4.1, aggro: 7.5, r: 0.45, scale: 1.45, xp: 3.5, lvl: 3, minD: 55,
             loot: [['meat', 3, 5, 1], ['leather', 2, 3, 1, 'skin']] },
+  // livestock (docs/LIVESTOCK.md, src/game/livestock.js): calm herds (they only run when hit); tied with a rope and
+  // domesticated by a feeder; `stock` = farm animal, `noAuto` = never picked by the automatic attack
+  cow:     { name: 'Vaca', temper: 'passive', hp: 72, dmg: 0, swing: 2, speed: 3.1, r: 0.42, scale: 1, xp: 0.7, minD: 10, stock: true,
+             loot: [['meat', 5, 7, 1], ['leather', 3, 4, 1, 'skin']] },
+  sheep:   { name: 'Ovelha', temper: 'passive', hp: 40, dmg: 0, swing: 2, speed: 3.3, r: 0.34, scale: 1, xp: 0.5, minD: 10, stock: true,
+             loot: [['meat', 1, 2, 1], ['leather', 3, 4, 1, 'skin'], ['wool', 2, 4, 1]] },
+  pig:     { name: 'Porco', temper: 'passive', hp: 46, dmg: 0, swing: 2, speed: 3.5, r: 0.34, scale: 1, xp: 0.5, minD: 9, stock: true,
+             loot: [['meat', 2, 2, 1]] },
+  chicken: { name: 'Galinha', temper: 'passive', hp: 10, dmg: 0, swing: 2, speed: 3.6, r: 0.2, scale: 1, xp: 0.2, minD: 6, stock: true,
+             loot: [['meat', 1, 1, 1], ['feather', 2, 4, 1]] },
+  // fish in rivers and lakes (src/game/livestock.js fishBrain): caught with a rod (fishing.js) or a long shot / spear
+  fish:    { name: 'Peixe', temper: 'passive', hp: 4, dmg: 0, swing: 2, speed: 2.4, r: 0.42, scale: 1, xp: 0.2, minD: 0, noAuto: true, water: true,
+             loot: [['fish_raw', 1, 1, 1]] },
   // winter nights (seasons.js): frozen dead that walk out of the dark (kind 'pawn', faction 'walker', walkers.js);
   // they carry ice swords / ice spears (as strong as stone) and crumble to snow at sunrise
   walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,

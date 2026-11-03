@@ -14,6 +14,7 @@ import { facingFrom } from './physics.js';
 import { fireArrow } from './projectiles.js';
 import { applyMobEffect } from './mut/combat.js';
 import { corpseFromMob } from './mut/corpses.js';
+import { slaughter } from './livestock.js'; // a domesticated animal dies from one knife hit (docs/LIVESTOCK.md)
 import { heightK } from './levels.js';
 
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -101,7 +102,7 @@ export function routeHit(game, src, dst, amount, opts = {}) {
   game.net.request('mob.hit', {
     nid: dst.nid, amount: Math.round(amount), crit: opts.crit ? 1 : 0, miss: opts.miss ? 1 : 0, ability: opts.ability || undefined,
     dtype: opts.dtype || undefined, ranged: opts.ranged ? 1 : 0, from: f ? [+f.x.toFixed(2), +f.y.toFixed(2)] : undefined,
-    knock: opts.knock, skin: canSkin(game) ? 1 : 0, eff: opts.eff,
+    knock: opts.knock, skin: canSkin(game) ? 1 : 0, eff: opts.eff, w: p.equip?.main || undefined,
   });
   return opts.miss ? 0 : Math.max(1, Math.round(amount));
 }
@@ -133,6 +134,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
     game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
     return 0;
   }
+  if (dst.tame && !opts.dot && src && src !== dst && slaughter(game, src, dst)) return amount; // (livestock.js: the knife kills it at once)
   if (dst === p && !opts.noDodge && !opts.dot && Math.random() < p.dodge) {
     game.events.emit('damage', { target: dst, src, amount: 0, kind: 'dodge' });
     return 0;
@@ -313,6 +315,7 @@ export function killMob(game, m, killer) {
       const r = m.onDeath(game, m);
       rows = r?.rows;
       if (r?.toast) die.toast = r.toast;
+      if (r?.give) die.give = r.give; // (a fish caught by a shot goes straight to the shooter: livestock.js)
     }
   }
   m.respawnAt = game.worldTime + (m.elite ? 300 : 100) + Math.random() * 80;
@@ -386,6 +389,7 @@ export function bestFoe(game, maxD, prefer = null) {
   let best = null, bs = 1e9;
   for (const e of game.entities) {
     if (!attackable(e) || !isMob(e)) continue;
+    if ((e.tame || SPECIES[e.species]?.noAuto) && e !== prefer) continue; // (fish, the farm's animals: only when marked)
     const d = dist(p, e);
     if (d > maxD) continue;
     const tmp = e.temper || SPECIES[e.species]?.temper;

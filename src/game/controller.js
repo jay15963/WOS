@@ -20,7 +20,7 @@ import { BIND, shortLabel } from './keymap.js';
 
 const hex = (h) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const RING_COL = { hostile: hex(TEMPER_COLOR.hostile), neutral: hex(TEMPER_COLOR.neutral), passive: hex(TEMPER_COLOR.passive) };
-const SMALL = new Set(['pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'crop']);
+const SMALL = new Set(['pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat', 'crop']);
 const TAP_SLACK = 0.7; // a tapped thing this close beyond its reach is still used (a tiny step, no walking)
 
 // Desktop key scheme (shown by the shortcuts overlay, src/ui/help.js) — owner's rule: everything used while
@@ -167,6 +167,8 @@ export function nearestInteractable(game) {
     }
   });
   game.corpses?.forNear(p.x, p.y, 3, consider); // bodies on the ground (corpses.js)
+  game.stock?.forNear(consider); // farm animals: tie / release (livestock.js)
+  consider(game.fishing?.near?.()); // fishing: cast / pull (fishing.js)
   const tx = Math.floor(p.x), ty = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;
@@ -308,6 +310,9 @@ export function installController(game) {
     const h = pick(game, tap.x, tap.y);
     if (h.type === 'creature') {
       const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
+      const st = game.stock?.tapIt?.(e); // farm animals (livestock.js): tie / release; a domesticated one is only targeted
+      if (st?.targetOnly) { ctl.setTarget(e); return; }
+      if (st) { if (reachDist(p, st) > st.reach + TAP_SLACK) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1)); else ctl.interact(st); return; }
       const fighting = e.state === 'chase' && e.threat === p;
       // desktop: a left click ON a creature is the normal attack (owner); phones: first tap targets, second attacks
       if (isMouse || p.target === e || temper === 'hostile' || fighting || e.isProp) {
