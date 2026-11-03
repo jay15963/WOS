@@ -206,7 +206,6 @@ let SEED = 0;
 const hash = (i) => { const x = Math.sin((SEED + 1) * 12.9898 + i * 78.233) * 43758.5453; return x - Math.floor(x); };
 
 export function drawGiant(B, A, p, t, env) {
-  prefetch(A);
   // the view: on a turned camera game.js set it (p._dv / p.facing); at 0° the facing angle picks it here too
   const turned = env.animEnv.rs !== 0 || env.animEnv.rc !== 1;
   let v8 = p._dv;
@@ -220,6 +219,7 @@ export function drawGiant(B, A, p, t, env) {
     torso: spr(A, 'gi_torso_' + pv), head: spr(A, 'gi_head_' + pv), fist: spr(A, 'gi_fist_' + pv), foot: spr(A, 'gi_foot_' + pv),
     pR: spr(A, (mir > 0 ? 'gi_paulR_' : 'gi_paulL_') + pv), pL: spr(A, (mir > 0 ? 'gi_paulL_' : 'gi_paulR_') + pv), uarm: spr(A, 'gi_uarm'), farm: spr(A, 'gi_farm'), thigh: spr(A, 'gi_thigh'), shin: spr(A, 'gi_shin'), club: spr(A, 'gi_club'),
   };
+  prefetch(A); // (after this view's parts: they are painted first, the other views next)
   for (const k in S) if (!S[k]) return false;
   CY = Math.cos(yaw); SY = Math.sin(yaw);
   const ph0 = p._ph ?? (p._ph = ((p.id ?? 0) * 0.618 + Math.random()) * TAU);
