@@ -206,10 +206,13 @@ function installShowcase(game) {
   };
   // furniture review (camera rotation, art/faces/solid.js): each type in a row, once per rotation, then a blueprint
   // (half built) and a ghost-free plan row; opts.lv = the same rows on that story too (needs a floor: opts.floor)
+  // (opts.rots: only these rotations, e.g. [0, 2]; opts.step: the spacing; opts.plan false: no plan column; opts.kits:
+  // [[style, details], …] one column each instead of the rotations — the column kit's looks)
   H.props = (types = ['chest', 'barrel', 'table_wood', 'chair_wood', 'bed', 'torch', 'crates'], opts = {}) => {
     if (!net.auth) return 'só no anfitrião';
-    const p = game.player, step = 3, rot = (t) => (BUILDINGS[t]?.edge ? 5 : BUILDINGS[t]?.rotate ? 4 : 1);
-    const W = 6 * step + 2, Hh = types.length * step + 2;
+    const p = game.player, step = opts.step || 3, rot = (t) => (BUILDINGS[t]?.edge ? 5 : BUILDINGS[t]?.rotate ? 4 : 1);
+    const nc = opts.kits ? opts.kits.length + (opts.plan === false ? 0 : 1) : opts.rots ? opts.rots.length + (opts.plan === false ? 0 : 1) : 6;
+    const W = nc * step + 2, Hh = types.length * step + 2;
     const at = freeRect(p.x, p.y, W, Hh);
     if (!at) return 'sem espaço';
     const [x0, y0] = at;
@@ -217,8 +220,10 @@ function installShowcase(game) {
     const rows = [], plans = [];
     types.forEach((t, j) => {
       const y = y0 + 1 + j * step;
-      for (let r = 0; r < rot(t); r++) rows.push([t, x0 + 1 + r * step, y, r]);
-      plans.push([t, x0 + 1 + 5 * step, y, 0]);
+      if (opts.kits) opts.kits.forEach(([st, dt], i) => rows.push([t, x0 + 1 + i * step, y, 0, st, dt]));
+      else if (opts.rots) opts.rots.forEach((r, i) => rows.push([t, x0 + 1 + i * step, y, Math.min(r, rot(t) - 1)]));
+      else for (let r = 0; r < rot(t); r++) rows.push([t, x0 + 1 + r * step, y, r]);
+      if (opts.plan !== false) plans.push([t, x0 + 1 + (nc - 1) * step, y, 0]);
     });
     let n = put(rows);
     n += put(plans, 0.4);

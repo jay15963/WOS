@@ -35,18 +35,18 @@ defineSolid('barrel', {
   decal: [0, 0.62, 16, 5], // (its painted dirt patch, kept on the ground)
 });
 
-// ---- table (art/stations.js table / table_wood_e): one see-through box (legs and gaps come from the art), and what
-// stands on it: the mug and the candle in its dish (the art draws them over the top's back; the plate and bread lie
-// painted on the top), the candle's flame on its wick ----
+// ---- table (art/stations.js table_wood_bare / _bare_e: the table art without the mug and the candle): one see-through
+// box (legs and gaps come from the art), and what stands on it in 3D: the mug and the candle in its dish (their colours
+// from the full art, table_wood: the plate and bread lie painted on the top), the candle's flame on its wick ----
 const TBL_FLAME = (B, A, o, t, x, y, lift, a) => { if (a > 0.05) K.smallFlame(B, K.tables(A), x, y, lift, 1, t, 0.5); };
-const TBL_MUG = [25.5, 0.4, 27], TBL_CV = 0.384 - 2 / 64;
+const TBL_MUG = [25.5, 0.4, 27, 'table_wood'], TBL_CV = 0.384 - 2 / 64;
 defineSolid('table_wood', {
-  model: 'front',
+  model: 'front', s: 'table_wood_bare', e: 'table_wood_bare_e',
   parts: [
     { box: [-56, 56, 0.15, 0.85, 0, 27], open: true },
-    { lathe: [25.5, 0.478 - 3.5 / 64, [[27, 3.4], [36, 3.4]]], n: 8, ow: 1.2, sh: false, px: { s: TBL_MUG, e: TBL_MUG, n: TBL_MUG, w: TBL_MUG, t: [25.5, 0.3375, 27] } }, // mug
-    { lathe: [0, TBL_CV, [[27, 4.6], [28.2, 4.6]]], n: 8, ow: 0.8, sh: false, px: [3.5, 0.384, 27] }, // the candle's dish
-    { lathe: [0, TBL_CV, [[28, 1.9], [36.5, 1.9]]], n: 6, ow: 0.8, sh: false, px: [0, 0.306, 27] },    // the candle
+    { lathe: [25.5, 0.478 - 3.5 / 64, [[27, 3.4], [36, 3.4]]], n: 8, ow: 1.2, sh: false, px: { s: TBL_MUG, e: TBL_MUG, n: TBL_MUG, w: TBL_MUG, t: [25.5, 0.3375, 27, 'table_wood'] } }, // mug
+    { lathe: [0, TBL_CV, [[27, 4.6], [28.2, 4.6]]], n: 8, ow: 0.8, sh: false, px: [3.5, 0.384, 27, 'table_wood'] }, // the candle's dish
+    { lathe: [0, TBL_CV, [[28, 1.9], [36.5, 1.9]]], n: 6, ow: 0.8, sh: false, px: [0, 0.306, 27, 'table_wood'] },    // the candle
   ],
   fx: [{ at: [0, 0.384 - 2 / 64, 38], draw: TBL_FLAME }],
   views: { e: { V: 2, parts: [{ box: [-22, 22, 0.12, 1.86, 0, 27], open: true }] } },
@@ -65,13 +65,15 @@ defineSolid('chair_wood', {
 // ---- bed (buildings.js bed / bed_n / bed_e, Y(v, h) = 64v − 7 − h: anchor row v = 2): frame + headboard. The art
 // draws the mattress from v 0.594; the model fills the two tiles (geo: the headboard at the tile edge, a bed against a
 // wall touches it), its art stretched along. rest: the pillow (art numbers) where a sleeper's head lies ----
+const BED_HB = [-18, 0.5627, 14]; // (the headboard's wood in the art)
 defineSolid('bed', {
   V: 2, model: 'front', // (the same bed whichever way it faces: the _n / _e art only textures it)
   parts: [
     { box: [-29, 29, 0.594, 1.98, 0, 9], geo: [-30, 30, 0.004, 1.996, 0, 9] },
-    { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4, gt: 6, geo: [-28, 28, 0.05, 9, 31], cover: true },
+    // the headboard: a thick board (10 px: seen edge-on it is a board, not a line), its top and ends in its wood
+    { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4, gt: 10, geo: [-28, 28, 0.082, 9, 31], cover: true, px: { t: BED_HB, e: BED_HB, w: BED_HB } },
     // the headboard's two posts with their knobs (seen from the side the head end stands up, not a thin line)
-    ...[-29, 29].map((x) => ({ lathe: [x, 0.5627, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], geo: [x, 0.05, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], n: 8, sh: false, cover: true, px: [-28, 0.5627, 15] })),
+    ...[-29, 29].map((x) => ({ lathe: [x, 0.5627, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], geo: [x, 0.082, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], n: 8, sh: false, cover: true, px: [-28, 0.5627, 15] })),
   ],
   rest: [0, 0.766, 9],
   views: {

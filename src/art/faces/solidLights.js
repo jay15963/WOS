@@ -9,6 +9,11 @@ import { mountDepth } from './walls.js';
 import { CAMV, KIT_ENV, ARCH_FACES as K } from '../archCompose.js';
 import { torchFlame } from '../composeWorld.js';
 import { TORCH_FLAME_LIFT } from '../buildings.js';
+import { ANVIL_Z } from '../stations.js';
+import { capArt } from '../caps.js';
+
+// top art (art/caps.js) of the parts drawn only from the front: stone footings, post tops, lantern caps
+const CAP_FOOT = capArt('slab', '#8f897e', false), CAP_POST = capArt('wood', '#b98a58'), CAP_IRON = capArt('iron', '#3a3a42');
 
 // ---------- shared ----------
 // sprites of the flames / glow / smoke (per atlas)
@@ -94,6 +99,7 @@ defineSolid('brazier', {
 });
 
 // ---------- cooking pot (stations.js cookingPot, mk(1, 40)): fire ring, tripod, chain and cauldron ----------
+// (seen from behind: cooking_pot_back, the ladle on the other side, no front stones painted on the ash bed)
 // The ring and the cauldron keep the art's look (projective, k); thin or hidden things take their own colour (px): the
 // tripod's three legs stand on a circle outside the stones (30 px) and meet right over the cauldron (the art draws the
 // apex behind it), the chain hangs straight down, the stones are each one stone colour, the stew fills the rim.
@@ -143,7 +149,7 @@ defineSolid('cooking_pot', {
 // the bellows lie at its foot (their own colours). The sides and the back show furnace_back (stations.js, painted only
 // for the turned camera): no second mouth on the sides.
 const FU = { k: 0.2, piv: 0.872 - 1 };
-const FU_DOME = { lathe: [0, 0.872, [[0, 25], [26, 25], [33, 20], [37, 12], [39, 0]]], n: 14 };
+const FU_DOME = { lathe: [0, 0.872, [[0, 25], [26, 25], [33, 20], [37, 12], [39, 0]]], n: 14, cap: capArt('stone', '#a08e78') }; // (its top: fieldstones seen from above)
 const FU_CHIM = [[0, 6], [64, 6], [64, 7], [66, 7], [66.5, 5.5]];
 const FU_BACK = { ...FU, parts: [FU_DOME, { lathe: [-9, 0.897, FU_CHIM], n: 8 }, { lathe: [28, 0.95, [[0, 0.8], [36, 0.8]]], n: 4 }, { box: [-30, -16, 0.95 - 1 / 64, 0.95 + 1 / 64, 0, 12] }] };
 const FU_BEL = [23, 0.95, 5];
@@ -169,27 +175,30 @@ defineSolid('furnace', {
   blob: [0.95, 0.95, 0.5, 0.4],
 });
 
-// ---------- anvil (stations.js anvil, mk(1, 26)): stump, foot, waist, face with the heel and the horn, the hammer ----------
+// ---------- anvil (stations.js anvil_big: the anvil art ANVIL_Z× bigger about its foot, mk(1, 26)): stump, foot, waist,
+// face with the heel and the horn, the hammer ----------
 // The art draws the iron seen from the front only (its top a 1 px highlight) and 3 px above the stump's top: the model
 // stands on the stump (geo: 3 px lower), each block with its true depth (ad: true px → art rows), the front from the
 // art, tops and ends in the iron's own colours (px). The horn tapers in three steps to its tip; the hammer lies on the face.
-const AV = 0.9, AK = 4 / 11.5, ad = (px) => (px / 2) * AK / 64;
-const AVB = (x0, x1, d, h0, h1, o) => ({ box: [x0, x1, AV - ad(d), AV + ad(d), h0, h1], geo: [x0, x1, AV - ad(d), AV + ad(d), h0 - 3, h1 - 3], sh: false, ...o });
-const A_HI = [-15, AV, 34], A_MID = [2, AV, 31], A_DK = [0, AV, 25], A_SIDE = { n: A_MID, e: A_MID, w: A_MID, t: A_HI };
+// Numbers are the 1× painter's (z: scaled about the foot, as anvil_big is painted): a proper anvil for its tile.
+const AV = 0.9, AK = 4 / 11.5, AZ = ANVIL_Z, ad = (px) => (px / 2) * AK / 64 * AZ;
+const zp = ([x, v, h]) => [x * AZ, v, h * AZ];
+const AVB = (x0, x1, d, h0, h1, o) => ({ box: [x0 * AZ, x1 * AZ, AV - ad(d), AV + ad(d), h0 * AZ, h1 * AZ], geo: [x0 * AZ, x1 * AZ, AV - ad(d), AV + ad(d), (h0 - 3) * AZ, (h1 - 3) * AZ], sh: false, ...o });
+const A_HI = zp([-15, AV, 34]), A_MID = zp([2, AV, 31]), A_DK = zp([0, AV, 25]), A_SIDE = { n: A_MID, e: A_MID, w: A_MID, t: A_HI };
 defineSolid('anvil', {
-  k: AK, piv: AV - 1, align: AV,
+  s: 'anvil_big', k: AK, piv: AV - 1, align: AV,
   parts: [
-    { lathe: [0, AV, [[0, 13], [18, 11]]], n: 10 },
+    { lathe: [0, AV, [[0, 13 * AZ], [18 * AZ, 11 * AZ]]], n: 12, cap: capArt('wood', '#c49a64') },
     AVB(-9, 9, 14, 21, 24, { px: { n: A_MID, e: A_MID, w: A_MID, t: A_MID } }),        // foot
     AVB(-6, 6, 8, 23.5, 30.5, { px: { n: A_DK, e: A_DK, w: A_DK, t: A_DK } }),          // waist
     AVB(-9, 12, 12, 30, 36, { px: A_SIDE, sh: true }),                                   // face and heel
     AVB(-14, -9, 9, 30.5, 36, { px: A_SIDE }),                                           // the horn, three steps
     AVB(-19, -14, 6, 31.5, 35.8, { px: A_SIDE }),
     AVB(-23.5, -19, 3, 33, 35.4, { px: A_SIDE }),
-    { box: [3, 15, AV - ad(2.5), AV + ad(2.5), 33, 35.4], px: [6, AV, 38.6], sh: false, z: 0.01 },  // hammer: handle
-    { box: [-2.5, 3, AV - ad(6), AV + ad(6), 33, 37.5], px: [0, AV, 39], sh: false, z: 0.01 },     // and head
+    { box: [3 * AZ, 15 * AZ, AV - ad(2.5), AV + ad(2.5), 33 * AZ, 35.4 * AZ], px: zp([6, AV, 38.6]), sh: false, z: 0.01 },  // hammer: handle
+    { box: [-2.5 * AZ, 3 * AZ, AV - ad(6), AV + ad(6), 33 * AZ, 37.5 * AZ], px: zp([0, AV, 39]), sh: false, z: 0.01 },     // and head
   ],
-  blob: [0.62, 0.5, 0.5, 0.42],
+  blob: [0.62 * AZ, 0.5 * AZ, 0.5, 0.42],
 });
 
 // ---------- workbench (stations.js workbench / _n / _e): the bench (legs and shelf from the art) + the tool board ----------
@@ -324,11 +333,11 @@ const LS = 0.55, LK = 0.29, ls = (w) => (w * LK) / 64; // (half depth of a squar
 defineSolid('lamp_stone', {
   foot: true, k: LK, piv: LS - 1, ramp: false,
   parts: [
-    { box: [-11, 11, 0.5, 0.6, 0, 6], sh: false },
+    { box: [-11, 11, 0.5, 0.6, 0, 6], sh: false, cap: capArt('slab', '#9a9386', false) },
     { box: [-5, 5, LS - ls(5), LS + ls(5), 6, 30], sh: false },
-    { box: [-10, 10, LS - ls(10), LS + ls(10), 29, 33], sh: false, px: { t: [-8, 0.6, 31] } },
+    { box: [-10, 10, LS - ls(10), LS + ls(10), 29, 33], sh: false, cap: capArt('slab', '#a9a194', false) },
     { box: [-8.5, 8.5, LS - ls(8.5), LS + ls(8.5), 33, 49], sh: false },
-    { lathe: [0, LS, [[49, 13], [54.5, 3], [56, 2.2], [58, 0]]], n: 8 },
+    { lathe: [0, LS, [[49, 13], [54.5, 3], [56, 2.2], [58, 0]]], n: 8, cap: capArt('slab', '#b3ab9d') }, // (the roof seen from above)
   ],
   glow: { s: 'lamp_stone_glow', all: true, parts: [2, 3], a: () => 0.55 + 0.4 * KIT_ENV.night },
   fx: [{ at: [0, LS, 36], draw: candle(0.6) }],
@@ -340,11 +349,11 @@ const LW = 0.6, LWK = 0.15;
 defineSolid('lamp_wood', {
   foot: true, k: LWK, piv: LW - 1, ramp: false,
   parts: [
-    { box: [-14, -2, LW - (6 * LWK) / 64, LW + (6 * LWK) / 64, 0, 6], sh: false },
-    { lathe: [-8, LW, [[5, 3], [85, 3], [85, 4], [88, 4]]], n: 8 },
-    { box: [-11, 11, LW - (2 * LWK) / 64, LW + (2 * LWK) / 64, 77, 81], sh: false },
+    { box: [-14, -2, LW - (6 * LWK) / 64, LW + (6 * LWK) / 64, 0, 6], sh: false, cap: CAP_FOOT },
+    { lathe: [-8, LW, [[5, 3], [85, 3], [85, 4], [88, 4]]], n: 8, cap: CAP_POST },
+    { box: [-11, 11, LW - (2 * LWK) / 64, LW + (2 * LWK) / 64, 77, 81], sh: false, cap: capArt('plank', '#7d5532', false) },
     { card: [-8, 14, LW, 66, 82], t: 0.3, sh: false },
-    { lathe: [7, LW, [[57.6, 5.5], [60, 5.5], [60, 5], [71, 5], [71, 6], [76, 0]]], n: 8, sh: false },
+    { lathe: [7, LW, [[57.6, 5.5], [60, 5.5], [60, 5], [71, 5], [71, 6], [76, 0]]], n: 8, sh: false, cap: CAP_IRON },
   ],
   glow: { s: 'lamp_wood_glow', all: true, parts: [4], a: () => 0.55 + 0.4 * KIT_ENV.night },
   light: [7, LW, 0],
@@ -355,10 +364,10 @@ const LP = 0.85, LPK = 0.1;
 defineSolid('lamp_post', {
   k: LPK, piv: LP - 1, ramp: false,
   parts: [
-    { box: [-13, 1, LP - (7 * LPK) / 64, LP + (7 * LPK) / 64, 0, 8], sh: false },
-    { lathe: [-6, LP, [[7, 2.75], [115, 2.75], [115, 4], [118, 4]]], n: 8 },
+    { box: [-13, 1, LP - (7 * LPK) / 64, LP + (7 * LPK) / 64, 0, 8], sh: false, cap: CAP_FOOT },
+    { lathe: [-6, LP, [[7, 2.75], [115, 2.75], [115, 4], [118, 4]]], n: 8, cap: CAP_POST },
     { card: [-6, 14, LP, 96, 116], t: 0.2, sh: false },
-    { lathe: [10.24, LP, [[78.4, 6.5], [81.4, 6.5], [81.4, 5.5], [93.4, 5.5], [93.4, 7], [98.4, 0]]], n: 8, sh: false },
+    { lathe: [10.24, LP, [[78.4, 6.5], [81.4, 6.5], [81.4, 5.5], [93.4, 5.5], [93.4, 7], [98.4, 0]]], n: 8, sh: false, cap: CAP_IRON },
   ],
   glow: { s: 'lamp_post_glow', all: true, parts: [3], a: (o, t) => { if (!lit(o)) return 0; const s = o.x * 1.37 + o.y * 0.71; return 0.9 + 0.1 * Math.sin(t * 13 + s) * Math.sin(t * 5.1 + s); } },
   fx: [{ at: [10.24, LP, 86.4], draw(B, A, o, t, x, y, lift, a) {
