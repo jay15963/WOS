@@ -10,6 +10,8 @@ import { defineSolid } from './solid.js';
 import { CAMV, ARCH_FACES as K, archSprite } from '../archCompose.js';
 import { tintOf } from './props.js';
 import { bq, vq, shade } from './kit.js';
+import { capArt } from '../caps.js';
+import { COL_TURNED } from '../roofs.js';
 
 // ---------- little helpers ----------
 const box = (x0, x1, v0, v1, h0, h1, o) => ({ box: [x0, x1, v0, v1, h0, h1], ...o });
@@ -17,6 +19,9 @@ const card = (x0, x1, v, h0, h1, o) => ({ card: [x0, x1, v, h0, h1], ...o });
 const lathe = (x, v, pr, o) => ({ lathe: [x, v, pr], ...o });
 const quad = (q, o) => ({ quad: q, ...o });
 const NS = { sh: false };
+// top art (art/caps.js) of the tops the front art cannot show: dressed stone, the end of a post, a beam block
+const CAP_SLAB = capArt('slab', '#9a9386', false), CAP_SLAB_HI = capArt('slab', '#bcb4a6', false), CAP_SLAB_R = capArt('slab', '#a9a194');
+const CAP_END = capArt('wood', '#b98a58', false), CAP_END_R = capArt('wood', '#b98a58'), CAP_BEAM = capArt('plank', '#9c6e43', false);
 // no faces of its own, only the sun shadow of the whole art (its silhouette across the sun) standing at ground row v
 const SHADOW = (v, h) => lathe(0, v, [[0, 0.01], [h, 0.01]], { n: 3, px: [1e4, 0, 0] }); // (a texel off the image: no faces)
 const pivOf = (vArt, V, k, vTrue) => ((vArt - V) - k * (vTrue - V)) / (1 - k); // the piv that puts art row vArt at vTrue
@@ -93,12 +98,14 @@ defineSolid('cart', {
   },
 });
 
-// ---------- drying rack (decor.js dryingRack): two A-frames, the pole, hides and herbs hanging from it ----------
+// ---------- drying rack (decor.js dryingRack): two A-frames, the pole, hides and herbs hanging from it; the hides
+// sway in the wind about the pole (wind: a shear below it) ----------
+const DR_WIND = (a) => ({ t: 2, sh: false, wind: [a, 46] });
 defineSolid('drying_rack', {
   parts: [
     box(-60, -44, 0.45, 0.75, 0, 48, { open: true, sh: false }), box(44, 60, 0.45, 0.75, 0, 48, { open: true, sh: false }),
     box(-54, 54, 0.57, 0.63, 44.4, 48, NS),
-    card(-42, -16, 0.6, 16, 46, { t: 2, sh: false }), card(-10, 12, 0.6, 20, 46, { t: 2, sh: false }), card(21, 41, 0.6, 21, 45, { t: 2, sh: false }),
+    card(-42, -16, 0.6, 16, 46, DR_WIND(0.07)), card(-10, 12, 0.6, 20, 46, DR_WIND(-0.06)), card(21, 41, 0.6, 21, 45, DR_WIND(0.08)),
     SHADOW(0.6, 48),
   ],
   // _e: the A-frames face-on at v 0.2 / 1.8, the pole end-on, the hides edge-on
@@ -167,15 +174,16 @@ defineSolid('well', {
 // ---------- statue (decor.js statue_0 / _1): base slab, column, cap, the figure (warrior or owl) ----------
 // the art draws the square pedestal's tops 5–6 px deep for 28–34 px: k ≈ 0.18, centred in the tile. The figure is two
 // crossed boards with its art (a round body wrapped in a flat drawing broke into shards turning): the front board
-// shows it from the front, the board across it shows it from the side (the side view is the front art: e = statue_<v>)
+// shows it from the front and, from behind, its own back (statue_<v>_back: the owl's wings, the shield's grip — no
+// face on the back), the board across it shows its profile (statue_<v>_side)
 const SK = 6 / 34, SP = pivOf(0.613, 1, SK, 0.5), sdp = (px) => (px * SK) / 64;
-const ST_PED = [box(-17, 17, 0.566, 0.66, 0, 8, NS), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, NS)];
+const ST_PED = [box(-17, 17, 0.566, 0.66, 0, 8, { sh: false, cap: CAP_SLAB }), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, { sh: false, cap: CAP_SLAB_HI })];
 const ST_EDGE = box(-1.5, 1.5, 0.613 - sdp(15), 0.613 + sdp(15), 38, 95, NS), ST_FACE = card(-15, 15, 0.613, 38, 95, { t: 3 });
 defineSolid('statue', {
   k: SK, piv: SP,
   parts: [...ST_PED, ST_FACE, ST_EDGE],
   views: { e: { k: SK, piv: SP, parts: [...ST_PED, ST_EDGE, ST_FACE] } },
-  state: (o) => ((o.v | 0) & 1 ? 'b' : 'a'), variants: { a: { e: 'statue_0' }, b: { e: 'statue_1' } },
+  state: (o) => ((o.v | 0) & 1 ? 'b' : 'a'), variants: { a: { e: 'statue_0_side', n: 'statue_0_back' }, b: { e: 'statue_1_side', n: 'statue_1_back' } },
   blob: [0.75, 0.75, 0.5, 0.4],
 });
 
@@ -260,13 +268,14 @@ defineSolid('notice_board', {
 // ---------- signpost (decor.js signpost; edge piece): the post with its tip, two arrow boards through it ----------
 defineSolid('signpost', {
   foot: true,
-  parts: [box(-2.3, 2.3, 0.584, 0.656, 0, 56), box(-3.5, 3.5, 0.584, 0.656, 56, 61, NS), card(0, 25, 0.62, 42, 53, NS), card(-23, 0, 0.62, 30, 41, NS)],
+  parts: [box(-2.3, 2.3, 0.584, 0.656, 0, 56), box(-3.5, 3.5, 0.584, 0.656, 56, 61, { sh: false, cap: CAP_END }), card(0, 25, 0.62, 42, 53, NS), card(-23, 0, 0.62, 30, 41, NS)],
   blob: [0.35, 0.3, 0.1, 0.4],
 });
 
 // ---------- garden arch (decor.js gardenArch): a real walk-through arbour, not a board: two posts on each side (front
 // and back, geo: the art's posts on both planes) joined by a trellis panel (its sides the posts' edge stretched: the
-// vines), the arch with its roses on both planes, slats over the top following the curve ----------
+// vines), the arch with its roses on both planes (the garland sways a little in the wind), slats over the top following
+// the curve ----------
 const GA_D = 0.13, GA_POST = [[0, 2.6], [78, 2.6]];
 const GA_SLATS = [0.12, 0.27, 0.42, 0.58, 0.73, 0.88].map((u) => { const x = -26 + 52 * u, h = 76 + 56 * u * (1 - u); return box(x - 1.6, x + 1.6, 0.7 - GA_D, 0.7 + GA_D, h - 2.5, h + 0.4, { sh: false, ow: 0.8, px: [-25.5, 0.7, 40] }); });
 defineSolid('garden_arch', {
@@ -274,22 +283,23 @@ defineSolid('garden_arch', {
   parts: [
     ...[-26, 26].flatMap((x) => [GA_D, -GA_D].map((d) => lathe(x, 0.7, GA_POST, { n: 6, sh: false, geo: [x, 0.7 + d, GA_POST] }))),
     box(-27.4, -24.6, 0.7 - GA_D, 0.7 + GA_D, 6, 74, { sh: false, ow: 1 }), box(24.6, 27.4, 0.7 - GA_D, 0.7 + GA_D, 6, 74, { sh: false, ow: 1 }),
-    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 + GA_D, 66, 98] }),
-    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 - GA_D, 66, 98] }),
+    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 + GA_D, 66, 98], wind: [0.035, 66] }),
+    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 - GA_D, 66, 98], wind: [0.035, 66] }),
     ...GA_SLATS,
     SHADOW(0.7, 96),
   ],
   blob: [1, 0.45, 0.5, 0.35],
 });
 
-// ---------- pergola (decor.js pergola, 2×2): four posts, two beams, the rafters and leaves lying on top ----------
+// ---------- pergola (decor.js pergola, 2×2): four posts, two beams, the rafters and leaves lying on top (the leaves
+// stir in the wind: the mat sways a hair over the beams) ----------
 defineSolid('pergola', {
   V: 2,
   parts: [
     lathe(-54, 0.18, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }), lathe(54, 0.18, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }),
     lathe(-54, 1.86, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }), lathe(54, 1.86, [[0, 3.5], [72, 3.5]], { n: 4, sh: false }),
     box(-62, 62, 0.13, 0.23, 70, 76), box(-62, 62, 1.81, 1.91, 70, 76),
-    quad([[-64, 0, 80], [64, 0, 80], [64, 2.04, 80], [-64, 2.04, 80]], { z: 2, sh: false }),
+    quad([[-64, 0, 80], [64, 0, 80], [64, 2.04, 80], [-64, 2.04, 80]], { z: 2, sh: false, wind: [0.018, 0] }),
     SHADOW(1, 80),
   ],
   blob: false,
@@ -332,13 +342,13 @@ defineSolid('training_dummy', {
 // drawn at row 0.78 with flat fronts: k 0.3 puts them in the middle of the tile as square / round blocks. They hold
 // the roof up: the capital reaches the wall top (one story, 64 px) where the eaves sit (geo: the art drawn 10 px lower)
 const QK = 0.3, QP = pivOf(0.733, 1, QK, 0.5), QV = 0.733, qd = (px) => (px * QK) / 64; // (qd: a true half depth, px → art rows)
-const COL_POST = [box(-10, 10, 0.686, 0.78, 0, 7, { top: 'strip', sh: false }),
+const COL_POST = [box(-10, 10, 0.686, 0.78, 0, 7, { cap: CAP_SLAB, sh: false }),
   lathe(0, QV, [[7, 6], [48, 6]], { n: 10, geo: [0, QV, [[7, 6], [58, 6]]] }),
   card(-13, 13, QV, 40, 48.5, { t: 3, sh: false, geo: [-13, 13, QV, 50, 58.5] }),
-  box(-15, 15, 0.716, 0.75, 47, 54, { top: 'strip', sh: false, geo: [-16, 16, 0.712, 0.754, 57, 64] })];
-const COL_STONE = [box(-12, 12, 0.677, 0.79, 0, 8, { top: 'strip', sh: false }),
+  box(-15, 15, 0.716, 0.75, 47, 54, { cap: CAP_BEAM, sh: false, geo: [-16, 16, 0.712, 0.754, 57, 64] })];
+const COL_STONE = [box(-12, 12, 0.677, 0.79, 0, 8, { cap: CAP_SLAB, sh: false }),
   lathe(0, QV, [[8, 8], [46, 8]], { n: 10, geo: [0, QV, [[8, 8], [56, 8]]] }),
-  box(-14, 14, 0.682, 0.784, 44, 54, { top: 'strip', sh: false, geo: [-15, 15, 0.679, 0.787, 54, 64] })];
+  box(-14, 14, 0.682, 0.784, 44, 54, { cap: CAP_SLAB_HI, sh: false, geo: [-15, 15, 0.679, 0.787, 54, 64] })];
 defineSolid('column_wood', { k: QK, piv: QP, align: QV, parts: COL_POST, blob: [0.6, 0.6, 0.5, 0.36], state: colState, variant: colVariant });
 defineSolid('column_stone', { k: QK, piv: QP, align: QV, parts: COL_STONE, blob: [0.62, 0.62, 0.5, 0.36], state: colState, variant: colVariant });
 
@@ -364,30 +374,25 @@ function colVariant(st) {
   let v = COLV.get(st);
   if (v) return v;
   const [look, ds, mat] = st.split('|'), on = new Set(ds ? ds.split('.') : []), wood = look === 'post' || ((look === 'round' || look === 'carved') && mat === 'w');
-  const s = wood ? 'column_wood' : 'column_stone';
-  const sa = wood ? [[0, 10], [7, 10]] : [[0, 12], [8, 12]], sh = wood ? [[7, 6], [48, 6]] : [[8, 8], [46, 8]], sc = wood ? [[47, 15], [54, 15]] : [[44, 14], [54, 14]];
+  let s = wood ? 'column_wood' : 'column_stone';
   let parts, R;
   if (look === 'post') { parts = [...COL_POST]; R = 6; }
   else if (look === 'stone') { parts = [...COL_STONE]; R = 8; }
-  else if (look === 'round') {
-    R = 7.5;
-    parts = [lathe(0, QV, sa, { n: 12, sh: false, geo: [0, QV, [[0, 12.5], [4.5, 12.5], [7, 10]]] }), lathe(0, QV, sh, { n: 12, geo: [0, QV, [[7, 7.5], [57, 7.5]]] }),
-      lathe(0, QV, sc, { n: 12, sh: false, geo: [0, QV, [[57, 9], [59.5, 12.5], [64, 12.5]]] })];
-  } else { // carved: rings round the shaft, a flared capital
-    R = 7;
-    parts = [lathe(0, QV, sa, { n: 12, sh: false, geo: [0, QV, [[0, 13], [3, 13], [3, 11.5], [6, 11.5], [8, 9]]] }),
-      lathe(0, QV, sh, { n: 12, geo: [0, QV, [[8, 7], [11, 7], [12, 8.6], [14.5, 8.6], [15.5, 7], [48.5, 7], [49.5, 8.6], [52, 8.6], [53, 7], [56, 7]]] }),
-      lathe(0, QV, sc, { n: 12, sh: false, geo: [0, QV, [[56, 7.5], [58, 10], [60.5, 13.5], [64, 14.5]]] })];
+  else {
+    // round / carved: their own art (art/roofs.js columnTurned, the same profiles), base and capital tops from above
+    s = `column_${look}_${mat}`; R = look === 'round' ? 7.5 : 7;
+    const [pb, ps, pc] = COL_TURNED[look], top = wood ? CAP_END_R : CAP_SLAB_R;
+    parts = [lathe(0, QV, pb, { n: 12, sh: false, cap: top }), lathe(0, QV, ps, { n: 12 }), lathe(0, QV, pc, { n: 12, sh: false, cap: top })];
   }
   const fx = [];
   let light = null;
   const B = R + 6; // (the base's and the abacus' half width)
-  if (on.has('base')) parts.push(box(-B, B, QV - qd(B), QV + qd(B), 0, 4, { sh: false, px: COL_STC, ow: 1, z: -0.01 }));
+  if (on.has('base')) parts.push(box(-B, B, QV - qd(B), QV + qd(B), 0, 4, { sh: false, px: COL_STC, ow: 1, z: -0.01, cap: CAP_SLAB }));
   if (on.has('capital')) {
     parts.push(lathe(0, QV, [[53, R + 1.6], [55.5, R + 1.6]], { n: 12, sh: false, px: COL_CAP, ow: 0.6 })); // (a collar under the capital)
     // the wooden post: a second bolster across the first (a cross); the others: a square abacus over the capital
-    if (look === 'post') parts.push(box(-6, 6, QV - qd(16), QV + qd(16), 57.5, 64, { sh: false, px: COL_CAP, ow: 1 }));
-    else parts.push(box(-B, B, QV - qd(B), QV + qd(B), 61.5, 64.6, { sh: false, px: COL_CAP, ow: 1, z: 0.01 }));
+    if (look === 'post') parts.push(box(-6, 6, QV - qd(16), QV + qd(16), 57.5, 64, { sh: false, px: COL_CAP, ow: 1, cap: CAP_BEAM }));
+    else parts.push(box(-B, B, QV - qd(B), QV + qd(B), 61.5, 64.6, { sh: false, px: COL_CAP, ow: 1, z: 0.01, cap: wood ? CAP_BEAM : CAP_SLAB_HI }));
   }
   if (on.has('sconce')) {
     const vf = QV + qd(R), v0 = QV + qd(R + 6) - (0.075 * 38) / 64;
@@ -445,10 +450,11 @@ defineSolid('tent_0', {
   ],
   blob: [2.1, 1.1, 0.42, 0.4],
 });
-// conical hide tent (tent_1): the cone (its round base drawn very flat: k 0.15) with the poles fanning out of the top
+// conical hide tent (tent_1): the cone (its round base drawn very flat: k 0.15) with the poles fanning out of the top;
+// the back and the sides show tent_1_back (stations.js: a laced seam, no second doorway)
 const PK = 0.15;
 defineSolid('tent_1', {
-  world: [1.5, 1.5], k: PK, piv: pivOf(0.85, 1, PK, 0.25),
+  world: [1.5, 1.5], k: PK, piv: pivOf(0.85, 1, PK, 0.25), e: 'tent_1_back',
   parts: [lathe(0, 0.85, [[0, 48], [6, 44], [40, 26], [90, 4], [98, 1]]), lathe(0, 0.85, [[96, 1.5], [112, 9]], { n: 6, sh: false })],
   blob: [1.6, 1.6, 0.75, 0.4],
 });

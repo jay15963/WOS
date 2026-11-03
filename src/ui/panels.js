@@ -212,7 +212,7 @@ export class Panels {
         const have = p.inv.count(it);
         return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${have}/${n}</span>`;
       }).join('') : '<span class="cost">grátis</span>';
-      const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
+      const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.deck === 'bridge' ? 'arraste: linha reta de margem a margem' : b.deck === 'pier' ? 'arraste: área na água rasa, da margem' : b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
       let sty = '';
       if (hasKit(id)) { // agent K: styles chip (opens Detalhes) + the remembered look
         const [st, dt] = lastLook(g, id), n = detList(dt).length, sn = stylesFor(id).find((s) => s.id === normStyle(id, st))?.name;

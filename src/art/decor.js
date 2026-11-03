@@ -869,30 +869,71 @@ function gardenArch() {
     }, 1.2);
   });
 }
-function statue(v) {
+// view: 's' (front) | 'back' (seen from behind) | 'side' (its front turned east: a profile facing right) — the back and the
+// side are only drawn while the camera is turned (art/faces/solidGarden.js: no owl eyes on the back)
+function statue(v, view = 's') {
   return mk(1, 84, (g, P, Y, W) => {
-    const cx = W / 2, b = Y(0.66, 0);
+    const cx = W / 2, b = Y(0.66, 0), back = view === 'back', side = view === 'side';
     ground(g, cx, b, 22, 7);
     P.layer((g) => {
-      // pedestal
+      // pedestal (square: the same from every side)
       g.fillStyle = STONE.dark; g.fillRect(cx - 17, b - 8, 34, 8); stoneTop(g, cx - 17, b - 14, cx + 17, b - 8, STONE.mid);
       g.fillStyle = lin(g, cx - 12, 0, cx + 12, 0, [[0, STONE.light], [1, STONE.dark]]); g.fillRect(cx - 12, b - 34, 24, 22);
       g.fillStyle = 'rgba(40,36,30,0.4)'; g.fillRect(cx - 9, b - 28, 18, 1); g.fillRect(cx - 9, b - 18, 18, 1);
       stoneTop(g, cx - 14, b - 38, cx + 14, b - 33, STONE.high);
       const S = (c) => lin(g, cx - 12, 0, cx + 12, 0, [[0, '#d8d2c4'], [0.5, '#b4ad9f'], [1, '#7e786c']]);
+      const line = (a) => { g.strokeStyle = `rgba(60,56,48,${a})`; g.lineWidth = 0.9; };
       if (v === 0) { // warrior with spear and shield
-        g.fillStyle = S(); g.beginPath(); g.moveTo(cx - 6, b - 38); g.lineTo(cx - 8, b - 58); g.quadraticCurveTo(cx, b - 64, cx + 8, b - 58); g.lineTo(cx + 6, b - 38); g.closePath(); g.fill();
-        g.beginPath(); g.ellipse(cx, b - 68, 5.6, 6.4, 0, 0, TAU); g.fill();
-        g.beginPath(); g.ellipse(cx - 9, b - 50, 6, 8, 0, 0, TAU); g.fill();
-        g.fillStyle = '#9a9386'; g.fillRect(cx + 8, b - 84, 2.4, 48); g.beginPath(); g.moveTo(cx + 9.2, b - 92); g.lineTo(cx + 6.4, b - 84); g.lineTo(cx + 12, b - 84); g.closePath(); g.fill();
+        if (side) {
+          // profile facing right: the spear in front, the shield's rim behind the body
+          g.fillStyle = '#9a9386'; g.beginPath(); g.ellipse(cx - 6, b - 50, 2.2, 8, 0, 0, TAU); g.fill();
+          g.fillStyle = S(); g.beginPath(); g.moveTo(cx - 4, b - 38); g.lineTo(cx - 5, b - 58); g.quadraticCurveTo(cx + 1, b - 64, cx + 5, b - 57); g.lineTo(cx + 4, b - 38); g.closePath(); g.fill();
+          g.beginPath(); g.ellipse(cx + 0.5, b - 68, 4.8, 6.2, 0, 0, TAU); g.fill();
+          g.fillStyle = '#7e786c'; g.beginPath(); g.moveTo(cx + 4.6, b - 69); g.lineTo(cx + 6.4, b - 67); g.lineTo(cx + 4.4, b - 66); g.closePath(); g.fill(); // (the nose)
+          g.fillStyle = S(); g.fillRect(cx + 1, b - 56, 5, 3); // (the arm holding the spear)
+          g.fillStyle = '#9a9386'; g.fillRect(cx + 6, b - 84, 2.4, 48); g.beginPath(); g.moveTo(cx + 7.2, b - 92); g.lineTo(cx + 4.4, b - 84); g.lineTo(cx + 10, b - 84); g.closePath(); g.fill();
+        } else {
+          const d = back ? -1 : 1; // (from behind the shield and the spear swap sides)
+          g.fillStyle = S(); g.beginPath(); g.moveTo(cx - 6, b - 38); g.lineTo(cx - 8, b - 58); g.quadraticCurveTo(cx, b - 64, cx + 8, b - 58); g.lineTo(cx + 6, b - 38); g.closePath(); g.fill();
+          g.beginPath(); g.ellipse(cx, b - 68, 5.6, 6.4, 0, 0, TAU); g.fill();
+          if (back) { // the back of the shield (its grip), a cloak's folds, the nape
+            g.fillStyle = '#a9a294'; g.beginPath(); g.ellipse(cx + 9, b - 50, 6, 8, 0, 0, TAU); g.fill();
+            g.fillStyle = '#8a8478'; g.fillRect(cx + 8, b - 56, 2, 12);
+            line(0.45); g.beginPath(); g.moveTo(cx - 3, b - 58); g.lineTo(cx - 4, b - 40); g.moveTo(cx + 2.5, b - 58); g.lineTo(cx + 3, b - 40); g.stroke();
+            line(0.35); g.beginPath(); g.moveTo(cx - 4.5, b - 64.5); g.quadraticCurveTo(cx, b - 62.5, cx + 4.5, b - 64.5); g.stroke();
+          } else { g.beginPath(); g.ellipse(cx - 9, b - 50, 6, 8, 0, 0, TAU); g.fill(); }
+          g.fillStyle = '#9a9386'; g.fillRect(cx + 8 * d - (d < 0 ? 2.4 : 0), b - 84, 2.4, 48); g.beginPath(); g.moveTo(cx + 9.2 * d, b - 92); g.lineTo(cx + 6.4 * d, b - 84); g.lineTo(cx + 12 * d, b - 84); g.closePath(); g.fill();
+        }
         g.fillStyle = 'rgba(86,118,52,0.6)'; g.beginPath(); g.ellipse(cx - 4, b - 40, 5, 2, 0, 0, TAU); g.fill();
       } else { // owl
-        g.fillStyle = S(); g.beginPath(); g.ellipse(cx, b - 54, 12, 16, 0, 0, TAU); g.fill();
-        g.beginPath(); g.ellipse(cx, b - 72, 10, 8, 0, 0, TAU); g.fill();
-        g.beginPath(); g.moveTo(cx - 9, b - 76); g.lineTo(cx - 7, b - 84); g.lineTo(cx - 3, b - 78); g.closePath(); g.fill(); g.beginPath(); g.moveTo(cx + 9, b - 76); g.lineTo(cx + 7, b - 84); g.lineTo(cx + 3, b - 78); g.closePath(); g.fill();
-        g.fillStyle = '#e8e2d4'; g.beginPath(); circle(g, cx - 4, b - 72, 3.4); g.fill(); g.beginPath(); circle(g, cx + 4, b - 72, 3.4); g.fill();
-        g.fillStyle = '#5a554c'; g.beginPath(); circle(g, cx - 4, b - 72, 1.4); g.fill(); g.beginPath(); circle(g, cx + 4, b - 72, 1.4); g.fill();
-        g.strokeStyle = 'rgba(60,56,48,0.5)'; g.lineWidth = 0.9; for (let k = 0; k < 4; k++) { g.beginPath(); g.arc(cx, b - 58 + k * 5, 6, 0.3, Math.PI - 0.3); g.stroke(); }
+        if (side) {
+          // profile facing right: one eye, the beak, a folded wing, the tail
+          g.fillStyle = S(); g.beginPath(); g.ellipse(cx - 1, b - 54, 10, 16, 0, 0, TAU); g.fill();
+          g.beginPath(); g.ellipse(cx + 1, b - 72, 8.5, 8, 0, 0, TAU); g.fill();
+          g.beginPath(); g.moveTo(cx - 5, b - 76); g.lineTo(cx - 5, b - 84); g.lineTo(cx, b - 78); g.closePath(); g.fill();
+          g.fillStyle = '#a19a8c'; g.beginPath(); g.moveTo(cx - 9, b - 40); g.lineTo(cx - 15, b - 36); g.lineTo(cx - 6, b - 39); g.closePath(); g.fill();
+          g.fillStyle = '#e8e2d4'; g.beginPath(); circle(g, cx + 4.5, b - 72, 3.2); g.fill();
+          g.fillStyle = '#5a554c'; g.beginPath(); circle(g, cx + 5.5, b - 72, 1.3); g.fill();
+          g.fillStyle = '#8a8478'; g.beginPath(); g.moveTo(cx + 8.5, b - 71); g.lineTo(cx + 12, b - 68.5); g.lineTo(cx + 8.2, b - 67.4); g.closePath(); g.fill();
+          g.fillStyle = 'rgba(80,74,64,0.35)'; g.beginPath(); g.ellipse(cx - 3, b - 52, 6.5, 12, -0.15, 0, TAU); g.fill();
+          line(0.5); for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(cx - 3, b - 58 + k * 6, 5, 0.4, Math.PI - 0.4); g.stroke(); }
+        } else {
+          g.fillStyle = S(); g.beginPath(); g.ellipse(cx, b - 54, 12, 16, 0, 0, TAU); g.fill();
+          g.beginPath(); g.ellipse(cx, b - 72, 10, 8, 0, 0, TAU); g.fill();
+          g.beginPath(); g.moveTo(cx - 9, b - 76); g.lineTo(cx - 7, b - 84); g.lineTo(cx - 3, b - 78); g.closePath(); g.fill(); g.beginPath(); g.moveTo(cx + 9, b - 76); g.lineTo(cx + 7, b - 84); g.lineTo(cx + 3, b - 78); g.closePath(); g.fill();
+          if (back) { // the back: two folded wings with their feathers, the tail, no face
+            g.fillStyle = 'rgba(80,74,64,0.32)';
+            for (const d of [-1, 1]) { g.beginPath(); g.ellipse(cx + d * 5.5, b - 51, 6, 13, d * 0.12, 0, TAU); g.fill(); }
+            line(0.5); for (const d of [-1, 1]) for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(cx + d * 5.5, b - 58 + k * 6, 4.4, 0.35, Math.PI - 0.35); g.stroke(); }
+            g.beginPath(); g.moveTo(cx, b - 64); g.lineTo(cx, b - 40); g.stroke();
+            g.fillStyle = '#a19a8c'; g.beginPath(); g.moveTo(cx - 5, b - 40); g.lineTo(cx, b - 35); g.lineTo(cx + 5, b - 40); g.closePath(); g.fill();
+            line(0.3); g.beginPath(); g.moveTo(cx - 6, b - 70); g.quadraticCurveTo(cx, b - 67, cx + 6, b - 70); g.stroke();
+          } else {
+            g.fillStyle = '#e8e2d4'; g.beginPath(); circle(g, cx - 4, b - 72, 3.4); g.fill(); g.beginPath(); circle(g, cx + 4, b - 72, 3.4); g.fill();
+            g.fillStyle = '#5a554c'; g.beginPath(); circle(g, cx - 4, b - 72, 1.4); g.fill(); g.beginPath(); circle(g, cx + 4, b - 72, 1.4); g.fill();
+            line(0.5); for (let k = 0; k < 4; k++) { g.beginPath(); g.arc(cx, b - 58 + k * 5, 6, 0.3, Math.PI - 0.3); g.stroke(); }
+          }
+        }
       }
     }, OW);
   });
@@ -1171,7 +1212,7 @@ function decorSprites(S) {
   A('well', () => well()); A('signpost', () => signpost());
   A('bench_stone', () => benchStone(false)); A('bench_stone_e', () => benchStone(true));
   A('garden_arch', () => gardenArch());
-  for (let v = 0; v < 2; v++) A('statue_' + v, () => statue(v));
+  for (let v = 0; v < 2; v++) { A('statue_' + v, () => statue(v)); A(`statue_${v}_back`, () => statue(v, 'back')); A(`statue_${v}_side`, () => statue(v, 'side')); }
   A('totem', () => totem());
   A('woodpile', () => woodpile(false)); A('woodpile_e', () => woodpile(true));
   A('haystack', () => haystack());

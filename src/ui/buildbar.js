@@ -446,7 +446,8 @@ export function installBuildbar(game) {
       const [fw, fh] = dimsOf(m.type, m.rot);
       set('nm', R.nm, (m.move ? 'Mover: ' : '') + def.name + (fw * fh > 1 ? ` · ${fw}×${fh}` : ''));
       const roofSub = def.roof ? `${ROOF_STYLES[m.style || ROOF_TYPE_STYLES[m.type]?.[0]]?.name || ''}${m.room ? ' · sala inteira' : ''}${m.n > 1 ? ` · ${m.n} tiles` : ''}` : '';
-      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
+      const deckSub = def.deck ? (def.deck === 'bridge' ? 'Da margem, em linha reta (até 8 de água)' : 'Água rasa, a partir da margem') + (m.n > 1 ? ` · ${m.n} plantas` : '') : '';
+      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || deckSub || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
       set('sub', R.sub, sub);
       R.sub.classList.toggle('bad', (!m.valid && !!m.reason) || !!m.short);
       R.ok.classList.toggle('bad', !m.valid);

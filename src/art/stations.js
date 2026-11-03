@@ -229,10 +229,15 @@ function furnace(glow) {
 }
 
 // ---------------- anvil ----------------
-function anvil() {
+// anvil_big: the same painting ANVIL_Z× bigger about its foot — the anvil as the solid draws it, filling its tile
+// (art/faces/solidLights.js; lazy). The baked `anvil` keeps the icon's size (and the iron colour other pieces sample).
+export const ANVIL_Z = 1.55;
+lazyDef('anvil_big', () => anvil(ANVIL_Z), 0.5, 1);
+function anvil(Z = 1) {
   return mk(1, 26, (g, P, Y, W) => {
     const cx = W / 2;
     P.layer((g) => {
+      if (Z !== 1) { const fy = Y(0.9, 0); g.translate(cx, fy); g.scale(Z, Z); g.translate(-cx, -fy); }
       // stump base
       const sb = Y(0.9, 0), st = Y(0.9, 18);
       g.fillStyle = lin(g, cx - 12, 0, cx + 12, 0, [[0, '#9c6e43'], [0.5, '#7d5532'], [1, '#4a301a']]);
@@ -301,7 +306,11 @@ function loom() {
 }
 
 // ---------------- cooking pot (1×1) ----------------
-function cookingPot(coals) {
+// back: seen from behind (camera rotation only, art/faces/solidLights.js): the ash bed and logs without the front
+// stones (the stones are solids of their own), the ladle on the other side, the light still from the left
+function cookingPotBack() { return cookingPot(false, true); }
+lazyDef('cooking_pot_back', cookingPotBack, 0.5, 1);
+function cookingPot(coals, back = false) {
   const rand = rng(505);
   return mk(1, 40, (g, P, Y, W) => {
     const cx = W / 2, cy = Y(0.62, 0);
@@ -335,15 +344,19 @@ function cookingPot(coals) {
       g.fillStyle = '#8a5a2a'; g.beginPath(); g.ellipse(cx, py - 9.6, 12.5, 3, 0, 0, TAU); g.fill(); // stew
       g.fillStyle = '#b07a3a'; for (let i = 0; i < 4; i++) { g.beginPath(); circle(g, cx - 7 + i * 4.5, py - 9.8 + (i & 1) * 0.8, 1.2); g.fill(); }
       g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(cx - 9, py - 4, 2, 4, 0.2, 0, TAU); g.fill();
-      // ladle
-      g.strokeStyle = '#9a6a3a'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(cx + 5, py - 10); g.lineTo(cx + 13, py - 22); g.stroke();
+      // ladle (from behind: on the other side)
+      const ld = back ? -1 : 1;
+      g.strokeStyle = '#9a6a3a'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(cx + 5 * ld, py - 10); g.lineTo(cx + 13 * ld, py - 22); g.stroke();
     }, 2.6);
-    P.layer((g) => { for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; if (Math.sin(a) >= 0) stoneBlob(g, cx + Math.cos(a) * 21, cy + Math.sin(a) * 8.5, 5.4, 3.8, rand); } }, 2.4);
+    if (!back) P.layer((g) => { for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU; if (Math.sin(a) >= 0) stoneBlob(g, cx + Math.cos(a) * 21, cy + Math.sin(a) * 8.5, 5.4, 3.8, rand); } }, 2.4);
   }, coals ? { pad: 12 } : undefined);
 }
 
 // ---------------- table, chair, rug, flower pot ----------------
-function table() {
+// bare: without the mug and the candle (the solid stands them on the top in 3D: art/faces/solidTypes.js); the plate and
+// the bread lie flat on it and stay painted
+lazyDef('table_wood_bare', () => table(true), 0.5, 1); lazyDef('table_wood_bare_e', () => tableE(true), 0.5, 1);
+function table(bare = false) {
   const rand = rng(506);
   return mk(2, 30, (g, P, Y, W) => {
     const x0 = 8, x1 = W - 8;
@@ -360,6 +373,7 @@ function table() {
       // plate + bread, mug, candle
       g.fillStyle = '#e8e2d4'; g.beginPath(); g.ellipse(W / 2 - 30, ty0 + 20, 8, 4, 0, 0, TAU); g.fill();
       g.fillStyle = '#c08a48'; g.beginPath(); g.ellipse(W / 2 - 31, ty0 + 18.5, 5, 2.6, 0, 0, TAU); g.fill();
+      if (bare) return;
       g.fillStyle = '#8a5a30'; g.fillRect(W / 2 + 22, ty0 + 12, 7, 9); g.fillStyle = '#5a3a1e'; g.beginPath(); g.ellipse(W / 2 + 25.5, ty0 + 12, 3.5, 1.4, 0, 0, TAU); g.fill();
       g.strokeStyle = '#8a5a30'; g.lineWidth = 1.2; g.beginPath(); g.arc(W / 2 + 30, ty0 + 16, 2.4, -1.3, 1.3); g.stroke();
       g.fillStyle = '#f2ead6'; g.fillRect(W / 2 - 2, ty0 + 6, 4, 9); g.fillStyle = '#c9a24a'; g.beginPath(); g.ellipse(W / 2, ty0 + 15, 5, 1.8, 0, 0, TAU); g.fill();
@@ -606,7 +620,7 @@ function loomE() {
 }
 
 // table turned (1×2)
-function tableE() {
+function tableE(bare = false) {
   return mkv(1, 2, 30, (g, P, Y, W) => {
     const x0 = 10, x1 = W - 10;
     P.layer((g) => {
@@ -622,6 +636,7 @@ function tableE() {
       // plate + bread, mug, candle
       g.fillStyle = '#e8e2d4'; g.beginPath(); g.ellipse(cx, ty0 + 24, 9, 5, 0, 0, TAU); g.fill();
       g.fillStyle = '#c08a48'; g.beginPath(); g.ellipse(cx - 1, ty0 + 22.5, 5.5, 2.8, 0, 0, TAU); g.fill();
+      if (bare) return;
       g.fillStyle = '#8a5a30'; g.fillRect(cx + 9, ty0 + 76, 7, 9); g.fillStyle = '#5a3a1e'; g.beginPath(); g.ellipse(cx + 12.5, ty0 + 76, 3.5, 1.4, 0, 0, TAU); g.fill();
       g.fillStyle = '#f2ead6'; g.fillRect(cx - 2, ty0 + 48, 4, 9); g.fillStyle = '#c9a24a'; g.beginPath(); g.ellipse(cx, ty0 + 57, 5, 1.8, 0, 0, TAU); g.fill();
       g.fillStyle = '#ffd27a'; g.beginPath(); g.ellipse(cx, ty0 + 45.5, 1.4, 2.6, 0, 0, TAU); g.fill();
@@ -772,7 +787,10 @@ function lampPost(glow) {
 }
 
 // ---------------- camp: tents & crates ----------------
-function tent(v) {
+// back: the cone tent seen from behind / the side (camera rotation only, art/faces/solidGarden.js): no doorway, a
+// laced seam up the hide instead
+lazyDef('tent_1_back', () => tent(1, true), 0.5, 1);
+function tent(v, back = false) {
   const rand = rng(510 + v);
   if (v % 2 === 0) {
     // A-frame canvas tent (2 tiles wide), open flap at the front
@@ -826,9 +844,16 @@ function tent(v) {
       g.strokeStyle = 'rgba(60,40,22,0.55)'; g.lineWidth = 0.9; g.setLineDash([2, 2]);
       g.beginPath(); for (const dx of [-24, 0, 24]) { g.moveTo(cx + dx * 0.1, top + 8); g.lineTo(cx + dx, base); } g.stroke(); g.setLineDash([]);
       g.restore();
-      // doorway flap
-      g.fillStyle = '#2a2018'; g.beginPath(); g.moveTo(cx - 10, base + 1); g.quadraticCurveTo(cx - 6, base - 26, cx + 2, base - 30); g.quadraticCurveTo(cx + 8, base - 18, cx + 10, base + 2); g.closePath(); g.fill();
-      g.fillStyle = '#b8936a'; g.beginPath(); g.moveTo(cx + 2, base - 30); g.quadraticCurveTo(cx + 14, base - 14, cx + 15, base + 2); g.lineTo(cx + 9, base + 2); g.quadraticCurveTo(cx + 8, base - 16, cx + 2, base - 30); g.closePath(); g.fill();
+      if (back) {
+        // the laced seam where the hides meet, pegs at the hem
+        g.strokeStyle = 'rgba(60,40,22,0.7)'; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, top + 10); g.lineTo(cx, base - 1); g.stroke();
+        g.strokeStyle = 'rgba(210,190,150,0.8)'; g.lineWidth = 0.8; g.beginPath(); for (let y = top + 14; y < base - 3; y += 5) { g.moveTo(cx - 2, y); g.lineTo(cx + 2, y + 2.5); } g.stroke();
+        g.fillStyle = WOOD.dark; for (const x of [cx - 30, cx + 28]) g.fillRect(x, base - 3, 2.4, 5);
+      } else {
+        // doorway flap
+        g.fillStyle = '#2a2018'; g.beginPath(); g.moveTo(cx - 10, base + 1); g.quadraticCurveTo(cx - 6, base - 26, cx + 2, base - 30); g.quadraticCurveTo(cx + 8, base - 18, cx + 10, base + 2); g.closePath(); g.fill();
+        g.fillStyle = '#b8936a'; g.beginPath(); g.moveTo(cx + 2, base - 30); g.quadraticCurveTo(cx + 14, base - 14, cx + 15, base + 2); g.lineTo(cx + 9, base + 2); g.quadraticCurveTo(cx + 8, base - 16, cx + 2, base - 30); g.closePath(); g.fill();
+      }
       // smoke hole
       g.fillStyle = '#3a2a1e'; g.beginPath(); g.ellipse(cx, top + 9, 4, 1.6, 0, 0, TAU); g.fill();
     }, OW);
