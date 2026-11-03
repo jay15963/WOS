@@ -9,6 +9,8 @@ import { FLAG } from './macro.js';
 import { generateChunk } from './chunk.js';
 import { nbTable } from './grid.js';
 
+const sq = (v) => v * v;
+
 const MIN_SEP = 48;
 const GOOD = new Set([BIOME.TEMPERATE_FOREST, BIOME.STEPPE, BIOME.FLOODPLAIN, BIOME.MEDITERRANEAN, BIOME.HEATH]);
 
@@ -66,8 +68,8 @@ export function findSpawn(p, k = 0) {
     const h0 = ch.height[y * (S + 1) + x], h1 = ch.height[y * (S + 1) + x + 1], h2 = ch.height[(y + 1) * (S + 1) + x];
     if (Math.abs(h1 - h0) > 0.3 || Math.abs(h2 - h0) > 0.3) continue;
     let dr = 99;
-    for (const r of riv) { const d = Math.hypot((r % S) - x, ((r / S) | 0) - y); if (d < dr) dr = d; }
-    let s = -Math.abs(dr - 8) - Math.hypot(x - S / 2, y - S / 2) * 0.05;
+    for (const r of riv) { const ax = (r % S) - x, ay = ((r / S) | 0) - y, d = Math.sqrt(ax * ax + ay * ay); if (d < dr) dr = d; }
+    let s = -Math.abs(dr - 8) - Math.sqrt(sq(x - S / 2) + sq(y - S / 2)) * 0.05;
     if (ch.fertile[i]) s += 1;
     if (s > bs) { bs = s; best = { x: cx * S + x + 0.5, y: cy * S + y + 0.5 }; }
   }

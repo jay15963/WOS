@@ -16,6 +16,8 @@ import { BIOME, BIOME_LIST, PG, landBiome, pickWeighted } from './biomes.js';
 import { coneSum, COAST, FLAG } from './macro.js';
 import { seaIceAt } from './climate.js';
 
+const sq = (v) => v * v;
+
 export const MARGIN = 16;
 const S = CHUNK;
 const SEED_OFF = 0x51f15e;
@@ -235,7 +237,7 @@ export function crPoint(P, t) {
 // sample a segment into points [x, y, hw, L, dirx, diry, can, t] with meanders (zero at the nodes)
 export function sampleSegment(p, sg) {
   const P = sg.P;
-  const len = Math.sqrt((P[4] - P[2]) ** 2 + (P[5] - P[3]) ** 2);
+  const len = Math.sqrt(sq(P[4] - P[2]) + sq(P[5] - P[3]));
   const n = Math.max(4, Math.ceil(len / 1.5));
   const pts = [];
   const sd = p.seed * 11 + 3;

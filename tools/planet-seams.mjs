@@ -33,5 +33,10 @@ for (const [cx, cy] of picks) {
   for (const k of ['height', 'water', 'ground', 'biome', 'rock']) for (let i = 0; i < a[k].length; i++) if (a[k][i] !== a2[k][i]) { bad++; console.log('nondeterministic', k); break; }
   if (a.objects.length !== a2.objects.length) { bad++; console.log('nondeterministic objects'); }
 }
+// the whole planet twice: bit-identical typed arrays
+const p2 = generatePlanet(seed);
+const hashArr = (a) => { const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength); let h = 2166136261; for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 16777619); return h >>> 0; };
+for (const k of Object.keys(p)) if (k[0] !== '_' && p[k] && p[k].byteLength && hashArr(p[k]) !== hashArr(p2[k])) { bad++; console.log('planet not deterministic:', k); }
+console.log(`planet ${seed}: elev ${hashArr(p.elev).toString(16)} biome ${hashArr(p.biome).toString(16)} flow ${hashArr(p.flow).toString(16)}`);
 console.log(`seams: ${picks.length} chunks, ${checked} shared corners, ${bad} mismatches`);
 process.exit(bad ? 1 : 0);

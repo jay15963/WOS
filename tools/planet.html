@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WOS · Planeta</title>
+<style>
+  :root { --bg: #10151c; --panel: #18202a; --line: #2a3644; --text: #dfe6ee; --dim: #8a9aac; --acc: #6fb3ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  button, input { background: #223040; color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; }
+  button.on { background: var(--acc); color: #071422; border-color: var(--acc); }
+  input { width: 90px; cursor: text; }
+  #status { color: var(--dim); font-size: 12px; padding: 4px 12px; border-bottom: 1px solid var(--line); min-height: 22px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 10px; padding: 10px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  #wrap { position: relative; overflow: hidden; background: #000; border: 1px solid var(--line); cursor: grab; touch-action: none; align-self: start; }
+  #map { display: block; width: 100%; image-rendering: auto; }
+  #probe { position: absolute; left: 8px; bottom: 8px; background: rgba(10, 16, 24, 0.85); padding: 6px 8px; border-radius: 4px; font-size: 12px; pointer-events: none; white-space: pre; }
+  #side { background: var(--panel); border: 1px solid var(--line); padding: 8px; }
+  #tiles { width: 100%; image-rendering: pixelated; background: #000; display: block; }
+  #tinfo { font-size: 12px; color: var(--dim); white-space: pre-wrap; margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px; }
+  .grid figure { margin: 0; background: var(--panel); border: 1px solid var(--line); }
+  .grid canvas { width: 100%; display: block; }
+  .grid figcaption { font-size: 12px; padding: 4px 6px; color: var(--dim); }
+  a { color: var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Planeta</h1>
+  <label>semente <input id="seed" type="number" value="1"></label>
+  <button id="go">Gerar</button>
+  <span id="layers"></span>
+  <label>janela <select id="tsize"><option value="256">256 tiles</option><option value="512" selected>512 tiles</option></select></label>
+  <a id="cmp" href="?compare">comparar 6 sementes</a>
+</header>
+<div id="status">…</div>
+<div id="root"></div>
+<script type="module" src="planet.js"></script>
+</body>
+</html>
