@@ -122,6 +122,9 @@ export class World {
     if (r && r.ready) return r;
     const t0 = performance.now();
     if (!r) r = this.crec[c] = { c, cx: c & (CW - 1), cy: c >>> 8, ready: false, dirty: false, pin: 0, t: 0 };
+    // water class 3 (abyssal ocean, planet sources) is deep water for gameplay (the `=== 2` rules); the source keeps
+    // the distinction for its looks / the map
+    { const Wt = d.water; for (let l = 0; l < CT; l++) if (Wt[l] > 2) Wt[l] = 2; }
     this.rock0.attach(c, d.rock); this.rock.attach(c, d.rock.slice());
     this.roof0.attach(c, d.roof); this.roof.attach(c, d.roof.slice());
     for (const k of SRC_U8) this[k].attach(c, d[k]);
@@ -144,6 +147,13 @@ export class World {
     if (!r || !r.ready || r.decor) return;
     r.decor = true;
     for (const dd of list) this.chunkAt(dd.x, dd.y).decor.push(dd);
+  }
+  // forget the cosmetic decor of a chunk far from the camera (made again by the source when it comes back)
+  dropDecor(c) {
+    const r = this.crec[c];
+    if (!r || !r.decor) return;
+    r.decor = false;
+    this._forBucketsOf(c, (bk) => { bk.decor = []; });
   }
   // drop a loaded chunk (never one that changed: its state lives only here — `dirty` / `pin`)
   evict(c) {

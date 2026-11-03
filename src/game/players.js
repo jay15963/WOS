@@ -19,9 +19,10 @@ export function allPlayers(game) {
 
 export function nearestPlayer(game, x, y, maxD = 1e9, { alive = true } = {}) {
   let best = null, bd = maxD;
+  const w = game.world;
   for (const p of allPlayers(game)) {
     if (alive && p.dead) continue;
-    const d = Math.hypot(p.x - x, p.y - y);
+    const d = Math.hypot(w.dx(p.x, x), p.y - y); // (the planet wraps: docs/STREAMING.md)
     if (d < bd) { bd = d; best = p; }
   }
   return best;
@@ -29,18 +30,20 @@ export function nearestPlayer(game, x, y, maxD = 1e9, { alive = true } = {}) {
 
 export function minPlayerDist(game, x, y) {
   let bd = 1e9;
-  for (const p of allPlayers(game)) bd = Math.min(bd, Math.hypot(p.x - x, p.y - y));
+  const w = game.world;
+  for (const p of allPlayers(game)) bd = Math.min(bd, Math.hypot(w.dx(p.x, x), p.y - y));
   return bd;
 }
 
 // inside the local view (with margins) or inside a 24×14 box around any remote avatar
 export function inAnyView(game, x, y, mx = 2, my = 3) {
-  const v = game.view();
-  if (x > v.x0 - mx && x < v.x1 + mx && y > v.y0 - my && y < v.y1 + my) return true;
+  const v = game.view(), w = game.world;
+  const xv = w.near(x, (v.x0 + v.x1) / 2);
+  if (xv > v.x0 - mx && xv < v.x1 + mx && y > v.y0 - my && y < v.y1 + my) return true;
   const L = allPlayers(game);
   for (let i = 1; i < L.length; i++) {
     const p = L[i];
-    if (Math.abs(x - p.x) < 12 + mx && Math.abs(y - p.y) < 7 + my) return true;
+    if (Math.abs(w.dx(x, p.x)) < 12 + mx && Math.abs(y - p.y) < 7 + my) return true;
   }
   return false;
 }

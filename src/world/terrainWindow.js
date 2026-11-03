@@ -210,7 +210,7 @@ export class TerrainWindow {
     }
     if (T) for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) { // CPU copies (coldAt, the AO diff)
       const r = ((y0 + ty) & WM) * WIN + ((x0 + tx) & WM), j = ty * tw + tx;
-      this.climR[r] = T.cold[j]; this.solidR[r] = T.solid[j];
+      this.climR[r] = T.cold[j]; this.solidR[r] = T.walls[j];
     }
   }
 

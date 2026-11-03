@@ -13,6 +13,8 @@ import { checkAtlas } from './game/artcheck.js';
 import { BUILD_ID, BUILD_FILES } from './version.js';
 import { World } from './world/world.js';
 import { makeSource } from './world/source.js';
+import { Streamer, streamerSystem } from './world/streamer.js';
+import { allPlayers } from './game/players.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
@@ -147,7 +149,8 @@ async function boot() {
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const world = new World(await makeSource(FLAGS.source, seed)); // (docs/STREAMING.md: classic / synth / planet)
+    const world = new World(await makeSource(guest ? choice.welcome.src || 'classic' : FLAGS.source, seed)); // (docs/STREAMING.md: classic / synth / planet)
+    if (world.wrap) new Streamer(world); // (a planet streams its chunks; the classic world is loaded whole)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 
@@ -173,6 +176,7 @@ async function boot() {
     }
     installAmbient(game);
     installSystems(game);
+    addSystem(game, streamerSystem(allPlayers)); // chunk loading around the players / camera (docs/STREAMING.md)
     installNetDebug(game);
     game.player.name = playerName();
     const netui = installNetUI(game);

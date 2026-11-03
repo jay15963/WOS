@@ -4,7 +4,7 @@
 //     f32: { lush, flowX, flowY }, coldLut }
 // (row-major DW × DH, origin at (x0 − MD, y0 − MD); `inb` = 1 inside the world, outside tiles hold the nearest edge
 // tile's values like the old clamped textures).
-// Output = { tile, field2, cave, clim (tw × th × RGBA), field (tw·4 × th·4 × RGBA), cold, solid (tw × th) } — the same
+// Output = { tile, field2, cave, clim (tw × th × RGBA), field (tw·4 × th·4 × RGBA), cold, walls (tw × th: world.solid) } — the same
 // contents as the old world-sized textures (see src/world/terrainWindow.js).
 
 export const MD = 12, MS = 3, FR = 4, CR = 3;
@@ -29,7 +29,7 @@ export function computeTerrain(inp) {
   chamfer(dIn, DW, DH); chamfer(dWt, DW, DH); chamfer(dOut, DW, DH);
   const out = {
     tile: new Uint8Array(tw * th * 4), field2: new Uint8Array(tw * th * 4), cave: new Uint8Array(tw * th * 4),
-    clim: new Uint8Array(tw * th * 4), field: new Uint8Array(tw * th * FR * FR * 4), cold: new Uint8Array(tw * th), solid: new Uint8Array(tw * th),
+    clim: new Uint8Array(tw * th * 4), field: new Uint8Array(tw * th * FR * FR * 4), cold: new Uint8Array(tw * th), walls: new Uint8Array(tw * th),
   };
   // ---- cold: box blur (radius CR) of the biome's cold value
   const cw = tw + 2 * CR, chh = th + 2 * CR, cold = scratch('cold', Float32Array, cw * chh), ctmp = scratch('ctmp', Float32Array, cw * chh);
@@ -57,7 +57,7 @@ export function computeTerrain(inp) {
     for (let d = -CR; d <= CR; d++) a += ctmp[(ty + CR + d) * cw + tx + CR];
     const cv = Math.round(Math.min(1, a * kb) * 255), s = inside ? SO[j] : 0;
     CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = 0; CL[o + 3] = 0;
-    CO[ty * tw + tx] = cv; out.solid[ty * tw + tx] = s;
+    CO[ty * tw + tx] = cv; out.walls[ty * tw + tx] = s;
   }
   // ---- field (FR×): rock mask / massif height / water depth / wetness, blurred over the rect + MS
   const ww = tw + 2 * MS, wh = th + 2 * MS, sw = ww * FR, sh = wh * FR, SN = sw * sh, ofs = MD - MS;
