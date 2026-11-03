@@ -629,7 +629,7 @@ radar).
   render 0,6 ms (0,5 sem eles) a 0°, 1,0 ms (0,9) girada; a geometria de cada peça é feita uma vez por mudança.
 - **Lacunas:** corpos no chão de um deque ficam embaixo dele; a ponte não faz curva nem diagonal; os bichos não passeiam
   em deques (só atravessam perseguindo / no caminho); pescar do trapiche depende da vara de pescar (outro agente: o
-  trapiche não impede); sem barcos.
+  trapiche não impede); barcos: ver "Barco" no fim.
 
 ## Agropecuária (added later)
 
@@ -711,3 +711,84 @@ also be killed with normal weapons, much more slowly.
   telegraph → heavy hit, dodged by stepping out; the thrown rock: small damage), **BA1** (mount, slow turn seen by the
   host, 2 bolts kill a giant on both, reload refused + refunded, XP to the guest), **BA2** (one operator, leaving, aim in
   the snapshot, the host takes a gone operator off).
+
+## Barco (added later)
+
+Pedido do dono: "um barco que cabe até 4, animais amarrados também entram junto com o jogador" — e depois: **6 lugares**,
+para caber um jogador e os 5 animais que a corda leva. Código: `src/game/boats.js` (regras do lado do jogador, pose
+desenhada, remos / esteira, quem vai sentado onde, ajudas de teste), `src/game/content/boats.js` (números e o formato do
+casco, puro: as regras e o modelo 3D usam o mesmo), `src/game/mut/boats.js` (intents / ops), `src/art/faces/solidBoat.js`
+(o modelo 3D no kit sólido, a arte das faces e o ícone).
+
+- **Construir:** aba **Água**, **Barco** (`boat`: 16 madeiras + 4 cordas, 9 s de obra, 25 XP), num tile de água (rasa ou
+  funda) encostado na margem ou num trapiche (8 vizinhos). Recusas: "O barco vai na água…", "Encoste na margem ou num
+  trapiche", "Já tem um barco aqui", "Pouca água para o barco (ele tem 4 tiles de comprimento)". A planta é uma
+  estrutura comum (entrega de material, obra de verdade a partir da margem; modo criativo: pronta na hora); quando
+  termina o anfitrião a **lança** (op `boat.launch`): a planta some e o barco flutua na pose de lançamento (a proa para
+  onde há mais água livre, empurrado o mínimo para o casco caber). Desmontar: no modo **Desmontar**, um toque no barco
+  vazio avisa e o segundo desmonta (75 % do material de volta).
+- **O barco:** casco de 4 tiles × 1,4 (lapstrake: faixa de cima pintada de verde-azulado, tábuas com pregos de cobre,
+  linha d'água alcatroada; por dentro cavernas, assoalho, borda, espelho de popa, roda de proa, um pequeno convés na
+  proa), quatro bancos (banco da frente, o banco dos remos, banco de trás, banco da popa), toletes e **dois remos** que
+  remam de verdade (pegada, puxada dentro d'água, volta no ar com a pá deitada; parados com alguém nos remos: pás na
+  água; sem ninguém: recolhidos ao longo da borda). Balança devagar (sobe e desce, joga de lado e de proa a popa; quem
+  vai dentro balança junto), escurece a água embaixo, deixa **esteira** (dois braços de espuma da proa, espuma atrás da
+  popa, ondinhas onde os remos entram) e anéis lentos parado. 3D em qualquer ângulo da câmera (kit sólido: o modelo é
+  feito uma vez; ganhou `move` — deslocar / levantar / inclinar o modelo inteiro por quadro, docs/CAMERA-ROTATION.md).
+- **Lugares (6, divididos entre jogadores e animais):** cada jogador e cada animal ocupa um; no máximo 4 jogadores. O
+  primeiro a entrar fica **nos remos** (lugar 0, banco do meio); os jogadores seguintes: banco da popa, banco de trás,
+  banco da frente; os animais nunca vão nos remos. Quem entra traz **todos** os animais que leva na corda (até 16 tiles);
+  se não couberem todos, não entra: "Não cabe todo mundo: o barco leva 6 (sobram N lugares; você e M animais)" — nenhum
+  animal fica para trás em silêncio. Cheio: "O barco está cheio (6 lugares)".
+- **Entrar:** E / botão de usar ("Embarcar") ou um toque no barco, a até 1,4 tile do casco. **Sair:** E / botão de usar
+  ("Sair do barco": no celular ele ocupa o botão de usar) ou um toque no próprio barco. O anfitrião escolhe onde
+  descer: terra, trapiche ou água rasa junto do casco (de preferência para o lado da proa e o mais perto de quem sai),
+  **nunca água funda**; longe da margem: "Longe da margem: reme até a terra (ou um trapiche)". Com uma vara de pescar,
+  longe da margem o botão de usar pesca (perto da margem ele tira do barco; com a linha na água, "Puxar!"). Os animais
+  de quem sai descem junto, ao lado dele, ainda amarrados. Se quem está nos remos sai, o próximo passageiro (popa,
+  trás, frente) **pega os remos** ("Agora você está nos remos").
+- **Remar** (só quem está nos remos): o direcional / WASD em relação à câmera, como andar. O barco acelera (1,6 tile/s²)
+  até **2,6 tiles/s** (andando: 4), desliza quando os remos param, vira para a direção pedida (1,3 rad/s) e só anda para
+  onde a proa aponta (a quilha mata o deslize de lado); com o direcional para trás ele **rema de ré** (45 % da
+  velocidade) enquanto vira — preso de través num rio estreito, sai de ré. Para na margem, em trapiches e em outros
+  barcos (encostado, ajeita um pouco a proa e escorrega ao longo da margem); **passa por baixo de pontes**. Passageiros:
+  o direcional não faz nada; câmera, arco / tiro longo, pescar e o resto continuam.
+- **Água:** a bordo ninguém nada nem se molha (sem frio de nadar, sem gotas na tela, sem roupa molhada, sem anéis de
+  vadear). **Inverno:** a água congelada prende o barco ("O barco está preso no gelo"); dá para descer no gelo em
+  qualquer lugar. Água funda só se alcança de barco (ou nadando).
+- **Desenho:** quem vai sentado senta no banco como numa cadeira (pernas para baixo, vistas 3/4, virado para a proa no
+  ângulo de verdade: `art/facing.js` `seat.ang`), os animais em pé no assoalho no lugar deles, virados para a proa; todos
+  com a profundidade certa contra o casco (a borda da frente esconde as pernas). **Debaixo de uma ponte** quem vai no
+  barco fica atrás do deque (viés de profundidade `e._zb`, game.js): o deque o cobre como cobre o casco. Plaquinhas de
+  nome normais.
+- **Multijogador:** quem está nos remos simula o barco no próprio cliente (resposta na hora) e manda a pose (intent
+  `boat.move`, até 10 por segundo enquanto anda, e uma última quando para); o anfitrião confere (é quem está nos remos,
+  velocidade possível, casco na água, não congelado) → op `boat.pos` para todos; uma pose recusada volta só para o
+  remador (`fix`: ele volta para lá). Os outros desenham a pose compartilhada com um buffer de interpolação de 150 ms
+  (pose desenhada `b._x / _y / _h`, cosmética), e em cada cliente quem vai no barco — jogador local, cópias dos outros,
+  animais (criaturas do anfitrião / proxies) — é posto no seu lugar do barco desenhado (na hora de desenhar, depois da
+  interpolação), então todos andam juntos e suaves. Os animais a bordo não pensam (mobs.js); o anfitrião os mantém no
+  lugar (o fluxo de entidades leva isso). Estado compartilhado: `game.boats.map` (id → `x, y, h, vx, vy, v, at, seats
+  [pid|0 × 6], pets [[nid, pid, lugar]]`). Intents `boat.board`, `boat.leave`, `boat.move`, `boat.decon`; ops
+  `boat.launch`, `boat.set` (lugares, animais, `off`: onde cada um desce — o próprio cliente se move para lá), `boat.pos`,
+  `boat.remove`. Snapshot / save: linhas `boats` `[id, x, y, h, v, at, seats, pets]` (o save tira todo mundo: depois de
+  carregar, quem estiver dentro do casco desce para a margem; animais que ficaram em água funda vão para a margem);
+  digest: parte `boats`. O anfitrião tira do barco quem saiu da sala ou morreu (e os animais dele descem na margem).
+- **Ajudas de teste** (localhost): `game.debug.boatScene({ riders: 0..3, pets: ['cow', …], board, at: [tx, ty], near:
+  [x, y], pose: [x, y, h] })` (um barco lançado na margem mais perto, com bonecos de teste e animais a bordo),
+  `game.debug.boatSite()`, `game.debug.boatAt(id)`.
+- **Cenários:** **B1** (o convidado constrói o barco com obra de verdade, os dois entram, ele rema atravessando o rio até a outra
+  margem, os dois veem o barco e um ao outro sentados, ele desce na outra margem, o anfitrião pega os remos e desce),
+  **B2** (um jogador com 5 animais amarrados: com o anfitrião nos remos não cabe — recusado sem deixar ninguém para trás;
+  sozinho enche os 6 lugares, o anfitrião é recusado — cheio —, atravessa, os animais descem com ele), **B3** (quem
+  rema desce no meio do rio — longe da margem é recusado quando o rio é largo —, o passageiro pega os remos e continua;
+  no inverno o gelo prende o barco e dá para descer no gelo). Passando: B1, B2, B3, D1, D2 (com a espera pelo convidado
+  na marcação, que falhava igual antes), P1.
+- **Ganchos de uma linha** fora destes arquivos: `mut/structures.js` (placeReason → `boats.reason`; build.hit: sem a
+  regra do deque e, no fim, `boat.launch`), `mut/decks.js` (a planta do barco não "cai na água"), `building.js` (desmontar
+  barco no modo Desmontar), `controller.js` (tocar no barco, botão de usar), `game.js` (sem nadar a bordo; viés `_zb`),
+  `juice.js` / `fx/status.js` / `fx/audio.js` / `fx/audioDirector.js` / `fx/waterline.js` (seco a bordo), `decks.js`
+  (não levanta quem vai no barco), `mobs.js` (animais a bordo não pensam), `art/facing.js` (`seat.ang`),
+  `art/faces/solid.js` (`move`), `net/snapshot.js`, `net/digest.js`, `systems.js`, `art/contract.js`, `art/faces/index.js`.
+- **Lacunas:** sem correnteza nos rios; os remos atravessam um pilar de ponte; o radar não mostra barcos; a roda de proa
+  pode passar um pouco acima do deque de uma ponte baixa; um animal grande (vaca) encosta nos vizinhos dentro do barco.

@@ -1015,6 +1015,12 @@ differs from the design text above, the code is described here (this section win
     (end of the local timed work; fresh animal, not butchered; yields rolled on the host from `SPECIES[].loot`: blade = full table +
     bonus, bare hands = no hide and ~60% meat), `corpse.bones {id}` (skeleton stage; `give: {bone: 1|2|4|3}` by size, spiders 0).
   - Test fast-forward: the harness emits `env.skip {hour, day, wt}` on the host (S60 / S61).
+- **Boats (docs/PLAN-V2.md "Barco")** — `game.boats.map` (id → `x, y, h, vx, vy, v, at, seats [pid|0 × 6], pets [[nid, pid,
+  place]]`), set only in `mut/boats.js` appliers (`boat.launch`, `boat.set`, `boat.pos`, `boat.remove`); snapshot `boats` rows
+  `[id, x, y, h, v, at, seats|0, pets|0]` (a save drops the riders), digest part **`boats`**. The driver's client simulates the
+  boat and sends `boat.move` (≤ 10 Hz); the host checks it (driver, speed, hull on water, not frozen) and emits `boat.pos` (a
+  refused report: `boat.pos {fix: pid}`). Cosmetic per peer: the drawn pose (`b._x/_y/_h`, a 150 ms buffer), riders' spots
+  (`e._boat`, `e._dh`, `e._zb`, the seat pose), bobbing, oars, wake. Scenarios B1–B3.
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,

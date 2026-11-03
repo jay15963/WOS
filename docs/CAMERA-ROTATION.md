@@ -540,6 +540,19 @@ um texel da arte (`px`).
 - O ângulo desenhado é `o._aimD` (game/ballista.js: quem opera vê o próprio na hora; os outros, suavizado até o ângulo
   compartilhado `o.aim`).
 
+### O barco (`art/faces/solidBoat.js`): um modelo que se move
+
+- O casco é feito de faces `quad` com arte própria (`uv: 'boat_uv'`) a partir do perfil de `game/content/boats.js`
+  (largura e altura da borda ao longo do casco): costado por fora e por dentro em cada trecho, borda, assoalho, espelho de
+  popa, convés de proa, roda de proa, bancos e toletes; todas as partes `spin` (vira para o rumo do barco).
+- **O kit ganhou** (genérico, em `solid.js`): `move(o, t)` → `[dx, dy, dh, dh/dx, dh/dy]` por quadro — o modelo inteiro
+  deslocado, levantado e inclinado (um gradiente de altura em volta do eixo de giro: balanço). O modelo é montado uma vez
+  (um objeto de desenho só para todos os barcos, `PROXY`) e movido por quadro; a planta / o fantasma da construção usam a
+  pose de lançamento. Os remos são faces desenhadas à parte (`oars`: barras finas + pás), o remo pela velocidade desenhada.
+- Quem vai no barco senta no banco como numa cadeira (objeto de assento com `seatAt` e `ang`: `art/facing.js` usa o
+  ângulo de verdade da proa para as 8 vistas); debaixo de uma ponte ganha um viés de profundidade (`e._zb`, game.js) e
+  fica atrás do deque.
+
 ### Andaime de obra em 3D (`art/faces/scaffold.js`)
 
 Com a câmera girada o andaime (`scaffold_0`) de **qualquer** peça em construção (paredes, portas, cercas, portões,

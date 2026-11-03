@@ -24,6 +24,7 @@ import { collides, facingFrom } from './physics.js';
 import { registerWork } from './gathering.js';
 import { allPlayers } from './players.js';
 import { drawBoat } from '../art/faces/solidBoat.js';
+import { cleanLook, DEFAULT_LOOK } from './look.js'; // (dev stand-in riders)
 
 export { BOAT, hullFree, launchPose } from './content/boats.js';
 
@@ -370,7 +371,8 @@ function drive(game, B, b, C, dt) {
 
 // a rider / an animal on its spot of the drawn boat (every peer; the local player: also its gameplay position)
 // (riders sit on their place like on a chair — art/compose.js seat pose: legs down, the 3/4 views — facing the bow at
-// its true angle (art/facing.js seat.ang); e._dh lifts the sprite to the bench, seatAt only puts the pelvis on it)
+// its true angle (art/facing.js seat.ang); a seated pawn is drawn from its seat, so the bench height goes in seatAt and
+// e._dh stays 0, as for a chair on a deck; acting — a bow shot — it stands on the bench, lifted by e._dh)
 function placeRider(B, b, e, k) {
   const [u, s] = BOAT.places[k];
   const [x, y, dh] = B.spot(b, u, s, BOAT.seatH);
@@ -378,9 +380,10 @@ function placeRider(B, b, e, k) {
   e.moving = false;
   e._zb = underDeck(B.game.world, x, y) ? UNDER : 0;
   if (!e.action && !e.dead) {
-    const S = (b._st ||= [])[k] || (b._st[k] = { x: 0, y: 0, face: 's', ang: 0, _zk: 0, _fk: SEAT_FK, _boatSeat: true });
+    const S = (b._st ||= [])[k] || (b._st[k] = { x: 0, y: 0, h: 0, face: 's', ang: 0, _zk: 0, _fk: SEAT_FK, _boatSeat: true });
     const rot = B.game.cam?.rot || 0;
-    S.x = x; S.y = y; S.ang = b._h; S.face = facingFrom(Math.cos(b._h), Math.sin(b._h), S.face);
+    S.x = x; S.y = y; S.h = dh; S.ang = b._h; S.face = facingFrom(Math.cos(b._h), Math.sin(b._h), S.face);
+    e._dh = 0;
     S._zk = -Math.sin(rot) * x + Math.cos(rot) * y - 0.02; // (game.js: the sitter right after its seat = its own depth)
     if (e.pose?.o !== S) e.pose = { type: 'sit', id: null, o: S };
     if (!(e._faceLockT > 0)) e.facing = S.face;
@@ -388,7 +391,7 @@ function placeRider(B, b, e, k) {
 }
 const PELVIS = 0.476; // (art/faces/solid.js: the sitting body's bottom above its base, past the rig's 0.13)
 const SEAT_Q = [0, 0, 0];
-const SEAT_FK = { seatAt(S) { SEAT_Q[0] = S.x; SEAT_Q[1] = S.y; SEAT_Q[2] = -PELVIS - 0.13; return SEAT_Q; } };
+const SEAT_FK = { seatAt(S) { SEAT_Q[0] = S.x; SEAT_Q[1] = S.y; SEAT_Q[2] = S.h - PELVIS - 0.13; return SEAT_Q; } };
 const isBoatPose = (e) => !!e.pose?.o?._boatSeat;
 // riders / animals under a finished bridge: drawn behind its deck (game.js depth bias) — they pass under it
 const UNDER = -1.6;
@@ -714,11 +717,11 @@ export function installBoatDebug(game) {
     const n = Math.max(0, Math.min(3, opts.riders | 0));
     if (n) {
       B.extra ||= new Map();
-      const looks = ['#c8553d', '#3d7ac8', '#58a05a'];
+      const looks = [{ hair: 'short', hairC: '2a1c14', topC: 'b8503a', skin: 'c99a6e' }, { hair: 'short', hairC: 'c8a060', topC: '4f8a4a', beard: 'full', beardC: 'c8a060' }, { hair: 'short', hairC: '6a3a20', topC: 'd6b25a', skin: '8a5a3c' }];
       for (let k = 0; k < n; k++) {
         const pid = 'dbg' + id + k;
         const e = { isEntity: true, kind: 'pawn', remote: true, faction: 'friend', pid, name: ['Ana', 'Rui', 'Bia'][k], x: b.x, y: b.y, r: 0.24, facing: 's', moving: false, moveT: 0, action: null, flash: 0,
-          look: p.look, weapon: k === 1 ? 'bow_wood' : null, offhand: null, armor: { body: null, head: null }, hp: 100, maxHp: 100, level: 3, dead: false, _tint: looks[k] };
+          look: cleanLook({ ...DEFAULT_LOOK, ...looks[k] }), weapon: k === 1 ? 'bow_wood' : null, offhand: null, armor: { body: null, head: null }, hp: 100, maxHp: 100, level: 3, dead: false };
         B.extra.set(pid, e);
         game.entities.push(e); // sync-ok: dev stand-in rider (screenshots), never on a real session
       }
