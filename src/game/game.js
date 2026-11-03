@@ -13,6 +13,7 @@ import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
+import { slopeSpeed } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
@@ -111,17 +112,26 @@ export class Game {
   toWorldDir(vx, vy) { const r = this.cam.rot || 0; if (!r) return [vx, vy]; const c = Math.cos(r), s = Math.sin(r); return [c * vx - s * vy, s * vx + c * vy]; }
   toViewDir(dx, dy) { const r = this.cam.rot || 0; if (!r) return [dx, dy]; const c = Math.cos(r), s = Math.sin(r); return [c * dx + s * dy, -s * dx + c * dy]; }
 
+  // the ground point under a screen point (terrain height: the visible surface along the view ray, docs/TERRAIN-HEIGHT.md)
   screenToWorld(sx, sy) {
-    const z = this.cam.zoom;
-    const [dx, dy] = this.toWorldDir((sx - this.R.cssW / 2) / z, (sy - this.R.cssH / 2) / z);
-    return [this.cam.x + this.shakeOff.x + dx, this.cam.y + this.shakeOff.y + dy];
+    const z = this.cam.zoom, vx = (sx - this.R.cssW / 2) / z, vy = (sy - this.R.cssH / 2) / z;
+    const cx = this.cam.x + this.shakeOff.x, cy = this.cam.y + this.shakeOff.y, W = this.world;
+    if (!W.hasHeight) { const [dx, dy] = this.toWorldDir(vx, vy); return [cx + dx, cy + dy]; }
+    // a point at height t on the ray shows here when it sits at view y = vy + t: the highest t on the surface is the one
+    // seen (march down from the highest ground, then refine)
+    const at = (t) => { const [dx, dy] = this.toWorldDir(vx, vy + t); return [cx + dx, cy + dy]; };
+    let t = W.height.max + 0.5, prev = t;
+    for (; t > 0; t -= 0.2) { const [x, y] = at(t); if (W.heightAt(x, y) >= t) break; prev = t; }
+    if (t <= 0) t = 0;
+    else { let lo = t, hi = prev; for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2, [x, y] = at(m); if (W.heightAt(x, y) >= m) lo = m; else hi = m; } t = lo; }
+    return at(t);
   }
 
-  // h: tiles straight up the screen (a nameplate over a head)
+  // h: tiles straight up the screen above the ground there (a nameplate over a head)
   worldToScreen(wx, wy, h = 0) {
     const z = this.cam.zoom;
     const [vx, vy] = this.toViewDir(wx - this.cam.x - this.shakeOff.x, wy - this.cam.y - this.shakeOff.y);
-    return [vx * z + this.R.cssW / 2, (vy - h) * z + this.R.cssH / 2];
+    return [vx * z + this.R.cssW / 2, (vy - h - this.world.heightAt(wx, wy)) * z + this.R.cssH / 2];
   }
 
   update(dt) {
@@ -150,9 +160,10 @@ export class Game {
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
     const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y, p._ud)); // levels: stairs slower
+    const spdK = this.world.hasHeight ? slopeSpeed(this, p, mx, my) : 1; // terrain height: slower uphill
     if (mx || my) {
       const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
-      moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
+      moveCircle(this.world, p, mx * spd * spdK * dt, my * spd * spdK * dt);
       // never stuck anywhere: ~2 s of pushing without moving while no step is free in any of 8 directions → the nearest
       // free spot (on the ground when up high); levels.move already lets a body slide out of what it overlaps
       if ((mx || my) && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !p.rooted && !(p.stunT > 0)) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;
@@ -186,7 +197,7 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    const [ux, uy] = this.toWorldDir(0, -(0.4 + (p.z > 0 ? p.z * STORY_H : 0))); // (a little up the screen; levels: elevated)
+    const [ux, uy] = this.toWorldDir(0, -(0.4 + (p.z > 0 ? p.z * STORY_H : 0) + this.world.heightAt(p.x, p.y))); // (a little up the screen; levels / terrain height: elevated)
     let tx = p.x + ux + mx * look, ty = p.y + uy + my * look;
     // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
     const cf = this.camFocus;
@@ -216,6 +227,17 @@ export class Game {
   view() {
     const z = this.cam.zoom, r = this.cam.rot || 0;
     let hw = this.R.cssW / z / 2, hh = this.R.cssH / z / 2;
+    const HL = this.world.height;
+    if (HL.any) {
+      // terrain height: high ground below the screen shows (it rises into view): deepen the box toward the camera
+      const c = Math.cos(r), s = Math.sin(r), m = HL.maxIn(this.cam.x - hw - hh, this.cam.y - hw - hh, this.cam.x + hw + hh, this.cam.y + hw + hh + HL.max);
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      for (let k = 0; k < 4; k++) {
+        const qx = k & 1 ? hw : -hw, qy = k & 2 ? hh + m : -hh, wx = this.cam.x + c * qx - s * qy, wy = this.cam.y + s * qx + c * qy;
+        if (wx < x0) x0 = wx; if (wx > x1) x1 = wx; if (wy < y0) y0 = wy; if (wy > y1) y1 = wy;
+      }
+      return { x0, y0, x1, y1 };
+    }
     if (r) { const c = Math.abs(Math.cos(r)), s = Math.abs(Math.sin(r)); [hw, hh] = [c * hw + s * hh, s * hw + c * hh]; } // (the box around the turned screen)
     return { x0: this.cam.x - hw, y0: this.cam.y - hh, x1: this.cam.x + hw, y1: this.cam.y + hh };
   }
@@ -228,7 +250,7 @@ export class Game {
     const want = p && !p.dead && !this.noCut ? 1 : 0;
     C.k += (want - C.k) * Math.min(1, (this._dt || 0.016) * 6);
     if (C.k < 0.01 || !p) { C.k = want ? C.k : 0; return C; }
-    const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0), dx = p.x - cam.x, dy = p.y - cam.y;
+    const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0) + this.world.heightAt(p.x, p.y), dx = p.x - cam.x, dy = p.y - cam.y; // (+ the terrain under it)
     C.yP = -rs * dx + rc * dy; C.hP = hP;
     C.x = rc * dx + rs * dy; C.y = C.yP - hP - 0.55 * (p.scale || 1); C.r = 0.95 * (p.scale || 1);
     return C;
@@ -249,6 +271,7 @@ export class Game {
 
     const list = this._draw;
     list.length = 0;
+    const HG = this.world.height.any ? this.world.height : null; // terrain height (docs/TERRAIN-HEIGHT.md)
     this.world.forChunks(mx0, my0, mx1, my1, (c) => {
       for (const d of c.decor) {
         if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d); // _hid: on a painted path
@@ -278,6 +301,7 @@ export class Game {
       }
       else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
       else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
+      if (HG && !o.zkRot && Number.isFinite(o.x) && Number.isFinite(o.y)) o._zk += HG.heightAt(o.x, o.y); // (terrain height: nearer the camera)
     }
     // a pawn in a bed / on a seat (art/compose.js _sobj): just in front of it, whichever way the camera looks
     for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity && o._sobj && o._sy != null && o._sobj._zk != null) o._zk = o._sobj._zk + 0.02; }
@@ -320,6 +344,7 @@ export class Game {
       // height, a little toward the camera (its feet over the floor it stands on); tree crowns may open in the cutout;
       // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
       Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
+      Z.g = HG && Number.isFinite(o.x) && Number.isFinite(o.y) ? HG.heightAt(o.x, o.y) : 0; // (computed faces stand on the terrain; sprites are lifted on the GPU)
       if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0); Z.bias = 0.02 + (o._zb || 0); } // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
@@ -355,7 +380,7 @@ export class Game {
       }
     }
     R.emMark?.(); // (the last object's glows)
-    Z.ref = false; Z.mode = 0; Z.bias = 0; Z.sb = 0; Z.ord = 0;
+    Z.ref = false; Z.mode = 0; Z.bias = 0; Z.sb = 0; Z.ord = 0; Z.g = 0;
     // particles: sparks / embers (glow layer) where they fly, behind what stands in front of them (depth-tested)
     this.particles.draw(B, A, v.x0 - 1, v.y0 - 2, v.x1 + 1, v.y1 + 2);
     R.depthEnd?.(); // (overlays from here on: drawn over the world, no depth test)

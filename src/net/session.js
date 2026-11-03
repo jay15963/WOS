@@ -570,6 +570,7 @@ export class Session {
       t: 'welcome', v: PROTO, build: BUILD, art: runtime.atlasDigest, hostPid: this.pid, hostName: this.name, seed: g.world.seed,
       hour: env.hour, day: env.dayIndex, weather: env.weather, wt: Math.round(g.worldTime * 100) / 100,
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
+      ...(g.world.hills ? { hills: 1 } : {}), // (dev showcase of the terrain height: the guest sculpts the same world, world/hills.js)
     });
     netlog.ok('session', `${name} conectou (${this.count}/${MAX_PLAYERS}); aguardando a sincronização do mundo`);
     netlog.fact('Jogadores', this.count);
@@ -595,7 +596,7 @@ export class Session {
     hp.host = true; hp.key = key;
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
-      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName,
+      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1,
     };
     this.welcomeInfo = welcome;
     netlog.ok('session', `Bem-vindo! Anfitrião: ${hostName}, mundo ${welcome.seed}`);

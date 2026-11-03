@@ -22,6 +22,7 @@ import { boxBlur, clamp } from '../engine/noise.js';
 import { G, BIOMES, BIOME_ID, CAMP_R } from './worldgen.js';
 import { ROOF_GEOM } from '../game/content/roofs.js';
 import { fertileAt } from './soil.js';
+import { HeightLayer, setActiveHeight, foldWater } from './height.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
@@ -54,6 +55,11 @@ export class World {
     this.rock0 = this.rock.slice();               // rock before any mining
     this.camps = (this.zones || []).filter((z) => z.type === 'bandit_camp');
     this.solid = new Uint8Array(N); // buildings/walls occupancy
+    // terrain height (docs/TERRAIN-HEIGHT.md): corner heights in stories; all zero = the flat world of before
+    // (the dev showcase ?hills=1 writes heightCorners, the planet cut ?planet=1 heightStories + wlevel: water at its level)
+    this.height = new HeightLayer(this.W, this.H, gen.heightCorners || foldWater(gen.heightStories, this.W, this.H, this.water, gen.wlevel) || null);
+    setActiveHeight(this.height);
+    delete this.heightCorners; delete this.heightStories;
     this.tileData = new Uint8Array(N * 4);
     this.field2 = new Uint8Array(N * 4);
     this.field = new Uint8Array(this.W * FR * this.H * FR * 4);
@@ -129,8 +135,16 @@ export class World {
   blocked(tx, ty) {
     if (!this.inBounds(tx, ty)) return true;
     const i = this.idx(tx, ty);
-    return this.rock[i] === 1 || (this.water[i] === 2 && !this.frozen && !(this.deck && this.deck[i])) || this.solid[i] === 1;
+    return this.rock[i] === 1 || (this.water[i] === 2 && !this.frozen && !(this.deck && this.deck[i])) || this.solid[i] === 1 || this.height.isCliff(tx, ty);
   }
+
+  // ---------- terrain height (src/world/height.js; stories, 0 everywhere on a flat world) ----------
+  heightAt(x, y) { return this.height.heightAt(x, y); }
+  cornerH(ix, iy) { return this.height.cornerH(ix, iy); }
+  tileSlope(tx, ty) { return this.height.tileSlope(tx, ty); }
+  isCliff(tx, ty) { return this.height.isCliff(tx, ty); }
+  cliffBetween(ax, ay, bx, by) { return this.height.cliffBetween(ax, ay, bx, by); }
+  get hasHeight() { return this.height.any; }
   groundAt(tx, ty) { return this.inBounds(tx, ty) ? this.ground[this.idx(tx, ty)] : G.STONE; }
 
   // movement speed multiplier at a world point (under: the body is under a bridge deck, physics.deckTrack)
@@ -156,6 +170,12 @@ export class World {
     this.rock[i] = 0;
     this.ore[i] = 0;
     this.ground[i] = G.STONE;
+    // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
+    if (this.height.any) {
+      const L = this.height, lo = L.tileMin(tx, ty), CW = this.W + 1, cut = [];
+      for (let k = 0; k < 4; k++) { const o = (ty + (k >> 1)) * CW + tx + (k & 1); if (L.t[o] > lo + 1e-4) cut.push([o, lo]); }
+      if (cut.length) L.setTerrain(cut);
+    }
     this.lastLost = this._naturalRoof(tx, ty);
     const M = ROOF_GEOM.natSupport + CAVE_DK.length;
     this._buildTileData(tx - 1, ty - 1, tx + 1, ty + 1);

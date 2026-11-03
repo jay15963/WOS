@@ -32,6 +32,7 @@ import { installController } from './controller.js';
 import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (agent M)
+import { terrainSystem } from './terrain.js'; // terrain height: building pads, the terrain tool (docs/TERRAIN-HEIGHT.md)
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
@@ -109,6 +110,7 @@ export function installSystems(game) {
     seasonSystem(),                 // game.season + world.frozen before anything moves (seasons.js)
     levelsSystem(),
     decksSystem(),                  // world.deck / world.rail before anything moves (decks.js)
+    terrainSystem(),                // terrain height: the pads under buildings before anything moves (terrain.js)
     controller,
     playerSystem(),
     abilitiesSystem(),

@@ -14,6 +14,7 @@ import { checkAtlas } from './game/artcheck.js';
 import { BUILD_ID, BUILD_FILES } from './version.js';
 import { generateWorld } from './world/worldgen.js';
 import { World } from './world/world.js';
+import { sculptHills } from './world/hills.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
@@ -55,6 +56,7 @@ const FLAGS = {
   code: normalizeCode(QS.get('sala') || ''),
   fakeArt: DEV ? QS.get('fakeart') : null,  // localhost: delete a sprite / mark it as a placeholder ('ph:<name>')
   paintFail: DEV && QS.has('fakepaintfail'), // localhost: one painter group throws
+  hills: DEV && QS.has('hills'),            // localhost: sculpt a terrain-height showcase around the spawn (world/hills.js)
 };
 // tests: simulate a hidden tab for the background clock (iframes are never document.hidden)
 const wosDebug = window.wosDebug = { hidden: false, setHidden(b) { this.hidden = !!b; } };
@@ -148,7 +150,9 @@ async function boot() {
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const world = new World(PLANET ? (await import('./world/planet/ingame.js')).buildPlanetWorld(seed, { px: QS.get('px'), py: QS.get('py'), size: QS.get('psize') }) : generateWorld(seed));
+    const gen = PLANET ? (await import('./world/planet/ingame.js')).buildPlanetWorld(seed, { px: QS.get('px'), py: QS.get('py'), size: QS.get('psize') }) : generateWorld(seed);
+    if (!PLANET && (FLAGS.hills || (guest && choice.welcome.hills))) sculptHills(gen); // (dev: docs/TERRAIN-HEIGHT.md — a guest follows its host)
+    const world = new World(gen);
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 

@@ -10,6 +10,8 @@
 //   mined:  [tileIdx...],  rockp: [[i, p]],
 //   structs:[[id, type, tx, ty, v, progress, decon, store|0, working, builtAt, rot, paid, open, moveOf, style, det]],
 //   lvs:    [[structId, lv]]   (levels, agent L: structures above the ground; absent = every one on level 0)
+//   terr:   [cornerIdx, h×100, …]  terrain edits vs the generated terrain (world/height.js diff; docs/TERRAIN-HEIGHT.md)
+//   bzs:    [[structId, bz×100]]  the base height a building's story 0 stands on (terrain height)
 //           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan; rows of 14 = no style / details)
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
@@ -78,6 +80,14 @@ export function serializeWorld(game, { save = false } = {}) {
   };
   const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
+  // terrain height (docs/TERRAIN-HEIGHT.md): the players' terrain edits as a diff of the generated terrain, the bases
+  // buildings stand on
+  if (w.hasHeight) {
+    const terr = w.height.diff();
+    if (terr.length) data.terr = terr;
+    const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz)).map((o) => [o.id, Math.round(o.bz * 100)]);
+    if (bzs.length) data.bzs = bzs;
+  }
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
   const ball = game.build.structures.filter((o) => o.type === 'ballista' && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
   if (ball.length) data.ball = ball;
@@ -115,6 +125,9 @@ function applyInner(game, d, mode) {
     if (Number.isFinite(d.env.d)) game.env.dayIndex = d.env.d;
     if (typeof d.env.w === 'string' && d.env.w !== game.env.weather) game.env.setWeather?.(d.env.w);
   }
+
+  // ---- terrain edits (docs/TERRAIN-HEIGHT.md; a snapshot without them = the generated terrain) ----
+  if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; }
 
   // ---- mined tiles (never un-mine) & mining progress ----
   for (const i of arr(d.mined)) {
@@ -197,6 +210,7 @@ function applyInner(game, d, mode) {
   // ---- structures ----
   const sIds = new Map();
   const LVS = new Map(arr(d.lvs).filter((r) => Array.isArray(r)).map((r) => [r[0], Math.max(0, Math.min(3, r[1] | 0))])); // levels
+  const BZS = new Map(arr(d.bzs).filter((r) => Array.isArray(r) && Number.isFinite(r[1])).map((r) => [r[0], r[1] / 100])); // terrain height: bases
   for (const r of arr(d.structs)) if (Array.isArray(r) && BUILDINGS[r[1]]) sIds.set(r[0], r);
   if (reconcile) {
     for (const o of [...game.build.structures]) {
@@ -224,8 +238,9 @@ function applyInner(game, d, mode) {
         if (!w.inBounds(x, y) || (!lv && w.rock[w.idx(x, y)]) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
       }
       if (!ok) continue;
-      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det, lv });
+      o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det, lv, bz: BZS.get(id) });
     } else {
+      if (BZS.has(id) && o.bz !== BZS.get(id)) { o.bz = BZS.get(id); game.build.v++; } // (terrain height: the base)
       if (o.blueprint && progress >= 1) completeStructure(game, o, { silent: true, auth: net.auth });
       else if (o.blueprint) o.progress = Math.min(0.999, progress);
       if (decon) game.build.decon.add(o); else game.build.decon.delete(o);
