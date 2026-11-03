@@ -5,6 +5,7 @@ import { defineIntent, defineOp } from '../../net/registry.js';
 import { addLootRows } from './loot.js';
 import { lootRows, ri } from './roll.js';
 import { fertileAt } from '../../world/soil.js';
+import { seasonAt } from '../seasons.js';
 
 // grow: seconds of world time to ripen — 8 minutes for every crop (owner), faster in the rain, never in winter.
 // yield rows [item, min, max]: one plot gives little (docs/LIVESTOCK.md "Plantações": the old 3-4 potatoes per plot
@@ -88,16 +89,23 @@ defineOp('crop.remove', {
 });
 
 // ---------- authority ----------
+// how fast crops grow in a season state (seasons by latitude: the crop's own zone, altitude included): a hard winter
+// (temperate winter, the long subpolar one, polar all year) stops them; a mild winter halves them; the tropical dry
+// season slows them a little; tropical crops grow all year
+export const cropK = (S) => (S.hard ? 0 : S.id === 'winter' ? 0.5 : S.zone === 0 && !S.wet ? 0.8 : 1);
 // growth tick (1 Hz on the authority): stage changes are broadcast
 export function growCrops(game) {
   const net = game.net;
   const rain = game.env.env?.rain || 0;
-  const mult = game.season?.id === 'winter' ? 0 : 1 + (rain > 0.2 ? 0.5 : 0); // winter: the crops stop growing
   const now = game.worldTime;
   for (const c of game.farm.crops.values()) {
     const el = Math.max(0, now - (c.lastT ?? now));
     c.lastT = now;
     if (c.growth >= 1) continue;
+    // the season where the crop is (seasons by latitude): a hard winter stops it, a mild one slows it, the tropical dry
+    // season slows it a little
+    const S = seasonAt(game, c.tx + 0.5, c.ty + 0.5);
+    const mult = cropK(S) * (1 + (rain > 0.2 ? 0.5 : 0));
     const g = Math.min(1, c.growth + (el * mult) / CROPS[c.kind].grow);
     c.growth = g; // continuous value lives on the authority; peers get it on stage changes
     const st = stageOf(g);
@@ -115,6 +123,7 @@ defineIntent('farm.plant', {
     if (!plotAt(game, tx, ty)) return 'Sem canteiro aqui';
     if (cropAt(game, tx, ty)) return 'Já plantado';
     if (CROPS[kind].fertile && !fertileAt(game.world, tx, ty)) return 'Solo não fértil: o trigo só cresce até 5 tiles de um rio';
+    if (game.world.zoneAt(tx, ty) === 4) return 'Frio demais: nada cresce aqui fora (região polar)';
     net.emit('crop.add', { tx, ty, kind, growth: 0, at: Math.round(game.worldTime), by: actor.pid, xp: 1 });
   },
 });

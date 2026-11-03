@@ -30,7 +30,7 @@ defineIntent('fish.cast', {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return 'inválido';
     const d = Math.hypot(x - e.x, y - e.y);
     if (d > FISH.castMax + 1.5) return 'Longe demais';
-    if (!w.liquidAt(Math.floor(x), Math.floor(y))) return w.frozen && w.waterAt(Math.floor(x), Math.floor(y)) ? 'A água está congelada' : 'Lance a linha na água';
+    if (!w.liquidAt(Math.floor(x), Math.floor(y))) return w.frozenAt(x, y) && w.waterAt(Math.floor(x), Math.floor(y)) ? 'A água está congelada' : 'Lance a linha na água';
     // the nearest free fish within reach of the bobber swims to it; more fish around → a quicker bite
     let best = null, bd = FISH.near, n = 0;
     for (const m of game.entities) {

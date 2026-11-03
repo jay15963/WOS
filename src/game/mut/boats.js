@@ -89,7 +89,7 @@ defineIntent('boat.move', {
     const h = Math.atan2(Math.sin(hr), Math.cos(hr));
     const t = game.worldTime, last = LAST.get(b.id), dt = Math.max(0.1, Math.min(1.5, last == null ? 1.5 : t - last));
     const far = Math.hypot(x - b.x, y - b.y) > BOAT.speed * 1.6 * dt + 0.6;
-    if (game.world.frozen && Math.hypot(x - b.x, y - b.y) > 0.05) { fix(); return; }
+    if (game.world.frozenAt(b.x, b.y) && Math.hypot(x - b.x, y - b.y) > 0.05) { fix(); return; }
     if (far || !hullFree(game, x, y, h, b, 0.05)) { fix(); return; }
     LAST.set(b.id, t);
     const vx = Math.max(-5, Math.min(5, num(a.vx))), vy = Math.max(-5, Math.min(5, num(a.vy)));

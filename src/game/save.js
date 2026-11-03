@@ -91,8 +91,9 @@ export function loadGame(game) {
   const data = game.noSave ? null : readSave(game);
   game._loaded = true;
   if (!data) return false;
-  if (data.v !== VERSION) {
-    // a world saved before the planet engine: its tile indices mean other tiles now — dropped (once, with a message)
+  if (data.v !== VERSION || (data.src || 'classic') !== (game.world.source?.kind || 'classic')) {
+    // a world saved before the planet engine (or on another world source: the 256 × 256 map): its tile indices mean
+    // other tiles now — dropped (once, with a message)
     try { localStorage.removeItem(key(game)); localStorage.removeItem(key(game, 1)); } catch { /* ignore */ }
     game.later?.(1.2, () => game.events.emit('toast', { text: 'Este mundo era de uma versão antiga do jogo e não pôde ser aberto: um mundo novo foi criado com a mesma semente.', kind: 'warn' }));
     return false;

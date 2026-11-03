@@ -92,7 +92,7 @@ function climbBlocked(w, x, y, r) {
     if (!w.inBounds(tx, ty)) return true;
     const i = w.idx(tx, ty);
     const wa = w.water.get(i), so = w.solid.get(i);
-    if ((wa === 2 && !w.frozen) || so === 1 || so === 2) {
+    if ((wa === 2 && !w.iceAt(i)) || so === 1 || so === 2) {
       const cx = Math.max(tx, Math.min(x, tx + 1)), cy = Math.max(ty, Math.min(y, ty + 1));
       if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return true;
     }
@@ -384,7 +384,7 @@ function swimBrain(game, m, dt, F) {
   const sp = SPECIES[m.species];
   if (!tickStatus(game, m, dt)) return;
   const w = game.world;
-  if (w.frozen) { m.moving = false; return; }
+  if (w.frozenAt(m.x, m.y)) { m.moving = false; return; }
   m.thinkT = (m.thinkT || 0) - dt;
   const think = m.thinkT <= 0;
   if (think) m.thinkT = 0.3 + R() * 0.1;

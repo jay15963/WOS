@@ -175,14 +175,16 @@ export function installRadar(game, root, mini) {
     }
     // the season (seasons.js): its name, and how long until the winter
     const S = g.season;
-    const sk = S ? S.id + S.toWinter : '';
+    const sk = S ? S.name + S.toWinter + S.zone + S.day : '';
     if (S && C.sk !== sk) {
       C.sk = sk;
       R.season.textContent = S.name;
-      R.season.className = 'rd-season s-' + S.id;
-      R.season.title = S.id === 'winter' ? `Inverno: dia ${S.day} de ${SEASON_LEN.winter}` : S.toWinter <= 1 ? 'O inverno começa amanhã' : `Inverno em ${S.toWinter} dias`;
+      R.season.className = 'rd-season s-' + (S.zone === 0 ? (S.wet ? 'spring' : 'summer') : S.id);
+      // (seasons by latitude: the region's year — seasons.js)
+      const zt = S.zone != null && S.zone !== 2 ? ` · região ${S.zoneName.toLowerCase()}` : '';
+      R.season.title = (S.len < 0 ? 'Inverno eterno' : S.toWinter < 0 ? 'Sem inverno aqui' : S.id === 'winter' ? `Inverno: dia ${S.day} de ${S.len || SEASON_LEN.winter}` : S.toWinter <= 1 ? 'O inverno começa amanhã' : `Inverno em ${S.toWinter} dias`) + zt;
     }
-    const w = E.weather, clearNight = night && w === 'clear';
+    const w = E.localWeather || E.weather, clearNight = night && w === 'clear';
     const wn = clearNight ? 'Noite' : (WEATHER_PT[w] || [''])[0];
     if (C.wn !== wn) { C.wn = wn; R.wx.textContent = wn; R.wxi.innerHTML = nIcon(clearNight ? 'moon' : WX_ICON[w] || 'sun'); }
   };

@@ -35,8 +35,7 @@ function castPoint(game, p) {
 }
 function frozenNear(game, p) {
   const w = game.world;
-  if (!w.frozen) return false;
-  for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (w.waterAt(Math.floor(p.x) + dx, Math.floor(p.y) + dy)) return true;
+  for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const x = Math.floor(p.x) + dx, y = Math.floor(p.y) + dy; if (w.waterAt(x, y) && w.frozenAt(x, y)) return true; }
   return false;
 }
 

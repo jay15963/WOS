@@ -44,6 +44,11 @@ export const SURVIVAL = {
     // winter (seasons.js, by season.winter): the biomes' climate gives way to the winter's (snow everywhere):
     // base −1 °C, a little colder where the biome is colder; rain falls as snow (soaks much less)
     winter: { base: -1, biomeK: 0.3, snowSoak: 0.3 },
+    // the planet (seasons by latitude): the felt base comes from the climate of the place (source.climateAt: the annual
+    // mean with the lapse rate of its own height, ± half the seasonal amplitude along the zone's year) mapped onto the
+    // game's scale: base = mid + (T − ref) × k (a temperate summer ~ the classic meadow, its winter ~ the classic winter;
+    // the poles far below, the tropics warm); a hard winter takes `hardWinter` more
+    planet: { mid: 15, ref: 10, k: 0.9, hardWinter: -4, min: -32, max: 36 },
     // winter clothes (items armor.insul, up to 0.8): the felt gap below comfort shrinks to (1 − insul) of it;
     // the gap that remains also makes you hungrier (normal temperature = normal hunger)
     coldHunger: 0.7, coldHungerSpan: 15, // hunger × (1 + 0.7 × gap / 15), gap capped at 15 °C
@@ -70,6 +75,9 @@ export const SURVIVAL = {
     chill: -7,            // °C while fully wet (scales with how wet), wind chill ×2 when wet
     dry: 1, dryFire: 6, drySun: 2.5, dryShelter: 1.5, // drying speed multipliers
     hungerSwim: 2.5,      // hunger × while swimming
+    // the abyssal ocean (world.abyssAt: open sea, docs/PLANET.md): far colder, the body tires fast (energy / s), and
+    // with no energy left the sea takes HP (abyssDrown % of max HP every abyssEvery s) — swim back to shallower water
+    abyss: -30, abyssLoss: 1.6, abyssTire: 20, abyssEvery: 2, abyssDrown: 0.05, // (tire: more than the regen of 11 / s: ~11 s of strength)
   },
 };
 
@@ -170,10 +178,8 @@ export function feltTemp(game, p, shelter) {
   // simulation state of the environment (env.cur / wet / hour advance in update(), also without rendering)
   const T = SURVIVAL.temp, E = game.env, e = E.cur || E.env || {};
   const wet = E.wet ?? E.env?.wet ?? 0;
-  const biome = game.world.biomeAt?.(p.x, p.y);
-  const S = game.season || seasonOf(game), bb = T.biome[biome] ?? T.biomeDefault;
-  const wb = T.winter.base + (bb - T.biomeDefault) * T.winter.biomeK;
-  const base = bb + (wb - bb) * (S.winter || 0) + (S.coldC || 0); // the season: winter's own climate, cooler autumn / spring
+  const S = game.season || seasonOf(game);
+  const base = baseTemp(game, p.x, p.y, S);
   const h = E.hour ?? 12;
   const night = h < 12 ? 1 - ss(4.6, 6.3, h) : ss(18.7, 20.4, h);
   const day = T.dayAmp * Math.cos(((h - 14) / 24) * Math.PI * 2) + T.night * night;
@@ -188,12 +194,28 @@ export function feltTemp(game, p, shelter) {
   const food = p.warmFoodT > 0 ? T.warmFood : 0;
   // water: swimming is icy; wet clothes chill (scaled by how soaked) and double the wind chill
   const Wt = SURVIVAL.wet, wk = Math.min(1, (p.wetT || 0) / 60);
-  const water = p.swimming ? Wt.swim : wk > 0 ? Wt.chill * wk + wind * wk : 0;
+  const water = p.swimming ? (p._abyss ? Wt.abyss : Wt.swim) : wk > 0 ? Wt.chill * wk + wind * wk : 0;
   const raw = base + day + rain + wind + fire + room + cloth + food + water;
   // winter clothes keep the heat in: only (1 − insul) of the gap below comfort is felt
   const ins = Math.max(0, Math.min(0.8, p.insul || 0));
   const c = raw < T.comfort ? T.comfort - (T.comfort - raw) * (1 - ins) : raw;
-  return { c, raw, base, day, rain, wind, fire, torch: torch && fire === torch ? torch : 0, room, cloth, food, water, insul: c - raw, season: S.id };
+  return { c, raw, base, day, rain, wind, fire, torch: torch && fire === torch ? torch : 0, room, cloth, food, water, insul: c - raw, season: S.id, sname: S.name };
+}
+
+// the felt base °C of a place before the hour / weather / shelter (S = the season there)
+const CLIM = {};
+export function baseTemp(game, x, y, S) {
+  const T = SURVIVAL.temp, w = game.world, src = w.source;
+  if (src?.climateAt) {
+    // the planet: its climate (cached per player spot for a moment: it is a few bilinear reads)
+    const P = T.planet, c = src.climateAt(x, y, w.heightAt?.(x, y) || 0, CLIM);
+    const tS = c.T + 0.5 * c.tAmp * (S.tC || 0);
+    const b = P.mid + (tS - P.ref) * P.k + (S.hard ? P.hardWinter * (S.winter || 0) : 0);
+    return Math.max(P.min, Math.min(P.max, b));
+  }
+  const biome = w.biomeAt?.(x, y), bb = T.biome[biome] ?? T.biomeDefault;
+  const wb = T.winter.base + (bb - T.biomeDefault) * T.winter.biomeK;
+  return bb + (wb - bb) * (S.winter || 0) + (S.coldC || 0); // the season: winter's own climate, cooler autumn / spring
 }
 
 // HUD readout: { key, text, cls, why }
@@ -204,7 +226,7 @@ export function heatState(p) {
   const cls = c < 0 ? 'freeze' : c < SURVIVAL.temp.comfort ? 'cold' : c > 26 ? 'hot' : 'ok';
   const parts = [];
   const add = (v, t) => { if (Math.abs(v) >= 0.5) parts.push(`${v > 0 ? '+' : '−'}${Math.round(Math.abs(v))}° ${t}`); };
-  parts.push(`${Math.round(f.base)}° aqui${f.season === 'winter' ? ' (inverno)' : f.season === 'autumn' ? ' (outono)' : f.season === 'spring' ? ' (primavera)' : ''}`);
+  parts.push(`${Math.round(f.base)}° aqui${f.sname ? ` (${f.sname.toLowerCase()})` : ''}`);
   add(f.day, 'hora do dia'); add(f.rain, 'chuva'); add(f.wind, 'vento'); add(f.fire, f.torch ? 'tocha de mão' : 'fogo'); add(f.room, 'abrigo'); add(f.cloth, 'roupas'); add(f.food, 'comida quente');
   add(f.insul || 0, 'roupa de frio');
   add(f.water, p.swimming ? 'água gelada' : 'roupa molhada');
@@ -230,6 +252,26 @@ function updateFeel(p, dt) {
   const tWarm = p.dead ? 0 : clamp01(Math.max((p._felt?.fire || 0) / 14, p.warmFoodT > 0 ? 0.4 : 0));
   F.hp += (tHp - F.hp) * k; F.cold += (tCold - F.cold) * k; F.hunger += (tHunger - F.hunger) * k;
   F.wet += (tWet - F.wet) * (p.swimming ? 1 - Math.exp(-dt * 8) : k); F.sick += (sick - F.sick) * k; F.warm += (tWarm - F.warm) * k;
+}
+
+// swimming in the abyssal ocean (owner side): exhaustion, then the sea takes HP; a warning once per swim. A hook for
+// the open sea's hunters: game.events 'abyss' { on } when the local player enters / leaves it (fauna: sharks…)
+function abyssSwim(game, p, dt) {
+  const W = SURVIVAL.wet, w = game.world;
+  const on = !!p.swimming && !p._boat && !game.creative && !!w.abyssAt?.(Math.floor(p.x), Math.floor(p.y));
+  if (on !== !!p._abyss) {
+    p._abyss = on; p._abyssT = 0;
+    game.events.emit('abyss', { on });
+    if (on) game.events.emit('error', { text: 'Oceano aberto: a água é gelada e funda demais — volte para a costa!' });
+  }
+  if (!on) return;
+  p.energy = Math.max(0, p.energy - W.abyssTire * dt);
+  if (p.energy > 0) return;
+  p._abyssT = (p._abyssT || 0) + dt;
+  if (p._abyssT < W.abyssEvery) return;
+  p._abyssT = 0;
+  dealDamage(game, p, p, Math.max(1, Math.round(p.maxHp * W.abyssDrown)), { noDodge: true, noKnock: true });
+  game.events.emit('error', { text: 'Sem forças para nadar: o mar está levando você!' });
 }
 
 export function survivalSystem() {
@@ -275,8 +317,10 @@ export function survivalSystem() {
       const d = f.c - T.comfort;
       if (d < 0) p.bodyHeat = Math.max(0, p.bodyHeat + d * T.lossK * dt);
       else p.bodyHeat = Math.min(100, p.bodyHeat + (T.gainBase + d * T.gainK) * dt);
-      if (p.swimming) p.bodyHeat = Math.max(0, p.bodyHeat - W.swimLoss * dt);
+      if (p.swimming) p.bodyHeat = Math.max(0, p.bodyHeat - W.swimLoss * dt * (p._abyss ? W.abyssLoss / W.swimLoss + 1 : 1));
       const heat = p.bodyHeat;
+      abyssSwim(game, p, dt);
+      if (p.dead) return;
 
       // warm buff (fire / warm meal): better regen (player.js) and a little less hunger
       const warm = (f.fire > 3 && !f.torch) || p.warmFoodT > 0;

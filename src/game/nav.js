@@ -15,7 +15,7 @@ import { Layer, NodeTable } from '../world/store.js';
 // where deep water is water (only ice or shallow water: creatures do not swim). The steps physics allows, no more.
 const wallsAt = (w, i, u) => (!u && w.deck && w.deck.get(i) ? w.rail : w.railU);
 // may a creature step from tile i (under a deck: u) to tile j (layer nu)? (the deep water a deck does not cover)
-const deepOff = (w, i, j, u, nu) => !w.frozen && w.water.get(j) === 2 && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(j)));
+const deepOff = (w, i, j, u, nu) => w.water.get(j) === 2 && !w.iceAt(j) && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(j)));
 
 // ---------- occupancy (solid round props per tile) ----------
 // game.occ: a sparse store layer (docs/STREAMING.md); chunks that load / leave add / drop their props

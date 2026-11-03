@@ -46,7 +46,20 @@ export async function makePlanetSource(seed, opts = {}) {
   let spawn = null;
   const px = opts.px != null && opts.px !== '' ? +opts.px : NaN, py = opts.py != null && opts.py !== '' ? +opts.py : NaN;
   if (px === px && py === py) spawn = { x: px + 0.5, y: py + 0.5 };
-  else { const sp = m.findSpawn(planet); spawn = sp ? { x: sp.x, y: sp.y } : { x: PW / 2 + 0.5, y: PH / 3 + 0.5 }; }
+  else {
+    // the start of a world is temperate (the four seasons, game/seasons.js): findSpawn scores macro cells, the zone of the
+    // spot itself (climate interpolated + its altitude) may fall on the warm / subpolar side of a border — the next
+    // best spots then (each ~70 ms)
+    let sp = null;
+    for (let k = 0; k < 6; k++) {
+      const q = m.findSpawn(planet, k);
+      if (!q) break;
+      if (!sp) sp = q;
+      const c = climatePoint(m, planet, q.x, q.y, 0, {});
+      if (c.zone === 2) { sp = q; break; }
+    }
+    spawn = sp ? { x: sp.x, y: sp.y } : { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
+  }
   const src = {
     kind: 'planet', seed, wrap: true, bounds: null, zones: [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }], spawn,
     timings: { planet: Math.round(t1 - t0) },

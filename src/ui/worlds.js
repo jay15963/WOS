@@ -3,6 +3,9 @@
 // and its hotbar layout under `wos.hotbar.<id>` (hotbar.js). Worlds from before the list (one save per seed,
 // `wos.save.v2.<seed>`) join it on first use with id = String(seed), so their keys stay as they were.
 // Guests keep their per-host player saves keyed by the host's seed (+ '.guest'), outside the list.
+// Worlds are planets (docs/PLANET.md): a world whose save was made before (the 256 × 256 map, or any save that is not a
+// planet v10 save) is OLD — listed with "Mundo antigo — não é compatível com o novo planeta", it cannot be played, only
+// deleted; "Continuar" skips it.
 import { elapsedOf, formatElapsed, dateOf, yearKind } from '../game/calendar.js';
 
 export const MAX_WORLDS = 10;
@@ -37,9 +40,21 @@ function migrate() {
   return list;
 }
 
-export function listWorlds() { return migrate().slice().sort((a, b) => (b.played || 0) - (a.played || 0)); }
+// a save of the new planet (save.js VERSION 10 + src 'planet')
+const PLANET_SAVE = (d) => !!d && d.v >= 10 && d.src === 'planet';
+// a world saved before the planet (its save cannot be opened any more)
+export function isOldWorld(id) {
+  const raw = ls.get(`wos.save.v2.${id}`) || ls.get(`wos.save.v1.${id}`);
+  if (!raw) return false;
+  try { return !PLANET_SAVE(JSON.parse(raw)); } catch { return true; }
+}
+export const OLD_WORLD_PT = 'Mundo antigo — não é compatível com o novo planeta';
+export function listWorlds() { return migrate().slice().sort((a, b) => (b.played || 0) - (a.played || 0)).map((w) => (isOldWorld(w.id) ? { ...w, old: true } : w)); }
 export function getWorld(id) { return migrate().find((w) => w.id === id) || null; }
-export function lastWorld() { const id = ls.get(LAST); return (id && getWorld(id)) || listWorlds()[0] || null; }
+export function lastWorld() {
+  const id = ls.get(LAST), w = id && getWorld(id);
+  return (w && !isOldWorld(w.id) && w) || listWorlds().find((q) => !q.old) || null;
+}
 
 // day / level of a world's save and how long it has lived ("2 anos e 3 dias": calendar.js) — null: never saved yet
 export function worldInfo(id) {
@@ -61,7 +76,7 @@ export function createWorld({ name, seed, mode, year }) {
   let id;
   do id = 'w' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); while (list.some((w) => w.id === id)); // sync-ok: a local save-slot id of this browser, never shared state
   const n = list.length + 1;
-  const w = { id, name: String(name || '').trim().slice(0, 28) || `Mundo ${n}`, seed: s, mode: mode === 'creative' ? 'creative' : 'survival', year: yearKind(year), created: Date.now(), played: Date.now() };
+  const w = { id, name: String(name || '').trim().slice(0, 28) || `Mundo ${n}`, seed: s, mode: mode === 'creative' ? 'creative' : 'survival', year: yearKind(year), src: 'planet', created: Date.now(), played: Date.now() };
   list.push(w);
   write(list);
   return w;

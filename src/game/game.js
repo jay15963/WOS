@@ -373,7 +373,7 @@ export class Game {
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
         else if (o.kind === 'pawn') drawPawn(B, A, d, t);
-        else if (!drawStock(B, A, d, t, this.world.frozen) && !drawFauna(B, A, d, t, this.world)) drawAnimal(B, A, d, t);
+        else if (!drawStock(B, A, d, t, d.water && this.world.frozenAt(d.x, d.y)) && !drawFauna(B, A, d, t, this.world)) drawAnimal(B, A, d, t);
         if (v8) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
         if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz);
