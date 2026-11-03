@@ -20,3 +20,4 @@ import './stock.js'; // livestock: ties (docs/LIVESTOCK.md)
 import './fish.js'; // fishing with a rod
 import './giants.js';   // ice giants: smash telegraph, thrown ice rock
 import './ballista.js'; // the ballista: operator, aim, shots
+import './boats.js';    // boats: launch, riders, rowing

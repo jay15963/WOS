@@ -251,6 +251,7 @@ export function mobsSystem() {
         let d = 1e9;
         for (const q of allPlayers(game)) d = Math.min(d, Math.abs(m.x - q.x) + Math.abs(m.y - q.y));
         if (d > SLEEP * 1.4 && m.state !== 'evade' && m.state !== 'chase') { m.moving = false; continue; }
+        if (m._boat) { m.moving = false; continue; } // (an animal riding a boat: boats.js holds it on its place)
         if (m.faction === 'bandit' || m.faction === 'walker') updateBandit(game, m, dt);
         else if (m.brain) m.brain(game, m, dt); // (farm animals, fish: livestock.js)
         else updateCreature(game, m, dt);

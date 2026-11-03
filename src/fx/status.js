@@ -50,7 +50,7 @@ class StatusFx {
     const hpK = p.maxHp ? p.hp / p.maxHp : 1;
     // wading / rain soak linger for a while (B's model may report wet directly)
     const w = g.world, tx = Math.floor(p.x), ty = Math.floor(p.y);
-    const inWater = w && w.liquidAt && w.liquidAt(tx, ty) > 0; // (not on ice / a pier or bridge deck)
+    const inWater = w && !p._boat && w.liquidAt && w.liquidAt(tx, ty) > 0; // (_boat: dry in a boat) // (not on ice / a pier or bridge deck)
     const env = g.env.env;
     const snowK = Math.max(g.R && g.R.coldAt ? clamp01((g.R.coldAt(p.x, p.y) - 0.45) / 0.3) : 0, clamp01(((g.season?.winter) || 0) * 2 - 0.4)); // it snows here (cold biome / winter), not rains
     const roofed = w && w.roofAtPoint ? w.roofAtPoint(p.x, p.y) !== 0 && !w.isRock(tx, ty) : false; // under a roof / cave ceiling

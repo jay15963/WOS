@@ -48,6 +48,8 @@
 // Turning parts (faces/solidDefense.js, the ballista): per part spin: true — it turns about a vertical axis through
 // spec.spinAt [x, v, h] to the world angle spec.spin(o, t) (radians, atan2 of the world direction its front points to;
 // built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot).
+// A model that moves as a whole (faces/solidBoat.js, the boat): spec.move(o, t) → [dx, dy, dh, dh/dx, dh/dy] each frame
+// (a world offset, a lift and a height gradient about the turning axis: bobbing / rocking) — built once, moved per frame.
 // More (faces/solidLights.js uses them): model: 'front'
 // (the model always from the front art's parts, whatever way the piece faces; the other views only texture it) ·
 // lift: px the painter draws the art above the piece's ground (wall-hung art; per part: that part's texture in the
@@ -719,7 +721,7 @@ export function encA(a, fl) {
   return 2 + 2 * L + 0.25 + 0.5 * (a < 0 ? 0 : a > 1 ? 1 : a);
 }
 // the look of a piece this frame (shared by its two drawables): yaw, squash easing, shake, tint, flash
-export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0, sn: false, sc: 1, ss: 0, o: null, t: 0 };
+export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0, sn: false, sc: 1, ss: 0, o: null, t: 0, mo: false, mx: 0, my: 0, mh: 0, mgx: 0, mgy: 0 };
 function frameState(o, e, t) {
   // (faces at every angle, 0° included: no easing toward the sprite any more — the true depth, side shading and open
   // tops always; k1 < 1 only for round things that keep the art's flat look at every angle)
@@ -741,6 +743,10 @@ function frameState(o, e, t) {
   // the turn of the spin parts: the world angle asked for minus the way the model was built facing (its front, local +y)
   const sa = e.spn ? (sp.spin(o, t) || 0) - (e.A + Math.PI / 2) : 0;
   FS.sn = e.spn; FS.sc = Math.cos(sa); FS.ss = Math.sin(sa); FS.o = o; FS.t = t;
+  // a model that moves as a whole (spec.move → [dx, dy, dh, dh/dx, dh/dy]: a boat — its pose, bobbing and rocking)
+  const mv = sp.move ? sp.move(o, t) : null;
+  FS.mo = !!mv;
+  if (mv) { FS.mx = mv[0]; FS.my = mv[1]; FS.mh = mv[2] || 0; FS.mgx = mv[3] || 0; FS.mgy = mv[4] || 0; FS.mv = true; }
 }
 // the parts of e back to front: sel 0 = all, 1 = all but the covering parts in front (e.pf), 2 = only those
 function emitParts(F, e, sel) {
@@ -748,6 +754,7 @@ function emitParts(F, e, sel) {
   const tr = FS.tr, tg = FS.tg, tb = FS.tb, ta = FS.a;
   const np = e.P.length, one = np === 1;
   const sn = FS.sn, sc = FS.sc, ss = FS.ss, spx = e.spx, spy = e.spy;
+  const mo = FS.mo, mcx = sn ? spx : e.bx, mcy = sn ? spy : e.by; // (spec.move: the rocking is about the turning axis / the body centre)
   if (!one) {
     partsReset();
     for (let j = 0; j < np; j++) {
@@ -784,6 +791,7 @@ function emitParts(F, e, sel) {
         if (spn) { const dx = x - spx, dy = y - spy; x = spx + sc * dx - ss * dy; y = spy + ss * dx + sc * dy; }
         if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
         if (tl) { const u = (x - e.tpx) * C + (y - e.tpy) * S, w = h - e.tph, du = u * tc + w * ts - u; x += du * C; y += du * S; h = e.tph - u * ts + w * tc; }
+        if (mo) { h += FS.mh + FS.mgx * (x - mcx) + FS.mgy * (y - mcy); x += FS.mx; y += FS.my; } // (moved as a whole: spec.move)
         SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = h; SCR[k + 3] = q[n * 20 + k + 3];
         const v0 = q[n * 20 + k + 4];
         SCR[k + 4] = m ? v0 + R * (e.qb[n * 4 + k / 5] - v0) : v0; // (an open top: its rows once turned)

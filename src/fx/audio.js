@@ -517,7 +517,7 @@ export class Audio {
     this._cave += (caveNow - this._cave) * (1 - Math.exp(-dt * 1.2));
     this.indoor += (N.indoor - this.indoor) * (1 - Math.exp(-dt * 2));
     // head at water level: the world gets muffled, water all around
-    const p = game.player, swimNow = p && !p.dead && w && w.liquidAt(Math.floor(p.x), Math.floor(p.y)) === 2 ? 1 : 0; // (liquid: not on ice / a pier or bridge deck)
+    const p = game.player, swimNow = p && !p.dead && !p._boat && w && w.liquidAt(Math.floor(p.x), Math.floor(p.y)) === 2 ? 1 : 0; // (_boat: rowing, boats.js) // (liquid: not on ice / a pier or bridge deck)
     this._swim += (swimNow - this._swim) * (1 - Math.exp(-dt * 3));
     const cave = this._cave, indoor = this.indoor, out = 1 - cave * 0.88, swim = this._swim;
     const muff = Math.max(indoor * 0.85, cave, swim * 0.5);

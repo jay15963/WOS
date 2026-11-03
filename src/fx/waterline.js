@@ -77,7 +77,7 @@ class Waterline {
       }
     };
     for (const e of g.entities) {
-      if (e.dead) continue;
+      if (e.dead || e._boat) continue; // (riding a boat: no wading rings)
       const wv = w.liquidAt(Math.floor(e.x), Math.floor(e.y)); // (not on a pier / bridge deck)
       if (!wv) continue;
       e._wr = (e._wr || 0) - dt; // ring timer runs while in the water

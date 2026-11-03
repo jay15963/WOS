@@ -4957,6 +4957,247 @@ def('P5', {
   await t.checkDigest(H, G);
 });
 
+// =====================================================================================================
+// B · Barco (game/boats.js, docs/PLAN-V2.md "Barco"): the rowboat — 6 places shared by players and tied animals
+const boatOn = (f, id) => f.game.boats?.map.get(id) || null;
+// the river crossing near the spawn (the deck finder's, dry): launch tile = its first water tile
+function boatSite(t, H) {
+  const s = deckSites(t, H);
+  t.need(s.bridge, 'no river crossing near the spawn on this seed');
+  const b = s.bridge, ex = Math.sign(b[1][0] - b[0][0]), ey = Math.sign(b[1][1] - b[0][1]);
+  return { b, ex, ey, bank: b[0], far: b[b.length - 1], tile: b[1] };
+}
+// can a walker (no swimming) get from (x, y) to tile (tx, ty) within r tiles? (which bank a point is on)
+function walkLinked(f, x, y, tx, ty, r = 16) {
+  const w = f.game.world, sx = Math.floor(x), sy = Math.floor(y), seen = new Set([sy * w.W + sx]), q = [[sx, sy]];
+  const ok = (a, b) => w.inBounds(a, b) && Math.abs(a - sx) <= r && Math.abs(b - sy) <= r && !w.rock[w.idx(a, b)] && !w.solid[w.idx(a, b)] && w.liquidAt(a, b) !== 2;
+  while (q.length) {
+    const [a, b] = q.pop();
+    if (a === tx && b === ty) return true;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const na = a + dx, nb = b + dy, k = nb * w.W + na; if (!seen.has(k) && ok(na, nb)) { seen.add(k); q.push([na, nb]); } }
+  }
+  return false;
+}
+// a boat launched by the host at the crossing (dev helper), nobody aboard; removed at the end
+async function hostBoat(t, H, G, site) {
+  const r = H.game.debug.boatScene({ at: site.tile, board: false });
+  t.need(r && r.id, 'no room for a boat at the crossing');
+  t.defer(() => { if (boatOn(H, r.id)) { H.game.net.emit('boat.set', { id: r.id, seats: [0, 0, 0, 0, 0, 0], pets: [] }); H.game.net.emit('boat.remove', { id: r.id }); } });
+  await t.waitFor(() => boatOn(G, r.id), RT() + 1500, 'the guest has the boat');
+  return r.id;
+}
+// stand on the bank / shallows next to a boat's hull (the walkable point nearest to its outline)
+function standByBoat(f, M, b) {
+  const p = f.game.player, [nx, ny] = M.boatsc.hullNear(b.x, b.y, b.h, p.x, p.y);
+  const s = A.freeSpot(f, M, nx, ny, { rMin: 0.35, rMax: 2.4, avoid: (x, y) => M.boatsc.inHull(b.x, b.y, b.h, x, y, 0.25) });
+  if (s) A.teleport(f, s[0], s[1]);
+  return s;
+}
+async function rowUntil(t, f, ex, ey, cond, ms) {
+  const rel = A.holdMove(f, ex, ey);
+  try { return await t.tryWait(cond, ms); } finally { rel(); }
+}
+const onFarBank = (f, site, x, y) => !walkLinked(f, x, y, site.bank[0], site.bank[1]) && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
+
+def('B1', {
+  star: true, title: 'B: guest builds a boat, two players board, the guest rows across a river, both step off on the far bank', timeout: 300000,
+  expected: 'The guest places a boat on the first water tile of a river crossing (on land: refused) and builds it with real work from the bank: the blueprint becomes a floating boat (op boat.launch) with the same id and pose on both; the guest boards first (the oars, place 0), the host second; both seated (rooted, no swimming); the guest rows across (its client simulates, intent boat.move → op boat.pos): the boat moves on the host, both draw it close together and see each other seated in it; the guest steps off on the far bank (a spot not walk-linked to the near bank, never deep water); the host takes the oars (next passenger) and steps off too; digest equal',
+  api: 'BUILDINGS.boat (build.place → boats.reason; build.hit final → boat.launch), game.boats.board / leave / landingSpot, intents boat.board / boat.leave / boat.move, ops boat.set / boat.pos, b.seats / b._x (drawn), p._boat',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.boats && MH.boats?.Boats && H.game.debug?.deckScene, 'boats (game/boats.js) missing');
+  const site = boatSite(t, H), { ex, ey } = site;
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, site.tile[0], site.tile[1], 30);
+  A.ensure(G, { wood: 40, rope: 10 });
+  const bank = [site.bank[0] + 0.5, site.bank[1] + 0.5];
+  A.teleport(G, bank[0], bank[1]);
+  await A.hostSees(t, H, G);
+  const land = String(MG.building.placeReason(G.game, 'boat', site.bank[0] - ex, site.bank[1] - ey, null));
+  t.check(/água/.test(land), 'a boat on land is refused (on the water)', land);
+  t.check(MG.building.placeReason(G.game, 'boat', site.tile[0], site.tile[1], gp) == null, 'the first water tile by the bank takes a boat', String(MG.building.placeReason(G.game, 'boat', site.tile[0], site.tile[1], gp)));
+  A.place(G, MG, 'boat', site.tile);
+  const bp = await t.waitFor(() => G.game.build.structures.find((o) => o.type === 'boat' && o.blueprint && o.tx === site.tile[0] && o.ty === site.tile[1]), RT() + 1200, 'guest sees the boat blueprint');
+  const id = bp.id;
+  t.defer(() => { if (boatOn(H, id)) { H.game.net.emit('boat.set', { id, seats: [0, 0, 0, 0, 0, 0], pets: [] }); H.game.net.emit('boat.remove', { id }); } });
+  await t.waitFor(() => A.structOn(H, id), RT() + 500, 'host has the same blueprint');
+  const mk = () => { const q = A.structOn(G, id); return q && q.blueprint ? MG.building.describeStructure(G.game, q) : null; };
+  await A.workUntil(t, G, mk, () => !A.structOn(G, id), 60000, 'builds the boat', { stand: () => A.teleport(G, bank[0], bank[1]) });
+  const bH = await t.waitFor(() => boatOn(H, id), RT() + 1500, 'the boat floats on the host (launched)');
+  const bG = await t.waitFor(() => boatOn(G, id), RT() + 1500, 'and on the guest');
+  t.check(!A.structOn(H, id) && !A.structOn(G, id), 'the blueprint is gone on both');
+  t.check(Math.hypot(bH.x - bG.x, bH.y - bG.y) < 0.01 && Math.abs(bH.h - bG.h) < 1e-3, 'the same pose on both', `${f2(bH.x)},${f2(bH.y)} ${f2(bH.h)} / ${f2(bG.x)},${f2(bG.y)} ${f2(bG.h)}`);
+  t.check(MH.boatsc.hullFree(H.game, bH.x, bH.y, bH.h, bH), 'its hull floats on the water');
+  // the guest gets in first (the oars), then the host
+  standByBoat(G, MG, bG);
+  await A.hostSees(t, H, G);
+  G.game.boats.board(bG);
+  await t.waitFor(() => bH.seats[0] === G.pid && bG.seats[0] === G.pid, RT() + 1500, 'the guest is at the oars on both');
+  standByBoat(H, MH, bH);
+  H.game.boats.board(bH);
+  await t.waitFor(() => bH.seats.includes(H.pid) && bG.seats.includes(H.pid), RT() + 1500, 'the host is aboard on both');
+  await t.sleep(400);
+  t.check(gp._boat === bG && gp.rooted && hp._boat === bH && hp.rooted, 'both seated (rooted)', `${!!gp._boat} ${gp.rooted} ${!!hp._boat} ${hp.rooted}`);
+  // the guest rows across
+  const st = { swim: false, maxD: 0 };
+  t.watch(() => {
+    for (const p of [gp, hp]) if (p.swimming || (p._swim || 0) > 0.3) st.swim = true;
+    st.maxD = Math.max(st.maxD, Math.hypot(bH._x - bG._x, bH._y - bG._y));
+  }, 50);
+  const x0 = bH.x, y0 = bH.y;
+  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return L && onFarBank(G, site, L[0], L[1]); };
+  const ok = await rowUntil(t, G, ex, ey, crossed, 25000);
+  t.check(ok, 'the guest rows until the far bank is in reach', `boat ${f2(bG.x)},${f2(bG.y)} h ${f2(bG.h)}`);
+  t.check(Math.hypot(bH.x - x0, bH.y - y0) > 1.5, 'the boat moved on the host (boat.pos)', `${f2(x0)},${f2(y0)} → ${f2(bH.x)},${f2(bH.y)}`);
+  await t.sleep(700);
+  t.check(Math.hypot(bH._x - bG._x, bH._y - bG._y) < 0.3, 'both draw it at the same spot once it settles', `host ${f2(bH._x)},${f2(bH._y)} guest ${f2(bG._x)},${f2(bG._y)}`);
+  t.check(st.maxD < 2.5, 'drawn close together while rowing (latency only)', f2(st.maxD));
+  t.check(!st.swim, 'nobody swims aboard');
+  const hOnG = A.avatarOn(G, H.pid), gOnH = A.avatarOn(H, G.pid);
+  t.check(hOnG && MG.boatsc.inHull(bG._x, bG._y, bG._h, hOnG.x, hOnG.y) && gOnH && MH.boatsc.inHull(bH._x, bH._y, bH._h, gOnH.x, gOnH.y), 'each sees the other seated in the boat', `host on guest ${f2(hOnG?.x)},${f2(hOnG?.y)} · guest on host ${f2(gOnH?.x)},${f2(gOnH?.y)}`);
+  // off: the guest on the far bank; the host takes the oars, then gets off too
+  G.game.boats.leave();
+  await t.waitFor(() => !bH.seats.includes(G.pid) && !bG.seats.includes(G.pid), RT() + 1500, 'the guest got off (both)');
+  await t.sleep(250);
+  t.check(!gp._boat && !gp.rooted && onFarBank(G, site, gp.x, gp.y), 'the guest stands on the far bank', `${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => bH.seats[0] === H.pid && bG.seats[0] === H.pid, RT() + 800, 'the host took the oars (next passenger)');
+  H.game.boats.leave();
+  await t.waitFor(() => !bH.seats.some(Boolean) && !bG.seats.some(Boolean), RT() + 1500, 'the host got off: the boat is empty on both');
+  await t.sleep(250);
+  t.check(!hp._boat && H.game.world.liquidAt(Math.floor(hp.x), Math.floor(hp.y)) !== 2, 'the host is ashore (never deep water)', `${f2(hp.x)},${f2(hp.y)} far bank ${onFarBank(H, site, hp.x, hp.y)}`);
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && Math.hypot(av.x - gp.x, av.y - gp.y) < 0.5; }, RT() + 1500, 'the host sees the guest on the far bank');
+  await t.checkDigest(H, G);
+  env.history.push('B1');
+});
+
+def('B2', {
+  title: 'B: one player with 5 tied animals fills the boat (6 places) and crosses; the animals ride along and get off with it; a second player is refused', timeout: 240000,
+  expected: 'A boat at a river crossing; the guest leads 5 tied animals (cow, sheep, pig, chicken, sheep). With the host at the oars the guest + 5 do not fit: refused "Não cabe todo mundo" (nobody aboard, nothing left behind). The host gets off; the guest boards: its 5 animals come along (6 places used, on both), each standing in the boat on the host (creatures) and on the guest (proxies); the host is refused (full); the guest rows across: the animals move with the boat; the guest gets off on the far bank and the animals get off next to it (still tied, never in deep water) on both; digest equal',
+  api: 'intent boat.board (tied animals: all or refused), b.pets [[nid, pid, place]], mobs.js (riding: no brain), host placeAll / unloadPet, entity stream positions',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.boats && H.game.stock?.debug && H.game.debug?.boatScene, 'boats / livestock missing');
+  const site = boatSite(t, H);
+  const gp = G.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, site.tile[0], site.tile[1], 30);
+  const id = await hostBoat(t, H, G, site);
+  const bH = boatOn(H, id), bG = boatOn(G, id);
+  // the guest's 5 animals on the bank
+  standByBoat(G, MG, bG);
+  await A.hostSees(t, H, G, 4000);
+  A.ensure(G, { rope: 5 });
+  const kinds = ['cow', 'sheep', 'pig', 'chicken', 'sheep'];
+  const herd = kinds.map((sp) => {
+    const s = A.freeSpot(H, MH, gp.x, gp.y, { rMin: 1.2, rMax: 4, r: 0.45, avoid: (x, y) => MH.boatsc.inHull(bH.x, bH.y, bH.h, x, y, 0.5) }) || [gp.x, gp.y];
+    const m = H.game.stock.debug.spawn(sp, s[0], s[1], { owned: false });
+    m.stateT = 30;
+    return m;
+  });
+  t.defer(() => { for (const m of herd) if (!m.dead) { m.tiedTo = null; m._boat = null; } });
+  await t.waitFor(() => herd.every((m) => A.proxyOf(G, m)), 3000 + CFG.budget, 'the animals on the guest');
+  for (const m of herd) { const r = await ask(G, 'stock.tie', { nid: m.nid }); t.assert(r.ok, `tie ${m.species}: ${r.why}`); }
+  await t.waitFor(() => herd.every((m) => m.tiedTo === G.pid), RT() + 1500, 'all 5 tied to the guest');
+  await t.sleep(600);
+  // the host at the oars: the guest and its 5 animals do not fit
+  standByBoat(H, MH, bH);
+  H.game.boats.board(bH);
+  await t.waitFor(() => bG.seats[0] === H.pid, RT() + 1500, 'the host is at the oars');
+  standByBoat(G, MG, bG);
+  await A.hostSees(t, H, G);
+  const r1 = await ask(G, 'boat.board', { id });
+  t.check(!r1.ok && /Não cabe todo mundo/.test(r1.why || '') && !bH.seats.includes(G.pid) && !bH.pets.length, 'the guest + 5 animals do not fit beside the host: refused, nobody boards, nothing is left behind', r1.why);
+  H.game.boats.leave();
+  await t.waitFor(() => !bG.seats.includes(H.pid) && !bH.seats.includes(H.pid), RT() + 1500, 'the host got off');
+  // the guest boards: all 5 come along
+  standByBoat(G, MG, bG);
+  await A.hostSees(t, H, G);
+  G.game.boats.board(bG);
+  await t.waitFor(() => bH.pets.length === 5 && bG.pets.length === 5 && bG.seats[0] === G.pid, RT() + 1500, 'the guest and its 5 animals are aboard on both');
+  t.check(H.game.boats.used(bH) === 6 && G.game.boats.used(bG) === 6, 'the boat is full: 6 places', `${H.game.boats.used(bH)} / ${G.game.boats.used(bG)}`);
+  await t.sleep(600);
+  const inH = (m) => MH.boatsc.inHull(bH._x, bH._y, bH._h, m.x, m.y, 0.25);
+  t.check(herd.every(inH), 'host: every animal stands in the boat', herd.map((m) => `${m.species} ${f2(m.x)},${f2(m.y)}`).join(' · '));
+  await t.waitFor(() => herd.every((m) => { const q = A.proxyOf(G, m); return q && MG.boatsc.inHull(bG._x, bG._y, bG._h, q.x, q.y, 0.3); }), ONEWAY() + 1500, 'guest: the proxies stand in the boat too');
+  standByBoat(H, MH, bH);
+  const r2 = await ask(H, 'boat.board', { id });
+  t.check(!r2.ok && /cheio/.test(r2.why || ''), 'the host cannot board: the boat is full', r2.why);
+  // across, with the animals
+  const x0 = bH.x, y0 = bH.y;
+  const crossed = () => { const L = G.game.boats.landingSpot(bG, gp.x, gp.y); return L && onFarBank(G, site, L[0], L[1]); };
+  const ok = await rowUntil(t, G, site.ex, site.ey, crossed, 25000);
+  t.check(ok, 'the guest rows across with its animals', `boat ${f2(bG.x)},${f2(bG.y)}`);
+  await t.sleep(500);
+  t.check(herd.every(inH) && Math.hypot(bH.x - x0, bH.y - y0) > 1.5, 'host: the animals moved with the boat', `${f2(x0)},${f2(y0)} → ${f2(bH.x)},${f2(bH.y)}`);
+  G.game.boats.leave();
+  await t.waitFor(() => !bH.pets.length && !bG.pets.length && !bH.seats.includes(G.pid), RT() + 1500, 'the guest and its animals got off (both)');
+  await t.sleep(400);
+  const wH = H.game.world;
+  t.check(herd.every((m) => m.tiedTo === G.pid && !m._boat && wH.liquidAt(Math.floor(m.x), Math.floor(m.y)) !== 2 && Math.hypot(m.x - gp.x, m.y - gp.y) < 4.5),
+    'host: the animals stand by the guest on the bank (still tied, never in deep water)', herd.map((m) => `${m.species} ${f2(m.x)},${f2(m.y)} d ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`).join(' · '));
+  t.check(onFarBank(G, site, gp.x, gp.y), 'the guest is on the far bank', `${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => herd.every((m) => { const q = A.proxyOf(G, m); return q && Math.hypot(q.x - m.x, q.y - m.y) < 1.5; }), ONEWAY() + 1500, 'guest: the proxies got off too');
+  await t.checkDigest(H, G);
+});
+
+def('B3', {
+  title: 'B: the driver gets off mid-river and the passenger takes the oars; far from the bank it is refused; frozen water holds the boat', timeout: 240000,
+  expected: 'A boat at a river crossing; the guest boards first (the oars), the host second; the guest rows out into the river; getting off where no bank is in reach is refused ("Longe da margem", when the river is that wide); once a bank is in reach the guest gets off (onto land / shallow water, never deep); the host is promoted to the oars on both and rows on: the boat moves on the guest too; winter: the water freezes on both and the host\'s rowing does not move the boat; the host steps out onto the ice; digest equal',
+  api: 'intent boat.leave (landing spot or refused; promote), boat.move refused on ice (fix), world.frozen (seasons.js)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.boats && H.game.debug?.boatScene, 'boats missing');
+  const site = boatSite(t, H), EH = H.game.env;
+  const gp = G.game.player, hp = H.game.player, day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, site.tile[0], site.tile[1], 30);
+  const id = await hostBoat(t, H, G, site);
+  const bH = boatOn(H, id), bG = boatOn(G, id);
+  standByBoat(G, MG, bG);
+  await A.hostSees(t, H, G);
+  G.game.boats.board(bG);
+  await t.waitFor(() => bH.seats[0] === G.pid, RT() + 1500, 'the guest at the oars');
+  standByBoat(H, MH, bH);
+  H.game.boats.board(bH);
+  await t.waitFor(() => bG.seats.includes(H.pid) && bH.seats.includes(H.pid), RT() + 1500, 'the host aboard');
+  // out into the river
+  const x0 = bH.x, y0 = bH.y;
+  await rowUntil(t, G, site.ex, site.ey, () => Math.hypot(bH.x - x0, bH.y - y0) > 1.6, 10000);
+  await t.sleep(900);
+  if (!H.game.boats.landingSpot(bH, gp.x, gp.y)) {
+    const r = await ask(G, 'boat.leave', { id });
+    t.check(!r.ok && /Longe da margem/.test(r.why || '') && bH.seats[0] === G.pid, 'far from the bank getting off is refused', r.why);
+    await rowUntil(t, G, site.ex, site.ey, () => !!G.game.boats.landingSpot(bG, gp.x, gp.y), 15000);
+    await t.sleep(600);
+  } else t.log('the river is narrow here: a bank is always in reach (no refusal to test)');
+  G.game.boats.leave();
+  await t.waitFor(() => !bH.seats.includes(G.pid) && !bG.seats.includes(G.pid), RT() + 1500, 'the guest got off mid-river (both)');
+  await t.sleep(250);
+  t.check(G.game.world.liquidAt(Math.floor(gp.x), Math.floor(gp.y)) !== 2 && !gp.swimming, 'the guest landed on land / shallow water (not deep)', `${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => bH.seats[0] === H.pid && bG.seats[0] === H.pid, RT() + 800, 'the host took the oars on both');
+  // the host rows on: the guest sees the boat move
+  const gx0 = bG._x, gy0 = bG._y;
+  await rowUntil(t, H, -site.ex, -site.ey, () => Math.hypot(bG._x - gx0, bG._y - gy0) > 1.2, 12000);
+  t.check(Math.hypot(bG._x - gx0, bG._y - gy0) > 1.2, 'the guest sees the new driver row the boat', `${f2(gx0)},${f2(gy0)} → ${f2(bG._x)},${f2(bG._y)}`);
+  const hOnG = A.avatarOn(G, H.pid);
+  t.check(hOnG && MG.boatsc.inHull(bG._x, bG._y, bG._h, hOnG.x, hOnG.y), 'the guest sees the host seated at the oars');
+  // winter: the boat is stuck in the ice; stepping out onto the ice works anywhere
+  t.defer(() => H.game.net.emit('env.skip', { hour: hour0, day: day0, wt: H.game.worldTime + 1, by: H.game.net.pid }));
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 12, day: 6, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => H.game.world.frozen && G.game.world.frozen, 4000 + CFG.budget, 'the water froze on both');
+  await t.sleep(300);
+  const ix = bH.x, iy = bH.y;
+  await rowUntil(t, H, site.ex, site.ey, () => false, 1500);
+  await t.sleep(RT());
+  t.check(Math.hypot(bH.x - ix, bH.y - iy) < 0.05 && Math.hypot(bG.x - ix, bG.y - iy) < 0.05, 'frozen: rowing does not move the boat (on both)', `${f2(ix)},${f2(iy)} → ${f2(bH.x)},${f2(bH.y)}`);
+  H.game.boats.leave();
+  await t.waitFor(() => !bH.seats.some(Boolean) && !bG.seats.some(Boolean), RT() + 1500, 'the host stepped out onto the ice');
+  t.check(!hp._boat && !hp.swimming, 'the host stands on the ice', `${f2(hp.x)},${f2(hp.y)}`);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

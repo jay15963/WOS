@@ -14,6 +14,7 @@ const PATHS = {
   worldgen: 'world/worldgen.js', stats: 'game/stats.js', controller: 'game/controller.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
   corpses: 'game/corpses.js', mcorpses: 'game/mut/corpses.js', levels: 'game/levels.js', players: 'game/players.js',
   mobs: 'game/mobs.js', seasons: 'game/seasons.js', walkers: 'game/walkers.js', giants: 'game/giants.js', ballista: 'game/ballista.js',
+  boats: 'game/boats.js', boatsc: 'game/content/boats.js',
 };
 const CACHE = new WeakMap();
 export async function mods(f) {
