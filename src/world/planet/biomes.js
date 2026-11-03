@@ -62,7 +62,7 @@ export const BIOME_LIST = [
   T({ key: 'salt_flat', pt: 'Salar', c: [236, 232, 222], g: PG.SALT, t: {}, td: 0, gr: 0, fert: 0, haz: 2, cl: 5 }),
   T({ key: 'beach', pt: 'Praia', c: [228, 212, 162], g: PG.SAND, t: { tree_palm: 1 }, td: 0.004, b: { dune_grass: 1 }, bd: 0.01, gr: 0.05, fert: 0.05, haz: 0, cl: 5 }),
   T({ key: 'rocky_shore', pt: 'Costa rochosa', c: [138, 128, 118], g: PG.GRAVEL, t: { tree_pine: 1 }, td: 0.01, b: { bush: 1 }, bd: 0.01, gr: 0.2, fert: 0.1, haz: 1, cl: 6 }),
-  T({ key: 'cliff', pt: 'Falésia', c: [116, 108, 98], g: PG.STONE, t: {}, td: 0.004, b: { bush: 1 }, bd: 0.01, gr: 0.3, fert: 0.1, haz: 1, cl: 6 }),
+  T({ key: 'cliff', pt: 'Falésia', c: [116, 108, 98], g: PG.STONE, t: {}, td: 0, b: { bush: 1 }, bd: 0.01, gr: 0.3, fert: 0.1, haz: 1, cl: 6 }),
   T({ key: 'heath', pt: 'Charneca', c: [122, 100, 104], g: PG.SOIL, t: { tree_birch: 1, tree_pine: 1 }, td: 0.01, b: { bush: 2, berrybush: 1 }, bd: 0.04, gr: 0.7, fert: 0.3, haz: 1, cl: 0 }),
   T({ key: 'floodplain', pt: 'Várzea', c: [92, 138, 58], g: PG.RICH, t: { tree_oak: 2, tree_birch: 1 }, td: 0.03, b: { bush: 1, berrybush: 1 }, bd: 0.02, gr: 0.9, fert: 1, haz: 0, cl: 0 }),
 ];
