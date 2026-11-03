@@ -256,6 +256,7 @@ export function fishBrain(game, m, dt) {
   if (hk) { swimTo(game, m, hk.x, hk.y, 1.6, dt); return; }
   if (m.state === 'flee' && m.stateT > 0 && m.wp) { if (!swimTo(game, m, m.wp[0], m.wp[1], 3.2, dt)) m.stateT = 0; return; }
   // someone in the water next to it, or a splash (fishing.js / projectiles land): dart away
+  if (!m._scare && m.state !== 'flee') for (const q of allPlayers(game)) if (!q.dead && Math.abs(q.x - m.x) < 1.6 && Math.abs(q.y - m.y) < 1.6 && Math.hypot(q.x - m.x, q.y - m.y) < 1.4) m._scare = { x: q.x, y: q.y, t: game.worldTime };
   const scare = m._scare;
   if (scare && scare.t > game.worldTime - 0.5) {
     m._scare = null;
@@ -612,8 +613,23 @@ function rangeRing(B, A, cx, cy, r, a, col) {
 }
 
 export function stockFxSystem() {
+  let jumpT = 3;
   return {
-    sync: 'cosmetic', // ropes, rings and soil marks drawn by every peer from replicated state
+    sync: 'cosmetic', // ropes, rings and soil marks drawn by every peer from replicated state; fish jumps (local)
+    update(game, dt) {
+      // now and then a fish in view leaps out of the water (cosmetic, each peer its own: art/livestockDraw.js _jump)
+      jumpT -= dt;
+      if (jumpT > 0 || game.world.frozen) return;
+      jumpT = 3 + Math.random() * 6;
+      const v = game.view(), F = [];
+      for (const e of game.entities) if (e.water && !e.dead && e.x > v.x0 && e.x < v.x1 && e.y > v.y0 && e.y < v.y1) F.push(e);
+      if (!F.length) return;
+      const f = F[Math.floor(Math.random() * F.length)], a = f._fh ?? Math.random() * Math.PI * 2;
+      f._jump = { t0: game.time, dur: 0.75, dx: Math.cos(a) * 1.1, dy: Math.sin(a) * 1.1 };
+      game.juice?.splash?.(f.x - Math.cos(a) * 0.55, f.y - Math.sin(a) * 0.55, 0.35);
+      game.later(0.75, () => game.juice?.splash?.(f.x + Math.cos(a) * 0.55, f.y + Math.sin(a) * 0.55, 0.45));
+      game.audio?.play('splash', { x: f.x, y: f.y, volume: 0.35 });
+    },
     collect(game, list, v) {
       for (const m of game.entities) {
         if (!m.tiedTo || m.dead || !STOCK[m.species]) continue;
