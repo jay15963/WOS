@@ -19,6 +19,7 @@ import { enterCombat } from './player.js';
 import { fireArrow } from './projectiles.js';
 import { allocMob, levelForDistance } from './mobs.js';
 import { walkerBrain } from './walkers.js';
+import { giantChase } from './giants.js'; // ice giants: their own fight (smash / thrown rocks)
 import { lootRows, ri } from './mut/roll.js';
 import { campHooks } from './mut/camps.js';
 import { hurtPlayer, minPlayerDist } from './players.js';
@@ -265,7 +266,8 @@ export function updateBandit(game, m, dt) {
     m.cast.t += dt;
     m.moving = false;
     if (m.state === 'chase') faceTowards(m, p);
-    if (m.cast.t >= m.cast.dur) { const fn = m.cast.fn; m.cast = null; fn?.(); }
+    m.cast.step?.(dt); // (a giant's wind-up: its pose, where it faces — giants.js)
+    if (m.cast && m.cast.t >= m.cast.dur) { const fn = m.cast.fn; m.cast = null; fn?.(); }
     return;
   }
 
@@ -323,6 +325,7 @@ export function updateBandit(game, m, dt) {
         }
       }
       if (m.blocking) { faceTowards(m, p); m.moving = false; break; }
+      if (m.giant) { giantChase(game, m, t, d, dt); break; } // (giants.js)
       if (m.wprof.ranged) { archer(game, m, p, d, dt); break; }
       const rng = reach(m, t);
       // spear throw from mid range

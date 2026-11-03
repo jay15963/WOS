@@ -44,6 +44,8 @@ import { deckSupportSystem } from './mut/decks.js';
 import { itemSprite } from './loot.js';
 import { installStock, stockSystem, stockFxSystem } from './livestock.js'; // farm animals (docs/LIVESTOCK.md)
 import { installFishing, fishingSystem } from './fishing.js'; // fishing with a rod
+import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
+import { installBallistaUi } from '../ui/ballistaUi.js';
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -111,6 +113,8 @@ export function installSystems(game) {
     combatSystem(),
     mobsSystem(),
     projectilesSystem(),
+    ballistaSystem(),               // bolts in flight, drawn aim, reload (+ host: operators gone)
+    ballistaOwnerSystem(),          // the local operator (after abilities: it roots the player)
     banditsSystem(),
     campArtSystem(),
     gatheringSystem(),
@@ -135,6 +139,7 @@ export function installSystems(game) {
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
+  addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
   addSystem(game, rangeFlashSystem(game));
   addSystem(game, decorSystem(game));
   return { isNew };

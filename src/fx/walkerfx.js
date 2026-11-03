@@ -37,15 +37,16 @@ class WalkerFx {
     const v = g.view(), P = g.particles, K = this.K, S = this.spr, env = g.env.env;
     const low = g.quality === 'low';
     for (const e of g.entities) {
-      if (e.species !== 'walker') continue;
+      if (e.species !== 'walker' && e.species !== 'giant') continue; // (ice giants: the same, bigger — game/giants.js)
+      const sc = e.scale || 1;
       const key = e.id ?? e;
       let r = this.recs.get(key);
-      if (!r) { r = { x: e.x, y: e.y, f, born: f, dead: !!e.dead, inner: false, mist: 0 }; this.recs.set(key, r); }
-      r.f = f; r.x = e.x; r.y = e.y;
+      if (!r) { r = { x: e.x, y: e.y, f, born: f, dead: !!e.dead, inner: false, mist: 0, sc }; this.recs.set(key, r); }
+      r.f = f; r.x = e.x; r.y = e.y; r.sc = sc;
       const inView = e.x > v.x0 - 1 && e.x < v.x1 + 1 && e.y > v.y0 - 1 && e.y < v.y1 + 2;
       r.inner = e.x > v.x0 + 1 && e.x < v.x1 - 1 && e.y > v.y0 + 0.8 && e.y < v.y1 - 0.3;
       if (e.dead) {
-        if (!r.dead) { r.dead = true; if (inView) this.shatter(g, e.x, e.y, true); }
+        if (!r.dead) { r.dead = true; if (inView) this.shatter(g, e.x, e.y, true, sc); }
         continue;
       }
       r.dead = false;
@@ -57,8 +58,8 @@ class WalkerFx {
         r.mist = (e.moving ? 0.08 : 0.17) * (low ? 2 : 1);
         const wx = env.windDir[0] * env.wind * 0.25;
         // on the ground layer (under the body: it never veils the walker), plus a faint wisp in front of the feet
-        P.emit({ spr: S.soft, x: e.x + (rnd() - 0.5) * 0.5, y: e.y + (rnd() - 0.3) * 0.16, lift: 0, vx: wx + (rnd() - 0.5) * 0.25, vy: (rnd() - 0.5) * 0.1,
-          drag: 0.9, life: 1.6 + rnd() * 0.9, size: 0.35 * K.soft, size1: (0.85 + rnd() * 0.35) * K.soft,
+        P.emit({ spr: S.soft, x: e.x + (rnd() - 0.5) * 0.5 * sc, y: e.y + (rnd() - 0.3) * 0.16 * sc, lift: 0, vx: wx + (rnd() - 0.5) * 0.25, vy: (rnd() - 0.5) * 0.1,
+          drag: 0.9, life: 1.6 + rnd() * 0.9, size: 0.35 * K.soft * sc, size1: (0.85 + rnd() * 0.35) * K.soft * sc,
           r: 0.82, g: 0.93, b: 1, a: 0.34, a1: 0, fadeIn: 0.3, layer: 'blob', ground: false });
         if (rnd() < 0.4) P.emit({ spr: S.soft, x: e.x + (rnd() - 0.5) * 0.4, y: e.y + 0.08 + rnd() * 0.08, lift: 0, vx: wx + (rnd() - 0.5) * 0.2, vy: 0.04,
           drag: 0.9, life: 1.2 + rnd() * 0.6, size: 0.2 * K.soft, size1: 0.45 * K.soft, r: 0.85, g: 0.94, b: 1, a: 0.12, a1: 0, fadeIn: 0.25, ground: false });
@@ -69,19 +70,19 @@ class WalkerFx {
     // gone without dying while well in view (crumbled at sunrise / despawned): a burst of snow where it stood
     for (const [k, r] of this.recs) {
       if (r.f === f) continue;
-      if (!r.dead && r.inner && f - r.born > 30) this.shatter(g, r.x, r.y, false);
+      if (!r.dead && r.inner && f - r.born > 30) this.shatter(g, r.x, r.y, false, r.sc || 1);
       this.recs.delete(k);
     }
   }
 
   // ice shards flying apart and tinkling down, glints, a snow puff and a frost ring on the ground
-  shatter(g, x, y, crack) {
+  shatter(g, x, y, crack, sc = 1) {
     const P = g.particles, K = this.K, S = this.spr;
     if (crack) {
-      for (let i = 0; i < 16; i++) {
-        const a = rnd() * TAU, sp = 0.8 + rnd() * 2.2;
-        P.emit({ spr: S.shard, x: x + Math.cos(a) * 0.12, y: y + Math.sin(a) * 0.05, lift: 0.25 + rnd() * 0.65, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55,
-          vlift: 1.4 + rnd() * 2.4, grav: 8.5, drag: 0.6, bounce: 0.3, life: 1.1 + rnd() * 0.9, hold: 0.65, size: (0.1 + rnd() * 0.12) * K.shard, size1: 0.06 * K.shard,
+      for (let i = 0; i < 16 * sc; i++) {
+        const a = rnd() * TAU, sp = (0.8 + rnd() * 2.2) * Math.sqrt(sc);
+        P.emit({ spr: S.shard, x: x + Math.cos(a) * 0.12 * sc, y: y + Math.sin(a) * 0.05 * sc, lift: (0.25 + rnd() * 0.65) * sc, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55,
+          vlift: 1.4 + rnd() * 2.4, grav: 8.5, drag: 0.6, bounce: 0.3, life: 1.1 + rnd() * 0.9, hold: 0.65, size: (0.1 + rnd() * 0.12) * K.shard * (sc > 1 ? 1.5 : 1), size1: 0.06 * K.shard,
           rot: rnd() * TAU, vr: (rnd() - 0.5) * 16, r: 0.9 + rnd() * 0.1, g: 0.97, b: 1, a: 0.95, a1: 0 });
       }
       for (let i = 0; i < 10; i++) {
@@ -89,12 +90,13 @@ class WalkerFx {
         P.emit({ spr: S.spark, x, y, lift: 0.3 + rnd() * 0.6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vlift: 0.6 + rnd() * 1.4, grav: 2, drag: 1.2,
           life: 0.5 + rnd() * 0.6, size: 0.12 * K.spark, size1: 0.03 * K.spark, r: 0.55, g: 0.9, b: 1, a: 1, a1: 0, layer: 'emissive', ground: false });
       }
-      P.emit({ spr: S.ring, x, y, life: 0.9, size: 0.2 * K.ring, size1: 1.5 * K.ring, r: 0.85, g: 0.95, b: 1, a: 0.55, a1: 0 });
+      P.emit({ spr: S.ring, x, y, life: 0.9, size: 0.2 * K.ring, size1: 1.5 * K.ring * sc, r: 0.85, g: 0.95, b: 1, a: 0.55, a1: 0 });
+      if (sc > 1) g.juice?.shake?.(0.25);
       g.audio?.play?.('ice_shatter', { x, y });
     }
-    for (let i = 0; i < 7; i++) {
-      const a = rnd() * TAU, sp = 0.3 + rnd() * 0.7;
-      P.emit({ spr: S.dust, x: x + (rnd() - 0.5) * 0.3, y: y + (rnd() - 0.5) * 0.1, lift: 0.1 + rnd() * 0.6, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.4, vlift: 0.25 + rnd() * 0.3,
+    for (let i = 0; i < 7 * sc; i++) {
+      const a = rnd() * TAU, sp = (0.3 + rnd() * 0.7) * sc;
+      P.emit({ spr: S.dust, x: x + (rnd() - 0.5) * 0.3 * sc, y: y + (rnd() - 0.5) * 0.1 * sc, lift: (0.1 + rnd() * 0.6) * sc, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.4, vlift: 0.25 + rnd() * 0.3,
         drag: 1.4, life: 1.3 + rnd() * 0.8, size: 0.35 * K.dust, size1: (1.1 + rnd() * 0.5) * K.dust, r: 0.92, g: 0.96, b: 1, a: 0.55, a1: 0, fadeIn: 0.05, ground: false });
     }
     if (!crack) g.audio?.play?.('step_snow', { x, y, volume: 0.8 });

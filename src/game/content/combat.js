@@ -38,6 +38,11 @@ export const SPECIES = {
   // they carry ice swords / ice spears (as strong as stone) and crumble to snow at sunrise
   walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,
             loot: [] }, // (XP only: walkers.js)
+  // winter nights, rarer (giants.js): ice giants, twice a person, walk with the walkers (faction 'walker'); a slow
+  // overhead smash with a long wind-up (dodge it) and ice rocks thrown from afar; they break walls fast. Two ballista
+  // bolts kill one (ballista.js); normal weapons too, slowly. Numbers: docs/PLAN-V2.md "Gigantes de gelo"
+  giant:  { name: 'Gigante de Gelo', temper: 'hostile', pawn: true, elite: true, hp: 380, dmg: 40, swing: 3.4, speed: 2.7, aggro: 18, r: 0.42, scale: 2, xp: 7,
+            loot: [] }, // (giants.js: shatters, a little metal frozen in it)
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },

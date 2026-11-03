@@ -2527,6 +2527,244 @@ def('W2', {
   env.history.push('W2');
 });
 
+// ---------- ice giants (src/game/giants.js) and the ballista (src/game/ballista.js) ----------
+// clean up after a giant / ballista scenario: the clock back, giants / walkers gone, structures removed
+function siegeCleanup(t, H, MH, day0, hour0, ids = []) {
+  t.defer(() => {
+    for (const id of ids) if (H.game.build.structures.some((o) => o.id === id)) H.game.net.emit('struct.remove', { id, quiet: 1 });
+    H.game.net.emit('env.skip', { hour: hour0, day: day0, wt: H.game.worldTime + 1, by: H.game.net.pid });
+    for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; e.onDeath = null; MH.combat.killMob(H.game, e, null); }
+  });
+}
+// damage the local player of frame f takes (by ability), recorded until the scenario ends
+function hurtLog(t, f) {
+  const L = [];
+  const off = f.game.events.on('damage', (d) => { if (d.target === f.game.player && (d.kind === 'hit' || d.kind === 'dodge')) L.push({ ab: d.ability || '', amount: d.amount, kind: d.kind, t: now() }); });
+  t.defer(off);
+  return L;
+}
+
+def('IG1', {
+  title: 'Ice giants: a giant spawns, is replicated (pawn ×2, ice club) and breaks a stone wall much faster than a walker, on both', timeout: 120000,
+  expected: 'Winter night; the guest stands inside a closed 5×5 room of stone walls; a giant spawned outside (giants.spawnGiantAt) is a pawn proxy on the guest (species giant, scale 2, weapon club_ice, elite); it senses the guest through the walls and hits the closest wall: one hit (op struct.dmg) is ≥ 6× a walker\'s hit on stone (giant: swingDur × SIEGE_MUL / 350); the same damage (cracks) on both; the wall falls on both and the giant comes in; the spawn numbers grow with the winters (giantNumbers); digest equal',
+  api: 'giants.js spawnGiantAt / giantNumbers / SIEGE_MUL, walkers.js walkerBrain (siege), op struct.dmg / struct.remove fx smash, entity stream (species giant, scale)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => { const L = []; for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 14 });
+  t.assert(site, 'found a free 5×5 site');
+  const { x0, y0 } = site, ring = [];
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) if (i === 0 || j === 0 || i === 4 || j === 4) ring.push(['wall_stone', x0 + i, y0 + j]);
+  const ids = hostBuild(H, ring);
+  siegeCleanup(t, H, MH, day0, hour0, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the room');
+  // the numbers: a few in the first winter, more later
+  const N1 = MH.giants.giantNumbers(H.game, 0), N3 = MH.giants.giantNumbers(H.game, 2), N7 = MH.giants.giantNumbers(H.game, 6);
+  t.check(N1.near === 1 && N3.near >= 2 && N7.near > N3.near && N1.chance < N3.chance && N1.every > N3.every, 'giants grow with the winters', `w1 ${JSON.stringify(N1)} w3 ${JSON.stringify(N3)} w7 ${JSON.stringify(N7)}`);
+  A.teleport(G, x0 + 2.5, y0 + 2.5);
+  await A.hostSees(t, H, G);
+  H.game._walkT = 1e9; H.game._giantT = 1e9; // (no natural spawns during the scenario)
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night on both');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  const s = A.freeSpot(H, MH, x0 + 8, y0 + 2.5, { rMin: 0, rMax: 2.5, r: 0.45 });
+  t.assert(s, 'free spot for the giant');
+  const m = MH.giants.spawnGiantAt(H.game, s[0], s[1]);
+  const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
+  t.check(px.species === 'giant' && px.kind === 'pawn' && px.scale === 2 && px.weapon === 'club_ice' && px.elite, 'giant proxy: species giant, pawn, scale 2, ice club, elite', `${px.species} ${px.kind} ${px.scale} ${px.weapon} ${px.elite}`);
+  const hit = await t.waitFor(() => H.game.build.structures.find((o) => ids.includes(o.id) && o.dmg > 0), 25000, 'the giant hits a wall of the room', () => `giant ${m.state} at ${f2(m.x)},${f2(m.y)}`);
+  const walkerInc = (2.0 * 1.15) / 350; // (a walker: swing ~2 s × 1.15 per hit, 350 walker-seconds for stone)
+  t.check(hit.dmg >= walkerInc * 6, 'one giant hit on stone ≥ 6× a walker\'s', `${hit.dmg.toFixed(4)} vs walker ~${walkerInc.toFixed(4)}`);
+  t.log(`giant hit on stone: ${hit.dmg.toFixed(4)} (≈ ${((1 / hit.dmg) * m.swingDur).toFixed(0)} s alone for a stone wall)`);
+  await t.waitFor(() => Math.abs((A.structOn(G, hit.id)?.dmg || 0) - hit.dmg) < 0.02, RT() + 1500, 'same damage (cracks) on the guest', () => `${f2(hit.dmg)} / ${f2(A.structOn(G, hit.id)?.dmg || 0)}`);
+  hit.dmg = 0.99; // (the next hit breaks it: test shortcut)
+  await t.waitFor(() => hit.removed && !A.structOn(G, hit.id), 15000 + RT(), 'the wall falls on both');
+  t.check(!H.game.world.solid[H.game.world.idx(hit.tx, hit.ty)] && !G.game.world.solid[G.game.world.idx(hit.tx, hit.ty)], 'the tile is open on both');
+  await t.waitFor(() => m.state === 'chase' || m.state === 'siege' || m.state === 'hunt', 8000, 'the giant comes in', () => m.state);
+  await t.checkDigest(H, G);
+  env.history.push('IG1');
+});
+
+def('IG2', {
+  title: 'Ice giants: the slow smash (telegraph, heavy, dodgeable) and the thrown ice rock (small damage) hurt the guest', timeout: 120000,
+  expected: 'Winter night, open ground. A giant next to the guest winds up a smash: the guest sees the danger circle (op giant.tele) before the blow, the blow lands ≥ 0.8 s later and does about the giant\'s heavy damage; next wind-up the guest steps out of the circle: no smash damage. Then the guest stands 9 tiles away: the giant throws an ice rock (op giant.rock: an ice_rock lob on the guest too) that lands on it: small damage, about a walker\'s hit at the giant\'s level; digest equal',
+  api: 'giants.js giantChase (smash: cast Esmagar + giant.tele; throwRock: cast Arremessar + giant.rock), hurtPlayer → own player.hurt (ability giant_smash / ice_rock), projectiles LOB_KINDS.ice_rock',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  siegeCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, G);
+  const dodge0 = gp.dodge;
+  gp.dodge = 0; t.defer(() => { gp.dodge = dodge0; });
+  const log = hurtLog(t, G);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night on both');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  A.pacify(H, gp.x, gp.y, 30, 600);
+  const s = A.freeSpot(H, MH, gp.x + 1.9, gp.y, { rMin: 0, rMax: 1.5, r: 0.45 });
+  t.assert(s, 'free spot for the giant');
+  const m = MH.giants.spawnGiantAt(H.game, s[0], s[1]);
+  const av = guestOnHost(H, G);
+  MH.ai.aggro(H.game, m, av);
+  // 1) the smash: telegraph first, then the heavy blow
+  const tele = await t.waitFor(() => G.game.teles?.find((q) => q.k === 'smash'), 9000 + RT(), 'the guest sees the smash telegraph (giant.tele)', () => JSON.stringify(MH.giants.giantDebug(m)));
+  const t0 = now();
+  t.check(Math.hypot(tele.x - gp.x, tele.y - gp.y) <= tele.r + 0.3, 'the circle is on the guest', `${f2(tele.x)},${f2(tele.y)} r ${tele.r} vs guest ${f2(gp.x)},${f2(gp.y)}`);
+  const sm = await t.waitFor(() => log.find((d) => d.ab === 'giant_smash'), 4000 + RT(), 'the smash lands on the guest');
+  t.check(sm.t - t0 >= 800, 'the blow lands after the wind-up (dodge window)', `${Math.round(sm.t - t0)} ms after the circle`);
+  t.check(sm.amount >= m.dmg * 0.85 * 0.35 && sm.amount <= m.dmg * 1.6, 'heavy smash damage (≈ the giant\'s dmg, less armour)', `${sm.amount} vs giant dmg ${f2(m.dmg)}`);
+  // 2) dodge: step out of the next circle before it lands
+  const n0 = log.filter((d) => d.ab === 'giant_smash').length;
+  m.swingT = 0;
+  const tele2 = await t.waitFor(() => G.game.teles?.find((q) => q !== tele && q.k === 'smash' && q.t < q.dur * 0.6), 9000 + RT(), 'a second wind-up');
+  const ax = gp.x - tele2.x, ay = gp.y - tele2.y, aL = Math.hypot(ax, ay) || 1;
+  A.teleport(G, tele2.x + (ax / aL) * (tele2.r + 2.4), tele2.y + (ay / aL) * (tele2.r + 2.4));
+  await t.sleep(1800);
+  t.check(log.filter((d) => d.ab === 'giant_smash').length === n0, 'stepping out of the circle dodges the smash');
+  // 3) the thrown rock from afar
+  const far = A.freeSpot(G, MG, m.x - 9, m.y, { rMin: 0, rMax: 2.5 });
+  t.assert(far, 'a spot 9 tiles from the giant');
+  A.teleport(G, far[0], far[1]);
+  await A.hostSees(t, H, G);
+  m.throwT = 0; m.swingT = 0;
+  const rock = await t.waitFor(() => (G.game.projectiles || []).find((p) => p.lob && p.cosmetic && Math.hypot(p.lx - gp.x, p.ly - gp.y) < 3), 12000 + RT(), 'the guest sees an ice rock thrown at it (giant.rock)', () => JSON.stringify(MH.giants.giantDebug(m)));
+  t.check(rock.kind === 'ice_rock', 'it flies as an ice rock on the guest', rock.kind);
+  const rk = await t.waitFor(() => log.find((d) => d.ab === 'ice_rock'), 6000 + RT(), 'the rock hits the guest (standing still)');
+  const wk = 6 * (1 + 0.16 * (m.level - 1)) * 1.06;
+  t.check(rk.amount <= wk * 1.3 && rk.amount >= 1, 'the rock does little damage (a walker\'s hit)', `${rk.amount} vs walker hit ~${f2(wk)} at level ${m.level}`);
+  t.log(`smash ${sm.amount}, rock ${rk.amount} (giant L${m.level}, dmg ${f2(m.dmg)}, hp ${Math.round(m.maxHp)})`);
+  await t.checkDigest(H, G);
+  env.history.push('IG2');
+});
+
+def('BA1', {
+  title: 'Ballista: the guest mounts it, turns it slowly (the host sees it turn), fires 2 bolts and kills an ice giant on both', timeout: 120000,
+  expected: 'A finished ballista next to the guest; the guest has 4 ballista bolts and gets on it (intent ballista.use → op ballista.set: user = guest on both, the guest rooted at the seat); it aims at a giant 11 tiles away: the top turns slowly (after 0.3 s the host\'s aim is between the start and the target), then points there on both (op ballista.set aim); the first bolt (intent ballista.fire → op ballista.shot) takes 55% of the giant\'s life on the host, the proxy\'s life on the guest follows; a shot during the reload is refused and refunded; after the reload the second bolt kills it: dead on both, XP to the guest only, 2 bolts left; digest equal',
+  api: 'ballista.js useBallista / ballistaCtl (stickAng, fire), mut/ballista.js intents ballista.use / aim / fire, ops ballista.set / shot / end, o.user / o.aim / o._aimD, killMob credit to the avatar',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player, hp = H.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'ballista', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -1; j <= 1; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 2, rMax: 18 });
+  t.assert(site, 'found a free 15×3 strip');
+  const { x0, y0 } = site;
+  const [bid] = hostBuild(H, [['ballista', x0, y0, 0]]);
+  siegeCleanup(t, H, MH, day0, hour0, [bid]);
+  await t.waitFor(() => A.structOn(G, bid) && !A.structOn(G, bid).blueprint, RT() + 1500, 'the guest has the finished ballista');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  A.pacify(H, x0, y0, 30, 600);
+  A.teleport(G, x0 + 0.5, y0 + 1.6);
+  await A.hostSees(t, H, G);
+  const nb = gp.inv.count('ballista_bolt');
+  if (nb) gp.inv.remove('ballista_bolt', nb);
+  gp.inv.add('ballista_bolt', 4);
+  const oG = A.structOn(G, bid), oH = A.structOn(H, bid);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'the guest operates it on both');
+  await t.sleep(400);
+  const C = G.game.ballista;
+  t.check(C.mounted && gp.rooted, 'the guest is on it (rooted)', `${C.mounted} ${gp.rooted}`);
+  const [sx, sy] = MG.ballista.seatOf(oG, C.aimL);
+  t.check(Math.hypot(gp.x - sx, gp.y - sy) < 0.3, 'the guest stands at the seat', `${f2(gp.x)},${f2(gp.y)} vs ${f2(sx)},${f2(sy)}`);
+  // the giant, calm, 11 tiles east
+  const gs = A.freeSpot(H, MH, x0 + 11.5, y0 + 0.5, { rMin: 0, rMax: 1.2, r: 0.45 });
+  t.assert(gs, 'free spot for the giant');
+  const m = MH.giants.spawnGiantAt(H.game, gs[0], gs[1]);
+  m.calmT = 1e9; m.state = 'idle'; m.stateT = 1e9;
+  const pxy = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
+  const a0 = MH.ballista.aimOf(oH);
+  const [pvx, pvy] = MG.ballista.pivotOf(oG);
+  const want = Math.atan2(pxy.y - pvy, pxy.x - pvx);
+  C.stickOn = true; C.stickAng = want;
+  t.defer(() => { C.stickOn = false; });
+  await t.sleep(300 + RT());
+  const aMid = MH.ballista.aimOf(oH), dTot = Math.abs(MH.ballista.angDiff(want, a0)), dMid = Math.abs(MH.ballista.angDiff(aMid, a0));
+  t.check(dMid > 0.02 && dMid < dTot - 0.05, 'it turns slowly (the host sees it on its way)', `start ${f2(a0)} mid ${f2(aMid)} target ${f2(want)}`);
+  await t.waitFor(() => Math.abs(MH.ballista.angDiff(MH.ballista.aimOf(oH), want)) < 0.03, 6000 + RT(), 'it points at the giant on the host', () => `${f2(MH.ballista.aimOf(oH))} → ${f2(want)}`);
+  await t.waitFor(() => Math.abs(MH.ballista.angDiff(oG._aimD ?? 0, want)) < 0.03, 1500, 'and on the guest');
+  const xpH = hp.xp, xpG = gp.xp, max = m.maxHp;
+  // shot 1
+  t.check(C.fire(), 'the guest fires (bolt paid)');
+  t.check(gp.inv.count('ballista_bolt') === 3, 'one bolt used', `${gp.inv.count('ballista_bolt')}`);
+  await t.waitFor(() => m.hp < max, 3000 + RT(), 'the bolt hits the giant on the host', () => `${m.hp}/${max}`);
+  t.check(Math.abs((max - m.hp) - Math.ceil(max * 0.55)) <= 1, 'a bolt takes 55% of its life', `${Math.round(max - m.hp)} of ${Math.round(max)}`);
+  await t.waitFor(() => Math.abs((A.proxyOf(G, m)?.hp ?? max) - m.hp) < 2, RT() + 1500, 'the guest sees its life drop');
+  t.check((G.game.bolts || []).length > 0 && (H.game.bolts || []).length > 0, 'the bolt flew on both');
+  // a second shot during the reload: refused, refunded
+  C.cd = 0;
+  C.fire();
+  await t.waitFor(() => gp.inv.count('ballista_bolt') === 3, RT() + 1500, 'a shot during the reload is refused and refunded', () => `${gp.inv.count('ballista_bolt')}`);
+  t.check(m.hp > 0 && !m.dead, 'the giant still stands after one bolt');
+  // shot 2 after the reload
+  await t.sleep(3100);
+  t.check(C.fire(), 'second shot');
+  await t.waitFor(() => m.dead, 3000 + RT(), 'two bolts kill the giant (host)');
+  await t.waitFor(() => !A.proxyOf(G, m) || A.proxyOf(G, m).dead, RT() + 1500, 'dead on the guest too');
+  await t.waitFor(() => gp.xp > xpG, RT() + 1500, 'XP to the guest');
+  t.check(hp.xp === xpH, 'no XP to the host', `${xpH} → ${hp.xp}`);
+  t.check(gp.inv.count('ballista_bolt') === 2, '2 bolts left', `${gp.inv.count('ballista_bolt')}`);
+  await t.checkDigest(H, G);
+  env.history.push('BA1');
+});
+
+def('BA2', {
+  title: 'Ballista: one operator at a time; leaving frees it on both; it is saved with its aim', timeout: 90000,
+  expected: 'The guest gets on a ballista; the host tries the same one: refused ("Já tem alguém operando esta balista"), the operator stays the guest on both; the guest leaves (E): nobody on it on both and the guest walks again; the host gets on: allowed; the world snapshot keeps its aim (ball rows) and a save drops the operator; an operator carried away is taken off by the host (none on both); digest equal',
+  api: 'intent ballista.use {id, on} (one operator), ballista.js onInteract / leaveBallista, host ballistaSystem (operator gone), net/snapshot.js `ball` rows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'ballista', (x, y) => { const L = []; for (let i = -1; i <= 1; i++) for (let j = -1; j <= 2; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 2, rMax: 16, avoidPts: [[hp.x, hp.y]] });
+  t.assert(site, 'found a free site');
+  const { x0, y0 } = site;
+  const [bid] = hostBuild(H, [['ballista', x0, y0, 0]]);
+  t.defer(() => { if (H.game.build.structures.some((o) => o.id === bid)) H.game.net.emit('struct.remove', { id: bid, quiet: 1 }); });
+  await t.waitFor(() => A.structOn(G, bid) && !A.structOn(G, bid).blueprint, RT() + 1500, 'the guest has the ballista');
+  const oG = A.structOn(G, bid), oH = A.structOn(H, bid);
+  A.teleport(G, x0 + 0.5, y0 + 1.6);
+  A.teleport(H, x0 - 0.8, y0 + 1.4);
+  await A.hostSees(t, H, G);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'the guest operates it');
+  let why = null;
+  H.game.net.request('ballista.use', { id: bid, on: 1 }, { onReject: (w) => { why = w; } });
+  t.check(why && /Já tem alguém/.test(why), 'the host is refused (one operator)', String(why));
+  await t.sleep(RT() + 200);
+  t.check(oH.user === G.pid && oG.user === G.pid, 'the guest stays the operator on both');
+  // the guest leaves with E (controller interact)
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'nobody on it on both after leaving');
+  await t.sleep(200);
+  t.check(!G.game.ballista.mounted && !gp.rooted, 'the guest walks again', `${G.game.ballista.mounted} ${gp.rooted}`);
+  // the host gets on; the aim travels; the snapshot keeps it
+  MH.ballista.useBallista(H.game, oH);
+  await t.waitFor(() => oH.user === H.pid && oG.user === H.pid, RT() + 1500, 'the host operates it now');
+  H.game.net.emit('ballista.set', { id: bid, aim: 1.234 });
+  await t.waitFor(() => Math.abs((oG.aim ?? 0) - 1.234) < 1e-3, RT() + 1500, 'the aim reaches the guest');
+  const SM = await snapMod(H);
+  const snap = SM.serializeWorld(H.game, {}), sv = SM.serializeWorld(H.game, { save: true });
+  const row = snap.ball?.find((r) => r[0] === bid), srow = sv.ball?.find((r) => r[0] === bid);
+  t.check(row && Math.abs(row[1] - 1.234) < 1e-3 && row[2] === H.pid, 'the snapshot keeps its aim and operator', JSON.stringify(row));
+  t.check(srow && srow[2] === 0, 'a save drops the operator', JSON.stringify(srow));
+  H.game.ctl.interact(); // (the host gets off with E)
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the host gets off (both)');
+  // an operator that is gone (left the game): the host takes it off
+  H.game.net.emit('ballista.set', { id: bid, user: 'ghost' });
+  await t.waitFor(() => oG.user === 'ghost', RT() + 1500, '(a gone operator on both)');
+  await t.waitFor(() => !oH.user && !oG.user, 2000 + RT(), 'the host takes a gone operator off (both)');
+  await t.checkDigest(H, G);
+  env.history.push('BA2');
+});
+
 def('S62', {
   title: 'Survival: dying of cold does not kill again after the respawn', timeout: 90000,
   expected: 'The guest freezes to death (body heat ~0, hypothermia hits); after "Renascer" its body heat is back to ≥ 75%, it is dry, no hypothermia, and 6 s later it is still alive with its half HP (no cold damage); the host sees it alive; digest equal',
