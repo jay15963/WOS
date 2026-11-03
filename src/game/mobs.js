@@ -25,6 +25,7 @@ import { nightK } from './seasons.js';
 import { BUILDINGS } from './data.js';
 import { ITEMS } from './content/items.js';
 import { walkersTick } from './walkers.js';
+import { createStockSpawners, setupMember } from './livestock.js'; // farm herds and fish (docs/LIVESTOCK.md)
 
 const SLEEP = 40;
 // creature ids from the authority: nid 'm<base36>' for the network, numeric id for the art (gait phase)
@@ -127,6 +128,7 @@ export function createSpawners(game) {
     have[species]++;
   }
   game.spawners = spawners;
+  createStockSpawners(game); // farm herds and fish schools (their own seeded rng: the layout above is unchanged)
   // only what is out at this hour (the rest fills in when its time comes: mobsSystem slow tick)
   const night = isNight(game);
   collectLights(game);
@@ -165,6 +167,7 @@ export function spawnMember(game, s) {
     home: { x, y }, spawner: s, state: 'idle', stateT: R() * 4, swingT: 0, stunT: 0,
   };
   if (s.cave) m.cave = true;
+  if (s.stock || s.fish) setupMember(game, m, s); // (farm animals and fish: their own brain, livestock.js)
   s.members.push(m);
   game.entities.push(m); // host-only creature list (guests get proxies from net/entities.js)
   return m;
@@ -249,6 +252,7 @@ export function mobsSystem() {
         for (const q of allPlayers(game)) d = Math.min(d, Math.abs(m.x - q.x) + Math.abs(m.y - q.y));
         if (d > SLEEP * 1.4 && m.state !== 'evade' && m.state !== 'chase') { m.moving = false; continue; }
         if (m.faction === 'bandit' || m.faction === 'walker') updateBandit(game, m, dt);
+        else if (m.brain) m.brain(game, m, dt); // (farm animals, fish: livestock.js)
         else updateCreature(game, m, dt);
         awake.push(m);
       }
@@ -258,6 +262,7 @@ export function mobsSystem() {
         for (let j = i + 1; j < awake.length; j++) {
           const b = awake[j];
           if (a.lv || b.lv || a.z > 0 || b.z > 0) continue; // levels: separation on the ground only
+          if (a.water || b.water) continue; // (fish swim through each other)
           const dx = b.x - a.x, dy = b.y - a.y, rr = (a.r + b.r) * 0.9;
           if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
           const dd = Math.hypot(dx, dy);

@@ -115,7 +115,10 @@ export const BUILDINGS = {
 
   // ---------- farming ----------
   farm_plot:   { name: 'Canteiro', g: 'm', emoji: '🟫', cat: ['farm'], cost: {}, time: 1.5, xp: 2, layer: 'floor', flat: true, connect: 'farm_plot', drag: 'area',
-                 desc: 'Terra arada. Plante sementes de batata, milho ou algodão.' },
+                 desc: 'Terra arada. Plante sementes de batata, milho, algodão ou trigo (o trigo só em solo fértil, perto dos rios).' },
+  // livestock (docs/LIVESTOCK.md): animals of the 4 farm species within `feed` tiles are domesticated and eat from it
+  feeder:      { name: 'Alimentador', g: 'm', emoji: '🪣', cat: ['farm'], cost: { wood: 6 }, size: [2, 1], time: 4, xp: 8, block: 'tile', slots: 6, rotate: true, move: true, feed: 6,
+                 desc: 'Cocho dos animais: ponha trigo (vacas e ovelhas), milho (galinhas) ou qualquer comida (porcos). Os animais a até 6 tiles ficam domesticados, comem dele e, bem alimentados, se reproduzem.' },
   ...DECOR,
 };
 

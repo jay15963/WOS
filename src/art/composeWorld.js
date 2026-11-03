@@ -31,7 +31,7 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 const AUTO = ['wall_wood', 'wall_stone', 'fence_wood', 'floor_wood', 'floor_stone', 'farm_plot'];
 const FLAT = { floor_wood: 1, floor_stone: 1, farm_plot: 1, rug: 1 };
-const CROPS = ['potato', 'cotton', 'corn'];
+const CROPS = ['potato', 'cotton', 'corn', 'wheat'];
 // footprint width (tiles) for blueprint scaffolds / crack overlays of multi-tile props
 const WIDE = { workbench: 2, stonecutter: 2, loom: 2, table_wood: 2, rug: 2, tent: 2, bed: 1 };
 const ROT_A = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
@@ -244,13 +244,13 @@ export function drawStatic(B, A, o, t) {
     B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, 0, 0, fl, f, 0.6);
     return;
   }
-  if (type === 'fibergrass' || type === 'wild_potato' || type === 'wild_cotton' || type === 'wild_corn') {
+  if (type === 'fibergrass' || type === 'wild_potato' || type === 'wild_cotton' || type === 'wild_corn' || type === 'wild_wheat') {
     const s = spriteOf(A, type, o.v); if (!s) return;
     const sc = o.s || 1;
     const shk = o.shake || 0;
     const rot = shk > 0 ? Math.sin(t * 38) * 0.06 * shk : 0;
     B.blob.add(T.blob, o.x, o.y, 0.6 * sc, 0.32 * sc, 1, 1, 1, 0.4);
-    const sway = type === 'fibergrass' ? 0.11 : type === 'wild_corn' ? 0.06 : 0.07;
+    const sway = type === 'fibergrass' ? 0.11 : type === 'wild_corn' ? 0.06 : type === 'wild_wheat' ? 0.1 : 0.07;
     B.main.add(s, o.x + shakeX(o, t), o.y, sc, sc, 1, 1, 1, o.alpha ?? 1, sway, rot, fl, f, 0.5, 0, SC.GRASS);
     B.shadow.add(s, o.x, o.y, sc, sc, 1, 1, 1, 0.75, sway, rot, 0, f);
     return;

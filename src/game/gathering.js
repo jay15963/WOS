@@ -25,6 +25,7 @@ const FORAGE = {
   wild_potato: { verb: 'Colher batata', label: 'Colhendo batata', cycle: 1.2, prio: 4 },
   wild_corn:   { verb: 'Colher milho', label: 'Colhendo milho', cycle: 1.2, prio: 4 },
   wild_cotton: { verb: 'Colher algodão', label: 'Colhendo algodão', cycle: 1.2, prio: 4 },
+  wild_wheat:  { verb: 'Colher trigo', label: 'Colhendo trigo', cycle: 1.2, prio: 4 },
 };
 const PICK = { pebble: { verb: 'Pegar pedrinha', item: 'pebble' }, stick: { verb: 'Pegar graveto', item: 'stick' } };
 

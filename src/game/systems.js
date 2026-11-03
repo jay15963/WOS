@@ -42,6 +42,8 @@ import { seasonSystem } from './seasons.js'; // spring / summer / autumn / winte
 import { installDecks, decksSystem } from './decks.js'; // piers / bridges over the water
 import { deckSupportSystem } from './mut/decks.js';
 import { itemSprite } from './loot.js';
+import { installStock, stockSystem, stockFxSystem } from './livestock.js'; // farm animals (docs/LIVESTOCK.md)
+import { installFishing, fishingSystem } from './fishing.js'; // fishing with a rod
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -76,6 +78,8 @@ export function installSystems(game) {
   initEconomy(game);
   initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
   initPaths(game);                  // path grids exist before a save / snapshot is applied
+  installStock(game);               // farm animals: game.stock (interaction / feeder / labels)
+  installFishing(game);             // fishing: game.fishing (bobbers, the rod's work)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -122,6 +126,9 @@ export function installSystems(game) {
     creativeSystem(),               // after survival: the bars end every frame full (creative.js)
     lootSystem(),
     corpsesSystem(),
+    stockSystem(),                  // the farm clock: domestication, hunger, births, growth (host)
+    stockFxSystem(),                // ropes, feeder range, fertile soil marks (cosmetic)
+    fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);

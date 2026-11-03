@@ -39,13 +39,14 @@ export function applyMobEffect(game, m, eff, src) {
 
 defineIntent('mob.hit', {
   doc: 'A player hit (or missed) a host creature with an amount rolled on its client; eff carries ability effects (stun, daze, dot, fear, interrupt, aggro).',
-  args: { nid: 'mobNid', amount: 'number', crit: '0|1', miss: '0|1', noDmg: '0|1 (effects only)', ability: 'string?', dtype: 'string?', ranged: '0|1', from: '[x, y]?', knock: 'number?', skin: '0|1 (killer has a knife)', eff: '{...}?' },
+  args: { nid: 'mobNid', amount: 'number', crit: '0|1', miss: '0|1', noDmg: '0|1 (effects only)', ability: 'string?', dtype: 'string?', ranged: '0|1', from: '[x, y]?', knock: 'number?', skin: '0|1 (killer has a knife)', eff: '{...}?', w: 'main-hand item id?' },
   run(game, a, actor, net) {
     const m = findMob(game, a.nid);
     if (!m || m.dead) return 'Alvo morto';
     const src = actor.ent;
     if (src && dist(src, m) > (a.ranged ? 18 : 6)) return 'Longe demais';
     m.lastHitSkin = !!a.skin;
+    m.lastHitW = typeof a.w === 'string' ? a.w.slice(0, 40) : null; // (the hitter's weapon: a knife slaughters a farm animal)
     if (a.miss) {
       game.events.emit('damage', { target: m, src, amount: 0, kind: 'miss' });
       aggro(game, m, src);
@@ -65,7 +66,7 @@ defineIntent('mob.hit', {
 
 defineOp('mob.die', {
   doc: 'A creature died (host decided). Proxies die on guests; xp goes to the killing player `by`.',
-  args: { nid: 'mobNid', by: 'pid?', xp: 'number?', toast: 'string?', tip: '[key, text, max]?' },
+  args: { nid: 'mobNid', by: 'pid?', xp: 'number?', toast: 'string?', tip: '[key, text, max]?', give: '{item: qty}? (a fish shot)' },
   apply(game, a, ctx) {
     const m = findMob(game, a.nid);
     if (!m) return;

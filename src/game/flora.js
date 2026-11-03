@@ -14,12 +14,13 @@ import { spawnFlora, ageOf, TREE_SOLID, SAPLING_GROW, NOGROW_R } from './mut/obj
 import { floraLook } from './mut/roll.js';
 import { inAnyView, minPlayerDist } from './players.js';
 import { footprint } from './autotile.js';
+import { fertileAt } from '../world/soil.js';
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
 const SMALL = new Set(['pebble', 'stick', 'fibergrass']);
 const TREES = ['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead'];
-export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn'];
+export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat'];
 const FLORA_SET = new Set(FLORA_KINDS);
 
 // synthesized densities (per tile, by biome) for kinds the world generator did not place at all
@@ -31,6 +32,7 @@ const SYNTH = {
   wild_potato: { meadow: 0.0075, forest: 0.006, birch: 0.006, pine: 0.002 }, // (3x: food to stock before the winter)
   wild_corn:   { meadow: 0.0025, birch: 0.001 },
   wild_cotton: { meadow: 0.0015, shore: 0.0025, marsh: 0.001 },
+  wild_wheat:  { meadow: 0.02, shore: 0.016, birch: 0.008, forest: 0.004 }, // (fertile tiles only: the river banks, docs/LIVESTOCK.md)
 };
 
 export function initFlora(game) {
@@ -61,6 +63,7 @@ export function initFlora(game) {
       for (let y = cy * CHUNK; y < Math.min(w.H, (cy + 1) * CHUNK); y++) for (let x = cx * CHUNK; x < Math.min(w.W, (cx + 1) * CHUNK); x++) {
         const i = w.idx(x, y);
         if (w.rock[i] || w.water[i] || !w.biome) continue;
+        if (kind === 'wild_wheat' && !fertileAt(w, x, y)) continue; // (only by the rivers)
         sum += dens[BIOMES[w.biome[i]]] || 0;
       }
       if (sum <= 0) continue;

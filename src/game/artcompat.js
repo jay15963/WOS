@@ -27,7 +27,7 @@ const STATIC_FB = {
   banner: ['torch', 1.3], brazier: ['campfire', 1.1], lamp_post: ['torch', 1.5],
   // natural objects
   pebble: ['boulder', 0.26], stick: ['item_wood', 0.75], fibergrass: ['tallgrass_0', 1.25],
-  wild_potato: ['bush', 0.55], wild_cotton: ['bush', 0.55], wild_corn: ['tallgrass_2', 1.6],
+  wild_potato: ['bush', 0.55], wild_cotton: ['bush', 0.55], wild_corn: ['tallgrass_2', 1.6], wild_wheat: ['tallgrass_2', 1.2],
   tent_0: ['bed', 2.2], tent_1: ['bed', 2.2], crate_0: ['chest', 1.6],
 };
 const SPECIES_FB = { bear: 'boar', fox: 'wolf', spider: 'wolf' };

@@ -16,3 +16,5 @@ import './kit.js';
 import './corpses.js';
 import './levels.js';
 import './decks.js'; // piers / bridges falling into the water
+import './stock.js'; // livestock: ties (docs/LIVESTOCK.md)
+import './fish.js'; // fishing with a rod

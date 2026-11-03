@@ -277,6 +277,12 @@ de uma fortaleza: o anel inteiro do andar de cima sumia). Agora nada some por re
   `_ne…`); corpo / cauda / cabeça são pintados uma vez para todos os quadros da espécie (os quadros irmãos são pedidos
   juntos), ~10 ms por quadro. Até ficarem prontos: o lado encurtado de antes. Bote e passadas na diagonal como antes;
   morto: de lado no chão (como antes). O ajudante `beast34(spec, view)` é genérico (outros bichos podem usar).
+- **Bichos da criação** (vaca, ovelha, porco, galinha e os filhotes; docs/LIVESTOCK.md): não usam o `beast34` — são
+  um **modelo 3D** de elipsoides (`art/livestock.js`) pintado por traçado de raios em cada vista (e, se, s, ne, n),
+  então as diagonais são vistas de verdade do mesmo bicho (as manchas da vaca no mesmo lugar em todas). Só os três
+  lados de pé dos adultos ficam no atlas; diagonais, passos, pastar e filhotes vêm sob demanda da textura preguiçosa
+  (`art/livestockDraw.js`: até ficarem prontos, o quadro pintado mais perto). Também em 0°: um bicho andando na
+  diagonal aparece na vista 3/4 (`viewFacing8` com giro 0).
 - **Na cama:** deitado **ao longo da cama** como a tela a mostra (ângulo da cama − giro, uma vez só: antes o giro era
   descontado duas vezes — a 45° o corpo ficava torto e a 180° de cabeça para baixo fora da cama), a cabeça no
   travesseiro do modelo (`restAt` da cama sólida: o ponto do travesseiro na altura do colchão; o pescoço 0,17 para os pés,

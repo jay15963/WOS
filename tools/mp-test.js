@@ -743,7 +743,7 @@ def('S15', {
   await t.sleep(500);
   loot.stop();
   const cmp = loot.compare(0, 1), li = loot.items(0);
-  t.check(cmp.ok && (li.potato || 0) >= 3, 'harvest loot identical on both (potatoes + seeds)', `${cmp.detail} · ${short(li)}`);
+  t.check(cmp.ok && (li.potato || 0) >= 1, 'harvest loot identical on both (potatoes + seeds)', `${cmp.detail} · ${short(li)}`);
   t.check(xpH.total > 0, 'harvest XP to the host', `+${xpH.total}`);
   // rejected plant → seed refunded: host plants first, then the guest's request on the occupied plot
   A.ensure(H, { seed_potato: 2 });
@@ -1713,7 +1713,7 @@ def('S30', {
     await A.harvest(t, S1, M, plot);
     await t.sleep(300); fl.stop();
     const it = fl.items(0);
-    t.check((it.potato || 0) >= 3 && (it.potato || 0) <= 4, 'harvest yields 3–4 potatoes (+ seeds)', short(it));
+    t.check((it.potato || 0) >= 1 && (it.potato || 0) <= 2, 'harvest yields 1–2 potatoes (+ seeds)', short(it)); // (docs/LIVESTOCK.md rebalance)
   } else t.note('no farm site — farming sub-check skipped');
   // combat
   const prey = A.mobs(S1, (e) => !e.dead && (e.species === 'rabbit' || e.species === 'deer' || e.species === 'fox')).sort((a, b) => A.dist(a, p) - A.dist(b, p))[0];
@@ -2459,7 +2459,8 @@ def('W1', {
   } else t.log('no deep water near the guest: ice check skipped');
   // night: no green animals on the host (they went home; some may still be walking away in view)
   await t.sleep(2500);
-  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving).length;
+  // (fish stay in the water all day; farm animals of the players have no herd: both are out at night on purpose)
+  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner).length;
   t.check(green === 0, 'no passive animal out at night', `${green}`);
   // a walker next to the guest
   const s = A.freeSpot(H, MH, gp.x + 6, gp.y, { rMin: 0, rMax: 3, r: 0.3 });
@@ -4412,6 +4413,309 @@ def('D2', {
   const fell = ids.slice(mid + 1);
   await t.waitFor(() => fell.every((id) => !A.structOn(H, id) && !A.structOn(G, id)), RT() + 1500, 'the far half fell into the water on both', () => `host ${fell.filter((id) => A.structOn(H, id)).length} · guest ${fell.filter((id) => A.structOn(G, id)).length}`);
   t.check(ids.slice(0, mid).every((id) => A.structOn(H, id) && A.structOn(G, id)), 'the near half stays on both');
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// P · Pecuária (docs/LIVESTOCK.md): farm animals, the feeder, ties, births, slaughter, fishing
+// a feeder built by the guest near (x, y) (reused by the P scenarios of one run: env.farm); wheat in it
+async function farmFeeder(t, H, G, MH, MG) {
+  const old = env.farm && H.game.build.structures.find((o) => o.id === env.farm && !o.blueprint);
+  if (old) return old;
+  const gp = G.game.player, hp = H.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'feeder', (x, y) => {
+    const out = [];
+    for (let yy = y - 3; yy <= y + 4; yy++) for (let xx = x - 3; xx <= x + 4; xx++) out.push([xx, yy]);
+    return out;
+  }, gp.x, gp.y, { rMin: 4, rMax: 18, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
+  t.assert(site, 'found an open 8×8 area for a feeder');
+  const tx = site.x0, ty = site.y0;
+  A.ensure(G, { wood: 12 });
+  A.place(G, MG, 'feeder', [tx, ty], [tx, ty], 0);
+  const bp = await t.waitFor(() => { const o = A.structAt(H, MH, tx, ty, 'main'); return o && o.type === 'feeder' ? o : null; }, RT() + 800, "host has the guest's feeder blueprint");
+  const id = bp.id;
+  await t.waitFor(() => A.structOn(G, id), ONEWAY() + 600, 'guest has the feeder blueprint');
+  await A.buildAll(t, G, MG, [id]);
+  const f = await t.waitFor(() => { const o = A.structOn(H, id); return o && !o.blueprint && o.store ? o : null; }, RT() + 800, 'host feeder finished');
+  await t.waitFor(() => { const o = A.structOn(G, id); return o && !o.blueprint; }, ONEWAY() + 600, 'guest feeder finished');
+  env.farm = id;
+  return f;
+}
+const feederCentre = (o) => [o.tx + (o.fw || 2) / 2, o.ty + (o.fh || 1) / 2];
+const feedCount = (f, id, item) => { const o = A.structOn(f, id); return (o?.store?.slots || []).reduce((n, s) => n + (s && s.id === item ? s.qty : 0), 0); };
+// a host farm animal at a free spot near (x, y), kept from wandering off for the test
+function farmAnimal(H, MH, species, x, y, opts = {}) {
+  const s = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 2.5, r: 0.45 }) || [x, y];
+  const m = H.game.stock.debug.spawn(species, s[0], s[1], { owned: false, ...opts });
+  m.stateT = 30; // (idle a while: stays where it was put)
+  return m;
+}
+
+def('P1', {
+  title: 'P: tie farm animals with a rope and lead them (guest)', timeout: 120000,
+  expected: 'Guest "Amarrar vaca" (a rope leaves its bag): the cow is tied to the guest on the host and on the guest (entity stream); the guest walks 6 tiles and the cow follows it on both peers; a 6th animal is refused (max 5); "Soltar vaca" gives the rope back and frees it on both; digest equal',
+  api: 'game.stock.describe (livestock.js) → work stock_tie / stock_untie → intents stock.tie / stock.untie → op stock.rope {by, give}; entity dyn [13] farm bits, [14] tiedTo pid',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug && G.game.stock, 'livestock not merged');
+  A.keepAlive(t, G);
+  const gp = G.game.player;
+  const ropes0 = 6;
+  A.ensure(G, { rope: ropes0 });
+  for (const s of gp.inv.slots) if (s && s.id === 'rope') s.qty = Math.min(s.qty, ropes0);
+  const cow = farmAnimal(H, MH, 'cow', gp.x + 1.6, gp.y + 0.6);
+  t.defer(() => { if (!cow.dead) { cow.tiedTo = null; } });
+  const px = await t.waitFor(() => A.proxyOf(G, cow), 3000 + CFG.budget, 'cow proxy on the guest');
+  const it = G.game.stock.describe(px);
+  t.check(it && it.kind === 'stock_tie' && /Amarrar vaca/.test(it.verb), 'the cow offers "Amarrar vaca"', it?.verb);
+  const r0 = A.count(G, 'rope');
+  await A.hostSees(t, H, G, 4000);
+  A.interact(G, it);
+  await t.waitFor(() => cow.tiedTo === G.pid, RT() + 2500, 'host: the cow is tied to the guest');
+  await t.waitFor(() => A.proxyOf(G, cow)?.tiedTo === G.pid, ONEWAY() + 600, 'guest: its proxy shows the tie');
+  t.check(A.count(G, 'rope') === r0 - 1, 'a rope left the guest bag', `${r0} → ${A.count(G, 'rope')}`);
+  t.check(!cow.spawner && cow.owned, 'the cow left its wild herd (owned)');
+  // walk away: it follows on both
+  const sp = A.freeSpot(G, MG, gp.x + 6, gp.y, { rMin: 0, rMax: 3 }) || A.freeSpot(G, MG, gp.x - 6, gp.y, { rMin: 0, rMax: 3 });
+  t.assert(sp, 'a free spot 6 tiles away');
+  A.teleport(G, sp[0], sp[1]);
+  await A.hostSees(t, H, G, 4000);
+  await t.waitFor(() => Math.hypot(cow.x - gp.x, cow.y - gp.y) < 3.2, 12000, 'host: the cow walked after the guest', () => `d ${f2(Math.hypot(cow.x - gp.x, cow.y - gp.y))}`);
+  await t.waitFor(() => { const q = A.proxyOf(G, cow); return q && Math.hypot(q.x - gp.x, q.y - gp.y) < 3.6; }, ONEWAY() + 1500, 'guest: the cow is next to it too');
+  // the 6th tie is refused (5 at most)
+  const extra = [];
+  for (let k = 0; k < 5; k++) extra.push(farmAnimal(H, MH, 'chicken', gp.x + 1 + (k % 3) * 0.6, gp.y - 1 + Math.floor(k / 3) * 0.7));
+  t.defer(() => { for (const m of extra) if (!m.dead) m.tiedTo = null; });
+  await t.waitFor(() => extra.every((m) => A.proxyOf(G, m)), 3000 + CFG.budget, 'the chickens on the guest');
+  const res = [];
+  for (const m of extra) {
+    res.push(await ask(G, 'stock.tie', { nid: m.nid }));
+  }
+  t.check(res.slice(0, 4).every((r) => r.ok) && !res[4].ok && /m(á|a)ximo/i.test(res[4].why || ''), '4 more ties pass, the 6th is refused (5 at most)', res.map((r) => (r.ok ? 'ok' : r.why)).join(' | '));
+  await t.sleep(RT());
+  for (const m of extra) if (m.tiedTo === G.pid) await ask(G, 'stock.untie', { nid: m.nid });
+  // release the cow by hand
+  const r1 = A.count(G, 'rope');
+  const it2 = G.game.stock.describe(A.proxyOf(G, cow));
+  t.check(it2 && it2.kind === 'stock_untie' && /Soltar vaca/.test(it2.verb), 'a tied cow offers "Soltar vaca"', it2?.verb);
+  A.interact(G, it2);
+  await t.waitFor(() => !cow.tiedTo && !A.proxyOf(G, cow)?.tiedTo, RT() + 2500, 'released on both');
+  await t.waitFor(() => A.count(G, 'rope') === r1 + 1, RT() + 600, 'the rope came back to the guest', () => `${r1} → ${A.count(G, 'rope')}`);
+  await t.checkDigest(H, G);
+});
+
+def('P2', {
+  title: 'P: a feeder domesticates the animals around it and feeds them', timeout: 150000,
+  expected: 'Guest builds a feeder and puts wheat and corn in it (stone is refused: "Só comida"); wild cows / a chicken near it become domesticated on the host and show it on the guest (farm bits, "Vaca · domesticada"); hungry, the cows walk to the trough and eat: the wheat in the feeder goes down on both peers (chest.set); the chicken eats corn; digest equal',
+  api: 'BUILDINGS.feeder (feed 6, slots 6); feederAdapter.put → chest.put (feed only); livestock farm clock (host 1 Hz): tame / owned / fed / wantEat → stockBrain → chest.set',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug, 'livestock not merged');
+  A.keepAlive(t, G);
+  const f = await farmFeeder(t, H, G, MH, MG);
+  const LG = await frameImport(G, 'game/livestock.js');
+  // the guest fills it through the feeder window's adapter (the UI path)
+  A.ensure(G, { wheat: 8, corn: 4, stone: 2 });
+  const fg = A.structOn(G, f.id);
+  const ad = LG.feederAdapter(G.game, fg);
+  const slotOf = (id) => G.game.player.inv.slots.findIndex((s) => s && s.id === id);
+  A.standBy(G, MG, fg);
+  await A.hostSees(t, H, G, 4000);
+  const w0 = feedCount(H, f.id, 'wheat');
+  ad.put(slotOf('wheat'), 99); ad.put(slotOf('corn'), 99);
+  const refused = !ad.put(slotOf('stone'), 99);
+  await t.waitFor(() => feedCount(H, f.id, 'wheat') >= w0 + 8 && feedCount(G, f.id, 'corn') >= 4, RT() + 800, 'wheat and corn in the feeder on both');
+  t.check(refused && A.count(G, 'stone') >= 2, 'stone is refused (only food)');
+  const r2 = await ask(G, 'chest.put', { id: f.id, item: 'stone', qty: 1 });
+  t.check(!r2.ok && /comida/i.test(r2.why || ''), 'the host refuses a non-food item too', r2.why);
+  // wild animals around it
+  const [cx, cy] = feederCentre(f);
+  const cows = [farmAnimal(H, MH, 'cow', cx - 2, cy + 2.5), farmAnimal(H, MH, 'cow', cx + 2, cy + 2.5)];
+  const hen = farmAnimal(H, MH, 'chicken', cx + 1, cy - 2);
+  env.farmCows = cows.map((m) => m.nid);
+  await t.waitFor(() => cows.every((m) => m.tame && m.owned && m.feeder === f.id) && hen.tame, 3000, 'host: domesticated by the feeder (owned, out of their herds)');
+  await t.waitFor(() => cows.every((m) => A.proxyOf(G, m)?.tame) && A.proxyOf(G, hen)?.tame, ONEWAY() + 1500, 'guest: the proxies show it');
+  const lab = G.game.stock.label(A.proxyOf(G, cows[0]));
+  t.check(lab && /Vaca · domesticada/.test(lab[0]), 'guest nameplate "Vaca · domesticada"', lab?.[0]);
+  // hungry: to the trough
+  const wb = feedCount(H, f.id, 'wheat'), cb = feedCount(H, f.id, 'corn');
+  for (const m of cows) { m.fed = 0.3; m.stateT = 0; }
+  hen.fed = 0.2; hen.stateT = 0;
+  H.game.stock.debug.tick(0.01);
+  // (keep the players a little away so nothing scares them)
+  await t.waitFor(() => feedCount(H, f.id, 'wheat') <= wb - 2, 25000, 'host: the cows ate wheat from the trough', () => `wheat ${feedCount(H, f.id, 'wheat')} fed ${cows.map((m) => f2(m.fed)).join('/')} want ${cows.map((m) => m.wantEat).join('/')}`);
+  await t.waitFor(() => feedCount(G, f.id, 'wheat') === feedCount(H, f.id, 'wheat'), ONEWAY() + 800, 'guest: the same feeder contents');
+  await t.waitFor(() => feedCount(H, f.id, 'corn') < cb, 25000, 'host: the chicken ate corn');
+  t.check(cows.every((m) => m.fed > 0.3), 'the cows are fuller', cows.map((m) => f2(m.fed)).join(' / '));
+  await t.checkDigest(H, G);
+});
+
+def('P3', {
+  title: 'P: births, growing up and hunger (time skip)', timeout: 150000,
+  expected: 'Two well-fed domesticated cows at a feeder: a calf ("Bezerro", young bit, small) is born on the host and reaches the guest; after a 3-day skip (env.skip) it is a grown cow ("Vaca") on both; an animal left with an empty feeder shows "faminta" on the guest and dies of hunger after the warnings (dead on both); digest equal',
+  api: 'livestock farm clock (game.stock.debug.tick on the host): births (BREED_FED, breedAt), growth (adultAt → name / variant / scale), hunger (fed, starveT → stock.note toasts, killMob); entity static record (name, variant, scale) + dyn farm bits',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug, 'livestock not merged');
+  A.keepAlive(t, G);
+  const f = await farmFeeder(t, H, G, MH, MG);
+  const [cx, cy] = feederCentre(f);
+  A.standBy(G, MG, A.structOn(G, f.id));
+  const pa = farmAnimal(H, MH, 'cow', cx - 1.5, cy + 2), pb = farmAnimal(H, MH, 'cow', cx + 1.5, cy + 2);
+  H.game.stock.debug.tick(0.01);
+  await t.waitFor(() => pa.tame && pb.tame, 2000, 'two domesticated cows');
+  const kids0 = new Set(A.hostMobs(H, (m) => m.species === 'cow' && (m.variant & 2)).map((m) => m.nid));
+  for (const m of [pa, pb]) { m.fed = 1; m.breedAt = 0; }
+  H.game.stock.debug.tick(20); // (a birth is a roll per second: 20 s of the farm clock at once)
+  const kid = await t.waitFor(() => A.hostMobs(H, (m) => m.species === 'cow' && (m.variant & 2) && !kids0.has(m.nid))[0], 1500, 'host: a calf was born');
+  t.check(kid.name === 'Bezerro' && kid.scale < 0.7 && kid.tame && kid.owned, 'a domesticated "Bezerro", small', `${kid.name} ${kid.scale}`);
+  t.check(pa.breedAt > H.game.worldTime && pb.breedAt > H.game.worldTime, 'the parents rest before breeding again');
+  const kp = await t.waitFor(() => A.proxyOf(G, kid), ONEWAY() + 2500, 'guest: the calf proxy');
+  t.check(kp.name === 'Bezerro' && (kp.variant & 2) && kp.scale < 0.7, 'guest sees a calf (young art bit, small)', `${kp.name} v${kp.variant} ${kp.scale}`);
+  // 3 days later: grown up
+  skipDays(H, 3.05);
+  await t.sleep(RT());
+  H.game.stock.debug.tick(1);
+  await t.waitFor(() => kid.name === 'Vaca' && !(kid.variant & 2), 1500, 'host: it grew up');
+  await t.waitFor(() => { const q = A.proxyOf(G, kid); return q && q.name === 'Vaca' && !(q.variant & 2) && q.scale > 0.9; }, ONEWAY() + 2500, 'guest: a grown cow');
+  // hunger: an empty feeder, a starving cow
+  const slots = A.structOn(H, f.id).store.toJSON();
+  H.game.net.emit('chest.set', { id: f.id, slots: slots.map(() => null), quiet: 1 });
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  pa.fed = 0.001;
+  H.game.stock.debug.tick(1);
+  H.game.stock.debug.tick(1);
+  await t.waitFor(() => A.proxyOf(G, pa)?.starving, ONEWAY() + 1500, 'guest: the cow shows it is starving');
+  t.check(/famint/.test(G.game.stock.label(A.proxyOf(G, pa))?.[0] || ''), 'its nameplate says "faminta"', G.game.stock.label(A.proxyOf(G, pa))?.[0]);
+  const D = H.game.env.dayLength;
+  H.game.stock.debug.tick(D * 0.35); // past the second warning
+  H.game.stock.debug.tick(D * 0.2);  // past the limit (half a day)
+  await t.waitFor(() => pa.dead, 1500, 'host: it died of hunger');
+  await t.waitFor(() => A.proxyOf(G, pa)?.dead || !A.proxyOf(G, pa), ONEWAY() + 1500, 'guest: dead too');
+  await t.sleep(RT());
+  t.check(notes.some((s) => /passando fome/.test(s)) && notes.some((s) => /morreu de fome/.test(s)), 'warnings reached the guest (passando fome … morreu de fome)', notes.filter((s) => /fome/.test(s)).join(' | '));
+  await t.checkDigest(H, G);
+});
+
+def('P4', {
+  title: 'P: slaughter a domesticated animal with one knife hit (guest)', timeout: 120000,
+  expected: 'A domesticated pig hit by the guest with an axe only gets hurt; one hit with a knife kills it at once: dead on both, a butchered body on both, its meat on the ground with identical ids on both, XP to the guest only; a wild animal is not slaughtered by the knife (normal damage); digest equal',
+  api: 'combat.dealDamage → livestock.slaughter (tame + knife: mob.hit carries w = main hand) → killMob (noCorpse, onDeath rows → loot.add) + corpse.add (butchered); bestFoe never auto-targets a domesticated animal',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug, 'livestock not merged');
+  A.keepAlive(t, G);
+  const f = await farmFeeder(t, H, G, MH, MG);
+  const [cx, cy] = feederCentre(f);
+  const pig = farmAnimal(H, MH, 'pig', cx, cy + 2.4);
+  H.game.stock.debug.tick(0.01);
+  await t.waitFor(() => pig.tame, 2000, 'a domesticated pig');
+  const px = await t.waitFor(() => { const q = A.proxyOf(G, pig); return q && q.tame ? q : null; }, ONEWAY() + 2500, 'guest: its proxy (domesticated)');
+  const s = A.freeSpot(G, MG, pig.x, pig.y, { rMin: 0.7, rMax: 1.4 });
+  A.teleport(G, s[0], s[1]);
+  await A.hostSees(t, H, G, 4000);
+  t.check(MG.combat.bestFoe(G.game, 6) !== px, 'the automatic attack never picks a domesticated animal');
+  A.equip(G, 'axe_stone');
+  const hp0 = pig.hp;
+  A.hit(G, MG, px, 3);
+  await t.waitFor(() => pig.hp < hp0, RT() + 800, 'an axe hit only hurts it', () => `hp ${pig.hp}/${hp0} dead ${pig.dead}`);
+  t.check(!pig.dead, 'not dead after the axe');
+  pig.state = 'idle'; pig.fleeT = 0; pig.stateT = 30;
+  await t.sleep(300);
+  A.teleport(G, pig.x + 0.8, pig.y);
+  await A.hostSees(t, H, G, 4000);
+  A.equip(G, 'knife_stone');
+  const loot = A.lootRecorder(t, [H, G]);
+  const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
+  const before = new Set(H.game.corpses.map.keys());
+  A.hit(G, MG, A.proxyOf(G, pig), 3);
+  await t.waitFor(() => pig.dead, RT() + 800, 'host: one knife hit kills it');
+  await t.waitFor(() => A.proxyOf(G, pig)?.dead || !A.proxyOf(G, pig), ONEWAY() + 800, 'guest: dead');
+  const body = await t.waitFor(() => [...H.game.corpses.map.values()].find((c) => !before.has(c.id) && c.of === 'pig'), 1500, 'its body on the host');
+  await t.waitFor(() => G.game.corpses.map.get(body.id), ONEWAY() + 800, 'its body on the guest');
+  t.check(body.butchered && G.game.corpses.map.get(body.id).butchered, 'the body is already butchered on both');
+  await t.sleep(RT() + 200);
+  loot.stop();
+  const cmp = loot.compare(0, 1), li = loot.items(0);
+  t.check(cmp.ok && (li.meat || 0) >= 1, 'meat on the ground, identical on both', `${cmp.detail} · ${short(li)}`);
+  t.check(xpG.total > 0 && xpH.total === 0, 'XP to the guest only', `${f2(xpG.total)} / ${f2(xpH.total)}`);
+  // a wild animal: the knife does normal damage
+  const wild = farmAnimal(H, MH, 'sheep', G.game.player.x + 4, G.game.player.y + 3);
+  wild.stateT = 30;
+  const wp = await t.waitFor(() => A.proxyOf(G, wild), 3000 + CFG.budget, 'a wild sheep on the guest');
+  A.teleport(G, wild.x + 0.7, wild.y);
+  await A.hostSees(t, H, G, 4000);
+  const whp = wild.hp;
+  A.hit(G, MG, wp, 2);
+  await t.waitFor(() => wild.hp < whp, RT() + 800, 'the knife hurts the wild sheep');
+  t.check(!wild.dead && !wild.tame, 'a wild animal is not slaughtered by one knife hit', `hp ${wild.hp}/${whp}`);
+  await t.checkDigest(H, G);
+});
+
+def('P5', {
+  title: 'P: fishing with a rod (guest) and with a long shot', timeout: 120000,
+  expected: 'Guest with a rod next to water: "Pescar" casts (the bobber on both peers, the bite time from the host); pulling at once is "Cedo demais" (no fish); on a second cast, pulling when the bobber goes under ("Puxar!") gives 2-3 raw fish to the guest only and the line comes out on both; a long shot into a fish gives 1 raw fish; digest equal',
+  api: 'game.fishing.near() → work fish_cast / fish_pull → intents fish.cast / fish.pull (host clock) → ops fish.bob / fish.end {by, give}; fish onDeath give (lob.fire → mob.die {give})',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.fishing && G.game.fishing, 'fishing not merged');
+  A.keepAlive(t, G);
+  const g = G.game, gp = g.player, w = H.game.world;
+  // a shore spot facing water with a fish in front of it
+  let spot = null, fish = null;
+  const fishes = A.hostMobs(H, (m) => m.species === 'fish').sort((a, b) => Math.hypot(a.x - gp.x, a.y - gp.y) - Math.hypot(b.x - gp.x, b.y - gp.y));
+  for (const f of fishes.slice(0, 12)) {
+    for (let r = 2; r < 5 && !spot; r += 0.5) for (let a = 0; a < 16 && !spot; a++) {
+      const x = f.x + Math.cos((a / 16) * 6.283) * r, y = f.y + Math.sin((a / 16) * 6.283) * r, i = w.idx(Math.floor(x), Math.floor(y));
+      if (!w.water[i] && !w.rock[i] && !w.solid[i] && A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) spot = [x, y];
+    }
+    if (spot) { fish = f; break; }
+  }
+  t.assert(spot, 'a shore spot next to a fish');
+  A.teleport(G, spot[0], spot[1]);
+  const dx = fish.x - spot[0], dy = fish.y - spot[1];
+  gp.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : (dy > 0 ? 's' : 'n');
+  await A.hostSees(t, H, G, 4000);
+  A.ensure(G, { rod_wood: 1 });
+  const near = () => g.fishing.near();
+  await t.waitFor(() => near()?.kind === 'fish_cast', 2000, 'the use action says "Pescar"', () => JSON.stringify(near()));
+  const fish0 = A.count(G, 'fish_raw'), fishH0 = A.count(H, 'fish_raw');
+  // 1) cast and pull at once: too early
+  A.interact(G, near());
+  await t.waitFor(() => G.game.fishing.bobs.has(G.pid) && H.game.fishing.bobs.has(G.pid), RT() + 1200, 'the bobber on both peers');
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  A.interact(G, near());
+  await t.waitFor(() => !G.game.fishing.bobs.has(G.pid) && !H.game.fishing.bobs.has(G.pid), RT() + 1200, 'the line came out on both');
+  t.check(A.count(G, 'fish_raw') === fish0 && notes.some((s) => /Cedo demais/.test(s)), 'too early: no fish, "Cedo demais"', notes.join(' | '));
+  // 2) cast, wait for the bite, pull
+  await t.sleep(400);
+  await t.waitFor(() => near()?.kind === 'fish_cast', 2000, '"Pescar" again');
+  A.interact(G, near());
+  const b = await t.waitFor(() => G.game.fishing.bobs.get(G.pid), RT() + 1200, 'the bobber again');
+  t.check(b.bite > G.game.worldTime - 0.5, 'a bite time in the future (host decided)', f2(b.bite - G.game.worldTime));
+  await t.waitFor(() => near()?.verb === 'Puxar!', 20000, 'the bobber goes under: "Puxar!"', () => `${near()?.verb} bite in ${f2(b.bite - G.game.worldTime)}`);
+  A.interact(G, near());
+  await t.waitFor(() => A.count(G, 'fish_raw') >= fish0 + 2, RT() + 1500, 'the guest landed 2-3 fish', () => `${A.count(G, 'fish_raw') - fish0} · ${notes.slice(-2).join(' | ')}`);
+  t.check(A.count(G, 'fish_raw') - fish0 <= 3 && A.count(H, 'fish_raw') === fishH0, '2-3 raw fish, to the guest only', `${A.count(G, 'fish_raw') - fish0}`);
+  await t.waitFor(() => !H.game.fishing.bobs.has(G.pid) && !G.game.fishing.bobs.has(G.pid), ONEWAY() + 800, 'the line is out on both');
+  // 3) a long shot into a fish (the host's own bow; 1 fish)
+  const hp = H.game.player;
+  const f2t = A.hostMobs(H, (m) => m.species === 'fish').sort((a, b) => Math.hypot(a.x - gp.x, a.y - gp.y) - Math.hypot(b.x - gp.x, b.y - gp.y))[0];
+  t.assert(f2t, 'a fish for the long shot');
+  const hs = A.freeSpot(H, MH, spot[0], spot[1], { rMin: 0.6, rMax: 2.5 }) || spot;
+  A.teleport(H, hs[0], hs[1]);
+  A.equip(H, 'bow_wood'); A.ensure(H, { arrow: 5 });
+  f2t.stateT = 30; f2t.state = 'idle'; f2t.wp = null;
+  const n0 = A.count(H, 'fish_raw');
+  let hit = false;
+  for (let k = 0; k < 4 && !hit; k++) {
+    H.game.net.request('lob.fire', { ab: 'long_shot', w: 'bow_wood', x: hp.x, y: hp.y, ax: f2t.x, ay: f2t.y, amount: 40, crit: 0 });
+    hit = await t.tryWait(() => f2t.dead, 3000);
+    H.game.worldTime += 5; // (the ability's cooldown)
+  }
+  t.check(hit && A.count(H, 'fish_raw') === n0 + 1, 'a long shot into the fish: 1 raw fish (less than a rod)', `dead ${f2t.dead} +${A.count(H, 'fish_raw') - n0}`);
   await t.checkDigest(H, G);
 });
 

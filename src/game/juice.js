@@ -9,7 +9,7 @@ import { animEnv, PAWN_GAIT } from '../art/compose.js';
 const rnd = (a, b) => a + Math.random() * (b - a);
 const HALF_PI = Math.PI / 2;
 // things that sway when something walks through them
-const RUSTLE = new Set(['bush', 'berrybush', 'herbbush', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'crop', 'tallgrass', 'fern']);
+const RUSTLE = new Set(['bush', 'berrybush', 'herbbush', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat', 'crop', 'tallgrass', 'fern']);
 const SEAT = /^(chair|stool|bench)/;
 // dominant-axis facing from a vector
 const faceOf = (dx, dy) => (Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : dy > 0 ? 's' : 'n');

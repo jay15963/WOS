@@ -36,9 +36,9 @@ import { deckReason, deckFriendly, orderDeckTiles } from '../decks.js'; // piers
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
 export const MAX_ROOF_TILES = 420; // a roof is laid on a whole room at once (paint bucket: building.js)
-export const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_cotton', 'wild_corn']);
+export const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
 export const CLEAR_YIELD = { pebble: { pebble: 1 }, stick: { stick: 1 }, fibergrass: { fiber: 2 }, bush: { fiber: 2, stick: 1 }, berrybush: { berries: 2, stick: 1 }, herbbush: { herb: 1 },
-  wild_potato: { potato: 1, seed_potato: 1 }, wild_cotton: { cotton: 2, seed_cotton: 1 }, wild_corn: { corn: 1, seed_corn: 1 } };
+  wild_potato: { potato: 1, seed_potato: 1 }, wild_cotton: { cotton: 2, seed_cotton: 1 }, wild_corn: { corn: 1, seed_corn: 1 }, wild_wheat: { wheat: 1, seed_wheat: 1 } };
 
 export const defOf = (o) => BUILDINGS[o.type];
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -719,6 +719,7 @@ defineIntent('chest.put', {
     const o = chestOf(game, a.id);
     if (!o) return 'Baú não existe mais';
     if (typeof a.item !== 'string' || !ITEMS[a.item]) return 'Item desconhecido';
+    if (BUILDINGS[o.type]?.feed && !ITEMS[a.item].food && a.item !== 'wheat') return 'Só comida: trigo, milho ou outra comida'; // (a feeder: docs/LIVESTOCK.md)
     const qty = Math.max(1, Math.min(9999, num(a.qty, 1) | 0));
     const inv = cloneStore(o);
     const left = inv.add(a.item, qty);

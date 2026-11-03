@@ -21,6 +21,7 @@
 import { boxBlur, clamp } from '../engine/noise.js';
 import { G, BIOMES, BIOME_ID, CAMP_R } from './worldgen.js';
 import { ROOF_GEOM } from '../game/content/roofs.js';
+import { fertileAt } from './soil.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
@@ -371,6 +372,7 @@ export class World {
       case 'wild_potato': return b === B.MEADOW || (woods && g !== G.MOSS) ? 0.6 : 0;
       case 'wild_cotton': return (b === B.MEADOW || b === B.SHORE) && dw > 1.4 && dw < 9 && g !== G.GRAVEL ? 0.7 : 0;
       case 'wild_corn': return b === B.MEADOW && dw > 3 ? 0.6 : 0;
+      case 'wild_wheat': return fertileAt(this, tx, ty) && g !== G.GRAVEL && g !== G.STONE && g !== G.MUD && (b === B.MEADOW || b === B.SHORE || b === B.BIRCH || b === B.FOREST) ? 0.8 : 0; // (soil.js)
       default: return 0;
     }
   }
