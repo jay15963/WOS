@@ -163,6 +163,13 @@ if (set === 'states' || set === 'all') {
     ['ferido', pawn(L, { flash: 0.8 })],
     ['nadando', pawn(L, { _swim: 1 })],
     ['morto', pawn(L, { dead: true, deadT: 5 })],
+    ['sentado (chão)', pawn(L, { pose: { type: 'sit' } })],
+    ['rodopio', pawn(L, { weapon: 'sword_iron', action: { type: 'whirlwind', t: +(Q.get('wk') || 0.3) } })],
+    ['pesca: espera', pawn(L, { weapon: 'rod_wood', action: { type: 'fish', t: 0 }, _fishT0: -9 })],
+    ['pesca: recua', pawn(L, { weapon: 'rod_wood', action: { type: 'fish', t: 0 }, _fishT0: T0 - 0.24 })],
+    ['pesca: lança', pawn(L, { weapon: 'rod_wood', action: { type: 'fish', t: 0 }, _fishT0: T0 - 0.42 })],
+    ['pesca: fisgou', pawn(L, { weapon: 'rod_wood', action: { type: 'fish', t: 0 }, _fishT0: -9, _fishBite: true })],
+    ['pesca: puxa', pawn(L, { weapon: 'rod_wood', action: { type: 'reel', t: 0.22 } })],
   ]);
 }
 if (set === 'animals' || set === 'all') {

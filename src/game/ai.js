@@ -9,11 +9,12 @@
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
-import { reach, dist, faceTowards, mobEffect, hasLOS } from './combat.js';
+import { reach, dist, faceTowards, mobEffect, hasLOS, dealDamage } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer, allPlayers } from './players.js';
 import { stepGait } from './anim.js';
 import { nightK } from './seasons.js';
+import { PREY } from './content/livestock.js';
 
 export const LEASH = 120; // max distance from home while chasing (was 26: chases gave up far too soon)
 const FLEE_LEASH = 26;    // passive animals fleeing start curving back home past this distance
@@ -189,6 +190,100 @@ function bite(game, m, p, sp, rng) {
   });
 }
 
+// ---------- predators vs farm animals (docs/LIVESTOCK.md; numbers: content/livestock.js PREY) ----------
+// At night a wolf pack (bears too, less often) may go after the farm animals it sees nearby — wild or domesticated,
+// never one on a rope. Rolled once a night per pack (most nights they leave them alone), one kill a night, then the
+// pack lets them be; a fence / pen around them blocks the path and the pack gives up. The hunted animal and the ones
+// next to it run; a player in sight still comes first. A killed animal leaves its body (butchered like any kill).
+const nightNow = (game) => nightK(game.env?.hour ?? 12) > 0.5;
+const nightNo = (game) => (game.env?.dayIndex ?? 0) - ((game.env?.hour ?? 12) < 12 ? 1 : 0); // (a night spans midnight)
+export const isPrey = (e) => !!e && e.isMob && !!e.stock && !e.dead && !e.proxy && !e.tiedTo;
+// the pack's mood tonight (one roll per pack and night; the pack = its spawner, a lone one itself)
+function packMood(game, m) {
+  const s = m.spawner || m, n = nightNo(game);
+  if (s._preyN !== n) { s._preyN = n; s._preyOk = Math.random() < PREY.chance * (PREY.hunters[m.species] || 0); s._preyKills = 0; s._preyCalm = 0; }
+  return s;
+}
+// an idle predator looks for a farm animal in sight (the pack joins); true when it started a hunt
+function lookForPrey(game, m) {
+  if (!PREY.hunters[m.species] || m.leaving || !nightNow(game)) return false;
+  m.preyT = (m.preyT || 0) - 0.3;
+  if (m.preyT > 0) return false;
+  m.preyT = 1;
+  const s = packMood(game, m);
+  if (!s._preyOk || s._preyKills >= PREY.kills || s._preyCalm > game.worldTime) return false;
+  let best = null, bd = PREY.r;
+  for (const e of game.entities) {
+    if (!isPrey(e) || Math.abs(e.x - m.x) > bd || Math.abs(e.y - m.y) > bd) continue;
+    const d = dist(m, e);
+    if (d >= bd || (m.preyBan && m.preyBan.nid === e.nid && m.preyBan.t > game.worldTime)) continue;
+    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0)) continue;
+    best = e; bd = d;
+  }
+  if (!best) return false;
+  startHunt(game, m, best);
+  for (const o of game.entities) {
+    if (o !== m && !o.dead && !o.proxy && o.species === m.species && (o.spawner ? o.spawner === m.spawner : false) && (o.state === 'idle' || o.state === 'wander') && dist(o, m) < 14) startHunt(game, o, best);
+  }
+  return true;
+}
+function startHunt(game, m, e) {
+  m.state = 'hunt'; m.prey = e; m.huntT = 0;
+  resetNav(m);
+  game.audio?.play('growl', { x: m.x, y: m.y, volume: 0.7 });
+}
+function stopHunt(game, m, ban = false) {
+  if (ban && m.prey) m.preyBan = { nid: m.prey.nid, t: game.worldTime + 90 };
+  m.prey = null; m.state = 'idle'; m.stateT = 1 + Math.random() * 2; m.moving = false;
+  resetNav(m);
+}
+// the hunted animal and its neighbours run from the predator
+function panic(game, e, from) {
+  for (const o of game.entities) {
+    if (!isPrey(o) || o.state === 'flee' || Math.abs(o.x - e.x) > 5 || Math.abs(o.y - e.y) > 5) continue;
+    if (o === e || dist(o, e) < 4) startFlee(o, from, 2.5 + Math.random() * 2);
+  }
+}
+function bitePrey(game, m, e, sp, rng) {
+  m.swingT = sp.swing * (0.9 + Math.random() * 0.2);
+  m.action = { type: 'attack', t: 0, dur: 0.5 };
+  game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
+  game.later(0.24, () => {
+    if (m.dead || m.stunT > 0 || e.dead || dist(m, e) > rng + 0.6) return;
+    dealDamage(game, m, e, m.dmg * PREY.dmgK * (0.8 + Math.random() * 0.4), { knock: 0.08 });
+    if (!e.dead) return;
+    // a kill: the pack is done for the night (owned animals: the owners hear of it)
+    const s = packMood(game, m);
+    s._preyKills++; s._preyCalm = game.worldTime + PREY.calm;
+    for (const o of game.entities) if (o.state === 'hunt' && o.prey === e) stopHunt(game, o);
+    if (e.owned) game.net.emit('stock.note', { text: `${sp.name === 'Urso' ? 'Um urso' : 'Os lobos'} mat${sp.name === 'Urso' ? 'ou' : 'aram'} ${STOCK_A[e.species] || 'um animal'} da criação!`, kind: 'bad' });
+  });
+}
+const STOCK_A = { cow: 'uma vaca', sheep: 'uma ovelha', pig: 'um porco', chicken: 'uma galinha' };
+// the 'hunt' state: chase the animal, bite it; give up when it is out of reach (a fence: no path), too far, too long
+function huntStep(game, m, dt, sp) {
+  const e = m.prey;
+  m.huntT = (m.huntT || 0) + dt;
+  const lost = !isPrey(e) || !nightNow(game) || m.leaving || dist(m, e) > PREY.r * 2;
+  const stuck = !!(m.nav && m.nav.fails > 2);
+  if (lost || stuck || m.huntT > PREY.giveUp) {
+    if (stuck || m.huntT > PREY.giveUp) { const s = packMood(game, m); s._preyCalm = Math.max(s._preyCalm || 0, game.worldTime + (stuck ? 8 : PREY.calm)); }
+    stopHunt(game, m, stuck);
+    return;
+  }
+  const d = dist(m, e);
+  if (d < PREY.flee) panic(game, e, m);
+  const rng = reach(m, e);
+  if (rng > 0 && d <= rng) {
+    m.moving = false;
+    faceTowards(m, e);
+    if (m.swingT <= 0) bitePrey(game, m, e, sp, rng);
+  } else {
+    const dir = steer(game, m, e.x, e.y, dt, sp.speed, Math.max(0.2, rng * 0.85), e.lv | 0);
+    go(game, m, dir, sp.speed, dt);
+  }
+}
+
 export function updateCreature(game, m, dt) {
   if (m.proxy) { game.net.violation('updateCreature num proxy'); return; }
   const sp = SPECIES[m.species] || SPECIES.wolf;
@@ -218,6 +313,7 @@ export function updateCreature(game, m, dt) {
             if (d < Math.max(2.2, sk) || (d < 4.5 && p.moving)) { startFlee(m, p, (sk ? 3.5 : 2.5) + Math.random() * 1.5); break; }
           }
         }
+        if (sp.temper === 'hostile' && lookForPrey(game, m)) break; // (night: farm animals in sight)
       }
       if (m.state === 'idle') {
         m.moving = false;
@@ -275,6 +371,16 @@ export function updateCreature(game, m, dt) {
         const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85, t.lv | 0); // levels: the target's story (stairs as portals)
         go(game, m, dir, sp.speed, dt);
       }
+      break;
+    }
+
+    case 'hunt': {
+      // a player in sight still comes first
+      if (m.thinkT <= 0) {
+        m.thinkT = 0.25 + Math.random() * 0.1;
+        if (!p.dead && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { m.prey = null; m.state = 'idle'; aggro(game, m, p); break; }
+      }
+      huntStep(game, m, dt, sp);
       break;
     }
 

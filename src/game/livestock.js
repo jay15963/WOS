@@ -416,7 +416,7 @@ export function untie(game, m, why = 'hand') {
 
 // ---------- slaughter (host; combat.js dealDamage): a domesticated animal dies from one knife hit ----------
 export function slaughter(game, src, m) {
-  if (!m.stock || !m.tame || m.dead) return false;
+  if (!m.stock || !m.tame || m.dead || src?.isMob) return false; // (a predator's bite is no slaughter)
   const w = src === game.player ? src.equip?.main : m.lastHitW;
   if (typeof w !== 'string' || !w.startsWith('knife_')) return false;
   const sp = SPECIES[m.species], baby = isBabyM(m);

@@ -213,7 +213,7 @@ const POSE_OF = {
   shield_bash: 'bash', torch_swing: 'torch', bandage: 'heal',
 };
 const ATTACK_OF = { knife: 'stab', sword: 'slash', axe: 'heavy', pickaxe: 'heavy', club: 'smash', spear: 'pierce', bow: 'shoot', torch: 'slash', hammer: 'smash' };
-const WHIRL = ['s', 'e', 'n', 'w'];
+const WHIRL8 = ['s', 'se', 'e', 'ne', 'n', 'nw', 'w', 'sw']; // (a whirlwind spin: every view in turn)
 const TWO_HAND = { heavy: 1, smash: 1 };
 const BLADE = { knife: 1, sword: 1, axe: 1 }; // can cut a carcass
 // poses that look down at the hands (head follows the body, no head turn)
@@ -500,7 +500,13 @@ export function drawPawn(B, A, p, t) {
   const k = act ? clamp01(act.t) : 0;
   let pose = act ? POSE_OF[act.type] || act.type : null;
   let dir = p.facing || 's';
-  if (pose === 'whirlwind') dir = WHIRL[(Math.floor(k * 8) + WHIRL.indexOf(dir === 'w' ? 'w' : dir)) & 3];
+  // spinning: steps through the 8 views (3/4 ones once their parts are painted; until then the side before them)
+  let spinV = null;
+  if (pose === 'whirlwind') {
+    const i0 = Math.max(0, WHIRL8.indexOf(p._dv || dir)), i = (i0 + Math.floor(k * 16)) & 7;
+    spinV = WHIRL8[i];
+    dir = spinV.length === 1 ? spinV : WHIRL8[(i + 7) & 7];
+  }
   const sd = dir === 'w' ? 'e' : dir;
   const flip = dir === 'w' ? -1 : 1;
   // head turned toward what the pawn looks at (never backwards, not while busy)
@@ -585,10 +591,10 @@ export function drawPawn(B, A, p, t) {
   // camera turned (game.js): a 3/4 view 'se' / 'ne' (sw / nw mirrored) — the front / back pose blended with the side
   // pose, drawn with 3/4 parts (art/look/turn.js) once they are painted; until then the nearest side (p.facing)
   let D = null, mir = 1;
-  const dv = p._dv;
+  const dv = spinV ? (spinV.length === 2 ? spinV : null) : p._dv;
   // camera turned: the local player's two 3/4 rigs are painted in the background before they are needed
   if (LK.LA && p._q34 !== LK && (animEnv.rs !== 0 || animEnv.rc !== 1) && !p.isMob && !p.remote && !p.lazyLook) { p._q34 = LK; diagReady(diagRig(A, LK, 'se'), A, false); diagReady(diagRig(A, LK, 'ne'), A, false); }
-  if (dv && (!sit || seat) && pose !== 'whirlwind' && LK.LA) { // (sitting on a chair too: facing the chair's way)
+  if (dv && LK.LA) { // (sitting on a chair or on the ground too; a spin: its 3/4 steps)
     const urgent = !p.isMob && !p.remote && !p.lazyLook;
     const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
     if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, OV, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
@@ -598,12 +604,23 @@ export function drawPawn(B, A, p, t) {
   const pd = D ? TURN_VIEW[D.view].pd : sd;
   const Q = D ? blendPose(QC, rigPose(QP, C, pd, 1), rigPose(QE, C, 'e', 1), mir, D.view) : rigPose(QC, C, sd, flip);
   pose = Q.pose;
+  // fishing: the rod aimed in 3D for this view (rigPose / rodPhase left its angle in ROD_A)
+  if ((pose === 'fish' || pose === 'reel') && Q.showW && Q.wsp) {
+    if (D) rodAim(Q, mir * 0.7071, D.view === 'se' ? 0.7071 : -0.7071);
+    else rodAim(Q, sd === 'e' ? flip : 0, sd === 's' ? 1 : sd === 'n' ? -1 : 0);
+  }
   const { x, y, bx0, by0, lift, bl, sx, sy, rot, al, swim, stroke, hx, hl, hr, hairR, hairL, f1, f1l, f2, f2l, feetFront } = Q;
   const { showW, wsp, wType, wx, wy, wl, wSx, wSy, wRot, wFlip, wBehind, ghost, grip, twoHand, tgx, tgl } = Q;
   const { showO, osp, oType, ox2, oy2, ol, oSc, oRot, oFlip, oBehind, offGrip } = Q;
   const { h1, h1b, hx1, h1dy, h1l, hs1, h2, h2b, hx2, h2dy, h2l, hs2, food, bundle, herbAt, r1, g1, b1 } = Q;
   const hand = T.hand;
   const sdir = D ? mir : sd === 'e' ? flip : 1; // sprite flip of side-facing things (bundle, herbs, flame lean)
+  // the rod tip this frame (the fishing line starts there: game/fishing.js): a world point and its height
+  if (showW && Q.wType === 'rod') {
+    const L = ROD_LEN * wSy, rt = p._rodTip || (p._rodTip = [0, 0, 0, 0]);
+    viewPt(bx0, by0, wx + Math.sin(wRot) * L - bx0, wy - by0);
+    rt[0] = VX; rt[1] = VY; rt[2] = wl + Math.cos(wRot) * L; rt[3] = t;
+  }
   // the head: the 3/4 head with the body, a cardinal one when it turns toward something
   const HD = D && (hdir === dir || !dv.includes(hdir)) ? D : null; // (a turn only toward the diagonal's own sides)
   const shut = (HD ? !!HD.lids : !!lids) && (blinking(t, ph0) || fl > 0.6 || (pose === 'heal' && k > 0.5 && k < 0.62));
@@ -1065,6 +1082,17 @@ function rigPose(Q, C, sd, flip) {
       // the other hand steadies the piece being nailed
       h2 = true;
       if (sd === 'e') { h2x = flip * 0.2; h2l = 0.2; h2b = true; } else if (sd === 's') { h2x = 0.12; h2l = 0.2; h2dy = 0.06; } else { h2x = -0.12; h2l = 0.28; h2b = true; }
+    } else if (pose === 'fish' || pose === 'reel') {
+      // fishing (game/fishing.js): the rod's aim (ROD_A, from upright toward the water) is turned into a 3D direction
+      // for the drawn view in drawPawn (rodAim); here the grip in front of the body and the lean of the cast / pull
+      rodPhase(p, t, pose === 'reel' ? k : -1);
+      const ln = ROD_LEAN;
+      if (sd === 'e') { wHx = flip * (0.06 + ln * 0.5); wHl = 0.04; rot += flip * ln; ox += flip * ln * 0.12; }
+      else if (sd === 's') { wHx = -0.02; wHl = 0.03; wDy = 0.06; oy += ln * 0.12; sy *= 1 - Math.abs(ln) * 0.15; }
+      else { wHx = 0.02; wHl = 0.06; wDy = -0.05; oy -= ln * 0.12; sy *= 1 - Math.abs(ln) * 0.15; }
+      h2 = true; // (the other hand rides the rod: drawPawn)
+      showO = showO && oType === 'torch';
+      wsp = M.s; showW = !!wsp; wType = 'rod';
     } else if (pose === 'cast') {
       const u = Math.sin(k * Math.PI);
       lift += u * 0.06; sy *= 1 + u * 0.04;
@@ -1180,6 +1208,39 @@ function rigPose(Q, C, sd, flip) {
   Q.herbAt = herbAt; Q.pose = pose; Q.r1 = r1; Q.g1 = g1; Q.b1 = b1;
   Q.oSy = oSc;
   return Q;
+}
+
+// ---------- fishing rod (game/fishing.js) ----------
+// p._fishT0: when this peer saw the cast start (game.time, = the render clock t) · p._fishBite: the bobber is under.
+// Cast: wind the rod back over the shoulder, swing it forward (the line flies out at ROD_RELEASE), settle; wait: the
+// rod out over the water, the tip bobbing (a bite: dipping, twitching); reel (action k): yanked up and back.
+export const ROD_RELEASE = 0.44; // s after the cast starts: the bobber leaves the rod tip
+const ROD_LEN = 1.33;            // tiles from the grip to the tip (held_rod_wood: grip at 0.92 of 1.5 tiles)
+let ROD_A = 1, ROD_LEAN = 0;
+function rodPhase(p, t, kr) {
+  const REST = 0.86;
+  if (kr >= 0) { // reel
+    if (kr < 0.28) { const u = easeOut(kr / 0.28); ROD_A = REST + (-0.3 - REST) * u; ROD_LEAN = -0.09 * u; }
+    else { const u = smooth((kr - 0.28) / 0.72); ROD_A = -0.3 + (0.55 + 0.3) * u; ROD_LEAN = -0.09 * (1 - u); }
+    return;
+  }
+  const u = t - (p._fishT0 ?? -99);
+  if (u >= 0 && u < 0.32) { const e = easeOut(u / 0.32); ROD_A = REST + (-0.6 - REST) * e; ROD_LEAN = -0.07 * e; }
+  else if (u >= 0.32 && u < ROD_RELEASE + 0.04) { const e = easeIn((u - 0.32) / (ROD_RELEASE + 0.04 - 0.32)); ROD_A = -0.6 + (1.4 + 0.6) * e; ROD_LEAN = -0.07 + 0.17 * e; }
+  else if (u >= ROD_RELEASE + 0.04 && u < 0.85) { const e = smooth((u - ROD_RELEASE - 0.04) / (0.85 - ROD_RELEASE - 0.04)); ROD_A = 1.4 + (REST - 1.4) * e; ROD_LEAN = 0.1 - 0.08 * e; }
+  else if (p._fishBite) { ROD_A = REST + 0.2 + 0.1 * Math.abs(Math.sin(t * 23)); ROD_LEAN = 0.05; }
+  else { ROD_A = REST + 0.035 * Math.sin(t * 1.4 + (p.id || 0)); ROD_LEAN = 0.02; }
+}
+// the rod's 3D aim seen from the drawn view: (fx, fy) = the facing on screen (x right, y toward the camera); the
+// rod leans a little to its right side. Depth toward the camera counts DK of a height (the upright art is drawn as
+// seen from low: a rod aimed at the camera looks short and up, one aimed away long).
+function rodAim(Q, fx, fy) {
+  const s = Math.sin(ROD_A), c = Math.cos(ROD_A), lat = 0.22, rx = -fy, ry = fx, DK = 0.45;
+  const vx = fx * s + rx * lat, vup = c - DK * (fy * s + ry * lat);
+  Q.wRot = Math.atan2(vx, vup); Q.wSy = Math.max(0.14, Math.hypot(vx, vup)); Q.wSx = 1;
+  // the other hand on the rod, a little above the grip
+  const k = 0.16 * Q.wSy;
+  Q.h2 = true; Q.hx2 = Q.wx + Math.sin(Q.wRot) * k; Q.h2dy = Q.wy - Q.y; Q.h2l = Q.wl - Q.bl + Math.cos(Q.wRot) * k; Q.h2b = Q.wBehind; Q.hs2 = 0.85;
 }
 
 // ---------- rig helpers (read the scratch filled by drawPawn; no per-frame allocation) ----------
