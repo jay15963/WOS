@@ -4,8 +4,8 @@
 // view (raw, before its outline), both drawings are laid on a simple 3D stand-in of the part (one ellipse per row:
 // its width from the front drawing, its depth from the side one), the stand-in is turned 45° and seen by the
 // camera — the front drawing covers the surfaces that face front, the side drawing the ones that face the side,
-// blended over a narrow band — and the layer gets its outline afterwards (same width and colour as the original:
-// the same artist's line). So a 3/4 torso is narrower with its side showing and the near arm on it (the side
+// blended over a wide band (±18°: a detail only one drawing has fades out) — and the layer gets its outline
+// afterwards (same width and colour as the original: the same artist's line). So a 3/4 torso is narrower with its side showing and the near arm on it (the side
 // drawing's arm), the far arm folds behind the chest; a 3/4 head shows the near ear and cheek from the side
 // drawing and the face from the front drawing, turned; hair, beards, hats, armour follow the same turn.
 // Small face features (eyes, nose, mouth, brows, marks, paint…) come from the front drawing only, laid on a
