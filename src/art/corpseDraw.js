@@ -6,6 +6,8 @@
 // and gear follow the rig; animals use their side sprite with the same lying transform as drawAnimal.
 
 import { drawPawn, viewPt, VX, VY } from './compose.js'; // viewPt: screen-space offsets → world (camera turned)
+import { faunaKey, FAUNA_SIZE } from './faunaDraw.js'; // wild fauna (docs/FAUNA.md): art key (a male lion) and size class
+import { FAUNA_ART } from './fauna.js';
 
 const HALF_PI = Math.PI / 2;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -41,7 +43,9 @@ function tables(A) {
 function sideOf(T, A, key) {
   let s = T.side[key];
   if (s === undefined) {
-    s = A.has(key + '_dead') ? { s: A.get(key + '_dead'), dead: true } : A.has(key + '_e') ? { s: A.get(key + '_e'), dead: false } : null;
+    const fa = FAUNA_ART[key]; // (wild fauna: a body already lying on its side — `lie`, not turned; crab / scorpion: a husk)
+    s = fa && !fa.flat && A.has(key + '_dead') ? { s: A.get(key + '_dead'), dead: false, lie: true }
+      : A.has(key + '_dead') ? { s: A.get(key + '_dead'), dead: true } : A.has(key + '_e') ? { s: A.get(key + '_e'), dead: false } : null;
     T.side[key] = s;
   }
   return s;
@@ -120,6 +124,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   // ---- animals ----
   let key = c.of;
   if (key === 'deer' && c.v === 1 && A.has('deer_doe_e')) key = 'deer_doe';
+  key = faunaKey(key, c.v | 0) || key;
   const S = sideOf(T, A, key);
   if (!S) return;
   const sc = c.sc || 1;
@@ -127,7 +132,7 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   const u = clamp01(tsince * 2.6);
   const k = u < 0.7 ? easeIn(u / 0.7) : 1 - Math.sin(((u - 0.7) / 0.3) * Math.PI) * 0.08;
   const s = S.s;
-  const sz = SIZE[c.of] || 'm';
+  const sz = SIZE[c.of] || FAUNA_SIZE[c.of] || 'm';
   if (S.dead) {
     // spiders: on their back, no rotation; the "skeleton" is a dry husk
     const dry = sm(1.88, 2.2, age);
@@ -139,15 +144,16 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     B.decor.add(s, c.x, c.y, sc * shr, sc * shr * (1 - 0.15 * dry), tint[0], tint[1], tint[2], a, 0, 0, 0, flip, 1, 0);
     return;
   }
-  const rot = flip * HALF_PI * k;
-  const off = s.h * s.ay * 0.45 * sc;
+  const lie = !!S.lie, rot = lie ? 0 : flip * HALF_PI * k; // (lie: the drawing lies already; skeleton / carcass laid flat on it)
+  const off = lie ? 0 : s.h * s.ay * 0.45 * sc;
   viewPt(c.x, c.y, -flip * off * k, 0.05 * k);
   const x = VX, y = VY;
   // blood pool under a fresh body / carcass
   if (T.soft && (age < 0.6 || c.butchered) && age < 1.9) {
     const ba = (c.butchered ? 0.55 : 0.4) * (1 - sm(0.3, 1.9, age)) * clamp01(tsince * 1.5);
     viewPt(c.x, c.y, 0, 0.05);
-    B.decor.add(T.soft, VX, VY, (s.h * s.ay * sc * 1.3) / T.soft.w, (s.w * sc * 0.85) / T.soft.w, 0.32, 0.04, 0.04, ba, 0, 0, 0, 1, 1, 0);
+    const bw = lie ? s.w * sc * 0.95 : s.h * s.ay * sc * 1.3, bh = lie ? s.h * sc * 0.75 : s.w * sc * 0.85;
+    B.decor.add(T.soft, VX, VY, bw / T.soft.w, bh / T.soft.w, 0.32, 0.04, 0.04, ba, 0, 0, 0, 1, 1, 0);
   }
   if (bodyA > 0.01) {
     if (T.blob) B.blob.add(T.blob, c.x, c.y, s.w * 0.8 * sc, 0.7 * sc, 1, 1, 1, 0.5 * bodyA);
@@ -157,8 +163,8 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
     B.decor.add(s, x, y, sc, sc * sunk, tint[0], tint[1], tint[2], bodyA, 0, rot, 0, flip, 1, 0);
     const K = c.butchered ? T.carc[sz] : null;
     if (K) {
-      const ks = (s.w * sc) / K.w, kt = 1 - 0.35 * rotK;
-      B.decor.add(K, x, y, ks, ks * sunk, kt, kt * (1 - 0.15 * rotK), kt * (1 - 0.3 * rotK), bodyA, 0, rot, 0, flip, 1, 0);
+      const ks = (s.w * sc) / K.w * (lie ? 0.9 : 1), kt = 1 - 0.35 * rotK;
+      B.decor.add(K, x, y, ks, ks * sunk * (lie ? 0.62 : 1), kt, kt * (1 - 0.15 * rotK), kt * (1 - 0.3 * rotK), bodyA, 0, rot, 0, flip, 1, 0);
     }
     if (rotK > 0.05 && T.rot[0]) {
       const L = s.w * sc;
@@ -170,9 +176,9 @@ export function drawCorpse(B, A, c, age, tsince, t, gone = 0) {
   }
   const K = T.skel[sz];
   if (K && skelA > 0.01) {
-    const ks = ((s.w * sc) / K.w) * shrink;
+    const ks = ((s.w * sc) / K.w) * shrink * (lie ? 0.9 : 1);
     if (T.blob) B.blob.add(T.blob, c.x, c.y, s.w * 0.6 * sc, 0.5 * sc, 1, 1, 1, 0.28 * skelA);
-    B.decor.add(K, x, y, ks, ks, bone[0], bone[1], bone[2], skelA, 0, rot, 0, flip, 1, gone * 0.25);
+    B.decor.add(K, x, y, ks, ks * (lie ? 0.62 : 1), bone[0], bone[1], bone[2], skelA, 0, rot, 0, flip, 1, gone * 0.25);
   }
 }
 

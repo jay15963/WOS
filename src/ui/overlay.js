@@ -119,6 +119,7 @@ export function installOverlay(game) {
       for (const e of g.entities) {
         if (!(e.isMob || e.kind === 'animal') || e.dead) continue;
         if (e.water && e !== p.target) continue; // (fish: no plate unless marked)
+        if ((e.fmode & 3 || SPECIES[e.species]?.ambient) && e !== p.target && !(e.state === 'chase' && e.threat === p)) continue; // (wild fauna: hidden in wait, flying, ambient birds / crabs — game/fauna.js)
         if (e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2.5) continue;
         if (g.roofs?.hidden?.(e.x, e.y)) continue; // inside a building whose roof hides it
         const d = Math.hypot(e.x - p.x, e.y - p.y);
@@ -145,7 +146,7 @@ export function installOverlay(game) {
         const fl = g.stock?.label?.(e); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js)
         const label = (fl ? fl[0] : e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
-        const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e)); // levels: lifted plate
+        const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e) + (e._flift || 0)); // levels: lifted plate (_flift: a flying bird, a monkey up a tree — art/faunaDraw.js)
         let sy = sy0 - 6;
         const cast = e.cast && e.cast.dur ? e.cast : null;
         const hgt = fs + 3 + (showBar ? bh + 4 : 0) + (cast ? 13 : 0);

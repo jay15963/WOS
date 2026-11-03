@@ -16,7 +16,7 @@
 </style>
 </head>
 <body>
-<div id="info">8 vistas (S, SE, E, NE, N, NW, W, SW) pelo compose do jogo · ?set=people|gear|animals|states|giant|all · ?scale=64 (1×) · ?t=0.3</div>
+<div id="info">8 vistas (S, SE, E, NE, N, NW, W, SW) pelo compose do jogo · ?set=people|gear|animals|states|giant|fauna|all (fauna: &amp;g=polar|taiga|steppe|desert|savanna|jungle|swamp|mountain|coast|ocean) · ?scale=64 (1×) · ?t=0.3</div>
 <div id="out"></div>
 <script type="module">
 // Sheet of every view of the game's creatures, drawn through the game's own compose (art/compose.js) into a fake
@@ -24,6 +24,7 @@
 // Uses the real game atlas (atlas resolution) and its lazy look texture (painted synchronously here).
 import { buildAtlas } from '../src/art/sprites.js';
 import { drawPawn, drawAnimal, animEnv } from '../src/art/compose.js';
+import { drawFauna, FMODE } from '../src/art/faunaDraw.js';
 import { lookAtlasOf } from '../src/art/look/lazy.js';
 import { DEFAULT_LOOK, randomLook, cleanLook } from '../src/game/look.js';
 const Q = new URLSearchParams(location.search);
@@ -67,7 +68,7 @@ function tinted(s, r, g, b) {
 }
 class B2 { constructor() { this.items = []; } add(s, x, y, sx = 1, sy = 1, r = 1, g = 1, b = 1, a = 1, sway = 0, rot = 0, flash = 0, flip = 1, recv = 0, lift = 0) { if (s && s.name) this.items.push([s, x, y, sx, sy, r, g, b, a, rot, flip, lift, flash]); } addRaw() {} }
 const SINK = { add() {}, addRaw() {} };
-const BS = { main: new B2(), blob: new B2(), shadow: SINK, emissive: new B2(), fx: SINK, decor: SINK, light: SINK, ground: SINK, decal: SINK };
+const BS = { main: new B2(), blob: new B2(), shadow: SINK, emissive: new B2(), fx: new B2(), decor: SINK, light: SINK, ground: new B2(), decal: SINK };
 function replay(ctx, list, ox, oy, cx, cy, add = false) {
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   for (const it of list) {
@@ -87,16 +88,20 @@ function replay(ctx, list, ox, oy, cx, cy, add = false) {
 }
 // draw creature o in view v at canvas (cx, cy)
 function drawView(ctx, o, v, cx, cy, t) {
-  for (const k of ['main', 'blob', 'emissive']) BS[k].items.length = 0;
+  for (const k of ['main', 'blob', 'emissive', 'ground', 'fx']) BS[k].items.length = 0;
   const f0 = o.facing;
   if (v.length === 2) { o._dv = v; o.facing = NEAR[v] || 's'; if (o.kind !== 'pawn') o.facing = v[1] === 'e' ? 'e' : 'w'; }
   else { o._dv = null; o.facing = v; }
-  animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0;
-  if (o.kind === 'pawn') drawPawn(BS, A, o, t); else drawAnimal(BS, A, o, t);
+  animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = o._fauna ? 1e-9 : 0; // (fauna: the view as set here, not from its motion)
+  if (o.kind === 'pawn') drawPawn(BS, A, o, t); else if (!drawFauna(BS, A, o, t, o._world || null)) drawAnimal(BS, A, o, t);
+  animEnv.yaw = 0;
   o.facing = f0;
   // blob shadow
   ctx.save(); ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(cx, cy, scale * 0.3, scale * 0.12, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+  if (o._world) { ctx.save(); ctx.fillStyle = 'rgba(40,90,130,0.55)'; ctx.fillRect(0, cy - scale * 0.6, cellW, scale * 1.2); ctx.restore(); } // (water)
+  replay(ctx, BS.ground.items, o.x, o.y, cx, cy);
   replay(ctx, BS.main.items, o.x, o.y, cx, cy);
+  replay(ctx, BS.fx.items, o.x, o.y, cx, cy);
   replay(ctx, BS.emissive.items, o.x, o.y, cx, cy, true);
 }
 const out = document.querySelector('#out');
@@ -181,6 +186,45 @@ if (set === 'animals' || set === 'all') {
     ...['wolf', 'fox', 'deer', 'boar', 'bear'].map((s) => [s + (s === 'deer' || s === 'boar' ? ' pasta' : ' fareja'), beast(s, { state: 'idle', _idleU: s === 'deer' || s === 'boar' ? 0.2 : 0.35 })]),
     ...['wolf', 'fox', 'deer', 'boar', 'bear', 'rabbit'].map((s) => [s + ' olha', beast(s, { state: 'idle', _idleU: 0.7 })]),
   ], { w: 1.9, h: 1.7 });
+}
+if (set === 'fauna' || set === 'all') {
+  // wild fauna (docs/FAUNA.md): standing, walking, attacking and each one's own states, per biome group
+  const GROUPS = {
+    polar: ['polar_bear', 'seal', 'arctic_fox'], taiga: ['moose', 'reindeer', 'lynx'], steppe: ['wild_horse', 'bison', 'yak'],
+    desert: ['camel', 'scorpion', 'rattlesnake', 'vulture'], savanna: ['zebra', 'gazelle', 'lion', 'elephant'], jungle: ['monkey', 'jaguar', 'parrot'],
+    swamp: ['crocodile', 'heron'], mountain: ['mountain_goat', 'eagle'], coast: ['crab', 'seagull'], ocean: ['dolphin', 'shark', 'whale'],
+  };
+  const SIZE = { elephant: [3.4, 2.8], whale: [4.6, 2.6], moose: [2.4, 2.4], camel: [2.3, 2.4], bison: [2.3, 2], crocodile: [2.8, 1.4] };
+  const WET = { liquidAt: () => 2 };
+  const g = Q.get('g') || 'polar';
+  const f = (sp, extra = {}) => beast(sp, { _fauna: 1, state: 'idle', _idleU: 0.7, ...extra });
+  const rows = [];
+  for (const sp of GROUPS[g] || []) {
+    const bird = ['vulture', 'eagle', 'parrot', 'seagull', 'heron'].includes(sp), sea = ['dolphin', 'shark', 'whale'].includes(sp);
+    if (!sea) rows.push([sp, f(sp)]);
+    if (sp === 'lion') rows.push(['lion macho', f(sp, { variant: 2 })]);
+    if (!sea) rows.push([sp + ' anda', f(sp, { moving: true, moveT: 0.07, state: 'wander' })]);
+    if (!sea) rows.push([sp + ' ataca', f(sp, { action: { type: 'attack', t: 0.6 }, state: 'chase' })]);
+    if (['wild_horse', 'zebra', 'gazelle', 'reindeer', 'moose', 'bison', 'yak', 'camel', 'mountain_goat', 'elephant'].includes(sp)) rows.push([sp + ' pasta', f(sp, { _idleU: 0.2 })]);
+    if (['lion', 'jaguar', 'lynx', 'polar_bear', 'arctic_fox', 'camel'].includes(sp)) rows.push([sp + ' deita', f(sp, { fmode: FMODE.REST })]);
+    if (sp === 'monkey') rows.push(['macaco na árvore', f(sp, { fmode: FMODE.TREE })]);
+    if (bird) { rows.push([sp + ' voa', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: true })]); rows.push([sp + ' plana', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: false })]); }
+    if (sp === 'rattlesnake') rows.push(['escondida', f(sp, { fmode: FMODE.HIDE })]);
+    if (sp === 'crocodile' || sp === 'seal' || sp === 'polar_bear') rows.push([sp + ' nada', f(sp, { _world: WET })]);
+    if (sp === 'crocodile') rows.push(['crocodilo à espreita', f(sp, { _world: WET, fmode: FMODE.HIDE })]);
+    if (sea) {
+      rows.push([sp, f(sp, { _world: WET })]);
+      rows.push([sp + ' nada', f(sp, { _world: WET, moving: true, moveT: 0.07 })]);
+      rows.push([sp + ' (corpo)', f(sp, { _world: null })]);
+      if (sp === 'shark') rows.push(['tubarão ataca', f(sp, { _world: WET, action: { type: 'attack', t: 0.6 } })]);
+      if (sp === 'dolphin') rows.push(['golfinho salta', f(sp, { _world: WET, action: { type: 'jump', t: 0.4 } })]);
+      if (sp === 'whale') { rows.push(['baleia sopra', f(sp, { _world: WET, action: { type: 'spout', t: 0.3 } })]); rows.push(['baleia mergulha', f(sp, { _world: WET, fmode: FMODE.HIDE, action: { type: 'dive', t: 0.4 } })]); }
+    }
+    rows.push([sp + ' morto', f(sp, { dead: true, deadT: 5 })]);
+  }
+  let w = 1.9, h = 1.7;
+  for (const sp of GROUPS[g] || []) if (SIZE[sp]) { w = Math.max(w, SIZE[sp][0]); h = Math.max(h, SIZE[sp][1]); }
+  section('Fauna · ' + g, rows, { w, h });
 }
 if (set === 'giant' || set === 'all') {
   const G = (extra = {}) => pawn(null, { species: 'giant', id: 3, weapon: 'club_ice', scale: 2, ...extra });
