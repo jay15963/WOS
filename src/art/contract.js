@@ -30,7 +30,7 @@ export const CONTRACT = [
   // agent K: stone wall / hedge (baked default look; src/art/arch.js)
   'fence_stone', 'hedge',
   // livestock (docs/LIVESTOCK.md, art/livestock.js): the feeder, wheat, the young, swimming fish, rope / bobber
-  'feeder', 'crop_wheat_0', 'wild_wheat_0', 'cow_baby_s', 'sheep_baby_s', 'pig_baby_s', 'chicken_baby_s', 'fish_top', 'fx_rope', 'fx_bobber', 'held_rod_wood',
+  'feeder', 'crop_wheat_0', 'wild_wheat_0', 'fish_top', 'fx_rope', 'fx_bobber', 'held_rod_wood',
 ];
 
 // agent K: building kinds whose art is painted lazily (art/lazyDefs.js, shared lazy texture) — never baked, never in the

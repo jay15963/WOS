@@ -160,8 +160,10 @@ Só o pão chega a 30 e a carne assada a 40; batata e milho viraram complemento.
   onde uma parte passa na frente de outra, e o contorno dos pintores. Por isso as diagonais são vistas reais, não o lado
   esticado.
 - Quadros: em pé, trote em 4 quadros (s / n: 2), pastando (e, se, ne); filhotes com 2 quadros. Segunda pelagem por tinta
-  (vaca marrom, ovelha preta rara, porco mais escuro, galinha marrom). ~160 sprites, ~1 s de pintura no desktop (o atlas
-  fica em cache).
+  (vaca marrom, ovelha preta rara, porco mais escuro, galinha marrom). ~160 sprites: só os 12 de pé dos adultos (e, s, n)
+  vão para o atlas; o resto é pintado sob demanda na textura preguiçosa (`lazyDef`, ~6 ms cada no desktop) e, até
+  ficar pronto, o quadro pintado mais perto aparece. Não usam o `beast34` dos outros bichos: o modelo 3D já dá a
+  vista diagonal verdadeira.
 - `art/livestockDraw.js`: escolhe a vista pelo `_dv` de `art/facing.js` (câmera girada) e, em 0°, pelo próprio
   movimento (um animal andando na diagonal aparece na vista 3/4); trote pela distância andada, balanço, respiração,
   pastar / bicar num horário compartilhado, comer no cocho (`action 'eat'`), piscar de golpe, sombra.

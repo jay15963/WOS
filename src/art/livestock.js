@@ -19,6 +19,7 @@
 // (wheat, seed_wheat, bread, fish_raw, fish_cooked, wool, feather, rod_wood), held_rod_wood, fx_rope, fx_bobber.
 
 import { spritePxFast as spritePx, rng, TAU, mixc, rgb, hex, lin, rad, circle, leaf, taper, SS } from './paint.js';
+import { lazyDef } from './lazyDefs.js';
 
 const OUTL = 'rgba(30,22,16,0.92)';
 const PHI = (18 * Math.PI) / 180;
@@ -503,31 +504,49 @@ function bounds(parts, yaw, phi) {
   }
   return [x0, x1, y0, y1];
 }
+// the sprite box of a model at a yaw: [W, H, hw (anchor x), top (anchor row)] — cheap (no painting)
+function boxOf(model, yaw, phi = PHI) {
+  const [x0, x1, y0, y1] = bounds(model[0], yaw, phi);
+  const hw = Math.ceil(Math.max(-x0, x1)) + 6, top = Math.ceil(-y0) + 6, bot = Math.ceil(Math.max(0, y1)) + 6;
+  return [hw * 2, top + bot, hw, top];
+}
 function modelSprite(model, yaw, phi = PHI) {
   const [parts, feats] = model;
-  const [x0, x1, y0, y1] = bounds(parts, yaw, phi);
-  const hw = Math.ceil(Math.max(-x0, x1)) + 6, top = Math.ceil(-y0) + 6, bot = Math.ceil(Math.max(0, y1)) + 6;
-  const W = hw * 2, H = top + bot;
+  const [W, H, hw, top] = boxOf(model, yaw, phi);
   const c = spritePx(W, H, (g, P) => P.layer((lg) => render(lg, P, parts, feats, yaw, hw, top, { phi }), 2.5, OUTL));
   return [c, top / H];
 }
 
 const MODELS = { cow: cowModel, sheep: sheepModel, pig: pigModel, chicken: chickenModel };
 
-export function addLivestock(add) {
-  for (const sp in MODELS) {
-    const M = MODELS[sp];
-    for (const baby of [false, true]) {
-      const base = sp + (baby ? '_baby' : '');
-      for (const v of ['e', 'se', 's', 'ne', 'n']) {
-        const name = base + '_' + v;
-        const [c, ay] = modelSprite(M({ baby, frame: 'stand' }), YAW[v]);
-        add(name, c, 0.5, ay);
-        const frames = baby || v === 's' || v === 'n' ? ['w0', 'w2'] : ['w0', 'w1', 'w2', 'w3'];
-        for (const f of frames) { const [cw, ayw] = modelSprite(M({ baby, frame: f }), YAW[v]); add(name + '_' + f, cw, 0.5, ayw); }
-        if (!baby && (v === 'e' || v === 'se' || v === 'ne')) { const [cg, ayg] = modelSprite(M({ baby, frame: 'stand', graze: true }), YAW[v]); add(name + '_graze', cg, 0.5, ayg); }
-      }
+// Baked in the game atlas (the contract: drawn at once, the fallbacks of everything else): each adult standing in its
+// three side views, the fish and the farm art. Everything else — the 3/4 views, the trot / graze frames and the young —
+// is painted on demand into the lazy texture (art/look/lazy.js, art/lazyDefs.js): the first boot after an art update
+// paints ~25 sprites here instead of ~160, and a frame not painted yet falls back to the standing art meanwhile
+// (art/livestockDraw.js).
+export const BAKED = (name) => /^(cow|sheep|pig|chicken)_(e|s|n)$/.test(name);
+export const STOCK_ART = []; // [name, species, baby, view, frame] of every livestock sprite (baked and lazy)
+for (const sp in MODELS) {
+  for (const baby of [false, true]) {
+    const base = sp + (baby ? '_baby' : '');
+    for (const v of ['e', 'se', 's', 'ne', 'n']) {
+      const frames = ['stand', ...(baby || v === 's' || v === 'n' ? ['w0', 'w2'] : ['w0', 'w1', 'w2', 'w3']), ...(!baby && (v === 'e' || v === 'se' || v === 'ne') ? ['graze'] : [])];
+      for (const f of frames) STOCK_ART.push([base + '_' + v + (f === 'stand' ? '' : '_' + f), sp, baby, v, f]);
     }
+  }
+}
+const modelOf = (sp, baby, f) => MODELS[sp]({ baby, frame: f === 'graze' ? 'stand' : f, graze: f === 'graze' });
+for (const [name, sp, baby, v, f] of STOCK_ART) {
+  if (BAKED(name)) continue;
+  const [, H, , top] = boxOf(modelOf(sp, baby, f), YAW[v]);
+  lazyDef(name, () => modelSprite(modelOf(sp, baby, f), YAW[v])[0], 0.5, top / H);
+}
+
+export function addLivestock(add) {
+  for (const [name, sp, baby, v, f] of STOCK_ART) {
+    if (!BAKED(name)) continue;
+    const [c, ay] = modelSprite(modelOf(sp, baby, f), YAW[v]);
+    add(name, c, 0.5, ay);
   }
   // fish: from above while swimming (3 tail frames), side / front / back for a jump
   for (let f = 0; f < 3; f++) { const [c] = modelSprite(fishModel({ frame: f }), 0, Math.PI / 2 - 0.001); add(f ? 'fish_top_' + f : 'fish_top', c, 0.5, 0.5); }

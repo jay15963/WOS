@@ -7,6 +7,7 @@
 
 import { viewB, animEnv } from './compose.js';
 import { viewFacing8 } from './facing.js';
+import { lookAtlasOf, LOOK_CLOCK } from './look/lazy.js';
 
 export const LIVESTOCK = new Set(['cow', 'sheep', 'pig', 'chicken']);
 const TAU = Math.PI * 2, HALF_PI = Math.PI / 2;
@@ -22,33 +23,36 @@ const GAIT = {
 const TINT = { cow: [0.86, 0.64, 0.46], sheep: [0.45, 0.4, 0.38], pig: [0.94, 0.78, 0.72], chicken: [0.86, 0.58, 0.36] };
 const NOTINT = [1, 1, 1];
 
+// sprites: the adults' standing side views are baked in the atlas; every other frame (3/4 views, trot, graze, the
+// young) is painted on demand into the lazy texture (art/look/lazy.js) — a frame not painted yet asks for it and the
+// nearest painted one is drawn meanwhile (the standing art of that view, the side view, the adult for the young)
 const CACHE = new WeakMap();
 function tables(A) {
   let T = CACHE.get(A);
   if (T) return T;
-  T = {};
   const opt = (n) => (A.has(n) ? A.get(n) : null);
-  for (const sp of LIVESTOCK) {
-    for (const baby of [0, 1]) {
-      const base = sp + (baby ? '_baby' : '');
-      const V = {};
-      for (const v of ['e', 'se', 's', 'ne', 'n']) {
-        const st = opt(base + '_' + v);
-        if (!st) continue;
-        const w = [0, 1, 2, 3].map((i) => opt(`${base}_${v}_w${i}`));
-        // 2-frame views alternate w0 / stand / w2 / stand
-        const walk = w[1] ? w : [w[0] || st, st, w[2] || st, st];
-        V[v] = { st, walk, graze: opt(base + '_' + v + '_graze') };
-      }
-      (T[sp] ||= [])[baby] = V;
-    }
-  }
-  T.blob = opt('fx_blob');
-  T.fish = [opt('fish_top'), opt('fish_top_1'), opt('fish_top_2')];
-  T.fishE = opt('fish_e');
+  T = { A, LA: lookAtlasOf(A), recs: new Map(), blob: opt('fx_blob'), fish: [opt('fish_top'), opt('fish_top_1'), opt('fish_top_2')], fishE: opt('fish_e') };
   CACHE.set(A, T);
   return T;
 }
+// a drawable sprite for `name` now, or null (a lazy one is requested and stamped as in use: never evicted while drawn)
+function sprite(T, name) {
+  let r = T.recs.get(name);
+  if (r === undefined) { r = T.A.has(name) ? T.A.get(name) : T.LA.has(name) ? T.LA.get(name) : null; T.recs.set(name, r); }
+  if (!r || r.ready === undefined) return r; // (baked sprites carry no `ready`)
+  r.lu = LOOK_CLOCK.f;
+  if (r.ready) return r;
+  T.LA.want(r);
+  return null;
+}
+// the frame wanted (base = <sp>[_baby]_<view>, suffix '', '_w0'…, '_graze') with its fallbacks
+function frame(T, sp, baby, view, suffix, dir) {
+  const base = sp + (baby ? '_baby' : '') + '_' + view;
+  return (suffix && sprite(T, base + suffix)) || sprite(T, base) || (baby && sprite(T, sp + '_' + view + suffix)) || sprite(T, sp + '_' + view)
+    || sprite(T, sp + '_' + (dir === 's' || dir === 'n' ? dir : 'e'));
+}
+const W2 = ['_w0', '', '_w2', '']; // (2-frame walks: s / n views and the young alternate with the standing art)
+const W4 = ['_w0', '_w1', '_w2', '_w3'];
 
 function seedOf(a) {
   if (a._seed != null) return a._seed;
@@ -70,8 +74,7 @@ export function isBaby(a) { return !!((a.variant | 0) & 2); }
 export function drawLivestock(B, A, a, t) {
   const T = tables(A);
   const sp = a.species;
-  const set = T[sp]?.[isBaby(a) ? 1 : 0] || T[sp]?.[0];
-  if (!set || !set.e) return false;
+  if (!sprite(T, sp + '_e')) return false;
   B = viewB(B, a.x, a.y); // (camera turned: screen-space offsets around the body → world)
   // the view: a 3/4 view from art/facing.js (camera turned: set by game.js; at 0°: from its own motion here)
   let dv = a.dead ? null : a._dv, dir = a.facing || 'e';
@@ -80,26 +83,25 @@ export function drawLivestock(B, A, a, t) {
   if (dv) { view = dv[0] === 's' ? 'se' : 'ne'; flip = dv[1] === 'w' ? -1 : 1; }
   else if (dir === 'e' || dir === 'w') { view = 'e'; flip = dir === 'w' ? -1 : 1; }
   else view = dir;
-  const V = set[view] || set.e;
+  const baby = isBaby(a);
   const G = GAIT[sp] || GAIT.cow;
   const sc = a.scale || 1, fl = a.flash || 0;
-  const tint = (a.variant | 0) & 1 && !isBaby(a) ? TINT[sp] || NOTINT : NOTINT;
+  const tint = (a.variant | 0) & 1 && !baby ? TINT[sp] || NOTINT : NOTINT;
   const ph0 = seedOf(a) * TAU;
   if (a.dead) {
     // topple onto the side (the body on the ground takes over: corpses.js)
     const u = clamp01((a.deadT || 0) * 2.6), k = u * u * (3 - 2 * u);
-    const s = set.e.st;
+    const s = sprite(T, sp + '_e');
     if (T.blob) B.blob.add(T.blob, a.x, a.y, s.w * 0.7 * sc, 0.6 * sc, 1, 1, 1, 0.5);
     B.main.add(s, a.x - flip * s.h * s.ay * 0.4 * sc * k, a.y + 0.05 * k, sc, sc, tint[0] * 0.85, tint[1] * 0.82, tint[2] * 0.8, 1, 0, flip * HALF_PI * k, fl, flip, 0, 0);
     return true;
   }
-  let spr = V.st, lift = 0, sx = 1, sy = 1, rot = 0, ox = 0, oy = 0;
-  const baby = isBaby(a);
+  let suffix = '', lift = 0, sx = 1, sy = 1, rot = 0, ox = 0, oy = 0;
   const f = G.f * (baby ? 1.3 : 1);
   if (a.moving) {
     const ph = (a.moveT || 0) * f + ph0;
     const u = ((ph / TAU) % 1 + 1) % 1;
-    spr = V.walk[(u * 4) | 0] || V.st;
+    suffix = (baby || view === 's' || view === 'n' ? W2 : W4)[(u * 4) | 0];
     lift = G.bob * (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI)) * (baby ? 1.4 : 1);
     rot = flip * Math.sin(2 * ph) * G.rock * (view === 's' || view === 'n' ? 1.2 : 0.5);
   } else {
@@ -111,17 +113,22 @@ export function drawLivestock(B, A, a, t) {
     const sd = seedOf(a), P = G.peck ? 2.4 + sd * 1.5 : 7 + sd * 5;
     const k = ((animEnv.wt + sd * 37) / P) % 1;
     const graze = eating || (a.state !== 'flee' && a.state !== 'chase' && !a.tiedTo && k < (G.peck ? 0.35 : 0.45));
-    if (graze) {
-      if (V.graze) { spr = V.graze; sy *= 1 - 0.015 * Math.abs(Math.sin(t * (G.peck ? 16 : 6.5) + ph0)); }
-      else { sy *= 0.95; oy += view === 's' ? 0.02 : -0.02; }
-    } else if (k > 0.86 && k < 0.89) { rot += flip * Math.sin(t * 60) * 0.018; } // skin twitch / ruffle
+    if (graze && !baby && (view === 'e' || view === 'se' || view === 'ne')) { suffix = '_graze'; sy *= 1 - 0.015 * Math.abs(Math.sin(t * (G.peck ? 16 : 6.5) + ph0)); }
+    else if (graze) { sy *= 0.95; oy += view === 's' ? 0.02 : -0.02; }
+    else if (k > 0.86 && k < 0.89) { rot += flip * Math.sin(t * 60) * 0.018; } // skin twitch / ruffle
   }
+  const spr = frame(T, sp, baby, view, suffix, dir);
+  if (!spr) return true;
+  // (a young one drawn with the adult art until its own is painted: smaller)
+  const ks = baby && !spr.name?.includes('_baby') ? 0.8 : 1;
   if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.05 * fl; } // hit flinch
-  const x = a.x + ox, y = a.y + oy;
+  const x = a.x + ox, y = a.y + oy, s2 = sc * ks;
   const bw = view === 's' || view === 'n' ? spr.w * 0.6 : spr.w * 0.62;
-  if (T.blob) B.blob.add(T.blob, a.x, a.y, bw * sc * (1 - lift), 0.5 * sc * (1 - lift), 1, 1, 1, 0.7);
-  B.main.add(spr, x, y, sc * sx, sc * sy, tint[0], tint[1], tint[2], 1, 0, rot, fl, flip, 0, lift);
-  B.shadow.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
+  if (T.blob) B.blob.add(T.blob, a.x, a.y, bw * s2 * (1 - lift), 0.5 * s2 * (1 - lift), 1, 1, 1, 0.7);
+  B.main.add(spr, x, y, s2 * sx, s2 * sy, tint[0], tint[1], tint[2], 1, 0, rot, fl, flip, 0, lift);
+  B.shadow.add(spr, x, y, s2 * sx, s2 * sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
+  // the frames of this view nearby in time (the walk, grazing) right after: they share the model
+  if (!T.recs.has('_pre_' + sp + baby + view)) { T.recs.set('_pre_' + sp + baby + view, null); for (const q of [...W4, '_graze']) sprite(T, sp + (baby ? '_baby' : '') + '_' + view + q); }
   return true;
 }
 
