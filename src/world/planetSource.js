@@ -179,7 +179,7 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}, planet = null) {
     cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
     flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights, objects, decor: dec,
     wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground,
-    zone: planet ? zonesOf(m, planet, p, cx, cy) : null, pbiome: p.biome,
+    zone: planet ? zonesOf(m, planet, p, cx, cy) : null, pbiome: p.biome, // (pbiome: the fauna's spawn tables, camps / herds)
   };
 }
 

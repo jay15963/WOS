@@ -42,7 +42,7 @@ export function stageOf(game, c) {
 }
 export const corpseById = (game, id) => game.corpses?.map.get(id) || null;
 export const isPawnCorpse = (c) => c.of === 'pawn';
-export const sizeOf = (c) => SIZE_OF[c.of] || 'm';
+export const sizeOf = (c) => SIZE_OF[c.of] || SPECIES[c.of]?.size || 'm'; // (wild fauna: content/fauna.js size)
 export const bonesOf = (c) => (c.of === 'spider' ? 0 : BONES[sizeOf(c)] || 1);
 const near = (e, c, r = REACH) => !e || Math.hypot(e.x - c.x, e.y - c.y) <= r;
 

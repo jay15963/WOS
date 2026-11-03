@@ -81,7 +81,7 @@ export class World {
     // season zone per tile (docs/PLANET.md §5, game/seasons.js): bits 0-2 the zone (0 tropical · 1 warm · 2 temperate ·
     // 3 subpolar · 4 polar — the planet's climate at that tile, altitude included), bit 3 (ABYSS) the abyssal ocean (water
     // class 3: no boat goes there). A bounded / synthetic world: temperate everywhere. pbiome: the planet's own biome id
-    // (planet/biomes.js BIOME, 255 = none) — per-biome spawns (camps, herds, fish, the fauna tables)
+    // (planet/biomes.js BIOME, 255 = none) — per-biome spawns (the wild fauna's tables, docs/FAUNA.md; camps)
     L('zone', Uint8Array, 2); L('pbiome', Uint8Array, 255);
     this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.zone, this.pbiome];
     // frozen water by season zone (game/seasons.js writes it every frame from the shared clock, the same on every peer):
@@ -149,7 +149,6 @@ export class World {
     const zn = d.zone instanceof Uint8Array && d.zone.length === CT ? d.zone : new Uint8Array(CT).fill(2);
     { const Wt = d.water; for (let l = 0; l < CT; l++) if (Wt[l] > 2) { Wt[l] = 2; zn[l] |= ABYSS; } }
     this.zone.attach(c, zn);
-    this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
     this.rock0.attach(c, d.rock); this.rock.attach(c, d.rock.slice());
     this.roof0.attach(c, d.roof); this.roof.attach(c, d.roof.slice());
     for (const k of SRC_U8) this[k].attach(c, d[k]);
@@ -159,6 +158,7 @@ export class World {
     this.hBase.attach(c, hb); this.hT.attach(c, hb.slice()); this.hC.attach(c, hb.slice());
     this.wlevel.attach(c, d.wlevel instanceof Float32Array && d.wlevel.length === CT ? d.wlevel : new Float32Array(CT));
     this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
+    this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
     r.ready = true; r.decor = !!d.decor;
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }

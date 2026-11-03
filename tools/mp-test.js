@@ -5413,6 +5413,117 @@ def('P7', {
 });
 
 // =====================================================================================================
+// FA · wild fauna of the planet's biomes (docs/FAUNA.md): host brains (game/fauna.js), proxies on the guest
+// a wild animal on its own spawner at a free spot near (x, y) on the host (+ n more of its group on the same spawner)
+async function faunaGroup(H, MH, species, x, y, n = 0) {
+  const MO = await fimp(H, 'game/mobs.js');
+  const s0 = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 3, r: 0.5 }) || [x, y];
+  const a = MO.spawnLoose(H.game, species, s0[0], s0[1]), out = [a];
+  for (let k = 0; k < n; k++) out.push(MO.spawnMember(H.game, a.spawner));
+  return out;
+}
+const killQuiet = async (H, list) => { const MC = await fimp(H, 'game/combat.js'); for (const e of list) if (!e.dead) { e.noCorpse = true; MC.killMob(H.game, e, null); } };
+
+def('FA1', {
+  title: 'FA: a jaguar stalks and pounces on the guest; creative mode keeps it off', timeout: 120000,
+  expected: 'A jaguar (wild fauna, hostile stalker) ~7 tiles from the guest sees it and chases it on the host: creeping while far (speedK < 1), the pounce close in (speedK > 1); the guest gets its proxy (species jaguar, "Onça-pintada", the chase at the guest); its bites reduce the guest HP (the owner applies them); called off and put next to the guest in creative mode it never starts a chase; killed, its body (corpse of a jaguar) appears on both; digest equal',
+  api: 'game/fauna.js walkBrain (stalk → m.speedK) → ai.js updateCreature chase / bite → players.hurtPlayer; ai.aggro creative guard; content/fauna.js FAUNA_SPECIES; net/entities.js; combat.killMob → corpse.add',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.keepAlive(t, G);
+  const gp = G.game.player, av = () => guestOnHost(H, G);
+  let spot = null;
+  for (let k = 0; k < 12 && !spot; k++) {
+    const a = (k / 12) * Math.PI * 2, q = A.freeSpot(H, MH, gp.x + Math.cos(a) * 7, gp.y + Math.sin(a) * 7, { rMin: 0, rMax: 1, r: 0.45 });
+    if (q && A.clearLine(H, MH, q[0], q[1], gp.x, gp.y, 0.35)) spot = q;
+  }
+  t.assert(spot, 'an open spot 7 tiles from the guest');
+  const [m] = await faunaGroup(H, MH, 'jaguar', spot[0], spot[1]);
+  const made = [m];
+  t.defer(() => killQuiet(H, made));
+  t.defer(() => { H.game.creative = false; });
+  t.check(m.fauna && typeof m.brain === 'function', 'the jaguar runs the fauna brain (setupFauna)');
+  let creep = false, pounce = false;
+  const w = t.watch(() => { if (m.state === 'chase') { if (m.speedK < 1 && Math.hypot(m.x - gp.x, m.y - gp.y) > 4.5) creep = true; if (m.speedK > 1) pounce = true; } }, 16);
+  const dmgG = [];
+  t.on(G, 'damage', (d) => { if (d.target === gp && d.amount > 0) dmgG.push(d.amount); });
+  m.calmT = 0; m.thinkT = 0;
+  await t.waitFor(() => m.state === 'chase' && (m.threat === av() || m.threat?.pid === G.pid), 8000, 'host: the jaguar chases the guest', () => `state=${m.state} d=${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`);
+  const pr = await t.waitFor(() => A.proxyOf(G, m), 1500, 'its proxy on the guest');
+  t.check(pr.species === 'jaguar' && pr.name === 'Onça-pintada', 'guest proxy: species jaguar, "Onça-pintada"', `${pr.species} "${pr.name}" L${pr.level}`);
+  await t.tryWait(() => pr.state === 'chase' && pr.threat === gp, ONEWAY() + 800);
+  t.check(pr.state === 'chase' && pr.threat === gp, 'the guest sees the chase at itself', `state=${pr.state}`);
+  await t.tryWait(() => dmgG.length > 0, 10000);
+  w.stop();
+  t.check(dmgG.length > 0, "its bites reduce the guest's HP (applied by the owner)", `${dmgG.length} bites: ${dmgG.join(', ')}`);
+  t.check(creep, 'it crept in while far (speedK < 1)');
+  t.check(pounce, 'and pounced close in (speedK > 1)');
+  // creative: called off, put right next to the guest — no chase
+  H.game.creative = true;
+  m.state = 'idle'; m.threat = null; m.calmT = 0; m.stateT = 5; m.action = null;
+  const s2 = A.freeSpot(H, MH, gp.x + 2, gp.y, { rMin: 0, rMax: 2, r: 0.45 }) || [gp.x + 2, gp.y];
+  m.x = s2[0]; m.y = s2[1];
+  const chased = await t.tryWait(() => m.state === 'chase', 3000);
+  t.check(!chased, 'in creative mode it never starts a chase at the guest', `state=${m.state}`);
+  H.game.creative = false;
+  // killed: its body on both
+  const MC = await fimp(H, 'game/combat.js');
+  MC.killMob(H.game, m, null);
+  const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((o) => o.of === 'jaguar' && Math.hypot(o.x - m.x, o.y - m.y) < 1.5), RT() + 800, 'its body on the host');
+  await t.waitFor(() => bodyOn(G, c.id)?.of === 'jaguar', ONEWAY() + 800, 'its body on the guest');
+  await t.checkDigest(H, G);
+});
+
+def('FA2', {
+  title: 'FA: a zebra herd runs off together and a gull flock takes off, the same on the guest', timeout: 120000,
+  expected: 'Five zebras of one herd (one spawner) near the guest: the guest walks at them; the one it nears flees and the whole herd runs with it (all five in flee on the host within 1.5 s of the first); on the guest the five proxies run away (each ≥ 3 tiles further from the guest than when it started). Three gulls perched near the guest (fmode 0 on both): the guest walks up, the flock takes off together (fmode flying on the host) and the flying bit reaches the guest proxies; digest equal',
+  api: 'game/fauna.js walkBrain herdFlee (ai.startFlee on the herd) · birdBrain takeOff (flock) → m.fmode; net/entities.js dyn[13] fmode << 4 → proxy e.fmode',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.keepAlive(t, G);
+  const gp = G.game.player;
+  // an open field: the herd 9 tiles from the guest along a clear line
+  let dir = null;
+  for (let k = 0; k < 16 && !dir; k++) {
+    const a = (k / 16) * Math.PI * 2, x = gp.x + Math.cos(a) * 9, y = gp.y + Math.sin(a) * 9;
+    if (A.clearLine(G, MG, gp.x, gp.y, x, y, 0.4) && A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 1, r: 0.5 })) dir = [Math.cos(a), Math.sin(a)];
+  }
+  t.assert(dir, 'an open line 9 tiles long from the guest');
+  const herd = await faunaGroup(H, MH, 'zebra', gp.x + dir[0] * 9, gp.y + dir[1] * 9, 4);
+  const made = [...herd];
+  t.defer(() => killQuiet(H, made));
+  for (const m of herd) { m.state = 'idle'; m.stateT = 60; }
+  await t.waitFor(() => herd.every((m) => A.proxyOf(G, m)), 3000 + CFG.budget, 'the five zebras on the guest');
+  const rel = A.holdMove(G, dir[0] * 0.8, dir[1] * 0.8);
+  let first = null;
+  await t.waitFor(() => { const f = herd.find((m) => m.state === 'flee'); if (f && !first) first = now(); return !!f; }, 9000, 'host: a zebra runs from the guest', () => herd.map((m) => `${m.state} ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`).join(' / '));
+  rel();
+  const d0 = herd.map((m) => { const q = A.proxyOf(G, m); return Math.hypot(q.x - gp.x, q.y - gp.y); });
+  const all = await t.tryWait(() => herd.every((m) => m.state === 'flee' || m.dead), 1500);
+  t.check(all, 'the whole herd runs with it (all five flee on the host)', herd.map((m) => m.state).join('/'));
+  await t.sleep(3000);
+  const d1 = herd.map((m) => { const q = A.proxyOf(G, m); return q ? Math.hypot(q.x - gp.x, q.y - gp.y) : 0; });
+  t.check(d1.every((d, i) => d >= d0[i] + 3), 'on the guest the five run away (each ≥ 3 tiles further)', d0.map((d, i) => `${f2(d)}→${f2(d1[i])}`).join(' '));
+  // a gull flock perched near the guest takes off together
+  let gs = null;
+  for (let k = 0; k < 16 && !gs; k++) {
+    const a = (k / 16) * Math.PI * 2, x = gp.x + Math.cos(a) * 8, y = gp.y + Math.sin(a) * 8;
+    if (A.clearLine(G, MG, gp.x, gp.y, x, y, 0.4)) gs = [x, y, Math.cos(a), Math.sin(a)];
+  }
+  t.assert(gs, 'an open line for the gulls');
+  const gulls = await faunaGroup(H, MH, 'seagull', gs[0], gs[1], 2);
+  made.push(...gulls);
+  for (const m of gulls) { m.state = 'perch'; m.stateT = 60; m.fmode = 0; }
+  await t.waitFor(() => gulls.every((m) => A.proxyOf(G, m)), 3000 + CFG.budget, 'the gulls on the guest');
+  t.check(gulls.every((m) => !(A.proxyOf(G, m).fmode & 1)), 'perched (not flying) on the guest', gulls.map((m) => A.proxyOf(G, m).fmode).join('/'));
+  const rel2 = A.holdMove(G, gs[2] * 0.8, gs[3] * 0.8);
+  await t.waitFor(() => gulls.every((m) => m.fmode & 1), 9000, 'host: the flock takes off together', () => gulls.map((m) => `${m.state}/${m.fmode} ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`).join(' · '));
+  rel2();
+  await t.waitFor(() => gulls.every((m) => A.proxyOf(G, m)?.fmode & 1), ONEWAY() + 800, 'the guest sees them flying (fmode)');
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // ST1 Streamed planet (docs/STREAMING.md): a synthetic-planet host, a guest that generates the same chunks locally
 def('ST1', {
   title: 'ST: streamed planet — guest generates the chunks, ops on far chunks, the seam', timeout: 180000,

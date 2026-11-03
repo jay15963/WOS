@@ -1,5 +1,6 @@
 // Combat: creatures, abilities, buffs  (pure data, no DOM). All user-facing strings in Brazilian Portuguese.
 // See docs/CONTENT.md for the canonical ids. Weapon/armor numbers live in ./weapons.js.
+import { FAUNA_SPECIES } from './fauna.js'; // wild fauna of the planet's biomes (docs/FAUNA.md)
 
 // temper: hostile (red, aggroes), neutral (yellow, fights back), passive (green, flees)
 // loot rows: [item, min, max, chance, flag?]  flag 'skin' = needs a knife (leather), skipped otherwise.
@@ -46,6 +47,7 @@ export const SPECIES = {
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },
+  ...FAUNA_SPECIES,
 };
 
 // Ability catalog. range: 'melee' (weapon reach) | [min, max] tiles | 0 (self / area around)

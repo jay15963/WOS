@@ -26,6 +26,8 @@ import { BUILDINGS } from './data.js';
 import { ITEMS } from './content/items.js';
 import { walkersTick } from './walkers.js';
 import { createStockSpawners, setupMember } from './livestock.js'; // farm herds and fish (docs/LIVESTOCK.md)
+import { setupFauna } from './fauna.js'; // wild fauna of the planet's biomes (docs/FAUNA.md)
+import { chunkFauna } from './faunaSpawn.js';
 
 const SLEEP = 40;
 // creature ids from the authority: nid 'm<base36>' for the network, numeric id for the art (gait phase)
@@ -155,6 +157,12 @@ function planetSpawners(game) {
   const w = game.world;
   const make = (c) => {
     if (game.world !== w) return;
+    // the real planet: its biome tables (docs/FAUNA.md) instead of the classic surroundings rule — the creatures that
+    // belong there, the old ones included
+    if (w.source?.kind === 'planet') {
+      for (const s of chunkFauna(game, c, { levelFor: levelForDistance, whenOf: (sp) => ACTIVE[sp] })) { s.id = game._spawnerId = (game._spawnerId || 1000) + 1; s.chunk = c; game.spawners.push(s); }
+      return;
+    }
     const rand = mulberry32(((w.seed | 0) * 31 + 7) ^ Math.imul(c + 1, 0x9e3779b1));
     const have = {};
     for (const k in CHUNK_QUOTA) have[k] = 0;
@@ -212,6 +220,7 @@ export function spawnMember(game, s) {
   };
   if (s.cave) m.cave = true;
   if (s.stock || s.fish) setupMember(game, m, s); // (farm animals and fish: their own brain, livestock.js)
+  else if (sp.fauna) setupFauna(game, m, s); // (wild fauna: their own habits, fauna.js)
   s.members.push(m);
   game.entities.push(m); // host-only creature list (guests get proxies from net/entities.js)
   return m;
@@ -307,7 +316,7 @@ export function mobsSystem() {
         for (let j = i + 1; j < awake.length; j++) {
           const b = awake[j];
           if (a.lv || b.lv || a.z > 0 || b.z > 0) continue; // levels: separation on the ground only
-          if (a.water || b.water) continue; // (fish swim through each other)
+          if (a.water || b.water || a.noPush || b.noPush) continue; // (fish swim through each other; fliers / swimmers: fauna.js)
           const dx = b.x - a.x, dy = b.y - a.y, rr = (a.r + b.r) * 0.9;
           if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
           const dd = Math.hypot(dx, dy);
