@@ -27,8 +27,8 @@ const DECOR_OK = new Set(['grass', 'tallgrass', 'flower', 'reed', 'mushroom', 'f
 let PM = null; // the planet modules
 async function mods() {
   if (PM) return PM;
-  const [idx, bio, ren] = await Promise.all([import('./planet/index.js'), import('./planet/biomes.js'), import('./planet/render.js').catch(() => null)]);
-  return (PM = { ...idx, GROUND_CLASSIC: bio.GROUND_CLASSIC, ROCK_CLASSIC: bio.ROCK_CLASSIC, BIOME_LIST: bio.BIOME_LIST, renderMacro: ren?.renderMacro });
+  const [idx, bio, ren, spw] = await Promise.all([import('./planet/index.js'), import('./planet/biomes.js'), import('./planet/render.js').catch(() => null), import('./planet/spawn.js')]);
+  return (PM = { ...idx, GROUND_CLASSIC: bio.GROUND_CLASSIC, ROCK_CLASSIC: bio.ROCK_CLASSIC, BIOME_LIST: bio.BIOME_LIST, renderMacro: ren?.renderMacro, spawnScores: spw.spawnScores });
 }
 
 // the chunk generator of a worker (chunkWorker.js): init = { kind: 'planet', seed, planet }
@@ -50,15 +50,8 @@ export async function makePlanetSource(seed, opts = {}) {
     // the start of a world is temperate (the four seasons, game/seasons.js): findSpawn scores macro cells, the zone of the
     // spot itself (climate interpolated + its altitude) may fall on the warm / subpolar side of a border — the next
     // best spots then (each ~70 ms)
-    let sp = null;
-    for (let k = 0; k < 6; k++) {
-      const q = m.findSpawn(planet, k);
-      if (!q) break;
-      if (!sp) sp = q;
-      const c = climatePoint(m, planet, q.x, q.y, 0, {});
-      if (c.zone === 2) { sp = q; break; }
-    }
-    spawn = sp ? { x: sp.x, y: sp.y } : { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
+    const sp = m.findSpawn(planet);
+    spawn = (sp ? temperateSpawn(m, planet, sp) : anySpawn(m, planet)) || { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
   }
   const src = {
     kind: 'planet', seed, wrap: true, bounds: null, zones: [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }], spawn,
@@ -79,6 +72,61 @@ export async function makePlanetSource(seed, opts = {}) {
   };
   console.info(`[planet] seed ${seed}: planet ${src.timings.planet} ms, spawn ${spawn.x.toFixed(1)}, ${spawn.y.toFixed(1)}`);
   return src;
+}
+
+// The start of a world is temperate (the four seasons, game/seasons.js). findSpawn scores macro cells by their own
+// climate; the climate of a tile is interpolated between cells (+ its altitude), so the spot it picks may fall on the
+// warm / subpolar side of a zone border. Then: the good cells around it (findSpawn's own scores) nearest first, a dry
+// flat tile of temperate zone in the chunk of the first one that has it, near a river (5..12 tiles) like findSpawn.
+function temperateSpawn(m, planet, sp) {
+  const T = {};
+  if (climatePoint(m, planet, sp.x, sp.y, 0, T).zone === 2) return { x: sp.x, y: sp.y };
+  const score = planet._spawnScore || (planet._spawnScore = m.spawnScores(planet)), MW = m.MW, MH = m.MH, CELL = m.CELL;
+  const c0 = sp.cell ?? (Math.floor(sp.y / CELL) * MW + Math.floor(sp.x / CELL)), x0 = c0 % MW, y0 = Math.floor(c0 / MW), cand = [];
+  for (let dy = -14; dy <= 14; dy++) for (let dx = -14; dx <= 14; dx++) {
+    const y = y0 + dy;
+    if (y < 0 || y >= MH) continue;
+    const c = y * MW + (((x0 + dx) % MW) + MW) % MW;
+    if (score[c] > -1e8) cand.push([dx * dx + dy * dy - score[c], c]);
+  }
+  cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return pickTemperate(m, planet, cand.slice(0, 24).map((q) => q[1])) || { x: sp.x, y: sp.y };
+}
+// no spot from findSpawn (a planet without a good river cell): the land cells of temperate climate, flattest and
+// mildest first
+function anySpawn(m, planet) {
+  const P = planet, cand = [];
+  for (let c = 0; c < P.tMean.length; c++) {
+    if (P.ocean[c] || P.lakeId[c] || P.water[c] || m.seasonZoneOf(P.tMean[c], P.tAmp[c]) !== 2) continue;
+    cand.push([Math.abs(P.tMean[c] - 11) * 0.5 + P.relief[c] * 10 + Math.abs(P.precip[c] - 900) / 300, c]);
+  }
+  cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return pickTemperate(m, planet, cand.slice(0, 24).map((q) => q[1]));
+}
+// a dry flat temperate tile near a river in the chunk of the first of these macro cells that has one (null: none)
+function pickTemperate(m, planet, cells) {
+  const T = {}, MW = m.MW, CELL = m.CELL;
+  for (const c of cells) {
+    const tx = (c % MW) * CELL + CELL / 2, ty = Math.floor(c / MW) * CELL + CELL / 2;
+    if (climatePoint(m, planet, tx, ty, 0, T).zone !== 2) continue;
+    const cx = Math.floor(tx / CS), cy = Math.floor(ty / CS), ch = m.generateChunk(planet, cx, cy, { decor: false });
+    const riv = [];
+    for (let i = 0; i < CT; i++) if (ch.water[i] && (ch.flowX[i] || ch.flowY[i])) riv.push(i);
+    let best = null, bs = -1e9;
+    for (let y = 4; y < CS - 4; y += 2) for (let x = 4; x < CS - 4; x += 2) {
+      const i = y * CS + x, N1 = CS + 1;
+      if (ch.water[i] || ch.rock[i]) continue;
+      const h0 = ch.height[y * N1 + x];
+      if (Math.abs(ch.height[y * N1 + x + 1] - h0) > 0.3 || Math.abs(ch.height[(y + 1) * N1 + x] - h0) > 0.3) continue;
+      if (climatePoint(m, planet, cx * CS + x + 0.5, cy * CS + y + 0.5, h0, T).zone !== 2) continue;
+      let dr = 99;
+      for (const r of riv) { const ax = (r % CS) - x, ay = ((r / CS) | 0) - y, d = Math.sqrt(ax * ax + ay * ay); if (d < dr) dr = d; }
+      const s = -Math.abs(Math.min(dr, 30) - 8) - Math.hypot(x - CS / 2, y - CS / 2) * 0.05 + (ch.fertile[i] ? 1 : 0);
+      if (s > bs) { bs = s; best = { x: cx * CS + x + 0.5, y: cy * CS + y + 0.5 }; }
+    }
+    if (best) return best;
+  }
+  return null;
 }
 
 // generatePlanet in a module worker (~2 s off the main thread: the graphics keep loading); null without workers

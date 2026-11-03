@@ -2,6 +2,13 @@
 // installCamps(game): DETERMINISTIC camp layout (tents, crates, campfire, banner, cleared area), run on
 // every client right after the world exists and before any save / snapshot, from the pristine world only
 // (seeded rngs, ids 'camp<i>:<k>'). Raiders (bandits.js populateCamps) are host-only creatures.
+// The planet (docs/STREAMING.md): camps are made PER CHUNK, on every peer, when a chunk loads (planetCampSpot: at
+// most one per 3 × 3 block of chunks, a seeded spot in the chunk that holds it, kept if the pristine ground there is
+// open, gentle dry land — not the ocean, ice, polar land, swamps, beaches, cliffs — ≥ 60 tiles from the world spawn);
+// ids 'camp<chunk>:<k>'; the layout does not mark the chunk changed (it comes back identical), so it leaves with the
+// chunk and is rebuilt when the chunk loads again; its raiders come and go with it (host, bandits.js).
+// Crate state lives in game.campState (id → [hp, broken, brokenAt], non-default only) — known on every peer whether
+// the crate's chunk is loaded or not (op prop.set, snapshot / save rows), applied to the crate when its camp is built.
 // Op: prop.set (crate hp / broken / restored). Intent: prop.hit.
 
 import { defineIntent, defineOp } from '../../net/registry.js';
@@ -25,6 +32,56 @@ function openSpot(game, x, y, R) {
   }
   w.forChunks(x - R, y - R, x + R, y + R, (c) => { for (const o of c.objects) if (o.type.startsWith('tree_') && Math.hypot(o.x - x, o.y - y) < R) trees++; });
   return trees <= 9;
+}
+
+// ---------- the planet: one camp at most per 3 × 3 block of chunks ----------
+const BLOCK = 3, CAMP_P = 0.8;
+// planet biomes (world/planet/biomes.js BIOME_KEYS) where no camp stands
+const NO_CAMP = new Set(['abyss', 'ocean', 'shallows', 'reef', 'sea_ice', 'lake', 'salt_lake', 'lagoon', 'river', 'ice_sheet', 'polar_desert',
+  'snow_peaks', 'mangrove', 'swamp', 'marsh', 'beach', 'cliff', 'salt_flat', 'volcanic']);
+const hashU = (seed, a, b, k) => {
+  let h = Math.imul((seed | 0) ^ 0x2545f491, 0x9e3779b1) ^ Math.imul(a | 0, 0x85ebca6b) ^ Math.imul(b | 0, 0xc2b2ae35) ^ Math.imul(k | 0, 0x27d4eb2f);
+  h = Math.imul(h ^ (h >>> 16), 0x7feb352d); h = Math.imul(h ^ (h >>> 15), 0x846ca68b); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+};
+// the candidate of block (bx, by): its chunk and spot (tile), from hashes only (no terrain: neighbouring blocks are
+// compared without their chunks)
+function blockCand(seed, bx, by) {
+  if (hashU(seed, bx, by, 1) > CAMP_P) return null;
+  const cx = bx * BLOCK + Math.floor(hashU(seed, bx, by, 2) * BLOCK), cy = by * BLOCK + Math.floor(hashU(seed, bx, by, 3) * BLOCK);
+  return { cx, cy, x: cx * 64 + 10 + Math.floor(hashU(seed, bx, by, 4) * 44), y: cy * 64 + 10 + Math.floor(hashU(seed, bx, by, 5) * 44), pr: hashU(seed, bx, by, 6) };
+}
+// the camp spot of chunk c on a planet, or null (deterministic: the seed and the pristine chunk only)
+export function planetCampSpot(game, c) {
+  const w = game.world, seed = w.seed | 0;
+  const cx = c & 255, cy = c >>> 8, NB = Math.floor(256 / BLOCK), bx = Math.floor(cx / BLOCK), by = Math.floor(cy / BLOCK);
+  if (cy < 4 || cy > 123 || bx >= NB) return null; // (never at the poles' edge; the last odd column of blocks: none)
+  const k = blockCand(seed, bx, by);
+  if (!k || k.cx !== cx || k.cy !== cy) return null;
+  // the neighbouring blocks' candidates: the lower priority gives way when two are close
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    if (!dx && !dy) continue;
+    const o = blockCand(seed, (((bx + dx) % NB) + NB) % NB, by + dy);
+    if (o && o.pr < k.pr && Math.hypot(w.dx(o.x, k.x), o.y - k.y) < 90) return null;
+  }
+  if (Math.hypot(w.dx(k.x + 0.5, w.spawn.x), k.y + 0.5 - w.spawn.y) < CAMP_MIN_D) return null;
+  const keys = w.source?.biomeKeys || null;
+  // the spot, or a few seeded alternatives in the same chunk (always ≥ 10 tiles inside it: only its own tiles are read)
+  for (let t = 0; t < 8; t++) {
+    const x = t ? cx * 64 + 10 + Math.floor(hashU(seed, c, t, 7) * 44) : k.x, y = t ? cy * 64 + 10 + Math.floor(hashU(seed, c, t, 8) * 44) : k.y;
+    const i = w.idx(x, y);
+    if ((w.zone.get(i) & 7) === 4 || (keys && NO_CAMP.has(keys[w.pbiome.get(i)]))) continue;
+    if (!flatAround(w, x, y, 6)) continue;
+    if (!openSpot(game, x + 0.5, y + 0.5, 5)) continue;
+    return { x: x + 0.5, y: y + 0.5, r: 6, c };
+  }
+  return null;
+}
+// gentle ground around (x, y): the generated corner heights (hBase) within R vary by less than 1.2 stories
+function flatAround(w, x, y, R) {
+  let lo = 1e9, hi = -1e9;
+  for (let dy = -R; dy <= R + 1; dy += 2) for (let dx = -R; dx <= R + 1; dx += 2) { const h = w.hBase.get(w.idx(x + dx, y + dy)); if (h < lo) lo = h; if (h > hi) hi = h; }
+  return hi - lo < 1.2;
 }
 
 export function findCampSpots(game) {
@@ -56,7 +113,7 @@ export function findCampSpots(game) {
   return out;
 }
 
-function clearArea(game, x, y, R) {
+function clearArea(game, x, y, R, tag = null) {
   const w = game.world;
   const kill = [];
   w.forChunks(x - R - 1, y - R - 1, x + R + 1, y + R + 1, (c) => {
@@ -67,7 +124,7 @@ function clearArea(game, x, y, R) {
     }
     if (c.decor) c.decor = c.decor.filter((d) => d.t === 'grass' || Math.hypot(d.x - x, d.y - y) > R - 0.5);
   });
-  for (const o of kill) { occRemove(game, o); w.removeObject(o); o.gone = true; }
+  for (const o of kill) { occRemove(game, o); w.removeObject(o); o.gone = true; if (tag) tag.push(o); }
 }
 
 function addCampObject(game, camp, o) {
@@ -90,11 +147,14 @@ function makeCrate(game, camp, x, y) {
   game.props.push(o);
   game.propsById.set(o.id, o);
   camp.crates.push(o);
+  // its shared state (broken / hit while this peer had the chunk unloaded, or from a save / snapshot)
+  const st = game.campState?.get(o.id);
+  if (st) { if (st[1]) setPropBroken(game, o, true, st[2]); else o.hp = st[0]; }
   return o;
 }
 
 function buildCamp(game, spot, id, tier, rand) {
-  const camp = { id: 'camp' + id, x: spot.x, y: spot.y, r: spot.r, tier, objects: [], crates: [], members: [], rand };
+  const camp = { id: 'camp' + id, x: spot.x, y: spot.y, r: spot.r, tier, objects: [], crates: [], members: [], rand, chunk: spot.c ?? null };
   if (!spot.zone) clearArea(game, spot.x, spot.y, 4.6);
   const cx = spot.x, cy = spot.y;
   addCampObject(game, camp, {
@@ -120,6 +180,8 @@ export function installCamps(game) {
   game.camps = [];
   game.props = [];
   game.propsById = new Map();
+  game.campState = new Map(); // crate id → [hp, broken, brokenAt] (non-default only; shared: op prop.set, snapshot, save)
+  if (w.wrap) { installPlanetCamps(game); return game.camps; }
   game.net.withApply(() => {
     findCampSpots(game).forEach((s, i) => {
       const rand = mulberry32((w.seed | 0) * 977 + i * 31 + 3);
@@ -128,6 +190,52 @@ export function installCamps(game) {
     });
   });
   return game.camps;
+}
+
+// the planet: the camp of a chunk that has one, built when the chunk loads (every peer), gone with it
+function installPlanetCamps(game) {
+  const w = game.world;
+  const make = (c) => {
+    if (game.world !== w || game.camps.some((k) => k.chunk === c)) return;
+    const s = planetCampSpot(game, c);
+    if (!s) return;
+    const rand = mulberry32((w.seed | 0) * 977 + c * 31 + 3);
+    const d = Math.hypot(w.dx(s.x, w.spawn.x), s.y - w.spawn.y);
+    w._layout = (w._layout || 0) + 1; // (a deterministic layout: the chunk is not marked changed — world.addObject / removeObject)
+    let camp;
+    try { camp = game.net.withApply(() => buildCamp(game, s, c, d > 95 ? 1 : 0, rand)); } finally { w._layout--; }
+    game.camps.push(camp);
+    w.camps.push(camp); // (regrowth keeps out of it: world.growWeight)
+    campHooks.built?.(game, camp); // (host: its raiders, bandits.js)
+  };
+  for (const c of [...w.live].sort((a, b) => a - b)) make(c);
+  w.onLoad.push((c) => make(c));
+  w.onEvict.push((c) => {
+    if (game.world !== w) return;
+    const k = game.camps.findIndex((q) => q.chunk === c);
+    if (k < 0) return;
+    const camp = game.camps[k];
+    campHooks.gone?.(game, camp); // (host: its raiders go)
+    game.camps.splice(k, 1);
+    const j = w.camps.indexOf(camp);
+    if (j >= 0) w.camps.splice(j, 1);
+    for (const o of camp.crates) { const i = game.props.indexOf(o); if (i >= 0) game.props.splice(i, 1); game.propsById.delete(o.id); }
+    for (const o of camp.objects) occRemove(game, o);
+  });
+}
+
+// the shared state of a camp crate (non-default rows only): every peer, from prop.set / snapshot / save
+function setCampState(game, id, hp, broken, at, maxHp = 3) {
+  const S = game.campState || (game.campState = new Map());
+  if (!broken && hp >= maxHp) S.delete(id); else S.set(id, [hp | 0, broken ? 1 : 0, Math.round(at || 0)]);
+}
+// rows [id, hp, broken, brokenAt] (snapshot / save `props`, digest)
+export function campStateRows(game) { return [...(game.campState?.entries() || [])].map(([id, r]) => [id, r[0], r[1], r[2]]); }
+const CAMP_ID = /^camp\d+:\d+$/;
+export function applyCampState(game, rows, reconcile) {
+  const S = game.campState || (game.campState = new Map());
+  if (reconcile) S.clear();
+  for (const r of rows) if (Array.isArray(r) && typeof r[0] === 'string' && CAMP_ID.test(r[0])) setCampState(game, r[0], r[1] | 0, !!r[2], r[3] | 0);
 }
 
 // ---------- crates ----------
@@ -149,6 +257,8 @@ defineOp('prop.set', {
   doc: 'Crate state: hit (hp), broken (removed, `at` = host time) or restored by the camp.',
   args: { id: 'propId', hp: 'int', broken: '0|1', at: 'worldTime?', hit: '0|1', by: 'pid?', toast: 'string?' },
   apply(game, a, ctx) {
+    // (the shared state, whether the crate's chunk is loaded here or not)
+    if (typeof a.id === 'string' && CAMP_ID.test(a.id)) setCampState(game, a.id, a.broken ? 0 : num(a.hp, 3), !!a.broken, a.at ?? game.worldTime);
     const o = propById(game, a.id);
     if (!o) return;
     if (a.hit) {

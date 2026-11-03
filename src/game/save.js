@@ -24,6 +24,7 @@ import { collides } from './physics.js';
 import { serializeWorld, applyWorld, findNatural } from '../net/snapshot.js';
 import { stageOf } from './mut/crops.js';
 import { dimsOf } from './mut/structures.js';
+import { packExplored, unpackExplored } from './explore.js';
 
 const VERSION = 10; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / det on every construction piece (K) · v8 painted paths (M) · v9 stories (L: world.lvs = upper pieces' story; older = all on the ground) · v10 planet engine (docs/STREAMING.md)
 // guests in someone else's world keep a separate save (game.saveSuffix = '.guest'); the key keeps the v2 name.
@@ -51,6 +52,7 @@ function savePlayer(game) {
     level: p.level, xp: Math.round(p.xp), inv: p.inv.toJSON(), respawn: p.respawn, dead: !!p.dead,
     equip: { ...p.equip }, seedPref: p.seedPref || null,
     z: p.z > 0 && !p.dead ? +p.z.toFixed(2) : undefined, // levels: on a rampart / stairs (absent = ground, old saves too)
+    explored: packExplored(game.explored), // the map's fog of war (game/explore.js): the chunks this player has seen
   };
 }
 
@@ -135,6 +137,7 @@ function loadPlayer(game, d, data) {
   p.inv.load(d.inv);
   if (d.equip && !v1) for (const s of SLOTS) { const id = d.equip[s]; p.equip[s] = id && ITEMS[id]?.slot === s ? id : null; }
   p.seedPref = d.seedPref || null;
+  if (typeof d.explored === 'string') { game.explored = unpackExplored(d.explored); game._exploredV = (game._exploredV || 0) + 1; }
   equipChanged(game);
   p.respawn = d.respawn || null;
   if (d.dead) { const sp = respawnPoint(game); p.x = sp.x; p.y = sp.y; } // saved while dead: wake up at the respawn point

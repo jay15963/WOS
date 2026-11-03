@@ -58,7 +58,7 @@ const packSize = (game, s) => (s.species === 'wolf' && winterNow(game, s) ? s.co
 const WINTER_PREY = 6;
 function activeNow(game, s, night) {
   const when = s.when || ACTIVE[s.species] || 'always';
-  if (when === 'day' && !s.stock && winterNow(game, s) && s.id % WINTER_PREY) return false;
+  if (when === 'day' && winterNow(game, s) && s.id % WINTER_PREY) return false;
   return when === 'day' ? !night : when === 'night' ? night : true;
 }
 

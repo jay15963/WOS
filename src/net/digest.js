@@ -12,6 +12,7 @@ import { checkAtlas } from '../game/artcheck.js';
 import { artWarnings } from '../game/artcompat.js';
 import { pathRows } from '../game/mut/paths.js';
 import { chunkOfI } from '../world/store.js';
+import { campStateRows } from '../game/mut/camps.js';
 
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
@@ -58,7 +59,8 @@ export function dumpPart(game, part) {
     }
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
-    case 'props': return (game.props || []).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0]).sort(cmp);
+    // camp crates: their shared state (non-default rows, loaded or not: mut/camps.js); training dummies (structures)
+    case 'props': return campStateRows(game).map((r) => [r[0], r[1], r[2]]).concat((game.props || []).filter((o) => o.dummy).map((o) => [o.id, o.hp | 0, 0])).sort(cmp);
     case 'corpses': return game.corpses ? [...game.corpses.map.values()].map((c) => [c.id, c.of, c.x.toFixed(2), c.y.toFixed(2), Math.round(c.deathT), c.butchered ? 1 : 0,
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths

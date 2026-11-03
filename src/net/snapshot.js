@@ -37,7 +37,7 @@ import { applyKitFields } from '../game/mut/kit.js';
 import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
-import { propById, setPropBroken } from '../game/mut/camps.js';
+import { propById, setPropBroken, campStateRows, applyCampState } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
@@ -72,7 +72,7 @@ export function serializeWorld(game, { save = false } = {}) {
       o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']),
     crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
-    props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
+    props: campStateRows(game), // (camp crates: the shared state, loaded or not — mut/camps.js)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
@@ -321,6 +321,7 @@ function applyInner(game, d, mode) {
   addLootRows(game, add);
 
   // ---- camp crates ----
+  applyCampState(game, arr(d.props), reconcile);
   const pIds = new Set();
   for (const [id, hp, broken, brokenAt] of arr(d.props)) {
     const o = propById(game, id);

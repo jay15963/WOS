@@ -24,6 +24,7 @@ import { FAUNA_SPAWNS, FAUNA } from './content/fauna.js';
 import { SPECIES } from './data.js';
 import { BIOME_KEYS } from '../world/planet/biomes.js';
 import { mulberry32 } from '../engine/noise.js';
+import { STOCK } from './content/livestock.js';
 
 const CHUNK = 64;
 // hours of a species: the fauna table, else the classic creatures' (mobs.js ACTIVE, passed in), else 'always'
@@ -125,6 +126,7 @@ export function chunkFauna(game, c, { levelFor, whenOf = null } = {}) {
     const lvl = levelFor ? levelFor(d, (sp.lvl || 0) + (rng() < 0.3 ? 1 : 0)) : 1;
     const s = { id: 0, species: g.species, x: g.x, y: g.y, level: lvl, count: g.count, members: [], when: whenOf?.(g.species) || g.when, biome: g.biome };
     if (g.species === 'fish') { s.fish = true; s.level = 1; s.when = 'always'; }
+    else if (STOCK[g.species]) { s.stock = true; s.when = 'day'; } // (wild farm herds: livestock.js brain, tamable)
     else if (FAUNA[g.species]) s.fauna = true;
     out.push(s);
   }

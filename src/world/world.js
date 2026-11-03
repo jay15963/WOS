@@ -243,7 +243,7 @@ export class World {
     if (o.id == null || o.id === '') throw new Error('world.addObject: objeto sem id');
     this.ensure(this.chunkIndex(o.x, o.y));
     this._insert(o);
-    this.markDirtyAt(o.x, o.y);
+    if (!this._layout) this.markDirtyAt(o.x, o.y); // (a deterministic layout — planet camps — comes back with the chunk)
     // keep chunk list y-sorted lazily
     this.chunkAt(o.x, o.y).sorted = false;
     return o;
@@ -255,7 +255,7 @@ export class World {
     const k = c.objects.indexOf(o);
     if (k >= 0) c.objects.splice(k, 1);
     this.objById.delete(o.id);
-    this.markDirtyAt(o.x, o.y);
+    if (!this._layout) this.markDirtyAt(o.x, o.y);
   }
 
   // iterate buckets overlapping a world rect (x wraps on the planet; a bounded world clamps to its area)
