@@ -65,11 +65,16 @@ ChunkData = { ground, water (0 terra · 1 raso · 2 fundo · 3 abissal), rock, r
 - **synth** (`?source=synth`, `synth.js`): planeta sintético barato para teste de carga — continentes de ruído periódico
   (a costura do x fica sempre num oceano largo), mares polares, cordilheiras, biomas por latitude / altura / umidade,
   árvores e plantas; ~6–8 ms por chunk num worker.
-- **planet** (`?source=planet`, `planetSource.js`): adaptador do gerador real do agente do planeta (`src/world/planet`:
-  `generatePlanet(seed)` + `generateChunk(planet, cx, cy)`); enquanto o módulo não existe neste ramo, cai no synth.
+- **planet** (`?source=planet` ou `?planet=1[&px=&py=]`, `planetSource.js`): o gerador real (`src/world/planet`,
+  docs/PLANET.md). `generatePlanet(seed)` (~1,9 s) roda uma vez na thread principal (spawn por `findSpawn`, imagem do mapa
+  por `renderMacro`, fallback síncrono) e o objeto do planeta (arrays, ~13 MB) vai para cada worker no `init`; cada chunk
+  é `generateChunk(planet, cx, cy, { decor })` (~40 ms no worker) adaptado: chão 8–13 e rochas 5–6 → os clássicos
+  (`GROUND_CLASSIC` / `ROCK_CLASSIC`), bioma → a sua classe clássica (`BIOME_LIST[b].cl`), árvores / plantas novas → arte
+  existente (a mesma tabela de `planet/ingame.js`), `lush` 0..255 → 0..1, posições do chunk → do planeta, `height`
+  (65 × 65) → `cornerH`, decor no máximo ~1600 por chunk. Ids naturais do planeta: `(cy·256 + cx)·16384 + k`.
 
 Água abissal (3) vira 2 (fundo) para o jogo ao instalar o chunk. Ids de objetos naturais por chunk: `1e7 + c·8192 + k`
-(synth) / `2e7 + …` (planet) → `chunkOfId` carrega o chunk de um objeto citado numa op ou num save.
+(synth) / `c·16384 + k` (planet) → `chunkOfId` carrega o chunk de um objeto citado numa op ou num save.
 
 ## 3. Ciclo de vida dos chunks
 
@@ -81,8 +86,8 @@ ChunkData = { ground, water (0 terra · 1 raso · 2 fundo · 3 abissal), rock, r
 - **Alterado** (`world.markDirty`): minerar, pôr / tirar objeto, mexer num natural (`touch`), editar alturas. Um chunk
   alterado **nunca é descartado** (o estado dele só existe aqui; o save / o snapshot guardam os diffs). Chunks só
   naturais são descartados longe de todos e voltam idênticos da fonte.
-- Decor (grama, flores) é cosmético e pesado: só existe perto da câmera (`R_DECOR`), largado longe (`dropDecor`) e
-  refeito por um worker quando a câmera volta.
+- Decor (grama, flores) é cosmético e pesado: só existe a até `R_DECOR = 3` chunks da câmera, largado longe
+  (`dropDecor`) e refeito por um worker quando a câmera volta.
 
 ## 4. Streamer e regiões ativas
 
@@ -168,12 +173,13 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
 
 | Cenário | média | p95 | máx | quadros > 8 ms |
 |---|---|---|---|---|
-| andando a 9 tiles/s por 20 s (8 chunks/s gerados) | 1,1 ms | 1,7 ms | 4,6 ms | 0 |
-| 4 jogadores longe uns dos outros (232 chunks, 100 ativos) | 0,7 ms | 1,0 ms | 2,6 ms | 0 |
-| 4 teletransportes pelo planeta | 0,8 ms | 1,4 ms | 24,6 ms | 5 (no teletransporte) |
+| synth: andando a 9 tiles/s por 20 s (8 chunks/s gerados) | 1,1 ms | 1,7 ms | 4,6 ms | 0 |
+| planet: andando a 9 tiles/s por 15 s (~13 chunks/s gerados) | 0,8 ms | 1,5 ms | 5,9 ms | 0 |
+| synth: 4 jogadores longe uns dos outros (232 chunks, 100 ativos) | 0,7 ms | 1,0 ms | 2,6 ms | 0 |
+| synth: 4 teletransportes pelo planeta | 0,8 ms | 1,4 ms | 24,6 ms | 5 (no teletransporte) |
 
-- Geração de chunk (synth) no worker: 6–8 ms; instalar o resultado na thread principal: ≤ 6,2 ms (objetos + decor +
-  ganchos); conteúdo da janela no worker ~4,4 ms/chunk, envio às texturas ≤ 2,4 ms.
+- Geração de chunk no worker: synth 6–8 ms, planet ~40–45 ms (3 workers); instalar o resultado na thread principal:
+  ≤ 6,2 ms (objetos + decor + ganchos); conteúdo da janela no worker ~4,4 ms/chunk, envio às texturas ≤ 2,4 ms.
 - Memória com 4 jogadores longe: camadas de tiles 30 MB, ~32 mil objetos, heap JS ~95–110 MB, janela da GPU 24,5 MB.
 - Mundo clássico: 16 chunks, camadas 2,2 MB; gerar o mundo ~0,4 s (como antes); `get` de camada ~4 ns.
 - Medir: `game.streamStats()` (HUD de streaming, ligado em localhost no planeta ou com `?stream=1`), `game.frameStats(reset)`,

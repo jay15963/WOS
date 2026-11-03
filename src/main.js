@@ -142,19 +142,22 @@ async function boot() {
         onShown: () => $('#loading').classList.add('hidden') });
       $('#loading').classList.remove('hidden');
     }
+    const guest = choice.mode === 'join';
+    const seed = guest ? choice.welcome.seed : choice.seed;
+    // the world source (docs/STREAMING.md): the host's for a guest; ?source= (?planet=1 = the planet generator); the one a
+    // saved world was made with; classic. A planet starts now (its macro map is made in a worker while the graphics load).
+    const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
+    const srcOpts = { px: QS.get('px'), py: QS.get('py') };
+    const earlySrc = srcKind === 'planet' ? makeSource(srcKind, seed, srcOpts) : null;
     status('Preparando…', 0.3); await nextFrame();
     const { renderer, atlas } = await assets.promise;
 
-    const guest = choice.mode === 'join';
-    const seed = guest ? choice.welcome.seed : choice.seed;
     // a world of the list (ui/worlds.js): it goes to the top; worlds without an id (dev ?seed=) save by seed as before
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    // the world source (docs/STREAMING.md): the host's for a guest; ?source= (?planet=1 = the planet generator); the one a
-    // saved world was made with; classic
-    const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
-    const world = new World(await makeSource(srcKind, seed, { px: QS.get('px'), py: QS.get('py') }));
+    const worldT0 = performance.now(); // (the world part of the boot: source + chunks + systems, without the graphics)
+    const world = new World(await (earlySrc || makeSource(srcKind, seed, srcOpts)));
     if (world.wrap) new Streamer(world); // (a planet streams its chunks; the classic world is loaded whole)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
@@ -209,6 +212,7 @@ async function boot() {
     netlog.fact('Modo', choice.mode === 'single' ? 'um jogador' : choice.mode === 'host' ? 'anfitrião' : 'convidado');
     $('#loading').classList.add('hidden');
     window.wosBootMs = Math.round(performance.now()); // (boot time to playable: docs/STREAMING.md budgets)
+    window.wosWorldMs = Math.round(performance.now() - worldT0);
     startLoop(game, renderer, input, false);
   } catch (err) {
     console.error(err);

@@ -62,7 +62,7 @@ export function walkable(game, tx, ty, doors = false) {
   const i = w.idx(tx, ty);
   if (game.occ.get(i)) return false;
   const S0 = game.levels?.st[0];
-  if (S0 && S0[i]) return false; // levels: stair steps are side walls at level 0 (entered only through their entrance)
+  if (S0 && S0.get(i)) return false; // levels: stair steps are side walls at level 0 (entered only through their entrance)
   return doors || w.solid.get(i) !== 2;
 }
 

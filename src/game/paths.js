@@ -90,6 +90,8 @@ export function initPaths(game) {
   };
   // work: the auto-work queue picks planned tiles too
   game.work?.providers?.push(PROVIDER);
+  // decor that arrives with a streamed chunk (or comes back near the camera) hides on the painted paths too
+  w.onDecor = (c) => { if (game.pathGrid?.built) { const x0 = (c & 255) * 64, y0 = (c >>> 8) * 64; refreshDecor(game, x0, y0, x0 + 63, y0 + 63); } };
   if (typeof document !== 'undefined' && !game.headless) ensureLayers(game);
   return game.paths;
 }

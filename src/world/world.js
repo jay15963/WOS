@@ -140,6 +140,7 @@ export class World {
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
     if (d.decor) for (const dd of d.decor) this.chunkAt(dd.x, dd.y).decor.push(dd);
+    if (d.decor && this.onDecor) this.onDecor(c);
     // initial population per bucket (regrowth targets)
     this._forBucketsOf(c, (bk) => { bk.pop = popCount(bk.objects); bk.decals = null; });
     this._decalsDirtyNear(c);
@@ -154,6 +155,7 @@ export class World {
     if (!r || !r.ready || r.decor) return;
     r.decor = true;
     for (const dd of list) this.chunkAt(dd.x, dd.y).decor.push(dd);
+    this.onDecor?.(c); // (game/paths.js: grass hidden on painted paths)
   }
   // forget the cosmetic decor of a chunk far from the camera (made again by the source when it comes back)
   dropDecor(c) {

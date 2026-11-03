@@ -104,7 +104,7 @@ export function loadGame(game) {
   const away = Math.max(0, Math.min(OFFLINE_CAP, (Date.now() - (data.savedAt || Date.now())) / 1000));
   const wt = (data.worldTime || 0) + away;
   const snap = data.v >= 3 ? { ...(data.world || {}) } : migrateLegacy(game, data, wt);
-  if (data.v < VERSION && Array.isArray(snap.structs)) snap.structs = migrateStructRows(game, snap.structs);
+  if (Array.isArray(snap.structs) && snap.structs.some((r) => Array.isArray(r) && r.length < 16)) snap.structs = migrateStructRows(game, snap.structs); // (short rows: pad them)
   snap.wt = wt;
   snap.env = data.env ? { h: data.env.hour, d: data.env.day, w: data.env.weather } : snap.env;
   applyWorld(game, snap, 'load');

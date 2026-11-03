@@ -3752,7 +3752,7 @@ def('L5', {
   // an older build's save: no player z, plus a legacy 10-field wall row (v3)
   const old = JSON.parse(JSON.stringify(data));
   delete old.player.z;
-  old.v = 3;
+  old.v = data.v; // (saves before the planet engine (v10) are dropped: the old row formats inside a current save still load)
   old.world.structs = old.world.structs.map((r) => r.slice(0, 10));
   old.world.structs.push(['old_wall_lv', 'wall_wood', x + 4, y, 0, 1, 0, 0, 0, 100]);
   const g2 = S.game;
@@ -3851,7 +3851,7 @@ def('L6', {
     L.sync();
     t.check(L.hasUpper && L.storeysAt(x + 1, y + 1) === 2 && L.storeysAt(x + 3, y + 3) === 1, `${nm}: 2 stories over the room (J's eaves on top), 1 where nothing is up`, `${L.storeysAt(x + 1, y + 1)} / ${L.storeysAt(x + 3, y + 3)}`);
     t.check(L.isSurface(1, I(x + 1, y + 1)) && L.isSurface(1, I(x + 2, y + 2)) && L.isSurface(1, I(x + 3, y + 2)), `${nm}: the upper floor and the wall tops are story-1 surfaces`);
-    t.check(L.blk[1]?.[I(x + 1, y)] && L.blk[1]?.[I(x + 3, y + 1)] && !L.blk[1]?.[I(x + 1, y + 1)], `${nm}: upper walls and the closed upper door block story 1, the floor does not`);
+    t.check(L.blk[1]?.get(I(x + 1, y)) && L.blk[1]?.get(I(x + 3, y + 1)) && !L.blk[1]?.get(I(x + 1, y + 1)), `${nm}: upper walls and the closed upper door block story 1, the floor does not`);
     t.check(L.isSurface(2, I(x + 1, y)), `${nm}: the upper walls' tops are story-2 surfaces`);
   }
   const SN = await snapMod(H);
@@ -3953,7 +3953,7 @@ def('L8', {
   const key = `wos.save.v2.${seed}`;
   const data = JSON.parse(S.win.localStorage.getItem(key));
   const lvs = new Map(data?.world?.lvs || []);
-  t.check(data.v === 9, 'save version 9 (L stories, after M\'s v8)', `v ${data.v}`);
+  t.check(data.v === 10, 'save version 10 (planet engine; L stories kept)', `v ${data.v}`);
   t.check(up.every((id) => lvs.get(id) === 1) && lvs.size === up.length, 'world.lvs lists every upper piece at story 1', `${lvs.size} rows`);
   t.check(data.player.z === 1, 'player z 1 saved');
   S.reload();
@@ -3962,12 +3962,12 @@ def('L8', {
   const back = up.map((id) => g2.build.structures.find((o) => o.id === id));
   t.check(back.every((o) => o && o.lv === 1 && !o.blueprint), 'every upper piece is back on story 1', short(back.map((o) => o ? `${o.type}@${o.lv}` : 'missing')));
   L2.sync();
-  t.check(L2.storeysAt(x + 1, y + 1) === 2 && L2.isSurface(1, g2.world.idx(x + 1, y + 1)) && L2.blk[1]?.[g2.world.idx(x + 2, y)], 'the derived story-1 map is rebuilt (2 stories, floor surface, upper wall blocks)');
+  t.check(L2.storeysAt(x + 1, y + 1) === 2 && L2.isSurface(1, g2.world.idx(x + 1, y + 1)) && L2.blk[1]?.get(g2.world.idx(x + 2, y)), 'the derived story-1 map is rebuilt (2 stories, floor surface, upper wall blocks)');
   const p2 = g2.player;
   t.check(p2.lv === 1 && p2.z === 1 && Math.hypot(p2.x - (x + 2.5), p2.y - (y + 2.5)) < 0.05, 'the player wakes up on the upper floor', `${lvOf(p2)} at ${f2(p2.x)},${f2(p2.y)}`);
   // a v8 save (M's terrain paths version, no stories) still loads
   const old = JSON.parse(JSON.stringify(data));
-  old.v = 8; delete old.world.lvs; delete old.player.z;
+  delete old.world.lvs; delete old.player.z; // (a save without stories; versions before v10 are dropped)
   const ids = new Set(up);
   old.world.structs = old.world.structs.filter((r) => !ids.has(r[0]));
   g2.noSave = true; // the page would save itself again on pagehide
@@ -4227,7 +4227,7 @@ def('K4', {
   const { x0: x, y0: y } = site;
   const key = `wos.save.v2.${CFG.seed}`;
   const save = {
-    v: 4, seed: CFG.seed, savedAt: Date.now(), worldTime: 100, env: { hour: 10, day: 0, weather: 'clear' },
+    v: 10, seed: CFG.seed, src: 'classic', savedAt: Date.now(), worldTime: 100, env: { hour: 10, day: 0, weather: 'clear' }, // (old 14-field rows in a current save: saves before v10 are dropped)
     player: { name: 'Teste', x: g.world.spawn.x, y: g.world.spawn.y, hp: 100, energy: 100, hunger: 90, level: 1, xp: 0, inv: [], equip: {} },
     craft: null, fuel: 0, hinted: {}, marks: [],
     world: { gone: [], nat: [], dyn: [], falling: [], mined: [], rockp: [], crops: [], loot: [], props: [],
@@ -5409,6 +5409,65 @@ def('P7', {
   await t.waitFor(() => { reel ||= copy()?.action?.type === 'reel'; return reel; }, 2500, "the host's copy plays the pull (reel)");
   await t.waitFor(() => H.game.fishing.reels.has(G.pid) && G.game.fishing.reels.has(G.pid), RT() + 1500, 'the bobber flies back to the rod on both');
   await t.waitFor(() => !H.game.fishing.bobs.has(G.pid) && !G.game.fishing.bobs.has(G.pid), RT() + 1500, 'the line is out on both');
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// ST1 Streamed planet (docs/STREAMING.md): a synthetic-planet host, a guest that generates the same chunks locally
+def('ST1', {
+  title: 'ST: streamed planet — guest generates the chunks, ops on far chunks, the seam', timeout: 180000,
+  expected: 'Host on ?source=synth: the guest learns the source from the welcome and generates the same terrain locally (same tiles at both spawns); the join snapshot is diffs only (small); the host goes 3000 tiles away and changes a far chunk (a natural object removed, a rock mined): the guest, whose player stays home, loads that chunk on demand and applies the same changes; both players cross the x seam (positions stay canonical, 0 ≤ x < W); digests equal',
+  api: '?source=synth; welcome.src; world.{wrap, source.kind, isLoaded, chunkIndex, idx, rock, objById, streamer}; ops obj.remove / tile.mine; game.streamStats()',
+}, async (t) => {
+  const room = newRoom();
+  const H = await bootHost(t, room, { extra: '&source=synth' });
+  const G = await bootGuest(t, room, H);
+  const hw = H.game.world, gw = G.game.world;
+  t.check(hw.wrap && hw.source.kind === 'synth', 'host runs the synthetic planet (wraps)', hw.source.kind);
+  t.check(gw.wrap && gw.source.kind === 'synth', 'guest got the source from the welcome and generated the same planet', gw.source.kind);
+  // the same tiles around the spawn (generated separately on each peer)
+  const sp = hw.spawn;
+  let same = true, n = 0;
+  for (let y = Math.floor(sp.y) - 20; y <= Math.floor(sp.y) + 20; y += 3) for (let x = Math.floor(sp.x) - 20; x <= Math.floor(sp.x) + 20; x += 3) {
+    const i = hw.idx(x, y);
+    if (!hw.isLoaded(hw.chunkIndex(x, y)) || !gw.isLoaded(gw.chunkIndex(x, y))) continue;
+    n++;
+    for (const L of ['rock', 'water', 'ground', 'biome', 'ore']) if (hw[L].get(i) !== gw[L].get(i)) same = false;
+  }
+  t.check(same && n > 50, 'the tiles around the spawn are identical on both', `${n} tiles compared`);
+  const snap = JSON.stringify((await frameImport(H, 'net/snapshot.js')).serializeWorld(H.game)).length;
+  t.check(snap < 200000, 'the join snapshot is diffs only (no tile data)', `${snap} bytes`);
+  // the host goes far away: a far region loads on the host only
+  const fx = Math.floor(sp.x) + 3000, fy = Math.floor(sp.y);
+  H.game.player.x = fx + 0.5; H.game.player.y = fy + 0.5; H.game.cam.x = fx + 0.5; H.game.cam.y = fy;
+  const fc = hw.chunkIndex(fx, fy);
+  await t.waitFor(() => hw.isLoaded(fc), 8000, 'host loaded the far chunk');
+  t.check(!gw.isLoaded(fc), 'the guest (at home) does not have the far chunk', `guest chunks ${gw.loaded}`);
+  // a natural object of the far region, and a rock there (search the loaded far chunks)
+  let obj = null, rk = null;
+  for (let r = 0; r < 120 && (!obj || !rk); r++) for (let k = 0; k < 16 && (!obj || !rk); k++) {
+    const x = fx + Math.round(Math.cos(k * 0.39) * r), y = fy + Math.round(Math.sin(k * 0.39) * r);
+    if (!hw.isLoaded(hw.chunkIndex(x, y))) continue;
+    if (!rk && hw.rock.get(hw.idx(x, y)) === 1 && hw.inBounds(x, y)) rk = [x, y];
+    if (!obj) hw.forChunks(x, y, x, y, (c) => { for (const o of c.objects) if (!obj && !o.building && typeof o.id === 'number' && (o.type === 'pebble' || o.type.startsWith('tree_'))) obj = o; });
+  }
+  t.assert(obj, 'found a natural object in the far region');
+  H.game.net.emit('obj.remove', { ids: [obj.id] });
+  if (rk) H.game.net.emit('tile.mine', { tx: rk[0], ty: rk[1], drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => gw.isLoaded(gw.chunkIndex(obj.x, obj.y)) && !gw.objById.has(obj.id), ONEWAY() + 3000, 'guest loaded the far chunk on demand and removed the object');
+  if (rk) await t.waitFor(() => gw.rock.get(gw.idx(rk[0], rk[1])) === 0, ONEWAY() + 3000, 'guest mined the same far rock');
+  else t.note('no rock in the far region of this seed (mining part skipped)');
+  t.check(gw.crec[gw.chunkIndex(obj.x, obj.y)]?.dirty, 'the changed far chunk is kept (never evicted) on the guest');
+  // the seam: both players step across x = W
+  const W = hw.W;
+  for (const f of [H, G]) { const p = f.game.player; p.x = W - 0.3; p.y = fy + 0.5; f.game.cam.x = p.x; }
+  await t.sleep(300);
+  for (const f of [H, G]) { const p = f.game.player; p.autoMove = [1, 0]; }
+  await t.sleep(1500);
+  for (const f of [H, G]) f.game.player.autoMove = null;
+  const xs = [H, G].map((f) => f.game.player.x);
+  t.check(xs.every((x) => x >= 0 && x < W), 'positions stay canonical across the seam (0 ≤ x < W)', xs.map((x) => x.toFixed(2)).join(' / '));
+  t.check(hw.isLoaded(hw.chunkIndex(0.5, fy)) && hw.isLoaded(hw.chunkIndex(W - 0.5, fy)), 'the chunks on both sides of the seam are loaded');
   await t.checkDigest(H, G);
 });
 

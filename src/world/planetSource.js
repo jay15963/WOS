@@ -41,7 +41,7 @@ export async function workerGenerator(init) {
 export async function makePlanetSource(seed, opts = {}) {
   const m = await mods();
   const t0 = performance.now();
-  const planet = m.generatePlanet(seed);
+  const planet = (await planetInWorker(seed)) || m.generatePlanet(seed);
   const t1 = performance.now();
   let spawn = null;
   const px = opts.px != null && opts.px !== '' ? +opts.px : NaN, py = opts.py != null && opts.py !== '' ? +opts.py : NaN;
@@ -61,6 +61,18 @@ export async function makePlanetSource(seed, opts = {}) {
   };
   console.info(`[planet] seed ${seed}: planet ${src.timings.planet} ms, spawn ${spawn.x.toFixed(1)}, ${spawn.y.toFixed(1)}`);
   return src;
+}
+
+// generatePlanet in a module worker (~2 s off the main thread: the graphics keep loading); null without workers
+function planetInWorker(seed) {
+  if (typeof Worker === 'undefined') return Promise.resolve(null);
+  return new Promise((res) => {
+    let wk;
+    try { wk = new Worker(new URL('./planetWorker.js', import.meta.url), { type: 'module' }); } catch { res(null); return; }
+    wk.onmessage = (e) => { wk.terminate(); res(e.data && e.data.planet ? e.data.planet : null); };
+    wk.onerror = () => { wk.terminate(); res(null); };
+    wk.postMessage({ seed });
+  });
 }
 
 // the planet object without caches the workers do not need (and that may not clone)
