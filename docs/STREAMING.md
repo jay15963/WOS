@@ -53,8 +53,10 @@ A **página fina** de um chunk (4 × 4 amostras por tile, com um anel em volta; 
 pura dos cantos do chunk + 3 em volta (`computeFine`: o mesmo spline, limites e escarpas do `HeightLayer` — conferido igual
 até o último bit). Normalmente quem a faz é o **worker da janela do terreno**, junto com o resto do chunk (~8 ms fora da
 thread principal); a thread principal só calcula uma página quando alguém pergunta por um chunk fora da janela
-(`heightAt`, `isCliff`). Uma página é `complete` se os 8 vizinhos estavam carregados: um vizinho que chega depois só
-derruba as páginas incompletas; uma edição derruba as que alcança. Chunk com todos os cantos (e margem) zero = plano, sem
+(`heightAt`, `isCliff`). Uma página é `complete` se os 8 vizinhos estavam carregados; sem um vizinho, os cantos dele são
+a borda do próprio chunk esticada (provisório: só muda a até 3 tiles da beira, nunca um penhasco falso), e quando ele
+chega só as páginas incompletas caem; uma edição derruba as que alcança. Perto dos jogadores tudo está carregado (raio 3),
+então o que eles pisam é exato e igual em todo par. Chunk com todos os cantos (e margem) zero = plano, sem
 página. Mesma API do `HeightLayer`: `heightAt, gradAt, cornerH, terrainH, plotH, tileSlope, isCliff, tileMin, tileMax,
 maxIn, cliffBetween, setTerrain, setPlots, diff, applyDiff` (+ `ci(ix, iy)` = índice do canto para os módulos de edição).
 Sem alturas (`any` falso: o mundo clássico sem `?hills=1`) tudo devolve 0 / falso, como antes.
@@ -183,6 +185,8 @@ versão antiga…") e um mundo novo nasce da mesma semente.
   pela rede (o convidado as gera); só o diff das edições (`terr`) e as bases dos prédios; a op `terrain.set` muda poucos
   cantos e carrega o chunk deles se preciso (como as outras ops).
 - Entidades: o fluxo de 10 Hz já era por interesse (caixa em volta de cada convidado) — agora atravessa a costura.
+- A foto de entrada carrega o chunk de cada flora nova / construção antes de conferir o terreno dela (quem entra longe do
+  anfitrião não perde nada).
 - Ops continuam globais e pequenas (uma por ação). Uma op sobre um chunk que o convidado não tem (um objeto natural, um
   tile) carrega esse chunk na hora (`findObj` → `chunkOfId`, `Layer.set` → `ensure`), então todo par aplica igual.
 - Digest: `rock` / `roof` são comparados só nos chunks com tiles minerados (o resto é a fonte pura); as camadas esparsas
@@ -222,6 +226,10 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
 
 - Cenário **ST1** (`tools/mp-test.html?run=ST1`): anfitrião no planeta sintético, convidado gera os mesmos chunks, o
   anfitrião muda um chunk a 3000 tiles (o convidado o carrega sob demanda), os dois cruzam a costura, digest igual.
+
+- Cenário **ST2** (`?run=ST2`): anfitrião no planeta real, o convidado gera as mesmas alturas (heightAt / penhascos
+  iguais), o anfitrião levanta cantos do terreno longe (op `terrain.set`): o convidado carrega o chunk sob demanda e fica
+  igual; um segundo convidado que entra depois recebe as edições na foto (`terr`); digests iguais.
 
 - `?source=classic|synth|planet` · `?stream=1` (HUD) · `game._extraAnchors = [{x, y}]` (simula jogadores longe).
 - `world.stats` (gerados síncronos / assíncronos, tempo de instalar), `world.streamer.stats`, `R.win.stats`.
