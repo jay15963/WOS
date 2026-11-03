@@ -44,7 +44,7 @@ import { WEAR_HIDES_HAIR } from './apparel.js';
 import { lookRig, rigReady, LOOK_CLOCK } from './look/rig.js';
 import { walkerLook, WALKER_EYES } from './walker.js'; // winter walkers (species 'walker'): fixed look + overlays
 import { lookAtlasOf } from './look/lazy.js';
-import { diagRig, diagReady, diagPart, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
+import { diagRig, diagReady, diagPart, diagSprite, turnX, VIEW as TURN_VIEW, KIND as TURN_KIND, GAMMA as TURN_G } from './look/turn.js'; // camera rotation: 3/4 views
 import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper stays on the turned bed
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
@@ -345,7 +345,7 @@ function drawHeadD(B, T, L, LK, D, armor, mir, x, y, l, r, fl, al, shut, hairR, 
 function diagExtras(T, L, LK, armor, walker, v, urgent) {
   const A = T.A, pd = TURN_VIEW[v].pd;
   let ok = true;
-  const want = (name) => { if (name && !diagPart(A, name, v, urgent)) ok = false; };
+  const want = (name) => { if (!name) return; const r = diagSprite(A, name, v); if (r && !r.failed && !diagPart(A, name, v, urgent)) ok = false; }; // (nothing to paint: fine)
   if (armor) {
     if (wear(T, armor.body, pd)) want(`wear_${armor.body}_${pd}`);
     if (wear(T, armor.head, pd)) want(`wear_${armor.head}_${pd}`);
