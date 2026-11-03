@@ -4,6 +4,10 @@
 // Every creature species (non-pawn) needs <sp>_{s,n,e}; every structure / flora / crop kind one name.
 
 export const CREATURE_SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider', 'cow', 'sheep', 'pig', 'chicken', 'fish'];
+// wild fauna of the planet's biomes (docs/FAUNA.md, art/fauna.js): baked standing e / s / n each
+export const FAUNA_SPECIES = ['polar_bear', 'seal', 'arctic_fox', 'moose', 'reindeer', 'lynx', 'wild_horse', 'bison', 'yak', 'camel', 'scorpion', 'rattlesnake',
+  'vulture', 'zebra', 'gazelle', 'lion', 'elephant', 'monkey', 'jaguar', 'parrot', 'crocodile', 'heron', 'mountain_goat', 'eagle', 'crab', 'seagull',
+  'dolphin', 'shark', 'whale'];
 
 export const CONTRACT = [
   'fx_blob', 'fx_soft', 'fx_spark', 'fx_smoke', 'fx_leaf', 'fx_drop', 'fx_ring', 'fx_flame', 'fx_splash', 'fx_dust', 'fx_slash', 'fx_star',
@@ -13,6 +17,7 @@ export const CONTRACT = [
   'hair_short_s', 'hair_short_n', 'hair_short_e', 'hair_long_s', 'hair_long_n', 'hair_long_e',
   'weapon_sword', 'weapon_axe', 'tool_pickaxe',
   ...CREATURE_SPECIES.flatMap((s) => [s + '_s', s + '_n', s + '_e']),
+  ...FAUNA_SPECIES.flatMap((s) => [s + '_s', s + '_n', s + '_e']),
   'proj_arrow', 'proj_spear',
   'campfire', 'torch', 'wall_wood', 'chest', 'bed',
   'stairs_wood', // levels (agent L)

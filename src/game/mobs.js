@@ -26,6 +26,8 @@ import { BUILDINGS } from './data.js';
 import { ITEMS } from './content/items.js';
 import { walkersTick } from './walkers.js';
 import { createStockSpawners, setupMember } from './livestock.js'; // farm herds and fish (docs/LIVESTOCK.md)
+import { setupFauna } from './fauna.js'; // wild fauna of the planet's biomes (docs/FAUNA.md)
+import { createFaunaSpawners } from './faunaSpawn.js';
 
 const SLEEP = 40;
 // creature ids from the authority: nid 'm<base36>' for the network, numeric id for the art (gait phase)
@@ -94,7 +96,7 @@ export function createSpawners(game) {
   for (const k in QUOTA) have[k] = 0;
   const sx = w.spawn.x, sy = w.spawn.y;
   const minD = (s) => SPECIES[s].minD ?? 8;
-  for (let k = 0; k < 9000; k++) {
+  for (let k = 0; k < (w.planetBiome ? 0 : 9000); k++) { // (a planet world: the per-biome tables below instead)
     const x = 6 + Math.floor(rand() * (w.W - 12)), y = 6 + Math.floor(rand() * (w.H - 12));
     const i = w.idx(x, y);
     if (w.rock[i] || w.water[i] || w.solid?.[i]) continue;
@@ -128,6 +130,7 @@ export function createSpawners(game) {
     have[species]++;
   }
   game.spawners = spawners;
+  if (w.planetBiome) spawners.push(...createFaunaSpawners(game, { levelFor: levelForDistance, whenOf: (sp) => ACTIVE[sp], firstId: spawners.length + 1 })); // (docs/FAUNA.md)
   createStockSpawners(game); // farm herds and fish schools (their own seeded rng: the layout above is unchanged)
   // only what is out at this hour (the rest fills in when its time comes: mobsSystem slow tick)
   const night = isNight(game);
@@ -168,6 +171,7 @@ export function spawnMember(game, s) {
   };
   if (s.cave) m.cave = true;
   if (s.stock || s.fish) setupMember(game, m, s); // (farm animals and fish: their own brain, livestock.js)
+  else if (sp.fauna) setupFauna(game, m, s); // (wild fauna: their own habits, fauna.js)
   s.members.push(m);
   game.entities.push(m); // host-only creature list (guests get proxies from net/entities.js)
   return m;
@@ -263,7 +267,7 @@ export function mobsSystem() {
         for (let j = i + 1; j < awake.length; j++) {
           const b = awake[j];
           if (a.lv || b.lv || a.z > 0 || b.z > 0) continue; // levels: separation on the ground only
-          if (a.water || b.water) continue; // (fish swim through each other)
+          if (a.water || b.water || a.noPush || b.noPush) continue; // (fish swim through each other; fliers / swimmers: fauna.js)
           const dx = b.x - a.x, dy = b.y - a.y, rr = (a.r + b.r) * 0.9;
           if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
           const dd = Math.hypot(dx, dy);

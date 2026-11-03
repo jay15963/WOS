@@ -134,6 +134,8 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
   const cw = lg.canvas.width, ch = lg.canvas.height, pad = P.pad;
   const N = cw * ch;
   const D = new Float32Array(N).fill(-1e9), I = new Int16Array(N).fill(-1);
+  // opt.cut: only what is above that height (a swimmer's back over the water; the nearest hit is the highest one)
+  const cut = opt.cut, cU = CAM.U[2], cC = CAM.C[2];
   // design px of device pixel (u, v): (u + 0.5) / SS − pad; relative to the anchor (ox, oy)
   for (let k = 0; k < Q.length; k++) {
     const q = Q[k];
@@ -151,6 +153,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
         const disc = b * b - a * cc;
         if (disc < 0) continue;
         const t = (-b + Math.sqrt(disc)) / a;
+        if (cut !== undefined && t * cC - sy * cU < cut) continue;
         const i = v * cw + u;
         if (t > D[i]) { D[i] = t; I[i] = k; }
       }
@@ -195,8 +198,8 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
         const X = Pb[0] * f, Y = Pb[1] * f, Z = Pb[2] * f;
         const bx = Math.cos(X * 2.1 + Math.sin(Z * 1.7) * 1.3), by = Math.cos(Y * 2.3 + Math.sin(X * 1.9) * 1.2), bz = Math.cos(Z * 2.2 + Math.sin(Y * 1.6) * 1.4);
         const wb = mv(Wb, [bx, by, bz]);
-        const amp = 0.42 / (Math.hypot(nx, ny, nz) || 1);
-        nx = nx * amp / 0.42 + wb[0] * 0.42; ny = ny * amp / 0.42 + wb[1] * 0.42; nz = nz * amp / 0.42 + wb[2] * 0.42;
+        const amp = 0.42 / (Math.hypot(nx, ny, nz) || 1), ba = m.bump ?? 0.42; // (bump: a softer relief, art/fauna.js)
+        nx = nx * amp / 0.42 + wb[0] * ba; ny = ny * amp / 0.42 + wb[1] * ba; nz = nz * amp / 0.42 + wb[2] * ba;
         const lum = 0.93 + 0.07 * (bx * by + bz) * 0.5;
         cr *= lum; cg *= lum; cb *= lum;
       }
@@ -221,6 +224,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
       sh *= 0.84 + 0.16 * clamp01((P3[2] + 2) / 26);
       // warm darks: blue (and a little green) drop in the shade
       let r = cr * sh, g = cg * sh * (0.95 + 0.05 * k1), b2 = cb * sh * (0.84 + 0.16 * k1);
+      if (m.cool) { r = cr * sh * (0.86 + 0.14 * k1); g = cg * sh * (0.93 + 0.07 * k1); b2 = cb * sh * (1.04 - 0.04 * k1); } // (cool: white fur shades blue-grey, art/fauna.js)
       if (m.gloss) { const sp = Math.max(0, ndl) ** 12 * m.gloss; r += sp; g += sp; b2 += sp; }
       px[i * 4] = Math.min(255, r * 255); px[i * 4 + 1] = Math.min(255, g * 255); px[i * 4 + 2] = Math.min(255, b2 * 255); px[i * 4 + 3] = 255;
     }
@@ -510,12 +514,16 @@ function boxOf(model, yaw, phi = PHI) {
   const hw = Math.ceil(Math.max(-x0, x1)) + 6, top = Math.ceil(-y0) + 6, bot = Math.ceil(Math.max(0, y1)) + 6;
   return [hw * 2, top + bot, hw, top];
 }
-function modelSprite(model, yaw, phi = PHI) {
+// opt (wild fauna, art/fauna.js): { cut } only what is above that height, { ow } outline width
+function modelSprite(model, yaw, phi = PHI, opt = null) {
   const [parts, feats] = model;
   const [W, H, hw, top] = boxOf(model, yaw, phi);
-  const c = spritePx(W, H, (g, P) => P.layer((lg) => render(lg, P, parts, feats, yaw, hw, top, { phi }), 2.5, OUTL));
+  const c = spritePx(W, H, (g, P) => P.layer((lg) => render(lg, P, parts, feats, yaw, hw, top, opt ? { phi, ...opt } : { phi }), opt?.ow ?? 2.5, OUTL));
   return [c, top / H];
 }
+
+// the small 3D model kit, shared with the wild fauna (art/fauna.js)
+export const MODEL3D = { E, seg, leg, GAIT, render, boxOf, modelSprite, axesPYR, axesAlong, add3, sub3, mul3, mv, nrm3, len3, col3, fbm3, vnoise, mixv, smooth, clamp01, YAW, OUTL, PHI, IDENT };
 
 const MODELS = { cow: cowModel, sheep: sheepModel, pig: pigModel, chicken: chickenModel };
 

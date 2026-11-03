@@ -190,8 +190,8 @@ export function tickStatus(game, m, dt) {
   return true;
 }
 
-// creature melee swing at a player (shared by animals; raiders use their own variants)
-function bite(game, m, p, sp, rng) {
+// creature melee swing at a player (shared by animals and the wild fauna, game/fauna.js; raiders use their own variants)
+export function bite(game, m, p, sp, rng) {
   m.swingT = sp.swing * (0.9 + Math.random() * 0.2);
   m.action = { type: 'attack', t: 0, dur: 0.5 };
   game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
@@ -384,8 +384,9 @@ export function updateCreature(game, m, dt) {
         faceTowards(m, t);
         if (m.swingT <= 0) bite(game, m, t, sp, rng);
       } else {
-        const dir = steer(game, m, t.x, t.y, dt, sp.speed, rng * 0.85, t.lv | 0); // levels: the target's story (stairs as portals)
-        go(game, m, dir, sp.speed, dt);
+        const spd = sp.speed * (m.speedK ?? 1); // (speedK: a stalking cat creeps, then pounces — game/fauna.js)
+        const dir = steer(game, m, t.x, t.y, dt, spd, rng * 0.85, t.lv | 0); // levels: the target's story (stairs as portals)
+        go(game, m, dir, spd, dt);
       }
       break;
     }

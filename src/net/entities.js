@@ -7,7 +7,8 @@
 //           weapon|0, offhand|0, armorBody|0, armorHead|0, camp|0, ...dyn]
 //   up   = [nid, ...dyn]   (trailing zeros trimmed)
 //   dyn  = [x*100|0, y*100|0, bits, hp, actType|0, actT*100|0, actDur*100|0, actSeq, castName|0, castT*100|0, castDur*100|0, tgtPid|0,
-//           z*100|0 (levels: height in stories), farm|0 (livestock.js: tame 1 | hungry 2 | starving 4 | owned 8), tiedTo pid|0
+//           z*100|0 (levels: height in stories), farm|0 (livestock.js: tame 1 | hungry 2 | starving 4 | owned 8; wild fauna:
+//           fmode << 4 — flying 1 | hidden 2 | in a tree 4 | resting 8, game/fauna.js), tiedTo pid|0
 //           (trailing zeros trimmed)]
 //   bits = facing (0 s,1 n,2 e,3 w) | moving<<2 | dead<<3 | blocking<<4 | stunned<<5 | chase<<6 | bleed<<7 |
 //          poison<<8 | burn<<9 | dazed<<10 | feared<<11
@@ -104,7 +105,7 @@ export class EntityServer {
     return [Math.round(m.x * 100), Math.round(m.y * 100), bits, Math.max(0, Math.round(m.hp)),
       a ? a.type : 0, a ? Math.round((a.t || 0) * 100) : 0, a ? (a.hold ? 0 : Math.round((a.dur || 0.5) * 100)) : 0, a ? m._actSeq : 0,
       c ? c.name : 0, c ? Math.round(c.t * 100) : 0, c ? Math.round(c.dur * 100) : 0, tgt, Math.round((m.z || 0) * 100),
-      m.stock ? (m.tame ? 1 : 0) | (m.hungry ? 2 : 0) | (m.starving ? 4 : 0) | (m.owned ? 8 : 0) : 0, m.tiedTo || 0];
+      m.stock ? (m.tame ? 1 : 0) | (m.hungry ? 2 : 0) | (m.starving ? 4 : 0) | (m.owned ? 8 : 0) : (m.fmode | 0) << 4, m.tiedTo || 0];
   }
   _static(m) {
     return [m.nid, m.kind === 'pawn' ? 'p' : 'a', m.species, m.name, m.level, m.elite ? 1 : 0, m.temper || 0, m.faction || 0,
@@ -256,6 +257,7 @@ export class EntityClient {
     // farm animals (livestock.js): domesticated / hungry / starving / owned, the player leading it on a rope
     const fb = num(d[13]) | 0;
     e.tame = !!(fb & 1); e.hungry = !!(fb & 2); e.starving = !!(fb & 4); e.owned = !!(fb & 8);
+    e.fmode = (fb >> 4) & 15; // (wild fauna: flying / hidden / in a tree / resting — art/faunaDraw.js FMODE)
     e.tiedTo = str(d[14], 40) || null;
     if (SPECIES[e.species]?.water) e.water = true;
   }

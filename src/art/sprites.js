@@ -32,6 +32,7 @@ import { addRoofArt } from './roofs.js';
 import { addStairs } from './stairs.js';
 import { addDeckArt } from './decks.js'; // piers / bridges: icons + the textures of their 3D pieces
 import { addLivestock } from './livestock.js'; // farm animals, fish, feeder, wheat (docs/LIVESTOCK.md)
+import { addFauna } from './fauna.js'; // wild animals of the planet's biomes (docs/FAUNA.md)
 import { CONTRACT } from './contract.js';
 
 export { PPU, CONTRACT };
@@ -44,7 +45,7 @@ const GROUP_PT = {
   addFx: 'efeitos', addTrees: 'árvores', addPlants: 'plantas', addRocks: 'rochas', addPawns: 'pessoas', addAnimals: 'animais',
   addBuildings: 'construções', addIcons: 'ícones', addStructures: 'paredes e portas', addStations: 'bancadas', addCrops: 'plantações',
   addNatural: 'natureza', addCreatures: 'criaturas', addGear: 'armas e ferramentas', addApparel: 'roupas', addItems: 'itens',
-  addCorpses: 'corpos', addRoofArt: 'telhados', addStairs: 'escadas', addDeckArt: 'trapiches e pontes', addArch: 'arquitetura', addDecor: 'decoração', addLivestock: 'criação',
+  addCorpses: 'corpos', addRoofArt: 'telhados', addStairs: 'escadas', addDeckArt: 'trapiches e pontes', addArch: 'arquitetura', addDecor: 'decoração', addLivestock: 'criação', addFauna: 'fauna',
 };
 function* atlasSteps(opts) {
   const A = new Atlas(4096);
@@ -59,7 +60,7 @@ function* atlasSteps(opts) {
   // (A.failures): an atlas with failures or placeholders is never cached and refuses multiplayer.
   const failures = [];
   const steps = [addFx, addTrees, addPlants, addRocks, addPawns, addAnimals, addBuildings, addIcons, addStructures, addStations, addCrops, addNatural,
-    addCreatures, addGear, addApparel, addItems, addCorpses, addRoofArt, addStairs, addDeckArt, addArch, addDecor, addLivestock]; // look parts: painted lazily (art/look/lazy.js)
+    addCreatures, addGear, addApparel, addItems, addCorpses, addRoofArt, addStairs, addDeckArt, addArch, addDecor, addLivestock, addFauna]; // look parts: painted lazily (art/look/lazy.js)
   const total = steps.length + 2;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
