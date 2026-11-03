@@ -9,7 +9,7 @@
 import { defineSolid } from './solid.js';
 import { CAMV, ARCH_FACES as K, archSprite } from '../archCompose.js';
 import { tintOf } from './props.js';
-import { bq } from './kit.js';
+import { bq, vq, shade } from './kit.js';
 
 // ---------- little helpers ----------
 const box = (x0, x1, v0, v1, h0, h1, o) => ({ box: [x0, x1, v0, v1, h0, h1], ...o });
@@ -33,11 +33,28 @@ defineSolid('bench_stone', {
   views: { e: { V: 2, parts: [box(-14, 14, 0.1, 1.9, 9, 15), box(-10, 10, 1.37, 1.65, 0, 9), box(-10, 10, 0.35, 0.63, 0, 9)] } },
 });
 
-// ---------- planter (decor.js planter): the box, and the flowers as a low mass of foliage on its soil ----------
+// ---------- planter (decor.js planter): the box with its soil (planter_base, the art without the flowers), and the
+// flowers as vegetation: four slices of planter_plants standing on the soil along the box, each on its own stretch,
+// on the long side nearer the camera (seen end-on they line up like a row of bushes) ----------
 defineSolid('planter', {
-  parts: [box(-56, 56, 0.4, 0.8, 0, 16), box(-53, 53, 0.43, 0.77, 16, 22, NS)],
-  views: { e: { V: 2, parts: [box(-14, 14, 0.15, 1.85, 0, 16), box(-11, 11, 0.2, 1.8, 16, 22, NS)] } },
+  s: 'planter_base', e: 'planter_base_e', model: 'front',
+  parts: [box(-56, 56, 0.4, 0.8, 0, 16)],
+  views: { e: { V: 2, parts: [box(-14, 14, 0.15, 1.85, 0, 16)] } },
+  fx: [{ at: [0, 0.6, 15], always: true, draw: planterPlants }],
 });
+const PFACE = { s: 0, w: 1, n: 2, e: 3 };
+function planterPlants(B, A, o, t, x, y, lift, a, fs) {
+  const F = B.faces, s = F ? archSprite(A, 'planter_plants') : null;
+  if (!s) return;
+  const an = (PFACE[o.face || 's'] ?? 0) * Math.PI / 2, ax = Math.cos(an), ay = Math.sin(an), lx = -ay, ly = ax; // (its length, its depth)
+  const sd = -CAMV.s * lx + CAMV.c * ly >= 0 ? 0.08 : -0.08; // (the long side nearer the camera)
+  const sw = Math.sin(t * 1.3 + o.x * 0.7) * 0.004;
+  for (let i = 0; i < 4; i++) {
+    const u = -0.75 + i * 0.5, cc = 64 + 64 * u, px = x + ax * u + lx * sd, py = y + ay * u + ly * sd;
+    // frame of mk(2, 30): 128 × 94, anchor (64, 94); the plants' baseline is row Y(0.6, 0) = 68.4
+    bq(F, s, false, 64, 94, cc - 17, 40, cc + 17, 70.4, cc + sw * 64, px, py, lift - 2 / 64, fs.tr, fs.tg, fs.tb, a);
+  }
+}
 
 // ---------- woodpile (decor.js woodpile): the stack, a chopping stump with the axe handle ----------
 defineSolid('woodpile', {
@@ -148,12 +165,17 @@ defineSolid('well', {
 });
 
 // ---------- statue (decor.js statue_0 / _1): base slab, column, cap, the figure (warrior or owl) ----------
-// the art draws the square pedestal's tops 5–6 px deep for 28–34 px: k ≈ 0.18, centred in the tile; the figure is a
-// round body wrapped in its art (front half the front, back half the front mirrored)
-const SK = 6 / 34;
+// the art draws the square pedestal's tops 5–6 px deep for 28–34 px: k ≈ 0.18, centred in the tile. The figure is two
+// crossed boards with its art (a round body wrapped in a flat drawing broke into shards turning): the front board
+// shows it from the front, the board across it shows it from the side (the side view is the front art: e = statue_<v>)
+const SK = 6 / 34, SP = pivOf(0.613, 1, SK, 0.5), sdp = (px) => (px * SK) / 64;
+const ST_PED = [box(-17, 17, 0.566, 0.66, 0, 8, NS), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, NS)];
+const ST_EDGE = box(-1.5, 1.5, 0.613 - sdp(15), 0.613 + sdp(15), 38, 95, NS), ST_FACE = card(-15, 15, 0.613, 38, 95, { t: 3 });
 defineSolid('statue', {
-  k: SK, piv: pivOf(0.613, 1, SK, 0.5),
-  parts: [box(-17, 17, 0.566, 0.66, 0, 8, NS), box(-12, 12, 0.579, 0.647, 8, 34, NS), box(-14, 14, 0.574, 0.652, 33, 38, NS), lathe(0, 0.613, [[38, 15], [93, 15]], { n: 10 })],
+  k: SK, piv: SP,
+  parts: [...ST_PED, ST_FACE, ST_EDGE],
+  views: { e: { k: SK, piv: SP, parts: [...ST_PED, ST_EDGE, ST_FACE] } },
+  state: (o) => ((o.v | 0) & 1 ? 'b' : 'a'), variants: { a: { e: 'statue_0' }, b: { e: 'statue_1' } },
   blob: [0.75, 0.75, 0.5, 0.4],
 });
 
@@ -190,13 +212,13 @@ defineSolid('haystack', {
 });
 
 // ---------- scarecrow (decor.js scarecrow): pole, shirt on its crossbar, head, straw hat; it sways in the wind ----------
-const CK = 4 / 14;
+const CK = 4 / 14, SC_H = [-5, 0.62, 55.5]; // (the head's burlap: its back and sides have no face)
 defineSolid('scarecrow', {
   k: CK, piv: pivOf(0.62, 1, CK, 0.5),
   parts: [
     lathe(0, 0.62, [[0, 2.2], [66, 2.2]], { n: 6, tilt: true }), // (casts the art's silhouette)
     card(-29, 29, 0.62, 14, 53, { t: 4, sh: false, tilt: true }),
-    lathe(0, 0.62, [[50.4, 5.5], [54, 7.2], [61, 7.2], [64, 5]], { n: 8, sh: false, tilt: true }),
+    lathe(0, 0.62, [[50.4, 5.5], [54, 7.2], [61, 7.2], [64, 5]], { n: 8, sh: false, tilt: true, px: { n: SC_H, e: SC_H, w: SC_H } }),
     lathe(0, 0.62, [[61.8, 14], [64.2, 14]], { n: 10, sh: false, tilt: true, z: 0.01 }),
     lathe(0, 0.62, [[64.2, 7], [70, 6.5], [73, 4]], { n: 8, sh: false, tilt: true, z: 0.02 }),
   ],
@@ -242,10 +264,22 @@ defineSolid('signpost', {
   blob: [0.35, 0.3, 0.1, 0.4],
 });
 
-// ---------- garden arch (decor.js gardenArch): two posts with roses, the arch over them (a thin trellis) ----------
+// ---------- garden arch (decor.js gardenArch): a real walk-through arbour, not a board: two posts on each side (front
+// and back, geo: the art's posts on both planes) joined by a trellis panel (its sides the posts' edge stretched: the
+// vines), the arch with its roses on both planes, slats over the top following the curve ----------
+const GA_D = 0.13, GA_POST = [[0, 2.6], [78, 2.6]];
+const GA_SLATS = [0.12, 0.27, 0.42, 0.58, 0.73, 0.88].map((u) => { const x = -26 + 52 * u, h = 76 + 56 * u * (1 - u); return box(x - 1.6, x + 1.6, 0.7 - GA_D, 0.7 + GA_D, h - 2.5, h + 0.4, { sh: false, ow: 0.8, px: [-25.5, 0.7, 40] }); });
 defineSolid('garden_arch', {
-  parts: [lathe(-26, 0.7, [[0, 4], [78, 4]], { n: 6, sh: false }), lathe(26, 0.7, [[0, 4], [78, 4]], { n: 6, sh: false }), card(-34, 34, 0.7, 66, 98, { t: 4, sh: false }), SHADOW(0.7, 96)],
-  blob: [1, 0.3, 0.3, 0.35],
+  borrow: { e: 'edge' },
+  parts: [
+    ...[-26, 26].flatMap((x) => [GA_D, -GA_D].map((d) => lathe(x, 0.7, GA_POST, { n: 6, sh: false, geo: [x, 0.7 + d, GA_POST] }))),
+    box(-27.4, -24.6, 0.7 - GA_D, 0.7 + GA_D, 6, 74, { sh: false, ow: 1 }), box(24.6, 27.4, 0.7 - GA_D, 0.7 + GA_D, 6, 74, { sh: false, ow: 1 }),
+    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 + GA_D, 66, 98] }),
+    card(-34, 34, 0.7, 66, 98, { t: 3, sh: false, geo: [-34, 34, 0.7 - GA_D, 66, 98] }),
+    ...GA_SLATS,
+    SHADOW(0.7, 96),
+  ],
+  blob: [1, 0.45, 0.5, 0.35],
 });
 
 // ---------- pergola (decor.js pergola, 2×2): four posts, two beams, the rafters and leaves lying on top ----------
@@ -295,18 +329,107 @@ defineSolid('training_dummy', {
 });
 
 // ---------- columns (roofs.js columnWood / columnStone, roof supports): footing, round shaft, capital ----------
-// drawn at row 0.78 with flat fronts: k 0.3 puts them in the middle of the tile as square / round blocks
-const QK = 0.3, QP = pivOf(0.733, 1, QK, 0.5);
-defineSolid('column_wood', {
-  k: QK, piv: QP,
-  parts: [box(-10, 10, 0.686, 0.78, 0, 7, { top: 'strip', sh: false }), lathe(0, 0.733, [[7, 6], [48, 6]], { n: 8 }), card(-13, 13, 0.733, 40, 48.5, { t: 2, sh: false }), box(-15, 15, 0.716, 0.75, 47, 54, { top: 'strip', sh: false })],
-  blob: [0.6, 0.6, 0.5, 0.36],
-});
-defineSolid('column_stone', {
-  k: QK, piv: QP,
-  parts: [box(-12, 12, 0.677, 0.79, 0, 8, { top: 'strip', sh: false }), lathe(0, 0.733, [[8, 8], [46, 8]], { n: 8 }), box(-14, 14, 0.682, 0.784, 44, 54, { top: 'strip', sh: false })],
-  blob: [0.62, 0.62, 0.5, 0.36],
-});
+// drawn at row 0.78 with flat fronts: k 0.3 puts them in the middle of the tile as square / round blocks. They hold
+// the roof up: the capital reaches the wall top (one story, 64 px) where the eaves sit (geo: the art drawn 10 px lower)
+const QK = 0.3, QP = pivOf(0.733, 1, QK, 0.5), QV = 0.733, qd = (px) => (px * QK) / 64; // (qd: a true half depth, px → art rows)
+const COL_POST = [box(-10, 10, 0.686, 0.78, 0, 7, { top: 'strip', sh: false }),
+  lathe(0, QV, [[7, 6], [48, 6]], { n: 10, geo: [0, QV, [[7, 6], [58, 6]]] }),
+  card(-13, 13, QV, 40, 48.5, { t: 3, sh: false, geo: [-13, 13, QV, 50, 58.5] }),
+  box(-15, 15, 0.716, 0.75, 47, 54, { top: 'strip', sh: false, geo: [-16, 16, 0.712, 0.754, 57, 64] })];
+const COL_STONE = [box(-12, 12, 0.677, 0.79, 0, 8, { top: 'strip', sh: false }),
+  lathe(0, QV, [[8, 8], [46, 8]], { n: 10, geo: [0, QV, [[8, 8], [56, 8]]] }),
+  box(-14, 14, 0.682, 0.784, 44, 54, { top: 'strip', sh: false, geo: [-15, 15, 0.679, 0.787, 54, 64] })];
+defineSolid('column_wood', { k: QK, piv: QP, align: QV, parts: COL_POST, blob: [0.6, 0.6, 0.5, 0.36], state: colState, variant: colVariant });
+defineSolid('column_stone', { k: QK, piv: QP, align: QV, parts: COL_STONE, blob: [0.62, 0.62, 0.5, 0.36], state: colState, variant: colVariant });
+
+// ---- the column kit (content/kits.js column): four looks — wooden post, stone column, round, carved — each in the
+// type's material (round / carved: the wood or stone art), and the details: capital (a wide abacus and a collar),
+// stone base, banner hanging on the shaft, sconce (a torch on an iron arm, lit: its light is the kit light), ivy ----
+// state: '' for the type's own look without details (the table above), else 'look|details|material' (kept on the
+// shared decoded kit object o._k: no string per frame); the variant for it is built once
+function colState(o) {
+  const k = o._k;
+  if (!k) return '';
+  if (k._col === undefined) {
+    const mat = o.type === 'column_stone' ? 's' : 'w', look = k.custom ? k.style : mat === 's' ? 'stone' : 'post';
+    const ds = ['capital', 'base', 'banner', 'sconce', 'ivy'].filter((d) => k.on[d]).join('.');
+    k._col = look === (mat === 's' ? 'stone' : 'post') && !ds ? '' : look + '|' + ds + '|' + mat;
+  }
+  return k._col;
+}
+const COLV = new Map();
+const COL_CAP = [0, 0.78, 50], COL_STC = [0, 0.78, 3]; // (the capital's colour, the footing's stone: both arts)
+const IRON_PX = [2, 0.9, 31, 'anvil'], TORCH_PX = [1, 1, 20, 'torch'], TORCH_HEAD = [-1, 1, 50, 'torch'];
+function colVariant(st) {
+  let v = COLV.get(st);
+  if (v) return v;
+  const [look, ds, mat] = st.split('|'), on = new Set(ds ? ds.split('.') : []), wood = look === 'post' || ((look === 'round' || look === 'carved') && mat === 'w');
+  const s = wood ? 'column_wood' : 'column_stone';
+  const sa = wood ? [[0, 10], [7, 10]] : [[0, 12], [8, 12]], sh = wood ? [[7, 6], [48, 6]] : [[8, 8], [46, 8]], sc = wood ? [[47, 15], [54, 15]] : [[44, 14], [54, 14]];
+  let parts, R;
+  if (look === 'post') { parts = [...COL_POST]; R = 6; }
+  else if (look === 'stone') { parts = [...COL_STONE]; R = 8; }
+  else if (look === 'round') {
+    R = 7.5;
+    parts = [lathe(0, QV, sa, { n: 12, sh: false, geo: [0, QV, [[0, 12.5], [4.5, 12.5], [7, 10]]] }), lathe(0, QV, sh, { n: 12, geo: [0, QV, [[7, 7.5], [57, 7.5]]] }),
+      lathe(0, QV, sc, { n: 12, sh: false, geo: [0, QV, [[57, 9], [59.5, 12.5], [64, 12.5]]] })];
+  } else { // carved: rings round the shaft, a flared capital
+    R = 7;
+    parts = [lathe(0, QV, sa, { n: 12, sh: false, geo: [0, QV, [[0, 13], [3, 13], [3, 11.5], [6, 11.5], [8, 9]]] }),
+      lathe(0, QV, sh, { n: 12, geo: [0, QV, [[8, 7], [11, 7], [12, 8.6], [14.5, 8.6], [15.5, 7], [48.5, 7], [49.5, 8.6], [52, 8.6], [53, 7], [56, 7]]] }),
+      lathe(0, QV, sc, { n: 12, sh: false, geo: [0, QV, [[56, 7.5], [58, 10], [60.5, 13.5], [64, 14.5]]] })];
+  }
+  const fx = [];
+  let light = null;
+  const B = R + 6; // (the base's and the abacus' half width)
+  if (on.has('base')) parts.push(box(-B, B, QV - qd(B), QV + qd(B), 0, 4, { sh: false, px: COL_STC, ow: 1, z: -0.01 }));
+  if (on.has('capital')) {
+    parts.push(lathe(0, QV, [[53, R + 1.6], [55.5, R + 1.6]], { n: 12, sh: false, px: COL_CAP, ow: 0.6 })); // (a collar under the capital)
+    // the wooden post: a second bolster across the first (a cross); the others: a square abacus over the capital
+    if (look === 'post') parts.push(box(-6, 6, QV - qd(16), QV + qd(16), 57.5, 64, { sh: false, px: COL_CAP, ow: 1 }));
+    else parts.push(box(-B, B, QV - qd(B), QV + qd(B), 61.5, 64.6, { sh: false, px: COL_CAP, ow: 1, z: 0.01 }));
+  }
+  if (on.has('sconce')) {
+    const vf = QV + qd(R), v0 = QV + qd(R + 6) - (0.075 * 38) / 64;
+    parts.push(box(-3.5, 3.5, vf, vf + qd(1.2) * 2, 33, 44, { sh: false, px: IRON_PX, ow: 0.6 }), box(-1, 1, vf, QV + qd(R + 6), 38, 40.5, { sh: false, px: IRON_PX, ow: 0.6 }),
+      lathe(0, v0, [[38, 1.7], [47.5, 1.9]], { n: 6, lean: [0, 0.075], sh: false, px: TORCH_PX, ow: 0.6 }),
+      lathe(0, v0, [[47.5, 2.6], [53.5, 2.9]], { n: 6, lean: [0, 0.075], sh: false, px: TORCH_HEAD, ow: 0.6 }));
+    fx.push({ at: [0, v0 + (0.075 * 55) / 64, 55], draw: colFlame });
+    light = [0, QV + qd(R + 9), 0];
+  }
+  if (on.has('banner')) fx.push({ at: [0, QV, 0], r: R, draw: colBanner });
+  if (on.has('ivy')) fx.push({ at: [0, QV, 0], r: R, draw: colIvy });
+  v = { s, parts, fx, light };
+  COLV.set(st, v);
+  return v;
+}
+const colFlame = (B, A, o, t, x, y, lift, a) => { if (a > 0.05) K.smallFlame(B, K.tables(A), x, y, lift, 1, t, 0.9); };
+// a sprite's whole image laid on a vertical face from (xa, ya) to (xb, yb), heights hb..ht (colour: the piece's tint)
+function wholeFace(F, s, xa, ya, xb, yb, hb, ht, fs, a, c0f = 0, c1f = 1) {
+  const W = s.w * 64, H = s.h * 64;
+  let nx = yb - ya, ny = xa - xb;
+  const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+  if (-CAMV.s * nx + CAMV.c * ny < 0) { nx = -nx; ny = -ny; } // (two-sided: lit as the side the camera sees)
+  const z = shade(nx, ny);
+  vq(F, s, false, s.ax * W, s.ay * H, W * c0f, 0, W * c1f, H, xa, ya, xb, yb, hb, ht, fs.tr * z, fs.tg * z, fs.tb * z, a);
+}
+// the banner: the stand's cloth (banner_cloth_<v>) hanging on the shaft's front, from under the capital
+const COL_CLOTH = ['banner_cloth_0', 'banner_cloth_1', 'banner_cloth_2'];
+function colBanner(B, A, o, t, x, y, lift, a, fs) {
+  const F = B.faces, s = F ? archSprite(A, COL_CLOTH[(((o.v | 0) % 3) + 3) % 3]) : null;
+  if (!s) return;
+  const fy = y + (this.r + 0.8) / 64, w = 0.13, sw = Math.sin(t * 1.6 + o.x) * 0.006;
+  wholeFace(F, s, x - w + sw, fy, x + w + sw, fy, lift + 0.36, lift + 0.86, fs, a);
+}
+// ivy climbing the shaft: four slices of the walls' ivy art (kd_ivy_<v>) round it
+const COL_IVY = ['kd_ivy_0', 'kd_ivy_1', 'kd_ivy_2'];
+function colIvy(B, A, o, t, x, y, lift, a, fs) {
+  const F = B.faces, s = F ? archSprite(A, COL_IVY[(((o.tx | 0) + (o.ty | 0)) % 3 + 3) % 3]) : null;
+  if (!s) return;
+  const r = (this.r + 1.5) / 64, ht = lift + 0.88;
+  const C = [[x - r, y + r], [x + r, y + r], [x + r, y - r], [x - r, y - r]];
+  for (let i = 0; i < 4; i++) { const p = C[i], q = C[(i + 1) % 4]; wholeFace(F, s, p[0], p[1], q[0], q[1], lift + 0.02, ht, fs, a, 0.12 + i * 0.19, 0.31 + i * 0.19); }
+}
 
 // ---------- raider camps (art/stations.js tent / crate; world objects, not buildings: world = their size) ----------
 // canvas A-frame tent (tent_0, 2 tiles wide): the ridge along its depth at 68 px, the two slopes down to ±50 px, the

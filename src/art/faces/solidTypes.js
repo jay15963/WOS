@@ -3,6 +3,7 @@
 // h px above the ground. A view whose art draws the piece differently lists the same parts again in its own numbers.
 import { defineSolid } from './solid.js';
 import { CHEST_UV } from '../buildings.js';
+import { ARCH_FACES as K } from '../archCompose.js';
 
 // ---- chest: a real box with its own face art (art/buildings.js chestUV, CHEST_UV: each face in true proportions) —
 // body 16 px and lid 9 px flush over the whole footprint (EDGE_GEOM 0.56 deep), the bands over front / lid / back, the
@@ -34,9 +35,20 @@ defineSolid('barrel', {
   decal: [0, 0.62, 16, 5], // (its painted dirt patch, kept on the ground)
 });
 
-// ---- table (art/stations.js table / table_wood_e): one see-through box (legs and gaps come from the art) ----
+// ---- table (art/stations.js table / table_wood_e): one see-through box (legs and gaps come from the art), and what
+// stands on it: the mug and the candle in its dish (the art draws them over the top's back; the plate and bread lie
+// painted on the top), the candle's flame on its wick ----
+const TBL_FLAME = (B, A, o, t, x, y, lift, a) => { if (a > 0.05) K.smallFlame(B, K.tables(A), x, y, lift, 1, t, 0.5); };
+const TBL_MUG = [25.5, 0.4, 27], TBL_CV = 0.384 - 2 / 64;
 defineSolid('table_wood', {
-  parts: [{ box: [-56, 56, 0.15, 0.85, 0, 27], open: true }],
+  model: 'front',
+  parts: [
+    { box: [-56, 56, 0.15, 0.85, 0, 27], open: true },
+    { lathe: [25.5, 0.478 - 3.5 / 64, [[27, 3.4], [36, 3.4]]], n: 8, ow: 1.2, sh: false, px: { s: TBL_MUG, e: TBL_MUG, n: TBL_MUG, w: TBL_MUG, t: [25.5, 0.3375, 27] } }, // mug
+    { lathe: [0, TBL_CV, [[27, 4.6], [28.2, 4.6]]], n: 8, ow: 0.8, sh: false, px: [3.5, 0.384, 27] }, // the candle's dish
+    { lathe: [0, TBL_CV, [[28, 1.9], [36.5, 1.9]]], n: 6, ow: 0.8, sh: false, px: [0, 0.306, 27] },    // the candle
+  ],
+  fx: [{ at: [0, 0.384 - 2 / 64, 38], draw: TBL_FLAME }],
   views: { e: { V: 2, parts: [{ box: [-22, 22, 0.12, 1.86, 0, 27], open: true }] } },
 });
 
@@ -54,10 +66,12 @@ defineSolid('chair_wood', {
 // draws the mattress from v 0.594; the model fills the two tiles (geo: the headboard at the tile edge, a bed against a
 // wall touches it), its art stretched along. rest: the pillow (art numbers) where a sleeper's head lies ----
 defineSolid('bed', {
-  V: 2,
+  V: 2, model: 'front', // (the same bed whichever way it faces: the _n / _e art only textures it)
   parts: [
     { box: [-29, 29, 0.594, 1.98, 0, 9], geo: [-30, 30, 0.004, 1.996, 0, 9] },
-    { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4, geo: [-31, 31, 0.035, 9, 31], cover: true },
+    { card: [-30, 30, 0.594 - 2 / 64, 9, 31], t: 4, gt: 6, geo: [-28, 28, 0.05, 9, 31], cover: true },
+    // the headboard's two posts with their knobs (seen from the side the head end stands up, not a thin line)
+    ...[-29, 29].map((x) => ({ lathe: [x, 0.5627, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], geo: [x, 0.05, [[0, 3], [33, 3], [33, 3.7], [36, 3.4], [37.5, 0]]], n: 8, sh: false, cover: true, px: [-28, 0.5627, 15] })),
   ],
   rest: [0, 0.766, 9],
   views: {

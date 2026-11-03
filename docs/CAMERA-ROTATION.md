@@ -335,11 +335,15 @@ paredes).
 - **Arte própria das faces (`uv`):** uma textura pintada com cada face nas proporções de verdade (o baú: `CHEST_UV` em
   `art/buildings.js chestUV` — frente, costas, lados, topo, tampa, dentro e o conteúdo); cada face de uma parte pega o
   retângulo dela (`uv: { s, n, e, w, t, i, q }`), sem projeção.
-- **No lugar do corpo:** a arte nem sempre desenha a peça onde o corpo dela está (a cadeira 0,2 tile atrás da frente, a
-  estante de livros no meio do tile); o modelo é posto no corpo (`align: 'center'`, padrão das peças de borda, ou
-  `'back'`: encostado na borda de trás — estantes, cômoda, guarda-roupa, suporte de armas), então encostado numa parede
-  ele chega nela sem atravessar. `geo` dá o tamanho de verdade de uma parte que a arte desenha mais curta (a cama
-  enche os dois tiles: a cabeceira na borda, encostada na parede; a arte esticada junto).
+- **No lugar do corpo (centrado na grade):** a arte nem sempre desenha a peça onde o corpo dela está (a cadeira 0,2 tile
+  atrás da frente, a fornalha / bigorna / fogueira quase meio tile para a frente — o dono: "estruturas de produção não
+  estão centralizadas na grid"); **toda peça** é posta no corpo, em qualquer rotação e ângulo: `align: 'center'` é o
+  padrão (a caixa do modelo no meio dos tiles), um número põe o eixo de uma peça redonda no centro (a linha da arte do
+  cúpula / cepo / anel), `'back'` encosta na borda de trás (estantes, cômoda, guarda-roupa, suporte de armas: encostado
+  numa parede ele chega nela sem atravessar). A sombra de contato padrão de uma peça de tiles vai para o meio da pegada.
+  Conferir: `game.debugK.solidProbe()` (caixa do modelo × pegada de cada peça pronta, por tipo e rotação). `geo` dá o
+  tamanho de verdade de uma parte que a arte desenha mais curta (a cama enche os dois tiles: a cabeceira na borda,
+  encostada na parede; a arte esticada junto).
 - **Sem amostrar vizinhos do atlas:** cada face é recortada (no carregamento do modelo, na CPU) no retângulo da imagem
   do sprite: nenhuma mudança de shader, nenhum custo por quadro.
 - **Luz e estado:** lados com a luz das paredes (`kit.shade`), topo sem sombreado, lados de dentro (`open`) mais
@@ -379,7 +383,12 @@ da arte, `v` = linha do chão em tiles (o `Y(v, h) = E + 64v − h` dos pintores
 | `quad` | `[[x, v, h] × 4]` | uma face inclinada (tampa, telhadinho) |
 
 Por parte: `sh: false` (sem sombra do sol), `z` (ajuste da ordem), `top: 'strip' | 'none' | 'open'` (+ `band`), `geo`,
-`uv`, `cover`, `solo` (todos os lados da própria arte: tábua, espelho, quadro), `sx` (torno esticado em x: tina oval).
+`uv`, `cover`, `solo` (todos os lados da própria arte: tábua, espelho, quadro), `sx` (torno esticado no x do modelo: tina
+oval — numa vista de lado o esticão vai na profundidade da arte), `ow` (o contorno da própria parte: pernas, corrente,
+ripas finas 0–1), `px` (a parte com a cor de um ponto da arte: `[x, v, h]` em todas as faces, ou **por face**
+`{ s, n, e, w, t }` — frente, costas, +x, −x, topo / tampa; as outras faces com a arte de sempre: a frente da bigorna é a
+arte, o topo e as pontas na cor do ferro; `[x, v, h, 'sprite']` pega a cor de **outro sprite assado**, linha de âncora 1:
+o ferro e a tocha de uma arandela).
 Por tipo: `k`, `k1`, `piv`,
 `V`, `ow` (contorno), `foot: true` (peças de decoração encostáveis: a arte é desenhada mais baixa pelo pé,
 `archCompose.footOf`), `views: { n | e: { parts, k, piv, V, seat… } }` (a mesma lista de partes nos números da arte
@@ -388,7 +397,11 @@ frente como se fosse a frente — bom para peças redondas / simétricas — ou 
 esticadas no lado — caixas compridas), `when(o)` (false = fica com o `props.js`), `state(o)` + `variants` (outra arte
 para um estado; `only: true` = os outros lados emprestam dela), `fx: [{ at: [x, v, h], draw(B, A, o, t, x, y, lift,
 a, fs) }]` (`always`: também na planta / fantasma), `light: [x, v, h]`, `seat: [x, v, h]`, `rest: [x, v, h]`,
-`blob: false | [sx, sy, dy, a]`, `decal: [x, v, rx, ry, a]`, `align`, `fixed` (desenhada virada para o sul seja qual
+`blob: false | [sx, sy, dy, a]` (sem `blob`: peça de borda com a sombra do pintor na frente, as outras com a sombra no
+meio da pegada), `decal: [x, v, rx, ry, a]`, `align` (padrão `'center'`: **toda peça centrada nos próprios tiles**, a
+caixa do modelo; um número = a linha da arte do eixo de uma peça redonda posta no centro — cúpula, cepo, anel de pedras;
+`'back'` = encostada na borda de trás; `false` = onde a arte desenha), `variant(st)` (a variante que a tabela monta para
+um estado que ela calcula: o visual e os detalhes de uma coluna), `fixed` (desenhada virada para o sul seja qual
 for a frente: o estandarte, como em 0°), `scale` + `hang(o)` (arte em escala e o modelo àquela altura: coisa de parede
 solta), `pt` (a parte cujo encaixe põe os pontos), `uvS` (o sprite das faces `uv`).
 
@@ -414,14 +427,26 @@ esticado das linhas de cima). Coisas redondas no chão (anel de pedras, prato, a
 - **Braseiro:** bacia redonda com as brasas na boca, três pernas de ferro inclinadas de verdade (pés no anel que `k`
   dá); fogo na boca. **Caldeirão:** anel de 8 pedras, cinza / lenha com brasas, tripé de três pernas inclinadas até o
   ápice, corrente, caldeirão, alça e concha; fogo sob o caldeirão e o **vapor** saindo da boca enquanto cozinha.
-- **Fornalha:** cúpula de pedra (a boca e as juntas acesas como **brilho sobre a face**, só quando trabalha), chaminé
-  saindo de trás da cúpula (com a brasa no topo), atiçador encostado e fole; a chama da boca só aparece de frente
-  (some girando para os lados / de trás). **Vista de trás pintada** (`furnace_back`, `art/stations.js`, preguiçosa: só com
-  a câmera girada): cúpula sem boca e a chaminé do outro lado — antes as costas mostravam uma segunda boca.
-- **Bigorna:** cepo redondo, cintura, mesa com o chifre e o martelo deitado em cima.
+- **Fornalha:** cúpula de pedra **no meio do tile** (`align` no eixo: antes ficava 0,4 tile para a frente, metade fora
+  da pegada) (a boca e as juntas acesas como **brilho sobre a face**, só quando trabalha), chaminé saindo de trás da
+  cúpula (a boca de fuligem na cor dela), atiçador encostado na cúpula e fole no pé (cores próprias: de trás não ficam
+  vazados); a chama da boca só aparece de frente. **Vista de trás pintada** (`furnace_back`, preguiçosa) também nos
+  **lados** (`e: 'furnace_back'`): antes os lados mostravam uma segunda boca.
+- **Bigorna:** cepo redondo **no meio do tile** e, **sobre** o cepo (a arte a desenha 3 px acima: `geo`), o ferro em
+  blocos com a profundidade de verdade: pé, cintura, mesa com o calcanhar e o **chifre afinando em três degraus**; a frente
+  é a arte, topos e pontas na cor do ferro (`px` por face); o martelo (cabo e cabeça) deitado na mesa.
+- **Caldeirão:** no meio do tile; **tripé de verdade**: as três pernas (cor da madeira, finas) saem de um círculo fora das
+  pedras e se encontram bem em cima do caldeirão (a arte desenha o ápice atrás), amarração no ápice, corrente reta; o
+  caldeirão começa onde a arte o desenha (antes o fundo pegava o fogo e as pernas), a boca cheia do ensopado; cada pedra
+  do anel numa cor de pedra (antes as de trás pegavam o caldeirão).
+- **Fogueira:** o anel cabe no tile (raio 22: a arte é mais larga que um tile e o anel ficava meio tile para a frente),
+  centrado; cada pedra na cor da sua pedra na arte. **Braseiro:** centrado, pernas finas na cor do ferro.
 - **Bancada / cantaria / tear** (2×1, `model: 'front'`: a mesma peça virada para qualquer lado; a arte `_n` / `_e` só
-  pinta): bancada vazada com o painel de ferramentas atrás; mesa de pedra com o bloco sendo lavrado, a pilha de blocos
-  e as pedras no chão; tear (o quadro como uma tábua grossa), o banco do tecelão e o cesto de algodão.
+  pinta): bancada vazada com o painel de ferramentas atrás; mesa de pedra com o bloco sendo lavrado, **três** blocos
+  prontos (dois lado a lado e um em cima, como a arte) e duas pedras redondas no chão **dentro** da pegada; tear com o
+  quadro **de madeira de verdade** (dois montantes quadrados em **pés compridos** — de lado é um T em pé, não um pau —,
+  viga de cima, rolo do pano e a urdidura com o pano entre eles; pontas e topos na cor da madeira: a arte `_e` desenha o
+  quadro torto, só o banco e o cesto pegam dela), o banco do tecelão e o cesto de algodão. Centradas pela caixa.
 - **Lareira:** **uma lareira de pedra só, ocupando a pegada inteira** (2×1: `k` 0,5 leva a profundidade da arte até a
   parede de trás e a borda da frente), a mesma de todos os lados (`model: 'front'`; a arte de lado / de trás só pinta):
   o peito da chaminé subindo pela parede, a lareira com uma **boca de verdade** (dois batentes, a verga, a parede do
@@ -462,18 +487,31 @@ um texel da arte (`px`).
 - **Estátua** (pedestal quadrado de verdade e a figura — guerreiro ou coruja — como um corpo redondo com a arte em
   volta), **totem** (tronco com o chapéu e as asas como tábuas), **colmeia** (banquinho e a colmeia de palha; abelhas
   voando em volta, no mundo), **monte de feno** (com os dentes do forcado), **espantalho** (poste, camisa na travessa,
-  cabeça, chapéu de aba de verdade; balança ao vento: `tilt`), **casinha de passarinho** (poste sob a casa, a casa,
+  cabeça — as costas e os lados da cabeça só de estopa, sem rosto —, chapéu de aba de verdade; balança ao vento: `tilt`), **casinha de passarinho** (poste sob a casa, a casa,
   telhado de duas águas com as empenas), **quadro de avisos** (postes, quadro, telhado como a vista de lado o desenha:
   cumeeira ao longo do quadro, empenas nas pontas), **placa** (poste e as duas setas como tábuas).
-- **Arco de jardim** (dois postes com rosas e o arco como uma treliça fina) e **pérgola** (quatro postes, duas vigas, as
-  ripas e folhas deitadas em cima): postes e vigas de verdade, nada de cartão virado para a tela; a sombra do sol é a
-  silhueta da arte (uma parte só de sombra, `SHADOW`).
+- **Arco de jardim:** um caramanchão de verdade, centrado no tile: dois postes de cada lado (frente e trás: `geo` com a
+  arte dos postes nos dois planos) ligados por uma treliça (os lados com a borda dos postes esticada: as trepadeiras —
+  `borrow: { e: 'edge' }`), o arco com as rosas nos dois planos e ripas por cima acompanhando a curva — de lado não é
+  mais um risco. **Pérgola** (quatro postes, duas vigas, as ripas e folhas deitadas em cima): postes e vigas de verdade;
+  a sombra do sol é a silhueta da arte (uma parte só de sombra, `SHADOW`).
+- **Floreira:** a caixa com a terra (`planter_base` / `planter_base_e`: a arte sem as flores) e as flores como
+  **vegetação em pé** (`planter_plants`: hastes, folhas e flores numa linha de base) em quatro fatias, cada uma no seu
+  trecho da caixa, no lado comprido mais perto da câmera: vista de ponta vira uma fileira de moitas (antes uma massa
+  lisa na caixa).
+- **Colunas** (o kit de colunas de `content/kits.js`, que antes não aparecia em ângulo nenhum): até o beiral (64 px, o
+  topo das paredes: antes paravam 10 px abaixo do telhado), centradas; os quatro visuais — **poste de madeira**, **coluna
+  de pedra**, **redonda** e **entalhada** (anéis no fuste, capitel em sino), as duas últimas no material do tipo — e os
+  detalhes: **capitel** (colar + ábaco; no poste, um segundo coxim em cruz), **base de pedra**, **estandarte** (o pano do
+  estandarte pendurado na frente do fuste), **arandela** (placa e braço de ferro, tocha inclinada para fora com a chama;
+  a luz é a luz do kit, `o.light`, saindo dali) e **hera** (a hera das paredes em volta do fuste); os **tons** do kit
+  tingem as faces (`o._k.tint`, todas as peças sólidas com kit). `state` guarda a chave no objeto do kit decodificado
+  (nada de texto por quadro), `variant` monta cada combinação uma vez.
 - **Canteiro de flores:** o canteiro é sólido com a arte sem as flores (`flower_bed_base`, preguiçosa) e as flores
   (`flower_bed_plants_<v>`: as duas camadas da arte separadas, juntas são a arte inteira) são vegetação — um sprite em
   pé na borda do canteiro mais perto da câmera, subindo sobre ele em qualquer ângulo (também na planta / obra).
 - **Boneco de treino:** pé em cruz, poste, tronco de palha, braços, cabeça; **balança quando apanha** (a mesma conta do
   `archCompose`: `o._wobT` / `_wobA` / `_wobD`) pelo `tilt` do kit.
-- **Colunas:** sapata, fuste redondo, capitel (a de madeira com as mãos-francesas), no meio do tile.
 - **Acampamento dos bandidos** (objetos do mundo, não construções: `world: [l, p]`): **barraca de lona** (cumeeira ao
   longo da profundidade, as duas águas inclinadas de verdade, a empena da frente com a entrada, a de trás na cor da
   lona), **tenda cônica** (cone com as varas saindo em leque no topo), **caixotes**; a **fogueira** do acampamento usa a
@@ -489,7 +527,9 @@ um texel da arte (`px`).
 Com a câmera girada o andaime (`scaffold_0`) de **qualquer** peça em construção (paredes, portas, cercas, portões,
 colunas, móveis, estações, decoração, coisas de parede) é uma armação parada no mundo em volta da pegada: quatro
 painéis com os postes, as duas travessas, a diagonal e a tábua de cima (a arte em ordem do mundo: visto por trás fica
-espelhado); painéis vizinhos se cruzam no eixo de cada poste, então cada poste de canto é um poste de qualquer lado.
+espelhado); painéis vizinhos se cruzam no eixo de cada poste, então cada poste de canto é um poste de qualquer lado. A
+**altura acompanha a peça** (a tábua de cima um pouco acima do topo do modelo da peça sólida; uma história para paredes /
+portas; a altura da cerca): um baú ou um banco ganham um andaime baixo, não de dois tiles.
 `game.js` chama `drawFacesTurned`: os painéis vistos por dentro antes da peça (fechando o segmento de faces: ficam
 antes até dos sprites dela) e os outros depois; a barra de progresso continua de frente para a tela. Tirados: o sprite
 de frente para a tela das peças sólidas / `props.js` (`XB` o descarta) e o andaime que era pintado nas faces das
@@ -510,8 +550,9 @@ paredes (a gravação o ignora). Custo: 4 quads por peça em obra, nada guardado
   o escudo pendurados), **suporte de armadura** (tábua do pé, poste, a armadura como caixa: a malha na frente, os ombros
   esticados no topo; o elmo), **tina** (torno oval `sx`, a água no aro).
 - **Estandarte** (`fixed`: virado para o sul como em 0°): poste e travessa sólidos, o **pano** pendurado na travessa
-  como uma tábua no plano do estandarte, balançando nele como em 0° (desenhado a cada quadro: `bannerCloth`), sombra do
-  pano como caixa fina.
+  em quatro faixas formando um S raso de cada lado da travessa (dobras que respiram com o vento: visto de lado aparece
+  em volta do poste, não some), balançando no plano como em 0° (desenhado a cada quadro: `bannerCloth`), sombra do pano
+  como caixa fina.
 - **Vasos** (`flower_pot`, `plant_pot`): o vaso é o sólido (redondo, achatado como a arte); a planta / as flores ficam
   **em pé como vegetação, presas no eixo do vaso** — `<tipo>_<v>_leaf` é a mesma pintura com o miolo do vaso recortado
   (o contorno fica), desenhada em pé no ponto do eixo (`fx` `always`): vaso + planta = o sprite inteiro em qualquer giro.
@@ -519,6 +560,11 @@ paredes (a gravação o ignora). Custo: 4 quads por peça em obra, nada guardado
 - **Coisas de parede soltas** (quadro, troféu, cortina, ervas, ganchos sem parede atrás — `o._mount` falso): uma tábua
   fina virada para a frente dela, na escala (0,66) e na altura em que ficaria na parede (`hang`). Na parede: as faces
   planas de `faces/structures.js` (`drawMountFaces`), presas à face da parede em qualquer giro (conferidas na casa).
+- **Mesa:** a caneca e a **vela no castiçal com a chama acesa no pavio** em cima do tampo (antes sumiam: a arte os
+  desenha atrás do tampo), cores próprias (`px`), a mesma mesa virada para qualquer lado. **Cama:** a cabeceira mais grossa
+  e as **duas colunas com as bolas** (de lado a cabeceira fica em pé, não um risco), a mesma cama em qualquer giro
+  (`model: 'front'`: a virada para o norte era 0,26 tile mais curta). **Tina:** virada de lado ficava atravessada na
+  pegada (o `sx` da vista de lado esticava o eixo errado: corrigido no kit). **Cômoda:** o espelho com 4 px de moldura.
 - **Baú** (`solidTypes.js`): corpo de 16 px e tampa de 9 px rentes na pegada inteira, faixas de ferro passando pela
   frente, tampa e costas nos mesmos x, fechadura só na frente, cantoneiras e alça nos lados; aberto (o jogador usando,
   qualquer frente): paredes de dentro escuras, o conteúdo no fundo, a tampa em pé na borda de trás. **Cama:** enche os
@@ -615,34 +661,31 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   trocam de lado (não giram de verdade). Ferramenta de revisão: `tools/diag.html` (folha das 8 vistas pelo compose do
   jogo: `?set=people|gear|states|animals`, `?parts=lk_hair_long,…` mostra frente / 3/4 / lado / 3/4 costas / costas de
   cada peça).
-- **Peças sólidas:** falta converter os outros tipos de móveis / jardim para a tabela de `art/faces/solid.js` (até lá:
-  em pé com 4 vistas ou arte dobrada do `props.js`); luzes, fogo e estações já estão (`solidLights.js`). Nelas: o topo
-  de arte chapada (fornalha, postes, lanterna de pedra) é a borda de cima da arte esticada (a arte não tem topo); o
-  caldeirão / pote visto de trás é a frente espelhada; as velas do consolo da lareira e a ponta do quadro do tear vistas
-  de lado pegam a arte de lado (pedra / transparente); a fumaça de um fogo de baixo atravessa um piso de cima (como
-  antes); o halo de `fx/ambient.js` continua por cima de tudo (como em 0°); uma tocha de parede no lado norte de uma
-  parede sobe um pouco acima do topo dela vista de longe (é mais alta que a parede na arte); o anel de pedras / o prato
-  são círculos de verdade (a arte os desenhava achatados). Móveis: a arte de quem só tem a vista de frente é esticada
-  na profundidade de verdade (a cama, a tina) e os lados sem arte emprestam a frente; a cômoda vista de lado perde o
-  espelho (fino, a arte de lado não o tem); o pano do estandarte some visto de lado (é plano); coisas de parede soltas
-  flutuam na altura da parede (como em 0°); a planta de um vaso é um cartão em pé (vegetação), não gira com o vaso; os
-  potes / sacos / vasos ficam achatados ao longo da vista como a arte. Sentado: a pose 3/4 só aparece quando as peças
-  3/4 do visual já estão pintadas (até lá o lado mais perto); a altura do corpo no assento vem de uma medida
-  (`PELVIS` 0,476) tirada da cadeira de madeira. Quem dorme / senta: as posições 3D (`seatAt` / `restAt`) valem em todos
-  os ângulos, 0° também; o encosto / a cabeceira na frente continuam como desenhável à parte (inofensivo: a
-  profundidade por pixel já decide). A mancha de terra pintada em volta do barril some ao girar (fica fora do sólido).
-  Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px).
-- **Móveis em pé** (os do `props.js`: peças de 1 tile, armações vistas de ponta): 4 vistas, trocam de vista a 45° como os
-  personagens; poste de lampião e estandarte não têm vista de lado (em 0° também giram só pelo espelho do mundo).
-  O estandarte do acampamento dos bandidos (tipo `banner`, objeto do mundo) fica com quem converter o estandarte (o kit
-  já desenha objetos do mundo de um tipo da tabela).
+- **Peças sólidas:** **todas as peças do menu de construir são 3D** (tabela de `art/faces/solid.js` ou os tipos de face
+  das estruturas; pisos, tapetes, pedras de caminho, canteiros de horta e coisas de parede ficam planos no chão / na
+  face da parede); o `props.js` só desenha uma peça sólida enquanto a arte dela ainda não foi pintada (alguns quadros).
+  Lacunas: o topo de arte chapada (a cúpula da fornalha, postes) é a borda de cima da arte esticada (a arte não tem
+  topo); a crescente de `ow` atrás do topo é a linha de contorno dividida por `k` (em `k` 0,3 a base de uma coluna fica
+  ~8 px mais funda atrás); a bigorna continua do tamanho da arte (pequena no tile); o caldeirão / pote visto de trás é a
+  frente espelhada; a estátua vista de trás é a frente espelhada (a coruja com os olhos atrás); as barracas dos
+  bandidos idem; as velas do consolo da lareira vistas de lado pegam a arte de lado; a fumaça de um fogo de baixo
+  atravessa um piso de cima (como antes); o halo de `fx/ambient.js` continua por cima de tudo (como em 0°); uma tocha de
+  parede no lado norte de uma parede sobe um pouco acima do topo dela vista de longe; o anel de pedras / o prato são
+  círculos de verdade (a arte os desenhava achatados). Móveis: a arte de quem só tem a vista de frente é esticada na
+  profundidade de verdade (a cama, a tina) e os lados sem arte emprestam a frente; a mesa ainda tem a caneca e a vela
+  pintadas no tampo, por baixo das de verdade (só aparecem de lado, de leve); o espelho da cômoda e a cabeceira
+  continuam finos vistos de lado (são tábuas); coisas de parede soltas flutuam na altura da parede (como em 0°); a
+  planta de um vaso é um cartão em pé (vegetação), não gira com o vaso; os potes / sacos / vasos ficam achatados ao
+  longo da vista como a arte. Sentado: a pose 3/4 só aparece quando as peças 3/4 do visual já estão pintadas (até lá o
+  lado mais perto); a altura do corpo no assento vem de uma medida (`PELVIS` 0,476) tirada da cadeira de madeira. O
+  encosto / a cabeceira na frente continuam como desenhável à parte (inofensivo: a profundidade por pixel já decide).
+  Um ponto de `fx` não acompanha o achatamento perto de 0° (≤ 1 px). Estante, cômoda e suporte de armas ficam
+  encostados na borda de trás de propósito (`align: 'back'`: vão contra a parede).
 - Faces de móveis não recebem a sombra do sol (como as paredes).
-- **Jardim / acampamento:** as flores da floreira são uma massa na caixa (a arte não as separa da caixa: só o canteiro
-  de flores tem as flores como vegetação em pé); a frente e o verso de uma peça sem vista de trás são a mesma arte
-  espelhada (o espantalho, a estátua, as barracas: duas entradas); o cepo da lenha não aparece na vista de lado da arte
-  (fica ao lado da pilha); arte "de frente" esticada sobre a profundidade de verdade (topos das caixas, o pedestal da
-  estátua, o banquinho da colmeia) parece lisa; a empena da frente da barraca de lona corta o alto da entrada (a arte
-  desenha a entrada mais alta que a cumeeira de trás); o varal / a pérgola / o arco não balançam; o andaime tem sempre
-  o tamanho da arte (2 tiles de altura), também em peças baixas.
+- **Jardim / acampamento:** a frente e o verso de uma peça sem vista de trás são a mesma arte espelhada (a estátua, as
+  barracas: duas entradas); arte "de frente" esticada sobre a profundidade de verdade (topos das caixas, o pedestal da
+  estátua, o banquinho da colmeia) parece lisa; a empena da frente da barraca de lona corta o alto da entrada; o varal /
+  a pérgola / o arco não balançam; os estilos de coluna redonda / entalhada usam a textura do fuste do material (não
+  têm arte própria pintada).
 - Desmontar com um toque pega o tile do chão sob o dedo (como em 0°); o giro de uma peça (R / ⟳) continua em
   direções do mundo (a seta no chão mostra para onde).
