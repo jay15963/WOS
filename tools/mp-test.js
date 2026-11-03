@@ -1713,7 +1713,7 @@ def('S30', {
     await A.harvest(t, S1, M, plot);
     await t.sleep(300); fl.stop();
     const it = fl.items(0);
-    t.check((it.potato || 0) >= 3 && (it.potato || 0) <= 4, 'harvest yields 3–4 potatoes (+ seeds)', short(it));
+    t.check((it.potato || 0) >= 1 && (it.potato || 0) <= 2, 'harvest yields 1–2 potatoes (+ seeds)', short(it)); // (docs/LIVESTOCK.md rebalance)
   } else t.note('no farm site — farming sub-check skipped');
   // combat
   const prey = A.mobs(S1, (e) => !e.dead && (e.species === 'rabbit' || e.species === 'deer' || e.species === 'fox')).sort((a, b) => A.dist(a, p) - A.dist(b, p))[0];
@@ -2459,7 +2459,8 @@ def('W1', {
   } else t.log('no deep water near the guest: ice check skipped');
   // night: no green animals on the host (they went home; some may still be walking away in view)
   await t.sleep(2500);
-  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving).length;
+  // (fish stay in the water all day; farm animals of the players have no herd: both are out at night on purpose)
+  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner).length;
   t.check(green === 0, 'no passive animal out at night', `${green}`);
   // a walker next to the guest
   const s = A.freeSpot(H, MH, gp.x + 6, gp.y, { rMin: 0, rMax: 3, r: 0.3 });
