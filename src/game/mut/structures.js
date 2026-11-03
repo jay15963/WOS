@@ -789,9 +789,9 @@ export function releaseStations(game, pid) {
 export { cropAt, findObj };
 
 // ---------- terrain height (docs/TERRAIN-HEIGHT.md): the base a building stands on ----------
-// Pieces that sit on a level pad (story 0 at base height bz): walls, doors, floors, stairs and everything that blocks
-// its tile; not fences / gates / columns (thin), farm plots (they follow the ground), roofs, piers / bridges.
-export const ON_PAD = (type) => { const d = BUILDINGS[type]; return !!d && !d.roof && !d.deck && type !== 'farm_plot' && d.connect !== 'fence' && !/^(fence|gate|column)/.test(type); };
+// Pieces that sit on a level pad (story 0 at base height bz): walls, doors, floors and stairs — a house's shell. The
+// rest (furniture, stations, lights, fences, farm plots…) stands on the ground where it is (on a floor: the floor's pad).
+export const ON_PAD = (type) => { const d = BUILDINGS[type]; return !!d && !d.roof && !d.deck && (d.connect === 'wall' || /^(floor_|stairs_)/.test(type)); };
 export const PAD_STEP = 0.25;     // bases snap to quarter stories
 export const PAD_MAX = 1.5;       // the most a footprint may rise across (a foundation fills the rest)
 // refusals on relief: a cliff under the footprint, or ground too uneven for a foundation

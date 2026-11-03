@@ -1227,7 +1227,7 @@ uniform vec2 uCam, uView, uWorld;
 uniform vec2 uRot; // camera yaw (cos, sin)
 vec2 v2w(vec2 v){ vec2 r = dot(uRot, uRot) < 0.5 ? vec2(1.0, 0.0) : uRot; return vec2(r.x * v.x - r.y * v.y, r.y * v.x + r.x * v.y); }
 uniform float uMesh;        // 1 = drawn as the 3D terrain mesh (world/height.js); 0 = the flat world of before
-uniform highp sampler2D uHgtG; // smooth gradient of the fine surface (RG16F, linear: dh/dx, dh/dy in stories per tile)
+uniform highp sampler2D uHgtG; // the fine surface, smooth (RGBA16F, linear): dh/dx, dh/dy (stories per tile), height
 uniform highp sampler2D uHgtF; // the fine surface itself (R32F, nearest; relief shadows)
 uniform highp sampler2D uHgtC; // corner heights (R32F, nearest: the tile's lowest / highest corner)
 uniform sampler2D uHgtK;    // per tile (RG8, linear between tile centres): R steepest slope (× 5.33: a smooth "rock here"
@@ -1412,7 +1412,11 @@ vec3 iceSurface(vec2 wp, float depth, float wl, vec4 nA, vec4 nB, vec4 nC, vec3 
 // (u along it, v up it), horizontal strata with their own tones and seams, vertical cracks, darker toward the foot,
 // a lit lip at the top, moss low on wet faces, snow on the lip and ledges above the snow line. g = the triangle's slope,
 // tile = (lowest, highest corner), rid = rock layer.
-vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float LI, vec3 sunT, float lush, float snowK, vec4 nA, vec4 nB){
+vec4 cliffTex(float rid, vec2 fx, vec2 fy, float wx, float tl){
+  return mix(textureLod(uGround, vec3(fy * 0.25, rid), tl), textureLod(uGround, vec3(fx * 0.25 + 0.41, rid), tl), wx);
+}
+vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld, float LI, vec3 sunT, float lush, float snowK, vec4 nA, vec4 nB){
+  float rid = rids.x;
   float s = length(g);
   vec2 gn = g / max(s, 1e-3);
   // triplanar on the two vertical planes: a face looking along x shows (y, h), one looking along y shows (x, h)
@@ -1420,8 +1424,13 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float L
   float u = wp.x + 0.62 * wp.y; // (one coordinate everywhere: no seams where the faces turn)
   vec2 fx = vec2(wp.y, ht * 1.2), fy = vec2(wp.x, ht * 1.2);
   float tl = max(log2(max(length(dFdx(fy)), length(dFdy(fy))) * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
-  vec4 A = textureLod(uGround, vec3(fy * 0.25, rid), tl), A2 = textureLod(uGround, vec3(fx * 0.25 + 0.41, rid), tl);
-  A = mix(A, A2, wx);
+  vec4 A = cliffTex(rids.x, fx, fy, wx, tl);
+  if (rids.y != rids.x || rids.z != rids.x || rids.w != rids.x) {
+    // the regional rock changes here: blend the four tiles' rocks smoothly
+    vec2 s = rf * rf * (3.0 - 2.0 * rf);
+    vec4 B1 = rids.y == rids.x ? A : cliffTex(rids.y, fx, fy, wx, tl), C1 = rids.z == rids.x ? A : cliffTex(rids.z, fx, fy, wx, tl), D1 = rids.w == rids.x ? A : cliffTex(rids.w, fx, fy, wx, tl);
+    A = mix(mix(A, B1, s.x), mix(C1, D1, s.x), s.y);
+  }
   vec4 Bt = textureLod(uGround, vec3(ROT * vec2(u, ht * 1.2) * 0.19 + vec2(0.37, 0.11), rid), tl);
   vec3 alb = mix(A.rgb, Bt.rgb, 0.3 + 0.3 * (Bt.a - A.a)) * 1.08 * vec3(1.03, 1.0, 0.95);
   // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
@@ -1921,10 +1930,10 @@ void main(){
     float kt = KT.r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
     float cl = smoothstep(0.72 + 0.2 * nB.w, 1.25 + 0.25 * nA.y, max(kt * 0.92, sf * 0.8)) * smoothstep(0.12, 0.45, sf + 0.25 * kt);
     if (cl > 0.003) {
-      ivec2 tc = ivec2(floor(wp));
-      float c0 = texelFetch(uHgtC, tc, 0).r, c1 = texelFetch(uHgtC, tc + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tc + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tc + ivec2(1, 1), 0).r;
+      ivec2 tq = ivec2(floor(wp));
+      float c0 = texelFetch(uHgtC, tq, 0).r, c1 = texelFetch(uHgtC, tq + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tq + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tq + ivec2(1, 1), 0).r;
       vec4 tile = vec4(min(min(c0, c1), min(c2, c3)), max(max(c0, c1), max(c2, c3)), 0.0, 0.0);
-      vec3 cr = cliffRock(wp, hT, gs, tile, ridOf(tileAt(tc)), Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
+      vec3 cr = cliffRock(wp, hT, gs, tile, vec4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td)), f, Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
       if (KT.b > 0.02) cr = mix(cr, earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB), smoothstep(0.15, 0.7, KT.b)); // dug / heaped by players
       if (KT.g > 0.02) cr = mix(cr, masonry(wp, hT, gs, Ld, LI, sunT), smoothstep(0.15, 0.6, KT.g)); // a building's foundation
       col = mix(col, cr, cl);
@@ -1939,7 +1948,7 @@ void main(){
         float t = 0.2 + float(k * k) * 0.18;
         vec2 pk = wp - sdir * t;
         float hr = hT + t / sl2 + hb;
-        float hp = texelFetch(uHgtF, clamp(ivec2(pk * 4.0 + 0.5), ivec2(0), ivec2(uHgtSz) - 1), 0).r;
+        float hp = textureLod(uHgtG, (pk * 4.0 + 0.5) / uHgtSz, 0.0).b;
         ts = max(ts, smoothstep(0.0, 0.4, hp - hr));
       }
       col *= 1.0 - ts * min(uShadowStr * 1.15, 0.64) * outK * vec3(1.0, 0.95, 0.84);

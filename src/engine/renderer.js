@@ -221,7 +221,7 @@ export class Renderer {
 
   // ---------- terrain height (docs/TERRAIN-HEIGHT.md, src/world/height.js) ----------
   // unit 9 uHgt: the fine surface (R32F, nearest: exact geometry in every vertex shader, 4 × 4 samples per tile);
-  // unit 10 uHgtG: its smooth gradient (RG16F, linear: soft shading); unit 11 uHgtC: the corner heights (R32F);
+  // unit 10 uHgtG: its smooth gradient + height (RGBA16F, linear: soft shading, relief shadows); unit 11 uHgtC: the corner heights (R32F);
   // unit 12 uHgtK: per tile the steepest slope, a building pad, player edits (RGBA8, linear: rock / masonry / earth faces).
   // A flat world keeps 1×1 placeholders and every shader skips the fetch (uHgtOn 0, uMesh 0).
   _setHeight(L) {
@@ -230,9 +230,9 @@ export class Renderer {
     this.hgt = L && L.any ? L : null;
     const on = !!this.hgt, fw = on ? L.FW : 1, fh = on ? L.FH : 1;
     this.hgtTex = createTexture(gl, { width: fw, height: fh, data: on ? L.f : new Float32Array(1), internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST });
-    this._hgtG = new Uint16Array(fw * fh * 2);
+    this._hgtG = new Uint16Array(fw * fh * 4);
     if (on) this._gradHeight(0, 0, fw - 1, fh - 1);
-    this.hgtGTex = createTexture(gl, { width: fw, height: fh, data: this._hgtG, internal: gl.RG16F, format: gl.RG, type: gl.HALF_FLOAT, filter: gl.LINEAR });
+    this.hgtGTex = createTexture(gl, { width: fw, height: fh, data: this._hgtG, internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, filter: gl.LINEAR });
     this.hgtCTex = createTexture(gl, { width: on ? L.W + 1 : 1, height: on ? L.H + 1 : 1, data: on ? L.c : new Float32Array(1), internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST });
     this._hgtK = new Uint8Array(on ? L.W * L.H * 4 : 4);
     if (on) this._kHeight(0, 0, L.W - 1, L.H - 1);
@@ -253,15 +253,16 @@ export class Renderer {
       K[k + 3] = 255;
     }
   }
-  // central-difference gradient of the fine surface (stories per tile) as half floats, for a fine rect
+  // central-difference gradient of the fine surface (stories per tile) + the height itself, as half floats, for a fine rect
   _gradHeight(i0, j0, i1, j1) {
     const L = this.hgt, F = L.f, FW = L.FW, FH = L.FH, D = this._hgtG, k = 4 / 2; // (SUB / 2: two fine steps)
     i0 = Math.max(0, i0); j0 = Math.max(0, j0); i1 = Math.min(FW - 1, i1); j1 = Math.min(FH - 1, j1);
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
       const il = Math.max(0, i - 1), ir = Math.min(FW - 1, i + 1), ju = Math.max(0, j - 1), jd = Math.min(FH - 1, j + 1);
-      const o = (j * FW + i) * 2;
+      const o = (j * FW + i) * 4;
       D[o] = toHalf((F[j * FW + ir] - F[j * FW + il]) * k * (2 / (ir - il)));
       D[o + 1] = toHalf((F[jd * FW + i] - F[ju * FW + i]) * k * (2 / (jd - ju)));
+      D[o + 2] = toHalf(F[j * FW + i]);
     }
   }
   // re-upload what changed (a cliff cut back by mining): called once per frame
@@ -282,7 +283,7 @@ export class Renderer {
     };
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     up(this.hgtTex, L.FW, i0, j0, i1 - i0 + 1, j1 - j0 + 1, gl.RED, gl.FLOAT, L.f);
-    up(this.hgtGTex, L.FW, i0, j0, i1 - i0 + 1, j1 - j0 + 1, gl.RG, gl.HALF_FLOAT, this._hgtG);
+    up(this.hgtGTex, L.FW, i0, j0, i1 - i0 + 1, j1 - j0 + 1, gl.RGBA, gl.HALF_FLOAT, this._hgtG);
     const cx0 = Math.max(0, d[0] - 1), cy0 = Math.max(0, d[1] - 1), cx1 = Math.min(L.W, d[2] + 2), cy1 = Math.min(L.H, d[3] + 2);
     up(this.hgtCTex, L.W + 1, cx0, cy0, cx1 - cx0 + 1, cy1 - cy0 + 1, gl.RED, gl.FLOAT, L.c);
     const kx0 = Math.max(0, d[0] - 1), ky0 = Math.max(0, d[1] - 1), kx1 = Math.min(L.W - 1, d[2] + 1), ky1 = Math.min(L.H - 1, d[3] + 1);
@@ -741,7 +742,7 @@ export class Renderer {
         // as strips along the view's cross axis, the strips nearest the camera first
         if (u.uMesh) gl.uniform1f(u.uMesh, 1);
         gl.uniform2f(u.uScale, sx, sy);
-        gl.uniform1i(u.uHgtF, 9); gl.uniform1i(u.uHgtG, 10); gl.uniform1i(u.uHgtC, 11); gl.uniform1i(u.uHgtK, 12);
+        for (const [n, k] of [['uHgtF', 9], ['uHgtG', 10], ['uHgtC', 11], ['uHgtK', 12]]) if (u[n]) gl.uniform1i(u[n], k);
         gl.uniform2f(u.uHgtSz, HL.FW, HL.FH);
         if (u.uSnowLine) gl.uniform1f(u.uSnowLine, this.snowLine ?? 9);
         depthUni(p);
