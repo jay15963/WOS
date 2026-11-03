@@ -173,7 +173,8 @@ const ribbon = (a, b, th, extra) => [
   { quad: [[a[0], a[1], a[2] + th], [b[0], b[1], b[2] + th], [b[0], b[1], b[2] - th], [a[0], a[1], a[2] - th]], uv: { q: U.string }, sh: false, ...extra },
   { quad: [[b[0], b[1], b[2] + th], [a[0], a[1], a[2] + th], [a[0], a[1], a[2] - th], [b[0], b[1], b[2] - th]], uv: { q: U.string }, sh: false, ...extra },
 ];
-const SP = { spin: true, sh: false };
+const SP = { spin: true };                 // (turning parts cast their sun shadow turned with them: art/faces/solid.js)
+const SPN = { spin: true, sh: false };     // (thin / vanishing ones do not)
 
 defineSolid('ballista', {
   ow: 0, uvS: 'ballista_uv',
@@ -188,31 +189,38 @@ defineSolid('ballista', {
     upright([-5.5, 5.5, 0.41, 0.59, 12.4, 28], U.post),
     // ---- the top (turns with the aim) ----
     ironBox([-9.5, 9.5, 0.37, 0.63, 26.5, 34], SP),                          // yoke
-    along([-5, 5, -0.08, 1.12, 33.5, 39.5], U.railS, U.railT, SP),          // the stock
+    along([-6.5, 6.5, -0.08, 1.12, 33, 40], U.railS, U.railT, SP),          // the stock
     across([-18, 18, 0.85, 0.99, 31, 35.5], U.beamS, U.beamT, SP),          // frame: bottom / top beams, posts
     across([-18, 18, 0.85, 0.99, 56, 60.5], U.beamS, U.beamT, SP),
     upright([-18, -12.5, 0.85, 0.99, 35.5, 56], U.frame, SP), upright([12.5, 18, 0.85, 0.99, 35.5, 56], U.frame, SP),
     upright([-12, -5.5, 0.865, 0.975, 35.5, 56], U.rope, SP), upright([5.5, 12, 0.865, 0.975, 35.5, 56], U.rope, SP), // rope skeins
-    across([-33, -11, 0.885, 0.955, 43.5, 49], U.armS, U.armT, SP), across([11, 33, 0.885, 0.955, 43.5, 49], U.armS, U.armT, SP), // arms
-    across([-51, -31, 0.81, 0.885, 43.5, 49], U.armS, U.armT, SP), across([31, 51, 0.81, 0.885, 43.5, 49], U.armS, U.armT, SP),
-    ironBox([-55, -49, 0.78, 0.9, 42.5, 50], SP), ironBox([49, 55, 0.78, 0.9, 42.5, 50], SP),      // iron tips
-    ironBox([-3.5, 3.5, 0.12, 0.25, 39.5, 43.5], SP),                         // the claw that holds the string
+    // the arms: heavy beams out of the skeins, swept back, bound with iron where they leave the frame and at the tips
+    across([-34, -11, 0.85, 0.985, 39.5, 52.5], U.armS, U.armT, SP), across([11, 34, 0.85, 0.985, 39.5, 52.5], U.armS, U.armT, SP),
+    across([-52, -31, 0.785, 0.905, 41, 51], U.armS, U.armT, SP), across([31, 52, 0.785, 0.905, 41, 51], U.armS, U.armT, SP),
+    ironBox([-23, -19.5, 0.84, 0.995, 38.8, 53.2], SPN), ironBox([19.5, 23, 0.84, 0.995, 38.8, 53.2], SPN),
+    ironBox([-35, -31, 0.78, 0.99, 39.5, 52.5], SPN), ironBox([31, 35, 0.78, 0.99, 39.5, 52.5], SPN),   // (the elbow joint)
+    ironBox([-58, -49, 0.755, 0.92, 39.5, 52.5], SP), ironBox([49, 58, 0.755, 0.92, 39.5, 52.5], SP),  // iron tips
+    ironBox([-3.5, 3.5, 0.12, 0.25, 39.5, 43.5], SPN),                        // the claw that holds the string
     along([-11, 11, -0.12, 0.02, 32, 39], U.winch, U.winch, SP),               // windlass
-    ironBox([-14.5, -11, -0.1, -0.01, 28, 43], SP), ironBox([11, 14.5, -0.1, -0.01, 28, 43], SP),
+    ironBox([-14.5, -11, -0.1, -0.01, 21, 43], SP), ironBox([11, 14.5, -0.1, -0.01, 21, 43], SP),
+    // the operator's grips: two handles running back from the windlass brackets at hand height (game/ballista.js
+    // seat: the operator stands 0.98 behind the post and holds them; art/compose.js 'operate' pose)
+    along([-14.2, -10.4, -0.36, -0.08, 21.5, 25.5], U.armS, U.armT, SP), along([10.4, 14.2, -0.36, -0.08, 21.5, 25.5], U.armS, U.armT, SP),
+    ironBox([-15, -9.6, -0.42, -0.34, 20.5, 26.5], SPN), ironBox([9.6, 15, -0.42, -0.34, 20.5, 26.5], SPN),
     // ---- loaded: the string pulled back to the claw and a bolt in the groove; fired: the string straight ----
-    ...ribbon([-52, 0.84, 46.2], [0, 0.18, 41.5], 1.0, { ...SP, vis: loaded }),
-    ...ribbon([0, 0.18, 41.5], [52, 0.84, 46.2], 1.0, { ...SP, vis: loaded }),
-    ...ribbon([-52, 0.84, 46.2], [52, 0.84, 46.2], 1.0, { ...SP, vis: fired }),
-    along([-1.7, 1.7, 0.2, 1.22, 39.5, 42.6], U.boltS, U.boltS, { ...SP, vis: loaded }),
-    ironBox([-3, 3, 1.18, 1.38, 39, 43.2], { ...SP, vis: loaded }),
-    { box: [-0.6, 0.6, 0.22, 0.42, 39.5, 46], uv: { s: U.fletch, n: U.fletch, e: U.fletch, w: U.fletch, t: U.fletch }, ...SP, vis: loaded },
+    ...ribbon([-53, 0.83, 46.2], [0, 0.18, 41.5], 1.0, { ...SPN, vis: loaded }),
+    ...ribbon([0, 0.18, 41.5], [53, 0.83, 46.2], 1.0, { ...SPN, vis: loaded }),
+    ...ribbon([-53, 0.83, 46.2], [53, 0.83, 46.2], 1.0, { ...SPN, vis: fired }),
+    along([-1.7, 1.7, 0.2, 1.22, 39.5, 42.6], U.boltS, U.boltS, { ...SPN, vis: loaded }),
+    ironBox([-3, 3, 1.18, 1.38, 39, 43.2], { ...SPN, vis: loaded }),
+    { box: [-0.6, 0.6, 0.22, 0.42, 39.5, 46], uv: { s: U.fletch, n: U.fletch, e: U.fletch, w: U.fletch, t: U.fletch }, ...SPN, vis: loaded },
   ],
-  // a soft shadow under the arms that turns with them (the turning parts cast no sun shadow of their own)
+  // a faint contact shade under the arms on the ground, turning with them (the sun shadow is the parts' own)
   fx: [{ at: [0, 0.5, 0], always: true, draw(B, A, o, t, x, y, lift, a) {
     const T = A.has('fx_blob') ? A.get('fx_blob') : null;
-    if (!T || !B.blob) return;
+    if (!T || !B.blob || lift > 0.05) return;
     const g = aimOf(o), c = Math.cos(g), s = Math.sin(g), yaw = Math.atan2(CAMV.s, CAMV.c); // (screen angle = world angle − yaw)
-    B.blob.add(T, x + c * 0.36, y + s * 0.36, 1.75, 0.38, 1, 1, 1, 0.34 * a, 0, g + Math.PI / 2 - yaw);
+    B.blob.add(T, x + c * 0.36, y + s * 0.36, 1.7, 0.34, 1, 1, 1, 0.16 * a, 0, g + Math.PI / 2 - yaw);
   } }],
   blob: [1.15, 0.78, 0.5, 0.42],
 });

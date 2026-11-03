@@ -2696,6 +2696,9 @@ def('BA1', {
   t.check(dMid > 0.02 && dMid < dTot - 0.05, 'it turns slowly (the host sees it on its way)', `start ${f2(a0)} mid ${f2(aMid)} target ${f2(want)}`);
   await t.waitFor(() => Math.abs(MH.ballista.angDiff(MH.ballista.aimOf(oH), want)) < 0.03, 6000 + RT(), 'it points at the giant on the host', () => `${f2(MH.ballista.aimOf(oH))} → ${f2(want)}`);
   await t.waitFor(() => Math.abs(MH.ballista.angDiff(oG._aimD ?? 0, want)) < 0.03, 1500, 'and on the guest');
+  // the operator's pose (cosmetic, every peer): the host draws the guest at the grips, facing the aim (_opA)
+  const geH = H.game.session?.players?.get(G.pid)?.ent;
+  t.check(geH && geH._opA != null && Math.abs(MH.ballista.angDiff(geH._opA, want)) < 0.1 && gp._opA != null, 'the host draws the guest operating it, turned to the aim (and the guest itself)', `${geH?._opA} / ${gp._opA} vs ${f2(want)}`);
   const xpH = hp.xp, xpG = gp.xp, max = m.maxHp;
   // shot 1
   t.check(C.fire(), 'the guest fires (bolt paid)');
@@ -2769,6 +2772,81 @@ def('BA2', {
   await t.waitFor(() => !oH.user && !oG.user, 2000 + RT(), 'the host takes a gone operator off (both)');
   await t.checkDigest(H, G);
   env.history.push('BA2');
+});
+
+def('BA3', {
+  title: 'Ballista up a story: on a wall-walk the guest gets on only from up there, stays on the wall while it turns, and its bolt flies over the walls below and plunges onto a giant', timeout: 120000,
+  expected: 'A 3×2 block of stone walls (a wall-walk two tiles deep) with a ballista built on its top (story 1); winter night. From the ground under it the guest is refused ("Suba até a balista"); on the wall top (lv 1) it gets on (user = guest on both); while it turns toward an ice giant on the ground 10 tiles east the guest stays at story 1 on a wall-top tile (no fall); the bolt leaves at story 1 (b.lv 1, height ≈ 1 near the muzzle on both — it does not stop in the wall under it) and takes 55% of the giant\'s life; the guest gets off and is still up there; digest equal',
+  api: 'mut/ballista.js intent ballista.use (story check), ballista.js seatSpot (levels.collidesL), boltZ / boltStops / boltReaches, op ballista.shot (lv from the ballista), struct.add {lv}',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => { const L = []; for (let i = -1; i <= 14; i++) for (let j = -1; j <= 3; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'found a free 16×5 strip');
+  const { x0, y0 } = site, walls = [];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) walls.push(['wall_stone', x0 + i, y0 + j]);
+  const wids = hostBuild(H, walls);
+  await t.waitFor(() => wids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the walls');
+  const [bid] = hostBuildLv(H, [['ballista', x0 + 1, y0, 0]], 1);
+  siegeCleanup(t, H, MH, day0, hour0, [bid, ...wids]);
+  await t.waitFor(() => A.structOn(G, bid) && !A.structOn(G, bid).blueprint, RT() + 1500, 'the guest has the ballista on the wall top');
+  const oG = A.structOn(G, bid), oH = A.structOn(H, bid);
+  t.check((oG.lv | 0) === 1 && (oH.lv | 0) === 1, 'the ballista stands at story 1 on both', `${oG.lv} / ${oH.lv}`);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  A.pacify(H, x0, y0, 30, 600);
+  const nb = gp.inv.count('ballista_bolt');
+  if (nb) gp.inv.remove('ballista_bolt', nb);
+  gp.inv.add('ballista_bolt', 3);
+  const errs = [];
+  t.defer(G.game.events.on('error', (d) => errs.push(d.text)));
+  // from the ground below: refused
+  A.teleport(G, x0 + 1.5, y0 + 2.7);
+  await A.hostSees(t, H, G);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => errs.some((s) => /Suba até a balista/.test(s)), RT() + 1500, 'from the ground: "Suba até a balista"', () => errs.join(' | '));
+  t.check(!oH.user && !oG.user, 'nobody on it');
+  // on the wall top: allowed
+  upOn(G, x0 + 1.5, y0 + 1.5);
+  await t.sleep(RT() + 300);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'from the wall top the guest operates it');
+  // the giant on the ground, 10 tiles east
+  const gs = A.freeSpot(H, MH, x0 + 11.5, y0 + 0.5, { rMin: 0, rMax: 1.2, r: 0.45 });
+  t.assert(gs, 'free spot for the giant');
+  const m = MH.giants.spawnGiantAt(H.game, gs[0], gs[1]);
+  m.calmT = 1e9; m.state = 'idle'; m.stateT = 1e9;
+  const pxy = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
+  const [pvx, pvy] = MG.ballista.pivotOf(oG), want = Math.atan2(pxy.y - pvy, pxy.x - pvx);
+  const C = G.game.ballista;
+  C.stickOn = true; C.stickAng = want;
+  t.defer(() => { C.stickOn = false; });
+  let minZ = 9;
+  const watch = setInterval(() => { minZ = Math.min(minZ, gp.z || 0); }, 50);
+  t.defer(() => clearInterval(watch));
+  await t.waitFor(() => Math.abs(MH.ballista.angDiff(MH.ballista.aimOf(oH), want)) < 0.03, 8000 + RT(), 'it points at the giant on the host');
+  await t.sleep(400);
+  const W = G.game.world, ti = Math.floor(gp.y) * W.W + Math.floor(gp.x);
+  t.check(minZ > 0.9 && (gp.lv | 0) === 1 && G.game.levels.isSurface(1, ti), 'the guest stays up on the wall while it turns (on a wall-top tile)', `min z ${f2(minZ)}, lv ${gp.lv}, at ${f2(gp.x)},${f2(gp.y)}`);
+  t.check(Math.hypot(gp.x - pvx, gp.y - pvy) > 0.6, 'the guest stands clear of it (behind / beside)', `${f2(Math.hypot(gp.x - pvx, gp.y - pvy))} tiles from the post`);
+  const max = m.maxHp;
+  t.check(C.fire(), 'the guest fires');
+  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !b.done || b.d > 0), RT() + 1500, 'the bolt flies on the guest');
+  const bH = await t.waitFor(() => (H.game.bolts || [])[0], RT() + 1500, 'and on the host');
+  t.check(bG.lv === 1 && bH.lv === 1, 'the bolt leaves at story 1 on both', `${bG.lv} / ${bH.lv}`);
+  t.check(MH.ballista.boltZ(1, 1) === 1 && MH.ballista.boltZ(1, 30) === 0 && !MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 1) && MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 0), 'high, it passes over the wall under it (low it would stop)');
+  await t.waitFor(() => m.hp < max, 4000 + RT(), 'the plunging bolt hits the giant', () => `bolt ${f2(bH.x)},${f2(bH.y)} z ${f2(bH.z)} done ${bH.done} stuck ${bH.stuck}`);
+  t.check(Math.abs((max - m.hp) - Math.ceil(max * 0.55)) <= 1, 'a bolt takes 55% of its life', `${Math.round(max - m.hp)} of ${Math.round(max)}`);
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the guest gets off');
+  await t.sleep(300);
+  t.check((gp.z || 0) > 0.9, 'and is still up on the wall', lvOf(gp));
+  await t.checkDigest(H, G);
+  env.history.push('BA3');
 });
 
 def('S62', {

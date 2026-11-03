@@ -1091,6 +1091,14 @@ function rigPose(Q, C, sd, flip) {
       }
     }
   }
+  // on a ballista (game/ballista.js marks its operator every frame: _opA, the aim): both hands on the grips behind the
+  // windlass (art/faces/solidDefense.js), leaning into it; what it carries put away meanwhile
+  if (p._opA != null && !act && !sit && !swimming) {
+    showW = false; showO = false; h1 = h2 = true; h1b = h2b = false;
+    if (sd === 'e') { h1x = flip * 0.21; h1l = 0.32; h2x = flip * 0.17; h2l = 0.31; h2b = flip > 0; rot += flip * 0.06; headRot -= flip * 0.03; }
+    else if (sd === 's') { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.31; h1dy = h2dy = 0.13; oy += 0.015; }
+    else { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.33; h1b = h2b = true; oy -= 0.015; }
+  }
   p._pk = act ? k : 1;
   // raised shield (block / blocking flag)
   if (blockK > 0 && showO && oType === 'shield') {
