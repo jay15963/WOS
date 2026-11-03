@@ -41,7 +41,7 @@ export function giantNumbers(game, k = (game.season?.year || 1) - 1) {
 }
 export const SIEGE_MUL = 8;        // × a walker's pace on walls / doors / fences (stone: ~44 s alone, wood: ~13 s)
 export const SMASH = { wind: 1.15, raise: 0.6, reach: 1.45, r: 1.25, mult: 1, recover: 0.55 }; // wind-up s, raise part, impact radius (tiles)
-export const ROCK = { min: 4.5, max: 15, cast: 0.85, r: 1.0, cd: [7, 10], dur: [0.55, 0.055], apex: [1.4, 0.24], scatter: 0.45, lead: 0.55 };
+export const ROCK = { min: 4.5, max: 15, cast: 0.85, r: 1.0, cd: [7, 10], dur: [0.55, 0.055], apex: [0.8, 0.12], scatter: 0.45, lead: 0.55 };
 const SWING = 3.0;                 // s between smashes
 
 // throw damage: a winter walker's hit at the giant's level (owner: "o mesmo dano dos andarilhos")

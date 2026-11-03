@@ -253,9 +253,12 @@ export function ballistaOwnerSystem() {
       }
       // stand behind it, facing where it points
       const [sx, sy] = seatOf(o, C.aimL);
-      if (Math.hypot(sx - p.x, sy - p.y) > 0.002) {
-        const k = Math.min(1, dt * 12), nx = p.x + (sx - p.x) * k, ny = p.y + (sy - p.y) * k;
-        if (!collides(game.world, nx, ny, p.r || 0.24, null, false)) { p.x = nx; p.y = ny; }
+      const ds = Math.hypot(sx - p.x, sy - p.y), pr = p.r || 0.24;
+      if (ds > 0.002) {
+        // (a step at a time while it turns; from the far side of it — got on from the front — straight to the seat)
+        const k = ds > 0.5 ? 1 : Math.min(1, dt * 12), nx = p.x + (sx - p.x) * k, ny = p.y + (sy - p.y) * k;
+        if (!collides(game.world, nx, ny, pr, null, false)) { p.x = nx; p.y = ny; }
+        else if (!collides(game.world, sx, sy, pr, null, false)) { p.x = sx; p.y = sy; }
       }
       p.facing = facingFrom(Math.cos(C.aimL), Math.sin(C.aimL), p.facing);
       p._faceLockT = Math.max(p._faceLockT || 0, 0.1);

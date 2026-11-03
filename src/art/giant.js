@@ -21,13 +21,13 @@ const DIRS = ['s', 'n', 'e'];
 const BASE = {
   v: 1, build: 'heavy', height: 'tall', skin: '8fb1c7', head: 'square', ears: 'small', eyes: 'narrow', eyeC: 'c8fbff',
   brows: 'thick', nose: 'flat', mouth: 'frown', cheeks: 'cheekbones', age: 'old', marks: 'none', scar: 'none',
-  paint: 'none', paintC: 'ece6da', hair: 'bald', hairC: 'dfeaf2', hairFx: 'none', hairC2: 'f2f8fb', beard: 'long', beardC: 'e3eff6',
-  top: 'sleeveless', topC: '3a4550', topC2: '56626e', pattern: 'plain', over: 'fur_vest', overC: 'd9e2e8',
-  bottom: 'skirt', botC: '2c333b', shoes: 'barefoot', shoeC: '2c3036',
+  paint: 'none', paintC: 'ece6da', hair: 'bald', hairC: 'dfeaf2', hairFx: 'none', hairC2: 'f2f8fb', beard: 'full', beardC: 'e3eff6',
+  top: 'tank', topC: '4a4038', topC2: '5e5246', pattern: 'plain', over: 'none', overC: 'd9e2e8',
+  bottom: 'shorts', botC: '6a5644', shoes: 'barefoot', shoeC: '2c3036',
 };
 export const GIANT_LOOKS = [
   Object.freeze({ ...BASE }),
-  Object.freeze({ ...BASE, head: 'wide', skin: '9bbcd2', beard: 'braided', brows: 'bushy', mouth: 'serious' }),
+  Object.freeze({ ...BASE, head: 'wide', skin: '9bbcd2', beard: 'mutton', brows: 'bushy', mouth: 'serious' }),
 ];
 export function giantLook(p) {
   const s = String(p.id ?? p.nid ?? 0);
@@ -84,12 +84,16 @@ function icicles(g, x0, x1, y, n, len, rand) {
     g.beginPath(); g.moveTo(x - w, y - 0.5); g.lineTo(x + w, y - 0.5); g.lineTo(x + 0.2, y + L); g.closePath(); g.fill();
   }
 }
-// shaggy frozen fur: tufts hanging down between y0 and y1
+// shaggy frozen fur: a flap narrowing down from (x0..x1, y0) to its ragged hem near y1, tufts over it
 function fur(g, x0, x1, y0, y1, rand) {
+  const cx = (x0 + x1) / 2, hw = (x1 - x0) / 2;
   g.fillStyle = C.furD;
-  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y0); g.lineTo(x1 - 1, y1 - 2); g.lineTo(x0 + 1, y1 - 2); g.closePath(); g.fill();
-  for (let x = x0; x < x1; x += 2.2) {
-    const L = (y1 - y0) * (0.75 + rand() * 0.35), c = rand();
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y0);
+  for (let k = 0; k <= 8; k++) { const u = 1 - k / 8, x = cx + (u * 2 - 1) * hw * 0.62, y = y1 - 3 + (k & 1 ? -2.5 : 0) - Math.abs(u * 2 - 1) * 3; g.lineTo(x, y); }
+  g.closePath(); g.fill();
+  for (let x = x0 + 1; x < x1 - 1; x += 2.2) {
+    const u = (x - cx) / hw, yb = y0 + (y1 - y0) * (1 - Math.abs(u) * 0.45) - 3;
+    const L = (yb - y0) * (0.8 + rand() * 0.3), c = rand();
     g.fillStyle = c < 0.33 ? C.fur : c < 0.7 ? C.furM : C.furD;
     g.beginPath(); g.moveTo(x - 0.6, y0 + rand() * 2); g.quadraticCurveTo(x + 1.4, y0 + L * 0.6, x + 0.6 + (rand() - 0.5), y0 + L); g.lineTo(x + 2.4, y0 + rand() * 2); g.closePath(); g.fill();
     if (rand() < 0.4) { g.fillStyle = A(C.rime, 0.8); g.beginPath(); circle(g, x + 0.8, y0 + L - 0.6, 0.6); g.fill(); }
@@ -102,10 +106,9 @@ function strap(g, pts, w) {
 
 // ---------------- the carapace (body box) ----------------
 function giantArmor(g, d, rand) {
-  // fur loincloth over the skirt (a little wider than the body)
-  if (d === 'e') fur(g, 14, 44, 38, 52, rand); else fur(g, 6, 50, 38, 52, rand);
+  // a fur loincloth hanging from the belt (front / back flap; from the side a narrower one), over the leg wraps
   g.save(); g.beginPath(); bodyPath(g, d); g.clip();
-  g.fillStyle = 'rgba(10,20,30,0.18)'; g.fillRect(0, 34, BW, 5); // (the fur's shade on the belly)
+  if (d === 'e') fur(g, 27, 41, 37, 50, rand); else fur(g, 19, 37, 37, 50, rand);
   g.restore();
   if (d === 's') {
     slab(g, [[9, 13], [27, 12], [27.5, 26], [22, 32], [10.5, 29], [7.5, 21]], rand, 1);
@@ -131,23 +134,24 @@ function giantArmor(g, d, rand) {
 }
 
 // ---------------- the shoulder crags (body box, drawn over the head's back) ----------------
-const SHOULDERS = { s: [[11.5, 17, -1], [44.5, 17, 1]], n: [[11.5, 17, -1], [44.5, 17, 1]], e: [[25, 16, 0]] };
+const SHOULDERS = { s: [[10, 18, -1], [46, 18, 1]], n: [[10, 18, -1], [46, 18, 1]], e: [[26, 17, 0]] };
 function giantIce(g, d, rand) {
   for (const [x, y, side] of SHOULDERS[d]) {
     // a heavy pauldron of ice under the crags
     g.fillStyle = lin(g, x - 9, y - 6, x + 9, y + 6, [[0, C.ice], [0.5, C.iceM], [1, C.iceD]]);
-    g.beginPath(); g.ellipse(x, y + 1, d === 'e' ? 10.5 : 9.5, 6.4, d === 'e' ? 0.1 : side * 0.3, 0, TAU); g.fill();
-    g.strokeStyle = A(C.rime, 0.85); g.lineWidth = 0.9; g.beginPath(); g.ellipse(x - 1, y - 2.5, 6, 1.6, d === 'e' ? 0.1 : side * 0.3, Math.PI, TAU); g.stroke();
-    const n = d === 'e' ? 6 : 5;
+    g.beginPath(); g.ellipse(x, y + 1, d === 'e' ? 8.5 : 7.6, 5.2, d === 'e' ? 0.1 : side * 0.3, 0, TAU); g.fill();
+    g.strokeStyle = A(C.rime, 0.85); g.lineWidth = 0.9; g.beginPath(); g.ellipse(x - 1, y - 2, 5, 1.4, d === 'e' ? 0.1 : side * 0.3, Math.PI, TAU); g.stroke();
+    // crystals leaning outward (the head stays clear between them)
+    const n = d === 'e' ? 4 : 3;
     for (let i = 0; i < n; i++) {
-      const u = i / (n - 1) - 0.5;
-      const a = -Math.PI / 2 + (d === 'e' ? u * 1.7 - 0.2 : side * (0.15 + (u + 0.5) * 0.95)) + (rand() - 0.5) * 0.18;
-      const len = (d === 'e' ? 13 : 12) * (1.2 - Math.abs(u) * 0.75) + rand() * 4, w = 2.6 + rand() * 1.2;
-      const bx = x + (d === 'e' ? u * 12 : side * (u + 0.5) * 7 - side * 2), by = y - 2 + Math.abs(u) * 2;
-      shard(g, bx, by, a, len, w, rand, i === 1 ? 0.45 : 0);
+      const u = n === 1 ? 0 : i / (n - 1);
+      const a = d === 'e' ? -Math.PI / 2 - 0.9 + u * 1.1 + (rand() - 0.5) * 0.12 : -Math.PI / 2 + side * (0.55 + u * 0.75) + (rand() - 0.5) * 0.12;
+      const len = (d === 'e' ? 10 : 10.5) * (1.15 - u * 0.4) + rand() * 2.5, w = 2.1 + rand() * 0.8;
+      const bx = x + (d === 'e' ? (u - 0.5) * 9 : side * (1 + u * 3)), by = y - 1.5 + u * 1.5;
+      shard(g, bx, by, a, len, w, rand, i === 0 ? 0.45 : 0);
     }
   }
-  if (d === 'n') for (let i = 0; i < 3; i++) shard(g, 28 + (i - 1) * 4, 12 + Math.abs(i - 1) * 2, -Math.PI / 2 + (i - 1) * 0.35, 10 - Math.abs(i - 1) * 2, 2.4, rand);
+  if (d === 'n') for (let i = 0; i < 3; i++) shard(g, 28 + (i - 1) * 5, 20 + Math.abs(i - 1) * 2, -Math.PI / 2 + (i - 1) * 0.45, 7 - Math.abs(i - 1) * 1.5, 2, rand); // (low on the back: the head stays clear)
   if (d === 'e') for (let i = 0; i < 3; i++) shard(g, 16 - i * 0.5, 18 + i * 5, Math.PI + 0.55 - i * 0.12, 7 - i, 2, rand); // spikes down the back
 }
 

@@ -413,7 +413,7 @@ function blinking(t, ph0) {
 // · eyeC: glow colour · scale: the whole rig drawn that many times bigger around its ground point (drawScaled)
 const PAWN_OV = {
   walker: { look: walkerLook, armor: 'wk_armor_', ice: 'wk_ice_', face: 'wk_face_', crown: null, eyes: WALKER_EYES, eyeC: [0.35, 0.85, 1], scale: 1 },
-  giant: { look: giantLook, armor: 'wk_armor_gi_', ice: 'wk_ice_gi_', face: 'wk_face_gi_', crown: 'hat_gicrown_', eyes: GIANT_EYES, eyeC: [0.45, 0.92, 1], scale: 2 },
+  giant: { look: giantLook, armor: 'wk_armor_gi_', ice: 'wk_ice_gi_', face: 'wk_face_gi_', crown: 'hat_gicrown_', eyes: GIANT_EYES, eyeC: [0.45, 0.92, 1], scale: 1.8, hk: 1.3, bx: 1.06 },
 };
 // lazily painted overlays: a record once painted (stamped as in use), else null (asked for)
 const WKS = new WeakMap();
@@ -468,6 +468,14 @@ class ScaleBatch {
 }
 const SB = {};
 for (const k of VB_KEYS) SB[k] = new ScaleBatch();
+// a look rig with its body stretched (OV.hk: taller torso, the head lifted with it; OV.bx: broader) — the same layers,
+// cached per rig (prototype: everything else, the 3/4 rigs included, stays the rig's own)
+const STRETCH = new WeakMap();
+function stretched(LK, OV) {
+  let S = STRETCH.get(LK);
+  if (!S) { S = Object.create(LK, { hk: { value: LK.hk * (OV.hk || 1) }, sx: { value: LK.sx * (OV.bx || 1) } }); STRETCH.set(LK, S); }
+  return S;
+}
 let SCALING = false;
 function drawScaled(B, A, p, t, k) {
   for (const n of VB_KEYS) { const v = SB[n]; v.dst = B[n] || null; v.ox = p.x; v.oy = p.y; v.k = k; }
@@ -505,6 +513,7 @@ export function drawPawn(B, A, p, t) {
   // look layers (lazy parts: until painted, the base-pawn stand-in in the same colours; own look painted now)
   let LK = lookRig(A, L);
   if (!rigReady(LK, !p.isMob && !p.remote && !p.lazyLook)) LK = LK.fb;
+  if (OV && (OV.hk || OV.bx)) LK = stretched(LK, OV); // (a giant: a longer, broader body under the same head)
   const fl = p.flash || 0;
   const sk = LK.skin, pc = LK.botC;
   const wet = p._wet || 0;
