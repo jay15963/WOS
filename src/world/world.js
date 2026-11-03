@@ -22,7 +22,7 @@ import { boxBlur, clamp } from '../engine/noise.js';
 import { G, BIOMES, BIOME_ID, CAMP_R } from './worldgen.js';
 import { ROOF_GEOM } from '../game/content/roofs.js';
 import { fertileAt } from './soil.js';
-import { HeightLayer } from './height.js';
+import { HeightLayer, setActiveHeight } from './height.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
@@ -57,6 +57,7 @@ export class World {
     this.solid = new Uint8Array(N); // buildings/walls occupancy
     // terrain height (docs/TERRAIN-HEIGHT.md): corner heights in stories; all zero = the flat world of before
     this.height = new HeightLayer(this.W, this.H, gen.heightCorners || null);
+    setActiveHeight(this.height);
     delete this.heightCorners;
     this.tileData = new Uint8Array(N * 4);
     this.field2 = new Uint8Array(N * 4);

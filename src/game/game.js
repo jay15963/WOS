@@ -13,6 +13,7 @@ import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
+import { slopeSpeed } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 
 const SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16, boulder: 0.34 };
@@ -159,9 +160,10 @@ export class Game {
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
     const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y, p._ud)); // levels: stairs slower
+    const spdK = this.world.hasHeight ? slopeSpeed(this, p, mx, my) : 1; // terrain height: slower uphill
     if (mx || my) {
       const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
-      moveCircle(this.world, p, mx * spd * dt, my * spd * dt);
+      moveCircle(this.world, p, mx * spd * spdK * dt, my * spd * spdK * dt);
       // never stuck anywhere: ~2 s of pushing without moving while no step is free in any of 8 directions → the nearest
       // free spot (on the ground when up high); levels.move already lets a body slide out of what it overlaps
       if ((mx || my) && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !p.rooted && !(p.stunT > 0)) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;

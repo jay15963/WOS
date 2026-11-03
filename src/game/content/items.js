@@ -28,6 +28,7 @@ export const ITEMS = {
   fiber:       mat('Fibra vegetal', '🌿', 'Fibras de capim e arbustos. Amarra ferramentas; vira corda.'),
   wood:        mat('Madeira', '🪵', 'Toras cortadas com machado. Base de quase toda construção.'),
   stone:       mat('Pedra', '🪨', 'Pedra bruta quebrada com picareta.'),
+  dirt:        mat('Terra', '🟫', 'Terra cavada do chão (Construir → Terreno → Cavar). Serve para aterrar: levantar o chão, fazer rampas e aterros.'),
   stone_block: mat('Bloco de pedra', '🧱', 'Pedra cortada na mesa de cantaria. Paredes e pisos de pedra.'),
   rope:        mat('Corda', '🪢', 'Fibras trançadas. Amarra ferramentas melhores.'),
   leather:     mat('Couro', '🟫', 'Couro de animal (precisa de faca para tirar). Armaduras, camas.'),

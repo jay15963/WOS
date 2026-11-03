@@ -14,6 +14,12 @@
 // Slope of a tile = the steepest fine triangle in it (stories per tile). A tile steeper than WALK_MAX is a CLIFF: it
 // blocks walking like rock (physics / nav / building), is drawn as rock and can be cut back with a pickaxe.
 // A world without heights (all zero, `any` false) behaves exactly as before: every accessor returns 0 / false.
+//
+// Three corner layers: `base` = the generated terrain (from the seed: never sent), `t` = the terrain after the players'
+// edits (dig / fill / level / smooth, cliffs cut back: mut/terrain.js — the only shared part, as a diff against
+// `base`: diff() / applyDiff()), `plot` = the base height of the buildings standing on each corner (derived from the
+// structures on every peer: game/terrain.js). The surface everything stands on is c = max(t, plot): a building's
+// footprint becomes a level pad at its base, the ground around it an embankment (or a masonry face when steep).
 
 export const SUB = 4;           // fine samples per tile side
 export const WALK_MAX = 0.75;   // steepest walkable slope (stories per tile, ~37°)
@@ -31,11 +37,20 @@ function vnoise(x, y) { // value noise (crags on the rock faces)
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
 
+// the layer of the world being played (set by World): ground height for helpers that only see entities (levels.js)
+let ACTIVE = null;
+export function setActiveHeight(L) { ACTIVE = L; }
+export const groundZ = (x, y) => (ACTIVE && ACTIVE.any && Number.isFinite(x) && Number.isFinite(y) ? ACTIVE.heightAt(x, y) : 0);
+
 export class HeightLayer {
   constructor(W, H, corners = null) {
     this.W = W; this.H = H;
     this.CW = W + 1;
-    this.c = corners && corners.length === (W + 1) * (H + 1) ? corners : new Float32Array((W + 1) * (H + 1));
+    const N = (W + 1) * (H + 1);
+    this.base = corners && corners.length === N ? corners : new Float32Array(N);
+    this.t = this.base.slice();           // terrain with the players' edits
+    this.plot = null;                     // building bases per corner (-Infinity = none), allocated on the first plot
+    this.c = this.t.slice();              // the surface: max(t, plot)
     this.FW = W * SUB + 1; this.FH = H * SUB + 1;
     this.f = null;                        // fine surface (allocated only when there is any height)
     this.slope = new Float32Array(W * H); // steepest fine triangle per tile
@@ -109,22 +124,45 @@ export class HeightLayer {
     return false;
   }
 
-  // ---------- writes (generators, mining: deterministic on every peer) ----------
-  setCorner(ix, iy, h) {
-    if (ix < 0 || iy < 0 || ix > this.W || iy > this.H) return;
-    this.c[iy * this.CW + ix] = h;
-  }
-  // cut a cliff tile back to floor height h (mining): its corners above h drop to h (the tile behind it may become
-  // the new cliff face). Returns true when something changed.
-  cut(tx, ty, h) {
-    if (tx < 0 || ty < 0 || tx >= this.W || ty >= this.H) return false;
-    let ch = false;
-    for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) {
-      const o = (ty + dy) * this.CW + tx + dx;
-      if (this.c[o] > h + 1e-4) { this.c[o] = h; ch = true; }
+  // terrain (without buildings) at a corner; a building's base there (or -Infinity)
+  terrainH(ix, iy) { ix = Math.max(0, Math.min(this.W, ix | 0)); iy = Math.max(0, Math.min(this.H, iy | 0)); return this.t[iy * this.CW + ix]; }
+  plotH(ix, iy) { if (!this.plot) return -Infinity; ix = Math.max(0, Math.min(this.W, ix | 0)); iy = Math.max(0, Math.min(this.H, iy | 0)); return this.plot[iy * this.CW + ix]; }
+
+  // ---------- writes (deterministic on every peer: mut/terrain.js ops, game/terrain.js plots) ----------
+  // terrain corners [[cornerIdx, h], …] (edits); rebuilds around them
+  setTerrain(list) {
+    let x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    for (const [i, h] of list) {
+      if (!(i >= 0 && i < this.t.length) || !Number.isFinite(h)) continue;
+      this.t[i] = h;
+      const p = this.plot ? this.plot[i] : -Infinity;
+      this.c[i] = h > p ? h : p;
+      const x = i % this.CW, y = (i / this.CW) | 0;
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
     }
-    if (ch) this.rebuild(tx - 2, ty - 2, tx + 2, ty + 2);
-    return ch;
+    if (x1 >= 0) this.rebuild(x0 - 2, y0 - 2, x1 + 1, y1 + 1);
+    return x1 >= 0;
+  }
+  // the edits as a compact diff against the generated terrain: [cornerIdx, h × 100, …] (snapshot / save / the
+  // streaming engine's per-chunk store); applyDiff takes the same (a full diff: corners not listed go back to base)
+  diff() {
+    const out = [], T = this.t, B = this.base;
+    for (let i = 0; i < T.length; i++) if (T[i] !== B[i]) out.push(i, Math.round(T[i] * 100));
+    return out;
+  }
+  applyDiff(d, full = true) {
+    const list = [];
+    if (full) for (let i = 0; i < this.t.length; i++) if (this.t[i] !== this.base[i]) list.push([i, this.base[i]]);
+    if (Array.isArray(d)) for (let k = 0; k + 1 < d.length; k += 2) if (Number.isInteger(d[k]) && Number.isFinite(d[k + 1])) list.push([d[k], d[k + 1] / 100]);
+    return this.setTerrain(list);
+  }
+  // building bases per corner (Map cornerIdx → base height): only the corners that changed are rebuilt
+  setPlots(map) {
+    const N = this.c.length;
+    if (!this.plot) { if (!map.size) return false; this.plot = new Float32Array(N).fill(-Infinity); }
+    const P = this.plot, list = [];
+    for (let i = 0; i < N; i++) { const v = map.has(i) ? map.get(i) : -Infinity; if (P[i] !== v) { P[i] = v; list.push([i, this.t[i]]); } }
+    return list.length ? this.setTerrain(list) : false;
   }
 
   // the spline at fine sample (i, j), clamped near the corners around it (an edge sample: its edge's two corners), with a

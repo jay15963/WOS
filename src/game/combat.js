@@ -46,6 +46,7 @@ export function faceTowards(e, t) { e.facing = facingFrom(t.x - e.x, t.y - e.y, 
 // levels: z0 / z1 = heights (stories) of both ends; the line runs half a story above them and a level-0 wall only
 // blocks where the line is below its top (a rampart shooter sees over the walls around it; docs/LEVELS.md §6).
 export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
+  if (world.hasHeight && !terrainLOS(world, x0, y0, x1, y1, z0, z1)) return false; // terrain height: ridges / cliffs between
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1);
   const dx = x1 - x0, dy = y1 - y0;
@@ -63,6 +64,17 @@ export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
     const i = ty * world.W + tx;
     if (world.rock[i]) return false;
     if (world.solid[i] && (!up || 0.5 + z0 + (z1 - z0) * Math.min(1, f) < 1)) return false;
+  }
+  return true;
+}
+
+// terrain height (docs/TERRAIN-HEIGHT.md): the line between the eyes (≈ chest height) stays above the ground
+export function terrainLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
+  const a = world.heightAt(x0, y0) + z0 + 0.75, b = world.heightAt(x1, y1) + z1 + 0.6;
+  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 0.4));
+  for (let k = 1; k < n; k++) {
+    const t = k / n;
+    if (world.heightAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) > a + (b - a) * t) return false;
   }
   return true;
 }

@@ -1230,7 +1230,8 @@ uniform float uMesh;        // 1 = drawn as the 3D terrain mesh (world/height.js
 uniform highp sampler2D uHgtG; // smooth gradient of the fine surface (RG16F, linear: dh/dx, dh/dy in stories per tile)
 uniform highp sampler2D uHgtF; // the fine surface itself (R32F, nearest; relief shadows)
 uniform highp sampler2D uHgtC; // corner heights (R32F, nearest: the tile's lowest / highest corner)
-uniform sampler2D uHgtK;    // steepest slope per tile (R8, linear between tile centres: a smooth "rock here" field; × 5.33)
+uniform sampler2D uHgtK;    // per tile (RG8, linear between tile centres): R steepest slope (× 5.33: a smooth "rock here"
+                            // field), G a building pad on / next to the tile (its steep sides are a masonry foundation)
 uniform vec2 uHgtSz;        // fine grid size (4W + 1, 4H + 1)
 uniform float uSnowLine;    // permanent snow above this height (stories)
 ${CUT_FN}
@@ -1416,7 +1417,7 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float L
   vec2 gn = g / max(s, 1e-3);
   // triplanar on the two vertical planes: a face looking along x shows (y, h), one looking along y shows (x, h)
   float wx = smoothstep(0.2, 0.8, gn.x * gn.x);
-  float u = mix(wp.x, wp.y, wx);
+  float u = wp.x + 0.62 * wp.y; // (one coordinate everywhere: no seams where the faces turn)
   vec2 fx = vec2(wp.y, ht * 1.2), fy = vec2(wp.x, ht * 1.2);
   float tl = max(log2(max(length(dFdx(fy)), length(dFdy(fy))) * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
   vec4 A = textureLod(uGround, vec3(fy * 0.25, rid), tl), A2 = textureLod(uGround, vec3(fx * 0.25 + 0.41, rid), tl);
@@ -1426,8 +1427,8 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float L
   // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
   float sv = ht * 0.95 + (nA.x - 0.5) * 0.7 + sin(u * 0.31 + nB.z * 2.0) * 0.22;
   float band = floor(sv), fb = fract(sv);
-  alb *= 0.86 + 0.22 * hash12(vec2(band * 1.37, rid * 7.1));
-  float seam = 0.1 + 0.14 * hash12(vec2(band * 3.1, 2.0 + rid));
+  alb *= 0.9 + 0.16 * hash12(vec2(band * 1.37, rid * 7.1));
+  float seam = 0.05 + 0.08 * hash12(vec2(band * 3.1, 2.0 + rid));
   alb *= 1.0 - seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
   float stk = textureLod(uNoise, vec2(u * 0.7, ht * 0.045) + 0.53, nLod(0.7)).b;
   alb *= 0.9 + 0.2 * stk;
@@ -1449,6 +1450,35 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, float rid, vec3 Ld, float L
   float sk = snowK * clamp(lip + smoothstep(0.82, 1.0, fb) * 0.75 * smoothstep(0.4, 0.8, nB.y), 0.0, 1.0);
   c = mix(c, vec3(0.86, 0.89, 0.95) * (0.56 + 0.5 * dif) * sunT, sk);
   return c;
+}
+// EARTH faces (ground dug / heaped by players: the soil's own layers, roots, pebbles), lit by the face's normal
+vec3 earthFace(vec2 wp, float ht, vec2 g, vec3 Ld, float LI, vec3 sunT, vec4 nA, vec4 nB){
+  float u = wp.x + 0.62 * wp.y;
+  vec3 c = mix(vec3(0.43, 0.32, 0.21), vec3(0.52, 0.4, 0.27), smoothstep(0.3, 0.7, nB.x));
+  float layer = fract(ht * 3.1 + (nA.y - 0.5) * 0.6);
+  c *= 0.9 + 0.14 * smoothstep(0.6, 1.0, layer) - 0.08 * (1.0 - smoothstep(0.0, 0.12, layer));
+  float pb = smoothstep(0.78, 0.86, textureLod(uNoise, vec2(u * 1.7, ht * 1.9) + 0.3, nLod(1.7)).g);
+  c = mix(c, vec3(0.58, 0.56, 0.52), pb * 0.7);
+  float rt = 1.0 - smoothstep(0.004, 0.018, abs(textureLod(uNoise, vec2(u * 0.9, ht * 0.35) + 0.6, nLod(0.9)).r - 0.5));
+  c = mix(c, vec3(0.27, 0.19, 0.12), rt * 0.6 * (1.0 - smoothstep(0.0, 0.4, fract(ht * 0.7))));
+  vec3 N = normalize(vec3(-g, 1.0));
+  float dif = max(dot(N, Ld), 0.0);
+  return c * (0.5 + 0.75 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * LI);
+}
+// FOUNDATION (a building's pad on relief: its steep sides): courses of dressed stone with mortar, each block a shade
+// apart, lit by the face's own normal
+vec3 masonry(vec2 wp, float ht, vec2 g, vec3 Ld, float LI, vec3 sunT){
+  vec2 gn = g / max(length(g), 1e-3);
+  float u = mix(wp.x, wp.y, smoothstep(0.2, 0.8, gn.x * gn.x));
+  float row = floor(ht * 4.0), fr = fract(ht * 4.0);
+  float uu = u * 2.0 + mod(row, 2.0) * 0.5, bi = floor(uu), fu = fract(uu);
+  float mortar = max(1.0 - smoothstep(0.0, 0.07, fr), 1.0 - smoothstep(0.0, 0.05, min(fu, 1.0 - fu)));
+  vec3 st = vec3(0.6, 0.57, 0.52) * (0.86 + 0.24 * hash12(vec2(bi, row) + 3.7));
+  st *= 0.92 + 0.12 * smoothstep(0.65, 1.0, fr); // (the top of each course catches the light)
+  vec3 c = mix(st, vec3(0.3, 0.28, 0.25), mortar * 0.85);
+  vec3 N = normalize(vec3(-g, 1.0));
+  float dif = max(dot(N, Ld), 0.0);
+  return c * (0.48 + 0.78 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * LI);
 }
 void main(){
   vec2 wp = uMesh > 0.5 ? vT.xy : uCam + v2w(vec2(vUV.x - 0.5, 0.5 - vUV.y) * uView);
@@ -1887,13 +1917,16 @@ void main(){
     // steep but walkable ground turns to scree / bare earth, then to rock
     float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
     col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8));
-    float kt = texture(uHgtK, wp / uWorld).r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
+    vec3 KT = texture(uHgtK, wp / uWorld).rgb;
+    float kt = KT.r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
     float cl = smoothstep(0.72 + 0.2 * nB.w, 1.25 + 0.25 * nA.y, max(kt * 0.92, sf * 0.8)) * smoothstep(0.12, 0.45, sf + 0.25 * kt);
     if (cl > 0.003) {
       ivec2 tc = ivec2(floor(wp));
       float c0 = texelFetch(uHgtC, tc, 0).r, c1 = texelFetch(uHgtC, tc + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tc + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tc + ivec2(1, 1), 0).r;
       vec4 tile = vec4(min(min(c0, c1), min(c2, c3)), max(max(c0, c1), max(c2, c3)), 0.0, 0.0);
       vec3 cr = cliffRock(wp, hT, gs, tile, ridOf(tileAt(tc)), Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
+      if (KT.b > 0.02) cr = mix(cr, earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB), smoothstep(0.15, 0.7, KT.b)); // dug / heaped by players
+      if (KT.g > 0.02) cr = mix(cr, masonry(wp, hT, gs, Ld, LI, sunT), smoothstep(0.15, 0.6, KT.g)); // a building's foundation
       col = mix(col, cr, cl);
     }
     // relief shadows: march toward the sun over the fine surface (the ray climbs 1 / |shadowDir| per tile)

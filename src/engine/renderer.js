@@ -222,7 +222,7 @@ export class Renderer {
   // ---------- terrain height (docs/TERRAIN-HEIGHT.md, src/world/height.js) ----------
   // unit 9 uHgt: the fine surface (R32F, nearest: exact geometry in every vertex shader, 4 × 4 samples per tile);
   // unit 10 uHgtG: its smooth gradient (RG16F, linear: soft shading); unit 11 uHgtC: the corner heights (R32F);
-  // unit 12 uHgtK: the steepest slope per tile (R8, linear: where the ground turns to rock).
+  // unit 12 uHgtK: per tile the steepest slope, a building pad, player edits (RGBA8, linear: rock / masonry / earth faces).
   // A flat world keeps 1×1 placeholders and every shader skips the fetch (uHgtOn 0, uMesh 0).
   _setHeight(L) {
     const gl = this.gl;
@@ -234,16 +234,24 @@ export class Renderer {
     if (on) this._gradHeight(0, 0, fw - 1, fh - 1);
     this.hgtGTex = createTexture(gl, { width: fw, height: fh, data: this._hgtG, internal: gl.RG16F, format: gl.RG, type: gl.HALF_FLOAT, filter: gl.LINEAR });
     this.hgtCTex = createTexture(gl, { width: on ? L.W + 1 : 1, height: on ? L.H + 1 : 1, data: on ? L.c : new Float32Array(1), internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST });
-    this._hgtK = new Uint8Array(on ? L.W * L.H : 1);
+    this._hgtK = new Uint8Array(on ? L.W * L.H * 4 : 4);
     if (on) this._kHeight(0, 0, L.W - 1, L.H - 1);
-    this.hgtKTex = createTexture(gl, { width: on ? L.W : 1, height: on ? L.H : 1, data: this._hgtK, internal: gl.R8, format: gl.RED, filter: gl.LINEAR });
+    this.hgtKTex = createTexture(gl, { width: on ? L.W : 1, height: on ? L.H : 1, data: this._hgtK, filter: gl.LINEAR });
     if (L) L.dirty = null;
     this._hgtV = L ? L.v : 0;
   }
-  // per-tile steepness for the rock blend (R8: slope × 48)
+  // per tile: R steepness for the rock blend (slope × 48), G a building pad on / next to it (its steep sides are masonry),
+  // B dug / filled by players (its steep sides are earth, not rock)
   _kHeight(x0, y0, x1, y1) {
-    const L = this.hgt, K = this._hgtK;
-    for (let y = Math.max(0, y0); y <= Math.min(L.H - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(L.W - 1, x1); x++) K[y * L.W + x] = Math.min(255, Math.round(L.tileSlope(x, y) * 48));
+    const L = this.hgt, K = this._hgtK, P = L.plot, T = L.t, B0 = L.base, CW = L.W + 1;
+    const ed = (o) => T[o] !== B0[o];
+    for (let y = Math.max(0, y0); y <= Math.min(L.H - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(L.W - 1, x1); x++) {
+      const k = (y * L.W + x) * 4, o = y * CW + x;
+      K[k] = Math.min(255, Math.round(L.tileSlope(x, y) * 48));
+      K[k + 1] = P && (P[o] > -Infinity || P[o + 1] > -Infinity || P[o + CW] > -Infinity || P[o + CW + 1] > -Infinity) ? 255 : 0;
+      K[k + 2] = ed(o) || ed(o + 1) || ed(o + CW) || ed(o + CW + 1) ? 255 : 0;
+      K[k + 3] = 255;
+    }
   }
   // central-difference gradient of the fine surface (stories per tile) as half floats, for a fine rect
   _gradHeight(i0, j0, i1, j1) {
@@ -279,7 +287,7 @@ export class Renderer {
     up(this.hgtCTex, L.W + 1, cx0, cy0, cx1 - cx0 + 1, cy1 - cy0 + 1, gl.RED, gl.FLOAT, L.c);
     const kx0 = Math.max(0, d[0] - 1), ky0 = Math.max(0, d[1] - 1), kx1 = Math.min(L.W - 1, d[2] + 1), ky1 = Math.min(L.H - 1, d[3] + 1);
     this._kHeight(kx0, ky0, kx1, ky1);
-    up(this.hgtKTex, L.W, kx0, ky0, kx1 - kx0 + 1, ky1 - ky0 + 1, gl.RED, gl.UNSIGNED_BYTE, this._hgtK);
+    up(this.hgtKTex, L.W, kx0, ky0, kx1 - kx0 + 1, ky1 - ky0 + 1, gl.RGBA, gl.UNSIGNED_BYTE, this._hgtK);
     gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0); gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0); gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
   }
   // ---------- roofs ----------

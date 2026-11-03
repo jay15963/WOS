@@ -39,7 +39,9 @@ export function fireArrow(game, o) {
     lift: H0, rot: Math.atan2(uy, ux), vgx: ux, vgy: uy, vl: 0, stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
     cosmetic: !!o.cosmetic, id: o.id || null,
     z0: o.z0 ?? (o.src?.z || 0), z1: o.z1 ?? (o.target ? o.target.z || 0 : o.src?.z || 0), zL: L, pz: 0, // levels: heights
+    g0: 0, g1: 0, gd: 0, // terrain height: the ground under the shooter / the aim point (every peer derives them)
   };
+  if (game.world.hasHeight) { pr.g0 = game.world.heightAt(o.x, o.y); pr.g1 = game.world.heightAt(o.tx, o.ty); }
   pr.pz = pr.z0;
   P.push(pr);
   if (P.length > 80) P.splice(0, P.length - 80);
@@ -78,6 +80,7 @@ export function fireLob(game, o) {
     x: o.x, y: o.y, x0: o.x, y0: o.y, ax: o.lx, ay: o.ly, lx: o.lx, ly: o.ly, k0: 0, k: 0, h0: LOB_KINDS[o.proj]?.h0 ?? H0,
     dur: Math.max(0.1, o.dur), apex: Math.max(0, o.apex), t: 0, lift: LOB_KINDS[o.proj]?.h0 ?? H0, rot: Math.atan2(gy - 2 * o.apex, gx), vgx: gx, vgy: gy, vl: 2 * o.apex,
     gdir: Math.atan2(gy / gl, gx / gl), stuck: false, ground: false, alpha: 1, d: 0, whoosh: false, pend: null,
+    g0: game.world.hasHeight ? game.world.heightAt(o.x, o.y) : 0, gd: 0, // terrain height: from the ground under the thrower
   };
   P.push(pr);
   if (P.length > 80) P.splice(0, P.length - 80);
@@ -118,6 +121,7 @@ function stepLob(game, pr, dt) {
   lobAt(pr, k, _a);
   lobAt(pr, Math.max(0, k - 0.02), _b);
   pr.x = _a[0]; pr.y = _a[1]; pr.lift = _a[2]; pr.k = k;
+  if (game.world.hasHeight) { const w = game.world; pr.gd = pr.g0 + (w.heightAt(pr.lx, pr.ly) - pr.g0) * k - w.heightAt(pr.x, pr.y); } // (terrain: the arc runs between the two grounds)
   // screen-space direction: ground motion minus the lift change
   const vx = _a[0] - _b[0], vy = (_a[1] - _b[1]) - (_a[2] - _b[2]);
   if (vx * vx + vy * vy > 1e-8) { pr.rot = Math.atan2(vy, vx); pr.vgx = vx; pr.vgy = _a[1] - _b[1]; pr.vl = _a[2] - _b[2]; } // (vg*, vl: a turned camera re-aims it)
@@ -137,7 +141,7 @@ function stepLob(game, pr, dt) {
 
 function landLob(game, pr) {
   const w = game.world, J = game.juice;
-  pr.x = pr.lx; pr.y = pr.ly; pr.t = 0;
+  pr.x = pr.lx; pr.y = pr.ly; pr.t = 0; pr.gd = 0;
   const tx = Math.floor(pr.x), ty = Math.floor(pr.y);
   const inside = w.inBounds(tx, ty);
   const i = inside ? ty * w.W + tx : -1;
@@ -281,7 +285,14 @@ export function projectilesSystem() {
           const pz = pr.z0 === pr.z1 ? pr.z0 : pr.z0 + (pr.z1 - pr.z0) * Math.min(1, nd / Math.max(0.5, pr.zL)); // levels: shot height
           // walls / rock (a level-0 wall only below its top: shots from / to a rampart fly over the walls)
           const tx = Math.floor(nx), ty = Math.floor(ny);
-          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || (w.solid[ty * w.W + tx] && pz < 0.5)) { stick(game, pr, false); done = true; break; }
+          // terrain height: the shot's line runs from the ground under the shooter to the ground under the aim point
+          let gd = 0;
+          if (w.hasHeight) {
+            const gl = pr.g0 + (pr.g1 - pr.g0) * Math.min(1, nd / Math.max(0.5, pr.zL)), gh = w.heightAt(nx, ny);
+            gd = gl - gh;
+            if (gd + pz * STORY_H + nl < 0.02) { pr.x = nx; pr.y = ny; pr.gd = 0; pr.lift = 0.04; stick(game, pr, true); done = true; break; } // into the hillside
+          }
+          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || (w.solid[ty * w.W + tx] && pz + gd < 0.5)) { stick(game, pr, false); done = true; break; }
           // creatures / players (cosmetic copies hit nothing)
           let victim = null;
           if (pr.cosmetic) { /* no victims */ }
@@ -289,13 +300,13 @@ export function projectilesSystem() {
             for (const e of E) {
               if (e === pr.src || e === p || e.dead || !(e.isMob || e.kind === 'animal')) continue;
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
-              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz) < 0.75) { victim = e; break; }
+              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? w.heightAt(e.x, e.y) - w.heightAt(nx, ny) : 0)) < 0.75) { victim = e; break; }
             }
           } else {
             for (const q of PL) {
               if (q.dead) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
-              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz) < 0.75) { victim = q; break; }
+              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd + (w.hasHeight ? w.heightAt(q.x, q.y) - w.heightAt(nx, ny) : 0)) < 0.75) { victim = q; break; }
             }
           }
           if (victim && pr.d > 0.25) {
@@ -319,7 +330,7 @@ export function projectilesSystem() {
             break;
           }
           const sl = pr.lift;
-          pr.x = nx; pr.y = ny; pr.d = nd; pr.lift = nl; pr.pz = pz;
+          pr.x = nx; pr.y = ny; pr.d = nd; pr.lift = nl; pr.pz = pz; pr.gd = gd;
           // screen-space direction: ground velocity minus the lift change
           pr.rot = Math.atan2(pr.uy * s - (nl - sl), pr.ux * s);
           pr.vgx = pr.ux * s; pr.vgy = pr.uy * s; pr.vl = nl - sl; // (ground motion + lift change: a turned camera re-aims it)
@@ -393,7 +404,7 @@ function drawProjectile(game, B, A, pr) {
   if (yaw && pr.vgx != null) { const [vx, vy] = game.toViewDir(pr.vgx, pr.vgy); if (vx * vx + vy * vy > 1e-10 || pr.vl) rv = Math.atan2(vy - pr.vl, vx); }
   let rot = rv;
   if (pr.stuck && pr.ground) rot = Math.atan2(Math.abs(Math.sin(rv)) * 0.3 + 0.55, Math.cos(rv) || 0.01);
-  let lift = pr.lift + (pr.pz || 0) * STORY_H; // levels: shots from / to a height
+  let lift = pr.lift + (pr.pz || 0) * STORY_H + (pr.gd || 0); // levels: shots from / to a height; terrain: above the ground under it
   const spr = ice ? (A.has('proj_ice_spear') ? A.get('proj_ice_spear') : spear) : pr.kind === 'spear' ? spear : arrow;
   if (pr.lob && spr) {
     let x = pr.x, y = pr.y, sc = (pr.kind === 'spear' || ice ? 1.1 : 1.35) + Math.max(0, lift) * 0.08; // bigger high up (closer to the camera)
