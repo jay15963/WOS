@@ -44,8 +44,8 @@ export async function run(planet, what, outDir, enc) {
   const P = planet;
   const finds = {
     canyon: (i) => P.rkind[i] && P.canyon[i] > 0.6 && P.flow[i] > 3,
-    cliffs: (i) => P.coast[i] === COAST.CLIFF && !P.ocean[i] && P.elev[i] > 100,
-    lagoon: (i) => P.coast[i] === COAST.LAGOON && !P.ocean[i],
+    cliffs: (i) => P.coast[i] === COAST.CLIFF && !P.ocean[i] && P.elev[i] > 60 && [1, -1, MW, -MW].some((d) => P.ocean[i + d]),
+    lagoon: (i) => P.coast[i] === COAST.LAGOON && !P.ocean[i] && [1, -1, MW, -MW].some((d) => P.ocean[i + d]),
     delta: (i) => P.deltas.length && P.deltas.some((d) => d.cell === i),
     fjord: (i) => P.rkind[i] === 3 && P.mouthD[i] === 1,
     mountains: (i) => P.mtn[i] > 0.75 && P.relief[i] > 0.4,

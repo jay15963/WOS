@@ -212,7 +212,7 @@ export function riverSegments(p, x0, y0, x1, y1) {
     if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
     out.push({
       c, d, P: [P0[0], P0[1], P1[0], P1[1], P2[0], P2[1], P3[0], P3[1]], hw0, hw1, L0, L1, kind: kd,
-      can0: p.canyon[c], can1: p.rkind[d] ? p.canyon[d] : p.canyon[c], fall: p.fall[c], tf: 0.35 + hash01(c, 7, p.seed) * 0.3,
+      can0: kd === 2 && p.drain[c] < 20 ? 0 : p.canyon[c], can1: kd === 2 && p.drain[c] < 20 ? 0 : p.rkind[d] ? p.canyon[d] : p.canyon[c], fall: p.fall[c], tf: 0.35 + hash01(c, 7, p.seed) * 0.3,
       flat: clamp(1 - p.relief[c] * 3, 0, 1) * smoothstep(900, 100, p.elev[c]), toSea: !!p.ocean[d], spring: (kind === 1 || kind === 4) && um < 0 && !hasLakeIn(p, c),
     });
   }
@@ -243,7 +243,7 @@ export function sampleSegment(p, sg) {
   const sd = p.seed * 11 + 3;
   // meanders: wide loops on flat floodplains, entrenched loops in canyons, wiggles everywhere else
   const hwm = Math.max(sg.hw0, sg.hw1), can = Math.max(sg.can0, sg.can1);
-  const mAmp = sg.kind === 3 ? 1 : (2.5 + 2.6 * hwm) * (0.45 + 0.55 * sg.flat) * (1 + 0.7 * can) * (sg.kind === 4 ? 1.8 : 1);
+  const mAmp = sg.kind === 3 ? 6 + 2 * hwm : (2.5 + 2.6 * hwm) * (0.45 + 0.55 * sg.flat) * (1 + 0.7 * can) * (sg.kind === 4 ? 2.4 : 1);
   const lam = sg.kind === 1 ? clamp(16 + 9 * hwm, 16, 128) : 64;
   const lamP = lam <= 32 ? 32 : lam <= 64 ? 64 : 128;
   for (let k = 0; k <= n; k++) {
@@ -416,7 +416,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
   for (let i = 0; i < NW; i++) {
     const k = rK[i];
     if (!k) continue;
-    if (sea0[i] && k !== RK_FJORD) { rK[i] = 0; continue; }
+    if (sea0[i]) { rK[i] = 0; continue; } // (the open sea is already water; a fjord only cuts into the land)
     const d = rD[i], hw = rHW[i], L = rL[i];
     const can = rCan[i], flat = rFlat[i];
     if (k === RK_FJORD) {

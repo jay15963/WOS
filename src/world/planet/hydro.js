@@ -169,12 +169,12 @@ export function buildRivers(h, elev, ocean, precip, tMean, opts) {
     const inLake = lakeId[i] > 0;
     if (!inLake && ((q >= 1 && A[i] >= RIVER_A) || (fj[i] > 0.4 && q >= 0.3 && A[i] >= 4))) kind[i] = 1;
     else if (!inLake && A[i] >= 20 && precip[i] < 420 && cany[i] > 0.15) kind[i] = 2;
-    else if (!inLake && A[i] >= 5 && cany[i] > 0.35) kind[i] = 2;
+    else if (!inLake && A[i] >= 8 && cany[i] > 0.35) kind[i] = 2;
     flow[i] = q;
   }
   // creeks: small headwater streams that feed a river or a lake within 3 cells
   for (let i = 0; i < N; i++) {
-    if (kind[i] || ocean[i] || lakeId[i] || A[i] < 4 || Q[i] < RIVER_Q * 0.4) continue;
+    if (kind[i] || ocean[i] || lakeId[i] || A[i] < 5 || Q[i] < RIVER_Q * 0.45) continue;
     let j = down[i];
     for (let s = 0; s < 2 && j >= 0; s++) {
       if (kind[j] === 1 || lakeId[j]) { kind[i] = 4; break; }
