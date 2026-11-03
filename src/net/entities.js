@@ -20,6 +20,7 @@ import { stepGait } from '../game/anim.js';
 import { enterCombat } from '../game/player.js';
 import { fireCosmetic, endCosmetic } from '../game/projectiles.js';
 import { propById } from '../game/mut/camps.js';
+const SWING_ACTS = new Set(['attack', 'shoot', 'stab', 'slash', 'heavy', 'pierce']); // creature actions with a swing sound
 
 const IN_X = 40, IN_Y = 30, OUT_X = 46, OUT_Y = 36;
 const TICK = 0.1, REFRESH = 5, INTERP = 0.15;
@@ -294,7 +295,8 @@ export class EntityClient {
       if (N && rt >= N.start) {
         e._na = null;
         e.action = { type: N.type, t: N.hold ? N.t0 : Math.min(0.99, (rt - N.start) / N.dur), dur: N.dur, hold: N.hold };
-        if (N.sfx && (N.type === 'attack' || N.type === 'shoot')) this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
+        // the host's swing sound of a creature, here too (giants play their own: fx/giantfx.js)
+        if (N.sfx && SWING_ACTS.has(N.type) && e.species !== 'giant') this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
       }
       if (e.cast) e.cast.t = Math.min(e.cast.dur, e.cast.t + dt);
       if (!e.dead && e.state === 'chase' && e.threat === p) fighting = true;
