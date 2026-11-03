@@ -89,6 +89,8 @@ export function serializeWorld(game, { save = false } = {}) {
 
 // find a natural object saved as (id, type, x, y): exact id first, then the same type at the same spot
 export function findNatural(w, id, type, x, y) {
+  // (a streamed planet: the object's chunk may not be loaded — its id names it; or the saved position does)
+  if (!w.objById.has(id) && w.wrap) { const c = w.source.chunkOfId?.(id) ?? -1; if (c >= 0) w.ensure(c); else if (Number.isFinite(x) && Number.isFinite(y)) w.ensure(w.chunkIndex(x, y)); }
   const o = w.objById.get(id);
   if (o && !o.building && !o.flora && (!type || (o.type === type && Math.abs(o.x - x) < 0.6 && Math.abs(o.y - y) < 0.6))) return o;
   if (!type) return null;

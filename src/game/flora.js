@@ -255,12 +255,18 @@ export function floraSystem() {
       if (!F.cleared) { F.cleared = true; clearUnderStructures(game); }
       // regrowth: a few buckets per second, round robin over the loaded ones (each about once a minute), only in the
       // active region around the players (streamer.activeAt: everything on a bounded world)
+      // (the visits of each second are spread over the next frames, ≤ 2 per frame: no hitch with many loaded buckets)
       F.t -= dt;
-      if (F.t > 0) return;
-      F.t = 1;
       const keys = F.keys, nCh = keys.length, S = w.streamer;
-      if (!nCh) return;
-      for (let s = 0, visits = Math.max(4, Math.ceil(nCh / 64)); s < visits; s++) {
+      if (F.t <= 0) {
+        F.t = 1; F.burst = Math.max(4, Math.ceil(nCh / 64));
+        // safety net near the spawn (off-screen)
+        F.safetyT -= 1;
+        if (F.safetyT <= 0) { F.safetyT = 90; ensureStarter(game, true); }
+      }
+      if (!nCh || !(F.burst > 0)) return;
+      for (let s = 0; s < 2 && F.burst > 0; s++) {
+        F.burst--;
         const k = keys[F.ci++ % nCh];
         const ch = F.chunks.get(k);
         if (!ch || (S && !S.activeAt((k % BKW) * CHUNK, Math.floor(k / BKW) * CHUNK))) continue;
@@ -274,9 +280,6 @@ export function floraSystem() {
           for (let n = Math.min(deficit, small ? 2 : 1); n > 0; n--) if (net.roll() < rate) trySpawn(game, k, kind);
         }
       }
-      // safety net near the spawn (off-screen)
-      F.safetyT -= 1;
-      if (F.safetyT <= 0) { F.safetyT = 90; ensureStarter(game, true); }
     },
   };
 }

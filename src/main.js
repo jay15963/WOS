@@ -15,6 +15,7 @@ import { World } from './world/world.js';
 import { makeSource } from './world/source.js';
 import { Streamer, streamerSystem } from './world/streamer.js';
 import { allPlayers } from './game/players.js';
+import { savedSource } from './game/save.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
@@ -50,7 +51,6 @@ const QS = new URLSearchParams(location.search);
 const DEV = /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const FLAGS = {
   noSave: QS.has('nosave'),                 // no save writes, no wos.seed, no menu snapshot
-  source: QS.get('source') || 'classic',    // world source (docs/STREAMING.md): classic 256×256 / synth planet / planet
   mpHost: QS.get('mp') === 'host',          // skip the menu and host room ?sala=CODE (seed ?seed)
   autojoin: QS.has('autojoin'),             // skip the menu and join room ?sala=CODE
   code: normalizeCode(QS.get('sala') || ''),
@@ -149,7 +149,9 @@ async function boot() {
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const world = new World(await makeSource(guest ? choice.welcome.src || 'classic' : FLAGS.source, seed)); // (docs/STREAMING.md: classic / synth / planet)
+    // the world source (docs/STREAMING.md): the host's for a guest; ?source=; the one a saved world was made with; classic
+    const srcKind = guest ? choice.welcome.src || 'classic' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
+    const world = new World(await makeSource(srcKind, seed));
     if (world.wrap) new Streamer(world); // (a planet streams its chunks; the classic world is loaded whole)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
@@ -203,6 +205,7 @@ async function boot() {
     }
     netlog.fact('Modo', choice.mode === 'single' ? 'um jogador' : choice.mode === 'host' ? 'anfitrião' : 'convidado');
     $('#loading').classList.add('hidden');
+    window.wosBootMs = Math.round(performance.now()); // (boot time to playable: docs/STREAMING.md budgets)
     startLoop(game, renderer, input, false);
   } catch (err) {
     console.error(err);
@@ -229,8 +232,10 @@ function startLoop(game, renderer, input, syncing) {
     if (!(hidden() && live())) {
       // single player pauses while the in-game menu is open; multiplayer keeps running
       const paused = game.ui?.pause && !(game.session && game.session.state !== 'closed');
+      const ft0 = performance.now();
       if (!paused) game.update(dt);
       game.render();
+      frameCpu(game, performance.now() - ft0); // (main-thread time per frame: hitches, docs/STREAMING.md)
       input.endFrame();
       // menu background: a small snapshot of the world, taken right after rendering
       snapT -= dt;
@@ -258,6 +263,18 @@ function startLoop(game, renderer, input, syncing) {
     };
     wk.postMessage(1);
   } catch (e) { console.warn('[boot] background clock unavailable', e); }
+}
+
+// main-thread CPU time of the frames (update + render): game.frameStats(reset) → { n, avg, p95, max, over8, over16 }
+function frameCpu(game, ms) {
+  const F = game._fcpu || (game._fcpu = { a: new Float32Array(1200), n: 0 });
+  F.a[F.n % F.a.length] = ms; F.n++;
+  game.frameStats ||= (reset = false) => {
+    const n = Math.min(F.n, F.a.length), v = Array.from(F.a.slice(0, n)).sort((p, q) => p - q);
+    const o = { n, avg: +(v.reduce((s, x) => s + x, 0) / Math.max(1, n)).toFixed(2), p95: +(v[Math.floor(n * 0.95)] || 0).toFixed(2), max: +(v[n - 1] || 0).toFixed(2), over8: v.filter((x) => x > 8).length, over16: v.filter((x) => x > 16).length };
+    if (reset) F.n = 0;
+    return o;
+  };
 }
 
 function takeSnapshot(glCanvas) {

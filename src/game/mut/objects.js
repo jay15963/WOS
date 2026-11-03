@@ -80,7 +80,15 @@ export function makeStump(game, o, at) {
   if (k >= 0) game.falling.splice(k, 1);
 }
 
-export const findObj = (game, id) => game.world.objById.get(id) || game.flora.dyn.get(id) || null;
+export const findObj = (game, id) => game.world.objById.get(id) || game.flora.dyn.get(id) || natural(game.world, id);
+// a natural object of a chunk not loaded here (a streamed planet: an op about a far tree): its id names the chunk
+function natural(w, id) {
+  if (!w.wrap) return null;
+  const c = w.source.chunkOfId?.(id) ?? -1;
+  if (c < 0 || w.isLoaded(c)) return null;
+  w.ensure(c);
+  return w.objById.get(id) || null;
+}
 
 // cosmetic effects (any peer) — the actor plays its own immediately (gathering.js), others on the op
 function hitFx(game, o, toward) {

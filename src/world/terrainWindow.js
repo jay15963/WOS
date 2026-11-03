@@ -35,6 +35,7 @@ export class TerrainWindow {
     this.stale = new Uint8Array(n);           // a neighbour arrived / an edit came while it was computed: redo
     this.pend = new Uint32Array(n);           // worker job generation (0 = none)
     this.gen = 0;
+    this.warm = 0;                            // < 2 while the first window fills (everything in view at once)
     this.ox = null; this.oy = null;           // window origin (chunk coords, unwrapped)
     this.chan = [];                           // registered textures
     this.tex = {};
@@ -105,7 +106,7 @@ export class TerrainWindow {
       const d = Math.max(Math.abs(cx + 0.5 - ccx), Math.abs(cy + 0.5 - ccy));
       if (this.slot[k] === key && !this.stale[k]) {
         if (this.ready[k]) continue;
-        if (this.pend[k] && d > viewR) continue; // (in the worker)
+        if (this.pend[k] && (d > viewR || this.warm >= 2)) continue; // (in the worker)
       }
       todo.push(d, cx, cy, key);
     }
@@ -122,8 +123,14 @@ export class TerrainWindow {
           if (inView) need(key); else { want?.(key, d); pend++; continue; }
           if (!this.w.isLoaded(key)) { pend++; continue; }
         }
-        if (!inView && this.wk) {
-          if (this.jobs.size >= MAX_JOBS) { pend++; continue; }
+        // in view: filled now while the window warms up (boot), for the chunk under the camera, or without a worker;
+        // else (a teleport, a chunk that just arrived) the worker first — its slot is cleared meanwhile (plain ground,
+        // never the old chunk's texels), a frame or two
+        const own = Math.floor(ccx) === cx && Math.floor(ccy) === cy;
+        if (inView && (own || !this.wk || this.warm < 2)) { this._fillChunk(k, cx, cy, key); continue; }
+        if (this.wk) {
+          if (this.jobs.size >= (inView ? MAX_JOBS + 6 : MAX_JOBS)) { pend++; continue; }
+          if (inView && this.slot[k] !== key) this._clear(k, cx, cy);
           this._post(k, cx, cy, key);
           continue;
         }
@@ -131,6 +138,7 @@ export class TerrainWindow {
         this._fillChunk(k, cx, cy, key);
       }
     }
+    if (!pend && !this.jobs.size && this.warm < 2) this.warm++; // (the first full window: boot / a new world)
     // edits
     if (this.dirtyR.length) {
       const list = this.dirtyR.splice(0);
@@ -147,6 +155,17 @@ export class TerrainWindow {
     this._fill(null, cx * CS, cy * CS, CS, CS, true, null);
     this.ready[k] = 1;
     this.stats.up++; this.stats.sync++;
+  }
+  // a slot about to hold another chunk: zeros (plain ground) until its contents arrive
+  _clear(k, cx, cy) {
+    const gl = this.gl, Z = this._zero || (this._zero = new Uint8Array(CS * CS * 16 * 4));
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    for (const c of this.chan) {
+      const s = c.scale;
+      gl.bindTexture(gl.TEXTURE_2D, c.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, ((cx * CS) & WM) * s, ((cy * CS) & WM) * s, CS * s, CS * s, c.format, gl.UNSIGNED_BYTE, Z);
+    }
+    this.ready[k] = 0;
   }
   // a chunk to the worker: its layers + margin are gathered now (page copies), computed there, uploaded on return
   _post(k, cx, cy, key) {
@@ -165,7 +184,10 @@ export class TerrainWindow {
     if (msg.error) { console.warn('[terrain] worker', msg.error); this.wk = null; return; }
     const { k, cx, cy, key } = job;
     if (this.slot[k] !== key || this.pend[k] !== msg.id) return; // (the slot moved on / was redone)
+    const t0 = performance.now();
     this._fill(null, cx * CS, cy * CS, CS, CS, true, msg.out);
+    const ms = performance.now() - t0; // (main-thread cost of a worker result: the uploads)
+    this.stats.doneMax = Math.max(this.stats.doneMax || 0, ms);
     this.pend[k] = 0; this.ready[k] = 1;
     this.stats.up++; this.stats.async++;
   }

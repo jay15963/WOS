@@ -152,8 +152,11 @@ export class Streamer {
     this.stats.gen++; this._rateN++;
     this.stats.genMs += msg.ms || 0; this.stats.genWall += performance.now() - job.t;
     this.w.stats.genAsync++;
+    const t0 = performance.now();
     if (!this.w.isLoaded(job.c)) this.w.install(job.c, msg.d);
     else if (msg.d.decor) this.w.addDecor(job.c, msg.d.decor); // (a decor request for a loaded chunk)
+    const ms = performance.now() - t0; // (main-thread cost of a worker result: install + the hooks)
+    this.stats.doneMax = Math.max(this.stats.doneMax || 0, ms); this.stats.doneMs = (this.stats.doneMs || 0) + ms;
     this.queue.delete(job.c);
   }
 
@@ -162,7 +165,8 @@ export class Streamer {
     const w = this.w, A = this.anchors;
     if (!A.length) return;
     let n = 0;
-    for (let c = 0; c < NCH && n < 16; c++) {
+    for (const c of w.live) {
+      if (n >= 16) break;
       const r = w.crec[c];
       if (!r || !r.ready) continue;
       let d = 1e9;
@@ -206,6 +210,7 @@ export function streamerSystem(allPlayers) {
         A.length = 0;
         const L = game.net.role === 'guest' ? [game.player] : allPlayers(game);
         for (const p of L) A.push({ x: p.x, y: p.y, player: true });
+        if (game._extraAnchors) for (const p of game._extraAnchors) A.push({ x: p.x, y: p.y, player: true }); // (benchmarks: players far apart)
         A.push({ x: game.cam.x, y: game.cam.y, cam: true });
         S.update(A, dt);
       }

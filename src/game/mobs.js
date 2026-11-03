@@ -87,47 +87,56 @@ export function litNear(game, x, y) {
   return false;
 }
 
+// one spawner candidate at tile (x, y): the species its surroundings allow (null = none); spawners: the ones so far
+// (spacing), have / quota: counts per species
+function spawnerAt(game, rand, x, y, spawners, have, quota, dk = 1) {
+  const w = game.world, sx = w.spawn.x, sy = w.spawn.y;
+  const minD = (s) => SPECIES[s].minD ?? 8;
+  const i = w.idx(x, y);
+  if (w.rock.get(i) || w.water.get(i) || w.solid?.get(i)) return null;
+  const d = Math.hypot(w.dx(x, sx), y - sy);
+  const trees = countTrees(w, x + 0.5, y + 0.5, 4);
+  const lush = w.lush ? w.lush.get(i) : 0.5;
+  const dRock = w.dRock ? w.dRock.get(i) : 99;
+  const biome = w.biomeAt ? w.biomeAt(x + 0.5, y + 0.5) : 'meadow';
+  const wooded = biome === 'forest' || biome === 'pine' || biome === 'birch';
+  const cands = [];
+  if (trees >= 7 && d > minD('wolf')) cands.push('wolf');
+  if (trees >= 1 && trees <= 5 && lush > 0.35 && d > minD('boar')) cands.push('boar');
+  if (trees <= 2 && lush > 0.5 && d > minD('deer')) cands.push('deer');
+  if (trees <= 3 && lush > 0.42 && d > minD('rabbit')) cands.push('rabbit');
+  if ((trees >= 4 || (wooded && trees >= 2)) && d > minD('fox')) cands.push('fox');
+  if (dRock < 6 && d > minD('bear') && trees <= 6) cands.push('bear');
+  if (!cands.length) return null;
+  const species = cands[Math.floor(rand() * cands.length)];
+  if (have[species] >= quota[species]) return null;
+  const minSame = species === 'bear' ? 40 : species === 'rabbit' ? 12 : 16;
+  if (spawners.some((s) => { const dd = Math.hypot(w.dx(s.x, x), s.y - y); return dd < 7 || (s.species === species && dd < minSame); })) return null;
+  const sp = SPECIES[species];
+  const level = levelForDistance(d / dk, (sp.lvl || 0) + (rand() < 0.3 ? 1 : 0));
+  const count = species === 'wolf' ? 2 + (rand() < 0.35 ? 1 : 0)
+    : species === 'spider' ? 1 + (rand() < 0.55 ? 1 : 0)
+    : species === 'bear' ? 1
+    : species === 'fox' ? 1
+    : species === 'rabbit' ? 1 + (rand() < 0.5 ? 1 : 0)
+    : 1 + Math.floor(rand() * 2) + (species === 'deer' && rand() < 0.3 ? 1 : 0);
+  have[species]++;
+  return { id: 0, species, x: x + 0.5, y: y + 0.5, level, count, members: [], when: ACTIVE[species] };
+}
+
 export function createSpawners(game) {
-  const w = game.world, rand = mulberry32((w.seed | 0) * 31 + 7);
+  const w = game.world;
   const spawners = [];
+  game.spawners = spawners;
+  if (w.wrap) { planetSpawners(game); return; }
+  const rand = mulberry32((w.seed | 0) * 31 + 7);
   const have = {};
   for (const k in QUOTA) have[k] = 0;
-  const sx = w.spawn.x, sy = w.spawn.y;
-  const minD = (s) => SPECIES[s].minD ?? 8;
   for (let k = 0; k < 9000; k++) {
     const x = w.bx0 + 6 + Math.floor(rand() * (w.bx1 - w.bx0 - 12)), y = w.by0 + 6 + Math.floor(rand() * (w.by1 - w.by0 - 12));
-    const i = w.idx(x, y);
-    if (w.rock.get(i) || w.water.get(i) || w.solid?.get(i)) continue;
-    const d = Math.hypot(x - sx, y - sy);
-    const trees = countTrees(w, x + 0.5, y + 0.5, 4);
-    const lush = w.lush ? w.lush.get(i) : 0.5;
-    const dRock = w.dRock ? w.dRock.get(i) : 99;
-    const biome = w.biomeAt ? w.biomeAt(x + 0.5, y + 0.5) : 'meadow';
-    const wooded = biome === 'forest' || biome === 'pine' || biome === 'birch';
-    const cands = [];
-    if (trees >= 7 && d > minD('wolf')) cands.push('wolf');
-    if (trees >= 1 && trees <= 5 && lush > 0.35 && d > minD('boar')) cands.push('boar');
-    if (trees <= 2 && lush > 0.5 && d > minD('deer')) cands.push('deer');
-    if (trees <= 3 && lush > 0.42 && d > minD('rabbit')) cands.push('rabbit');
-    if ((trees >= 4 || (wooded && trees >= 2)) && d > minD('fox')) cands.push('fox');
-    if (dRock < 6 && d > minD('bear') && trees <= 6) cands.push('bear');
-    if (!cands.length) continue;
-    const species = cands[Math.floor(rand() * cands.length)];
-    if (have[species] >= QUOTA[species]) continue;
-    const minSame = species === 'bear' ? 40 : species === 'rabbit' ? 12 : 16;
-    if (spawners.some((s) => { const dd = Math.hypot(s.x - x, s.y - y); return dd < 7 || (s.species === species && dd < minSame); })) continue;
-    const sp = SPECIES[species];
-    const level = levelForDistance(d, (sp.lvl || 0) + (rand() < 0.3 ? 1 : 0));
-    const count = species === 'wolf' ? 2 + (rand() < 0.35 ? 1 : 0)
-      : species === 'spider' ? 1 + (rand() < 0.55 ? 1 : 0)
-      : species === 'bear' ? 1
-      : species === 'fox' ? 1
-      : species === 'rabbit' ? 1 + (rand() < 0.5 ? 1 : 0)
-      : 1 + Math.floor(rand() * 2) + (species === 'deer' && rand() < 0.3 ? 1 : 0);
-    spawners.push({ id: spawners.length + 1, species, x: x + 0.5, y: y + 0.5, level, count, members: [], when: ACTIVE[species] });
-    have[species]++;
+    const s = spawnerAt(game, rand, x, y, spawners, have, QUOTA);
+    if (s) { s.id = spawners.length + 1; spawners.push(s); }
   }
-  game.spawners = spawners;
   createStockSpawners(game); // farm herds and fish schools (their own seeded rng: the layout above is unchanged)
   // only what is out at this hour (the rest fills in when its time comes: mobsSystem slow tick)
   const night = isNight(game);
@@ -136,6 +145,41 @@ export function createSpawners(game) {
     if (!activeNow(game, s, night) || (s.when === 'night' && litNear(game, s.x, s.y))) continue;
     for (let n = 0; n < packSize(game, s); n++) spawnMember(game, s);
   }
+}
+
+// A streamed planet (docs/STREAMING.md "Regiões ativas"): spawners are made per chunk when it loads on the host (a
+// deterministic layout: the chunk's own seeded rng), fill their packs only while the chunk is active (near a player:
+// mobsSystem), and leave with the chunk (their creatures out of a fight go too; the layout comes back with it).
+const CHUNK_QUOTA = { wolf: 1, boar: 1, deer: 1, rabbit: 2, fox: 1, bear: 1 };
+function planetSpawners(game) {
+  const w = game.world;
+  const make = (c) => {
+    if (game.world !== w) return;
+    const rand = mulberry32(((w.seed | 0) * 31 + 7) ^ Math.imul(c + 1, 0x9e3779b1));
+    const have = {};
+    for (const k in CHUNK_QUOTA) have[k] = 0;
+    const x0 = (c & 255) * 64, y0 = (c >>> 8) * 64, near = game.spawners.filter((s) => Math.abs(w.dx(s.x, x0 + 32)) < 80 && Math.abs(s.y - y0 - 32) < 80);
+    for (let k = 0; k < 60; k++) {
+      const x = x0 + 2 + Math.floor(rand() * 60), y = y0 + 2 + Math.floor(rand() * 60);
+      const s = spawnerAt(game, rand, x, y, near, have, CHUNK_QUOTA, 8);
+      if (!s) continue;
+      s.id = game._spawnerId = (game._spawnerId || 1000) + 1;
+      s.chunk = c;
+      near.push(s); game.spawners.push(s);
+    }
+  };
+  for (let c = 0; c < 32768; c++) if (w.isLoaded(c)) make(c);
+  w.onLoad.push((c) => make(c));
+  w.onEvict.push((c) => {
+    if (game.world !== w) return;
+    const E = game.entities;
+    for (let si = game.spawners.length - 1; si >= 0; si--) {
+      const s = game.spawners[si];
+      if (s.chunk !== c) continue;
+      for (const m of s.members) { if (m.state === 'chase' || m.state === 'flee') continue; const i = E.indexOf(m); if (i >= 0) E.splice(i, 1); } // host-only creature list
+      game.spawners.splice(si, 1);
+    }
+  });
 }
 
 // host / tests: one creature at (x, y) on its own spawner (any time of day with when 'always')
@@ -281,8 +325,10 @@ export function mobsSystem() {
         const night = isNight(game);
         collectLights(game);
         const drop = (s, k, m) => { s.members.splice(k, 1); const i = E.indexOf(m); if (i >= 0) E.splice(i, 1); }; // host-only creature list
+        const S = game.world.streamer; // (a streamed planet: only the spawners of active chunks work)
         for (let si = game.spawners.length - 1; si >= 0; si--) {
           const s = game.spawners[si];
+          if (S && s.chunk != null && !S.isActive(s.chunk)) continue;
           const on = activeNow(game, s, night);
           for (let k = s.members.length - 1; k >= 0; k--) {
             const m = s.members[k];

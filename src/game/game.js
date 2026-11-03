@@ -177,7 +177,9 @@ export class Game {
       p.moving = false;
     }
 
-    for (const s of this.systems) s.update?.(this, dt);
+    if (this._prof) { // (dev: the slowest systems — game._prof = new Map() then read it)
+      for (const s of this.systems) { const t0 = performance.now(); s.update?.(this, dt); const ms = performance.now() - t0, k = s.name || s._pk || (s._pk = this.systems.indexOf(s) + ':' + String(s.update).slice(0, 120).replace(/\s+/g, ' ')); if (ms > (this._prof.get(k) || 0)) this._prof.set(k, +ms.toFixed(2)); }
+    } else for (const s of this.systems) s.update?.(this, dt);
 
     // zoom: input moves a target, the camera eases toward it (persisted as a factor of the default zoom)
     this.stepZoom(dt, inp.zoom);
@@ -238,6 +240,7 @@ export class Game {
     const R = this.R, B = R.batches, A = this.A, t = this.time;
     R.resize();
     R.clearBatches();
+    const rt0 = this._prof ? performance.now() : 0;
     const env = this.env.compute();
     const v = this.view();
     const rot = this.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
@@ -385,7 +388,8 @@ export class Game {
     const dpr = R.dpr;
     const cam = { x: this.cam.x + this.shakeOff.x, y: this.cam.y + this.shakeOff.y, ppt: this.cam.zoom * dpr, rot, cut: null };
     cam.cut = this.cutout(cam, rc, rs);
-    R.render(cam, env, t);
+    if (this._prof) { const t1 = performance.now(); R.render(cam, env, t); const ms = performance.now() - t1; if (ms > (this._prof.get('R.render') || 0)) this._prof.set('R.render', +ms.toFixed(2)); if (t1 - rt0 > (this._prof.get('render.cpu') || 0)) this._prof.set('render.cpu', +(t1 - rt0).toFixed(2)); }
+    else R.render(cam, env, t);
     for (let k = shifted.length - 2; k >= 0; k -= 2) shifted[k].x = shifted[k + 1]; // (back to canonical positions)
     shifted.length = 0;
     animEnv.rc = 1; animEnv.rs = 0; animEnv.yaw = 0; // (other drawers of creatures: menu showcase, previews)

@@ -85,7 +85,7 @@ export class EntityServer {
       const av = pl.av, l = [];
       for (const [e, x, y, ex] of Q) {
         if (ex === pl.pid) continue;
-        if (x != null && av && (Math.abs(x - av.x) > OUT_X || Math.abs(y - av.y) > OUT_Y)) continue;
+        if (x != null && av && (Math.abs(this.game.world.dx(x, av.x)) > OUT_X || Math.abs(y - av.y) > OUT_Y)) continue; // (the planet wraps)
         l.push(e);
       }
       if (l.length) this.s._sendTo(pl.key, { t: 'fx', l });
@@ -128,7 +128,7 @@ export class EntityServer {
       const add = [], up = [], del = [], seen = new Set();
       for (const m of mobs) {
         const k = G.known.get(m.nid);
-        const dx = Math.abs(m.x - av.x), dy = Math.abs(m.y - av.y);
+        const dx = Math.abs(this.game.world.dx(m.x, av.x)), dy = Math.abs(m.y - av.y); // (interest across the planet's seam)
         const mine = m.state === 'chase' && m.threat === av;
         if (!(mine || (k ? !(dx > OUT_X || dy > OUT_Y) : dx <= IN_X && dy <= IN_Y))) continue;
         seen.add(m.nid);
@@ -226,7 +226,7 @@ export class EntityClient {
     const z = Math.max(0, Math.min(3, num(d[12]) / 100)); // levels: height in stories
     const B = e._buf, prev = B[B.length - 1];
     if (fresh && !B.length) { e.x = x; e.y = y; e.z = z; }
-    if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; }
+    if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; } // (crossing the seam: a snap)
     if (!prev || ht > prev.t) { B.push({ t: ht, x, y, z }); if (B.length > 12) B.shift(); }
     e.facing = FACES[bits & 3];
     e.netMoving = !!(bits & 4);

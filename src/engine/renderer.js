@@ -220,7 +220,11 @@ export class Renderer {
     const half = Math.hypot(this.w, this.h) / Math.max(1, ppt) / 2; // (any camera yaw)
     const viewR = half / 64 + 0.75;
     const S = w.streamer;
-    return win.update(cx, cy, viewR, budgetMs, (c) => w.ensure(c), S ? (c, d) => S.want(c, d) : (c) => w.ensure(c));
+    if (!S) return win.update(cx, cy, viewR, budgetMs, (c) => w.ensure(c), (c) => w.ensure(c));
+    // a streamed planet: only the chunk under the camera is made here and now; the others in view come from the
+    // workers first (a teleport shows them a few frames later instead of a long hitch)
+    const own = w.chunkIndex(cx, cy);
+    return win.update(cx, cy, viewR, budgetMs, (c) => { if (c === own) w.ensure(c); else S.want(c, 0); }, (c, d) => S.want(c, d));
   }
 
   // ---------- roofs ----------

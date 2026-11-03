@@ -79,8 +79,10 @@ export class Minimap {
   _sync(x, y) {
     const w = this.g.world, pcx = Math.floor(x / 64), pcy = Math.floor(y / 64);
     let n = 0;
-    for (let r = 0; r <= RC / 2 - 1 && n < 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || n >= 6) continue;
+    const max = this.slot.includes(-1) && !this._warm ? 64 : 1; // (one new chunk per call while playing: ~1 ms)
+    this._warm = true;
+    for (let r = 0; r <= RC / 2 - 1 && n < max; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || n >= max) continue;
       const cx = pcx + dx, cy = pcy + dy;
       if (cy < 0 || cy >= 128) continue;
       const c = cy * 256 + (cx & 255);

@@ -31,6 +31,14 @@ const VERSION = 10; // v5 corpses (I) · v6 roofs style / det (J) · v7 style / 
 const key = (game, v = 2) => `wos.save.v${v}.${game.worldId ?? game.world.seed}${game.saveSuffix || ''}`;
 const OFFLINE_CAP = 3600; // seconds of regrowth credited while away
 
+// the world source a saved world was made with (main.js picks it before the world exists): 'classic' | 'synth' | 'planet'
+export function savedSource(worldId, seed) {
+  try {
+    const d = JSON.parse(localStorage.getItem(`wos.save.v2.${worldId ?? seed}`) || 'null');
+    return d && d.v === VERSION && typeof d.src === 'string' ? d.src : null;
+  } catch { return null; }
+}
+
 export function hasSave(game) {
   try { return !!(localStorage.getItem(key(game)) || localStorage.getItem(key(game, 1))); } catch { return false; }
 }

@@ -77,6 +77,7 @@ export class World {
     // ---- chunks & object buckets ----
     this.crec = new Array(NCH).fill(null); // chunk records { c, cx, cy, ready, dirty, pin, t }
     this.loaded = 0;
+    this.live = new Set();                 // loaded chunk indices
     this.stats = { genSync: 0, genAsync: 0, genMs: 0, evicted: 0, installMs: 0 };
     this.onLoad = [];  // (c, rec, data) after a chunk is installed (game systems: flora targets, occupancy…)
     this.onEvict = []; // (c, rec) before a chunk is dropped
@@ -131,14 +132,15 @@ export class World {
     for (const k of SRC_F32) this[k].attach(c, d[k]);
     this.caveDk.attach(c, new Uint8Array(CT)); this.rubble.attach(c, new Uint8Array(CT));
     r.ready = true; r.decor = !!d.decor;
-    this.loaded++;
+    this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
     if (d.decor) for (const dd of d.decor) this.chunkAt(dd.x, dd.y).decor.push(dd);
     // initial population per bucket (regrowth targets)
     this._forBucketsOf(c, (bk) => { bk.pop = popCount(bk.objects); bk.decals = null; });
     this._decalsDirtyNear(c);
     for (const f of this.onLoad) f(c, r, d);
-    this.stats.installMs += performance.now() - t0;
+    const ms = performance.now() - t0;
+    this.stats.installMs += ms; this.stats.installMax = Math.max(this.stats.installMax || 0, ms);
     return r;
   }
   // cosmetic ground decor of a chunk made after its load (streamed sources make it only near the camera)
@@ -163,7 +165,7 @@ export class World {
     this._forBucketsOf(c, (bk) => { for (const o of bk.objects) this.objById.delete(o.id); }, true);
     for (const L of this.srcLayers) L.detach(c);
     this.crec[c] = null;
-    this.loaded--;
+    this.loaded--; this.live.delete(c);
     this.stats.evicted++;
     return true;
   }
@@ -177,10 +179,17 @@ export class World {
       if (bk) { fn(bk); if (drop) this.bk[k] = null; }
     }
   }
-  // loaded buckets (all object lists)
-  *buckets() { for (const b of this.bk) if (b) yield b; }
+  // loaded chunk indices (ascending)
+  *loadedChunks() { for (const c of [...this.live].sort((a, b) => a - b)) yield c; }
+  // loaded buckets (all object lists) — the buckets of the loaded chunks
+  *buckets() {
+    for (const c of this.live) {
+      const bx0 = (c & (CW - 1)) * BPC, by0 = (c >>> 8) * BPC;
+      for (let by = by0; by < by0 + BPC; by++) for (let bx = bx0; bx < bx0 + BPC; bx++) { const b = this.bk[by * BKW + bx]; if (b) yield b; }
+    }
+  }
   // every loaded object
-  *allObjects() { for (const b of this.bk) if (b) yield* b.objects; }
+  *allObjects() { for (const b of this.buckets()) yield* b.objects; }
 
   // ---------- object buckets ----------
   chunkAt(x, y) {
