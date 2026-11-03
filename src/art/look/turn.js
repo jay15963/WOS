@@ -31,7 +31,7 @@ import { bodyPath, PAWN, NECK, FEET } from '../pawns.js';
 
 // camera azimuth around the creature for a 3/4 view: 0 = its front, 90° = its right side, 180° = its back
 const DEG = Math.PI / 180;
-export const GAMMA = { se: 42 * DEG, ne: 138 * DEG };
+export const GAMMA = { se: 42 * DEG, ne: 138 * DEG, sl: 8 * DEG, nl: 66 * DEG }; // (sl / nl: a head turned toward the camera on a se / ne body: art/beast34.js)
 // blend band (half width) between the front / back drawing and the side drawing, around the 45° normals
 const BAND = 9 * DEG;
 // the source drawing of a view and the way its content slides (+1: to the right); w: 3/4 width of the torso
@@ -39,6 +39,7 @@ export const VIEW = { se: { pd: 's', sg: 1 }, ne: { pd: 'n', sg: -1 } };
 export const KIND = { body: { w: 0.88 }, head: { w: 1 } };
 const PADQ = 14;
 const OCC_TOL = 2 * SS; // (px: hair lying on the head is never hidden by it)
+const SIDE_MAX = 108 * DEG; // a front-only part seen from behind: the surface up to this normal (its near side)
 
 // ---------------- recording painter: the raw layers of a part (no outline yet) ----------------
 export class Rec {
@@ -210,7 +211,7 @@ function rowsOf(px, W, H) {
 // X / Z: stand-in extents per row (front width / side depth). Returns an RGBA buffer the size of the layer canvas.
 // occ: an occluder stand-in ({ X, Z }: the bare head) — what lies behind it on the camera's ray is not drawn (a hair
 // strand on the far side of the face)
-export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
+export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null, sideOnly = false) {
   const W = R.cw, H = R.ch, ax = (R.pad + R.W / 2) * SS;
   const out = new Uint8ClampedArray(W * H * 4);
   const back = view === 'ne', g = GAMMA[view], cg = Math.cos(g), sg = Math.sin(g);
@@ -246,9 +247,10 @@ export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
       const nX = ct / rx, nZ = st / rz;
       let eta = Math.atan2(-nX, nZ); // normal: 0 front, 90° its right side, 180° back
       if (back && eta < 0) eta += Math.PI * 2;
+      if (sideOnly && back && eta > SIDE_MAX) continue; // (a beard from behind: only its near side, not its back on the neck)
       // how much of the side drawing (wS) vs the front / back one (wF)
       let wS = back ? 1 - smoothstep(seam - BAND, seam + BAND, eta) : smoothstep(seam - BAND, seam + BAND, eta);
-      if (thin) wS = 1;
+      if (thin || sideOnly) wS = 1;
       if (frontOnly || !pxS) wS = 0;
       const wF = pxF ? 1 - wS : 0;
       // footprints of one output px in the sources (squeezed near the folds)
@@ -436,8 +438,10 @@ const BOX = { body: 'body', cape: 'body', panel: 'body', head: 'head', hair: 'he
 const defOf = (name) => lookDefs().get(name) || PAINT_DEFS.get(name) || null;
 const sideName = (name) => name.replace(/_[sn]$/, '_e');
 
-// the padded 3/4 canvas of a part (sources: front / back def, side def)
-export function threeQuarter(dF, dS, kind, view) {
+// the padded 3/4 canvas of a part (sources: front / back def, side def). behind: a part drawn in the front view only
+// (a beard) seen from the back-side: its front drawing gives the volume, the side drawing the pixels, and the head
+// hides the rest (the edge along the near jaw shows)
+export function threeQuarter(dF, dS, kind, view, behind = false) {
   const pd = view === 'ne' ? 'n' : 's', box = BOX[kind];
   const pad = Math.max(PADQ, dF?.pad ?? 0);
   const F = kind === 'ears' ? null : record(dF, pad);
@@ -471,7 +475,7 @@ export function threeQuarter(dF, dS, kind, view) {
   const layers = [];
   for (let i = 0; i < n; i++) {
     const lf = F?.layers[i], ls = S?.layers[i], L = lf || ls;
-    let px = projectLayer(R, lf?.px || null, ls?.px || null, X, Z, view, kind === 'decal' || kind === 'back' || kind === 'panel', own ? occluder(pd) : null);
+    let px = projectLayer(R, behind ? null : lf?.px || null, ls?.px || null, X, Z, view, kind === 'decal' || kind === 'back' || kind === 'panel', own ? occluder(pd) : null, behind);
     if (armsS && armsS[i]) projectArm(R, armsS[i], M.nearX, M.sideC, view, true, ARM_K, 1, px);
     layers.push({ px, ow: L.ow, col: L.col, opacity: L.opacity });
   }
@@ -493,8 +497,8 @@ export function diagSprite(A, name, view) {
   if (!LAZY_DEFS.has(key)) {
     const dF = defOf(name);
     if (!dF) return null;
-    const dS = defOf(sideName(name)), kind = kindOf(name);
-    LAZY_DEFS.set(key, { ax: dF.ax ?? 0.5, ay: dF.ay ?? 1, canvas: () => threeQuarter(dF, dS, kind, view) || emptyCanvas() });
+    const dS = defOf(sideName(name)), kind = kindOf(name), behind = view === 'ne' && /_s$/.test(name); // (a beard seen from behind)
+    LAZY_DEFS.set(key, { ax: dF.ax ?? 0.5, ay: dF.ay ?? 1, canvas: () => threeQuarter(dF, dS, kind, view, behind) || emptyCanvas() });
   }
   return lookAtlasOf(A).get(key);
 }
@@ -520,7 +524,7 @@ export function diagRig(A, LK, view) {
   D.head = stackOf(A, D, LK.head[pd], view);
   D.hair = stackOf(A, D, LK.hair[pd], view);
   D.brows = stackOf(A, D, LK.brows[pd], view);
-  D.beard = stackOf(A, D, LK.beard[pd], view);
+  D.beard = stackOf(A, D, view === 'ne' ? LK.beard.s : LK.beard[pd], view); // (no back drawing: from behind, its edge)
   D.hairBack = stackOf(A, D, LK.hairBack[pd], view);
   const ls = LK.lids[pd];
   if (ls) { D.lids = diagSprite(A, ls.name, view); if (D.lids) D.need.push(D.lids); }

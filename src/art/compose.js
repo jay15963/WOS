@@ -144,7 +144,8 @@ function tables(A) {
       const M = new Map(), st = q(`${sp}_${v}`);
       if (!st) continue;
       const wk = [q(`${sp}_${v}_walk`), q(`${sp}_${v}_w1`), q(`${sp}_${v}_w2`) || q(`${sp}_${v}_walk`), q(`${sp}_${v}_w3`) || q(`${sp}_${v}_w1`)];
-      M.set(S.e, st); if (S.graze) M.set(S.graze, st); M.set(S.s, st); M.set(S.n, st);
+      M.set(S.n, st); if (S.s !== S.e) M.set(S.s, q(`${sp}_${v}_look`) || st); M.set(S.e, st); // (idle life: looking around, grazing)
+      if (S.graze) M.set(S.graze, q(`${sp}_${v}_graze`) || st);
       S.ew.forEach((f, i) => { if (wk[i] && !M.has(f)) M.set(f, wk[i]); });
       S.q[v] = M;
     }
@@ -1444,7 +1445,7 @@ export function drawAnimal(B, A, a, t) {
     // idle life on a shared schedule (creature id + world clock): grazing, looking around, a twitch
     if (!a.action && a.state !== 'chase' && a.state !== 'flee') {
       const sd0 = seedOf(a), P = 7 + sd0 * 5;
-      const u = ((animEnv.wt + sd0 * 37) / P) % 1;
+      const u = a._idleU ?? ((animEnv.wt + sd0 * 37) / P) % 1; // (_idleU: a fixed moment, tools/diag.html)
       if (G.graze && S.graze && sd === 'e' && u < 0.5) {
         spr = S.graze;
         sy *= 1 - 0.012 * Math.abs(Math.sin(t * 6.5 + ph0)); // nibbling

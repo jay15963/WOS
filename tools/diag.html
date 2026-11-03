@@ -178,6 +178,8 @@ if (set === 'animals' || set === 'all') {
     ...sp.map((s) => [s, beast(s, s === 'deer' ? { variant: 0 } : {})]),
     ['corça', beast('deer', { variant: 1 })],
     ...sp.map((s) => [s + ' anda', beast(s, { moving: true, moveT: 0.07, _gph: 1.2 })]),
+    ...['wolf', 'fox', 'deer', 'boar', 'bear'].map((s) => [s + (s === 'deer' || s === 'boar' ? ' pasta' : ' fareja'), beast(s, { state: 'idle', _idleU: s === 'deer' || s === 'boar' ? 0.2 : 0.35 })]),
+    ...['wolf', 'fox', 'deer', 'boar', 'bear', 'rabbit'].map((s) => [s + ' olha', beast(s, { state: 'idle', _idleU: 0.7 })]),
   ], { w: 1.9, h: 1.7 });
 }
 if (set === 'giant' || set === 'all') {
@@ -210,7 +212,10 @@ if (Q.get('parts')) {
     for (const [v] of cells) {
       let c = null;
       const t1 = performance.now();
-      if (v.length === 2) { const pd = v === 'se' ? 's' : 'n'; c = threeQuarter(def(base + '_' + pd), def(base + '_e'), kindOf(base + '_' + pd), v); }
+      if (v.length === 2) {
+        const pd = v === 'se' ? 's' : 'n', behind = pd === 'n' && !def(base + '_n'); // (no back drawing: a beard seen from behind)
+        c = threeQuarter(def(base + '_' + (behind ? 's' : pd)), def(base + '_e'), kindOf(base + '_s'), v, behind);
+      }
       else if (def(base + '_' + v)) { const d0 = def(base + '_' + v); c = spritePxFast(d0.W, d0.H, (g, P) => d0.paint(P), { pad: 14 }); }
       const cv = document.createElement('canvas');
       if (c) {
