@@ -28,9 +28,9 @@ w.roofs.data.get4(i, k) / set4(i, k, v)   // camadas RGBA (comps 4); getc / setc
 
 Dois tipos de camada, mesma API:
 - **por chunk** (vêm da fonte): `ground, water, rock, rock0, rockType, ore, roof, roof0, tramp, biome, fertile, lush, flowX,
-  flowY, dWater, dRock, caveDk, rubble, cornerH`. Ler um chunk não carregado dá o padrão (`rock` = 1: sólido, ninguém entra);
+  flowY, dWater, dRock, caveDk, rubble, hBase, hT, hC, wlevel, pground`. Ler um chunk não carregado dá o padrão (`rock` = 1: sólido, ninguém entra);
   escrever carrega o chunk sincronamente (`world.ensure(c)`) — a correção nunca espera um worker.
-- **esparsas** (páginas só onde há algo): `solid, broof, deck, rail, railU, noGrow, path, pathPlan`, a ocupação da navegação
+- **esparsas** (páginas só onde há algo): `solid, broof, deck, rail, railU, noGrow, path, pathPlan`, `height.plot`, a ocupação da navegação
   (`game.occ`), as grades dos andares (`levels.surf/blk/st/node`), telhados (`roofs.regionOf/caveOf/data`), caminhos
   (`_paths.data/cov/dir/preview`). `clear()` solta tudo; `forEach(fn(i, v))` percorre os não-zeros.
 
@@ -39,10 +39,25 @@ As chaves das grades de construção continuam `i + lv * W * H` (cabe: 134 M × 
 **A*** (`nav.js`, `levels.js`): sem arrays do tamanho do mundo — uma tabela de endereçamento aberto (`NodeTable`) indexada
 pelo id do nó, zerada por carimbo.
 
-**Alturas** (agente da altura): `w.cornerH` — camada por chunk de Float32, canto (x, y) = canto noroeste do tile (x, y)
-(cada chunk guarda seus 64 × 64 cantos; a 65ª linha / coluna é a primeira do vizinho). A fonte entrega `heights` (65 × 65);
-editar alturas marca o chunk como alterado (ele fica na memória, vai no save e para os convidados como diff — ver §5 / §6).
-Os acessores (`heightAt`, `cornerH`…) do agente da altura devem ler / escrever esta camada.
+**Alturas** (`src/world/heightPaged.js`, `PagedHeight` = `world.height`; o sistema em si: docs/TERRAIN-HEIGHT.md). Os
+cantos são camadas do armazenamento: canto (x, y) = canto noroeste do tile (x, y), índice `w.idx(x, y)` (x dá a volta;
+cada chunk guarda os seus 64 × 64 cantos, o 65º é o primeiro do vizinho):
+- `hBase` (por chunk): o terreno gerado — os `heights` (65 × 65) que a fonte entrega com o chunk; nunca vai para a rede.
+- `hT` (por chunk): o terreno com as edições dos jogadores; `hC` (por chunk): a superfície = max(`hT`, base dos prédios).
+- `plot` (esparsa, −∞ = nada): a altura base dos prédios em cada canto.
+- `edits` (Map canto → altura ≠ base): o **diff** das edições — `height.diff()` / `applyDiff()` vão na foto (`terr`), no
+  save e para os convidados; um chunk editado fica alterado (nunca descarregado); ao (re)carregar um chunk as edições e
+  bases dele são reaplicadas.
+
+A **página fina** de um chunk (4 × 4 amostras por tile, com um anel em volta; inclinação e penhasco por tile) é uma função
+pura dos cantos do chunk + 3 em volta (`computeFine`: o mesmo spline, limites e escarpas do `HeightLayer` — conferido igual
+até o último bit). Normalmente quem a faz é o **worker da janela do terreno**, junto com o resto do chunk (~8 ms fora da
+thread principal); a thread principal só calcula uma página quando alguém pergunta por um chunk fora da janela
+(`heightAt`, `isCliff`). Uma página é `complete` se os 8 vizinhos estavam carregados: um vizinho que chega depois só
+derruba as páginas incompletas; uma edição derruba as que alcança. Chunk com todos os cantos (e margem) zero = plano, sem
+página. Mesma API do `HeightLayer`: `heightAt, gradAt, cornerH, terrainH, plotH, tileSlope, isCliff, tileMin, tileMax,
+maxIn, cliffBetween, setTerrain, setPlots, diff, applyDiff` (+ `ci(ix, iy)` = índice do canto para os módulos de edição).
+Sem alturas (`any` falso: o mundo clássico sem `?hills=1`) tudo devolve 0 / falso, como antes.
 
 ## 2. Fonte do mundo
 
@@ -72,7 +87,7 @@ ChunkData = { ground, water (0 terra · 1 raso · 2 fundo · 3 abissal), rock, r
   é `generateChunk(planet, cx, cy, { decor })` (~40 ms no worker) adaptado: chão 8–13 e rochas 5–6 → os clássicos
   (`GROUND_CLASSIC` / `ROCK_CLASSIC`), bioma → a sua classe clássica (`BIOME_LIST[b].cl`), árvores / plantas novas → arte
   existente (a mesma tabela de `planet/ingame.js`), `lush` 0..255 → 0..1, posições do chunk → do planeta, `height`
-  (65 × 65) → `cornerH`, decor no máximo ~1600 por chunk. Ids naturais do planeta: `(cy·256 + cx)·16384 + k`.
+  (65 × 65) → `hBase` (a água dobrada no nível dela: `wlevel`), decor no máximo ~1600 por chunk. Ids naturais do planeta: `(cy·256 + cx)·16384 + k`.
 
 Água abissal (3) vira 2 (fundo) para o jogo ao instalar o chunk. Ids de objetos naturais por chunk: `1e7 + c·8192 + k`
 (synth) / `c·16384 + k` (planet) → `chunkOfId` carrega o chunk de um objeto citado numa op ou num save.
@@ -131,6 +146,12 @@ módulos com o seu `fill`: `roof` (renderer, de `game.roofs.data`), `path` e `pa
 - Edições (`world.dirty`, `caveDirty`, telhados, caminhos, `syncSolid`) recalculam só o retângulo (thread principal).
 - Um chunk que chega recalcula os vizinhos na janela (as margens dele).
 - `R.coldAt(x, y)` lê a cópia da CPU do canal `clim` dentro da janela.
+- **Alturas** (docs/TERRAIN-HEIGHT.md): quatro canais a mais — `hgt` (4×, R32F: a superfície fina, geometria exata nos
+  vertex shaders), `hgtG` (4×, RGBA16F: gradiente + altura), `hgtC` (1×, R32F: cantos) e `hgtK` (1×, RGBA8: inclinação,
+  base de prédio, edição, nível da água perto). O worker manda `hgt` / `hgtG` e a página fina do chunk junto com o resto;
+  `hgtC` / `hgtK` são feitos na thread principal (≤ 0,3 ms por chunk). A malha 3D (faixas instanciadas) cobre a vista em
+  coordenadas de tile sem limite de mundo (o planeta dá a volta; um mundo limitado guarda a borda + 8) e lê os anéis com
+  máscara (`& (tamanho − 1)`).
 
 **Costura e precisão**: posições ficam canônicas (0 ≤ x < W: `moveCircle`, o laço do jogo, o barco); distâncias usam
 `w.dx(a, b)` (`query`, colisões, jogadores, interesse da rede, A*); a câmera segue **contínua** (pode sair de 0..W ao
@@ -148,7 +169,8 @@ grande continua mostrando o mapa inteiro.
 ## 7. Save
 
 Save **v10** (`save.js`): semente + configurações + só o que mudou (objetos tirados / tocos, flora nova, estruturas,
-tiles minerados — índices do planeta —, caminhos como corridas esparsas `{ s: 2, g, p }` de `[início, n, valor]`,
+tiles minerados — índices do planeta —, edições do terreno (`terr`: canto → altura, só os cantos editados) e alturas base
+dos prédios (`bzs`), caminhos como corridas esparsas `{ s: 2, g, p }` de `[início, n, valor]`,
 plantações, corpos, saque, andares, barcos…) + o jogador; `src` = a fonte do mundo (o `main.js` abre um mundo salvo com a
 fonte dele). Saves antigos (índices de 256 de largura) não são lidos: são apagados com um aviso ("Este mundo era de uma
 versão antiga…") e um mundo novo nasce da mesma semente.
@@ -157,7 +179,9 @@ versão antiga…") e um mundo novo nasce da mesma semente.
 
 - `welcome.src` leva a fonte do anfitrião; o convidado gera o terreno localmente da semente (nada de dados de tiles na
   rede). `PROTO = 6`.
-- Snapshot de entrada / ressincronização = os mesmos diffs do save (nunca o mundo inteiro).
+- Snapshot de entrada / ressincronização = os mesmos diffs do save (nunca o mundo inteiro). As alturas geradas nunca vão
+  pela rede (o convidado as gera); só o diff das edições (`terr`) e as bases dos prédios; a op `terrain.set` muda poucos
+  cantos e carrega o chunk deles se preciso (como as outras ops).
 - Entidades: o fluxo de 10 Hz já era por interesse (caixa em volta de cada convidado) — agora atravessa a costura.
 - Ops continuam globais e pequenas (uma por ação). Uma op sobre um chunk que o convidado não tem (um objeto natural, um
   tile) carrega esse chunk na hora (`findObj` → `chunkOfId`, `Layer.set` → `ensure`), então todo par aplica igual.
@@ -186,6 +210,11 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
   ~0,4 s, como antes), synth ~0,3 s, planet ~1,3 s (o planeta macro no worker em paralelo com os gráficos). O total em dev
   é dominado pela pintura do atlas (sem cache em localhost; em produção o atlas vem do IndexedDB).
 - Mundo clássico: 16 chunks (+ rocha em volta para a janela), camadas ~7 MB; `get` de camada ~4 ns.
+- **Com alturas** (planeta, `?source=planet`): andando a 9 tiles/s por 15 s → média 1,2 ms, p95 1,9 ms, máx 6,3 ms,
+  0 quadros > 8 ms. Página fina: ~7–8 ms por chunk (no worker: 26 de 32 páginas na caminhada; as da thread principal eram
+  oceano plano, 8 ms ao todo). Memória: páginas finas ~0,26 MB por chunk com relevo (~17 MB com ~70 chunks); janela da GPU
+  74,5 MB (24,5 MB sem as alturas: `hgt` 16 MB + `hgtG` 32 MB + `hgtC` / `hgtK` 2 MB). `?hills=1` no clássico: idêntico
+  ao protótipo (mesmos números de `heightAt` / penhascos).
 - Medir: `game.streamStats()` (HUD de streaming, ligado em localhost no planeta ou com `?stream=1`), `game.frameStats(reset)`,
   `game._prof = new Map()` (o sistema mais lento por quadro), `game.debug.bench(n)`.
 
@@ -205,3 +234,6 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
 - Chunks alterados ficam na memória até o fim da sessão (o save os guarda como diffs); um próximo passo é descarregá-los
   serializando o diff.
 - Distâncias de muitos sistemas cosméticos ainda usam `x − x'` direto: só erram exatamente na costura (oceano abissal).
+- Alturas: uma edição (cavar, aterrar) recalcula na thread principal as páginas finas que alcança (~8 ms por chunk, 1–4
+  chunks); poderia ir para o worker como os chunks novos. Os 50 MB de GPU das alturas podem cair (ex.: `hgtG` em RG16F
+  + altura do `hgt`) se o celular apertar.
