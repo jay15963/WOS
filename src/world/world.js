@@ -69,7 +69,11 @@ export class World {
     L('lush', Float32Array, 0); L('flowX', Float32Array, 0); L('flowY', Float32Array, 0); L('dWater', Float32Array, 9); L('dRock', Float32Array, 0);
     L('rock', Uint8Array, 1); L('rock0', Uint8Array, 1); L('roof', Uint8Array, 1); L('roof0', Uint8Array, 1);
     L('caveDk', Uint8Array, 0); L('rubble', Uint8Array, 0);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble];
+    // terrain corner heights (stories): corner (x, y) = the north-west corner of tile (x, y); chunk-backed (a chunk keeps
+    // its 64 × 64 corners, the 65th row / column is the next chunk's first); edits mark the chunk changed (kept, saved
+    // and streamed as a diff: docs/STREAMING.md). Flat (0) until a source gives heights.
+    L('cornerH', Float32Array, 0);
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.cornerH];
     L('solid', Uint8Array, 0, true);   // buildings / walls occupancy (sparse: only where something stands)
     L('broof', Uint8Array, 0, true);   // built roofs (src/game/roofs.js)
     this.deck = null; this.rail = null; this.railU = null; // bridges / piers (game/decks.js): sparse layers when any
@@ -131,6 +135,7 @@ export class World {
     for (const k of SRC_U8) this[k].attach(c, d[k]);
     for (const k of SRC_F32) this[k].attach(c, d[k]);
     this.caveDk.attach(c, new Uint8Array(CT)); this.rubble.attach(c, new Uint8Array(CT));
+    this.cornerH.attach(c, cornersOf(d.heights));
     r.ready = true; r.decor = !!d.decor;
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
@@ -550,6 +555,15 @@ export class World {
     for (const L of [this.solid, this.broof, this.deck, this.rail, this.railU, this.path, this.pathPlan, this.noGrow]) if (L) b += L.bytes();
     return b;
   }
+}
+
+// the chunk's own 64 × 64 corners from a source's (65 × 65) heights (null: flat)
+function cornersOf(h) {
+  const a = new Float32Array(CT);
+  if (!h) return a;
+  const n = h.length === CT ? CS : CS + 1;
+  for (let y = 0; y < CS; y++) for (let x = 0; x < CS; x++) a[y * CS + x] = h[y * n + x];
+  return a;
 }
 
 // initial population of a bucket per natural kind
