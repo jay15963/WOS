@@ -199,7 +199,7 @@ if (set === 'giant' || set === 'all') {
 // ?parts=lk_head_round,lk_hair_short… : each part's front / side / back drawings and its two 3/4 paintings (zoomed)
 if (Q.get('parts')) {
   const { lookDefs } = await import('../src/art/look/index.js');
-  const { threeQuarter, kindOf } = await import('../src/art/look/turn.js');
+  const { threeQuarter, kindOf, hairStyle } = await import('../src/art/look/turn.js');
   const { PAINT_DEFS } = await import('../src/art/lazyDefs.js');
   const { spritePxFast } = await import('../src/art/paint.js');
   const D = lookDefs(), def = (n) => D.get(n) || PAINT_DEFS.get(n);
@@ -214,7 +214,7 @@ if (Q.get('parts')) {
       const t1 = performance.now();
       if (v.length === 2) {
         const pd = v === 'se' ? 's' : 'n', behind = pd === 'n' && !def(base + '_n'); // (no back drawing: a beard seen from behind)
-        c = threeQuarter(def(base + '_' + (behind ? 's' : pd)), def(base + '_e'), kindOf(base + '_s'), v, behind);
+        c = threeQuarter(def(base + '_' + (behind ? 's' : pd)), def(base + '_e'), kindOf(base + '_s'), v, behind, hairStyle(base + '_s'));
       }
       else if (def(base + '_' + v)) { const d0 = def(base + '_' + v); c = spritePxFast(d0.W, d0.H, (g, P) => d0.paint(P), { pad: 14 }); }
       const cv = document.createElement('canvas');
