@@ -46,7 +46,7 @@ defineOp('stock.rope', {
 });
 
 defineOp('stock.note', {
-  doc: 'A message about the farm for every player (a birth, an animal starving / dead of hunger).',
+  doc: 'A message about the farm for every player (a birth, an animal starving / dead of hunger, killed by wolves).',
   args: { text: 'string', kind: "'good'|'bad'|'info'" },
   apply(game, a) {
     const text = str(a.text);
