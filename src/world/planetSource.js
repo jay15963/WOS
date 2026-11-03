@@ -1,86 +1,134 @@
-// The real planet generator (src/world/planet, agent P) as a world source (docs/STREAMING.md "Fonte do mundo"):
-// ?source=planet. The planet module exports generatePlanet(seed) → macro data (512 × 256) and
-// generateChunk(planet, cx, cy) → the layers of one 64 × 64 chunk; this adapter turns them into the engine's ChunkData
-// (src/world/source.js) and runs the same functions in the chunk workers (chunkWorker.js → workerGenerator).
-// Field names it understands (typed arrays of 64 × 64, row-major; heights (65 × 65) when present):
-//   ground, water (0 land · 1 shallow · 2 deep · 3 abyssal), rock (or rockMass > 0.5), rockType, ore, roof,
-//   flowX, flowY, biome (+ planet.biomeNames to map ids to names), fertile, lush, heights, objects [], decor []
-// Anything missing is derived (roof from rock depth, dWater / dRock distances inside the chunk, lush from the biome).
-// Until the planet module is on this branch, makeSource falls back to the synthetic planet (synth.js).
+// The real planet generator (src/world/planet, docs/PLANET.md) as a world source (docs/STREAMING.md "Fonte do mundo"):
+// ?source=planet (or ?planet=1). generatePlanet(seed) → the macro planet (512 × 256 typed arrays, postMessage-able)
+// is made once on the main thread (spawn, map, synchronous fallback) and handed to the chunk workers; each chunk is
+// generateChunk(planet, cx, cy, { decor }) adapted to the engine's ChunkData (src/world/source.js):
+//   ground ids 8–13 / rock types 5–6 → the classic ones (planet/biomes.js GROUND_CLASSIC / ROCK_CLASSIC), biomes → their
+//   classic class (BIOME_LIST[b].cl), new plant / tree kinds → existing art (the same table as planet/ingame.js),
+//   lush 0..255 → 0..1, `height` (65 × 65 corners, stories) → world.cornerH, water 3 (abyss) → deep for the game.
+// Object ids are the planet's: (cy * 256 + cx) * 16384 + k → chunkOfId.
 
-import { CS, CT, PW, PH, CW } from './store.js';
-import { G, BIOMES, BIOME_ID } from './worldgen.js';
+import { CS, CT, PW, PH } from './store.js';
+import { G, BIOME_ID } from './worldgen.js';
 
-const PLANET_PATHS = ['./planet/index.js', './planet/planet.js'];
-const ID0 = 2e7, IDS = 8192; // natural object ids: ID0 + chunk * IDS + k
+const ID_PER_CHUNK = 16384, ID_MAX = 1073741824;
+const DECOR_MAX = 1600;
 
-async function loadPlanetModule() {
-  let err = null;
-  for (const p of PLANET_PATHS) {
-    try { const m = await import(p); if (m.generatePlanet && m.generateChunk) return m; } catch (e) { err = e; }
-  }
-  throw err || new Error('src/world/planet não encontrado');
+// new tree / plant kinds of the planet → art the game has (planet/ingame.js)
+const TREE_MAP = {
+  tree_oak: 'tree_oak', tree_pine: 'tree_pine', tree_birch: 'tree_birch', tree_dead: 'tree_dead',
+  tree_palm: 'tree_oak', tree_acacia: 'tree_oak', tree_baobab: 'tree_oak', tree_jungle: 'tree_oak', tree_kapok: 'tree_oak', tree_olive: 'tree_oak', tree_fern: 'tree_oak',
+  tree_spruce: 'tree_pine', tree_larch: 'tree_pine', tree_redwood: 'tree_pine', tree_cypress: 'tree_pine', tree_dwarf: 'tree_birch', bamboo: 'tree_birch',
+};
+const DRY_PLANTS = new Set(['cactus', 'cactus_tall', 'agave', 'shrub_desert', 'dead_bush', 'tussock', 'tundra_shrub', 'dune_grass', 'termite_mound', 'papyrus']);
+const KEEP = new Set(['bush', 'berrybush', 'herbbush', 'boulder', 'pebble', 'stick', 'fibergrass', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
+const DECOR_MAP = { lichen: 'moss', cottongrass: 'tallgrass', ash: 'scree' };
+const DECOR_OK = new Set(['grass', 'tallgrass', 'flower', 'reed', 'mushroom', 'fern', 'bloom', 'heather', 'drygrass', 'thistle', 'litter', 'needles', 'twigs', 'petals', 'moss', 'lily', 'riverstone', 'scree', 'shell', 'driftwood']);
+
+let PM = null; // the planet modules
+async function mods() {
+  if (PM) return PM;
+  const [idx, bio, ren] = await Promise.all([import('./planet/index.js'), import('./planet/biomes.js'), import('./planet/render.js').catch(() => null)]);
+  return (PM = { ...idx, GROUND_CLASSIC: bio.GROUND_CLASSIC, ROCK_CLASSIC: bio.ROCK_CLASSIC, BIOME_LIST: bio.BIOME_LIST, renderMacro: ren?.renderMacro });
 }
 
-// the chunk generator for a worker (chunkWorker.js): init = { kind: 'planet', seed }
+// the chunk generator of a worker (chunkWorker.js): init = { kind: 'planet', seed, planet }
 export async function workerGenerator(init) {
-  const m = await loadPlanetModule();
-  const planet = m.generatePlanet(init.seed);
-  return (cx, cy, o) => adaptChunk(planet, m.generateChunk(planet, cx, cy, o), cx, cy, o);
+  const m = await mods();
+  const planet = init.planet || m.generatePlanet(init.seed);
+  return (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o);
 }
 
-export async function makePlanetSource(seed) {
-  const m = await loadPlanetModule();
+export async function makePlanetSource(seed, opts = {}) {
+  const m = await mods();
+  const t0 = performance.now();
   const planet = m.generatePlanet(seed);
-  const spawn = m.findSpawn ? m.findSpawn(planet) : planet.spawn || { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
-  return {
-    kind: 'planet', seed, wrap: true, bounds: null, zones: [], spawn,
-    worker: { url: new URL('./chunkWorker.js', import.meta.url).href, init: { kind: 'planet', seed } },
-    chunk: (cx, cy, o) => adaptChunk(planet, m.generateChunk(planet, cx, cy, o), cx, cy, o),
-    macro: () => (m.macroImage ? m.macroImage(planet) : null),
-    chunkOfId: (id) => (typeof id === 'number' && id >= ID0 ? Math.floor((id - ID0) / IDS) : -1),
+  const t1 = performance.now();
+  let spawn = null;
+  const px = opts.px != null && opts.px !== '' ? +opts.px : NaN, py = opts.py != null && opts.py !== '' ? +opts.py : NaN;
+  if (px === px && py === py) spawn = { x: px + 0.5, y: py + 0.5 };
+  else { const sp = m.findSpawn(planet); spawn = sp ? { x: sp.x, y: sp.y } : { x: PW / 2 + 0.5, y: PH / 3 + 0.5 }; }
+  const src = {
+    kind: 'planet', seed, wrap: true, bounds: null, zones: [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }], spawn,
+    timings: { planet: Math.round(t1 - t0) },
+    worker: { url: new URL('./chunkWorker.js', import.meta.url).href, init: { kind: 'planet', seed, planet: stripPlanet(planet) } },
+    chunk: (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o),
+    macro: () => {
+      if (!m.renderMacro) return null;
+      const rgba = m.renderMacro(planet, 'satellite');
+      return { w: m.MW, h: m.MH, rgba, tpp: PW / m.MW };
+    },
+    chunkOfId: (id) => (typeof id === 'number' && id >= 0 && id < ID_MAX ? Math.floor(id / ID_PER_CHUNK) : -1),
   };
+  console.info(`[planet] seed ${seed}: planet ${src.timings.planet} ms, spawn ${spawn.x.toFixed(1)}, ${spawn.y.toFixed(1)}`);
+  return src;
 }
 
-// the planet's layers → the engine's ChunkData
-export function adaptChunk(planet, p, cx, cy, { decor = true } = {}) {
-  const u8 = (k, alt) => (p[k] instanceof Uint8Array ? p[k] : alt ? alt() : new Uint8Array(CT));
-  const f32 = (k) => (p[k] instanceof Float32Array ? p[k] : new Float32Array(CT));
-  const water = u8('water');
-  const rock = p.rock instanceof Uint8Array ? p.rock : p.rockMass ? Uint8Array.from(p.rockMass, (v) => (v > 0.5 ? 1 : 0)) : new Uint8Array(CT);
-  const names = planet.biomeNames || BIOMES;
-  const bmap = names.map((n) => BIOME_ID[String(n).toUpperCase()] ?? (/sea|ocean|lake|water/.test(n) ? BIOME_ID.WATER : /mount|peak|alpine/.test(n) ? BIOME_ID.MOUNTAIN : /tundra|taiga|boreal|pine|snow/.test(n) ? BIOME_ID.PINE : /forest|jungle|rain/.test(n) ? BIOME_ID.FOREST : /marsh|swamp|wet/.test(n) ? BIOME_ID.MARSH : /beach|shore|coast|sand|desert|dune/.test(n) ? BIOME_ID.SHORE : /rock|bad|scree/.test(n) ? BIOME_ID.ROCKY : BIOME_ID.MEADOW));
-  const biome = new Uint8Array(CT), pb = p.biome || new Uint8Array(CT);
-  for (let l = 0; l < CT; l++) biome[l] = rock[l] ? BIOME_ID.MOUNTAIN : water[l] ? BIOME_ID.WATER : bmap[pb[l]] ?? BIOME_ID.MEADOW;
-  const ground = u8('ground', () => { const g = new Uint8Array(CT); for (let l = 0; l < CT; l++) g[l] = rock[l] ? G.STONE : biome[l] === BIOME_ID.SHORE ? G.SAND : biome[l] === BIOME_ID.ROCKY ? G.GRAVEL : biome[l] === BIOME_ID.MARSH ? G.MARSH : G.SOIL; return g; });
-  // roof: rock ≥ 2 deep (inside the chunk; the border counts as rock)
-  const roof = u8('roof', () => {
-    const r = new Uint8Array(CT);
-    for (let y = 0; y < CS; y++) for (let x = 0; x < CS; x++) {
-      if (!rock[y * CS + x]) continue;
-      let deep = 1;
-      for (let dy = -2; dy <= 2 && deep; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < CS && Y < CS && !rock[Y * CS + X]) { deep = 0; break; } }
-      r[y * CS + x] = deep;
+// the planet object without caches the workers do not need (and that may not clone)
+function stripPlanet(p) {
+  const o = {};
+  for (const k in p) { const v = p[k]; if (k[0] === '_' || typeof v === 'function') continue; o[k] = v; }
+  return o;
+}
+
+// the planet's chunk → the engine's ChunkData
+export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
+  const GC = m.GROUND_CLASSIC, RC = m.ROCK_CLASSIC, BL = m.BIOME_LIST;
+  const rock = p.rock, water = new Uint8Array(CT), ground = new Uint8Array(CT), rockType = new Uint8Array(CT), biome = new Uint8Array(CT), lush = new Float32Array(CT);
+  for (let l = 0; l < CT; l++) {
+    water[l] = rock[l] ? 0 : p.water[l]; // (3 = abyss: deep for the game, world.install)
+    ground[l] = rock[l] ? G.STONE : GC[p.ground[l]] ?? G.SOIL;
+    rockType[l] = RC[p.rockType[l]] || 1;
+    biome[l] = rock[l] ? BIOME_ID.MOUNTAIN : water[l] ? BIOME_ID.WATER : BL[p.biome[l]]?.cl ?? BIOME_ID.MEADOW;
+    lush[l] = p.lush[l] / 255;
+  }
+  // roof: rock ≥ 2 tiles deep (inside the chunk; beyond its edge counts as rock — a cave dug there keeps its ceiling)
+  const roof = new Uint8Array(CT);
+  for (let y = 0; y < CS; y++) for (let x = 0; x < CS; x++) {
+    if (!rock[y * CS + x]) continue;
+    let deep = 1;
+    for (let dy = -2; dy <= 2 && deep; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx, Y = y + dy; if (X >= 0 && Y >= 0 && X < CS && Y < CS && !rock[Y * CS + X]) { deep = 0; break; } }
+    roof[y * CS + x] = deep;
+  }
+  // (the planet gives object / decor positions inside the chunk: to planet coordinates)
+  const X0 = cx * CS, Y0 = cy * CS;
+  const objects = [];
+  for (const o of p.objects || []) {
+    if (o.w) continue; // (nothing standing in water yet)
+    let t = o.type, v = o.v;
+    if (t.startsWith('tree_') || t === 'bamboo') { const n = TREE_MAP[t] || 'tree_oak'; if (n !== t) v = v & 15; t = n; }
+    else if (DRY_PLANTS.has(t)) { v = 2000 + (v % 1000); t = 'bush'; }
+    else if (t === 'lichen_rock') t = 'boulder';
+    else if (!KEEP.has(t)) continue;
+    o.x += X0; o.y += Y0;
+    objects.push(t === o.type && v === o.v ? o : { ...o, type: t, v });
+  }
+  let dec = null;
+  if (decor && p.decor) {
+    dec = [];
+    // (cosmetic and heavy: at most ~DECOR_MAX per chunk — dense grasslands keep an even sample)
+    const step = Math.max(1, p.decor.length / DECOR_MAX);
+    for (let k = 0; k < p.decor.length; k += step) {
+      const d = p.decor[Math.floor(k)];
+      const t = DECOR_MAP[d.t] || d.t;
+      if (!DECOR_OK.has(t)) continue;
+      const lx = Math.floor(d.x), ly = Math.floor(d.y);
+      if (lx < 0 || ly < 0 || lx >= CS || ly >= CS) continue;
+      const l = ly * CS + lx;
+      if (rock[l] || (water[l] && !d.w)) continue;
+      d.x += X0; d.y += Y0;
+      dec.push(t === d.t ? d : { ...d, t });
     }
-    return r;
-  });
-  const dWater = dist(water), dRock = dist(rock);
-  const lush = p.lush instanceof Float32Array ? p.lush : Float32Array.from(biome, (b) => (b === BIOME_ID.FOREST || b === BIOME_ID.MEADOW ? 0.6 : b === BIOME_ID.MARSH ? 0.7 : 0.3));
-  const c = cy * CW + cx;
-  let k = 0;
-  const objects = (p.objects || []).map((o) => ({ ...o, id: o.id ?? ID0 + c * IDS + k++ }));
+  }
   return {
-    cx, cy, ground, water, rock, rockType: u8('rockType', () => new Uint8Array(CT).fill(1)), ore: u8('ore'), roof, tramp: u8('tramp'),
-    biome, fertile: u8('fertile'), lush, flowX: f32('flowX'), flowY: f32('flowY'), dWater, dRock,
-    heights: p.heights instanceof Float32Array ? p.heights : null,
-    objects, decor: decor ? p.decor || [] : null,
+    cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
+    flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights: p.height || null, objects, decor: dec,
   };
 }
 
-// chamfer distance (tiles, ≤ 9) to the set tiles inside the chunk
-function dist(m) {
+// chamfer-ish distance (tiles, ≤ 9) to the set tiles inside the chunk
+function dist(mk) {
   const a = new Float32Array(CT);
-  for (let l = 0; l < CT; l++) a[l] = m[l] ? 0 : 9;
+  for (let l = 0; l < CT; l++) a[l] = mk[l] ? 0 : 9;
   for (let pass = 0; pass < 2; pass++) for (let n = 0; n < CT; n++) {
     const l = pass ? CT - 1 - n : n, x = l % CS, s = pass ? 1 : -1;
     let v = a[l];

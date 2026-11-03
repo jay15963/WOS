@@ -91,10 +91,10 @@ function wrapArr(a) { return { get: (i) => a[i] }; }
 
 // pick a source from the URL flags / a saved world: 'classic' (default), 'synth' (synthetic planet, stress test),
 // 'planet' (src/world/planet when present)
-export async function makeSource(kind, seed) {
+export async function makeSource(kind, seed, opts = {}) {
   if (kind === 'synth') { const m = await import('./synth.js'); return new m.SynthSource(seed); }
   if (kind === 'planet') {
-    try { const m = await import('./planetSource.js'); return await m.makePlanetSource(seed); }
+    try { const m = await import('./planetSource.js'); return await m.makePlanetSource(seed, opts); }
     catch (e) { console.warn('[world] planet source unavailable, using synth', e); const m = await import('./synth.js'); return new m.SynthSource(seed); }
   }
   return new ClassicSource(seed);

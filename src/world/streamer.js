@@ -12,7 +12,7 @@
 
 import { CW, CH, CS, NCH, chunkKey } from './store.js';
 
-export const R_ACT = 2, R_LOAD = 3, R_KEEP = 5, R_DECOR = 5;
+export const R_ACT = 2, R_LOAD = 3, R_KEEP = 5, R_DECOR = 3;
 const MAX_INFLIGHT = 6;
 
 export class Streamer {
