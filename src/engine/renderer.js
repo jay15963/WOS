@@ -446,6 +446,11 @@ export class Renderer {
     }
     this._solid = new Uint8Array(N);
     if (world.solid) for (let i = 0; i < N; i++) { const v = world.solid[i]; this._solid[i] = v; D[i * 4 + 1] = v === 1 ? 255 : v ? 128 : 0; }
+    // the planet's own ground (world/planet/biomes.js PG): B volcanic ash / basalt, A permanent snow / ice (the classic
+    // ground ids have neither: the terrain shader tints them in)
+    const PGd = world.planetGround;
+    this._climPG = false;
+    if (PGd && PGd.length === N) for (let i = 0; i < N; i++) { const g = PGd[i]; if (g === 10) { D[i * 4 + 2] = 255; this._climPG = true; } else if (g === 8 || g === 9) { D[i * 4 + 3] = 255; this._climPG = true; } }
     if (this.climTex) gl.deleteTexture(this.climTex);
     this.climTex = createTexture(gl, { width: W, height: H, data: D });
   }
@@ -748,7 +753,7 @@ export class Renderer {
         gl.uniform1f(u.uPathOn, this.pathOn && this.pathTex && this.pathMatTex ? 1 : 0);
       }
       // climate fetch only when it can show something (snow lying, or walls in view for the contact AO)
-      if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
+      if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || this._climPG || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
       this._setExtra(p, env.extra);
       hgtUni(p);
       gl.bindVertexArray(this.fsVao);
@@ -760,7 +765,7 @@ export class Renderer {
         gl.uniform2f(u.uScale, sx, sy);
         for (const [n, k] of [['uHgtF', 9], ['uHgtG', 10], ['uHgtC', 11], ['uHgtK', 12]]) if (u[n]) gl.uniform1i(u[n], k);
         gl.uniform2f(u.uHgtSz, HL.FW, HL.FH);
-        if (u.uSnowLine) gl.uniform1f(u.uSnowLine, this.snowLine ?? 9);
+        if (u.uSnowLine) gl.uniform1f(u.uSnowLine, this.snowLine ?? (this.world.planetGround ? 1e3 : 9)); // (the planet decides its own snow: climate ground)
         depthUni(p);
         const vx = viewW / 2 + 1.5, vy0 = -viewH / 2 - 1.5;
         let ax = 1e9, ay = 1e9, bx = -1e9, by = -1e9;
@@ -793,7 +798,7 @@ export class Renderer {
     }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    if (B.decal.n) {
+    if (B.decal.n && !HL) { // (relief: the rock is drawn by the terrain itself, no flat-massif ore / rubble decals)
       // [world] terrain decals: ore deposits on the rock tops, rubble on stone floors (premultiplied over)
       const p = this.progDecal, u = p.u, W = this.world;
       gl.useProgram(p.p);

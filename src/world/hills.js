@@ -37,10 +37,10 @@ export function sculptHills(gen) {
   const riverAt = (y) => rxs[clamp(Math.round(y), 0, H - 1)];
 
   // ---------- features ----------
-  const P = { x: sx - 30, y: sy + 2, r: 8.5, h: 4.5 };            // plateau
+  const P = { x: sx - 30, y: sy + 2, r: 8.5, h: 2.5 };            // plateau
   const RAMP = { x0: P.x + 6, x1: P.x + 17, y: P.y + 0.5, w: 1.6 }; // ramp up its east side (high end at x0)
   const LAKE = { x: sx - 12, y: sy - 14 };                         // valley around the lake
-  const MT = { x: sx + 46, y: sy + 47, r: 27, h: 14 };            // mountain
+  const MT = { x: sx + 46, y: sy + 47, r: 27, h: 8 };             // mountain
   const COAST = (x) => sy + 30 + 3.2 * n(x, 3.7, 9) + 1.4 * n(x, 9.1, 3); // sea south of this line (x < sx - 14)
   const coastK = (x) => smoothstep(sx - 8, sx - 16, x) * smoothstep(sx - 92, sx - 80, x); // where the sea is
   const dW = (x, y) => { // distance to water at a corner (the tiles around it)
@@ -53,18 +53,18 @@ export function sculptHills(gen) {
   const seaC = new Uint8Array(CW * (H + 1));
   for (let y = 0; y <= H; y++) for (let x = 0; x <= W; x++) {
     // rolling hills, flattening toward the water
-    let h = (1.15 + 0.85 * n(x, y, 17) + 0.35 * n(x + 40, y, 6.5)) * smoothstep(0.6, 6.5, dW(x, y));
+    let h = (0.8 + 0.6 * n(x, y, 17) + 0.25 * n(x + 40, y, 6.5)) * smoothstep(0.6, 6.5, dW(x, y));
     h = Math.max(0, h);
     // the valley: a ring of higher hills around the lake
     const dl = Math.hypot(x - LAKE.x, y - LAKE.y) + 2.5 * m(x, y, 6);
-    h = Math.max(h, 3.4 * smoothstep(7, 15, dl) * (1 - smoothstep(19, 27, dl)) * smoothstep(0.6, 3.5, dW(x, y)));
+    h = Math.max(h, 2.2 * smoothstep(7, 15, dl) * (1 - smoothstep(19, 27, dl)) * smoothstep(0.6, 3.5, dW(x, y)));
     // canyon: a high tableland cut by the river — steep rock walls (~2 tiles) from the river floor to the rim
     const cx = riverAt(y);
     if (cx === cx) {
       const fadeY = smoothstep(sy - 52, sy - 40, y) * (1 - smoothstep(sy + 26, sy + 38, y));
       if (fadeY > 0) {
         const d = Math.abs(x - cx) + 1.2 * n(x, y, 4.5), east = x > cx;
-        const T = (5.6 + 0.6 * n(x, y, 9)) * fadeY;
+        const T = (3.0 + 0.4 * n(x, y, 9)) * fadeY;
         const hw0 = 5.0;
         let hc = T * smoothstep(hw0, hw0 + 2.3, d);
         hc *= 1 - smoothstep(east ? 22 : hw0 + 6, east ? 34 : hw0 + 16, d); // west: slopes down to the meadow
@@ -75,7 +75,7 @@ export function sculptHills(gen) {
     // plateau ringed by steep rock (a smooth face ~1.4 tiles wide), with a ramp up its east side
     const h0 = h, dp = Math.hypot(x - P.x, (y - P.y) * 1.15) / P.r + 0.2 * n(x, y, 3.6) + 0.06 * n(x, y, 1.3);
     const kp = smoothstep(1.0, 0.84, dp);
-    if (kp > 0) h = h0 + (P.h + 0.3 * n(x, y, 5) - h0) * kp;
+    if (kp > 0) h = h0 + (P.h + 0.2 * n(x, y, 5) - h0) * kp;
     if (Math.abs(y - RAMP.y) <= RAMP.w && x >= RAMP.x0 && x <= RAMP.x1) {
       const t = (x - RAMP.x0) / (RAMP.x1 - RAMP.x0);
       h = P.h * (1 - t) + h0 * t;
@@ -85,7 +85,7 @@ export function sculptHills(gen) {
     if (ck > 0) {
       const yc = COAST(x);
       if (y >= yc && ck > 0.5) { h = 0; seaC[y * CW + x] = 1; }
-      else h = Math.max(h, (3.6 + 0.5 * n(x, y, 4)) * ck * (1 - smoothstep(5, 15, yc - y)) * smoothstep(0.0, 1.7, yc - y));
+      else h = Math.max(h, (2.0 + 0.3 * n(x, y, 4)) * ck * (1 - smoothstep(5, 15, yc - y)) * smoothstep(0.0, 1.4, yc - y));
     }
     // mountain: a smooth massif with ridges and a steep rocky crown, snow above SNOW_LINE
     const ex = (x - MT.x) * 0.8 + (y - MT.y) * 0.6, ey = -(x - MT.x) * 0.6 + (y - MT.y) * 0.8; // (a ridge, not a cone)
@@ -93,9 +93,9 @@ export function sculptHills(gen) {
     if (tm < 1) {
       const ang = Math.atan2(y - MT.y, x - MT.x);
       const ridge = 1 - Math.abs(n(Math.cos(ang) * 6 + 50, Math.sin(ang) * 6 + 50, 2.2)); // radial ridges and gullies
-      let hm = MT.h * Math.pow(1 - tm, 1.35) + 2.2 * (ridge - 0.5) * (1 - tm) * tm * 4 + 0.8 * n(x, y, 4);
-      hm += 3.6 * Math.pow(smoothstep(0.34, 0.0, tm), 1.6) * (0.75 + 0.5 * m(x * 1.7, y * 1.7, 2.5)); // the rocky crown, ragged
-      hm += 1.4 * n(x, y, 2.6) * smoothstep(0.55, 0.1, tm); // knobs and notches along the summit ridge
+      let hm = MT.h * Math.pow(1 - tm, 1.35) + 1.4 * (ridge - 0.5) * (1 - tm) * tm * 4 + 0.5 * n(x, y, 4);
+      hm += 2.6 * Math.pow(smoothstep(0.34, 0.0, tm), 1.6) * (0.75 + 0.5 * m(x * 1.7, y * 1.7, 2.5)); // the rocky crown, ragged
+      hm += 0.9 * n(x, y, 2.6) * smoothstep(0.55, 0.1, tm); // knobs and notches along the summit ridge
       h = Math.max(h, hm * smoothstep(1, 0.92, tm));
     }
     C[y * CW + x] = Math.max(0, h);
@@ -117,7 +117,7 @@ export function sculptHills(gen) {
       if (!d || d >= 99) continue; // (a corner touching open ground stays at the ground)
       const md = Math.hypot(x - MT.x, y - MT.y);
       if (md < MT.r + 4) continue;
-      C[y * CW + x] += Math.min(5.5, 1.6 + (d - 1) * 1.1) * (0.85 + 0.3 * m(x, y, 3)) + 0.4 * n(x, y, 2.2);
+      C[y * CW + x] += Math.min(3, 1.0 + (d - 1) * 0.6) * (0.85 + 0.3 * m(x, y, 3)) + 0.25 * n(x, y, 2.2);
     }
     if (gen.roof) for (let i = 0; i < W * H; i++) if (gen.rock[i]) gen.roof[i] = 0; // (mined open, not caves: docs/TERRAIN-HEIGHT.md)
   }

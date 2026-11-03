@@ -1425,61 +1425,76 @@ vec3 cliffRock(vec2 wp, float ht, vec2 g, vec4 tile, vec4 rids, vec2 rf, vec3 Ld
   vec2 fx = vec2(wp.y, ht * 1.2), fy = vec2(wp.x, ht * 1.2);
   float tl = max(log2(max(length(dFdx(fy)), length(dFdy(fy))) * 0.25 * float(textureSize(uGround, 0).x)), 0.0);
   vec4 A = cliffTex(rids.x, fx, fy, wx, tl);
+  float wz = smoothstep(1.6, 0.8, s); // (gentle rock: the ground plane shows the texture, not the vertical planes)
   if (rids.y != rids.x || rids.z != rids.x || rids.w != rids.x) {
     // the regional rock changes here: blend the four tiles' rocks smoothly
     vec2 s = rf * rf * (3.0 - 2.0 * rf);
     vec4 B1 = rids.y == rids.x ? A : cliffTex(rids.y, fx, fy, wx, tl), C1 = rids.z == rids.x ? A : cliffTex(rids.z, fx, fy, wx, tl), D1 = rids.w == rids.x ? A : cliffTex(rids.w, fx, fy, wx, tl);
     A = mix(mix(A, B1, s.x), mix(C1, D1, s.x), s.y);
   }
+  if (wz > 0.01) A = mix(A, textureLod(uGround, vec3(wp * 0.25 * 0.9, rid), LOD), wz);
   vec4 Bt = textureLod(uGround, vec3(ROT * vec2(u, ht * 1.2) * 0.19 + vec2(0.37, 0.11), rid), tl);
   vec3 alb = mix(A.rgb, Bt.rgb, 0.3 + 0.3 * (Bt.a - A.a)) * 1.08 * vec3(1.03, 1.0, 0.95);
+  alb = mix(vec3(dot(alb, vec3(0.333))), alb, 0.85); // (the textures' speckle a little calmer on big faces)
   // strata: broad bands along the height with their own tones, faint seams; weathering streaks running down the face
   float sv = ht * 1.15 + (nA.x - 0.5) * 0.5 + sin(u * 0.27 + nB.z * 2.0) * 0.16;
   float band = floor(sv), fb = fract(sv), bh = hash12(vec2(band * 1.37, rid * 7.1));
-  alb *= (0.84 + 0.3 * bh) * mix(vec3(1.0), mix(vec3(1.1, 1.0, 0.84), vec3(0.88, 0.94, 1.04), step(0.5, hash12(vec2(band, 9.0 + rid)))), 0.55);
+  float fz = smoothstep(1.0, 1.8, s); // (strata, ledges and seams belong to faces: gentle rock is just rock, no contour lines)
+  alb *= mix(1.0, 0.84 + 0.3 * bh, fz) * mix(vec3(1.0), mix(vec3(1.1, 1.0, 0.84), vec3(0.88, 0.94, 1.04), step(0.5, hash12(vec2(band, 9.0 + rid)))), 0.55 * fz);
   float seam = 0.05 + 0.08 * hash12(vec2(band * 3.1, 2.0 + rid));
-  alb *= 1.0 - seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
-  float stk = textureLod(uNoise, vec2(u * 0.7, ht * 0.045) + 0.53, nLod(0.7)).b;
-  alb *= 0.93 + 0.12 * stk;
+  alb *= 1.0 - fz * seam * (1.0 - smoothstep(0.0, 0.05, fb)) * smoothstep(0.3, 0.7, textureLod(uNoise, vec2(u * 0.11, band * 0.37), nLod(0.11)).g + 0.25);
+  float near = 1.0 - smoothstep(0.018, 0.04, PPX); // (crisp detail only up close: calm shapes at a glance)
+  float stk = textureLod(uNoise, vec2(u * 0.35, ht * 0.03) + 0.53, nLod(0.35)).b;
+  alb *= 1.0 + (stk - 0.5) * 0.1 * near;
   // vertical cracks (long, a bit wavy)
   float cn = textureLod(uNoise, vec2(u * 0.33, ht * 0.05 + u * 0.01) + 0.21, nLod(0.33)).r;
-  alb *= 1.0 - 0.3 * (1.0 - smoothstep(0.008, 0.022, abs(cn - 0.5))) * smoothstep(0.4, 0.6, textureLod(uNoise, vec2(u * 0.05, ht * 0.11) + 0.7, nLod(0.05)).b);
+  alb *= 1.0 - 0.28 * near * (1.0 - smoothstep(0.008, 0.022, abs(cn - 0.5))) * smoothstep(0.45, 0.62, textureLod(uNoise, vec2(u * 0.05, ht * 0.11) + 0.7, nLod(0.05)).b);
   // the face's own light
   vec3 N = normalize(vec3(-g, 1.0));
   float dif = max(dot(N, Ld), 0.0);
   float sh = 0.46 + 0.8 * dif * (0.3 + 0.7 * LI);
   float up = clamp((ht - tile.x) / max(tile.y - tile.x, 0.3), 0.0, 1.0);
-  vec3 c = alb * sh * (0.7 + 0.3 * smoothstep(0.0, 0.45, up)) * mix(vec3(1.0), sunT, dif * LI);
+  vec3 c = alb * sh * mix(1.0, 0.7 + 0.3 * smoothstep(0.0, 0.45, up), fz) * mix(vec3(1.0), sunT, dif * LI); // (the foot of a face, not of every tile)
   // moss low on wet faces
-  float moss = smoothstep(0.45, 0.85, lush + (nB.x - 0.5) * 0.6) * (1.0 - smoothstep(0.15, 0.65, up)) * (1.0 - snowK);
+  float moss = smoothstep(0.45, 0.85, lush + (nB.x - 0.5) * 0.6) * mix(0.35, 1.0 - smoothstep(0.15, 0.65, up), fz) * (1.0 - snowK);
   c = mix(c, vec3(0.22, 0.29, 0.13) * sh, moss * 0.62);
   // the lip at the top edge catches the light; snow there and on the ledges above the snow line
-  float lip = 1.0 - smoothstep(0.0, 0.2, tile.y - ht);
+  float lip = (1.0 - smoothstep(0.0, 0.2, tile.y - ht)) * fz;
   c = mix(c, c * 1.32 + alb * 0.05, lip * 0.75);
   // ledges at the top of each band: a lit shelf with a shadow under it, moss / grass on it where it is wet
-  float ledge = smoothstep(0.86, 0.95, fb) * (1.0 - smoothstep(0.97, 1.0, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53), nLod(0.09)).r);
+  float ledge = fz * smoothstep(0.86, 0.95, fb) * (1.0 - smoothstep(0.97, 1.0, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53), nLod(0.09)).r);
   c = mix(c, c * 1.28, ledge);
-  c *= 1.0 - 0.32 * (1.0 - smoothstep(0.0, 0.06, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53 - 0.53), nLod(0.09)).r);
+  c *= 1.0 - 0.32 * fz * (1.0 - smoothstep(0.0, 0.06, fb)) * smoothstep(0.35, 0.65, textureLod(uNoise, vec2(u * 0.09, band * 0.53 - 0.53), nLod(0.09)).r);
   c = mix(c, vec3(0.27, 0.36, 0.14) * sh * 1.1, ledge * smoothstep(0.35, 0.7, lush + (nB.y - 0.5) * 0.4) * (1.0 - snowK) * 0.85);
   // the foot: darker, with fallen blocks against it
-  float foot = 1.0 - smoothstep(0.0, 0.22, up);
+  float foot = (1.0 - smoothstep(0.0, 0.22, up)) * fz;
   c *= 1.0 - 0.25 * foot;
   vec3 fv = vorCell(vec2(u, ht) * 2.6 + 1.3);
   c = mix(c, alb * (0.7 + 0.4 * fv.z) * sh, foot * step(fv.y, 0.55) * smoothstep(0.04, 0.14, fv.x) * 0.8);
-  float sk = snowK * clamp(lip + smoothstep(0.82, 1.0, fb) * 0.75 * smoothstep(0.4, 0.8, nB.y), 0.0, 1.0);
+  float sk = snowK * clamp(lip + smoothstep(0.82, 1.0, fb) * 0.75 * smoothstep(0.4, 0.8, nB.y) + wz * smoothstep(0.35, 0.6, snowK + (nB.y - 0.5) * 0.5), 0.0, 1.0);
   c = mix(c, vec3(0.86, 0.89, 0.95) * (0.56 + 0.5 * dif) * sunT, sk);
   return c;
 }
-// EARTH faces (ground dug / heaped by players: the soil's own layers, roots, pebbles), lit by the face's normal
+// EARTH (ground dug / heaped by players): turned soil — the rich / plain soil textures laid on the cut (two vertical
+// planes + the ground plane by the slope), lumps and clods with their own light, small stones, darker damp patches,
+// roots hanging at the top edge of a cut. No contour bands. g = slope, lip = 0..1 near the top of the cut.
 vec3 earthFace(vec2 wp, float ht, vec2 g, vec3 Ld, float LI, vec3 sunT, vec4 nA, vec4 nB){
-  float u = wp.x + 0.62 * wp.y;
-  vec3 c = mix(vec3(0.43, 0.32, 0.21), vec3(0.52, 0.4, 0.27), smoothstep(0.3, 0.7, nB.x));
-  float layer = fract(ht * 3.1 + (nA.y - 0.5) * 0.6);
-  c *= 0.9 + 0.14 * smoothstep(0.6, 1.0, layer) - 0.08 * (1.0 - smoothstep(0.0, 0.12, layer));
-  float pb = smoothstep(0.78, 0.86, textureLod(uNoise, vec2(u * 1.7, ht * 1.9) + 0.3, nLod(1.7)).g);
-  c = mix(c, vec3(0.58, 0.56, 0.52), pb * 0.7);
-  float rt = 1.0 - smoothstep(0.004, 0.018, abs(textureLod(uNoise, vec2(u * 0.9, ht * 0.35) + 0.6, nLod(0.9)).r - 0.5));
-  c = mix(c, vec3(0.27, 0.19, 0.12), rt * 0.6 * (1.0 - smoothstep(0.0, 0.4, fract(ht * 0.7))));
+  float s = length(g);
+  vec2 gn = g / max(s, 1e-3);
+  float wx = smoothstep(0.2, 0.8, gn.x * gn.x), wz = smoothstep(1.4, 0.6, s); // (vertical planes vs the ground plane)
+  vec2 fx = vec2(wp.y, ht * 1.1), fy = vec2(wp.x, ht * 1.1);
+  vec4 A = mix(textureLod(uGround, vec3(fy * 0.25, 1.0), LOD), textureLod(uGround, vec3(fx * 0.25 + 0.31, 1.0), LOD), wx);
+  A = mix(A, textureLod(uGround, vec3(wp * 0.25, 1.0), LOD), wz);
+  vec4 Bs = textureLod(uGround, vec3(ROT * wp * 0.21 + 0.4, 0.0), LOD);
+  vec3 c = mix(A.rgb, Bs.rgb * vec3(0.92, 0.86, 0.8), 0.35 + 0.3 * nB.x) * 0.92;
+  // clods: lumps lit from the sun side, a dark crevice around each
+  vec3 vc = vorCell(vec2(wp.x + wp.y * 0.37, ht * 1.3 + wp.y * 0.6) * 3.4 + 2.7);
+  c *= 0.82 + 0.26 * smoothstep(0.02, 0.2, vc.x) + 0.1 * (vc.z - 0.5);
+  // small stones
+  float pb = step(0.86, vc.y) * smoothstep(0.08, 0.16, vc.x);
+  c = mix(c, vec3(0.6, 0.58, 0.54) * (0.8 + 0.3 * vc.z), pb * 0.8);
+  // damp darker patches
+  c *= 1.0 - 0.18 * smoothstep(0.45, 0.75, textureLod(uNoise, wp * 0.17 + 0.9, nLod(0.17)).g);
   vec3 N = normalize(vec3(-g, 1.0));
   float dif = max(dot(N, Ld), 0.0);
   return c * (0.5 + 0.75 * dif * (0.3 + 0.7 * LI)) * mix(vec3(1.0), sunT, dif * LI);
@@ -1526,6 +1541,7 @@ void main(){
   float roofB = (uWet > 0.01 || uSnow > 0.01 || uSeaA.x > 0.01) ? texture(uRoofT, wp / uWorld).b : 0.0;
   float snowA = smoothstep(0.45, 0.75, CL.r) * outK * (1.0 - roofB);   // where snow can lie (cold biomes, outdoors)
   float snowS = max(uSnow * snowA, uSeaA.x * outK * (1.0 - roofB));   // snow lying now (cold biomes after snowfall; winter: everywhere)
+  snowS = max(snowS, CL.a * outK); // (the planet's permanent snow / ice ground)
   // terrain height: permanent snow above the snow line (noisy edge)
   float snowH = uMesh > 0.5 ? smoothstep(uSnowLine - 1.2, uSnowLine + 0.9, hT + (nB.y - 0.5) * 1.8 + (nA.z - 0.5) * 0.9) * outK : 0.0;
   snowS = max(snowS, snowH);
@@ -1584,8 +1600,8 @@ void main(){
   vec3 col;
   float shadowMask = 1.0;
 
-  if (sd > 0.0) {
-    // ================= ROCK =================
+  if (sd > 0.0 && uMesh < 0.5) {
+    // ================= ROCK ================= (relief: rock tiles take the rock of the faces below, mesh block)
     vec4 bw;
     vec4 RT = blend4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td), wp * 0.9, nC.x, f, bw);
     vec2 hg = v2w(vec2(dFdx(RT.a), -dFdy(RT.a))) / PPX;     // texture height slope (per tile; screen → world: any camera yaw)
@@ -1653,6 +1669,14 @@ void main(){
     float marshK = dot(bw, isMarsh), mudK = dot(bw, isMud);
     float pk = PUD[int(ia)] * bw.x + PUD[int(ib)] * bw.y + PUD[int(ic)] * bw.z + PUD[int(id)] * bw.w;
 
+    // the planet's volcanic ground: dark ash and basalt (slate rock texture, a warm-black cast, cinders)
+    if (CL.b > 0.01) {
+      vec3 bas = textureLod(uGround, vec3(wp * 0.22, 10.0), LOD).rgb * vec3(0.55, 0.52, 0.52);
+      bas = mix(bas, vec3(0.16, 0.14, 0.135), smoothstep(0.4, 0.7, nB.y) * 0.6);
+      bas *= 0.85 + 0.3 * smoothstep(0.55, 0.8, textureLod(uNoise, wp * 0.9, nLod(0.9)).g);
+      col = mix(col, bas, CL.b);
+      hgt = mix(hgt, 0.4, CL.b);
+    }
     // gentle large-scale variation (no dark stains)
     col *= 0.955 + 0.09 * nC.z;
     col *= 0.975 + 0.05 * nA.z;
@@ -1940,11 +1964,14 @@ void main(){
     float ao = clamp(curv * 0.55, -0.16, 0.3);
     col *= mix(1.0, hs * (1.0 - ao), outK);
     // steep but walkable ground turns to scree / bare earth, then to rock
-    float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
-    col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8));
     vec3 KT = texture(uHgtK, wp / uWorld).rgb;
+    float scr = smoothstep(0.38, 0.74, sf) * (1.0 - smoothstep(0.1, 0.3, wl));
+    col = mix(col, mix(col, vec3(0.42, 0.37, 0.31) * (0.8 + 0.3 * nB.z) * hs, 0.55), scr * (1.0 - snowS * 0.8) * (1.0 - KT.b));
+    // ground the players dug / heaped: turned soil (grass grows back only where it was not touched)
+    if (KT.b > 0.02) col = mix(col, earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB) * mix(1.0, 1.0 - ao, outK), smoothstep(0.3, 0.9, KT.b) * smoothstep(0.03, 0.25, sf + 0.1) * (1.0 - snowS * 0.8));
     float kt = KT.r * 5.33; // (the tile's steepness, smooth across tiles: no per-cell flicker)
     float cl = smoothstep(0.72 + 0.2 * nB.w, 1.25 + 0.25 * nA.y, max(kt * 0.92, sf * 0.8)) * smoothstep(0.12, 0.45, sf + 0.25 * kt);
+    cl = max(cl, smoothstep(-0.05, 0.3, sd)); // (rock tiles: bare rock, flat or not)
     // talus: fallen rocks scattered on the gentle ground at the foot of rock faces (not under water / snow / on edits)
     float tal = smoothstep(0.8, 1.4, kt) * (1.0 - cl) * (1.0 - smoothstep(0.15, 0.3, wl)) * (1.0 - KT.b) * (1.0 - KT.g);
     if (tal > 0.02) {
@@ -1959,7 +1986,12 @@ void main(){
       float c0 = texelFetch(uHgtC, tq, 0).r, c1 = texelFetch(uHgtC, tq + ivec2(1, 0), 0).r, c2 = texelFetch(uHgtC, tq + ivec2(0, 1), 0).r, c3 = texelFetch(uHgtC, tq + ivec2(1, 1), 0).r;
       vec4 tile = vec4(min(min(c0, c1), min(c2, c3)), max(max(c0, c1), max(c2, c3)), 0.0, 0.0);
       vec3 cr = cliffRock(wp, hT, gs, tile, vec4(ridOf(ta), ridOf(tb), ridOf(tc), ridOf(td)), f, Ld, LI, sunT, F2.r, max(snowH, snowS * 0.7), nA, nB);
-      if (KT.b > 0.02) cr = mix(cr, earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB), smoothstep(0.15, 0.7, KT.b)); // dug / heaped by players
+      if (KT.b > 0.02) {
+        vec3 ef = earthFace(wp, hT, gs, Ld, LI, sunT, nA, nB);
+        float lipE = 1.0 - smoothstep(0.0, 0.35, tile.y - hT), rt = 1.0 - smoothstep(0.006, 0.02, abs(textureLod(uNoise, vec2((wp.x + wp.y) * 0.8, hT * 0.6) + 0.6, nLod(0.8)).r - 0.5));
+        ef = mix(ef, vec3(0.3, 0.21, 0.13), rt * lipE * 0.7); // roots hanging from the turf at the top of the cut
+        cr = mix(cr, ef, smoothstep(0.15, 0.7, KT.b)); // dug / heaped by players
+      }
       if (KT.g > 0.02) cr = mix(cr, masonry(wp, hT, gs, Ld, LI, sunT), smoothstep(0.15, 0.6, KT.g)); // a building's foundation
       col = mix(col, cr, cl);
     }

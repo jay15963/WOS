@@ -224,8 +224,8 @@ export class HeightLayer {
       if (st > 1.1) {
         // gullies and ribs running down the face (noise stretched along the slope), plus a finer roughness
         const dx = gx / st, dy = gy / st, a = i * dx + j * dy, b = -i * dy + j * dx;
-        const nz = (vnoise(a * 0.05, b * 0.42) - 0.5) + (vnoise(a * 0.16 + 17, b * 0.9) - 0.5) * 0.35;
-        const r = h + nz * 0.6 * Math.min(1, (st - 1.1) / 2.2);
+        const nz = (vnoise(a * 0.05, b * 0.3) - 0.5) + (vnoise(a * 0.14 + 17, b * 0.62) - 0.5) * 0.18;
+        const r = h + nz * 0.5 * Math.min(1, (st - 1.1) / 2.2);
         h = h >= 0 ? Math.max(0, r) : r;
       }
       if (i >= 0 && j >= 0 && i < this.FW && j < this.FH) F[j * FW + i] = h;

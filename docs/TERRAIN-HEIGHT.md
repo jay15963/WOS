@@ -59,25 +59,25 @@ cima dele (bloqueia), mas tiros e linha de visão passam por cima / batem nele p
 altura de uma parede de 2 andares, quem está no topo de um morro e quem está numa muralha usam o mesmo `z`, o bônus do
 arco por altura vale para os dois, e as escadas / rampas ligam terreno e andares sem conversão.
 
-O preço: na tela padrão (~14 tiles de altura) cabem uns 6–8 andares de relevo local antes de um morro tapar tudo. Então a
-**escala é decidida no gerador, não no desenho**: `metersToStories` deve comprimir (relevo real vira poucos andares) e o
-relevo local por tela fica limitado. O que lê bem (testado na vitrine):
+**A escala do relevo é a do gerador do planeta** (escolha do dono: a primeira vitrine, com penhascos de 4–6 andares e um
+pico de 17, ficou "muito exagerada"; o relevo do planeta é o alvo): `metersToStories` (`src/world/planet/consts.js`) dá
+280 m → 2, 1000 m → 5,1, 6000 m → 15,6, 8800 m → 19,5 andares, e o relevo local fica moderado — morros de 1–2 andares,
+penhascos / paredes de cânion / falésias de 1–3, planaltos de 2–3, cordilheiras de 8–15 acima dos vales mas com encostas
+largas. A vitrine `?hills=1` foi refeita nessa escala.
 
-| Feição | Altura (andares) | Inclinação |
+| Feição (alvo) | Altura (andares) | Inclinação |
 |---|---|---|
-| morros ondulados | 0–3 | ≤ 0,4 / tile |
-| encosta caminhável | — | ≤ 0,7 / tile (acima disso vira cascalho, depois rocha) |
-| penhasco / falésia / parede de cânion | 2–6 de uma vez | ≥ 1,5 / tile (a face toma ~1–2 tiles) |
-| cânion | fundo 0, borda 4–6 | paredes 2–3 / tile |
-| planalto | 3–5 acima do redor | borda 3–5 / tile, rampa ≤ 0,5 / tile |
-| montanha | pico 12–20 acima da planície, base larga (25–40 tiles) | média ≤ 0,6 / tile, coroa íngreme |
-| linha de neve | ≥ 9 (`SNOW_LINE`) | neve em chão suave e na borda / saliências das rochas |
+| morros ondulados | 0–2 | ≤ 0,4 / tile |
+| encosta caminhável | — | ≤ 0,75 / tile (acima disso vira cascalho, depois rocha) |
+| penhasco / falésia / parede de cânion | 1–3 de uma vez | ≥ 1 / tile (a face toma ~1–2 tiles) |
+| planalto | 2–3 acima do redor | borda íngreme, rampa ≤ 0,5 / tile |
+| montanha | 8–15 acima da planície, base larga (25–40 tiles) | média ≤ 0,6 / tile, coroa íngreme |
+| neve | no `?hills=1` acima de 9 (`SNOW_LINE`); no planeta, o chão de neve / gelo do próprio clima (`planetGround`) | — |
 
 A projeção é oblíqua (a câmera olha a 45°): uma encosta **virada para a câmera** aparece esticada (dá para ver a face do
 penhasco), uma **virada para longe** fica achatada e, passando de 45°, some atrás do topo — como a face norte de uma parede.
-Girando a câmera (`game.cam.rot`) o jogador vê os outros lados.
-
----
+Girando a câmera (`game.cam.rot`) o jogador vê os outros lados. O desenho aguenta ~25 andares sem mudança (a grade cresce
+na direção da câmera pelo mais alto do terreno em volta).
 
 ## 3. Desenho
 
@@ -128,10 +128,11 @@ Girando a câmera (`game.cam.rot`) o jogador vê os outros lados.
 
 | | giro 0 | giro 0,7 |
 |---|---|---|
-| plano (sem `?hills`) | GPU 0,84 ms · CPU render 0,5 ms | GPU 1,28 ms · CPU 0,8 ms |
-| relevo (`?hills=1`) | GPU 1,12 ms · CPU 0,4 ms | GPU 0,93 ms · CPU 0,7 ms |
+| plano (sem `?hills`) | GPU 0,65 ms · CPU render 0,5 ms | GPU 1,12 ms · CPU 1,0 ms |
+| relevo (`?hills=1`, versão final) | GPU 0,94 ms · CPU 0,5 ms | GPU 1,37 ms · CPU 1,1 ms |
 
-A malha tem ~22 mil células finas no zoom padrão (só um `texelFetch` por vértice — 4 por célula —, nenhum trabalho de
+(Medido no fim, num relevo mais calmo e com todos os detalhes: no SwiftShader as diferenças ficam perto do ruído.) A
+malha tem ~18–22 mil células finas no zoom padrão (só um `texelFetch` por vértice — 4 por célula —, nenhum trabalho de
 CPU por quadro). Memória: superfície fina R32F + gradiente RGBA16F ≈ 12,6 MB num mapa 256² (a engine de streaming vai
 paginar por pedaço).
 
@@ -207,10 +208,11 @@ acima de 9). Nada fica em penhasco / no mar / acima da linha das árvores. Ponto
 Capturas em `shots/height_<feição>_<ângulo>.png` (0°, 45°, 135°, 180°): `plateau`, `canyon`, `coast`, `hills`, `peak`,
 `ramp` e `slope` (o jogador subindo encostas), `ridge` (o jogador no fundo de um buraco cavado, escondido pela borda: o
 recorte abre), `ridgecanyon` (90° / 270°: a parede do cânion entre a câmera e o jogador), `night`, `dig`, `flatten`,
-`foundation`; e do planeta de verdade (`?planet=1&seed=4242&px=…&py=…`, lugares achados por
-`node tools/planet-shots.mjs 4242 <pasta> auto`): `height_planet_mountains_*` (10288, 2256), `height_planet_canyon_*`
-(15024, 5712), `height_planet_volcano_*` (4720, 8176), `height_planet_cliffs_*` (6768, 3888; 90° / 270° para as falésias
-viradas a oeste).
+`foundation`; e do **planeta de verdade** (`?planet=1&seed=4242&px=…&py=…`, lugares achados por
+`node tools/planet-shots.mjs 4242 <pasta> auto`; câmera virada para a maior face da janela, `_a` de frente, `_b` +45°,
+`_c` −45°, `_d` de trás): `height_planet_mountains_*` (cordilheira com o rio na garganta, 10288, 2256),
+`height_planet_canyon_*` (15024, 5712), `height_planet_cliffs_*` (falésia costeira, 6768, 3888), `height_planet_volcano_*`
+(chão vulcânico, 5104, 3472).
 
 ## 8. Para o gerador do planeta
 
@@ -218,12 +220,12 @@ viradas a oeste).
   superfície da água por tile): lagos e rios em altitude ficam no nível deles. Tudo o mais (superfície fina, penhascos,
   desenho, regras) sai daí. A engine de streaming pode entregar o mesmo array por pedaço.
 - **O que se viu** (semente 4242, janelas de 256): alturas 0–14,5 por janela, encostas suaves, paredes de cânion e
-  falésias de 1 tile. O desenho aguenta tranquilo até ~20–25 andares. Para o relevo **ler** na tela padrão: falésias
-  costeiras de **3–6 andares** (as de ~1 andar quase não aparecem), paredes de cânion 4–6, e mais relevo local nas
-  montanhas (a janela das montanhas sobe ~11 andares em 100+ tiles: suave demais; algo como 1000 m → 7 andares ou um
-  realce do relevo local ×1,5 deixaria as cordilheiras visíveis como cordilheiras). Os tiles de rocha (`rock = 1`) sobre a
-  montanha inteira deixam tudo "maciço branco" e não caminhável: melhor rocha só nas faces íngremes / afloramentos e
-  chão de pedra / cascalho / neve nas encostas (o shader já pinta rocha onde é íngreme).
+  falésias de 1 tile (degraus de 1–1,5 andar; o maior degrau achado: 1,3 na janela das montanhas, 1,4 nas falésias). O
+  dono prefere esta escala: **manter `metersToStories` como está**. Com relevo, os tiles de rocha (`rock = 1`) do planeta
+  são desenhados como a rocha do relevo (sem os decalques de minério / cascalho do mundo plano); continuam não
+  caminháveis — para montanhas que se escalam, rocha só nos afloramentos / faces e chão de pedra / cascalho nas encostas.
+- **Chão do planeta**: `planetGround` CINZA (10) vira basalto / cinza escuros; NEVE (8) / GELO (9) viram neve (o clima
+  do planeta decide a neve; a linha de neve por altura fica só na vitrine).
 - **Água**: classes 1 raso / 2 fundo / 3 abissal nos tiles; o nível em `wlevel` (o mar em 0). Cachoeiras (`features`)
   hoje aparecem como uma face de rocha entre os dois níveis (ver "Falta").
 - **Escala**: seguir a tabela da seção 2 (relevo local ≤ ~8 andares por tela; penhascos 2–6 andares de uma vez; montanhas
@@ -243,7 +245,8 @@ viradas a oeste).
 - **Pular penhascos pequenos** (descer ≤ 1 andar empurrando a borda, como no `levels.js`), **escadas construídas** ligando o
   chão a um planalto (hoje: rampas de terra), escadas / rampas de pedra para portas altas.
 - Ferramenta: item **Pá** próprio (hoje a picareta), prévia do pincel mostrando o resultado, aplanar em área arrastando.
-- O padrão de "escamas" leve em encostas médias de montanha (efeito do spline nos cantos: some com relevo gerado mais
-  suave), faces de rocha com veios ainda repetitivos; sombras de terreno sobre personagens (hoje só no chão).
+- Faces de rocha ainda um pouco repetitivas de perto; a textura de rocha em encostas suaves (a rocha "de cima") parece
+  laje; a grama / decoração de chão continua em pé num buraco cavado (some só com caminhos / construções); sombras de
+  terreno sobre personagens (hoje só no chão); minério sem marca visual no relevo (os decalques são do mundo plano).
 - Mapa / radar com relevo sombreado; som de passos em cascalho / rocha; criaturas sem a lentidão de subida.
 - Multijogador com a vitrine: a bandeira é só local (o gerador do planeta resolve: as alturas vêm da semente).
