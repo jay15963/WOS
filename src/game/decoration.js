@@ -6,6 +6,7 @@
 //    (single player / host), game.debugK.fill(n) spawns n decorated pieces for performance tests.
 
 import { KIT_ENV, archSprite, prewarmArch } from '../art/archCompose.js';
+import { solidEntry } from '../art/faces/solid.js';
 import { BUILDINGS } from './data.js';
 import { DUMMY_NAME } from './mut/kit.js';
 
@@ -316,6 +317,22 @@ function installShowcase(game) {
       look: { skin: [0.62, 0.44, 0.32], hair: 'short', hairColor: [0.5, 0.3, 0.12], shirt: [0.7, 0.2, 0.2] } };
     game.entities.push(d); // sync-ok: dev review (local only, never shared)
     return game.entities.length;
+  };
+  // the 3D model of every finished solid piece in the world against its footprint (docs/CAMERA-ROTATION.md "No lugar do
+  // corpo"): one line per type and rotation — centre offset (x, y) and how far it sticks out of each side (tiles,
+  // negative = inside), its height; pieces must have been drawn once (their model is built when drawn)
+  H.solidProbe = () => {
+    const out = [], seen = new Set(), f = (v) => Math.round(v * 100) / 100;
+    for (const o of game.build.structures) {
+      const e = solidEntry(o), d = BUILDINGS[o.type];
+      if (!e || !e.ok || !d || o.progress < 1 || seen.has(o.type + (o.rot | 0))) continue;
+      seen.add(o.type + (o.rot | 0));
+      let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, h1 = 0;
+      for (const p of e.P) { x0 = Math.min(x0, p.x0); x1 = Math.max(x1, p.x1); y0 = Math.min(y0, p.y0); y1 = Math.max(y1, p.y1); h1 = Math.max(h1, p.h1); }
+      const W = d.edge ? 1 : (d.size || [1, 1])[0], D = d.edge ? 1 : (d.size || [1, 1])[1];
+      out.push([o.type, o.rot | 0, f((x0 + x1) / 2), f((y0 + y1) / 2), f(-W / 2 - x0), f(x1 - W / 2), f(-D / 2 - y0), f(y1 - D / 2), f(h1)].join(' '));
+    }
+    return out.join('\n');
   };
   // n decorated pieces in rows (performance test)
   H.fill = (n = 400) => {

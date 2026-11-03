@@ -185,7 +185,7 @@ defineSolid('washtub', {
 // from the bar as a board in the banner's plane and swings in it as at 0° (the art faces south whatever the facing:
 // fixed) ----
 const PG_X = 3, PG_H = 105.4; // the cloth's top attachment (stations.js PROP_GEOM.bannerX / bannerLift on the pole's row)
-const CUV = [0, 0, 0, 0], CLOTH = ['banner_cloth_0', 'banner_cloth_1', 'banner_cloth_2'];
+const CUV = [0, 0, 0, 0], CLOTH = ['banner_cloth_0', 'banner_cloth_1', 'banner_cloth_2'], BFO = new Float32Array(5); // (BFO: the folds' offsets)
 function bannerCloth(B, A, o, t, x, y, lift, a, fs) {
   const F = B.faces, s = sprite(A, CLOTH[(((o.v | 0) % 3) + 3) % 3]);
   if (!F || !s) return;
@@ -197,9 +197,10 @@ function bannerCloth(B, A, o, t, x, y, lift, a, fs) {
   const px = (u, v) => x + u * cs - v * sn, ph = (u, v) => lift - (u * sn + v * cs);
   // the cloth hangs in soft folds (four strips in a shallow zigzag across its plane): seen from the side it is never a
   // bare line; the folds breathe with the wind
-  const fd = 0.08 + 0.015 * Math.sin(t * 2.3 + seed);
+  const fd = 0.065 + 0.012 * Math.sin(t * 2.3 + seed); // (an S across its width, either side of the bar: from the side it shows round the pole)
+  BFO[1] = fd; BFO[3] = -fd;
   for (let k = 0; k < 4; k++) {
-    const ua = L + ((R - L) * k) / 4, ub = L + ((R - L) * (k + 1)) / 4, ya = y + (k & 1 ? fd : 0), yb = y + (k & 1 ? 0 : fd);
+    const ua = L + ((R - L) * k) / 4, ub = L + ((R - L) * (k + 1)) / 4, ya = y + BFO[k], yb = y + BFO[k + 1];
     let nx = -(yb - ya), ny = ub - ua;
     const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
     if (-CAMV.s * nx + CAMV.c * ny < 0) { nx = -nx; ny = -ny; } // (two-sided: the side facing the camera)
