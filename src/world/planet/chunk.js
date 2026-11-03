@@ -61,7 +61,7 @@ export function macroAt(p, x, y, o) {
   const w00 = (1 - fu) * (1 - fv), w10 = fu * (1 - fv), w01 = (1 - fu) * fv, w11 = fu * fv;
   const bl = (A) => A[c00] * w00 + A[c10] * w10 + A[c01] * w01 + A[c11] * w11;
   o.T = bl(p.tMean); o.P = bl(p.precip); o.relief = bl(p.relief); o.mtn = bl(p.mtn); o.plateau = bl(p.plateau);
-  o.tAmp = bl(p.tAmp); o.dOcean = bl(p.dOcean);
+  o.tAmp = bl(p.tAmp); o.dOcean = bl(p.dOcean); o.dLand = bl(p.dLand);
   const B = p.biome;
   const is = (k) => (B[c00] === k ? w00 : 0) + (B[c10] === k ? w10 : 0) + (B[c01] === k ? w01 : 0) + (B[c11] === k ? w11 : 0);
   o.erg = is(BIOME.DESERT_DUNES);
@@ -203,9 +203,14 @@ export function riverSegments(p, x0, y0, x1, y1) {
     const mainOfD = p.upMain[d] === c;
     const q1 = mainOfD && p.rkind[d] ? p.flow[d] : q0;
     let hw0 = riverHalfWidth(q0, kd), hw1 = riverHalfWidth(q1, kd === 3 || p.rkind[d] !== 3 ? kd : 3);
+    if (kd === 3) { // fjords: widest at the mouth, narrowing towards the valley head
+      const fw = (q, md) => clamp((3 + 1.2 * Math.sqrt(q)) * (1.25 - 0.11 * md), 2.2, 10);
+      hw0 = fw(q0, p.mouthD[c]); hw1 = p.ocean[d] ? hw0 * 1.15 : fw(q1, p.mouthD[d] || p.mouthD[c]);
+    }
     // estuaries widen towards the sea
     if (kd === 1 && p.mouthD[c] && p.mouthD[c] <= 2 && !(p.flags[c] & FLAG.DELTA)) { hw1 *= p.ocean[d] ? 2.2 : 1.4; if (p.mouthD[c] === 1) hw0 *= 1.4; }
-    const L0 = outlet ? levelOf(c) : p.rlevel[c], L1 = levelOf(d);
+    let L0 = outlet ? levelOf(c) : p.rlevel[c], L1 = levelOf(d);
+    if (kd === 3) { L0 = 0; L1 = p.ocean[d] ? 1 : 0; } // (fjords: sea level; L carries the mouth-sill ramp)
     const span = Math.max(hw0, hw1) + 30;
     const bx0 = Math.min(P1[0], P2[0]) - span, bx1 = Math.max(P1[0], P2[0]) + span;
     const by0 = Math.min(P1[1], P2[1]) - span, by1 = Math.max(P1[1], P2[1]) + span;
@@ -275,13 +280,13 @@ export function generateChunk(p, cx, cy, opts = {}) {
   // ---------- 1. base fields ----------
   const hS = new Float32Array(NW), emI = new Float32Array(NW), Tt = new Float32Array(NW), Pt = new Float32Array(NW);
   const relief = new Float32Array(NW), mtn = new Float32Array(NW), ridge = new Float32Array(NW), coneM = new Float32Array(NW);
-  const cellOf = new Int32Array(NW), dOc = new Float32Array(NW), tAmp = new Float32Array(NW), plat = new Float32Array(NW);
+  const cellOf = new Int32Array(NW), dOc = new Float32Array(NW), tAmp = new Float32Array(NW), plat = new Float32Array(NW), dLc = new Float32Array(NW);
   const sea0 = new Uint8Array(NW);
   for (let wy = 0; wy < WW; wy++) for (let wx = 0; wx < WW; wx++) {
     const i = wy * WW + wx, x = X0 + wx + 0.5, y = Y0 + wy + 0.5;
     let h = baseHeight(p, x, y, o);
     emI[i] = o.em; Tt[i] = o.T; Pt[i] = o.P; relief[i] = o.relief; mtn[i] = o.mtn; ridge[i] = o.ridge; coneM[i] = o.cone;
-    cellOf[i] = o.cell; dOc[i] = o.dOcean; tAmp[i] = o.tAmp; plat[i] = o.plateau;
+    cellOf[i] = o.cell; dOc[i] = o.dOcean; tAmp[i] = o.tAmp; plat[i] = o.plateau; dLc[i] = o.dLand;
     if (h < 0) { if (o.oceanNear) sea0[i] = 1; else h = 0.03 + 0.05 * hash01(X0 + wx, Y0 + wy, sd); }
     hS[i] = h;
   }
@@ -420,8 +425,14 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const d = rD[i], hw = rHW[i], L = rL[i];
     const can = rCan[i], flat = rFlat[i];
     if (k === RK_FJORD) {
-      if (d < hw) { hS[i] = Math.min(hS[i], -1.2 - 0.25 * hw * (1 - d / hw)); sea0[i] = 1; }
-      else if (d < hw + 12) hS[i] = Math.min(hS[i], 0.2 + (d - hw) * 0.85);
+      // U-shaped trough: a shallow rim along the shores, deep (never abyssal) in the middle, a shallow sill at the
+      // mouth (rL carries 0..1 along the mouth segment); steep walls rise from a narrow ledge
+      const sill = smoothstep(0.6, 0.92, L);
+      if (d < hw) {
+        let bed = -0.15 - (1.0 + 0.16 * hw) * smooth01((hw - d) / (0.5 * hw));
+        bed += (-0.28 - bed) * sill;
+        hS[i] = Math.min(hS[i], bed); sea0[i] = 1;
+      } else if (d < hw + 10) hS[i] = Math.min(hS[i], 0.3 + (d - hw) * 1.9);
       continue;
     }
     const depth = k === RK_WASH ? -0.05 : k === RK_DELTA || k === RK_CREEK ? 0.3 : clamp(0.3 + 0.12 * hw, 0.3, 2.4);
@@ -538,7 +549,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const wk = wkind[i];
     let c;
     if (wk === 1 || wk === 5) {
-      const ab = emI[i] < ABYSS_M + 260 * fbm(X0 + wx, Y0 + wy, sd + 40, 128, 2);
+      // abyss: a deep macro sea floor AND ~6 cells (150+ tiles) from any land or islet shallows (shelf + slope first)
+      const ab = emI[i] < ABYSS_M + 260 * fbm(X0 + wx, Y0 + wy, sd + 40, 128, 2) && dLc[i] >= 5.6 + 0.6 * u01(fbm(X0 + wx, Y0 + wy, sd + 41, 256, 2));
       if (ab) c = 3;
       else c = depth < 0.35 || dLand2[i] <= shallowW[i] || wk === 5 ? 1 : 2;
       if (c === 3 && dLand2[i] < 6) c = 2;

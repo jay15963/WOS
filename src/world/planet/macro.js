@@ -12,7 +12,8 @@ import { computeClimate, seaIceAt } from './climate.js';
 import { computeHydrology, buildRivers, priorityFlood, RIVER_Q } from './hydro.js';
 import { BIOME, landBiome } from './biomes.js';
 
-export const PLANET_VERSION = 1;
+export const PLANET_VERSION = 2;
+export const ABYSS_D = 6; // cells: no abyss closer than this to any land or near-land shallows (192 tiles)
 
 // coast types (per coastal cell)
 export const COAST = { NONE: 0, BEACH: 1, DUNES: 2, LAGOON: 3, ROCKY: 4, CLIFF: 5, MANGROVE: 6, FJORD: 7, ICE: 8, DELTA: 9 };
@@ -171,7 +172,7 @@ export function generatePlanet(seed = 1) {
   lap('volcanoes');
 
   // ---------- sea level: land ~30 % (shift the continents only) ----------
-  const landTarget = 0.297 + hash01(seed, 1, 77) * 0.025;
+  const landTarget = 0.311 + hash01(seed, 1, 77) * 0.02;
   const wSea = new Float32Array(N);
   for (let i = 0; i < N; i++) wSea[i] = smoothstep(-4, 2, sd[i]);
   const coneC = new Float32Array(N); // cones sampled at cell centres (added after erosion)
@@ -197,9 +198,13 @@ export function generatePlanet(seed = 1) {
   const terr = new Int16Array(N);
   for (let i = 0; i < N; i++) terr[i] = terrSrc[i] >= 0 ? crust[terrSrc[i]] : -1;
   const isWall = (i) => { for (let k = 0; k < 4; k++) { const j = T8[i * 8 + k]; if (j >= 0 && terr[j] !== terr[i]) return true; } return false; };
-  const dWall = distField(isWall, 6);
+  const dWall = distField(isWall, 12);
   for (let i = 0; i < N; i++) {
     if (dWall[i] < 4) elev[i] = Math.min(elev[i], ABYSS_M - 700 - 900 * (1 - dWall[i] / 4));
+    // a land-free band along every wall: two continents' shelves (ABYSS_D cells each) can never touch, and
+    // the wall itself is always far from any coast
+    const keep = ABYSS_D + 2.2 + 1.6 * clamp(0.5 + 1.6 * fbm(tileX(i), tileY(i), S + 16, 1024, 2), 0, 1);
+    if (dWall[i] < keep) elev[i] = Math.min(elev[i], -300 - 150 * (keep - dWall[i]));
     const x = cxOf(i), sdist = Math.min(x + 0.5, MW - x - 0.5);
     if (sdist < SEAM_HALF + 4) {
       const f = smoothstep(SEAM_HALF + 4, SEAM_HALF, sdist);
@@ -212,7 +217,7 @@ export function generatePlanet(seed = 1) {
   // no volcano inside the walls / seam
   for (let k = volcanoes.length - 1; k >= 0; k--) {
     const v = volcanoes[k], ci = clamp(Math.floor(v.y / CELL), 0, MH - 1) * MW + ((Math.floor(v.x / CELL) % MW) + MW) % MW;
-    if (dWall[ci] < 4 + v.R / CELL || Math.min(cxOf(ci), MW - 1 - cxOf(ci)) < SEAM_HALF + 4 + v.R / CELL) volcanoes.splice(k, 1);
+    if (dWall[ci] < ABYSS_D + 4 + v.R / CELL || Math.min(cxOf(ci), MW - 1 - cxOf(ci)) < SEAM_HALF + 4 + v.R / CELL) volcanoes.splice(k, 1);
   }
   lap('separation');
 
@@ -267,6 +272,28 @@ export function generatePlanet(seed = 1) {
       const i = st.pop();
       for (let k = 0; k < 8; k++) { const j = T8[i * 8 + k]; if (j >= 0 && !ocean[j] && elev[j] < 0) { ocean[j] = 1; st.push(j); } }
     }
+  }
+
+  // ---------- the abyss stays far out: a shelf + slope floor within ABYSS_D cells of any land ----------
+  // (distance from land and from shallows where the tile noise can raise islets; the seabed is at most
+  // 60 + 245 m per cell deep near them: below ABYSS_M only from 6 cells = 192 tiles out; walls keep their abyss)
+  // (volcano peaks between cell centres can surface as tile-scale islands: their whole cone counts as near-land)
+  const potLand = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (!ocean[i] || elev[i] > -120) potLand[i] = 1;
+  for (const v of volcanoes) {
+    const vx = Math.floor(v.x / CELL), vy = clamp(Math.floor(v.y / CELL), 0, MH - 1), ci = vy * MW + ((vx % MW) + MW) % MW;
+    if (elev[ci] - cone[ci] + v.H < -150) continue;
+    const r = Math.ceil(v.R / CELL) + 1;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const yy = vy + dy; if (yy < 0 || yy >= MH) continue;
+      if (dx * dx + dy * dy <= r * r) potLand[yy * MW + (((vx + dx) % MW) + MW) % MW] = 1;
+    }
+  }
+  const dLand = distField((i) => potLand[i] === 1, 14);
+  for (let i = 0; i < N; i++) {
+    if (!ocean[i] || dLand[i] > ABYSS_D || dWall[i] < 3) continue;
+    const floor = -60 - 245 * dLand[i];
+    if (elev[i] < floor) elev[i] = floor;
   }
 
   // ---------- climate ----------
@@ -356,7 +383,7 @@ export function generatePlanet(seed = 1) {
     const T = tMean[i] + 1.6 * fbm(tx, ty, S + 37, 1024, 3), P = precip[i] * (1 + 0.18 * fbm(tx, ty, S + 38, 1024, 3));
     if (ocean[i]) {
       const ice = seaIceAt(seed, tx, ty, tMean[i], false);
-      biome[i] = ice ? BIOME.SEA_ICE : e < ABYSS_M ? BIOME.ABYSS : e > -40 ? BIOME.SHALLOWS : BIOME.OCEAN;
+      biome[i] = ice ? BIOME.SEA_ICE : e < ABYSS_M && dLand[i] >= ABYSS_D ? BIOME.ABYSS : e > -40 ? BIOME.SHALLOWS : BIOME.OCEAN;
       if (biome[i] === BIOME.SHALLOWS && T > 23) biome[i] = BIOME.REEF;
       continue;
     }
@@ -412,7 +439,7 @@ export function generatePlanet(seed = 1) {
 
   // ---------- macro water class ----------
   const water = new Uint8Array(N);
-  for (let i = 0; i < N; i++) water[i] = ocean[i] ? (elev[i] < ABYSS_M ? 3 : 2) : hyd.lakeId[i] ? 4 : 0;
+  for (let i = 0; i < N; i++) water[i] = ocean[i] ? (elev[i] < ABYSS_M && dLand[i] >= ABYSS_D ? 3 : 2) : hyd.lakeId[i] ? 4 : 0;
   let landCells = 0;
   for (let i = 0; i < N; i++) if (!ocean[i] && !hyd.lakeId[i]) landCells++;
   // continents = big land components
@@ -451,7 +478,7 @@ export function generatePlanet(seed = 1) {
 
   return {
     version: PLANET_VERSION, seed, W: MW * CELL, H: MH * CELL, CELL, MW, MH,
-    elev, cone, iceT, surf: hyd.surf, sd, plateau, relief, mtn,
+    elev, cone, iceT, surf: hyd.surf, sd, plateau, relief, mtn, dLand, terr,
     crust, plate, plates: plates.map((p) => ({ id: p.id, vx: p.vx, vy: p.vy, continental: p.continental, area: p.area })),
     bkind: bnd.kind, bconv: bnd.bconv,
     tMean, tAmp, precip, dOcean, ocean, water, biome, coast, flags, comp,

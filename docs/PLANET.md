@@ -27,13 +27,14 @@ Código: `src/world/planet/` (puro, sem DOM, roda em worker). Ferramentas: `tool
 | Célula macro | 32 × 32 tiles → grade 512 × 256 | `CELL`, `MW`, `MH` |
 | Chunk | 64 × 64 tiles → 256 × 128 chunks | `CHUNK`, `CW`, `CHH` |
 | Classes de água | 0 terra · 1 rasa (vadear) · 2 funda (nadar, barco) · 3 **abissal** (barco não entra) | `WATER` |
-| Abissal | fundo macro abaixo de `ABYSS_M = −1500 m` (com ruído na borda) | |
+| Abissal | fundo macro abaixo de `ABYSS_M = −1500 m` **e** a ≥ `ABYSS_D = 6` células (192 tiles; ≥ 150 tiles no nível de tile) de qualquer terra ou baixio onde possa surgir ilhota. Perto da terra há sempre plataforma + talude (fundo no máximo 60 + 245 m por célula): costas, baías, fiordes, estreitos e lagos nunca são abissais | |
 | Terra | 29–31,5 % da superfície (alvo sorteado por semente, descontados os lagos); ~590–640 "vilas" de 256² de terra | `stats` |
 | Continentes | 5–8 crátons (≥ 20 células de mar entre eles) + 1 continente polar sul + 3–6 microcontinentes; mais ilhas de arco e de ponto quente | |
 
 **Nenhuma ponte entre continentes:** cada continente grande tem um "território" (as células mais próximas
-dele); na fronteira entre dois territórios o fundo é empurrado para abaixo do abissal (só onde estava raso — a
-parede não aparece no mar fundo). Ilhas na fronteira afundam. A emenda é sempre oceano abissal.
+dele, `planet.terr`); na fronteira entre dois territórios o fundo é empurrado para abaixo do abissal e há uma
+faixa sem terra de 8–10 células de cada lado (ilhas ou costas perto demais afundam), então os anéis de
+plataforma de dois continentes nunca se tocam. A emenda é sempre oceano. `tools/planet-abyss.mjs` verifica.
 
 ---
 
@@ -153,7 +154,9 @@ repetição). Etapas:
    várzea, encaixados no cânion), largura pela vazão (córrego 1 tile … rio grande até 40), afluentes chegando no
    nó do rio principal, saída de lagos. Perfil: canal (raso nas bordas, fundo no meio), **várzea** plana, vale em
    V nas montanhas, **cânion** com fundo plano, tálus e paredes em **camadas** (degrau + patamar, 2–4 estratos,
-   rocha arenito / calcário alternada), fiorde em U abaixo do mar. Rio "suspenso" acima do chão local desce até ele;
+   rocha arenito / calcário alternada), **fiorde**: braço de mar sinuoso, mais largo na foz e estreitando para o
+   interior, fundo em U (borda rasa, meio fundo — classe 2, nunca abissal), soleira rasa na boca, paredes íngremes,
+   e no fim o vale com o rio (muitas vezes uma cachoeira). Rio "suspenso" acima do chão local desce até ele;
 3–4 nascentes, cachoeiras e crateras viram `features`;
 5. **lagos** macro (margem pela topografia, sem quadrados) e **lagoas** (alongadas, contorno em ruído, só em
    terreno plano; muitas nos distritos de lagos frios, raras nos desertos = oásis);
@@ -312,6 +315,9 @@ const ch = generateChunk(planet, cx, cy);     // ~25 ms; opts.decor = false pula
   navegador (`shots/planet_<camada>_<seed>.png`, `planet_detail_<seed>.png`, `planet_zoom_<lugar>.png`; `auto` acha
   cânion, falésias, laguna, delta, fiorde, montanhas, dunas, rio, vulcão, distrito de lagos e o início).
 - `node tools/planet-seams.mjs [seed] [n]` — emendas entre chunks (incl. x = 0), repetição, planeta bit a bit.
+- `node tools/planet-abyss.mjs [sementes] [n]` — nenhum abissal a < 6 células da terra (macro) nem a < 150 tiles
+  de um tile de terra (janelas de 7×7 chunks em fozes de fiorde, falésias, ilhas vulcânicas, margens de subducção,
+  costas e na borda da plataforma) e nenhum caminho de água não abissal juntando dois territórios.
 - `?planet=1[&seed=N][&px=..&py=..][&psize=256|512]` (só em localhost) — o jogo atual num recorte do planeta em
   volta do início (ou do tile px, py), sem salvar. Camadas mapeadas para os campos do `World` atual; as alturas
   ficam em `world.heightStories` (cantos, (W+1)×(H+1)) para o protótipo de relevo, e os dados do planeta em
