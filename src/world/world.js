@@ -28,6 +28,8 @@ import { G, BIOMES, BIOME_ID, CAMP_R } from './worldgen.js';
 import { ROOF_GEOM } from '../game/content/roofs.js';
 import { fertileAt } from './soil.js';
 import { Layer, PW, PH, XM, PWS, CS, CSS, CW, CH, NCH, CT, chunkOfI } from './store.js';
+import { setActiveHeight } from './height.js';
+import { PagedHeight } from './heightPaged.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
@@ -69,11 +71,14 @@ export class World {
     L('lush', Float32Array, 0); L('flowX', Float32Array, 0); L('flowY', Float32Array, 0); L('dWater', Float32Array, 9); L('dRock', Float32Array, 0);
     L('rock', Uint8Array, 1); L('rock0', Uint8Array, 1); L('roof', Uint8Array, 1); L('roof0', Uint8Array, 1);
     L('caveDk', Uint8Array, 0); L('rubble', Uint8Array, 0);
-    // terrain corner heights (stories): corner (x, y) = the north-west corner of tile (x, y); chunk-backed (a chunk keeps
-    // its 64 × 64 corners, the 65th row / column is the next chunk's first); edits mark the chunk changed (kept, saved
-    // and streamed as a diff: docs/STREAMING.md). Flat (0) until a source gives heights.
-    L('cornerH', Float32Array, 0);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.cornerH];
+    // terrain corner heights (stories, docs/TERRAIN-HEIGHT.md): corner (x, y) = the north-west corner of tile (x, y);
+    // chunk-backed (a chunk keeps its 64 × 64 corners, the 65th row / column is the next chunk's first): hBase the
+    // source's terrain, hT with the players' edits, hC the surface (+ building bases) — read through this.height
+    // (heightPaged.js). wlevel: water surface per tile (stories; the planet's lakes on plateaus), pground: the planet's own
+    // ground id (volcanic ash / snow: the terrain shader's climate channel).
+    L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground];
+    this.hills = !!source.hills; // (dev showcase ?hills=1: a guest sculpts the same classic world, world/hills.js)
     L('solid', Uint8Array, 0, true);   // buildings / walls occupancy (sparse: only where something stands)
     L('broof', Uint8Array, 0, true);   // built roofs (src/game/roofs.js)
     this.deck = null; this.rail = null; this.railU = null; // bridges / piers (game/decks.js): sparse layers when any
@@ -94,6 +99,9 @@ export class World {
       for (let cy = Math.floor(b.y0 / CS); cy <= Math.floor((b.y1 - 1) / CS); cy++)
         for (let cx = Math.floor(b.x0 / CS); cx <= Math.floor((b.x1 - 1) / CS); cx++) this.ensure(cy * CW + cx);
     }
+    // terrain height (docs/TERRAIN-HEIGHT.md): all zero = the flat world of before (every hook skipped: height.any false)
+    this.height = new PagedHeight(this);
+    setActiveHeight(this.height);
   }
 
   // ---------- addressing ----------
@@ -135,7 +143,10 @@ export class World {
     for (const k of SRC_U8) this[k].attach(c, d[k]);
     for (const k of SRC_F32) this[k].attach(c, d[k]);
     this.caveDk.attach(c, new Uint8Array(CT)); this.rubble.attach(c, new Uint8Array(CT));
-    this.cornerH.attach(c, cornersOf(d.heights));
+    const hb = cornersOf(d.heights);
+    this.hBase.attach(c, hb); this.hT.attach(c, hb.slice()); this.hC.attach(c, hb.slice());
+    this.wlevel.attach(c, d.wlevel instanceof Float32Array && d.wlevel.length === CT ? d.wlevel : new Float32Array(CT));
+    this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
     r.ready = true; r.decor = !!d.decor;
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
@@ -273,9 +284,17 @@ export class World {
   blocked(tx, ty) {
     if (!this.inBounds(tx, ty)) return true;
     const i = this.idx(tx, ty);
-    return this.rock.get(i) === 1 || (this.water.get(i) === 2 && !this.frozen && !(this.deck && this.deck.get(i))) || this.solid.get(i) === 1;
+    return this.rock.get(i) === 1 || (this.water.get(i) === 2 && !this.frozen && !(this.deck && this.deck.get(i))) || this.solid.get(i) === 1 || this.height.isCliff(tx, ty);
   }
   groundAt(tx, ty) { return this.inBounds(tx, ty) ? this.ground.get(this.idx(tx, ty)) : G.STONE; }
+
+  // ---------- terrain height (heightPaged.js; stories, 0 everywhere on a flat world) ----------
+  heightAt(x, y) { return this.height.heightAt(x, y); }
+  cornerH(ix, iy) { return this.height.cornerH(ix, iy); }
+  tileSlope(tx, ty) { return this.height.tileSlope(tx, ty); }
+  isCliff(tx, ty) { return this.height.isCliff(tx, ty); }
+  cliffBetween(ax, ay, bx, by) { return this.height.cliffBetween(ax, ay, bx, by); }
+  get hasHeight() { return this.height.any; }
 
   // movement speed multiplier at a world point (under: the body is under a bridge deck, physics.deckTrack)
   speedAt(x, y, under = false) {
@@ -301,6 +320,12 @@ export class World {
     this.ore.set(i, 0);
     this.ground.set(i, G.STONE);
     this.markDirty(i);
+    // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
+    if (this.height.any) {
+      const L = this.height, lo = L.tileMin(tx, ty), cut = [];
+      for (let k = 0; k < 4; k++) { const o = L.ci(tx + (k & 1), ty + (k >> 1)); if (L.t.get(o) > lo + 1e-4) cut.push([o, lo]); }
+      if (cut.length) L.setTerrain(cut);
+    }
     this.lastLost = this._naturalRoof(tx, ty);
     const M = ROOF_GEOM.natSupport + CAVE_DK.length;
     this._buildCave(tx - M, ty - M, tx + M, ty + M);
@@ -555,7 +580,7 @@ export class World {
     let b = 0;
     for (const L of this.srcLayers) b += L.bytes();
     for (const L of [this.solid, this.broof, this.deck, this.rail, this.railU, this.path, this.pathPlan, this.noGrow]) if (L) b += L.bytes();
-    return b;
+    return b + (this.height ? this.height.bytes() : 0);
   }
 }
 

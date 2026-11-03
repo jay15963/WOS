@@ -26,7 +26,7 @@ import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
 import { faceKindOf } from '../art/faces/index.js'; // camera turned: ghosts drawn like the finished piece (faces)
-import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT } from './mut/structures.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT, baseFor } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt, roofTileFace, liftedPoint } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
@@ -864,6 +864,11 @@ export function buildingSystem() {
         }
         return;
       }
+      // terrain height (docs/TERRAIN-HEIGHT.md): the ghost stands on the base the batch would get, with a ghost foundation
+      // from the ground up to it (the finished piece raises a pad there: terrain.js plots)
+      const Zg = game.R?.depth, bzG = game.world.hasHeight && !(m.lv > 0) && m.tiles.length ? baseFor(game, m.type, m.tiles.map((g) => [g.tx, g.ty, m.rot])) : null;
+      if (bzG != null && tile && B.faces) ghostFoundation(game, B, tile, m, bzG, pulse);
+      if (Zg && bzG != null) Zg.g = bzG;
       for (const g of m.tiles) {
         const [fw, fh] = dimsOf(m.type, m.rot);
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
@@ -888,8 +893,33 @@ export function buildingSystem() {
           if (s) (BUILDINGS[m.type].flat ? B.ground : B.fx).add(s, G0.x, G0.y, sc, sc, r, gg, b, 0.55 * pulse, 0, 0, 0, 1);
         }
       }
+      if (Zg) Zg.g = 0;
     },
   };
+}
+
+// terrain height: translucent walls from the ground up to the proposed base around the ghost's footprint (each tile
+// edge not shared with another ghost tile; the bottom follows the terrain in quarter tiles)
+function ghostFoundation(game, B, tile, m, bz, pulse) {
+  const w = game.world, set = new Set(), [fw, fh] = dimsOf(m.type, m.rot);
+  for (const g of m.tiles) for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) set.add(x + ',' + y);
+  const Zg = game.R?.depth;
+  if (Zg) Zg.g = 0;
+  const side = (ax, ay, bx, by) => {
+    for (let k = 0; k < 4; k++) {
+      const x0 = ax + (bx - ax) * k / 4, y0 = ay + (by - ay) * k / 4, x1 = ax + (bx - ax) * (k + 1) / 4, y1 = ay + (by - ay) * (k + 1) / 4;
+      const h0 = w.heightAt(x0, y0), h1 = w.heightAt(x1, y1);
+      if (bz - h0 < 0.03 && bz - h1 < 0.03) continue;
+      B.faces.quad(x0, y0, bz, x1, y1, bz, x1, y1, Math.min(bz, h1), x0, y0, Math.min(bz, h0), [tile.u0, tile.v0, tile.u1, tile.v1], 0.62, 0.62, 0.58, 0.55 * pulse);
+    }
+  };
+  for (const k of set) {
+    const [x, y] = k.split(',').map(Number);
+    if (!set.has(x + ',' + (y + 1))) side(x, y + 1, x + 1, y + 1);
+    if (!set.has(x + ',' + (y - 1))) side(x + 1, y, x, y);
+    if (!set.has((x + 1) + ',' + y)) side(x + 1, y + 1, x + 1, y);
+    if (!set.has((x - 1) + ',' + y)) side(x, y, x, y + 1);
+  }
 }
 // scratch object for ghosts (no per-frame allocation)
 const GHOST_O = { type: '', tx: 0, ty: 0, rot: 0, x: 0, y: 0, cy: 0, fw: 1, fh: 1, mask: 0, progress: 0, blueprint: true, building: true, _ghost: 1, alpha: 1, s: 1, f: 1, v: 0, style: '', det: '', _k: null, _cm: 0, lv: 0 };

@@ -56,7 +56,9 @@ export function computeTerrain(inp) {
     let a = 0;
     for (let d = -CR; d <= CR; d++) a += ctmp[(ty + CR + d) * cw + tx + CR];
     const cv = Math.round(Math.min(1, a * kb) * 255), s = inside ? SO[j] : 0;
-    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = 0; CL[o + 3] = 0;
+    // B / A: the planet's own ground (world/planet/biomes.js: 10 volcanic ash / basalt, 8–9 permanent snow / ice)
+    const pg = u8.pground ? u8.pground[j] : 0;
+    CL[o] = cv; CL[o + 1] = s === 1 ? 255 : s ? 128 : 0; CL[o + 2] = pg === 10 ? 255 : 0; CL[o + 3] = pg === 8 || pg === 9 ? 255 : 0;
     CO[ty * tw + tx] = cv; out.walls[ty * tw + tx] = s;
   }
   // ---- field (FR×): rock mask / massif height / water depth / wetness, blurred over the rect + MS

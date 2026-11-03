@@ -20,6 +20,7 @@ import { chestAdapter } from './container.js';
 import { Inventory } from '../game/inventory.js';
 import { uiScale } from './uiscale.js';
 import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
+import { TERRAIN_MODES, enterTerrainMode } from '../game/terrain.js'; // terrain height: the terrain tool (docs/TERRAIN-HEIGHT.md)
 import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -200,11 +201,13 @@ export class Panels {
   buildBody() {
     const g = this.g, A = g.A, p = g.player;
     const tab = this.buildTab;
-    const cats = BUILD_CATS.flatMap((c) => (c[0] === 'floor' ? [c, PATH_TAB] : [c])); // "Caminhos" after "Pisos"
+    const cats = BUILD_CATS.flatMap((c) => (c[0] === 'floor' ? [c, PATH_TAB, ...(g.world.hasHeight ? [['terrain', 'Terreno']] : [])] : [c])); // "Caminhos" (and "Terreno" on a world with relief) after "Pisos"
     const tabs = cats.map(([k, n]) => `<button class="tab ${tab === k ? 'on' : ''}" data-btab="${k}">${n}</button>`).join('');
     const pcost = (cost) => { const e = Object.entries(cost); if (g.creative && e.length) return '<span class="cost free">grátis no criativo</span>'; return e.length ? e.map(([it, n]) => `<span class="cost ${p.inv.count(it) >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${p.inv.count(it)}/${n}</span>`).join('') : '<span class="cost">grátis</span>'; };
     const pathCards = tab !== 'path' ? '' : pathCatalog(g).map((c) => `<button class="bcard" data-path="${c.key}"><span class="bi">${c.icon ? `<img class="spri" src="${c.icon}" alt="" draggable="false">` : `<span class="emo" style="display:block;width:100%;height:100%;border-radius:50%;background:${c.swatch}"></span>`}</span><span class="bt"><b>${c.name}</b><small>${c.desc}</small><small class="bm">${c.meta}</small>${c.remove ? '' : `<span class="costs">${pcost(c.cost)}</span>`}</span></button>`).join('');
-    const cards = pathCards || BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
+    const TI = { dig: '⛏️', fill: '🟫', flat: '📏', smooth: '〰️' };
+    const terrCards = tab !== 'terrain' ? '' : Object.entries(TERRAIN_MODES).map(([k, T]) => `<button class="bcard" data-terrain="${k}"><span class="bi"><span class="emo">${TI[k]}</span></span><span class="bt"><b>${T.name}</b><small>${T.desc}</small><small class="bm">${g.creative ? 'grátis no criativo' : 'precisa de picareta'}${k === 'fill' && !g.creative ? ` · terra: ${p.inv.count('dirt')}` : ''}</small></span></button>`).join('');
+    const cards = pathCards || terrCards || BUILD_ORDER.filter((id) => BUILDINGS[id].cat.includes(tab)).map((id) => {
       const b = BUILDINGS[id];
       const ok = g.creative || p.inv.has(b.cost); // (a plan is placed for free: missing materials only show in red)
       const entries = Object.entries(b.cost);
@@ -395,6 +398,7 @@ export class Panels {
     }));
     el.querySelector('[data-decon]')?.addEventListener('click', () => { this.close(); enterDeconMode(g); });
     el.querySelectorAll('[data-path]').forEach((b) => b.addEventListener('click', () => { this.close(); g.paths?.enter(b.dataset.path); }));
+    el.querySelectorAll('[data-terrain]').forEach((b) => b.addEventListener('click', () => { this.close(); enterTerrainMode(g, b.dataset.terrain); }));
     if (this.open === 'build' && this.buildTab === 'path' && !g._paths?.layers) g.paths?.layers().then(() => { if (this.open === 'build' && this.buildTab === 'path') this.render(); });
     if (this.open === 'craft') craftBind(this, el);
     if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));

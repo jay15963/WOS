@@ -131,9 +131,23 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
       dec.push(t === d.t ? d : { ...d, t });
     }
   }
+  // heights (65 × 65 corners, stories): the corners of a water tile rise to its water level (the sea at 0, a lake on a
+  // plateau at its own: height.js foldWater; the seabed is not drawn)
+  let heights = null;
+  if (p.height) {
+    heights = p.height.slice();
+    const N1 = CS + 1, wl = p.wlevel;
+    for (let ty = 0; ty < CS; ty++) for (let tx = 0; tx < CS; tx++) {
+      const l = ty * CS + tx;
+      if (!p.water[l] || rock[l]) continue;
+      const lv = wl ? wl[l] : 0;
+      for (let k = 0; k < 4; k++) { const o = (ty + (k >> 1)) * N1 + tx + (k & 1); if (heights[o] < lv) heights[o] = lv; }
+    }
+  }
   return {
     cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
-    flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights: p.height || null, objects, decor: dec,
+    flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights, objects, decor: dec,
+    wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground,
   };
 }
 

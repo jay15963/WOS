@@ -104,6 +104,17 @@ const ITEMS = {
     g.fillStyle = '#6f8a3a'; g.beginPath(); g.ellipse(21, 9.6, 3.6, 1.4, 0.1, 0, TAU); g.ellipse(25.5, 10.4, 2, 1, 0.2, 0, TAU); g.fill();
     g.fillStyle = '#93ad52'; g.beginPath(); g.ellipse(20.5, 9.1, 1.8, 0.7, 0.1, 0, TAU); g.fill();
   }],
+  // dirt: a loose mound of brown soil with crumbs, a pebble and a root
+  item_dirt: [(g) => {
+    g.fillStyle = '#4a3220'; g.beginPath(); spline(g, [[5, 29], [9, 20], [15, 14], [21, 13], [27, 18], [31, 27], [27, 31], [10, 31]]); g.fill();
+    g.fillStyle = lin(g, 10, 12, 24, 30, [[0, '#8a6440'], [1, '#5c3f26']]);
+    g.beginPath(); spline(g, [[7, 28], [10, 21], [15, 15.5], [21, 14.5], [26, 18.5], [29, 26], [25, 29.5], [11, 29.5]]); g.fill();
+    g.fillStyle = 'rgba(255,225,180,0.28)'; g.beginPath(); g.ellipse(17, 18.5, 5, 2.4, -0.3, 0, TAU); g.fill();
+    g.fillStyle = '#3c2817'; for (const [x, y, r] of [[12, 25, 1.1], [19, 22, 0.9], [24, 25, 1], [16, 27.5, 0.8], [22, 19, 0.7]]) { g.beginPath(); circle(g, x, y, r); g.fill(); }
+    g.fillStyle = '#a3794e'; for (const [x, y, r] of [[4, 30.5, 1.2], [32, 30, 1], [29, 31.5, 0.8]]) { g.beginPath(); circle(g, x, y, r); g.fill(); }
+    g.fillStyle = '#9a968e'; g.beginPath(); g.ellipse(25, 22.5, 2.2, 1.5, 0.3, 0, TAU); g.fill();
+    g.strokeStyle = '#c8a46a'; g.lineWidth = 0.9; g.lineCap = 'round'; g.beginPath(); g.moveTo(13, 16); g.quadraticCurveTo(11, 12, 8, 11.5); g.stroke();
+  }],
   item_stick: [(g, r) => {
     const twig = (x0, y0, x1, y1, w) => { g.strokeStyle = '#5a3c22'; g.lineWidth = w + 1.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.strokeStyle = '#9a7048'; g.lineWidth = w; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); g.strokeStyle = 'rgba(255,230,190,0.5)'; g.lineWidth = w * 0.3; g.beginPath(); g.moveTo(x0 - 0.5, y0 - 0.5); g.lineTo(x1 - 0.5, y1 - 0.5); g.stroke(); };
     twig(7, 29, 29, 8, 3.2); twig(20, 17, 27, 20, 2); twig(13, 24, 11, 15, 1.8);

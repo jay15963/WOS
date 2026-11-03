@@ -58,6 +58,7 @@ const FLAGS = {
   code: normalizeCode(QS.get('sala') || ''),
   fakeArt: DEV ? QS.get('fakeart') : null,  // localhost: delete a sprite / mark it as a placeholder ('ph:<name>')
   paintFail: DEV && QS.has('fakepaintfail'), // localhost: one painter group throws
+  hills: DEV && QS.has('hills'),            // localhost: sculpt a terrain-height showcase around the spawn (world/hills.js)
 };
 // tests: simulate a hidden tab for the background clock (iframes are never document.hidden)
 const wosDebug = window.wosDebug = { hidden: false, setHidden(b) { this.hidden = !!b; } };
@@ -147,7 +148,7 @@ async function boot() {
     // the world source (docs/STREAMING.md): the host's for a guest; ?source= (?planet=1 = the planet generator); the one a
     // saved world was made with; classic. A planet starts now (its macro map is made in a worker while the graphics load).
     const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
-    const srcOpts = { px: QS.get('px'), py: QS.get('py') };
+    const srcOpts = { px: QS.get('px'), py: QS.get('py'), hills: !!(FLAGS.hills || (guest && choice.welcome.hills)) }; // (?hills=1: the classic world's terrain-height showcase)
     const earlySrc = srcKind === 'planet' ? makeSource(srcKind, seed, srcOpts) : null;
     status('Preparando…', 0.3); await nextFrame();
     const { renderer, atlas } = await assets.promise;

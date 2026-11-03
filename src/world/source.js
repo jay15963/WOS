@@ -20,6 +20,7 @@
 //   decor: [] (or null: made later by source.decor)
 
 import { generateWorld, G, BIOME_ID } from './worldgen.js';
+import { sculptHills } from './hills.js';
 import { fertileGrid } from './soil.js';
 import { CS, CT, PW, PH } from './store.js';
 
@@ -41,8 +42,12 @@ export function bedrockChunk(cx, cy) {
 // The whole small world is generated at once (its rivers / distance fields are global) and served chunk by chunk;
 // everything outside is bedrock (the old map edge). Tile coordinates inside it are the old ones.
 export class ClassicSource {
-  constructor(seed, { size = 256 } = {}) {
+  constructor(seed, { size = 256, hills = false } = {}) {
     const g = generateWorld(seed, size, size);
+    // ?hills=1 (dev, docs/TERRAIN-HEIGHT.md): the terrain-height showcase sculpted around the spawn (gen.heightCorners,
+    // (W + 1) × (H + 1) stories); a guest follows its host (welcome.hills)
+    if (hills) sculptHills(g);
+    this.hills = !!hills;
     this.kind = 'classic';
     this.seed = seed;
     this.wrap = false;
@@ -62,7 +67,7 @@ export class ClassicSource {
 
   chunk(cx, cy) {
     const g = this.g, x0 = cx * CS, y0 = cy * CS;
-    if (x0 >= g.W || y0 >= g.H || x0 + CS <= 0 || y0 + CS <= 0) return bedrockChunk(cx, cy);
+    if (x0 >= g.W || y0 >= g.H || x0 + CS <= 0 || y0 + CS <= 0) { const b = bedrockChunk(cx, cy); if (g.heightCorners) b.heights = this._heights(cx, cy); return b; }
     const d = bedrockChunk(cx, cy);
     const src = { ...Object.fromEntries(U8.map((k) => [k, g[k]])), ...Object.fromEntries(F32.map((k) => [k, g[k]])), fertile: this.fert };
     for (let ly = 0; ly < CS; ly++) {
@@ -77,8 +82,19 @@ export class ClassicSource {
       }
     }
     d.objects = (this.objs.get(cy * 4096 + cx) || []).slice();
+    if (g.heightCorners) d.heights = this._heights(cx, cy);
     d.decor = (this.dec.get(cy * 4096 + cx) || []).slice();
     return d;
+  }
+
+  // the chunk's 65 × 65 corners (a chunk beyond the edge repeats the edge: the old clamped corner array)
+  _heights(cx, cy) {
+    const g = this.g, C = g.heightCorners, GW = g.W + 1, h = new Float32Array((CS + 1) * (CS + 1));
+    for (let y = 0; y <= CS; y++) for (let x = 0; x <= CS; x++) {
+      const X = Math.max(0, Math.min(g.W, cx * CS + x)), Y = Math.max(0, Math.min(g.H, cy * CS + y));
+      h[y * (CS + 1) + x] = C[Y * GW + X];
+    }
+    return h;
   }
 
   // the small world as a picture for the map (one pixel per tile)
@@ -93,6 +109,7 @@ function wrapArr(a) { return { get: (i) => a[i] }; }
 // 'planet' (src/world/planet when present)
 export async function makeSource(kind, seed, opts = {}) {
   if (kind === 'synth') { const m = await import('./synth.js'); return new m.SynthSource(seed); }
+  if (kind === 'classic') return new ClassicSource(seed, opts);
   if (kind === 'planet') {
     try { const m = await import('./planetSource.js'); return await m.makePlanetSource(seed, opts); }
     catch (e) { console.warn('[world] planet source unavailable, using synth', e); const m = await import('./synth.js'); return new m.SynthSource(seed); }

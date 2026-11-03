@@ -144,6 +144,7 @@ export function placeStructure(game, type, tx, ty, opts) {
     progress: Math.max(0, Math.min(1, opts.progress ?? 1)), mask: 0, solid: 0, builtAt: opts.builtAt ?? Math.round(game.worldTime),
   };
   if (opts.lv && !def.roof) o.lv = Math.max(0, Math.min(3, opts.lv | 0)); // levels: story (absent = ground)
+  if (Number.isFinite(opts.bz) && !def.roof && !o.lv) o.bz = opts.bz; // terrain height: the level its story 0 stands on (docs/TERRAIN-HEIGHT.md)
   setGeom(o);
   applyKitFields(game, o, opts.style, opts.det);
   o.paid = o.progress >= 1 || !!opts.paid || costEmpty(def);
@@ -276,13 +277,13 @@ export function setDoorOpen(game, o, open) {
 // ---------- ops ----------
 defineOp('struct.add', {
   doc: 'Structures / blueprints appear (ids and look from the host). Rows: [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det].',
-  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]]', by: 'pid?', give: '{item: qty}?', lv: 'story 0..3? (levels: the whole batch)' },
+  args: { list: '[[id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det]]', by: 'pid?', give: '{item: qty}?', lv: 'story 0..3? (levels: the whole batch)', bz: 'base height × 100? (terrain height: the whole batch)' },
   apply(game, a, ctx) {
-    const lv = Math.max(0, Math.min(3, a.lv | 0));
+    const lv = Math.max(0, Math.min(3, a.lv | 0)), bz = Number.isFinite(a.bz) ? a.bz / 100 : undefined;
     for (const r of a.list || []) {
       const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det] = r;
       if (!BUILDINGS[type] || game.world.objById.has(id)) continue;
-      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det, lv });
+      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det, lv, bz });
     }
     if (ctx.mine && a.list?.length) game.audio?.play('blueprint', {});
   },
@@ -422,6 +423,8 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
   }
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
+  const sr = slopeReason(game, type, tx, ty, sw, sh); // terrain height: cliffs / too steep
+  if (sr) return sr;
   const layer = def.layer;
   const G2 = game.build.grid;
   let replace = null;
@@ -522,7 +525,10 @@ defineIntent('build.place', {
     }
     if (!list.length) return first || 'Local inválido';
     if (game.creative) creativeClear(game, list, net, actor, lv);
-    net.emit('struct.add', lv ? { list, by: actor.pid, lv } : { list, by: actor.pid });
+    const add = lv ? { list, by: actor.pid, lv } : { list, by: actor.pid };
+    const bz = lv ? null : baseFor(game, a.type, list.map((r) => [r[2], r[3], r[7]])); // terrain height: one base for the batch
+    if (bz != null) add.bz = Math.round(bz * 100);
+    net.emit('struct.add', add);
     return { placed: list.length };
   },
 });
@@ -783,3 +789,41 @@ export function releaseStations(game, pid) {
 }
 
 export { cropAt, findObj };
+
+// ---------- terrain height (docs/TERRAIN-HEIGHT.md): the base a building stands on ----------
+// Pieces that sit on a level pad (story 0 at base height bz): walls, doors, floors and stairs — a house's shell. The
+// rest (furniture, stations, lights, fences, farm plots…) stands on the ground where it is (on a floor: the floor's pad).
+export const ON_PAD = (type) => { const d = BUILDINGS[type]; return !!d && !d.roof && !d.deck && (d.connect === 'wall' || /^(floor_|stairs_)/.test(type)); };
+export const PAD_STEP = 0.25;     // bases snap to quarter stories
+export const PAD_MAX = 1.5;       // the most a footprint may rise across (a foundation fills the rest)
+// refusals on relief: a cliff under the footprint, or ground too uneven for a foundation
+export function slopeReason(game, type, tx, ty, sw, sh) {
+  const w = game.world, L = w.height;
+  if (!L.any) return null;
+  let lo = Infinity, hi = -Infinity;
+  for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
+    if (L.isCliff(x, y) && !(L.plotH(x, y) > -Infinity)) return 'Penhasco: não dá para construir aqui';
+    lo = Math.min(lo, L.tileMin(x, y)); hi = Math.max(hi, L.tileMax(x, y));
+  }
+  if (ON_PAD(type) && hi - lo > PAD_MAX) return 'Terreno muito íngreme: aplane primeiro (Construir → Terreno)';
+  return null;
+}
+// the base of a batch: the highest terrain under it (nothing buried), snapped up to a quarter story — or the base of a
+// building it touches when that one is not lower than the ground (walls of one house line up)
+export function baseFor(game, type, tiles) {
+  const w = game.world, L = w.height;
+  if (!L.any || !ON_PAD(type)) return null;
+  let hi = 0;
+  const near = new Map();
+  for (const [tx, ty, rot] of tiles) {
+    const [fw, fh] = dimsOf(type, rot | 0);
+    for (let y = ty; y <= ty + fh; y++) for (let x = tx; x <= tx + fw; x++) hi = Math.max(hi, L.terrainH(x, y));
+    for (let y = ty - 1; y <= ty + fh; y++) for (let x = tx - 1; x <= tx + fw; x++) {
+      if (!w.inBounds(x, y)) continue;
+      for (const k of ['main', 'floor']) { const o = game.build.grid[k]?.get(w.idx(x, y)); if (o && Number.isFinite(o.bz) && !o.lv) near.set(o.bz, (near.get(o.bz) || 0) + 1); }
+    }
+  }
+  let best = null;
+  for (const [b, n] of near) if (b >= hi - 0.02 && b - hi <= PAD_MAX && (best == null || n > near.get(best))) best = b;
+  return best != null ? best : Math.ceil((hi - 1e-3) / PAD_STEP) * PAD_STEP;
+}

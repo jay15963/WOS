@@ -38,6 +38,7 @@ import { FaceBatch } from './faceBatch.js';
 import { SpriteBatch, depthState } from './spriteBatch.js';
 import * as S from './shaders.js';
 import { TerrainWindow, WIN, fillLayer4 } from '../world/terrainWindow.js'; // GPU ring window over the planet (docs/STREAMING.md)
+import { fineTex, toHalf } from '../world/heightPaged.js';
 
 // house sway values by object / decor type (prefix match); 0 = rigid
 const SWAY = [['tree_pine', 0.022], ['tree_dead', 0.015], ['tree_birch', 0.04], ['tree_', 0.03], ['sapling', 0.08],
@@ -137,7 +138,7 @@ export class Renderer {
           v = this._variants[l] = {
             sprite: createProgram(gl, ql(S.SPRITE_VS, l), ql(S.SPRITE_FS, l)),
             light: createProgram(gl, ql(S.SPRITE_VS, l), ql(S.LIGHT_FS, l)),
-            terrain: createProgram(gl, ql(S.FULL_VS, l), ql(S.TERRAIN_FS, l)),
+            terrain: createProgram(gl, ql(S.TERRAIN_VS, l), ql(S.TERRAIN_FS, l)),
             post: createProgram(gl, ql(S.FULL_VS, l), ql(S.POST_FS, l)),
           };
         } catch (e) {
@@ -210,6 +211,7 @@ export class Renderer {
     this.caveTex = win.tex.cave; this.climTex = win.tex.clim; this.roofDataTex = win.tex.roof;
     this.pathTex = this.pathCovTex = null;
     this.mine = { u: new Float32Array(32), n: 0 }; // rock being mined (src/fx/rockfx.js): tx, ty, crack / 1 + break, pulse
+    this._setHeight(world);
   }
   // keep the window around the camera (called by render; also by game code that needs the textures early)
   // need(c): the chunks in view load synchronously; the others are asked of the streamer (world.streamer) or, without
@@ -227,6 +229,81 @@ export class Renderer {
     return win.update(cx, cy, viewR, budgetMs, (c) => { if (c === own) w.ensure(c); else S.want(c, 0); }, (c, d) => S.want(c, d));
   }
 
+  // ---------- terrain height (docs/TERRAIN-HEIGHT.md, world/heightPaged.js) ----------
+  // Four channels of the terrain window (rings around the camera like the others, docs/STREAMING.md §5):
+  // unit 9 uHgt 'hgt': the fine surface (R32F, nearest: exact geometry in every vertex shader, 4 × 4 samples per tile);
+  // unit 10 uHgtG 'hgtG': its smooth gradient + height (RGBA16F, linear: soft shading, relief shadows); unit 11 uHgtC 'hgtC':
+  // the corner heights (R32F); unit 12 uHgtK 'hgtK': per tile the steepest slope, a building pad, player edits, the water
+  // level near (RGBA8, linear: rock / masonry / earth faces). A flat world draws the old flat terrain (uHgtOn 0, uMesh 0).
+  _setHeight(world) {
+    const gl = this.gl, win = this.win, L = world.height;
+    this.hgt = null; this._hgtV = -1;
+    const SUBH = 4, CSZ = 64;
+    // a whole chunk inside the planet: straight from its fine page (no neighbour page needed; the worker usually sends
+    // these two already: terrainWindow.js _post)
+    const whole = (x0, y0, tw, th) => tw === CSZ && th === CSZ && !(x0 & (CSZ - 1)) && !(y0 & (CSZ - 1)) && y0 >= 0 && y0 < world.H ? (((y0 >> 6) << 8) | ((x0 & 16383) >> 6)) : -1; // (chunk key)
+    win.add('hgt', { scale: SUBH, comps: 1, ctor: Float32Array, internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST, fill: (x0, y0, tw, th, out) => {
+      if (!L.any) return;
+      const c = whole(x0, y0, tw, th);
+      if (c >= 0) { fineTex(L.page(c), out, null); return; }
+      const i0 = x0 * SUBH, j0 = y0 * SUBH, OW = tw * SUBH;
+      for (let j = 0; j < th * SUBH; j++) for (let i = 0; i < OW; i++) out[j * OW + i] = L.fs(i0 + i, j0 + j);
+    } });
+    win.add('hgtG', { scale: SUBH, comps: 4, ctor: Uint16Array, internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, fill: (x0, y0, tw, th, out) => {
+      if (!L.any) return;
+      const c = whole(x0, y0, tw, th);
+      if (c >= 0) { fineTex(L.page(c), null, out); return; }
+      const i0 = x0 * SUBH, j0 = y0 * SUBH, OW = tw * SUBH, k = SUBH / 2;
+      for (let j = 0; j < th * SUBH; j++) for (let i = 0; i < OW; i++) {
+        const gi = i0 + i, gj = j0 + j, o = (j * OW + i) * 4;
+        out[o] = toHalf((L.fs(gi + 1, gj) - L.fs(gi - 1, gj)) * k);
+        out[o + 1] = toHalf((L.fs(gi, gj + 1) - L.fs(gi, gj - 1)) * k);
+        out[o + 2] = toHalf(L.fs(gi, gj));
+      }
+    } });
+    win.add('hgtC', { scale: 1, comps: 1, ctor: Float32Array, internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST, fill: (x0, y0, tw, th, out) => {
+      if (!L.any) return;
+      for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) out[y * tw + x] = L.cornerH(x0 + x, y0 + y);
+    } });
+    // per tile: R steepness for the rock blend (slope × 48), G a building pad on / next to it (its steep sides are masonry),
+    // B dug / filled by players (its steep sides are earth, not rock), A the highest water level within 3 tiles (/ 40 × 255)
+    const R = 3, wl = new Float32Array((CSZ + 2 * R) * (CSZ + 2 * R)), wr = new Float32Array((CSZ + 2 * R) * CSZ);
+    win.add('hgtK', { scale: 1, comps: 4, fill: (x0, y0, tw, th, out) => {
+      if (!L.any) return;
+      const ed = (x, y) => { const o = L.ci(x, y); return L.edits.has(o); }, pl = (x, y) => L.plotH(x, y) > -Infinity;
+      // the highest water level within R tiles: a separable max over the rect + R (-1 = no water)
+      const RW = tw + 2 * R, RH = th + 2 * R;
+      for (let y = 0; y < RH; y++) {
+        const Y = y0 - R + y;
+        for (let x = 0; x < RW; x++) {
+          let v = -1;
+          if (Y >= 0 && Y < world.H) { const i = world.idx(x0 - R + x, Y); if (world.water.get(i)) v = world.wlevel.get(i); }
+          wl[y * RW + x] = v;
+        }
+        for (let x = 0; x < tw; x++) { let m = -1; for (let d = 0; d <= 2 * R; d++) { const v = wl[y * RW + x + d]; if (v > m) m = v; } wr[y * tw + x] = m; }
+      }
+      for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) {
+        const X = x0 + x, Y = y0 + y, k = (y * tw + x) * 4;
+        out[k] = Math.min(255, Math.round(L.tileSlope(X, Y) * 48));
+        out[k + 1] = L.plots.size && (pl(X, Y) || pl(X + 1, Y) || pl(X, Y + 1) || pl(X + 1, Y + 1)) ? 255 : 0;
+        out[k + 2] = L.edits.size && (ed(X, Y) || ed(X + 1, Y) || ed(X, Y + 1) || ed(X + 1, Y + 1)) ? 255 : 0;
+        let m = -1;
+        for (let d = 0; d <= 2 * R; d++) { const v = wr[(y + d) * tw + x]; if (v > m) m = v; }
+        out[k + 3] = m < 0 ? 0 : Math.min(255, Math.round((m / 40) * 255));
+      }
+    } });
+    this.hgtTex = win.tex.hgt; this.hgtGTex = win.tex.hgtG; this.hgtCTex = win.tex.hgtC; this.hgtKTex = win.tex.hgtK;
+  }
+  // re-upload what changed (a cliff cut back by mining, an edit, a building pad): called once per frame
+  _syncHeight() {
+    const L = this.world && this.world.height;
+    if (!L) return;
+    this.hgt = L.any ? L : null;
+    if (L.v === this._hgtV) return;
+    const d = L.dirty;
+    this._hgtV = L.v; L.dirty = null;
+    if (d) this.win.invalidate(d[0] - 1, d[1] - 1, d[2] + 1, d[3] + 1, ['hgt', 'hgtG', 'hgtC', 'hgtK']);
+  }
   // ---------- roofs ----------
   // roofData (RGBA per tile, game/roofs.js layer): rect re-upload
   updateRoofData(layer, x0, y0, x1, y1) {
@@ -430,6 +507,15 @@ export class Renderer {
     const sx = 2 / viewW, sy = 2 / viewH;
 
     const rc = Math.cos(cam.rot || 0), rs = Math.sin(cam.rot || 0); // camera yaw (game.cam.rot)
+    // terrain height (docs/TERRAIN-HEIGHT.md): unit 9 = the fine surface, 10 = its gradient, 11 = corners; hOn 0 = flat
+    this._syncHeight();
+    const HL = this.hgt, hOn = HL ? 1 : 0;
+    gl.activeTexture(gl.TEXTURE9); gl.bindTexture(gl.TEXTURE_2D, this.hgtTex);
+    gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, this.hgtGTex);
+    gl.activeTexture(gl.TEXTURE11); gl.bindTexture(gl.TEXTURE_2D, this.hgtCTex);
+    gl.activeTexture(gl.TEXTURE12); gl.bindTexture(gl.TEXTURE_2D, this.hgtKTex);
+    gl.activeTexture(gl.TEXTURE0);
+    const hgtUni = (prog) => { if (prog.u.uHgt) { gl.uniform1i(prog.u.uHgt, 9); gl.uniform1f(prog.u.uHgtOn, hOn); } };
     const spriteUniforms = (prog) => {
       gl.uniform2f(prog.u.uCam, cam.x, cam.y);
       gl.uniform2f(prog.u.uScale, sx, sy);
@@ -446,6 +532,7 @@ export class Renderer {
         if (n && prog.u.uPush) gl.uniform4fv(prog.u.uPush, this._push, 0, 48);
       }
       depthUni(prog);
+      hgtUni(prog);
     };
     // depth (DEPTH_FN) and the cutout around the local player (CUT_FN; cam.cut from game.js, view units)
     const cut = cam.cut;
@@ -496,9 +583,11 @@ export class Renderer {
       gl.uniform2f(pf.u.uCam, cam.x, cam.y); gl.uniform2f(pf.u.uScale, sx, sy); gl.uniform2f(pf.u.uRot, rc, rs);
       gl.uniform1i(pf.u.uTex, 0); if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
       if (pf.u.uCutA) gl.uniform4f(pf.u.uCutA, 0, 0, 1, 0); // (no cutout in the shadows)
+      hgtUni(pf); if (pf.u.uFaceG) gl.uniform1f(pf.u.uFaceG, 1); // (laid on the terrain)
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.atlasTex);
       B.shadowFaces.upload();
       B.shadowFaces.drawRange(0, B.shadowFaces.n);
+      if (pf.u.uFaceG) gl.uniform1f(pf.u.uFaceG, 0);
       gl.blendEquation(gl.FUNC_ADD);
     }
     if (this.level >= 1 && ((env.extra && env.extra.uRays) || 0) > 0.01) {
@@ -549,14 +638,53 @@ export class Renderer {
         gl.uniform1f(u.uPathOn, this.pathOn && this.pathTex && this.pathMatTex ? 1 : 0);
       }
       // climate fetch only when it can show something (snow lying, or walls in view for the contact AO)
-      if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
+      if (u.uClimOn) gl.uniform1f(u.uClimOn, this.solidNear || this.world.source?.kind === 'planet' || ((env.extra && env.extra.uSnow) || 0) > 0.01 ? 1 : 0);
       this._setExtra(p, env.extra);
+      hgtUni(p);
       gl.bindVertexArray(this.fsVao);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (HL) {
+        // the 3D terrain mesh (TERRAIN_VS): it writes the depth of the world (hills hide what is behind them); the fine
+        // cells of the view box, deepened by the highest ground around (high ground below the screen still shows),
+        // as strips along the view's cross axis, the strips nearest the camera first
+        if (u.uMesh) gl.uniform1f(u.uMesh, 1);
+        gl.uniform2f(u.uScale, sx, sy);
+        for (const [n, k] of [['uHgtF', 9], ['uHgtG', 10], ['uHgtC', 11], ['uHgtK', 12]]) if (u[n]) gl.uniform1i(u[n], k);
+        gl.uniform2f(u.uHgtSz, WIN * 4, WIN * 4); // (the fine ring: 2048²)
+        if (u.uSnowLine) gl.uniform1f(u.uSnowLine, this.snowLine ?? (this.world.source?.kind === 'planet' ? 1e3 : 9)); // (the planet decides its own snow: climate ground)
+        depthUni(p);
+        const vx = viewW / 2 + 1.5, vy0 = -viewH / 2 - 1.5;
+        let ax = 1e9, ay = 1e9, bx = -1e9, by = -1e9;
+        const box = (vy1) => {
+          ax = ay = 1e9; bx = by = -1e9;
+          for (let k = 0; k < 4; k++) {
+            const qx = k & 1 ? vx : -vx, qy = k & 2 ? vy1 : vy0, wx = cam.x + rc * qx - rs * qy, wy = cam.y + rs * qx + rc * qy;
+            if (wx < ax) ax = wx; if (wx > bx) bx = wx; if (wy < ay) ay = wy; if (wy > by) by = wy;
+          }
+        };
+        box(viewH / 2 + 1.5);
+        box(viewH / 2 + HL.maxIn(ax - HL.max, ay - HL.max, bx + HL.max, by + HL.max) + 1.5);
+        const S = 4, Wd = this.world; // (fine samples per tile; the planet wraps, a bounded world keeps its edges + 8)
+        const lx0 = Wd.wrap ? -1e9 : Wd.bx0 - 8, lx1 = Wd.wrap ? 1e9 : Wd.bx1 + 8, ly0 = Wd.wrap ? 0 : Wd.by0 - 8, ly1 = Wd.wrap ? Wd.H : Wd.by1 + 8;
+        const gx0 = Math.max(lx0, Math.floor(ax)) * S, gy0 = Math.max(ly0, Math.floor(ay)) * S;
+        const gx1 = Math.min(lx1, Math.ceil(bx)) * S, gy1 = Math.min(ly1, Math.ceil(by)) * S;
+        const nx = -rs, ny = rc; // (world direction toward the camera)
+        const cols = Math.abs(nx) > Math.abs(ny); // strips along y (one per fine column) when the view looks along x
+        const len = Math.min(4000, cols ? gy1 - gy0 : gx1 - gx0), nS = Math.max(1, cols ? gx1 - gx0 : gy1 - gy0);
+        const fl = (cols ? 4 : 0) | ((cols ? nx : ny) > 0 ? 2 : 0);
+        gl.uniform4i(u.uGrid, gx0, gy0, len, fl); gl.uniform1i(u.uGridN, nS);
+        gl.depthMask(true); gl.clearDepth(1); gl.clear(gl.DEPTH_BUFFER_BIT);
+        gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, len * 6, nS);
+        gl.depthMask(false); // (decals, floors, contact shadows and grass: tested against the hills, never written)
+        this.stats.terrainCells = len * nS;
+      } else {
+        if (u.uMesh) gl.uniform1f(u.uMesh, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
     }
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    if (B.decal.n) {
+    if (B.decal.n && !HL) { // (relief: the rock is drawn by the terrain itself, no flat-massif ore / rubble decals)
       // [world] terrain decals: ore deposits on the rock tops, rubble on stone floors (premultiplied over)
       const p = this.progDecal, u = p.u, W = this.world;
       gl.useProgram(p.p);
@@ -609,7 +737,7 @@ export class Renderer {
       // (opaque pixels), the glows only test it; overlays added after them (depthEnd) are drawn without it.
       this.emMark(); // (glows added after the sorted objects: on top of everything)
       gl.drawBuffers(DB2);
-      gl.depthMask(true); gl.clearDepth(1); gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.depthMask(true); gl.clearDepth(1); if (!HL) gl.clear(gl.DEPTH_BUFFER_BIT); // (terrain height: the mesh's depth stays)
       gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
       this.depth.gt = true; this.depth.gm = true; // (spriteBatch.js zSplit: the cached GL state)
       B.main.zOn = B.faces.zOn = B.emissive.zOn = true;
@@ -637,6 +765,7 @@ export class Renderer {
             gl.uniform1i(pf.u.uTex, 0); if (pf.u.uLook) gl.uniform1i(pf.u.uLook, 3);
             if (pf.u.uRoofFx) gl.uniform4f(pf.u.uRoofFx, 0, 0, 0, 0);
             depthUni(pf); if (pf.u.uACut) gl.uniform1f(pf.u.uACut, ALPHA_CUT);
+            hgtUni(pf); if (pf.u.uFaceG) gl.uniform1f(pf.u.uFaceG, 0);
             roofFx = false;
           }
           const f0 = fs[q * 3], tex = this.faceTex[q];
@@ -698,6 +827,7 @@ export class Renderer {
       gl.uniform3f(u.uAmb, amb[0], amb[1], amb[2]);
       gl.uniform3f(u.uCaveAmb, 0.12, 0.125, 0.15);
       this._setExtra(p, env.extra);
+      hgtUni(p);
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.caveTex); gl.uniform1i(u.uCave, 0);
       if (u.uRoofT) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.roofDataTex); gl.uniform1i(u.uRoofT, 1); gl.activeTexture(gl.TEXTURE0); }
       gl.bindVertexArray(this.fsVao);

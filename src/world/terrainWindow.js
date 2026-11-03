@@ -63,12 +63,13 @@ export class TerrainWindow {
     }
   }
 
-  // a ring texture: { scale, comps (4 RGBA / 2 RG), filter, fill(x0, y0, w, h, out) for non-terrain channels }
+  // a ring texture: { scale, comps (4 RGBA / 2 RG / 1 R), filter, fill(x0, y0, w, h, out) for non-terrain channels;
+  // float data: ctor (Float32Array / Uint16Array half floats), internal, format, type }
   add(name, def) {
-    const gl = this.gl, s = def.scale || 1, n = WIN * s;
-    const rg = def.comps === 2;
-    const c = { name, scale: s, comps: def.comps || 4, fill: def.fill || null, terrain: !!def.terrain, format: rg ? gl.RG : gl.RGBA, buf: null };
-    c.tex = createTexture(gl, { width: n, height: n, data: null, internal: rg ? gl.RG8 : gl.RGBA8, format: c.format, filter: def.filter ?? gl.LINEAR, wrap: gl.REPEAT });
+    const gl = this.gl, s = def.scale || 1, n = WIN * s, comps = def.comps || 4;
+    const rg = comps === 2;
+    const c = { name, scale: s, comps, fill: def.fill || null, terrain: !!def.terrain, format: def.format ?? (rg ? gl.RG : gl.RGBA), type: def.type ?? gl.UNSIGNED_BYTE, ctor: def.ctor || Uint8Array, buf: null, zero: null };
+    c.tex = createTexture(gl, { width: n, height: n, data: null, internal: def.internal ?? (rg ? gl.RG8 : gl.RGBA8), format: c.format, type: c.type, filter: def.filter ?? gl.LINEAR, wrap: gl.REPEAT });
     this.chan.push(c);
     this.tex[name] = c.tex;
     if (!c.terrain && this.ox != null) this.dirtyR.push([[name], -1e9, 0, 1e9, PH]); // (a channel added later: fill what is resident)
@@ -158,22 +159,32 @@ export class TerrainWindow {
   }
   // a slot about to hold another chunk: zeros (plain ground) until its contents arrive
   _clear(k, cx, cy) {
-    const gl = this.gl, Z = this._zero || (this._zero = new Uint8Array(CS * CS * 16 * 4));
+    const gl = this.gl;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     for (const c of this.chan) {
-      const s = c.scale;
+      const s = c.scale, Z = c.zero || (c.zero = new c.ctor(CS * CS * s * s * c.comps));
       gl.bindTexture(gl.TEXTURE_2D, c.tex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, ((cx * CS) & WM) * s, ((cy * CS) & WM) * s, CS * s, CS * s, c.format, gl.UNSIGNED_BYTE, Z);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, ((cx * CS) & WM) * s, ((cy * CS) & WM) * s, CS * s, CS * s, c.format, c.type, Z);
     }
     this.ready[k] = 0;
   }
-  // a chunk to the worker: its layers + margin are gathered now (page copies), computed there, uploaded on return
+  // a chunk to the worker: its layers + margin are gathered now (page copies), computed there, uploaded on return.
+  // With terrain heights the worker also makes the chunk's fine page (heightPaged.js computeFine: the CPU heights
+  // there, ~8 ms) and the 'hgt' / 'hgtG' contents from it.
   _post(k, cx, cy, key) {
     const g = ++this.gen;
     this.slot[k] = key; this.stale[k] = 0; this.pend[k] = g; this.ready[k] = 0;
     const inp = gatherTerrain(this.w, cx * CS, cy * CS, CS, CS, this.coldLut);
     const tr = [...Object.values(inp.u8), ...Object.values(inp.f32)].map((a) => a.buffer);
-    this.jobs.set(g, { k, cx, cy, key, t: performance.now() });
+    const L = this.w.height;
+    let hj = null;
+    if (L && L.any && this.tex.hgt && key >= 0) {
+      const C = L.cornerWindow(key);
+      hj = { gen: L.fineGen[key], complete: L.complete(key) };
+      inp.hgt = { C, X0: (key & (CW - 1)) * CS, Y0: (key >>> 8) * CS };
+      if (C) tr.push(C.buffer);
+    }
+    this.jobs.set(g, { k, cx, cy, key, hj, t: performance.now() });
     this.wk.postMessage({ id: g, inp }, tr);
   }
   _done(msg) {
@@ -182,7 +193,8 @@ export class TerrainWindow {
     if (!job) return;
     this.stats.workerMs += performance.now() - job.t;
     if (msg.error) { console.warn('[terrain] worker', msg.error); this.wk = null; return; }
-    const { k, cx, cy, key } = job;
+    const { k, cx, cy, key, hj } = job;
+    if (hj && 'fine' in msg.out) this.w.height.setFine(key, hj.gen, msg.out.fine, hj.complete); // (kept unless its corners changed)
     if (this.slot[k] !== key || this.pend[k] !== msg.id) return; // (the slot moved on / was redone)
     const t0 = performance.now();
     this._fill(null, cx * CS, cy * CS, CS, CS, true, msg.out);
@@ -219,16 +231,17 @@ export class TerrainWindow {
       if (c.terrain) {
         if (!T) T = computeTerrain(gatherTerrain(this.w, x0, y0, tw, th, this.coldLut));
         data = T[c.name];
-      } else {
+      } else if (T && T[c.name]) data = T[c.name]; // (made by the worker: heights)
+      else {
         if (!c.fill) continue;
         const n = tw * th * c.scale * c.scale * c.comps;
-        data = c.buf || (c.buf = new Uint8Array(CS * CS * c.scale * c.scale * c.comps));
+        data = c.buf || (c.buf = new c.ctor(CS * CS * c.scale * c.scale * c.comps));
         data.fill(0, 0, n);
         c.fill(x0, y0, tw, th, data);
       }
       const s = c.scale;
       gl.bindTexture(gl.TEXTURE_2D, c.tex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, (x0 & WM) * s, (y0 & WM) * s, tw * s, th * s, c.format, gl.UNSIGNED_BYTE, data);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, (x0 & WM) * s, (y0 & WM) * s, tw * s, th * s, c.format, c.type || gl.UNSIGNED_BYTE, data);
     }
     if (T) for (let ty = 0; ty < th; ty++) for (let tx = 0; tx < tw; tx++) { // CPU copies (coldAt, the AO diff)
       const r = ((y0 + ty) & WM) * WIN + ((x0 + tx) & WM), j = ty * tw + tx;
@@ -272,13 +285,13 @@ export class TerrainWindow {
   }
 
   // bytes held (GPU textures + CPU copies)
-  bytes() { let b = this.climR.length + this.solidR.length; for (const c of this.chan) b += (WIN * c.scale) ** 2 * c.comps; return b; }
+  bytes() { let b = this.climR.length + this.solidR.length; for (const c of this.chan) b += (WIN * c.scale) ** 2 * c.comps * (c.ctor?.BYTES_PER_ELEMENT || 1); return b; }
 
   dispose() { for (const c of this.chan) this.gl.deleteTexture(c.tex); this.chan.length = 0; this.wk?.terminate(); this.wk = null; }
 }
 
 // ---------- gathering: the layers over a tile rect + MD margin, by page copies ----------
-const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid'];
+const GU8 = ['rock', 'water', 'rock0', 'ground', 'rockType', 'ore', 'biome', 'caveDk', 'tramp', 'solid', 'pground'];
 const GF32 = ['lush', 'flowX', 'flowY'];
 export function gatherTerrain(w, x0, y0, tw, th, coldLut) {
   const DW = tw + 2 * MD, DH = th + 2 * MD, gx0 = x0 - MD, gy0 = y0 - MD, N = DW * DH;
