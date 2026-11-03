@@ -39,6 +39,9 @@ import { rangeFlashSystem } from '../fx/rangeflash.js'; // the bow's reach, blin
 import { decorSystem } from './decoration.js'; // agent K: dummy readouts, window glow, showcase (dev)
 import { initCorpses, corpsesSystem } from './corpses.js';
 import { seasonSystem } from './seasons.js'; // spring / summer / autumn / winter from the shared clock
+import { installDecks, decksSystem } from './decks.js'; // piers / bridges over the water
+import { deckSupportSystem } from './mut/decks.js';
+import { itemSprite } from './loot.js';
 import { installStock, stockSystem, stockFxSystem } from './livestock.js'; // farm animals (docs/LIVESTOCK.md)
 import { installFishing, fishingSystem } from './fishing.js'; // fishing with a rod
 import './mut/index.js';
@@ -70,6 +73,7 @@ export function installSystems(game) {
   initRoofs(game);
   initRockFx(game);                 // cracks of rock being mined (cosmetic)
   installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
+  installDecks(game, itemSprite);   // piers / bridges: the deck map (derived from the structures)
   buildOcc(game);
   initEconomy(game);
   initCorpses(game);                // bodies on the ground (before the save / snapshot loads them)
@@ -100,6 +104,7 @@ export function installSystems(game) {
     clock,
     seasonSystem(),                 // game.season + world.frozen before anything moves (seasons.js)
     levelsSystem(),
+    decksSystem(),                  // world.deck / world.rail before anything moves (decks.js)
     controller,
     playerSystem(),
     abilitiesSystem(),
@@ -114,6 +119,7 @@ export function installSystems(game) {
     raysSystem(),
     rockFxSystem(),
     roofSupportSystem(),
+    deckSupportSystem(),            // host: bridge pieces that lost their footing fall (mut/decks.js)
     pathsSystem(),
     ...economySystems(),
     survivalSystem(),

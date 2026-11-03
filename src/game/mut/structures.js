@@ -31,6 +31,7 @@ import { applyKitFields, kitComplete, kitRemove } from './kit.js'; // agent K: s
 import { normStyle, cleanDet } from '../content/kits.js';
 import { onRoofStruct, onDoor, roofSupported } from '../roofs.js';
 import { ROOF_STYLES, defaultRoofStyle } from '../content/roofs.js';
+import { deckReason, deckFriendly, orderDeckTiles } from '../decks.js'; // piers / bridges (layer 'deck')
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
@@ -407,11 +408,17 @@ defineOp('chest.set', {
 
 // ---------- authority side ----------
 // placement check shared by the local preview and the host. `who` = the placing player (distance),
-// `rot` = orientation, `ignore` = a structure whose tiles count as free (the one being moved).
-export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv = 0) {
+// `rot` = orientation, `ignore` = a structure whose tiles count as free (the one being moved), `batch` = deck pieces
+// accepted earlier in the same placement (tile → type: a drag across the water, game/decks.js).
+export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv = 0, batch = null) {
   const def = BUILDINGS[type], w = game.world;
   if (!def) return 'Construção desconhecida';
   if (def.roof) return roofReason(game, type, tx, ty, who);
+  if (def.deck) { // piers / bridges (game/decks.js)
+    const r = deckReason(game, type, tx, ty, lv, batch);
+    if (r) return r;
+    return who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST ? 'Muito longe' : null;
+  }
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const layer = def.layer;
@@ -421,7 +428,9 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return 'Fora do mapa';
     const i = w.idx(x, y);
     if (w.rock[i]) return 'Rocha no caminho';
-    if (w.water[i]) return 'Não dá para construir na água';
+    const dk = G2.deck.get(i); // a pier / bridge piece: only small things on it (game/decks.js)
+    if (dk && !(layer === 'main' && deckFriendly(type))) return 'Trapiche ou ponte no caminho (aqui só coisas pequenas)';
+    if (w.water[i] && !dk) return 'Não dá para construir na água';
     const cur = G2[layer].get(i);
     const self = ignore && cur === ignore;
     if (cur && !self) {
@@ -486,17 +495,19 @@ defineIntent('build.place', {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
     const lv = def.roof ? 0 : Math.max(0, Math.min(3, num(a.lv) | 0)); // levels: the story of the whole drag
-    const tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, def.roof ? MAX_ROOF_TILES : MAX_TILES) : [];
+    let tiles = Array.isArray(a.tiles) ? a.tiles.slice(0, def.roof ? MAX_ROOF_TILES : MAX_TILES) : [];
     if (!tiles.length) return 'Nada para construir';
     const rot = normRot(a.type, num(a.rot));
     const style = normStyle(a.type, a.style), det = cleanDet(a.type, a.det);
     const list = [], seen = new Set();
+    const batch = def.deck ? new Map() : null; // piers / bridges: each piece anchors on the ones before it (decks.js)
+    if (batch) tiles = orderDeckTiles(game, a.type, tiles.map((t) => [num(t?.[0]) | 0, num(t?.[1]) | 0]));
     let first = null;
     for (const t of tiles) {
       const tx = num(t?.[0]) | 0, ty = num(t?.[1]) | 0, key = tx + ',' + ty;
       if (seen.has(key)) continue;
       seen.add(key);
-      let r = placeReason(game, a.type, tx, ty, actor.ent, rot, null, lv);
+      let r = placeReason(game, a.type, tx, ty, actor.ent, rot, null, lv, batch);
       if (r && typeof r === 'object') {
         const old = r.replace;
         net.emit('struct.remove', { id: old.id, by: actor.pid, give: old.paid ? nonEmpty(addTo({}, defOf(old).cost)) : undefined, giveAt: [r3(old.x), r3(old.y - 0.2)], quiet: 1 });
@@ -506,6 +517,7 @@ defineIntent('build.place', {
       // creative (creative.js): finished at once, no materials — a roof only where a finished support holds it
       const now = game.creative && !(def.roof && !roofSupported(game, tx, ty, true));
       list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), now ? 1 : 0, Math.round(game.worldTime), rot, now || costEmpty(def) ? 1 : 0, 0, style, det]);
+      if (batch) batch.set(game.world.idx(tx, ty), a.type);
     }
     if (!list.length) return first || 'Local inválido';
     if (game.creative) creativeClear(game, list, net, actor, lv);
@@ -566,6 +578,7 @@ defineIntent('build.hit', {
       }
       const ids = [], give = {};
       if (o.lv) { const why = game.levels?.buildStartReason(o); if (why) return why; } // levels: the floor under it first
+      if (!o.lv && game.decks?.any) { game.decks.sync(); const why = game.decks.startReason(o); if (why) return why; } // piers / bridges: from the bank, piece by piece; the deck under small things first
       for (let y = o.ty; y < o.ty + o.fh; y++) for (let x = o.tx; x < o.tx + o.fw; x++) {
         if (!o.lv) for (const n of objectsOnTile(game, x, y)) {
           if (CLEARABLE.has(n.type)) { ids.push(n.id); addTo(give, CLEAR_YIELD[n.type] || {}); }
@@ -610,6 +623,7 @@ defineIntent('build.decon', {
   run(game, a, actor, net) {
     const ids = Array.isArray(a.ids) ? a.ids.slice(0, 400) : [];
     const set = [], clear = [];
+    let busy = false;
     for (const id of ids) {
       const o = structById(game, id);
       if (!o) continue;
@@ -621,6 +635,7 @@ defineIntent('build.decon', {
         continue;
       }
       const want = a.on == null ? !game.build.decon.has(o) : !!a.on;
+      if (want && BUILDINGS[o.type]?.deck && game.decks?.busy(o) && !ids.includes(game.build.grid.main.get(game.world.idx(o.tx, o.ty))?.id)) { busy = true; continue; } // (a pier / bridge piece with something on it)
       if (want && game.creative) { // creative: gone at once (no refund: nothing was paid); what a chest held falls out
         const drops = [];
         if (o.store) for (const s of o.store.slots) if (s) drops.push(lootRow(net, o.x, o.y - 0.3, s.id, s.qty, 0.8));
@@ -631,6 +646,7 @@ defineIntent('build.decon', {
     }
     if (set.length) net.emit('struct.decon', { ids: set, on: 1 });
     if (clear.length) net.emit('struct.decon', { ids: clear, on: 0 });
+    if (busy && !set.length) return 'Tire antes o que está em cima do trapiche / da ponte';
   },
 });
 
@@ -641,6 +657,7 @@ defineIntent('decon.hit', {
     const o = structById(game, a.id);
     if (!o || !game.build.decon.has(o)) return 'Não está marcada para desmontar';
     const def = defOf(o);
+    if (def.deck && game.decks?.busy(o)) return 'Desmonte antes o que está em cima'; // (piers / bridges, decks.js)
     const back = {};
     for (const id in def.cost) back[id] = Math.round(def.cost[id] * REFUND);
     const drops = [];

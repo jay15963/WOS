@@ -637,6 +637,44 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   com a câmera" (`wos.radarRot`). O mapa grande fica sempre com o norte para cima. Enquanto girada, um cone claro no
   radar e no mapa mostra para onde a vista olha.
 
+## Trapiche e ponte (`art/faces/deck.js`): peças procedurais
+
+Pedido do dono: construções na água "procedurais igual o telhado e com detalhes" — a ponte tem início, corpo e fim e o
+visual 3D se conecta conforme o jogador empilha as peças; o trapiche na mesma lógica. Regras e jogabilidade:
+docs/PLAN-V2.md "Trapiche e ponte".
+
+- **Forma a partir dos vizinhos** (`game/decks.js`, refeita quando as estruturas mudam, `game.build.v`): cada peça ganha
+  `o._dk` — trapiche: vizinhos de trapiche, lados de margem, o eixo que as tábuas cruzam, a ponta (o único lado
+  conectado oposto à água aberta), as estacas dos 4 cantos (cada canto desenhado uma vez, pela primeira peça em volta
+  dele: no contorno um toco sobre o deque, dentro de uma plataforma um canto sim outro não sob o deque, na ponta
+  frades altos com corda enrolada, do lado da margem baixos), lados abertos; ponte: eixo, papel (cabeceira / corpo /
+  ilha), alturas no começo / meio / fim da peça ao longo do eixo (o trecho atravessado de margem a margem arqueia:
+  `0,3 + A·sen(π·u / L)`, A = min(0,15; 0,03·L)), vizinhos (nada / margem / água), cavalete (nas bordas internas: simétrico
+  numa travessia completa, um tile sim outro não a partir da margem numa inacabada), poste no fim do trecho, rampa da
+  cabeceira (sobe para a água; ilha = plana). Planejadas contam (o visual liga com a planta; o fantasma completa).
+- **Geometria** (`deck.js`): quads com textura (atlas, 64 px por tile, `art/decks.js`: tábuas de deque em 3 variantes,
+  madeira de lado, casca de estaca, pedra aparelhada, corda, neve), feitos com caixas, prismas de 6 lados (estacas),
+  vigas entre dois pontos (corrimãos seguindo o arco), tábuas finas de dois lados (contraventamento em X, balaústres em
+  zigue-zague) e faces livres (tampo do deque em dois segmentos, rampas, lados das rampas em trapézio, pedra da
+  cabeceira). **Trapiche:** deque, testeira nos lados abertos, X por baixo, estacas com a faixa molhada mais escura na
+  linha d'água, tábuas descendo até a margem sobre um tronco, escada até a água na ponta. **Ponte:** deque, testeiras,
+  longarinas recuadas, postes em cada borda, corrimão + travessa do meio + balaústre em zigue-zague, cavalete (duas
+  estacas, viga de topo, X), tábua de fim onde a ponte para; **cabeceira** de pedra com parapeitos, pilares na entrada
+  e as tábuas subindo entre eles.
+- **Cache:** a geometria de uma peça é feita uma vez por mudança (`o._dk.sig` + o atlas) em coordenadas do mundo
+  (`o._dg`, 28 floats por quad); um quadro só descarta os lados virados para longe (`seen`), sombreia pelo sol
+  (`shade`) e copia (`FaceBatch.quadF`, sem alocação). Fantasmas: a forma calculada com as peças já existentes +
+  as do arraste (`ghostShapes`, guardada por chave), geometria refeita no rascunho (só no modo construção); um fantasma
+  vermelho é desenhado como peça solta.
+- **Obra:** cada quad tem uma etapa — estacas / pedra (≥ 0,25 do progresso), estrutura (vigas, testeiras, X ≥ 0,55),
+  deque e guarda-corpos (≥ 0,85); o que falta fica na cor da planta. Sem o andaime genérico (`scaffold.js` pula a camada
+  `deck`).
+- **Clima / luz:** neve (`season.snow`) em manchas sobre os tampos (deque, corrimãos, parapeitos, pilares, topo dos
+  postes) como uma camada translúcida; luz e noite pelo mapa de luz como tudo; sombra do sol do deque e dos
+  guarda-corpos na água (`shadowRect`). Água congelada: as peças ficam sobre o gelo.
+- **Quem está em cima:** pessoas e bichos no topo do deque (`e._dh` na altura do cartão e da profundidade), coisas
+  pequenas construídas em cima (`o._dkh`: o kit sólido soma na base `H0`), itens no chão desenhados no topo.
+- Conferir: `game.debug.deckScene()` + `deckAt('bridge' | 'pier' | 'bank', k)`; capturas em `shots/water_*.png`.
 ## O que falta
 
 - Telhados: a parte de baixo do beiral não é desenhada (com a câmera a 45° ela nunca aparece: a parede ou a própria
@@ -695,3 +733,7 @@ de horta continuam no chão (`uFlat`) e giram inteiros com o mundo.
   têm arte própria pintada).
 - Desmontar com um toque pega o tile do chão sob o dedo (como em 0°); o giro de uma peça (R / ⟳) continua em
   direções do mundo (a seta no chão mostra para onde).
+- **Trapiche / ponte:** corpos no chão de um deque ficam embaixo dele (só itens e criaturas sobem; quem senta numa
+  cadeira sobre o deque fica no assento do modelo levantado); a ponte é só reta (N-S / L-O); a parte
+  de baixo do deque nunca aparece (a câmera olha de cima a 45°); a neve é uma camada sobre os tampos (não acumula nos
+  lados).

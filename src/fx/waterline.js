@@ -78,7 +78,7 @@ class Waterline {
     };
     for (const e of g.entities) {
       if (e.dead) continue;
-      const wv = w.waterAt(Math.floor(e.x), Math.floor(e.y));
+      const wv = w.liquidAt(Math.floor(e.x), Math.floor(e.y)); // (not on a pier / bridge deck)
       if (!wv) continue;
       e._wr = (e._wr || 0) - dt; // ring timer runs while in the water
       const mv = e.moving || Math.hypot(e.x - (e._wx ?? e.x), e.y - (e._wy ?? e.y)) > 0.004;

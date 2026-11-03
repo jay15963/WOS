@@ -29,6 +29,8 @@ export const CONTRACT = [
   'corpse_skel_s', 'corpse_skel_m', 'corpse_skel_l', 'corpse_skel_pawn', 'corpse_carcass_s', 'corpse_carcass_m', 'corpse_carcass_l', 'corpse_rot_0', 'fx_fly', 'item_bone',
   // agent K: stone wall / hedge (baked default look; src/art/arch.js)
   'fence_stone', 'hedge',
+  // piers / bridges (src/art/decks.js): build-menu icons + the textures of the procedural pieces (art/faces/deck.js)
+  'pier_wood', 'bridge_wood', 'deck_planks_0', 'deck_planks_1', 'deck_planks_2', 'deck_wood', 'deck_log', 'deck_stone', 'deck_rope', 'deck_snow',
   // livestock (docs/LIVESTOCK.md, art/livestock.js): the feeder, wheat, the young, swimming fish, rope / bobber
   'feeder', 'crop_wheat_0', 'wild_wheat_0', 'fish_top', 'fx_rope', 'fx_bobber', 'held_rod_wood',
 ];

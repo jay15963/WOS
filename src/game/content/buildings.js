@@ -3,7 +3,7 @@
 //
 // Fields:
 //  name, g ('m'|'f' grammatical gender for messages), emoji (UI fallback), cat: [category keys], cost, time (build s), xp
-//  size: [w, h] (default 1×1)      layer: 'main' (default) | 'floor' (floors, farm plots) | 'rug'
+//  size: [w, h] (default 1×1)      layer: 'main' (default) | 'floor' (floors, farm plots) | 'rug' | 'deck' (piers, bridges)
 //  block: 'tile' (world.solid = 1 over the footprint) | 'door' (closed = world.solid 1, open = 0) | radius (round prop) | 0
 //         | 'stairs' (levels.js: a stairway to the story above, entered only through its front / top end)
 //  connect: autotile group (mask N=1 E=2 S=4 W=8)   flat: drawn on B.ground   drag: 'line' | 'area' placement
@@ -21,7 +21,7 @@ import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, 
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
-  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['water', 'Água'], ['prod', 'Produção'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
   ...DECOR_CATS,
 ];
 
@@ -59,8 +59,16 @@ export const BUILDINGS = {
   column_stone: { name: 'Coluna de pedra', g: 'f', emoji: '🏛️', cat: ['roof', 'struct'], cost: { stone_block: 2 }, time: 3, xp: 4, block: 'tile', support: true,
                  desc: 'Coluna de blocos de pedra. Segura o teto de salões grandes.' },
 
+  // ---------- water (game/decks.js: layer 'deck', walkable over the water; the look is procedural, art/faces/deck.js) ----------
+  // deck: 'pier' (shallow water only, from the shore or another pier piece) | 'bridge' (starts on the bank, up to 8 water
+  // tiles in a straight line, ends on the other bank)
+  pier_wood:   { name: 'Trapiche', g: 'm', emoji: '🛶', cat: ['water'], cost: { wood: 3, rope: 1 }, time: 3, xp: 4, layer: 'deck', deck: 'pier', connect: 'pier', drag: 'area',
+                 desc: 'Deque de tábuas sobre estacas, só em água rasa. Comece na margem e vá emendando: as pontas, os pilares e a escada se ajeitam sozinhos. Dá para pôr luzes, baús e pescar da beirada.' },
+  bridge_wood: { name: 'Ponte', g: 'f', emoji: '🌉', cat: ['water'], cost: { wood: 4, stone: 2, rope: 1 }, time: 4, xp: 5, layer: 'deck', deck: 'bridge', connect: 'bridge', drag: 'line',
+                 desc: 'Comece na margem, empilhe o corpo da ponte sobre a água (até 8 tiles, em linha reta) e termine na outra margem. Cada peça só começa depois da anterior pronta. Guarda-corpos dos dois lados.' },
+
   // ---------- production ----------
-  workbench:   { name: 'Bancada de trabalho', g: 'f', emoji: '🛠️', cat: ['prod'], cost: { wood: 10, stone: 4 }, size: [2, 1], time: 6, xp: 20, block: 'tile', station: true, rotate: true, move: true,
+  workbench:  { name: 'Bancada de trabalho', g: 'f', emoji: '🛠️', cat: ['prod'], cost: { wood: 10, stone: 4 }, size: [2, 1], time: 6, xp: 20, block: 'tile', station: true, rotate: true, move: true,
                  desc: 'Ferramentas de pedra, lanças, arcos, flechas, escudo e couro.' },
   stonecutter: { name: 'Mesa de cantaria', g: 'f', emoji: '🪚', cat: ['prod'], cost: { wood: 6, stone: 12 }, size: [2, 1], time: 6, xp: 15, block: 'tile', station: true, rotate: true, move: true,
                  desc: 'Corta pedra em blocos para paredes e pisos de pedra.' },

@@ -49,7 +49,7 @@ export function installAudioDirector(game, audio) {
   // deep water (world.water 2) = swimming, derived from the position (works for replicated avatars too)
   function swimWatch(e, s, t) {
     const w = game.world;
-    const swim = !e.dead && !!w?.waterAt && w.waterAt(Math.floor(e.x), Math.floor(e.y)) === 2;
+    const swim = !e.dead && !!w?.liquidAt && w.liquidAt(Math.floor(e.x), Math.floor(e.y)) === 2; // (not on ice / a pier or bridge deck)
     if (swim !== !!s.swim) {
       if (s.swimSeen) audio.play(swim ? 'splash_in' : 'splash_out', { x: e.x, y: e.y });
       s.swim = swim; s.sk = swimK(e); s.tread = t + 1.5;

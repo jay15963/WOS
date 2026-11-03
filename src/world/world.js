@@ -121,13 +121,14 @@ export class World {
   // ---------- tiles ----------
   isRock(tx, ty) { return !this.inBounds(tx, ty) || this.rock[this.idx(tx, ty)] === 1; }
   waterAt(tx, ty) { return this.inBounds(tx, ty) ? this.water[this.idx(tx, ty)] : 0; }
-  // water you can sink into: none while it is frozen (winter: this.frozen, set by seasons.js on every peer).
+  // water you can sink into: none while it is frozen (winter: this.frozen, set by seasons.js on every peer) nor under a
+  // finished pier / bridge deck (this.deck, derived by game/decks.js from the structures on every peer).
   // Movement / swimming / creature paths use this; looks, placement rules and the minimap keep waterAt.
-  liquidAt(tx, ty) { return this.frozen ? 0 : this.waterAt(tx, ty); }
+  liquidAt(tx, ty) { return this.frozen || (this.deck && this.inBounds(tx, ty) && this.deck[this.idx(tx, ty)]) ? 0 : this.waterAt(tx, ty); }
   blocked(tx, ty) {
     if (!this.inBounds(tx, ty)) return true;
     const i = this.idx(tx, ty);
-    return this.rock[i] === 1 || (this.water[i] === 2 && !this.frozen) || this.solid[i] === 1;
+    return this.rock[i] === 1 || (this.water[i] === 2 && !this.frozen && !(this.deck && this.deck[i])) || this.solid[i] === 1;
   }
   groundAt(tx, ty) { return this.inBounds(tx, ty) ? this.ground[this.idx(tx, ty)] : G.STONE; }
 
@@ -135,6 +136,7 @@ export class World {
   speedAt(x, y) {
     const tx = Math.floor(x), ty = Math.floor(y);
     const wa = this.waterAt(tx, ty);
+    if (wa && this.deck && this.deck[this.idx(tx, ty)]) return 1; // on a pier / bridge deck (game/decks.js)
     if (wa && this.frozen) return 0.92; // ice: a little careful
     if (wa === 2) return 0.14; // deep water: swimming, a lot slower than wading
     if (wa === 1) return 0.55;

@@ -575,6 +575,62 @@ it — like a compass/radar): "esse design combina muito com o jogo".
 - Faces calculadas (docs/CAMERA-ROTATION.md): botão do meio do mouse / dois dedos como volante; bússola no radar
   volta ao norte; paredes e portas como caixas de faces; telhados somem enquanto girada (lacuna conhecida).
 
+## Trapiche e ponte — construções na água (added later)
+
+Pedido do dono: construções feitas na água — **trapiche** só em água rasa e **ponte** que começa em terra e atravessa
+até 8 tiles de água; peças **procedurais como o telhado**: a ponte tem início, corpo e fim, o jogador vai empilhando o
+corpo e o visual 3D vai se conectando (o trapiche na mesma lógica). Código: `src/game/decks.js` (regras, mapa derivado,
+alturas), `src/game/mut/decks.js` (queda: op `deck.collapse`), `src/art/faces/deck.js` (as peças 3D), `src/art/decks.js`
+(ícones e texturas). Ganchos de uma linha nos arquivos compartilhados (física, navegação, andares, construção, áudio,
+radar).
+
+- **Menu:** aba nova **Água** (`BUILD_CATS` `water`): **Trapiche** (`pier_wood`: 3 madeira + 1 corda por tile, arraste
+  em área) e **Ponte** (`bridge_wood`: 4 madeira + 2 pedra + 1 corda por tile, arraste em linha). Camada própria
+  `deck` (`game.build.grid.deck`): por cima dela só cabem coisas pequenas (`deckFriendly`: luzes, baús, cadeiras,
+  decoração de 1 tile — nada de paredes, cercas, portas, escadas, móveis grandes), construídas depois do deque e
+  desenhadas no topo dele (`o._dkh`, kit sólido).
+- **Trapiche:** só em **água rasa** (`world.water` 1; "Só em água rasa (aqui é fundo: faça uma ponte)"), encostado na
+  margem (qualquer tile de terra) ou em outra peça de trapiche ("Precisa começar na margem (ou emendar num
+  trapiche)"); qualquer forma (galhos, plataformas). Cada peça só começa a obra ao lado da margem ou de uma peça
+  pronta. Não cai (fica nas estacas).
+- **Ponte:** uma linha reta por ponte (N-S ou L-O; sem curvas, cruzamentos nem pontes lado a lado). Peça em terra =
+  **cabeceira**, encostada na água (ou na ponte sobre a água da linha dela) — "A ponte começa na margem, encostada na
+  água". Peça sobre a água (rasa ou funda) continua uma linha que chega a uma cabeceira — "Precisa começar em terra (na
+  margem)" — e um trecho de água tem no máximo **8 tiles** ("Ponte de no máximo 8 tiles de água"). Terminar na outra
+  margem é opcional: sem a cabeceira do outro lado ela fica inacabada, um corpo sobre a água que se continua depois.
+  Uma ilha no meio vira um pilar de pedra entre dois trechos. A obra vai peça por peça a partir da margem (uma peça
+  sobre a água precisa da vizinha da linha pronta: "Construa antes a peça anterior da ponte"; no plano, "!" até lá).
+- **Arraste:** um arraste pela água pode começar em qualquer ponta: as peças são ordenadas a partir do que já está
+  ancorado (`orderDeckTiles`, o mesmo no fantasma e no anfitrião), cada uma conta com as anteriores do mesmo arraste.
+- **Queda:** desmontar o meio de uma ponte deixa cada metade presa à sua margem; peças sobre a água que não chegam mais
+  (por peças prontas da linha) a uma cabeceira pronta caem na água (o anfitrião, `deckSupportSystem` → `deck.collapse`,
+  com respingo; o que estava em cima cai junto, o conteúdo de baús boia como loot). Marcar uma cabeceira que derruba
+  peças pede um segundo toque ("A ponte vai cair na água (n peças)!"); um deque com algo em cima não é desmontado
+  ("Tire antes o que está em cima do trapiche / da ponte").
+- **Andar:** derivado em todo par das estruturas (`game.build.v`), sem sync extra: `world.deck` (1 trapiche / 2 ponte,
+  prontos) faz a água embaixo virar chão — `liquidAt` 0, `blocked` / `tileBlocked` livres, velocidade normal — sem nadar,
+  sem molhar, sem som de nado / respingo de passo (passo de madeira). `world.rail` (bordas com guarda-corpo das pontes
+  prontas, dos dois lados de cada peça, inclusive as cabeceiras) são paredes finas (`physics.railHit` / `railCross`, no
+  A* de `nav.js`, `clearLine` e `levels.js`): da ponte não se cai na água pelo lado; entra-se pelas pontas. O trapiche
+  não tem guarda-corpo (dá para descer na água rasa e pescar da beirada). Bichos e bandidos atravessam rios pela ponte
+  no A* (não escolhem a ponte como passeio).
+- **Altura (cosmético):** o deque do trapiche fica a 0,2 tile da água (as tábuas sobem na margem por 0,34 tile); a
+  ponte a 0,3 nas margens e, atravessada de margem a margem, **arqueia** até +0,15 no meio (`deckHeightIn`). Quem
+  está em cima é desenhado no topo (`e._dh`, suavizado; game.js soma no levantamento e na profundidade); itens no
+  chão de um deque também (desenháveis na ordem de profundidade, `decksSystem.collect`).
+- **Sync:** as peças são estruturas comuns (`build.place` / `struct.add` / `build.hit` / `struct.remove`, snapshot,
+  save, digest) — só a op nova `deck.collapse {ids, drops}`. Cenários **D1** (o convidado planeja e constrói ponte e
+  trapiche com trabalho de verdade, recusas, mesmo mapa de deque e guarda-corpos nos dois, os dois atravessam sem nadar)
+  e **D2** (desmontar o meio — nada cai —, depois a cabeceira — confirmação, a metade solta cai nos dois).
+- **Radar / mapa:** as peças em tons de tábua sobre a água.
+- **Teste:** `game.debug.deckScene({ plan, dry, only, span })` (localhost: a travessia de rio e a margem rasa mais
+  perto, prontas ou em planta), `game.debug.deckAt('bridge' | 'pier' | 'bank', k)`.
+- **Desempenho** (`game.debug.bench(150)`, Chrome sem cabeça, ponte de 10 peças + trapiche de 6 na tela): CPU de
+  render 0,6 ms (0,5 sem eles) a 0°, 1,0 ms (0,9) girada; a geometria de cada peça é feita uma vez por mudança.
+- **Lacunas:** corpos no chão de um deque ficam embaixo dele; a ponte não faz curva nem diagonal; os bichos não passeiam
+  em deques (só atravessam perseguindo / no caminho); pescar do trapiche depende da vara de pescar (outro agente: o
+  trapiche não impede); sem barcos.
+
 ## Agropecuária (added later)
 
 Pedido do dono: vaca, porco, galinha, ovelha e peixe; pesca com vara (o tiro longo com flecha / lança também pesca,

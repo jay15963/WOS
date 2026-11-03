@@ -555,7 +555,7 @@ const BODY = [1, 1, 0, 0];
 // the body of a world object type that is not a building (spec.world = its size [w, d] in tiles)
 const worldDef = (spec) => (spec && spec.world ? spec._wd || (spec._wd = { size: spec.world }) : null);
 function valid(e, o, st) {
-  if (e.type !== o.type || e.tx !== o.tx || e.ty !== o.ty || e.rot !== (o.rot | 0) || e.x !== o.x || e.y !== o.y || e.lv !== (o.lv | 0) || e.st !== st || e.face !== o.face) return false;
+  if (e.type !== o.type || e.tx !== o.tx || e.ty !== o.ty || e.rot !== (o.rot | 0) || e.x !== o.x || e.y !== o.y || e.lv !== (o.lv | 0) || e.st !== st || e.face !== o.face || e.dk !== (o._dkh || 0)) return false;
   // lazy art moved / evicted (look atlas): rebuild; drawing them keeps them alive (K.ok stamps their last use)
   for (let i = 0; i < 4; i++) { const S = e.S[i]; if (!S || !K.ok(S) || S.u0 !== e.su[i * 2] || S.v0 !== e.su[i * 2 + 1]) return false; }
   const U = e.US;
@@ -563,7 +563,7 @@ function valid(e, o, st) {
   return true;
 }
 function build(A, o, def, spec, st, e) {
-  e.type = o.type; e.tx = o.tx; e.ty = o.ty; e.rot = o.rot | 0; e.x = o.x; e.y = o.y; e.lv = o.lv | 0; e.st = st; e.face = o.face; e.nq = 0; e.ok = false;
+  e.type = o.type; e.tx = o.tx; e.ty = o.ty; e.rot = o.rot | 0; e.x = o.x; e.y = o.y; e.lv = o.lv | 0; e.st = st; e.face = o.face; e.nq = 0; e.ok = false; e.dk = o._dkh || 0;
   // (a variant: listed, or made by the table for a state it builds from the piece's kit — a column's look and details)
   const vr = st ? spec.variants?.[st] || (spec.variant ? spec.variant(st) : null) : null;
   const sp = vr ? { ...spec, ...vr } : spec;
@@ -585,7 +585,7 @@ function build(A, o, def, spec, st, e) {
   e.US = un ? spriteNamed(A, un) : null;
   if (un && !e.US) return e;
   if (e.US) { e.uu = e.US.u0; e.uv0 = e.US.v0; }
-  e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H;
+  e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H + (o._dkh || 0); // (_dkh: standing on a pier / bridge deck, game/decks.js)
   const list = Fm.spec.parts;
   buildModel(Fm, list, e.P);
   // placed in its body (spec.align 'center', the default, or 'back': against the back edge — shelves, cabinets, racks;

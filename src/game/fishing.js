@@ -107,7 +107,7 @@ function tipOf(game, e, b) {
   const rot = game.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
   const dx = b.x - e.x, dy = b.y - e.y, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy;
   const side = Math.abs(vx) > Math.abs(vy) ? Math.sign(vx) * 0.5 : vy < 0 ? 0.3 : -0.3;
-  return [e.x + rc * side, e.y + rs * side, 1.25];
+  return [e.x + rc * side, e.y + rs * side, 1.25 + (e._dh || 0)]; // (_dh: fishing from a pier / bridge deck, decks.js)
 }
 const anglerEnt = (game, pid) => (pid === game.net.pid ? game.player : game.session?.players?.get?.(pid)?.ent || null);
 

@@ -13,7 +13,7 @@
 // camera, depth keys, lift), session / entities (z), save (player z), placeReason (stairwell).
 
 import { BUILDINGS } from './data.js';
-import { tileBlocked } from './physics.js';
+import { tileBlocked, railHit, railCross } from './physics.js';
 import { walkable } from './nav.js';
 import { WALL_H } from '../art/structures.js';
 import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
@@ -356,6 +356,7 @@ export class Levels {
     }
     // round props of this level only (trees, boulders, chests…)
     const w = this.game.world;
+    if (k === 0 && w.rail && railHit(w, x, y, r)) return true; // bridge railings (game/decks.js)
     let hit = false;
     w.forChunks(x - r - 1, y - r - 1, x + r + 1, y + r + 1, (c) => {
       if (hit) return;
@@ -657,6 +658,7 @@ export class Levels {
         continue;
       }
       if (dx && dy && (!this._walk(k, x + dx, y, doors) || !this._walk(k, x, y + dy, doors))) continue; // no corner cutting
+      if (k === 0 && w.rail && railCross(w, x, y, dx, dy)) continue; // bridge railings (game/decks.js)
       const q = this._nodeOf(k, ni);
       if (q >= 0) { NB[n] = q; NC[n++] = cost; }
     }

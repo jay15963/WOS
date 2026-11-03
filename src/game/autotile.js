@@ -13,7 +13,7 @@ const MAXL = 3;
 export const lvKey = (w, i, lv) => i + (lv | 0) * w.W * w.H;
 
 export function initGrids(game) {
-  game.build.grid = { main: new Map(), floor: new Map(), rug: new Map(), roof: new Map() };
+  game.build.grid = { main: new Map(), floor: new Map(), rug: new Map(), roof: new Map(), deck: new Map() }; // deck: piers / bridges (game/decks.js)
 }
 
 export const layerOf = (type) => BUILDINGS[type]?.layer || 'main';
@@ -100,7 +100,7 @@ function refresh(o, game) {
 // recompute masks of structures on tiles [x0..x1]×[y0..y1] expanded by one tile (all layers)
 export function updateMasksAround(game, x0, y0, x1 = x0, y1 = y0) {
   const w = game.world, seen = new Set();
-  for (const layer of ['main', 'floor', 'rug']) {
+  for (const layer of ['main', 'floor', 'rug', 'deck']) {
     const g = game.build.grid[layer];
     for (let lv = 0; lv <= MAXL; lv++) for (let y = y0 - 1; y <= y1 + 1; y++) for (let x = x0 - 1; x <= x1 + 1; x++) {
       if (!w.inBounds(x, y)) continue;
