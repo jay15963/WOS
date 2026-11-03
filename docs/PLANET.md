@@ -28,7 +28,7 @@ Código: `src/world/planet/` (puro, sem DOM, roda em worker). Ferramentas: `tool
 | Chunk | 64 × 64 tiles → 256 × 128 chunks | `CHUNK`, `CW`, `CHH` |
 | Classes de água | 0 terra · 1 rasa (vadear) · 2 funda (nadar, barco) · 3 **abissal** (barco não entra) | `WATER` |
 | Abissal | fundo macro abaixo de `ABYSS_M = −1500 m` (com ruído na borda) | |
-| Terra | 28–31 % da superfície (alvo sorteado por semente); ~565–580 "vilas" de 256² de terra | `stats` |
+| Terra | 29–31,5 % da superfície (alvo sorteado por semente, descontados os lagos); ~590–640 "vilas" de 256² de terra | `stats` |
 | Continentes | 5–8 crátons (≥ 20 células de mar entre eles) + 1 continente polar sul + 3–6 microcontinentes; mais ilhas de arco e de ponto quente | |
 
 **Nenhuma ponte entre continentes:** cada continente grande tem um "território" (as células mais próximas

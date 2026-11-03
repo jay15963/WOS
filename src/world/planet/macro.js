@@ -171,7 +171,7 @@ export function generatePlanet(seed = 1) {
   lap('volcanoes');
 
   // ---------- sea level: land ~30 % (shift the continents only) ----------
-  const landTarget = 0.285 + hash01(seed, 1, 77) * 0.03;
+  const landTarget = 0.297 + hash01(seed, 1, 77) * 0.025;
   const wSea = new Float32Array(N);
   for (let i = 0; i < N; i++) wSea[i] = smoothstep(-4, 2, sd[i]);
   const coneC = new Float32Array(N); // cones sampled at cell centres (added after erosion)
