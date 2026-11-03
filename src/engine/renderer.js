@@ -243,14 +243,14 @@ export class Renderer {
     // these two already: terrainWindow.js _post)
     const whole = (x0, y0, tw, th) => tw === CSZ && th === CSZ && !(x0 & (CSZ - 1)) && !(y0 & (CSZ - 1)) && y0 >= 0 && y0 < world.H ? (((y0 >> 6) << 8) | ((x0 & 16383) >> 6)) : -1; // (chunk key)
     win.add('hgt', { scale: SUBH, comps: 1, ctor: Float32Array, internal: gl.R32F, format: gl.RED, type: gl.FLOAT, filter: gl.NEAREST, fill: (x0, y0, tw, th, out) => {
-      if (!L.any) return;
+      if (!L.any || y0 >= world.H || y0 + th <= 0) return; // (beyond the poles: no mesh there)
       const c = whole(x0, y0, tw, th);
       if (c >= 0) { fineTex(L.page(c), out, null); return; }
       const i0 = x0 * SUBH, j0 = y0 * SUBH, OW = tw * SUBH;
       for (let j = 0; j < th * SUBH; j++) for (let i = 0; i < OW; i++) out[j * OW + i] = L.fs(i0 + i, j0 + j);
     } });
     win.add('hgtG', { scale: SUBH, comps: 4, ctor: Uint16Array, internal: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT, fill: (x0, y0, tw, th, out) => {
-      if (!L.any) return;
+      if (!L.any || y0 >= world.H || y0 + th <= 0) return; // (beyond the poles: no mesh there)
       const c = whole(x0, y0, tw, th);
       if (c >= 0) { fineTex(L.page(c), null, out); return; }
       const i0 = x0 * SUBH, j0 = y0 * SUBH, OW = tw * SUBH, k = SUBH / 2;

@@ -112,11 +112,24 @@ export class PagedHeight {
     return this.c.get((iy << PWS) | (ix & XM));
   }
 
-  // the corner window a chunk's fine page reads (NC × NC from (X0 − M, Y0 − M)); null when it is all zero (flat)
+  // the corner window a chunk's fine page reads (NC × NC from (X0 − M, Y0 − M)); null when it is all zero (flat).
+  // A neighbour not loaded yet: its corners are the chunk's own edge extended (provisional — the page is incomplete and
+  // dropped when the neighbour arrives; never a fake cliff at the edge of the loaded area)
   cornerWindow(c) {
-    const X0 = (c & (CW - 1)) * CS, Y0 = (c >>> 8) * CS, C = new Float32Array(NC * NC);
+    const w = this.w, X0 = (c & (CW - 1)) * CS, Y0 = (c >>> 8) * CS, C = new Float32Array(NC * NC);
+    const cx = c & (CW - 1), cy = c >>> 8, has = [];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const y = cy + dy;
+      has.push(!dx && !dy || y < 0 || y >= CH || !w.wrap || w.isLoaded(y * CW + ((cx + dx) & (CW - 1))));
+    }
     let nz = false;
-    for (let y = 0; y < NC; y++) for (let x = 0; x < NC; x++) { const v = this._cc(X0 - M + x, Y0 - M + y); C[y * NC + x] = v; if (v !== 0) nz = true; }
+    for (let y = 0; y < NC; y++) for (let x = 0; x < NC; x++) {
+      let X = X0 - M + x, Y = Y0 - M + y;
+      const sx = X < X0 ? 0 : X >= X0 + CS ? 2 : 1, sy = Y < Y0 ? 0 : Y >= Y0 + CS ? 2 : 1;
+      if (!has[sy * 3 + sx]) { X = X < X0 ? X0 : X > X0 + CS - 1 ? X0 + CS - 1 : X; Y = Y < Y0 ? Y0 : Y > Y0 + CS - 1 ? Y0 + CS - 1 : Y; }
+      const v = this._cc(X, Y);
+      C[y * NC + x] = v; if (v !== 0) nz = true;
+    }
     return nz ? C : null;
   }
   // the fine page of chunk c (computed now when missing; the terrain window's worker usually made it already)

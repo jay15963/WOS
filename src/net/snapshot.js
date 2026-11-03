@@ -110,6 +110,13 @@ export function findNatural(w, id, type, x, y) {
 
 const arr = (a) => (Array.isArray(a) ? a : []);
 
+// rock at a tile for the checks of applyWorld: a streamed world loads the chunk first (an unloaded chunk reads as rock —
+// a joiner far from the host's flora / buildings would drop them)
+function rockAt(w, x, y) {
+  if (w.wrap) w.ensure(w.chunkIndex(x, y));
+  return w.rock.get(w.idx(x, y));
+}
+
 export function applyWorld(game, d, mode = 'net') {
   if (!d || typeof d !== 'object') return false;
   game.net.withApply(() => applyInner(game, d, mode));
@@ -187,7 +194,7 @@ function applyInner(game, d, mode) {
     if (o && (o.type !== type || Math.abs(o.x - x) > 0.01 || Math.abs(o.y - y) > 0.01)) { removeNatural(game, o); o = null; }
     if (!o) {
       const tx = Math.floor(x), ty = Math.floor(y - 0.05);
-      if (!w.inBounds(tx, ty) || w.rock.get(w.idx(tx, ty))) continue;
+      if (!w.inBounds(tx, ty) || rockAt(w, tx, ty)) continue;
       o = makeFloraObject(game, type, x, y, { id, v, s, f, born: born ?? undefined, solid: solid == null ? undefined : !!solid });
     } else if (!stump && solid && !o.solid && type.startsWith('tree_')) { o.solid = TREE_SOLID[type] || 0.18; occAdd(game, o); }
     if (stump && !o.stump) makeStump(game, o, stumpAt);
@@ -237,7 +244,7 @@ function applyInner(game, d, mode) {
       let ok = true;
       const lv = LVS.get(id) || 0, off = lv * w.W * w.H; // levels: the story's grid keys
       for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
-        if (!w.inBounds(x, y) || (!lv && w.rock.get(w.idx(x, y))) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
+        if (!w.inBounds(x, y) || (!lv && rockAt(w, x, y)) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
       }
       if (!ok) continue;
       o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det, lv, bz: BZS.get(id) });

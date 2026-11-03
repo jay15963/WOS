@@ -5471,6 +5471,70 @@ def('ST1', {
   await t.checkDigest(H, G);
 });
 
+// =====================================================================================================
+// ST2 Heights on the streamed planet (docs/STREAMING.md §1, docs/TERRAIN-HEIGHT.md): generated heights never travel,
+// edits do (op terrain.set / snapshot terr), also for chunks a peer loads later
+def('ST2', {
+  title: 'ST: planet heights — generated on each peer, far edits load the chunk, a late joiner gets them', timeout: 240000,
+  expected: 'Host on ?source=planet: the guest generates the same heights (heightAt / cliffs equal around the spawn); the host goes far away (beyond the chunks the guest has) and raises a few terrain corners on dry ground there (op terrain.set): the guest, at home, loads that chunk on demand and gets the same corners and surface (heightAt equal), the chunk is kept (changed); a second guest joining later gets the edits in the join snapshot (terr) and sees the same heights; digests equal',
+  api: '?source=planet; world.height.{terrainH, base, ci, edits, diff}; world.heightAt / isCliff; op terrain.set; snapshot terr',
+}, async (t) => {
+  const room = newRoom();
+  const H = await bootHost(t, room, { extra: '&source=planet' });
+  const G = await bootGuest(t, room, H);
+  const hw = H.game.world, gw = G.game.world;
+  t.check(hw.source.kind === 'planet' && gw.source.kind === 'planet', 'both run the planet source', `${hw.source.kind} / ${gw.source.kind}`);
+  t.check(hw.height.any && gw.height.any, 'the planet has terrain heights on both');
+  // the same heights around the spawn (each peer generated its own) — where both have the chunk and its 8 neighbours
+  // (a page next to a chunk not loaded yet is provisional: docs/STREAMING.md §1)
+  const sp = hw.spawn, around = (w, c) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!w.isLoaded(((c >>> 8) + dy) * 256 + (((c & 255) + dx) & 255))) return false; return true; };
+  await t.waitFor(() => around(hw, hw.chunkIndex(sp.x, sp.y)) && around(gw, gw.chunkIndex(sp.x, sp.y)), 15000, 'both loaded the chunks around the spawn');
+  let n = 0, dmax = 0, cl = 0;
+  for (let y = Math.floor(sp.y) - 40; y <= Math.floor(sp.y) + 40; y += 2) for (let x = Math.floor(sp.x) - 40; x <= Math.floor(sp.x) + 40; x += 2) {
+    const c = hw.chunkIndex(x, y);
+    if (!around(hw, c) || !around(gw, c)) continue;
+    n++;
+    dmax = Math.max(dmax, Math.abs(hw.heightAt(x + 0.3, y + 0.6) - gw.heightAt(x + 0.3, y + 0.6)));
+    if (hw.isCliff(x, y) !== gw.isCliff(x, y)) cl++;
+  }
+  t.check(n > 100 && dmax < 1e-6 && cl === 0, 'heights and cliffs around the spawn are identical on both', `${n} points, max diff ${dmax}, cliff mismatches ${cl}`);
+  // far away: a dry, rock-free spot on the host (the guest stays home)
+  let spot = null;
+  for (const [ox, oy] of [[600, 0], [-600, 0], [0, 600], [0, -500], [900, 400], [-900, 400], [2000, 0], [-2000, 0], [1500, 900], [-1500, 900]]) {
+    const fx0 = Math.floor(sp.x) + ox, fy = Math.min(hw.H - 300, Math.max(300, Math.floor(sp.y) + oy));
+    H.game.player.x = fx0 + 0.5; H.game.player.y = fy + 0.5; H.game.cam.x = fx0 + 0.5; H.game.cam.y = fy;
+    await t.waitFor(() => around(hw, hw.chunkIndex(fx0, fy)), 15000, 'host loaded the far chunks');
+    await t.sleep(1500); // (the streamer's workers bring the rest around)
+    for (let r = 0; r < 150 && !spot; r += 2) for (let k = 0; k < 48 && !spot; k++) {
+      const x = fx0 + Math.round(Math.cos(k * 0.1309) * r), y = fy + Math.round(Math.sin(k * 0.1309) * r);
+      // (inside its chunk, ≥ 5 tiles from the edge: the surface there reads no neighbour's corners)
+      if ((x & 63) < 5 || (x & 63) > 58 || (y & 63) < 5 || (y & 63) > 58) continue;
+      if (!hw.isLoaded(hw.chunkIndex(x, y)) || gw.isLoaded(gw.chunkIndex(x, y))) continue;
+      let ok = true;
+      for (let dy = -2; dy <= 2 && ok; dy++) for (let dx = -2; dx <= 2 && ok; dx++) { const i = hw.idx(x + dx, y + dy); if (hw.water.get(i) || hw.rock.get(i) || hw.isCliff(x + dx, y + dy)) ok = false; }
+      if (ok) spot = [x, y];
+    }
+    if (spot) break;
+  }
+  t.assert(spot, 'found dry ground in a far region (not loaded on the guest)');
+  const L = hw.height, p = [];
+  for (let dy = 0; dy <= 1; dy++) for (let dx = 0; dx <= 1; dx++) { const i = L.ci(spot[0] + dx, spot[1] + dy); p.push(i, Math.round((L.base.get(i) + 1.5) * 100)); }
+  H.game.net.emit('terrain.set', { p, by: H.game.net.pid, m: 'fill' });
+  const i0 = p[0], h0 = p[1] / 100, fc = gw.chunkIndex(spot[0], spot[1]);
+  await t.waitFor(() => gw.isLoaded(fc) && Math.abs(gw.height.terrainH(spot[0], spot[1]) - h0) < 1e-6, ONEWAY() + 4000, 'guest loaded the far chunk on demand and raised the same corners');
+  t.check(gw.height.edits.get(i0) === hw.height.edits.get(i0), 'the edit is in both edit maps (the diff)', `${hw.height.edits.get(i0)} / ${gw.height.edits.get(i0)}`);
+  const hx = spot[0] + 0.5, hy = spot[1] + 0.5;
+  t.check(Math.abs(hw.heightAt(hx, hy) - gw.heightAt(hx, hy)) < 1e-6 && hw.heightAt(hx, hy) > hw.height.base.get(i0) + 0.5, 'the raised surface is the same on both', `${hw.heightAt(hx, hy).toFixed(3)} / ${gw.heightAt(hx, hy).toFixed(3)}`);
+  t.check(gw.crec[fc]?.dirty, 'the edited chunk is kept (changed) on the guest');
+  // a late joiner gets the edits from the join snapshot
+  const G3 = await bootGuest(t, room, H, { label: 'guest-3' });
+  const w3 = G3.game.world;
+  t.check(w3.source.kind === 'planet' && w3.height.edits.get(i0) === h0, 'the late joiner has the edit (snapshot terr)', `${w3.height.edits.get(i0)}`);
+  t.check(Math.abs(w3.heightAt(hx, hy) - hw.heightAt(hx, hy)) < 1e-6, 'and the same surface there', `${w3.heightAt(hx, hy).toFixed(3)}`);
+  await t.checkDigest(H, G);
+  await t.checkDigest(H, G3);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));
