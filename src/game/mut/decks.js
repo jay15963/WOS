@@ -49,7 +49,7 @@ export function deckSupportSystem() {
       for (const o of game.build.structures) {
         if (o.lv || o.moveOf || gone.has(o) || BUILDINGS[o.type]?.layer !== 'main' || !w.inBounds(o.tx, o.ty)) continue;
         const i = w.idx(o.tx, o.ty), d = D.at.get(i);
-        if ((d && gone.has(d)) || (!d && w.water[i])) { lost.push(o); gone.add(o); }
+        if ((d && gone.has(d)) || (!d && w.water.get(i))) { lost.push(o); gone.add(o); }
       }
       if (!lost.length) return;
       const net = game.net, drops = [];

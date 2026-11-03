@@ -318,7 +318,7 @@ export class Audio {
   // ---------- world queries ----------
   _isWall(i) {
     const w = this._world;
-    if (w.rock[i]) return true;
+    if (w.rock.get(i)) return true;
     const s = this.game?.build?.grid?.main?.get(i);
     return !!s && !s.blueprint && /^(wall|door)/.test(s.type);
   }
@@ -334,11 +334,11 @@ export class Audio {
     for (let k = 1; k < steps; k++) {
       const tx = Math.floor(x0 + (dx * k) / steps), ty = Math.floor(y0 + (dy * k) / steps);
       if ((tx === sx && ty === sy) || (tx === ex && ty === ey) || !w.inBounds(tx, ty)) continue;
-      const i = ty * w.W + tx;
+      const i = w.idx(tx, ty);
       if (i === last) continue;
       last = i;
-      if (w.rock[i]) occ += 0.9;
-      else if (w.solid[i]) occ += this._isWall(i) ? (w.solid[i] === 2 ? 0.35 : 0.65) : 0.12;
+      if (w.rock.get(i)) occ += 0.9;
+      else if (w.solid.get(i)) occ += this._isWall(i) ? (w.solid.get(i) === 2 ? 0.35 : 0.65) : 0.12;
       if (occ >= 2.2) break;
     }
     return occ;
@@ -368,18 +368,18 @@ export class Audio {
       const dk = G.deck?.get(i); // a pier / bridge (game/decks.js): boards (a bridge abutment: stone under the boards too)
       if (dk && !dk.blueprint) return 'wood';
     }
-    if (w.water[i]) return 'water';
+    if (w.water.get(i)) return 'water';
     const e = g?.env?.env;
     if ((e?.snow ?? e?.snowCover ?? 0) > 0.35) return 'snow';
-    if (w.path && w.path[i] && w.pathSurface) return w.pathSurface[w.path[i]]; // painted path: dirt / gravel / stone
-    switch (w.ground[i]) {
+    if (w.path && w.path.get(i) && w.pathSurface) return w.pathSurface[w.path.get(i)]; // painted path: dirt / gravel / stone
+    switch (w.ground.get(i)) {
       case 1: return 'grass';
       case 2: return 'sand';
       case 3: return 'gravel';
       case 4: case 5: return 'mud';
       case 6: return 'stone';
       case 7: return 'soft';
-      default: return (w.lush ? w.lush[i] : 0.5) > 0.42 ? 'grass' : 'dirt';
+      default: return (w.lush ? w.lush.get(i) : 0.5) > 0.42 ? 'grass' : 'dirt';
     }
   }
   entityNear(x, y, r = 0.7) {
@@ -649,17 +649,17 @@ export class Audio {
     let water = 0, flow = 0, wpan = 0, marsh = 0, lush = 0, n = 0;
     for (let y = cy - R; y <= cy + R; y += 2) for (let x = cx - R; x <= cx + R; x += 2) {
       if (!w.inBounds(x, y)) continue;
-      const i = y * w.W + x, d2 = (x - cx) ** 2 + (y - cy) ** 2;
+      const i = w.idx(x, y), d2 = (x - cx) ** 2 + (y - cy) ** 2;
       if (d2 > R * R) continue;
       n++;
       const k = 1 - Math.sqrt(d2) / (R + 1);
-      if (w.water[i] && !this._occ(x + 0.5, y + 0.5)) {
+      if (w.water.get(i) && !this._occ(x + 0.5, y + 0.5)) {
         water += k;
         wpan += (x - cx) * k;
-        if (w.flowX && Math.abs(w.flowX[i]) + Math.abs(w.flowY[i]) > 0.25) flow += k;
+        if (w.flowX && Math.abs(w.flowX.get(i)) + Math.abs(w.flowY.get(i)) > 0.25) flow += k;
       }
-      if (w.ground[i] === 4) marsh += k;
-      if (w.lush) lush += w.lush[i];
+      if (w.ground.get(i) === 4) marsh += k;
+      if (w.lush) lush += w.lush.get(i);
     }
     const N = this._near;
     N.water = clamp(water / 10, 0, 1);

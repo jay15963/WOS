@@ -481,7 +481,7 @@ export function deconRect(game, x0, y0, x1, y1, roof = null, lv = 0) {
     const d = Math.round(lv * (game.levels?.STORY ?? 1)), N = game.world.W * game.world.H;
     for (let y = Math.min(y0, y1) + d; y <= Math.max(y0, y1) + d; y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
       if (!game.world.inBounds(x, y)) continue;
-      for (const L of ['main', 'rug', 'floor']) { const o = game.build.grid[L].get(y * game.world.W + x + lv * N); if (o) seen.add(o); }
+      for (const L of ['main', 'rug', 'floor']) { const o = game.build.grid[L].get(game.world.idx(x, y) + lv * N); if (o) seen.add(o); }
     }
     if (seen.size) { game.net.request('build.decon', { ids: [...seen].map((o) => o.id), on: 1 }); game.work?.wake(); }
     return seen.size;

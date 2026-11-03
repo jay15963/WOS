@@ -12,6 +12,7 @@
 // combat.{reach, attackRange, hasLOS}, projectiles (heights), ai / bandits (target level), game.js (speed,
 // camera, depth keys, lift), session / entities (z), save (player z), placeReason (stairwell).
 
+import { Layer, NodeTable } from '../world/store.js'; // sparse per-level grids, A* scratch (docs/STREAMING.md)
 import { BUILDINGS } from './data.js';
 import { tileBlocked, railHit, railCross, underAt, underFor, deckTrack } from './physics.js';
 import { walkable } from './nav.js';
@@ -61,7 +62,7 @@ export class Levels {
     this.game = game;
     this.v = -1;
     this._active = false;
-    this.surf = [];      // [k] Uint8Array(W*H) | undefined: standable surface at level k (k ≥ 1)
+    this.surf = [];      // [k] sparse store Layer (u8) | undefined: standable surface at level k (k ≥ 1)
     this.blk = [];       // [k] Uint8Array | undefined: blocked at level k [P2: upper walls, railings, furniture]
     this.st = [];        // [k] Int32Array: stair index + 1 (steps at level n, the open stairwell at level n + 1)
     this.stairs = [];
@@ -79,23 +80,22 @@ export class Levels {
   get active() { this.sync(); return this._active; }
   sync() { const b = this.game.build; if (b && b.v !== this.v) this.rebuild(); return this; }
 
-  _arr(list, k, Ctor, n) {
-    let a = list[k];
-    if (!a || a.length !== n) a = list[k] = new Ctor(n);
-    return a;
+  // per-level grids over the planet: sparse store layers (pages only where something is built)
+  _arr(list, k, Ctor, n, def = 0) {
+    return list[k] || (list[k] = new Layer('lv' + k, Ctor, def, { sparse: true }));
   }
 
   rebuild() {
     const g = this.game, w = g.world, W = w.W, N = W * w.H;
     this.v = g.build.v;
-    for (const a of this.surf) a?.fill(0);
-    for (const a of this.blk) a?.fill(0);
-    for (const a of this.st) a?.fill(0);
+    for (const a of this.surf) a?.clear();
+    for (const a of this.blk) a?.clear();
+    for (const a of this.st) a?.clear();
     this.stairs.length = 0;
     let upper = 0, sig = 0, tops = 0;
     const mark = (list, k, o) => {
       const A = this._arr(list, k, Uint8Array, N);
-      for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A[y * W + x] = 1;
+      for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A.set(w.idx(x, y), 1);
     };
     for (const o of g.build.structures) {
       if (o.moveOf || o.removed) continue;
@@ -117,9 +117,9 @@ export class Levels {
     if (sig !== this._upSig) {
       this._upSig = sig;
       const R = g.roofs;
-      if (R?.artDirty) for (const o of g.build.structures) if (o.lv && !o.removed) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y) && w.broof?.[y * W + x]) R.artDirty.add(y * W + x);
+      if (R?.artDirty) for (const o of g.build.structures) if (o.lv && !o.removed) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y) && w.broof?.get(w.idx(x, y))) R.artDirty.add(w.idx(x, y));
       if (R?.artDirty && this._upTiles) for (const i of this._upTiles) R.artDirty.add(i);
-      this._upTiles = g.build.structures.filter((o) => o.lv && !o.removed).map((o) => o.ty * W + o.tx);
+      this._upTiles = g.build.structures.filter((o) => o.lv && !o.removed).map((o) => w.idx(o.tx, o.ty));
     }
   }
 
@@ -128,7 +128,7 @@ export class Levels {
   storeysAt(x, y) {
     const g = this.game, w = g.world;
     if (!this.hasUpper || !w.inBounds(x, y)) return 1;
-    const i = y * w.W + x, N = w.W * w.H, G = g.build.grid;
+    const i = w.idx(x, y), N = w.W * w.H, G = g.build.grid;
     let s = 1;
     for (let k = 1; k <= MAX_LV; k++) {
       const a = G.main.get(i + k * N), f = G.floor.get(i + k * N);
@@ -143,13 +143,13 @@ export class Levels {
     const g = this.game, w = g.world, N = w.W * w.H, G = g.build.grid.main, R = SUPPORT, R2 = R * R, base = (lv - 1) * N;
     for (let dy = -R; dy <= R; dy++) {
       const y = ty + dy;
-      if (y < 0 || y >= w.H) continue;
+      if (y < w.minY || y > w.maxY) continue;
       const r = Math.floor(Math.sqrt(R2 - dy * dy));
       for (let dx = -r; dx <= r; dx++) {
         const x = tx + dx;
-        if (x < 0 || x >= w.W) continue;
-        const i = y * w.W + x;
-        if (lv === 1 && w.rock[i]) return true;
+        if (!w.inBounds(x, y)) continue;
+        const i = w.idx(x, y);
+        if (lv === 1 && w.rock.get(i)) return true;
         const o = G.get(i + base);
         if (o && !o.moveOf && !this._gone?.has(o) && (BUILDINGS[o.type].support || isWallTop(BUILDINGS[o.type])) && (planned || !o.blueprint)) return true;
       }
@@ -158,7 +158,7 @@ export class Levels {
   }
   // something to stand a piece on at story lv: a floor slab of lv or the top of a wall of lv-1 (planned too when `planned`)
   surfaceUnder(tx, ty, lv, planned = false) {
-    const g = this.game, w = g.world, N = w.W * w.H, i = ty * w.W + tx, G = g.build.grid;
+    const g = this.game, w = g.world, N = w.W * w.H, i = w.idx(tx, ty), G = g.build.grid;
     const f = G.floor.get(i + lv * N);
     if (f && !f.moveOf && !this._gone?.has(f) && (planned || !f.blueprint)) return true;
     const a = G.main.get(i + (lv - 1) * N);
@@ -175,8 +175,8 @@ export class Levels {
     const G2 = g.build.grid[def.layer];
     let replace = null;
     for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
-      if (!w.inBounds(x, y) || x < 1 || y < 1 || x >= w.W - 1 || y >= w.H - 1) return 'Fora do mapa';
-      const i = y * w.W + x;
+      if (!w.inside(x, y, 1)) return 'Fora do mapa';
+      const i = w.idx(x, y);
       const cur = G2.get(i + lv * N);
       if (cur && !(ignore && cur === ignore)) {
         if (!ignore && def.block === 'door' && sw === 1 && sh === 1 && BUILDINGS[cur.type].connect === def.connect && BUILDINGS[cur.type].block === 'tile') { replace = cur; continue; }
@@ -209,7 +209,7 @@ export class Levels {
       const tx = Math.floor(wx - rs * k * STORY_H), ty = Math.floor(wy + rc * k * STORY_H); // (camera turned: the lift is up the screen)
       if (!w.inBounds(tx, ty)) continue;
       for (const L of layers) {
-        const o = G[L].get(ty * w.W + tx + k * N);
+        const o = G[L].get(w.idx(tx, ty) + k * N);
         if (o && (o.alpha ?? 1) > 0.5) return o;
       }
     }
@@ -250,7 +250,7 @@ export class Levels {
   _addStair(o, n) {
     const w = this.game.world, W = w.W, N = W * w.H;
     const fw = o.fw || 1, fh = o.fh || 1, tx = o.tx, ty = o.ty, r = o.rot & 3;
-    const id = (x, y) => (w.inBounds(x, y) ? y * W + x : -1);
+    const id = (x, y) => (w.inBounds(x, y) ? w.idx(x, y) : -1);
     let ax, sg, b, len, l0, l1, ent, land;
     const tiles = [];
     if (r === 0) { ax = 1; sg = -1; b = ty + fh; len = fh; l0 = tx; l1 = tx + fw; ent = id(tx, ty + fh); land = id(tx, ty - 1); for (let k = 0; k < len; k++) tiles.push(id(tx, ty + fh - 1 - k)); }
@@ -265,7 +265,7 @@ export class Levels {
     for (const k of [n, n + 1]) {
       if (k > MAX_LV) continue;
       const A = this._arr(this.st, k, Int32Array, N);
-      for (const i of tiles) A[i] = s.idx + 1;
+      for (const i of tiles) A.set(i, s.idx + 1);
     }
     o._sy = n ? ty + fh + 0.002 : ty + 0.2; // depth key: before anything standing on it, after the slab under it (docs/LEVELS.md §8)
   }
@@ -276,31 +276,30 @@ export class Levels {
     this.M = 0;
     for (let k = 1; k <= MAX_LV; k++) {
       const S = this.surf[k];
-      if (!S) { if (this.node[k]) this.node[k].fill(-1); continue; }
-      const A = this._arr(this.node, k, Int32Array, N);
-      A.fill(-1);
-      for (let i = 0; i < N; i++) {
-        if (!S[i]) continue;
+      if (!S) { if (this.node[k]) this.node[k].clear(); continue; }
+      const A = this._arr(this.node, k, Int32Array, N, -1);
+      A.clear();
+      S.forEach((i) => {
         if (this.M >= this.nodeTile.length) {
           const a = new Int32Array(this.nodeTile.length * 2); a.set(this.nodeTile); this.nodeTile = a;
           const b = new Uint8Array(this.nodeLv.length * 2); b.set(this.nodeLv); this.nodeLv = b;
         }
-        A[i] = N + this.M;
+        A.set(i, N + this.M);
         this.nodeTile[this.M] = i; this.nodeLv[this.M] = k;
         this.M++;
-      }
+      });
     }
   }
 
   // ---------- queries ----------
-  _tile(x, y) { const w = this.game.world, tx = Math.floor(x), ty = Math.floor(y); return w.inBounds(tx, ty) ? ty * w.W + tx : -1; }
-  isSurface(k, i) { return k === 0 || (i >= 0 && !!this.surf[k]?.[i]); }
+  _tile(x, y) { const w = this.game.world, tx = Math.floor(x), ty = Math.floor(y); return w.inBounds(tx, ty) ? w.idx(tx, ty) : -1; }
+  isSurface(k, i) { return k === 0 || (i >= 0 && !!this.surf[k]?.get(i)); }
   // stair whose footprint holds (x, y) for an entity walking at level lv (steps at n = lv, or entered from n + 1 = lv)
   stairAt(lv, x, y) {
     const A = this.st[lv];
     if (!A) return null;
     const i = this._tile(x, y);
-    const id = i >= 0 ? A[i] : 0;
+    const id = i >= 0 ? A.get(i) : 0;
     return id ? this.stairs[id - 1] : null;
   }
   onStair(e) { return !!this.stairAt(e.lv | 0, e.x, e.y); }
@@ -310,7 +309,7 @@ export class Levels {
     this.sync();
     const A = this.st[lv], w = this.game.world;
     if (!A || !w.inBounds(tx, ty)) return false;
-    const id = A[ty * w.W + tx];
+    const id = A.get(w.idx(tx, ty));
     return !!id && this.stairs[id - 1].n + 1 === lv;
   }
   // extra placement rule for stairs (placeReason hook): the stairwell above must be open
@@ -333,23 +332,23 @@ export class Levels {
   tileFree(k, tx, ty, pd, sw, cur, od = true) {
     const w = this.game.world;
     if (!w.inBounds(tx, ty)) return false;
-    const i = ty * w.W + tx;
-    const A = this.st[k], sid = A ? A[i] : 0;
+    const i = w.idx(tx, ty);
+    const A = this.st[k], sid = A ? A.get(i) : 0;
     if (sid) {
       const s = this.stairs[sid - 1];
       return s.n === k ? i === s.i0 && (cur === s.ent || cur === i || s.side0.includes(cur)) : i === s.i1 && (cur === s.land || cur === i || s.side1.includes(cur));
     }
     if (k === 0) return !tileBlocked(w, tx, ty, pd, sw, od); // (od: on a deck — physics.js; under / beside it deep water blocks)
     const S = this.surf[k];
-    if (!S || !S[i]) return false; // air: walkable edges are bounded
+    if (!S || !S.get(i)) return false; // air: walkable edges are bounded
     const Bk = this.blk[k];
-    return !(Bk && Bk[i]);
+    return !(Bk && Bk.get(i));
   }
 
   // ud: (level 0) the body would be under a bridge deck at (x, y) (physics.underFor)
   collidesL(k, x, y, r, pd, sw, cur, ignore = null, ud = false) {
     const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
-    const wd = this.game.world.deck, od = !ud && !!wd && !!wd[this._tile(x, y)];
+    const wd = this.game.world.deck, od = !ud && !!wd && !!wd.get(this._tile(x, y));
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
       if (this.tileFree(k, tx, ty, pd, sw, cur, od)) continue;
       const cx = x < tx ? tx : x > tx + 1 ? tx + 1 : x, cy = y < ty ? ty : y > ty + 1 ? ty + 1 : y;
@@ -614,10 +613,10 @@ export class Levels {
   }
 
   // ---------- navigation: A* over (tile, level) nodes, stairs as portals ----------
-  _nodeOf(k, i) { return k === 0 ? i : this.node[k] ? this.node[k][i] : -1; }
+  _nodeOf(k, i) { return k === 0 ? i : this.node[k] ? this.node[k].get(i) : -1; }
   // node for an entity / goal at level lv on tile i (stair tiles are nodes of their base level)
   nodeFor(lv, i) {
-    const A = this.st[lv], sid = A ? A[i] : 0;
+    const A = this.st[lv], sid = A ? A.get(i) : 0;
     if (sid) return this._nodeOf(this.stairs[sid - 1].n, i);
     for (let k = Math.min(MAX_LV, lv); k > 0; k--) { const n = this._nodeOf(k, i); if (n >= 0) return n; }
     return i;
@@ -626,14 +625,14 @@ export class Levels {
     const w = this.game.world;
     if (!w.inBounds(x, y)) return false;
     if (k === 0) return walkable(this.game, x, y, doors); // (walkable excludes stair steps)
-    const i = y * w.W + x;
-    return !!this.surf[k]?.[i] && !this.blk[k]?.[i] && !this.st[k]?.[i];
+    const i = w.idx(x, y);
+    return !!this.surf[k]?.get(i) && !this.blk[k]?.get(i) && !this.st[k]?.get(i);
   }
   _neighbors(node, doors, goal) {
     const w = this.game.world, W = w.W, N = W * w.H, NB = this._nb, NC = this._nc;
     let k, i, n = 0;
     if (node < N) { k = 0; i = node; } else { k = this.nodeLv[node - N]; i = this.nodeTile[node - N]; }
-    const sid = this.st[k] ? this.st[k][i] : 0;
+    const sid = this.st[k] ? this.st[k].get(i) : 0;
     const s = sid ? this.stairs[sid - 1] : null;
     if (s && s.n === k) {
       // a step: only along the stair (entrance … landing)
@@ -646,14 +645,14 @@ export class Levels {
     }
     const x = i % W, y = (i / W) | 0;
     const SA = this.st[k];
-    const NL = this._nl, dk = k === 0 && !!w.rail, u = dk && this._lay[node] === 1; // (bridges: the level of this tile)
+    const NL = this._nl, dk = k === 0 && !!w.rail, u = dk && this._curLay === 1; // (bridges: the level of this tile)
     for (const [dx, dy, cost] of DIRS8) {
       const nx = x + dx, ny = y + dy;
       if (!w.inBounds(nx, ny)) continue;
-      const ni = ny * W + nx;
+      const ni = w.idx(nx, ny);
       if (!this._walk(k, nx, ny, doors)) {
         // portals: the bottom step from the entrance, the top step from the landing (straight on only)
-        const sid2 = SA ? SA[ni] : 0;
+        const sid2 = SA ? SA.get(ni) : 0;
         if (sid2) {
           const s2 = this.stairs[sid2 - 1];
           if (dx && dy) continue;
@@ -665,9 +664,9 @@ export class Levels {
       if (dx && dy && (!this._walk(k, x + dx, y, doors) || !this._walk(k, x, y + dy, doors))) continue; // no corner cutting
       let nu = 0;
       if (dk) { // bridges (game/decks.js, nav.js): the walls of the level the step is taken at, the water under a deck
-        if (railCross(w, x, y, dx, dy, !u && w.deck && w.deck[i] ? w.rail : w.railU)) continue;
+        if (railCross(w, x, y, dx, dy, !u && w.deck && w.deck.get(i) ? w.rail : w.railU)) continue;
         nu = underAt(w, i, ni, u) ? 1 : 0;
-        if (!w.frozen && w.water[ni] === 2 && (nu || (!u && !(w.deck && w.deck[i]) && w.deck && w.deck[ni]))) continue;
+        if (!w.frozen && w.water.get(ni) === 2 && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(ni)))) continue;
       }
       const q = this._nodeOf(k, ni);
       if (q >= 0) { NL[n] = nu; NB[n] = q; NC[n++] = nu ? cost * 2.5 : cost; } // (under a deck: slow water)
@@ -688,41 +687,41 @@ export class Levels {
     if (this._nodesV !== this.v) this._buildNodes();
     const w = this.game.world, W = w.W, N = W * w.H;
     if (!w.inBounds(sx, sy) || !w.inBounds(gx, gy)) return null;
-    const T = N + this.M;
-    if (!this._g || this._g.length < T) {
-      this._g = new Float32Array(T); this._par = new Int32Array(T); this._seen = new Uint32Array(T); this._closed = new Uint32Array(T); this._lay = new Uint8Array(T);
-      this._stamp = 0;
-    }
-    const gA = this._g, par = this._par, seen = this._seen, closed = this._closed;
-    const stamp = ++this._stamp;
-    const s = this.nodeFor(slv | 0, sy * W + sx), goal = this.nodeFor(glv | 0, gy * W + gx);
-    const h = (nd) => { const i = nd < N ? nd : this.nodeTile[nd - N]; const dx = Math.abs((i % W) - gx), dy = Math.abs(((i / W) | 0) - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
+    const T = this._nt || (this._nt = new NodeTable(15)); // (scratch over node ids: tiles of the planet + upper nodes)
+    T.reset();
+    const s = this.nodeFor(slv | 0, w.idx(sx, sy)), goal = this.nodeFor(glv | 0, w.idx(gx, gy));
+    const h = (nd) => { const i = nd < N ? nd : this.nodeTile[nd - N]; const dx = Math.abs(w.dx(i % W, gx)), dy = Math.abs(((i / W) | 0) - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
     const H = this._heap || (this._heap = new Heap());
     H.clear();
-    gA[s] = 0; par[s] = -1; seen[s] = stamp; this._lay[s] = ud ? 1 : 0;
+    const s0 = T.slot(s);
+    T.g[s0] = 0; T.par[s0] = -1; T.lay[s0] = ud ? 1 : 0;
     H.push(s, h(s));
     let best = s, bestH = h(s), expanded = 0;
     while (H.size > 0 && expanded < maxNodes) {
-      const cur = H.pop();
-      if (closed[cur] === stamp) continue;
-      closed[cur] = stamp;
+      const cur = H.pop(), cs = T.find(cur);
+      if (cs < 0 || T.flag[cs] === 1) continue;
+      T.flag[cs] = 1;
       expanded++;
       if (cur === goal) { best = cur; bestH = 0; break; }
       const hc = h(cur);
       if (hc < bestH) { bestH = hc; best = cur; }
+      this._curLay = T.lay[cs];
       const n = this._neighbors(cur, doors, goal);
+      const gc = T.g[cs];
       for (let j = 0; j < n; j++) {
         const ni = this._nb[j];
-        if (closed[ni] === stamp) continue;
-        const ng = gA[cur] + this._nc[j];
-        if (seen[ni] === stamp && ng >= gA[ni]) continue;
-        seen[ni] = stamp; gA[ni] = ng; par[ni] = cur; this._lay[ni] = this._nl[j];
+        let ns = T.find(ni);
+        if (ns >= 0 && T.flag[ns] === 1) continue;
+        const ng = gc + this._nc[j];
+        if (ns >= 0 && ng >= T.g[ns]) continue;
+        if (ns < 0 && (ns = T.slot(ni)) < 0) continue;
+        T.g[ns] = ng; T.par[ns] = cur; T.lay[ns] = this._nl[j];
         H.push(ni, ng + h(ni) * 1.05);
       }
     }
     if (best === s) return null;
     const path = [];
-    for (let i = best; i !== s && i >= 0; i = par[i]) { const [x, y, lv] = this._nodeXY(i); path.push([x + 0.5, y + 0.5, lv]); }
+    for (let i = best; i !== s && i >= 0; i = T.par[T.find(i)]) { const [x, y, lv] = this._nodeXY(i); path.push([w.near(x, sx) + 0.5, y + 0.5, lv]); }
     path.reverse();
     return { path, complete: best === goal };
   }
@@ -841,7 +840,7 @@ Levels.prototype.culled = function culled(o) {
   if (!o.isEntity) { const def = o.building && BUILDINGS[o.type]; if (!def || isWallTop(def) || def.layer === 'floor' || def.roof || def.block === 'stairs') return false; }
   const w = g.world, tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
   if (!w.inBounds(tx, ty)) return false;
-  const k = o.isEntity ? Math.round(o.z || 0) : (o.lv | 0), i = ty * w.W + tx, N = w.W * w.H, F = g.build.grid.floor;
+  const k = o.isEntity ? Math.round(o.z || 0) : (o.lv | 0), i = w.idx(tx, ty), N = w.W * w.H, F = g.build.grid.floor;
   for (let L = k + 1; L <= MAX_LV; L++) { const f = F.get(i + L * N); if (f && !f.blueprint && (f.alpha ?? 1) > 0.5) return true; }
   return false;
 };
@@ -869,7 +868,7 @@ function reveal(game, dt) {
         for (const o of game.build.structures) {
           if (!(o.lv > V) || o.removed) continue;
           let hit = false;
-          for (let y = o.ty; y < o.ty + (o.fh || 1) && !hit; y++) for (let x = o.tx; x < o.tx + (o.fw || 1) && !hit; x++) hit = near(y * w.W + x);
+          for (let y = o.ty; y < o.ty + (o.fh || 1) && !hit; y++) for (let x = o.tx; x < o.tx + (o.fw || 1) && !hit; x++) hit = near(w.idx(x, y));
           if (hit) C.want.add(o);
         }
       }

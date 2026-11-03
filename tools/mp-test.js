@@ -462,7 +462,7 @@ def('S10', {
   t.check(sh.every(Boolean) && sg.every(Boolean), 'all 5 structures exist on both');
   const mo = (o) => `${o?.mask}/${o?.orient ?? '-'}`;
   t.check(sh.map(mo).join(' ') === sg.map(mo).join(' '), 'mask / orient identical', `host ${sh.map(mo).join(' ')} · guest ${sg.map(mo).join(' ')}`);
-  const solid = (f) => site.tiles.map(([x, y]) => f.game.world.solid[f.game.world.idx(x, y)]);
+  const solid = (f) => site.tiles.map(([x, y]) => f.game.world.solid.get(f.game.world.idx(x, y)));
   t.check(solid(H).every((v) => v === 1) && solid(G).every((v) => v === 1), 'world.solid = 1 on both', `host ${solid(H)} guest ${solid(G)}`);
   t.check(A.invDiff(invG0, A.invSnap(G)).wood === -10, 'guest delivered the materials once, when building (−10 wood)', short(A.invDiff(invG0, A.invSnap(G))));
   t.check(!A.invDiff(invH0, A.invSnap(H)).wood, 'host inventory untouched', short(A.invDiff(invH0, A.invSnap(H))));
@@ -572,9 +572,9 @@ def('S13', {
   await A.buildAll(t, H, MH, ids);
   await t.waitFor(() => ids.every((id) => A.structOn(G, id) && !A.structOn(G, id).blueprint), ONEWAY() + 400, 'guest sees the finished wall + door');
   const di = H.game.world.idx(dx, y0);
-  const solid = () => `${H.game.world.solid[di]} / ${G.game.world.solid[di]}`;
+  const solid = () => `${H.game.world.solid.get(di)} / ${G.game.world.solid.get(di)}`;
   const doorG = () => A.structOn(G, door.id);
-  t.check(!door.open && !doorG()?.open && H.game.world.solid[di] === 1 && G.game.world.solid[di] === 1, 'finished door starts closed (solid 1 on both)', `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  t.check(!door.open && !doorG()?.open && H.game.world.solid.get(di) === 1 && G.game.world.solid.get(di) === 1, 'finished door starts closed (solid 1 on both)', `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
   // nobody passes a closed door (it never opens by itself)
   A.teleport(H, dx + 0.5, y0 - 1.1);
   { const rel = A.holdMove(H, 0, 1); await t.sleep(900); rel(); }
@@ -584,7 +584,7 @@ def('S13', {
   A.teleport(G, dx + 0.5, y0 - 0.95);
   await A.hostSees(t, H, G);
   A.useDoor(G, MG, doorG());
-  const ms = await t.timeTo(() => door.open && doorG()?.open && H.game.world.solid[di] === 0 && G.game.world.solid[di] === 0, RT() + 400, 'door open on both (solid 0)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  const ms = await t.timeTo(() => door.open && doorG()?.open && H.game.world.solid.get(di) === 0 && G.game.world.solid.get(di) === 0, RT() + 400, 'door open on both (solid 0)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
   t.metric('doorOpenRoundTripMs', Math.round(ms));
   { const rel = A.holdMove(G, 0, 1); const ok = await t.tryWait(() => gp.y > y0 + 1.3, 3000); rel(); t.check(ok, 'guest walks through the open door', `y ${f2(gp.y)}`); }
   // closing while standing in the doorway is refused
@@ -600,7 +600,7 @@ def('S13', {
   G.game.player.x = dx + 0.5; G.game.player.y = y0 + 1.45; // within reach of the door, outside its tile
   await A.hostSees(t, H, G);
   A.useDoor(G, MG, doorG());
-  await t.waitFor(() => !door.open && !doorG()?.open && H.game.world.solid[di] === 1 && G.game.world.solid[di] === 1, RT() + 400, 'door closed on both (solid 1)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
+  await t.waitFor(() => !door.open && !doorG()?.open && H.game.world.solid.get(di) === 1 && G.game.world.solid.get(di) === 1, RT() + 400, 'door closed on both (solid 1)', () => `open ${door.open}/${doorG()?.open} · solid ${solid()}`);
   // a host creature lured toward the guest on the other side never enters the closed door tile
   const wolf = A.hostMobs(H, (m) => m.kind === 'animal' && (m.temper || '') === 'hostile').sort((a, b) => Math.hypot(a.x - dx, a.y - y0) - Math.hypot(b.x - dx, b.y - y0))[0]
     || A.hostMobs(H, (m) => m.kind === 'animal')[0];
@@ -639,7 +639,7 @@ def('S14', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const sp = spawnOf(H);
-  const list = A.oreTiles(H, MH, sp.x, sp.y).filter((c) => !env.claimed.has('ore' + c.i) && G.game.world.rock[c.i] === 1);
+  const list = A.oreTiles(H, MH, sp.x, sp.y).filter((c) => !env.claimed.has('ore' + c.i) && G.game.world.rock.get(c.i) === 1);
   t.assert(list.length, 'found an ore tile reachable from an open neighbour');
   const c = list[0];
   env.claimed.add('ore' + c.i);
@@ -666,15 +666,15 @@ def('S14', {
   const oreItem = MG.worldgen.ORE_ITEM?.[c.ore] || MG.items.ORE_ITEM?.[c.ore];
   const loot = A.lootRecorder(t, [H, G]);
   const xpG = A.xpRecorder(t, G), xpH = A.xpRecorder(t, H);
-  const ev = A.edgeWatch(t, { h: () => H.game.world.rock[i] === 0, g: () => G.game.world.rock[i] === 0 });
+  const ev = A.edgeWatch(t, { h: () => H.game.world.rock.get(i) === 0, g: () => G.game.world.rock.get(i) === 0 });
   await A.mine(t, G, MG, tx, ty, { stand });
-  await t.waitFor(() => H.game.world.rock[i] === 0, ONEWAY() + 300, 'tile mined on the host');
+  await t.waitFor(() => H.game.world.rock.get(i) === 0, ONEWAY() + 300, 'tile mined on the host');
   await t.sleep(700);
   loot.stop();
   const GS = MG.worldgen.G?.STONE;
   for (const f of [H, G]) {
     const w = f.game.world;
-    t.check(w.rock[i] === 0 && w.ore[i] === 0 && (GS == null || w.ground[i] === GS), `${f.label}: rock 0, ore 0, ground STONE`, `rock ${w.rock[i]} ore ${w.ore[i]} ground ${w.ground[i]}`);
+    t.check(w.rock.get(i) === 0 && w.ore.get(i) === 0 && (GS == null || w.ground.get(i) === GS), `${f.label}: rock 0, ore 0, ground STONE`, `rock ${w.rock.get(i)} ore ${w.ore.get(i)} ground ${w.ground.get(i)}`);
     t.check(f.game.minedTiles?.includes(i), `${f.label}: minedTiles has the tile`);
   }
   let td = true;
@@ -1668,7 +1668,7 @@ def('S30', {
   const wall = A.structAt(S1, M, wx, wy, 'main');
   t.check(wall && wall.blueprint && A.count(S1, 'wood') === w0, 'blueprint placed for free (no wood taken yet)', `${w0} → ${A.count(S1, 'wood')}`);
   await A.buildAll(t, S1, M, [wall.id]);
-  t.check(g.world.solid[g.world.idx(wx, wy)] === 1, 'wall completed and solid');
+  t.check(g.world.solid.get(g.world.idx(wx, wy)) === 1, 'wall completed and solid');
   t.check(A.count(S1, 'wood') === w0 - 2, '2 wood delivered when the work started', `${w0} → ${A.count(S1, 'wood')}`);
   // chest through the panel
   A.ensure(S1, { wood: 10, stone: 3 });
@@ -1693,7 +1693,7 @@ def('S30', {
     await A.mine(t, S1, M, c.tx, c.ty, { stand });
     await t.sleep(400); ml.stop();
     const it = ml.items(0);
-    t.check(g.world.rock[c.i] === 0 && (it.stone || 0) >= 1, 'mining removes the rock and drops stone + ore', short(it));
+    t.check(g.world.rock.get(c.i) === 0 && (it.stone || 0) >= 1, 'mining removes the rock and drops stone + ore', short(it));
   } else t.note('no ore tile found — mining sub-check skipped');
   // farming
   A.ensure(S1, { seed_potato: 2 });
@@ -1891,7 +1891,7 @@ def('S32', {
   await A.buildAll(t, H, MH, [b0.id, b1.id]);
   await t.waitFor(() => [b0, b1].every((o) => A.structOn(G, o.id) && !A.structOn(G, o.id).blueprint), ONEWAY() + 400, 'guest sees both beds finished');
   const tiles = [[bx, by], [bx, by + 1], [cx, cy], [cx + 1, cy]];
-  const sol = (f) => tiles.map(([x, y]) => f.game.world.solid[f.game.world.idx(x, y)]);
+  const sol = (f) => tiles.map(([x, y]) => f.game.world.solid.get(f.game.world.idx(x, y)));
   t.check(sol(H).every((v) => v === 1) && sol(G).every((v) => v === 1), 'solid 1 on all 4 footprint tiles on both', `host ${sol(H)} guest ${sol(G)}`);
   t.check(geo(b0) === geo(A.structOn(G, b0.id)) && geo(b1) === geo(A.structOn(G, b1.id)), 'same geometry on both', `${geo(b0)} · ${geo(b1)}`);
   // the guest walks west → east just south of the bed's first tile, into its second tile: blocked
@@ -2046,7 +2046,7 @@ def('S35', {
   await A.decon(t, G, MG, wb.id);
   await t.waitFor(() => !A.structOn(H, wb.id), ONEWAY() + 300, 'gone on the host');
   await t.sleep(300);
-  const sol = (f) => [0, 1].map((k) => f.game.world.solid[f.game.world.idx(tx + k, ty)]);
+  const sol = (f) => [0, 1].map((k) => f.game.world.solid.get(f.game.world.idx(tx + k, ty)));
   t.check(sol(H).every((v) => !v) && sol(G).every((v) => !v), 'both footprint tiles free on both', `host ${sol(H)} guest ${sol(G)}`);
   const dg = A.invDiff(invG0, A.invSnap(G)), dh = A.invDiff(invH0, A.invSnap(H));
   t.check(dg.wood === 8 && dg.stone === 3, '75% refund to the guest (8 wood, 3 stone)', short(dg));
@@ -2099,7 +2099,7 @@ def('S37', {
   for (let r = 4; r < 40 && !base; r++) for (let k = 0; k < 16 && !base; k++) {
     const x = Math.floor(sp.x + Math.cos(k / 16 * Math.PI * 2) * r), y = Math.floor(sp.y + Math.sin(k / 16 * Math.PI * 2) * r);
     let ok = true;
-    for (let yy = y; yy < y + 6 && ok; yy++) for (let xx = x; xx < x + 6 && ok; xx++) { const i = w.idx(xx, yy); if (w.rock[i] || w.water[i]) ok = false; }
+    for (let yy = y; yy < y + 6 && ok; yy++) for (let xx = x; xx < x + 6 && ok; xx++) { const i = w.idx(xx, yy); if (w.rock.get(i) || w.water.get(i)) ok = false; }
     if (ok) base = [x, y];
   }
   t.assert(base, 'found a free 6×6 patch');
@@ -2516,7 +2516,7 @@ def('W2', {
   await t.waitFor(() => Math.abs((A.structOn(G, hit.id)?.dmg || 0) - hit.dmg) < 0.02, RT() + 1500, 'same damage (cracks) on the guest', () => `${f2(hit.dmg)} / ${f2(A.structOn(G, hit.id)?.dmg || 0)}`);
   hit.dmg = 0.995; // (the next hit breaks it: test shortcut)
   await t.waitFor(() => hit.removed && !A.structOn(G, hit.id), 12000 + RT(), 'the wall falls on both');
-  t.check(!H.game.world.solid[H.game.world.idx(hit.tx, hit.ty)] && !G.game.world.solid[G.game.world.idx(hit.tx, hit.ty)], 'the tile is open on both');
+  t.check(!H.game.world.solid.get(H.game.world.idx(hit.tx, hit.ty)) && !G.game.world.solid.get(G.game.world.idx(hit.tx, hit.ty)), 'the tile is open on both');
   await t.waitFor(() => m.state === 'chase' || m.state === 'siege', 6000, 'the walker comes in', () => m.state);
   // sunrise: it crumbles; the cracks left on the other walls settle
   for (const id of ids) { const o = H.game.build.structures.find((q) => q.id === id); if (o && !o.removed) { H.game.net.emit('struct.dmg', { id, d: 0.3, x: o.x + 1, y: o.y }); break; } }
@@ -2581,7 +2581,7 @@ def('IG1', {
   await t.waitFor(() => Math.abs((A.structOn(G, hit.id)?.dmg || 0) - hit.dmg) < 0.02, RT() + 1500, 'same damage (cracks) on the guest', () => `${f2(hit.dmg)} / ${f2(A.structOn(G, hit.id)?.dmg || 0)}`);
   hit.dmg = 0.99; // (the next hit breaks it: test shortcut)
   await t.waitFor(() => hit.removed && !A.structOn(G, hit.id), 15000 + RT(), 'the wall falls on both');
-  t.check(!H.game.world.solid[H.game.world.idx(hit.tx, hit.ty)] && !G.game.world.solid[G.game.world.idx(hit.tx, hit.ty)], 'the tile is open on both');
+  t.check(!H.game.world.solid.get(H.game.world.idx(hit.tx, hit.ty)) && !G.game.world.solid.get(G.game.world.idx(hit.tx, hit.ty)), 'the tile is open on both');
   await t.waitFor(() => m.state === 'chase' || m.state === 'siege' || m.state === 'hunt', 8000, 'the giant comes in', () => m.state);
   await t.checkDigest(H, G);
   env.history.push('IG1');
@@ -3226,7 +3226,7 @@ function hostRoof(H, x0, y0, w, h, type = 'roof_wood', style = 'shingle') {
   return rows.map((r) => r[0]);
 }
 const roofIds = (f) => f.game.build.structures.filter((o) => o.roof).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
-const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf[w.idx(x, y)]) || null; };
+const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf.get(w.idx(x, y))) || null; };
 
 def('J1', {
   title: 'J: guest roofs a room, host sees the same roof', timeout: 240000,
@@ -3264,7 +3264,7 @@ def('J1', {
   await A.buildAll(t, G, MG, ids, { ms: 25000 });
   await t.waitFor(() => ids.every((id) => !A.structOn(H, id)?.blueprint), ONEWAY() + 400, 'host sees every roof tile finished');
   await t.sleep(ONEWAY() + 300);
-  const bro = (f) => { const w = f.game.world; let s = 0; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 6; x++) s += w.broof[w.idx(x, y)] ? 1 : 0; return s; };
+  const bro = (f) => { const w = f.game.world; let s = 0; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 6; x++) s += w.broof.get(w.idx(x, y)) ? 1 : 0; return s; };
   t.check(bro(H) === n && bro(G) === n, 'world.broof covers the room on both', `host ${bro(H)} guest ${bro(G)}`);
   t.check(H.game.world.roofAt(x0 + 2, y0 + 2) === 2 && G.game.world.roofAt(x0 + 2, y0 + 2) === 2, 'roofAt = built inside on both');
   await t.waitFor(() => regionAt(G, x0 + 2, y0 + 2)?.art && regionAt(H, x0 + 2, y0 + 2)?.art, 8000, 'roof region painted on both');
@@ -3384,11 +3384,11 @@ def('J4', {
   let best = null, bd = 1e9;
   for (let cy = 12; cy < w.H - 12; cy += 2) for (let cx = 12; cx < w.W - 12; cx += 2) {
     const i = w.idx(cx, cy);
-    if (!w.rock[i] || !w.roof0[i]) continue;
+    if (!w.rock.get(i) || !w.roof0.get(i)) continue;
     const d = Math.hypot(cx - sp.x, cy - sp.y);
     if (d >= bd) continue;
     let ok = true;
-    for (let y = cy - 9; y < cy + 9 && ok; y++) for (let x = cx - 9; x < cx + 9; x++) if (!w.rock[w.idx(x, y)]) { ok = false; break; }
+    for (let y = cy - 9; y < cy + 9 && ok; y++) for (let x = cx - 9; x < cx + 9; x++) if (!w.rock.get(w.idx(x, y))) { ok = false; break; }
     if (ok) { best = [cx, cy]; bd = d; }
   }
   t.need(best, 'needs an 18×18 solid mountain block in this seed');
@@ -3399,8 +3399,8 @@ def('J4', {
   await t.sleep(ONEWAY() + 300);
   t.check(H.game.world.isCave(cx - 3, cy) && G.game.world.isCave(cx - 3, cy), 'a narrow tunnel stays a cave on both');
   // open the box
-  for (let y = cy - 7; y < cy + 7; y++) for (let x = cx - 7; x < cx + 7; x++) if (w.rock[w.idx(x, y)]) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
-  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx, cy)] === 0, RT() + 1000, 'guest has the mined box');
+  for (let y = cy - 7; y < cy + 7; y++) for (let x = cx - 7; x < cx + 7; x++) if (w.rock.get(w.idx(x, y))) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => G.game.world.rock.get(G.game.world.idx(cx, cy)) === 0, RT() + 1000, 'guest has the mined box');
   await t.sleep(ONEWAY() + 300);
   const eqRoof = () => { const a = H.game.world.roof, b = G.game.world.roof; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return i; return -1; };
   const diffAt = eqRoof();
@@ -3418,7 +3418,7 @@ def('J4', {
   stand();
   await A.hostSees(t, H, G);
   await A.mine(t, G, MG, tx, ty, { stand });
-  await t.waitFor(() => H.game.world.rock[w.idx(tx, ty)] === 0 && G.game.world.rock[w.idx(tx, ty)] === 0, RT() + 600, 'guest mining hit reached both');
+  await t.waitFor(() => H.game.world.rock.get(w.idx(tx, ty)) === 0 && G.game.world.rock.get(w.idx(tx, ty)) === 0, RT() + 600, 'guest mining hit reached both');
   await t.sleep(ONEWAY() + 300);
   t.check(eqRoof() < 0, 'world.roof still identical after the guest mined');
   await t.checkDigest(H, G);
@@ -3464,11 +3464,11 @@ def('J6', {
   let best = null, bd = 1e9;
   for (let cy = 14; cy < w.H - 14; cy += 2) for (let cx = 14; cx < w.W - 14; cx += 2) {
     const i = w.idx(cx, cy);
-    if (!w.rock[i] || !w.roof0[i] || taken.some(([x, y]) => Math.hypot(x - cx, y - cy) < 30)) continue;
+    if (!w.rock.get(i) || !w.roof0.get(i) || taken.some(([x, y]) => Math.hypot(x - cx, y - cy) < 30)) continue;
     const d = Math.hypot(cx - sp.x, cy - sp.y);
     if (d >= bd) continue;
     let ok = true;
-    for (let y = cy - 12; y < cy + 12 && ok; y++) for (let x = cx - 12; x < cx + 12; x++) { const j = w.idx(x, y); if (!w.rock[j] || !w.roof0[j]) { ok = false; break; } }
+    for (let y = cy - 12; y < cy + 12 && ok; y++) for (let x = cx - 12; x < cx + 12; x++) { const j = w.idx(x, y); if (!w.rock.get(j) || !w.roof0.get(j)) { ok = false; break; } }
     if (ok) { best = [cx, cy]; bd = d; }
   }
   t.need(best, 'needs a 24×24 solid mountain block in this seed');
@@ -3477,11 +3477,11 @@ def('J6', {
   A.pacify(H, cx, cy, 30);
   A.keepAlive(t, G); A.keepAlive(t, H);
   // the hall around a pillar at (cx, cy): every tile stays within 6 of rock → one covered cave
-  for (let y = cy - 10; y < cy + 10; y++) for (let x = cx - 10; x < cx + 10; x++) if ((x !== cx || y !== cy) && w.rock[w.idx(x, y)]) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
-  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx - 9, cy - 9)] === 0, RT() + 1500, 'guest has the dug hall');
+  for (let y = cy - 10; y < cy + 10; y++) for (let x = cx - 10; x < cx + 10; x++) if ((x !== cx || y !== cy) && w.rock.get(w.idx(x, y))) H.game.net.emit('tile.mine', { tx: x, ty: y, drops: [], by: H.game.net.pid, xp: 0 });
+  await t.waitFor(() => G.game.world.rock.get(G.game.world.idx(cx - 9, cy - 9)) === 0, RT() + 1500, 'guest has the dug hall');
   await t.sleep(ONEWAY() + 400);
-  const A_ = (f, x, y) => f.game.roofs.data[f.game.world.idx(x, y) * 4 + 3];
-  const caveId = (f, x, y) => f.game.roofs.caveOf[f.game.world.idx(x, y)];
+  const A_ = (f, x, y) => f.game.roofs.data.get4(f.game.world.idx(x, y), 3);
+  const caveId = (f, x, y) => f.game.roofs.caveOf.get(f.game.world.idx(x, y));
   t.check(H.game.world.isCave(cx + 3, cy + 3) && G.game.world.isCave(cx + 3, cy + 3), 'the hall is a cave on both');
   t.check(caveId(H, cx - 9, cy - 9) && caveId(H, cx - 9, cy - 9) === caveId(H, cx + 9, cy + 9) && caveId(G, cx - 9, cy - 9) === caveId(G, cx + 9, cy + 9), 'one cave region from corner to corner on both');
   t.check(A_(H, cx + 3, cy + 3) === 255 && A_(G, cx + 3, cy + 3) === 255, 'its ceiling is drawn on both while both are outside', `host ${A_(H, cx + 3, cy + 3)} guest ${A_(G, cx + 3, cy + 3)}`);
@@ -3497,7 +3497,7 @@ def('J6', {
   // the pillar goes: the middle loses its roof — the same crumbling tiles on both, the hole opens on both
   H.game.net.emit('tile.mine', { tx: cx, ty: cy, drops: [], by: H.game.net.pid, xp: 0 });
   const lostH = H.game.world.lastLost.length;
-  await t.waitFor(() => G.game.world.rock[G.game.world.idx(cx, cy)] === 0, RT() + 1000, 'guest has the pillar mined');
+  await t.waitFor(() => G.game.world.rock.get(G.game.world.idx(cx, cy)) === 0, RT() + 1000, 'guest has the pillar mined');
   const lostG = G.game.world.lastLost.length;
   t.check(lostH > 20 && lostH === lostG, 'the same section lost its roof on both', `host ${lostH} guest ${lostG}`);
   t.check(H.game.roofs.crumble.size >= lostH && G.game.roofs.crumble.size >= lostG, 'both play the crumble', `host ${H.game.roofs.crumble.size} guest ${G.game.roofs.crumble.size}`);
@@ -3826,7 +3826,7 @@ def('L6', {
   let far = null;
   for (let r = 8; r < 24 && !far; r++) for (let k = 0; k < 24 && !far; k++) {
     const tx = Math.floor(x + 1 + Math.cos((k / 24) * 6.283) * r), ty = Math.floor(y + 1 + Math.sin((k / 24) * 6.283) * r);
-    if (G.game.world.inBounds(tx, ty) && !G.game.world.rock[G.game.world.idx(tx, ty)] && !LG.supportedL(tx, ty, 1, true)) far = [tx, ty];
+    if (G.game.world.inBounds(tx, ty) && !G.game.world.rock.get(G.game.world.idx(tx, ty)) && !LG.supportedL(tx, ty, 1, true)) far = [tx, ty];
   }
   const farR = far && MG.building.placeReason(G.game, 'floor_wood', far[0], far[1], null, 0, null, 1);
   t.check(far && /apoio/.test(String(farR)), 'a floor with no wall / column within 6 tiles below is refused (support)', `${far} → ${farR}`);
@@ -4099,7 +4099,7 @@ def('K1', {
   const masks = F.map(([h]) => h.mask | 0), EXP = [6, 10, 8, 1];
   t.check(masks.every((m, i) => (m & EXP[i]) === EXP[i]), 'autotile masks of the L (E+S, E+W, W, N; natural rock may add bits)', masks.join(','));
   t.check(F.every(([h, g]) => (h.mask | 0) === (g.mask | 0)), 'masks equal on both', F.map(([h, g]) => `${h.mask}/${g.mask}`).join(' '));
-  t.check(F.every(([h]) => H.game.world.solid[H.game.world.idx(h.tx, h.ty)] === 1), 'styled walls are solid like any wall');
+  t.check(F.every(([h]) => H.game.world.solid.get(H.game.world.idx(h.tx, h.ty)) === 1), 'styled walls are solid like any wall');
   // the styled art draws without errors on both frames
   let drew = true;
   for (const f of [H, G]) { try { f.game.render(); } catch (e) { drew = false; t.log('render error ' + e.message); } }
@@ -4313,7 +4313,7 @@ def('K5', {
 // M1–M5 — painted terrain paths (agent M): shared path grid (world.path / world.pathPlan), intents path.plan / path.lay /
 // path.dig → ops path.plan / path.set, digest part 'paths', snapshot / save rows
 const frameImport = (f, p) => f.win.Function('u', 'return import(u)')(new URL('src/' + p, f.win.location.href).href);
-const pathCells = (f, tiles) => tiles.map((i) => `${f.game.world.path[i]}/${f.game.world.pathPlan[i]}`).join(' ');
+const pathCells = (f, tiles) => tiles.map((i) => `${f.game.world.path.get(i)}/${f.game.world.pathPlan.get(i)}`).join(' ');
 const gridHash = (a) => { let h = 2166136261; for (let i = 0; i < a.length; i++) { h ^= a[i]; h = Math.imul(h, 16777619) >>> 0; } return (h >>> 0).toString(36); };
 // a straight row of `n` paintable tiles near (x, y), valid on both peers (MP = frame's mut/paths.js)
 function pathRow(H, MP, x, y, n, { rMin = 2, rMax = 12, avoid = null } = {}) {
@@ -4323,7 +4323,7 @@ function pathRow(H, MP, x, y, n, { rMin = 2, rMax = 12, avoid = null } = {}) {
     const tiles = [];
     for (let d = 0; d < n; d++) {
       const tx = x0 + d, ty = y0, i = w.idx(tx, ty);
-      if (!w.inBounds(tx, ty) || MP.canPaint(H.game, tx, ty) || w.path[i] || w.pathPlan[i] || (avoid && avoid(tx, ty))) break;
+      if (!w.inBounds(tx, ty) || MP.canPaint(H.game, tx, ty) || w.path.get(i) || w.pathPlan.get(i) || (avoid && avoid(tx, ty))) break;
       tiles.push(i);
     }
     if (tiles.length === n) return tiles;
@@ -4334,7 +4334,7 @@ function pathRow(H, MP, x, y, n, { rMin = 2, rMax = 12, avoid = null } = {}) {
 // next to the next planned tile (this tests the sync, not the walking) with no fight / aim state left from earlier scenarios
 async function layPaths(t, f, M, tiles, { ms = 30000, code = null } = {}) {
   const w = f.game.world, W = w.W, p = f.game.player;
-  const nextIdx = () => tiles.find((j) => w.pathPlan[j] && (code == null || w.pathPlan[j] === code));
+  const nextIdx = () => tiles.find((j) => w.pathPlan.get(j) && (code == null || w.pathPlan.get(j) === code));
   const next = () => { const i = nextIdx(); return i == null ? null : f.game.paths.jobAt(i % W, (i / W) | 0); };
   const stand = () => {
     const i = nextIdx();
@@ -4343,7 +4343,7 @@ async function layPaths(t, f, M, tiles, { ms = 30000, code = null } = {}) {
     const s = A.freeSpot(f, M, (i % W) + 0.5, ((i / W) | 0) + 0.5, { rMin: 0, rMax: 1.4 });
     if (s) A.teleport(f, s[0], s[1]);
   };
-  await A.workUntil(t, f, next, () => tiles.every((j) => !w.pathPlan[j] || (code != null && w.pathPlan[j] !== code)), ms, 'works the planned path tiles', { retries: 12, stand });
+  await A.workUntil(t, f, next, () => tiles.every((j) => !w.pathPlan.get(j) || (code != null && w.pathPlan.get(j) !== code)), ms, 'works the planned path tiles', { retries: 12, stand });
 }
 
 def('M1', {
@@ -4361,14 +4361,14 @@ def('M1', {
   env.history.push('M1');
   const inv0 = A.invSnap(G);
   G.game.paths.paint('dirt', tiles);
-  const ms = await t.timeTo(() => tiles.every((i) => H.game.world.pathPlan[i] === 1), RT() + 500, 'host has the 8 blueprints');
+  const ms = await t.timeTo(() => tiles.every((i) => H.game.world.pathPlan.get(i) === 1), RT() + 500, 'host has the 8 blueprints');
   t.metric('planRoundTripMs', Math.round(ms));
-  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 1), ONEWAY() + 400, 'guest has the 8 blueprints');
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan.get(i) === 1), ONEWAY() + 400, 'guest has the 8 blueprints');
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'blueprint cells identical', pathCells(H, tiles));
   await layPaths(t, G, MG, tiles);
-  await t.waitFor(() => tiles.every((i) => H.game.world.path[i] === 1 && !H.game.world.pathPlan[i]), ONEWAY() + 600, 'host has the 8 built dirt tiles');
+  await t.waitFor(() => tiles.every((i) => H.game.world.path.get(i) === 1 && !H.game.world.pathPlan.get(i)), ONEWAY() + 600, 'host has the 8 built dirt tiles');
   await t.sleep(ONEWAY() + 100);
-  t.check(pathCells(H, tiles) === pathCells(G, tiles) && tiles.every((i) => G.game.world.path[i] === 1), 'built cells identical on both (type 1, no plan)', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
+  t.check(pathCells(H, tiles) === pathCells(G, tiles) && tiles.every((i) => G.game.world.path.get(i) === 1), 'built cells identical on both (type 1, no plan)', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
   const d = A.invDiff(inv0, A.invSnap(G));
   t.check(!Object.values(d).some((v) => v < 0), 'the dirt path is free (nothing left the guest bag)', short(d));
   // walking speed bonus on the path (owner side)
@@ -4376,7 +4376,7 @@ def('M1', {
   A.teleport(G, (i0 % W) + 0.5, ((i0 / W) | 0) + 0.5);
   await t.sleep(250);
   const onPath = gp.speed;
-  const off = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 3.5, { rMin: 0, rMax: 2, avoid: (x, y) => !!G.game.world.path[G.game.world.idx(Math.floor(x), Math.floor(y))] });
+  const off = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 3.5, { rMin: 0, rMax: 2, avoid: (x, y) => !!G.game.world.path.get(G.game.world.idx(Math.floor(x), Math.floor(y))) });
   if (off) { A.teleport(G, off[0], off[1]); await t.sleep(250); t.check(onPath > gp.speed * 1.02, 'the guest walks faster on the path', `on ${f2(onPath)} · off ${f2(gp.speed)}`); }
   await t.checkDigest(H, G);
   t.check(JSON.stringify(H.game.net.dump('paths')) === JSON.stringify(G.game.net.dump('paths')), 'digest rows "paths" identical', short(H.game.net.dump('paths')));
@@ -4399,39 +4399,39 @@ def('M2', {
   A.ensure(G, { pebble: 10 });
   const peb0 = A.count(G, 'pebble');
   G.game.paths.paint('gravel', tiles);
-  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 2), RT() + 600, 'gravel blueprints on the guest');
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan.get(i) === 2), RT() + 600, 'gravel blueprints on the guest');
   t.check(A.count(G, 'pebble') === peb0, 'blueprints are free (no pebble taken when painting)', `${peb0} → ${A.count(G, 'pebble')}`);
   await layPaths(t, G, MG, tiles);
-  await t.waitFor(() => tiles.every((i) => w.path[i] === 2), ONEWAY() + 600, 'host has the 4 gravel tiles');
+  await t.waitFor(() => tiles.every((i) => w.path.get(i) === 2), ONEWAY() + 600, 'host has the 4 gravel tiles');
   t.check(A.count(G, 'pebble') === peb0 - 4, '1 pebble per tile left the bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
   // eraser on 2 tiles, deconstruct tool on the other 2
   G.game.paths.paint('remove', tiles.slice(0, 2));
   const n = MG.building.deconRect(G.game, tiles[2] % W, (tiles[2] / W) | 0, tiles[3] % W, (tiles[3] / W) | 0);
   t.check(n >= 2, 'the deconstruct tool marks painted path tiles', `${n} marked`);
-  await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host has the 4 removal marks');
-  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 4 removal marks');
+  await t.waitFor(() => tiles.every((i) => w.pathPlan.get(i) === 15), RT() + 600, 'host has the 4 removal marks');
+  await t.waitFor(() => tiles.every((i) => G.game.world.pathPlan.get(i) === 15), ONEWAY() + 400, 'guest has the 4 removal marks');
   await layPaths(t, G, MG, tiles, { code: 15 });
-  await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]), ONEWAY() + 600, 'host: the 4 gravel tiles are gone');
+  await t.waitFor(() => tiles.every((i) => !w.path.get(i) && !w.pathPlan.get(i)), ONEWAY() + 600, 'host: the 4 gravel tiles are gone');
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', `host ${pathCells(H, tiles)} · guest ${pathCells(G, tiles)}`);
   t.check(A.count(G, 'pebble') === peb0 - 4 + 3, '75% of the pebbles came back (3 of 4)', `${A.count(G, 'pebble')} (start ${peb0})`);
   // part of the M1 dirt path: erase 3 tiles; a blueprint under the eraser is cancelled at once (no work)
-  const old = (env.pathTiles || []).filter((i) => w.path[i] === 1);
+  const old = (env.pathTiles || []).filter((i) => w.path.get(i) === 1);
   if (old.length >= 4) {
     const part = old.slice(0, 3);
     G.game.paths.paint('remove', part);
-    await t.waitFor(() => part.every((i) => w.pathPlan[i] === 15), RT() + 600, 'host marks 3 dirt tiles for removal');
-    await t.waitFor(() => part.every((i) => G.game.world.pathPlan[i] === 15), ONEWAY() + 400, 'guest has the 3 removal marks');
+    await t.waitFor(() => part.every((i) => w.pathPlan.get(i) === 15), RT() + 600, 'host marks 3 dirt tiles for removal');
+    await t.waitFor(() => part.every((i) => G.game.world.pathPlan.get(i) === 15), ONEWAY() + 400, 'guest has the 3 removal marks');
     await layPaths(t, G, MG, part, { code: 15 });
-    await t.waitFor(() => part.every((i) => !w.path[i]), ONEWAY() + 600, 'host: 3 dirt tiles removed');
-    t.check(old.slice(3).every((i) => w.path[i] === 1 && G.game.world.path[i] === 1), 'the rest of the dirt path stays on both');
+    await t.waitFor(() => part.every((i) => !w.path.get(i)), ONEWAY() + 600, 'host: 3 dirt tiles removed');
+    t.check(old.slice(3).every((i) => w.path.get(i) === 1 && G.game.world.path.get(i) === 1), 'the rest of the dirt path stays on both');
   } else t.note('no M1 dirt path left — partial erase of it skipped');
   const bp = pathRow(H, MP, gp.x, gp.y, 2);
   if (bp) {
     G.game.paths.paint('flag', bp);
-    await t.waitFor(() => bp.every((i) => w.pathPlan[i] === 3), RT() + 600, 'flagstone blueprints on the host');
+    await t.waitFor(() => bp.every((i) => w.pathPlan.get(i) === 3), RT() + 600, 'flagstone blueprints on the host');
     G.game.paths.paint('remove', bp);
-    await t.waitFor(() => bp.every((i) => !w.pathPlan[i] && !w.path[i]), RT() + 600, 'the eraser cancels blueprints at once (host)');
+    await t.waitFor(() => bp.every((i) => !w.pathPlan.get(i) && !w.path.get(i)), RT() + 600, 'the eraser cancels blueprints at once (host)');
   }
   await t.checkDigest(H, G);
 });
@@ -4452,7 +4452,7 @@ def('M3', {
     const cx = Math.floor((sp.x + Math.cos(a) * r) / CH), cy = Math.floor((sp.y + Math.sin(a) * r) / CH);
     if (cx < 0 || cy < 0 || cx >= w.CW || cy >= w.CH) continue;
     const list = [];
-    for (let y = cy * CH; y < cy * CH + CH; y++) for (let x = cx * CH; x < cx * CH + CH; x++) if (!MP.canPaint(H.game, x, y) && !w.path[w.idx(x, y)] && !w.pathPlan[w.idx(x, y)]) list.push(w.idx(x, y));
+    for (let y = cy * CH; y < cy * CH + CH; y++) for (let x = cx * CH; x < cx * CH + CH; x++) if (!MP.canPaint(H.game, x, y) && !w.path.get(w.idx(x, y)) && !w.pathPlan.get(w.idx(x, y))) list.push(w.idx(x, y));
     if (list.length > 120) { k = cy * w.CW + cx; free = list; }
   }
   t.assert(k >= 0, 'found a chunk with room for paths');
@@ -4462,7 +4462,7 @@ def('M3', {
   const rle = MP.rleTiles;
   H.game.net.emit('path.set', { t: 1, tiles: rle(lay) });
   H.game.net.emit('path.plan', { c: 1, tiles: rle(plan) });
-  await t.waitFor(() => lay.every((i) => G.game.world.path[i] === 1), ONEWAY() + 600, 'guest has the chunk paths');
+  await t.waitFor(() => lay.every((i) => G.game.world.path.get(i) === 1), ONEWAY() + 600, 'guest has the chunk paths');
   const kinds = ['tree', 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'boulder', 'wild_potato', 'wild_cotton', 'wild_corn'];
   const zero = (f) => [...lay, ...plan].every((i) => kinds.every((kd) => f.game.world.growWeight(i % W, (i / W) | 0, kd) === 0));
   t.check(zero(H) && zero(G), 'growWeight is 0 on every path / blueprint tile, every kind (host and guest)');
@@ -4481,7 +4481,7 @@ def('M3', {
     for (const [id, q] of F.dyn) if (!before.has(id)) { before.add(id); found.push(q); }
     if (found.length >= 6) break;
   }
-  const onPath = found.filter((q) => { const i = w.idx(Math.floor(q.x), Math.floor(q.y - 0.05)); return w.path[i] || w.pathPlan[i]; });
+  const onPath = found.filter((q) => { const i = w.idx(Math.floor(q.x), Math.floor(q.y - 0.05)); return w.path.get(i) || w.pathPlan.get(i); });
   t.log(`regrowth in chunk ${k}: ${found.length} new (${found.map((q) => q.type).join(' ') || '—'})`);
   if (!found.length) t.note('nothing regrew in 25 s (chunk full or unsuitable) — the growWeight check above still holds');
   t.check(!onPath.length, 'nothing regrew on a path or blueprint tile', onPath.map((q) => `${q.type}@${f2(q.x)},${f2(q.y)}`).join(' ') || `${found.length} spawned elsewhere`);
@@ -4562,14 +4562,14 @@ def('A7', {
   A.ensure(G, { pebble: 12 });
   const peb0 = A.count(G, 'pebble');
   g.paths.paint('gravel', tiles);
-  await t.waitFor(() => tiles.every((i) => g.world.pathPlan[i] === 2 && w.pathPlan[i] === 2), RT() + 600, 'gravel plans on both');
+  await t.waitFor(() => tiles.every((i) => g.world.pathPlan.get(i) === 2 && w.pathPlan.get(i) === 2), RT() + 600, 'gravel plans on both');
   g.work.paused = false;
   t.defer(() => { g.work.cancel(true); g.work.paused = true; });
   await t.sleep(1500);
-  t.check(!g.work.seq && tiles.every((i) => !w.path[i]) && A.count(G, 'pebble') === peb0, 'painting starts nothing (no tile laid, no pebble taken)');
+  t.check(!g.work.seq && tiles.every((i) => !w.path.get(i)) && A.count(G, 'pebble') === peb0, 'painting starts nothing (no tile laid, no pebble taken)');
   // a real tap on a plan tile (a point the controller's pick resolves to that path job)
   const tapPlan = async (code) => {
-    const i0 = tiles.find((i) => g.world.pathPlan[i] === code);
+    const i0 = tiles.find((i) => g.world.pathPlan.get(i) === code);
     const sp = A.freeSpot(G, MG, (i0 % W) + 0.5, ((i0 / W) | 0) + 0.5, { rMin: 0.8, rMax: 2.5, prefer: Math.PI / 2 });
     t.assert(sp, 'free spot next to the stroke');
     A.teleport(G, sp[0], sp[1]);
@@ -4578,7 +4578,7 @@ def('A7', {
     await t.sleep(80);
     let tap = null;
     for (const i of tiles) for (const [ox, oy] of [[0.5, 0.5], [0.3, 0.8], [0.7, 0.2]]) {
-      if (tap || g.world.pathPlan[i] !== code) continue;
+      if (tap || g.world.pathPlan.get(i) !== code) continue;
       const [sx, sy] = g.worldToScreen((i % W) + ox, ((i / W) | 0) + oy);
       const h = MG.controller.pick(g, sx, sy);
       if (h.type === 'interact' && h.it?.kind === 'path' && h.it.i === i) tap = { sx, sy };
@@ -4590,20 +4590,20 @@ def('A7', {
   await tapPlan(2);
   const st = g.work.status();
   t.check(st && st.kind === 'path' && st.n === 6 && st.name === 'Cascalho' && /Assentando caminho/.test(st.verb), 'status: Assentando caminho · Cascalho · 6', JSON.stringify(st));
-  await t.waitFor(() => tiles.every((i) => w.path[i] === 2 && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
-    () => `laid ${tiles.filter((i) => w.path[i] === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} chasers=${chasers(G)} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
+  await t.waitFor(() => tiles.every((i) => w.path.get(i) === 2 && !w.pathPlan.get(i)) && !g.work.seq, 45000, 'the sequence laid the whole stroke and stopped',
+    () => `laid ${tiles.filter((i) => w.path.get(i) === 2).length}/6 · ${JSON.stringify(g.work.status())} · work ${gp.work?.label ?? '-'} · busy goal=${g.ctl.goal?.type ?? '-'}${g.ctl.goal?.auto ? '(auto)' : ''} moving=${gp.moving} atk=${gp.autoAttack} combat=${gp.inCombat} modal=${!!g.ui?.modal} craft=${g.craft?.queue?.length} charge=${!!gp.charge} chasers=${chasers(G)} failed=${g.work.failed.size} at ${f2(gp.x)},${f2(gp.y)} · ui: ${G.lastUi()}`);
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'built cells identical on both', pathCells(H, tiles));
   t.check(A.count(G, 'pebble') === peb0 - 6, '6 pebbles left the guest bag when laid', `${peb0} → ${A.count(G, 'pebble')}`);
   // removal marks work like deconstruction marks
   g.paths.paint('remove', tiles);
-  await t.waitFor(() => tiles.every((i) => w.pathPlan[i] === 15 && g.world.pathPlan[i] === 15), RT() + 600, 'red removal marks on both');
+  await t.waitFor(() => tiles.every((i) => w.pathPlan.get(i) === 15 && g.world.pathPlan.get(i) === 15), RT() + 600, 'red removal marks on both');
   await t.sleep(800);
-  t.check(tiles.every((i) => w.path[i] === 2), 'marking removes nothing by itself');
+  t.check(tiles.every((i) => w.path.get(i) === 2), 'marking removes nothing by itself');
   await tapPlan(15);
   t.check(g.work.status()?.verb === 'Removendo caminho', 'status: Removendo caminho', JSON.stringify(g.work.status()));
-  await t.waitFor(() => tiles.every((i) => !w.path[i] && !w.pathPlan[i]) && !g.work.seq, 45000, 'the sequence dug the stroke out',
-    () => `left ${tiles.filter((i) => w.path[i]).length} · ${JSON.stringify(g.work.status())}`);
+  await t.waitFor(() => tiles.every((i) => !w.path.get(i) && !w.pathPlan.get(i)) && !g.work.seq, 45000, 'the sequence dug the stroke out',
+    () => `left ${tiles.filter((i) => w.path.get(i)).length} · ${JSON.stringify(g.work.status())}`);
   await t.sleep(ONEWAY() + 100);
   t.check(pathCells(H, tiles) === pathCells(G, tiles), 'cells identical after removal', pathCells(H, tiles));
   await t.checkDigest(H, G);
@@ -4673,8 +4673,8 @@ def('D1', {
   await t.waitFor(() => ids.every((id) => { const o = A.structOn(H, id); return o && !o.blueprint; }), RT() + 800, 'host sees every bridge piece finished');
   // the same deck map and railings on both
   await t.sleep(200);
-  const deckRow = (f) => b.map(([x, y]) => { const i = f.game.world.idx(x, y); return `${f.game.world.deck?.[i] | 0}:${f.game.world.rail?.[i] | 0}`; }).join(' ');
-  t.check(deckRow(H) === deckRow(G) && b.every(([x, y]) => G.game.world.deck[G.game.world.idx(x, y)] === 2), 'same deck map + railings on both (every tile walkable)', `host ${deckRow(H)} · guest ${deckRow(G)}`);
+  const deckRow = (f) => b.map(([x, y]) => { const i = f.game.world.idx(x, y); return `${f.game.world.deck?.get(i) | 0}:${f.game.world.rail?.get(i) | 0}`; }).join(' ');
+  t.check(deckRow(H) === deckRow(G) && b.every(([x, y]) => G.game.world.deck.get(G.game.world.idx(x, y)) === 2), 'same deck map + railings on both (every tile walkable)', `host ${deckRow(H)} · guest ${deckRow(G)}`);
   // the guest walks across
   const wk = await walkAcross(t, G, bank, far, ex, ey);
   t.check(wk.ok, 'the guest walks across the bridge to the far bank', `at ${f2(G.game.player.x)},${f2(G.game.player.y)} far ${far}`);
@@ -4726,7 +4726,7 @@ def('D2', {
   await t.sleep(RT() + 400);
   const left = (f) => ids.filter((id) => A.structOn(f, id)).length;
   t.check(left(H) === n - 1 && left(G) === n - 1, 'both halves stay (no collapse)', `host ${left(H)} · guest ${left(G)} of ${n - 1}`);
-  const wm = (f) => f.game.world.deck[f.game.world.idx(b[mid][0], b[mid][1])] | 0;
+  const wm = (f) => f.game.world.deck.get(f.game.world.idx(b[mid][0], b[mid][1])) | 0;
   t.check(wm(H) === 0 && wm(G) === 0, 'the gap is water again on both');
   // the far abutment: a warning first, then marked; its half falls
   const fo = A.structOn(G, ids[n - 1]);
@@ -4993,7 +4993,7 @@ def('P5', {
   for (const f of fishes.slice(0, 12)) {
     for (let r = 2; r < 5 && !spot; r += 0.5) for (let a = 0; a < 16 && !spot; a++) {
       const x = f.x + Math.cos((a / 16) * 6.283) * r, y = f.y + Math.sin((a / 16) * 6.283) * r, i = w.idx(Math.floor(x), Math.floor(y));
-      if (!w.water[i] && !w.rock[i] && !w.solid[i] && A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) spot = [x, y];
+      if (!w.water.get(i) && !w.rock.get(i) && !w.solid.get(i) && A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) spot = [x, y];
     }
     if (spot) { fish = f; break; }
   }
@@ -5131,7 +5131,7 @@ def('P7', {
   let spot = null, dir = null;
   for (let r = 3; r < 40 && !spot; r += 1) for (let a = 0; a < 24 && !spot; a++) {
     const x = gp.x + Math.cos(a * 0.26) * r, y = gp.y + Math.sin(a * 0.26) * r, i = w.idx(Math.floor(x), Math.floor(y));
-    if (w.water[i] || w.rock[i] || w.solid[i] || !A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) continue;
+    if (w.water.get(i) || w.rock.get(i) || w.solid.get(i) || !A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) continue;
     for (const [d, dx, dy] of [['e', 1, 0], ['w', -1, 0]]) { // (a side view on the host: the swing reads on the ground plane)
       let wet = 0;
       for (let k = 2; k <= 4; k++) if (w.liquidAt(Math.floor(x + dx * k), Math.floor(y + dy * k))) wet++;

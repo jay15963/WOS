@@ -11,8 +11,8 @@ import { buildAtlas, buildAtlasAsync } from './art/sprites.js';
 import { startAtlasLookup, storeAtlas } from './engine/atlasCache.js';
 import { checkAtlas } from './game/artcheck.js';
 import { BUILD_ID, BUILD_FILES } from './version.js';
-import { generateWorld } from './world/worldgen.js';
 import { World } from './world/world.js';
+import { makeSource } from './world/source.js';
 import { generateGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
@@ -48,6 +48,7 @@ const QS = new URLSearchParams(location.search);
 const DEV = /^(localhost|127\.|\[::1\])/.test(location.hostname);
 const FLAGS = {
   noSave: QS.has('nosave'),                 // no save writes, no wos.seed, no menu snapshot
+  source: QS.get('source') || 'classic',    // world source (docs/STREAMING.md): classic 256×256 / synth planet / planet
   mpHost: QS.get('mp') === 'host',          // skip the menu and host room ?sala=CODE (seed ?seed)
   autojoin: QS.has('autojoin'),             // skip the menu and join room ?sala=CODE
   code: normalizeCode(QS.get('sala') || ''),
@@ -146,7 +147,7 @@ async function boot() {
     if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
-    const world = new World(generateWorld(seed));
+    const world = new World(await makeSource(FLAGS.source, seed)); // (docs/STREAMING.md: classic / synth / planet)
     renderer.setWorld(world);
     renderer.setNoise(256, generateNoiseTexture(seed));
 

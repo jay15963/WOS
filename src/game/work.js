@@ -114,8 +114,8 @@ function pathGroup(game, i, c) {
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
       const xx = x + dx, yy = y + dy;
       if ((!dx && !dy) || !w.inBounds(xx, yy)) continue;
-      const n = yy * W + xx;
-      if (Q[n] === c && !ids.has(n)) { ids.add(n); queue.push(n); }
+      const n = w.idx(xx, yy);
+      if (Q.get(n) === c && !ids.has(n)) { ids.add(n); queue.push(n); }
     }
   }
   return ids;
@@ -134,7 +134,7 @@ function beginSeq(game, it, { now = false } = {}) {
   if (!kind || p.dead) return false;
   if (kind === 'path') {
     const c = it.c, i = it.i;
-    if (!c || game.world.pathPlan[i] !== c) return false;
+    if (!c || game.world.pathPlan.get(i) !== c) return false;
     if (c !== PATH_REMOVE && !affordable(p, PATH_TYPES[c]?.cost || {})) { game.events.emit('error', { text: `Falta material: ${pathMissing(game, c)}` }); return false; }
     const ids = pathGroup(game, i, c);
     W.seq = { kind, ids, first: now ? null : i, cur: now ? i : null, c, type: 'path', total: ids.size, paused: false, skipped: 0 };
@@ -169,7 +169,7 @@ function fieldFollowUp(game, tx, ty) {
 function jobFor(game, seq, id) {
   if (seq.kind === 'path') {
     const w = game.world;
-    if (w.pathPlan[id] !== seq.c) return null;
+    if (w.pathPlan.get(id) !== seq.c) return null;
     if (seq.c !== PATH_REMOVE && !affordable(game.player, PATH_TYPES[seq.c]?.cost || {})) return 'blocked';
     const it = game.paths?.jobAt?.(id % w.W, (id / w.W) | 0);
     return it ? { ...it, auto: true } : null;

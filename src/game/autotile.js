@@ -50,7 +50,7 @@ export function connectsAt(game, def, layer, tx, ty, extra, lv = 0) {
   const i = w.idx(tx, ty);
   const o = game.build.grid[layer].get(lvKey(w, i, lv));
   if (o) { const g = BUILDINGS[o.type].connect; if (g && J.has(g)) return true; }
-  if (J.has('rock') && !lv && w.rock[i] === 1) return true;
+  if (J.has('rock') && !lv && w.rock.get(i) === 1) return true;
   return !!(extra && extra(tx, ty));
 }
 
@@ -76,7 +76,7 @@ export function wallBehind(game, tx, ty, d, lv = 0) {
   const w = game.world, x = tx + v[0], y = ty + v[1];
   if (!w.inBounds(x, y)) return false;
   const i = w.idx(x, y);
-  if (!lv && w.rock[i] === 1) return true;
+  if (!lv && w.rock.get(i) === 1) return true;
   const o = game.build.grid.main.get(lvKey(w, i, lv));
   return !!(o && !o.blueprint && BUILDINGS[o.type].connect === 'wall');
 }

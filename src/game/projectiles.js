@@ -140,10 +140,10 @@ function landLob(game, pr) {
   pr.x = pr.lx; pr.y = pr.ly; pr.t = 0;
   const tx = Math.floor(pr.x), ty = Math.floor(pr.y);
   const inside = w.inBounds(tx, ty);
-  const i = inside ? ty * w.W + tx : -1;
+  const i = inside ? w.idx(tx, ty) : -1;
   // a roof (mountain ceiling or built roof) stops a shot coming from outside (a throw inside lands normally)
   const roofed = inside && w.roofAt(tx, ty) !== 0 && !w.roofAt(Math.floor(pr.x0), Math.floor(pr.y0));
-  const wall = !inside || w.rock[i] || w.solid[i] || roofed;
+  const wall = !inside || w.rock.get(i) || w.solid.get(i) || roofed;
   pr.blocked = !!wall;
   const LK = LOB_KINDS[pr.kind];
   if (LK) { // (a registered thrown thing: its own landing fx; the host resolves the hit)
@@ -281,7 +281,7 @@ export function projectilesSystem() {
           const pz = pr.z0 === pr.z1 ? pr.z0 : pr.z0 + (pr.z1 - pr.z0) * Math.min(1, nd / Math.max(0.5, pr.zL)); // levels: shot height
           // walls / rock (a level-0 wall only below its top: shots from / to a rampart fly over the walls)
           const tx = Math.floor(nx), ty = Math.floor(ny);
-          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || (w.solid[ty * w.W + tx] && pz < 0.5)) { stick(game, pr, false); done = true; break; }
+          if (!w.inBounds(tx, ty) || w.rock.get(w.idx(tx, ty)) || (w.solid.get(w.idx(tx, ty)) && pz < 0.5)) { stick(game, pr, false); done = true; break; }
           // creatures / players (cosmetic copies hit nothing)
           let victim = null;
           if (pr.cosmetic) { /* no victims */ }

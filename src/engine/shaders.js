@@ -154,7 +154,7 @@ vec2 rotLocal(vec2 l, float r){
 export const SPRITE_VS = `#version 300 es
 ${SPRITE_ATTRIBS}
 uniform sampler2D uClim;  // R = snow affinity (cold biomes), G = structure occupancy (contact AO)
-uniform vec2 uWorldSz;
+uniform highp vec2 uWorldSz; // the terrain window ring (src/world/terrainWindow.js WIN): textures REPEAT
 uniform float uSnow;      // snow cover 0..1 (env.extra.uSnow)
 uniform vec4 uSeaA;       // seasons (src/fx/seasonfx.js): snow, ice, autumn, bloom
 uniform vec4 uSeaB;       // bare, winter, autumn colour of the crowns (stays on until the leaves drop), blizzard
@@ -163,7 +163,7 @@ out vec4 vColor;
 out float vFlash;
 out float vRecv;
 out vec2 vLocal;
-out vec2 vW;              // world position on the ground plane (before lift)
+out highp vec2 vW;        // world position on the ground plane (before lift; highp: the planet is 16384 tiles wide)
 out float vFrost;         // snow lying on this (vegetation) sprite
 out float vH;             // height above the anchor (tiles; negative on vertically flipped sprites) — waterline
 flat out vec2 vVr;        // v range of the sprite in the atlas (top-edge sampling stays inside it)
@@ -215,7 +215,7 @@ void main(){
 
 export const SPRITE_FS = `#version 300 es
 precision mediump float;
-in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in vec2 vW; in float vFrost; in float vH;
+in highp vec2 vUV; in vec4 vColor; in float vFlash; in float vRecv; in vec2 vLocal; in highp vec2 vW; in float vFrost; in float vH;
 flat in vec2 vVr;
 flat in vec4 vSea;
 in highp vec2 vV; flat in highp vec4 vZ;
@@ -655,7 +655,7 @@ void darken(float a){ over(vec3(0.0), a); }
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float nLod(float s){ return max(log2(PPX * s * 256.0), 0.0); }
-vec4 tileAt(ivec2 c){ return texelFetch(uTile, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); }
+vec4 tileAt(ivec2 c){ return texelFetch(uTile, (c & (ivec2(uWorld) - 1)), 0); }
 float oreOf(ivec2 c){ return floor(tileAt(c).a * 255.0 + 0.5); }
 vec4 fieldAt(vec2 p){ return texture(uField, p / uWorld); }
 
@@ -940,7 +940,7 @@ vec2 pathCov(vec2 p){
 }
 // edge distance: the Gaussian coverage near the outline (≈ tiles there), the exact tile distance deep inside / far out
 float pathSd(float c, float sdT){ return mix(sdT, c - 0.36, smoothstep(0.0, 0.18, c) * (1.0 - smoothstep(0.84, 1.0, c))); }
-float pathCode(ivec2 c, int ch){ vec4 t = texelFetch(uPath, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); return floor((ch == 0 ? t.r : t.g) * 255.0 + 0.5); }
+float pathCode(ivec2 c, int ch){ vec4 t = texelFetch(uPath, (c & (ivec2(uWorld) - 1)), 0); return floor((ch == 0 ? t.r : t.g) * 255.0 + 0.5); }
 // material sample; earth and gravel get the anti-tiling pair of the ground textures
 vec4 pathMat(float l, vec2 p, float m){
   vec4 a = textureLod(uPathMat, vec3(p * 0.25, l), LOD);
@@ -1209,7 +1209,7 @@ float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yz
 vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
 float nLod(float s){ return max(log2(PPX * s * 256.0), 0.0); }
 
-vec4 tileAt(ivec2 c){ return texelFetch(uTile, clamp(c, ivec2(0), ivec2(uWorld) - 1), 0); }
+vec4 tileAt(ivec2 c){ return texelFetch(uTile, (c & (ivec2(uWorld) - 1)), 0); }
 float gidOf(vec4 t){ return floor(t.r * 255.0 + 0.5); }
 float ridOf(vec4 t){ return 8.0 + clamp(floor(t.b * 255.0 + 0.5) - 1.0, 0.0, 3.0); }
 vec4 fieldAt(vec2 p){ return texture(uField, p / uWorld); }

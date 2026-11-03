@@ -209,14 +209,14 @@ export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
   const y0 = Math.max(1, Math.floor(cy - maxR)), y1 = Math.min(w.H - 2, Math.floor(cy + maxR));
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const i = w.idx(tx, ty);
-    if (w.rock[i] !== 1 || !w.ore[i] || (minTier[w.ore[i]] || 0) > maxTier) continue;
+    if (w.rock.get(i) !== 1 || !w.ore.get(i) || (minTier[w.ore.get(i)] || 0) > maxTier) continue;
     const opens = [];
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const j = w.idx(tx + dx, ty + dy);
-      if (!w.rock[j] && w.water[j] !== 2 && w.solid[j] !== 1) opens.push([tx + dx, ty + dy]);
+      if (!w.rock.get(j) && w.water.get(j) !== 2 && w.solid.get(j) !== 1) opens.push([tx + dx, ty + dy]);
     }
     if (!opens.length) continue;
-    out.push({ tx, ty, i, ore: w.ore[i], opens, d: Math.hypot(tx - cx, ty - cy) });
+    out.push({ tx, ty, i, ore: w.ore.get(i), opens, d: Math.hypot(tx - cx, ty - cy) });
   }
   return out.sort((a, b) => a.d - b.d);
 }
@@ -372,7 +372,7 @@ export async function decon(t, f, M, id, { ms = 20000 } = {}) {
 
 export async function mine(t, f, M, tx, ty, { ms = 20000, stand = null } = {}) {
   const g = f.game, i = g.world.idx(tx, ty);
-  await workUntil(t, f, () => (g.world.rock[i] === 1 ? M.mining.rockIt(g, tx, ty) : null), () => g.world.rock[i] === 0, ms, `mines (${tx},${ty})`, { stand });
+  await workUntil(t, f, () => (g.world.rock.get(i) === 1 ? M.mining.rockIt(g, tx, ty) : null), () => g.world.rock.get(i) === 0, ms, `mines (${tx},${ty})`, { stand });
 }
 
 export async function plant(t, f, M, plot, { ms = 10000 } = {}) {

@@ -22,8 +22,8 @@ export const KIT_ENV = { night: 0, sync: false, game: null, ents: [] }; // game 
 // it when the face is covered — an upper floor or a stair right in front of the wall, or someone standing before it.
 function faceCovered(o) {
   const g = KIT_ENV.game, w = g?.world;
-  if (!w || o.ty + 1 >= w.H) return false;
-  const lv = o.lv | 0, N = w.W * w.H, i = (o.ty + 1) * w.W + o.tx, G = g.build?.grid;
+  if (!w || !w.inBounds(o.tx, o.ty + 1)) return false;
+  const lv = o.lv | 0, N = w.W * w.H, i = w.idx(o.tx, (o.ty + 1)), G = g.build?.grid;
   if (G) {
     const up = G.floor?.get(i + (lv + 1) * N);
     if (up && !up.blueprint) return true;

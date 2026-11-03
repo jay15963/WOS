@@ -116,10 +116,10 @@ function applyInner(game, d, mode) {
   // ---- mined tiles (never un-mine) & mining progress ----
   for (const i of arr(d.mined)) {
     if (!Number.isInteger(i) || i < 0 || i >= w.W * w.H) continue;
-    if (w.rock[i] === 1) mineTile(game, i % w.W, Math.floor(i / w.W));
+    if (w.rock.get(i) === 1) mineTile(game, i % w.W, Math.floor(i / w.W));
   }
   game.rockHits.clear();
-  for (const [i, p] of arr(d.rockp)) if (w.rock[i] === 1) game.rockHits.set(i, p);
+  for (const [i, p] of arr(d.rockp)) if (w.rock.get(i) === 1) game.rockHits.set(i, p);
 
   // ---- natural worldgen objects ----
   const resolve = (id) => {
@@ -169,7 +169,7 @@ function applyInner(game, d, mode) {
     if (o && (o.type !== type || Math.abs(o.x - x) > 0.01 || Math.abs(o.y - y) > 0.01)) { removeNatural(game, o); o = null; }
     if (!o) {
       const tx = Math.floor(x), ty = Math.floor(y - 0.05);
-      if (!w.inBounds(tx, ty) || w.rock[w.idx(tx, ty)]) continue;
+      if (!w.inBounds(tx, ty) || w.rock.get(w.idx(tx, ty))) continue;
       o = makeFloraObject(game, type, x, y, { id, v, s, f, born: born ?? undefined, solid: solid == null ? undefined : !!solid });
     } else if (!stump && solid && !o.solid && type.startsWith('tree_')) { o.solid = TREE_SOLID[type] || 0.18; occAdd(game, o); }
     if (stump && !o.stump) makeStump(game, o, stumpAt);
@@ -218,7 +218,7 @@ function applyInner(game, d, mode) {
       let ok = true;
       const lv = LVS.get(id) || 0, off = lv * w.W * w.H; // levels: the story's grid keys
       for (let y = ty; y < ty + fh; y++) for (let x = tx; x < tx + fw; x++) {
-        if (!w.inBounds(x, y) || (!lv && w.rock[w.idx(x, y)]) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
+        if (!w.inBounds(x, y) || (!lv && w.rock.get(w.idx(x, y))) || (!moveOf && game.build.grid[def.layer].has(w.idx(x, y) + off))) ok = false;
       }
       if (!ok) continue;
       o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, store: store || undefined, decon: !!decon, working: !!working, rot, paid, open, moveOf, style, det, lv });

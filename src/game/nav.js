@@ -7,20 +7,24 @@
 // (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
 import { collides, moveCircle, railCross, underAt, underFor, deckTrack } from './physics.js';
+import { Layer, NodeTable } from '../world/store.js';
 
 // Bridges (game/decks.js, physics.js): a step between two tiles is tested against the walls of the level it is taken at
 // — the railings on a deck, the walls at the water (support bents, abutments) under a deck or on the ground — and a
 // path remembers per tile whether it went under a deck (entered through a railed side from the water / ice beside it),
 // where deep water is water (only ice or shallow water: creatures do not swim). The steps physics allows, no more.
-const wallsAt = (w, i, u) => (!u && w.deck && w.deck[i] ? w.rail : w.railU);
+const wallsAt = (w, i, u) => (!u && w.deck && w.deck.get(i) ? w.rail : w.railU);
 // may a creature step from tile i (under a deck: u) to tile j (layer nu)? (the deep water a deck does not cover)
-const deepOff = (w, i, j, u, nu) => !w.frozen && w.water[j] === 2 && (nu || (!u && !(w.deck && w.deck[i]) && w.deck && w.deck[j]));
+const deepOff = (w, i, j, u, nu) => !w.frozen && w.water.get(j) === 2 && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(j)));
 
 // ---------- occupancy (solid round props per tile) ----------
+// game.occ: a sparse store layer (docs/STREAMING.md); chunks that load / leave add / drop their props
 export function buildOcc(game) {
   const w = game.world;
-  game.occ = new Uint8Array(w.W * w.H);
-  for (const c of w.chunks) for (const o of c.objects) if (o.solid) occAdd(game, o);
+  game.occ = new Layer('occ', Uint8Array, 0, { sparse: true });
+  for (const o of w.allObjects()) if (o.solid) occAdd(game, o);
+  w.onLoad.push((c, r, d) => { if (game.world === w) for (const o of d.objects) if (o.solid) occAdd(game, o); });
+  w.onEvict.push((c) => { if (game.world !== w) return; w._forBucketsOf(c, (bk) => { for (const o of bk.objects) occRemove(game, o); }); });
 }
 const occIdx = (w, o) => {
   const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
@@ -30,14 +34,15 @@ export function occAdd(game, o) {
   if (o._occ != null) return;
   const i = occIdx(game.world, o);
   if (i < 0) return;
-  game.occ[i] = Math.min(255, game.occ[i] + 1);
+  game.occ.set(i, Math.min(255, game.occ.get(i) + 1));
   o._occ = i;
 }
 export function occRemove(game, o) {
   if (o._occ == null) return;
-  if (game.occ[o._occ] > 0) game.occ[o._occ]--;
+  const v = game.occ.get(o._occ);
+  if (v > 0) game.occ.set(o._occ, v - 1);
   o._occ = null;
-  if (o._occX) { for (const i of o._occX) if (game.occ[i] > 0) game.occ[i]--; o._occX = null; }
+  if (o._occX) { for (const i of o._occX) { const u = game.occ.get(i); if (u > 0) game.occ.set(i, u - 1); } o._occX = null; }
 }
 // extra occupied tiles for wide props (tents)
 export function occAddTiles(game, o, tiles) {
@@ -47,7 +52,7 @@ export function occAddTiles(game, o, tiles) {
     if (!w.inBounds(tx, ty)) continue;
     const i = w.idx(tx, ty);
     if (i === o._occ) continue;
-    game.occ[i] = Math.min(255, game.occ[i] + 1);
+    game.occ.set(i, Math.min(255, game.occ.get(i) + 1));
     o._occX.push(i);
   }
 }
@@ -55,17 +60,17 @@ export function walkable(game, tx, ty, doors = false) {
   const w = game.world;
   if (w.blocked(tx, ty)) return false;
   const i = w.idx(tx, ty);
-  if (game.occ[i]) return false;
+  if (game.occ.get(i)) return false;
   const S0 = game.levels?.st[0];
   if (S0 && S0[i]) return false; // levels: stair steps are side walls at level 0 (entered only through their entrance)
-  return doors || w.solid[i] !== 2;
+  return doors || w.solid.get(i) !== 2;
 }
 
 // ---------- door-safe movement for creatures ----------
 function overlapsDoor(w, x, y, r) {
   const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-    if (!w.inBounds(tx, ty) || w.solid[ty * w.W + tx] !== 2) continue;
+    if (!w.inBounds(tx, ty) || w.solid.get(w.idx(tx, ty)) !== 2) continue;
     const cx = Math.max(tx, Math.min(tx + 1, x)), cy = Math.max(ty, Math.min(ty + 1, y));
     if ((x - cx) ** 2 + (y - cy) ** 2 < r * r) return true;
   }
@@ -104,17 +109,19 @@ export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false, ud 
   let u = !!ud;
   for (let n = 0; n < 96; n++) {
     if (tx === ex && ty === ey) return true;
-    const pi = ty * w.W + tx;
+    const pi = w.idx(tx, ty);
     if (mx < my) { if (w.rail && railCross(w, tx, ty, sx, 0, wallsAt(w, pi, u))) return false; mx += ddx; tx += sx; } else { if (w.rail && railCross(w, tx, ty, 0, sy, wallsAt(w, pi, u))) return false; my += ddy; ty += sy; } // (bridges: decks.js)
-    if (w.rail && w.inBounds(tx, ty)) { const ni = ty * w.W + tx, nu = underAt(w, pi, ni, u); if (deepOff(w, pi, ni, u, nu)) return false; u = nu; }
+    if (w.rail && w.inBounds(tx, ty)) { const ni = w.idx(tx, ty), nu = underAt(w, pi, ni, u); if (deepOff(w, pi, ni, u, nu)) return false; u = nu; }
     if (tx === ex && ty === ey) return true; // goal tile itself may hold the target's prop
-    if (hard ? (w.blocked(tx, ty) || (!doors && w.solid[ty * w.W + tx] === 2)) : !walkable(game, tx, ty, doors)) return false;
+    if (hard ? (w.blocked(tx, ty) || (!doors && w.solid.get(w.idx(tx, ty)) === 2)) : !walkable(game, tx, ty, doors)) return false;
   }
   return true;
 }
 
 // ---------- A* ----------
-let N = 0, gArr, parent, seen, closed, lay, stamp = 0; // (lay: the tile was reached under a bridge deck)
+// scratch over tile indices of the whole planet: an open-addressing table (store.js NodeTable; lay: the tile was reached
+// under a bridge deck), reset by a stamp
+const NT = new NodeTable(15);
 let heapN = new Int32Array(4096), heapF = new Float32Array(4096), heapSize = 0;
 
 function heapPush(n, f) {
@@ -152,25 +159,22 @@ const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, 
 // ud: the start is under a bridge deck (a tile keeps the level it was first reached at: a valid path, maybe not the
 // shortest one through a bridge tile)
 export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, ud = false) {
-  const w = game.world, W = w.W;
-  if (N !== w.W * w.H) {
-    N = w.W * w.H;
-    gArr = new Float32Array(N); parent = new Int32Array(N); seen = new Uint32Array(N); closed = new Uint32Array(N); lay = new Uint8Array(N);
-  }
-  stamp++;
+  const w = game.world, W = w.W, T = NT;
   if (!w.inBounds(sx, sy) || !w.inBounds(gx, gy)) return null;
+  T.reset();
   const s = w.idx(sx, sy), g = w.idx(gx, gy);
-  const h = (i) => { const x = i % W, y = (i / W) | 0; const dx = Math.abs(x - gx), dy = Math.abs(y - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
+  const h = (i) => { const x = i % W, y = (i / W) | 0; const dx = Math.abs(w.dx(x, gx)), dy = Math.abs(y - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
   heapSize = 0;
-  gArr[s] = 0; parent[s] = -1; seen[s] = stamp; lay[s] = ud ? 1 : 0;
+  const s0 = T.slot(s);
+  T.g[s0] = 0; T.par[s0] = -1; T.lay[s0] = ud ? 1 : 0;
   heapPush(s, h(s));
   const dk = !!w.rail;
   let best = s, bestH = h(s), expanded = 0;
-  const free = (x, y) => w.inBounds(x, y) && ((x === gx && y === gy && !w.blocked(x, y) && (doors || w.solid[y * W + x] !== 2)) || walkable(game, x, y, doors));
+  const free = (x, y) => w.inBounds(x, y) && ((w.idx(x, y) === g && !w.blocked(x, y) && (doors || w.solid.get(g) !== 2)) || walkable(game, x, y, doors));
   while (heapSize > 0 && expanded < maxNodes) {
-    const cur = heapPop();
-    if (closed[cur] === stamp) continue;
-    closed[cur] = stamp;
+    const cur = heapPop(), cs = T.find(cur);
+    if (cs < 0 || T.flag[cs] === 1) continue;
+    T.flag[cs] = 1;
     expanded++;
     if (cur === g) { best = cur; bestH = 0; break; }
     const cx = cur % W, cy = (cur / W) | 0;
@@ -180,24 +184,26 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, u
       const nx = cx + dx, ny = cy + dy;
       if (!free(nx, ny)) continue;
       if (dx && dy && (!walkable(game, cx + dx, cy, doors) || !walkable(game, cx, cy + dy, doors))) continue; // no corner cutting
-      const ni = ny * W + nx;
+      const ni = w.idx(nx, ny);
       let nu = 0;
       if (dk) { // bridges (decks.js): the walls of the level the step is taken at, the water under a deck
-        const u = lay[cur] === 1;
+        const u = T.lay[cs] === 1;
         if (railCross(w, cx, cy, dx, dy, wallsAt(w, cur, u))) continue;
         nu = underAt(w, cur, ni, u) ? 1 : 0;
         if (deepOff(w, cur, ni, u, nu)) continue;
       }
-      if (closed[ni] === stamp) continue;
-      const ng = gArr[cur] + (nu ? cost * 2.5 : cost); // (under a deck the water is slow: a deck tile is first reached on its boards)
-      if (seen[ni] === stamp && ng >= gArr[ni]) continue;
-      seen[ni] = stamp; gArr[ni] = ng; parent[ni] = cur; lay[ni] = nu;
+      let ns = T.find(ni);
+      if (ns >= 0 && T.flag[ns] === 1) continue;
+      const ng = T.g[cs] + (nu ? cost * 2.5 : cost); // (under a deck the water is slow: a deck tile is first reached on its boards)
+      if (ns >= 0 && ng >= T.g[ns]) continue;
+      if (ns < 0 && (ns = T.slot(ni)) < 0) continue; // (table full: the search ends with what it has)
+      T.g[ns] = ng; T.par[ns] = cur; T.lay[ns] = nu;
       heapPush(ni, ng + h(ni) * 1.05);
     }
   }
   if (best === s) return null;
   const path = [];
-  for (let i = best; i !== s && i >= 0; i = parent[i]) path.push([(i % W) + 0.5, ((i / W) | 0) + 0.5]);
+  for (let i = best; i !== s && i >= 0; i = T.par[T.find(i)]) path.push([w.near(i % W, sx) + 0.5, ((i / W) | 0) + 0.5]);
   path.reverse();
   return { path, complete: best === g };
 }

@@ -95,13 +95,13 @@ export function createSpawners(game) {
   const sx = w.spawn.x, sy = w.spawn.y;
   const minD = (s) => SPECIES[s].minD ?? 8;
   for (let k = 0; k < 9000; k++) {
-    const x = 6 + Math.floor(rand() * (w.W - 12)), y = 6 + Math.floor(rand() * (w.H - 12));
+    const x = w.bx0 + 6 + Math.floor(rand() * (w.bx1 - w.bx0 - 12)), y = w.by0 + 6 + Math.floor(rand() * (w.by1 - w.by0 - 12));
     const i = w.idx(x, y);
-    if (w.rock[i] || w.water[i] || w.solid?.[i]) continue;
+    if (w.rock.get(i) || w.water.get(i) || w.solid?.get(i)) continue;
     const d = Math.hypot(x - sx, y - sy);
     const trees = countTrees(w, x + 0.5, y + 0.5, 4);
-    const lush = w.lush ? w.lush[i] : 0.5;
-    const dRock = w.dRock ? w.dRock[i] : 99;
+    const lush = w.lush ? w.lush.get(i) : 0.5;
+    const dRock = w.dRock ? w.dRock.get(i) : 99;
     const biome = w.biomeAt ? w.biomeAt(x + 0.5, y + 0.5) : 'meadow';
     const wooded = biome === 'forest' || biome === 'pine' || biome === 'birch';
     const cands = [];
@@ -184,7 +184,7 @@ function caveSpawn(game) {
   if (caves.length >= 4) return;
   for (let k = 0; k < 12; k++) {
     const i = mined[Math.floor(Math.random() * mined.length)];
-    if (!roof[i] || w.rock[i]) continue;
+    if (!roof.get(i) || w.rock.get(i)) continue;
     const tx = i % w.W, ty = Math.floor(i / w.W);
     const x = tx + 0.5, y = ty + 0.5;
     const d = Math.hypot(x - p.x, y - p.y);

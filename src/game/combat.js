@@ -60,9 +60,9 @@ export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
     if (mx < my) { f = mx; mx += ddx; tx += sx; } else { f = my; my += ddy; ty += sy; }
     if (tx === ex && ty === ey) return true;
     if (!world.inBounds(tx, ty)) return false;
-    const i = ty * world.W + tx;
-    if (world.rock[i]) return false;
-    if (world.solid[i] && (!up || 0.5 + z0 + (z1 - z0) * Math.min(1, f) < 1)) return false;
+    const i = world.idx(tx, ty);
+    if (world.rock.get(i)) return false;
+    if (world.solid.get(i) && (!up || 0.5 + z0 + (z1 - z0) * Math.min(1, f) < 1)) return false;
   }
   return true;
 }
