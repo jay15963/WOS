@@ -2589,8 +2589,8 @@ def('IG1', {
 
 def('IG2', {
   title: 'Ice giants: the slow smash (telegraph, heavy, dodgeable) and the thrown ice rock (small damage) hurt the guest', timeout: 120000,
-  expected: 'Winter night, open ground. A giant next to the guest winds up a smash: the guest sees the danger circle (op giant.tele) before the blow, the blow lands ≥ 0.8 s later and does about the giant\'s heavy damage; next wind-up the guest steps out of the circle: no smash damage. Then the guest stands 9 tiles away: the giant throws an ice rock (op giant.rock: an ice_rock lob on the guest too) that lands on it: small damage, about a walker\'s hit at the giant\'s level; digest equal',
-  api: 'giants.js giantChase (smash: cast Esmagar + giant.tele; throwRock: cast Arremessar + giant.rock), hurtPlayer → own player.hurt (ability giant_smash / ice_rock), projectiles LOB_KINDS.ice_rock',
+  expected: 'Winter night, open ground. A giant next to the guest winds up a smash: the guest sees the danger circle (op giant.tele) before the blow, the blow lands ≥ 0.8 s later and does about the giant\'s heavy damage and knocks the guest back (≥ 0.3 tiles away from the giant: the knock travels in player.hurt; the host sees the guest pushed); next wind-up the guest steps out of the circle: no smash damage. Then the guest stands 9 tiles away: the giant throws an ice rock (op giant.rock: an ice_rock lob on the guest too) that lands on it: small damage, about a walker\'s hit at the giant\'s level; digest equal',
+  api: 'giants.js giantChase (smash: cast Esmagar + giant.tele; throwRock: cast Arremessar + giant.rock), hurtPlayer → own player.hurt (ability giant_smash / ice_rock, knock), projectiles LOB_KINDS.ice_rock',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const EH = H.game.env, gp = G.game.player;
@@ -2614,9 +2614,15 @@ def('IG2', {
   const tele = await t.waitFor(() => G.game.teles?.find((q) => q.k === 'smash'), 9000 + RT(), 'the guest sees the smash telegraph (giant.tele)', () => JSON.stringify(MH.giants.giantDebug(m)));
   const t0 = now();
   t.check(Math.hypot(tele.x - gp.x, tele.y - gp.y) <= tele.r + 0.3, 'the circle is on the guest', `${f2(tele.x)},${f2(tele.y)} r ${tele.r} vs guest ${f2(gp.x)},${f2(gp.y)}`);
+  const kx0 = gp.x, ky0 = gp.y, gd0 = Math.hypot(gp.x - m.x, gp.y - m.y);
   const sm = await t.waitFor(() => log.find((d) => d.ab === 'giant_smash'), 4000 + RT(), 'the smash lands on the guest');
   t.check(sm.t - t0 >= 800, 'the blow lands after the wind-up (dodge window)', `${Math.round(sm.t - t0)} ms after the circle`);
   t.check(sm.amount >= m.dmg * 0.85 * 0.35 && sm.amount <= m.dmg * 1.6, 'heavy smash damage (≈ the giant\'s dmg, less armour)', `${sm.amount} vs giant dmg ${f2(m.dmg)}`);
+  // the knockback reaches the guest (player.hurt carries knock: the owner moves itself) and the host sees it
+  await t.sleep(60);
+  const kd = Math.hypot(gp.x - kx0, gp.y - ky0), gd1 = Math.hypot(gp.x - m.x, gp.y - m.y);
+  t.check(kd >= 0.3 && gd1 > gd0 + 0.2, 'the smash knocks the guest back (away from the giant)', `moved ${f2(kd)} tiles, from the giant ${f2(gd0)} → ${f2(gd1)}`);
+  await t.waitFor(() => { const a = guestOnHost(H, G); return a && Math.hypot((a.ax ?? a.x) - gp.x, (a.ay ?? a.y) - gp.y) < 0.15; }, RT() + 1500, 'the host sees the guest pushed back');
   // 2) dodge: step out of the next circle before it lands
   const n0 = log.filter((d) => d.ab === 'giant_smash').length;
   m.swingT = 0;

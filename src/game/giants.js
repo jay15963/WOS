@@ -142,6 +142,9 @@ function smash(game, m, t) {
   const dx = t.x - m.x, dy = t.y - m.y, L = Math.hypot(dx, dy) || 1;
   const k = Math.max(0.9, Math.min(L, SMASH.reach));
   const ix = m.x + (dx / L) * k, iy = m.y + (dy / L) * k;
+  // the push comes from a point between the giant and the impact: someone standing right on the mark is still thrown
+  // back (away from the giant), someone at the rim outward (from = the impact itself gave no direction at its centre)
+  const kx = r2(ix - (dx / L) * 0.7), ky = r2(iy - (dy / L) * 0.7);
   m.swingT = m.swingDur * (0.95 + Math.random() * 0.1) + SMASH.wind;
   m.lastCombatT = game.worldTime;
   // the club rises (a new action object: guests start it too), then holds high (another one: they see it held)
@@ -163,7 +166,7 @@ function smash(game, m, t) {
           if (q.dead || Math.abs((q.z || 0) - (m.z || 0)) > 0.5 || Math.hypot(q.x - ix, q.y - iy) > SMASH.r + (q.r || 0.24) * 0.5) continue;
           const crit = Math.random() < 0.06;
           const dmg = Math.max(1, Math.round(m.dmg * SMASH.mult * (0.9 + Math.random() * 0.2) * (crit ? 1.4 : 1)));
-          hurtPlayer(game, m, q, dmg, { crit, ability: 'giant_smash', from: { x: ix, y: iy }, knock: 0.5 });
+          hurtPlayer(game, m, q, dmg, { crit, ability: 'giant_smash', from: { x: kx, y: ky }, knock: 0.5 });
         }
       });
     },

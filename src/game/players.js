@@ -60,6 +60,7 @@ export function hurtPlayer(game, src, target, amount, opts = {}) {
     src: src?.nid || 0, sx: +(src?.x ?? 0).toFixed(2), sy: +(src?.y ?? 0).toFixed(2), slv: src?.level || 1,
     amount, crit: opts.crit ? 1 : 0, ability: opts.ability || 0, dtype: opts.dtype || 0, ranged: opts.ranged ? 1 : 0,
     from: f ? [+f.x.toFixed(2), +f.y.toFixed(2)] : 0, noDodge: opts.noDodge ? 1 : 0,
+    knock: opts.knock != null ? +(+opts.knock).toFixed(2) : undefined, noKnock: opts.noKnock ? 1 : 0, // (the push happens on the owner)
     poison: opts.poison || 0, bleed: opts.bleed || 0, stun: opts.stun || 0,
   });
   return -1; // resolved on the owner's client
