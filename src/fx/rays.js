@@ -58,7 +58,7 @@ export function raysSystem() {
         // inside a building: only where its roof is faded (the local player is in there)
         let vis = 1;
         if (s.kind !== 'cave') {
-          const i = w.idx(s.tx, s.ty), g = R?.regions.get(R.regionOf[i]);
+          const i = w.idx(s.tx, s.ty), g = R?.regions.get(R.regionOf.get(i));
           vis = g ? 1 - g.alpha : 0;
           if (vis < 0.02) continue;
         } else if (R?.data) {
@@ -99,23 +99,23 @@ function scan(game, out) {
   const w = game.world, W = w.W, Bf = w.broof, NR = w.roof, K = w.rock, S = w.solid, v = game.view();
   const sd = env.shadowDir, sl = Math.hypot(sd[0], sd[1]) || 1;
   const nx = sd[0] / sl, ny = sd[1] / sl; // light travels along (nx, ny)
-  const sky = (i) => !K[i] && !Bf[i] && !NR[i];
-  const x0 = Math.max(1, Math.floor(v.x0) - 3), x1 = Math.min(W - 2, Math.ceil(v.x1) + 3), y0 = Math.max(1, Math.floor(v.y0) - 3), y1 = Math.min(w.H - 2, Math.ceil(v.y1) + 4);
+  const sky = (i) => !K.get(i) && !Bf.get(i) && !NR.get(i);
+  const x0 = Math.max(w.minX + 1, Math.floor(v.x0) - 3), x1 = Math.min(w.maxX - 1, Math.ceil(v.x1) + 3), y0 = Math.max(w.minY + 1, Math.floor(v.y0) - 3), y1 = Math.min(w.maxY - 1, Math.ceil(v.y1) + 4);
   const cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2;
   const R = game.roofs, grid = game.build?.grid?.main;
   const hasBuilt = R && R.regions.size > 0;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = y * W + x;
-    if (K[i] || w.water[i]) continue;
-    if (hasBuilt && Bf[i]) {
+    const i = w.idx(x, y);
+    if (K.get(i) || w.water.get(i)) continue;
+    if (hasBuilt && Bf.get(i)) {
       // an opening in the wall line: open door / gap (not solid) or a window, with open sky outside, roofed floor
       // inside and the sun on the outside (the light travels into the room)
       let win = false;
-      if (S[i] === 1) { const o = grid?.get(i); win = !!(o && typeof o.det === 'string' && /(^|\.)window/.test(o.det)); if (!win) continue; }
+      if (S.get(i) === 1) { const o = grid?.get(i); win = !!(o && typeof o.det === 'string' && /(^|\.)window/.test(o.det)); if (!win) continue; }
       for (let k = 0; k < 4; k++) {
         const ox = k === 0 ? 1 : k === 1 ? -1 : 0, oy = k === 2 ? 1 : k === 3 ? -1 : 0; // outward normal
-        const out_ = i + oy * W + ox, in_ = i - oy * W - ox;
-        if (!sky(out_) || !Bf[in_] || S[in_] === 1 || ox * nx + oy * ny > -0.2) continue;
+        const out_ = w.idx(x + ox, y + oy), in_ = w.idx(x - ox, y - oy);
+        if (!sky(out_) || !Bf.get(in_) || S.get(in_) === 1 || ox * nx + oy * ny > -0.2) continue;
         const hh = win ? 0.55 : 0.95;
         out.push({ kind: win ? 'window' : 'door', x: x + 0.5 + ox * 0.45, y: y + 0.5 + oy * 0.45, h: hh, w: win ? 0.55 : 0.9,
           tx: Math.floor(x + 0.5 + sd[0] * hh), ty: Math.floor(y + 0.5 + sd[1] * hh), d: 0 });
@@ -123,21 +123,21 @@ function scan(game, out) {
       }
       continue;
     }
-    if (S[i] === 1 || !sky(i)) continue;
+    if (S.get(i) === 1 || !sky(i)) continue;
     // a hole in a built roof (tiles removed for a stair, a skylight…): open sky surrounded by roof
     let nb = 0, nc = 0;
-    if (Bf[i - 1]) nb++; if (Bf[i + 1]) nb++; if (Bf[i - W]) nb++; if (Bf[i + W]) nb++;
-    if (NR[i - 1] && !K[i - 1]) nc++; if (NR[i + 1] && !K[i + 1]) nc++; if (NR[i - W] && !K[i - W]) nc++; if (NR[i + W] && !K[i + W]) nc++;
+    if (Bf.get(i - 1)) nb++; if (Bf.get(i + 1)) nb++; if (Bf.get(i - W)) nb++; if (Bf.get(i + W)) nb++;
+    if (NR.get(i - 1) && !K.get(i - 1)) nc++; if (NR.get(i + 1) && !K.get(i + 1)) nc++; if (NR.get(i - W) && !K.get(i - W)) nc++; if (NR.get(i + W) && !K.get(i + W)) nc++;
     if (nb >= 3) {
       const H = roofTop(game, x, y);
       const lx = Math.floor(x + 0.5 + sd[0] * H), ly = Math.floor(y + 0.5 + sd[1] * H);
-      out.push({ kind: 'hole', x: x + 0.5, y: y + 0.5, h: H, w: 1, tx: Math.max(0, Math.min(W - 1, lx)), ty: Math.max(0, Math.min(w.H - 1, ly)), d: 0 });
+      out.push({ kind: 'hole', x: x + 0.5, y: y + 0.5, h: H, w: 1, tx: Math.max(w.minX, Math.min(w.maxX, lx)), ty: Math.max(w.minY, Math.min(w.maxY, ly)), d: 0 });
     } else if (nc >= 1) {
       // a cave skylight / mouth: the shaft lands on the cave floor
       const H = 1.3, lx = Math.floor(x + 0.5 + sd[0] * H), ly = Math.floor(y + 0.5 + sd[1] * H);
       if (!w.inBounds(lx, ly)) continue;
-      const j = ly * W + lx;
-      if (!NR[j] || K[j]) continue;
+      const j = w.idx(lx, ly);
+      if (!NR.get(j) || K.get(j)) continue;
       out.push({ kind: 'cave', x: x + 0.5, y: y + 0.5, h: H, w: 1, tx: lx, ty: ly, d: 0 });
     }
   }
@@ -152,7 +152,7 @@ function roofTop(game, x, y) {
   const R = game.roofs, w = game.world;
   let h = 0, n = 0;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    const i = w.idx(x + dx, y + dy), g = R.regions.get(R.regionOf[i]);
+    const i = w.idx(x + dx, y + dy), g = R.regions.get(R.regionOf.get(i));
     if (!g?.art) continue;
     const a = g.art.tiles;
     let lo = 0, hi = a.length - 1;

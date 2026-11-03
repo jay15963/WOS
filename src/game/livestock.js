@@ -85,12 +85,12 @@ export function createStockSpawners(game) {
   const sx = w.spawn.x, sy = w.spawn.y;
   const added = [];
   for (let k = 0; k < 7000 && Object.keys(want).some((s) => have[s] < want[s]); k++) {
-    const x = 6 + Math.floor(rand() * (w.W - 12)), y = 6 + Math.floor(rand() * (w.H - 12));
+    const x = w.bx0 + 6 + Math.floor(rand() * (w.bx1 - w.bx0 - 12)), y = w.by0 + 6 + Math.floor(rand() * (w.by1 - w.by0 - 12));
     const i = w.idx(x, y);
-    if (w.rock[i] || w.water[i] || w.solid?.[i]) continue;
+    if (w.rock.get(i) || w.water.get(i) || w.solid?.get(i)) continue;
     const d = Math.hypot(x - sx, y - sy);
     const biome = w.biomeAt ? w.biomeAt(x + 0.5, y + 0.5) : 'meadow';
-    const lush = w.lush ? w.lush[i] : 0.5;
+    const lush = w.lush ? w.lush.get(i) : 0.5;
     const cands = [];
     if (biome === 'meadow' && lush > 0.45) cands.push('cow', 'sheep');
     if (biome === 'meadow' || biome === 'shore') cands.push('chicken');
@@ -107,8 +107,8 @@ export function createStockSpawners(game) {
   // fish: schools in rivers and lakes (deep or shallow water, away from each other)
   let fish = 0;
   for (let k = 0; k < 9000 && fish < 34; k++) {
-    const x = 2 + Math.floor(rand() * (w.W - 4)), y = 2 + Math.floor(rand() * (w.H - 4));
-    if (!w.water[w.idx(x, y)]) continue;
+    const x = w.bx0 + 2 + Math.floor(rand() * (w.bx1 - w.bx0 - 4)), y = w.by0 + 2 + Math.floor(rand() * (w.by1 - w.by0 - 4));
+    if (!w.water.get(w.idx(x, y))) continue;
     let wet = 0;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (w.waterAt(x + dx, y + dy)) wet++;
     if (wet < 7) continue;
@@ -651,7 +651,7 @@ export function stockFxSystem() {
       if (tile && bm?.kind === 'place' && bm.type === 'farm_plot' && p.inv.count('seed_wheat') > 0) {
         const h = bm.hover || [Math.floor(p.x), Math.floor(p.y)];
         for (let y = h[1] - 7; y <= h[1] + 7; y++) for (let x = h[0] - 9; x <= h[0] + 9; x++) {
-          if (!game.world.inBounds(x, y) || game.world.water[game.world.idx(x, y)] || game.world.rock[game.world.idx(x, y)]) continue;
+          if (!game.world.inBounds(x, y) || game.world.water.get(game.world.idx(x, y)) || game.world.rock.get(game.world.idx(x, y))) continue;
           const ok = fertileAt(game.world, x, y); // (green = fertile soil, a faint red = not)
           B.ground.add(tile, x + 0.5, y + 1, 1, 1, ok ? 0.45 : 1, ok ? 1 : 0.35, ok ? 0.4 : 0.3, ok ? 0.3 : 0.13);
         }

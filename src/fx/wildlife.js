@@ -106,35 +106,32 @@ class Wildlife {
     const w = this.g.world, tx = Math.floor(x), ty = Math.floor(y);
     if (!w.inBounds(tx, ty)) return false;
     const i = w.idx(tx, ty);
-    return !w.rock[i] && !w.water[i] && !w.solid[i];
+    return !w.rock.get(i) && !w.water.get(i) && !w.solid.get(i);
   }
   stillWater(x, y) {
     const w = this.g.world, tx = Math.floor(x), ty = Math.floor(y);
     if (!w.inBounds(tx, ty)) return false;
     const i = w.idx(tx, ty);
-    return w.water[i] > 0 && Math.abs(w.flowX[i]) + Math.abs(w.flowY[i]) < 0.25;
+    return w.water.get(i) > 0 && Math.abs(w.flowX.get(i)) + Math.abs(w.flowY.get(i)) < 0.25;
   }
+  // distance (tiles, capped at 6) from tile (x, y) to the nearest land tile; 0 on land — a small local search, cached
+  // per tile (water never changes at runtime; the planet is too big for a whole-world field)
   landDist(x, y) {
-    const w = this.g.world;
-    if (!this.dLand) {
-      // chamfer distance from land, computed once (water never changes at runtime)
-      const W = w.W, H = w.H, d = new Float32Array(W * H);
-      for (let i = 0; i < W * H; i++) d[i] = w.water[i] ? 1e9 : 0;
-      for (let pass = 0; pass < 2; pass++) {
-        const fwd = pass === 0;
-        for (let yy = fwd ? 0 : H - 1; fwd ? yy < H : yy >= 0; yy += fwd ? 1 : -1) for (let xx = fwd ? 0 : W - 1; fwd ? xx < W : xx >= 0; xx += fwd ? 1 : -1) {
-          const i = yy * W + xx, s = fwd ? -1 : 1;
-          let v = d[i];
-          const nx = xx + s, ny = yy + s;
-          if (nx >= 0 && nx < W) v = Math.min(v, d[i + s] + 1);
-          if (ny >= 0 && ny < H) { v = Math.min(v, d[i + s * W] + 1); if (nx >= 0 && nx < W) v = Math.min(v, d[i + s * W + s] + 1.414); }
-          d[i] = v;
-        }
-      }
-      this.dLand = d;
+    const w = this.g.world, tx = Math.floor(x), ty = Math.floor(y);
+    if (!w.inBounds(tx, ty)) return 0;
+    const i = w.idx(tx, ty);
+    if (!w.water.get(i)) return 0;
+    const C = this.dLand || (this.dLand = new Map());
+    let d = C.get(i);
+    if (d !== undefined) return d;
+    d = 6;
+    for (let r = 1; r <= 6 && d === 6; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !w.inBounds(tx + dx, ty + dy) || w.water.get(w.idx(tx + dx, ty + dy))) continue;
+      d = Math.min(d, Math.hypot(dx, dy));
     }
-    const tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) ? this.dLand[w.idx(tx, ty)] : 0;
+    if (C.size > 20000) C.clear();
+    C.set(i, d);
+    return d;
   }
 
   // ---------------------------------------------------------------- scan
@@ -188,7 +185,7 @@ class Wildlife {
         // a frog on the bank (land right next to the water)
         if (this.n.frog < this.capOf('frog') && (day > 0.2 || dusk > 0.3) && rnd() < 0.35 + env.rain * 0.4 + dusk * 0.3) {
           const tx = Math.floor(x), ty = Math.floor(y);
-          if (this.landOk(x, y) && w.dWater && w.dWater[w.idx(tx, ty)] <= 1.05 && this.near(x, y) > 3.5) this.add('frog', { x, y, st: 0, v: rnd() < 0.6 ? 0 : 1, flip: rnd() < 0.5 ? -1 : 1, life: 40 + rnd() * 40, hopT: 2 + rnd() * 5 });
+          if (this.landOk(x, y) && w.dWater && w.dWater.get(w.idx(tx, ty)) <= 1.05 && this.near(x, y) > 3.5) this.add('frog', { x, y, st: 0, v: rnd() < 0.6 ? 0 : 1, flip: rnd() < 0.5 ? -1 : 1, life: 40 + rnd() * 40, hopT: 2 + rnd() * 5 });
         }
         continue;
       }
@@ -221,7 +218,7 @@ class Wildlife {
     if (this.n.bird < this.capOf('bird') - 2 && day > 0.35 && env.rain < 0.4 && rnd() < 0.18) {
       const [x, y] = this._rp(v, -1);
       const tx = Math.floor(x), ty = Math.floor(y);
-      if (this.landOk(x, y) && w.lush && w.lush[w.idx(tx, ty)] > 0.25 && this.near(x, y) > 5.5) {
+      if (this.landOk(x, y) && w.lush && w.lush.get(w.idx(tx, ty)) > 0.25 && this.near(x, y) > 5.5) {
         const n = 1 + Math.floor(rnd() * 3), v0 = Math.floor(rnd() * 3), from = rnd() * TAU;
         for (let k = 0; k < n; k++) {
           const bx = x + (rnd() - 0.5) * 1.6, by = y + (rnd() - 0.5) * 1.0;
@@ -234,8 +231,8 @@ class Wildlife {
     if (this.S.rab && this.n.rabbit < this.capOf('rabbit') && (day > 0.3 || dusk > 0.4) && rnd() < 0.12) {
       const [x, y] = this._rp(v, -1);
       const tx = Math.floor(x), ty = Math.floor(y);
-      const b = w.biome ? w.biome[w.idx(tx, ty)] : 0;
-      if (this.landOk(x, y) && (b === 0 || b === 3) && w.lush[w.idx(tx, ty)] > 0.4 && this.near(x, y) > 6) this.add('rabbit', { x, y, st: 0, flip: rnd() < 0.5 ? -1 : 1, hopT: 1 + rnd() * 3, life: 30 + rnd() * 30 });
+      const b = w.biome ? w.biome.get(w.idx(tx, ty)) : 0;
+      if (this.landOk(x, y) && (b === 0 || b === 3) && w.lush.get(w.idx(tx, ty)) > 0.4 && this.near(x, y) > 6) this.add('rabbit', { x, y, st: 0, flip: rnd() < 0.5 ? -1 : 1, hopT: 1 + rnd() * 3, life: 30 + rnd() * 30 });
     }
   }
 

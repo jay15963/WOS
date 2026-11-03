@@ -567,7 +567,7 @@ export class Session {
     this.keyToPid.set(key, pid);
     const g = this.game, env = g.env;
     this._sendTo(key, {
-      t: 'welcome', v: PROTO, build: BUILD, art: runtime.atlasDigest, hostPid: this.pid, hostName: this.name, seed: g.world.seed,
+      t: 'welcome', v: PROTO, build: BUILD, art: runtime.atlasDigest, hostPid: this.pid, hostName: this.name, seed: g.world.seed, src: g.world.source?.kind || 'classic', // (src: the world source, docs/STREAMING.md)
       hour: env.hour, day: env.dayIndex, weather: env.weather, wt: Math.round(g.worldTime * 100) / 100,
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
       ...(g.world.hills ? { hills: 1 } : {}), // (dev showcase of the terrain height: the guest sculpts the same world, world/hills.js)
@@ -597,6 +597,7 @@ export class Session {
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
       weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1,
+      src: ['classic', 'synth', 'planet'].includes(m.src) ? m.src : 'classic', // the host's world source: the guest generates the same chunks
     };
     this.welcomeInfo = welcome;
     netlog.ok('session', `Bem-vindo! Anfitrião: ${hostName}, mundo ${welcome.seed}`);

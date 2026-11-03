@@ -126,7 +126,7 @@ export function drawWallFaces(B, A, o, h0 = 0, t = 0) {
 function stacked(o) {
   const g = KIT_ENV.game, w = g?.world, lv = o.lv | 0;
   if (!w || !g.build?.grid || lv >= 3 || !w.inBounds(o.tx, o.ty)) return false;
-  const u = g.build.grid.main.get(o.ty * w.W + o.tx + (lv + 1) * w.W * w.H), d = u && BUILDINGS[u.type];
+  const u = g.build.grid.main.get(w.idx(o.tx, o.ty) + (lv + 1) * w.W * w.H), d = u && BUILDINGS[u.type];
   return !!d && d.connect === 'wall' && !u.blueprint;
 }
 // crenels: two merlons on each open edge of the top (the north view's sizes), each a little box with the art of the

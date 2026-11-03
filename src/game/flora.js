@@ -8,8 +8,9 @@
 // (mut/objects.js obj.add / tree.solid); every peer derives the sapling age from `born` + worldTime.
 
 import { BIOMES, G, treeSpecies, bushSpecies, boulderMossy } from '../world/worldgen.js';
-import { CHUNK } from '../world/world.js';
-import { mulberry32 } from '../engine/noise.js';
+import { CHUNK, BKW } from '../world/world.js';
+import { hash2 } from '../engine/noise.js';
+import { Layer, NCH, CS, CW } from '../world/store.js';
 import { spawnFlora, ageOf, TREE_SOLID, SAPLING_GROW, NOGROW_R } from './mut/objects.js';
 import { floraLook } from './mut/roll.js';
 import { inAnyView, minPlayerDist } from './players.js';
@@ -35,69 +36,85 @@ const SYNTH = {
   wild_wheat:  { meadow: 0.02, shore: 0.016, birch: 0.008, forest: 0.004 }, // (fertile tiles only: the river banks, docs/LIVESTOCK.md)
 };
 
+// Regrowth records per object bucket (16 × 16 tiles, key = world bucket index): made for the chunks loaded at start
+// (the whole classic world) and for every chunk that loads later (streamed planet); dropped with their chunk.
+// F.totals = the kinds the generator placed in the area loaded at start (others are synthesized from the biome mix).
 export function initFlora(game) {
   const w = game.world;
-  w.noGrow = new Uint16Array(w.W * w.H);
-  const n = w.CW * w.CH;
-  const jr = mulberry32((w.seed | 0) * 53 + 11); // per-chunk target jitter (deterministic)
-  const F = game.flora = { chunks: [], dyn: new Map(), t: 0, ci: 0, growing: new Set(), safetyT: 60 };
-  for (let k = 0; k < n; k++) F.chunks.push({ target: {}, tmpl: {}, jit: jr() });
-  const totals = {};
-  const tmplKey = (i) => (w.biome ? w.biome[i] : 0) * 16 + w.ground[i];
-  for (const c of w.chunks) for (const o of c.objects) {
-    if (!FLORA_SET.has(o.type)) continue;
-    const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
-    if (!w.inBounds(tx, ty)) continue;
-    const ch = F.chunks[chunkIndex(w, o.x, o.y)];
-    ch.target[o.type] = (ch.target[o.type] || 0) + 1;
-    (ch.tmpl[o.type] ||= new Set()).add(tmplKey(w.idx(tx, ty)));
-    totals[o.type] = (totals[o.type] || 0) + 1;
-  }
-  // kinds absent from the generated world: synthesize targets from the biome mix of each chunk (wild wheat: the
-  // generator seeds a few patches, the fertile chunks without one still get a regrowth target)
-  for (const kind in SYNTH) {
-    if (totals[kind] && kind !== 'wild_wheat') continue;
-    const dens = SYNTH[kind];
-    const allowed = new Set(Object.keys(dens).map((b) => B[b]));
-    for (let cy = 0; cy < w.CH; cy++) for (let cx = 0; cx < w.CW; cx++) {
+  w.noGrow = new Layer('noGrow', Uint16Array, 0, { sparse: true }); // (sparse store layer: only near structures)
+  const F = game.flora = { chunks: new Map(), keys: [], dyn: new Map(), t: 0, ci: 0, growing: new Set(), safetyT: 60, totals: {} };
+  const loaded = [];
+  for (let c = 0; c < NCH; c++) if (w.isLoaded(c)) loaded.push(c);
+  for (const c of loaded) w._forBucketsOf(c, (bk) => { for (const o of bk.objects) if (FLORA_SET.has(o.type) && w.inBounds(Math.floor(o.x), Math.floor(o.y - 0.05))) F.totals[o.type] = (F.totals[o.type] || 0) + 1; });
+  for (const c of loaded) floraChunk(game, c);
+  w.onLoad.push((c) => { if (game.flora === F) floraChunk(game, c); });
+  w.onEvict.push((c) => {
+    if (game.flora !== F) return;
+    forBucketKeys(c, (k) => F.chunks.delete(k));
+    F.keys = F.keys.filter((k) => F.chunks.has(k));
+  });
+}
+function forBucketKeys(c, fn) {
+  const bx0 = (c & (CW - 1)) * (CS / CHUNK), by0 = (c >>> 8) * (CS / CHUNK);
+  for (let by = by0; by < by0 + CS / CHUNK; by++) for (let bx = bx0; bx < bx0 + CS / CHUNK; bx++) fn(by * BKW + bx, bx, by);
+}
+function floraChunk(game, c) {
+  const w = game.world, F = game.flora;
+  forBucketKeys(c, (k, bx, by) => {
+    if (F.chunks.has(k)) return;
+    const x0 = bx * CHUNK, y0 = by * CHUNK;
+    if (!w.inBounds(x0, y0)) return; // (outside a bounded world)
+    const ch = { target: {}, tmpl: {}, jit: hash2(bx, by, (w.seed | 0) * 53 + 11) }; // per-bucket target jitter (deterministic)
+    const tmplKey = (i) => w.biome.get(i) * 16 + w.ground.get(i);
+    const bk = w.bk[k];
+    if (bk) for (const o of bk.objects) {
+      if (!FLORA_SET.has(o.type)) continue;
+      const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
+      if (!w.inBounds(tx, ty)) continue;
+      ch.target[o.type] = (ch.target[o.type] || 0) + 1;
+      (ch.tmpl[o.type] ||= new Set()).add(tmplKey(w.idx(tx, ty)));
+    }
+    // kinds absent from the generated world: synthesize targets from the biome mix of each bucket (wild wheat: the
+    // generator seeds a few patches, the fertile buckets without one still get a regrowth target)
+    for (const kind in SYNTH) {
+      if (F.totals[kind] && kind !== 'wild_wheat') continue;
+      const dens = SYNTH[kind];
       let sum = 0;
-      for (let y = cy * CHUNK; y < Math.min(w.H, (cy + 1) * CHUNK); y++) for (let x = cx * CHUNK; x < Math.min(w.W, (cx + 1) * CHUNK); x++) {
+      for (let y = y0; y < y0 + CHUNK; y++) for (let x = x0; x < x0 + CHUNK; x++) {
+        if (!w.inBounds(x, y)) continue;
         const i = w.idx(x, y);
-        if (w.rock[i] || w.water[i] || !w.biome) continue;
+        if (w.rock.get(i) || w.water.get(i)) continue;
         if (kind === 'wild_wheat' && !fertileAt(w, x, y)) continue; // (only by the rivers)
-        sum += dens[BIOMES[w.biome[i]]] || 0;
+        sum += dens[BIOMES[w.biome.get(i)]] || 0;
       }
       if (sum <= 0) continue;
-      const ch = F.chunks[cy * w.CW + cx];
       ch.target[kind] = Math.max(ch.target[kind] || 0, sum);
       ch.synth ||= {};
-      ch.synth[kind] = allowed;
+      ch.synth[kind] = SYNTH_ALLOWED[kind];
     }
-  }
+    for (const kind in ch.target) { F.chunks.set(k, ch); F.keys.push(k); break; }
+  });
 }
-
-const chunkIndex = (w, x, y) => {
-  const cx = Math.max(0, Math.min(w.CW - 1, Math.floor(x / CHUNK))), cy = Math.max(0, Math.min(w.CH - 1, Math.floor(y / CHUNK)));
-  return cy * w.CW + cx;
-};
+const NO_BUCKET = { objects: [] };
+const SYNTH_ALLOWED = Object.fromEntries(Object.keys(SYNTH).map((kind) => [kind, new Set(Object.keys(SYNTH[kind]).map((b) => B[b]))]));
 
 // ---------- spawning (authority) ----------
 function tileFree(game, tx, ty, kind) {
   const w = game.world;
-  if (!w.inBounds(tx, ty) || tx < 1 || ty < 1 || tx >= w.W - 1 || ty >= w.H - 1) return false;
+  if (!w.inside(tx, ty, 1)) return false;
   const i = w.idx(tx, ty);
-  if (w.rock[i] || w.water[i] || w.solid[i] || game.occ[i]) return false;
-  if (w.noGrow && w.noGrow[i]) return false;
+  if (w.rock.get(i) || w.water.get(i) || w.solid.get(i) || game.occ[i]) return false;
+  if (w.noGrow && w.noGrow.get(i)) return false;
   if (game.minedSet?.has(i) || w.isMined?.(tx, ty)) return false;
-  if (w.roofAt ? w.roofAt(tx, ty) : w.roof?.[i]) return false;
-  if (game.camps) for (const c of game.camps) if (Math.hypot(tx + 0.5 - c.x, ty + 0.5 - c.y) < Math.max(7, (c.r || 0) + 1)) return false;
+  if (w.roofAt ? w.roofAt(tx, ty) : w.roof?.get(i)) return false;
+  if (game.camps) for (const c of game.camps) if (Math.hypot(w.dx(tx + 0.5, c.x), ty + 0.5 - c.y) < Math.max(7, (c.r || 0) + 1)) return false;
   const minD = kind.startsWith('tree_') ? 1.25 : 0.7;
   const cx = tx + 0.5, cy = ty + 0.6;
   let ok = true;
   w.forChunks(cx - 2, cy - 2, cx + 2, cy + 2, (c) => {
     if (!ok) return;
     for (const o of c.objects) {
-      const d = Math.hypot(o.x - cx, o.y - cy);
+      const d = Math.hypot(w.dx(o.x, cx), o.y - cy);
       const lim = o.building ? 1.5 : o.type.startsWith('tree_') ? Math.max(minD, 1.0) : minD;
       if (d < lim) { ok = false; return; }
     }
@@ -120,8 +137,8 @@ const growKey = (kind) => (kind.startsWith('tree_') ? 'tree' : kind);
 const tileInView = (game, tx, ty) => inAnyView(game, tx + 0.5, ty + 0.5, 2.5, 3.5);
 
 function trySpawn(game, k, kind) {
-  const w = game.world, F = game.flora, ch = F.chunks[k], R = () => game.net.roll();
-  const cx = (k % w.CW) * CHUNK, cy = Math.floor(k / w.CW) * CHUNK;
+  const w = game.world, F = game.flora, ch = F.chunks.get(k), R = () => game.net.roll();
+  const cx = (k % BKW) * CHUNK, cy = Math.floor(k / BKW) * CHUNK;
   const tmpl = ch.tmpl[kind], allowed = ch.synth?.[kind];
   for (let a = 0; a < 12; a++) {
     const tx = cx + Math.floor(R() * CHUNK), ty = cy + Math.floor(R() * CHUNK);
@@ -131,8 +148,8 @@ function trySpawn(game, k, kind) {
       // world suitability (ground / biome / water / camps...), weighted
       const wt = w.growWeight(tx, ty, growKey(kind));
       if (wt <= 0 || R() > wt) continue;
-    } else if (tmpl) { if (!tmpl.has((w.biome ? w.biome[i] : 0) * 16 + w.ground[i])) continue; }
-    else if (allowed) { if (!w.biome || !allowed.has(w.biome[i]) || w.ground[i] === G.STONE) continue; }
+    } else if (tmpl) { if (!tmpl.has(w.biome.get(i) * 16 + w.ground.get(i))) continue; }
+    else if (allowed) { if (!allowed.has(w.biome.get(i)) || w.ground.get(i) === G.STONE) continue; }
     else return null;
     if (!tileFree(game, tx, ty, kind)) continue;
     return spawnAt(game, kind, tx, ty);
@@ -153,7 +170,7 @@ function countChunk(c) {
 function countNear(game, x, y, r, types) {
   let n = 0;
   game.world.forChunks(x - r, y - r, x + r, y + r, (c) => {
-    for (const o of c.objects) if (types.includes(o.type) && !o.stump && Math.hypot(o.x - x, o.y - y) < r) n++;
+    for (const o of c.objects) if (types.includes(o.type) && !o.stump && Math.hypot(game.world.dx(o.x, x), o.y - y) < r) n++;
   });
   return n;
 }
@@ -167,7 +184,7 @@ function spawnNear(game, kind, x, y, rMin, rMax, count, offscreen) {
     if (offscreen && tileInView(game, tx, ty)) continue;
     if (!tileFree(game, tx, ty, kind)) continue;
     if (game.world.growWeight && game.world.growWeight(tx, ty, growKey(kind)) <= 0) continue;
-    const g = game.world.ground[game.world.idx(tx, ty)];
+    const g = game.world.ground.get(game.world.idx(tx, ty));
     if (kind !== 'pebble' && kind !== 'boulder' && (g === G.STONE || g === G.SAND)) continue;
     spawnAt(game, kind, tx, ty);
     made++;
@@ -236,18 +253,24 @@ export function floraSystem() {
       }
       if (!net.auth) return;
       if (!F.cleared) { F.cleared = true; clearUnderStructures(game); }
-      // regrowth: a few chunks per second, round robin over the whole map
+      // regrowth: a few buckets per second, round robin over the loaded ones (each about once a minute), only in the
+      // active region around the players (streamer.activeAt: everything on a bounded world)
+      // (the visits of each second are spread over the next frames, ≤ 2 per frame: no hitch with many loaded buckets)
       F.t -= dt;
-      if (F.t > 0) return;
-      F.t = 1;
-      const nCh = F.chunks.length;
-      for (let s = 0; s < 4; s++) {
-        const k = F.ci++ % nCh;
-        const ch = F.chunks[k];
-        let any = false;
-        for (const kind in ch.target) { any = true; break; }
-        if (!any) continue;
-        const have = countChunk(w.chunks[k]);
+      const keys = F.keys, nCh = keys.length, S = w.streamer;
+      if (F.t <= 0) {
+        F.t = 1; F.burst = Math.max(4, Math.ceil(nCh / 64));
+        // safety net near the spawn (off-screen)
+        F.safetyT -= 1;
+        if (F.safetyT <= 0) { F.safetyT = 90; ensureStarter(game, true); }
+      }
+      if (!nCh || !(F.burst > 0)) return;
+      for (let s = 0; s < 2 && F.burst > 0; s++) {
+        F.burst--;
+        const k = keys[F.ci++ % nCh];
+        const ch = F.chunks.get(k);
+        if (!ch || (S && !S.activeAt((k % BKW) * CHUNK, Math.floor(k / BKW) * CHUNK))) continue;
+        const have = countChunk(w.bk[k] || NO_BUCKET);
         for (const kind in ch.target) {
           const want = Math.floor(ch.target[kind] + ch.jit);
           let deficit = want - (have[kind] || 0);
@@ -257,9 +280,6 @@ export function floraSystem() {
           for (let n = Math.min(deficit, small ? 2 : 1); n > 0; n--) if (net.roll() < rate) trySpawn(game, k, kind);
         }
       }
-      // safety net near the spawn (off-screen)
-      F.safetyT -= 1;
-      if (F.safetyT <= 0) { F.safetyT = 90; ensureStarter(game, true); }
     },
   };
 }

@@ -128,7 +128,7 @@ export function installPathbar(game) {
   const lastPlan = () => {
     const lp = game.build.lastPath, w = game.world;
     if (!lp) return null;
-    for (const i of lp.tiles) if (w.pathPlan[i] === lp.code) return game.paths.jobAt(i % w.W, (i / w.W) | 0);
+    for (const i of lp.tiles) if (w.pathPlan.get(i) === lp.code) return game.paths.jobAt(i % w.W, (i / w.W) | 0);
     return null;
   };
   press($('.lay'), () => { const it = lastPlan(); if (!it) return; exitBuildMode(game); game.work?.begin?.(it); });

@@ -21,7 +21,7 @@ export const isTree = (o) => o.type.startsWith('tree_');
 export const ageOf = (game, o) => (o.born == null ? (o.age ?? 1) : Math.min(1, 0.08 + (game.worldTime - o.born) / SAPLING_GROW));
 
 // worldgen objects whose state changed (snapshot / save rows)
-export function touch(game, o) { if (!o.flora) game.touched.set(o.id, o); }
+export function touch(game, o) { if (!o.flora) game.touched.set(o.id, o); game.world.markDirtyAt(o.x, o.y); } // (its chunk keeps the change: never evicted)
 
 // ---------- helpers (appliers / snapshot only) ----------
 export function noGrowStamp(game, tx0, ty0, w, h, sign) {
@@ -31,7 +31,7 @@ export function noGrowStamp(game, tx0, ty0, w, h, sign) {
   for (let y = ty0 - NOGROW_R; y < ty0 + h + NOGROW_R; y++) for (let x = tx0 - NOGROW_R; x < tx0 + w + NOGROW_R; x++) {
     if (!W.inBounds(x, y)) continue;
     const i = W.idx(x, y);
-    G2[i] = Math.max(0, G2[i] + sign);
+    G2.set(i, Math.max(0, G2.get(i) + sign));
   }
 }
 
@@ -41,6 +41,7 @@ export function removeNatural(game, o) {
   o.gone = true;
   if (o.flora) game.flora.dyn.delete(o.id);
   else game.touched.set(o.id, o);
+  game.world.markDirtyAt(o.x, o.y);
   game.flora.growing.delete(o);
   game.stumps?.delete(o);
   const k = game.falling.indexOf(o);
@@ -79,7 +80,15 @@ export function makeStump(game, o, at) {
   if (k >= 0) game.falling.splice(k, 1);
 }
 
-export const findObj = (game, id) => game.world.objById.get(id) || game.flora.dyn.get(id) || null;
+export const findObj = (game, id) => game.world.objById.get(id) || game.flora.dyn.get(id) || natural(game.world, id);
+// a natural object of a chunk not loaded here (a streamed planet: an op about a far tree): its id names the chunk
+function natural(w, id) {
+  if (!w.wrap) return null;
+  const c = w.source.chunkOfId?.(id) ?? -1;
+  if (c < 0 || w.isLoaded(c)) return null;
+  w.ensure(c);
+  return w.objById.get(id) || null;
+}
 
 // cosmetic effects (any peer) — the actor plays its own immediately (gathering.js), others on the op
 function hitFx(game, o, toward) {

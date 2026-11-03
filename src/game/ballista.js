@@ -80,10 +80,10 @@ export const boltZ = (lv, d) => (lv > 0 ? Math.max(0, lv - Math.max(0, d - FLAT)
 export function boltStops(game, x, y, z) {
   const w = game.world, tx = Math.floor(x), ty = Math.floor(y);
   if (!w.inBounds(tx, ty)) return true;
-  const i = ty * w.W + tx;
-  if (w.rock[i]) return true;
+  const i = w.idx(tx, ty);
+  if (w.rock.get(i)) return true;
   const k = Math.floor(z + 1e-3);
-  if (k <= 0) return w.solid[i] === 1 || w.solid[i] === 2;
+  if (k <= 0) return w.solid.get(i) === 1 || w.solid.get(i) === 2;
   const o = game.build?.grid?.main?.get(i + k * w.W * w.H), def = o && !o.blueprint && !o.removed ? BUILDINGS[o.type] : null;
   return !!def && def.connect === 'wall' && (def.block === 'tile' || (def.block === 'door' && !o.open));
 }

@@ -25,6 +25,7 @@
 //               which caches its geometry until o._dk.sig changes.
 //   e._dh       how high an entity stands on a deck (cosmetic, eased: game.js lifts its sprite and its depth); 0 under one.
 
+import { Layer } from '../world/store.js'; // sparse deck / railing layers (docs/STREAMING.md)
 import { BUILDINGS } from './data.js';
 import { CLEARABLE, objectsOnTile } from './mut/structures.js';
 import { collides, railHit, deckTrack } from './physics.js';
@@ -51,8 +52,8 @@ export function deckFriendly(type) {
 }
 
 // ---------- placement ----------
-const landAt = (w, x, y) => w.inBounds(x, y) && !w.water[w.idx(x, y)] && !w.rock[w.idx(x, y)];
-const wetAt = (w, x, y) => w.inBounds(x, y) && w.water[w.idx(x, y)] > 0;
+const landAt = (w, x, y) => w.inBounds(x, y) && !w.water.get(w.idx(x, y)) && !w.rock.get(w.idx(x, y));
+const wetAt = (w, x, y) => w.inBounds(x, y) && w.water.get(w.idx(x, y)) > 0;
 // kind of the deck piece on (x, y): built / planned, or accepted earlier in the same placement (batch: tile → type)
 function kindAt(game, x, y, batch) {
   const w = game.world;
@@ -68,11 +69,11 @@ const bridgeAt = (game, x, y, batch) => kindAt(game, x, y, batch) === 'bridge';
 export function deckReason(game, type, tx, ty, lv = 0, batch = null) {
   const w = game.world, kind = kindOfType(type);
   if (lv > 0) return 'Só no térreo (na água ou na margem)';
-  if (!w.inBounds(tx, ty) || tx < 1 || ty < 1 || tx >= w.W - 1 || ty >= w.H - 1) return 'Fora do mapa';
+  if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
   const i = w.idx(tx, ty), G = game.build.grid;
-  if (w.rock[i]) return 'Rocha no caminho';
+  if (w.rock.get(i)) return 'Rocha no caminho';
   if (G.deck.has(i) || (batch && batch.has(i))) return 'exists';
-  if (G.main.has(i) || G.floor.has(i) || G.rug.has(i) || w.solid[i]) return 'Algo no caminho';
+  if (G.main.has(i) || G.floor.has(i) || G.rug.has(i) || w.solid.get(i)) return 'Algo no caminho';
   for (const o of objectsOnTile(game, tx, ty)) {
     if (CLEARABLE.has(o.type)) continue;
     if (o.type === 'crop') return 'Plantação no caminho';
@@ -82,7 +83,7 @@ export function deckReason(game, type, tx, ty, lv = 0, batch = null) {
 }
 
 function pierReason(game, tx, ty, batch) {
-  const w = game.world, wv = w.water[w.idx(tx, ty)];
+  const w = game.world, wv = w.water.get(w.idx(tx, ty));
   if (!wv) return 'Só em água rasa: comece na beira da margem';
   if (wv === 2) return 'Só em água rasa (aqui é fundo: faça uma ponte)';
   for (const [dx, dy] of DIR) if (landAt(w, tx + dx, ty + dy) || kindAt(game, tx + dx, ty + dy, batch) === 'pier') return null;
@@ -178,8 +179,8 @@ export class Decks {
       for (const o of g.build.structures) if (o._dkh) o._dkh = 0;
       return;
     }
-    if (!w.deck || w.deck.length !== N) w.deck = new Uint8Array(N); else w.deck.fill(0);
-    for (const o of list) if (!o.blueprint) w.deck[w.idx(o.tx, o.ty)] = kindOfType(o.type) === 'pier' ? 1 : 2;
+    if (!w.deck) w.deck = new Layer('deck', Uint8Array, 0, { sparse: true }); else w.deck.clear(); // (sparse store layer)
+    for (const o of list) if (!o.blueprint) w.deck.set(w.idx(o.tx, o.ty), kindOfType(o.type) === 'pier' ? 1 : 2);
     // shapes (planned pieces included: the look connects to the plan, the ghost fills the rest)
     const has = (x, y, k) => { if (!w.inBounds(x, y)) return null; const o = at.get(w.idx(x, y)); return o && kindOfType(o.type) === k ? o : null; };
     for (const o of list) if (kindOfType(o.type) === 'pier') describePier(w, o, has, o._dk || (o._dk = {}));
@@ -187,14 +188,14 @@ export class Decks {
     // walking: ramps of finished piers onto the bank, railings of finished bridges (on the deck) and the walls at the
     // water around them (on the ground / under a deck: abutments, bents)
     let rail = null, railU = null;
-    const wall = (A, o, dx, dy, b) => { A[w.idx(o.tx, o.ty)] |= b; if (w.inBounds(o.tx + dx, o.ty + dy)) A[w.idx(o.tx + dx, o.ty + dy)] |= OPP[b]; };
+    const wall = (A, o, dx, dy, b) => { const i = w.idx(o.tx, o.ty); A.set(i, A.get(i) | b); if (w.inBounds(o.tx + dx, o.ty + dy)) { const j = w.idx(o.tx + dx, o.ty + dy); A.set(j, A.get(j) | OPP[b]); } };
     for (const o of list) {
       if (o.blueprint) continue;
       const d = o._dk;
       if (d.k === 'pier') {
         for (const [dx, dy, b] of DIR) if (d.land & b) { const j = w.idx(o.tx + dx, o.ty + dy); this.ramp.set(j, (this.ramp.get(j) || 0) | OPP[b]); }
       } else if (d.rails) {
-        rail ||= new Uint8Array(N); railU ||= new Uint8Array(N);
+        rail ||= new Layer('rail', Uint8Array, 0, { sparse: true }); railU ||= new Layer('railU', Uint8Array, 0, { sparse: true });
         for (const [dx, dy, b] of DIR) if (d.rails & b) { wall(rail, o, dx, dy, b); if (!d.wet) wall(railU, o, dx, dy, b); } // (an abutment's sides: stone at every level)
         const ax = d.axis === 2 ? 1 : 0, ay = d.axis === 1 ? 1 : 0, lo = d.axis === 1 ? 1 : 8, hi = d.axis === 1 ? 4 : 2; // (low end N / W, high end S / E)
         if (!d.wet) { if (d.prev === 2) wall(railU, o, -ax, -ay, lo); if (d.next === 2) wall(railU, o, ax, ay, hi); } // (its stone face toward the water)
@@ -219,7 +220,7 @@ export class Decks {
       if (e.dead || e.remote || e.proxy || (e.isMob && !g.net.auth) || e.lv > 0) continue;
       const ud = deckTrack(w, e);
       if (!railHit(w, e.x, e.y, e.r || 0.25, ud)) continue;
-      if (old && railHit({ ...w, rail: old, railU: oldU }, e.x, e.y, e.r || 0.25, ud)) continue; // (already there before)
+      if (old && railHit(Object.assign(Object.create(w), { rail: old, railU: oldU }), e.x, e.y, e.r || 0.25, ud)) continue; // (already there before)
       for (let n = 1; n < 40; n++) {
         const a = n * 2.4, d = 0.12 + n * 0.04, x = e.x + Math.cos(a) * d, y = e.y + Math.sin(a) * d;
         if (!collides(w, x, y, e.r || 0.25, null, !!e.passDoors, !!e.canSwim)) { e.x = x; e.y = y; break; }
@@ -232,8 +233,8 @@ export class Decks {
     if (!this.any) return 0;
     const w = this.game.world, tx = Math.floor(x), ty = Math.floor(y);
     if (!w.inBounds(tx, ty)) return 0;
-    const i = ty * w.W + tx, o = this.at.get(i);
-    if (o && (planned || (w.deck && w.deck[i]))) return deckHeightIn(o._dk, x - tx, y - ty);
+    const i = w.idx(tx, ty), o = this.at.get(i);
+    if (o && (planned || (w.deck && w.deck.get(i)))) return deckHeightIn(o._dk, x - tx, y - ty);
     const rb = this.ramp.get(i);
     if (!rb) return 0;
     const fx = x - tx, fy = y - ty;
@@ -248,7 +249,7 @@ export class Decks {
   onDeck(x, y) {
     if (!this.any) return false;
     const w = this.game.world, tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) && !!w.deck?.[ty * w.W + tx];
+    return w.inBounds(tx, ty) && !!w.deck?.get(w.idx(tx, ty));
   }
 
   // something built on this deck tile (it cannot be removed while so)
@@ -264,7 +265,7 @@ export class Decks {
       // a small thing on a deck tile: the deck under it first
       const i = w.idx(o.tx, o.ty), d = this.at.get(i);
       if (d && d.blueprint) return d.type === 'pier_wood' ? 'Termine o trapiche embaixo primeiro' : 'Termine a ponte embaixo primeiro';
-      if (!d && w.water[i]) return 'Precisa de um trapiche ou ponte embaixo';
+      if (!d && w.water.get(i)) return 'Precisa de um trapiche ou ponte embaixo';
       return null;
     }
     const done = (x, y, k) => { if (!w.inBounds(x, y)) return false; const n = this.at.get(w.idx(x, y)); return !!n && !n.blueprint && kindOfType(n.type) === k; };
@@ -272,7 +273,7 @@ export class Decks {
       for (const [dx, dy] of DIR) if (landAt(w, o.tx + dx, o.ty + dy) || done(o.tx + dx, o.ty + dy, 'pier')) return null;
       return 'Construa antes a peça ao lado (a partir da margem)';
     }
-    if (!w.water[w.idx(o.tx, o.ty)]) return null; // an abutment on the bank: any time
+    if (!w.water.get(w.idx(o.tx, o.ty))) return null; // an abutment on the bank: any time
     const ax = o._dk?.axis || 1, dx = ax === 2 ? 1 : 0, dy = ax === 1 ? 1 : 0;
     if (done(o.tx - dx, o.ty - dy, 'bridge') || done(o.tx + dx, o.ty + dy, 'bridge')) return null;
     return 'Construa antes a peça anterior da ponte (a partir da margem)';
@@ -283,7 +284,7 @@ export class Decks {
   unsupported(gone = null) {
     const w = this.game.world, ok = new Set(), q = [];
     const alive = (o) => o && !o.blueprint && !(gone && gone.has(o)) && kindOfType(o.type) === 'bridge';
-    for (const o of this.list) if (alive(o) && !w.water[w.idx(o.tx, o.ty)]) { ok.add(o); q.push(o); }
+    for (const o of this.list) if (alive(o) && !w.water.get(w.idx(o.tx, o.ty))) { ok.add(o); q.push(o); }
     while (q.length) {
       const o = q.pop(), ax = o._dk?.axis || 1, dx = ax === 2 ? 1 : 0, dy = ax === 1 ? 1 : 0;
       for (const s of [-1, 1]) {
@@ -361,7 +362,7 @@ function describePier(w, o, has, d) {
 function describeBridges(w, list, has) {
   const B = list.filter((o) => kindOfType(o.type) === 'bridge');
   if (!B.length) return;
-  const wet = (o) => w.water[w.idx(o.tx, o.ty)] > 0;
+  const wet = (o) => w.water.get(w.idx(o.tx, o.ty)) > 0;
   // axis: from the neighbours; a lone abutment looks toward the most water around it
   for (const o of B) {
     const x = o.tx, y = o.ty, d = o._dk || (o._dk = {});
@@ -522,7 +523,7 @@ export function installDeckDebug(game) {
   const G = game.debug;
   if (!G || G.deckScene) return;
   const S = (G._decks = {});
-  const free = (x, y) => { const w = game.world; return w.inBounds(x, y) && !w.rock[w.idx(x, y)] && !w.solid[w.idx(x, y)] && !game.build.grid.main.has(w.idx(x, y)) && !game.build.grid.deck.has(w.idx(x, y)) && !objectsOnTile(game, x, y).some((o) => !CLEARABLE.has(o.type)); };
+  const free = (x, y) => { const w = game.world; return w.inBounds(x, y) && !w.rock.get(w.idx(x, y)) && !w.solid.get(w.idx(x, y)) && !game.build.grid.main.has(w.idx(x, y)) && !game.build.grid.deck.has(w.idx(x, y)) && !objectsOnTile(game, x, y).some((o) => !CLEARABLE.has(o.type)); };
   G.deckScene = (opts = {}) => {
     const w = game.world, p = game.player, px = Math.floor(p.x), py = Math.floor(p.y), net = game.net;
     if (!net.auth) return 'só o anfitrião';
@@ -531,17 +532,17 @@ export function installDeckDebug(game) {
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
         const x = px + dx, y = py + dy;
-        if (!free(x, y) || w.water[w.idx(x, y)]) continue;
+        if (!free(x, y) || w.water.get(w.idx(x, y))) continue;
         for (const [ex, ey] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
           let n = 0, deep = 0, ok = true;
-          while (n < 10 && wetAt(w, x + ex * (n + 1), y + ey * (n + 1))) { n++; const tx = x + ex * n, ty = y + ey * n; if (!free(tx, ty)) ok = false; if (w.water[w.idx(tx, ty)] === 2) deep++; }
+          while (n < 10 && wetAt(w, x + ex * (n + 1), y + ey * (n + 1))) { n++; const tx = x + ex * n, ty = y + ey * n; if (!free(tx, ty)) ok = false; if (w.water.get(w.idx(tx, ty)) === 2) deep++; }
           const fx = x + ex * (n + 1), fy = y + ey * (n + 1);
-          if (!best && ok && n >= (opts.span || 3) && n <= MAX_SPAN && deep >= 1 && free(fx, fy) && !w.water[w.idx(fx, fy)]) best = [x, y, ex, ey, n];
+          if (!best && ok && n >= (opts.span || 3) && n <= MAX_SPAN && deep >= 1 && free(fx, fy) && !w.water.get(w.idx(fx, fy))) best = [x, y, ex, ey, n];
           if (!pier) {
             let m = 0;
-            while (m < 5 && w.inBounds(x + ex * (m + 1), y + ey * (m + 1)) && w.water[w.idx(x + ex * (m + 1), y + ey * (m + 1))] === 1 && free(x + ex * (m + 1), y + ey * (m + 1))) m++;
+            while (m < 5 && w.inBounds(x + ex * (m + 1), y + ey * (m + 1)) && w.water.get(w.idx(x + ex * (m + 1), y + ey * (m + 1))) === 1 && free(x + ex * (m + 1), y + ey * (m + 1))) m++;
             const sx = -ey, sy = ex, tx = x + ex * 4, ty = y + ey * 4;
-            const side = (k) => w.inBounds(tx + sx * k, ty + sy * k) && w.water[w.idx(tx + sx * k, ty + sy * k)] === 1 && free(tx + sx * k, ty + sy * k);
+            const side = (k) => w.inBounds(tx + sx * k, ty + sy * k) && w.water.get(w.idx(tx + sx * k, ty + sy * k)) === 1 && free(tx + sx * k, ty + sy * k);
             if (m >= 4 && side(1) && side(-1) && !(best && Math.abs(x - best[0]) + Math.abs(y - best[1]) < 6)) pier = [x, y, ex, ey];
           }
         }

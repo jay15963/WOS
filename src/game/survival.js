@@ -143,19 +143,19 @@ function shelterAt(game, tx, ty) {
   const cave = !!w.isCave?.(tx, ty);
   const roof = cave || (w.roofAt?.(tx, ty) === 2);
   const seen = new Set();
-  const q = [ty * W + tx];
+  const q = [w.idx(tx, ty)];
   seen.add(q[0]);
   let open = false;
   while (q.length) {
     const i = q.pop();
     const x = i % W, y = (i - x) / W;
-    if (Math.abs(x - tx) > 12 || Math.abs(y - ty) > 12 || seen.size > MAX_ROOM) { open = true; break; }
+    if (Math.abs(w.dx(x, tx)) > 12 || Math.abs(y - ty) > 12 || seen.size > MAX_ROOM) { open = true; break; }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (!w.inBounds(nx, ny)) { open = true; break; }
-      const j = ny * W + nx;
+      const j = w.idx(nx, ny);
       if (seen.has(j)) continue;
-      if (w.solid[j] || w.rock[j] === 1 || w.water[j] === 2) continue; // wall / door / rock / deep water
+      if (w.solid.get(j) || w.rock.get(j) === 1 || w.water.get(j) === 2) continue; // wall / door / rock / deep water
       seen.add(j);
       q.push(j);
     }

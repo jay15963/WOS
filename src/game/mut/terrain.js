@@ -27,9 +27,9 @@ function cornerBlock(game, ix, iy) {
     const tx = ix - (k & 1), ty = iy - (k >> 1);
     if (!w.inBounds(tx, ty)) return 'edge';
     const i = w.idx(tx, ty);
-    if (w.water[i]) return 'water';
-    if (w.rock[i]) return 'rock';
-    if (w.solid[i] || game.build?.grid && structOn(game, tx, ty)) return 'build';
+    if (w.water.get(i)) return 'water';
+    if (w.rock.get(i)) return 'rock';
+    if (w.solid.get(i) || game.build?.grid && structOn(game, tx, ty)) return 'build';
   }
   return null;
 }
@@ -41,17 +41,17 @@ function structOn(game, tx, ty) {
 
 // the brush (host): new heights of the corners it moves → { list: [[i, h]], why, dug, stone }
 export function terrainBrush(game, m, x, y, h, creative = false) {
-  const w = game.world, L = w.height, CW = L.W + 1;
+  const w = game.world, L = w.height; // (corner index: L.ci — the planet store, docs/STREAMING.md)
   const step = T_STEP * (creative ? 2 : 1), out = [];
   let why = null, dug = 0, stone = 0, seen = 0;
   const R = T_R, ix0 = Math.ceil(x - R), ix1 = Math.floor(x + R), iy0 = Math.ceil(y - R), iy1 = Math.floor(y + R);
   for (let iy = iy0; iy <= iy1; iy++) for (let ix = ix0; ix <= ix1; ix++) {
     const d = Math.hypot(ix - x, iy - y);
-    if (d > R || ix < 0 || iy < 0 || ix > L.W || iy > L.H) continue;
+    if (d > R || iy < 0 || iy >= L.H || !w.inBounds(Math.min(ix, w.maxX), Math.min(iy, w.maxY))) continue;
     seen++;
     const b = cornerBlock(game, ix, iy);
     if (b) { why ||= b; continue; }
-    const wt = ss(R, 0.45, d), i = iy * CW + ix, cur = L.t[i], base = L.base[i];
+    const wt = ss(R, 0.45, d), i = L.ci(ix, iy), cur = L.t.get(i), base = L.base.get(i);
     let nh = cur;
     if (m === 'dig') nh = Math.max(cur - step * wt, Math.max(0, base - T_DEPTH));
     else if (m === 'fill') nh = Math.min(cur + step * wt, base + T_DEPTH);
@@ -101,7 +101,7 @@ defineOp('terrain.set', {
     if (!applyTerrain(game, list) || !list.length) return;
     // feedback where it happened (the actor's client already played it)
     if (ctx.mine) return;
-    const CW = game.world.W + 1, i = list[0][0], x = i % CW, y = (i / CW) | 0;
+    const W = game.world.W, i = list[0][0], x = i % W, y = (i / W) | 0;
     game.juice?.puff?.(x, y, 4, a.m === 'fill' ? [0.5, 0.4, 0.3] : [0.56, 0.46, 0.34], 0.45);
     game.audio?.play(a.m === 'fill' ? 'path_dirt' : 'dig', { x, y, volume: 0.6 });
   },

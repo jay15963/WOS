@@ -21,7 +21,7 @@ function openSpot(game, x, y, R) {
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (dx * dx + dy * dy > R * R) continue;
     const i = w.idx(Math.floor(x + dx), Math.floor(y + dy));
-    if (w.rock0[i] || w.water[i]) return false; // pristine world only (never player structures / mined tiles)
+    if (w.rock0.get(i) || w.water.get(i)) return false; // pristine world only (never player structures / mined tiles)
   }
   w.forChunks(x - R, y - R, x + R, y + R, (c) => { for (const o of c.objects) if (o.type.startsWith('tree_') && Math.hypot(o.x - x, o.y - y) < R) trees++; });
   return trees <= 9;
@@ -40,7 +40,7 @@ export function findCampSpots(game) {
     cands.push({ x: z.x, y: z.y, d, score: (z.type === 'clearing' ? 2 : z.type === 'meadow' ? 1.2 : 0.6) + rand() });
   }
   for (let k = 0; k < 400; k++) {
-    const x = 12 + rand() * (w.W - 24), y = 12 + rand() * (w.H - 24);
+    const x = w.bx0 + 12 + rand() * (w.bx1 - w.bx0 - 24), y = w.by0 + 12 + rand() * (w.by1 - w.by0 - 24);
     const d = Math.hypot(x - sx, y - sy);
     if (d >= CAMP_MIN_D) cands.push({ x, y, d, score: rand() * 0.8 });
   }

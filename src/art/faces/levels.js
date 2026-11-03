@@ -257,12 +257,12 @@ export function drawFloorFaces(F, A, o, h = 1, t = 0) {
   // the slab's beam: open sides (no surface of this story beyond) that face the camera, not over a wall below
   const g = KIT_ENV.game, w = g?.world, L = g?.levels, lv = o.lv | 0;
   if (!w || !L || o.blueprint || CA <= 0.01) return true;
-  const N = w.W * w.H, i = o.ty * w.W + o.tx, below = g.build.grid.main.get(i + (lv - 1) * N);
+  const N = w.W * w.H, i = w.idx(o.tx, o.ty), below = g.build.grid.main.get(i + (lv - 1) * N);
   if (below && isWallTop(BUILDINGS[below.type]) && !below.blueprint) return true;
   const se = archSprite(A, 'slab_edge'), x0 = o.tx, y0 = o.ty, x1 = x0 + 1, y1 = y0 + 1, hb = h - 11 * PX;
   const su = T ? T.su : 0, sv = T ? T.sv : 0;
   const side = (ax, ay, bx, by, nx, ny, nxT, nyT) => {
-    if (viewK(nx, ny) <= 0.02 || !w.inBounds(nxT, nyT) || L.isSurface(lv, nyT * w.W + nxT)) return;
+    if (viewK(nx, ny) <= 0.02 || !w.inBounds(nxT, nyT) || L.isSurface(lv, w.idx(nxT, nyT))) return;
     const z = shadeOf(nx, ny);
     if (se) { const m = pxMap(se, 64, 11, 0.5, 0); F.quad4(ax, ay, h, m.u(0.5), m.v(0.5), bx, by, h, m.u(63.5), m.v(0.5), bx, by, hb, m.u(63.5), m.v(10.5), ax, ay, hb, m.u(0.5), m.v(10.5), z * CR, z * CG, z * CB, CA); }
     else if (T) F.quad4(ax, ay, h, su, sv, bx, by, h, su, sv, bx, by, hb, su, sv, ax, ay, hb, su, sv, 0.42 * z * CR, 0.29 * z * CG, 0.18 * z * CB, CA);

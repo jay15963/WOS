@@ -47,7 +47,7 @@ function structBreak(game, o) {
   F?.walls.delete(o);
   if (game.headless) return;
   const col = isStone(o) ? STONE_COL : WOOD_COL, w = game.world;
-  breakFx(game, o.ty * w.W + o.tx, { col, fx: o._hitX, fy: o._hitY, lift: 0.7, n: 8 });
+  breakFx(game, w.idx(o.tx, o.ty), { col, fx: o._hitX, fy: o._hitY, lift: 0.7, n: 8 });
   game.juice?.puff(o.x, o.y - 0.25, 12, isStone(o) ? [0.7, 0.68, 0.64] : [0.66, 0.56, 0.42], 0.9);
   const p = game.player;
   if (p && Math.hypot(p.x - o.x, p.y - o.y) < 9) game.juice?.shake?.(0.25); // (felt nearby only)
