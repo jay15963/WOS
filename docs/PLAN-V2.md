@@ -585,7 +585,10 @@ alturas), `src/game/mut/decks.js` (queda: op `deck.collapse`), `src/art/faces/de
 radar).
 
 - **Menu:** aba nova **Água** (`BUILD_CATS` `water`): **Trapiche** (`pier_wood`: 3 madeira + 1 corda por tile, arraste
-  em área) e **Ponte** (`bridge_wood`: 4 madeira + 2 pedra + 1 corda por tile, arraste em linha). Camada própria
+  em área — o cartão diz "arraste: área na água rasa, da margem") e **Ponte** (`bridge_wood`: 4 madeira + 2 pedra + 1
+  corda por tile, arraste `span`: uma linha reta só, no eixo mais comprido do arraste — "arraste: linha reta de margem a
+  margem"; antes o arraste de linha fazia uma "sala" na diagonal). A barra de construção, a dica da barra de trabalho e o
+  primeiro aviso também falam de margem / água rasa / linha reta. Camada própria
   `deck` (`game.build.grid.deck`): por cima dela só cabem coisas pequenas (`deckFriendly`: luzes, baús, cadeiras,
   decoração de 1 tile — nada de paredes, cercas, portas, escadas, móveis grandes), construídas depois do deque e
   desenhadas no topo dele (`o._dkh`, kit sólido).
@@ -613,11 +616,20 @@ radar).
   prontas, dos dois lados de cada peça, inclusive as cabeceiras) são paredes finas (`physics.railHit` / `railCross`, no
   A* de `nav.js`, `clearLine` e `levels.js`): da ponte não se cai na água pelo lado; entra-se pelas pontas. O trapiche
   não tem guarda-corpo (dá para descer na água rasa e pescar da beirada). Bichos e bandidos atravessam rios pela ponte
-  no A* (não escolhem a ponte como passeio).
+  no A* e também **passeiam** em trapiches e pontes perto de casa (`ai.pickWander`: às vezes um ponto num deque pronto
+  ao alcance; nunca na água funda) — os bichos da criação também.
+- **Por baixo da ponte:** quem nada, anda no gelo ou na água rasa passa por baixo da ponte entre os cavaletes: entrar numa
+  peça sobre a água **pelos lados com guarda-corpo** vindo da água / gelo / margem ao lado deixa o corpo **embaixo** do
+  deque (`e._ud`, `physics.deckTrack`, derivado em cada par do caminho do corpo): lá a água é água (nada no fundo, anda
+  no gelo), e as paredes são as de baixo (`world.railU`: os cavaletes entre duas peças, as cabeceiras de pedra — os
+  lados e a face para a água), não os guarda-corpos; quem entra pelas pontas fica em cima. Física (`collides`,
+  `railHit`, `tileBlocked`), A* (`nav.findPath`, `levels.findPath`: cada tile lembra se foi alcançado por baixo; a água
+  embaixo custa 2,5×, então um deque é alcançado pelas tábuas antes), linha reta (`clearLine`) e a sonda do `steer`
+  usam a mesma regra. Desenho: na água (`_dh` 0), nadando onde é fundo.
 - **Altura (cosmético):** o deque do trapiche fica a 0,2 tile da água (as tábuas sobem na margem por 0,34 tile); a
   ponte a 0,3 nas margens e, atravessada de margem a margem, **arqueia** até +0,15 no meio (`deckHeightIn`). Quem
   está em cima é desenhado no topo (`e._dh`, suavizado; game.js soma no levantamento e na profundidade); itens no
-  chão de um deque também (desenháveis na ordem de profundidade, `decksSystem.collect`).
+  chão de um deque também (desenháveis na ordem de profundidade, `decksSystem.collect`), e os corpos (`corpsesSystem.collect`).
 - **Sync:** as peças são estruturas comuns (`build.place` / `struct.add` / `build.hit` / `struct.remove`, snapshot,
   save, digest) — só a op nova `deck.collapse {ids, drops}`. Cenários **D1** (o convidado planeja e constrói ponte e
   trapiche com trabalho de verdade, recusas, mesmo mapa de deque e guarda-corpos nos dois, os dois atravessam sem nadar)
@@ -627,9 +639,21 @@ radar).
   perto, prontas ou em planta), `game.debug.deckAt('bridge' | 'pier' | 'bank', k)`.
 - **Desempenho** (`game.debug.bench(150)`, Chrome sem cabeça, ponte de 10 peças + trapiche de 6 na tela): CPU de
   render 0,6 ms (0,5 sem eles) a 0°, 1,0 ms (0,9) girada; a geometria de cada peça é feita uma vez por mudança.
-- **Lacunas:** corpos no chão de um deque ficam embaixo dele; a ponte não faz curva nem diagonal; os bichos não passeiam
-  em deques (só atravessam perseguindo / no caminho); pescar do trapiche depende da vara de pescar (outro agente: o
-  trapiche não impede); sem barcos.
+- **Desempenho** (depois de passar por baixo / corpos / passeio; `game.debug.bench(150)`, Chrome sem cabeça): vitrine
+  0,9 ms de CPU de render a 0° (1,0 antes) e 1,6–1,7 girada (1,8–2,4); `deckScene` 0,7 a 0° (0,7) e 1,1 girada (1,2) —
+  no ruído. Sem alocação por quadro nova (o estado de baixo é um número por corpo; o corpo sobre o deque usa desenháveis
+  reaproveitados).
+- **Lacunas:** a ponte não faz curva nem **diagonal**. A diagonal foi estudada e deixada para depois: tudo que anda,
+  nada e acha caminho é por tile (água, deque, `liquidAt` / `blocked` / `speedAt`, A* com cantos), e uma ponte a 45°
+  ocupa uma faixa de √2 tile que cobre **metade** de cada tile ao lado, com os guarda-corpos nas diagonais desses tiles:
+  seriam tiles meio deque / meio água (cada consulta por tile teria de saber de que lado da diagonal o corpo está), o
+  A* teria waypoints no meio de tiles cortados por um guarda-corpo, a obra teria de reservar os tiles ao lado (nada
+  construído neles), e as peças procedurais (caixas alinhadas aos eixos: postes, cavaletes, pilares) teriam de virar
+  caixas giradas. O passo de agora (níveis em cima / embaixo, `railCross` com o conjunto de paredes do nível) prepara
+  isso: paredes diagonais seriam mais 4 bits por tile. Quem passa a pé por baixo da ponte mostra a cabeça acima do
+  deque (a ponte é baixa); pescar do trapiche depende da vara de pescar (outro agente: o trapiche não impede); peixes
+  não nadam sob os deques (o cérebro deles, em `livestock.js`, trata o deque como chão); sem barcos (os trapiches e a
+  água por baixo da ponte já servem para eles).
 
 ## Agropecuária (added later)
 
