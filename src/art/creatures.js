@@ -4,6 +4,8 @@
 
 import { rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
 import { spline, limbPath, fur, tufts, part, stack, mirror } from './kit.js';
+import { lazyDef } from './lazyDefs.js';
+import { beast34, beast34Anchor } from './beast34.js';
 
 const C = {
   body: '#2f2622', mid: '#4b3b31', hair: '#8c7660', band: '#b49a78', mark: '#d9c9a6', mark2: '#c06a2a',
@@ -106,6 +108,24 @@ function fang(g, x, y, s, w = 1) {
 const SW = 124, SH = 84, FOOT = 70;
 // near legs [attach x, foot x], far legs offset; sets for the alternating tetrapod gait
 const SIDE_LEGS = [[80, 112, 0], [76, 96, 1], [70, 56, 0], [66, 30, 1]];
+// near / far legs of a side frame [shift, lift]
+function sideLegs(sh, lift, far) {
+  const L = [];
+  SIDE_LEGS.forEach(([ax, fx, set], i) => {
+    const s = (set ^ (far ? 1 : 0)) ? -1 : 1; // alternate sets (near 1&3 with far 2&4)
+    const dx = sh * s, up = lift * s > 0 ? Math.abs(lift) : 0;
+    const ox = far ? 3 : 0, oy = far ? -3 : 0;
+    L.push(legPts(ax + ox, 43 + oy, fx + dx + ox * 0.5, FOOT + oy * 0.6, i < 2 ? 22 - i * 3 : 17 + (i - 2) * 3, far ? 3.2 : 3.6, up));
+  });
+  return L;
+}
+function sideFace(g) {
+  g.fillStyle = C.body; g.beginPath(); g.ellipse(88, 40, 6.5, 6, 0.2, 0, TAU); g.fill();
+  g.fillStyle = C.mid;
+  g.beginPath(); limbPath(g, [[90, 44, 3.2], [97, 41, 2.6], [100, 48, 2.2]]); g.fill();
+  fang(g, 91, 47, 1, 1.1);
+  eyes(g, [[89.5, 36.5, 1], [92.5, 38.2, 0.8], [86.6, 35.6, 0.75], [90.4, 40.2, 0.6]], 1.7);
+}
 function sideFrames() {
   const rand = rng(9191);
   const body = part(SW, SH, (P) => {
@@ -217,6 +237,36 @@ function dead() {
     }, OWS);
     P.layer((g) => { for (const p of legsOf(true)) leg(g, p, false, rand); }, OWS * 0.8);
   });
+}
+
+// ---------- 3/4 views (camera rotation; art/beast34.js): spider_se, spider_se_walk… and _ne, painted lazily ----------
+// The abdomen swept across the body's width, the far legs on the far side, the near legs, and the cephalothorax turned
+// from its face-on drawing (eyes, fangs) and its side one.
+const SPIDER_FRAMES = { e: [0, 0, ''], e_walk: [6, 0, '_walk'], e_w1: [0, 5, '_w1'], e_w2: [-6, 0, '_w2'], e_w3: [0, -5, '_w3'] };
+function spider34(frame) {
+  const [sh, lift] = SPIDER_FRAMES[frame], rand = rng(9393);
+  return {
+    W: SW, H: SH, cx: SW / 2, foot: FOOT, wb: 12, wl: 16, farOff: [3, -3],
+    far: (P) => P.layer((g) => { for (const p of sideLegs(sh, lift, true)) leg(g, p, true, rand); }, OWS * 0.85),
+    near: (P) => P.layer((g) => { for (const p of sideLegs(sh, lift, false)) leg(g, p, false, rand); }, OWS * 0.85),
+    body: (P) => P.layer((g) => abdomen(g, 42, 36, 25, 18, rand, 'e'), OWS),
+    head: {
+      side: (P, dx) => { P.layer((g) => { g.translate(dx, 0); cephalo(g, 76, 41, 15, 10.5, rand); sideFace(g); }, OWS); },
+      front: (P, x, y, s) => P.layer((g) => {
+        g.translate(x, y); g.scale(s, s);
+        cephalo(g, 0, 0, 14, 10.5, rand);
+        g.fillStyle = C.mid;
+        for (const k of [-1, 1]) { g.beginPath(); limbPath(g, [[k * 6, 6, 3], [k * 10, 11, 2.6], [k * 8, 17, 2.2]]); g.fill(); }
+        fang(g, -3.2, 8, 1.2, 0.9); fang(g, 3.2, 8, -1.2, 0.9);
+        eyes(g, [[-3.4, -3.5, 1], [3.4, -3.5, 1], [-7.5, -5, 0.75], [7.5, -5, 0.75], [-2, 0.5, 0.6], [2, 0.5, 0.6], [-6, -0.6, 0.5], [6, -0.6, 0.5]], 1.9);
+      }, OWS),
+      back: (P, x, y, s) => P.layer((g) => { g.translate(x, y); g.scale(s, s); cephalo(g, 0, 0, 13, 9.5, rand); }, OWS),
+    },
+  };
+}
+for (const frame of Object.keys(SPIDER_FRAMES)) for (const view of ['se', 'ne']) {
+  const [ax, ay] = beast34Anchor({ H: SH, foot: FOOT });
+  lazyDef(`spider_${view}${SPIDER_FRAMES[frame][2]}`, () => beast34(spider34(frame), view), ax, ay);
 }
 
 export function addCreatures(add) {

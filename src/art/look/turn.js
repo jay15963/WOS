@@ -41,9 +41,9 @@ const PADQ = 14;
 const OCC_TOL = 2 * SS; // (px: hair lying on the head is never hidden by it)
 
 // ---------------- recording painter: the raw layers of a part (no outline yet) ----------------
-class Rec {
-  constructor(W, H, pad) {
-    this.W = W; this.H = H; this.pad = pad;
+export class Rec {
+  constructor(W, H, pad, keep = false) {
+    this.W = W; this.H = H; this.pad = pad; this.keep = keep; // (keep: the layer canvases too)
     this.cw = (W + pad * 2) * SS; this.ch = (H + pad * 2) * SS;
     this.layers = [];
   }
@@ -52,7 +52,7 @@ class Rec {
     g.lineJoin = 'round'; g.lineCap = 'round';
     g.setTransform(SS, 0, 0, SS, this.pad * SS, this.pad * SS);
     fn(g);
-    this.layers.push({ px: g.getImageData(0, 0, this.cw, this.ch).data, ow, col, opacity });
+    this.layers.push({ px: g.getImageData(0, 0, this.cw, this.ch).data, c: this.keep ? c : null, ow, col, opacity });
   }
 }
 function record(def, pad) {
@@ -64,7 +64,7 @@ function record(def, pad) {
 
 // ---------------- per-row extents of a drawing (SS px from the axis), smoothed ----------------
 // out: Float32Array [lo, hi] per row (NaN = empty)
-function extents(R, flipX = false) {
+export function extents(R, flipX = false) {
   const W = R.cw, H = R.ch, ax = (R.pad + R.W / 2) * SS;
   const E = new Float32Array(H * 2).fill(NaN);
   for (let y = 0; y < H; y++) {
@@ -82,7 +82,7 @@ function extents(R, flipX = false) {
   return E;
 }
 // union of two extents arrays (either may be null)
-function union(a, b) {
+export function union(a, b) {
   if (!a) return b; if (!b) return a;
   const E = new Float32Array(a.length);
   for (let i = 0; i < a.length; i += 2) {
@@ -93,7 +93,7 @@ function union(a, b) {
 }
 // rows of a drawing that are empty where the other view has content take the nearest row of the same drawing (the
 // bottom of a round mass: the two views do not end on the same row — a jump to another stand-in would shift it)
-function stretch(a, other) {
+export function stretch(a, other) {
   if (!other) return a;
   const n = a.length / 2, E = new Float32Array(a);
   for (let y = 0; y < n; y++) {
@@ -114,7 +114,7 @@ function fillE(a, b) {
 }
 // soften the row profile (ragged ends would make the stand-in jumpy): a short mean of the rows that have content
 // (never wider than the drawing at the ends: a wider stand-in leaves holes at the seam)
-function smoothE(E, r = 2) {
+export function smoothE(E, r = 2) {
   const n = E.length / 2, O = new Float32Array(E.length).fill(NaN);
   for (let y = 0; y < n; y++) {
     if (Number.isNaN(E[y * 2])) continue;
@@ -206,7 +206,7 @@ function depthAt(e, xq, cg, sg) {
 }
 // occ: an occluder stand-in ({ X, Z }: the bare head) — what lies behind it on the camera's ray is not drawn (a hair
 // strand on the far side of the face)
-function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
+export function projectLayer(R, pxF, pxS, X, Z, view, frontOnly, occ = null) {
   const W = R.cw, H = R.ch, ax = (R.pad + R.W / 2) * SS;
   const out = new Uint8ClampedArray(W * H * 4);
   const back = view === 'ne', g = GAMMA[view], cg = Math.cos(g), sg = Math.sin(g);
@@ -378,7 +378,7 @@ function over(a, b) {
 }
 
 // tiny islands left by the projection (a strand's tip past what hides it): dropped from every layer
-function dropCrumbs(layers, W, H, minA = 14 * SS * SS) {
+export function dropCrumbs(layers, W, H, minA = 14 * SS * SS) {
   const n = W * H, lab = new Int32Array(n), on = new Uint8Array(n), stack = new Int32Array(n);
   for (const L of layers) for (let i = 0; i < n; i++) if (L.px[i * 4 + 3] > 40) on[i] = 1;
   let id = 0;

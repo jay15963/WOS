@@ -7,6 +7,8 @@
 
 import { spritePxFast as spritePx, rng, OW, TAU, lin, rad, circle, mixc, rgb, hex, atop, canvas } from './paint.js';
 import { spline, chain, plant, limbPath, fur, tufts, eyeAt, part, stack, strip, mirror } from './kit.js';
+import { lazyDef } from './lazyDefs.js';
+import { beast34, beast34Anchor } from './beast34.js';
 
 const A = (c, a) => rgb(hex(c), a);
 
@@ -481,10 +483,15 @@ function sideFrames(sp, variant) {
 // ---------- rabbit (own side painter: sits / hops) ----------
 function rabbitSide(frame) {
   const S = SPECIES.rabbit;
+  return spritePx(S.W, S.H, (g, P) => rabbitPaint(frame, P));
+}
+// layers: far legs · body + haunch · tail puff · near legs · head + ears
+function rabbitPaint(frame, P) {
+  const S = SPECIES.rabbit;
   const rand = rng(4242 + frame.length);
   // frame: 'e' sit, 'e_walk' stretched hop, 'e_w1' gathered
   const st = frame === 'e_walk' ? 1 : frame === 'e_w1' ? 2 : 0;
-  return spritePx(S.W, S.H, (g, P) => {
+  {
     const tilt = st === 1 ? -0.16 : st === 2 ? 0.12 : 0;
     const bx = st === 1 ? 2 : 0;
     const rot = (g) => { g.translate(26, 28); g.rotate(tilt); g.translate(-26 + bx, -28); };
@@ -544,7 +551,7 @@ function rabbitSide(frame) {
       g.fillStyle = A(S.dark, 0.7); g.beginPath(); g.ellipse(0, -15.4, 1.8, 1.4, 0, 0, TAU); g.fill();
       g.restore();
     }, S.ow);
-  });
+  }
 }
 
 // ---------- front / back views (generic quadruped builder) ----------
@@ -888,6 +895,58 @@ function bendFrame(c, S, G) {
   out.origW = c.origW; out.origH = c.origH; out.origin = c.origin; out.needsCrop = true;
   return out;
 }
+
+// ---------- 3/4 views (camera rotation; art/beast34.js) ----------
+// The side painter's parts (far legs, swept body, near legs) and the head turned from the face-on and the side head,
+// painted lazily into the look texture the first time a turned camera shows them: <key>_se, <key>_se_walk, _w1.._w3
+// and the same for _ne (back-side). Never baked.
+const Q_FRAMES = { e: '', e_walk: '_walk', e_w1: '_w1', e_w2: '_w2', e_w3: '_w3' };
+// only the layers numbered `set` of a painter (shifted by dx: the side head on the stand-in's axis)
+const pick = (P, set, dx = 0) => { let i = 0; return { layer(fn, ow, col, op) { if (set.includes(i++)) P.layer(dx ? (g) => { g.translate(dx, 0); fn(g); } : fn, ow, col, op); } }; };
+function spec34(sp, variant, frame) {
+  const S = SPECIES[sp], F = FRONT[sp];
+  const rand = rng(sp.length * 1000 + 31 + (variant ? 3 : 0));
+  const faceOn = (back) => (P, x, y, s) => {
+    const r = F.head.r, stag = sp === 'deer' && variant !== 'doe';
+    if (stag) P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) antlersFront(g, S, 0, 0, r, mixc(S.antler, S.antlerDark, 0.5), 1); else { antlersFront(g, S, 0, 0, r, S.antlerDark, 1.05); antlersFront(g, S, 0, 0, r, S.antler, 0.75); } }, 2.1);
+    P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) backHead(g, sp, S, 0, 0, r * 0.92); else frontHead(g, sp, S, 0, 0, r, rand); }, back ? S.ow * 0.9 : S.ow);
+  };
+  const base = { W: S.W, H: S.H, cx: S.W / 2, foot: S.foot + S.oy, wb: F.barrel.rx * 0.7, wl: (F.front.x + F.hind.x) / 2 };
+  if (sp === 'rabbit') {
+    return { ...base, farOff: [0, 0], far: (P) => rabbitPaint(frame, pick(P, [0])), body: (P) => rabbitPaint(frame, pick(P, [1, 2])), near: (P) => rabbitPaint(frame, pick(P, [3])),
+      head: { side: (P, dx) => rabbitPaint(frame, pick(P, [4], dx)), front: faceOn(false), back: faceOn(true) } };
+  }
+  const D = SIDE[sp], fr = FRAMES[frame];
+  const lp = [legPts(S, 'front', fr[0], false), legPts(S, 'hind', fr[1], false), legPts(S, 'front', fr[2], true), legPts(S, 'hind', fr[3], true)];
+  const canid = sp === 'wolf' || sp === 'fox';
+  return {
+    ...base, farOff: S.legs.far, headOver: sp === 'deer',
+    far: (P) => L(P, S, (g) => { drawLeg(g, S, lp[2], true, 'front', rand); drawLeg(g, S, lp[3], true, 'hind', rand); }, S.ow * 0.85),
+    near: (P) => L(P, S, (g) => { drawLeg(g, S, lp[1], false, 'hind', rand); drawLeg(g, S, lp[0], false, 'front', rand); }, S.ow * 0.72),
+    tail: canid || sp === 'deer' ? (P) => L(P, S, (g) => D.tail(g, S, rand), S.ow * (canid ? 0.9 : 0.7)) : null,
+    body: (P) => L(P, S, (g) => { if (sp === 'boar' || sp === 'bear') D.tail(g, S, rand); D.body(g, S, rand, variant === 'doe'); }),
+    head: {
+      side: (P, dx) => {
+        const at = (g) => { g.translate(dx, S.oy); if (S.hd) g.translate(S.hd[0], S.hd[1]); };
+        if (sp === 'deer' && variant !== 'doe') P.layer((g) => { at(g); D.antlers(g, S); }, 2.1);
+        P.layer((g) => { at(g); D.farEar(g, S); D.head(g, S, rand); }, S.ow);
+      },
+      front: faceOn(false), back: faceOn(true), spread: sp === 'deer' && variant !== 'doe' ? [0] : [],
+    },
+  };
+}
+for (const sp of ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox']) {
+  for (const [name, variant] of sp === 'deer' ? [['deer', null], ['deer_doe', 'doe']] : [[sp, null]]) {
+    for (const frame of Object.keys(Q_FRAMES)) {
+      if (sp === 'rabbit' && (frame === 'e_w2' || frame === 'e_w3')) continue;
+      for (const view of ['se', 'ne']) {
+        const [ax, ay] = beast34Anchor(spec34Box(sp));
+        lazyDef(`${name}_${view}${Q_FRAMES[frame]}`, () => beast34(spec34(sp, variant, frame), view), ax, ay);
+      }
+    }
+  }
+}
+function spec34Box(sp) { const S = SPECIES[sp]; return { H: S.H, foot: S.foot + S.oy }; }
 
 export function addAnimals(add) {
   for (const sp of ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox']) {

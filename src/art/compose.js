@@ -136,6 +136,17 @@ function tables(A) {
       nw: [opt(sp + '_n_w1') || n, n, opt(sp + '_n_w2') || n, n],
       dead: opt(sp + '_dead'), graze: opt(sp + '_e_graze'),
     };
+    // 3/4 views (camera rotation; art/beast34.js): lazily painted frames for the side frames they replace
+    const S = T.animal[sp], LA = lookAtlasOf(A), q = (n) => (LA.has(n) ? LA.get(n) : null);
+    S.q = {};
+    for (const v of ['se', 'ne']) {
+      const M = new Map(), st = q(`${sp}_${v}`);
+      if (!st) continue;
+      const wk = [q(`${sp}_${v}_walk`), q(`${sp}_${v}_w1`), q(`${sp}_${v}_w2`) || q(`${sp}_${v}_walk`), q(`${sp}_${v}_w3`) || q(`${sp}_${v}_w1`)];
+      M.set(S.e, st); if (S.graze) M.set(S.graze, st); M.set(S.s, st); M.set(S.n, st);
+      S.ew.forEach((f, i) => { if (wk[i] && !M.has(f)) M.set(f, wk[i]); });
+      S.q[v] = M;
+    }
   }
   for (let i = 0; i < 3; i++) T.flames.push(opt('fx_flame_' + i) || A.get('fx_flame'));
   T.knife = held(T, 'knife_iron'); T.axe = held(T, 'axe_iron'); T.pick = held(T, 'pickaxe_iron'); T.bow = held(T, 'bow_wood'); T.hammer = held(T, 'hammer');
@@ -1247,7 +1258,7 @@ export function drawAnimal(B, A, a, t) {
   const dir = dv ? (dv === 'se' || dv === 'ne' ? 'e' : 'w') : a.facing || 'e';
   const sd = dir === 'w' ? 'e' : dir;
   const flip = dir === 'w' ? -1 : 1;
-  const dk = dv ? 0.84 : 1, dTilt = dv ? flip * (dv[0] === 's' ? 0.06 : -0.05) : 0;
+  let dk = dv ? 0.84 : 1, dTilt = dv ? flip * (dv[0] === 's' ? 0.06 : -0.05) : 0;
   const sc = a.scale || 1;
   const fl = a.flash || 0;
   const sp = a.species;
@@ -1363,9 +1374,17 @@ export function drawAnimal(B, A, a, t) {
     if (rear && k > 0.58 && k < 0.7) { const u = 1 - Math.abs((k - 0.62) / 0.08); sy *= 1 - 0.08 * clamp01(u); sx *= 1 + 0.06 * clamp01(u); }
   }
   if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.05 * fl; } // hit flinch
-  if (dv) { sx *= dk; ox *= dk; rot += dTilt; oy += (dv[0] === 's' ? 0.5 : -0.5) * Math.abs(ox); } // (3/4: a lunge goes along the diagonal)
+  // 3/4: the turned frame (art/beast34.js) once painted, else the side frame foreshortened
+  if (dv) {
+    const Q = S.q && S.q[dv[0] === 's' ? 'se' : 'ne'], r = Q ? Q.get(spr) : null;
+    if (r && !r.failed) {
+      r.lu = LOOK_CLOCK.f;
+      if (r.ready) { spr = r; dk = 1; dTilt = 0; } else lookAtlasOf(A).want(r);
+    }
+    sx *= dk; ox *= dk; rot += dTilt; oy += (dv[0] === 's' ? 0.5 : -0.5) * Math.abs(ox); // (a lunge goes along the diagonal)
+  }
   const x = a.x + ox, y = a.y + oy;
-  const bw = sd === 'e' ? spr.w * 0.62 * dk : spr.w * 0.72;
+  const bw = sd === 'e' ? spr.w * 0.62 * (dv ? 0.84 : 1) : spr.w * 0.72;
   if (T.blob) B.blob.add(T.blob, a.x, a.y, bw * sc * (1 - lift), 0.55 * sc * (1 - lift), 1, 1, 1, 0.7);
   B.main.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 1, 0, rot, fl, flip, 0, lift);
   B.shadow.add(spr, x, y, sc * sx, sc * sy, 1, 1, 1, 0.9, 0, rot, 0, flip, 0, lift);
