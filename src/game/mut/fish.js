@@ -104,9 +104,8 @@ defineOp('fish.bob', {
     if (!F) return;
     // times in this peer's clock (a guest's worldTime may run up to ~2 s off the host's): bite / until from the host's "now"
     const off = num(a.now, game.worldTime) - game.worldTime;
+    // (it flies out with the cast swing and splashes where it lands: fishing.js fishingSystem / drawLine)
     F.bobs.set(a.pid, { x: num(a.x), y: num(a.y), bite: num(a.bite) - off, until: num(a.until) - off, t0: game.time, splashed: false });
-    game.juice?.splash?.(num(a.x), num(a.y), 0.35);
-    game.audio?.play('arrow_land', { x: a.x, y: a.y, volume: 0.35 });
   },
 });
 
@@ -116,7 +115,10 @@ defineOp('fish.end', {
   apply(game, a) {
     const F = game.fishing;
     if (!F) return;
+    const b = F.bobs.get(a.pid);
     F.bobs.delete(a.pid);
+    // pulled out (a catch or a fish that got away): the bobber flies back to the rod (cosmetic, fishing.js drawReel)
+    if (b?.landed && a.why !== 'stop' && a.why !== 'far' && F.reels) F.reels.set(a.pid, { x: num(a.x), y: num(a.y), t0: game.time, ok: !!a.ok });
     F.ended(a);
     if (a.why !== 'stop') game.juice?.splash?.(num(a.x), num(a.y), a.ok ? 0.8 : 0.4);
     if (a.ok) game.audio?.play('pickup', { x: a.x, y: a.y });

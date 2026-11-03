@@ -6,7 +6,8 @@
 //  - in the world: the aim line from the muzzle to where the bolt would stop (wall / rock, else its range) and, while
 //    it is still turning, a faint line where it is going; the camera leans along the aim; desktop: crosshair cursor.
 
-import { BALLISTA, ballistaCtl, pivotOf, muzzleOf } from '../game/ballista.js';
+import { BALLISTA, ballistaCtl, pivotOf, muzzleOf, boltZ, boltStops } from '../game/ballista.js';
+import { STORY_H } from '../game/levels.js';
 import { itemIcon } from './icons.js';
 
 const DEAD = 0.22;
@@ -155,21 +156,19 @@ export function installBallistaUi(game) {
       if (!o || !A.has('fx_spark')) return;
       const dot = A.get('fx_spark'), ring = A.has('fx_ring') ? A.get('fx_ring') : null, px = 1 / g.cam.zoom;
       const line = (a, alpha, col) => {
-        const [mx, my] = muzzleOf(o, a), ux = Math.cos(a), uy = Math.sin(a), w = g.world;
-        // march until a wall / rock (where the bolt would stop) or the range
+        const [mx, my] = muzzleOf(o, a), ux = Math.cos(a), uy = Math.sin(a), lv = o.lv | 0;
+        // march until a wall / rock (where the bolt would stop: game/ballista.js boltStops, at the height it flies) or the range
         let d = 0, end = BALLISTA.range;
-        for (; d < BALLISTA.range; d += 0.25) {
-          const tx = Math.floor(mx + ux * d), ty = Math.floor(my + uy * d);
-          if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || w.solid[ty * w.W + tx]) { end = d; break; }
-        }
+        for (; d < BALLISTA.range; d += 0.25) if (boltStops(g, mx + ux * d, my + uy * d, boltZ(lv, d))) { end = d; break; }
         const sx = Math.max(0.34, 17 * px) / dot.w, sy = Math.max(0.13, 6 * px) / dot.h, rot = Math.atan2(...g.toViewDir(ux, uy).reverse());
         const ph = (g.time * 2.2) % 1;
         for (let k = ph * 0.75; k < end; k += 0.75) {
           const f = Math.min(1, 0.35 + k / 3) * (1 - Math.max(0, (k - end + 2) / 2) * 0.6);
-          B.fx.add(dot, mx + ux * k, my + uy * k, sx * 1.35, sy * 1.6, 0.1, 0.07, 0.03, alpha * f * 0.45, 0, rot, 0, 1, 0, BALLISTA.h0); // (dark halo: reads on snow)
-          B.fx.add(dot, mx + ux * k, my + uy * k, sx, sy, col[0], col[1], col[2], alpha * f, 0, rot, 0, 1, 0, BALLISTA.h0);
+          const h = BALLISTA.h0 + boltZ(lv, k) * STORY_H; // (up a story: the line plunges like the bolt)
+          B.fx.add(dot, mx + ux * k, my + uy * k, sx * 1.35, sy * 1.6, 0.1, 0.07, 0.03, alpha * f * 0.45, 0, rot, 0, 1, 0, h); // (dark halo: reads on snow)
+          B.fx.add(dot, mx + ux * k, my + uy * k, sx, sy, col[0], col[1], col[2], alpha * f, 0, rot, 0, 1, 0, h);
         }
-        return [mx + ux * end, my + uy * end, end < BALLISTA.range];
+        return [mx + ux * end, my + uy * end, end < BALLISTA.range, boltZ(lv, end)];
       };
       const reloading = (C.cd || 0) > 0 || o._reload > 0;
       const [ex, ey, hit] = line(C.aimL, reloading ? 0.35 : 0.85, reloading ? [0.9, 0.8, 0.6] : [1, 0.86, 0.48]);

@@ -184,6 +184,9 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
 
 ### 2.1 World objects — natural (worldgen ids 1..N) and flora (dynamic)
 
+(Worldgen ids are sequential: new kinds of generated objects go at the END of the list — the wild wheat patches on the
+fertile river banks are the last ones — so the ids of older saves keep pointing at the same objects.)
+
 | Mutation | file:line | Auth | How |
 |---|---|---|---|
 | Tree hit: `o.shake`, `o.prog` | gathering.js:113-120 | H (O requests) | int `gather.hit` → op `obj.prog` |
@@ -310,7 +313,11 @@ a guest sends to the host (the host turns it into ops); `ent` = entity snapshot 
 `juice.js` (shake, particles, footsteps — Math.random OK), `fx/particles.js`, `fx/ambient.js`,
 `fx/audio.js`, `ui/*` (except the chest/drop/eat/equip calls listed above), `game.cam`, `game.time`,
 `o.shake/flash/alpha/open`, `_`-prefixed caches, target ring, hover, nameplates, build ghost
-(`building.js:151-182`), mining overlay, `ctl.hinted`.
+(`building.js:151-182`), mining overlay, `ctl.hinted`. Fishing animation (`game/fishing.js`, docs/LIVESTOCK.md): the
+cast start (`_fishT0`: when this client saw the angler's `fish` action begin), the bite dip (`_fishBite`), the drawn rod
+tip (`_rodTip`), the bobber's flight / landing splash and the line pulled back (`fishing.reels`) — all derived per client
+from the presence action (`fish`, `reel`) and the ops `fish.bob` / `fish.end`. Ambient critters facing the screen
+(`fx/wildlife.js` `_face`).
 
 ---
 
@@ -441,8 +448,9 @@ A guest's work loop never mutates on local completion: when its local `wk.hits �
 | `env.skip` | `{hour, day, wt}` | `env.hour/dayIndex`, `game.worldTime`, toast |
 
 Owner message (`{t:'own', n, a}`, host → one guest; local pid → immediate):
-`player.hurt {src: nid|null, sx, sy, slv, amount, crit, ability, dtype, ranged, from, noDodge, poison?:{dur,tick,dmg}, bleed?:{dur,tick,dmg}, stun?: dur}`
-→ owner: `dealDamage(game, proxyOf(src) || {x:sx, y:sy, level:slv}, game.player, amount, opts)`, then
+`player.hurt {src: nid|null, sx, sy, slv, amount, crit, ability, dtype, ranged, from, noDodge, knock?, noKnock, poison?:{dur,tick,dmg}, bleed?:{dur,tick,dmg}, stun?: dur}`
+→ owner: `dealDamage(game, proxyOf(src) || {x:sx, y:sy, level:slv}, game.player, amount, opts)` (o empurrão `knock` — o
+esmagar do gigante: 0,5 — e `noKnock` vão junto: o dono se move, a posição volta pelo stream), then
 `addDot(game, p, 'poison'|'bleed', …)` / `stunPlayer(game, dur)`.
 
 ### 3.5 Host AI with several players

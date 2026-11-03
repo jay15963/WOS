@@ -22,12 +22,17 @@
 // Damage (host): a bolt pierces every creature in its way (each hit once) and stops in the first ice giant, a wall or
 // rock (trunks and loose rocks do not stop it, like an aimed arrow); a giant takes GIANT_K of its max life (two bolts
 // kill it), anything else at least its whole life (one bolt); never players (no friendly fire).
+// Up a story (o.lv ≥ 1: on a wall-walk / an upper floor, docs/LEVELS.md): only someone standing at that story gets on;
+// the operator stands behind it where there is floor (on a one-wall rampart: beside it, along the wall); the bolt
+// leaves at that height and plunges (boltZ: level for the first tiles, then down a story every DESC tiles) — over the
+// walls below while it is high, hitting what stands at the height it has (a giant is tall: hit from a rampart too).
 
 import { BUILDINGS } from './data.js';
 import { dealDamage, isMob } from './combat.js';
 import { allPlayers } from './players.js';
 import { facingFrom, collides } from './physics.js';
 import { archSprite } from '../art/archCompose.js';
+import { STORY_H } from './levels.js';
 
 export const BALLISTA = {
   reload: 3.0,        // s between two shots of one ballista (host-checked)
@@ -42,6 +47,8 @@ export const BALLISTA = {
   aimHz: 8,           // aim updates per second while turning
 };
 const STEP = 0.2;
+const FLAT = 1.2, DESC = 4.5; // (up a story: the bolt flies level FLAT tiles, then drops a story every DESC tiles)
+const GIANT_TALL = 3.4;      // stories an ice giant stands tall (a bolt at that height still hits it)
 
 // ---------- helpers ----------
 export const isBallista = (o) => !!o && o.building && o.type === 'ballista' && !o.removed;
@@ -54,6 +61,37 @@ export const angDiff = (a, b) => { let d = (a - b) % (Math.PI * 2); if (d > Math
 export const pivotOf = (o) => [o.tx + 0.5, o.ty + 0.5];
 // where the operator stands for an aim angle
 export function seatOf(o, a) { const [x, y] = pivotOf(o); return [x - Math.cos(a) * BALLISTA.seat, y - Math.sin(a) * BALLISTA.seat]; }
+// ...up a story: behind it if there is floor there, else the nearest standable spot around it (a one-wall rampart:
+// beside it along the wall); null = nowhere (the operator stays where it is)
+const AROUND = [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.8, -1.8];
+export function seatSpot(game, o, a, r = 0.24) {
+  const lv = o.lv | 0, L = game.levels;
+  if (!lv || !L) return seatOf(o, a);
+  const [px, py] = pivotOf(o);
+  for (const off of AROUND) for (const d of [BALLISTA.seat, 0.8]) {
+    const b = a + Math.PI + off, x = px + Math.cos(b) * d, y = py + Math.sin(b) * d;
+    if (!L.collidesL(lv, x, y, r, false, false, -1)) return [x, y];
+  }
+  return null;
+}
+// the story a bolt flies at, d tiles out of a ballista on story lv
+export const boltZ = (lv, d) => (lv > 0 ? Math.max(0, lv - Math.max(0, d - FLAT) / DESC) : 0);
+// does something stop a bolt at (x, y) flying at story z: rock at any height, the walls / doors of that story
+export function boltStops(game, x, y, z) {
+  const w = game.world, tx = Math.floor(x), ty = Math.floor(y);
+  if (!w.inBounds(tx, ty)) return true;
+  const i = ty * w.W + tx;
+  if (w.rock[i]) return true;
+  const k = Math.floor(z + 1e-3);
+  if (k <= 0) return w.solid[i] === 1 || w.solid[i] === 2;
+  const o = game.build?.grid?.main?.get(i + k * w.W * w.H), def = o && !o.blueprint && !o.removed ? BUILDINGS[o.type] : null;
+  return !!def && def.connect === 'wall' && (def.block === 'tile' || (def.block === 'door' && !o.open));
+}
+// is a creature at the bolt's height (stories): about its own story; an ice giant over its whole height
+export function boltReaches(e, z) {
+  const ez = e.z || 0;
+  return Math.abs(ez - z) < 0.75 || (e.species === 'giant' && z >= ez - 0.25 && z < ez + GIANT_TALL);
+}
 // the muzzle (where a bolt leaves the rail)
 export function muzzleOf(o, a) { const [x, y] = pivotOf(o); return [x + Math.cos(a) * 0.9, y + Math.sin(a) * 0.9]; }
 export function ballistasNear(game, x, y, r) {
@@ -100,7 +138,8 @@ export function leaveBallista(game, o = myBallista(game)) {
 export function spawnBolt(game, a, auth) {
   const L = game.bolts || (game.bolts = []);
   const ux = Math.cos(a.a), uy = Math.sin(a.a);
-  const b = { sid: a.sid, x: a.x, y: a.y, x0: a.x, y0: a.y, ux, uy, ang: a.a, d: 0, by: a.by, auth, src: auth ? playerByPid(game, a.by) : null, hit: new Set(), done: false, t: 0, endT: 0, stuck: false, end: null };
+  const lv = Math.max(0, a.lv | 0); // (the ballista's story: the bolt leaves at that height)
+  const b = { sid: a.sid, x: a.x, y: a.y, x0: a.x, y0: a.y, ux, uy, ang: a.a, d: 0, lv, z: lv, by: a.by, auth, src: auth ? playerByPid(game, a.by) : null, hit: new Set(), done: false, t: 0, endT: 0, stuck: false, end: null };
   L.push(b);
   if (L.length > 24) L.splice(0, L.length - 24);
   return b;
@@ -117,18 +156,17 @@ function finish(game, b, stuck, quiet = false) {
   if (b.auth && !quiet && game.session) game.net.emit('ballista.end', { sid: b.sid, x: +b.x.toFixed(2), y: +b.y.toFixed(2), stuck: b.stuck ? 1 : 0 });
 }
 function stepBolt(game, b, dt) {
-  const w = game.world;
   let travel = BALLISTA.speed * dt;
   while (travel > 0 && !b.done) {
     const s = Math.min(STEP, travel);
     travel -= s;
-    const nx = b.x + b.ux * s, ny = b.y + b.uy * s, tx = Math.floor(nx), ty = Math.floor(ny);
-    // walls / doors / rock stop it (trunks and loose rocks do not)
-    if (!w.inBounds(tx, ty) || w.rock[ty * w.W + tx] || w.solid[ty * w.W + tx] === 1 || w.solid[ty * w.W + tx] === 2) { finish(game, b, true); break; }
-    b.x = nx; b.y = ny; b.d += s;
-    // creatures in the way
+    const nx = b.x + b.ux * s, ny = b.y + b.uy * s, nz = boltZ(b.lv, b.d + s);
+    // walls / doors / rock stop it (trunks and loose rocks do not); up a story: the walls of the story it is at
+    if (boltStops(game, nx, ny, nz)) { finish(game, b, true); break; }
+    b.x = nx; b.y = ny; b.d += s; b.z = nz;
+    // creatures in the way (at the height it flies)
     for (const e of game.entities) {
-      if (!isMob(e) || e.dead || b.hit.has(e) || e.faction === 'friend' || (e.z || 0) > 0.5) continue;
+      if (!isMob(e) || e.dead || b.hit.has(e) || e.faction === 'friend' || !boltReaches(e, nz)) continue;
       const rr = (e.r || 0.3) + 0.2, dx = e.x - nx, dy = e.y - ny;
       if (dx * dx + dy * dy > rr * rr) continue;
       b.hit.add(e);
@@ -163,8 +201,17 @@ export function ballistaSystem() {
       }
       const mine = myBallista(game);
       const v = game.view?.() || null;
+      // who operates what (cosmetic, every peer): the operator's drawn body faces the aim and holds the grips
+      // (art/facing.js, art/compose.js read _opA)
+      const OPS = game._opEnts || (game._opEnts = []);
+      for (const e of OPS) e._opA = null;
+      OPS.length = 0;
       for (const o of game.build.structures) {
         if (o.type !== 'ballista' || o.removed) continue;
+        if (o.user) {
+          const e = o.user === game.net.pid ? game.player : game.session?.players?.get(o.user)?.ent;
+          if (e && !e.dead) { e._opA = Number.isFinite(o._aimD) ? o._aimD : aimOf(o); OPS.push(e); }
+        }
         if (o._reload > 0) o._reload = Math.max(0, o._reload - dt);
         if (o.shake > 0) o.shake = Math.max(0, o.shake - dt * 3); // (the kick of a shot)
         if (o === mine) continue; // (the operator draws its own angle: ballistaOwnerSystem)
@@ -180,7 +227,8 @@ export function ballistaSystem() {
       for (const o of game.build.structures) {
         if (o.type !== 'ballista' || !o.user) continue;
         const q = playerByPid(game, o.user), [px, py] = pivotOf(o);
-        if (o.removed || o.blueprint || !q || q.dead || Math.hypot(q.x - px, q.y - py) > BALLISTA.reach + 1.5) game.net.emit('ballista.set', { id: o.id, user: 0 });
+        // (gone, dead, walked off, or not at its story any more: fell off the rampart)
+        if (o.removed || o.blueprint || !q || q.dead || Math.hypot(q.x - px, q.y - py) > BALLISTA.reach + 1.5 || Math.abs((q.z || 0) - (o.lv | 0)) > 0.75) game.net.emit('ballista.set', { id: o.id, user: 0 });
       }
     },
     collect(game, list, v) {
@@ -203,7 +251,7 @@ function drawBolt(game, B, A, b) {
   const [vx, vy] = game.toViewDir(b.ux, b.uy), rot = Math.atan2(vy, vx); // (screen direction: the world one turned into the view)
   const a = b.done ? Math.max(0, 1 - Math.max(0, b.endT - (b.stuck ? 3.4 : 0)) / 0.6) : 1;
   if (a <= 0) return;
-  const lift = b.done ? (b.stuck ? BALLISTA.h0 * 0.8 : 0.05) : BALLISTA.h0;
+  const lift = (b.done ? (b.stuck ? BALLISTA.h0 * 0.8 : 0.05) : BALLISTA.h0) + (b.z || 0) * STORY_H; // (up a story: its height)
   const S = archSprite(A, 'proj_ballista_bolt'); // (lazy art: null until painted)
   const soft = A.has('fx_soft') ? A.get('fx_soft') : null, blob = A.has('fx_blob') ? A.get('fx_blob') : null;
   if (!b.done && soft) {
@@ -251,14 +299,16 @@ export function ballistaOwnerSystem() {
         C.sent = C.aimL; C.sentT = 1 / BALLISTA.aimHz;
         game.net.request('ballista.aim', { id: o.id, a: +C.aimL.toFixed(4) });
       }
-      // stand behind it, facing where it points
-      const [sx, sy] = seatOf(o, C.aimL);
-      const ds = Math.hypot(sx - p.x, sy - p.y), pr = p.r || 0.24;
+      // stand behind it, facing where it points (up a story: where there is floor, art/levels collisions)
+      const pr = p.r || 0.24, lv = o.lv | 0, L = lv ? game.levels : null;
+      const seat = seatSpot(game, o, C.aimL, pr);
+      const ds = seat ? Math.hypot(seat[0] - p.x, seat[1] - p.y) : 0;
       if (ds > 0.002) {
         // (a step at a time while it turns; from the far side of it — got on from the front — straight to the seat)
-        const k = ds > 0.5 ? 1 : Math.min(1, dt * 12), nx = p.x + (sx - p.x) * k, ny = p.y + (sy - p.y) * k;
-        if (!collides(game.world, nx, ny, pr, null, false)) { p.x = nx; p.y = ny; }
-        else if (!collides(game.world, sx, sy, pr, null, false)) { p.x = sx; p.y = sy; }
+        const [sx, sy] = seat, k = ds > 0.5 ? 1 : Math.min(1, dt * 12), nx = p.x + (sx - p.x) * k, ny = p.y + (sy - p.y) * k;
+        const blocked = (x, y) => (L ? L.collidesL(lv, x, y, pr, false, false, -1) : collides(game.world, x, y, pr, null, false));
+        if (!blocked(nx, ny)) { p.x = nx; p.y = ny; }
+        else if (!blocked(sx, sy)) { p.x = sx; p.y = sy; }
       }
       p.facing = facingFrom(Math.cos(C.aimL), Math.sin(C.aimL), p.facing);
       p._faceLockT = Math.max(p._faceLockT || 0, 0.1);

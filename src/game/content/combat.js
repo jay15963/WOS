@@ -41,7 +41,7 @@ export const SPECIES = {
   // winter nights, rarer (giants.js): ice giants, twice a person, walk with the walkers (faction 'walker'); a slow
   // overhead smash with a long wind-up (dodge it) and ice rocks thrown from afar; they break walls fast. Two ballista
   // bolts kill one (ballista.js); normal weapons too, slowly. Numbers: docs/PLAN-V2.md "Gigantes de gelo"
-  giant:  { name: 'Gigante de Gelo', temper: 'hostile', pawn: true, elite: true, hp: 380, dmg: 40, swing: 3.4, speed: 2.7, aggro: 18, r: 0.42, scale: 2, xp: 7,
+  giant:  { name: 'Gigante de Gelo', temper: 'hostile', pawn: true, elite: true, hp: 380, dmg: 40, swing: 3.4, speed: 2.7, aggro: 18, r: 0.8, scale: 2.4, xp: 7,
             loot: [] }, // (giants.js: shatters, a little metal frozen in it)
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,

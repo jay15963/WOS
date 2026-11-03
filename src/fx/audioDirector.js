@@ -49,7 +49,7 @@ export function installAudioDirector(game, audio) {
   // deep water (world.water 2) = swimming, derived from the position (works for replicated avatars too)
   function swimWatch(e, s, t) {
     const w = game.world;
-    const swim = !e.dead && !e._boat && !!w?.liquidAt && w.liquidAt(Math.floor(e.x), Math.floor(e.y)) === 2; // (_boat: in a boat) // (not on ice / a pier or bridge deck)
+    const swim = !e.dead && !e._boat && !!w?.liquidAt && w.liquidAt(Math.floor(e.x), Math.floor(e.y), e._ud) === 2; // (not on ice / a pier or bridge deck; under one: e._ud; in a boat: e._boat)
     if (swim !== !!s.swim) {
       if (s.swimSeen) audio.play(swim ? 'splash_in' : 'splash_out', { x: e.x, y: e.y });
       s.swim = swim; s.sk = swimK(e); s.tread = t + 1.5;
@@ -156,6 +156,7 @@ export function installAudioDirector(game, audio) {
   }
 
   function footstep(e) {
+    if (e.species === 'giant') return; // (its own thud on its own gait: fx/giantfx.js)
     if (e.kind === 'pawn') { audio.play('step', { x: e.x, y: e.y, volume: 0.24, surface: e.z > 0 ? game.levels?.surfaceOf(e) : undefined }); return; } // levels: stairs / wall top
     const sp = e.species, heavy = sp === 'bear' || sp === 'boar' || (e.scale || 1) > 1.25;
     const tiny = sp === 'rabbit' || sp === 'fox' || sp === 'spider';

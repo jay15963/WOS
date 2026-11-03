@@ -264,7 +264,7 @@ function approach(game, m, goal, gx, gy, dt) {
 function siegeStep(game, m, dt) {
   const sp = SPECIES[m.species] || SPECIES.walker, S = m.siege, o = S.o;
   const dw = Math.hypot(o.x - m.x, (o.y - 0.5) - m.y);
-  if (dw > 1.3) {
+  if (dw > Math.max(1.3, (m.r || 0.3) + 1)) { // (a big body — an ice giant — strikes from farther: it cannot stand that close)
     const dir = steer(game, m, S.stand[0], S.stand[1], dt, sp.speed * 0.75, 0.2, 0);
     if (dir) go(game, m, dir, sp.speed * 0.75, dt); else m.moving = false;
     if (stalled(S, m, dt) || (m.nav && m.nav.fails > 4)) {
@@ -282,7 +282,8 @@ function siegeStep(game, m, dt) {
     // (an ice giant: its club raised high and brought down on the wall — giants.js)
     const big = m.species === 'giant';
     m.action = big ? { type: 'smash', t: 0, dur: 1.1 } : { type: m.wprof?.act === 'stab' ? 'stab' : 'attack', t: 0, dur: 0.4 };
-    game.audio?.play(big ? 'swing_heavy' : 'swing', { x: m.x, y: m.y, volume: big ? 0.9 : 0.5 });
+    if (big) game.later(0.42, () => { if (!m.dead) game.audio?.play('swing_heavy', { x: m.x, y: m.y, volume: 0.9, pitch: 0.72 }); }); // (the club coming down, not going up)
+    else game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
     game.later(big ? 0.62 : 0.22, () => { if (!m.dead && !o.removed && m.siege?.o === o) hitPiece(game, m, o); });
   }
   return true;

@@ -16,14 +16,18 @@
 //   world.deck  Uint8Array: 1 finished pier / 2 finished bridge — the water under it is ground (world.js liquidAt /
 //               blocked / speedAt, physics.tileBlocked): no swimming, creatures path across (nav.js).
 //   world.rail  Uint8Array | null: railed edges of finished bridges (bits N 1 E 2 S 4 W 8, both tiles of an edge) —
-//               thin walls (physics.railHit / railCross, nav.js, levels.js).
+//               thin walls for whoever is on a deck (physics.railHit / railCross, nav.js, levels.js).
+//   world.railU Uint8Array | null: the walls at the water level around finished bridges — the abutments' (and islands')
+//               sides and their stone faces toward the water, the support bents between two water pieces — for whoever
+//               is on the ground or under a deck: swimmers / waders / ice walkers pass under a bridge between its bents,
+//               entering through its railed sides (physics.js e._ud). The railings themselves are no walls down there.
 //   o._dk       the shape of a deck piece (cosmetic: role, axis, heights, neighbours, piles…) read by art/faces/deck.js,
 //               which caches its geometry until o._dk.sig changes.
-//   e._dh       how high an entity stands on a deck (cosmetic, eased: game.js lifts its sprite and its depth).
+//   e._dh       how high an entity stands on a deck (cosmetic, eased: game.js lifts its sprite and its depth); 0 under one.
 
 import { BUILDINGS } from './data.js';
 import { CLEARABLE, objectsOnTile } from './mut/structures.js';
-import { collides, railHit } from './physics.js';
+import { collides, railHit, deckTrack } from './physics.js';
 
 export const PIER_H = 0.2;     // pier deck top over the water (tiles)
 export const BRIDGE_H = 0.3;   // bridge deck at the banks
@@ -167,10 +171,10 @@ export class Decks {
     list.length = 0; at.clear(); this.ramp.clear();
     for (const o of g.build.structures) if (!o.lv && !o.moveOf && BUILDINGS[o.type]?.deck) { list.push(o); at.set(w.idx(o.tx, o.ty), o); }
     this.any = list.length > 0;
-    const oldRail = w.rail;
+    const oldRail = w.rail, oldU = w.railU;
     if (!this.any) {
       if (w.deck) w.deck.fill(0);
-      w.rail = null;
+      w.rail = null; w.railU = null;
       for (const o of g.build.structures) if (o._dkh) o._dkh = 0;
       return;
     }
@@ -180,40 +184,42 @@ export class Decks {
     const has = (x, y, k) => { if (!w.inBounds(x, y)) return null; const o = at.get(w.idx(x, y)); return o && kindOfType(o.type) === k ? o : null; };
     for (const o of list) if (kindOfType(o.type) === 'pier') describePier(w, o, has, o._dk || (o._dk = {}));
     describeBridges(w, list, has);
-    // walking: ramps of finished piers onto the bank, railings of finished bridges
-    let rail = null;
+    // walking: ramps of finished piers onto the bank, railings of finished bridges (on the deck) and the walls at the
+    // water around them (on the ground / under a deck: abutments, bents)
+    let rail = null, railU = null;
+    const wall = (A, o, dx, dy, b) => { A[w.idx(o.tx, o.ty)] |= b; if (w.inBounds(o.tx + dx, o.ty + dy)) A[w.idx(o.tx + dx, o.ty + dy)] |= OPP[b]; };
     for (const o of list) {
       if (o.blueprint) continue;
       const d = o._dk;
       if (d.k === 'pier') {
         for (const [dx, dy, b] of DIR) if (d.land & b) { const j = w.idx(o.tx + dx, o.ty + dy); this.ramp.set(j, (this.ramp.get(j) || 0) | OPP[b]); }
       } else if (d.rails) {
-        rail ||= new Uint8Array(N);
-        const i = w.idx(o.tx, o.ty);
-        for (const [dx, dy, b] of DIR) {
-          if (!(d.rails & b)) continue;
-          rail[i] |= b;
-          if (w.inBounds(o.tx + dx, o.ty + dy)) rail[w.idx(o.tx + dx, o.ty + dy)] |= OPP[b];
-        }
+        rail ||= new Uint8Array(N); railU ||= new Uint8Array(N);
+        for (const [dx, dy, b] of DIR) if (d.rails & b) { wall(rail, o, dx, dy, b); if (!d.wet) wall(railU, o, dx, dy, b); } // (an abutment's sides: stone at every level)
+        const ax = d.axis === 2 ? 1 : 0, ay = d.axis === 1 ? 1 : 0, lo = d.axis === 1 ? 1 : 8, hi = d.axis === 1 ? 4 : 2; // (low end N / W, high end S / E)
+        if (!d.wet) { if (d.prev === 2) wall(railU, o, -ax, -ay, lo); if (d.next === 2) wall(railU, o, ax, ay, hi); } // (its stone face toward the water)
+        else if (d.bent) wall(railU, o, -ax, -ay, lo); // (a support bent at its low edge)
       }
     }
-    w.rail = rail;
+    w.rail = rail; w.railU = railU;
     // small things standing on a deck: lifted to its top (art/faces/solid.js)
     for (const o of g.build.structures) {
       if (o.lv || BUILDINGS[o.type]?.layer !== 'main') continue;
       const h = this.heightAt(o.x, o.cy ?? o.y, true);
       if (h || o._dkh) o._dkh = h;
     }
-    if (rail && rail !== oldRail) this._nudge(oldRail);
+    if (rail && rail !== oldRail) this._nudge(oldRail, oldU);
   }
 
-  // a railing that appeared over someone: each peer moves its own player, the authority its creatures
-  _nudge(old) {
+  // a railing (or a wall at the water) that appeared over someone: each peer moves its own player, the authority its
+  // creatures
+  _nudge(old, oldU) {
     const g = this.game, w = g.world;
     for (const e of g.entities) {
       if (e.dead || e.remote || e.proxy || (e.isMob && !g.net.auth) || e.lv > 0) continue;
-      if (!railHit(w, e.x, e.y, e.r || 0.25)) continue;
-      if (old && railHit({ ...w, rail: old }, e.x, e.y, e.r || 0.25)) continue; // (already there before)
+      const ud = deckTrack(w, e);
+      if (!railHit(w, e.x, e.y, e.r || 0.25, ud)) continue;
+      if (old && railHit({ ...w, rail: old, railU: oldU }, e.x, e.y, e.r || 0.25, ud)) continue; // (already there before)
       for (let n = 1; n < 40; n++) {
         const a = n * 2.4, d = 0.12 + n * 0.04, x = e.x + Math.cos(a) * d, y = e.y + Math.sin(a) * d;
         if (!collides(w, x, y, e.r || 0.25, null, !!e.passDoors, !!e.canSwim)) { e.x = x; e.y = y; break; }
@@ -463,10 +469,13 @@ export function decksSystem() {
       D.sync();
       if (!D.any && !D.had) return;
       D.had = D.any;
-      const k = Math.min(1, dt * 14);
+      const k = Math.min(1, dt * 14), w = game.world;
       for (const e of game.entities) {
         if (e._boat) continue; // (riding a boat: boats.js lifts it)
-        const t = !D.any || e.dead || e.lv > 0 || e.z > 0 || (e.pose && e._sobj) ? 0 : D.heightAt(e.x, e.y); // (on a seat: the seat of the lifted model already counts the deck)
+        // (under a bridge deck — e._ud, kept here for everyone this peer sees: at the water, not on the boards; on a seat:
+        // the seat of the lifted model already counts the deck)
+        const ud = D.any && deckTrack(w, e);
+        const t = !D.any || ud || e.dead || e.lv > 0 || e.z > 0 || (e.pose && e._sobj) ? 0 : D.heightAt(e.x, e.y);
         const c = e._dh || 0;
         if (t === c) continue;
         e._dh = Math.abs(t - c) < 0.003 ? t : c + (t - c) * k;

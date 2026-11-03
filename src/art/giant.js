@@ -1,5 +1,5 @@
-// "Gigante de Gelo" (ice giant, species 'giant'): the humanoid pawn rig drawn twice as big (art/compose.js PAWN_OV,
-// scale 2) with a fixed look of agent H's options (heavy, tall, glacier-blue skin, bald, a frosted long beard, white fur
+// "Gigante de Gelo" (ice giant, species 'giant') — the OLD STAND-IN, drawn only until the giant's own body is painted
+// (art/giantBody.js + art/giantRig.js) — and the thrown ice rock: the humanoid pawn rig drawn bigger (art/compose.js PAWN_OV) with a fixed look of agent H's options (heavy, tall, glacier-blue skin, bald, a frosted long beard, white fur
 // over a sleeveless top, barefoot) and lazily painted overlays in the rig's boxes, like the winter walker's:
 //   wk_armor_gi_{s,n,e}  body box (BW×BH, anchor at FEET): a carapace of glacier ice plates over the chest / back with
 //                        icicles hanging from their edges, rawhide straps, a shaggy frozen fur loincloth

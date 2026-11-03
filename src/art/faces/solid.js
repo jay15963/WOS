@@ -45,9 +45,15 @@
 // Per type: seat / rest (sitter / sleeper points), decal [x, v, rx, ry, a] (the painter's dirt patch kept on the ground),
 // fixed (drawn facing south whatever its facing: the banner), scale + hang(o) (art drawn scaled, the model that high:
 // things hung on a wall standing free), pt (the part whose fit places the points), fx.always (drawn on blueprints too).
+// Tops (art/caps.js): per part cap: capArt(kind, colour) — a top art seen from straight above laid on the part's top
+// (a box's top, a lathe's cap and the rings of a dome that slope less than 45°) instead of the front art's top rows
+// stretched (art drawn only from the front: a furnace dome, posts, footings, capitals, a lantern's roof). Wind: per
+// part wind: [a, h px] — the part leans with the wind (a shear along the screen: a·sin(t) tiles per tile of height
+// from h; a cloth hanging from a pole above, a vine on an arch): cosmetic, a few vertices per frame.
 // Turning parts (faces/solidDefense.js, the ballista): per part spin: true — it turns about a vertical axis through
 // spec.spinAt [x, v, h] to the world angle spec.spin(o, t) (radians, atan2 of the world direction its front points to;
-// built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot).
+// built facing the piece's own front) · per part vis(o, t) → false hides it this frame (a bolt on the rail after a shot)
+// · a spin box part with a sun shadow (sh not false) casts it turned with it (vis parts: give them sh: false).
 // A model that moves as a whole (faces/solidBoat.js, the boat): spec.move(o, t) → [dx, dy, dh, dh/dx, dh/dy] each frame
 // (a world offset, a lift and a height gradient about the turning axis: bobbing / rocking) — built once, moved per frame.
 // More (faces/solidLights.js uses them): model: 'front'
@@ -142,7 +148,7 @@ function artPx(F, X, d, h, tl) {
 // ---------- the model (local tiles: origin = body centre on the ground, +y = the piece's front) ----------
 // part: { t: 0 box / 1 lathe / 2 quad, x0 x1 y0 y1 h0 h1 (bbox), ax ay (lathe axis), pr (lathe profile: h, r pairs),
 //         n (sides), q (quad corners), open, top, sh, z, fit: 4 views × 6 (sX oX sd od sh oh) }
-function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, lx: 0, ly: 0, tl: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, sx: 1, solo: false, px: null, tilt: false, spin: false, vis: null, fit: new Float32Array(24) }; }
+function mkPart() { return { t: 0, x0: 0, x1: 0, y0: 0, y1: 0, h0: 0, h1: 0, ax: 0, ay: 0, lx: 0, ly: 0, tl: 0, pr: [], n: 12, q: [], open: false, top: '', band: 0, sh: true, z: 0, card: false, cover: false, uv: null, sx: 1, solo: false, px: null, tilt: false, spin: false, vis: null, cap: null, wa: 0, wh: 0, fit: new Float32Array(24) }; }
 // the art's dark outline (ow px around the silhouette) belongs to the solid: each part grows by it — sideways, its top's
 // back edge, and below the ground for parts standing on it (a card's thin top covers the outline above it)
 const GROWN = new WeakMap();
@@ -196,6 +202,7 @@ function buildModel(F, list, P) {
     p.open = !!ps.open; p.top = ps.top || ''; p.band = ps.band || 6; p.sh = ps.sh !== false; p.z = ps.z || 0; p.card = !!ps.card; p.cover = !!ps.cover;
     p.n = ps.n || 12; p.tl = (ps.lift || 0) / 64; p.uv = ps.uv || null; p.solo = !!ps.solo; p.sx = ps.sx || 1;
     p.px = ps.px || null; p.tilt = !!ps.tilt; p.spin = !!ps.spin; p.vis = ps.vis || null;
+    p.cap = ps.cap || null; p.wa = ps.wind ? ps.wind[0] : 0; p.wh = ps.wind ? ps.wind[1] / 64 : 0;
     // geo: the part's true size (same format, these art numbers) when the art draws it shorter / smaller than the
     // footprint (a bed reaching the wall): the model is the geo, the art box only says where its texture is
     ps = ps.geo ? geoOf(ps) : p.uv ? ps : grown(ps, ps.ow ?? F.ow);
@@ -392,10 +399,30 @@ function boxTop(p, f) {
   if (p.top === 'open') { openTop(p, f); return; }
   PN = 4;
   corner(0, p.x0, p.y0, p.h1); corner(1, p.x1, p.y0, p.h1); corner(2, p.x1, p.y1, p.h1); corner(3, p.x0, p.y1, p.h1);
+  if (CAPS && p.cap) { capBox(p, CAPS.get(p.cap)); return; }
   if (PXP) pxPick('t');
   if (p.top === 'strip') texStrip(p, f, 4); else texCorners(p, f, 4);
   emitFace(FR[f].S, 1, 0, 0);
 }
+// ---------- cap art (art/caps.js): a top seen from straight above, mapped flat onto the part's top ----------
+let CAPS = null; // (name → sprite while a model is built)
+// the cap sprite's texels of a point (u, v in 0..1 across its square, the kit's local x / y), inside its 1 px margin
+const capT = (C, k, u, v) => { PA[k * 5 + 3] = 1.5 + u * (C.pw - 3); PA[k * 5 + 4] = 1.5 + v * (C.ph - 3); };
+function capBox(p, C) {
+  const w = p.x1 - p.x0 || 1, d = p.y1 - p.y0 || 1;
+  for (let k = 0; k < PN; k++) capT(C, k, (PA[k * 5] - p.x0) / w, (PA[k * 5 + 1] - p.y0) / d);
+  if (!GL) emitCap(C, 1, 0, 0);
+}
+// a lathe's face (cap or a dome ring): the disc art centred on the axis at each corner's height, radius R
+function capDisc(p, C, R, nx, ny, flag) {
+  const X = p.sx;
+  for (let k = 0; k < PN; k++) {
+    const s = k * 5, h = PA[s + 2];
+    capT(C, k, 0.5 + (PA[s] - (p.ax + p.lx * h)) / (2 * R * X), 0.5 + (PA[s + 1] - (p.ay + p.ly * h)) / (2 * R));
+  }
+  if (!GL) emitCap(C, flag, nx, ny);
+}
+function emitCap(C, flag, nx, ny) { if (PN >= 3) for (let k = 1; k + 1 < PN; k += 2) pushQuad(0, k, k + 1, k + 2 < PN ? k + 2 : k + 1, C, flag, nx, ny); }
 // ---------- dedicated face art (uv: a texture painted with each face in its true proportions, e.g. CHEST_UV) ----------
 // part.uv = { s | n | e | w (sides: front +y, back, +x, −x local), t (top), i (inside walls of an open box), q (a quad):
 // [c0, r0, c1, r1] px of the uv sprite, top-left → bottom-right as the face is seen from outside (reversed numbers
@@ -468,6 +495,10 @@ function openTop(p, f) {
 }
 function latheFaces(p, f) {
   const n = p.n, pr = p.pr, lx = p.lx, ly = p.ly, X = p.sx; // (sx: an oval, stretched along local x)
+  // cap art: the rings narrowing upward at under 45° and the cap take it, as a disc of the widest such radius
+  const C = CAPS && p.cap ? CAPS.get(p.cap) : null;
+  let RC = 0;
+  if (C) { for (let k = 0; k + 3 < pr.length; k += 2) if (pr[k + 1] - pr[k + 3] >= pr[k + 2] - pr[k] && pr[k + 2] > pr[k]) RC = Math.max(RC, pr[k + 1]); RC = Math.max(RC, pr[pr.length - 1]); }
   for (let j = 0; j < n; j++) {
     const a0 = (j / n) * Math.PI * 2, a1 = ((j + 1) / n) * Math.PI * 2, am = (a0 + a1) / 2;
     const s0 = Math.sin(a0) * X, c0 = Math.cos(a0), s1 = Math.sin(a1) * X, c1 = Math.cos(a1), nl = Math.hypot(Math.sin(am) / X, Math.cos(am)), nx = Math.sin(am) / X / nl, ny = Math.cos(am) / nl;
@@ -480,6 +511,7 @@ function latheFaces(p, f) {
       const xa = p.ax + lx * ha, ya = p.ay + ly * ha, xb = p.ax + lx * hb, yb = p.ay + ly * hb; // (the axis at both heights)
       corner(0, xb + rb * s0, yb + rb * c0, hb); corner(1, xb + rb * s1, yb + rb * c1, hb);
       corner(2, xa + ra * s1, ya + ra * c1, ha); corner(3, xa + ra * s0, ya + ra * c0, ha);
+      if (C && ra - rb >= hb - ha) { capDisc(p, C, RC, nx, ny, 0); continue; } // (a dome's upper rings: the top art)
       texCorners(p, i, 4);
       emitFace(FR[i].S, 0, nx, ny);
     }
@@ -496,6 +528,7 @@ function latheFaces(p, f) {
     corner(1, cx + rt * X * Math.sin(ang(j)), cy + rt * Math.cos(ang(j)), ht);
     corner(2, cx + rt * X * Math.sin(ang(j + 1)), cy + rt * Math.cos(ang(j + 1)), ht);
     corner(3, cx + rt * X * Math.sin(ang(k3)), cy + rt * Math.cos(ang(k3)), ht);
+    if (C) { capDisc(p, C, RC, 0, 0, 1); continue; }
     texCorners(p, f, 4);
     emitFace(FR[f].S, 1, 0, 0);
   }
@@ -543,6 +576,7 @@ function mkEntry() {
     tpx: 0, tpy: 0, tph: null, // the lean pivot (spec.tilt)
     bx: 0, by: 0, edge: false, // the body centre, an edge piece
     spx: 0, spy: 0, spn: false, // the turning axis (spec.spin)
+    xs: [], nw: 0, // cap sprites of the parts with their atlas place (sprite, u0, v0 …), parts in the wind
   };
 }
 // the variant (state) of o
@@ -566,6 +600,7 @@ function valid(e, o, st) {
   for (let i = 0; i < 4; i++) { const S = e.S[i]; if (!S || !K.ok(S) || S.u0 !== e.su[i * 2] || S.v0 !== e.su[i * 2 + 1]) return false; }
   const U = e.US;
   if (U && (!K.ok(U) || U.u0 !== e.uu || U.v0 !== e.uv0)) return false;
+  for (let i = 0; i < e.xs.length; i += 3) { const C = e.xs[i]; if (!K.ok(C) || C.u0 !== e.xs[i + 1] || C.v0 !== e.xs[i + 2]) return false; }
   return true;
 }
 function build(A, o, def, spec, st, e) {
@@ -593,6 +628,15 @@ function build(A, o, def, spec, st, e) {
   if (e.US) { e.uu = e.US.u0; e.uv0 = e.US.v0; }
   e.A = f * Math.PI / 2; CA = Math.cos(e.A); SA = Math.sin(e.A); WX = bx; WY = by; e.h0 = H0 = (o.lv | 0) * STORY_H + (o._dkh || 0); // (_dkh: standing on a pier / bridge deck, game/decks.js)
   const list = Fm.spec.parts;
+  // the cap art of its parts (art/caps.js, lazy: until it is painted the piece is drawn the old way)
+  CAPS = null; e.xs.length = 0; e.nw = 0;
+  for (const ps of list) {
+    if (ps.wind) e.nw++;
+    if (!ps.cap || (CAPS && CAPS.has(ps.cap))) continue;
+    const C = spriteNamed(A, ps.cap);
+    if (!C) { CAPS = null; return e; }
+    (CAPS || (CAPS = new Map())).set(ps.cap, C); e.xs.push(C, C.u0, C.v0);
+  }
   buildModel(Fm, list, e.P);
   // placed in its body (spec.align 'center', the default, or 'back': against the back edge — shelves, cabinets, racks;
   // false: where the art draws it): the art does not always draw a piece where its body is (a chair 0.2 tiles behind its
@@ -641,7 +685,7 @@ function build(A, o, def, spec, st, e) {
     if (p.x0 < gx0) gx0 = p.x0; if (p.x1 > gx1) gx1 = p.x1; if (p.y0 < gy0) gy0 = p.y0; if (p.y1 > gy1) gy1 = p.y1;
   }
   e.pq[e.P.length] = e.nq;
-  E = null;
+  E = null; CAPS = null;
   // footprint corners (depth), the squash pivot (0° view), shadows, fx points
   for (let c = 0; c < 4; c++) { const lx = c & 1 ? gx1 : gx0, ly = c & 2 ? gy1 : gy0; e.fpx[c] = WX + CA * lx - SA * ly; e.fpy[c] = WY + SA * lx + CA * ly; }
   // (the true depth at every angle, 0° included: k1 < 1 only for round things that keep the art's flat look everywhere)
@@ -658,8 +702,9 @@ function build(A, o, def, spec, st, e) {
     if (!p.sh || p.h1 - p.h0 < 2 / 64) continue;
     if (p.t === 0) {
       // shadowRect: start of the footprint (middle of its back edge along local y), direction, width, length
+      // (a turning part: kind 2, turned about the spin axis every frame)
       const cx = (p.x0 + p.x1) / 2, sx = WX + CA * cx - SA * p.y0, sy = WY + SA * cx + CA * p.y0;
-      e.sh.push(0, sx, sy, e.A, p.x1 - p.x0, p.y1 - p.y0, p.h1 - Math.max(0, p.h0), H0 + Math.max(0, p.h0));
+      e.sh.push(p.spin && sp.spin ? 2 : 0, sx, sy, e.A, p.x1 - p.x0, p.y1 - p.y0, p.h1 - Math.max(0, p.h0), H0 + Math.max(0, p.h0));
     } else if (p.t === 1) {
       // a round thing: the 0° art's silhouette across the sun, standing on its axis (lift: the art's ground above its anchor)
       const wx = WX + CA * p.ax - SA * p.ay, wy = WY + SA * p.ax + CA * p.ay;
@@ -721,7 +766,7 @@ export function encA(a, fl) {
   return 2 + 2 * L + 0.25 + 0.5 * (a < 0 ? 0 : a > 1 ? 1 : a);
 }
 // the look of a piece this frame (shared by its two drawables): yaw, squash easing, shake, tint, flash
-export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0, sn: false, sc: 1, ss: 0, o: null, t: 0, mo: false, mx: 0, my: 0, mh: 0, mgx: 0, mgy: 0 };
+export const FS = { C: 1, S: 0, yaw: 0, R: 0, kk: 1, sq: false, shk: 0, mv: false, tr: 1, tg: 1, tb: 1, ta: 1, a: 1, fl: 0, bp: false, ga: 0, th: 0, tc: 1, ts: 0, sn: false, sc: 1, ss: 0, wd: 0, o: null, t: 0, mo: false, mx: 0, my: 0, mh: 0, mgx: 0, mgy: 0 };
 function frameState(o, e, t) {
   // (faces at every angle, 0° included: no easing toward the sprite any more — the true depth, side shading and open
   // tops always; k1 < 1 only for round things that keep the art's flat look at every angle)
@@ -743,6 +788,8 @@ function frameState(o, e, t) {
   // the turn of the spin parts: the world angle asked for minus the way the model was built facing (its front, local +y)
   const sa = e.spn ? (sp.spin(o, t) || 0) - (e.A + Math.PI / 2) : 0;
   FS.sn = e.spn; FS.sc = Math.cos(sa); FS.ss = Math.sin(sa); FS.o = o; FS.t = t;
+  // the wind on the wind parts (a slow sway and a little gust; each piece its own phase)
+  if (e.nw) { const sd = (o.tx ?? o.x) * 0.71 + (o.ty ?? o.y) * 1.13; FS.wd = Math.sin(t * 1.7 + sd) * 0.7 + Math.sin(t * 3.3 + sd * 1.9) * 0.3; } else FS.wd = 0;
   // a model that moves as a whole (spec.move → [dx, dy, dh, dh/dx, dh/dy]: a boat — its pose, bobbing and rocking)
   const mv = sp.move ? sp.move(o, t) : null;
   FS.mo = !!mv;
@@ -767,7 +814,7 @@ function emitParts(F, e, sel) {
   const ga = FS.ga; // (glow art over the faces: its strength now, 0 = off)
   const th = FS.th, tc = FS.tc, ts = FS.ts;
   for (let pi = 0; pi < np; pi++) {
-    const j = one ? 0 : PS[pi].k, tl = th !== 0 && e.P[j].tilt, spn = sn && e.P[j].spin;
+    const j = one ? 0 : PS[pi].k, tl = th !== 0 && e.P[j].tilt, spn = sn && e.P[j].spin, wd = FS.wd * e.P[j].wa, wh = e.h0 + e.P[j].wh;
     if (sel && (sel === 2) !== (e.pf[j] === 1)) continue;
     if (e.P[j].vis && !e.P[j].vis(FS.o, FS.t)) continue; // (hidden this frame)
     for (let n = e.pq[j]; n < e.pq[j + 1]; n++) {
@@ -785,12 +832,13 @@ function emitParts(F, e, sel) {
         }
       }
       const m = qm[n], ca = gw ? -ga * FS.ta : ta; // (a < 0: to the glow layer, FACE_FS; never on a blueprint, so untinted)
-      if (!FS.mv && !m && !tl && !spn) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ca); continue; }
+      if (!FS.mv && !m && !tl && !spn && !wd) { F.quadF(q, n * 20, tr * z, tg * z, tb * z, ca); continue; }
       for (let k = 0; k < 20; k += 5) {
         let x = q[n * 20 + k], y = q[n * 20 + k + 1], h = q[n * 20 + k + 2];
         if (spn) { const dx = x - spx, dy = y - spy; x = spx + sc * dx - ss * dy; y = spy + ss * dx + sc * dy; }
         if (sq) { const d = (kk - 1) * ((x - e.pvx) * ccx + (y - e.pvy) * ccy); x += d * ccx; y += d * ccy; }
         if (tl) { const u = (x - e.tpx) * C + (y - e.tpy) * S, w = h - e.tph, du = u * tc + w * ts - u; x += du * C; y += du * S; h = e.tph - u * ts + w * tc; }
+        if (wd) { const sw = wd * (h - wh); x += sw * C; y += sw * S; } // (the wind: a shear along the screen about height wh)
         if (mo) { h += FS.mh + FS.mgx * (x - mcx) + FS.mgy * (y - mcy); x += FS.mx; y += FS.my; } // (moved as a whole: spec.move)
         SCR[k] = x + shk * C; SCR[k + 1] = y + shk * S; SCR[k + 2] = h; SCR[k + 3] = q[n * 20 + k + 3];
         const v0 = q[n * 20 + k + 4];
@@ -854,6 +902,10 @@ export function drawSolid(B, A, o, t) {
           px = ux - ax * L / 2; py = uy - ay * L / 2;
         }
         shadowRect(B, T0, px, py, sh[k + 3], W, L, sh[k + 6], ta, sh[k + 7]);
+      } else if (sh[k] === 2) {
+        // a turning part (the ballista's top): its box shadow turned about the spin axis with it
+        const dx = sh[k + 1] - e.spx, dy = sh[k + 2] - e.spy, c = FS.sn ? FS.sc : 1, s = FS.sn ? FS.ss : 0;
+        shadowRect(B, T0, e.spx + c * dx - s * dy, e.spy + s * dx + c * dy, sh[k + 3] + Math.atan2(s, c), sh[k + 4], sh[k + 5], sh[k + 6], ta, sh[k + 7]);
       }
       else shadowArt(B, e.Sf, sh[k + 1], sh[k + 2], Math.atan2(CAMV.lx, -CAMV.ly), e.mf < 0, ta, sh[k + 7]);
     }

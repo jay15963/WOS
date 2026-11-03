@@ -25,6 +25,18 @@ export const STOCK = {
 };
 export const STOCK_NAME_PT = { cow: 'vaca', sheep: 'ovelha', pig: 'porco', chicken: 'galinha' };
 
+// predators hunting farm animals at night (src/game/ai.js lookForPrey / huntStep): fences and pens keep them out
+export const PREY = {
+  hunters: { wolf: 1, bear: 0.4 }, // species that hunt them · × the nightly chance
+  chance: 0.45,   // a pack's chance, each night, to go after farm animals at all (rolled once a night)
+  kills: 1,       // farm animals a pack kills in one night (then it lets them be)
+  r: 11,          // tiles: a predator notices a farm animal this close (in sight)
+  flee: 6,        // tiles: the hunted animal (and the ones next to it) run from a predator this close
+  dmgK: 2,        // bite damage × against farm animals (a pack downs a sheep in a few bites, a cow in ~6)
+  giveUp: 30,     // s chasing one animal before giving up (or as soon as no path reaches it: a fence)
+  calm: 40,       // s a pack leaves farm animals alone after a kill / giving up
+};
+
 // fishing (src/game/fishing.js + mut/fish.js)
 export const FISH = {
   castMin: 1.6, castMax: 6.5,     // tiles from the player to the bobber

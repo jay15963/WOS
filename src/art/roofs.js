@@ -3,6 +3,7 @@
 // src/art/roofRaster.js (not in the atlas).
 
 import { spritePx, rng, lin, mixc, TAU, circle, canvas } from './paint.js';
+import { lazyDef } from './lazyDefs.js';
 
 const mk = (wt, E, fn, opts) => spritePx(Math.round(wt * 64), 64 + E, (g, P) => fn(g, P, (v, h) => E + v * 64 - h, Math.round(wt * 64)), { pad: 12, ...opts });
 const WOOD = { deep: '#3b2616', dark: '#5a3b22', mid: '#7d5532', light: '#9c6e43', high: '#b98a58' };
@@ -58,6 +59,51 @@ function columnStone() {
     }, 2.6);
   });
 }
+
+// the column kit's turned looks (content/kits.js column: 'round' / 'carved', in wood or stone): their own front art,
+// drawn from the same profiles as their solid (art/faces/solidGarden.js COL_TURNED: [h, r] px, rows at v 0.733) — a
+// round shaft lit from the left, the base and capital mouldings, rings / beads on the carved one, flutes on stone and
+// grain on wood. Painted only when a turned camera asks for it (lazy)
+export const COL_TURNED = {
+  round: [[[0, 12.5], [4.5, 12.5], [7, 10]], [[7, 7.5], [57, 7.5]], [[57, 9], [59.5, 12.5], [64, 12.5]]],
+  carved: [[[0, 13], [3, 13], [3, 11.5], [6, 11.5], [8, 9]], [[8, 7], [11, 7], [12, 8.6], [14.5, 8.6], [15.5, 7], [48.5, 7], [49.5, 8.6], [52, 8.6], [53, 7], [56, 7]], [[56, 7.5], [58, 10], [60.5, 13.5], [64, 14.5]]],
+};
+function columnTurned(look, mat) {
+  const rand = rng(781 + (look === 'carved' ? 7 : 0) + (mat === 's' ? 3 : 0));
+  const P0 = mat === 's' ? STONE : { high: WOOD.high, light: WOOD.light, mid: WOOD.mid, dark: WOOD.dark };
+  return mk(1, 40, (g, P, Y, W) => {
+    const cx = W / 2, base = Y(0.733, 0);
+    g.fillStyle = 'rgba(40,28,16,0.3)'; g.beginPath(); g.ellipse(cx, base, 17, 5, 0, 0, TAU); g.fill();
+    P.layer((g) => {
+      const body = (h0, h1, r0, r1) => {
+        if (h1 - h0 < 0.01) return;
+        const R = Math.max(r0, r1);
+        g.fillStyle = lin(g, cx - R, 0, cx + R, 0, [[0, P0.high], [0.3, P0.light], [0.72, P0.mid], [1, P0.dark]]);
+        g.beginPath(); g.moveTo(cx - r0, Y(0.733, h0) + 0.4); g.lineTo(cx - r1, Y(0.733, h1)); g.lineTo(cx + r1, Y(0.733, h1)); g.lineTo(cx + r0, Y(0.733, h0) + 0.4); g.closePath(); g.fill();
+      };
+      const prof = COL_TURNED[look];
+      for (const pr of prof) for (let i = 0; i + 1 < pr.length; i++) body(pr[i][0], pr[i + 1][0], pr[i][1], pr[i + 1][1]);
+      // the shaft's surface: flutes on stone, grain on wood
+      const [sh0, sh1] = [prof[1][0][0], prof[1][prof[1].length - 1][0]], sr = prof[1][0][1];
+      g.strokeStyle = mat === 's' ? 'rgba(70,64,56,0.45)' : 'rgba(60,36,18,0.4)'; g.lineWidth = 0.8;
+      g.beginPath();
+      for (const x of mat === 's' ? [-4.5, -1.5, 1.5, 4.5] : [-4, -0.5, 3]) { g.moveTo(cx + x * sr / 7.5, Y(0.733, sh0 + 1)); g.lineTo(cx + x * sr / 7.5 + (mat === 's' ? 0 : 0.5), Y(0.733, sh1 - 1)); }
+      g.stroke();
+      if (mat === 's') for (let i = 0; i < 12; i++) { g.fillStyle = i & 1 ? 'rgba(255,255,245,0.3)' : 'rgba(30,26,20,0.3)'; g.fillRect(cx - sr + 1 + rand() * (2 * sr - 2), Y(0.733, sh0 + 2 + rand() * (sh1 - sh0 - 4)), 1.1, 1.1); }
+      // every change of the profile: a crisp edge (light over the step, dark under it)
+      for (const pr of prof) for (let i = 1; i < pr.length - 1; i++) {
+        const [h, r] = pr[i], y = Y(0.733, h);
+        g.fillStyle = 'rgba(20,14,10,0.35)'; g.fillRect(cx - r, y, 2 * r, 0.9);
+        g.fillStyle = 'rgba(255,248,232,0.3)'; g.fillRect(cx - r, y - 0.9, 2 * r, 0.8);
+      }
+      // the capital's top edge and the base's foot line
+      const top = prof[2][prof[2].length - 1];
+      g.fillStyle = 'rgba(255,248,232,0.45)'; g.fillRect(cx - top[1], Y(0.733, top[0]), 2 * top[1], 1.4);
+      g.fillStyle = 'rgba(20,14,10,0.4)'; g.fillRect(cx - prof[0][0][1], base - 1.4, 2 * prof[0][0][1], 1.4);
+    }, 2.6);
+  });
+}
+for (const look of ['round', 'carved']) for (const mat of ['w', 's']) lazyDef(`column_${look}_${mat}`, () => columnTurned(look, mat), 0.5, 1);
 
 // build-menu icon of a roof type: a little house with that roof (front gable)
 function roofIcon(kind) {

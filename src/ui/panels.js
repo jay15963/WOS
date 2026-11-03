@@ -212,7 +212,7 @@ export class Panels {
         const have = p.inv.count(it);
         return `<span class="cost ${have >= n ? '' : 'lack'}" title="${ITEMS[it].name}">${itemIco(A, it)}${have}/${n}</span>`;
       }).join('') : '<span class="cost">grátis</span>';
-      const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
+      const meta = [b.size[0] * b.size[1] > 1 ? `${b.size[0]}×${b.size[1]}` : '', b.deck === 'bridge' ? 'arraste: linha reta de margem a margem' : b.deck === 'pier' ? 'arraste: área na água rasa, da margem' : b.drag === 'line' ? 'arraste: linha/sala' : b.drag === 'area' ? 'arraste: área' : '', b.drag ? 'custo por tile' : ''].filter(Boolean).join(' · ');
       let sty = '';
       if (hasKit(id)) { // agent K: styles chip (opens Detalhes) + the remembered look
         const [st, dt] = lastLook(g, id), n = detList(dt).length, sn = stylesFor(id).find((s) => s.id === normStyle(id, st))?.name;
@@ -250,7 +250,7 @@ export class Panels {
           <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how}</small></div>${this.sortBar(c.id, `<button class="sbt xfer" data-xfer="take" data-tip="<b>Pegar tudo</b><p>Passa tudo o que couber para a mochila.</p>">‹ Pegar tudo</button>`)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
     } else if (name === 'map') {
-      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>`, 'p-map');
+      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>`, 'p-map');
     }
     this.el.innerHTML = html;
     this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });

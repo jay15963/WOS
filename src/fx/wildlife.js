@@ -4,10 +4,18 @@
 // songbirds that land, hop and peck, and little rabbits that dart into the bushes. Everything flees from
 // players (local and remote pawns), is capped per kind (fewer on low quality), spawned only around the view
 // and removed once off-screen. Critters are y-sorted with the world through `collect` (objects with draw()).
-// Sprites: src/art/critters.js (cr_*), rabbits reuse rabbit_e / rabbit_e_walk.
+// Sprites: src/art/critters.js (cr_*), rabbits reuse the rabbit's own views (rabbit_e / _s / _n, the 3/4 frames
+// rabbit_se / rabbit_ne painted lazily: art/animals.js). Facing: every critter faces where it goes AS SEEN ON SCREEN
+// (its heading from its motion minus the camera's turn): small ones turn left / right, the rabbits in 8 views.
 
 import { installWaterline } from './waterline.js';
 import { SEASON } from '../art/season.js';
+import { lookAtlasOf, LOOK_CLOCK } from '../art/look/lazy.js';
+
+// 8 screen views from a screen heading (x right, y toward the camera), kept until 25° past the centre (no flicker)
+const VIEWS8 = ['e', 'se', 's', 'sw', 'w', 'nw', 'n', 'ne'];
+const Q8 = Math.PI / 4, HY8 = (25 / 180) * Math.PI;
+const wrapA = (a) => { a %= TAU; return a > Math.PI ? a - TAU : a < -Math.PI ? a + TAU : a; };
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -60,7 +68,7 @@ class Wildlife {
       duck: [S('cr_duck_0'), S('cr_duck_1')], duckFly: S('cr_duck_fly'), duckling: S('cr_duckling'), fish: S('cr_fish'),
       sq: { sit: S('cr_squirrel_sit'), run: S('cr_squirrel_run'), climb: S('cr_squirrel_climb') },
       bird: [0, 1, 2].map((i) => ({ sit: S(`cr_bird_${i}_sit`), peck: S(`cr_bird_${i}_peck`), fly: S(`cr_bird_${i}_fly`) })),
-      rab: S('rabbit_e'), rabRun: S('rabbit_e_walk') || S('rabbit_e'),
+      rab: S('rabbit_e'), rabRun: S('rabbit_e_walk') || S('rabbit_e'), rabS: S('rabbit_s'), rabN: S('rabbit_n'),
       blob: S('fx_blob'), ring: S('fx_ring') || S('fx_soft'), spark: S('fx_spark') || S('fx_soft'),
     };
     this.ok = !!(this.S.bf[0] && this.S.blob);
@@ -536,9 +544,36 @@ class Wildlife {
     const k = this.kBlob;
     B.blob.add(this.S.blob, c.x, c.y, w * k, w * 0.5 * k, 1, 1, 1, a * c.a / (1 + c.lift * 1.5));
   }
+  // where a critter faces on screen: its heading on the ground (from its motion; a turn in place faces world east /
+  // west) turned by the camera → c._sx / c._sy (screen x right, y toward the camera) and c._sf (left / right flip)
+  _face(c, rc, rs) {
+    const dx = c.x - (c._hx ?? c.x), dy = c.y - (c._hy ?? c.y);
+    c._hx = c.x; c._hy = c.y;
+    if (dx * dx + dy * dy > 1e-7) c._h = Math.atan2(dy, dx);
+    else if (c._h == null || c._hf !== c.flip) c._h = c.flip < 0 ? Math.PI : 0;
+    c._hf = c.flip;
+    const hx = Math.cos(c._h), hy = Math.sin(c._h);
+    c._sx = rc * hx + rs * hy; c._sy = -rs * hx + rc * hy;
+    if (c._sf == null || Math.abs(c._sx) > 0.2) c._sf = c._sx < 0 ? -1 : 1; // (going straight up / down the screen: keeps its side)
+    return c._sf;
+  }
+  // a rabbit's view sprite: the side (walking / sitting), front / back, or a lazily painted 3/4 frame (the side one
+  // until it is ready) → [sprite, flip]
+  _rabView(c, run) {
+    const va = Math.atan2(c._sy, c._sx);
+    let i = c._vi;
+    if (i == null || Math.abs(wrapA(va - i * Q8)) > HY8) i = c._vi = ((Math.round(va / Q8) % 8) + 8) % 8;
+    const v = VIEWS8[i], S = this.S, side = run ? S.rabRun : S.rab;
+    if (v === 'e' || v === 'w') return [side, v === 'w' ? -1 : 1];
+    if (v === 's' || v === 'n') return [(v === 's' ? S.rabS : S.rabN) || side, 1];
+    const LA = lookAtlasOf(this.g.A), n = `rabbit_${v[0] === 's' ? 'se' : 'ne'}${run ? '_walk' : ''}`, r = LA.has(n) ? LA.get(n) : null;
+    const fl = v[1] === 'w' ? -1 : 1;
+    if (r && !r.failed) { r.lu = LOOK_CLOCK.f; if (r.ready) return [r, fl]; LA.want(r); }
+    return [side, fl];
+  }
   _draw(B, c, t) {
-    // camera turned: a critter faces the other way when the world's east points left on screen; headings minus the yaw
-    const yaw = this.g.cam?.rot || 0, fx = Math.cos(yaw) < 0 ? -1 : 1;
+    // camera turned: a critter faces where it goes on screen (its heading minus the yaw: _face)
+    const yaw = this.g.cam?.rot || 0, rc = Math.cos(yaw), rs = Math.sin(yaw), fx = this._face(c, rc, rs) * (c.flip < 0 ? -1 : 1);
     const S = this.S, a = c.a;
     switch (c.kind) {
       case 'butterfly': {
@@ -595,11 +630,11 @@ class Wildlife {
         break;
       }
       case 'rabbit': {
-        const s = c.st === 1 && Math.sin(c.runT * 12) > 0 ? S.rabRun : S.rab;
+        const [s, fl] = this._rabView(c, c.st === 1 && Math.sin(c.runT * 12) > 0);
         if (!s) break;
         this._shadow(B, c, 0.32, 0.4);
         const sc = 0.55, chew = c.st === 0 ? 1 + Math.sin(t * 9 + c.ph) * 0.015 : 1;
-        B.main.add(s, c.x, c.y, sc * chew, sc, 1, 1, 1, a, 0, 0, 0, c.flip * fx, 0, c.lift);
+        B.main.add(s, c.x, c.y, sc * chew, sc, 1, 1, 1, a, 0, 0, 0, fl, 0, c.lift);
         break;
       }
     }

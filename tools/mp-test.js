@@ -2545,8 +2545,8 @@ function hurtLog(t, f) {
 }
 
 def('IG1', {
-  title: 'Ice giants: a giant spawns, is replicated (pawn ×2, ice club) and breaks a stone wall much faster than a walker, on both', timeout: 120000,
-  expected: 'Winter night; the guest stands inside a closed 5×5 room of stone walls; a giant spawned outside (giants.spawnGiantAt) is a pawn proxy on the guest (species giant, scale 2, weapon club_ice, elite); it senses the guest through the walls and hits the closest wall: one hit (op struct.dmg) is ≥ 6× a walker\'s hit on stone (giant: swingDur × SIEGE_MUL / 350); the same damage (cracks) on both; the wall falls on both and the giant comes in; the spawn numbers grow with the winters (giantNumbers); digest equal',
+  title: 'Ice giants: a giant spawns, is replicated (pawn ×2.4, ice club) and breaks a stone wall much faster than a walker, on both', timeout: 120000,
+  expected: 'Winter night; the guest stands inside a closed 5×5 room of stone walls; a giant spawned outside (giants.spawnGiantAt) is a pawn proxy on the guest (species giant, scale 2.4, weapon club_ice, elite); it senses the guest through the walls and hits the closest wall: one hit (op struct.dmg) is ≥ 6× a walker\'s hit on stone (giant: swingDur × SIEGE_MUL / 350); the same damage (cracks) on both; the wall falls on both and the giant comes in; the spawn numbers grow with the winters (giantNumbers); digest equal',
   api: 'giants.js spawnGiantAt / giantNumbers / SIEGE_MUL, walkers.js walkerBrain (siege), op struct.dmg / struct.remove fx smash, entity stream (species giant, scale)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -2573,7 +2573,7 @@ def('IG1', {
   t.assert(s, 'free spot for the giant');
   const m = MH.giants.spawnGiantAt(H.game, s[0], s[1]);
   const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
-  t.check(px.species === 'giant' && px.kind === 'pawn' && px.scale === 2 && px.weapon === 'club_ice' && px.elite, 'giant proxy: species giant, pawn, scale 2, ice club, elite', `${px.species} ${px.kind} ${px.scale} ${px.weapon} ${px.elite}`);
+  t.check(px.species === 'giant' && px.kind === 'pawn' && px.scale === 2.4 && px.weapon === 'club_ice' && px.elite, 'giant proxy: species giant, pawn, scale 2.4, ice club, elite', `${px.species} ${px.kind} ${px.scale} ${px.weapon} ${px.elite}`);
   const hit = await t.waitFor(() => H.game.build.structures.find((o) => ids.includes(o.id) && o.dmg > 0), 25000, 'the giant hits a wall of the room', () => `giant ${m.state} at ${f2(m.x)},${f2(m.y)}`);
   const walkerInc = (2.0 * 1.15) / 350; // (a walker: swing ~2 s × 1.15 per hit, 350 walker-seconds for stone)
   t.check(hit.dmg >= walkerInc * 6, 'one giant hit on stone ≥ 6× a walker\'s', `${hit.dmg.toFixed(4)} vs walker ~${walkerInc.toFixed(4)}`);
@@ -2589,8 +2589,8 @@ def('IG1', {
 
 def('IG2', {
   title: 'Ice giants: the slow smash (telegraph, heavy, dodgeable) and the thrown ice rock (small damage) hurt the guest', timeout: 120000,
-  expected: 'Winter night, open ground. A giant next to the guest winds up a smash: the guest sees the danger circle (op giant.tele) before the blow, the blow lands ≥ 0.8 s later and does about the giant\'s heavy damage; next wind-up the guest steps out of the circle: no smash damage. Then the guest stands 9 tiles away: the giant throws an ice rock (op giant.rock: an ice_rock lob on the guest too) that lands on it: small damage, about a walker\'s hit at the giant\'s level; digest equal',
-  api: 'giants.js giantChase (smash: cast Esmagar + giant.tele; throwRock: cast Arremessar + giant.rock), hurtPlayer → own player.hurt (ability giant_smash / ice_rock), projectiles LOB_KINDS.ice_rock',
+  expected: 'Winter night, open ground. A giant next to the guest winds up a smash: the guest sees the danger circle (op giant.tele) before the blow, the blow lands ≥ 0.8 s later and does about the giant\'s heavy damage and knocks the guest back (≥ 0.3 tiles away from the giant: the knock travels in player.hurt; the host sees the guest pushed); next wind-up the guest steps out of the circle: no smash damage. Then the guest stands 9 tiles away: the giant throws an ice rock (op giant.rock: an ice_rock lob on the guest too) that lands on it: small damage, about a walker\'s hit at the giant\'s level; digest equal',
+  api: 'giants.js giantChase (smash: cast Esmagar + giant.tele; throwRock: cast Arremessar + giant.rock), hurtPlayer → own player.hurt (ability giant_smash / ice_rock, knock), projectiles LOB_KINDS.ice_rock',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const EH = H.game.env, gp = G.game.player;
@@ -2614,9 +2614,15 @@ def('IG2', {
   const tele = await t.waitFor(() => G.game.teles?.find((q) => q.k === 'smash'), 9000 + RT(), 'the guest sees the smash telegraph (giant.tele)', () => JSON.stringify(MH.giants.giantDebug(m)));
   const t0 = now();
   t.check(Math.hypot(tele.x - gp.x, tele.y - gp.y) <= tele.r + 0.3, 'the circle is on the guest', `${f2(tele.x)},${f2(tele.y)} r ${tele.r} vs guest ${f2(gp.x)},${f2(gp.y)}`);
+  const kx0 = gp.x, ky0 = gp.y, gd0 = Math.hypot(gp.x - m.x, gp.y - m.y);
   const sm = await t.waitFor(() => log.find((d) => d.ab === 'giant_smash'), 4000 + RT(), 'the smash lands on the guest');
   t.check(sm.t - t0 >= 800, 'the blow lands after the wind-up (dodge window)', `${Math.round(sm.t - t0)} ms after the circle`);
   t.check(sm.amount >= m.dmg * 0.85 * 0.35 && sm.amount <= m.dmg * 1.6, 'heavy smash damage (≈ the giant\'s dmg, less armour)', `${sm.amount} vs giant dmg ${f2(m.dmg)}`);
+  // the knockback reaches the guest (player.hurt carries knock: the owner moves itself) and the host sees it
+  await t.sleep(60);
+  const kd = Math.hypot(gp.x - kx0, gp.y - ky0), gd1 = Math.hypot(gp.x - m.x, gp.y - m.y);
+  t.check(kd >= 0.3 && gd1 > gd0 + 0.2, 'the smash knocks the guest back (away from the giant)', `moved ${f2(kd)} tiles, from the giant ${f2(gd0)} → ${f2(gd1)}`);
+  await t.waitFor(() => { const a = guestOnHost(H, G); return a && Math.hypot((a.ax ?? a.x) - gp.x, (a.ay ?? a.y) - gp.y) < 0.15; }, RT() + 1500, 'the host sees the guest pushed back');
   // 2) dodge: step out of the next circle before it lands
   const n0 = log.filter((d) => d.ab === 'giant_smash').length;
   m.swingT = 0;
@@ -2690,6 +2696,9 @@ def('BA1', {
   t.check(dMid > 0.02 && dMid < dTot - 0.05, 'it turns slowly (the host sees it on its way)', `start ${f2(a0)} mid ${f2(aMid)} target ${f2(want)}`);
   await t.waitFor(() => Math.abs(MH.ballista.angDiff(MH.ballista.aimOf(oH), want)) < 0.03, 6000 + RT(), 'it points at the giant on the host', () => `${f2(MH.ballista.aimOf(oH))} → ${f2(want)}`);
   await t.waitFor(() => Math.abs(MH.ballista.angDiff(oG._aimD ?? 0, want)) < 0.03, 1500, 'and on the guest');
+  // the operator's pose (cosmetic, every peer): the host draws the guest at the grips, facing the aim (_opA)
+  const geH = H.game.session?.players?.get(G.pid)?.ent;
+  t.check(geH && geH._opA != null && Math.abs(MH.ballista.angDiff(geH._opA, want)) < 0.1 && gp._opA != null, 'the host draws the guest operating it, turned to the aim (and the guest itself)', `${geH?._opA} / ${gp._opA} vs ${f2(want)}`);
   const xpH = hp.xp, xpG = gp.xp, max = m.maxHp;
   // shot 1
   t.check(C.fire(), 'the guest fires (bolt paid)');
@@ -2759,10 +2768,88 @@ def('BA2', {
   await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the host gets off (both)');
   // an operator that is gone (left the game): the host takes it off
   H.game.net.emit('ballista.set', { id: bid, user: 'ghost' });
-  await t.waitFor(() => oG.user === 'ghost', RT() + 1500, '(a gone operator on both)');
+  // (the host may take it off on its next 0.5 s check before the guest's poll sees it: watch for it instead)
+  let ghostG = false;
+  t.watch(() => { if (oG.user === 'ghost') ghostG = true; }, 10);
+  await t.waitFor(() => ghostG || !oH.user, RT() + 1500, '(a gone operator on both, or already taken off by the host)');
   await t.waitFor(() => !oH.user && !oG.user, 2000 + RT(), 'the host takes a gone operator off (both)');
   await t.checkDigest(H, G);
   env.history.push('BA2');
+});
+
+def('BA3', {
+  title: 'Ballista up a story: on a wall-walk the guest gets on only from up there, stays on the wall while it turns, and its bolt flies over the walls below and plunges onto a giant', timeout: 120000,
+  expected: 'A 3×2 block of stone walls (a wall-walk two tiles deep) with a ballista built on its top (story 1); winter night. From the ground under it the guest is refused ("Suba até a balista"); on the wall top (lv 1) it gets on (user = guest on both); while it turns toward an ice giant on the ground 10 tiles east the guest stays at story 1 on a wall-top tile (no fall); the bolt leaves at story 1 (b.lv 1, height ≈ 1 near the muzzle on both — it does not stop in the wall under it) and takes 55% of the giant\'s life; the guest gets off and is still up there; digest equal',
+  api: 'mut/ballista.js intent ballista.use (story check), ballista.js seatSpot (levels.collidesL), boltZ / boltStops / boltReaches, op ballista.shot (lv from the ballista), struct.add {lv}',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => { const L = []; for (let i = -1; i <= 14; i++) for (let j = -1; j <= 3; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'found a free 16×5 strip');
+  const { x0, y0 } = site, walls = [];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) walls.push(['wall_stone', x0 + i, y0 + j]);
+  const wids = hostBuild(H, walls);
+  await t.waitFor(() => wids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the walls');
+  const [bid] = hostBuildLv(H, [['ballista', x0 + 1, y0, 0]], 1);
+  siegeCleanup(t, H, MH, day0, hour0, [bid, ...wids]);
+  await t.waitFor(() => A.structOn(G, bid) && !A.structOn(G, bid).blueprint, RT() + 1500, 'the guest has the ballista on the wall top');
+  const oG = A.structOn(G, bid), oH = A.structOn(H, bid);
+  t.check((oG.lv | 0) === 1 && (oH.lv | 0) === 1, 'the ballista stands at story 1 on both', `${oG.lv} / ${oH.lv}`);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  A.pacify(H, x0, y0, 30, 600);
+  const nb = gp.inv.count('ballista_bolt');
+  if (nb) gp.inv.remove('ballista_bolt', nb);
+  gp.inv.add('ballista_bolt', 3);
+  const errs = [];
+  t.defer(G.game.events.on('error', (d) => errs.push(d.text)));
+  // from the ground below: refused
+  A.teleport(G, x0 + 1.5, y0 + 2.7);
+  await A.hostSees(t, H, G);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => errs.some((s) => /Suba até a balista/.test(s)), RT() + 1500, 'from the ground: "Suba até a balista"', () => errs.join(' | '));
+  t.check(!oH.user && !oG.user, 'nobody on it');
+  // on the wall top: allowed
+  upOn(G, x0 + 1.5, y0 + 1.5);
+  await t.sleep(RT() + 300);
+  MG.ballista.useBallista(G.game, oG);
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'from the wall top the guest operates it');
+  // the giant on the ground, 10 tiles east
+  const gs = A.freeSpot(H, MH, x0 + 11.5, y0 + 0.5, { rMin: 0, rMax: 1.2, r: 0.45 });
+  t.assert(gs, 'free spot for the giant');
+  const m = MH.giants.spawnGiantAt(H.game, gs[0], gs[1]);
+  m.calmT = 1e9; m.state = 'idle'; m.stateT = 1e9;
+  const pxy = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
+  const [pvx, pvy] = MG.ballista.pivotOf(oG), want = Math.atan2(pxy.y - pvy, pxy.x - pvx);
+  const C = G.game.ballista;
+  C.stickOn = true; C.stickAng = want;
+  t.defer(() => { C.stickOn = false; });
+  let minZ = 9;
+  const watch = setInterval(() => { minZ = Math.min(minZ, gp.z || 0); }, 50);
+  t.defer(() => clearInterval(watch));
+  await t.waitFor(() => Math.abs(MH.ballista.angDiff(MH.ballista.aimOf(oH), want)) < 0.03, 8000 + RT(), 'it points at the giant on the host');
+  await t.sleep(400);
+  const W = G.game.world, ti = Math.floor(gp.y) * W.W + Math.floor(gp.x);
+  t.check(minZ > 0.9 && (gp.lv | 0) === 1 && G.game.levels.isSurface(1, ti), 'the guest stays up on the wall while it turns (on a wall-top tile)', `min z ${f2(minZ)}, lv ${gp.lv}, at ${f2(gp.x)},${f2(gp.y)}`);
+  t.check(Math.hypot(gp.x - pvx, gp.y - pvy) > 0.6, 'the guest stands clear of it (behind / beside)', `${f2(Math.hypot(gp.x - pvx, gp.y - pvy))} tiles from the post`);
+  const max = m.maxHp;
+  t.check(C.fire(), 'the guest fires');
+  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !b.done || b.d > 0), RT() + 1500, 'the bolt flies on the guest');
+  const bH = await t.waitFor(() => (H.game.bolts || [])[0], RT() + 1500, 'and on the host');
+  t.check(bG.lv === 1 && bH.lv === 1, 'the bolt leaves at story 1 on both', `${bG.lv} / ${bH.lv}`);
+  t.check(MH.ballista.boltZ(1, 1) === 1 && MH.ballista.boltZ(1, 30) === 0 && !MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 1) && MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 0), 'high, it passes over the wall under it (low it would stop)');
+  await t.waitFor(() => m.hp < max, 4000 + RT(), 'the plunging bolt hits the giant', () => `bolt ${f2(bH.x)},${f2(bH.y)} z ${f2(bH.z)} done ${bH.done} stuck ${bH.stuck}`);
+  t.check(Math.abs((max - m.hp) - Math.ceil(max * 0.55)) <= 1, 'a bolt takes 55% of its life', `${Math.round(max - m.hp)} of ${Math.round(max)}`);
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the guest gets off');
+  await t.sleep(300);
+  t.check((gp.z || 0) > 0.9, 'and is still up on the wall', lvOf(gp));
+  await t.checkDigest(H, G);
+  env.history.push('BA3');
 });
 
 def('S62', {
@@ -5186,6 +5273,133 @@ def('B3', {
   H.game.boats.leave();
   await t.waitFor(() => !bH.seats.some(Boolean) && !bG.seats.some(Boolean), RT() + 1500, 'the host stepped out onto the ice');
   t.check(!hp._boat && !hp.swimming, 'the host stands on the ice', `${f2(hp.x)},${f2(hp.y)}`);
+  await t.checkDigest(H, G);
+});
+
+// a wolf pack of two on the host at (x, y), set to go after farm animals tonight (ai.js packMood), ignoring players
+async function preyPack(H, x, y) {
+  const MO = await fimp(H, 'game/mobs.js');
+  const a = MO.spawnLoose(H.game, 'wolf', x, y), s = a.spawner, b = MO.spawnMember(H.game, s);
+  s._preyN = H.game.env.dayIndex - (H.game.env.hour < 12 ? 1 : 0); s._preyOk = true; s._preyKills = 0; s._preyCalm = 0;
+  for (const m of [a, b]) { m.calmT = 600; m.stateT = 0; m.preyT = 0; m.thinkT = 0; }
+  return [a, b];
+}
+
+def('P6', {
+  title: 'P: wolves hunt farm animals at night; a closed fence pen keeps them out', timeout: 150000,
+  expected: 'Night. A wolf pack set to hunt tonight next to a sheep of the farm in the open (away from the players): the wolves go for it (state hunt), the sheep runs, they kill it; its body lies there for butchering (corpse.add of a sheep, on both peers); everyone gets "Os lobos mataram uma ovelha da criação!"; the pack leaves the farm alone the rest of the night. A sheep inside a closed ring of fences next to a second pack stays unhurt (the fence mostly hides it; sent at it, the wolves find no path through the fence, give up and leave it alone a while); digest equal',
+  api: 'ai.js lookForPrey / huntStep / bitePrey (PREY in content/livestock.js) → combat.dealDamage → killMob → corpse.add; stock.note; nav.steer fails → give up',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.stock?.debug, 'livestock not merged');
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const MC = await fimp(H, 'game/combat.js');
+  const hp = H.game.player, gp = G.game.player, made = [];
+  H.game.env.hour = 22;
+  t.defer(() => { H.game.env.hour = 9; for (const e of made) if (!e.dead) { e.noCorpse = true; MC.killMob(H.game, e, null); } });
+  await t.waitFor(() => Math.abs(G.game.env.hour - 22) < 0.1, 8000 + CFG.budget, 'guest clock at night');
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  // 1) a sheep in the open, ~16 tiles from the players (the wolves are out of their sight)
+  const away = [[hp.x, hp.y], [gp.x, gp.y]];
+  let sp = null;
+  for (let r = 15; r < 26 && !sp; r += 2) for (let a = 0; a < 12 && !sp; a++) {
+    const x = hp.x + Math.cos(a * 0.52) * r, y = hp.y + Math.sin(a * 0.52) * r, q = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 1, r: 0.45 });
+    const w = q && A.freeSpot(H, MH, q[0] + 4, q[1], { rMin: 0, rMax: 1, r: 0.4 });
+    if (q && w && away.every(([px, py]) => Math.hypot(px - q[0], py - q[1]) > 14) && A.clearLine(H, MH, w[0], w[1], q[0], q[1], 0.35)) sp = [q, w];
+  }
+  t.assert(sp, 'an open spot for the sheep and the pack');
+  const sheep = H.game.stock.debug.spawn('sheep', sp[0][0], sp[0][1], { owned: true });
+  sheep.stateT = 30;
+  made.push(sheep);
+  const pack = await preyPack(H, sp[1][0], sp[1][1]);
+  made.push(...pack);
+  let hunted = false, fled = false;
+  const dead = await t.tryWait(() => { hunted ||= pack.some((m) => m.state === 'hunt' && m.prey === sheep); fled ||= sheep.state === 'flee'; return sheep.dead; }, 30000, 50);
+  t.check(hunted, 'the wolves went for the sheep (hunt)', pack.map((m) => m.state).join('/'));
+  t.check(fled, 'the sheep ran from them');
+  t.check(dead, 'the pack killed the sheep', `hp ${f2(sheep.hp)} · ${pack.map((m) => `${m.state} ${f2(Math.hypot(m.x - sheep.x, m.y - sheep.y))}`).join(' / ')}`);
+  if (dead) {
+    const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((o) => o.of === 'sheep' && Math.hypot(o.x - sheep.x, o.y - sheep.y) < 1.5), RT() + 800, 'its body on the host');
+    await t.waitFor(() => bodyOn(G, c.id), ONEWAY() + 800, 'its body on the guest');
+    await t.waitFor(() => notes.some((s) => /Os lobos mataram uma ovelha da criação/.test(s)), ONEWAY() + 800, 'the guest hears of it', () => notes.join(' | '));
+    await t.sleep(1500);
+    t.check(pack.every((m) => m.state !== 'hunt'), 'the pack lets the farm alone after the kill', pack.map((m) => m.state).join('/'));
+  }
+  // 2) a sheep in a closed ring of fences: out of reach
+  const ring = (x0, y0) => { const o = []; for (let y = y0; y < y0 + 5; y++) for (let x = x0; x < x0 + 5; x++) if (x === x0 || y === y0 || x === x0 + 4 || y === y0 + 4) o.push([x, y]); return o; };
+  const site = A.findSite([H, G], [MH, MG], 'fence_wood', (x, y) => { const o = []; for (let yy = y - 1; yy < y + 6; yy++) for (let xx = x - 3; xx < x + 6; xx++) o.push([xx, yy]); return o; }, hp.x, hp.y, { rMin: 16, rMax: 40, avoidPts: away });
+  t.assert(site, 'an open area for the pen (and the pack west of it)');
+  const x0 = site.x0, y0 = site.y0, net = H.game.net, wt = Math.round(H.game.worldTime);
+  net.emit('struct.add', { list: ring(x0, y0).map(([x, y]) => [net.newId('s'), 'fence_wood', x, y, 0, 1, wt, 0, 1, 0, '', '']), by: H.pid });
+  await t.waitFor(() => ring(x0, y0).every(([x, y]) => A.structAt(G, MG, x, y)), ONEWAY() + 1200, 'the pen stands on both');
+  const penned = H.game.stock.debug.spawn('sheep', x0 + 2.5, y0 + 2.5, { owned: true });
+  penned.stateT = 30;
+  made.push(penned);
+  const pack2 = await preyPack(H, x0 - 2.5, y0 + 2.5);
+  made.push(...pack2);
+  // the fence mostly hides it (fences block the line of sight); a glimpse past a post: no way in, they give up
+  let tried = false;
+  await t.tryWait(() => { tried ||= pack2.some((m) => m.state === 'hunt'); return false; }, 10000);
+  t.check(!penned.dead && penned.hp === penned.maxHp, `the penned sheep stays unhurt (the pack ${tried ? 'tried and gave up' : 'never went for it'})`, `${pack2.map((m) => m.state).join('/')} · hp ${f2(penned.hp)}`);
+  // a wolf that got a glimpse anyway (a gap, a corner): no path through the fence → it gives up, the sheep is unhurt
+  pack2.forEach((m, i) => { m.x = x0 - 2.5; m.y = y0 + 1.5 + i * 1.5; m.state = 'hunt'; m.prey = penned; m.huntT = 0; m.nav = null; }); // (back next to the pen)
+  const gave = await t.tryWait(() => pack2.every((m) => m.state !== 'hunt'), 12000);
+  await t.sleep(1500);
+  t.check(gave && !penned.dead && penned.hp === penned.maxHp, 'sent at it, they find no way in and give up; the sheep is unhurt', `${pack2.map((m) => `${m.state} ${f2(Math.hypot(m.x - penned.x, m.y - penned.y))}`).join(' / ')} · hp ${f2(penned.hp)}/${penned.maxHp}`);
+  t.check(pack2.every((m) => m.preyBan?.nid === penned.nid), 'and leave that one alone for a while', pack2.map((m) => m.preyBan?.nid || '-').join('/'));
+  await t.checkDigest(H, G);
+});
+
+def('P7', {
+  title: 'P: the fishing cast, wait and pull seen by the other peer', timeout: 120000,
+  expected: "The guest casts: the host's copy of the guest plays the cast (action fish, the rod swung back over the shoulder then out over the water: its drawn tip moves back, then toward the bobber), the bobber flies out from the rod tip in an arc and splashes where it lands (landed on both); waiting, the rod points at the water (tip on the bobber's side); the pull: the host's copy plays the reel action (rod yanked up) and the bobber flies back to it (reels ghost on both); digest equal",
+  api: 'fishing.js anglers (_fishT0, _fishBite) / flyStart / drawLine / drawReel; art/compose.js rodPhase + rodAim (_rodTip); action reel on the presence stream',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.fishing?.reels && G.game.fishing?.reels, 'fishing animation not merged');
+  A.keepAlive(t, G);
+  const g = G.game, gp = g.player, w = H.game.world;
+  let spot = null, dir = null;
+  for (let r = 3; r < 40 && !spot; r += 1) for (let a = 0; a < 24 && !spot; a++) {
+    const x = gp.x + Math.cos(a * 0.26) * r, y = gp.y + Math.sin(a * 0.26) * r, i = w.idx(Math.floor(x), Math.floor(y));
+    if (w.water[i] || w.rock[i] || w.solid[i] || !A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 0.3 })) continue;
+    for (const [d, dx, dy] of [['e', 1, 0], ['w', -1, 0]]) { // (a side view on the host: the swing reads on the ground plane)
+      let wet = 0;
+      for (let k = 2; k <= 4; k++) if (w.liquidAt(Math.floor(x + dx * k), Math.floor(y + dy * k))) wet++;
+      if (wet === 3) { spot = [x, y]; dir = d; break; }
+    }
+  }
+  t.assert(spot, 'a shore spot facing open water');
+  A.teleport(G, spot[0], spot[1]);
+  gp.facing = dir;
+  await A.hostSees(t, H, G, 4000);
+  A.ensure(G, { rod_wood: 1 });
+  await t.waitFor(() => g.fishing.near()?.kind === 'fish_cast', 2000, 'the use action says "Pescar"');
+  const copy = () => A.avatarOn(H, G.pid);
+  const tips = [];
+  let t0 = 0;
+  A.interact(G, g.fishing.near());
+  const b = await t.waitFor(() => H.game.fishing.bobs.get(G.pid), RT() + 1500, 'the bobber reaches the host');
+  await t.waitFor(() => copy()?.action?.type === 'fish', 2500, "the host's copy of the guest plays the fishing action");
+  t0 = H.game.time;
+  await t.tryWait(() => { const c = copy(), r = c?._rodTip; if (r && H.game.time - r[3] < 0.2) tips.push([H.game.time - t0, r[0] - c.x, r[1] - c.y, r[2]]); return H.game.time - t0 > 1.4; }, 2500, 30);
+  const c = copy(), bx = b.x - c.x, by = b.y - c.y, L = Math.hypot(bx, by) || 1;
+  const along = (q) => (q[1] * bx + q[2] * by) / L; // (+ toward the bobber)
+  t.check(tips.length > 8, "the host draws the guest's rod tip (the cast is drawn)", `${tips.length} samples`);
+  if (tips.length > 8) {
+    const back = Math.min(...tips.filter((q) => q[0] < 0.5).map(along)), out = along(tips[tips.length - 1]);
+    t.check(back < out - 0.3, 'the rod swings back over the shoulder, then out over the water', `back ${f2(back)} → out ${f2(out)}`);
+    t.check(out > 0.2, 'waiting, the rod tip is out on the bobber side', f2(out));
+  }
+  t.check(c._fishT0 != null && H.game.time - c._fishT0 < 3, "the host saw the cast start (its own clock)", f2(H.game.time - (c._fishT0 ?? -99)));
+  await t.waitFor(() => H.game.fishing.bobs.get(G.pid)?.landed && G.game.fishing.bobs.get(G.pid)?.landed, 3000, 'the bobber landed (splash) on both');
+  // the pull (early: no fish, the reel still plays)
+  let reel = false;
+  A.interact(G, g.fishing.near());
+  await t.waitFor(() => { reel ||= copy()?.action?.type === 'reel'; return reel; }, 2500, "the host's copy plays the pull (reel)");
+  await t.waitFor(() => H.game.fishing.reels.has(G.pid) && G.game.fishing.reels.has(G.pid), RT() + 1500, 'the bobber flies back to the rod on both');
+  await t.waitFor(() => !H.game.fishing.bobs.has(G.pid) && !G.game.fishing.bobs.has(G.pid), RT() + 1500, 'the line is out on both');
   await t.checkDigest(H, G);
 });
 

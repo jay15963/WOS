@@ -903,6 +903,7 @@ function bendFrame(c, S, G) {
 const Q_FRAMES = { e: '', e_walk: '_walk', e_w1: '_w1', e_w2: '_w2', e_w3: '_w3' };
 // only the layers numbered `set` of a painter (shifted by dx: the side head on the stand-in's axis)
 const pick = (P, set, dx = 0) => { let i = 0; return { layer(fn, ow, col, op) { if (set.includes(i++)) P.layer(dx ? (g) => { g.translate(dx, 0); fn(g); } : fn, ow, col, op); } }; };
+const HUMP = { bear: 7, boar: 5.5 }; // (design px: a heavy round back seen from behind, beast34)
 function spec34(sp, variant, frame) {
   const S = SPECIES[sp], F = FRONT[sp];
   const rand = rng(sp.length * 1000 + 31 + (variant ? 3 : 0));
@@ -911,10 +912,11 @@ function spec34(sp, variant, frame) {
     if (stag) P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) antlersFront(g, S, 0, 0, r, mixc(S.antler, S.antlerDark, 0.5), 1); else { antlersFront(g, S, 0, 0, r, S.antlerDark, 1.05); antlersFront(g, S, 0, 0, r, S.antler, 0.75); } }, 2.1);
     P.layer((g) => { g.translate(x, y); g.scale(s, s); if (back) backHead(g, sp, S, 0, 0, r * 0.92); else frontHead(g, sp, S, 0, 0, r, rand); }, back ? S.ow * 0.9 : S.ow);
   };
-  const base = { W: S.W, H: S.H, cx: S.W / 2, foot: S.foot + S.oy, wb: F.barrel.rx * 0.7, wl: (F.front.x + F.hind.x) / 2, key: sp === 'rabbit' ? null : sp + (variant || '') };
+  const base = { W: S.W, H: S.H, cx: S.W / 2, foot: S.foot + S.oy, wb: F.barrel.rx * 0.7, wl: (F.front.x + F.hind.x) / 2, key: sp === 'rabbit' ? null : sp + (variant || ''),
+    hump: HUMP[sp] || 0 };
   if (sp === 'rabbit') {
     return { ...base, farOff: [0, 0], far: (P) => rabbitPaint(frame, pick(P, [0])), body: (P) => rabbitPaint(frame, pick(P, [1, 2])), near: (P) => rabbitPaint(frame, pick(P, [3])),
-      head: { side: (P, dx) => rabbitPaint(frame, pick(P, [4], dx)), front: faceOn(false), back: faceOn(true) } };
+      head: { side: (P, dx) => rabbitPaint(frame, pick(P, [4], dx)), front: faceOn(false), back: faceOn(true), ears: true } };
   }
   const D = SIDE[sp], fr = FRAMES[frame];
   const lp = [legPts(S, 'front', fr[0], false), legPts(S, 'hind', fr[1], false), legPts(S, 'front', fr[2], true), legPts(S, 'hind', fr[3], true)];
@@ -931,7 +933,7 @@ function spec34(sp, variant, frame) {
         if (sp === 'deer' && variant !== 'doe') P.layer((g) => { at(g); D.antlers(g, S); }, 2.1);
         P.layer((g) => { at(g); D.farEar(g, S); D.head(g, S, rand); }, S.ow);
       },
-      front: faceOn(false), back: faceOn(true), spread: sp === 'deer' && variant !== 'doe' ? [0] : [],
+      front: faceOn(false), back: faceOn(true), spread: sp === 'deer' && variant !== 'doe' ? [0] : [], ears: canid, // (pointed ears: sharp)
     },
   };
 }
@@ -943,6 +945,16 @@ for (const sp of ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox']) {
         const [ax, ay] = beast34Anchor(spec34Box(sp));
         lazyDef(`${name}_${view}${Q_FRAMES[frame]}`, () => beast34(spec34(sp, variant, frame), view), ax, ay);
       }
+    }
+    // idle life in 3/4: grazing (neck and head turned down like the side graze frame) and looking around (the head
+    // turned toward the camera)
+    for (const view of ['se', 'ne']) {
+      const [ax, ay] = beast34Anchor(spec34Box(sp)), G = GRAZE[sp], oy = SPECIES[sp].oy;
+      if (G) {
+        const bend = { pv: [G.pv[0], G.pv[1] + oy], ang: G.ang, R: G.R.map(([x, y]) => [x, y + oy]), E: G.E ? G.E.map(([x, y]) => [x, y + oy]) : null };
+        lazyDef(`${name}_${view}_graze`, () => beast34({ ...spec34(sp, variant, 'e'), bend }, view), ax, ay);
+      }
+      lazyDef(`${name}_${view}_look`, () => beast34({ ...spec34(sp, variant, 'e'), look: true }, view), ax, ay);
     }
   }
 }
