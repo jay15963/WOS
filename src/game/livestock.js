@@ -42,9 +42,19 @@ export const nameOf = (sp, baby) => (baby ? STOCK[sp]?.baby : SPECIES[sp]?.name)
 // ---------- feeders ----------
 export const isFeeder = (o) => !!o && !o.blueprint && !o.removed && !!BUILDINGS[o.type]?.feed;
 export const feederCenter = (o) => [o.tx + (o.fw || BUILDINGS[o.type].size[0]) / 2, o.ty + (o.fh || BUILDINGS[o.type].size[1]) / 2];
+// the finished feeders (cached for half a second: the farm clock and the range rings ask often)
+const FL = { t: -1, game: null, n: -1, list: [] };
+function feederList(game) {
+  const S = game.build?.structures || [];
+  if (FL.game !== game || game.time - FL.t > 0.5 || FL.t > game.time || FL.n !== S.length) {
+    FL.game = game; FL.t = game.time; FL.n = S.length; FL.list.length = 0;
+    for (const o of S) if (o.type === 'feeder' || BUILDINGS[o.type]?.feed) FL.list.push(o);
+  }
+  return FL.list;
+}
 export function feedersNear(game, x, y, r = FEEDER_RANGE) {
   const out = [];
-  for (const o of game.build?.structures || []) {
+  for (const o of feederList(game)) {
     if (!isFeeder(o)) continue;
     const [cx, cy] = feederCenter(o);
     if (Math.hypot(cx - x, cy - y) <= r) out.push(o);
@@ -625,8 +635,9 @@ export function stockFxSystem() {
       if (tile && bm?.kind === 'place' && bm.type === 'farm_plot' && p.inv.count('seed_wheat') > 0) {
         const h = bm.hover || [Math.floor(p.x), Math.floor(p.y)];
         for (let y = h[1] - 7; y <= h[1] + 7; y++) for (let x = h[0] - 9; x <= h[0] + 9; x++) {
-          if (!game.world.inBounds(x, y) || game.world.water[game.world.idx(x, y)] || !fertileAt(game.world, x, y)) continue;
-          B.ground.add(tile, x + 0.5, y + 1, 1, 1, 0.45, 1, 0.4, 0.16);
+          if (!game.world.inBounds(x, y) || game.world.water[game.world.idx(x, y)] || game.world.rock[game.world.idx(x, y)]) continue;
+          const ok = fertileAt(game.world, x, y); // (green = fertile soil, a faint red = not)
+          B.ground.add(tile, x + 0.5, y + 1, 1, 1, ok ? 0.45 : 1, ok ? 1 : 0.35, ok ? 0.4 : 0.3, ok ? 0.3 : 0.13);
         }
         for (const g of bm.tiles || []) { const ok = fertileAt(game.world, g.tx, g.ty); B.ground.add(tile, g.tx + 0.5, g.ty + 1, 1, 1, ok ? 0.4 : 1, ok ? 1 : 0.3, ok ? 0.35 : 0.25, 0.45); }
       }
@@ -649,7 +660,7 @@ export function installStock(game) {
     label: stockLabel,
     isFeed,
     // tests / dev (host): a farm animal at (x, y); run the farm clock for dt seconds at once (hunger, births, growth)
-    debug: { spawn: (sp, x, y, o) => spawnStock(game, sp, x, y, o), tick: (dt = 1) => farmTick(game, dt) },
+    debug: { spawn: (sp, x, y, o) => spawnStock(game, sp, x, y, o), tick: (dt = 1) => farmTick(game, dt), restore: () => restoreStock(game) },
   };
 }
 
