@@ -108,19 +108,35 @@ function leaveSpot(game, m, p) {
   return [m.home.x, m.home.y];
 }
 
+// (a deck — a pier / bridge, game/decks.js — is ground: a spot on one is fine, deep water is not)
+const deepAt = (w, x, y) => { const tx = Math.floor(x), ty = Math.floor(y); return w.waterAt(tx, ty) === 2 && !(w.deck && w.inBounds(tx, ty) && w.deck[w.idx(tx, ty)]); };
 export function pickWander(game, m, rMax = 5) {
   const w = game.world;
+  // now and then a stroll onto a pier / bridge near home (they would only cross one on a path otherwise)
+  if (game.decks?.any && Math.random() < 0.3) { const d = deckSpot(game, m, rMax); if (d) return d; }
   for (let k = 0; k < 6; k++) {
     const a = Math.random() * Math.PI * 2, r = 1 + Math.random() * rMax;
     const x = m.home.x + Math.cos(a) * r, y = m.home.y + Math.sin(a) * r;
-    if (!mobBlocked(w, x, y, m.r) && w.waterAt(Math.floor(x), Math.floor(y)) !== 2) return [x, y];
+    if (!mobBlocked(w, x, y, m.r) && !deepAt(w, x, y)) return [x, y];
   }
   return [m.home.x, m.home.y];
+}
+// a free spot on a finished pier / bridge piece within reach of home (one of them at random), or null
+function deckSpot(game, m, rMax) {
+  const D = game.decks, w = game.world, R = rMax + 2.5;
+  let pick = null, n = 0;
+  for (const o of D.list) {
+    if (o.blueprint || Math.abs(o.tx + 0.5 - m.home.x) > R || Math.abs(o.ty + 0.5 - m.home.y) > R) continue;
+    if (Math.random() * ++n < 1) pick = o; // (reservoir: each piece as likely)
+  }
+  if (!pick) return null;
+  const x = pick.tx + 0.3 + Math.random() * 0.4, y = pick.ty + 0.3 + Math.random() * 0.4;
+  return mobBlocked(w, x, y, m.r) ? null : [x, y];
 }
 
 export function go(game, m, dir, speed, dt) {
   if (!dir) { m.moving = false; return; }
-  let spd = speed * (game.levels ? game.levels.speedAt(m) : game.world.speedAt(m.x, m.y)); // levels: stairs slower
+  let spd = speed * (game.levels ? game.levels.speedAt(m) : game.world.speedAt(m.x, m.y, m._ud)); // levels: stairs slower; under a bridge: the water's
   if (m.dazeT > 0) spd *= 0.45;
   const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);

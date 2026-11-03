@@ -121,10 +121,11 @@ export class World {
   // ---------- tiles ----------
   isRock(tx, ty) { return !this.inBounds(tx, ty) || this.rock[this.idx(tx, ty)] === 1; }
   waterAt(tx, ty) { return this.inBounds(tx, ty) ? this.water[this.idx(tx, ty)] : 0; }
-  // water you can sink into: none while it is frozen (winter: this.frozen, set by seasons.js on every peer) nor under a
-  // finished pier / bridge deck (this.deck, derived by game/decks.js from the structures on every peer).
+  // water you can sink into: none while it is frozen (winter: this.frozen, set by seasons.js on every peer) nor on a
+  // finished pier / bridge deck (this.deck, derived by game/decks.js from the structures on every peer) — unless the
+  // body is under the deck (under: e._ud, physics.deckTrack: swimming under a bridge).
   // Movement / swimming / creature paths use this; looks, placement rules and the minimap keep waterAt.
-  liquidAt(tx, ty) { return this.frozen || (this.deck && this.inBounds(tx, ty) && this.deck[this.idx(tx, ty)]) ? 0 : this.waterAt(tx, ty); }
+  liquidAt(tx, ty, under = false) { return this.frozen || (!under && this.deck && this.inBounds(tx, ty) && this.deck[this.idx(tx, ty)]) ? 0 : this.waterAt(tx, ty); }
   blocked(tx, ty) {
     if (!this.inBounds(tx, ty)) return true;
     const i = this.idx(tx, ty);
@@ -132,11 +133,11 @@ export class World {
   }
   groundAt(tx, ty) { return this.inBounds(tx, ty) ? this.ground[this.idx(tx, ty)] : G.STONE; }
 
-  // movement speed multiplier at a world point
-  speedAt(x, y) {
+  // movement speed multiplier at a world point (under: the body is under a bridge deck, physics.deckTrack)
+  speedAt(x, y, under = false) {
     const tx = Math.floor(x), ty = Math.floor(y);
     const wa = this.waterAt(tx, ty);
-    if (wa && this.deck && this.deck[this.idx(tx, ty)]) return 1; // on a pier / bridge deck (game/decks.js)
+    if (wa && !under && this.deck && this.deck[this.idx(tx, ty)]) return 1; // on a pier / bridge deck (game/decks.js)
     if (wa && this.frozen) return 0.92; // ice: a little careful
     if (wa === 2) return 0.14; // deep water: swimming, a lot slower than wading
     if (wa === 1) return 0.55;

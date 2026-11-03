@@ -292,6 +292,34 @@ export function corpseAdapter(game, c) {
   };
 }
 
+// ---------- drawing ----------
+// a dragged body is drawn behind its dragger
+function viewOf(c0) {
+  if (!c0.dragBy) return c0;
+  const d = DRAG.get(c0);
+  return d ? Object.assign(d.view, c0, { x: d.x, y: d.y }) : c0;
+}
+function drawBody(B, A, game, c0, c, t, nFly) {
+  const age = corpseAge(game, c0);
+  drawCorpse(B, A, c, age, t - (c0._t0 ?? -100), t);
+  if (age > 0.9 && age < 2) drawFlies(B, A, c, Math.min(1, (age - 0.9) * 10) * Math.min(1, (2 - age) * 10), t, nFly);
+}
+// a body on a deck: its ground-layer sprites go to the sorted batch lifted to the deck's top, lying flat there (depth
+// mode 1, a hair over the boards); the flies over it, lifted too; its contact shadow stays under the deck (not drawn)
+const ON_DECK = [];
+class Lift { constructor() { this.dst = null; this.h = 0; } add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, lift, sc) { this.dst.add(s, x, y, sx, sy, r, g, b, a, sway, rot, flash, flip, recv, (lift || 0) + this.h, sc); } addRaw() {} }
+const NONE = { add() {}, addRaw() {} };
+const LB = { main: new Lift(), decor: new Lift(), ground: new Lift(), fx: new Lift(), blob: NONE, shadow: NONE, emissive: NONE, light: NONE };
+function drawOnDeck(B, A, t) {
+  const game = this.game, f = this.f, c = f ? f.c : viewOf(this.c0), h = this.h;
+  const Z = B.main.Z;
+  if (Z) { Z.ref = true; Z.x = c.x; Z.y = c.y; Z.h = h; Z.mode = 1; Z.bias = 0.02; }
+  LB.main.dst = LB.decor.dst = LB.ground.dst = B.main; LB.fx.dst = B.fx;
+  LB.main.h = LB.decor.h = LB.ground.h = LB.fx.h = h;
+  if (f) drawCorpse(LB, A, c, Math.min(4.8, corpseAge(game, c)), 99, t, Math.min(1, (t - f.t0) / 0.6));
+  else drawBody(LB, A, game, this.c0, c, t, game.quality === 'low' ? 3 : 5);
+}
+
 // ---------- system ----------
 export function corpsesSystem() {
   let slowT = 0, flyT = 1, rotT = 0;
@@ -338,21 +366,37 @@ export function corpsesSystem() {
       if (rotT <= 0) { rotT = 0.5; for (const c of C.map.values()) { const a = corpseAge(game, c); c.rotten = a >= 0.95 && a < 1.95; } }
     },
     render(game, B, v) {
-      const A = game.A, t = game.time, C = game.corpses;
+      const A = game.A, t = game.time, C = game.corpses, D = game.decks?.any ? game.decks : null;
       const nFly = game.quality === 'low' ? 3 : 5;
       for (const c0 of C.map.values()) {
-        let c = c0;
-        if (c0.dragBy) { const d = DRAG.get(c0); if (d) c = Object.assign(d.view, c0, { x: d.x, y: d.y }); } // (drawn behind its dragger)
+        const c = viewOf(c0);
         if (c.x < v.x0 - 2 || c.x > v.x1 + 2 || c.y < v.y0 - 2 || c.y > v.y1 + 2) continue;
-        const age = corpseAge(game, c0);
-        drawCorpse(B, A, c, age, t - (c0._t0 ?? -100), t);
-        if (age > 0.9 && age < 2) drawFlies(B, A, c, Math.min(1, (age - 0.9) * 10) * Math.min(1, (2 - age) * 10), t, nFly);
+        if (D && D.onDeck(c.x, c.y)) continue; // (on a pier / bridge: drawn on its top by collect)
+        drawBody(B, A, game, c0, c, t, nFly);
       }
       for (const f of C.fading) {
         const c = f.c;
         if (c.x < v.x0 - 2 || c.x > v.x1 + 2 || c.y < v.y0 - 2 || c.y > v.y1 + 2) continue;
+        if (D && D.onDeck(c.x, c.y)) continue;
         drawCorpse(B, A, c, Math.min(4.8, corpseAge(game, c)), 99, t, Math.min(1, (t - f.t0) / 0.6));
       }
+    },
+    // bodies on a pier / bridge deck (game/decks.js): flat on its top, in the depth-sorted list (the ground layer they
+    // are drawn in elsewhere lies under the deck)
+    collect(game, list, v) {
+      const D = game.decks, C = game.corpses;
+      if (!D || !D.any) return;
+      let n = 0;
+      const add = (c0, f) => {
+        const c = f ? f.c : viewOf(c0);
+        if (c.x < v.x0 - 2 || c.x > v.x1 + 2 || c.y < v.y0 - 2 || c.y > v.y1 + 2 || !D.onDeck(c.x, c.y)) return;
+        const d = ON_DECK[n] || (ON_DECK[n] = { c0: null, f: null, game: null, x: 0, y: 0, h: 0, draw: drawOnDeck });
+        n++;
+        d.c0 = c0; d.f = f; d.game = game; d.x = c.x; d.y = c.y; d.h = D.heightAt(c.x, c.y);
+        list.push(d);
+      };
+      for (const c0 of C.map.values()) add(c0, null);
+      for (const f of C.fading) add(null, f);
     },
   };
 }

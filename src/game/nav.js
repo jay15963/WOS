@@ -6,7 +6,15 @@
 // included); an open one is 0 (everyone passes). They never open by themselves. The value-2 paths below
 // (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
-import { collides, moveCircle, railCross } from './physics.js';
+import { collides, moveCircle, railCross, underAt, underFor, deckTrack } from './physics.js';
+
+// Bridges (game/decks.js, physics.js): a step between two tiles is tested against the walls of the level it is taken at
+// — the railings on a deck, the walls at the water (support bents, abutments) under a deck or on the ground — and a
+// path remembers per tile whether it went under a deck (entered through a railed side from the water / ice beside it),
+// where deep water is water (only ice or shallow water: creatures do not swim). The steps physics allows, no more.
+const wallsAt = (w, i, u) => (!u && w.deck && w.deck[i] ? w.rail : w.railU);
+// may a creature step from tile i (under a deck: u) to tile j (layer nu)? (the deep water a deck does not cover)
+const deepOff = (w, i, j, u, nu) => !w.frozen && w.water[j] === 2 && (nu || (!u && !(w.deck && w.deck[i]) && w.deck && w.deck[j]));
 
 // ---------- occupancy (solid round props per tile) ----------
 export function buildOcc(game) {
@@ -63,7 +71,8 @@ function overlapsDoor(w, x, y, r) {
   }
   return false;
 }
-export const mobBlocked = (w, x, y, r) => collides(w, x, y, r) || overlapsDoor(w, x, y, r);
+// ud: the creature would be under a bridge deck there (physics.underFor)
+export const mobBlocked = (w, x, y, r, ud = false) => collides(w, x, y, r, null, false, false, ud) || overlapsDoor(w, x, y, r);
 
 export function moveMob(game, e, dx, dy) {
   const w = game.world;
@@ -71,18 +80,19 @@ export function moveMob(game, e, dx, dy) {
   if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts
   if (e.passDoors) return moveCircle(w, e, dx, dy);
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
-  const sx = dx / steps, sy = dy / steps;
+  const sx = dx / steps, sy = dy / steps, dk = !!w.rail; // (dk: bridges around — on / under a deck)
   let moved = false;
   for (let i = 0; i < steps; i++) {
-    if (!mobBlocked(w, e.x + sx, e.y, e.r)) { e.x += sx; moved = true; }
-    if (!mobBlocked(w, e.x, e.y + sy, e.r)) { e.y += sy; moved = true; }
+    if (!mobBlocked(w, e.x + sx, e.y, e.r, dk && underFor(w, e, e.x + sx, e.y))) { e.x += sx; moved = true; }
+    if (!mobBlocked(w, e.x, e.y + sy, e.r, dk && underFor(w, e, e.x, e.y + sy))) { e.y += sy; moved = true; }
   }
+  if (dk) deckTrack(w, e);
   return moved;
 }
 
 // straight-line walkability between two points (tile DDA on the center line).
-// hard = only walls / rock / water / doors count (trunks are left to local avoidance)
-export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false) {
+// hard = only walls / rock / water / doors count (trunks are left to local avoidance); ud = it starts under a bridge deck
+export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false, ud = false) {
   const w = game.world;
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1);
@@ -91,9 +101,12 @@ export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false) {
   const ddx = dx !== 0 ? Math.abs(1 / dx) : 1e9, ddy = dy !== 0 ? Math.abs(1 / dy) : 1e9;
   let mx = dx !== 0 ? (dx > 0 ? tx + 1 - x0 : x0 - tx) * ddx : 1e9;
   let my = dy !== 0 ? (dy > 0 ? ty + 1 - y0 : y0 - ty) * ddy : 1e9;
+  let u = !!ud;
   for (let n = 0; n < 96; n++) {
     if (tx === ex && ty === ey) return true;
-    if (mx < my) { if (w.rail && railCross(w, tx, ty, sx, 0)) return false; mx += ddx; tx += sx; } else { if (w.rail && railCross(w, tx, ty, 0, sy)) return false; my += ddy; ty += sy; } // (bridge railings: decks.js)
+    const pi = ty * w.W + tx;
+    if (mx < my) { if (w.rail && railCross(w, tx, ty, sx, 0, wallsAt(w, pi, u))) return false; mx += ddx; tx += sx; } else { if (w.rail && railCross(w, tx, ty, 0, sy, wallsAt(w, pi, u))) return false; my += ddy; ty += sy; } // (bridges: decks.js)
+    if (w.rail && w.inBounds(tx, ty)) { const ni = ty * w.W + tx, nu = underAt(w, pi, ni, u); if (deepOff(w, pi, ni, u, nu)) return false; u = nu; }
     if (tx === ex && ty === ey) return true; // goal tile itself may hold the target's prop
     if (hard ? (w.blocked(tx, ty) || (!doors && w.solid[ty * w.W + tx] === 2)) : !walkable(game, tx, ty, doors)) return false;
   }
@@ -101,7 +114,7 @@ export function clearLine(game, x0, y0, x1, y1, doors = false, hard = false) {
 }
 
 // ---------- A* ----------
-let N = 0, gArr, parent, seen, closed, stamp = 0;
+let N = 0, gArr, parent, seen, closed, lay, stamp = 0; // (lay: the tile was reached under a bridge deck)
 let heapN = new Int32Array(4096), heapF = new Float32Array(4096), heapSize = 0;
 
 function heapPush(n, f) {
@@ -136,19 +149,22 @@ const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, 
 
 // Returns { path: [[x,y]...] tile centers (excluding start), complete } or null.
 // When the goal is unreachable within budget, returns a partial path to the closest explored tile.
-export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false) {
+// ud: the start is under a bridge deck (a tile keeps the level it was first reached at: a valid path, maybe not the
+// shortest one through a bridge tile)
+export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, ud = false) {
   const w = game.world, W = w.W;
   if (N !== w.W * w.H) {
     N = w.W * w.H;
-    gArr = new Float32Array(N); parent = new Int32Array(N); seen = new Uint32Array(N); closed = new Uint32Array(N);
+    gArr = new Float32Array(N); parent = new Int32Array(N); seen = new Uint32Array(N); closed = new Uint32Array(N); lay = new Uint8Array(N);
   }
   stamp++;
   if (!w.inBounds(sx, sy) || !w.inBounds(gx, gy)) return null;
   const s = w.idx(sx, sy), g = w.idx(gx, gy);
   const h = (i) => { const x = i % W, y = (i / W) | 0; const dx = Math.abs(x - gx), dy = Math.abs(y - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
   heapSize = 0;
-  gArr[s] = 0; parent[s] = -1; seen[s] = stamp;
+  gArr[s] = 0; parent[s] = -1; seen[s] = stamp; lay[s] = ud ? 1 : 0;
   heapPush(s, h(s));
+  const dk = !!w.rail;
   let best = s, bestH = h(s), expanded = 0;
   const free = (x, y) => w.inBounds(x, y) && ((x === gx && y === gy && !w.blocked(x, y) && (doors || w.solid[y * W + x] !== 2)) || walkable(game, x, y, doors));
   while (heapSize > 0 && expanded < maxNodes) {
@@ -164,12 +180,18 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false) {
       const nx = cx + dx, ny = cy + dy;
       if (!free(nx, ny)) continue;
       if (dx && dy && (!walkable(game, cx + dx, cy, doors) || !walkable(game, cx, cy + dy, doors))) continue; // no corner cutting
-      if (w.rail && railCross(w, cx, cy, dx, dy)) continue; // bridge railings (decks.js)
       const ni = ny * W + nx;
+      let nu = 0;
+      if (dk) { // bridges (decks.js): the walls of the level the step is taken at, the water under a deck
+        const u = lay[cur] === 1;
+        if (railCross(w, cx, cy, dx, dy, wallsAt(w, cur, u))) continue;
+        nu = underAt(w, cur, ni, u) ? 1 : 0;
+        if (deepOff(w, cur, ni, u, nu)) continue;
+      }
       if (closed[ni] === stamp) continue;
-      const ng = gArr[cur] + cost;
+      const ng = gArr[cur] + (nu ? cost * 2.5 : cost); // (under a deck the water is slow: a deck tile is first reached on its boards)
       if (seen[ni] === stamp && ng >= gArr[ni]) continue;
-      seen[ni] = stamp; gArr[ni] = ng; parent[ni] = cur;
+      seen[ni] = stamp; gArr[ni] = ng; parent[ni] = cur; lay[ni] = nu;
       heapPush(ni, ng + h(ni) * 1.05);
     }
   }
@@ -199,8 +221,9 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
   const wantPath = () => {
     if (nav.retryT > 0 || (game._pathBudget ?? 1) <= 0 || (dGoal < 0.9 && !cross)) return;
     game._pathBudget = (game._pathBudget ?? 1) - 1;
-    const res = LV ? LV.findPath(Math.floor(e.x), Math.floor(e.y), elv, Math.floor(gx), Math.floor(gy), tlv, 1600, doors)
-      : findPath(game, Math.floor(e.x), Math.floor(e.y), Math.floor(gx), Math.floor(gy), 1600, doors);
+    const ud = !!w.rail && deckTrack(w, e); // (under a bridge deck: the path starts at the water)
+    const res = LV ? LV.findPath(Math.floor(e.x), Math.floor(e.y), elv, Math.floor(gx), Math.floor(gy), tlv, 1600, doors, ud)
+      : findPath(game, Math.floor(e.x), Math.floor(e.y), Math.floor(gx), Math.floor(gy), 1600, doors, ud);
     if (res && res.path.length) { nav.path = res.path; nav.i = 0; nav.gx = gx; nav.gy = gy; nav.partial = !res.complete; }
     else nav.retryT = 1.5;
     if (!res || !res.complete) { nav.side = -nav.side; nav.retryT = Math.max(nav.retryT, 0.8); }
@@ -217,10 +240,10 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
         nav.losT = 0.25;
         for (let k = Math.min(nav.path.length - 1, nav.i + 3); k > nav.i; k--) {
           const q = nav.path[k];
-          if (clearLine(game, e.x, e.y, q[0], q[1], doors)) { nav.i = k; wp = q; break; }
+          if (clearLine(game, e.x, e.y, q[0], q[1], doors, false, e._ud)) { nav.i = k; wp = q; break; }
         }
         // whole remaining way is clear: drop the path, seek directly
-        if (!nav.partial && clearLine(game, e.x, e.y, gx, gy, doors) && dGoal < 6) { nav.path = null; wp = null; }
+        if (!nav.partial && clearLine(game, e.x, e.y, gx, gy, doors, false, e._ud) && dGoal < 6) { nav.path = null; wp = null; }
       }
       if (!wp) nav.path = null;
       else { tx = wp[0]; ty = wp[1]; }
@@ -228,7 +251,7 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
   } else if (nav.losT <= 0) {
     // walls / rock / player buildings straight ahead: plan around them right away
     nav.losT = 0.5;
-    if (cross ? dGoal > 0.3 : dGoal > 1.5 && !clearLine(game, e.x, e.y, gx, gy, doors, true)) wantPath();
+    if (cross ? dGoal > 0.3 : dGoal > 1.5 && !clearLine(game, e.x, e.y, gx, gy, doors, true, e._ud)) wantPath();
     if (nav.path) { const wp = nav.path[0]; tx = wp[0]; ty = wp[1]; }
   }
   let dx = tx - e.x, dy = ty - e.y;
@@ -236,7 +259,8 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
   dx /= L; dy /= L;
   // local probe avoidance (trunks, other props) — also while following a path
   const pr = 0.3;
-  const blockedAt = LV ? (x, y) => LV.blockedFor(e, x, y) : doors ? (x, y) => collides(w, x, y, e.r) : (x, y) => mobBlocked(w, x, y, e.r);
+  const dk = !!w.rail; // (bridges: the probe at the level the creature would be at there)
+  const blockedAt = LV ? (x, y) => LV.blockedFor(e, x, y) : doors ? (x, y) => collides(w, x, y, e.r, null, false, false, dk && underFor(w, e, x, y)) : (x, y) => mobBlocked(w, x, y, e.r, dk && underFor(w, e, x, y));
   if (blockedAt(e.x + dx * pr, e.y + dy * pr)) {
     const angs = [0.7, -0.7, 1.35, -1.35, 2.0, -2.0];
     for (const a0 of angs) {

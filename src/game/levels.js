@@ -13,7 +13,7 @@
 // camera, depth keys, lift), session / entities (z), save (player z), placeReason (stairwell).
 
 import { BUILDINGS } from './data.js';
-import { tileBlocked, railHit, railCross } from './physics.js';
+import { tileBlocked, railHit, railCross, underAt, underFor, deckTrack } from './physics.js';
 import { walkable } from './nav.js';
 import { WALL_H } from '../art/structures.js';
 import { underOpaqueRoof, underCaveCeiling } from './roofs.js';
@@ -69,7 +69,7 @@ export class Levels {
     this.M = 0;          // upper nodes
     this.nodeTile = new Int32Array(64);
     this.nodeLv = new Uint8Array(64);
-    this._nb = new Int32Array(16); this._nc = new Float32Array(16);
+    this._nb = new Int32Array(16); this._nc = new Float32Array(16); this._nl = new Uint8Array(16); // (_nl: the neighbour is under a bridge deck)
     this.STORY = STORY_H;
     this.hasUpper = false;
     this.hasTops = false;
@@ -330,7 +330,7 @@ export class Levels {
 
   // ---------- collision ----------
   // tile free to stand on at level k; `cur` = the mover's current tile (stair steps open only from their entrance / landing)
-  tileFree(k, tx, ty, pd, sw, cur) {
+  tileFree(k, tx, ty, pd, sw, cur, od = true) {
     const w = this.game.world;
     if (!w.inBounds(tx, ty)) return false;
     const i = ty * w.W + tx;
@@ -339,24 +339,26 @@ export class Levels {
       const s = this.stairs[sid - 1];
       return s.n === k ? i === s.i0 && (cur === s.ent || cur === i || s.side0.includes(cur)) : i === s.i1 && (cur === s.land || cur === i || s.side1.includes(cur));
     }
-    if (k === 0) return !tileBlocked(w, tx, ty, pd, sw);
+    if (k === 0) return !tileBlocked(w, tx, ty, pd, sw, od); // (od: on a deck — physics.js; under / beside it deep water blocks)
     const S = this.surf[k];
     if (!S || !S[i]) return false; // air: walkable edges are bounded
     const Bk = this.blk[k];
     return !(Bk && Bk[i]);
   }
 
-  collidesL(k, x, y, r, pd, sw, cur, ignore = null) {
+  // ud: (level 0) the body would be under a bridge deck at (x, y) (physics.underFor)
+  collidesL(k, x, y, r, pd, sw, cur, ignore = null, ud = false) {
     const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
+    const wd = this.game.world.deck, od = !ud && !!wd && !!wd[this._tile(x, y)];
     for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-      if (this.tileFree(k, tx, ty, pd, sw, cur)) continue;
+      if (this.tileFree(k, tx, ty, pd, sw, cur, od)) continue;
       const cx = x < tx ? tx : x > tx + 1 ? tx + 1 : x, cy = y < ty ? ty : y > ty + 1 ? ty + 1 : y;
       const dx = x - cx, dy = y - cy;
       if (dx * dx + dy * dy < r * r) return true;
     }
     // round props of this level only (trees, boulders, chests…)
     const w = this.game.world;
-    if (k === 0 && w.rail && railHit(w, x, y, r)) return true; // bridge railings (game/decks.js)
+    if (k === 0 && w.rail && railHit(w, x, y, r, ud)) return true; // bridge railings / the walls under a deck (game/decks.js)
     let hit = false;
     w.forChunks(x - r - 1, y - r - 1, x + r + 1, y + r + 1, (c) => {
       if (hit) return;
@@ -400,7 +402,7 @@ export class Levels {
   blockedFor(e, x, y) {
     const k = e.lv | 0;
     if (this.stairAt(k, e.x, e.y)) return false; // the stair is a corridor: no probing
-    return this.collidesL(k, x, y, e.r || 0.25, !!e.passDoors, !!e.canSwim && !k, this._tile(e.x, e.y));
+    return this.collidesL(k, x, y, e.r || 0.25, !!e.passDoors, !!e.canSwim && !k, this._tile(e.x, e.y), null, !k && !!this.game.world.rail && underFor(this.game.world, e, x, y));
   }
 
   // ---------- movement (physics.moveCircle / nav.moveMob hook) ----------
@@ -410,7 +412,8 @@ export class Levels {
     const sx = dx / steps, sy = dy / steps;
     const pd = !!e.passDoors;
     let stuckOn = null;
-    if (!(e.lv > 0) && !this.stairAt(0, e.x, e.y) && this.collidesL(0, e.x, e.y, e.r, pd, !!e.canSwim, this._tile(e.x, e.y))) stuckOn = this._overlapped(e);
+    const w = this.game.world, dk = !!w.rail; // (bridges: on a deck or under it — physics.js)
+    if (!(e.lv > 0) && !this.stairAt(0, e.x, e.y) && this.collidesL(0, e.x, e.y, e.r, pd, !!e.canSwim, this._tile(e.x, e.y), null, dk && deckTrack(w, e))) stuckOn = this._overlapped(e);
     let moved = false;
     for (let n = 0; n < steps; n++) {
       const k = e.lv | 0;
@@ -418,14 +421,15 @@ export class Levels {
       if (s) { if (this._stairStep(e, s, sx, sy, pd)) moved = true; continue; }
       const sw = !!e.canSwim && !k;
       let cur = this._tile(e.x, e.y);
-      if (sx && (!this.collidesL(k, e.x + sx, e.y, e.r, pd, sw, cur, stuckOn) || this._eases(k, e, e.x + sx, e.y, pd, sw, cur))) { e.x += sx; moved = true; }
+      if (sx && (!this.collidesL(k, e.x + sx, e.y, e.r, pd, sw, cur, stuckOn, !k && dk && underFor(w, e, e.x + sx, e.y)) || this._eases(k, e, e.x + sx, e.y, pd, sw, cur))) { e.x += sx; moved = true; }
       const s1 = this.stairAt(k, e.x, e.y);
       if (s1) { this._onStair(e, s1); continue; }
       cur = this._tile(e.x, e.y);
-      if (sy && (!this.collidesL(k, e.x, e.y + sy, e.r, pd, sw, cur, stuckOn) || this._eases(k, e, e.x, e.y + sy, pd, sw, cur))) { e.y += sy; moved = true; }
+      if (sy && (!this.collidesL(k, e.x, e.y + sy, e.r, pd, sw, cur, stuckOn, !k && dk && underFor(w, e, e.x, e.y + sy)) || this._eases(k, e, e.x, e.y + sy, pd, sw, cur))) { e.y += sy; moved = true; }
       const s2 = this.stairAt(k, e.x, e.y);
       if (s2) this._onStair(e, s2);
     }
+    if (dk) deckTrack(w, e);
     return moved;
   }
 
@@ -499,7 +503,7 @@ export class Levels {
 
   // movement speed factor (stairs slower; water / mud only on the ground)
   speedAt(e) {
-    if (!(e.lv > 0) && !(e.z > 0)) return this.game.world.speedAt(e.x, e.y);
+    if (!(e.lv > 0) && !(e.z > 0)) return this.game.world.speedAt(e.x, e.y, e._ud);
     return this.stairAt(e.lv | 0, e.x, e.y) ? STAIR_SPEED : 1;
   }
 
@@ -636,12 +640,13 @@ export class Levels {
       const p = s.tiles.indexOf(i);
       const prev = p === 0 ? (s.ent >= 0 && this._walkI(s.n, s.ent, doors) ? this._nodeOf(s.n, s.ent) : -1) : this._nodeOf(s.n, s.tiles[p - 1]);
       const next = p === s.len - 1 ? (s.land >= 0 && s.n + 1 <= MAX_LV && this._walkI(s.n + 1, s.land, doors) ? this._nodeOf(s.n + 1, s.land) : -1) : this._nodeOf(s.n, s.tiles[p + 1]);
-      if (prev >= 0) { NB[n] = prev; NC[n++] = 1.15; }
-      if (next >= 0) { NB[n] = next; NC[n++] = 1.15; }
+      if (prev >= 0) { this._nl[n] = 0; NB[n] = prev; NC[n++] = 1.15; }
+      if (next >= 0) { this._nl[n] = 0; NB[n] = next; NC[n++] = 1.15; }
       return n;
     }
     const x = i % W, y = (i / W) | 0;
     const SA = this.st[k];
+    const NL = this._nl, dk = k === 0 && !!w.rail, u = dk && this._lay[node] === 1; // (bridges: the level of this tile)
     for (const [dx, dy, cost] of DIRS8) {
       const nx = x + dx, ny = y + dy;
       if (!w.inBounds(nx, ny)) continue;
@@ -652,15 +657,20 @@ export class Levels {
         if (sid2) {
           const s2 = this.stairs[sid2 - 1];
           if (dx && dy) continue;
-          if (s2.n === k && ni === s2.i0 && i === s2.ent) { NB[n] = this._nodeOf(k, ni); NC[n++] = 1.15; }
-          else if (s2.n + 1 === k && ni === s2.i1 && i === s2.land) { const q = this._nodeOf(s2.n, ni); if (q >= 0) { NB[n] = q; NC[n++] = 1.15; } }
-        } else if (k === 0 && ni === goal && !w.blocked(nx, ny)) { NB[n] = ni; NC[n++] = cost; } // goal tile may hold the target's prop
+          if (s2.n === k && ni === s2.i0 && i === s2.ent) { NL[n] = 0; NB[n] = this._nodeOf(k, ni); NC[n++] = 1.15; }
+          else if (s2.n + 1 === k && ni === s2.i1 && i === s2.land) { const q = this._nodeOf(s2.n, ni); if (q >= 0) { NL[n] = 0; NB[n] = q; NC[n++] = 1.15; } }
+        } else if (k === 0 && ni === goal && !w.blocked(nx, ny)) { NL[n] = 0; NB[n] = ni; NC[n++] = cost; } // goal tile may hold the target's prop
         continue;
       }
       if (dx && dy && (!this._walk(k, x + dx, y, doors) || !this._walk(k, x, y + dy, doors))) continue; // no corner cutting
-      if (k === 0 && w.rail && railCross(w, x, y, dx, dy)) continue; // bridge railings (game/decks.js)
+      let nu = 0;
+      if (dk) { // bridges (game/decks.js, nav.js): the walls of the level the step is taken at, the water under a deck
+        if (railCross(w, x, y, dx, dy, !u && w.deck && w.deck[i] ? w.rail : w.railU)) continue;
+        nu = underAt(w, i, ni, u) ? 1 : 0;
+        if (!w.frozen && w.water[ni] === 2 && (nu || (!u && !(w.deck && w.deck[i]) && w.deck && w.deck[ni]))) continue;
+      }
       const q = this._nodeOf(k, ni);
-      if (q >= 0) { NB[n] = q; NC[n++] = cost; }
+      if (q >= 0) { NL[n] = nu; NB[n] = q; NC[n++] = nu ? cost * 2.5 : cost; } // (under a deck: slow water)
     }
     return n;
   }
@@ -671,15 +681,16 @@ export class Levels {
     return [i % W, (i / W) | 0, node < N ? 0 : this.nodeLv[node - N]];
   }
 
-  // { path: [[x, y, lv]…] tile centres (excluding the start), complete } | null — same contract as nav.findPath
-  findPath(sx, sy, slv, gx, gy, glv, maxNodes = 1600, doors = false) {
+  // { path: [[x, y, lv]…] tile centres (excluding the start), complete } | null — same contract as nav.findPath (ud: the
+  // start is under a bridge deck)
+  findPath(sx, sy, slv, gx, gy, glv, maxNodes = 1600, doors = false, ud = false) {
     this.sync();
     if (this._nodesV !== this.v) this._buildNodes();
     const w = this.game.world, W = w.W, N = W * w.H;
     if (!w.inBounds(sx, sy) || !w.inBounds(gx, gy)) return null;
     const T = N + this.M;
     if (!this._g || this._g.length < T) {
-      this._g = new Float32Array(T); this._par = new Int32Array(T); this._seen = new Uint32Array(T); this._closed = new Uint32Array(T);
+      this._g = new Float32Array(T); this._par = new Int32Array(T); this._seen = new Uint32Array(T); this._closed = new Uint32Array(T); this._lay = new Uint8Array(T);
       this._stamp = 0;
     }
     const gA = this._g, par = this._par, seen = this._seen, closed = this._closed;
@@ -688,7 +699,7 @@ export class Levels {
     const h = (nd) => { const i = nd < N ? nd : this.nodeTile[nd - N]; const dx = Math.abs((i % W) - gx), dy = Math.abs(((i / W) | 0) - gy); return Math.max(dx, dy) + 0.4142 * Math.min(dx, dy); };
     const H = this._heap || (this._heap = new Heap());
     H.clear();
-    gA[s] = 0; par[s] = -1; seen[s] = stamp;
+    gA[s] = 0; par[s] = -1; seen[s] = stamp; this._lay[s] = ud ? 1 : 0;
     H.push(s, h(s));
     let best = s, bestH = h(s), expanded = 0;
     while (H.size > 0 && expanded < maxNodes) {
@@ -705,7 +716,7 @@ export class Levels {
         if (closed[ni] === stamp) continue;
         const ng = gA[cur] + this._nc[j];
         if (seen[ni] === stamp && ng >= gA[ni]) continue;
-        seen[ni] = stamp; gA[ni] = ng; par[ni] = cur;
+        seen[ni] = stamp; gA[ni] = ng; par[ni] = cur; this._lay[ni] = this._nl[j];
         H.push(ni, ng + h(ni) * 1.05);
       }
     }

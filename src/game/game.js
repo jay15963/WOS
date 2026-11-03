@@ -133,7 +133,7 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && !(p.z > 0) && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y)) === 2; // deep water: slow + cold (survival.js); not on ice
+    p.swimming = !p.dead && !(p.z > 0) && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y), p._ud) === 2; // deep water: slow + cold (survival.js); not on ice / a deck (under a bridge: p._ud)
     // camera yaw: middle-mouse drag / two-finger twist (input.rotate), double middle click = north again
     const C = this.cam;
     if (inp.rotReset || this.camRotReset) { this.camRotReset = false; C.rotTo = Math.round(C.rot / (Math.PI * 2)) * Math.PI * 2; }
@@ -149,7 +149,7 @@ export class Game {
     if (mx || my) [mx, my] = this.toWorldDir(mx, my); // the stick / keys move relative to the screen
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
-    const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y)); // levels: stairs slower
+    const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y, p._ud)); // levels: stairs slower
     if (mx || my) {
       const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
       moveCircle(this.world, p, mx * spd * dt, my * spd * dt);

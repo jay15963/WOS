@@ -11,6 +11,9 @@
 import { STRUCT_GEOM as SG } from '../structures.js';
 import { CAMV, ARCH_FACES as K } from '../archCompose.js';
 import { seen, shade, vq, tq, artQuad, bq, solidUV, shadowRect, shadowArt, depthOf, clamp01, partsReset, part, partsSorted } from './kit.js';
+import { capArt } from '../caps.js';
+
+const POST_TOP = capArt('wood', '#9c6e43', false); // (a post's top seen from above: the end grain, art/caps.js)
 
 const FOOT = 68; // frame row of the post foot (PH + 32: the middle of the tile on the ground)
 // thin styles: post half width / height (px), arm board thickness (tiles)
@@ -69,7 +72,7 @@ export function drawFenceFaces(B, A, o, h0 = 0, t = 0) {
     if (m & 2) part(depthOf(x0 + 0.75, cy), 2);
     const vines = on.vines && T.d.f_vines_h && K.ok(T.d.f_vines_h) ? T.d.f_vines_h : null;
     for (const p of partsSorted()) {
-      if (p.k === 0) postBox(F, post, cx, cy, pw, ph, h0, R, G, Bl, a);
+      if (p.k === 0) postBox(F, post, K.use(T.opt(POST_TOP)), cx, cy, pw, ph, h0, R, G, Bl, a);
       else arm(F, sEW, vines, p.k, x0, y0, pw, d, S.tops, h0, R, G, Bl, C, a);
     }
   }
@@ -95,12 +98,14 @@ function card(F, s, flip, c0, r0, c1, r1, px, py, h, r, g, b, a) {
   bq(F, s, flip, 32, 100, c0, r0, c1, r1, 32, px, py, h + (FOOT - r1) / 64, r, g, b, a);
 }
 
-// a post: a small box, the post art on every side, its top the first rows of the post
-function postBox(F, s, cx, cy, pw, ph, h0, R, G, B, a) {
+// a post: a small box, the post art on every side, its top the end grain seen from above (cap: art/caps.js; until it is
+// painted, the first rows of the post)
+function postBox(F, s, cap, cx, cy, pw, ph, h0, R, G, B, a) {
   const x0 = cx - pw, x1 = cx + pw, y0 = cy - pw, y1 = cy + pw, ht = h0 + ph, c0 = 32 - pw * 64, c1 = 32 + pw * 64, r0 = FOOT - ph * 64;
   const side = (xa, ya, xb, yb, nx, ny) => { if (seen(nx, ny)) { const z = shade(nx, ny); vq(F, s, false, 32, 100, c0, r0, c1, FOOT + 2, xa, ya, xb, yb, h0 - 2 / 64, ht, R * z, G * z, B * z, a); } };
   side(x0, y1, x1, y1, 0, 1); side(x0, y0, x1, y0, 0, -1); side(x1, y1, x1, y0, 1, 0); side(x0, y1, x0, y0, -1, 0);
-  tq(F, s, false, 32, 100, c0, r0 - 2, c1, r0 + 2 * pw * 64 - 2, x0, y0, x1, y1, ht, R * 1.06, G * 1.06, B * 1.06, a);
+  if (cap) tq(F, cap, false, 32, 32, 1.5, 1.5, 62.5, 62.5, x0, y0, x1, y1, ht, R, G, B, a);
+  else tq(F, s, false, 32, 100, c0, r0 - 2, c1, r0 + 2 * pw * 64 - 2, x0, y0, x1, y1, ht, R * 1.06, G * 1.06, B * 1.06, a);
 }
 
 // an arm toward neighbour bit k: a board d thick from the post to the tile edge, the straight run's art on its two

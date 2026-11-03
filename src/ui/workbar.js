@@ -53,6 +53,8 @@ export function installWorkbar(game, root) {
         let hint;
         if (!m.valid && m.reason) hint = m.reason;
         else if (def.roof) hint = touch ? (m.locked ? 'Toque de novo ou ✓ para cobrir o cômodo' : 'Toque dentro de um cômodo fechado') : 'Clique dentro de um cômodo para cobrir · Esc cancela';
+        else if (def.deck) hint = touch ? (m.anchor ? (m.end ? 'Toque ✓ (ou no fim de novo) para construir' : def.deck === 'bridge' ? 'Toque na outra margem, em linha reta · ✓ = só esta peça' : 'Toque no canto oposto da área · ✓ = só esta peça') : 'Toque na margem onde começa')
+          : def.deck === 'bridge' ? 'Arraste da margem em linha reta · botão direito cancela' : 'Arraste da margem sobre a água rasa · botão direito cancela';
         else if (def.drag) hint = touch ? (m.anchor ? (m.end ? 'Toque ✓ (ou no fim de novo) para construir' : 'Toque no fim da linha / canto · ✓ = só este') : 'Toque onde começa') : 'Clique ou arraste · botão direito cancela';
         else hint = touch ? (m.locked ? 'Toque de novo ou ✓ para construir' : 'Toque no local') : 'Clique para construir · Esc cancela';
         set('hint', R.hint, hint);

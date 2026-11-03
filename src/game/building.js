@@ -47,9 +47,11 @@ export function frontTile(p) {
   return [Math.floor(p.x + fx * 0.9), Math.floor(p.y - 0.1 + fy * 0.9)];
 }
 
-// tiles for a drag from (ax, ay) to (bx, by)
+// tiles for a drag from (ax, ay) to (bx, by): 'area' a rectangle, 'line' a line (diagonal: a room's outline), 'span' one
+// straight line along the drag's longer axis (a bridge)
 function dragTiles(kind, ax, ay, bx, by) {
   const out = [];
+  if (kind === 'span') { if (Math.abs(bx - ax) >= Math.abs(by - ay)) by = ay; else bx = ax; }
   if (kind === 'area') {
     for (let y = Math.min(ay, by); y <= Math.max(ay, by); y++) for (let x = Math.min(ax, bx); x <= Math.max(ax, bx); x++) out.push([x, y]);
   } else if (ax !== bx && ay !== by) {
@@ -101,12 +103,16 @@ export function enterBuildMode(game, type, opts = {}) {
     if (h.roofhint) return;
     h.roofhint = true;
     game.events.emit('toast', { text: (touch ? 'Toque dentro de um cômodo fechado e confirme: o telhado cobre tudo de uma vez' : 'Clique dentro de um cômodo fechado: o telhado cobre tudo de uma vez') + ' · vermelho = falta coluna (o teto precisa de apoio a até 6 tiles)', kind: 'info' });
-  } else if (def.drag && !h['drag_' + def.drag]) {
-    h['drag_' + def.drag] = true;
+  } else if (def.drag && !h['drag_' + (def.deck || def.drag)]) {
+    h['drag_' + (def.deck || def.drag)] = true;
     game.events.emit('toast', {
-      text: def.drag === 'line'
-        ? (touch ? 'Arraste um dedo para fazer uma linha (na diagonal, uma sala); dois dedos dão zoom' : 'Arraste para uma linha; na diagonal faz uma sala')
-        : (touch ? 'Arraste um dedo para cobrir uma área' : 'Arraste para cobrir uma área'),
+      text: def.deck === 'bridge'
+        ? (touch ? 'Arraste um dedo da margem até a outra margem: a ponte vai em linha reta (até 8 tiles de água)' : 'Arraste da margem até a outra margem: a ponte vai em linha reta (até 8 tiles de água)')
+        : def.deck === 'pier'
+          ? (touch ? 'Arraste um dedo a partir da margem para cobrir a água rasa' : 'Arraste a partir da margem para cobrir a água rasa')
+          : def.drag === 'line'
+            ? (touch ? 'Arraste um dedo para fazer uma linha (na diagonal, uma sala); dois dedos dão zoom' : 'Arraste para uma linha; na diagonal faz uma sala')
+            : (touch ? 'Arraste um dedo para cobrir uma área' : 'Arraste para cobrir uma área'),
       kind: 'info',
     });
   } else if (rotCount(type) > 1 && !h.rotatehint) {

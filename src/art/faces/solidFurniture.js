@@ -119,14 +119,20 @@ defineSolid('bookshelf', {
     n: { parts: bookParts(0.55, 0.9, 0.78, true) },
   },
 });
-// dresser (decor.js dresser / dresser_e / dresser_back, mk(2, 44)): the drawer box, the mirror standing on it (its
-// frame from behind: solo), a candle; the basin is painted on the top
+// dresser (decor.js dresser / dresser_e / dresser_back, mk(2, 44)): the drawer box, the mirror standing on it, a candle;
+// the basin is painted on the top. The mirror is a real frame — two stiles and two rails 7 px deep around the glass,
+// their sides, tops and backs in the frame's wood (px), the front from the art; the glass's back is wood: seen edge-on
+// it is a frame, not a sheet of paper
+const DR_W = [7.2, 0.56, 45], DR_PX = { n: DR_W, e: DR_W, w: DR_W, t: DR_W }, DRD = 3.5 / 64, DRO = 2.6; // (DRO: the art's outline)
+const drFrame = (x0, x1, h0, h1) => ({ box: [x0, x1, 0.56 - DRD, 0.56 + DRD, h0, h1], ow: 0, sh: false, px: DR_PX });
 defineSolid('dresser', {
   align: 'back',
   parts: [
     { box: [-52, 52, 0.5, 0.88, 0, 30] },
-    { card: [6, 24, 0.56, 30, 60], t: 4, solo: true, sh: false },
+    { card: [8.5, 21.5, 0.56, 32.5, 57.5], t: 2, ow: 0, sh: false, px: DR_PX },
     { box: [37, 46, 0.66, 0.7, 30, 41], sh: false },
+    drFrame(6 - DRO, 8.5, 30, 60 + DRO), drFrame(21.5, 24 + DRO, 30, 60 + DRO), // (stiles)
+    drFrame(8.5, 21.5, 57.5, 60 + DRO), drFrame(8.5, 21.5, 30, 32.5),           // (rails)
   ],
   views: {
     e: { V: 2, parts: [{ box: [-18, 18, 0.15, 1.85, 0, 30] }, { card: [-2, 2, 1.0, 30, 60] }, { box: [-3, 3, 1.3, 1.5, 30, 41] }] },
