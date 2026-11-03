@@ -47,7 +47,7 @@ export class ClassicSource {
     // ?hills=1 (dev, docs/TERRAIN-HEIGHT.md): the terrain-height showcase sculpted around the spawn (gen.heightCorners,
     // (W + 1) × (H + 1) stories); a guest follows its host (welcome.hills)
     if (hills) sculptHills(g);
-    this.hills = !!hills;
+    this.hills = hills ? g.hills || true : false; // (its landmarks: plateau, canyon, … — dev shots / tests)
     this.kind = 'classic';
     this.seed = seed;
     this.wrap = false;

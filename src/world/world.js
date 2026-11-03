@@ -78,7 +78,7 @@ export class World {
     // ground id (volcanic ash / snow: the terrain shader's climate channel).
     L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
     this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground];
-    this.hills = !!source.hills; // (dev showcase ?hills=1: a guest sculpts the same classic world, world/hills.js)
+    this.hills = source.hills || false; // (dev showcase ?hills=1: its landmarks; a guest sculpts the same classic world, world/hills.js)
     L('solid', Uint8Array, 0, true);   // buildings / walls occupancy (sparse: only where something stands)
     L('broof', Uint8Array, 0, true);   // built roofs (src/game/roofs.js)
     this.deck = null; this.rail = null; this.railU = null; // bridges / piers (game/decks.js): sparse layers when any
