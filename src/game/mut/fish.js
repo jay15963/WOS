@@ -47,7 +47,7 @@ defineIntent('fish.cast', {
     if (old?.fish) old.fish.hooked = null;
     if (best) best.hooked = actor.pid;
     S.set(actor.pid, { x, y, bite, until, fish: best });
-    net.emit('fish.bob', { pid: actor.pid, x: r2(x), y: r2(y), bite, until });
+    net.emit('fish.bob', { pid: actor.pid, x: r2(x), y: r2(y), bite, until, now: r2(game.worldTime) });
   },
 });
 
@@ -98,11 +98,13 @@ export function fishHostTick(game) {
 
 defineOp('fish.bob', {
   doc: "A player's bobber lands at (x, y); the fish bites at host time `bite` and lets go at `until` (every peer draws it).",
-  args: { pid: 'pid', x: 'number', y: 'number', bite: 'worldTime', until: 'worldTime' },
+  args: { pid: 'pid', x: 'number', y: 'number', bite: 'worldTime', until: 'worldTime', now: 'host worldTime when cast' },
   apply(game, a) {
     const F = game.fishing;
     if (!F) return;
-    F.bobs.set(a.pid, { x: num(a.x), y: num(a.y), bite: num(a.bite), until: num(a.until), t0: game.time, splashed: false });
+    // times in this peer's clock (a guest's worldTime may run up to ~2 s off the host's): bite / until from the host's "now"
+    const off = num(a.now, game.worldTime) - game.worldTime;
+    F.bobs.set(a.pid, { x: num(a.x), y: num(a.y), bite: num(a.bite) - off, until: num(a.until) - off, t0: game.time, splashed: false });
     game.juice?.splash?.(num(a.x), num(a.y), 0.35);
     game.audio?.play('arrow_land', { x: a.x, y: a.y, volume: 0.35 });
   },

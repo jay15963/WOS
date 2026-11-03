@@ -101,10 +101,13 @@ export function installFishing(game) {
   };
 }
 
-// rod tip of a player (cosmetic): a little ahead of the hand toward the bobber, ~1.4 tiles up
-function tipOf(e, b) {
-  const dx = b.x - e.x, dy = b.y - e.y, L = Math.hypot(dx, dy) || 1;
-  return [e.x + (dx / L) * 0.55, e.y + (dy / L) * 0.55, 1.35];
+// rod tip of a player (cosmetic): the rod is held in the hand on the screen's side toward the bobber (a side view) or
+// to the right (front / back), its tip ~1.25 tiles up
+function tipOf(game, e, b) {
+  const rot = game.cam.rot || 0, rc = Math.cos(rot), rs = Math.sin(rot);
+  const dx = b.x - e.x, dy = b.y - e.y, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy;
+  const side = Math.abs(vx) > Math.abs(vy) ? Math.sign(vx) * 0.5 : vy < 0 ? 0.3 : -0.3;
+  return [e.x + rc * side, e.y + rs * side, 1.25];
 }
 const anglerEnt = (game, pid) => (pid === game.net.pid ? game.player : game.session?.players?.get?.(pid)?.ent || null);
 
@@ -158,7 +161,7 @@ function drawLine(game, B, A, b, e, t) {
   }
   if (!e || e.dead || !A.has('fx_solid')) return;
   const s = A.get('fx_solid');
-  const [tx, ty, th] = tipOf(e, b);
+  const [tx, ty, th] = tipOf(game, e, b);
   const d = Math.hypot(b.x - tx, b.y - ty), sag = bite ? 0.05 : Math.min(0.6, 0.15 + d * 0.06);
   const N = 9;
   let px = tx, py = ty, ph = th;
@@ -166,7 +169,7 @@ function drawLine(game, B, A, b, e, t) {
     const u = (i / N) * land;
     const x = tx + (b.x - tx) * u, y = ty + (b.y - ty) * u, h = th + (bh + 0.05 - th) * u - Math.sin(u * Math.PI) * sag * u;
     const dx = x - px, dy = y - py, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy - (h - ph), len = Math.hypot(vx, vy);
-    if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, (len * 64) / s.w * 1.05, 0.9 / s.h, 0.93, 0.93, 0.88, 0.8, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
+    if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, len / s.w * 1.04, 0.014 / s.h, 0.93, 0.93, 0.88, 0.8, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
     px = x; py = y; ph = h;
   }
 }

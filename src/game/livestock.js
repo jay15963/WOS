@@ -34,6 +34,9 @@ const dayLen = (game) => game.env?.dayLength || 780;
 const r2 = (v) => Math.round(v * 100) / 100;
 const portion = (m) => 1 / (STOCK[m.species]?.perDay || 1);
 const isBabyM = (m) => !!((m.variant | 0) & 2);
+// it goes to eat once a whole portion fits in its belly (one item = 1 / perDay of a full belly; the young: twice as much),
+// and never later than at 35 % (a one-a-day eater would else wait until it starves)
+const eatAt = (m) => Math.max(0.35, 1 - portion(m) * (isBabyM(m) ? 2 : 1)) + 1e-6;
 export const nameOf = (sp, baby) => (baby ? STOCK[sp]?.baby : SPECIES[sp]?.name) || SPECIES[sp]?.name || sp;
 
 // ---------- feeders ----------
@@ -297,7 +300,7 @@ function eatFrom(game, m, o) {
   }
   m.fed = Math.min(1, (m.fed || 0) + portion(m) * (isBabyM(m) ? 2 : 1));
   m.starveT = 0;
-  m.wantEat = m.fed <= 1 - portion(m) * (isBabyM(m) ? 2 : 1) + 1e-6;
+  m.wantEat = m.fed <= eatAt(m);
   game.audio?.play('eat', { x: m.x, y: m.y, volume: 0.4 });
   return true;
 }
@@ -329,9 +332,8 @@ function farmTick(game, dt) {
     // hunger: only in a feeder's area (domesticated animals live off it); creative: never hungry
     m.hungry = m.tame && m.fed < HUNGRY_AT; m.starving = m.tame && m.starveT > 0; // (the nameplate / entity stream bits)
     if (!m.tame || game.creative) { m.starveT = 0; if (game.creative && m.tame) m.fed = 1; m.wantEat = false; continue; }
-    const p = portion(m) * (isBabyM(m) ? 2 : 1); // (the young eat half as much: a whole item fills them twice as much)
     m.fed = Math.max(0, (m.fed ?? 1) - dt / (BELLY_DAYS * D) * (isBabyM(m) ? 0.5 : 1));
-    m.wantEat = m.fed <= 1 - p + 1e-6 && feedSlot(f, m.species) >= 0;
+    m.wantEat = m.fed <= eatAt(m) && feedSlot(f, m.species) >= 0;
     // asleep far from every player (no brain running): it still eats, right where it is
     if (m.wantEat && minPlayerDist(game, m.x, m.y) > 50) eatFrom(game, m, f);
     if (m.fed <= 0) {
@@ -582,7 +584,7 @@ function drawRope(game, B, A, m, L) {
       // screen-space angle of this piece (turned camera: the world turned around the view)
       const dx = x - px, dy = y - py, vx = rc * dx + rs * dy, vy = -rs * dx + rc * dy - (h - ph);
       const len = Math.hypot(vx, vy);
-      if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, (len * 64) / s.w * 1.15, 0.55, 1, 1, 1, 1, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
+      if (len > 1e-4) B.main.add(s, (x + px) / 2, (y + py) / 2, len / s.w * 1.12, 0.055 / s.h, 1, 1, 1, 1, 0, Math.atan2(vy, vx), 0, 1, 0, (h + ph) / 2);
     }
     px = x; py = y; ph = h;
   }
@@ -646,6 +648,8 @@ export function installStock(game) {
     openFeeder: (o) => openFeeder(game, o),
     label: stockLabel,
     isFeed,
+    // tests / dev (host): a farm animal at (x, y); run the farm clock for dt seconds at once (hunger, births, growth)
+    debug: { spawn: (sp, x, y, o) => spawnStock(game, sp, x, y, o), tick: (dt = 1) => farmTick(game, dt) },
   };
 }
 
