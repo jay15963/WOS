@@ -25,6 +25,11 @@
 //    ~4.4 of them dark enough for walkers) a group of 3 breaks a wooden one about 6–7 times, a stone one about twice.
 //  - a player in sight and in reach: they fight (the raiders' brain: chase, ice spear throws, specials).
 // At sunrise the cracks of the night settle (struct.dmg 0).
+//
+// The other regions' dead (docs/REINOS.md §1, docs/NIGHT-DEAD.md, undead.js) walk on this same machinery: skeletons on
+// the warm zone's mild-winter nights and the tropics' dry-season nights, mummies in the hot deserts. A group is of the
+// family of the place of the player it comes for (undead.js nightFamilyAt), and only spawns on ground of that family; one
+// that stands where its family's night is over crumbles (bones / sand / snow). The numbers are the walkers' own.
 
 import { SPECIES } from './data.js';
 import { mobStats } from './stats.js';
@@ -38,8 +43,9 @@ import { BUILDINGS } from './data.js';
 import { enclosedRoom } from './roofs.js';
 import { steer, resetNav } from './nav.js';
 import { go, aggro, aggroRadius } from './ai.js';
-import { CYCLE, hardWinterAt } from './seasons.js';
+import { CYCLE } from './seasons.js';
 import { giantsTick } from './giants.js'; // ice giants: rarer, with the walkers on winter nights
+import { FAMILY, familyOf, nightFamilyAt, nightKit, nightDeath } from './undead.js'; // the other regions' dead
 
 let groupSeq = 0;
 
@@ -279,8 +285,8 @@ function siegeStep(game, m, dt) {
   faceTowards(m, { x: o.x, y: o.y - 0.5 });
   if (m.swingT <= 0) {
     m.swingT = m.swingDur * (0.9 + Math.random() * 0.2);
-    // (an ice giant: its club raised high and brought down on the wall — giants.js)
-    const big = m.species === 'giant';
+    // (a giant: its club raised high and brought down on the wall — giants.js)
+    const big = !!m.giant;
     m.action = big ? { type: 'smash', t: 0, dur: 1.1 } : { type: m.wprof?.act === 'stab' ? 'stab' : 'attack', t: 0, dur: 0.4 };
     if (big) game.later(0.42, () => { if (!m.dead) game.audio?.play('swing_heavy', { x: m.x, y: m.y, volume: 0.9, pitch: 0.72 }); }); // (the club coming down, not going up)
     else game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
@@ -294,22 +300,24 @@ export function walkerDebug(m) { return { state: m.state, goal: m.goal && { kind
 
 function walkerDeath() { return { rows: [], toast: null }; } // (owner: XP only — the ice shatters, nothing drops)
 
-function spawnWalker(game, x, y, group, home) {
-  const sp = SPECIES.walker, w = game.world, R = () => game.net.roll();
-  const main = R() < 0.55 ? 'sword_ice' : 'spear_ice';
+// one of the night's dead (species: walker | skeleton | mummy — undead.js nightKit: weapon, role, the numbers that differ)
+function spawnWalker(game, x, y, group, home, species = 'walker') {
+  const sp = SPECIES[species] || SPECIES.walker, w = game.world, R = () => game.net.roll();
+  const K = nightKit(species, R), main = K.weapon;
   const level = Math.max(2, levelForDistance(Math.hypot(x - w.spawn.x, y - w.spawn.y), 2) + (R() < 0.3 ? 1 : 0));
   const st = mobStats(sp, level);
   const wp = weaponProfile(main);
-  const wf = 0.6 + 0.4 * (((wp.min + wp.max) / 2) / 8); // weapon damage factor vs a stone spear (damped), like raiders
+  const wf = K.dmgK ?? 0.6 + 0.4 * (((wp.min + wp.max) / 2) / 8); // weapon damage factor vs a stone spear (damped), like raiders
   const m = {
-    isEntity: true, isMob: true, kind: 'pawn', faction: 'walker', species: 'walker', ...allocMob(game),
-    name: sp.name, level, elite: false, role: 'melee', camp: group.id, campRef: group,
+    isEntity: true, isMob: true, kind: 'pawn', faction: 'walker', species, ...allocMob(game),
+    name: sp.name, level, elite: false, role: K.role, camp: group.id, campRef: group,
     temper: 'hostile', x, y, r: sp.r, scale: sp.scale, facing: R() < 0.5 ? 'e' : 'w', moving: false, moveT: R() * 10,
     action: null, flash: 0, dead: false, deadT: 0,
     hp: st.maxHp, dmg: st.dmg * wf, home, state: 'wander', stateT: 30, swingT: 0, stunT: 0, wp: [home.x, home.y],
-    look: makeLook(R, R() < 0.3, false), weapon: main, offhand: null, armor: { body: null, head: null },
-    wprof: wp, shield: null, reachX: wp.reach, swingDur: wp.swing * 1.15, armorV: 4, aggroR: sp.aggro,
-    xpMul: sp.xp, specialT: 3 + R() * 4, blockT: 4, throwT: 2, onDeath: walkerDeath, patrol: false, noCorpse: true,
+    look: species === 'walker' ? makeLook(R, R() < 0.3, false) : 0, weapon: main, offhand: null, armor: { body: null, head: null },
+    wprof: wp, shield: null, reachX: K.reach ?? wp.reach, swingDur: K.swing ?? wp.swing * K.swingK, armorV: K.armorV, aggroR: sp.aggro,
+    xpMul: sp.xp, specialT: 3 + R() * 4, blockT: 4, throwT: 2, onDeath: species === 'walker' ? walkerDeath : nightDeath, patrol: false, noCorpse: true,
+    ...K.extra,
   };
   m.maxHp = m.hp;
   group.members.push(m);
@@ -317,17 +325,20 @@ function spawnWalker(game, x, y, group, home) {
   return m;
 }
 
-function spawnGroup(game) {
-  const w = game.world, L = allPlayers(game).filter((q) => !q.dead && hardWinterAt(game, q.x, q.y)); // (players in a winter now: seasons by latitude)
+// fams: the players out on a bad night and the family of their place (Map player → 'ice' | 'bone' | 'sand')
+function spawnGroup(game, fams) {
+  const w = game.world, L = [...fams.keys()];
   if (!L.length) return false;
-  const p = L[Math.floor(Math.random() * L.length)];
+  const p = L[Math.floor(Math.random() * L.length)], fam = fams.get(p), species = FAMILY[fam].mob;
   let near = 0;
   const WN = winterNumbers(game);
-  for (const e of game.entities) if (e.faction === 'walker' && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 45) near++;
+  for (const e of game.entities) if (e.faction === 'walker' && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 45) near++; // (every family counts)
   if (near >= WN.near) return false;
+  // (only ground of the same family: one family per place — a desert's edge never sends skeletons into the dunes)
   const ok = (x, y) => {
     const tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, 0.26) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
+    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, 0.26) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y)
+      && nightFamilyAt(game, x, y) === fam;
   };
   for (let k = 0; k < 16; k++) {
     const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 10;
@@ -336,33 +347,46 @@ function spawnGroup(game) {
     // they shamble toward a spot ~8 tiles from the player, in the dark
     let hx = p.x + Math.cos(a) * 8, hy = p.y + Math.sin(a) * 8;
     if (!ok(hx, hy)) { hx = x; hy = y; }
-    const group = { id: 'w' + (++groupSeq).toString(36), x: hx, y: hy, members: [] };
+    const group = { id: 'w' + (++groupSeq).toString(36), x: hx, y: hy, members: [], fam };
     const n = Math.min(WN.near - near, 1 + Math.floor(Math.random() * WN.group));
     for (let i = 0; i < n; i++) {
       const jx = x + (Math.random() - 0.5) * 2, jy = y + (Math.random() - 0.5) * 2;
-      spawnWalker(game, ok(jx, jy) ? jx : x, ok(jx, jy) ? jy : y, group, { x: hx + (Math.random() - 0.5) * 2.5, y: hy + (Math.random() - 0.5) * 2.5 });
+      spawnWalker(game, ok(jx, jy) ? jx : x, ok(jx, jy) ? jy : y, group, { x: hx + (Math.random() - 0.5) * 2.5, y: hy + (Math.random() - 0.5) * 2.5 }, species);
     }
     return true;
   }
   return false;
 }
 
-// tests / debug (host): one walker at (x, y), in a group of its own that roams there
-export function spawnWalkerAt(game, x, y) {
-  const group = { id: 'w' + (++groupSeq).toString(36), x, y, members: [] };
-  return spawnWalker(game, x, y, group, { x, y });
+// tests / debug (host): one walker (or a skeleton / mummy: species) at (x, y), in a group of its own that roams there
+export function spawnWalkerAt(game, x, y, species = 'walker') {
+  const group = { id: 'w' + (++groupSeq).toString(36), x, y, members: [], fam: familyOf(species) };
+  return spawnWalker(game, x, y, group, { x, y }, species);
 }
 
-// host, once a second (mobsSystem): spawn on winter nights, crumble at sunrise / when the winter ends. Seasons by
-// latitude: the winter is the one where each player stands (polar: every night; tropical / warm: never) and a walker
-// crumbles where the winter is over (it walked out of it, or the season turned there).
+// the players out on a bad night and the family of their place (Map player → family; empty by day)
+function nightFams(game, night) {
+  const F = new Map();
+  if (!night) return F;
+  for (const q of allPlayers(game)) {
+    if (q.dead) continue;
+    const f = nightFamilyAt(game, q.x, q.y);
+    if (f) F.set(q, f);
+  }
+  return F;
+}
+
+// host, once a second (mobsSystem): spawn on bad nights, crumble at sunrise / when the bad season ends. Seasons by
+// latitude: the bad season is the one where each player stands (polar: every night; the warm zone: its mild winter;
+// the tropics: the dry season — undead.js) and a creature crumbles where its family's night is over (it walked out of
+// it, or the season turned there).
 export function walkersTick(game, night) {
-  const on = night && allPlayers(game).some((q) => !q.dead && hardWinterAt(game, q.x, q.y));
-  // sunrise / out of the winter: they fall apart one after another over a few seconds
+  const fams = nightFams(game, night), on = fams.size > 0;
+  // sunrise / out of their night: they fall apart one after another over a few seconds
   let any = false;
   for (const e of game.entities) {
     if (e.faction !== 'walker' || e.dead) continue;
-    if (night && hardWinterAt(game, e.x, e.y)) { e.crumbleAt = null; continue; }
+    if (night && nightFamilyAt(game, e.x, e.y) === (familyOf(e.species) || 'ice')) { e.crumbleAt = null; continue; }
     any = true;
     if (e.crumbleAt == null) e.crumbleAt = game.worldTime + Math.random() * 6;
     else if (game.worldTime >= e.crumbleAt) killMob(game, e, null);
@@ -370,13 +394,13 @@ export function walkersTick(game, night) {
   if (!on) {
     // ...and the walls they cracked settle (what they broke stays broken)
     if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0) game.net.emit('struct.dmg', { id: o.id, d: 0 });
-    giantsTick(game, false);
+    giantsTick(game, null);
     game._walkT = 4;
     return;
   }
-  giantsTick(game, true);
+  giantsTick(game, fams);
   game._walkT = (game._walkT ?? 4) - 1;
   if (game._walkT > 0) return;
   game._walkT = winterNumbers(game).every;
-  spawnGroup(game);
+  spawnGroup(game, fams);
 }

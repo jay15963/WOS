@@ -6,16 +6,26 @@
 //     ring on the ground that tightens as it comes down, bursting on landing
 //   - giant footsteps: a heavy thud, a puff of snow, a tremor close to the camera
 //   - the ballista: the release (thump, dust, kick), the bolt biting into a wall / a giant (splinters, shards, thunk)
+//   - the other giants (docs/NIGHT-DEAD.md): the skeleton giant's blow raises bone chips and dust, the mummy giant's sand;
+//     their steps on dry ground; their throws — a giant bone, a sarcophagus lid (LOB_KINDS.giant_bone / giant_slab)
 // Nothing here touches game state.
 
 import { LOB_KINDS } from '../game/projectiles.js';
 import { archSprite } from '../art/archCompose.js';
 import { GIANT_GAIT } from '../art/giantRig.js';
+import { SPECIES } from '../game/data.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
 const ROCK_R = 1.0; // (game/giants.js ROCK.r: the hit radius around the landing point)
 const RX = 0.547, RY = 0.359; // fx_ring ellipse radii (tiles) at scale 1
+// by family (game/undead.js): the colour of the debris / dust, the roar, the step and the blow's sounds
+const FAM = {
+  ice: { chip: [0.88, 0.96, 1], dust: [0.92, 0.95, 1], roar: 'giant_roar', step: 'giant_step', smash: 'giant_smash', land: 'ice_rock_land' },
+  bone: { chip: [0.92, 0.88, 0.76], dust: [0.82, 0.78, 0.68], roar: 'skeleton_giant_roar', step: 'giant_step_dry', smash: 'giant_smash_dry', land: 'bone_land' },
+  sand: { chip: [0.9, 0.78, 0.52], dust: [0.88, 0.76, 0.52], roar: 'mummy_giant_roar', step: 'giant_step_dry', smash: 'giant_smash_dry', land: 'slab_land' },
+};
+const TELE_FAM = { smash: 'ice', smash_bone: 'bone', smash_sand: 'sand' };
 
 export function installGiantFx(game) {
   const sys = new GiantFx(game);
@@ -36,6 +46,9 @@ class GiantFx {
     this.steps = new WeakMap();
     // the ice rock (game/giants.js throwRock → op giant.rock → projectiles.fireLob)
     LOB_KINDS.ice_rock = { h0: 3.0, shadow: 1.25, draw: (g, B, A2, pr) => this.drawRock(g, B, A2, pr), trail: (g, pr, dt) => this.rockTrail(g, pr, dt), land: (g, pr, wall) => this.rockLand(g, pr, wall) };
+    // the other giants' throws: a giant bone (spinning end over end), the lid of a sarcophagus (tumbling)
+    LOB_KINDS.giant_bone = { h0: 3.0, shadow: 1.2, draw: (g, B, A2, pr) => this.drawRock(g, B, A2, pr, 'proj_giant_bone', 9), trail: (g, pr, dt) => this.rockTrail(g, pr, dt, 'bone'), land: (g, pr, wall) => this.rockLand(g, pr, wall, 'bone') };
+    LOB_KINDS.giant_slab = { h0: 3.0, shadow: 1.4, draw: (g, B, A2, pr) => this.drawRock(g, B, A2, pr, 'proj_giant_slab', 5), trail: (g, pr, dt) => this.rockTrail(g, pr, dt, 'sand'), land: (g, pr, wall) => this.rockLand(g, pr, wall, 'sand') };
     this.subbed = false; // (game.events exists once the systems are installed: subscribed on the first frame)
   }
   subscribe(g) {
@@ -55,7 +68,7 @@ class GiantFx {
     const T = g.teles;
     if (T && T.length) for (let i = T.length - 1; i >= 0; i--) {
       const q = T[i];
-      if (!q.roar) { q.roar = true; g.audio?.play('giant_roar', { x: q.x, y: q.y, volume: 0.7 }); }
+      if (!q.roar) { q.roar = true; g.audio?.play(FAM[TELE_FAM[q.k] || 'ice'].roar, { x: q.x, y: q.y, volume: 0.7 }); }
       q.t += dt;
       if (!q.down && q.t >= q.dur - 0.2) { q.down = true; g.audio?.play('swing_heavy', { x: q.x, y: q.y, volume: 0.85, pitch: 0.7 }); }
       if (q.t >= q.dur) { this.slam(g, q); T.splice(i, 1); }
@@ -63,42 +76,43 @@ class GiantFx {
     // giant footsteps (on its own gait clock, art/giantRig.js: a thud when a foot lands)
     const v = g.view();
     for (const e of g.entities) {
-      if (e.species !== 'giant' || e.dead || !e.moving) continue;
+      const sp = SPECIES[e.species];
+      if (!sp?.giant || e.dead || !e.moving) continue;
       if (e.x < v.x0 - 2 || e.x > v.x1 + 2 || e.y < v.y0 - 2 || e.y > v.y1 + 3) continue;
       const k = Math.floor(((e.moveT || 0) * GIANT_GAIT - Math.PI / 2) / Math.PI), k0 = this.steps.get(e);
       this.steps.set(e, k);
       if (k0 == null || k0 === k) continue;
-      const P = g.particles, K = this.K, side = (k & 1 ? 1 : -1) * 0.33;
-      for (let n = 0; n < 7; n++) { const a = rnd() * TAU, sp = 0.5 + rnd() * 0.9; P.emit({ spr: this.spr.dust, x: e.x + side + Math.cos(a) * 0.25, y: e.y + Math.sin(a) * 0.12, lift: 0.04, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.45, vlift: 0.25,
-        drag: 2.2, life: 0.7 + rnd() * 0.5, size: 0.4 * K.dust, size1: 1.1 * K.dust, r: 0.9, g: 0.94, b: 1, a: 0.5, a1: 0, ground: false }); }
-      g.audio?.play('giant_step', { x: e.x, y: e.y, volume: 0.85 });
+      const P = g.particles, K = this.K, side = (k & 1 ? 1 : -1) * 0.33, F = FAM[sp.undead] || FAM.ice, c = F.dust;
+      for (let n = 0; n < 7; n++) { const a = rnd() * TAU, v = 0.5 + rnd() * 0.9; P.emit({ spr: this.spr.dust, x: e.x + side + Math.cos(a) * 0.25, y: e.y + Math.sin(a) * 0.12, lift: 0.04, vx: Math.cos(a) * v, vy: Math.sin(a) * v * 0.45, vlift: 0.25,
+        drag: 2.2, life: 0.7 + rnd() * 0.5, size: 0.4 * K.dust, size1: 1.1 * K.dust, r: c[0], g: c[1], b: c[2], a: 0.5, a1: 0, ground: false }); }
+      g.audio?.play(F.step, { x: e.x, y: e.y, volume: 0.85 });
       this.shakeAt(e.x, e.y, 0.1, 10); // (about two heavy steps a second)
     }
   }
 
   // the club lands on the marked spot: shock ring, chunks of ice, snow and dust
   slam(g, q) {
-    const P = g.particles, K = this.K, S = this.spr, { x, y, r } = q;
+    const P = g.particles, K = this.K, S = this.spr, { x, y, r } = q, F = FAM[TELE_FAM[q.k] || 'ice'], ch = F.chip, du = F.dust;
     P.emit({ spr: S.ring, x, y, life: 0.7, size: 0.4 * K.ring, size1: 3.2 * r * K.ring, r: 1, g: 0.96, b: 0.9, a: 0.85, a1: 0 });
-    P.emit({ spr: S.ring, x, y, life: 1.1, size: 0.6 * K.ring, size1: 4.6 * r * K.ring, r: 0.8, g: 0.92, b: 1, a: 0.5, a1: 0 });
+    P.emit({ spr: S.ring, x, y, life: 1.1, size: 0.6 * K.ring, size1: 4.6 * r * K.ring, r: du[0] * 0.9, g: du[1], b: du[2], a: 0.5, a1: 0 });
     for (let i = 0; i < 22; i++) {
       const a = rnd() * TAU, sp = 1 + rnd() * 3.2;
       P.emit({ spr: S.shard, x: x + Math.cos(a) * 0.3, y: y + Math.sin(a) * 0.15, lift: 0.1 + rnd() * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55,
         vlift: 1.8 + rnd() * 2.8, grav: 9, drag: 0.5, bounce: 0.3, life: 1 + rnd() * 0.8, hold: 0.6, size: (0.12 + rnd() * 0.16) * K.shard, size1: 0.06 * K.shard,
-        rot: rnd() * TAU, vr: (rnd() - 0.5) * 14, r: 0.88 + rnd() * 0.12, g: 0.96, b: 1, a: 0.95, a1: 0 });
+        rot: rnd() * TAU, vr: (rnd() - 0.5) * 14, r: ch[0] * (0.9 + rnd() * 0.1), g: ch[1], b: ch[2], a: 0.95, a1: 0 });
     }
     for (let i = 0; i < 12; i++) {
       const a = rnd() * TAU, sp = 0.6 + rnd() * 1.6;
       P.emit({ spr: S.dust, x: x + Math.cos(a) * r * 0.5, y: y + Math.sin(a) * r * 0.3, lift: 0.1, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vlift: 0.3 + rnd() * 0.5,
-        drag: 1.6, life: 1.2 + rnd() * 0.8, size: 0.5 * K.dust, size1: (1.4 + rnd() * 0.8) * K.dust, r: 0.92, g: 0.95, b: 1, a: 0.6, a1: 0, ground: false });
+        drag: 1.6, life: 1.2 + rnd() * 0.8, size: 0.5 * K.dust, size1: (1.4 + rnd() * 0.8) * K.dust, r: du[0], g: du[1], b: du[2], a: 0.6, a1: 0, ground: false });
     }
-    g.audio?.play('giant_smash', { x, y });
+    g.audio?.play(F.smash, { x, y });
     this.shakeAt(x, y, 0.55, 10);
   }
 
-  // ---------- the ice rock ----------
-  drawRock(g, B, A, pr) {
-    const S = archSprite(A, 'proj_ice_rock'), blob = A.has('fx_blob') ? A.get('fx_blob') : null, ring = A.has('fx_ring') ? A.get('fx_ring') : null;
+  // ---------- the ice rock (and the other giants' throws: name / spin) ----------
+  drawRock(g, B, A, pr, name = 'proj_ice_rock', spin = 7) {
+    const S = archSprite(A, name), blob = A.has('fx_blob') ? A.get('fx_blob') : null, ring = A.has('fx_ring') ? A.get('fx_ring') : null;
     if (!pr.stuck && ring) {
       // the landing ring: where it comes down, tightening as it falls
       const k = Math.min(1, pr.k || 0), R = ROCK_R * (1.35 - 0.35 * k), a = 0.35 + 0.6 * k, pulse = 1 + 0.05 * Math.sin(g.time * 14);
@@ -109,32 +123,33 @@ class GiantFx {
       if (night > 0.1) B.emissive.add(ring, pr.lx, pr.ly, R / RX, R / RY, 0.8, 0.3, 0.2, 0.6 * a * night);
     }
     if (pr.stuck) return true;
-    const sc = 1.05 + Math.max(0, pr.lift) * 0.05, rot = (pr.t || 0) * 7;
+    const sc = 1.05 + Math.max(0, pr.lift) * 0.05, rot = (pr.t || 0) * spin;
     if (S) B.main.add(S, pr.x, pr.y, sc, sc, 1, 1, 1, pr.alpha ?? 1, 0, rot, 0, 1, 0, pr.lift);
     else if (blob) B.main.add(blob, pr.x, pr.y, 0.6 / blob.w, 0.5 / blob.h, 0.7, 0.85, 0.95, 1, 0, 0, 0, 1, 0, pr.lift);
     return true;
   }
-  rockTrail(g, pr, dt) {
+  rockTrail(g, pr, dt, fam = 'ice') {
     if (!pr.rel) { pr.rel = true; g.audio?.play('swing_heavy', { x: pr.x, y: pr.y, volume: 0.85, pitch: 0.72 }); } // (the hurl, on every peer)
     pr._tr = (pr._tr || 0) + dt;
     if (pr._tr < 0.04 || g.headless) return;
     pr._tr = 0;
-    g.particles.emit({ spr: this.spr.soft, x: pr.x + (rnd() - 0.5) * 0.2, y: pr.y, lift: pr.lift, vlift: -0.2, drag: 1.5, life: 0.5 + rnd() * 0.3, size: 0.25 * this.K.soft, size1: 0.55 * this.K.soft, r: 0.88, g: 0.95, b: 1, a: 0.4, a1: 0, ground: false });
+    const c = FAM[fam].dust;
+    g.particles.emit({ spr: this.spr.soft, x: pr.x + (rnd() - 0.5) * 0.2, y: pr.y, lift: pr.lift, vlift: -0.2, drag: 1.5, life: 0.5 + rnd() * 0.3, size: 0.25 * this.K.soft, size1: 0.55 * this.K.soft, r: c[0], g: c[1], b: c[2], a: 0.4, a1: 0, ground: false });
     if (!pr.whoosh && pr.k > 0.45) { pr.whoosh = true; g.audio?.play('swing_heavy', { x: pr.x, y: pr.y, volume: 0.45, pitch: 0.85, force: true }); } // (passing by)
   }
-  rockLand(g, pr, wall) {
-    const P = g.particles, K = this.K, S = this.spr, x = pr.lx, y = pr.ly;
+  rockLand(g, pr, wall, fam = 'ice') {
+    const P = g.particles, K = this.K, S = this.spr, x = pr.lx, y = pr.ly, F = FAM[fam], ch = F.chip, du = F.dust;
     for (let i = 0; i < 16; i++) {
       const a = rnd() * TAU, sp = 0.8 + rnd() * 2.4;
       P.emit({ spr: S.shard, x, y, lift: 0.15 + rnd() * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55, vlift: 1.4 + rnd() * 2.2, grav: 9, drag: 0.6, bounce: 0.3,
-        life: 0.9 + rnd() * 0.7, hold: 0.6, size: (0.1 + rnd() * 0.12) * K.shard, size1: 0.05 * K.shard, rot: rnd() * TAU, vr: (rnd() - 0.5) * 16, r: 0.9, g: 0.97, b: 1, a: 0.95, a1: 0 });
+        life: 0.9 + rnd() * 0.7, hold: 0.6, size: (0.1 + rnd() * 0.12) * K.shard, size1: 0.05 * K.shard, rot: rnd() * TAU, vr: (rnd() - 0.5) * 16, r: ch[0], g: ch[1], b: ch[2], a: 0.95, a1: 0 });
     }
     for (let i = 0; i < 7; i++) {
       const a = rnd() * TAU, sp = 0.4 + rnd() * 0.9;
-      P.emit({ spr: S.dust, x, y, lift: 0.1, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.4, vlift: 0.3, drag: 1.5, life: 1 + rnd() * 0.6, size: 0.35 * K.dust, size1: 1.1 * K.dust, r: 0.93, g: 0.96, b: 1, a: 0.55, a1: 0, ground: false });
+      P.emit({ spr: S.dust, x, y, lift: 0.1, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.4, vlift: 0.3, drag: 1.5, life: 1 + rnd() * 0.6, size: 0.35 * K.dust, size1: 1.1 * K.dust, r: du[0], g: du[1], b: du[2], a: 0.55, a1: 0, ground: false });
     }
-    P.emit({ spr: S.ring, x, y, life: 0.6, size: 0.3 * K.ring, size1: 2 * K.ring, r: 0.9, g: 0.96, b: 1, a: 0.6, a1: 0 });
-    g.audio?.play('ice_rock_land', { x, y });
+    P.emit({ spr: S.ring, x, y, life: 0.6, size: 0.3 * K.ring, size1: 2 * K.ring, r: du[0], g: du[1], b: du[2], a: 0.6, a1: 0 });
+    g.audio?.play(F.land, { x, y });
     this.shakeAt(x, y, 0.22, 6);
     void wall;
     return true; // (gone: it burst)

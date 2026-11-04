@@ -40,13 +40,28 @@ export const SPECIES = {
              loot: [['fish_raw', 1, 1, 1]] },
   // winter nights (seasons.js): frozen dead that walk out of the dark (kind 'pawn', faction 'walker', walkers.js);
   // they carry ice swords / ice spears (as strong as stone) and crumble to snow at sunrise
-  walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,
+  // (undead: the night family — game/undead.js; giant: a giant of the night, game/giants.js — ballista, map mark, rig)
+  walker: { name: 'Andarilho do Gelo', temper: 'hostile', pawn: true, undead: 'ice', hp: 88, dmg: 6, swing: 2.0, speed: 3.7, aggro: 18, r: 0.24, scale: 1.04, xp: 2.4, social: true,
             loot: [] }, // (XP only: walkers.js)
   // winter nights, rarer (giants.js): ice giants, twice a person, walk with the walkers (faction 'walker'); a slow
   // overhead smash with a long wind-up (dodge it) and ice rocks thrown from afar; they break walls fast. Two ballista
   // bolts kill one (ballista.js); normal weapons too, slowly. Numbers: docs/PLAN-V2.md "Gigantes de gelo"
-  giant:  { name: 'Gigante de Gelo', temper: 'hostile', pawn: true, elite: true, hp: 380, dmg: 40, swing: 3.4, speed: 2.7, aggro: 18, r: 0.8, scale: 2.4, xp: 7,
+  giant:  { name: 'Gigante de Gelo', temper: 'hostile', pawn: true, elite: true, giant: true, undead: 'ice', hp: 380, dmg: 40, swing: 3.4, speed: 2.7, aggro: 18, r: 0.8, scale: 2.4, xp: 7,
             loot: [] }, // (giants.js: shatters, a little metal frozen in it)
+  // the other regions' bad nights (docs/REINOS.md §1, docs/NIGHT-DEAD.md, game/undead.js): the same machinery as the
+  // walkers (faction 'walker': drawn to light, break walls, gone at sunrise) in the warm zone's mild winter and the
+  // tropics' dry season — skeletons (fragile, quick, some with bows; blunt blows shatter them, arrows slip through the
+  // ribs) and, in the hot deserts, mummies (slow, tough; a touch may curse: slower for a few seconds). Their giants are
+  // like the ice giant (smash, a throw, walls, the ballista): a bone club and a thrown bone / a stone column and a
+  // thrown sarcophagus lid. They collapse into bones / pour into sand at sunrise.
+  skeleton: { name: 'Esqueleto', temper: 'hostile', pawn: true, undead: 'bone', hp: 70, dmg: 6, swing: 1.9, speed: 3.95, aggro: 18, r: 0.24, scale: 1.04, xp: 2.2, social: true,
+              bloodless: [0.9, 0.86, 0.74], loot: [] }, // (undead.js: bones; archers arrows)
+  mummy:    { name: 'Múmia', temper: 'hostile', pawn: true, undead: 'sand', hp: 128, dmg: 7, swing: 2.3, speed: 3.0, aggro: 18, r: 0.27, scale: 1.06, xp: 2.8, social: true,
+              bloodless: [0.86, 0.76, 0.52], loot: [] }, // (undead.js: linen, now and then herbs or a gold amulet)
+  skeleton_giant: { name: 'Gigante Esqueleto', temper: 'hostile', pawn: true, elite: true, giant: true, undead: 'bone', hp: 360, dmg: 40, swing: 3.2, speed: 2.9, aggro: 18, r: 0.8, scale: 2.4, xp: 7,
+                    bloodless: [0.9, 0.86, 0.74], loot: [] },
+  mummy_giant:    { name: 'Múmia Gigante', temper: 'hostile', pawn: true, elite: true, giant: true, undead: 'sand', hp: 440, dmg: 42, swing: 3.6, speed: 2.4, aggro: 18, r: 0.8, scale: 2.4, xp: 8,
+                    bloodless: [0.86, 0.76, 0.52], loot: [] },
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },
@@ -128,6 +143,7 @@ export const BUFFS = {
   bleed:    { name: 'Sangramento', icon: 'bleed', good: false, desc: 'Ferida aberta: perde vida aos poucos.' },
   burn:     { name: 'Queimadura', icon: 'fire', good: false, desc: 'Em chamas: perde vida aos poucos.' },
   stunned:  { name: 'Atordoado', icon: 'stun', good: false, desc: 'Não consegue agir.' },
+  curse:    { name: 'Maldição da múmia', icon: 'skull', good: false, desc: 'Faixas de areia nas pernas: 35% mais lento.' }, // (game/undead.js)
 };
 
 // Damage-over-time kinds (mobs and player). dtype drives the floating text color.

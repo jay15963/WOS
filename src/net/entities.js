@@ -300,7 +300,7 @@ export class EntityClient {
         e._na = null;
         e.action = { type: N.type, t: N.hold ? N.t0 : Math.min(0.99, (rt - N.start) / N.dur), dur: N.dur, hold: N.hold };
         // the host's swing sound of a creature, here too (giants play their own: fx/giantfx.js)
-        if (N.sfx && SWING_ACTS.has(N.type) && e.species !== 'giant') this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
+        if (N.sfx && SWING_ACTS.has(N.type) && !SPECIES[e.species]?.giant) this.game.audio?.play('swing', { x: e.x, y: e.y, volume: 0.5 });
       }
       if (e.cast) e.cast.t = Math.min(e.cast.dur, e.cast.t + dt);
       if (!e.dead && e.state === 'chase' && e.threat === p) fighting = true;
@@ -334,7 +334,8 @@ export class EntityClient {
             if (ev.blocked) { g.juice.chips(target.x, target.y, [0.95, 0.85, 0.6], 6, 0.6); g.audio?.play('block', { x: target.x, y: target.y }); }
             else {
               g.juice.hit(target.x, target.y, ev.crit, ev.dtype === 'fire' ? [1, 0.55, 0.15] : null);
-              if (ev.dtype === 'phys') g.juice.blood(target.x, target.y, ev.crit ? 7 : 4);
+              const dry = SPECIES[target.species]?.bloodless; // (the night's dead: bone chips / linen dust, game/undead.js)
+              if (ev.dtype === 'phys') { if (dry) g.juice.chips(target.x, target.y, dry, ev.crit ? 9 : 6, 0.5 * (target.scale || 1)); else g.juice.blood(target.x, target.y, ev.crit ? 7 : 4); }
               g.audio?.play(ev.crit ? 'crit' : 'hit', { x: target.x, y: target.y });
             }
           }

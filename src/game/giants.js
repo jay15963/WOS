@@ -14,6 +14,12 @@
 // (GIANT_GROWTH). Away from players and lights, out of sight, like the walkers. Killed: XP, it shatters (no body) and
 // leaves a little metal frozen inside it. Creative worlds: like the walkers there (no hunting, no breaking, no light).
 // Numbers (balance): docs/PLAN-V2.md "Gigantes de gelo".
+//
+// The other regions' giants (docs/REINOS.md §1, docs/NIGHT-DEAD.md, undead.js) are the same creature with another body,
+// weapon and throw (GIANT_KINDS): the Gigante Esqueleto (warm zone, mild-winter nights: a bone club, a thrown bone) and
+// the Múmia Gigante (hot deserts, mild-winter / dry-season nights: a stone column, a thrown sarcophagus lid; its blow
+// curses — slower for a while). They spawn on the same schedule, around a player whose place brings them (undead.js
+// giantHere), on ground of the same family; the ballista hits them like the ice giant (ballista.js: isGiant).
 
 import { SPECIES } from './data.js';
 import { mobStats } from './stats.js';
@@ -26,7 +32,15 @@ import { hasLOS, faceTowards, dist, reach } from './combat.js';
 import { go } from './ai.js';
 import { hostProjId } from './projectiles.js';
 import { lootRows, ri } from './mut/roll.js';
-import { hardWinterAt } from './seasons.js';
+import { familyOf, nightFamilyAt, giantHere, giantLoot, isGiant, FAMILY } from './undead.js';
+
+// each family's giant: its weapon, what it throws (op giant.rock p: projectiles LOB_KINDS, fx/giantfx.js), the telegraph
+// kind (op giant.tele k: the debris of the blow), the curse of its blow (s: game/undead.js — the mummy's)
+export const GIANT_KINDS = {
+  giant:          { weapon: 'club_ice', proj: 'ice_rock', tele: 'smash', curse: 0 },
+  skeleton_giant: { weapon: 'club_bone', proj: 'giant_bone', tele: 'smash_bone', curse: 0 },
+  mummy_giant:    { weapon: 'club_column', proj: 'giant_slab', tele: 'smash_sand', curse: 4 },
+};
 
 // ---------- numbers ----------
 // winter k (0 = the first): up to `near` giants around a player, a spawn try every `every` s (faster each winter),
@@ -51,51 +65,58 @@ const walkerHit = (L) => SPECIES.walker.dmg * (1 + 0.16 * (L - 1)) * 1.06;
 // ---------- spawning ----------
 let groupSeq = 0;
 function giantDeath(game, m) {
-  // the ice shatters: XP (combat.killMob) and a little metal of the ones it crushed, frozen inside it
+  // the ice shatters: XP (combat.killMob) and a little metal of the ones it crushed, frozen inside it; the other giants
+  // leave their own (undead.js giantLoot: bones and metal / linen and a pharaoh's gold)
   const out = [], net = game.net;
+  const toast = giantLoot(game, m, out);
+  if (toast) return { rows: out, toast };
   if (net.roll() < 0.7) lootRows(net, out, m.x, m.y, 'iron_bar', ri(net, 1, 2));
   if (net.roll() < 0.3) lootRows(net, out, m.x, m.y, 'steel_bar', 1);
   return { rows: out, toast: 'Gigante de gelo derrubado!' };
 }
 
-function spawnGiant(game, x, y, group, home) {
-  const sp = SPECIES.giant, w = game.world, R = () => game.net.roll();
+function spawnGiant(game, x, y, group, home, species = 'giant') {
+  const sp = SPECIES[species] || SPECIES.giant, K = GIANT_KINDS[species] || GIANT_KINDS.giant, w = game.world, R = () => game.net.roll();
   const level = Math.max(4, levelForDistance(Math.hypot(x - w.spawn.x, y - w.spawn.y), 2) + (R() < 0.3 ? 1 : 0));
   const st = mobStats(sp, level);
-  const wp = weaponProfile('club_ice');
+  const wp = weaponProfile(K.weapon);
   const m = {
-    isEntity: true, isMob: true, kind: 'pawn', faction: 'walker', species: 'giant', giant: true, ...allocMob(game),
+    isEntity: true, isMob: true, kind: 'pawn', faction: 'walker', species, giant: true, ...allocMob(game),
     name: sp.name, level, elite: true, role: 'melee', camp: group.id, campRef: group,
     temper: 'hostile', x, y, r: sp.r, scale: sp.scale, facing: R() < 0.5 ? 'e' : 'w', moving: false, moveT: R() * 10,
     action: null, flash: 0, dead: false, deadT: 0,
     hp: st.maxHp, dmg: st.dmg, home, state: 'wander', stateT: 30, swingT: 0, stunT: 0, wp: [home.x, home.y],
-    look: makeLook(R, false, false), weapon: 'club_ice', offhand: null, armor: { body: null, head: null },
-    wprof: wp, shield: null, reachX: 1.05, swingDur: SWING, armorV: 12, aggroR: sp.aggro, heavy: true, siegeMul: SIEGE_MUL,
+    look: species === 'giant' ? makeLook(R, false, false) : 0, weapon: K.weapon, offhand: null, armor: { body: null, head: null },
+    wprof: wp, shield: null, reachX: 1.05, swingDur: species === 'giant' ? SWING : sp.swing, armorV: 12, aggroR: sp.aggro, heavy: true, siegeMul: SIEGE_MUL,
     xpMul: sp.xp, specialT: 2, blockT: 99, throwT: 2 + R() * 2, onDeath: giantDeath, patrol: false, noCorpse: true,
   };
+  if (species === 'skeleton_giant') { m.bluntK = 1.25; m.pierceK = 0.8; } // (its bones too: undead.js boneHitK)
   m.maxHp = m.hp;
   group.members.push(m);
   game.entities.push(m); // sync-ok: host-only creature list (giants spawn like the walkers, walkers.js)
   return m;
 }
 
-// tests / debug (host): one giant at (x, y), roaming there
-export function spawnGiantAt(game, x, y) {
-  const group = { id: 'g' + (++groupSeq).toString(36), x, y, members: [] };
-  return spawnGiant(game, x, y, group, { x, y });
+// tests / debug (host): one giant at (x, y), roaming there (species: giant | skeleton_giant | mummy_giant)
+export function spawnGiantAt(game, x, y, species = 'giant') {
+  const group = { id: 'g' + (++groupSeq).toString(36), x, y, members: [], fam: familyOf(species) };
+  return spawnGiant(game, x, y, group, { x, y }, species);
 }
 
-function spawnTry(game) {
-  const w = game.world, L = allPlayers(game).filter((q) => !q.dead && hardWinterAt(game, q.x, q.y)); // (players in a winter now)
+// fams: the players out on a bad night → the family of their place (walkers.js); a giant comes only where its family
+// brings one (undead.js giantHere: not the humid tropics' skeletons), on ground of that family
+function spawnTry(game, fams) {
+  const w = game.world, L = [...fams.keys()].filter((q) => giantHere(game, fams.get(q), q.x, q.y));
   if (!L.length) return false;
-  const p = L[Math.floor(Math.random() * L.length)];
+  const p = L[Math.floor(Math.random() * L.length)], fam = fams.get(p), species = FAMILY[fam].giant;
   const N = giantNumbers(game);
   let near = 0;
-  for (const e of game.entities) if (e.species === 'giant' && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 50) near++;
+  for (const e of game.entities) if (isGiant(e) && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 50) near++;
   if (near >= N.near || Math.random() > N.chance) return false;
   const ok = (x, y) => {
     const tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, SPECIES.giant.r) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
+    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, SPECIES[species].r) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y)
+      && nightFamilyAt(game, x, y) === fam;
   };
   for (let k = 0; k < 20; k++) {
     const a = Math.random() * Math.PI * 2, r = 26 + Math.random() * 10;
@@ -103,21 +124,22 @@ function spawnTry(game) {
     if (!ok(x, y) || minPlayerDist(game, x, y) < 24 || inAnyView(game, x, y, 4, 4)) continue;
     let hx = p.x + Math.cos(a) * 9, hy = p.y + Math.sin(a) * 9;
     if (!ok(hx, hy)) { hx = x; hy = y; }
-    const group = { id: 'g' + (++groupSeq).toString(36), x: hx, y: hy, members: [] };
-    spawnGiant(game, x, y, group, { x: hx, y: hy });
+    const group = { id: 'g' + (++groupSeq).toString(36), x: hx, y: hy, members: [], fam };
+    spawnGiant(game, x, y, group, { x: hx, y: hy }, species);
     return true;
   }
   return false;
 }
 
-// host, once a second on winter nights (walkersTick): the spawn schedule (on = a winter night)
-export function giantsTick(game, on) {
-  if (!on) { game._giantT = null; return; }
+// host, once a second on bad nights (walkersTick): the spawn schedule (fams: the players out on a bad night → family;
+// null / empty = no bad night anywhere)
+export function giantsTick(game, fams) {
+  if (!fams || !fams.size) { game._giantT = null; return; }
   if (game._giantT == null) { const F = GIANT_GROWTH.first; game._giantT = F[0] + Math.random() * (F[1] - F[0]); }
   game._giantT -= 1;
   if (game._giantT > 0) return;
   game._giantT = giantNumbers(game).every;
-  spawnTry(game);
+  spawnTry(game, fams);
 }
 
 // ---------- the fight (raiders' brain, state 'chase'; t = its threat, d = distance) ----------
@@ -125,7 +147,7 @@ const r2 = (v) => Math.round(v * 100) / 100;
 function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn); }
 
 export function giantChase(game, m, t, d, dt) {
-  const sp = SPECIES.giant;
+  const sp = SPECIES[m.species] || SPECIES.giant;
   const rng = reach(m, t);
   if (rng > 0 && d <= rng + 0.15) {
     m.moving = false;
@@ -150,7 +172,8 @@ function smash(game, m, t) {
   m.lastCombatT = game.worldTime;
   // the club rises (a new action object: guests start it too), then holds high (another one: they see it held)
   m.action = { type: 'smash', t: 0, dur: (SMASH.wind * SMASH.raise) / 0.41 };
-  game.net.emit('giant.tele', { x: r2(ix), y: r2(iy), r: SMASH.r, dur: SMASH.wind + 0.08, k: 'smash' }); // (every peer: the circle, the roar, the blow — fx/giantfx.js)
+  const K = GIANT_KINDS[m.species] || GIANT_KINDS.giant;
+  game.net.emit('giant.tele', { x: r2(ix), y: r2(iy), r: SMASH.r, dur: SMASH.wind + 0.08, k: K.tele }); // (every peer: the circle, the roar, the blow — fx/giantfx.js)
   m.cast = {
     name: 'Esmagar', t: 0, dur: SMASH.wind, raised: false,
     step(dt) {
@@ -166,7 +189,7 @@ function smash(game, m, t) {
           if (q.dead || Math.abs((q.z || 0) - (m.z || 0)) > 0.5 || Math.hypot(q.x - ix, q.y - iy) > SMASH.r + (q.r || 0.24) * 0.5) continue;
           const crit = Math.random() < 0.06;
           const dmg = Math.max(1, Math.round(m.dmg * SMASH.mult * (0.9 + Math.random() * 0.2) * (crit ? 1.4 : 1)));
-          hurtPlayer(game, m, q, dmg, { crit, ability: 'giant_smash', from: { x: kx, y: ky }, knock: 0.5 });
+          hurtPlayer(game, m, q, dmg, { crit, ability: 'giant_smash', from: { x: kx, y: ky }, knock: 0.5, curse: K.curse || 0 });
         }
       });
     },
@@ -202,7 +225,8 @@ function throwRock(game, m, t, d) {
       const id = hostProjId();
       // (from its raised left hand: a little ahead and to its left; the release height is LOB_KINDS.ice_rock.h0)
       const F = { e: [1, 0], w: [-1, 0], s: [0, 1], n: [0, -1] }[m.facing] || [0, 1], fx = F[0] * 0.6 + F[1] * 0.3, fy = F[1] * 0.6 - F[0] * 0.3;
-      game.net.emit('giant.rock', { id, x: r2(m.x + fx), y: r2(m.y + fy), lx: r2(lx), ly: r2(ly), dur: r2(dur), apex: r2(apex) }); // (its whoosh on every peer: fx/giantfx.js)
+      const P = (GIANT_KINDS[m.species] || GIANT_KINDS.giant).proj; // (ice rock / bone / sarcophagus lid)
+      game.net.emit('giant.rock', { id, x: r2(m.x + fx), y: r2(m.y + fy), lx: r2(lx), ly: r2(ly), dur: r2(dur), apex: r2(apex), p: P === 'ice_rock' ? undefined : P }); // (its whoosh on every peer: fx/giantfx.js)
       const pr = game.projectiles?.find((q) => q.id === id);
       const L = m.level;
       if (pr) pr.onLand = (g, p) => {
@@ -210,7 +234,7 @@ function throwRock(game, m, t, d) {
         for (const q of allPlayers(g)) {
           if (q.dead || Math.abs(q.z || 0) > 0.5 || Math.hypot(q.x - p.lx, q.y - p.ly) > ROCK.r + (q.r || 0.24) * 0.5) continue;
           const dmg = Math.max(1, Math.round(walkerHit(L) * (0.85 + Math.random() * 0.3)));
-          hurtPlayer(g, m, q, dmg, { ability: 'ice_rock', ranged: true, from: { x: p.x0, y: p.y0 }, dtype: 'phys' });
+          hurtPlayer(g, m, q, dmg, { ability: P, ranged: true, from: { x: p.x0, y: p.y0 }, dtype: 'phys', curse: P === 'giant_slab' ? 2 : 0 });
         }
       };
     },

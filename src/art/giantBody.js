@@ -201,7 +201,7 @@ function prep(p, Wb) {
 }
 // light in camera terms (right, up, toward the camera): the body upper left; the limbs from the front (they turn)
 const LIGHT_BODY = [-0.55, 0.72, 0.42], LIGHT_LIMB = [-0.18, 0.42, 0.89];
-function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
+export function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) { // (also the night's dead: art/deadBody.js)
   setCam(PHI);
   const Wb = bodyToWorld(yaw), Q = parts.map((p) => prep(p, Wb));
   const lw = opt.light || LIGHT_BODY, L = nrm3(add3(add3([lw[0], 0, 0], mul3(CAM.U, lw[1])), mul3(CAM.C, lw[2])));
@@ -247,6 +247,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
     const m = p.m, Pb = mtv(Wb, P3);
     let c = m.col;
     if (m.tex) { const tc = m.tex(Pb, p, QA[0], QA[1], QA[2]); if (tc) c = tc; }
+    if (m.glow) { px[i * 4] = Math.min(255, c[0] * 255); px[i * 4 + 1] = Math.min(255, c[1] * 255); px[i * 4 + 2] = Math.min(255, c[2] * 255); px[i * 4 + 3] = 255; continue; } // (unlit: a fire inside the body)
     let cr = c[0], cg = c[1], cb = c[2];
     if (m.fur) { const kk = 1 + (vnoise(Pb[0] / 2.2, Pb[1] / 2.2, Pb[2] / 3.4) - 0.5) * m.fur; cr *= kk; cg *= kk; cb *= kk; }
     if (m.rough) {
@@ -276,7 +277,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
     px[i * 4] = Math.min(255, r * 255); px[i * 4 + 1] = Math.min(255, g * 255); px[i * 4 + 2] = Math.min(255, b2 * 255); px[i * 4 + 3] = 255;
   }
   // inner lines where a part passes in front of another of another group (depth jump)
-  const TH = 5, K = 2, ink = [14, 22, 32], OFFS = [K, -K, K * cw, -K * cw];
+  const TH = opt.th ?? 5, K = 2, ink = opt.ink || [14, 22, 32], OFFS = [K, -K, K * cw, -K * cw];
   for (let v = K; v < ch - K; v++) for (let u = K; u < cw - K; u++) {
     const i = v * cw + u;
     if (I[i] < 0 || !Q[I[i]].p.edge) continue;
@@ -290,7 +291,7 @@ function render(lg, P, parts, feats, yaw, ox, oy, opt = {}) {
   lg.putImageData(img, 0, 0);
 }
 // screen box of a model at a yaw: [W, H, anchor x, anchor row] (the model's origin is the anchor)
-function boxOf(parts, yaw) {
+export function boxOf(parts, yaw) {
   setCam(PHI);
   const Wb = bodyToWorld(yaw);
   let x0 = 0, x1 = 0, y0 = 0, y1 = 0;

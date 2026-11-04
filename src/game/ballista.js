@@ -27,7 +27,7 @@
 // leaves at that height and plunges (boltZ: level for the first tiles, then down a story every DESC tiles) — over the
 // walls below while it is high, hitting what stands at the height it has (a giant is tall: hit from a rampart too).
 
-import { BUILDINGS } from './data.js';
+import { BUILDINGS, SPECIES } from './data.js';
 import { dealDamage, isMob } from './combat.js';
 import { allPlayers } from './players.js';
 import { facingFrom, collides } from './physics.js';
@@ -87,10 +87,10 @@ export function boltStops(game, x, y, z) {
   const o = game.build?.grid?.main?.get(i + k * w.W * w.H), def = o && !o.blueprint && !o.removed ? BUILDINGS[o.type] : null;
   return !!def && def.connect === 'wall' && (def.block === 'tile' || (def.block === 'door' && !o.open));
 }
-// is a creature at the bolt's height (stories): about its own story; an ice giant over its whole height
+// is a creature at the bolt's height (stories): about its own story; a giant (ice / skeleton / mummy) over its whole height
 export function boltReaches(e, z) {
   const ez = e.z || 0;
-  return Math.abs(ez - z) < 0.75 || (e.species === 'giant' && z >= ez - 0.25 && z < ez + GIANT_TALL);
+  return Math.abs(ez - z) < 0.75 || (SPECIES[e.species]?.giant && z >= ez - 0.25 && z < ez + GIANT_TALL);
 }
 // the muzzle (where a bolt leaves the rail)
 export function muzzleOf(o, a) { const [x, y] = pivotOf(o); return [x + Math.cos(a) * 0.9, y + Math.sin(a) * 0.9]; }
@@ -170,7 +170,7 @@ function stepBolt(game, b, dt) {
       const rr = (e.r || 0.3) + 0.2, dx = e.x - nx, dy = e.y - ny;
       if (dx * dx + dy * dy > rr * rr) continue;
       b.hit.add(e);
-      const giant = e.species === 'giant';
+      const giant = !!SPECIES[e.species]?.giant; // (ice / skeleton / mummy giants: game/undead.js)
       if (b.auth && !e.proxy) hitCreature(game, b, e, giant);
       if (giant) { b.x = e.x - b.ux * 0.15; b.y = e.y - b.uy * 0.15; finish(game, b, true); break; } // (stuck in the giant)
       game.juice?.chips?.(e.x, e.y, [0.85, 0.75, 0.55], 4, 0.5);

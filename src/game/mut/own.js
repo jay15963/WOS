@@ -48,7 +48,7 @@ const dotArg = (d) => (d && typeof d === 'object' ? { dur: Math.min(30, num(d.du
 // extra effects (poison, bleed, stun) only when the hit landed.
 defineOwn('player.hurt', {
   doc: 'Damage from a host creature to the owning player.',
-  args: { src: 'mobNid|0', sx: 'x', sy: 'y', slv: 'level', amount: 'number', crit: '0|1', ability: 'string|0', dtype: 'string|0', ranged: '0|1', from: '[x, y]|0', noDodge: '0|1', knock: 'tiles?', noKnock: '0|1', poison: '{dur,tick,dmg}|0', bleed: '{dur,tick,dmg}|0', stun: 'seconds|0' },
+  args: { src: 'mobNid|0', sx: 'x', sy: 'y', slv: 'level', amount: 'number', crit: '0|1', ability: 'string|0', dtype: 'string|0', ranged: '0|1', from: '[x, y]|0', noDodge: '0|1', knock: 'tiles?', noKnock: '0|1', poison: '{dur,tick,dmg}|0', bleed: '{dur,tick,dmg}|0', stun: 'seconds|0', curse: 'seconds? (a mummy: slower, game/undead.js)' },
   apply(game, a) {
     const p = game.player;
     if (p.dead) return;
@@ -60,6 +60,6 @@ defineOwn('player.hurt', {
       knock: a.knock != null ? Math.max(0, Math.min(3, num(a.knock))) : undefined, noKnock: !!a.noKnock, // (the host's knockback: the owner moves itself)
     };
     const got = dealDamage(game, src, p, amount, opts);
-    if (got > 0) afterHurt(game, p, src, { poison: dotArg(a.poison), bleed: dotArg(a.bleed), stun: Math.min(5, num(a.stun)) });
+    if (got > 0) afterHurt(game, p, src, { poison: dotArg(a.poison), bleed: dotArg(a.bleed), stun: Math.min(5, num(a.stun)), curse: Math.min(8, num(a.curse)) });
   },
 });

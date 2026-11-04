@@ -68,7 +68,8 @@ export function installHelp(game) {
       </div>`;
     el.innerHTML = `<div class="help-card"><div class="help-h"><b>Atalhos e controles</b><button class="hx" aria-label="Fechar">✕</button></div>
       <div class="help-b">${touch() ? mob : desk}</div>
-      <p class="help-f">Sobreviva: mantenha a <b>fome</b> e o <b>calor</b> do corpo altos. À noite esfria — fogueira, abrigo fechado e roupas aquecem.</p></div>`;
+      <p class="help-f">Sobreviva: mantenha a <b>fome</b> e o <b>calor</b> do corpo altos. À noite esfria — fogueira, abrigo fechado e roupas aquecem.</p>
+      <p class="help-f">Toda região tem suas noites perigosas, que vêm atrás de luz e de gente e quebram paredes: no <b>inverno</b>, os Andarilhos do Gelo (e o Gigante de Gelo); nas terras quentes, no <b>inverno ameno</b> e na <b>estação seca</b>, os <b>Esqueletos</b> (maças e porretes os despedaçam; flechas passam entre as costelas) e o Gigante Esqueleto; nos <b>desertos</b>, as <b>Múmias</b> (lentas; o toque amaldiçoa) e a Múmia Gigante. Ao amanhecer viram neve, ossos ou areia. A balista derruba qualquer gigante com dois dardos.</p></div>`;
     el.querySelector('.hx').onclick = () => api.close();
   };
   const api = {

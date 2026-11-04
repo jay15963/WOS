@@ -205,6 +205,7 @@ export function playerSystem() {
       // speed
       let spd = p.baseSpeed;
       if (hasBuff(p, 'sprint')) spd *= 1.65;
+      if (hasBuff(p, 'curse')) spd *= 0.65; // (a mummy's touch: game/undead.js)
       if (p.work) spd *= 0.6;
       if (p.blocking) spd *= 0.55;
       p.speed = spd;
