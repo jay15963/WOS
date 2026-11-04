@@ -43,6 +43,7 @@ export const RECIPES = {
   armor_leather:     R('armor_leather', { leather: 6, rope: 2 }, 'workbench', 8, 'armor'),
   hood_leather:      R('hood_leather', { leather: 3, rope: 1 }, 'workbench', 5, 'armor'),
   coat_fur:          R('coat_fur', { leather: 5, fiber: 6, rope: 1 }, 'workbench', 8, 'armor'),   // winter clothes
+  saddle:            R('saddle', { leather: 5, wood: 2, rope: 2 }, 'workbench', 8, 'tools'), // the horse's saddle (docs/HORSE.md)
   hat_fur:           R('hat_fur', { leather: 2, fiber: 3 }, 'workbench', 4, 'armor'),
 
   // ---------- era 2: stonecutter / furnace / anvil ----------

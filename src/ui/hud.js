@@ -123,7 +123,7 @@ export function installHUD(game, { isNew } = {}) {
     <div class="feed" id="feed"></div>
     <div class="ab-wrap" id="ab">
       <button class="ab ab-int hidden" id="ab-int"><span class="ic"></span><span class="lbl"></span><span class="key">E</span></button>
-      <button class="ab ab-rm hidden" id="ab-rm" title="Remover corpo"><span class="ic"></span><span class="lbl">Remover</span></button>
+      <button class="ab ab-rm hidden" id="ab-rm" title="Remover corpo"><span class="ic"></span><span class="lbl">Remover</span><span class="key"></span></button>
     </div>
     <div class="buildbar hidden" id="buildbar">
       <span class="bb-ic" id="bb-ic"></span>
@@ -208,12 +208,14 @@ export function installHUD(game, { isNew } = {}) {
   const keyChips = () => {
     for (const b of R.quickKeys) { const k = keyLabel(KEYS[b.dataset.k]?.[0]); b.querySelector('.qk').textContent = k; b.dataset.tip = `<b>${b.dataset.t}</b>${k ? `<span class='key'>${k}</span>` : ''}`; }
     if (R.intKey) R.intKey.textContent = keyLabel(KEYS.interact[0]);
+    const rk = R.rm.querySelector('.key');
+    if (rk) rk.textContent = keyLabel(KEYS.alt?.[0]) || '';
   };
   keyChips();
   addEventListener('keymap', keyChips);
   // touch: "Remover corpo" next to the use button while a body is the target (desktop: right click on the body)
   R.rm.querySelector('.ic').innerHTML = uiIcon(A, 'trash'); // (icon agent's glyph: bold, outlined)
-  press(R.rm, () => { const n = game.ctl.near; if (!n?.corpse || !n.o) return; game.ctl.interact(canDrag(game, n.o) ? dragIt(n.o) : discardIt(n.o)); });
+  press(R.rm, () => { const n = game.ctl.near; if (n?.alt) { game.ctl.interactAlt(); return; } if (!n?.corpse || !n.o) return; game.ctl.interact(canDrag(game, n.o) ? dragIt(n.o) : discardIt(n.o)); });
   press($('#tf-x'), () => { game.ctl.setTarget(null); game.ctl.goal = null; });
   root.querySelectorAll('.qb').forEach((el) => press(el, () => {
     const q = el.dataset.q;
@@ -466,17 +468,26 @@ export function installHUD(game, { isNew } = {}) {
         if (C.intk !== key) { C.intk = key; R.intLbl.textContent = near.verb; R.intIc.innerHTML = uiIcon(A, ic); }
       }
       // animals / monsters: "Remover"; people: "Arrastar" (never removed before the bones) — not when the use button does it
-      const rmMode = !(showInt && touchMode && near?.corpse && near.o) ? '' : ['corpse_bones', 'corpse_discard', 'corpse_drag', 'corpse_drop'].includes(near.kind) ? ''
+      let rmMode = !(showInt && touchMode && near?.corpse && near.o) ? '' : ['corpse_bones', 'corpse_discard', 'corpse_drag', 'corpse_drop'].includes(near.kind) ? ''
         : canDrag(g, near.o) ? 'drag' : canDiscard(g, near.o) ? 'rm' : '';
+      // the second choice of what is near ("Tirar sela" of a saddled horse…, docs/HORSE.md): the same button, desktop too (key Y)
+      const altIt = showInt && near?.alt && !rmMode ? near.alt : null;
+      if (altIt) rmMode = 'alt:' + altIt.verb;
       const showRm = !!rmMode;
       toggle(R.rm, 'rmv', 'hidden', !showRm);
-      if (rmMode && C.rmMode !== rmMode) {
+      toggle(R.rm, 'rmalt', 'alt', !!altIt);
+      if (altIt && C.rmMode !== rmMode) {
+        C.rmMode = rmMode;
+        R.rm.querySelector('.ic').innerHTML = uiIcon(A, altIt.icon || 'hand');
+        R.rm.querySelector('.lbl').textContent = altIt.verb;
+        R.rm.title = altIt.verb;
+      } else if (rmMode && !altIt && C.rmMode !== rmMode) {
         C.rmMode = rmMode;
         R.rm.querySelector('.ic').innerHTML = uiIcon(A, rmMode === 'drag' ? 'hand' : 'trash');
         R.rm.querySelector('.lbl').textContent = rmMode === 'drag' ? 'Arrastar' : 'Remover';
         R.rm.title = rmMode === 'drag' ? 'Arrastar o corpo' : 'Remover o corpo';
       }
-      if (showRm && C.rmAt !== R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth) {
+      if (showRm && touchMode && C.rmAt !== R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth) {
         // to the left of the use button, a little higher (wherever the action bar / the player's layout put it)
         C.rmAt = R.int.style.right + R.int.style.bottom + R.int.style.translate + innerWidth;
         // (above it, centred: beside it they covered the message feed at the bottom centre)

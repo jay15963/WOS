@@ -710,6 +710,20 @@ function sheaf(g, rand) {
   g.fillStyle = '#9a6a3c'; g.fillRect(13, 24, 10, 3); // the binding
 }
 const ICONS = {
+  // the horse's saddle (docs/HORSE.md): red pad, leather seat between pommel and cantle, a stirrup hanging
+  item_saddle: [(g) => {
+    g.fillStyle = '#9c2f28'; g.beginPath(); g.moveTo(5, 17); g.quadraticCurveTo(18, 11, 31, 17); g.lineTo(30, 24); g.quadraticCurveTo(18, 19, 6, 24); g.closePath(); g.fill();
+    g.strokeStyle = '#e3c46a'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(6.4, 23); g.quadraticCurveTo(18, 18.4, 29.6, 23); g.stroke();
+  }, (g) => {
+    g.fillStyle = lin(g, 0, 8, 0, 22, [[0, '#9a5a2e'], [1, '#5a3014']]);
+    g.beginPath(); g.moveTo(8, 12); g.quadraticCurveTo(9, 18, 15, 18.5); g.quadraticCurveTo(22, 19, 27, 13.5); g.quadraticCurveTo(29, 9, 26.5, 7.5);
+    g.quadraticCurveTo(25, 12, 19, 13); g.quadraticCurveTo(12, 13, 10, 8.5); g.quadraticCurveTo(7.5, 8.5, 8, 12); g.closePath(); g.fill();
+    g.fillStyle = 'rgba(255,225,180,0.35)'; g.beginPath(); g.ellipse(16, 15, 5, 1.4, 0.05, 0, TAU); g.fill();
+    g.fillStyle = '#4a2810'; g.beginPath(); g.ellipse(26.8, 7.4, 1.6, 2.4, 0.3, 0, TAU); g.fill(); // (the horn)
+  }, (g) => {
+    g.strokeStyle = '#43240f'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(17, 19); g.lineTo(18, 27); g.stroke();
+    g.strokeStyle = '#b8bec2'; g.lineWidth = 1.8; g.beginPath(); g.moveTo(15, 31); g.quadraticCurveTo(15, 26.5, 18, 26.5); g.quadraticCurveTo(21, 26.5, 21, 31); g.closePath(); g.stroke();
+  }],
   item_wheat: [(g, r) => sheaf(g, r)],
   item_seed_wheat: [(g) => sack(g, '#c8b07a', '#7a6438'), (g, r) => { for (const [x, y] of [[16, 27], [20, 26], [18, 29.5], [22, 29]]) { g.fillStyle = '#e2c066'; g.beginPath(); g.ellipse(x, y, 1.3, 2, 0.4, 0, TAU); g.fill(); } }],
   item_bread: [(g) => {

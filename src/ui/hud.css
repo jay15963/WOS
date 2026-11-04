@@ -1024,6 +1024,15 @@ body.dnd-on, body.dnd-on * { cursor: grabbing !important; }
 
 /* touch: "Remover corpo" beside the use button while a body is the target (hud.js) */
 .ab-rm { display: none; }
+.ab-rm .key { display: none; }
+/* desktop: the second choice of what is near ("Tirar sela"…, docs/HORSE.md) as a small prompt beside the use prompt */
+.desktop .ab-rm.alt:not(.hidden) { display: flex; position: absolute; left: calc(50% + 96px); bottom: calc(100% + 15px); transform: none; width: auto; height: 30px;
+  padding: 0 10px 0 6px; gap: 6px; align-items: center; border-radius: 3px; pointer-events: auto; z-index: 2; white-space: nowrap;
+  background: rgba(36, 22, 13, 0.82); border: 1.5px solid var(--n-mustard-hi); color: #f3e3c3; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+.desktop .ab-rm.alt .ic { width: 18px; height: 18px; display: flex; }
+.desktop .ab-rm.alt .ic svg { width: 100%; height: 100%; }
+.desktop .ab-rm.alt .lbl { font-size: 13px; font-weight: 700; }
+.desktop .ab-rm.alt .key { display: inline-block; position: static; transform: none; clip-path: none; padding: 1px 5px; border-radius: 3px; font-size: 11px; font-weight: 800; background: var(--n-cream, #f2e4c4); color: var(--n-ink, #24160d); }
 .touch .ab-rm { display: flex; position: absolute; right: 288px; bottom: 112px; width: 46px; height: 46px; border-radius: 50%; pointer-events: auto; z-index: 2;
   background: rgba(36, 22, 13, 0.55); border: 2px solid rgba(247, 217, 122, 0.55); color: #f3e3c3; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
 .touch .ab-rm.hidden { display: none; }

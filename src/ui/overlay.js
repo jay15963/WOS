@@ -117,7 +117,7 @@ export function installOverlay(game) {
       const v = g.view();
       plates.length = 0;
       for (const e of g.entities) {
-        if (!(e.isMob || e.kind === 'animal') || e.dead) continue;
+        if (!(e.isMob || e.kind === 'animal') || e.dead || e._riddenBy) continue; // (a ridden horse: its rider's plate only)
         if (e.water && e !== p.target) continue; // (fish: no plate unless marked)
         if ((e.fmode & 3 || SPECIES[e.species]?.ambient) && e !== p.target && !(e.state === 'chase' && e.threat === p)) continue; // (wild fauna: hidden in wait, flying, ambient birds / crabs — game/fauna.js)
         if (e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2.5) continue;

@@ -1037,6 +1037,14 @@ differs from the design text above, the code is described here (this section win
   boat and sends `boat.move` (≤ 10 Hz); the host checks it (driver, speed, hull on water, not frozen) and emits `boat.pos` (a
   refused report: `boat.pos {fix: pid}`). Cosmetic per peer: the drawn pose (`b._x/_y/_h`, a 150 ms buffer), riders' spots
   (`e._boat`, `e._dh`, `e._zb`, the seat pose), bobbing, oars, wake. Scenarios B1–B3.
+- **Horses (docs/HORSE.md)** — the horse is a host creature: taming converts the wild horse in place (same `nid`, the entity
+  stream re-sends its static record: species `horse`); the saddle travels as farm bit 256 and the rider's pid as dyn
+  field `[15]`. Intents `horse.feed` / `horse.saddle` / `horse.unsaddle` / `horse.mount` / `horse.dismount`; ops
+  `horse.ride {nid, pid, on, x?, y?}` (`game.horses.rides` pid → nid on every peer; the rider's own client steps to `x, y`
+  when it gets off — applied by its owner system, not by the applier) and `horse.note` (feedback + owner effects). The rider
+  drives its avatar (owner), the host keeps the horse under the avatar's latest position (`rideFollow`), every peer draws
+  the pair at the rider's drawn spot (cosmetic marks `_ride` / `_rideD` / `_riddenBy`). Save rows `world.stock` [11]
+  saddle, [12] ridden by the saving host. Scenarios HO1–HO7.
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,

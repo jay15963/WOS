@@ -49,6 +49,7 @@ import { installFishing, fishingSystem } from './fishing.js'; // fishing with a 
 import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
 import { installBallistaUi } from '../ui/ballistaUi.js';
 import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
+import { installHorses, horseSystem, horseOwnerSystem } from './horses.js'; // horses: taming, saddle, riding (docs/HORSE.md)
 import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
 import './mut/index.js';
 
@@ -88,6 +89,7 @@ export function installSystems(game) {
   installStock(game);               // farm animals: game.stock (interaction / feeder / labels)
   installFishing(game);             // fishing: game.fishing (bobbers, the rod's work)
   installBoats(game);               // boats: game.boats (before the save / snapshot loads them)
+  installHorses(game);              // horses: game.horses (who rides what, the rider's movement)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -142,6 +144,8 @@ export function installSystems(game) {
     corpsesSystem(),
     stockSystem(),                  // the farm clock: domestication, hunger, births, growth (host)
     stockFxSystem(),                // ropes, feeder range, fertile soil marks (cosmetic)
+    horseSystem(),                  // riders and their horses paired for drawing (+ host: a dead horse throws its rider)
+    horseOwnerSystem(),             // the local rider: mounted state, the sprint's speed, the measured gallop
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
     waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     juice,

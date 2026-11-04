@@ -218,6 +218,7 @@ export class Boats {
   board(b) {
     const g = this.game, p = g.player;
     if (p.dead || !b || b.removed) return;
+    if (p.mount) { g.events.emit('error', { text: 'Desça do cavalo para embarcar' }); return; } // (docs/HORSE.md)
     g.net.request('boat.board', { id: b.id }, {
       onOk: () => {
         const h = g.ctl?.hinted, k = b.seats.indexOf(g.net.pid), touch = g.input?.isTouch;
@@ -246,7 +247,7 @@ export class Boats {
   // ---- interaction (controller.js: nearestInteractable / pick) ----
   forNear(consider) {
     const g = this.game, p = g.player;
-    if (p.dead || !this.map.size) return;
+    if (p.dead || !this.map.size || p.mount) return; // (on horseback: no boat)
     const mine = this.mine();
     if (mine) { consider(this.leaveIt(mine)); return; }
     for (const b of this.map.values()) {

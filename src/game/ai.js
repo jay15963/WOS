@@ -35,6 +35,13 @@ export function aggroRadius(m, p) {
   return (m.aggroR ?? sp.aggro ?? 0) * k;
 }
 const SMELL = 3; // tiles: this close an animal notices you even out of sight
+// a player running (sprint) or galloping (mounted): the local player from its own state, a remote avatar on the host
+// from its measured speed (session.js av.vx / vy; walking is 4 tiles / s, a sprint 6.6)
+export function fastMover(game, q) {
+  if (!q || q.dead || !q.moving) return false;
+  if (q === game.player) return !!q.mount || q.buffs?.some((b) => b.id === 'sprint');
+  return Math.hypot(q.vx || 0, q.vy || 0) > 5.2;
+}
 
 // who this creature cares about: its threat while chasing, else the nearest player
 export function pickTarget(game, m) {
@@ -220,7 +227,7 @@ export function bite(game, m, p, sp, rng) {
 // next to it run; a player in sight still comes first. A killed animal leaves its body (butchered like any kill).
 const nightNow = (game) => nightK(game.env?.hour ?? 12) > 0.5;
 const nightNo = (game) => (game.env?.dayIndex ?? 0) - ((game.env?.hour ?? 12) < 12 ? 1 : 0); // (a night spans midnight)
-export const isPrey = (e) => !!e && e.isMob && !!e.stock && !e.dead && !e.proxy && !e.tiedTo;
+export const isPrey = (e) => !!e && e.isMob && !!e.stock && !e.dead && !e.proxy && !e.tiedTo && !e.rider; // (a ridden horse: its rider is the target)
 // the pack's mood tonight (one roll per pack and night; the pack = its spawner, a lone one itself)
 function packMood(game, m) {
   const s = m.spawner || m, n = nightNo(game);
@@ -327,7 +334,7 @@ function bitePrey(game, m, e, sp, rng) {
     if (e.owned) game.net.emit('stock.note', { text: `${sp.name === 'Urso' ? 'Um urso' : 'Os lobos'} mat${sp.name === 'Urso' ? 'ou' : 'aram'} ${STOCK_A[e.species] || 'um animal'} da criação!`, kind: 'bad' });
   });
 }
-const STOCK_A = { cow: 'uma vaca', sheep: 'uma ovelha', pig: 'um porco', chicken: 'uma galinha' };
+const STOCK_A = { cow: 'uma vaca', sheep: 'uma ovelha', pig: 'um porco', chicken: 'uma galinha', horse: 'um cavalo' };
 // a wild kill: the pack is done for the day; it stays by the body a while (eating, lying down) — the body is any kill's
 function wildKill(game, m, e) {
   const s = huntMood(game, m);
@@ -394,7 +401,11 @@ export function updateCreature(game, m, dt) {
         m.thinkT = 0.25 + Math.random() * 0.1;
         if (!p.dead) {
           if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn))) { aggro(game, m, p); break; }
-          if (sp.temper === 'passive') {
+          if (sp.temper === 'passive' && sp.calm) {
+            // calm grazers (wild horses, docs/HORSE.md): walking up to them is fine; someone running / galloping at them
+            // within `calm` tiles spooks the herd (a horse calmed by wheat from a hand stays put a while: calmT)
+            if (d < sp.calm && !(m.calmT > 0) && fastMover(game, p)) { startFlee(m, p, 3.5 + Math.random() * 1.5); break; }
+          } else if (sp.temper === 'passive') {
             const sk = sp.skittish || 0;
             if (d < Math.max(2.2, sk) || (d < 4.5 && p.moving)) { startFlee(m, p, (sk ? 3.5 : 2.5) + Math.random() * 1.5); break; }
           }

@@ -13,13 +13,14 @@ import {
 import { aggro } from './ai.js';
 import { heightK } from './levels.js';
 import { fireLob, retargetLob } from './projectiles.js';
+import { HORSE, THRUST } from './content/horses.js';
 
 const SPIN_DIRS = ['s', 'e', 'n', 'w'];
 
 // ---------- the bar ----------
 export function rebuildBar(game) {
   const p = game.player;
-  const ids = barFor(p.equip);
+  const ids = barFor(p.equip, !!p.mount);
   const key = ids.join(',');
   if (key === p._barKey) return false;
   ABILITY_ORDER.length = 0;
@@ -52,7 +53,7 @@ export function nearestEnemy(game, maxD = 12, filter) {
 export function areaTargets(game, x, y, r) {
   const out = [];
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead) continue;
+    if (!isMob(e) || e.dead || e._riddenBy || e.rider) continue; // (a ridden horse: never by its rider's sweep / thrust)
     if (Math.abs((e.z || 0) - (game.player.z || 0)) >= 0.5) continue; // levels: area hits stay on the caster's story
     if (Math.abs(e.x - x) > r + 1 || Math.abs(e.y - y) > r + 1) continue;
     if (Math.hypot(e.x - x, e.y - y) <= r + e.r) out.push(e);
@@ -158,6 +159,7 @@ export function useAbility(game, id) {
   const err = (text) => { game.events.emit('error', { text }); return false; };
   if (!ab || ab.auto || p.dead) return false;
   if (game.ballista?.mounted && id !== 'heal') return err('Saia da balista primeiro'); // (ballista.js)
+  if (p.mount && !mountedOk(p, id)) return err(id === 'sprint' ? 'Montado: o cavalo já galopa' : 'Montado: só a lança'); // (docs/HORSE.md)
   if (!ABILITY_ORDER.includes(id)) return err('Não disponível com esta arma');
   if (p.charge || p.leap) return false;
   if (p.stunT > 0) return err('Atordoado');
@@ -201,6 +203,8 @@ export function useAbility(game, id) {
   if (p.work) { p.work = null; p.action = null; }
   if (!ab.offGcd) p.gcdT = GCD;
   game.audio?.play('ui', { volume: 0.3 });
+  // on horseback every attack but the lance charge stops the horse a moment (as a swing stops a walker)
+  if (p.mount && id !== 'lance_thrust' && id !== 'heal' && id !== 'block') p._atkRootT = Math.max(p._atkRootT || 0, 0.42);
   if (ab.cast) { startCast(game, id, ab, t); return true; }
   p.energy -= ab.cost || 0;
   p.cds[id] = ab.cd || 0;
@@ -232,6 +236,7 @@ export function aimCheck(game, id) {
   const p = game.player, ab = ABILITIES[id];
   if (!ab || !ab.aim || p.dead) return '';
   if (game.ballista?.mounted) return 'Saia da balista primeiro'; // (ballista.js)
+  if (p.mount) return 'Montado: só a lança'; // (docs/HORSE.md: the long shots are for the ground)
   if (!ABILITY_ORDER.includes(id)) return 'Não disponível com esta arma';
   if (p.charge || p.leap) return '';
   if (p.stunT > 0) return 'Atordoado';
@@ -542,7 +547,43 @@ function effect(game, id, ab, t) {
       J.puff(p.x, p.y, 8);
       break;
     }
+    case 'lance_thrust': lanceThrust(game, p, t); break;
   }
+}
+
+// ---------- on horseback (docs/HORSE.md) ----------
+// what a rider may use: the spear's attacks (the lance charge in place of the throw), herbs; a shield's block
+const SPEAR_MOUNTED = new Set(['pierce', 'sweep', 'lance_thrust']);
+function mountedOk(p, id) {
+  if (id === 'heal' || id === 'block') return true;
+  return (p.wprof?.type || 'unarmed') === 'spear' && SPEAR_MOUNTED.has(id);
+}
+// the lance charge: the spear leveled ahead, the horse keeps going (no root); a moment later the first creature in a
+// line ahead of the horse takes a hit that grows with its speed (k: 0 standing … 1 at a full gallop)
+function lanceThrust(game, p, t) {
+  const M = p.mount, gal = (p.baseSpeed || 4) * HORSE.speedK;
+  const k = Math.max(0, Math.min(1, (M?.spd || 0) / gal));
+  const mult = THRUST.mult[0] + (THRUST.mult[1] - THRUST.mult[0]) * k, flat = THRUST.flat[0] + (THRUST.flat[1] - THRUST.flat[0]) * k;
+  p.weapon = weapon(p);
+  p.action = { type: 'lance', t: 0, dur: THRUST.dur };
+  p._faceLockT = 0;
+  game.audio?.play('swing', { x: p.x, y: p.y, volume: 0.8 + k * 0.4 });
+  if (k > 0.5) game.juice.trail?.(p);
+  game.later(THRUST.delay, () => {
+    if (p.dead || !p.mount) return;
+    // ahead = where the horse runs (its measured motion), else the target / the facing
+    const v = p.mount.spd > 0.6 ? [p.mount.vx / p.mount.spd, p.mount.vy / p.mount.spd] : aimDir(p, attackable(t) ? t : null);
+    let best = null, bd = 1e9;
+    for (const e of areaTargets(game, p.x, p.y, THRUST.reach + 0.6)) {
+      const dx = e.x - p.x, dy = e.y - p.y, along = dx * v[0] + dy * v[1], perp = Math.abs(dx * v[1] - dy * v[0]);
+      if (along < -0.25 || along > THRUST.reach + (e.r || 0.3) || perp > THRUST.w + (e.r || 0.3)) continue;
+      if (along < bd) { bd = along; best = e; }
+    }
+    if (!best) return;
+    const r = rollPlayerHit(game, best, mult, flat, true, 0.1);
+    applyPlayerHit(game, best, r, { ability: 'lance_thrust', knock: THRUST.knock * (0.35 + k) });
+    if (!r.miss && k > 0.6) game.juice.shake(0.22 + k * 0.12); // (the hit itself: dealDamage / the host's echo)
+  });
 }
 
 // side arrows of Multi-Shot: straight (no homing), hit whatever they meet
@@ -570,7 +611,7 @@ export function abilitiesSystem() {
       if (!barInit) { barInit = true; game.events.on('gear', () => rebuildBar(game)); rebuildBar(game); }
       // independent of refreshGear's key (stats may be refreshed by applyLevel in the same frame)
       const eq = p.equip;
-      const hands = eq ? `${eq.main || ''}|${eq.off || ''}` : '|';
+      const hands = (eq ? `${eq.main || ''}|${eq.off || ''}` : '|') + (p.mount ? '|m' : ''); // (mounted: the lance charge on the bar)
       if (hands !== p._barHands) { p._barHands = hands; rebuildBar(game); }
       p.gcdT = Math.max(0, p.gcdT - dt);
       for (const k in p.cds) if (p.cds[k] > 0) p.cds[k] = Math.max(0, p.cds[k] - dt);

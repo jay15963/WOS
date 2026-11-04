@@ -5,7 +5,7 @@
 
 export const CREATURE_SPECIES = ['wolf', 'boar', 'deer', 'rabbit', 'bear', 'fox', 'spider', 'cow', 'sheep', 'pig', 'chicken', 'fish'];
 // wild fauna of the planet's biomes (docs/FAUNA.md, art/fauna.js): baked standing e / s / n each
-export const FAUNA_SPECIES = ['polar_bear', 'seal', 'arctic_fox', 'moose', 'reindeer', 'lynx', 'wild_horse', 'bison', 'yak', 'camel', 'scorpion', 'rattlesnake',
+export const FAUNA_SPECIES = ['polar_bear', 'seal', 'arctic_fox', 'moose', 'reindeer', 'lynx', 'wild_horse', 'horse', 'bison', 'yak', 'camel', 'scorpion', 'rattlesnake',
   'vulture', 'zebra', 'gazelle', 'lion', 'elephant', 'monkey', 'jaguar', 'parrot', 'crocodile', 'heron', 'mountain_goat', 'eagle', 'crab', 'seagull',
   'dolphin', 'shark', 'whale'];
 

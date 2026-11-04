@@ -6184,6 +6184,531 @@ def('LZ4', {
   env.history.push('LZ4');
 });
 
+// =====================================================================================================
+// HO: horses (docs/HORSE.md) — taming a wild horse with wheat from the hand, the feeder, the saddle, riding at the
+// sprint's speed, the lance charge (Estocada), only the spear on horseback, getting off, saving
+const horseNear = (f, x, y, r = 0.3) => f.game.entities.find((e) => e.species === 'horse' && !e.dead && !e.proxy && Math.hypot(e.x - x, e.y - y) < r) || null;
+// a tamed horse (host) at a free spot near (x, y), kept still a while
+function tamedHorse(H, MH, x, y, o = {}) {
+  const s = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 2.5, r: 0.45 }) || [x, y];
+  const m = H.game.horses.debug.spawn(s[0], s[1], { saddle: !!o.saddle, coat: o.coat | 0 });
+  m.state = 'idle'; m.stateT = 60;
+  return m;
+}
+// cleanup: off the horse, then it goes quietly
+async function dropHorses(H, list) {
+  const MHo = await fimp(H, 'game/horses.js');
+  for (const m of list) if (m && !m.dead && m.rider) MHo.dismountHorse(H.game, m, 'hand');
+  await killQuiet(H, list.filter(Boolean));
+}
+// a direction from the guest with a clear line of `len` tiles (no water) on both peers
+function openDir(H, MH, G, MG, len = 11) {
+  const gp = G.game.player;
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+    if (A.clearLine(G, MG, gp.x, gp.y, gp.x + dx * len, gp.y + dy * len, 0.45) && A.clearLine(H, MH, gp.x, gp.y, gp.x + dx * len, gp.y + dy * len, 0.45)) return [+dx.toFixed(4), +dy.toFixed(4)];
+  }
+  return null;
+}
+// the guest gets on a saddled horse by its own "Montar"
+async function rideHorse(t, H, G, MG, m) {
+  const gp = G.game.player;
+  const px = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'the horse on the guest');
+  if (Math.hypot(px.x - gp.x, px.y - gp.y) > 1.8) { const s = A.freeSpot(G, MG, px.x, px.y, { rMin: 0.8, rMax: 1.6 }); if (s) A.teleport(G, s[0], s[1]); }
+  await A.hostSees(t, H, G);
+  const it = G.game.horses.describe(A.proxyOf(G, m));
+  t.assert(it && it.kind === 'horse_mount', `"Montar" offered (${it?.verb})`);
+  A.interact(G, it);
+  await t.waitFor(() => m.rider === G.pid && gp.mount?.nid === m.nid, RT() + 3000, 'the guest rides the horse (host + guest)', () => `rider ${m.rider} mount ${gp.mount?.nid} goal ${G.game.ctl.goal?.type} ui ${G.lastUi(2)}`);
+  await t.sleep(200);
+}
+// a sturdy target that stays put (host): a stunned bison with a lot of life, level 1
+async function dummyBison(H, MH, x, y) {
+  const [b] = await faunaGroup(H, MH, 'bison', x, y);
+  b.level = 1; b.maxHp = b.hp = 5000; b.stunT = 1e4; b.calmT = 1e4; b.state = 'idle';
+  return b;
+}
+const lastHp = (m) => m.hp;
+
+def('HO1', {
+  title: 'HO: the guest tames a wild horse with wheat from its hand (walking up is fine, a sprint spooks the herd)', timeout: 160000,
+  expected: 'A wild horse next to the guest offers "Dar trigo" (without wheat: "precisa de trigo"); three gives (one wheat each, the work by hand) make the host count 1, 2 and then tame it: the same creature becomes the farm animal "Cavalo" (owned, out of its herd, its coat kept) on the host and on the guest (static record re-sent), the guest has 3 wheat less and a toast; another wild horse lets the guest walk up to 2 tiles; a third one runs off when the guest sprints at it (the host measures its speed); digest equal',
+  api: 'horses.describeHorse → work horse_feed → intent horse.feed (refund wheat) → horses.feedWild / tameHorse (in place: species horse, stockBrain, takeFromHerd) → op horse.note; ai.js calm passives (SPECIES.wild_horse.calm, fastMover: av.vx / vy on the host); entity stream static record',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && G.game.horses, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  G.game.cam.rot = G.game.cam.rotTo = 0;
+  await A.openField(t, H, MH, G, MG, 10);
+  const gp = G.game.player;
+  A.pacify(H, gp.x, gp.y, 30);
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const [m] = await faunaGroup(H, MH, 'wild_horse', gp.x + 1.8, gp.y);
+  made.push(m);
+  m.state = 'idle'; m.stateT = 60;
+  const coat = (m.variant >> 2) & 3;
+  const px = await t.waitFor(() => A.proxyOf(G, m), 3000 + CFG.budget, 'the wild horse on the guest');
+  gp.inv.remove('wheat', gp.inv.count('wheat'));
+  const it0 = G.game.horses.describe(px);
+  t.check(it0?.kind === 'horse_feed' && it0.prio < 0 && /precisa de trigo/.test(it0.verb), 'without wheat: "Dar trigo (precisa de trigo)"', it0?.verb);
+  A.ensure(G, { wheat: 5 });
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  await A.hostSees(t, H, G);
+  for (let k = 1; k <= 3; k++) {
+    const q = A.proxyOf(G, m) || px, it = G.game.horses.describe(q);
+    t.check(it?.kind === 'horse_feed' && it.verb === 'Dar trigo' && it.prio >= 0, `give ${k}: "Dar trigo"`, it?.verb);
+    A.interact(G, it);
+    if (k < 3) await t.waitFor(() => (m.tameN | 0) === k, RT() + 4000, `host: it ate ${k} wheat from the guest's hand`, () => `tameN ${m.tameN} state ${m.state} work ${gp.work?.label} ui ${G.lastUi(2)}`);
+    t.check(m.state !== 'flee', 'it stays (calm) while it eats', m.state);
+  }
+  await t.waitFor(() => m.species === 'horse', RT() + 4000, 'host: tamed after the third wheat', () => `species ${m.species} tameN ${m.tameN}`);
+  t.check(m.owned && m.tame && !m.spawner && !!m.stock && m.name === 'Cavalo' && !m.saddle, 'host: a farm animal "Cavalo" (owned, out of its herd, no saddle yet)', `${m.name} owned ${m.owned} tame ${m.tame}`);
+  t.check(((m.variant >> 2) & 3) === coat, 'its coat kept', `coat ${coat} → ${(m.variant >> 2) & 3}`);
+  t.check(A.count(G, 'wheat') === 2, '3 wheat left the guest bag', `${A.count(G, 'wheat')} left of 5`);
+  const pt = await t.waitFor(() => { const q = A.proxyOf(G, m); return q && q.species === 'horse' && q.tame ? q : null; }, ONEWAY() + 2500, 'guest: its proxy is now the tamed horse');
+  t.check(pt.nid === px.nid && pt.name === 'Cavalo' && ((pt.variant >> 2) & 3) === coat, 'the same creature on the guest (nid, name, coat)', `${pt.nid} "${pt.name}"`);
+  t.check(/Cavalo · domado/.test(G.game.stock.label(pt)?.[0] || ''), 'guest nameplate "Cavalo · domado"', G.game.stock.label(pt)?.[0]);
+  t.check(notes.some((s) => /comeu o trigo/.test(s)) && notes.some((s) => /domou o cavalo/.test(s)), 'the guest was told (ate the wheat … tamed)', notes.filter((s) => /cavalo|trigo/i.test(s)).join(' | '));
+  // walking up to another wild horse is fine
+  let sA = null;
+  for (let k = 0; k < 16 && !sA; k++) { const a = (k / 16) * Math.PI * 2, x = gp.x + Math.cos(a) * 6, y = gp.y + Math.sin(a) * 6; if (A.clearLine(G, MG, gp.x, gp.y, x, y, 0.35) && A.clearLine(H, MH, gp.x, gp.y, x, y, 0.35)) sA = [x, y]; }
+  t.assert(sA, 'an open line 6 tiles long');
+  const [wA] = await faunaGroup(H, MH, 'wild_horse', sA[0], sA[1]);
+  made.push(wA);
+  wA.state = 'idle'; wA.stateT = 60; wA.calmT = 0;
+  await t.waitFor(() => A.proxyOf(G, wA), 3000 + CFG.budget, 'a second wild horse on the guest');
+  let fled = false;
+  const w1 = t.watch(() => { if (wA.state === 'flee') fled = true; }, 30);
+  const dx = wA.x - gp.x, dy = wA.y - gp.y, L = Math.hypot(dx, dy);
+  const rel = A.holdMove(G, dx / L, dy / L);
+  await t.tryWait(() => Math.hypot(wA.x - gp.x, wA.y - gp.y) < 2.2, 4000);
+  rel();
+  await t.sleep(1200);
+  w1.stop();
+  t.check(!fled && Math.hypot(wA.x - gp.x, wA.y - gp.y) < 3, 'walking up to it does not scare it', `fled ${fled} d ${f2(Math.hypot(wA.x - gp.x, wA.y - gp.y))}`);
+  // a sprint at a third one: it runs off
+  const back = A.freeSpot(G, MG, wA.x - (dx / L) * 7.5, wA.y - (dy / L) * 7.5, { rMin: 0, rMax: 1.5 });
+  t.assert(back, 'room to run at it');
+  A.teleport(G, back[0], back[1]);
+  await A.hostSees(t, H, G);
+  wA.state = 'idle'; wA.stateT = 60; wA.calmT = 0; wA.fleeT = 0;
+  await t.sleep(400);
+  t.check(A.ability(G, MG, 'sprint'), 'the guest sprints');
+  const rel2 = A.holdMove(G, dx / L, dy / L);
+  t.defer(rel2);
+  const ran = await t.tryWait(() => wA.state === 'flee', 4000);
+  rel2();
+  t.check(ran, 'a sprint at a wild horse makes it run (host)', `state ${wA.state} d ${f2(Math.hypot(wA.x - gp.x, wA.y - gp.y))} av v ${f2(Math.hypot(A.authAvatarOn(H, G.pid)?.vx || 0, A.authAvatarOn(H, G.pid)?.vy || 0))}`);
+  await t.checkDigest(H, G);
+});
+
+def('HO2', {
+  title: 'HO: a tamed horse eats wheat at the feeder, gets hungry anywhere, starves without food; slaughtered: little meat, a lot of leather', timeout: 180000,
+  expected: 'A tamed horse by the guest\'s feeder (wheat + corn in it) goes to the trough and eats wheat only (the wheat goes down on both peers, the corn stays); a horse far from any feeder still gets hungry (a cow out there does not); with an empty feeder a starving horse shows "faminto" on the guest and dies of hunger after the warnings (dead on both); a tamed horse hit by the guest with a knife dies at once: 1 meat and 4–5 leather on the ground on both; digest equal',
+  api: 'STOCK.horse (eats wheat, belly 2 days, always hungry once tamed), livestock farmTick / stockBrain / eatFrom → chest.set, stock.note; livestock.slaughter (SPECIES.horse loot: meat 1, leather 4–5) → loot.add',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && H.game.stock?.debug, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  const f = await farmFeeder(t, H, G, MH, MG);
+  const LG = await frameImport(G, 'game/livestock.js');
+  const [cx, cy] = feederCentre(f);
+  H.game.net.emit('chest.set', { id: f.id, slots: A.structOn(H, f.id).store.toJSON().map(() => null), quiet: 1 });
+  await t.waitFor(() => feedCount(G, f.id, 'wheat') === 0 && feedCount(G, f.id, 'corn') === 0, ONEWAY() + 1000, 'an empty feeder on both');
+  A.ensure(G, { wheat: 6, corn: 3 });
+  const fg = A.structOn(G, f.id), ad = LG.feederAdapter(G.game, fg);
+  const slotOf = (id) => G.game.player.inv.slots.findIndex((s) => s && s.id === id);
+  A.standBy(G, MG, fg);
+  await A.hostSees(t, H, G, 4000);
+  ad.put(slotOf('wheat'), 99); ad.put(slotOf('corn'), 99);
+  await t.waitFor(() => feedCount(H, f.id, 'wheat') >= 6 && feedCount(H, f.id, 'corn') >= 3, RT() + 1000, 'wheat and corn in the feeder');
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const h = tamedHorse(H, MH, cx + 2, cy + 2.4);
+  made.push(h);
+  h.fed = 0.3; h.stateT = 0;
+  H.game.stock.debug.tick(0.01);
+  t.check(h.tame && h.feeder === f.id && h.wantEat, 'host: the horse belongs to the feeder and wants to eat', `tame ${h.tame} feeder ${h.feeder} want ${h.wantEat}`);
+  const w0 = feedCount(H, f.id, 'wheat'), c0 = feedCount(H, f.id, 'corn');
+  await t.waitFor(() => feedCount(H, f.id, 'wheat') < w0, 25000, 'host: the horse ate wheat from the trough', () => `wheat ${feedCount(H, f.id, 'wheat')} fed ${f2(h.fed)} want ${h.wantEat} d ${f2(Math.hypot(h.x - cx, h.y - cy))}`);
+  await t.waitFor(() => feedCount(G, f.id, 'wheat') === feedCount(H, f.id, 'wheat'), ONEWAY() + 1000, 'guest: the same feeder contents');
+  t.check(feedCount(H, f.id, 'corn') === c0 && h.fed > 0.3, 'it eats wheat (not the corn) and is fuller', `corn ${feedCount(H, f.id, 'corn')}/${c0} fed ${f2(h.fed)}`);
+  // away from every feeder a horse still gets hungry (a cow out there grazes)
+  const D = H.game.env.dayLength;
+  const far = tamedHorse(H, MH, cx + 20, cy);
+  made.push(far);
+  const cow = farmAnimal(H, MH, 'cow', cx + 22, cy, { owned: true });
+  made.push(cow);
+  far.fed = 0.5; cow.fed = 0.5;
+  H.game.stock.debug.tick(D * 0.25);
+  t.check(far.tame && far.fed < 0.45 && cow.fed === 0.5, 'a horse far from a feeder gets hungry (a cow there does not)', `horse fed ${f2(far.fed)} tame ${far.tame} · cow fed ${f2(cow.fed)}`);
+  // starving: an empty feeder
+  const notes = [];
+  t.on(G, 'toast', (d) => notes.push(d?.text || ''));
+  H.game.net.emit('chest.set', { id: f.id, slots: A.structOn(H, f.id).store.toJSON().map(() => null), quiet: 1 });
+  h.fed = 0.001;
+  H.game.stock.debug.tick(1); H.game.stock.debug.tick(1);
+  await t.waitFor(() => A.proxyOf(G, h)?.starving, ONEWAY() + 2000, 'guest: the horse shows it is starving');
+  t.check(/faminto/.test(G.game.stock.label(A.proxyOf(G, h))?.[0] || ''), 'its nameplate says "faminto"', G.game.stock.label(A.proxyOf(G, h))?.[0]);
+  H.game.stock.debug.tick(D * 0.35);
+  H.game.stock.debug.tick(D * 0.2);
+  await t.waitFor(() => h.dead, 1500, 'host: it died of hunger');
+  await t.waitFor(() => A.proxyOf(G, h)?.dead || !A.proxyOf(G, h), ONEWAY() + 1500, 'guest: dead too');
+  await t.sleep(RT());
+  t.check(notes.some((s) => /cavalo está passando fome/.test(s)) && notes.some((s) => /cavalo morreu de fome/.test(s)), 'warnings reached the guest (passando fome … morreu de fome)', notes.filter((s) => /fome/.test(s)).join(' | '));
+  // slaughter: one knife hit by the guest — little meat, a lot of leather
+  const gp = G.game.player;
+  const h3 = tamedHorse(H, MH, gp.x + 1.6, gp.y);
+  made.push(h3);
+  const p3 = await t.waitFor(() => { const q = A.proxyOf(G, h3); return q && q.tame ? q : null; }, ONEWAY() + 2500, 'guest: a third (tamed) horse');
+  const s3 = A.freeSpot(G, MG, h3.x, h3.y, { rMin: 0.7, rMax: 1.3 });
+  if (s3) A.teleport(G, s3[0], s3[1]);
+  await A.hostSees(t, H, G, 4000);
+  A.equip(G, 'knife_stone');
+  const loot = A.lootRecorder(t, [H, G]);
+  A.hit(G, MG, p3, 3);
+  await t.waitFor(() => h3.dead, RT() + 1500, 'one knife hit kills the tamed horse');
+  await t.sleep(RT() + 500);
+  loot.stop();
+  const it = loot.items(0);
+  t.check(it.meat === 1 && it.leather >= 4 && it.leather <= 5, 'its products: 1 meat, 4–5 leather', JSON.stringify(it));
+  t.check(loot.compare(0, 1).ok, 'the same items on both', loot.compare(0, 1).detail);
+  await t.checkDigest(H, G);
+});
+
+def('HO3', {
+  title: 'HO: the guest saddles its horse, mounts and rides at the sprint\'s speed; the host sees it riding; no work, boats or doors on horseback', timeout: 180000,
+  expected: 'The guest\'s "Selar" (a saddle from its bag) saddles the tamed horse on both peers ("Tirar sela" gives it back, "Selar" again); "Montar" puts the guest on it (host: the horse\'s rider, every peer: game.horses.rides); galloping in a straight line the guest covers the sprint\'s speed (6.6 tiles / s, ±15 %; the sprint key adds nothing and costs nothing); on the host the horse runs under the guest\'s avatar and is drawn with it (the gallop); work and boats are refused ("Desça do cavalo"); an open door stops the horse; digest equal',
+  api: 'horses.describeHorse (alt), works horse_saddle / horse_unsaddle / horse_mount, intents horse.saddle / horse.unsaddle / horse.mount → op horse.ride (rides) / horse.note (give saddle); horseOwnerSystem (p.mount, p.speed = baseSpeed × 1.65), rideMove (doors, stairs, tunnels, deep water), host rideFollow, horseSystem pairs (_ride / _rideD / _riddenBy) + faunaDraw ridePose; entity stream saddle bit / rider pid',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && G.game.horses, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  G.game.cam.rot = G.game.cam.rotTo = 0;
+  await A.openField(t, H, MH, G, MG, 13, 2);
+  const gp = G.game.player;
+  A.pacify(H, gp.x, gp.y, 30);
+  const dir = openDir(H, MH, G, MG, 12);
+  t.assert(dir, 'a clear line of 12 tiles to ride along');
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const h = tamedHorse(H, MH, gp.x - dir[0] * 1.4, gp.y - dir[1] * 1.4);
+  made.push(h);
+  const px = await t.waitFor(() => A.proxyOf(G, h), 3000 + CFG.budget, 'the tamed horse on the guest');
+  gp.inv.remove('saddle', gp.inv.count('saddle'));
+  t.check(G.game.horses.describe(px)?.prio < 0, 'without a saddle: "Selar (precisa de sela)"', G.game.horses.describe(px)?.verb);
+  A.ensure(G, { saddle: 1 });
+  await A.hostSees(t, H, G);
+  let it = G.game.horses.describe(px);
+  t.check(it?.kind === 'horse_saddle' && it.verb === 'Selar', '"Selar" with a saddle in the bag', it?.verb);
+  A.interact(G, it);
+  await t.waitFor(() => h.saddle, RT() + 4000, 'host: saddled', () => `work ${gp.work?.label} ui ${G.lastUi(2)}`);
+  await t.waitFor(() => A.proxyOf(G, h)?.saddle, ONEWAY() + 1500, 'guest: it shows the saddle (entity stream)');
+  t.check(A.count(G, 'saddle') === 0, 'the saddle left the guest bag');
+  it = G.game.horses.describe(A.proxyOf(G, h));
+  t.check(it?.kind === 'horse_mount' && it.verb === 'Montar' && it.alt?.verb === 'Tirar sela', '"Montar", and "Tirar sela" as the second choice', `${it?.verb} / ${it?.alt?.verb}`);
+  A.interact(G, it.alt);
+  await t.waitFor(() => !h.saddle && A.count(G, 'saddle') === 1, RT() + 4000, '"Tirar sela": off the horse, back in the guest bag');
+  await t.waitFor(() => !A.proxyOf(G, h)?.saddle, ONEWAY() + 1500, 'guest: no saddle shown');
+  A.interact(G, G.game.horses.describe(A.proxyOf(G, h)));
+  await t.waitFor(() => h.saddle && A.proxyOf(G, h)?.saddle, RT() + 4000, 'saddled again');
+  await rideHorse(t, H, G, MG, h);
+  t.check(H.game.horses.rides.get(G.pid) === h.nid && G.game.horses.rides.get(G.pid) === h.nid, 'every peer knows who rides what (op horse.ride)');
+  t.check(Math.hypot(gp.x - h.x, gp.y - h.y) < 0.6, 'the guest sits where the horse stood', `d ${f2(Math.hypot(gp.x - h.x, gp.y - h.y))}`);
+  t.check(MG.controller.nearestInteractable(G.game)?.verb === 'Desmontar', 'on horseback the use button says "Desmontar"');
+  // gallop along the open line
+  const errs = [];
+  t.on(G, 'error', (d) => errs.push(d?.text || ''));
+  const e0 = gp.energy;
+  t.check(!A.ability(G, MG, 'sprint') && !gp.buffs.some((b) => b.id === 'sprint'), 'the sprint adds nothing on horseback (refused)', errs.slice(-1)[0]);
+  gp.energy = e0;
+  let sawGallop = false;
+  const av = A.avatarOn(H, G.pid), w = t.watch(() => {
+    if (av?._rideD && av._rideD._spd > 3.4) sawGallop = true; // (art/faunaDraw.js ridePose: the gallop frames above 3.4 tiles / s)
+  }, 30);
+  const rel = A.holdMove(G, dir[0], dir[1]);
+  t.defer(rel);
+  await t.sleep(350);
+  const x0 = gp.x, y0 = gp.y, t0 = now();
+  await t.sleep(1000);
+  const dt = (now() - t0) / 1000, v = Math.hypot(gp.x - x0, gp.y - y0) / dt, want = gp.baseSpeed * 1.65;
+  t.check(Math.abs(gp.speed - want) < 1e-6 && v > want * 0.85 && v < want * 1.15, `the guest rides at the sprint's speed (${f2(want)} tiles / s)`, `measured ${f2(v)} · p.speed ${f2(gp.speed)}`);
+  const ah = A.authAvatarOn(H, G.pid);
+  t.check(h.moving && Math.hypot(h.x - ah.x, h.y - ah.y) < 0.5, 'host: the horse runs under the guest\'s avatar', `d ${f2(Math.hypot(h.x - ah.x, h.y - ah.y))} moving ${h.moving}`);
+  t.check(!!av?._ride && av._ride === h && h._riddenBy === av, 'host: the guest is drawn on its horse (one unit)', `ride ${!!av?._ride}`);
+  t.check(A.proxyOf(G, h)?.rider === G.pid && gp._ride === A.proxyOf(G, h), 'guest: its proxy says who rides it; drawn under the guest');
+  rel();
+  await t.sleep(300);
+  w.stop();
+  t.check(sawGallop, 'host draws the horse galloping (gallop frames at speed)');
+  t.check(Math.abs(gp.energy - e0) < 8, 'no stamina spent riding', `${f2(e0)} → ${f2(gp.energy)}`);
+  // no work, no boat on horseback
+  errs.length = 0;
+  G.game.ctl.interact({ kind: 'forage', x: gp.x, y: gp.y, reach: 99, o: {} });
+  await t.sleep(200);
+  G.game.boats.board({ id: 'nope', seats: [], removed: false });
+  await t.sleep(150);
+  t.check(errs.some((s) => /Desça do cavalo/.test(s)) && errs.some((s) => /Desça do cavalo para embarcar/.test(s)) && !gp.work, 'work and boats are refused on horseback', errs.join(' | '));
+  // an open door stops the horse
+  const ax = Math.abs(dir[0]) >= Math.abs(dir[1]) ? [Math.sign(dir[0]), 0] : [0, Math.sign(dir[1])];
+  const gx = Math.floor(gp.x) + ax[0] * 2, gy = Math.floor(gp.y) + ax[1] * 2;
+  const free = !H.game.build.grid.main.has(H.game.world.idx(gx, gy)) && !H.game.world.blocked(gx, gy);
+  if (free) {
+    const id = H.game.net.newId('s');
+    H.game.net.emit('struct.add', { list: [[id, 'door_wood', gx, gy, 0, 0, Math.round(H.game.worldTime)]], by: H.pid });
+    H.game.net.emit('struct.complete', { id, by: H.pid, xp: 0, toast: '' });
+    H.game.net.emit('door.set', { id, open: 1, by: H.pid });
+    t.defer(() => { if (A.structOn(H, id)) H.game.net.emit('struct.remove', { id, quiet: 1 }); });
+    await t.waitFor(() => A.structOn(G, id) && !A.structOn(G, id).blueprint, ONEWAY() + 1500, 'an open door ahead (guest)');
+    A.teleport(G, gx - ax[0] * 1.6 + 0.5, gy - ax[1] * 1.6 + 0.5);
+    h.x = gp.x; h.y = gp.y;
+    await A.hostSees(t, H, G);
+    const r2 = A.holdMove(G, ax[0], ax[1]);
+    let inDoor = false;
+    const w2 = t.watch(() => { if (Math.floor(gp.x) === gx && Math.floor(gp.y) === gy) inDoor = true; }, 10);
+    await t.sleep(1200);
+    r2(); w2.stop();
+    t.check(!inDoor && m0(gp), 'an open door stops the horse (no doors on horseback)', `at ${f2(gp.x)},${f2(gp.y)} door ${gx},${gy}`);
+  } else t.note('no free tile for the door check');
+  await t.checkDigest(H, G);
+});
+const m0 = (p) => !!p.mount;
+
+def('HO4', {
+  title: 'HO: on horseback the spear\'s long shot becomes "Estocada": at a full gallop it hits far harder than standing, and the horse keeps going', timeout: 200000,
+  expected: 'Mounted with a spear the bar has "Estocada" (lance_thrust) instead of "Lançar Lança"; standing next to a sturdy target the thrust takes off a little life (host); galloping past it the thrust takes off ≥ 2.5 × as much (the damage grows with the measured speed) and the guest keeps moving through it (no root), the host sees the thrust (presence action lance); another spear attack (Perfurar) stops the horse a moment; digest equal',
+  api: 'content/weapons.js barFor(eq, mounted) MOUNTED_SWAP; abilities.js lance_thrust (lanceThrust: THRUST mult / flat × speed k, the first creature in a line ahead) → combat applyPlayerHit → mob.hit; p.mount.spd (horseOwnerSystem); p._atkRootT; art/compose.js pose lance',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && G.game.horses, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  G.game.cam.rot = G.game.cam.rotTo = 0;
+  await A.openField(t, H, MH, G, MG, 13, 2);
+  const gp = G.game.player;
+  A.pacify(H, gp.x, gp.y, 30);
+  const dir = openDir(H, MH, G, MG, 12);
+  t.assert(dir, 'a clear line of 12 tiles to ride along');
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const h = tamedHorse(H, MH, gp.x + dir[1] * 1.2, gp.y - dir[0] * 1.2, { saddle: true });
+  made.push(h);
+  A.equip(G, 'spear_stone');
+  await rideHorse(t, H, G, MG, h);
+  MG.abilities.rebuildBar(G.game);
+  const bar = MG.data.ABILITY_ORDER.slice();
+  t.check(bar.includes('lance_thrust') && !bar.includes('throw_spear'), 'mounted with a spear: "Estocada" instead of "Lançar Lança"', bar.join(','));
+  // a sturdy target
+  const b = await dummyBison(H, MH, gp.x + dir[0] * 1.7, gp.y + dir[1] * 1.7);
+  made.push(b);
+  const bp = await t.waitFor(() => A.proxyOf(G, b), 3000 + CFG.budget, 'the target on the guest');
+  b.x = gp.x + dir[0] * 1.7; b.y = gp.y + dir[1] * 1.7;
+  await t.sleep(900);
+  const hits = async (go) => { const hp0 = b.hp; go(); await t.sleep(RT() + 700); return hp0 - b.hp; };
+  const stand = [];
+  for (let k = 0; k < 3; k++) {
+    t.check(gp.mount.spd < 0.5, 'standing still', f2(gp.mount.spd));
+    stand.push(await hits(() => A.ability(G, MG, 'lance_thrust', A.proxyOf(G, b))));
+  }
+  const sOk = stand.filter((v) => v > 0);
+  t.assert(sOk.length, `a standing thrust lands (${stand.join(', ')})`);
+  // Perfurar stops the horse a moment
+  const rP = A.holdMove(G, -dir[1], dir[0]);
+  await t.sleep(250);
+  A.ability(G, MG, 'pierce', A.proxyOf(G, b));
+  const rooted = gp._atkRootT > 0.2;
+  rP();
+  t.check(rooted, 'another spear attack (Perfurar) stops the horse a moment', f2(gp._atkRootT));
+  await t.sleep(600);
+  // galloping passes
+  const gal = [];
+  let sawLance = false;
+  const avH = A.avatarOn(H, G.pid);
+  const wl = t.watch(() => { if (avH?.action?.type === 'lance') sawLance = true; }, 15);
+  for (let pass = 0; pass < 3 && gal.filter((v) => v > 0).length < 2; pass++) {
+    const sg = pass % 2 ? -1 : 1, ux = dir[0] * sg, uy = dir[1] * sg;
+    // the target 7.5 tiles ahead along the line (the way the guest rides)
+    b.x = gp.x + ux * 7.5; b.y = gp.y + uy * 7.5;
+    await t.waitFor(() => { const q = A.proxyOf(G, b); return q && Math.hypot(q.x - b.x, q.y - b.y) < 0.2; }, ONEWAY() + 1500, 'the target ahead on the guest');
+    const rel = A.holdMove(G, ux, uy);
+    t.defer(rel);
+    await t.waitFor(() => { const q = A.proxyOf(G, b); return q && (q.x - gp.x) * ux + (q.y - gp.y) * uy < 2.3; }, 4000, 'galloping up to the target');
+    const k = gp.mount.spd / (gp.baseSpeed * 1.65), x1 = gp.x, y1 = gp.y;
+    const hp0 = b.hp;
+    t.check(A.ability(G, MG, 'lance_thrust'), `pass ${pass + 1}: Estocada at a gallop (speed ${f2(gp.mount.spd)}, k ${f2(k)})`);
+    await t.sleep(450);
+    const moved = Math.hypot(gp.x - x1, gp.y - y1);
+    t.check(moved > 1.8 && !(gp._atkRootT > 0), 'the horse keeps going during the thrust (not stopped)', `${f2(moved)} tiles in 0.45 s, root ${f2(gp._atkRootT || 0)}`);
+    rel();
+    await t.sleep(RT() + 500);
+    gal.push(hp0 - b.hp);
+    MG.abilities.rebuildBar(G.game);
+    gp.cds.lance_thrust = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy;
+  }
+  wl.stop();
+  const gOk = gal.filter((v) => v > 0);
+  t.assert(gOk.length, `a gallop thrust lands (${gal.join(', ')})`);
+  t.check(Math.min(...gOk) >= 2.5 * Math.max(...sOk), 'at a full gallop the thrust hits ≥ 2.5 × harder than standing', `standing ${sOk.join(', ')} · gallop ${gOk.join(', ')}`);
+  t.check(sawLance, 'the host sees the lance thrust (presence action "lance")');
+  await t.checkDigest(H, G);
+});
+
+def('HO5', {
+  title: 'HO: on horseback only the spear attacks (axe, bow, bare hands refused); herbs still work', timeout: 160000,
+  expected: 'Mounted, with an axe: Space / the attack refuses "Montado: só a lança", its abilities are refused, an armed auto attack does no damage; with a bow the long shot and the shots are refused; bare hands refused; with herbs the heal works; with a spear the auto attack hits the target (host life goes down); digest equal',
+  api: 'controller.attack / doTap (p.mount, wprof.type spear), abilities.useAbility mountedOk, aimCheck, combat auto attack (mountT), barFor',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && G.game.horses, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 8);
+  const gp = G.game.player;
+  A.pacify(H, gp.x, gp.y, 30);
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const h = tamedHorse(H, MH, gp.x + 1.2, gp.y, { saddle: true });
+  made.push(h);
+  await rideHorse(t, H, G, MG, h);
+  const b = await dummyBison(H, MH, gp.x + 1.4, gp.y);
+  made.push(b);
+  b.x = gp.x + 1.4; b.y = gp.y;
+  const bp = await t.waitFor(() => A.proxyOf(G, b), 3000 + CFG.budget, 'a target next to the guest');
+  await t.sleep(600);
+  const errs = [];
+  t.on(G, 'error', (d) => errs.push(d?.text || ''));
+  const only = () => errs.filter((s) => /Montado: só a lança/.test(s)).length;
+  // an axe
+  A.equip(G, 'axe_stone');
+  await t.sleep(150);
+  const n0 = only();
+  G.game.ctl.setTarget(A.proxyOf(G, b));
+  G.game.ctl.attack();
+  t.check(only() > n0, 'axe: the attack is refused ("Montado: só a lança")', errs.slice(-1)[0]);
+  t.check(!A.ability(G, MG, 'cleave', A.proxyOf(G, b)), 'axe: its ability (Golpe Fendente) is refused');
+  const hp0 = b.hp;
+  gp.target = A.proxyOf(G, b); gp.autoAttack = true;
+  await t.sleep(2200);
+  t.check(b.hp === hp0 && !gp.autoAttack, 'axe: no auto attack lands', `hp ${hp0} → ${b.hp}`);
+  // a bow
+  A.equip(G, 'bow_wood'); A.ensure(G, { arrow: 10 });
+  await t.sleep(150);
+  t.check(/Montado: só a lança/.test(MG.abilities.aimCheck(G.game, 'long_shot') || ''), 'bow: the long shot is refused', MG.abilities.aimCheck(G.game, 'long_shot'));
+  t.check(!A.ability(G, MG, 'aimed_shot', A.proxyOf(G, b)), 'bow: Tiro Mirado is refused');
+  // bare hands
+  gp.equip.main = null;
+  await t.sleep(150);
+  const n1 = only();
+  G.game.ctl.attack();
+  t.check(only() > n1, 'bare hands: refused too');
+  // herbs: fine on horseback
+  A.ensure(G, { herb: 2 });
+  t.check(A.ability(G, MG, 'heal'), 'herbs still work on horseback');
+  // the spear: its auto attack hits
+  A.equip(G, 'spear_stone');
+  await t.sleep(200);
+  const hp1 = b.hp;
+  G.game.ctl.setTarget(A.proxyOf(G, b));
+  G.game.ctl.attack();
+  await t.waitFor(() => b.hp < hp1, 5000, 'spear: the auto attack hits the target (host)', () => `hp ${b.hp} auto ${gp.autoAttack} d ${f2(Math.hypot(gp.x - b.x, gp.y - b.y))}`);
+  gp.autoAttack = false;
+  await t.checkDigest(H, G);
+});
+
+def('HO6', {
+  title: 'HO: "Desmontar" puts the guest beside its horse and brings "Lançar Lança" back; a horse that dies throws its rider unhurt', timeout: 150000,
+  expected: 'Mounted with a spear, the use button\'s "Desmontar" gets the guest off: beside the horse on dry ground (both peers drop the ride), the bar has "Lançar Lança" again (no "Estocada") and the throw can be aimed; the horse stays saddled where it is; mounted again, the host kills the horse: the guest falls off unhurt with a toast, its body on both; digest equal',
+  api: 'horses.dismountIt → work horse_dismount → intent horse.dismount → dismountHorse (landing spot) → op horse.ride off (game.horses.land); hostTidy (dead ridden horse → horse.ride off, toast); barFor without mounted',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && G.game.horses, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G, { hp: false });
+  await A.openField(t, H, MH, G, MG, 8);
+  const gp = G.game.player;
+  gp.hp = gp.maxHp;
+  A.pacify(H, gp.x, gp.y, 30);
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const h = tamedHorse(H, MH, gp.x + 1.2, gp.y, { saddle: true });
+  made.push(h);
+  A.equip(G, 'spear_stone');
+  await rideHorse(t, H, G, MG, h);
+  MG.abilities.rebuildBar(G.game);
+  t.check(MG.data.ABILITY_ORDER.includes('lance_thrust'), 'mounted: "Estocada" on the bar');
+  const it = MG.controller.nearestInteractable(G.game);
+  t.check(it?.kind === 'horse_dismount' && it.verb === 'Desmontar', 'the use button: "Desmontar"', it?.verb);
+  A.interact(G, it);
+  await t.waitFor(() => !h.rider && !gp.mount && !G.game.horses.rides.has(G.pid) && !H.game.horses.rides.has(G.pid), RT() + 3000, 'off the horse (both peers drop the ride)');
+  await t.sleep(250);
+  const d = Math.hypot(gp.x - h.x, gp.y - h.y);
+  t.check(d > 0.4 && d < 1.7 && G.game.world.liquidAt(Math.floor(gp.x), Math.floor(gp.y)) !== 2, 'the guest stands beside the horse on dry ground', `d ${f2(d)}`);
+  MG.abilities.rebuildBar(G.game);
+  const bar = MG.data.ABILITY_ORDER.slice();
+  t.check(bar.includes('throw_spear') && !bar.includes('lance_thrust'), 'off the horse: "Lançar Lança" again', bar.join(','));
+  gp.cds.throw_spear = 0; gp.gcdT = 0; gp.energy = gp.maxEnergy; gp._throwT = 0;
+  t.check(MG.abilities.aimCheck(G.game, 'throw_spear') == null, 'the throw can be aimed again', String(MG.abilities.aimCheck(G.game, 'throw_spear')));
+  t.check(h.saddle && !h.dead, 'the horse stays, saddled');
+  // a horse killed under its rider throws it, unhurt
+  await rideHorse(t, H, G, MG, h);
+  const notes = [];
+  t.on(G, 'toast', (dd) => notes.push(dd?.text || ''));
+  const hp0 = gp.hp;
+  MH.combat.killMob(H.game, h, null);
+  await t.waitFor(() => !gp.mount && !G.game.horses.rides.has(G.pid), RT() + 2500, 'the rider fell off the dead horse');
+  await t.sleep(300);
+  t.check(gp.hp >= hp0 && !gp.dead, 'unhurt', `hp ${hp0} → ${gp.hp}`);
+  t.check(notes.some((s) => /cavalo morreu/.test(s)), 'and told so', notes.join(' | '));
+  await t.waitFor(() => [...G.game.corpses.map.values()].some((c) => c.of === 'horse' && Math.hypot(c.x - h.x, c.y - h.y) < 1.5), ONEWAY() + 1500, 'the horse\'s body on the guest');
+  await t.checkDigest(H, G);
+});
+
+def('HO7', {
+  title: 'HO: saving keeps the tamed horses, their coats and saddles (the ridden one too); loading brings them back', timeout: 150000,
+  expected: 'Three tamed horses (a grey saddled one, a chestnut without a saddle, a saddled one the guest rides): the host\'s save rows (world.stock) hold all three with species horse, coat and saddle flags (1, 0, 1); loaded back (rows → restore on the farm clock) they stand where they were, tamed, with their coats and saddles, on the host and on the guest (entity stream saddle bit); the saddled one offers "Montar" to the guest; digest equal',
+  api: 'net/snapshot.js serializeWorld({save}) → livestock.stockRows ([11] saddle); stashStock + restoreStock (game.stock.debug.restore); entity stream',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  t.need(H.game.horses && H.game.stock?.debug, 'horses (game/horses.js) missing');
+  A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 8);
+  const gp = G.game.player;
+  const made = [];
+  t.defer(() => dropHorses(H, made));
+  const hA = tamedHorse(H, MH, gp.x + 2, gp.y + 1.5, { saddle: true, coat: 2 });
+  const hB = tamedHorse(H, MH, gp.x - 2, gp.y + 1.5, { coat: 1 });
+  const hC = tamedHorse(H, MH, gp.x + 1.2, gp.y, { saddle: true, coat: 3 });
+  made.push(hA, hB, hC);
+  await rideHorse(t, H, G, MG, hC);
+  const SN = await fimp(H, 'net/snapshot.js'), LH = await fimp(H, 'game/livestock.js');
+  const sv = JSON.parse(JSON.stringify(SN.serializeWorld(H.game, { save: true })));
+  const rowOf = (m) => (sv.stock || []).find((r) => r[0] === 'horse' && Math.abs(r[1] - m.x) < 0.05 && Math.abs(r[2] - m.y) < 0.05);
+  const rows = [hA, hB, hC].map(rowOf);
+  t.check(rows.every(Boolean), 'the save holds the three horses (the ridden one too)', `${(sv.stock || []).filter((r) => r[0] === 'horse').length} horse rows`);
+  t.check(rows.every(Boolean) && rows.map((r) => r[11]).join(',') === '1,0,1', 'with their saddles (1, 0, 1)', rows.map((r) => r && r[11]).join(','));
+  t.check(rows.every(Boolean) && rows.map((r) => (r[3] >> 2) & 3).join(',') === '2,1,3', 'and their coats (grey, chestnut, black)', rows.map((r) => r && (r[3] >> 2) & 3).join(','));
+  // load: the world comes back without them, then the farm clock restores the saved rows
+  const spots = [hA, hB, hC].map((m) => [m.x, m.y]);
+  const MHo = await fimp(H, 'game/horses.js');
+  MHo.dismountHorse(H.game, hC, 'hand');
+  await t.waitFor(() => !gp.mount, RT() + 2000, 'the guest is off (a loaded world has no riders)');
+  await killQuiet(H, [hA, hB, hC]);
+  await t.sleep(RT());
+  LH.stashStock(H.game, rows);
+  H.game.stock.debug.restore();
+  const back = spots.map(([x, y]) => horseNear(H, x, y, 0.06));
+  made.push(...back);
+  t.check(back.every(Boolean), 'host: the three horses are back where they stood', back.map((m) => m ? m.nid : '-').join(' '));
+  if (back.every(Boolean)) {
+    t.check(back.map((m) => (m.saddle ? 1 : 0)).join(',') === '1,0,1' && back.map((m) => (m.variant >> 2) & 3).join(',') === '2,1,3' && back.every((m) => m.tame && m.owned), 'host: tamed, coats and saddles kept', back.map((m) => `${m.saddle ? 'S' : '-'}${(m.variant >> 2) & 3}`).join(' '));
+    await t.waitFor(() => back.every((m) => A.proxyOf(G, m)), 3000 + CFG.budget, 'guest: the restored horses');
+    await t.waitFor(() => back.map((m) => (A.proxyOf(G, m).saddle ? 1 : 0)).join(',') === '1,0,1', ONEWAY() + 1500, 'guest: the saddles shown');
+    const s = A.freeSpot(G, MG, back[0].x, back[0].y, { rMin: 0.8, rMax: 1.4 });
+    if (s) A.teleport(G, s[0], s[1]);
+    t.check(G.game.horses.describe(A.proxyOf(G, back[0]))?.verb === 'Montar', 'the restored saddled horse offers "Montar"');
+  }
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

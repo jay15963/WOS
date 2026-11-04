@@ -344,7 +344,7 @@ export function killMob(game, m, killer) {
 }
 
 // ---------- player auto attack ----------
-let noAmmoT = 0, losT = 0, retargetT = 0;
+let noAmmoT = 0, losT = 0, retargetT = 0, mountT = -9;
 export function hasAmmo(p, prof = p.wprof) { return !prof?.ammo || p.inv.count(prof.ammo) > 0; }
 export function useAmmo(game, prof, n = 1) {
   const p = game.player;
@@ -445,6 +445,7 @@ export function combatSystem() {
       if (t && !attackable(t) && p.autoAttack) p.autoAttack = false;
       if (!p.autoAttack || !attackable(t) || p.charge || p.spin || p.cast || p.leap || p.stunT > 0) return;
       const prof = p.wprof || weaponProfile(p.equip?.main || null);
+      if (p.mount && prof.type !== 'spear') { p.autoAttack = false; if (game.time - mountT > 1.5) { mountT = game.time; game.events.emit('error', { text: 'Montado: só a lança' }); } return; } // (docs/HORSE.md)
       // the target can't be hit from here (out of range / behind a wall) but another enemy can: switch to it
       // ...and a training dummy gives way to any creature in reach (the last choice of everything)
       retargetT -= dt;

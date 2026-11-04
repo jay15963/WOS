@@ -252,6 +252,7 @@ const G = {
   multi_shot: at('translate(3.4 20.6) rotate(18)', arrow(17)) + at('translate(3.4 20.6) rotate(45)', arrow(18)) + at('translate(3.4 20.6) rotate(72)', arrow(17)),
   long_shot: ring(17.6, 20, 4.6, 1.9, K.coral, 1.6) + s('M2.6 19.4Q5.6 1 14 8.4', K.cream, 1.5, ' stroke-dasharray="2.2 2.4"') +
     at('translate(14.2 8.2) rotate(150)', arrow(11)),
+  lance_thrust: lines(['M0.8 8.4H6', 'M0.4 12H4.6', 'M0.8 15.6H6']) + at('translate(4.4 12.2) rotate(96) scale(.84)', spear(21)) + star(20.8, 8.8, 3.4, 4, 0.36), // (mounted, docs/HORSE.md)
   throw_spear: ring(18.2, 19.8, 4.4, 1.8, K.coral, 1.6) + s('M3.4 20Q4 6 13 4.8', K.cream, 1.4, ' stroke-dasharray="2.2 2.4"') + at('translate(9 4) rotate(130) scale(.82)', spear(19)),
   disengage: s('M19.6 19.6C19.6 10.4 14.6 6.6 7.4 7.4', K.teal, 2.6) + f('M9.6 2.6L3.2 7.6L9.8 12.4Z', K.teal) + f('M13.6 21.6Q11.6 20.6 13 18.8Q14.6 17.4 15.4 19.2Q15.8 21.2 13.6 21.6Z', K.leather) + f('M8.2 21.4Q6.2 20.4 7.6 18.6Q9.2 17.2 10 19Q10.4 21 8.2 21.4Z', K.leather),
   shield_bash: lines(['M1.2 8H4', 'M0.8 12H3.6', 'M1.2 16H4']) + at('translate(1.4 0.4) scale(.9)', shieldP()) + star(20.4, 5.4, 3.6, 4, 0.38),

@@ -21,6 +21,7 @@ trigo, ícones, vara, corda, boia), `src/art/livestockDraw.js` (desenho em 8 vis
 | Porco | 46 | matas, campos | 2–3 | qualquer comida (e trigo) | 2 | 2 carne | Leitão (2 dias) |
 | Galinha | 10 | campos, margens | 3–5 | milho | 1 (~1,4) | 1 carne, 2–4 penas | Pintinho (1,5 dia) |
 | Peixe | 4 | rios e lagos (cardumes de 2–3) | — | — | — | vara: 2–3 peixes crus; tiro longo / lança: 1 | — |
+| Cavalo (docs/HORSE.md) | 80 | domado à mão com trigo (do cavalo selvagem) | — | trigo | 2 (barriga dura 2 dias; fome em qualquer lugar) | 1 carne, 4–5 couro | — (sem potros) |
 
 - Lã (`wool`) e pena (`feather`) ainda não têm uso. Um filhote abatido dá uma parte (bezerro / cordeiro 40 %, leitão 50 %,
   pintinho 100 %, sempre ao menos 1 carne).

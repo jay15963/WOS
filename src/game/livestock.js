@@ -148,7 +148,7 @@ export function spawnStock(game, species, x, y, { baby = false, owned = true, va
   const now = game.worldTime;
   const m = {
     isEntity: true, isMob: true, kind: 'animal', ...ids, species, name: nameOf(species, baby), level: lv, elite: false, temper: sp.temper,
-    x, y, r: sp.r * (baby ? 0.7 : 1), scale: baby ? BABY_SCALE : +(0.94 + game.net.roll() * 0.12).toFixed(3), variant: (variant & 1) | (baby ? 2 : 0),
+    x, y, r: sp.r * (baby ? 0.7 : 1), scale: baby ? BABY_SCALE : +((sp.scale || 1) * (0.94 + game.net.roll() * 0.12)).toFixed(3), variant: (variant & ~2) | (baby ? 2 : 0), // (a horse's coat: bits 2-3)
     facing: game.net.roll() < 0.5 ? 'e' : 'w', moving: false, moveT: game.net.roll() * 10, action: null, flash: 0,
     dead: false, deadT: 0, hp: st.maxHp, maxHp: st.maxHp, dmg: 0, home: { x, y }, spawner: null, state: 'idle', stateT: 1 + game.net.roll() * 3, swingT: 0, stunT: 0,
     brain: stockBrain, stock: STOCK[species], owned, fed, starveT: 0, bornAt: now, adultAt: baby ? now + STOCK[species].grow * dayLen(game) : null,
@@ -174,6 +174,7 @@ const leaderOf = (game, pid) => (pid ? allPlayers(game).find((q) => (q === game.
 const tiedTo = (game, pid) => game.entities.filter((e) => e.stock && !e.dead && e.tiedTo === pid);
 
 export function stockBrain(game, m, dt) {
+  if (m.rider) { game.horses?.follow(m, dt); return; } // (a ridden horse keeps under its rider: horses.js)
   if (!tickStatus(game, m, dt)) return;
   if (m.state === 'flee' || m.fearT > 0) { if (!m.tiedTo) { updateCreature(game, m, dt); return; } m.state = 'idle'; m.fearT = 0; }
   const sp = SPECIES[m.species];
@@ -209,9 +210,10 @@ export function stockBrain(game, m, dt) {
     m.state = 'idle'; m.moving = false;
     m.stateT -= dt;
     if (m.stateT <= 0) {
-      const home = m.tame ? feederCenter(game.world.objById.get(m.feeder) || { tx: m.home.x, ty: m.home.y, fw: 0, fh: 0, type: 'feeder' }) : [m.home.x, m.home.y];
+      const fo = m.tame && m.feeder ? game.world.objById.get(m.feeder) : null; // (a horse away from any feeder: where it was left)
+      const home = fo ? feederCenter(fo) : [m.home.x, m.home.y];
       m.home.x = home[0]; m.home.y = home[1];
-      m.wp = pickWander(game, m, m.tame ? FEEDER_RANGE - 1.6 : 5);
+      m.wp = pickWander(game, m, fo ? FEEDER_RANGE - 1.6 : m.species === 'horse' ? 2.5 : 5);
       m.state = 'wander'; m.stateT = 8; resetNav(m);
     }
   }
@@ -328,13 +330,15 @@ function farmTick(game, dt) {
   const byFeeder = new Map();
   for (const m of herd) {
     if (m.dead) continue;
-    const f = m.tiedTo ? null : feedersNear(game, m.x, m.y)[0] || null;
+    const S = STOCK[m.species];
+    const f = m.tiedTo || m.rider ? null : feedersNear(game, m.x, m.y)[0] || null;
     const wasTame = !!m.tame;
-    m.tame = !!f;
+    m.tame = S.always ? !!m.owned : !!f; // (a tamed horse stays tamed anywhere, and hungry anywhere: docs/HORSE.md)
     m.feeder = f ? f.id : null;
     if (m.tame && !m.owned) takeFromHerd(game, m);
-    if (m.tame) { if (!byFeeder.has(f.id)) byFeeder.set(f.id, []); byFeeder.get(f.id).push(m); }
-    if (m.tame && !wasTame && m.owned) { const [cx, cy] = feederCenter(f); m.home.x = cx; m.home.y = cy; }
+    if (f && m.tame) { if (!byFeeder.has(f.id)) byFeeder.set(f.id, []); byFeeder.get(f.id).push(m); }
+    if (f && m.tame && m.owned && (!wasTame || m._fid !== f.id)) { const [cx, cy] = feederCenter(f); m.home.x = cx; m.home.y = cy; }
+    m._fid = f ? f.id : null;
     // growing up
     if (m.adultAt != null) {
       if (now >= m.adultAt) { m.adultAt = null; m.variant &= ~2; m.name = nameOf(m.species, false); m.scale = 1; m.r = SPECIES[m.species].r; }
@@ -343,16 +347,17 @@ function farmTick(game, dt) {
     // hunger: only in a feeder's area (domesticated animals live off it); creative: never hungry
     m.hungry = m.tame && m.fed < HUNGRY_AT; m.starving = m.tame && m.starveT > 0; // (the nameplate / entity stream bits)
     if (!m.tame || game.creative) { m.starveT = 0; if (game.creative && m.tame) m.fed = 1; m.wantEat = false; continue; }
-    m.fed = Math.max(0, (m.fed ?? 1) - dt / (BELLY_DAYS * D) * (isBabyM(m) ? 0.5 : 1));
-    m.wantEat = m.fed <= eatAt(m) && feedSlot(f, m.species) >= 0;
+    m.fed = Math.max(0, (m.fed ?? 1) - dt / ((S.belly || BELLY_DAYS) * D) * (isBabyM(m) ? 0.5 : 1));
+    m.wantEat = !!f && m.fed <= eatAt(m) && feedSlot(f, m.species) >= 0;
     // asleep far from every player (no brain running): it still eats, right where it is
     if (m.wantEat && minPlayerDist(game, m.x, m.y) > 50) eatFrom(game, m, f);
     if (m.fed <= 0) {
       const was = m.starveT || 0;
       m.starveT = was + dt;
       const lim = STARVE_DAYS * D, nm = nameOf(m.species, isBabyM(m)).toLowerCase();
-      if (was === 0) note(game, `${artigo(m.species)} ${nm} está passando fome no alimentador!`, 'bad');
-      if (was < lim * 0.6 && m.starveT >= lim * 0.6) note(game, `${artigo(m.species)} ${nm} vai morrer de fome: ponha comida no alimentador!`, 'bad');
+      const where = S.always && !f ? ': leve-o ao alimentador!' : ' no alimentador!';
+      if (was === 0) note(game, `${artigo(m.species)} ${nm} está passando fome${where}`, 'bad');
+      if (was < lim * 0.6 && m.starveT >= lim * 0.6) note(game, `${artigo(m.species)} ${nm} vai morrer de fome: ${S.always ? 'trigo no alimentador!' : 'ponha comida no alimentador!'}`, 'bad');
       if (m.starveT >= lim) { note(game, `${artigo(m.species)} ${nm} morreu de fome.`, 'bad'); m.tame = false; killMob(game, m, null); }
     } else m.starveT = 0;
   }
@@ -360,6 +365,7 @@ function farmTick(game, dt) {
   for (const [fid, list] of byFeeder) {
     if (list.length >= FEEDER_CAP) continue;
     for (const sp in STOCK) {
+      if (STOCK[sp].noBreed) continue; // (horses: no foals)
       const ready = list.filter((m) => m.species === sp && !isBabyM(m) && !m.dead && m.fed >= BREED_FED && now >= (m.breedAt || 0));
       if (ready.length < 2 || game.net.roll() > 0.06 * dt) continue;
       const [a, b] = ready;
@@ -393,6 +399,7 @@ export function stockSystem() {
 export function canTie(game, m, pid) {
   if (!m || m.dead || !STOCK[m.species]) return 'Não dá para amarrar';
   if (m.tiedTo) return m.tiedTo === pid ? 'Já está amarrado' : 'Outro jogador já leva este animal';
+  if (m.rider) return 'Alguém está montado nele'; // (a ridden horse, docs/HORSE.md)
   if (tiedTo(game, pid).length >= MAX_TIED) return `Você já leva ${MAX_TIED} animais (o máximo)`;
   return null;
 }
@@ -438,13 +445,13 @@ export function slaughter(game, src, m) {
 }
 
 // ---------- persistence (host save file only; the join snapshot never needs it: the entity stream shows them) ----------
-// row: [species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp]
+// row: [species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp, saddle, ridden by the saving host (horses; older saves: none)]
 export function stockRows(game) {
   const out = [];
   for (const m of game.entities) {
     if (!m.stock || !m.owned || m.dead || m.proxy) continue;
     out.push([m.species, r2(m.x), r2(m.y), m.variant | 0, Math.round((m.fed ?? 1) * 1000) / 1000, Math.round(m.bornAt || 0), m.adultAt == null ? 0 : Math.round(m.adultAt),
-      Math.round(m.breedAt || 0), m.scale || 1, m.level | 0, Math.round(m.hp)]);
+      Math.round(m.breedAt || 0), m.scale || 1, m.level | 0, Math.round(m.hp), m.saddle ? 1 : 0, m.rider && m.rider === game.net.pid ? 1 : 0]); // [11] a horse's saddle, [12] the host rides it (docs/HORSE.md; a ridden one is saved too)
   }
   return out;
 }
@@ -456,11 +463,12 @@ function restoreStock(game) {
   const W = game.world;
   for (const r of rows) {
     if (!Array.isArray(r) || !STOCK[r[0]]) continue;
-    const [sp, x, y, variant, fed, bornAt, adultAt, breedAt, scale, level, hp] = r;
+    const [sp, x, y, variant, fed, bornAt, adultAt, breedAt, scale, level, hp, saddle, ridden] = r;
     if (!(x > 0 && y > 0 && x < W.W && y < W.H)) continue;
     const m = spawnStock(game, sp, x, y, { baby: !!(variant & 2), variant: variant | 0, fed: Math.max(0, Math.min(1, +fed || 0)), level: level | 0 || null });
     m.bornAt = +bornAt || 0; m.adultAt = adultAt ? +adultAt : null; m.breedAt = +breedAt || 0;
     if (scale > 0.3 && scale < 1.5) m.scale = scale;
+    if (STOCK[sp].always) { m.tame = true; m.saddle = !!saddle; if (ridden && m.saddle) game.horses?.remount(m); } // (a tamed horse: tamed anywhere, its saddle; the host back on the one it rode)
     if (hp > 0) m.hp = Math.min(m.maxHp, hp);
   }
 }
@@ -469,6 +477,7 @@ function restoreStock(game) {
 const ME = (game) => game.net.pid;
 // tie / untie descriptor for an animal (null = nothing to do with it)
 export function describeStock(game, m) {
+  if (m && (m.species === 'horse' || m.species === 'wild_horse')) return game.horses?.describe(m) || null; // (horses: horses.js)
   if (!m || m.dead || !STOCK[m.species]) return null;
   const p = game.player, nm = nameOf(m.species, isBabyM(m)).toLowerCase();
   const base = { o: m, stockAnimal: true, x: m.x, y: m.y, reach: 0.9 + (m.r || 0.3) };
@@ -480,14 +489,14 @@ export function describeStock(game, m) {
 function forNear(game, consider) {
   const p = game.player;
   for (const e of game.entities) {
-    if (!e.isMob || e.dead || !STOCK[e.species] || Math.abs(e.x - p.x) > 3 || Math.abs(e.y - p.y) > 3) continue;
+    if (!e.isMob || e.dead || !(STOCK[e.species] || e.species === 'wild_horse') || e._riddenBy || Math.abs(e.x - p.x) > 3.5 || Math.abs(e.y - p.y) > 3.5) continue;
     consider(describeStock(game, e));
   }
 }
 // a tap / click on an animal (controller doTap): tie / untie it when possible; a domesticated one is only targeted
 // (it dies from one knife hit: attacking it is the attack button's job, never a stray click)
 function tapIt(game, e) {
-  if (!STOCK[e.species] || e.dead) return null;
+  if (!(STOCK[e.species] || e.species === 'wild_horse') || e.dead) return null;
   const it = describeStock(game, e);
   if (it && it.prio >= 0) return it;
   if (e.tame) return { targetOnly: true };
@@ -554,6 +563,13 @@ export function openFeeder(game, o) {
 // "Vaca · domesticada" (gold), "· com fome" (orange), "· faminta" (red), "· amarrada" — null for other creatures
 export function stockLabel(e) {
   if (!STOCK[e.species]) return null;
+  if (e.species === 'horse') { // (docs/HORSE.md)
+    const sad = e.saddle ? ' · selado' : '';
+    if (e.starving) return [`${e.name} · faminto!`, '#ff6a50'];
+    if (e.hungry) return [`${e.name} · com fome${sad}`, '#ffb050'];
+    if (e.tiedTo) return [`${e.name} · amarrado`, '#e8d8a8'];
+    return [`${e.name} · ${e.saddle ? 'selado' : 'domado'}`, '#f2d46a'];
+  }
   const f = isBabyM(e) || STOCK[e.species].g === 'm' ? 'o' : 'a'; // (the young are all masculine: bezerro, cordeiro, leitão, pintinho)
   if (e.starving) return [`${e.name} · famint${f}!`, '#ff6a50'];
   if (e.tiedTo) return [`${e.name} · amarrad${f}`, '#e8d8a8'];
@@ -576,7 +592,7 @@ function ropeDrawable(game, m, L) {
   o.draw = o.draw || ((B, A) => drawRope(game, B, A, o.m, o.L));
   return o;
 }
-const NECK = { cow: [0.62, 0.78], sheep: [0.42, 0.55], pig: [0.42, 0.42], chicken: [0.12, 0.42] };
+const NECK = { cow: [0.62, 0.78], sheep: [0.42, 0.55], pig: [0.42, 0.42], chicken: [0.12, 0.42], horse: [0.62, 0.95] };
 function drawRope(game, B, A, m, L) {
   if (!A.has('fx_rope') || m.dead) return;
   const s = A.get('fx_rope'), sc = m.scale || 1;

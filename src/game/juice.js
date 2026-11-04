@@ -71,7 +71,7 @@ export class Juice {
       this.scanT = 0.45;
       let best = null, bd = 36;
       for (const e of g.entities) {
-        if (e === p || e.dead || !e.isEntity) continue;
+        if (e === p || e.dead || !e.isEntity || e._riddenBy === p) continue; // (not at the horse it rides)
         const d = (e.x - p.x) ** 2 + (e.y - p.y) ** 2;
         if (d < bd) { bd = d; best = e; }
       }

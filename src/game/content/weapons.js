@@ -179,13 +179,15 @@ export function equipArmor(eq) {
   return armorValue(eq.body) + armorValue(eq.head) + (offhandProfile(eq.off)?.armor || 0);
 }
 
-// Action-bar ability ids for an equipment set (weapon, then off-hand unless two-handed, then generic).
+// Action-bar ability ids for an equipment set (weapon, then off-hand unless two-handed, then generic). Mounted on a
+// horse (docs/HORSE.md) the spear's long shot (Lançar Lança) becomes the lance charge (Estocada).
 export const MAX_BAR = 7;
-export function barFor(eq) {
+export const MOUNTED_SWAP = { throw_spear: 'lance_thrust' };
+export function barFor(eq, mounted = false) {
   const main = weaponProfile(eq?.main || null);
   const off = main.twoHanded ? null : offhandProfile(eq?.off || null);
   const out = [];
-  for (const id of main.abilities) if (ABILITIES[id] && !out.includes(id)) out.push(id);
+  for (let id of main.abilities) { if (mounted && MOUNTED_SWAP[id]) id = MOUNTED_SWAP[id]; if (ABILITIES[id] && !out.includes(id)) out.push(id); }
   if (off) for (const id of off.abilities) if (ABILITIES[id] && !out.includes(id)) out.push(id);
   for (const id of GENERIC_ABILITIES) if (!out.includes(id)) out.push(id);
   return out.slice(0, MAX_BAR);

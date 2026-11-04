@@ -80,6 +80,7 @@ export function countJobs(game) {
 // route a reached interaction to the right module. Using a blueprint / marked structure / path plan by hand (E,
 // menu) also starts its sequence, with this job as the current one.
 export function useInteract(game, it) {
+  if (game.player.mount && !it.horse) { game.events.emit('error', { text: 'Desça do cavalo' }); return true; } // (on horseback: no work, docs/HORSE.md)
   if (it.use) { useStructure(game, it); return true; }
   const W = game.work;
   if (!it.auto && !W.paused && (it.kind === 'blueprint' || it.kind === 'decon' || it.kind === 'path')) beginSeq(game, it, { now: true });

@@ -18,6 +18,7 @@
 
 import { SPECIES } from './data.js';
 import { FAUNA } from './content/fauna.js';
+import { WILD_COATS } from './content/horses.js';
 import { FMODE } from '../art/faunaDraw.js';
 import { updateCreature, aggro, startFlee, evade, tickStatus, aggroRadius, pickTarget, bite } from './ai.js';
 import { mobBlocked, resetNav, steer } from './nav.js';
@@ -42,6 +43,11 @@ export function setupFauna(game, m, s) {
   m.fauna = F; m.brain = faunaBrain; m.fmode = 0;
   if (SPECIES[m.species].noCorpse) m.noCorpse = true;
   m.variant = (m.id & 1) && roll() < 0.35 ? 1 : 0; // (the second coat of the herd: art tint)
+  if (m.species === 'wild_horse') { // horse coats (variant bits 2–3: dun / chestnut / grey / black — kept when tamed, docs/HORSE.md)
+    let u = roll(), c = 0;
+    for (let k = 1; k < WILD_COATS.length; k++) { if (u < WILD_COATS[k]) { c = k; break; } u -= WILD_COATS[k]; }
+    m.variant |= c << 2;
+  }
   if (m.species === 'lion') {
     // a pride: one male (the mane), the rest lionesses
     if (!s.members.some((o) => o.variant & 2) && (s.members.length === 0 || roll() < 0.2)) m.variant |= 2;
@@ -176,7 +182,7 @@ function seePlayer(game, m, r, pred = null) {
 // the herd runs together: the others of its kind close by run from the same thing
 function herdFlee(game, m) {
   for (const o of game.entities) {
-    if (o === m || o.dead || o.proxy || o.species !== m.species || o.state === 'flee' || o.state === 'chase') continue;
+    if (o === m || o.dead || o.proxy || o.species !== m.species || o.state === 'flee' || o.state === 'chase' || o.calmT > 0) continue; // (calmT: a wild horse eating from a hand stays, docs/HORSE.md)
     if (Math.abs(o.x - m.x) > 14 || Math.abs(o.y - m.y) > 14) continue;
     startFlee(o, m.fleeFrom || m, Math.max(3, m.fleeT || 3) + R() * 1.5);
   }
