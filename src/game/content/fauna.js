@@ -89,6 +89,22 @@ export const FAUNA_SPECIES = {
 };
 for (const k in FAUNA_SPECIES) FAUNA_SPECIES[k].fauna = true; // (game/fauna.js runs them: mobs.js spawnMember)
 
+// wild predators and their prey (docs/FAUNA.md "Caça"; game/ai.js lookForPrey / huntStep): a pack rolls once a day
+// whether it hunts at all (chance), kills at most `kills` a day, creeps in (stalk speed × creep) and sprints the last
+// tiles (× sprint): the fast prey (gazelles) often get away. A bite dazes the prey a moment. After a kill the pack stays
+// by the body (eats) and leaves the rest alone for `calm` s. when: the hours the predator hunts ('night' | 'dusk' (from
+// late afternoon through the night) | 'always').
+export const HUNT = {
+  chance: 0.6, kills: 1, r: 12, flee: 6, giveUp: 28, calm: 300, failCalm: 70, dmgK: 2.6, creep: 0.62, sprint: 1.35, daze: 1.1, eat: [25, 45],
+  hunters: {
+    lion:       { prey: ['zebra', 'gazelle', 'wild_horse'], when: 'dusk' },
+    jaguar:     { prey: ['monkey', 'boar', 'deer'], when: 'night' },     // (no tapir in the game: boars and deer instead)
+    wolf:       { prey: ['deer', 'reindeer', 'rabbit'], when: 'always' },
+    polar_bear: { prey: ['seal'], when: 'always' },
+    lynx:       { prey: ['rabbit', 'arctic_fox'], when: 'night' },
+  },
+};
+
 // behaviour (game/fauna.js)
 export const FAUNA = {
   polar_bear:  { move: 'walk', when: 'always', swims: true, lounge: 0.25 },
