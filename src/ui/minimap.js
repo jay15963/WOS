@@ -8,14 +8,17 @@ import { markExplored } from '../game/explore.js';
 // theme colours (hud-theme.css tokens): coral hostile, mustard neutral, olive passive, teal players
 const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
 const INK = '#24160d', CREAM = '#f6ead0', TEAL = '#4cc2b4', FIRE = '#ffa040', ICE = '#bfeaf8';
-// an ice giant (species 'giant'): a big red disc in an ice ring with an ice crystal in it — also the map's legend
-export function giantMark(ctx, X, Y, r) {
+// a giant (SPECIES.giant: ice, skeleton or mummy — game/undead.js): a big red disc in a ring of its family's colour (ice
+// blue, bone ivory, desert gold) with a crystal in it — also the map's legend
+const GIANT_RING = { ice: ICE, bone: '#efe6cf', sand: '#f2c45a' };
+export function giantMark(ctx, X, Y, r, fam = 'ice') {
+  const C = GIANT_RING[fam] || ICE;
   ctx.fillStyle = 'rgba(236,90,76,0.25)'; ctx.beginPath(); ctx.arc(X, Y, r + 3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = DOT.hostile; ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = INK; ctx.lineWidth = 1.2; ctx.stroke();
-  ctx.strokeStyle = ICE; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, r + 1.4, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = C; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, r + 1.4, 0, Math.PI * 2); ctx.stroke();
   const k = r * 0.62;
-  ctx.fillStyle = ICE; ctx.beginPath(); ctx.moveTo(X, Y - k); ctx.lineTo(X + k * 0.6, Y); ctx.lineTo(X, Y + k); ctx.lineTo(X - k * 0.6, Y); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = C; ctx.beginPath(); ctx.moveTo(X, Y - k); ctx.lineTo(X + k * 0.6, Y); ctx.lineTo(X, Y + k); ctx.lineTo(X - k * 0.6, Y); ctx.closePath(); ctx.fill();
 }
 
 // camera yaw (game.cam.rot, docs/CAMERA-ROTATION.md): the radar disc turns with the view by default (up on the radar =
@@ -292,7 +295,7 @@ export class Minimap {
     const giants = [];
     for (const e of g.entities) {
       if (e.dead) continue;
-      if (e.species === 'giant') { giants.push(e); continue; } // (drawn last, on top: giantMark)
+      if (SPECIES[e.species]?.giant) { giants.push(e); continue; } // (drawn last, on top: giantMark)
       if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
         // other players (blue), raiders and winter walkers (red)
         if (farMap && !e.remote) continue;
@@ -320,7 +323,7 @@ export class Minimap {
     for (const e of giants) {
       const X = toX(e.x), Y = toY(e.y);
       if (out(X, Y, 0) || (!full && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 70)) continue;
-      giantMark(ctx, X, Y, full ? 3.6 : 4.4);
+      giantMark(ctx, X, Y, full ? 3.6 : 4.4, SPECIES[e.species].undead);
       if (e === p.target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, (full ? 3.6 : 4.4) + 3, 0, Math.PI * 2); ctx.stroke(); }
     }
     // spawn camp marker

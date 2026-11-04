@@ -16,6 +16,7 @@ import { applyMobEffect } from './mut/combat.js';
 import { corpseFromMob } from './mut/corpses.js';
 import { slaughter } from './livestock.js'; // a domesticated animal dies from one knife hit (docs/LIVESTOCK.md)
 import { heightK } from './levels.js';
+import { boneHitK } from './undead.js'; // skeletons: blunt blows shatter them, arrows slip through
 
 export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // any creature / raider controlled by the sim
@@ -164,6 +165,8 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
     // armor
     const armor = dst === p ? p.armorV || 0 : dst.armorV || 0;
     if (armor > 0) amount *= 1 - armorReduction(armor, src?.level || 1);
+    // a skeleton's bones (undead.js): the hitter's main hand — the local player's, a guest's (mob.hit w), a creature's
+    if (dst.bluntK && src) amount *= boneHitK(dst, src === p ? p.equip?.main : src.avatar || src.remote ? dst.lastHitW : src.weapon, opts);
     // shields: active block (frontal) or passive block chance
     const sh = dst === p ? p.shield : dst.shield;
     if (dst.blocking && frontal(dst, from)) {
@@ -185,7 +188,8 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
       game.audio?.play('block', { x: hx, y: hy });
     } else {
       game.juice.hit(hx, hy, opts.crit, dst === p ? [1, 0.45, 0.35] : dtype === 'fire' ? [1, 0.55, 0.15] : null);
-      if (dtype === 'phys') game.juice.blood(hx, hy, opts.crit ? 7 : 4);
+      const dry = SPECIES[dst.species]?.bloodless; // (the dead do not bleed: bone chips / dust of linen and sand)
+      if (dtype === 'phys') { if (dry) game.juice.chips(hx, hy, dry, opts.crit ? 9 : 6, 0.5 * (dst.scale || 1)); else game.juice.blood(hx, hy, opts.crit ? 7 : 4); }
       game.audio?.play(opts.crit ? 'crit' : 'hit', { x: hx, y: hy });
     }
   } else if (opts.dot) dotPuff(game, dst, dtype);

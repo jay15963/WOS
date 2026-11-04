@@ -6083,7 +6083,7 @@ def('LZ2', {
 // LZ3 two players far apart in different season zones
 def('LZ3', {
   title: 'LZ: two players far apart in different zones — each lives the season of its place (winter vs the tropics), crops / regrowth / walkers / temperature follow the place', timeout: 200000,
-  expected: 'The host stays at the temperate spawn, the guest goes to a humid tropical cell (thousands of tiles away); the clock jumps to a temperate winter night: the host is in winter (hard, its water ice), the guest in the tropics (no winter, no ice, warm: its felt base far above the host\'s); both compute the same season for each place; crops: no growth in the temperate winter, normal in the humid tropics (cropK), none in a polar zone, none on dry hot soil off the fertile strip ("Solo seco: só perto de rios") and slower on it (HOT_K), regrowth the same; forced walker spawns only around the host; digest equal (the far guest\'s stale chunks left out)',
+  expected: 'The host stays at the temperate spawn, the guest goes to a humid tropical cell (thousands of tiles away); the clock jumps to a temperate winter night: the host is in winter (hard, its water ice), the guest in the tropics (no winter, no ice, warm: its felt base far above the host\'s); both compute the same season for each place; crops: no growth in the temperate winter, normal in the humid tropics (cropK), none in a polar zone, none on dry hot soil off the fertile strip ("Solo seco: só perto de rios") and slower on it (HOT_K), regrowth the same; forced spawns bring ice walkers only around the host (the guest\'s tropical night has its own dead, if any: skeletons in the dry season, docs/NIGHT-DEAD.md); digest equal (the far guest\'s stale chunks left out)',
   api: 'seasons.js seasonAt / zoneSeason, mut/crops.js cropK / plantProblem / hotDryAt / HOT_K, flora.js growK, walkers.js walkersTick, survival.js feltTemp (p._felt.base), world.iceZ',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -6133,11 +6133,13 @@ def('LZ3', {
   }
   if (dryTile) t.check(/Solo seco/.test(MC.plantProblem(H.game, 'potato', dryTile[0], dryTile[1]) || ''), 'planting on dry desert soil is refused ("Solo seco: só perto de rios")', MC.plantProblem(H.game, 'potato', dryTile[0], dryTile[1]));
   else t.note('no dry desert tile found near (planting check skipped)');
-  // walkers only where the winter is
+  // walkers only where the winter is (the tropics' own night danger, if any, is the skeletons of the dry season: NM)
   for (let k = 0; k < 10; k++) { H.game._walkT = 0; MH.walkers.walkersTick(H.game, true); }
-  const nearG = A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, gs[0]), m.y - gs[1]) < 80).length;
-  t.check(nearG === 0, 'no walker around the guest in the tropics', `${nearG}`);
-  t.check(A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, hs[0]), m.y - hs[1]) < 80).length > 0, 'walkers around the host in its winter night');
+  const nearG = A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, gs[0]), m.y - gs[1]) < 80);
+  t.check(!nearG.some((m) => m.species === 'walker' || m.species === 'giant'), 'no ice walker around the guest in the tropics', nearG.map((m) => m.species).join(',') || 'none');
+  const famG = MH.undead.nightFamilyAt(H.game, gs[0], gs[1]);
+  t.check(nearG.every((m) => (famG === 'bone' ? m.species === 'skeleton' : famG === 'sand' ? m.species === 'mummy' : false)), `the tropics bring their own dead only (${famG || 'none'} there: ${G.game.season?.name})`, nearG.map((m) => m.species).join(',') || 'none');
+  t.check(A.hostMobs(H, (m) => m.species === 'walker' && Math.hypot(H.game.world.dx(m.x, hs[0]), m.y - hs[1]) < 80).length > 0, 'walkers around the host in its winter night');
   await t.checkDigest(H, G);
   for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && e.faction === 'walker') { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
   env.history.push('LZ3');
@@ -6707,6 +6709,351 @@ def('HO7', {
     t.check(G.game.horses.describe(A.proxyOf(G, back[0]))?.verb === 'Montar', 'the restored saddled horse offers "Montar"');
   }
   await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// NM: the night's dead of the warm lands (docs/NIGHT-DEAD.md, game/undead.js) — skeletons on the warm zone's mild-winter
+// nights, mummies in the hot deserts, their giants (the ballista fells them), the temperate winter keeps its walkers,
+// creative worlds are spared. Places come from the planet's macro map (planetCells / cellZone / zoneSpot of the LZ ones).
+const NM_ARID = new Set(['desert_dunes', 'desert_rocky', 'badlands', 'salt_flat', 'cold_desert']);
+// load the chunks around (x, y) on a frame (the desert test samples ±7 tiles)
+function nmLoad(f, x, y, r = 16) { const w = f.game.world; for (let dy = -r; dy <= r; dy += 8) for (let dx = -r; dx <= r; dx += 8) w.ensure(w.chunkIndex(Math.floor(x + dx), Math.floor(y + dy))); }
+// a walkable spot of zone z near the spawn that is (desert) / is not (!desert) a hot desert
+function nmSpot(H, MH, zone, desert, n = 14) {
+  const sp = H.game.world.spawn;
+  const cells = planetCells(H, (c, P, K) => !P.ocean[c] && !P.lakeId[c] && cellZone(P, c) === zone && NM_ARID.has(K[P.biome[c]]) === desert && !P.rkind?.[c], sp.x, sp.y, n);
+  for (const c of cells) {
+    const s = zoneSpot(H, MH, c.x, c.y, zone, 40);
+    if (!s) continue;
+    nmLoad(H, s[0], s[1]);
+    if (MH.undead.desertAt(H.game.world, s[0], s[1]) === desert) return s;
+  }
+  return null;
+}
+// a clock (day of the year, a night hour) when (x, y) has the family `fam`
+function nmNight(f, M, x, y, fam) {
+  const w = f.game.world, s = w.seasonSlot(Math.floor(x), Math.floor(y)), desert = M.undead.desertAt(w, x, y);
+  for (let d = 1; d <= M.seasons.CYCLE; d++) for (const h of [22, 23, 1, 2, 3]) {
+    const S = M.seasons.zoneSeason(s % 5, M.seasons.slotClock(s, M.seasons.seasonClock(d, h)));
+    if (M.undead.familyForSeason(S, desert) === fam) return { day: d, hour: h };
+  }
+  return null;
+}
+// the host's clock to (day, hour); the guest follows
+async function nmClock(t, H, G, day, hour) {
+  H.game.net.emit('env.skip', { hour, day, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.env.dayIndex === day && Math.abs(G.game.env.hour - hour) < 0.3, 3000 + CFG.budget, `the guest clock follows to day ${day}, ${hour} h`);
+}
+// the night's creatures (walker faction) around (x, y) on the host
+const nmNear = (H, x, y, r = 70) => A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, x), m.y - y) < r);
+// forced spawn ticks of the night (walkers.js walkersTick: groups, then the giant schedule)
+async function nmSpawn(t, H, MH, x, y, giant = false) {
+  for (let k = 0; k < (giant ? 30 : 14); k++) {
+    const L = nmNear(H, x, y);
+    if (giant ? L.some((m) => m.giant) : L.some((m) => !m.giant)) break;
+    if (giant) { H.game._giantT = 0; H.game._walkT = 1e9; } else { H.game._walkT = 0; H.game._giantT = 1e9; }
+    MH.walkers.walkersTick(H.game, true);
+    await t.sleep(40);
+  }
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  return nmNear(H, x, y);
+}
+function nmCleanup(t, H, MH, day0, hour0, ids = []) {
+  t.defer(() => {
+    for (const id of ids) if (H.game.build.structures.some((o) => o.id === id)) H.game.net.emit('struct.remove', { id, quiet: 1 });
+    H.game.net.emit('env.skip', { hour: hour0, day: day0, wt: H.game.worldTime + 1, by: H.game.net.pid });
+    for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; e.onDeath = null; MH.combat.killMob(H.game, e, null); }
+  });
+}
+// one of the night's creatures, calm, next to (x, y)
+function nmCalm(H, MH, species, x, y, r = 0.3) {
+  const s = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 2.5, r });
+  if (!s) return null;
+  const m = /giant/.test(species) ? MH.giants.spawnGiantAt(H.game, s[0], s[1], species) : MH.walkers.spawnWalkerAt(H.game, s[0], s[1], species);
+  m.calmT = 1e9; m.state = 'idle'; m.stateT = 1e9;
+  return m;
+}
+// sunrise after a night clock: everything of the night crumbles on both, the guest sees it fall apart (undeadfx stats)
+async function nmSunrise(t, H, G, clk, list, fam) {
+  const s0 = G.game.undeadFx?.stats?.[fam] || 0;
+  H.game.net.emit('env.skip', { hour: 6.6, day: clk.hour > 12 ? clk.day + 1 : clk.day, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => list.every((m) => m.dead), 14000, 'they all crumble at sunrise (host)', () => list.filter((m) => !m.dead).map((m) => m.species).join(','));
+  await t.waitFor(() => list.every((m) => !A.proxyOf(G, m) || A.proxyOf(G, m).dead), RT() + 2000, 'dead on the guest too');
+  t.check(![...H.game.corpses.map.values()].some((c) => list.some((m) => c.of === m.species)), 'no body left');
+  if (G.game.undeadFx) await t.waitFor(() => (G.game.undeadFx.stats[fam] || 0) > s0, 3000, `the guest sees them fall apart (${fam === 'bone' ? 'bones' : 'sand'})`, () => `${G.game.undeadFx.stats[fam]} vs ${s0}`);
+}
+// a ballista bolt from o at m (op ballista.shot: the host's copy resolves the hit; `by` the guest)
+function nmBolt(H, MH, G, o, m) {
+  const [px, py] = MH.ballista.pivotOf(o), a = Math.atan2(m.y - py, m.x - px), [mx, my] = MH.ballista.muzzleOf(o, a);
+  H.game.net.emit('ballista.shot', { id: o.id, sid: 'nm' + Math.floor(Math.random() * 1e9).toString(36), x: +mx.toFixed(3), y: +my.toFixed(3), a: +a.toFixed(4), by: G.pid });
+}
+// a giant of the night next to a ballista; two bolts fell it (55 % each, like the ice giant), on both peers
+async function nmGiantBallista(t, H, G, MH, MG, species) {
+  const gp = G.game.player;
+  const site = A.findSite([H, G], [MH, MG], 'ballista', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -1; j <= 1; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 2, rMax: 24 });
+  t.assert(site, 'found a free 15×3 strip for the ballista');
+  const { x0, y0 } = site;
+  const [bid] = hostBuild(H, [['ballista', x0, y0, 0]]);
+  t.defer(() => { if (H.game.build.structures.some((o) => o.id === bid)) H.game.net.emit('struct.remove', { id: bid, quiet: 1 }); });
+  await t.waitFor(() => A.structOn(G, bid) && !A.structOn(G, bid).blueprint, RT() + 1500, 'the guest has the finished ballista');
+  A.teleport(G, x0 + 0.5, y0 + 1.6);
+  await A.hostSees(t, H, G);
+  const m = nmCalm(H, MH, species, x0 + 11.5, y0 + 0.5, 0.8);
+  t.assert(m, 'free spot for the giant');
+  const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the giant');
+  t.check(px.species === species && px.kind === 'pawn' && px.scale === 2.4 && px.elite, `giant proxy: species ${species}, pawn, scale 2.4, elite`, `${px.species} ${px.kind} ${px.scale} ${px.elite}`);
+  const oH = A.structOn(H, bid), max = m.maxHp, xpG = gp.xp;
+  nmBolt(H, MH, G, oH, m);
+  await t.waitFor(() => m.hp < max, 3000 + RT(), 'the first bolt hits the giant (host)', () => `${m.hp}/${max}`);
+  t.check(Math.abs((max - m.hp) - Math.ceil(max * 0.55)) <= 1, 'a bolt takes 55% of its life (like the ice giant)', `${Math.round(max - m.hp)} of ${Math.round(max)}`);
+  await t.waitFor(() => Math.abs((A.proxyOf(G, m)?.hp ?? max) - m.hp) < 2, RT() + 1500, 'the guest sees its life drop');
+  await t.sleep(3100); // (the reload)
+  nmBolt(H, MH, G, oH, m);
+  await t.waitFor(() => m.dead, 3000 + RT(), 'the second bolt fells it (host)');
+  await t.waitFor(() => !A.proxyOf(G, m) || A.proxyOf(G, m).dead, RT() + 1500, 'dead on the guest');
+  await t.waitFor(() => gp.xp > xpG || gp.level > 1, RT() + 1500, 'XP to the guest (its bolts)', () => `${xpG} → ${gp.xp}`);
+  return m;
+}
+
+def('NM1', {
+  title: 'NM: skeletons on a warm-zone mild-winter night (both peers, never walkers there), blunt blows shatter them; they leave as bones at sunrise', timeout: 220000,
+  expected: 'Both players go to a warm-zone land cell that is not a desert (planet macro map); the clock jumps to a night of its mild winter ("Inverno ameno": no snow, no ice) on both; both compute the family "bone" there (undead.js nightFamilyAt); forced spawn ticks bring skeletons only (no walker, no mummy) and the forced giant schedule a Gigante Esqueleto; a skeleton next to the guest is a pawn proxy (species skeleton, a bone sword / spear or a bow); a guest hit with a club does 1.5× the damage of the same hit with a sword (mob.hit w → undead.js boneHitK); at sunrise every one of them crumbles (dead on both, no body) and the guest sees them fall apart into bones (undeadfx); digest equal',
+  api: 'undead.js nightFamilyAt / desertAt / familyForSeason / boneHitK, walkers.js walkersTick (nightFams → spawnGroup by family, crumble by family), giants.js giantsTick (giantHere), combat.dealDamage, mob.hit (w), fx/undeadfx.js stats',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour, gp = G.game.player;
+  nmCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const spot = nmSpot(H, MH, 1, false);
+  t.assert(spot, 'the planet has warm-zone land that is not a desert');
+  await moveBoth(t, H, G, spot);
+  nmLoad(G, spot[0], spot[1]);
+  const clk = nmNight(H, MH, spot[0], spot[1], 'bone');
+  t.assert(clk, 'a night of the mild winter there');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  await nmClock(t, H, G, clk.day, clk.hour);
+  await t.waitFor(() => H.game.season?.zone === 1 && G.game.season?.zone === 1 && H.game.season.id === 'winter' && G.game.season.id === 'winter', 3000, 'both stand in the warm zone\'s winter', () => `${H.game.season?.name} / ${G.game.season?.name}`);
+  t.check(!H.game.season.hard && !G.game.season.frozen && /ameno/i.test(G.game.season.name), '"Inverno ameno": no snow, no ice', G.game.season.name);
+  t.check(MH.undead.nightFamilyAt(H.game, spot[0], spot[1]) === 'bone' && MG.undead.nightFamilyAt(G.game, gp.x, gp.y) === 'bone', 'both compute the family there: skeletons', `${MH.undead.nightFamilyAt(H.game, spot[0], spot[1])} / ${MG.undead.nightFamilyAt(G.game, gp.x, gp.y)}`);
+  // the night's spawns
+  const L1 = await nmSpawn(t, H, MH, spot[0], spot[1]);
+  t.check(L1.length > 0 && L1.every((m) => m.species === 'skeleton'), 'skeletons come out of the dark (and nothing else)', L1.map((m) => m.species).join(',') || 'none');
+  const L2 = await nmSpawn(t, H, MH, spot[0], spot[1], true);
+  const gi = L2.filter((m) => m.giant);
+  t.check(gi.length > 0 && gi.every((m) => m.species === 'skeleton_giant'), 'the giant schedule brings a Gigante Esqueleto (not an ice giant)', gi.map((m) => m.species).join(',') || 'none');
+  for (const m of L2) { m.calmT = 1e9; m.state = 'idle'; m.stateT = 1e9; }
+  // one next to the guest: its proxy
+  const m = nmCalm(H, MH, 'skeleton', gp.x + 2.2, gp.y);
+  t.assert(m, 'free spot for a skeleton');
+  const px = await t.waitFor(() => A.proxyOf(G, m), RT() + 1500, 'the guest sees the skeleton');
+  t.check(px.species === 'skeleton' && px.kind === 'pawn' && /^(sword_bone|spear_bone|bow_wood)$/.test(px.weapon || ''), 'skeleton proxy: species skeleton, pawn, a bone weapon or a bow', `${px.species} ${px.kind} ${px.weapon}`);
+  // blunt blows shatter bones: a club hit vs a sword hit (the guest's main hand rides on mob.hit)
+  m.maxHp = m.hp = 5000; m.armorV = 0;
+  const main0 = gp.equip.main;
+  t.defer(() => { gp.equip.main = main0; });
+  const hitWith = async (w) => {
+    gp.equip.main = w;
+    const h0 = m.hp;
+    MG.combat.routeHit(G.game, gp, A.proxyOf(G, m), 20, {});
+    await t.waitFor(() => m.hp < h0, RT() + 1500, `the ${w} hit lands`);
+    m.calmT = 1e9; m.state = 'idle';
+    return h0 - m.hp;
+  };
+  const dClub = await hitWith('club_wood'), dSword = await hitWith('sword_iron');
+  gp.equip.main = main0;
+  t.check(dClub === 30 && dSword === 20, 'a club does 1.5× on a skeleton (blunt), a sword the plain amount', `club ${dClub} · sword ${dSword}`);
+  // sunrise: bones
+  await nmSunrise(t, H, G, clk, [...L2, m], 'bone');
+  await t.checkDigest(H, G);
+  env.history.push('NM1');
+});
+
+def('NM2', {
+  title: 'NM: mummies in a hot desert at night (both peers), the Múmia Gigante there; a mummy\'s touch curses (slower); killed, linen; they turn to sand at dawn', timeout: 220000,
+  expected: 'Both players go to a hot desert (arid biome of the warm / tropical zone); the clock jumps to a night of its bad season (mild winter / dry season); both compute the family "sand"; forced spawn ticks bring mummies only, the giant schedule a Múmia Gigante; a mummy whose touch always curses (test) hits the guest: the guest gets the "Maldição da múmia" debuff (and the warning) and moves 35% slower; a mummy killed by the guest drops linen on the ground on both (the same rows); at sunrise all of them crumble (dead on both, no body) and the guest sees them pour into sand (undeadfx); digest equal',
+  api: 'undead.js nightFamilyAt / desertAt / nightKit (curse) / nightDeath, bandits.js meleeHit (curse) → players.hurtPlayer → own player.hurt curse → afterHurt (buff curse) → player.js speed, loot.add',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour, gp = G.game.player;
+  nmCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const spot = nmSpot(H, MH, 1, true) || nmSpot(H, MH, 0, true);
+  t.assert(spot, 'the planet has a hot desert');
+  await moveBoth(t, H, G, spot);
+  nmLoad(G, spot[0], spot[1]);
+  const clk = nmNight(H, MH, spot[0], spot[1], 'sand');
+  t.assert(clk, 'a bad night there');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  await nmClock(t, H, G, clk.day, clk.hour);
+  await t.waitFor(() => MH.undead.nightFamilyAt(H.game, spot[0], spot[1]) === 'sand' && MG.undead.nightFamilyAt(G.game, gp.x, gp.y) === 'sand', 3000, 'both compute the family there: mummies', () => `${MH.undead.nightFamilyAt(H.game, spot[0], spot[1])} / ${MG.undead.nightFamilyAt(G.game, gp.x, gp.y)}`);
+  t.log(`desert: zone ${H.game.season?.zone} · ${H.game.season?.name}`);
+  const L1 = await nmSpawn(t, H, MH, spot[0], spot[1]);
+  t.check(L1.length > 0 && L1.every((m) => m.species === 'mummy'), 'mummies come out of the sands (and nothing else)', L1.map((m) => m.species).join(',') || 'none');
+  const L2 = await nmSpawn(t, H, MH, spot[0], spot[1], true);
+  const gi = L2.filter((m) => m.giant);
+  t.check(gi.length > 0 && gi.every((m) => m.species === 'mummy_giant'), 'the giant schedule brings a Múmia Gigante', gi.map((m) => m.species).join(',') || 'none');
+  for (const e of L2) { e.calmT = 1e9; e.state = 'idle'; e.stateT = 1e9; }
+  // the curse: a mummy whose touch always curses hits the guest
+  const since = now(), base = gp.speed;
+  const m = nmCalm(H, MH, 'mummy', gp.x + 1.4, gp.y);
+  t.assert(m, 'free spot for a mummy');
+  m.curse = { chance: 1, dur: 3 }; m.calmT = 0; m.specialT = 99;
+  MH.ai.aggro(H.game, m, guestOnHost(H, G));
+  await t.waitFor(() => gp.buffs.some((b) => b.id === 'curse'), 15000, 'the guest is cursed by the mummy\'s touch', () => `mummy ${m.state} d ${f2(Math.hypot(m.x - gp.x, m.y - gp.y))}`);
+  await t.sleep(100);
+  t.check(gp.speed < base * 0.7 + 0.01, 'cursed: 35% slower', `${f2(base)} → ${f2(gp.speed)}`);
+  t.check(G.ui.filter((u) => u.t >= since).some((u) => /Maldição da múmia/.test(u.text)), 'the guest is told "Maldição da múmia"', G.lastUi(3, since));
+  m.calmT = 1e9; m.state = 'idle'; m.threat = null;
+  // killed by the guest: linen on the ground (the same rows on both)
+  const rec = A.lootRecorder(t, [H, G]);
+  const k = nmCalm(H, MH, 'mummy', gp.x - 1.6, gp.y);
+  t.assert(k, 'free spot for a second mummy');
+  for (let i = 0; i < 6 && !k.dead; i++) {
+    const p2 = await t.waitFor(() => A.proxyOf(G, k), RT() + 1500, 'the guest sees the mummy');
+    MG.combat.routeHit(G.game, gp, p2, 5000, {});
+    await t.sleep(RT());
+  }
+  await t.waitFor(() => k.dead, 3000, 'the guest kills a mummy');
+  await t.waitFor(() => (rec.items(0).linen || 0) > 0 || rec.rows(0).length > 0, RT() + 1500, 'its drop appears on the host');
+  await t.sleep(RT() + 300);
+  rec.stop();
+  const cmp = rec.compare(0, 1);
+  t.check((rec.items(0).linen || 0) >= 1 || rec.rows(0).length > 0, 'a killed mummy leaves linen (or what it carried)', JSON.stringify(rec.items(0)));
+  t.check(cmp.ok, 'the same rows on the guest', cmp.detail);
+  // dawn: sand
+  await nmSunrise(t, H, G, clk, [...L2, m], 'sand');
+  await t.checkDigest(H, G);
+  env.history.push('NM2');
+});
+
+def('NM3', {
+  title: 'NM: a temperate winter night still brings Ice Walkers and the ice giant (never skeletons); a skeleton put there crumbles', timeout: 160000,
+  expected: 'At the temperate spawn on a winter night (day 5, 22 h): the family there is "ice" on both; forced spawn ticks bring walkers only and the giant schedule an ice giant (species giant); the season is the plain "Inverno" (hard, frozen); a skeleton spawned there by hand (another family) crumbles within seconds on both — one family per place; digest equal',
+  api: 'undead.js nightFamilyAt, walkers.js walkersTick (crumble by family), giants.js giantsTick, seasons.js',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour, gp = G.game.player, hp = H.game.player;
+  nmCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  await nmClock(t, H, G, 5, 22);
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 3000, 'winter on both');
+  t.check(H.game.season.zone === 2 && H.game.season.hard && G.game.season.frozen && G.game.season.name === 'Inverno', 'the plain temperate "Inverno" (hard, frozen)', `${G.game.season.zone} ${G.game.season.name}`);
+  t.check(MH.undead.nightFamilyAt(H.game, hp.x, hp.y) === 'ice' && MG.undead.nightFamilyAt(G.game, gp.x, gp.y) === 'ice', 'the family there: ice (walkers)');
+  const L1 = await nmSpawn(t, H, MH, hp.x, hp.y);
+  t.check(L1.length > 0 && L1.every((m) => m.species === 'walker'), 'walkers only (no skeleton, no mummy)', L1.map((m) => m.species).join(',') || 'none');
+  const L2 = await nmSpawn(t, H, MH, hp.x, hp.y, true);
+  const gi = L2.filter((m) => m.giant);
+  t.check(gi.length > 0 && gi.every((m) => m.species === 'giant'), 'the giant schedule brings the ice giant', gi.map((m) => m.species).join(',') || 'none');
+  for (const e of L2) { e.calmT = 1e9; e.state = 'idle'; e.stateT = 1e9; }
+  // a skeleton out of its family's place: it crumbles
+  const s = nmCalm(H, MH, 'skeleton', gp.x + 2, gp.y);
+  t.assert(s, 'free spot for a skeleton');
+  await t.waitFor(() => A.proxyOf(G, s) || s.dead, RT() + 1500, 'the guest sees it (or it is gone already)');
+  await t.waitFor(() => s.dead, 10000, 'the skeleton crumbles in the temperate winter (host)');
+  await t.waitFor(() => !A.proxyOf(G, s) || A.proxyOf(G, s).dead, RT() + 1500, 'and on the guest');
+  t.check(L2.every((m) => !m.dead), 'the walkers and the ice giant stay (their own night)');
+  await t.checkDigest(H, G);
+  env.history.push('NM3');
+});
+
+def('NM4', {
+  title: 'NM: creative mode — skeletons and mummies break nothing and are not drawn to light (then, in survival, they are)', timeout: 160000,
+  expected: 'Host world in creative mode (the guest resyncs): a closed 5×5 room of wooden walls around the guest and a lit campfire 9 tiles away; a skeleton and a mummy outside: for 8 s none of the walls takes damage (struct.dmg) on either peer, and neither creature hunts (no goal, never "hunt" / "siege") nor walks toward the fire; back to survival: within 20 s one of them goes after the guest or the light; digest equal',
+  api: 'walkers.js walkerBrain (game.creative: handOff), creative.js, op struct.dmg',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const L = []; for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 14 });
+  t.assert(site, 'found a free 5×5 site');
+  const { x0, y0 } = site, ring = [];
+  for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) if (i === 0 || j === 0 || i === 4 || j === 4) ring.push(['wall_wood', x0 + i, y0 + j]);
+  const fs = A.findSite([H, G], [MH, MG], 'campfire', (x, y) => [[x, y]], x0 + 13, y0 + 2, { rMin: 0, rMax: 5 });
+  t.assert(fs, 'a free tile for the campfire ~11 tiles from the room');
+  ring.push(['campfire', fs.x0, fs.y0]);
+  const ids = hostBuild(H, ring);
+  nmCleanup(t, H, MH, day0, hour0, ids);
+  try {
+    H.game.creative = true;
+    G.game.net.forceResync();
+    await t.waitFor(() => G.game.net.synced && G.game.creative === true, 15000, 'the guest got the creative mode');
+    await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 2000, 'the guest has the room and the fire');
+    A.teleport(G, x0 + 2.5, y0 + 2.5);
+    await A.hostSees(t, H, G);
+    H.game._walkT = 1e9; H.game._giantT = 1e9;
+    const fire = H.game.build.structures.find((o) => o.id === ids[ids.length - 1]);
+    const mx = (x0 + 4 + fire.x) / 2, my = (y0 + 2.5 + fire.y) / 2; // (between the room and the fire)
+    const sk = nmCalm(H, MH, 'skeleton', mx, my + 1), mu = nmCalm(H, MH, 'mummy', mx, my - 1);
+    t.assert(sk && mu, 'free spots for a skeleton and a mummy');
+    const both = [sk, mu];
+    for (const m of both) { m.calmT = 0; m.crumbleAt = 1e12; } // (daylight at the temperate spawn: kept from crumbling for the test)
+    const d0 = both.map((m) => Math.hypot(m.x - fire.x, m.y - fire.y));
+    let hunted = false;
+    const w = t.watch(() => { for (const m of both) if (m.goal || m.state === 'hunt' || m.state === 'siege') hunted = true; }, 50);
+    await t.sleep(8000);
+    w.stop();
+    const dmgH = H.game.build.structures.filter((o) => ids.includes(o.id) && o.dmg > 0).length, dmgG = G.game.build.structures.filter((o) => ids.includes(o.id) && o.dmg > 0).length;
+    t.check(!dmgH && !dmgG, 'creative: no wall takes damage (both peers)', `${dmgH} / ${dmgG}`);
+    t.check(!hunted, 'creative: they hunt nobody and nothing (no goal, no siege)', both.map((m) => `${m.species} ${m.state}`).join(' · '));
+    const d1 = both.map((m) => Math.hypot(m.x - fire.x, m.y - fire.y));
+    t.check(d1.every((d, i) => d > d0[i] - 2.6), 'creative: not drawn toward the fire', `${d0.map(f2)} → ${d1.map(f2)}`);
+    // survival again: they come
+    H.game.creative = false;
+    G.game.net.forceResync();
+    await t.waitFor(() => G.game.net.synced && G.game.creative === false, 15000, 'back to survival on the guest');
+    await t.waitFor(() => both.some((m) => m.goal && (m.state === 'hunt' || m.state === 'siege' || m.state === 'chase')) || H.game.build.structures.some((o) => ids.includes(o.id) && o.dmg > 0), 20000, 'in survival they go after the guest / the light', () => both.map((m) => `${m.species} ${m.state} ${m.goal?.kind || '-'}`).join(' · '));
+  } finally {
+    H.game.creative = false;
+    G.game.net.forceResync();
+    await t.waitFor(() => G.game.net.synced && G.game.creative === false, 15000, 'back to survival on the guest');
+  }
+  await t.checkDigest(H, G);
+  env.history.push('NM4');
+});
+
+def('NM5', {
+  title: 'NM: the Gigante Esqueleto on a warm-zone mild-winter night — replicated, two ballista bolts fell it (like the ice giant)', timeout: 220000,
+  expected: 'Both players at a warm-zone spot (not a desert) on a night of its mild winter; a ballista next to the guest; a Gigante Esqueleto 11 tiles away is a pawn proxy on the guest (species skeleton_giant, scale 2.4, elite); a ballista bolt (op ballista.shot, by the guest) takes 55% of its life on the host and the guest sees it drop; after the reload the second bolt fells it: dead on both, XP to the guest; digest equal',
+  api: 'giants.js spawnGiantAt (GIANT_KINDS), ballista.js stepBolt / hitCreature (SPECIES giant flag) / boltReaches, op ballista.shot, killMob credit',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour;
+  nmCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const spot = nmSpot(H, MH, 1, false);
+  t.assert(spot, 'warm-zone land (not a desert)');
+  await moveBoth(t, H, G, spot);
+  const clk = nmNight(H, MH, spot[0], spot[1], 'bone');
+  t.assert(clk, 'a mild-winter night');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  await nmClock(t, H, G, clk.day, clk.hour);
+  A.pacify(H, spot[0], spot[1], 40, 600);
+  await nmGiantBallista(t, H, G, MH, MG, 'skeleton_giant');
+  await t.checkDigest(H, G);
+  env.history.push('NM5');
+});
+
+def('NM6', {
+  title: 'NM: the Múmia Gigante in a hot desert at night — replicated, two ballista bolts fell it (like the ice giant)', timeout: 220000,
+  expected: 'Both players in a hot desert on a night of its bad season; a ballista next to the guest; a Múmia Gigante 11 tiles away is a pawn proxy on the guest (species mummy_giant, scale 2.4, elite); a bolt (op ballista.shot) takes 55% of its life, the guest sees it drop; the second bolt fells it: dead on both, XP to the guest; digest equal',
+  api: 'giants.js spawnGiantAt (GIANT_KINDS), ballista.js stepBolt / hitCreature (SPECIES giant flag), op ballista.shot',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour;
+  nmCleanup(t, H, MH, day0, hour0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const spot = nmSpot(H, MH, 1, true) || nmSpot(H, MH, 0, true);
+  t.assert(spot, 'a hot desert');
+  await moveBoth(t, H, G, spot);
+  const clk = nmNight(H, MH, spot[0], spot[1], 'sand');
+  t.assert(clk, 'a bad night there');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  await nmClock(t, H, G, clk.day, clk.hour);
+  A.pacify(H, spot[0], spot[1], 40, 600);
+  await nmGiantBallista(t, H, G, MH, MG, 'mummy_giant');
+  await t.checkDigest(H, G);
+  env.history.push('NM6');
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',

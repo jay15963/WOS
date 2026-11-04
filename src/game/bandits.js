@@ -204,7 +204,8 @@ function meleeHit(game, m, p, mult, opts = {}) {
     m.lastCombatT = game.worldTime;
     const crit = Math.random() < 0.06;
     const dmg = Math.max(1, Math.round(m.dmg * (m.enraged ? 1.3 : 1) * mult * (0.85 + Math.random() * 0.3) * (crit ? 1.5 : 1)));
-    hurtPlayer(game, m, p, dmg, { crit, ability: opts.ability, stun: opts.stun, bleed: opts.bleed });
+    const curse = m.curse && Math.random() < m.curse.chance ? m.curse.dur : 0; // (a mummy's touch: game/undead.js)
+    hurtPlayer(game, m, p, dmg, { crit, ability: opts.ability, stun: opts.stun, bleed: opts.bleed, curse });
   });
 }
 
@@ -382,7 +383,7 @@ export function updateBandit(game, m, dt) {
 
 // archer: keep 5–8 tiles, step back when rushed, aimed shot telegraph every ~9 s
 function archer(game, m, p, d, dt) {
-  const sp = SPECIES.bandit;
+  const sp = SPECIES[m.species] || SPECIES.bandit; // (raiders, skeleton archers: game/undead.js)
   const see = canSee(game, m, p);
   // rushed: back off for a moment (every few seconds), otherwise stand and shoot even point-blank
   m.kiteCd = (m.kiteCd || 0) - dt;

@@ -39,6 +39,8 @@ export const RECIPES = {
   club_wood:         R('club_wood', { wood: 5, fiber: 2 }, 'workbench', 5, 'weapons'),
   bow_wood:          R('bow_wood', { wood: 4, rope: 2 }, 'workbench', 7, 'weapons'),
   arrows:            R('arrow', { stick: 2, pebble: 1, fiber: 1 }, 'workbench', 3, 'weapons', { qty: 4 }),
+  arrows_bone:       R('arrow', { bone: 1, stick: 2 }, 'workbench', 3, 'weapons', { qty: 5 }), // bone tips: the skeletons' bones (docs/NIGHT-DEAD.md)
+  bandage_linen:     R('herb', { linen: 1, herb: 1 }, 'hand', 3, 'materials', { qty: 2 }), // a herb wrapped in a mummy's linen: two dressings
   shield_wood:       R('shield_wood', { wood: 6, rope: 2 }, 'workbench', 6, 'weapons'),
   armor_leather:     R('armor_leather', { leather: 6, rope: 2 }, 'workbench', 8, 'armor'),
   hood_leather:      R('hood_leather', { leather: 3, rope: 1 }, 'workbench', 5, 'armor'),
@@ -48,6 +50,7 @@ export const RECIPES = {
 
   // ---------- era 2: stonecutter / furnace / anvil ----------
   stone_blocks:      R('stone_block', { stone: 3 }, 'stonecutter', 3, 'materials', { qty: 2 }),
+  bone_meal:         R('bone_meal', { bone: 2 }, 'stonecutter', 3, 'materials', { qty: 3 }), // ground bones: fertiliser (farming.js)
   charcoal:          R('coal', { wood: 3 }, 'furnace', 6, 'materials'),
   copper_bar:        R('copper_bar', { copper_ore: 2 }, 'furnace', 6, 'materials', { fuel: 1 }),
   iron_bar:          R('iron_bar', { iron_ore: 2 }, 'furnace', 8, 'materials', { fuel: 1 }),
@@ -89,6 +92,7 @@ export const RECIPES = {
 
   // ---------- loom ----------
   cloth:             R('cloth', { cotton: 3 }, 'loom', 4, 'materials'),
+  cloth_linen:       R('cloth', { linen: 3 }, 'loom', 4, 'materials'), // a mummy's linen rewoven
   rope_loom:         R('rope', { fiber: 4 }, 'loom', 2, 'materials', { qty: 2 }),
   tunic_cloth:       R('tunic_cloth', { cloth: 4, rope: 1 }, 'loom', 8, 'armor'),
 

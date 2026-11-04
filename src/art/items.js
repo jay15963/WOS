@@ -239,6 +239,25 @@ const ITEMS = {
 
 // ---------- E · Natureza: medicinal herb (replaces the old bandage) ----------
 ITEMS.item_herb = [(g, r) => herbBundle(g, 17, 17, 0.95, r)];
+// the night's dead of the warm lands (docs/NIGHT-DEAD.md): a mummy's linen strips (a loose roll), ground bone meal (a sack)
+ITEMS.item_linen = [(g) => {
+  g.fillStyle = lin(g, 0, 8, 0, 28, [[0, '#efe3c4'], [1, '#b9a27a']]);
+  g.beginPath(); g.moveTo(6, 22); g.quadraticCurveTo(14, 15, 24, 19); g.lineTo(31, 27); g.quadraticCurveTo(20, 23, 9, 29); g.closePath(); g.fill(); // a loose strip
+  g.fillStyle = lin(g, 10, 8, 26, 24, [[0, '#f2e8cf'], [0.6, '#d8c79f'], [1, '#a68f66']]);
+  g.beginPath(); g.ellipse(17, 16, 9, 8, -0.3, 0, TAU); g.fill(); // the roll
+  g.strokeStyle = 'rgba(130,108,72,0.85)'; g.lineWidth = 0.9;
+  for (const r of [6.4, 4.2, 2.2]) { g.beginPath(); g.ellipse(17, 16, r * 1.1, r, -0.3, 0, TAU); g.stroke(); }
+  g.fillStyle = 'rgba(92,70,44,0.45)'; g.beginPath(); circle(g, 22, 12, 1.4); circle(g, 12, 20, 1.1); g.fill(); // old stains
+}];
+ITEMS.item_bone_meal = [(g) => {
+  g.fillStyle = lin(g, 0, 8, 0, 30, [[0, '#cfb487'], [1, '#8f7148']]);
+  g.beginPath(); g.moveTo(9, 13); g.quadraticCurveTo(7, 27, 11, 30); g.lineTo(25, 30); g.quadraticCurveTo(29, 27, 27, 13); g.closePath(); g.fill(); // the sack
+  g.fillStyle = '#7a5a36'; g.fillRect(12.5, 11, 11, 2.4); // the tie
+  g.fillStyle = '#f3ecdc'; g.beginPath(); g.ellipse(18, 11, 7.5, 3.4, 0, 0, TAU); g.fill(); // the white meal heaped at the mouth
+  g.fillStyle = '#fffaf0'; g.beginPath(); g.ellipse(16.5, 9.6, 3.5, 1.5, 0, 0, TAU); g.fill();
+  g.strokeStyle = '#e9dfc8'; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(12, 22); g.lineTo(23, 22); g.stroke(); // a bone drawn on it
+  g.fillStyle = '#e9dfc8'; for (const [x, y] of [[11.4, 21], [11.4, 23], [23.6, 21], [23.6, 23]]) { g.beginPath(); circle(g, x, y, 1.5); g.fill(); }
+}];
 
 // gear icons: the held sprite painters, laid diagonally (tip up-right) and fitted to the box
 function gearIcon(id) {

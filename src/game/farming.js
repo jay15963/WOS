@@ -5,7 +5,7 @@
 
 import { ITEMS, SEED_IDS } from './content/items.js';
 import { registerWork } from './gathering.js';
-import { CROPS, cropAt, growCrops, plantProblem, growNote } from './mut/crops.js';
+import { CROPS, cropAt, growCrops, plantProblem, growNote, FERT } from './mut/crops.js';
 import { fertileAt } from '../world/soil.js';
 
 export { CROPS, cropAt };
@@ -35,6 +35,8 @@ function describePlot(game, plot) {
   const base = { o: plot, tile: true, tx: plot.tx, ty: plot.ty, w: 1, h: 1, x: plot.tx + 0.5, y: plot.ty + 0.5, reach: 0.6 };
   if (c) {
     if (c.stage >= 3) return { ...base, kind: 'harvest', crop: c, verb: `Colher ${CROPS[c.kind].name.toLowerCase()}`, icon: 'gather', prio: 4 };
+    // bone meal in the backpack: fertilise it (mut/crops.js farm.fert)
+    if ((c.fert | 0) < FERT.max && game.player.inv.count('bone_meal') > 0) return { ...base, kind: 'fertilize', crop: c, verb: 'Adubar (farinha de ossos)', icon: 'gather', prio: 3 };
     // growing: say so when the place slows it down (heat, a mild winter, the dry season) or stops it
     const note = growNote(game, plot.tx, plot.ty);
     return note ? { ...base, kind: 'crop_info', crop: c, verb: note, note, icon: 'gather', prio: -1, bad: true } : null;
@@ -65,6 +67,23 @@ registerWork('plant', {
     game.net.request('farm.plant', { tx: it.tx, ty: it.ty, seed }, { refund: { [seed]: 1 } });
     // keep planting the neighbouring empty plots
     game.work?.queuePlantNear(it.tx, it.ty);
+    return true;
+  },
+});
+
+// bone meal on a growing crop (the skeletons' bones, docs/NIGHT-DEAD.md): a handful, then the host makes it jump ahead
+registerWork('fertilize', {
+  valid: (g, it) => { const c = cropAt(g, it.tx, it.ty); return !!c && c.stage < 3 && (c.fert | 0) < FERT.max; },
+  start(game) {
+    if (game.player.inv.count('bone_meal') <= 0) { game.events.emit('error', { text: 'Sem farinha de ossos na mochila' }); return null; }
+    return { type: 'plant', cycle: 0.8, need: 1, label: 'Adubando' };
+  },
+  finish(game, wk) {
+    const it = wk.it, p = game.player;
+    const c = cropAt(game, it.tx, it.ty);
+    if (!c || c.stage >= 3 || !p.inv.remove('bone_meal', 1)) return true;
+    game.events.emit('inventory', {});
+    game.net.request('farm.fert', { tx: it.tx, ty: it.ty }, { refund: { bone_meal: 1 } });
     return true;
   },
 });

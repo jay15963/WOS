@@ -5,6 +5,7 @@
 // Look: hud-theme.css (tokens, primitives) + hud.css (layout / skins), see docs/HUD.md.
 
 import { ZONE_HINT } from '../game/seasons.js';
+import { nightDangerOf, warmNightHint, nightFamilyAt, duskWarning } from '../game/undead.js'; // the night's dead by region
 import { BUILDINGS, ITEMS, SPECIES, DOTS } from '../game/data.js';
 import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
@@ -334,15 +335,17 @@ export function installHUD(game, { isNew } = {}) {
   });
   // seasons (seasons.js): what each one brings — where the player is (seasons by latitude); walking into another
   // zone says what that region's year is like
-  ev.on('zone', (d) => game.events.emit('toast', { text: ZONE_HINT[d.zone] || '', kind: d.zone >= 3 ? 'warn' : 'info' }));
+  // (the warm lands: what walks there at night — skeletons, or mummies in a desert: game/undead.js)
+  ev.on('zone', (d) => game.events.emit('toast', { text: (ZONE_HINT[d.zone] || '') + (d.zone <= 1 ? ' ' + warmNightHint(game, game.player.x, game.player.y, d.zone) : ''), kind: d.zone >= 3 ? 'warn' : 'info' }));
   ev.on('hemisphere', () => game.events.emit('toast', { text: `Você cruzou o equador: deste lado as estações são invertidas (aqui agora é ${game.season?.name || '—'}).`, kind: 'info' }));
   ev.on('season', (d) => {
     if (d.moved) return; // (the zone toast already told)
     const S = game.season, yr = S?.year || 1;
     if (S && S.zone !== 2) {
       // the other zones: their own words
-      const t = S.zone === 0 ? (S.wet ? 'Começou a estação chuvosa: chove mais e as plantas crescem rápido.' : 'Começou a estação seca: pouca chuva.')
-        : S.zone === 1 ? (d.id === 'winter' ? 'Inverno ameno: mais frio, as plantas crescem devagar, mas nada congela.' : d.id === 'spring' ? `Primavera do Ano ${yr}!` : '')
+      const p = game.player, dead = nightDangerOf(game, p.x, p.y, S); // (the dead of this place's bad nights: game/undead.js)
+      const t = S.zone === 0 ? (S.wet ? 'Começou a estação chuvosa: chove mais e as plantas crescem rápido.' : `Começou a estação seca: pouca chuva — e à noite saem ${dead}.`)
+        : S.zone === 1 ? (d.id === 'winter' ? `Inverno ameno: mais frio, as plantas crescem devagar, nada congela — mas à noite vêm ${dead}.` : d.id === 'spring' ? `Primavera do Ano ${yr}!` : '')
         : S.zone === 3 ? (d.id === 'winter' ? `Inverno! Aqui ele é longo: ${S.len} dias de gelo, frio e Andarilhos do Gelo à noite.` : d.id === 'spring' ? `Primavera do Ano ${yr}, enfim: o gelo derrete.` : d.id === 'autumn' ? 'Outono curto: o inverno longo está chegando. Lenha, comida e roupa de frio!' : '')
         : '';
       if (t) game.events.emit('toast', { text: t, kind: d.id === 'winter' || d.id === 'autumn' ? 'warn' : 'good' });
@@ -387,13 +390,22 @@ export function installHUD(game, { isNew } = {}) {
   };
   const toggle = (el, k, cls, on) => { if (C[k] !== on) { C[k] = on; el.classList.toggle(cls, on); } };
 
-  let slowT = 0, buffV = -1, buffK = null, buffT = 0, modeT = 0;
+  let slowT = 0, buffV = -1, buffK = null, buffT = 0, modeT = 0, wasNight = null, duskKey = null;
 
   return {
     sync: 'cosmetic', // HUD
     update(g, dt) {
       modeT -= dt;
-      if (modeT <= 0) { modeT = 1; setMode(); }
+      if (modeT <= 0) {
+        modeT = 1; setMode();
+        // dusk on a bad night of the warm lands: what is coming (skeletons / mummies — game/undead.js), once a night
+        const night = (g.env?.env?.night || 0) > 0.55, P0 = g.player;
+        if (night && wasNight === false && !P0.dead) {
+          const key = g.env.dayIndex + (g.env.hour > 12 ? 0 : -0.5), w = duskWarning(nightFamilyAt(g, P0.x, P0.y));
+          if (w && key !== duskKey) { duskKey = key; g.events.emit('toast', { text: w, kind: 'warn' }); }
+        }
+        wasNight = night;
+      }
       const pl = g.player;
 
       // player frame

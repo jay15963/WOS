@@ -167,6 +167,34 @@ defineIntent('farm.plant', {
   },
 });
 
+// bone meal (docs/NIGHT-DEAD.md: the skeletons' bones ground at the stonecutter): a growing crop jumps ahead — FERT.add of
+// its growth per handful, at most FERT.max times per crop
+export const FERT = { add: 0.25, max: 2 };
+defineIntent('farm.fert', {
+  doc: 'Fertilise a growing crop with bone meal (already removed from the actor; refunded on reject): its growth jumps ahead (FERT).',
+  args: { tx: 'int', ty: 'int' },
+  run(game, a, actor, net) {
+    const c = cropAt(game, num(a.tx) | 0, num(a.ty) | 0);
+    if (!c) return 'Sem plantação aqui';
+    if (c.stage >= 3) return 'Já está pronta para colher';
+    if ((c.fert | 0) >= FERT.max) return 'Já foi adubada o bastante';
+    const g = Math.min(1, c.growth + FERT.add);
+    net.emit('crop.fert', { tx: c.tx, ty: c.ty, growth: +g.toFixed(3), stage: stageOf(g), n: (c.fert | 0) + 1, by: actor.pid });
+  },
+});
+defineOp('crop.fert', {
+  doc: 'A crop got bone meal (host): its growth and stage jump; n = how many handfuls so far.',
+  args: { tx: 'int', ty: 'int', growth: '0..1', stage: '0..3', n: 'int', by: 'pid' },
+  apply(game, a) {
+    const c = cropAt(game, a.tx, a.ty);
+    if (!c) return;
+    c.growth = Math.max(0, Math.min(1, num(a.growth))); c.stage = Math.max(0, Math.min(3, a.stage | 0)); c.fert = a.n | 0;
+    game.juice.puff(c.x, c.y - 0.1, 6, [0.92, 0.88, 0.78], 0.4);
+    game.audio?.play('pickup', { x: c.x, y: c.y, volume: 0.45 });
+    game.events.emit('tile', { tx: c.tx, ty: c.ty });
+  },
+});
+
 defineIntent('farm.harvest', {
   doc: 'Harvest a ripe crop (stage 3): food / cotton + seeds dropped.',
   args: { tx: 'int', ty: 'int' },

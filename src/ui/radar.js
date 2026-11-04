@@ -114,7 +114,7 @@ export function installRadar(game, root, mini) {
       if (e.remote) { add(e.x, e.y, 'pl', 0); continue; }
       const dd = Math.abs(e.x - p.x) + Math.abs(e.y - p.y);
       if (dd > 90) continue;
-      if (e.species === 'giant') { add(e.x, e.y, e === p.target ? 'gi tgt' : 'gi', 1); continue; } // (an ice giant: its own bigger drop)
+      if (SPECIES[e.species]?.giant) { const f = SPECIES[e.species].undead; add(e.x, e.y, (f === 'ice' ? 'gi' : 'gi ' + f) + (e === p.target ? ' tgt' : ''), 1); continue; } // (a giant: its own bigger drop — ice / bone / sand)
       if (e === p.target) { add(e.x, e.y, 'tgt', 1); continue; }
       if (e.faction === 'bandit' || e.faction === 'walker') { if (dd < 80) add(e.x, e.y, 'h', 2); continue; }
       if (e.kind !== 'animal' || e.isProp) continue;

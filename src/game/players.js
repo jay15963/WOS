@@ -6,7 +6,7 @@
 // inAnyView(game, x, y, mx, my) · hurtPlayer(game, src, target, amount, opts)
 
 import { dealDamage, addDot } from './combat.js';
-import { stunPlayer } from './player.js';
+import { stunPlayer, addBuff } from './player.js';
 
 const SOLO = new WeakMap();
 export function allPlayers(game) {
@@ -66,7 +66,7 @@ export function hurtPlayer(game, src, target, amount, opts = {}) {
     amount, crit: opts.crit ? 1 : 0, ability: opts.ability || 0, dtype: opts.dtype || 0, ranged: opts.ranged ? 1 : 0,
     from: f ? [+f.x.toFixed(2), +f.y.toFixed(2)] : 0, noDodge: opts.noDodge ? 1 : 0,
     knock: opts.knock != null ? +(+opts.knock).toFixed(2) : undefined, noKnock: opts.noKnock ? 1 : 0, // (the push happens on the owner)
-    poison: opts.poison || 0, bleed: opts.bleed || 0, stun: opts.stun || 0,
+    poison: opts.poison || 0, bleed: opts.bleed || 0, stun: opts.stun || 0, curse: opts.curse || undefined,
   });
   return -1; // resolved on the owner's client
 }
@@ -81,4 +81,10 @@ export function afterHurt(game, p, src, opts) {
   }
   if (opts.bleed) addDot(game, p, 'bleed', { ...opts.bleed, src });
   if (opts.stun) stunPlayer(game, opts.stun);
+  // a mummy's curse (game/undead.js): slower for a few seconds (player.js speed)
+  if (opts.curse > 0) {
+    const fresh = !p.buffs.some((b) => b.id === 'curse');
+    addBuff(p, 'curse', Math.min(8, opts.curse));
+    if (fresh) game.events.emit('error', { text: 'Maldição da múmia: você está mais lento!' });
+  }
 }

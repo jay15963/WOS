@@ -24,6 +24,7 @@ import { installWildlife } from './wildlife.js';
 import { installSeasonFx } from './seasonfx.js';
 import { installWalkerFx } from './walkerfx.js';
 import { installGiantFx } from './giantfx.js';
+import { installUndeadFx } from './undeadfx.js';
 import { SEASON } from '../art/season.js';
 
 const rnd = Math.random;
@@ -63,6 +64,7 @@ export function installAmbient(game) {
   installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
   installWalkerFx(game);  // winter walkers: cold mist, glowing eyes, shattering into ice (cosmetic)
   installGiantFx(game);   // ice giants (smash telegraph, thrown rocks, footsteps) and the ballista's shots (cosmetic)
+  installUndeadFx(game);  // skeletons / mummies: wisps, sand, a glow at night, falling apart into bones / sand (cosmetic)
 }
 
 class Ambient {

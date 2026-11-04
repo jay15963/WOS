@@ -22,6 +22,10 @@ construções, somem ao amanhecer; no criativo não quebram nada nem são atraí
 Ao amanhecer: esqueleto vira ossos, múmia vira areia (o andarilho já vira neve). As estações são locais e invertidas
 no outro hemisfério (`seasonAt(game, x, y)` já dá isso).
 
+**Feito** (fase 1): [NIGHT-DEAD.md](NIGHT-DEAD.md) — regras (uma família por lugar, deserto pela região), números,
+comportamento, drops (ossos → flechas / adubo; linho → tecido / curativos), arte (8 direções), sons, HUD, multijogador e
+os testes NM1–NM6.
+
 ## 2. Assentamentos
 
 Gerados proceduralmente pela semente do planeta, mas com **casas prontas** (como as estruturas do Minecraft), **partes

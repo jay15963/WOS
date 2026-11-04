@@ -11,6 +11,7 @@
 
 import { SEASON, SEASON_LOCAL, seasonHash } from '../art/season.js';
 import { seasonOf, START } from '../game/seasons.js';
+import { SPECIES } from '../game/data.js'; // (the night's dead do not breathe)
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
@@ -99,7 +100,7 @@ class SeasonFx {
     if (SEASON.winter > 0.25) {
       const night = env.night || 0;
       for (const e of g.entities) {
-        if (e.kind !== 'pawn' || e.dead || e.species === 'walker' || e.species === 'giant' || e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2) continue;
+        if (e.kind !== 'pawn' || e.dead || SPECIES[e.species]?.undead || e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2) continue;
         if (e._swim > 0.5 || (e.z || 0) > 0) continue;
         e._brT = (e._brT ?? rnd() * 3) - dt * (e.moving ? 1.6 : 1);
         if (e._brT > 0) continue;
