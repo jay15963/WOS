@@ -13,7 +13,7 @@ import {
   engineOf, isArtyObj, isPushObj, pivotOf, releaseOf, shotLanding, launchStone, playerByPid, footDist, frontTiles, isGate,
   siegeCanDamage, damageStructure, crewOf,
 } from '../siege.js';
-import { relocateStructure, structById } from './structures.js';
+import { relocateStructure, structById, TOWN } from './structures.js';
 import { hostProjId } from '../projectiles.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -236,6 +236,7 @@ defineOp('siege.dmg', {
     if (!o) return;
     const d = Math.max(0, Math.min(1, num(a.d)));
     if (d > 0) { o.dmg = d; o.sdmg = 1; } else { delete o.dmg; delete o.sdmg; }
+    if (o.town != null) TOWN.note?.(game, o, 'dmg'); // (a settlement's piece: its damage kept in the town state — game/people.js repairs it)
     game.rockFx?.structHit?.(game, o, d > 0 ? num(a.x, o.x) : null, num(a.y, o.y));
   },
 });

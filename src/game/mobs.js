@@ -293,7 +293,7 @@ export function mobsSystem() {
       const E = game.entities;
       for (let i = E.length - 1; i >= 0; i--) {
         const m = E[i];
-        if (!m.isMob) continue;
+        if (!m.isMob || m.npc) continue; // (the settlements' people: their own system, game/people.js)
         if (m.dead) {
           // corpse cleanup (raider corpses linger a little longer; their camp respawns them)
           if (m.deadT > 60 || (m.deadT > 20 && !inAnyView(game, m.x, m.y, 2, 2))) {

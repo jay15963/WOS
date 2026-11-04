@@ -166,7 +166,7 @@ function stepBolt(game, b, dt) {
     b.x = nx; b.y = ny; b.d += s; b.z = nz;
     // creatures in the way (at the height it flies)
     for (const e of game.entities) {
-      if (!isMob(e) || e.dead || b.hit.has(e) || e.faction === 'friend' || !boltReaches(e, nz)) continue;
+      if (!isMob(e) || e.dead || b.hit.has(e) || e.faction === 'friend' || e.npc || !boltReaches(e, nz)) continue; // (never the settlements' people)
       const rr = (e.r || 0.3) + 0.2, dx = e.x - nx, dy = e.y - ny;
       if (dx * dx + dy * dy > rr * rr) continue;
       b.hit.add(e);

@@ -142,14 +142,14 @@ export class Juice {
   pawns(dt) {
     const g = this.g, v = g.view ? g.view() : null;
     for (const e of g.entities) {
-      if (e.kind !== 'pawn' || (e !== g.player && !e.remote)) continue;
+      if (e.kind !== 'pawn' || (e !== g.player && !e.remote && !e.npc)) continue; // (+ the settlements' people: Zzz, the dirt of their work)
       if (v && (e.x < v.x0 - 2 || e.x > v.x1 + 2 || e.y < v.y0 - 2 || e.y > v.y1 + 3)) continue;
       // respawn glow seen by others (the owner plays its own in respawnPlayer)
       if (e._jd && !e.dead && e !== g.player) this.levelUp(e);
       e._jd = !!e.dead;
       if (e.dead) continue;
       this.water(e, dt);
-      this.footsteps(e);
+      if (!e.npc) this.footsteps(e); // (a crowd's steps: never)
       this.rustle(e);
       const a = e.action;
       const type = a ? a.type : null;

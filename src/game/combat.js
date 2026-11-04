@@ -108,6 +108,7 @@ export function applyPlayerHit(game, target, roll, opts = {}) {
 // the local player missed `target` ("Errou" + aggro); a proxy's miss is shown by the host's echo
 export function playerMiss(game, target) {
   const p = game.player;
+  if (target?.npc) { npcImmune(game, target, p); return; } // (the settlements' people: no friendly fire)
   if (target?.proxy) { routeHit(game, p, target, 0, { miss: true }); return; }
   game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' });
   if (isMob(target)) aggro(game, target, p);
@@ -129,7 +130,7 @@ export function routeHit(game, src, dst, amount, opts = {}) {
 
 // status effects of the local player's abilities on a creature: applied on the authority, routed on guests
 export function mobEffect(game, e, eff) {
-  if (!e || e.dead || e.isProp) return;
+  if (!e || e.dead || e.isProp || e.npc) return; // (the settlements' people: no friendly fire)
   if (e.proxy) { game.net.request('mob.hit', { nid: e.nid, amount: 0, noDmg: 1, eff, skin: canSkin(game) ? 1 : 0 }); return; }
   applyMobEffect(game, e, eff, game.player);
 }
@@ -140,10 +141,29 @@ function frontal(e, from) {
   return facingOk(e, from, 0.05);
 }
 
+// ---------- no friendly fire: the settlements' people (game/people.js) ----------
+// Players never hurt a kingdom's citizens or guards (phase 3 — war — opens it for enemy kingdoms only): the hit does
+// nothing and says so (a short toast, not every swing). Monsters and raiders do hurt them.
+export const playerish = (game, s) => !!s && (s === game.player || !!s.avatar || !!(s.remote && s.pid) || !!(s.owner && (s.owner === game.player || s.owner.avatar)));
+let immuneT = -9;
+export function npcImmune(game, dst, src) {
+  game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
+  if (src === game.player || src?.owner === game.player) {
+    if (game.player.target === dst) game.player.autoAttack = false;
+    if (game.time - immuneT > 4) {
+      immuneT = game.time;
+      const S = dst.npcS, K = S?.K;
+      game.events.emit('toast', { text: S ? `${dst.npc?.first || 'Este morador'} é de ${S.name}: o povo do Reino de ${K.name} está sob a proteção do reino` : 'O povo do reino está sob a proteção do reino', kind: 'warn' });
+    }
+  }
+  return 0;
+}
+
 // ---------- damage pipeline ----------
 // opts: { crit, ability, dtype:'phys'|'bleed'|'poison'|'fire', dot, noDodge, noKnock, knock, from:{x,y}, ranged, pure }
 export function dealDamage(game, src, dst, amount, opts = {}) {
   if (!dst) return 0;
+  if (dst.npc && playerish(game, src)) return npcImmune(game, dst, src); // (no friendly fire: before a guest routes the hit)
   if (dst.isProp) return damageProp(game, src, dst, amount, opts);
   if (dst.dead) return 0;
   if (dst.proxy) return opts.dot ? 0 : routeHit(game, src, dst, amount, opts);
@@ -240,6 +260,7 @@ export function healEntity(game, e, amount) {
 // id: 'bleed' | 'poison' | 'burn'. dmg per tick (already scaled). Refreshes an existing dot of the same id.
 export function addDot(game, target, id, { dur = 6, tick = 1, dmg = 1, src = null } = {}) {
   if (!target || target.dead) return;
+  if (target.npc && (!src || playerish(game, src))) return; // (the settlements' people: no friendly fire)
   if (target.proxy) { mobEffect(game, target, { dot: { id, dur, tick, dmg } }); return; }
   const dtype = id === 'burn' ? 'fire' : id;
   const p = game.player;
@@ -510,6 +531,7 @@ export function combatSystem() {
 // stun a mob (interrupts casts); elites resist half. Proxies: routed to the host.
 export function stun(game, m, dur, src = game.player) {
   if (!m || m.dead || m.isProp) return;
+  if (m.npc && playerish(game, src)) return; // (the settlements' people: no friendly fire)
   if (m.proxy) { mobEffect(game, m, { stun: dur }); return; }
   const d = m.elite ? dur * 0.5 : dur;
   m.stunT = Math.max(m.stunT || 0, d);

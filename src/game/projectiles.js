@@ -299,9 +299,12 @@ export function projectilesSystem() {
           // creatures / players (cosmetic copies hit nothing)
           let victim = null;
           if (pr.cosmetic) { /* no victims */ }
-          else if (pr.faction === 'player') {
+          else if (pr.faction === 'player' || pr.faction === 'town') {
+            // (a player's arrow flies past the settlements' people; a town guard's — game/npc.js — only hits hostile creatures)
+            const town = pr.faction === 'town';
             for (const e of E) {
-              if (e === pr.src || e === p || e.dead || !(e.isMob || e.kind === 'animal')) continue;
+              if (e === pr.src || e === p || e.dead || e.npc || !(e.isMob || e.kind === 'animal')) continue;
+              if (town && (e.proxy || !(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'))) continue;
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
               if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? groundOf(e) - tunGround(w, nx, ny, groundOf(e) + 0.5) : 0)) < 0.75) { victim = e; break; }
             }
@@ -310,6 +313,12 @@ export function projectilesSystem() {
               if (q.dead) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
               if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd + (w.hasHeight ? groundOf(q) - tunGround(w, nx, ny, groundOf(q) + 0.5) : 0)) < 0.75) { victim = q; break; }
+            }
+            // (the monsters' and raiders' shots hit the settlements' people too — game/people.js)
+            if (!victim) for (const e of E) {
+              if (!e.npc || e.dead || e.proxy) continue;
+              const dx = e.x - nx, dy = e.y - ny, rr = (e.r || 0.24) + 0.14;
+              if (dx * dx + dy * dy < rr * rr && Math.abs((e.z || 0) - pz - gd) < 0.75) { victim = e; break; }
             }
           }
           if (victim && pr.d > 0.25) {

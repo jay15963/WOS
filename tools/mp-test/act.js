@@ -18,6 +18,7 @@ const PATHS = {
   undead: 'game/undead.js', // the night's dead of the warm lands (NM scenarios)
   siege: 'game/siege.js', siegec: 'game/content/siege.js', // siege engines (docs/REINOS.md)
   towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
+  people: 'game/people.js', mpeople: 'game/mut/people.js', npc: 'game/npc.js', cpeople: 'game/content/people.js', // (the settlements' people: VL scenarios)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

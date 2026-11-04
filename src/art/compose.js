@@ -655,6 +655,7 @@ export function drawPawn(B, A, p, t) {
   R.wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back to the hand (src/ui/aim.js)
   R.grip = grip; R.twoHand = twoHand; R.tgx = tgx; R.tgl = tgl; R.sr = r1; R.sg = g1; R.sb = b1;
   R.osp = osp; R.ox = ox2; R.oy = oy2; R.ol = ol; R.oSc = oSc; R.oSy = Q.oSy; R.oRot = oRot; R.oFlip = oFlip; R.offGrip = offGrip; R.food = food;
+  R.crest = p.crest && p.offhand === 'shield_guard' ? p.crest : null; R.oF = O.s; R.oN = O.n; // (a kingdom guard's shield: its colours — rigOff)
   // on horseback: the legs astride (both sides of the horse), the horse drawn between them and the body — its head over
   // the rider's lap when it comes toward the camera, behind the rider otherwise
   let toCam = false;
@@ -694,7 +695,7 @@ export function drawPawn(B, A, p, t) {
   if (showO && osp && !oBehind) rigOff();
   if (hand && h1 && !h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
   if (hand && h2 && !h2b) { if (food) rigFood(hx2, y + h2dy, bl + h2l); B.main.add(hand, hx2, y + h2dy, hs2, hs2, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h2l); }
-  if (bundle && h1 && h2) B.main.add(bundle, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.55, 0.55, 1, 1, 1, al, 0, 0, fl, sdir, 0, bl + (h1l + h2l) / 2);
+  if (bundle && h1 && h2 && !(h1b && h2b)) B.main.add(bundle, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, pose === 'carry' ? 0.66 : 0.55, pose === 'carry' ? 0.66 : 0.55, 1, 1, 1, al, 0, 0, fl, sdir, 0, bl + (h1l + h2l) / 2); // (seen from behind: hidden by the body)
   // herbs peek out between the palms / from under the pressing hand
   if (herbAt === 1 && h1 && h2 && T.herb) B.main.add(T.herb, (hx1 + hx2) / 2, y + (h1dy + h2dy) / 2 + 0.01, 0.7, 0.7, 1, 1, 1, al, 0, 0, fl, 1, 0, bl + (h1l + h2l) / 2 + 0.05);
   if (herbAt === 2 && h2 && T.herb) B.main.add(T.herb, hx2 + sdir * 0.05, y + h2dy, 0.7, 0.7, 1, 1, 1, al, 0, 0.4, fl, 1, 0, bl + h2l - 0.04);
@@ -1126,6 +1127,24 @@ function rigPose(Q, C, sd, flip) {
       else if (sd === 's') { h1x = -0.04 + Math.cos(a) * 0.06; h1l = 0.2; h1dy = 0.07 + Math.sin(a) * 0.035; oy += 0.02; }
       else { h1x = 0.05 + Math.cos(a) * 0.06; h1l = 0.29 + Math.sin(a) * 0.02; h1b = true; oy -= 0.02; }
       headDy -= 0.02;
+    } else if (pose === 'carry') {
+      // a load hugged to the chest with both arms (the settlements' people: p.carry, their trade's goods), leaning back a
+      // little; the legs walk on (game/npc.js)
+      showW = false; showO = false;
+      h1 = h2 = true;
+      bundle = itemSprite(T, p.carry || 'wood');
+      sy *= 0.99; headDy -= 0.01;
+      if (sd === 'e') { rot -= flip * 0.06; h1x = flip * 0.2; h1l = 0.27; h2x = flip * 0.15; h2l = 0.3; h2b = true; }
+      else if (sd === 's') { h1x = -0.13; h2x = 0.13; h1l = h2l = 0.27; h1dy = h2dy = 0.07; }
+      else { h1x = 0.13; h2x = -0.13; h1l = h2l = 0.3; h1b = h2b = true; }
+    } else if (pose === 'talk') {
+      // talking: a hand that goes along with the words, a little nod (the settlements' people chatting: game/npc.js)
+      const u = Math.max(0, Math.sin(k * TAU * 2)), nod = Math.sin(k * TAU * 3);
+      h1 = true;
+      headDy -= 0.008 * Math.abs(nod); headRot += 0.035 * Math.sin(k * TAU * 1.5);
+      if (sd === 'e') { h1x = flip * (0.19 + 0.05 * u); h1l = 0.21 + 0.13 * u; }
+      else if (sd === 's') { h1x = 0.21 + 0.02 * u; h1l = 0.19 + 0.15 * u; h1dy = 0.05; }
+      else { h1x = -0.21; h1l = 0.23 + 0.1 * u; h1b = true; }
     } else if (pose === 'build') {
       const kk = (k * 2) % 1;
       if (sd === 'e') { swing(kk, 0.3, -1.3, 1.25, 0.5, 0.66); wRot = flip * W_ANG; wHl = W_WIND * 0.12; wHx = flip * (W_HIT * 0.06); rot += flip * (0.08 + W_HIT * 0.06); }
@@ -1430,8 +1449,15 @@ function rigWeapon() {
   }
 }
 function rigOff() {
-  const { B, al, fl } = R;
-  B.main.add(R.osp, R.ox, R.oy, R.oSc, R.oSy, 1, 1, 1, al, 0, R.oRot, fl, R.oFlip, 0, R.ol);
+  const { B, al, fl } = R, C = R.crest;
+  // a kingdom guard's shield (game/people.js): the field in the kingdom's colour, its division in the metal, the iron rim
+  const tint = C && R.osp !== R.oN, cr = tint ? C.f[0] : 1, cg = tint ? C.f[1] : 1, cb = tint ? C.f[2] : 1;
+  B.main.add(R.osp, R.ox, R.oy, R.oSc, R.oSy, cr, cg, cb, al, 0, R.oRot, fl, R.oFlip, 0, R.ol);
+  if (C && R.osp === R.oF) {
+    const A = R.T.A, xn = 'held_shield_guard_x_' + C.d, x = A.has(xn) ? A.get(xn) : null, rim = A.has('held_shield_guard_rim') ? A.get('held_shield_guard_rim') : null;
+    if (x) B.main.add(x, R.ox, R.oy, R.oSc, R.oSy, C.m[0], C.m[1], C.m[2], al, 0, R.oRot, fl, R.oFlip, 0, R.ol + 0.001);
+    if (rim) B.main.add(rim, R.ox, R.oy, R.oSc, R.oSy, 1, 1, 1, al, 0, R.oRot, fl, R.oFlip, 0, R.ol + 0.002);
+  }
   if (R.T.hand && R.offGrip) B.main.add(R.T.hand, R.ox, R.oy, 1, 1, R.sr, R.sg, R.sb, al, 0, 0, fl, 1, 0, R.ol);
 }
 function rigFood(x, y, l) { if (R.food) R.B.main.add(R.food, x, y, 0.42, 0.42, 1, 1, 1, R.al, 0, 0, R.fl, 1, 0, l + 0.03); }

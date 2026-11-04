@@ -83,6 +83,7 @@ export function siegeCanDamage(game, attacker, target) {
     if (target === game.player || target.avatar || target.remote || (target.kind === 'pawn' && !target.isMob)) return false; // (players: never)
     if (!isMob(target)) return false;
     if (target.faction === 'friend' || target.owned || target.tame || target.tiedTo || target.saddle) return false; // (pets, the farm's animals, horses)
+    if (target.npc) { const ar = realmOf(attacker), tr = target.npcS?.s?.k; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
     return true;
   }
   if (target.isProp) return !target.dummy && !target.broken; // (bandit camp crates; never a training dummy)

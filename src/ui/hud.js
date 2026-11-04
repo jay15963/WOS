@@ -33,8 +33,9 @@ import { PreviewAtlas, drawPawn2D, previewPawn } from '../art/look/preview.js';
 import { installHudTheme, nIcon } from './hudtheme.js';
 import { radarMarkup, installRadar } from './radar.js';
 import { installPlaceBanner } from './placebanner.js'; // "Reino de X — Vila Y" (docs/REINOS.md)
+import { installTalk } from './talk.js'; // "Conversar" with the settlements' people (game/people.js)
 
-const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
+const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo', friendly: 'Amigável' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
 // target frame extras (portraits for raiders / crates, debuffs, enemy cast bar): styled in hud.css
 
@@ -263,6 +264,7 @@ export function installHUD(game, { isNew } = {}) {
   // ---------- minimap (drawn in the radar disc and the map window) ----------
   const mini = new Minimap(game);
   installPlaceBanner(game, root); // (the kingdom / settlement the player enters: game/towns.js placeSystem)
+  game.ui.talkCard = installTalk(game, root); // (talking with the settlements' people: ui/talk.js)
   game.ui.minimap = mini;
   const radar = installRadar(game, $('#radar'), mini);
   game.events.on('tile', (d) => mini.updateTiles(d.tx, d.ty));
@@ -447,7 +449,7 @@ export function installHUD(game, { isNew } = {}) {
         const lvTxt = t.isProp ? '–' : String(t.level);
         if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = t.isProp ? '' : levelColor(t.level, pl.level); }
         const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : t.fearT > 0 ? 'assustado' : t.blocking ? 'bloqueando' : STATE_PT[t.state] || '';
-        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || '';
+        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : t.npc ? t.npc.jobPt : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || ''; // (the settlements' people: their trade)
         setText(R.tfSub, 'tfsub', kind + (st ? ' · ' + st : ''));
         // enemy cast bar (raider telegraphs: interrupt with Shield Bash / Shove / stuns)
         const ct = t.cast && !gone ? t.cast : null;

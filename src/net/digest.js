@@ -14,6 +14,7 @@ import { pathRows } from '../game/mut/paths.js';
 import { chunkOfI } from '../world/store.js';
 import { campStateRows } from '../game/mut/camps.js';
 import { townRows, gateRows } from '../game/mut/towns.js'; // settlements (docs/REINOS.md)
+import { peopleDigestRows } from '../game/mut/people.js'; // settlements' people: the dead, the world's progress
 
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats', 'towns'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
@@ -74,7 +75,7 @@ export function dumpPart(game, part, ex = null) {
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'boats': return game.boats ? [...game.boats.map.values()].map((b) => [b.id, b.x.toFixed(2), b.y.toFixed(2), b.h.toFixed(2), b.seats.join('.'), b.pets.map((q) => q.join(':')).join('.')]).sort(cmp) : []; // (game/boats.js)
-    case 'towns': return townRows(game, OK).concat(gateRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates)
+    case 'towns': return townRows(game, OK).concat(gateRows(game), peopleDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people)
     case 'env': return [['day', game.env.dayIndex], ['hour', +game.env.hour.toFixed(2)], ['weather', game.env.weather], ['wt', Math.round(game.worldTime)]];
     case 'ents': return game.net.entsApi?.debug?.() || null;
   }

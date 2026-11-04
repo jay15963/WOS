@@ -8,6 +8,7 @@
 
 import { spritePxFast as spritePx, rng, TAU, lin, rad, circle, mixc, rgb, hex } from './paint.js';
 import { spline, rrect } from './kit.js';
+import { DIVS, paintDivision } from './heraldryPaint.js'; // (the guards' shields: game/people.js)
 
 const A = (c, a) => rgb(hex(c), a);
 
@@ -600,6 +601,41 @@ for (const id in SHIELD) {
   GEAR[id] = { ...shieldPaint(id, 'f'), type: 'shield' };
   GEAR[id + '_e'] = { ...shieldPaint(id, 'e'), type: 'shield' };
   GEAR[id + '_n'] = { ...shieldPaint(id, 'n'), type: 'shield' };
+}
+// the kingdoms' guards' shield (game/people.js): a heater painted white — tinted with the kingdom's colour at runtime —,
+// its heraldic division (shield_guard_x_<d>, tinted with the metal) and the iron rim and boss on top (untinted):
+// art/compose.js rigOff draws the three
+{
+  const S = { shape: 'heater', r: 14.2 }, W = 36, H = 38, cx = 18, cy = 19;
+  const face = (g) => {
+    g.beginPath(); shieldPath(g, S, cx, cy); g.fillStyle = lin(g, cx - 14, cy - 14, cx + 14, cy + 14, [[0, '#ffffff'], [0.55, '#ececec'], [1, '#c4c4c4']]); g.fill();
+    g.save(); g.beginPath(); shieldPath(g, S, cx, cy); g.clip();
+    g.strokeStyle = 'rgba(80,80,80,0.12)'; g.lineWidth = 0.6;
+    for (let x = cx - 12; x < cx + 13; x += 4.2) { g.beginPath(); g.moveTo(x, cy - 16); g.lineTo(x + 0.6, cy + 17); g.stroke(); }
+    g.fillStyle = rad(g, cx - 5, cy - 7, 0, 18, [[0, 'rgba(255,255,255,0.35)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.22)']]); g.fillRect(0, 0, W, H);
+    g.restore();
+  };
+  GEAR.shield_guard = { W, H, gx: cx, gy: cy, layers: [face], type: 'shield' };
+  for (const dv of DIVS) if (dv !== 'plain') GEAR['shield_guard_x_' + dv] = { W, H, gx: cx, gy: cy, ow: [0], type: 'shield', layers: [(g) => {
+    g.save(); g.beginPath(); shieldPath(g, S, cx, cy, 0.86); g.clip();
+    paintDivision(g, dv, cx - 13, cy - 14, cx + 13, cy + 16);
+    g.fillStyle = rad(g, cx - 5, cy - 7, 0, 18, [[0, 'rgba(255,255,255,0.2)'], [0.6, 'rgba(0,0,0,0)'], [1, 'rgba(0,0,0,0.2)']]); g.globalCompositeOperation = 'source-atop'; g.fillRect(0, 0, W, H);
+    g.restore();
+  }] };
+  GEAR.shield_guard_rim = { W, H, gx: cx, gy: cy, ow: [1.2], type: 'shield', layers: [(g) => {
+    g.beginPath(); shieldPath(g, S, cx, cy); shieldPath(g, S, cx, cy, 0.86); g.fillStyle = lin(g, cx - 14, cy - 14, cx + 14, cy + 14, [[0, '#d6dade'], [0.5, '#8e9298'], [1, '#55585d']]); g.fill('evenodd');
+    g.fillStyle = '#e8ecf0';
+    for (let i = 0; i < 8; i++) { const a = (i / 8) * TAU + 0.4; if (Math.sin(a) > 0.6) continue; g.beginPath(); circle(g, cx + Math.cos(a) * 13.2, cy + Math.sin(a) * 12, 0.7); g.fill(); }
+    g.fillStyle = 'rgba(0,0,0,0.3)'; g.beginPath(); g.ellipse(cx + 0.7, cy, 3.4, 3.4, 0, 0, TAU); g.fill();
+    g.fillStyle = rad(g, cx - 1.4, cy - 2.4, 0.4, 4, [[0, '#f4f6f8'], [0.5, '#a8acb2'], [1, '#5a5e64']]); g.beginPath(); g.ellipse(cx, cy - 1, 3.2, 3.2, 0, 0, TAU); g.fill();
+  }] };
+  GEAR.shield_guard_e = { W: 16, H, gx: 8, gy: cy, type: 'shield', layers: [(g) => {
+    const ex = 8;
+    g.beginPath(); shieldPath(g, S, ex, cy, 0.32); g.fillStyle = '#9a9ea4'; g.fill();
+    g.beginPath(); shieldPath(g, S, ex + 1.4, cy, 0.24); g.fillStyle = lin(g, ex - 3, 0, ex + 5, 0, [[0, '#ffffff'], [1, '#cfcfcf']]); g.fill();
+    g.fillStyle = '#a8acb2'; g.beginPath(); g.ellipse(ex + 4.4, cy - 1, 2.3, 3.4, 0, 0, TAU); g.fill();
+  }] };
+  GEAR.shield_guard_n = { ...shieldPaint('shield_wood', 'n'), type: 'shield' };
 }
 for (const type of ['sword', 'spear', 'club']) { const D = T[type]; GEAR[type + '_ice'] = { W: D.W, H: D.H, gx: D.W / 2, gy: D.gy, layers: D.paintIce(), type }; }
 GEAR.rock_ice = { ...iceRockHeld(), type: 'rock' }; // (the ice giants' throw)
