@@ -6851,13 +6851,18 @@ def('NM1', {
   m.maxHp = m.hp = 5000; m.armorV = 0;
   const main0 = gp.equip.main;
   t.defer(() => { gp.equip.main = main0; });
+  // the amount of the hit itself (the host's damage event): a calm creature's regeneration between two reads of its
+  // hp would blur an hp difference
+  let lastDmg = null;
+  const offD = H.game.events.on('damage', (d) => { if (d.target === m && d.kind === 'hit' && !d.dot) lastDmg = d.amount; });
+  t.defer(() => { try { offD?.(); } catch { /* ignore */ } });
   const hitWith = async (w) => {
     gp.equip.main = w;
-    const h0 = m.hp;
+    lastDmg = null;
     MG.combat.routeHit(G.game, gp, A.proxyOf(G, m), 20, {});
-    await t.waitFor(() => m.hp < h0, RT() + 1500, `the ${w} hit lands`);
+    await t.waitFor(() => lastDmg != null, RT() + 1500, `the ${w} hit lands`);
     m.calmT = 1e9; m.state = 'idle';
-    return h0 - m.hp;
+    return lastDmg;
   };
   const dClub = await hitWith('club_wood'), dSword = await hitWith('sword_iron');
   gp.equip.main = main0;
@@ -6914,7 +6919,7 @@ def('NM2', {
     await t.sleep(RT());
   }
   await t.waitFor(() => k.dead, 3000, 'the guest kills a mummy');
-  await t.waitFor(() => (rec.items(0).linen || 0) > 0 || rec.rows(0).length > 0, RT() + 1500, 'its drop appears on the host');
+  await t.waitFor(() => (rec.items(0).linen || 0) > 0 || rec.rows(0).length > 0, RT() + 5000, 'its drop appears on the host'); // (the body sinks into sand first)
   await t.sleep(RT() + 300);
   rec.stop();
   const cmp = rec.compare(0, 1);
