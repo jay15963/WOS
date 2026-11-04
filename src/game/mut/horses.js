@@ -119,6 +119,10 @@ defineOp('horse.note', {
   args: { nid: 'mobNid', x: 'number', y: 'number', fx: "'eat'|'tamed'|'saddle'", by: 'pid', give: '{saddle: 1}?', toast: 'string?', toastKind: 'string?' },
   apply(game, a) {
     const x = num(a.x), y = num(a.y);
+    // a guest's proxy turns into the tamed horse at once (the entity stream re-sends it a moment later; the digest that
+    // may come in between already counts it as a horse)
+    const e = a.fx === 'tamed' ? game.net.entsApi?.byNid?.(a.nid) : null;
+    if (e && e.proxy) { e.species = 'horse'; e.name = 'Cavalo'; e.temper = 'passive'; e.tame = true; e.owned = true; e.fmode = 0; }
     if (a.fx === 'tamed') { game.juice?.puff?.(x, y - 0.3, 10, [1, 0.86, 0.45], 0.7); game.audio?.play('levelup', { x, y, volume: 0.45 }); }
     else if (a.fx === 'eat') { game.juice?.puff?.(x, y - 0.2, 4, [0.9, 0.78, 0.42], 0.35); game.audio?.play('eat', { x, y, volume: 0.45 }); }
     else game.audio?.play('pickup', { x, y, volume: 0.55 });

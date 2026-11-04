@@ -35,7 +35,7 @@ Grupo = tamanho do bando ao nascer.
 | `moose` | Alce | neutro | anda · sempre | 160 · 11 · 4.6 · — | +2 · 30 | Taiga 1; Floresta temperada úmida 1; Brejo 1 | Carne crua 4–6, Couro 2–3 🔪 | territorial 3,2 (investe em quem chega perto) |
 | `reindeer` | Rena | passivo | anda · dia | 52 · 0 · 5.6 · — | +0 · 10 | Tundra 4–9; Taiga 3–6 | Carne crua 2–3, Couro 1–2 (90%) 🔪 | manada foge junta; migra |
 | `lynx` | Lince | hostil | anda · noite | 48 · 5.5 · 5 · 7.5 | +0 · 30 | Taiga 1; Floresta temperada 1; Prado alpino 1 | Carne crua 1, Couro 1 (80%) 🔪 | espreita (devagar) e dá o bote |
-| `wild_horse` | Cavalo selvagem | passivo | anda · dia | 72 · 0 · 6.4 · — | +0 · 10 | Estepe 3–7; Deserto frio 3–5; Mesas 3–5; Charneca 3–5 | Carne crua 3–4, Couro 2 🔪 | manada foge junta (galope); migra |
+| `wild_horse` | Cavalo selvagem | passivo | anda · dia | 72 · 0 · 6.4 · — | +0 · 10 | Estepe 3–7; Deserto frio 3–5; Mesas 3–5; Charneca 3–5 | Carne crua 1, Couro 4–5 🔪 | manada foge junta (galope); migra; calmo: só foge de quem corre a até 9 tiles; pelagens (baio, alazão, tordilho, preto); domado com trigo (docs/HORSE.md) |
 | `bison` | Bisão | neutro | anda · sempre | 175 · 10 · 4.5 · — | +1 · 20 | Estepe 3–8; Várzea 3–6 | Carne crua 5–7, Couro 3–4 🔪 | manada; migra; territorial 2,6; a manada inteira revida |
 | `yak` | Iaque | neutro | escala · sempre | 140 · 9 · 3.8 · — | +1 · 20 | Tundra alta (4+ andares) 2–5; Deserto frio alto 2–5; Prado alpino 2–5 | Carne crua 4–5, Couro 2–3 🔪, Lã 2–4 | escala encostas; territorial 2,4 |
 | `camel` | Camelo | passivo | anda · dia | 95 · 0 · 4.4 · — | +0 · 10 | Deserto frio 1–3; Dunas 1–4; Deserto rochoso 1–3; Salar 1–2 | Carne crua 3–5, Couro 2–3 🔪 | ajoelha (deita) às vezes |

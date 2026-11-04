@@ -582,7 +582,7 @@ function lanceThrust(game, p, t) {
     if (!best) return;
     const r = rollPlayerHit(game, best, mult, flat, true, 0.1);
     applyPlayerHit(game, best, r, { ability: 'lance_thrust', knock: THRUST.knock * (0.35 + k) });
-    if (!r.miss) { game.juice.hit?.(best.x, best.y, r.crit || k > 0.7); if (k > 0.6) game.juice.shake(0.22 + k * 0.12); }
+    if (!r.miss && k > 0.6) game.juice.shake(0.22 + k * 0.12); // (the hit itself: dealDamage / the host's echo)
   });
 }
 

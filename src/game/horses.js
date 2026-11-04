@@ -91,7 +91,7 @@ export function tameHorse(game, m) {
 export function mountHorse(game, m, pid) {
   const net = game.net;
   if (m.tiedTo) { const lead = m.tiedTo; m.tiedTo = null; net.emit('stock.rope', { nid: m.nid, on: 0, x: r2(m.x), y: r2(m.y), by: lead, give: { rope: 1 } }); } // (the rope back)
-  m.rider = pid; m.noPush = true; m.state = 'idle'; m.moving = false; m.action = null; m.wantEat = false; m.eatT = 0; m.fleeT = 0; m.fearT = 0;
+  m.rider = pid; m._rideAt = game.worldTime; m.noPush = true; m.state = 'idle'; m.moving = false; m.action = null; m.wantEat = false; m.eatT = 0; m.fleeT = 0; m.fearT = 0;
   resetNav(m);
   net.emit('horse.ride', { nid: m.nid, pid, on: 1, x: r2(m.x), y: r2(m.y) });
 }
@@ -122,6 +122,7 @@ export function rideFollow(game, m, dt) {
   if (!q || q.dead || q.gone) { dismountHorse(game, m, q?.dead ? 'dead' : 'gone'); return; }
   const dx = game.world.dx ? game.world.dx(q.x, m.x) : q.x - m.x, dy = q.y - m.y, d = Math.hypot(dx, dy);
   if (d > HORSE.farRide) { dismountHorse(game, m, 'far'); return; }
+  if (d > 0.6 && game.worldTime - (m._rideAt || 0) < 1) { m.moving = false; return; } // (just mounted: the rider's avatar is on its way to the saddle)
   if (d > 1e-4) { stepGait(m, d); if (!q.facing) m.facing = facingFrom(dx, dy, m.facing); }
   m.x = q.x; m.y = q.y; m.lv = 0; m.z = 0;
   m.moving = !!q.moving || d > 0.01;

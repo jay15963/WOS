@@ -944,7 +944,6 @@ function rigPose(Q, C, sd, flip) {
       } else {
         wRot = 0.08; wSy = 0.5 + 0.1 * (1 - fp); wHx = -0.07; wHl = 0.3 + fp * 0.12; oy -= fp * 0.05;
       }
-      ghost = fp > 0.9 && k < 0.5 ? (sd === 'e' ? 1 : 2) : 0;
     } else if (pose === 'shoot') {
       // bow: raise, draw (string pulled, arrow nocked), release with a small recoil
       const draw = k < 0.12 ? 0 : k < 0.7 ? (k - 0.12) / 0.58 : 0;

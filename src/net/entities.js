@@ -156,9 +156,10 @@ export class EntityServer {
     const G = this.guests.get(pid);
     if (!G) return [];
     const out = [];
-    for (const nid of G.known.keys()) {
+    for (const [nid, k] of G.known) {
       const m = this.byNid(nid);
-      if (m) out.push([nid, m.species, m.dead ? 1 : 0, +m.x.toFixed(2), +m.y.toFixed(2)]);
+      // (the species as last sent to this guest: one that changed in place — a horse tamed — is compared once it went out)
+      if (m) out.push([nid, (k.sk && k.sk.split('|')[2]) || m.species, m.dead ? 1 : 0, +m.x.toFixed(2), +m.y.toFixed(2)]);
     }
     return out;
   }

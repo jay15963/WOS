@@ -399,6 +399,7 @@ export function stockSystem() {
 export function canTie(game, m, pid) {
   if (!m || m.dead || !STOCK[m.species]) return 'Não dá para amarrar';
   if (m.tiedTo) return m.tiedTo === pid ? 'Já está amarrado' : 'Outro jogador já leva este animal';
+  if (m.rider) return 'Alguém está montado nele'; // (a ridden horse, docs/HORSE.md)
   if (tiedTo(game, pid).length >= MAX_TIED) return `Você já leva ${MAX_TIED} animais (o máximo)`;
   return null;
 }
