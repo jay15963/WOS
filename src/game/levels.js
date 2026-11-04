@@ -893,7 +893,9 @@ function collapseCheck(game) {
   const L = game.levels;
   if (L._colV === L.v) return;
   L._colV = L.v;
-  const bad = L.unsupported();
+  // (a settlement's pieces never fall for lack of support: a town is made whole, but its chunks are placed over several
+  // frames — an upper piece's support may simply not be placed yet; game/towns.js)
+  const bad = L.unsupported().filter((o) => o.town == null);
   if (!bad.length) return;
   const net = game.net, drops = [];
   for (const o of bad) {

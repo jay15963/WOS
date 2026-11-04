@@ -33,6 +33,7 @@ defineOp('roof.collapse', {
 // host: collapse `list` (roof structures) — a quarter of the material falls as loot, players under it get hurt
 export function collapseRoofs(game, list) {
   const net = game.net;
+  list = list.filter((o) => o.town == null); // (a settlement's roofs: made whole, their walls may be placed a few frames later)
   if (!net.auth || !list.length) return;
   const drops = [];
   for (const o of list) {
