@@ -204,12 +204,38 @@ export function authAvatarOn(f, pid) { const pl = f.session?.players?.get?.(pid)
 
 // ore tiles: rock with ore, an open 4-neighbour to stand on; nearest to (cx, cy)
 export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
+  const out = oreScan(f, M, cx, cy, maxR, maxTier);
+  if (out.length || !f.game.world.wrap) return out;
+  // a planet: no ore around here — the nearest mountains of its macro map (loaded on this frame)
+  for (const c of planetNear(f, (k, P) => !P.ocean[k] && P.mtn[k] > 0.3, cx, cy, 6)) {
+    const w = f.game.world;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.ensure(w.chunkIndex(c.x + dx * 64, c.y + dy * 64));
+    const o = oreScan(f, M, c.x, c.y, 90, maxTier);
+    if (o.length) return o;
+  }
+  return out;
+}
+// macro cells (32 tiles) of the frame's planet matching pred, nearest to (x, y) first (tests on the planet)
+export function planetNear(f, pred, x, y, n = 1) {
+  const P = f.game.world.source?.planet;
+  if (!P) return [];
+  const out = [], cx = Math.floor(x / 32), cy = Math.floor(y / 32);
+  for (let c = 0; c < P.tMean.length; c++) {
+    if (!pred(c, P)) continue;
+    let dx = Math.abs((c % 512) - cx); if (dx > 256) dx = 512 - dx;
+    out.push([dx + Math.abs(Math.floor(c / 512) - cy), c]);
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return out.slice(0, n).map((q) => ({ c: q[1], x: (q[1] % 512) * 32 + 16, y: Math.floor(q[1] / 512) * 32 + 16 }));
+}
+function oreScan(f, M, cx, cy, maxR, maxTier) {
   const w = f.game.world, out = [];
   const minTier = M.items.ORE_MIN_TIER || [];
   const x0 = Math.max(w.bx0 + 1, Math.floor(cx - maxR)), x1 = Math.min(w.bx1 - 2, Math.floor(cx + maxR));
   const y0 = Math.max(w.by0 + 1, Math.floor(cy - maxR)), y1 = Math.min(w.by1 - 2, Math.floor(cy + maxR));
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const i = w.idx(tx, ty);
+    if (!w.isLoaded(w.chunkIndex(tx, ty))) continue;
     if (w.rock.get(i) !== 1 || !w.ore.get(i) || (minTier[w.ore.get(i)] || 0) > maxTier) continue;
     const opens = [];
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {

@@ -1,9 +1,10 @@
 # WOS — Mundo em pedaços (streaming do planeta)
 
 O mundo deixou de ser um mapa de 256×256 em arrays inteiros. Agora é um **planeta de 16384 × 8192 tiles** (134 M tiles),
-gerado, carregado, simulado, salvo e sincronizado **em pedaços** (chunks de 64 × 64). O mapa clássico de 256×256 continua
-existindo como uma **fonte de mundo** encaixada na origem do planeta (`?source=classic`, o padrão), então todo o jogo e
-os testes rodam no motor novo com as mesmas coordenadas de antes.
+gerado, carregado, simulado, salvo e sincronizado **em pedaços** (chunks de 64 × 64). **Todo mundo novo é um planeta**
+(`?source=planet` é o padrão, também em `?seed=` e `?mp=host`; docs/PLAN-V2.md "O planeta como o jogo"). O mapa clássico
+de 256×256 continua existindo como uma **fonte de mundo** encaixada na origem do planeta (`?source=classic`: dev, testes
+que precisam dele, a vitrine do menu).
 
 | Constante | Valor | Onde |
 |---|---|---|
@@ -126,8 +127,14 @@ Sistemas com região ativa:
   chunk carrega e soltos quando sai; a volta passa só nos baldes ativos, as visitas de cada segundo espalhadas pelos
   quadros (≤ 2 por quadro).
 - **Criaturas** (`mobs.js`): no planeta os geradores são feitos **por chunk** quando ele carrega no anfitrião (layout
-  determinístico, rng do próprio chunk), só enchem a matilha com o chunk ativo, e saem com o chunk (as criaturas fora de
-  combate também). Criaturas longe de todos já dormiam (`SLEEP`). O mapa clássico mantém o layout antigo.
+  determinístico, rng do próprio chunk: as tabelas por bioma da fauna, docs/FAUNA.md — peixes, rebanhos de criação e os
+  bichos de sempre incluídos), só enchem a matilha com o chunk ativo, e saem com o chunk (as criaturas fora de combate
+  também). Criaturas longe de todos já dormiam (`SLEEP`). O mapa clássico mantém o layout antigo.
+- **Acampamentos de saqueadores** (`mut/camps.js`): no planeta, **por chunk** em todo par quando ele carrega (no máximo
+  um por bloco de 3 × 3 chunks, ponto sorteado do bloco, terra aberta e firme, ≥ 60 tiles do início; ids `camp<chunk>:k`).
+  O layout não marca o chunk como alterado (`world._layout`): sai com o chunk e volta igual; os saqueadores (anfitrião)
+  vão e voltam com ele; o estado dos caixotes fica em `game.campState` (vale com o chunk descarregado: op `prop.set`,
+  foto, save, digest).
 - Plantações / corpos / mudas dependem do tempo do mundo (`born` + `worldTime`): continuam certos quando a região volta.
 
 ## 5. Render: janela da GPU
@@ -164,18 +171,24 @@ está do outro lado da costura enquanto desenha. Os sombreadores trabalham em hi
 ## 6. Mapa e minimapa
 
 `src/ui/minimap.js`: um anel de 1024 × 1024 tiles (1 px / tile) com os chunks em volta do jogador, rasterizados quando
-carregam (um por quadro); o mapa grande desenha a imagem grosseira do planeta (`source.macro()`) por baixo e os chunks
-descobertos por cima, com **zoom** (roda / botões + −) e **arrastar**; "Centrar" volta ao jogador. No mundo clássico o mapa
-grande continua mostrando o mapa inteiro.
+carregam (um por quadro), com **relevo sombreado** (cantos `hC`) e o abissal mais escuro; o mapa grande desenha o
+**planeta pintado** (`source.mapImage`: `renderDetail` do planeta — relevo, biomas, costas, rios e lagos, 2048 × 1024 =
+8 tiles por pixel — feito pelo worker do planeta logo depois da partida; até chegar, a imagem grosseira `source.macro()`)
+por baixo, a **névoa** (um véu suave sobre os chunks que o jogador ainda não viu: `game.explored`, um byte por chunk,
+marcado a cada segundo num raio de 2 chunks — `game/explore.js` — e guardado no save do jogador, anfitrião ou convidado,
+como 4 KB de bits em base64) e os chunks do anel por cima, aparecendo ao aproximar (span < 1400 tiles); com **zoom**
+(roda / botões + −) e **arrastar**; "Centrar" volta ao jogador; nomes dos outros jogadores no mapa; de longe só
+jogadores e gigantes. No mundo clássico o mapa grande continua mostrando o mapa inteiro.
 
 ## 7. Save
 
 Save **v10** (`save.js`): semente + configurações + só o que mudou (objetos tirados / tocos, flora nova, estruturas,
 tiles minerados — índices do planeta —, edições do terreno (`terr`: canto → altura, só os cantos editados) e alturas base
 dos prédios (`bzs`), caminhos como corridas esparsas `{ s: 2, g, p }` de `[início, n, valor]`,
-plantações, corpos, saque, andares, barcos…) + o jogador; `src` = a fonte do mundo (o `main.js` abre um mundo salvo com a
-fonte dele). Saves antigos (índices de 256 de largura) não são lidos: são apagados com um aviso ("Este mundo era de uma
-versão antiga…") e um mundo novo nasce da mesma semente.
+plantações, corpos, saque, andares, barcos…) + o jogador (com os chunks explorados: `explored`); `src` = a fonte do
+mundo. Um save que não é de planeta v10 é um **mundo antigo**: a lista de mundos mostra "Mundo antigo — não é compatível
+com o novo planeta" e não deixa jogar (só apagar); se um chegar a abrir, é apagado com um aviso e um mundo novo nasce da
+mesma semente.
 
 ## 8. Multijogador
 
@@ -187,13 +200,25 @@ versão antiga…") e um mundo novo nasce da mesma semente.
 - Entidades: o fluxo de 10 Hz já era por interesse (caixa em volta de cada convidado) — agora atravessa a costura.
 - A foto de entrada carrega o chunk de cada flora nova / construção antes de conferir o terreno dela (quem entra longe do
   anfitrião não perde nada).
-- Ops continuam globais e pequenas (uma por ação). Uma op sobre um chunk que o convidado não tem (um objeto natural, um
-  tile) carrega esse chunk na hora (`findObj` → `chunkOfId`, `Layer.set` → `ensure`), então todo par aplica igual.
+- Uma op sobre um chunk que o convidado não tem (um objeto natural, um tile) carrega esse chunk na hora (`findObj` →
+  `chunkOfId`, `Layer.set` → `ensure`), então todo par aplica igual.
 - Digest: `rock` / `roof` são comparados só nos chunks com tiles minerados (o resto é a fonte pura); as camadas esparsas
   pelos não-zeros.
-- **A fazer** (interesse por chunk dos diffs): filtrar o snapshot e as ops pelos chunks em volta de cada convidado e
-  mandar o diff de um chunk quando ele entra no interesse (e o digest por conjunto de interesse). Hoje o volume é
-  limitado pela atividade dos jogadores, não pelo tamanho do planeta.
+- **Interesse por chunk** (`src/net/interest.js`, só em mundos que dão a volta): quatro jogadores podem estar a milhares
+  de tiles. Uma op **com lugar** (`OP_AT`: estruturas, objetos naturais, tiles, plantações, itens no chão, boias de pesca —
+  os chunks dela, calculados no anfitrião antes de aplicar) só vai a um convidado se um dos chunks dela está perto dele
+  (≤ `R_IN` = 4 chunks, Chebyshev, através da costura) e não está pendente para ele, ou se ele é o dono (`by`); senão ele
+  recebe uma **contagem de pulo** no lugar (um número na lista da op batch: os seq continuam contíguos, `net.onOps`) e os
+  chunks dela ficam **pendentes** (`pl.int.stale`). Ops sem lugar (relógio, criaturas, barcos, corpos, caixotes de
+  acampamento, caminhos, terreno, jogadores…) vão para todos. A cada quadro (logo depois do flush) os chunks pendentes que
+  chegaram perto de um convidado vão como uma **diferença de chunks** `{ t: 'cd', s, c: [chunks], d }`
+  (`snapshot.js serializeChunks`: as linhas locais daqueles chunks) que o convidado aplica só ali (`applyWorld(…, 'chunk',
+  scope)`: reconcilia dentro do escopo, nada global). A foto de entrada / ressincronização leva só as linhas locais perto
+  do convidado (`ready` diz onde ele está); os chunks das outras começam pendentes. O **digest** de cada convidado deixa
+  de fora os chunks pendentes dele e o anel em volta (uma construção / um caminho alcança um chunk ao lado): o anfitrião
+  manda a lista (`dg.ex`) e os dois lados fazem o hash das mesmas linhas (`computeDigest(game, ex)`; a suíte de testes
+  compara assim também). O fluxo de criaturas já era por caixa em volta de cada convidado. Itens no chão guardam onde
+  caíram (`x0, y0`) para o lugar não depender do ímã.
 
 ## 9. Desempenho (medido)
 
@@ -236,9 +261,10 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
 
 ## 11. Limitações conhecidas / próximos passos
 
-- Interesse por chunk dos diffs no multijogador (§8).
-- No planeta sintético não há acampamentos de saqueadores, rebanhos nem cardumes (os geradores deles ainda são do mapa
-  inteiro); o gerador real do planeta deve trazer as zonas.
+- No planeta sintético (`?source=synth`) não há acampamentos de saqueadores, rebanhos nem cardumes (só o planeta real
+  tem as tabelas por bioma e os acampamentos por chunk).
+- Interesse: corpos, caminhos, edições de terreno e barcos ainda vão para todos (poucos); uma op com muitos lugares
+  (expirar itens pelo mundo) vai a quem estiver perto de qualquer um deles.
 - Chunks alterados ficam na memória até o fim da sessão (o save os guarda como diffs); um próximo passo é descarregá-los
   serializando o diff.
 - Distâncias de muitos sistemas cosméticos ainda usam `x − x'` direto: só erram exatamente na costura (oceano abissal).

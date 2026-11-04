@@ -874,3 +874,57 @@ casco, puro: as regras e o modelo 3D usam o mesmo), `src/game/mut/boats.js` (int
     na margem ainda podem ser mordidos.
 - **Lacunas:** a ponte em diagonal (outro trabalho) não existe; com 4 jogadores o lugar dos animais é o banco da frente
   (2 animais).
+
+## O planeta como o jogo (added later)
+
+Pedido do dono: o planeta (docs/PLANET.md, docs/STREAMING.md) passa a ser **o** jogo; "a mecânica de inverno e
+andarilhos ainda existe, porém nos polos os andarilhos são constantes a noite e próximo dos polos o inverno chega";
+"criar um novo nível de profundidade de mar que seria o oceano, onde nem o barco consegue navegar"; continentes sem
+ligação; saves antigos podem ser descartados.
+
+- **Mundos novos são planetas:** "Criar mundo" (nome, modo, duração do ano) faz um planeta da semente; `?seed=` e
+  `?mp=host` também (`?source=classic|synth` para dev / testes; o mapa clássico continua na vitrine do menu). O início é
+  sempre **temperado** e bem dentro da zona (`planetSource.js temperateSpawn`: o ponto do `findSpawn` ou, se ele cai
+  numa borda de zona, a célula boa mais perto com 1 °C de folga num anel de 48 tiles). Convidados nascem no início do
+  mundo, como antes. **Mundos antigos** (save do mapa 256 × 256 ou de outra versão) aparecem na lista como "Mundo antigo
+  — não é compatível com o novo planeta", sem jogar (só apagar); "Continuar" pula eles.
+- **Estações por latitude** (`src/game/seasons.js`): o relógio do ano é um só (calendário), os efeitos são do lugar. Cada
+  tile tem a sua **zona** (camada `zone` do mundo: o clima do planeta + a altitude do próprio tile — picos altos são frios
+  em qualquer lugar): 0 tropical (sem inverno: estação chuvosa na primavera + verão, seca no outono + inverno), 1 quente
+  ("Inverno ameno" curto: sem neve, sem gelo, sem andarilhos), 2 temperado (o ano de antes), 3 subpolar (o inverno chega
+  no meio do outono e fica até o meio da primavera), 4 polar (inverno eterno: "Inverno polar", andarilhos **toda
+  noite**). `game.seasons[z]` (5 estados), `seasonAt(game, x, y)` para quem simula, `game.season` = a estação onde o
+  jogador local está (HUD, frio, aparência; ao mudar de zona um aviso diz como é o ano ali). Gelo por zona
+  (`world.iceZ`, `iceAt` / `frozenAt`: andar, nadar, barco, pesca, caminhos das criaturas); o abissal nunca congela.
+- **Por lugar:** plantações (`mut/crops.js`: parado no inverno duro, metade no inverno ameno, 0,8 na estação seca
+  tropical, nada na região polar — "Frio demais: nada cresce aqui fora"), rebrota natural (`flora.js growK`, as mesmas
+  regras; pedrinhas e gravetos sempre), lobos ×3 e pouca caça no inverno do lugar do covil, andarilhos e gigantes perto
+  dos jogadores que estão num inverno duro (um andarilho que sai do inverno se desfaz), temperatura sentida do clima do
+  planeta (`survival.js baseTemp`: média anual com a altitude ± metade da amplitude na curva do ano da zona, levada para a
+  escala do jogo: verão temperado ~ o prado clássico, inverno ~ o inverno clássico, polos muito abaixo, trópicos
+  quentes), chuva local (desertos quase sem chuva, trópicos com estações). Visual (neve, gelo, árvores peladas) pela
+  estação do lugar do jogador, com transição suave ao trocar de zona; a flora tropical usa o inverno do próprio lugar
+  (`SEASON_LOCAL.winterAt`).
+- **Terra quente e seca (o Nilo):** na zona quente e nas terras áridas (desertos, badlands, savana com < 650 mm, estepe /
+  mata seca com < 450 mm) plantação só cresce no **solo fértil** que a água traz — o gerador do planeta põe uma faixa
+  verde nítida ao longo de todo rio e córrego que cruza terra seca (larga nos vales planos dos rios grandes), em volta de
+  lagos e lagoas (oásis) e nos deltas secos, com tamareiras e papiro — e mais devagar (`HOT_K` = 0,6, "Crescimento
+  lento: calor" no canteiro). Fora dela: "Solo seco: só perto de rios". Trópicos úmidos crescem o ano inteiro.
+- **Oceano abissal:** água classe 3 (bit 8 da camada `zone`): o barco não entra ("Oceano aberto: o barco não aguenta", o
+  casco para na borda), nadar ali é gelado (−30 °C) e cansa (energia some em ~11 s, depois o mar tira 5 % da vida a cada
+  2 s; evento `abyss` para os caçadores do mar), desenhado mais escuro com marulho longo e espuma nas cristas, mais escuro
+  no radar.
+- **Acampamentos de saqueadores no planeta:** por pedaço (no máximo um por bloco de 3 × 3 pedaços, um ponto sorteado do
+  bloco, mantido se o chão original ali é terra aberta, firme e seca — nunca oceano, gelo, terra polar, pântano, praia,
+  falésia — ≥ 60 tiles do início), montados em todo par quando o pedaço carrega e desfeitos com ele; saqueadores no
+  anfitrião enquanto o pedaço existe; o estado dos caixotes (`game.campState`) vale com o pedaço carregado ou não.
+  **Rebanhos** (vaca, ovelha, porco, galinha) entram nas tabelas da fauna (uma fonte só de nascimentos: docs/FAUNA.md).
+- **Mapa:** o planeta inteiro pintado (relevo, biomas, costas, rios e lagos — o worker do planeta pinta depois da partida,
+  8 tiles por pixel), névoa suave sobre o que o jogador ainda não viu (pedaços explorados guardados no save de cada
+  jogador), os pedaços detalhados aparecendo ao aproximar, nomes dos outros jogadores; radar com relevo sombreado.
+- **Multijogador por interesse** (`src/net/interest.js`, docs/STREAMING.md §8): cada convidado só recebe as mudanças do
+  mundo perto dele; o resto chega como diferença do pedaço quando ele se aproxima.
+- **Testes:** a suíte roda no planeta; cenários LZ1 (andarilhos numa noite de verão polar), LZ2 (barco parado no
+  abissal, nado no abissal), LZ3 (dois jogadores longe, em zonas diferentes: estação, gelo, temperatura, plantação,
+  rebrota, andarilhos), LZ4 (interesse: criaturas e mudanças só perto) e ST1 refeito (mudanças longe chegam ao chegar
+  perto).
