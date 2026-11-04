@@ -30,6 +30,9 @@ import { stepGait } from './anim.js';
 import { fertileAt } from '../world/soil.js';
 
 export const isStockSpecies = (sp) => !!STOCK[sp];
+// a settlement's animal (the pens of the villages, game/towns.js): owned by the place, never by players — no hunger,
+// taming, breeding or ties (host: m.town; a guest's proxy: its camp 'town<sid>' from the entity stream)
+export const isTownAnimal = (m) => !!m && (m.town != null || (typeof m.camp === 'string' && m.camp.startsWith('town')));
 const dayLen = (game) => game.env?.dayLength || 780;
 const r2 = (v) => Math.round(v * 100) / 100;
 const portion = (m) => 1 / (STOCK[m.species]?.perDay || 1);
@@ -324,7 +327,7 @@ const artigo = (sp) => (STOCK[sp]?.g === 'm' ? 'Um' : 'Uma');
 function farmTick(game, dt) {
   const now = game.worldTime, D = dayLen(game);
   const herd = [];
-  for (const m of game.entities) if (m.stock && m.isMob && !m.proxy) herd.push(m);
+  for (const m of game.entities) if (m.stock && m.isMob && !m.proxy && m.town == null) herd.push(m); // (a settlement's animals: not the farm's)
   // tied animals that died: the rope goes back to the leader
   for (const m of herd) if (m.dead && m.tiedTo) untie(game, m, 'dead');
   const byFeeder = new Map();
@@ -398,6 +401,7 @@ export function stockSystem() {
 // ---------- ties (host side of mut/stock.js) ----------
 export function canTie(game, m, pid) {
   if (!m || m.dead || !STOCK[m.species]) return 'Não dá para amarrar';
+  if (isTownAnimal(m)) return 'Este animal é da vila';
   if (m.tiedTo) return m.tiedTo === pid ? 'Já está amarrado' : 'Outro jogador já leva este animal';
   if (m.rider) return 'Alguém está montado nele'; // (a ridden horse, docs/HORSE.md)
   if (tiedTo(game, pid).length >= MAX_TIED) return `Você já leva ${MAX_TIED} animais (o máximo)`;
@@ -481,6 +485,7 @@ export function describeStock(game, m) {
   if (!m || m.dead || !STOCK[m.species]) return null;
   const p = game.player, nm = nameOf(m.species, isBabyM(m)).toLowerCase();
   const base = { o: m, stockAnimal: true, x: m.x, y: m.y, reach: 0.9 + (m.r || 0.3) };
+  if (isTownAnimal(m)) return { ...base, kind: 'stock_tie', verb: `${nameOf(m.species, isBabyM(m))} da vila`, icon: 'hand', prio: -1 };
   if (m.tiedTo === ME(game)) return { ...base, kind: 'stock_untie', verb: `Soltar ${nm}`, icon: 'hand', prio: 4 };
   if (m.tiedTo) return null;
   if (p.inv.count('rope') < 1) return { ...base, kind: 'stock_tie', verb: 'Amarrar (precisa de corda)', icon: 'hand', prio: -1 };
@@ -563,6 +568,7 @@ export function openFeeder(game, o) {
 // "Vaca · domesticada" (gold), "· com fome" (orange), "· faminta" (red), "· amarrada" — null for other creatures
 export function stockLabel(e) {
   if (!STOCK[e.species]) return null;
+  if (isTownAnimal(e)) return [`${e.name} · da vila`, '#cfe0a8'];
   if (e.species === 'horse') { // (docs/HORSE.md)
     const sad = e.saddle ? ' · selado' : '';
     if (e.starving) return [`${e.name} · faminto!`, '#ff6a50'];

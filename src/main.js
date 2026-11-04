@@ -198,6 +198,7 @@ async function boot() {
     const netui = installNetUI(game);
     addSystem(game, netui);
     window.game = game; // debug handle
+    if (QS.has('prof')) game._prof = new Map(); // (dev: the slowest systems from the very first frame — game.js _prof)
     if (!atlas.check.ok) game.later(1.5, () => game.events.emit('toast', { text: 'Gráficos incompletos neste navegador — recarregue a página (Ctrl+Shift+R). O multijogador fica bloqueado.', kind: 'warn' }));
 
     if (choice.mode === 'host') {

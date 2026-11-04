@@ -26,14 +26,15 @@ export function installPlaceBanner(game, root) {
   const show = (title, sub, B) => {
     el.innerHTML = `${B ? `<img src="${bannerURL(B, 40, 60)}" alt="">` : ''}<div><div class="pb-t">${esc(title)}</div><div class="pb-rule"></div><div class="pb-s">${esc(sub)}</div></div>${B ? `<img src="${bannerURL(B, 40, 60)}" alt="">` : ''}`;
     el.classList.remove('on');
-    void el.offsetWidth;
-    el.classList.add('on');
     clearTimeout(hideT);
-    hideT = setTimeout(() => el.classList.remove('on'), 4200);
+    // (no forced layout: the fade starts on the next frame; the hold, then the fade out)
+    hideT = setTimeout(() => { el.classList.add('on'); hideT = setTimeout(() => el.classList.remove('on'), 4200); }, 40);
     game.lastPlace = { title, sub };
   };
   let lastK = null, lastTown = null;
   game.events.on('place', (d) => {
+    // the first one (the arrival in a new / loaded world) waits for the loading screen to fade
+    if (d.first) { setTimeout(() => game.events.emit('place', { ...d, first: false }), 1600); return; }
     const K = d.kingdom, town = d.town, k = K ? K.id : -1;
     if (town && town.id !== lastTown) show(town.name, `${KIND[town.kind]} · Reino de ${K ? K.name : '—'}`, K?.banner);
     else if (!town && k !== lastK) {

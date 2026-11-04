@@ -27,7 +27,8 @@ import { isNight } from './mobs.js';
 import { allPlayers, minPlayerDist } from './players.js';
 import { spawnStock } from './livestock.js';
 
-const BUDGET_MS = 5;           // per frame for queued pieces (the chunks next to the local player go at once)
+const BUDGET_MS = 4;           // per frame for queued pieces
+const URGENT_MS = 12;          // per frame for the chunks next to the local player (it may stand there)
 const RESTORE_AFTER = 2;       // days before a destroyed piece is rebuilt (nobody within RESTORE_FAR tiles)
 const RESTORE_FAR = 40;
 export const KIND_PT = { city: 'Cidade', castle: 'Castelo', village: 'Vila' };
@@ -50,7 +51,23 @@ export function installTowns(game) {
   for (const c of [...w.live].sort((a, b) => a - b)) onLoad(c);
   w.onLoad.push(onLoad);
   w.onEvict.push((c) => { if (game.world === w) unloadChunk(game, c); });
+  warmUp(game);
   return T;
+}
+// at the boot (behind the loading screen): the settlement chunks around the start are made at once, with their pieces —
+// the first frames of a new game never build a village (a new world starts on a village plaza)
+function warmUp(game) {
+  const w = game.world, T = game.towns, I = realmIndex(T.realm), t0 = performance.now();
+  const sp = w.spawn, c0 = w.chunkIndex(sp.x, sp.y);
+  if (c0 < 0) return;
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+    const cy = (c0 >>> 8) + dy, c = cy * 256 + ((((c0 & 255) + dx) % 256) + 256) % 256;
+    if (cy < 0 || cy > 127 || !I.get(c)?.s.length) continue;
+    w.ensure(c);
+  }
+  for (const j of T.jobs) runJob(game, j, 0);
+  T.jobs.length = 0;
+  T.stats.warmMs = Math.round(performance.now() - t0);
 }
 
 // ---------- the pieces of one chunk ----------
@@ -259,11 +276,12 @@ export function townsSystem() {
         const near = (c) => { let dx = Math.abs((c & 255) - pcx); if (dx > 128) dx = 256 - dx; return Math.max(dx, Math.abs((c >>> 8) - pcy)) <= 1; };
         // the chunks around the local player at once (it may stand there now), the rest within the frame budget
         T.jobs.sort((a, b) => (near(b.c) - near(a.c)) || a.c - b.c || a.sid - b.sid);
-        const deadline = performance.now() + BUDGET_MS;
+        // (next to the player: a bigger slice of the frame — it may be standing there after a teleport / a join)
+        const t0 = performance.now(), deadline = t0 + BUDGET_MS, urgentEnd = t0 + URGENT_MS;
         while (T.jobs.length) {
           const j = T.jobs[0], urgent = near(j.c);
-          if (!urgent && performance.now() > deadline) break;
-          if (!runJob(game, j, urgent ? 0 : deadline)) break;
+          if (performance.now() > (urgent ? urgentEnd : deadline)) break;
+          if (!runJob(game, j, urgent ? urgentEnd : deadline)) break;
           T.jobs.shift();
           T.stats.jobs++;
         }

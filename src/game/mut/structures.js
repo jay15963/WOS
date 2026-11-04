@@ -217,7 +217,8 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   const wasBlueprint = !!o.blueprint;
   if (!o.moveOf) gridRemove(game, o);
   if (!o.lv) noGrowStamp(game, o.tx, o.ty, o.fw, o.fh, -1);
-  w.removeObject(o);
+  if (o.town != null) w._layout = (w._layout || 0) + 1; // (a settlement's piece: its chunk is not changed by it — the town state keeps it)
+  try { w.removeObject(o); } finally { if (o.town != null) w._layout--; }
   occRemove(game, o);
   if (!wasBlueprint && !o.lv && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid.set(w.idx(x, y), 0);
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }

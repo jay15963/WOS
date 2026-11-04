@@ -13,7 +13,7 @@ const SOON = {
   army: ['Exército', 'Com reputação no reino você poderá entrar no exército daqui, seguir as ordens do general e defender (ou tomar) castelos e cidades.'],
   land: ['Propriedades', 'Terrenos e casas à venda ou para alugar. Dentro da terra do lugar só se constrói num terreno comprado; o reino cobra um imposto por dia.'],
 };
-const KIND_ART = { city: 'a cidade', castle: 'o castelo', village: 'a vila' };
+const KIND_ART = { city: 'à cidade', castle: 'ao castelo', village: 'à vila' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const dirPt = (dx, dy) => {
   const a = Math.atan2(dy, dx), k = (Math.round(a / (Math.PI / 4)) + 8) % 8;
@@ -38,6 +38,12 @@ function style() {
 .p-mural .mu-body b { color: #ffe39a; }
 .p-mural .mu-body h4 { font: 700 15px/1.2 var(--n-fd); margin: 12px 0 5px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--n-mustard-hi, #f0c24a); }
 .p-mural .mu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 5px 10px; }
+.p-mural .mu-lead { margin: 2px 0 10px; font-size: 15px; }
+.p-mural .mu-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.p-mural .mu-st { background: linear-gradient(180deg, rgba(251,241,220,0.96), rgba(232,214,176,0.94)); border-radius: 9px; padding: 7px 6px 6px; text-align: center; box-shadow: inset 0 0 0 1.5px rgba(60,36,18,0.25); }
+.p-mural .mu-st b { display: block; font: 700 22px/1 var(--n-fd); color: #8a3a1c; }
+.p-mural .mu-st span { display: block; font: 700 11px/1.15 system-ui, sans-serif; color: #4a3020; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 4px; }
+.p-mural .mu-note { color: rgba(246,234,208,0.85); }
 .p-mural .mu-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-bottom: 1px solid rgba(246,234,208,0.14); }
 .p-mural .mu-row .k { color: rgba(246,234,208,0.72); }
 .p-mural .mu-list { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -72,18 +78,12 @@ export function muralBody(panels) {
     const capLine = cap.id === I.id ? 'Aqui é a capital do reino.' : `A capital, ${esc(cap.name)}, fica a ${Math.round(Math.hypot(g.world.dx(cap.x, I.x), cap.y - I.y))} passos a ${dirPt(g.world.dx(cap.x, I.x), cap.y - I.y)}.`;
     const fields = L?.fields.length || 0, pens = L?.pens.length || 0, gates = L?.gates.length || 0;
     const guards = L?.hooks.guards.length || 0;
-    body = `<p>Bem-vindo a ${KIND_ART[I.kind]} de <b>${esc(I.name)}</b>. ${capLine}</p>
-      <h4>O lugar</h4>
-      <div class="mu-grid">
-        <div class="mu-row"><span class="k">Moradores</span><b>${I.pop}</b></div>
-        <div class="mu-row"><span class="k">Casas com camas</span><b>${L?.hooks.homes.length || 0}</b></div>
-        <div class="mu-row"><span class="k">Portões</span><b>${gates}</b></div>
-        <div class="mu-row"><span class="k">Postos da guarda</span><b>${guards}</b></div>
-        <div class="mu-row"><span class="k">Campos</span><b>${fields}</b></div>
-        <div class="mu-row"><span class="k">Cercados</span><b>${pens}</b></div>
-      </div>
+    const homes = L?.hooks.homes.length || 0, beds = (L?.hooks.homes || []).reduce((n, h) => n + h.beds.length, 0);
+    const stat = (n, label) => `<div class="mu-st"><b>${n}</b><span>${label}</span></div>`;
+    body = `<p class="mu-lead">Bem-vindo ${KIND_ART[I.kind]} de <b>${esc(I.name)}</b>. ${capLine}</p>
+      <div class="mu-stats">${stat(I.pop, 'Moradores')}${stat(homes, homes === 1 ? 'Casa' : 'Casas')}${stat(beds, 'Camas')}${stat(gates, gates === 1 ? 'Portão' : 'Portões')}${stat(guards, 'Postos da guarda')}${stat(fields, 'Campos')}${stat(pens, 'Cercados')}${stat(L?.buildings.length || 0, 'Construções')}</div>
       <h4>Construções</h4><div class="mu-list">${builds || '<span class="muted">—</span>'}</div>
-      <h4>Regras</h4><p>Dentro da terra ${I.kind === 'castle' ? 'do castelo não se constrói' : `de ${esc(I.name)} só se constrói num terreno comprado (em breve, na aba Propriedades)`}. Os portões abrem de dia e fecham à noite e quando há inimigos dentro.</p>`;
+      <h4>Regras do lugar</h4><p class="mu-note">${I.kind === 'castle' ? 'Dentro do castelo não se constrói.' : `Dentro da terra de ${esc(I.name)} só se constrói num terreno comprado (em breve, na aba Propriedades); fora dela, à vontade.`} Os portões abrem de dia e fecham à noite e quando há inimigos dentro.</p>`;
   } else if (tab === 'realm') {
     const ss = K.settlements.map((sid) => realm.settlements[sid]);
     const chip = (s) => `<span class="mu-chip${s.id === I.id ? ' here' : ''}">${esc(s.name)}</span>`;

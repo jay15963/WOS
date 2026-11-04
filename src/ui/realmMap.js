@@ -36,7 +36,7 @@ function territories(realm) {
     const edge = r !== k || l !== k || up !== k || dn !== k;
     const o = i * 4;
     if (edge) { d[o] = col[0] * 0.55; d[o + 1] = col[1] * 0.55; d[o + 2] = col[2] * 0.55; d[o + 3] = 235; }
-    else { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 105; }
+    else { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 150; }
   }
   g.putImageData(im, 0, 0);
   // where to write each kingdom's name: the mean of its cells (the capital's continent)
@@ -77,7 +77,7 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
   // territories (repeated across the seam like the planet picture)
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = full ? 1 : 0.85;
+  ctx.globalAlpha = !full ? 0.6 : sw > 4000 ? 1 : sw > 1500 ? 0.8 : 0.6; // (zoomed out: the kingdoms' colours read; zoomed in: the land shows through)
   const mx = sx / TPP, my = sy / TPP, mw = sw / TPP, mh = sh / TPP;
   for (let k = Math.floor(mx / RW); k * RW < mx + mw; k++) {
     const ox = k * RW, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + RW), b0 = Math.max(0, my), b1 = Math.min(RH, my + mh);

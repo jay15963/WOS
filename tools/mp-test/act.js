@@ -15,6 +15,7 @@ const PATHS = {
   corpses: 'game/corpses.js', mcorpses: 'game/mut/corpses.js', levels: 'game/levels.js', players: 'game/players.js',
   mobs: 'game/mobs.js', seasons: 'game/seasons.js', walkers: 'game/walkers.js', giants: 'game/giants.js', ballista: 'game/ballista.js',
   boats: 'game/boats.js', boatsc: 'game/content/boats.js', horses: 'game/horses.js',
+  towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

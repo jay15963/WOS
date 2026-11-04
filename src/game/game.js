@@ -285,6 +285,7 @@ export class Game {
     const sh = (o) => { if (!seam) return; const nx = wld0.near(o.x, this.cam.x); if (nx !== o.x) { shifted.push(o, o.x); o.x = nx; } };
     const HG = this.world.height.any ? this.world.height : null; // terrain height (docs/TERRAIN-HEIGHT.md)
     const TK = this.tunnels?.k.size ? this.tunnels.k : null; // tunnels: tiles whose floor is shown (game/tunnels.js)
+    const roofsOn = !!this.roofs?.regions.size;
     this.world.forChunks(mx0, my0, mx1, my1, (c) => {
       for (const d of c.decor) {
         if (seam) sh(d);
@@ -293,7 +294,11 @@ export class Game {
       for (const o of c.objects) {
         if (o.roof) continue; // roof tiles: drawn by the roof regions (src/game/roofs.js collect)
         if (seam) sh(o);
-        if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
+        if (!(o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1)) continue;
+        // what stands under an opaque roof is never drawn (the skip below): left out before the depth keys and the sort —
+        // a settlement holds hundreds of floors and pieces of furniture (docs/REINOS.md)
+        if (roofsOn && !o.draw && underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) continue;
+        list.push(o);
       }
     });
     for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId) && !e._riddenBy) list.push(e); } // a body on the ground replaces the dead (corpses.js); a ridden horse is drawn with its rider (horses.js)

@@ -436,6 +436,17 @@ export function generateRealm(p) {
 }
 
 // ---------- queries (any peer, any thread) ----------
+// a hash of everything in the realm (tests: two peers made the same kingdoms, settlements, roads and territories)
+export function realmDigest(realm) {
+  let h = 2166136261;
+  const mix = (v) => { const s = String(v); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } h ^= 44; h = Math.imul(h, 16777619); };
+  for (const K of realm.kingdoms) { mix(K.name); mix(K.color); mix(K.capital); mix(K.comp); mix(K.area); mix(K.settlements); mix(K.neighbours); mix(JSON.stringify(K.banner)); }
+  for (const s of realm.settlements) { mix(s.name); mix(s.kind); mix(s.k); mix(s.x); mix(s.y); mix(s.r); mix(s.ro); mix(s.pop); mix(s.walls); mix(s.exits.join(';')); }
+  for (const R of realm.roads) { mix(R.a); mix(R.b); mix(R.k); mix(R.w); for (let i = 0; i < R.pts.length; i++) mix(R.pts[i]); }
+  for (let i = 0; i < realm.owner.length; i++) { h ^= realm.owner[i]; h = Math.imul(h, 16777619); h ^= realm.district[i] & 255; h = Math.imul(h, 16777619); h ^= realm.district[i] >> 8; h = Math.imul(h, 16777619); }
+  mix(realm.starts);
+  return (h >>> 0).toString(36);
+}
 export const canReach = (realm, a, b) => !!realm && a >= 0 && b >= 0 && realm.kingdoms[a]?.comp === realm.kingdoms[b]?.comp;
 export const kingdomAtCell = (realm, c) => (realm && c >= 0 ? realm.owner[c] - 1 : -1);
 export function kingdomAt(realm, x, y) { return realm ? realm.owner[cellAt(x, y)] - 1 : -1; }
