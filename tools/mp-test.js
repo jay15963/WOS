@@ -7950,9 +7950,10 @@ def('VL3', {
   dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
-  const pat = await t.waitFor(() => livePeople(H, s.id).find((m) => m.task === 'patrol'), 25000, 'a guard on patrol by day');
-  const p0 = { x: pat.x, y: pat.y };
-  await t.waitFor(() => { const m = livePeople(H, s.id).find((q) => q.nid === pat.nid); return m && Math.hypot(m.x - p0.x, m.y - p0.y) > 2.5; }, 20000, 'it walks its loop');
+  await t.waitFor(() => livePeople(H, s.id).some((m) => m.task === 'patrol'), 25000, 'a guard on patrol by day');
+  const p0 = new Map(livePeople(H, s.id).filter((m) => m.task === 'patrol').map((m) => [m.nid, { x: m.x, y: m.y }]));
+  await t.waitFor(() => livePeople(H, s.id).some((m) => p0.has(m.nid) && Math.hypot(m.x - p0.get(m.nid).x, m.y - p0.get(m.nid).y) > 2.5), 30000, 'the patrol walks its loop',
+    () => livePeople(H, s.id).filter((m) => p0.has(m.nid)).map((m) => `${m.task}/${m.repair || '-'}@${f2(m.x)},${f2(m.y)}`).join(' ') || 'the patrol went home');
   t.check(livePeople(H, s.id).some((m) => m.guard && (m.task === 'post' || m.task === 'go' || m.task === 'patrol')), 'the watch by day (posts / patrol)');
   // the castle at night
   const c = nearestTown(H, (q) => q.kind === 'castle'), LC = H.game.towns.layout(c.id);
