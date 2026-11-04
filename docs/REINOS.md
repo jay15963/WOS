@@ -239,7 +239,7 @@ Prints em `shots/sg_*.png` (não vão para o git).
 
 O que já está no jogo: os reinos, os territórios, as vilas / castelos / cidades feitos de estruturas de verdade, as
 muralhas, os portões, as estradas, o mural e o mapa. Ainda **sem moradores, guardas, comércio, trabalhos** (fase 2): as
-abas do mural que dependem deles dizem "Em breve".
+abas do mural que dependem deles dizem "Em breve". (Fase 2: o comércio, os trabalhos e as propriedades estão no §10.)
 
 ### O reino na semente (`src/world/realm/`)
 
@@ -288,7 +288,7 @@ abas do mural que dependem deles dizem "Em breve".
 - **Animais dos lugares**: nos currais, da vila (não dos jogadores: nem amarrar, nem criar), surgem aos poucos.
 - **Regra de construção**: dentro da terra de uma vila / cidade — "Terra de <Vila>: compre um terreno no mural"; no
   castelo — "<Castelo>: não se constrói no castelo"; as peças de um lugar não se desmontam ("Isto pertence a …"); fora
-  dos territórios, livre (o modo criativo ignora a regra).
+  dos territórios, livre (o modo criativo ignora a regra). Fase 2 (§10): dentro de um terreno comprado pelo jogador, pode.
 - **Nível do povo** (fase 2, §7b): `realmNpcLevel(game, s)` / `game.towns.npcLevel(sid)` — a distância ao início dá o
   `baseLevel` (nunca guardado); o povo acompanha o jogador mais avançado até o nível dos lugares mais distantes.
 
@@ -305,7 +305,8 @@ primeira vez e a dica "Veja o mural (E)".
 ### Mural, HUD e mapa
 
 - Mural (`ui/mural.js`): nome, tipo, reino, brasão, população (todo número com rótulo); abas Lugar · Reino ·
-  Trabalhos · Comércio · Exército · Propriedades (as quatro últimas: "Em breve").
+  Trabalhos · Comércio · Exército · Propriedades (fase 2, §10: Trabalhos, Comércio e Propriedades prontos; Exército
+  "Em breve").
 - Ao entrar num lugar: a faixa "Reino de X — Vila Y" (`ui/placebanner.js`).
 - Mapa (`ui/realmMap.js`, dos dados do reino — não da camada de chunks): territórios nas cores dos reinos (clareadas
   para ler sobre o planeta) com a linha de borda, estradas, ícones e nomes por importância — de longe a cor cheia, os
@@ -342,5 +343,193 @@ construção pula as peças dos lugares.
 - Só vaus nos rios por enquanto (pontes depois). Os lugares ficam sempre em terra firme e habitável.
 - O dano de cerco fica até alguém consertar; sem moradores ainda, os andarilhos de dia limpam o dano (fase 2: os
   guardas consertam).
-- Baús, camas e comedouros dos lugares não são usáveis (fase 2: propriedades, trabalho).
-- O castelo não vende terreno; a cidade e a vila venderão pelo mural (fase 2).
+- Baús, camas e comedouros dos lugares não são usáveis (fase 2: propriedades, trabalho). **Fase 2:** os baús e as camas
+  de uma casa comprada / alugada são de quem mora nela (ver "Fase 2 — economia"); os comedouros continuam do lugar.
+- O castelo não vende terreno; a cidade e a vila vendem pelo mural (fase 2: aba Propriedades).
+
+## 10. Fase 2 — economia
+
+O dinheiro, o comércio, os trabalhos, a reputação, o reino / viajante, as casas, os terrenos e o imposto (§3, §6, §7).
+Código: `game/content/eco.js` (números), `game/eco.js` (o modelo, o dia do mercado no anfitrião, o quadro de trabalhos,
+casas e terrenos, a API `game.eco.api`), `game/mut/eco.js` (intents / ops), `ui/muralEco.js` (as abas do mural),
+`ui/ecoHud.js` (bolsa, rastreador, waypoint, divisas dos terrenos, avisos). Ganchos de uma linha em `towns.js`
+(regra do terreno, baú da casa, porta da casa), `mut/structures.js` (`chestOf`, `chest.set`, `placeReason` passa o
+construtor), `building.js` (baú / cama da casa), `player.js` (renascer na cama da casa), `net/net.js` (o anfitrião vê
+as ações para o progresso dos trabalhos), `net/snapshot.js` / `net/digest.js` (parte `eco`), `net/interest.js` (o baú
+de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui/radar.js` / `ui/minimap.js` (waypoint),
+`ui/help.js`, `art/items.js` (ícones da moeda e da encomenda).
+
+### Como se joga
+
+- **Moeda de ouro** (`coin`): item da mochila (pilha de 9 999), cai ao morrer como qualquer item, dá para largar e **dar**
+  a outro jogador (Mochila → selecione → "Dar 10 a Fulano" / "Dar tudo a Fulano", até 4 passos). A **bolsa** no HUD (em
+  cima, à esquerda, debaixo do retrato) mostra o total da mochila e um "+42" / "−12" a cada mudança; toque nela abre a
+  mochila.
+- **Comerciante**: abra o mural (E / toque) → **Comércio**. A lista tem estoque, preço de compra, de venda e quanto você
+  tem; em cima, "Barato aqui: …" e "Vende bem aqui: …" (comparado à média da mesma terra) e as notícias ("Falta de
+  trigo em …", "Sobra de lã em …"). Toque numa mercadoria: a quantidade (− / + / 1 · 5 · 10 · 25 · "pode comprar até N" ·
+  "vender tudo"), os botões **Comprar N** e **Vender N** com o total, quanto sai cada um e o preço depois (+% / −%), e
+  "Vende melhor em: <lugar> <preço> (N passos a leste)" / "Mais barato em: …". Ao lado, a sua mochila com quanto este
+  mercado paga por cada coisa (toque = seleciona). O laço: compre onde é barato (a vila que produz), leve, venda onde
+  falta (a cidade que consome, o castelo que compra comida e armas); cada unidade muda o preço (retorno decrescente), o
+  mercado volta ao normal em alguns dias.
+- **Trabalhador**: mural → **Trabalhos**: o quadro do dia do lugar (novos pedidos a cada amanhecer), cada um com quem
+  pede (nome e ofício), o pedido, o pagamento, a reputação e o prazo. "Aceitar" (até 3 ao mesmo tempo) → o
+  **rastreador** do HUD mostra o trabalho, o progresso e para onde ir (distância e seta; toque = seguir: waypoint
+  dourado no radar, no mapa e no mundo). Feito o trabalho, "Pronto!" → volte ao mural e "Entregar" (coisas pedidas e
+  encomendas saem da mochila). Abandonar custa reputação.
+- **Propriedades**: mural → **Propriedades**: as suas (de qualquer lugar: o que custa por dia, a dívida e os dias de
+  aviso, "Pagar", "Ver", "Vender" / "Devolver"), casas à venda, casas para alugar e terrenos. "Ver" fecha o mural e põe o
+  waypoint na porta da casa / no meio do terreno, e desenha as **divisas dos terrenos** no chão por um tempo (dourado
+  tracejado = à venda, verde-água = seu, cinza = de outro). Comprar uma casa: as portas, os baús e as camas dela passam a
+  ser seus (só você abre; "Renascer aqui"). Comprar um terreno: dentro da terra da vila / cidade só se constrói num
+  terreno seu — dentro da divisa pode, ao lado não ("Terra de <Vila>: compre um terreno no mural", "Terreno de
+  <nome>", "Passa da divisa do terreno"). No modo construir, dentro da vila, as divisas aparecem sozinhas.
+- **Reino**: a aba Reino abre com o cartão "Você e <reino>": viajante ou membro, a reputação (faixa e barra até a
+  próxima), o imposto do reino, o que significa ser membro, e o botão **Entrar no Reino de …** / **Sair do reino** (a
+  qualquer momento, em qualquer mural daquele reino; sair vale de qualquer mural). Sem reino você é **viajante**: comercia
+  e trabalha com todos. Membro: comercia com o próprio reino e com os reinos da mesma terra que não estão em guerra com
+  ele (§3: reinos de outra terra não interagem; a guerra é da fase 3: `game.realms.atWar`); os benefícios (exército,
+  ordens) chegam na fase 3 — o cartão diz isso.
+
+### O mercado (oferta e procura)
+
+- 39 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 22, ensopado 55), matérias-primas
+  (madeira 6, pedra 5, algodão 9, lã 12, couro 24, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
+  ofícios (corda 12, tecido 34, bloco de pedra 14, barras: cobre 40, ferro 64, aço 120, ouro 180), armas e ferramentas
+  (flecha 3, machado / picareta de ferro 160, espada 260, lança 200, arco 70, escudo 220, armaduras de couro 140 / de
+  ferro 420, elmo 200, sela 120) e roupas (casaco de pele 150, gorro de pele 60, túnica 80). Preço = base × fator.
+- **Fator** (só + − × ÷: igual em todos os pares): `0,3 + 0,7·(R + K)/(S + K)`, `K = max(2, R/4)`, entre 0,3 e 3,2 —
+  S o estoque, R a procura (estoque de referência: o volume da mercadoria × população/50; castelo ×1,2; celeiro ×1,3 na
+  comida; armazém ×1,2). Comprar paga ×(1,05 − desconto); vender recebe ×(0,85 + desconto). Cada unidade é cobrada pelo
+  estoque daquele momento (retorno decrescente). O mercado não aceita mais que 4×R.
+- **Perfil de cada lugar** (`profileOf`): produção / consumo por mercadoria a partir do que o lugar tem — campos (trigo,
+  batata, milho, algodão), currais (ovelha: lã e carne; vaca: carne e couro; porco; galinha), serraria (madeira),
+  ferraria (barras, machados, picaretas, flechas; consome carvão e minério), mina (pedra, cobre, ferro, carvão; ouro e
+  jade em algumas), tecelagem (tecido, corda, túnica; consome algodão e lã), taverna (pão, ensopado; consome trigo,
+  carne, batata), capela (ervas), estábulo (selas, couro), quartel (consome comida e armas), torre de menagem (consome
+  ouro, jade, tecido, aço). Cidade: come muito (×2,2) e consome matérias-primas; produz os ofícios, armas e roupas.
+  Castelo: compra comida (×2), armas, ferro, couro, pedra. Clima frio: peles e lenha procuradas; quente: algodão. As
+  peças vêm da planta do lugar quando o anfitrião a conhece (op `eco.feat`, replicada: todos precificam igual); antes
+  disso, das mesmas chances do planejador.
+- **Dia do mercado** (anfitrião, 06:00 de cada dia, ~3 ms para os ~240 lugares): o estoque anda 14 % do caminho até o
+  ponto de equilíbrio `R × (1 + 0,8·produção)/(1 + 0,8·consumo)` (entre 0,32 e 2,6) × estação × notícias, ±4 % de R de
+  ruído; e se espalha devagar (5 % da diferença de estoque/procura por dia) para os 4 vizinhos mais próximos a até
+  1 400 passos **da mesma massa de terra** — nunca pelo mar. O resultado vai inteiro no op `eco.day` (~30 KB por dia).
+- **Estações**: comida de lavoura no inverno: procura ×1,45 e oferta ×0,5 (outono: ×0,85 / ×1,35; primavera ×1,1 /
+  ×0,85); carne e peixe no inverno ×1,2; peles no inverno ×1,8 (outono ×1,3, verão ×0,7); lenha no inverno ×1,3. Polar:
+  comida sempre cara; trópicos: a estação seca encarece; inverno ameno, pouco. Medido (Estrosa / Alvalelar, semente
+  4242): trigo 6,6 → 9,7 do outono para o inverno na vila (+47 %), 11,4 → 16,5 na capital.
+- **Notícias**: 2 por dia em qualquer lugar + 1 perto de cada jogador (até 900 passos): sobra (×0,45) ou falta (×2,1) de
+  uma mercadoria por 3–5 dias; o Comércio mostra as da mesma terra.
+- **Margens medidas** (reino de Galéria, semente 4242, lugares a até 700 passos, sem desconto): lã de Montedo (vila) para
+  Alvalelar (capital), 40 un.: custa 356, vende por 642 (**+286, 80 %**, 430 passos); milho Galerna → Alvalelar +149
+  (68 %); trigo Ardival → Alvalelar +129 (44 %); barras de ferro Alvalelar → Torre de Cerverna (castelo) +156 (38 %,
+  10 un.); pão +91, tecido +66, flechas +41 (41 %). Comprar demais na mesma vila sobe o preço (40 de lã ~9 → ~10,5 cada);
+  vender demais derruba. Um comerciante com ~1 000 moedas faz ~150–300 por viagem de 2–4 minutos.
+
+### Trabalhos
+
+O quadro de cada lugar é determinístico (lugar + o dia da economia, que vira no amanhecer do anfitrião, e só a planta do
+lugar: anfitrião e convidado veem o mesmo; o anfitrião confere ao
+aceitar). Vila 5, cidade 6, castelo 3 pedidos por dia, dos tipos que o lugar tem. O anfitrião vê as ações (`net.js` →
+`eco.onOp`, antes de aplicar a op) e manda o progresso (`eco.prog`).
+
+| Tipo | Quando aparece | Pedido | Pagamento | Reputação | Prazo |
+|---|---|---|---|---|---|
+| Colheita | o lugar tem campos | colher 6–12 pés da lavoura pedida **nos campos do lugar** | 6·N + 12 | +4 | 2 dias |
+| Mina | tem mina | 8–15 blocos de rocha / pedregulhos perto (terra externa + 60) | 5·N + 18 | +5 | 2 dias |
+| Lenha | vila / castelo / cidade com serraria | derrubar 4–7 árvores nos arredores | 10·N + 12 | +4 | 2 dias |
+| Encomenda | sempre | trazer N de algo que o lugar consome e não produz (~150–270 moedas de valor) | valor × 1,45 + 10 | +4 | 2 dias |
+| Entrega | sempre (destino na mesma terra, 120–1 500 passos, do reino ou vizinho) | levar 1–3 **encomendas** (item) ao mural do destino | 20 + 0,09·distância + 8 por encomenda | +6 / +8 / +10 | 3 dias |
+| Caça | sempre | caçar 3–5 animais selvagens (qualquer lugar) | 18·N + 10 | +5 | 2 dias |
+| Defesa | só nas noites perigosas do lugar (inverno; inverno ameno / estação seca) | derrotar 4–8 mortos da noite perto da vila | 15·N + 40 | +10 | até amanhã |
+
+Na cidade, colheita, mina, lenha e caça pagam ×1,3. Até 3 trabalhos ao mesmo tempo; abandonar: −3 de reputação (a
+entrega devolve as encomendas); vencer o prazo: −2. Os nomes de quem pede vêm de `game.towns.people(sid)` quando o
+agente dos moradores o expuser; senão, de uma lista de nomes (Bento, o lavrador; Dulce, curtidor; Helena, mercador…).
+
+### Reputação
+
+| Faixa | Pontos | Nas trocas | |
+|---|---|---|---|
+| Desconhecido | 0 | — | |
+| Conhecido | 25 | 1 % melhor | pode comprar casas e terrenos |
+| Respeitado | 100 | 2 % | |
+| Honrado | 300 | 3 % | |
+| Herói do Reino | 700 | 5 % | |
+
+Por reino e por jogador. Sobe com trabalhos (tabela acima) e com comércio naquele reino (1 ponto a cada 60 moedas
+negociadas, até 10 por dia por reino); cai ao abandonar (−3) ou perder (−2) trabalhos e quando o reino toma uma
+propriedade (−15). Subir / descer de faixa: aviso no alto da tela ("Reputação: Conhecido — no Reino de Galéria · trocas
+1 % melhores · já pode comprar casas e terrenos"). O cartão da aba Reino mostra a faixa, a barra e a reputação nos outros
+reinos.
+
+### Propriedades e imposto
+
+- **Casas** (da planta: as moradias com cama): vila — 2 à venda e 1 para alugar; cidade — 4 e 3; castelo — nada
+  ("O castelo não vende nada: é uma fortaleza"). Preços: casa pequena 700, casa pequena de taipa 750, casa de pedra
+  pequena 900, casa 1 100, casa de pedra 1 300, casa de fazenda 1 400, casa grande 1 500, sobrado 1 900; na cidade
+  ×1,6. Aluguel: 2 % do preço por dia (casa pequena 14). Vender ao reino: 60 % do preço, menos a dívida.
+- **Terrenos**: quadrados livres dentro da terra do lugar (nenhuma peça, rua, praça, campo ou curral; 1 tile das
+  construções): primeiro 8 × 8 (vila 400, cidade 900), depois 6 × 6 no que sobra (230 / 510); até 6 na vila e 10 na cidade
+  (a vila do início, Estrosa, tem 3 + 3).
+- Comprar exige ser **Conhecido** no reino; alugar não exige nada.
+- **Imposto**: cada reino tem o seu, de 1,0 % a 2,4 % do valor por dia (Galéria: 1,9 % → casa pequena 13 / dia, terreno
+  8 / dia); quem aluga paga o aluguel e não o imposto. **Cobrado automaticamente** a cada amanhecer (o dia do mercado),
+  **só das moedas da mochila** (moedas guardadas em baús não contam: é a bolsa de quem está andando), das dívidas menores
+  para as maiores (salva o máximo de propriedades), com o aviso "Imposto e aluguel pagos: −N moedas". Sem moedas
+  bastantes: a dívida fica, aviso "Imposto atrasado: N moedas — 3 dias para pagar (mural · Propriedades), ou o Reino de X
+  toma a casa pequena em Y"; no dia seguinte "2 dias", depois "Último dia!"; no quarto amanhecer sem pagar o reino toma a
+  propriedade ("Sua casa foi tomada…"), −15 de reputação, e o que estava nos baús fica para o reino. "Pagar" na aba
+  Propriedades quita a dívida a qualquer hora. Só paga quem está no mundo naquele amanhecer: um jogador ausente não
+  acumula dias.
+
+### Multijogador e saves
+
+- Tudo é do anfitrião (§7): ops `eco.start` (os primeiros estoques) · `eco.day` (os estoques e as notícias do dia) ·
+  `eco.feat` · `eco.who` · `eco.trade` · `eco.member` · `eco.job` · `eco.prog` · `eco.prop` · `eco.bill` · `eco.paid` ·
+  `eco.gift`; intents `eco.hello` · `trade.buy` · `trade.sell` · `realm.join` · `realm.leave` · `job.take` · `job.done` ·
+  `job.drop` · `prop.buy` · `prop.rent` · `prop.leave` · `eco.pay` · `item.give`; mensagem ao dono `eco.collect` (a conta
+  do dia). As moedas são do dono (mochila): o cliente tira as moedas / mercadorias e manda como pagamento da intent
+  (devolvidas se o anfitrião recusar); o anfitrião confere preço, estoque, lugar (até 8 passos do mural) e reino, e
+  responde com a op cujo `give` entrega mercadoria / moedas.
+- **Por jogador**: reputação, reino, trabalhos e propriedades ficam num registro por **uid** — um id do navegador
+  (`localStorage wos.uid`; nos testes, `u` + `?pid`), mandado ao anfitrião (`eco.hello`) — e não pelo pid da sessão (que
+  muda a cada aba aberta): o amigo volta outro dia e a casa continua dele. Duas abas do mesmo navegador viram dois
+  jogadores (o anfitrião dá outro uid à segunda).
+- Estado replicado em `game.eco` (`mk`, `ev`, `pl`, `pr`, `st` = conteúdo dos baús das casas, `feat`, `day`): snapshot /
+  save `world.eco`, parte `eco` do digest (exata). O baú de uma casa vale em todos os pares, carregado ou não (o
+  `chest.set` dele é global para o interesse).
+- Save: o mundo do anfitrião leva tudo (os registros dos convidados também); o save do convidado continua só com o
+  jogador dele (mochila: as moedas).
+
+### Testes e prints
+
+`tools/mp-test.js` **EC1–EC8** (`?run=EC1,…`): EC1 o convidado compra e vende na feira da vila pela tela (estoque, preço
+e moedas mudam nos dois; a bolsa do HUD); EC2 vila agrícola × capital (trigo mais barato na vila; barras de ferro e
+espadas mais baratas na cidade que no castelo), comprar 20 na cidade sobe o preço, longe do mural recusa; EC3 colheita:
+aceita no mural, colhe nos campos da vila, o anfitrião conta, "Pronto" no rastreador, entrega, paga, reputação sobe nos
+dois; EC4 entrega para um lugar alcançável por terra (encomendas na mochila, recusada na origem, paga no destino); EC5
+casa (recusa sem reputação; compra; o baú abre para o dono e não para o outro; a porta recusa o outro) e terreno (muro
+dentro pode, ao lado não); EC6 imposto (pago da mochila com aviso; sem moedas: dívida, avisos de 3 / 2 / último dia; no
+quarto dia o reino toma; −15); EC7 entrar / sair do reino pela aba Reino; membro recusado em reino de outra terra,
+viajante compra; EC8 o save (JSON) carregado num jogo novo dá a mesma economia (linhas do digest iguais) e os mesmos
+preços. Todos terminam com o digest igual. KG7 passou a conferir as abas novas (só Exército diz "Em breve").
+
+Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_land_desktop`, `ec_realm_desktop`,
+`ec_trade_phone`, `ec_jobs_phone`, `ec_land_phone`, `ec_realm_phone` (915 × 412, toque), `ec_*_portrait` (430 × 932),
+`ec_tracker_hud`, `ec_tracker_phone`, `ec_tax_notice`, `ec_tax_paid`, `ec_plots_world`.
+
+### Decisões (para o dono confirmar)
+
+- O imposto sai **só das moedas da mochila** (as dos baús não contam) e só nos dias em que o dono está no mundo.
+- Comprar casa ou terreno pede reputação **Conhecido** (25) no reino; alugar não pede nada.
+- Casa vendida, devolvida ou tomada: os baús dela são esvaziados (ficam para o reino). Terreno tomado: o que o jogador
+  construiu nele fica de pé (é estrutura dele; o próximo dono do terreno fica com o lugar como está).
+- Membro de um reino só negocia com reinos da mesma terra (e, na fase 3, que não estejam em guerra com o seu); viajante
+  com todos. Ser membro ainda não dá vantagem (fase 3: exército) — o cartão explica.
+- As casas à venda / para alugar saem das moradias da planta; para o agente dos moradores: `game.eco.api.props(sid)`
+  lista quais são, e `game.eco.pr` diz quem mora nelas — morador nenhum deveria dormir numa casa comprada.
+- Pendente / ideias: caravanas de verdade no mapa (hoje o espalhar de preços é abstrato), o ouro dos mercados (hoje
+  infinito), mais tipos de trabalho quando houver moradores (escoltar, guarda), o imposto pago do baú da própria casa.

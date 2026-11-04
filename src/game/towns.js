@@ -134,7 +134,7 @@ function placePiece(game, L, sid, k, rec) {
   if (!lv && (w.water.get(i) || w.rock.get(i)) && !def.roof) return;
   if (game.build.grid[def.layer || 'main'].has(i + (lv | 0) * w.W * w.H)) return; // (a player's piece there, or another of the place's)
   const open = st && st.open >= 0 ? !!st.open : def.block === 'door' ? !!def.gate2 : false;
-  const o = placeStructure(game, type, tx, ty, { id, rot, lv, style, det, progress: 1, open, town: sid, builtAt: 0 });
+  const o = placeStructure(game, type, tx, ty, { id, rot, lv, style, det, progress: 1, open, town: sid, builtAt: 0, store: def.slots ? TOWN.storeOf?.(game, id) : undefined }); // (a house's chest: its contents, game/eco.js)
   if (st?.dmg) o.dmg = st.dmg / 100;
   // (cosmetic: the side a gate's leaves swing to — inside; the kingdom's colour on the mural)
   if (def.gate2) o._in = (rot & 1) ? (L.x < o.x ? 1 : -1) : (L.y > o.y - 0.5 ? 1 : -1);
@@ -245,16 +245,18 @@ export function townLandAt(game, tx, ty, w = 1, h = 1) {
 }
 
 // ---------- rules (mut/structures.js hooks) ----------
-TOWN.landReason = (game, type, tx, ty, w, h) => {
+// inside a town land only on a plot the builder owns (game/eco.js plotReason: bought on the mural, tab Propriedades)
+TOWN.landReason = (game, type, tx, ty, w, h, who = null) => {
   if (game.creative) return null;
   const s = townLandAt(game, tx, ty, w, h);
   if (!s) return null;
   if (s.kind === 'castle') return `${s.name}: não se constrói no castelo`;
-  return `Terra de ${s.name}: compre um terreno no mural`;
+  const r = game.eco?.plotReason?.(s, tx, ty, w, h, who);
+  return r === undefined ? `Terra de ${s.name}: compre um terreno no mural` : r;
 };
 TOWN.refuse = (game, o) => { const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
 TOWN.gateReason = (game, o, actor) => {
-  if (o.town != null) return defOf(o).gate2 ? 'O portão é da guarda: abre de dia e fecha à noite' : null;
+  if (o.town != null) return defOf(o).gate2 ? 'O portão é da guarda: abre de dia e fecha à noite' : game.eco?.doorReason?.(o, actor) || null; // (a bought / rented house: its holder's)
   if (!defOf(o).gate2 || game.creative) return null;
   const g = game.gates?.get(o.id);
   if (g?.owner && g.owner !== actor.pid) return 'Só o dono abre e fecha este portão';
