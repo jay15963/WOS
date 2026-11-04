@@ -141,8 +141,8 @@ anéis de 512 tiles em volta da câmera, docs/STREAMING.md §5).
 ## 4. Regras de jogo
 
 - **Andar**: penhascos bloqueiam como rocha (física, criaturas, A*: `world.blocked` / `tileBlocked`). Subindo é mais
-  lento (até −38 % numa encosta no limite), descendo um pouco mais rápido (`terrain.js slopeSpeed`, jogador local).
-  **Pular de penhasco**: não no protótipo (ver "Falta"); só se desce por rampa, encosta ou escada.
+  lento (até −38 % numa encosta no limite), descendo um pouco mais rápido (`terrain.js slopeSpeed`: o jogador e as
+  criaturas — `ai.js go`). **Pular barranco**: descer um degrau de até ~1 andar empurrando a borda (§13); nunca subir.
 - **Profundidade**: quem está atrás de um morro some atrás dele; o recorte abre o morro em volta do jogador local.
 - **Linha de visão** (`combat.hasLOS` → `terrainLOS`): a linha entre os peitos fica acima do chão; um morro ou a borda de um
   penhasco entre os dois bloqueia ataques à distância e aggro por visão.
@@ -154,24 +154,28 @@ anéis de 512 tiles em volta da câmera, docs/STREAMING.md §5).
 - **Construir**: recusado em penhasco ("Penhasco: não dá para construir aqui"); a casca de uma casa (paredes, portas,
   pisos, escadas) recusa chão desigual demais ("Terreno muito íngreme: aplane primeiro (Construir → Terreno)", variação
   > 1,5 andar sob a peça). Ver "Construir no relevo".
-- **Minerar penhasco**: "Cavar" com a picareta numa encosta de rocha corta a face (dá pedra), abrindo um corte a céu aberto.
-  Túneis com teto **dentro** de um planalto ainda não (ver "Falta"); os maciços de rocha de sempre (tiles de rocha)
-  continuam sendo minerados em cavernas como hoje, agora na altura do terreno em que estão.
+- **Minerar penhasco**: a picareta na face de um penhasco / planalto / maciço de rocha **a partir do chão** cava um
+  **túnel** para dentro do relevo (§10); a pá (§12) abre cortes a céu aberto. Um tile de rocha mais baixo que um andar
+  acima de quem minera continua virando chão (corte), como antes.
 - **Multijogador**: as alturas geradas vêm da semente (nada a sincronizar); as edições e as bases são estado compartilhado
   (abaixo); `z` das entidades continua o de antes (andar acima do chão), replicado como hoje.
 
 ## 5. Mexer no terreno (Valheim)
 
-Construir (B) → aba **Terreno** (só num mundo com relevo): **Cavar** (abaixa o chão sob o cursor; dá terra, pedra de rocha
-ou de chão pedregoso), **Aterrar** (levanta; gasta 1 Terra por vez), **Aplanar** (leva o chão para a altura do primeiro
-ponto clicado, em quartos de andar), **Suavizar** (arredonda degraus e buracos). Clique / toque aplica o pincel (raio 1,6
-tile, suave) no cursor; segurar continua aplicando (~4 por segundo); Esc / botão direito sai. Precisa de picareta;
-**criativo: grátis e em passos maiores**.
+**A pá** (§12; E / Usar com ela na mão, ou Construir (B) → aba **Terreno**, só num mundo com relevo): **Cavar** (abaixa o
+chão sob o cursor; dá terra, pedra de rocha ou de chão pedregoso), **Aterrar** (levanta; gasta 1 Terra por vez),
+**Aplanar** (leva o chão para a altura do primeiro ponto clicado, em quartos de andar), **Suavizar** (arredonda degraus e
+buracos). Clique / toque aplica o pincel (raio 1,6 tile, suave) no cursor; segurar continua aplicando (~4 por segundo,
+mais rápido com pá melhor); R troca o modo; Esc / botão direito sai. Precisa de uma **pá**; **criativo: grátis e em
+passos maiores**.
 
 - Passo: 0,25 andar no centro do pincel (0,5 no criativo); limites: no máximo 4 andares abaixo / acima do terreno gerado,
   nunca abaixo do nível do mar.
-- Recusas (motivo na tela): construção no pincel ("o terreno embaixo dela não muda"), água ("não dá para mexer na
-  margem"), rocha ("use a picareta para minerar"), longe demais (4,5 tiles), fundo / alto demais.
+- Recusas (motivo na tela e na prévia): construção no pincel ("o terreno embaixo dela não muda"), água ("não dá para
+  mexer na margem"), rocha ("use a picareta para minerar"), túnel a até 2 tiles ("o teto e as paredes dele não mudam"),
+  longe demais (4,5 tiles), fundo / alto demais.
+- A grama, as flores e as pedrinhas de enfeite somem do chão cavado / aterrado (todo par, cosmético: também quando o
+  pedaço volta da fonte — `terrain.js hideDugDecor`).
 - **Rede**: intent `terrain.edit {m, x, y, h?}` → o anfitrião roda o pincel (`terrainBrush`) e emite **op `terrain.set
   {p: [canto, altura × 100, …]}`** com as alturas **absolutas** dos cantos mudados (os convidados não recalculam pincel
   nenhum). Terra / pedra cavadas chegam como efeito de dono (`give`); a terra do Aterrar sai da mochila antes do pedido e
@@ -237,16 +241,112 @@ recorte abre), `ridgecanyon` (90° / 270°: a parede do cânion entre a câmera 
   maciços mineráveis desenhados como hoje, na altura do terreno — para montanhas use relevo, não rocha.
 - **Caminhos naturais**: deixar rampas / encostas ≤ 0,7 por tile entre os níveis (senão só se sobe cavando / aterrando).
 
-## 9. O que falta antes de expandir para cânions / penhascos / montanhas de verdade
+## 9. O que falta
 
-- **Túneis com teto em penhascos / planaltos** (uma segunda camada: o piso do túnel abaixo da superfície), hoje só corte a
-  céu aberto; maciços de rocha continuam com cavernas.
-- **Cachoeiras** (o degrau entre dois níveis de água é desenhado como rocha) e a água "caindo" pela borda de um lago.
-- **Pular penhascos pequenos** (descer ≤ 1 andar empurrando a borda, como no `levels.js`), **escadas construídas** ligando o
-  chão a um planalto (hoje: rampas de terra), escadas / rampas de pedra para portas altas.
-- Ferramenta: item **Pá** próprio (hoje a picareta), prévia do pincel mostrando o resultado, aplanar em área arrastando.
-- Faces de rocha ainda um pouco repetitivas de perto; a textura de rocha em encostas suaves (a rocha "de cima") parece
-  laje; a grama / decoração de chão continua em pé num buraco cavado (some só com caminhos / construções); sombras de
-  terreno sobre personagens (hoje só no chão); minério sem marca visual no relevo (os decalques são do mundo plano).
-- Mapa / radar com relevo sombreado; som de passos em cascalho / rocha; criaturas sem a lentidão de subida.
+- Túneis: criaturas ainda não planejam caminho dentro de túneis (o A* trata o túnel como a superfície: entram só em
+  perseguição direta); escadas / rampas dentro do túnel (descer para outro nível) e construir dentro (tochas fixas,
+  portas) ainda não; o teto visto de fora é a própria superfície (a boca aparece como um entalhe escuro na face).
+- Cachoeiras: a cortina é desenhada sobre a face do relevo (não se separa dela num arco); sem arco-íris na névoa.
+- **Escadas construídas** ligando o chão a um planalto, escadas / rampas de pedra para portas altas; aplanar em área
+  arrastando.
+- Faces de rocha ainda um pouco repetitivas de perto; minério sem marca visual no relevo.
+- Mapa / radar com relevo sombreado; som de passos em cascalho / rocha.
 - Multijogador com a vitrine: a bandeira é só local (o gerador do planeta resolve: as alturas vêm da semente).
+
+## 10. Túneis com teto (`world.tun`, `game/tunnels.js`, `game/mut/tunnels.js`, `game/physics.js`)
+
+Pedido do dono: cavar para **dentro** de penhascos, planaltos e montanhas, com o relevo de cima ficando onde está.
+
+- **Dado compartilhado**: `world.tun` (camada esparsa por tile: a **altura do piso** do túnel, −∞ = nenhum) + o mapa
+  `world.tunnels`. A superfície (alturas) não muda: em cima do túnel continua o chão de sempre, caminhável.
+- **Cavar**: picareta, de frente para a face (o tile vizinho nos 4 lados), em pé no chão: "Cavar túnel" (trabalho
+  `tunnel`, ~3–4 s com picareta primitiva; um tile de rocha: "Minerar" de sempre). Cabe um túnel se o canto mais alto do
+  tile está ≥ 1 andar acima do piso e o mais baixo não está mais que 0,35 abaixo dele; não em água, construção, base de
+  prédio, árvore / pedregulho. **O anfitrião decide o piso**: o chão de quem cava (o piso do túnel em que está, dentro
+  de um). Dá pedra (face de rocha / chão pedregoso; rocha: pedra + o minério) ou terra.
+- **Rede**: intent `tunnel.hit {tx, ty, inc | final}` (progresso pela op `rock.prog`, a mesma da rocha) → op `tunnel.dig
+  {tx, ty, f: piso × 100, drops, by}`; a picareta numa rocha alta → `rock.hit` final → `tunnel.dig` (`tunnelRock`).
+  Foto / save: seção `tun: [tile, piso × 100, …]` aplicada antes dos tiles minerados; digest `tiles.tun`. Um pedaço com
+  túnel fica alterado (nunca descartado) — no streaming a camada é esparsa e o túnel sobrevive.
+- **Quem está no túnel**: `e._tn` = o piso (`physics.js tunTrack`, como `e._ud` debaixo das pontes): entra pela **boca**
+  (pisando num tile de túnel vindo de chão na altura do piso), fica de tile de túnel em tile de túnel, sai pela boca;
+  quem anda em cima continua em cima. Para quem está dentro, o resto é **parede** (relevo um andar acima do piso);
+  para quem está fora, a boca é aberta só para quem está na altura dela. O jogador manda o seu nível na presença
+  (`tn`): uma cópia que aparece de repente (entrar na sala, teletransporte) já nasce no nível certo; o avatar do
+  anfitrião usa o que o dono diz. Linha de visão e flechas: o túnel é um vão de ~1,3 andar acima do piso dentro do
+  relevo (passa pelo vão, não pelo teto nem pelas paredes). `groundOf(e)` (chão de um corpo) = o piso dentro do túnel
+  (câmera, recorte, alcance do arco, corpo a corpo).
+- **Escuridão**: os tiles de túnel são tiles de caverna (`isCave`, regiões de `game/roofs.js`): escurecem pela distância
+  da boca (a luz só entra pela boca e ao longo do túnel, nunca de cima); a escuridão não vaza para a superfície. Sem teto
+  pintado: o teto é o próprio relevo.
+- **Desenho**: a região (caverna) em que o jogador local está, as bocas (sempre: um entalhe escuro na face) e, na boca,
+  os primeiros tiles (espiar) **mostram o piso**: os canais da GPU (`hgt`, `hgtG`, `hgtC`, `hgtK`, `cave`) recebem um
+  pós-processo (`game/tunnels.js post`, `terrainWindow` → `win.post`) que baixa a superfície até o piso ali (com fade de
+  ~0,35 s); o relevo se abre numa galeria escura com paredes de rocha, o jogador lá no fundo, o recorte em volta dele
+  como em qualquer lugar. Fora disso o relevo continua inteiro e quem está dentro não aparece (nem plaqueta, mira,
+  toque: `roofs.hidden(x, y, e)`). Quem anda em cima de um piso mostrado é erguido (`e._th`); grama e plantas de cima
+  somem enquanto o piso aparece.
+- **Desabamento**: um tile de túnel precisa de relevo sólido (rocha ou chão um andar acima do piso) a até 3 tiles
+  (`TUN_SUPPORT`); um salão largo demais desaba: o teto cai num corte aberto até o piso (edições do terreno, poeira,
+  pedras caindo, aviso; quem está embaixo se machuca). Construir sobre / dentro de túnel é recusado; o pincel da pá
+  recusa mexer a até 2 tiles de um túnel.
+- Capturas: `shots/relief_tunnel_0.png` / `_90` / `_180` (dentro, em L), `relief_tunnel_out.png` / `_out270` (a boca vista
+  de fora). Teste **TR1**.
+
+## 11. Cachoeiras e corredeiras (`shaders.js waterfall`, `fx/waterfalls.js`)
+
+- Onde a **própria superfície da água** é íngreme (um rio descendo entre dois níveis — as `features` "waterfall" do
+  planeta são exatamente isso —, um lago transbordando na borda) o terreno desenha uma **cortina de água caindo** em vez
+  da face de rocha: estrias descendo rápido (mais rápidas quanto mais íngreme), água branca crescendo para o pé, brilhos
+  do sol / da lua e do céu correndo, iluminada pela face; no inverno vira cortina de gelo. Está na malha do terreno:
+  aparece em todo ângulo de câmera com profundidade por pixel.
+- **Pé da cachoeira**: espuma revolta na água ao pé de faces íngremes; **névoa** subindo e **respingos** (partículas
+  em cada tile de queda à vista, `fx/waterfalls.js`), **ronco** (dois leitos de ruído no som, panorâmicos, mais alto
+  perto). **Corredeiras**: onde o rio desce em rampa (0,06–0,5 andar por tile) a água ganha estrias brancas e ondas
+  paradas descendo o rio.
+- `game.waterfalls.{list, find(rect), near(x, y), features(x, y, R)}`; as `features` do planeta agora chegam ao chunk
+  (`planetSource adaptChunk`, `crec.features`).
+- Capturas: `shots/relief_waterfall_0 / 135 / 180 / 270.png` (semente 4242, 10464,7 / 1598,3, queda de 2,3). Teste **TR2**.
+
+## 12. A pá (`content/items.js shovel_*`, `game/terrain.js`, `ui/terrainbar.js`)
+
+- Item **Pá** de pedra (bancada: 2 madeira, 3 pedra, 1 corda), cobre, ferro e aço (bigorna: 2 barras + 2 madeira);
+  arma fraca. Ferramenta do terreno no lugar da picareta (a picareta fica para rocha e túneis).
+- E / Usar com a pá na mão (sem outra coisa para usar ali) abre a ferramenta no último modo; ou Construir → Terreno.
+- **Barra** (computador e toque; em retrato no toque vira coluna): Cavar · Aterrar · Aplanar · Suavizar · Sair, com uma
+  linha dizendo o que o pincel vai fazer ("8 cantos abaixam", "Altura alvo: 3,5 andares") ou por que não.
+- **Prévia do pincel** no chão: o anel no cursor (cor do modo; vermelho se recusado) e um ponto em cada canto que vai
+  mexer, **na altura que ele vai ter** (verde; um ponto apagado onde está agora), os cantos recusados em vermelho;
+  aplanando, um anel largo na altura alvo. É o pincel do anfitrião (`terrainBrush`) rodando no próprio mundo.
+- Pose de cavar com a pá (`compose.js` pose `dig`). Captura: `shots/relief_shovel_preview.png`, `relief_shovel_flat.png`.
+  Teste **TR3**.
+
+## 13. Pular barrancos (`game/terrain.js dropAhead / startHop`, `nav.js`)
+
+- Empurrando a borda de um penhasco cujo pé está **0,3–1,3 andar** mais baixo (e o caminho por cima só tem a face: sem
+  rocha, parede ou água funda) por ~0,15 s, o jogador **pula** até o chão depois da face: arco curto (sobe ~0,15 e cai,
+  0,42 s, `levels.js hopUpdate` move; `e._jh` ergue o desenho), poeira e passo ao pousar, **sem dano**. **Nunca para
+  cima**; degrau maior que ~1,3 andar continua parando na borda (escolha: sem dano de queda para gerenciar e sem ficar
+  preso no fundo de um buraco por acidente).
+- **Criaturas** (anfitrião): o A* conhece essas descidas de mão única (um passo de 2 tiles por cima da face, custo 2,6,
+  nunca de volta); na perseguição direta ou no caminho, quem empurra a borda pula também (`ai.js go → startHop /
+  hopStep`). As cópias nos convidados deslizam pela face.
+- Captura: `shots/relief_jump.png` (no meio do arco, em câmera lenta). Teste **TR4**.
+
+## 14. Sombra do relevo nos personagens (`terrain.js reliefShade`)
+
+- Quem está na sombra de um morro / penhasco fica mais escuro: a mesma marcha em direção ao sol do shader do terreno,
+  na CPU, na cintura de cada criatura / personagem (todo quadro) e de plantas / objetos (a cada ~1 s), multiplicando a
+  cor dos sprites dele (`SpriteBatch.tint`). Não dentro de túneis. Captura: `shots/relief_shade.png`.
+
+## 15. Testes (`tools/mp-test.html?run=TR1,TR2,TR3,TR4`, anfitrião no planeta semente 4242)
+
+- **TR1** — o convidado cava um túnel num penhasco: o tile vira túnel com o piso no chão dele nos dois; ele entra
+  (`_tn`), cava o segundo tile de dentro (uma rocha: o anfitrião transforma em túnel), o anfitrião vê o avatar no túnel;
+  o relevo de cima igual ao gerado; o anfitrião entra pela boca; um corpo em cima continua em cima; digest igual.
+- **TR2** — a cachoeira da feature (10464,7 / 1598,3): os dois listam a feature e os mesmos tiles de queda com pé; névoa
+  no convidado; ronco perto e silêncio longe; digest igual.
+- **TR3** — sem pá a ferramenta recusa; com a pá E abre a ferramenta; aplanar: prévia, os cantos chegam ao nível nos
+  dois, mesmas edições, mesma superfície, grama escondida nos dois; digest igual.
+- **TR4** — o convidado pula um degrau de ~0,9 andar (arco, sem dano), o anfitrião o vê embaixo, empurrando de volta não
+  sobe; o A* planeja a descida e não a subida; um lobo perseguindo o convidado pula também; digest igual.

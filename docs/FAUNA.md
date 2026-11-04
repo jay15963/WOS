@@ -98,6 +98,39 @@ bichos continuam fugindo, pastando, voando.
   vê um corpo a até 40 tiles, circula por cima, pousa ao lado e "come" 25–45 s. Águia: mergulha num bicho pequeno e o
   mata (vira corpo), pousa ao lado. Voando não colidem com nada (ficam dentro do mundo); a altura é cosmética (§4).
 
+### Caça na natureza (`game/ai.js` lookForWild / huntStep / wildKill; números: `content/fauna.js HUNT`)
+
+Predadores selvagens caçam presas selvagens, de vez em quando (nunca o tempo todo):
+
+| Predador | Presas | Quando |
+|---|---|---|
+| leão (bando) | zebra, gazela, cavalo selvagem | do entardecer (16h30) até o fim da noite (de dia descansam) |
+| onça-pintada | macaco, javali, cervo (não há anta no jogo) | noite |
+| lobo (matilha) | cervo, rena, coelho | sempre |
+| urso-polar | foca | sempre |
+| lince | coelho, raposa-do-ártico | noite |
+
+- **Um sorteio por dia por bando** (o spawner): 60 % de chance de caçar naquele dia; **no máximo uma morte por dia**;
+  depois de matar o bando fica **5 min** sem caçar e **come junto do corpo** (parado 25–45 s, calmo); desistindo (28 s
+  sem pegar, ou sem caminho) espera 70 s.
+- Um predador calmo (parado / vagando) vê uma presa a até 12 tiles com linha de visão → caça; o bando (mesmo spawner,
+  até 14 tiles) vai junto. Chega **devagar** (0,62× a velocidade) até a presa notar (6 tiles) e então **dispara**
+  (1,35×). A presa foge (e a manada inteira, `herdFlee`); as rápidas (gazela 7,2) costumam escapar; a mordida
+  (dano × 2,6) **atordoa** a presa 1,1 s (ela corre a 45 %): a zebra cai em 2–3 mordidas. Um jogador à vista continua
+  vindo primeiro. O corpo é o de qualquer morte (carneado como sempre; urubus descem nele).
+- O mesmo estado `hunt` dos lobos contra a criação à noite (`PREY`, docs/LIVESTOCK.md), com `m.huntWild`.
+- Teste **FA3** (§5).
+
+### Vozes (`fx/sfxBank.js`, sintetizadas como as outras)
+
+Rugido do leão (grunhidos subindo e o rugido longo; agressivo / parado / ferido / morte), "serrote" da onça, trombeta e
+ronco grave do elefante, grito da águia, guinchos do papagaio, gaivotas, garça, urubu (chiado), chiado e mugido grave do
+crocodilo, **chocalho** da cascavel (o aviso a 4,5 tiles), estalos do escorpião, **canto da baleia** (gemidos longos,
+eco), cliques e assobios do golfinho, latido da foca, zurro da zebra, relincho do cavalo selvagem, gritos dos macacos,
+urso-polar (mais grave que o urso), alce, bisão, cabra, camelo. `SPECIES_VOX` / `IDLE_VOX`: a voz de ataque sai no
+`growl` de cada um, a de parado de vez em quando quando estão perto (`audioDirector.js idleVoice`; a baleia, o elefante, o
+leão e as aves se ouvem de mais longe).
+
 Horários: `when` de cada espécie vai para o spawner (`mobs.js activeNow`): dia / noite / sempre como as outras
 criaturas (as noturnas não nascem perto de luz; fora de hora voltam e somem quando ninguém vê; no inverno os bichos do
 dia saem menos — regra global de hoje).
@@ -232,6 +265,7 @@ ainda não pintado mostra o quadro parado da mesma vista).
 
 Revisão: `tools/diag.html?set=fauna&g=polar|taiga|steppe|desert|savanna|jungle|swamp|mountain|coast|ocean` (todas as
 vistas: parado, andando, atacando, pastando, deitado, voando, planando, nadando, à espreita, saltando, soprando, morto).
+As linhas do macaco na árvore e das aves voando têm células mais altas (antes cortava a cabeça / as asas).
 
 ---
 
@@ -251,6 +285,9 @@ Testes (`tools/mp-test.html?run=FA1,FA2`):
 - **FA2** — cinco zebras de uma manada: o convidado anda até elas, uma foge e a manada inteira foge junto no anfitrião;
   no convidado as cinco se afastam (≥ 3 tiles); três gaivotas pousadas (fmode 0 nos dois) levantam voo juntas quando o
   convidado chega (bit "voando" no anfitrião e nas cópias do convidado); digest igual.
+- **FA3** — um leão e uma zebra longe dos jogadores: a caça começa (`startWildHunt`), a zebra foge, as mordidas a
+  atordoam e matam no anfitrião; o corpo de zebra aparece nos dois; o leão fica parado junto do corpo (comendo); uma
+  segunda zebra do lado é deixada em paz (uma morte por dia); a cópia do leão no convidado corre até ela; digest igual.
 
 ---
 
@@ -281,7 +318,7 @@ Testes (`tools/mp-test.html?run=FA1,FA2`):
   vegetação está nisso; a savana aparece verde, mas os bichos nascem nos biomas certos.
 - Estações por latitude: hoje o inverno é global, então "no inverno os bichos do dia saem menos" vale até na savana.
 - A banquisa ainda é água no jogo: focas e ursos-polares ficam no deserto polar / na margem.
-- Predadores caçando presas selvagens (leões atrás de zebras) e as presas da criação para leões / onças (`PREY.hunters`)
-  ainda não; só a águia caça bichos pequenos.
-- Sons próprios (rugido, trombeta, chocalho): hoje usam os sons genéricos de rosnado.
+- Leões / onças ainda não atacam a criação (`PREY.hunters` só lobo e urso); caça em emboscada na água (crocodilo
+  pegando zebra na travessia) e tubarão caçando focas ficaram para depois.
+- As vozes são sintéticas (como todo o som do jogo): ouvir e ajustar no `tools/audio-test.html`.
 - Peixes do mar usam o peixe de rio da criação; tartaruga-marinha, morsa, hiena, girafa, anta e corujas ficaram para depois.
