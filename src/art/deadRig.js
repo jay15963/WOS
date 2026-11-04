@@ -339,7 +339,7 @@ export function drawDead(B, A, p, t, env) {
   if (S.bow) {
     const L = 13 * s, top = along(tv2, J.fL, Q.b, L), bot = along(tv3, J.fL, [-Q.b[0], -Q.b[1], -Q.b[2]], L);
     // (which way the bow bends on the screen: the archer's forward, foreshortened)
-    const fx = CY * 1 - 0, bend = fx >= 0 ? 1 : -1, bk = Math.max(0.3, Math.abs(CY));
+    const bend = CY >= 0 ? 1 : -1, bk = Math.max(0.3, Math.abs(CY));
     BU = limb(S.bow, J.fL, top, L, -bend, bk); BD = limb(S.bow, J.fL, bot, L, bend, bk);
     // nock: the drawing hand when drawn, else the middle of the string (behind the grip)
     const ex = 3.3 * s; // (the tips bend this far forward)
