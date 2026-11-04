@@ -638,8 +638,16 @@ structures). On load the host bumps each counter above the max existing suffix.
 | `ops` | H→G | per frame with changes | 50–300 B typical, batched |
 | `own` | H→G | on hit | ~150 B |
 | `fx` | H→G | per frame with events | 50–400 B |
-| `dg` / `dgx` / `dgr` | H↔G | every 5 s / on mismatch | ~400 B / rows |
+| `dg` / `dgx` / `dgr` | H↔G | every 5 s / on mismatch | ~400 B / rows (+ `ex`: the guest's stale chunks, interest) |
+| `cd` (chunk diff) | H→G | when a guest comes near chunks it was not kept up to date on | the local rows of those chunks |
 | `chat/ping/pong/lk/left/bye` | — | as today | — |
+
+**Interest on the planet** (`src/net/interest.js`, docs/STREAMING.md §8): an op with a place (`OP_AT`) goes to a guest
+only when one of its chunks is within 4 chunks of it (or the guest is its `by`); otherwise the guest gets a skip count in
+the batch (`l` holds a number n = n ops withheld; seqs stay contiguous) and those chunks become stale for it; stale
+chunks that come near are sent as one `cd` right after the op flush (applied scoped: `applyWorld(…, 'chunk', scope)`);
+the join / resync snapshot keeps only the local rows near the guest (`ready` carries its position); the digest of a guest
+leaves its stale chunks (+ the ring around them) out on both sides (`dg.ex`). Bounded worlds: everything is near.
 
 Budget: per guest ≈ 10–20 KB/s down, 2–3 KB/s up; host with 3 guests ≈ 30–60 KB/s up (~0.5 Mbit/s) —
 fine for Cloudflare TURN. JSON stays; arrays instead of objects for `ents/ops/fx`.
