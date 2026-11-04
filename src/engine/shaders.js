@@ -1998,7 +1998,10 @@ void main(){
         float st = textureLod(uNoise, sp2, nLod(1.7)).b;
         foam += smoothstep(0.7, 0.88, st) * 0.3 * smoothstep(0.15, 0.6, fl) * (1.0 - depth * 0.4);
       }
-      if (abyss > 0.01) foam += abyss * smoothstep(0.8, 0.97, 0.5 + 0.25 * sin(sw1) + 0.25 * sin(sw2) + (fn - 0.5) * 0.5) * 0.45; // whitecaps on the swell crests
+      if (abyss > 0.01) {
+        foam += abyss * smoothstep(0.8, 0.97, 0.5 + 0.25 * sin(sw1) + 0.25 * sin(sw2) + (fn - 0.5) * 0.5) * 0.45; // whitecaps on the swell crests
+        wc *= 1.0 - abyss * (0.3 - 0.08 * (sin(sw1) + sin(sw2)));   // ink-blue open ocean, the swell's long troughs darker still
+      }
       vec3 foamCol = vec3(0.86, 0.91, 0.92) * (0.65 + 0.35 * uSunI);
       wc = mix(wc, foamCol, clamp(foam, 0.0, 1.0) * 0.5);
       }
