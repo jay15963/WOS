@@ -59,11 +59,13 @@ export const sinLatCell = (cy) => 1 - (2 * (cy + 0.5)) / MH;
 //   4 polar     — permanent winter (walkers every night)
 export const SEASON_ZONES = ['tropical', 'warm', 'temperate', 'subpolar', 'polar'];
 export const SEASON_ZONES_PT = ['Tropical (sem inverno)', 'Quente (inverno ameno)', 'Temperado', 'Subpolar (inverno longo)', 'Polar (inverno eterno)'];
+// (the game's winter — snow, ice, walkers — comes to a place whose coldest month is below ~6 °C: game/seasons.js; the
+// thresholds were 1 / 15 °C at first, which left ~1 % of the land temperate)
 export function seasonZoneOf(tMean, tAmp) {
   const warm = tMean + tAmp * 0.5, cold = tMean - tAmp * 0.5;
   if (warm < 2) return 4;
   if (cold < -12 || warm < 10) return 3;
-  if (cold < 1) return 2;
-  if (cold < 15) return 1;
+  if (cold < 6) return 2;
+  if (cold < 16) return 1;
   return 0;
 }

@@ -37,7 +37,8 @@ export async function workerGenerator(init) {
 export async function makePlanetSource(seed, opts = {}) {
   const m = await mods();
   const t0 = performance.now();
-  const planet = (await planetInWorker(seed)) || m.generatePlanet(seed);
+  const pw = await planetInWorker(seed);
+  const planet = pw?.planet || m.generatePlanet(seed);
   const t1 = performance.now();
   let spawn = null;
   const px = opts.px != null && opts.px !== '' ? +opts.px : NaN, py = opts.py != null && opts.py !== '' ? +opts.py : NaN;
@@ -57,7 +58,7 @@ export async function makePlanetSource(seed, opts = {}) {
     // the climate of a point (game/seasons.js: local seasons, survival temperatures): the planet's annual mean °C at that
     // place corrected by the lapse rate for its own height h (stories), the seasonal amplitude, the rain (mm / year), its
     // season zone (0 tropical .. 4 polar) and the latitude (degrees, display only)
-    climateAt: (x, y, h = 0, out = {}) => climatePoint(m, planet, x, y, h, out),
+    climateAt: (x, y, h = null, out = {}) => climatePoint(m, planet, x, y, h, out),
     planet, // (the macro planet: the map, tools)
     biomeKeys: m.BIOME_KEYS, // (world.pbiome id → key: camps, the hot / dry crop rule)
     macro: () => {
@@ -65,6 +66,9 @@ export async function makePlanetSource(seed, opts = {}) {
       const rgba = m.renderMacro(planet, 'satellite');
       return { w: m.MW, h: m.MH, rgba, tpp: PW / m.MW };
     },
+    // the painted map of the whole planet (relief, biomes, coasts, rivers: planet/render.js renderDetail, 8 tiles a
+    // pixel) — made by the planet worker after the boot: a Promise of { w, h, rgba, tpp } (null without a worker)
+    mapImage: pw?.map || Promise.resolve(null),
     chunkOfId: (id) => (typeof id === 'number' && id >= 0 && id < ID_MAX ? Math.floor(id / ID_PER_CHUNK) : -1),
     // regrowth (game/flora.js): the planet species of the tile's planet biome for a regrown classic kind (undefined: classic)
     floraLook: (w, kind, tx, ty, r, v) => m.regrowV(kind, w.pbiome ? w.pbiome.at(tx, ty) : 0, r, v),
@@ -78,8 +82,7 @@ export async function makePlanetSource(seed, opts = {}) {
 // warm / subpolar side of a zone border. Then: the good cells around it (findSpawn's own scores) nearest first, a dry
 // flat tile of temperate zone in the chunk of the first one that has it, near a river (5..12 tiles) like findSpawn.
 function temperateSpawn(m, planet, sp) {
-  const T = {};
-  if (climatePoint(m, planet, sp.x, sp.y, 0, T).zone === 2) return { x: sp.x, y: sp.y };
+  if (deepTemperate(m, planet, sp.x, sp.y)) return { x: sp.x, y: sp.y };
   const score = planet._spawnScore || (planet._spawnScore = m.spawnScores(planet)), MW = m.MW, MH = m.MH, CELL = m.CELL;
   const c0 = sp.cell ?? (Math.floor(sp.y / CELL) * MW + Math.floor(sp.x / CELL)), x0 = c0 % MW, y0 = Math.floor(c0 / MW), cand = [];
   for (let dy = -14; dy <= 14; dy++) for (let dx = -14; dx <= 14; dx++) {
@@ -89,7 +92,7 @@ function temperateSpawn(m, planet, sp) {
     if (score[c] > -1e8) cand.push([dx * dx + dy * dy - score[c], c]);
   }
   cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  return pickTemperate(m, planet, cand.slice(0, 24).map((q) => q[1])) || { x: sp.x, y: sp.y };
+  return pickTemperate(m, planet, cand.slice(0, 40).map((q) => q[1])) || anySpawn(m, planet) || { x: sp.x, y: sp.y };
 }
 // no spot from findSpawn (a planet without a good river cell): the land cells of temperate climate, flattest and
 // mildest first
@@ -100,14 +103,25 @@ function anySpawn(m, planet) {
     cand.push([Math.abs(P.tMean[c] - 11) * 0.5 + P.relief[c] * 10 + Math.abs(P.precip[c] - 900) / 300, c]);
   }
   cand.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-  return pickTemperate(m, planet, cand.slice(0, 24).map((q) => q[1]));
+  return pickTemperate(m, planet, cand.slice(0, 60).map((q) => q[1]));
+}
+// well inside the temperate zone around (x, y): the point and a ring 48 tiles out are temperate with ≥ 1 °C to spare
+// (a start on a zone border would change its season a few steps away)
+const TC = {};
+function deepTemperate(m, planet, x, y) {
+  for (let k = 0; k < 9; k++) {
+    const a = (k / 8) * Math.PI * 2, r = k ? 48 : 0, c = climatePoint(m, planet, x + Math.cos(a) * r, y + Math.sin(a) * r, null, TC);
+    const warm = c.T + c.tAmp / 2, cold = c.T - c.tAmp / 2;
+    if (c.zone !== 2 || Math.min(6 - cold, warm - 10, cold + 12) < 1) return false; // (planet/consts.js seasonZoneOf: temperate = coldest month −12..6 °C, warmest ≥ 10)
+  }
+  return true;
 }
 // a dry flat temperate tile near a river in the chunk of the first of these macro cells that has one (null: none)
 function pickTemperate(m, planet, cells) {
   const T = {}, MW = m.MW, CELL = m.CELL;
   for (const c of cells) {
     const tx = (c % MW) * CELL + CELL / 2, ty = Math.floor(c / MW) * CELL + CELL / 2;
-    if (climatePoint(m, planet, tx, ty, 0, T).zone !== 2) continue;
+    if (!deepTemperate(m, planet, tx, ty)) continue;
     const cx = Math.floor(tx / CS), cy = Math.floor(ty / CS), ch = m.generateChunk(planet, cx, cy, { decor: false });
     const riv = [];
     for (let i = 0; i < CT; i++) if (ch.water[i] && (ch.flowX[i] || ch.flowY[i])) riv.push(i);
@@ -128,15 +142,21 @@ function pickTemperate(m, planet, cells) {
   return null;
 }
 
-// generatePlanet in a module worker (~2 s off the main thread: the graphics keep loading); null without workers
+// generatePlanet in a module worker (~2 s off the main thread: the graphics keep loading) → { planet, map: Promise of
+// the painted map (the same worker paints it next, ~2.5 s) }; null without workers
 function planetInWorker(seed) {
   if (typeof Worker === 'undefined') return Promise.resolve(null);
   return new Promise((res) => {
-    let wk;
+    let wk, mapRes = null;
+    const map = new Promise((r) => { mapRes = r; });
     try { wk = new Worker(new URL('./planetWorker.js', import.meta.url), { type: 'module' }); } catch { res(null); return; }
-    wk.onmessage = (e) => { wk.terminate(); res(e.data && e.data.planet ? e.data.planet : null); };
-    wk.onerror = () => { wk.terminate(); res(null); };
-    wk.postMessage({ seed });
+    wk.onmessage = (e) => {
+      const d = e.data || {};
+      if (d.planet) { res({ planet: d.planet, map }); return; }
+      if (d.map || d.mapError || d.error) { wk.terminate(); mapRes(d.map || null); if (d.error) res(null); }
+    };
+    wk.onerror = () => { wk.terminate(); mapRes(null); res(null); };
+    wk.postMessage({ seed, map: true });
   });
 }
 
@@ -149,9 +169,10 @@ function stripPlanet(p) {
 
 // climate of a point (see source.climateAt): macro climate + lapse rate for the point's own height (stories)
 const CO = {};
+// (h: the point's height in stories; null = the macro ground there — no lapse correction)
 export function climatePoint(m, planet, x, y, h, out) {
   m.macroAt(planet, x, y, CO);
-  const T = CO.T - 0.0065 * (Math.max(0, m.storiesToMeters(h || 0)) - Math.max(0, CO.e));
+  const T = h == null ? CO.T : CO.T - 0.0065 * (Math.max(0, m.storiesToMeters(h)) - Math.max(0, CO.e));
   out.T = T; out.tAmp = CO.tAmp; out.P = CO.P; out.zone = m.seasonZoneOf(T, CO.tAmp); out.lat = m.latitudeAt(y);
   return out;
 }

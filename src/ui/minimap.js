@@ -65,6 +65,17 @@ export class Minimap {
       c.getContext('2d').putImageData(im, 0, 0);
       this.macro = { canvas: c, tpp: M.tpp }; // tpp: tiles per macro pixel
     }
+    // the painted planet (relief, biomes, coasts, rivers — planetSource mapImage, made by the planet worker after the
+    // boot) replaces the coarse macro picture when it arrives
+    w.source?.mapImage?.then?.((I) => {
+      if (!I || this.g.world !== w) return;
+      const c = document.createElement('canvas');
+      c.width = I.w; c.height = I.h;
+      const cx = c.getContext('2d'), im = cx.createImageData(I.w, I.h);
+      im.data.set(I.rgba);
+      cx.putImageData(im, 0, 0);
+      this.macro = { canvas: c, tpp: I.tpp, painted: true };
+    });
     if (!w.wrap) for (let cy = Math.floor(w.by0 / 64); cy <= Math.floor((w.by1 - 1) / 64); cy++) for (let cx = Math.floor(w.bx0 / 64); cx <= Math.floor((w.bx1 - 1) / 64); cx++) this._raster(cx, cy);
   }
 
@@ -171,7 +182,7 @@ export class Minimap {
     if (this.fogV !== v) {
       this.fogV = v;
       const cx = this.fog.getContext('2d'), im = cx.createImageData(256, 128), d = im.data;
-      for (let c = 0; c < 32768; c++) { const o = c * 4; d[o] = 20; d[o + 1] = 13; d[o + 2] = 8; d[o + 3] = E && E[c] ? 0 : 150; }
+      for (let c = 0; c < 32768; c++) { const o = c * 4; d[o] = 38; d[o + 1] = 27; d[o + 2] = 16; d[o + 3] = E && E[c] ? 0 : 128; } // (a warm veil: still readable)
       cx.putImageData(im, 0, 0);
     }
     return this.fog;
@@ -193,22 +204,29 @@ export class Minimap {
       }
       // the fog of war over it (explored chunks bright), soft edges
       const F = this._fogCanvas(), fx = sx / 64, fy = sy / 64, fw = sw / 64, fh = sh / 64;
+      this._ringA = sw > 1400 ? 0 : sw > 700 ? (1400 - sw) / 700 : 1; // (the detailed chunks fade in as the map zooms in)
       ctx.imageSmoothingEnabled = true;
       for (let k = Math.floor(fx / 256); k * 256 < fx + fw; k++) {
         const ox = k * 256, a0 = Math.max(fx, ox), a1 = Math.min(fx + fw, ox + 256), b0 = Math.max(0, fy), b1 = Math.min(128, fy + fh);
         if (a1 <= a0 || b1 <= b0) continue;
+        ctx.filter = `blur(${Math.max(1, Math.min(14, 28 * kx)).toFixed(1)}px)`; // (soft fog edges, not chunk squares)
         ctx.drawImage(F, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - fx) * 64 * kx, (b0 - fy) * 64 * ky, (a1 - a0) * 64 * kx, (b1 - b0) * 64 * ky);
+        ctx.filter = 'none';
       }
       ctx.imageSmoothingEnabled = false;
     }
     // discovered chunks in the ring
     const cx0 = Math.floor(sx / 64), cx1 = Math.floor((sx + sw) / 64), cy0 = Math.max(0, Math.floor(sy / 64)), cy1 = Math.min(127, Math.floor((sy + sh) / 64));
     if (cx1 - cx0 > RC * 2 || cy1 - cy0 > RC * 2) return; // (zoomed far out: the planet picture is enough)
+    const ra = M && w.wrap ? this._ringA ?? 1 : 1;
+    if (ra <= 0) return;
+    ctx.globalAlpha = ra;
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
       const c = cy * 256 + (cx & 255);
       if (this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] !== c) continue;
       ctx.drawImage(this.base, (cx * 64) & RM, (cy * 64) & RM, 64, 64, (cx * 64 - sx) * kx, (cy * 64 - sy) * ky, 64 * kx + 0.5, 64 * ky + 0.5);
     }
+    ctx.globalAlpha = 1;
   }
 
   // draw into ctx (css px size W×H); span = tiles visible across; full = the big map (mapRect)
@@ -265,14 +283,15 @@ export class Minimap {
         ctx.strokeStyle = b === mine ? TEAL : INK; ctx.lineWidth = b === mine ? 1.6 : 1; ctx.stroke();
       }
     }
-    // creatures
-    const dot = full ? 2 : 2.5;
+    // creatures (the big map zoomed far out: only players and giants — the planet is not a swarm of dots)
+    const dot = full ? 2 : 2.5, farMap = full && sw > 700;
     const giants = [];
     for (const e of g.entities) {
       if (e.dead) continue;
       if (e.species === 'giant') { giants.push(e); continue; } // (drawn last, on top: giantMark)
       if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
         // other players (blue), raiders and winter walkers (red)
+        if (farMap && !e.remote) continue;
         const X = toX(e.x), Y = toY(e.y);
         if (out(X, Y, 0)) continue;
         if (!full && !e.remote && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
@@ -285,7 +304,7 @@ export class Minimap {
         }
         continue;
       }
-      if (e.kind !== 'animal') continue;
+      if (e.kind !== 'animal' || farMap) continue;
       const X = toX(e.x), Y = toY(e.y);
       if (out(X, Y, 0)) continue;
       if (!full && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;

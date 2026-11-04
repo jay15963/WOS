@@ -104,7 +104,7 @@ export function hotDryAt(world, tx, ty) {
   const k = keys[world.pbiome.get(world.idx(tx, ty))];
   if (ARID.has(k)) return true;
   if (k !== 'savanna' && k !== 'steppe' && k !== 'mediterranean' && k !== 'floodplain' && k !== 'tropical_dry') return false;
-  const P = world.source.climateAt(tx + 0.5, ty + 0.5, 0, CLIM).P;
+  const P = world.source.climateAt(tx + 0.5, ty + 0.5, null, CLIM).P;
   return P < (k === 'savanna' || k === 'tropical_dry' ? 650 : 450);
 }
 // why a seed cannot be planted on tile (tx, ty) — null: it can (wheat: fertile soil only, everywhere)

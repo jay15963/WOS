@@ -208,7 +208,7 @@ export function baseTemp(game, x, y, S) {
   const T = SURVIVAL.temp, w = game.world, src = w.source;
   if (src?.climateAt) {
     // the planet: its climate (cached per player spot for a moment: it is a few bilinear reads)
-    const P = T.planet, c = src.climateAt(x, y, w.heightAt?.(x, y) || 0, CLIM);
+    const P = T.planet, c = src.climateAt(x, y, w.hasHeight ? w.heightAt(x, y) : null, CLIM);
     const tS = c.T + 0.5 * c.tAmp * (S.tC || 0);
     const b = P.mid + (tS - P.ref) * P.k + (S.hard ? P.hardWinter * (S.winter || 0) : 0);
     return Math.max(P.min, Math.min(P.max, b));

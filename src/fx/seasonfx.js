@@ -56,7 +56,7 @@ class SeasonFx {
       this.rainT = 1;
       const src = g.world?.source, p = g.player;
       if (src?.climateAt && p) {
-        const cl = src.climateAt(p.x, p.y, 0, this.cl || (this.cl = {}));
+        const cl = src.climateAt(p.x, p.y, null, this.cl || (this.cl = {}));
         g.env.localRain = Math.max(0.12, Math.min(1.4, cl.P / 900)) * (S.zone === 0 ? 0.3 + 1.1 * (S.wet || 0) : 1);
       } else g.env.localRain = 1;
     }

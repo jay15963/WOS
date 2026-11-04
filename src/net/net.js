@@ -31,6 +31,8 @@ export class Net {
     this.pid = 'local';
     this.seq = 0;            // authority: last seq assigned · guest: last seq applied
     this.queue = [];         // authority: [op, args] applied but not flushed yet
+    this.qloc = [];          // authority: the chunks of each queued op (null = global) — net/interest.js
+    this.locate = null;      // authority on a planet: (op, args) → chunks | null (net/interest.js opChunks)
     this.queueSeq = 1;       // seq of queue[0]
     this.applying = 0;
     this.ids = { s: 0, f: 0, L: 0, m: 0 };
@@ -136,8 +138,10 @@ export class Net {
     if (!OPS[name]) { this.violation(`op desconhecida: ${name}`); return; }
     const seq = ++this.seq;
     if (!this.queue.length) this.queueSeq = seq;
+    const loc = this.locate ? this.locate(name, args) : null; // (where it happens: before it is applied)
     this._apply(name, args, seq);
     this.queue.push([name, args]);
+    this.qloc.push(loc);
     this.stats.opsOut++;
     this.stats.lastSeq = seq;
   }
@@ -154,23 +158,37 @@ export class Net {
   // end of every frame (and after each guest request): one ordered batch to every synced guest
   flush() {
     if (!this.queue.length) return;
-    const msg = { t: 'ops', s: this.queueSeq, l: this.queue };
-    this.queue = [];
+    const msg = { t: 'ops', s: this.queueSeq, l: this.queue, c: this.qloc };
+    this.queue = []; this.qloc = [];
     this.session?.broadcastOps?.(msg);
   }
-  // guest: batch from the host
+  // guest: batch from the host (a number n in the list = n ops withheld: they happen far from this guest — interest,
+  // net/interest.js; the seq numbers still advance)
   onOps(m) {
     if (!this.synced || !Array.isArray(m.l)) return;
-    const s0 = m.s | 0;
+    let seq = (m.s | 0) - 1;
     for (let k = 0; k < m.l.length; k++) {
-      const seq = s0 + k;
+      const e = m.l[k];
+      if (typeof e === 'number') {
+        const first = seq + 1, last = seq + Math.max(0, e | 0);
+        seq = last;
+        if (last <= this.seq) continue;
+        if (first > this.seq + 1) {
+          netlog.error('sync', `Dessincronia (lacuna de ops): esperava ${this.seq + 1}, chegou ${first}`);
+          this.requestResync('lacuna de ops');
+          return;
+        }
+        this.stats.opsSkipped = (this.stats.opsSkipped || 0) + (last - this.seq);
+        this.seq = last;
+        continue;
+      }
+      seq++;
       if (seq <= this.seq) continue; // already contained in the snapshot
       if (seq !== this.seq + 1) {
         netlog.error('sync', `Dessincronia (lacuna de ops): esperava ${this.seq + 1}, chegou ${seq}`);
         this.requestResync('lacuna de ops');
         return;
       }
-      const e = m.l[k];
       if (!Array.isArray(e) || !OPS[e[0]]) {
         netlog.error('sync', `Op desconhecida do anfitrião: ${Array.isArray(e) ? e[0] : '?'}`);
         this.requestResync('op desconhecida');
@@ -198,8 +216,9 @@ export class Net {
   // ---------- resync / debug ----------
   requestResync(why = 'manual') { return this.session?.requestResync?.(why) || false; }
   forceResync() { return this.requestResync('manual'); }
-  digest() { return this.hooks.digest ? this.hooks.digest() : null; }
-  dump(part) { return this.hooks.dump ? this.hooks.dump(part) : null; }
+  // ex: chunks to leave out (interest: a guest's stale chunks — net/interest.js excluded)
+  digest(ex = null) { return this.hooks.digest ? this.hooks.digest(ex) : null; }
+  dump(part, ex = null) { return this.hooks.dump ? this.hooks.dump(part, ex) : null; }
   diff(a, b) { return this.hooks.diff ? this.hooks.diff(a, b) : null; }
   selfTest() { return this.hooks.selfTest ? this.hooks.selfTest() : null; }
 }

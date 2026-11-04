@@ -64,13 +64,14 @@ def('S1', {
   const prox = gm.filter((e) => e.proxy);
   const badRef = prox.filter((e) => !byNid.has(e.nid) || byNid.get(e.nid).species !== e.species);
   t.check(prox.length && !badRef.length, 'each proxy matches a host creature (nid + species)', badRef.length ? `${badRef.length} mismatched: ${badRef.slice(0, 4).map((e) => e.nid + ':' + e.species).join(' ')}` : `${prox.length} proxies`);
-  // deterministic camps
-  const camps = (f) => (f.game.camps || []).map((c) => (c.objects || []).map((o) => String(o.id)));
+  // deterministic camps (a planet: each peer builds the camps of the chunks it has loaded — compare the ones both have)
+  const both = (c) => c.chunk == null || (H.game.world.isLoaded(c.chunk) && G.game.world.isLoaded(c.chunk));
+  const camps = (f) => (f.game.camps || []).filter(both).map((c) => [c.id, ...(c.objects || []).map((o) => String(o.id))]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const ch = camps(H), cg = camps(G);
-  t.check(ch.length && JSON.stringify(ch) === JSON.stringify(cg), 'camp object ids identical', `host ${short(ch, 140)} · guest ${short(cg, 140)}`);
-  t.check(ch.flat().every((id) => /^camp\d+:\d+$/.test(id)), "camp ids are deterministic ('camp<i>:<k>')", short(ch.flat().slice(0, 6)));
-  const props = (f) => (f.game.props || []).map((o) => String(o.id)).join(',');
-  t.check(props(H) === props(G), 'crate (prop) ids identical', `${(H.game.props || []).length} props`);
+  t.check(ch.length && JSON.stringify(ch) === JSON.stringify(cg), 'camp object ids identical (camps loaded on both)', `host ${short(ch, 140)} · guest ${short(cg, 140)}`);
+  t.check(ch.flat().filter((id) => id.includes(':')).every((id) => /^camp\d+:\d+$/.test(id)), "camp ids are deterministic ('camp<i>:<k>')", short(ch.flat().slice(0, 6)));
+  const props = (f) => (f.game.camps || []).filter(both).flatMap((c) => c.crates.map((o) => String(o.id))).sort().join(',');
+  t.check(props(H) === props(G), 'crate (prop) ids identical', `${props(H).split(',').length} crates`);
   const dwt = Math.abs(H.game.worldTime - G.game.worldTime);
   t.check(dwt <= 2, 'worldTime within 2 s', `host ${f2(H.game.worldTime)} guest ${f2(G.game.worldTime)}`);
   const eh = H.game.env, eg = G.game.env;
@@ -2431,7 +2432,7 @@ def('W1', {
   api: 'seasons.js (seasonSystem, game.season, world.frozen / liquidAt), op env.skip, walkers.js spawnWalkerAt / walkersTick (killMob noCorpse), mobs.js ACTIVE / isNight, entity stream species / weapon',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
-  const EH = H.game.env, gp = G.game.player;
+  const EH = H.game.env, gp = G.game.player, hp0 = H.game.player;
   const day0 = EH.dayIndex, hour0 = EH.hour, wt0 = H.game.worldTime;
   t.defer(() => {
     // back to the old clock, and nothing of the night left behind (hunting packs / walkers would hunt later scenarios)
@@ -2442,7 +2443,7 @@ def('W1', {
   H.game.net.emit('env.skip', { hour: 23, day: 5, wt: wt0 + 1, by: H.game.net.pid });
   await t.waitFor(() => G.game.env.dayIndex === 5 && Math.abs(G.game.env.hour - 23) < 0.2, 3000 + CFG.budget, 'the guest clock follows to day 5, 23 h');
   await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 2000, 'winter on both', () => `${H.game.season?.id} / ${G.game.season?.id}`);
-  t.check(H.game.world.frozen && G.game.world.frozen, 'the water is frozen on both');
+  t.check(H.game.world.frozenAt(hp0.x, hp0.y) && G.game.world.frozenAt(gp.x, gp.y), 'the water is frozen on both (each at its own place: seasons by latitude)', `zones ${H.game.world.zoneAt(Math.floor(hp0.x), Math.floor(hp0.y))} / ${G.game.world.zoneAt(Math.floor(gp.x), Math.floor(gp.y))}`);
   const w = G.game.world;
   let deep = null;
   for (let r = 2; r < 90 && !deep; r += 1) for (let a = 0; a < 48 && !deep; a++) {
@@ -2460,7 +2461,8 @@ def('W1', {
   // night: no green animals on the host (they went home; some may still be walking away in view)
   await t.sleep(2500);
   // (fish stay in the water all day; farm animals of the players have no herd: both are out at night on purpose)
-  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner).length;
+  // (the day animals of the dens: the planet's fauna also has creatures out at all hours — birds, crabs, seals)
+  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner && m.spawner.when === 'day' && !m.spawner.loose).length;
   t.check(green === 0, 'no passive animal out at night', `${green}`);
   // a walker next to the guest
   const s = A.freeSpot(H, MH, gp.x + 6, gp.y, { rMin: 0, rMax: 3, r: 0.3 });

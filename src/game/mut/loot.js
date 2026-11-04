@@ -21,7 +21,7 @@ export function addLootRows(game, rows) {
     if (!Array.isArray(r)) continue;
     const [id, item, qty, x, y, vx = 0, vy = 0, vlift = 0, t = 0] = r;
     if (!ITEMS[item] || lootById(game, id)) continue;
-    game.loot.push({ id, item, qty: qty | 0 || 1, x, y, vx, vy, lift: vlift ? 0.3 : 0, vlift, t, ph: phaseOf(id) });
+    game.loot.push({ id, item, qty: qty | 0 || 1, x, y, x0: x, y0: y, vx, vy, lift: vlift ? 0.3 : 0, vlift, t, ph: phaseOf(id) }); // (x0, y0: where it was dropped — its place for interest / digests)
   }
 }
 
