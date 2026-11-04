@@ -66,6 +66,12 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
   altura certa) → bombardeio (brechas; muralha e portão com vida, dano persistente, defensores consertam) → assalto
   (aríete no portão, torres encostam e baixam a rampa, luta nas muralhas e ruas) → conquista (segurar o centro sem
   defensores por um tempo: o lugar muda de reino) ou recuo.
+- **Defesa** (dono: "os soldados vão para as muralhas e não ficam defendendo apenas o mural / castelo … caso o inimigo
+  abra uma abertura na muralha os soldados corpo a corpo vão até a abertura"): em ataque de monstros ou cerco a defesa
+  vai para o perímetro — arqueiros no alto das muralhas, corpo a corpo nos portões e nos trechos atacados, equipes nas
+  balistas / catapultas, uma reserva pequena no castelo, civis em casa. Uma peça de muralha / paliçada / portão
+  destruída vira **brecha**: os corpo a corpo mais perto vão segurar a abertura e os arqueiros dali miram nela. Vilas sem
+  muralha: os guardas se formam na borda virada para a ameaça e nas entradas das estradas.
 - Longe dos jogadores o cerco é resolvido por números (tropas, máquinas, muralhas, dias) com os estragos persistindo;
   perto de um jogador é jogável dos dois lados.
 - Lugar conquistado muda de reino; reino sem nenhuma cidade some. Fundar o próprio reino: só no futuro.
