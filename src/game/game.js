@@ -13,7 +13,7 @@ import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
-import { slopeSpeed } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
+import { slopeSpeed, reliefShade } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
 import { groundOf } from '../world/height.js'; // the ground under a body (a tunnel's floor inside one)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 import { drawFauna } from '../art/faunaDraw.js'; // wild animals of the biomes (docs/FAUNA.md)
@@ -359,7 +359,7 @@ export class Game {
       // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
       Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
       Z.g = HG && Number.isFinite(o.x) && Number.isFinite(o.y) ? HG.heightAt(o.x, o.y) : 0; // (computed faces stand on the terrain; sprites are lifted on the GPU)
-      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0); Z.bias = 0.02 + (o._zb || 0); } // (_th: tunnels, game/tunnels.js) // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
+      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0) + (o._jh || 0); Z.bias = 0.02 + (o._zb || 0); } // (_th: tunnels, game/tunnels.js) // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);
@@ -367,7 +367,7 @@ export class Game {
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
-        const lz = o.isEntity ? (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0) : 0, x0 = o.x, y0 = o.y; // (+ a pier / bridge deck under it; + tunnels: game/tunnels.js _th)
+        const lz = o.isEntity ? (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0) + (o._jh || 0) : 0, x0 = o.x, y0 = o.y; // (+ a pier / bridge deck under it; + tunnels: game/tunnels.js _th)
         if (lz) { o.x = x0 + rs * lz; o.y = y0 - rc * lz; } // (straight up the screen)
         // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
         // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters
@@ -380,6 +380,14 @@ export class Game {
         else if (!drawStock(B, A, d, t, this.world.frozen) && !drawFauna(B, A, d, t, this.world)) drawAnimal(B, A, d, t);
         if (v8) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
+        // terrain height: what stands in the shade of a hill / cliff is darker (terrain.js reliefShade; plants and props
+        // cached ~1 s, creatures every frame; not in a tunnel / a cave)
+        if (HG && B.main.n > m0 && !(o._tn != null)) {
+          let sh;
+          if (o.isEntity) sh = reliefShade(this, o.x, o.y, HG.heightAt(o.x, o.y) + (o._jh || 0), env);
+          else { if (!(o._rshT > t - 1)) { o._rshT = t; o._rsh = reliefShade(this, o.x, o.y, HG.heightAt(o.x, o.y), env); } sh = o._rsh; }
+          if (sh > 0.01) B.main.tint(m0, B.main.n, 1 - sh, 1 - sh * 0.95, 1 - sh * 0.84);
+        }
         if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz);
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }

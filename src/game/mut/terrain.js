@@ -23,6 +23,7 @@ const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 function cornerBlock(game, ix, iy) {
   const w = game.world, L = w.height;
   if (L.plotH(ix, iy) > -Infinity) return 'build';
+  if (w.tunnels.size) for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) if (w.isTunnel(ix + dx, iy + dy)) return 'tunnel'; // (its ceiling / walls hold the tunnel)
   for (let k = 0; k < 4; k++) {
     const tx = ix - (k & 1), ty = iy - (k >> 1);
     if (!w.inBounds(tx, ty)) return 'edge';
@@ -79,6 +80,7 @@ const WHY = {
   build: 'Tem construção aqui: o terreno embaixo dela não muda',
   water: 'Água: não dá para mexer na margem',
   rock: 'Rocha: use a picareta para minerar',
+  tunnel: 'Túnel aqui perto: o teto e as paredes dele não mudam',
   edge: 'Fora do mapa',
   deep: 'Fundo demais aqui',
   high: 'Alto demais aqui',

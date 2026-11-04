@@ -9,6 +9,7 @@
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
+import { slopeSpeed, dropAhead, startHop, hopStep } from './terrain.js'; // terrain height: uphill, small drops
 import { reach, dist, faceTowards, mobEffect, hasLOS, dealDamage } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer, allPlayers } from './players.js';
@@ -135,14 +136,19 @@ function deckSpot(game, m, rMax) {
 }
 
 export function go(game, m, dir, speed, dt) {
+  if (m._hop?.terrain) { const x0 = m.x, y0 = m.y; hopStep(game, m, dt); stepGait(m, Math.hypot(m.x - x0, m.y - y0)); return; } // (jumping down a small drop: terrain.js)
   if (!dir) { m.moving = false; return; }
   let spd = speed * (game.levels ? game.levels.speedAt(m) : game.world.speedAt(m.x, m.y, m._ud)); // levels: stairs slower; under a bridge: the water's
   if (m.dazeT > 0) spd *= 0.45;
+  if (game.world.hasHeight) spd *= slopeSpeed(game, m, dir[0], dir[1]); // terrain height: slower uphill
   const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);
   m.facing = facingFrom(dir[0], dir[1], m.facing);
   m.moving = true;
-  stepGait(m, Math.hypot(m.x - x0, m.y - y0));
+  const dd = Math.hypot(m.x - x0, m.y - y0);
+  stepGait(m, dd);
+  // pushing into the edge of a small drop (its path / chase runs down it): hop down (terrain.js)
+  if (dd < spd * dt * 0.25 && game.world.hasHeight && !m.isProp && !m.fly) { const d = dropAhead(game, m, dir[0], dir[1]); if (d) startHop(game, m, d, 0.4); }
 }
 
 // best open direction away from `from` (8 samples, prefers away + toward home when far)

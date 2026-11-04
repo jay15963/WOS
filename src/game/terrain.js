@@ -14,6 +14,7 @@ import { exitBuildMode } from './building.js';
 import { bestTool } from './equipment.js';
 import { needToolMsg } from './gathering.js';
 import { T_R, T_REACH } from './mut/terrain.js';
+import { collides } from './physics.js';
 
 export const TERRAIN_MODES = {
   dig: { name: 'Cavar', desc: 'Abaixa o chão sob o cursor (dá terra; pedra na rocha).' },
@@ -74,11 +75,119 @@ export const TERRAIN_TOOL = {
   cancel(game) { exitBuildMode(game); },
 };
 
-// ---------- owner: walking uphill is slower ----------
+// ---------- jumping down a small drop (docs/TERRAIN-HEIGHT.md "Pular barrancos") ----------
+// A body pushing into the edge of a cliff whose foot is at most DROP_MAX lower hops down to the ground past the face: a
+// short arc (up a little, then down, ~0.4 s), no damage. Never up, never a bigger drop (refused: the player is stopped at
+// the edge as before — no fall damage to manage, no way to get stuck below by accident in a pit deeper than a story).
+// The local player hops after ~0.15 s of pushing (levels.js hopUpdate moves it: p._hop {terrain}); creatures on the
+// host hop when their path / chase runs over the edge (ai.js go → hopStep; nav.js plans these one-way drops).
+// e._jh: the hop's height over the ground under it (cosmetic: game.js lifts the sprite).
+export const DROP_MIN = 0.3, DROP_MAX = 1.3;
+export function dropAhead(game, e, ux, uy) {
+  const w = game.world, L = w.height;
+  if (!L.any || e._tn != null || e.lv > 0 || e.z > 0 || e._hop || e._boat) return null;
+  const l = Math.hypot(ux, uy);
+  if (l < 1e-3) return null;
+  ux /= l; uy /= l;
+  const r = e.r || 0.25, ax = e.x + ux * (r + 0.15), ay = e.y + uy * (r + 0.15);
+  if (!w.isCliff(Math.floor(ax), Math.floor(ay))) return null;
+  const h0 = L.heightAt(e.x, e.y);
+  for (const d of [0.75, 1.0, 1.3, 1.6, 1.9]) {
+    const lx = e.x + ux * (r + d), ly = e.y + uy * (r + d), tx = Math.floor(lx), ty = Math.floor(ly);
+    if (!w.inBounds(tx, ty)) return null;
+    if (w.isCliff(tx, ty)) continue; // (still on the face)
+    if (w.blocked(tx, ty) || w.waterAt(tx, ty) === 2) return null;
+    const h1 = L.heightAt(lx, ly), drop = h0 - h1;
+    if (drop < DROP_MIN || drop > DROP_MAX) return null;
+    if (collides(w, lx, ly, r, null, !!e.passDoors)) return null;
+    // the way over: only the face (no rock, wall or deep water)
+    for (let s = 0.3; s < r + d; s += 0.3) {
+      const x = Math.floor(e.x + ux * s), y = Math.floor(e.y + uy * s), i = w.idx(x, y);
+      if (w.rock.get(i) || w.solid.get(i) || w.water.get(i) === 2) return null;
+    }
+    return { x1: lx, y1: ly, h0, h1 };
+  }
+  return null;
+}
+// start a hop of e to the landing d (dropAhead)
+export function startHop(game, e, d, dur = 0.42) {
+  e._hop = { x0: e.x, y0: e.y, x1: d.x1, y1: d.y1, t: 0, dur, terrain: true, h0: d.h0, h1: d.h1 };
+  e._jh = 0;
+  game.audio?.play('jump', { x: e.x, y: e.y, volume: 0.45 });
+}
+// a creature's hop (the local player's runs in levels.js hopUpdate); true while hopping
+export function hopStep(game, e, dt) {
+  const h = e._hop;
+  if (!h || !h.terrain) return false;
+  h.t += dt;
+  const k = Math.min(1, h.t / h.dur), q = k * (2 - k);
+  e.x = h.x0 + (h.x1 - h.x0) * q; e.y = h.y0 + (h.y1 - h.y0) * q;
+  e.moving = true;
+  hopLift(game, e);
+  if (k >= 1) landHop(game, e);
+  return true;
+}
+// the arc: up ~0.25 story, then down to the landing; _jh = above the ground under the body now
+function hopLift(game, e) {
+  const h = e._hop, k = Math.min(1, h.t / h.dur);
+  const y = h.h0 + (h.h1 - h.h0) * k * k + 1.0 * k * (1 - k) * 0.6;
+  e._jh = Math.max(0, y - game.world.heightAt(e.x, e.y));
+}
+function landHop(game, e) {
+  e._hop = null; e._jh = 0;
+  game.juice?.puff?.(e.x, e.y, 4, [0.6, 0.52, 0.42], 0.4);
+  game.audio?.play('step', { x: e.x, y: e.y, volume: 0.7 });
+}
+// owner: the local player pushing into a small drop hops down
+function playerHop(game, dt) {
+  const p = game.player, h = p._hop;
+  if (h && h.terrain) {
+    if (h.t >= h.dur - 1e-6) { landHop(game, p); return; } // (levels.js hopUpdate moved it; it clears _hop at the end)
+    hopLift(game, p);
+    return;
+  }
+  if (p._jh) { p._jh = 0; if (!h) game.juice?.puff?.(p.x, p.y, 4, [0.6, 0.52, 0.42], 0.4); }
+  if (p.dead || p.rooted || p._boat || p.work || game.build?.mode) { p._tpush = 0; return; }
+  const mv = game.input?.move ? game.input.move() : null;
+  let mx = mv ? mv[0] : 0, my = mv ? mv[1] : 0;
+  if (mx || my) [mx, my] = game.toWorldDir(mx, my);
+  else if (p.autoMove) [mx, my] = p.autoMove;
+  const moved = p._tlx == null ? 1 : Math.hypot(p.x - p._tlx, p.y - p._tly);
+  p._tlx = p.x; p._tly = p.y;
+  if (Math.hypot(mx, my) < 0.5 || moved > 0.01) { p._tpush = 0; return; }
+  const d = dropAhead(game, p, mx, my);
+  if (!d) { p._tpush = 0; return; }
+  p._tpush = (p._tpush || 0) + dt;
+  if (p._tpush < 0.15) return;
+  p._tpush = 0;
+  startHop(game, p, d);
+  const hint = game.ctl?.hinted;
+  if (hint && !hint.drop) { hint.drop = true; game.events.emit('toast', { text: 'Pulou o barranco (só para baixo, até 1 andar)', kind: 'info' }); }
+}
+
+// ---------- the shade of the relief on what stands in it (docs/TERRAIN-HEIGHT.md) ----------
+// 0 = lit .. ~0.64 = in the shadow of a hill / cliff: the terrain shader's march toward the sun (shaders.js TERRAIN_FS
+// "relief shadows") on the CPU, at the waist of a body standing at (x, y) on ground h. game.js darkens its sprites as much
+// (creatures every frame; plants and props cached ~1 s).
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+export function reliefShade(game, x, y, h, env) {
+  const L = game.world.height;
+  if (!L.any || !env || !(env.shadowStr > 0.01) || (env.sunI ?? 1) < 0.02) return 0;
+  const sd = env.shadowDir || [0, 0], sl = Math.max(Math.hypot(sd[0], sd[1]), 0.05), ux = sd[0] / sl, uy = sd[1] / sl;
+  const h0 = h + 0.35;
+  let ts = 0;
+  for (let k = 1; k <= 10 && ts < 1; k++) {
+    const t = 0.2 + k * k * 0.18;
+    ts = Math.max(ts, smooth(0, 0.4, L.heightAt(x - ux * t, y - uy * t) - (h0 + t / sl)));
+  }
+  return ts * Math.min(env.shadowStr * 1.15, 0.64);
+}
+
+// ---------- walking uphill is slower (owner: the player; host: creatures — ai.js go) ----------
 const _g = [0, 0];
 export function slopeSpeed(game, e, mx, my) {
   const L = game.world.height;
-  if (!L.any || !(mx || my) || e.lv > 0) return 1;
+  if (!L.any || !(mx || my) || e.lv > 0 || e._tn != null) return 1; // (in a tunnel: its floor is flat)
   L.gradAt(e.x, e.y, _g);
   const l = Math.hypot(mx, my), up = (_g[0] * mx + _g[1] * my) / l; // stories gained per tile along the move
   return up > 0 ? Math.max(0.62, 1 - up * 0.55) : Math.min(1.06, 1 - up * 0.08);
@@ -92,6 +201,7 @@ export function terrainSystem() {
       const w = game.world;
       if (!w.hasHeight) return;
       if (game.build.v !== bv || (game.terrainV || 0) !== tv) { bv = game.build.v; tv = game.terrainV || 0; rebuildPlots(game); }
+      playerHop(game, dt); // (the local player: a small drop ahead)
       const m = game.build.mode;
       if (m?.kind !== 'terrain') return;
       if (game.player.dead) { exitBuildMode(game); return; }
