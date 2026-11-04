@@ -88,11 +88,49 @@ defineOp('crop.remove', {
   },
 });
 
-// ---------- authority ----------
+// ---------- where crops grow (seasons by latitude, the planet's climate) ----------
+// HOT / DRY ground (owner: "na zona quente não cresce plantação, no máximo … chão fértil ao redor de rios igual … o rio
+// Nilo"): the warm zone, deserts / badlands / salt, the dry savanna (< 650 mm of rain a year), the semi-arid steppe and
+// scrub (< 450 mm). There crops grow only on the fertile soil the water brings (world `fertile`: the green strips the
+// planet lays along rivers, around lakes and oases, docs/PLANET.md) and slower (HOT_K); on any other soil they refuse.
+export const HOT_K = 0.6;
+const ARID = new Set(['desert_dunes', 'desert_rocky', 'badlands', 'cold_desert', 'salt_flat']);
+const CLIM = {};
+export function hotDryAt(world, tx, ty) {
+  const z = world.zoneAt ? world.zoneAt(tx, ty) : 2;
+  if (z === 1) return true;
+  const keys = world.source?.biomeKeys;
+  if (!keys || !world.inBounds(tx, ty)) return false;
+  const k = keys[world.pbiome.get(world.idx(tx, ty))];
+  if (ARID.has(k)) return true;
+  if (k !== 'savanna' && k !== 'steppe' && k !== 'mediterranean' && k !== 'floodplain' && k !== 'tropical_dry') return false;
+  const P = world.source.climateAt(tx + 0.5, ty + 0.5, 0, CLIM).P;
+  return P < (k === 'savanna' || k === 'tropical_dry' ? 650 : 450);
+}
+// why a seed cannot be planted on tile (tx, ty) — null: it can (wheat: fertile soil only, everywhere)
+export function plantProblem(game, kind, tx, ty) {
+  const w = game.world;
+  if (w.zoneAt && w.zoneAt(tx, ty) === 4) return 'Frio demais: nada cresce aqui fora (região polar)';
+  const fert = fertileAt(w, tx, ty);
+  if (!fert && hotDryAt(w, tx, ty)) return 'Solo seco: só perto de rios';
+  if (CROPS[kind]?.fertile && !fert) return 'Solo não fértil: o trigo só cresce até 5 tiles de um rio';
+  return null;
+}
 // how fast crops grow in a season state (seasons by latitude: the crop's own zone, altitude included): a hard winter
 // (temperate winter, the long subpolar one, polar all year) stops them; a mild winter halves them; the tropical dry
-// season slows them a little; tropical crops grow all year
-export const cropK = (S) => (S.hard ? 0 : S.id === 'winter' ? 0.5 : S.zone === 0 && !S.wet ? 0.8 : 1);
+// season slows them a little; tropical humid crops grow all year at full speed. hot: the crop stands on hot / dry
+// ground (the fertile strip: HOT_K; elsewhere it does not grow)
+export const cropK = (S, hot = false, fert = true) => (S.hard || (hot && !fert) ? 0 : (S.id === 'winter' ? 0.5 : S.zone === 0 && !S.wet ? 0.8 : 1) * (hot ? HOT_K : 1));
+// what the player sees about a crop's growth there ('' = normal)
+export function growNote(game, tx, ty) {
+  const S = seasonAt(game, tx + 0.5, ty + 0.5), hot = hotDryAt(game.world, tx, ty), fert = fertileAt(game.world, tx, ty);
+  if (S.hard) return S.zone === 4 ? 'Não cresce: frio polar' : 'Parado: inverno';
+  if (hot && !fert) return 'Não cresce: solo seco';
+  if (hot) return 'Crescimento lento: calor';
+  if (S.id === 'winter') return 'Crescimento lento: inverno ameno';
+  if (S.zone === 0 && !S.wet) return 'Crescimento lento: estação seca';
+  return '';
+}
 // growth tick (1 Hz on the authority): stage changes are broadcast
 export function growCrops(game) {
   const net = game.net;
@@ -105,7 +143,8 @@ export function growCrops(game) {
     // the season where the crop is (seasons by latitude): a hard winter stops it, a mild one slows it, the tropical dry
     // season slows it a little
     const S = seasonAt(game, c.tx + 0.5, c.ty + 0.5);
-    const mult = cropK(S) * (1 + (rain > 0.2 ? 0.5 : 0));
+    if (c._hot == null) { c._hot = hotDryAt(game.world, c.tx, c.ty); c._fert = fertileAt(game.world, c.tx, c.ty); } // (static per tile)
+    const mult = cropK(S, c._hot, c._fert) * (1 + (rain > 0.2 ? 0.5 : 0));
     const g = Math.min(1, c.growth + (el * mult) / CROPS[c.kind].grow);
     c.growth = g; // continuous value lives on the authority; peers get it on stage changes
     const st = stageOf(g);
@@ -122,8 +161,8 @@ defineIntent('farm.plant', {
     if (!kind) return 'Semente desconhecida';
     if (!plotAt(game, tx, ty)) return 'Sem canteiro aqui';
     if (cropAt(game, tx, ty)) return 'Já plantado';
-    if (CROPS[kind].fertile && !fertileAt(game.world, tx, ty)) return 'Solo não fértil: o trigo só cresce até 5 tiles de um rio';
-    if (game.world.zoneAt(tx, ty) === 4) return 'Frio demais: nada cresce aqui fora (região polar)';
+    const why = plantProblem(game, kind, tx, ty);
+    if (why) return why;
     net.emit('crop.add', { tx, ty, kind, growth: 0, at: Math.round(game.worldTime), by: actor.pid, xp: 1 });
   },
 });

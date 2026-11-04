@@ -59,6 +59,7 @@ export async function makePlanetSource(seed, opts = {}) {
     // season zone (0 tropical .. 4 polar) and the latitude (degrees, display only)
     climateAt: (x, y, h = 0, out = {}) => climatePoint(m, planet, x, y, h, out),
     planet, // (the macro planet: the map, tools)
+    biomeKeys: m.BIOME_KEYS, // (world.pbiome id → key: camps, the hot / dry crop rule)
     macro: () => {
       if (!m.renderMacro) return null;
       const rgba = m.renderMacro(planet, 'satellite');
