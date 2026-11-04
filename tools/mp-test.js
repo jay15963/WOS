@@ -290,13 +290,21 @@ def('S5', {
   const pairs = A.hostMobs(H).map((m) => [m, A.proxyOf(G, m)]).filter(([, p]) => p);
   if (!pairs.length) { t.note('no creature proxies on the guest — creature gait sub-check skipped'); return; }
   const s0 = pairs.map(([m, p]) => [m.moveT, p.moveT, m.x, m.y]);
+  // the host's straight-line progress per 0.1 s (the stream's rate): back-and-forth faster than that (a fight's footwork,
+  // bumping in a crowd) never reaches a 10 Hz copy — such a creature is left out of the gait parity
+  const seg = pairs.map(([m]) => ({ x: m.x, y: m.y, d: 0, st: {} }));
+  const wt = t.watch(() => pairs.forEach(([m], i) => { const q = seg[i]; q.d += Math.hypot(m.x - q.x, m.y - q.y); q.x = m.x; q.y = m.y; q.st[m.state] = 1; }), 100);
   await t.sleep(6000);
-  const ratios = [];
+  wt.stop?.();
+  const ratios = [], skipped = [];
   pairs.forEach(([m, p], i) => {
-    const dm = m.moveT - s0[i][0], dp = p.moveT - s0[i][1];
-    if (dm >= 0.5 && !m.dead) ratios.push({ nid: m.nid, sp: m.species, dm: f2(dm), dp: f2(dp), r: dp / dm, tiles: f2(Math.hypot(m.x - s0[i][2], m.y - s0[i][3])) });
+    const dm = m.moveT - s0[i][0], dp = p.moveT - s0[i][1], walked = dm / 0.25;
+    if (dm < 0.5 || m.dead) return;
+    if (walked > seg[i].d * 1.5 + 0.5) { skipped.push(`${m.species}(${Object.keys(seg[i].st).join('/')} ${f2(walked)}/${f2(seg[i].d)})`); return; }
+    ratios.push({ nid: m.nid, sp: m.species, dm: f2(dm), dp: f2(dp), r: dp / dm, tiles: f2(Math.hypot(m.x - s0[i][2], m.y - s0[i][3])) });
   });
   t.metric('mobRatios', ratios.slice(0, 8).map((r) => `${r.sp}:${f2(r.r)}`).join(' '));
+  if (skipped.length) t.note(`left out (shuffling faster than the 10 Hz stream): ${skipped.join(' ')}`);
   if (!ratios.length) { t.note('no creature walked ≥ 2 tiles in 6 s — creature gait sub-check skipped'); return; }
   const med = median(ratios.map((r) => r.r));
   t.check(Math.abs(med - 1) <= 0.1, 'creature proxy moveT delta = host delta ±10% (median)', `median ×${f2(med)} over ${ratios.length} creatures`);
