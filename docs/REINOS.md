@@ -104,6 +104,20 @@ inimigos (sem fogo amigo), monstros e bandidos.
 Anfitrião autoritativo como o resto do jogo. Reputação, reino e propriedades **por jogador**; dois jogadores podem
 estar em reinos inimigos e lutar entre si. A simulação dos reinos (economia, exércitos, diplomacia) roda no anfitrião.
 
+## 7b. Equilíbrio: os reinos evoluem junto com o jogador
+
+As criaturas ficam mais fortes quanto mais longe do início do mundo. Se isso valesse para os reinos, os reinos perto do
+início seriam sempre os mais fracos. Regra do dono: **os NPCs dos reinos perto do início evoluem junto com o jogador**
+com o tempo — o nível deles sobe acompanhando o progresso dos jogadores, e o **teto** é o nível mais alto dos NPCs mais
+distantes. Assim os reinos ao redor crescem junto com o jogador e as guerras entre reinos ficam equilibradas.
+
+- Nível de um NPC de reino (guardas, soldados, exércitos, generais) = o maior entre o nível pela distância e o nível de
+  progresso do mundo, nunca acima do teto (o nível dos NPCs mais distantes).
+- Progresso do mundo: o nível do jogador mais avançado do mundo (multijogador: o mais alto entre os jogadores que já
+  jogaram nele); só sobe.
+- Vale também para a força dos exércitos na simulação resumida (longe dos jogadores) — a mesma conta.
+- As criaturas selvagens e os monstros continuam pela regra da distância (só os reinos evoluem).
+
 ## 8. Fases
 
 1. Esqueletos / múmias e gigantes · geração dos reinos (territórios, assentamentos, casas prontas, castelo modular,
