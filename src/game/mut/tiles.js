@@ -12,6 +12,7 @@ import { lootRows, ri } from './roll.js';
 import { onRockMined, collapseFx } from '../roofs.js';
 import { hurtUnder } from './roofs.js';
 import { onRockHit, onRockBreak } from '../../fx/rockfx.js';
+import { tunnelRock } from './tunnels.js';
 
 const ORE_ITEM = WG.ORE_ITEM || ORE_ITEM_DB; // world ore code -> item id (CONTENT §7)
 export const ROCK_COL = [[0.6, 0.58, 0.55], [0.62, 0.6, 0.58], [0.76, 0.72, 0.62], [0.42, 0.44, 0.48], [0.86, 0.85, 0.82]];
@@ -96,6 +97,8 @@ defineIntent('rock.hit', {
     }
     if (prog < 0.85) return 'Ainda não terminou';
     const ore = w.ore.get(i);
+    // terrain height: rock mined from a floor a story below the relief over it becomes a tunnel (mut/tunnels.js)
+    if (tunnelRock(game, net, actor, tx, ty, ore ? 8 : 4)) { game.rockHits.delete(i); return; }
     const cx = tx + 0.5, cy = ty + 0.6;
     const rows = [];
     lootRows(net, rows, cx, cy, 'stone', ri(net, 1, 2) + (net.roll() < 0.25 ? 1 : 0));

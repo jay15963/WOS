@@ -28,6 +28,7 @@ export const WEAPON_TYPES = {
   knife:   { name: 'Faca', g: 'f', min: 4, max: 7, swing: 1.15, reach: 0.6, crit: 0.06, act: 'stab', abilities: ['stab', 'lacerate'], icon: 'stab' },
   axe:     { name: 'Machado', g: 'm', min: 7, max: 12, swing: 1.75, reach: 0.68, crit: 0.02, act: 'attack', abilities: ['cleave', 'shove'], icon: 'cleave' },
   pickaxe: { name: 'Picareta', g: 'f', min: 5, max: 9, swing: 1.8, reach: 0.66, crit: 0, act: 'attack', abilities: ['shove'], icon: 'attack' },
+  shovel:  { name: 'Pá', g: 'f', min: 4, max: 8, swing: 1.75, reach: 0.68, crit: 0, act: 'attack', abilities: ['shove'], icon: 'attack' },
   spear:   { name: 'Lança', g: 'f', min: 6, max: 10, swing: 1.55, reach: 1.3, crit: 0.03, act: 'stab', abilities: ['pierce', 'sweep', 'throw_spear'], icon: 'pierce' },
   sword:   { name: 'Espada', g: 'f', min: 8, max: 13, swing: 1.5, reach: 0.72, crit: 0.03, act: 'attack', abilities: ['strike', 'whirlwind', 'charge'], icon: 'strike' },
   club:    { name: 'Clava', g: 'f', min: 7, max: 12, swing: 1.85, reach: 0.66, crit: 0.02, act: 'attack', stun: 0.08, abilities: ['smash', 'shove'], icon: 'smash' },

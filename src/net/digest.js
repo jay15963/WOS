@@ -54,7 +54,8 @@ export function dumpPart(game, part) {
     case 'tiles': {
       const mc = new Set(game.minedTiles.map((i) => chunkOfI(i)));
       return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
-        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof)]];
+        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof)],
+        ['tun', w.tunnels ? [...w.tunnels].sort((a, b) => a[0] - b[0]).map((r) => r[0] + ':' + Math.round(r[1] * 100)).join(',') : '']]; // (tunnels: docs/TERRAIN-HEIGHT.md)
     }
     case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);

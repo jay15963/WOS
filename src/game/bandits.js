@@ -180,7 +180,7 @@ campHooks.crateBreak = (game, o, breaker) => {
 };
 
 // ---------- AI ----------
-function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0); } // levels: sight over walls from / to a height
+function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn); } // levels: sight over walls from / to a height
 
 // p = the target player (local or a remote avatar); extra effects (stun / bleed) ride on the hit
 function meleeHit(game, m, p, mult, opts = {}) {

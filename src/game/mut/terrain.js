@@ -11,6 +11,7 @@
 
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { G } from '../../world/worldgen.js';
+import { hideDugDecor } from '../terrain.js'; // (grass / flowers / small stones go with the turf)
 
 export const T_STEP = 0.25;    // stories moved per action at the brush centre
 export const T_R = 1.6;        // brush radius (tiles)
@@ -23,6 +24,7 @@ const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
 function cornerBlock(game, ix, iy) {
   const w = game.world, L = w.height;
   if (L.plotH(ix, iy) > -Infinity) return 'build';
+  if (w.tunnels.size) for (let dy = -2; dy <= 1; dy++) for (let dx = -2; dx <= 1; dx++) if (w.isTunnel(ix + dx, iy + dy)) return 'tunnel'; // (its ceiling / walls hold the tunnel)
   for (let k = 0; k < 4; k++) {
     const tx = ix - (k & 1), ty = iy - (k >> 1);
     if (!w.inBounds(tx, ty)) return 'edge';
@@ -44,13 +46,14 @@ export function terrainBrush(game, m, x, y, h, creative = false) {
   const w = game.world, L = w.height; // (corner index: L.ci — the planet store, docs/STREAMING.md)
   const step = T_STEP * (creative ? 2 : 1), out = [];
   let why = null, dug = 0, stone = 0, seen = 0;
+  const block = []; // (the corners refused: the brush preview shows them red)
   const R = T_R, ix0 = Math.ceil(x - R), ix1 = Math.floor(x + R), iy0 = Math.ceil(y - R), iy1 = Math.floor(y + R);
   for (let iy = iy0; iy <= iy1; iy++) for (let ix = ix0; ix <= ix1; ix++) {
     const d = Math.hypot(ix - x, iy - y);
     if (d > R || iy < 0 || iy >= L.H || !w.inBounds(Math.min(ix, w.maxX), Math.min(iy, w.maxY))) continue;
     seen++;
     const b = cornerBlock(game, ix, iy);
-    if (b) { why ||= b; continue; }
+    if (b) { why ||= b; if (block.length < 40) block.push(L.ci(ix, iy)); continue; }
     const wt = ss(R, 0.45, d), i = L.ci(ix, iy), cur = L.t.get(i), base = L.base.get(i);
     let nh = cur;
     if (m === 'dig') nh = Math.max(cur - step * wt, Math.max(0, base - T_DEPTH));
@@ -72,13 +75,14 @@ export function terrainBrush(game, m, x, y, h, creative = false) {
     }
   }
   if (!out.length) why = !seen ? 'edge' : why || (m === 'dig' ? 'deep' : m === 'fill' ? 'high' : 'same');
-  return { list: out, why, dug, stone };
+  return { list: out, why, dug, stone, block };
 }
 
 const WHY = {
   build: 'Tem construção aqui: o terreno embaixo dela não muda',
   water: 'Água: não dá para mexer na margem',
   rock: 'Rocha: use a picareta para minerar',
+  tunnel: 'Túnel aqui perto: o teto e as paredes dele não mudam',
   edge: 'Fora do mapa',
   deep: 'Fundo demais aqui',
   high: 'Alto demais aqui',
@@ -99,9 +103,10 @@ defineOp('terrain.set', {
     const p = Array.isArray(a.p) ? a.p : [], list = [];
     for (let k = 0; k + 1 < p.length; k += 2) if (Number.isInteger(p[k]) && Number.isFinite(p[k + 1])) list.push([p[k], p[k + 1] / 100]);
     if (!applyTerrain(game, list) || !list.length) return;
+    hideDugDecor(game, list.map((r) => r[0]));
     // feedback where it happened (the actor's client already played it)
     if (ctx.mine) return;
-    const W = game.world.W, i = list[0][0], x = i % W, y = (i / W) | 0;
+    const i = list[0][0], x = i & 16383, y = i >>> 14; // (corner index: L.ci)
     game.juice?.puff?.(x, y, 4, a.m === 'fill' ? [0.5, 0.4, 0.3] : [0.56, 0.46, 0.34], 0.45);
     game.audio?.play(a.m === 'fill' ? 'path_dirt' : 'dig', { x, y, volume: 0.6 });
   },

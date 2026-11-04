@@ -13,7 +13,8 @@ import { STORY_H } from './levels.js';
 import { CAMV } from '../art/archCompose.js';
 import { faceKindOf, boxDepth, drawFacesTurned } from '../art/faces/index.js'; // camera rotation: pieces drawn as computed faces
 import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in 8 views
-import { slopeSpeed } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
+import { slopeSpeed, reliefShade } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
+import { groundOf } from '../world/height.js'; // the ground under a body (a tunnel's floor inside one)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
 import { drawFauna } from '../art/faunaDraw.js'; // wild animals of the biomes (docs/FAUNA.md)
 
@@ -120,9 +121,10 @@ export class Game {
     // seen (march down from the highest ground, then refine)
     const at = (t) => { const [dx, dy] = this.toWorldDir(vx, vy + t); return [cx + dx, cy + dy]; };
     let t = W.height.max + 0.5, prev = t;
-    for (; t > 0; t -= 0.2) { const [x, y] = at(t); if (W.heightAt(x, y) >= t) break; prev = t; }
+    const VH = this.tunnels?.k.size ? (x, y) => this.tunnels.viewH(x, y) : (x, y) => W.heightAt(x, y); // (tunnels: the floor shown)
+    for (; t > 0; t -= 0.2) { const [x, y] = at(t); if (VH(x, y) >= t) break; prev = t; }
     if (t <= 0) t = 0;
-    else { let lo = t, hi = prev; for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2, [x, y] = at(m); if (W.heightAt(x, y) >= m) lo = m; else hi = m; } t = lo; }
+    else { let lo = t, hi = prev; for (let k = 0; k < 10; k++) { const m = (lo + hi) / 2, [x, y] = at(m); if (VH(x, y) >= m) lo = m; else hi = m; } t = lo; }
     return at(t);
   }
 
@@ -130,7 +132,7 @@ export class Game {
   worldToScreen(wx, wy, h = 0) {
     const z = this.cam.zoom;
     const [vx, vy] = this.toViewDir(this.world.dx(wx, this.cam.x + this.shakeOff.x), wy - this.cam.y - this.shakeOff.y);
-    return [vx * z + this.R.cssW / 2, (vy - h - this.world.heightAt(wx, wy)) * z + this.R.cssH / 2];
+    return [vx * z + this.R.cssW / 2, (vy - h - (this.tunnels?.k.size ? this.tunnels.viewH(wx, wy) : this.world.heightAt(wx, wy))) * z + this.R.cssH / 2];
   }
 
   update(dt) {
@@ -198,7 +200,7 @@ export class Game {
 
     // camera follow with slight look-ahead
     const look = p.moving ? 0.6 : 0;
-    const [ux, uy] = this.toWorldDir(0, -(0.4 + (p.z > 0 ? p.z * STORY_H : 0) + this.world.heightAt(p.x, p.y))); // (a little up the screen; levels / terrain height: elevated)
+    const [ux, uy] = this.toWorldDir(0, -(0.4 + (p.z > 0 ? p.z * STORY_H : 0) + groundOf(p))); // (a little up the screen; levels / terrain height: elevated; in a tunnel: its floor)
     let tx = p.x + ux + mx * look, ty = p.y + uy + my * look;
     // optional focus point (e.g. a long-range aim): the camera leans toward it by weight k (0..1)
     const cf = this.camFocus;
@@ -253,7 +255,7 @@ export class Game {
     const want = p && !p.dead && !this.noCut ? 1 : 0;
     C.k += (want - C.k) * Math.min(1, (this._dt || 0.016) * 6);
     if (C.k < 0.01 || !p) { C.k = want ? C.k : 0; return C; }
-    const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0) + this.world.heightAt(p.x, p.y), dx = p.x - cam.x, dy = p.y - cam.y; // (+ the terrain under it)
+    const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0) + groundOf(p), dx = p.x - cam.x, dy = p.y - cam.y; // (+ the terrain under it: a tunnel's floor inside one)
     C.yP = -rs * dx + rc * dy; C.hP = hP;
     C.x = rc * dx + rs * dy; C.y = C.yP - hP - 0.55 * (p.scale || 1); C.r = 0.95 * (p.scale || 1);
     return C;
@@ -280,10 +282,11 @@ export class Game {
     const wld0 = this.world, seam = wld0.wrap && (mx0 < 0 || mx1 > wld0.W), shifted = this._shifted || (this._shifted = []);
     const sh = (o) => { if (!seam) return; const nx = wld0.near(o.x, this.cam.x); if (nx !== o.x) { shifted.push(o, o.x); o.x = nx; } };
     const HG = this.world.height.any ? this.world.height : null; // terrain height (docs/TERRAIN-HEIGHT.md)
+    const TK = this.tunnels?.k.size ? this.tunnels.k : null; // tunnels: tiles whose floor is shown (game/tunnels.js)
     this.world.forChunks(mx0, my0, mx1, my1, (c) => {
       for (const d of c.decor) {
         if (seam) sh(d);
-        if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5) drawDecor(B, A, d); // _hid: on a painted path
+        if (!d._hid && d.x > v.x0 - 1 && d.x < v.x1 + 1 && d.y > v.y0 - 0.5 && d.y < v.y1 + 1.5 && !(TK && TK.get(this.world.idx(Math.floor(d.x), Math.floor(d.y))) > 0.5)) drawDecor(B, A, d); // _hid: on a painted path / dug ground; TK: over a shown tunnel floor
       }
       for (const o of c.objects) {
         if (o.roof) continue; // roof tiles: drawn by the roof regions (src/game/roofs.js collect)
@@ -311,7 +314,7 @@ export class Game {
       }
       else if (o._sy != null && o.pose?.o?._fk) o._zk = o.pose.o._zk + 0.02; // lying in a bed / sitting: right after it (art/faces/props.js)
       else { o._zk = -rs * o.x + rc * (o._sy ?? o.y); if (o.isEntity && o.z > 0) o._zk = this.levels ? this.levels.zkRot(o, o._zk, rc, rs) : o._zk + o.z; } // levels: up a story / on a stair
-      if (HG && !o.zkRot && Number.isFinite(o.x) && Number.isFinite(o.y)) o._zk += HG.heightAt(o.x, o.y); // (terrain height: nearer the camera)
+      if (HG && !o.zkRot && Number.isFinite(o.x) && Number.isFinite(o.y)) o._zk += o._tn != null ? o._tn : HG.heightAt(o.x, o.y); // (terrain height: nearer the camera; in a tunnel: its floor)
     }
     // a pawn in a bed / on a seat (art/compose.js _sobj): just in front of it, whichever way the camera looks
     for (let i = 0; i < list.length; i++) { const o = list[i]; if (o.isEntity && o._sobj && o._sy != null && o._sobj._zk != null) o._zk = o._sobj._zk + 0.02; }
@@ -348,6 +351,7 @@ export class Game {
       // walls / doors whose front faces show below the eaves; same under a cave ceiling (never the local player,
       // who is drawn while its own cave's ceiling fades out)
       if (!o.draw && ((underOpaqueRoof(this, o.x, o.y) && !(o.building && BUILDINGS[o.type]?.connect === 'wall')) || (o !== pl && underCaveCeiling(this, o.x, o.y)))) continue;
+      if (TK && o !== pl && !o.draw && (o.isEntity ? o._tn != null && this.tunnels.hidden(o.x, o.y, o) : !o.building && TK.get(this.world.idx(Math.floor(o.x), Math.floor(o.y - 0.05))) > 0.5)) continue; // tunnels: a body in one nobody sees into; what stands on the surface over a shown floor
       // depth (docs/CAMERA-ROTATION.md "Profundidade por pixel"): faces are exact and the sprites of a face kind /
       // drawable stand where they are drawn (their own anchor and lift); a creature or a plant is one card through
       // its foot (its parts never hide each other: drawing order on the card), a creature up a story stands at its
@@ -355,7 +359,7 @@ export class Game {
       // the sprites of a face kind (flames, glows, billboards) a bit in front of its own faces
       Z.ord = 0; Z.mode = 0; Z.bias = o._fk?.zBias || 0; Z.sb = o._fk ? 0.3 : 0; Z.ref = false;
       Z.g = HG && Number.isFinite(o.x) && Number.isFinite(o.y) ? HG.heightAt(o.x, o.y) : 0; // (computed faces stand on the terrain; sprites are lifted on the GPU)
-      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0); Z.bias = 0.02 + (o._zb || 0); } // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
+      if (o.isEntity) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0) + (o._jh || 0); Z.bias = 0.02 + (o._zb || 0); } // (_th: tunnels, game/tunnels.js) // (_dh: standing on a pier / bridge deck, decks.js; _zb: riding under one, boats.js)
       else if (!o.draw && !o._fk) { Z.ref = true; Z.x = o.x; Z.y = o.y; Z.h = 0; if (o.type?.startsWith('tree_')) Z.mode = 2; }
       const m0 = B.main.n, e0 = B.emissive.n;
       if (o.draw) o.draw(B, A, t);
@@ -363,7 +367,7 @@ export class Game {
       else {
         if (LV) { if (!o.isEntity && o.lv > 0) { LV.drawUpper(B, A, o, t); continue; } if (LV.culled(o)) continue; } // upper pieces lifted; things under a slab hidden
         // levels: an entity up a story is drawn with its base lifted (it stands on the wall top / upper floor)
-        const lz = o.isEntity ? (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) : 0, x0 = o.x, y0 = o.y; // (+ a pier / bridge deck under it)
+        const lz = o.isEntity ? (o.z > 0 ? o.z * STORY_H : 0) + (o._dh || 0) + (o._th || 0) + (o._jh || 0) : 0, x0 = o.x, y0 = o.y; // (+ a pier / bridge deck under it; + tunnels: game/tunnels.js _th)
         if (lz) { o.x = x0 + rs * lz; o.y = y0 - rc * lz; } // (straight up the screen)
         // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
         // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters
@@ -376,6 +380,14 @@ export class Game {
         else if (!drawStock(B, A, d, t, this.world.frozen) && !drawFauna(B, A, d, t, this.world)) drawAnimal(B, A, d, t);
         if (v8) { o.facing = f0; o.headFacing = h0; o._dv = null; }
         if (lz) { o.x = x0; o.y = y0; }
+        // terrain height: what stands in the shade of a hill / cliff is darker (terrain.js reliefShade; plants and props
+        // cached ~1 s, creatures every frame; not in a tunnel / a cave)
+        if (HG && B.main.n > m0 && !(o._tn != null)) {
+          let sh;
+          if (o.isEntity) sh = reliefShade(this, o.x, o.y, HG.heightAt(o.x, o.y) + (o._jh || 0), env);
+          else { if (!(o._rshT > t - 1)) { o._rshT = t; o._rsh = reliefShade(this, o.x, o.y, HG.heightAt(o.x, o.y), env); } sh = o._rsh; }
+          if (sh > 0.01) B.main.tint(m0, B.main.n, 1 - sh, 1 - sh * 0.95, 1 - sh * 0.84);
+        }
         if (o.isEntity && o.pose) restDepth(B, o, m0, e0, lz);
       }
       // light emitters: o.light = { r, g, b, radius, intensity, flicker, lift }

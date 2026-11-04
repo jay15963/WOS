@@ -33,6 +33,7 @@ import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (agent M)
 import { terrainSystem } from './terrain.js'; // terrain height: building pads, the terrain tool (docs/TERRAIN-HEIGHT.md)
+import { installTunnels, tunnelsSystem } from './tunnels.js'; // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md)
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
@@ -48,6 +49,7 @@ import { installFishing, fishingSystem } from './fishing.js'; // fishing with a 
 import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
 import { installBallistaUi } from '../ui/ballistaUi.js';
 import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
+import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -76,6 +78,7 @@ export function installSystems(game) {
   initBuilding(game);
   initRoofs(game);
   initRockFx(game);                 // cracks of rock being mined (cosmetic)
+  installTunnels(game);             // tunnels: bodies in them, the floor shown (game/tunnels.js)
   installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   installDecks(game, itemSprite);   // piers / bridges: the deck map (derived from the structures)
   buildOcc(game);
@@ -111,6 +114,7 @@ export function installSystems(game) {
     levelsSystem(),
     decksSystem(),                  // world.deck / world.rail before anything moves (decks.js)
     terrainSystem(),                // terrain height: the pads under buildings before anything moves (terrain.js)
+    tunnelsSystem(),                // tunnels: e._tn of every body, the floor shown around the local player (tunnels.js)
     controller,
     playerSystem(),
     abilitiesSystem(),
@@ -139,6 +143,7 @@ export function installSystems(game) {
     stockSystem(),                  // the farm clock: domestication, hunger, births, growth (host)
     stockFxSystem(),                // ropes, feeder range, fertile soil marks (cosmetic)
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
+    waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);

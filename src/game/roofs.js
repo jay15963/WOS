@@ -73,7 +73,7 @@ export function initRoofs(game) {
   Object.assign(game.roofs, { caveOf: new Layer('caveOf', Int32Array, 0, { sparse: true }), caves: new Map(), caveNext: 1, caveDirty: new Set(), caveAll: true, crumble: new Map(), cracks: new Map(), peek: new Map() });
   game.indoors = { kind: null, region: 0, zoomK: 0, caveK: 0, builtK: 0, _cand: null, _candT: 0, _k: 0 };
   // for fx modules (no import of game code): hidden by an opaque built roof or by a cave ceiling
-  game.roofs.hidden = (x, y) => underOpaqueRoof(game, x, y) || underCaveCeiling(game, x, y);
+  game.roofs.hidden = (x, y, e) => underOpaqueRoof(game, x, y) || underCaveCeiling(game, x, y) || !!game.tunnels?.hidden(x, y, e); // (e: a body — in a tunnel or over it)
   // the world asks us to ease cave darkness changes caused by mining (cosmetic)
   w.caveFade = (i, a, b) => { game.roofs.caveFade.set(i, { a, b, t: 0 }); };
 }
@@ -784,6 +784,7 @@ function updateIndoors(game, dt) {
       const i = w.idx(tx, ty);
       if (w.broof.get(i)) { kind = 'built'; region = R.regionOf.get(i); }
       else if (w.roof.get(i) && !w.rock.get(i)) { kind = 'cave'; region = R.caveOf.get(i); } // (the cave whose ceiling fades)
+      else if (p._tn != null && isTun(w, i)) { kind = 'cave'; region = R.caveOf.get(i); } // (in a tunnel: game/tunnels.js shows its floor)
       else if (game.levels?.hasUpper) {
         // under an upper floor (agent L's slab: a second story, a balcony) — indoors for the camera too (no roof region)
         const V = Math.round(p.z || 0), N = w.W * w.H;
@@ -920,7 +921,8 @@ export function underOpaqueRoof(game, x, y) {
 // Everything here derives from the shared rock / roof grids, so every peer shows the same caves.
 const CRACK_T = 0.42;   // cracks spreading before the first tile breaks
 const BREAK_T = 0.35;   // a tile's ceiling crumbling away (its chunks drop one by one, terrain shader)
-const isCaveTile = (w, i) => w.roof.get(i) === 1 && w.rock.get(i) === 0;
+const isCaveTile = (w, i) => (w.roof.get(i) === 1 && w.rock.get(i) === 0) || w.tun.get(i) > -Infinity; // (+ tunnels dug into the relief)
+const isTun = (w, i) => w.tun.get(i) > -Infinity; // (its ceiling is the relief itself: never a painted one — game/tunnels.js shows the floor)
 
 function rebuildCaves(game) {
   const R = game.roofs, w = game.world, W = w.W, CO = R.caveOf, D = R.data;
@@ -932,6 +934,7 @@ function rebuildCaves(game) {
     for (const g of R.caves.values()) olds.push(g);
     R.caves.clear(); CO.clear();
     for (const i of game.minedTiles || []) if (isCaveTile(w, i)) seeds.push(i);
+    for (const i of w.tunnels.keys()) seeds.push(i); // (tunnels into the relief: mostly not mined rock)
     for (const c of [...D.chunks()]) { // (ceilings left over from a replaced snapshot)
       const p = D.pages[c];
       for (let l = 0; l < p.length; l += 4) if (p[l + 3]) { const x = ((c & 255) << 6) + ((l >> 2) & 63), y = ((c >>> 8) << 6) + (l >> 8), i = w.idx(x, y); if (!isCaveTile(w, i) && !R.crumble.has(i)) { p[l + 3] = 0; markUpload(R, x, y, x, y); } }
@@ -989,7 +992,7 @@ function updateCaves(game, dt) {
     const e = g.reveal * g.reveal * (3 - 2 * g.reveal), v = Math.round(255 * (1 - e));
     if (v === g.av) continue;
     g.av = v;
-    for (const i of g.tiles) D.set4(i, 3, w.broof.get(i) ? 0 : Math.min(v, R.peek.get(i) ?? 255));
+    for (const i of g.tiles) D.set4(i, 3, w.broof.get(i) || isTun(w, i) ? 0 : Math.min(v, R.peek.get(i) ?? 255));
     markUpload(R, g.x0, g.y0, g.x1, g.y1);
   }
   peekCaves(game);
@@ -1048,7 +1051,7 @@ function peekCaves(game) {
   for (const i of old.keys()) if (!next.has(i)) next.set(i, 255);
   for (const [i, v] of next) {
     const g = R.caves.get(R.caveOf.get(i));
-    const base = g && g.av >= 0 && !w.broof.get(i) ? g.av : 0;
+    const base = g && g.av >= 0 && !w.broof.get(i) && !isTun(w, i) ? g.av : 0;
     const a = Math.min(base, v);
     if (D.get4(i, 3) !== a) { D.set4(i, 3, a); markUpload(R, i % W, (i / W) | 0, i % W, (i / W) | 0); }
     if (v >= 255) next.delete(i);

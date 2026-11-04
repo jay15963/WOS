@@ -6,8 +6,9 @@
 // included); an open one is 0 (everyone passes). They never open by themselves. The value-2 paths below
 // (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
-import { collides, moveCircle, railCross, underAt, underFor, deckTrack } from './physics.js';
+import { collides, moveCircle, railCross, underAt, underFor, deckTrack, tunSet, tunTrack, tunClear } from './physics.js';
 import { Layer, NodeTable } from '../world/store.js';
+import { DROP_MIN, DROP_MAX, dropAhead } from './terrain.js'; // small drops a body hops down
 
 // Bridges (game/decks.js, physics.js): a step between two tiles is tested against the walls of the level it is taken at
 // — the railings on a deck, the walls at the water (support bents, abutments) under a deck or on the ground — and a
@@ -82,16 +83,18 @@ export const mobBlocked = (w, x, y, r, ud = false) => collides(w, x, y, r, null,
 export function moveMob(game, e, dx, dy) {
   const w = game.world;
   const L = game.levels;
-  if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts
-  if (e.passDoors) return moveCircle(w, e, dx, dy);
+  if (e.passDoors || (L && (L.active || e.lv || e.z > 0))) return moveCircle(w, e, dx, dy); // levels: stairs / ramparts (moveCircle → levels.move)
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
-  const sx = dx / steps, sy = dy / steps, dk = !!w.rail; // (dk: bridges around — on / under a deck)
+  const sx = dx / steps, sy = dy / steps, dk = !!w.rail, tn = !!w.tunnels?.size; // (dk: bridges around — on / under a deck; tn: tunnels)
   let moved = false;
   for (let i = 0; i < steps; i++) {
+    if (tn) tunSet(w, e);
     if (!mobBlocked(w, e.x + sx, e.y, e.r, dk && underFor(w, e, e.x + sx, e.y))) { e.x += sx; moved = true; }
+    if (tn) tunSet(w, e);
     if (!mobBlocked(w, e.x, e.y + sy, e.r, dk && underFor(w, e, e.x, e.y + sy))) { e.y += sy; moved = true; }
   }
   if (dk) deckTrack(w, e);
+  if (tn) { tunTrack(w, e); tunClear(); }
   return moved;
 }
 
@@ -168,7 +171,7 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, u
   const s0 = T.slot(s);
   T.g[s0] = 0; T.par[s0] = -1; T.lay[s0] = ud ? 1 : 0;
   heapPush(s, h(s));
-  const dk = !!w.rail;
+  const dk = !!w.rail, HL = w.height.any ? w.height : null; // (HL: terrain height — one-way drops)
   let best = s, bestH = h(s), expanded = 0;
   const free = (x, y) => w.inBounds(x, y) && ((w.idx(x, y) === g && !w.blocked(x, y) && (doors || w.solid.get(g) !== 2)) || walkable(game, x, y, doors));
   while (heapSize > 0 && expanded < maxNodes) {
@@ -181,9 +184,16 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, u
     const hc = h(cur);
     if (hc < bestH) { bestH = hc; best = cur; }
     for (const [dx, dy, cost] of DIRS) {
-      const nx = cx + dx, ny = cy + dy;
-      if (!free(nx, ny)) continue;
+      let nx = cx + dx, ny = cy + dy, c = cost, drop = false;
+      if (!free(nx, ny)) {
+        // terrain height: a one-way drop over a cliff edge at most DROP_MAX lower (game/terrain.js: the body hops down)
+        if (!HL || dx && dy || !w.isCliff(nx, ny) || !free(nx + dx, ny + dy)) continue;
+        const dh = HL.heightAt(cx + 0.5, cy + 0.5) - HL.heightAt(nx + dx + 0.5, ny + dy + 0.5);
+        if (dh < DROP_MIN || dh > DROP_MAX || w.rock.get(w.idx(nx, ny)) || w.water.get(w.idx(nx, ny)) === 2) continue;
+        nx += dx; ny += dy; c = 2.6; drop = true;
+      }
       if (dx && dy && (!walkable(game, cx + dx, cy, doors) || !walkable(game, cx, cy + dy, doors))) continue; // no corner cutting
+      if (drop && dk) continue; // (no drops near bridges: the levels there are the decks')
       const ni = w.idx(nx, ny);
       let nu = 0;
       if (dk) { // bridges (decks.js): the walls of the level the step is taken at, the water under a deck
@@ -194,7 +204,7 @@ export function findPath(game, sx, sy, gx, gy, maxNodes = 1600, doors = false, u
       }
       let ns = T.find(ni);
       if (ns >= 0 && T.flag[ns] === 1) continue;
-      const ng = T.g[cs] + (nu ? cost * 2.5 : cost); // (under a deck the water is slow: a deck tile is first reached on its boards)
+      const ng = T.g[cs] + (nu ? c * 2.5 : c); // (under a deck the water is slow: a deck tile is first reached on its boards)
       if (ns >= 0 && ng >= T.g[ns]) continue;
       if (ns < 0 && (ns = T.slot(ni)) < 0) continue; // (table full: the search ends with what it has)
       T.g[ns] = ng; T.par[ns] = cur; T.lay[ns] = nu;
@@ -267,7 +277,9 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
   const pr = 0.3;
   const dk = !!w.rail; // (bridges: the probe at the level the creature would be at there)
   const blockedAt = LV ? (x, y) => LV.blockedFor(e, x, y) : doors ? (x, y) => collides(w, x, y, e.r, null, false, false, dk && underFor(w, e, x, y)) : (x, y) => mobBlocked(w, x, y, e.r, dk && underFor(w, e, x, y));
-  if (blockedAt(e.x + dx * pr, e.y + dy * pr)) {
+  // (a small drop ahead on the way — a path step over it, or the goal straight down it: push into its edge, ai.js go hops)
+  const toDrop = !!(w.height.any && w.isCliff(Math.floor(e.x + dx * 0.55), Math.floor(e.y + dy * 0.55)) && (nav.path ? Math.hypot(tx - e.x, ty - e.y) < 2.6 : dropAhead(game, e, dx, dy)));
+  if (!toDrop && blockedAt(e.x + dx * pr, e.y + dy * pr)) {
     const angs = [0.7, -0.7, 1.35, -1.35, 2.0, -2.0];
     for (const a0 of angs) {
       const a = a0 * nav.side;

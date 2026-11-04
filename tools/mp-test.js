@@ -5646,6 +5646,236 @@ def('ST2', {
   await t.checkDigest(H, G3);
 });
 
+def('FA3', {
+  title: 'FA: a lion hunts and kills a zebra on the host; the guest sees the body; one kill a day', timeout: 120000,
+  expected: 'A lion and a zebra ~3 tiles apart, far from both players: the hunt starts (ai.js startWildHunt: state hunt, creeping, then the sprint), the zebra runs (flee), the lion\'s bites daze it and kill it on the host; its body (corpse of a zebra) appears on the host and the guest; the lion stays by the body a while (idle, eating) and its pack does not hunt again that day (HUNT.kills: a second zebra next to it is left alone); the guest\'s proxy of the lion runs in; digest equal',
+  api: 'content/fauna.js HUNT; ai.js lookForWild / startWildHunt / huntStep / wildKill; combat dealDamage → corpse; net/entities.js state',
+}, async (t) => {
+  const { H, G, MH } = await pairCtx(t);
+  A.keepAlive(t, G);
+  const gp = G.game.player, hp = H.game.player;
+  let spot = null;
+  for (let k = 0; k < 16 && !spot; k++) {
+    const a = (k / 16) * Math.PI * 2, x = gp.x + Math.cos(a) * 22, y = gp.y + Math.sin(a) * 22;
+    const q = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 2, r: 0.5 }), q2 = q && A.freeSpot(H, MH, q[0] + 3, q[1], { rMin: 0, rMax: 1, r: 0.45 });
+    if (q && q2 && A.clearLine(H, MH, q[0], q[1], q2[0], q2[1], 0.45) && Math.hypot(q[0] - hp.x, q[1] - hp.y) > 16) spot = [q, q2];
+  }
+  t.assert(spot, 'an open field ~22 tiles from the players');
+  const [lion] = await faunaGroup(H, MH, 'lion', spot[0][0], spot[0][1]);
+  const [zebra] = await faunaGroup(H, MH, 'zebra', spot[1][0], spot[1][1]);
+  const made = [lion, zebra];
+  t.defer(() => killQuiet(H, made.filter((m) => !m.dead)));
+  const MA = await fimp(H, 'game/ai.js');
+  let fled = false, q0 = null, qMove = 0;
+  await t.tryWait(() => A.proxyOf(G, lion), 3000);
+  const w = t.watch(() => { const q = A.proxyOf(G, lion); if (q) { q0 ??= [q.x, q.y]; qMove = Math.max(qMove, Math.hypot(q.x - q0[0], q.y - q0[1])); } if (zebra.state === 'flee') fled = true; }, 16);
+  MA.startWildHunt(H.game, lion, zebra);
+  t.check(lion.state === 'hunt' && lion.prey === zebra && lion.huntWild, 'the lion hunts the zebra (wild hunt)', `${lion.state} ${lion.prey?.species}`);
+  await t.waitFor(() => zebra.dead, 30000, 'the lion kills the zebra on the host', () => `lion ${lion.state} d=${f2(Math.hypot(lion.x - zebra.x, lion.y - zebra.y))} zebra ${zebra.state} hp ${f2(zebra.hp)}`);
+  w.stop();
+  t.check(fled, 'the zebra ran (flee)');
+  const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((o) => o.of === 'zebra' && Math.hypot(o.x - zebra.x, o.y - zebra.y) < 1.5), RT() + 1500, 'its body on the host');
+  await t.waitFor(() => bodyOn(G, c.id)?.of === 'zebra', ONEWAY() + 1500, 'its body on the guest');
+  t.check(!q0 || qMove > 0.8, "the guest saw the lion run in (its proxy moved)", q0 ? `${f2(qMove)} tiles` : 'out of the guest interest range');
+  t.check(lion.state === 'idle' && lion.stateT > 10, 'the lion stays by the body (eating)', `${lion.state} ${f2(lion.stateT)} s`);
+  // one kill a day: a second zebra right next to it is left alone
+  const [z2] = await faunaGroup(H, MH, 'zebra', lion.x + 2.5, lion.y);
+  made.push(z2);
+  lion.stateT = 0; lion.thinkT = 0; lion.wildT = 0; H.game.env.hour = 21;
+  const again = await t.tryWait(() => lion.state === 'hunt', 3000);
+  t.check(!again, 'its pack does not hunt again that day', `state ${lion.state}`);
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// TR · terrain relief (docs/TERRAIN-HEIGHT.md): tunnels, waterfalls, the shovel, jumping down. A host on the real planet
+// (seed 4242) at a mountain cliff, the guest generating the same chunks (ST2).
+const RELIEF_AT = [10267, 2281]; // (seed 4242: open ground at the foot of a cliff face, west of it a relief ≥ 1 story high)
+async function reliefPair(t, at = RELIEF_AT) {
+  const room = newRoom();
+  const H = await bootHost(t, room, { extra: `&source=planet&px=${at[0]}&py=${at[1]}` });
+  const G = await bootGuest(t, room, H);
+  const MH = await A.mods(H), MG = await A.mods(G);
+  t.check(H.game.world.height.any && G.game.world.height.any, 'both peers on the planet with heights', `${H.game.world.source.kind} / ${G.game.world.source.kind}`);
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, at[0], at[1], 40);
+  return { H, G, MH, MG };
+}
+// the tunnel tile in front of a player (its work descriptor) — game/tunnels.js describeTunnel
+async function tunnelIt(f, tx, ty) { const MT = await fimp(f, 'game/tunnels.js'), MM = await fimp(f, 'game/mining.js'); return MT.describeTunnel(f.game, tx, ty, true) || MM.describeRock(f.game, tx, ty); } // (a rock tile: "Minerar" — the host tunnels it)
+
+def('TR1', {
+  title: 'TR: the guest digs a tunnel into a cliff; both see it and walk in', timeout: 180000,
+  expected: 'Guest at the foot of a cliff on the planet, pickaxe in hand, facing west: "Cavar túnel" digs the face (work tunnel → intent tunnel.hit → op tunnel.dig): the tile becomes a tunnel with its floor at the guest\'s ground on both peers; the guest walks in (e._tn = the floor), digs a second tile from inside, the host sees the guest in the tunnel (its avatar\'s level = the floor); the relief above is unchanged on both (heightAt equal to the generated surface); the host walks in through the mouth and stands on the floor; a body on the surface over the tunnel is not in it; digest equal (tun section)',
+  api: 'game/tunnels.js describeTunnel / work tunnel; mut/tunnels.js tunnel.hit / tunnel.dig / canTunnel; world.tun / tunAt / tunnels; physics.js tunTrack (e._tn); session presence tn; digest tiles.tun',
+}, async (t) => {
+  const { H, G } = await reliefPair(t);
+  const hw = H.game.world, gw = G.game.world, gp = G.game.player, [fx, fy] = RELIEF_AT;
+  await t.waitFor(() => hw.isLoaded(hw.chunkIndex(fx, fy)) && gw.isLoaded(gw.chunkIndex(fx, fy)), 15000, 'both loaded the cliff chunk');
+  A.teleport(G, fx + 0.5, fy + 0.5); gp.facing = 'w';
+  A.equip(G, 'pickaxe_copper');
+  await A.hostSees(t, H, G);
+  const h0 = hw.heightAt(fx - 1 + 0.5, fy + 0.5), f0 = gw.heightAt(gp.x, gp.y);
+  const it = await tunnelIt(G, fx - 1, fy);
+  t.assert(it && it.kind === 'tunnel', 'the face west of the guest can be tunnelled ("Cavar túnel")', JSON.stringify(it));
+  await A.workUntil(t, G, () => it, () => gw.isTunnel(fx - 1, fy) && hw.isTunnel(fx - 1, fy), 20000, 'dig the first tunnel tile');
+  t.check(Math.abs(hw.tunAt(fx - 1, fy) - f0) < 0.06 && hw.tunAt(fx - 1, fy) === gw.tunAt(fx - 1, fy), 'its floor = the guest\'s ground, the same on both', `floor ${hw.tunAt(fx - 1, fy)} / ${gw.tunAt(fx - 1, fy)} · guest ground ${f0.toFixed(2)}`);
+  t.check(Math.abs(hw.heightAt(fx - 1 + 0.5, fy + 0.5) - h0) < 1e-6 && Math.abs(gw.heightAt(fx - 1 + 0.5, fy + 0.5) - h0) < 1e-6, 'the relief above stays (surface unchanged on both)', `${h0.toFixed(2)}`);
+  // in: walk west until the guest is in the tunnel
+  let rel = A.holdMove(G, -1, 0);
+  await t.waitFor(() => gp._tn != null && gp.x < fx - 0.3, 4000, 'the guest walks into the tunnel (its level = the floor)', () => `x=${f2(gp.x)} tn=${gp._tn}`);
+  await t.sleep(400); rel();
+  const it2 = await tunnelIt(G, fx - 2, fy);
+  t.assert(it2, 'from inside, the next tile can be dug', `guest at ${f2(gp.x)},${f2(gp.y)} tn ${gp._tn} · rock ${gw.rock.get(gw.idx(fx - 2, fy))}`);
+  await A.workUntil(t, G, () => it2, () => gw.isTunnel(fx - 2, fy) && hw.isTunnel(fx - 2, fy), 20000, 'dig the second tile from inside');
+  rel = A.holdMove(G, -1, 0);
+  await t.waitFor(() => gp.x < fx - 1.2, 4000, 'the guest walks deeper', () => `x=${f2(gp.x)}`);
+  await t.sleep(300); rel();
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && av._tn != null && Math.abs(av._tn - hw.tunAt(fx - 2, fy)) < 0.01; }, RT() + 2000, 'the host sees the guest in the tunnel (avatar level = the floor)', () => `av tn ${guestOnHost(H, G)?._tn}`);
+  const copy = A.avatarOn(H, G.pid);
+  await t.waitFor(() => copy && copy._tn != null, 3000, "the guest's drawn copy on the host is in the tunnel too");
+  // the host walks in through the mouth
+  const hp = H.game.player;
+  A.teleport(H, fx + 1.4, fy + 0.5); hp.facing = 'w';
+  rel = A.holdMove(H, -1, 0);
+  await t.waitFor(() => hp._tn != null, 6000, 'the host walks in through the mouth (its level = the floor)', () => `x=${f2(hp.x)} tn=${hp._tn}`);
+  await t.sleep(250); rel();
+  t.check(hp.x < fx, 'the host stands in the tunnel', `x=${f2(hp.x)}`);
+  // a body standing on the surface over the tunnel is not in it
+  const top = { x: fx - 1.5, y: fy + 0.5, _tt: -1, _tn: null };
+  const MP = await fimp(H, 'game/physics.js');
+  MP.tunTrack(hw, top);
+  t.check(top._tn == null, 'a body placed on the surface over the tunnel stays on the surface', `tn ${top._tn}`);
+  await t.checkDigest(H, G);
+});
+
+def('TR2', {
+  title: 'TR: a waterfall at a known feature of the planet — found, drawn, misty and loud on both', timeout: 150000,
+  expected: 'Planet seed 4242, the river step at (10464.7, 1598.3) (feature waterfall, drop 2.3): both peers list the feature (chunk features) and find the same fall tiles there (water tiles whose surface slopes ≥ 0.5 story / tile: the terrain shader draws them as a falling sheet, fx/waterfalls.js), each with a foot downhill; the mist / spray particles rise at the foot on both (cosmetic, each peer its own); the roar is loud at the guest standing next to it (near() > 0.3) and silent far away; the shader path is on (heights on the GPU: uMesh)',
+  api: 'fx/waterfalls.js game.waterfalls.{features, find, list, near}; world.water / tileSlope; chunk record features (planetSource adaptChunk); particles',
+}, async (t) => {
+  const FALL = [10464.7, 1598.3];
+  const { H, G } = await reliefPair(t, [10467, 1596]);
+  const hw = H.game.world, gw = G.game.world;
+  await t.waitFor(() => hw.isLoaded(hw.chunkIndex(FALL[0], FALL[1])) && gw.isLoaded(gw.chunkIndex(FALL[0], FALL[1])), 15000, 'both loaded the fall chunk');
+  const fh = H.game.waterfalls.features(FALL[0], FALL[1], 4), fg = G.game.waterfalls.features(FALL[0], FALL[1], 4);
+  t.check(fh.length === 1 && fg.length === 1 && Math.abs(fh[0].drop - 2.3) < 0.01, 'both list the planet\'s waterfall feature there (drop 2.3)', JSON.stringify(fh[0]));
+  const rect = [FALL[0] - 5, FALL[1] - 5, FALL[0] + 5, FALL[1] + 5];
+  const th = H.game.waterfalls.find(...rect), tg = G.game.waterfalls.find(...rect);
+  const key = (L) => L.map((f) => `${f.x},${f.y}`).sort().join(' ');
+  t.check(th.length >= 2 && key(th) === key(tg), 'the same fall tiles on both (water with a steep surface)', `${th.length} tiles: ${key(th)}`);
+  t.check(th.every((f) => Math.hypot(f.fx - f.x, f.fy - f.y) > 0.2 && f.s >= 0.5), 'each with a foot downhill of it', th.map((f) => `${f.s.toFixed(2)}→${f.fx.toFixed(1)},${f.fy.toFixed(1)}`).join(' '));
+  // the guest stands by the fall: mist rises at the foot, the roar is loud; far away it is silent
+  A.teleport(G, 10466.5, 1597.5);
+  const mist = (f) => (f.game.particles?.list || f.game.particles?.parts || []).filter?.((q) => q && Math.hypot(q.x - FALL[0], q.y - FALL[1]) < 4).length ?? -1;
+  await t.waitFor(() => G.game.waterfalls.list.length > 0, 4000, 'the guest\'s waterfall system lists the falls in view');
+  const nk = G.game.waterfalls.near(G.game.player.x, G.game.player.y).k;
+  t.check(nk > 0.3, 'the roar is loud next to the fall', nk.toFixed(2));
+  t.check(G.game.waterfalls.near(G.game.player.x + 40, G.game.player.y).k === 0, 'and silent 40 tiles away');
+  const n0 = mist(G);
+  if (n0 >= 0) { await t.tryWait(() => mist(G) > 0, 4000); t.check(mist(G) > 0, 'mist / spray particles at the foot on the guest', `${mist(G)} particles near the fall`); }
+  t.check(!!G.game.R?.hgt || G.game.headless, 'the terrain is drawn as the height mesh (the waterfall sheet is in its shader)');
+  await t.checkDigest(H, G);
+});
+
+def('TR3', {
+  title: 'TR: the guest flattens ground with a shovel; the same terrain on both', timeout: 150000,
+  expected: 'Guest with an iron shovel (item shovel_iron) on gentle planet ground: E with the shovel in hand opens the terrain tool (its bar: Cavar / Aterrar / Aplanar / Suavizar), Aplanar fixes the level at the first point, the brush preview lists the corners it moves (green) at that height; a few strokes (intent terrain.edit → op terrain.set) bring the corners under the brush to the level on both peers (the same terrain corners and surface), the grass decor on the flattened tiles is hidden on both; without a shovel the tool refuses ("Precisa de uma pá"); digest equal',
+  api: 'game/terrain.js enterTerrainMode / setTerrainMode / brushPreview / TERRAIN_TOOL; mut/terrain.js terrain.edit / terrain.set / terrainBrush; items shovel_*; ui/terrainbar.js',
+}, async (t) => {
+  const { H, G } = await reliefPair(t, [10470, 1593]);
+  const hw = H.game.world, gw = G.game.world, g = G.game, gp = g.player;
+  await t.waitFor(() => gw.isLoaded(gw.chunkIndex(10470, 1593)), 15000, 'the guest loaded the spot');
+  A.teleport(G, 10470.5, 1593.5);
+  await A.hostSees(t, H, G);
+  const MT = await fimp(G, 'game/terrain.js');
+  // without a shovel: refused
+  A.ensure(G, {}); for (const s of gp.inv.slots) if (s && s.id.startsWith('shovel_')) gp.inv.remove(s.id, s.qty);
+  if (gp.equip.main?.startsWith?.('shovel_')) gp.equip.main = null;
+  MT.enterTerrainMode(g, 'flat');
+  const errs = [];
+  t.on(G, 'error', (e) => errs.push(e.text));
+  g.build.mode.tool.tap(g, gp.x + 1.4, gp.y + 1);
+  t.check(errs.some((e) => /pá/.test(e)), 'without a shovel the tool refuses ("Precisa de uma pá")', errs.join(' | '));
+  // with the shovel: E opens the tool
+  A.equip(G, 'shovel_iron');
+  g.build.mode = null;
+  g.ctl.near = null; g.ctl.interact();
+  t.check(g.build.mode?.kind === 'terrain', 'E with a shovel in hand opens the terrain tool', `${g.build.mode?.kind} ${g.build.mode?.m}`);
+  MT.setTerrainMode(g, 'flat');
+  const cx = gp.x + 1.4, cy = gp.y + 1;
+  const pv = MT.brushPreview(g, cx, cy);
+  t.check(pv && !pv.why && pv.list.length > 0, 'the brush preview lists the corners it moves', pv ? `${pv.list.length} corners, why ${pv.why}, level ${pv.h}` : 'none');
+  for (let k = 0; k < 10; k++) { g.build.mode.tool.tap(g, cx, cy); await t.sleep(260); }
+  const lvl = g.build.mode.h, L = hw.height;
+  const ix = Math.round(cx), iy = Math.round(cy), i0 = L.ci(ix, iy);
+  await t.waitFor(() => Math.abs(hw.height.terrainH(ix, iy) - lvl) < 0.02 && gw.height.terrainH(ix, iy) === hw.height.terrainH(ix, iy), RT() + 3000, 'the corner under the brush reaches the level on both', () => `host ${hw.height.terrainH(ix, iy)} guest ${gw.height.terrainH(ix, iy)} level ${lvl}`);
+  t.check(hw.height.edits.get(i0) === gw.height.edits.get(i0) && hw.height.edits.size === gw.height.edits.size, 'the same edits on both (the diff)', `${hw.height.edits.size} / ${gw.height.edits.size}`);
+  t.check(Math.abs(hw.heightAt(cx, cy) - gw.heightAt(cx, cy)) < 1e-6, 'the same surface there on both', `${hw.heightAt(cx, cy).toFixed(3)}`);
+  const hid = (f) => { let n = 0, h = 0; f.game.world.forChunks(cx - 1, cy - 1, cx + 1, cy + 1, (bk) => { for (const d of bk.decor) if (Math.abs(d.x - cx) < 0.9 && Math.abs(d.y - cy) < 0.9) { n++; if (d._hid) h++; } }); return [n, h]; };
+  const [nh, hh] = hid(H), [ng, hg] = hid(G);
+  t.check(hh === nh && hg === ng, 'grass / flowers on the flattened tiles are hidden on both', `host ${hh}/${nh} guest ${hg}/${ng}`);
+  g.build.mode = null;
+  await t.checkDigest(H, G);
+});
+
+def('TR4', {
+  title: 'TR: jumping down a small drop (player and creature), never up', timeout: 150000,
+  expected: 'Planet seed 4242 at a cliff edge ~0.9 story high: the guest pushing east at the top hops down (a short arc: e._hop, the hop lift _jh > 0.2) and lands on the lower ground without damage; the host sees it below; pushing west at the foot it does not climb back (the cliff still blocks); A* from the top to the foot plans the one-way drop (a 2-tile step over the face) and none back up; a creature on the host chasing the guest below runs over the edge and hops down too; digest equal',
+  api: 'game/terrain.js dropAhead / startHop / hopStep / DROP_MAX; levels.js hopUpdate; nav.js findPath (drops); ai.js go',
+}, async (t) => {
+  const TOP = [10281.7, 2274.5];
+  const { H, G, MH } = await reliefPair(t, [10281, 2274]);
+  const hw = H.game.world, gw = G.game.world, gp = G.game.player;
+  await t.waitFor(() => gw.isLoaded(gw.chunkIndex(TOP[0], TOP[1])) && hw.isLoaded(hw.chunkIndex(TOP[0], TOP[1])), 15000, 'both loaded the cliff');
+  A.teleport(G, TOP[0], TOP[1]);
+  await A.hostSees(t, H, G);
+  const h0 = gw.heightAt(gp.x, gp.y), hp0 = gp.hp;
+  let hop = false, jh = 0;
+  const w = t.watch(() => { if (gp._hop?.terrain) hop = true; jh = Math.max(jh, gp._jh || 0); }, 10);
+  let rel = A.holdMove(G, 1, 0);
+  await t.waitFor(() => hop, 4000, 'the guest hops at the edge', () => `x=${f2(gp.x)} h=${f2(gw.heightAt(gp.x, gp.y))}`);
+  rel();
+  await t.waitFor(() => !gp._hop, 2000, 'and lands');
+  w.stop();
+  const h1 = gw.heightAt(gp.x, gp.y);
+  t.check(h0 - h1 > 0.5 && h0 - h1 <= 1.35, 'it landed on the lower ground (a drop of up to ~1 story)', `${f2(h0)} → ${f2(h1)}`);
+  t.check(jh > 0.2, 'a short arc over the edge (the hop lift)', `max _jh ${f2(jh)}`);
+  t.check(gp.hp >= hp0, 'no damage', `${hp0} → ${gp.hp}`);
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && Math.abs(hw.heightAt(av.x, av.y) - h1) < 0.4; }, RT() + 1500, 'the host sees the guest below');
+  // never up: pushing back west at the foot does not climb
+  const x1 = gp.x;
+  rel = A.holdMove(G, -1, 0);
+  await t.sleep(1500);
+  rel();
+  t.check(gw.heightAt(gp.x, gp.y) < h0 - 0.4 && !gp._hop, 'pushing back at the foot does not climb (the face still blocks)', `x ${f2(x1)} → ${f2(gp.x)} h ${f2(gw.heightAt(gp.x, gp.y))}`);
+  // A*: down over the edge, not back up
+  const MN = await fimp(H, 'game/nav.js');
+  const down = MN.findPath(H.game, Math.floor(TOP[0]), Math.floor(TOP[1]), Math.floor(gp.x), Math.floor(gp.y), 4000);
+  const jump = down?.path?.some((q, k) => { const a = k ? down.path[k - 1] : [Math.floor(TOP[0]) + 0.5, Math.floor(TOP[1]) + 0.5]; return Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) > 1.5 && hw.isCliff(Math.floor((q[0] + a[0]) / 2), Math.floor((q[1] + a[1]) / 2)); });
+  t.check(down?.complete && jump, 'A* plans the drop from the top to the foot (a 2-tile step over the face)', down ? `${down.path.length} steps, complete ${down.complete}` : 'no path');
+  const up = MN.findPath(H.game, Math.floor(gp.x), Math.floor(gp.y), Math.floor(TOP[0]), Math.floor(TOP[1]), 600);
+  const upJump = up?.path?.some((q, k) => { const a = k ? up.path[k - 1] : [Math.floor(gp.x) + 0.5, Math.floor(gp.y) + 0.5]; return Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) > 1.5; });
+  t.check(!upJump, 'and never back up over it', up ? `${up.path.length} steps (complete ${up.complete})` : 'no short path up');
+  // a creature pushing into the same edge (its chase / path runs over it: ai.js go) hops down too
+  const [m] = await faunaGroup(H, MH, 'wolf', TOP[0] - 0.4, TOP[1]);
+  t.defer(() => killQuiet(H, [m]));
+  m.x = TOP[0]; m.y = TOP[1]; m.state = 'idle'; m.stateT = 99; m.calmT = 99; m.threat = null;
+  const MA = await fimp(H, 'game/ai.js');
+  let mhop = false;
+  const w2 = t.watch(() => { if (m._hop?.terrain) mhop = true; if (!m.dead && (m._hop || Math.abs(hw.heightAt(m.x, m.y) - h0) < 0.3)) { m.stateT = 99; MA.go(H.game, m, [1, 0], 4.4, 1 / 60); } }, 16);
+  await t.tryWait(() => mhop && !m._hop, 4000);
+  w2.stop();
+  t.check(mhop && Math.abs(hw.heightAt(m.x, m.y) - h1) < 0.45, 'a wolf pushing into the edge hops down it', `wolf at ${f2(m.x)},${f2(m.y)} h ${f2(hw.heightAt(m.x, m.y))} hop ${mhop}`);
+  // and a wolf chasing the guest from the top gets down to it (over the edge or around: the cheaper way)
+  const [m2] = await faunaGroup(H, MH, 'wolf', TOP[0] - 1.2, TOP[1]);
+  t.defer(() => killQuiet(H, [m2]));
+  MA.aggro?.(H.game, m2, guestOnHost(H, G));
+  const down2 = await t.tryWait(() => Math.abs(hw.heightAt(m2.x, m2.y) - h1) < 0.45 || Math.hypot(m2.x - gp.x, m2.y - gp.y) < 1.4, 12000);
+  t.check(down2, 'a wolf chasing the guest from the top gets down to it', `wolf at ${f2(m2.x)},${f2(m2.y)} h ${f2(hw.heightAt(m2.x, m2.y))} state ${m2.state} hop ${!!m2._hop}`);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

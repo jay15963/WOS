@@ -76,7 +76,7 @@ function pickGoal(game, m) {
     if (q.dead || (q.lv | 0) > 0) continue;
     const d = Math.hypot(q.x - m.x, q.y - m.y);
     if (d >= bd || d > aggroRadius(m, q)) continue;
-    if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0)) continue;
+    if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) continue;
     bd = d; goal = { x: q.x, y: q.y, kind: 'player', ref: q };
   }
   if (!goal) {
@@ -213,7 +213,7 @@ export function walkerBrain(game, m, dt) {
   if (!goal) return handOff(m);
   // a player in sight and not shut away: fight (the raiders' brain)
   const t = goal.kind === 'player' ? goal.ref : null;
-  if (t && !t.dead && !goal.shut && dist(m, t) < aggroRadius(m, t) && hasLOS(game.world, m.x, m.y, t.x, t.y, 0, 0)) {
+  if (t && !t.dead && !goal.shut && dist(m, t) < aggroRadius(m, t) && hasLOS(game.world, m.x, m.y, t.x, t.y, 0, 0, m._tn, t._tn)) {
     if (m.siege) { m.siege = null; resetNav(m); }
     m.ap = null;
     if (m.state !== 'chase' && m.state !== 'evade') aggro(game, m, t);

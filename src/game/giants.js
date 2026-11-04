@@ -121,7 +121,7 @@ export function giantsTick(game, on) {
 
 // ---------- the fight (raiders' brain, state 'chase'; t = its threat, d = distance) ----------
 const r2 = (v) => Math.round(v * 100) / 100;
-function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0); }
+function canSee(game, m, p) { return hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn); }
 
 export function giantChase(game, m, t, d, dt) {
   const sp = SPECIES.giant;

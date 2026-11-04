@@ -143,6 +143,7 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}) {
     cx, cy, ground, water, rock, rockType, ore: p.ore, roof, tramp: new Uint8Array(CT), biome, fertile: p.fertile, lush,
     flowX: p.flowX, flowY: p.flowY, dWater: dist(water), dRock: dist(rock), heights, objects, decor: dec,
     wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground, prock: p.rockType, pbiome: p.biome, // (pbiome: looks + the fauna's spawn tables)
+    features: (p.features || []).map((f) => ({ ...f, x: f.x + X0, y: f.y + Y0 })), // (waterfalls / springs / craters, planet coordinates: fx/waterfalls.js)
   };
 }
 

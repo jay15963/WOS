@@ -803,6 +803,7 @@ export function slopeReason(game, type, tx, ty, sw, sh) {
   let lo = Infinity, hi = -Infinity;
   for (let y = ty; y < ty + sh; y++) for (let x = tx; x < tx + sw; x++) {
     if (L.isCliff(x, y) && !(L.plotH(x, y) > -Infinity)) return 'Penhasco: não dá para construir aqui';
+    if (w.isTunnel(x, y)) return 'Túnel: não dá para construir aqui (nem em cima)';
     lo = Math.min(lo, L.tileMin(x, y)); hi = Math.max(hi, L.tileMax(x, y));
   }
   if (ON_PAD(type) && hi - lo > PAD_MAX) return 'Terreno muito íngreme: aplane primeiro (Construir → Terreno)';

@@ -9,12 +9,14 @@
 import { SPECIES } from './data.js';
 import { facingFrom } from './physics.js';
 import { steer, resetNav, moveMob, mobBlocked } from './nav.js';
+import { slopeSpeed, dropAhead, startHop, hopStep } from './terrain.js'; // terrain height: uphill, small drops
 import { reach, dist, faceTowards, mobEffect, hasLOS, dealDamage } from './combat.js';
 import { enterCombat } from './player.js';
 import { nearestPlayer, hurtPlayer, allPlayers } from './players.js';
 import { stepGait } from './anim.js';
 import { nightK } from './seasons.js';
 import { PREY } from './content/livestock.js';
+import { HUNT } from './content/fauna.js'; // wild predators vs wild prey
 
 export const LEASH = 120; // max distance from home while chasing (was 26: chases gave up far too soon)
 const FLEE_LEASH = 26;    // passive animals fleeing start curving back home past this distance
@@ -135,14 +137,19 @@ function deckSpot(game, m, rMax) {
 }
 
 export function go(game, m, dir, speed, dt) {
+  if (m._hop?.terrain) { const x0 = m.x, y0 = m.y; hopStep(game, m, dt); stepGait(m, Math.hypot(m.x - x0, m.y - y0)); return; } // (jumping down a small drop: terrain.js)
   if (!dir) { m.moving = false; return; }
   let spd = speed * (game.levels ? game.levels.speedAt(m) : game.world.speedAt(m.x, m.y, m._ud)); // levels: stairs slower; under a bridge: the water's
   if (m.dazeT > 0) spd *= 0.45;
+  if (game.world.hasHeight) spd *= slopeSpeed(game, m, dir[0], dir[1]); // terrain height: slower uphill
   const x0 = m.x, y0 = m.y;
   moveMob(game, m, dir[0] * spd * dt, dir[1] * spd * dt);
   m.facing = facingFrom(dir[0], dir[1], m.facing);
   m.moving = true;
-  stepGait(m, Math.hypot(m.x - x0, m.y - y0));
+  const dd = Math.hypot(m.x - x0, m.y - y0);
+  stepGait(m, dd);
+  // pushing into the edge of a small drop (its path / chase runs down it): hop down (terrain.js)
+  if (dd < spd * dt * 0.25 && game.world.hasHeight && !m.isProp && !m.fly) { const d = dropAhead(game, m, dir[0], dir[1]); if (d) startHop(game, m, d, 0.4); }
 }
 
 // best open direction away from `from` (8 samples, prefers away + toward home when far)
@@ -220,8 +227,50 @@ function packMood(game, m) {
   if (s._preyN !== n) { s._preyN = n; s._preyOk = Math.random() < PREY.chance * (PREY.hunters[m.species] || 0); s._preyKills = 0; s._preyCalm = 0; }
   return s;
 }
+// ---------- wild predators vs wild prey (docs/FAUNA.md "Caça"; numbers: content/fauna.js HUNT) ----------
+// Once a day each pack rolls whether it hunts (a lion pride from dusk, jaguars / lynxes at night, wolves and polar bears
+// any time); a hungry one going about its business notices prey in sight, creeps up (the prey does not see it coming
+// until HUNT.flee tiles) and sprints the last stretch; the prey and its herd run (fast prey often escapes), a bite dazes
+// it. One kill a day, then the pack stays by the body a while (eating) and lets the rest be. The body is like any kill.
+const huntWhen = (game, w) => w === 'always' || (w === 'night' ? nightNow(game) : nightNow(game) || (game.env?.hour ?? 12) >= 16.5);
+export const isWildPrey = (e, list) => !!e && e.isMob && !e.dead && !e.proxy && !e.stock && !e.tiedTo && list.includes(e.species) && !((e.fmode | 0) & 5); // (not up a tree / flying)
+function huntMood(game, m) {
+  const s = m.spawner || m, n = game.env?.dayIndex ?? 0;
+  if (s._wildN !== n) { s._wildN = n; s._wildOk = Math.random() < HUNT.chance; s._wildKills = 0; s._wildCalm = 0; }
+  return s;
+}
+function lookForWild(game, m) {
+  const H = HUNT.hunters[m.species];
+  if (!H || m.leaving || !huntWhen(game, H.when)) return false;
+  m.wildT = (m.wildT || 0) - 0.3;
+  if (m.wildT > 0) return false;
+  m.wildT = 1.2;
+  const s = huntMood(game, m);
+  if (!s._wildOk || s._wildKills >= HUNT.kills || s._wildCalm > game.worldTime) return false;
+  let best = null, bd = HUNT.r;
+  for (const e of game.entities) {
+    if (Math.abs(e.x - m.x) > bd || Math.abs(e.y - m.y) > bd || !isWildPrey(e, H.prey)) continue;
+    const d = dist(m, e);
+    if (d >= bd || (m.preyBan && m.preyBan.nid === e.nid && m.preyBan.t > game.worldTime)) continue;
+    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
+    best = e; bd = d;
+  }
+  if (!best) return false;
+  startWildHunt(game, m, best);
+  return true;
+}
+// (exported: tests start a hunt right away)
+export function startWildHunt(game, m, e) {
+  startHunt(game, m, e);
+  m.huntWild = true;
+  for (const o of game.entities) {
+    if (o !== m && !o.dead && !o.proxy && o.species === m.species && o.spawner && o.spawner === m.spawner && (o.state === 'idle' || o.state === 'wander') && dist(o, m) < 14) { startHunt(game, o, e); o.huntWild = true; }
+  }
+}
+
 // an idle predator looks for a farm animal in sight (the pack joins); true when it started a hunt
 function lookForPrey(game, m) {
+  if (HUNT.hunters[m.species] && lookForWild(game, m)) return true;
   if (!PREY.hunters[m.species] || m.leaving || !nightNow(game)) return false;
   m.preyT = (m.preyT || 0) - 0.3;
   if (m.preyT > 0) return false;
@@ -233,7 +282,7 @@ function lookForPrey(game, m) {
     if (!isPrey(e) || Math.abs(e.x - m.x) > bd || Math.abs(e.y - m.y) > bd) continue;
     const d = dist(m, e);
     if (d >= bd || (m.preyBan && m.preyBan.nid === e.nid && m.preyBan.t > game.worldTime)) continue;
-    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0)) continue;
+    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
     best = e; bd = d;
   }
   if (!best) return false;
@@ -244,13 +293,13 @@ function lookForPrey(game, m) {
   return true;
 }
 function startHunt(game, m, e) {
-  m.state = 'hunt'; m.prey = e; m.huntT = 0;
+  m.state = 'hunt'; m.prey = e; m.huntT = 0; m.huntWild = false; m._panic = false;
   resetNav(m);
-  game.audio?.play('growl', { x: m.x, y: m.y, volume: 0.7 });
+  game.audio?.play('growl', { x: m.x, y: m.y, species: m.species, volume: 0.7 });
 }
 function stopHunt(game, m, ban = false) {
   if (ban && m.prey) m.preyBan = { nid: m.prey.nid, t: game.worldTime + 90 };
-  m.prey = null; m.state = 'idle'; m.stateT = 1 + Math.random() * 2; m.moving = false;
+  m.prey = null; m.state = 'idle'; m.stateT = 1 + Math.random() * 2; m.moving = false; m.huntWild = false; m.speedK = 1;
   resetNav(m);
 }
 // the hunted animal and its neighbours run from the predator
@@ -266,8 +315,11 @@ function bitePrey(game, m, e, sp, rng) {
   game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
   game.later(0.24, () => {
     if (m.dead || m.stunT > 0 || e.dead || dist(m, e) > rng + 0.6) return;
-    dealDamage(game, m, e, m.dmg * PREY.dmgK * (0.8 + Math.random() * 0.4), { knock: 0.08 });
+    const wild = m.huntWild;
+    dealDamage(game, m, e, m.dmg * (wild ? HUNT.dmgK : PREY.dmgK) * (0.8 + Math.random() * 0.4), { knock: 0.08 });
+    if (wild && !e.dead) { e.dazeT = Math.max(e.dazeT || 0, HUNT.daze); return; } // (bitten: it stumbles a moment)
     if (!e.dead) return;
+    if (wild) { wildKill(game, m, e); return; }
     // a kill: the pack is done for the night (owned animals: the owners hear of it)
     const s = packMood(game, m);
     s._preyKills++; s._preyCalm = game.worldTime + PREY.calm;
@@ -276,27 +328,45 @@ function bitePrey(game, m, e, sp, rng) {
   });
 }
 const STOCK_A = { cow: 'uma vaca', sheep: 'uma ovelha', pig: 'um porco', chicken: 'uma galinha' };
+// a wild kill: the pack is done for the day; it stays by the body a while (eating, lying down) — the body is any kill's
+function wildKill(game, m, e) {
+  const s = huntMood(game, m);
+  s._wildKills++; s._wildCalm = game.worldTime + HUNT.calm;
+  for (const o of game.entities) {
+    if (o.state !== 'hunt' || o.prey !== e) continue;
+    stopHunt(game, o);
+    o.state = 'idle'; o.stateT = HUNT.eat[0] + Math.random() * (HUNT.eat[1] - HUNT.eat[0]); o.calmT = Math.max(o.calmT || 0, 8);
+  }
+  game.audio?.play('growl', { x: m.x, y: m.y, species: m.species, volume: 0.6 });
+}
 // the 'hunt' state: chase the animal, bite it; give up when it is out of reach (a fence: no path), too far, too long
 function huntStep(game, m, dt, sp) {
-  const e = m.prey;
+  const e = m.prey, wild = m.huntWild, H = wild ? HUNT.hunters[m.species] : null;
   m.huntT = (m.huntT || 0) + dt;
-  const lost = !isPrey(e) || !nightNow(game) || m.leaving || dist(m, e) > PREY.r * 2;
-  const stuck = !!(m.nav && m.nav.fails > 2);
-  if (lost || stuck || m.huntT > PREY.giveUp) {
-    if (stuck || m.huntT > PREY.giveUp) { const s = packMood(game, m); s._preyCalm = Math.max(s._preyCalm || 0, game.worldTime + (stuck ? 8 : PREY.calm)); }
+  const lost = wild ? !isWildPrey(e, H?.prey || []) || m.leaving || dist(m, e) > HUNT.r * 2 : !isPrey(e) || !nightNow(game) || m.leaving || dist(m, e) > PREY.r * 2;
+  const stuck = !!(m.nav && m.nav.fails > 2), giveUp = wild ? HUNT.giveUp : PREY.giveUp;
+  if (lost || stuck || m.huntT > giveUp) {
+    if (stuck || m.huntT > giveUp) {
+      if (wild) { const s = huntMood(game, m); s._wildCalm = Math.max(s._wildCalm || 0, game.worldTime + (stuck ? 8 : HUNT.failCalm)); }
+      else { const s = packMood(game, m); s._preyCalm = Math.max(s._preyCalm || 0, game.worldTime + (stuck ? 8 : PREY.calm)); }
+    }
     stopHunt(game, m, stuck);
     return;
   }
   const d = dist(m, e);
-  if (d < PREY.flee) panic(game, e, m);
+  if (wild) { if (d < HUNT.flee && !m._panic) { m._panic = true; if (e.state !== 'flee') startFlee(e, m, 3 + Math.random() * 2); } }
+  else if (d < PREY.flee) panic(game, e, m);
   const rng = reach(m, e);
   if (rng > 0 && d <= rng) {
     m.moving = false;
     faceTowards(m, e);
     if (m.swingT <= 0) bitePrey(game, m, e, sp, rng);
   } else {
-    const dir = steer(game, m, e.x, e.y, dt, sp.speed, Math.max(0.2, rng * 0.85), e.lv | 0);
-    go(game, m, dir, sp.speed, dt);
+    // wild: creep while far, sprint the last stretch (the prey runs once it sees the predator: HUNT.flee)
+    const spd = sp.speed * (wild ? (d > HUNT.flee - 0.5 && !m._panic ? HUNT.creep : HUNT.sprint) : 1);
+    m.speedK = wild ? spd / sp.speed : 1;
+    const dir = steer(game, m, e.x, e.y, dt, spd, Math.max(0.2, rng * 0.85), e.lv | 0);
+    go(game, m, dir, spd, dt);
   }
 }
 
@@ -323,7 +393,7 @@ export function updateCreature(game, m, dt) {
       if (m.thinkT <= 0) {
         m.thinkT = 0.25 + Math.random() * 0.1;
         if (!p.dead) {
-          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { aggro(game, m, p); break; }
+          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn))) { aggro(game, m, p); break; }
           if (sp.temper === 'passive') {
             const sk = sp.skittish || 0;
             if (d < Math.max(2.2, sk) || (d < 4.5 && p.moving)) { startFlee(m, p, (sk ? 3.5 : 2.5) + Math.random() * 1.5); break; }
@@ -395,7 +465,7 @@ export function updateCreature(game, m, dt) {
       // a player in sight still comes first
       if (m.thinkT <= 0) {
         m.thinkT = 0.25 + Math.random() * 0.1;
-        if (!p.dead && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { m.prey = null; m.state = 'idle'; aggro(game, m, p); break; }
+        if (!p.dead && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn))) { m.prey = null; m.state = 'idle'; aggro(game, m, p); break; }
       }
       huntStep(game, m, dt, sp);
       break;

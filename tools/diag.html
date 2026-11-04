@@ -116,16 +116,17 @@ function section(title, items, { w = 1.1, h = 1.5 } = {}) {
   const hh = document.createElement('h2'); hh.textContent = title; out.appendChild(hh);
   header();
   const only = Q.get('rows') ? Q.get('rows').split(',').map(Number) : null, vs = Q.get('views') ? Q.get('views').split(',') : null;
-  for (const [ri, [label, mk, t = T0]] of items.entries()) {
+  for (const [ri, [label, mk, t = T0, opt]] of items.entries()) {
+    const ch = opt?.h ? Math.max(cellH, Math.round(scale * opt.h)) : cellH; // (a taller row: a monkey up in its tree)
     if (only && !only.includes(ri)) continue;
     const row = document.createElement('div'); row.className = 'row';
     const l = document.createElement('div'); l.className = 'lab'; l.textContent = label; row.appendChild(l);
     const id0 = nid;
     for (const v of VIEWS) {
       if (vs && !vs.includes(v)) continue;
-      const c = document.createElement('canvas'); c.width = cellW; c.height = cellH;
+      const c = document.createElement('canvas'); c.width = cellW; c.height = ch;
       nid = id0; const o = mk(); // (the same creature in every view: the deer's look follows its id)
-      try { drawView(c.getContext('2d'), o, v, cellW / 2, cellH - scale * 0.14, t); } catch (e) { console.error(label, v, e); }
+      try { drawView(c.getContext('2d'), o, v, cellW / 2, ch - scale * 0.14, t); } catch (e) { console.error(label, v, e); }
       row.appendChild(c);
     }
     out.appendChild(row);
@@ -207,8 +208,8 @@ if (set === 'fauna' || set === 'all') {
     if (!sea) rows.push([sp + ' ataca', f(sp, { action: { type: 'attack', t: 0.6 }, state: 'chase' })]);
     if (['wild_horse', 'zebra', 'gazelle', 'reindeer', 'moose', 'bison', 'yak', 'camel', 'mountain_goat', 'elephant'].includes(sp)) rows.push([sp + ' pasta', f(sp, { _idleU: 0.2 })]);
     if (['lion', 'jaguar', 'lynx', 'polar_bear', 'arctic_fox', 'camel'].includes(sp)) rows.push([sp + ' deita', f(sp, { fmode: FMODE.REST })]);
-    if (sp === 'monkey') rows.push(['macaco na árvore', f(sp, { fmode: FMODE.TREE })]);
-    if (bird) { rows.push([sp + ' voa', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: true })]); rows.push([sp + ' plana', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: false })]); }
+    if (sp === 'monkey') rows.push(['macaco na árvore', f(sp, { fmode: FMODE.TREE }), T0, { h: 3.6 }]); // (drawn up in the crown: a taller cell)
+    if (bird) { rows.push([sp + ' voa', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: true }), T0, { h: 2.6 }]); rows.push([sp + ' plana', f(sp, { fmode: FMODE.FLY, _alt: 0.7, _beat: false }), T0, { h: 2.6 }]); } // (up in the air: taller cells)
     if (sp === 'rattlesnake') rows.push(['escondida', f(sp, { fmode: FMODE.HIDE })]);
     if (sp === 'crocodile' || sp === 'seal' || sp === 'polar_bear') rows.push([sp + ' nada', f(sp, { _world: WET })]);
     if (sp === 'crocodile') rows.push(['crocodilo à espreita', f(sp, { _world: WET, fmode: FMODE.HIDE })]);

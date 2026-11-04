@@ -8,8 +8,11 @@
 //   duplicates are merged by the engine. Doors (op door.set), build / decon / raze and the local chest lid
 //   are played by the construction code (A) itself.
 
+import { IDLE_VOX } from './sfxBank.js'; // the planet fauna's calls
+
 const MELEE = new Set(['attack', 'bash', 'stab', 'lacerate', 'cleave', 'smash', 'pierce', 'sweep', 'charge', 'torch_swing', 'whirlwind', 'disengage']);
-const IDLE = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'spider']);
+const IDLE = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'spider', ...IDLE_VOX]); // (+ the planet's fauna: sfxBank.js IDLE_VOX)
+const FAR_VOICE = { whale: 42, elephant: 30, lion: 32, eagle: 26, seagull: 24 }; // (calls that carry)
 const FIRE_STATIONS = new Set(['furnace', 'cooking_pot']);
 const LIGHTS = new Set(['torch', 'brazier']);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -191,7 +194,7 @@ export function installAudioDirector(game, audio) {
   function idleVoice() {
     const list = [];
     for (const e of game.entities) {
-      if (!e.isMob || e.dead || e.state === 'chase' || !IDLE.has(e.species) || !near(e, 18)) continue;
+      if (!e.isMob || e.dead || e.state === 'chase' || !IDLE.has(e.species) || !near(e, FAR_VOICE[e.species] || 18)) continue;
       list.push(e);
     }
     if (!list.length || Math.random() < 0.45) return;

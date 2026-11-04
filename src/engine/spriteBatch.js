@@ -123,6 +123,12 @@ export class SpriteBatch {
     this._depth(o, x, y, 0, 1);
   }
 
+  // multiply the colour of instances [a, b) (a creature standing in the shade of the relief: game.js)
+  tint(a, b, kr, kg, kb) {
+    const d = this.data;
+    for (let i = a; i < b; i++) { const o = i * STRIDE; d[o + 10] *= kr; d[o + 11] *= kg; d[o + 12] *= kb; }
+  }
+
   // rewrite the depth shape of instances [a, b) (a drawable whose pose is known only after it was drawn: a sleeper,
   // a sitter); x = NaN keeps each one's reference point, h = NaN takes each one's own lift (+ hAdd)
   depthOf(a, b, x, y, h, mode, bias, hAdd = 0) {

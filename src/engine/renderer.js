@@ -213,6 +213,7 @@ export class Renderer {
     if (this.win) this.win.dispose();
     this.world = world;
     const win = this.win = new TerrainWindow(gl, world);
+    win.post = (n, x0, y0, tw, th, d) => this.tunnelPost?.(n, x0, y0, tw, th, d); // (tunnels: the floor shown, game/tunnels.js)
     world.onLoad.push((c) => { if (this.win === win) win.chunkChanged(c); }); // (margins of the neighbours)
     this.roofData = null; // (game/roofs.js: its RGBA layer, sent through updateRoofData)
     win.add('roof', { scale: 1, comps: 4, fill: (x0, y0, tw, th, out) => { if (this.roofData) fillLayer4(this.roofData, x0, y0, tw, th, out); } });

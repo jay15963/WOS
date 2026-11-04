@@ -716,7 +716,71 @@ Object.assign(SFX, {
   bandit_death: vox(0.7, (d, sr, r) => voiced(d, sr, 0, 0.6, (u) => 145 * Math.pow(0.62, u), (u) => adEnv(u, 0.06, 0.94), { formants: F_A, tilt: 1.1, harm: 22, noise: 0.15, rough: 0.06, r }), { gain: 0.32 }),
 });
 
-export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'fox', 'spider', 'bandit', 'giant']);
+// ---------- the wild fauna of the planet's biomes (docs/FAUNA.md): roars, trumpets, calls, hisses, rattles, songs ----------
+// a big cat's roar: a few rising-falling grunts, deep and rough, then the long one
+const roar = (d, sr, r, f0, len, n = 1) => {
+  for (let k = 0; k < n; k++) {
+    const t = k * (len * 0.55 + r() * 0.08), L = k === n - 1 ? len : len * 0.4;
+    voiced(d, sr, t, L, (u) => f0 * (0.85 + 0.35 * Math.sin(Math.PI * Math.min(1, u * 1.4))) * (1 + 0.03 * Math.sin(u * 70)), (u) => Math.min(1, u * 8) * Math.pow(1 - u, 0.7),
+      { formants: [[380 + r() * 60, 2.5, 1], [820, 3, 0.6], [1900, 4, 0.25]], harm: 22, tilt: 0.75, rough: 0.35, am: 0.35, amRate: 22 + r() * 8, noise: 0.35, r });
+  }
+};
+// a bird's call: a sweep (f0 → f1) with a buzz, repeated n times
+const call = (d, sr, r, f0, f1, len, n, gapK = 1.4, buzz = 0.2) => {
+  for (let k = 0; k < n; k++) voiced(d, sr, k * len * gapK, len, (u) => f0 + (f1 - f0) * Math.sin(Math.PI * 0.5 * u) * (1 + 0.04 * Math.sin(u * 90)), (u) => adEnv(u, 0.08, 0.92),
+    { formants: [[f0 * 1.1, 4, 1], [f0 * 2.3, 5, 0.4]], harm: 6, tilt: 0.6, rough: buzz, noise: 0.08, r });
+};
+const hiss = (d, sr, r, t, len, amp = 1, f = 4200) => burst(d, sr, t, len, { r, type: 'hp', f, a: len * 0.15, amp });
+Object.assign(SFX, {
+  lion_aggro: vox(1.6, (d, sr, r) => roar(d, sr, r, 120 + r() * 15, 1.1, 2), { gain: 0.6, v: 3 }),
+  lion_idle: vox(2.6, (d, sr, r) => roar(d, sr, r, 105 + r() * 10, 0.9, 3), { gain: 0.5, rev: 0.5, v: 2 }),
+  lion_hurt: vox(0.5, (d, sr, r) => voiced(d, sr, 0, 0.4, (u) => 220 - u * 60, (u) => adEnv(u, 0.06, 0.94), { formants: [[500, 3, 1], [1100, 4, 0.5]], harm: 18, tilt: 0.8, rough: 0.3, noise: 0.3, r }), { gain: 0.5 }),
+  lion_death: vox(1.2, (d, sr, r) => voiced(d, sr, 0, 1.1, (u) => 170 * Math.pow(0.5, u), (u) => adEnv(u, 0.05, 0.95), { formants: [[420, 2.5, 1], [900, 3, 0.5]], harm: 20, tilt: 0.85, rough: 0.3, noise: 0.3, r }), { gain: 0.5, v: 2 }),
+  // a jaguar's call is a hoarse "sawing": short rasping grunts in a row
+  jaguar_aggro: vox(1.2, (d, sr, r) => { for (let k = 0; k < 5; k++) voiced(d, sr, k * 0.22, 0.16, (u) => 150 - u * 30, (u) => Math.sin(Math.PI * u), { formants: [[420, 3, 1], [950, 4, 0.5]], harm: 18, rough: 0.5, noise: 0.45, r }); }, { gain: 0.5 }),
+  jaguar_idle: vox(1.4, (d, sr, r) => { for (let k = 0; k < 6; k++) voiced(d, sr, k * 0.21 + r() * 0.03, 0.14, (u) => 135 - u * 25, (u) => Math.sin(Math.PI * u), { formants: [[380, 3, 1], [900, 4, 0.5]], harm: 16, rough: 0.55, noise: 0.5, r }); }, { gain: 0.38, rev: 0.45 }),
+  // the elephant's trumpet: a brassy blare through the trunk, bending up then down; a low rumble when calm
+  elephant_aggro: vox(1.5, (d, sr, r) => voiced(d, sr, 0, 1.25, (u) => (480 + r() * 60) * (1 + 0.45 * Math.sin(Math.PI * Math.min(1, u * 1.6))) * (1 + 0.02 * Math.sin(u * 140)), (u) => Math.min(1, u * 12) * Math.pow(1 - u, 0.45),
+    { formants: [[900, 3, 1], [1900, 3.5, 0.8], [3200, 5, 0.4]], harm: 26, tilt: 0.45, rough: 0.25, noise: 0.15, r }), { gain: 0.42, rev: 0.4 }),
+  elephant_idle: vox(2.0, (d, sr, r) => { voiced(d, sr, 0, 1.6, (u) => 26 + 6 * Math.sin(Math.PI * u), (u) => Math.sin(Math.PI * u), { formants: [[140, 2, 1], [300, 3, 0.5]], harm: 30, tilt: 1.1, rough: 0.2, noise: 0.15, r }); if (r() < 0.5) voiced(d, sr, 0.9, 0.7, (u) => 520 * (1 + 0.3 * Math.sin(Math.PI * u)), (u) => adEnv(u, 0.15, 0.85), { formants: [[950, 3, 1], [2000, 3.5, 0.6]], harm: 20, tilt: 0.5, rough: 0.2, r }); }, { gain: 0.5, rev: 0.45, v: 3 }),
+  elephant_hurt: vox(0.7, (d, sr, r) => voiced(d, sr, 0, 0.6, (u) => 700 * (1 + 0.2 * Math.sin(Math.PI * u)), (u) => adEnv(u, 0.05, 0.95), { formants: [[1000, 3, 1], [2100, 4, 0.6]], harm: 20, tilt: 0.5, rough: 0.35, r }), { gain: 0.4 }),
+  // birds of prey and the sea / river birds
+  eagle_idle: vox(1.2, (d, sr, r) => call(d, sr, r, 2600 + r() * 300, 1900, 0.16, 4 + Math.floor(r() * 3), 1.5, 0.3), { gain: 0.32, bus: 'amb', rev: 0.55 }),
+  eagle_aggro: vox(0.6, (d, sr, r) => call(d, sr, r, 2900, 2100, 0.5, 1, 1, 0.35), { gain: 0.36, rev: 0.4 }),
+  vulture_idle: vox(0.8, (d, sr, r) => { hiss(d, sr, r, 0, 0.5, 0.8, 2600); voiced(d, sr, 0.15, 0.3, (u) => 160 - u * 30, (u) => Math.sin(Math.PI * u), { formants: [[500, 3, 1]], rough: 0.6, noise: 0.5, r }); }, { gain: 0.22, bus: 'amb', rev: 0.35 }),
+  parrot_idle: vox(0.9, (d, sr, r) => { const n = 2 + Math.floor(r() * 3); for (let k = 0; k < n; k++) voiced(d, sr, k * 0.2, 0.15, (u) => (1500 + r() * 900) * (1 - 0.3 * u), (u) => adEnv(u, 0.05, 0.9), { formants: [[1900, 3, 1], [3400, 4, 0.6]], harm: 10, tilt: 0.4, rough: 0.55, noise: 0.25, r }); }, { gain: 0.26, bus: 'amb', rev: 0.35 }),
+  seagull_idle: vox(1.3, (d, sr, r) => call(d, sr, r, 1350 + r() * 200, 2100, 0.22, 3 + Math.floor(r() * 3), 1.25, 0.25), { gain: 0.26, bus: 'amb', rev: 0.45 }),
+  heron_idle: vox(0.6, (d, sr, r) => voiced(d, sr, 0, 0.4, (u) => 360 - u * 80, (u) => adEnv(u, 0.04, 0.96), { formants: [[700, 3, 1], [1500, 4, 0.5]], harm: 14, rough: 0.7, noise: 0.35, r }), { gain: 0.26, bus: 'amb', rev: 0.4 }),
+  // reptiles: the crocodile's hiss and bellow, the rattlesnake's rattle
+  crocodile_aggro: vox(0.9, (d, sr, r) => { hiss(d, sr, r, 0, 0.8, 1, 2800); hiss(d, sr, r, 0.05, 0.6, 0.5, 6000); }, { gain: 0.4 }),
+  crocodile_idle: vox(1.6, (d, sr, r) => voiced(d, sr, 0, 1.3, (u) => 48 + 8 * Math.sin(Math.PI * u), (u) => Math.sin(Math.PI * u), { formants: [[180, 2, 1], [420, 3, 0.5]], harm: 30, tilt: 1.1, rough: 0.5, am: 0.5, amRate: 18, noise: 0.2, r }), { gain: 0.45, rev: 0.4 }),
+  rattlesnake_aggro: vox(1.2, (d, sr, r) => { burst(d, sr, 0, 1.1, { r, type: 'bp', f: 5200 + r() * 800, q: 1.2, a: 0.02, amp: 1, grain: 0.95, grainRate: 55 + r() * 10, grainMs: 6 }); hiss(d, sr, r, 0.4, 0.6, 0.35, 5000); }, { gain: 0.4, rev: 0.15 }),
+  rattlesnake_idle: vox(0.8, (d, sr, r) => burst(d, sr, 0, 0.7, { r, type: 'bp', f: 5000 + r() * 800, q: 1.2, a: 0.03, amp: 0.8, grain: 0.95, grainRate: 50 + r() * 12, grainMs: 6 }), { gain: 0.28, rev: 0.12 }),
+  scorpion_aggro: vox(0.4, (d, sr, r) => { for (let k = 0; k < 6; k++) mode(d, sr, k * 0.04 + r() * 0.01, 3200 + r() * 1200, 0.6, 0.01); hiss(d, sr, r, 0.05, 0.25, 0.3, 5500); }, { gain: 0.3 }),
+  // the sea: whale song (long sliding moans, far and echoing), dolphin clicks and whistles, seal barks
+  whale_idle: vox(4.2, (d, sr, r) => { const f = 70 + r() * 40; voiced(d, sr, 0, 2.2, (u) => f * (1 + 1.2 * Math.sin(Math.PI * u) * (0.6 + 0.4 * r())), (u) => Math.sin(Math.PI * u), { formants: [[240, 2, 1], [600, 3, 0.4]], harm: 10, tilt: 1.2, noise: 0.04, r });
+    voiced(d, sr, 2.0, 2.0, (u) => f * 2.4 * (1 - 0.5 * u) * (1 + 0.02 * Math.sin(u * 30)), (u) => Math.sin(Math.PI * u), { formants: [[420, 2, 1], [900, 3, 0.4]], harm: 8, tilt: 1.1, noise: 0.03, r }); }, { gain: 0.42, bus: 'amb', rev: 0.85, v: 3 }),
+  dolphin_idle: vox(1.0, (d, sr, r) => { for (let k = 0; k < 8; k++) mode(d, sr, k * 0.035 + r() * 0.01, 2500 + r() * 2500, 0.5, 0.006); voiced(d, sr, 0.35, 0.45, (u) => 5200 + 2200 * Math.sin(u * 7 + r() * 3), (u) => adEnv(u, 0.1, 0.9), { formants: [[6000, 3, 1]], harm: 3, tilt: 0.3, r }); }, { gain: 0.2, bus: 'amb', rev: 0.4 }),
+  seal_idle: vox(0.8, (d, sr, r) => { const n = 2 + Math.floor(r() * 2); for (let k = 0; k < n; k++) voiced(d, sr, k * 0.24, 0.18, (u) => 380 - u * 120, (u) => adEnv(u, 0.04, 0.96), { formants: [[650, 3, 1], [1300, 4, 0.5]], harm: 14, rough: 0.4, noise: 0.3, r }); }, { gain: 0.3, rev: 0.3 }),
+  seal_hurt: vox(0.35, (d, sr, r) => voiced(d, sr, 0, 0.28, (u) => 500 - u * 160, (u) => adEnv(u, 0.04, 0.96), { formants: [[700, 3, 1], [1400, 4, 0.5]], harm: 14, rough: 0.4, noise: 0.25, r }), { gain: 0.3 }),
+  // the plains: a zebra's barking bray, a horse's neigh, monkeys' hoots
+  zebra_idle: vox(1.0, (d, sr, r) => { for (let k = 0; k < 4; k++) voiced(d, sr, k * 0.19, 0.14, (u) => 520 + 220 * Math.sin(Math.PI * u) - k * 30, (u) => Math.sin(Math.PI * u), { formants: [[800, 3, 1], [1800, 4, 0.5]], harm: 14, rough: 0.35, noise: 0.25, r }); }, { gain: 0.26, rev: 0.35 }),
+  zebra_hurt: vox(0.35, (d, sr, r) => voiced(d, sr, 0, 0.28, (u) => 700 - u * 200, (u) => adEnv(u, 0.04, 0.96), { formants: [[900, 3, 1], [1900, 4, 0.5]], harm: 14, rough: 0.35, noise: 0.2, r }), { gain: 0.3 }),
+  wild_horse_idle: vox(1.3, (d, sr, r) => voiced(d, sr, 0, 1.1, (u) => (650 + r() * 80) * (1 - 0.35 * u) * (1 + 0.06 * Math.sin(u * 55)), (u) => adEnv(u, 0.06, 0.8), { formants: [[850, 3, 1], [1700, 4, 0.6], [2900, 5, 0.25]], harm: 16, tilt: 0.6, rough: 0.2, am: 0.4, amRate: 14, noise: 0.15, r }), { gain: 0.28, rev: 0.4 }),
+  monkey_idle: vox(1.4, (d, sr, r) => { const n = 4 + Math.floor(r() * 4); for (let k = 0; k < n; k++) voiced(d, sr, k * 0.16 * (1 - k * 0.04), 0.12, (u) => 600 + k * 70 + 300 * Math.sin(Math.PI * u), (u) => Math.sin(Math.PI * u), { formants: [[900, 3, 1], [2100, 4, 0.5]], harm: 10, tilt: 0.6, rough: 0.2, noise: 0.12, r }); }, { gain: 0.24, bus: 'amb', rev: 0.4 }),
+  monkey_aggro: vox(0.6, (d, sr, r) => { for (let k = 0; k < 3; k++) voiced(d, sr, k * 0.15, 0.13, (u) => 1300 - u * 300, (u) => adEnv(u, 0.05, 0.9), { formants: [[1500, 3, 1], [3000, 4, 0.5]], harm: 10, rough: 0.5, noise: 0.25, r }); }, { gain: 0.3 }),
+  // the cold: a polar bear like a bear, deeper; moose / bison bellows; a goat's bleat
+  polar_bear_aggro: vox(1.3, (d, sr, r) => voiced(d, sr, 0, 1.15, (u) => 66 + 20 * Math.sin(Math.PI * u), (u) => Math.pow(Math.min(1, u * 3), 1.5) * Math.pow(1 - u, 0.6), { formants: [[290, 2.5, 1], [680, 3, 0.7], [1500, 4, 0.25]], harm: 22, tilt: 0.8, rough: 0.3, am: 0.35, noise: 0.35, r }), { gain: 0.6 }),
+  moose_idle: vox(1.6, (d, sr, r) => voiced(d, sr, 0, 1.3, (u) => 180 + 60 * Math.sin(Math.PI * u), (u) => adEnv(u, 0.1, 0.8), { formants: [[420, 3, 1], [900, 4, 0.5]], harm: 18, tilt: 0.9, rough: 0.25, noise: 0.15, r }), { gain: 0.32, rev: 0.5 }),
+  bison_idle: vox(1.2, (d, sr, r) => voiced(d, sr, 0, 1.0, (u) => 70 + 10 * Math.sin(Math.PI * u), (u) => Math.sin(Math.PI * u), { formants: [[250, 2.5, 1], [600, 3, 0.5]], harm: 24, tilt: 1, rough: 0.45, noise: 0.25, r }), { gain: 0.4, rev: 0.35 }),
+  mountain_goat_idle: vox(0.7, (d, sr, r) => voiced(d, sr, 0, 0.55, (u) => 520 + 40 * Math.sin(u * 60), (u) => adEnv(u, 0.06, 0.9), { formants: [[850, 3, 1], [1900, 4, 0.5]], harm: 14, rough: 0.3, am: 0.6, amRate: 9, noise: 0.15, r }), { gain: 0.26, rev: 0.45 }),
+  camel_idle: vox(1.2, (d, sr, r) => voiced(d, sr, 0, 1.0, (u) => 110 + 40 * Math.sin(Math.PI * u), (u) => Math.sin(Math.PI * u), { formants: [[380, 2.5, 1], [800, 3, 0.6]], harm: 18, tilt: 0.9, rough: 0.6, am: 0.5, amRate: 12, noise: 0.25, r }), { gain: 0.3, rev: 0.3 }),
+});
+
+export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'fox', 'spider', 'bandit', 'giant',
+  'lion', 'jaguar', 'elephant', 'eagle', 'crocodile', 'rattlesnake', 'scorpion', 'seal', 'zebra', 'monkey', 'polar_bear']);
+// the new species' idle calls (fx/audioDirector.js idleVoice: one now and then from a creature near the player)
+export const IDLE_VOX = ['lion', 'jaguar', 'elephant', 'eagle', 'vulture', 'parrot', 'seagull', 'heron', 'crocodile', 'rattlesnake', 'whale', 'dolphin', 'seal', 'zebra', 'wild_horse', 'monkey', 'moose', 'bison', 'mountain_goat', 'camel'];
 Object.assign(SFX, SIEGE_SFX); // ice giants and the ballista (sfxSiege.js)
 
 // names that other code may call with a different meaning / older name
