@@ -128,6 +128,12 @@ distantes. Assim os reinos ao redor crescem junto com o jogador e as guerras ent
 
 Cada fase é testada (cenários multijogador), publicada e mostrada em prints.
 
+Apontamentos do dono depois da fase 1 (corrigir na fase 2):
+- As casas estavam com a entrada bloqueada por algum móvel: toda porta precisa de passagem livre por dentro e por fora.
+- As paliçadas não tinham como subir (escada): devem ser como as muralhas, com o alto caminhável e escadas.
+- Queda de frames: tudo precisa ser mais otimizado.
+- Faltam os cidadãos (fase 2).
+
 ## Implementação — máquinas de guerra (fase 1)
 
 Feito: a **Oficina de cerco** e as quatro máquinas (§5), com modelo 3D, custo, obra de verdade, vida, multijogador e
