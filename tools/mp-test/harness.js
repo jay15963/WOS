@@ -281,8 +281,14 @@ export function rowDiff(part, ra, rb, la, lb) {
 // interest (net/interest.js): the chunks a guest is not kept up to date on — the host names them; a host / guest pair
 // compares the world without them (null: everything)
 export function interestEx(A, B) {
-  const host = A?.net?.role === 'host' ? A : B?.net?.role === 'host' ? B : null, guest = host === A ? B : A;
-  try { return host && guest?.pid ? host.session?.interest?.excluded?.(guest.pid) || null : null; } catch { return null; }
+  try {
+    const host = A?.net?.role === 'host' ? A : B?.net?.role === 'host' ? B : null, guest = host === A ? B : A;
+    if (host) return guest?.pid ? host.session?.interest?.excluded?.(guest.pid) || null : null;
+    // two guests: their host's stale chunks of either (the frame hosting both)
+    const H = frames.live.find((f) => f.net?.role === 'host' && f.session?.players?.has?.(A?.pid) && f.session?.players?.has?.(B?.pid));
+    const ex = new Set([...(H?.session?.interest?.excluded?.(A.pid) || []), ...(H?.session?.interest?.excluded?.(B.pid) || [])]);
+    return ex.size ? [...ex] : null;
+  } catch { return null; }
 }
 export function partDiffs(A, B, parts) {
   const out = [];

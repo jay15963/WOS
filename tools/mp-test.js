@@ -2474,7 +2474,9 @@ def('W1', {
   await t.sleep(2500);
   // (fish stay in the water all day; farm animals of the players have no herd: both are out at night on purpose)
   // (the day animals of the dens: the planet's fauna also has creatures out at all hours — birds, crabs, seals)
-  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner && m.spawner.when === 'day' && !m.spawner.loose).length;
+  // (a streamed planet: only the active region around the players runs its dens — the creatures there; farther ones sleep)
+  const seen = (m) => [H.game.player, A.authAvatarOn(H, G.pid)].some((q) => q && Math.hypot(H.game.world.dx(m.x, q.x), m.y - q.y) < 40);
+  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner && m.spawner.when === 'day' && !m.spawner.loose && seen(m)).length;
   t.check(green === 0, 'no passive animal out at night', `${green}`);
   // a walker next to the guest
   const s = A.freeSpot(H, MH, gp.x + 6, gp.y, { rMin: 0, rMax: 3, r: 0.3 });
@@ -3388,6 +3390,7 @@ def('J3', {
 });
 
 def('J4', {
+  src: 'classic', // (whole-map scans and the classic mountains: the old 256 × 256 world)
   title: 'J: mining a mountain open removes its natural roof identically on both', timeout: 150000,
   expected: 'Mined tiles keep the mountain roof while rock is within 6 tiles; opening a 14×14 box takes it off in the middle on both peers (world.roof bytes equal, roofAt / isCave equal per tile, the centre is open sky, tiles next to the remaining rock stay caves); a guest mining hit through rock.hit keeps them equal; digest equal',
   api: 'tile.mine → world.mineRock → _naturalRoof (world.roof, lastLost); world.roofAt / isCave; digest tiles part (roof, broof)',
@@ -3466,6 +3469,7 @@ def('J5', {
 });
 
 def('J6', {
+  src: 'classic', // (whole-map scans and the classic mountains: the old 256 × 256 world)
   title: 'J: cave ceilings — drawn over caves nobody local is in, a guest inside sees under it, cave-ins crumble on both', timeout: 150000,
   expected: 'A 20×20 hall dug around a rock pillar is one cave on both, its ceiling drawn on both (roofData A = 255, roofs.hidden true) while both players are outside; the guest walks in: its own ceiling fades out (A → 0, indoors cave) while the host still draws it and hides the guest under it; mining the pillar takes the roof off the middle: both schedule the same crumbling tiles, the hole opens on both (A 0, no cave) while the ring by the walls stays a covered cave on the host; digest equal',
   api: 'game.roofs {caves, caveOf, data A/G, crumble, cracks, hidden}, underCaveCeiling, world.isCave / lastLost, tile.mine (collapseFx cave → caveCrumble)',
@@ -4252,7 +4256,7 @@ def('K4', {
   let S = null;
   try {
     presetPid('k4' + rand(5));
-    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo`, 'k4solo');
+    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo&source=classic`, 'k4solo'); // (a save of the classic world: opened on it)
     await t.waitFor(() => S.game || S.bootError, CFG.bootMs, 'solo boot from the v4 save');
     t.assert(S.game, 'solo frame booted: ' + (S.bootError || ''));
     const MS = await A.mods(S);
@@ -5094,6 +5098,7 @@ const bowAtFar = (site, b) => (b.x - site.far[0] - 0.5) * site.ex + (b.y - site.
 const onFarBank = (f, site, x, y) => Math.hypot(x - site.far[0] - 0.5, y - site.far[1] - 0.5) < Math.hypot(x - site.bank[0] - 0.5, y - site.bank[1] - 0.5) - 1.5 && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
 
 def('B1', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   star: true, title: 'B: guest builds a boat, two players board, the guest rows across a river, both step off on the far bank', timeout: 300000,
   expected: 'The guest places a boat on the first water tile of a river crossing (on land: refused) and builds it with real work from the bank: the blueprint becomes a floating boat (op boat.launch) with the same id and pose on both; the guest boards first (the oars, place 0), the host second; both seated (rooted, no swimming); the guest rows across (its client simulates, intent boat.move → op boat.pos): the boat moves on the host, both draw it close together and see each other seated in it; the guest steps off on the far bank (a spot not walk-linked to the near bank, never deep water); the host takes the oars (next passenger) and steps off too; digest equal',
   api: 'BUILDINGS.boat (build.place → boats.reason; build.hit final → boat.launch), game.boats.board / leave / landingSpot, intents boat.board / boat.leave / boat.move, ops boat.set / boat.pos, b.seats / b._x (drawn), p._boat',
@@ -5170,6 +5175,7 @@ def('B1', {
 });
 
 def('B2', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   title: 'B: one player with 5 tied animals fills the boat (6 places) and crosses; the animals ride along and get off with it; a second player is refused', timeout: 240000,
   expected: 'A boat at a river crossing; the guest leads 5 tied animals (cow, sheep, pig, chicken, sheep). With the host at the oars the guest + 5 do not fit: refused "Não cabe todo mundo" (nobody aboard, nothing left behind). The host gets off; the guest boards: its 5 animals come along (6 places used, on both), each standing in the boat on the host (creatures) and on the guest (proxies); the host is refused (full); the guest rows across: the animals move with the boat; the guest gets off on the far bank and the animals get off next to it (still tied, never in deep water) on both; digest equal',
   api: 'intent boat.board (tied animals: all or refused), b.pets [[nid, pid, place]], mobs.js (riding: no brain), host placeAll / unloadPet, entity stream positions',
@@ -5243,6 +5249,7 @@ def('B2', {
 });
 
 def('B3', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   title: 'B: the driver gets off mid-river and the passenger takes the oars; far from the bank it is refused; frozen water holds the boat', timeout: 240000,
   expected: 'A boat at a river crossing; the guest boards first (the oars), the host second; the guest rows out into the river; getting off where no bank is in reach is refused ("Longe da margem", when the river is that wide); once a bank is in reach the guest gets off (onto land / shallow water, never deep); the host is promoted to the oars on both and rows on: the boat moves on the guest too; winter: the water freezes on both and the host\'s rowing does not move the boat; the host steps out onto the ice; digest equal',
   api: 'intent boat.leave (landing spot or refused; promote), boat.move refused on ice (fix), world.frozen (seasons.js)',
@@ -5445,6 +5452,7 @@ def('FA1', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 9); // (a planet's start can be wooded: open ground first)
   const gp = G.game.player, av = () => guestOnHost(H, G);
   let spot = null;
   for (let k = 0; k < 12 && !spot; k++) {
@@ -5495,6 +5503,7 @@ def('FA2', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 12); // (a planet's start can be wooded: open ground first)
   const gp = G.game.player;
   // an open field: the herd 9 tiles from the guest along a clear line
   let dir = null;
@@ -5915,7 +5924,8 @@ def('LZ4', {
   A.teleport(G, back[0], back[1]);
   await t.waitFor(() => mobs.every((m) => A.proxyOf(G, m)), RT() + 4000, 'back near the host: the creatures appear on the guest');
   await t.waitFor(() => (G.game.net.stats.chunkDiffs || 0) > d0 && !gw.objById.has(tr.o.id), RT() + 4000, 'the chunk diff removed the tree on the guest');
-  t.check(!(H.session.interest.excluded(G.pid) || []).length, 'nothing stale for the guest any more');
+  const st = H.session.interest.debug().guests[G.pid]?.stale || [];
+  t.check(!st.includes(tc) && !st.some((c) => MH.interest ? false : Math.abs((c % 256) - (tc % 256)) <= 4 && Math.abs((c >> 8) - (tc >> 8)) <= 4), 'nothing stale around the guest any more', `${st.length} stale chunks elsewhere`);
   for (const m of mobs) { m.noCorpse = true; MH.combat.killMob(H.game, m, null); }
   await t.checkDigest(H, G);
   env.history.push('LZ4');

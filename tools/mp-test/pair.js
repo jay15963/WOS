@@ -120,9 +120,13 @@ export const env = {
     this.history = [];
     if (P && !CFG.keep) { frames.close(P.G); frames.close(P.H); }
   },
-  async getPair(t, { fresh = false } = {}) {
+  // src: the world source of the pair ('planet', the default world; 'classic' for the scenarios that need the old 256 × 256
+  // map — whole-map scans, its mountains): a pair of another source is closed and a new one opened
+  async getPair(t, { fresh = false, src = null } = {}) {
     if (this.unsupported) throw new Skip(this.unsupported);
     if (this.setupFails >= 2 && this.setupFail) throw new Fail('shared pair setup keeps failing: ' + this.setupFail);
+    const want = src || 'planet';
+    if (this.pair && (this.pair.src || 'planet') !== want) { t.note(`switching the shared pair to the ${want} world`); this.closePair(); }
     if (!fresh && this.healthy()) {
       const P = this.pair;
       if (hasDigest(P.H) && hasDigest(P.G)) {
@@ -137,9 +141,9 @@ export const env = {
     t.log(`opening host+guest pair in room ${room} (${CFG.transport})`);
     try {
       if (LEGACY) { this.pair = await legacyPair(t, room); return this.pair; }
-      const H = await bootHost(t, room, { shared: true });
+      const H = await bootHost(t, room, { shared: true, extra: want === 'planet' ? '' : '&source=' + want });
       const G = await bootGuest(t, room, H, { shared: true });
-      this.pair = { room, H, G, opened: now() };
+      this.pair = { room, H, G, opened: now(), src: want };
       this.setupFails = 0; this.setupFail = null;
       return this.pair;
     } catch (e) {
@@ -153,7 +157,7 @@ export const env = {
 
 // pair + module handles + both players reset near the spawn
 export async function pairCtx(t, { fresh = false } = {}) {
-  const P = await env.getPair(t, { fresh });
+  const P = await env.getPair(t, { fresh, src: t.sc?.src || null });
   const [MH, MG] = await Promise.all([mods(P.H), mods(P.G)]);
   await reset(t, P.H, MH, P.G, MG);
   t.log(`pair ready: host ${P.H.pid} · guest ${P.G.pid} · room ${P.room}`);

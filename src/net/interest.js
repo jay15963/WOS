@@ -110,7 +110,7 @@ export class Interest {
   // the op batch for one guest: withheld ops become skip counts (consecutive ones merged)
   batchFor(pl, msg) {
     const L = msg.l, C = msg.c;
-    if (!this.on || !pl.int || !C) return msg;
+    if (!this.on || !pl.int || !C) return { t: 'ops', s: msg.s, l: L };
     const st = pl.int.stale;
     let out = null;
     for (let k = 0; k < L.length; k++) {

@@ -221,12 +221,16 @@ export class Minimap {
     const ra = M && w.wrap ? this._ringA ?? 1 : 1;
     if (ra <= 0) return;
     ctx.globalAlpha = ra;
+    // zoomed in (a tile ≥ 2 px): smooth the 1 px-per-tile picture — soft coasts instead of stair steps
+    const smooth = kx >= 2;
+    if (smooth) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
       const c = cy * 256 + (cx & 255);
       if (this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] !== c) continue;
       ctx.drawImage(this.base, (cx * 64) & RM, (cy * 64) & RM, 64, 64, (cx * 64 - sx) * kx, (cy * 64 - sy) * ky, 64 * kx + 0.5, 64 * ky + 0.5);
     }
     ctx.globalAlpha = 1;
+    if (smooth) ctx.imageSmoothingEnabled = false;
   }
 
   // draw into ctx (css px size W×H); span = tiles visible across; full = the big map (mapRect)

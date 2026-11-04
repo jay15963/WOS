@@ -79,6 +79,33 @@ export function clearLine(f, M, x0, y0, x1, y1, r = 0.3) {
   return true;
 }
 
+// open ground for scenarios that need room (a planet's start can be wooded): the nearest point around the guest with a
+// clear line of `len` tiles in at least `dirs` of 16 directions (on both frames); the guest — and the host next to it —
+// move there. Returns the point or null.
+export async function openField(t, H, MH, G, MG, len = 10, dirs = 3) {
+  const gp = G.game.player, x0 = gp.x, y0 = gp.y;
+  const good = (x, y) => {
+    let n = 0;
+    for (let k = 0; k < 16 && n < dirs; k++) {
+      const a = (k / 16) * Math.PI * 2, ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
+      if (clearLine(G, MG, x, y, ex, ey, 0.4) && clearLine(H, MH, x, y, ex, ey, 0.4)) n++;
+    }
+    return n >= dirs;
+  };
+  if (good(x0, y0)) return [x0, y0];
+  for (let r = 6; r <= 120; r += 6) for (let k = 0; k < Math.max(8, Math.round(r)); k++) {
+    const a = (k / Math.max(8, Math.round(r))) * Math.PI * 2;
+    const s = freeSpot(G, MG, x0 + Math.cos(a) * r, y0 + Math.sin(a) * r, { rMin: 0, rMax: 2 });
+    if (!s || !good(s[0], s[1])) continue;
+    teleport(G, s[0], s[1]);
+    const h = freeSpot(H, MH, s[0] - 2.5, s[1], { rMin: 0, rMax: 3 });
+    if (h) teleport(H, h[0], h[1]);
+    await t.sleep(400);
+    return s;
+  }
+  return null;
+}
+
 // Holds a movement direction on the frame's input (the game's own movement + collision code moves the player)
 export function holdMove(f, dx, dy) {
   const inp = f.game.input;
@@ -249,9 +276,21 @@ function oreScan(f, M, cx, cy, maxR, maxTier) {
 }
 
 // placement sites: origin (x0, y0) whose tiles (shape(x0, y0)) are all valid for `type` on every frame
-export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [], rot = 0 } = {}) {
-  for (let r = rMin; r <= rMax; r++) {
-    for (let k = 0; k < 8 * r; k++) {
+export function findSite(fs, Ms, type, shape, cx, cy, opts = {}) {
+  const near = siteScan(fs, Ms, type, shape, cx, cy, opts, 1);
+  if (near || !fs[0]?.game?.world?.wrap) return near;
+  // a planet: the land around may be wooded / hilly — look farther (coarser rings) and bring the players next to it
+  const far = siteScan(fs, Ms, type, shape, cx, cy, { ...opts, rMin: (opts.rMax ?? 16) + 1, rMax: Math.max(64, (opts.rMax ?? 16) * 4) }, 3);
+  if (far) {
+    let mx = 1e9, my = 1e9;
+    for (const [tx, ty] of far.tiles) { if (tx < mx) mx = tx; if (ty < my) my = ty; }
+    fs.forEach((f, k) => { const p = freeSpot(f, Ms[k], mx - 1 - k, my - 1, { rMin: 0, rMax: 3 }); if (p) teleport(f, p[0], p[1]); });
+  }
+  return far;
+}
+function siteScan(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [], rot = 0 } = {}, step = 1) {
+  for (let r = rMin; r <= rMax; r += step) {
+    for (let k = 0; k < 8 * r; k += step) {
       const a = (k / (8 * r)) * Math.PI * 2;
       const x0 = Math.floor(cx + Math.cos(a) * r), y0 = Math.floor(cy + Math.sin(a) * r);
       const tiles = shape(x0, y0);
