@@ -8,7 +8,7 @@ import { ITEMS } from '../game/data.js';
 import { itemIco } from './econIcons.js';
 import {
   GOODS, NG, GI, RANKS, profileOf, quoteBuy, quoteSell, maxAfford, landAverage, bestMarkets, meUid, myRec, rankInfo, taxRate, boardOf,
-  jobState, jobTarget, jobWaypoint, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
+  jobState, jobTarget, jobWaypoint, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
   JOB_MAX, PROP, REP, COIN, PARCEL,
 } from '../game/eco.js';
 import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
@@ -269,7 +269,7 @@ function dealBox(panels, I, i) {
 // ---------- Trabalhos ----------
 function jobCard(panels, j, mine, here) {
   const g = panels.g, A = g.A, p = g.player, K = JOB_KINDS[j.t] || { icon: '•' };
-  const s = settlement(g, j.sid), day = g.env.dayIndex;
+  const s = settlement(g, j.sid), day = ecoDay(g);
   const chips = [`<span class="chip gold">${coinIco(A)}${fmt(j.pay)}</span>`, `<span class="chip rep">+${j.rep} reputação</span>`];
   const left = j.exp - day;
   chips.push(`<span class="chip ${left <= 0 ? 'bad' : ''}">${left <= 0 ? 'último dia' : left === 1 ? 'até amanhã' : `${left} dias`}</span>`);
@@ -305,7 +305,7 @@ function jobsBody(panels, I) {
     <span class="ec-pill ${rankInfo(g, me, K.id).i ? 'good' : ''}">${esc(rankInfo(g, me, K.id).name)} em ${esc(K.name)}</span></div>`;
   let body = head;
   if (mine.length) body += `<h4>Em andamento</h4>${mine.map((j) => jobCard(panels, j, true, here)).join('')}`;
-  body += `<h4>Quadro de ${esc(I.name)} <small>dia ${g.env.dayIndex} · novos pedidos a cada amanhecer</small></h4>`;
+  body += `<h4>Quadro de ${esc(I.name)} <small>dia ${ecoDay(g)} · novos pedidos a cada amanhecer</small></h4>`;
   if (why) body += `<div class="ec-empty"><b>Sem trabalho para você</b>${esc(why)}</div>`;
   else if (!board.length) body += '<div class="ec-empty"><b>Ninguém pediu ajuda hoje</b>Volte amanhã: novos pedidos a cada amanhecer.</div>';
   else body += board.map((j) => jobCard(panels, j, false, here)).join('');

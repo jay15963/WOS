@@ -26,7 +26,8 @@ const CSS = `
 @keyframes pd-bump { 40% { transform: scale(1.12); } }
 #jtrack { display: flex; flex-direction: column; gap: 5px; pointer-events: auto; max-width: 240px; }
 #jtrack:empty { display: none; }
-.jt-i { display: grid; grid-template-columns: 26px 1fr 22px; align-items: center; gap: 6px; text-align: left; padding: 5px 8px 5px 5px; border-radius: 9px; color: var(--n-text, #f4e9d2);
+.jt-i > span:nth-child(2) { min-width: 0; overflow: hidden; }
+.jt-i { display: grid; grid-template-columns: 26px minmax(0, 1fr) 22px; width: 100%; align-items: center; gap: 6px; text-align: left; padding: 5px 8px 5px 5px; border-radius: 9px; color: var(--n-text, #f4e9d2);
   background: linear-gradient(180deg, rgba(52,34,20,0.88), rgba(30,19,11,0.88)); border: 1.5px solid rgba(36,22,13,0.95); box-shadow: inset 0 0 0 1px rgba(242,228,196,0.16); }
 .jt-i.on { box-shadow: inset 0 0 0 1.5px #f7d97a, 0 0 10px rgba(247,217,122,0.35); }
 .jt-i.ready { box-shadow: inset 0 0 0 1.5px #a8d870, 0 0 10px rgba(147,176,76,0.45); }

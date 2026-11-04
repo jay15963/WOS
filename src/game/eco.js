@@ -420,18 +420,23 @@ function giverOf(game, sid, salt, role) {
   }
   return { name: GIVER_NAMES[h32(sid, salt, 5) % GIVER_NAMES.length], role };
 }
-export function boardOf(game, sid, day = game.env.dayIndex) {
+// the economy day (E.day: replicated, it turns at the host's daily tick — every peer shows the same board)
+export const ecoDay = (game) => (game.eco?.day >= 0 ? game.eco.day : game.env.dayIndex);
+const LPROF = new WeakMap(); // plan → the profile made from its own features (boards: never the replicated E.feat)
+export function boardOf(game, sid, day = ecoDay(game)) {
   const key = sid * 100000 + day;
   if (BOARDS.has(key)) return BOARDS.get(key);
   const R = realmOf(game), s = R?.settlements[sid];
   if (!s) return [];
-  const L = game.towns.layout(sid), P = profileOf(game, sid), out = [];
+  const L = game.towns.layout(sid), out = [];
+  let P = LPROF.get(L);
+  if (!P) LPROF.set(L, (P = makeProfile(game, R, s, featuresOf(L))));
   const rnd = (k) => hf(R.seed | 0, sid, day, k);
   const want = s.kind === 'city' ? 6 : s.kind === 'castle' ? 3 : 5;
   const has = (k) => L.buildings.some((b) => b.key === k);
   const kinds = [];
   if (L.fields.length) kinds.push('harvest');
-  if (has('mine') || P.f.mine) kinds.push('mine');
+  if (has('mine')) kinds.push('mine');
   if (s.kind !== 'city' || has('sawmill')) kinds.push('chop');
   kinds.push('bring', 'deliver', 'hunt');
   if (s.kind !== 'castle') kinds.push('bring');
