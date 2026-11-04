@@ -136,7 +136,12 @@ export function buildPeople(game, sid) {
   const nKids = kind === 'castle' ? 0 : Math.round(rest * 0.26), nOld = Math.round(rest * 0.12);
   for (let k = 0; k < rest; k++) plan.push({ job: k < nKids ? 'child' : k < nKids + nOld ? 'elder' : 'homemaker' });
   // homes: guards in the guard houses (else the keep / any home); the others in the houses, beds to the adults first
-  const civHomes = S.homes.filter((h) => !h.guard), guardHomes = S.homes.filter((h) => h.guard);
+  // the houses the economy sells / rents to the players (game.eco.api.props: a fixed list from the plan) stay empty: no
+  // townsfolk live or sleep there (bought or not); a place whose every house is on the market keeps them all
+  const forSale = new Set((game.eco?.api?.props?.(sid)?.houses || []).map((h) => h.bi));
+  for (const h of S.homes) h.prop = forSale.has(h.b);
+  const civAll = S.homes.filter((h) => !h.guard), civFree = civAll.filter((h) => !h.prop);
+  const civHomes = civFree.length ? civFree : civAll, guardHomes = S.homes.filter((h) => h.guard && !h.prop);
   const keep = S.homes.find((h) => h.rec.key === 'keep');
   let hi = Math.floor(r() * Math.max(1, civHomes.length));
   plan.forEach((q, i) => {
@@ -149,7 +154,7 @@ export function buildPeople(game, sid) {
     P.jobPt = job.pt[P.female ? 1 : 0];
     // home
     let H = null;
-    if (P.guard) H = guardHomes.length ? guardHomes[i % guardHomes.length] : keep || civHomes[i % Math.max(1, civHomes.length)] || null;
+    if (P.guard) H = guardHomes.length ? guardHomes[i % guardHomes.length] : (keep && !keep.prop ? keep : null) || civHomes[i % Math.max(1, civHomes.length)] || null;
     else if (q.job === 'lord') H = keep || civHomes[0] || null;
     else if (civHomes.length) { H = civHomes[hi % civHomes.length]; if (r() < 0.55) hi++; }
     else H = keep || S.homes[0] || null;
@@ -259,13 +264,13 @@ export function planOf(game, S, P, hour, danger, winter) {
   if (hour < P.leave) return atHome('home');
   if (hour < P.end) {
     if (jb === 'homemaker') {
-      if (hour < 9.4) return S.wells.length && P.i % 2 ? plaza('well') : porch();
+      if (hour < 9.4) return S.wells.length && P.i % 4 === 1 ? plaza('well') : porch();
       if (city && hour < 12 && P.i % 3) return plaza(); // (the city's market morning)
       if (hour < 12) return atHome('home');
       if (hour < 15) return porch();
       return atHome('home');
     }
-    if (jb === 'farmer' && winter) return hour < 12 ? atHome('home') : (p.k = 'plaza', p.in = false, p.x = S.plaza.x, p.y = S.plaza.y, p.key = 'plaza', p);
+    if (jb === 'farmer' && winter) return hour < 13 ? porch() : plaza(); // (the land sleeps: firewood at the door, then the plaza)
     const W = S.works[P.work];
     if (jb === 'farmer') { const f = S.L.fields[P.field]; if (f) { p.k = 'work'; p.in = false; p.x = (f.x0 + f.x1) / 2; p.y = (f.y0 + f.y1) / 2; p.key = 'field:' + P.field; return p; } }
     if (jb === 'herder') { const f = S.L.pens[P.pen]; if (f) { p.k = 'work'; p.in = false; p.x = (f.x0 + f.x1) / 2; p.y = (f.y0 + f.y1) / 2; p.key = 'pen:' + P.pen; return p; } }
@@ -333,9 +338,12 @@ function navOf(game, sid) {
 const winterAt = (game, S) => !!seasonAt(game, S.s.x, S.s.y).hard;
 
 // ---------- the API for the economy (and the mural) ----------
-// game.towns.people(sid) → { sid, name, kind, total, alive, dead, guards, archers, children, elders, jobs: {job: {pt, n, alive}},
-//   workplaces: [{ b (building index in the layout), name (workplace), job, slots, alive, productivity 0..1 }],
-//   fields / pens: { slots, alive }, productivity (alive workers / slots, all trades), list() → every person }
+// game.towns.people(sid) → an Array of every person of the place (alive or not: the same list on every peer, from the
+// seed) — [{ i, name, job, role (the trade in Portuguese), jobPt, female, age, home (building index), work (building index
+// | −1), alive }] — carrying the place's numbers as properties: { sid, name, kind, total, alive, dead, guards, archers,
+// children, elders, jobs: {job: {pt, n, alive}}, workplaces: [{ b (building index in the layout), name (workplace),
+// job, slots, alive, productivity 0..1 }], fields / pens: { slots, alive }, productivity (alive workers / slots, all
+// trades), list() (the array itself) }
 export function peopleSummary(game, sid) {
   const S = peopleOf(game, sid);
   if (!S) return null;
@@ -343,9 +351,11 @@ export function peopleSummary(game, sid) {
   const jobs = {}, W = S.works.map((w) => ({ b: w.b, name: w.name, job: w.job, slots: 0, alive: 0, productivity: 0 }));
   let n = 0, a = 0, guards = 0, archers = 0, kids = 0, old = 0, wSlots = 0, wAlive = 0;
   const fields = { slots: 0, alive: 0 }, pens = { slots: 0, alive: 0 };
+  const out = [];
   for (const P of S.persons) {
     const ok = alive(P);
     n++; if (ok) a++;
+    out.push({ i: P.i, name: P.name, job: P.job, role: P.jobPt, jobPt: P.jobPt, female: P.female, age: P.age, home: S.homes[P.home]?.b ?? -1, work: S.works[P.work]?.b ?? -1, alive: ok });
     const J = jobs[P.job] || (jobs[P.job] = { pt: JOBS[P.job].pt[0], n: 0, alive: 0 });
     J.n++; if (ok) J.alive++;
     if (P.job === 'guard' && ok) guards++;
@@ -358,11 +368,10 @@ export function peopleSummary(game, sid) {
     if (P.work >= 0 || P.field >= 0 || P.pen >= 0 || P.job === 'merchant') { wSlots++; if (ok) wAlive++; }
   }
   for (const w of W) w.productivity = w.slots ? w.alive / w.slots : 0;
-  return {
+  return Object.assign(out, {
     sid, name: S.name, kind: S.kind, total: n, alive: a, dead: n - a, guards, archers, children: kids, elders: old, jobs, workplaces: W, fields, pens,
-    productivity: wSlots ? wAlive / wSlots : 1,
-    list: () => S.persons.map((P) => ({ i: P.i, name: P.name, job: P.job, jobPt: P.jobPt, female: P.female, age: P.age, home: S.homes[P.home]?.b ?? -1, work: S.works[P.work]?.b ?? -1, alive: alive(P) })),
-  };
+    productivity: wSlots ? wAlive / wSlots : 1, list: () => out,
+  });
 }
 
 // ---------- guests: a proxy gets its identity from `camp` (the look, the trade) ----------
@@ -428,7 +437,7 @@ function spawnNpc(game, S, P, x, y, lv = 0) {
     isEntity: true, isMob: true, kind: 'pawn', faction: 'town', species: guard ? 'guard' : 'citizen', ...ids,
     name: P.name, level, elite: false, temper: 'friendly', camp: P.code, role: P.job === 'archer' ? 'archer' : 'melee',
     x, y, r: 0.24 * P.scale, scale: P.scale, facing: 's', moving: false, moveT: (P.seed % 1000) / 100, action: null, flash: 0, dead: false, deadT: 0,
-    hp: Math.round(st.maxHp * (P.age === 'child' ? 0.5 : 1)), dmg: st.dmg * wf * (guard ? 1.5 : 1), // (the watch: trained, iron-armed) home: { x, y }, state: 'idle', stateT: 0, swingT: 0, stunT: 0,
+    hp: Math.round(st.maxHp * (P.age === 'child' ? 0.5 : guard ? 1.6 : 1)), dmg: st.dmg * wf * (guard ? 1.5 : 1), // (the watch: trained, armoured, iron-armed) home: { x, y }, state: 'idle', stateT: 0, swingT: 0, stunT: 0,
     look: P.look, weapon: P.weapon || null, offhand: P.offhand || null, armor: { body: P.armor?.body || null, head: P.armor?.head || null },
     wprof: wp, shield: off, reachX: wp.reach, swingDur: wp.swing * 1.12, armorV: guard ? equipArmor({ off: 'shield_iron', head: P.armor?.head }) + 4 : 0, aggroR: N.guardSight,
     specialT: 3, blockT: 4, throwT: 2, xpMul: 0, noCorpse: true, npc: P, npcS: S, carry: P.carry, crest: S.crest,
@@ -468,7 +477,7 @@ function spawnSpot(game, S, P, pl) {
 // the population tick of one settlement (host): who should be a creature now
 function manage(game, rec, players) {
   const S = rec.S, L = S.L, hour = game.env?.hour ?? 12, winter = winterAt(game, S), D = deadMap(game);
-  const cap = N.cap[S.kind] || 40;
+  const cap = Math.round((N.cap[S.kind] || 40) * (game.quality === 'low' ? 0.6 : 1)); // (a weak device: fewer people out)
   const want = [];
   for (const P of S.persons) {
     if (D.has(`${S.sid}.${P.i}`)) continue;
@@ -566,7 +575,7 @@ export function peopleSystem() {
       let n = 0;
       game._townPathBudget = N.pathBudget;
       for (const rec of Pp.live.values()) {
-        for (const m of [...rec.ents.values()]) {
+        for (const m of rec.ents.values()) { // (a Map: a person dropped meanwhile is simply not visited)
           if (m.dead) {
             if (!m._goneAt) { m._goneAt = game.worldTime; onDeath(game, rec, m); }
             else if (game.worldTime - m._goneAt > 6) dropNpc(game, rec, m);
@@ -607,13 +616,12 @@ function onDeath(game, rec, m) {
   m.task = null; m.pose = null;
   game.net.emit('town.pop', { sid: rec.sid, i: P.i, dead: 1, at: Math.round(game.worldTime) });
 }
+// each death is made good regrowDays later (a newcomer takes the place: the same identity from the seed)
 function regrow(game) {
-  const D = deadMap(game), day = game.env?.dayLength || 780, per = new Set();
+  const D = deadMap(game), day = game.env?.dayLength || 780;
   for (const [k, at] of D) {
-    const sid = +k.split('.')[0];
-    if (per.has(sid) || game.worldTime - at < N.regrowDays * day) continue;
-    per.add(sid);
-    const i = +k.split('.')[1];
+    if (game.worldTime - at < N.regrowDays * day) continue;
+    const [sid, i] = k.split('.').map(Number);
     game.net.emit('town.pop', { sid, i, dead: 0 });
   }
 }

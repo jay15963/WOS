@@ -25,10 +25,11 @@ const inBox = (b, x, y) => !!b && x >= b.box[0] && x < b.box[2] + 1 && y >= b.bo
 
 // ---------- spots ----------
 // a free tile next to a piece (inside its building when one is given), nearest to the piece's middle
-function sideOf(game, o, b) {
+function sideOf(game, o, b, pickK = -1) {
   if (!o) return null;
   const fw = o.fw || 1, fh = o.fh || 1, cx = o.tx + fw / 2, cy = o.ty + fh / 2;
   let best = null, bd = 1e9;
+  const all = pickK >= 0 ? [] : null; // (pickK: one of all the free sides — a crowd at a well spreads around it)
   for (let y = o.ty - 1; y <= o.ty + fh; y++) for (let x = o.tx - 1; x <= o.tx + fw; x++) {
     const edge = x === o.tx - 1 || x === o.tx + fw || y === o.ty - 1 || y === o.ty + fh;
     if (!edge || ((x === o.tx - 1 || x === o.tx + fw) && (y === o.ty - 1 || y === o.ty + fh))) continue; // (sides only, no corners)
@@ -37,9 +38,10 @@ function sideOf(game, o, b) {
     const g = game.build.grid.main.get(game.world.idx(x, y));
     if (g && g.door) continue; // (never stand in a doorway)
     const d = (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2;
+    if (all) all.push([x + 0.5, y + 0.5]);
     if (d < bd) { bd = d; best = [x + 0.5, y + 0.5]; }
   }
-  return best;
+  return all && all.length ? all[pickK % all.length] : best;
 }
 // a free tile inside a building (not a doorway), picked with r
 function insideSpot(game, b, r) {
@@ -100,8 +102,21 @@ function walk(game, rec, m, gx, gy, spd, dt, arrive = 0.22) {
   } else m._stuckT = 0;
   return 'walk';
 }
+// inside a building whose way out is blocked by its furniture (the prefabs: being fixed): it steps out of its door
+// (the door swings on every peer as it goes)
+function stepOut(game, rec, m, gx, gy) {
+  const S = rec.S;
+  for (const b of [...S.homes, ...S.works]) {
+    if (!inBox(b, m.x, m.y) || reachable(game, rec, m.x, m.y, b.out[0], b.out[1])) continue;
+    if (gx != null && inBox(b, gx, gy)) return false; // (going somewhere in the same room)
+    m.x = b.out[0]; m.y = b.out[1]; m.route = null; m._fails = 0;
+    return true;
+  }
+  return false;
+}
 // someone that cannot get there: out of sight it is simply there; in sight it gives up the trip
-function unstick(game, m, gx, gy) {
+function unstick(game, m, gx, gy, rec = null) {
+  if (rec && stepOut(game, rec, m, gx, gy)) return true;
   if ((m._fails || 0) < 3) return false;
   m._fails = 0;
   if (!inAnyView(game, m.x, m.y, 2, 3) && !inAnyView(game, gx, gy, 2, 3)) { const q = nearPass(game, gx, gy, 3); if (q) { m.x = q[0]; m.y = q[1]; return true; } }
@@ -117,6 +132,8 @@ function startPlan(game, rec, m, pl) {
   m.pose = null; m.route = null;
   if (m.action?.hold) m.action = null;
   const H = S.homes[P.home] || null;
+  // up on a wall / at a ballista and the duty is over: down the stairs (out of sight: a count again)
+  if (m.z > 0.5 && pl.k !== 'wall' && pl.k !== 'crew') { m.task = { k: 'down' }; return; }
   const indoor = (b, then) => {
     // indoors: with a player by that building, go in and do it there; else to its door and back to being a count (and
     // the same when its inside cannot be reached from the street: a door blocked by the furniture)
@@ -207,12 +224,13 @@ function porchTask(game, rec, m, play) {
   if (!q) q = H.out;
   if (play) return { k: 'go', x: q[0], y: q[1], run: true, then: { k: 'stand', t: 0.8 + r() * 2.2 } };
   if (P.job === 'homemaker') return { k: 'go', x: q[0], y: q[1], then: { k: 'act', act: r() < 0.6 ? 'craft' : 'gather', n: 3 + Math.floor(r() * 4), idle: 2.5, then: { k: 'stand', t: 4 + r() * 6, chat: true } } };
+  if (P.job === 'farmer') return { k: 'go', x: q[0], y: q[1], then: { k: 'act', act: 'chop', n: 4 + Math.floor(r() * 4), idle: 2, then: { k: 'stand', t: 3 + r() * 4, chat: true } } }; // (winter: firewood)
   return { k: 'go', x: q[0], y: q[1], then: { k: 'stand', t: 10 + r() * 15, chat: true } };
 }
 function plazaTask(game, rec, m, k) {
   const S = rec.S, P = m.npc, r = () => R01(m, 7);
   if (k === 'well' && S.wells.length) {
-    const o = objOf(game, S, S.wells[P.i % S.wells.length]), s = o && sideOf(game, o, null);
+    const o = objOf(game, S, S.wells[P.i % S.wells.length]), s = o && sideOf(game, o, null, P.i + Math.floor(game.worldTime / 30));
     if (s) return { k: 'go', x: s[0], y: s[1], face: o, then: { k: 'act', act: 'gather', n: 2, face: o, then: { k: 'go', ...pt(S.homes[P.home]?.out), carry: true, then: { k: 'stand', t: 1 } } } };
   }
   if (P.age === 'elder' && S.benches.length && r() < 0.7) {
@@ -255,7 +273,7 @@ function runTask(game, rec, m, dt) {
       if (T.bad) { m.task = T.then || null; return; }
       if (!T.chk) {
         T.chk = 1;
-        if (!reachable(game, rec, m.x, m.y, T.x, T.y)) {
+        if (!reachable(game, rec, m.x, m.y, T.x, T.y) && !(stepOut(game, rec, m, T.x, T.y) && reachable(game, rec, m.x, m.y, T.x, T.y))) {
           // no way there (a room closed by its furniture, a pen without a gate): out of sight it is simply there
           if (!inAnyView(game, m.x, m.y, 2, 3) && !inAnyView(game, T.x, T.y, 2, 3)) { m.x = T.x; m.y = T.y; m.route = null; m.task = T.then || null; return; }
           m.task = { k: 'stand', t: 3 + R01(m) * 3 }; m.planKey = ''; return;
@@ -323,6 +341,7 @@ function runTask(game, rec, m, dt) {
       return;
     }
     case 'up': upTask(game, rec, m, T, dt); return;
+    case 'down': m.moving = false; if (!inAnyView(game, m.x, m.y, 2, 3)) game.people._drop(rec, m); else lookAround(game, rec, m, T, dt); return;
     default: m.task = null;
   }
 }
@@ -366,11 +385,11 @@ function flee(game, rec, m, dt) {
 }
 
 // ---------- guards ----------
-const hostile = (e) => !e.dead && e.isMob && !e.npc && !e.proxy && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile');
+const hostile = (e) => !e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'); // (one going home — evade — cannot be hurt: let it go)
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
-  let best = null, bd = rec.danger ? sight + 10 : sight;
+  let best = null, bd = rec.danger ? Math.max(sight + 10, S.s.r * 2 + 6) : sight; // (the bell: the whole watch hears it, across the town)
   for (const e of game.entities) {
     if (!hostile(e)) continue;
     const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
@@ -402,14 +421,23 @@ function guardFight(game, rec, m, dt) {
   if (P.job === 'archer') {
     // archers on the ground: close in to a good range with a line of fire, then shoot
     const see = hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, m._tn, f._tn);
-    if (d > N.archerRange * 0.85 || !see) { const s = walk(game, rec, m, fx, fy, sp.speed, dt, 3); if (s === 'fail') unstick(game, m, fx, fy); return true; }
+    if (d > N.archerRange * 0.85 || !see) { const s = walk(game, rec, m, fx, fy, sp.speed, dt, 3); if (s === 'fail') unstick(game, m, fx, fy, rec); return true; }
     m.moving = false; faceTowards(m, f);
     if (m.swingT <= 0) { m.swingT = (m.swingDur || 1.6) * (0.95 + R01(m) * 0.25); m.action = { type: 'shoot', t: 0, dur: 0.6 }; game.later(0.34, () => { if (!m.dead && !f.dead) shoot(game, m, f); }); }
     return true;
   }
-  // spears and swords: up to it (through the town's own gates: their people pass them), then the swing timer
+  // spears and swords: up to it (through the town's own gates: their people pass them) — each from its own side around
+  // it, not all on one tile —, then the swing timer
   const rng = reach(m, f);
-  if (rng < 0 || d > rng) { const s = walk(game, rec, m, fx, fy, sp.speed, dt, Math.max(0.3, (rng > 0 ? rng : 0.8) * 0.8)); if (s === 'fail') unstick(game, m, fx, fy); return true; }
+  if (rng < 0 || d > rng) {
+    const a = Math.atan2(m.y - f.y, m.x - f.x) + ((m.id % 5) - 2) * 0.45, k = Math.max(0.5, (rng > 0 ? rng : 0.9) * 0.7);
+    let gx = f.x + Math.cos(a) * k, gy = f.y + Math.sin(a) * k;
+    if (d > 4) { gx = fx; gy = fy; } // (far: to its tile; the side when close)
+    const s = walk(game, rec, m, Math.floor(gx * 2) / 2 + 0.25, Math.floor(gy * 2) / 2 + 0.25, sp.speed, dt, d > 4 ? Math.max(0.3, (rng > 0 ? rng : 0.8) * 0.8) : 0.2);
+    if (s === 'fail') unstick(game, m, fx, fy, rec);
+    else if (s === 'here' && d > rng) { m.route = null; npcMove(game, m, (f.x - m.x) / d * 0.04, (f.y - m.y) / d * 0.04); }
+    return true;
+  }
   m.moving = false; faceTowards(m, f);
   if (m.swingT <= 0) {
     m.swingT = m.swingDur * (0.9 + R01(m) * 0.2);
@@ -571,7 +599,7 @@ function repairWork(game, rec, m, dt) {
   const s = walk(game, rec, m, J.spot[0], J.spot[1], SPD.walk * 1.5, dt, 0.3); // (in a hurry: a hole in the wall)
   m._rw = s;
   if (!(m._trT > game.worldTime)) { m._trT = game.worldTime + 1; (m._trail || (m._trail = [])).push(m.x.toFixed(1) + ',' + m.y.toFixed(1)); if (m._trail.length > 6) m._trail.shift(); }
-  if (s !== 'here') { if (s === 'fail' && !unstick(game, m, J.spot[0], J.spot[1]) && (m._fails || 0) >= 3) { (rec.noRepair || (rec.noRepair = new Map())).set(J.id, game.worldTime); m.repair = null; } return true; }
+  if (s !== 'here') { if (s === 'fail' && !unstick(game, m, J.spot[0], J.spot[1], rec) && (m._fails || 0) >= 3) { (rec.noRepair || (rec.noRepair = new Map())).set(J.id, game.worldTime); m.repair = null; } return true; }
   m.moving = false;
   faceTowards(m, { x: J.x + 0.5, y: J.y + 0.5 });
   if (!m.action) { m.action = { type: 'build', t: 0, dur: 0.8 }; game.later(0.3, () => { if (!m.dead && m.action?.type === 'build') game.audio?.play('build_hit', { x: m.x, y: m.y, volume: 0.45 }); }); }
@@ -611,8 +639,10 @@ export function repairByNumbers(game, step = 0.2) {
 }
 
 // ---------- the people do not walk through each other (moving ones step aside; the ones standing stay put) ----------
+const SEP = [];
 export function npcSeparate(game, rec) {
-  const L = [], PL = allPlayers(game);
+  const L = SEP, PL = allPlayers(game);
+  L.length = 0;
   for (const m of rec.ents.values()) if (!m.dead && !(m.z > 0.5) && m._pd < N.nearR) L.push(m);
   // never standing in a player: step aside (not someone in bed / on a chair)
   for (const m of L) {
@@ -628,11 +658,12 @@ export function npcSeparate(game, rec) {
     const a = L[i];
     for (let j = i + 1; j < L.length; j++) {
       const b = L[j], rr = (a.r + b.r) * 0.95, dx = b.x - a.x, dy = b.y - a.y;
-      if (Math.abs(dx) > rr || Math.abs(dy) > rr || (!a.moving && !b.moving) || a.pose || b.pose) continue;
+      const am = a.moving || a.state === 'chase', bm = b.moving || b.state === 'chase'; // (fighters jostle into their own places too)
+      if (Math.abs(dx) > rr || Math.abs(dy) > rr || (!am && !bm) || a.pose || b.pose) continue;
       const d = Math.hypot(dx, dy);
       if (d < 1e-3 || d >= rr) continue;
       const push = (rr - d) * 0.5, ux = dx / d, uy = dy / d;
-      const ka = a.moving ? (b.moving ? 1 : 2) : 0, kb = b.moving ? (a.moving ? 1 : 2) : 0;
+      const ka = am ? (bm ? 1 : 2) : 0, kb = bm ? (am ? 1 : 2) : 0;
       if (ka) npcMove(game, a, -ux * push * ka * 0.5, -uy * push * ka * 0.5);
       if (kb) npcMove(game, b, ux * push * kb * 0.5, uy * push * kb * 0.5);
     }

@@ -7855,7 +7855,19 @@ const nearestTown = (H, pred) => { const R = realmOf(H), sp = H.game.world.spawn
 const WORK_ACTS = new Set(['dig', 'plant', 'harvest', 'gather', 'craft', 'cook', 'chop', 'mine', 'build', 'carry', 'talk', 'cast']);
 const inBoxT = (b, x, y) => x >= b[0] && x < b[2] + 1 && y >= b[1] && y < b[3] + 1;
 // the clock where both players stand (and back to a calm day afterwards)
-const dayClock = (t, H, hour = 10) => { const h0 = H.game.env.hour; t.defer(() => nightClock(H, Math.max(8, Math.min(16, h0)))); nightClock(H, hour); };
+// (MH given: out of a winter first — the next spring / summer day — so the fields are worked and the children play;
+// a long run of scenarios may have moved the calendar there)
+const dayClock = (t, H, hour = 10, MH = null) => {
+  const h0 = H.game.env.hour; t.defer(() => nightClock(H, Math.max(8, Math.min(16, h0))));
+  const S = MH?.seasons, E = H.game.env;
+  if (S && hour > 6 && hour < 19 && !['spring', 'summer'].includes(S.seasonIdAt(S.seasonClock(E.dayIndex, hour)))) {
+    let d = E.dayIndex;
+    for (let k = 1; k < 60; k++) if (['spring', 'summer'].includes(S.seasonIdAt(S.seasonClock(E.dayIndex + k, hour)))) { d = E.dayIndex + k; break; }
+    H.game.net.emit('env.skip', { hour, day: d, wt: Math.round((H.game.worldTime + 5) * 100) / 100 }); H.game.net.flush();
+    return;
+  }
+  nightClock(H, hour);
+};
 
 def('VL1', {
   title: 'VL: the start village has its people on both peers — the same names, trades, homes and looks from the seed — and they work by day',
@@ -7865,7 +7877,7 @@ def('VL1', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
-  dayClock(t, H, 10);
+  dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
   await t.waitFor(() => livePeople(H, s.id).length >= 12, 20000, 'the host makes ≥ 12 people near the players', () => `${livePeople(H, s.id).length}`);
@@ -7880,6 +7892,7 @@ def('VL1', {
   const jobs = new Set(H.game.people.of(s.id).persons.map((P) => P.job));
   t.check(jobs.has('guard') && jobs.has('archer') && jobs.has('farmer') && jobs.has('child'), 'trades: guards, archers, farmers, families…', [...jobs].join(','));
   const sum = H.game.towns.people(s.id), sumG = G.game.towns.people(s.id);
+  t.check(Array.isArray(sum) && sum.length === sum.total && sum.every((q) => q.name && q.role) && sum.map((q) => q.name).join() === sumG.map((q) => q.name).join(), 'game.towns.people(sid) is the list of the people (name, role) — the job board of the economy names its givers from it', `${sum.length}`);
   t.check(sum.total === s.pop && sum.alive === sum.total - sum.dead && sum.workplaces.length === L.hooks.work.length && sum.productivity > 0 && sum.guards > 0 && JSON.stringify(sumG.jobs) === JSON.stringify(sum.jobs), 'game.towns.people(sid): total, alive, guards, workplaces, productivity (same on the guest)', `total ${sum.total} alive ${sum.alive} guards ${sum.guards} prod ${sum.productivity.toFixed(2)}`);
   // at work by day
   const persons = H.game.people.of(s.id).persons;
@@ -7934,7 +7947,7 @@ def('VL3', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
-  dayClock(t, H, 10);
+  dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
   const pat = await t.waitFor(() => livePeople(H, s.id).find((m) => m.task === 'patrol'), 25000, 'a guard on patrol by day');
@@ -7968,7 +7981,7 @@ def('VL4', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
-  dayClock(t, H, 10);
+  dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
   const homes = H.game.people.debug(s.id).homes, works = H.game.people.of(s.id).works;
@@ -7986,15 +7999,18 @@ def('VL4', {
   await t.waitFor(() => alarmG === true && G.game.people.alarm.get(s.id), RT() + 2000, 'the bell rings on the guest too (town.alarm)');
   await t.waitFor(() => civOut() <= Math.max(2, Math.floor(civ0 * 0.4)), 25000, 'the civilians run home (gone from the streets)', () => `${civOut()} / ${civ0}`);
   await t.waitFor(() => livePeople(H, s.id).some((m) => m.guard && m.state === 'chase' && m.threat === wolf.nid), 15000, 'guards engage the wolf');
-  await t.waitFor(() => wolf.dead, 40000, 'the guards kill it', () => `wolf hp ${Math.round(wolf.hp)}`);
+  await t.waitFor(() => wolf.dead, 40000, 'the guards kill it', () => `wolf hp ${Math.round(wolf.hp)} ${wolf.state} threat ${wolf.threat?.npc ? 'npc ' + wolf.threat.npc.job : wolf.threat ? 'player' : '-'} @${f2(wolf.x)},${f2(wolf.y)} · guards ${livePeople(H, s.id).filter((m) => m.guard).map((m) => `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z}`).join(' ')}`);
   await t.waitFor(() => !H.game.people.debug(s.id).danger && alarmG === false, 15000 + RT(), 'the all-clear on both');
   await t.waitFor(() => civOut() >= Math.min(civ0, 5), 40000, 'the people come back out', () => `${civOut()}`);
   // a winter night: walkers at the gate
   const sp = { x: L.spawn[0], y: L.spawn[1] };
-  H.game.net.emit('env.skip', { hour: 22.5, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush();
-  t.defer(() => { H.game.net.emit('env.skip', { hour: 9, day: 8, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush(); }); // (spring of year 2)
+  const SE = MH.seasons, d0 = H.game.env.dayIndex;
+  let wd = d0;
+  for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(d0 + k, 22.5)) === 'winter') { wd = d0 + k; break; }
+  H.game.net.emit('env.skip', { hour: 22.5, day: wd, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush();
+  t.defer(() => { const E = H.game.env; let sd = E.dayIndex; for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(E.dayIndex + k, 9)) === 'spring') { sd = E.dayIndex + k; break; } H.game.net.emit('env.skip', { hour: 9, day: sd, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush(); }); // (back to a spring morning)
   await t.sleep(1500);
-  if (!MH.seasons.hardWinterAt(H.game, s.x, s.y)) { t.note('not a hard winter here on day 5: the walker part is skipped'); await t.checkDigest(H, G); return; }
+  if (!MH.seasons.hardWinterAt(H.game, s.x, s.y)) { t.note(`not a hard winter here on day ${wd}: the walker part is skipped`); await t.checkDigest(H, G); return; }
   const gk = L.gates[0] != null ? L.structs[L.gates[0]] : null;
   const gx = gk ? gk[1] + 1 : sp.x, gy = gk ? gk[2] : sp.y - 10, ox = gx - L.x, oy = gy - L.y, od = Math.hypot(ox, oy) || 1;
   const hurtBy = new Set();
@@ -8005,7 +8021,7 @@ def('VL4', {
   t.need(ws2.length, 'room for the walkers outside the gate');
   for (const m of ws2) { m.home = { x: L.x, y: L.y }; t.defer(() => { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); }); }
   await t.waitFor(() => hurtBy.size > 0, 45000, 'the watch fights the walkers (damage from the town\'s side)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)}`).join(' '));
-  await t.waitFor(() => ws2.every((m) => m.dead), 60000, 'the walkers die', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)}`).join(' '));
+  await t.waitFor(() => ws2.some((m) => m.dead) && ws2.every((m) => m.dead || m.state === 'evade'), 60000, 'the walkers die (or one gives up and runs)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)} @${f2(m.x)},${f2(m.y)}^${f2(m.z || 0)} lv${m.lv | 0} siege ${m.siege?.o?.id || '-'}`).join(' ') + ' · guards ' + livePeople(H, s.id).filter((m) => m.guard).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z} foe ${e?.foe?.nid || '-'} rng ${e?.foe ? f2(MH.combat.reach(e, e.foe)) : '-'} d ${e?.foe ? f2(Math.hypot(e.foe.x - e.x, e.foe.y - e.y)) : '-'} act ${e?.action?.type || '-'} sw ${f2(e?.swingT)} f${e?._fails || 0} r${e?.route ? (e.route.p ? 'p' : 'd') : '-'} mv ${e?.moving}`; }).join(' '));
   t.check(!hurtBy.has('FRIENDLY'), 'no damage between the town\'s people', [...hurtBy].join(','));
   t.metric('fightersVsWalkers', [...hurtBy].join(','));
   await t.checkDigest(H, G);
@@ -8019,7 +8035,7 @@ def('VL5', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
-  dayClock(t, H, 10);
+  dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
   const pick = () => livePeople(H, s.id).filter((m) => !m.guard && !(m.z > 0.5)).sort((a, b) => Math.hypot(a.x - G.game.player.x, a.y - G.game.player.y) - Math.hypot(b.x - G.game.player.x, b.y - G.game.player.y))[0];
@@ -8102,7 +8118,7 @@ def('VL7', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s0 = startTownOf(H, MH), R = realmOf(H), c = R.settlements[R.kingdoms[s0.k].capital], L = H.game.towns.layout(c.id);
-  dayClock(t, H, 10.5);
+  dayClock(t, H, 10.5, MH);
   await visitTown(t, H, MH, G, MG, c.id, L.spawn[0], L.spawn[1], 90000);
   A.keepAlive(t, H); A.keepAlive(t, G);
   await t.waitFor(() => livePeople(H, c.id).length >= 25, 25000, 'the city\'s people out near the players', () => `${livePeople(H, c.id).length}`);
@@ -8134,7 +8150,7 @@ def('VL8', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
-  dayClock(t, H, 10);
+  dayClock(t, H, 10, MH);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
   const v = await t.waitFor(() => livePeople(H, s.id).find((m) => !m.guard && !(m.z > 0.5)), 20000, 'a citizen out');

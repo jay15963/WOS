@@ -15,7 +15,7 @@ export const PEOPLE = {
   pathBudget: 2,   // town paths (A*) a frame
   // the day (game hours; jittered per person): wake, leave home, work until, home by, asleep
   wake: [5.6, 6.6], leave: [6.3, 7.4], workEnd: [16.6, 17.8], homeBy: [18.6, 19.35], bed: 20.2,
-  regrowDays: 1.5, // a dead person is replaced after this many days (one per settlement at a time)
+  regrowDays: 1.5, // a dead person is replaced after this many days
   // guards
   guardSight: 15, guardLeash: 12, archerRange: 13, alarmR: 6, // (alarmR: tiles past the town land a hostile still counts)
   repairStep: { wood: 0.12, stone: 0.07, siege: 0.03 }, repairEvery: 2.2, rebuildS: 9,

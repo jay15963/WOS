@@ -127,7 +127,7 @@ export function installOverlay(game) {
         const fighting = e.state === 'chase' && e.threat === p;
         // the settlements' people: a plate only for the one aimed at, the one "Conversar" would talk to, the one under the
         // mouse, or a guard fighting / hurt (a crowd of plates is noise)
-        if (e.npc && !isT && g.ctl?.near?.o !== e && g.ctl?.hoverPick?.e !== e && !(e.npc.guard && (e.state === 'chase' || e.hp < e.maxHp))) continue;
+        if (e.npc && !isT && g.ctl?.near?.o !== e && g.ctl?.hoverPick?.e !== e && !(e.npc.guard && e.hp < e.maxHp * 0.98)) continue; // (a wounded guard: its health bar)
         if (!isT && !fighting && d > 12) continue;
         const a = isT || fighting || e.npc ? 1 : Math.max(0, Math.min(1, (12 - d) / 4));
         if (a <= 0.02) continue;
