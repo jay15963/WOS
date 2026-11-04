@@ -633,7 +633,8 @@ export function describeStructure(game, o) {
   // a settlement's pieces (game/towns.js): the mural opens its panel; its gates belong to the guards; its chests and beds
   // are the townsfolk's (phase 2: inns, property)
   if (o.type === 'town_mural') return structIt(o, { kind: 'mural', verb: 'Ver mural', icon: 'info', prio: 4, use: true, reach: 1.6 });
-  if (o.town != null && (def.gate2 || o.type === 'chest' || o.type === 'bed' || def.feed)) return null;
+  if (o.town != null && (def.gate2 || def.feed)) return null;
+  if (o.town != null && (o.type === 'chest' || o.type === 'bed') && !game.eco?.mayUse?.(o)) return null; // (a bought / rented house's chests and beds: its holder's — game/eco.js)
   if (o.blueprint) return structIt(o, { kind: 'blueprint', verb: o.moveOf ? 'Mover' : 'Construir', icon: 'build', prio: canSupply(game, o) ? 3 : 0 });
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
   if (o.door) return structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 });

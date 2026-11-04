@@ -35,6 +35,7 @@ import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (a
 import { terrainSystem } from './terrain.js'; // terrain height: building pads, the terrain tool (docs/TERRAIN-HEIGHT.md)
 import { installTunnels, tunnelsSystem } from './tunnels.js'; // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md)
 import { installHUD } from '../ui/hud.js';
+import { installEcoHud } from '../ui/ecoHud.js'; // the purse, the job tracker, waypoints, plots, tax notices (game/eco.js)
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
 import { rangeFlashSystem } from '../fx/rangeflash.js'; // the bow's reach, blinking softly on an auto shot
@@ -54,6 +55,7 @@ import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boat
 import { installHorses, horseSystem, horseOwnerSystem } from './horses.js'; // horses: taming, saddle, riding (docs/HORSE.md)
 import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
 import { installTowns, townsSystem, placeSystem } from './towns.js'; // kingdoms and settlements (docs/REINOS.md)
+import { installEco, ecoSystem, ecoOwnerSystem } from './eco.js'; // the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia")
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -94,6 +96,7 @@ export function installSystems(game) {
   installBoats(game);               // boats: game.boats (before the save / snapshot loads them)
   installHorses(game);              // horses: game.horses (who rides what, the rider's movement)
   installTowns(game);               // settlements: pieces made per chunk from the seed (before the camps: they keep away)
+  installEco(game);                 // markets, reputation, jobs, properties (before the save / snapshot loads them)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -156,11 +159,14 @@ export function installSystems(game) {
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
     waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     placeSystem(),                  // the kingdom / settlement the player is in (the HUD banner)
+    ecoSystem(),                    // host: the markets' day, bills, job progress (eco.js)
+    ecoOwnerSystem(),               // the local player's economy identity known to the host
     juice,
     saveSystem(game),
   ]) addSystem(game, s);
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
+  addSystem(game, installEcoHud(game)); // (after the overlay: it draws the plots / the waypoint on the overlay canvas)
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
   addSystem(game, installSiegeUi(game)); // (siege engines: aim ring, scatter, reload, crew — ui/siegeUi.js)

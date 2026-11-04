@@ -55,8 +55,11 @@ export const ITEMS = {
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
   // livestock (docs/LIVESTOCK.md): animal feed and animal products
   wheat:       mat('Trigo', '🌾', 'Espigas de trigo. Alimenta vacas, ovelhas e cavalos no alimentador; vira pão na fornalha. Dado à mão, doma um cavalo selvagem.'),
-  wool:        mat('Lã', '🧶', 'Lã de ovelha. Ainda sem uso.'),
+  wool:        mat('Lã', '🧶', 'Lã de ovelha. Vende bem nas vilas com tecelagem e nas cidades (mural · Comércio).'),
   feather:     mat('Pena', '🪶', 'Pena de galinha. Ainda sem uso.'),
+  // the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia", game/eco.js): money and delivery parcels
+  coin:        { name: 'Moeda de ouro', emoji: '🪙', stack: 9999, cat: 'material', desc: 'O dinheiro dos reinos. Compra e vende nos murais das vilas, castelos e cidades (aba Comércio), paga trabalhos, casas, terrenos e o imposto. Cai ao morrer, como qualquer item; dá para largar ou dar a outro jogador.' },
+  parcel:      { name: 'Encomenda', emoji: '📦', stack: 20, cat: 'material', desc: 'Uma encomenda lacrada de um trabalho de entrega. Leve ao mural do destino (veja Trabalhos) para receber o pagamento.' },
 
   // ---------- seeds ----------
   seed_potato: { name: 'Semente de batata', emoji: '🌰', stack: 40, cat: 'seed', seed: 'potato', desc: 'Plante num canteiro: fica pronta em 8 minutos (não cresce no inverno). Vem de batatas silvestres.' },

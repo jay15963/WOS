@@ -328,6 +328,17 @@ export class Minimap {
       giantMark(ctx, X, Y, full ? 3.6 : 4.4, SPECIES[e.species].undead);
       if (e === p.target) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(X, Y, (full ? 3.6 : 4.4) + 3, 0, Math.PI * 2); ctx.stroke(); }
     }
+    // the economy's waypoint (a job, a house / plot to see: ui/ecoHud.js), a gold diamond; on the map clamped to the edge
+    const wp = g.eco?.wp;
+    if (wp) {
+      let X = toX(wp.x), Y = toY(wp.y);
+      if (full) { X = Math.max(8, Math.min(W - 8, X)); Y = Math.max(8, Math.min(H - 8, Y)); }
+      if (!out(X, Y, 0)) {
+        ctx.fillStyle = '#f7d97a'; ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(X, Y - 6); ctx.lineTo(X + 5, Y); ctx.lineTo(X, Y + 6); ctx.lineTo(X - 5, Y); ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (full && wp.label) { ctx.font = '700 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeText(wp.label, X, Y - 9); ctx.fillStyle = '#ffe39a'; ctx.fillText(wp.label, X, Y - 9); }
+      }
+    }
     // spawn camp marker
     {
       const X = toX(w.spawn.x), Y = toY(w.spawn.y);

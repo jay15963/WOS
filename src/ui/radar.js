@@ -125,6 +125,7 @@ export function installRadar(game, root, mini) {
     homeT -= 0.1;
     if (homeT <= 0) { homeT = 0.5; try { home = respawnPoint(g); } catch { home = null; } }
     if (home) add(home.x, home.y, 'home', 1);
+    if (g.eco?.wp) add(g.eco.wp.x, g.eco.wp.y, 'wp', 0); // (the economy's waypoint: a job, a house to see — ui/ecoHud.js)
     const cid = p._corpse, c = cid && g.corpses?.map?.get(cid);
     if (c && c.store?.used?.()) add(c.x, c.y, 'corpse', 1);
     cand.sort((a, b) => a.k - b.k);

@@ -414,6 +414,7 @@ defineOp('chest.set', {
   doc: 'New contents of a chest (whole slot list); `give` hands taken / leftover items to `by`.',
   args: { id: 'structId', slots: 'Inventory.toJSON()', by: 'pid', give: '{item: qty}?' },
   apply(game, a) {
+    TOWN.storeSet?.(game, a.id, a.slots); // (a settlement's chest: its contents are kept whether its chunk is loaded or not — game/mut/eco.js)
     const o = structById(game, a.id);
     if (!o || !o.store) return;
     o.store.load(a.slots);
@@ -436,7 +437,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     return who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST ? 'Muito longe' : null;
   }
   if (def.siege) { const r = siegePlaceReason(game, type, tx, ty, normRot(type, rot), lv, ignore); if (r) return r; } // siege engines (game/siege.js)
-  if (TOWN.landReason && !ignore) { const [tw, th] = dimsOf(type, normRot(type, rot)); const tr = TOWN.landReason(game, type, tx, ty, tw, th); if (tr) return tr; } // settlements: town lands (game/towns.js)
+  if (TOWN.landReason && !ignore) { const [tw, th] = dimsOf(type, normRot(type, rot)); const tr = TOWN.landReason(game, type, tx, ty, tw, th, who); if (tr) return tr; } // settlements: town lands (game/towns.js; a bought plot: game/eco.js)
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const sr = slopeReason(game, type, tx, ty, sw, sh); // terrain height: cliffs / too steep
@@ -486,7 +487,7 @@ export const NO_SUPPORT = 'Sem apoio: precisa de parede, coluna ou rocha a até 
 function roofReason(game, type, tx, ty, who) {
   const w = game.world;
   if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
-  const tr = TOWN.landReason?.(game, type, tx, ty, 1, 1); // settlements: town lands (game/towns.js)
+  const tr = TOWN.landReason?.(game, type, tx, ty, 1, 1, who); // settlements: town lands (game/towns.js; a bought plot: game/eco.js)
   if (tr) return tr;
   const i = w.idx(tx, ty);
   if (w.rock.get(i)) return 'Rocha no caminho';
@@ -744,14 +745,15 @@ defineIntent('door.toggle', {
   },
 });
 
-const chestOf = (game, id) => { const o = structById(game, id); return o && o.store && !o.blueprint && o.town == null ? o : null; }; // (a settlement's chests: not yet — phase 2)
+// (a settlement's chest: only its house's holder — bought / rented on the mural, game/eco.js)
+const chestOf = (game, id, actor = null) => { const o = structById(game, id); return o && o.store && !o.blueprint && (o.town == null || !!(actor && TOWN.mayUse?.(game, o, actor.pid))) ? o : null; };
 const cloneStore = (o) => { const inv = new Inventory(o.store.size); inv.load(o.store.toJSON()); return inv; };
 
 defineIntent('chest.put', {
   doc: 'Put items into a chest (already removed from the actor; refunded on reject, leftovers given back).',
   args: { id: 'structId', item: 'itemId', qty: 'int' },
   run(game, a, actor, net) {
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     if (typeof a.item !== 'string' || !ITEMS[a.item]) return 'Item desconhecido';
     if (BUILDINGS[o.type]?.feed && !ITEMS[a.item].food && a.item !== 'wheat') return 'Só comida: trigo, milho ou outra comida'; // (a feeder: docs/LIVESTOCK.md)
@@ -767,7 +769,7 @@ defineIntent('chest.take', {
   doc: 'Take up to qty of the stack in chest slot `slot` (qty = room in the actor\'s backpack).',
   args: { id: 'structId', slot: 'int', qty: 'int' },
   run(game, a, actor, net) {
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     const s = o.store.slots[num(a.slot, -1) | 0];
     if (!s) return 'Vazio';
@@ -785,7 +787,7 @@ defineIntent('store.sort', {
   args: { kind: "'chest'|'corpse'?", id: 'structId|corpseId', mode: "'name'|'type'|'qty'" },
   run(game, a, actor, net) {
     if (a.kind === 'corpse') return sortBody(game, a, actor, net);
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     if (!SORT_MODES.includes(a.mode)) return 'Ordem desconhecida';
     net.emit('chest.set', { id: o.id, slots: sortedSlots(o.store.slots, o.store.size, a.mode), by: actor.pid, quiet: 1 });

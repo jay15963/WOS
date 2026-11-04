@@ -128,6 +128,8 @@ export function respawnPoint(game) {
   const done = (o) => (o.progress ?? 1) >= 1; // blueprints don't count
   const bed = p.respawn && S.find((o) => o.id === p.respawn && done(o));
   if (bed) return { x: bed.x, y: bed.y + 0.6, where: 'cama' };
+  const town = p.respawn && game.eco?.bedSpot?.(p.respawn); // (the bed of a house bought / rented in a settlement, its chunk maybe not loaded: game/eco.js)
+  if (town) return { ...town, where: 'cama' };
   let best = null, bd = 1e9;
   for (const o of S) if (o.type === 'campfire' && done(o)) {
     const d = Math.hypot(o.x - p.x, o.y - p.y);
