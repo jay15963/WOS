@@ -50,25 +50,25 @@ function territories(realm) {
     const cx = ((Math.floor(u) % MW) + MW) % MW, cy = Math.max(0, Math.min(255, Math.floor(v)));
     own[y * RW + x] = realm.owner[cy * MW + cx];
   }
-  const c = document.createElement('canvas');
-  c.width = RW; c.height = RH;
-  const g = c.getContext('2d'), im = g.createImageData(RW, RH), d = im.data;
+  // two layers drawn with their own strength (drawRealm): the fill (soft, all the land of the kingdom) and the border line
+  const mk = () => { const c = document.createElement('canvas'); c.width = RW; c.height = RH; return c; };
+  const fill = mk(), edges = mk();
+  const gf = fill.getContext('2d'), ge = edges.getContext('2d'), imF = gf.createImageData(RW, RH), imE = ge.createImageData(RW, RH), d = imF.data, e = imE.data;
   for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
     const i = y * RW + x, k = own[i];
     if (!k) continue;
     const col = mapColor(realm.kingdoms[k - 1].color);
     const r = own[y * RW + ((x + 1) % RW)], l = own[y * RW + ((x + RW - 1) % RW)], up = y > 0 ? own[i - RW] : k, dn = y < RH - 1 ? own[i + RW] : k;
-    const edge = r !== k || l !== k || up !== k || dn !== k;
     const o = i * 4;
-    if (edge) { d[o] = col[0] * 0.45; d[o + 1] = col[1] * 0.45; d[o + 2] = col[2] * 0.45; d[o + 3] = 240; }
-    else { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 165; }
+    d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 165;
+    if (r !== k || l !== k || up !== k || dn !== k) { e[o] = col[0] * 0.45; e[o + 1] = col[1] * 0.45; e[o + 2] = col[2] * 0.45; e[o + 3] = 240; }
   }
-  g.putImageData(im, 0, 0);
+  gf.putImageData(imF, 0, 0); ge.putImageData(imE, 0, 0);
   // where to write each kingdom's name: the mean of its cells (the capital's continent)
   const sum = realm.kingdoms.map(() => [0, 0, 0]);
   for (let i = 0; i < realm.owner.length; i++) { const k = realm.owner[i]; if (!k) continue; const s = sum[k - 1]; s[0] += (i % MW) * 32 + 16; s[1] += Math.floor(i / MW) * 32 + 16; s[2]++; }
   const centres = sum.map((s, k) => (s[2] ? [s[0] / s[2], s[1] / s[2]] : [realm.settlements[realm.kingdoms[k].capital].x, realm.settlements[realm.kingdoms[k].capital].y]));
-  CACHE = { realm, canvas: c, centres };
+  CACHE = { realm, fill, edges, centres };
   return CACHE;
 }
 
@@ -102,13 +102,20 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
   // territories (repeated across the seam like the planet picture)
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = !full ? 0.4 : sw > 4000 ? 1 : sw > 1500 ? 0.68 : 0.5; // (zoomed out: the kingdoms' colours read; zoomed in: the land shows through)
   const mx = sx / TPP, my = sy / TPP, mw = sw / TPP, mh = sh / TPP;
-  for (let k = Math.floor(mx / RW); k * RW < mx + mw; k++) {
-    const ox = k * RW, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + RW), b0 = Math.max(0, my), b1 = Math.min(RH, my + mh);
-    if (a1 <= a0 || b1 <= b0) continue;
-    ctx.drawImage(T.canvas, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - mx) * TPP * kx, (b0 - my) * TPP * ky, (a1 - a0) * TPP * kx, (b1 - b0) * TPP * ky);
-  }
+  const layer = (cv, a) => {
+    if (a <= 0) return;
+    ctx.globalAlpha = a;
+    for (let k = Math.floor(mx / RW); k * RW < mx + mw; k++) {
+      const ox = k * RW, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + RW), b0 = Math.max(0, my), b1 = Math.min(RH, my + mh);
+      if (a1 <= a0 || b1 <= b0) continue;
+      ctx.drawImage(cv, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - mx) * TPP * kx, (b0 - my) * TPP * ky, (a1 - a0) * TPP * kx, (b1 - b0) * TPP * ky);
+    }
+  };
+  // zoomed out: the kingdoms' colours read; zoomed in: a very light tint (the same over explored land and the rest) and
+  // the border line; the radar: borders and a whisper of colour
+  layer(T.fill, !full ? 0.14 : sw > 4000 ? 1 : sw > 1500 ? 0.6 : 0.16);
+  layer(T.edges, !full ? 0.6 : sw > 1500 ? 1 : 0.85);
   ctx.globalAlpha = 1;
   // roads (zoomed in enough)
   if (sw < 6000) {
