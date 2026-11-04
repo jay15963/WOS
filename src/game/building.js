@@ -900,7 +900,7 @@ export function buildingSystem() {
         if (tile && gl && B.faces) { for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) B.faces.quad4(x, y, gl, tile.u0, tile.v0, x + 1, y, gl, tile.u1, tile.v0, x + 1, y + 1, gl, tile.u1, tile.v1, x, y + 1, gl, tile.u0, tile.v1, r, gg, b, 0.7 * pulse); } // levels, camera turned: flat on its story
         else if (tile) for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) (gl ? B.fx : B.ground).add(tile, g.tx + x + 0.5, g.ty + y + 1, 1, 1, r, gg, b, 0.7 * pulse, 0, 0, 0, 1, 0, gl);
         else if (ring) B.fx.add(ring, g.tx + fw / 2, g.ty + fh / 2 + 0.1, 1.0 * fw, 0.68 * fh, r, gg, b, 0.9 * pulse, 0, 0, 0, 1, 0, gl);
-        G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : 0; // sync-ok: scratch ghost object, not a structure
+        G0.type = m.type; G0.tx = g.tx; G0.ty = g.ty; G0.rot = m.rot; G0.mask = g.mask; G0.orient = null; G0.v = m.move ? m.move.v | 0 : m.type === 'siege_tower' ? m.towerN || 2 : 0; // sync-ok: scratch ghost object, not a structure (a siege tower: its stories)
         G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
         G0._cm = G0._k?.on.carpet ? g.mask : 0;
         setGeom(G0);

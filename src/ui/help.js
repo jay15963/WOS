@@ -49,6 +49,12 @@ export function installHelp(game) {
         ${row(['Botão dir.'], 'Numa construção: usar · mover · desmontar')}
         ${row(['Clique'], 'Numa planta azul (ou marcada para desmontar): o personagem faz a fileira inteira e para · Esc cancela')}
         ${row(['Minerar'], 'Encoste numa rocha com picareta e use E')}
+        <h4>Máquinas de cerco (perto de uma Oficina de cerco)</h4>
+        ${row(L(KEYS.interact), 'Trabuco / catapulta: operar ou sair · aríete / torre: pegar para empurrar ou soltar')}
+        ${row(['Mouse'], 'Trabuco / catapulta: o alvo (direção e distância) · Espaço ou clique atira')}
+        ${row(L([KEYS.up[0], KEYS.left[0], KEYS.down[0], KEYS.right[0]].filter(Boolean)), 'Empurrando: anda com a máquina (2 ou mais pessoas: velocidade normal)')}
+        ${row(L(KEYS.attack), 'Aríete encostado num portão inimigo: a pancada')}
+        ${row(['T'], 'Planejando uma torre de cerco longe de muralhas: 1 a 3 andares')}
       </div>`;
     const mob = `
       <div class="hk-col"><h4>Tela de toque</h4>
@@ -65,6 +71,7 @@ export function installHelp(game) {
         ${row(['☝ arrastar'], 'Construindo: fileira / área (o joystick fica só na beirada esquerda)')}
         ${row(['Toque'], 'Numa planta azul: o personagem constrói a fileira e para · ✕ no aviso de cima cancela')}
         ${row(['Minerar'], 'Encoste numa rocha com picareta e use o botão dourado')}
+        ${row(['Máquinas de cerco'], 'Botão dourado: operar / empurrar · botão de ataque: arraste para mirar o trabuco ou a catapulta (direção e distância), solte para atirar · aríete: a pancada')}
       </div>`;
     el.innerHTML = `<div class="help-card"><div class="help-h"><b>Atalhos e controles</b><button class="hx" aria-label="Fechar">✕</button></div>
       <div class="help-b">${touch() ? mob : desk}</div>

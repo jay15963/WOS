@@ -230,7 +230,7 @@ const AROUND = [0, 0.45, -0.45, 0.9, -0.9, 1.35, -1.35, 1.8, -1.8];
 export function seatSpot(game, o, a, r = 0.24) {
   const lv = o.lv | 0, L = game.levels, [px, py] = pivotOf(o), S = ARTY[o.type];
   if (!lv || !L) return seatOf(o, a);
-  for (const off of AROUND) for (const d of [S.seat, 0.8]) {
+  for (const off of AROUND) for (const d of [S.seat, S.seat + 0.25, 0.9]) {
     const b = a + Math.PI + off, x = px + Math.cos(b) * d, y = py + Math.sin(b) * d;
     if (!L.collidesL(lv, x, y, r, false, false, -1)) return [x, y];
   }

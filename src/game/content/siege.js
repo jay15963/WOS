@@ -30,7 +30,7 @@ export const ARTY = {
     kind: 'arty', name: 'Catapulta', range: [5, 26], reload: 5, turn: 0.85, ammo: 'cat_stone',
     mob: 600, giantK: 0.55, mobMin: true, area: 1.4, sdmg: 160, sarea: 1.0, // (creatures: the same as the ballista — game/ballista.js BALLISTA.dmg / giantK)
     scatter: [0.035, 0.025], settle: 1, settleMin: 1, same: 3,
-    fly: [0.9, 0.035], apex: [1.5, 0.2], swing: 0.16, seat: 0.95, reach: 2.6, h0: 0.9,
+    fly: [0.9, 0.035], apex: [1.5, 0.2], swing: 0.16, seat: 1.15, reach: 2.6, h0: 1.05,
   },
 };
 

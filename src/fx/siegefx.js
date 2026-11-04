@@ -37,6 +37,7 @@ class SiegeFx {
     }
     this.subbed = false;
     this.later = [];
+    this.craters = []; // { x, y, r, t, big, rot }: a scorched dent and the boulder lying in it, for a while
   }
   subscribe(g) {
     if (this.subbed || !g.events) return;
@@ -53,6 +54,22 @@ class SiegeFx {
     this.subscribe(g);
     const L = this.later;
     for (let i = L.length - 1; i >= 0; i--) { L[i].t -= dt; if (L[i].t <= 0) { const f = L[i].fn; L.splice(i, 1); if (!g.headless) f(); } }
+    const C = this.craters;
+    for (let i = C.length - 1; i >= 0; i--) if ((C[i].t += dt) > 40) C.splice(i, 1);
+  }
+  // the craters: a dark dent on the ground and the boulder lying in it (fading after half a minute)
+  render(g, B) {
+    const C = this.craters, A = g.A;
+    if (!C.length || !A.has('fx_blob')) return;
+    const blob = A.get('fx_blob'), v = g.view?.();
+    for (const c of C) {
+      if (v && (c.x < v.x0 - 2 || c.x > v.x1 + 2 || c.y < v.y0 - 2 || c.y > v.y1 + 3)) continue;
+      const a = Math.min(1, c.t / 0.15) * Math.max(0, 1 - Math.max(0, c.t - 30) / 10);
+      B.blob.add(blob, c.x, c.y, (2.2 * c.r) / blob.w, (1.5 * c.r) / blob.h, 0.22, 0.17, 0.12, 0.55 * a, 0, c.rot);
+      B.blob.add(blob, c.x, c.y, (1.2 * c.r) / blob.w, (0.8 * c.r) / blob.h, 0.12, 0.09, 0.06, 0.5 * a, 0, c.rot);
+      const S = c.t > 0.5 ? archSprite(A, c.big ? 'proj_treb_stone' : 'proj_cat_stone') : null;
+      if (S) B.main.add(S, c.x + 0.1, c.y + 0.05, 0.95, 0.95, 0.8, 0.78, 0.74, a, 0, c.rot, 0, 1, 0, 0.12);
+    }
   }
 
   // ---------- the release ----------
@@ -101,20 +118,31 @@ class SiegeFx {
     if (g.headless || !P) return true;
     const water = !wall && g.world.liquidAt?.(Math.floor(x), Math.floor(y)) > 0;
     if (water) { g.juice?.splash?.(x, y, big ? 1.6 : 1.0); g.audio?.play('splash', { x, y, volume: 1 }); return true; }
-    P.emit({ spr: S.ring, x, y, life: 0.6, size: 0.3 * K.ring, size1: (big ? 4.2 : 2.6) * K.ring, r: 1, g: 0.92, b: 0.8, a: 0.75, a1: 0 });
-    const nc = big ? 26 : 14, col = wall ? [0.62, 0.58, 0.54] : [0.5, 0.42, 0.32];
+    const B0 = big ? 1 : 0.62, h0 = wall ? 0.7 : 0.1;
+    // the shock: a bright ring racing out and a flash of dust at the ground
+    P.emit({ spr: S.ring, x, y, life: 0.5, size: 0.4 * K.ring, size1: 5.2 * B0 * K.ring, r: 1, g: 0.95, b: 0.86, a: 0.95, a1: 0 });
+    P.emit({ spr: S.ring, x, y, life: 0.9, size: 0.6 * K.ring, size1: 7.5 * B0 * K.ring, r: 0.8, g: 0.72, b: 0.6, a: 0.55, a1: 0 });
+    // chunks of the stone and clods of earth (or masonry off a wall) thrown out and bouncing
+    const nc = Math.round(34 * B0), col = wall ? [0.6, 0.57, 0.53] : [0.42, 0.34, 0.24];
     for (let i = 0; i < nc; i++) {
-      const a = rnd() * TAU, sp = 1 + rnd() * (big ? 3.4 : 2.4), st = rnd() < 0.5;
-      P.emit({ spr: S.chip, x: x + Math.cos(a) * 0.2, y: y + Math.sin(a) * 0.1, lift: (wall ? 0.7 : 0.15) + rnd() * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55,
-        vlift: 1.6 + rnd() * 2.6, grav: 9, drag: 0.5, bounce: 0.3, life: 0.9 + rnd() * 0.8, hold: 0.6, size: ((big ? 0.12 : 0.08) + rnd() * 0.12) * K.chip, size1: 0.05 * K.chip,
-        rot: rnd() * TAU, vr: (rnd() - 0.5) * 14, r: st ? 0.66 : col[0], g: st ? 0.63 : col[1], b: st ? 0.58 : col[2], a: 1, a1: 0 });
+      const a = rnd() * TAU, sp = 1.2 + rnd() * 3.8 * B0, st = rnd() < 0.55;
+      P.emit({ spr: S.chip, x: x + Math.cos(a) * 0.25, y: y + Math.sin(a) * 0.12, lift: h0 + rnd() * 0.3, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55,
+        vlift: 2 + rnd() * 3.4 * B0, grav: 9.5, drag: 0.4, bounce: 0.35, life: 1.3 + rnd() * 1.2, hold: 0.7, size: (0.14 + rnd() * 0.22) * B0 * K.chip, size1: 0.08 * K.chip,
+        rot: rnd() * TAU, vr: (rnd() - 0.5) * 12, r: st ? 0.62 : col[0], g: st ? 0.6 : col[1], b: st ? 0.56 : col[2], a: 1, a1: 0.3 });
     }
-    for (let i = 0; i < (big ? 16 : 8); i++) {
-      const a = rnd() * TAU, sp = 0.5 + rnd() * 1.4;
-      P.emit({ spr: S.dust, x: x + Math.cos(a) * 0.4, y: y + Math.sin(a) * 0.25, lift: 0.1 + (wall ? 0.6 : 0), vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.5, vlift: 0.3 + rnd() * 0.6,
-        drag: 1.4, life: 1.4 + rnd() * 1, size: (big ? 0.6 : 0.4) * K.dust, size1: (big ? 2.0 : 1.2) * K.dust, r: 0.78, g: 0.72, b: 0.62, a: 0.6, a1: 0, ground: false });
+    // a column of dark dust rising and spreading, then a low rolling cloud
+    for (let i = 0; i < Math.round(22 * B0); i++) {
+      const a = rnd() * TAU, sp = 0.3 + rnd() * 1.1;
+      P.emit({ spr: S.dust, x: x + Math.cos(a) * 0.3, y: y + Math.sin(a) * 0.18, lift: h0 + rnd() * 0.4, vx: Math.cos(a) * sp * 0.6, vy: Math.sin(a) * sp * 0.35, vlift: 0.9 + rnd() * 1.8 * B0,
+        drag: 1.2, life: 1.8 + rnd() * 1.4, size: 0.7 * B0 * K.dust, size1: (2.2 + rnd() * 1.2) * B0 * K.dust, r: 0.52, g: 0.47, b: 0.4, a: 0.8, a1: 0, ground: false });
     }
-    g.juice?.puff?.(x, y, big ? 10 : 5, [0.62, 0.55, 0.45], big ? 1.2 : 0.8);
+    for (let i = 0; i < Math.round(16 * B0); i++) {
+      const a = (i / 16) * TAU + rnd() * 0.3, sp = 1.4 + rnd() * 1.6;
+      P.emit({ spr: S.dust, x: x + Math.cos(a) * 0.5, y: y + Math.sin(a) * 0.3, lift: 0.1, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.55, vlift: 0.15,
+        drag: 1.6, life: 2 + rnd() * 1.2, size: 0.6 * B0 * K.dust, size1: 2.4 * B0 * K.dust, r: 0.66, g: 0.6, b: 0.5, a: 0.7, a1: 0, ground: false });
+    }
+    g.juice?.puff?.(x, y, big ? 12 : 6, [0.55, 0.5, 0.42], big ? 1.4 : 0.9);
+    if (!wall) { this.craters.push({ x, y, r: big ? 1.1 : 0.7, t: 0, big, rot: rnd() * TAU }); if (this.craters.length > 12) this.craters.shift(); }
     g.audio?.play('siege_impact', { x, y, volume: big ? 1 : 0.7, pitch: big ? 1 : 1.3 });
     this.shakeAt(x, y, big ? 0.6 : 0.28, big ? 14 : 8);
     return true; // (gone: shattered)

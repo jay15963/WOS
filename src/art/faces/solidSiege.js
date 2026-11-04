@@ -29,17 +29,22 @@ const L = { hi: '#b98552', light: '#9a6a3f', mid: '#7a4f2d', dark: '#55341c', de
 const ST = { hi: '#cfc9bc', light: '#aca598', mid: '#878074', dark: '#5f5950', deep: '#3e3a34' };
 
 // ---------------- face art (uv rects, px; content from (1, 1): the crop keeps the rects exact) ----------------
-export const SIEGE_UV = {
+// (painted at UVK × these numbers: crisp up close; SIEGE_UV holds the rects in the painted sprite's own px)
+const UVK = 2;
+const UV1 = {
   beamS: [1, 1, 49, 9], beamT: [1, 11, 49, 19], end: [51, 1, 59, 9], dark: [51, 11, 59, 19], iron: [61, 1, 77, 9], ironT: [61, 11, 77, 19],
   rope: [79, 1, 91, 25], post: [93, 1, 105, 25], plank: [107, 1, 155, 33], hide: [157, 1, 191, 33],
   railS: [1, 21, 49, 29], railT: [1, 31, 49, 39], stone: [51, 27, 91, 47], floor: [93, 35, 155, 59], shingle: [157, 35, 191, 59],
   wheelR: [1, 41, 49, 49], wheelF: [1, 51, 41, 91], ladder: [43, 51, 63, 91], ramS: [65, 61, 113, 69], ramE: [115, 61, 123, 69],
   ramH: [125, 61, 141, 77], cup: [143, 61, 159, 73], chain: [161, 61, 173, 93], boulder: [65, 71, 113, 93], ironD: [175, 61, 191, 77],
 };
+export const SIEGE_UV = Object.fromEntries(Object.entries(UV1).map(([k, r]) => [k, r.map((v) => v * UVK)]));
 const UW = 192, UH = 96;
 function siegeUV() {
-  const U = SIEGE_UV, rand = rng(4417);
-  return spritePx(UW, UH, (g) => {
+  const U = UV1, rand = rng(4417);
+  return spritePx(UW * UVK, UH * UVK, (g) => {
+    g.scale(UVK, UVK);
+    g.fillStyle = '#3d2a18'; g.fillRect(0.5, 0.5, 0.5, 0.5); // (a painted pixel at (1, 1) of the big sprite: the crop keeps the rects where they are)
     const box = (r, stops, horiz) => { g.fillStyle = horiz ? lin(g, r[0], 0, r[2], 0, stops) : lin(g, 0, r[1], 0, r[3], stops); g.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]); };
     const edge = (r, a = 0.75) => { g.strokeStyle = `rgba(26,14,5,${a})`; g.lineWidth = 1; g.strokeRect(r[0] + 0.5, r[1] + 0.5, r[2] - r[0] - 1, r[3] - r[1] - 1); };
     const grain = (r, n, vert = false, col = W.grain) => {
@@ -233,7 +238,7 @@ lazyDef('proj_cat_stone', stoneProj(8), 0.5, 0.5);
 
 // ---------------- the per-frame rig: oriented boxes, wheels, balls, ropes as faces in a model frame ----------------
 const U = SIEGE_UV;
-const RG = { F: null, S: null, ox: 0, oy: 0, c: 1, s: 0, h0: 0, tr: 1, tg: 1, tb: 1, a: 1 };
+const RG = { F: null, S: null, ox: 0, oy: 0, c: 1, s: 0, h0: 0, k: 1, tr: 1, tg: 1, tb: 1, a: 1 };
 const UVT = [0, 0, 0, 0];
 function uvOf(r) {
   const S = RG.S, du = (S.u1 - S.u0) / S.pw, dv = (S.v1 - S.v0) / S.ph;
@@ -241,18 +246,18 @@ function uvOf(r) {
   return UVT;
 }
 // start drawing in a frame: origin (ox, oy) world, θ = the angle local +x is turned by (local +y = the front), h0 lift
-function rig(B, A, FS, ox, oy, th, h0) {
+function rig(B, A, FS, ox, oy, th, h0, k = 1) {
   const S = RG.S = archSprite(A, 'siege_uv');
   RG.F = B.faces;
   if (!RG.F || !S) return false;
-  RG.ox = ox; RG.oy = oy; RG.c = Math.cos(th); RG.s = Math.sin(th); RG.h0 = h0;
+  RG.ox = ox; RG.oy = oy; RG.c = Math.cos(th) * k; RG.s = Math.sin(th) * k; RG.h0 = h0; RG.k = k; // (k: the model's scale)
   RG.tr = FS ? FS.tr : 1; RG.tg = FS ? FS.tg : 1; RG.tb = FS ? FS.tb : 1; RG.a = FS ? FS.a : 1;
   return true;
 }
 const WX = (x, y) => RG.ox + RG.c * x - RG.s * y, WY = (x, y) => RG.oy + RG.s * x + RG.c * y;
 // shade a face of local normal (nx, ny, nh): culled when it looks away (false), else the light on it
 function lightOf(nx, ny, nh) {
-  const wx = RG.c * nx - RG.s * ny, wy = RG.s * nx + RG.c * ny;
+  const wx = (RG.c * nx - RG.s * ny) / RG.k, wy = (RG.s * nx + RG.c * ny) / RG.k;
   if (-CAMV.s * wx + CAMV.c * wy + nh <= 0.005) return 0;
   const hz = Math.hypot(wx, wy);
   const side = hz > 1e-4 ? shade(wx / hz, wy / hz) : 1;
@@ -262,7 +267,7 @@ const QA = new Float64Array(12);
 function face4(lit, rect) {
   if (lit <= 0) return;
   const F = RG.F, uv = uvOf(rect);
-  for (let k = 0; k < 4; k++) { const x = QA[k * 3], y = QA[k * 3 + 1]; QA[k * 3] = WX(x, y); QA[k * 3 + 1] = WY(x, y); QA[k * 3 + 2] = RG.h0 + QA[k * 3 + 2]; }
+  for (let k = 0; k < 4; k++) { const x = QA[k * 3], y = QA[k * 3 + 1]; QA[k * 3] = WX(x, y); QA[k * 3 + 1] = WY(x, y); QA[k * 3 + 2] = RG.h0 + RG.k * QA[k * 3 + 2]; }
   F.quad(QA[0], QA[1], QA[2], QA[3], QA[4], QA[5], QA[6], QA[7], QA[8], QA[9], QA[10], QA[11], uv, RG.tr * lit, RG.tg * lit, RG.tb * lit, RG.a);
 }
 // an oriented box: centre c, unit axes a1 (length), a2, a3 = a1 × a2, half sizes e1, e2, e3; rects { L (faces ±a2),
@@ -306,6 +311,24 @@ function beam(p0, p1, w, t, rc = BEAM, tint = 1) {
   VC[0] = (p0[0] + p1[0]) / 2; VC[1] = (p0[1] + p1[1]) / 2; VC[2] = (p0[2] + p1[2]) / 2;
   obox(VC, V1, V2, V3, Lb / 2, w / 2, t / 2, rc, tint);
 }
+// a flat slab (roof, ramp): from edge p0 to edge p1 (local [x, y, h], the slope), `len` long along local y, t thick
+const SL3 = [0, 0, 0], SA2 = [0, 0, 0], SN = [0, 0, 0];
+function slab(p0, p1, y0, y1, t, rc) {
+  const dx = p1[0] - p0[0], dh = p1[2] - p0[2], Ls = Math.hypot(dx, dh) || 1;
+  SA2[0] = dx / Ls; SA2[1] = 0; SA2[2] = dh / Ls;
+  SN[0] = SA2[2]; SN[1] = 0; SN[2] = -SA2[0]; // (a1 × a2 with a1 = local y)
+  SL3[0] = (p0[0] + p1[0]) / 2; SL3[1] = (y0 + y1) / 2; SL3[2] = (p0[2] + p1[2]) / 2;
+  obox(SL3, Y, SA2, SN, (y1 - y0) / 2, Ls / 2, t / 2, rc);
+}
+// …the same with its slope in the y-h plane (p0 → p1) and its length along local x
+function slabX(p0, p1, x0, x1, t, rc) {
+  const dy = p1[1] - p0[1], dh = p1[2] - p0[2], Ls = Math.hypot(dy, dh) || 1;
+  SA2[0] = 0; SA2[1] = dy / Ls; SA2[2] = dh / Ls;
+  SN[0] = 0; SN[1] = -SA2[2]; SN[2] = SA2[1];
+  SL3[0] = (x0 + x1) / 2; SL3[1] = (p0[1] + p1[1]) / 2; SL3[2] = (p0[2] + p1[2]) / 2;
+  obox(SL3, X, SA2, SN, (x1 - x0) / 2, Ls / 2, t / 2, rc);
+}
+const ROOF = { L: U.beamS, T: U.shingle, E: U.end };
 // a rope / chain between two points: two crossed strips (seen from every side)
 function rope(p0, p1, w, rect = U.rope, lit = 0.92) {
   const dx = p1[0] - p0[0], dy = p1[1] - p0[1], dh = p1[2] - p0[2], Lr = Math.hypot(dx, dy, dh) || 1;
@@ -339,12 +362,12 @@ function wheel(c, r, w, ang) {
   for (const sd of [1, -1]) {
     const lit = lightOf(sd, 0, 0);
     if (lit <= 0) continue;
-    const x = c[0] + sd * w / 2, wx0 = WX(x, c[1]), wy0 = WY(x, c[1]), h0 = RG.h0 + c[2];
+    const x = c[0] + sd * w / 2, wx0 = WX(x, c[1]), wy0 = WY(x, c[1]), h0 = RG.h0 + RG.k * c[2];
     for (let k = 0; k < WN; k += 2) {
       const P = WP;
       for (let j = 0; j < 3; j++) {
         const q = (k + j) / WN * TAU, a = ang + q, y = c[1] + Math.cos(a) * r, h = c[2] + Math.sin(a) * r;
-        P[j * 5] = WX(x, y); P[j * 5 + 1] = WY(x, y); P[j * 5 + 2] = RG.h0 + h; P[j * 5 + 3] = S.u0 + du * (cu + Math.cos(q) * ru); P[j * 5 + 4] = S.v0 + dv * (cv - Math.sin(q) * ru);
+        P[j * 5] = WX(x, y); P[j * 5 + 1] = WY(x, y); P[j * 5 + 2] = RG.h0 + RG.k * h; P[j * 5 + 3] = S.u0 + du * (cu + Math.cos(q) * ru); P[j * 5 + 4] = S.v0 + dv * (cv - Math.sin(q) * ru);
       }
       F.quad4(wx0, wy0, h0, S.u0 + du * cu, S.v0 + dv * cv, P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11], P[12], P[13], P[14], RG.tr * lit, RG.tg * lit, RG.tb * lit, RG.a);
     }
@@ -433,31 +456,34 @@ function drawTreb(B, A, o, t, x0, y0, lift, a, FS) {
   const a0 = aimOf(o);
   if (!rig(B, A, FS, bodyX(o), bodyY(o), a0 - Math.PI / 2, liftOf(o))) return;
   const P = trebPose(o, t);
-  // sole beams, cross ties
-  for (const sx of [-0.46, 0.46]) abox(sx - 0.09, sx + 0.09, -1.28, 1.28, 0.2, 0.42, { L: U.beamS, T: U.beamT, E: U.end });
-  for (const y of [-1.0, 0, 0.98]) abox(-0.62, 0.62, y - 0.08, y + 0.08, 0.24, 0.4, BEAM);
-  abox(-0.3, 0.3, -0.3, 0.3, 0.18, 0.24, IRON); // (the pivot plate)
-  // A-frames: legs to the axle, a brace, the apex block
-  for (const sx of [-0.46, 0.46]) {
-    beam([sx, 0.98, 0.4], [sx, 0.07, TB.ax + 0.04], 0.15, 0.15, BEAM);
-    beam([sx, -1.0, 0.4], [sx, -0.07, TB.ax + 0.04], 0.15, 0.15, BEAM);
-    beam([sx, -0.56, 1.05], [sx, 0.56, 1.05], 0.12, 0.1, BEAM);
-    beam([sx, -0.2, 0.42], [sx, -0.2, 1.0], 0.1, 0.1, POST); // (a strut under the brace)
-    abox(sx - 0.11, sx + 0.11, -0.13, 0.13, TB.ax - 0.06, TB.ax + 0.12, IRON);
+  // sole beams, cross ties (the middle one long: the outriggers stand on it), the trough the sling lies in
+  for (const sx of [-0.5, 0.5]) abox(sx - 0.12, sx + 0.12, -1.3, 1.3, 0.2, 0.46, { L: U.beamS, T: U.beamT, E: U.end });
+  for (const y of [-1.02, 0.98]) abox(-0.66, 0.66, y - 0.1, y + 0.1, 0.24, 0.44, BEAM);
+  abox(-1.12, 1.12, -0.11, 0.11, 0.24, 0.44, BEAM);
+  abox(-0.32, 0.32, -0.32, 0.32, 0.17, 0.24, IRON); // (the pivot plate)
+  abox(-0.2, 0.2, 0.12, 0.92, 0.3, 0.38, DECK); abox(-0.24, -0.2, 0.12, 0.92, 0.3, 0.46, BEAM); abox(0.2, 0.24, 0.12, 0.92, 0.3, 0.46, BEAM);
+  // A-frames: legs to the axle, a brace, the outrigger struts, the apex block
+  for (const sx of [-0.5, 0.5]) {
+    beam([sx, 1.0, 0.44], [sx, 0.08, TB.ax + 0.05], 0.2, 0.2, BEAM);
+    beam([sx, -1.02, 0.44], [sx, -0.08, TB.ax + 0.05], 0.2, 0.2, BEAM);
+    beam([sx, -0.58, 1.08], [sx, 0.58, 1.08], 0.16, 0.14, BEAM);
+    beam([sx * 2.15, 0, 0.44], [sx * 1.08, 0, 1.36], 0.16, 0.16, BEAM); // (outrigger)
+    abox(sx - 0.14, sx + 0.14, -0.16, 0.16, TB.ax - 0.08, TB.ax + 0.14, IRON);
   }
-  abox(-0.62, 0.62, -0.06, 0.06, TB.ax - 0.06, TB.ax + 0.06, IRON); // the axle
+  abox(-0.68, 0.68, -0.07, 0.07, TB.ax - 0.07, TB.ax + 0.07, IRON); // the axle
   // the arm: from the counterweight end through the axle to the sling end
   const ca = Math.cos(P.phi), sa = Math.sin(P.phi);
   const tip = [0, ca * TB.Lb, TB.ax + sa * TB.Lb], back = [0, -ca * TB.Ls, TB.ax - sa * TB.Ls];
-  beam(back, tip, 0.15, 0.18, RAIL);
-  beam([0, -ca * 0.18, TB.ax - sa * 0.18], [0, ca * 0.18, TB.ax + sa * 0.18], 0.2, 0.22, IRON); // (bound at the axle)
-  // the counterweight: a box of stones hanging from the short end (always plumb)
-  const cw = [0, back[1], back[2] - 0.5];
-  abox(-0.07, 0.07, back[1] - 0.05, back[1] + 0.05, back[2] - 0.2, back[2] + 0.08, IRON);
-  for (const sx of [-0.3, 0.3]) beam([sx, back[1], back[2] - 0.02], [sx, cw[1], cw[2] + 0.28], 0.05, 0.05, IRON);
-  beam([-0.36, back[1], back[2] - 0.02], [0.36, back[1], back[2] - 0.02], 0.06, 0.06, IRON);
-  abox(-0.4, 0.4, cw[1] - 0.32, cw[1] + 0.32, cw[2] - 0.36, cw[2] + 0.28, STONE);
-  abox(-0.43, 0.43, cw[1] - 0.35, cw[1] + 0.35, cw[2] + 0.22, cw[2] + 0.3, BEAM); // (its rim)
+  beam(back, tip, 0.2, 0.24, RAIL);
+  beam([0, -ca * 0.2, TB.ax - sa * 0.2], [0, ca * 0.2, TB.ax + sa * 0.2], 0.26, 0.28, IRON); // (bound at the axle)
+  beam([0, ca * (TB.Lb - 0.25), TB.ax + sa * (TB.Lb - 0.25)], tip, 0.24, 0.27, IRON); // (the iron tip with the sling's hook)
+  // the counterweight: a box of stones hanging from the short end (always plumb), its iron hangers and pin
+  const cw = [0, back[1], back[2] - 0.62];
+  abox(-0.42, 0.42, back[1] - 0.07, back[1] + 0.07, back[2] - 0.07, back[2] + 0.07, IRON);
+  for (const sx of [-0.36, 0.36]) beam([sx, back[1], back[2]], [sx, cw[1], cw[2] + 0.36], 0.07, 0.07, IRON);
+  abox(-0.46, 0.46, cw[1] - 0.4, cw[1] + 0.4, cw[2] - 0.42, cw[2] + 0.34, STONE);
+  abox(-0.5, 0.5, cw[1] - 0.44, cw[1] + 0.44, cw[2] + 0.28, cw[2] + 0.38, BEAM); // (its rim)
+  for (const sx of [-0.48, 0.48]) for (const sy of [-0.42, 0.42]) abox(sx - 0.04, sx + 0.04, cw[1] + sy - 0.04, cw[1] + sy + 0.04, cw[2] - 0.42, cw[2] + 0.34, IRON); // (iron corners)
   // the sling: two ropes from the tip to the pouch, the stone in it until the release
   const cocked = P.phi > Math.PI;
   let pouch;
@@ -483,8 +509,11 @@ function drawTreb(B, A, o, t, x0, y0, lift, a, FS) {
       k.box(-1.24, 1.24, -0.08, 0.08, 0, 0.12, across()), k.box(-0.08, 0.08, -1.24, 1.24, 0, 0.12, along()),
       ...[[-1.36, -1.36], [1.36, -1.36], [-1.36, 1.36], [1.36, 1.36]].map(([x, y]) => k.box(x - 0.12, x + 0.12, y - 0.12, y + 0.12, 0, 0.22, allOf(U.iron, U.ironT))),
       k.box(-0.42, 0.42, -0.42, 0.42, 0.1, 0.18, allOf(U.iron, U.ironT)),
+      // an X of planks across the frame (flat: seen from above at every angle)
+      k.quad([[-1.24, -1.12, 0.13], [-1.12, -1.24, 0.13], [1.24, 1.12, 0.13], [1.12, 1.24, 0.13]], U.floor),
+      k.quad([[1.12, -1.24, 0.135], [1.24, -1.12, 0.135], [-1.12, 1.24, 0.135], [-1.24, 1.12, 0.135]], U.floor),
       // shadow casters of the turning frame (the frame itself is drawn per frame)
-      SHADOW(k.box(-0.55, 0.55, -1.0, 1.0, 0.4, 1.9, allOf(U.post))),
+      SHADOW(k.box(-0.6, 0.6, -1.0, 1.0, 0.4, 1.9, allOf(U.post))),
     ],
     fx: [{ at: [0, 1 - 1.5, 0], always: true, draw: drawTreb }],
     blob: false,
@@ -497,6 +526,7 @@ function drawTreb(B, A, o, t, x0, y0, lift, a, FS) {
 // stop bar, the winch at the back.
 // ======================================================================================================================
 const CT = { pv: [0, -0.18, 0.27], La: 0.82 };
+const CAT_K = 1.22; // (the catapult is drawn a little bigger than its numbers: it overhangs its tile, a wall-walk's neighbours)
 const CPHI_C = Math.PI - 0.12, CPHI_F = 1.38;
 function catPose(o, t) {
   const S = ARTY.catapult, sw = 0.16;
@@ -509,7 +539,7 @@ function catPose(o, t) {
 }
 function drawCat(B, A, o, t, x0, y0, lift, a, FS) {
   const a0 = aimOf(o);
-  if (!rig(B, A, FS, bodyX(o), bodyY(o), a0 - Math.PI / 2, liftOf(o))) return;
+  if (!rig(B, A, FS, bodyX(o), bodyY(o), a0 - Math.PI / 2, liftOf(o), CAT_K)) return;
   const P = catPose(o, t);
   // the frame: side beams, cross beams
   for (const sx of [-0.3, 0.3]) abox(sx - 0.07, sx + 0.07, -0.62, 0.6, 0.1, 0.25, { L: U.beamS, T: U.beamT, E: U.end });
@@ -541,9 +571,9 @@ function drawCat(B, A, o, t, x0, y0, lift, a, FS) {
   defineSolid('catapult', {
     ow: 0, uvS: 'siege_uv', align: false,
     parts: [
-      k.box(-0.3, 0.3, -0.3, 0.3, 0, 0.1, allOf(U.iron, U.ironT)),
-      ...[[-0.36, -0.36], [0.36, -0.36], [-0.36, 0.36], [0.36, 0.36]].map(([x, y]) => k.box(x - 0.08, x + 0.08, y - 0.08, y + 0.08, 0, 0.08, allOf(U.beamS, U.beamT))),
-      SHADOW(k.box(-0.36, 0.36, -0.55, 0.5, 0.1, 0.95, allOf(U.post))),
+      k.box(-0.37, 0.37, -0.37, 0.37, 0, 0.12, allOf(U.iron, U.ironT)),
+      ...[[-0.44, -0.44], [0.44, -0.44], [-0.44, 0.44], [0.44, 0.44]].map(([x, y]) => k.box(x - 0.1, x + 0.1, y - 0.1, y + 0.1, 0, 0.1, allOf(U.beamS, U.beamT))),
+      SHADOW(k.box(-0.44, 0.44, -0.67, 0.6, 0.12, 1.16, allOf(U.post))),
     ],
     fx: [{ at: [0, 0.5, 0], always: true, draw: drawCat }],
     blob: [0.95, 0.7, 0.45, 0.4],
@@ -567,17 +597,27 @@ function drawRam(B, A, o, t, x0, y0, lift, a, FS) {
   if (!rig(B, A, FS, bodyX(o) + s[0], bodyY(o) + s[1], rotAng(o), liftOf(o))) return;
   const roll = (o._roll || 0) / 0.32;
   for (const sx of [-1.0, 1.0]) for (const y of [-0.9, 0.9]) wheel([sx, y, 0.32], 0.32, 0.13, -roll);
+  // the roof: two slopes of wet hides from the eaves to the ridge, laced over three battens (it stops short of the
+  // front: the ram's head works in the open)
+  const E = 1.36, H = RAM.ridge, R0 = -1.58, R1 = 0.98;
+  slab([-1.06, 0, E + 0.02], [0.02, 0, H + 0.16], R0, R1, 0.06, ROOF);
+  slab([-0.02, 0, H + 0.16], [1.06, 0, E + 0.02], R0, R1, 0.06, ROOF);
+  for (const y of [-1.3, -0.2, 0.86]) { slab([-1.08, 0, E + 0.06], [0, 0, H + 0.21], y - 0.05, y + 0.05, 0.03, BEAM); slab([0, 0, H + 0.21], [1.08, 0, E + 0.06], y - 0.05, y + 0.05, 0.03, BEAM); }
   // the log on two chains from the ridge
   const b = ramSwing(o, t), dy = Math.sin(b) * RAM.hang, dh = (1 - Math.cos(b)) * RAM.hang;
   const lh = RAM.log + dh;
-  for (const y of [-0.75, 0.75]) for (const sx of [-0.07, 0.07]) rope([sx, y, RAM.ridge - 0.06], [sx, y + dy, lh + 0.12], 0.025, U.chain, 0.95);
-  beam([0, -1.62 + dy, lh], [0, 1.25 + dy, lh], 0.26, 0.26, LOG);
-  for (const y of [-0.75, 0.75]) abox(-0.15, 0.15, y + dy - 0.05, y + dy + 0.05, lh - 0.15, lh + 0.15, IRON);
-  // the iron head and its curled horns
-  const hy = 1.25 + dy;
-  abox(-0.19, 0.19, hy, hy + 0.36, lh - 0.19, lh + 0.19, HEAD);
-  abox(-0.13, 0.13, hy + 0.36, hy + 0.46, lh - 0.13, lh + 0.13, HEAD);
-  for (const sx of [-1, 1]) { beam([sx * 0.18, hy + 0.12, lh + 0.12], [sx * 0.3, hy + 0.02, lh + 0.02], 0.08, 0.08, HEAD); beam([sx * 0.3, hy + 0.02, lh + 0.02], [sx * 0.3, hy + 0.22, lh - 0.12], 0.07, 0.07, HEAD); }
+  for (const y of [-0.85, 0.45]) for (const sx of [-0.07, 0.07]) rope([sx, y, RAM.ridge - 0.06], [sx, y + dy, lh + 0.13], 0.025, U.chain, 0.95);
+  beam([0, -1.55 + dy, lh], [0, 1.0 + dy, lh], 0.28, 0.28, LOG);
+  for (const y of [-0.85, 0.45]) abox(-0.16, 0.16, y + dy - 0.05, y + dy + 0.05, lh - 0.16, lh + 0.16, IRON);
+  // the iron head (a ram's: a heavy brow, the snout, curled horns)
+  const hy = 1.0 + dy;
+  abox(-0.2, 0.2, hy, hy + 0.34, lh - 0.2, lh + 0.2, HEAD);
+  abox(-0.14, 0.14, hy + 0.34, hy + 0.48, lh - 0.15, lh + 0.11, HEAD);
+  for (const sx of [-1, 1]) {
+    beam([sx * 0.17, hy + 0.08, lh + 0.14], [sx * 0.34, hy - 0.02, lh + 0.08], 0.09, 0.09, HEAD);
+    beam([sx * 0.34, hy - 0.02, lh + 0.08], [sx * 0.36, hy + 0.12, lh - 0.12], 0.08, 0.08, HEAD);
+    beam([sx * 0.36, hy + 0.12, lh - 0.12], [sx * 0.26, hy + 0.24, lh - 0.06], 0.07, 0.07, HEAD);
+  }
 }
 {
   const k = kit(3);
@@ -585,23 +625,24 @@ function drawRam(B, A, o, t, x0, y0, lift, a, FS) {
   const parts = [
     // chassis: side beams, cross beams, axles
     k.box(-0.92, -0.74, -1.45, 1.45, 0.3, 0.48, along()), k.box(0.74, 0.92, -1.45, 1.45, 0.3, 0.48, along()),
-    ...[-1.32, 0, 1.32].map((y) => k.box(-0.74, 0.74, y - 0.07, y + 0.07, 0.33, 0.46, across())),
+    ...[-1.32, 0, 1.32].map((y) => k.box(-0.74, 0.74, y - 0.07, y + 0.07, 0.33, 0.46, across())), // (the front one low: the head swings over it)
     ...[-0.9, 0.9].map((y) => k.box(-1.0, 1.0, y - 0.05, y + 0.05, 0.27, 0.37, allOf(U.iron, U.ironT))),
     // posts and eaves
-    ...[-1.32, 0, 1.32].flatMap((y) => [-0.83, 0.83].map((x) => k.box(x - 0.07, x + 0.07, y - 0.07, y + 0.07, 0.48, E, upright()))),
-    k.box(-0.92, -0.74, -1.45, 1.45, E - 0.04, E + 0.1, along()), k.box(0.74, 0.92, -1.45, 1.45, E - 0.04, E + 0.1, along()),
+    ...[-1.32, -0.2, 0.86].flatMap((y) => [-0.83, 0.83].map((x) => k.box(x - 0.07, x + 0.07, y - 0.07, y + 0.07, 0.48, E, upright()))),
+    k.box(-0.92, -0.74, -1.45, 0.98, E - 0.04, E + 0.1, along()), k.box(0.74, 0.92, -1.45, 0.98, E - 0.04, E + 0.1, along()),
     // the ridge beam on two king posts
-    k.box(-0.08, 0.08, -1.5, 1.5, H - 0.04, H + 0.1, along()),
-    ...[-1.32, 1.32].map((y) => k.box(-0.06, 0.06, y - 0.06, y + 0.06, E + 0.1, H - 0.04, upright())),
-    ...[-1.32, 1.32].map((y) => k.box(-0.83, 0.83, y - 0.05, y + 0.05, E + 0.02, E + 0.12, across())),
+    k.box(-0.08, 0.08, -1.5, 1.02, H - 0.04, H + 0.1, along()),
+    ...[-1.32, 0.86].map((y) => k.box(-0.06, 0.06, y - 0.06, y + 0.06, E + 0.1, H - 0.04, upright())),
+    ...[-1.32, 0.86].map((y) => k.box(-0.83, 0.83, y - 0.05, y + 0.05, E + 0.02, E + 0.12, across())),
     // hide skirts on the upper sides (the log shows under them)
-    k.box(-0.95, -0.9, -1.4, 1.4, 0.86, E, { s: U.hide, n: U.hide, e: U.hide, w: U.hide, t: U.hide }),
-    k.box(0.9, 0.95, -1.4, 1.4, 0.86, E, { s: U.hide, n: U.hide, e: U.hide, w: U.hide, t: U.hide }),
-    // the roof: two slopes of wet hides from the eaves up to the ridge (both sides of each slope)
-    k.quad([[-1.02, -1.55, E + 0.06], [0, -1.55, H + 0.14], [0, 1.55, H + 0.14], [-1.02, 1.55, E + 0.06]], U.shingle),
-    k.quad([[0, -1.55, H + 0.14], [1.02, -1.55, E + 0.06], [1.02, 1.55, E + 0.06], [0, 1.55, H + 0.14]], U.shingle),
+    k.box(-0.95, -0.9, -1.4, 0.9, 0.98, E, { s: U.hide, n: U.hide, e: U.hide, w: U.hide, t: U.hide }),
+    k.box(0.9, 0.95, -1.4, 0.9, 0.98, E, { s: U.hide, n: U.hide, e: U.hide, w: U.hide, t: U.hide }),
+    // iron-shod bumpers at the front of the chassis
+    k.box(-0.95, -0.72, 1.36, 1.5, 0.3, 0.5, allOf(U.ironD, U.iron)), k.box(0.72, 0.95, 1.36, 1.5, 0.3, 0.5, allOf(U.ironD, U.iron)),
+    // (the roof of wet hides is drawn per frame: drawRam — sloped faces seen from above at every angle)
+    SHADOW(k.box(-1.0, 1.0, -1.5, 0.98, E, H + 0.1, allOf(U.post))),
     // gables: a triangle of planks over the front and the back openings
-    k.quad([[-0.86, 1.36, E + 0.1], [0.86, 1.36, E + 0.1], [0.02, 1.36, H], [-0.02, 1.36, H]], U.plank),
+    k.quad([[-0.86, 0.9, E + 0.1], [0.86, 0.9, E + 0.1], [0.02, 0.9, H], [-0.02, 0.9, H]], U.plank),
     k.quad([[0.86, -1.36, E + 0.1], [-0.86, -1.36, E + 0.1], [-0.02, -1.36, H], [0.02, -1.36, H]], U.plank),
     // the push bars at the back (the crew's handles)
     k.box(-0.6, 0.6, -1.62, -1.5, 0.78, 0.88, across(U.railS, U.railT)),
@@ -684,34 +725,41 @@ defineSolid('siege_tower', {
 // ======================================================================================================================
 function drawShop(B, A, o, t, x0, y0, lift, a, FS) {
   if (!rig(B, A, FS, bodyX(o), bodyY(o), rotAng(o), liftOf(o))) return;
-  // the hoist: shear legs, a cross beam, a rope with a pulley block swinging gently
-  for (const sx of [-0.2, 0.2]) beam([1.0 + sx, -0.75, 0], [1.0 + sx * 0.2, -0.45, 1.55], 0.09, 0.09, POST);
-  beam([0.85, -0.5, 1.5], [1.15, -0.5, 1.5], 0.08, 0.08, BEAM);
+  // the lean-to roof over the bench (planks), sloping toward the yard, its rafters
+  slabX([0, -1.04, 1.64], [0, 0.26, 1.28], -1.54, 1.54, 0.06, { L: U.beamS, T: U.floor, E: U.end });
+  for (const x of [-1.42, -0.48, 0.48, 1.42]) slabX([0, -1.06, 1.69], [0, 0.28, 1.33], x - 0.05, x + 0.05, 0.04, BEAM); // (rafters)
+  // the hoist in the yard: shear legs, a cross beam, a rope with a pulley block swinging gently
+  for (const sx of [-0.18, 0.18]) beam([1.12 + sx, 0.92, 0], [1.12 + sx * 0.2, 0.55, 1.5], 0.09, 0.09, POST);
+  for (const sx of [-0.18, 0.18]) beam([1.12 + sx, 0.15, 0], [1.12 + sx * 0.2, 0.52, 1.5], 0.08, 0.08, POST);
   const sw = Math.sin(t * 0.9) * 0.05;
-  rope([1.0, -0.5, 1.46], [1.0 + sw, -0.5, 0.86], 0.016);
-  abox(0.94 + sw, 1.06 + sw, -0.55, -0.45, 0.72, 0.88, IRON);
-  // the spare wheel leaning on the bench (axis across, leaning back)
-  wheel([-0.15, 0.62, 0.42], 0.4, 0.1, 0.3);
+  rope([1.12, 0.54, 1.46], [1.12 + sw, 0.54, 0.84], 0.016);
+  abox(1.06 + sw, 1.18 + sw, 0.49, 0.59, 0.7, 0.86, IRON);
+  // the spare wheel leaning on the front post
+  wheel([-1.18, 0.42, 0.42], 0.4, 0.1, 0.3);
 }
 {
   const k = kit(2);
+  const PL = { s: U.plank, n: U.plank, e: U.plank, w: U.plank, t: U.beamT };
   const parts = [
-    // the bench: top, legs, a vice
-    k.box(-1.35, -0.05, -0.05, 0.35, 0.5, 0.62, across(U.beamS, U.floor)),
-    ...[[-1.28, 0.02], [-0.12, 0.02], [-1.28, 0.28], [-0.12, 0.28]].map(([x, y]) => k.box(x - 0.05, x + 0.05, y - 0.04, y + 0.04, 0, 0.5, upright())),
-    k.box(-1.3, -0.1, 0.0, 0.3, 0.12, 0.18, across()),
-    k.box(-0.42, -0.3, 0.3, 0.4, 0.4, 0.66, allOf(U.iron, U.ironT)),
-    // the log on trestles, an adze in it
-    k.box(-1.4, 0.4, -0.78, -0.48, 0.42, 0.7, { s: U.ramS, n: U.ramS, e: U.ramE, w: U.ramE, t: U.ramS }),
-    ...[-1.1, 0.1].flatMap((x) => [k.box(x - 0.04, x + 0.04, -0.85, -0.41, 0, 0.42, upright()), k.box(x - 0.18, x + 0.18, -0.68, -0.58, 0.32, 0.42, across())]),
-    k.box(-0.62, -0.58, -0.66, -0.6, 0.7, 1.0, upright()), k.box(-0.68, -0.52, -0.67, -0.59, 0.94, 1.0, allOf(U.iron, U.ironT)),
-    // the stack of beams
-    ...[0, 1, 2].map((r) => k.box(0.3, 1.42, 0.25 + r * 0.03, 0.75 - r * 0.03, r * 0.13, r * 0.13 + 0.12, along(U.beamS, U.beamT))),
-    k.box(0.32, 1.4, 0.4, 0.58, 0.39, 0.5, across()),
-    // the hoist's feet and a mallet on the bench
-    k.box(0.72, 1.28, -0.85, -0.65, 0, 0.08, allOf(U.beamS, U.beamT)),
-    k.box(-0.9, -0.62, 0.08, 0.2, 0.62, 0.72, allOf(U.end, U.beamT)), k.box(-0.62, -0.3, 0.12, 0.16, 0.64, 0.68, allOf(U.post)),
-    SHADOW(k.box(0.85, 1.15, -0.75, -0.45, 0, 1.5, allOf(U.post))),
+    // the shed: a plank back wall, four posts, a beam under the roof's low edge
+    k.box(-1.42, 1.42, -0.96, -0.88, 0, 1.5, PL),
+    ...[-1.42, 1.42].flatMap((x) => [k.box(x - 0.07, x + 0.07, -0.98, -0.84, 0, 1.6, upright()), k.box(x - 0.07, x + 0.07, 0.06, 0.2, 0, 1.3, upright())]),
+    k.box(-1.48, 1.48, 0.06, 0.2, 1.18, 1.3, across()),
+    // the bench along the back wall: top, legs, a vice, a mallet; tools hung on the wall
+    k.box(-1.3, 0.55, -0.84, -0.4, 0.54, 0.66, across(U.beamS, U.floor)),
+    ...[[-1.22, -0.78], [0.47, -0.78], [-1.22, -0.46], [0.47, -0.46]].map(([x, y]) => k.box(x - 0.05, x + 0.05, y - 0.04, y + 0.04, 0, 0.54, upright())),
+    k.box(-1.25, 0.5, -0.8, -0.44, 0.14, 0.2, across()),
+    k.box(0.28, 0.42, -0.42, -0.32, 0.42, 0.72, allOf(U.iron, U.ironT)),
+    k.box(-0.9, -0.62, -0.64, -0.52, 0.66, 0.76, allOf(U.end, U.beamT)), k.box(-0.62, -0.3, -0.6, -0.56, 0.68, 0.72, allOf(U.post)),
+    k.box(-1.1, -0.62, -0.88, -0.84, 0.9, 1.14, allOf(U.ironD)), k.box(-0.4, -0.34, -0.88, -0.84, 0.82, 1.24, allOf(U.post)), k.box(-0.46, -0.28, -0.88, -0.84, 1.12, 1.24, allOf(U.iron)),
+    k.box(0.0, 0.08, -0.88, -0.84, 0.86, 1.22, allOf(U.post)), k.box(0.12, 0.42, -0.88, -0.84, 0.9, 1.0, allOf(U.ironD)),
+    // the yard: a squared log on two trestles, an adze in it
+    k.box(-1.25, 0.55, 0.42, 0.72, 0.42, 0.7, { s: U.ramS, n: U.ramS, e: U.ramE, w: U.ramE, t: U.ramS }),
+    ...[-0.95, 0.25].flatMap((x) => [k.box(x - 0.04, x + 0.04, 0.35, 0.79, 0, 0.42, upright()), k.box(x - 0.18, x + 0.18, 0.52, 0.62, 0.32, 0.42, across())]),
+    k.box(-0.48, -0.44, 0.54, 0.6, 0.7, 1.0, upright()), k.box(-0.54, -0.38, 0.53, 0.61, 0.94, 1.0, allOf(U.iron, U.ironT)),
+    // the stack of beams by the hoist
+    ...[0, 1, 2].map((r) => k.box(0.72, 1.46, -0.7 + r * 0.04, -0.12 - r * 0.04, r * 0.12, r * 0.12 + 0.11, across(U.beamS, U.beamT))),
+    SHADOW(k.box(-1.5, 1.5, -1.0, 0.2, 1.25, 1.6, allOf(U.post))),
   ];
   defineSolid('siege_workshop', { ow: 0, uvS: 'siege_uv', align: false, parts, fx: [{ at: [0, 0, 0], always: true, draw: drawShop }], decal: [0, 0.5, 52, 30, 0.35] });
 }
