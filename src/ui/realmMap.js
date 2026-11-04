@@ -15,6 +15,31 @@ function vnoise(x, y) {
   const a = hashN(x0, y0), b = hashN(x0 + 1, y0), c = hashN(x0, y0 + 1), d = hashN(x0 + 1, y0 + 1);
   return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
 }
+// the colour a kingdom shows on the map: its own hue, lit and saturated enough to read over the planet picture (the dark
+// heraldic tones — slate, forest green, wine — vanish on the dark land otherwise)
+const MAPC = new Map();
+export function mapColor(col) {
+  const key = col.join(','), hit = MAPC.get(key);
+  if (hit) return hit;
+  const out = mapColor0(col);
+  MAPC.set(key, out);
+  return out;
+}
+function mapColor0(col) {
+  const r = col[0] / 255, g = col[1] / 255, b = col[2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  let h = 0, sat = 0, l = (mx + mn) / 2;
+  const d = mx - mn;
+  if (d > 1e-6) {
+    sat = d / (1 - Math.abs(2 * l - 1));
+    h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  }
+  sat = d > 0.04 ? Math.max(0.55, Math.min(0.9, sat)) : 0.12; // (a grey kingdom stays grey, lighter)
+  l = Math.max(0.5, Math.min(0.66, l + 0.12));
+  const c = (1 - Math.abs(2 * l - 1)) * sat, x = c * (1 - Math.abs((h % 2) - 1)), m = l - c / 2;
+  const [R, G, B] = h < 1 ? [c, x, 0] : h < 2 ? [x, c, 0] : h < 3 ? [0, c, x] : h < 4 ? [0, x, c] : h < 5 ? [x, 0, c] : [c, 0, x];
+  return [Math.round((R + m) * 255), Math.round((G + m) * 255), Math.round((B + m) * 255)];
+}
+
 // the territory raster: fill (kingdom colour, translucent) + a border line where the owner changes
 function territories(realm) {
   if (CACHE && CACHE.realm === realm) return CACHE;
@@ -31,12 +56,12 @@ function territories(realm) {
   for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
     const i = y * RW + x, k = own[i];
     if (!k) continue;
-    const K = realm.kingdoms[k - 1], col = K.color;
+    const col = mapColor(realm.kingdoms[k - 1].color);
     const r = own[y * RW + ((x + 1) % RW)], l = own[y * RW + ((x + RW - 1) % RW)], up = y > 0 ? own[i - RW] : k, dn = y < RH - 1 ? own[i + RW] : k;
     const edge = r !== k || l !== k || up !== k || dn !== k;
     const o = i * 4;
-    if (edge) { d[o] = col[0] * 0.55; d[o + 1] = col[1] * 0.55; d[o + 2] = col[2] * 0.55; d[o + 3] = 235; }
-    else { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 150; }
+    if (edge) { d[o] = col[0] * 0.45; d[o + 1] = col[1] * 0.45; d[o + 2] = col[2] * 0.45; d[o + 3] = 240; }
+    else { d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 165; }
   }
   g.putImageData(im, 0, 0);
   // where to write each kingdom's name: the mean of its cells (the capital's continent)
@@ -77,7 +102,7 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
   // territories (repeated across the seam like the planet picture)
   ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.globalAlpha = !full ? 0.6 : sw > 4000 ? 1 : sw > 1500 ? 0.8 : 0.6; // (zoomed out: the kingdoms' colours read; zoomed in: the land shows through)
+  ctx.globalAlpha = !full ? 0.4 : sw > 4000 ? 1 : sw > 1500 ? 0.68 : 0.5; // (zoomed out: the kingdoms' colours read; zoomed in: the land shows through)
   const mx = sx / TPP, my = sy / TPP, mw = sw / TPP, mh = sh / TPP;
   for (let k = Math.floor(mx / RW); k * RW < mx + mw; k++) {
     const ox = k * RW, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + RW), b0 = Math.max(0, my), b1 = Math.min(RH, my + mh);
@@ -104,12 +129,29 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
   // settlements and names (labels placed greedily, the most important first; never overlapping)
   const boxes = [], fits = (x, y, w, h) => { if (boxes.some((b) => x < b[2] && x + w > b[0] && y < b[3] && y + h > b[1])) return false; boxes.push([x, y, x + w, y + h]); return true; };
   const level = !full ? 2 : sw > 5000 ? 0 : sw > 1600 ? 1 : 2;
+  // kingdom names (with their shield) over their lands: always when zoomed out (placed before the towns' names then: the
+  // kingdoms are what the far map is for), faint and after the towns when zoomed in
+  const kings = [];
+  const placeKings = () => {
+    if (!full || sw < 900) return;
+    const w = game.world;
+    for (const K of realm.kingdoms) {
+      const [cx, cy] = T.centres[K.id], X = toX(w.near(cx, sx + sw / 2)), Y = toY(cy);
+      if (X < -80 || Y < -40 || X > W + 80 || Y > H + 40) continue;
+      const fs = sw > 5000 ? 12 : sw > 1600 ? 15 : 18;
+      const name = ('Reino de ' + K.name).toUpperCase();
+      ctx.font = `800 ${fs}px Georgia, serif`;
+      const tw = ctx.measureText(name).width;
+      if (fits(X - tw / 2 - 16, Y - fs, tw + 32, fs + 6)) kings.push([K, X, Y, fs, name, tw]);
+    }
+  };
+  if (sw > 1600) placeKings();
   const RANK = { city: 0, castle: 1, village: 2 };
   const list = realm.settlements.filter((s) => RANK[s.kind] <= level + (level === 0 ? 0 : 0) && (level > 0 || s.kind === 'city')).map((s) => [s, toX(s.x), toY(s.y)])
     .filter(([, X, Y]) => X > -40 && Y > -40 && X < W + 40 && Y < H + 40).sort((a, b) => RANK[a[0].kind] - RANK[b[0].kind] || b[0].pop - a[0].pop);
   ctx.textAlign = 'center';
   for (const [s, X, Y] of list) {
-    const K = realm.kingdoms[s.k], col = `rgb(${K.color.join(',')})`;
+    const K = realm.kingdoms[s.k], col = `rgb(${mapColor(K.color).join(',')})`;
     const gs = s.kind === 'city' ? (full ? 13 : 10) : s.kind === 'castle' ? (full ? 10 : 8) : full ? 8 : 6;
     // the town land as a ring when zoomed in
     if (full && sw < 1200) { ctx.strokeStyle = 'rgba(246,234,208,0.6)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(X, Y, s.r * kx, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
@@ -124,25 +166,15 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
     ctx.lineWidth = 3; ctx.strokeStyle = INK; ctx.strokeText(name, X, Y + gs * 0.6 + fs);
     ctx.fillStyle = s.kind === 'city' ? '#ffe9a8' : CREAM; ctx.fillText(name, X, Y + gs * 0.6 + fs);
   }
-  // kingdom names (with their shield) over their lands: always when zoomed out, faint when zoomed in
-  if (full) {
-    const w = game.world;
-    for (const K of realm.kingdoms) {
-      const [cx, cy] = T.centres[K.id], X = toX(w.near(cx, sx + sw / 2)), Y = toY(cy);
-      if (X < -80 || Y < -40 || X > W + 80 || Y > H + 40) continue;
-      const fs = sw > 5000 ? 12 : sw > 1600 ? 15 : 18;
-      if (sw < 900) continue;
-      const name = ('Reino de ' + K.name).toUpperCase();
-      ctx.font = `800 ${fs}px Georgia, serif`;
-      const tw = ctx.measureText(name).width;
-      if (!fits(X - tw / 2 - 16, Y - fs, tw + 32, fs + 6)) continue;
-      ctx.globalAlpha = sw > 1600 ? 0.95 : 0.75;
-      ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,12,6,0.9)'; ctx.strokeText(name, X + 8, Y);
-      ctx.fillStyle = `rgb(${K.color.map((v) => Math.min(255, v * 0.5 + 128)).join(',')})`; ctx.fillText(name, X + 8, Y);
-      const im = shieldImg(K);
-      if (im) ctx.drawImage(im, X - tw / 2 - 14, Y - fs - 1, fs * 0.9, fs * 1.05);
-      ctx.globalAlpha = 1;
-    }
+  if (sw <= 1600) placeKings();
+  for (const [K, X, Y, fs, name, tw] of kings) {
+    ctx.font = `800 ${fs}px Georgia, serif`;
+    ctx.globalAlpha = sw > 1600 ? 0.97 : 0.75;
+    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(20,12,6,0.9)'; ctx.strokeText(name, X + 8, Y);
+    ctx.fillStyle = `rgb(${mapColor(K.color).map((v) => Math.round(v * 0.55 + 115)).join(',')})`; ctx.fillText(name, X + 8, Y);
+    const im = shieldImg(K);
+    if (im) ctx.drawImage(im, X - tw / 2 - 14, Y - fs - 1, fs * 0.9, fs * 1.05);
+    ctx.globalAlpha = 1;
   }
   ctx.restore();
 }
