@@ -21,7 +21,7 @@ import { DECOR, DECOR_CATS } from './decor.js'; // agent K: decoration, garden, 
 const L = (r, g, b, radius, intensity, flicker, lift) => ({ r, g, b, radius, intensity, flicker, lift });
 
 export const BUILD_CATS = [
-  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['water', 'Água'], ['prod', 'Produção'], ['def', 'Defesa'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
+  ['struct', 'Estruturas'], ['floor', 'Pisos'], ['roof', 'Teto'], ['water', 'Água'], ['prod', 'Produção'], ['def', 'Defesa'], ['siege', 'Cerco'], ['furn', 'Móveis'], ['light', 'Luz'], ['farm', 'Agricultura'],
   ...DECOR_CATS,
 ];
 
@@ -95,6 +95,22 @@ export const BUILDINGS = {
   // attack button fires a ballista bolt from the operator's backpack. 3D: art/faces/solidDefense.js
   ballista:    { name: 'Balista', g: 'f', emoji: '🏹', cat: ['def'], cost: { steel_bar: 4, wood: 10, rope: 3 }, time: 10, xp: 30, block: 0.42, rotate: true,
                  desc: 'Arma de cerco contra os gigantes de gelo: dano enorme e longo alcance. Entre nela (E ou toque) e mire; o botão de ataque dispara uma flecha de balista da sua mochila.' },
+
+  // ---------- siege engines (máquinas de guerra, docs/REINOS.md §5; rules game/siege.js, numbers content/siege.js) ----------
+  // Built with a finished Oficina de cerco within 16 tiles (placeReason). siege: 'arty' (one operator: aim a ground
+  // point, the attack fires a stone from the backpack) | 'push' (E grabs it, 2+ people push at normal speed; one alone,
+  // very slowly). They only damage enemies (game/siege.js siegeCanDamage: monsters, bandits; enemy kingdoms later),
+  // never players' structures. 3D: art/faces/solidSiege.js
+  siege_workshop: { name: 'Oficina de cerco', g: 'f', emoji: '🪚', cat: ['siege', 'prod'], cost: { wood: 30, stone: 12, rope: 6, iron_bar: 4 }, size: [3, 2], time: 10, xp: 40, block: 'tile', station: true, rotate: true, move: true,
+                 desc: 'Carpintaria das máquinas de guerra: trabuco, catapulta, aríete e torre de cerco são construídos perto dela (até 16 tiles). Aqui também se fazem as pedras de trabuco e de catapulta.' },
+  trebuchet:   { name: 'Trabuco', g: 'm', emoji: '🪨', cat: ['siege'], cost: { wood: 60, rope: 12, stone: 30, iron_bar: 8 }, size: [3, 3], time: 24, xp: 80, block: 'tile', rotate: true, siege: 'arty',
+                 desc: 'Artilharia de cerco: o maior alcance (14–46 tiles), dano em área muito forte contra muralhas e portões, fraco contra criaturas, e mira muito ruim (melhora atirando no mesmo alvo). Recarrega devagar no guincho. Um operador (E); mire com o mouse ou arrastando o botão de ataque. Gasta pedras de trabuco.' },
+  catapult:    { name: 'Catapulta', g: 'f', emoji: '☄️', cat: ['siege'], cost: { wood: 24, rope: 8, iron_bar: 4, leather: 2 }, time: 12, xp: 40, block: 0.44, rotate: true, siege: 'arty',
+                 desc: 'Defesa de muralha: construa em cima de uma muralha (ou no chão). Alcance médio (5–26 tiles), dano em área, contra criaturas o mesmo dano da balista. Um operador (E); mire com o mouse ou arrastando o botão de ataque. Gasta pedras de catapulta.' },
+  battering_ram: { name: 'Aríete', g: 'm', emoji: '🐏', cat: ['siege'], cost: { wood: 40, iron_bar: 10, leather: 6, rope: 6 }, size: [2, 3], time: 16, xp: 50, block: 'tile', rotate: true, siege: 'push',
+                 desc: 'Quebra portões (e só portões) de inimigos. Coberto de couro, sobre rodas: pegue com E e empurre (2 ou mais pessoas: velocidade normal; sozinho, bem devagar). Encostado num portão, o ataque dá a pancada.' },
+  siege_tower: { name: 'Torre de cerco', g: 'f', emoji: '🗼', cat: ['siege'], cost: { wood: 70, rope: 10, leather: 8, iron_bar: 6 }, size: [2, 2], time: 22, xp: 90, block: 'tile', rotate: true, siege: 'push',
+                 desc: 'Torre de madeira sobre rodas para atravessar muralhas: planejada de frente para uma muralha, sai da altura dela (senão escolha 1 a 3 andares). Empurre até encostar (2+ pessoas): a rampa desce no topo da muralha; suba pela escada de trás (E) e atravesse.' },
 
   // ---------- furniture ----------
   chest:      { name: 'Baú', g: 'm', emoji: '🧰', cat: ['furn'], cost: { wood: 8 }, time: 4, xp: 10, block: 0.28, slots: 20, edge: true, move: true,

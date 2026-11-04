@@ -45,6 +45,9 @@ export const ITEMS = {
   gold_bar:    mat('Barra de ouro', '🟨', 'Ouro fundido. Valioso.', { value: 30 }),
   arrow:       { name: 'Flecha', emoji: '➶', stack: 99, cat: 'ammo', desc: 'Munição para arcos.' },
   ballista_bolt: { name: 'Flecha de balista', emoji: '➶', stack: 20, cat: 'ammo', desc: 'Dardo pesado de ferro para a balista. Cada disparo gasta uma (da mochila de quem opera).' },
+  // siege engines (game/siege.js): the stones they throw, from the backpack of whoever operates them (Oficina de cerco)
+  treb_stone:  { name: 'Pedra de trabuco', emoji: '🪨', stack: 10, cat: 'ammo', desc: 'Pedra grande e arredondada para o trabuco. Cada disparo gasta uma (da mochila de quem opera).' },
+  cat_stone:   { name: 'Pedra de catapulta', emoji: '🪨', stack: 20, cat: 'ammo', desc: 'Pedra lavrada do tamanho certo para a concha da catapulta. Cada disparo gasta uma (da mochila de quem opera).' },
   bone:        mat('Ossos', '🦴', 'Ossos limpos recolhidos de uma ossada. Restos de um ser que já viveu por aqui.'),
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
   // livestock (docs/LIVESTOCK.md): animal feed and animal products

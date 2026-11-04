@@ -6709,6 +6709,437 @@ def('HO7', {
   await t.checkDigest(H, G);
 });
 
+// ---------- siege engines (src/game/siege.js, docs/REINOS.md "Implementação — máquinas de guerra") ----------
+// clean up after a siege scenario: structures removed, debug marks cleared, ammo and stick reset
+function sgCleanup(t, H, G, ids) {
+  t.defer(() => {
+    for (const id of ids) if (A.structOn(H, id)) H.game.net.emit('struct.remove', { id, quiet: 1 });
+    const D = H.game._siegeDbg;
+    if (D) { D.hostile.clear(); D.gates.clear(); }
+    const C = G.game.siege;
+    if (C) { C.stickOn = false; C.stickAim = null; C.climb = null; }
+  });
+}
+// a free, level w × h area (every tile valid for a wall on both frames) near the guest — a wider search than A.findSite
+// (a planet's start can be wooded / hilly); both players are brought next to it. Returns { x0, y0 } (the area's corner)
+function sgSite(H, MH, G, MG, w, h, { dx = 0, dy = 0 } = {}) {
+  const gp = G.game.player, fs = [H, G], Ms = [MH, MG];
+  const ok = (x, y) => MH.building.placeReason(H.game, 'wall_wood', x, y, null, 0) === null && MG.building.placeReason(G.game, 'wall_wood', x, y, null, 0) === null;
+  const Hh = H.game.world.height;
+  const test = (x0, y0) => {
+    for (const [x, y] of [[x0, y0], [x0 + w - 1, y0], [x0, y0 + h - 1], [x0 + w - 1, y0 + h - 1], [x0 + (w >> 1), y0 + (h >> 1)]]) if (!ok(x, y)) return false;
+    let lo = 1e9, hi = -1e9;
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+      if (!ok(x, y)) return false;
+      if (Hh?.any) { const c = Hh.cornerH(x, y); if (c < lo) lo = c; if (c > hi) hi = c; }
+    }
+    return hi - lo <= 0.6;
+  };
+  for (let r = 2; r <= 260; r += r < 100 ? 2 : 3) for (let k = 0, n = Math.max(8, Math.round(r * 1.2)); k < n; k++) {
+    const a = (k / n) * Math.PI * 2, x0 = Math.floor(gp.x + Math.cos(a) * r) - (w >> 1), y0 = Math.floor(gp.y + Math.sin(a) * r) - (h >> 1);
+    if (!test(x0, y0)) continue;
+    fs.forEach((f, i) => { const s = A.freeSpot(f, Ms[i], x0 + dx + i, y0 + h + 0.5 + dy, { rMin: 0, rMax: 3 }); if (s) A.teleport(f, s[0], s[1]); });
+    return { x0, y0 };
+  }
+  return null;
+}
+// the guest plans a blueprint through build mode and waits for the host's struct.add to reach it
+async function sgPlace(t, G, MG, type, x, y, rot = 0) {
+  A.place(G, MG, type, [x, y], [x, y], rot);
+  return t.waitFor(() => G.game.build.structures.find((o) => o.type === type && o.tx === x && o.ty === y), RT() + 2500, `${type} planned at ${x},${y}`, () => G.lastUi(2));
+}
+const sgAmmo = (f, id, n) => { const p = f.game.player, c = p.inv.count(id); if (c) p.inv.remove(id, c); if (n) p.inv.add(id, n); };
+// the guest's artillery aimed at (angle a, distance d): the stick, until the host's shared aim lines up
+async function sgAim(t, H, MH, G, oH, a, d, ms = 12000) {
+  const C = G.game.siege;
+  C.stickOn = true; C.stickAim = [a, d];
+  await t.waitFor(() => Math.abs(MH.siege.angDiff(MH.siege.aimOf(oH), a)) < 0.03 && Math.abs(MH.siege.distOf(oH) - d) < 0.3 && !C.turning, ms + RT(), 'the frame points there on the host', () => `${f2(MH.siege.aimOf(oH))} / ${f2(MH.siege.distOf(oH))} → ${f2(a)} / ${f2(d)}`);
+}
+// the host's copy of the newest stone of `kind` (lob: its landing point is known at once)
+const sgStone = (H, kind, old) => (H.game.projectiles || []).find((p) => p.kind === kind && !p.cosmetic && !old.has(p));
+
+def('SG1', {
+  title: 'Siege engines: the guest builds the Oficina de cerco, then a trebuchet, a catapult, a battering ram and a siege tower there (blueprints + real work); the host agrees', timeout: 360000,
+  expected: 'Before the workshop a trebuchet plan is refused ("Construa perto de uma Oficina de cerco pronta"); the guest plans and builds the Oficina de cerco (work), then plans the four engines next to it and builds each one (its materials taken from the backpack); on the host all are finished at the same places and rotations; the tower has the stories of the wall ahead or the chosen 2 (o.v); the workshop crafts the stones (recipes at siege_workshop); digest equal',
+  api: 'content/buildings.js siege_workshop / trebuchet / catapult / battering_ram / siege_tower (cat siege), mut/structures.js placeReason → siege.js siegePlaceReason (nearWorkshop), build.place n (tower stories), work loop build.hit',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.keepAlive(t, G);
+  const site = sgSite(H, MH, G, MG, 11, 9);
+  t.assert(site, 'found a free 11×9 site');
+  const x0 = site.x0 + 1, y0 = site.y0 + 1, ids = [];
+  sgCleanup(t, H, G, ids);
+  A.pacify(H, x0 + 4, y0 + 3, 30, 900);
+  const cost = (type) => MG.data.BUILDINGS[type].cost;
+  t.check(/Oficina de cerco/.test(String(MG.building.placeReason(G.game, 'trebuchet', x0, y0, null, 0))), 'without a workshop: "Construa perto de uma Oficina de cerco"', String(MG.building.placeReason(G.game, 'trebuchet', x0, y0, null, 0)));
+  // the workshop
+  const need = {};
+  for (const ty of ['siege_workshop', 'trebuchet', 'catapult', 'battering_ram', 'siege_tower']) for (const k in cost(ty)) need[k] = (need[k] || 0) + cost(ty)[k];
+  A.ensure(G, need);
+  const inv0 = A.invSnap(G);
+  A.teleport(G, x0 + 1.5, y0 + 6.6);
+  await A.hostSees(t, H, G);
+  const shop = await sgPlace(t, G, MG, 'siege_workshop', x0, y0 + 4, 0);
+  await t.waitFor(() => A.structOn(H, shop.id), RT() + 1500, 'the host has the workshop plan');
+  ids.push(shop.id);
+  await A.buildAll(t, G, MG, [shop.id], { ms: 40000 });
+  await t.waitFor(() => A.structOn(H, shop.id) && !A.structOn(H, shop.id).blueprint, RT() + 2000, 'the workshop is finished on the host');
+  const RC = await fimp(G, 'game/content/recipes.js');
+  t.check(RC.RECIPES.treb_stones.station === 'siege_workshop' && RC.RECIPES.cat_stones.station === 'siege_workshop' && RC.STATION_PT.siege_workshop === 'Oficina de cerco', 'the workshop makes the stones (recipes at siege_workshop)');
+  t.check(MG.building.placeReason(G.game, 'trebuchet', x0, y0, null, 0) === null, 'next to the finished workshop the trebuchet may be planned', String(MG.building.placeReason(G.game, 'trebuchet', x0, y0, null, 0)));
+  // the four engines
+  const auto = MG.siege.towerAhead(G.game, x0 + 7, y0, 0);
+  const plan = [['trebuchet', x0, y0, 0], ['battering_ram', x0 + 4, y0, 0], ['siege_tower', x0 + 7, y0, 0], ['catapult', x0 + 5, y0 + 5, 0]];
+  const made = [];
+  for (const [type, x, y, rot] of plan) {
+    const o = await sgPlace(t, G, MG, type, x, y, rot);
+    made.push(o.id); ids.push(o.id);
+  }
+  await t.waitFor(() => made.every((id) => A.structOn(H, id)), RT() + 2000, 'the host has the four plans');
+  for (const id of made) {
+    const o = A.structOn(G, id);
+    t.log(`guest builds ${o.type} (${MG.data.BUILDINGS[o.type].time} s of work)`);
+    await A.buildAll(t, G, MG, [id], { ms: 90000 });
+  }
+  await t.waitFor(() => made.every((id) => A.structOn(H, id) && !A.structOn(H, id).blueprint), RT() + 3000, 'all four are finished on the host');
+  for (const id of made) {
+    const h = A.structOn(H, id), g2 = A.structOn(G, id);
+    t.check(h && g2 && h.tx === g2.tx && h.ty === g2.ty && (h.rot | 0) === (g2.rot | 0) && !g2.blueprint, `${h?.type}: same place and finished on both`, `${h?.tx},${h?.ty} / ${g2?.tx},${g2?.ty}`);
+  }
+  const tw = made.map((id) => A.structOn(H, id)).find((o) => o.type === 'siege_tower');
+  const wantN = auto ? auto.n : 2;
+  t.check(MH.siege.towerN(tw) === wantN && MG.siege.towerN(A.structOn(G, tw.id)) === wantN, `the tower has ${wantN} stories on both (${auto ? 'the wall ahead' : 'the chosen 2'})`, `${tw.v} / ${A.structOn(G, tw.id).v}`);
+  const used = A.invDiff(inv0, A.invSnap(G));
+  t.check((-(used.wood || 0)) >= need.wood - 1 && (-(used.iron_bar || 0)) === need.iron_bar, 'the materials came out of the guest\'s backpack', JSON.stringify(used));
+  await t.checkDigest(H, G);
+});
+
+def('SG2', {
+  title: 'Trebuchet: the guest operates it, the stone lands with a wide scatter (narrower at the same target) and hurts a hostile structure much more than a creature; a player\'s wall next to it is untouched', timeout: 150000,
+  expected: 'A trebuchet facing east; the guest (2 trebuchet stones) gets on (op siege.set user on both), aims 16 tiles east (op siege.set aim / dist); the first stone (intent siege.fire → op siege.shot, k 1) lands off the aim point but inside the landing ellipse (0.16 × d along, 0.09 × d across); a hostile-marked stone wall at the landing tile takes heavy siege damage (op siege.dmg: hundreds of hit points, cracks on both), a creature next to it only the trebuchet\'s 70, a player\'s wall beside it nothing; a shot during the winch is refused and refunded; the second stone at the same target has a smaller scatter (k 0.8); digest equal',
+  api: 'siege.js useSiege / siegeCtl (stickAim, fire), shotLanding / rangingK, siegeImpact, siegeCanDamage (siegeDebug hostile), damageStructure → op siege.dmg; projectiles.js LOB_KINDS.treb_stone',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.keepAlive(t, G);
+  const site = sgSite(H, MH, G, MG, 21, 7);
+  t.assert(site, 'found a free 21×7 strip');
+  const x0 = site.x0 + 1, y0 = site.y0 + 2, ids = [];
+  sgCleanup(t, H, G, ids);
+  const [tid] = hostBuild(H, [['trebuchet', x0, y0, 3]]);
+  ids.push(tid);
+  await t.waitFor(() => A.structOn(G, tid) && !A.structOn(G, tid).blueprint, RT() + 1500, 'the guest has the trebuchet');
+  const oG = A.structOn(G, tid), oH = A.structOn(H, tid);
+  A.pacify(H, x0 + 10, y0 + 1, 40, 900);
+  sgAmmo(G, 'treb_stone', 2);
+  A.teleport(G, x0 - 0.8, y0 + 1.5);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_op', o: oG });
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'the guest operates the trebuchet (on both)');
+  const [px, py] = MH.siege.pivotOf(oH), D = 14, tx = px + D, ty = py;
+  await sgAim(t, H, MH, G, oH, 0, D);
+  const old = new Set(H.game.projectiles || []);
+  t.check(G.game.siege.fire(), 'the guest throws');
+  t.check(gp.inv.count('treb_stone') === 1, 'one stone used', `${gp.inv.count('treb_stone')}`);
+  const st = await t.waitFor(() => sgStone(H, 'treb_stone', old), 3000 + RT(), 'the stone leaves the sling on the host (after the swing)');
+  const S = MH.siegec.ARTY.trebuchet, al = st.lx - tx, ac = st.ly - ty;
+  t.log(`aim ${f2(tx)},${f2(ty)} → lands ${f2(st.lx)},${f2(st.ly)} (along ${f2(al)}, across ${f2(ac)}; ellipse ${f2(S.scatter[0] * D)} × ${f2(S.scatter[1] * D)})`);
+  t.check(Math.hypot(al, ac) > 0.02, 'it does not land on the aim point (scatter)');
+  t.check((al / (S.scatter[0] * D)) ** 2 + (ac / (S.scatter[1] * D)) ** 2 <= 1.0001, 'it lands inside the landing ellipse');
+  t.check(Math.abs((oG._rng?.k ?? 0) - 1) < 1e-6, 'first shot at this target: full scatter (k 1)', `${oG._rng?.k}`);
+  await t.waitFor(() => (G.game.projectiles || []).some((p) => p.kind === 'treb_stone' && p.cosmetic && Math.hypot(p.lx - st.lx, p.ly - st.ly) < 0.05), 2000 + RT(), 'the guest flies the same stone (same landing point)');
+  // what is there when it comes down: a hostile stone wall on the landing tile, a player's wall beside it, a creature
+  const lx = Math.floor(st.lx), ly = Math.floor(st.ly);
+  const [hw] = hostBuild(H, [['wall_stone', lx, ly]]), [pw] = hostBuild(H, [['wall_wood', lx + 1, ly + 1]]);
+  ids.push(hw, pw);
+  MH.siege.siegeDebug(H.game).hostile.add(hw);
+  const m = MH.mobs.spawnLoose(H.game, 'boar', st.lx - 0.9, st.ly + 0.4);
+  m.calmT = 1e9; m.stunT = 8; m.state = 'idle'; m.stateT = 1e9;
+  const hp0 = m.hp, dmgLog = [];
+  t.defer(H.game.events.on('damage', (d) => { if (d.target === m) dmgLog.push(d.amount); }));
+  await t.waitFor(() => (A.structOn(H, hw)?.dmg || 0) > 0, 6000, 'the hostile wall takes siege damage', () => `stone k ${f2(st.k)} stuck ${st.stuck}`);
+  const wH = A.structOn(H, hw), hpW = MH.siege.structHp(H.game, wH), wallHit = wH.dmg * hpW;
+  await t.waitFor(() => Math.abs((A.structOn(G, hw)?.dmg || 0) - wH.dmg) < 1e-3, RT() + 1500, 'same cracks on the guest');
+  t.check(A.structOn(G, hw)?.sdmg === 1, 'siege damage does not settle at dawn (o.sdmg)');
+  const mobHit = hp0 - Math.max(0, m.hp);
+  t.check(Math.abs(mobHit - Math.min(hp0, S.mob)) <= 1, 'the creature takes only the trebuchet\'s small damage', `${f2(mobHit)} of ${f2(hp0)} (dealt ${dmgLog.join(',')})`);
+  t.check(wallHit >= 300 && wallHit > mobHit * 4, 'much more damage to the structure than to the creature', `wall ${Math.round(wallHit)} vs creature ${Math.round(mobHit)}`);
+  t.check(!(A.structOn(H, pw)?.dmg > 0) && !(A.structOn(G, pw)?.dmg > 0), 'the player\'s wall beside it is untouched (no friendly fire)');
+  // a shot during the winch: refused and refunded
+  const errs = [];
+  t.defer(G.game.events.on('error', (d) => errs.push(d.text)));
+  G.game.siege.cd = 0;
+  t.check(!G.game.siege.fire() || true, 'a throw during the winch');
+  await t.waitFor(() => gp.inv.count('treb_stone') === 1, RT() + 1500, 'it is refused and the stone stays', () => errs.join(' | '));
+  // the second stone at the same target: the crew ranges in (k 0.8)
+  await t.waitFor(() => !(oG._reload > 0) && !(oH._reload > 0), S.reload * 1000 + 3000, 'the winch re-arms it');
+  await t.sleep(300);
+  const old2 = new Set(H.game.projectiles || []);
+  t.check(G.game.siege.fire(), 'the guest throws again at the same target');
+  await t.waitFor(() => sgStone(H, 'treb_stone', old2), 3000 + RT(), 'the second stone flies');
+  await t.waitFor(() => Math.abs((oG._rng?.k ?? 1) - S.settle) < 1e-3, RT() + 1500, 'same target: the scatter narrows (k 0.8)', () => `${oG._rng?.k}`);
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the guest gets off (E)');
+  await t.sleep(S.fly[0] * 1000 + 1500);
+  await t.checkDigest(H, G);
+});
+
+def('SG3', {
+  title: 'Catapult on a wall-walk: the guest operates it from the wall top; its stone hurts every creature in the blast exactly as much as a ballista bolt would, and nothing outside', timeout: 120000,
+  expected: 'A 3×2 block of stone walls with a catapult on its top (story 1); from the ground the guest is refused ("Suba até a catapulta"); on the wall top it operates it and aims 10 tiles east; the stone (op siege.shot) leaves from the wall; three creatures at the landing point each take the ballista\'s damage (max(BALLISTA.dmg, its life × 1.01)) from the catapult, one 4 tiles away nothing; the guest stays up on the wall; digest equal',
+  api: 'siege.js siegeImpact (ARTY.catapult mob / mobMin = ballista BALLISTA.dmg), seatSpot (levels), mut/siege.js siege.use story check, struct.add {lv}',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -1; j <= 2; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 22 });
+  t.assert(site, 'found a free 15×4 strip');
+  const { x0, y0 } = site, walls = [];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) walls.push(['wall_stone', x0 + i, y0 + j]);
+  const ids = hostBuild(H, walls);
+  sgCleanup(t, H, G, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the walls');
+  const [cid] = hostBuildLv(H, [['catapult', x0 + 1, y0, 3]], 1);
+  ids.push(cid);
+  await t.waitFor(() => A.structOn(G, cid) && !A.structOn(G, cid).blueprint, RT() + 1500, 'the guest has the catapult on the wall top');
+  const oG = A.structOn(G, cid), oH = A.structOn(H, cid);
+  t.check((oG.lv | 0) === 1 && (oH.lv | 0) === 1, 'the catapult stands at story 1 on both');
+  A.pacify(H, x0 + 8, y0, 40, 900);
+  sgAmmo(G, 'cat_stone', 3);
+  const errs = [];
+  t.defer(G.game.events.on('error', (d) => errs.push(d.text)));
+  A.teleport(G, x0 + 1.5, y0 + 2.7);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_op', o: oG });
+  await t.waitFor(() => errs.some((s) => /Suba até a catapulta/.test(s)), RT() + 1500, 'from the ground: "Suba até a catapulta"', () => errs.join(' | '));
+  upOn(G, x0 + 1.5, y0 + 1.5);
+  await t.sleep(RT() + 300);
+  MG.siege.useSiege(G.game, { kind: 'siege_op', o: oG });
+  await t.waitFor(() => oH.user === G.pid && oG.user === G.pid, RT() + 1500, 'from the wall top the guest operates the catapult');
+  const [px, py] = MH.siege.pivotOf(oH), D = 10;
+  await sgAim(t, H, MH, G, oH, 0, D);
+  // the creatures (pinned: stunned, calm), one far from the target
+  const sp = [];
+  for (const [dx, dy] of [[0, 0], [0.5, 0.6], [-0.6, -0.3], [4, 0.2]]) {
+    const s = A.freeSpot(H, MH, px + D + dx, py + dy, { rMin: 0, rMax: 0.6, r: 0.36 }) || [px + D + dx, py + dy];
+    const m = MH.mobs.spawnLoose(H.game, dx > 3 ? 'deer' : 'boar', s[0], s[1]);
+    m.calmT = 1e9; m.stunT = 10; m.state = 'idle'; m.stateT = 1e9;
+    sp.push(m);
+  }
+  const far = sp[3], near = sp.slice(0, 3), got = new Map();
+  t.defer(H.game.events.on('damage', (d) => { if (sp.includes(d.target)) got.set(d.target, (got.get(d.target) || []).concat([[d.amount, d.ability]])); }));
+  const old = new Set(H.game.projectiles || []);
+  t.check(G.game.siege.fire(), 'the guest throws');
+  const st = await t.waitFor(() => sgStone(H, 'cat_stone', old), 1500 + RT(), 'the stone flies on the host');
+  t.check(st.h0 > 1, 'it leaves from the wall top (a story up)', f2(st.h0));
+  // (pin the three near ones on the landing point: the blast is 1.4 tiles around it)
+  near.forEach((m, k) => { m.x = st.lx + [0, 0.45, -0.5][k]; m.y = st.ly + [0, 0.4, -0.3][k]; });
+  far.x = st.lx + 4; far.y = st.ly;
+  await t.waitFor(() => near.every((m) => got.has(m)), 4000 + RT(), 'the three creatures in the blast are hit', () => `${got.size} hit`);
+  const B = MH.ballista.BALLISTA;
+  for (const m of near) {
+    const want = Math.max(B.dmg, Math.ceil(m.maxHp * 1.01)), list = got.get(m) || [];
+    t.check(list.length === 1 && Math.abs(list[0][0] - want) <= 1 && list[0][1] === 'catapult', `a ${m.species}: the ballista's damage (${want})`, JSON.stringify(list));
+  }
+  await t.sleep(600);
+  t.check(!got.has(far) && !far.dead, 'the one 4 tiles away is untouched');
+  t.check((gp.z || 0) > 0.9 && (gp.lv | 0) === 1, 'the guest is still up on the wall', lvOf(gp));
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user && !oG.user, RT() + 1500, 'the guest gets off');
+  await t.checkDigest(H, G);
+});
+
+def('SG4', {
+  title: 'Battering ram: host and guest push it (one alone is much slower) up to a wall; its blows break the gate-marked door and never the wall beside it', timeout: 150000,
+  expected: 'A wall row with a door marked gate + hostile and a hostile (not gate) wall next to it; a ram 4 tiles south facing it. Both grab it (op siege.set push: 2 pids on both); the guest alone pushes north: steps ≥ 2.5 s apart; with the host pushing too: ≤ 1.6 s apart (ops siege.step, same tile on both, the pushers follow); it stops against the wall; the guest\'s blows (intent siege.ram → op siege.swing + siege.dmg) crack the door (220 per blow over its 900 hit points) and leave the wall at 0; the 5th blow breaks the door (struct.remove smash on both); digest equal',
+  api: 'siege.js useSiege siege_push, siegeCtl.ram, hostPush / tally / pushSpeed, frontTiles / isGate (siegeDebug gates), mut/siege.js siege.push / drive / ram, ops siege.step / swing / dmg',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = sgSite(H, MH, G, MG, 8, 14);
+  t.assert(site, 'found a free 8×14 site');
+  const x0 = site.x0 + 1, y0 = site.y0 + 1;
+  const rows = [];
+  for (let i = 0; i < 6; i++) rows.push([i === 2 ? 'door_wood' : 'wall_wood', x0 + i, y0]);
+  const wall = hostBuild(H, rows), ids = [...wall];
+  sgCleanup(t, H, G, ids);
+  const door = wall[2], hw = wall[3];
+  const D = MH.siege.siegeDebug(H.game);
+  D.gates.add(door); D.hostile.add(door); D.hostile.add(hw);
+  const [rid] = hostBuild(H, [['battering_ram', x0 + 2, y0 + 7, 2]]);
+  ids.push(rid);
+  await t.waitFor(() => A.structOn(G, rid) && !A.structOn(G, rid).blueprint && wall.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the wall and the ram');
+  const oG = A.structOn(G, rid), oH = A.structOn(H, rid);
+  A.pacify(H, x0 + 3, y0 + 5, 30, 900);
+  t.check(MH.siege.frontTiles(oH).map((q) => q.join(',')).join(' ') === `${x0 + 2},${y0 + 6} ${x0 + 3},${y0 + 6}`, 'its front faces the door and the wall', JSON.stringify(MH.siege.frontTiles(oH)));
+  // both grab it from behind
+  A.teleport(G, x0 + 2.5, y0 + 10.7); A.teleport(H, x0 + 3.5, y0 + 10.7);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_push', o: oG });
+  MH.siege.useSiege(H.game, { kind: 'siege_push', o: oH });
+  await t.waitFor(() => (oH.push || []).filter(Boolean).length === 2 && (oG.push || []).filter(Boolean).length === 2, RT() + 1500, 'both push it (2 pids on both)', () => `${JSON.stringify(oH.push)} / ${JSON.stringify(oG.push)}`);
+  const steps = [];
+  t.defer(H.game.events.on('siegestep', (d) => { if (d.o === oH) steps.push({ t: now(), ty: oH.ty }); }));
+  // the guest alone
+  const relG = A.holdMove(G, 0, -1);
+  t.defer(relG);
+  await t.waitFor(() => steps.length >= 2, 9000 + RT(), 'alone, the guest moves it (slowly)');
+  const solo = steps[1].t - steps[0].t;
+  t.check(solo >= 2500, 'one person alone: a tile every ~3 s', `${Math.round(solo)} ms`);
+  // both
+  const relH = A.holdMove(H, 0, -1);
+  t.defer(relH);
+  await t.waitFor(() => oH.ty === y0 + 1, 12000 + RT(), 'with two it reaches the wall', () => `ty ${oH.ty} (want ${y0 + 1})`);
+  const fast = steps.slice(4).map((s, k) => s.t - steps[k + 3].t);
+  t.check(fast.length && Math.max(...fast) <= 1700, 'two people: about a tile a second', fast.map(Math.round).join(', ') + ' ms');
+  await t.waitFor(() => oG.ty === oH.ty && oG.tx === oH.tx, RT() + 1500, 'the guest has it at the same tile');
+  await t.sleep(1200);
+  t.check(oH.ty === y0 + 1, 'it stops against the wall', `ty ${oH.ty}`);
+  const [sx, sy] = MG.siege.toWorld(oG, ...MG.siege.slotLocal(oG, oG.push.indexOf(G.pid)));
+  t.check(Math.hypot(gp.x - sx, gp.y - sy) < 0.5, 'the guest walked along at its place behind it', `${f2(Math.hypot(gp.x - sx, gp.y - sy))} tiles off`);
+  relG(); relH();
+  // the blows
+  const C = G.game.siege;
+  for (let k = 1; k <= 5; k++) {
+    C.ramCd = 0;
+    t.check(C.onAttack(), `blow ${k}`);
+    if (k < 5) await t.waitFor(() => Math.abs((A.structOn(G, door)?.dmg || 0) - 220 * k / 900) < 0.01, 3000 + RT(), `the door cracks (${k} × 220 / 900) on the guest`, () => `${f2(A.structOn(G, door)?.dmg || 0)}`);
+    else await t.waitFor(() => !A.structOn(H, door) && !A.structOn(G, door), 3000 + RT(), 'the 5th blow breaks the door on both');
+    t.check(!(A.structOn(H, hw)?.dmg > 0) && A.structOn(H, hw), 'the hostile wall beside it: untouched (only gates)');
+    if (k < 5) await t.sleep(MH.siegec.ramCooldown(2) * 1000 + 150);
+  }
+  MG.siege.useSiege(G.game, { kind: 'siege_push', o: oG });
+  MH.siege.useSiege(H.game, { kind: 'siege_push', o: oH });
+  await t.waitFor(() => !(oH.push || []).some(Boolean) && !(oG.push || []).some(Boolean), RT() + 1500, 'both let go');
+  await t.checkDigest(H, G);
+});
+
+def('SG5', {
+  title: 'Siege tower: it measures a 2-story and a 3-story wall (its height follows the wall it faces); host and guest push it to the 2-story wall, the ramp drops on the wall-walk and the guest climbs it and walks onto the wall top', timeout: 150000,
+  expected: 'A 2-story stone wall and a 3-story one (walls stacked with struct.add lv) and a finished workshop; towerStoriesFor gives 2 and 3 (a piece, a tile, a list); the guest plans a tower facing each: o.v = 2 and 3 on both; the 2-story one finished, host and guest push it north until it touches its wall: the ramp drops (op siege.set ramp on both; the deck is a surface of story 2 on both); the guest lets go, climbs the back ladder (E: lv 2, z 2) and walks north onto the wall-walk (a wall-top tile at story 2, the host sees it up there); digest equal',
+  api: 'siege.js towerStoriesFor / wallTopStory / towerAhead (build.place v), hostPush dock → op siege.set ramp, levels.js deck surface (o.ramp), useSiege siege_up (climb)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = sgSite(H, MH, G, MG, 11, 10);
+  t.assert(site, 'found a free 11×10 site');
+  const x0 = site.x0 + 1, y0 = site.y0 + 1;
+  const rowA = [0, 1, 2].map((i) => ['wall_stone', x0 + i, y0]), rowB = [6, 7, 8].map((i) => ['wall_stone', x0 + i, y0]);
+  const ids = [...hostBuild(H, [...rowA, ...rowB]), ...hostBuildLv(H, [...rowA, ...rowB], 1), ...hostBuildLv(H, rowB, 2)];
+  const [shop] = hostBuild(H, [['siege_workshop', x0 + 3, y0 + 7, 0]]);
+  ids.push(shop);
+  sgCleanup(t, H, G, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 2000, 'the guest has the walls and the workshop');
+  const wA = A.structOn(H, ids[0]);
+  t.check(MH.siege.towerStoriesFor(H.game, wA) === 2 && MH.siege.towerStoriesFor(H.game, [x0 + 7, y0]) === 3 && MG.siege.towerStoriesFor(G.game, [[x0, y0], [x0 + 7, y0]]) === 3 && MG.siege.towerStoriesFor(G.game, [x0 + 4, y0]) === 0,
+    'towerStoriesFor: 2 for the first wall, 3 for the second, the tallest of a list, 0 where there is none');
+  // the guest plans a tower facing each wall (north): the height comes from the wall
+  const ta = await sgPlace(t, G, MG, 'siege_tower', x0, y0 + 5, 2);
+  const tb = await sgPlace(t, G, MG, 'siege_tower', x0 + 6, y0 + 5, 2);
+  ids.push(ta.id, tb.id);
+  await t.waitFor(() => A.structOn(H, ta.id) && A.structOn(H, tb.id), RT() + 1500, 'the host has both plans');
+  t.check(MH.siege.towerN(A.structOn(H, ta.id)) === 2 && MG.siege.towerN(A.structOn(G, ta.id)) === 2, 'facing the 2-story wall: a 2-story tower (on both)', `${A.structOn(H, ta.id).v}`);
+  t.check(MH.siege.towerN(A.structOn(H, tb.id)) === 3 && MG.siege.towerN(A.structOn(G, tb.id)) === 3, 'facing the 3-story wall: a 3-story tower (on both)', `${A.structOn(H, tb.id).v}`);
+  H.game.net.emit('struct.complete', { id: ta.id, by: H.pid, xp: 0, toast: '' });
+  await t.waitFor(() => !A.structOn(G, ta.id).blueprint, RT() + 1500, 'the first tower is finished');
+  const oH = A.structOn(H, ta.id), oG = A.structOn(G, ta.id);
+  A.pacify(H, x0 + 1, y0 + 5, 30, 900);
+  A.teleport(G, x0 + 0.5, y0 + 7.6); A.teleport(H, x0 + 1.5, y0 + 7.6);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_push', o: oG });
+  MH.siege.useSiege(H.game, { kind: 'siege_push', o: oH });
+  await t.waitFor(() => (oH.push || []).filter(Boolean).length === 2, RT() + 1500, 'both grab the tower');
+  const relG = A.holdMove(G, 0, -1), relH = A.holdMove(H, 0, -1);
+  t.defer(relG); t.defer(relH);
+  await t.waitFor(() => oH.ty === y0 + 1, 14000 + RT(), 'pushed up to the wall', () => `ty ${oH.ty}`);
+  await t.waitFor(() => oH.ramp && oG.ramp, 4000 + RT(), 'touching a wall of its height, the ramp drops (on both)');
+  relG(); relH();
+  await t.sleep(PUSHMS(MH));
+  const deck = (f) => { const L = f.game.levels.sync(), w = f.game.world; return [0, 1].every((i) => L.isSurface(2, w.idx(oH.tx + i, oH.ty))); };
+  t.check(deck(H) && deck(G), 'its deck is a surface of story 2 on both');
+  MG.siege.useSiege(G.game, { kind: 'siege_push', o: oG });
+  MH.siege.useSiege(H.game, { kind: 'siege_push', o: oH });
+  await t.waitFor(() => !(oH.push || []).some(Boolean), RT() + 1500, 'both let go');
+  // the guest climbs the back ladder and crosses onto the wall-walk
+  const [lx, ly] = MG.siege.toWorld(oG, ...MG.siege.ladderLocal(oG), false);
+  A.teleport(G, lx, ly + 0.3);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_up', o: oG });
+  await t.waitFor(() => (gp.lv | 0) === 2 && Math.abs((gp.z || 0) - 2) < 0.05, 4000, 'the guest climbs up to the deck (story 2)', () => lvOf(gp));
+  const relW = A.holdMove(G, 0, -1);
+  t.defer(relW);
+  await t.waitFor(() => Math.floor(gp.y) === y0, 5000, 'it walks across the ramp onto the wall-walk', () => `${f2(gp.x)},${f2(gp.y)} ${lvOf(gp)}`);
+  await t.sleep(400);
+  relW();
+  const W = G.game.world;
+  t.check((gp.lv | 0) === 2 && G.game.levels.isSurface(2, W.idx(Math.floor(gp.x), Math.floor(gp.y))) && A.structAt(G, MG, Math.floor(gp.x), Math.floor(gp.y))?.type === 'wall_stone', 'on top of the wall at story 2', lvOf(gp));
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && Math.abs((av.z || 0) - 2) < 0.1 && av.y < y0 + 1; }, RT() + 2000, 'the host sees the guest up on the wall');
+  A.teleport(G, x0 + 3.5, y0 + 4.5);
+  await t.checkDigest(H, G);
+});
+const PUSHMS = (M) => M.siegec.PUSH.siege_tower.ramp * 1000 + 200;
+
+def('SG6', {
+  title: 'Siege engines never hurt players\' structures: the damage hook (siegeCanDamage) and a catapult stone landing on the guest\'s own walls', timeout: 90000,
+  expected: 'siegeCanDamage: a player\'s wall no, a player no, a wild creature yes, a hostile-marked wall yes, a kingdom structure no while there is no war (game.realms.atWar decides when it exists); a catapult operated by the guest throws onto a 3×3 block of player walls: the stone lands there (within 1.2 tiles of its middle) and none of them takes damage (no siege.dmg); digest equal',
+  api: 'siege.js siegeCanDamage / realmOf / siegeDebug, siegeImpact',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -2; j <= 3; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 18 });
+  t.assert(site, 'found a free 15×6 strip');
+  const { x0, y0 } = site, rows = [];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) rows.push(['wall_wood', x0 + 9 + i, y0 - 1 + j]);
+  const walls = hostBuild(H, rows), ids = [...walls];
+  const [cid] = hostBuild(H, [['catapult', x0, y0, 3]]);
+  ids.push(cid);
+  sgCleanup(t, H, G, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the walls and the catapult');
+  const oH = A.structOn(H, cid), oG = A.structOn(G, cid), w0 = A.structOn(H, walls[4]);
+  const can = (tg, at = oH) => MH.siege.siegeCanDamage(H.game, at, tg);
+  const wild = MH.mobs.spawnLoose(H.game, 'boar', x0 + 5, y0 + 2.5);
+  wild.calmT = 1e9;
+  t.defer(() => { if (!wild.dead) { wild.noCorpse = true; MH.combat.killMob(H.game, wild, null); } });
+  t.check(!can(w0), 'a player\'s wall: no');
+  t.check(!can(H.game.player) && !can(guestOnHost(H, G)), 'a player: no');
+  t.check(can(wild), 'a wild creature: yes');
+  MH.siege.siegeDebug(H.game).hostile.add(walls[0]);
+  t.check(can(A.structOn(H, walls[0])), 'a wall marked hostile (tests / debug): yes');
+  MH.siege.siegeDebug(H.game).hostile.delete(walls[0]);
+  const realmPiece = { building: true, id: 'realm:x', type: 'wall_stone', realm: 'r1' };
+  t.check(!can(realmPiece, { realm: 'r2' }), 'a kingdom\'s structure while no kingdom is at war: no');
+  H.game.realms = { atWar: (a, b) => a !== b };
+  t.check(can(realmPiece, { realm: 'r2' }) && !can(realmPiece, { realm: 'r1' }) && !can(realmPiece, oH), 'with game.realms.atWar (phase 3): an enemy kingdom\'s yes, its own / a player\'s engine no');
+  delete H.game.realms;
+  // the catapult throws onto the guest's own walls
+  sgAmmo(G, 'cat_stone', 1);
+  A.teleport(G, x0 - 0.5, y0 + 0.5);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_op', o: oG });
+  await t.waitFor(() => oH.user === G.pid, RT() + 1500, 'the guest operates the catapult');
+  const [px, py] = MH.siege.pivotOf(oH), cx = x0 + 10.5, cy = y0 + 0.5;
+  await sgAim(t, H, MH, G, oH, Math.atan2(cy - py, cx - px), Math.hypot(cx - px, cy - py));
+  const dmgOps = [];
+  const off = H.game.events.on('tile', () => {});
+  t.defer(off);
+  const old = new Set(H.game.projectiles || []);
+  t.check(G.game.siege.fire(), 'the guest throws at its own walls');
+  const st = await t.waitFor(() => sgStone(H, 'cat_stone', old), 1500 + RT(), 'the stone flies');
+  t.check(Math.hypot(st.lx - cx, st.ly - cy) < 1.2, 'it lands on the walls', `${f2(st.lx)},${f2(st.ly)} vs ${f2(cx)},${f2(cy)}`);
+  await t.waitFor(() => st.stuck || !(H.game.projectiles || []).includes(st), 4000 + RT(), 'it comes down');
+  await t.sleep(RT() + 400);
+  const hurt = walls.filter((id) => A.structOn(H, id)?.dmg > 0 || A.structOn(G, id)?.dmg > 0 || !A.structOn(H, id));
+  t.check(!hurt.length, 'none of the player\'s walls takes damage', `${hurt.length} hurt`);
+  void dmgOps;
+  G.game.ctl.interact();
+  await t.waitFor(() => !oH.user, RT() + 1500, 'the guest gets off');
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

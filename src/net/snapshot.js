@@ -49,6 +49,7 @@ import { serializePaths, applyPaths } from '../game/mut/paths.js';
 import { serializeTunnels, applyTunnels } from '../game/mut/tunnels.js'; // tunnels dug into the relief
 import { hideDugDecor } from '../game/terrain.js'; // (grass on dug ground: cosmetic)
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
+import { isEngine, PUSH_SLOTS } from '../game/content/siege.js'; // siege engines (game/siege.js): `sieg` / `sdmg` rows
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -106,6 +107,13 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
   const ball = game.build.structures.filter((o) => o.type === 'ballista' && inS(o) && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
   if (ball.length) data.ball = ball;
+  // siege engines (game/siege.js): aim / distance, operator, pushers (never in a save: nobody is on them after a load),
+  // the tower's ramp; siege damage (o.sdmg: it does not settle at dawn) of any structure
+  const sieg = game.build.structures.filter((o) => isEngine(o.type) && inS(o) && (Number.isFinite(o.aim) || o.user || o.push || o.ramp)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null,
+    Number.isFinite(o.dist) ? Math.round(o.dist * 100) / 100 : null, !save && o.user ? o.user : 0, !save && o.push ? o.push.slice() : 0, o.ramp ? 1 : 0]);
+  if (sieg.length) data.sieg = sieg;
+  const sdmg = game.build.structures.filter((o) => o.sdmg && o.dmg > 0 && inS(o)).map((o) => [o.id, Math.round(o.dmg * 1e4) / 1e4]);
+  if (sdmg.length) data.sdmg = sdmg;
   // boats (game/boats.js): pose and riders (a save drops the riders: everyone is ashore after a load)
   if (game.boats?.map.size) data.boats = [...game.boats.map.values()].map((b) => [b.id, r3(b.x), r3(b.y), r3(b.h), b.v | 0, Math.round(b.at || 0), save ? 0 : b.seats.slice(), save ? 0 : b.pets.map((q) => q.slice())]);
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; data.stock = stockRows(game); } // (stock: the farm's animals; guests see them in the entity stream)
@@ -120,7 +128,7 @@ function structsOf(game, K) { return game.build.structures.filter((o) => K(o.tx 
 export function serializeChunks(game, scope) {
   const w = game.world, d = serializeWorld(game, { keep: (x, y) => scope.has(w.chunkIndex(x, y)) });
   const out = { v: d.v, seq: d.seq, gone: d.gone, nat: d.nat, dyn: d.dyn, falling: d.falling, mined: d.mined, rockp: d.rockp, structs: d.structs, crops: d.crops, loot: d.loot };
-  for (const k of ['lvs', 'bzs', 'ball']) if (d[k]) out[k] = d[k];
+  for (const k of ['lvs', 'bzs', 'ball', 'sieg', 'sdmg']) if (d[k]) out[k] = d[k];
   return out;
 }
 
@@ -303,6 +311,23 @@ function applyInner(game, d, mode, scope = null) {
     const r = BAL.get(o.id);
     if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
     if (r && r[2] && reconcile) o.user = String(r[2]).slice(0, 40); else delete o.user;
+  }
+
+  // ---- siege engines (game/siege.js): aim, distance, operator, pushers, the tower's ramp; siege damage ----
+  const SG = new Map(arr(d.sieg).filter((r) => Array.isArray(r)).map((r) => [r[0], r]));
+  const SD = new Map(arr(d.sdmg).filter((r) => Array.isArray(r) && Number.isFinite(r[1])).map((r) => [r[0], Math.max(0, Math.min(1, r[1]))]));
+  for (const o of game.build.structures) {
+    if (!IN(o.tx + 0.5, o.ty + 0.5)) continue;
+    if (SD.has(o.id)) { o.dmg = SD.get(o.id); o.sdmg = 1; game.rockFx?.structHit?.(game, o, null); } else if (o.sdmg && reconcile) { delete o.sdmg; delete o.dmg; game.rockFx?.structHit?.(game, o, null); }
+    if (!isEngine(o.type)) continue;
+    const r = SG.get(o.id);
+    if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
+    if (r && Number.isFinite(r[2])) o.dist = r[2]; else if (reconcile) delete o.dist;
+    if (r && r[3] && reconcile) o.user = String(r[3]).slice(0, 40); else delete o.user;
+    const pl = r && Array.isArray(r[4]) && reconcile ? r[4].slice(0, PUSH_SLOTS).map((q) => (typeof q === 'string' && q ? q.slice(0, 40) : 0)) : null;
+    if (pl && pl.some(Boolean)) o.push = pl; else delete o.push;
+    const ramp = !!(r && r[5]);
+    if (ramp !== !!o.ramp) { if (ramp) o.ramp = 1; else delete o.ramp; o._rampK = ramp ? 1 : 0; game.build.v++; }
   }
 
   // ---- boats (game/boats.js): add / update; a 'net' snapshot removes the ones it does not list ----

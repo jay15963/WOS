@@ -32,6 +32,7 @@ import { normStyle, cleanDet } from '../content/kits.js';
 import { onRoofStruct, onDoor, roofSupported } from '../roofs.js';
 import { ROOF_STYLES, defaultRoofStyle } from '../content/roofs.js';
 import { deckReason, deckFriendly, orderDeckTiles } from '../decks.js'; // piers / bridges (layer 'deck')
+import { siegePlaceReason, towerAhead } from '../siege.js'; // siege engines: built near an Oficina de cerco; the tower's height
 
 export const REFUND = 0.75;
 export const MAX_TILES = 140;
@@ -421,6 +422,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     if (r) return r;
     return who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST ? 'Muito longe' : null;
   }
+  if (def.siege) { const r = siegePlaceReason(game, type, tx, ty, normRot(type, rot), lv, ignore); if (r) return r; } // siege engines (game/siege.js)
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const sr = slopeReason(game, type, tx, ty, sw, sh); // terrain height: cliffs / too steep
@@ -494,7 +496,7 @@ const near = (e, o, r) => !e || Math.hypot(e.x - o.x, e.y - (o.cy ?? o.y)) <= r 
 
 defineIntent('build.place', {
   doc: 'Place free blueprints of `type` on tiles with orientation `rot` and look style / det (materials are delivered later, when work starts). A door may replace a wall (wall refunded). Looks are fixed once built.',
-  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140; a roof ≤ 420)', rot: 'int?', style: 'styleId?', det: 'detailString?', lv: 'story 0..3? (levels)' },
+  args: { type: 'buildingId', tiles: '[[tx, ty]] (≤ 140; a roof ≤ 420)', rot: 'int?', style: 'styleId?', det: 'detailString?', lv: 'story 0..3? (levels)', n: 'stories 1..3? (a siege tower facing no wall)' },
   run(game, a, actor, net) {
     const def = BUILDINGS[a.type];
     if (!def) return 'Construção desconhecida';
@@ -520,7 +522,9 @@ defineIntent('build.place', {
       if (r) { first ||= r === 'exists' ? 'Já existe uma construção aqui' : r; continue; }
       // creative (creative.js): finished at once, no materials — a roof only where a finished support holds it
       const now = game.creative && !(def.roof && !roofSupported(game, tx, ty, true));
-      list.push([net.newId('s'), a.type, tx, ty, Math.floor(net.roll() * 1000), now ? 1 : 0, Math.round(game.worldTime), rot, now || costEmpty(def) ? 1 : 0, 0, style, det]);
+      // (a siege tower: v = its stories — the wall it faces decides, else the player's choice; game/siege.js towerStoriesFor)
+      const v = a.type === 'siege_tower' ? (towerAhead(game, tx, ty, rot)?.n || Math.max(1, Math.min(3, num(a.n, 2) | 0))) : Math.floor(net.roll() * 1000);
+      list.push([net.newId('s'), a.type, tx, ty, v, now ? 1 : 0, Math.round(game.worldTime), rot, now || costEmpty(def) ? 1 : 0, 0, style, det]);
       if (batch) batch.set(game.world.idx(tx, ty), a.type);
     }
     if (!list.length) return first || 'Local inválido';

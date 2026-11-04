@@ -32,6 +32,7 @@ import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/r
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
 import { orderDeckTiles } from './decks.js'; // piers / bridges
 import { ballistaIt, useBallista } from './ballista.js'; // the ballista: get on / off
+import { siegeIt, useSiege, towerAhead } from './siege.js'; // siege engines: operate / push / climb (docs/REINOS.md)
 
 export { placeStructure, completeStructure, removeStructure, placeReason, defOf, REFUND, dimsOf, rotCount } from './mut/structures.js';
 
@@ -90,7 +91,7 @@ export function enterBuildMode(game, type, opts = {}) {
   let rot = src ? src.rot | 0 : normRot(type, rotMemory(game)[type] ?? 0);
   if (def.mount && !src && !rot) rot = 1; // wall-mounted decor: against a wall
   const look = src ? [src.style || '', src.det || ''] : lookMemory(game)[type] || [def.roof ? rotMemory(game)['style:' + type] || '' : '', ''];
-  game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null,
+  game.build.mode = { kind: 'place', type, rot, move: src, hover: [tx, ty], anchor: null, end: null, locked: !!src, tiles: [], valid: false, reason: null, n: 0, short: null, stories: rotMemory(game)['stories:' + type] || 2,
     style: normStyle(type, look[0]), det: cleanDet(type, look[1]),
     lv: def.roof ? 0 : src ? src.lv | 0 : Math.max(0, Math.min(3, Math.round(p.z || 0))) }; // levels: story to build on (ui/levelbar.js), the player's own by default
   game.events.emit('buildui', {});
@@ -169,6 +170,18 @@ function brushRect(game, x0, y0, x1, y1) {
   if (!ids.length) { game.events.emit('error', { text: built ? 'Já construída: desmonte e construa de novo para mudar o estilo' : 'Nenhuma planta deste tipo aqui' }); return 0; }
   game.net.request('struct.style', { ids, type: m.type, style: m.style || '', det: m.det || '' }, { onReject: (why) => why && game.events.emit('error', { text: why }) });
   return ids.length;
+}
+
+// a siege tower's stories when it faces no wall (T / the build bar's Andares): 1 → 2 → 3 (remembered)
+export function cycleTowerStories(game, dir = 1) {
+  const m = game.build.mode;
+  if (!m || m.kind !== 'place' || m.type !== 'siege_tower' || m.move) return false;
+  if (m.towerAuto) { game.events.emit('toast', { text: 'A altura vem da muralha à frente: vire a torre para outro lado para escolher', kind: 'info' }); return true; }
+  m.stories = ((((m.stories || 2) - 1 + dir) % 3) + 3) % 3 + 1;
+  rotMemory(game)['stories:siege_tower'] = m.stories; // sync-ok: local preference (player save), not a structure
+  game.audio?.play('rotate', {});
+  game.events.emit('buildui', {});
+  return true;
 }
 
 // R / Shift+R / ⟳: next orientation (remembered per type)
@@ -263,6 +276,13 @@ function updatePreview(game) {
     else if (!out.length) { m.valid = false; m.reason = 'Este cômodo já tem telhado'; }
     else if (bad) { m.valid = false; m.reason = firstReason === NO_SUPPORT ? `Falta apoio em ${bad} ${bad > 1 ? 'pontos' : 'ponto'}: coloque colunas onde está vermelho` : firstReason; }
   }
+  // a siege tower: the wall it faces decides its height (game/siege.js towerAhead), else the stories picked (T / Andares)
+  m.note = null;
+  if (m.type === 'siege_tower' && !m.move) {
+    const ah = towerAhead(game, m.hover[0], m.hover[1], m.rot), n = ah ? ah.n : m.stories || 2;
+    m.towerN = n; m.towerAuto = !!ah;
+    m.note = `${n} ${n > 1 ? 'andares' : 'andar'}` + (ah ? ` · da muralha à frente (a ${ah.d} tiles)` : game.input.isTouch ? ' · toque em Andares' : ' · T muda os andares');
+  }
   // materials are only needed when the work starts: tell the player what is missing for all of it
   m.short = null;
   if (!m.move && nOk && !game.creative) {
@@ -295,7 +315,7 @@ export function commitPlacement(game) {
     return true;
   }
   game.build.lastBatch = { type: m.type, tiles, lv: m.lv || 0 }; // "Construir agora" on the build bar (local)
-  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined, lv: m.lv || undefined }, {
+  game.net.request('build.place', { type: m.type, tiles, rot: m.rot, style: m.style || undefined, det: m.det || undefined, lv: m.lv || undefined, n: m.type === 'siege_tower' ? m.stories || 2 : undefined }, {
     onReject: (why) => game.events.emit('error', { text: why || 'Local inválido' }),
   });
   game.events.emit('toast', { text: (n > 1 ? `${n}× ${def.name}: planta marcada` : `${def.name}: planta marcada`) + (m.short ? ` · ${m.short.toLowerCase()}` : ''), kind: m.short ? 'warn' : 'info' });
@@ -617,6 +637,7 @@ export function describeStructure(game, o) {
   if (def.feed) return structIt(o, { kind: 'feeder', verb: 'Abrir alimentador', icon: 'chest', prio: 3, use: true }); // (livestock.js)
   if (o.type === 'bed') return structIt(o, { kind: 'bed', verb: 'Renascer aqui', icon: 'bed', prio: 3, use: true });
   if (o.type === 'ballista') return structIt(o, ballistaIt(game, o)); // (ballista.js: Operar / Sair)
+  if (def.siege) { const it = siegeIt(game, o); if (it.alt) it.alt = structIt(o, it.alt); return structIt(o, it); } // (siege.js: Operar / Empurrar / Subir)
   if (def.station) return structIt(o, { kind: 'station', verb: o.type === 'campfire' ? 'Cozinhar' : 'Criar', icon: 'craft', prio: o.type === 'campfire' ? 1 : 3, use: true, reach: 1.4 });
   if (o.type === 'farm_plot') return game.farm?.describePlot(game, o) || null;
   return null;
@@ -642,6 +663,9 @@ export function useStructure(game, it) {
       return;
     case 'ballista':
       useBallista(game, o);
+      return;
+    case 'siege_op': case 'siege_push': case 'siege_up': case 'siege_down':
+      useSiege(game, it);
       return;
     case 'bed': {
       // the bed only marks where you come back (owner: the night is not skipped any more, it is part of the game);

@@ -42,6 +42,8 @@ export const OP_AT = {
   'struct.complete': (g, a) => [objP(g, a.id)],
   'struct.remove': (g, a) => [objP(g, a.id)],
   'struct.dmg': (g, a) => [objP(g, a.id)],
+  'siege.dmg': (g, a) => [objP(g, a.id)],
+  'siege.step': (g, a) => [objP(g, a.id), P(a.tx + 0.5, a.ty + 0.5)], // (a pushed siege engine: where it was and where it goes)
   'struct.relocate': (g, a) => [objP(g, a.id), objP(g, a.src)],
   'struct.decon': (g, a) => each(a.ids, (id) => objP(g, id)),
   'struct.working': (g, a) => [objP(g, a.id)],

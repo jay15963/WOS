@@ -24,6 +24,7 @@ import { installWildlife } from './wildlife.js';
 import { installSeasonFx } from './seasonfx.js';
 import { installWalkerFx } from './walkerfx.js';
 import { installGiantFx } from './giantfx.js';
+import { installSiegeFx } from './siegefx.js'; // siege engines: release, flying stones, impacts, the ram's blows
 import { SEASON } from '../art/season.js';
 
 const rnd = Math.random;
@@ -63,6 +64,7 @@ export function installAmbient(game) {
   installBrush(game);     // vegetation parting around walkers (shader pushers + rustle bits)
   installWalkerFx(game);  // winter walkers: cold mist, glowing eyes, shattering into ice (cosmetic)
   installGiantFx(game);   // ice giants (smash telegraph, thrown rocks, footsteps) and the ballista's shots (cosmetic)
+  installSiegeFx(game);   // siege engines: the swing, the stones in flight, impacts, the ram (cosmetic)
 }
 
 class Ambient {

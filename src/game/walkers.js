@@ -64,7 +64,7 @@ const SIEGE_S = { wall_stone: 350 };
 const SIEGE_WOOD = 105;
 const DETOUR = 1.5, DETOUR_ADD = 6; // a way longer than this × the straight line (+ tiles) is not taken: break through
 const STALL_S = 2.5;    // s without getting anywhere (< 0.8 tile): break what is in the way
-const breakable = (o) => { const d = o && !o.blueprint && !o.removed && !o.lv && BUILDINGS[o.type]; return !!d && (d.connect === 'wall' || d.connect === 'fence') && (d.block === 'tile' || d.block === 'door'); };
+const breakable = (o) => { const d = o && !o.blueprint && !o.removed && !o.lv && BUILDINGS[o.type]; return !!d && (((d.connect === 'wall' || d.connect === 'fence') && (d.block === 'tile' || d.block === 'door')) || !!d.siege); }; // (+ siege engines in the way: game/siege.js)
 const handTorch = (q) => q.offhand === 'torch_hand' || q.equip?.off === 'torch_hand';
 const openTile = (w, x, y) => w.inBounds(x, y) && !w.blocked(x, y) && w.solid.get(w.idx(x, y)) !== 2; // (doors stop them)
 
@@ -369,7 +369,7 @@ export function walkersTick(game, night) {
   }
   if (!on) {
     // ...and the walls they cracked settle (what they broke stays broken)
-    if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0) game.net.emit('struct.dmg', { id: o.id, d: 0 });
+    if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0 && !o.sdmg) game.net.emit('struct.dmg', { id: o.id, d: 0 }); // (siege damage stays: game/siege.js)
     giantsTick(game, false);
     game._walkT = 4;
     return;

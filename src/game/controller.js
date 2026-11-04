@@ -212,6 +212,7 @@ export function installController(game) {
       if (p.dead) return;
       if (p.mount && p.wprof?.type !== 'spear') { game.events.emit('error', { text: 'Montado: só a lança' }); return; } // (docs/HORSE.md)
       if (game.ballista?.onAttack?.()) return; // (on a ballista: the attack fires it — ballista.js)
+      if (game.siege?.onAttack?.()) return; // (on a siege engine: throw / strike — siege.js)
       const cur = attackable(p.target) ? p.target : null;
       if (p.wprof?.ranged) game.events.emit('rangeflash'); // (fx/rangeflash.js: how far the bow reaches)
       // a training dummy is the last choice: any creature in reach first
@@ -243,6 +244,7 @@ export function installController(game) {
       const p = game.player;
       if (p.dead) return;
       if (game.ballista?.onInteract?.()) return; // (on a ballista: E / the use button gets off it)
+      if (game.siege?.onInteract?.()) return; // (on / pushing a siege engine: E gets off / lets go — siege.js)
       it = it || ctl.near;
       // a shovel in the hand and nothing else to use here (or only the rock / face a pickaxe digs): the terrain tool
       // (game/terrain.js; its bar has the four modes)
@@ -320,6 +322,7 @@ export function installController(game) {
     if (game.aim?.active) { game.aim.tap?.(tap); return; } // aiming: a click fires at that point (game.aim)
     if (game.ui?.modal) { game.events.emit('closepanels', {}); return; }
     if (game.ballista?.onTap?.(tap)) return; // (on a ballista: a click fires it, taps do nothing — ballista.js)
+    if (game.siege?.onTap?.(tap)) return; // (on a siege engine: a click throws, taps do nothing — siege.js)
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
     if (game.build.mode) { if (!isMouse) buildTap(game, wx, wy); return; }
@@ -467,7 +470,7 @@ export function installController(game) {
           if (!attackable(t) || p.target !== t || !p.autoAttack) ctl.goal = null;
         } else if (goal.type === 'interact') {
           const it = goal.it;
-          const glv = it.use && it.o?.building ? it.o.lv | 0 : null; // levels: doors / chests / beds / stations are used from their own story
+          const glv = it.use && it.o?.building && !it.lvAny ? it.o.lv | 0 : null; // levels: doors / chests / beds / stations are used from their own story (lvAny: a siege tower's deck)
           if (reachDist(p, it) <= it.reach && (glv == null || Math.round(p.z || 0) === glv)) {
             ctl.goal = null;
             if (!useInteract(g, it) && goal.auto) g.work?.fail(it);

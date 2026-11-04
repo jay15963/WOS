@@ -956,7 +956,7 @@ export function solidCracks(B, A, o, s, alpha, flip, sh) {
   const ox = bx + sh * C, oy = by + sh * S;
   const wx = (lx, ly) => ox + ca * lx - sa * ly, wy = (lx, ly) => oy + sa * lx + ca * ly;
   for (const p of e.P) {
-    if (p.h1 - p.h0 < 6 / 64) continue;
+    if (p.h1 - p.h0 < 6 / 64 || (p.vis && !p.vis(o, 0))) continue; // (hidden parts — a shadow caster only — get no cracks)
     const h0 = e.h0 + Math.max(0, p.h0), h1 = e.h0 + p.h1;
     if (p.t === 1) {
       const px = wx(p.ax, p.ay), py = wy(p.ax, p.ay), r = (p.x1 - p.x0) / 2;
