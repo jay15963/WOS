@@ -69,7 +69,7 @@ export function installEcoHud(game) {
     purse.classList.remove('bump'); void purse.offsetWidth; purse.classList.add('bump');
   };
   // ---------- the tracker ----------
-  let trackKey = '', tT = 0;
+  let trackKey = null, tT = 0; // (null = redraw: '' is a real key — no rows — so a reset to '' never cleared the last row)
   const arrowOf = (x, y) => {
     const p = game.player, dx = game.world.dx(x, p.x), dy = y - p.y, d = Math.hypot(dx, dy);
     const [vx, vy] = game.toViewDir ? game.toViewDir(dx, dy) : [dx, dy];
@@ -100,19 +100,19 @@ export function installEcoHud(game) {
     track.querySelectorAll('[data-j]').forEach((b) => b.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
       const id = b.dataset.j;
-      if (id === 'wp') { E.wp = null; trackKey = ''; return; }
+      if (id === 'wp') { E.wp = null; trackKey = null; return; }
       const j = myRec(game)?.jobs.find((q) => q.id === id);
       if (!j) return;
       if (E.track === id) { E.track = null; E.wp = null; } else { E.track = id; E.wp = jobWaypoint(game, j); }
-      trackKey = '';
+      trackKey = null;
     }));
   };
   // ---------- notices ----------
   const me = () => meUid(game);
   const K = (k) => kingdomOf(game, k);
   game.events.on('eco', (d) => {
-    if (!d || d.type === 'trade' || d.type === 'day' || d.type === 'sync') { trackKey = ''; return; }
-    trackKey = '';
+    if (!d || d.type === 'trade' || d.type === 'day' || d.type === 'sync') { trackKey = null; return; }
+    trackKey = null;
     if (d.u != null && d.u !== me()) return;
     if (d.type === 'rankup') {
       const R = RANK_LIST[d.rank];
@@ -176,7 +176,7 @@ export function installEcoHud(game) {
         if (c !== coins) { if (coins >= 0 && Math.abs(c - coins) > 0) showDelta(c - coins); coins = c; pb.textContent = fmt(c); }
       }
       // arriving at a house / plot waypoint: it goes
-      if (E.wp && E.wp.kind !== 'job' && Math.hypot(g.world.dx(E.wp.x, p.x), E.wp.y - p.y) < 2.2) { E.wp = null; trackKey = ''; }
+      if (E.wp && E.wp.kind !== 'job' && Math.hypot(g.world.dx(E.wp.x, p.x), E.wp.y - p.y) < 2.2) { E.wp = null; trackKey = null; }
       tT -= dt;
       if (tT <= 0) { tT = 0.25; drawTracker(); }
     },
