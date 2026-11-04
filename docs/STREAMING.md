@@ -244,6 +244,20 @@ quadro (`game.frameStats()`: update + render), resultados de worker medidos à p
   oceano plano, 8 ms ao todo). Memória: páginas finas ~0,26 MB por chunk com relevo (~17 MB com ~70 chunks); janela da GPU
   74,5 MB (24,5 MB sem as alturas: `hgt` 16 MB + `hgtG` 32 MB + `hgtC` / `hgtK` 2 MB). `?hills=1` no clássico: idêntico
   ao protótipo (mesmos números de `heightAt` / penhascos).
+- **O planeta como o jogo** (mundo novo padrão, `?seed=4242&dev=1`, com zonas, acampamentos, fauna, mapa pintado e
+  interesse; mesmo PC, SwiftShader):
+
+  | Cenário | média | p95 | máx | quadros > 8 ms |
+  |---|---|---|---|---|
+  | andando a 9 tiles/s por 15 s (98 chunks gerados no total) | 0,79 ms | 1,4 ms | 4,2 ms | 0 |
+  | 4 jogadores longe (3 âncoras extras a 3000–7000 tiles): 186 chunks, 75 ativos | 0,80 ms | 1,3 ms | 3,3 ms | 0 |
+  | remando um barco (~2,4 tiles/s, 10 s) | 0,60 ms | 1,0 ms | 3,2 ms | 0 |
+
+  Partida de um mundo novo: parte do mundo (`wosWorldMs`) 0,7–1,0 s; o planeta macro no worker ~2,2 s em paralelo com os
+  gráficos (o total `wosBootMs` em dev, 10–12,5 s, é a pintura do atlas sem cache de localhost); o mapa pintado do planeta
+  (`renderDetail` 2048 × 1024) sai ~2,8 s depois, no mesmo worker. Chunk (gerar + adaptar + zonas) ~36 ms em média.
+  Memória com 4 jogadores longe: camadas de tiles 55,9 MB (camadas novas `zone` / `pbiome` / `prock`: 12 KB por chunk),
+  ~34,5 mil objetos, heap JS ~166 MB, janela da GPU 74,5 MB; o mapa pintado 8 MB (um canvas 2048 × 1024).
 - Medir: `game.streamStats()` (HUD de streaming, ligado em localhost no planeta ou com `?stream=1`), `game.frameStats(reset)`,
   `game._prof = new Map()` (o sistema mais lento por quadro), `game.debug.bench(n)`.
 
