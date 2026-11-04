@@ -178,7 +178,7 @@ export function rideMove(game, p, dx, dy) {
         if (moveCircle(w, p, ax, ay) && !rideForbidden(game, p)) { moved = true; continue; }
         back(s1);
       }
-      if (!moved) refuseOnce(game, 'O cavalo não passa por aqui (portas, escadas e túneis só a pé)');
+      if (!moved) refuseOnce(game, 'Cavalo não passa: portas, escadas e túneis só a pé');
     }
   } finally { p.r = r0; p.canSwim = sw; }
   if (!moved && game.world.liquidAt(Math.floor(p.x + Math.sign(dx) * 0.6), Math.floor(p.y + Math.sign(dy) * 0.6)) === 2) refuseOnce(game, 'Água funda: o cavalo não nada');
@@ -204,7 +204,7 @@ function mountLocal(game, p, nid) {
   const h = game.ctl?.hinted;
   if (h && !h.horse) {
     h.horse = true;
-    game.events.emit('toast', { text: game.input?.isTouch ? 'Montado: o direcional galopa · Desmontar no botão de usar · só a lança ataca' : 'Montado: WASD galopa · E desmonta · só a lança ataca (Estocada no lugar de Lançar Lança)', kind: 'info' });
+    game.events.emit('toast', { text: game.input?.isTouch ? 'Montado: o direcional galopa · só a lança ataca' : 'Montado: WASD galopa · E desmonta · só a lança', kind: 'info' });
   }
 }
 function unmountLocal(game, p) {
@@ -327,7 +327,7 @@ registerWork('horse_feed', {
 registerWork('horse_saddle', {
   valid(g, it) { it.x = it.o.x; it.y = it.o.y; return !it.o.dead && isHorse(it.o) && !it.o.saddle; },
   start(game, it) {
-    if (game.player.inv.count('saddle') < 1) { game.events.emit('error', { text: 'Você precisa de uma sela (Bancada: 5 couros, 2 madeiras, 2 cordas)' }); return null; }
+    if (game.player.inv.count('saddle') < 1) { game.events.emit('error', { text: 'Precisa de uma sela (bancada: 5 couros, 2 madeiras, 2 cordas)' }); return null; }
     return { type: 'craft', cycle: 0.9, need: 1, label: 'Selando' };
   },
   finish(game, wk) {
@@ -373,6 +373,8 @@ export function installHorses(game) {
     follow: (m, dt) => rideFollow(game, m, dt),
     hurtRedirect: (target, src, amount, opts) => hurtRedirect(game, target, src, amount, opts),
     mounted: () => !!game.player.mount,
+    // a loaded world (livestock.js restoreStock): the host back on the horse it rode when it saved (it stands there)
+    remount: (m) => { const p = game.player; if (game.net.auth && !p.dead && !m.rider && Math.hypot(p.x - m.x, p.y - m.y) < 1.5) mountHorse(game, m, game.net.pid); },
     // tests / dev (host): a wild horse tamed at once, a tamed horse at (x, y) (saddled: o.saddle)
     debug: {
       tame: (m) => { tameHorse(game, m); return m; },

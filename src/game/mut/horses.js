@@ -28,7 +28,7 @@ defineIntent('horse.feed', {
     const r = feedWild(game, m, actor);
     const tamed = r === 'tamed';
     net.emit('horse.note', { nid: m.nid, x: r2(m.x), y: r2(m.y), fx: tamed ? 'tamed' : 'eat', by: actor.pid,
-      toast: tamed ? 'Você domou o cavalo! Ele é da criação agora: dê trigo no alimentador e ponha uma sela para montar' : `O cavalo comeu o trigo da sua mão (${r}/${HORSE.tameGives})`,
+      toast: tamed ? 'Você domou o cavalo! Sela para montar, trigo para comer' : `O cavalo comeu o trigo da sua mão (${r}/${HORSE.tameGives})`,
       toastKind: tamed ? 'good' : 'info' });
     return { n: tamed ? HORSE.tameGives : r };
   },

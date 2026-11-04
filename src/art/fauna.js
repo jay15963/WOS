@@ -247,7 +247,7 @@ const Q = {};
 // saddled art adds the pad, the saddle (seat, pommel, cantle, flaps, stirrups, girth) and the bridle with its reins ---
 export const HORSE_COATS = [
   { coat: '#b98a52', belly: '#e2c9a0', sock: '#3a2c22', mane: '#3a2a20', muzzle: '#e8d7bb' },          // dun
-  { coat: '#a2552c', belly: '#c88a5e', sock: '#6e3418', mane: '#ead39a', muzzle: '#c9906c', blaze: '#f2ece0' }, // chestnut
+  { coat: '#8c4a2b', belly: '#b07d5a', sock: '#5a2c18', mane: '#e4cf9c', muzzle: '#b98a6c', blaze: '#f2ece0' }, // chestnut
   { coat: '#cbc6bd', belly: '#e9e5de', sock: '#6c6762', mane: '#f1eee8', muzzle: '#4e4a47', dapple: '#9f9890' }, // grey
   { coat: '#2f2724', belly: '#3c322d', sock: '#1d1715', mane: '#151110', muzzle: '#463a33' },          // black
 ];

@@ -355,9 +355,9 @@ function farmTick(game, dt) {
       const was = m.starveT || 0;
       m.starveT = was + dt;
       const lim = STARVE_DAYS * D, nm = nameOf(m.species, isBabyM(m)).toLowerCase();
-      const where = S.always && !f ? ': leve-o a um alimentador com trigo!' : ' no alimentador!';
+      const where = S.always && !f ? ': leve-o ao alimentador!' : ' no alimentador!';
       if (was === 0) note(game, `${artigo(m.species)} ${nm} está passando fome${where}`, 'bad');
-      if (was < lim * 0.6 && m.starveT >= lim * 0.6) note(game, `${artigo(m.species)} ${nm} vai morrer de fome: ${S.always ? 'dê trigo a ele no alimentador!' : 'ponha comida no alimentador!'}`, 'bad');
+      if (was < lim * 0.6 && m.starveT >= lim * 0.6) note(game, `${artigo(m.species)} ${nm} vai morrer de fome: ${S.always ? 'trigo no alimentador!' : 'ponha comida no alimentador!'}`, 'bad');
       if (m.starveT >= lim) { note(game, `${artigo(m.species)} ${nm} morreu de fome.`, 'bad'); m.tame = false; killMob(game, m, null); }
     } else m.starveT = 0;
   }
@@ -444,13 +444,13 @@ export function slaughter(game, src, m) {
 }
 
 // ---------- persistence (host save file only; the join snapshot never needs it: the entity stream shows them) ----------
-// row: [species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp, saddle (horses; older saves: none)]
+// row: [species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp, saddle, ridden by the saving host (horses; older saves: none)]
 export function stockRows(game) {
   const out = [];
   for (const m of game.entities) {
     if (!m.stock || !m.owned || m.dead || m.proxy) continue;
     out.push([m.species, r2(m.x), r2(m.y), m.variant | 0, Math.round((m.fed ?? 1) * 1000) / 1000, Math.round(m.bornAt || 0), m.adultAt == null ? 0 : Math.round(m.adultAt),
-      Math.round(m.breedAt || 0), m.scale || 1, m.level | 0, Math.round(m.hp), m.saddle ? 1 : 0]); // [11] a horse's saddle (docs/HORSE.md; a ridden one is saved too, riderless)
+      Math.round(m.breedAt || 0), m.scale || 1, m.level | 0, Math.round(m.hp), m.saddle ? 1 : 0, m.rider && m.rider === game.net.pid ? 1 : 0]); // [11] a horse's saddle, [12] the host rides it (docs/HORSE.md; a ridden one is saved too)
   }
   return out;
 }
@@ -462,12 +462,12 @@ function restoreStock(game) {
   const W = game.world;
   for (const r of rows) {
     if (!Array.isArray(r) || !STOCK[r[0]]) continue;
-    const [sp, x, y, variant, fed, bornAt, adultAt, breedAt, scale, level, hp, saddle] = r;
+    const [sp, x, y, variant, fed, bornAt, adultAt, breedAt, scale, level, hp, saddle, ridden] = r;
     if (!(x > 0 && y > 0 && x < W.W && y < W.H)) continue;
     const m = spawnStock(game, sp, x, y, { baby: !!(variant & 2), variant: variant | 0, fed: Math.max(0, Math.min(1, +fed || 0)), level: level | 0 || null });
     m.bornAt = +bornAt || 0; m.adultAt = adultAt ? +adultAt : null; m.breedAt = +breedAt || 0;
     if (scale > 0.3 && scale < 1.5) m.scale = scale;
-    if (STOCK[sp].always) { m.tame = true; m.saddle = !!saddle; } // (a tamed horse: tamed anywhere, its saddle)
+    if (STOCK[sp].always) { m.tame = true; m.saddle = !!saddle; if (ridden && m.saddle) game.horses?.remount(m); } // (a tamed horse: tamed anywhere, its saddle; the host back on the one it rode)
     if (hp > 0) m.hp = Math.min(m.maxHp, hp);
   }
 }
