@@ -5646,6 +5646,68 @@ def('ST2', {
   await t.checkDigest(H, G3);
 });
 
+// =====================================================================================================
+// TR · terrain relief (docs/TERRAIN-HEIGHT.md): tunnels, waterfalls, the shovel, jumping down. A host on the real planet
+// (seed 4242) at a mountain cliff, the guest generating the same chunks (ST2).
+const RELIEF_AT = [10267, 2281]; // (seed 4242: open ground at the foot of a cliff face, west of it a relief ≥ 1 story high)
+async function reliefPair(t, at = RELIEF_AT) {
+  const room = newRoom();
+  const H = await bootHost(t, room, { extra: `&source=planet&px=${at[0]}&py=${at[1]}` });
+  const G = await bootGuest(t, room, H);
+  const MH = await A.mods(H), MG = await A.mods(G);
+  t.check(H.game.world.height.any && G.game.world.height.any, 'both peers on the planet with heights', `${H.game.world.source.kind} / ${G.game.world.source.kind}`);
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  A.pacify(H, at[0], at[1], 40);
+  return { H, G, MH, MG };
+}
+// the tunnel tile in front of a player (its work descriptor) — game/tunnels.js describeTunnel
+async function tunnelIt(f, tx, ty) { const MT = await fimp(f, 'game/tunnels.js'), MM = await fimp(f, 'game/mining.js'); return MT.describeTunnel(f.game, tx, ty, true) || MM.describeRock(f.game, tx, ty); } // (a rock tile: "Minerar" — the host tunnels it)
+
+def('TR1', {
+  title: 'TR: the guest digs a tunnel into a cliff; both see it and walk in', timeout: 180000,
+  expected: 'Guest at the foot of a cliff on the planet, pickaxe in hand, facing west: "Cavar túnel" digs the face (work tunnel → intent tunnel.hit → op tunnel.dig): the tile becomes a tunnel with its floor at the guest\'s ground on both peers; the guest walks in (e._tn = the floor), digs a second tile from inside, the host sees the guest in the tunnel (its avatar\'s level = the floor); the relief above is unchanged on both (heightAt equal to the generated surface); the host walks in through the mouth and stands on the floor; a body on the surface over the tunnel is not in it; digest equal (tun section)',
+  api: 'game/tunnels.js describeTunnel / work tunnel; mut/tunnels.js tunnel.hit / tunnel.dig / canTunnel; world.tun / tunAt / tunnels; physics.js tunTrack (e._tn); session presence tn; digest tiles.tun',
+}, async (t) => {
+  const { H, G } = await reliefPair(t);
+  const hw = H.game.world, gw = G.game.world, gp = G.game.player, [fx, fy] = RELIEF_AT;
+  await t.waitFor(() => hw.isLoaded(hw.chunkIndex(fx, fy)) && gw.isLoaded(gw.chunkIndex(fx, fy)), 15000, 'both loaded the cliff chunk');
+  A.teleport(G, fx + 0.5, fy + 0.5); gp.facing = 'w';
+  A.equip(G, 'pickaxe_copper');
+  await A.hostSees(t, H, G);
+  const h0 = hw.heightAt(fx - 1 + 0.5, fy + 0.5), f0 = gw.heightAt(gp.x, gp.y);
+  const it = await tunnelIt(G, fx - 1, fy);
+  t.assert(it && it.kind === 'tunnel', 'the face west of the guest can be tunnelled ("Cavar túnel")', JSON.stringify(it));
+  await A.workUntil(t, G, () => it, () => gw.isTunnel(fx - 1, fy) && hw.isTunnel(fx - 1, fy), 20000, 'dig the first tunnel tile');
+  t.check(Math.abs(hw.tunAt(fx - 1, fy) - f0) < 0.06 && hw.tunAt(fx - 1, fy) === gw.tunAt(fx - 1, fy), 'its floor = the guest\'s ground, the same on both', `floor ${hw.tunAt(fx - 1, fy)} / ${gw.tunAt(fx - 1, fy)} · guest ground ${f0.toFixed(2)}`);
+  t.check(Math.abs(hw.heightAt(fx - 1 + 0.5, fy + 0.5) - h0) < 1e-6 && Math.abs(gw.heightAt(fx - 1 + 0.5, fy + 0.5) - h0) < 1e-6, 'the relief above stays (surface unchanged on both)', `${h0.toFixed(2)}`);
+  // in: walk west until the guest is in the tunnel
+  let rel = A.holdMove(G, -1, 0);
+  await t.waitFor(() => gp._tn != null && gp.x < fx - 0.3, 4000, 'the guest walks into the tunnel (its level = the floor)', () => `x=${f2(gp.x)} tn=${gp._tn}`);
+  await t.sleep(400); rel();
+  const it2 = await tunnelIt(G, fx - 2, fy);
+  t.assert(it2, 'from inside, the next tile can be dug', `guest at ${f2(gp.x)},${f2(gp.y)} tn ${gp._tn} · rock ${gw.rock.get(gw.idx(fx - 2, fy))}`);
+  await A.workUntil(t, G, () => it2, () => gw.isTunnel(fx - 2, fy) && hw.isTunnel(fx - 2, fy), 20000, 'dig the second tile from inside');
+  rel = A.holdMove(G, -1, 0);
+  await t.waitFor(() => gp.x < fx - 1.2, 4000, 'the guest walks deeper', () => `x=${f2(gp.x)}`);
+  await t.sleep(300); rel();
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && av._tn != null && Math.abs(av._tn - hw.tunAt(fx - 2, fy)) < 0.01; }, RT() + 2000, 'the host sees the guest in the tunnel (avatar level = the floor)', () => `av tn ${guestOnHost(H, G)?._tn}`);
+  const copy = A.avatarOn(H, G.pid);
+  await t.waitFor(() => copy && copy._tn != null, 3000, "the guest's drawn copy on the host is in the tunnel too");
+  // the host walks in through the mouth
+  const hp = H.game.player;
+  A.teleport(H, fx + 1.4, fy + 0.5); hp.facing = 'w';
+  rel = A.holdMove(H, -1, 0);
+  await t.waitFor(() => hp._tn != null, 6000, 'the host walks in through the mouth (its level = the floor)', () => `x=${f2(hp.x)} tn=${hp._tn}`);
+  await t.sleep(250); rel();
+  t.check(hp.x < fx, 'the host stands in the tunnel', `x=${f2(hp.x)}`);
+  // a body standing on the surface over the tunnel is not in it
+  const top = { x: fx - 1.5, y: fy + 0.5, _tt: -1, _tn: null };
+  const MP = await fimp(H, 'game/physics.js');
+  MP.tunTrack(hw, top);
+  t.check(top._tn == null, 'a body placed on the surface over the tunnel stays on the surface', `tn ${top._tn}`);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

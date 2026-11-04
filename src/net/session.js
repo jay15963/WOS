@@ -88,7 +88,15 @@ function packState(p) {
     hp: Math.round(p.hp || 0), mh: Math.round(p.maxHp || 100), d: p.dead ? 1 : 0, bl: p.blocking ? 1 : 0, lv: p.level || 1,
     ty: p.typing ? 1 : undefined, // chat box open: others see a "typing…" bubble (cosmetic)
     z: p.z > 0 ? +p.z.toFixed(2) : undefined, // levels: height in stories (omitted on the ground)
+    tn: p._tn != null ? Math.round(p._tn * 100) : undefined, // in a tunnel: its floor ×100 (physics.js tunTrack; a copy that snaps in learns it)
   };
+}
+// a copy placed by a snap (join, teleport) takes the owner's tunnel level (tn: floor ×100 | undefined); continuity
+// (physics.js tunTrack) keeps it from then on
+function tunSnap(W, e, tn) {
+  if (!W.tunnels?.size) return;
+  const f = typeof tn === 'number' && Number.isFinite(tn) ? tn / 100 : null, tx = Math.floor(e.x), ty = Math.floor(e.y);
+  e._tn = f != null && W.isTunnel(tx, ty) ? W.tunAt(tx, ty) : null; e._tt = W.inBounds(tx, ty) ? W.idx(tx, ty) : -1;
 }
 // ---------- chat bubbles (overlay canvas) ----------
 const BUBBLE_MAX = 3, BUBBLE_W = 190, BUBBLE_LH = 15, BUBBLE_PAD = 7, BUBBLE_GAP = 5;
@@ -757,12 +765,12 @@ export class Session {
     const B = e._buf;
     const prev = B[B.length - 1];
     if (prev && t <= prev.t) { /* out of order / duplicate sample */ } else {
-      if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; } // teleport / respawn: snap
+      if (prev && Math.hypot(x - prev.x, y - prev.y) > 6) { B.length = 0; e.x = x; e.y = y; e.z = z; tunSnap(W, e, s.tn); } // teleport / respawn: snap
       // facing, action timeline, head and pose ride with the position (same interpolation delay); levels: z too
       B.push({ t, x, y, z, f: FACINGS.has(s.f) ? s.f : null, a: parseAct(s.a, t), hd: FACINGS.has(s.hd) ? s.hd : null, ps: parsePose(s.ps) });
       if (B.length > 24) B.shift();
     }
-    if (!e._seen) { e.x = x; e.y = y; e.z = z; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; }
+    if (!e._seen) { e.x = x; e.y = y; e.z = z; e._seen = true; if (FACINGS.has(s.f)) e.facing = s.f; tunSnap(W, e, s.tn); }
     e.netMoving = !!s.mv;
     pl.lastS = s; pl.lastSAt = performance.now() / 1000;
     e.typing = !!s.ty;
@@ -784,6 +792,7 @@ export class Session {
       av._t = t;
       av.x = x; av.y = y; av.facing = FACINGS.has(s.f) ? s.f : e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
       av.z = z; av.lv = Math.round(z); // levels: the host's AI / hit checks use the latest story
+      tunSnap(W, av, s.tn); // (tunnels: the owner's word on its level — the host's intents read av._tn)
       av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
     }
   }
