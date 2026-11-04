@@ -11,7 +11,8 @@
 import { CS, CT, PW, PH } from './store.js';
 import { G, BIOME_ID } from './worldgen.js';
 import { applyRealm } from './realm/ground.js'; // kingdoms: the settlements' ground and the roads (docs/REINOS.md)
-import { settlementLayout } from './realm/layout.js';
+import { settlementLayout, packLayout, adoptLayout } from './realm/layout.js';
+import { realmIndex } from './realm/realm.js';
 
 const ID_PER_CHUNK = 16384, ID_MAX = 1073741824;
 const DECOR_MAX = 1600;
@@ -33,7 +34,15 @@ async function mods() {
 export async function workerGenerator(init) {
   const m = await mods();
   const planet = init.planet || m.generatePlanet(init.seed);
-  return (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet);
+  const R = planet.realm, sent = new Set();
+  return (cx, cy, o) => {
+    const d = adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet);
+    // the settlements of the chunk: their layouts (made here for the ground) go to the main thread once per worker
+    // (game/towns.js places the pieces from them; the main thread would plan them in a frame)
+    const e = R ? realmIndex(R).get(cy * 256 + cx) : null;
+    if (e?.s.length) for (const sid of e.s) if (!sent.has(sid)) { sent.add(sid); (d.layouts || (d.layouts = [])).push(packLayout(settlementLayout(planet, R, sid))); }
+    return d;
+  };
 }
 
 export async function makePlanetSource(seed, opts = {}) {
@@ -76,6 +85,8 @@ export async function makePlanetSource(seed, opts = {}) {
     // the painted map of the whole planet (relief, biomes, coasts, rivers: planet/render.js renderDetail, 8 tiles a
     // pixel) — made by the planet worker after the boot: a Promise of { w, h, rgba, tpp } (null without a worker)
     mapImage: pw?.map || Promise.resolve(null),
+    // the settlement layouts a chunk worker sent with a chunk (streamer.js): adopted, never planned again here
+    adoptLayouts: (list) => { if (planet.realm) for (const P of list) adoptLayout(planet.realm, P); },
     chunkOfId: (id) => (typeof id === 'number' && id >= 0 && id < ID_MAX ? Math.floor(id / ID_PER_CHUNK) : -1),
     // regrowth (game/flora.js): the planet species of the tile's planet biome for a regrown classic kind (undefined: classic)
     floraLook: (w, kind, tx, ty, r, v) => m.regrowV(kind, w.pbiome ? w.pbiome.at(tx, ty) : 0, r, v),

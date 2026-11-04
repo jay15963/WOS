@@ -589,7 +589,7 @@ function contentBox(game) {
 
 // the GPU data of the roads of the loaded chunks: 16 × 16 blocks around road tiles, a few ms a frame (a village chunk is
 // ~30 ms of splats at once); a block's neighbours share its edges, so a chunk is uploaded once all its blocks are done
-const ROAD_MS = 3;
+const ROAD_MS = 2;
 function roadWork(game) {
   const w = game.world, V = game._paths, t0 = performance.now(), RD = w.road, M5 = SPLAT_R + 2;
   while (performance.now() - t0 < ROAD_MS) {

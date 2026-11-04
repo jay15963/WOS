@@ -791,6 +791,7 @@ export function buildingSystem() {
         for (let y = y0; y <= y1; y++) B.ground.add(s, (x0 + x1) / 2, y - lw / 2, (x1 - x0) / s.w, lw / s.h, 1, 1, 1, ga);
       }
       for (const o of S) {
+        if (o.town != null) continue; // (settlement pieces: never plans nor marked — towns.js)
         if (o.x < v.x0 - 3 || o.x > v.x1 + 3 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
         if (o.lv) continue; // levels: upper plans / marks are drawn on their story (levels.drawUpper)
         const def = defOf(o);

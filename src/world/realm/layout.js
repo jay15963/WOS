@@ -32,6 +32,29 @@ export function settlementLayout(planet, realm, sid) {
   return L;
 }
 export const layoutCached = (realm, sid) => CACHE.get(realm)?.get(sid) || null;
+// Across threads: a chunk worker makes the layout anyway (the town's ground, ground.js) and sends it once with a chunk
+// (planetSource.js workerGenerator) — the main thread adopts it instead of planning the place in a frame (a city ~25–55
+// ms). The pieces travel as one Int32Array (7 numbers a row) + a string table.
+export function packLayout(L) {
+  const dict = [], at = new Map(), n = L.structs.length, rows = new Int32Array(n * 7);
+  const id = (s) => { let k = at.get(s); if (k == null) { k = dict.length; dict.push(s); at.set(s, k); } return k; };
+  for (let k = 0; k < n; k++) {
+    const r = L.structs[k], o = k * 7;
+    rows[o] = id(r[0]); rows[o + 1] = r[1]; rows[o + 2] = r[2]; rows[o + 3] = r[3]; rows[o + 4] = r[4]; rows[o + 5] = id(r[5]); rows[o + 6] = id(r[6]);
+  }
+  return { ...L, structs: null, dict, rows };
+}
+export function adoptLayout(realm, P) {
+  let M = CACHE.get(realm);
+  if (!M) CACHE.set(realm, (M = new Map()));
+  if (M.has(P.sid)) return M.get(P.sid);
+  const { dict, rows } = P, n = rows.length / 7, structs = new Array(n);
+  for (let k = 0; k < n; k++) { const o = k * 7; structs[k] = [dict[rows[o]], rows[o + 1], rows[o + 2], rows[o + 3], rows[o + 4], dict[rows[o + 5]], dict[rows[o + 6]]]; }
+  const L = { ...P, structs };
+  delete L.dict; delete L.rows;
+  M.set(P.sid, L);
+  return L;
+}
 
 // ---------- the plan being built ----------
 const O_FREE = 0, O_STREET = 1, O_PLAZA = 2, O_BUILD = 3, O_MARGIN = 4, O_WALL = 5, O_FIELD = 6, O_PEN = 7, O_RES = 8;

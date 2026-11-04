@@ -43,6 +43,18 @@ TOWN.note = (game, o, what) => {
   tidy(game, o.id);
   game.towns.v = (game.towns.v || 0) + 1;
 };
+// the same change for a piece this peer has not placed (yet): its chunk is still being made here, or not loaded — the
+// state is kept all the same and the piece comes with it (game/towns.js placePiece). A stand-in with the layout's type and
+// tile; a piece already gone stays as it was.
+TOWN.noteAbsent = (game, id, what, v = 0) => {
+  if (typeof id !== 'string' || !TOWN_ID.test(id) || !game.towns?.layout) return;
+  const [sid, k] = id.slice(1).split('.').map(Number), row = game.towns.layout(sid)?.structs[k];
+  if (!row || S(game).get(id)?.gone) return;
+  const o = { id, type: row[0], tx: row[1], ty: row[2] };
+  if (what === 'door') o.open = !!v;
+  else if (what === 'dmg') o.dmg = v;
+  TOWN.note(game, o, what);
+};
 // a player's gate placed / gone (struct.add / removeStructure appliers)
 TOWN.gateAdded = (game, o, by) => {
   if (!isGateDef(BUILDINGS[o.type]) || o.town != null) return;

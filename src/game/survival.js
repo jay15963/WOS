@@ -123,20 +123,25 @@ export function eatBest(game) {
 export function foodCount(p) { return FOOD_IDS.reduce((n, id) => n + p.inv.count(id), 0); }
 
 // °C added by the nearest fire sources at (x, y) (0 = none)
+// (the structures of the object buckets around: a city holds ~20k pieces, every frame over all of them cost ~1 ms)
+let WARM_R = 0;
 export function fireHeat(game, x, y) {
   let best = 0;
-  for (const o of game.build.structures) {
-    if (o.blueprint) continue;
-    const def = BUILDINGS[o.type];
-    if (!def?.warm || (def.warmWorking && !o.working) || o.fire === false || o.lit === false) continue;
-    const r = def.warm * 1.25;
-    const dx = o.x - x, dy = o.y - y;
-    if (Math.abs(dx) > r || Math.abs(dy) > r) continue;
-    const d = Math.hypot(dx, dy);
-    if (d >= r) continue;
-    const h = SURVIVAL.temp.fire * Math.pow(1 - d / r, 0.7) * (def.warm >= 4 ? 1 : 0.7);
-    if (h > best) best = h;
-  }
+  if (!WARM_R) for (const k in BUILDINGS) WARM_R = Math.max(WARM_R, (BUILDINGS[k].warm || 0) * 1.25 + 1);
+  game.world.forChunks(x - WARM_R, y - WARM_R, x + WARM_R, y + WARM_R, (c) => {
+    for (const o of c.objects) {
+      if (!o.building || o.blueprint || o.removed) continue;
+      const def = BUILDINGS[o.type];
+      if (!def?.warm || (def.warmWorking && !o.working) || o.fire === false || o.lit === false) continue;
+      const r = def.warm * 1.25;
+      const dx = o.x - x, dy = o.y - y;
+      if (Math.abs(dx) > r || Math.abs(dy) > r) continue;
+      const d = Math.hypot(dx, dy);
+      if (d >= r) continue;
+      const h = SURVIVAL.temp.fire * Math.pow(1 - d / r, 0.7) * (def.warm >= 4 ? 1 : 0.7);
+      if (h > best) best = h;
+    }
+  });
   return best;
 }
 // kept for older callers: is (x, y) warmed by a fire source?

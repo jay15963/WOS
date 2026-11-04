@@ -70,7 +70,7 @@ function drawWoodGate(B, A, o, t) {
   part(depthOf(WX(0.6, 0.5 + sw * 0.4 * open), WY(0.6, 0.5 + sw * 0.4 * open)), 3);
   part(depthOf(WX(1.4, 0.5 + sw * 0.4 * open), WY(1.4, 0.5 + sw * 0.4 * open)), 4);
   if (!K.col().bp) shadowRect(B, T, WX(1, 0.5), WY(1, 0.5) - (V ? 0 : 0.0), 0, V ? 0.5 : 2, V ? 2 : 0.5, H, A0);
-  const th = open * 1.52 * sw, cs = Math.cos(th), sn = Math.sin(th);
+  const th = open * 1.3 * sw, cs = Math.cos(th), sn = Math.sin(th); // (~75°: the opened leaves read at an angle, not edge-on)
   for (const p of partsSorted()) {
     if (p.k === 0 || p.k === 1) {
       const u0 = p.k ? 1.76 : 0;

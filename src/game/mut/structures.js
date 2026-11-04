@@ -38,7 +38,7 @@ export const REFUND = 0.75;
 // materialized / dropped with its chunk (no per-piece tile events, decor already off the ground); TOWN.unloading: the
 // pieces leave with the chunk (not destroyed); TOWN.note(game, o, what): a shared change of a town piece ('gone' |
 // 'door' | 'dmg') kept in the town state; TOWN.landReason(game, type, tx, ty, w, h): the building rule in town lands.
-export const TOWN = { quiet: 0, unloading: 0, note: null, landReason: null, refuse: null, gateReason: null };
+export const TOWN = { quiet: 0, unloading: 0, note: null, noteAbsent: null, landReason: null, refuse: null, gateReason: null };
 export const MAX_TILES = 140;
 export const MAX_ROOF_TILES = 420; // a roof is laid on a whole room at once (paint bucket: building.js)
 export const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
@@ -337,7 +337,7 @@ defineOp('struct.remove', {
   args: { id: 'structId', by: 'pid?', give: '{item: qty}?', giveAt: '[x, y]?', drops: 'lootRows?', quiet: '0|1', toast: 'string?', fx: "'decon'|'raze'|'smash'?" },
   apply(game, a) {
     const o = structById(game, a.id);
-    if (!o) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'gone'); return; } // (a settlement's piece not made here yet: its state)
     if (a.fx === 'smash') game.rockFx?.structBreak?.(game, o); // broken by the walkers: it falls apart (rockfx.js)
     removeStructure(game, o, { drops: a.drops, quiet: !!a.quiet, fx: a.fx === 'raze' || a.fx === 'smash' ? 'raze' : null });
   },
@@ -350,7 +350,7 @@ defineOp('struct.dmg', {
   args: { id: 'structId', d: '0..1', x: 'number?', y: 'number?' },
   apply(game, a) {
     const o = structById(game, a.id);
-    if (!o) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'dmg', Math.max(0, Math.min(1, num(a.d)))); return; }
     const d = Math.max(0, Math.min(1, num(a.d)));
     if (d > 0) o.dmg = d; else delete o.dmg;
     if (o.town != null) TOWN.note?.(game, o, 'dmg'); // (a settlement's piece: the town state keeps its damage)
@@ -401,7 +401,8 @@ defineOp('door.set', {
   args: { id: 'structId', open: '0|1', by: 'pid' },
   apply(game, a, ctx) {
     const o = structById(game, a.id);
-    if (!o || !o.door) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'door', a.open ? 1 : 0); return; } // (a settlement's gate not made here yet)
+    if (!o.door) return;
     setDoorOpen(game, o, !!a.open);
     if (!o.open && !o.blueprint) nudgeOut(game, o, ctx.auth);
     game.audio?.play(o.open ? 'door_open' : 'door_close', { x: o.x, y: o.y - 0.4 });

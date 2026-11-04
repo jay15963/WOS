@@ -6815,7 +6815,10 @@ def('KG2', {
     t.check(c.town_mural === 1 && c.fountain === 1 && c.door_wood > 15, `capital ${city.name}: the market plaza with the mural and fountain, many houses`, `doors ${c.door_wood}`);
     t.check(L.gates.filter((k) => L.structs[k][0] === 'gate_stone').length >= 2 && L.towers.length >= 8, 'the city walls: ≥ 2 stone gates, towers', `gates ${L.gates.length} towers ${L.towers.length}`);
     t.check(L.buildings.some((b) => b.key === 'keep'), 'a castle (keep) in the middle');
-    const hi = pieceIds(H, city.id, (o) => Math.hypot(o.x - L.spawn[0], o.y - L.spawn[1]) < 24), gi = pieceIds(G, city.id, (o) => Math.hypot(o.x - L.spawn[0], o.y - L.spawn[1]) < 24);
+    // (chunks may still be arriving from the workers on either peer: the same set once both have them)
+    const near = (o) => Math.hypot(o.x - L.spawn[0], o.y - L.spawn[1]) < 24, same = () => { const a = pieceIds(H, city.id, near), b = pieceIds(G, city.id, near); return a.length > 100 && a.join() === b.join(); };
+    await t.waitFor(same, 20000, 'the city pieces around the plaza on both', () => `${pieceIds(H, city.id, near).length} / ${pieceIds(G, city.id, near).length}`).catch(() => {});
+    const hi = pieceIds(H, city.id, near), gi = pieceIds(G, city.id, near);
     t.check(hi.length > 100 && hi.join() === gi.join(), 'the same city pieces around the plaza on both', `${hi.length} / ${gi.length}`);
   }
   await t.checkDigest(H, G);
@@ -6978,11 +6981,12 @@ def('KG6', {
   const tx = Math.floor(sp.x) + 1, ty = Math.floor(sp.y) + 1;
   const why = MG.building.placeReason(G.game, 'wall_wood', tx, ty, G.game.player, 0);
   t.check(why === `Terra de ${s0.name}: compre um terreno no mural`, 'guest: refused on the town land with the mural hint', why);
-  const n0 = H.game.build.structures.length;
   let rej = null;
   G.game.net.request('build.place', { type: 'wall_wood', tiles: [[tx, ty]], rot: 0 }, { onReject: (w) => { rej = w; } });
   await t.waitFor(() => rej, RT() + 500, 'the host refuses it too');
-  t.check(/Terra de/.test(rej) && H.game.build.structures.length === n0 && !G.game.build.structures.some((o) => o.tx === tx && o.ty === ty && o.town == null), 'nothing built on either peer', rej);
+  // (the count of the host's structures moves with the settlement pieces still streaming in: the tile itself is what counts)
+  const mine = (f) => f.game.build.structures.some((o) => o.tx === tx && o.ty === ty && o.town == null);
+  t.check(/Terra de/.test(rej) && !mine(H) && !mine(G), 'nothing built on either peer', rej);
   // a settlement piece cannot be taken apart
   const w = [...townOf(G, s0.id).objs.values()].find((o) => o.type === 'wall_wood' || o.type === 'wall_stone');
   let rej2 = null;

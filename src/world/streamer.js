@@ -154,6 +154,7 @@ export class Streamer {
     this.stats.genMs += msg.ms || 0; this.stats.genWall += performance.now() - job.t;
     this.w.stats.genAsync++;
     const t0 = performance.now();
+    if (msg.d.layouts) { this.w.source.adoptLayouts?.(msg.d.layouts); delete msg.d.layouts; } // (the chunk's settlements, planetSource.js)
     if (!this.w.isLoaded(job.c)) this.w.install(job.c, msg.d);
     else if (msg.d.decor) this.w.addDecor(job.c, msg.d.decor); // (a decor request for a loaded chunk)
     const ms = performance.now() - t0; // (main-thread cost of a worker result: install + the hooks)

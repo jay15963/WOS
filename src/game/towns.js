@@ -23,12 +23,13 @@ import { settlementLayout, layoutCached } from '../world/realm/layout.js';
 import { BUILDINGS } from './data.js';
 import { placeStructure, removeStructure, setDoorOpen, TOWN, defOf } from './mut/structures.js';
 import { applyTownRows, defaultOpen, TOWN_ID } from './mut/towns.js';
-import { isNight } from './mobs.js';
+import { isNight, levelForDistance } from './mobs.js';
 import { allPlayers, minPlayerDist } from './players.js';
 import { spawnStock } from './livestock.js';
 
-const BUDGET_MS = 4;           // per frame for queued pieces
-const URGENT_MS = 12;          // per frame for the chunks next to the local player (it may stand there)
+const BUDGET_MS = 3;           // per frame for queued pieces
+const URGENT_MS = 12;
+const PEN_MS = 2;              // per frame for the pens' animals (host)          // per frame for the chunks next to the local player (it may stand there)
 const RESTORE_AFTER = 2;       // days before a destroyed piece is rebuilt (nobody within RESTORE_FAR tiles)
 const RESTORE_FAR = 40;
 export const KIND_PT = { city: 'Cidade', castle: 'Castelo', village: 'Vila' };
@@ -36,12 +37,13 @@ export const KIND_PT = { city: 'Cidade', castle: 'Castelo', village: 'Vila' };
 export function installTowns(game) {
   const w = game.world, realm = w.wrap ? w.source?.planet?.realm || null : null;
   const T = game.towns || (game.towns = { state: new Map() });
-  Object.assign(T, { realm, live: new Map(), jobs: [], v: T.v || 0, stats: { placed: 0, ms: 0, maxMs: 0, jobs: 0, unloaded: 0 } });
+  Object.assign(T, { realm, live: new Map(), jobs: [], penQ: [], v: T.v || 0, stats: { placed: 0, ms: 0, maxMs: 0, jobs: 0, unloaded: 0 } });
   if (!game.gates) game.gates = new Map();
   T.layout = (sid) => (realm ? settlementLayout(realm._planet || w.source.planet, realm, sid) : null);
   T.info = (sid) => info(game, sid);
   T.at = (x, y) => placeAt(game, x, y);
   T.canReach = (a, b) => canReach(realm, a, b);
+  T.npcLevel = (sid) => (realm?.settlements[sid] ? realmNpcLevel(game, realm.settlements[sid]) : 1); // (phase 2: the people's level, §7b)
   T.resync = (ids) => resyncPieces(game, ids);
   T.townChunks = realm ? new Set([...realmIndex(realm)].filter(([, e]) => e.s.length).map(([c]) => c)) : new Set();
   w.towns = T;
@@ -105,7 +107,7 @@ function runJob(game, job, deadline) {
   try {
     game.net.withApply(() => {
       for (; k < list.length; k++) {
-        if ((k & 31) === 0 && deadline && performance.now() > deadline) break;
+        if ((k & 3) === 0 && deadline && performance.now() > deadline) break;
         placePiece(game, L, job.sid, list[k], rec);
       }
     });
@@ -116,7 +118,7 @@ function runJob(game, job, deadline) {
   if (k < list.length) return false;
   // done: the minimap re-draws the chunk once (the pieces were placed quietly)
   game.events?.emit('tile', { tx: (job.c & 255) * 64 + 32, ty: (job.c >>> 8) * 64 + 32 });
-  if (game.net.auth) penAnimals(game, L, rec, job.c);
+  if (game.net.auth) T.penQ.push([job.sid, job.c]); // (its pens' animals: a few a frame, townsSystem)
   return true;
 }
 function placePiece(game, L, sid, k, rec) {
@@ -192,6 +194,29 @@ function resyncPieces(game, ids) {
   }
 }
 
+// ---------- the level of a kingdom's people (phase 2: NPCs — docs/REINOS.md §7b) ----------
+// baseLevel: the distance from the world start, like the creatures (mobs.js levelForDistance) — a pure function of the
+// place, never stored with the settlement. The people follow the most advanced player (worldProgress) up to the level of
+// the farthest settlements: the kingdoms near the start grow with the players instead of staying weak for ever.
+// (phase 2: worldProgress may become a saved high-water mark; this is the one place to change)
+export function realmBaseLevel(game, s) {
+  const w = game.world, sp = w.spawn;
+  return levelForDistance(Math.hypot(w.dx(s.x, sp.x), s.y - sp.y));
+}
+export function worldProgress(game) {
+  let lv = 1;
+  for (const p of allPlayers(game)) if (p && (p.level || 1) > lv) lv = p.level || 1;
+  return lv;
+}
+const CAPS = new WeakMap(); // realm → the base level of its farthest settlement (per world start)
+export function realmNpcLevel(game, s) {
+  const R = game.towns?.realm, sp = game.world.spawn;
+  let c = R && CAPS.get(R);
+  if (R && (!c || c.x !== sp.x || c.y !== sp.y)) { c = { x: sp.x, y: sp.y, cap: 1 }; for (const q of R.settlements) c.cap = Math.max(c.cap, realmBaseLevel(game, q)); CAPS.set(R, c); }
+  const base = realmBaseLevel(game, s);
+  return Math.max(base, Math.min(c ? c.cap : base, worldProgress(game)));
+}
+
 // ---------- queries ----------
 function info(game, sid) {
   const realm = game.towns?.realm, s = realm?.settlements[sid];
@@ -237,11 +262,13 @@ TOWN.gateReason = (game, o, actor) => {
 };
 
 // ---------- village animals (host): the pens' cows, sheep, pigs and chickens, owned by the place ----------
-function penAnimals(game, L, rec, c) {
-  if (!game._townsUp) return;
-  L.pens.forEach((p, n) => {
+// the animals of the pens of chunk c (one pen after another until `end`: false = more to do)
+function penAnimals(game, L, rec, c, end = 0) {
+  for (let n = 0; n < L.pens.length; n++) {
+    const p = L.pens[n];
     const cx = (((p.x0 + p.x1) >> 1) >> 6) & 255, cy = ((p.y0 + p.y1) >> 1) >> 6;
-    if (cx + cy * 256 !== c || rec.pens.has(n)) return;
+    if (cx + cy * 256 !== c || rec.pens.has(n)) continue;
+    if (end && performance.now() > end) return false;
     rec.pens.add(n);
     for (let k = 0; k < p.n; k++) {
       const x = p.x0 + 0.5 + ((k * 2.3 + n) % Math.max(1, p.x1 - p.x0 - 1)), y = p.y0 + 0.6 + ((k * 1.7) % Math.max(1, p.y1 - p.y0 - 1));
@@ -250,7 +277,8 @@ function penAnimals(game, L, rec, c) {
       m.home = { x: (p.x0 + p.x1) / 2, y: (p.y0 + p.y1) / 2 };
       rec.animals.push(m);
     }
-  });
+  }
+  return true;
 }
 function dropAnimals(game, rec, c) {
   const E = game.entities;
@@ -286,6 +314,15 @@ export function townsSystem() {
           T.stats.jobs++;
         }
       }
+      // host: the pens' animals, within a small slice of the frame (a new world fills ~8 places at once)
+      if (T.penQ.length && game._townsUp && game.net.auth) {
+        const end = performance.now() + PEN_MS;
+        while (T.penQ.length && performance.now() < end) {
+          const [sid, c] = T.penQ[0], rec = T.live.get(sid), L = layoutCached(T.realm, sid);
+          if (rec && L && rec.chunks.has(c) && !penAnimals(game, L, rec, c, end)) break;
+          T.penQ.shift();
+        }
+      }
       t -= dt;
       if (t > 0) return;
       t = 1;
@@ -296,7 +333,7 @@ export function townsSystem() {
 // host: gates, repairs, animals that wandered off
 function hostTick(game) {
   const T = game.towns, net = game.net, night = isNight(game);
-  if (!game._townsUp) { game._townsUp = true; for (const rec of T.live.values()) { const L = layoutCached(T.realm, rec.sid); if (L) for (const c of rec.chunks) penAnimals(game, L, rec, c); } }
+  if (!game._townsUp) { game._townsUp = true; for (const rec of T.live.values()) for (const c of rec.chunks) T.penQ.push([rec.sid, c]); }
   for (const rec of T.live.values()) {
     const L = layoutCached(T.realm, rec.sid);
     if (!L) continue;
