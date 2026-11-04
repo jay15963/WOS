@@ -6893,9 +6893,9 @@ def('SG3', {
   const { H, G, MH, MG } = await pairCtx(t);
   const gp = G.game.player;
   A.keepAlive(t, G);
-  const site = A.findSite([H, G], [MH, MG], 'wall_stone', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -1; j <= 2; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 22 });
+  const site = sgSite(H, MH, G, MG, 15, 4);
   t.assert(site, 'found a free 15×4 strip');
-  const { x0, y0 } = site, walls = [];
+  const x0 = site.x0 + 1, y0 = site.y0 + 1, walls = [];
   for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) walls.push(['wall_stone', x0 + i, y0 + j]);
   const ids = hostBuild(H, walls);
   sgCleanup(t, H, G, ids);
@@ -7036,7 +7036,9 @@ def('SG5', {
   const wA = A.structOn(H, ids[0]);
   t.check(MH.siege.towerStoriesFor(H.game, wA) === 2 && MH.siege.towerStoriesFor(H.game, [x0 + 7, y0]) === 3 && MG.siege.towerStoriesFor(G.game, [[x0, y0], [x0 + 7, y0]]) === 3 && MG.siege.towerStoriesFor(G.game, [x0 + 4, y0]) === 0,
     'towerStoriesFor: 2 for the first wall, 3 for the second, the tallest of a list, 0 where there is none');
-  // the guest plans a tower facing each wall (north): the height comes from the wall
+  // the guest plans a tower facing each wall (north): the height comes from the wall (from inside the site: in reach)
+  A.teleport(G, x0 + 3.5, y0 + 3.5);
+  await A.hostSees(t, H, G);
   const ta = await sgPlace(t, G, MG, 'siege_tower', x0, y0 + 5, 2);
   const tb = await sgPlace(t, G, MG, 'siege_tower', x0 + 6, y0 + 5, 2);
   ids.push(ta.id, tb.id);
@@ -7090,9 +7092,9 @@ def('SG6', {
   const { H, G, MH, MG } = await pairCtx(t);
   const gp = G.game.player;
   A.keepAlive(t, G);
-  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const L = []; for (let i = -1; i <= 13; i++) for (let j = -2; j <= 3; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 18 });
+  const site = sgSite(H, MH, G, MG, 15, 6);
   t.assert(site, 'found a free 15×6 strip');
-  const { x0, y0 } = site, rows = [];
+  const x0 = site.x0 + 1, y0 = site.y0 + 2, rows = [];
   for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) rows.push(['wall_wood', x0 + 9 + i, y0 - 1 + j]);
   const walls = hostBuild(H, rows), ids = [...walls];
   const [cid] = hostBuild(H, [['catapult', x0, y0, 3]]);

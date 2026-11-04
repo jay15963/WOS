@@ -11,7 +11,7 @@
 //    the ram's target ("Portão à frente"), the tower's ramp; arrows on the ground where it goes.
 
 import { ARTY, PUSH, pushSpeed } from '../game/content/siege.js';
-import { siegeCtl, pivotOf, frontAng, frontTiles, isGate, crewOf, towerN, towerTouch, toWorld, ladderLocal, rangingK, DIR } from '../game/siege.js';
+import { siegeCtl, pivotOf, frontAng, frontTiles, isGate, crewOf, towerN, towerTouch, toWorld, ladderLocal, rangingK, DIR, enginesOf } from '../game/siege.js';
 import { BUILDINGS } from '../game/data.js';
 import { STORY_H } from '../game/levels.js';
 import { itemIcon } from './icons.js';
@@ -199,8 +199,9 @@ export function installSiegeUi(game) {
       // the camera leans toward the target (artillery: far)
       let kT = 0;
       if (o) {
-        const [px, py] = pivotOf(o), lean = o.type === 'trebuchet' ? 0.62 : 0.5;
-        cam.x = px + Math.cos(C.aimL) * C.distL * lean; cam.y = py + Math.sin(C.aimL) * C.distL * lean; kT = o.type === 'trebuchet' ? 0.82 : 0.6;
+        // (the target in the middle of the view: the camera leans almost all the way out to it)
+        const [px, py] = pivotOf(o), far = Math.max(C.distL * 0.5, C.distL - 1);
+        cam.x = px + Math.cos(C.aimL) * far; cam.y = py + Math.sin(C.aimL) * far; kT = 0.95;
         if (!g.input?.isTouch) g.R.canvas.style.cursor = 'crosshair';
       }
       cam.k += (kT - cam.k) * (1 - Math.exp(-dt * (kT > cam.k ? 2.5 : 4)));
@@ -246,6 +247,7 @@ export function installSiegeUi(game) {
           const a = (i / ne) * Math.PI * 2, ex = tx + (Math.cos(a) * sL * ca - Math.sin(a) * sW * sa) * pulse, ey = ty + (Math.cos(a) * sL * sa + Math.sin(a) * sW * ca) * pulse;
           B.blob.add(dot, ex, ey, ds * 1.5, ds * 1.5, 0.1, 0.07, 0.03, 0.35);
           B.blob.add(dot, ex, ey, ds, ds, col[0], col[1], col[2], 0.95);
+          B.fx.add(dot, ex, ey, ds, ds, col[0], col[1], col[2], 0.55); // (seen over water / through canopies too)
           if (night > 0.1) B.emissive.add(dot, ex, ey, ds, ds, col[0] * 0.6, col[1] * 0.5, col[2] * 0.3, 0.7 * night);
         }
         B.blob.add(ring, tx, ty, Sx.area / RX, Sx.area / RY, 1, 1, 1, 0.55);
@@ -277,7 +279,7 @@ export function installSiegeUi(game) {
       }
       // a tower with its ramp down near the player: the ladder's spot
       const p = g.player;
-      for (const s of g.build.structures) {
+      for (const s of enginesOf(g)) {
         if (s.type !== 'siege_tower' || !s.ramp || Math.abs(s.tx - p.x) > 6 || Math.abs(s.ty - p.y) > 6 || (p.z || 0) > 0.5) continue;
         const [lx, ly] = toWorld(s, ...ladderLocal(s), false), pulse = 0.7 + 0.3 * Math.sin(t * 5);
         B.blob.add(ring, lx, ly, 0.5 / RX, 0.5 / RY, 0.55, 1, 0.6, 0.7 * pulse);

@@ -48,6 +48,14 @@ export const isEngineObj = (o) => !!o && o.building && !o.removed && isEngine(o.
 export const isArtyObj = (o) => !!o && o.building && !o.removed && !!ARTY[o.type];
 export const isPushObj = (o) => !!o && o.building && !o.removed && !!PUSH[o.type];
 export function engineOf(game, id) { const o = game.world.objById.get(id); return isEngineObj(o) ? o : null; }
+// the siege engines of the world (cached until the structures change: game.build.v)
+export function enginesOf(game) {
+  const c = game._sgList, v = game.build.v;
+  if (c && c.v === v) return c.L;
+  const L = game.build.structures.filter((o) => isEngine(o.type) && !o.removed);
+  game._sgList = { v, L };
+  return L;
+}
 export const towerN = (o) => clamp(o?.v | 0 || 1, 1, MAX_LV); // a siege tower's stories (its deck's story)
 // the player entity of a pid on this peer (host: avatars; any peer: the local player)
 export function playerByPid(game, pid) {
@@ -486,8 +494,8 @@ export function siegeSystem() {
       const C = siegeCtl(game), me = game.net.pid;
       const OPS = game._opEnts || (game._opEnts = []); // (shared with the ballista: art/compose.js 'operate' pose)
       const v = game.view?.() || null;
-      for (const o of game.build.structures) {
-        if (!isEngine(o.type) || o.removed) continue;
+      for (const o of enginesOf(game)) {
+        if (o.removed) continue;
         if (o._reload > 0) o._reload = Math.max(0, o._reload - dt);
         if (o._slT > 0) { o._slT = Math.max(0, o._slT - dt); o._roll = (o._roll || 0) + (Math.hypot(o._slx, o._sly) / Math.max(0.05, o._slD)) * dt; }
         if (o.shake > 0) o.shake = Math.max(0, o.shake - dt * 3);
@@ -513,12 +521,11 @@ export function siegeSystem() {
         o._distD = wd;
       }
       if (!game.net.auth) return;
-      for (const o of game.build.structures) if (PUSH[o.type] && !o.removed && !o.blueprint && (o.push || []).some(Boolean)) hostPush(game, o, dt);
+      for (const o of enginesOf(game)) if (PUSH[o.type] && !o.removed && !o.blueprint && (o.push || []).some(Boolean)) hostPush(game, o, dt);
       slowT -= dt;
       if (slowT > 0) return;
       slowT = 0.5;
-      for (const o of game.build.structures) {
-        if (!isEngine(o.type)) continue;
+      for (const o of enginesOf(game).slice()) {
         if (o.user) {
           const q = playerByPid(game, o.user), [px, py] = pivotOf(o);
           if (o.removed || o.blueprint || !q || q.dead || Math.hypot(q.x - px, q.y - py) > ARTY[o.type].reach + 2 || Math.abs((q.z || 0) - (o.lv | 0)) > 0.75) game.net.emit('siege.set', { id: o.id, user: 0 });
@@ -629,12 +636,12 @@ function push(game, C, o, p, dt) {
 }
 export function myArty(game) {
   const me = game.net.pid;
-  for (const o of game.build.structures) if (ARTY[o.type] && o.user === me && !o.removed) return o;
+  for (const o of enginesOf(game)) if (ARTY[o.type] && o.user === me && !o.removed) return o;
   return null;
 }
 export function myPush(game) {
   const me = game.net.pid;
-  for (const o of game.build.structures) if (PUSH[o.type] && !o.removed && o.push && o.push.includes(me)) return o;
+  for (const o of enginesOf(game)) if (PUSH[o.type] && !o.removed && o.push && o.push.includes(me)) return o;
   return null;
 }
 
