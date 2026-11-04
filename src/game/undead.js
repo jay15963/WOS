@@ -90,7 +90,8 @@ export function nightKit(species, R) {
   }
   if (species === 'mummy') {
     const armed = R() < 0.4;
-    return { weapon: armed ? 'sword_copper' : null, role: 'melee', armorV: 6, swingK: armed ? 1.25 : null, swing: armed ? null : 2.2, dmgK: armed ? null : 1.0, reach: armed ? null : 0.72,
+    // (a khopesh hits like a walker's ice sword, not like a copper one: dmgK instead of the weapon factor)
+    return { weapon: armed ? 'sword_copper' : null, role: 'melee', armorV: 6, swingK: armed ? 1.25 : null, swing: armed ? null : 2.2, dmgK: armed ? 1.05 : 1.0, reach: armed ? null : 0.72,
       extra: { curse: { chance: 0.3, dur: 3 } } };
   }
   return { weapon: R() < 0.55 ? 'sword_ice' : 'spear_ice', role: 'melee', armorV: 4, swingK: 1.15, extra: null }; // the walker
