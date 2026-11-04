@@ -24,3 +24,4 @@ import './terrain.js';  // terrain height: dig / fill / level / smooth (docs/TER
 import './tunnels.js';  // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md)
 import './boats.js';    // boats: launch, riders, rowing
 import './horses.js';   // horses: taming with wheat, saddle, riding (docs/HORSE.md)
+import './towns.js';    // settlements: their shared state, the gates (docs/REINOS.md)

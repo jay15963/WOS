@@ -13,8 +13,9 @@ import { artWarnings } from '../game/artcompat.js';
 import { pathRows } from '../game/mut/paths.js';
 import { chunkOfI } from '../world/store.js';
 import { campStateRows } from '../game/mut/camps.js';
+import { townRows, gateRows } from '../game/mut/towns.js'; // settlements (docs/REINOS.md)
 
-export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats'];
+export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats', 'towns'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
 export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
@@ -53,13 +54,16 @@ export function dumpPart(game, part, ex = null) {
     }
     case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone && OK(o.x, o.y))
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
-    case 'structs': return game.build.structures.filter((o) => OK(o.tx + 0.5, o.ty + 0.5)).map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
+    case 'structs': return game.build.structures.filter((o) => o.town == null && OK(o.tx + 0.5, o.ty + 0.5)).map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
       game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '', o.lv | 0]).sort(cmp); // (lv: levels, agent L)
     case 'tiles': {
       const mt = X ? game.minedTiles.filter((i) => !X.has(chunkOfI(i))) : game.minedTiles;
       const mc = new Set(mt.map((i) => chunkOfI(i)));
-      return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid, null, X)], ['mined', [...mt].sort((a, b) => a - b).join(',')],
-        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof, null, X)],
+      // (the chunks of the settlements are left out of the built layers: their pieces exist where a peer has them loaded — the
+      // settlements' shared state is the `towns` part)
+      const TC = game.towns?.townChunks?.size ? new Set([...(X || []), ...game.towns.townChunks]) : X;
+      return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid, null, TC)], ['mined', [...mt].sort((a, b) => a - b).join(',')],
+        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof, null, TC)],
         ['tun', w.tunnels ? [...w.tunnels].sort((a, b) => a[0] - b[0]).map((r) => r[0] + ':' + Math.round(r[1] * 100)).join(',') : '']]; // (tunnels: docs/TERRAIN-HEIGHT.md)
     }
     case 'loot': return game.loot.filter((l) => l.qty > 0 && OK(l.x0 ?? l.x, l.y0 ?? l.y)).map((l) => [l.id, l.item, l.qty]).sort(cmp);
@@ -70,6 +74,7 @@ export function dumpPart(game, part, ex = null) {
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'boats': return game.boats ? [...game.boats.map.values()].map((b) => [b.id, b.x.toFixed(2), b.y.toFixed(2), b.h.toFixed(2), b.seats.join('.'), b.pets.map((q) => q.join(':')).join('.')]).sort(cmp) : []; // (game/boats.js)
+    case 'towns': return townRows(game, OK).concat(gateRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates)
     case 'env': return [['day', game.env.dayIndex], ['hour', +game.env.hour.toFixed(2)], ['weather', game.env.weather], ['wt', Math.round(game.worldTime)]];
     case 'ents': return game.net.entsApi?.debug?.() || null;
   }

@@ -51,6 +51,7 @@ import { installBallistaUi } from '../ui/ballistaUi.js';
 import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
 import { installHorses, horseSystem, horseOwnerSystem } from './horses.js'; // horses: taming, saddle, riding (docs/HORSE.md)
 import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
+import { installTowns, townsSystem, placeSystem } from './towns.js'; // kingdoms and settlements (docs/REINOS.md)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -90,6 +91,7 @@ export function installSystems(game) {
   installFishing(game);             // fishing: game.fishing (bobbers, the rod's work)
   installBoats(game);               // boats: game.boats (before the save / snapshot loads them)
   installHorses(game);              // horses: game.horses (who rides what, the rider's movement)
+  installTowns(game);               // settlements: pieces made per chunk from the seed (before the camps: they keep away)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -113,6 +115,7 @@ export function installSystems(game) {
   for (const s of [
     clock,
     seasonSystem(),                 // game.season + world.frozen before anything moves (seasons.js)
+    townsSystem(),                  // settlements: pieces of the chunks that loaded (+ host: gates, repairs, the pens' animals)
     levelsSystem(),
     decksSystem(),                  // world.deck / world.rail before anything moves (decks.js)
     terrainSystem(),                // terrain height: the pads under buildings before anything moves (terrain.js)
@@ -148,6 +151,7 @@ export function installSystems(game) {
     horseOwnerSystem(),             // the local rider: mounted state, the sprint's speed, the measured gallop
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
     waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
+    placeSystem(),                  // the kingdom / settlement the player is in (the HUD banner)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);

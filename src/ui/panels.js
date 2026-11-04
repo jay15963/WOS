@@ -22,6 +22,7 @@ import { uiScale } from './uiscale.js';
 import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
 import { TERRAIN_MODES, enterTerrainMode } from '../game/terrain.js'; // terrain height: the terrain tool (docs/TERRAIN-HEIGHT.md)
 import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
+import { muralBody, muralBind } from './mural.js'; // the settlements' mural (docs/REINOS.md)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 // a container slot: a tap / click moves one unit (go(false)); shift-click moves the whole stack (go(true)), and so does
@@ -113,6 +114,7 @@ export class Panels {
     }
     if (g.build.mode && (name === 'build' || name === 'craft')) { g.build.mode = null; g.events.emit('buildui', {}); }
     if (name === 'craft') this.craftStation = data?.station || null;
+    if (name === 'mural' && data?.sid !== this.data?.sid) this.muralTab = 'place';
     if (this.open !== name) this.sel = null;
     this.open = name; this.data = data;
     g.ui.modal = true;
@@ -252,6 +254,9 @@ export class Panels {
           <div class="inv-side"><div class="gl">Mochila <small>${how}</small></div>${this.sortBar('inv', `<button class="sbt xfer" data-xfer="put" data-tip="<b>Guardar tudo</b><p>Passa a mochila inteira para ${esc(c.label || c.title)}.</p>${hotTip}">Guardar tudo ›</button>`)}${this.slots(p.inv, 'slot', 6)}</div>
           <div class="chest-side"><div class="gl">${c.label || c.title} <small>${how}</small></div>${this.sortBar(c.id, `<button class="sbt xfer" data-xfer="take" data-tip="<b>Pegar tudo</b><p>Passa tudo o que couber para a mochila.</p>">‹ Pegar tudo</button>`)}${this.slots({ slots: c.items() }, 'cslot', c.cols || 5)}</div>
         </div>`, 'p-chest');
+    } else if (name === 'mural') {
+      const r = muralBody(this);
+      html = this.frame(r.title, svgIcon('map'), r.body, 'p-mural');
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>${this.g.world.wrap ? '<div class="mm-zoom"><button class="n-btn" data-mmz="0.5">+</button><button class="n-btn" data-mmz="2">−</button><button class="n-btn" data-mmz="0">Centrar</button></div>' : ''}`, 'p-map');
     }
@@ -401,6 +406,7 @@ export class Panels {
     el.querySelectorAll('[data-terrain]').forEach((b) => b.addEventListener('click', () => { this.close(); enterTerrainMode(g, b.dataset.terrain); }));
     if (this.open === 'build' && this.buildTab === 'path' && !g._paths?.layers) g.paths?.layers().then(() => { if (this.open === 'build' && this.buildTab === 'path') this.render(); });
     if (this.open === 'craft') craftBind(this, el);
+    if (this.open === 'mural') muralBind(this, el);
     if (this.open === 'build') el.querySelector('[data-goto]')?.addEventListener('click', () => this.show('craft'));
     const map = el.querySelector('.bigmap');
     if (map) {

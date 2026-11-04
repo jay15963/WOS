@@ -44,6 +44,9 @@ const BUILT_DK = [0, 0.42, 0.66, 0.82, 0.92, 1]; // interior darkness by walking
 const SUPPORT = ROOF_GEOM.support;
 const ART_BUDGET_MS = 8;  // per frame for painting region art on the main thread (no worker)
 const MAX_JOBS = 3;       // region paintings in flight in the worker
+// region art lives near the view only (a settlement has a hundred roofs, ~2 MB of painting each): painted within ART_NEAR
+// tiles of the view's middle, released (CPU buffers and GPU textures) beyond ART_FAR, painted again when it comes back
+const ART_NEAR = 70, ART_FAR = 110;
 
 export const isRoofType = (type) => !!BUILDINGS[type]?.roof;
 export const isSupportType = (type) => !!BUILDINGS[type]?.support;
@@ -276,7 +279,9 @@ export function roofsSystem() {
       if (!game.headless) {
         const v = game.view(), t0 = performance.now();
         tmpList.length = 0;
-        for (const g of R.regions.values()) if (g.artDirty && !g.pending) tmpList.push(g);
+        const vx = (v.x0 + v.x1) / 2, vy = (v.y0 + v.y1) / 2, near = (g) => Math.abs(game.world.dx(g.cx, vx)) < ART_NEAR && Math.abs(g.cy - vy) < ART_NEAR;
+        for (const g of R.regions.values()) if (g.artDirty && !g.pending && near(g)) tmpList.push(g);
+        if (artT > 2) { artT = 0; releaseFarArt(game, vx, vy); }
         if (tmpList.length) {
           const cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2;
           tmpList.sort((a, b) => Math.hypot(a.cx - cx, a.cy - cy) - Math.hypot(b.cx - cx, b.cy - cy));
@@ -289,7 +294,7 @@ export function roofsSystem() {
         // camera rotation: once the camera has turned, every region also gets its turned art (3D pieces, roofFacets.js)
         if (R.turned) {
           tmpList.length = 0;
-          for (const g of R.regions.values()) if (g.spec && !g.artDirty && !g.pending && !g.tpending && g.tspec !== g.spec) tmpList.push(g);
+          for (const g of R.regions.values()) if (g.spec && !g.artDirty && !g.pending && !g.tpending && g.tspec !== g.spec && near(g)) tmpList.push(g);
           if (tmpList.length) {
             const cx = (v.x0 + v.x1) / 2, cy = (v.y0 + v.y1) / 2;
             tmpList.sort((a, b) => Math.hypot(a.cx - cx, a.cy - cy) - Math.hypot(b.cx - cx, b.cy - cy));
@@ -450,6 +455,18 @@ function rebuildRegions(game) {
   game.indoors._maskDirty = true;
 }
 
+// far from the view: the region's paintings go (CPU and GPU); it is painted again when it comes near (artDirty)
+function releaseFarArt(game, vx, vy) {
+  const R = game.roofs, w = game.world;
+  for (const g of R.regions.values()) {
+    if (!(g.art || g.tart) || g.pending || g.tpending || R.falling.includes(g)) continue;
+    if (Math.abs(w.dx(g.cx, vx)) < ART_FAR && Math.abs(g.cy - vy) < ART_FAR) continue;
+    if (g.gl && game.R?.deleteRoofTex) game.R.deleteRoofTex(g.gl);
+    if (g.tgl && game.R?.deleteRoofTex) game.R.deleteRoofTex(g.tgl);
+    g.gl = null; g.tgl = null; g.art = null; g.tart = null; g.tspec = null; g._tv = null;
+    g.artDirty = true;
+  }
+}
 function disposeRegion(game, g) {
   if (g.gl && game.R?.deleteRoofTex) game.R.deleteRoofTex(g.gl);
   if (g.tgl && game.R?.deleteRoofTex) game.R.deleteRoofTex(g.tgl);
@@ -481,7 +498,8 @@ function artSpec(game, g) {
     if (def.light || def.workLight) g.lights.push(o.id);
     if ((def.fire || def.workLight) && (def.warm || 0) >= 2.5) fires.push([o.x, o.cy ?? o.y - 0.3, o.id]); // hearths, not torches
   }
-  const res = game.quality === 'low' ? 30 : game.quality === 'medium' ? 42 : 54;
+  let res = game.quality === 'low' ? 30 : game.quality === 'medium' ? 42 : 54;
+  if (grid.get(g.tiles[0])?.town != null) res = Math.round(res * 0.7); // (a settlement's roofs: a hundred of them, a little coarser)
   return { tiles: g.tiles.slice(), W, x0: g.x0, y0: g.y0, x1: g.x1, y1: g.y1, style, styles, det, fires, walls,
     eaveH: roofEaveH(game.build.storeysIn?.(g.tiles) || game.build.storeysAt?.(g.x0, g.y0) || 1), res }; // agent L: highest story of the region
 }
@@ -573,7 +591,7 @@ function turnedDraws(game, g, rot, late = false) {
     // the quantized angle would be off by the angle step × the distance from the world's origin)
     const a = q * ROT_Q, c = Math.cos(a), s = Math.sin(a), V = turnedView(G, c, s);
     const cx = (g.x0 + g.x1 + 1) / 2, cy = (g.y0 + g.y1 + 1) / 2, base = -s * cx + c * cy;
-    T = g._tv = { q, G, draws: V.cols.map((col) => ({ isRoof: true, region: g, game, key: col.key - base, cx, cy, pieces: col.pieces, draw: drawRoofCol, zkRot: colDepth })) };
+    T = g._tv = { q, G, draws: V.cols.map((col) => ({ isRoof: true, region: g, game, key: col.key - base, cx, cy, x: cx, y: cy, pieces: col.pieces, draw: drawRoofCol, zkRot: colDepth })) }; // (x, y: the renderer lifts the faces by the ground there — a house on raised terrain, a settlement's lot)
   }
   return T.draws;
 }

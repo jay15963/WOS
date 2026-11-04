@@ -49,6 +49,7 @@ import { serializePaths, applyPaths } from '../game/mut/paths.js';
 import { serializeTunnels, applyTunnels } from '../game/mut/tunnels.js'; // tunnels dug into the relief
 import { hideDugDecor } from '../game/terrain.js'; // (grass on dug ground: cosmetic)
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
+import { townRows, gateRows, applyTownRows, applyGateRows } from '../game/mut/towns.js'; // settlements' shared state, players' gates (docs/REINOS.md)
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -86,25 +87,27 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     crops: [...game.farm.crops.values()].filter((c) => K(c.tx + 0.5, c.ty + 0.5)).map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
     loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240) && K(l.x0 ?? l.x, l.y0 ?? l.y)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
     props: campStateRows(game), // (camp crates: the shared state, loaded or not — mut/camps.js)
+    towns: townRows(game, keep ? K : null), // (settlements: destroyed pieces, doors / gates, damage — loaded or not: mut/towns.js)
+    gates: gateRows(game), // (players' gates: owner, automatic)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
     year: game.yearLen && game.yearLen !== 'short' ? game.yearLen : undefined, // the world's year length (calendar.js)
   };
   const SK = keep ? new Set(data.structs.map((r) => r[0])) : null, inS = (o) => !SK || SK.has(o.id);
-  const lvs = game.build.structures.filter((o) => o.lv > 0 && inS(o)).map((o) => [o.id, o.lv | 0]); // levels: upper stories
+  const lvs = game.build.structures.filter((o) => o.lv > 0 && o.town == null && inS(o)).map((o) => [o.id, o.lv | 0]); // levels: upper stories (a settlement's pieces come from the seed)
   if (lvs.length) data.lvs = lvs;
   // terrain height (docs/TERRAIN-HEIGHT.md): the players' terrain edits as a diff of the generated terrain, the bases
   // buildings stand on
   if (w.hasHeight) {
     const terr = w.height.diff();
     if (terr.length) data.terr = terr;
-    const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz) && inS(o)).map((o) => [o.id, Math.round(o.bz * 100)]);
+    const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz) && o.town == null && inS(o)).map((o) => [o.id, Math.round(o.bz * 100)]);
     if (bzs.length) data.bzs = bzs;
     if (w.tunnels.size) data.tun = serializeTunnels(game); // tunnels dug into the relief (mut/tunnels.js)
   }
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
-  const ball = game.build.structures.filter((o) => o.type === 'ballista' && inS(o) && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
+  const ball = game.build.structures.filter((o) => o.type === 'ballista' && o.town == null && inS(o) && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
   if (ball.length) data.ball = ball;
   // boats (game/boats.js): pose and riders (a save drops the riders: everyone is ashore after a load)
   if (game.boats?.map.size) data.boats = [...game.boats.map.values()].map((b) => [b.id, r3(b.x), r3(b.y), r3(b.h), b.v | 0, Math.round(b.at || 0), save ? 0 : b.seats.slice(), save ? 0 : b.pets.map((q) => q.slice())]);
@@ -113,13 +116,13 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
 }
 
 // the structures whose anchor tile passes K (all of them without a filter)
-function structsOf(game, K) { return game.build.structures.filter((o) => K(o.tx + 0.5, o.ty + 0.5)); }
+function structsOf(game, K) { return game.build.structures.filter((o) => o.town == null && K(o.tx + 0.5, o.ty + 0.5)); } // (a settlement's pieces: mut/towns.js rows)
 
 // a diff of the chunks in `scope` (interest: a guest coming near chunks it was not kept up to date on): the local rows
 // of serializeWorld there, nothing global
 export function serializeChunks(game, scope) {
   const w = game.world, d = serializeWorld(game, { keep: (x, y) => scope.has(w.chunkIndex(x, y)) });
-  const out = { v: d.v, seq: d.seq, gone: d.gone, nat: d.nat, dyn: d.dyn, falling: d.falling, mined: d.mined, rockp: d.rockp, structs: d.structs, crops: d.crops, loot: d.loot };
+  const out = { v: d.v, seq: d.seq, gone: d.gone, nat: d.nat, dyn: d.dyn, falling: d.falling, mined: d.mined, rockp: d.rockp, structs: d.structs, crops: d.crops, loot: d.loot, towns: d.towns };
   for (const k of ['lvs', 'bzs', 'ball']) if (d[k]) out[k] = d[k];
   return out;
 }
@@ -256,7 +259,7 @@ function applyInner(game, d, mode, scope = null) {
   for (const r of arr(d.structs)) if (Array.isArray(r) && BUILDINGS[r[1]]) sIds.set(r[0], r);
   if (reconcile) {
     for (const o of [...game.build.structures]) {
-      if (!IN(o.tx + 0.5, o.ty + 0.5)) continue;
+      if (o.town != null || !IN(o.tx + 0.5, o.ty + 0.5)) continue; // (a settlement's pieces: mut/towns.js rows below)
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
       const same = r && (LVS.get(o.id) || 0) === (o.lv | 0) && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
@@ -299,7 +302,7 @@ function applyInner(game, d, mode, scope = null) {
   // ---- ballistas: aim and operator (game/ballista.js) ----
   const BAL = new Map(arr(d.ball).filter((r) => Array.isArray(r)).map((r) => [r[0], r]));
   for (const o of game.build.structures) {
-    if (o.type !== 'ballista' || !IN(o.tx + 0.5, o.ty + 0.5)) continue;
+    if (o.type !== 'ballista' || o.town != null || !IN(o.tx + 0.5, o.ty + 0.5)) continue;
     const r = BAL.get(o.id);
     if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
     if (r && r[2] && reconcile) o.user = String(r[2]).slice(0, 40); else delete o.user;
@@ -353,7 +356,10 @@ function applyInner(game, d, mode, scope = null) {
   }
   if (reconcile) for (const l of [...game.loot]) if (!lIds.has(l.id) && IN(l.x0 ?? l.x, l.y0 ?? l.y)) removeLoot(game, l.id);
   addLootRows(game, add);
-  if (chunk) { updateAllMasks(game); game.events?.emit('worldpatch', { scope }); return; } // (nothing global in a chunk diff)
+  // ---- settlements (mut/towns.js): a chunk diff carries the rows of its chunks ----
+  if (chunk) { if (d.towns) applyTownRows(game, d.towns, true, IN); updateAllMasks(game); game.events?.emit('worldpatch', { scope }); return; } // (nothing global in a chunk diff)
+  if (reconcile || d.towns) applyTownRows(game, d.towns, reconcile);
+  if (reconcile || d.gates) applyGateRows(game, d.gates, reconcile);
 
   // ---- camp crates ----
   applyCampState(game, arr(d.props), reconcile);

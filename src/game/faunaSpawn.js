@@ -25,6 +25,7 @@ import { SPECIES } from './data.js';
 import { BIOME_KEYS } from '../world/planet/biomes.js';
 import { mulberry32 } from '../engine/noise.js';
 import { STOCK } from './content/livestock.js';
+import { settlementAt } from '../world/realm/realm.js'; // (no wild herds inside a settlement: docs/REINOS.md)
 
 const CHUNK = 64;
 // hours of a species: the fauna table, else the classic creatures' (mobs.js ACTIVE, passed in), else 'always'
@@ -123,6 +124,7 @@ export function chunkFauna(game, c, { levelFor, whenOf = null } = {}) {
     if (!sp) continue;
     const d = Math.hypot(w.dx(g.x, sx), g.y - sy);
     if (d < (sp.minD ?? 8)) continue; // (the bare-hands start stays fair)
+    if (g.species !== 'fish' && settlementAt(w.source?.planet?.realm, g.x, g.y, 10)) continue; // (not in a village / castle / city)
     const lvl = levelFor ? levelFor(d, (sp.lvl || 0) + (rng() < 0.3 ? 1 : 0)) : 1;
     const s = { id: 0, species: g.species, x: g.x, y: g.y, level: lvl, count: g.count, members: [], when: whenOf?.(g.species) || g.when, biome: g.biome };
     if (g.species === 'fish') { s.fish = true; s.level = 1; s.when = 'always'; }
