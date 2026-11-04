@@ -508,6 +508,11 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
   return null;
 }
 export const jobKindName = (t) => JOB_KINDS[t]?.name || t;
+// the waypoint of a job for the HUD / radar / map (null: a hunt, anywhere)
+export function jobWaypoint(game, j) {
+  const t = jobTarget(game, j);
+  return t && !t.anywhere ? { x: t.x, y: t.y, label: t.label, kind: 'job', job: j.id } : null;
+}
 // a job's state for its player: 'go' (working), 'ready' (turn it in), 'late' (expired)
 export function jobState(game, j) {
   if (j.t === 'bring' || j.t === 'deliver') return 'carry';

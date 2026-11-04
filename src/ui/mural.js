@@ -122,7 +122,7 @@ export function muralBody(panels) {
 }
 
 export function muralBind(panels, el) {
-  el.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { panels.muralTab = b.dataset.mtab; panels.render(); }));
+  el.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { if (panels.muralTab !== b.dataset.mtab) { const pb = el.querySelector('.pb'); if (pb) pb.scrollTop = 0; } panels.muralTab = b.dataset.mtab; panels.render(); }));
   ecoBind(panels, el); // (the economy tabs and the kingdom card: ui/muralEco.js)
   const H = panels.g.ctl?.hinted;
   if (H && !H.mural) H.mural = true; // sync-ok: a local hint flag (the gold "!" over the murals goes)

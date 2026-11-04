@@ -7,7 +7,7 @@
 
 import { itemIco } from './econIcons.js';
 import { notify } from './notify.js';
-import { COIN, PARCEL, meUid, myRec, jobState, jobTarget, settlement, kingdomOf, propById, propsOf, fmt, RANK_LIST, REP } from '../game/eco.js';
+import { COIN, PARCEL, meUid, myRec, jobState, jobTarget, jobWaypoint, settlement, kingdomOf, propById, propsOf, fmt, RANK_LIST, REP } from '../game/eco.js';
 import { JOB_KINDS, PROP } from '../game/content/eco.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -82,10 +82,12 @@ export function installEcoHud(game) {
       let got = j.got | 0;
       if (j.t === 'bring') got = p.inv.count(j.good);
       if (j.t === 'deliver') got = p.inv.count(PARCEL);
-      const ready = st === 'ready' || ((j.t === 'bring' || j.t === 'deliver') && got >= j.n);
-      const ar = t && !(t.anywhere && !ready) ? arrowOf(t.x, t.y) : null;
+      const carry = j.t === 'deliver';
+      const ar0 = t ? arrowOf(t.x, t.y) : null;
+      const ready = st === 'ready' || (j.t === 'bring' && got >= j.n) || (carry && got >= j.n && ar0 && ar0.d < 8); // (a delivery: ready at its destination)
+      const ar = t && !(t.anywhere && !ready) ? ar0 : null;
       const inArea = t?.area && !ready && ar && ar.d < (j.r || 40);
-      const where = ready ? `entregue: ${t?.label || ''}` : j.t === 'deliver' ? `levar a ${t?.label || ''}` : `${Math.min(got, j.n)}/${j.n}${inArea ? ' · você está no lugar' : ''}`;
+      const where = ready ? `entregue: ${t?.label || ''}` : carry ? (got >= j.n ? `levar a ${t?.label || ''}` : `faltam ${j.n - got} encomendas`) : `${Math.min(got, j.n)}/${j.n}${inArea ? ' · você está no lugar' : ''}`;
       rows.push({ id: j.id, ic: K.icon, title: j.title, sub: `${ready ? '<span class="g">Pronto!</span> ' : ''}${esc(where)}${ar && ar.d > 6 && !inArea ? ` · ${Math.round(ar.d)} passos` : ''}`, ar: inArea ? null : ar, on: E.track === j.id, ready, here: ready && ar && ar.d <= 3 });
     }
     if (E.wp && E.wp.kind !== 'job') { const ar = arrowOf(E.wp.x, E.wp.y); rows.push({ id: 'wp', ic: '📍', title: E.wp.label, sub: `${Math.round(ar.d)} passos`, ar, on: true, wp: true }); }
@@ -100,7 +102,7 @@ export function installEcoHud(game) {
       if (id === 'wp') { E.wp = null; trackKey = ''; return; }
       const j = myRec(game)?.jobs.find((q) => q.id === id);
       if (!j) return;
-      if (E.track === id) { E.track = null; E.wp = null; } else { const t = jobTarget(game, j); E.track = id; E.wp = t ? { x: t.x, y: t.y, label: t.label, kind: 'job', job: id } : null; }
+      if (E.track === id) { E.track = null; E.wp = null; } else { E.track = id; E.wp = jobWaypoint(game, j); }
       trackKey = '';
     }));
   };
@@ -121,7 +123,7 @@ export function installEcoHud(game) {
       const t = jobTarget(game, d.job);
       game.events.emit('toast', { text: `Pronto: ${d.job.title}. Entregue no ${t?.label || 'mural'}`, kind: 'good' });
       game.audio?.play('levelup', { volume: 0.4 });
-      if (game.eco.track === d.job.id && t) game.eco.wp = { x: t.x, y: t.y, label: t.label, kind: 'job', job: d.job.id };
+      if (game.eco.track === d.job.id) game.eco.wp = jobWaypoint(game, d.job);
     } else if (d.type === 'prog') {
       game.events.emit('toast', { text: `${d.job.title}: ${d.job.got}/${d.job.n}`, kind: 'info' });
     } else if (d.type === 'jobfail') {
@@ -130,7 +132,7 @@ export function installEcoHud(game) {
     } else if (d.type === 'jobdone' || d.type === 'jobdrop') {
       if (game.eco.track === d.job.id) { game.eco.track = null; game.eco.wp = null; }
       const next = myRec(game)?.jobs[0];
-      if (next && !game.eco.track) { const t = jobTarget(game, next); if (t) { game.eco.track = next.id; game.eco.wp = { x: t.x, y: t.y, label: t.label, kind: 'job', job: next.id }; } }
+      if (next && !game.eco.track) { game.eco.track = next.id; game.eco.wp = jobWaypoint(game, next); }
     } else if (d.type === 'paid') {
       notify(`Imposto e aluguel pagos: −${fmt(d.coins)} moedas`, { sub: `${(d.ids || []).length} ${(d.ids || []).length === 1 ? 'propriedade' : 'propriedades'} em dia · cobrado da sua mochila`, kind: 'info', ms: 4500, key: 'tax' });
     } else if (d.type === 'owed') {
@@ -185,21 +187,27 @@ export function installEcoHud(game) {
       if (sid >= 0) {
         const P = propsOf(g, sid), myU = me();
         ctx.save();
-        ctx.lineWidth = 2;
         for (const pl of P.plots) {
           const row = g.eco.pr.get(pl.id), mine = row && row.u === myU;
           const pts = [corner(pl.x0, pl.y0), corner(pl.x1 + 1, pl.y0), corner(pl.x1 + 1, pl.y1 + 1), corner(pl.x0, pl.y1 + 1)];
           if (pts.every(([x, y]) => x < -40 || y < -40 || x > W + 40 || y > H + 40)) continue;
-          ctx.setLineDash(mine ? [] : [8, 6]);
-          ctx.strokeStyle = mine ? 'rgba(134,220,205,0.95)' : row ? 'rgba(200,190,170,0.6)' : 'rgba(247,217,122,0.9)';
-          ctx.fillStyle = mine ? 'rgba(63,168,156,0.12)' : row ? 'rgba(0,0,0,0.06)' : 'rgba(247,217,122,0.08)';
-          ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); ctx.stroke();
-          const [cx, cy] = corner((pl.x0 + pl.x1 + 1) / 2, (pl.y0 + pl.y1 + 1) / 2);
+          const col = mine ? '134,220,205' : row ? '210,200,180' : '247,217,122';
+          // a soft fill, a dark under-line and the dashed (yours: solid) border, corner posts
+          ctx.fillStyle = `rgba(${col},${mine ? 0.14 : row ? 0.05 : 0.1})`;
+          ctx.beginPath(); pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill();
+          ctx.setLineDash([]); ctx.lineWidth = 4.5; ctx.strokeStyle = 'rgba(36,22,13,0.45)'; ctx.stroke();
+          ctx.setLineDash(mine ? [] : [10, 7]); ctx.lineWidth = 2.5; ctx.strokeStyle = `rgba(${col},0.95)`; ctx.stroke();
           ctx.setLineDash([]);
-          ctx.font = '700 13px "Barlow Condensed", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(36,22,13,0.9)';
+          for (const [x, y] of pts) { ctx.fillStyle = '#24160d'; ctx.fillRect(x - 4, y - 4, 8, 8); ctx.fillStyle = `rgb(${col})`; ctx.fillRect(x - 2.5, y - 2.5, 5, 5); }
+          // the label: a dark pill at the middle of the plot
+          const [cx, cy] = corner((pl.x0 + pl.x1 + 1) / 2, (pl.y0 + pl.y1 + 1) / 2);
           const txt = mine ? 'Seu terreno' : row ? `Terreno de ${row.name}` : `Terreno à venda · ${fmt(pl.price)} moedas`;
-          ctx.strokeText(txt, cx, cy); ctx.fillStyle = mine ? '#bff3ea' : row ? '#e6dccb' : '#ffe39a'; ctx.fillText(txt, cx, cy);
-          ctx.lineWidth = 2;
+          ctx.font = '700 15px "Barlow Condensed", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          const tw = ctx.measureText(txt).width + 18;
+          ctx.fillStyle = 'rgba(36,22,13,0.82)';
+          ctx.beginPath(); ctx.roundRect ? ctx.roundRect(cx - tw / 2, cy - 12, tw, 24, 12) : ctx.rect(cx - tw / 2, cy - 12, tw, 24); ctx.fill();
+          ctx.fillStyle = mine ? '#bff3ea' : row ? '#e6dccb' : '#ffe39a'; ctx.fillText(txt, cx, cy + 1);
+          ctx.textBaseline = 'alphabetic';
         }
         ctx.restore();
       }

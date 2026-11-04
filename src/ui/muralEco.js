@@ -8,7 +8,7 @@ import { ITEMS } from '../game/data.js';
 import { itemIco } from './econIcons.js';
 import {
   GOODS, NG, GI, RANKS, profileOf, quoteBuy, quoteSell, maxAfford, landAverage, bestMarkets, meUid, myRec, rankInfo, taxRate, boardOf,
-  jobState, jobTarget, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
+  jobState, jobTarget, jobWaypoint, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
   JOB_MAX, PROP, REP, COIN, PARCEL,
 } from '../game/eco.js';
 import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
@@ -32,6 +32,8 @@ function style() {
 .p-mural .mu-head.small .mu-name { font-size: 21px; }
 .p-mural .mu-head.small .mu-pills { display: none; }
 .ec { font: 500 14px/1.35 system-ui, sans-serif; color: var(--n-text); }
+.p-mural .mu-body .ec-realm b, .p-mural .mu-body .ec-card b, .p-mural .mu-body .ec-deal b, .p-mural .mu-body .ec-act b, .p-mural .mu-body .ec-where b { color: inherit; }
+.p-mural .mu-body .ec-realm .rk b { color: #8a3a1c; }
 .ec h4 { font: 700 15px/1.2 var(--n-fd); margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--n-mustard-hi); display: flex; align-items: baseline; gap: 8px; }
 .ec h4 small { font: 600 12.5px system-ui, sans-serif; color: var(--n-text-2); text-transform: none; letter-spacing: 0; }
 .ec .muted { color: var(--n-text-2); }
@@ -159,6 +161,7 @@ function style() {
   .ec-bi { flex: none; width: 62px; }
   .ec-bag .bnote { display: none; }
   .ec-lh, .ec-row { grid-template-columns: 32px minmax(0, 1fr) 46px 52px 52px 40px; gap: 4px; }
+  .ec-lh { font-size: 9.5px; letter-spacing: 0; padding: 0 5px 3px; }
   .ec-row { padding: 3px 5px; }
   .ec-row .nm { font-size: 14px; }
   .ec-row .num { font-size: 14px; }
@@ -424,7 +427,7 @@ export function trackJob(g, j) {
   const t = jobTarget(g, j);
   if (!t) return;
   g.eco.track = j.id;
-  g.eco.wp = { x: t.x, y: t.y, label: t.label, kind: 'job', job: j.id };
+  g.eco.wp = jobWaypoint(g, j);
   g.events.emit('eco', { type: 'wp' });
 }
 
@@ -436,10 +439,13 @@ export function ecoBind(panels, el) {
     else { ui.confirm = key; ui.confirmT = performance.now(); }
     rerender();
   };
+  // a good just picked (in the list or the backpack): its deal box comes into view
+  if (ui.scroll) { ui.scroll = false; const d = el.querySelector('.ec-deal'); if (d) { d.scrollIntoView({ block: 'nearest' }); el.querySelector('.ec-row.sel')?.scrollIntoView({ block: 'nearest' }); } }
   el.querySelectorAll('[data-good]').forEach((b) => b.addEventListener('click', () => {
     const id = b.dataset.good;
     ui.good = ui.good === id && b.classList.contains('ec-row') ? null : id;
     ui.n = 1;
+    ui.scroll = !!ui.good;
     g.audio?.play('ui_click', {});
     rerender();
   }));
