@@ -5646,6 +5646,47 @@ def('ST2', {
   await t.checkDigest(H, G3);
 });
 
+def('FA3', {
+  title: 'FA: a lion hunts and kills a zebra on the host; the guest sees the body; one kill a day', timeout: 120000,
+  expected: 'A lion and a zebra ~3 tiles apart, far from both players: the hunt starts (ai.js startWildHunt: state hunt, creeping, then the sprint), the zebra runs (flee), the lion\'s bites daze it and kill it on the host; its body (corpse of a zebra) appears on the host and the guest; the lion stays by the body a while (idle, eating) and its pack does not hunt again that day (HUNT.kills: a second zebra next to it is left alone); the guest\'s proxy of the lion runs in; digest equal',
+  api: 'content/fauna.js HUNT; ai.js lookForWild / startWildHunt / huntStep / wildKill; combat dealDamage → corpse; net/entities.js state',
+}, async (t) => {
+  const { H, G, MH } = await pairCtx(t);
+  A.keepAlive(t, G);
+  const gp = G.game.player, hp = H.game.player;
+  let spot = null;
+  for (let k = 0; k < 16 && !spot; k++) {
+    const a = (k / 16) * Math.PI * 2, x = gp.x + Math.cos(a) * 22, y = gp.y + Math.sin(a) * 22;
+    const q = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 2, r: 0.5 }), q2 = q && A.freeSpot(H, MH, q[0] + 3, q[1], { rMin: 0, rMax: 1, r: 0.45 });
+    if (q && q2 && A.clearLine(H, MH, q[0], q[1], q2[0], q2[1], 0.45) && Math.hypot(q[0] - hp.x, q[1] - hp.y) > 16) spot = [q, q2];
+  }
+  t.assert(spot, 'an open field ~22 tiles from the players');
+  const [lion] = await faunaGroup(H, MH, 'lion', spot[0][0], spot[0][1]);
+  const [zebra] = await faunaGroup(H, MH, 'zebra', spot[1][0], spot[1][1]);
+  const made = [lion, zebra];
+  t.defer(() => killQuiet(H, made.filter((m) => !m.dead)));
+  const MA = await fimp(H, 'game/ai.js');
+  let fled = false, q0 = null, qMove = 0;
+  await t.tryWait(() => A.proxyOf(G, lion), 3000);
+  const w = t.watch(() => { const q = A.proxyOf(G, lion); if (q) { q0 ??= [q.x, q.y]; qMove = Math.max(qMove, Math.hypot(q.x - q0[0], q.y - q0[1])); } if (zebra.state === 'flee') fled = true; }, 16);
+  MA.startWildHunt(H.game, lion, zebra);
+  t.check(lion.state === 'hunt' && lion.prey === zebra && lion.huntWild, 'the lion hunts the zebra (wild hunt)', `${lion.state} ${lion.prey?.species}`);
+  await t.waitFor(() => zebra.dead, 30000, 'the lion kills the zebra on the host', () => `lion ${lion.state} d=${f2(Math.hypot(lion.x - zebra.x, lion.y - zebra.y))} zebra ${zebra.state} hp ${f2(zebra.hp)}`);
+  w.stop();
+  t.check(fled, 'the zebra ran (flee)');
+  const c = await t.waitFor(() => [...H.game.corpses.map.values()].find((o) => o.of === 'zebra' && Math.hypot(o.x - zebra.x, o.y - zebra.y) < 1.5), RT() + 1500, 'its body on the host');
+  await t.waitFor(() => bodyOn(G, c.id)?.of === 'zebra', ONEWAY() + 1500, 'its body on the guest');
+  t.check(!q0 || qMove > 0.8, "the guest saw the lion run in (its proxy moved)", q0 ? `${f2(qMove)} tiles` : 'out of the guest interest range');
+  t.check(lion.state === 'idle' && lion.stateT > 10, 'the lion stays by the body (eating)', `${lion.state} ${f2(lion.stateT)} s`);
+  // one kill a day: a second zebra right next to it is left alone
+  const [z2] = await faunaGroup(H, MH, 'zebra', lion.x + 2.5, lion.y);
+  made.push(z2);
+  lion.stateT = 0; lion.thinkT = 0; lion.wildT = 0; H.game.env.hour = 21;
+  const again = await t.tryWait(() => lion.state === 'hunt', 3000);
+  t.check(!again, 'its pack does not hunt again that day', `state ${lion.state}`);
+  await t.checkDigest(H, G);
+});
+
 // =====================================================================================================
 // TR · terrain relief (docs/TERRAIN-HEIGHT.md): tunnels, waterfalls, the shovel, jumping down. A host on the real planet
 // (seed 4242) at a mountain cliff, the guest generating the same chunks (ST2).
