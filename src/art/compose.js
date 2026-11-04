@@ -152,7 +152,7 @@ function tables(A) {
     }
   }
   for (let i = 0; i < 3; i++) T.flames.push(opt('fx_flame_' + i) || A.get('fx_flame'));
-  T.knife = held(T, 'knife_iron'); T.axe = held(T, 'axe_iron'); T.pick = held(T, 'pickaxe_iron'); T.bow = held(T, 'bow_wood'); T.hammer = held(T, 'hammer');
+  T.knife = held(T, 'knife_iron'); T.axe = held(T, 'axe_iron'); T.pick = held(T, 'pickaxe_iron'); T.shovel = held(T, 'shovel_iron'); T.bow = held(T, 'bow_wood'); T.hammer = held(T, 'hammer');
   CACHE.set(A, T);
   return T;
 }
@@ -214,7 +214,7 @@ const POSE_OF = {
   strike: 'attack', punch: 'attack', lacerate: 'slash', sweep: 'cleave', aimed_shot: 'shoot', multi_shot: 'shoot',
   shield_bash: 'bash', torch_swing: 'torch', bandage: 'heal',
 };
-const ATTACK_OF = { knife: 'stab', sword: 'slash', axe: 'heavy', pickaxe: 'heavy', club: 'smash', spear: 'pierce', bow: 'shoot', torch: 'slash', hammer: 'smash' };
+const ATTACK_OF = { knife: 'stab', sword: 'slash', axe: 'heavy', pickaxe: 'heavy', shovel: 'heavy', club: 'smash', spear: 'pierce', bow: 'shoot', torch: 'slash', hammer: 'smash' };
 const WHIRL8 = ['s', 'se', 'e', 'ne', 'n', 'nw', 'w', 'sw']; // (a whirlwind spin: every view in turn)
 const TWO_HAND = { heavy: 1, smash: 1 };
 const BLADE = { knife: 1, sword: 1, axe: 1 }; // can cut a carcass
@@ -804,9 +804,9 @@ function rigPose(Q, C, sd, flip) {
 
   // ---- actions ----
   if (pose === 'attack') pose = wType ? ATTACK_OF[wType] || 'slash' : 'punch';
-  if (pose === 'chop' || pose === 'mine') {
-    const want = pose === 'chop' ? 'axe' : 'pickaxe';
-    if (wType !== want) { const R = pose === 'chop' ? T.axe : T.pick; wsp = R.s || wsp; wType = want; }
+  if (pose === 'chop' || pose === 'mine' || pose === 'dig') {
+    const want = pose === 'chop' ? 'axe' : pose === 'dig' ? 'shovel' : 'pickaxe';
+    if (wType !== want) { const R = pose === 'chop' ? T.axe : pose === 'dig' ? T.shovel : T.pick; wsp = R.s || wsp; wType = want; } // (dig: the shovel, game/terrain.js)
     pose = 'heavy';
   } else if (pose === 'build') {
     if (T.hammer.s) { wsp = T.hammer.s; wType = 'hammer'; }

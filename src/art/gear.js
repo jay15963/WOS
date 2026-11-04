@@ -191,6 +191,30 @@ T.pickaxe = {
   },
 };
 
+// the shovel (game/terrain.js: the terrain tool): a long haft with a T grip at the end, a rounded spade blade with a
+// ridge down the middle; stone = a flat slab lashed on, metal = a forged blade on a socket
+T.shovel = {
+  W: 30, H: 78, gy: 62,
+  paint(tier) {
+    const M = MAT[tier], H = HANDLE[tier], cx = 15;
+    const haftFn = (g) => {
+      haft(g, H, cx, 24, 74, 3.8, tier === 'stone' ? null : [56, 64], 63, 0);
+      g.fillStyle = lin(g, 0, 72, 0, 77, [[0, mixc(H.wood, '#fff', 0.2)], [1, H.woodD]]); g.beginPath(); rrect(g, cx - 6.5, 72, 13, 4.2, 1.8); g.fill(); // (T grip)
+    };
+    const pts = tier === 'stone'
+      ? [[cx, 3], [cx + 7, 5], [cx + 9, 12], [cx + 8.5, 22], [cx + 3.5, 26], [cx - 3.5, 26], [cx - 8.5, 22], [cx - 9, 12], [cx - 7, 5]]
+      : [[cx, 1.2], [cx + 7.5, 3.6], [cx + 10.5, 11], [cx + 10, 21.5], [cx + 4.5, 25.5], [cx - 4.5, 25.5], [cx - 10, 21.5], [cx - 10.5, 11], [cx - 7.5, 3.6]];
+    return [haftFn, (g) => {
+      fillMat(g, M, (g) => spline(g, pts, true, 0.5), [cx - 10.5, 1, cx + 10.5, 26], 93 + tier.length);
+      g.strokeStyle = A(M.edge, 0.8); g.lineWidth = 1.1;
+      g.beginPath(); g.moveTo(cx - 6.5, 4.5); g.quadraticCurveTo(cx, 1.6, cx + 6.5, 4.5); g.stroke(); // (the worn edge)
+      g.strokeStyle = A(M.dark, 0.55); g.lineWidth = 1; g.beginPath(); g.moveTo(cx, 6); g.lineTo(cx, 23); g.stroke(); // (the ridge)
+      if (tier === 'stone') lashing(g, H, cx, 27, 7, 8, 3);
+      else { g.fillStyle = metalFill(g, M, cx - 3, 24, cx + 3, 33); g.beginPath(); rrect(g, cx - 3, 23.5, 6, 9, 1.4); g.fill(); g.fillStyle = 'rgba(255,255,255,0.3)'; g.fillRect(cx - 2, 24.5, 1.2, 7); }
+    }];
+  },
+};
+
 T.spear = {
   W: 22, H: 100, gy: 78,
   paint(tier) {
@@ -558,6 +582,7 @@ const TIERS = {
   knife: ['primitive', 'stone', 'copper', 'iron', 'steel'],
   axe: ['primitive', 'stone', 'copper', 'iron', 'steel'],
   pickaxe: ['primitive', 'stone', 'copper', 'iron', 'steel'],
+  shovel: ['stone', 'copper', 'iron', 'steel'],
   spear: ['stone', 'copper', 'iron', 'steel'],
   sword: ['copper', 'iron', 'steel'],
   club: ['wood', 'iron'],

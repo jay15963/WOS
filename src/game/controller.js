@@ -12,6 +12,8 @@ import { describeObject, reachDist } from './gathering.js';
 import { describeStructure, buildTap, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
 import { describeRock, isRock } from './mining.js';
 import { describeTunnel } from './tunnels.js'; // tunnels into the relief (docs/TERRAIN-HEIGHT.md)
+import { enterTerrainMode } from './terrain.js'; // the shovel: the terrain tool
+import { ITEMS } from './data.js';
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
@@ -238,6 +240,9 @@ export function installController(game) {
       if (p.dead) return;
       if (game.ballista?.onInteract?.()) return; // (on a ballista: E / the use button gets off it)
       it = it || ctl.near;
+      // a shovel in the hand and nothing else to use here (or only the rock / face a pickaxe digs): the terrain tool
+      // (game/terrain.js; its bar has the four modes)
+      if ((!it || it.kind === 'tunnel' || it.kind === 'rock') && game.world.hasHeight && ITEMS[p.equip?.main]?.tool?.dig) { enterTerrainMode(game, game.lastTerrainMode || 'dig'); return; }
       if (!it) {
         if (attackable(p.target)) { ctl.engage(p.target); return; }
         game.events.emit('error', { text: 'Nada por perto' });

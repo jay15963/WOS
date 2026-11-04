@@ -42,6 +42,7 @@ import { propById, setPropBroken } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
 import { serializeTunnels, applyTunnels } from '../game/mut/tunnels.js'; // tunnels dug into the relief
+import { hideDugDecor } from '../game/terrain.js'; // (grass on dug ground: cosmetic)
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
 
 export const SNAP_V = 1;
@@ -139,7 +140,7 @@ function applyInner(game, d, mode) {
   }
 
   // ---- terrain edits (docs/TERRAIN-HEIGHT.md; a snapshot without them = the generated terrain) ----
-  if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; }
+  if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; hideDugDecor(game, [...w.height.edits.keys()]); }
 
   // ---- tunnels (before the mined tiles: a rock tile dug into a tunnel is mined without a cut) ----
   if (reconcile || d.tun) applyTunnels(game, arr(d.tun), reconcile);

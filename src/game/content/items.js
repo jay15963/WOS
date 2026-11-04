@@ -101,7 +101,10 @@ const TOOL_TYPES = {
   axe:     { name: ['Machado', 'm'], emoji: '🪓', mats: ['primitive', 'stone', 'copper', 'iron', 'steel'], cat: 'tool', tool: (s) => ({ chop: s }),
              desc: 'Corta árvores e tocos. Arma pesada.' },
   pickaxe: { name: ['Picareta', 'f'], emoji: '⛏️', mats: ['primitive', 'stone', 'copper', 'iron', 'steel'], cat: 'tool', tool: (s) => ({ mine: s }),
-             desc: 'Quebra pedregulhos e minera rocha. Arma fraca.' },
+             desc: 'Quebra pedregulhos e minera rocha; cava túneis na face dos penhascos. Arma fraca.' },
+  // the shovel (docs/TERRAIN-HEIGHT.md "A pá"): the terrain tool — Cavar / Aterrar / Aplanar / Suavizar
+  shovel:  { name: ['Pá', 'f'], emoji: '🪏', mats: ['stone', 'copper', 'iron', 'steel'], cat: 'tool', tool: (s) => ({ dig: s }),
+             desc: 'Mexe no terreno: Cavar, Aterrar, Aplanar e Suavizar (E / Usar com ela na mão, ou Construir → Terreno). Arma fraca.' },
   spear:   { name: ['Lança', 'f'], emoji: '🔱', mats: ['stone', 'copper', 'iron', 'steel'], cat: 'weapon', desc: 'Arma de alcance longo (1,8 m).' },
   sword:   { name: ['Espada', 'f'], emoji: '🗡️', mats: ['copper', 'iron', 'steel'], cat: 'weapon', desc: 'Arma equilibrada. Golpe, Redemoinho e Investida.' },
 };

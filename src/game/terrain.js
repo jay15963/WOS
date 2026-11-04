@@ -13,7 +13,7 @@ import { ON_PAD, dimsOf } from './mut/structures.js';
 import { exitBuildMode } from './building.js';
 import { bestTool } from './equipment.js';
 import { needToolMsg } from './gathering.js';
-import { T_R, T_REACH } from './mut/terrain.js';
+import { T_R, T_REACH, terrainBrush } from './mut/terrain.js';
 import { collides } from './physics.js';
 
 export const TERRAIN_MODES = {
@@ -38,19 +38,36 @@ function rebuildPlots(game) {
   L.setPlots(map);
 }
 
-// ---------- the tool ----------
+// ---------- the tool: the shovel ("Pá", content/items.js shovel_*) ----------
+// Build window → Terreno, or E / Usar with a shovel in the hand (nothing else to use there). While on, a bar shows the
+// four modes (ui/terrainbar.js: desktop and touch; R cycles them) and the brush is previewed on the ground: a ring at the
+// cursor plus a dot on every corner it would move, at the height it would get (green), or where it is refused (red, the
+// reason in the bar). The preview runs the host's own brush (mut/terrain.js terrainBrush) on this peer's world.
+export const TERRAIN_ORDER = ['dig', 'fill', 'flat', 'smooth'];
+export const shovelOf = (p) => bestTool(p, 'dig');
 export function enterTerrainMode(game, m) {
   const p = game.player;
   if (p.dead || !TERRAIN_MODES[m] || !game.world.hasHeight) return false;
-  game.build.mode = { kind: 'terrain', tool: TERRAIN_TOOL, m, h: null, hold: false, t: 0, at: null };
+  const old = game.build.mode;
+  game.build.mode = { kind: 'terrain', tool: TERRAIN_TOOL, m, h: null, hold: false, t: 0, at: null, pv: null };
+  game.lastTerrainMode = m;
   game.events.emit('buildui', {});
-  game.events.emit('toast', { text: `${TERRAIN_MODES[m].name}: ${game.input.isTouch ? 'toque no chão' : 'clique ou segure no chão · Esc sai'}`, kind: 'info' });
+  if (old?.kind !== 'terrain') game.events.emit('toast', { text: `${TERRAIN_MODES[m].name}: ${game.input.isTouch ? 'toque no chão' : 'clique ou segure no chão · R troca · Esc sai'}`, kind: 'info' });
+  if (!game.creative && !shovelOf(p)) game.events.emit('error', { text: SHOVEL_MSG });
+  return true;
+}
+export const SHOVEL_MSG = 'Precisa de uma pá (Criar: Pá de pedra — 2 madeira, 3 pedra, 1 corda)';
+export function setTerrainMode(game, m) {
+  const md = game.build.mode;
+  if (md?.kind !== 'terrain' || !TERRAIN_MODES[m]) return enterTerrainMode(game, m);
+  if (md.m !== m) { md.m = m; md.h = null; md.pv = null; game.lastTerrainMode = m; }
   return true;
 }
 function apply(game, wx, wy) {
   const m = game.build.mode, p = game.player;
   if (!m || m.kind !== 'terrain') return false;
-  if (!game.creative && !bestTool(p, 'mine')) { game.events.emit('error', { text: needToolMsg('mine') }); return false; }
+  const tool = shovelOf(p);
+  if (!game.creative && !tool) { game.events.emit('error', { text: SHOVEL_MSG }); return false; }
   if (Math.hypot(wx - p.x, wy - p.y) > T_REACH) { game.events.emit('error', { text: 'Longe demais' }); return false; }
   if (m.m === 'flat' && m.h == null) m.h = Math.round(game.world.heightAt(wx, wy) * 4) / 4; // the first point sets the level
   let refund = null;
@@ -64,16 +81,30 @@ function apply(game, wx, wy) {
   game.juice?.puff?.(wx, wy, 3, m.m === 'fill' ? [0.5, 0.4, 0.3] : [0.56, 0.46, 0.34], 0.4);
   game.audio?.play(m.m === 'fill' ? 'path_dirt' : 'dig', { x: wx, y: wy, volume: 0.7 });
   if (p.facing) { const dx = wx - p.x, dy = wy - p.y; p.facing = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'e' : 'w') : (dy > 0 ? 's' : 'n'); }
-  p.action = { type: 'mine', t: 0 };
+  p.action = { type: 'dig', t: 0 };
+  m.rate = tool ? 0.22 / Math.sqrt(Math.max(0.5, tool.speed)) : 0.15; // (a better shovel digs a bit faster)
   return true;
 }
 export const TERRAIN_TOOL = {
-  dragStart(game, wx, wy) { const m = game.build.mode; m.hold = true; m.at = [wx, wy]; m.t = 0.22; apply(game, wx, wy); },
+  dragStart(game, wx, wy) { const m = game.build.mode; m.hold = true; m.at = [wx, wy]; m.t = m.rate || 0.22; apply(game, wx, wy); },
   dragMove(game, wx, wy) { const m = game.build.mode; if (m.hold) m.at = [wx, wy]; },
   dragEnd(game) { const m = game.build.mode; m.hold = false; return true; },
   tap(game, wx, wy) { return apply(game, wx, wy); },
   cancel(game) { exitBuildMode(game); },
 };
+// the brush preview at (x, y): { list: [[corner, h]], why, x, y } (cached per spot / mode / terrain version)
+export function brushPreview(game, x, y) {
+  const m = game.build.mode, w = game.world;
+  if (m?.kind !== 'terrain') return null;
+  const qx = Math.round(x * 8) / 8, qy = Math.round(y * 8) / 8, h = m.m === 'flat' ? (m.h ?? Math.round(w.heightAt(x, y) * 4) / 4) : 0;
+  const pv = m.pv;
+  if (pv && pv.x === qx && pv.y === qy && pv.m === m.m && pv.h === h && pv.v === w.height.v && pv.c === !!game.creative) return pv;
+  const r = terrainBrush(game, m.m, qx, qy, h, game.creative);
+  const far = Math.hypot(qx - game.player.x, qy - game.player.y) > T_REACH;
+  const why = far ? 'far' : !game.creative && !shovelOf(game.player) ? 'shovel' : m.m === 'fill' && !game.creative && game.player.inv.count('dirt') < 1 ? 'dirt' : r.list.length ? null : r.why;
+  return (m.pv = { x: qx, y: qy, m: m.m, h, v: w.height.v, c: !!game.creative, list: r.list, why, block: r.block || [] });
+}
+export const PREVIEW_WHY = { far: 'Longe demais', shovel: 'Precisa de uma pá', dirt: 'Precisa de terra (cave com Cavar)', build: 'Construção: o terreno embaixo não muda', water: 'Água: não dá para mexer na margem', rock: 'Rocha: use a picareta', tunnel: 'Túnel perto: o teto dele não muda', deep: 'Fundo demais aqui', high: 'Alto demais aqui', same: 'Já está assim', edge: 'Fora do mapa' };
 
 // ---------- jumping down a small drop (docs/TERRAIN-HEIGHT.md "Pular barrancos") ----------
 // A body pushing into the edge of a cliff whose foot is at most DROP_MAX lower hops down to the ground past the face: a
@@ -194,29 +225,76 @@ export function slopeSpeed(game, e, mx, my) {
 }
 
 export function terrainSystem() {
-  let bv = -1, tv = -1;
+  let bv = -1, tv = -1, bar = null, dec = false;
   return {
-    sync: 'all', // plots derived from the replicated structures (every peer); the tool and the brush ring are local
+    sync: 'all', // plots derived from the replicated structures (every peer); the tool and the brush preview are local
     update(game, dt) {
       const w = game.world;
       if (!w.hasHeight) return;
+      if (!dec) { dec = true; const prev = w.onDecor; w.onDecor = (c) => { prev?.(c); hideDugDecor(game, null, c); }; } // (decor made later: chunks streaming back)
       if (game.build.v !== bv || (game.terrainV || 0) !== tv) { bv = game.build.v; tv = game.terrainV || 0; rebuildPlots(game); }
       playerHop(game, dt); // (the local player: a small drop ahead)
+      // the shovel's bar (four modes, desktop and touch), loaded lazily like the path bar
+      if (!bar && typeof document !== 'undefined' && game.R?.canvas && !game.headless) {
+        bar = 1;
+        import('../ui/terrainbar.js').then((mod) => { bar = mod.installTerrainbar(game); }).catch((e) => { console.warn('terrainbar', e); bar = 2; });
+      }
+      if (typeof bar === 'object' && bar) bar.update(dt);
       const m = game.build.mode;
       if (m?.kind !== 'terrain') return;
       if (game.player.dead) { exitBuildMode(game); return; }
       if (game.input.pressed?.has('Escape')) { exitBuildMode(game); return; }
-      if (m.hold && m.at && (m.t -= dt) <= 0) { m.t = 0.22; apply(game, m.at[0], m.at[1]); }
+      if (game.input.pressed?.has('KeyR')) setTerrainMode(game, TERRAIN_ORDER[(TERRAIN_ORDER.indexOf(m.m) + 1) % 4]);
+      if (m.hold && m.at && (m.t -= dt) <= 0) { m.t = m.rate || 0.22; apply(game, m.at[0], m.at[1]); }
     },
     render(game, B) {
       const m = game.build.mode, A = game.A;
       if (m?.kind !== 'terrain' || !A.has('fx_ring')) return;
       const hv = game.ctl?.hover, at = hv ? [hv.wx, hv.wy] : m.at;
       if (!at) return;
-      const far = Math.hypot(at[0] - game.player.x, at[1] - game.player.y) > T_REACH;
-      const c = far ? [1, 0.4, 0.32] : m.m === 'dig' ? [1, 0.78, 0.45] : m.m === 'fill' ? [0.62, 0.9, 0.5] : m.m === 'flat' ? [0.5, 0.78, 1] : [0.85, 0.75, 1];
+      const pv = brushPreview(game, at[0], at[1]), ok = pv && !pv.why, ring = A.get('fx_ring'), w = game.world, L = w.height;
+      // the ring at the cursor: the mode's colour, red when refused
+      const c = !ok ? [1, 0.36, 0.3] : m.m === 'dig' ? [1, 0.78, 0.45] : m.m === 'fill' ? [0.62, 0.9, 0.5] : m.m === 'flat' ? [0.5, 0.78, 1] : [0.85, 0.75, 1];
       const s = T_R * 2, pulse = 0.85 + 0.15 * Math.sin(game.time * 5);
-      B.fx.add(A.get('fx_ring'), at[0], at[1] + 0.08 * s, s, s * 0.66, c[0], c[1], c[2], 0.75 * pulse);
+      B.fx.add(ring, at[0], at[1] + 0.08 * s, s, s * 0.66, c[0], c[1], c[2], 0.75 * pulse);
+      if (!pv) return;
+      // a dot on every corner it moves, at the height it gets (green; a faint one where it is now), the refused ones red
+      // (overlay: seen through the ground)
+      const dot = A.has('fx_spark') ? A.get('fx_spark') : ring, K = 1 / Math.max(0.01, dot.w), ds = 0.3 * K;
+      for (const [i, h] of pv.list) {
+        const x = w.near(i & 16383, game.cam.x), y = i >>> 14, g0 = L.heightAt(x, y), up = h - g0;
+        const k = pv.why ? [1, 0.4, 0.32] : up > 0 ? [0.6, 1, 0.45] : [0.35, 1, 0.55];
+        if (Math.abs(up) > 0.04) B.fx.add(dot, x, y, ds * 0.6, ds * 0.6, 1, 1, 1, 0.45); // (where it is now)
+        B.fx.add(dot, x, y, ds, ds, k[0], k[1], k[2], 1, 0, 0, 0, 1, 0, up);
+      }
+      for (const i of pv.block) B.fx.add(dot, w.near(i & 16383, game.cam.x), i >>> 14, ds, ds, 1, 0.3, 0.25, 1);
+      // aplanar: the target level as a wide faint ring at that height
+      if (m.m === 'flat') { const h = pv.h - L.heightAt(at[0], at[1]); B.fx.add(ring, at[0], at[1] + 0.08 * s, s * 1.15, s * 0.76, 0.5, 0.8, 1, 0.45, 0, 0, 0, 1, 0, h); }
     },
   };
+}
+
+// ---------- ground decor on dug / heaped ground (grass, flowers, small stones): gone with the turf ----------
+// (cosmetic, every peer: on op terrain.set and when a chunk's decor comes back from the source)
+export function hideDugDecor(game, corners, chunk = -1) {
+  const w = game.world, L = w.height;
+  if (!L.edits.size) return;
+  const dug = (x, y) => { for (let k = 0; k < 4; k++) if (L.edits.has(L.ci(x + (k & 1), y + (k >> 1)))) return true; return false; };
+  const hideIn = (bk, x0, y0, x1, y1) => { for (const d of bk.decor) if (!d._hid && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1 && dug(Math.floor(d.x), Math.floor(d.y))) d._hid = true; };
+  if (corners) { // (the buckets around the corners only: edits may lie far apart on the planet)
+    const seen = new Set();
+    for (const i of corners) {
+      const x = i & 16383, y = i >>> 14;
+      for (let k = 0; k < 4; k++) {
+        const bk = w.chunkAt(x - (k & 1), y - (k >> 1));
+        if (seen.has(bk)) continue;
+        seen.add(bk);
+        const bx = (bk.k % 1024) * 16, by = Math.floor(bk.k / 1024) * 16;
+        hideIn(bk, bx, by, bx + 16, by + 16);
+      }
+    }
+  } else if (chunk >= 0) {
+    const X0 = (chunk & 255) * 64, Y0 = (chunk >>> 8) * 64;
+    w.forChunks(X0, Y0, X0 + 63, Y0 + 63, (bk) => hideIn(bk, X0, Y0, X0 + 64, Y0 + 64));
+  }
 }
