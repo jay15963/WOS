@@ -88,8 +88,9 @@ export class World {
     L('zone', Uint8Array, 2);
     this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome, this.zone];
     // frozen water by season zone (game/seasons.js writes it every frame from the shared clock, the same on every peer):
-    // iceZ[zone] = 1 while the water of that zone is ice (walkable, no swimming / boats / fishing)
-    this.iceZ = new Uint8Array(5);
+    // iceZ[slot] = 1 while the water of that season slot is ice (walkable, no swimming / boats / fishing); slot = the
+    // zone, + 5 across the equator from the start (seasonSlot: that hemisphere's year runs half a year off)
+    this.iceZ = new Uint8Array(10);
     this.hills = source.hills || false; // (dev showcase ?hills=1: its landmarks; a guest sculpts the same classic world, world/hills.js)
     // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md "Túneis"): the floor height (stories) of a tunnel tile, −∞ = none.
     // Sparse (kept across chunk evictions; a chunk with a tunnel is changed anyway); `tunnels` lists them (snapshot, fx)
@@ -300,8 +301,13 @@ export class World {
   // ---------- season zones & the abyss (zone layer; game/seasons.js) ----------
   zoneAt(tx, ty) { return this.inBounds(tx, ty) ? this.zone.get(this.idx(tx, ty)) & 7 : 2; }
   abyssAt(tx, ty) { return this.inBounds(tx, ty) && (this.zone.get(this.idx(tx, ty)) & ABYSS) !== 0; }
-  // the water of tile i is ice now (its zone's winter; the abyssal ocean never freezes)
-  iceAt(i) { const z = this.zone.get(i); return !(z & ABYSS) && this.iceZ[z & 7] === 1; }
+  // the hemisphere of row ty for the seasons: 1 = across the equator from the start (the planet: its seasons are
+  // inverted there — the world starts on a spring morning at the start, in autumn on the other side); 0 elsewhere
+  hemiAt(ty) { return this.wrap && this.spawn && (ty >= this.H / 2) !== (this.spawn.y >= this.H / 2) ? 1 : 0; }
+  // the season slot of a tile (game/seasons.js game.seasons[slot]): its zone, + 5 in the other hemisphere
+  seasonSlot(tx, ty) { return this.zoneAt(tx, ty) + (this.hemiAt(ty) ? 5 : 0); }
+  // the water of tile i is ice now (its zone's winter in its hemisphere; the abyssal ocean never freezes)
+  iceAt(i) { const z = this.zone.get(i); return !(z & ABYSS) && this.iceZ[(z & 7) + (this.hemiAt(i >>> PWS) ? 5 : 0)] === 1; }
   frozenAt(x, y) { const tx = Math.floor(x), ty = Math.floor(y); return this.inBounds(tx, ty) && this.iceAt(this.idx(tx, ty)); }
   // water you can sink into: none while it is frozen (its zone's winter: iceAt, from seasons.js on every peer) nor on a
   // finished pier / bridge deck (this.deck, derived by game/decks.js from the structures on every peer) — unless the

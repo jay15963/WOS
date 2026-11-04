@@ -16,9 +16,12 @@
 // Everything is derived from the shared clock (env.dayIndex / env.hour, host-authoritative, streamed, in snapshots and
 // saves) and the zone layer (a pure function of the seed), so every peer computes the same with no extra sync.
 // seasonSystem (sync 'all') refreshes every frame:
-//   game.seasons[z]   the state of zone z (below), 5 objects reused
-//   world.iceZ[z]     1 while the water of zone z is ice (world.iceAt / frozenAt / liquidAt: walking, swimming, boats,
+//   game.seasons[s]   the state of season slot s (below), 10 objects reused: slot = zone + 5 · hemisphere
+//   world.iceZ[s]     1 while the water of slot s is ice (world.iceAt / frozenAt / liquidAt: walking, swimming, boats,
 //                     fishing, creature paths — never the abyssal ocean)
+// Hemispheres (owner: "inverta as estações no hemisfério sul"): across the equator from the world's start the year runs
+// half a year off (world.hemiAt / seasonSlot) — a new world still starts on a spring morning where it starts, and it is
+// autumn on the other side of the planet. The calendar (year, day) stays global; the HUD shows the local season.
 //   game.season       the state where the LOCAL player stands (HUD, survival, looks: fx/seasonfx.js) — a reference to
 //                     game.seasons[its zone]; world.frozen mirrors its `frozen` (cosmetic code only)
 // Host / gameplay code asks by place: seasonAt(game, x, y) (crops, wolves, prey, walkers, giants).
@@ -51,6 +54,7 @@ const CYCLE_ = () => YEAR_DAYS;
 export const SEASON_PT = PT;
 export const START = SEASON_START; // first day of each season in the year (0-based)
 export const ZONES = 5;
+export const SLOTS = ZONES * 2; // (zone, hemisphere)
 export const ZONE_PT = ['Tropical', 'Quente', 'Temperado', 'Subpolar', 'Polar'];
 export const ZONE_HINT = [
   'Região tropical: sem inverno — estação chuvosa e estação seca.',
@@ -165,21 +169,26 @@ export function zoneSeason(z, c, out = {}) {
 }
 const TMP = {};
 
+// the year position of season slot s for the global year position c (the other hemisphere: half a year off)
+export const slotClock = (s, c) => (s < ZONES ? c : (c + CYCLE_() / 2) % CYCLE_());
+// the season slot at a world point (zone + hemisphere; a world without zones: temperate, this hemisphere)
+const slotAt = (w, x, y) => (w && w.seasonSlot ? w.seasonSlot(Math.floor(x), Math.floor(y)) : w && w.zoneAt ? w.zoneAt(Math.floor(x), Math.floor(y)) : 2);
+
 // the season of a game right now at the local player (also usable before the system ran)
 export function seasonOf(game) {
   const E = game.env, p = game.player, w = game.world;
-  const z = w && p && w.zoneAt ? w.zoneAt(Math.floor(p.x), Math.floor(p.y)) : 2;
-  const S = zoneSeason(z, seasonClock(E?.dayIndex ?? 1, E?.hour ?? 8));
+  const s = p ? slotAt(w, p.x, p.y) : 2;
+  const S = zoneSeason(s % ZONES, slotClock(s, seasonClock(E?.dayIndex ?? 1, E?.hour ?? 8)));
   S.year = Math.floor(Math.max(0, (E?.dayIndex ?? 1) - 1) / CYCLE_()) + 1;
   return S;
 }
 
 // the season state where (x, y) is (gameplay: crops, creatures, walkers); fresh every frame once seasonSystem runs
 export function seasonAt(game, x, y) {
-  const w = game.world, z = w && w.zoneAt ? w.zoneAt(Math.floor(x), Math.floor(y)) : 2;
+  const s = slotAt(game.world, x, y);
   const L = game.seasons;
-  if (L && L[z]?.id) return L[z];
-  const E = game.env, S = zoneSeason(z, seasonClock(E?.dayIndex ?? 1, E?.hour ?? 8));
+  if (L && L[s]?.id) return L[s];
+  const E = game.env, S = zoneSeason(s % ZONES, slotClock(s, seasonClock(E?.dayIndex ?? 1, E?.hour ?? 8)));
   S.year = Math.floor(Math.max(0, (E?.dayIndex ?? 1) - 1) / CYCLE_()) + 1;
   return S;
 }
@@ -188,24 +197,26 @@ export const hardWinterAt = (game, x, y) => !!seasonAt(game, x, y).hard;
 
 // Keeps game.seasons / game.season and the world's ice by zone (physics / swimming / creature paths) in step with the
 // clock; emits 'season' { id, prev, zone } when the gameplay season of the local player changes (the clock, or walking
-// into another zone), 'zone' { zone, prev } when the local player enters another zone, and 'frozen' { frozen } when
+// into another zone), 'zone' { zone, prev } when the local player enters another zone, 'hemisphere' { other } when it
+// crosses the equator (same zone), and 'frozen' { frozen } when
 // the water around the local player freezes / thaws.
 export function seasonSystem() {
   return {
     sync: 'all', // a pure function of the shared clock and the zone layer: every peer computes the same
     update(game) {
       const E = game.env, w = game.world;
-      const L = game.seasons || (game.seasons = Array.from({ length: ZONES }, () => ({})));
+      const L = game.seasons || (game.seasons = Array.from({ length: SLOTS }, () => ({})));
       const c = seasonClock(E.dayIndex, E.hour), year = Math.floor(Math.max(0, E.dayIndex - 1) / CYCLE_()) + 1;
-      for (let z = 0; z < ZONES; z++) { zoneSeason(z, c, L[z]); L[z].year = year; if (w?.iceZ) w.iceZ[z] = L[z].frozen ? 1 : 0; }
-      const p = game.player, z = w && p && w.zoneAt ? w.zoneAt(Math.floor(p.x), Math.floor(p.y)) : 2;
-      const prev = game.season, S = L[z];
-      const prevId = game._seaId, prevZone = game._seaZone, wasFrozen = !!game._seaFrozen;
+      for (let s = 0; s < SLOTS; s++) { zoneSeason(s % ZONES, slotClock(s, c), L[s]); L[s].year = year; L[s].south = s >= ZONES; if (w?.iceZ) w.iceZ[s] = L[s].frozen ? 1 : 0; }
+      const p = game.player, sl = p ? slotAt(w, p.x, p.y) : 2, z = sl % ZONES;
+      const prev = game.season, S = L[sl];
+      const prevId = game._seaId, prevZone = game._seaZone, prevSlot = game._seaSlot, wasFrozen = !!game._seaFrozen;
       game.season = S;
-      game._seaId = S.id; game._seaZone = z; game._seaFrozen = S.frozen;
+      game._seaId = S.id; game._seaZone = z; game._seaSlot = sl; game._seaFrozen = S.frozen;
       if (w) w.frozen = S.frozen; // (cosmetic: the local player's zone — gameplay asks iceAt / frozenAt by place)
       if (prev && prevZone !== undefined && prevZone !== z) game.events.emit('zone', { zone: z, prev: prevZone });
-      if (prevId && prevId !== S.id) game.events.emit('season', { id: S.id, prev: prevId, zone: z, moved: prevZone !== z });
+      else if (prev && prevSlot !== undefined && prevSlot !== sl) game.events.emit('hemisphere', { other: sl >= ZONES }); // (crossed the equator)
+      if (prevId && prevId !== S.id) game.events.emit('season', { id: S.id, prev: prevId, zone: z, moved: prevSlot !== undefined && prevSlot !== sl }); // (moved: walked into another zone / across the equator)
       if (prevId && wasFrozen !== S.frozen) game.events.emit('frozen', { frozen: S.frozen });
     },
   };

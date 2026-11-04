@@ -333,6 +333,7 @@ export function installHUD(game, { isNew } = {}) {
   // seasons (seasons.js): what each one brings — where the player is (seasons by latitude); walking into another
   // zone says what that region's year is like
   ev.on('zone', (d) => game.events.emit('toast', { text: ZONE_HINT[d.zone] || '', kind: d.zone >= 3 ? 'warn' : 'info' }));
+  ev.on('hemisphere', () => game.events.emit('toast', { text: `Você cruzou o equador: deste lado as estações são invertidas (aqui agora é ${game.season?.name || '—'}).`, kind: 'info' }));
   ev.on('season', (d) => {
     if (d.moved) return; // (the zone toast already told)
     const S = game.season, yr = S?.year || 1;

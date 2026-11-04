@@ -21,7 +21,7 @@ export function installSeasonFx(game) {
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.seasonFx = sys;
   // the winter of the zone at any point (art: the planet's tropical flora, composeWorld.js noWinter)
-  SEASON_LOCAL.winterAt = (x, y) => { const w = game.world, L = game.seasons; return L && w?.zoneAt ? L[w.zoneAt(Math.floor(x), Math.floor(y))]?.winter || 0 : SEASON.winter; };
+  SEASON_LOCAL.winterAt = (x, y) => { const w = game.world, L = game.seasons; return L && w?.seasonSlot ? L[w.seasonSlot(Math.floor(x), Math.floor(y))]?.winter || 0 : SEASON.winter; }; // (zone + hemisphere)
   return sys;
 }
 

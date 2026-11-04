@@ -287,6 +287,10 @@ tropical. Terras áridas altas com planalto → mesas e cânions. Planícies bai
 quente / mais frio: polar < 2 °C no mais quente; subpolar < −12 °C no mais frio ou < 10 °C no mais quente; temperado
 < **6** °C no mais frio; quente < **16** °C; tropical o resto (os limites eram 1 / 15 °C: só ~1 % da terra ficava
 temperada; agora ~6–12 %).
+**Hemisférios:** do outro lado do equador em relação ao início do mundo o ano corre meio ano defasado (estações
+invertidas: `world.hemiAt` / `seasonSlot`, `game.seasons[zona + 5 · hemisfério]`, `seasons.js slotClock`). O início é
+sempre temperado (`temperateSpawn`) e um mundo novo começa numa manhã de primavera lá; do outro lado é outono. O
+calendário (ano, dia) é global; o HUD mostra a estação local e avisa ao cruzar o equador.
 `climateAt(planet, x, y)` → `{ tMean, tAmp, precip }` de qualquer tile; `latitudeAt(y)` em graus (só exibição). O jogo
 usa `source.climateAt(x, y, h)` (`planetSource.js`: com a correção de altitude para a altura `h` em andares; `null` = o
 chão macro) e a camada `zone` do mundo (por tile, feita no adaptador do chunk: o clima macro por bloco de 4 × 4 tiles e o
