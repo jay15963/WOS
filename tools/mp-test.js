@@ -5669,42 +5669,6 @@ def('ST2', {
   await t.checkDigest(H, G3);
 });
 
-const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
-  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
-const BY = Object.fromEntries(S.map((s) => [s.id, s]));
-for (const s of S) if (!ORDER.includes(s.id)) ORDER.push(s.id);
-
-function selection() {
-  const run = (Q.get('run') || '').trim();
-  if (!run) return null;
-  if (run === 'all') return ORDER.map((id) => BY[id]);
-  if (run === 'star') return ORDER.map((id) => BY[id]).filter((s) => s.star);
-  const ids = [];
-  for (const part of run.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)) {
-    const m = part.match(/^S(\d+)-S?(\d+)$/);
-    if (m) for (let k = +m[1]; k <= +m[2]; k++) ids.push('S' + k);
-    else ids.push(part);
-  }
-  return ids.map((id) => BY[id]).filter(Boolean);
-}
-
-function catalogue() {
-  const L = ['WOS multiplayer sync tests — choose a run:', ''];
-  const base = location.pathname;
-  L.push(`  ${base}?run=all                      every scenario over BroadcastChannel (S29 soak = ${CFG.soak} s; ?soak=60 to shorten)`);
-  L.push(`  ${base}?run=star&transport=webrtc   ★ scenarios over real WebRTC (public signaling)`);
-  L.push(`  ${base}?run=star&relay=1            ★ scenarios through TURN only (localStorage wos.forceRelay=1 during the run)`);
-  L.push(`  ${base}?run=S6,S10  ·  ?run=S6-S12  ·  &keep=1 (leave frames open) · &verbose=1 (details of passes) · &slow=2`);
-  L.push('');
-  for (const id of ORDER) {
-    const s = BY[id];
-    L.push(`${s.id.padEnd(4)} ${s.star ? '★' : ' '} ${s.title}`);
-    L.push(`       expected: ${s.expected}`);
-    L.push(`       API: ${s.api}`);
-  }
-  return L.join('\n');
-}
-
 // =====================================================================================================
 // LZ: the planet as the game (seasons by latitude, the abyss, interest) — places found through the planet's macro map
 // macro cells (512 × 256 of 32 tiles) of the frame's planet matching pred(cell, P), nearest to (x, y) first
@@ -5727,9 +5691,9 @@ function zoneSpot(f, M, x, y, z, r = 30) {
   for (let d = 0; d <= r; d += 2) for (let k = 0; k < 16; k++) {
     const tx = Math.floor(x + Math.cos(k * 0.3927) * d), ty = Math.floor(y + Math.sin(k * 0.3927) * d);
     w.ensure(w.chunkIndex(tx, ty));
-    if (w.waterAt(tx, ty) || w.isRock(tx, ty) || w.zoneAt(tx, ty) !== z) continue;
+    if (w.waterAt(tx, ty) || w.isRock(tx, ty) || (z >= 0 && w.zoneAt(tx, ty) !== z)) continue;
     const s = A.freeSpot(f, M, tx + 0.5, ty + 0.5, { rMin: 0, rMax: 2 });
-    if (s && w.zoneAt(Math.floor(s[0]), Math.floor(s[1])) === z) return s;
+    if (s && (z < 0 || w.zoneAt(Math.floor(s[0]), Math.floor(s[1])) === z)) return s;
   }
   return null;
 }
@@ -5780,6 +5744,7 @@ def('LZ1', {
   await t.waitFor(() => H.game.season?.zone === 2 && G.game.season?.zone === 2, 3000, 'both back in the temperate zone');
   for (let k = 0; k < 8; k++) { H.game._walkT = 0; MH.walkers.walkersTick(H.game, true); }
   t.check(!A.hostMobs(H, (m) => m.faction === 'walker').length, 'no walker at the temperate spawn on a summer night', `${A.hostMobs(H, (m) => m.faction === 'walker').length}`);
+  G.game.world.ensure(G.game.world.chunkIndex(spot[0], spot[1])); // (the polar spot is far now: its zone layer again)
   t.check(MG.seasons.hardWinterAt(G.game, spot[0], spot[1]) && !MG.seasons.hardWinterAt(G.game, s2[0], s2[1]), 'the guest computes the same: hard winter at the polar spot, none at the spawn');
   await t.checkDigest(H, G);
   env.history.push('LZ1');
@@ -5795,7 +5760,7 @@ def('LZ2', {
   const sp = H.game.world.spawn, hw = H.game.world, gw = G.game.world;
   A.keepAlive(t, H, { hp: true }); A.keepAlive(t, G, { hp: true });
   const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  const cells = planetCells(H, (c, P) => P.water[c] === 2 && NB.some(([dx, dy]) => { const y = Math.floor(c / 512) + dy; return y >= 0 && y < 256 && P.water[y * 512 + (((c % 512) + dx + 512) % 512)] === 3; }), sp.x, sp.y, 6);
+  const cells = planetCells(H, (c, P) => P.water[c] === 2 && cellZone(P, c) <= 1 && NB.some(([dx, dy]) => { const y = Math.floor(c / 512) + dy; return y >= 0 && y < 256 && P.water[y * 512 + (((c % 512) + dx + 512) % 512)] === 3; }), sp.x, sp.y, 6);
   t.assert(cells.length, 'the planet has deep sea next to the abyss');
   // a deep, non-abyssal tile with the abyss 4..9 tiles away, and the heading toward it
   let site = null;
@@ -5824,7 +5789,8 @@ def('LZ2', {
   const rel = A.holdMove(G, Math.cos(site.a), Math.sin(site.a)); // (toward the abyss, in screen space ≈ world: camera not turned)
   G.game.cam.rot = 0; G.game.cam.rotTo = 0;
   let entered = false;
-  const hull = (f, b) => MH.boatsc.hullAbyss(f.game.world, b.x, b.y, b.h);
+  // (the hull a little inside its outline: the host accepts a driver's rounded pose with 0.05 of slack)
+  const hull = (f, b) => { const w = f.game.world; for (let u = -1.7; u <= 1.9; u += 0.3) for (const sd of [-1, 1]) { const q = MH.boatsc.hullPt(b.x, b.y, b.h, u, sd * MH.boatsc.halfW(u) * 0.8); if (w.abyssAt(Math.floor(q[0]), Math.floor(q[1]))) return true; } return false; };
   t.watch(() => { const bH = H.game.boats.map.get(id); if ((bH && hull(H, bH)) || hull(G, bG)) entered = true; }, 50);
   await t.sleep(6000);
   rel();
@@ -5879,9 +5845,10 @@ def('LZ3', {
   // a temperate winter night (short year: day 6, 22 h)
   H.game.net.emit('env.skip', { hour: 22, day: 6, wt: H.game.worldTime + 1, by: H.game.net.pid });
   await t.waitFor(() => G.game.env.dayIndex === 6 && Math.abs(G.game.env.hour - 22) < 0.3, 3000 + CFG.budget, 'the guest clock follows');
-  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.zone === 0, 3000, 'host in winter, guest in the tropics', () => `${H.game.season?.name} / ${G.game.season?.name}`);
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.zone === 0 && G.game.seasons?.[2]?.id === 'winter', 3000, 'host in winter, guest in the tropics (both updated)', () => `${H.game.season?.name} / ${G.game.season?.name}`);
   t.check(H.game.season.hard && !G.game.season.hard && G.game.season.id !== 'winter', 'each its own season: temperate winter / tropical (no winter)', `${H.game.season.name} / ${G.game.season.name}`);
   t.check(H.game.world.iceZ[2] === 1 && H.game.world.iceZ[0] === 0 && G.game.world.iceZ[0] === 0 && G.game.world.iceZ[2] === 1, 'ice by zone on both: temperate frozen, tropical open water', `${[...H.game.world.iceZ]} / ${[...G.game.world.iceZ]}`);
+  G.game.world.ensure(G.game.world.chunkIndex(hs[0], hs[1])); // (the host's place, far from the guest: its zone layer)
   const SH = MH.seasons.seasonAt(H.game, gs[0], gs[1]), SG = MG.seasons.seasonAt(G.game, hs[0], hs[1]);
   t.check(SH.zone === 0 && !SH.hard && SG.zone === 2 && SG.hard, 'both compute the same season for the other\'s place', `host sees guest ${SH.name} · guest sees host ${SG.name}`);
   await t.sleep(1500);
@@ -5922,8 +5889,10 @@ def('LZ4', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const hp = H.game.player, gw = G.game.world, hw = H.game.world;
-  const far = A.freeSpot(G, MG, hp.x + 1500, hp.y, { rMin: 0, rMax: 30 }) || zoneSpot(G, MG, hp.x + 1500, hp.y, gw.zoneAt(Math.floor(hp.x + 1500), Math.floor(hp.y)), 60);
+  let far = null;
+  for (const c of planetCells(G, (k, P) => !P.ocean[k] && !P.lakeId[k], hp.x + 1500, hp.y, 8)) { far = zoneSpot(G, MG, c.x, c.y, -1, 40); if (far) break; }
   t.assert(far, 'a far spot for the guest');
+  t.log(`guest ${Math.round(Math.hypot(hw.dx(far[0], hp.x), far[1] - hp.y))} tiles away`);
   A.teleport(G, far[0], far[1]);
   await t.waitFor(() => Math.hypot(hw.dx(A.authAvatarOn(H, G.pid)?.x ?? 0, far[0]), (A.authAvatarOn(H, G.pid)?.y ?? 0) - far[1]) < 3, RT() + 2000, 'the host knows the guest is far');
   // creatures next to the host
@@ -5951,6 +5920,42 @@ def('LZ4', {
   await t.checkDigest(H, G);
   env.history.push('LZ4');
 });
+
+const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
+  'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
+const BY = Object.fromEntries(S.map((s) => [s.id, s]));
+for (const s of S) if (!ORDER.includes(s.id)) ORDER.push(s.id);
+
+function selection() {
+  const run = (Q.get('run') || '').trim();
+  if (!run) return null;
+  if (run === 'all') return ORDER.map((id) => BY[id]);
+  if (run === 'star') return ORDER.map((id) => BY[id]).filter((s) => s.star);
+  const ids = [];
+  for (const part of run.split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)) {
+    const m = part.match(/^S(\d+)-S?(\d+)$/);
+    if (m) for (let k = +m[1]; k <= +m[2]; k++) ids.push('S' + k);
+    else ids.push(part);
+  }
+  return ids.map((id) => BY[id]).filter(Boolean);
+}
+
+function catalogue() {
+  const L = ['WOS multiplayer sync tests — choose a run:', ''];
+  const base = location.pathname;
+  L.push(`  ${base}?run=all                      every scenario over BroadcastChannel (S29 soak = ${CFG.soak} s; ?soak=60 to shorten)`);
+  L.push(`  ${base}?run=star&transport=webrtc   ★ scenarios over real WebRTC (public signaling)`);
+  L.push(`  ${base}?run=star&relay=1            ★ scenarios through TURN only (localStorage wos.forceRelay=1 during the run)`);
+  L.push(`  ${base}?run=S6,S10  ·  ?run=S6-S12  ·  &keep=1 (leave frames open) · &verbose=1 (details of passes) · &slow=2`);
+  L.push('');
+  for (const id of ORDER) {
+    const s = BY[id];
+    L.push(`${s.id.padEnd(4)} ${s.star ? '★' : ' '} ${s.title}`);
+    L.push(`       expected: ${s.expected}`);
+    L.push(`       API: ${s.api}`);
+  }
+  return L.join('\n');
+}
 
 async function main() {
   const cfg = document.querySelector('#cfg');
