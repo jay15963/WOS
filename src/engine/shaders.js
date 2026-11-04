@@ -527,7 +527,14 @@ void main(){
   if (!wm) local = rotLocal(local, aParams.y);
   if (aParams.x > 0.0) local = swayLocal(c, local);
   float h = max(0.0, -local.y) + aExtra.y;
-  vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : toWorld(vec2(local.x, max(local.y, 0.0) * 0.6)); // (the sprite's width lies across the view)
+  // a billboard's width lies across the LIGHT (as if it turned to the sun), not across the view: with the view's x axis
+  // along the sun (camera turned, morning / evening light) width and height fell on one line — thin streak shadows.
+  // The side is kept toward the view's x axis (the silhouette does not mirror as the camera turns, only where the two
+  // are square to each other).
+  float sl = length(uShadowDir);
+  vec2 sn = sl > 1e-4 ? uShadowDir / sl : vec2(0.0, -1.0), ac = vec2(-sn.y, sn.x), vx = toWorld(vec2(1.0, 0.0));
+  if (dot(ac, vx) < 0.0) ac = -ac;
+  vec2 base = wm ? rotLocal(vec2(local.x, max(local.y, 0.0)), aParams.y) : ac * local.x + toWorld(vec2(0.0, max(local.y, 0.0) * 0.6));
   vec2 w = aPos + base + uShadowDir * h;
   vec2 sv = toView(cw(w - uCam));
   sv.y -= groundH(w); // (laid on the terrain where it lands)
