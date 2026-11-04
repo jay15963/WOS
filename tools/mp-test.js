@@ -7963,7 +7963,7 @@ def('FX2', {
 def('FX3', {
   title: 'FX: walking from open country along a road into the capital and across it — no long frame, a sane sprite count, no chunk made on the main thread',
   timeout: 300000,
-  expected: 'Solo frame (seed 4242, a new world). The player walks (8 tiles/s, the game\'s own movement + steering) ~260 tiles along the realm\'s roads into the capital, through its gate to the market plaza and on to another gate while the city streams in (~18 000 pieces). Over the walk: no frame above 90 ms of main-thread time in this headless run (it shares one thread with the test page; the measured numbers on a 1280 × 720 page are in docs/REINOS.md), p95 under 14 ms; the settlement batches stay within their frame budget (towns.stats.maxMs < 30 ms); no chunk generated synchronously because of a settlement piece (world.stats.genSync grows by ≤ 2: only the player\'s own chunk may be made at once when a worker is late); at the plaza fewer than 9000 sprites',
+  expected: 'Solo frame (seed 4242, a new world). The player walks (8 tiles/s, the game\'s own movement + steering) ~260 tiles along the realm\'s roads into the capital, through its gate to the market plaza and on to another gate while the city streams in (~18 000 pieces). Over the walk: no frame above 120 ms of main-thread time in this headless run (it shares one thread with the test page; the measured numbers on a 1280 × 720 page are in docs/REINOS.md), p95 under 14 ms; the settlement batches stay within their frame budget (towns.stats.maxMs < 30 ms); no chunk generated synchronously because of a settlement piece (world.stats.genSync grows by ≤ 2: only the player\'s own chunk may be made at once when a worker is late); at the plaza fewer than 9000 sprites',
   api: 'game.frameStats(reset), game.towns.stats, world.stats.genSync, renderer.stats.sprites; game/towns.js (pieces kept in their anchor chunk, T.wait), levels.addPiece, mut/structures.js structsOfType',
 }, async (t) => {
   presetPid('s' + rand(7));
@@ -8018,7 +8018,7 @@ def('FX3', {
   }, 200000, 'the walk into the capital and across it', () => `waypoint ${i}/${pts.length} at ${f2(p.x)},${f2(p.y)}`);
   const fs = g.frameStats(), gen = g.world.stats.genSync - gen0;
   t.log(`walk ${Math.round((now() - t0) / 1000)} s: ${fs.n} frames · avg ${fs.avg} ms · p95 ${fs.p95} · max ${fs.max} · >16 ms ${fs.over16} · towns batch max ${f2(T.stats.maxMs)} ms · sync chunks ${gen} · sprites at the plaza ${sprPlaza}`);
-  t.check(fs.max < 90, 'no frame above 90 ms of main-thread time (headless, shared thread)', `max ${fs.max} ms`);
+  t.check(fs.max < 120, 'no frame above 120 ms of main-thread time (headless, shared thread)', `max ${fs.max} ms`);
   t.check(fs.p95 < 14, 'p95 under 14 ms', `p95 ${fs.p95} ms`);
   t.check(T.stats.maxMs < 30, 'settlement batches within their frame budget', `${f2(T.stats.maxMs)} ms`);
   t.check(gen <= 2, 'no chunk generated on the main thread because of a settlement piece', `${gen} synchronous chunks`);

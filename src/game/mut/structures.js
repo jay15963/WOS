@@ -313,7 +313,11 @@ export function setDoorOpen(game, o, open) {
   if (o.town != null && !TOWN.quiet) TOWN.note?.(game, o, 'door'); // (a settlement's door / gate: the town state)
   if (!o.blueprint) setSolid(game, o);
   onDoor(game, o);
+  // (a ground-floor door: its top is a floor of the story above open or closed — the stories map stays as it is, no
+  // rebuild over the ~18 000 pieces of a city each time a door / gate opens: levels.js; phase-2 citizens open many)
+  const L = game.levels, inStep = !o.lv && L && L.v === game.build.v;
   game.build.v++;
+  if (inStep) L.v = game.build.v;
   game.events.emit('tile', { tx: o.tx, ty: o.ty });
 }
 
