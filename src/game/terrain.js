@@ -130,7 +130,7 @@ export function dropAhead(game, e, ux, uy) {
     if (w.blocked(tx, ty) || w.waterAt(tx, ty) === 2) return null;
     const h1 = L.heightAt(lx, ly), drop = h0 - h1;
     if (drop < DROP_MIN || drop > DROP_MAX) return null;
-    if (collides(w, lx, ly, r, null, !!e.passDoors)) return null;
+    if (collides(w, lx, ly, r, null, !!e.passDoors)) continue; // (too close to the face for this body: a bit further)
     // the way over: only the face (no rock, wall or deep water)
     for (let s = 0.3; s < r + d; s += 0.3) {
       const x = Math.floor(e.x + ux * s), y = Math.floor(e.y + uy * s), i = w.idx(x, y);

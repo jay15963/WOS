@@ -8,7 +8,7 @@
 
 import { collides, moveCircle, railCross, underAt, underFor, deckTrack, tunSet, tunTrack, tunClear } from './physics.js';
 import { Layer, NodeTable } from '../world/store.js';
-import { DROP_MIN, DROP_MAX } from './terrain.js'; // small drops a body hops down
+import { DROP_MIN, DROP_MAX, dropAhead } from './terrain.js'; // small drops a body hops down
 
 // Bridges (game/decks.js, physics.js): a step between two tiles is tested against the walls of the level it is taken at
 // — the railings on a deck, the walls at the water (support bents, abutments) under a deck or on the ground — and a
@@ -277,7 +277,8 @@ export function steer(game, e, gx, gy, dt, expectSpeed = 3, arrive = 0.2, glv = 
   const pr = 0.3;
   const dk = !!w.rail; // (bridges: the probe at the level the creature would be at there)
   const blockedAt = LV ? (x, y) => LV.blockedFor(e, x, y) : doors ? (x, y) => collides(w, x, y, e.r, null, false, false, dk && underFor(w, e, x, y)) : (x, y) => mobBlocked(w, x, y, e.r, dk && underFor(w, e, x, y));
-  const toDrop = !!(nav.path && w.height.any && w.isCliff(Math.floor(e.x + dx * 0.55), Math.floor(e.y + dy * 0.55)) && Math.hypot(tx - e.x, ty - e.y) < 2.6); // (a drop ahead: push into its edge — ai.js go hops)
+  // (a small drop ahead on the way — a path step over it, or the goal straight down it: push into its edge, ai.js go hops)
+  const toDrop = !!(w.height.any && w.isCliff(Math.floor(e.x + dx * 0.55), Math.floor(e.y + dy * 0.55)) && (nav.path ? Math.hypot(tx - e.x, ty - e.y) < 2.6 : dropAhead(game, e, dx, dy)));
   if (!toDrop && blockedAt(e.x + dx * pr, e.y + dy * pr)) {
     const angs = [0.7, -0.7, 1.35, -1.35, 2.0, -2.0];
     for (const a0 of angs) {
