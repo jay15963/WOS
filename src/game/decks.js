@@ -53,6 +53,9 @@ export function deckFriendly(type) {
 
 // ---------- placement ----------
 const landAt = (w, x, y) => w.inBounds(x, y) && !w.water.get(w.idx(x, y)) && !w.rock.get(w.idx(x, y));
+// a terrain cliff tile (world/height.js): nobody walks onto it, so no deck goes on it or starts from it
+const steep = (w, x, y) => w.hasHeight && w.inBounds(x, y) && w.isCliff(x, y);
+const STEEP = 'Barranco íngreme demais: procure uma margem mais baixa';
 const wetAt = (w, x, y) => w.inBounds(x, y) && w.water.get(w.idx(x, y)) > 0;
 // kind of the deck piece on (x, y): built / planned, or accepted earlier in the same placement (batch: tile → type)
 function kindAt(game, x, y, batch) {
@@ -72,6 +75,7 @@ export function deckReason(game, type, tx, ty, lv = 0, batch = null) {
   if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
   const i = w.idx(tx, ty), G = game.build.grid;
   if (w.rock.get(i)) return 'Rocha no caminho';
+  if (steep(w, tx, ty)) return STEEP; // (a cliff tile blocks walking: physics.tileBlocked — the deck would be out of reach)
   if (G.deck.has(i) || (batch && batch.has(i))) return 'exists';
   if (G.main.has(i) || G.floor.has(i) || G.rug.has(i) || w.solid.get(i)) return 'Algo no caminho';
   for (const o of objectsOnTile(game, tx, ty)) {
@@ -86,8 +90,12 @@ function pierReason(game, tx, ty, batch) {
   const w = game.world, wv = w.water.get(w.idx(tx, ty));
   if (!wv) return 'Só em água rasa: comece na beira da margem';
   if (wv === 2) return 'Só em água rasa (aqui é fundo: faça uma ponte)';
-  for (const [dx, dy] of DIR) if (landAt(w, tx + dx, ty + dy) || kindAt(game, tx + dx, ty + dy, batch) === 'pier') return null;
-  return 'Precisa começar na margem (ou emendar num trapiche)';
+  let high = false;
+  for (const [dx, dy] of DIR) {
+    if (kindAt(game, tx + dx, ty + dy, batch) === 'pier') return null;
+    if (landAt(w, tx + dx, ty + dy)) { if (!steep(w, tx + dx, ty + dy)) return null; high = true; }
+  }
+  return high ? STEEP : 'Precisa começar na margem (ou emendar num trapiche)';
 }
 
 // the axes of the bridge pieces around (x, y): 1 = north-south, 2 = east-west (3 = both: a corner / crossing)
@@ -523,7 +531,7 @@ export function installDeckDebug(game) {
   const G = game.debug;
   if (!G || G.deckScene) return;
   const S = (G._decks = {});
-  const free = (x, y) => { const w = game.world; return w.inBounds(x, y) && !w.rock.get(w.idx(x, y)) && !w.solid.get(w.idx(x, y)) && !game.build.grid.main.has(w.idx(x, y)) && !game.build.grid.deck.has(w.idx(x, y)) && !objectsOnTile(game, x, y).some((o) => !CLEARABLE.has(o.type)); };
+  const free = (x, y) => { const w = game.world; return w.inBounds(x, y) && !steep(w, x, y) && !w.rock.get(w.idx(x, y)) && !w.solid.get(w.idx(x, y)) && !game.build.grid.main.has(w.idx(x, y)) && !game.build.grid.deck.has(w.idx(x, y)) && !objectsOnTile(game, x, y).some((o) => !CLEARABLE.has(o.type)); };
   G.deckScene = (opts = {}) => {
     const w = game.world, p = game.player, px = Math.floor(p.x), py = Math.floor(p.y), net = game.net;
     if (!net.auth) return 'só o anfitrião';

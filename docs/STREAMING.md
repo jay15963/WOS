@@ -193,7 +193,8 @@ mesma semente.
 ## 8. Multijogador
 
 - `welcome.src` leva a fonte do anfitrião; o convidado gera o terreno localmente da semente (nada de dados de tiles na
-  rede). `PROTO = 6`.
+  rede). `PROTO = 6`. No planeta, `welcome.sp` leva o início do anfitrião: o convidado usa o mesmo (a zona de início e a
+  regra de distância dos acampamentos dependem dele; vale também para o `?px=&py=` de teste).
 - Snapshot de entrada / ressincronização = os mesmos diffs do save (nunca o mundo inteiro). As alturas geradas nunca vão
   pela rede (o convidado as gera); só o diff das edições (`terr`) e as bases dos prédios; a op `terrain.set` muda poucos
   cantos e carrega o chunk deles se preciso (como as outras ops).

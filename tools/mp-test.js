@@ -4657,7 +4657,8 @@ async function walkAcross(t, f, from, to, ex, ey, ms = 12000) {
   const p = f.game.player, st = { swim: false, dh: 0 };
   A.teleport(f, from[0] + 0.5, from[1] + 0.5);
   const rel = A.holdMove(f, ex, ey);
-  t.watch(() => { if (p.swimming) st.swim = true; st.dh = Math.max(st.dh, p._dh || 0); }, 40);
+  let k = 0; st.tr = [];
+  t.watch(() => { if (p.swimming) st.swim = true; st.dh = Math.max(st.dh, p._dh || 0); if (k++ % 6 === 0 && st.tr.length < 14) st.tr.push(`${f2(p.x)},${f2(p.y)}${p._hop ? 'H' : ''}${p.z > 0 ? 'z' : ''}`); }, 40);
   st.ok = await t.tryWait(() => walkedTo(p, to[0], to[1], ex, ey) > 0, ms);
   rel();
   return st;
@@ -4720,7 +4721,7 @@ def('D1', {
   await t.waitFor(() => pids.every((id) => { const o = A.structOn(H, id); return o && !o.blueprint; }), RT() + 800, 'host sees the pier finished');
   const pk = await walkAcross(t, G, [px, py], pt[3], pex, pey, 6000);
   const gp = G.game.player;
-  t.check(pk.ok && !pk.swim && Math.abs((gp._dh || 0) - 0.2) < 0.03, 'the guest walks to the end of the pier, on its deck (no swimming)', `at ${f2(gp.x)},${f2(gp.y)} dh ${f2(gp._dh)}`);
+  t.check(pk.ok && !pk.swim && Math.abs((gp._dh || 0) - 0.2) < 0.03, 'the guest walks to the end of the pier, on its deck (no swimming)', `at ${f2(gp.x)},${f2(gp.y)} dh ${f2(gp._dh)} · bank ${px},${py} end ${pt[3]} · ${JSON.stringify(pk)}`);
   await t.checkDigest(H, G);
 });
 
@@ -5755,6 +5756,9 @@ def('TR1', {
   const { H, G } = await reliefPair(t);
   const hw = H.game.world, gw = G.game.world, gp = G.game.player, [fx, fy] = RELIEF_AT;
   await t.waitFor(() => hw.isLoaded(hw.chunkIndex(fx, fy)) && gw.isLoaded(gw.chunkIndex(fx, fy)), 15000, 'both loaded the cliff chunk');
+  // the planet's flora may stand on the tunnel line: the host clears it (an op: the same on both)
+  const inLine = hw.query(fx - 2, fy + 0.5, 2.2, (o) => o.solid && Math.floor(o.y - 0.05) === fy && o.x >= fx - 3 && o.x < fx).map((o) => o.id);
+  if (inLine.length) { H.game.net.emit('obj.remove', { ids: inLine, fx: 'clear' }); await t.sleep(ONEWAY() + 300); }
   A.teleport(G, fx + 0.5, fy + 0.5); gp.facing = 'w';
   A.equip(G, 'pickaxe_copper');
   await A.hostSees(t, H, G);

@@ -150,7 +150,9 @@ async function boot() {
     // world now — a save of another source is an old world: ui/worlds.js keeps it out of reach). A planet starts now (its
     // macro map is made in a worker while the graphics load).
     const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.hills ? 'classic' : 'planet'); // (?hills=1: the classic showcase)
-    const srcOpts = { px: QS.get('px'), py: QS.get('py'), hills: !!(FLAGS.hills || (guest && choice.welcome.hills)) }; // (?hills=1: the classic world's terrain-height showcase)
+    // (a guest starts its planet where the host's does: the same spawn zone and camps; ?px=&py= dev start otherwise)
+    const wsp = guest ? choice.welcome.sp : null;
+    const srcOpts = { px: wsp ? wsp[0] - 0.5 : QS.get('px'), py: wsp ? wsp[1] - 0.5 : QS.get('py'), hills: !!(FLAGS.hills || (guest && choice.welcome.hills)) }; // (?hills=1: the classic world's terrain-height showcase)
     const earlySrc = srcKind === 'planet' ? makeSource(srcKind, seed, srcOpts) : null;
     status('Preparando…', 0.3); await nextFrame();
     const { renderer, atlas } = await assets.promise;
