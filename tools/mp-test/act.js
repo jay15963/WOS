@@ -16,6 +16,7 @@ const PATHS = {
   mobs: 'game/mobs.js', seasons: 'game/seasons.js', walkers: 'game/walkers.js', giants: 'game/giants.js', ballista: 'game/ballista.js',
   boats: 'game/boats.js', boatsc: 'game/content/boats.js', horses: 'game/horses.js',
   undead: 'game/undead.js', // the night's dead of the warm lands (NM scenarios)
+  siege: 'game/siege.js', siegec: 'game/content/siege.js', // siege engines (docs/REINOS.md)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

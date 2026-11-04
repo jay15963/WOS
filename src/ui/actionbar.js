@@ -44,7 +44,7 @@ export function installActionBar(game, root, wrap) {
   addEventListener('keymap', () => { atkLbl(); barKey = ''; rebuild(); }); // remapped keys (keymap.js): new labels
   wrap.appendChild(atk);
   // (on a ballista, touch: the button becomes its aim stick — ui/ballistaUi.js)
-  press(atk, (e) => { if (e.pointerType !== 'mouse' && game.ballista?.beginTouch?.(atk, e)) return; game.ctl.toggleAttack(); });
+  press(atk, (e) => { if (e.pointerType !== 'mouse' && (game.ballista?.beginTouch?.(atk, e) || game.siege?.beginTouch?.(atk, e))) return; game.ctl.toggleAttack(); }); // (a siege engine: its aim stick — ui/siegeUi.js)
   const atkIc = atk.querySelector('.ic'), atkAmmo = atk.querySelector('.ammo');
 
   const cast = document.createElement('div');

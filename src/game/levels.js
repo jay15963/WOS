@@ -109,6 +109,7 @@ export class Levels {
       if (o.blueprint) continue;
       if (def.block === 'stairs') { this._addStair(o, lv); continue; }
       if (isWallTop(def) && lv < MAX_LV) { mark(this.surf, lv + 1, o); tops++; } // wall / door tops: the next story's floor
+      if (o.ramp && o.type === 'siege_tower') { mark(this.surf, Math.max(1, Math.min(MAX_LV, o.v | 0 || 1)), o); tops++; } // a siege tower with its ramp down: its deck (game/siege.js)
       if (lv && def.layer === 'floor' && !def.roof) mark(this.surf, lv, o);       // upper floor slab
       if (lv && (def.block === 'tile' || (def.block === 'door' && !o.open))) mark(this.blk, lv, o); // upper walls, closed doors, railings, furniture
     }

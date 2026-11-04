@@ -7,6 +7,7 @@
 
 import { SIEGE_SFX } from './sfxSiege.js';
 import { UNDEAD_SFX } from './sfxUndead.js'; // skeletons, mummies and their giants (docs/NIGHT-DEAD.md)
+import { ENGINE_SFX } from './sfxEngines.js'; // siege engines (game/siege.js)
 import { buf, mulberry, hashStr, burst, mode, modal, tone, voiced, ks, biquad, normalize, fadeIO, trim, dcBlock, mix, toBuffer, adEnv } from './sfxDsp.js';
 
 const SR = 32000;
@@ -784,6 +785,7 @@ export const SPECIES_VOX = new Set(['wolf', 'boar', 'bear', 'deer', 'rabbit', 'f
 export const IDLE_VOX = ['skeleton', 'mummy', 'lion', 'jaguar', 'elephant', 'eagle', 'vulture', 'parrot', 'seagull', 'heron', 'crocodile', 'rattlesnake', 'whale', 'dolphin', 'seal', 'zebra', 'wild_horse', 'monkey', 'moose', 'bison', 'mountain_goat', 'camel'];
 Object.assign(SFX, SIEGE_SFX); // ice giants and the ballista (sfxSiege.js)
 Object.assign(SFX, UNDEAD_SFX); // the night's dead of the warm lands (sfxUndead.js)
+Object.assign(SFX, ENGINE_SFX); // trebuchet, catapult, battering ram, siege tower (sfxEngines.js)
 
 // names that other code may call with a different meaning / older name
 export const ALIAS = { ui: 'ui_click', build: 'build_hit', fire: 'ignite', craft: 'craft_done', thud: 'arrow_ground', stairs_step: 'step_stairs' };

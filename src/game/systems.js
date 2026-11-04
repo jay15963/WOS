@@ -48,6 +48,8 @@ import { installStock, stockSystem, stockFxSystem } from './livestock.js'; // fa
 import { installFishing, fishingSystem } from './fishing.js'; // fishing with a rod
 import { ballistaSystem, ballistaOwnerSystem } from './ballista.js'; // the ballista: bolts, aim, its operator
 import { installBallistaUi } from '../ui/ballistaUi.js';
+import { siegeSystem, siegeOwnerSystem } from './siege.js'; // siege engines: shots, pushing, the tower's ramp (docs/REINOS.md)
+import { installSiegeUi } from '../ui/siegeUi.js';
 import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boats: rowing, riders, animals aboard
 import { installHorses, horseSystem, horseOwnerSystem } from './horses.js'; // horses: taming, saddle, riding (docs/HORSE.md)
 import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
@@ -125,6 +127,8 @@ export function installSystems(game) {
     projectilesSystem(),
     ballistaSystem(),               // bolts in flight, drawn aim, reload (+ host: operators gone)
     ballistaOwnerSystem(),          // the local operator (after abilities: it roots the player)
+    siegeSystem(),                  // siege engines: drawn aim, reload, ramp, slides (+ host: pushed engines move, crews gone)
+    siegeOwnerSystem(),             // the local operator / pusher / climber (after abilities: it roots the player)
     boatsSystem(),                  // boats: drawn pose, riders / animals on their places, wake (+ host: launch, tidy)
     boatOwnerSystem(),              // the local rider: seated, rowing at the oars (after abilities: it roots the player)
     banditsSystem(),
@@ -155,6 +159,7 @@ export function installSystems(game) {
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
+  addSystem(game, installSiegeUi(game)); // (siege engines: aim ring, scatter, reload, crew — ui/siegeUi.js)
   addSystem(game, rangeFlashSystem(game));
   addSystem(game, decorSystem(game));
   return { isNew };

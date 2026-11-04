@@ -49,6 +49,9 @@ export const ITEMS = {
   // the night's dead of the warm lands (docs/NIGHT-DEAD.md, game/undead.js)
   bone_meal:   mat('Farinha de ossos', '🦴', 'Ossos moídos: adubo. Use numa plantação que ainda cresce (perto do canteiro) para ela crescer bem mais rápido.'),
   linen:       mat('Faixas de linho', '🧻', 'Faixas de linho antigas de uma múmia. No tear viram tecido; à mão, com uma erva medicinal, dois curativos.'),
+  // siege engines (game/siege.js): the stones they throw, from the backpack of whoever operates them (Oficina de cerco)
+  treb_stone:  { name: 'Pedra de trabuco', emoji: '🪨', stack: 10, cat: 'ammo', desc: 'Pedra grande e arredondada para o trabuco. Cada disparo gasta uma (da mochila de quem opera).' },
+  cat_stone:   { name: 'Pedra de catapulta', emoji: '🪨', stack: 20, cat: 'ammo', desc: 'Pedra lavrada do tamanho certo para a concha da catapulta. Cada disparo gasta uma (da mochila de quem opera).' },
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
   // livestock (docs/LIVESTOCK.md): animal feed and animal products
   wheat:       mat('Trigo', '🌾', 'Espigas de trigo. Alimenta vacas, ovelhas e cavalos no alimentador; vira pão na fornalha. Dado à mão, doma um cavalo selvagem.'),

@@ -20,7 +20,7 @@ import { corpseMenu } from '../game/corpses.js';
 import { BIND } from '../game/keymap.js';
 import {
   rotateBuild, commitPlacement, cancelBuild, exitBuildMode, rotLabel, rotCount, structureMenu, structureAtPoint,
-  buildDragStart, buildDragMove, buildDragEnd, dimsOf,
+  buildDragStart, buildDragMove, buildDragEnd, dimsOf, cycleTowerStories,
 } from '../game/building.js';
 import { pick } from '../game/controller.js';
 import { describeStructure } from '../game/building.js';
@@ -148,7 +148,7 @@ export function installBuildbar(game) {
   const adoptCard = () => { const wbar = root.querySelector('.workbar'); if (wbar && wbar.parentElement !== wrap) wrap.insertBefore(wbar, bar); };
   adoptCard();
   const $ = (s) => bar.querySelector(s);
-  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), go: $('.go'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span') };
+  const R = { rot: $('.rot'), det: $('.det'), ok: $('.ok'), no: $('.no'), go: $('.go'), nm: $('.lbl b'), sub: $('.lbl small'), rotL: $('.rot span'), detL: $('.det span') };
   // the last placed batch still standing as blueprints (for "Construir agora")
   const batchBlueprint = () => {
     const lb = game.build.lastBatch;
@@ -272,8 +272,8 @@ export function installBuildbar(game) {
     }
     if ((wbPlaceT -= dt) <= 0) { wbPlaceT = 0.5; placeBanner(); }
   };
-  press(R.det, () => { const m = game.build.mode; if (m?.type) details.toggle(m.type); });
-  addEventListener('keydown', (e) => { if (BIND.details.includes(e.code) && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
+  press(R.det, () => { const m = game.build.mode; if (m?.type === 'siege_tower') cycleTowerStories(game, 1); else if (m?.type) details.toggle(m.type); }); // (a siege tower: its stories)
+  addEventListener('keydown', (e) => { if (BIND.details.includes(e.code) && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || '')) { const m = game.build.mode; if (m?.type === 'siege_tower' && !m.move) cycleTowerStories(game, 1); else if (m?.type && hasKit(m.type) && !m.move) details.toggle(m.type); } });
 
   // ---------- context menu ----------
   let menu = null;
@@ -422,7 +422,8 @@ export function installBuildbar(game) {
       t -= dt;
       if (t > 0) return;
       t = 0.1;
-      R.det.classList.toggle('off', !(m.type && hasKit(m.type) && !m.move));
+      R.det.classList.toggle('off', !(m.type && (hasKit(m.type) || m.type === 'siege_tower') && !m.move));
+      set('dl', R.detL, m.type === 'siege_tower' ? 'Andares' : 'Detalhes'); // (a siege tower: 1–3 stories)
       if (m.kind === 'brush') {
         R.rot.classList.add('off');
         set('nm', R.nm, 'Pincel · ' + (BUILDINGS[m.type]?.name || ''));
@@ -447,7 +448,7 @@ export function installBuildbar(game) {
       set('nm', R.nm, (m.move ? 'Mover: ' : '') + def.name + (fw * fh > 1 ? ` · ${fw}×${fh}` : ''));
       const roofSub = def.roof ? `${ROOF_STYLES[m.style || ROOF_TYPE_STYLES[m.type]?.[0]]?.name || ''}${m.room ? ' · sala inteira' : ''}${m.n > 1 ? ` · ${m.n} tiles` : ''}` : '';
       const deckSub = def.deck ? (def.deck === 'bridge' ? 'Da margem, em linha reta (até 8 de água)' : 'Água rasa, a partir da margem') + (m.n > 1 ? ` · ${m.n} plantas` : '') : '';
-      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || deckSub || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
+      const sub = !m.valid && m.reason ? m.reason : m.short || roofSub || deckSub || (m.note ? `${rotLabel(m.type, m.rot) || ''}${rotLabel(m.type, m.rot) ? ' · ' : ''}${m.note}` : '') || rotLabel(m.type, m.rot) || (m.n > 1 ? `${m.n} plantas` : 'Planta grátis: o material sai na obra');
       set('sub', R.sub, sub);
       R.sub.classList.toggle('bad', (!m.valid && !!m.reason) || !!m.short);
       R.ok.classList.toggle('bad', !m.valid);

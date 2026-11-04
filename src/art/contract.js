@@ -49,6 +49,7 @@ export const LAZY_KINDS = [
   'garden_arch', 'statue_0', 'totem', 'woodpile', 'haystack', 'cart', 'scarecrow', 'birdhouse', 'beehive', 'drying_rack', 'notice_board', 'fountain', 'pergola',
   'ballista', // (defense: art/faces/solidDefense.js)
   'boat', // (the rowboat: art/faces/solidBoat.js)
+  'siege_workshop', 'trebuchet', 'catapult', 'battering_ram', 'siege_tower', // (siege engines: art/faces/solidSiege.js)
 ];
 
 // does `names` (Set or Map-like with has) hold art for a kind: exact, _0, _h or any _<n> variant
