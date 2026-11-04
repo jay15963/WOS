@@ -5857,16 +5857,22 @@ def('TR4', {
   const up = MN.findPath(H.game, Math.floor(gp.x), Math.floor(gp.y), Math.floor(TOP[0]), Math.floor(TOP[1]), 600);
   const upJump = up?.path?.some((q, k) => { const a = k ? up.path[k - 1] : [Math.floor(gp.x) + 0.5, Math.floor(gp.y) + 0.5]; return Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) > 1.5; });
   t.check(!upJump, 'and never back up over it', up ? `${up.path.length} steps (complete ${up.complete})` : 'no short path up');
-  // a creature at the top chasing the guest below runs over the edge and hops down
+  // a creature pushing into the same edge (its chase / path runs over it: ai.js go) hops down too
   const [m] = await faunaGroup(H, MH, 'wolf', TOP[0] - 0.4, TOP[1]);
   t.defer(() => killQuiet(H, [m]));
-  let mhop = false;
-  const w2 = t.watch(() => { if (m._hop?.terrain) mhop = true; }, 10);
+  m.x = TOP[0]; m.y = TOP[1]; m.state = 'idle'; m.stateT = 99; m.calmT = 99; m.threat = null;
   const MA = await fimp(H, 'game/ai.js');
-  MA.aggro?.(H.game, m, guestOnHost(H, G));
-  await t.tryWait(() => mhop || Math.abs(hw.heightAt(m.x, m.y) - h1) < 0.4, 12000);
+  let mhop = false;
+  const w2 = t.watch(() => { if (m._hop?.terrain) mhop = true; if (!m.dead && (m._hop || Math.abs(hw.heightAt(m.x, m.y) - h0) < 0.3)) { m.stateT = 99; MA.go(H.game, m, [1, 0], 4.4, 1 / 60); } }, 16);
+  await t.tryWait(() => mhop && !m._hop, 4000);
   w2.stop();
-  t.check(mhop, 'the wolf chasing the guest hops down the edge', `wolf at ${f2(m.x)},${f2(m.y)} h ${f2(hw.heightAt(m.x, m.y))} state ${m.state}`);
+  t.check(mhop && Math.abs(hw.heightAt(m.x, m.y) - h1) < 0.45, 'a wolf pushing into the edge hops down it', `wolf at ${f2(m.x)},${f2(m.y)} h ${f2(hw.heightAt(m.x, m.y))} hop ${mhop}`);
+  // and a wolf chasing the guest from the top gets down to it (over the edge or around: the cheaper way)
+  const [m2] = await faunaGroup(H, MH, 'wolf', TOP[0] - 1.2, TOP[1]);
+  t.defer(() => killQuiet(H, [m2]));
+  MA.aggro?.(H.game, m2, guestOnHost(H, G));
+  const down2 = await t.tryWait(() => Math.abs(hw.heightAt(m2.x, m2.y) - h1) < 0.45 || Math.hypot(m2.x - gp.x, m2.y - gp.y) < 1.4, 12000);
+  t.check(down2, 'a wolf chasing the guest from the top gets down to it', `wolf at ${f2(m2.x)},${f2(m2.y)} h ${f2(hw.heightAt(m2.x, m2.y))} state ${m2.state} hop ${!!m2._hop}`);
   await t.checkDigest(H, G);
 });
 
