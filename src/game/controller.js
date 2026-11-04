@@ -104,7 +104,7 @@ export function pick(game, sx, sy) {
   const hid = (x, y, e) => !!game.roofs?.hidden?.(x, y, e); // inside a building whose roof covers it / in a tunnel not shown (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead || hid(e.x, e.y, e)) continue;
+    if (!isMob(e) || e.dead || hid(e.x, e.y, e) || e._riddenBy) continue; // (a ridden horse: drawn with its rider)
     const sc = e.scale || 1;
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
@@ -153,6 +153,7 @@ export function pick(game, sx, sy) {
 
 export function nearestInteractable(game) {
   const p = game.player;
+  if (p.mount && game.horses) return game.horses.dismountIt(); // (on horseback: only getting off, docs/HORSE.md)
   let best = null, bs = 1e9;
   const [fx, fy] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[p.facing] || [0, 1];
   const consider = (it, bonus = 0) => {
@@ -209,6 +210,7 @@ export function installController(game) {
     attack() {
       const p = game.player;
       if (p.dead) return;
+      if (p.mount && p.wprof?.type !== 'spear') { game.events.emit('error', { text: 'Montado: só a lança' }); return; } // (docs/HORSE.md)
       if (game.ballista?.onAttack?.()) return; // (on a ballista: the attack fires it — ballista.js)
       const cur = attackable(p.target) ? p.target : null;
       if (p.wprof?.ranged) game.events.emit('rangeflash'); // (fx/rangeflash.js: how far the bow reaches)
@@ -235,6 +237,8 @@ export function installController(game) {
       const i = list.indexOf(p.target);
       ctl.setTarget(list[(i + 1) % list.length]);
     },
+    // the second choice of what is near (near.alt: "Tirar sela" of a saddled horse…): the HUD's second button / its key
+    interactAlt() { const a = ctl.near?.alt; if (a) ctl.interact(a); },
     interact(it) {
       const p = game.player;
       if (p.dead) return;
@@ -326,6 +330,7 @@ export function installController(game) {
       if (st?.targetOnly) { ctl.setTarget(e); return; }
       if (st) { if (reachDist(p, st) > st.reach + TAP_SLACK) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1)); else ctl.interact(st); return; }
       const fighting = e.state === 'chase' && e.threat === p;
+      if (p.mount && p.wprof?.type !== 'spear' && !e.isProp) { ctl.setTarget(e); game.events.emit('error', { text: 'Montado: só a lança' }); return; } // (docs/HORSE.md)
       // desktop: a left click ON a creature is the normal attack (owner); phones: first tap targets, second attacks
       if (isMouse || p.target === e || temper === 'hostile' || fighting || e.isProp) {
         ctl.engage(e); // arms the auto attack: it swings as soon as the player walks into range
@@ -338,6 +343,7 @@ export function installController(game) {
     }
     if (h.type === 'interact') {
       const it = h.it;
+      if (p.mount && !it.horse) { game.events.emit('error', { text: 'Desça do cavalo' }); return; } // (on horseback: no work)
       // a blue blueprint / a frame / a structure marked for deconstruction: start auto-work on it (and the rest of
       // its batch). This is the only way auto-work starts (work.js); it walks there by itself.
       if (it.kind === 'blueprint' || it.kind === 'decon' || it.kind === 'path') { game.work?.begin?.(it); return; }
@@ -398,6 +404,7 @@ export function installController(game) {
         for (let i = 0; i < 10; i++) if (any(BIND['hot' + (i + 1)])) g.events.emit('hotbar', { i });
         if (any(KEYS.target)) ctl.cycleTarget();
         if (any(KEYS.interact) && !bm) ctl.interact();
+        if (any(KEYS.alt || []) && !bm) ctl.interactAlt();
         if (any(KEYS.attack) && !bm) ctl.attack();
         if (any(KEYS.eat)) eatBest(g);
         if (any(BIND.confirm) && bm) commitPlacement(g);
@@ -509,7 +516,7 @@ export function installController(game) {
         if (env.night > 0.1) B.emissive.add(ring, tx, ty, 1.15 * sc * pulse, 0.75 * sc * pulse, c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 0.6 * env.night);
       }
       const n = ctl.near;
-      if (n && !p.work && !g.build.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
+      if (n && !p.work && !p.mount && !g.build.mode && !(t && !t.dead && p.autoAttack && dist(p, t) <= attackRange(p, t) + 0.5)) {
         const s = n.tile ? Math.max(1, n.w || 1) : n.kind === 'tree' ? 0.9 : 0.8;
         const a = 0.35 + 0.15 * Math.sin(g.time * 4);
         const nr = n.tile && (n.w || 1) !== (n.h || 1) ? -(g.cam.rot || 0) : 0; // (turned: a long piece's ring turns with it)

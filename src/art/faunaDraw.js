@@ -27,7 +27,8 @@ const smooth = (u) => u * u * (3 - 2 * u);
 // body plan and gait of each species (cosmetic): f = gait phase rad per moveT unit (0.25 per tile), bob / rock,
 // graze = grazes when idle, run = how it runs ('gallop' rocks and stretches, 'bound' leaps)
 const K = {
-  wild_horse: { k: 'quad', f: 8, bob: 0.03, rock: 0.02, graze: true, run: 'gallop' },
+  wild_horse: { k: 'quad', f: 8, bob: 0.03, rock: 0.02, graze: true, run: 'gallop', gal: true },
+  horse: { k: 'quad', f: 8, bob: 0.03, rock: 0.02, graze: true, run: 'gallop', gal: true }, // (the tamed horse, docs/HORSE.md)
   zebra: { k: 'quad', f: 8.5, bob: 0.03, rock: 0.02, graze: true, run: 'gallop' },
   gazelle: { k: 'quad', f: 12, bob: 0.04, rock: 0.03, graze: true, run: 'bound' },
   reindeer: { k: 'quad', f: 9.5, bob: 0.03, rock: 0.02, graze: true, run: 'gallop' },
@@ -58,17 +59,25 @@ const K = {
   seal: { k: 'seal', f: 12, bob: 0.02 },
 };
 export const FAUNA = new Set(Object.keys(K));
-// art key of a creature (a male lion: variant bit 1)
+// art key of a creature (a male lion: variant bit 1); horses (docs/HORSE.md): the dun baked art (bodies on the ground too)
 export const faunaKey = (sp, v = 0) => (sp === 'lion' && (v & 2) ? 'lion_m' : FAUNA.has(sp) ? sp : null);
+// a horse's live look: its coat (variant bits 2–3) and, tamed, its saddle — painted on demand (art/fauna.js HORSE_LAZY);
+// the baked dun meanwhile, its coat's colour roughly given by a tint
+const COAT_TINT = [[1, 1, 1], [0.86, 0.6, 0.42], [1.16, 1.16, 1.16], [0.34, 0.3, 0.29]];
+export function horseKey(a) {
+  const c = ((a.variant | 0) >> 2) & 3, sad = a.species === 'horse' && !!a.saddle;
+  return (c ? 'horse_c' + c : a.species === 'horse' || sad ? 'horse' : 'wild_horse') + (sad ? '_sad' : '');
+}
+const isHorseSp = (sp) => sp === 'horse' || sp === 'wild_horse';
 // size class of a body (corpse skeleton / carcass art)
 export const FAUNA_SIZE = {
-  wild_horse: 'l', zebra: 'm', gazelle: 's', reindeer: 'm', moose: 'l', bison: 'l', yak: 'l', camel: 'l', mountain_goat: 's', elephant: 'l',
+  wild_horse: 'l', horse: 'l', zebra: 'm', gazelle: 's', reindeer: 'm', moose: 'l', bison: 'l', yak: 'l', camel: 'l', mountain_goat: 's', elephant: 'l',
   lion: 'm', jaguar: 'm', lynx: 's', polar_bear: 'l', arctic_fox: 's', monkey: 's', vulture: 's', eagle: 's', parrot: 's', seagull: 's', heron: 's',
   rattlesnake: 's', crocodile: 'l', crab: 's', scorpion: 's', shark: 'm', dolphin: 'm', whale: 'l', seal: 'm',
 };
 // second coat (variant & 1): a darker / paler animal of the herd
 const TINT = {
-  wild_horse: [0.78, 0.66, 0.56], reindeer: [1.12, 1.08, 1.04], yak: [1.9, 1.84, 1.72], camel: [0.86, 0.8, 0.74], mountain_goat: [0.96, 0.93, 0.88],
+  wild_horse: [0.78, 0.66, 0.56], horse: [0.78, 0.66, 0.56], reindeer: [1.12, 1.08, 1.04], yak: [1.9, 1.84, 1.72], camel: [0.86, 0.8, 0.74], mountain_goat: [0.96, 0.93, 0.88],
   bison: [0.86, 0.82, 0.8], gazelle: [0.92, 0.88, 0.84], seal: [0.82, 0.82, 0.84], crab: [1.0, 0.82, 0.62], monkey: [0.84, 0.8, 0.76],
 };
 const NOTINT = [1, 1, 1];
@@ -130,7 +139,7 @@ function altOf(a, t, fly, perch = 0) {
   return a._alt;
 }
 
-const W4 = ['w0', 'w1', 'w2', 'w3'], W2 = ['w0', 'stand', 'w2', 'stand'], S4 = ['s0', 's1', 's2', 's3'];
+const W4 = ['w0', 'w1', 'w2', 'w3'], W2 = ['w0', 'stand', 'w2', 'stand'], S4 = ['s0', 's1', 's2', 's3'], GAL = ['g0', 'g1', 'g2', 'g3'];
 const FLAP = ['fly0', 'fly1', 'fly2', 'fly1'];
 
 // one entry for game.js: true when drawn here (wild fauna), false = not ours
@@ -139,7 +148,8 @@ export function drawFauna(B, A, a, t, world = null) {
   const G = K[sp];
   if (!G) return false;
   const T = tables(A);
-  const key = faunaKey(sp, a.variant | 0);
+  let key = faunaKey(sp, a.variant | 0), coatTint = null;
+  if (isHorseSp(sp) && !a.dead) { const hk = horseKey(a); if (hk !== key) { if (sprite(T, hk + '_e')) key = hk; else coatTint = COAT_TINT[((a.variant | 0) >> 2) & 3]; } }
   if (!sprite(T, key + '_e')) return false;
   B = viewB(B, a.x, a.y);
   let dv = a.dead ? null : a._dv, dir = a.facing || 'e';
@@ -149,7 +159,8 @@ export function drawFauna(B, A, a, t, world = null) {
   else if (dir === 'e' || dir === 'w') { view = 'e'; flip = dir === 'w' ? -1 : 1; }
   else view = dir;
   const sc = a.scale || 1, fl = a.flash || 0, fm = a.fmode | 0;
-  const tint = (a.variant | 0) & 1 ? TINT[sp] || NOTINT : NOTINT;
+  let tint = (a.variant | 0) & 1 ? TINT[sp] || NOTINT : NOTINT;
+  if (coatTint) tint = [tint[0] * coatTint[0], tint[1] * coatTint[1], tint[2] * coatTint[2]]; // (its coat still painting: the dun tinted)
   const ph0 = seedOf(a) * TAU;
   const tx = Math.floor(a.x), ty = Math.floor(a.y);
   // in the water: swimmers always; a crocodile in any water (it lurks in the shallows too); seals and polar bears in deep water
@@ -226,7 +237,13 @@ export function drawFauna(B, A, a, t, world = null) {
       const bob = (G.bob || 0.02) * (run ? 1.8 : 1);
       lift = bob * (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI));
       rot = flip * Math.sin(2 * ph) * (G.rock || 0.02) * (view === 'e' ? 0.5 : 1);
-      if (run && view !== 's' && view !== 'n') {
+      if (run && G.gal) {
+        // a real gallop (horses): four frames of their own, one bound per cycle (suspension up, the landing down)
+        const gu = ((ph / TAU) % 1 + 1) % 1;
+        fr = GAL[(gu * 4) | 0];
+        lift = 0.07 * Math.max(0, Math.sin(gu * TAU + 0.6)) + 0.012;
+        rot = flip * Math.sin(gu * TAU + 1.2) * 0.035 * (view === 's' || view === 'n' ? 0.4 : 1);
+      } else if (run && view !== 's' && view !== 'n') {
         if (G.run === 'bound') { const air = Math.sin(ph) > 0 ? Math.sin(ph) : 0; lift += air * 0.16; rot += flip * Math.cos(ph) * 0.12; fr = air > 0.3 ? 'w0' : 'w2'; }
         else { rot += flip * Math.sin(2 * ph) * 0.06; sx *= 1 + Math.abs(Math.cos(ph)) * 0.05; sy *= 1 - Math.abs(Math.cos(ph)) * 0.03; }
       }
@@ -283,4 +300,59 @@ export function drawFauna(B, A, a, t, world = null) {
   const pk = '_pre_' + key + view;
   if (!T.recs.has(pk)) { T.recs.set(pk, null); for (const q of FAUNA_ART[key].frames) sprite(T, key + '_' + view + (q === 'stand' ? '' : '_' + q)); }
   return true;
+}
+
+// ---------- a ridden horse (docs/HORSE.md): drawn by its rider's pawn (art/compose.js drawPawn, ride) ----------
+// d: the horse's drawing state for this frame (game/horses.js: at the rider's drawn spot, its gait clock and motion);
+// dir / dv: the view the rider is drawn with (one view for both). ridePose works the frame out (the rider sits on its
+// bob), rideDraw adds it to the batches — the pawn decides when (its far leg behind it, its body before / after it).
+export function ridePose(A, d, t, dir, dv) {
+  const T = tables(A), G = K.horse;
+  let key = 'horse', coatTint = null;
+  const hk = horseKey(d);
+  if (sprite(T, hk + '_e')) key = hk;
+  else { coatTint = COAT_TINT[((d.variant | 0) >> 2) & 3]; if (d.saddle && sprite(T, 'horse_sad_e')) key = 'horse_sad'; }
+  d._ok = !!sprite(T, key + '_e');
+  if (!d._ok) return d;
+  let view, flip = 1;
+  if (dv) { view = dv[0] === 's' ? 'se' : 'ne'; flip = dv[1] === 'w' ? -1 : 1; }
+  else if (dir === 'e' || dir === 'w') { view = 'e'; flip = dir === 'w' ? -1 : 1; }
+  else view = dir || 'e';
+  const spd = speedOf(d, t), ph0 = seedOf(d) * TAU;
+  const ph = (d.moveT || 0) * G.f + ph0, u = ((ph / TAU) % 1 + 1) % 1;
+  let fr = '', lift = 0, rot = 0, sx = 1, sy = 1;
+  if (d.moving && spd > 0.4) {
+    if (spd > 3.4) {
+      fr = GAL[(u * 4) | 0];
+      lift = 0.07 * Math.max(0, Math.sin(u * TAU + 0.6)) + 0.012;
+      rot = flip * Math.sin(u * TAU + 1.2) * 0.035 * (view === 's' || view === 'n' ? 0.4 : 1);
+    } else {
+      fr = W4[(u * 4) | 0];
+      lift = G.bob * (0.5 - 0.5 * Math.cos(2 * ph - HALF_PI));
+      rot = flip * Math.sin(2 * ph) * G.rock * (view === 'e' ? 0.5 : 1);
+    }
+  } else {
+    const br = Math.sin(t * 2 + ph0);
+    sy = 1 + br * 0.012; sx = 1 - br * 0.004;
+    if (((animEnv.wt + seedOf(d) * 37) / 9) % 1 > 0.93) rot += flip * Math.sin(t * 60) * 0.012; // (a shake of the head now and then)
+  }
+  const fl = d.flash || 0;
+  let ox = 0;
+  if (fl > 0.4) { ox += Math.sin(t * 70) * 0.025 * fl; sy *= 1 - 0.04 * fl; }
+  let tint = (d.variant | 0) & 1 ? TINT.horse : NOTINT;
+  if (coatTint) tint = [tint[0] * coatTint[0], tint[1] * coatTint[1], tint[2] * coatTint[2]];
+  d._spr = frame(T, key, view, fr, false, dir);
+  d._view = view; d._flip = flip; d._lift = lift; d._rot = rot; d._sx = sx; d._sy = sy; d._ox = ox; d._tint = tint; d._spd = d.moving ? spd : 0;
+  d._T = T; d._key = key;
+  const pk = '_pre_' + key + view;
+  if (!T.recs.has(pk)) { T.recs.set(pk, null); for (const q of FAUNA_ART[key].frames) sprite(T, key + '_' + view + (q === 'stand' ? '' : '_' + q)); }
+  return d;
+}
+export function rideDraw(B, A, d) {
+  if (!d._ok || !d._spr) return;
+  const T = d._T, spr = d._spr, sc = d.scale || 1, x = d.x + d._ox, y = d.y, tn = d._tint;
+  B = viewB(B, d.x, d.y);
+  if (T.blob) B.blob.add(T.blob, d.x, d.y, (d._view === 's' || d._view === 'n' ? spr.w * 0.6 : spr.w * 0.62) * sc * (1 - Math.min(0.5, d._lift)), 0.5 * sc, 1, 1, 1, 0.75);
+  B.main.add(spr, x, y, sc * d._sx, sc * d._sy, tn[0], tn[1], tn[2], 1, 0, d._rot, d.flash || 0, d._flip, 0, d._lift);
+  B.shadow.add(spr, x, y, sc * d._sx, sc * d._sy, 1, 1, 1, 0.9, 0, d._rot, 0, d._flip, 0, d._lift);
 }

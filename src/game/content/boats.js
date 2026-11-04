@@ -25,7 +25,7 @@ export const BOAT = {
 };
 // room an animal takes standing across the hull, by species: [thickness along the hull, length across it] (tiles; young:
 // × 0.6) — the animals stand in single file down the middle, in the stretches no seated player takes
-export const ANIMAL_ROOM = { cow: [0.6, 1.35], sheep: [0.48, 0.95], pig: [0.48, 0.9], chicken: [0.32, 0.42] };
+export const ANIMAL_ROOM = { cow: [0.6, 1.35], sheep: [0.48, 0.95], pig: [0.48, 0.9], chicken: [0.32, 0.42], horse: [0.62, 1.45] };
 export function roomOf(m) {
   const r = ANIMAL_ROOM[m?.species] || ANIMAL_ROOM.sheep, k = (m?.variant | 0) & 2 ? 0.6 : 1;
   return [r[0] * k, r[1] * k];

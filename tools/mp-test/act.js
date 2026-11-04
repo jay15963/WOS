@@ -14,7 +14,7 @@ const PATHS = {
   worldgen: 'world/worldgen.js', stats: 'game/stats.js', controller: 'game/controller.js', look: 'game/look.js', lookRig: 'art/look/rig.js',
   corpses: 'game/corpses.js', mcorpses: 'game/mut/corpses.js', levels: 'game/levels.js', players: 'game/players.js',
   mobs: 'game/mobs.js', seasons: 'game/seasons.js', walkers: 'game/walkers.js', giants: 'game/giants.js', ballista: 'game/ballista.js',
-  boats: 'game/boats.js', boatsc: 'game/content/boats.js',
+  boats: 'game/boats.js', boatsc: 'game/content/boats.js', horses: 'game/horses.js',
 };
 const CACHE = new WeakMap();
 export async function mods(f) {
@@ -149,6 +149,8 @@ export function keepAlive(t, f, { hp = true } = {}) {
 
 // both players alive, idle, auto-work paused, near the spawn
 export async function reset(t, H, MH, G, MG) {
+  // nobody rides a horse from an earlier scenario (horses, docs/HORSE.md)
+  if (H?.game?.horses && MH?.horses?.dismountHorse) for (const e of H.game.entities) if (e.rider && !e.proxy && !e.dead) { try { MH.horses.dismountHorse(H.game, e, 'hand'); } catch { /* ignore */ } }
   for (const [f, M] of [[H, MH], [G, MG]]) {
     if (!f) continue;
     const g = f.game, p = g.player;

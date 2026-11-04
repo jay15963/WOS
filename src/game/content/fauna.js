@@ -33,8 +33,10 @@ export const FAUNA_SPECIES = {
   lynx:        { name: 'Lince', temper: 'hostile', hp: 48, dmg: 5.5, swing: 1.5, speed: 5.0, aggro: 7.5, r: 0.3, scale: 1.25, xp: 1.4, minD: 30, size: 's',
                  loot: [meat(1, 1), skin(1, 1, 0.8)] },
   // ---- steppe / grassland ----
-  wild_horse:  { name: 'Cavalo selvagem', temper: 'passive', hp: 72, dmg: 0, swing: 2, speed: 6.4, r: 0.42, scale: 1, xp: 0.9, minD: 10, size: 'l',
-                 loot: [meat(3, 4), skin(2, 2)] },
+  // (docs/HORSE.md: a horse gives little meat and a lot of leather; calm: walking up to it is fine, a sprint spooks the
+  // herd — `calm` in game/ai.js; the coat in variant bits 2–3, art/fauna.js HORSE_COATS)
+  wild_horse:  { name: 'Cavalo selvagem', temper: 'passive', hp: 72, dmg: 0, swing: 2, speed: 6.4, r: 0.42, scale: 1, xp: 0.9, minD: 10, size: 'l', calm: 9,
+                 loot: [meat(1, 1), skin(4, 5)] },
   bison:       { name: 'Bisão', temper: 'neutral', hp: 175, dmg: 10, swing: 2.6, speed: 4.5, r: 0.55, scale: 1, xp: 2.2, lvl: 1, minD: 20, size: 'l', social: true,
                  loot: [meat(5, 7), skin(3, 4)] },
   yak:         { name: 'Iaque', temper: 'neutral', hp: 140, dmg: 9, swing: 2.6, speed: 3.8, r: 0.5, scale: 1, xp: 1.8, lvl: 1, minD: 20, size: 'l', social: true,

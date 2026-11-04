@@ -15,6 +15,7 @@ export const ACTIONS = [
   ['right', 'Andar para a direita', 'move', ['KeyD', 'ArrowRight']],
   ['sprint', 'Correr', 'move', ['ShiftLeft', 'ShiftRight']],
   ['interact', 'Interagir', 'act', ['KeyE']],
+  ['alt', 'Interagir (2ª opção: tirar a sela…)', 'act', ['KeyY']],
   ['attack', 'Atacar', 'act', ['Space']],
   ['target', 'Próximo alvo', 'act', ['KeyZ']],
   ['eat', 'Comer', 'act', ['KeyF']],

@@ -79,6 +79,12 @@ const WALK = {
   w1: { A: [0.02, 0, 0], B: [0.14, 0.9, 4] },
   w2: { A: [-0.32, 0.12, 0], B: [0.36, -0.05, 0] },
   w3: { A: [0.14, 0.9, 4], B: [0.02, 0, 0] },
+  // the gallop (horses, docs/HORSE.md): four frames, each leg on its own (L: front left / right, hind left / right:
+  // [swing, knee bend, lift]) and the body pitching (+ nose up) — reach, front landing, gathered, hind push-off
+  g0: { L: { fl: [0.72, -0.05, 7], fr: [0.5, 0.2, 4], hl: [-0.62, 0.05, 3], hr: [-0.42, 0.18, 1] }, pitch: -0.035, A: [0, 0, 0], B: [0, 0, 0] },
+  g1: { L: { fl: [0.2, 0, 0], fr: [0.46, 0.08, 1], hl: [0.05, 0.95, 8], hr: [-0.28, 0.7, 5] }, pitch: 0.02, A: [0, 0, 0], B: [0, 0, 0] },
+  g2: { L: { fl: [-0.38, 0.85, 7], fr: [-0.18, 0.35, 2], hl: [0.5, 0.1, 0], hr: [0.3, 0.05, 0] }, pitch: 0.06, A: [0, 0, 0], B: [0, 0, 0] },
+  g3: { L: { fl: [0.32, 1.25, 10], fr: [0.08, 0.95, 7], hl: [-0.22, 0.1, 0], hr: [0.08, 0.25, 0] }, pitch: -0.015, A: [0, 0, 0], B: [0, 0, 0] },
 };
 
 // =====================================================================================================================
@@ -176,7 +182,7 @@ function quad(S0, pose) {
       }
       continue;
     }
-    let pr = G[(front && side > 0) || (!front && side < 0) ? 'A' : 'B'];
+    let pr = G.L ? G.L[(front ? 'f' : 'h') + (side > 0 ? 'l' : 'r')] : G[(front && side > 0) || (!front && side < 0) ? 'A' : 'B'];
     if (dead) pr = front ? [0.7 + side * 0.12, -0.15, 0] : [-0.75 - side * 0.1, 0.2, 0]; // (stiff legs splayed out)
     if (sit && !front) pr = [1.2, -2.0, 0];
     if (atk === 'rear' && front) pr = side > 0 ? [0.9, 1.4, 14] : [0.6, 1.2, 10];
@@ -184,9 +190,10 @@ function quad(S0, pose) {
     const Lt = hip[2] - L.foot.h, ku = D.k ?? 0.5;
     leg(P, hip, Lt * ku, Lt * (1 - ku), D.ru, D.rl, pr[0] * (front ? 1 : 0.9), pr[1], pr[2], { u: L.m.u || S.coat, l: L.m.l || S.coat, h: L.m.h || L.m.l || S.coat }, !!front, L.foot);
   }
-  if (S.extras) S.extras(P, F, { H, hc, HA, hp, nt, nb, pose, atk, graze, rest, mzc });
-  // whole-body poses: rear (on the hind legs), a cat's sit
+  if (S.extras) S.extras(P, F, { H, hc, HA, hp, nt, nb, pose, atk, graze, rest, mzc, wk: S0.wide || 1, S });
+  // whole-body poses: rear (on the hind legs), a cat's sit; a gallop frame's pitch (about the barrel)
   if (atk === 'rear') pitchAbout(P, F, 0.38, [S.legs.h.x, 0, 0]);
+  if (G.pitch && !rest && !sit && !dead) pitchAbout(P, F, G.pitch, [0, 0, H * 0.6]);
   if (sit) pitchAbout(P, F, 0.55, [S.legs.h.x, 0, S.legs.h.ru]);
   return [P, F];
 }
@@ -235,23 +242,70 @@ const HOOF = (c = C.hoof) => M(c, { fur: 0, gloss: 0.25 });
 // =====================================================================================================================
 const Q = {};
 
-// --- wild horse (Przewalski-like: dun coat, dark legs and mane) ---
-{
-  const coat = M('#b98a52', { belly: '#e2c9a0', fur: 0.07 }), legD = M('#b98a52', { fur: 0.05, tex: (Pb) => (Pb[2] < 22 ? col3('#3a2c22') : null) }), mane = M('#3a2a20', { rough: 1.6, bump: 0.3, fur: 0.15 });
-  Q.wild_horse = {
+// --- horses (docs/HORSE.md): the wild horse (Przewalski-like: dun coat, dark legs and an upright mane) and the tamed one
+// share the model; coats (variant bits 2–3, HORSE_COATS): dun · chestnut (flaxen mane) · grey (dappled) · black; the
+// saddled art adds the pad, the saddle (seat, pommel, cantle, flaps, stirrups, girth) and the bridle with its reins ---
+export const HORSE_COATS = [
+  { coat: '#b98a52', belly: '#e2c9a0', sock: '#3a2c22', mane: '#3a2a20', muzzle: '#e8d7bb' },          // dun
+  { coat: '#a2552c', belly: '#c88a5e', sock: '#6e3418', mane: '#ead39a', muzzle: '#c9906c', blaze: '#f2ece0' }, // chestnut
+  { coat: '#cbc6bd', belly: '#e9e5de', sock: '#6c6762', mane: '#f1eee8', muzzle: '#4e4a47', dapple: '#9f9890' }, // grey
+  { coat: '#2f2724', belly: '#3c322d', sock: '#1d1715', mane: '#151110', muzzle: '#463a33' },          // black
+];
+const TACK = { leather: M('#6e3c1e', { fur: 0, gloss: 0.32 }), dark: M('#43240f', { fur: 0, gloss: 0.28 }), iron: M('#a3a8ab', { fur: 0, gloss: 0.7 }),
+  pad: M('#9c2f28', { fur: 0.03, tex: (Pb) => (Pb[2] < 35.6 || Math.abs(Pb[0] - 1) > 12.3 ? col3('#e3c46a') : null) }) }; // (a gold trim along its hem)
+function horseSpec(C) {
+  const dap = C.dapple ? col3(C.dapple) : null, blaze = C.blaze ? col3(C.blaze) : null;
+  const coat = M(C.coat, { belly: C.belly, fur: 0.07, tex: dap ? (Pb) => (fbm3(Pb[0] / 3.4 + 2.1, Pb[1] / 3.4, Pb[2] / 3.4 + 7.7) > 0.6 ? dap : null) : undefined });
+  const legD = M(C.coat, { fur: 0.05, tex: (Pb) => (Pb[2] < 22 ? col3(C.sock) : null) });
+  const mane = M(C.mane, { rough: 1.6, bump: 0.3, fur: 0.15 });
+  const headM = blaze ? M(C.coat, { fur: 0.06, tex: (Pb, p, a0, a1, a2) => (p.id === 'head' && Math.abs(a1) < 0.22 && a2 > -0.1 ? blaze : null) }) : undefined;
+  return {
     wide: 1.25,
-    H: 40, coat, atk: 'rear',
+    H: 40, coat, headM, atk: 'rear',
     masses: [[0, 0, 30, 12.5, 13], [19, 2, 14, 12, 14.5], [-20, 2, 14.5, 13, 14]],
     neck: { b: [24, 6], t: [38, 24], r: 8.2, g: [44, 12] },
-    head: { a: [13, 5.6, 6.6], p: -1.05, gp: -1.5, o: [6, 0], mz: { o: [10, -1.5], a: [6.5, 5, 5.6], m: M('#e8d7bb', { fur: 0.04 }) }, nose: [5.5, 0, 1.3], eye: [-3.5, 5, 2.5, 1.6], ear: { o: [-10, 3.2, 5.5], a: [2, 1.4, 4.6], p: 0.5, roll: 0.2 } },
+    head: { a: [13, 5.6, 6.6], p: -1.05, gp: -1.5, o: [6, 0], mz: { o: [10, -1.5], a: [6.5, 5, 5.6], m: M(C.muzzle, { fur: 0.04 }) }, nose: [5.5, 0, 1.3], eye: [-3.5, 5, 2.5, 1.6], ear: { o: [-10, 3.2, 5.5], a: [2, 1.4, 4.6], p: 0.5, roll: 0.2 } },
     legs: { f: { x: 20, y: 7, dz: -6, ru: 5, rl: 2.9 }, h: { x: -22, y: 7, dz: -4, ru: 6.2, rl: 3 }, foot: { rx: 3.4, ry: 3, h: 2.6, fx: 0.6 }, m: { u: legD, l: legD, h: HOOF() } },
     tail: { b: [-33, 8], m: [-39, 0], t: [-40, -14], r: 3.2, r1: 2.6, mat: mane, tuft: [4, 3.4, 9, mane] },
     extras(P, F, c) {
       // upright mane along the neck's top
       for (let i = 0; i <= 5; i++) { const t = i / 5, p = add3(add3(c.nb, mul3(sub3(c.nt, c.nb), t)), [-1.5, 0, 7 - t * 1.5]); P.push(E(p, [3.2, 1.4, 3], mane, { R: axesAlong(sub3(c.nt, c.nb)), g: 'mane', br: 1.6 })); }
+      if (c.pose.sad) tack(P, c);
     },
   };
 }
+// the saddle and the bridle (body space; c.wk: the front / back views' widening of the barrel)
+function tack(P, c) {
+  const H = c.H, k = c.wk, T = TACK;
+  P.push(E([1, 0, H + 3.5], [14.2, 12.5 * k + 0.9, 10.8], T.pad, { g: 'pad', br: 1.2 }));                        // the saddle pad over the back
+  P.push(E([7.5, 0, H - 0.5], [2.1, 12.2 * k + 0.7, 13.5], T.dark, { g: 'girth', br: 0.8 }));                     // girth around the belly
+  P.push(E([0, 0, H + 13.4], [9.6, 9.2 * k * 0.86, 3.3], T.leather, { g: 'seat', br: 1.4 }));                      // the seat
+  P.push(E([-8.2, 0, H + 15.6], [2.8, 8.2 * k * 0.86, 3.8], T.dark, { R: axesPYR(0.35), g: 'seat', br: 1 }));      // cantle
+  P.push(E([8.6, 0, H + 15.4], [2.7, 5.8 * k * 0.86, 3.7], T.dark, { R: axesPYR(-0.25), g: 'seat', br: 1 }));      // pommel
+  P.push(E([10.2, 0, H + 19.2], [1.5, 1.5, 2.1], T.dark, { g: 'horn', br: 0.5 }));                                  // horn
+  for (const s of [1, -1]) {
+    const y = s * (12.5 * k + 0.6);
+    P.push(E([0.5, y, H + 2.5], [6.2, 1.2, 8.4], T.leather, { R: axesPYR(0, 0, s * 0.18), g: 'flap', br: 0.6 }));    // flap (fender)
+    P.push(seg([1.5, y + s * 0.8, H + 7], [2.5, y + s * 1.3, H - 9], 0.75, T.dark, { g: 'strap', br: 0.3 }));     // stirrup leather
+    P.push(E([2.5, y + s * 1.4, H - 10.4], [2.7, 1.1, 1.5], T.iron, { g: 'stirrup', br: 0.3 }));                  // stirrup
+  }
+  // the bridle: noseband and headstall around the head, reins back to the pommel
+  if (c.mzc) {
+    const hk = 1 + (k - 1) * 0.6;
+    P.push(E(add3(c.mzc, mv(c.HA, [-2.6, 0, 0.3])), [1.1, 5.2 * hk + 0.5, 5.9], T.dark, { R: c.HA, g: 'bridle', br: 0.4 }));
+    P.push(E(add3(c.hc, mv(c.HA, [-6.5, 0, 0.5])), [1.1, 5.6 * hk + 0.5, 6.9], T.dark, { R: c.HA, g: 'bridle', br: 0.4 }));
+    for (const s of [1, -1]) {
+      const a = add3(c.mzc, mv(c.HA, [-2.6, s * (5.2 * hk + 0.4), -1.2])), b = [9.5, s * 4.6 * k * 0.86, H + 16.2];
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, Math.min(a[2], b[2]) - 4];
+      chainPts(P, curve(a, m, b, 6), 0.55, 0.55, T.dark, { g: 'rein', br: 0.3, edge: false });
+    }
+  }
+}
+Q.wild_horse = horseSpec(HORSE_COATS[0]);
+// the tamed horse (SPECIES.horse): the dun is its baked art (contract horse_e / _s / _n); the other coats and every
+// saddled look are painted on demand (lazy keys: HORSE_LAZY)
+Q.horse = Q.wild_horse;
+for (let i = 1; i < HORSE_COATS.length; i++) Q['horse_c' + i] = horseSpec(HORSE_COATS[i]);
 // --- zebra (stripes in body space: vertical on the body, rings on the legs, along the neck) ---
 {
   const K = col3('#1f1b19');
@@ -890,8 +944,13 @@ const SEALS = { seal: { skin: M('#7d7a74', { belly: '#b8b2a6', fur: 0.04, gloss:
 // =====================================================================================================================
 const QUAD_F = ['stand', 'w0', 'w1', 'w2', 'w3', 'graze', 'atk'];
 const CAT_F = [...QUAD_F, 'rest'];
+const HORSE_F = [...QUAD_F, 'g0', 'g1', 'g2', 'g3']; // (horses gallop: art/faunaDraw.js)
 const PLANS = {};
-for (const k in Q) PLANS[k] = { model: (p) => quad(Q[k], p), frames: ['lion', 'lion_m', 'jaguar', 'lynx', 'arctic_fox', 'camel'].includes(k) ? CAT_F : k === 'polar_bear' ? [...CAT_F, 'swim'] : k === 'monkey' ? [...QUAD_F, 'sit'] : QUAD_F };
+for (const k in Q) PLANS[k] = { model: (p) => quad(Q[k], p), frames: ['lion', 'lion_m', 'jaguar', 'lynx', 'arctic_fox', 'camel'].includes(k) ? CAT_F : k === 'polar_bear' ? [...CAT_F, 'swim'] : k === 'monkey' ? [...QUAD_F, 'sit'] : k === 'wild_horse' || k.startsWith('horse') ? HORSE_F : QUAD_F };
+// saddled horses (docs/HORSE.md): every coat with its saddle and bridle — a tamed horse never grazes nor rears with it
+for (const k of ['horse', 'horse_c1', 'horse_c2', 'horse_c3']) PLANS[k + '_sad'] = { model: (p) => quad(Q[k], { ...p, sad: true }), frames: ['stand', 'w0', 'w1', 'w2', 'w3', 'g0', 'g1', 'g2', 'g3'] };
+// keys painted only on demand (nothing baked; their drawing falls back to the dun 'horse' / 'wild_horse' meanwhile)
+export const HORSE_LAZY = new Set(['horse_c1', 'horse_c2', 'horse_c3', 'horse_sad', 'horse_c1_sad', 'horse_c2_sad', 'horse_c3_sad']);
 PLANS.polar_bear.cut = ['swim'];
 for (const k in BIRDS) PLANS[k] = { model: (p) => bird(BIRDS[k], p), frames: ['stand', 'w0', 'w2', 'graze', 'atk', 'fly0', 'fly1', 'fly2', 'glide'] };
 for (const k in SNAKES) PLANS[k] = { model: (p) => snake(SNAKES[k], p), frames: ['stand', 's0', 's1', 's2', 's3', 'atk', 'coil'] };
@@ -925,7 +984,7 @@ function paint(key, v, f, cut) {
 for (const key of FAUNA_KEYS) {
   const Pl = PLANS[key];
   for (const f of Pl.frames) for (const v of VIEWS) {
-    if (f === 'stand' && (v === 'e' || v === 's' || v === 'n')) continue; // (baked)
+    if (f === 'stand' && (v === 'e' || v === 's' || v === 'n') && !HORSE_LAZY.has(key)) continue; // (baked)
     const [, H, , top] = boxOf(modelOf(key, f, false), YAW[v]);
     lazyDef(name(key, v, f), () => paint(key, v, f, false), 0.5, top / H);
   }
@@ -942,6 +1001,7 @@ for (const key of ['shark', 'dolphin', 'whale', 'crocodile', 'seal']) {
 // baked: standing e / s / n (the contract, the corpses), the flat ones on their back
 export function addFauna(add) {
   for (const key of FAUNA_KEYS) {
+    if (HORSE_LAZY.has(key)) continue; // (painted on demand)
     for (const v of ['e', 's', 'n']) {
       const [c, ay] = modelSprite(modelOf(key, 'stand', false), YAW[v]);
       add(key + '_' + v, c, 0.5, ay);

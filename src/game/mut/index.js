@@ -23,3 +23,4 @@ import './ballista.js'; // the ballista: operator, aim, shots
 import './terrain.js';  // terrain height: dig / fill / level / smooth (docs/TERRAIN-HEIGHT.md)
 import './tunnels.js';  // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md)
 import './boats.js';    // boats: launch, riders, rowing
+import './horses.js';   // horses: taming with wheat, saddle, riding (docs/HORSE.md)

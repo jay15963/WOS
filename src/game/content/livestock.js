@@ -22,8 +22,11 @@ export const STOCK = {
   sheep:   { eats: ['wheat'], perDay: 1, grow: 2, breed: 1.5, baby: 'Cordeiro', g: 'f', herd: [3, 4], babyLoot: 0.4 },
   pig:     { eats: 'any', perDay: 2, grow: 2, breed: 1.5, baby: 'Leitão', g: 'm', herd: [2, 3], babyLoot: 0.5 },
   chicken: { eats: ['corn'], perDay: 1, grow: 1.5, breed: 1, baby: 'Pintinho', g: 'f', herd: [3, 5], babyLoot: 1 },
+  // the tamed horse (docs/HORSE.md, game/horses.js): no wild herds (tamed from the wild horses with wheat), no foals;
+  // `always`: hungry anywhere once tamed (it must come back to a feeder), `belly`: days a full belly lasts
+  horse:   { eats: ['wheat'], perDay: 2, belly: 2, grow: 3, breed: 99, baby: 'Potro', g: 'm', herd: [0, 0], babyLoot: 0.5, always: true, noBreed: true },
 };
-export const STOCK_NAME_PT = { cow: 'vaca', sheep: 'ovelha', pig: 'porco', chicken: 'galinha' };
+export const STOCK_NAME_PT = { cow: 'vaca', sheep: 'ovelha', pig: 'porco', chicken: 'galinha', horse: 'cavalo' };
 
 // predators hunting farm animals at night (src/game/ai.js lookForPrey / huntStep): fences and pens keep them out
 export const PREY = {

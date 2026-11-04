@@ -51,7 +51,7 @@ import { CAMV } from './archCompose.js'; // camera yaw (cos, sin): a sleeper sta
 
 // set by the game (artcompat.js): called once per missing sprite when a fallback is drawn (must never happen
 // with a validated atlas). Kept as a hook so the art module graph does not import game/net code.
-export const artHooks = { warn: null };
+export const artHooks = { warn: null, ridePose: null, rideDraw: null }; // ride*: a ridden horse (art/faunaDraw.js, set by game.js)
 // cosmetic environment fed by the game every frame (juice.js): wind for idle hair, world clock for idle life
 export const animEnv = { wx: 0.15, wy: 0, gust: 0, wt: 0, rc: 1, rs: 0, yaw: 0 };
 
@@ -604,8 +604,12 @@ export function drawPawn(B, A, p, t) {
     const D0 = diagRig(A, LK, dv === 'se' || dv === 'sw' ? 'se' : 'ne');
     if (diagReady(D0, A, urgent) && diagExtras(T, L, LK, armor, OV, D0.view, urgent)) { D = D0; mir = dv === 'sw' || dv === 'nw' ? -1 : 1; }
   }
+  // on horseback (docs/HORSE.md; game/horses.js sets p._rideD, the horse's drawing state at the rider's spot): the horse's
+  // frame first (its bob carries the rider), one view for both
+  const RD = p._rideD && !p.dead && artHooks.ridePose ? artHooks.ridePose(A, p._rideD, t, dir, dv) : null;
+  const ride = RD && RD._ok ? RD : null;
   const C = PIN;
-  C.p = p; C.t = t; C.T = T; C.LK = LK; C.M = M; C.O = O; C.act = act; C.k = k; C.pose = pose; C.sit = sit; C.seat = seat; C.ph0 = ph0; C.fl = fl;
+  C.p = p; C.t = t; C.T = T; C.LK = LK; C.M = M; C.O = O; C.act = act; C.k = k; C.pose = pose; C.sit = sit; C.seat = seat; C.ph0 = ph0; C.fl = fl; C.ride = ride;
   const pd = D ? TURN_VIEW[D.view].pd : sd;
   const Q = D ? blendPose(QC, rigPose(QP, C, pd, 1), rigPose(QE, C, 'e', 1), mir, D.view) : rigPose(QC, C, sd, flip);
   pose = Q.pose;
@@ -630,9 +634,10 @@ export function drawPawn(B, A, p, t) {
   const HD = D && (hdir === dir || !dv.includes(hdir)) ? D : null; // (a turn only toward the diagonal's own sides)
   const shut = (HD ? !!HD.lids : !!lids) && (blinking(t, ph0) || fl > 0.6 || (pose === 'heal' && k > 0.5 && k < 0.62));
 
+  const B0 = B;
   B = viewB(B, bx0, by0); // (camera turned: the rig's screen-space offsets around the body → world)
-  // contact shadow (shrinks a little while airborne)
-  if (T.blob) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al * (1 - swim));
+  // contact shadow (shrinks a little while airborne; on horseback the horse has its own)
+  if (T.blob && !ride) B.blob.add(T.blob, bx0, by0 + (seat ? 0.06 : 0), 0.7 - lift * 0.8, 0.6 - lift * 0.6, 1, 1, 1, 0.75 * al * (1 - swim));
 
   // fill the rig scratch (module-level helpers below draw feet / weapon / off-hand item from it)
   R.B = B; R.T = T; R.x = x; R.y = y; R.sd = D ? 'd' : sd; R.flip = flip; R.pd = pd; R.mir = mir; R.al = al; R.fl = fl; R.k = k; R.pose = pose;
@@ -642,9 +647,18 @@ export function drawPawn(B, A, p, t) {
   R.wA = p._wFade == null ? 1 : p._wFade; // thrown spear coming back to the hand (src/ui/aim.js)
   R.grip = grip; R.twoHand = twoHand; R.tgx = tgx; R.tgl = tgl; R.sr = r1; R.sg = g1; R.sb = b1;
   R.osp = osp; R.ox = ox2; R.oy = oy2; R.ol = ol; R.oSc = oSc; R.oSy = Q.oSy; R.oRot = oRot; R.oFlip = oFlip; R.offGrip = offGrip; R.food = food;
+  // on horseback: the legs astride (both sides of the horse), the horse drawn between them and the body — its head over
+  // the rider's lap when it comes toward the camera, behind the rider otherwise
+  let toCam = false;
+  if (ride) {
+    R.LK = LK; R.bl = bl; R.D = D; R.va = viewAng(dir, dv);
+    toCam = Math.sin(R.va) > 0.3;
+    rideLegs(-1);
+    if (!toCam) { artHooks.rideDraw(B0, A, ride); B = viewB(B0, bx0, by0); R.B = B; }
+  }
 
   // behind the body
-  if (swim < 0.5) rigFeet(false);
+  if (swim < 0.5 && !ride) rigFeet(false);
   if (showO && osp && oBehind) rigOff();
   if (showW && wsp && wBehind) rigWeapon();
   if (hand && h1 && h1b) B.main.add(hand, hx1, y + h1dy, hs1, hs1, r1, g1, b1, al, 0, 0, fl, 1, 0, bl + h1l);
@@ -653,7 +667,10 @@ export function drawPawn(B, A, p, t) {
   if (HD) stack(B, HD.hairBack, hx, y, 1, 1, hr, fl, mir, hl, al); else drawHairBack(B, LK, hsd, hflip, hx, y, hl, hr, fl, al);
   if (D) drawTorsoD(B, T, LK, D, armor, x, y, sx, sy, rot, fl, mir, bl, al, swim < 0.5); else drawTorso(B, T, LK, armor, sd, x, y, sx, sy, rot, fl, flip, bl, al, swim < 0.5);
   if (walker) walkerTorso(B, A, OV.armor, D ? D : sd, x, y, sx * LK.sx, sy * LK.sy * LK.hk, rot, fl, D ? mir : flip, bl, al);
-  if (swim < 0.5) rigFeet(true);
+  if (ride) {
+    if (toCam) { artHooks.rideDraw(B0, A, ride); B = viewB(B0, bx0, by0); R.B = B; }
+    rideLegs(1);
+  } else if (swim < 0.5) rigFeet(true);
   if (swim > 0.01 && T.soft) {
     // the water line hides the lower body; a slow ripple ring spreads around the swimmer
     const wa = 0.85 * swim;
@@ -703,20 +720,20 @@ export function drawPawn(B, A, p, t) {
 // Everything the pawn's parts need for a view sd ('s' | 'n' | 'e') and flip, from the replicated state: body / head
 // transform, feet, held items, hands (+ which go behind the body). drawPawn draws it; a 3/4 view (camera rotation)
 // blends the front / back pose with the side pose (blendPose). C: inputs (PIN), Q: outputs (no allocation).
-const PIN = { p: null, t: 0, T: null, LK: null, M: null, O: null, act: null, k: 0, pose: null, sit: null, seat: null, ph0: 0, fl: 0 };
+const PIN = { p: null, t: 0, T: null, LK: null, M: null, O: null, act: null, k: 0, pose: null, sit: null, seat: null, ph0: 0, fl: 0, ride: null };
 const QC = {}, QP = {}, QE = {};
 function rigPose(Q, C, sd, flip) {
-  const { p, t, T, LK, M, O, act, k, sit, seat, ph0, fl } = C;
+  const { p, t, T, LK, M, O, act, k, sit, seat, ph0, fl, ride } = C;
   let pose = C.pose;
   const sk = LK.skin;
-  // ---- locomotion / idle ----
-  const mk = sit ? 0 : p._mk ?? (p.moving ? 1 : 0);
+  // ---- locomotion / idle ---- (on horseback the legs do not walk: the horse does)
+  const mk = sit || ride ? 0 : p._mk ?? (p.moving ? 1 : 0);
   const run = clamp01(((p._gs || 0) - 4.7) / 1.6) * mk;
   const ph = (p.moveT || 0) * PAWN_GAIT;
   const gs = Math.sin(ph), gc = Math.cos(ph), bob = Math.abs(gc);
   let lift = 0, sx = 1, sy = 1, rot = 0, ox = 0, oy = 0, headRot = 0, headDy = 0, al = 1;
   // feet: forward offset (tiles, along the facing) and lift; hands: swing (+ = forward). 1 = right (main) side
-  const skd = sit ? 0 : p._sk ?? mk;
+  const skd = sit || ride ? 0 : p._sk ?? mk;
   const stride = (0.1 + 0.06 * run) * skd, fUp = (0.045 + 0.045 * run) * mk * mk; // the lifted boot lands first
   let f1 = gs * stride, f2 = -gs * stride, f1l = Math.max(0, gc) * fUp, f2l = Math.max(0, -gc) * fUp;
   if (!p.moving && (p._stop || 0) > 0.5 && skd > 0.03) { const sh = Math.sin(Math.PI * skd) * 0.025; if (Math.abs(f1) > Math.abs(f2)) f1l += sh; else f2l += sh; }
@@ -758,9 +775,19 @@ function rigPose(Q, C, sd, flip) {
     feetFront = true;
     rot = idle * 0.008 * Math.sin(t * 0.3 + ph0);
   }
+  // astride a horse (docs/HORSE.md): seated on the saddle, carried by the horse's bob and rock; at a gallop a forward lean
+  // and a little lag of the head
+  if (ride) {
+    const gal = clamp01((ride._spd - 3) / 2.5);
+    sy *= 0.86; sx *= 1.03;
+    lift += ride._seat + ride._lift * 0.9;
+    rot = ride._rot * 0.7 + (sd === 'e' ? flip * (0.05 + 0.1 * gal) : 0) + 0.006 * Math.sin(t * 0.4 + ph0);
+    headDy -= 0.012 + Math.max(0, ride._lift) * 0.12;
+    headRot -= (sd === 'e' ? flip * 0.05 * gal : 0);
+  }
 
   // swimming (juice.js sets _swim from the tile under every avatar): chest-deep, no walk cycle
-  const swim = sit ? 0 : p._swim || 0;
+  const swim = sit || ride ? 0 : p._swim || 0;
   const swimming = swim > 0.5;
   let stroke = 0;
   if (swim > 0.01) {
@@ -904,6 +931,20 @@ function rigPose(Q, C, sd, flip) {
       }
       if (ch) { sx *= 1 + f * 0.05; sy *= 1 - f * 0.04; }
       if (pr && f < 0) { sy *= 1 + f * 0.04; } // coil before the jab
+    } else if (pose === 'lance') {
+      // the lance charge (mounted, docs/HORSE.md): the spear couched under the arm, leveled ahead and driven forward,
+      // held there through the pass, then brought back up
+      const f = k < 0.16 ? -0.25 * easeOut(k / 0.16) : k < 0.32 ? -0.25 + 1.25 * easeIn((k - 0.16) / 0.16) : k < 0.7 ? 1 : 1 - smooth((k - 0.7) / 0.3);
+      const fp = Math.max(0, f);
+      if (sd === 'e') {
+        wRot = flip * (HALF_PI + 0.08 - 0.06 * fp); wSy = 1.12; wHx = flip * (0.02 + fp * 0.3 + Math.min(0, f) * 0.25); wHl = 0.04 + 0.02 * fp;
+        rot += flip * f * 0.13; ox += flip * fp * 0.05; headRot += flip * fp * 0.04;
+      } else if (sd === 's') {
+        wRot = Math.PI - 0.14; wSy = 0.42 + 0.18 * (1 - fp); wHx = 0.1 + fp * 0.03; wHl = 0.2 - fp * 0.06; oy += fp * 0.06; headDy -= fp * 0.01;
+      } else {
+        wRot = 0.08; wSy = 0.5 + 0.1 * (1 - fp); wHx = -0.07; wHl = 0.3 + fp * 0.12; oy -= fp * 0.05;
+      }
+      ghost = fp > 0.9 && k < 0.5 ? (sd === 'e' ? 1 : 2) : 0;
     } else if (pose === 'shoot') {
       // bow: raise, draw (string pulled, arrow nocked), release with a small recoil
       const draw = k < 0.12 ? 0 : k < 0.7 ? (k - 0.12) / 0.58 : 0;
@@ -1128,6 +1169,17 @@ function rigPose(Q, C, sd, flip) {
     else if (sd === 's') { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.31; h1dy = h2dy = 0.13; oy += 0.015; }
     else { h1x = -0.18; h2x = 0.18; h1l = h2l = 0.33; h1b = h2b = true; oy -= 0.015; }
   }
+  // on horseback and not acting: the free hands hold the reins over the horse's neck
+  if (ride && !act) {
+    if (!h1 && !(showW && wsp && !slung)) {
+      h1 = true;
+      if (sd === 'e') { h1x = flip * 0.22; h1l = 0.2; } else if (sd === 's') { h1x = -0.09; h1l = 0.17; h1dy = 0.12; } else { h1x = 0.09; h1l = 0.22; h1b = true; }
+    }
+    if (!h2 && !(showO && osp)) {
+      h2 = true;
+      if (sd === 'e') { h2x = flip * 0.18; h2l = 0.21; h2b = true; } else if (sd === 's') { h2x = 0.09; h2l = 0.17; h2dy = 0.12; } else { h2x = -0.09; h2l = 0.22; h2b = true; }
+    }
+  }
   p._pk = act ? k : 1;
   // raised shield (block / blocking flag)
   if (blockK > 0 && showO && oType === 'shield') {
@@ -1159,7 +1211,7 @@ function rigPose(Q, C, sd, flip) {
     const sa = seat._fk?.seatAt ? seat._fk.seatAt(seat) : null; // (3D at every camera angle, 0° too)
     if (sa) { bx0 = sa[0]; by0 = sa[1]; lift += sa[2]; }
   }
-  const LEG = (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming)
+  const LEG = ride ? 0 : (sit && !seat ? 0 : 0.05) * (1 - swim); // body stands on its boots (not while swimming; on horseback: on the saddle)
   const x = bx0 + ox, y = by0 + oy;
   const bl = lift + LEG;
   const HL = PAWN.headLift * sy * LK.sy * LK.hk;
@@ -1306,6 +1358,40 @@ function rigFeet(front) {
     const sg = sd === 's' ? -1 : 1, fy = sd === 's' ? 0.35 : -0.35;
     B.main.add(ft, x + sg * 0.125, y + R.f1 * fy, 1, 1, fr, fg, fb, al, 0, 0, fl, 1, 0, R.f1l);
     B.main.add(ft, x - sg * 0.125, y + R.f2 * fy, 1, 1, fr, fg, fb, al, 0, 0, fl, 1, 0, R.f2l);
+  }
+}
+// ---------- astride a horse (docs/HORSE.md) ----------
+// the view's heading on the screen (x right, y toward the camera): 'e' 0, 'se' 45°, 's' 90° … ('w' / 'sw' / 'nw' mirrored)
+const VIEW_ANG = { e: 0, se: Math.PI / 4, s: HALF_PI, sw: 3 * Math.PI / 4, w: Math.PI, nw: -3 * Math.PI / 4, n: -HALF_PI, ne: -Math.PI / 4 };
+function viewAng(dir, dv) { return VIEW_ANG[dv || dir] ?? 0; }
+// the legs astride: from each hip a thigh down along the horse's flank, the boot at its end (in the stirrup) — the chibi
+// rig's sitting legs, turned to the horse's heading. order −1: the legs the horse hides (drawn before it); +1: the rest
+// (the near side, and both sides when seen from the front / back: they hang beside the chest / the rump)
+const RIDE_DEPTH = 0.35; // (a step toward the camera shows this much lower on the screen, as the rig's feet do)
+function rideLegs(order) {
+  const { B, x, y, bl, al, fl, LK, D, mir } = R, va = R.va, th = R.T.thigh;
+  const fx = Math.cos(va), fy = Math.sin(va);
+  for (const side of [1, -1]) {
+    const rx = -fy * side, ry = fx * side; // (this side's outward direction on the ground)
+    // after the horse: the near side, and both sides when it comes toward the camera (beside its chest); before it: the
+    // far side, and both when it goes away (its rump in front of them, the boots peeking out)
+    const after = ry > 0.3 || (ry >= -0.3 && fy > 0), far = ry < -0.3;
+    if (order < 0 ? after : !after) continue;
+    const hx = x + rx * 0.16, hy = y + ry * 0.16 * RIDE_DEPTH, hl = bl + 0.07;
+    const kx = hx + fx * 0.05 + rx * 0.14, ky = hy + (fy * 0.05 + ry * 0.14) * RIDE_DEPTH, kl = hl - 0.3;
+    const shade = far ? 0.72 : ry > 0.3 ? 1 : 0.9;
+    // thigh: the trouser capsule stretched hip → knee (its anchor at the hip end)
+    if (th) {
+      const dxs = kx - hx, dys = (ky - hy) - (kl - hl), L = Math.hypot(dxs, dys), fp = dxs < 0 ? -1 : 1;
+      const rot = fp > 0 ? Math.atan2(dys, dxs) : -Math.atan2(dys, -dxs);
+      B.main.add(th, hx, hy, L / 0.36, 0.95, R.pr * shade, R.pg * shade, R.pb * shade, al, 0, rot, fl, fp, 0, hl);
+    }
+    // the boot at the knee's end, toes along the heading (3/4: the turned boot)
+    const side3 = Math.abs(fx) > 0.5;
+    let ft = side3 ? LK.feet.e : LK.feet.s, ff = fx < 0 ? -1 : 1;
+    if (D && D.foot && D.foot.ready) { ft = D.foot; ff = mir; }
+    if (ft && ft.lu !== undefined) ft.lu = LOOK_CLOCK.f;
+    if (ft) B.main.add(ft, kx + fx * 0.02, ky + 0.004, 1, 1, R.fr * shade, R.fg * shade, R.fb * shade, al, 0, side3 ? ff * 0.12 : 0, fl, side3 || D ? ff : 1, 0, kl - 0.12);
   }
 }
 // a swing curve of a pose seen from sd (fills W_*)

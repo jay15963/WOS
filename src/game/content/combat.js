@@ -30,6 +30,9 @@ export const SPECIES = {
              loot: [['meat', 1, 2, 1], ['leather', 3, 4, 1, 'skin'], ['wool', 2, 4, 1]] },
   pig:     { name: 'Porco', temper: 'passive', hp: 46, dmg: 0, swing: 2, speed: 3.5, r: 0.34, scale: 1, xp: 0.5, minD: 9, stock: true,
              loot: [['meat', 2, 2, 1]] },
+  // the tamed horse (docs/HORSE.md, src/game/horses.js): a farm animal (owned, fed at a feeder, ridden with a saddle)
+  horse:   { name: 'Cavalo', temper: 'passive', hp: 80, dmg: 0, swing: 2, speed: 6.4, r: 0.42, scale: 1.16, xp: 0.9, minD: 0, stock: true, size: 'l',
+             loot: [['meat', 1, 1, 1], ['leather', 4, 5, 1, 'skin']] },
   chicken: { name: 'Galinha', temper: 'passive', hp: 10, dmg: 0, swing: 2, speed: 3.6, r: 0.2, scale: 1, xp: 0.2, minD: 6, stock: true,
              loot: [['meat', 1, 1, 1], ['feather', 2, 4, 1]] },
   // fish in rivers and lakes (src/game/livestock.js fishBrain): caught with a rod (fishing.js) or a long shot / spear
@@ -85,6 +88,10 @@ export const ABILITIES = {
   // (content/weapons.js LOB); mult / flat = damage of the hit, rolled by the shooter, applied by the host.
   long_shot:   { name: 'Tiro Longo', icon: 'long_shot', cost: 20, cd: 3, range: 0, aim: 'ground', lob: 'bow', act: 'shoot', ammo: 'arrow', mult: 1.3, flat: 2,
                  desc: 'Atira para o alto e a flecha cai bem longe, onde você mirar: 130% do dano +2. Quanto mais longe, menos preciso.' },
+  // mounted on a horse (docs/HORSE.md) the spear's long shot becomes the lance charge: the horse keeps going during it and
+  // the damage grows with its speed (content/horses.js THRUST); mounted: only with a horse under the player
+  lance_thrust: { name: 'Estocada', icon: 'lance_thrust', cost: 20, cd: 6, range: 0, act: 'lance', mounted: true,
+                 desc: 'Montado: crava a lança à frente sem parar o cavalo. O dano cresce com a velocidade: 300% +10 a galope, 50% parado.' },
   throw_spear: { name: 'Lançar Lança', icon: 'throw_spear', cost: 25, cd: 10, range: 0, aim: 'ground', lob: 'spear', act: 'throw', mult: 2.4, flat: 6,
                  desc: 'Arremessa a lança onde você mirar: 240% do dano +6. Quanto mais longe, menos preciso. A lança volta para a sua mão.' },
   disengage:   { name: 'Recuar', icon: 'disengage', act: 'disengage', cost: 15, cd: 14, range: 0, offGcd: true,

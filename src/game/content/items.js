@@ -48,7 +48,7 @@ export const ITEMS = {
   bone:        mat('Ossos', '🦴', 'Ossos limpos recolhidos de uma ossada. Restos de um ser que já viveu por aqui.'),
   herb:        { name: 'Erva medicinal', emoji: '🌿', stack: 20, cat: 'material', desc: 'Folhas e frutinhas verdes do arbusto de ervas. Usada pela habilidade Ervas medicinais para curar ferimentos.' },
   // livestock (docs/LIVESTOCK.md): animal feed and animal products
-  wheat:       mat('Trigo', '🌾', 'Espigas de trigo. Alimenta vacas e ovelhas no alimentador; vira pão na fornalha.'),
+  wheat:       mat('Trigo', '🌾', 'Espigas de trigo. Alimenta vacas, ovelhas e cavalos no alimentador; vira pão na fornalha. Dado à mão, doma um cavalo selvagem.'),
   wool:        mat('Lã', '🧶', 'Lã de ovelha. Ainda sem uso.'),
   feather:     mat('Pena', '🪶', 'Pena de galinha. Ainda sem uso.'),
 
@@ -129,6 +129,8 @@ Object.assign(ITEMS, {
   club_iron:     { name: 'Maça de ferro', emoji: '🔨', stack: 1, cat: 'weapon', slot: 'main', tier: 3, mat: 'iron', weapon: { type: 'club' }, desc: 'Maça pesada de ferro. Atordoa.' },
   bow_wood:      { name: 'Arco simples', emoji: '🏹', stack: 1, cat: 'weapon', slot: 'main', tier: 1, mat: 'wood', weapon: { type: 'bow', twoHanded: true }, desc: 'Ataque à distância. Gasta flechas. Ocupa as duas mãos.' },
   // fishing (docs/LIVESTOCK.md): used from the backpack like the tools; held in the hand while fishing
+  // the saddle (docs/HORSE.md): put on a tamed horse ("Selar") to ride it
+  saddle:        { name: 'Sela', emoji: '🐎', stack: 1, cat: 'tool', tier: 1, desc: 'Com ela na mochila, perto do seu cavalo domado: "Selar". Selado, o cavalo pode ser montado ("Montar").' },
   rod_wood:      { name: 'Vara de pescar', emoji: '🎣', stack: 1, cat: 'tool', slot: 'main', tier: 0, mat: 'wood', weapon: { type: 'rod' }, tool: { fish: 1 },
                    desc: 'Perto da água, "Pescar" (E / Usar) lança a linha. Quando a boia afundar, puxe na hora (E / Usar)! Dá mais peixe que flechas e lanças.' },
   bow_composite: { name: 'Arco composto', emoji: '🏹', stack: 1, cat: 'weapon', slot: 'main', tier: 4, mat: 'composite', weapon: { type: 'bow', twoHanded: true }, desc: 'Arco potente de madeira, aço e couro. Ocupa as duas mãos.' },

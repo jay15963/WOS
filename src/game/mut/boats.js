@@ -25,6 +25,7 @@ defineIntent('boat.board', {
     if (!e || e.dead) return 'Você está morto';
     if (b.seats.includes(pid)) return;
     if (B.boatOf(pid)) return 'Você já está em outro barco';
+    if (game.horses?.rides.get(pid)) return 'Desça do cavalo para embarcar'; // (docs/HORSE.md)
     if (hullNear(b.x, b.y, b.h, e.x, e.y)[2] > BOAT.reach + 0.8) return 'Chegue mais perto do barco';
     if (B.players(b) >= BOAT.players || B.used(b) >= BOAT.room) return `O barco está cheio (${BOAT.room} lugares)`;
     // the animals this player leads on a rope come along

@@ -1,6 +1,6 @@
 // Core game: owns world, entities, camera, environment; runs update + builds render batches.
 
-import { drawPawn, drawAnimal, drawStatic, drawDecor, animEnv } from '../art/compose.js';
+import { drawPawn, drawAnimal, drawStatic, drawDecor, animEnv, artHooks } from '../art/compose.js';
 import { moveCircle, facingFrom, collides } from './physics.js';
 import { clamp } from '../engine/noise.js';
 import { drawProxy } from './artcompat.js';
@@ -16,7 +16,8 @@ import { viewFacing8 } from '../art/facing.js'; // camera rotation: creatures in
 import { slopeSpeed, reliefShade } from './terrain.js'; // terrain height (docs/TERRAIN-HEIGHT.md)
 import { groundOf } from '../world/height.js'; // the ground under a body (a tunnel's floor inside one)
 import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (docs/LIVESTOCK.md)
-import { drawFauna } from '../art/faunaDraw.js'; // wild animals of the biomes (docs/FAUNA.md)
+import { drawFauna, ridePose, rideDraw } from '../art/faunaDraw.js'; // wild animals of the biomes (docs/FAUNA.md)
+artHooks.ridePose = ridePose; artHooks.rideDraw = rideDraw; // a ridden horse is drawn by its rider's pawn (docs/HORSE.md)
 
 const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
 // interiors (game.indoors from src/game/roofs.js): under a roof the camera eases to a fixed, closer zoom (a reduced
@@ -164,7 +165,8 @@ export class Game {
     const spdK = this.world.hasHeight ? slopeSpeed(this, p, mx, my) : 1; // terrain height: slower uphill
     if (mx || my) {
       const x0 = p.x, y0 = p.y, px0 = x0, py0 = y0;
-      moveCircle(this.world, p, mx * spd * spdK * dt, my * spd * spdK * dt);
+      if (p.mount && this.horses) this.horses.move(p, mx * spd * spdK * dt, my * spd * spdK * dt); // on horseback: a big body that keeps out of deep water, doors, stairs, tunnels (horses.js)
+      else moveCircle(this.world, p, mx * spd * spdK * dt, my * spd * spdK * dt);
       // never stuck anywhere: ~2 s of pushing without moving while no step is free in any of 8 directions → the nearest
       // free spot (on the ground when up high); levels.move already lets a body slide out of what it overlaps
       if ((mx || my) && Math.hypot(p.x - px0, p.y - py0) < 0.002 && !p.rooted && !(p.stunT > 0)) p._stuckT = (p._stuckT || 0) + dt; else p._stuckT = 0;
@@ -294,7 +296,7 @@ export class Game {
         if (o.x > mx0 && o.x < mx1 && o.y > my0 && o.y < my1) list.push(o);
       }
     });
-    for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId)) list.push(e); } // a body on the ground replaces the dead (corpses.js)
+    for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId) && !e._riddenBy) list.push(e); } // a body on the ground replaces the dead (corpses.js); a ridden horse is drawn with its rider (horses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
     // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up
@@ -372,7 +374,7 @@ export class Game {
         // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
         // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters
         // (a ballista operator: 8 views at 0° too — it turns with the aim, game/ballista.js _opA)
-        const f0 = o.facing, h0 = o.headFacing, v8 = o.isEntity && f0 && (rot || o._opA != null);
+        const f0 = o.facing, h0 = o.headFacing, v8 = o.isEntity && f0 && (rot || o._opA != null || o._rideD); // (a rider: one view for it and its horse, 8 views at 0° too)
         if (v8) { o.facing = viewFacing8(o, t, rot); if (h0) o.headFacing = viewFacing(h0, rc, rs); }
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);
