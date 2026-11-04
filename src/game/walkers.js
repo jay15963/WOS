@@ -38,7 +38,7 @@ import { BUILDINGS } from './data.js';
 import { enclosedRoom } from './roofs.js';
 import { steer, resetNav } from './nav.js';
 import { go, aggro, aggroRadius } from './ai.js';
-import { CYCLE } from './seasons.js';
+import { CYCLE, hardWinterAt } from './seasons.js';
 import { giantsTick } from './giants.js'; // ice giants: rarer, with the walkers on winter nights
 
 let groupSeq = 0;
@@ -318,7 +318,7 @@ function spawnWalker(game, x, y, group, home) {
 }
 
 function spawnGroup(game) {
-  const w = game.world, L = allPlayers(game).filter((q) => !q.dead);
+  const w = game.world, L = allPlayers(game).filter((q) => !q.dead && hardWinterAt(game, q.x, q.y)); // (players in a winter now: seasons by latitude)
   if (!L.length) return false;
   const p = L[Math.floor(Math.random() * L.length)];
   let near = 0;
@@ -327,7 +327,7 @@ function spawnGroup(game) {
   if (near >= WN.near) return false;
   const ok = (x, y) => {
     const tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, 0.26) && (!w.waterAt(tx, ty) || w.frozen) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
+    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, 0.26) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
   };
   for (let k = 0; k < 16; k++) {
     const a = Math.random() * Math.PI * 2, r = 24 + Math.random() * 10;
@@ -353,18 +353,21 @@ export function spawnWalkerAt(game, x, y) {
   return spawnWalker(game, x, y, group, { x, y });
 }
 
-// host, once a second (mobsSystem): spawn on winter nights, crumble at sunrise / when the winter ends
+// host, once a second (mobsSystem): spawn on winter nights, crumble at sunrise / when the winter ends. Seasons by
+// latitude: the winter is the one where each player stands (polar: every night; tropical / warm: never) and a walker
+// crumbles where the winter is over (it walked out of it, or the season turned there).
 export function walkersTick(game, night) {
-  const on = night && game.season?.id === 'winter';
+  const on = night && allPlayers(game).some((q) => !q.dead && hardWinterAt(game, q.x, q.y));
+  // sunrise / out of the winter: they fall apart one after another over a few seconds
+  let any = false;
+  for (const e of game.entities) {
+    if (e.faction !== 'walker' || e.dead) continue;
+    if (night && hardWinterAt(game, e.x, e.y)) { e.crumbleAt = null; continue; }
+    any = true;
+    if (e.crumbleAt == null) e.crumbleAt = game.worldTime + Math.random() * 6;
+    else if (game.worldTime >= e.crumbleAt) killMob(game, e, null);
+  }
   if (!on) {
-    // sunrise: they fall apart one after another over a few seconds
-    let any = false;
-    for (const e of game.entities) {
-      if (e.faction !== 'walker' || e.dead) continue;
-      any = true;
-      if (e.crumbleAt == null) e.crumbleAt = game.worldTime + Math.random() * 6;
-      else if (game.worldTime >= e.crumbleAt) killMob(game, e, null);
-    }
     // ...and the walls they cracked settle (what they broke stays broken)
     if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0) game.net.emit('struct.dmg', { id: o.id, d: 0 });
     giantsTick(game, false);

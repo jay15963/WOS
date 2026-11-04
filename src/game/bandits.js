@@ -114,11 +114,25 @@ function populate(game, camp) {
 export function populateCamps(game) {
   const w = game.world;
   for (const camp of game.camps || []) {
-    camp.level = levelForDistance(Math.hypot(camp.x - w.spawn.x, camp.y - w.spawn.y), 1);
+    camp.level = levelForDistance(Math.hypot(w.dx(camp.x, w.spawn.x), camp.y - w.spawn.y), 1);
     populate(game, camp);
   }
+  game._campsUp = true;
   return game.camps;
 }
+// the planet (mut/camps.js): a camp built when its chunk loads gets its raiders (host); they go when it unloads
+campHooks.built = (game, camp) => {
+  if (!game.net.auth || !game._campsUp) return;
+  const w = game.world;
+  camp.level = levelForDistance(Math.hypot(w.dx(camp.x, w.spawn.x), camp.y - w.spawn.y), 1);
+  populate(game, camp);
+};
+campHooks.gone = (game, camp) => { // sync-ok: a host hook (its creatures leave with the camp's chunk)
+  if (!game.net.auth) return;
+  const E = game.entities;
+  for (const m of camp.members) { const i = E.indexOf(m); if (i >= 0) E.splice(i, 1); } // host-only creature list
+  camp.members.length = 0;
+};
 
 // ---------- loot ----------
 // authority: loot rows collected in `out`, emitted by the caller as one loot.add

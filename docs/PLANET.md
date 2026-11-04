@@ -280,11 +280,26 @@ floresta nebular (trópicos úmidos); T < −13 manto de gelo; −13…−6 tund
 (costas oeste 28–44°, inverno chuvoso) / estepe / floresta; ≥ 20 desertos / savana / floresta seca / floresta
 tropical. Terras áridas altas com planalto → mesas e cânions. Planícies baixas planas e úmidas → pântano / brejo.
 
-### Estações (para a fase de conteúdo)
+### Estações (no jogo: docs/PLAN-V2.md "O planeta como o jogo", `src/game/seasons.js`)
 
 `seasonZoneOf(tMédia, amplitude)` → 0 tropical (sem inverno) · 1 quente (inverno ameno, sem neve) · 2 temperado
-(inverno como hoje) · 3 subpolar (inverno longo todo ano) · 4 polar (inverno eterno, walkers toda noite).
-`climateAt(planet, x, y)` → `{ tMean, tAmp, precip }` de qualquer tile; `latitudeAt(y)` em graus (só exibição).
+(inverno como hoje) · 3 subpolar (inverno longo todo ano) · 4 polar (inverno eterno, walkers toda noite). Pelo mês mais
+quente / mais frio: polar < 2 °C no mais quente; subpolar < −12 °C no mais frio ou < 10 °C no mais quente; temperado
+< **6** °C no mais frio; quente < **16** °C; tropical o resto (os limites eram 1 / 15 °C: só ~1 % da terra ficava
+temperada; agora ~6–12 %).
+`climateAt(planet, x, y)` → `{ tMean, tAmp, precip }` de qualquer tile; `latitudeAt(y)` em graus (só exibição). O jogo
+usa `source.climateAt(x, y, h)` (`planetSource.js`: com a correção de altitude para a altura `h` em andares; `null` = o
+chão macro) e a camada `zone` do mundo (por tile, feita no adaptador do chunk: o clima macro por bloco de 4 × 4 tiles e o
+gradiente de 6,5 °C/km pela altura de cada tile; bit 8 = abissal).
+
+### Terra quente e seca: as faixas do Nilo
+
+Em terra árida (deserto de dunas / rochoso, badlands, deserto frio, e estepe / savana / mata mediterrânea / várzea com
+menos de 650 mm de chuva, T > 4 °C) o chunk põe uma faixa de **Várzea** (`FLOODPLAIN`, chão fértil, `fertile` = 1, viço
+alto) com borda nítida: ao longo de todo rio e córrego (largura 2,5 tiles num córrego, `3 + meia-largura × (1 + 3 ×
+planura do vale)` num rio, + um ruído), em volta de lagos e lagoas (oásis: 4,5–7,5 tiles da água, distância exata dentro
+da margem do chunk) e nos deltas secos. Na faixa: tamareiras (`tree_palm`) quando T > 14 °C e papiro junto da água. O
+jogo só deixa plantar nessas faixas em terra quente e seca (`mut/crops.js`).
 
 ---
 

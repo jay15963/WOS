@@ -19,6 +19,7 @@ import { stepGait } from '../game/anim.js';
 import { serializeWorld, applyWorld } from './snapshot.js';
 import { EntityServer, EntityClient, ClockSync } from './entities.js';
 import { DigestHost, DigestGuest } from './digest.js';
+import { Interest } from './interest.js';
 import { releaseStations } from '../game/mut/structures.js';
 import { clearAtlasCache } from '../engine/atlasCache.js';
 import { cleanLook, packLook, loadLook } from '../game/look.js';
@@ -343,6 +344,7 @@ export class Session {
     if (this.role === 'host') {
       this.ents = new EntityServer(game, this);
       this.digest = new DigestHost(game, this);
+      this.interest = new Interest(game, this); // (world diffs by place: net/interest.js)
       this._rebuildAll();
       return;
     }
@@ -369,7 +371,8 @@ export class Session {
     if (!resync) net.synced = false;
     this.snapIn = null;
     this._setState('syncing');
-    this.sendHost({ t: 'ready', resync: resync ? 1 : 0 });
+    const p = this.game.player; // (where this guest is: the host keeps its snapshot to the world near it — interest)
+    this.sendHost({ t: 'ready', resync: resync ? 1 : 0, x: +p.x.toFixed(2), y: +p.y.toFixed(2) });
   }
 
   // ---------------- transport ----------------
@@ -407,8 +410,14 @@ export class Session {
       if (pl.key.startsWith('manual:')) this.manuals.get(pl.key)?.send(pl.key, s); else this.link?.send(pl.key, s);
     }
   }
-  // net.flush(): one ordered op batch per frame to every synced guest
-  broadcastOps(msg) { if (this.role === 'host') this._broadcastSynced(msg); }
+  // net.flush(): one ordered op batch per frame to every synced guest — each its own on a planet (interest: the ops far
+  // from a guest become skip counts, net/interest.js)
+  broadcastOps(msg) {
+    if (this.role !== 'host') return;
+    const I = this.interest;
+    if (!I || !I.on) { delete msg.c; this._broadcastSynced(msg); return; }
+    for (const pl of this.players.values()) if (pl.key && pl.synced) this._sendTo(pl.key, I.batchFor(pl, msg));
+  }
   syncedGuests() { const out = []; for (const pl of this.players.values()) if (pl.synced && pl.key) out.push(pl); return out; }
 
   _close(key) {
@@ -467,6 +476,7 @@ export class Session {
       case 'reject': return this._onReject(m);
       case 'ready': return this._onReady(key, m);
       case 'snap': if (fromHost) this._onSnap(m); return;
+      case 'cd': if (fromHost) this._onChunks(m); return;
       case 'st': {
         const pid = this.keyToPid.get(key);
         if (pid && this.role === 'host') this._applyState(pid, m.s, num(m.ts, 0, 1e9, 0));
@@ -642,7 +652,13 @@ export class Session {
     if (!pl) return;
     const net = this.game.net;
     net.flush(); // ops already applied go out first (seq ≤ snapshot seq: the guest skips them)
-    const json = JSON.stringify(serializeWorld(this.game));
+    // a planet: the local rows near the guest only (where it says it is); the chunks of the others start stale for it
+    const I = this.interest, x = num(m.x, -1e9, 1e9, NaN), y = num(m.y, -1e9, 1e9, NaN);
+    if (pl.av && Number.isFinite(x) && Number.isFinite(y)) { pl.av.x = this.game.world.wrapPos(x); pl.av.y = y; }
+    const skipped = new Set();
+    const snap = I?.on && pl.av ? serializeWorld(this.game, { keep: I.keepNear(pl.av.x, pl.av.y), skipped }) : serializeWorld(this.game);
+    I?.reset(pl, skipped);
+    const json = JSON.stringify(snap);
     const n = Math.max(1, Math.ceil(json.length / CHUNK));
     for (let i = 0; i < n; i++) this._sendTo(key, { t: 'snap', i, n, d: json.slice(i * CHUNK, (i + 1) * CHUNK) });
     pl.synced = true;
@@ -672,6 +688,16 @@ export class Session {
     netlog.ok('sync', `Mundo sincronizado (seq ${net.seq}, ${data.structs?.length || 0} construções, ${data.loot?.length || 0} itens no chão)`);
     this._setState('connected');
     this.emit('synced', { seq: net.seq });
+  }
+
+  // guest: the world of chunks it comes near again (interest, net/interest.js): applied scoped to them, in op order
+  _onChunks(m) {
+    const g = this.game, net = g?.net;
+    if (!net || !net.synced || !Array.isArray(m.c) || !m.d) return;
+    if ((m.s | 0) !== net.seq) { netlog.warn('sync', `Pedaços fora de ordem (seq ${m.s} ≠ ${net.seq})`); return; }
+    const scope = new Set(m.c.filter((c) => Number.isInteger(c) && c >= 0 && c < 32768));
+    applyWorld(g, m.d, 'chunk', scope);
+    net.stats.chunkDiffs = (net.stats.chunkDiffs || 0) + 1;
   }
 
   // guest: ask the host for a fresh snapshot (rate-limited)
@@ -865,6 +891,7 @@ export class Session {
       else this._broadcast({ t: 'ping', ts });
     }
     this.ents?.tick(dt);
+    if (this.role === 'host' && this.interest?.on && this.players.size) { game.net.flush(); this.interest.update(); } // (the stale chunks a guest came near: chunk diffs right after the ops)
     if (this.role === 'host') this.digest?.tick(dt);
     this._interpolate(dt, now);
   }

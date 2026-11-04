@@ -611,6 +611,12 @@ export function generateChunk(p, cx, cy, opts = {}) {
     steep[i] = Math.max(c00, c10, c01, c11) - Math.min(c00, c10, c01, c11);
   }
   // ---------- 8. biome, ground, rock ----------
+  // the Nile rule (owner: in hot / dry lands crops only grow on the fertile soil the water brings): distance to inland
+  // still water (lakes, ponds: the oases), exact within the margin (capped); the rivers use their own exact distance
+  const dLake = new Float32Array(NW);
+  for (let i = 0; i < NW; i++) dLake[i] = water[i] && (wkind[i] === 2 || wkind[i] === 4) ? 0 : 99;
+  chamfer(dLake, WW, WW, 12);
+  const oasis = new Uint8Array(NW); // 1 = the green fertile strip of a river / lake crossing arid land
   const biomeW = new Uint8Array(NW), groundW = new Uint8Array(NW), rockW = new Uint8Array(NW), rockTW = new Uint8Array(NW);
   const Ttile = new Float32Array(NW);
   for (let wy = 1; wy < WW - 1; wy++) for (let wx = 1; wx < WW - 1; wx++) {
@@ -650,6 +656,16 @@ export function generateChunk(p, cx, cy, opts = {}) {
     // floodplains (oases in the deserts) along the bigger rivers
     if (rK[i] === RK_RIVER && rD[i] - rHW[i] < 3 + rHW[i] * 2.5 * rFlat[i] && rHW[i] > 1.2 && rCan[i] < 0.25 && T > 2 && b !== BIOME.BEACH && b !== BIOME.MANGROVE && b !== BIOME.SWAMP && hS[i] - rL[i] < 1.2) {
       if (b === BIOME.DESERT_DUNES || b === BIOME.DESERT_ROCKY || b === BIOME.STEPPE || b === BIOME.SAVANNA || b === BIOME.COLD_DESERT || b === BIOME.MEDITERRANEAN || fbm(x, y, sd + 57, 64, 2) > 0.1) b = BIOME.FLOODPLAIN;
+    }
+    // hot / dry land (deserts, badlands, dry steppe / savanna / scrub): a sharp green strip along every river and creek
+    // (a few tiles for a creek, widening with the river and its flat valley: the Nile), around lakes and ponds (oases)
+    // and over arid deltas — grass on fertile soil, the only place crops grow there (game: mut/crops.js)
+    const arid = T > 4 && (b === BIOME.DESERT_DUNES || b === BIOME.DESERT_ROCKY || b === BIOME.BADLANDS || b === BIOME.COLD_DESERT
+      || ((b === BIOME.STEPPE || b === BIOME.SAVANNA || b === BIOME.MEDITERRANEAN || b === BIOME.FLOODPLAIN) && P < 650));
+    if (arid && b !== BIOME.SALT_FLAT && steep[i] < 0.7) {
+      const nile = (rK[i] === RK_RIVER || rK[i] === RK_CREEK || rK[i] === RK_DELTA) && rCan[i] < 0.25 && hS[i] - rL[i] < 1.5
+        && rD[i] - rHW[i] < (rK[i] === RK_CREEK ? 2.5 : 3 + rHW[i] * (1 + 3 * rFlat[i])) + 1.2 * fbm(x, y, sd + 96, 24, 2);
+      if (nile || dLake[i] < 4.5 + 3 * fbm(x, y, sd + 97, 32, 2) || deltaLand[i]) { b = BIOME.FLOODPLAIN; oasis[i] = 1; }
     }
     biomeW[i] = b;
     // ground
@@ -767,9 +783,9 @@ export function generateChunk(p, cx, cy, opts = {}) {
     L.water[t] = wcls[i]; L.biome[t] = biomeW[i]; L.ground[t] = groundW[i]; L.rock[t] = rockW[i]; L.rockType[t] = rockTW[i];
     L.flowX[t] = Math.round(flowX[i] * 1024) / 1024; L.flowY[t] = Math.round(flowY[i] * 1024) / 1024;
     L.wlevel[t] = water[i] ? Math.round(wlevel[i] * 1024) / 1024 : 0;
-    if (!water[i] && !rockW[i] && dRiv[i] <= 5.01) L.fertile[t] = 1;
+    if (!water[i] && !rockW[i] && (dRiv[i] <= 5.01 || oasis[i])) L.fertile[t] = 1;
     const bm = BIOME_LIST[biomeW[i]];
-    L.lush[t] = water[i] || rockW[i] ? 0 : clamp(Math.round(((bm.gr ?? 0.4) * 0.8 + clamp(Pt[i] / 2000, 0, 0.3) + 0.25 * fbm(gx, gy, sd + 61, 16, 2)) * 255), 0, 255);
+    L.lush[t] = water[i] || rockW[i] ? 0 : oasis[i] ? 230 : clamp(Math.round(((bm.gr ?? 0.4) * 0.8 + clamp(Pt[i] / 2000, 0, 0.3) + 0.25 * fbm(gx, gy, sd + 61, 16, 2)) * 255), 0, 255);
     if (rockW[i]) {
       const dep = dRockIn[i], rt = rockTW[i];
       const v1 = 1 - Math.abs(gnoise(gx / 7, gy / 7, sd + 62, 0));
@@ -794,6 +810,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const grove = fbm(x, y, sd + 70, 128, 3);
     const open = biomeW[i] === BIOME.SAVANNA || biomeW[i] === BIOME.STEPPE || biomeW[i] === BIOME.MEDITERRANEAN;
     let pr = open ? bm.td * clamp(0.1 + grove * 4.5 + 0.35 * fbm(x, y, sd + 69, 32, 2), 0, 3.2) : bm.td * clamp(0.55 + grove * 1.4, 0.05, 1.6);
+    if (oasis[i]) pr = 0.05 * clamp(0.6 + grove * 2, 0.2, 2); // (the strip: date palms)
     if (rK[i] && rD[i] - rHW[i] < 1.5) pr *= 0.3;
     if (biomeW[i] === BIOME.MANGROVE) pr = bm.td;
     return pr;
@@ -836,7 +853,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
         if (tR[j] < tP[j] && tR[j] < tR[i]) { ok = false; break; }
       }
       if (ok) {
-        const kind = pickWeighted(bm.t, hash01(gx, gy, sd + 76)) || 'tree_oak';
+        const kind = oasis[i] && Ttile[i] > 14 ? 'tree_palm' : pickWeighted(bm.t, hash01(gx, gy, sd + 76)) || 'tree_oak';
         let v = Math.floor(hash01(gx, gy, sd + 77) * 16);
         if (kind === 'tree_oak') v += (b === BIOME.TEMPERATE_FOREST && fbm(gx, gy, sd + 78, 64, 2) > 0.3 ? 1 : (rK[i] && rD[i] < rHW[i] + 4) ? 2 : 0) * 16;
         if (kind === 'tree_pine') v += (b === BIOME.MEDITERRANEAN || b === BIOME.ALPINE || b === BIOME.BADLANDS ? 2 : fbm(gx, gy, sd + 79, 64, 2) > 0.2 ? 1 : 0) * 16;
@@ -849,7 +866,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
     const bare = g === PG.SNOW || g === PG.ICE || g === PG.SALT || g === PG.STONE; // (nothing grows there)
     const bd = bare ? 0 : bm.bd || 0;
     if (bd && h1 < bd * (0.6 + 0.8 * (fbm(gx, gy, sd + 80, 64, 2) + 0.5))) {
-      const kind = pickWeighted(bm.b, h2);
+      const kind = oasis[i] && Ttile[i] > 14 && (rD[i] - rHW[i] < 2.5 || dLake[i] < 2.5) ? 'papyrus' : pickWeighted(bm.b, h2);
       if (kind && !(g === PG.ASH && kind !== 'shrub_desert' && kind !== 'dead_bush')) { objects.push({ id: nid(), type: kind, v: Math.floor(h3 * 1000), x: x + 0.5 + jx * 0.7, y: y + 0.6, s: 0.8 + h2 * 0.35, f }); continue; }
     }
     // boulders near rock and on rocky ground (lichen-crusted in the cold and up high)

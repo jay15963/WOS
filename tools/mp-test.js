@@ -64,13 +64,21 @@ def('S1', {
   const prox = gm.filter((e) => e.proxy);
   const badRef = prox.filter((e) => !byNid.has(e.nid) || byNid.get(e.nid).species !== e.species);
   t.check(prox.length && !badRef.length, 'each proxy matches a host creature (nid + species)', badRef.length ? `${badRef.length} mismatched: ${badRef.slice(0, 4).map((e) => e.nid + ':' + e.species).join(' ')}` : `${prox.length} proxies`);
-  // deterministic camps
-  const camps = (f) => (f.game.camps || []).map((c) => (c.objects || []).map((o) => String(o.id)));
+  // deterministic camps (a planet: each peer builds the camps of the chunks it has loaded — compare the ones both have;
+  // none near the spawn on both: the guest walks to the host's nearest camp)
+  const both = (c) => c.chunk == null || (H.game.world.isLoaded(c.chunk) && G.game.world.isLoaded(c.chunk));
+  if (!(H.game.camps || []).some(both)) {
+    const hw = H.game.world, s0 = hw.spawn;
+    if (!H.game.camps.length) for (let r = 1; r <= 6 && !H.game.camps.length; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) hw.ensure(hw.chunkIndex(s0.x + dx * 64, s0.y + dy * 64));
+    const k = H.game.camps.slice().sort((a, b) => Math.hypot(hw.dx(a.x, s0.x), a.y - s0.y) - Math.hypot(hw.dx(b.x, s0.x), b.y - s0.y))[0];
+    if (k) { G.game.world.ensure(k.chunk); A.teleport(G, k.x + 8, k.y + 8); await t.waitFor(() => G.game.camps.some((q) => q.id === k.id), 6000, 'the guest has the camp near it'); }
+  }
+  const camps = (f) => (f.game.camps || []).filter(both).map((c) => [c.id, ...(c.objects || []).map((o) => String(o.id))]).sort((a, b) => (a[0] < b[0] ? -1 : 1));
   const ch = camps(H), cg = camps(G);
-  t.check(ch.length && JSON.stringify(ch) === JSON.stringify(cg), 'camp object ids identical', `host ${short(ch, 140)} · guest ${short(cg, 140)}`);
-  t.check(ch.flat().every((id) => /^camp\d+:\d+$/.test(id)), "camp ids are deterministic ('camp<i>:<k>')", short(ch.flat().slice(0, 6)));
-  const props = (f) => (f.game.props || []).map((o) => String(o.id)).join(',');
-  t.check(props(H) === props(G), 'crate (prop) ids identical', `${(H.game.props || []).length} props`);
+  t.check(ch.length && JSON.stringify(ch) === JSON.stringify(cg), 'camp object ids identical (camps loaded on both)', `host ${short(ch, 140)} · guest ${short(cg, 140)}`);
+  t.check(ch.flat().filter((id) => id.includes(':')).every((id) => /^camp\d+:\d+$/.test(id)), "camp ids are deterministic ('camp<i>:<k>')", short(ch.flat().slice(0, 6)));
+  const props = (f) => (f.game.camps || []).filter(both).flatMap((c) => c.crates.map((o) => String(o.id))).sort().join(',');
+  t.check(props(H) === props(G), 'crate (prop) ids identical', `${props(H).split(',').length} crates`);
   const dwt = Math.abs(H.game.worldTime - G.game.worldTime);
   t.check(dwt <= 2, 'worldTime within 2 s', `host ${f2(H.game.worldTime)} guest ${f2(G.game.worldTime)}`);
   const eh = H.game.env, eg = G.game.env;
@@ -985,6 +993,11 @@ def('S19', {
       tries++;
       m.stunT = 0; m.dazeT = 0; m.fearT = 0; if (m.dots) m.dots.length = 0;
       await t.sleep(CFG.budget + 150);
+      if (!A.proxyOf(G, m)) { // (a planet: the creature may be out of the guest's interest — go to it)
+        G.game.world.ensure(G.game.world.chunkIndex(m.x, m.y));
+        const s0 = A.freeSpot(G, MG, m.x, m.y, { rMin: 1.5, rMax: 4 });
+        if (s0) A.teleport(G, s0[0], s0[1]);
+      }
       const pr = await t.waitFor(() => A.proxyOf(G, m), 3000, 'proxy on the guest');
       const at = A.freeSpot(G, MG, pr.x, pr.y, { rMin: 0.62, rMax: 0.85 });
       if (at) A.teleport(G, at[0], at[1]);
@@ -2268,6 +2281,8 @@ def('S61', {
   t.check(Math.hypot(ch.x - at.x, ch.y - at.y) < 0.6, 'the body lies where the guest died');
   t.check(/^Corpo de /.test(ch.name || ''), 'named "Corpo de <nome>"', ch.name);
   t.check(!gp.inv.used() && !Object.values(gp.equip).some(Boolean), 'the dead guest carries nothing (bag and equipment)');
+  // (items left on the ground by earlier scenarios where it wakes up would fly into its bag: cleared first)
+  { const rp = MG.player.respawnPoint(G.game), ids = H.game.loot.filter((l) => Math.hypot(H.game.world.dx(l.x, rp.x), l.y - rp.y) < 14).map((l) => l.id); if (ids.length) { H.game.net.emit('loot.expire', { ids }); await t.sleep(ONEWAY() + 100); } }
   MG.player.respawnPlayer(G.game);
   await t.sleep(200);
   t.check(!gp.inv.used() && !gp.equip.main, 'respawn with nothing carried');
@@ -2431,7 +2446,7 @@ def('W1', {
   api: 'seasons.js (seasonSystem, game.season, world.frozen / liquidAt), op env.skip, walkers.js spawnWalkerAt / walkersTick (killMob noCorpse), mobs.js ACTIVE / isNight, entity stream species / weapon',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
-  const EH = H.game.env, gp = G.game.player;
+  const EH = H.game.env, gp = G.game.player, hp0 = H.game.player;
   const day0 = EH.dayIndex, hour0 = EH.hour, wt0 = H.game.worldTime;
   t.defer(() => {
     // back to the old clock, and nothing of the night left behind (hunting packs / walkers would hunt later scenarios)
@@ -2442,7 +2457,7 @@ def('W1', {
   H.game.net.emit('env.skip', { hour: 23, day: 5, wt: wt0 + 1, by: H.game.net.pid });
   await t.waitFor(() => G.game.env.dayIndex === 5 && Math.abs(G.game.env.hour - 23) < 0.2, 3000 + CFG.budget, 'the guest clock follows to day 5, 23 h');
   await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 2000, 'winter on both', () => `${H.game.season?.id} / ${G.game.season?.id}`);
-  t.check(H.game.world.frozen && G.game.world.frozen, 'the water is frozen on both');
+  t.check(H.game.world.frozenAt(hp0.x, hp0.y) && G.game.world.frozenAt(gp.x, gp.y), 'the water is frozen on both (each at its own place: seasons by latitude)', `zones ${H.game.world.zoneAt(Math.floor(hp0.x), Math.floor(hp0.y))} / ${G.game.world.zoneAt(Math.floor(gp.x), Math.floor(gp.y))}`);
   const w = G.game.world;
   let deep = null;
   for (let r = 2; r < 90 && !deep; r += 1) for (let a = 0; a < 48 && !deep; a++) {
@@ -2460,7 +2475,10 @@ def('W1', {
   // night: no green animals on the host (they went home; some may still be walking away in view)
   await t.sleep(2500);
   // (fish stay in the water all day; farm animals of the players have no herd: both are out at night on purpose)
-  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner).length;
+  // (the day animals of the dens: the planet's fauna also has creatures out at all hours — birds, crabs, seals)
+  // (a streamed planet: only the active region around the players runs its dens — the creatures there; farther ones sleep)
+  const seen = (m) => [H.game.player, A.authAvatarOn(H, G.pid)].some((q) => q && Math.hypot(H.game.world.dx(m.x, q.x), m.y - q.y) < 40);
+  const green = A.hostMobs(H, (m) => m.temper === 'passive' && !m.leaving && m.species !== 'fish' && !!m.spawner && m.spawner.when === 'day' && !m.spawner.loose && seen(m)).length;
   t.check(green === 0, 'no passive animal out at night', `${green}`);
   // a walker next to the guest
   const s = A.freeSpot(H, MH, gp.x + 6, gp.y, { rMin: 0, rMax: 3, r: 0.3 });
@@ -2597,6 +2615,8 @@ def('IG2', {
   const day0 = EH.dayIndex, hour0 = EH.hour;
   siegeCleanup(t, H, MH, day0, hour0);
   A.keepAlive(t, G);
+  // open ground with nothing built around (a planet's start can be wooded; earlier scenarios built by the spawn)
+  await A.openField(t, H, MH, G, MG, 12, 8, (x, y) => !H.game.build.structures.some((o) => Math.hypot(H.game.world.dx(o.tx, x), o.ty - y) < 30));
   const dodge0 = gp.dodge;
   gp.dodge = 0; t.defer(() => { gp.dodge = dodge0; });
   const log = hurtLog(t, G);
@@ -2837,9 +2857,10 @@ def('BA3', {
   t.check(minZ > 0.9 && (gp.lv | 0) === 1 && G.game.levels.isSurface(1, ti), 'the guest stays up on the wall while it turns (on a wall-top tile)', `min z ${f2(minZ)}, lv ${gp.lv}, at ${f2(gp.x)},${f2(gp.y)}`);
   t.check(Math.hypot(gp.x - pvx, gp.y - pvy) > 0.6, 'the guest stands clear of it (behind / beside)', `${f2(Math.hypot(gp.x - pvx, gp.y - pvy))} tiles from the post`);
   const max = m.maxHp;
+  const old = new Set([...(G.game.bolts || []), ...(H.game.bolts || [])]); // (bolts of earlier scenarios may still be listed)
   t.check(C.fire(), 'the guest fires');
-  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !b.done || b.d > 0), RT() + 1500, 'the bolt flies on the guest');
-  const bH = await t.waitFor(() => (H.game.bolts || [])[0], RT() + 1500, 'and on the host');
+  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !old.has(b) && (!b.done || b.d > 0)), RT() + 1500, 'the bolt flies on the guest');
+  const bH = await t.waitFor(() => (H.game.bolts || []).find((b) => !old.has(b)), RT() + 1500, 'and on the host');
   t.check(bG.lv === 1 && bH.lv === 1, 'the bolt leaves at story 1 on both', `${bG.lv} / ${bH.lv}`);
   t.check(MH.ballista.boltZ(1, 1) === 1 && MH.ballista.boltZ(1, 30) === 0 && !MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 1) && MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 0), 'high, it passes over the wall under it (low it would stop)');
   await t.waitFor(() => m.hp < max, 4000 + RT(), 'the plunging bolt hits the giant', () => `bolt ${f2(bH.x)},${f2(bH.y)} z ${f2(bH.z)} done ${bH.done} stuck ${bH.stuck}`);
@@ -3374,6 +3395,7 @@ def('J3', {
 });
 
 def('J4', {
+  src: 'classic', // (whole-map scans and the classic mountains: the old 256 × 256 world)
   title: 'J: mining a mountain open removes its natural roof identically on both', timeout: 150000,
   expected: 'Mined tiles keep the mountain roof while rock is within 6 tiles; opening a 14×14 box takes it off in the middle on both peers (world.roof bytes equal, roofAt / isCave equal per tile, the centre is open sky, tiles next to the remaining rock stay caves); a guest mining hit through rock.hit keeps them equal; digest equal',
   api: 'tile.mine → world.mineRock → _naturalRoof (world.roof, lastLost); world.roofAt / isCave; digest tiles part (roof, broof)',
@@ -3452,6 +3474,7 @@ def('J5', {
 });
 
 def('J6', {
+  src: 'classic', // (whole-map scans and the classic mountains: the old 256 × 256 world)
   title: 'J: cave ceilings — drawn over caves nobody local is in, a guest inside sees under it, cave-ins crumble on both', timeout: 150000,
   expected: 'A 20×20 hall dug around a rock pillar is one cave on both, its ceiling drawn on both (roofData A = 255, roofs.hidden true) while both players are outside; the guest walks in: its own ceiling fades out (A → 0, indoors cave) while the host still draws it and hides the guest under it; mining the pillar takes the roof off the middle: both schedule the same crumbling tiles, the hole opens on both (A 0, no cave) while the ring by the walls stays a covered cave on the host; digest equal',
   api: 'game.roofs {caves, caveOf, data A/G, crumble, cracks, hidden}, underCaveCeiling, world.isCave / lastLost, tile.mine (collapseFx cave → caveCrumble)',
@@ -4211,6 +4234,7 @@ def('K3', {
 });
 
 def('K4', {
+  src: 'classic', // (a save of the classic world: its tiles are found on the classic map)
   title: 'K: old save (v4 rows without style / det) loads with default looks', timeout: 120000,
   expected: 'migrateStructRows pads v4 rows (14 fields) and v3 rows (10) to 16 with style "" / det ""; a solo game booted from a crafted v4 save has the structures with the default look (no _k), masks computed; saving again writes the current version with 16-field rows',
   api: 'save.js VERSION (5), migrateStructRows, loadGame / saveGame (solo frame without ?nosave, key wos.save.v2.<seed>, removed afterwards)',
@@ -4238,7 +4262,7 @@ def('K4', {
   let S = null;
   try {
     presetPid('k4' + rand(5));
-    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo`, 'k4solo');
+    S = t.open('solo-oldsave', `seed=${CFG.seed}&pid=k4solo&source=classic`, 'k4solo'); // (a save of the classic world: opened on it)
     await t.waitFor(() => S.game || S.bootError, CFG.bootMs, 'solo boot from the v4 save');
     t.assert(S.game, 'solo frame booted: ' + (S.bootError || ''));
     const MS = await A.mods(S);
@@ -4754,6 +4778,7 @@ async function farmFeeder(t, H, G, MH, MG) {
     return out;
   }, gp.x, gp.y, { rMin: 4, rMax: 18, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
   t.assert(site, 'found an open 8×8 area for a feeder');
+  await A.hostSees(t, H, G); // (a far site: the players were moved next to it)
   const tx = site.x0, ty = site.y0;
   A.ensure(G, { wood: 12 });
   A.place(G, MG, 'feeder', [tx, ty], [tx, ty], 0);
@@ -4936,6 +4961,7 @@ def('P4', {
   const pig = farmAnimal(H, MH, 'pig', cx, cy + 2.4);
   H.game.stock.debug.tick(0.01);
   await t.waitFor(() => pig.tame, 2000, 'a domesticated pig');
+  { const g0 = G.game.player; if (Math.hypot(g0.x - cx, g0.y - cy) > 20) { const q = A.freeSpot(G, MG, cx + 3, cy, { rMin: 0, rMax: 3 }); if (q) A.teleport(G, q[0], q[1]); } } // (the farm may be away from where the guest is)
   const px = await t.waitFor(() => { const q = A.proxyOf(G, pig); return q && q.tame ? q : null; }, ONEWAY() + 2500, 'guest: its proxy (domesticated)');
   const s = A.freeSpot(G, MG, pig.x, pig.y, { rMin: 0.7, rMax: 1.4 });
   A.teleport(G, s[0], s[1]);
@@ -5080,6 +5106,7 @@ const bowAtFar = (site, b) => (b.x - site.far[0] - 0.5) * site.ex + (b.y - site.
 const onFarBank = (f, site, x, y) => Math.hypot(x - site.far[0] - 0.5, y - site.far[1] - 0.5) < Math.hypot(x - site.bank[0] - 0.5, y - site.bank[1] - 0.5) - 1.5 && f.game.world.liquidAt(Math.floor(x), Math.floor(y)) !== 2;
 
 def('B1', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   star: true, title: 'B: guest builds a boat, two players board, the guest rows across a river, both step off on the far bank', timeout: 300000,
   expected: 'The guest places a boat on the first water tile of a river crossing (on land: refused) and builds it with real work from the bank: the blueprint becomes a floating boat (op boat.launch) with the same id and pose on both; the guest boards first (the oars, place 0), the host second; both seated (rooted, no swimming); the guest rows across (its client simulates, intent boat.move → op boat.pos): the boat moves on the host, both draw it close together and see each other seated in it; the guest steps off on the far bank (a spot not walk-linked to the near bank, never deep water); the host takes the oars (next passenger) and steps off too; digest equal',
   api: 'BUILDINGS.boat (build.place → boats.reason; build.hit final → boat.launch), game.boats.board / leave / landingSpot, intents boat.board / boat.leave / boat.move, ops boat.set / boat.pos, b.seats / b._x (drawn), p._boat',
@@ -5156,6 +5183,7 @@ def('B1', {
 });
 
 def('B2', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   title: 'B: one player with 5 tied animals fills the boat (6 places) and crosses; the animals ride along and get off with it; a second player is refused', timeout: 240000,
   expected: 'A boat at a river crossing; the guest leads 5 tied animals (cow, sheep, pig, chicken, sheep). With the host at the oars the guest + 5 do not fit: refused "Não cabe todo mundo" (nobody aboard, nothing left behind). The host gets off; the guest boards: its 5 animals come along (6 places used, on both), each standing in the boat on the host (creatures) and on the guest (proxies); the host is refused (full); the guest rows across: the animals move with the boat; the guest gets off on the far bank and the animals get off next to it (still tied, never in deep water) on both; digest equal',
   api: 'intent boat.board (tied animals: all or refused), b.pets [[nid, pid, place]], mobs.js (riding: no brain), host placeAll / unloadPet, entity stream positions',
@@ -5229,6 +5257,7 @@ def('B2', {
 });
 
 def('B3', {
+  src: 'classic', // (a river crossing wide enough for the boat by the spawn: the classic map; boats on the planet: LZ2)
   title: 'B: the driver gets off mid-river and the passenger takes the oars; far from the bank it is refused; frozen water holds the boat', timeout: 240000,
   expected: 'A boat at a river crossing; the guest boards first (the oars), the host second; the guest rows out into the river; getting off where no bank is in reach is refused ("Longe da margem", when the river is that wide); once a bank is in reach the guest gets off (onto land / shallow water, never deep); the host is promoted to the oars on both and rows on: the boat moves on the guest too; winter: the water freezes on both and the host\'s rowing does not move the boat; the host steps out onto the ice; digest equal',
   api: 'intent boat.leave (landing spot or refused; promote), boat.move refused on ice (fix), world.frozen (seasons.js)',
@@ -5382,6 +5411,9 @@ def('P7', {
   t.assert(spot, 'a shore spot facing open water');
   A.teleport(G, spot[0], spot[1]);
   gp.facing = dir;
+  // (the host near it too: its view must draw the guest — a planet's shore can be a few screens away)
+  const hs = A.freeSpot(H, MH, spot[0] - (dir === 'e' ? 3 : -3), spot[1] + 1.5, { rMin: 0, rMax: 3 });
+  if (hs) A.teleport(H, hs[0], hs[1]);
   await A.hostSees(t, H, G, 4000);
   A.ensure(G, { rod_wood: 1 });
   await t.waitFor(() => g.fishing.near()?.kind === 'fish_cast', 2000, 'the use action says "Pescar"');
@@ -5431,6 +5463,7 @@ def('FA1', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 9); // (a planet's start can be wooded: open ground first)
   const gp = G.game.player, av = () => guestOnHost(H, G);
   let spot = null;
   for (let k = 0; k < 12 && !spot; k++) {
@@ -5481,6 +5514,7 @@ def('FA2', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   A.keepAlive(t, G);
+  await A.openField(t, H, MH, G, MG, 12); // (a planet's start can be wooded: open ground first)
   const gp = G.game.player;
   // an open field: the herd 9 tiles from the guest along a clear line
   let dir = null;
@@ -5527,8 +5561,8 @@ def('FA2', {
 // ST1 Streamed planet (docs/STREAMING.md): a synthetic-planet host, a guest that generates the same chunks locally
 def('ST1', {
   title: 'ST: streamed planet — guest generates the chunks, ops on far chunks, the seam', timeout: 180000,
-  expected: 'Host on ?source=synth: the guest learns the source from the welcome and generates the same terrain locally (same tiles at both spawns); the join snapshot is diffs only (small); the host goes 3000 tiles away and changes a far chunk (a natural object removed, a rock mined): the guest, whose player stays home, loads that chunk on demand and applies the same changes; both players cross the x seam (positions stay canonical, 0 ≤ x < W); digests equal',
-  api: '?source=synth; welcome.src; world.{wrap, source.kind, isLoaded, chunkIndex, idx, rock, objById, streamer}; ops obj.remove / tile.mine; game.streamStats()',
+  expected: 'Host on ?source=synth: the guest learns the source from the welcome and generates the same terrain locally (same tiles at both spawns); the join snapshot is diffs only (small); the host goes 3000 tiles away and changes a far chunk (a natural object removed, a rock mined): interest (net/interest.js) — the guest, whose player stays home, does NOT get those ops (skip counts, the chunk is stale for it, digests equal without it); the guest walks there: the chunk diff brings the same changes; both players cross the x seam (positions stay canonical, 0 ≤ x < W); digests equal',
+  api: '?source=synth; welcome.src; world.{wrap, source.kind, isLoaded, chunkIndex, idx, rock, objById, streamer}; ops obj.remove / tile.mine; session.interest.excluded(pid); net.stats.opsSkipped / chunkDiffs; game.streamStats()',
 }, async (t) => {
   const room = newRoom();
   const H = await bootHost(t, room, { extra: '&source=synth' });
@@ -5563,12 +5597,21 @@ def('ST1', {
     if (!obj) hw.forChunks(x, y, x, y, (c) => { for (const o of c.objects) if (!obj && !o.building && typeof o.id === 'number' && (o.type === 'pebble' || o.type.startsWith('tree_'))) obj = o; });
   }
   t.assert(obj, 'found a natural object in the far region');
+  const skip0 = G.game.net.stats.opsSkipped || 0, oc = hw.chunkIndex(obj.x, obj.y);
   H.game.net.emit('obj.remove', { ids: [obj.id] });
   if (rk) H.game.net.emit('tile.mine', { tx: rk[0], ty: rk[1], drops: [], by: H.game.net.pid, xp: 0 });
-  await t.waitFor(() => gw.isLoaded(gw.chunkIndex(obj.x, obj.y)) && !gw.objById.has(obj.id), ONEWAY() + 3000, 'guest loaded the far chunk on demand and removed the object');
-  if (rk) await t.waitFor(() => gw.rock.get(gw.idx(rk[0], rk[1])) === 0, ONEWAY() + 3000, 'guest mined the same far rock');
+  // interest: the far changes do not travel to the guest (skip counts); the host keeps the chunk stale for it
+  await t.waitFor(() => (G.game.net.stats.opsSkipped || 0) > skip0, ONEWAY() + 2000, 'the guest got skip counts for the far ops');
+  const ex = H.session.interest.excluded(G.pid) || [];
+  t.check(ex.includes(oc), 'the far chunk is stale for the guest (left out of its digest)', `${ex.length} chunks excluded`);
+  t.check(!gw.isLoaded(oc) || gw.objById.has(obj.id), 'the guest did not apply the far change', `loaded ${gw.isLoaded(oc)}`);
+  await t.checkDigest(H, G, 'digest equal without the stale chunks');
+  // the guest goes there: the chunk diff brings the changes
+  A.teleport(G, obj.x + 2.5, obj.y + 0.5);
+  await t.waitFor(() => gw.isLoaded(oc) && !gw.objById.has(obj.id), ONEWAY() + 5000, 'the guest came near: the chunk diff removed the object', () => `diffs ${G.game.net.stats.chunkDiffs || 0} stale ${(H.session.interest.excluded(G.pid) || []).length}`);
+  if (rk) await t.waitFor(() => gw.rock.get(gw.idx(rk[0], rk[1])) === 0, ONEWAY() + 3000, 'guest has the same far rock mined');
   else t.note('no rock in the far region of this seed (mining part skipped)');
-  t.check(gw.crec[gw.chunkIndex(obj.x, obj.y)]?.dirty, 'the changed far chunk is kept (never evicted) on the guest');
+  t.check(!(H.session.interest.excluded(G.pid) || []).includes(oc), 'no longer stale for the guest');
   // the seam: both players step across x = W
   const W = hw.W;
   for (const f of [H, G]) { const p = f.game.player; p.x = W - 0.3; p.y = fy + 0.5; f.game.cam.x = p.x; }
@@ -5874,6 +5917,259 @@ def('TR4', {
   const down2 = await t.tryWait(() => Math.abs(hw.heightAt(m2.x, m2.y) - h1) < 0.45 || Math.hypot(m2.x - gp.x, m2.y - gp.y) < 1.4, 12000);
   t.check(down2, 'a wolf chasing the guest from the top gets down to it', `wolf at ${f2(m2.x)},${f2(m2.y)} h ${f2(hw.heightAt(m2.x, m2.y))} state ${m2.state} hop ${!!m2._hop}`);
   await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// LZ: the planet as the game (seasons by latitude, the abyss, interest) — places found through the planet's macro map
+// macro cells (512 × 256 of 32 tiles) of the frame's planet matching pred(cell, P), nearest to (x, y) first
+function planetCells(f, pred, x, y, n = 1) {
+  const P = f.game.world.source?.planet, K = f.game.world.source?.biomeKeys;
+  if (!P) return [];
+  const out = [], cx = Math.floor(x / 32), cy = Math.floor(y / 32);
+  for (let c = 0; c < P.tMean.length; c++) {
+    if (!pred(c, P, K)) continue;
+    let dx = Math.abs((c % 512) - cx); if (dx > 256) dx = 512 - dx;
+    out.push([dx + Math.abs(Math.floor(c / 512) - cy), c]);
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return out.slice(0, n).map((q) => ({ c: q[1], x: (q[1] % 512) * 32 + 16, y: Math.floor(q[1] / 512) * 32 + 16 }));
+}
+const cellZone = (P, c) => { const w = P.tMean[c] + P.tAmp[c] / 2, k = P.tMean[c] - P.tAmp[c] / 2; return w < 2 ? 4 : k < -12 || w < 10 ? 3 : k < 6 ? 2 : k < 16 ? 1 : 0; };
+// a walkable land spot of zone z within r tiles of (x, y) on frame f (loads the chunks it reads)
+function zoneSpot(f, M, x, y, z, r = 30) {
+  const w = f.game.world;
+  for (let d = 0; d <= r; d += 2) for (let k = 0; k < 16; k++) {
+    const tx = Math.floor(x + Math.cos(k * 0.3927) * d), ty = Math.floor(y + Math.sin(k * 0.3927) * d);
+    w.ensure(w.chunkIndex(tx, ty));
+    if (w.waterAt(tx, ty) || w.isRock(tx, ty) || (z >= 0 && w.zoneAt(tx, ty) !== z)) continue;
+    const s = A.freeSpot(f, M, tx + 0.5, ty + 0.5, { rMin: 0, rMax: 2 });
+    if (s && (z < 0 || w.zoneAt(Math.floor(s[0]), Math.floor(s[1])) === z)) return s;
+  }
+  return null;
+}
+async function moveBoth(t, H, G, s, gs = null) {
+  A.teleport(H, s[0], s[1]);
+  const g = gs || [s[0] + 2, s[1]];
+  A.teleport(G, g[0], g[1]);
+  await t.sleep(600);
+  await A.hostSees(t, H, G);
+}
+
+// LZ1 polar walkers every night on both peers
+def('LZ1', {
+  title: 'LZ: the polar zone — permanent winter on both, walkers on a SUMMER night there (and none at the temperate spawn)', timeout: 200000,
+  expected: 'Both players go to a polar land cell (planet macro: the warmest month < 2 °C); the clock jumps to a summer night of the calendar: game.season is "Inverno polar" (winter, hard, frozen) on both, the water of that zone is ice on both (world.iceZ[4]); the host forces the walkers\' spawn tick: walkers appear near the players (host) and reach the guest as proxies; back at the temperate spawn the same summer night: no walker spawns there (the winter is where each player stands); digest equal',
+  api: 'seasons.js zoneSeason / seasonAt / hardWinterAt, world.zoneAt / iceZ / frozenAt, walkers.js walkersTick (game._walkT), op env.skip',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour, sp = H.game.world.spawn;
+  t.defer(() => {
+    H.game.net.emit('env.skip', { hour: hour0, day: day0, wt: H.game.worldTime + 1, by: H.game.net.pid });
+    for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
+  });
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const cells = planetCells(H, (c, P) => !P.ocean[c] && !P.lakeId[c] && cellZone(P, c) === 4, sp.x, sp.y, 12);
+  t.assert(cells.length, 'the planet has polar land');
+  let spot = null;
+  for (const c of cells) { spot = zoneSpot(H, MH, c.x, c.y, 4, 40); if (spot) break; }
+  t.assert(spot, 'a walkable polar spot');
+  await moveBoth(t, H, G, spot);
+  // a summer night of the calendar (short year: day 2, 23 h)
+  H.game.net.emit('env.skip', { hour: 23, day: 2, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.env.dayIndex === 2 && Math.abs(G.game.env.hour - 23) < 0.3, 3000 + CFG.budget, 'the guest clock follows to the summer night');
+  await t.waitFor(() => H.game.season?.zone === 4 && G.game.season?.zone === 4, 3000, 'both stand in the polar zone', () => `${H.game.season?.zone} / ${G.game.season?.zone}`);
+  t.check(H.game.season.id === 'winter' && G.game.season.id === 'winter' && H.game.season.hard && G.game.season.hard, 'permanent winter on both (a summer day of the calendar)', `${H.game.season.name} / ${G.game.season.name}`);
+  t.check(/polar/i.test(G.game.season.name), 'the guest sees "Inverno polar"', G.game.season.name);
+  t.check(H.game.world.iceZ[4] === 1 && G.game.world.iceZ[4] === 1 && H.game.world.iceZ[2] === 0 && G.game.world.iceZ[2] === 0, 'polar water is ice on both, temperate water is not (summer)', `${[...H.game.world.iceZ]} / ${[...G.game.world.iceZ]}`);
+  // the walkers' spawn tick (forced: one try per call)
+  const near = (f, p) => A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, p.x), m.y - p.y) < 60).length;
+  for (let k = 0; k < 12 && !near(H, H.game.player); k++) { H.game._walkT = 0; MH.walkers.walkersTick(H.game, true); await t.sleep(50); }
+  t.check(near(H, H.game.player) > 0, 'walkers come out on the polar summer night (host)', `${near(H, H.game.player)}`);
+  const w = A.hostMobs(H, (m) => m.faction === 'walker')[0];
+  if (w) { w.calmT = 999; await t.waitFor(() => A.proxyOf(G, w) || (A.teleport(G, w.x + 3, w.y), false), RT() + 4000, 'the guest sees a walker'); }
+  // back at the temperate spawn: the same night brings no walker
+  for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && e.faction === 'walker') { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
+  const s2 = A.freeSpot(H, MH, sp.x, sp.y, { rMin: 0, rMax: 4 });
+  await moveBoth(t, H, G, s2);
+  await t.waitFor(() => H.game.season?.zone === 2 && G.game.season?.zone === 2, 3000, 'both back in the temperate zone');
+  for (let k = 0; k < 8; k++) { H.game._walkT = 0; MH.walkers.walkersTick(H.game, true); }
+  t.check(!A.hostMobs(H, (m) => m.faction === 'walker').length, 'no walker at the temperate spawn on a summer night', `${A.hostMobs(H, (m) => m.faction === 'walker').length}`);
+  G.game.world.ensure(G.game.world.chunkIndex(spot[0], spot[1])); // (the polar spot is far now: its zone layer again)
+  t.check(MG.seasons.hardWinterAt(G.game, spot[0], spot[1]) && !MG.seasons.hardWinterAt(G.game, s2[0], s2[1]), 'the guest computes the same: hard winter at the polar spot, none at the spawn');
+  await t.checkDigest(H, G);
+  env.history.push('LZ1');
+});
+
+// LZ2 the abyss: a boat stops at its edge, swimming there exhausts
+def('LZ2', {
+  title: 'LZ: the abyssal ocean — a boat cannot enter ("Oceano aberto: o barco não aguenta"), swimming there tires and chills', timeout: 200000,
+  expected: 'Both players go to the open sea next to the abyss (planet macro: an abyssal cell next to a deep one); the host launches a boat on deep water a few tiles from the abyss; the guest boards (the oars) and rows toward the abyss for a few seconds: the hull never covers an abyssal tile (on both), the guest is told "Oceano aberto: o barco não aguenta", the boat stays put at the edge; the guest leaves the boat by teleport into the abyss: it is swimming there, gets the warning and its energy drains; digest equal',
+  api: 'world.abyssAt / zone layer bit 8, content/boats.js boatable / hullAbyss, boats.js drive (error), survival.js abyssSwim (p._abyss, energy), op boat.launch / boat.set / boat.pos',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const sp = H.game.world.spawn, hw = H.game.world, gw = G.game.world;
+  A.keepAlive(t, H, { hp: true }); A.keepAlive(t, G, { hp: true });
+  const NB = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const cells = planetCells(H, (c, P) => P.water[c] === 2 && cellZone(P, c) <= 1 && NB.some(([dx, dy]) => { const y = Math.floor(c / 512) + dy; return y >= 0 && y < 256 && P.water[y * 512 + (((c % 512) + dx + 512) % 512)] === 3; }), sp.x, sp.y, 6);
+  t.assert(cells.length, 'the planet has deep sea next to the abyss');
+  // a deep, non-abyssal tile with the abyss 4..9 tiles away, and the heading toward it
+  let site = null;
+  for (const c of cells) {
+    for (let yy = c.y - 40; yy <= c.y + 40 && !site; yy += 2) for (let xx = c.x - 40; xx <= c.x + 40 && !site; xx += 2) {
+      hw.ensure(hw.chunkIndex(xx, yy));
+      if (hw.waterAt(xx, yy) !== 2 || hw.abyssAt(xx, yy)) continue;
+      for (let k = 0; k < 8 && !site; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        let dA = 0;
+        for (let d = 1; d <= 9; d++) { const qx = Math.floor(xx + 0.5 + Math.cos(a) * d), qy = Math.floor(yy + 0.5 + Math.sin(a) * d); hw.ensure(hw.chunkIndex(qx, qy)); if (hw.abyssAt(qx, qy)) { dA = d; break; } }
+        if (dA >= 5 && dA <= 9 && MH.boatsc.hullFree(H.game, xx + 0.5, yy + 0.5, a)) site = { x: xx + 0.5, y: yy + 0.5, a, dA };
+      }
+    }
+    if (site) break;
+  }
+  t.assert(site, 'a launch spot by the abyss');
+  await moveBoth(t, H, G, [site.x, site.y], [site.x - Math.cos(site.a) * 1.2, site.y - Math.sin(site.a) * 1.2]);
+  const id = H.game.net.newId('s');
+  H.game.net.emit('boat.launch', { id, x: site.x, y: site.y, h: site.a, v: 0, at: Math.round(H.game.worldTime) });
+  const bG = await t.waitFor(() => G.game.boats.map.get(id), RT() + 1500, 'the guest sees the boat');
+  A.teleport(G, site.x, site.y);
+  G.game.boats.board(bG);
+  await t.waitFor(() => bG.seats[0] === G.pid, RT() + 2000, 'the guest takes the oars');
+  const since = now();
+  const rel = A.holdMove(G, Math.cos(site.a), Math.sin(site.a)); // (toward the abyss, in screen space ≈ world: camera not turned)
+  G.game.cam.rot = 0; G.game.cam.rotTo = 0;
+  let entered = false;
+  // (the hull a little inside its outline: the host accepts a driver's rounded pose with 0.05 of slack)
+  const hull = (f, b) => { const w = f.game.world; for (let u = -1.7; u <= 1.9; u += 0.3) for (const sd of [-1, 1]) { const q = MH.boatsc.hullPt(b.x, b.y, b.h, u, sd * MH.boatsc.halfW(u) * 0.8); if (w.abyssAt(Math.floor(q[0]), Math.floor(q[1]))) return true; } return false; };
+  t.watch(() => { const bH = H.game.boats.map.get(id); if ((bH && hull(H, bH)) || hull(G, bG)) entered = true; }, 50);
+  await t.sleep(6000);
+  rel();
+  t.check(!entered, 'the hull never covers the abyss (on both)');
+  const told = G.ui.filter((u) => u.t >= since).some((u) => /Oceano aberto: o barco/.test(u.text));
+  t.check(told, 'the guest is told "Oceano aberto: o barco não aguenta"', G.lastUi(3, since));
+  const bH = H.game.boats.map.get(id);
+  t.check(Math.hypot(bH.x - bG.x, bH.y - bG.y) < 0.6, 'the boat stands at the same place on both', `${f2(bH.x)},${f2(bH.y)} / ${f2(bG.x)},${f2(bG.y)}`);
+  // swimming in the abyss (the guest jumps in)
+  G.game.net.request('boat.leave', { id, dead: 1 });
+  await t.waitFor(() => !bH.seats.includes(G.pid), RT() + 1500, 'the guest left the boat');
+  let ab = null;
+  for (let d = 2; d < 20 && !ab; d++) { const qx = site.x + Math.cos(site.a) * (site.dA + d), qy = site.y + Math.sin(site.a) * (site.dA + d); if (gw.abyssAt(Math.floor(qx), Math.floor(qy))) ab = [qx, qy]; }
+  t.assert(ab, 'an abyssal tile');
+  const gp = G.game.player, e0 = gp.energy;
+  const since2 = now();
+  A.teleport(G, ab[0], ab[1]);
+  await t.waitFor(() => gp._abyss, 3000, 'the guest swims in the abyss');
+  await t.sleep(1500);
+  t.check(gp.energy < e0 - 5, 'its strength drains fast there', `${f2(e0)} → ${f2(gp.energy)}`);
+  t.check(G.ui.filter((u) => u.t >= since2).some((u) => /Oceano aberto: a água/.test(u.text)), 'the guest is warned about the open ocean', G.lastUi(3, since2));
+  A.teleport(G, site.x - Math.cos(site.a) * 3, site.y - Math.sin(site.a) * 3);
+  H.game.net.emit('boat.remove', { id });
+  await t.checkDigest(H, G);
+  env.history.push('LZ2');
+});
+
+// LZ3 two players far apart in different season zones
+def('LZ3', {
+  title: 'LZ: two players far apart in different zones — each lives the season of its place (winter vs the tropics), crops / regrowth / walkers / temperature follow the place', timeout: 200000,
+  expected: 'The host stays at the temperate spawn, the guest goes to a humid tropical cell (thousands of tiles away); the clock jumps to a temperate winter night: the host is in winter (hard, its water ice), the guest in the tropics (no winter, no ice, warm: its felt base far above the host\'s); both compute the same season for each place; crops: no growth in the temperate winter, normal in the humid tropics (cropK), none in a polar zone, none on dry hot soil off the fertile strip ("Solo seco: só perto de rios") and slower on it (HOT_K), regrowth the same; forced walker spawns only around the host; digest equal (the far guest\'s stale chunks left out)',
+  api: 'seasons.js seasonAt / zoneSeason, mut/crops.js cropK / plantProblem / hotDryAt / HOT_K, flora.js growK, walkers.js walkersTick, survival.js feltTemp (p._felt.base), world.iceZ',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, day0 = EH.dayIndex, hour0 = EH.hour, sp = H.game.world.spawn;
+  const MC = await frameImport(H, 'game/mut/crops.js'), MF = await frameImport(H, 'game/flora.js');
+  t.defer(() => {
+    H.game.net.emit('env.skip', { hour: hour0, day: day0, wt: H.game.worldTime + 1, by: H.game.net.pid });
+    for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && (e.faction === 'walker' || e.spawner?.hunt)) { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
+  });
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const trop = planetCells(H, (c, P, K) => !P.ocean[c] && !P.lakeId[c] && cellZone(P, c) === 0 && (K[P.biome[c]] === 'rainforest' || K[P.biome[c]] === 'tropical_dry') && P.precip[c] > 1200, sp.x, sp.y, 10);
+  t.assert(trop.length, 'the planet has humid tropical land');
+  let gs = null;
+  for (const c of trop) { gs = zoneSpot(G, MG, c.x, c.y, 0, 40); if (gs) break; }
+  t.assert(gs, 'a walkable tropical spot');
+  const hs = A.freeSpot(H, MH, sp.x, sp.y, { rMin: 0, rMax: 4 });
+  A.teleport(H, hs[0], hs[1]);
+  A.teleport(G, gs[0], gs[1]);
+  await t.sleep(800);
+  t.log(`guest ${Math.round(Math.hypot(H.game.world.dx(gs[0], hs[0]), gs[1] - hs[1]))} tiles away from the host`);
+  // a temperate winter night (short year: day 6, 22 h)
+  H.game.net.emit('env.skip', { hour: 22, day: 6, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => G.game.env.dayIndex === 6 && Math.abs(G.game.env.hour - 22) < 0.3, 3000 + CFG.budget, 'the guest clock follows');
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.zone === 0 && G.game.seasons?.[2]?.id === 'winter', 3000, 'host in winter, guest in the tropics (both updated)', () => `${H.game.season?.name} / ${G.game.season?.name}`);
+  t.check(H.game.season.hard && !G.game.season.hard && G.game.season.id !== 'winter', 'each its own season: temperate winter / tropical (no winter)', `${H.game.season.name} / ${G.game.season.name}`);
+  t.check(H.game.world.iceZ[2] === 1 && H.game.world.iceZ[0] === 0 && G.game.world.iceZ[0] === 0 && G.game.world.iceZ[2] === 1, 'ice by zone on both: temperate frozen, tropical open water', `${[...H.game.world.iceZ]} / ${[...G.game.world.iceZ]}`);
+  G.game.world.ensure(G.game.world.chunkIndex(hs[0], hs[1])); // (the host's place, far from the guest: its zone layer)
+  const SH = MH.seasons.seasonAt(H.game, gs[0], gs[1]), SG = MG.seasons.seasonAt(G.game, hs[0], hs[1]);
+  t.check(SH.zone === 0 && !SH.hard && SG.zone === 2 && SG.hard, 'both compute the same season for the other\'s place', `host sees guest ${SH.name} · guest sees host ${SG.name}`);
+  await t.sleep(1500);
+  t.check((G.game.player._felt?.base ?? 0) > (H.game.player._felt?.base ?? 99) + 10, 'the tropics are warm, the temperate winter cold (felt base)', `guest ${f2(G.game.player._felt?.base)} °C · host ${f2(H.game.player._felt?.base)} °C`);
+  // crops and regrowth by place
+  const kH = MC.cropK(SG), kG = MC.cropK(SH, MC.hotDryAt(H.game.world, Math.floor(gs[0]), Math.floor(gs[1])), true);
+  t.check(kH === 0 && kG > 0, 'crops: stopped in the temperate winter, growing in the humid tropics', `temperate ${kH} · tropics ${kG}`);
+  const Spolar = MH.seasons.zoneSeason(4, MH.seasons.seasonClock(2, 13));
+  t.check(MC.cropK(Spolar) === 0 && MF.growK(Spolar) === 0, 'polar: nothing grows (a summer day of the calendar)');
+  t.check(MF.growK(SG) === 0 && MF.growK(SH) > 0, 'wild regrowth: none in the temperate winter, yes in the tropics');
+  const Swarm = MH.seasons.zoneSeason(1, MH.seasons.seasonClock(2, 13));
+  t.check(MC.cropK(Swarm, true, false) === 0 && Math.abs(MC.cropK(Swarm, true, true) - MC.HOT_K) < 1e-9, 'hot / dry land: no growth off the fertile soil, slower on it', `${MC.cropK(Swarm, true, false)} / ${MC.cropK(Swarm, true, true)}`);
+  // a real dry tile: planting refused there with the reason
+  const dry = planetCells(H, (c, P, K) => !P.ocean[c] && (K[P.biome[c]] === 'desert_dunes' || K[P.biome[c]] === 'desert_rocky') && !P.rkind[c], sp.x, sp.y, 4);
+  let dryTile = null;
+  for (const c of dry) {
+    H.game.world.ensure(H.game.world.chunkIndex(c.x, c.y));
+    for (let d = 0; d < 20 && !dryTile; d++) { const x = c.x + d, y = c.y; if (!H.game.world.waterAt(x, y) && !H.game.world.isRock(x, y) && !H.game.world.fertile.at(x, y)) dryTile = [x, y]; }
+    if (dryTile) break;
+  }
+  if (dryTile) t.check(/Solo seco/.test(MC.plantProblem(H.game, 'potato', dryTile[0], dryTile[1]) || ''), 'planting on dry desert soil is refused ("Solo seco: só perto de rios")', MC.plantProblem(H.game, 'potato', dryTile[0], dryTile[1]));
+  else t.note('no dry desert tile found near (planting check skipped)');
+  // walkers only where the winter is
+  for (let k = 0; k < 10; k++) { H.game._walkT = 0; MH.walkers.walkersTick(H.game, true); }
+  const nearG = A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, gs[0]), m.y - gs[1]) < 80).length;
+  t.check(nearG === 0, 'no walker around the guest in the tropics', `${nearG}`);
+  t.check(A.hostMobs(H, (m) => m.faction === 'walker' && Math.hypot(H.game.world.dx(m.x, hs[0]), m.y - hs[1]) < 80).length > 0, 'walkers around the host in its winter night');
+  await t.checkDigest(H, G);
+  for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && e.faction === 'walker') { e.noCorpse = true; MH.combat.killMob(H.game, e, null); }
+  env.history.push('LZ3');
+});
+
+// LZ4 interest: a far guest does not receive a distant entity stream (nor the world changes there) until it comes close
+def('LZ4', {
+  title: 'LZ: interest — a far guest gets neither the creatures nor the world changes around the host, and gets both when it comes close', timeout: 200000,
+  expected: 'The guest goes ~1500 tiles away; the host spawns creatures next to itself and removes a tree there: the guest has no proxy of them and skips the op (skip counts; the chunk is stale for it, digests equal without it); the guest comes back next to the host: the proxies appear and the chunk diff removes the tree; nothing is stale any more; digest equal',
+  api: 'net/entities.js interest box, net/interest.js (batchFor skip counts, update → cd chunk diffs, excluded), net.stats.opsSkipped / chunkDiffs',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const hp = H.game.player, gw = G.game.world, hw = H.game.world;
+  let far = null;
+  for (const c of planetCells(G, (k, P) => !P.ocean[k] && !P.lakeId[k], hp.x + 1500, hp.y, 8)) { far = zoneSpot(G, MG, c.x, c.y, -1, 40); if (far) break; }
+  t.assert(far, 'a far spot for the guest');
+  t.log(`guest ${Math.round(Math.hypot(hw.dx(far[0], hp.x), far[1] - hp.y))} tiles away`);
+  A.teleport(G, far[0], far[1]);
+  await t.waitFor(() => Math.hypot(hw.dx(A.authAvatarOn(H, G.pid)?.x ?? 0, far[0]), (A.authAvatarOn(H, G.pid)?.y ?? 0) - far[1]) < 3, RT() + 2000, 'the host knows the guest is far');
+  // creatures next to the host
+  const mobs = [];
+  for (let k = 0; k < 3; k++) { const s = A.freeSpot(H, MH, hp.x + 3 + k, hp.y + 1, { rMin: 0, rMax: 3, r: 0.36 }); if (s) mobs.push(MH.mobs.spawnLoose(H.game, 'deer', s[0], s[1])); }
+  t.assert(mobs.length, 'creatures next to the host');
+  // a tree next to the host
+  const tr = A.pickTree(H, MH, null, hp.x, hp.y, env.claimed, { r: 40 });
+  t.assert(tr, 'a tree near the host');
+  const skip0 = G.game.net.stats.opsSkipped || 0, tc = hw.chunkIndex(tr.o.x, tr.o.y);
+  H.game.net.emit('obj.remove', { ids: [tr.o.id], fx: 'clear' });
+  await t.waitFor(() => (G.game.net.stats.opsSkipped || 0) > skip0, ONEWAY() + 2000, 'the far guest got a skip count instead of the op');
+  await t.sleep(800);
+  t.check(!mobs.some((m) => A.proxyOf(G, m)), 'the far guest has no proxy of the host\'s creatures (entity stream by interest)');
+  t.check((H.session.interest.excluded(G.pid) || []).includes(tc), 'the tree\'s chunk is stale for the far guest');
+  await t.checkDigest(H, G, 'digest equal without the stale chunks');
+  // the guest comes back
+  const d0 = G.game.net.stats.chunkDiffs || 0;
+  const back = A.freeSpot(G, MG, hp.x + 2, hp.y, { rMin: 0, rMax: 4 });
+  A.teleport(G, back[0], back[1]);
+  await t.waitFor(() => mobs.every((m) => A.proxyOf(G, m)), RT() + 4000, 'back near the host: the creatures appear on the guest');
+  await t.waitFor(() => (G.game.net.stats.chunkDiffs || 0) > d0 && !gw.objById.has(tr.o.id), RT() + 4000, 'the chunk diff removed the tree on the guest');
+  const st = H.session.interest.debug().guests[G.pid]?.stale || [];
+  t.check(!st.includes(tc) && !st.some((c) => MH.interest ? false : Math.abs((c % 256) - (tc % 256)) <= 4 && Math.abs((c >> 8) - (tc >> 8)) <= 4), 'nothing stale around the guest any more', `${st.length} stale chunks elsewhere`);
+  for (const m of mobs) { m.noCorpse = true; MH.combat.killMob(H.game, m, null); }
+  await t.checkDigest(H, G);
+  env.history.push('LZ4');
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',

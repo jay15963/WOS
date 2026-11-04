@@ -66,11 +66,22 @@ const SAMPLES = [];
 for (const u of [-1.84, -1.35, -0.75, -0.15, 0.45, 1.05, 1.5, 1.82]) { const s = halfW(u) * 0.93; SAMPLES.push([u, s], [u, -s]); }
 SAMPLES.push([2.05, 0], [-1.88, 0]);
 
-// a tile a hull may float over: water (deep or shallow, a bridge over it is fine), no rock, nothing solid, no pier
+// a tile a hull may float over: water (deep or shallow, a bridge over it is fine), no rock, nothing solid, no pier —
+// never the abyssal ocean (world zone layer bit 8: "Oceano aberto: o barco não aguenta")
 export function boatable(w, tx, ty) {
   if (!w.inBounds(tx, ty)) return false;
   const i = w.idx(tx, ty);
-  return w.water.get(i) > 0 && !w.rock.get(i) && !w.solid.get(i) && !(w.deck && w.deck.get(i) === 1);
+  return w.water.get(i) > 0 && !w.rock.get(i) && !w.solid.get(i) && !(w.deck && w.deck.get(i) === 1) && !(w.zone && w.zone.get(i) & 8);
+}
+// is any of the hull's outline over the abyssal ocean at (x, y, h)? (why a boat stops there)
+export function hullAbyss(w, x, y, h) {
+  if (!w.zone) return false;
+  const c = Math.cos(h), n = Math.sin(h);
+  for (const [u, s] of SAMPLES) {
+    const tx = Math.floor(x + u * c + s * n), ty = Math.floor(y + u * n - s * c);
+    if (w.inBounds(tx, ty) && w.zone.get(w.idx(tx, ty)) & 8) return true;
+  }
+  return false;
 }
 // does a hull fit at (x, y, h)? (other boats: their shared pose; inset shrinks the outline a little: the host checks
 // a driver's rounded numbers with some slack)

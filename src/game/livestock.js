@@ -250,7 +250,7 @@ function follow(game, m, dt, sp) {
 export function fishBrain(game, m, dt) {
   const w = game.world;
   if (!tickStatus(game, m, dt)) return;
-  if (w.frozen) { m.moving = false; return; }
+  if (w.frozenAt(m.x, m.y)) { m.moving = false; return; }
   m.stateT -= dt;
   const hk = m.hooked && game.fishing?.bobberOf?.(m.hooked);
   if (hk) { swimTo(game, m, hk.x, hk.y, 1.6, dt); return; }
@@ -619,10 +619,10 @@ export function stockFxSystem() {
     update(game, dt) {
       // now and then a fish in view leaps out of the water (cosmetic, each peer its own: art/livestockDraw.js _jump)
       jumpT -= dt;
-      if (jumpT > 0 || game.world.frozen) return;
+      if (jumpT > 0) return;
       jumpT = 3 + Math.random() * 6;
       const v = game.view(), F = [];
-      for (const e of game.entities) if (e.water && !e.dead && e.x > v.x0 && e.x < v.x1 && e.y > v.y0 && e.y < v.y1) F.push(e);
+      for (const e of game.entities) if (e.water && !e.dead && !game.world.frozenAt(e.x, e.y) && e.x > v.x0 && e.x < v.x1 && e.y > v.y0 && e.y < v.y1) F.push(e);
       if (!F.length) return;
       const f = F[Math.floor(Math.random() * F.length)], a = f._fh ?? Math.random() * Math.PI * 2;
       f._jump = { t0: game.time, dur: 0.75, dx: Math.cos(a) * 1.1, dy: Math.sin(a) * 1.1 };

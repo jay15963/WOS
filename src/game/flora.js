@@ -16,6 +16,7 @@ import { floraLook } from './mut/roll.js';
 import { inAnyView, minPlayerDist } from './players.js';
 import { footprint } from './autotile.js';
 import { fertileAt } from '../world/soil.js';
+import { seasonAt } from './seasons.js';
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
@@ -136,6 +137,8 @@ function spawnAt(game, kind, tx, ty) {
 }
 
 const growKey = (kind) => (kind.startsWith('tree_') ? 'tree' : kind);
+// how fast living plants come back in a season state (0 = not at all)
+export const growK = (S) => (S.hard ? 0 : S.id === 'winter' ? 0.5 : S.zone === 0 && !S.wet ? 0.8 : 1);
 const tileInView = (game, tx, ty) => inAnyView(game, tx + 0.5, ty + 0.5, 2.5, 3.5);
 
 function trySpawn(game, k, kind) {
@@ -275,12 +278,17 @@ export function floraSystem() {
         const ch = F.chunks.get(k);
         if (!ch || (S && !S.activeAt((k % BKW) * CHUNK, Math.floor(k / BKW) * CHUNK))) continue;
         const have = countChunk(w.bk[k] || NO_BUCKET);
+        // the season of the bucket (seasons by latitude): living plants (trees, bushes, berries, herbs, wild crops) do
+        // not come back in a hard winter (polar: never), slower in a mild winter / the tropical dry season; pebbles and
+        // sticks always
+        const live = growK(seasonAt(game, (k % BKW) * CHUNK + 8, Math.floor(k / BKW) * CHUNK + 8));
         for (const kind in ch.target) {
           const want = Math.floor(ch.target[kind] + ch.jit);
           let deficit = want - (have[kind] || 0);
           if (deficit <= 0) continue;
           const small = SMALL.has(kind);
-          const rate = small ? 0.45 : kind.startsWith('tree_') ? 0.22 : 0.3;
+          const rate = (small ? 0.45 : kind.startsWith('tree_') ? 0.22 : 0.3) * (kind === 'pebble' || kind === 'stick' ? 1 : live);
+          if (rate <= 0) continue;
           for (let n = Math.min(deficit, small ? 2 : 1); n > 0; n--) if (net.roll() < rate) trySpawn(game, k, kind);
         }
       }

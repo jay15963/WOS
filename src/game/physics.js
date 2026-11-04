@@ -60,7 +60,7 @@ export function tileBlocked(world, tx, ty, passDoors = false, swim = false, onDe
   const i = world.idx(tx, ty);
   if (TN.g === TN.g) { const b = tunBlocked(world, i, tx, ty); if (b != null) return b; } // (a mover near / in a tunnel)
   const s = world.solid.get(i);
-  return world.rock.get(i) === 1 || (world.water.get(i) === 2 && !swim && !world.frozen && !(onDeck && world.deck && world.deck.get(i))) || s === 1 || (s === 2 && !passDoors) || world.isCliff(tx, ty); // frozen: ice (seasons.js); deck: a pier / bridge (decks.js); terrain cliffs (world/height.js)
+  return world.rock.get(i) === 1 || (world.water.get(i) === 2 && !swim && !world.iceAt(i) && !(onDeck && world.deck && world.deck.get(i))) || s === 1 || (s === 2 && !passDoors) || world.isCliff(tx, ty); // iceAt: ice (its zone's winter, seasons.js); deck: a pier / bridge (decks.js); terrain cliffs (world/height.js)
 }
 
 // ---------- decks: on a bridge or under it (game/decks.js) ----------

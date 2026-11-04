@@ -26,6 +26,7 @@ import { hasLOS, faceTowards, dist, reach } from './combat.js';
 import { go } from './ai.js';
 import { hostProjId } from './projectiles.js';
 import { lootRows, ri } from './mut/roll.js';
+import { hardWinterAt } from './seasons.js';
 
 // ---------- numbers ----------
 // winter k (0 = the first): up to `near` giants around a player, a spawn try every `every` s (faster each winter),
@@ -85,7 +86,7 @@ export function spawnGiantAt(game, x, y) {
 }
 
 function spawnTry(game) {
-  const w = game.world, L = allPlayers(game).filter((q) => !q.dead);
+  const w = game.world, L = allPlayers(game).filter((q) => !q.dead && hardWinterAt(game, q.x, q.y)); // (players in a winter now)
   if (!L.length) return false;
   const p = L[Math.floor(Math.random() * L.length)];
   const N = giantNumbers(game);
@@ -94,7 +95,7 @@ function spawnTry(game) {
   if (near >= N.near || Math.random() > N.chance) return false;
   const ok = (x, y) => {
     const tx = Math.floor(x), ty = Math.floor(y);
-    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, SPECIES.giant.r) && (!w.waterAt(tx, ty) || w.frozen) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
+    return w.inBounds(tx, ty) && !mobBlocked(w, x, y, SPECIES.giant.r) && (!w.waterAt(tx, ty) || w.frozenAt(x, y)) && !w.isCave(tx, ty) && !w.roofAt?.(tx, ty) && !litNear(game, x, y);
   };
   for (let k = 0; k < 20; k++) {
     const a = Math.random() * Math.PI * 2, r = 26 + Math.random() * 10;

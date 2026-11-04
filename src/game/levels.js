@@ -669,7 +669,7 @@ export class Levels {
       if (dk) { // bridges (game/decks.js, nav.js): the walls of the level the step is taken at, the water under a deck
         if (railCross(w, x, y, dx, dy, !u && w.deck && w.deck.get(i) ? w.rail : w.railU)) continue;
         nu = underAt(w, i, ni, u) ? 1 : 0;
-        if (!w.frozen && w.water.get(ni) === 2 && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(ni)))) continue;
+        if (w.water.get(ni) === 2 && !w.iceAt(ni) && (nu || (!u && !(w.deck && w.deck.get(i)) && w.deck && w.deck.get(ni)))) continue;
       }
       const q = this._nodeOf(k, ni);
       if (q >= 0) { NL[n] = nu; NB[n] = q; NC[n++] = nu ? cost * 2.5 : cost; } // (under a deck: slow water)

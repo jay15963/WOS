@@ -33,6 +33,7 @@ import { PagedHeight } from './heightPaged.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 export const TUN_SUPPORT = 3; // a tunnel tile caves in without solid relief within this many tiles (docs/TERRAIN-HEIGHT.md)
+export const ABYSS = 8; // zone layer bit: abyssal ocean
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
 const CAVE_DK = [0, 0.5, 0.74, 0.88, 0.96, 1];
 
@@ -78,10 +79,17 @@ export class World {
     // (heightPaged.js). wlevel: water surface per tile (stories; the planet's lakes on plateaus), pground: the planet's own
     // ground id (8 snow … 13 dry: their own texture layers), prock / pbiome: the planet's own rock type (5 basalt, 6
     // sandstone: rock faces) and biome id (255 = none: the closed canopy's shade, the wild fauna's spawn tables,
-    // docs/FAUNA.md).
+    // docs/FAUNA.md; camps).
     L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
     L('prock', Uint8Array, 0); L('pbiome', Uint8Array, 255);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome];
+    // season zone per tile (docs/PLANET.md §5, game/seasons.js): bits 0-2 the zone (0 tropical · 1 warm · 2 temperate ·
+    // 3 subpolar · 4 polar — the planet's climate at that tile, altitude included), bit 3 (ABYSS) the abyssal ocean (water
+    // class 3: no boat goes there). A bounded / synthetic world: temperate everywhere.
+    L('zone', Uint8Array, 2);
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome, this.zone];
+    // frozen water by season zone (game/seasons.js writes it every frame from the shared clock, the same on every peer):
+    // iceZ[zone] = 1 while the water of that zone is ice (walkable, no swimming / boats / fishing)
+    this.iceZ = new Uint8Array(5);
     this.hills = source.hills || false; // (dev showcase ?hills=1: its landmarks; a guest sculpts the same classic world, world/hills.js)
     // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md "Túneis"): the floor height (stories) of a tunnel tile, −∞ = none.
     // Sparse (kept across chunk evictions; a chunk with a tunnel is changed anyway); `tunnels` lists them (snapshot, fx)
@@ -144,9 +152,11 @@ export class World {
     if (r && r.ready) return r;
     const t0 = performance.now();
     if (!r) r = this.crec[c] = { c, cx: c & (CW - 1), cy: c >>> 8, ready: false, dirty: false, pin: 0, t: 0 };
-    // water class 3 (abyssal ocean, planet sources) is deep water for gameplay (the `=== 2` rules); the source keeps
-    // the distinction for its looks / the map
-    { const Wt = d.water; for (let l = 0; l < CT; l++) if (Wt[l] > 2) Wt[l] = 2; }
+    // water class 3 (abyssal ocean, planet sources) is deep water for gameplay (the `=== 2` rules) with the ABYSS bit in
+    // the zone layer (no boat, a cold deadly swim, darker water)
+    const zn = d.zone instanceof Uint8Array && d.zone.length === CT ? d.zone : new Uint8Array(CT).fill(2);
+    { const Wt = d.water; for (let l = 0; l < CT; l++) if (Wt[l] > 2) { Wt[l] = 2; zn[l] |= ABYSS; } }
+    this.zone.attach(c, zn);
     this.rock0.attach(c, d.rock); this.rock.attach(c, d.rock.slice());
     this.roof0.attach(c, d.roof); this.roof.attach(c, d.roof.slice());
     for (const k of SRC_U8) this[k].attach(c, d[k]);
@@ -242,7 +252,7 @@ export class World {
     if (o.id == null || o.id === '') throw new Error('world.addObject: objeto sem id');
     this.ensure(this.chunkIndex(o.x, o.y));
     this._insert(o);
-    this.markDirtyAt(o.x, o.y);
+    if (!this._layout) this.markDirtyAt(o.x, o.y); // (a deterministic layout — planet camps — comes back with the chunk)
     // keep chunk list y-sorted lazily
     this.chunkAt(o.x, o.y).sorted = false;
     return o;
@@ -254,7 +264,7 @@ export class World {
     const k = c.objects.indexOf(o);
     if (k >= 0) c.objects.splice(k, 1);
     this.objById.delete(o.id);
-    this.markDirtyAt(o.x, o.y);
+    if (!this._layout) this.markDirtyAt(o.x, o.y);
   }
 
   // iterate buckets overlapping a world rect (x wraps on the planet; a bounded world clamps to its area)
@@ -287,15 +297,25 @@ export class World {
   // ---------- tiles ----------
   isRock(tx, ty) { return !this.inBounds(tx, ty) || this.rock.get(this.idx(tx, ty)) === 1; }
   waterAt(tx, ty) { return this.inBounds(tx, ty) ? this.water.get(this.idx(tx, ty)) : 0; }
-  // water you can sink into: none while it is frozen (winter: this.frozen, set by seasons.js on every peer) nor on a
+  // ---------- season zones & the abyss (zone layer; game/seasons.js) ----------
+  zoneAt(tx, ty) { return this.inBounds(tx, ty) ? this.zone.get(this.idx(tx, ty)) & 7 : 2; }
+  abyssAt(tx, ty) { return this.inBounds(tx, ty) && (this.zone.get(this.idx(tx, ty)) & ABYSS) !== 0; }
+  // the water of tile i is ice now (its zone's winter; the abyssal ocean never freezes)
+  iceAt(i) { const z = this.zone.get(i); return !(z & ABYSS) && this.iceZ[z & 7] === 1; }
+  frozenAt(x, y) { const tx = Math.floor(x), ty = Math.floor(y); return this.inBounds(tx, ty) && this.iceAt(this.idx(tx, ty)); }
+  // water you can sink into: none while it is frozen (its zone's winter: iceAt, from seasons.js on every peer) nor on a
   // finished pier / bridge deck (this.deck, derived by game/decks.js from the structures on every peer) — unless the
   // body is under the deck (under: e._ud, physics.deckTrack: swimming under a bridge).
   // Movement / swimming / creature paths use this; looks, placement rules and the minimap keep waterAt.
-  liquidAt(tx, ty, under = false) { return this.frozen || (!under && this.deck && this.inBounds(tx, ty) && this.deck.get(this.idx(tx, ty))) ? 0 : this.waterAt(tx, ty); }
+  liquidAt(tx, ty, under = false) {
+    if (!this.inBounds(tx, ty)) return 0;
+    const i = this.idx(tx, ty);
+    return this.iceAt(i) || (!under && this.deck && this.deck.get(i)) ? 0 : this.water.get(i);
+  }
   blocked(tx, ty) {
     if (!this.inBounds(tx, ty)) return true;
     const i = this.idx(tx, ty);
-    return this.rock.get(i) === 1 || (this.water.get(i) === 2 && !this.frozen && !(this.deck && this.deck.get(i))) || this.solid.get(i) === 1 || this.height.isCliff(tx, ty);
+    return this.rock.get(i) === 1 || (this.water.get(i) === 2 && !this.iceAt(i) && !(this.deck && this.deck.get(i))) || this.solid.get(i) === 1 || this.height.isCliff(tx, ty);
   }
   groundAt(tx, ty) { return this.inBounds(tx, ty) ? this.ground.get(this.idx(tx, ty)) : G.STONE; }
 
@@ -312,7 +332,7 @@ export class World {
     const tx = Math.floor(x), ty = Math.floor(y);
     const wa = this.waterAt(tx, ty);
     if (wa && !under && this.deck && this.deck.get(this.idx(tx, ty))) return 1; // on a pier / bridge deck (game/decks.js)
-    if (wa && this.frozen) return 0.92; // ice: a little careful
+    if (wa && this.iceAt(this.idx(tx, ty))) return 0.92; // ice: a little careful
     if (wa === 2) return 0.14; // deep water: swimming, a lot slower than wading
     if (wa === 1) return 0.55;
     const g = this.groundAt(tx, ty);

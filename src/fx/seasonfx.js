@@ -9,7 +9,7 @@
 //     the snow in the sun (falling autumn leaves: ambient.js)
 // Nothing here touches game state.
 
-import { SEASON, seasonHash } from '../art/season.js';
+import { SEASON, SEASON_LOCAL, seasonHash } from '../art/season.js';
 import { seasonOf, START } from '../game/seasons.js';
 
 const rnd = Math.random;
@@ -20,6 +20,8 @@ export function installSeasonFx(game) {
   sys.sync = 'cosmetic';
   game.systems.push(sys); // sync-ok: cosmetic system installed before the gameplay registry (tagged above)
   game.seasonFx = sys;
+  // the winter of the zone at any point (art: the planet's tropical flora, composeWorld.js noWinter)
+  SEASON_LOCAL.winterAt = (x, y) => { const w = game.world, L = game.seasons; return L && w?.zoneAt ? L[w.zoneAt(Math.floor(x), Math.floor(y))]?.winter || 0 : SEASON.winter; };
   return sys;
 }
 
@@ -43,9 +45,24 @@ class SeasonFx {
     const S = g.season && g.season.id ? g.season : seasonOf(g);
     const E = g.env.env, X = E.extra;
     const c = S.c ?? 0;
+    // seasons by latitude: the looks follow the season where the local player is; walking into another zone eases the
+    // weights over a few seconds instead of a jump (the ramps of the clock are slower than this anyway)
+    const V = this.V || (this.V = { snow: S.snow || 0, ice: S.ice || 0, autumn: S.autumn || 0, bloom: S.bloom || 0, bare: S.bare || 0, winter: S.winter || 0 });
+    const ek = 1 - Math.exp(-dt / 1.6);
+    for (const k in V) V[k] += ((S[k] || 0) - V[k]) * ek;
+    // the local rain (environment.js localRain): the climate's rainfall here, the tropical wet / dry seasons
+    this.rainT = (this.rainT || 0) - dt;
+    if (this.rainT <= 0) {
+      this.rainT = 1;
+      const src = g.world?.source, p = g.player;
+      if (src?.climateAt && p) {
+        const cl = src.climateAt(p.x, p.y, null, this.cl || (this.cl = {}));
+        g.env.localRain = Math.max(0.12, Math.min(1.4, cl.P / 900)) * (S.zone === 0 ? 0.3 + 1.1 * (S.wet || 0) : 1);
+      } else g.env.localRain = 1;
+    }
     // art modules
-    SEASON.snow = S.snow || 0; SEASON.ice = S.ice || 0; SEASON.autumn = S.autumn || 0; SEASON.bloom = S.bloom || 0;
-    SEASON.bare = S.bare || 0; SEASON.winter = S.winter || 0; SEASON.wane = c > START.autumn - 1 && c < START.winter + 1.5 ? 1 : 0; // (late summer → early winter)
+    SEASON.snow = V.snow; SEASON.ice = V.ice; SEASON.autumn = V.autumn; SEASON.bloom = V.bloom;
+    SEASON.bare = V.bare; SEASON.winter = V.winter; SEASON.wane = S.zone !== 0 && S.zone !== 4 && c > START.autumn - 1 && c < START.winter + 1.5 ? 1 : 0; // (late summer → early winter)
     // blizzard: a storm in winter (smoothed like the weather)
     const bzT = SEASON.winter * Math.max(0, (E.storm || 0) * 1.1 - 0.1);
     this.bz += (bzT - this.bz) * (1 - Math.exp(-dt / 4));

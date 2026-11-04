@@ -462,6 +462,8 @@ html .cc-name { font: 700 13px var(--n-fd); letter-spacing: 3px; color: var(--n-
 .wrow .wplay small { flex-basis: 100%; opacity: .7; font-size: .82em; }
 .wrow .wdel { width: 42px; flex: none; border-radius: 10px; border: 1.5px solid rgba(220, 120, 100, 0.35); background: rgba(120, 30, 20, 0.18); color: #f0b4a4; font-size: 1.05em; cursor: pointer; }
 .wrow .wdel:hover { background: rgba(160, 40, 28, 0.35); }
+.wrow.old .wplay { cursor: default; opacity: .62; filter: grayscale(.6); }
+.wrow.old .wplay small { opacity: .95; color: #f0c8a0; }
 .wrow.ask { align-items: center; flex-wrap: wrap; padding: 8px 10px; border-radius: 10px; background: rgba(120, 30, 20, 0.22); }
 .wrow.ask .wask { flex: 1 1 100%; margin-bottom: 4px; }
 .wchip { font-size: .7em; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; padding: 1px 7px; border-radius: 4px; background: rgba(255, 244, 220, 0.16); }

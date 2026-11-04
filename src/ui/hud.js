@@ -4,6 +4,7 @@
 // death screen, fullscreen / install / help buttons. Updates the DOM only when values change.
 // Look: hud-theme.css (tokens, primitives) + hud.css (layout / skins), see docs/HUD.md.
 
+import { ZONE_HINT } from '../game/seasons.js';
 import { BUILDINGS, ITEMS, SPECIES, DOTS } from '../game/data.js';
 import { xpToNext, levelColor, MAX_LEVEL } from '../game/stats.js';
 import { eatBest } from '../game/survival.js';
@@ -329,9 +330,21 @@ export function installHUD(game, { isNew } = {}) {
     R.fade.classList.remove('on');
     pushFeed(null, `<span class="t">Você renasceu (${d.where}). Fraqueza por 60 s.</span>`, 'warn');
   });
-  // seasons (seasons.js): what each one brings
+  // seasons (seasons.js): what each one brings — where the player is (seasons by latitude); walking into another
+  // zone says what that region's year is like
+  ev.on('zone', (d) => game.events.emit('toast', { text: ZONE_HINT[d.zone] || '', kind: d.zone >= 3 ? 'warn' : 'info' }));
   ev.on('season', (d) => {
-    const yr = game.season?.year || 1;
+    if (d.moved) return; // (the zone toast already told)
+    const S = game.season, yr = S?.year || 1;
+    if (S && S.zone !== 2) {
+      // the other zones: their own words
+      const t = S.zone === 0 ? (S.wet ? 'Começou a estação chuvosa: chove mais e as plantas crescem rápido.' : 'Começou a estação seca: pouca chuva.')
+        : S.zone === 1 ? (d.id === 'winter' ? 'Inverno ameno: mais frio, as plantas crescem devagar, mas nada congela.' : d.id === 'spring' ? `Primavera do Ano ${yr}!` : '')
+        : S.zone === 3 ? (d.id === 'winter' ? `Inverno! Aqui ele é longo: ${S.len} dias de gelo, frio e Andarilhos do Gelo à noite.` : d.id === 'spring' ? `Primavera do Ano ${yr}, enfim: o gelo derrete.` : d.id === 'autumn' ? 'Outono curto: o inverno longo está chegando. Lenha, comida e roupa de frio!' : '')
+        : '';
+      if (t) game.events.emit('toast', { text: t, kind: d.id === 'winter' || d.id === 'autumn' ? 'warn' : 'good' });
+      return;
+    }
     const T = {
       spring: [`Primavera do Ano ${yr}! O inverno acabou: a água descongela e tudo volta a crescer.`, 'good'],
       summer: ['Verão: 2 dias até o outono. Estoque comida (no inverno quase não há caça), lenha e roupa de frio.', 'info'],

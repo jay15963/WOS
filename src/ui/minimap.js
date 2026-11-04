@@ -3,6 +3,7 @@
 // Drawn inside the radar disc (radar.js) and the map window; dot colours follow the HUD theme (hud-theme.css).
 
 import { SPECIES } from '../game/data.js';
+import { markExplored } from '../game/explore.js';
 
 // theme colours (hud-theme.css tokens): coral hostile, mustard neutral, olive passive, teal players
 const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
@@ -37,7 +38,11 @@ const GRASS = [86, 112, 54];
 // the chunks around the player, rasterized when they load (the classic world: all of it up front); the big map draws
 // the source's coarse planet image (macro) under them and the chunks discovered so far (fog of war: `seen`), with
 // zoom (wheel / buttons) and pan (drag) — Minimap.view = { cx, cy, span } (null = fit the world / around the player).
+// Fog of war (planet): game.explored (one byte per chunk, marked around the local player: markExplored, saved with the
+// player in save.js) — the explored land is drawn bright, the rest of the planet dimmed; the ring's chunks carry
+// relief shading from the terrain heights (radar and map); other players are marked with their names on the map.
 const RING = 1024, RM = RING - 1, RC = RING / 64;
+
 
 export class Minimap {
   constructor(game) {
@@ -60,6 +65,17 @@ export class Minimap {
       c.getContext('2d').putImageData(im, 0, 0);
       this.macro = { canvas: c, tpp: M.tpp }; // tpp: tiles per macro pixel
     }
+    // the painted planet (relief, biomes, coasts, rivers — planetSource mapImage, made by the planet worker after the
+    // boot) replaces the coarse macro picture when it arrives
+    w.source?.mapImage?.then?.((I) => {
+      if (!I || this.g.world !== w) return;
+      const c = document.createElement('canvas');
+      c.width = I.w; c.height = I.h;
+      const cx = c.getContext('2d'), im = cx.createImageData(I.w, I.h);
+      im.data.set(I.rgba);
+      cx.putImageData(im, 0, 0);
+      this.macro = { canvas: c, tpp: I.tpp, painted: true };
+    });
     if (!w.wrap) for (let cy = Math.floor(w.by0 / 64); cy <= Math.floor((w.by1 - 1) / 64); cy++) for (let cx = Math.floor(w.bx0 / 64); cx <= Math.floor((w.bx1 - 1) / 64); cx++) this._raster(cx, cy);
   }
 
@@ -99,15 +115,23 @@ export class Minimap {
       c = ROCK[w.rockType.get(i)] || ROCK[0];
       const k = w.ore.get(i) ? 1.15 : 1;
       c = [c[0] * k, c[1] * k, c[2] * (w.ore.get(i) ? 0.9 : 1)];
-    } else if (w.water.get(i) >= 2) c = w.water.get(i) === 3 ? [22, 44, 72] : [38, 72, 96];
+    } else if (w.water.get(i) >= 2) c = w.zone && w.zone.get(i) & 8 ? [16, 30, 56] : [38, 72, 96]; // (the abyssal ocean darker)
     else if (w.water.get(i) === 1) c = [72, 116, 128];
     else {
       const g = GROUND[w.ground.get(i)] || GROUND[0];
       const l = w.lush.get(i) * 0.55;
       c = [g[0] + (GRASS[0] - g[0]) * l, g[1] + (GRASS[1] - g[1]) * l, g[2] + (GRASS[2] - g[2]) * l];
+      const pg = w.pground ? w.pground.get(i) : 0;
+      if (pg === 8 || pg === 9) c = [222, 228, 236]; // (the planet's snow / ice ground)
+    }
+    // relief: light from the north-west on the terrain heights (corners: hC, the surface with the players' edits)
+    let k = 1;
+    if (w.height?.any && !w.water.get(i)) {
+      const H = w.hC, a = H.get(i), b = H.get(w.idx(x + 1, y + 1)), e = H.get(w.idx(x + 1, y)), f = H.get(w.idx(x, y + 1));
+      k = Math.max(0.55, Math.min(1.45, 1 + 0.55 * ((a - b) + 0.5 * (f - e))));
     }
     const n = ((x * 73 + y * 151) & 7) - 3.5;
-    d[o] = c[0] + n; d[o + 1] = c[1] + n; d[o + 2] = c[2] + n; d[o + 3] = 255;
+    d[o] = c[0] * k + n; d[o + 1] = c[1] * k + n; d[o + 2] = c[2] * k + n; d[o + 3] = 255;
   }
 
   _stampObjects(x0, y0, x1, y1) {
@@ -149,13 +173,28 @@ export class Minimap {
   pan(dx, dy) { const r = { ...this.mapRect(true) }; r.cx = this.g.world.wrapPos(r.cx + dx); r.cy = Math.max(0, Math.min(this.g.world.H, r.cy + dy)); this.view = r; }
   resetView() { this.view = null; }
 
+  // the fog of war (planet): 1 px per chunk, transparent where explored, a dark veil elsewhere
+  _fogCanvas() {
+    const g = this.g;
+    if (!g.explored) markExplored(g);
+    const E = g.explored, v = g._exploredV || 0;
+    if (!this.fog) { this.fog = document.createElement('canvas'); this.fog.width = 256; this.fog.height = 128; this.fogV = -1; }
+    if (this.fogV !== v) {
+      this.fogV = v;
+      const cx = this.fog.getContext('2d'), im = cx.createImageData(256, 128), d = im.data;
+      for (let c = 0; c < 32768; c++) { const o = c * 4; d[o] = 38; d[o + 1] = 27; d[o + 2] = 16; d[o + 3] = E && E[c] ? 0 : 128; } // (a warm veil: still readable)
+      cx.putImageData(im, 0, 0);
+    }
+    return this.fog;
+  }
+
   // the world under the map: the macro planet image (when zoomed out / undiscovered), then the discovered chunks
   _blit(ctx, sx, sy, sw, sh, kx, ky) {
     const w = this.g.world, M = this.macro;
     if (M && w.wrap) {
       // the planet picture, repeated across the seam
       const t = M.tpp, mx = sx / t, my = sy / t, mw = sw / t, mh = sh / t, PWm = w.W / t;
-      ctx.imageSmoothingEnabled = sw > 2048;
+      ctx.imageSmoothingEnabled = true; // (32 tiles a pixel: soft, not blocks)
       for (let k = Math.floor(mx / PWm); k * PWm < mx + mw; k++) {
         const ox = k * PWm, a0 = Math.max(mx, ox), a1 = Math.min(mx + mw, ox + PWm);
         if (a1 <= a0) continue;
@@ -163,16 +202,35 @@ export class Minimap {
         if (b1 <= b0) continue;
         ctx.drawImage(M.canvas, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - mx) * t * kx, (b0 - my) * t * ky, (a1 - a0) * t * kx, (b1 - b0) * t * ky);
       }
+      // the fog of war over it (explored chunks bright), soft edges
+      const F = this._fogCanvas(), fx = sx / 64, fy = sy / 64, fw = sw / 64, fh = sh / 64;
+      this._ringA = sw > 1400 ? 0 : sw > 700 ? (1400 - sw) / 700 : 1; // (the detailed chunks fade in as the map zooms in)
+      ctx.imageSmoothingEnabled = true;
+      for (let k = Math.floor(fx / 256); k * 256 < fx + fw; k++) {
+        const ox = k * 256, a0 = Math.max(fx, ox), a1 = Math.min(fx + fw, ox + 256), b0 = Math.max(0, fy), b1 = Math.min(128, fy + fh);
+        if (a1 <= a0 || b1 <= b0) continue;
+        ctx.filter = `blur(${Math.max(1, Math.min(14, 28 * kx)).toFixed(1)}px)`; // (soft fog edges, not chunk squares)
+        ctx.drawImage(F, a0 - ox, b0, a1 - a0, b1 - b0, (a0 - fx) * 64 * kx, (b0 - fy) * 64 * ky, (a1 - a0) * 64 * kx, (b1 - b0) * 64 * ky);
+        ctx.filter = 'none';
+      }
       ctx.imageSmoothingEnabled = false;
     }
     // discovered chunks in the ring
     const cx0 = Math.floor(sx / 64), cx1 = Math.floor((sx + sw) / 64), cy0 = Math.max(0, Math.floor(sy / 64)), cy1 = Math.min(127, Math.floor((sy + sh) / 64));
     if (cx1 - cx0 > RC * 2 || cy1 - cy0 > RC * 2) return; // (zoomed far out: the planet picture is enough)
+    const ra = M && w.wrap ? this._ringA ?? 1 : 1;
+    if (ra <= 0) return;
+    ctx.globalAlpha = ra;
+    // zoomed in (a tile ≥ 2 px): smooth the 1 px-per-tile picture — soft coasts instead of stair steps
+    const smooth = kx >= 2;
+    if (smooth) { ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high'; }
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
       const c = cy * 256 + (cx & 255);
       if (this.slot[(cy & (RC - 1)) * RC + (cx & (RC - 1))] !== c) continue;
       ctx.drawImage(this.base, (cx * 64) & RM, (cy * 64) & RM, 64, 64, (cx * 64 - sx) * kx, (cy * 64 - sy) * ky, 64 * kx + 0.5, 64 * ky + 0.5);
     }
+    ctx.globalAlpha = 1;
+    if (smooth) ctx.imageSmoothingEnabled = false;
   }
 
   // draw into ctx (css px size W×H); span = tiles visible across; full = the big map (mapRect)
@@ -229,23 +287,28 @@ export class Minimap {
         ctx.strokeStyle = b === mine ? TEAL : INK; ctx.lineWidth = b === mine ? 1.6 : 1; ctx.stroke();
       }
     }
-    // creatures
-    const dot = full ? 2 : 2.5;
+    // creatures (the big map zoomed far out: only players and giants — the planet is not a swarm of dots)
+    const dot = full ? 2 : 2.5, farMap = full && sw > 700;
     const giants = [];
     for (const e of g.entities) {
       if (e.dead) continue;
       if (e.species === 'giant') { giants.push(e); continue; } // (drawn last, on top: giantMark)
       if (e.remote || e.faction === 'bandit' || e.faction === 'walker') {
         // other players (blue), raiders and winter walkers (red)
+        if (farMap && !e.remote) continue;
         const X = toX(e.x), Y = toY(e.y);
         if (out(X, Y, 0)) continue;
         if (!full && !e.remote && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
         ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = e.remote ? CREAM : INK; ctx.lineWidth = 1; ctx.stroke();
+        if (full && e.remote && e.name) { // (the map: who it is)
+          ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = INK;
+          ctx.strokeText(e.name, X, Y - 7); ctx.fillStyle = CREAM; ctx.fillText(e.name, X, Y - 7);
+        }
         continue;
       }
-      if (e.kind !== 'animal') continue;
+      if (e.kind !== 'animal' || farMap) continue;
       const X = toX(e.x), Y = toY(e.y);
       if (out(X, Y, 0)) continue;
       if (!full && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;

@@ -1,7 +1,8 @@
 // Boot: graphics load in the background while the main menu is shown; the world is generated only
 // after the player chooses (single player, host a room, or join one — a guest gets the host's seed).
 // Dev shortcuts: ?seed=N starts single player directly; ?sala=CODE opens the join screen;
-// ?planet=1[&px=..&py=..] plays the planet generator streamed (?source=planet, docs/PLANET.md / STREAMING.md; no saves).
+// Worlds are planets (docs/PLANET.md / STREAMING.md): every new world, ?seed= and ?mp=host use the planet source;
+// ?source=classic|synth picks another one (dev / tests); ?planet=1[&px=..&py=..] = the planet without saves (dev).
 // Test flags (automated two-client harness, docs/SYNC.md §4.6): ?mp=host&sala=CODE hosts directly,
 // ?sala=CODE&autojoin=1 joins directly, ?nosave=1, ?link=bc (BroadcastChannel), ?pid=ID, and on localhost
 // ?fakebuild=X / ?fakeart=<sprite|ph:sprite> / ?fakepaintfail=1; window.wosDebug.setHidden(bool).
@@ -16,7 +17,6 @@ import { World } from './world/world.js';
 import { makeSource } from './world/source.js';
 import { Streamer, streamerSystem } from './world/streamer.js';
 import { allPlayers } from './game/players.js';
-import { savedSource } from './game/save.js';
 import { generateGroundTextures, generatePlanetGroundTextures, generateNoiseTexture, TEX } from './world/terrainTex.js';
 import { Environment } from './fx/environment.js';
 import { Particles } from './fx/particles.js';
@@ -146,9 +146,10 @@ async function boot() {
     }
     const guest = choice.mode === 'join';
     const seed = guest ? choice.welcome.seed : choice.seed;
-    // the world source (docs/STREAMING.md): the host's for a guest; ?source= (?planet=1 = the planet generator); the one a
-    // saved world was made with; classic. A planet starts now (its macro map is made in a worker while the graphics load).
-    const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.noSave || QS.has('fresh') ? null : savedSource(choice.worldId, seed)) || 'classic';
+    // the world source (docs/STREAMING.md): the host's for a guest; ?source= (dev / tests: classic, synth); the planet (every
+    // world now — a save of another source is an old world: ui/worlds.js keeps it out of reach). A planet starts now (its
+    // macro map is made in a worker while the graphics load).
+    const srcKind = guest ? choice.welcome.src || 'classic' : PLANET ? 'planet' : QS.get('source') || (FLAGS.hills ? 'classic' : 'planet'); // (?hills=1: the classic showcase)
     const srcOpts = { px: QS.get('px'), py: QS.get('py'), hills: !!(FLAGS.hills || (guest && choice.welcome.hills)) }; // (?hills=1: the classic world's terrain-height showcase)
     const earlySrc = srcKind === 'planet' ? makeSource(srcKind, seed, srcOpts) : null;
     status('Preparando…', 0.3); await nextFrame();

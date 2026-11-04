@@ -19,7 +19,7 @@
 // the oars to the next passenger. Winter: frozen water holds the boat (it does not move).
 // Cosmetic per peer: the drawn pose, bobbing and rocking, the oars' stroke (from the drawn speed), the wake.
 
-import { BOAT, halfW, hullPt, inHull, hullNear, hullFree, launchPose, roomOf } from './content/boats.js';
+import { BOAT, halfW, hullPt, inHull, hullNear, hullFree, hullAbyss, launchPose, roomOf } from './content/boats.js';
 import { collides, facingFrom } from './physics.js';
 import { registerWork } from './gathering.js';
 import { allPlayers } from './players.js';
@@ -190,7 +190,7 @@ export class Boats {
       const [x, y] = hullPt(b.x, b.y, b.h, u, s), tx = Math.floor(x), ty = Math.floor(y);
       if (!w.inBounds(tx, ty) || w.liquidAt(tx, ty) === 2 || collides(w, x, y, r, null, true, false)) return;
       for (const o of this.map.values()) if (inHull(o.x, o.y, o.h, x, y, 0.15)) return;
-      const i = w.idx(tx, ty), wet = w.water.get(i) && !(w.deck && w.deck.get(i)) && !w.frozen;
+      const i = w.idx(tx, ty), wet = w.water.get(i) && !(w.deck && w.deck.get(i)) && !w.iceAt(i);
       const sc = Math.hypot(x - fx, y - fy) + (wet ? 0.7 : 0) - 0.3 * (u / 1.5);
       if (sc < bs) { bs = sc; best = [r2(x), r2(y)]; }
     };
@@ -379,7 +379,7 @@ function drive(game, B, b, C, dt) {
   if (mx || my) [mx, my] = game.toWorldDir(mx, my);
   const mag = Math.min(1, Math.hypot(mx, my));
   C.rowing = false;
-  if (w.frozen) {
+  if (w.frozenAt(C.x, C.y)) {
     C.vx = C.vy = C.w = 0;
     if (mag > 0.2 && game.time - C.iceT > 4) { C.iceT = game.time; game.events.emit('error', { text: 'O barco está preso no gelo' }); }
   } else {
@@ -417,6 +417,8 @@ function drive(game, B, b, C, dt) {
     const pose = (x, y) => { for (const dh of WIGGLE) if (hullFree(game, x, y, C.h + dh, b)) { C.x = x; C.y = y; C.h += dh; return true; } return false; };
     if (!pose(nx, ny)) {
       const sp = Math.hypot(C.vx, C.vy);
+      // the open ocean: the boat cannot take it (it stops at the edge of the abyss)
+      if (hullAbyss(w, nx, ny, C.h) && game.time - (C.abyssT || -99) > 4) { C.abyssT = game.time; game.events.emit('error', { text: 'Oceano aberto: o barco não aguenta' }); }
       if (pose(nx, C.y)) C.vy *= -0.15;
       else if (pose(C.x, ny)) C.vx *= -0.15;
       else { C.vx *= -0.2; C.vy *= -0.2; }
@@ -532,7 +534,7 @@ export function boatsSystem() {
         bob(b, game.time, dt);
         oarRoom(game.world, b, dt);
         // the oars: a stroke while it moves or turns with someone at them
-        const rowing = !!b.seats[0] && (b._spd > 0.25 || Math.abs(b._turn) > 0.25) && !game.world.frozen;
+        const rowing = !!b.seats[0] && (b._spd > 0.25 || Math.abs(b._turn) > 0.25) && !game.world.frozenAt(b._x, b._y);
         b._rowK = (b._rowK || 0) + ((rowing ? 1 : 0) - (b._rowK || 0)) * Math.min(1, dt * 4);
         if (rowing || (b._row || 0) % 1 > 0.02) {
           const r0 = b._row || 0;
@@ -707,10 +709,10 @@ function ashore(game, B) {
 function wake(game, B, dt) {
   const F = B.fx;
   for (let i = F.length - 1; i >= 0; i--) { const f = F[i]; f.t += dt; f.x += f.vx * dt; f.y += f.vy * dt; if (f.t >= f.life) F.splice(i, 1); }
-  if (game.world.frozen) return;
   const v = game.view?.();
   for (const b of B.map.values()) {
     if (v && (b._x < v.x0 - 3 || b._x > v.x1 + 3 || b._y < v.y0 - 3 || b._y > v.y1 + 4)) continue;
+    if (game.world.frozenAt(b._x, b._y)) continue; // (held in the ice: no wake)
     const sp = b._spd || 0;
     b._wT = (b._wT || 0) - dt;
     if (sp > 0.35 && b._wT <= 0 && F.length < 110) {

@@ -5,7 +5,7 @@
 
 import { ITEMS, SEED_IDS } from './content/items.js';
 import { registerWork } from './gathering.js';
-import { CROPS, cropAt, growCrops } from './mut/crops.js';
+import { CROPS, cropAt, growCrops, plantProblem, growNote } from './mut/crops.js';
 import { fertileAt } from '../world/soil.js';
 
 export { CROPS, cropAt };
@@ -14,8 +14,10 @@ export function initFarming(game) {
   game.farm = { crops: new Map(), describePlot }; // tile idx -> crop
 }
 
-// can this seed grow on that tile (wheat: fertile soil only, src/world/soil.js)
-export const seedGrowsAt = (game, seed, tx, ty) => !CROPS[ITEMS[seed]?.seed]?.fertile || fertileAt(game.world, tx, ty);
+// can this seed grow on that tile (wheat: fertile soil only, src/world/soil.js; hot / dry land: only the fertile strips
+// along the water; polar land: nothing — mut/crops.js plantProblem)
+export const seedGrowsAt = (game, seed, tx, ty) => !plantProblem(game, ITEMS[seed]?.seed, tx, ty);
+void fertileAt;
 
 // seed to plant: the player's preference if owned, else the first seed in the backpack; with a tile, one that grows there
 // (wheat needs fertile soil) — else the first owned one (the plot then says "Solo não fértil")
@@ -33,12 +35,15 @@ function describePlot(game, plot) {
   const base = { o: plot, tile: true, tx: plot.tx, ty: plot.ty, w: 1, h: 1, x: plot.tx + 0.5, y: plot.ty + 0.5, reach: 0.6 };
   if (c) {
     if (c.stage >= 3) return { ...base, kind: 'harvest', crop: c, verb: `Colher ${CROPS[c.kind].name.toLowerCase()}`, icon: 'gather', prio: 4 };
-    return null;
+    // growing: say so when the place slows it down (heat, a mild winter, the dry season) or stops it
+    const note = growNote(game, plot.tx, plot.ty);
+    return note ? { ...base, kind: 'crop_info', crop: c, verb: note, note, icon: 'gather', prio: -1, bad: true } : null;
   }
   const seed = seedToPlant(game.player, game, plot.tx, plot.ty);
   if (!seed) return { ...base, kind: 'plant', verb: 'Plantar', icon: 'gather', prio: -1 };
-  // wheat off the fertile soil: the use button says so (and the overlay rings the plot red: livestock.js)
-  if (!seedGrowsAt(game, seed, plot.tx, plot.ty)) return { ...base, kind: 'plant', seed, bad: true, verb: 'Solo não fértil', icon: 'gather', prio: 1 };
+  // wheat off the fertile soil / dry hot land / polar cold: the use button says why (and the overlay rings the plot red)
+  const why = plantProblem(game, ITEMS[seed].seed, plot.tx, plot.ty);
+  if (why) return { ...base, kind: 'plant', seed, bad: true, verb: why.split(':')[0], why, icon: 'gather', prio: 1 };
   return { ...base, kind: 'plant', seed, verb: `Plantar ${CROPS[ITEMS[seed].seed].name.toLowerCase()}`, icon: 'gather', prio: 2 };
 }
 
@@ -47,7 +52,8 @@ registerWork('plant', {
   start(game, it) {
     const seed = seedToPlant(game.player, game, it.tx, it.ty);
     if (!seed) { game.events.emit('error', { text: 'Sem sementes. Colha plantas silvestres.' }); return null; }
-    if (!seedGrowsAt(game, seed, it.tx, it.ty)) { game.events.emit('error', { text: 'Solo não fértil: o trigo só cresce até 5 tiles de um rio' }); return null; }
+    const why = plantProblem(game, ITEMS[seed].seed, it.tx, it.ty);
+    if (why) { game.events.emit('error', { text: why }); return null; }
     it.seed = seed;
     return { type: 'plant', cycle: 0.9, need: 1, label: 'Plantando' };
   },
@@ -61,6 +67,12 @@ registerWork('plant', {
     game.work?.queuePlantNear(it.tx, it.ty);
     return true;
   },
+});
+
+// a growing crop slowed / stopped by its place: the button only explains
+registerWork('crop_info', {
+  valid: () => false,
+  start(game, it) { game.events.emit('toast', { text: `${it.note}${/calor|seco/.test(it.note) ? ' — em terra quente e seca só o solo fértil perto da água dá colheita, e mais devagar' : ''}`, kind: 'info' }); return null; },
 });
 
 registerWork('harvest', {

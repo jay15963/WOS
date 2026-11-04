@@ -12,6 +12,7 @@ import { checkAtlas } from '../game/artcheck.js';
 import { artWarnings } from '../game/artcompat.js';
 import { pathRows } from '../game/mut/paths.js';
 import { chunkOfI } from '../world/store.js';
+import { campStateRows } from '../game/mut/camps.js';
 
 export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
@@ -21,12 +22,12 @@ export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT
 const fnv = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h >>> 0; };
 // hash of a store layer (docs/STREAMING.md): a sparse one by its non-zero tiles; a chunk-backed one (rock, roof) by the
 // pages of the chunks holding a mined tile only (`only`: the same set on every peer — the rest is the pristine source)
-function fnvLayer(w, L, only = null) {
+function fnvLayer(w, L, only = null, skip = null) {
   const dirtyOnly = !!only;
   let h = 2166136261;
   const mix = (v) => { h ^= v & 255; h = Math.imul(h, 16777619) >>> 0; h ^= (v >>> 8) & 255; h = Math.imul(h, 16777619) >>> 0; h ^= (v >>> 16) & 255; h = Math.imul(h, 16777619) >>> 0; };
   for (const c of L.chunks()) {
-    if (dirtyOnly && !only.has(c)) continue;
+    if ((dirtyOnly && !only.has(c)) || (skip && skip.has(c))) continue;
     const p = L.pages[c];
     if (dirtyOnly) { mix(c); for (let l = 0; l < p.length; l++) { h ^= p[l]; h = Math.imul(h, 16777619) >>> 0; } continue; }
     for (let l = 0; l < p.length; l++) if (p[l]) { mix(c * 4096 + l); h ^= p[l]; h = Math.imul(h, 16777619) >>> 0; }
@@ -35,31 +36,36 @@ function fnvLayer(w, L, only = null) {
 }
 const r10 = (v) => Math.round((v || 0) * 10);
 
-export function dumpPart(game, part) {
+// ex: chunks left out (interest: a guest's stale chunks and the ring around them — net/interest.js); the local rows
+// there are skipped (natural objects, flora, structures, tiles, ground items, crops)
+export function dumpPart(game, part, ex = null) {
   const w = game.world;
+  const X = ex && ex.size ? ex : null, OK = (x, y) => !X || !X.has(w.chunkIndex(x, y));
   switch (part) {
     case 'nat': {
       const out = [];
       for (const o of game.touched.values()) {
-        if (o.flora || o.building || o.type === 'crop') continue;
+        if (o.flora || o.building || o.type === 'crop' || !OK(o.x, o.y)) continue;
         if (o.gone) out.push([o.id, 'gone']);
         else if (o.stump || o.prog) out.push([o.id, o.stump ? 1 : 0, r10(o.prog)]);
       }
       return out.sort(cmp);
     }
-    case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone)
+    case 'dyn': return [...game.flora.dyn.values()].filter((o) => !o.gone && OK(o.x, o.y))
       .map((o) => [o.id, o.type, o.x.toFixed(2), o.y.toFixed(2), o.v | 0, o.stump ? 1 : 0, o.solid > 0 ? 1 : 0, o.born == null ? null : Math.round(o.born)]).sort(cmp);
-    case 'structs': return game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
+    case 'structs': return game.build.structures.filter((o) => OK(o.tx + 0.5, o.ty + 0.5)).map((o) => [o.id, o.type, o.tx, o.ty, r10(o.progress), o.mask | 0, o.orient || 0,
       game.build.decon.has(o) ? 1 : 0, o.working ? 1 : 0, o.store ? JSON.stringify(o.store.toJSON()) : 0, o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '', o.lv | 0]).sort(cmp); // (lv: levels, agent L)
     case 'tiles': {
-      const mc = new Set(game.minedTiles.map((i) => chunkOfI(i)));
-      return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid)], ['mined', [...game.minedTiles].sort((a, b) => a - b).join(',')],
-        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof)],
+      const mt = X ? game.minedTiles.filter((i) => !X.has(chunkOfI(i))) : game.minedTiles;
+      const mc = new Set(mt.map((i) => chunkOfI(i)));
+      return [['rock', fnvLayer(w, w.rock, mc)], ['solid', fnvLayer(w, w.solid, null, X)], ['mined', [...mt].sort((a, b) => a - b).join(',')],
+        ['roof', fnvLayer(w, w.roof, mc)], ['broof', fnvLayer(w, w.broof, null, X)],
         ['tun', w.tunnels ? [...w.tunnels].sort((a, b) => a[0] - b[0]).map((r) => r[0] + ':' + Math.round(r[1] * 100)).join(',') : '']]; // (tunnels: docs/TERRAIN-HEIGHT.md)
     }
-    case 'loot': return game.loot.filter((l) => l.qty > 0).map((l) => [l.id, l.item, l.qty]).sort(cmp);
-    case 'crops': return [...game.farm.crops.values()].map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
-    case 'props': return (game.props || []).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0]).sort(cmp);
+    case 'loot': return game.loot.filter((l) => l.qty > 0 && OK(l.x0 ?? l.x, l.y0 ?? l.y)).map((l) => [l.id, l.item, l.qty]).sort(cmp);
+    case 'crops': return [...game.farm.crops.values()].filter((c) => OK(c.tx + 0.5, c.ty + 0.5)).map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
+    // camp crates: their shared state (non-default rows, loaded or not: mut/camps.js); training dummies (structures)
+    case 'props': return campStateRows(game).map((r) => [r[0], r[1], r[2]]).concat((game.props || []).filter((o) => o.dummy).map((o) => [o.id, o.hp | 0, 0])).sort(cmp);
     case 'corpses': return game.corpses ? [...game.corpses.map.values()].map((c) => [c.id, c.of, c.x.toFixed(2), c.y.toFixed(2), Math.round(c.deathT), c.butchered ? 1 : 0,
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
@@ -71,10 +77,11 @@ export function dumpPart(game, part) {
 }
 const cmp = (a, b) => (String(a[0]) < String(b[0]) ? -1 : String(a[0]) > String(b[0]) ? 1 : 0);
 
-export function computeDigest(game) {
+export function computeDigest(game, ex = null) {
   const parts = {}, counts = {};
+  const X = ex ? (ex instanceof Set ? ex : new Set(ex)) : null;
   for (const p of EXACT_PARTS) {
-    const rows = dumpPart(game, p);
+    const rows = dumpPart(game, p, X);
     counts[p] = rows.length;
     parts[p] = fnv(JSON.stringify(rows)).toString(36);
   }
@@ -99,8 +106,8 @@ export function diff(a, b) {
 // debug / test API on game.net (works in solo, host and guest)
 export function installNetDebug(game) {
   const net = game.net;
-  net.hooks.digest = () => computeDigest(game);
-  net.hooks.dump = (part) => dumpPart(game, part);
+  net.hooks.digest = (ex) => computeDigest(game, ex);
+  net.hooks.dump = (part, ex) => dumpPart(game, part, ex ? (ex instanceof Set ? ex : new Set(ex)) : null);
   net.hooks.diff = diff;
   net.hooks.selfTest = () => {
     const chk = game.A.check || checkAtlas(game.A);
@@ -126,13 +133,20 @@ export class DigestHost {
     if (!guests.length) return;
     const net = this.game.net;
     net.flush(); // everything applied so far goes out before the digest (same ordered channel)
-    const d = computeDigest(this.game);
-    for (const pl of guests) this.s._sendTo(pl.key, { t: 'dg', s: d.seq, parts: d.parts, counts: d.counts, ents: this.s.ents?.interestRows(pl.pid) || [], env: dumpPart(this.game, 'env') });
+    this.s.interest?.update(); // (and the chunk diffs due: the guest hashes after them)
+    // each guest: the world without its stale chunks (interest, net/interest.js) — the host names them
+    const all = computeDigest(this.game);
+    for (const pl of guests) {
+      const ex = this.s.interest?.excluded(pl.pid) || null;
+      const d = ex ? computeDigest(this.game, ex) : all;
+      this.s._sendTo(pl.key, { t: 'dg', s: d.seq, parts: d.parts, counts: d.counts, ex: ex || undefined, ents: this.s.ents?.interestRows(pl.pid) || [], env: dumpPart(this.game, 'env') });
+    }
   }
   onRequest(key, m) {
     this.game.net.flush();
+    const pid = this.s.keyToPid?.get(key), ex = pid ? this.s.interest?.excluded(pid) : null, X = ex ? new Set(ex) : null;
     const parts = Array.isArray(m.parts) ? m.parts.filter((p) => EXACT_PARTS.includes(p)).slice(0, 8) : [];
-    for (const part of parts) this.s._sendTo(key, { t: 'dgr', part, s: this.game.net.seq, rows: dumpPart(this.game, part) });
+    for (const part of parts) this.s._sendTo(key, { t: 'dgr', part, s: this.game.net.seq, rows: dumpPart(this.game, part, X), ex: ex || undefined });
   }
 }
 
@@ -144,7 +158,8 @@ export class DigestGuest {
     const net = this.game.net;
     if (!net.synced || !m.parts) return;
     if ((m.s | 0) !== net.seq) return; // still catching up (resync in flight)
-    const mine = computeDigest(this.game);
+    this.ex = Array.isArray(m.ex) ? new Set(m.ex.filter((c) => Number.isInteger(c))) : null; // (the chunks the host left out: interest)
+    const mine = computeDigest(this.game, this.ex);
     const bad = EXACT_PARTS.filter((p) => m.parts[p] && mine.parts[p] !== m.parts[p]);
     if (bad.length) this.s.sendHost({ t: 'dgx', parts: bad });
     this._checkEnts(m.ents);
@@ -155,7 +170,8 @@ export class DigestGuest {
     const part = typeof m.part === 'string' ? m.part : '';
     if (!EXACT_PARTS.includes(part) || !Array.isArray(m.rows)) return;
     if ((m.s | 0) !== this.game.net.seq) return;
-    const d = diff(m.rows, dumpPart(this.game, part));
+    const ex = Array.isArray(m.ex) ? new Set(m.ex.filter((c) => Number.isInteger(c))) : null;
+    const d = diff(m.rows, dumpPart(this.game, part, ex));
     if (!d.count) return; // fixed itself in between
     const sample = [...d.missing.map((k) => `${k} ausente`), ...d.extra.map((k) => `${k} sobrando`), ...d.changed.map((k) => `${k} diferente`)].slice(0, 20);
     this._desync(part, `Dessincronia em ${part}: ${d.count} diferença(s) (${sample.join(', ')})`, d);

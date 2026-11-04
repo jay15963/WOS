@@ -11,7 +11,7 @@ import { BUILD, BUILD_DATE } from '../net/netlog.js';
 import { startShowcase } from './showcase.js';
 import { isStandalone, openInstallGuide, checkUpdate, announceUpdate } from './pwa.js';
 import * as AUD from '../fx/audio.js';
-import { listWorlds, lastWorld, worldInfo, createWorld, deleteWorld, agoLabel, MAX_WORLDS } from './worlds.js';
+import { listWorlds, lastWorld, worldInfo, createWorld, deleteWorld, agoLabel, MAX_WORLDS, OLD_WORLD_PT } from './worlds.js';
 const YEAR_LIST = { short: 'curto', normal: 'normal', long: 'longo' }; // ("ano curto" in the world list; calendar.YEAR_PT names the setting)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -216,6 +216,11 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
         ${mode === 'host' ? '<p>Qual mundo seus amigos vão visitar? O modo do mundo vale para todos na sala.</p>' : ''}
         <div class="wlist">${list.length ? list.map((w) => {
           const inf = worldInfo(w.id);
+          if (w.old) return `<div class="wrow old" data-id="${esc(w.id)}">
+            <button class="wplay" data-a="play" disabled title="${OLD_WORLD_PT}"><b>${esc(w.name)}</b>${modeChip(w.mode)}
+              <small>${OLD_WORLD_PT}. Apague-o para liberar o espaço · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
+            <button class="wdel" data-a="del" title="Apagar mundo" aria-label="Apagar ${esc(w.name)}">✕</button>
+          </div>`;
           return `<div class="wrow" data-id="${esc(w.id)}">
             <button class="wplay" data-a="play"><b>${esc(w.name)}</b>${modeChip(w.mode)}
               <small>${inf ? `${inf.age} · Ano ${inf.date.year}, dia ${inf.date.day} · nível ${inf.level}` : 'Ainda não jogado'} · ano ${YEAR_LIST[w.year] || YEAR_LIST.short} · semente ${w.seed} · ${agoLabel(w.played)}</small></button>
@@ -228,7 +233,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
       el.querySelector('[data-a=new]').onclick = () => { if (!full) open(newWorld(mode)); };
       for (const row of el.querySelectorAll('.wrow')) {
         const w = list.find((q) => q.id === row.dataset.id);
-        row.querySelector('[data-a=play]').onclick = () => play(w, mode);
+        row.querySelector('[data-a=play]').onclick = () => { if (!w.old) play(w, mode); };
         row.querySelector('[data-a=del]').onclick = () => {
           row.classList.add('ask');
           row.innerHTML = `<span class="wask">Apagar <b>${esc(w.name)}</b> para sempre?</span>

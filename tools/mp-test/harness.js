@@ -278,11 +278,24 @@ export function rowDiff(part, ra, rb, la, lb) {
   if (!onlyA.length && !onlyB.length && !changed.length) L.push('  rows equal but hash differs (row order / hashing input?)');
   return L.join('\n');
 }
+// interest (net/interest.js): the chunks a guest is not kept up to date on — the host names them; a host / guest pair
+// compares the world without them (null: everything)
+export function interestEx(A, B) {
+  try {
+    const host = A?.net?.role === 'host' ? A : B?.net?.role === 'host' ? B : null, guest = host === A ? B : A;
+    if (host) return guest?.pid ? host.session?.interest?.excluded?.(guest.pid) || null : null;
+    // two guests: their host's stale chunks of either (the frame hosting both)
+    const H = frames.live.find((f) => f.net?.role === 'host' && f.session?.players?.has?.(A?.pid) && f.session?.players?.has?.(B?.pid));
+    const ex = new Set([...(H?.session?.interest?.excluded?.(A.pid) || []), ...(H?.session?.interest?.excluded?.(B.pid) || [])]);
+    return ex.size ? [...ex] : null;
+  } catch { return null; }
+}
 export function partDiffs(A, B, parts) {
   const out = [];
+  const ex = interestEx(A, B);
   for (const part of parts) {
     let ra, rb;
-    try { ra = A.net.dump(part); rb = B.net.dump(part); } catch (e) { out.push(`${part}: dump() failed (${e.message})`); continue; }
+    try { ra = A.net.dump(part, ex); rb = B.net.dump(part, ex); } catch (e) { out.push(`${part}: dump() failed (${e.message})`); continue; }
     out.push(rowDiff(part, ra, rb, A.label, B.label));
     if (typeof A.net.diff === 'function') { try { out.push('  net.diff: ' + short(A.net.diff(ra, rb), 600)); } catch { /* ignore */ } }
   }
@@ -360,7 +373,8 @@ export class Ctx {
       const sa = seqOf(A), sb = seqOf(B);
       if (sa === sb) {
         seqSeen = true;
-        const a = A.net.digest(), b = B.net.digest();
+        const ex = interestEx(A, B);
+        const a = A.net.digest(ex), b = B.net.digest(ex);
         const bad = diffDigestParts(a, b);
         if (!bad.length) return { ok: true, ms: now() - t0, seq: sa, parts: Object.keys(partsOf(a)), counts: a.counts };
         last = { a, b, bad, sa, sb };

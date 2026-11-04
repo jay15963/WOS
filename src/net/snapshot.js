@@ -26,6 +26,11 @@
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
 // Runs inside net.applying (world mutation guard).
+// Interest (net/interest.js, docs/STREAMING.md §8): serializeWorld(game, { keep(x, y), skipped }) leaves out the LOCAL rows
+// (natural objects, flora, falling trees, mined tiles, structures, crops, ground items) whose place fails keep and lists
+// their chunks in `skipped`; the global parts (clock, camp crates, bodies, paths, terrain edits, boats) always go.
+// applyWorld(game, data, 'chunk', scope) applies such a diff of the chunks in `scope` (a Set): reconcile only there,
+// nothing global touched.
 
 import { BUILDINGS, ITEMS, ITEM_ALIASES } from '../game/data.js';
 import { setYearLength } from '../game/calendar.js';
@@ -38,7 +43,7 @@ import { applyKitFields } from '../game/mut/kit.js';
 import { plantCrop, removeCrop, stageOf, CROPS } from '../game/mut/crops.js';
 import { addLootRows, removeLoot } from '../game/mut/loot.js';
 import { mineTile } from '../game/mut/tiles.js';
-import { propById, setPropBroken } from '../game/mut/camps.js';
+import { propById, setPropBroken, campStateRows, applyCampState } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
 import { serializeTunnels, applyTunnels } from '../game/mut/tunnels.js'; // tunnels dug into the relief
@@ -49,11 +54,16 @@ export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
 const r3 = (v) => Math.round((v || 0) * 1000) / 1000;
 
-export function serializeWorld(game, { save = false } = {}) {
+const XM_ = 16383;
+export function serializeWorld(game, { save = false, keep = null, skipped = null } = {}) {
   const w = game.world, net = game.net;
+  // (interest: a row is kept when its place passes `keep`; the chunks of the others go to `skipped`)
+  const K = !keep ? () => true : (x, y) => { if (keep(x, y)) return true; skipped?.add(w.chunkIndex(x, y)); return false; };
+  const KI = (i) => K((i & XM_) + 0.5, (i >>> 14) + 0.5);
   const gone = [], nat = [], natpos = {};
   for (const o of game.touched.values()) {
     if (o.flora || o.building || o.type === 'crop') continue;
+    if (!K(o.x, o.y)) continue;
     if (o.gone) gone.push(o.id);
     else if (o.stump || o.prog) nat.push([o.id, o.stump ? 1 : 0, Math.round(o.stumpAt || 0), r3(o.prog)]);
     else continue;
@@ -61,44 +71,57 @@ export function serializeWorld(game, { save = false } = {}) {
   }
   const dyn = [];
   for (const o of game.flora.dyn.values()) {
-    if (o.gone) continue;
+    if (o.gone || !K(o.x, o.y)) continue;
     dyn.push([o.id, o.type, r3(o.x), r3(o.y), o.v | 0, r3(o.s || 1), o.f || 1, o.born == null ? null : Math.round(o.born), o.stump ? 1 : 0, Math.round(o.stumpAt || 0), o.solid > 0 ? 1 : 0]);
   }
   const data = {
     v: SNAP_V, build: BUILD, seed: w.seed, seq: net.seq, wt: Math.round(game.worldTime * 100) / 100,
     env: { h: +game.env.hour.toFixed(3), d: game.env.dayIndex, w: game.env.weather },
     gone, nat, dyn,
-    falling: game.falling.filter((o) => !o.gone).map((o) => [o.id, r3(o.fall), o.fallDir || 1]),
-    mined: game.minedTiles.slice(),
-    rockp: [...game.rockHits].map(([i, p]) => [i, r3(p)]),
-    structs: game.build.structures.map((o) => [o.id, o.type, o.tx, o.ty, o.v | 0, r3(o.progress), game.build.decon.has(o) ? 1 : 0,
+    falling: game.falling.filter((o) => !o.gone && K(o.x, o.y)).map((o) => [o.id, r3(o.fall), o.fallDir || 1]),
+    mined: keep ? game.minedTiles.filter(KI) : game.minedTiles.slice(),
+    rockp: [...game.rockHits].filter(([i]) => KI(i)).map(([i, p]) => [i, r3(p)]),
+    structs: structsOf(game, K).map((o) => [o.id, o.type, o.tx, o.ty, o.v | 0, r3(o.progress), game.build.decon.has(o) ? 1 : 0,
       o.store ? o.store.toJSON() : 0, o.working ? 1 : 0, Math.round(o.builtAt || 0), o.rot | 0, o.paid ? 1 : 0, o.open ? 1 : 0, o.moveOf || 0, o.style || '', o.det || '']),
-    crops: [...game.farm.crops.values()].map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
-    loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
-    props: (game.props || []).filter((o) => o.broken || o.hp !== o.maxHp).map((o) => [o.id, o.hp | 0, o.broken ? 1 : 0, Math.round(o.brokenAt || 0)]),
+    crops: [...game.farm.crops.values()].filter((c) => K(c.tx + 0.5, c.ty + 0.5)).map((c) => [c.tx, c.ty, c.kind, r3(c.growth), c.stage]),
+    loot: game.loot.filter((l) => l.qty > 0 && (!save || l.t < 240) && K(l.x0 ?? l.x, l.y0 ?? l.y)).slice(save ? -80 : 0).map((l) => [l.id, l.item, l.qty, r2(l.x), r2(l.y)]),
+    props: campStateRows(game), // (camp crates: the shared state, loaded or not — mut/camps.js)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
     year: game.yearLen && game.yearLen !== 'short' ? game.yearLen : undefined, // the world's year length (calendar.js)
   };
-  const lvs = game.build.structures.filter((o) => o.lv > 0).map((o) => [o.id, o.lv | 0]); // levels: upper stories
+  const SK = keep ? new Set(data.structs.map((r) => r[0])) : null, inS = (o) => !SK || SK.has(o.id);
+  const lvs = game.build.structures.filter((o) => o.lv > 0 && inS(o)).map((o) => [o.id, o.lv | 0]); // levels: upper stories
   if (lvs.length) data.lvs = lvs;
   // terrain height (docs/TERRAIN-HEIGHT.md): the players' terrain edits as a diff of the generated terrain, the bases
   // buildings stand on
   if (w.hasHeight) {
     const terr = w.height.diff();
     if (terr.length) data.terr = terr;
-    const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz)).map((o) => [o.id, Math.round(o.bz * 100)]);
+    const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz) && inS(o)).map((o) => [o.id, Math.round(o.bz * 100)]);
     if (bzs.length) data.bzs = bzs;
     if (w.tunnels.size) data.tun = serializeTunnels(game); // tunnels dug into the relief (mut/tunnels.js)
   }
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
-  const ball = game.build.structures.filter((o) => o.type === 'ballista' && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
+  const ball = game.build.structures.filter((o) => o.type === 'ballista' && inS(o) && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
   if (ball.length) data.ball = ball;
   // boats (game/boats.js): pose and riders (a save drops the riders: everyone is ashore after a load)
   if (game.boats?.map.size) data.boats = [...game.boats.map.values()].map((b) => [b.id, r3(b.x), r3(b.y), r3(b.h), b.v | 0, Math.round(b.at || 0), save ? 0 : b.seats.slice(), save ? 0 : b.pets.map((q) => q.slice())]);
   if (save) { data.ids = { ...net.ids }; data.natpos = natpos; data.stock = stockRows(game); } // (stock: the farm's animals; guests see them in the entity stream)
   return data;
+}
+
+// the structures whose anchor tile passes K (all of them without a filter)
+function structsOf(game, K) { return game.build.structures.filter((o) => K(o.tx + 0.5, o.ty + 0.5)); }
+
+// a diff of the chunks in `scope` (interest: a guest coming near chunks it was not kept up to date on): the local rows
+// of serializeWorld there, nothing global
+export function serializeChunks(game, scope) {
+  const w = game.world, d = serializeWorld(game, { keep: (x, y) => scope.has(w.chunkIndex(x, y)) });
+  const out = { v: d.v, seq: d.seq, gone: d.gone, nat: d.nat, dyn: d.dyn, falling: d.falling, mined: d.mined, rockp: d.rockp, structs: d.structs, crops: d.crops, loot: d.loot };
+  for (const k of ['lvs', 'bzs', 'ball']) if (d[k]) out[k] = d[k];
+  return out;
 }
 
 // find a natural object saved as (id, type, x, y): exact id first, then the same type at the same spot
@@ -121,35 +144,39 @@ function rockAt(w, x, y) {
   return w.rock.get(w.idx(x, y));
 }
 
-export function applyWorld(game, d, mode = 'net') {
+export function applyWorld(game, d, mode = 'net', scope = null) {
   if (!d || typeof d !== 'object') return false;
-  game.net.withApply(() => applyInner(game, d, mode));
+  game.net.withApply(() => applyInner(game, d, mode, scope));
   return true;
 }
 
-function applyInner(game, d, mode) {
+function applyInner(game, d, mode, scope = null) {
   const w = game.world, net = game.net;
-  const reconcile = mode === 'net';
-  game.creative = d.mode === 'creative';
-  game.yearLen = setYearLength(d.year); // (missing = the short year of older worlds)
-  if (Number.isFinite(d.wt)) game.worldTime = d.wt;
-  if (d.env) {
-    if (Number.isFinite(d.env.h)) game.env.hour = d.env.h;
-    if (Number.isFinite(d.env.d)) game.env.dayIndex = d.env.d;
-    if (typeof d.env.w === 'string' && d.env.w !== game.env.weather) game.env.setWeather?.(d.env.w);
+  const chunk = mode === 'chunk'; // (a diff of the chunks in scope: net/interest.js)
+  const reconcile = mode === 'net' || chunk;
+  // reconcile only touches what is in scope (every place without one)
+  const IN = !chunk ? () => true : (x, y) => scope.has(w.chunkIndex(x, y));
+  if (!chunk) {
+    game.creative = d.mode === 'creative';
+    game.yearLen = setYearLength(d.year); // (missing = the short year of older worlds)
+    if (Number.isFinite(d.wt)) game.worldTime = d.wt;
+    if (d.env) {
+      if (Number.isFinite(d.env.h)) game.env.hour = d.env.h;
+      if (Number.isFinite(d.env.d)) game.env.dayIndex = d.env.d;
+      if (typeof d.env.w === 'string' && d.env.w !== game.env.weather) game.env.setWeather?.(d.env.w);
+    }
+    // ---- terrain edits (docs/TERRAIN-HEIGHT.md; a snapshot without them = the generated terrain) ----
+    if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; hideDugDecor(game, [...w.height.edits.keys()]); }
+    // ---- tunnels (before the mined tiles: a rock tile dug into a tunnel is mined without a cut; ops without a place: global) ----
+    if (reconcile || d.tun) applyTunnels(game, arr(d.tun), reconcile);
   }
 
-  // ---- terrain edits (docs/TERRAIN-HEIGHT.md; a snapshot without them = the generated terrain) ----
-  if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; hideDugDecor(game, [...w.height.edits.keys()]); }
-
-  // ---- tunnels (before the mined tiles: a rock tile dug into a tunnel is mined without a cut) ----
-  if (reconcile || d.tun) applyTunnels(game, arr(d.tun), reconcile);
   // ---- mined tiles (never un-mine) & mining progress ----
   for (const i of arr(d.mined)) {
     if (!Number.isInteger(i) || i < 0 || i >= w.W * w.H) continue;
     if (w.rock.get(i) === 1) mineTile(game, i % w.W, Math.floor(i / w.W));
   }
-  game.rockHits.clear();
+  if (chunk) { for (const i of [...game.rockHits.keys()]) if (IN((i % w.W) + 0.5, Math.floor(i / w.W) + 0.5)) game.rockHits.delete(i); } else game.rockHits.clear();
   for (const [i, p] of arr(d.rockp)) if (w.rock.get(i) === 1) game.rockHits.set(i, p);
 
   // ---- natural worldgen objects ----
@@ -163,7 +190,7 @@ function applyInner(game, d, mode) {
   if (reconcile) {
     // undo local changes the authority does not have (desync repair)
     for (const o of [...game.touched.values()]) {
-      if (o.flora || o.building) continue;
+      if (o.flora || o.building || !IN(o.x, o.y)) continue;
       if (o.gone && !goneSet.has(o.id)) {
         o.gone = false;
         w.addObject(o);
@@ -206,11 +233,11 @@ function applyInner(game, d, mode) {
     if (stump && !o.stump) makeStump(game, o, stumpAt);
     net.seeId(id);
   }
-  if (reconcile) for (const o of [...game.flora.dyn.values()]) if (!dynIds.has(o.id)) removeNatural(game, o);
+  if (reconcile) for (const o of [...game.flora.dyn.values()]) if (!dynIds.has(o.id) && IN(o.x, o.y)) removeNatural(game, o);
 
   // ---- falling trees ----
-  const oldFalling = game.falling.slice();
-  game.falling.length = 0;
+  const oldFalling = game.falling.filter((o) => IN(o.x, o.y));
+  if (chunk) { for (let k = game.falling.length - 1; k >= 0; k--) if (IN(game.falling[k].x, game.falling[k].y)) game.falling.splice(k, 1); } else game.falling.length = 0;
   const fallIds = new Set();
   for (const [id, fall, dir] of arr(d.falling)) {
     const o = findObj(game, id);
@@ -229,6 +256,7 @@ function applyInner(game, d, mode) {
   for (const r of arr(d.structs)) if (Array.isArray(r) && BUILDINGS[r[1]]) sIds.set(r[0], r);
   if (reconcile) {
     for (const o of [...game.build.structures]) {
+      if (!IN(o.tx + 0.5, o.ty + 0.5)) continue;
       const r = sIds.get(o.id);
       // a finished structure the authority still has as a blueprint is rebuilt from scratch
       const same = r && (LVS.get(o.id) || 0) === (o.lv | 0) && r[1] === o.type && r[2] === o.tx && r[3] === o.ty && (r[10] | 0) === (o.rot | 0) && (r[13] || 0) === (o.moveOf || 0) && (o.blueprint || r[5] >= 1)
@@ -271,14 +299,14 @@ function applyInner(game, d, mode) {
   // ---- ballistas: aim and operator (game/ballista.js) ----
   const BAL = new Map(arr(d.ball).filter((r) => Array.isArray(r)).map((r) => [r[0], r]));
   for (const o of game.build.structures) {
-    if (o.type !== 'ballista') continue;
+    if (o.type !== 'ballista' || !IN(o.tx + 0.5, o.ty + 0.5)) continue;
     const r = BAL.get(o.id);
     if (r && Number.isFinite(r[1])) o.aim = r[1]; else if (reconcile) delete o.aim;
     if (r && r[2] && reconcile) o.user = String(r[2]).slice(0, 40); else delete o.user;
   }
 
   // ---- boats (game/boats.js): add / update; a 'net' snapshot removes the ones it does not list ----
-  if (game.boats) {
+  if (game.boats && !chunk) {
     const Bt = game.boats, bIds = new Set();
     for (const r of arr(d.boats)) {
       if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
@@ -308,7 +336,7 @@ function applyInner(game, d, mode) {
     c.growth = growth || 0;
     c.stage = Number.isInteger(stage) ? stage : stageOf(c.growth);
   }
-  if (reconcile) for (const [i, c] of [...game.farm.crops]) if (!cKeys.has(i)) removeCrop(game, c);
+  if (reconcile) for (const [i, c] of [...game.farm.crops]) if (!cKeys.has(i) && IN(c.tx + 0.5, c.ty + 0.5)) removeCrop(game, c);
 
   // ---- ground items ----
   const lIds = new Set();
@@ -323,10 +351,12 @@ function applyInner(game, d, mode) {
     add.push([id, item, qty, x, y, 0, 0, 0, 1]);
     net.seeId(id);
   }
-  if (reconcile) for (const l of [...game.loot]) if (!lIds.has(l.id)) removeLoot(game, l.id);
+  if (reconcile) for (const l of [...game.loot]) if (!lIds.has(l.id) && IN(l.x0 ?? l.x, l.y0 ?? l.y)) removeLoot(game, l.id);
   addLootRows(game, add);
+  if (chunk) { updateAllMasks(game); game.events?.emit('worldpatch', { scope }); return; } // (nothing global in a chunk diff)
 
   // ---- camp crates ----
+  applyCampState(game, arr(d.props), reconcile);
   const pIds = new Set();
   for (const [id, hp, broken, brokenAt] of arr(d.props)) {
     const o = propById(game, id);

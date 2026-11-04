@@ -148,6 +148,9 @@ export const FAUNA = {
 //       'trees' (land with ≥ 2 trees within 3 tiles; needs grid.trees)
 // ---------------------------------------------------------------------------------------------------------------------
 const SEA = [{ sp: 'fish', d: 1.4, n: [2, 4], on: 'water' }];
+// wild farm herds (the animals players tame: docs/LIVESTOCK.md) on the open temperate / warm grasslands — the planet's
+// single source of spawns (faunaSpawn.js marks them `stock`); sizes = content/livestock.js STOCK herd
+const COW = { sp: 'cow', d: 0.3, n: [2, 3] }, SHEEP = { sp: 'sheep', d: 0.3, n: [3, 4] }, PIG = { sp: 'pig', d: 0.25, n: [2, 3] }, CHICKEN = { sp: 'chicken', d: 0.3, n: [3, 5] };
 export const FAUNA_SPAWNS = {
   abyss: [{ sp: 'whale', d: 0.25, n: [1, 2], on: 'far' }, { sp: 'shark', d: 0.2, n: [1, 1], on: 'deep' }],
   ocean: [{ sp: 'whale', d: 0.3, n: [1, 2], on: 'far' }, { sp: 'dolphin', d: 0.6, n: [3, 6], on: 'deep' }, { sp: 'shark', d: 0.35, n: [1, 2], on: 'deep' }, ...SEA],
@@ -164,13 +167,13 @@ export const FAUNA_SPAWNS = {
   taiga: [{ sp: 'moose', d: 0.45, n: [1, 1] }, { sp: 'reindeer', d: 0.4, n: [3, 6] }, { sp: 'lynx', d: 0.35, n: [1, 1] }, { sp: 'wolf', d: 0.6, n: [2, 3] },
     { sp: 'bear', d: 0.25, n: [1, 1] }, { sp: 'fox', d: 0.5, n: [1, 1] }, { sp: 'rabbit', d: 0.7, n: [1, 2] }, { sp: 'deer', d: 0.4, n: [1, 3] }],
   temperate_forest: [{ sp: 'deer', d: 1.1, n: [1, 3] }, { sp: 'boar', d: 0.9, n: [1, 3] }, { sp: 'wolf', d: 0.7, n: [2, 3] }, { sp: 'fox', d: 0.7, n: [1, 1] },
-    { sp: 'rabbit', d: 1.1, n: [1, 2] }, { sp: 'bear', d: 0.25, n: [1, 1] }, { sp: 'lynx', d: 0.12, n: [1, 1] }],
+    { sp: 'rabbit', d: 1.1, n: [1, 2] }, { sp: 'bear', d: 0.25, n: [1, 1] }, { sp: 'lynx', d: 0.12, n: [1, 1] }, { ...PIG, d: 0.3 }],
   temperate_rainforest: [{ sp: 'deer', d: 0.9, n: [1, 3] }, { sp: 'bear', d: 0.35, n: [1, 1] }, { sp: 'wolf', d: 0.5, n: [2, 3] }, { sp: 'fox', d: 0.4, n: [1, 1] },
     { sp: 'moose', d: 0.2, n: [1, 1] }, { sp: 'rabbit', d: 0.6, n: [1, 2] }],
   steppe: [{ sp: 'wild_horse', d: 0.8, n: [3, 7] }, { sp: 'bison', d: 0.45, n: [3, 8] }, { sp: 'rabbit', d: 1, n: [1, 2] }, { sp: 'wolf', d: 0.35, n: [2, 3] },
-    { sp: 'fox', d: 0.4, n: [1, 1] }, { sp: 'deer', d: 0.3, n: [1, 3] }, { sp: 'eagle', d: 0.15, n: [1, 1] }],
+    { sp: 'fox', d: 0.4, n: [1, 1] }, { sp: 'deer', d: 0.3, n: [1, 3] }, { sp: 'eagle', d: 0.15, n: [1, 1] }, COW, SHEEP, CHICKEN],
   mediterranean: [{ sp: 'boar', d: 0.8, n: [1, 3] }, { sp: 'deer', d: 0.6, n: [1, 2] }, { sp: 'rabbit', d: 1, n: [1, 2] }, { sp: 'fox', d: 0.5, n: [1, 1] },
-    { sp: 'mountain_goat', d: 0.2, n: [2, 4], on: 'rock' }, { sp: 'eagle', d: 0.12, n: [1, 1] }],
+    { sp: 'mountain_goat', d: 0.2, n: [2, 4], on: 'rock' }, { sp: 'eagle', d: 0.12, n: [1, 1] }, SHEEP, PIG, CHICKEN],
   cold_desert: [{ sp: 'camel', d: 0.35, n: [1, 3] }, { sp: 'wild_horse', d: 0.3, n: [3, 5] }, { sp: 'yak', d: 0.3, n: [2, 5], alt: [3, 99] }, { sp: 'wolf', d: 0.25, n: [2, 3] },
     { sp: 'vulture', d: 0.2, n: [1, 3] }, { sp: 'rattlesnake', d: 0.2, n: [1, 1] }],
   desert_dunes: [{ sp: 'camel', d: 0.35, n: [1, 4] }, { sp: 'scorpion', d: 0.8, n: [1, 2] }, { sp: 'rattlesnake', d: 0.2, n: [1, 1] }, { sp: 'vulture', d: 0.25, n: [2, 4] }],
@@ -192,14 +195,15 @@ export const FAUNA_SPAWNS = {
   marsh: [{ sp: 'heron', d: 0.9, n: [1, 3], on: 'shallow' }, { sp: 'moose', d: 0.2, n: [1, 1] }, { sp: 'deer', d: 0.4, n: [1, 3] }, { sp: 'boar', d: 0.4, n: [1, 3] },
     { sp: 'fox', d: 0.3, n: [1, 1] }],
   alpine: [{ sp: 'mountain_goat', d: 0.9, n: [2, 5], on: 'rock' }, { sp: 'yak', d: 0.35, n: [2, 5] }, { sp: 'eagle', d: 0.35, n: [1, 1] }, { sp: 'bear', d: 0.12, n: [1, 1] },
-    { sp: 'rabbit', d: 0.4, n: [1, 2] }, { sp: 'lynx', d: 0.12, n: [1, 1] }],
+    { sp: 'rabbit', d: 0.4, n: [1, 2] }, { sp: 'lynx', d: 0.12, n: [1, 1] }, { ...SHEEP, d: 0.25 }],
   snow_peaks: [{ sp: 'mountain_goat', d: 0.5, n: [2, 4], on: 'rock' }, { sp: 'eagle', d: 0.2, n: [1, 1] }],
   volcanic: [{ sp: 'mountain_goat', d: 0.15, n: [1, 3], on: 'rock' }, { sp: 'vulture', d: 0.15, n: [1, 3] }],
   salt_flat: [{ sp: 'camel', d: 0.12, n: [1, 2] }, { sp: 'vulture', d: 0.1, n: [1, 2] }],
   beach: [{ sp: 'crab', d: 1.6, n: [2, 5], on: 'shore' }, { sp: 'seagull', d: 1.2, n: [3, 8], on: 'shore' }, { sp: 'seal', d: 0.25, n: [2, 4], on: 'shore' }],
   rocky_shore: [{ sp: 'seagull', d: 1, n: [3, 7], on: 'shore' }, { sp: 'crab', d: 1, n: [2, 4], on: 'shore' }, { sp: 'seal', d: 0.5, n: [2, 5], on: 'shore' }],
   cliff: [{ sp: 'seagull', d: 0.9, n: [3, 7] }, { sp: 'mountain_goat', d: 0.2, n: [2, 3], on: 'rock' }, { sp: 'eagle', d: 0.15, n: [1, 1] }],
-  heath: [{ sp: 'deer', d: 0.6, n: [1, 3] }, { sp: 'rabbit', d: 1, n: [1, 2] }, { sp: 'fox', d: 0.5, n: [1, 1] }, { sp: 'wolf', d: 0.35, n: [2, 3] }, { sp: 'wild_horse', d: 0.25, n: [3, 5] }],
+  heath: [{ sp: 'deer', d: 0.6, n: [1, 3] }, { sp: 'rabbit', d: 1, n: [1, 2] }, { sp: 'fox', d: 0.5, n: [1, 1] }, { sp: 'wolf', d: 0.35, n: [2, 3] }, { sp: 'wild_horse', d: 0.25, n: [3, 5] },
+    SHEEP, { ...COW, d: 0.2 }],
   floodplain: [{ sp: 'deer', d: 0.8, n: [1, 3] }, { sp: 'boar', d: 0.6, n: [1, 3] }, { sp: 'heron', d: 0.5, n: [1, 2], on: 'shore' }, { sp: 'rabbit', d: 0.8, n: [1, 2] },
-    { sp: 'bison', d: 0.2, n: [3, 6] }],
+    { sp: 'bison', d: 0.2, n: [3, 6] }, { ...COW, d: 0.45 }, { ...CHICKEN, d: 0.4 }, PIG],
 };

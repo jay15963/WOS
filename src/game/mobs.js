@@ -21,7 +21,7 @@ import { updateCreature } from './ai.js';
 import { updateBandit } from './bandits.js';
 import { mobBlocked } from './nav.js';
 import { allPlayers, minPlayerDist, inAnyView } from './players.js';
-import { nightK } from './seasons.js';
+import { nightK, hardWinterAt } from './seasons.js';
 import { BUILDINGS } from './data.js';
 import { ITEMS } from './content/items.js';
 import { walkersTick } from './walkers.js';
@@ -50,14 +50,15 @@ const QUOTA = { wolf: 20, boar: 14, deer: 14, rabbit: 20, fox: 12, bear: 5 };
 // when each species is out: 'day' | 'night' | 'always' | 'cave' (a cave nest: day and night)
 export const ACTIVE = { rabbit: 'day', fox: 'day', deer: 'day', wolf: 'night', boar: 'always', bear: 'always', spider: 'cave', walker: 'night' };
 export const isNight = (game) => nightK(game.env?.hour ?? 12) > 0.5;
-const winterNow = (game) => game.season?.id === 'winter';
+// a hard winter where the spawner is (seasons by latitude: the zone of the place — polar all year, none in the tropics)
+const winterNow = (game, s) => hardWinterAt(game, s.x, s.y);
 // pack size now (wolves: 3x in winter; the green animals: one at a time in winter)
-const packSize = (game, s) => (s.species === 'wolf' && winterNow(game) ? s.count * 3 : (s.when || ACTIVE[s.species]) === 'day' && winterNow(game) ? 1 : s.count);
+const packSize = (game, s) => (s.species === 'wolf' && winterNow(game, s) ? s.count * 3 : (s.when || ACTIVE[s.species]) === 'day' && winterNow(game, s) ? 1 : s.count);
 // winter: only one den in WINTER_PREY of the green animals' stays out (very little to hunt: stock food before it)
 const WINTER_PREY = 6;
 function activeNow(game, s, night) {
   const when = s.when || ACTIVE[s.species] || 'always';
-  if (when === 'day' && winterNow(game) && s.id % WINTER_PREY) return false;
+  if (when === 'day' && winterNow(game, s) && s.id % WINTER_PREY) return false;
   return when === 'day' ? !night : when === 'night' ? night : true;
 }
 
@@ -260,7 +261,7 @@ function nightHunt(game) {
   const w = game.world, L = allPlayers(game).filter((q) => !q.dead);
   if (!L.length) return;
   const p = L[Math.floor(Math.random() * L.length)];
-  const winter = winterNow(game);
+  const winter = winterNow(game, p);
   const packs = game.spawners.filter((s) => s.hunt && s.members.some((m) => !m.dead) && Math.hypot(s.x - p.x, s.y - p.y) < 50).length;
   if (packs >= (winter ? 3 : 2)) return;
   const ok = (x, y, r) => { const tx = Math.floor(x), ty = Math.floor(y); return w.inBounds(tx, ty) && !mobBlocked(w, x, y, r) && !w.waterAt(tx, ty)

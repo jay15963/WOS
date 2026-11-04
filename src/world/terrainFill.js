@@ -1,6 +1,6 @@
 // Terrain window contents of a tile rect (pure: runs on the main thread or in src/world/terrainWorker.js).
 // Input = the world layers over the rect + a margin of MD tiles, gathered by terrainWindow.js (gatherTerrain):
-//   { tw, th, x0, y0, DW, DH, u8: { rock, water, rock0, ground, rockType, ore, biome, caveDk, tramp, solid, inb },
+//   { tw, th, x0, y0, DW, DH, u8: { rock, water, rock0, ground, rockType, ore, biome, caveDk, tramp, solid, pground, zone, inb },
 //     f32: { lush, flowX, flowY }, coldLut }
 // (row-major DW × DH, origin at (x0 − MD, y0 − MD); `inb` = 1 inside the world, outside tiles hold the nearest edge
 // tile's values like the old clamped textures).
@@ -60,7 +60,8 @@ export function computeTerrain(inp) {
     F2[o + 3] = clamp(Math.round((dOut[j] / 4) * 255), 0, 255);
     const ore = O[j - DW - 1] | O[j - DW] | O[j - DW + 1] | O[j - 1] | O[j] | O[j + 1] | O[j + DW - 1] | O[j + DW] | O[j + DW + 1];
     const inside = IN[j];
-    CV[o] = inside ? CD[j] : 0; CV[o + 1] = ore ? 255 : 0; CV[o + 2] = TR[j]; CV[o + 3] = K0[j] && !rock[j] ? 255 : 0;
+    // (G: ore nearby on land; on water the abyssal ocean — zone layer bit 8: darker water, a long swell)
+    CV[o] = inside ? CD[j] : 0; CV[o + 1] = ore || (wat[j] && u8.zone && u8.zone[j] & 8) ? 255 : 0; CV[o + 2] = TR[j]; CV[o + 3] = K0[j] && !rock[j] ? 255 : 0;
     let a = 0;
     for (let d = -CR; d <= CR; d++) a += ctmp[(ty + CR + d) * cw + tx + CR];
     const cv = Math.round(Math.min(1, a * kb) * 255), s = inside ? SO[j] : 0;

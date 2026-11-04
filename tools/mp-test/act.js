@@ -79,6 +79,34 @@ export function clearLine(f, M, x0, y0, x1, y1, r = 0.3) {
   return true;
 }
 
+// open ground for scenarios that need room (a planet's start can be wooded): the nearest point around the guest with a
+// clear line of `len` tiles in at least `dirs` of 16 directions (on both frames); the guest — and the host next to it —
+// move there. Returns the point or null.
+export async function openField(t, H, MH, G, MG, len = 10, dirs = 3, also = null) {
+  const gp = G.game.player, x0 = gp.x, y0 = gp.y;
+  const good = (x, y) => {
+    if (also && !also(x, y)) return false;
+    let n = 0;
+    for (let k = 0; k < 16 && n < dirs; k++) {
+      const a = (k / 16) * Math.PI * 2, ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
+      if (clearLine(G, MG, x, y, ex, ey, 0.4) && clearLine(H, MH, x, y, ex, ey, 0.4)) n++;
+    }
+    return n >= dirs;
+  };
+  if (good(x0, y0)) return [x0, y0];
+  for (let r = 6; r <= 120; r += 6) for (let k = 0; k < Math.max(8, Math.round(r)); k++) {
+    const a = (k / Math.max(8, Math.round(r))) * Math.PI * 2;
+    const s = freeSpot(G, MG, x0 + Math.cos(a) * r, y0 + Math.sin(a) * r, { rMin: 0, rMax: 2 });
+    if (!s || !good(s[0], s[1])) continue;
+    teleport(G, s[0], s[1]);
+    const h = freeSpot(H, MH, s[0] - 2.5, s[1], { rMin: 0, rMax: 3 });
+    if (h) teleport(H, h[0], h[1]);
+    await t.sleep(400);
+    return s;
+  }
+  return null;
+}
+
 // Holds a movement direction on the frame's input (the game's own movement + collision code moves the player)
 export function holdMove(f, dx, dy) {
   const inp = f.game.input;
@@ -204,12 +232,38 @@ export function authAvatarOn(f, pid) { const pl = f.session?.players?.get?.(pid)
 
 // ore tiles: rock with ore, an open 4-neighbour to stand on; nearest to (cx, cy)
 export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
+  const out = oreScan(f, M, cx, cy, maxR, maxTier);
+  if (out.length || !f.game.world.wrap) return out;
+  // a planet: no ore around here — the nearest mountains of its macro map (loaded on this frame)
+  for (const c of planetNear(f, (k, P) => !P.ocean[k] && P.mtn[k] > 0.3, cx, cy, 6)) {
+    const w = f.game.world;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) w.ensure(w.chunkIndex(c.x + dx * 64, c.y + dy * 64));
+    const o = oreScan(f, M, c.x, c.y, 90, maxTier);
+    if (o.length) return o;
+  }
+  return out;
+}
+// macro cells (32 tiles) of the frame's planet matching pred, nearest to (x, y) first (tests on the planet)
+export function planetNear(f, pred, x, y, n = 1) {
+  const P = f.game.world.source?.planet;
+  if (!P) return [];
+  const out = [], cx = Math.floor(x / 32), cy = Math.floor(y / 32);
+  for (let c = 0; c < P.tMean.length; c++) {
+    if (!pred(c, P)) continue;
+    let dx = Math.abs((c % 512) - cx); if (dx > 256) dx = 512 - dx;
+    out.push([dx + Math.abs(Math.floor(c / 512) - cy), c]);
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return out.slice(0, n).map((q) => ({ c: q[1], x: (q[1] % 512) * 32 + 16, y: Math.floor(q[1] / 512) * 32 + 16 }));
+}
+function oreScan(f, M, cx, cy, maxR, maxTier) {
   const w = f.game.world, out = [];
   const minTier = M.items.ORE_MIN_TIER || [];
   const x0 = Math.max(w.bx0 + 1, Math.floor(cx - maxR)), x1 = Math.min(w.bx1 - 2, Math.floor(cx + maxR));
   const y0 = Math.max(w.by0 + 1, Math.floor(cy - maxR)), y1 = Math.min(w.by1 - 2, Math.floor(cy + maxR));
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
     const i = w.idx(tx, ty);
+    if (!w.isLoaded(w.chunkIndex(tx, ty))) continue;
     if (w.rock.get(i) !== 1 || !w.ore.get(i) || (minTier[w.ore.get(i)] || 0) > maxTier) continue;
     const opens = [];
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -223,9 +277,21 @@ export function oreTiles(f, M, cx, cy, maxR = 160, maxTier = 4) {
 }
 
 // placement sites: origin (x0, y0) whose tiles (shape(x0, y0)) are all valid for `type` on every frame
-export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [], rot = 0 } = {}) {
-  for (let r = rMin; r <= rMax; r++) {
-    for (let k = 0; k < 8 * r; k++) {
+export function findSite(fs, Ms, type, shape, cx, cy, opts = {}) {
+  const near = siteScan(fs, Ms, type, shape, cx, cy, opts, 1);
+  if (near || !fs[0]?.game?.world?.wrap) return near;
+  // a planet: the land around may be wooded / hilly — look farther (coarser rings) and bring the players next to it
+  const far = siteScan(fs, Ms, type, shape, cx, cy, { ...opts, rMin: (opts.rMax ?? 16) + 1, rMax: Math.max(64, (opts.rMax ?? 16) * 4) }, 3);
+  if (far) {
+    let mx = 1e9, my = 1e9;
+    for (const [tx, ty] of far.tiles) { if (tx < mx) mx = tx; if (ty < my) my = ty; }
+    fs.forEach((f, k) => { const p = freeSpot(f, Ms[k], mx - 1 - k, my - 1, { rMin: 0, rMax: 3 }); if (p) teleport(f, p[0], p[1]); });
+  }
+  return far;
+}
+function siteScan(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts = [], rot = 0 } = {}, step = 1) {
+  for (let r = rMin; r <= rMax; r += step) {
+    for (let k = 0; k < 8 * r; k += step) {
       const a = (k / (8 * r)) * Math.PI * 2;
       const x0 = Math.floor(cx + Math.cos(a) * r), y0 = Math.floor(cy + Math.sin(a) * r);
       const tiles = shape(x0, y0);
@@ -238,10 +304,19 @@ export function findSite(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avo
         }
         if (!ok) break;
       }
+      if (ok && !flatTiles(fs[0], tiles)) ok = false;
       if (ok) return { x0, y0, tiles };
     }
   }
   return null;
+}
+// the site's ground is about level (terrain height: a planet's hills; the classic map is flat): corners within 0.6 stories
+function flatTiles(f, tiles) {
+  const H = f.game.world.height;
+  if (!H?.any) return true;
+  let lo = 1e9, hi = -1e9;
+  for (const [tx, ty] of tiles) for (let k = 0; k < 4; k++) { const h = H.cornerH(tx + (k & 1), ty + (k >> 1)); if (h < lo) lo = h; if (h > hi) hi = h; }
+  return hi - lo <= 0.6;
 }
 
 // ---------------- actions ----------------

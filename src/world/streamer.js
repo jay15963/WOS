@@ -11,6 +11,7 @@
 // an unloaded chunk: an unloaded tile reads as rock). A bounded world (classic) needs no streamer: it is all loaded.
 
 import { CW, CH, CS, NCH, chunkKey } from './store.js';
+import { markExplored } from '../game/explore.js';
 
 export const R_ACT = 2, R_LOAD = 3, R_KEEP = 5, R_DECOR = 3;
 const MAX_INFLIGHT = 6;
@@ -199,12 +200,14 @@ function defaultWorkers() {
 // their camera (rendering). The HUD (localhost on a planet, or ?stream=1): chunks loaded / active / generated per second,
 // the queue, memory (tile layers, objects, GPU window, JS heap), the terrain window's work.
 export function streamerSystem(allPlayers) {
-  let hudT = 0, el = null;
+  let hudT = 0, el = null, expT = 0;
   const A = [];
   return {
     sync: 'all', // local loading decisions (what is loaded never changes shared state: chunks are pure functions)
     update(game, dt) {
       const w = game.world, S = w.streamer;
+      // the map's fog of war: chunks the local player has seen (game/explore.js, saved with the player)
+      if ((expT -= dt) <= 0) { expT = 1; markExplored(game); }
       game.streamStats ||= () => streamStats(game); // (dev / benchmarks: tools/headless, game.debug)
       if (S) {
         A.length = 0;

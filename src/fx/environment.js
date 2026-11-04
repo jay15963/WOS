@@ -98,9 +98,14 @@ export class Environment {
       if (w === 'fog' && (this.hour > 11 && this.hour < 17)) w = 'cloudy';
       this.setWeather(w);
     }
-    const target = WEATHERS[this.weather];
+    // the shared weather as it falls HERE (seasons by latitude, fx/seasonfx.js sets localRain from the local player's
+    // climate: deserts and the tropical dry season get little of it, the wet tropics more): rain / storm scaled, a rain
+    // too thin to fall stays clouds
+    const LR = this.localRain ?? 1, lw = (this.weather === 'rain' || this.weather === 'storm') && LR < 0.3 ? 'cloudy' : this.weather;
+    this.localWeather = lw;
+    const target = WEATHERS[lw], rk = Math.min(1.25, LR);
     const k = 1 - Math.exp(-dt / 14);
-    for (const key in target) this.cur[key] = lerp(this.cur[key], target[key], k);
+    for (const key in target) this.cur[key] = lerp(this.cur[key], key === 'rain' || key === 'storm' ? Math.min(1, target[key] * rk) : target[key], k);
     this.wet = clamp(this.wet + (this.cur.rain > 0.25 ? dt / 35 * this.cur.rain : -dt / 110), 0, 1);
     this.snowCover = clamp(this.snowCover + (this.cur.rain > 0.25 ? dt / 60 * this.cur.rain : -dt / 260), 0, 1);
     this.windAng += dt * 0.004 * Math.sin(this.t * 0.01);
