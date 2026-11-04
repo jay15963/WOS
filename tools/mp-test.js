@@ -2613,6 +2613,8 @@ def('IG2', {
   const day0 = EH.dayIndex, hour0 = EH.hour;
   siegeCleanup(t, H, MH, day0, hour0);
   A.keepAlive(t, G);
+  // open ground with nothing built around (a planet's start can be wooded; earlier scenarios built by the spawn)
+  await A.openField(t, H, MH, G, MG, 12, 8, (x, y) => !H.game.build.structures.some((o) => Math.hypot(H.game.world.dx(o.tx, x), o.ty - y) < 30));
   const dodge0 = gp.dodge;
   gp.dodge = 0; t.defer(() => { gp.dodge = dodge0; });
   const log = hurtLog(t, G);
@@ -2853,9 +2855,10 @@ def('BA3', {
   t.check(minZ > 0.9 && (gp.lv | 0) === 1 && G.game.levels.isSurface(1, ti), 'the guest stays up on the wall while it turns (on a wall-top tile)', `min z ${f2(minZ)}, lv ${gp.lv}, at ${f2(gp.x)},${f2(gp.y)}`);
   t.check(Math.hypot(gp.x - pvx, gp.y - pvy) > 0.6, 'the guest stands clear of it (behind / beside)', `${f2(Math.hypot(gp.x - pvx, gp.y - pvy))} tiles from the post`);
   const max = m.maxHp;
+  const old = new Set([...(G.game.bolts || []), ...(H.game.bolts || [])]); // (bolts of earlier scenarios may still be listed)
   t.check(C.fire(), 'the guest fires');
-  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !b.done || b.d > 0), RT() + 1500, 'the bolt flies on the guest');
-  const bH = await t.waitFor(() => (H.game.bolts || [])[0], RT() + 1500, 'and on the host');
+  const bG = await t.waitFor(() => (G.game.bolts || []).find((b) => !old.has(b) && (!b.done || b.d > 0)), RT() + 1500, 'the bolt flies on the guest');
+  const bH = await t.waitFor(() => (H.game.bolts || []).find((b) => !old.has(b)), RT() + 1500, 'and on the host');
   t.check(bG.lv === 1 && bH.lv === 1, 'the bolt leaves at story 1 on both', `${bG.lv} / ${bH.lv}`);
   t.check(MH.ballista.boltZ(1, 1) === 1 && MH.ballista.boltZ(1, 30) === 0 && !MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 1) && MH.ballista.boltStops(H.game, x0 + 2.5, y0 + 0.5, 0), 'high, it passes over the wall under it (low it would stop)');
   await t.waitFor(() => m.hp < max, 4000 + RT(), 'the plunging bolt hits the giant', () => `bolt ${f2(bH.x)},${f2(bH.y)} z ${f2(bH.z)} done ${bH.done} stuck ${bH.stuck}`);
@@ -4229,6 +4232,7 @@ def('K3', {
 });
 
 def('K4', {
+  src: 'classic', // (a save of the classic world: its tiles are found on the classic map)
   title: 'K: old save (v4 rows without style / det) loads with default looks', timeout: 120000,
   expected: 'migrateStructRows pads v4 rows (14 fields) and v3 rows (10) to 16 with style "" / det ""; a solo game booted from a crafted v4 save has the structures with the default look (no _k), masks computed; saving again writes the current version with 16-field rows',
   api: 'save.js VERSION (5), migrateStructRows, loadGame / saveGame (solo frame without ?nosave, key wos.save.v2.<seed>, removed afterwards)',
@@ -4772,6 +4776,7 @@ async function farmFeeder(t, H, G, MH, MG) {
     return out;
   }, gp.x, gp.y, { rMin: 4, rMax: 18, avoidPts: [[gp.x, gp.y], [hp.x, hp.y]] });
   t.assert(site, 'found an open 8×8 area for a feeder');
+  await A.hostSees(t, H, G); // (a far site: the players were moved next to it)
   const tx = site.x0, ty = site.y0;
   A.ensure(G, { wood: 12 });
   A.place(G, MG, 'feeder', [tx, ty], [tx, ty], 0);
@@ -4954,6 +4959,7 @@ def('P4', {
   const pig = farmAnimal(H, MH, 'pig', cx, cy + 2.4);
   H.game.stock.debug.tick(0.01);
   await t.waitFor(() => pig.tame, 2000, 'a domesticated pig');
+  { const g0 = G.game.player; if (Math.hypot(g0.x - cx, g0.y - cy) > 20) { const q = A.freeSpot(G, MG, cx + 3, cy, { rMin: 0, rMax: 3 }); if (q) A.teleport(G, q[0], q[1]); } } // (the farm may be away from where the guest is)
   const px = await t.waitFor(() => { const q = A.proxyOf(G, pig); return q && q.tame ? q : null; }, ONEWAY() + 2500, 'guest: its proxy (domesticated)');
   const s = A.freeSpot(G, MG, pig.x, pig.y, { rMin: 0.7, rMax: 1.4 });
   A.teleport(G, s[0], s[1]);
@@ -5403,6 +5409,9 @@ def('P7', {
   t.assert(spot, 'a shore spot facing open water');
   A.teleport(G, spot[0], spot[1]);
   gp.facing = dir;
+  // (the host near it too: its view must draw the guest — a planet's shore can be a few screens away)
+  const hs = A.freeSpot(H, MH, spot[0] - (dir === 'e' ? 3 : -3), spot[1] + 1.5, { rMin: 0, rMax: 3 });
+  if (hs) A.teleport(H, hs[0], hs[1]);
   await A.hostSees(t, H, G, 4000);
   A.ensure(G, { rod_wood: 1 });
   await t.waitFor(() => g.fishing.near()?.kind === 'fish_cast', 2000, 'the use action says "Pescar"');

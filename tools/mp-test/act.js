@@ -82,9 +82,10 @@ export function clearLine(f, M, x0, y0, x1, y1, r = 0.3) {
 // open ground for scenarios that need room (a planet's start can be wooded): the nearest point around the guest with a
 // clear line of `len` tiles in at least `dirs` of 16 directions (on both frames); the guest — and the host next to it —
 // move there. Returns the point or null.
-export async function openField(t, H, MH, G, MG, len = 10, dirs = 3) {
+export async function openField(t, H, MH, G, MG, len = 10, dirs = 3, also = null) {
   const gp = G.game.player, x0 = gp.x, y0 = gp.y;
   const good = (x, y) => {
+    if (also && !also(x, y)) return false;
     let n = 0;
     for (let k = 0; k < 16 && n < dirs; k++) {
       const a = (k / 16) * Math.PI * 2, ex = x + Math.cos(a) * len, ey = y + Math.sin(a) * len;
