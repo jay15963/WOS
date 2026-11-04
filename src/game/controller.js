@@ -11,6 +11,7 @@ import { GENERIC_ABILITIES } from './content/combat.js';
 import { describeObject, reachDist } from './gathering.js';
 import { describeStructure, buildTap, commitPlacement, structureAtPoint, buildDragStart, buildDragMove, buildDragEnd, cancelBuild, rotateBuild } from './building.js';
 import { describeRock, isRock } from './mining.js';
+import { describeTunnel } from './tunnels.js'; // tunnels into the relief (docs/TERRAIN-HEIGHT.md)
 import { useInteract } from './work.js';
 import { eatBest } from './survival.js';
 import { cancelCraft } from './crafting.js';
@@ -98,10 +99,10 @@ export function pick(game, sx, sy) {
   const tol = 14 / game.cam.zoom;
   const rot = game.cam.rot || 0;
   VR.c = rot ? Math.cos(rot) : 1; VR.s = rot ? Math.sin(rot) : 0;
-  const hid = (x, y) => !!game.roofs?.hidden?.(x, y); // inside a building whose roof covers it (not pickable)
+  const hid = (x, y, e) => !!game.roofs?.hidden?.(x, y, e); // inside a building whose roof covers it / in a tunnel not shown (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead || hid(e.x, e.y)) continue;
+    if (!isMob(e) || e.dead || hid(e.x, e.y, e)) continue;
     const sc = e.scale || 1;
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
@@ -138,7 +139,7 @@ export function pick(game, sx, sy) {
   if (!hit) hit = game.corpses?.pickAt(wx, wy, tol) || null; // bodies on the ground (corpses.js)
   if (!hit) hit = game.boats?.pickAt?.(wx, wy, tol) || null; // boats (boats.js): get in / out
   if (hit) return { type: 'interact', it: hit, wx, wy };
-  const rk = describeRock(game, Math.floor(wx), Math.floor(wy));
+  const rk = describeRock(game, Math.floor(wx), Math.floor(wy)) || describeTunnel(game, Math.floor(wx), Math.floor(wy));
   if (rk) return { type: 'interact', it: rk, wx, wy };
   for (const it of game.loot) if (Math.hypot(vdx(wx - it.x, wy - it.y), vdy(wx - it.x, wy - it.y) + 0.15) < 0.4 + tol) return { type: 'loot', it, wx, wy };
   if (hitFlat) return { type: 'interact', it: hitFlat, wx, wy };
@@ -175,6 +176,7 @@ export function nearestInteractable(game) {
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;
     consider(describeRock(game, tx + dx, ty + dy), dx === fx && dy === fy ? 0.3 : 0);
+    if (dx === fx && dy === fy) consider(describeTunnel(game, tx + dx, ty + dy, true), 0.3); // (the face in front of the player)
     consider(game.paths?.jobAt?.(tx + dx, ty + dy)); // path plans next to the player (E / action button)
   }
   consider(game.paths?.jobAt?.(tx, ty));

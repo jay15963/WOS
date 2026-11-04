@@ -32,6 +32,7 @@ import { setActiveHeight } from './height.js';
 import { PagedHeight } from './heightPaged.js';
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
+export const TUN_SUPPORT = 3; // a tunnel tile caves in without solid relief within this many tiles (docs/TERRAIN-HEIGHT.md)
 // darkness by walking distance (tiles) from open sky into a cave: 0 = mouth .. ≥ 5 = deep
 const CAVE_DK = [0, 0.5, 0.74, 0.88, 0.96, 1];
 
@@ -80,6 +81,11 @@ export class World {
     L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0); L('pbiome', Uint8Array, 255);
     this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.pbiome];
     this.hills = source.hills || false; // (dev showcase ?hills=1: its landmarks; a guest sculpts the same classic world, world/hills.js)
+    // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md "Túneis"): the floor height (stories) of a tunnel tile, −∞ = none.
+    // Sparse (kept across chunk evictions; a chunk with a tunnel is changed anyway); `tunnels` lists them (snapshot, fx)
+    L('tun', Float32Array, -Infinity, true);
+    this.tunnels = new Map(); // tile index → floor
+    this.tunV = 0;            // bumped on every tunnel change (cosmetic caches)
     L('solid', Uint8Array, 0, true);   // buildings / walls occupancy (sparse: only where something stands)
     L('broof', Uint8Array, 0, true);   // built roofs (src/game/roofs.js)
     this.deck = null; this.rail = null; this.railU = null; // bridges / piers (game/decks.js): sparse layers when any
@@ -102,7 +108,7 @@ export class World {
     }
     // terrain height (docs/TERRAIN-HEIGHT.md): all zero = the flat world of before (every hook skipped: height.any false)
     this.height = new PagedHeight(this);
-    setActiveHeight(this.height);
+    setActiveHeight(this.height, this);
   }
 
   // ---------- addressing ----------
@@ -322,8 +328,11 @@ export class World {
     this.ore.set(i, 0);
     this.ground.set(i, G.STONE);
     this.markDirty(i);
+    // a tunnel dug into a rock mass (digTunnel set its floor first): the relief above stays, no mountain roof (the
+    // relief is its ceiling)
+    if (this.tun.get(i) > -Infinity) this.roof.set(i, 0);
     // terrain height (docs/TERRAIN-HEIGHT.md): a rocky knoll is cut down to the tile's lowest corner (every peer)
-    if (this.height.any) {
+    else if (this.height.any) {
       const L = this.height, lo = L.tileMin(tx, ty), cut = [];
       for (let k = 0; k < 4; k++) { const o = L.ci(tx + (k & 1), ty + (k >> 1)); if (L.t.get(o) > lo + 1e-4) cut.push([o, lo]); }
       if (cut.length) L.setTerrain(cut);
@@ -335,6 +344,78 @@ export class World {
     this._decalsDirty(tx - 2, ty - 2, tx + 2, ty + 2);
     this._markDirty(tx - 6, ty - 6, tx + 6, ty + 6);
     return true;
+  }
+
+  // ---------- tunnels (docs/TERRAIN-HEIGHT.md "Túneis") ----------
+  // A tunnel tile is dug INTO the relief: a floor at height f (the height of the ground it was entered from) under the
+  // surface, which stays as it was (walkable on top). Bodies in a tunnel (physics.js tunTrack: e._tn) stand on the floor;
+  // its tiles are cave tiles (darkness from the mouth, game/roofs.js caves) and the renderer shows the floor while the
+  // local player is inside (game/tunnels.js reveal). Shared state: world.tun (op tunnel.dig / snapshot `tun`).
+  tunAt(tx, ty) { return this.inBounds(tx, ty) ? this.tun.get(this.idx(tx, ty)) : -Infinity; }
+  isTunnel(tx, ty) { return this.tunAt(tx, ty) > -Infinity; }
+  // solid relief around a tunnel at floor f: rock, or ground (not a tunnel) whose lowest corner is a story above the floor
+  tunSolid(tx, ty, f) {
+    if (!this.inBounds(tx, ty)) return true;
+    const i = this.idx(tx, ty);
+    if (this.rock.get(i)) return true;
+    return !(this.tun.get(i) > -Infinity) && this.height.tileMin(tx, ty) >= f + 0.9;
+  }
+  // a tunnel tile holds while solid relief is within TUN_SUPPORT tiles (a hall too wide caves in)
+  tunHeld(tx, ty, f) {
+    const N = TUN_SUPPORT, N2 = N * N;
+    for (let dy = -N; dy <= N; dy++) for (let dx = -N; dx <= N; dx++) if (dx * dx + dy * dy <= N2 && this.tunSolid(tx + dx, ty + dy, f)) return true;
+    return false;
+  }
+  // dig tile (tx, ty) into a tunnel with its floor at f (op appliers / snapshot only). A rock tile loses its rock (through
+  // mineRock by the caller), anything else keeps its ground (the surface above is untouched). Then the support rule: the
+  // tunnel tiles that lost their solid relief cave in (an open cut down to the floor); `lastLost` lists them.
+  // check = false: a snapshot replay (no support rule: the saved state already has it)
+  digTunnel(tx, ty, f, check = true) {
+    this.guard?.('digTunnel');
+    if (!this.inBounds(tx, ty) || !Number.isFinite(f)) return false;
+    const i = this.idx(tx, ty);
+    this.tun.set(i, f); this.tunnels.set(i, f); this.tunV++;
+    this.roof.set(i, 0);
+    this.markDirty(i);
+    this.lastLost = check ? this.tunSupport(tx, ty) : [];
+    this._tunChanged(tx, ty);
+    return true;
+  }
+  // forget a tunnel tile (snapshot reconcile)
+  fillTunnel(tx, ty) {
+    this.guard?.('fillTunnel');
+    const i = this.idx(tx, ty);
+    if (!(this.tun.get(i) > -Infinity)) return false;
+    this.tun.set(i, -Infinity); this.tunnels.delete(i); this.tunV++;
+    this._tunChanged(tx, ty);
+    return true;
+  }
+  _tunChanged(tx, ty) {
+    const M = TUN_SUPPORT + CAVE_DK.length + 1;
+    this._buildCave(tx - M, ty - M, tx + M, ty + M);
+    this._markCaveDirty(tx - M, ty - M, tx + M, ty + M);
+    this._decalsDirty(tx - 2, ty - 2, tx + 2, ty + 2);
+    this._markDirty(tx - 3, ty - 3, tx + 3, ty + 3);
+  }
+  // tunnel tiles near (tx, ty) left without support cave in: the surface over them drops to the floor (terrain edits, an
+  // open cut), they stop being tunnel tiles. Deterministic (the shared tun / rock / height). Returns their indices.
+  tunSupport(tx, ty) {
+    const N = TUN_SUPPORT + 1, lost = [];
+    for (let y = ty - N; y <= ty + N; y++) for (let x = tx - N; x <= tx + N; x++) {
+      if (!this.inBounds(x, y)) continue;
+      const j = this.idx(x, y), f = this.tun.get(j);
+      if (f > -Infinity && !this.tunHeld(x, y, f)) lost.push(j);
+    }
+    if (!lost.length) return lost;
+    const L = this.height, cut = [];
+    for (const j of lost) {
+      const f = this.tun.get(j), x = j & XM, y = j >>> PWS;
+      this.tun.set(j, -Infinity); this.tunnels.delete(j);
+      for (let k = 0; k < 4; k++) { const o = L.ci(x + (k & 1), y + (k >> 1)); if (L.t.get(o) > f) cut.push([o, f]); }
+    }
+    this.tunV++;
+    if (cut.length) L.setTerrain(cut);
+    return lost;
   }
 
   // ---------- decals (lazy, per bucket) ----------
@@ -401,11 +482,11 @@ export class World {
   }
   // same at a world point (feet position)
   roofAtPoint(x, y) { return this.roofAt(Math.floor(x), Math.floor(y - 0.05)); }
-  // mined tile under a (still supported) mountain roof (dark cave floor)
+  // mined tile under a (still supported) mountain roof (dark cave floor), or a tunnel dug into the relief
   isCave(tx, ty) {
     if (!this.inBounds(tx, ty)) return false;
     const i = this.idx(tx, ty);
-    return this.roof.get(i) === 1 && this.rock.get(i) === 0;
+    return (this.roof.get(i) === 1 && this.rock.get(i) === 0) || this.tun.get(i) > -Infinity;
   }
   // is rock within the natural support distance of tile (tx, ty)?
   _rockNear(tx, ty) {
@@ -466,10 +547,19 @@ export class World {
     const wx0 = Math.max(this.minX, x0 - M), wy0 = Math.max(this.minY, y0 - M), wx1 = Math.min(this.maxX, x1 + M), wy1 = Math.min(this.maxY, y1 + M);
     const ww = wx1 - wx0 + 1, wh = wy1 - wy0 + 1, n = ww * wh;
     const kw = new Uint8Array(n), rw = new Uint8Array(n);
+    // tunnels (docs/TERRAIN-HEIGHT.md "Túneis"): roofed by the relief; light reaches in only through a mouth (open ground at
+    // the floor's height) and along the tunnel, never down from the surface above or beside it
+    const T = this.tun, anyT = this.tunnels.size > 0, tw = anyT ? new Float32Array(n).fill(-Infinity) : null;
     for (let y = wy0; y <= wy1; y++) for (let x = wx0; x <= wx1; x++) {
       const i = this.idx(x, y), j = (y - wy0) * ww + (x - wx0);
       kw[j] = K.get(i); rw[j] = R.get(i);
+      if (anyT) { const f = T.get(i); if (f > -Infinity) { tw[j] = f; rw[j] = 1; } }
     }
+    const tStep = (j, k, x, y) => { // may light pass from window tile j (at x, y) into k?
+      const a = tw[j], b = tw[k];
+      if (b === -Infinity) return a === -Infinity || this.height.tileMin(wx0 + (k % ww), wy0 + ((k / ww) | 0)) <= a + 0.7;
+      return a > -Infinity ? Math.abs(a - b) <= 0.6 : this.height.tileMin(x, y) <= b + 0.7;
+    };
     const dist = new Uint8Array(n).fill(255), q = new Int32Array(n);
     let qh = 0, qt = 0, any = false;
     for (let j = 0; j < n; j++) {
@@ -489,15 +579,17 @@ export class World {
           const k = ny * ww + nx;
           if (dist[k] <= d + 1 || kw[k]) continue;
           if (dx && dy && (kw[y * ww + nx] || kw[ny * ww + x])) continue; // no light through rock corners
+          if (anyT && (tw[k] > -Infinity || tw[j] > -Infinity) && (dx && dy || !tStep(j, k, wx0 + x, wy0 + y))) continue; // (tunnels: through the mouth, 4-way)
           dist[k] = d + 1; q[qt++] = k;
         }
       }
     }
-    const cav = (x, y) => {
+    const cav = (x, y, spill = false) => {
       if (y < this.minY || y > this.maxY || x < this.minX || x > this.maxX) return 0;
       if (x < wx0 || x > wx1 || y < wy0 || y > wy1) { const i = this.idx(x, y); return R.get(i) && !K.get(i) ? 1 : 0; }
       const j = (y - wy0) * ww + (x - wx0);
       if (!rw[j] || kw[j]) return 0;
+      if (spill && anyT && tw[j] > -Infinity) return 0; // (a tunnel's darkness never spills onto the surface around it)
       return CAVE_DK[Math.min(MD, dist[j])];
     };
     const fade = this.fadeCave && this.caveFade;
@@ -507,7 +599,7 @@ export class World {
       if (!v || rock) {
         let m = 0;
         for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-          if (dx || dy) { const c = cav(x + dx, y + dy); if (c) m = Math.max(m, c * (dx && dy ? 0.55 : 1)); }
+          if (dx || dy) { const c = cav(x + dx, y + dy, true); if (c) m = Math.max(m, c * (dx && dy ? 0.55 : 1)); }
         }
         // darkness spills onto the rock around the tunnels; the cave mouth fades to daylight
         v = rock ? m * 0.7 : Math.max(v, m * 0.3);

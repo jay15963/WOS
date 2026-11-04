@@ -233,7 +233,7 @@ function lookForPrey(game, m) {
     if (!isPrey(e) || Math.abs(e.x - m.x) > bd || Math.abs(e.y - m.y) > bd) continue;
     const d = dist(m, e);
     if (d >= bd || (m.preyBan && m.preyBan.nid === e.nid && m.preyBan.t > game.worldTime)) continue;
-    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0)) continue;
+    if (!hasLOS(game.world, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
     best = e; bd = d;
   }
   if (!best) return false;
@@ -323,7 +323,7 @@ export function updateCreature(game, m, dt) {
       if (m.thinkT <= 0) {
         m.thinkT = 0.25 + Math.random() * 0.1;
         if (!p.dead) {
-          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { aggro(game, m, p); break; }
+          if (sp.temper === 'hostile' && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn))) { aggro(game, m, p); break; }
           if (sp.temper === 'passive') {
             const sk = sp.skittish || 0;
             if (d < Math.max(2.2, sk) || (d < 4.5 && p.moving)) { startFlee(m, p, (sk ? 3.5 : 2.5) + Math.random() * 1.5); break; }
@@ -395,7 +395,7 @@ export function updateCreature(game, m, dt) {
       // a player in sight still comes first
       if (m.thinkT <= 0) {
         m.thinkT = 0.25 + Math.random() * 0.1;
-        if (!p.dead && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0))) { m.prey = null; m.state = 'idle'; aggro(game, m, p); break; }
+        if (!p.dead && d < aggroRadius(m, p) && !(m.calmT > 0) && (d < SMELL || hasLOS(game.world, m.x, m.y, p.x, p.y, m.z || 0, p.z || 0, m._tn, p._tn))) { m.prey = null; m.state = 'idle'; aggro(game, m, p); break; }
       }
       huntStep(game, m, dt, sp);
       break;

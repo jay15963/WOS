@@ -6,7 +6,7 @@
 // included); an open one is 0 (everyone passes). They never open by themselves. The value-2 paths below
 // (legacy "passDoors only" doors) stay for safety but nothing writes 2 any more.
 
-import { collides, moveCircle, railCross, underAt, underFor, deckTrack } from './physics.js';
+import { collides, moveCircle, railCross, underAt, underFor, deckTrack, tunSet, tunTrack, tunClear } from './physics.js';
 import { Layer, NodeTable } from '../world/store.js';
 
 // Bridges (game/decks.js, physics.js): a step between two tiles is tested against the walls of the level it is taken at
@@ -82,16 +82,18 @@ export const mobBlocked = (w, x, y, r, ud = false) => collides(w, x, y, r, null,
 export function moveMob(game, e, dx, dy) {
   const w = game.world;
   const L = game.levels;
-  if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts
-  if (e.passDoors) return moveCircle(w, e, dx, dy);
+  if (e.passDoors || (L && (L.active || e.lv || e.z > 0))) return moveCircle(w, e, dx, dy); // levels: stairs / ramparts (moveCircle → levels.move)
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
-  const sx = dx / steps, sy = dy / steps, dk = !!w.rail; // (dk: bridges around — on / under a deck)
+  const sx = dx / steps, sy = dy / steps, dk = !!w.rail, tn = !!w.tunnels?.size; // (dk: bridges around — on / under a deck; tn: tunnels)
   let moved = false;
   for (let i = 0; i < steps; i++) {
+    if (tn) tunSet(w, e);
     if (!mobBlocked(w, e.x + sx, e.y, e.r, dk && underFor(w, e, e.x + sx, e.y))) { e.x += sx; moved = true; }
+    if (tn) tunSet(w, e);
     if (!mobBlocked(w, e.x, e.y + sy, e.r, dk && underFor(w, e, e.x, e.y + sy))) { e.y += sy; moved = true; }
   }
   if (dk) deckTrack(w, e);
+  if (tn) { tunTrack(w, e); tunClear(); }
   return moved;
 }
 

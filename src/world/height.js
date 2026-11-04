@@ -52,9 +52,11 @@ export function foldWater(corners, W, H, water, wlevel) {
 }
 
 // the layer of the world being played (set by World): ground height for helpers that only see entities (levels.js)
-let ACTIVE = null;
-export function setActiveHeight(L) { ACTIVE = L; }
+let ACTIVE = null, AW = null;
+export function setActiveHeight(L, w = null) { ACTIVE = L; AW = w; }
 export const groundZ = (x, y) => (ACTIVE && ACTIVE.any && Number.isFinite(x) && Number.isFinite(y) ? ACTIVE.heightAt(x, y) : 0);
+// the ground under a body: the floor of the tunnel it walks in (e._tn, physics.js tunTrack), else the surface
+export const groundOf = (e) => (!e ? 0 : e._tn != null && AW ? e._tn : groundZ(e.x, e.y));
 
 export class HeightLayer {
   constructor(W, H, corners = null) {

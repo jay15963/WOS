@@ -45,8 +45,9 @@ export function faceTowards(e, t) { e.facing = facingFrom(t.x - e.x, t.y - e.y, 
 // Line of sight for shots: rock and walls/doors block, trees/water don't (projectiles still collide with trunks).
 // levels: z0 / z1 = heights (stories) of both ends; the line runs half a story above them and a level-0 wall only
 // blocks where the line is below its top (a rampart shooter sees over the walls around it; docs/LEVELS.md §6).
-export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
-  if (world.hasHeight && !terrainLOS(world, x0, y0, x1, y1, z0, z1)) return false; // terrain height: ridges / cliffs between
+// g0 / g1: the ground of each end when it is a body in a tunnel (its floor: e._tn; null = the surface there)
+export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0, g0 = null, g1 = null) {
+  if (world.hasHeight && !terrainLOS(world, x0, y0, x1, y1, z0, z1, g0, g1)) return false; // terrain height: ridges / cliffs between
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1);
   const dx = x1 - x0, dy = y1 - y0;
@@ -69,12 +70,18 @@ export function hasLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
 }
 
 // terrain height (docs/TERRAIN-HEIGHT.md): the line between the eyes (≈ chest height) stays above the ground
-export function terrainLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0) {
-  const a = world.heightAt(x0, y0) + z0 + 0.75, b = world.heightAt(x1, y1) + z1 + 0.6;
-  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 0.4));
+// (tunnels, docs/TERRAIN-HEIGHT.md: a tunnel is a void ~1.3 stories tall over its floor inside the relief — a line through
+// it passes, through its ceiling or walls it does not)
+export function terrainLOS(world, x0, y0, x1, y1, z0 = 0, z1 = 0, g0 = null, g1 = null) {
+  const a = (g0 != null ? g0 : world.heightAt(x0, y0)) + z0 + 0.75, b = (g1 != null ? g1 : world.heightAt(x1, y1)) + z1 + 0.6;
+  const d = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(d / 0.4)), tun = world.tunnels?.size > 0;
   for (let k = 1; k < n; k++) {
-    const t = k / n;
-    if (world.heightAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t) > a + (b - a) * t) return false;
+    const t = k / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t, h = a + (b - a) * t;
+    if (world.heightAt(x, y) > h) {
+      if (!tun) return false;
+      const f = world.tunAt(Math.floor(x), Math.floor(y));
+      if (!(f > -Infinity && h >= f - 0.05 && h <= f + 1.3)) return false;
+    }
   }
   return true;
 }
@@ -385,7 +392,7 @@ export function canHitNow(game, p, t) {
   if (!attackable(t)) return false;
   const prof = p.wprof || weaponProfile(p.equip?.main || null);
   if (dist(p, t) > attackRange(p, t)) return false;
-  return !prof.ranged || hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0);
+  return !prof.ranged || hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn);
 }
 // a creature worth leaving a training dummy for (owner: the dummy is the last choice of everything): anything but a
 // calm passive animal (green) — those don't pull the player away from training
@@ -449,7 +456,7 @@ export function combatSystem() {
       const d = dist(p, t);
       if (prof.ranged) {
         if (d > attackRange(p, t)) return;
-        if (!hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) {
+        if (!hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn)) {
           if (game.time - losT > 2.5) { losT = game.time; game.events.emit('error', { text: 'Sem linha de tiro: saia de trás da parede / rocha' }); }
           return;
         }

@@ -74,7 +74,7 @@ function rangeOk(game, ab, t) {
   if (ab.range === 'melee') return d <= reach(p, t) + 0.15 ? 'ok' : 'far';
   if (d < ab.range[0]) return 'near';
   if (d > ab.range[1] * (ab.ammo ? heightK(p, t) : 1) + (t.r || 0.3)) return 'far'; // (bow abilities: height bonus)
-  if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0)) return 'los'; // levels: heights
+  if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn)) return 'los'; // levels: heights
   return 'ok';
 }
 

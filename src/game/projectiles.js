@@ -16,6 +16,9 @@
 import { dropLoot } from './loot.js';
 import { allPlayers } from './players.js';
 import { STORY_H } from './levels.js';
+import { groundOf } from '../world/height.js'; // the ground under a body (a tunnel's floor inside one)
+// the ground under a point at absolute height h: a tunnel's floor when h is inside its void, else the surface
+const tunGround = (w, x, y, h) => { const g = w.heightAt(x, y); if (g <= h || !w.tunnels?.size) return g; const f = w.tunAt(Math.floor(x), Math.floor(y)); return f > -Infinity && h >= f - 0.1 && h <= f + 1.3 ? f : g; };
 
 let projSeq = 0;
 
@@ -41,7 +44,7 @@ export function fireArrow(game, o) {
     z0: o.z0 ?? (o.src?.z || 0), z1: o.z1 ?? (o.target ? o.target.z || 0 : o.src?.z || 0), zL: L, pz: 0, // levels: heights
     g0: 0, g1: 0, gd: 0, // terrain height: the ground under the shooter / the aim point (every peer derives them)
   };
-  if (game.world.hasHeight) { pr.g0 = game.world.heightAt(o.x, o.y); pr.g1 = game.world.heightAt(o.tx, o.ty); }
+  if (game.world.hasHeight) { pr.g0 = o.src?._tn != null ? o.src._tn : game.world.heightAt(o.x, o.y); pr.g1 = o.target?._tn != null ? o.target._tn : game.world.heightAt(o.tx, o.ty); } // (tunnels: a body's floor)
   pr.pz = pr.z0;
   P.push(pr);
   if (P.length > 80) P.splice(0, P.length - 80);
@@ -288,7 +291,7 @@ export function projectilesSystem() {
           // terrain height: the shot's line runs from the ground under the shooter to the ground under the aim point
           let gd = 0;
           if (w.hasHeight) {
-            const gl = pr.g0 + (pr.g1 - pr.g0) * Math.min(1, nd / Math.max(0.5, pr.zL)), gh = w.heightAt(nx, ny);
+            const gl = pr.g0 + (pr.g1 - pr.g0) * Math.min(1, nd / Math.max(0.5, pr.zL)), gh = tunGround(w, nx, ny, gl + pz * STORY_H + nl);
             gd = gl - gh;
             if (gd + pz * STORY_H + nl < 0.02) { pr.x = nx; pr.y = ny; pr.gd = 0; pr.lift = 0.04; stick(game, pr, true); done = true; break; } // into the hillside
           }
@@ -300,13 +303,13 @@ export function projectilesSystem() {
             for (const e of E) {
               if (e === pr.src || e === p || e.dead || !(e.isMob || e.kind === 'animal')) continue;
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
-              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? w.heightAt(e.x, e.y) - w.heightAt(nx, ny) : 0)) < 0.75) { victim = e; break; }
+              if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? groundOf(e) - tunGround(w, nx, ny, groundOf(e) + 0.5) : 0)) < 0.75) { victim = e; break; }
             }
           } else {
             for (const q of PL) {
               if (q.dead) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
-              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd + (w.hasHeight ? w.heightAt(q.x, q.y) - w.heightAt(nx, ny) : 0)) < 0.75) { victim = q; break; }
+              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd + (w.hasHeight ? groundOf(q) - tunGround(w, nx, ny, groundOf(q) + 0.5) : 0)) < 0.75) { victim = q; break; }
             }
           }
           if (victim && pr.d > 0.25) {

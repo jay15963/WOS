@@ -12,6 +12,7 @@
 //   lvs:    [[structId, lv]]   (levels, agent L: structures above the ground; absent = every one on level 0)
 //   terr:   [cornerIdx, h×100, …]  terrain edits vs the generated terrain (world/height.js diff; docs/TERRAIN-HEIGHT.md)
 //   bzs:    [[structId, bz×100]]  the base height a building's story 0 stands on (terrain height)
+//   tun:    [tileIdx, floor×100, …]  tunnels dug into the relief (mut/tunnels.js; docs/TERRAIN-HEIGHT.md)
 //           (rows of 10 = older saves: rot 0, paid 1, closed, no move plan; rows of 14 = no style / details)
 //   crops:  [[tx, ty, kind, growth, stage]],
 //   loot:   [[id, item, qty, x, y]],
@@ -40,6 +41,7 @@ import { mineTile } from '../game/mut/tiles.js';
 import { propById, setPropBroken } from '../game/mut/camps.js';
 import { corpseRow, addCorpse, removeCorpse } from '../game/mut/corpses.js';
 import { serializePaths, applyPaths } from '../game/mut/paths.js';
+import { serializeTunnels, applyTunnels } from '../game/mut/tunnels.js'; // tunnels dug into the relief
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
 
 export const SNAP_V = 1;
@@ -87,6 +89,7 @@ export function serializeWorld(game, { save = false } = {}) {
     if (terr.length) data.terr = terr;
     const bzs = game.build.structures.filter((o) => Number.isFinite(o.bz)).map((o) => [o.id, Math.round(o.bz * 100)]);
     if (bzs.length) data.bzs = bzs;
+    if (w.tunnels.size) data.tun = serializeTunnels(game); // tunnels dug into the relief (mut/tunnels.js)
   }
   // ballistas (game/ballista.js): where each points, its operator (never in a save: nobody is on it after a load)
   const ball = game.build.structures.filter((o) => o.type === 'ballista' && (Number.isFinite(o.aim) || o.user)).map((o) => [o.id, Number.isFinite(o.aim) ? Math.round(o.aim * 1e4) / 1e4 : null, !save && o.user ? o.user : 0]);
@@ -138,6 +141,8 @@ function applyInner(game, d, mode) {
   // ---- terrain edits (docs/TERRAIN-HEIGHT.md; a snapshot without them = the generated terrain) ----
   if ((reconcile || d.terr) && w.hasHeight !== undefined && (d.terr || w.height.diff().length)) { w.height.applyDiff(arr(d.terr), true); game.terrainV = (game.terrainV || 0) + 1; }
 
+  // ---- tunnels (before the mined tiles: a rock tile dug into a tunnel is mined without a cut) ----
+  if (reconcile || d.tun) applyTunnels(game, arr(d.tun), reconcile);
   // ---- mined tiles (never un-mine) & mining progress ----
   for (const i of arr(d.mined)) {
     if (!Number.isInteger(i) || i < 0 || i >= w.W * w.H) continue;

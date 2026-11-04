@@ -168,7 +168,7 @@ function seePlayer(game, m, r, pred = null) {
     if (q.dead || (pred && !pred(q))) continue;
     const d = Math.hypot(q.x - m.x, q.y - m.y);
     if (d >= bd) continue;
-    if (d > SMELL && !hasLOS(game.world, m.x, m.y, q.x, q.y, m.z || 0, q.z || 0)) continue;
+    if (d > SMELL && !hasLOS(game.world, m.x, m.y, q.x, q.y, m.z || 0, q.z || 0, m._tn, q._tn)) continue;
     best = q; bd = d;
   }
   return best;
@@ -311,10 +311,10 @@ function roamBrain(game, m, dt, F) {
         if (!p.dead && !(m.calmT > 0)) {
           if (sp.temper === 'hostile') {
             const r = hidden && amb ? amb.r : aggroRadius(m, p);
-            if (d < r && (d < SMELL || hasLOS(w, m.x, m.y, p.x, p.y, 0, p.z || 0))) { aggro(game, m, p); if (m.state === 'chase') { setMode(m, HIDE, false); m.lungeT = 0.8; } break; }
+            if (d < r && (d < SMELL || hasLOS(w, m.x, m.y, p.x, p.y, 0, p.z || 0, m._tn, p._tn))) { aggro(game, m, p); if (m.state === 'chase') { setMode(m, HIDE, false); m.lungeT = 0.8; } break; }
           } else if (sp.temper === 'passive') {
             if (d < (F.flee || 4) || (d < 6.5 && p.moving)) { startFlee(m, p, 3 + R() * 2); if (F.herd) herdFlee(game, m); break; }
-          } else if (F.territorial && d < F.territorial && hasLOS(w, m.x, m.y, p.x, p.y, 0, p.z || 0)) { aggro(game, m, p); break; }
+          } else if (F.territorial && d < F.territorial && hasLOS(w, m.x, m.y, p.x, p.y, 0, p.z || 0, m._tn, p._tn)) { aggro(game, m, p); break; }
           else if (m.species === 'crab' && d < 1.6 && p.moving) { startFlee(m, p, 1.5); break; } // (a crab scuttles off)
         }
       }

@@ -33,6 +33,7 @@ import { loadGame, saveSystem } from './save.js';
 import { initEconomy, postLoadEconomy, economySystems } from './economy.js';
 import { initPaths, pathsSystem } from './paths.js'; // painted terrain paths (agent M)
 import { terrainSystem } from './terrain.js'; // terrain height: building pads, the terrain tool (docs/TERRAIN-HEIGHT.md)
+import { installTunnels, tunnelsSystem } from './tunnels.js'; // tunnels dug into the relief (docs/TERRAIN-HEIGHT.md)
 import { installHUD } from '../ui/hud.js';
 import { installOverlay } from '../ui/overlay.js';
 import { installAim } from '../ui/aim.js';
@@ -77,6 +78,7 @@ export function installSystems(game) {
   initBuilding(game);
   initRoofs(game);
   initRockFx(game);                 // cracks of rock being mined (cosmetic)
+  installTunnels(game);             // tunnels: bodies in them, the floor shown (game/tunnels.js)
   installLevels(game);              // levels: stories / stairs (derived from the structures; before the save loads)
   installDecks(game, itemSprite);   // piers / bridges: the deck map (derived from the structures)
   buildOcc(game);
@@ -112,6 +114,7 @@ export function installSystems(game) {
     levelsSystem(),
     decksSystem(),                  // world.deck / world.rail before anything moves (decks.js)
     terrainSystem(),                // terrain height: the pads under buildings before anything moves (terrain.js)
+    tunnelsSystem(),                // tunnels: e._tn of every body, the floor shown around the local player (tunnels.js)
     controller,
     playerSystem(),
     abilitiesSystem(),

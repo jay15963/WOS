@@ -13,7 +13,7 @@
 // camera, depth keys, lift), session / entities (z), save (player z), placeReason (stairwell).
 
 import { Layer, NodeTable } from '../world/store.js'; // sparse per-level grids, A* scratch (docs/STREAMING.md)
-import { groundZ } from '../world/height.js'; // terrain height
+import { groundOf } from '../world/height.js'; // terrain height (a tunnel's floor for a body in one)
 import { BUILDINGS } from './data.js';
 import { tileBlocked, railHit, railCross, underAt, underFor, deckTrack } from './physics.js';
 import { walkable } from './nav.js';
@@ -40,7 +40,7 @@ export const sameLevel = (a, b) => Math.abs((a?.z || 0) - (b?.z || 0)) < 0.5 && 
 export const HEIGHT_PER_STORY = 0.2, HEIGHT_MAX = 1;
 // (terrain height, docs/TERRAIN-HEIGHT.md: the ground under each counts too — a hill or a cliff top is height advantage)
 export const heightK = (a, b) => 1 + Math.min(HEIGHT_MAX, HEIGHT_PER_STORY * Math.max(0, (a?.z || 0) + (b ? gz(a) - gz(b) : 0) - (b?.z || 0)));
-const gz = (e) => (e ? groundZ(e.x, e.y) : 0);
+const gz = (e) => groundOf(e);
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const DIRS8 = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.4142], [1, -1, 1.4142], [-1, 1, 1.4142], [-1, -1, 1.4142]];

@@ -13,10 +13,52 @@
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
+// ---------- tunnels (docs/TERRAIN-HEIGHT.md "Túneis", world.js digTunnel) ----------
+// A body is in a tunnel (e._tn = its floor height, kept by tunTrack like e._ud) after it stepped onto a tunnel tile from
+// ground at the floor's height (the mouth); it stays in from tunnel tile to tunnel tile and leaves through a mouth. A body
+// on the surface walks over a tunnel as over any ground. TN = the mover being tested (set by the movers around their
+// collision tests; NaN = nobody: the surface rules): `f` its tunnel floor (NaN on the surface), `g` the ground it stands
+// on. For it a tunnel tile at about its ground is open (inside / the mouth); in a tunnel, any other tile is a wall unless
+// it is open ground at the floor's height (outside the mouth).
+export const TN = { f: NaN, g: NaN };
+const TUN_IN = 0.7; // ground within this of a tunnel's floor steps in / out (stories)
+export function tunSet(w, e) {
+  if (!w.tunnels?.size || !e) { TN.f = NaN; TN.g = NaN; return; }
+  tunTrack(w, e);
+  TN.f = e._tn != null ? e._tn : NaN;
+  TN.g = e._tn != null ? e._tn : w.height.heightAt(e.x, e.y);
+}
+export function tunClear() { TN.f = NaN; TN.g = NaN; }
+// level after the centre went from tile p to tile i: the floor of the tunnel (f: the body's floor in p, null = surface)
+export function tunAt(w, p, i, f, x, y) {
+  const fi = i >= 0 ? w.tun.get(i) : -Infinity;
+  if (!(fi > -Infinity)) return null;
+  if (i === p) return f;
+  if (f != null) return Math.abs(fi - f) <= 0.6 ? fi : null;
+  return w.height.heightAt(x, y) <= fi + TUN_IN ? fi : null; // (from outside: in through a mouth, else over it)
+}
+export function tunTrack(w, e) {
+  if (!w.tunnels?.size) { if (e._tn != null) e._tn = null; e._tt = -1; return null; }
+  const i = tileOf(w, e.x, e.y);
+  if (i === e._tt) return e._tn ?? null;
+  e._tn = tunAt(w, e._tt ?? -1, i, e._tn ?? null, e.x, e.y);
+  e._tt = i;
+  return e._tn;
+}
+// tile rules for the mover TN (null when they do not apply: the usual rules)
+function tunBlocked(world, i, tx, ty) {
+  const g = TN.g, ft = world.tun.get(i);
+  if (ft > -Infinity && Math.abs(ft - g) <= TUN_IN) return false; // its tunnel / the mouth at its ground
+  if (TN.f !== TN.f) return null; // (on the surface: over a tunnel as over any ground)
+  if (ft > -Infinity) return true; // another tunnel's floor
+  return world.height.tileMin(tx, ty) > g + TUN_IN ? true : null; // the relief around the tunnel; the outside at the floor's height: usual rules
+}
+
 // onDeck: the mover stands on a deck (its tiles are ground); false = at the water under / beside it (deep water blocks)
 export function tileBlocked(world, tx, ty, passDoors = false, swim = false, onDeck = true) {
   if (!world.inBounds(tx, ty)) return true;
   const i = world.idx(tx, ty);
+  if (TN.g === TN.g) { const b = tunBlocked(world, i, tx, ty); if (b != null) return b; } // (a mover near / in a tunnel)
   const s = world.solid.get(i);
   return world.rock.get(i) === 1 || (world.water.get(i) === 2 && !swim && !world.frozen && !(onDeck && world.deck && world.deck.get(i))) || s === 1 || (s === 2 && !passDoors) || world.isCliff(tx, ty); // frozen: ice (seasons.js); deck: a pier / bridge (decks.js); terrain cliffs (world/height.js)
 }
@@ -126,19 +168,23 @@ function overlappedProp(world, x, y, r) {
 }
 
 export function moveCircle(world, e, dx, dy) {
-  const L = world.levels;
-  if (L && (L.active || e.lv || e.z > 0)) return L.move(e, dx, dy); // levels: stairs / ramparts (src/game/levels.js)
+  const L = world.levels, tn = !!world.tunnels?.size; // (tn: tunnels around — in / over one)
+  if (L && (L.active || e.lv || e.z > 0)) { if (tn) tunSet(world, e); const r = L.move(e, dx, dy); if (tn) { tunTrack(world, e); tunClear(); } return r; } // levels: stairs / ramparts (src/game/levels.js)
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
   const sx = dx / steps, sy = dy / steps;
   const pd = !!e.passDoors, sw = !!e.canSwim, dk = !!world.rail; // (dk: bridges around — on / under a deck)
+  if (tn) tunSet(world, e);
   // already overlapping a round prop (finished / loaded under us): ignore it so we can walk out
   const stuckOn = collides(world, e.x, e.y, e.r, null, pd, sw, dk && deckTrack(world, e)) ? overlappedProp(world, e.x, e.y, e.r) : null;
   let moved = false;
   for (let i = 0; i < steps; i++) {
+    if (tn && i) tunSet(world, e);
     if (!collides(world, e.x + sx, e.y, e.r, stuckOn, pd, sw, dk && underFor(world, e, e.x + sx, e.y))) { e.x += sx; moved = true; }
+    if (tn) tunSet(world, e);
     if (!collides(world, e.x, e.y + sy, e.r, stuckOn, pd, sw, dk && underFor(world, e, e.x, e.y + sy))) { e.y += sy; moved = true; }
   }
   if (dk) deckTrack(world, e);
+  if (tn) { tunTrack(world, e); tunClear(); }
   if (world.wrap && (e.x < 0 || e.x >= world.W)) e.x = world.wrapPos(e.x); // (positions stay canonical: 0 ≤ x < W)
   return moved;
 }

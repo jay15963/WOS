@@ -270,7 +270,7 @@ export function installAim(game) {
     const p = game.player, lim = Sx.range + 3;
     cands.length = 0;
     for (const e of game.entities) {
-      if (!isMob(e) || e.dead || e.faction === 'friend' || e.isProp || game.roofs?.hidden?.(e.x, e.y)) continue; // not inside roofed buildings
+      if (!isMob(e) || e.dead || e.faction === 'friend' || e.isProp || game.roofs?.hidden?.(e.x, e.y, e)) continue; // not inside roofed buildings
       if (Math.abs(e.x - p.x) > lim || Math.abs(e.y - p.y) > lim) continue;
       cands.push(e);
     }

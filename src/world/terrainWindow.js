@@ -240,6 +240,7 @@ export class TerrainWindow {
         c.fill(x0, y0, tw, th, data);
       }
       const s = c.scale;
+      if (this.post) this.post(c.name, x0, y0, tw, th, data); // (a module's last word on the contents: tunnels shown)
       gl.bindTexture(gl.TEXTURE_2D, c.tex);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, (x0 & WM) * s, (y0 & WM) * s, tw * s, th * s, c.format, c.type || gl.UNSIGNED_BYTE, data);
     }
