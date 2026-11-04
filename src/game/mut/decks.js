@@ -5,7 +5,7 @@
 
 import { defineOp } from '../../net/registry.js';
 import { BUILDINGS } from '../data.js';
-import { removeStructure, structById } from './structures.js';
+import { removeStructure, structById, ownStructs } from './structures.js';
 import { addLootRows } from './loot.js';
 import { lootRow } from './roll.js';
 
@@ -46,7 +46,7 @@ export function deckSupportSystem() {
       const w = game.world, lost = D.any ? D.unsupported() : [];
       const gone = new Set(lost);
       // what stood on them, and small things on the water with no deck under them
-      for (const o of game.build.structures) {
+      for (const o of ownStructs(game)) { // (a settlement's pieces never: not the ~18 000 of a city — mut/structures.js)
         if (o.lv || o.moveOf || o.town != null || gone.has(o) || BUILDINGS[o.type]?.layer !== 'main' || BUILDINGS[o.type]?.boat || !w.inBounds(o.tx, o.ty)) continue; // (a boat blueprint floats)
         const i = w.idx(o.tx, o.ty), d = D.at.get(i);
         if ((d && gone.has(d)) || (!d && w.water.get(i))) { lost.push(o); gone.add(o); }

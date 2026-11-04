@@ -28,6 +28,7 @@
 // walls below while it is high, hitting what stands at the height it has (a giant is tall: hit from a rampart too).
 
 import { BUILDINGS, SPECIES } from './data.js';
+import { structsOfType } from './mut/structures.js'; // (the ballistas only, not the ~18 000 pieces of a city)
 import { dealDamage, isMob } from './combat.js';
 import { allPlayers } from './players.js';
 import { facingFrom, collides } from './physics.js';
@@ -96,7 +97,7 @@ export function boltReaches(e, z) {
 export function muzzleOf(o, a) { const [x, y] = pivotOf(o); return [x + Math.cos(a) * 0.9, y + Math.sin(a) * 0.9]; }
 export function ballistasNear(game, x, y, r) {
   const out = [];
-  for (const o of game.build.structures) if (isBallista(o) && Math.abs(o.tx + 0.5 - x) < r && Math.abs(o.ty + 0.5 - y) < r) out.push(o);
+  for (const o of structsOfType(game, 'ballista')) if (isBallista(o) && Math.abs(o.tx + 0.5 - x) < r && Math.abs(o.ty + 0.5 - y) < r) out.push(o);
   return out;
 }
 // the operator's entity (host: the local player or a remote avatar)
@@ -110,7 +111,7 @@ export function myBallista(game) {
   const me = game.net.pid, B = game._myBal;
   if (B && isBallista(B) && B.user === me) return B;
   game._myBal = null;
-  for (const o of game.build.structures) if (o.type === 'ballista' && o.user === me && isBallista(o)) { game._myBal = o; return o; }
+  for (const o of structsOfType(game, 'ballista')) if (o.user === me && isBallista(o)) { game._myBal = o; return o; }
   return null;
 }
 
@@ -206,8 +207,8 @@ export function ballistaSystem() {
       const OPS = game._opEnts || (game._opEnts = []);
       for (const e of OPS) e._opA = null;
       OPS.length = 0;
-      for (const o of game.build.structures) {
-        if (o.type !== 'ballista' || o.removed) continue;
+      for (const o of structsOfType(game, 'ballista')) {
+        if (o.removed) continue;
         if (o.user) {
           const e = o.user === game.net.pid ? game.player : game.session?.players?.get(o.user)?.ent;
           if (e && !e.dead) { e._opA = Number.isFinite(o._aimD) ? o._aimD : aimOf(o); OPS.push(e); }
@@ -224,8 +225,8 @@ export function ballistaSystem() {
       slowT -= dt;
       if (slowT > 0) return;
       slowT = 0.5;
-      for (const o of game.build.structures) {
-        if (o.type !== 'ballista' || !o.user) continue;
+      for (const o of structsOfType(game, 'ballista')) {
+        if (!o.user) continue;
         const q = playerByPid(game, o.user), [px, py] = pivotOf(o);
         // (gone, dead, walked off, or not at its story any more: fell off the rampart)
         if (o.removed || o.blueprint || !q || q.dead || Math.hypot(q.x - px, q.y - py) > BALLISTA.reach + 1.5 || Math.abs((q.z || 0) - (o.lv | 0)) > 0.75) game.net.emit('ballista.set', { id: o.id, user: 0 });

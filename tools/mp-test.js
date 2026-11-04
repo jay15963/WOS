@@ -13,6 +13,7 @@ import {
 } from './mp-test/harness.js';
 import { env, pairCtx, bootHost, bootGuest, bootSolo, waitGuestSynced, presetPid, legacyJoin } from './mp-test/pair.js';
 import * as A from './mp-test/act.js';
+import * as TC from './mp-test/towncheck.js'; // settlement validator (FX1)
 
 const S = [];
 const def = (id, meta, run) => S.push({ id, timeout: 90000, ...meta, run });
@@ -8282,6 +8283,185 @@ def('EC8', {
   t.check(MS.eco.quoteBuy(S.game, s0.id, gi, 5, uid).cost === q0, 'the same price quotes after the load', `${MS.eco.quoteBuy(S.game, s0.id, gi, 5, uid).cost} / ${q0}`);
   frames.close(S);
   await t.checkDigest(H, G);
+});
+
+// FX — settlements, phase 2 fixes (docs/REINOS.md "Fase 2 — correções e desempenho"): free doors (the validator in
+// tools/mp-test/towncheck.js), climbable palisades, walking into a city without hitches.
+// =====================================================================================================
+// stand at (x, y) and wait until settlement sid is made around there on frame f (its chunks loaded, its pieces placed)
+async function townReady(t, f, M, sid, x, y, ms = 60000) {
+  const a = A.freeSpot(f, M, x, y, { rMin: 0, rMax: 4 }) || [x, y];
+  A.teleport(f, a[0], a[1]);
+  const T = f.game.towns;
+  await t.waitFor(() => piecesOn(f, sid) > 50 && T.ready(sid), ms, `settlement ${sid} made on ${f.label}`, () => `${piecesOn(f, sid)} pieces · jobs ${T.jobs.length} · waiting ${[...T.wait.values()].reduce((n, q) => n + q.length, 0)}`);
+  await t.sleep(800);
+}
+const nearestOf = (R, kind, x, y, pred = () => true) => R.settlements.filter((s) => s.kind === kind && pred(s)).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0] || null;
+
+def('FX1', {
+  title: 'FX: every settlement door is free inside and outside, and the game\'s own pathfinding reaches every bed, workplace and chest; every wall walk is reached by its stairs (validator, two seeds)',
+  timeout: 420000,
+  expected: 'Solo frames on two seeds (a new world on a village plaza). (1) Every settlement\'s plan (~240 a seed): no door with a piece of the plan on the tile right inside or right outside it, every archer spot on a wall top. (2) Every prefab (houses, workshops, tavern, barracks, keep…) × 4 rotations stamped as real structures on clear ground: the tiles inside and outside its door are free (nav.walkable) and levels.findPath goes from the doorstep through the opened door to a free tile beside every bed, workplace and chest (the keep\'s beds upstairs by its stairs). (3) The start village, the nearest castle, the capital city and the nearest palisade village made in the world: the same for every building, plus a complete path from the plaza to each door and from the plaza up the stairs to every archer spot on the wall walk (palisade story 1, stone walls / tower tops story 2). Zero problems',
+  api: 'tools/mp-test/towncheck.js checkLayout / checkPrefabs / checkTown; game/levels.js findPath; game/nav.js walkable; world/realm/prefabs.js stampPrefab; world/realm/layout.js palisadeStairs',
+}, async (t) => {
+  let total = 0;
+  for (const seed of [CFG.seed, CFG.seed + 1311]) {
+    presetPid('s' + rand(7));
+    const S = t.open(`solo-towns-${seed}`, `seed=${seed}&nosave=1`, null);
+    await t.waitFor(() => (S.game && S.loadingHidden && S.game.towns?.realm) || S.bootError, CFG.bootMs, `solo frame (seed ${seed}) boot`);
+    if (S.bootError) throw new Fail(`seed ${seed}: boot failed: ${S.bootError}`);
+    const M = await A.mods(S), X = await TC.townMods(S), g = S.game, R = g.towns.realm, sp = g.world.spawn;
+    A.keepAlive(t, S);
+    // (1) every plan of the seed
+    const P1 = [];
+    for (const s of R.settlements) P1.push(...TC.checkLayout(g.towns.layout(s.id), X));
+    t.check(!P1.length, `seed ${seed}: every settlement plan (${R.settlements.length}) — doors free of the plan's pieces, archer spots on wall tops`, P1.slice(0, 8).join(' | '));
+    // (2) every prefab × 4 rotations (the first seed: the prefabs are the same everywhere)
+    if (seed === CFG.seed) {
+      // (open ground south-east of the village, its chunks loaded)
+      const ax = sp.x + 70, ay = sp.y + 50;
+      A.teleport(S, ax, ay);
+      await t.waitFor(() => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!g.world.isLoaded(g.world.chunkIndex(ax + dx * 64, ay + dy * 64))) return false; return true; }, 30000, 'the ground around the test site loaded');
+      await t.sleep(500);
+      const r = TC.checkPrefabs(g, X, ax, ay);
+      t.check(r.n === Object.keys(X.prefabs.PREFABS).length * 4 && !r.problems.length, `every prefab × 4 rotations (${r.n}): doors free, every bed / workplace / chest reached`, r.problems.slice(0, 8).join(' | '));
+      total += r.n;
+    }
+    // (3) real settlements in the world
+    const s0 = MS_at(M, R, sp), castle = nearestOf(R, 'castle', sp.x, sp.y), city = R.settlements[R.kingdoms[s0.k].capital];
+    const pal = nearestOf(R, 'village', sp.x, sp.y, (s) => s.walls === 'palisade');
+    const visit = [s0, castle, city, ...(pal && pal.id !== s0.id ? [pal] : [])];
+    for (const s of visit) {
+      const L = g.towns.layout(s.id);
+      await townReady(t, S, M, s.id, L.spawn[0], L.spawn[1], s.kind === 'city' ? 90000 : 60000);
+      const r = TC.checkTown(g, X, s.id);
+      t.check(!r.problems.length && r.buildings === r.total, `seed ${seed}: ${s.kind} ${s.name} (${s.walls || 'sem muralha'}) — ${r.buildings}/${r.total} buildings, ${r.targets} beds / workplaces / chests, ${L.hooks.archers.length} archer spots: doors free, all reached`, r.problems.slice(0, 8).join(' | '));
+      if (s.walls === 'palisade') t.check(L.structs.filter((q) => q[0] === 'stairs_wood').length >= L.gates.length + 1, `${s.name}: the palisade has stairs (beside each gate and on the sides)`, L.structs.filter((q) => q[0] === 'stairs_wood').length);
+      total += r.buildings;
+    }
+    frames.close(S);
+  }
+  t.log(`checked ${total} buildings / prefab rotations`);
+});
+const MS_at = (M, R, sp) => M.realm.settlementAt(R, sp.x, sp.y);
+
+def('FX2', {
+  title: 'FX: the guest climbs a village palisade by its stairs and walks on its top; the host sees it up there',
+  src: 'village', timeout: 150000,
+  expected: 'The start village (seed 4242) has a palisade with wooden stairs on the inside (the same piece ids on both peers; its log walls are story-1 surfaces on both). The guest stands at the foot of the stair beside a gate and walks up: z rises 0 → 1 and it ends on the wall top (lv 1, z 1) — the host\'s avatar of the guest is at lv 1 in the same place; it walks along the wall walk (still lv 1, over wall tops); then back down the same stair to the ground (lv 0 on both); digest equal',
+  api: 'world/realm/layout.js palisadeStairs (stairs_wood at the wall, hooks.archers lv 1); game/levels.js (wall tops, stairs); presence z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MS_at(MH, R, sp);
+  const pal = s0.walls === 'palisade' ? s0 : nearestOf(R, 'village', sp.x, sp.y, (s) => s.walls === 'palisade');
+  t.need(pal, 'a palisade village');
+  const L = H.game.towns.layout(pal.id), gp = G.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  await visitTown(t, H, MH, G, MG, pal.id, L.spawn[0], L.spawn[1]);
+  const stairs = (f) => [...(townOf(f, pal.id)?.objs.values() || [])].filter((o) => o.type === 'stairs_wood');
+  await t.waitFor(() => stairs(H).length >= 2 && stairs(G).length === stairs(H).length, 20000, 'the palisade stairs on both');
+  t.check(stairs(H).map((o) => o.id).sort().join() === stairs(G).map((o) => o.id).sort().join(), 'the same stairs on both', stairs(G).map((o) => o.id).join(' '));
+  // the stair nearest a gate
+  const gates = [...townOf(G, pal.id).objs.values()].filter((o) => o.type === 'gate_big_wood');
+  const st = stairs(G).sort((a, b) => Math.min(...gates.map((q) => Math.hypot(q.x - a.x, q.y - a.y))) - Math.min(...gates.map((q) => Math.hypot(q.x - b.x, q.y - b.y))))[0];
+  const r = st.rot & 3, D = [[0, -1], [1, 0], [0, 1], [-1, 0]][r];
+  const ent = r === 0 ? [st.tx, st.ty + 2] : r === 2 ? [st.tx, st.ty - 1] : r === 1 ? [st.tx - 1, st.ty] : [st.tx + 2, st.ty];
+  const land = r === 0 ? [st.tx, st.ty - 1] : r === 2 ? [st.tx, st.ty + 2] : r === 1 ? [st.tx + 2, st.ty] : [st.tx - 1, st.ty];
+  const wi = G.game.world.idx(land[0], land[1]);
+  G.game.levels.sync(); H.game.levels.sync();
+  t.check(G.game.levels.isSurface(1, wi) && H.game.levels.isSurface(1, wi), 'the palisade top at the stair\'s landing is a story-1 surface on both', `${land}`);
+  t.check(MG.data.BUILDINGS[G.game.build.grid.main.get(wi)?.type]?.connect === 'wall', 'the landing is a log wall of the palisade', G.game.build.grid.main.get(wi)?.type);
+  A.teleport(G, ent[0] + 0.5, ent[1] + 0.5);
+  await A.hostSees(t, H, G);
+  const zs = [];
+  const zw = t.watch(() => zs.push(+(gp.z || 0).toFixed(3)), 4);
+  let rel = A.holdMove(G, D[0], D[1]);
+  // (up to the middle of the wall's top: the body clear of the air beside it — pushing on past it would hop down)
+  await t.waitFor(() => gp.lv === 1 && gp.z === 1 && Math.floor(gp.x) === land[0] && Math.floor(gp.y) === land[1] && Math.abs((D[0] ? gp.x : gp.y) - (D[0] ? land[0] : land[1]) - 0.5) < 0.26, 6000, 'the guest walks up the stair onto the palisade', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  rel(); zw.stop();
+  t.check(zs.filter((v) => v > 0.05 && v < 0.95).length >= 3, 'z rises smoothly on the stair', short(zs.filter((_, i) => i % 3 === 0).slice(0, 30)));
+  const av = () => guestOnHost(H, G);
+  await t.waitFor(() => av() && av().lv === 1 && av().z === 1 && Math.hypot(av().x - gp.x, av().y - gp.y) < 0.4, RT() + 600, 'the host sees the guest on the palisade (lv 1, z 1)', () => `host av ${lvOf(av())} ${f2(av()?.x)},${f2(av()?.y)}`);
+  // along the wall walk (sideways, away from the gate when possible)
+  const side = [[-D[1], D[0]], [D[1], -D[0]]].find(([sx, sy]) => G.game.levels.isSurface(1, G.game.world.idx(land[0] + sx * 3, land[1] + sy * 3)) && G.game.levels.isSurface(1, G.game.world.idx(land[0] + sx, land[1] + sy)));
+  t.assert(side, 'the wall walk goes on beside the landing');
+  const p0 = [gp.x, gp.y];
+  rel = A.holdMove(G, side[0], side[1]);
+  await t.waitFor(() => Math.hypot(gp.x - p0[0], gp.y - p0[1]) > 2.2, 4000, 'the guest walks along the wall walk', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  rel();
+  const ti = G.game.world.idx(Math.floor(gp.x), Math.floor(gp.y));
+  t.check(gp.lv === 1 && gp.z === 1 && G.game.levels.isSurface(1, ti) && MG.data.BUILDINGS[G.game.build.grid.main.get(ti)?.type]?.connect === 'wall', 'still on the palisade top (lv 1, over a wall)', `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => av()?.lv === 1 && Math.hypot(av().x - gp.x, av().y - gp.y) < 0.4, RT() + 600, 'the host follows the guest along the wall walk');
+  // down again: a click at the foot of the stair (the game's own path over the stories: along the wall walk, the stair)
+  await A.walkTo(t, G, ent[0] + 0.5, ent[1] + 0.5, { ms: 8000 });
+  await t.waitFor(() => !gp.lv && !gp.z && Math.hypot(gp.x - (ent[0] + 0.5), gp.y - (ent[1] + 0.5)) < 1.6, 4000, 'the guest walks down the stair to the ground', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  await t.waitFor(() => av() && !av().lv && !(av().z > 0), RT() + 600, 'the host sees the guest on the ground again');
+  await t.checkDigest(H, G);
+});
+
+def('FX3', {
+  title: 'FX: walking from open country along a road into the capital and across it — no long frame, a sane sprite count, no chunk made on the main thread',
+  timeout: 300000,
+  expected: 'Solo frame (seed 4242, a new world). The player walks (8 tiles/s, the game\'s own movement + steering) ~260 tiles along the realm\'s roads into the capital, through its gate to the market plaza and on to another gate while the city streams in (~18 000 pieces). Over the walk: no frame above 120 ms of main-thread time in this headless run (it shares one thread with the test page; the measured numbers on a 1280 × 720 page are in docs/REINOS.md), p95 under 14 ms; the settlement batches stay within their frame budget (towns.stats.maxMs < 30 ms); no chunk generated synchronously because of a settlement piece (world.stats.genSync grows by ≤ 2: only the player\'s own chunk may be made at once when a worker is late); at the plaza fewer than 9000 sprites',
+  api: 'game.frameStats(reset), game.towns.stats, world.stats.genSync, renderer.stats.sprites; game/towns.js (pieces kept in their anchor chunk, T.wait), levels.addPiece, mut/structures.js structsOfType',
+}, async (t) => {
+  presetPid('s' + rand(7));
+  const S = t.open('solo-walk', `seed=${CFG.seed}&nosave=1`, null);
+  await t.waitFor(() => (S.game && S.loadingHidden && S.game.towns?.realm) || S.bootError, CFG.bootMs, 'solo frame boot');
+  if (S.bootError) throw new Fail(`boot failed: ${S.bootError}`);
+  const M = await A.mods(S), g = S.game, R = g.towns.realm, sp = g.world.spawn, p = g.player;
+  A.keepAlive(t, S);
+  const s0 = MS_at(M, R, sp), city = R.settlements[R.kingdoms[s0.k].capital], L = g.towns.layout(city.id);
+  // the road: roads chained away from the city (the longest each time) until ~260 tiles out, walked back in
+  const ptsOf = (r, from) => { let q = []; for (let i = 0; i < r.pts.length; i += 2) q.push([r.pts[i], r.pts[i + 1]]); if (Math.hypot(q[0][0] - from.x, q[0][1] - from.y) > Math.hypot(q[q.length - 1][0] - from.x, q[q.length - 1][1] - from.y)) q.reverse(); return q; };
+  let rd = [], at = city, far = 0;
+  const used = new Set(), D0 = 260;
+  for (let hop = 0; hop < 4 && far < D0 + 60; hop++) {
+    const c = at.roads.map((id) => R.roads[id]).filter((r) => r && !used.has(r.id)).map((r) => [r, ptsOf(r, at)]).sort((a, b) => Math.hypot(b[1].at(-1)[0] - city.x, b[1].at(-1)[1] - city.y) - Math.hypot(a[1].at(-1)[0] - city.x, a[1].at(-1)[1] - city.y))[0];
+    if (!c) break;
+    used.add(c[0].id); rd.push(...c[1]);
+    at = R.settlements[c[0].a === at.id ? c[0].b : c[0].a]; far = Math.hypot(rd.at(-1)[0] - city.x, rd.at(-1)[1] - city.y);
+  }
+  rd = rd.filter(([x, y]) => Math.hypot(x - city.x, y - city.y) > city.r + 3 && Math.hypot(x - city.x, y - city.y) < D0 + city.r).reverse();
+  t.assert(rd.length > 4, 'a road into the capital', rd.length);
+  const gd = (k) => Math.hypot(L.structs[k][1] - city.x, L.structs[k][2] - city.y), end = rd.at(-1);
+  const outer = [...L.gates].filter((k) => gd(k) > L.A - 3).sort((a, b) => Math.hypot(L.structs[a][1] - end[0], L.structs[a][2] - end[1]) - Math.hypot(L.structs[b][1] - end[0], L.structs[b][2] - end[1]));
+  const gc = (k) => { const q = L.structs[k]; return [q[1] + (q[3] & 1 ? 0.5 : 1), q[2] + (q[3] & 1 ? 1 : 0.5)]; };
+  const [gx, gy] = gc(outer[0]), ux = (gx - city.x) / gd(outer[0]), uy = (gy - city.y) / gd(outer[0]);
+  const pts = [...rd.slice(1), [gx + ux * 4, gy + uy * 4], [gx - ux * 4, gy - uy * 4], [L.plaza[0], L.plaza[1] + 2]], plazaI = pts.length - 1;
+  if (outer.length > 1) { const [hx, hy] = gc(outer.at(-1)), n = Math.hypot(hx - city.x, hy - city.y); pts.push([hx - (hx - city.x) / n * 4, hy - (hy - city.y) / n * 4]); }
+  A.teleport(S, rd[0][0], rd[0][1]);
+  await t.waitFor(() => g.world.isLoaded(g.world.chunkIndex(p.x, p.y)), 20000, 'the start of the road loaded');
+  await t.sleep(5000);
+  // by day, gates open
+  if (g.env.hour >= 17 || g.env.hour < 6.5) nightClock(S, 9);
+  const gen0 = g.world.stats.genSync, T = g.towns;
+  T.stats.maxMs = 0;
+  g.frameStats(true);
+  p.speed = 8;
+  let i = 0, sprPlaza = 0, stuckT = 0, last = [p.x, p.y];
+  const W = { done: false };
+  g.input.move = () => {
+    if (W.done) return [0, 0];
+    const [tx, ty] = pts[i], d = Math.hypot(tx - p.x, ty - p.y);
+    if (d < 2) { if (i === plazaI) sprPlaza = g.R.stats.sprites; i++; if (i >= pts.length) W.done = true; return [0, 0]; }
+    return M.nav.steer(g, p, tx, ty, 1 / 60, 8, 0.3) || [(tx - p.x) / d, (ty - p.y) / d];
+  };
+  t.defer(() => { delete g.input.move; p.speed = 4; });
+  const t0 = now();
+  await t.waitFor(() => {
+    if (Math.hypot(p.x - last[0], p.y - last[1]) > 0.5) { last = [p.x, p.y]; stuckT = now(); }
+    else if (!stuckT) stuckT = now();
+    if (now() - stuckT > 6000 && i < pts.length) { i++; stuckT = now(); } // (a stuck waypoint: the next one)
+    return W.done;
+  }, 200000, 'the walk into the capital and across it', () => `waypoint ${i}/${pts.length} at ${f2(p.x)},${f2(p.y)}`);
+  const fs = g.frameStats(), gen = g.world.stats.genSync - gen0;
+  t.log(`walk ${Math.round((now() - t0) / 1000)} s: ${fs.n} frames · avg ${fs.avg} ms · p95 ${fs.p95} · max ${fs.max} · >16 ms ${fs.over16} · towns batch max ${f2(T.stats.maxMs)} ms · sync chunks ${gen} · sprites at the plaza ${sprPlaza}`);
+  t.check(fs.max < 120, 'no frame above 120 ms of main-thread time (headless, shared thread)', `max ${fs.max} ms`);
+  t.check(fs.p95 < 14, 'p95 under 14 ms', `p95 ${fs.p95} ms`);
+  t.check(T.stats.maxMs < 30, 'settlement batches within their frame budget', `${f2(T.stats.maxMs)} ms`);
+  t.check(gen <= 2, 'no chunk generated on the main thread because of a settlement piece', `${gen} synchronous chunks`);
+  t.check(sprPlaza > 300 && sprPlaza < 9000, 'a sane sprite count at the market plaza', sprPlaza);
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',

@@ -6,6 +6,7 @@
 // Local only (a view of the shared structures): recomputed when the structures change (game.build.v).
 
 import { BUILDINGS } from './data.js';
+import { ownStructs } from './mut/structures.js';
 
 export const LINK = 3;     // tiles between two plans of the same site
 export const NEAR = 2.6;   // tiles: the player is at a site (its button shows) this close to one of its plans
@@ -17,7 +18,7 @@ export function sites(game) {
   const C = game._sites || (game._sites = { v: -1, list: [] });
   if (C.v === game.build.v) return C.list;
   C.v = game.build.v;
-  const P = game.build.structures.filter(isPlan);
+  const P = [...ownStructs(game)].filter(isPlan); // (plans are never a settlement's pieces: not the ~18 000 of a city)
   // union-find, pairs found through a coarse grid (cells of LINK + 1 tiles)
   const par = P.map((_, i) => i), find = (i) => { while (par[i] !== i) i = par[i] = par[par[i]]; return i; };
   const cell = LINK + 1, grid = new Map();

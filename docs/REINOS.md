@@ -261,8 +261,9 @@ abas do mural que dependem deles dizem "Em breve". (Fase 2: o comércio, os trab
 - `layout.js` `settlementLayout(planet, realm, sid)` — a planta de um lugar, pura da semente: ruas, lotes, casas
   prontas (`prefabs.js`: casas de vários tamanhos, casa de fazenda, ferraria, serraria, celeiro, taverna, tecelão,
   capela, quartel, posto de guarda, estábulo, mina, armazém, torre de menagem com andar de cima), praça com o mural,
-  poço / chafariz, campos com plantações, currais com animais, muralhas (paliçada de toras de 1 andar; pedra de 2
-  andares com ameias, torres 3 × 3, escadas para o adarve, portões nas estradas), balistas nas torres da cidade.
+  poço / chafariz, campos com plantações, currais com animais, muralhas (paliçada de toras de 1 andar com escadas de
+  madeira por dentro — ao lado de cada portão e no meio dos lados sem portão — e o alto caminhável; pedra de 2 andares
+  com ameias, torres 3 × 3, escadas para o adarve, portões nas estradas), balistas nas torres da cidade.
   Saída: `structs [[tipo, tx, ty, rot, andar, estilo, det]]` (vila ~1,1–1,7 mil peças, castelo ~1,1 mil, cidade ~7,8
   mil), `buildings`, `gates`, `mural`, `pens`, `fields`, `spawn`, a grade do chão e os **ganchos da fase 2**
   (`hooks.homes` camas por casa, `work` locais de trabalho, `guards`, `patrol`, `archers`, `artillery`).
@@ -273,8 +274,10 @@ abas do mural que dependem deles dizem "Em breve". (Fase 2: o comércio, os trab
 
 - **Materialização por chunk** (como os acampamentos): quando um chunk carrega, as peças ancoradas nele viram
   estruturas com id `t<sid>.<k>` e `o.town = sid`, sem sujar o chunk (voltam com ele). Feito em fatias do quadro (3 ms;
-  12 ms nos 3 × 3 chunks em volta do jogador); na carga do mundo a vila do início já vem pronta (atrás da tela de
-  carregamento).
+  12 ms nos 3 × 3 chunks em volta do jogador), os chunks mais perto primeiro; na carga do mundo a vila do início já vem
+  pronta (atrás da tela de carregamento). A âncora de uma peça é o ponto onde o mundo a guarda (o meio da borda sul do
+  seu pé: uma peça na última linha de um chunk fica no chunk de baixo) e ela só é feita com todos os chunks sob o pé
+  carregados (senão espera por eles: `T.wait`) — fase 2, abaixo. `game.towns.ready(sid)`: o lugar está todo feito aqui.
 - A **planta** vem pronta do worker de chunk (que já a calcula para o chão): `packLayout` / `adoptLayout` — a thread
   principal não planeja uma cidade no meio de um quadro (eram 25–55 ms).
 - **Estado compartilhado**: o que muda numa peça (removida, portão aberto / fechado, dano de cerco) vai pelas ops
@@ -533,3 +536,106 @@ Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_lan
   lista quais são, e `game.eco.pr` diz quem mora nelas — morador nenhum deveria dormir numa casa comprada.
 - Pendente / ideias: caravanas de verdade no mapa (hoje o espalhar de preços é abstrato), o ouro dos mercados (hoje
   infinito), mais tipos de trabalho quando houver moradores (escoltar, guarda), o imposto pago do baú da própria casa.
+
+- O castelo não vende terreno; a cidade e a vila venderão pelo mural (fase 2).
+
+## 9b. Fase 2 — correções e desempenho
+
+Os três apontamentos do dono depois da fase 1 (§8): portas bloqueadas, paliçadas sem escada, queda de frames. É a base
+para os moradores e guardas (eles andam até a cama e sobem nas muralhas).
+
+### Entradas das casas
+
+- Em seis casas prontas o móvel ficava no tile logo atrás da porta: a mesa em `house_s`, `house_s2` e `cottage_stone`,
+  a cadeira em `house_stone`, o varal na tecelagem, o cabide de armas no posto da guarda. Corrigido nos dados
+  (`prefabs.js`): mesinha redonda no canto da casa pequena, mesa / cadeira para o lado, o varal na parede oeste, um
+  suporte de armadura no posto (o cabide foi para o quintal, ao lado do braseiro). **Regra** para quem desenhar uma casa:
+  o tile de dentro da porta é `.` (ou algo que não bloqueia: tocha, tapete) e todo móvel que se usa (cama, bancada, baú)
+  tem um tile livre ao lado que se alcança da porta.
+- **Validador** `tools/mp-test/towncheck.js` (cenário FX1), com o caminho e a colisão do próprio jogo (`nav.walkable`,
+  `levels.findPath`; as portas abertas como um morador as abre):
+  - `checkLayout(L)` — a planta de **todos** os lugares de uma semente (~240, ~1 s): nenhuma peça da planta dentro ou
+    fora de uma porta; todo posto de arqueiro em cima de uma muralha.
+  - `checkPrefabs` — cada casa pronta × 4 rotações feita de verdade num chão livre: porta livre dos dois lados e caminho
+    da soleira até um tile livre ao lado de cada cama, local de trabalho e baú (as camas de cima da torre de menagem pela
+    escada).
+  - `checkTown(sid)` — um lugar feito no mundo: o mesmo para cada prédio, mais o caminho da praça até cada porta, até a
+    frente do mural e, pelas escadas, até cada posto de arqueiro do adarve.
+  - Resultado (sementes 4242 e 5553: 466 plantas, 80 casas × rotações, a vila do início, o castelo e a capital, a vila
+    com paliçada mais perto): **zero problemas**. Antes: 24 das 80 casas × rotações e os 8 prédios da vila do início com a
+    porta bloqueada; na capital, 91 de 107.
+- Uma linha antiga do estado dos lugares (de um save anterior a uma mudança da planta, que muda os índices das peças) só
+  vale para a peça do mesmo tile (`towns.js stateOf`, `mut/towns.js rowOf`). `game.towns.ready(sid)`: o lugar está todo
+  feito neste par.
+
+### Paliçadas e muralhas que se sobem
+
+- **Paliçada**: o alto das toras e dos portões é o andar 1 (topo de parede = chão do andar de cima, `levels.js`).
+  `layout.js palisadeStairs` põe escadas de madeira por dentro, subindo reto até a paliçada: uma ao lado de cada portão
+  (2–6 tiles dele, fora da rua) e uma no meio de cada lado reto sem portão (vila do início: 4); o pé da escada fica livre
+  e o chão é aplainado na altura da muralha. O adarve dá a volta inteira. Postos de arqueiro (`hooks.archers`, andar 1)
+  no alto de cada escada e na paliçada ao lado de cada portão.
+- **Pedra** (castelos, cidades): já tinham escadas (`stairsUp`, até o adarve no andar 2). As torres são blocos 3 × 3 de
+  alvenaria com o topo no andar 2 ligado ao adarve — entra-se nelas por cima (balistas, arqueiros). O validador confere
+  que cada topo de torre e cada posto se alcança da praça.
+- **Paliçada do jogador**: a Parede de madeira no estilo Toras já é a paliçada e o topo dela já é o andar 1; com uma
+  Escada encostada por dentro vira adarve (docs/LEVELS.md §4.4). Decisão: nenhuma peça nova (a Cerca continua fina demais
+  para andar em cima).
+
+### Desempenho
+
+Chrome headless deste PC (1280 × 720, GPU por software), o mesmo roteiro no código de antes (`main` 2b03950) e no novo,
+alternados na mesma hora (outros agentes usavam a máquina; média de 2 rodadas cada). CPU da thread principal por quadro.
+
+| Cenário (ms, antes → depois) | média | p95 | pior | > 16 ms | > 33 ms | update |
+|---|---|---|---|---|---|---|
+| **andando ~300 tiles pela estrada até a capital e através dela** (~90 s) | 4,97 → 2,88 | 8,2 → 4,8 | 104,5 → 46,8 | 292 → 25 | 14,5 → 1 | 2,46 → 1,27 |
+| chegada ao castelo (teletransporte, 8 s) | 4,36 → 4,03 | 6,5 → 6,6 | 129,9 → 32,7 | 26,5 → 13 | 1,5 → 0,5 | 1,83 → 1,42 |
+| chegada à cidade (teletransporte, 10 s) | 8,88 → 6,43 | 31,2 → 15,3 | 140 → 143 | 95,5 → 60,5 | 39 → 19,5 | 4,67 → 2,70 |
+| parado na vila do início (20 s) | 3,28 → 2,18 | 5,3 → 3,0 | 27,8 → 7,5 | 2,5 → 0 | 0 | 1,27 → 0,81 |
+| parado no castelo | 3,67 → 3,59 | 4,9 → 5,4 | 9,8 → 15,5 | 0 → 1 | 0 | 1,34 → 1,20 |
+| parado na praça da cidade | 4,63 → 4,72 | 6,3 → 7,4 | 18,1 → 13,2 | 1 → 0 | 0 | 1,72 → 1,46 |
+| girando a câmera na praça | 10,3 → 11,3 | 15,9 → 18,6 | 48,4 → 50,6 | 32,5 → 49 | 3 → 3,5 | 2,54 → 2,19 |
+| noite na praça (muitas luzes) | 4,98 → 4,66 | 6,8 → 7,2 | 14,0 → 26,7 | 0,5 → 2,5 | 0 | 1,78 → 1,43 |
+| mapa aberto | 4,94 → 3,97 | 6,6 → 5,4 | 19,4 → 9,5 | 0,5 → 0 | 0 | 1,83 → 1,29 |
+
+GPU (consulta de tempo, praça da cidade): de dia 3,14 → 3,11 ms, à noite 2,41 → 2,47 ms — as quedas eram de CPU. No
+código antigo, com a máquina carregada, a queda automática baixou a escala de render para 0,85–0,95 na chegada à cidade;
+no novo ficou em 1. Girar a câmera e a noite são limitados pelo desenho (iguais, dentro do ruído). Numa hora mais calma
+da máquina a mesma caminhada deu: pior quadro 102,8 → 21,4 ms, quadros > 16 ms 130 → 2, > 33 ms 12 → 0.
+
+O que causava as quedas, e o que mudou:
+
+- **Peça no chunk errado** (o pior): a fila de cada peça era a do chunk do seu tile, mas o mundo a guarda no chunk da
+  âncora (`o.x, o.y` = meio da borda sul); uma peça na última linha de um chunk **gerava o chunk de baixo na thread
+  principal** (40–80 ms) e, quando esse chunk saía antes, a peça ficava sem balde. Agora a fila é por chunk da âncora, a
+  peça espera os chunks sob o pé (`T.wait`), o lote confere o prazo a cada peça e os chunks mais perto vêm primeiro.
+- **Mapa dos andares refeito a cada quadro**: cada peça nova mudava `game.build.v` e `levels.rebuild()` percorria as ~18
+  mil peças de uma cidade; agora `levels.addPiece` só soma as marcas da peça (o mesmo mapa); abrir / fechar uma porta do
+  térreo não reconstrói nada (o topo dela é chão de qualquer jeito); a checagem de desabamento pula as peças dos lugares.
+- **Varreduras de todas as estruturas a cada quadro** (balistas — três laços —, marcas de construção, luzes procuradas
+  pelos monstros da noite, máquinas de cerco, plantas, apoio dos trapiches): eram ~20 % da CPU andando na cidade. Agora
+  índices mantidos por `placeStructure` / `removeStructure` (`mut/structures.js`: `structsOfType`, `ownStructs`,
+  `eachLight`).
+- **Atlas de partes reempacotado** (`art/look/lazy.js`): crescer de 1024² reempacotava tudo e mandava a textura inteira
+  (30–60 ms); o jogo começa em 2048 × 1024 e cresce antes de descartar partes.
+- `nudgeOut` (empurrar quem está dentro de uma peça nova): a sobreposição antes do teste de andar / escada.
+
+Ainda fica: a primeira pintura de uma parte nova do visual (bichos — vaca, cavalo, coelho —, roupas: os pintores
+preguiçosos dos agentes H / K) custa 20–50 ms uma vez por parte na sessão e não se divide; o streaming do planeta entre
+os quadros (instalar um chunk 3–20 ms, janela do terreno 1–10 ms); um chunk de cidade que sai longe atrás (~2000 peças)
+sai num quadro (~15–20 ms); no teletransporte, o chunk do próprio jogador gerado na hora.
+
+Folga para os moradores: nada mais varre as ~18 mil peças a cada quadro; o mapa dos andares segue as peças novas e as
+portas sem reconstruir; moradores perto do jogador custam como criaturas.
+
+### Testes e prints
+
+- FX1 (validador, duas sementes), FX2 (o convidado sobe a escada da paliçada da vila do início, anda no alto no andar 1,
+  desce; o anfitrião o vê lá em cima; digest igual), FX3 (a caminhada até a capital e através dela a 8 tiles/s: nenhum
+  quadro acima de 120 ms neste headless — que divide uma thread com a página dos testes —, p95 < 14 ms, lote de peças <
+  30 ms, nenhum chunk gerado na thread principal por causa de uma peça, < 9000 sprites na praça; deu pior 35,6 ms, p95
+  5,4 ms, lote 3,4 ms, 0 chunks, 2089 sprites).
+- Prints (`shots/`, fora do git): `fx_doors_before_house_s` / `fx_doors_after_house_s`, `fx_doors_before_weaver` /
+  `fx_doors_after_weaver`, `fx_palisade_top_a` / `_b` / `_c` (no alto da paliçada, três ângulos), `fx_perf_walk_city`
+  (a caminhada na cidade com o contador de quadros).

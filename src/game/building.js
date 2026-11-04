@@ -26,7 +26,7 @@ import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
 import { faceKindOf } from '../art/faces/index.js'; // camera turned: ghosts drawn like the finished piece (faces)
-import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT, baseFor } from './mut/structures.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT, baseFor, ownStructs } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt, roofTileFace, liftedPoint } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
@@ -39,7 +39,7 @@ export { placeStructure, completeStructure, removeStructure, placeReason, defOf,
 const FRONT = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] };
 
 export function initBuilding(game) {
-  game.build = { mode: null, structures: [], doors: [], decon: new Set(), v: 0, rot: {} };
+  game.build = { mode: null, structures: [], doors: [], decon: new Set(), v: 0, rot: {}, byType: new Map(), own: new Set() }; // (byType / own: indexes kept by mut/structures.js)
   initGrids(game);
 }
 
@@ -798,7 +798,7 @@ export function buildingSystem() {
     },
     render(game, B, v) {
       const A = game.A, t = game.time;
-      const S = game.build.structures;
+      const S = ownStructs(game); // (a settlement's pieces are never plans nor marked: only the rest — towns.js)
       const art = typeof CW.structureSprite === 'function';
       const soft = A.has('fx_soft') ? A.get('fx_soft') : null;
       const ring = A.has('fx_ring') ? A.get('fx_ring') : null;

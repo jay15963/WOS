@@ -23,6 +23,7 @@ import { mobBlocked } from './nav.js';
 import { allPlayers, minPlayerDist, inAnyView } from './players.js';
 import { nightK, hardWinterAt } from './seasons.js';
 import { BUILDINGS } from './data.js';
+import { eachLight } from './mut/structures.js';
 import { ITEMS } from './content/items.js';
 import { walkersTick } from './walkers.js';
 import { createStockSpawners, setupMember } from './livestock.js'; // farm herds and fish (docs/LIVESTOCK.md)
@@ -69,14 +70,14 @@ const LIGHT_K = 3;
 function collectLights(game) {
   const out = game._spawnLights || (game._spawnLights = []);
   out.length = 0;
-  for (const o of game.build.structures) {
-    if (o.blueprint || o.removed) continue;
+  eachLight(game, (o) => { // (the light pieces only: mut/structures.js)
+    if (o.blueprint || o.removed) return;
     const def = BUILDINGS[o.type];
     const L = def?.light || (o.working && def?.workLight);
-    if (!L || o.fire === false || o.lit === false) continue;
+    if (!L || o.fire === false || o.lit === false) return;
     const r = L.radius * LIGHT_K;
     out.push(o.x, o.y, r * r);
-  }
+  });
   const hand = ITEMS.torch_hand?.light?.radius || 5;
   for (const q of allPlayers(game)) {
     if (q.dead) continue;
