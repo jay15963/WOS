@@ -182,9 +182,10 @@ primeira vez e a dica "Veja o mural (E)".
 - Mural (`ui/mural.js`): nome, tipo, reino, brasão, população (todo número com rótulo); abas Lugar · Reino ·
   Trabalhos · Comércio · Exército · Propriedades (as quatro últimas: "Em breve").
 - Ao entrar num lugar: a faixa "Reino de X — Vila Y" (`ui/placebanner.js`).
-- Mapa (`ui/realmMap.js`): territórios nas cores dos reinos (clareadas para ler sobre o planeta) com bordas, estradas,
-  ícones e nomes por importância — de longe os nomes dos reinos com o brasão e as capitais; de perto castelos e vilas,
-  com a terra de cada vila em tracejado. O radar mostra as bordas, as estradas e os lugares em volta.
+- Mapa (`ui/realmMap.js`, dos dados do reino — não da camada de chunks): territórios nas cores dos reinos (clareadas
+  para ler sobre o planeta) com a linha de borda, estradas, ícones e nomes por importância — de longe a cor cheia, os
+  nomes dos reinos com o brasão e as capitais; de perto só a borda e um tom leve (igual na terra explorada e no resto),
+  castelos e vilas com a terra de cada vila em tracejado. O radar mostra as bordas, as estradas e os lugares em volta.
 
 ### Desempenho (Chrome headless, 1280 × 720; CPU por quadro: render + update; GPU)
 

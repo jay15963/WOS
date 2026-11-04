@@ -69,7 +69,7 @@ export function dumpPart(game, part, ex = null) {
     case 'loot': return game.loot.filter((l) => l.qty > 0 && OK(l.x0 ?? l.x, l.y0 ?? l.y)).map((l) => [l.id, l.item, l.qty]).sort(cmp);
     case 'crops': return [...game.farm.crops.values()].filter((c) => OK(c.tx + 0.5, c.ty + 0.5)).map((c) => [`${c.tx},${c.ty}`, c.kind, c.stage]).sort(cmp);
     // camp crates: their shared state (non-default rows, loaded or not: mut/camps.js); training dummies (structures)
-    case 'props': return campStateRows(game).map((r) => [r[0], r[1], r[2]]).concat((game.props || []).filter((o) => o.dummy).map((o) => [o.id, o.hp | 0, 0])).sort(cmp);
+    case 'props': return campStateRows(game).map((r) => [r[0], r[1], r[2]]).concat((game.props || []).filter((o) => o.dummy && o.town == null).map((o) => [o.id, o.hp | 0, 0])).sort(cmp);
     case 'corpses': return game.corpses ? [...game.corpses.map.values()].map((c) => [c.id, c.of, c.x.toFixed(2), c.y.toFixed(2), Math.round(c.deathT), c.butchered ? 1 : 0,
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths

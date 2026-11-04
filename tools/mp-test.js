@@ -1030,7 +1030,7 @@ def('S20', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const sp = spawnOf(H);
-  const crates = (H.game.props || []).filter((o) => !o.broken && !env.claimed.has('prop' + o.id)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  const crates = (H.game.props || []).filter((o) => !o.broken && !o.dummy && !env.claimed.has('prop' + o.id)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
   t.assert(crates.length, 'found an intact crate');
   const cH = crates[0];
   env.claimed.add('prop' + cH.id);
@@ -3254,7 +3254,7 @@ function hostRoof(H, x0, y0, w, h, type = 'roof_wood', style = 'shingle') {
   net.emit('struct.add', { list: rows, by: net.pid });
   return rows.map((r) => r[0]);
 }
-const roofIds = (f) => f.game.build.structures.filter((o) => o.roof).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
+const roofIds = (f) => f.game.build.structures.filter((o) => o.roof && o.town == null).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
 const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf.get(w.idx(x, y))) || null; };
 
 def('J1', {
@@ -3775,7 +3775,7 @@ def('L5', {
   const key = `wos.save.v2.${seed}`;
   const data = JSON.parse(S.win.localStorage.getItem(key));
   t.check(data?.player?.z === 1, 'the save records player z 1', String(data?.player?.z));
-  t.check(!data.world.lvs && g.build.structures.every((o) => !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
+  t.check(!data.world.lvs && g.build.structures.every((o) => o.town != null || !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
   S.reload();
   await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded (1)');
   let p2 = S.game.player;
@@ -4006,7 +4006,7 @@ def('L8', {
   S.reload();
   await t.waitFor(() => S.loads >= 3 && S.game && S.loadingHidden && S.game !== g2, CFG.bootMs, 'reloaded (v8 save)');
   const g3 = S.game;
-  t.check(g3.build.structures.some((o) => o.type === 'wall_wood' && o.tx === x && o.ty === y) && g3.build.structures.every((o) => !(o.lv > 0)), 'v8 save loads (ground floor only)', `${g3.build.structures.length} structures`);
+  t.check(g3.build.structures.some((o) => o.type === 'wall_wood' && o.tx === x && o.ty === y) && g3.build.structures.every((o) => o.town != null || !(o.lv > 0)), 'v8 save loads (ground floor only)', `${g3.build.structures.length} structures`);
 });
 
 // =====================================================================================================
