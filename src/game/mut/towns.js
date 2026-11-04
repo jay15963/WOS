@@ -26,6 +26,8 @@ function rowOf(game, id, o) {
   const st = S(game);
   let r = st.get(id);
   if (!r) { r = { gone: 0, open: -1, dmg: 0, at: 0, x: o ? o.tx : 0, y: o ? o.ty : 0 }; st.set(id, r); }
+  // (a row written by an older plan for another piece — a save from before a layout change: the piece starts clean)
+  else if (o && (r.x !== o.tx || r.y !== o.ty)) Object.assign(r, { gone: 0, open: -1, dmg: 0, at: 0, x: o.tx, y: o.ty });
   return r;
 }
 function tidy(game, id) {

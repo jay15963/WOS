@@ -40,6 +40,7 @@ import { allPlayers, minPlayerDist, inAnyView } from './players.js';
 import { makeLook } from './bandits.js';
 import { killMob, hasLOS, faceTowards, dist } from './combat.js';
 import { BUILDINGS } from './data.js';
+import { eachLight } from './mut/structures.js';
 import { enclosedRoom } from './roofs.js';
 import { steer, resetNav } from './nav.js';
 import { go, aggro, aggroRadius } from './ai.js';
@@ -87,13 +88,13 @@ function pickGoal(game, m) {
   }
   if (!goal) {
     bd = LIGHT_R;
-    for (const o of game.build.structures) {
-      if (o.blueprint || o.removed || o.lv) continue;
+    eachLight(game, (o) => { // (the light pieces only: mut/structures.js)
+      if (o.blueprint || o.removed || o.lv) return;
       const def = BUILDINGS[o.type], L = def?.light || (o.working && def?.workLight);
-      if (!L || o.fire === false || o.lit === false) continue;
+      if (!L || o.fire === false || o.lit === false) return;
       const d = Math.hypot(o.x - m.x, o.y - m.y);
       if (d < bd) { bd = d; goal = { x: o.x, y: o.y - 0.3, kind: 'light' }; }
-    }
+    });
     for (const q of allPlayers(game)) {
       if (q.dead || (q.lv | 0) > 0 || !handTorch(q)) continue;
       const d = Math.hypot(q.x - m.x, q.y - m.y);

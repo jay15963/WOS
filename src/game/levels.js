@@ -88,34 +88,60 @@ export class Levels {
     return list[k] || (list[k] = new Layer('lv' + k, Ctor, def, { sparse: true }));
   }
 
+  _mark(list, k, o) {
+    const w = this.game.world, A = this._arr(list, k, Uint8Array, w.W * w.H);
+    for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A.set(w.idx(x, y), 1);
+  }
+  // the marks of one structure (rebuild / addPiece); S accumulates { upper, sig, tops }
+  _one(o, S) {
+    if (o.moveOf || o.removed) return;
+    const def = BUILDINGS[o.type];
+    if (!def) return;
+    const mark = this._mark;
+    const lv = o.lv | 0;
+    if (lv) { S.upper++; S.sig = (S.sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = Math.max(o.y, o.ty + (o.fh || 1)) + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it); a piece anchored above its tile's south edge (edge props: chest, table…) still sorts after the slab of its own tile (it vanished under it)
+    if (o.blueprint) return;
+    if (def.block === 'stairs') { this._addStair(o, lv); return; }
+    if (isWallTop(def) && lv < MAX_LV) { mark.call(this, this.surf, lv + 1, o); S.tops++; } // wall / door tops: the next story's floor
+    if (o.ramp && o.type === 'siege_tower') { mark.call(this, this.surf, Math.max(1, Math.min(MAX_LV, o.v | 0 || 1)), o); S.tops++; } // a siege tower with its ramp down: its deck (game/siege.js)
+    if (lv && def.layer === 'floor' && !def.roof) mark.call(this, this.surf, lv, o);       // upper floor slab
+    if (lv && (def.block === 'tile' || (def.block === 'door' && !o.open))) mark.call(this, this.blk, lv, o); // upper walls, closed doors, railings, furniture
+  }
+
+  // a new structure on a map that was in step right before it (a settlement's piece being made: game/towns.js): its marks
+  // without the full rebuild — the rebuild walks every structure (a city ~18 000) and a city's chunks are made over many
+  // frames. The same map a rebuild would make (marks only add; the signature continues over the appended piece).
+  addPiece(o) {
+    const g = this.game, S = this._acc || (this._acc = { upper: 0, sig: 0, tops: 0 });
+    const lv = o.lv | 0;
+    this._one(o, S);
+    this._active = this.stairs.length > 0;
+    this.hasUpper = S.upper > 0;
+    this.hasTops = S.tops > 0;
+    this._nodesV = -1;
+    if (lv && S.sig !== this._upSig) {
+      this._upSig = S.sig;
+      const R = g.roofs, w = g.world;
+      if (R?.artDirty) for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y) && w.broof?.get(w.idx(x, y))) R.artDirty.add(w.idx(x, y));
+      this._upTiles?.push(w.idx(o.tx, o.ty));
+    }
+    this.v = g.build.v;
+  }
+
   rebuild() {
-    const g = this.game, w = g.world, W = w.W, N = W * w.H;
+    const g = this.game, w = g.world;
     this.v = g.build.v;
     for (const a of this.surf) a?.clear();
     for (const a of this.blk) a?.clear();
     for (const a of this.st) a?.clear();
     this.stairs.length = 0;
-    let upper = 0, sig = 0, tops = 0;
-    const mark = (list, k, o) => {
-      const A = this._arr(list, k, Uint8Array, N);
-      for (let y = o.ty; y < o.ty + (o.fh || 1); y++) for (let x = o.tx; x < o.tx + (o.fw || 1); x++) if (w.inBounds(x, y)) A.set(w.idx(x, y), 1);
-    };
-    for (const o of g.build.structures) {
-      if (o.moveOf || o.removed) continue;
-      const def = BUILDINGS[o.type];
-      if (!def) continue;
-      const lv = o.lv | 0;
-      if (lv) { upper++; sig = (sig * 31 + (o.tx * 7 + o.ty * 131 + lv * 17 + (o.blueprint ? 1 : 2))) | 0; o._sy = Math.max(o.y, o.ty + (o.fh || 1)) + 0.001 * lv - (LAYER_DY[def.layer] || 0); } // depth: just after the story below (slab, rug, then what stands on it); a piece anchored above its tile's south edge (edge props: chest, table…) still sorts after the slab of its own tile (it vanished under it)
-      if (o.blueprint) continue;
-      if (def.block === 'stairs') { this._addStair(o, lv); continue; }
-      if (isWallTop(def) && lv < MAX_LV) { mark(this.surf, lv + 1, o); tops++; } // wall / door tops: the next story's floor
-      if (o.ramp && o.type === 'siege_tower') { mark(this.surf, Math.max(1, Math.min(MAX_LV, o.v | 0 || 1)), o); tops++; } // a siege tower with its ramp down: its deck (game/siege.js)
-      if (lv && def.layer === 'floor' && !def.roof) mark(this.surf, lv, o);       // upper floor slab
-      if (lv && (def.block === 'tile' || (def.block === 'door' && !o.open))) mark(this.blk, lv, o); // upper walls, closed doors, railings, furniture
-    }
+    const S = this._acc || (this._acc = { upper: 0, sig: 0, tops: 0 });
+    S.upper = 0; S.sig = 0; S.tops = 0;
+    for (const o of g.build.structures) this._one(o, S);
+    const sig = S.sig;
     this._active = this.stairs.length > 0;
-    this.hasUpper = upper > 0;
-    this.hasTops = tops > 0; // (the build mode's story selector shows up)
+    this.hasUpper = S.upper > 0;
+    this.hasTops = S.tops > 0; // (the build mode's story selector shows up)
     this._nodesV = -1; // A* nodes are built on the first path request
     // roofs: their eaves sit on the highest story — repaint J's regions when the upper stories change
     if (sig !== this._upSig) {
@@ -229,10 +255,10 @@ export class Levels {
     return null;
   }
   // host: finished upper pieces that lost what holds them up (support for floors, a surface for the rest)
-  unsupported() {
+  unsupported(skipTown = false) {
     const out = [];
     for (const o of this.game.build.structures) {
-      if (!o.lv || o.blueprint || o.moveOf || o.removed) continue;
+      if (!o.lv || o.blueprint || o.moveOf || o.removed || (skipTown && o.town != null)) continue;
       const def = BUILDINGS[o.type];
       let bad = false;
       for (let y = o.ty; y < o.ty + (o.fh || 1) && !bad; y++) for (let x = o.tx; x < o.tx + (o.fw || 1) && !bad; x++) {
@@ -895,7 +921,7 @@ function collapseCheck(game) {
   L._colV = L.v;
   // (a settlement's pieces never fall for lack of support: a town is made whole, but its chunks are placed over several
   // frames — an upper piece's support may simply not be placed yet; game/towns.js)
-  const bad = L.unsupported().filter((o) => o.town == null);
+  const bad = L.unsupported(true);
   if (!bad.length) return;
   const net = game.net, drops = [];
   for (const o of bad) {

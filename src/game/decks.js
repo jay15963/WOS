@@ -27,8 +27,9 @@
 
 import { Layer } from '../world/store.js'; // sparse deck / railing layers (docs/STREAMING.md)
 import { BUILDINGS } from './data.js';
-import { CLEARABLE, objectsOnTile } from './mut/structures.js';
+import { CLEARABLE, objectsOnTile, structsOfType } from './mut/structures.js';
 import { collides, railHit, deckTrack } from './physics.js';
+const DECK_TYPES = Object.keys(BUILDINGS).filter((t) => BUILDINGS[t].deck); // (rebuild: skipped while there is none)
 
 export const PIER_H = 0.2;     // pier deck top over the water (tiles)
 export const BRIDGE_H = 0.3;   // bridge deck at the banks
@@ -177,6 +178,10 @@ export class Decks {
   rebuild() {
     const g = this.game, w = g.world, N = w.W * w.H;
     const list = this.list, at = this.at;
+    // (no deck piece now nor before: nothing to scan — a city holds ~18 000 pieces and its chunks change the structures
+    // every frame while they are made: docs/REINOS.md "Fase 2 — correções e desempenho")
+    const was = this.any;
+    if (!was && !DECK_TYPES.some((t) => structsOfType(g, t).size)) { list.length = 0; at.clear(); this.ramp.clear(); return; }
     list.length = 0; at.clear(); this.ramp.clear();
     for (const o of g.build.structures) if (!o.lv && !o.moveOf && BUILDINGS[o.type]?.deck) { list.push(o); at.set(w.idx(o.tx, o.ty), o); }
     this.any = list.length > 0;

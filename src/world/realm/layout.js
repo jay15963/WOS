@@ -233,7 +233,7 @@ function buildWalls(P, A, C, kind, gates, opt = {}) {
     }
     // stairs up to the wall walk, inside, at the middle of each long stretch: two 1-story blocks + two flights
     stairsUp(P, A, C, wallT, style, gateTiles);
-  }
+  } else palisadeStairs(P, A, C, gateTiles);
   // the patrol loop: just inside the wall
   for (let s = 0; s < 8; s++) {
     const a = s / 8, [ux, uy] = DIR8[s];
@@ -283,6 +283,45 @@ function stairsUp(P, A, C, wallT, style, gates) {
     P.put('stairs_wood', fx, fy, toEnd, 0, '', '');
     for (let t = 1; t <= 3; t++) { const x = end[0] - ax * t, y = end[1] - ay * t; P.set(x, y, O_BUILD); P.flag[P.i(x, y)] |= F_CLEAR | F_DRY; }
     P.hooks.archers.push([wx + 0.5, wy + 0.5, 2]);
+  }
+}
+
+// The palisade's wall walk (story 1: the tops of the log walls and of the gates — levels.js wall tops) is reached by
+// wooden stairs on the inside, climbing straight onto the wall: one beside each gate (2–6 tiles from it, off the street)
+// and one in the middle of each axis side without a gate; the walk goes all round (the diagonal sides are a 4-connected
+// line of wall tops). Archer spots (phase 2) on each landing and on the wall beside each gate (docs/REINOS.md "Fase 2").
+function palisadeStairs(P, A, C, gates) {
+  const lim = A - C - 2, want = [];
+  for (let s = 0; s < 4; s++) {
+    const gs = gates.filter((g) => g.side === s);
+    if (gs.length) for (const g of gs) { const a = g.vert ? g.y - P.cy : g.x - P.cx; want.push([s, [a - 3, a + 4, a - 4, a + 5, a - 5, a + 6, a - 6, a + 7]]); }
+    else want.push([s, [0, 2, -2, 4, -4, 6, -6, 8, -8]]);
+  }
+  const okTile = (x, y) => { const o = P.get(x, y); return o === O_FREE || o === O_MARGIN; };
+  for (const [s, offs] of want) {
+    const [nx, ny] = SIDE_N[s];
+    for (const off of offs) {
+      if (Math.abs(off) > lim) continue;
+      const wx = nx ? P.cx + nx * A : P.cx + off, wy = ny ? P.cy + ny * A : P.cy + off;
+      if (P.get(wx, wy) !== O_WALL) continue; // (the landing: a wall top — not a gate)
+      const T = [1, 2, 3].map((d) => [wx - nx * d, wy - ny * d]); // the two steps, then the foot of the stair (kept free)
+      if (!T.every(([x, y]) => okTile(x, y))) continue;
+      // (a stair climbs away from its entrance — rot 0 N, 1 E, 2 S, 3 W here: toward the wall)
+      const rot = ny === -1 ? 0 : ny === 1 ? 2 : nx === 1 ? 1 : 3;
+      P.put('stairs_wood', Math.min(T[0][0], T[1][0]), Math.min(T[0][1], T[1][1]), rot, 0, '', '');
+      for (const [x, y] of T) { P.set(x, y, x === T[2][0] && y === T[2][1] ? O_RES : O_BUILD); P.flag[P.i(x, y)] |= F_CLEAR | F_DRY; }
+      // its ground at the wall's (a flat run to the foot of the wall)
+      const h = Math.round(P.S(wx + 0.5, wy + 0.5) * 4) / 4;
+      P.pad(Math.min(wx, T[2][0]), Math.min(wy, T[2][1]), Math.max(wx, T[2][0]) + 1, Math.max(wy, T[2][1]) + 1, h, 1);
+      P.hooks.archers.push([wx + 0.5, wy + 0.5, 1]);
+      break;
+    }
+  }
+  // the wall beside each gate (the guard's spot over the gate)
+  for (const g of gates) {
+    const [ax, ay] = g.vert ? [0, -1] : [-1, 0];
+    const x = g.x + ax, y = g.y + ay;
+    if (P.get(x, y) === O_WALL) P.hooks.archers.push([x + 0.5, y + 0.5, 1]);
   }
 }
 

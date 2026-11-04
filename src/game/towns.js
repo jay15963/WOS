@@ -21,7 +21,7 @@ import { realmIndex, settlementAt, kingdomAt, districtAt, canReach } from '../wo
 import { METALS } from '../world/realm/names.js';
 import { settlementLayout, layoutCached } from '../world/realm/layout.js';
 import { BUILDINGS } from './data.js';
-import { placeStructure, removeStructure, setDoorOpen, TOWN, defOf } from './mut/structures.js';
+import { placeStructure, removeStructure, setDoorOpen, TOWN, defOf, setGeom, normRot } from './mut/structures.js';
 import { applyTownRows, defaultOpen, TOWN_ID } from './mut/towns.js';
 import { isNight, levelForDistance } from './mobs.js';
 import { allPlayers, minPlayerDist } from './players.js';
@@ -37,7 +37,7 @@ export const KIND_PT = { city: 'Cidade', castle: 'Castelo', village: 'Vila' };
 export function installTowns(game) {
   const w = game.world, realm = w.wrap ? w.source?.planet?.realm || null : null;
   const T = game.towns || (game.towns = { state: new Map() });
-  Object.assign(T, { realm, live: new Map(), jobs: [], penQ: [], v: T.v || 0, stats: { placed: 0, ms: 0, maxMs: 0, jobs: 0, unloaded: 0 } });
+  Object.assign(T, { realm, live: new Map(), jobs: [], penQ: [], wait: new Map(), v: T.v || 0, stats: { placed: 0, ms: 0, maxMs: 0, jobs: 0, unloaded: 0 } });
   if (!game.gates) game.gates = new Map();
   T.layout = (sid) => (realm ? settlementLayout(realm._planet || w.source.planet, realm, sid) : null);
   T.info = (sid) => info(game, sid);
@@ -45,11 +45,24 @@ export function installTowns(game) {
   T.canReach = (a, b) => canReach(realm, a, b);
   T.npcLevel = (sid) => (realm?.settlements[sid] ? realmNpcLevel(game, realm.settlements[sid]) : 1); // (phase 2: the people's level, §7b)
   T.resync = (ids) => resyncPieces(game, ids);
+  T.ready = (sid, near = 2) => townReady(game, sid, near); // (phase 2 / tests: the place is all made here)
   T.townChunks = realm ? new Set([...realmIndex(realm)].filter(([, e]) => e.s.length).map(([c]) => c)) : new Set();
   w.towns = T;
   if (!realm) return T;
   realm._planet = w.source.planet;
-  const onLoad = (c) => { if (game.world !== w) return; const e = realmIndex(realm).get(c); if (e?.s.length) for (const sid of e.s) T.jobs.push({ sid, c }); };
+  const onLoad = (c) => {
+    if (game.world !== w) return;
+    const e = realmIndex(realm).get(c);
+    if (e?.s.length) for (const sid of e.s) T.jobs.push({ sid, c });
+    // pieces kept in a neighbour chunk that waited for this one (under their footprint)
+    const q = T.wait.get(c);
+    if (q) {
+      T.wait.delete(c);
+      const by = new Map();
+      for (const [sid, ac, k] of q) { const key = sid + ':' + ac; let j = by.get(key); if (!j) by.set(key, (j = { sid, c: ac, ks: [] })); j.ks.push(k); }
+      for (const j of by.values()) T.jobs.push(j);
+    }
+  };
   for (const c of [...w.live].sort((a, b) => a - b)) onLoad(c);
   w.onLoad.push(onLoad);
   w.onEvict.push((c) => { if (game.world === w) unloadChunk(game, c); });
@@ -73,17 +86,42 @@ function warmUp(game) {
 }
 
 // ---------- the pieces of one chunk ----------
-// per layout: chunk → sorted piece indices (anchored there)
+// A piece belongs to the chunk where the world keeps it: the chunk of its anchor point (o.x, o.y — the middle of the
+// south edge of its footprint: a piece on the last row of a chunk is kept in the chunk below), so it comes and goes with
+// that chunk's objects. It is made only when every chunk under its footprint is loaded too (it reads the ground there):
+// never a chunk generated on the main thread in the middle of a frame (a 40–60 ms hitch walking into a city — docs/
+// REINOS.md "Fase 2 — correções e desempenho"). A piece waiting for a chunk is made when that chunk arrives (T.wait).
+// per layout: { at: chunk → sorted piece indices, of: piece index → its chunk, need: piece index → [other chunks under it]
+// (only when there are) }
 const BYCHUNK = new WeakMap();
-function piecesIn(L, c) {
+const chunkOfXY = (x, y) => ((Math.floor(x) & 16383) >> 6) + (Math.floor(y) >> 6) * 256;
+const GEO = { type: '', tx: 0, ty: 0, rot: 0 };
+function chunkIndexOf(L) {
   let M = BYCHUNK.get(L);
   if (!M) {
-    M = new Map();
-    L.structs.forEach((r, k) => { const cc = ((r[1] >> 6) & 255) + (r[2] >> 6) * 256; let a = M.get(cc); if (!a) M.set(cc, (a = [])); a.push(k); });
+    M = { at: new Map(), need: new Map(), of: new Int32Array(L.structs.length).fill(-1) };
+    L.structs.forEach((r, k) => {
+      const [type, tx, ty, rot] = r;
+      if (!BUILDINGS[type]) return;
+      GEO.type = type; GEO.tx = tx; GEO.ty = ty; GEO.rot = normRot(type, rot);
+      setGeom(GEO);
+      const cc = chunkOfXY(GEO.x, GEO.y);
+      M.of[k] = cc;
+      let a = M.at.get(cc);
+      if (!a) M.at.set(cc, (a = []));
+      a.push(k);
+      let need = null;
+      for (const [x, y] of [[tx, ty], [tx + GEO.fw - 1, ty], [tx, ty + GEO.fh - 1], [tx + GEO.fw - 1, ty + GEO.fh - 1]]) {
+        const c2 = chunkOfXY(x, y);
+        if (c2 !== cc && !(need && need.includes(c2))) (need || (need = [])).push(c2);
+      }
+      if (need) M.need.set(k, need);
+    });
     BYCHUNK.set(L, M);
   }
-  return M.get(c) || null;
+  return M;
 }
+function piecesIn(L, c) { return chunkIndexOf(L).at.get(c) || null; }
 const pieceId = (sid, k) => `t${sid}.${k}`;
 function liveOf(game, sid) {
   const T = game.towns;
@@ -92,23 +130,35 @@ function liveOf(game, sid) {
   return r;
 }
 
-// a job: place the pieces of settlement sid in chunk c (resumable: k = next piece index in the chunk's list)
+// a job: place the pieces of settlement sid kept in chunk c (resumable: k = next piece index in the chunk's list; ks: only
+// these pieces — the ones that waited for another chunk under them)
 function runJob(game, job, deadline) {
   const T = game.towns, w = game.world;
   if (!w.isLoaded(job.c)) return true;
-  const L = T.layout(job.sid), list = piecesIn(L, job.c);
+  const L = T.layout(job.sid), I = chunkIndexOf(L), list = job.ks || I.at.get(job.c);
   if (!list) return true;
   const rec = liveOf(game, job.sid);
   rec.chunks.add(job.c);
   let k = job.k || 0;
   const t0 = performance.now();
+  const Lv = game.levels;
   w._layout = (w._layout || 0) + 1;
   TOWN.quiet++;
   try {
     game.net.withApply(() => {
       for (; k < list.length; k++) {
-        if ((k & 3) === 0 && deadline && performance.now() > deadline) break;
-        placePiece(game, L, job.sid, list[k], rec);
+        if (deadline && k > (job.k || 0) && performance.now() > deadline) break;
+        const pk = list[k], need = I.need.get(pk);
+        const miss = need && need.find((c2) => !w.isLoaded(c2));
+        if (miss != null) { // (a chunk under it is not here yet: made when it arrives)
+          let q = T.wait.get(miss);
+          if (!q) T.wait.set(miss, (q = []));
+          q.push([job.sid, job.c, pk]);
+          continue;
+        }
+        // the levels map (stairs, wall tops) follows the new piece without a full rebuild over the whole list (levels.js)
+        const v0 = game.build.v, o = placePiece(game, L, job.sid, pk, rec);
+        if (o && Lv && Lv.v === v0) Lv.addPiece(o);
       }
     });
   } finally { TOWN.quiet--; w._layout--; }
@@ -121,10 +171,16 @@ function runJob(game, job, deadline) {
   if (game.net.auth) T.penQ.push([job.sid, job.c]); // (its pens' animals: a few a frame, townsSystem)
   return true;
 }
+// the shared state row of piece k, only when it was written for that very piece (its tile): a row kept by an older build
+// of the plan (a save from before a layout change: the indices moved) never lands on another piece
+function stateOf(game, L, sid, k) {
+  const st = game.towns.state.get(pieceId(sid, k)), r = L.structs[k];
+  return st && r && st.x === r[1] && st.y === r[2] ? st : null;
+}
 function placePiece(game, L, sid, k, rec) {
   const w = game.world, id = pieceId(sid, k);
   if (rec.objs.has(k) || w.objById.has(id)) return;
-  const st = game.towns.state.get(id);
+  const st = stateOf(game, L, sid, k);
   if (st?.gone) return;
   const [type, tx, ty, rot, lv, style, det] = L.structs[k];
   const def = BUILDINGS[type];
@@ -133,7 +189,7 @@ function placePiece(game, L, sid, k, rec) {
   const i = w.idx(tx, ty);
   if (!lv && (w.water.get(i) || w.rock.get(i)) && !def.roof) return;
   if (game.build.grid[def.layer || 'main'].has(i + (lv | 0) * w.W * w.H)) return; // (a player's piece there, or another of the place's)
-  const open = st && st.open >= 0 ? !!st.open : def.block === 'door' ? !!def.gate2 : false;
+  const open = st && st.open >= 0 ? !!st.open : def.block === 'door' ? !!def.gate2 : false; // (a gate open, a house door closed)
   const o = placeStructure(game, type, tx, ty, { id, rot, lv, style, det, progress: 1, open, town: sid, builtAt: 0 });
   if (st?.dmg) o.dmg = st.dmg / 100;
   // (cosmetic: the side a gate's leaves swing to — inside; the kingdom's colour on the mural)
@@ -141,6 +197,7 @@ function placePiece(game, L, sid, k, rec) {
   if (type === 'town_mural') { const K = game.towns.realm.kingdoms[game.towns.realm.settlements[sid].k]; o._kc = K.color.map((v) => v / 255); o._kc2 = (METALS[K.banner.m] || METALS.or).map((v) => v / 255); rec.mural = o; }
   rec.objs.set(k, o);
   game.towns.stats.placed++;
+  return o;
 }
 
 // the chunk is dropped: its pieces go with it (not destroyed: TOWN.unloading), its animals too (host)
@@ -168,6 +225,22 @@ function unloadChunk(game, c) {
   T.stats.unloaded += gone.length;
 }
 
+// is settlement sid all made on this peer? Every chunk holding its pieces within `near` chunks of its middle is loaded and
+// done (no job, no piece waiting for a chunk under it)
+function townReady(game, sid, near = 2) {
+  const T = game.towns, w = game.world, L = T.layout(sid), rec = T.live.get(sid);
+  if (!L || !rec) return false;
+  const cx = (Math.floor(L.x) >> 6) & 255, cy = Math.floor(L.y) >> 6;
+  for (const c of chunkIndexOf(L).at.keys()) {
+    let dx = Math.abs((c & 255) - cx); if (dx > 128) dx = 256 - dx;
+    if (Math.max(dx, Math.abs((c >>> 8) - cy)) > near) continue;
+    if (!w.isLoaded(c) || !rec.chunks.has(c)) return false;
+  }
+  if (T.jobs.some((j) => j.sid === sid)) return false;
+  for (const q of T.wait.values()) for (const e of q) if (e[0] === sid && w.isLoaded(e[1])) return false;
+  return true;
+}
+
 // shared state changed under loaded pieces (a snapshot / chunk diff / town.restore): put them back in step
 function resyncPieces(game, ids) {
   const T = game.towns, w = game.world;
@@ -178,11 +251,16 @@ function resyncPieces(game, ids) {
     const [sid, k] = id.slice(1).split('.').map(Number);
     const rec = T.live.get(sid), L = layoutCached(T.realm, sid);
     if (!rec || !L || !L.structs[k]) continue;
-    const r = L.structs[k], c = ((r[1] >> 6) & 255) + (r[2] >> 6) * 256;
+    const c = chunkIndexOf(L).of[k];
     if (!rec.chunks.has(c)) continue;
-    const st = T.state.get(id), o = rec.objs.get(k);
+    const st = stateOf(game, L, sid, k), o = rec.objs.get(k);
     if (st?.gone) { if (o) { rec.objs.delete(k); w._layout = (w._layout || 0) + 1; TOWN.unloading++; try { game.net.withApply(() => removeStructure(game, o, { quiet: true })); } finally { TOWN.unloading--; w._layout--; } } continue; }
-    if (!o) { back.push([sid, k, rec, L]); continue; }
+    if (!o) {
+      const need = chunkIndexOf(L).need.get(k), miss = need && need.find((c2) => !w.isLoaded(c2));
+      if (miss != null) { let q = T.wait.get(miss); if (!q) T.wait.set(miss, (q = [])); q.push([sid, c, k]); continue; } // (made with that chunk)
+      back.push([sid, k, rec, L]);
+      continue;
+    }
     const want = st && st.open >= 0 ? !!st.open : defaultOpen(o);
     if (o.door && !!o.open !== want) { TOWN.quiet++; try { game.net.withApply(() => setDoorOpen(game, o, want)); } finally { TOWN.quiet--; } }
     const d = st?.dmg ? st.dmg / 100 : 0;
@@ -267,7 +345,8 @@ function penAnimals(game, L, rec, c, end = 0) {
   for (let n = 0; n < L.pens.length; n++) {
     const p = L.pens[n];
     const cx = (((p.x0 + p.x1) >> 1) >> 6) & 255, cy = ((p.y0 + p.y1) >> 1) >> 6;
-    if (cx + cy * 256 !== c || rec.pens.has(n)) continue;
+    if (rec.pens.has(n) || !game.world.isLoaded(cx + cy * 256)) continue; // (any pen whose ground is here: the pieces are kept by their anchor chunk, c is only the one just made)
+    void c;
     if (end && performance.now() > end) return false;
     rec.pens.add(n);
     for (let k = 0; k < p.n; k++) {
@@ -301,9 +380,10 @@ export function townsSystem() {
       if (!T?.realm) return;
       if (T.jobs.length) {
         const p = game.player, pc = game.world.chunkIndex(p.x, p.y), pcx = pc & 255, pcy = pc >>> 8;
-        const near = (c) => { let dx = Math.abs((c & 255) - pcx); if (dx > 128) dx = 256 - dx; return Math.max(dx, Math.abs((c >>> 8) - pcy)) <= 1; };
-        // the chunks around the local player at once (it may stand there now), the rest within the frame budget
-        T.jobs.sort((a, b) => (near(b.c) - near(a.c)) || a.c - b.c || a.sid - b.sid);
+        const dist = (c) => { let dx = Math.abs((c & 255) - pcx); if (dx > 128) dx = 256 - dx; return Math.max(dx, Math.abs((c >>> 8) - pcy)); };
+        const near = (c) => dist(c) <= 1;
+        // the chunks around the local player at once (it may stand there now), the rest within the frame budget, nearest first
+        T.jobs.sort((a, b) => (dist(a.c) - dist(b.c)) || a.c - b.c || a.sid - b.sid);
         // (next to the player: a bigger slice of the frame — it may be standing there after a teleport / a join)
         const t0 = performance.now(), deadline = t0 + BUDGET_MS, urgentEnd = t0 + URGENT_MS;
         while (T.jobs.length) {

@@ -10,6 +10,9 @@
 // Furniture rot is given in the prefab's own frame (front = south); the stamp turns it with the building. Windows are put
 // on the walls that face south in the world (the art draws a window on a wall's south face).
 // Hooks for phase 2 (citizens): beds (homes), work spots (stations / workplaces), lights.
+// Doors (docs/REINOS.md "Fase 2 — correções e desempenho"): the tile right inside a door is '.' (or a mark that does not
+// block: a torch, a rug) and every bed / workplace / chest has a free tile beside it reached from the door — checked for
+// every prefab × rotation by tools/mp-test/towncheck.js (scenario FX1) with the game's own pathfinding.
 
 export const FURN = {
   b: { t: 'bed', rot: 0 },               // 1×2 (head north)
@@ -68,14 +71,14 @@ export const PREFABS = {
     '#####',
     '#bLh#',
     '#B..#',
-    '#.tT#',
+    '#..G#',
     '##D##',
   ] },
   house_s2: { name: 'Casa pequena', pop: 2, mat: 'wood', style: 'wattle', roof: ['roof_thatch', 'thatch_old'], floor: 'floor_wood', rows: [
     '######',
     '#b.Lr#',
-    '#B..c#',
-    '#.tT.#',
+    '#B...#',
+    '#tT.c#',
     '###D##',
   ], yard: ['    r '] },
   house_m: { name: 'Casa', pop: 4, mat: 'wood', style: 'timber', roof: ['roof_wood', 'shingle'], floor: 'floor_wood', rows: [
@@ -101,14 +104,14 @@ export const PREFABS = {
     '#bb.fT.#',
     '#BB....#',
     '#..tT.x#',
-    '#.L.c..#',
+    '#.L...c#',
     '####D###',
   ] },
   cottage_stone: { name: 'Casa de pedra pequena', pop: 3, mat: 'stone', style: 'cobble', roof: ['roof_stone', 'terracotta'], floor: 'floor_stone', rows: [
     '######',
     '#b.Lh#',
     '#B...#',
-    '#.tT.#',
+    '#..tT#',
     '##D###',
   ] },
   townhouse: { name: 'Sobrado', pop: 5, mat: 'stone', style: 'tbrick', roof: ['roof_stone', 'slate'], floor: 'floor_wood', rows: [
@@ -166,7 +169,7 @@ export const PREFABS = {
     '#######',
     '#lT.bq#',
     '#...B.#',
-    '#.QL..#',
+    '#Q+.L.#',
     '###D###',
   ] },
   chapel: { name: 'Capela', work: 'Sacerdote', pop: 1, mat: 'stone', style: 'cut', roof: ['roof_stone', 'slate'], floor: 'floor_stone', rows: [
@@ -191,9 +194,9 @@ export const PREFABS = {
   guardpost: { name: 'Posto da guarda', work: 'Guarda', guard: 1, pop: 2, mat: 'wood', style: 'log', roof: ['roof_wood', 'shingle'], floor: 'floor_wood', rows: [
     '#####',
     '#e+h#',
-    '#wTL#',
+    '#m.L#',
     '##D##',
-  ], yard: ['  Z  '] },
+  ], yard: ['w+ Z '] },
   stable: { name: 'Estábulo', work: 'Cavalariço', pop: 0, mat: 'wood', style: 'plank', roof: ['roof_thatch', 'thatch_old'], floor: null, rows: [
     '#########',
     '#V.A+.V.#',

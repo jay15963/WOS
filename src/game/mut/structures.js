@@ -48,6 +48,35 @@ export const CLEAR_YIELD = { pebble: { pebble: 1 }, stick: { stick: 1 }, fibergr
 
 export const defOf = (o) => BUILDINGS[o.type];
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+// Structure indexes (performance, docs/REINOS.md "Fase 2 — correções e desempenho"): a city holds ~18 000 pieces, so the
+// systems that look for one kind of structure every frame (ballistas, the build marks) read these instead of the whole
+// list. Kept by placeStructure / removeStructure only (the one place structures come and go; local derived data):
+//   game.build.byType: Map type → Set of structures (insertion order = the list order) · game.build.own: Set of the
+//   structures that are not a settlement's piece (o.town == null: players' builds, plans, marks)
+const NONE = new Set();
+export function structsOfType(game, type) { return game.build?.byType?.get(type) || NONE; }
+export function ownStructs(game) { return game.build?.own || game.build?.structures || NONE; }
+// the structures that can give light (campfires, torches, braziers, lamps, the working furnaces…): what the night's
+// monsters and the spawn rule look for — a city's ~18 000 pieces hold a few hundred of them
+let LIGHT_TYPES = null;
+export function eachLight(game, fn) {
+  if (!LIGHT_TYPES) LIGHT_TYPES = Object.keys(BUILDINGS).filter((t) => BUILDINGS[t].light || BUILDINGS[t].workLight);
+  for (const t of LIGHT_TYPES) for (const o of structsOfType(game, t)) fn(o);
+}
+function indexAdd(game, o) {
+  const B = game.build;
+  const T = B.byType || (B.byType = new Map());
+  let s = T.get(o.type);
+  if (!s) T.set(o.type, (s = new Set()));
+  s.add(o);
+  if (o.town == null) (B.own || (B.own = new Set())).add(o);
+}
+function indexDel(game, o) {
+  const B = game.build;
+  B.byType?.get(o.type)?.delete(o);
+  B.own?.delete(o);
+}
 export const msgBuilt = (def) => `${def.name} ${def.g === 'm' ? 'construído' : 'construída'}`;
 export const structById = (game, id) => {
   const o = game.world.objById.get(id);
@@ -124,9 +153,10 @@ function nudgeOut(game, o, auth) {
   const olv = o.lv | 0, L = game.levels;
   for (const e of game.entities) {
     if (e.dead || e.remote || e.proxy || (e.isMob && !auth)) continue;
-    if ((e.lv | 0) !== olv || (L && L.onStair(e))) continue; // levels: only the story it was built on (stairs are corridors)
+    // (the overlap first: a settlement's chunk places thousands of pieces among all the creatures)
     if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
     else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
+    if ((e.lv | 0) !== olv || (L && L.onStair(e))) continue; // levels: only the story it was built on (stairs are corridors)
     let best = null, bd = 1e9;
     const pd = !!e.passDoors;
     const cands = [];
@@ -164,6 +194,7 @@ export function placeStructure(game, type, tx, ty, opts) {
   if (def.block === 'door') { o.door = true; o.open = !!opts.open; o._openT = o.open ? 1 : 0; o.orient = 'h'; game.build.doors.push(o); }
   w.addObject(o);
   game.build.structures.push(o);
+  indexAdd(game, o);
   if (!o.moveOf) gridAdd(game, o); // "Mover" plans stay out of the grid (they may overlap the object being moved)
   if (!o.lv) noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
   if (!def.roof && !o.lv && !TOWN.quiet) clearDecor(game, tx, ty, o.fw, o.fh);
@@ -214,6 +245,7 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   const S = game.build.structures, k = keepList ? 0 : S.indexOf(o); // (keepList: a batch leaving with its chunk filters the list once: game/towns.js)
   if (keepList) { if (o.removed) return; } else if (k >= 0) S.splice(k, 1);
   else if (game.world.objById.get(o.id) !== o) return; // (orphans still in the world are cleaned up: resync repair)
+  indexDel(game, o);
   if (o.town != null && !TOWN.unloading) TOWN.note?.(game, o, 'gone'); // (a settlement's piece destroyed: kept in the town state)
   const wasBlueprint = !!o.blueprint;
   if (!o.moveOf) gridRemove(game, o);
