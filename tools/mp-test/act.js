@@ -304,10 +304,19 @@ function siteScan(fs, Ms, type, shape, cx, cy, { rMin = 3, rMax = 16, avoidPts =
         }
         if (!ok) break;
       }
+      if (ok && !flatTiles(fs[0], tiles)) ok = false;
       if (ok) return { x0, y0, tiles };
     }
   }
   return null;
+}
+// the site's ground is about level (terrain height: a planet's hills; the classic map is flat): corners within 0.6 stories
+function flatTiles(f, tiles) {
+  const H = f.game.world.height;
+  if (!H?.any) return true;
+  let lo = 1e9, hi = -1e9;
+  for (const [tx, ty] of tiles) for (let k = 0; k < 4; k++) { const h = H.cornerH(tx + (k & 1), ty + (k >> 1)); if (h < lo) lo = h; if (h > hi) hi = h; }
+  return hi - lo <= 0.6;
 }
 
 // ---------------- actions ----------------

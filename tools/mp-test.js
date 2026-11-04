@@ -2281,6 +2281,8 @@ def('S61', {
   t.check(Math.hypot(ch.x - at.x, ch.y - at.y) < 0.6, 'the body lies where the guest died');
   t.check(/^Corpo de /.test(ch.name || ''), 'named "Corpo de <nome>"', ch.name);
   t.check(!gp.inv.used() && !Object.values(gp.equip).some(Boolean), 'the dead guest carries nothing (bag and equipment)');
+  // (items left on the ground by earlier scenarios where it wakes up would fly into its bag: cleared first)
+  { const rp = MG.player.respawnPoint(G.game), ids = H.game.loot.filter((l) => Math.hypot(H.game.world.dx(l.x, rp.x), l.y - rp.y) < 14).map((l) => l.id); if (ids.length) { H.game.net.emit('loot.expire', { ids }); await t.sleep(ONEWAY() + 100); } }
   MG.player.respawnPlayer(G.game);
   await t.sleep(200);
   t.check(!gp.inv.used() && !gp.equip.main, 'respawn with nothing carried');
