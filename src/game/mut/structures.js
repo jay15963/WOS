@@ -35,6 +35,11 @@ import { deckReason, deckFriendly, orderDeckTiles } from '../decks.js'; // piers
 import { siegePlaceReason, towerAhead } from '../siege.js'; // siege engines: built near an Oficina de cerco; the tower's height
 
 export const REFUND = 0.75;
+// settlements (game/towns.js, docs/REINOS.md): their structures carry o.town (the settlement id). TOWN.quiet: a batch
+// materialized / dropped with its chunk (no per-piece tile events, decor already off the ground); TOWN.unloading: the
+// pieces leave with the chunk (not destroyed); TOWN.note(game, o, what): a shared change of a town piece ('gone' |
+// 'door' | 'dmg') kept in the town state; TOWN.landReason(game, type, tx, ty, w, h): the building rule in town lands.
+export const TOWN = { quiet: 0, unloading: 0, note: null, noteAbsent: null, landReason: null, refuse: null, gateReason: null };
 export const MAX_TILES = 140;
 export const MAX_ROOF_TILES = 420; // a roof is laid on a whole room at once (paint bucket: building.js)
 export const CLEARABLE = new Set(['pebble', 'stick', 'fibergrass', 'bush', 'berrybush', 'herbbush', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat']);
@@ -150,6 +155,7 @@ export function placeStructure(game, type, tx, ty, opts) {
   applyKitFields(game, o, opts.style, opts.det);
   o.paid = o.progress >= 1 || !!opts.paid || costEmpty(def);
   if (opts.moveOf) o.moveOf = opts.moveOf;
+  if (opts.town != null) o.town = opts.town; // (a settlement's piece: game/towns.js)
   if (def.roof) o.roof = true; // (style / det: applyKitFields above, roof styles through the 'roof' kit)
   if (def.flat) o.flat = true;
   if (o.progress < 1) { o.blueprint = true; if (def.fire || def.workLight) { o.fire = false; o.lit = false; } }
@@ -160,13 +166,13 @@ export function placeStructure(game, type, tx, ty, opts) {
   game.build.structures.push(o);
   if (!o.moveOf) gridAdd(game, o); // "Mover" plans stay out of the grid (they may overlap the object being moved)
   if (!o.lv) noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
-  if (!def.roof && !o.lv) clearDecor(game, tx, ty, o.fw, o.fh);
+  if (!def.roof && !o.lv && !TOWN.quiet) clearDecor(game, tx, ty, o.fw, o.fh);
   updateMasksAround(game, tx, ty, tx + o.fw - 1, ty + o.fh - 1);
   if (o.progress >= 1) completeStructure(game, o, { silent: true, auth: game.net.auth });
   if (opts.decon) game.build.decon.add(o);
   if (opts.working) setWorking(game, o, true);
   game.build.v++;
-  game.events.emit('tile', { tx, ty });
+  if (!TOWN.quiet) game.events.emit('tile', { tx, ty });
   return o;
 }
 
@@ -200,36 +206,39 @@ export function completeStructure(game, o, { silent = false, auth = true } = {})
   }
   game.build.v++;
   onRoofStruct(game, o, 'complete');
-  for (const [x, y] of footprint(o)) game.events.emit('tile', { tx: x, ty: y });
+  if (!TOWN.quiet) for (const [x, y] of footprint(o)) game.events.emit('tile', { tx: x, ty: y });
 }
 
-export function removeStructure(game, o, { drops = null, quiet = false, fx = null } = {}) {
+export function removeStructure(game, o, { drops = null, quiet = false, fx = null, keepList = false } = {}) {
   const def = defOf(o), w = game.world;
-  const S = game.build.structures, k = S.indexOf(o);
-  if (k >= 0) S.splice(k, 1);
+  const S = game.build.structures, k = keepList ? 0 : S.indexOf(o); // (keepList: a batch leaving with its chunk filters the list once: game/towns.js)
+  if (keepList) { if (o.removed) return; } else if (k >= 0) S.splice(k, 1);
   else if (game.world.objById.get(o.id) !== o) return; // (orphans still in the world are cleaned up: resync repair)
+  if (o.town != null && !TOWN.unloading) TOWN.note?.(game, o, 'gone'); // (a settlement's piece destroyed: kept in the town state)
   const wasBlueprint = !!o.blueprint;
   if (!o.moveOf) gridRemove(game, o);
   if (!o.lv) noGrowStamp(game, o.tx, o.ty, o.fw, o.fh, -1);
-  w.removeObject(o);
+  if (o.town != null) w._layout = (w._layout || 0) + 1; // (a settlement's piece: its chunk is not changed by it — the town state keeps it)
+  try { w.removeObject(o); } finally { if (o.town != null) w._layout--; }
   occRemove(game, o);
   if (!wasBlueprint && !o.lv && (def.block === 'tile' || def.block === 'door')) for (const [x, y] of footprint(o)) w.solid.set(w.idx(x, y), 0);
   if (o.door) { const i = game.build.doors.indexOf(o); if (i >= 0) game.build.doors.splice(i, 1); }
   game.build.decon.delete(o);
   o.removed = true;
+  if (def.gate2) TOWN.gateGone?.(game, o);
   kitRemove(game, o);
   onRoofStruct(game, o, 'remove', wasBlueprint);
   addLootRows(game, drops);
   if (o.type === 'farm_plot') removeCropAt(game, o.tx, o.ty);
   // plans to move this object die with it
-  if (!o.moveOf) for (const b of S.filter((q) => q.moveOf === o.id)) removeStructure(game, b, { quiet: true });
+  if (!o.moveOf && o.town == null) for (const b of S.filter((q) => q.moveOf === o.id)) removeStructure(game, b, { quiet: true });
   updateMasksAround(game, o.tx, o.ty, o.tx + o.fw - 1, o.ty + o.fh - 1);
   if (!quiet) {
     game.juice.puff(o.x, o.y - 0.2, 8, [0.72, 0.64, 0.52], 0.7);
     game.audio?.play(fx || (wasBlueprint ? 'ui' : 'decon'), { x: o.x, y: o.y, volume: 0.8 });
   }
   game.build.v++;
-  game.events.emit('tile', { tx: o.tx, ty: o.ty });
+  if (!TOWN.quiet) game.events.emit('tile', { tx: o.tx, ty: o.ty });
 }
 
 // move a finished structure to (tx, ty, rot) keeping its id and state (store, variant, working, open…)
@@ -269,6 +278,7 @@ export function setWorking(game, o, on) {
 
 export function setDoorOpen(game, o, open) {
   o.open = !!open;
+  if (o.town != null && !TOWN.quiet) TOWN.note?.(game, o, 'door'); // (a settlement's door / gate: the town state)
   if (!o.blueprint) setSolid(game, o);
   onDoor(game, o);
   game.build.v++;
@@ -284,7 +294,8 @@ defineOp('struct.add', {
     for (const r of a.list || []) {
       const [id, type, tx, ty, v, progress, builtAt, rot, paid, moveOf, style, det] = r;
       if (!BUILDINGS[type] || game.world.objById.has(id)) continue;
-      placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det, lv, bz });
+      const o = placeStructure(game, type, tx, ty, { id, v, progress, builtAt, rot, paid: !!paid, moveOf: moveOf || undefined, style, det, lv, bz });
+      if (BUILDINGS[type].gate2) TOWN.gateAdded?.(game, o, a.by); // (a player's gate: its owner, automatic: mut/towns.js)
     }
     if (ctx.mine && a.list?.length) game.audio?.play('blueprint', {});
   },
@@ -327,7 +338,7 @@ defineOp('struct.remove', {
   args: { id: 'structId', by: 'pid?', give: '{item: qty}?', giveAt: '[x, y]?', drops: 'lootRows?', quiet: '0|1', toast: 'string?', fx: "'decon'|'raze'|'smash'?" },
   apply(game, a) {
     const o = structById(game, a.id);
-    if (!o) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'gone'); return; } // (a settlement's piece not made here yet: its state)
     if (a.fx === 'smash') game.rockFx?.structBreak?.(game, o); // broken by the walkers: it falls apart (rockfx.js)
     removeStructure(game, o, { drops: a.drops, quiet: !!a.quiet, fx: a.fx === 'raze' || a.fx === 'smash' ? 'raze' : null });
   },
@@ -340,9 +351,10 @@ defineOp('struct.dmg', {
   args: { id: 'structId', d: '0..1', x: 'number?', y: 'number?' },
   apply(game, a) {
     const o = structById(game, a.id);
-    if (!o) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'dmg', Math.max(0, Math.min(1, num(a.d)))); return; }
     const d = Math.max(0, Math.min(1, num(a.d)));
     if (d > 0) o.dmg = d; else delete o.dmg;
+    if (o.town != null) TOWN.note?.(game, o, 'dmg'); // (a settlement's piece: the town state keeps its damage)
     game.rockFx?.structHit?.(game, o, d > 0 && Number.isFinite(a.x) ? a.x : null, a.y);
   },
 });
@@ -390,7 +402,8 @@ defineOp('door.set', {
   args: { id: 'structId', open: '0|1', by: 'pid' },
   apply(game, a, ctx) {
     const o = structById(game, a.id);
-    if (!o || !o.door) return;
+    if (!o) { TOWN.noteAbsent?.(game, a.id, 'door', a.open ? 1 : 0); return; } // (a settlement's gate not made here yet)
+    if (!o.door) return;
     setDoorOpen(game, o, !!a.open);
     if (!o.open && !o.blueprint) nudgeOut(game, o, ctx.auth);
     game.audio?.play(o.open ? 'door_open' : 'door_close', { x: o.x, y: o.y - 0.4 });
@@ -423,6 +436,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     return who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST ? 'Muito longe' : null;
   }
   if (def.siege) { const r = siegePlaceReason(game, type, tx, ty, normRot(type, rot), lv, ignore); if (r) return r; } // siege engines (game/siege.js)
+  if (TOWN.landReason && !ignore) { const [tw, th] = dimsOf(type, normRot(type, rot)); const tr = TOWN.landReason(game, type, tx, ty, tw, th); if (tr) return tr; } // settlements: town lands (game/towns.js)
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const sr = slopeReason(game, type, tx, ty, sw, sh); // terrain height: cliffs / too steep
@@ -472,6 +486,8 @@ export const NO_SUPPORT = 'Sem apoio: precisa de parede, coluna ou rocha a até 
 function roofReason(game, type, tx, ty, who) {
   const w = game.world;
   if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
+  const tr = TOWN.landReason?.(game, type, tx, ty, 1, 1); // settlements: town lands (game/towns.js)
+  if (tr) return tr;
   const i = w.idx(tx, ty);
   if (w.rock.get(i)) return 'Rocha no caminho';
   if (w.water.get(i)) return 'Não dá para construir na água';
@@ -559,6 +575,7 @@ defineIntent('build.move', {
   run(game, a, actor, net) {
     const src = structById(game, a.id);
     if (!src || src.blueprint || src.moveOf) return 'Não dá para mover isto';
+    if (src.town != null) return TOWN.refuse?.(game, src) || 'Isto pertence ao lugar';
     const def = defOf(src);
     if (!def.move) return 'Isto não pode ser movido';
     const tx = num(a.tx) | 0, ty = num(a.ty) | 0, rot = normRot(src.type, num(a.rot));
@@ -635,10 +652,11 @@ defineIntent('build.decon', {
   run(game, a, actor, net) {
     const ids = Array.isArray(a.ids) ? a.ids.slice(0, 400) : [];
     const set = [], clear = [];
-    let busy = false;
+    let busy = false, townNo = null;
     for (const id of ids) {
       const o = structById(game, id);
       if (!o) continue;
+      if (o.town != null) { townNo ||= TOWN.refuse?.(game, o) || 'Isto pertence ao lugar'; continue; } // (a settlement's piece)
       if (o.blueprint) {
         if (a.on === 0) continue;
         const def = defOf(o);
@@ -659,6 +677,7 @@ defineIntent('build.decon', {
     if (set.length) net.emit('struct.decon', { ids: set, on: 1 });
     if (clear.length) net.emit('struct.decon', { ids: clear, on: 0 });
     if (busy && !set.length) return 'Tire antes o que está em cima do trapiche / da ponte';
+    if (townNo && !set.length && !clear.length) return townNo;
   },
 });
 
@@ -668,6 +687,7 @@ defineIntent('decon.hit', {
   run(game, a, actor, net) {
     const o = structById(game, a.id);
     if (!o || !game.build.decon.has(o)) return 'Não está marcada para desmontar';
+    if (o.town != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
     const def = defOf(o);
     if (def.deck && game.decks?.busy(o)) return 'Desmonte antes o que está em cima'; // (piers / bridges, decks.js)
     const back = {};
@@ -689,6 +709,7 @@ defineIntent('struct.raze', {
     if (!o) return 'Não existe mais';
     const def = defOf(o);
     if (!def.raze || o.blueprint) return 'Não dá para arrasar isto';
+    if (o.town != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
     if (!near(actor.ent, o, 2.6)) return 'Chegue mais perto';
     const back = {};
     if (def.cost.pebble) back.pebble = Math.floor(def.cost.pebble * 0.5);
@@ -713,7 +734,9 @@ defineIntent('door.toggle', {
     const o = structById(game, a.id);
     if (!o || !o.door) return 'Não é uma porta';
     if (o.blueprint) return 'A porta ainda não foi construída';
-    if (!near(actor.ent, o, 2.4)) return 'Chegue mais perto';
+    if (!near(actor.ent, o, defOf(o).gate2 ? 3.2 : 2.4)) return 'Chegue mais perto';
+    const gr = TOWN.gateReason?.(game, o, actor); // (gates: a settlement's are the guards'; a player's opens for its owner)
+    if (gr) return gr;
     const want = a.open == null ? !o.open : !!a.open;
     if (want === !!o.open) return;
     if (!want && doorBusy(game, o)) return 'Tem alguém na passagem';
@@ -721,7 +744,7 @@ defineIntent('door.toggle', {
   },
 });
 
-const chestOf = (game, id) => { const o = structById(game, id); return o && o.store && !o.blueprint ? o : null; };
+const chestOf = (game, id) => { const o = structById(game, id); return o && o.store && !o.blueprint && o.town == null ? o : null; }; // (a settlement's chests: not yet — phase 2)
 const cloneStore = (o) => { const inv = new Inventory(o.store.size); inv.load(o.store.toJSON()); return inv; };
 
 defineIntent('chest.put', {

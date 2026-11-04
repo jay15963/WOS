@@ -14,6 +14,7 @@
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { mulberry32 } from '../../engine/noise.js';
 import { occAdd, occAddTiles, occRemove } from '../nav.js';
+import { nearSettlement } from '../../world/realm/realm.js'; // (camps keep away from the settlements: docs/REINOS.md)
 
 const CAMP_MIN_D = 60;
 // set by bandits.js (host side of a crate break: loot table, camp aggro)
@@ -73,6 +74,7 @@ export function planetCampSpot(game, c) {
     if ((w.zone.get(i) & 7) === 4 || (keys && NO_CAMP.has(keys[w.pbiome.get(i)]))) continue;
     if (!flatAround(w, x, y, 6)) continue;
     if (!openSpot(game, x + 0.5, y + 0.5, 5)) continue;
+    if (nearSettlement(w.source?.planet?.realm, x + 0.5, y + 0.5, 30)) continue; // (never by a village, a castle or a city)
     return { x: x + 0.5, y: y + 0.5, r: 6, c };
   }
   return null;

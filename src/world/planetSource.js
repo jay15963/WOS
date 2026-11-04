@@ -10,6 +10,9 @@
 
 import { CS, CT, PW, PH } from './store.js';
 import { G, BIOME_ID } from './worldgen.js';
+import { applyRealm } from './realm/ground.js'; // kingdoms: the settlements' ground and the roads (docs/REINOS.md)
+import { settlementLayout, packLayout, adoptLayout } from './realm/layout.js';
+import { realmIndex } from './realm/realm.js';
 
 const ID_PER_CHUNK = 16384, ID_MAX = 1073741824;
 const DECOR_MAX = 1600;
@@ -31,7 +34,15 @@ async function mods() {
 export async function workerGenerator(init) {
   const m = await mods();
   const planet = init.planet || m.generatePlanet(init.seed);
-  return (cx, cy, o) => adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet);
+  const R = planet.realm, sent = new Set();
+  return (cx, cy, o) => {
+    const d = adaptChunk(m, m.generateChunk(planet, cx, cy, o), cx, cy, o, planet);
+    // the settlements of the chunk: their layouts (made here for the ground) go to the main thread once per worker
+    // (game/towns.js places the pieces from them; the main thread would plan them in a frame)
+    const e = R ? realmIndex(R).get(cy * 256 + cx) : null;
+    if (e?.s.length) for (const sid of e.s) if (!sent.has(sid)) { sent.add(sid); (d.layouts || (d.layouts = [])).push(packLayout(settlementLayout(planet, R, sid))); }
+    return d;
+  };
 }
 
 export async function makePlanetSource(seed, opts = {}) {
@@ -47,8 +58,13 @@ export async function makePlanetSource(seed, opts = {}) {
     // the start of a world is temperate (the four seasons, game/seasons.js): findSpawn scores macro cells, the zone of the
     // spot itself (climate interpolated + its altitude) may fall on the warm / subpolar side of a border — the next
     // best spots then (each ~70 ms)
-    const sp = m.findSpawn(planet);
-    spawn = (sp ? temperateSpawn(m, planet, sp) : anySpawn(m, planet)) || { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
+    // the start of a world: the plaza of a village in the deep temperate zone, in front of its mural (docs/REINOS.md
+    // "O início"); a planet without kingdoms falls back to the temperate river-side spot of before
+    spawn = villageSpawn(m, planet);
+    if (!spawn) {
+      const sp = m.findSpawn(planet);
+      spawn = (sp ? temperateSpawn(m, planet, sp) : anySpawn(m, planet)) || { x: PW / 2 + 0.5, y: PH / 3 + 0.5 };
+    }
   }
   const src = {
     kind: 'planet', seed, wrap: true, bounds: null, zones: [{ type: 'spawn', x: spawn.x, y: spawn.y, r: 10 }], spawn,
@@ -69,6 +85,8 @@ export async function makePlanetSource(seed, opts = {}) {
     // the painted map of the whole planet (relief, biomes, coasts, rivers: planet/render.js renderDetail, 8 tiles a
     // pixel) — made by the planet worker after the boot: a Promise of { w, h, rgba, tpp } (null without a worker)
     mapImage: pw?.map || Promise.resolve(null),
+    // the settlement layouts a chunk worker sent with a chunk (streamer.js): adopted, never planned again here
+    adoptLayouts: (list) => { if (planet.realm) for (const P of list) adoptLayout(planet.realm, P); },
     chunkOfId: (id) => (typeof id === 'number' && id >= 0 && id < ID_MAX ? Math.floor(id / ID_PER_CHUNK) : -1),
     // regrowth (game/flora.js): the planet species of the tile's planet biome for a regrown classic kind (undefined: classic)
     floraLook: (w, kind, tx, ty, r, v) => m.regrowV(kind, w.pbiome ? w.pbiome.at(tx, ty) : 0, r, v),
@@ -77,6 +95,16 @@ export async function makePlanetSource(seed, opts = {}) {
   return src;
 }
 
+// The start village (realm.starts: villages of the deep temperate zone, best first, a pure function of the seed): the first
+// whose plaza is well inside the temperate zone at tile level; the spot = the plaza in front of its mural (layout.js)
+function villageSpawn(m, planet) {
+  const R = planet.realm;
+  for (const sid of R?.starts || []) {
+    const [x, y] = settlementLayout(planet, R, sid).spawn;
+    if (deepTemperate(m, planet, x, y)) return { x, y, town: sid };
+  }
+  return null;
+}
 // The start of a world is temperate (the four seasons, game/seasons.js). findSpawn scores macro cells by their own
 // climate; the climate of a tile is interpolated between cells (+ its altitude), so the spot it picks may fall on the
 // warm / subpolar side of a zone border. Then: the good cells around it (findSpawn's own scores) nearest first, a dry
@@ -197,6 +225,8 @@ function zonesOf(m, planet, p, cx, cy) {
 // the planet's chunk → the engine's ChunkData
 export function adaptChunk(m, p, cx, cy, { decor = true } = {}, planet = null) {
   const GC = m.GROUND_CLASSIC, RC = m.ROCK_CLASSIC, BL = m.BIOME_LIST;
+  // the settlements (flat lots, dry town land, fields, streets) and the roads, before anything reads the chunk
+  const road = planet?.realm ? applyRealm(planet, p, cx, cy) : null;
   const rock = p.rock, water = new Uint8Array(CT), ground = new Uint8Array(CT), rockType = new Uint8Array(CT), biome = new Uint8Array(CT), lush = new Float32Array(CT);
   for (let l = 0; l < CT; l++) {
     water[l] = rock[l] ? 0 : p.water[l]; // (3 = abyss: deep for the game, world.install)
@@ -259,6 +289,7 @@ export function adaptChunk(m, p, cx, cy, { decor = true } = {}, planet = null) {
     wlevel: p.wlevel instanceof Float32Array ? p.wlevel : null, pground: p.ground, prock: p.rockType, pbiome: p.biome, // (pbiome: looks + the fauna's spawn tables, camps)
     features: (p.features || []).map((f) => ({ ...f, x: f.x + X0, y: f.y + Y0 })), // (waterfalls / springs / craters, planet coordinates: fx/waterfalls.js)
     zone: planet ? zonesOf(m, planet, p, cx, cy) : null,
+    road, // (path type per tile of the realm's roads and streets: world.road, game/paths.js)
   };
 }
 

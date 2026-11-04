@@ -30,6 +30,7 @@ import { fertileAt } from './soil.js';
 import { Layer, PW, PH, XM, PWS, CS, CSS, CW, CH, NCH, CT, chunkOfI } from './store.js';
 import { setActiveHeight } from './height.js';
 import { PagedHeight } from './heightPaged.js';
+import { settlementAt } from './realm/realm.js'; // (nothing regrows on a settlement's town land: docs/REINOS.md)
 
 export const ROOF_NONE = 0, ROOF_NATURAL = 1, ROOF_BUILT = 2;
 export const TUN_SUPPORT = 3; // a tunnel tile caves in without solid relief within this many tiles (docs/TERRAIN-HEIGHT.md)
@@ -82,11 +83,14 @@ export class World {
     // docs/FAUNA.md; camps).
     L('hBase', Float32Array, 0); L('hT', Float32Array, 0); L('hC', Float32Array, 0); L('wlevel', Float32Array, 0); L('pground', Uint8Array, 0);
     L('prock', Uint8Array, 0); L('pbiome', Uint8Array, 255);
+    // roads and streets of the kingdoms (docs/REINOS.md): path type per tile from the source (content/paths.js ids; drawn and
+    // walked like painted paths: game/paths.js); only chunks that have any get a page
+    L('road', Uint8Array, 0);
     // season zone per tile (docs/PLANET.md §5, game/seasons.js): bits 0-2 the zone (0 tropical · 1 warm · 2 temperate ·
     // 3 subpolar · 4 polar — the planet's climate at that tile, altitude included), bit 3 (ABYSS) the abyssal ocean (water
     // class 3: no boat goes there). A bounded / synthetic world: temperate everywhere.
     L('zone', Uint8Array, 2);
-    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome, this.zone];
+    this.srcLayers = [this.ground, this.water, this.rockType, this.ore, this.tramp, this.biome, this.fertile, this.lush, this.flowX, this.flowY, this.dWater, this.dRock, this.rock, this.rock0, this.roof, this.roof0, this.caveDk, this.rubble, this.hBase, this.hT, this.hC, this.wlevel, this.pground, this.prock, this.pbiome, this.zone, this.road];
     // frozen water by season zone (game/seasons.js writes it every frame from the shared clock, the same on every peer):
     // iceZ[slot] = 1 while the water of that season slot is ice (walkable, no swimming / boats / fishing); slot = the
     // zone, + 5 across the equator from the start (seasonSlot: that hemisphere's year runs half a year off)
@@ -169,6 +173,8 @@ export class World {
     this.pground.attach(c, d.pground instanceof Uint8Array && d.pground.length === CT ? d.pground : new Uint8Array(CT));
     this.prock.attach(c, d.prock instanceof Uint8Array && d.prock.length === CT ? d.prock : new Uint8Array(CT));
     this.pbiome.attach(c, d.pbiome instanceof Uint8Array && d.pbiome.length === CT ? d.pbiome : new Uint8Array(CT).fill(255));
+    if (d.road instanceof Uint8Array && d.road.length === CT) this.road.attach(c, d.road); // (only chunks with roads: get() of the rest = 0)
+    r.road = !!d.road;
     r.ready = true; r.decor = !!d.decor; r.features = Array.isArray(d.features) && d.features.length ? d.features : null; // (the planet's waterfalls / springs / craters)
     this.loaded++; this.live.add(c);
     for (const o of d.objects) { o.solid = NATURAL_SOLID[o.type] || 0; this._insert(o); }
@@ -652,6 +658,7 @@ export class World {
     if (this.path && (this.path.get(i) || this.pathPlan.get(i))) return 0; // painted paths and their blueprints (game/paths.js)
     if (this.tramp.get(i) > 40) return 0;
     for (const c of this.camps) if (this.dx(tx + 0.5, c.x) ** 2 + (ty + 0.5 - c.y) ** 2 < (c.r || CAMP_R) ** 2) return 0;
+    if (this.source?.planet?.realm && settlementAt(this.source.planet.realm, tx + 0.5, ty + 0.5, 4)) return 0;
     const b = this.biome.get(i), g = this.ground.get(i), dw = this.dWater.get(i), dr = this.dRock.get(i);
     const L = this.lush.get(i);
     const woods = b === B.FOREST || b === B.PINE || b === B.BIRCH;

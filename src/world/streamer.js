@@ -145,6 +145,8 @@ export class Streamer {
 
   _done(wk, msg) {
     wk.busy = Math.max(0, wk.busy - 1);
+    // the chunk's settlement layouts (sent once per worker: kept even when the chunk itself is no longer wanted)
+    if (msg.d?.layouts) { this.w.source.adoptLayouts?.(msg.d.layouts); delete msg.d.layouts; }
     const job = this.inflight.get(msg.id);
     this.inflight.delete(msg.id);
     if (!job) return;

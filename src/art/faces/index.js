@@ -12,4 +12,5 @@ import './solidFarm.js'; // the farm: the feeder (docs/LIVESTOCK.md)
 import './solidDefense.js'; // defense pieces: the ballista (turning top)
 import './solidSiege.js'; // siege engines: trebuchet, catapult, battering ram, siege tower, the workshop (docs/REINOS.md)
 import './solidBoat.js'; // the rowboat (game/boats.js): the whole model turns and moves
+import './gates.js'; // the kingdoms: the big gates (wood / stone with a portcullis) and the town mural (docs/REINOS.md)
 export { drawFacesTurned } from './scaffold.js'; // (a piece being built: its scaffold as a 3D frame around it)

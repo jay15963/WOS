@@ -90,6 +90,20 @@ export const BUILDINGS = {
                  light: L(1, 0.62, 0.3, 6, 1.3, 0.25, 0.3),
                  desc: 'Luz, calor e cozinha. Renasça perto dela.' },
 
+  // ---------- gates (docs/REINOS.md): 2 tiles wide, in a wall / palisade line ----------
+  // gate: true = what the siege ram hits (only these); gate2: the look (art/faces/gates.js); hp: how many ram hits it
+  // takes — siegeHp is that in siege damage (game/siege.js structHp: the ram's blow is 220). Opened / closed by its owner (E), or left on automatic (open by day, closed at night).
+  gate_big_wood: { name: 'Portão de madeira', g: 'm', emoji: '🚪', cat: ['struct', 'def'], cost: { wood: 14, rope: 2 }, size: [2, 1], time: 6, xp: 12, block: 'door', connect: 'wall', joins: ['wall', 'fence', 'rock'],
+                   rotate: true, support: true, gate: true, gate2: 'wood', hp: 8, siegeHp: 1760, kit: null,
+                   desc: 'Portão largo de duas folhas (2 tiles) para muralhas e paliçadas. O dono abre e fecha (E) ou deixa no automático: aberto de dia, fechado à noite.' },
+  gate_stone:    { name: 'Portão de pedra', g: 'm', emoji: '🏰', cat: ['struct', 'def'], cost: { stone_block: 10, iron_bar: 4 }, size: [2, 1], time: 10, xp: 20, block: 'door', connect: 'wall', joins: ['wall', 'fence', 'rock'],
+                   rotate: true, support: true, gate: true, gate2: 'stone', hp: 20, siegeHp: 4400, kit: null,
+                   desc: 'Arco de pedra com grade de ferro levadiça (2 tiles): muito mais resistente que o de madeira. O dono abre e fecha (E) ou deixa no automático.' },
+  // the notice board in the middle of every village / city / castle (game/towns.js): never built by players
+  town_mural:    { name: 'Mural', g: 'm', emoji: '📜', cat: [], cost: {}, size: [4, 1], time: 1, xp: 0, block: 'tile', town: true, kit: null,
+                   light: L(1, 0.74, 0.42, 4.2, 0.85, 0.08, 1.35), // (a warm lantern under its roof)
+                   desc: 'O mural do lugar: o nome, o reino, a população; trabalhos, comércio, exército e terrenos.' },
+
   // ---------- defense ----------
   // ballista (ballista.js): one operator at a time (E / a tap mounts it), the bow turns slowly toward the aim, the
   // attack button fires a ballista bolt from the operator's backpack. 3D: art/faces/solidDefense.js

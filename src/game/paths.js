@@ -14,6 +14,9 @@
 //   around the worked one per cycle and walks the rest of the painted stroke; the materials leave the bag when the patch is laid
 //   (path.lay; the dirt path is free). Removal: the eraser or the deconstruct tool marks built tiles (code 15), work
 //   digs them out (path.dig, 75% of the materials back). Blueprints under the eraser are cancelled at once.
+// Roads (docs/REINOS.md): the realm's roads and town streets come with the chunks (world.road, generated: never shared
+//   state) and are drawn / walked like built paths (`builtAt`); a chunk with roads that loads gets its GPU data rebuilt in
+//   blocks around its road tiles (one chunk a frame: roadQ).
 // Cosmetic (every peer, from the shared grids): GPU data for the shader (signed distance fields, region uploads),
 //   grass / ground decor hidden on paths (d._hid), footsteps (world.pathSurface). Owner: walking speed bonus.
 
@@ -30,6 +33,8 @@ import { loadPathLayers, PATH_TEX } from '../world/pathTex.js';
 export { PATH_TYPES, PATH_BY_KEY, PATH_REMOVE };
 
 const SD_R = 3;                       // signed distance search radius (tiles); encoded range ±2
+// the built path type of tile i: a painted path, else a road / street of the kingdoms (world.road)
+const builtAt = (w, i) => w.path.get(i) || (w.road ? w.road.get(i) : 0);
 const enc = (sd) => (sd <= -2 ? 0 : sd >= 2 ? 255 : Math.round((sd + 2) * 63.75));
 const OFF = (() => {
   const a = [];
@@ -63,6 +68,7 @@ export function initPaths(game) {
     prevList: [],                    // tiles set in `preview`
     mark: new Map(), gen: 0,         // scratch: tiles wanted in the preview this refresh
     stroke: null,                    // { tiles: Set, ok: Map } while painting
+    roadQ: [], roadN: 0, roadJob: null, // loaded chunks with roads whose GPU data is due / how many are loaded (world.road) / the one in work
     pending: [],                     // [{ tiles: [] }] sent, waiting for the host
     layers: null, layersP: null,     // material layers (CPU) once generated
     gpuReady: false, full: true, hover: null, icons: null, t0: 0,
@@ -91,7 +97,18 @@ export function initPaths(game) {
   // work: the auto-work queue picks planned tiles too
   game.work?.providers?.push(PROVIDER);
   // decor that arrives with a streamed chunk (or comes back near the camera) hides on the painted paths too
-  w.onDecor = (c) => { if (game.pathGrid?.built) { const x0 = (c & 255) * 64, y0 = (c >>> 8) * 64; refreshDecor(game, x0, y0, x0 + 63, y0 + 63); } };
+  w.onDecor = (c) => { if (game.pathGrid?.built || w.crec[c]?.road) { const x0 = (c & 255) * 64, y0 = (c >>> 8) * 64; refreshDecor(game, x0, y0, x0 + 63, y0 + 63); } };
+  // roads (world.road): their GPU data when their chunk loads; dropped with it
+  if (w.road) {
+    for (const c of w.live) if (w.crec[c]?.road) { V.roadQ.push(c); V.roadN++; }
+    w.onLoad.push((c, r) => { if (r?.road) { V.roadQ.push(c); V.roadN++; } });
+    w.onEvict.push((c, r) => {
+      if (!r?.road) return;
+      V.roadN--;
+      const k = V.roadQ.indexOf(c); if (k >= 0) V.roadQ.splice(k, 1);
+      if (!w.path.pages[c] && !w.pathPlan.pages[c]) { V.data.detach(c); V.cov.detach(c); V.dir.detach(c); }
+    });
+  }
   if (typeof document !== 'undefined' && !game.headless) ensureLayers(game);
   return game.paths;
 }
@@ -448,13 +465,13 @@ function rebuildData(game, x0, y0, x1, y1) {
   const w = game.world, P = w.path, Q = w.pathPlan, V = game._paths, PV = V.preview, D = V.data;
   const { dx: ODX, dy: ODY, d: ODD } = OFF, NO = ODD.length;
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-    const i = w.idx(x, y), b = P.get(i), pv = PV.get(i), pl = pv || Q.get(i);
+    const i = w.idx(x, y), b = builtAt(w, i), pv = PV.get(i), pl = pv || Q.get(i);
     const inB = b > 0, inP = pl > 0;
     let dB = 0, dP = 0, nt = 0;
     for (let k = 0; k < NO && (!dB || !dP); k++) {
       const xx = x + ODX[k], yy = y + ODY[k];
       let bj = 0, pj = 0;
-      if (w.inBounds(xx, yy)) { const j = w.idx(xx, yy); bj = P.get(j); pj = PV.get(j) || Q.get(j); }
+      if (w.inBounds(xx, yy)) { const j = w.idx(xx, yy); bj = builtAt(w, j); pj = PV.get(j) || Q.get(j); }
       if (!dB && (bj > 0) !== inB) { dB = ODD[k]; if (!inB) nt = bj; }
       if (!dP && (pj > 0) !== inP) dP = ODD[k];
     }
@@ -472,10 +489,10 @@ const GW5 = (() => { const a = new Float32Array(25); for (let dy = -2; dy <= 2; 
 const SPLAT_R = 3;
 function tileDirs(game, x0, y0, x1, y1) {
   const w = game.world, P = w.path, Dr = game._paths.dir;
-  const on = (x, y) => w.inBounds(x, y) && P.get(w.idx(x, y)) > 0;
+  const on = (x, y) => w.inBounds(x, y) && builtAt(w, w.idx(x, y)) > 0;
   for (let y = Math.max(w.minY, y0); y <= Math.min(w.maxY, y1); y++) for (let x = Math.max(w.minX, x0); x <= Math.min(w.maxX, x1); x++) {
     const i = w.idx(x, y);
-    if (!P.get(i)) continue;
+    if (!builtAt(w, i)) continue;
     let sxx = 0, syy = 0, sxy = 0;
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       if ((!dx && !dy) || !on(x + dx, y + dy)) continue;
@@ -506,7 +523,7 @@ function rebuildCov(game, x0, y0, x1, y1, planOnly = false) {
           const xx = bx + dx;
           if (!w.inBounds(xx, yy)) continue;
           const j = w.idx(xx, yy);
-          if (!planOnly && P.get(j)) {
+          if (!planOnly && builtAt(w, j)) {
             const ex = qx - xx - 0.5, ey = qy - yy - 0.5, ux = Dr.getc(j, 0), uy = Dr.getc(j, 1), sa = Dr.getc(j, 2);
             const u = ex * ux + ey * uy, v = -ex * uy + ey * ux;
             cb += Math.exp(-(u * u) / (2 * sa * sa) - (v * v) / SC2) / (Math.PI * SC2 * (sa / COV_S));
@@ -533,7 +550,7 @@ function refreshDecor(game, x0, y0, x1, y1) {
   w.forChunks(x0, y0, x1 + 1, y1 + 1, (c) => {
     for (const d of c.decor) {
       if (d.x < x0 || d.x > x1 + 1 || d.y < y0 || d.y > y1 + 1) continue;
-      const tx = Math.floor(d.x), ty = Math.floor(d.y), t = w.inBounds(tx, ty) ? w.path.get(w.idx(tx, ty)) : 0;
+      const tx = Math.floor(d.x), ty = Math.floor(d.y), t = w.inBounds(tx, ty) ? builtAt(w, w.idx(tx, ty)) : 0;
       // grass keeps growing between stepping stones; elsewhere only edge tufts stay
       d._hid = t !== PATH_STEPS && covAt(V, w, d.x, d.y) - COV_ISO > DECOR_HIDE ? 1 : 0;
     }
@@ -570,11 +587,48 @@ function contentBox(game) {
   return x1 < 0 ? null : [x0, y0, x1, y1];
 }
 
+// the GPU data of the roads of the loaded chunks: 16 × 16 blocks around road tiles, a few ms a frame (a village chunk is
+// ~30 ms of splats at once); a block's neighbours share its edges, so a chunk is uploaded once all its blocks are done
+const ROAD_MS = 2;
+function roadWork(game) {
+  const w = game.world, V = game._paths, t0 = performance.now(), RD = w.road, M5 = SPLAT_R + 2;
+  while (performance.now() - t0 < ROAD_MS) {
+    if (!V.roadJob) {
+      const c = V.roadQ.shift();
+      if (c == null) return;
+      if (!w.isLoaded(c) || !w.crec[c]?.road) continue;
+      const X0 = (c & 255) * 64, Y0 = (c >>> 8) * 64, blocks = [];
+      for (let by = 0; by < 64; by += 16) for (let bx = 0; bx < 64; bx += 16) {
+        let has = false;
+        for (let y = by - SD_R; y < by + 16 + SD_R && !has; y++) for (let x = bx - SD_R; x < bx + 16 + SD_R; x++) if (RD.get(w.idx(X0 + x, Y0 + y))) { has = true; break; }
+        if (has) blocks.push([X0 + bx, Y0 + by]);
+      }
+      V.roadJob = { c, X0, Y0, blocks, n: 0 };
+    }
+    const J = V.roadJob;
+    if (!w.isLoaded(J.c)) { V.roadJob = null; continue; }
+    if (J.n < J.blocks.length) {
+      const [x0, y0] = J.blocks[J.n++];
+      rebuildData(game, x0, y0, x0 + 15, y0 + 15);
+      rebuildCov(game, x0, y0, x0 + 15, y0 + 15);
+      continue;
+    }
+    V.roadJob = null;
+    if (J.blocks.length) {
+      refreshDecor(game, J.X0 - 2, J.Y0 - 2, J.X0 + 65, J.Y0 + 65);
+      if (game.R?.gl && !game.headless) upload(game, J.X0 - M5, J.Y0 - M5, J.X0 + 63 + M5, J.Y0 + 63 + M5);
+    }
+    V.stats.road = (V.stats.road || 0) + 1;
+  }
+  const ms = performance.now() - t0;
+  V.stats.roadMax = Math.max(V.stats.roadMax || 0, ms);
+}
+
 function syncGpu(game) {
   const V = game._paths, s = game.pathGrid, w = game.world, R = game.R;
   if (s.dirty || V.full) V.t0 = performance.now();
-  const any = s.built > 0 || s.planned.size > 0 || V.prevList.length > 0;
-  if (!s.dirty && !V.full) { if (R) R.pathOn = any && V.gpuReady ? 1 : 0; return; }
+  const any = s.built > 0 || s.planned.size > 0 || V.prevList.length > 0 || V.roadN > 0;
+  if (!s.dirty && !V.full) { if (V.roadQ.length || V.roadJob) roadWork(game); if (R) R.pathOn = any && V.gpuReady ? 1 : 0; return; }
   let d = s.dirty;
   const planOnly = !s.dirtyBuilt; // only blueprints / the local preview changed: the built outline field stays
   s.dirty = null; s.dirtyBuilt = false;
@@ -584,6 +638,7 @@ function syncGpu(game) {
     V.full = false;
     V.data.clear(); // type 0, plan 0, both distances −2 (byte 0)
     V.cov.clear(); V.dir.clear();
+    if (V.roadN) { V.roadQ.length = 0; V.roadJob = null; for (const c of w.live) if (w.crec[c]?.road) V.roadQ.push(c); } // (the roads again, chunk by chunk)
     d = contentBox(game);
     const prevHid = !!V.anyHid;
     if (d) {
@@ -610,7 +665,7 @@ function syncGpu(game) {
 function syncMaterials(game) {
   const V = game._paths, R = game.R, s = game.pathGrid;
   if (V.gpuReady || !R?.gl || game.headless) return;
-  const need = s.built > 0 || s.planned.size > 0 || V.prevList.length > 0 || game.build.mode?.kind === 'path';
+  const need = s.built > 0 || s.planned.size > 0 || V.prevList.length > 0 || V.roadN > 0 || game.build.mode?.kind === 'path';
   if (!need) return;
   if (!V.layers) { ensureLayers(game); return; }
   R.pathMatTex = createTextureArray(R.gl, PATH_TEX, V.layers);
@@ -628,7 +683,7 @@ export function pathsSystem() {
       // walking on a path (floors and paths never share a tile; not while up on a wall top / upper story)
       if (!p.dead && !(p.lv > 0)) {
         const tx = Math.floor(p.x), ty = Math.floor(p.y);
-        if (w.inBounds(tx, ty)) { const t = w.path.get(w.idx(tx, ty)); if (t) p.speed *= PATH_TYPES[t].speed; }
+        if (w.inBounds(tx, ty)) { const t = builtAt(w, w.idx(tx, ty)); if (t) p.speed *= PATH_TYPES[t].speed; } // (roads too)
       }
       const m = game.build.mode;
       if (m?.kind === 'path') {

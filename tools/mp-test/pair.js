@@ -4,9 +4,14 @@
 import { CFG, frames, Fail, Skip, isSynced, hasNet, hasDigest, rand, newRoom, short, noteBuilds, now, LEGACY } from './harness.js';
 import { mods, reset } from './act.js';
 
-export const hostQuery = (room, pid, extra = '') => `seed=${CFG.seed}&mp=host&sala=${room}${CFG.link}&nosave=1&pid=${pid}${extra}`;
+// A new world starts on the plaza of a village (docs/REINOS.md "O início"), where nothing can be built. The scenarios written
+// before the kingdoms play on the old start of seed 4242 — open fields, no settlement around (the ?px=&py= dev start: the
+// guest gets it from the host's welcome) — unless they ask for the village start (`&start=village`: the KG scenarios).
+const OLD_START = { 4242: '&px=7712&py=7328' };
+const startOf = (extra) => (/(^|&)(start=village|px=)/.test(extra) || /source=classic/.test(extra) ? '' : OLD_START[CFG.seed] || '');
+export const hostQuery = (room, pid, extra = '') => `seed=${CFG.seed}&mp=host&sala=${room}${CFG.link}&nosave=1&pid=${pid}${startOf(extra)}${extra}`;
 export const guestQuery = (room, pid, extra = '') => `sala=${room}${CFG.link}&autojoin=1&nosave=1&pid=${pid}${extra}`;
-export const soloQuery = (extra = '') => `seed=${CFG.seed}&nosave=1${extra}`;
+export const soloQuery = (extra = '') => `seed=${CFG.seed}&nosave=1${startOf(extra)}${extra}`;
 
 // Same-origin iframes share the tab's sessionStorage, where the game keeps its player id ('wos.pid'): preset a
 // distinct id right before each frame boots (and pass &pid= too, for a game that reads it from the URL).
@@ -141,7 +146,7 @@ export const env = {
     t.log(`opening host+guest pair in room ${room} (${CFG.transport})`);
     try {
       if (LEGACY) { this.pair = await legacyPair(t, room); return this.pair; }
-      const H = await bootHost(t, room, { shared: true, extra: want === 'planet' ? '' : '&source=' + want });
+      const H = await bootHost(t, room, { shared: true, extra: want === 'planet' ? '' : want === 'village' ? '&start=village' : '&source=' + want }); // ('village': the real start, docs/REINOS.md)
       const G = await bootGuest(t, room, H, { shared: true });
       this.pair = { room, H, G, opened: now(), src: want };
       this.setupFails = 0; this.setupFail = null;

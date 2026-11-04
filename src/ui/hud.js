@@ -32,6 +32,7 @@ import { isStandalone, canFullscreen, toggleFullscreen, fullscreenElement, onFul
 import { PreviewAtlas, drawPawn2D, previewPawn } from '../art/look/preview.js';
 import { installHudTheme, nIcon } from './hudtheme.js';
 import { radarMarkup, installRadar } from './radar.js';
+import { installPlaceBanner } from './placebanner.js'; // "Reino de X — Vila Y" (docs/REINOS.md)
 
 const TEMPER_PT = { hostile: 'Hostil', neutral: 'Neutro', passive: 'Passivo' };
 const STATE_PT = { flee: 'em fuga', evade: 'evadindo', chase: 'em combate' };
@@ -261,6 +262,7 @@ export function installHUD(game, { isNew } = {}) {
 
   // ---------- minimap (drawn in the radar disc and the map window) ----------
   const mini = new Minimap(game);
+  installPlaceBanner(game, root); // (the kingdom / settlement the player enters: game/towns.js placeSystem)
   game.ui.minimap = mini;
   const radar = installRadar(game, $('#radar'), mini);
   game.events.on('tile', (d) => mini.updateTiles(d.tx, d.ty));

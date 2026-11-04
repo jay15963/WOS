@@ -4,6 +4,7 @@
 
 import { SPECIES } from '../game/data.js';
 import { markExplored } from '../game/explore.js';
+import { drawRealm } from './realmMap.js'; // the kingdoms: territories, borders, roads, settlements (docs/REINOS.md)
 
 // theme colours (hud-theme.css tokens): coral hostile, mustard neutral, olive passive, teal players
 const DOT = { hostile: '#ec5a4c', neutral: '#f0c24a', passive: '#9cc45a' };
@@ -259,10 +260,11 @@ export class Minimap {
     const mxC = sx + sw / 2; // (positions nearest the map centre: the planet wraps)
     const toX = (x) => (w.near(x, mxC) - sx) * kx, toY = (y) => (y - sy) * ky;
     // (turned: what the disc shows is a circle around the player, wider than the unturned rectangle in one direction)
+    drawRealm(ctx, g, sx, sy, sw, sh, kx, ky, full, toX, toY, W, H); // (kingdoms over the land, under the dots)
     const M = cr ? Math.max(W, H) / 2 : 0, out = (X, Y, e) => (cr ? Math.hypot(X - W / 2, Y - H / 2) > M + e : X < -e || Y < -e || X > W + e || Y > H + e);
     // structures
     for (const o of g.build.structures) {
-      if (!o.fire && o.type !== 'bed' && o.type !== 'chest') continue;
+      if ((!o.fire && o.type !== 'bed' && o.type !== 'chest') || o.town != null) continue; // (a settlement's torches / beds: its own marks, ui/realmMap.js)
       const X = toX(o.x), Y = toY(o.y);
       if (out(X, Y, 4)) continue;
       if (o.fire) {

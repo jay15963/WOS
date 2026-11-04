@@ -630,6 +630,10 @@ export function structIt(o, extra) {
 export function describeStructure(game, o) {
   const def = defOf(o);
   if (!def) return null;
+  // a settlement's pieces (game/towns.js): the mural opens its panel; its gates belong to the guards; its chests and beds
+  // are the townsfolk's (phase 2: inns, property)
+  if (o.type === 'town_mural') return structIt(o, { kind: 'mural', verb: 'Ver mural', icon: 'info', prio: 4, use: true, reach: 1.6 });
+  if (o.town != null && (def.gate2 || o.type === 'chest' || o.type === 'bed' || def.feed)) return null;
   if (o.blueprint) return structIt(o, { kind: 'blueprint', verb: o.moveOf ? 'Mover' : 'Construir', icon: 'build', prio: canSupply(game, o) ? 3 : 0 });
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
   if (o.door) return structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 });
@@ -648,6 +652,10 @@ export function useStructure(game, it) {
   switch (it.kind) {
     case 'door':
       toggleDoor(game, o);
+      return;
+    case 'mural': // the place's panel (ui/mural.js)
+      game.events.emit('open', { panel: 'mural', sid: o.town });
+      game.audio?.play('ui_open', {});
       return;
     case 'chest':
       game.events.emit('open', { panel: 'chest', chest: o });
@@ -694,6 +702,11 @@ export function structureMenu(game, o) {
     return out;
   }
   if (it && it.use) out.push({ id: 'use', label: it.kind === 'chest' ? 'Abrir baú' : it.kind === 'bed' ? 'Renascer aqui' : it.verb, icon: it.icon, run: goUse });
+  if (o.town != null) return out; // (a settlement's piece: nothing to move or take apart)
+  if (def.gate2) { // a player's gate: automatic (open by day, closed at night) or by hand (mut/towns.js gate.mode)
+    const g = game.gates?.get(o.id), auto = !g || !!g.auto;
+    out.push({ id: 'gauto', label: auto ? 'Automático: ligado (desligar)' : 'Automático: desligado (ligar)', icon: 'door', run: () => game.net.request('gate.mode', { id: o.id, auto: auto ? 0 : 1 }, { onReject: (why) => why && game.events.emit('error', { text: why }) }) });
+  }
   if (def.move && !o.moveOf) out.push({ id: 'move', label: 'Mover', icon: 'move', run: () => enterBuildMode(game, o.type, { move: o }) });
   if (def.raze) out.push({ id: 'raze', label: 'Arrasar', icon: 'raze', run: () => razeStructure(game, o) });
   else if (game.build.decon.has(o)) {
@@ -802,6 +815,7 @@ export function buildingSystem() {
         for (let y = y0; y <= y1; y++) B.ground.add(s, (x0 + x1) / 2, y - lw / 2, (x1 - x0) / s.w, lw / s.h, 1, 1, 1, ga);
       }
       for (const o of S) {
+        if (o.town != null) continue; // (settlement pieces: never plans nor marked — towns.js)
         if (o.x < v.x0 - 3 || o.x > v.x1 + 3 || o.y < v.y0 - 1 || o.y > v.y1 + 3) continue;
         if (o.lv) continue; // levels: upper plans / marks are drawn on their story (levels.drawUpper)
         const def = defOf(o);

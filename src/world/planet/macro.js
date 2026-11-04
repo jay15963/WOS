@@ -4,6 +4,7 @@
 // ~30 % -> abyss walls between continents + seam ocean -> stream-power erosion -> volcanoes -> climate ->
 // hydrology (lakes, rivers, deltas, fjords, canyons) -> biomes, coasts. See docs/PLANET.md.
 
+import { generateRealm } from '../realm/realm.js'; // kingdoms and settlements (docs/REINOS.md)
 import { MW, MH, CELL, SEAM_HALF, ABYSS_M, sinLatCell, metersToStories } from './consts.js';
 import { rng32, fbm, ridged, clamp, smoothstep, smooth01, hash01, ihash } from './noise.js';
 import { N, DL8, cxOf, cyOf, tileX, tileY, nbTable, distField, blur } from './grid.js';
@@ -476,7 +477,7 @@ export function generatePlanet(seed = 1) {
   lap('finish');
   timings.total = Object.values(timings).reduce((a, b) => a + b, 0) - (timings.seaShift || 0);
 
-  return {
+  const planet = {
     version: PLANET_VERSION, seed, W: MW * CELL, H: MH * CELL, CELL, MW, MH,
     elev, cone, iceT, surf: hyd.surf, sd, plateau, relief, mtn, dLand, terr,
     crust, plate, plates: plates.map((p) => ({ id: p.id, vx: p.vx, vy: p.vy, continental: p.continental, area: p.area })),
@@ -488,6 +489,10 @@ export function generatePlanet(seed = 1) {
     lakes: hyd.lakes.map((l) => ({ id: l.id, level: l.level, levelS: metersToStories(l.level), area: l.area, salt: l.salt, dry: l.dry, endorheic: l.endorheic })),
     volcanoes, deltas, continents, stats, timings, riverQ: RIVER_Q,
   };
+  // kingdoms, settlements, territories and roads (docs/REINOS.md): a pure function of the macro planet, part of it
+  planet.realm = generateRealm(planet);
+  timings.realm = planet.realm.ms;
+  return planet;
 }
 
 export { DL8 };

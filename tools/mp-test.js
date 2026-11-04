@@ -1030,7 +1030,7 @@ def('S20', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const sp = spawnOf(H);
-  const crates = (H.game.props || []).filter((o) => !o.broken && !env.claimed.has('prop' + o.id)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  const crates = (H.game.props || []).filter((o) => !o.broken && !o.dummy && !env.claimed.has('prop' + o.id)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
   t.assert(crates.length, 'found an intact crate');
   const cH = crates[0];
   env.claimed.add('prop' + cH.id);
@@ -3254,7 +3254,7 @@ function hostRoof(H, x0, y0, w, h, type = 'roof_wood', style = 'shingle') {
   net.emit('struct.add', { list: rows, by: net.pid });
   return rows.map((r) => r[0]);
 }
-const roofIds = (f) => f.game.build.structures.filter((o) => o.roof).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
+const roofIds = (f) => f.game.build.structures.filter((o) => o.roof && o.town == null).map((o) => o.id + ':' + o.style + (o.blueprint ? ':bp' : '')).sort();
 const regionAt = (f, x, y) => { const R = f.game.roofs, w = f.game.world; return R.regions.get(R.regionOf.get(w.idx(x, y))) || null; };
 
 def('J1', {
@@ -3775,7 +3775,7 @@ def('L5', {
   const key = `wos.save.v2.${seed}`;
   const data = JSON.parse(S.win.localStorage.getItem(key));
   t.check(data?.player?.z === 1, 'the save records player z 1', String(data?.player?.z));
-  t.check(!data.world.lvs && g.build.structures.every((o) => !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
+  t.check(!data.world.lvs && g.build.structures.every((o) => o.town != null || !(o.lv > 0)), 'no structure level data needed (all lv 0; levels add no save version)', `v ${data.v}`);
   S.reload();
   await t.waitFor(() => S.loads >= 2 && S.game && S.loadingHidden && S.game !== g, CFG.bootMs, 'reloaded (1)');
   let p2 = S.game.player;
@@ -4006,7 +4006,7 @@ def('L8', {
   S.reload();
   await t.waitFor(() => S.loads >= 3 && S.game && S.loadingHidden && S.game !== g2, CFG.bootMs, 'reloaded (v8 save)');
   const g3 = S.game;
-  t.check(g3.build.structures.some((o) => o.type === 'wall_wood' && o.tx === x && o.ty === y) && g3.build.structures.every((o) => !(o.lv > 0)), 'v8 save loads (ground floor only)', `${g3.build.structures.length} structures`);
+  t.check(g3.build.structures.some((o) => o.type === 'wall_wood' && o.tx === x && o.ty === y) && g3.build.structures.every((o) => o.town != null || !(o.lv > 0)), 'v8 save loads (ground floor only)', `${g3.build.structures.length} structures`);
 });
 
 // =====================================================================================================
@@ -7491,6 +7491,357 @@ def('SG6', {
   void dmgOps;
   G.game.ctl.interact();
   await t.waitFor(() => !oH.user, RT() + 1500, 'the guest gets off');
+  await t.checkDigest(H, G);
+});
+
+// KG — kingdoms and settlements (docs/REINOS.md "Implementação — geração"): the realm made on every peer from the seed,
+// settlements materialized per chunk from real structures, gates by day / night, players' gates, shared damage, the
+// building rule, the start of a new world on a village plaza in front of its mural.
+// =====================================================================================================
+const townOf = (f, sid) => f.game.towns?.live?.get(sid) || null;
+const piecesOn = (f, sid) => townOf(f, sid)?.objs?.size || 0;
+const realmOf = (f) => f.game.towns?.realm || null;
+// stand both players at (x, y) (free spots) and wait until the settlement's pieces there are placed on both
+async function visitTown(t, H, MH, G, MG, sid, x, y, ms = 45000) {
+  const a = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 4 }) || [x, y];
+  A.teleport(H, a[0], a[1]);
+  const b = A.freeSpot(G, MG, a[0] + 1.5, a[1], { rMin: 0, rMax: 4 }) || [a[0] + 1.5, a[1]];
+  A.teleport(G, b[0], b[1]);
+  await t.waitFor(() => piecesOn(H, sid) > 50 && piecesOn(G, sid) > 50 && !H.game.towns.jobs.length && !G.game.towns.jobs.length, ms,
+    `the pieces of settlement ${sid} placed on both`, () => `host ${piecesOn(H, sid)} (jobs ${H.game.towns.jobs.length}) · guest ${piecesOn(G, sid)} (jobs ${G.game.towns.jobs.length})`);
+  await t.sleep(600);
+}
+const pieceIds = (f, sid, pred = () => true) => [...(townOf(f, sid)?.objs.values() || [])].filter((o) => !o.removed && pred(o)).map((o) => o.id).sort();
+const nightClock = (H, hour) => { const g = H.game, E = g.env; g.net.emit('env.skip', { hour, day: E.dayIndex + (hour < E.hour ? 1 : 0), wt: Math.round((g.worldTime + 5) * 100) / 100 }); g.net.flush(); };
+
+def('KG1', {
+  title: 'KG: both peers make the same realm (kingdoms, settlements, roads, territories); a new world starts on a temperate village plaza in front of its mural',
+  src: 'village', timeout: 150000,
+  expected: 'Host and guest generate the realm from the seed: same digest (kingdoms with names / colours / banners / capitals / landmasses / neighbours, settlements with kind / name / place / size / population / walls / gates, roads, the territory and district grids, the start villages); 2..30 kingdoms each with one city, 2..4 castles and ≥ 8 villages; canReach is true within a landmass. The world spawn (host and guest: welcome.sp) is the plaza of realm.starts[0]\'s first temperate village: a village (never a castle or city), zone 2 (temperate) at the tile, on the paved plaza, flat, not inside anything; the mural stands 2–4 tiles north of it with the gold "!" on the guest (never opened); "Reino de X" banner; the guest sees the same settlement pieces; digest equal',
+  api: 'world/realm/realm.js generateRealm / realmDigest / canReach; planetSource villageSpawn; layout.spawn; game/towns.js placeSystem (event place, o._mark)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = realmOf(H), RG = realmOf(G);
+  t.need(RH && RG, 'the realm (planet.realm) on both peers');
+  const dh = MH.realm.realmDigest(RH), dg = MG.realm.realmDigest(RG);
+  t.check(dh === dg, 'the same realm on both peers (digest of kingdoms, settlements, roads, territories)', `${dh} / ${dg}`);
+  const K = RH.kingdoms;
+  t.check(K.length >= 2 && K.length <= 30, '2..30 kingdoms', K.length);
+  const bad = K.filter((k) => { const ss = k.settlements.map((i) => RH.settlements[i]); const n = (kd) => ss.filter((s) => s.kind === kd).length; return n('city') !== 1 || n('castle') < 2 || n('castle') > 4 || n('village') < 8 || n('village') > 21; });
+  t.check(!bad.length, 'every kingdom: 1 city, 2–4 castles, 8–20 villages', bad.map((k) => k.name).join(', ') || `${K.length} kingdoms`);
+  const k0 = K[0], same = K.find((k) => k.id !== k0.id && k.comp === k0.comp), other = K.find((k) => k.comp !== k0.comp);
+  t.check(MH.realm.canReach(RH, k0.id, k0.id) && (!same || MH.realm.canReach(RH, k0.id, same.id)) && (!other || !MH.realm.canReach(RH, k0.id, other.id)), 'canReach: same landmass yes, another landmass no', `${same?.name || '-'} / ${other?.name || '-'}`);
+  t.check(RH.roads.length > K.length * 8, 'roads join the settlements', `${RH.roads.length} roads`);
+  // the start
+  const sp = H.game.world.spawn, gsp = G.game.world.spawn;
+  t.check(Math.abs(sp.x - gsp.x) < 1e-6 && Math.abs(sp.y - gsp.y) < 1e-6, 'the guest starts where the host does (welcome.sp)', `${sp.x},${sp.y} / ${gsp.x},${gsp.y}`);
+  const s = MH.realm.settlementAt(RH, sp.x, sp.y);
+  t.check(s && s.kind === 'village' && RH.starts.includes(s.id), 'the spawn is in a start village (never a castle or a city)', s ? `${s.name} (${s.kind})` : 'none');
+  const w = H.game.world, i = w.idx(Math.floor(sp.x), Math.floor(sp.y));
+  t.check((w.zone.get(i) & 7) === 2, 'temperate zone at the start tile', w.zone.get(i) & 7);
+  t.check(w.road.get(i) > 0 && !w.solid.get(i) && w.tileSlope(Math.floor(sp.x), Math.floor(sp.y)) < 0.3, 'on the paved plaza, flat, nothing built there', `road ${w.road.get(i)} solid ${w.solid.get(i)} slope ${f2(w.tileSlope(Math.floor(sp.x), Math.floor(sp.y)))}`);
+  A.teleport(H, sp.x, sp.y); A.teleport(G, sp.x + 0.6, sp.y + 0.6);
+  await t.waitFor(() => townOf(H, s.id)?.mural && townOf(G, s.id)?.mural, 30000, 'the mural placed on both');
+  const m = townOf(G, s.id).mural;
+  t.check(m.type === 'town_mural' && Math.abs(m.x - sp.x) < 2.5 && sp.y - m.y > 1.2 && sp.y - m.y < 4.5, 'the mural stands just north of the start, facing it', `mural @${f2(m.x)},${f2(m.y)}`);
+  t.check(!MG.physics.collides(G.game.world, sp.x, sp.y, 0.24, null, false), 'the start spot is free (not inside a wall / building)');
+  G.game.ctl.hinted.mural = false;
+  await t.waitFor(() => m._mark === true, 2000, 'guest: the gold "!" over the mural (never opened)');
+  const it = MG.building.describeStructure(G.game, m);
+  t.check(it?.kind === 'mural' && it.verb === 'Ver mural', 'E / a tap on it: "Ver mural"', it?.verb);
+  const ph = pieceIds(H, s.id, (o) => Math.hypot(o.x - sp.x, o.y - sp.y) < 20), pg = pieceIds(G, s.id, (o) => Math.hypot(o.x - sp.x, o.y - sp.y) < 20);
+  t.check(ph.length > 30 && ph.join() === pg.join(), 'the same village pieces around the plaza on both', `${ph.length} / ${pg.length}`);
+  await t.checkDigest(H, G);
+});
+
+def('KG2', {
+  title: 'KG: a village, a castle and the capital city stand near the start with walls, gates, a plaza and the mural (real structures, both peers)',
+  src: 'village', timeout: 240000,
+  expected: 'From the start village: its kingdom\'s city and nearest castle (and a palisade village) are visited by both players. Each settlement is made of game structures with ids t<sid>.<k> on both peers: the start village has houses (doors, beds, roofs), the plaza (paved), a well and the mural; the palisade village has log walls and 2-tile wooden gates; the castle a two-story stone curtain (wall tops walkable at story 2: levels.surf[2]), a stone gate with portcullis, the keep with an upper story, stairs, ballistas on towers; the city stone walls with towers, ≥ 2 stone gates, a castle in the middle, many houses and the market plaza with the mural; the same piece ids near the player on both peers; digest equal',
+  api: 'game/towns.js (materialization per chunk, layout(sid), live recs); world/realm/layout.js; levels.surf',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y), K = R.kingdoms[s0.k];
+  const near = (kind, pred = () => true) => R.settlements.filter((s) => s.kind === kind && pred(s)).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  const city = R.settlements[K.capital], castle = near('castle'), pal = near('village', (s) => s.walls === 'palisade');
+  const typesOf = (f, sid) => { const c = {}; for (const o of townOf(f, sid)?.objs.values() || []) if (!o.removed) c[o.type] = (c[o.type] || 0) + 1; return c; };
+  // the start village
+  await visitTown(t, H, MH, G, MG, s0.id, sp.x, sp.y);
+  let c = typesOf(G, s0.id);
+  t.check(c.town_mural === 1 && c.well >= 1 && c.door_wood >= 4 && c.bed >= 4 && (c.roof_thatch || 0) + (c.roof_wood || 0) + (c.roof_stone || 0) > 50, `start village ${s0.name}: mural, well, houses with doors, beds and roofs`, JSON.stringify({ mural: c.town_mural, well: c.well, doors: c.door_wood, beds: c.bed }));
+  t.check(G.game.world.road.get(G.game.world.idx(Math.floor(sp.x), Math.floor(sp.y) + 1)) > 0, 'the plaza is paved');
+  // a palisade village
+  if (pal) {
+    const L = H.game.towns.layout(pal.id), g0 = L.structs[L.gates[0]];
+    await visitTown(t, H, MH, G, MG, pal.id, g0[1] + 1, g0[2] + (g0[3] & 1 ? 1 : 3));
+    c = typesOf(G, pal.id);
+    t.check(c.wall_wood > 40 && c.gate_big_wood >= 1, `palisade village ${pal.name}: log walls and the wooden gate`, `walls ${c.wall_wood} gates ${c.gate_big_wood}`);
+    const gate = [...townOf(G, pal.id).objs.values()].find((o) => o.type === 'gate_big_wood');
+    t.check(gate && G.game.build.grid.main.get(G.game.world.idx(gate.tx + (gate.rot & 1 ? 0 : 1), gate.ty + (gate.rot & 1 ? 1 : 0))) === gate, 'the gate covers 2 tiles');
+  } else t.note('no palisade village in this seed');
+  // the castle
+  {
+    const L = H.game.towns.layout(castle.id);
+    await visitTown(t, H, MH, G, MG, castle.id, L.spawn[0], L.spawn[1]);
+    c = typesOf(G, castle.id);
+    const upper = [...townOf(G, castle.id).objs.values()].filter((o) => o.type === 'wall_stone' && o.lv === 1).length;
+    t.check(upper > 60 && c.gate_stone >= 1 && c.stairs_wood >= 2 && c.town_mural === 1, `castle ${castle.name}: two-story stone curtain, stone gate, stairs, mural`, `upper walls ${upper} gates ${c.gate_stone} stairs ${c.stairs_wood}`);
+    const top = [...townOf(G, castle.id).objs.values()].find((o) => o.type === 'wall_stone' && o.lv === 1);
+    G.game.levels.sync();
+    t.check(top && G.game.levels.surf[2]?.get(G.game.world.idx(top.tx, top.ty)) === 1, 'the wall tops are a walkable story (story 2: the wall walk)');
+    t.check(c.ballista >= 1, 'ballistas on the towers', c.ballista);
+  }
+  // the city
+  {
+    const L = H.game.towns.layout(city.id);
+    await visitTown(t, H, MH, G, MG, city.id, L.spawn[0], L.spawn[1], 90000);
+    c = typesOf(G, city.id);
+    t.check(c.town_mural === 1 && c.fountain === 1 && c.door_wood > 15, `capital ${city.name}: the market plaza with the mural and fountain, many houses`, `doors ${c.door_wood}`);
+    t.check(L.gates.filter((k) => L.structs[k][0] === 'gate_stone').length >= 2 && L.towers.length >= 8, 'the city walls: ≥ 2 stone gates, towers', `gates ${L.gates.length} towers ${L.towers.length}`);
+    t.check(L.buildings.some((b) => b.key === 'keep'), 'a castle (keep) in the middle');
+    // (chunks may still be arriving from the workers on either peer: the same set once both have them)
+    const near = (o) => Math.hypot(o.x - L.spawn[0], o.y - L.spawn[1]) < 24, same = () => { const a = pieceIds(H, city.id, near), b = pieceIds(G, city.id, near); return a.length > 100 && a.join() === b.join(); };
+    await t.waitFor(same, 20000, 'the city pieces around the plaza on both', () => `${pieceIds(H, city.id, near).length} / ${pieceIds(G, city.id, near).length}`).catch(() => {});
+    const hi = pieceIds(H, city.id, near), gi = pieceIds(G, city.id, near);
+    t.check(hi.length > 100 && hi.join() === gi.join(), 'the same city pieces around the plaza on both', `${hi.length} / ${gi.length}`);
+  }
+  await t.checkDigest(H, G);
+});
+
+def('KG3', {
+  title: 'KG: settlement gates close at night and open at dawn, on both peers (and close while hostiles are inside)',
+  src: 'village', timeout: 150000,
+  expected: 'At a walled settlement near the start (both players there, by day): its gates are open on both (world.solid 0 under them). The host\'s clock goes to night: within ~2 s the host closes every gate (op door.set from the town system) — closed on the guest too, solid 1, a town state row per closed gate on both. Dawn: they open again on both, rows gone. By day a hostile creature inside the town land closes them; it leaves → they open. Digest equal',
+  api: 'game/towns.js hostTick (isNight, hostileInside, passageBusy) → op door.set; mut/towns.js TOWN.note (state rows); digest part towns',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn;
+  const s = R.settlements.filter((q) => q.walls).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  const L = H.game.towns.layout(s.id);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  const gatesOf = (f) => [...townOf(f, s.id).objs.values()].filter((o) => o.door && M_isGate(o));
+  const M_isGate = (o) => o.type === 'gate_big_wood' || o.type === 'gate_stone';
+  await t.waitFor(() => gatesOf(H).length && gatesOf(G).length === gatesOf(H).length, 20000, 'the gates placed on both');
+  const day0 = H.game.env.hour;
+  t.defer(() => nightClock(H, Math.max(8, day0)));
+  if (H.game.env.hour >= 17 || H.game.env.hour < 6.5) nightClock(H, 9);
+  await t.waitFor(() => gatesOf(H).every((o) => o.open) && gatesOf(G).every((o) => o.open), 5000, 'by day: every gate open on both');
+  const solidAt = (f, o) => f.game.world.solid.get(f.game.world.idx(o.tx, o.ty));
+  t.check(gatesOf(G).every((o) => !solidAt(G, o)), 'open gates do not block (guest)');
+  nightClock(H, 21.5);
+  await t.waitFor(() => gatesOf(H).every((o) => !o.open) && gatesOf(G).every((o) => !o.open), 5000 + CFG.budget, 'at night: every gate closed on both', () => gatesOf(G).map((o) => o.open ? 'o' : 'c').join(''));
+  t.check(gatesOf(G).every((o) => solidAt(G, o) === 1) && gatesOf(H).every((o) => solidAt(H, o) === 1), 'closed gates block on both (world.solid)');
+  t.check(gatesOf(G).every((o) => G.game.towns.state.get(o.id)?.open === 0), 'guest: a town state row per closed gate');
+  await t.checkDigest(H, G, 'digest equal at night');
+  nightClock(H, 7);
+  await t.waitFor(() => gatesOf(H).every((o) => o.open) && gatesOf(G).every((o) => o.open), 5000 + CFG.budget, 'at dawn: every gate open again on both');
+  t.check(gatesOf(G).every((o) => !G.game.towns.state.has(o.id)), 'the rows are gone (default state)');
+  // a hostile inside the town land (by day): they close; gone: they open
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const ws = A.freeSpot(H, MH, L.plaza[0] + 3, L.plaza[1] + 3, { rMin: 0, rMax: 5, r: 0.36 });
+  const wolf = ws ? MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]) : null;
+  if (wolf) {
+    wolf.state = 'idle'; wolf.stateT = 99; wolf.calmT = 60;
+    t.defer(() => { wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+    await t.waitFor(() => gatesOf(H).every((o) => !o.open) && gatesOf(G).every((o) => !o.open), 5000 + CFG.budget, 'a wolf inside the town: the gates close on both');
+    wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+    await t.waitFor(() => gatesOf(H).every((o) => o.open) && gatesOf(G).every((o) => o.open), 6000 + CFG.budget, 'it is gone: they open again');
+  }
+  await t.checkDigest(H, G);
+});
+
+def('KG4', {
+  title: "KG: a player's gate (Portão de madeira, 2 tiles) — built by the guest, opened and closed by its owner only, automatic by day / night",
+  src: 'village', timeout: 180000,
+  expected: 'Outside the town land the guest places and builds a gate_big_wood (wood + rope paid): a 2-tile door with gate: true, owner = the guest, automatic on (gates rows on both). The guest closes / opens it (door.toggle) on both; the host trying is refused ("Só o dono abre e fecha este portão"); the guest turns the automatic off (gate.mode) — at night it stays as it is; on again — at night it closes, at dawn it opens, on both; digest equal',
+  api: 'content/buildings.js gate_big_wood (gate: true, gate2); mut/towns.js gate.mode + TOWN.gateAdded / gateReason; game/towns.js hostTick (players\' gates)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  A.keepAlive(t, G);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  t.check(MH.data.BUILDINGS.gate_big_wood.gate === true && MH.data.BUILDINGS.gate_stone.gate === true && !MH.data.BUILDINGS.door_wood.gate, 'the two gates carry gate: true (the siege ram hits only these)');
+  // a site outside the town land
+  const out = [s0.x + (s0.r + 12), s0.y];
+  A.teleport(G, out[0], out[1]); A.teleport(H, out[0] - 2, out[1]);
+  await t.sleep(1200);
+  const site = A.findSite([G, H], [MG, MH], 'gate_big_wood', (x, y) => [[x, y], [x + 1, y]], out[0], out[1], { rMin: 2, rMax: 18 });
+  t.need(site, 'a free 2-tile site outside the town land');
+  const [gx, gy] = site.tiles[0];
+  A.ensure(G, { wood: 30, rope: 4 });
+  const made = A.place(G, MG, 'gate_big_wood', [gx, gy], [gx, gy], 0);
+  const id = await t.waitFor(() => { const o = G.game.build.structures.find((q) => q.type === 'gate_big_wood' && q.tx === gx && q.ty === gy); return o?.id; }, RT() + 2000, 'the gate blueprint on the guest');
+  void made;
+  t.defer(() => { const o = H.game.build.structures.find((q) => q.id === id); if (o) H.game.net.emit('struct.remove', { id, quiet: 1 }); });
+  await A.buildAll(t, G, MG, [id], { ms: 40000 });
+  const gH = () => A.structOn(H, id), gG = () => A.structOn(G, id);
+  await t.waitFor(() => gH() && !gH().blueprint && gG() && !gG().blueprint, RT() + 2000, 'built on both');
+  t.check(gG().fw === 2 && gG().door, 'a 2-tile door', `${gG().fw}×${gG().fh}`);
+  const row = (f) => f.game.gates?.get(id);
+  t.check(row(H)?.owner === G.pid && row(G)?.owner === G.pid && row(G).auto === 1, 'owner = the guest, automatic on (both)', JSON.stringify(row(G)));
+  nightClock(H, 10);
+  await t.waitFor(() => gH().open && gG().open, 4000, 'by day (automatic): open on both');
+  // by hand: the owner closes it, the host may not
+  H.game.net.emit('gate.mode', { id, auto: 0, owner: G.pid });
+  await t.waitFor(() => row(G)?.auto === 0, ONEWAY() + 500, 'automatic off on the guest');
+  A.standBy(G, MG, gG(), Math.PI / 2);
+  A.useDoor(G, MG, gG());
+  await t.waitFor(() => !gH().open && !gG().open, RT() + 1000, 'the owner closed it: closed on both');
+  let why = null;
+  A.standBy(H, MH, gH(), -Math.PI / 2);
+  H.game.net.request('door.toggle', { id, open: 1 }, { onReject: (w) => { why = w; } });
+  await t.sleep(300);
+  t.check(why && /dono/.test(why) && !gH().open, 'the host may not open it: refused', why);
+  A.useDoor(G, MG, gG());
+  await t.waitFor(() => gH().open && gG().open, RT() + 1000, 'the owner opened it again: open on both');
+  nightClock(H, 22);
+  await t.sleep(2500);
+  t.check(gH().open && gG().open, 'automatic off: night does not close it');
+  G.game.net.request('gate.mode', { id, auto: 1 });
+  await t.waitFor(() => !gH().open && !gG().open, RT() + 3000, 'automatic on again at night: it closes on both');
+  nightClock(H, 7);
+  await t.waitFor(() => gH().open && gG().open, 4000, 'dawn: it opens on both');
+  await t.checkDigest(H, G);
+});
+
+def('KG5', {
+  title: 'KG: damage to a castle wall (siege / monsters) is shared, survives its chunk leaving and coming back, is saved, and the place rebuilds later',
+  src: 'village', timeout: 200000,
+  expected: 'In the castle nearest the start the host damages a wall piece (op struct.dmg 0.6) and destroys another (struct.remove fx smash), as the walkers / siege engines do: on the guest the first has dmg 0.6, the second is gone; both have the town state rows (digest part towns); the host\'s save (serializeWorld save) carries them; both players go far away (the village chunks leave both peers) and come back: the pieces come back from the seed still damaged / still destroyed; after two days with nobody near the host rebuilds the destroyed one (town.restore) — back on both; digest equal',
+  api: 'mut/structures.js struct.dmg / struct.remove → TOWN.note; mut/towns.js rows, town.restore; game/towns.js unload / placePiece / resyncPieces; net/snapshot.js towns rows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  // (a castle near the start: the start's own chunk never leaves memory — the starter pebbles changed it)
+  const R = realmOf(H), sp0 = H.game.world.spawn;
+  const s0 = R.settlements.filter((q) => q.kind === 'castle').sort((a, b) => Math.hypot(a.x - sp0.x, a.y - sp0.y) - Math.hypot(b.x - sp0.x, b.y - sp0.y))[0];
+  const sp = { x: H.game.towns.layout(s0.id).spawn[0], y: H.game.towns.layout(s0.id).spawn[1] };
+  await visitTown(t, H, MH, G, MG, s0.id, sp.x, sp.y);
+  const walls = [...townOf(H, s0.id).objs.values()].filter((o) => (o.type === 'wall_wood' || o.type === 'wall_stone') && !o.lv && Math.hypot(o.x - sp.x, o.y - sp.y) < 18 && !H.game.world.crec[H.game.world.chunkIndex(o.tx, o.ty)]?.dirty).sort((a, b) => (a.id < b.id ? -1 : 1));
+  t.need(walls.length >= 2, 'two walls near the mural (in unchanged chunks)');
+  const [w1, w2] = walls, id1 = w1.id, id2 = w2.id;
+  // (at night: by day the winter walkers' cracks settle — walkers.js clears struct damage at sunrise)
+  const h0 = H.game.env.hour;
+  t.defer(() => nightClock(H, Math.max(8, Math.min(16, h0))));
+  nightClock(H, 22);
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  H.game.net.emit('struct.dmg', { id: id1, d: 0.6, x: w1.x, y: w1.y });
+  H.game.net.emit('struct.remove', { id: id2, fx: 'smash' });
+  H.game.net.flush();
+  await t.waitFor(() => (A.objOn(G, id1)?.dmg || 0) > 0.55 && !A.objOn(G, id2), RT(), 'guest: one wall damaged, the other destroyed');
+  const rowG = (id) => G.game.towns.state.get(id), rowH = (id) => H.game.towns.state.get(id);
+  t.check(rowH(id1)?.dmg === 60 && rowG(id1)?.dmg === 60 && rowH(id2)?.gone && rowG(id2)?.gone, 'town state rows on both', JSON.stringify([rowG(id1), rowG(id2)]));
+  const save = MH.snapshot.serializeWorld(H.game, { save: true });
+  t.check(save.towns.some((r) => r[0] === id1 && r[3] === 60) && save.towns.some((r) => r[0] === id2 && r[1] === 1), 'the save carries them (towns rows)');
+  await t.checkDigest(H, G, 'digest after the damage');
+  // far away (the chunks leave), then back
+  const far = [sp.x + 900, sp.y];
+  A.teleport(H, far[0], far[1]); A.teleport(G, far[0] + 2, far[1]);
+  const c1 = H.game.world.chunkIndex(w1.tx, w1.ty);
+  await t.waitFor(() => !H.game.world.isLoaded(c1) && !G.game.world.isLoaded(c1), 40000, 'the village chunk left both peers', () => `host ${H.game.world.isLoaded(c1)} guest ${G.game.world.isLoaded(c1)}`);
+  t.check(!A.objOn(G, id1) && G.game.towns.state.get(id1)?.dmg === 60, 'the piece left with its chunk; its state stays');
+  await visitTown(t, H, MH, G, MG, s0.id, sp.x, sp.y);
+  await t.waitFor(() => A.objOn(G, id1) && A.objOn(H, id1), 15000, 'the damaged wall is back from the seed on both');
+  t.check(Math.abs((A.objOn(G, id1).dmg || 0) - 0.6) < 1e-6 && Math.abs((A.objOn(H, id1).dmg || 0) - 0.6) < 1e-6 && !A.objOn(G, id2) && !A.objOn(H, id2), 'still damaged / still destroyed on both');
+  // two days later with nobody near: rebuilt
+  A.teleport(H, far[0], far[1]); A.teleport(G, far[0] + 2, far[1]);
+  await t.sleep(800);
+  skipDays(H, 2.2);
+  await t.waitFor(() => !H.game.towns.state.get(id2)?.gone && !G.game.towns.state.get(id2)?.gone, 6000 + CFG.budget, 'the destroyed wall rebuilt (town.restore) on both');
+  await visitTown(t, H, MH, G, MG, s0.id, sp.x, sp.y);
+  await t.waitFor(() => A.objOn(G, id2) && A.objOn(H, id2), 15000, 'back in place on both');
+  H.game.net.emit('struct.dmg', { id: id1, d: 0 });
+  await t.checkDigest(H, G);
+});
+
+def('KG6', {
+  title: 'KG: building is refused inside a town land ("Terra de <Vila>: compre um terreno no mural") and in castles; free outside',
+  src: 'village', timeout: 120000,
+  expected: 'On the start village plaza: placing a wall is refused locally and by the host with "Terra de <name>: compre um terreno no mural" (no structure appears on either peer); just outside the town land the same wall is accepted; in a castle: "<castle>: não se constrói no castelo"; a settlement piece cannot be taken apart ("Isto pertence a …"); the creative mode is free of the rule; digest equal',
+  api: 'mut/structures.js placeReason → TOWN.landReason (game/towns.js townLandAt); build.place / build.decon refusals (TOWN.refuse)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  A.teleport(G, sp.x, sp.y + 0.6); A.teleport(H, sp.x - 1, sp.y + 0.6);
+  await t.waitFor(() => townOf(G, s0.id)?.mural, 30000, 'the village there on the guest');
+  const tx = Math.floor(sp.x) + 1, ty = Math.floor(sp.y) + 1;
+  const why = MG.building.placeReason(G.game, 'wall_wood', tx, ty, G.game.player, 0);
+  t.check(why === `Terra de ${s0.name}: compre um terreno no mural`, 'guest: refused on the town land with the mural hint', why);
+  let rej = null;
+  G.game.net.request('build.place', { type: 'wall_wood', tiles: [[tx, ty]], rot: 0 }, { onReject: (w) => { rej = w; } });
+  await t.waitFor(() => rej, RT() + 500, 'the host refuses it too');
+  // (the count of the host's structures moves with the settlement pieces still streaming in: the tile itself is what counts)
+  const mine = (f) => f.game.build.structures.some((o) => o.tx === tx && o.ty === ty && o.town == null);
+  t.check(/Terra de/.test(rej) && !mine(H) && !mine(G), 'nothing built on either peer', rej);
+  // a settlement piece cannot be taken apart
+  const w = [...townOf(G, s0.id).objs.values()].find((o) => o.type === 'wall_wood' || o.type === 'wall_stone');
+  let rej2 = null;
+  G.game.net.request('build.decon', { ids: [w.id], on: 1 }, { onReject: (x) => { rej2 = x; } });
+  await t.waitFor(() => rej2, RT() + 500, 'taking a town wall apart is refused');
+  t.check(/pertence a/.test(rej2) && !H.game.build.decon.has(A.objOn(H, w.id)), 'refused: "Isto pertence a …"', rej2);
+  // outside the town land: free
+  const ox = Math.floor(s0.x + s0.r + 8);
+  A.teleport(G, ox + 0.5, s0.y + 0.5);
+  await t.sleep(600);
+  const site = A.findSite([G, H], [MG, MH], 'wall_wood', (x, y) => [[x, y]], ox, s0.y, { rMin: 1, rMax: 14 });
+  t.check(site && MG.building.placeReason(G.game, 'wall_wood', site.x0, site.y0, G.game.player, 0) === null, 'outside the town land: allowed', site ? `${site.x0},${site.y0}` : 'no site');
+  // a castle
+  const c = R.settlements.filter((q) => q.kind === 'castle').sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  A.teleport(G, c.x + 0.5, c.y + 0.5);
+  await t.sleep(500);
+  const why2 = MG.building.placeReason(G.game, 'wall_wood', Math.floor(c.x) + 2, Math.floor(c.y) + 2, null, 0);
+  t.check(why2 === `${c.name}: não se constrói no castelo`, 'in a castle: refused', why2);
+  A.teleport(G, sp.x, sp.y + 0.6);
+  await t.checkDigest(H, G);
+});
+
+def('KG7', {
+  title: 'KG: the mural panel (Lugar / Reino / … "Em breve") and the map data (territories, borders, names) match on both peers',
+  src: 'village', timeout: 120000,
+  expected: 'The guest opens the mural of the start village (E): the panel shows the place\'s name, kind, kingdom ("Reino de …"), population and the kingdom\'s banner; the tabs Lugar, Reino, Trabalhos, Comércio, Exército, Propriedades — the last four say "Em breve"; opening it removes the gold "!" over the murals. The map: game.towns.at(x, y) gives the same kingdom / town / district on both peers along a line through the kingdom; the map window draws the territories without errors on both; the place banner said "Reino de …" / the village name',
+  api: 'ui/mural.js (panel), ui/realmMap.js, ui/placebanner.js, game.towns.at / info',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y), K = R.kingdoms[s0.k];
+  A.teleport(G, sp.x, sp.y);
+  await t.waitFor(() => townOf(G, s0.id)?.mural, 30000, 'the mural on the guest');
+  G.game.ctl.hinted.mural = false;
+  const m = townOf(G, s0.id).mural;
+  MG.building.useStructure(G.game, MG.building.describeStructure(G.game, m));
+  await t.waitFor(() => /Mural/.test(G.doc.querySelector('.p-mural .pt')?.textContent || ''), 3000, 'the mural panel opened');
+  const txt = () => G.doc.querySelector('.p-mural')?.textContent || '';
+  t.check(txt().includes(s0.name) && txt().includes(`Reino de ${K.name}`) && /População/.test(txt()) && !!G.doc.querySelector('.p-mural .mu-ban'), 'name, kind, kingdom, population and banner', short(txt().replace(/\s+/g, ' '), 140));
+  const tabs = [...G.doc.querySelectorAll('.p-mural [data-mtab]')].map((b) => b.textContent.replace(/[·\s]+$/g, '').trim());
+  t.check(['Lugar', 'Reino', 'Trabalhos', 'Comércio', 'Exército', 'Propriedades'].every((n) => tabs.some((x) => x.startsWith(n))), 'the six tabs', tabs.join(' | '));
+  for (const k of ['jobs', 'trade', 'army', 'land']) {
+    G.doc.querySelector(`.p-mural [data-mtab=${k}]`)?.click();
+    await t.sleep(80);
+    t.check(/Em breve/.test(txt()), `${k}: "Em breve"`);
+  }
+  G.doc.querySelector('.p-mural [data-mtab=realm]')?.click();
+  await t.sleep(80);
+  t.check(txt().includes(R.settlements[K.capital].name), 'Reino: lists the capital and the places');
+  t.check(G.game.ctl.hinted.mural === true, 'opened: the "!" goes');
+  await t.waitFor(() => m._mark === false, 2000, 'no gold "!" any more');
+  G.game.events.emit('closepanels', {});
+  // the map data
+  let same = 0, n = 0;
+  for (let k = -40; k <= 40; k++) {
+    const x = s0.x + k * 25, y = s0.y + k * 9;
+    const a = H.game.towns.at(x, y), b = G.game.towns.at(x, y);
+    const ka = [a.k, a.town?.id ?? -1, a.district?.id ?? -1].join(), kb = [b.k, b.town?.id ?? -1, b.district?.id ?? -1].join();
+    n++; if (ka === kb) same++;
+  }
+  t.check(same === n, 'the same kingdom / town / district on both along a line', `${same}/${n}`);
+  for (const f of [H, G]) {
+    f.game.events.emit('open', { panel: 'map' });
+    await t.sleep(400);
+    const mini = f.game.ui.minimap;
+    mini.view = { cx: s0.x, cy: s0.y, span: 3000 };
+    let err = null;
+    try { const c = f.doc.querySelector('.bigmap'); mini.draw(c.getContext('2d'), 400, 400, 0, true); } catch (e) { err = e.message; }
+    t.check(!err, `${f.label}: the map draws the kingdoms`, err);
+    f.game.events.emit('closepanels', {});
+  }
+  t.check(/Reino de|/.test(G.game.lastPlace?.title || '') && !!G.game.lastPlace, 'the place banner was shown', JSON.stringify(G.game.lastPlace));
   await t.checkDigest(H, G);
 });
 
