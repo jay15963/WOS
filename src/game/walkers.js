@@ -221,6 +221,7 @@ export function walkerBrain(game, m, dt) {
   // creative (creative.js): not drawn by light, never breaks anything, hunts nobody — they just roam
   if (game.creative) { m.goal = null; return handOff(m); }
   // fighting one of the settlements' people (a guard hit it): the raiders' brain fights on (game/npc.js)
+  if (m.state === 'chase' && m.threat?.npc && m.raid != null && (m.threat.z || 0) > 0.5) { m.state = 'idle'; m.threat = null; m.stateT = 0.3; } // (a winter attack's wave: an archer up on the wall is out of reach — the wall first, game/raids.js)
   if (m.state === 'chase' && m.threat?.npc && !m.threat.dead && dist(m, m.threat) < 14) { if (m.siege) { m.siege = null; resetNav(m); } m.ap = null; return false; }
   m.goalT = (m.goalT || 0) - dt;
   if (m.goalT <= 0) {

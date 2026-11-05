@@ -576,9 +576,18 @@ function makeDebug(game) {
       const rec = startLive(game, s, P, o);
       return { live: true, n: rec.W.n, total: rec.total, g: rec.place.guards.n, fury: rec.W.fury, horde: rec.W.horde, giant: rec.W.giant, species: rec.W.species };
     },
-    live: (sid) => { const r = game.raids.H.live.get(sid); return r ? { n: r.W.n, total: r.total, out: r.out, alive: [...r.ents].filter((m) => !m.dead).length, killed: r.killed, gd: r.gd | 0, fell: r.fell, fury: r.W.fury, giant: r.W.giant, side: r.side, fx: r.fx, fy: r.fy, g: r.place.guards, ents: [...r.ents].filter((m) => !m.dead).map((m) => ({ nid: m.nid, species: m.species, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, state: m.state, giant: !!m.giant })) } : null; },
+    live: (sid) => { const r = game.raids.H.live.get(sid); return r ? { n: r.W.n, total: r.total, out: r.out, alive: [...r.ents].filter((m) => !m.dead).length, killed: r.killed, gd: r.gd | 0, fell: r.fell, fury: r.W.fury, giant: r.W.giant, side: r.side, fx: r.fx, fy: r.fy, g: r.place.guards, ents: [...r.ents].filter((m) => !m.dead).map((m) => ({ nid: m.nid, species: m.species, level: m.level, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, state: m.state, giant: !!m.giant, siege: m.siege?.o?.id || null })) } : null; },
     plan: () => [...game.raids.H.plan.values()].map((P) => ({ ...P })),
     rebuild: () => rebuildByNumbers(game), // (the hourly rebuilding by numbers, now)
+    // the numbers' prediction for a place as it is now: { rate (lost), gd (guards dead on average), place }
+    model: (sid, o = {}, n = 1000) => {
+      const s = realmOf(game)?.settlements[sid];
+      if (!s) return null;
+      const place = placeOf(game, s, placeFamily(game, s) || 'ice', game.env.hour), rnd = rngOf(o.seed ?? 1234);
+      let lost = 0, gd = 0;
+      for (let k = 0; k < n; k++) { const W = planWave(place, rnd, { horde: o.horde }), F = fight(place, W, rnd, o.eff ? { eff: o.eff } : {}); if (F.out === 'lost') lost++; gd += F.gDead.melee + F.gDead.archers; }
+      return { rate: lost / n, gd: gd / n, place: { kind: place.kind, walls: place.walls, glv: place.glv, mlv: place.mlv, guards: place.guards } };
+    },
     planNow: () => { game.raids.H.planned = null; planNight(game, nightKeyOf(game.env)); return game.raids.H.plan.size; },
     // the loss rate by numbers over the real realm (every place, the families of their bad seasons or the walkers')
     calibrate: (n = 4000, seed = 4242) => {

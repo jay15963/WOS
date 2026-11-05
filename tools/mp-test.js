@@ -10746,7 +10746,9 @@ async function waNight(t, H, MH, s, hour = 21.6) {
   if (wd < 0) return false;
   H.game.net.emit('env.skip', { hour, day: wd, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush();
   // (the night's other dead held off while the scenario runs: only the attack's wave comes — walkers.js / giants.js timers)
-  const hold = setInterval(() => { H.game._walkT = 1e9; H.game._giantT = 1e9; }, 500);
+  // (and the wild hostiles near the place — the winter's wolf packs —: the watch fights the wave, not them)
+  const calm = () => { for (const e of H.game.entities) { if (!e.isMob || e.npc || e.dead || e.proxy || e.raid != null || e.stock || (e.temper || '') !== 'hostile' || Math.hypot(H.game.world.dx(e.x, s.x), e.y - s.y) > s.r + 60) continue; e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
+  const hold = setInterval(() => { H.game._walkT = 1e9; H.game._giantT = 1e9; calm(); }, 500);
   H.game._walkT = 1e9; H.game._giantT = 1e9;
   t.defer(() => { clearInterval(hold); H.game._walkT = 4; H.game._giantT = null; });
   t.defer(() => { const E = H.game.env; let sd = E.dayIndex; for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(E.dayIndex + k, 9)) === 'spring') { sd = E.dayIndex + k; break; } H.game.net.emit('env.skip', { hour: 9, day: sd, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush(); });
@@ -10768,6 +10770,20 @@ function noteLog(t, f) {
   const it = setInterval(() => { for (const n of f.doc.querySelectorAll('.wos-note')) seen.add(n.textContent.replace(/\s+/g, ' ').trim()); }, 250);
   t.defer(() => clearInterval(it));
   return seen;
+}
+// the fight in numbers (host 'damage' events): who hit whom, how much, the abilities — a metric updated as it goes (the
+// live fight measured against game/raidsim.js — docs/REINOS.md §16)
+function waFightLog(t, H, sid) {
+  const D = {}, t0 = H.game.worldTime, kind = (e) => (!e ? '?' : e.npc ? (e.npc.job === 'archer' ? 'archer' : e.npc.guard ? 'guard' : 'civ') : e.raid === sid ? (e.giant ? 'giant' : 'mob') : e === H.game.player || e.avatar ? 'player' : e.faction || '?');
+  t.on(H, 'damage', (d) => {
+    if (d.kind !== 'hit' || d.dot) return;
+    const k = `${kind(d.src)}>${kind(d.target)}`, q = D[k] || (D[k] = { n: 0, dmg: 0, ab: {} });
+    q.n++; q.dmg += d.amount || 0;
+    if (d.ability) q.ab[d.ability] = (q.ab[d.ability] || 0) + 1;
+  });
+  const it = setInterval(() => t.metric('fight', `t${Math.round(H.game.worldTime - t0)} ` + Object.entries(D).map(([k, q]) => `${k}:${q.n}/${Math.round(q.dmg)}${Object.keys(q.ab).length ? '(' + Object.entries(q.ab).map(([a, n]) => a + n).join(',') + ')' : ''}`).join(' ')), 1000);
+  t.defer(() => clearInterval(it));
+  return D;
 }
 const sectorOf = (dx, dy) => (((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8);
 const sectorGap = (a, b) => Math.min((a - b + 8) % 8, (b - a + 8) % 8);
@@ -10792,12 +10808,13 @@ def('WA1', {
   const r = H.game.raids.dbg.force(s.id, { side, horde: false });
   t.check(r?.live, 'the attack is played live (both players are there)', JSON.stringify(r));
   t.check(r.n >= Math.round(0.7 * r.g) && r.n <= Math.round(0.9 * r.g) && r.n < r.g && !r.giant, `a wave a bit smaller than the guards: ${r.n} ${r.species} against ${r.g} guards (70–90 %)`, `fury ${r.fury?.toFixed(2)}`);
+  waFightLog(t, H, s.id);
   await t.waitFor(() => G.game.raids.on.get(s.id)?.n === r.n && G.game.raids.on.get(s.id)?.g === r.g && G.game.raids.on.get(s.id)?.side === side, RT() + 2000, 'the guest has the attack (raid.start: the same wave, guards, side)');
   await t.waitFor(() => waveOf(H, s.id).length >= Math.min(r.n, 4), 6000, 'the wave comes out of the dark');
   const per = H.game.townDefense.perimeter(s.id), fx = Math.cos(side * Math.PI / 4), fy = Math.sin(side * Math.PI / 4);
   const ws = waveOf(H, s.id);
   t.check(ws.every((m) => { const dx = H.game.world.dx(m.x, per.cx), dy = m.y - per.cy, d = Math.hypot(dx, dy); return (dx * fx + dy * fy) > 0.6 * d && d > s.r; }), 'every monster on that side, outside the town land', ws.map((m) => `${f2(m.x - per.cx)},${f2(m.y - per.cy)}`).join(' '));
-  t.check(ws.every((m) => m.species === 'walker' && m.maxHp > MH.stats.mobStats(MH.data.SPECIES.walker, 18).maxHp * 0.5), 'the region\'s dead (walkers), with the wave\'s fury on their hp');
+  t.check(ws.every((m) => m.species === 'walker' && Math.abs(m.maxHp - Math.round(MH.stats.mobStats(MH.data.SPECIES.walker, m.level).maxHp * r.fury)) <= 2), 'the region\'s dead (walkers), with the wave\'s fury on their hp', ws.map((m) => `lv${m.level} ${m.maxHp}`).join(' '));
   await t.waitFor(() => H.game.people.debug(s.id).danger && G.game.people.alarm.get(s.id), 30000, 'the bell rings (both)');
   await t.waitFor(() => H.game.people.debug(s.id).def?.th, 8000, 'the defense knows the side');
   const th = H.game.people.debug(s.id).def.th;
@@ -11067,6 +11084,52 @@ def('WA5', {
   S2.game.net.withApply(() => MS2.snapshot.applyWorld(S2.game, save2.world, 'load'));
   t.check(raidRowsOn(S2, MS2) === raidRowsOn(H, MH), 'loaded: the same log', raidRowsOn(S2, MS2));
   frames.close(S2);
+  await t.checkDigest(H, G);
+});
+
+def('WA6', {
+  title: 'WA: live calibration (opt-in: &raidsoak=N) — N waves in a row at the start village, each against a full watch; the live outcomes beside the numbers\' prediction for the same place',
+  src: 'village', timeout: 3600000,
+  expected: 'Only with &raidsoak=N (a long soak, SKIP otherwise). On a winter night at the start village, N attacks one after the other (the last third hordes), each one against the full watch (the dead brought back, the palisade rebuilt, the clock back to 21.6 h between them): for each, the outcome, the monsters, the guards dead and the time — and the numbers\' prediction for the same place (game/raidsim.js over 2 000 fights: the chance it is lost, the guards dead on average). Metrics only (the docs §16 report them); digest equal',
+  api: 'game/raids.js (dbg.force, dbg.model), game/raidsim.js',
+}, async (t) => {
+  const N = +(Q.get('raidsoak') || 0);
+  t.need(N > 0, 'the live calibration soak runs only with &raidsoak=N');
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  if (!await waNight(t, H, MH, s)) { t.note('no hard winter at the start village: skipped'); return; }
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  // (the players out of the way, at the south of the village: the waves come from the north — the watch alone)
+  const south = A.freeSpot(H, MH, s.x, s.y + s.r * 0.55, { rMin: 0, rMax: 5 }) || [s.x, s.y + 4];
+  A.teleport(H, south[0], south[1]); A.teleport(G, south[0] + 1.5, south[1]);
+  const day = H.game.env.dayIndex, g0 = MH.raidsim.guardsOf(s).n, res = [];
+  const fresh = async () => {
+    for (const k of [...H.game.towns.dead.keys()]) if (k.startsWith(s.id + '.')) H.game.net.emit('town.pop', { sid: s.id, i: +k.split('.')[1], dead: 0 });
+    const gone = [...H.game.towns.state].filter(([id, r]) => id.startsWith(`t${s.id}.`) && r.gone).map(([id]) => id);
+    if (gone.length) H.game.net.emit('town.restore', { ids: gone });
+    for (const [id, r] of [...H.game.towns.state]) if (id.startsWith(`t${s.id}.`) && r.dmg > 0) H.game.net.emit('struct.dmg', { id, d: 0 });
+    H.game.net.emit('env.skip', { hour: 21.6, day, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush();
+    await t.sleep(1500);
+    await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= Math.min(4, g0), 30000, 'the watch out again');
+  };
+  for (let k = 0; k < N; k++) {
+    await fresh();
+    const horde = k >= N - Math.max(1, Math.round(N / 3));
+    const pred = H.game.raids.dbg.model(s.id, { horde }, 2000);
+    const fl = waFightLog(t, H, s.id), t0 = H.game.worldTime;
+    const r = H.game.raids.dbg.force(s.id, { side: 6, horde });
+    await t.waitFor(() => !H.game.raids.on.has(s.id), 260000, `wave ${k + 1} over`, () => JSON.stringify({ ...H.game.raids.dbg.live(s.id), ents: undefined }));
+    const lr = raidLog(H, s.id);
+    const row = { k: k + 1, horde, n: r.n, g: r.g, fury: +r.fury.toFixed(2), out: lr[2] === 2 ? 'lost' : 'held', gd: lr[4], cd: lr[5], s: Math.round(H.game.worldTime - t0), predLost: +(pred.rate * 100).toFixed(1), predGd: +pred.gd.toFixed(2), hits: Object.fromEntries(Object.entries(fl).map(([a, q]) => [a, `${q.n}/${Math.round(q.dmg)}`])) };
+    res.push(row);
+    t.note(JSON.stringify(row));
+    t.metric('live', res.map((q) => `${q.horde ? 'H' : 'n'}${q.n}/${q.g}:${q.out}:gd${q.gd}:${q.s}s(pred ${q.predLost}% gd${q.predGd})`).join(' '));
+  }
+  const nn = res.filter((q) => !q.horde), hh = res.filter((q) => q.horde);
+  t.metric('normalLost', `${nn.filter((q) => q.out === 'lost').length}/${nn.length}`); t.metric('hordeLost', `${hh.filter((q) => q.out === 'lost').length}/${hh.length}`);
+  t.metric('normalGd', +(nn.reduce((a, q) => a + q.gd, 0) / Math.max(1, nn.length)).toFixed(2)); t.metric('normalGdPred', +(nn.reduce((a, q) => a + q.predGd, 0) / Math.max(1, nn.length)).toFixed(2));
+  await fresh();
   await t.checkDigest(H, G);
 });
 
