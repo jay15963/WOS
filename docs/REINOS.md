@@ -1816,3 +1816,21 @@ reino em guerra); a guarda inimiga só persegue alistados; alistar-se pede Conhe
 entrar naquele reino); um exército por vez; o exército fornece as pedras do trabuco; rivais distantes na mesma terra
 (capitais até 2 800 tiles) podem guerrear; os lugares de um reino que cai vão para quem tomou a última cidade dele; num
 lugar tomado os moradores ficam e só a guarda troca de cor. Mudar qualquer uma delas pede o dono.
+
+## Ideias para o futuro (anotadas a pedido do dono, 5/11/2026)
+
+Nada disto está em andamento; fica guardado para quando o dono pedir.
+
+- **Navios** (o dono já deixou para depois): até lá, reinos que não se ligam por terra não interagem.
+- **Pontes** nos rios (hoje as estradas cruzam por vaus).
+- **Caravanas** de verdade no mapa (hoje o espalhar de preços entre lugares é abstrato) e o jogador **escoltando**
+  caravanas como trabalho.
+- **Ordens por papel** no exército: arqueiro no alto da muralha, engenheiro nas obras das máquinas, guarnição da balista.
+- **O jogador general** de uma campanha (escolher o alvo, mandar o exército).
+- **Medalhas** e honrarias por serviço; soldo atrasado para quem estava fora do mundo.
+- **Barracas de mercado** nas praças (os mercadores hoje ficam na beira da praça) e **catapultas** nas muralhas das
+  cidades (hoje só balistas).
+- **Moradores subindo escadas** de verdade (hoje os arqueiros aparecem no alto da muralha quando ninguém vê).
+- **Cavalos com potros** (pergunta ainda sem resposta do dono).
+- **Testes:** isolar os cenários de cerco (BT / AR deixam a vila do início marcada como "cerco recente" e atrapalham os
+  VL que rodam depois na mesma página).
