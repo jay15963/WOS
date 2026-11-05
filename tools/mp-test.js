@@ -9971,8 +9971,10 @@ def('BT9', {
   t.check(F.path.length > 0, 'it walks its road ahead (3a\'s route)', `${F.path.length} points`);
   await t.waitFor(() => soldiersOf(G, k2).length >= 6, 20000, 'the guest sees the column', () => `${soldiersOf(G, k2).length} on the guest, ${soldiersOf(H, k2).length} on the host`);
   t.check(soldiersOf(G, k2).every((e) => e.soldier.tag === F.tag), 'its soldiers on the guest (identity from the force\'s tag and the seed)');
-  // losses
-  for (const m of soldiersOf(H, k2).filter((q) => q.soldier.role !== 'general').slice(0, 6)) MH.combat.killMob(H.game, m, null);
+  // losses (six of its own — another army of k2 may be live elsewhere; the ranks fill a few a tick)
+  const ranks = () => soldiersOf(H, k2).filter((q) => q.soldier.tag === F.tag && q.soldier.role !== 'general');
+  await t.waitFor(() => ranks().length >= 6, 10000, 'six of its soldiers out on the host', () => `${ranks().length}`);
+  for (const m of ranks().slice(0, 6)) MH.combat.killMob(H.game, m, null);
   await t.waitFor(() => F.n === n0 - 6, 4000, 'the force counts its losses', () => `${F.n} / ${n0}`);
   await t.waitFor(() => RH.armies.get(a0.id)?.n === n0 - 6, 10000, '3a\'s army counts them too (report)', () => `${RH.armies.get(a0.id)?.n} / ${n0 - 6}`);
   // walk away: 3a hands it back to the numbers
@@ -10031,7 +10033,8 @@ def('BT10', {
   const campIds = btDbg(H, F).siege.campIds.slice();
   await btFar(t, H, MH, G, MG, away[0], away[1]);
   await t.waitFor(() => !liveOn(H, a0.id) && !liveOn(G, a0.id) && !H.game.warfare.forces.has(a0.id), 20000, 'far again: numbers (dematerialize)');
-  t.check(campIds.every((id) => !A.structOn(H, id) && !A.structOn(G, id)), 'its camp struck on both peers');
+  // (the camp's removal reaches the guest when it comes near again: it is far now — interest, net/interest.js)
+  await t.waitFor(() => campIds.every((id) => !A.structOn(H, id)), RT() + 2000, 'its camp struck (host)', () => `${campIds.filter((id) => A.structOn(H, id)).length} still up`);
   const a1 = RH.armies.get(a0.id);
   t.check(a1 && a1.state === 'siege' && a1.n > 0 && RG.armies.get(a0.id)?.n === a1.n, 'the army besieges on by numbers with its soldiers counted (both peers)', `${a1?.state} n ${a1?.n}`);
   await t.checkDigest(H, G);

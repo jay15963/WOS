@@ -139,10 +139,10 @@ export function shout(game, F, list, x = F.x, y = F.y) {
   game.net.emit('war.cry', { id: F.id, k: F.k, text: s.replace(/\{reino\}/g, F.name), x: r2(x), y: r2(y) });
 }
 // the state 3a knows (game/realms.js: 'march' | 'camp' | 'siege' | 'battle' | 'retreat') for a force's phase
-const STATE3A = { march: 'march', camp: 'siege', build: 'siege', bombard: 'siege', assault: 'siege', held: 'siege', retreat: 'siege', deploy: 'battle', advance: 'battle', clash: 'battle', rout: 'battle', won: 'battle', end: 'battle' };
 function report(game, F) {
   const eng = F.kind === 'siege' ? siegeReport(game, F) : engObj(F.eng);
-  const r = { n: F.n, eng, state: F.kind === 'march' ? (F.army?.state === 'retreat' ? 'retreat' : F.army?.state === 'camp' ? 'camp' : 'march') : STATE3A[F.phase] || F.army?.state || 'march', x: Math.round(F.x), y: Math.round(F.y), lost: F.dead, killed: F.killed, kind: F.kind, sid: F.sid, phase: F.phase };
+  const st = F.army ? game.realms?.armies?.get(F.id)?.state || F.army.state : F.kind === 'battle' ? 'battle' : F.kind === 'siege' ? 'siege' : 'march';
+  const r = { n: F.n, eng, state: st, x: Math.round(F.x), y: Math.round(F.y), lost: F.dead, killed: F.killed, kind: F.kind, sid: F.sid, phase: F.phase };
   if (F.kind === 'battle') r.state = 'battle'; // (3a resolves the battle itself once it takes the armies back)
   const W = game.warfare;
   (W.reports || (W.reports = new Map())).set(F.id, r); // (tests / debug: the last report of each force, and a short log)
@@ -215,6 +215,8 @@ export function materialize(game, army) {
 }
 // the points of an army's route ahead of where 3a froze it (game.realms.routeOf: pts / cum), the next ~200 tiles
 function routeAhead(game, a, far = 200) {
+  if (Array.isArray(a.path)) return a.path.filter((q) => Array.isArray(q) && q.length >= 2).map(([x, y]) => ({ x, y }));
+  if (!a.path || !Array.isArray(a.path.r)) return [];
   const g = game.realms?.routeOf?.(a);
   if (!g?.pts || !g.cum) return [];
   const w = game.world, d0 = Number.isFinite(a.d0) ? a.d0 : 0, out = [];
@@ -233,7 +235,7 @@ export function dematerialize(game, id) {
   const W = game.warfare, F = W.forces.get(id);
   if (!F) return null;
   if (F.kind === 'pending') { W.forces.delete(id); return { n: F.n }; }
-  const out = { n: F.n, eng: F.kind === 'siege' ? siegeReport(game, F) : engObj(F.eng), lost: F.dead, killed: F.killed, state: STATE3A[F.phase] || F.phase, x: Math.round(F.x), y: Math.round(F.y) };
+  const out = { n: F.n, eng: F.kind === 'siege' ? siegeReport(game, F) : engObj(F.eng), lost: F.dead, killed: F.killed, state: F.army ? game.realms?.armies?.get(F.id)?.state || F.army.state : F.kind, x: Math.round(F.x), y: Math.round(F.y) };
   if (F.kind === 'siege') out.siege = { ...siegeStatus(game, F), phase: PHASE3A[F.phase] || 'bombard', hrs: (F.sg?.hrs0 || 0) + Math.floor(F.T / Math.max(1, (game.env?.dayLength || 780) / 24)), live: F.phase };
   endForce(game, F, true);
   return out;

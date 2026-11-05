@@ -244,6 +244,8 @@ export function siegeTick(game, F) {
   switch (F.phase) {
     case 'march': {
       if (!P) break;
+      // (a siege 3a hands over past its camp: the army has been camped there for hours — it is there, not marching)
+      if (G.ph && G.ph !== 'camp') { F.anchor.x = P.camp.x; F.anchor.y = P.camp.y; setPhase(game, F, 'camp'); break; }
       const dx = P.camp.x - F.anchor.x, dy = P.camp.y - F.anchor.y, d = Math.hypot(dx, dy);
       if (d > 3) {
         const s = Math.min(d, WAR.speed.march * dt), lag = laggers(F);
