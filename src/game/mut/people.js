@@ -7,7 +7,7 @@
 // Ops: town.pop {sid, i, dead, at} · town.prog {lv} · town.alarm {sid, on} (the bell: monsters in the town land — every
 // peer rings it near the place and tells its player; nothing kept).
 
-import { defineOp } from '../../net/registry.js';
+import { defineOp, defineIntent } from '../../net/registry.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const T = (game) => game.towns || (game.towns = { state: new Map() });
@@ -58,4 +58,21 @@ defineOp('town.alarm', {
   doc: 'The bell of a settlement: hostile creatures in its town land (on 1) or gone (on 0). Every peer rings it near the place.',
   args: { sid: 'settlement id', on: '0|1' },
   apply(game, a) { if (Number.isInteger(a.sid)) game.events?.emit('townalarm', { sid: a.sid, on: !!a.on }); },
+});
+
+// "Conversar": the person a player talks with stops and faces them while the card is open (ui/talk.js sends on 1 when
+// it opens and every few seconds while open, on 0 when it closes; the host's brain ends it by itself too — npc.js
+// talkHold). Only the host's creature changes; everyone sees it standing through the creature stream.
+defineIntent('npc.talk', {
+  doc: "A player opened (on 1) / closed (on 0) the talk card of one of the settlements' people: the host's creature stands still facing them while it is open.",
+  args: { nid: 'creature nid (stream id, e.g. m7)', on: '0|1' },
+  run(game, a, actor) {
+    if ((typeof a.nid !== 'string' || a.nid.length > 24) && !Number.isInteger(a.nid)) return;
+    const m = game.entities.find((e) => e.nid === a.nid && e.npc && !e.dead);
+    if (!m) return;
+    if (!a.on) { if (m.talkTo && m.talkTo.pid === actor.pid) m.talkTo = null; return; }
+    const q = actor.ent;
+    if (!q || q.dead || Math.hypot(game.world.dx(q.x, m.x), q.y - m.y) > 5 || m.state === 'chase') return;
+    m.talkTo = { pid: actor.pid, ent: q, until: game.worldTime + 40, g: m.talkTo?.g };
+  },
 });

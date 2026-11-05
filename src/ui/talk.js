@@ -41,7 +41,10 @@ export function installTalk(game, root) {
   el.innerHTML = `<div class="tk-port"><canvas width="184" height="184"></canvas><img alt=""></div><div class="tk-main"><div class="tk-name"></div><div class="tk-sub"></div><div class="tk-line"></div><div class="tk-btns"><span class="tk-dots"></span><button class="n-btn" data-a="bye">Tchau</button><button class="n-btn primary" data-a="next">Continuar</button></div></div>`;
   root.appendChild(el);
   const $ = (s) => el.querySelector(s);
-  let A = null, cur = null, lines = [], li = 0, typeT = null, shown = '';
+  let A = null, cur = null, lines = [], li = 0, typeT = null, shown = '', sentT = 0, sentN = 0;
+  // the host's creature stands still while the card is open (intent npc.talk; sent again 1.5 s after opening — the host
+  // may not have the player's newest position yet — then every 8 s)
+  const hold = (e, on) => { if (e && e.nid != null) { sentT = performance.now(); sentN = on ? sentN + 1 : 0; if (game.net) game.net.request('npc.talk', { nid: e.nid, on: on ? 1 : 0 }); } };
   const portrait = (e) => {
     try {
       const cv = $('canvas'), ctx = cv.getContext('2d');
@@ -60,7 +63,7 @@ export function installTalk(game, root) {
     L.textContent = '';
     typeT = setInterval(() => { n += 2; L.textContent = s.slice(0, n); if (n >= s.length) clearInterval(typeT); }, 18);
   };
-  const close = () => { if (!cur) return; cur = null; el.classList.remove('on'); clearInterval(typeT); game.ui.talk = null; };
+  const close = () => { if (!cur) return; hold(cur, false); cur = null; el.classList.remove('on'); clearInterval(typeT); game.ui.talk = null; };
   const next = () => {
     if (!cur) return;
     const L = $('.tk-line');
@@ -72,9 +75,10 @@ export function installTalk(game, root) {
     $('[data-a=next]').textContent = li === lines.length - 1 ? 'Tchau' : 'Continuar';
   };
   const open = (e) => {
-    if (!e || !e.npc || e.dead) return;
+    if (!e || !e.npc || e.dead || game.people?.fighting?.(e)) return;
     const P = e.npc, S = e.npcS || game.people?.of?.(P.sid);
-    cur = e; lines = game.people?.lines?.(e) || []; li = 0;
+    if (cur && cur !== e) hold(cur, false);
+    cur = e; sentN = 0; lines = game.people?.lines?.(e) || []; li = 0;
     if (!lines.length) return;
     $('.tk-name').textContent = P.name;
     $('.tk-sub').innerHTML = `${esc(P.jobPt)} · ${esc(S?.name || '')}${S ? ` · Reino de ${esc(S.K.name)}` : ''}`;
@@ -86,6 +90,7 @@ export function installTalk(game, root) {
     $('[data-a=next]').textContent = lines.length > 1 ? 'Continuar' : 'Tchau';
     el.classList.add('on');
     game.ui.talk = e;
+    hold(e, true);
     game.audio?.play('pickup', { volume: 0.25 });
   };
   el.addEventListener('pointerdown', (ev) => {
@@ -105,7 +110,8 @@ export function installTalk(game, root) {
   setInterval(() => {
     if (!cur) return;
     const p = game.player;
-    if (cur.dead || !game.entities.includes(cur) || p.dead || Math.hypot(cur.x - p.x, cur.y - p.y) > 4.5) close();
+    if (cur.dead || !game.entities.includes(cur) || p.dead || Math.hypot(cur.x - p.x, cur.y - p.y) > 4.5 || game.people?.fighting?.(cur)) close(); // (it went to fight: the talk is over)
+    else if (performance.now() - sentT > (sentN < 2 ? 1500 : 8000)) hold(cur, true);
   }, 250);
   return { open, close };
 }
