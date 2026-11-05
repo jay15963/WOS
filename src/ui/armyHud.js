@@ -137,6 +137,7 @@ export function installArmyHud(game) {
     }
   };
   const cv = document.getElementById('overlay'), ctx = cv?.getContext('2d');
+  let topT = -9, topY = 150;
   return {
     sync: 'cosmetic',
     update(g, dt) {
@@ -164,7 +165,8 @@ export function installArmyHud(game) {
         // off screen: an arrow at the edge toward it (the direction as the camera shows it), with the distance — kept off
         // the HUD's corners (the radar, the action bar)
         const [vx, vy] = g.toViewDir ? g.toViewDir(dx, dy) : [dx, dy], a = Math.atan2(vy, vx);
-        const L = 70, R = W - 70, T = Math.min(H * 0.32, 150), B = H - Math.min(H * 0.26, 140), cx = (L + R) / 2, cy = (T + B) / 2;
+        if (g.time - topT > 1) { topT = g.time; const tr = document.querySelector('#hud .tr'); topY = tr ? tr.getBoundingClientRect().bottom + 22 : 150; } // (below the radar and its date, measured now and then)
+        const L = 70, R = W - 70, T = Math.min(H * 0.45, Math.max(H * 0.22, topY)), B = H - Math.min(H * 0.26, 140), cx = (L + R) / 2, cy = (T + B) / 2;
         const k = Math.min((R - cx) / Math.max(1e-3, Math.abs(Math.cos(a))), (B - cy) / Math.max(1e-3, Math.abs(Math.sin(a))));
         const ex = cx + Math.cos(a) * k, ey = cy + Math.sin(a) * k;
         ctx.translate(ex, ey); ctx.rotate(a);
