@@ -136,11 +136,11 @@ function plan(game, F) {
   if (eng.length) {
     const cx = eng.reduce((a, q) => a + q.tx + q.fw / 2, 0) / eng.length + nx * 3, cy = eng.reduce((a, q) => a + q.ty + q.fh / 2, 0) / eng.length + ny * 3;
     for (const [ox, oy] of [[0, 0], [nx * 3, ny * 3], [tx * 3, ty * 3], [-tx * 3, -ty * 3], [-nx * 3, -ny * 3], [nx * 6, ny * 6]]) {
-      ws = spotFor(game, 'siege_workshop', cx + ox - 1.5, cy + oy - 1, wsRot, 3);
+      ws = spotFor(game, 'siege_workshop', cx + ox - 1.5, cy + oy - 1, wsRot, 3, null, eng); // (never on an engine's spot)
       if (ws) break;
     }
   }
-  if (!ws) ws = spotFor(game, 'siege_workshop', camp.x - dir.x * (cr + 4) - 1.5, camp.y - dir.y * (cr + 4) - 1, wsRot, 6);
+  if (!ws) ws = spotFor(game, 'siege_workshop', camp.x - dir.x * (cr + 4) - 1.5, camp.y - dir.y * (cr + 4) - 1, wsRot, 6, null, eng);
   if (!ws) { G.pp = null; G.tries += 10; return null; }
   wsC = [ws.tx + ws.fw / 2, ws.ty + ws.fh / 2];
   const nearWs = (q) => q && Math.hypot(q.tx + q.fw / 2 - wsC[0], q.ty + q.fh / 2 - wsC[1]) <= 15.5;
@@ -164,12 +164,14 @@ function plan(game, F) {
 }
 // a free spot for a building (the player's placement rules; the workshop rule checked when it is built); near: [x, y] its
 // middle must stay within 15.5 tiles of
-function spotFor(game, type, x, y, rot, R = 4, near = null) {
+function spotFor(game, type, x, y, rot, R = 4, near = null, avoid = null) {
   const [fw, fh] = dimsOf(type, rot);
+  const clash = (tx, ty) => !!avoid && avoid.some((q) => q && tx < q.tx + q.fw + 1 && tx + fw + 1 > q.tx && ty < q.ty + q.fh + 1 && ty + fh + 1 > q.ty); // (a planned piece there, + a tile around)
   for (let r = 0; r <= R; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
     const tx = Math.round(x) + dx, ty = Math.round(y) + dy;
     if (near && Math.hypot(tx + fw / 2 - near[0], ty + fh / 2 - near[1]) > 15.5) continue;
+    if (clash(tx, ty)) continue;
     const pr = planReason(game, type, tx, ty, rot);
     if (pr) { if (!r) why(type + '@' + tx + ',' + ty, pr); continue; }
     if (!openArea(game, tx + fw / 2, ty + fh / 2, Math.max(fw, fh) / 2 + 1)) { if (!r) why(type + '@' + tx + ',' + ty, 'apertado'); continue; }
@@ -258,8 +260,9 @@ export function siegeTick(game, F) {
     case 'build': {
       formationAt(game, F, P.camp.x - P.A.x * 3, P.camp.y - P.A.y * 3, -P.A.x, -P.A.y, 0);
       buildEngines(game, F, ents);
-      if (G.jobs.some((j) => j.role === 'treb' && j.done)) setPhase(game, F, 'bombard', `Os trabucos do Reino de ${F.name} começam o bombardeio de ${P.s.name}`);
-      else if (!G.jobs.some((j) => j.role === 'treb') && G.jobs.filter((j) => j.role !== 'ws').every((j) => j.done || j.failed)) setPhase(game, F, 'assault');
+      const eng = G.jobs.filter((j) => j.role !== 'ws' && !j.failed);
+      if (eng.some((j) => j.role === 'treb' && j.done)) setPhase(game, F, 'bombard', `Os trabucos do Reino de ${F.name} começam o bombardeio de ${P.s.name}`);
+      else if (eng.every((j) => j.done) && (G.jobs.find((j) => j.role === 'ws')?.done || !eng.length)) setPhase(game, F, 'assault');
       break;
     }
     case 'bombard': {
@@ -283,7 +286,7 @@ export function siegeTick(game, F) {
       for (const m of ents) {
         m.job = null;
         if (F.t > WAR.siege.holdT) { if (m.order?.k !== 'flee') m.order = { k: 'flee', x: P.plaza.x + ((m.soldier.i % 7) - 3), y: P.plaza.y + (((m.soldier.i / 7) | 0) % 3), fx: 0, fy: 1 }; }
-        else m.order = { k: 'flow', ff: P.ff, eng: 6, x: P.plaza.x, y: P.plaza.y };
+        else m.order = P.ff.dist(m.x, m.y) < 50 || m.order?.ring ? ringOrder(game, P, m) : { k: 'flow', ff: P.ff, eng: 6, x: P.plaza.x, y: P.plaza.y };
       }
       if (F.t > WAR.siege.holdT + 40 || (F.t > WAR.siege.holdT && !ents.length)) { F.phase = 'end'; game.warfare.dematerialize?.(F.id); }
       break;
@@ -435,7 +438,14 @@ function buildEngines(game, F, ents) {
     if (!j.id) {
       // the blueprint goes down (the player's rule: the workshop finished nearby for an engine)
       const why = placeReason(game, j.type, j.tx, j.ty, null, j.rot);
-      if (why) { j.fails = (j.fails || 0) + 1; if (j.fails > 10) { j.failed = true; if (j.role === 'ws') setPhase(game, F, 'retreat'); } continue; }
+      if (why) {
+        // (something took the spot meanwhile: another one nearby — still within reach of the workshop)
+        const ws2 = G.jobs.find((q) => q.role === 'ws'), wsO = ws2?.id ? game.world.objById.get(ws2.id) : null;
+        const q = j.role === 'ws' || j.role === 'treb' ? spotFor(game, j.type, j.tx, j.ty, j.rot, 3, wsO ? [wsO.tx + wsO.fw / 2, wsO.ty + wsO.fh / 2] : null, G.jobs.filter((x) => x !== j && !x.failed).map((x) => ({ tx: x.tx, ty: x.ty, fw: dimsOf(x.type, x.rot)[0], fh: dimsOf(x.type, x.rot)[1] }))) : null;
+        if (q && !placeReason(game, j.type, q.tx, q.ty, null, q.rot)) { j.tx = q.tx; j.ty = q.ty; continue; }
+        j.fails = (j.fails || 0) + 1; if (j.fails > 10) { j.failed = true; if (j.role === 'ws') setPhase(game, F, 'retreat'); }
+        continue;
+      }
       j.id = addStructures(game, F, [[j.type, j.tx, j.ty, j.rot, 0, j.v]], null)[0];
       continue;
     }
@@ -589,12 +599,20 @@ function assault(game, F, ents) {
     const r = m.soldier.role;
     if (r === 'archer') { const sp = spread(P.archLine, P.side, m.soldier.i, 1.3); m.order = { k: 'slot', x: sp[0], y: sp[1], fx: -nx, fy: -ny, eng: WAR.archer.range * 1.2, rangeK: WAR.archer.wallBonus, leash: 6 }; continue; }
     if (r === 'general') { m.order = { k: 'slot', x: P.assembly.x + nx * 4, y: P.assembly.y + ny * 4, fx: -nx, fy: -ny, eng: 3 }; continue; }
+    if ((m.order?.k === 'flow' || m.order?.ring) && P.ff.dist(m.x, m.y) < 50) { m.order = ringOrder(game, P, m); continue; } // (at the plaza: around it, not in a heap)
     if (m.order?.k === 'flow' && P.ff.dist(m.x, m.y) < 65535) continue; // (already on its way in)
     if (P.ff.dist(m.x, m.y) < 65535 && P.ff.d) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; continue; }
     waiting.push(m);
   }
   // (the ones with no way in: in line at the assembly point, out of the archers' reach)
   waiting.sort((a, b) => a.soldier.i - b.soldier.i).forEach((m, j) => { const sp = spread(P.assembly, P.side, j, 1.15, 12); m.order = { k: 'slot', x: sp[0], y: sp[1], fx: -nx, fy: -ny, eng: 5, leash: 8 }; });
+}
+// a soldier that reached the plaza holds a spot of a ring around it (facing out), not the middle in a heap
+function ringOrder(game, P, m) {
+  if (m.order?.ring) return m.order;
+  const r = Math.max(2.5, (P.L.plaza[2] || 4) * 0.85), a = (m.soldier.i * 2.39996) % (Math.PI * 2), rr = r * (0.7 + ((m.soldier.i * 7) % 5) * 0.09);
+  const q = solNear(game, P.plaza.x + Math.cos(a) * rr, P.plaza.y + Math.sin(a) * rr, 2) || [P.plaza.x, P.plaza.y];
+  return { k: 'slot', x: q[0], y: q[1], fx: Math.cos(a), fy: Math.sin(a), eng: 9, leash: 14, ring: true };
 }
 // spot j of a line at p along the wall of the side
 function spread(p, side, j, w = 1.2, W = 14) {

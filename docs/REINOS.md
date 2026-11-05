@@ -1101,3 +1101,25 @@ BT5 batalha campal: fases, flechas, baixas dos dois lados, debandada, relatório
 desmontado, `war.end` · BT7 jogadores: coluna em paz protegida e não ataca, membro em guerra pode, viajante ajuda a
 defender (revide, +reputação com o defensor, −com o atacante, aviso), moradores protegidos · BT8 teto de 80 criaturas,
 reservas entram, custo por quadro. Todos terminam com o digest igual.
+
+### Decisões (para o dono confirmar) e pendências
+
+- **Jogadores × soldados**: a regra acima (membro em guerra; viajante ajudando quem está lutando — numa batalha campal
+  o viajante pode escolher qualquer lado). Matar soldados dá XP (soldado ×1,2, general ×4) e a reputação acima; soldado
+  morto não deixa corpo nem saque (cai e some em 8–24 s), como o povo.
+- Moradores e guardas continuam protegidos dos jogadores mesmo em guerra (a 3c decide o resto pela filiação).
+- `dematerialize` desmonta o acampamento e as máquinas (os números da 3a guardam `eng`); um cerco retomado adota o que
+  ainda estiver de pé (acampamento e máquinas do mesmo reino perto).
+- Depois da tomada, os vencedores ficam 40 s na praça (em roda, virados para fora) e somem nas casas: a guarnição nova
+  é da 3a (`capture`).
+- Consertos durante o cerco: só com o exército longe do alarme (no acampamento), também à noite.
+- Até o nível 8 os soldados lutam sem elmo (rostos e tabardos à vista); os elmos de cobre ficam para a guarda das vilas.
+- O plano do cerco só usa os quatro lados retos da muralha (os cantos cortados do octógono ficam de fora) e precisa de
+  uma pista reta e livre: campos, cercas e currais encostados no muro barram a torre / o aríete daquele trecho (realista
+  e previsível). Sem pista nenhuma o cerco fica no trabuco e nas brechas.
+- Uma força só cerca vilas, castelos e cidades dos reinos (§4: nunca bases de jogadores); as máquinas do exército nunca
+  ferem jogadores nem estruturas de jogadores (`siegeCanDamage`).
+- Pendente: catapultas nas muralhas das cidades (as plantas não têm; o código das guarnições já serve para elas),
+  cavalaria / general montado (docs/HORSE.md), o mapa-múndi mostrando as forças (3a), escadas de assalto.
+- Já existente, visto nos testes: `TOWN.note('gone')` guarda `at = worldTime` de cada par — por uma fração de segundo
+  a linha `towns` de uma peça destruída pode diferir e a ressincronização a corrige (mut/towns.js; não é da 3b).
