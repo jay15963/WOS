@@ -117,7 +117,7 @@ export function installOverlay(game) {
       const v = g.view();
       plates.length = 0;
       for (const e of g.entities) {
-        if (!(e.isMob || e.kind === 'animal') || e.dead || e._riddenBy) continue; // (a ridden horse: its rider's plate only)
+        if (!(e.isMob || e.kind === 'animal' || e.pvp) || e.dead || e._riddenBy) continue; // (a ridden horse: its rider's plate only; e.pvp: a player of a kingdom at war with mine — docs/REINOS.md §15)
         if (e.water && e !== p.target) continue; // (fish: no plate unless marked)
         if ((e.fmode & 3 || SPECIES[e.species]?.ambient) && e !== p.target && !(e.state === 'chase' && e.threat === p)) continue; // (wild fauna: hidden in wait, flying, ambient birds / crabs — game/fauna.js)
         if (e.x < v.x0 - 1 || e.x > v.x1 + 1 || e.y < v.y0 - 1 || e.y > v.y1 + 2.5) continue;
@@ -147,7 +147,7 @@ export function installOverlay(game) {
         const bandit = e.faction === 'bandit';
         const col = bandit ? '#ff5a48' : TEMPER_COLOR[temper];
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
-        const fl = g.stock?.label?.(e) || (e.npc ? [g.people?.label?.(e) || e.name, e.npc.guard ? '#ffe7a8' : '#e6f4ff'] : null) || (e.soldier ? [g.warfare?.label?.(e) || e.name, g.warfare?.mayHurt?.(p, e) ? '#f3e6c4' : '#ffb39a'] : null); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js); the people: "Joana da Fonte · Tecelã"
+        const fl = (e.pvp ? [`${e.name} · Reino de ${g.towns?.realm?.kingdoms[g.eco?.pl?.get(g.army?.uidOf?.(e.pid))?.k]?.name || '?'} · inimigo`, '#ff9a8a'] : null) || g.stock?.label?.(e) || (e.npc ? [g.people?.label?.(e) || e.name, e.npc.guard ? '#ffe7a8' : '#e6f4ff'] : null) || (e.soldier ? [g.warfare?.label?.(e) || e.name, g.warfare?.mayHurt?.(p, e) ? '#f3e6c4' : '#ffb39a'] : null); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js); the people: "Joana da Fonte · Tecelã"
         const label = (fl ? fl[0] : e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
         const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e) + (e._flift || 0)); // levels: lifted plate (_flift: a flying bird, a monkey up a tree — art/faunaDraw.js)

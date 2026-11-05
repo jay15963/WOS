@@ -304,7 +304,7 @@ export class Minimap {
         const X = toX(e.x), Y = toY(e.y);
         if (out(X, Y, 0)) continue;
         if (!full && !e.remote && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
-        ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
+        ctx.fillStyle = e.remote ? (e.pvp ? DOT.hostile : TEAL) : DOT.hostile; // (a player of a kingdom at war with mine: red — docs/REINOS.md §15)
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = e.remote ? CREAM : INK; ctx.lineWidth = 1; ctx.stroke();
         if (full && e.remote && e.name) { // (the map: who it is)
