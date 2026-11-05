@@ -1476,6 +1476,13 @@ terminam com o digest igual. Os cenários de cerco usam a vila do início
 (Estrosa, semente 4242, paliçada) e aceleram só as obras e a tomada (`WAR.siege.buildK` 0,3, `captureT` 8 s) no
 anfitrião; o resto (recarga e mira do trabuco, empurrar, rampa, pancadas) é o de sempre.
 
+**Resultados** (depois de juntar a main com a 3a e os moradores que nunca ficam presos): BT1–BT10 passam; a rodada
+BT + WR1–WR10 + VL1–VL10 + SG1–SG6 + KG1–KG7 + EC1–EC8 deu 48 / 51 — BT2 conferia o dano no convidado no mesmo quadro
+(agora espera), SG2 depende da dispersão da pedra (passa sozinho), WR10 comprava antes de o convidado receber uma
+atualização do mercado que o anfitrião já tinha (agora espera os dois verem o mesmo preço; 3 / 3). A rodada inteira
+(`run=all&soak=60`, perfil limpo do Chrome): 169 passam, 5 falham (K1, HO3, EC1, EC3 passam sozinhos; WR10 o acima),
+S28 só na linha de comando.
+
 **Desempenho** (Chrome headless deste PC, 1264 × 625, `game.warfare.stats` = o sistema dos soldados: cérebros, ticks
 das forças, campo de fluxo):
 
