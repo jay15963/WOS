@@ -15,6 +15,7 @@ import { seasonAt } from './seasons.js';
 import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
+import { perimeterOf } from './defense.js';
 
 const SPD = { walk: 1.55, slow: 1.15, patrol: 1.3, run: 3.3, kid: 2.5 };
 const R01 = (m, k = 0) => { const x = Math.sin((m.id + 1) * 12.9898 + (m._rc = (m._rc || 0) + 1) * 78.233 + k) * 43758.5453; return x - Math.floor(x); }; // (cosmetic variety: no shared state depends on it)
@@ -66,7 +67,7 @@ function walk(game, rec, m, gx, gy, spd, dt, arrive = 0.22) {
   if (d0 <= arrive) { m.moving = false; m.route = null; return 'here'; }
   let R = m.route;
   if (!R || R.gx !== gx || R.gy !== gy) {
-    if (d0 < 1.4 || lineClear(game, m.x, m.y, gx, gy)) R = m.route = { gx, gy, p: null, i: 0 };
+    if (d0 < 0.6 || lineClear(game, m.x, m.y, gx, gy, 0.24)) R = m.route = { gx, gy, p: null, i: 0 };
     else {
       // (the frame's budget of A* searches: a cached way / a quick "no way" costs nothing; after a failed search a
       // person waits a moment before asking again — nobody starves the others)
@@ -83,7 +84,7 @@ function walk(game, rec, m, gx, gy, spd, dt, arrive = 0.22) {
     m._losT = (m._losT || 0) - dt;
     if (m._losT <= 0 && R.i < R.p.length) {
       m._losT = 0.3;
-      for (let k = Math.min(R.p.length - 1, R.i + 3); k > R.i; k--) if (lineClear(game, m.x, m.y, R.p[k][0], R.p[k][1])) { R.i = k; break; }
+      for (let k = Math.min(R.p.length - 1, R.i + 3); k > R.i; k--) if (lineClear(game, m.x, m.y, R.p[k][0], R.p[k][1], 0.24)) { R.i = k; break; }
     }
     if (R.i < R.p.length) { tx = R.p[R.i][0]; ty = R.p[R.i][1]; }
   }
@@ -159,6 +160,7 @@ function startPlan(game, rec, m, pl) {
     case 'plaza': case 'play': case 'well': m.task = pl.b && pl.k === 'play' ? porchTask(game, rec, m, true) : plazaTask(game, rec, m, pl.k); break;
     case 'porch': m.task = porchTask(game, rec, m, false); break;
     case 'post': m.task = { k: 'go', x: pl.x, y: pl.y, then: { k: 'post', fx: pl.duty.fx, fy: pl.duty.fy } }; break;
+    case 'hold': m.task = { k: 'go', x: pl.x, y: pl.y, run: !!rec.danger, then: { k: 'post', fx: pl.duty.fx, fy: pl.duty.fy, hold: pl.duty.k } }; break; // (the defense: defense.js)
     case 'patrol': m.task = { k: 'patrol', i: pl.duty.i, dir: pl.duty.dir || 1 }; break;
     case 'wall': case 'crew': m.task = { k: 'up', duty: pl.duty }; break;
     default: m.task = { k: 'stand', t: 3 };
@@ -341,7 +343,18 @@ function runTask(game, rec, m, dt) {
       return;
     }
     case 'up': upTask(game, rec, m, T, dt); return;
-    case 'down': m.moving = false; if (!inAnyView(game, m.x, m.y, 2, 3)) game.people._drop(rec, m); else lookAround(game, rec, m, T, dt); return;
+    case 'down': {
+      // off the wall: gone when nobody sees (a count again); seen, down to the foot of the wall inside after a moment
+      m.moving = false;
+      if (!inAnyView(game, m.x, m.y, 2, 3)) { game.people._drop(rec, m); return; }
+      T.t = (T.t || 0) + dt;
+      if (T.t > 2.5) {
+        const S = rec.S, dx = S.s.x - m.x, dy = S.s.y - m.y, d = Math.hypot(dx, dy) || 1, q = nearPass(game, m.x + (dx / d) * 2, m.y + (dy / d) * 2, 3);
+        if (q) { m.x = q[0]; m.y = q[1]; m.z = 0; m.lv = 0; m.route = null; m.task = null; m.planKey = ''; return; }
+      }
+      lookAround(game, rec, m, T, dt);
+      return;
+    }
     default: m.task = null;
   }
 }
@@ -373,19 +386,19 @@ function flee(game, rec, m, dt) {
   if (!rec.danger && !(m.fearT > 0)) { if (m._fled) { m._fled = false; m.planKey = ''; m.task = null; } return false; }
   const P = m.npc, H = rec.S.homes[P.home];
   if (!m._fled) { m._fled = true; m.pose = null; m.action = null; m.route = null; m.task = null; }
-  if (m.task?.k === 'stand' && m.task.indoor) { runTask(game, rec, m, dt); return true; } // (already inside, by a player)
+  if ((m.task?.k === 'stand' && m.task.indoor) || m.task?.shelter) { runTask(game, rec, m, dt); return true; } // (already inside / going in, by a player)
   const gx = H ? H.out[0] : rec.S.plaza.x, gy = H ? H.out[1] : rec.S.plaza.y;
   const s = walk(game, rec, m, gx, gy, SPD.run, dt, 0.45);
   if (s === 'here') {
     const q = H && nearBuilding(game, H) ? insideSpot(game, H, () => R01(m)) : null;
-    if (q && reachable(game, rec, m.x, m.y, q[0], q[1])) { m.task = { k: 'go', x: q[0], y: q[1], then: { k: 'stand', t: 30, indoor: true } }; runTask(game, rec, m, dt); return true; }
+    if (q && reachable(game, rec, m.x, m.y, q[0], q[1])) { m.task = { k: 'go', x: q[0], y: q[1], run: true, shelter: true, then: { k: 'stand', t: 9999, indoor: true } }; runTask(game, rec, m, dt); return true; }
     game.people._drop(rec, m); // (safe inside: a count again — shown inside again if a player is by the house)
   } else if (s === 'fail') unstick(game, m, gx, gy);
   return true;
 }
 
 // ---------- guards ----------
-const hostile = (e) => !e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'); // (one going home — evade — cannot be hurt: let it go)
+export const hostile = (e) => !e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'); // (one going home — evade — cannot be hurt: let it go)
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
@@ -406,7 +419,8 @@ function guardFight(game, rec, m, dt) {
   m.scanT = (m.scanT || 0) - dt;
   if (m.scanT <= 0 || (m.foe && m.foe.dead)) {
     m.scanT = 0.3 + (m.id % 5) * 0.04;
-    const f = m.foe && !m.foe.dead && hostile(m.foe) && inReach(game, rec, m.foe) ? m.foe : guardTargets(game, rec, m);
+    const duty = rec.danger ? rec.S.def?.posts.get(m.npc.i) : null; // (the bell rang: the defense posts — defense.js)
+    const f = duty ? postedFoe(game, rec, m, duty) : m.foe && !m.foe.dead && hostile(m.foe) && inReach(game, rec, m.foe) ? m.foe : guardTargets(game, rec, m);
     if (f && !m.foe) engage(game, m, f);
     m.foe = f; m.threat = f;
   }
@@ -454,6 +468,25 @@ function guardFight(game, rec, m, dt) {
   }
   return true;
 }
+// a guard at its defense post: the foe it hunts inside the walls (people.js defenseTick), else what comes near its post
+// (the gap / gate / stretch it holds) — never one far from it: back to the post when the foe leaves
+function postedFoe(game, rec, m, d) {
+  if (m.hunt && hostile(m.hunt) && inReach(game, rec, m.hunt)) return m.hunt;
+  const R = d.r || 0;
+  if (R <= 0) return null; // (the reserve: only the foes inside)
+  const w = game.world, near = (e, r) => { const dx = w.dx(e.x, d.x), dy = e.y - d.y; return dx * dx + dy * dy < r * r; };
+  // (a guard on a stretch of an intact wall never walks out round by a gate: only what is inside — the gates and the
+  // gaps are where the fight outside is met)
+  const per = perimeterOf(rec.S), mine = (e) => !(d.k === 'stretch' && per.walled && !per.inside(e.x, e.y, w));
+  if (m.foe && hostile(m.foe) && near(m.foe, R + 3) && mine(m.foe)) return m.foe;
+  let best = null, bd = R * R;
+  for (const e of rec.foes || []) {
+    if (!hostile(e) || !mine(e)) continue;
+    const dx = w.dx(e.x, d.x), dy = e.y - d.y, dd = dx * dx + dy * dy;
+    if (dd < bd) { bd = dd; best = e; }
+  }
+  return best;
+}
 // a foe still worth chasing: in the town land (+ the leash)
 function inReach(game, rec, e) {
   const S = rec.S, R = S.s.r + N.guardLeash, dx = game.world.dx(e.x, S.s.x), dy = e.y - S.s.y;
@@ -474,18 +507,34 @@ export function npcHurt(game, m, src) {
 // up on the walls (archers) / at a ballista (crews): there when nobody sees (they climbed), then they watch and shoot
 function upTask(game, rec, m, T, dt) {
   const d = T.duty, S = rec.S;
+  if (d.k === 'wall' && m.z > 0.5 && Math.hypot(m.x - d.x, m.y - d.y) > 0.9) {
+    // up on the wall but posted elsewhere (the defense moved it): along the walk when nobody sees, else down at the foot
+    // of the wall (inside) and up again by the new spot
+    if (!inAnyView(game, m.x, m.y, 1, 2) && !inAnyView(game, d.x, d.y, 1, 2) && (d.lv | 0) > 0) { m.x = d.x; m.y = d.y; m.lv = d.lv; m.z = d.lv; return; }
+    const dx = S.s.x - m.x, dy = S.s.y - m.y, dd = Math.hypot(dx, dy) || 1, q = nearPass(game, m.x + (dx / dd) * 2, m.y + (dy / dd) * 2, 3);
+    if (q) { m.x = q[0]; m.y = q[1]; m.z = 0; m.lv = 0; m.route = null; }
+    return;
+  }
   if (!(m.z > 0.5) && (d.lv | 0) > 0) {
-    // still on the ground: climb (out of sight) — else walk to below the spot and wait
-    if (!inAnyView(game, d.x, d.y, 1, 2) && !inAnyView(game, m.x, m.y, 1, 2)) { m.x = d.x; m.y = d.y; m.lv = d.lv; m.z = d.lv; m.route = null; return; }
-    const q = nearPass(game, d.x - (d.fx || 0) * 2, d.y - (d.fy || 0) * 2, 3);
-    if (q) walk(game, rec, m, q[0], q[1], SPD.walk, dt, 0.4);
+    // still on the ground: up at once out of sight — else to the foot of the wall below the spot, and up from there
+    // (the bell: a moment's climb even when seen)
+    const climb = () => { m.x = d.x; m.y = d.y; m.lv = d.lv; m.z = d.lv; m.route = null; m.moving = false; };
+    if (!inAnyView(game, d.x, d.y, 1, 2) && !inAnyView(game, m.x, m.y, 1, 2)) { climb(); return; }
+    const q = T.foot || (T.foot = nearPass(game, d.x - (d.fx || 0) * 2, d.y - (d.fy || 0) * 2, 3));
+    if (!q) return;
+    const s = walk(game, rec, m, q[0], q[1], rec.danger ? SPD.run : SPD.walk, dt, 0.45);
+    if (s === 'here') { m.moving = false; faceTowards(m, { x: d.x, y: d.y }); T.climbT = (T.climbT || 0) + dt; if (T.climbT > (rec.danger ? 1.2 : 2.5)) climb(); }
+    else if (s === 'fail') unstick(game, m, q[0], q[1], rec);
+    T.tryT = (T.tryT || 0) + dt;
+    if (rec.danger && T.tryT > 8 && s !== 'walk') climb(); // (the bell: no way to its foot found — up all the same)
     return;
   }
   m.moving = false;
   if (d.k === 'crew') { crewTask(game, rec, m, T, dt); return; }
-  // archers: shoot what comes near (+20 % range a story up)
+  // archers: shoot what comes near (+20 % range a story up) — the ones covering a gap (defense.js focus) what comes at it
+  // first
   T.scan = (T.scan || 0) - dt;
-  if (T.scan <= 0) { T.scan = 0.35; T.foe = guardTargets(game, rec, m, N.archerRange * 1.5); }
+  if (T.scan <= 0) { T.scan = 0.35; T.foe = (rec.danger && d.focus && focusFoe(game, rec, m, d.focus)) || guardTargets(game, rec, m, N.archerRange * 1.5); }
   const f = T.foe;
   if (!f || f.dead) { T.foe = null; lookAround(game, rec, m, T.look || (T.look = { fx: d.fx, fy: d.fy }), dt); return; }
   const rng = N.archerRange * heightK(m, f), dd = Math.hypot(f.x - m.x, f.y - m.y);
@@ -495,6 +544,17 @@ function upTask(game, rec, m, T, dt) {
   m.swingT = (m.swingDur || 1.6) * (0.95 + R01(m) * 0.3);
   m.action = { type: 'shoot', t: 0, dur: 0.6 };
   game.later(0.34, () => { if (!m.dead && !f.dead) shoot(game, m, f); });
+}
+// the foe nearest a gap (within 8 tiles of it) that this archer can reach from up there
+function focusFoe(game, rec, m, at) {
+  let best = null, bd = 64;
+  const rng = N.archerRange * 1.3;
+  for (const e of rec.foes || []) {
+    if (!hostile(e) || Math.hypot(e.x - m.x, e.y - m.y) > rng) continue;
+    const dd = (e.x - at.x) ** 2 + (e.y - at.y) ** 2;
+    if (dd < bd) { bd = dd; best = e; }
+  }
+  return best;
 }
 function shoot(game, m, f) {
   const dmg = Math.max(1, Math.round(m.dmg * (0.9 + R01(m) * 0.3)));
@@ -549,16 +609,17 @@ export function repairTick(game, rec, dt) {
   if (rec.repT > 0) return;
   rec.repT = 2;
   if (rec.danger || h < 7 || h > 18.6) { for (const m of rec.ents.values()) if (m.repair) { m.repair = null; m.action = null; } return; }
-  const pre = `t${rec.sid}.`, jobs = [];
+  const pre = `t${rec.sid}.`, jobs = [], L = rec.S.L;
   for (const [id, r] of game.towns.state) {
     if (!id.startsWith(pre)) continue;
+    const row = L.structs[+id.split('.')[1]];
+    if (!row || row[1] !== r.x || row[2] !== r.y) continue; // (a row kept by an older plan: not this piece — towns.js stateOf)
     if (r.dmg > 0) jobs.push([id, r, 0]);
     else if (r.gone && game.worldTime - r.at > 20) jobs.push([id, r, 1]);
   }
   for (const m of rec.ents.values()) if (m.repair && !jobs.some((j) => j[0] === m.repair.id)) { m.repair = null; m.action = null; m.task = null; m.planKey = ''; }
   if (!jobs.length) return;
   // the lower stories first (a wall walk needs its wall)
-  const L = rec.S.L;
   jobs.sort((a, b) => (L.structs[+a[0].split('.')[1]]?.[4] | 0) - (L.structs[+b[0].split('.')[1]]?.[4] | 0));
   const busy = new Set([...rec.ents.values()].filter((m) => m.repair).map((m) => m.repair.id));
   for (const [id, r, gone] of jobs) {
@@ -654,12 +715,23 @@ export function npcSeparate(game, rec) {
       if (d < rr) npcMove(game, m, (dx / d) * (rr - d) * 0.35, (dy / d) * (rr - d) * 0.35);
     }
   }
+  // (in a doorway they squeeze past each other: one going in, one coming out — a 1-tile door never jams)
+  const G = game.build.grid.main, w = game.world;
+  for (const m of L) {
+    m._door = false;
+    if (!m.moving) continue;
+    const tx = Math.floor(m.x), ty = Math.floor(m.y);
+    for (let k = 0; k < 5 && !m._door; k++) {
+      const x = tx + (k === 1 ? 1 : k === 2 ? -1 : 0), y = ty + (k === 3 ? 1 : k === 4 ? -1 : 0), o = G.get(w.idx(x, y));
+      if (o && o.door && Math.abs(x + 0.5 - m.x) < 1.3 && Math.abs(y + 0.5 - m.y) < 1.3) m._door = true;
+    }
+  }
   for (let i = 0; i < L.length; i++) {
     const a = L[i];
     for (let j = i + 1; j < L.length; j++) {
       const b = L[j], rr = (a.r + b.r) * 0.95, dx = b.x - a.x, dy = b.y - a.y;
       const am = a.moving || a.state === 'chase', bm = b.moving || b.state === 'chase'; // (fighters jostle into their own places too)
-      if (Math.abs(dx) > rr || Math.abs(dy) > rr || (!am && !bm) || a.pose || b.pose) continue;
+      if (Math.abs(dx) > rr || Math.abs(dy) > rr || (!am && !bm) || a.pose || b.pose || a._door || b._door) continue;
       const d = Math.hypot(dx, dy);
       if (d < 1e-3 || d >= rr) continue;
       const push = (rr - d) * 0.5, ux = dx / d, uy = dy / d;

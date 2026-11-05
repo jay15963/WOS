@@ -34,7 +34,7 @@ import { allPlayers } from './players.js';
 import { facingFrom, collides } from './physics.js';
 import { MAX_LV, STORY_H } from './levels.js';
 import { fireLob } from './projectiles.js';
-import { placeReason } from './mut/structures.js';
+import { placeReason, structsOfType } from './mut/structures.js';
 
 export { ARTY, PUSH } from './content/siege.js';
 const TAU = Math.PI * 2;
@@ -44,6 +44,7 @@ const ROT_ANG = [Math.PI / 2, Math.PI, -Math.PI / 2, 0]; // rot 0..3 = front S, 
 export const DIR = [[0, 1], [-1, 0], [0, -1], [1, 0]];   // world direction index (= rot of the front): S, W, N, E
 
 // ---------- what is what ----------
+const ENGINE_TYPES = [...Object.keys(ARTY), ...Object.keys(PUSH)];
 export const isEngineObj = (o) => !!o && o.building && !o.removed && isEngine(o.type);
 export const isArtyObj = (o) => !!o && o.building && !o.removed && !!ARTY[o.type];
 export const isPushObj = (o) => !!o && o.building && !o.removed && !!PUSH[o.type];
@@ -52,7 +53,8 @@ export function engineOf(game, id) { const o = game.world.objById.get(id); retur
 export function enginesOf(game) {
   const c = game._sgList, v = game.build.v;
   if (c && c.v === v) return c.L;
-  const L = game.build.structures.filter((o) => isEngine(o.type) && !o.removed);
+  const L = []; // (by type: a city holds ~18 000 pieces — mut/structures.js structsOfType)
+  for (const t of ENGINE_TYPES) for (const o of structsOfType(game, t)) if (!o.removed) L.push(o);
   game._sgList = { v, L };
   return L;
 }

@@ -1045,6 +1045,20 @@ differs from the design text above, the code is described here (this section win
   drives its avatar (owner), the host keeps the horse under the avatar's latest position (`rideFollow`), every peer draws
   the pair at the rider's drawn spot (cosmetic marks `_ride` / `_rideD` / `_riddenBy`). Save rows `world.stock` [11]
   saddle, [12] ridden by the saving host. Scenarios HO1–HO7.
+- **The economy of the kingdoms (docs/REINOS.md §10)** — `game.eco` (`game/eco.js`; not `game.econ`): replicated `day`,
+  `mk` (sid → Int32Array stock per good), `ev` (market news), `pl` (uid → reputation / kingdom / jobs), `pr` (property id →
+  holder, mode, debt, warnings), `st` (the settlements' chest contents, town piece id → slots), `feat` (sid → the place's
+  real features) — written only in `mut/eco.js` appliers; snapshot / save `world.eco` (global: never in a chunk diff),
+  digest part **`eco`** (exact). Coins are an inventory item (owner state): the client takes the coins / goods out and
+  passes them as the paid part of the intent (`refund` on a reject); the host re-quotes with the replicated stocks and
+  answers with `eco.trade {sid, g, d, u, coins, by, give}`. Player identity: a uid from `localStorage wos.uid` (tests:
+  `u` + `?pid`), told to the host by `eco.hello` → `eco.who {u, name, by}`; `E.who` (pid → uid) is host-only. The host's
+  daily tick (`ecoSystem`, sync host) emits `eco.day {day, mk, ev}` (all stocks, ~30 KB), expires jobs (`eco.job {fail}`),
+  bills the players in the world (`eco.bill {u, list, seize}`) and sends the owner message `eco.collect {bills}` — the
+  owner pays from its backpack (`eco.pay` → `eco.paid`). Job progress: `net.js _apply` calls `game.eco.onOp(name, args)`
+  on the authority **before** applying (the object still exists); it only records pending progress (no emit inside an
+  apply), flushed as `eco.prog` by the eco system on the next frame. A settlement's `chest.set` is global for the interest
+  (net/interest.js) and also writes `E.st` (`TOWN.storeSet`) whether the chest is loaded or not. Scenarios EC1–EC8.
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,

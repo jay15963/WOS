@@ -48,6 +48,35 @@ export const CLEAR_YIELD = { pebble: { pebble: 1 }, stick: { stick: 1 }, fibergr
 
 export const defOf = (o) => BUILDINGS[o.type];
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+
+// Structure indexes (performance, docs/REINOS.md "Fase 2 — correções e desempenho"): a city holds ~18 000 pieces, so the
+// systems that look for one kind of structure every frame (ballistas, the build marks) read these instead of the whole
+// list. Kept by placeStructure / removeStructure only (the one place structures come and go; local derived data):
+//   game.build.byType: Map type → Set of structures (insertion order = the list order) · game.build.own: Set of the
+//   structures that are not a settlement's piece (o.town == null: players' builds, plans, marks)
+const NONE = new Set();
+export function structsOfType(game, type) { return game.build?.byType?.get(type) || NONE; }
+export function ownStructs(game) { return game.build?.own || game.build?.structures || NONE; }
+// the structures that can give light (campfires, torches, braziers, lamps, the working furnaces…): what the night's
+// monsters and the spawn rule look for — a city's ~18 000 pieces hold a few hundred of them
+let LIGHT_TYPES = null;
+export function eachLight(game, fn) {
+  if (!LIGHT_TYPES) LIGHT_TYPES = Object.keys(BUILDINGS).filter((t) => BUILDINGS[t].light || BUILDINGS[t].workLight);
+  for (const t of LIGHT_TYPES) for (const o of structsOfType(game, t)) fn(o);
+}
+function indexAdd(game, o) {
+  const B = game.build;
+  const T = B.byType || (B.byType = new Map());
+  let s = T.get(o.type);
+  if (!s) T.set(o.type, (s = new Set()));
+  s.add(o);
+  if (o.town == null) (B.own || (B.own = new Set())).add(o);
+}
+function indexDel(game, o) {
+  const B = game.build;
+  B.byType?.get(o.type)?.delete(o);
+  B.own?.delete(o);
+}
 export const msgBuilt = (def) => `${def.name} ${def.g === 'm' ? 'construído' : 'construída'}`;
 export const structById = (game, id) => {
   const o = game.world.objById.get(id);
@@ -124,9 +153,10 @@ function nudgeOut(game, o, auth) {
   const olv = o.lv | 0, L = game.levels;
   for (const e of game.entities) {
     if (e.dead || e.remote || e.proxy || (e.isMob && !auth)) continue;
-    if ((e.lv | 0) !== olv || (L && L.onStair(e))) continue; // levels: only the story it was built on (stairs are corridors)
+    // (the overlap first: a settlement's chunk places thousands of pieces among all the creatures)
     if (round) { if (Math.hypot(e.x - o.x, e.y - o.cy) >= e.r + def.block) continue; }
     else if (e.x + e.r <= o.tx || e.x - e.r >= o.tx + sw || e.y + e.r <= o.ty || e.y - e.r >= o.ty + sh) continue;
+    if ((e.lv | 0) !== olv || (L && L.onStair(e))) continue; // levels: only the story it was built on (stairs are corridors)
     let best = null, bd = 1e9;
     const pd = !!e.passDoors;
     const cands = [];
@@ -164,6 +194,7 @@ export function placeStructure(game, type, tx, ty, opts) {
   if (def.block === 'door') { o.door = true; o.open = !!opts.open; o._openT = o.open ? 1 : 0; o.orient = 'h'; game.build.doors.push(o); }
   w.addObject(o);
   game.build.structures.push(o);
+  indexAdd(game, o);
   if (!o.moveOf) gridAdd(game, o); // "Mover" plans stay out of the grid (they may overlap the object being moved)
   if (!o.lv) noGrowStamp(game, tx, ty, o.fw, o.fh, +1);
   if (!def.roof && !o.lv && !TOWN.quiet) clearDecor(game, tx, ty, o.fw, o.fh);
@@ -214,6 +245,7 @@ export function removeStructure(game, o, { drops = null, quiet = false, fx = nul
   const S = game.build.structures, k = keepList ? 0 : S.indexOf(o); // (keepList: a batch leaving with its chunk filters the list once: game/towns.js)
   if (keepList) { if (o.removed) return; } else if (k >= 0) S.splice(k, 1);
   else if (game.world.objById.get(o.id) !== o) return; // (orphans still in the world are cleaned up: resync repair)
+  indexDel(game, o);
   if (o.town != null && !TOWN.unloading) TOWN.note?.(game, o, 'gone'); // (a settlement's piece destroyed: kept in the town state)
   const wasBlueprint = !!o.blueprint;
   if (!o.moveOf) gridRemove(game, o);
@@ -281,7 +313,11 @@ export function setDoorOpen(game, o, open) {
   if (o.town != null && !TOWN.quiet) TOWN.note?.(game, o, 'door'); // (a settlement's door / gate: the town state)
   if (!o.blueprint) setSolid(game, o);
   onDoor(game, o);
+  // (a ground-floor door: its top is a floor of the story above open or closed — the stories map stays as it is, no
+  // rebuild over the ~18 000 pieces of a city each time a door / gate opens: levels.js; phase-2 citizens open many)
+  const L = game.levels, inStep = !o.lv && L && L.v === game.build.v;
   game.build.v++;
+  if (inStep) L.v = game.build.v;
   game.events.emit('tile', { tx: o.tx, ty: o.ty });
 }
 
@@ -414,6 +450,7 @@ defineOp('chest.set', {
   doc: 'New contents of a chest (whole slot list); `give` hands taken / leftover items to `by`.',
   args: { id: 'structId', slots: 'Inventory.toJSON()', by: 'pid', give: '{item: qty}?' },
   apply(game, a) {
+    TOWN.storeSet?.(game, a.id, a.slots); // (a settlement's chest: its contents are kept whether its chunk is loaded or not — game/mut/eco.js)
     const o = structById(game, a.id);
     if (!o || !o.store) return;
     o.store.load(a.slots);
@@ -436,7 +473,7 @@ export function placeReason(game, type, tx, ty, who, rot = 0, ignore = null, lv 
     return who && Math.hypot(tx + 0.5 - who.x, ty + 0.5 - who.y) > MAX_DIST ? 'Muito longe' : null;
   }
   if (def.siege) { const r = siegePlaceReason(game, type, tx, ty, normRot(type, rot), lv, ignore); if (r) return r; } // siege engines (game/siege.js)
-  if (TOWN.landReason && !ignore) { const [tw, th] = dimsOf(type, normRot(type, rot)); const tr = TOWN.landReason(game, type, tx, ty, tw, th); if (tr) return tr; } // settlements: town lands (game/towns.js)
+  if (TOWN.landReason && !ignore) { const [tw, th] = dimsOf(type, normRot(type, rot)); const tr = TOWN.landReason(game, type, tx, ty, tw, th, who); if (tr) return tr; } // settlements: town lands (game/towns.js; a bought plot: game/eco.js)
   if (lv > 0) return game.levels ? game.levels.upperReason(type, tx, ty, who, normRot(type, rot), ignore, lv) : 'Andares indisponíveis'; // levels: upper stories
   const [sw, sh] = dimsOf(type, normRot(type, rot));
   const sr = slopeReason(game, type, tx, ty, sw, sh); // terrain height: cliffs / too steep
@@ -486,7 +523,7 @@ export const NO_SUPPORT = 'Sem apoio: precisa de parede, coluna ou rocha a até 
 function roofReason(game, type, tx, ty, who) {
   const w = game.world;
   if (!w.inside(tx, ty, 1)) return 'Fora do mapa';
-  const tr = TOWN.landReason?.(game, type, tx, ty, 1, 1); // settlements: town lands (game/towns.js)
+  const tr = TOWN.landReason?.(game, type, tx, ty, 1, 1, who); // settlements: town lands (game/towns.js; a bought plot: game/eco.js)
   if (tr) return tr;
   const i = w.idx(tx, ty);
   if (w.rock.get(i)) return 'Rocha no caminho';
@@ -744,14 +781,15 @@ defineIntent('door.toggle', {
   },
 });
 
-const chestOf = (game, id) => { const o = structById(game, id); return o && o.store && !o.blueprint && o.town == null ? o : null; }; // (a settlement's chests: not yet — phase 2)
+// (a settlement's chest: only its house's holder — bought / rented on the mural, game/eco.js)
+const chestOf = (game, id, actor = null) => { const o = structById(game, id); return o && o.store && !o.blueprint && (o.town == null || !!(actor && TOWN.mayUse?.(game, o, actor.pid))) ? o : null; };
 const cloneStore = (o) => { const inv = new Inventory(o.store.size); inv.load(o.store.toJSON()); return inv; };
 
 defineIntent('chest.put', {
   doc: 'Put items into a chest (already removed from the actor; refunded on reject, leftovers given back).',
   args: { id: 'structId', item: 'itemId', qty: 'int' },
   run(game, a, actor, net) {
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     if (typeof a.item !== 'string' || !ITEMS[a.item]) return 'Item desconhecido';
     if (BUILDINGS[o.type]?.feed && !ITEMS[a.item].food && a.item !== 'wheat') return 'Só comida: trigo, milho ou outra comida'; // (a feeder: docs/LIVESTOCK.md)
@@ -767,7 +805,7 @@ defineIntent('chest.take', {
   doc: 'Take up to qty of the stack in chest slot `slot` (qty = room in the actor\'s backpack).',
   args: { id: 'structId', slot: 'int', qty: 'int' },
   run(game, a, actor, net) {
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     const s = o.store.slots[num(a.slot, -1) | 0];
     if (!s) return 'Vazio';
@@ -785,7 +823,7 @@ defineIntent('store.sort', {
   args: { kind: "'chest'|'corpse'?", id: 'structId|corpseId', mode: "'name'|'type'|'qty'" },
   run(game, a, actor, net) {
     if (a.kind === 'corpse') return sortBody(game, a, actor, net);
-    const o = chestOf(game, a.id);
+    const o = chestOf(game, a.id, actor);
     if (!o) return 'Baú não existe mais';
     if (!SORT_MODES.includes(a.mode)) return 'Ordem desconhecida';
     net.emit('chest.set', { id: o.id, slots: sortedSlots(o.store.slots, o.store.size, a.mode), by: actor.pid, quiet: 1 });

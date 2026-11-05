@@ -16,7 +16,8 @@ import { LAZY_DEFS } from '../lazyDefs.js'; // agent K: style variants / details
 
 const PAD = 4;              // texels between parts (mipmaps)
 const IDLE_FRAMES = 600;    // a part unused this long (~10 s) may be evicted
-const RECENT_FRAMES = 60;   // … and one unused this long (~1 s) before the texture grows
+const RECENT_FRAMES = 60;   // … and one unused this long (~1 s) once it cannot grow any more
+const COMPACT_ORDER = [2, 0, 1, 3]; // grow, drop idle, drop not drawn for a second, drop the older half
 export const LOOK_CLOCK = { f: 0 }; // frame counter; compose stamps rec.lu = LOOK_CLOCK.f when it draws a part
 
 // crop a padded part canvas to its painted content, keeping the nominal centre centred (ax = 0.5 stays exact)
@@ -125,7 +126,9 @@ export class LookAtlas {
   }
   _place(r) {
     let ok = this._alloc(r);
-    for (let lv = 0; !ok && lv < 4; lv++) { if (this._compact(lv)) ok = this._alloc(r); }
+    // (grow first, up to 2048²: every repack re-sends the whole texture — a 50–60 ms hitch walking into a city; the
+    // idle parts are dropped once it is full: docs/REINOS.md "Fase 2 — correções e desempenho")
+    for (const lv of COMPACT_ORDER) { if (ok) break; if (this._compact(lv)) ok = this._alloc(r); }
     if (!ok) { r.failed = true; return; }
     this.ctx.drawImage(r.canvas, r.x, r.y);
     this._uv(r);
@@ -166,5 +169,7 @@ export class LookAtlas {
 
 // the lazy look atlas of a game atlas (2D previews of a game atlas set A.lookSync)
 export function lookAtlasOf(A) {
-  return A.look || (A.look = new LookAtlas(1024, 1024, !!A.lookSync));
+  // (a game starts at 2048 × 1024: the first growth repack — redraw every part, re-send the whole texture — was a 30–50 ms
+  // hitch walking into the first village / city; 2D previews stay small)
+  return A.look || (A.look = A.lookSync ? new LookAtlas(1024, 1024, true) : new LookAtlas(2048, 1024, false));
 }

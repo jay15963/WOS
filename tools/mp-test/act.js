@@ -19,6 +19,7 @@ const PATHS = {
   siege: 'game/siege.js', siegec: 'game/content/siege.js', // siege engines (docs/REINOS.md)
   towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
   people: 'game/people.js', mpeople: 'game/mut/people.js', npc: 'game/npc.js', cpeople: 'game/content/people.js', // (the settlements' people: VL scenarios)
+  eco: 'game/eco.js', meco: 'game/mut/eco.js', ecoc: 'game/content/eco.js', // (the economy of the kingdoms: EC scenarios)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

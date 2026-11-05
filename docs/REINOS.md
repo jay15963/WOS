@@ -238,8 +238,8 @@ Prints em `shots/sg_*.png` (não vão para o git).
 ## 9. Implementação — geração (fase 1)
 
 O que já está no jogo: os reinos, os territórios, as vilas / castelos / cidades feitos de estruturas de verdade, as
-muralhas, os portões, as estradas, o mural e o mapa. Os **moradores e guardas** vieram na fase 2 (§10); ainda **sem
-comércio, trabalhos** (fase 2, outro agente): as abas do mural que dependem deles dizem "Em breve".
+muralhas, os portões, as estradas, o mural e o mapa. Fase 2: o comércio, os trabalhos e as propriedades estão no
+§10; os **moradores e guardas**, no §11.
 
 ### O reino na semente (`src/world/realm/`)
 
@@ -261,8 +261,9 @@ comércio, trabalhos** (fase 2, outro agente): as abas do mural que dependem del
 - `layout.js` `settlementLayout(planet, realm, sid)` — a planta de um lugar, pura da semente: ruas, lotes, casas
   prontas (`prefabs.js`: casas de vários tamanhos, casa de fazenda, ferraria, serraria, celeiro, taverna, tecelão,
   capela, quartel, posto de guarda, estábulo, mina, armazém, torre de menagem com andar de cima), praça com o mural,
-  poço / chafariz, campos com plantações, currais com animais, muralhas (paliçada de toras de 1 andar; pedra de 2
-  andares com ameias, torres 3 × 3, escadas para o adarve, portões nas estradas), balistas nas torres da cidade.
+  poço / chafariz, campos com plantações, currais com animais, muralhas (paliçada de toras de 1 andar com escadas de
+  madeira por dentro — ao lado de cada portão e no meio dos lados sem portão — e o alto caminhável; pedra de 2 andares
+  com ameias, torres 3 × 3, escadas para o adarve, portões nas estradas), balistas nas torres da cidade.
   Saída: `structs [[tipo, tx, ty, rot, andar, estilo, det]]` (vila ~1,1–1,7 mil peças, castelo ~1,1 mil, cidade ~7,8
   mil), `buildings`, `gates`, `mural`, `pens`, `fields`, `spawn`, a grade do chão e os **ganchos da fase 2**
   (`hooks.homes` camas por casa, `work` locais de trabalho, `guards`, `patrol`, `archers`, `artillery`).
@@ -273,8 +274,10 @@ comércio, trabalhos** (fase 2, outro agente): as abas do mural que dependem del
 
 - **Materialização por chunk** (como os acampamentos): quando um chunk carrega, as peças ancoradas nele viram
   estruturas com id `t<sid>.<k>` e `o.town = sid`, sem sujar o chunk (voltam com ele). Feito em fatias do quadro (3 ms;
-  12 ms nos 3 × 3 chunks em volta do jogador); na carga do mundo a vila do início já vem pronta (atrás da tela de
-  carregamento).
+  12 ms nos 3 × 3 chunks em volta do jogador), os chunks mais perto primeiro; na carga do mundo a vila do início já vem
+  pronta (atrás da tela de carregamento). A âncora de uma peça é o ponto onde o mundo a guarda (o meio da borda sul do
+  seu pé: uma peça na última linha de um chunk fica no chunk de baixo) e ela só é feita com todos os chunks sob o pé
+  carregados (senão espera por eles: `T.wait`) — fase 2, abaixo. `game.towns.ready(sid)`: o lugar está todo feito aqui.
 - A **planta** vem pronta do worker de chunk (que já a calcula para o chão): `packLayout` / `adoptLayout` — a thread
   principal não planeja uma cidade no meio de um quadro (eram 25–55 ms).
 - **Estado compartilhado**: o que muda numa peça (removida, portão aberto / fechado, dano de cerco) vai pelas ops
@@ -288,9 +291,9 @@ comércio, trabalhos** (fase 2, outro agente): as abas do mural que dependem del
 - **Animais dos lugares**: nos currais, da vila (não dos jogadores: nem amarrar, nem criar), surgem aos poucos.
 - **Regra de construção**: dentro da terra de uma vila / cidade — "Terra de <Vila>: compre um terreno no mural"; no
   castelo — "<Castelo>: não se constrói no castelo"; as peças de um lugar não se desmontam ("Isto pertence a …"); fora
-  dos territórios, livre (o modo criativo ignora a regra).
+  dos territórios, livre (o modo criativo ignora a regra). Fase 2 (§10): dentro de um terreno comprado pelo jogador, pode.
 - **Nível do povo** (§7b): `realmNpcLevel(game, s)` / `game.towns.npcLevel(sid)` — a distância ao início dá o
-  `baseLevel` (nunca guardado); o povo acompanha o progresso do mundo (fase 2: o recorde guardado `game.towns.prog`, §10)
+  `baseLevel` (nunca guardado); o povo acompanha o progresso do mundo (fase 2: o recorde guardado `game.towns.prog`, §11)
   até o nível dos lugares mais distantes.
 
 ### O início do mundo
@@ -306,7 +309,8 @@ primeira vez e a dica "Veja o mural (E)".
 ### Mural, HUD e mapa
 
 - Mural (`ui/mural.js`): nome, tipo, reino, brasão, população (todo número com rótulo); abas Lugar · Reino ·
-  Trabalhos · Comércio · Exército · Propriedades (as quatro últimas: "Em breve").
+  Trabalhos · Comércio · Exército · Propriedades (fase 2, §10: Trabalhos, Comércio e Propriedades prontos; Exército
+  "Em breve").
 - Ao entrar num lugar: a faixa "Reino de X — Vila Y" (`ui/placebanner.js`).
 - Mapa (`ui/realmMap.js`, dos dados do reino — não da camada de chunks): territórios nas cores dos reinos (clareadas
   para ler sobre o planeta) com a linha de borda, estradas, ícones e nomes por importância — de longe a cor cheia, os
@@ -341,19 +345,309 @@ construção pula as peças dos lugares.
 ### Decisões
 
 - Só vaus nos rios por enquanto (pontes depois). Os lugares ficam sempre em terra firme e habitável.
-- O dano de cerco fica até alguém consertar; (fase 2, §10: o povo conserta de dia; a aurora não limpa mais o dano das
+- O dano de cerco fica até alguém consertar; (fase 2, §11: o povo conserta de dia; a aurora não limpa mais o dano das
   peças dos lugares).
-- Baús, camas e comedouros dos lugares não são usáveis (fase 2: propriedades, trabalho).
-- O castelo não vende terreno; a cidade e a vila venderão pelo mural (fase 2).
+- Baús, camas e comedouros dos lugares não são usáveis (fase 2: propriedades, trabalho). **Fase 2:** os baús e as camas
+  de uma casa comprada / alugada são de quem mora nela (ver "Fase 2 — economia"); os comedouros continuam do lugar.
+- O castelo não vende terreno; a cidade e a vila vendem pelo mural (fase 2: aba Propriedades).
 
-## 10. Fase 2 — moradores e guardas
+## 10. Fase 2 — economia
+
+O dinheiro, o comércio, os trabalhos, a reputação, o reino / viajante, as casas, os terrenos e o imposto (§3, §6, §7).
+Código: `game/content/eco.js` (números), `game/eco.js` (o modelo, o dia do mercado no anfitrião, o quadro de trabalhos,
+casas e terrenos, a API `game.eco.api`), `game/mut/eco.js` (intents / ops), `ui/muralEco.js` (as abas do mural),
+`ui/ecoHud.js` (bolsa, rastreador, waypoint, divisas dos terrenos, avisos). Ganchos de uma linha em `towns.js`
+(regra do terreno, baú da casa, porta da casa), `mut/structures.js` (`chestOf`, `chest.set`, `placeReason` passa o
+construtor), `building.js` (baú / cama da casa), `player.js` (renascer na cama da casa), `net/net.js` (o anfitrião vê
+as ações para o progresso dos trabalhos), `net/snapshot.js` / `net/digest.js` (parte `eco`), `net/interest.js` (o baú
+de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui/radar.js` / `ui/minimap.js` (waypoint),
+`ui/help.js`, `art/items.js` (ícones da moeda e da encomenda).
+
+### Como se joga
+
+- **Moeda de ouro** (`coin`): item da mochila (pilha de 9 999), cai ao morrer como qualquer item, dá para largar e **dar**
+  a outro jogador (Mochila → selecione → "Dar 10 a Fulano" / "Dar tudo a Fulano", até 4 passos). A **bolsa** no HUD (em
+  cima, à esquerda, debaixo do retrato) mostra o total da mochila e um "+42" / "−12" a cada mudança; toque nela abre a
+  mochila.
+- **Comerciante**: abra o mural (E / toque) → **Comércio**. A lista tem estoque, preço de compra, de venda e quanto você
+  tem; em cima, "Barato aqui: …" e "Vende bem aqui: …" (comparado à média da mesma terra) e as notícias ("Falta de
+  trigo em …", "Sobra de lã em …"). Toque numa mercadoria: a quantidade (− / + / 1 · 5 · 10 · 25 · "pode comprar até N" ·
+  "vender tudo"), os botões **Comprar N** e **Vender N** com o total, quanto sai cada um e o preço depois (+% / −%), e
+  "Vende melhor em: <lugar> <preço> (N passos a leste)" / "Mais barato em: …". Ao lado, a sua mochila com quanto este
+  mercado paga por cada coisa (toque = seleciona). O laço: compre onde é barato (a vila que produz), leve, venda onde
+  falta (a cidade que consome, o castelo que compra comida e armas); cada unidade muda o preço (retorno decrescente), o
+  mercado volta ao normal em alguns dias.
+- **Trabalhador**: mural → **Trabalhos**: o quadro do dia do lugar (novos pedidos a cada amanhecer), cada um com quem
+  pede (nome e ofício), o pedido, o pagamento, a reputação e o prazo. "Aceitar" (até 3 ao mesmo tempo) → o
+  **rastreador** do HUD mostra o trabalho, o progresso e para onde ir (distância e seta; toque = seguir: waypoint
+  dourado no radar, no mapa e no mundo). Feito o trabalho, "Pronto!" → volte ao mural e "Entregar" (coisas pedidas e
+  encomendas saem da mochila). Abandonar custa reputação.
+- **Propriedades**: mural → **Propriedades**: as suas (de qualquer lugar: o que custa por dia, a dívida e os dias de
+  aviso, "Pagar", "Ver", "Vender" / "Devolver"), casas à venda, casas para alugar e terrenos. "Ver" fecha o mural e põe o
+  waypoint na porta da casa / no meio do terreno, e desenha as **divisas dos terrenos** no chão por um tempo (dourado
+  tracejado = à venda, verde-água = seu, cinza = de outro). Comprar uma casa: as portas, os baús e as camas dela passam a
+  ser seus (só você abre; "Renascer aqui"). Comprar um terreno: dentro da terra da vila / cidade só se constrói num
+  terreno seu — dentro da divisa pode, ao lado não ("Terra de <Vila>: compre um terreno no mural", "Terreno de
+  <nome>", "Passa da divisa do terreno"). No modo construir, dentro da vila, as divisas aparecem sozinhas.
+- **Reino**: a aba Reino abre com o cartão "Você e <reino>": viajante ou membro, a reputação (faixa e barra até a
+  próxima), o imposto do reino, o que significa ser membro, e o botão **Entrar no Reino de …** / **Sair do reino** (a
+  qualquer momento, em qualquer mural daquele reino; sair vale de qualquer mural). Sem reino você é **viajante**: comercia
+  e trabalha com todos. Membro: comercia com o próprio reino e com os reinos da mesma terra que não estão em guerra com
+  ele (§3: reinos de outra terra não interagem; a guerra é da fase 3: `game.realms.atWar`); os benefícios (exército,
+  ordens) chegam na fase 3 — o cartão diz isso.
+
+### O mercado (oferta e procura)
+
+- 39 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 22, ensopado 55), matérias-primas
+  (madeira 6, pedra 5, algodão 9, lã 12, couro 24, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
+  ofícios (corda 12, tecido 34, bloco de pedra 14, barras: cobre 40, ferro 64, aço 120, ouro 180), armas e ferramentas
+  (flecha 3, machado / picareta de ferro 160, espada 260, lança 200, arco 70, escudo 220, armaduras de couro 140 / de
+  ferro 420, elmo 200, sela 120) e roupas (casaco de pele 150, gorro de pele 60, túnica 80). Preço = base × fator.
+- **Fator** (só + − × ÷: igual em todos os pares): `0,3 + 0,7·(R + K)/(S + K)`, `K = max(2, R/4)`, entre 0,3 e 3,2 —
+  S o estoque, R a procura (estoque de referência: o volume da mercadoria × população/50; castelo ×1,2; celeiro ×1,3 na
+  comida; armazém ×1,2). Comprar paga ×(1,05 − desconto); vender recebe ×(0,85 + desconto). Cada unidade é cobrada pelo
+  estoque daquele momento (retorno decrescente). O mercado não aceita mais que 4×R.
+- **Perfil de cada lugar** (`profileOf`): produção / consumo por mercadoria a partir do que o lugar tem — campos (trigo,
+  batata, milho, algodão), currais (ovelha: lã e carne; vaca: carne e couro; porco; galinha), serraria (madeira),
+  ferraria (barras, machados, picaretas, flechas; consome carvão e minério), mina (pedra, cobre, ferro, carvão; ouro e
+  jade em algumas), tecelagem (tecido, corda, túnica; consome algodão e lã), taverna (pão, ensopado; consome trigo,
+  carne, batata), capela (ervas), estábulo (selas, couro), quartel (consome comida e armas), torre de menagem (consome
+  ouro, jade, tecido, aço). Cidade: come muito (×2,2) e consome matérias-primas; produz os ofícios, armas e roupas.
+  Castelo: compra comida (×2), armas, ferro, couro, pedra. Clima frio: peles e lenha procuradas; quente: algodão. As
+  peças vêm da planta do lugar quando o anfitrião a conhece (op `eco.feat`, replicada: todos precificam igual); antes
+  disso, das mesmas chances do planejador.
+- **Dia do mercado** (anfitrião, 06:00 de cada dia, ~3 ms para os ~240 lugares): o estoque anda 14 % do caminho até o
+  ponto de equilíbrio `R × (1 + 0,8·produção)/(1 + 0,8·consumo)` (entre 0,32 e 2,6) × estação × notícias, ±4 % de R de
+  ruído; e se espalha devagar (5 % da diferença de estoque/procura por dia) para os 4 vizinhos mais próximos a até
+  1 400 passos **da mesma massa de terra** — nunca pelo mar. O resultado vai inteiro no op `eco.day` (~30 KB por dia).
+- **Estações**: comida de lavoura no inverno: procura ×1,45 e oferta ×0,5 (outono: ×0,85 / ×1,35; primavera ×1,1 /
+  ×0,85); carne e peixe no inverno ×1,2; peles no inverno ×1,8 (outono ×1,3, verão ×0,7); lenha no inverno ×1,3. Polar:
+  comida sempre cara; trópicos: a estação seca encarece; inverno ameno, pouco. Medido (Estrosa / Alvalelar, semente
+  4242): trigo 6,6 → 9,7 do outono para o inverno na vila (+47 %), 11,4 → 16,5 na capital.
+- **Notícias**: 2 por dia em qualquer lugar + 1 perto de cada jogador (até 900 passos): sobra (×0,45) ou falta (×2,1) de
+  uma mercadoria por 3–5 dias; o Comércio mostra as da mesma terra.
+- **Margens medidas** (reino de Galéria, semente 4242, lugares a até 700 passos, sem desconto): lã de Montedo (vila) para
+  Alvalelar (capital), 40 un.: custa 356, vende por 642 (**+286, 80 %**, 430 passos); milho Galerna → Alvalelar +149
+  (68 %); trigo Ardival → Alvalelar +129 (44 %); barras de ferro Alvalelar → Torre de Cerverna (castelo) +156 (38 %,
+  10 un.); pão +91, tecido +66, flechas +41 (41 %). Comprar demais na mesma vila sobe o preço (40 de lã ~9 → ~10,5 cada);
+  vender demais derruba. Um comerciante com ~1 000 moedas faz ~150–300 por viagem de 2–4 minutos.
+
+### Trabalhos
+
+O quadro de cada lugar é determinístico (lugar + o dia da economia, que vira no amanhecer do anfitrião, e só a planta do
+lugar: anfitrião e convidado veem o mesmo; o anfitrião confere ao
+aceitar). Vila 5, cidade 6, castelo 3 pedidos por dia, dos tipos que o lugar tem. O anfitrião vê as ações (`net.js` →
+`eco.onOp`, antes de aplicar a op) e manda o progresso (`eco.prog`).
+
+| Tipo | Quando aparece | Pedido | Pagamento | Reputação | Prazo |
+|---|---|---|---|---|---|
+| Colheita | o lugar tem campos | colher 6–12 pés da lavoura pedida **nos campos do lugar** | 6·N + 12 | +4 | 2 dias |
+| Mina | tem mina | 8–15 blocos de rocha / pedregulhos perto (terra externa + 60) | 5·N + 18 | +5 | 2 dias |
+| Lenha | vila / castelo / cidade com serraria | derrubar 4–7 árvores nos arredores | 10·N + 12 | +4 | 2 dias |
+| Encomenda | sempre | trazer N de algo que o lugar consome e não produz (~150–270 moedas de valor) | valor × 1,45 + 10 | +4 | 2 dias |
+| Entrega | sempre (destino na mesma terra, 120–1 500 passos, do reino ou vizinho) | levar 1–3 **encomendas** (item) ao mural do destino | 20 + 0,09·distância + 8 por encomenda | +6 / +8 / +10 | 3 dias |
+| Caça | sempre | caçar 3–5 animais selvagens (qualquer lugar) | 18·N + 10 | +5 | 2 dias |
+| Defesa | só nas noites perigosas do lugar (inverno; inverno ameno / estação seca) | derrotar 4–8 mortos da noite perto da vila | 15·N + 40 | +10 | até amanhã |
+
+Na cidade, colheita, mina, lenha e caça pagam ×1,3. Até 3 trabalhos ao mesmo tempo; abandonar: −3 de reputação (a
+entrega devolve as encomendas); vencer o prazo: −2. Os nomes de quem pede vêm de `game.towns.people(sid)` quando o
+agente dos moradores o expuser; senão, de uma lista de nomes (Bento, o lavrador; Dulce, curtidor; Helena, mercador…).
+
+### Reputação
+
+| Faixa | Pontos | Nas trocas | |
+|---|---|---|---|
+| Desconhecido | 0 | — | |
+| Conhecido | 25 | 1 % melhor | pode comprar casas e terrenos |
+| Respeitado | 100 | 2 % | |
+| Honrado | 300 | 3 % | |
+| Herói do Reino | 700 | 5 % | |
+
+Por reino e por jogador. Sobe com trabalhos (tabela acima) e com comércio naquele reino (1 ponto a cada 60 moedas
+negociadas, até 10 por dia por reino); cai ao abandonar (−3) ou perder (−2) trabalhos e quando o reino toma uma
+propriedade (−15). Subir / descer de faixa: aviso no alto da tela ("Reputação: Conhecido — no Reino de Galéria · trocas
+1 % melhores · já pode comprar casas e terrenos"). O cartão da aba Reino mostra a faixa, a barra e a reputação nos outros
+reinos.
+
+### Propriedades e imposto
+
+- **Casas** (da planta: as moradias com cama): vila — 2 à venda e 1 para alugar; cidade — 4 e 3; castelo — nada
+  ("O castelo não vende nada: é uma fortaleza"). Preços: casa pequena 700, casa pequena de taipa 750, casa de pedra
+  pequena 900, casa 1 100, casa de pedra 1 300, casa de fazenda 1 400, casa grande 1 500, sobrado 1 900; na cidade
+  ×1,6. Aluguel: 2 % do preço por dia (casa pequena 14). Vender ao reino: 60 % do preço, menos a dívida.
+- **Terrenos**: quadrados livres dentro da terra do lugar (nenhuma peça, rua, praça, campo ou curral; 1 tile das
+  construções): primeiro 8 × 8 (vila 400, cidade 900), depois 6 × 6 no que sobra (230 / 510); até 6 na vila e 10 na cidade
+  (a vila do início, Estrosa, tem 3 + 3).
+- Comprar exige ser **Conhecido** no reino; alugar não exige nada.
+- **Imposto**: cada reino tem o seu, de 1,0 % a 2,4 % do valor por dia (Galéria: 1,9 % → casa pequena 13 / dia, terreno
+  8 / dia); quem aluga paga o aluguel e não o imposto. **Cobrado automaticamente** a cada amanhecer (o dia do mercado),
+  **só das moedas da mochila** (moedas guardadas em baús não contam: é a bolsa de quem está andando), das dívidas menores
+  para as maiores (salva o máximo de propriedades), com o aviso "Imposto e aluguel pagos: −N moedas". Sem moedas
+  bastantes: a dívida fica, aviso "Imposto atrasado: N moedas — 3 dias para pagar (mural · Propriedades), ou o Reino de X
+  toma a casa pequena em Y"; no dia seguinte "2 dias", depois "Último dia!"; no quarto amanhecer sem pagar o reino toma a
+  propriedade ("Sua casa foi tomada…"), −15 de reputação, e o que estava nos baús fica para o reino. "Pagar" na aba
+  Propriedades quita a dívida a qualquer hora. Só paga quem está no mundo naquele amanhecer: um jogador ausente não
+  acumula dias.
+
+### Multijogador e saves
+
+- Tudo é do anfitrião (§7): ops `eco.start` (os primeiros estoques) · `eco.day` (os estoques e as notícias do dia) ·
+  `eco.feat` · `eco.who` · `eco.trade` · `eco.member` · `eco.job` · `eco.prog` · `eco.prop` · `eco.bill` · `eco.paid` ·
+  `eco.gift`; intents `eco.hello` · `trade.buy` · `trade.sell` · `realm.join` · `realm.leave` · `job.take` · `job.done` ·
+  `job.drop` · `prop.buy` · `prop.rent` · `prop.leave` · `eco.pay` · `item.give`; mensagem ao dono `eco.collect` (a conta
+  do dia). As moedas são do dono (mochila): o cliente tira as moedas / mercadorias e manda como pagamento da intent
+  (devolvidas se o anfitrião recusar); o anfitrião confere preço, estoque, lugar (até 8 passos do mural) e reino, e
+  responde com a op cujo `give` entrega mercadoria / moedas.
+- **Por jogador**: reputação, reino, trabalhos e propriedades ficam num registro por **uid** — um id do navegador
+  (`localStorage wos.uid`; nos testes, `u` + `?pid`), mandado ao anfitrião (`eco.hello`) — e não pelo pid da sessão (que
+  muda a cada aba aberta): o amigo volta outro dia e a casa continua dele. Duas abas do mesmo navegador viram dois
+  jogadores (o anfitrião dá outro uid à segunda).
+- Estado replicado em `game.eco` (`mk`, `ev`, `pl`, `pr`, `st` = conteúdo dos baús das casas, `feat`, `day`): snapshot /
+  save `world.eco`, parte `eco` do digest (exata). O baú de uma casa vale em todos os pares, carregado ou não (o
+  `chest.set` dele é global para o interesse).
+- Save: o mundo do anfitrião leva tudo (os registros dos convidados também); o save do convidado continua só com o
+  jogador dele (mochila: as moedas).
+
+### Testes e prints
+
+`tools/mp-test.js` **EC1–EC8** (`?run=EC1,…`): EC1 o convidado compra e vende na feira da vila pela tela (estoque, preço
+e moedas mudam nos dois; a bolsa do HUD); EC2 vila agrícola × capital (trigo mais barato na vila; barras de ferro e
+espadas mais baratas na cidade que no castelo), comprar 20 na cidade sobe o preço, longe do mural recusa; EC3 colheita:
+aceita no mural, colhe nos campos da vila, o anfitrião conta, "Pronto" no rastreador, entrega, paga, reputação sobe nos
+dois; EC4 entrega para um lugar alcançável por terra (encomendas na mochila, recusada na origem, paga no destino); EC5
+casa (recusa sem reputação; compra; o baú abre para o dono e não para o outro; a porta recusa o outro) e terreno (muro
+dentro pode, ao lado não); EC6 imposto (pago da mochila com aviso; sem moedas: dívida, avisos de 3 / 2 / último dia; no
+quarto dia o reino toma; −15); EC7 entrar / sair do reino pela aba Reino; membro recusado em reino de outra terra,
+viajante compra; EC8 o save (JSON) carregado num jogo novo dá a mesma economia (linhas do digest iguais) e os mesmos
+preços. Todos terminam com o digest igual. KG7 passou a conferir as abas novas (só Exército diz "Em breve").
+
+Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_land_desktop`, `ec_realm_desktop`,
+`ec_trade_phone`, `ec_jobs_phone`, `ec_land_phone`, `ec_realm_phone` (915 × 412, toque), `ec_*_portrait` (430 × 932),
+`ec_tracker_hud`, `ec_tracker_phone`, `ec_tax_notice`, `ec_tax_paid`, `ec_plots_world`.
+
+### Decisões (para o dono confirmar)
+
+- O imposto sai **só das moedas da mochila** (as dos baús não contam) e só nos dias em que o dono está no mundo.
+- Comprar casa ou terreno pede reputação **Conhecido** (25) no reino; alugar não pede nada.
+- Casa vendida, devolvida ou tomada: os baús dela são esvaziados (ficam para o reino). Terreno tomado: o que o jogador
+  construiu nele fica de pé (é estrutura dele; o próximo dono do terreno fica com o lugar como está).
+- Membro de um reino só negocia com reinos da mesma terra (e, na fase 3, que não estejam em guerra com o seu); viajante
+  com todos. Ser membro ainda não dá vantagem (fase 3: exército) — o cartão explica.
+- As casas à venda / para alugar saem das moradias da planta; para o agente dos moradores: `game.eco.api.props(sid)`
+  lista quais são, e `game.eco.pr` diz quem mora nelas — morador nenhum dorme numa casa comprada (feito no §11).
+- Pendente / ideias: caravanas de verdade no mapa (hoje o espalhar de preços é abstrato), o ouro dos mercados (hoje
+  infinito), mais tipos de trabalho quando houver moradores (escoltar, guarda), o imposto pago do baú da própria casa.
+
+## 9b. Fase 2 — correções e desempenho
+
+Os três apontamentos do dono depois da fase 1 (§8): portas bloqueadas, paliçadas sem escada, queda de frames. É a base
+para os moradores e guardas (eles andam até a cama e sobem nas muralhas).
+
+### Entradas das casas
+
+- Em seis casas prontas o móvel ficava no tile logo atrás da porta: a mesa em `house_s`, `house_s2` e `cottage_stone`,
+  a cadeira em `house_stone`, o varal na tecelagem, o cabide de armas no posto da guarda. Corrigido nos dados
+  (`prefabs.js`): mesinha redonda no canto da casa pequena, mesa / cadeira para o lado, o varal na parede oeste, um
+  suporte de armadura no posto (o cabide foi para o quintal, ao lado do braseiro). **Regra** para quem desenhar uma casa:
+  o tile de dentro da porta é `.` (ou algo que não bloqueia: tocha, tapete) e todo móvel que se usa (cama, bancada, baú)
+  tem um tile livre ao lado que se alcança da porta.
+- **Validador** `tools/mp-test/towncheck.js` (cenário FX1), com o caminho e a colisão do próprio jogo (`nav.walkable`,
+  `levels.findPath`; as portas abertas como um morador as abre):
+  - `checkLayout(L)` — a planta de **todos** os lugares de uma semente (~240, ~1 s): nenhuma peça da planta dentro ou
+    fora de uma porta; todo posto de arqueiro em cima de uma muralha.
+  - `checkPrefabs` — cada casa pronta × 4 rotações feita de verdade num chão livre: porta livre dos dois lados e caminho
+    da soleira até um tile livre ao lado de cada cama, local de trabalho e baú (as camas de cima da torre de menagem pela
+    escada).
+  - `checkTown(sid)` — um lugar feito no mundo: o mesmo para cada prédio, mais o caminho da praça até cada porta, até a
+    frente do mural e, pelas escadas, até cada posto de arqueiro do adarve.
+  - Resultado (sementes 4242 e 5553: 466 plantas, 80 casas × rotações, a vila do início, o castelo e a capital, a vila
+    com paliçada mais perto): **zero problemas**. Antes: 24 das 80 casas × rotações e os 8 prédios da vila do início com a
+    porta bloqueada; na capital, 91 de 107.
+- Uma linha antiga do estado dos lugares (de um save anterior a uma mudança da planta, que muda os índices das peças) só
+  vale para a peça do mesmo tile (`towns.js stateOf`, `mut/towns.js rowOf`). `game.towns.ready(sid)`: o lugar está todo
+  feito neste par.
+
+### Paliçadas e muralhas que se sobem
+
+- **Paliçada**: o alto das toras e dos portões é o andar 1 (topo de parede = chão do andar de cima, `levels.js`).
+  `layout.js palisadeStairs` põe escadas de madeira por dentro, subindo reto até a paliçada: uma ao lado de cada portão
+  (2–6 tiles dele, fora da rua) e uma no meio de cada lado reto sem portão (vila do início: 4); o pé da escada fica livre
+  e o chão é aplainado na altura da muralha. O adarve dá a volta inteira. Postos de arqueiro (`hooks.archers`, andar 1)
+  no alto de cada escada e na paliçada ao lado de cada portão.
+- **Pedra** (castelos, cidades): já tinham escadas (`stairsUp`, até o adarve no andar 2). As torres são blocos 3 × 3 de
+  alvenaria com o topo no andar 2 ligado ao adarve — entra-se nelas por cima (balistas, arqueiros). O validador confere
+  que cada topo de torre e cada posto se alcança da praça.
+- **Paliçada do jogador**: a Parede de madeira no estilo Toras já é a paliçada e o topo dela já é o andar 1; com uma
+  Escada encostada por dentro vira adarve (docs/LEVELS.md §4.4). Decisão: nenhuma peça nova (a Cerca continua fina demais
+  para andar em cima).
+
+### Desempenho
+
+Chrome headless deste PC (1280 × 720, GPU por software), o mesmo roteiro no código de antes (`main` 2b03950) e no novo,
+alternados na mesma hora (outros agentes usavam a máquina; média de 2 rodadas cada). CPU da thread principal por quadro.
+
+| Cenário (ms, antes → depois) | média | p95 | pior | > 16 ms | > 33 ms | update |
+|---|---|---|---|---|---|---|
+| **andando ~300 tiles pela estrada até a capital e através dela** (~90 s) | 4,97 → 2,88 | 8,2 → 4,8 | 104,5 → 46,8 | 292 → 25 | 14,5 → 1 | 2,46 → 1,27 |
+| chegada ao castelo (teletransporte, 8 s) | 4,36 → 4,03 | 6,5 → 6,6 | 129,9 → 32,7 | 26,5 → 13 | 1,5 → 0,5 | 1,83 → 1,42 |
+| chegada à cidade (teletransporte, 10 s) | 8,88 → 6,43 | 31,2 → 15,3 | 140 → 143 | 95,5 → 60,5 | 39 → 19,5 | 4,67 → 2,70 |
+| parado na vila do início (20 s) | 3,28 → 2,18 | 5,3 → 3,0 | 27,8 → 7,5 | 2,5 → 0 | 0 | 1,27 → 0,81 |
+| parado no castelo | 3,67 → 3,59 | 4,9 → 5,4 | 9,8 → 15,5 | 0 → 1 | 0 | 1,34 → 1,20 |
+| parado na praça da cidade | 4,63 → 4,72 | 6,3 → 7,4 | 18,1 → 13,2 | 1 → 0 | 0 | 1,72 → 1,46 |
+| girando a câmera na praça | 10,3 → 11,3 | 15,9 → 18,6 | 48,4 → 50,6 | 32,5 → 49 | 3 → 3,5 | 2,54 → 2,19 |
+| noite na praça (muitas luzes) | 4,98 → 4,66 | 6,8 → 7,2 | 14,0 → 26,7 | 0,5 → 2,5 | 0 | 1,78 → 1,43 |
+| mapa aberto | 4,94 → 3,97 | 6,6 → 5,4 | 19,4 → 9,5 | 0,5 → 0 | 0 | 1,83 → 1,29 |
+
+GPU (consulta de tempo, praça da cidade): de dia 3,14 → 3,11 ms, à noite 2,41 → 2,47 ms — as quedas eram de CPU. No
+código antigo, com a máquina carregada, a queda automática baixou a escala de render para 0,85–0,95 na chegada à cidade;
+no novo ficou em 1. Girar a câmera e a noite são limitados pelo desenho (iguais, dentro do ruído). Numa hora mais calma
+da máquina a mesma caminhada deu: pior quadro 102,8 → 21,4 ms, quadros > 16 ms 130 → 2, > 33 ms 12 → 0.
+
+O que causava as quedas, e o que mudou:
+
+- **Peça no chunk errado** (o pior): a fila de cada peça era a do chunk do seu tile, mas o mundo a guarda no chunk da
+  âncora (`o.x, o.y` = meio da borda sul); uma peça na última linha de um chunk **gerava o chunk de baixo na thread
+  principal** (40–80 ms) e, quando esse chunk saía antes, a peça ficava sem balde. Agora a fila é por chunk da âncora, a
+  peça espera os chunks sob o pé (`T.wait`), o lote confere o prazo a cada peça e os chunks mais perto vêm primeiro.
+- **Mapa dos andares refeito a cada quadro**: cada peça nova mudava `game.build.v` e `levels.rebuild()` percorria as ~18
+  mil peças de uma cidade; agora `levels.addPiece` só soma as marcas da peça (o mesmo mapa); abrir / fechar uma porta do
+  térreo não reconstrói nada (o topo dela é chão de qualquer jeito); a checagem de desabamento pula as peças dos lugares.
+- **Varreduras de todas as estruturas a cada quadro** (balistas — três laços —, marcas de construção, luzes procuradas
+  pelos monstros da noite, máquinas de cerco, plantas, apoio dos trapiches): eram ~20 % da CPU andando na cidade. Agora
+  índices mantidos por `placeStructure` / `removeStructure` (`mut/structures.js`: `structsOfType`, `ownStructs`,
+  `eachLight`).
+- **Atlas de partes reempacotado** (`art/look/lazy.js`): crescer de 1024² reempacotava tudo e mandava a textura inteira
+  (30–60 ms); o jogo começa em 2048 × 1024 e cresce antes de descartar partes.
+- `nudgeOut` (empurrar quem está dentro de uma peça nova): a sobreposição antes do teste de andar / escada.
+
+Ainda fica: a primeira pintura de uma parte nova do visual (bichos — vaca, cavalo, coelho —, roupas: os pintores
+preguiçosos dos agentes H / K) custa 20–50 ms uma vez por parte na sessão e não se divide; o streaming do planeta entre
+os quadros (instalar um chunk 3–20 ms, janela do terreno 1–10 ms); um chunk de cidade que sai longe atrás (~2000 peças)
+sai num quadro (~15–20 ms); no teletransporte, o chunk do próprio jogador gerado na hora.
+
+Folga para os moradores: nada mais varre as ~18 mil peças a cada quadro; o mapa dos andares segue as peças novas e as
+portas sem reconstruir; moradores perto do jogador custam como criaturas.
+
+### Testes e prints
+
+- FX1 (validador, duas sementes), FX2 (o convidado sobe a escada da paliçada da vila do início, anda no alto no andar 1,
+  desce; o anfitrião o vê lá em cima; digest igual), FX3 (a caminhada até a capital e através dela a 8 tiles/s: nenhum
+  quadro acima de 120 ms neste headless — que divide uma thread com a página dos testes —, p95 < 14 ms, lote de peças <
+  30 ms, nenhum chunk gerado na thread principal por causa de uma peça, < 9000 sprites na praça; deu pior 35,6 ms, p95
+  5,4 ms, lote 3,4 ms, 0 chunks, 2089 sprites).
+- Prints (`shots/`, fora do git): `fx_doors_before_house_s` / `fx_doors_after_house_s`, `fx_doors_before_weaver` /
+  `fx_doors_after_weaver`, `fx_palisade_top_a` / `_b` / `_c` (no alto da paliçada, três ângulos), `fx_perf_walk_city`
+  (a caminhada na cidade com o contador de quadros).
+
+## 11. Fase 2 — moradores e guardas
 
 Feito: as vilas, castelos e cidades têm **moradores** (com nome, casa, cama, ofício, local de trabalho e roupa do
 ofício) e **guardas** (tabardo e escudo nas cores do reino, lança / espada, arqueiros com arco), com a rotina do dia no
 relógio do jogo, o perigo (o sino, o povo corre para casa, a guarda luta), as muralhas e os portões consertados de dia,
 conversa ("Conversar"), nada de fogo amigo e o nível do povo pelo progresso do mundo (§7b). Código: `game/people.js`
 (identidades, plano do dia, nível de detalhe, API), `game/npc.js` (cérebros: rotina, guarda, arqueiros, balistas,
-consertos), `game/townnav.js` (caminhos da cidade), `game/mut/people.js` (ops / linhas), `game/content/people.js`
+consertos), `game/defense.js` (a defesa: a linha da muralha, as aberturas, os postos no alarme), `game/townnav.js`
+(caminhos da cidade), `game/mut/people.js` (ops / linhas), `game/content/people.js`
 (números, ofícios, nomes, roupas, falas), `ui/talk.js` (a conversa), arte em `art/look/body.js` (tabardo + brasão),
 `art/heraldryPaint.js`, `art/gear.js` (escudo da guarda), `art/compose.js` (poses "carregar" e "falar", escudo nas
 cores do reino), som `town_bell` (`fx/sfxBank.js`). Ganchos de uma linha em `combat.js`, `ai.js`, `players.js`,
@@ -437,13 +731,42 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   muralha: nos portões), sobem quando ninguém vê; **guarnições nas balistas** das cidades e castelos (de pé atrás dela;
   miram e atiram nos inimigos ao alcance, gigantes primeiro — ops `ballista.set` / `ballista.shot` como as de um jogador,
   nunca com um jogador operando). Catapultas: as plantas não têm (fase 3).
-- **Luta** (`npc.js guardFight`): vêem o hostil a 15 tiles (com o sino, mais longe e sem linha de visão) dentro da terra
-  do lugar + 12; lanças / espadas vão até ele pelas ruas e portões do lugar (os portões fechados não os prendem) e batem
+- **Luta** (`npc.js guardFight`): sem alarme, vêem o hostil a 15 tiles dentro da terra do lugar + 12 (com o sino, cada
+  um luta a partir do seu posto — a defesa, abaixo); lanças / espadas vão até ele pelas ruas e portões do lugar (os portões fechados não os prendem) e batem
   no ritmo da arma (a cada ~6–10 s um golpe forte ×1,6); arqueiros no chão chegam a uma boa distância com linha de tiro;
   no muro atiram dali (+20 % de alcance por andar). Flechas da guarda (`faction 'town'`) só acertam hostis. Dano ×1,5 o
   de um saqueador do mesmo nível (treinados, armas de ferro). Os monstros revidam: os andarilhos / esqueletos / múmias
   são atraídos pelo povo na rua (`walkers.js pickGoal`), qualquer criatura que apanha de um guarda luta com ele
   (`players.hurtPlayer` agora entrega o golpe a uma criatura), as flechas dos monstros acertam o povo.
+- **Quando o sino toca, a defesa** (`game/defense.js`; apontamento do dono: "os soldados vão para as muralhas e não
+  ficam defendendo apenas o mural / castelo … e caso o inimigo abra uma abertura na muralha os soldados corpo a corpo vão
+  até a abertura"): **toda** a guarda (os dois turnos) vai para o **perímetro**, não para a praça:
+  - **arqueiros no alto da muralha / paliçada** (`hooks.archers`), os do lado de onde vem o ataque primeiro, atirando
+    para fora; quem está no chão corre até o pé do muro e sobe em ~1 s mesmo à vista (sem caminho até o pé: sobe em 8 s);
+  - **corpo a corpo**: um em cada portão (por dentro; dois nos portões do lado do ataque), o resto no **trecho da muralha**
+    de onde vem o ataque (os pontos da ronda logo por dentro do muro, só a metade da frente); o guarda de um trecho de
+    muro inteiro só luta com o que está **dentro** (não sai dando a volta pelo portão); o do portão enfrenta o que chega a
+    7 tiles dele (sai pelo portão), o do trecho a 8;
+  - **balistas**: guarnição (até um terço dos de corpo a corpo, as do lado do ataque primeiro);
+  - **reserva** perto do torreão (cidade 15 %, castelo 12 % dos de corpo a corpo): caça o que **já entrou**; e para cada
+    inimigo dentro dos muros os 2 guardas mais perto (reserva primeiro, nunca quem segura uma abertura ou opera balista)
+    vão atrás dele;
+  - **vila sem muralha**: em linha na **beira do lado do ataque** (5 pontos em leque) e nas entradas das estradas; os
+    arqueiros 2,5 tiles atrás da linha;
+  - civis em casa (o torreão, para quem mora nele).
+  - **Aberturas**: uma peça da linha da muralha (madeira / pedra / portão, andar 0) **destruída** — o estado do lugar,
+    igual em todos os pares — é uma **abertura** (`game.townDefense.openings(sid)`: `{ id, ids, x, y, fx, fy (para fora),
+    w (tiles), gate }`; peças vizinhas até 2 tiles juntam numa só). Os **guardas de corpo a corpo mais perto** vão
+    segurá-la (no alarme: 2, ou 3 se larga / portão; o primeiro **na** abertura, os outros logo por dentro, lado a lado;
+    lutam com o que chega a 5 tiles); os arqueiros do muro perto dela (12 tiles) atiram primeiro no que vem até ela. **Sem
+    alarme**, uma abertura ainda fica com **um** guarda logo por dentro até ser refeita (os consertos de dia a refazem).
+  - **Barato**: os postos só são refeitos quando algo muda — o alarme começa / acaba, uma abertura aparece / some, o lado
+    do ataque muda (8 setores, com folga para não ficar trocando), um guarda morre / volta — a cada meio segundo só se
+    compara uma assinatura; quem caça quem dentro dos muros é refeito no mesmo meio segundo (poucos inimigos × poucos
+    guardas). Nada por quadro.
+  - **Fase 3** usa o mesmo: `game.townDefense.perimeter(sid)` (a linha: peças, `inside(x, y)`), `.openings(sid)`,
+    `.threat(sid)` (o lado do ataque: `{ fx, fy, sector }`), `.posts(sid)` (os postos agora, anfitrião), `.assign(sid,
+    threat, danger)` (os postos para uma ameaça dada — um exército chegando por um lado).
 - **Nível** (§7b): `realmNpcLevel` = o maior entre o nível pela distância e o **progresso do mundo** — agora um recorde
   guardado (`game.towns.prog`, op `town.prog`, linha `wprog` no save / snapshot, nunca desce), até o nível dos lugares
   mais distantes. Civis: 2 níveis abaixo.
@@ -502,14 +825,18 @@ mercado pode usar `workplaces[].productivity` / `fields` / `pens`.
 
 ### Testes e prints
 
-`tools/mp-test.js` VL1–VL8 (`?run=VL1,…`): VL1 o povo da vila nos dois pares (mesmos nomes, ofícios, visual da semente,
+`tools/mp-test.js` VL1–VL9 (`?run=VL1,…`): VL1 o povo da vila nos dois pares (mesmos nomes, ofícios, visual da semente,
 API) e trabalhando de dia · VL2 de noite em casa, o dono da cama dormindo na cama (pose no fluxo), só a guarda na rua ·
-VL3 ronda de dia; de noite arqueiros no adarve de um castelo (andar 2) e guarnição na balista · VL4 um lobo na vila: o
-sino, os civis correm para casa, a guarda mata; noite de inverno: andarilhos no portão, a guarda luta e vence, sem dano
-entre o povo · VL5 sem fogo amigo (golpes do anfitrião e do convidado, atordoar, sangrar, alvo automático, cerco) e
-"Conversar" · VL6 consertos de dia (rachadura e peça destruída da paliçada) e a aurora não limpa mais o dano do lugar ·
-VL7 a cidade: teto de 60, custo por quadro, longe = só contagem · VL8 uma morte por monstro (sem corpo / saque), salva,
-repovoada dias depois; o progresso do mundo só sobe e é salvo.
+VL3 ronda de dia; de noite arqueiros no adarve de um castelo (andar 2) e guarnição na balista · VL4 um lobo (forte, ×12
+de vida, para o alarme durar) na vila: o sino, os civis correm para casa e entram, os guardas que caçam o que entrou o
+matam; noite de inverno: andarilhos no portão, a guarda luta e vence, sem dano entre o povo · VL5 sem fogo amigo (golpes
+do anfitrião e do convidado, atordoar, sangrar, alvo automático, cerco) e "Conversar" · VL6 consertos de dia (rachadura
+e peça destruída da paliçada) e a aurora não limpa mais o dano do lugar · VL7 a cidade: teto de 60, custo por quadro,
+longe = só contagem · VL8 uma morte por monstro (sem corpo / saque), salva, repovoada dias depois; o progresso do mundo
+só sobe e é salvo · VL9 **a defesa**: um lobo (preso no lugar) fora da paliçada de dia — o sino, a ameaça do lado dele,
+todo arqueiro na rua sobe na paliçada (superfície do andar 1, nenhum no mural), os de corpo a corpo nos portões / no
+trecho de frente (nenhum no mural); um tronco desse trecho é destruído → abertura nos dois pares e um guarda de corpo a
+corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela.
 Prints em `shots/vl_*.png` (não vão para o git): `vl_village_day_a` / `vl_village_day_b` (vila de dia, 0° e 45°), `vl_work_field` / `vl_work_pen` (lavrador plantando,
 pastor no curral), `vl_work_smith` (ferreiro martelando na bigorna), `vl_work_carry` / `vl_city_market_morning` /
 `vl_city_plaza` / `vl_city_plaza_45` (a praça da capital: feira da manhã, gente indo ao chafariz), `vl_evening` (a vila
@@ -517,15 +844,19 @@ no fim da tarde) / `vl_evening_city` (a praça da capital à hora dourada), `vl_
 (janelas acesas, ronda, arqueiro na paliçada), `vl_night_castle_archers` / `vl_night_castle_ballista` /
 `vl_night_city_walls` / `vl_night_city_walls_45` / `vl_night_city_patrol` (arqueiros com lanterna nos muros, guarnição
 da balista, ronda), `vl_night_bed` (dormindo nas camas), `vl_fight_gate` / `vl_fight_gate2` (a guarda contra andarilhos
-do gelo no portão do castelo), `vl_talk` (a conversa).
+do gelo no portão do castelo), `vl_talk` (a conversa), `vl_breach_gap` / `vl_breach_gap_45` / `vl_breach_walls` (a
+defesa: lobos fora da paliçada de uma vila, um tronco destruído — um guarda na abertura e outro logo por dentro, os
+arqueiros no alto da paliçada, um guarda no trecho de frente).
 
 ### Decisões e pendências
 
-- **Portas bloqueadas por móveis** (apontamento do dono; o agente de correções mexe nos prefabs): hoje a casa pequena tem
-  a mesa na frente da porta por dentro. O povo trata isso sem travar: quem vai para dentro de uma casa assim entra pela
-  porta (some e aparece dentro se um jogador está ao lado), o dono da cama aparece direto na cama e, para sair, passa
-  pela porta (um passo de um tile, a porta abre); quando os prefabs forem corrigidos tudo passa a andar por dentro
-  sozinho (as regiões são recalculadas).
+- **Portas bloqueadas por móveis**: corrigidas nos prefabs (§9b). O povo continua tratando uma casa que ainda fique
+  fechada sem travar (uma construção de jogador, um móvel posto depois): quem vai para dentro entra pela porta (some e
+  aparece dentro se um jogador está ao lado), o dono da cama aparece direto na cama e, para sair, passa pela porta (um
+  passo de um tile, a porta abre); as regiões são recalculadas quando algo muda. Com as portas livres, agora todos
+  **entram** de verdade nas casas: no vão de uma porta eles passam um pelo outro (sem empurrão: quem entra e quem sai
+  nunca travam a porta de 1 tile), o caminho reto só vale se o corpo inteiro passa (não raspa no batente) e quem foge
+  para casa entra até o fim (antes ficava indo e voltando na soleira).
 - As camas do andar de cima (a torre de menagem) são usadas por quem está no térreo embaixo delas (o desenho deitado
   fica na cama; o povo ainda não sobe escadas — só a guarda, que aparece no alto quando ninguém vê).
 - Guarda morta volta depois de 1,5 dia como qualquer morador; o inimigo que "desiste" (estado evade dos monstros) fica
@@ -533,7 +864,8 @@ do gelo no portão do castelo), `vl_talk` (a conversa).
 - **Barracas de mercado**: as plantas não têm; os mercadores ficam na beira da praça. Quando a economia criar as
   barracas, `npc.js workTask` (merchant) é o lugar.
 - **Catapultas nas muralhas**: as plantas só têm balistas; a guarnição as opera.
-- **Paliçada caminhável** (outro agente): os arqueiros já ficam no alto dela (andar 1) quando ninguém vê subir.
+- **Paliçada caminhável** (§9b): os arqueiros ficam no alto dela (andar 1); sobem quando ninguém vê subir (o povo ainda
+  não usa as escadas).
 - O povo passa pelos portões fechados do próprio lugar (os monstros não): a guarda sai para lutar e os moradores do
   campo entram depois do anoitecer.
 - No modo criativo o povo existe e vive igual (os monstros do criativo não atacam ninguém).

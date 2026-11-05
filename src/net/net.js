@@ -148,6 +148,7 @@ export class Net {
   _apply(name, args, seq) {
     const ctx = { seq, mine: !!args && args.by != null && args.by === this.pid, net: this, auth: this.auth };
     this.game.audio?.onOp?.(name, args, ctx); // cosmetic: sounds of everyone's actions (fx/audioDirector.js)
+    if (this.auth && this.game.eco?.onOp) this.game.eco.onOp(name, args); // host: job progress seen in the players' actions (game/eco.js; never emits here)
     this.applying++;
     try { OPS[name].apply(this.game, args, ctx); } catch (e) {
       netlog.error('sync', `Falha ao aplicar ${name} (seq ${seq}): ${e.message}`);

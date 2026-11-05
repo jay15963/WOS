@@ -49,7 +49,7 @@ export const OP_AT = {
   'struct.working': (g, a) => [objP(g, a.id)],
   'struct.style': (g, a) => each(a.list, (r) => objP(g, r?.[0])),
   'door.set': (g, a) => [objP(g, a.id)],
-  'chest.set': (g, a) => [objP(g, a.id)],
+  'chest.set': (g, a) => [/^t\d+\.\d+$/.test(a.id) ? null : objP(g, a.id)], // (a settlement's chest — a bought house: global, its contents are economy state on every peer, game/mut/eco.js)
   'dummy.hit': (g, a) => [objP(g, a.id)],
   'lv.collapse': (g, a) => each(a.ids, (id) => objP(g, id)),
   'roof.collapse': (g, a) => each(a.ids, (id) => objP(g, id)),

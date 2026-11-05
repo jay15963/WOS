@@ -258,6 +258,36 @@ ITEMS.item_bone_meal = [(g) => {
   g.strokeStyle = '#e9dfc8'; g.lineWidth = 2.2; g.lineCap = 'round'; g.beginPath(); g.moveTo(12, 22); g.lineTo(23, 22); g.stroke(); // a bone drawn on it
   g.fillStyle = '#e9dfc8'; for (const [x, y] of [[11.4, 21], [11.4, 23], [23.6, 21], [23.6, 23]]) { g.beginPath(); circle(g, x, y, 1.5); g.fill(); }
 }];
+// the economy of the kingdoms (game/eco.js): gold coins (a small stack and one standing coin with a crown), a sealed parcel
+function coinFace(g, x, y, rx, ry, rim, face, hi) {
+  g.fillStyle = rim; g.beginPath(); g.ellipse(x, y + 1.2, rx, ry, 0, 0, TAU); g.fill();           // the edge below
+  g.fillStyle = lin(g, x - rx, y - ry, x + rx, y + ry, [[0, hi], [0.55, face], [1, rim]]);
+  g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, TAU); g.fill();
+  g.strokeStyle = 'rgba(122,74,10,0.75)'; g.lineWidth = 0.7; g.beginPath(); g.ellipse(x, y, rx * 0.74, ry * 0.74, 0, 0, TAU); g.stroke();
+}
+ITEMS.item_coin = [(g) => {
+  const R = '#8a5408', F = '#f4c43a', H = '#fff4b8';
+  for (let k = 0; k < 3; k++) coinFace(g, 10.5, 30 - k * 3, 7.6, 3.3, R, F, H);                   // a small stack behind
+  // the big coin, its face to us: a thick rim, a crown stamped on it, a shine
+  g.fillStyle = R; g.beginPath(); circle(g, 21.5, 18.6, 12.4); g.fill();
+  g.fillStyle = rad(g, 18, 14, 1, 13, [[0, H], [0.45, F], [1, '#c98c18']]); g.beginPath(); circle(g, 20.6, 17.8, 11.4); g.fill();
+  g.strokeStyle = 'rgba(122,70,8,0.9)'; g.lineWidth = 1.1; g.beginPath(); circle(g, 20.6, 17.8, 8.6); g.stroke();
+  g.fillStyle = '#a8680c'; g.beginPath(); g.moveTo(15.4, 21.6); g.lineTo(15.4, 14.6); g.lineTo(18, 17.6); g.lineTo(20.6, 12.6); g.lineTo(23.2, 17.6); g.lineTo(25.8, 14.6); g.lineTo(25.8, 21.6); g.closePath(); g.fill();
+  g.fillStyle = '#ffe58a'; g.beginPath(); g.moveTo(15.4, 21.6); g.lineTo(25.8, 21.6); g.lineTo(25.8, 22.8); g.lineTo(15.4, 22.8); g.closePath(); g.fill();
+  g.fillStyle = 'rgba(255,255,255,0.9)'; g.beginPath(); g.ellipse(15.6, 11.4, 3, 1.5, -0.7, 0, TAU); g.fill();
+}];
+ITEMS.item_parcel = [(g) => {
+  // a wooden-framed box wrapped in cloth, tied with twine, a red wax seal
+  g.fillStyle = lin(g, 0, 9, 0, 31, [[0, '#e3c98f'], [1, '#a47d47']]);
+  g.beginPath(); rrect(g, 7, 12, 22, 18, 2.4); g.fill();
+  g.fillStyle = lin(g, 0, 7, 0, 13, [[0, '#f1dcaa'], [1, '#c9a96a']]);
+  g.beginPath(); g.moveTo(9, 12); g.lineTo(12, 7.5); g.lineTo(31, 7.5); g.lineTo(29, 12); g.closePath(); g.fill();
+  g.fillStyle = '#8f6a3a'; g.beginPath(); g.moveTo(29, 12); g.lineTo(31, 7.5); g.lineTo(31, 25.5); g.lineTo(29, 30); g.closePath(); g.fill();
+  g.strokeStyle = '#6d4a26'; g.lineWidth = 1.6;
+  g.beginPath(); g.moveTo(18, 12); g.lineTo(18, 30); g.moveTo(7, 21); g.lineTo(29, 21); g.moveTo(18, 12); g.lineTo(21.5, 7.5); g.stroke();
+  g.fillStyle = '#b02a22'; g.beginPath(); circle(g, 18, 21, 3.2); g.fill();
+  g.fillStyle = '#e2584a'; g.beginPath(); circle(g, 17.2, 20.2, 1.2); g.fill();
+}];
 
 // gear icons: the held sprite painters, laid diagonally (tip up-right) and fitted to the box
 function gearIcon(id) {

@@ -46,6 +46,13 @@ function holdPress(b, go) {
   b.addEventListener('click', (e) => { stop(); if (fired) { fired = false; return; } go(e.shiftKey); });
 }
 
+// the nearest other player within reach of a hand-over (4 tiles)
+function nearMate(g) {
+  const p = g.player;
+  let best = null, bd = 4;
+  for (const e of g.entities) if (e.remote && e.pid && !e.dead) { const d = Math.hypot(g.world.dx(e.x, p.x), e.y - p.y); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
 const ERA_PT = ['Primitiva', 'Pedra', 'Cobre', 'Ferro', 'Aço'];
 const WTYPE_PT = { knife: 'faca', axe: 'machado', pickaxe: 'picareta', spear: 'lança', sword: 'espada', club: 'clava', bow: 'arco' };
 const MINES_PT = ['rocha e pedregulhos', 'rocha, cobre e carvão', 'rocha, cobre, carvão e ferro', 'todos os minérios', 'todos os minérios'];
@@ -181,6 +188,13 @@ export class Panels {
       if (!fromEq) {
         if (qty > 1) acts.push(`<button class="btn" data-act="drop1">${svgIcon('drop')}Largar 1</button>`);
         acts.push(`<button class="btn" data-act="drop">${svgIcon('drop')}Largar${qty > 1 ? ' tudo' : ''}</button>`);
+        // give to another player standing near (game/mut/eco.js item.give): the nearest one
+        const mate = nearMate(g);
+        if (mate) {
+          const few = id === 'coin' ? Math.min(qty, 10) : 1;
+          if (qty > few) acts.push(`<button class="btn" data-give="${few}">Dar ${few} a ${esc(mate.name || 'jogador')}</button>`);
+          acts.push(`<button class="btn" data-give="${qty}">Dar ${qty > 1 ? 'tudo ' : ''}a ${esc(mate.name || 'jogador')}</button>`);
+        }
       }
       const stats = itemStats(id).map((s) => `<li>${s}</li>`).join('');
       detail = `
@@ -256,7 +270,7 @@ export class Panels {
         </div>`, 'p-chest');
     } else if (name === 'mural') {
       const r = muralBody(this);
-      html = this.frame(r.title, svgIcon('map'), r.body, 'p-mural');
+      html = this.frame(r.title, svgIcon('map'), r.body, 'p-mural' + (r.cls ? ' ' + r.cls : '')); // (wide / mid: the economy tabs, ui/muralEco.js)
     } else if (name === 'map') {
       html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>${this.g.world.wrap ? '<div class="mm-zoom"><button class="n-btn" data-mmz="0.5">+</button><button class="n-btn" data-mmz="2">−</button><button class="n-btn" data-mmz="0">Centrar</button></div>' : ''}`, 'p-map');
     }
@@ -386,6 +400,19 @@ export class Panels {
         g.events.emit('inventory', {});
       }
       if (this.sel?.kind === 'inv' && !p.inv.slots[this.sel.i]) this.sel = null;
+      this.render();
+    }));
+    el.querySelectorAll('[data-give]').forEach((b) => b.addEventListener('click', () => {
+      const sel = this.sel, s = sel?.kind === 'inv' ? p.inv.slots[sel.i] : null, mate = nearMate(g);
+      if (!s || !mate) return;
+      const n = Math.min(s.qty, Math.max(1, +b.dataset.give | 0)), id = s.id;
+      p.inv.remove(id, n);
+      g.events.emit('inventory', {});
+      g.net.request('item.give', { to: mate.pid, item: id, qty: n }, {
+        refund: { [id]: n }, onReject: (why) => why && g.events.emit('error', { text: why }),
+        onOk: () => g.events.emit('toast', { text: `Você deu ${n} × ${ITEMS[id].name} a ${mate.name || 'jogador'}`, kind: 'info' }),
+      });
+      if (!p.inv.slots[sel.i]) this.sel = null;
       this.render();
     }));
     el.querySelectorAll('[data-btab]').forEach((b) => b.addEventListener('click', () => { this.buildTab = b.dataset.btab; this.resetScroll('bgrid'); this.render(); }));

@@ -1,6 +1,7 @@
 // Headless Chrome step runner (screenshots / probes of the running game).
 // usage: node tools/headless/steps.mjs "http://localhost:<port>/?seed=4242&dev=1&fresh=1" <cdpPort> <steps.json> [WxH]
-// steps: [{ "js": "expr", "print": true } | { "wait": ms } | { "shot": "out.png" } | { "log": "expr" }]
+// steps: [{ "js": "expr", "print": true } | { "wait": ms } | { "shot": "out.png" } | { "log": "expr" } |
+//         { "cdp": "Domain.method", "params": {…}, "print": true } (a raw DevTools command: touch / mouse input, emulation…)]
 // The page must have a seed in the URL to boot straight into a world. Camera yaw: game.cam.rot / game.cam.rotTo (radians).
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,6 +27,7 @@ const ev = async (expr) => { const r = await send('Runtime.evaluate', { expressi
 for (const s of steps) {
   if (s.js) { const v = await ev(s.js); if (s.print) console.log('js:', JSON.stringify(v)); }
   if (s.log) console.log('log:', JSON.stringify(await ev(s.log)));
+  if (s.cdp) { const r = await send(s.cdp, s.params || {}); if (s.print) console.log('cdp:', JSON.stringify(r.result ?? r.error ?? null)); }
   if (s.wait) await sleep(s.wait);
   if (s.shot) { const shot = await send('Page.captureScreenshot', { format: 'png' }); writeFileSync(s.shot, Buffer.from(shot.result.data, 'base64')); console.log('saved', s.shot); }
 }

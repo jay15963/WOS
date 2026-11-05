@@ -56,8 +56,13 @@ export function nearPass(game, x, y, R = 3) {
   }
   return null;
 }
-// a straight walk between two points over passable tiles (DDA over the centre line)
-export function lineClear(game, x0, y0, x1, y1) {
+// a straight walk between two points over passable tiles (DDA over the centre line; r > 0: also both edges of a body that
+// wide — a doorway taken at a slant catches its shoulder on the door frame)
+export function lineClear(game, x0, y0, x1, y1, r = 0) {
+  if (r > 0) {
+    const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy) || 1, nx = (-dy / d) * r, ny = (dx / d) * r;
+    return lineClear(game, x0, y0, x1, y1) && lineClear(game, x0 + nx, y0 + ny, x1 + nx, y1 + ny) && lineClear(game, x0 - nx, y0 - ny, x1 - nx, y1 - ny);
+  }
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1), dx = x1 - x0, dy = y1 - y0;
   const sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
@@ -148,6 +153,7 @@ export class TownNav {
     this._label();
     if (this.compV < 0) return true; // (not labelled yet: assume so)
     const a = this.comp[(sy - this.y0) * this.w + (sx - this.x0)], b = this.comp[(gy - this.y0) * this.w + (gx - this.x0)];
+    if ((!a || !b) && this.compV !== this.game.build.v && npcPass(this.game, sx, sy) && npcPass(this.game, gx, gy)) return true; // (opened since the labelling: maybe)
     return !!a && a === b;
   }
   // a path of tile centres from (ax, ay) to (bx, by) (both ends snapped to open tiles), cached; null = no way
@@ -166,7 +172,8 @@ export class TownNav {
     // no way between the two regions (a house whose door is blocked inside, a pen without a gate…): at once
     this._label();
     const si = (sy - this.y0) * this.w + (sx - this.x0), gi = (gy - this.y0) * this.w + (gx - this.x0);
-    if ((this.comp[si] !== this.comp[gi] && this.compV >= 0) || (this.failG.get(gi) > now - 20)) { this.stats.quick++; this.stats.fails++; (this.lastFails || (this.lastFails = [])).push([sx, sy, gx, gy]); if (this.lastFails.length > 30) this.lastFails.shift(); return null; }
+    const fresh = !this.comp[si] || !this.comp[gi] ? this.compV === this.game.build.v : true; // (an end opened since the labelling — a wall piece just destroyed —: search)
+    if ((this.comp[si] !== this.comp[gi] && this.compV >= 0 && fresh) || (this.failG.get(gi) > now - 20)) { this.stats.quick++; this.stats.fails++; (this.lastFails || (this.lastFails = [])).push([sx, sy, gx, gy]); if (this.lastFails.length > 30) this.lastFails.shift(); return null; }
     this.cost = 1;
     const p = this._find(sx, sy, gx, gy);
     this.stats.finds++; this.stats.ms += performance.now() - t0;

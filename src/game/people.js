@@ -37,7 +37,8 @@ import { seasonAt } from './seasons.js';
 import { realmNpcLevel } from './towns.js';
 import { registerWork } from './gathering.js';
 import { TownNav, nearPass } from './townnav.js';
-import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, insideAt } from './npc.js';
+import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, insideAt, hostile } from './npc.js';
+import { perimeterOf, openings, threatOf, assignDefense } from './defense.js';
 import { deadMap } from './mut/people.js';
 import { STORY_H } from './levels.js';
 
@@ -241,6 +242,14 @@ export function planOf(game, S, P, hour, danger, winter) {
   const H = S.homes[P.home] || null;
   const atHome = (k) => { p.k = k; p.in = true; p.b = H; p.x = H ? H.cx : S.plaza.x; p.y = H ? H.cy : S.plaza.y; p.key = k + ':' + (P.home); return p; };
   if (P.guard) {
+    // the defense (defense.js, host): the bell rang — every guard to its post on the walls / at the gates / the gaps; a
+    // gap in the walls is held even when calm
+    const dd = S.def?.posts.get(P.i);
+    if (dd && (danger || dd.k === 'gap')) {
+      p.duty = dd; p.in = false; p.k = dd.k === 'wall' ? 'wall' : dd.k === 'crew' ? 'crew' : 'hold'; p.lv = dd.lv || 0; p.x = dd.x; p.y = dd.y;
+      p.key = `def:${dd.k}:${Math.round(dd.x * 2)},${Math.round(dd.y * 2)}:${P.i}`;
+      return p;
+    }
     const night = hour >= 19.4 || hour < 5.8;
     const on = night ? P.shift === 1 || P.nightToo || P.job === 'archer' : P.shift === 0 || (P.job === 'archer' && P.i % 2 === 0);
     if (!on) return atHome('off');
@@ -313,13 +322,23 @@ export function installPeople(game) {
       const rec = Pp.live.get(sid), S = peopleOf(game, sid);
       return {
         danger: !!rec?.danger,
-        live: rec ? [...rec.ents.values()].map((m) => ({ nid: m.nid, i: m.npc.i, job: m.npc.job, guard: m.npc.guard, plan: m.planKey, task: m.task?.k || null, state: m.state, threat: m.threat?.nid || null, x: m.x, y: m.y, z: m.z || 0, pose: m.pose?.type || null, act: m.action?.type || null, hp: m.hp, repair: m.repair?.id || null })) : [],
+        live: rec ? [...rec.ents.values()].map((m) => { const d = S?.def?.posts.get(m.npc.i); return { nid: m.nid, i: m.npc.i, job: m.npc.job, guard: m.npc.guard, plan: m.planKey, task: m.task?.k || null, state: m.state, threat: m.threat?.nid || null, x: m.x, y: m.y, z: m.z || 0, pose: m.pose?.type || null, act: m.action?.type || null, hp: m.hp, repair: m.repair?.id || null, duty: d ? { k: d.k, x: d.x, y: d.y, lv: d.lv || 0, op: d.op || null } : null, hunt: m.hunt?.nid || null }; }) : [],
+        def: S?.def ? { danger: S.def.danger, th: S.def.th, ops: S.def.ops.map((o) => o.id), posts: [...S.def.posts].map(([i, d]) => ({ i, k: d.k, x: d.x, y: d.y, lv: d.lv || 0, op: d.op || null })) } : null,
         homes: S ? S.homes.map((h) => ({ b: h.b, beds: h.beds.slice(), out: h.out, box: h.box, sealed: rec ? sealed(game, rec, h) : null, people: S.persons.filter((P) => S.homes[P.home] === h).map((P) => P.i) })) : [],
       };
     },
   };
   game.people = Pp;
   if (game.towns) game.towns.people = (sid) => peopleSummary(game, sid);
+  // the defense of a place (defense.js; phase 3 — armies besieging it — uses the same): its wall line, the gaps in it,
+  // from where the attackers come, the posts of the watch now (host), a plan of the posts for a given threat
+  game.townDefense = {
+    perimeter: (sid) => { const S = peopleOf(game, sid); return S ? perimeterOf(S) : null; },
+    openings: (sid) => { const S = peopleOf(game, sid); return S ? openings(game, S) : []; },
+    threat: (sid) => Pp.live.get(sid)?.threat || null,
+    posts: (sid) => peopleOf(game, sid)?.def?.posts || null,
+    assign: (sid, th = null, danger = true) => { const S = peopleOf(game, sid); return S ? assignDefense(game, S, Pp.live.get(sid) || null, openings(game, S), th, danger) : null; },
+  };
   return Pp;
 }
 export function peopleOf(game, sid) {
@@ -526,16 +545,52 @@ function sealed(game, rec, b) {
   for (let y = y0 + 1; y < y1 && b._sealed; y++) for (let x = x0 + 1; x < x1; x++) if (nav.connected(b.out[0], b.out[1], x + 0.5, y + 0.5)) { b._sealed = false; break; }
   return b._sealed;
 }
-// hostile creatures in the town land (+ a margin): the danger of a settlement
-function dangerOf(game, S) {
-  const r = S.s.r + N.alarmR, r2 = r * r, w = game.world;
+// hostile creatures in the town land (+ a margin): the danger of a settlement — rec.foes (all of them), rec.inside (the
+// ones within its wall line / edge)
+function dangerOf(game, rec) {
+  const S = rec.S, r = S.s.r + N.alarmR, r2 = r * r, w = game.world, per = perimeterOf(S);
+  const foes = rec.foes || (rec.foes = []), inside = rec.inside || (rec.inside = []);
+  foes.length = 0; inside.length = 0;
   for (const e of game.entities) {
     if (e.dead || !e.isMob || e.proxy || e.npc) continue;
     if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile')) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
-    if (dx * dx + dy * dy < r2) return true;
+    if (dx * dx + dy * dy >= r2) continue;
+    foes.push(e);
+    if (per.inside(e.x, e.y, w)) inside.push(e);
   }
-  return false;
+  return foes.length > 0;
+}
+// the defense (defense.js): new posts only when something changed — the alarm, a gap opened / closed, the attackers'
+// side, a guard dead / back
+function defenseTick(game, rec) {
+  const S = rec.S, ops = openings(game, S), D = deadMap(game);
+  rec.threat = rec.danger ? threatOf(game, S, rec.foes || [], rec.threat) : null;
+  let dk = 0;
+  for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
+  const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}`;
+  if (sig !== rec.defSig) {
+    rec.defSig = sig;
+    S.def = rec.danger || ops.length ? assignDefense(game, S, rec, ops, rec.threat, rec.danger) : null;
+    game.people.stats.defs = (game.people.stats.defs || 0) + 1;
+    for (const m of rec.ents.values()) if (m.npc.guard) m.planT = 0; // (to their new posts now)
+  }
+  // the foes already inside the walls: hunted by the reserve and the nearest melee guards (not the ones holding a gap /
+  // manning a ballista) — a few per foe
+  for (const m of rec.ents.values()) m.hunt = null;
+  if (!rec.danger || !rec.inside?.length) return;
+  const pool = [];
+  for (const m of rec.ents.values()) {
+    if (m.dead || m.npc.job !== 'guard' || m.z > 0.5) continue;
+    const k = S.def?.posts.get(m.npc.i)?.k;
+    if (k !== 'crew') pool.push([m, k === 'reserve' ? -1000 : k === 'gap' ? 40 : 0]);
+  }
+  for (const e of rec.inside) {
+    if (!hostile(e)) continue;
+    pool.sort((a, b) => (Math.hypot(a[0].x - e.x, a[0].y - e.y) + a[1]) - (Math.hypot(b[0].x - e.x, b[0].y - e.y) + b[1]));
+    let n = 0;
+    for (const [m] of pool) { if (m.hunt) continue; m.hunt = e; if (++n >= N.def.hunters) break; }
+  }
 }
 
 export function peopleSystem() {
@@ -558,15 +613,16 @@ export function peopleSystem() {
           if (!s || nearestPlayerD(game, s.x, s.y) > s.ro + N.matR) continue;
           near.add(sid);
         }
-        for (const [sid, rec] of Pp.live) if (!near.has(sid)) { for (const m of [...rec.ents.values()]) dropNpc(game, rec, m); if (rec.danger) game.net.emit('town.alarm', { sid, on: 0 }); Pp.live.delete(sid); }
+        for (const [sid, rec] of Pp.live) if (!near.has(sid)) { for (const m of [...rec.ents.values()]) dropNpc(game, rec, m); if (rec.danger) game.net.emit('town.alarm', { sid, on: 0 }); rec.S.def = null; Pp.live.delete(sid); }
         for (const sid of near) {
           let rec = Pp.live.get(sid);
-          if (!rec) { const S = peopleOf(game, sid); if (!S) continue; rec = { sid, S, ents: new Map(), danger: false, dangerT: 0, repair: null }; Pp.live.set(sid, rec); }
-          const dg = dangerOf(game, rec.S);
+          if (!rec) { const S = peopleOf(game, sid); if (!S) continue; rec = { sid, S, ents: new Map(), danger: false, dangerT: 0, repair: null, defSig: '' }; S.def = null; Pp.live.set(sid, rec); }
+          const dg = dangerOf(game, rec);
           if (dg) rec.dangerT = game.worldTime;
           const was = rec.danger;
           rec.danger = dg || (rec.danger && game.worldTime - rec.dangerT < 6); // (a few calm seconds before the all-clear)
           if (rec.danger !== was) game.net.emit('town.alarm', { sid, on: rec.danger ? 1 : 0 });
+          defenseTick(game, rec);
           manage(game, rec, players);
           repairTick(game, rec, N.tick);
         }
