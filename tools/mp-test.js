@@ -9529,9 +9529,12 @@ def('WR10', {
   await t.sleep(250);
   t.check(/Reputação negativa com o Reino de/.test(ecoTxt(G)) && /mais cara/.test(ecoTxt(G)), 'Comércio says why ("Reputação negativa com o Reino de … compra 50 % mais cara …")', short(ecoTxt(G).slice(Math.max(0, ecoTxt(G).indexOf('Reputação negativa')), 200), 200));
   setCoins(G, 6000);
-  const b1 = await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 5, max: qb.cost }, { refund: { coin: qb.cost } });
+  // (the price now, once both peers agree on it: a market update the host has applied may still be on its way to the guest)
+  await t.waitFor(() => MH.eco.quoteBuy(H.game, fs.id, gi, 5, uid).cost === MG.eco.quoteBuy(G.game, fs.id, gi, 5, uid).cost, 3000 + RT(), 'the same price on both peers');
+  const qb1 = MG.eco.quoteBuy(G.game, fs.id, gi, 5, uid);
+  const b1 = await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 5, max: qb1.cost }, { refund: { coin: qb1.cost } });
   t.check(b1.ok, 'it still trades there (negative is not enemy)', b1.why);
-  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins');
+  await t.waitFor(() => coinsOf(G) === 6000 - qb1.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins', () => `${coinsOf(G)} (quote ${qb1.cost})`);
   // no joining with a negative reputation
   const j2 = await ecoReq(G, 'realm.join', { sid: fs.id });
   t.check(!j2.ok && /negativa/.test(j2.why || ''), 'it may not join that kingdom ("… é negativa: melhore-a com comércio e trabalhos …")', j2.why);
