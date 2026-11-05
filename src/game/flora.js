@@ -221,11 +221,15 @@ export function ensureStarter(game, offscreen = false) {
 
 // Natural objects standing on a player structure's footprint (a newer world generator may grow a plant where
 // an old save has a building): removed once after load by the authority (one obj.remove op, 'clear' fx).
+// Never a settlement's own pieces (o.town): they come from the seed together with their ground — the crops planted on the
+// fields' farm plots are meant to be there (world/realm/ground.js; this used to empty the fields of every place made at
+// load: the start village's harvest jobs had nothing to harvest — docs/REINOS.md §10 "Trabalhos possíveis")
 export function clearUnderStructures(game) {
   const S = game.build?.structures;
   if (!S || !S.length) return 0;
   const w = game.world, ids = new Set();
   for (const s of S) {
+    if (s.town != null) continue;
     const tiles = footprint(s);
     if (!tiles.length) continue;
     const key = new Set(tiles.map(([x, y]) => x + ',' + y));
