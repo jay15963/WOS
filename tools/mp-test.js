@@ -8637,6 +8637,9 @@ def('EC5', {
   const uid = await ecoReady(t, H, G);
   const P = MH.eco.propsOf(H.game, s0.id);
   const house = P.houses.find((h) => h.mode === 'sale' && h.chests.length && !H.game.eco.pr.has(h.id));
+  // owner's rule: renting costs far more than owning — the daily rent is ≥ 4 × the daily tax and ≥ 7 % of the price
+  { const tax = MH.eco.taxRate(H.game, s0.k), rents = P.houses.filter((h) => h.mode === 'rent').map((h) => [MH.eco.rentOf(H.game, h), Math.round(h.price * tax), h.price]);
+    t.check(rents.length && rents.every(([r, tx, pr]) => r >= 4 * tx && r >= Math.round(pr * 0.07) && r === MG.eco.rentOf(G.game, P.houses.find((h) => h.price === pr && h.mode === 'rent'))), 'the rent is ≥ 4 × the tax of owning (and ≥ 7 % of the price a day), the same on both peers', rents.map(([r, tx, pr]) => `${pr}: rent ${r} vs tax ${tx}`).join(' · ')); }
   const plot = P.plots.find((p) => !H.game.eco.pr.has(p.id));
   t.need(house && plot, 'a house for sale with a chest and a free plot at the start village');
   await toMural(t, H, MH, G, MG, s0.id);
@@ -8815,7 +8818,7 @@ def('EC8', {
   if (![...H.game.eco.pr.values()].some((r) => r.u === uid)) {
     if ((recOn(H, uid)?.rep[s0.k] | 0) < 25) giveRep(H, uid, s0.k, 30, s0.id);
     const h = P.houses.find((q) => q.mode === 'rent' && !H.game.eco.pr.has(q.id));
-    if (h) { await toMural(t, H, MH, G, MG, s0.id); setCoins(G, 1000 - h.rent); await ecoReq(G, 'prop.rent', { id: h.id, paid: h.rent }, { refund: { coin: h.rent } }); }
+    if (h) { const rent = MH.eco.rentOf(H.game, h); await toMural(t, H, MH, G, MG, s0.id); setCoins(G, 1000 - rent); await ecoReq(G, 'prop.rent', { id: h.id, paid: rent }, { refund: { coin: rent } }); }
   }
   if (!recOn(H, uid)?.jobs.length) { const j = MH.eco.boardOf(H.game, s0.id).find((x) => x.t !== 'deliver'); if (j) { await toMural(t, H, MH, G, MG, s0.id); await ecoReq(G, 'job.take', { sid: s0.id, id: j.id }); } }
   await t.sleep(RT() + 200);
@@ -9271,7 +9274,7 @@ def('WR5', {
   t.need(A && T, 'a walled Rabelonia place joined by road to a Valadestra castle');
   const far = Math.min(Math.hypot(H.game.world.dx(T.x, H.game.player.x), T.y - H.game.player.y), Math.hypot(G.game.world.dx(T.x, G.game.player.x), T.y - G.game.player.y));
   t.check(far > 600, 'the place is far from both players (numbers, no materialized pieces)', `${Math.round(far)} tiles, walls ${T.walls}`);
-  H.game.net.emit('realm.army', { gar: [[A.id, 260], [T.id, 30]] }); H.game.net.flush();
+  H.game.net.emit('realm.army', { gar: [[A.id, 260], [T.id, 90]] }); H.game.net.flush(); // (a garrison that holds a few hours: the siege is seen before the place falls)
   const a = RH.dbg.launch(A.id, T.id, 220);
   H.game.net.flush();
   const pre = `t${T.id}.`;
@@ -9369,7 +9372,7 @@ def('WR7', {
   t.need(house && plot, 'a free house and a free plot at the start village');
   await toMural(t, H, MH, G, MG, s0.id);
   setCoins(G, 9000);
-  const h = house.mode === 'rent' ? await ecoReq(G, 'prop.rent', { id: house.id, paid: house.rent }, { refund: { coin: house.rent } }) : await ecoReq(G, 'prop.buy', { id: house.id, paid: house.price }, { refund: { coin: house.price } });
+  const hRent = MH.eco.rentOf(H.game, house), h = house.mode === 'rent' ? await ecoReq(G, 'prop.rent', { id: house.id, paid: hRent }, { refund: { coin: hRent } }) : await ecoReq(G, 'prop.buy', { id: house.id, paid: house.price }, { refund: { coin: house.price } });
   const p = await ecoReq(G, 'prop.buy', { id: plot.id, paid: plot.price }, { refund: { coin: plot.price } });
   t.check(h.ok && p.ok, 'the guest holds a house and a plot', `${h.why || ''} ${p.why || ''}`);
   await t.waitFor(() => G.game.eco.pr.get(house.id)?.u === uid && G.game.eco.pr.get(plot.id)?.u === uid, 2000 + RT(), 'both properties the guest\'s on both peers');

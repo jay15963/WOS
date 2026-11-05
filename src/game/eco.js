@@ -632,11 +632,18 @@ export function propById(game, id) {
 }
 export const propValue = (pr) => (pr ? pr.price : 0);
 export const propKind = (id) => (String(id)[0] === 'h' ? 'house' : 'plot');
+// the daily rent of a house: at least PROP.rentDay of its price and PROP.rentVsTax × the tax its owner would pay to the
+// kingdom that holds the place now (owner: renting has to cost far more than owning — a small village house ~49–67 a day)
+export function rentOf(game, pr) {
+  if (!pr) return 0;
+  const tax = pr.price * taxRate(game, ownerOf(game, pr.sid));
+  return Math.max(5, Math.round(Math.max(pr.price * PROP.rentDay, tax * PROP.rentVsTax)));
+}
 // the daily charge of a property for its holder: tax (owned) or rent (rented)
 export function chargeOf(game, id, row = game.eco?.pr.get(id)) {
   const pr = propById(game, id);
   if (!pr || !row) return 0;
-  if (row.mode === 'rent') return pr.rent;
+  if (row.mode === 'rent') return rentOf(game, pr);
   return Math.max(1, Math.round(pr.price * taxRate(game, ownerOf(game, pr.sid)))); // (a captured place: the new kingdom's tax)
 }
 // the property a settlement piece belongs to (a house's door / chest / bed)

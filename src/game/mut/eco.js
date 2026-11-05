@@ -16,7 +16,7 @@ import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs 
 import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
-  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor,
+  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf,
 } from '../eco.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -501,9 +501,10 @@ defineIntent('prop.rent', {
     const [, why] = placeCheck(game, actor, pr.sid, u);
     if (why) return why;
     if (game.eco.pr.has(pr.id)) return 'Já foi alugada';
-    if (int(a.paid) < pr.rent) return `O aluguel é ${fmt(pr.rent)} moedas por dia`;
-    net.emit('eco.prop', { id: pr.id, u, name: recOf(game, u)?.name || '', mode: 'rent', day: game.env.dayIndex, by: actor.pid, give: int(a.paid) > pr.rent ? { [COIN]: int(a.paid) - pr.rent } : undefined,
-      toast: `Casa alugada: ${fmt(pr.rent)} moedas por dia, cobradas a cada amanhecer`, toastKind: 'good' });
+    const rent = rentOf(game, pr);
+    if (int(a.paid) < rent) return `O aluguel é ${fmt(rent)} moedas por dia`;
+    net.emit('eco.prop', { id: pr.id, u, name: recOf(game, u)?.name || '', mode: 'rent', day: game.env.dayIndex, by: actor.pid, give: int(a.paid) > rent ? { [COIN]: int(a.paid) - rent } : undefined,
+      toast: `Casa alugada: ${fmt(rent)} moedas por dia, cobradas a cada amanhecer`, toastKind: 'good' });
   },
 });
 

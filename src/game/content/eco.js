@@ -88,7 +88,8 @@ export const GIVER_NAMES = ['Ana', 'Bento', 'Clara', 'Duarte', 'Elvira', 'Fausto
 export const HOME_KEYS = { house_s: 700, house_s2: 750, cottage_stone: 900, house_m: 1100, house_stone: 1300, house_l: 1500, farmhouse: 1400, townhouse: 1900 };
 export const PROP = {
   cityK: 1.6,            // a city's prices × this
-  rentDay: 0.02,         // daily rent = price × this
+  rentDay: 0.07,         // daily rent: at least price × this …
+  rentVsTax: 4,          // … and at least this × the daily tax an owner pays (owner: renting must cost far more than owning)
   sellBack: 0.6,         // selling back to the kingdom
   plotSizes: [8, 6],     // plot sides (tiles): the big ones first, then smaller ones in what is left
   plotPrice: { village: 400, city: 900 }, // (an 8 × 8 plot; a smaller one in proportion)

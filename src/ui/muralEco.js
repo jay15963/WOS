@@ -9,7 +9,7 @@ import { itemIco } from './econIcons.js';
 import {
   GOODS, NG, GI, RANKS, profileOf, quoteBuy, quoteSell, maxAfford, landAverage, bestMarkets, meUid, myRec, rankInfo, taxRate, boardOf,
   jobState, jobTarget, jobWaypoint, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
-  JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor,
+  JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor, rentOf,
 } from '../game/eco.js';
 import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
 
@@ -339,13 +339,13 @@ function landBody(panels, I) {
   if (I.kind === 'castle') return `<div class="ec">${body}<div class="ec-empty"><b>O castelo não vende nada</b>É uma fortaleza: nem casas nem terrenos. Procure as vilas e a cidade do reino.</div></div>`;
   const need = ri.i < REP.buyRank ? `<div class="ec-news">Para comprar casa ou terreno em ${esc(K.name)} é preciso ser <b>${RANKS[REP.buyRank].name}</b> (você: ${esc(ri.name)}, ${ri.rep}/${RANKS[REP.buyRank].min} de reputação — faça trabalhos e negocie aqui). Alugar não pede nada.</div>` : '';
   const houseCard = (h) => {
-    const row = owned.get(h.id), isRent = h.mode === 'rent', price = isRent ? h.rent : h.price;
+    const row = owned.get(h.id), isRent = h.mode === 'rent', rent = isRent ? rentOf(g, h) : 0, price = isRent ? rent : h.price;
     const tday = Math.max(1, Math.round(h.price * tax));
     const chips = [`<span class="chip gold">${coinIco(A)}${fmt(price)}${isRent ? ' / dia' : ''}</span>`, isRent ? '<span class="chip">sem imposto</span>' : `<span class="chip">imposto ${fmt(tday)}/dia</span>`,
       `<span class="chip">${h.beds.length} ${h.beds.length === 1 ? 'cama' : 'camas'} · ${h.chests.length} ${h.chests.length === 1 ? 'baú' : 'baús'}</span>`];
     let act;
     if (row) act = `<span class="chip ${row.u === me ? 'teal' : ''}">${row.u === me ? 'Sua' : `De ${esc(row.name)}`}</span>`;
-    else if (isRent) act = `<button class="btn primary" data-prent="${h.id}" ${coins >= h.rent ? '' : 'disabled'}>Alugar</button>`;
+    else if (isRent) act = `<button class="btn primary" data-prent="${h.id}" ${coins >= rent ? '' : 'disabled'}>Alugar</button>`;
     else act = `<button class="btn primary" data-pbuy="${h.id}" ${coins >= h.price && ri.i >= REP.buyRank ? '' : 'disabled'}>Comprar</button>`;
     return `<div class="ec-card${row ? ' off' : ''}"><div class="ck">🏠</div><div><div class="ct">${esc(h.name)}</div><div class="cg">${isRent ? 'Para alugar' : 'À venda'}${coins < price && !row ? ` · faltam ${fmt(price - coins)} moedas` : ''}</div><div class="chips">${chips.join('')}</div></div>
       <div class="ca"><button class="btn" data-pview="${h.id}">Ver</button>${act}</div></div>`;
@@ -490,10 +490,11 @@ export function ecoBind(panels, el) {
   el.querySelectorAll('[data-prent]').forEach((b) => b.addEventListener('click', () => {
     const pr = propById(g, b.dataset.prent), p = g.player;
     if (!pr) return;
-    if (p.inv.count(COIN) < pr.rent) return err(g)('Moedas insuficientes');
-    p.inv.remove(COIN, pr.rent);
+    const rent = rentOf(g, pr);
+    if (p.inv.count(COIN) < rent) return err(g)('Moedas insuficientes');
+    p.inv.remove(COIN, rent);
     g.events.emit('inventory', {});
-    g.net.request('prop.rent', { id: pr.id, paid: pr.rent }, { refund: { [COIN]: pr.rent }, onReject: err(g) });
+    g.net.request('prop.rent', { id: pr.id, paid: rent }, { refund: { [COIN]: rent }, onReject: err(g) });
   }));
   el.querySelectorAll('[data-pleave]').forEach((b) => b.addEventListener('click', () => confirm('leave:' + b.dataset.pleave, () => {
     g.net.request('prop.leave', { id: b.dataset.pleave }, { onReject: err(g) });

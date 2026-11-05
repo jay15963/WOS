@@ -517,7 +517,10 @@ como antes). Assim sair do reino para negociar com o inimigo dele como viajante 
 - **Casas** (da planta: as moradias com cama): vila — 2 à venda e 1 para alugar; cidade — 4 e 3; castelo — nada
   ("O castelo não vende nada: é uma fortaleza"). Preços: casa pequena 700, casa pequena de taipa 750, casa de pedra
   pequena 900, casa 1 100, casa de pedra 1 300, casa de fazenda 1 400, casa grande 1 500, sobrado 1 900; na cidade
-  ×1,6. Aluguel: 2 % do preço por dia (casa pequena 14). Vender ao reino: 60 % do preço, menos a dívida.
+  ×1,6. **Aluguel** (dono, 5/11/2026: "o aluguel tem que subir… pelo menos 4 vezes" o imposto de quem compra — senão não
+  vale a pena comprar): por dia, o maior entre **7 % do preço** e **4 × o imposto** que o dono pagaria ao reino que tem o
+  lugar (casa pequena na vila: ~49–67 por dia conforme o reino; na cidade ~78–108). Antes era 2 % (casa pequena 14, quase
+  o imposto de 13). Vender ao reino: 60 % do preço, menos a dívida.
 - **Terrenos**: quadrados livres dentro da terra do lugar (nenhuma peça, rua, praça, campo ou curral; 1 tile das
   construções): primeiro 8 × 8 (vila 400, cidade 900), depois 6 × 6 no que sobra (230 / 510); até 6 na vila e 10 na cidade
   (a vila do início, Estrosa, tem 3 + 3).
