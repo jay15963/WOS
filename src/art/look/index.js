@@ -11,6 +11,7 @@ import * as B from './body.js';
 import * as F from './face.js';
 import { paintHair, paintBeard, hasBack } from './hair.js';
 import { atlasCanvas } from './hipaint.js';
+import { DIVS, paintDivision } from '../heraldryPaint.js';
 
 const D3 = ['s', 'n', 'e'], D2 = ['s', 'e'];
 export const HEMS = ['short', 'mid', 'long'];
@@ -39,6 +40,8 @@ export function lookDefs() {
   for (const e of C.over) if (e.id !== 'none') for (const d of D3) {
     M.set(`lk_over_${e.id}_${d}`, body(`lk_over_${e.id}_${d}`, (g, r) => B.overLayer(g, d, e, r), 1.3, 12));
   }
+  // the tabard's heraldic charge (the kingdoms' guards: look.crest = a division, tinted with the kingdom's metal)
+  for (const dv of DIVS) if (dv !== 'plain') for (const d of D3) M.set(`lk_over_crest_${dv}_${d}`, body(`lk_over_crest_${dv}_${d}`, (g) => B.crestLayer(g, d, dv, paintDivision), 0, 12));
   for (const e of C.bottom) for (const d of D3) M.set(`lk_bot_${e.id}_${d}`, body(`lk_bot_${e.id}_${d}`, (g, r) => B.bottomBase(g, d, e, r), 1.4, 12));
   for (const e of C.shoes) {
     if (!e.p.bare) for (const d of D3) M.set(`lk_shoe_${e.id}_${d}`, body(`lk_shoe_${e.id}_${d}`, (g) => B.shoeBand(g, d, e), 1.2));

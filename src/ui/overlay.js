@@ -125,8 +125,11 @@ export function installOverlay(game) {
         const d = Math.hypot(e.x - p.x, e.y - p.y);
         const isT = e === p.target;
         const fighting = e.state === 'chase' && e.threat === p;
+        // the settlements' people: a plate only for the one aimed at, the one "Conversar" would talk to, the one under the
+        // mouse, or a guard fighting / hurt (a crowd of plates is noise)
+        if (e.npc && !isT && g.ctl?.near?.o !== e && g.ctl?.hoverPick?.e !== e && !(e.npc.guard && e.hp < e.maxHp * 0.98)) continue; // (a wounded guard: its health bar)
         if (!isT && !fighting && d > 12) continue;
-        const a = isT || fighting ? 1 : Math.max(0, Math.min(1, (12 - d) / 4));
+        const a = isT || fighting || e.npc ? 1 : Math.max(0, Math.min(1, (12 - d) / 4));
         if (a <= 0.02) continue;
         plates.push({ e, d: isT ? -1 : fighting ? d - 20 : d, a, isT, fighting });
       }
@@ -143,7 +146,7 @@ export function installOverlay(game) {
         const bandit = e.faction === 'bandit';
         const col = bandit ? '#ff5a48' : TEMPER_COLOR[temper];
         const showBar = pl.isT || pl.fighting || e.hp < e.maxHp;
-        const fl = g.stock?.label?.(e); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js)
+        const fl = g.stock?.label?.(e) || (e.npc ? [g.people?.label?.(e) || e.name, e.npc.guard ? '#ffe7a8' : '#e6f4ff'] : null); // farm animals: "Vaca · domesticada" / "· com fome" / "· amarrada" (livestock.js); the people: "Joana da Fonte · Tecelã"
         const label = (fl ? fl[0] : e.isProp ? e.name : `${e.elite ? '★ ' : ''}${e.name}  ${e.level}`) + (DEV && e._artFallback ? ' ⚠ ARTE' : ''); // dev: drawn with another sprite
         const tw = ctx.measureText(label).width;
         const [sx, sy0] = g.worldToScreen(e.x, e.y, spriteTop(e) + liftOf(e) + (e._flift || 0)); // levels: lifted plate (_flift: a flying bird, a monkey up a tree — art/faunaDraw.js)

@@ -334,12 +334,52 @@ export function topTrim(g, d, e) {
   if (p.waist && d !== 'n') { g.save(); clipBody(g, d); g.strokeStyle = '#e8e8e8'; g.lineWidth = 1.5; g.beginPath(); hemLine(g, d, 31.6, 3); g.stroke(); g.restore(); }
 }
 
+// the tabard (the kingdoms' guards, game/people.js): a cloth panel over the shoulders, front and back, open at the sides,
+// belted; side view: the front and back panels seen edge-on
+export function tabardPath(g, d) {
+  if (d === 'e') {
+    g.moveTo(34.6, 9); g.quadraticCurveTo(40, 10.4, 43.6, 15); g.lineTo(45.4, 50.4); g.lineTo(38.8, 51.2); g.lineTo(37.4, 22); g.quadraticCurveTo(35.6, 15, 33.4, 12); g.closePath();
+    g.moveTo(21.4, 9.4); g.quadraticCurveTo(17, 11, 14.6, 15.4); g.lineTo(13.2, 50); g.lineTo(18.6, 50.8); g.lineTo(19.8, 22); g.quadraticCurveTo(21, 15, 23.2, 12.2); g.closePath();
+    return;
+  }
+  g.moveTo(12.6, 10.4); g.quadraticCurveTo(28, 6.4, 43.4, 10.4); g.lineTo(43.8, 15.2); g.quadraticCurveTo(39.2, 16.8, 38.8, 22);
+  g.lineTo(39.6, 50.4); g.quadraticCurveTo(28, 52.6, 16.4, 50.4); g.lineTo(17.2, 22); g.quadraticCurveTo(16.8, 16.8, 12.2, 15.2); g.closePath();
+}
+export const TABARD_BOX = { s: [16.4, 9, 39.6, 51.6], n: [16.4, 9, 39.6, 51.6], e: [36.4, 11, 45.4, 51] };
+// the tabard's charge (lk_over_crest_<division>_<d>, tinted with the kingdom's metal: art/heraldryPaint.js)
+export function crestLayer(g, d, div, paint) {
+  g.save(); g.beginPath(); tabardPath(g, d); g.clip();
+  const [x0, y0, x1, y1] = TABARD_BOX[d];
+  paint(g, div, x0, y0 + (d === 'e' ? 0 : 3), x1, y1 - 1.5);
+  g.restore();
+  g.save(); g.beginPath(); tabardPath(g, d); g.clip();
+  g.globalCompositeOperation = 'source-atop';
+  g.fillStyle = 'rgba(40,40,40,0.18)'; g.fillRect(0, BELT[d] - 1.4, BW, 3.4); // (the belt over the charge)
+  g.restore();
+}
+
 // ---------------- over layer (own colour) ----------------
 export function overLayer(g, d, e, rand) {
   const k = e.p.kind;
   g.save(); clipBody(g, d);
   g.fillStyle = '#dcdcdc';
-  if (k === 'vest') {
+  if (k === 'tabard') {
+    g.beginPath(); tabardPath(g, d); g.fill();
+    if (d === 's') { g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.ellipse(28, 8.6, 5.2, 3.6, 0, 0, TAU); g.fill(); g.globalCompositeOperation = 'source-over'; }
+    // the belt (darker), the hem, a fold or two
+    atop(g, () => {
+      g.fillStyle = '#7d7d7d'; g.fillRect(0, BELT[d] - 1.2, BW, 3);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(0, BELT[d] - 1.2, BW, 0.7);
+      if (d !== 'e') { g.fillStyle = '#c9b073'; g.fillRect(26, BELT[d] - 1.6, 4, 3.8); } // (the buckle)
+      g.strokeStyle = 'rgba(60,60,60,0.35)'; g.lineWidth = 0.8; g.beginPath();
+      if (d !== 'e') { g.moveTo(22, 39); g.quadraticCurveTo(21.6, 45, 21, 50.6); g.moveTo(34, 39); g.quadraticCurveTo(34.4, 45, 35, 50.6); }
+      else { g.moveTo(41, 39); g.lineTo(42, 50.6); }
+      g.stroke();
+      g.strokeStyle = 'rgba(40,40,40,0.4)'; g.lineWidth = 1.1; g.beginPath();
+      if (d !== 'e') { g.moveTo(16.6, 49.8); g.quadraticCurveTo(28, 52, 39.4, 49.8); } else { g.moveTo(38.8, 50.6); g.lineTo(45.4, 49.8); }
+      g.stroke();
+    });
+  } else if (k === 'vest') {
     g.beginPath(); above(g, d, 44.2, 3.6); g.fill();
     g.globalCompositeOperation = 'destination-out'; g.beginPath(); arms(g, d); g.fill();
     if (d === 's') { g.beginPath(); g.moveTo(24.4, 6); g.lineTo(26.6, 26); g.lineTo(27.4, 46); g.lineTo(28.6, 46); g.lineTo(29.4, 26); g.lineTo(31.6, 6); g.closePath(); g.fill(); g.beginPath(); g.moveTo(20, 9); g.lineTo(28, 25); g.lineTo(36, 9); g.closePath(); g.fill(); }

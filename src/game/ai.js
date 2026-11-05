@@ -52,6 +52,7 @@ export function pickTarget(game, m) {
 // m was damaged / provoked by src
 export function aggro(game, m, src, social = true) {
   if (!m || m.dead || m.isProp) return;
+  if (m.npc) { if (!m.proxy) game.people?.onHurt?.(m, src); return; } // the settlements' people: guards fight back, civilians run (game/npc.js)
   if (game.creative && src && allPlayers(game).includes(src)) return; // creative.js: nothing picks a fight with a player
   if (m.proxy) { mobEffect(game, m, { aggro: 1 }); return; } // guest: the host decides
   if (m.state === 'evade') return;

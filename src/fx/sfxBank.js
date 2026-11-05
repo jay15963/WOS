@@ -347,6 +347,15 @@ export const SFX = {
     mode(d, sr, 0.001, fn * 1.48, 0.1, 0.06);
     thump(d, sr, 0, 140, 80, 0.35, 0.05);
   } },
+  // the settlement's alarm bell (game/people.js): a bronze bell struck twice — hum, prime, minor third, fifth, nominal
+  town_bell: { v: 2, sec: 3.4, sr: 24000, gain: 0.5, rev: 0.6, pj: 0.25, vj: 0.06, render(d, sr, r) {
+    for (const t of [0, 1.2]) {
+      const f = 196 + r() * 6;
+      click(d, sr, t, r, 0.35, 1800);
+      modal(d, sr, t + 0.002, f, [[0.5, 0.45, 2.2], [1, 0.8, 1.7], [1.19, 0.5, 1.3], [1.5, 0.38, 1.0], [2, 0.55, 0.9], [2.52, 0.22, 0.55], [3.01, 0.16, 0.4]], 0.85, { r, spread: 0.004 });
+      thump(d, sr, t, 120, 70, 0.25, 0.06);
+    }
+  } },
   build_done: { v: 2, sec: 1.25, sr: 24000, gain: 0.48, rev: 0.32, pj: 0.5, vj: 0.08, render(d, sr, r) {
     modal(d, sr, 0, 105, [[1, 0.9, 0.3], [2.2, 0.5, 0.18], [3.7, 0.3, 0.1]], 0.9, { r });
     click(d, sr, 0, r, 0.4, 2200);

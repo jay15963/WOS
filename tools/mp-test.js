@@ -7848,6 +7848,416 @@ def('KG7', {
 });
 
 // =====================================================================================================
+// VL1–VL8 · the settlements' people: citizens and guards (docs/REINOS.md "Fase 2 — moradores e guardas", game/people.js,
+// game/npc.js, game/townnav.js, mut/people.js)
+const peopleOn = (f) => f.game.entities.filter((e) => e.npc && !e.dead);
+const livePeople = (H, sid) => H.game.people.debug(sid).live;
+const startTownOf = (H, MH) => { const R = realmOf(H), sp = H.game.world.spawn; return MH.realm.settlementAt(R, sp.x, sp.y); };
+const nearestTown = (H, pred) => { const R = realmOf(H), sp = H.game.world.spawn; return R.settlements.filter(pred).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0]; };
+const WORK_ACTS = new Set(['dig', 'plant', 'harvest', 'gather', 'craft', 'cook', 'chop', 'mine', 'build', 'carry', 'talk', 'cast']);
+const inBoxT = (b, x, y) => x >= b[0] && x < b[2] + 1 && y >= b[1] && y < b[3] + 1;
+// the clock where both players stand (and back to a calm day afterwards)
+// (MH given: out of a winter first — the next spring / summer day — so the fields are worked and the children play;
+// a long run of scenarios may have moved the calendar there)
+const dayClock = (t, H, hour = 10, MH = null) => {
+  const h0 = H.game.env.hour; t.defer(() => nightClock(H, Math.max(8, Math.min(16, h0))));
+  const S = MH?.seasons, E = H.game.env;
+  if (S && hour > 6 && hour < 19 && !['spring', 'summer'].includes(S.seasonIdAt(S.seasonClock(E.dayIndex, hour)))) {
+    let d = E.dayIndex;
+    for (let k = 1; k < 60; k++) if (['spring', 'summer'].includes(S.seasonIdAt(S.seasonClock(E.dayIndex + k, hour)))) { d = E.dayIndex + k; break; }
+    H.game.net.emit('env.skip', { hour, day: d, wt: Math.round((H.game.worldTime + 5) * 100) / 100 }); H.game.net.flush();
+    return;
+  }
+  nightClock(H, hour);
+};
+
+def('VL1', {
+  title: 'VL: the start village has its people on both peers — the same names, trades, homes and looks from the seed — and they work by day',
+  src: 'village', timeout: 170000,
+  expected: 'Both players stand on the start village plaza at 10 h. The host makes ≥ 12 of the village people creatures near them (never more than the village cap, 40); the guest sees them as proxies that rebuild who they are from the seed (camp p<sid>.<i>: the same name, trade and packed look as the host\'s creature — the stream sends look 0); the whole population (identities, homes, beds, looks) is the same on both peers and has the settlement\'s size; game.towns.people(sid) (the economy\'s API) gives the total / alive / workplaces / productivity; a farmer works its field (hoe / plant / harvest animation inside the field) and others work (animations), seen on the guest (the action streamed); digest equal',
+  api: 'game/people.js (buildPeople, LOD manager, game.towns.people, decorate), npc.js (routine: field / station / yard / plaza), net/entities.js (camp → identity, look 0, pose)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, s.id).length >= 12, 20000, 'the host makes ≥ 12 people near the players', () => `${livePeople(H, s.id).length}`);
+  const cap = MH.cpeople.PEOPLE.cap.village;
+  t.check(livePeople(H, s.id).length <= cap, `never more than the village cap (${cap})`, livePeople(H, s.id).length);
+  await t.waitFor(() => peopleOn(G).length >= 8, RT() + 4000, 'the guest sees them (proxies)', () => `${peopleOn(G).length}`);
+  const bad = peopleOn(G).filter((e) => { const m = H.game.entities.find((q) => q.nid === e.nid); return !e.proxy || !m || !m.npc || m.npc.i !== e.npc.i || m.name !== e.name || e.camp !== m.camp || MH.look.packLook(m.look) !== MG.look.packLook(e.look); });
+  t.check(!bad.length, 'each proxy is the same person as the host\'s creature (name, trade, look from the seed)', bad.length ? bad.slice(0, 4).map((e) => e.nid + ':' + e.name).join(' ') : `${peopleOn(G).length} people`);
+  const idOf = (f, M) => f.game.people.of(s.id).persons.map((P) => [P.name, P.job, P.home, P.bed, P.work, M.look.packLook(P.look), P.look.crest || ''].join('|'));
+  const iH = idOf(H, MH), iG = idOf(G, MG);
+  t.check(iH.length === s.pop && iH.join(';') === iG.join(';'), 'the whole population is the same on both peers (from the seed) and has the place\'s size', `${iH.length} / ${s.pop}`);
+  const jobs = new Set(H.game.people.of(s.id).persons.map((P) => P.job));
+  t.check(jobs.has('guard') && jobs.has('archer') && jobs.has('farmer') && jobs.has('child'), 'trades: guards, archers, farmers, families…', [...jobs].join(','));
+  const sum = H.game.towns.people(s.id), sumG = G.game.towns.people(s.id);
+  t.check(Array.isArray(sum) && sum.length === sum.total && sum.every((q) => q.name && q.role) && sum.map((q) => q.name).join() === sumG.map((q) => q.name).join(), 'game.towns.people(sid) is the list of the people (name, role) — the job board of the economy names its givers from it', `${sum.length}`);
+  t.check(sum.total === s.pop && sum.alive === sum.total - sum.dead && sum.workplaces.length === L.hooks.work.length && sum.productivity > 0 && sum.guards > 0 && JSON.stringify(sumG.jobs) === JSON.stringify(sum.jobs), 'game.towns.people(sid): total, alive, guards, workplaces, productivity (same on the guest)', `total ${sum.total} alive ${sum.alive} guards ${sum.guards} prod ${sum.productivity.toFixed(2)}`);
+  // at work by day
+  const persons = H.game.people.of(s.id).persons;
+  const fieldOf = (m) => L.fields[persons[m.i].field];
+  await t.waitFor(() => livePeople(H, s.id).some((m) => m.job === 'farmer' && fieldOf(m) && m.x > fieldOf(m).x0 - 1 && m.x < fieldOf(m).x1 + 1 && m.y > fieldOf(m).y0 - 1 && m.y < fieldOf(m).y1 + 1 && ['dig', 'plant', 'harvest'].includes(m.act)), 60000,
+    'a farmer works its field (hoe / plant / harvest)', () => livePeople(H, s.id).filter((m) => m.job === 'farmer').map((m) => `${m.task}/${m.act}@${f2(m.x)},${f2(m.y)}`).join(' '));
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => WORK_ACTS.has(m.act)).length >= 2, 30000, 'people at work (animations)');
+  await t.waitFor(() => peopleOn(G).some((e) => e.action && WORK_ACTS.has(e.action.type)), 20000, 'the guest sees them work (the action streamed)');
+  t.metric('liveVillage', livePeople(H, s.id).length);
+  await t.checkDigest(H, G);
+});
+
+def('VL2', {
+  title: 'VL: evening — the people go home; night — inside, the bed owners asleep in their beds (both peers); only the watch is out',
+  src: 'village', timeout: 200000,
+  expected: 'Start village. At 22 h every creature that is not a guard plans to be at home / in bed and, within ~60 s, none is left outdoors working (the ones far away became counts; the others walked home and went in). The guest walks to the door of a house whose inside can be reached: the host shows its bed owner (a creature inside the house) lying in its bed (pose sleep on that bed piece) and the guest sees the same (pose streamed: the guest\'s own town piece of the same id); guards are out (patrol / posts / the walls); digest equal',
+  api: 'people.js planOf (bed / home), manage (indoors when a player is by the house; sealed houses skipped), npc.js (bed: sleep pose), net/entities.js dyn pose',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 22);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const civOut = () => livePeople(H, s.id).filter((m) => !m.guard && !/^(bed|home|off|shelter)/.test(m.plan || '') ).length;
+  await t.waitFor(() => livePeople(H, s.id).length > 0 && livePeople(H, s.id).filter((m) => !m.guard).every((m) => /^(bed|home)/.test(m.plan || '')), 20000, 'at night every citizen plans to be at home / in bed', () => livePeople(H, s.id).filter((m) => !m.guard).map((m) => m.job + ':' + m.plan).join(' '));
+  const outdoor = (m) => !H.game.people.debug(s.id).homes.some((h) => inBoxT(h.box, m.x, m.y));
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => !m.guard && outdoor(m) && m.task !== 'vanish').length === 0, 60000, 'no citizen left outdoors (home or walking there)', () => livePeople(H, s.id).filter((m) => !m.guard && outdoor(m)).map((m) => `${m.job}:${m.task}@${f2(m.x)},${f2(m.y)}`).join(' '));
+  void civOut;
+  t.check(livePeople(H, s.id).some((m) => m.guard), 'the watch is out at night (guards / archers)', livePeople(H, s.id).filter((m) => m.guard).map((m) => m.job + ':' + m.task).join(' '));
+  // a house whose inside can be reached, with a bed owner: the guest at its door
+  const D = H.game.people.debug(s.id), persons = H.game.people.of(s.id).persons;
+  const hasOwner = (h) => h.people.some((i) => persons[i].bed >= 0 && !persons[i].guard && H.game.people.alive(s.id, i));
+  const home = D.homes.find((h) => h.sealed === false && hasOwner(h)) || D.homes.find(hasOwner); // (a house whose door is blocked inside by its furniture — the prefabs — still has its sleeper in bed)
+  t.need(home, 'a house with a bed owner');
+  const owner = home.people.find((i) => persons[i].bed >= 0 && !persons[i].guard && H.game.people.alive(s.id, i));
+  const bedId = `t${s.id}.${persons[owner].bed}`;
+  const at = A.freeSpot(G, MG, home.out[0], home.out[1], { rMin: 0, rMax: 2 }) || home.out;
+  A.teleport(G, at[0], at[1]);
+  const sleeper = () => livePeople(H, s.id).find((m) => m.i === owner);
+  await t.waitFor(() => sleeper()?.pose === 'sleep', 25000, `the bed owner (${persons[owner].name}) asleep in its bed on the host`, () => JSON.stringify(sleeper() || null));
+  const nid = sleeper().nid;
+  await t.waitFor(() => { const e = G.game.entities.find((q) => q.nid === nid); return e?.pose?.type === 'sleep' && e.pose.o?.id === bedId; }, RT() + 3000, 'the guest sees it asleep in the same bed (pose streamed)');
+  t.check(inBoxT(home.box, sleeper().x, sleeper().y), 'inside its house');
+  await t.checkDigest(H, G);
+});
+
+def('VL3', {
+  title: 'VL: guards patrol the streets by day; at night archers stand on the wall walk of a castle and crews man its ballistas (both peers)',
+  src: 'village', timeout: 220000,
+  expected: 'Start village at 10 h: a guard on its patrol loop walks (it is several tiles away a few seconds later) and the gate posts are manned. The castle nearest the start at 22 h: ≥ 2 archers stand on the wall walk (z ≈ 2, on tiles that are a walkable story-2 surface: levels.surf[2]) and the guest sees them up there (z streamed); a ballista has its crew next to it at story 2; digest equal',
+  api: 'people.js assignDuties (gates / patrol / walls / crews), planOf (guards\' shifts), npc.js upTask / crewTask / patrol, levels.surf, entity stream z',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, s.id).some((m) => m.task === 'patrol'), 25000, 'a guard on patrol by day');
+  const p0 = new Map(livePeople(H, s.id).filter((m) => m.task === 'patrol').map((m) => [m.nid, { x: m.x, y: m.y }]));
+  await t.waitFor(() => livePeople(H, s.id).some((m) => p0.has(m.nid) && Math.hypot(m.x - p0.get(m.nid).x, m.y - p0.get(m.nid).y) > 2.5), 30000, 'the patrol walks its loop',
+    () => livePeople(H, s.id).filter((m) => p0.has(m.nid)).map((m) => `${m.task}/${m.repair || '-'}@${f2(m.x)},${f2(m.y)}`).join(' ') || 'the patrol went home');
+  t.check(livePeople(H, s.id).some((m) => m.guard && (m.task === 'post' || m.task === 'go' || m.task === 'patrol')), 'the watch by day (posts / patrol)');
+  // the castle at night
+  const c = nearestTown(H, (q) => q.kind === 'castle'), LC = H.game.towns.layout(c.id);
+  await visitTown(t, H, MH, G, MG, c.id, LC.spawn[0], LC.spawn[1]);
+  nightClock(H, 22);
+  const up = () => livePeople(H, c.id).filter((m) => m.job === 'archer' && m.z > 1.9);
+  await t.waitFor(() => up().length >= 2, 40000, 'archers up on the wall walk at night', () => livePeople(H, c.id).filter((m) => m.guard).map((m) => `${m.job}:${m.task}^${m.z}`).join(' '));
+  const lev = H.game.levels.sync();
+  const onWalk = up().filter((m) => lev.surf[2]?.get(H.game.world.idx(Math.floor(m.x), Math.floor(m.y))) === 1);
+  t.check(onWalk.length === up().length, 'they stand on the wall walk (a story-2 surface)', `${onWalk.length}/${up().length}`);
+  const seen = await t.tryWait(() => up().some((m) => { const e = G.game.entities.find((q) => q.nid === m.nid); return e && e.z > 1.8; }), RT() + 5000);
+  t.check(seen || !up().some((m) => Math.abs(m.x - G.game.player.x) < 38 && Math.abs(m.y - G.game.player.y) < 28), 'the guest sees an archer up there (z streamed)');
+  if ((LC.hooks.artillery || []).length) {
+    const crew = await t.tryWait(() => livePeople(H, c.id).find((m) => m.task === 'up' && m.job === 'guard' && m.z > 1.9), 30000);
+    t.check(!!crew, 'a ballista crew at its post (story 2)', crew ? `${f2(crew.x)},${f2(crew.y)}` : 'none');
+  } else t.note('no ballista in this castle');
+  t.metric('archersUp', up().length);
+  await t.checkDigest(H, G);
+});
+
+def('VL4', {
+  title: 'VL: danger — a wolf in the village by day: the bell, civilians run home, guards kill it; winter night walkers at the gate: the watch fights them',
+  src: 'village', timeout: 240000,
+  expected: 'Start village at 10 h with its people out. A hostile wolf (a tough one, ×12 hp) appears on the plaza: the host rings the bell (op town.alarm on; the guest gets it too), the civilians run home (most of them are gone from the street within ~15 s), guards engage it (state chase, threat = the wolf) and kill it; then the all-clear (alarm off on both) and the people come back out. A winter night (temperate winter, 22 h): two walkers come at the village from outside the gate — guards / archers fight them (they take damage from the town\'s side) and they die; no friendly damage between the people; digest equal',
+  api: 'people.js dangerOf / town.alarm, npc.js flee / guardFight (bandits.updateBandit on the town\'s side) / upTask, players.hurtPlayer (creature vs creature), walkers.js pickGoal (the people draw them), projectiles faction town',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const homes = H.game.people.debug(s.id).homes, works = H.game.people.of(s.id).works;
+  const civOut = () => livePeople(H, s.id).filter((m) => !m.guard && !homes.some((h) => inBoxT(h.box, m.x, m.y)) && !works.some((w) => inBoxT(w.box, m.x, m.y))).length;
+  await t.waitFor(() => civOut() >= 8, 25000, 'the people out by day');
+  const civ0 = civOut();
+  let alarmG = null;
+  const offA = G.game.events.on('townalarm', (d) => { if (d.sid === s.id) alarmG = d.on; });
+  t.defer(() => offA?.());
+  const ws = A.freeSpot(H, MH, L.spawn[0] + 3, L.spawn[1] + 2, { rMin: 0, rMax: 5, r: 0.36 });
+  t.need(ws, 'a free spot on the plaza for the wolf');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+  wolf.hp = wolf.maxHp = wolf.maxHp * 12; // (a tough one: the alarm lasts while the civilians run — the guards that hunt it inside the village kill a plain wolf in seconds)
+  t.defer(() => { wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  await t.waitFor(() => H.game.people.debug(s.id).danger, 4000, 'the host: danger in the village');
+  await t.waitFor(() => alarmG === true && G.game.people.alarm.get(s.id), RT() + 2000, 'the bell rings on the guest too (town.alarm)');
+  await t.waitFor(() => civOut() <= Math.max(2, Math.floor(civ0 * 0.4)), 25000, 'the civilians run home (gone from the streets)', () => `${civOut()} / ${civ0} · wolf ${wolf.dead ? "dead" : Math.round(wolf.hp)} ${wolf.state} danger ${H.game.people.debug(s.id).danger} · ` + livePeople(H, s.id).filter((m) => !m.guard && !homes.some((h) => inBoxT(h.box, m.x, m.y))).slice(0, 10).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.plan}/${m.task}@${f2(m.x)},${f2(m.y)} fled ${!!e?._fled} f${e?._fails || 0} r${e?.route ? (e.route.p ? 'p' : 'd') : '-'} pt ${f2((e?._pathT || 0) - H.game.worldTime)}`; }).join(' '));
+  await t.waitFor(() => livePeople(H, s.id).some((m) => m.guard && m.state === 'chase' && m.threat === wolf.nid), 15000, 'guards engage the wolf');
+  await t.waitFor(() => wolf.dead, 90000, 'the guards kill it', () => `wolf hp ${Math.round(wolf.hp)} ${wolf.state} threat ${wolf.threat?.npc ? 'npc ' + wolf.threat.npc.job : wolf.threat ? 'player' : '-'} @${f2(wolf.x)},${f2(wolf.y)} · guards ${livePeople(H, s.id).filter((m) => m.guard).map((m) => `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z}`).join(' ')}`);
+  await t.waitFor(() => !H.game.people.debug(s.id).danger && alarmG === false, 15000 + RT(), 'the all-clear on both');
+  await t.waitFor(() => civOut() >= Math.min(civ0, 5), 40000, 'the people come back out', () => `${civOut()}`);
+  // a winter night: walkers at the gate
+  const sp = { x: L.spawn[0], y: L.spawn[1] };
+  const SE = MH.seasons, d0 = H.game.env.dayIndex;
+  let wd = d0;
+  for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(d0 + k, 22.5)) === 'winter') { wd = d0 + k; break; }
+  H.game.net.emit('env.skip', { hour: 22.5, day: wd, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush();
+  t.defer(() => { const E = H.game.env; let sd = E.dayIndex; for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(E.dayIndex + k, 9)) === 'spring') { sd = E.dayIndex + k; break; } H.game.net.emit('env.skip', { hour: 9, day: sd, wt: H.game.worldTime + 1, by: H.game.net.pid }); H.game.net.flush(); }); // (back to a spring morning)
+  await t.sleep(1500);
+  if (!MH.seasons.hardWinterAt(H.game, s.x, s.y)) { t.note(`not a hard winter here on day ${wd}: the walker part is skipped`); await t.checkDigest(H, G); return; }
+  const gk = L.gates[0] != null ? L.structs[L.gates[0]] : null;
+  const gx = gk ? gk[1] + 1 : sp.x, gy = gk ? gk[2] : sp.y - 10, ox = gx - L.x, oy = gy - L.y, od = Math.hypot(ox, oy) || 1;
+  const hurtBy = new Set();
+  const offD = H.game.events.on('damage', (d) => { if (d.kind === 'hit' && d.src?.npc && d.target?.faction === 'walker') hurtBy.add(d.src.npc.job); if (d.kind === 'hit' && d.src?.npc && d.target?.npc) hurtBy.add('FRIENDLY'); });
+  t.defer(() => offD?.());
+  const ws2 = [];
+  for (let k = 0; k < 2; k++) { const q = A.freeSpot(H, MH, gx + (ox / od) * 7 + k, gy + (oy / od) * 7, { rMin: 0, rMax: 4, r: 0.3 }); if (q) ws2.push(MH.walkers.spawnWalkerAt(H.game, q[0], q[1])); }
+  t.need(ws2.length, 'room for the walkers outside the gate');
+  for (const m of ws2) { m.home = { x: L.x, y: L.y }; t.defer(() => { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); }); }
+  await t.waitFor(() => hurtBy.size > 0, 45000, 'the watch fights the walkers (damage from the town\'s side)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)}`).join(' '));
+  await t.waitFor(() => ws2.some((m) => m.dead) && ws2.every((m) => m.dead || m.state === 'evade'), 60000, 'the walkers die (or one gives up and runs)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)} @${f2(m.x)},${f2(m.y)}^${f2(m.z || 0)} lv${m.lv | 0} siege ${m.siege?.o?.id || '-'}`).join(' ') + ' · guards ' + livePeople(H, s.id).filter((m) => m.guard).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z} foe ${e?.foe?.nid || '-'} rng ${e?.foe ? f2(MH.combat.reach(e, e.foe)) : '-'} d ${e?.foe ? f2(Math.hypot(e.foe.x - e.x, e.foe.y - e.y)) : '-'} act ${e?.action?.type || '-'} sw ${f2(e?.swingT)} f${e?._fails || 0} r${e?.route ? (e.route.p ? 'p' : 'd') : '-'} mv ${e?.moving}`; }).join(' '));
+  t.check(!hurtBy.has('FRIENDLY'), 'no damage between the town\'s people', [...hurtBy].join(','));
+  t.metric('fightersVsWalkers', [...hurtBy].join(','));
+  await t.checkDigest(H, G);
+});
+
+def('VL5', {
+  title: 'VL: no friendly fire — players never hurt the people of a kingdom (host and guest hits, arrows); a tap / E talks to them ("Conversar")',
+  src: 'village', timeout: 150000,
+  expected: 'Start village by day, a citizen near both players. The guest\'s hit on its proxy and the host\'s hit on the creature do nothing (hp unchanged on the host; the local player sees a short warning "…sob a proteção do reino"); a stun / dot does nothing; the auto-target (bestFoe) never picks them; the siege rule (siegeCanDamage) refuses them; a tap on the person is "Conversar com <nome>" and opens the talk card on the guest with its name, trade and lines (the mural pointed out to a new player); digest equal',
+  api: 'combat.dealDamage / playerMiss / stun / addDot (npc: playerish → npcImmune), combat.bestFoe (noAuto species), siege.siegeCanDamage, people.tapIt / lines, ui/talk.js',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const pick = () => livePeople(H, s.id).filter((m) => !m.guard && !(m.z > 0.5)).sort((a, b) => Math.hypot(a.x - G.game.player.x, a.y - G.game.player.y) - Math.hypot(b.x - G.game.player.x, b.y - G.game.player.y))[0];
+  const tg = await t.waitFor(() => { const m = pick(); return m && G.game.entities.find((e) => e.nid === m.nid && e.npc) ? m : null; }, 20000, 'a citizen seen by both');
+  const hm = H.game.entities.find((e) => e.nid === tg.nid), gm = G.game.entities.find((e) => e.nid === tg.nid);
+  hm.task = { k: 'stand', t: 60 }; hm.planT = 60; // (it stays put while we try)
+  const hp0 = hm.hp;
+  const toasts = [];
+  const offT = G.game.events.on('toast', (d) => toasts.push(d.text));
+  t.defer(() => offT?.());
+  A.teleport(G, gm.x + 0.9, gm.y);
+  await t.sleep(300);
+  const got = A.hit(G, MG, gm, 80);
+  await t.sleep(RT() + 300);
+  t.check(got === 0 && hm.hp === hp0, 'the guest\'s hit does nothing (host hp unchanged)', `got ${got} hp ${hm.hp}/${hp0}`);
+  t.check(toasts.some((x) => /proteção do reino/.test(x)), 'the guest is told why', toasts.join(' | '));
+  const got2 = A.hit(H, MH, hm, 80);
+  t.check(got2 === 0 && hm.hp === hp0, 'the host\'s hit does nothing either', `got ${got2}`);
+  MH.combat.stun(H.game, hm, 3, H.game.player);
+  MH.combat.addDot(H.game, hm, 'bleed', { dur: 4, tick: 1, dmg: 20, src: H.game.player });
+  await t.sleep(1500);
+  t.check(!(hm.stunT > 0) && !hm.dots?.length && hm.hp === hp0, 'stuns and bleeding from players do nothing');
+  t.check(!MG.combat.bestFoe(G.game, 12) || !MG.combat.bestFoe(G.game, 12).npc, 'the auto-target never picks the people');
+  t.check(!MH.siege.siegeCanDamage(H.game, { realm: 0 }, hm), 'siege engines never hurt them (no war: phase 3)');
+  // talking
+  const it = G.game.people.tapIt(gm);
+  t.check(it?.kind === 'talk' && /Conversar com/.test(it.verb), 'a tap on the person: "Conversar com <nome>"', it?.verb);
+  G.game.ctl.hinted.mural = false;
+  const lines = G.game.people.lines(gm);
+  t.check(lines.length >= 3 && lines.some((x) => /mural/i.test(x)), 'lines by trade / season, the mural pointed out to a new player', short(lines.join(' / '), 200));
+  G.game.events.emit('talk', { e: gm });
+  await t.waitFor(() => G.doc.querySelector('#talkcard.on'), 1500, 'the talk card opens on the guest');
+  const card = G.doc.querySelector('#talkcard')?.textContent || '';
+  t.check(card.includes(gm.npc.name) && card.includes(gm.npc.jobPt), 'it shows the name and the trade', short(card.replace(/\s+/g, ' '), 120));
+  G.game.events.emit('closepanels', {});
+  hm.planT = 0; hm.task = null;
+  await t.checkDigest(H, G);
+});
+
+def('VL6', {
+  title: 'VL: repairs by day — the village people mend a cracked palisade log and rebuild a broken one (both peers); the dawn no longer wipes a town\'s cracks',
+  src: 'village', timeout: 220000,
+  expected: 'A village with a palisade near the start, both players there. At night the host cracks one log (struct.dmg 0.5) and breaks another (struct.remove): at dawn the walkers\' rule does not clear the crack of a settlement piece any more. By day a worker / guard walks to the cracked log and hammers it (action build) — its damage goes down step by step to 0 on both peers (town state row gone); then the broken log is rebuilt (town.restore) and is back on both; digest equal',
+  api: 'npc.js repairTick / repairWork (struct.dmg / siege.dmg steps, town.restore), walkers.js walkersTick (town pieces skipped), mut/towns.js rows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 21);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const pc = { x: L.spawn[0], y: L.spawn[1] };
+  const ring = (o) => Math.abs(Math.max(Math.abs(o.tx - Math.round(L.x)), Math.abs(o.ty - Math.round(L.y))) - L.A) <= 1 || Math.abs(Math.abs(o.tx - Math.round(L.x)) + Math.abs(o.ty - Math.round(L.y)) - (2 * L.A - L.C)) <= 1; // (the palisade: the octagon of the town's wall)
+  const logs = [...townOf(H, s.id).objs.values()].filter((o) => o.type === 'wall_wood' && !o.lv && !o.removed && !o.dmg && ring(o)).sort((a, b) => Math.hypot(a.x - pc.x, a.y - pc.y) - Math.hypot(b.x - pc.x, b.y - pc.y));
+  t.need(logs.length >= 4, 'palisade logs');
+  const [w1, , w2] = logs, id1 = w1.id, id2 = w2.id;
+  H.game.net.emit('struct.dmg', { id: id1, d: 0.5, x: w1.x, y: w1.y });
+  H.game.net.emit('struct.remove', { id: id2, fx: 'smash' });
+  H.game.net.flush();
+  await t.waitFor(() => (A.objOn(G, id1)?.dmg || 0) > 0.45 && !A.objOn(G, id2), RT() + 1000, 'cracked and broken on the guest');
+  nightClock(H, 7.2);
+  await t.sleep(2500);
+  t.check((H.game.towns.state.get(id1)?.dmg || 0) >= 45, 'dawn: the crack of a settlement piece stays (its people repair it)', JSON.stringify(H.game.towns.state.get(id1)));
+  nightClock(H, 10);
+  A.teleport(H, w1.x + 2, w1.y + 2); A.teleport(G, w1.x + 3, w1.y + 2);
+  const rep = await t.waitFor(() => livePeople(H, s.id).find((m) => m.repair === id1 && m.act === 'build'), 90000, 'someone hammers the cracked log', () => `log ${w1.tx},${w1.ty}: ` + (livePeople(H, s.id).filter((m) => m.repair).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.repair}@${f2(m.x)},${f2(m.y)} spot ${JSON.stringify(e?.repair?.spot)} st ${m.state} act ${m.act} fails ${e?._fails} rw ${e?._rw} task ${m.task} route ${e?.route ? (e.route.p ? e.route.i + '/' + e.route.p.length : 'direct') : '-'} pathT ${f2((e?._pathT || 0) - H.game.worldTime)} trail ${(e?._trail || []).join(' ')} pd ${f2(e?._pd)}`; }).join(' ') || 'nobody on it'));
+  t.note(`repaired by a ${rep.job}`);
+  await t.waitFor(() => !H.game.towns.state.get(id1)?.dmg && !G.game.towns.state.get(id1)?.dmg && !(A.objOn(G, id1)?.dmg > 0), 70000, 'the crack mended on both', () => `${H.game.towns.state.get(id1)?.dmg}`);
+  await t.waitFor(() => !H.game.towns.state.get(id2)?.gone && !G.game.towns.state.get(id2)?.gone, 90000, 'the broken log rebuilt (town.restore)', () => livePeople(H, s.id).filter((m) => m.repair).map((m) => `${m.job}:${m.repair}`).join(' ') || 'nobody on it');
+  await t.waitFor(() => A.objOn(G, id2) && A.objOn(H, id2), 8000, 'back in place on both');
+  await t.checkDigest(H, G);
+});
+
+def('VL7', {
+  title: 'VL: level of detail — the capital at noon: at most 60 people creatures near the players, a small per-frame cost; far away nothing runs but counts',
+  src: 'village', timeout: 260000,
+  expected: 'Both players on the plaza of the start kingdom\'s capital (a city of ~200) at 10.5 h: the host makes ≥ 25 and ≤ 60 (the city cap) people creatures; the guest has ≤ 60 proxies of them; the people system costs < 1 ms a frame on average (p95 < 3 ms: game.people.stats) and its town paths are cached / budgeted; both players go 900 tiles away: no creature of the city is left (the settlement is a count), the system then costs ~0; digest equal',
+  api: 'people.js (PEOPLE.cap / matR / dropR, manage, stats), townnav.js (TownNav cache, region labels), entity interest',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s0 = startTownOf(H, MH), R = realmOf(H), c = R.settlements[R.kingdoms[s0.k].capital], L = H.game.towns.layout(c.id);
+  dayClock(t, H, 10.5, MH);
+  await visitTown(t, H, MH, G, MG, c.id, L.spawn[0], L.spawn[1], 90000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, c.id).length >= 25, 25000, 'the city\'s people out near the players', () => `${livePeople(H, c.id).length}`);
+  const St = H.game.people.stats;
+  St.msSum = 0; St.frames = 0; St.maxMs = 0; St.last.length = 0;
+  await t.sleep(8000);
+  const n = livePeople(H, c.id).length, cap = MH.cpeople.PEOPLE.cap.city;
+  const avg = St.msSum / Math.max(1, St.frames), Ls = St.last.slice().sort((a, b) => a - b), p95 = Ls[Math.floor(Ls.length * 0.95)] || 0;
+  t.check(n >= 25 && n <= cap, `25..${cap} people creatures near the players`, n);
+  t.check(peopleOn(G).filter((e) => e.npc.sid === c.id).length <= cap, 'the guest: no more proxies than the cap', peopleOn(G).length);
+  t.check(avg < 1 && p95 < 3, 'the people system costs < 1 ms a frame (p95 < 3 ms)', `avg ${avg.toFixed(3)} ms · p95 ${p95.toFixed(3)} ms · max ${St.maxMs.toFixed(1)} ms · ${St.frames} frames`);
+  const nav = H.game.people.nav.get(c.id)?.stats;
+  t.metric('cityLive', n); t.metric('cityAvgMs', +avg.toFixed(3)); t.metric('cityP95Ms', +p95.toFixed(3)); t.metric('navFinds', nav?.finds); t.metric('navMs', +(nav?.ms || 0).toFixed(1));
+  // far away: counts only
+  const far = [L.spawn[0] + 900, L.spawn[1]];
+  A.teleport(H, far[0], far[1]); A.teleport(G, far[0] + 2, far[1]);
+  await t.waitFor(() => !H.game.people.live.has(c.id) && !H.game.entities.some((e) => e.npc && e.npc.sid === c.id), 15000, 'far away: no creature of the city left (counts only)');
+  St.msSum = 0; St.frames = 0;
+  await t.sleep(2000);
+  t.check(St.msSum / Math.max(1, St.frames) < 0.2, 'and the system costs ~nothing', `${(St.msSum / Math.max(1, St.frames)).toFixed(3)} ms`);
+  await t.checkDigest(H, G);
+});
+
+def('VL8', {
+  title: 'VL: monsters kill a villager — the death is shared and saved, the population regrows days later; the world\'s progress (§7b) is a saved high-water mark',
+  src: 'village', timeout: 200000,
+  expected: 'Start village by day: a citizen creature is killed by a hostile creature\'s blow (the monsters hurt the people): op town.pop (dead) — the row on both peers (game.towns.dead), game.towns.people(sid).alive is one less on both, the dead person leaves no body and no loot, the save carries it (tpop rows); days later (skip 1.6 days) the host replaces it (town.pop dead 0) on both. The world\'s progress: op town.prog raises it on both (saved as wprog) and the kingdoms\' people level (realmNpcLevel) follows it up to the cap of the farthest settlements; it never goes down; digest equal',
+  api: 'mut/people.js (town.pop, town.prog, rows tpop / wprog, digest part towns), people.js onDeath / regrow, towns.js realmNpcLevel / worldProgress, players.hurtPlayer (creature vs creature)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const v = await t.waitFor(() => livePeople(H, s.id).find((m) => !m.guard && !(m.z > 0.5)), 20000, 'a citizen out');
+  const m = H.game.entities.find((e) => e.nid === v.nid);
+  const alive0 = H.game.towns.people(s.id).alive;
+  const loot0 = H.game.loot.length, bodies0 = H.game.corpses?.map.size || 0;
+  // a hostile creature's blow (as a monster does: players.hurtPlayer → the creature target)
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', m.x + 20, m.y + 20);
+  wolf.calmT = 999; t.defer(() => { wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  MH.players.hurtPlayer(H.game, wolf, m, 99999, {});
+  t.check(m.dead, 'the citizen dies (a monster\'s blow)');
+  const key = `${s.id}.${v.i}`;
+  await t.waitFor(() => H.game.towns.dead?.has(key) && G.game.towns.dead?.has(key), RT() + 1500, 'the death on both (town.pop)');
+  t.check(H.game.towns.people(s.id).alive === alive0 - 1 && G.game.towns.people(s.id).alive === alive0 - 1, 'one less alive on both (the economy\'s count)', `${H.game.towns.people(s.id).alive} / ${alive0}`);
+  await t.sleep(800);
+  t.check(H.game.loot.length === loot0 && (H.game.corpses?.map.size || 0) === bodies0, 'no body, no loot');
+  const save = MH.snapshot.serializeWorld(H.game, { save: true });
+  t.check(save.tpop.some((r) => r[0] === s.id && r[1] === v.i), 'the save carries the death (tpop)');
+  await t.checkDigest(H, G, 'digest after the death');
+  skipDays(H, 1.65);
+  await t.waitFor(() => !H.game.towns.dead.has(key) && !G.game.towns.dead.has(key), 10000 + CFG.budget, 'days later the village replaced them (on both)');
+  // the world's progress
+  const p0 = H.game.towns.prog || 1, lv0 = MH.towns.realmNpcLevel(H.game, s);
+  H.game.net.emit('town.prog', { lv: p0 + 3 }); H.game.net.flush();
+  await t.waitFor(() => G.game.towns.prog === p0 + 3, RT() + 500, 'the world\'s progress raised on both (town.prog)');
+  H.game.net.emit('town.prog', { lv: 1 }); H.game.net.flush();
+  await t.sleep(RT());
+  t.check(H.game.towns.prog === p0 + 3 && G.game.towns.prog === p0 + 3, 'it never goes down');
+  t.check(MH.towns.realmNpcLevel(H.game, s) >= lv0, 'the people\'s level follows it (realmNpcLevel)', `${lv0} → ${MH.towns.realmNpcLevel(H.game, s)}`);
+  t.check(MH.snapshot.serializeWorld(H.game, { save: true }).wprog === p0 + 3, 'saved (wprog)');
+  await t.checkDigest(H, G);
+});
+
+def('VL9', {
+  title: 'VL: the defense — at the bell the watch goes to the walls (archers up on the palisade, not at the mural); a breach in the palisade is held by a melee guard',
+  src: 'village', timeout: 220000,
+  expected: 'A village with a palisade near the start, 10 h, both players on its plaza. A wolf (tough, held in place: stunned, pinned against the knockback) appears a few tiles outside one stretch of the palisade: the bell rings; the defense posts are made with the threat on that side (game.townDefense); the archers go up on the palisade (story 1, every live archer posted on a wall top, none on the plaza by the mural) and the melee guards hold the gates and the stretch facing the wolf (none left at the mural). A log of that stretch is destroyed (struct.remove): it is an opening on both peers (game.townDefense.openings) and a melee guard goes to hold it (posted k gap, standing in / just inside the gap). After the all-clear one guard still holds the gap (calm: one); digest equal',
+  api: 'game/defense.js perimeterOf / openings / threatOf / assignDefense, people.js defenseTick (posts on events, hunters) / planOf, npc.js postedFoe / upTask (up at the bell) / hold',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const TD = H.game.townDefense, per = TD.perimeter(s.id);
+  t.check(per.walled && per.pieces.size > 20 && G.game.townDefense.perimeter(s.id).pieces.size === per.pieces.size, 'the wall line of the village (the same pieces on both peers)', per.pieces.size);
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3, 25000, 'the watch is out');
+  // a log of an axis side of the palisade, away from the gates and the stairs / archer spots, the nearest one to the plaza
+  const pc = { x: L.spawn[0], y: L.spawn[1] }, all = [...per.pieces.values()], gates = all.filter((p) => p.gate);
+  const logs = all.filter((p) => !p.gate && Math.abs(p.fx) + Math.abs(p.fy) < 1.01 && gates.every((g) => Math.hypot(g.x - p.x, g.y - p.y) > 6) && L.hooks.archers.every(([x, y]) => Math.hypot(x - p.cx, y - p.cy) > 3) && A.objOn(H, p.id) && A.objOn(G, p.id))
+    .sort((a, b) => Math.hypot(a.x - pc.x, a.y - pc.y) - Math.hypot(b.x - pc.x, b.y - pc.y));
+  t.need(logs.length, 'a palisade log away from the gates');
+  const log = logs[0];
+  t.defer(() => { H.game.net.emit('town.restore', { ids: [log.id] }); H.game.net.flush(); });
+  // the attacker: a wolf 6.5 tiles outside that log (tough, stunned: it stays there while we look)
+  const ws = A.freeSpot(H, MH, log.cx + log.fx * 6.5, log.cy + log.fy * 6.5, { rMin: 0, rMax: 2, r: 0.36 });
+  t.need(ws, 'room for the wolf outside the palisade');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+  wolf.hp = wolf.maxHp = 100000;
+  const hold = setInterval(() => { if (!wolf.dead) { wolf.stunT = 30; wolf.hp = Math.max(wolf.hp, 50000); wolf.x = ws[0]; wolf.y = ws[1]; wolf.vx = wolf.vy = 0; } }, 200);
+  t.defer(() => { clearInterval(hold); wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  await t.waitFor(() => H.game.people.debug(s.id).danger, 5000, 'the bell rings (danger)');
+  await t.waitFor(() => H.game.people.debug(s.id).def?.danger, 3000, 'the defense posts are made');
+  const th = H.game.people.debug(s.id).def.th;
+  t.check(th && th.fx * log.fx + th.fy * log.fy > 0.6, 'the threat comes from the wolf\'s side', JSON.stringify(th));
+  const mural = L.mural >= 0 ? L.structs[L.mural] : null, mx = mural ? mural[1] + 0.5 : L.plaza[0], my = mural ? mural[2] + 0.5 : L.plaza[1];
+  const D = () => H.game.people.debug(s.id);
+  const archers = () => D().live.filter((m) => m.job === 'archer');
+  await t.waitFor(() => archers().length >= 1 && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 45000, 'every archer out is up on the palisade (a wall top, story 1)',
+    () => archers().map((m) => `${m.task}^${f2(m.z)} duty ${m.duty?.k || '-'} @${f2(m.x)},${f2(m.y)}`).join(' '));
+  const lev = H.game.levels.sync();
+  const onTop = archers().filter((m) => lev.surf[1]?.get(H.game.world.idx(Math.floor(m.x), Math.floor(m.y))) === 1);
+  t.check(onTop.length === archers().length, 'they stand on the palisade\'s walk (a story-1 surface)', `${onTop.length}/${archers().length}`);
+  t.check(archers().every((m) => Math.hypot(m.x - mx, m.y - my) > 8), 'no archer at the mural', archers().map((m) => f2(Math.hypot(m.x - mx, m.y - my))).join(' '));
+  const melee = () => D().live.filter((m) => m.job === 'guard');
+  await t.waitFor(() => melee().length && melee().every((m) => m.duty && ['gate', 'stretch', 'gap'].includes(m.duty.k) && (m.state === 'chase' || Math.hypot(m.x - m.duty.x, m.y - m.duty.y) < 2.5)), 45000, 'the melee guards hold the gates / the stretch facing the wolf',
+    () => `wolf ${wolf.dead ? 'dead' : Math.round(wolf.hp)} ${wolf.state} @${f2(wolf.x)},${f2(wolf.y)} in ${H.game.entities.includes(wolf)} · danger ${D().danger} def ${!!D().def} · ` + melee().map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.task}/${m.state} duty ${m.duty?.k || '-'} d ${m.duty ? f2(Math.hypot(m.x - m.duty.x, m.y - m.duty.y)) : '-'} @${f2(m.x)},${f2(m.y)} → ${m.duty ? f2(m.duty.x) + ',' + f2(m.duty.y) : '-'} f${e?._fails || 0} st${f2(e?._stuckT || 0)} r${e?.route ? (e.route.p ? e.route.i + '/' + e.route.p.length : 'd') : '-'} pt ${f2((e?._pathT || 0) - H.game.worldTime)} mv ${e?.moving} chk ${e?.task?.chk || 0}`; }).join(' '));
+  t.check(melee().every((m) => Math.hypot(m.x - mx, m.y - my) > 8), 'no melee guard at the mural either');
+  const facing = D().def.posts.filter((p) => p.k === 'stretch');
+  t.check(!facing.length || facing.every((p) => (p.x - per.cx) * log.fx + (p.y - per.cy) * log.fy > -0.2 * per.A), 'the stretch guards stand on the threatened side', facing.map((p) => `${f2(p.x)},${f2(p.y)}`).join(' '));
+  // the breach
+  H.game.net.emit('struct.remove', { id: log.id, fx: 'smash' });
+  H.game.net.flush();
+  await t.waitFor(() => !A.objOn(G, log.id) && !A.objOn(H, log.id), RT() + 2000, 'the log destroyed on both');
+  const opOf = (f) => f.game.townDefense.openings(s.id).find((o) => o.ids.includes(log.id));
+  await t.waitFor(() => opOf(H) && opOf(G), RT() + 2000, 'an opening in the wall line on both peers (game.townDefense.openings)');
+  const op = opOf(H);
+  t.check(Math.hypot(op.x - log.cx, op.y - log.cy) < 0.6 && op.fx * log.fx + op.fy * log.fy > 0.9, 'the opening: where the log stood, facing out', JSON.stringify(op));
+  const holders = () => melee().filter((m) => m.duty?.k === 'gap' && m.duty.op === op.id);
+  await t.waitFor(() => holders().some((m) => Math.hypot(m.x - op.x, m.y - op.y) < 2.2), 45000, 'a melee guard holds the gap (in it / just inside)',
+    () => `posts ${JSON.stringify(D().def?.posts.filter((p) => p.k === 'gap'))} · guards ${melee().map((m) => `${m.task}/${m.state} ${m.duty?.k || '-'}@${f2(m.x)},${f2(m.y)}`).join(' ')}`);
+  t.metric('gapHolders', holders().length);
+  // the all-clear: one guard still on the gap
+  clearInterval(hold);
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  await t.waitFor(() => !H.game.people.debug(s.id).danger, 15000, 'the all-clear');
+  await t.waitFor(() => D().def && !D().def.danger && D().def.posts.filter((p) => p.k === 'gap').length === 1 && D().def.posts.length === 1, 5000, 'calm: one guard keeps holding the gap', () => JSON.stringify(D().def));
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // EC — the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia", game/eco.js, game/mut/eco.js, ui/muralEco.js):
 // coins, markets (supply and demand), jobs, reputation, membership, houses / plots, the daily tax, saves.
 // =====================================================================================================

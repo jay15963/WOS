@@ -76,6 +76,7 @@ function build(A, L, raw) {
     lay(b, `lk_trim_${L.top}_${d}`, col(L.topC2));
     if (top.p.tuck) lay(b, `lk_bot_${L.bottom}_${d}`, col(L.botC), true);
     if (L.over !== 'none') lay(b, `lk_over_${L.over}_${d}`, col(L.overC));
+    if (L.over === 'tabard' && raw && typeof raw.crest === 'string' && raw.crest !== 'plain') lay(b, `lk_over_crest_${raw.crest}_${d}`, col(L.topC2)); // (a guard's tabard: the kingdom's division in its metal — raw field, game/people.js)
     if (!shoesFirst) lay(b, shoeName, shoeC, true);
     R.body[d] = b;
     // ---- head & face ----

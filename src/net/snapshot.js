@@ -52,6 +52,7 @@ import { hideDugDecor } from '../game/terrain.js'; // (grass on dug ground: cosm
 import { stockRows, stashStock } from '../game/livestock.js'; // owned farm animals (save file only)
 import { isEngine, PUSH_SLOTS } from '../game/content/siege.js'; // siege engines (game/siege.js): `sieg` / `sdmg` rows
 import { townRows, gateRows, applyTownRows, applyGateRows } from '../game/mut/towns.js'; // settlements' shared state, players' gates (docs/REINOS.md)
+import { popRows, applyPopRows, applyProg } from '../game/mut/people.js'; // settlements' people: the dead, the world's progress (game/people.js)
 import { ecoRows, applyEcoRows } from '../game/mut/eco.js'; // the economy of the kingdoms: markets, players, properties, the town chests
 
 export const SNAP_V = 1;
@@ -92,6 +93,8 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     props: campStateRows(game), // (camp crates: the shared state, loaded or not — mut/camps.js)
     towns: townRows(game, keep ? K : null), // (settlements: destroyed pieces, doors / gates, damage — loaded or not: mut/towns.js)
     gates: gateRows(game), // (players' gates: owner, automatic)
+    tpop: popRows(game), // (settlements' people killed, not yet replaced: mut/people.js)
+    wprog: game.towns?.prog || 1, // (the world's progress: the highest player level seen here — the kingdoms' people level, §7b)
     eco: ecoRows(game) || undefined, // (the economy of the kingdoms: global — markets, players' reputation / jobs, properties, town chests)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
@@ -388,6 +391,8 @@ function applyInner(game, d, mode, scope = null) {
   if (chunk) { if (d.towns) applyTownRows(game, d.towns, true, IN); updateAllMasks(game); game.events?.emit('worldpatch', { scope }); return; } // (nothing global in a chunk diff)
   if (reconcile || d.towns) applyTownRows(game, d.towns, reconcile);
   if (reconcile || d.gates) applyGateRows(game, d.gates, reconcile);
+  if (reconcile || d.tpop) applyPopRows(game, d.tpop, reconcile);
+  if (reconcile || d.wprog) applyProg(game, d.wprog, reconcile);
   if (reconcile || d.eco) applyEcoRows(game, d.eco, reconcile); // (the economy: game/mut/eco.js)
 
   // ---- camp crates ----

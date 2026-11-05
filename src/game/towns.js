@@ -253,7 +253,9 @@ function resyncPieces(game, ids) {
     if (!rec || !L || !L.structs[k]) continue;
     const c = chunkIndexOf(L).of[k];
     if (!rec.chunks.has(c)) continue;
-    const st = stateOf(game, L, sid, k), o = rec.objs.get(k);
+    const st = stateOf(game, L, sid, k);
+    let o = rec.objs.get(k);
+    if (o?.removed) { rec.objs.delete(k); o = null; } // (destroyed while loaded: a restore puts it back here and now)
     if (st?.gone) { if (o) { rec.objs.delete(k); w._layout = (w._layout || 0) + 1; TOWN.unloading++; try { game.net.withApply(() => removeStructure(game, o, { quiet: true })); } finally { TOWN.unloading--; w._layout--; } } continue; }
     if (!o) {
       const need = chunkIndexOf(L).need.get(k), miss = need && need.find((c2) => !w.isLoaded(c2));
@@ -276,13 +278,14 @@ function resyncPieces(game, ids) {
 // baseLevel: the distance from the world start, like the creatures (mobs.js levelForDistance) — a pure function of the
 // place, never stored with the settlement. The people follow the most advanced player (worldProgress) up to the level of
 // the farthest settlements: the kingdoms near the start grow with the players instead of staying weak for ever.
-// (phase 2: worldProgress may become a saved high-water mark; this is the one place to change)
+// worldProgress is a saved high-water mark (game.towns.prog, op town.prog — mut/people.js): the highest player level ever
+// seen in this world (the host raises it: game/people.js); the players here now count too (before the op arrives).
 export function realmBaseLevel(game, s) {
   const w = game.world, sp = w.spawn;
   return levelForDistance(Math.hypot(w.dx(s.x, sp.x), s.y - sp.y));
 }
 export function worldProgress(game) {
-  let lv = 1;
+  let lv = game.towns?.prog || 1;
   for (const p of allPlayers(game)) if (p && (p.level || 1) > lv) lv = p.level || 1;
   return lv;
 }

@@ -9,7 +9,9 @@
 //   dyn  = [x*100|0, y*100|0, bits, hp, actType|0, actT*100|0, actDur*100|0, actSeq, castName|0, castT*100|0, castDur*100|0, tgtPid|0,
 //           z*100|0 (levels: height in stories), farm|0 (livestock.js: tame 1 | hungry 2 | starving 4 | owned 8; wild fauna:
 //           fmode << 4 — flying 1 | hidden 2 | in a tree 4 | resting 8, game/fauna.js; a horse's saddle 256, docs/HORSE.md),
-//           tiedTo pid|0, rider pid|0 (horses.js: who rides it) (trailing zeros trimmed)]
+//           tiedTo pid|0, rider pid|0 (horses.js: who rides it), pose|0 (the settlements' people, game/people.js: 'b:<bedId>' asleep
+//           in bed, 's:<seatId>' on a chair / bench) (trailing zeros trimmed)]
+//   The settlements' people send look 0: the guest rebuilds who they are (look, trade) from camp = 'p<sid>.<i>' and the seed.
 //   bits = facing (0 s,1 n,2 e,3 w) | moving<<2 | dead<<3 | blocking<<4 | stunned<<5 | chase<<6 | bleed<<7 |
 //          poison<<8 | burn<<9 | dazed<<10 | feared<<11
 // {t:'fx', l:[['dmg', tgt, src, amount, kind, crit, dtype, ability, blocked, dot, text] | ['proj', id, ...args] |
@@ -105,11 +107,12 @@ export class EntityServer {
     return [Math.round(m.x * 100), Math.round(m.y * 100), bits, Math.max(0, Math.round(m.hp)),
       a ? a.type : 0, a ? Math.round((a.t || 0) * 100) : 0, a ? (a.hold ? 0 : Math.round((a.dur || 0.5) * 100)) : 0, a ? m._actSeq : 0,
       c ? c.name : 0, c ? Math.round(c.t * 100) : 0, c ? Math.round(c.dur * 100) : 0, tgt, Math.round((m.z || 0) * 100),
-      m.stock ? (m.tame ? 1 : 0) | (m.hungry ? 2 : 0) | (m.starving ? 4 : 0) | (m.owned ? 8 : 0) | (m.saddle ? 256 : 0) : (m.fmode | 0) << 4, m.tiedTo || 0, m.rider || 0];
+      m.stock ? (m.tame ? 1 : 0) | (m.hungry ? 2 : 0) | (m.starving ? 4 : 0) | (m.owned ? 8 : 0) | (m.saddle ? 256 : 0) : (m.fmode | 0) << 4, m.tiedTo || 0, m.rider || 0,
+      m.pose ? (m.pose.type === 'sleep' ? 'b:' : 's:') + (m.pose.o?.id || '') : 0];
   }
   _static(m) {
     return [m.nid, m.kind === 'pawn' ? 'p' : 'a', m.species, m.name, m.level, m.elite ? 1 : 0, m.temper || 0, m.faction || 0,
-      +(m.scale || 1).toFixed(3), Math.round(m.maxHp), m.variant | 0, m.look || 0, m.weapon || 0, m.offhand || 0,
+      +(m.scale || 1).toFixed(3), Math.round(m.maxHp), m.variant | 0, m.npc ? 0 : m.look || 0, m.weapon || 0, m.offhand || 0,
       m.armor?.body || 0, m.armor?.head || 0, m.camp || 0];
   }
 
@@ -220,6 +223,7 @@ export class EntityClient {
       look: r[11] && typeof r[11] === 'object' ? r[11] : undefined, weapon: str(r[12], 32) || null, offhand: str(r[13], 32) || null,
       armor: { body: str(r[14], 32) || null, head: str(r[15], 32) || null }, camp: str(r[16], 16) || undefined, r: sp.r || 0.3,
     });
+    if (e.faction === 'town') this.game.people?.decorate?.(e); // (the settlements' people: who they are, from the seed)
     this._dyn(e, r.slice(17), ht, true);
   }
 
@@ -261,6 +265,11 @@ export class EntityClient {
     e.fmode = (fb >> 4) & 15; // (wild fauna: flying / hidden / in a tree / resting — art/faunaDraw.js FMODE)
     e.tiedTo = str(d[14], 40) || null;
     e.saddle = !!(fb & 256); e.rider = str(d[15], 40) || null; // (horses: saddled, who rides it — docs/HORSE.md)
+    // the settlements' people: in bed / on a seat (the piece is the guest's own town piece of the same id)
+    const pc = typeof d[16] === 'string' ? d[16] : null;
+    if (!pc) { if (e.pose) e.pose = null; }
+    else if (!e.pose || e._pc !== pc) { const o = this.game.world.objById.get(pc.slice(2)) || null; e.pose = { type: pc[0] === 'b' ? 'sleep' : 'sit', id: o?.id || null, o }; if (o?.face && pc[0] === 's') e.facing = o.face; }
+    e._pc = pc;
     if (SPECIES[e.species]?.water) e.water = true;
   }
 

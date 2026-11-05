@@ -62,6 +62,10 @@ export const SPECIES = {
                     bloodless: [0.9, 0.86, 0.74], loot: [] },
   mummy_giant:    { name: 'Múmia Gigante', temper: 'hostile', pawn: true, elite: true, giant: true, undead: 'sand', hp: 440, dmg: 42, swing: 3.6, speed: 2.4, aggro: 18, r: 0.8, scale: 2.4, xp: 8,
                     bloodless: [0.86, 0.76, 0.52], loot: [] },
+  // the settlements' people (kind 'pawn', faction 'town', temper 'friendly') — see src/game/people.js: never targets of
+  // the players (combat.js: no friendly fire), the guards fight the monsters on the town's side
+  citizen: { name: 'Morador', temper: 'friendly', pawn: true, hp: 44, dmg: 2, swing: 2, speed: 3.4, aggro: 0, r: 0.24, scale: 1, xp: 0, noAuto: true, loot: [] },
+  guard: { name: 'Guarda', temper: 'friendly', pawn: true, hp: 96, dmg: 6.5, swing: 1.8, speed: 4.05, aggro: 15, r: 0.24, scale: 1, xp: 0, noAuto: true, loot: [] },
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },

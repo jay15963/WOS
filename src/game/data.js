@@ -10,4 +10,4 @@ export const WEATHER_PT = {
 };
 
 // Reaction colors (nameplates, target frame, minimap)
-export const TEMPER_COLOR = { hostile: '#ff5a48', neutral: '#ffd84a', passive: '#7fdc6a' };
+export const TEMPER_COLOR = { hostile: '#ff5a48', neutral: '#ffd84a', passive: '#7fdc6a', friendly: '#8fd0ff' }; // (friendly: the settlements' people)

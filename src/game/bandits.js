@@ -220,7 +220,7 @@ function shootAt(game, m, p, mult, kind = 'arrow', ability) {
   }
   const dmg = Math.max(1, Math.round(m.dmg * mult * (0.85 + Math.random() * 0.3)));
   fireArrow(game, {
-    src: m, faction: 'bandit', x: m.x, y: m.y, tx, ty, range: 13, kind, z1: p.z || 0, // levels: aim at the target's story
+    src: m, faction: m.faction === 'town' ? 'town' : 'bandit', x: m.x, y: m.y, tx, ty, range: 13, kind, z1: p.z || 0, // levels: aim at the target's story (a town guard's shot: only hostiles — game/npc.js)
     onHit: (g, e, pr) => { hurtPlayer(g, m, e, dmg, { from: { x: pr.ox, y: pr.oy }, ranged: true, ability }); },
   });
 }

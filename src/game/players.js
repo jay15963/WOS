@@ -52,6 +52,8 @@ export function inAnyView(game, x, y, mx = 2, my = 3) {
 // (the owner rolls dodge / armor / block and applies the extra effects only if the hit landed).
 // opts may hold poison / bleed: { dur, tick, dmg } and stun: seconds (already rolled by the attacker).
 export function hurtPlayer(game, src, target, amount, opts = {}) {
+  // a creature's blow on another creature (monsters vs the settlements' people and back — game/people.js): applied here
+  if (target && target !== game.player && !target.pid && target.isMob) return target.proxy ? 0 : dealDamage(game, src, target, amount, opts);
   const hr = game.horses?.hurtRedirect(target, src, amount, opts); // (a mounted player: the horse takes the blow now and then, docs/HORSE.md)
   if (hr != null) return hr;
   if (target === game.player) {

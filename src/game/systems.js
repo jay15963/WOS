@@ -55,6 +55,7 @@ import { installBoats, boatsSystem, boatOwnerSystem } from './boats.js'; // boat
 import { installHorses, horseSystem, horseOwnerSystem } from './horses.js'; // horses: taming, saddle, riding (docs/HORSE.md)
 import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spray, the roar (cosmetic)
 import { installTowns, townsSystem, placeSystem } from './towns.js'; // kingdoms and settlements (docs/REINOS.md)
+import { installPeople, peopleSystem, peopleFxSystem } from './people.js'; // the settlements' citizens and guards (docs/REINOS.md "Fase 2")
 import { installEco, ecoSystem, ecoOwnerSystem } from './eco.js'; // the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia")
 import './mut/index.js';
 
@@ -96,6 +97,7 @@ export function installSystems(game) {
   installBoats(game);               // boats: game.boats (before the save / snapshot loads them)
   installHorses(game);              // horses: game.horses (who rides what, the rider's movement)
   installTowns(game);               // settlements: pieces made per chunk from the seed (before the camps: they keep away)
+  installPeople(game);              // their people: identities from the seed (game.people, game.towns.people(sid))
   installEco(game);                 // markets, reputation, jobs, properties (before the save / snapshot loads them)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
@@ -130,6 +132,7 @@ export function installSystems(game) {
     abilitiesSystem(),
     combatSystem(),
     mobsSystem(),
+    peopleSystem(),                 // the settlements' people (host): who is out near the players, their routine, guards, repairs
     projectilesSystem(),
     ballistaSystem(),               // bolts in flight, drawn aim, reload (+ host: operators gone)
     ballistaOwnerSystem(),          // the local operator (after abilities: it roots the player)
@@ -159,6 +162,7 @@ export function installSystems(game) {
     fishingSystem(),                // bobbers and bites (owner + every peer's cosmetics)
     waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     placeSystem(),                  // the kingdom / settlement the player is in (the HUD banner)
+    peopleFxSystem(),               // their doors swinging as they go through, the bell, the news (every peer)
     ecoSystem(),                    // host: the markets' day, bills, job progress (eco.js)
     ecoOwnerSystem(),               // the local player's economy identity known to the host
     juice,

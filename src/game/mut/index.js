@@ -26,4 +26,5 @@ import './boats.js';    // boats: launch, riders, rowing
 import './horses.js';   // horses: taming with wheat, saddle, riding (docs/HORSE.md)
 import './siege.js';    // siege engines: operator, aim, shots, pushing, the ram, the tower's ramp (docs/REINOS.md)
 import './towns.js';    // settlements: their shared state, the gates (docs/REINOS.md)
+import './people.js';   // settlements' people: deaths / replacements, the world's progress, the bell (game/people.js)
 import './eco.js';      // the economy of the kingdoms: markets, reputation, jobs, properties, tax (docs/REINOS.md)

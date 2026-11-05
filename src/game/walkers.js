@@ -73,6 +73,7 @@ const DETOUR = 1.5, DETOUR_ADD = 6; // a way longer than this × the straight li
 const STALL_S = 2.5;    // s without getting anywhere (< 0.8 tile): break what is in the way
 const breakable = (o) => { const d = o && !o.blueprint && !o.removed && !o.lv && BUILDINGS[o.type]; return !!d && (((d.connect === 'wall' || d.connect === 'fence') && (d.block === 'tile' || d.block === 'door')) || !!d.siege); }; // (+ siege engines in the way: game/siege.js)
 const handTorch = (q) => q.offhand === 'torch_hand' || q.equip?.off === 'torch_hand';
+const creativeOff = (game) => !!game.creative; // (creative worlds: nobody is hunted)
 const openTile = (w, x, y) => w.inBounds(x, y) && !w.blocked(x, y) && w.solid.get(w.idx(x, y)) !== 2; // (doors stop them)
 
 // what it wants now: a living player it sees / feels, else the nearest light; shut = inside a room it is not in
@@ -85,6 +86,15 @@ function pickGoal(game, m) {
     if (d >= bd || d > aggroRadius(m, q)) continue;
     if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) continue;
     bd = d; goal = { x: q.x, y: q.y, kind: 'player', ref: q };
+  }
+  // the settlements' people out in the dark (game/people.js): the living draw them too — a guard on the street, a late
+  // villager; never one up on a wall (they shoot from there)
+  if (!creativeOff(game)) for (const e of game.entities) {
+    if (!e.npc || e.dead || e.proxy || e.z > 0.5) continue;
+    const d = Math.hypot(e.x - m.x, e.y - m.y);
+    if (d >= bd || d > aggroRadius(m, e)) continue;
+    if (d > 4 && !hasLOS(w, m.x, m.y, e.x, e.y, 0, 0, m._tn, e._tn)) continue;
+    bd = d; goal = { x: e.x, y: e.y, kind: 'player', ref: e };
   }
   if (!goal) {
     bd = LIGHT_R;
@@ -204,6 +214,8 @@ export function walkerBrain(game, m, dt) {
   if (m.calmT > 0) return handOff(m); // (tests / debug: a calmed one keeps to itself)
   // creative (creative.js): not drawn by light, never breaks anything, hunts nobody — they just roam
   if (game.creative) { m.goal = null; return handOff(m); }
+  // fighting one of the settlements' people (a guard hit it): the raiders' brain fights on (game/npc.js)
+  if (m.state === 'chase' && m.threat?.npc && !m.threat.dead && dist(m, m.threat) < 14) { if (m.siege) { m.siege = null; resetNav(m); } m.ap = null; return false; }
   m.goalT = (m.goalT || 0) - dt;
   if (m.goalT <= 0) {
     m.goalT = 0.8 + Math.random() * 0.5;
@@ -394,7 +406,7 @@ export function walkersTick(game, night) {
   }
   if (!on) {
     // ...and the walls they cracked settle (what they broke stays broken)
-    if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0 && !o.sdmg) game.net.emit('struct.dmg', { id: o.id, d: 0 }); // (siege damage stays: game/siege.js)
+    if (!any && !night) for (const o of game.build.structures) if (o.dmg > 0 && !o.sdmg && o.town == null) game.net.emit('struct.dmg', { id: o.id, d: 0 }); // (siege damage stays: game/siege.js; a settlement's walls are repaired by its people — game/npc.js)
     giantsTick(game, null);
     game._walkT = 4;
     return;

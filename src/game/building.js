@@ -765,7 +765,7 @@ export function buildingSystem() {
       }
       if (typeof bbar === 'object' && bbar) bbar.update(dt);
       for (const o of game.build.doors) {
-        const target = o.open ? 1 : 0;
+        const target = o.open || o._ajarT > game.time ? 1 : 0; // (_ajarT: one of the settlement's people going through — game/people.js, cosmetic)
         const u = o._u ?? target;
         if (u !== target) {
           o._u = target > u ? Math.min(1, u + dt * 3.2) : Math.max(0, u - dt * 3.2);

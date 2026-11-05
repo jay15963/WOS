@@ -273,6 +273,7 @@ export const OVER = [
   E('shawl', 'Xale', { kind: 'shawl' }, 'uncommon'),
   E('corset', 'Corpete', { kind: 'corset' }, 'rare'),
   E('overalls', 'Jardineira', { kind: 'overalls' }, 'uncommon'),
+  E('tabard', 'Tabardo', { kind: 'tabard' }, 'rare'), // (the kingdoms' guards wear it in their colours: game/people.js)
 ];
 // bottoms: leg 'full'|'knee'|'thigh'|'skirt'|'long_skirt' · fit
 export const BOTTOM = [
