@@ -1059,6 +1059,14 @@ differs from the design text above, the code is described here (this section win
   on the authority **before** applying (the object still exists); it only records pending progress (no emit inside an
   apply), flushed as `eco.prog` by the eco system on the next frame. A settlement's `chest.set` is global for the interest
   (net/interest.js) and also writes `E.st` (`TOWN.storeSet`) whether the chest is loaded or not. Scenarios EC1–EC8.
+- **The kingdoms' wars (docs/REINOS.md §13, phase 3a)** — state on `game.realms` (next to its API; written only in
+  `mut/realms.js` appliers): `day`, `day0`, `k0`, `rels` (Map 'a.b' → relation), `tens`, `past`, `own` (sid → kingdom of a
+  captured place), `fallen`, `armies` (home armies `g<sid>` + field armies `a<n>`), `scar`, `news`. The host's
+  `realmsSystem` (sync host) emits `realm.start / day / rel / army / wall / capture / fall` (all global: no `OP_AT`); a
+  marching army's position is **derived from the world clock** on every peer (route + `t0` / `d0` / `v`), so marches cost
+  no ops. Snapshot / save `world.realms`, digest part **`realms`** (exact; marching armies by route and clock; news rows
+  without their per-peer day / hour). A capture also emits `eco.lose` + `struct.remove` (the players' properties there:
+  the one "property lost" path, `game/eco.js loseProps`). Scenarios WR1–WR9.
 ### 7.3 Save format
 
 Key unchanged (`wos.save.v2.<seed>[.guest]`), data `v: 3`: `{ v, seed, savedAt, worldTime, env:{hour,day,weather}, player, craft,
