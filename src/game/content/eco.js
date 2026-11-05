@@ -9,18 +9,20 @@ export const PARCEL = 'parcel';    // a delivery job's parcel (content/items.js)
 // ---------- goods ----------
 // [item id, base price (coins), category, reference stock of a village of ~50 people]
 // The reference stock (demand) scales with the settlement's population; prices come from stock vs that reference.
+// base prices (coins): a crafted good ≈ 1.15 × what its recipe uses + a little for the crafting time (owner, 5/11/2026: "corda é
+// muito fácil de fazer e paga muito bem" — no easy money from a few seconds of work, and no good worth less than its parts)
 export const GOODS = [
   ['wheat', 8, 'food', 60], ['potato', 6, 'food', 50], ['corn', 6, 'food', 50], ['meat', 12, 'food', 40], ['fish_raw', 10, 'food', 30],
-  ['bread', 22, 'food', 30], ['stew', 55, 'food', 12],
+  ['bread', 28, 'food', 30], ['stew', 16, 'food', 12],
   ['wood', 6, 'raw', 80], ['stone', 5, 'raw', 80], ['cotton', 9, 'raw', 30], ['wool', 12, 'raw', 30], ['leather', 24, 'raw', 20],
   ['herb', 14, 'raw', 16], ['coal', 12, 'raw', 30],
   ['copper_ore', 14, 'ore', 30], ['iron_ore', 22, 'ore', 30], ['gold_ore', 60, 'ore', 8], ['jade', 140, 'ore', 4],
-  ['rope', 12, 'craft', 24], ['cloth', 34, 'craft', 18], ['stone_block', 14, 'craft', 30], ['copper_bar', 40, 'craft', 14],
-  ['iron_bar', 64, 'craft', 14], ['steel_bar', 120, 'craft', 6], ['gold_bar', 180, 'craft', 4],
-  ['arrow', 3, 'arms', 120], ['axe_iron', 160, 'arms', 3], ['pickaxe_iron', 160, 'arms', 3], ['sword_iron', 260, 'arms', 3],
-  ['spear_iron', 200, 'arms', 3], ['bow_wood', 70, 'arms', 4], ['shield_iron', 220, 'arms', 2], ['armor_leather', 140, 'arms', 3],
-  ['armor_iron', 420, 'arms', 2], ['helmet_iron', 200, 'arms', 2], ['saddle', 120, 'arms', 2],
-  ['coat_fur', 150, 'cloth', 3], ['hat_fur', 60, 'cloth', 4], ['tunic_cloth', 80, 'cloth', 4],
+  ['rope', 3, 'craft', 24], ['cloth', 35, 'craft', 18], ['stone_block', 10, 'craft', 30], ['copper_bar', 40, 'craft', 14],
+  ['iron_bar', 60, 'craft', 14], ['steel_bar', 110, 'craft', 6], ['gold_bar', 150, 'craft', 4],
+  ['arrow', 1, 'arms', 120], ['axe_iron', 160, 'arms', 3], ['pickaxe_iron', 230, 'arms', 3], ['sword_iron', 320, 'arms', 3],
+  ['spear_iron', 165, 'arms', 3], ['bow_wood', 40, 'arms', 4], ['shield_iron', 370, 'arms', 2], ['armor_leather', 175, 'arms', 3],
+  ['armor_iron', 770, 'arms', 2], ['helmet_iron', 380, 'arms', 2], ['saddle', 165, 'arms', 2],
+  ['coat_fur', 150, 'cloth', 3], ['hat_fur', 60, 'cloth', 4], ['tunic_cloth', 160, 'cloth', 4],
 ];
 export const NG = GOODS.length;
 export const GI = Object.fromEntries(GOODS.map((g, i) => [g[0], i])); // item id → good index

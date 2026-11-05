@@ -434,11 +434,15 @@ de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui
 
 ### O mercado (oferta e procura)
 
-- 39 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 22, ensopado 55), matérias-primas
+- 39 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 28, ensopado 16), matérias-primas
   (madeira 6, pedra 5, algodão 9, lã 12, couro 24, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
-  ofícios (corda 12, tecido 34, bloco de pedra 14, barras: cobre 40, ferro 64, aço 120, ouro 180), armas e ferramentas
-  (flecha 3, machado / picareta de ferro 160, espada 260, lança 200, arco 70, escudo 220, armaduras de couro 140 / de
-  ferro 420, elmo 200, sela 120) e roupas (casaco de pele 150, gorro de pele 60, túnica 80). Preço = base × fator.
+  ofícios (corda 3, tecido 35, bloco de pedra 10, barras: cobre 40, ferro 60, aço 110, ouro 150), armas e ferramentas
+  (flecha 1, machado de ferro 160, picareta de ferro 230, espada 320, lança 165, arco 40, escudo 370, armaduras de couro
+  175 / de ferro 770, elmo 380, sela 165) e roupas (casaco de pele 150, gorro de pele 60, túnica 160). Preço = base × fator.
+  **Balanço** (dono, 5/11/2026: "corda é muito fácil de fazer e paga muito bem"): o preço de algo fabricado ≈ 1,15 × o
+  que a receita usa + um pouco pelo tempo — fabricar com o que se coletou rende um salário justo, comprar para revender não
+  dá lucro fácil, e nada vale menos que as próprias partes (antes a corda de 3 fibras valia 12 e a armadura de ferro, 10
+  barras, só 420).
 - **Fator** (só + − × ÷: igual em todos os pares): `0,3 + 0,7·(R + K)/(S + K)`, `K = max(2, R/4)`, entre 0,3 e 3,2 —
   S o estoque, R a procura (estoque de referência: o volume da mercadoria × população/50; castelo ×1,2; celeiro ×1,3 na
   comida; armazém ×1,2). Comprar paga ×(1,05 − desconto); vender recebe ×(0,85 + desconto). Cada unidade é cobrada pelo
