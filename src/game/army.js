@@ -399,8 +399,8 @@ function hostTick(game) {
     }
     // the daily pay (at the economy's dawn; a player away that day is not paid)
     if (pid != null && game.eco?.day >= 0 && r.paid < day) {
-      const war = warOf(game, r.k), wage = Math.round(ARMY.ranks[r.rank].pay * (war ? ARMY.warPay : 1)), rep = war ? ARMY.serveRep : 1, svc = r.svc + ARMY.svc.day;
-      const rank = Math.max(r.rank, rankOfSvc(svc));
+      const war = warOf(game, r.k), rep = war ? ARMY.serveRep : 1, svc = r.svc + ARMY.svc.day;
+      const rank = Math.max(r.rank, rankOfSvc(svc)), wage = Math.round(ARMY.ranks[rank].pay * (war ? ARMY.warPay : 1)); // (a day served: promoted at the dawn, paid as such)
       r = { ...r, paid: day, svc, rank };
       net.emit('army.rec', { u, r, ev: 'pay', by: pid, give: { coin: wage }, toastKind: 'good',
         toast: `Soldo do dia: +${fmt(wage)} moedas (${ARMY.ranks[rank].name}${war ? ', em campanha ×1,5' : ''}) · +${rep} de reputação no Reino de ${Kn(game, r.k)}` });

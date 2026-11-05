@@ -733,7 +733,7 @@ function liveCheck(game, t) {
   if (!WF) return;
   const P = allPlayers(game).filter((p) => p && !p.dead), w = game.world;
   // the soldiers of an army that is no more in the field (merged into its campaign, back home): gone
-  for (const F of [...WF.forces.values()]) { if (!F.army) continue; const a = game.realms.armies.get(F.id); if (!a || a.state === 'home') { try { WF.dematerialize?.(F.id); } catch (e) { console.error(e); } } }
+  for (const F of [...WF.forces.values()]) { if (!F.army || !/^a\d+$/.test(F.id)) continue; const a = game.realms.armies.get(F.id); if (!a || a.state === 'home') { try { WF.dematerialize?.(F.id); } catch (e) { console.error(e); } } }
   for (const id of fieldIds(game.realms)) { const a = game.realms.armies.get(id); if (!a) continue;
     if (a.state === 'home') continue;
     if (a.state === 'march' || a.state === 'retreat') placeArmy(game, a, t);
