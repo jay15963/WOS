@@ -1730,7 +1730,22 @@ quando há alguém alistado; o `e.pvp` dos outros jogadores a cada 0,5 s. PERF_P
 
 ### Prints
 
-SHOTS_PLACEHOLDER
+`shots/` (fora do git; sem o painel de depuração): **mural** — `ar_mural_enlist_req_desktop` (o cartão Alistamento com
+um requisito faltando: "Reputação Conhecido … faltam 15"), `ar_mural_enlist_ok_desktop` (tudo ✓, o botão "Alistar-se na
+milícia de Estrosa", a tabela de postos), `ar_mural_enlisted_desktop` ("Você está no exército", o posto, o soldo, a ordem
+agora), celular 915 × 412 toque: `ar_mural_enlist_req_phone` / `_2`, `ar_mural_enlist_ok_phone`; **ordens** —
+`ar_orders_peace` ("Em paz: a milícia de Estrosa treina"), `ar_march_with_army` / `_2` (marchando com a coluna do exército
+de Galéria pela praça, o general com o estandarte, o cartão "Marche com o exército até Gralude", a marca vermelha no
+radar), `ar_map_orders` (o mapa com o exército e a bandeira vermelha do destino presa na borda), `ar_orders_catch_up`
+("Alcance o exército · 31 passos" e a seta vermelha "Exército" na borda), `ar_orders_phone` / `ar_orders_catch_up_phone`
+(o cartão no celular, a seta da borda); **cerco** — `ar_siege_orders_camp` ("Marche até o acampamento diante de
+Estrosa"), `ar_siege_orders_phase` ("Proteja os engenheiros" com a seta para a Oficina de cerco entre as tendas),
+`ar_siege_camp_order_debug` ("Monte o acampamento…"), `ar_ram_push` / `ar_ram_push_2` / `ar_ram_gate` (o jogador
+empurrando o aríete com três soldados do seu exército até o portão — "Aríete · 4 pessoas" —, a guarda da vila atirando
+nele), `ar_assault_orders` ("Estrosa é nossa! Segure a praça", os vencedores em roda na praça, a bandeira "Praça");
+**soldo** — `ar_pay_promotion` ("Promovido a Sargento!", "+68 Moeda de ouro", "Soldo de campanha…"); **PvP** —
+`ar_pvp_1` / `_2` / `_3` (anfitrião e convidado lado a lado, membros de Galéria e de Arenudia em guerra, cada um vendo o
+outro com a plaquinha vermelha "Sobrevivente · Reino de … · inimigo", trocando golpes; os cartões de ordens dos dois).
 
 ### Decisões (para o dono confirmar)
 
