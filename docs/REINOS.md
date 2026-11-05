@@ -661,7 +661,11 @@ ainda colhidos, de volta no amanhecer dele. JB2 campos colhidos: o cartão diz "
 campo conta. JB3 os quadros de 14 lugares × 7 dias iguais nos dois pares, cada colheita num campo da lavoura, nenhum
 "maduros", lenha / mina no anel e com mata / pedra; aceito um trabalho de lenha, no lado da mata o marcador fica numa
 árvore em pé da área. JB4 os quadros da terra do início (e dos lugares sem mata) contra a vistoria; contando nos pedaços
-gerados, quem oferece lenha tem ≥ 42 árvores em volta.
+gerados, quem oferece lenha tem ≥ 42 árvores em volta. Prints (`shots/`, fora do git; sem o painel de depuração):
+`jb_board` (o quadro de Nevães: "Colher 10 trigo … o maior fica a sudeste. Eles replantam de madrugada", só pedidos
+possíveis), `jb_marker_plant` (perto do campo: o marcador dourado num pé de trigo, o rastreador "pé de trigo · 4
+passos"), `jb_field_harvested` (o campo colhido), `jb_board_refused` (o cartão: "Os campos de trigo de Nevães já foram
+colhidos: volte depois que replantarem…", Aceitar apagado), `jb_field_replanted` (o mesmo campo no dia seguinte, cheio).
 
 Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_land_desktop`, `ec_realm_desktop`,
 `ec_trade_phone`, `ec_jobs_phone`, `ec_land_phone`, `ec_realm_phone` (915 × 412, toque), `ec_*_portrait` (430 × 932),
