@@ -625,10 +625,11 @@ function endBattle(game, F) {
   const W = game.warfare, O = W.forces.get(F.foe);
   for (const G of [F, O]) {
     if (!G || !W.forces.has(G.id)) continue;
+    const st = G.phase === 'rout' ? 'retreat' : 'won';
     if (G.phase !== 'end') { G.phase = 'end'; publish(game, G, true); }
     flushRep(game, G, true);
     // the survivors leave the field: the losers already ran; the winners stand down (gone when nobody sees them)
-    report(game, { ...G, phase: G.phase === 'rout' ? 'retreat' : 'won' });
+    report(game, { ...G, phase: st });
     endForce(game, G, true);
   }
 }

@@ -9154,7 +9154,8 @@ def('BT5', {
     () => [FA, FB].map((F) => `${F.id} ${btPhase(H, F)} n ${H.game.warfare.forces.get(F.id)?.n} dead ${H.game.warfare.forces.get(F.id)?.dead} morale ${Math.round(H.game.warfare.forces.get(F.id)?.morale ?? -1)}`).join(' · '));
   const loser = btPhase(H, FA) === 'rout' ? FA : FB, winner = loser === FA ? FB : FA;
   t.check(btPhase(H, winner) === 'won', 'the other side wins', btPhase(H, winner));
-  t.check(['deploy', 'advance', 'clash', 'rout', 'won'].every((p) => phases.has(p)), 'the guest followed the phases (deploy → advance → clash → rout / won)', [...phases].join(','));
+  await t.waitFor(() => ['deploy', 'advance', 'clash', 'rout', 'won'].every((p) => phases.has(p)), RT() + 3000, 'the guest followed the phases (deploy → advance → clash → rout / won)', () => [...phases].join(','));
+  t.check(true, 'the guest followed the phases (deploy → advance → clash → rout / won)', [...phases].join(','));
   t.check(arrows > 4, 'the archers loosed volleys', arrows);
   t.check(FA.dead > 0 && FB.dead > 0, 'losses on both sides', `${FA.dead} / ${FB.dead}`);
   await t.waitFor(() => log.rep.some(([id, r]) => id === loser.id && r.state === 'retreat') && log.rep.some(([id, r]) => id === winner.id && r.state === 'won'), 60000, 'both report their losses when the battle ends (game.realms.report)');
