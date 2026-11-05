@@ -10206,7 +10206,7 @@ def('AR1', {
   const rh = arRec(H, uid);
   t.check(rh.k === s.k && rh.rank === 0 && rh.svc === 0, 'in the kingdom\'s army as a Recruta', JSON.stringify(rh));
   await t.waitFor(() => /Você está no exército/.test(ecoTxt(G)) && /Recruta/.test(ecoTxt(G)), 3000, 'the tab says so (rank, pay)');
-  await t.waitFor(() => /Ordens do general/.test(arCard(G)), 4000, 'the orders card on the guest\'s HUD', () => arCard(G));
+  await t.waitFor(() => /Ordem do general/.test(arCard(G)), 4000, 'the orders card on the guest\'s HUD', () => arCard(G));
   t.check(/Em paz/.test(arCard(G)) || /Guarde/.test(arCard(G)), 'a quiet order (no war)', arCard(G));
   const r3 = await ecoReq(G, 'army.join', { sid: s.id });
   t.check(!r3.ok && /já serve/.test(r3.why), 'one army at a time (refused again)', r3.why);

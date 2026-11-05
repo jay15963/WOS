@@ -1,6 +1,9 @@
 // Reusable top notification: slides down from the top edge, auto-hides (or stays until tapped / closed).
 //   notify(text, { sub, kind: 'info'|'good'|'warn'|'update', icon, ms, sticky, onClick, key }) → { close, el }
 // A second call with the same `key` replaces the first one. Works before any game exists (main menu).
+// At most two (non-sticky) at once: the others wait in a short queue — warnings first — and come in as one goes, or
+// after ~1,6 s the oldest one shown gives way (a burst — a war, a notice of the kingdom, a reputation — never covers the
+// middle of the screen with four cards).
 
 const CSS = `
 .wos-notes { position: fixed; left: 50%; top: 0; transform: translateX(-50%); z-index: 400; display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -46,7 +49,36 @@ function ensure() {
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-export function notify(text, { sub = '', kind = 'info', icon = null, ms = 3800, sticky = false, onClick = null, key = null } = {}) {
+const MAX_SHOWN = 2, WAIT = 1600;
+const shown = new Set(), queue = [];
+let pumpT = null;
+function pump() {
+  pumpT = null;
+  while (queue.length && shown.size < MAX_SHOWN) { const q = queue.shift(); q.api.real = make(q.text, q.o); }
+  if (!queue.length) return;
+  const now = performance.now();
+  if (now - queue[0].t > WAIT) { // (waited long enough: the oldest one shown gives way)
+    let old = null;
+    for (const a of shown) if (!old || a.t0 < old.t0) old = a;
+    if (old && now - old.t0 > 1200) old.close();
+  }
+  pumpT = setTimeout(pump, 300);
+}
+export function notify(text, opts = {}) {
+  const key = opts.key || null;
+  if (key && live.has(key)) live.get(key).close(true);
+  const qi = key ? queue.findIndex((q) => q.o.key === key) : -1;
+  if (qi >= 0) { queue[qi].text = text; queue[qi].o = opts; return queue[qi].api; } // (the same key waiting: the newer text)
+  if (opts.sticky || shown.size < MAX_SHOWN) return make(text, opts);
+  const api = { el: null, real: null, close(now = false) { if (api.real) api.real.close(now); else { const i = queue.findIndex((q) => q.api === api); if (i >= 0) queue.splice(i, 1); } } };
+  const q = { text, o: opts, t: performance.now(), api }, pri = opts.kind === 'warn' || opts.kind === 'update';
+  const at = pri ? queue.findIndex((x) => !(x.o.kind === 'warn' || x.o.kind === 'update')) : -1;
+  if (at >= 0) queue.splice(at, 0, q); else queue.push(q);
+  if (queue.length > 6) queue.splice(queue.findIndex((x) => x.o.kind !== 'warn') >= 0 ? queue.findIndex((x) => x.o.kind !== 'warn') : 0, 1); // (a long burst: the least important waits no more)
+  if (!pumpT) pumpT = setTimeout(pump, 300);
+  return api;
+}
+function make(text, { sub = '', kind = 'info', icon = null, ms = 3800, sticky = false, onClick = null, key = null } = {}) {
   const root = ensure();
   if (key && live.has(key)) live.get(key).close(true);
   const el = document.createElement('div');
@@ -57,17 +89,20 @@ export function notify(text, { sub = '', kind = 'info', icon = null, ms = 3800, 
   let timer = null, closed = false;
   const api = {
     el,
+    t0: performance.now(),
     close(now = false) {
       if (closed) return;
       closed = true;
       clearTimeout(timer);
-      if (key) live.delete(key);
+      if (key && live.get(key) === api) live.delete(key);
+      if (shown.delete(api) && queue.length && !pumpT) pumpT = setTimeout(pump, 250);
       if (now) { el.remove(); return; }
       el.classList.remove('in'); el.classList.add('out');
       setTimeout(() => el.remove(), 400);
     },
   };
   if (key) live.set(key, api);
+  if (!sticky) shown.add(api);
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in')));
   setTimeout(() => el.classList.add('in'), 60); // background tabs: rAF may not run
   el.addEventListener('click', (e) => {
