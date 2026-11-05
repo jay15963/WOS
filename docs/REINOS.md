@@ -797,7 +797,7 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   guardado (`game.towns.prog`, op `town.prog`, linha `wprog` no save / snapshot, nunca desce), até o nível dos lugares
   mais distantes. Civis: 2 níveis abaixo.
 - **Mortes**: monstros ferem e matam o povo; sem corpo e sem saque. Op `town.pop` (morto, hora) → linhas `tpop` no save /
-  snapshot e no digest; aviso "<Guarda> X caiu defendendo Y". **Repovoar**: cada morte é reposta 1,5 dia depois (um recém-chegado
+  snapshot e no digest; sem aviso por morte (dono: numa batalha há muitos mortos — seria um enxame de mensagens). **Repovoar**: cada morte é reposta 1,5 dia depois (um recém-chegado
   com a mesma identidade da semente).
 
 ### Consertos

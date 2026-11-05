@@ -709,11 +709,8 @@ export function peopleFxSystem() {
           if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30)) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
           else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30)) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
         });
-        game.events.on('townpop', ({ sid, i, dead }) => {
-          if (!dead || !near(game, sid, 24)) return;
-          const S = peopleOf(game, sid), P = S?.persons[i];
-          if (P) game.events.emit('toast', { text: P.guard ? `${P.jobPt} ${P.name} caiu defendendo ${S.name}` : `${P.name} (${P.jobPt.toLowerCase()}) morreu em ${S.name}`, kind: 'warn' });
-        });
+        // (no toast for each death — owner: in a battle there are many dead, a swarm of messages; the bell and the
+        //  all-clear tell the story)
       }
       // the bell: three strokes when it starts, then now and then while the danger lasts (heard near the place)
       if (bellSid >= 0) {
