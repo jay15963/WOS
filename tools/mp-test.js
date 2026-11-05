@@ -10143,7 +10143,7 @@ async function arMember(t, H, G, uid, k, rep = null, pid = G.pid, f = G) {
 }
 // enlisted straight by the host (op army.rec) in the army of place sid
 async function arEnlist(t, H, G, uid, sid, patch = {}) {
-  const k = RZ(H).owner(sid), d = arDay(H);
+  const k = RZ(H).owner(sid), d = Math.max(arDay(H), H.game.env.dayIndex | 0); // (the economy day may lag a skipped clock: not paid in the middle of a scenario)
   H.game.net.emit('army.rec', { u: uid, r: { sid, k, rank: 0, svc: 0, since: d, paid: d, kills: 0, a: '', kd: -1, kn: 0, ...patch }, ban: 0, ev: 'debug' }); H.game.net.flush();
   await t.waitFor(() => arRec(G, uid)?.sid === sid && arRec(H, uid)?.sid === sid, RT() + 2000, `enlisted in the army of ${realmOf(H).settlements[sid].name} (both peers)`);
 }
