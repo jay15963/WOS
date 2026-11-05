@@ -20,6 +20,7 @@ const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const ang = (v) => { const a = num(v, NaN); return Number.isFinite(a) ? Math.atan2(Math.sin(a), Math.cos(a)) : null; };
 const pidList = (L) => (Array.isArray(L) ? L.slice(0, PUSH_SLOTS).map((q) => (typeof q === 'string' && q ? q.slice(0, 40) : 0)) : []);
 const LAST = new Map();  // host: engine id → worldTime of its last shot / blow
+const armyEngine = (game, o) => `${BUILDINGS[o.type].name} do exército do Reino de ${game.towns?.realm?.kingdoms[o.realm]?.name || '?'}: só os engenheiros dele a usam`;
 
 // ---------- artillery ----------
 defineIntent('siege.use', {
@@ -28,6 +29,7 @@ defineIntent('siege.use', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isArtyObj(o)) return 'Máquina não encontrada';
+    if (o.realm != null && a.on) return armyEngine(game, o); // (a kingdom's army's: its engineers' — game/siegeAI.js)
     const me = actor.pid, src = actor.ent, name = BUILDINGS[o.type].name.toLowerCase(), S = ARTY[o.type];
     if (!a.on) { if (o.user === me) net.emit('siege.set', { id: o.id, user: 0 }); return; }
     if (o.blueprint) return `${BUILDINGS[o.type].name}: ainda em construção`;
@@ -88,6 +90,7 @@ defineIntent('siege.push', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isPushObj(o)) return 'Máquina não encontrada';
+    if (o.realm != null && a.on) return armyEngine(game, o);
     const me = actor.pid, src = actor.ent, L = pidList(o.push);
     while (L.length < PUSH_SLOTS) L.push(0);
     if (!a.on) {

@@ -8874,6 +8874,454 @@ def('FX3', {
   t.check(sprPlaza > 300 && sprPlaza < 9000, 'a sane sprite count at the market plaza', sprPlaza);
 });
 
+// =====================================================================================================
+// BT — the battlefield (docs/REINOS.md §14 "Fase 3b — campo de batalha e cerco": game/warfare.js, game/soldier.js,
+// game/siegeAI.js, game/mut/warfare.js): soldiers near the players, the playable siege, field battles, the players'
+// rule. Part 3a (game.realms) is not in this branch: a SHIM of it is installed here only (atWar / owner / capture /
+// report on both peers); at the junction these scenarios switch to 3a's op realm.rel.
+// =====================================================================================================
+const BTX = { war: null };
+const btMods = async (f) => ({ W: await fimp(f, 'game/warfare.js'), C: await fimp(f, 'game/content/soldiers.js'), S: await fimp(f, 'game/soldier.js'), AI: await fimp(f, 'game/siegeAI.js') });
+const btKey = (a, b) => (a < b ? a + ':' + b : b + ':' + a);
+// the shim of 3a's game.realms on both peers (tests only): the wars, the owner of a place (a capture moves it), the reports
+function warShim(t, H, G, wars) {
+  const W = new Set(wars.map(([a, b]) => btKey(a, b))), owners = new Map(), log = { cap: [], rep: [] };
+  const mk = (f) => ({
+    atWar: (a, b) => a !== b && W.has(btKey(a, b)),
+    rel: (a, b) => (a === b ? 'self' : W.has(btKey(a, b)) ? 'war' : 'neutral'),
+    owner: (sid) => (owners.has(sid) ? owners.get(sid) : f.game.towns.realm.settlements[sid]?.k),
+    capture: (sid, k) => { log.cap.push([sid, k]); owners.set(sid, k); },
+    report: (id, r) => { log.rep.push([id, { ...r }]); },
+  });
+  H.game.realms = mk(H); G.game.realms = mk(G);
+  t.defer(() => { delete H.game.realms; delete G.game.realms; });
+  return log;
+}
+// two kingdoms of the start's landmass other than the start's own (the attackers), the start village (the defender)
+function btKingdoms(H, s) {
+  const R = realmOf(H), K = R.kingdoms, mine = K[s.k];
+  return K.filter((k) => k.id !== s.k && k.comp === mine.comp).sort((a, b) => Math.hypot(R.settlements[a.capital].x - s.x, R.settlements[a.capital].y - s.y) - Math.hypot(R.settlements[b.capital].x - s.x, R.settlements[b.capital].y - s.y)).map((k) => k.id);
+}
+// faster sieges for the tests (the build time, the capture hold): the host's numbers, put back afterwards
+async function btFast(t, H, o = {}) {
+  const { C } = await btMods(H), old = { ...C.WAR.siege };
+  Object.assign(C.WAR.siege, { buildK: 0.3, captureT: 8, holdT: 20, breachWait: 50, ...o });
+  t.defer(() => Object.assign(C.WAR.siege, old));
+  return C;
+}
+// the start village back as it was (pieces broken, damage, the dead of the siege)
+function btHeal(H, sid) {
+  const g = H.game, pre = `t${sid}.`, ids = [];
+  for (const [id, r] of g.towns.state) if (id.startsWith(pre)) { if (r.gone) ids.push(id); else if (r.dmg > 0) g.net.emit(g.world.objById.get(id)?.sdmg ? 'siege.dmg' : 'struct.dmg', { id, d: 0, x: r.x + 0.5, y: r.y + 0.5 }); }
+  if (ids.length) g.net.emit('town.restore', { ids });
+  for (const k of [...(g.towns.dead || new Map()).keys()]) { const [a, i] = k.split('.').map(Number); if (a === sid) g.net.emit('town.pop', { sid, i, dead: 0 }); }
+  g.net.flush();
+}
+// a debug siege of the start village by kingdom k coming from direction `from` (unit), ended (soldiers, camp, engines) at
+// the end of the scenario
+function btSiege(t, H, s, k, { n = 30, lv = 4, from = [1, 0], eng = null, d = 30 } = {}) {
+  const at = [s.x + from[0] * (s.r + d), s.y + from[1] * (s.r + d)];
+  const F = H.game.warfare.startSiege({ k, sid: s.id, n, lv, at, eng });
+  t.defer(() => { if (H.game.warfare.forces.has(F.id)) H.game.warfare.dematerialize(F.id); H.game.net.flush(); });
+  t.defer(() => btHeal(H, s.id));
+  return F;
+}
+const btDbg = (H, F) => H.game.warfare.debug(F.id);
+const btPhase = (H, F) => H.game.warfare.forces.get(F.id)?.phase || 'gone';
+const btOn = (f, F) => f.game.warfare.forces.get(F.id) || null;
+const soldiersOf = (f, k) => f.game.entities.filter((e) => e.soldier && !e.dead && (k == null || e.soldier.k === k));
+const hexN = (h) => String(h || '').replace('#', '').toLowerCase();
+// both players at (x, y) (free spots), the host seeing the guest there
+async function btStand(t, H, MH, G, MG, x, y) {
+  const a = A.freeSpot(H, MH, x, y, { rMin: 0, rMax: 5 }) || [x, y];
+  A.teleport(H, a[0], a[1]);
+  const b = A.freeSpot(G, MG, a[0] + 1.6, a[1], { rMin: 0, rMax: 5 }) || [a[0] + 1.6, a[1]];
+  A.teleport(G, b[0], b[1]);
+  await A.hostSees(t, H, G, 4000 + RT());
+}
+async function btVillage(t, H, MH, G, MG) {
+  const s = startTownOf(H, MH);
+  t.need(s && s.walls === 'palisade', 'the start village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  return s;
+}
+
+def('BT1', {
+  title: 'BT: a debug siege of the start village — soldiers in the kingdom\'s colours on both peers, the camp out of the defenders\' reach, the bell and the watch on the threatened side',
+  src: 'village', timeout: 240000,
+  expected: 'game.warfare.startSiege by an enemy kingdom (the shim of 3a: at war with the village\'s): the force on both peers (war.force), its soldiers host creatures and proxies on the guest with the same names / roles / looks rebuilt from the seed (camp w<k>.<tag>.<role><i>), the tabards / shields in the attacker\'s colours, a general; the camp (tents, banners, fires: structures of the army, o.realm = k, on both) farther than every archer post on the walls can shoot (13 × (1 + 0.2 a story)) and than the guards chase; the gates shut, the bell (danger), the defense\'s threat on the army\'s side, the archers up on the palisade; digest equal',
+  api: 'game/warfare.js startSiege / debug / threatOn, soldier.js identity / decorateSoldier / crestOf, siegeAI.js plan / raiseCamp, mut/warfare.js war.force / war.mark',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  t.need(k2 != null, 'another kingdom on the start\'s landmass');
+  warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H);
+  const F = btSiege(t, H, s, k2, { n: 30, lv: 4, from: [1, 0] });
+  await t.waitFor(() => btOn(G, F), RT() + 2000, 'the guest knows the force (war.force)');
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned (the camp, the engines)', () => JSON.stringify(H.game.warfare.planWhy().slice(-6)));
+  const st = btDbg(H, F).siege, camp = st.camp;
+  await btStand(t, H, MH, G, MG, camp[0] - 4, camp[1] - 3);
+  await t.waitFor(() => soldiersOf(G, k2).length >= 12, 20000, 'the guest sees the soldiers (proxies)', () => `${soldiersOf(G, k2).length} on the guest, ${soldiersOf(H, k2).length} on the host`);
+  const crest = H.game.warfare.crest(k2);
+  const gs = soldiersOf(G, k2), bad = [];
+  for (const e of gs) {
+    const m = H.game.entities.find((q) => q.nid === e.nid);
+    if (!m) continue;
+    if (e.name !== m.name || e.soldier.role !== m.soldier.role || JSON.stringify(e.look) !== JSON.stringify(m.look)) bad.push(`${e.nid} ${e.name}/${m.name} ${e.soldier.role}/${m.soldier.role}`);
+  }
+  t.check(!bad.length, 'the same soldiers on both peers (name, role, look rebuilt from the seed)', bad.slice(0, 3).join(' · ') || `${gs.length} soldiers`);
+  const tab = gs.filter((e) => e.look?.over === 'tabard');
+  t.check(tab.length && tab.every((e) => hexN(e.look.overC) === hexN(crest.fh) && e.look.crest === crest.d), 'the tabards in the attacker\'s colours with its heraldry', `${tab.length} tabards · ${crest.fh} ${crest.d}`);
+  t.check(gs.filter((e) => e.offhand === 'shield_guard').every((e) => e.crest && hexN(e.crest.fh) === hexN(crest.fh)), 'the shields in its colours (the crest on the proxies)');
+  t.check(soldiersOf(H, k2).some((m) => m.soldier.role === 'general'), 'a general leads them');
+  // the camp
+  await t.waitFor(() => btDbg(H, F).siege.campIds.length >= 6 && !['march', 'camp'].includes(btPhase(H, F)) && btDbg(H, F).siege.campIds.every((id) => A.structOn(G, id)?.realm === k2), 90000, 'the camp is raised (tents, banners, fires) — the army\'s on both peers', () => `${btDbg(H, F).siege.campIds.length} pieces · phase ${btPhase(H, F)}`);
+  const ids = btDbg(H, F).siege.campIds, S = H.game.people.of(s.id), types = ids.map((id) => A.structOn(H, id)?.type);
+  t.check(types.includes('war_tent') && types.includes('war_banner') && types.includes('campfire'), 'tents, banners and fires', types.join(','));
+  t.check(ids.every((id) => { const o = A.structOn(G, id); return o && o._kc && Math.abs(o._kc[0] - crest.f[0]) < 1e-6; }), 'in the kingdom\'s colours on the guest (o._kc)');
+  const near = [];
+  for (const id of ids) {
+    const o = A.structOn(H, id), cx = o.tx + o.fw / 2, cy = o.ty + o.fh / 2;
+    for (const w of S.posts.walls) { const r = 13 * (1 + 0.2 * (w.lv | 0)); if (Math.hypot(cx - w.x, cy - w.y) < r + 2) near.push(`${o.type} ${f2(Math.hypot(cx - w.x, cy - w.y))} < ${f2(r)}`); }
+    for (const c of S.posts.crews) if (Math.hypot(cx - c.x, cy - c.y) < 34) near.push(`${o.type} near a ballista`);
+    if (Math.hypot(cx - s.x, cy - s.y) < s.r + 12) near.push(`${o.type} where the guards chase`);
+  }
+  t.check(!near.length, 'the whole camp out of the defenders\' reach (archers on the walls, ballistas, the guards\' chase)', near.slice(0, 3).join(' · ') || `${ids.length} pieces`);
+  // the defenders
+  await t.waitFor(() => H.game.people.debug(s.id).danger && H.game.people.debug(s.id).def?.danger, 10000, 'the bell: the watch takes its posts');
+  const th = H.game.people.debug(s.id).def.th, A0 = [camp[0] - s.x, camp[1] - s.y], al = Math.hypot(...A0);
+  t.check(th && (th.fx * A0[0] + th.fy * A0[1]) / al > 0.5, 'the threat on the army\'s side (game.townDefense via game.warfare.threatOn)', JSON.stringify(th));
+  const L = H.game.towns.layout(s.id);
+  await t.waitFor(() => L.gates.every((k) => { const a = A.objOn(H, `t${s.id}.${k}`), b = A.objOn(G, `t${s.id}.${k}`); return (!a || !a.open) && (!b || !b.open); }), 6000, 'the gates shut on both peers');
+  // the archers up on the palisade (the players back at the plaza: the watch is out around them)
+  const archers = () => H.game.people.debug(s.id).live.filter((m) => m.job === 'archer');
+  await btStand(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  await t.waitFor(() => archers().length && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 45000, 'the archers go up on the palisade (the watch on the walls, not at the mural)', () => archers().map((m) => `${m.duty?.k || '-'} z${f2(m.z)}`).join(' '));
+  t.check(true, 'the archers on the palisade', archers().length);
+  t.metric('soldiers', gs.length);
+  await t.checkDigest(H, G);
+});
+
+def('BT2', {
+  title: 'BT: the engines built over time (the tower at the wall\'s height), the trebuchet\'s persistent damage and the breach the watch holds',
+  src: 'village', timeout: 420000,
+  expected: 'The siege\'s engineers raise an Oficina de cerco, then a trebuchet and a siege tower as real blueprints whose progress grows on both peers (struct.progress) until complete; the tower\'s stories = towerStoriesFor of the wall pieces at the end of its lane; the trebuchet stands 34–43 tiles from its target. Operated by an engineer (o.user ~<nid>) it throws (siege.shot on both): the palisade takes persistent siege damage (o.sdmg, the town state) until a log breaks — an opening on both peers (game.townDefense.openings) held by the nearest melee guards (a gap post, one in / just inside it); digest equal',
+  api: 'siegeAI.js plan / buildEngines / bombard / operateJob, mut/siege.js fireShot, siege.js towerStoriesFor / frontTiles, defense.js openings / assignDefense',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H, { breachWait: 400 });
+  const F = btSiege(t, H, s, k2, { n: 26, lv: 4, from: [1, 0], eng: { treb: 1, ram: 0, tower: 1 } });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const jobs = () => btDbg(H, F).siege.jobs, job = (r) => jobs().find((j) => j.role === r);
+  t.need(job('treb') && job('tower'), 'a trebuchet and a tower planned', JSON.stringify(jobs()) + ' ' + JSON.stringify(H.game.warfare.planWhy().slice(-5)));
+  const ws = job('ws');
+  await btStand(t, H, MH, G, MG, ws.tx + 1, ws.ty + 5);
+  // the workshop, then the engines: blueprints whose progress grows on both peers
+  await t.waitFor(() => job('ws').id && A.structOn(G, job('ws').id), 60000, 'the workshop\'s blueprint on the guest', () => `phase ${btPhase(H, F)}`);
+  await t.waitFor(() => job('ws').done && !A.structOn(G, job('ws').id).blueprint, 40000, 'the workshop finished on both');
+  await t.waitFor(() => job('treb').id && A.structOn(G, job('treb').id)?.blueprint, 30000, 'the trebuchet\'s blueprint (the workshop is ready: the player\'s rule)');
+  const tid = job('treb').id;
+  const p0 = A.structOn(G, tid).progress || 0;
+  await t.waitFor(() => (A.structOn(G, tid)?.progress || 0) > p0 + 0.1 || !A.structOn(G, tid)?.blueprint, 30000, 'its progress grows on the guest (struct.progress)');
+  await t.waitFor(() => job('treb').done && job('tower').done && !A.structOn(G, tid).blueprint && !A.structOn(G, job('tower').id)?.blueprint, 90000, 'the trebuchet and the tower finished on both', () => JSON.stringify(jobs().map((j) => [j.role, j.p, j.done])));
+  // the tower's height = the wall's at the end of its lane
+  const tj = job('tower'), to = A.structOn(H, tj.id), [fw, fh] = [to.fw, to.fh];
+  const want = MH.siege.towerStoriesFor(H.game, MH.siege.frontTiles({ tx: tj.end[0], ty: tj.end[1], fw, fh, rot: to.rot }));
+  t.check(want >= 1 && MH.siege.towerN(to) === want && MH.siege.towerN(A.structOn(G, tj.id)) === want, 'the tower has the stories of the wall stretch it is planned against (towerStoriesFor)', `${MH.siege.towerN(to)} / wall ${want}`);
+  const tr = A.structOn(H, tid), [px, py] = MH.siege.pivotOf(tr), tg = A.structOn(H, job('treb').target);
+  const td = Math.hypot(tg.tx + 0.5 - px, tg.ty + 0.5 - py);
+  t.check(td >= 33 && td <= 44.5, 'the trebuchet 34–43 tiles from its target (out of the archers\' reach)', f2(td));
+  t.check(tr.realm === k2 && A.structOn(G, tid).realm === k2, 'the engines are the army\'s (o.realm) on both');
+  // the bombardment
+  const shots = [];
+  t.on(G, 'siegeshot', (e) => shots.push(e));
+  await btStand(t, H, MH, G, MG, tg.tx - 6, tg.ty + 2);
+  await t.waitFor(() => tr.user?.startsWith('~'), 30000, 'an engineer operates the trebuchet (o.user ~<nid>)', () => `user ${tr.user} phase ${btPhase(H, F)}`);
+  await t.waitFor(() => shots.length >= 1, 60000, 'it throws (siege.shot on the guest)');
+  const pre = `t${s.id}.`, hurt = () => [...H.game.towns.state].filter(([id, r]) => id.startsWith(pre) && (r.dmg > 0 || r.gone));
+  await t.waitFor(() => hurt().length, 200000, 'a wall piece takes siege damage', () => `${shots.length} shots · phase ${btPhase(H, F)}`);
+  const d0 = hurt()[0];
+  t.check(G.game.towns.state.get(d0[0]) && (G.game.towns.state.get(d0[0]).dmg > 0 || G.game.towns.state.get(d0[0]).gone), 'the damage is the town\'s state on the guest too (persistent)', `${d0[0]} ${JSON.stringify(d0[1])}`);
+  const opOf = (f) => f.game.townDefense.openings(s.id)[0] || null;
+  await t.waitFor(() => opOf(H) && opOf(G), 200000, 'a log breaks: an opening on both peers (a breach)', () => `${shots.length} shots · ${hurt().length} hurt pieces · phase ${btPhase(H, F)}`);
+  const op = opOf(H);
+  t.check(G.game.townDefense.openings(s.id).some((o) => o.id === op.id), 'the same opening on the guest', op.id);
+  const D = () => H.game.people.debug(s.id);
+  await t.waitFor(() => D().def?.posts.some((p) => p.k === 'gap' && p.op === op.id), 8000, 'the defense posts melee guards on the breach');
+  await t.waitFor(() => D().live.some((m) => m.duty?.k === 'gap' && Math.hypot(m.x - op.x, m.y - op.y) < 2.6), 45000, 'a melee guard holds it (in the gap / just inside)',
+    () => D().live.filter((m) => m.guard).map((m) => `${m.job} ${m.duty?.k || '-'} ${m.state} @${f2(m.x)},${f2(m.y)}`).join(' '));
+  t.metric('shots', shots.length);
+  await t.checkDigest(H, G);
+});
+
+def('BT3', {
+  title: 'BT: the siege tower — pushed to the palisade by its crew, the ramp down, soldiers up on the wall walk; the centre held → the capture is requested',
+  src: 'village', timeout: 360000,
+  expected: 'A siege with a tower only: built, pushed by 2–3 soldiers (o.push ~<nid> on both, the tower moving a tile at a time — siege.step), against the palisade it drops its ramp (o.ramp on both); soldiers climb its ladder, stand on the wall walk (the levels surface of the wall\'s story, host; z > 0.5 on the guest), go down inside and take the plaza; with no guard near the centre for WAR.siege.captureT the host calls game.realms.capture(sid, k) (the shim) and the force is \'held\' on both; digest equal',
+  api: 'siegeAI.js assault / pushJob / climbers / climbJob / capture, siege.js hostPush / dock, levels.js surfaces',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  const log = warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H, { breachWait: 400 });
+  const F = btSiege(t, H, s, k2, { n: 30, lv: 6, from: [1, 0], eng: { treb: 0, ram: 0, tower: 1 } });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const job = () => btDbg(H, F).siege.jobs.find((j) => j.role === 'tower');
+  t.need(job(), 'a tower planned', JSON.stringify(H.game.warfare.planWhy().slice(-5)));
+  await btStand(t, H, MH, G, MG, job().end[0] - 3, job().end[1] + 4);
+  await t.waitFor(() => job().done, 120000, 'the tower is built', () => `phase ${btPhase(H, F)} p ${job().p}`);
+  const id = job().id, oH = A.structOn(H, id);
+  const x0 = oH.tx;
+  await t.waitFor(() => (oH.push || []).filter((q) => q && q[0] === '~').length >= 2, 60000, 'two or more soldiers push it (o.push)', () => `push ${JSON.stringify(oH.push)} phase ${btPhase(H, F)}`);
+  await t.waitFor(() => (A.structOn(G, id)?.push || []).filter((q) => q && q[0] === '~').length >= 2, RT() + 2000, 'the guest sees the crew on it');
+  await t.waitFor(() => A.structOn(G, id).tx !== x0 || A.structOn(G, id).ty !== oH.ty, 20000, 'it moves (siege.step on the guest)');
+  await t.waitFor(() => oH.ramp && A.structOn(G, id)?.ramp, 90000, 'against the palisade the ramp drops (on both)', () => `@${oH.tx},${oH.ty} end ${job().end} push ${JSON.stringify(oH.push)}`);
+  const n = MH.siege.towerN(oH), lev = H.game.levels.sync(), w = H.game.world;
+  const upH = () => soldiersOf(H, k2).filter((m) => m.z > n - 0.3 && lev.surf[n]?.get(w.idx(Math.floor(m.x), Math.floor(m.y))) === 1);
+  await t.waitFor(() => upH().some((m) => !(m.x >= oH.tx && m.x < oH.tx + oH.fw && m.y >= oH.ty && m.y < oH.ty + oH.fh)), 60000, 'a soldier stands on the wall walk (past the ramp, the wall\'s story)', () => `climbed ${btDbg(H, F).siege.climbed} · up ${soldiersOf(H, k2).filter((m) => m.z > 0.3).map((m) => `${f2(m.x)},${f2(m.y)} z${f2(m.z)}`).join(' ')}`);
+  await t.waitFor(() => soldiersOf(G, k2).some((e) => (e.z || 0) > 0.5), RT() + 3000, 'the guest sees soldiers up there');
+  await t.waitFor(() => log.cap.some(([sid, k]) => sid === s.id && k === k2), 150000, 'the centre held with no defender: game.realms.capture(sid, k)',
+    () => { const d = btDbg(H, F); return d ? `phase ${d.phase} capT ${d.siege.capT} at ${d.siege.capAt} def ${d.siege.capDef} · inside ${btDbg(H, F).live.filter((m) => m.order === 'flow').length}` : 'gone'; });
+  await t.waitFor(() => btOn(G, F)?.phase === 'held', RT() + 2000, 'the force is \'held\' on the guest');
+  t.metric('climbed', btDbg(H, F).siege.climbed);
+  await t.checkDigest(H, G);
+});
+
+def('BT4', {
+  title: 'BT: the battering ram — pushed by its crew to a gate of the palisade, blow after blow until the gate breaks; the soldiers go in',
+  src: 'village', timeout: 300000,
+  expected: 'A siege with a ram only, the army coming from a side with a gate: the ram is built, pushed by ≥ 2 soldiers (o.push on both) along a clear lane to the gate, strikes (siege.swing on the guest, damage only to the gate: siege.dmg) until the gate piece is removed on both peers; then soldiers walk in through it (one inside the wall line); digest equal',
+  api: 'siegeAI.js laneFor / assault (the ram), mut/siege.js ramBlow, siege.js hostPush / isGate',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H, { breachWait: 400 });
+  const per = H.game.townDefense.perimeter(s.id), gate = [...per.pieces.values()].find((p) => p.gate && Math.abs(p.fx) + Math.abs(p.fy) < 1.01);
+  t.need(gate, 'a gate on an axis side of the palisade');
+  const F = btSiege(t, H, s, k2, { n: 26, lv: 5, from: [gate.fx, gate.fy], eng: { treb: 0, ram: 1, tower: 0 } });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const job = () => btDbg(H, F).siege.jobs.find((j) => j.role === 'ram');
+  t.need(job(), 'a ram planned (a clear lane to a gate)', JSON.stringify(H.game.warfare.planWhy().slice(-5)));
+  const gid = job().target;
+  await btStand(t, H, MH, G, MG, job().end[0] - 4, job().end[1] + 3);
+  await t.waitFor(() => job().done, 120000, 'the ram is built', () => `phase ${btPhase(H, F)} p ${job().p}`);
+  const oH = A.structOn(H, job().id), swings = [];
+  t.on(G, 'siegeram', (e) => swings.push(e));
+  await t.waitFor(() => (oH.push || []).filter((q) => q && q[0] === '~').length >= 2 && (A.structOn(G, oH.id)?.push || []).filter(Boolean).length >= 2, 60000, 'two or more soldiers push it (on both)', () => `push ${JSON.stringify(oH.push)} phase ${btPhase(H, F)}`);
+  await t.waitFor(() => swings.length >= 1, 90000, 'at the gate it strikes (siege.swing on the guest)', () => `ram @${oH.tx},${oH.ty} end ${job().end}`);
+  t.check(swings.some((e) => e.hit === 1), 'a blow on the gate itself');
+  await t.waitFor(() => !A.objOn(H, gid) && !A.objOn(G, gid), 120000, 'the gate breaks (removed on both peers)', () => `${swings.length} blows · gate dmg ${f2(A.objOn(H, gid)?.dmg || 0)}`);
+  await t.waitFor(() => soldiersOf(H, k2).some((m) => per.inside(m.x, m.y, H.game.world)), 60000, 'soldiers go in through the broken gate');
+  t.metric('blows', swings.length);
+  await t.checkDigest(H, G);
+});
+
+def('BT5', {
+  title: 'BT: a field battle — two kingdoms\' armies march, deploy their lines, the archers loose, the lines clash; one breaks and runs, the losses are reported',
+  src: 'village', timeout: 300000,
+  expected: 'game.warfare.startBattle between two kingdoms at war (the shim): both forces on both peers, a general with each (the standard), the lines deploy and advance (phases on the guest\'s rows: deploy / advance / clash), arrows fly, soldiers fall on both sides; the morale of one breaks (rout) and the other wins (won); both report their losses (game.realms.report: lost > 0); digest equal',
+  api: 'warfare.js startBattle / battleTick / formation / morale / endBattle, soldier.js melee / shoot / pickFoe',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [ka, kb] = btKingdoms(H, s);
+  t.need(ka != null && kb != null, 'two other kingdoms on the landmass');
+  const log = warShim(t, H, G, [[ka, kb]]);
+  // a field east of the village, away from its land
+  const cx = s.x + s.r + 60, cy = s.y + 8;
+  await btStand(t, H, MH, G, MG, cx, cy + 9);
+  const phases = new Set();
+  t.on(G, 'warforce', (e) => phases.add(e.phase));
+  const [FA, FB] = H.game.warfare.startBattle({ k: ka, n: 24, lv: 5, at: [cx - 26, cy] }, { k: kb, n: 16, lv: 5, at: [cx + 26, cy] });
+  t.defer(() => { for (const F of [FA, FB]) if (H.game.warfare.forces.has(F.id)) H.game.warfare.dematerialize(F.id); H.game.net.flush(); });
+  await t.waitFor(() => btOn(G, FA) && btOn(G, FB), RT() + 2000, 'both forces on the guest');
+  await t.waitFor(() => soldiersOf(G, ka).length >= 8 && soldiersOf(G, kb).length >= 8, 20000, 'the guest sees both armies');
+  t.check(soldiersOf(G, ka).some((e) => e.soldier.role === 'general') && soldiersOf(G, kb).some((e) => e.soldier.role === 'general'), 'a general (with the standard) on each side, on the guest');
+  let arrows = 0;
+  t.watch(() => { arrows += (H.game.projectiles || []).filter((p) => p.faction === 'army' && !p._seen && (p._seen = true)).length; }, 100);
+  await t.waitFor(() => btPhase(H, FA) === 'rout' || btPhase(H, FB) === 'rout' || btPhase(H, FA) === 'gone', 240000, 'one side breaks and runs (rout)',
+    () => [FA, FB].map((F) => `${F.id} ${btPhase(H, F)} n ${H.game.warfare.forces.get(F.id)?.n} dead ${H.game.warfare.forces.get(F.id)?.dead} morale ${Math.round(H.game.warfare.forces.get(F.id)?.morale ?? -1)}`).join(' · '));
+  const loser = btPhase(H, FA) === 'rout' ? FA : FB, winner = loser === FA ? FB : FA;
+  t.check(btPhase(H, winner) === 'won', 'the other side wins', btPhase(H, winner));
+  t.check(['deploy', 'advance', 'clash', 'rout', 'won'].every((p) => phases.has(p)), 'the guest followed the phases (deploy → advance → clash → rout / won)', [...phases].join(','));
+  t.check(arrows > 4, 'the archers loosed volleys', arrows);
+  t.check(FA.dead > 0 && FB.dead > 0, 'losses on both sides', `${FA.dead} / ${FB.dead}`);
+  await t.waitFor(() => log.rep.some(([id, r]) => id === loser.id && r.state === 'retreat') && log.rep.some(([id, r]) => id === winner.id && r.state === 'won'), 60000, 'both report their losses when the battle ends (game.realms.report)');
+  const rl = log.rep.filter(([id]) => id === loser.id).pop()[1], rw = log.rep.filter(([id]) => id === winner.id).pop()[1];
+  t.check(rl.lost > 0 && rw.lost > 0 && rl.n < 24 && rw.n >= 0, 'the reports carry the losses and the survivors', `${JSON.stringify(rl)} · ${JSON.stringify(rw)}`);
+  await t.waitFor(() => !btOn(G, FA) && !btOn(G, FB), 10000, 'the forces are gone on the guest (war.end)');
+  t.metric('losses', `${FA.dead}/${FB.dead}`);
+  await t.checkDigest(H, G);
+});
+
+def('BT6', {
+  title: 'BT: heavy losses make a siege give up — the retreat, the camp and engines struck, the attackers gone',
+  src: 'village', timeout: 240000,
+  expected: 'A siege by 12 soldiers; once camped, 8 of them fall (the test kills them): past WAR.siege.lossRetreat of its men the force retreats (phase retreat on both peers, a shout), its soldiers run away past the camp, the force ends (war.end on both), its camp pieces are removed on both peers and 3a gets the report (state retreat / end); digest equal',
+  api: 'siegeAI.js siegeTick (retreat), warfare.js endForce / repelled, siegeEnd',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  const log = warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H);
+  const F = btSiege(t, H, s, k2, { n: 12, lv: 3, from: [1, 0] });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const camp = btDbg(H, F).siege.camp;
+  await btStand(t, H, MH, G, MG, camp[0] - 4, camp[1] - 3);
+  await t.waitFor(() => btDbg(H, F).siege.campIds.length >= 4, 60000, 'the camp is up');
+  await t.waitFor(() => ['build', 'bombard', 'assault'].includes(btPhase(H, F)), 60000, 'the siege is on (build / bombard)');
+  const campIds = btDbg(H, F).siege.campIds.slice();
+  const cries = [];
+  t.on(G, 'warcry', (e) => cries.push(e.text));
+  for (let k = 0; k < 8; k++) {
+    const m = soldiersOf(H, k2).find((q) => q.soldier.role !== 'general');
+    if (!m) break;
+    MH.combat.killMob(H.game, m, null);
+    await t.sleep(150);
+  }
+  await t.waitFor(() => btPhase(H, F) === 'retreat' || btPhase(H, F) === 'gone', 15000, 'past its losses the force retreats', () => `phase ${btPhase(H, F)} dead ${F.dead}/${F.n0}`);
+  await t.waitFor(() => btOn(G, F)?.phase === 'retreat' || !btOn(G, F), RT() + 2000, 'the guest sees the retreat');
+  t.check(cries.some((c) => /recua|Recuar|resistiu/.test(c)), 'a shout tells it (war.cry)', cries.slice(-3).join(' · '));
+  await t.waitFor(() => !H.game.warfare.forces.has(F.id) && !btOn(G, F), 90000, 'the force ends (war.end on both)', () => `phase ${btPhase(H, F)} live ${F.live?.size}`);
+  t.check(campIds.every((id) => !A.structOn(H, id) && !A.structOn(G, id)), 'the camp is struck on both peers', `${campIds.filter((id) => A.structOn(G, id)).length} left`);
+  t.check(!soldiersOf(H, k2).length, 'no soldier of it left');
+  t.check(log.rep.some(([id, r]) => id === F.id && r.state === 'retreat'), 'the report to 3a says retreat', JSON.stringify(log.rep.filter(([id]) => id === F.id).map(([, r]) => r.state)));
+  await t.checkDigest(H, G);
+});
+
+def('BT7', {
+  title: 'BT: players and soldiers — protected outside a war, a traveller helps defend the village: the soldiers it hits fight back, reputation with the defender rises',
+  src: 'village', timeout: 300000,
+  expected: 'A kingdom\'s column on the march (materialize, no war with anyone near): its soldiers never go after the players standing among them, and the guest cannot hurt one ("Soldado do Reino de X: …", host hp unchanged). A debug siege of the start village: the guest (a traveller, no kingdom) hits an attacker — host hp drops, that soldier fights back (its foe is the guest\'s avatar); the guest fells attackers: war.rep gives it reputation with the village\'s kingdom (+, on both peers) and costs it with the attackers\' (−), a toast "+N reputação com o Reino de …"; a member of a kingdom at war with the column\'s may hurt its soldiers; townsfolk stay protected; digest equal',
+  api: 'soldier.js playerMayHurt / soldierHurt, combat.js soldierBlock / soldierImmune, warfare.js onHurt / onKilled / repHit / flushRep, mut/warfare.js war.rep',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2, k3] = btKingdoms(H, s);
+  warShim(t, H, G, [[k2, s.k]]);
+  const uid = await ecoReady(t, H, G);
+  const R = realmOf(H);
+  // (a) a column of kingdom k3 on the march (no war with anyone here)
+  const mx = s.x + s.r + 50, my = s.y - 20;
+  await btStand(t, H, MH, G, MG, mx, my + 6);
+  const army = { id: 'bt-army-1', k: k3, home: R.kingdoms[k3].capital, n: 10, lv: 3, x: mx - 6, y: my, state: 'march', target: s.id, path: [[mx + 60, my]], eng: { treb: 0, cat: 0, ram: 0, tower: 0 }, live: true };
+  const FM = H.game.warfare.materialize(army);
+  t.defer(() => { if (H.game.warfare.forces.has(FM.id)) H.game.warfare.dematerialize(FM.id); H.game.net.flush(); });
+  await t.waitFor(() => soldiersOf(G, k3).length >= 4, 20000, 'the guest sees the column');
+  const hits = [];
+  t.on(G, 'damage', (d) => { if (d.target === G.game.player && d.amount > 0) hits.push(d); });
+  await t.sleep(4000);
+  t.check(!hits.length, 'the column never attacks the players among it', `${hits.length} hits`);
+  const e1 = soldiersOf(G, k3)[0], m1 = H.game.entities.find((q) => q.nid === e1.nid), hp1 = m1.hp;
+  const toasts = [];
+  t.on(G, 'toast', (x) => toasts.push(x.text));
+  A.teleport(G, e1.x + 0.6, e1.y);
+  t.check(MG.combat.dealDamage(G.game, G.game.player, e1, 40) === 0, 'the guest cannot hurt a soldier of a kingdom at peace with everyone here (immune)');
+  await t.sleep(RT() + 300);
+  t.check(m1.hp === hp1, 'its life unchanged on the host', `${f2(hp1)} → ${f2(m1.hp)}`);
+  t.check(toasts.some((x) => /Soldado do Reino de/.test(x)), 'the reason is told', toasts.slice(-2).join(' · '));
+  // a member of a kingdom at war with the column's may hurt it
+  H.game.realms.atWar = ((f) => (a, b) => f(a, b) || btKey(a, b) === btKey(s.k, k3))(H.game.realms.atWar);
+  G.game.realms.atWar = ((f) => (a, b) => f(a, b) || btKey(a, b) === btKey(s.k, k3))(G.game.realms.atWar);
+  H.game.net.emit('eco.member', { u: uid, k: s.k, name: 'BT', by: G.pid }); H.game.net.flush();
+  await t.waitFor(() => recOn(G, uid)?.k === s.k, RT() + 2000, 'the guest joins the village\'s kingdom (now at war with the column\'s)');
+  const e2 = soldiersOf(G, k3)[0], m2 = H.game.entities.find((q) => q.nid === e2.nid), hp2 = m2.hp;
+  A.teleport(G, e2.x + 0.6, e2.y);
+  await A.hostSees(t, H, G);
+  MG.combat.dealDamage(G.game, G.game.player, e2, 30);
+  await t.waitFor(() => m2.hp < hp2, RT() + 2000, 'a member of a kingdom at war with it hurts it');
+  H.game.net.emit('eco.member', { u: uid, k: -1, name: 'BT', by: G.pid }); H.game.net.flush();
+  await t.waitFor(() => recOn(G, uid)?.k === -1, RT() + 2000, 'a traveller again');
+  H.game.warfare.dematerialize(FM.id); H.game.net.flush();
+  // (b) the traveller helps defend the village against a siege
+  await btFast(t, H);
+  const F = btSiege(t, H, s, k2, { n: 18, lv: 2, from: [1, 0] });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const camp = btDbg(H, F).siege.camp;
+  await btStand(t, H, MH, G, MG, camp[0] - 5, camp[1] - 2);
+  await t.waitFor(() => ['camp', 'build', 'bombard'].includes(btOn(G, F)?.phase) && soldiersOf(G, k2).length >= 6, 60000, 'the attackers camped, seen by the guest');
+  const rep0 = recOn(H, uid)?.rep[s.k] | 0, repA0 = recOn(H, uid)?.rep[k2] | 0;
+  const tgt = soldiersOf(G, k2).filter((e) => e.soldier.role !== 'general').sort((a, b) => Math.hypot(a.x - G.game.player.x, a.y - G.game.player.y) - Math.hypot(b.x - G.game.player.x, b.y - G.game.player.y))[0];
+  const mt = H.game.entities.find((q) => q.nid === tgt.nid), hpT = mt.hp;
+  A.teleport(G, tgt.x + 0.7, tgt.y);
+  await A.hostSees(t, H, G);
+  MG.combat.dealDamage(G.game, G.game.player, tgt, 25);
+  await t.waitFor(() => mt.hp < hpT, RT() + 2000, 'the traveller hurts an attacker (host hp)');
+  const av = guestOnHost(H, G);
+  await t.waitFor(() => mt.pfoe?.e === av && (mt.foe === av || mt.threat === av), 3000, 'that soldier fights back: the guest is its foe');
+  await t.waitFor(() => tgt.state === 'chase', RT() + 2000, 'the guest sees it come at it (chase)');
+  // fells attackers: reputation
+  for (let k = 0; k < 3; k++) {
+    const e = soldiersOf(G, k2).find((q) => q.soldier.role !== 'general');
+    if (!e) break;
+    const m = H.game.entities.find((q) => q.nid === e.nid);
+    A.teleport(G, e.x + 0.7, e.y);
+    await A.hostSees(t, H, G);
+    MG.combat.dealDamage(G.game, G.game.player, e, 5000);
+    await t.waitFor(() => m.dead, RT() + 2000, 'an attacker falls to the guest');
+  }
+  await t.waitFor(() => (recOn(H, uid)?.rep[s.k] | 0) > rep0 && (recOn(G, uid)?.rep[s.k] | 0) === (recOn(H, uid)?.rep[s.k] | 0), 12000, 'reputation with the defending kingdom rises (war.rep, both peers)', () => `${rep0} → ${recOn(H, uid)?.rep[s.k] | 0}`);
+  t.check((recOn(H, uid)?.rep[k2] | 0) < repA0, 'and drops with the attackers\' kingdom', `${repA0} → ${recOn(H, uid)?.rep[k2] | 0}`);
+  t.check(toasts.some((x) => /reputação com o Reino de .* — defendendo/.test(x)), 'a toast tells the guest', toasts.filter((x) => /reputação/.test(x)).slice(-1)[0]);
+  // the townsfolk keep their protection
+  const cit = G.game.entities.find((e) => e.npc && !e.dead);
+  if (cit) t.check(MG.combat.dealDamage(G.game, G.game.player, cit, 30) === 0, 'a villager is still protected (§11)');
+  await t.checkDigest(H, G);
+});
+
+def('BT8', {
+  title: 'BT: the live-soldier cap and the cost per frame — two big armies near the players: at most 80 creatures, reserves step in as soldiers fall, < 1 ms a frame',
+  src: 'village', timeout: 240000,
+  expected: 'startBattle with 220 against 200 soldiers: never more than WAR.cap.total (80) soldier creatures (each side within its cap), the rest are numbers; when live soldiers fall (killed by the test) reserves become creatures (the live count refills, the force\'s n drops); the warfare system (brains, ticks) costs < 1 ms a frame on average and p95 < 3 ms during the clash (game.warfare.stats); digest equal',
+  api: 'warfare.js fillRanks / warfareSystem stats, content/soldiers.js WAR.cap',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [ka, kb] = btKingdoms(H, s);
+  warShim(t, H, G, [[ka, kb]]);
+  const { C } = await btMods(H), cap = C.WAR.cap;
+  const cx = s.x + s.r + 60, cy = s.y + 8;
+  await btStand(t, H, MH, G, MG, cx, cy + 9);
+  const [FA, FB] = H.game.warfare.startBattle({ k: ka, n: 220, lv: 5, at: [cx - 26, cy] }, { k: kb, n: 200, lv: 5, at: [cx + 26, cy] });
+  t.defer(() => { for (const F of [FA, FB]) if (H.game.warfare.forces.has(F.id)) H.game.warfare.dematerialize(F.id); H.game.net.flush(); });
+  const live = (F) => [...F.live.values()].filter((m) => !m.dead).length;
+  let peak = 0;
+  t.watch(() => { peak = Math.max(peak, soldiersOf(H).length); }, 50);
+  await t.waitFor(() => live(FA) >= 30 && live(FB) >= 30, 30000, 'both armies out', () => `${live(FA)} / ${live(FB)}`);
+  await t.sleep(3000);
+  t.check(soldiersOf(H).length <= cap.total && live(FA) <= FA.cap && live(FB) <= FB.cap, `at most ${cap.total} soldier creatures (each side within its cap)`, `${soldiersOf(H).length} (${live(FA)}/${FA.cap} · ${live(FB)}/${FB.cap})`);
+  // reserves step in
+  const n0 = FA.n, l0 = live(FA);
+  for (const m of [...FA.live.values()].filter((q) => !q.dead && q.soldier.role !== 'general').slice(0, 10)) MH.combat.killMob(H.game, m, null);
+  await t.waitFor(() => FA.n === n0 - 10, 3000, 'the force counts its losses');
+  await t.waitFor(() => live(FA) >= l0 - 1, 15000, 'reserves become creatures as the live ones fall', () => `${live(FA)} / ${l0}`);
+  // the cost during the clash
+  await t.waitFor(() => ['clash', 'rout', 'won'].includes(FA.phase), 90000, 'the lines clash', () => `${FA.phase} / ${FB.phase}`);
+  const S = H.game.warfare.stats, f0 = S.frames, sum0 = S.msSum;
+  const samples = [];
+  t.watch(() => { samples.push(S.ms); }, 16);
+  await t.sleep(10000);
+  const mean = (S.msSum - sum0) / Math.max(1, S.frames - f0), p95 = pct(samples, 0.95);
+  t.log(`warfare: ${S.frames - f0} frames · mean ${f2(mean)} ms · p95 ${f2(p95)} · max ${f2(Math.max(...samples))} · live ${soldiersOf(H).length} · peak ${peak}`);
+  t.check(peak <= cap.total, 'never above the cap', peak);
+  t.check(mean < 1, 'under 1 ms a frame on average (brains, ticks)', `${f2(mean)} ms`);
+  t.check(p95 < 3, 'p95 under 3 ms', `${f2(p95)} ms`);
+  t.metric('meanMs', f2(mean)); t.metric('p95', f2(p95)); t.metric('peak', peak);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

@@ -121,7 +121,7 @@ export function spawnSoldier(game, F, u, x, y) {
     aggroR: WAR.sight, specialT: 3, blockT: 4, throwT: 2, xpMul: role === 'general' ? 4 : sp.xp, noCorpse: true, crest: id.crest,
     soldier: { k: F.k, f: F.id, tag: F.tag, role, i: u.i, first: id.first, roleName: id.roleName, female: id.female },
     lv: 0, z: 0, order: null, foe: null, scanT: R01({ id: ids.id }) * 0.4, pfoe: null, _acc: 0,
-    onDeath: (g, mm) => { g.warfare?.onKilled?.(mm); return null; }, // (a player's killing blow: combat.js killMob → reputation)
+    onDeath: (g, mm, killer) => { g.warfare?.onKilled?.(mm, killer); return null; }, // (a player's killing blow: combat.js killMob → reputation)
   };
   m.maxHp = m.hp;
   game.entities.push(m); // sync-ok: host-only creature list (guests get proxies from net/entities.js)

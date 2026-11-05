@@ -919,8 +919,17 @@ seção.
 - A defesa do lugar atacado é a de §11 (`game.townDefense.assign(sid, threat, true)` com a ameaça do lado do
   exército, as aberturas, a reserva); 3b só a estende para lutar contra soldados (que são inimigos só em guerra).
 - A tomada: os atacantes seguram o centro (a praça / o torreão) sem defensores por um tempo → `game.realms?.capture?.(sid, k)`.
-- Jogadores, até a 3c: **neutros** — os soldados não atacam jogadores e os jogadores não ferem soldados (a mesma
-  proteção do povo, §11 "Sem fogo amigo"). A 3c muda isso pela filiação (membro de um reino em guerra).
+- Jogadores — **correção do dono** (substitui o "neutros até a 3c"): "o jogador pode sim atacar npc inimigo mesmo não
+  fazendo parte do exército, isso ganha reputação aliás e cria uma possibilidade do jogador ajudar a defender sua
+  vila/cidade/castelo mesmo não estando em um exército". Sem entrar em exército nenhum, um jogador pode lutar com
+  **soldados** (nunca com moradores / guardas: §11 continua) quando (a) é membro de um reino K e o soldado é de um reino
+  em guerra com K, ou (b) o soldado está **lutando** — sitiando um lugar ou numa batalha campal — e não é do reino do
+  jogador nem de um aliado (um viajante ajuda um lado). Os soldados que ele fere revidam (ele vira o inimigo deles por um
+  tempo); fora isso soldado nenhum vai atrás de jogador. Ajudar dá **reputação** com o reino defendido (ou com o outro
+  exército) e tira com o dos soldados. Regra exata, números e avisos: §14 "Jogadores" (`game/soldier.js playerMayHurt`).
+  A 3c estende isso pelo exército (ordens, pagamento, morrer na guerra).
+- `game.realms.rel(a, b)` é lido também (`'ally'`: um aliado do reino do jogador continua protegido); `game.realms.release?.(id,
+  r)` (opcional): 3b devolve sozinha uma força sem jogador por perto (a 150 tiles) com o mesmo `r` de `dematerialize`.
 
 ### Regras comuns
 
@@ -931,3 +940,164 @@ seção.
   "Um exército de X marcha sobre Y").
 - Os reinos **não** cercam as bases dos jogadores (§4).
 - Cada parte escreve a sua seção de implementação aqui (como §9–§11) e deixa prints em `shots/` (fora do git).
+
+## 14. Fase 3b — campo de batalha e cerco
+
+Feito (parte 3b do §12): os exércitos dos reinos viram **soldados de verdade perto dos jogadores** — batalha campal e o
+**cerco jogável** dos dois lados (acampamento → máquinas → bombardeio → aríete / torre / brechas → assalto → tomada ou
+recuo) —, a guarda dos lugares luta contra eles e o **jogador pode ajudar um lado** (decisão do dono, abaixo). Código:
+`game/soldier.js` (quem é cada soldado, visual, andar, lutar, a regra do jogador), `game/warfare.js` (`game.warfare`, as
+forças, reservas, moral, general, batalha campal, reputação), `game/siegeAI.js` (o cerco), `game/mut/warfare.js` (ops,
+linhas do snapshot / save / digest), `game/content/soldiers.js` (números, papéis, falas), `art/faces/camp.js` (tendas,
+estandartes e o estandarte do general nas cores do reino). Ganchos de uma linha em `combat.js` (a regra do jogador, o
+crédito da morte), `ai.js`, `mobs.js`, `projectiles.js` (flechas do exército e da guarda com `canHit`), `ballista.js`
+(guarnições contra soldados e máquinas), `npc.js` / `people.js` (a guarda contra soldados, o alarme e a ameaça do cerco,
+consertos no cerco), `towns.js` (portões fecham com exército, peças do exército não se desmontam), `siege.js` /
+`mut/siege.js` (soldados empurram / operam pelas mesmas regras; `fireShot` / `ramBlow` exportados; o jogador não usa
+máquina de exército), `mut/structures.js`, `mut/eco.js` (`addRep` exportado), `townnav.js` (função de passagem por
+parâmetro), `net/entities.js`, `net/snapshot.js`, `net/digest.js`, `ui/overlay.js`, `ui/hud.js`, `controller.js`,
+`game.js`, `juice.js`.
+
+### Os soldados
+
+- **Quem é**: criatura do anfitrião (espécie `soldier`, `kind 'pawn'`, `faction 'army'`) no fluxo de entidades como o povo.
+  O convidado refaz cada um pelo `camp` = `w<reino>.<etiqueta da força>.<papel><índice>` e pela semente (nome português,
+  rosto, cabelo, o visual do papel nas cores do reino — o visual nunca vai pela rede).
+- **Papéis**: **lanceiro / espadachim** (tabardo nas cores do reino com a partição do brasão, gibão acolchoado, escudo do
+  reino), **arqueiro** (gibão na cor do reino, capuz, arco), **engenheiro** (camisa na cor do reino, avental de couro,
+  machado: monta o acampamento, constrói, empurra e opera as máquinas), o **general** (gibão bordado, tabardo, e o
+  **estandarte do reino** no alto de uma haste, que ele ergue quando reanima a linha). Uma força de n soldados: 1
+  general (n ≥ 6), engenheiros (cerco: 10 %, 2–10), arqueiros 30 % do resto, e o resto lanças / espadas.
+- **Armadura pelo nível** (§7b `realmNpcLevel` da capital, ou o `lv` do exército da 3a): até o nível 8 sem elmo (rostos
+  e tabardos à vista), armas de cobre; 9–17 elmo de ferro, armas de ferro, gibão de cota; 18+ armas de aço. Vida = a do
+  soldado no nível × 1,05–1,45 (general × 4,2), dano × 1,1–1,3; proteção pela armadura e pelo escudo.
+- **Plaquinhas** (regra do §11): só o alvo, o do mouse, o que luta comigo e o **general** (até 18 tiles): "Nome · Lanceiro
+  · Reino de X  nível" — em salmão quando o jogador pode atacá-lo, em creme quando está protegido. O alvo no HUD mostra o
+  papel e o reino.
+- **Desempenho**: no máximo **80 soldados-criatura** no mundo (cada força até 44; cerco 56; qualidade baixa × 0,6), o
+  resto são **números** que entram (pela retaguarda, fora da vista quando dá) conforme os vivos caem. Cérebro a cada
+  quadro perto dos jogadores, a cada 3 quadros longe (> 30 tiles); cada um escolhe o inimigo numa **lista curta** da sua
+  força (refeita a cada 0,5 s), nunca varrendo as criaturas; o caminho no cerco é um **campo de fluxo** (Dial, custos
+  10 / 14) do lugar inteiro até a praça, refeito em fatias de 0,8 ms quando a passagem muda (portão quebrado, brecha,
+  portões abertos / fechados); nada por quadro varre as peças.
+
+### A batalha campal
+
+`startBattle(a, b)` (ou dois exércitos da 3a que se encontram — `materialize` com `state 'battle'`): as duas forças
+**marcham em coluna** até o ponto de formar (17 tiles cada uma do meio), **formam as linhas** (infantaria na frente,
+largura 5–16, arqueiros 2 fileiras atrás, o general entre eles com o estandarte), **avançam** a passo (a linha espera os
+atrasados), os arqueiros **atiram** quando o inimigo entra no alcance (19 tiles), a 22 tiles as linhas **se chocam**
+(a infantaria caça o inimigo mais perto; arqueiros e general ficam atrás). **Moral** (0–100): −1,1 por % de baixas, −30
+com o general morto, −18 em desvantagem de 0,6 : 1; o general **reanima** (+14, até +32; grito "Firmes! Pelo Reino de
+X!", estandarte erguido) a cada 9 s enquanto a linha vacila. Abaixo de 26 a linha **debanda** (corre para trás, some
+fora da vista); o vencedor persegue 6 s e fica. Ao fim os dois **reportam** à 3a (`report(id, { n, lost, killed,
+state 'retreat' | 'won' })`) e somem.
+
+### O cerco
+
+Perto de um jogador o cerco é jogado de verdade (`startSiege(spec)` de depuração, ou `materialize` de um exército da 3a
+em `state 'siege'`):
+
+1. **Plano** (espalhado pelos ticks da força, poucos ms cada): os quatro lados retos da linha da muralha
+   (`game.townDefense.perimeter`) são pesados — uma pista reta e livre para o **aríete** até um portão, uma para a
+   **torre** até um trecho de duas peças da mesma altura com adarve caminhável (`towerStoriesFor`), lugar para os
+   **trabucos** a 34–43 tiles do alvo — e vence o lado de frente para o exército com mais máquinas. As pistas começam
+   fora do alcance dos arqueiros (13 × (1 + 0,2 por andar) + 2) e fora da terra da vila; a **Oficina de cerco** fica no
+   meio delas (toda máquina a até 16 tiles: a regra do jogador).
+2. **Acampamento** fora do alcance de tudo o que defende: cada arqueiro dos muros (pelo andar), cada balista (34), a
+   guarda que persegue (raio do lugar + 12), + 7 de folga: **4 tendas** em meia-lua, **3 estandartes** virados para o
+   lugar, **2 fogueiras** (estruturas do exército: `o.realm = k`, nas cores do reino), erguidas uma a uma pelos
+   engenheiros (martelo).
+3. **Obras**: a oficina, depois os trabucos, o aríete e a torre como **plantas de verdade** (`struct.add` / `struct.progress`
+   / `struct.complete`, `placeReason` do jogador), 2 engenheiros na primeira, 1 nas outras (tempo = o da construção × 0,8).
+4. **Bombardeio**: um engenheiro em cada trabuco (`siege.set user '~<nid>'`), a armação gira na velocidade dela
+   (0,3 rad/s) e o tiro passa por `fireShot` (o mesmo de um jogador: recarga, dispersão sorteada pelo anfitrião, a
+   mira que melhora no mesmo alvo). Dano de cerco persistente (`siege.dmg`, no estado do lugar) até a peça cair: uma
+   **brecha**; depois as peças ao lado (a brecha alarga). A infantaria espera formada na frente do acampamento.
+5. **Assalto** (brecha aberta, ou aríete / torre prontos e 25 s de bombardeio, ou 70 s): o **aríete** empurrado pela
+   equipe (2–4, engenheiros primeiro: `siege.set push` + o passo do próprio anfitrião, `siege.js hostPush`) até o portão,
+   **pancadas** (`ramBlow`) até o portão cair ("O portão caiu! Para dentro!") — e a equipe **puxa o aríete de volta** 4
+   tiles (ele tapava a passagem) e entra; a **torre** empurrada até a muralha, a
+   **rampa desce**, até 10 soldados sobem a escada de trás um a um (0,55 s por andar), atravessam a rampa, **lutam no
+   adarve** com os arqueiros de lá e descem por um alto de escada para dentro; a infantaria entra por **qualquer abertura**
+   (o campo de fluxo até a praça — muros e portões fechados barram) ou espera fora do alcance dos arqueiros; os
+   **arqueiros** avançam até 13 tiles do muro e atiram nos defensores (alcance +25 % contra o muro); o general reanima de
+   trás.
+6. **Tomada**: 2+ atacantes a até 7 tiles da praça e **nenhum guarda** a até 13 por 18 s → `game.realms.capture(sid, k)`;
+   a força fica 40 s como guarnição e some nas casas. **Recuo**: 62 % de baixas, moral < 22, 20 min de cerco ou 2
+   soldados → correm para longe do acampamento; acampamento e máquinas desmontados quando a força acaba.
+
+**A defesa** (o §11 estendido): soldados de um reino em guerra com o dono do lugar são inimigos da guarda (`npc.js
+hostile(e, S, game)`), o alarme toca quando o exército acampa (`game.warfare.threatOn(sid)` → `game.townDefense` com a
+ameaça do lado do exército: arqueiros nos muros de lá, corpo a corpo nos portões / no trecho / nas brechas, reserva no
+castelo, civis em casa), os **portões fecham** enquanto houver cerco (`towns.js hostileInside`), as **balistas** miram
+soldados (o general antes) e **as máquinas** (um virote preso numa máquina inimiga: 240 de dano de cerco), as flechas da
+guarda só acertam inimigos (`canHit`). **Consertos no cerco**: com o exército longe (no acampamento) os guardas do trecho /
+da reserva consertam as peças — **também à noite**, só se for seguro (nenhum inimigo no alarme).
+
+### Jogadores (decisão do dono, muda o §12)
+
+"O jogador pode sim atacar NPC inimigo mesmo não fazendo parte do exército, isso ganha reputação aliás e cria uma
+possibilidade do jogador ajudar a defender sua vila/cidade/castelo". A regra (`soldier.js playerMayHurt`, a mesma no
+convidado e no anfitrião):
+
+- **Membro** de um reino K (o registro da economia): pode lutar com soldados de **qualquer reino em guerra com K**; nunca
+  com os do próprio reino nem de um aliado (`rel 'ally'`).
+- **Viajante** (ou membro de um reino de fora da briga): pode lutar com soldados **que estão lutando** — sitiando um
+  lugar (acampamento, obras, bombardeio, assalto, recuo) ou numa batalha campal — ou seja, **ajudar um lado**.
+- Fora disso o soldado é protegido como o povo: o golpe não faz nada e diz "Soldado do Reino de X: só se luta com
+  soldados de um reino em guerra com o seu, ou que estejam atacando um lugar ou outro exército" (no máximo a cada 4 s).
+  Moradores e guardas continuam protegidos (§11); a máquina de um exército não se opera nem se desmonta ("…só os
+  engenheiros dele a usam" / "Isto pertence ao exército do Reino de X").
+- **Revide**: o soldado ferido por um jogador passa a tê-lo como inimigo por 22 s (renovado a cada golpe: espada,
+  flecha); fora disso **soldado nenhum vai atrás de um jogador**. O ataque automático nunca escolhe um soldado sozinho —
+  só o marcado ou um que esteja lutando comigo.
+- **Reputação** (anfitrião, por uid, op `war.rep`): matar um atacante dá **+2** com o reino defendido (engenheiro +3,
+  general +10), cada 6 golpes +1, e o mesmo **−** com o reino dos soldados (não para quem é membro dele); um cerco
+  rechaçado dá **+10** a quem lutou; no máximo 60 por força; juntado e mandado no máximo a cada 4 s: "+4 reputação com o
+  Reino de X — defendendo Estrosa · −4 com Rabel". Numa batalha campal, com o reino do outro exército.
+
+### Avisos (tudo em português)
+
+- Ao chegar perto de uma força pela primeira vez: "Cerco de Estrosa: o exército do Reino de Rabel (34 soldados) —
+  acampando. Quem lutar com os soldados ajuda a defender Estrosa (reputação com o Reino de Galéria)." / "Batalha: o Reino
+  de X contra o Reino de Y. Lutar por um dos lados dá reputação com ele." / "Um exército do Reino de X marcha por aqui
+  (N soldados). Em paz com você: não ataca quem não o ataca."
+- Gritos (`war.cry`, para quem está a até 60 tiles): o acampamento, "Os trabucos do Reino de X começam o bombardeio de
+  Y", máquina pronta, "Uma brecha na muralha! Avante!", "O portão caiu! Para dentro!", "A rampa desceu! Para a muralha!",
+  o general ("Firmes! Pelo Reino de X!", "Segurem a linha!"), "O general do Reino de X caiu!", "Recuar! Recuar!", "Y
+  resistiu! O exército do Reino de X recua", "Y foi tomada pelo Reino de X!".
+
+### Multijogador
+
+Anfitrião autoritativo. Ops novas: `war.force {row}` (a linha pública de uma força: `[id, etiqueta, reino, tipo, alvo,
+inimigo, fase, n, n0, nível, x, y, fx, fy]`), `war.end {id}`, `war.mark {ids, k}` (estruturas do exército: `o.realm`),
+`war.cry {texto, x, y}` (grito: um aviso para quem está a até 60 tiles), `war.rep {u, k, d, k2, d2}`. As máquinas usam as
+ops de sempre (`struct.add`, `siege.set` com `'~<nid>'` como operador / empurrador, `siege.shot`, `siege.step`,
+`siege.swing`, `siege.dmg`, `struct.remove`). Snapshot / save `war: { f: linhas, r: [[estrutura, reino]] }` (o save
+guarda os cercos de depuração com as baixas — ao carregar o cerco recomeça do lugar e adota o acampamento e as máquinas
+que ainda estão de pé; os exércitos da 3a são da 3a), parte **`war`** do digest (linhas públicas + marcas).
+O convidado vê os mesmos soldados (proxies), máquinas, dano e desfecho.
+
+### A API (`game.warfare`) — como o §12 pediu
+
+`materialize(army)` (cerco / batalha / coluna em marcha conforme `army.state`), `dematerialize(id) → { n, eng { treb,
+cat, ram, tower }, siege { fase, acampamento, máquinas… }, lost, killed, state }` (os soldados viram números; o
+acampamento e as máquinas são desmontados), `forces`, `startSiege({ k, sid, n, lv, eng, at })`, `startBattle(a, b)`;
+mais `debug(id)`, `threatOn(sid)`, `siegeOn(sid)`, `mayHurt(jogador, soldado)`, `stats`. Reporta com
+`game.realms.report(id, { n, eng, state, x, y, lost, killed })` a cada fase e a cada 6 s; uma força sem jogador a menos
+de 150 tiles é devolvida (`game.realms.release?.(id, dematerialize(id))` — gancho opcional para a 3a). Sem
+`game.realms` nada entra em guerra (os testes instalam um calço só em `tools/mp-test.js`).
+
+### Testes e prints
+
+`tools/mp-test.js` **BT1–BT8** (calço da 3a: `game.realms = { atWar, rel, owner, capture, report }` nos dois pares; na
+junção, trocar pela op `realm.rel`): BT1 cerco de depuração — soldados nas cores do reino nos dois pares (mesmos nomes /
+visuais da semente), acampamento inteiro fora do alcance, sino, ameaça do lado do exército, portões fechados, arqueiros
+na paliçada · BT2 oficina → trabuco e torre com obra (progresso no convidado), torre na altura da muralha, trabuco a
+34–43 tiles, dano persistente, brecha nos dois pares segurada pela guarda · BT3 torre empurrada por 2+, rampa, soldados no
+adarve, a praça tomada → `capture` · BT4 aríete empurrado até o portão, pancadas, portão quebrado, soldados entram ·
+BT5 batalha campal: fases, flechas, baixas dos dois lados, debandada, relatórios · BT6 recuo por baixas: acampamento
+desmontado, `war.end` · BT7 jogadores: coluna em paz protegida e não ataca, membro em guerra pode, viajante ajuda a
+defender (revide, +reputação com o defensor, −com o atacante, aviso), moradores protegidos · BT8 teto de 80 criaturas,
+reservas entram, custo por quadro. Todos terminam com o digest igual.

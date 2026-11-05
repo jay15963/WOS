@@ -22,6 +22,7 @@ function applyRow(game, r) {
   if (!W || !Array.isArray(r) || typeof r[0] !== 'string') return null;
   const id = str(r[0]);
   let F = W.forces.get(id);
+  if (!F && game.net.auth) return null; // (the host's forces are made by game/warfare.js: a late row of one that ended is not one)
   if (!F) { F = { id, live: null }; W.forces.set(id, F); }
   const row = [id, str(r[1], 12), int(r[2]), str(r[3], 12), int(r[4], -1), typeof r[5] === 'string' ? str(r[5]) : 0, str(r[6], 12), int(r[7]), int(r[8]), int(r[9], 1),
     num(r[10]), num(r[11]), num(r[12]), num(r[13])];

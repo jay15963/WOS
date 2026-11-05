@@ -354,7 +354,14 @@ function campSpots(P) {
 }
 // the engineers raise the camp: one walks to each spot, hammers a moment, and the piece stands
 function raiseCamp(game, F, ents) {
-  const G = F.sg, P = G.plan, spots = G.spots || (G.spots = campSpots(P));
+  const G = F.sg, P = G.plan;
+  if (!G.spots) {
+    // (a siege taken up again: the camp of this kingdom still standing there is theirs)
+    for (const o of game.build.structures) if (o.realm === F.k && !o.removed && /^(war_tent|war_banner|campfire)$/.test(o.type) && Math.hypot(o.x - P.camp.x, o.y - P.camp.y) < WAR.siege.campR + 6 && !G.camp.includes(o.id)) G.camp.push(o.id);
+    G.spots = campSpots(P);
+    if (G.camp.length >= 4) G.made = G.spots.length;
+  }
+  const spots = G.spots;
   const engs = ents.filter((m) => m.soldier.role === 'eng');
   if (G.made >= spots.length) { G.campDone = true; for (const m of engs) if (m.job?.camp) m.job = null; return; }
   const [type, x, y] = spots[G.made];
@@ -540,11 +547,14 @@ function assault(game, F, ents) {
     if ((j.role !== 'ram' && j.role !== 'tower') || !j.done || j.over) continue;
     const o = game.world.objById.get(j.id);
     if (!isEngineObj(o)) { j.over = true; continue; }
-    if (j.role === 'ram' && (!game.world.objById.get(j.target) || game.world.objById.get(j.target).removed)) {
-      // the gate is down: the crew lets go and runs in
+    if (j.role === 'ram' && !j.back && (!game.world.objById.get(j.target) || game.world.objById.get(j.target).removed)) {
+      // the gate is down: the crew hauls the ram back out of the gateway (it would block it), then lets go and runs in
       if (!G.gateDown) { G.gateDown = true; shout(game, F, CRIES.gate, o.tx, o.ty); }
-      game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); j.over = true;
-      continue;
+      j.back = [o.tx + P.side[0] * 4, o.ty + P.side[1] * 4]; j.backT = 0;
+    }
+    if (j.back) {
+      j.backT += WAR.tick;
+      if ((o.tx === j.back[0] && o.ty === j.back[1]) || j.backT > 20) { game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); j.over = true; for (const i of j.crewI || []) { const m = F.live.get(i); if (m?.job?.push === j) { m.job = null; m._atSlot = false; } } continue; }
     }
     if (j.role === 'tower' && o.ramp) {
       if (!G.rampDown) { G.rampDown = true; shout(game, F, CRIES.tower, o.tx, o.ty); game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); }
@@ -563,9 +573,9 @@ function assault(game, F, ents) {
     if (cur !== nxt && (ids.some(Boolean) || o.push)) game.net.emit('siege.set', { id: o.id, push: ids });
     const D = o._drive || (o._drive = new Map());
     D.clear();
-    for (const q of ids) if (q) D.set(q, o.rot & 3); // (everyone pushes toward its front)
+    for (const q of ids) if (q) D.set(q, j.back ? (o.rot + 2) & 3 : o.rot & 3); // (everyone pushes toward its front — backing out: the other way)
     // the ram at the gate: blows
-    if (j.role === 'ram') {
+    if (j.role === 'ram' && !j.back) {
       const touch = frontTiles(o).some(([x, y]) => { const q = game.build.grid.main.get(game.world.idx(x, y)); return q && isGate(game, q); });
       if (touch && ids.filter(Boolean).length) { D.clear(); ramBlow(game, o); }
     }

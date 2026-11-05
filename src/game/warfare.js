@@ -56,7 +56,7 @@ export function installWarfare(game) {
     forceOfEnt: (e) => (e?.soldier ? W.forces.get(e.soldier.f) || W.forces.get(W.tagOf.get(e.soldier.tag)) || null : null),
     crewEnt: (id) => crewEnt(game, id),
     onHurt: (m, src) => onHurt(game, m, src),
-    onKilled: (m) => onKilled(game, m),
+    onKilled: (m, killer) => onKilled(game, m, killer),
     threatOn: (sid) => threatOn(game, sid),
     siegeOn: (sid) => siegeOn(game, sid),
     foeOfTown: (S, e) => !!e?.soldier && !e.dead && atWar(game, e.soldier.k, ownerOf(game, S.sid)),
@@ -229,7 +229,8 @@ function crewEnt(game, id) {
   const nid = id.slice(1);
   return game.net.auth ? game.warfare.byNid.get(nid) || null : game.net.entsApi?.byNid?.(nid) || null;
 }
-const liveTotal = (game) => { let n = 0; for (const F of game.warfare.forces.values()) n += F.live?.size || 0; return n; };
+const aliveIn = (F) => { let n = 0; if (F.live) for (const m of F.live.values()) if (!m.dead) n++; return n; };
+const liveTotal = (game) => { let n = 0; for (const F of game.warfare.forces.values()) n += aliveIn(F); return n; }; // (the bodies on the ground do not count: they do not think)
 // where a new soldier appears: its spot when nobody sees it, else behind its lines (out of sight if it can)
 function spawnSpot(game, F, u, want) {
   if (want && !inAnyView(game, want[0], want[1], 2, 3)) { const q = solNear(game, want[0], want[1], 3); if (q) return q; }
@@ -245,9 +246,9 @@ function fillRanks(game, F) {
   const nForces = [...W.forces.values()].filter((q) => q.live && q.kind !== 'pending' && q.phase !== 'end').length || 1;
   F.cap = Math.max(4, Math.floor(Math.min(F.kind === 'siege' ? WAR.cap.siege : WAR.cap.side, (WAR.cap.total * low) / nForces) * low));
   if (F.phase === 'rout' || F.phase === 'retreat' || F.phase === 'end' || F.phase === 'held' && F.t > 10) return;
-  let made = 0, total = liveTotal(game);
+  let made = 0, total = liveTotal(game), alive = aliveIn(F);
   for (const i of F.order) {
-    if (F.live.size >= F.cap || total >= WAR.cap.total * low || made >= WAR.spawnPerTick) break;
+    if (alive >= F.cap || total >= WAR.cap.total * low || made >= WAR.spawnPerTick) break;
     const u = F.units[i];
     if (u.dead || F.live.has(i)) continue;
     const at = spawnSpot(game, F, u, F.slotOf ? F.slotOf(u) : null);
@@ -255,7 +256,7 @@ function fillRanks(game, F) {
     const m = spawnSoldier(game, F, u, at[0], at[1]);
     if (!m) continue;
     F.live.set(i, m); W.byNid.set(m.nid, m);
-    made++; total++; W.stats.spawned++;
+    made++; total++; alive++; W.stats.spawned++;
     F.onSpawn?.(game, F, m);
   }
 }
@@ -265,9 +266,9 @@ function onHurt(game, m, src) {
   soldierHurt(game, m, src);
   if (isPlayer(game, src)) repHit(game, m, src, false);
 }
-function onKilled(game, m) {
+function onKilled(game, m, killer) {
   // (combat.js killMob → m.onDeath: only for a player's killing blow)
-  const F = game.warfare.forceOfEnt(m), src = m.pfoe?.e || null;
+  const F = game.warfare.forceOfEnt(m), src = killer?.owner || killer || m.pfoe?.e || null;
   if (F && src) repHit(game, m, src, true);
 }
 // reputation for helping the side the soldier fights (docs/REINOS.md §14 "Jogadores"): with the kingdom it attacks (+) and
@@ -355,6 +356,7 @@ export function warfareSystem() {
     sync: 'host', // the soldiers are host creatures (guests: proxies); the shared state goes in ops
     update(game, dt) {
       const W = game.warfare;
+      if (W?.saved && game.towns?.realm) restoreSaved(game);
       if (!W || !W.forces.size) { if (W) W.stats.live = 0; return; }
       const t0 = performance.now();
       frame++;
@@ -363,14 +365,14 @@ export function warfareSystem() {
       if (tickT <= 0) {
         tickT = WAR.tick;
         for (const F of [...W.forces.values()]) {
-          if (F.kind === 'pending') continue;
+          if (F.kind === 'pending' || !F.units || W.forces.get(F.id) !== F) continue; // (one ended by another's tick meanwhile: a battle ends both)
           F.t += WAR.tick; F.T += WAR.tick;
           forceTick(game, F, players);
         }
       }
       let n = 0;
       for (const F of W.forces.values()) {
-        if (!F.live) continue;
+        if (!F.live || !F.units) continue;
         const list = F._list || (F._list = []);
         list.length = 0;
         for (const m of F.live.values()) {
@@ -398,11 +400,22 @@ export function warfareSystem() {
 }
 // every peer: the general's standard (a drawable beside the general, raised while it rallies — the 'cast' pose)
 export function warfareFxSystem() {
-  const pool = [];
-  let wired = false, cryT = -9, cryLast = '';
+  const pool = [], seen = new Set();
+  let wired = false, cryT = -9, cryLast = '', lookT = 0;
   return {
     sync: 'cosmetic',
     update(game, dt) {
+      // a force comes into view of the local player for the first time: what it is and what the player may do
+      lookT -= dt;
+      if (lookT <= 0 && game.warfare?.forces.size && game.towns?.realm) {
+        lookT = 1;
+        const p = game.player;
+        for (const F of game.warfare.forces.values()) {
+          if (!F.pub || seen.has(F.id) || p.dead || Math.hypot(game.world.dx(F.x, p.x), F.y - p.y) > 75) continue;
+          seen.add(F.id);
+          game.events.emit('toast', { text: announce(game, F), kind: 'info' });
+        }
+      }
       if (!wired) {
         wired = true;
         // a shout of an army (op war.cry): a toast for the local player when it is near (the same line not twice in a row)
@@ -434,6 +447,36 @@ export function warfareFxSystem() {
     },
   };
 }
+// "Cerco de Estrosa: o exército do Reino de Rabel (34 soldados) — acampando. Defenda o lugar: …"
+function announce(game, F) {
+  const R = game.towns.realm, K = R.kingdoms[F.k], kn = K ? K.name : '?', me = memberOf(game, uidOf(game, game.net.pid));
+  const phase = PHASE_PT[F.phase] || F.phase, n = F.n | 0;
+  if (F.kind === 'siege' && F.sid != null) {
+    const s = R.settlements[F.sid], ok = ownerOf(game, F.sid), on = R.kingdoms[ok]?.name || '?';
+    const hint = me === F.k ? 'É o exército do seu reino.' : me === ok ? `Defenda ${s.name}: lutar com os soldados dá reputação com o Reino de ${on}.` : `Quem lutar com os soldados ajuda a defender ${s.name} (reputação com o Reino de ${on}).`;
+    return `Cerco de ${s.name}: o exército do Reino de ${kn} (${n} soldados) — ${phase}. ${hint}`;
+  }
+  if (F.kind === 'battle' && F.foe) {
+    const O = game.warfare.forces.get(F.foe), on = R.kingdoms[O?.k]?.name || '?';
+    return `Batalha: o Reino de ${kn} contra o Reino de ${on}. Lutar por um dos lados dá reputação com ele.`;
+  }
+  return `Um exército do Reino de ${kn} marcha por aqui (${n} soldados). Em paz com você: não ataca quem não o ataca.`;
+}
+// a save taken up again (host): its debug sieges start over from their place (the camp and engines still standing are
+// adopted); the armies of 3a are 3a's to hand back
+function restoreSaved(game) {
+  const W = game.warfare, rows = W.saved;
+  W.saved = null;
+  for (const r of rows || []) {
+    const sg = r[14];
+    if (r[3] !== 'siege' || !Array.isArray(sg) || W.forces.has(r[0])) continue;
+    const F = startSiege(game, { id: r[0], k: r[2], sid: sg[0], n: r[8], lv: r[9], at: [sg[1], sg[2]], eng: r[15] && typeof r[15] === 'object' ? r[15] : null });
+    if (!F) continue;
+    let lost = Math.max(0, r[8] - r[7]);
+    for (let i = F.units.length - 1; i >= 0 && lost > 0; i--) if (F.units[i].role !== 'general' && F.units[i].role !== 'eng') { F.units[i].dead = true; F.dead++; F.n--; lost--; }
+    publish(game, F, true);
+  }
+}
 function death(game, F, m) {
   const u = F.units[m.soldier.i];
   if (u && !u.dead) { u.dead = true; F.dead++; F.n = Math.max(0, F.n - 1); }
@@ -459,6 +502,7 @@ function forceTick(game, F, players) {
   if (F.kind === 'siege') siegeTick(game, F);
   else if (F.kind === 'battle') battleTick(game, F);
   else if (F.kind === 'march') marchTick(game, F);
+  if (W.forces.get(F.id) !== F) return; // (it ended in its own tick: nothing more to publish)
   fillRanks(game, F);
   flushRep(game, F, false);
   // where the force is (its living soldiers' middle) — the public row follows

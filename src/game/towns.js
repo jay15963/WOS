@@ -335,7 +335,7 @@ TOWN.landReason = (game, type, tx, ty, w, h, who = null) => {
   const r = game.eco?.plotReason?.(s, tx, ty, w, h, who);
   return r === undefined ? `Terra de ${s.name}: compre um terreno no mural` : r;
 };
-TOWN.refuse = (game, o) => { const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
+TOWN.refuse = (game, o) => { if (o.town == null && o.realm != null) { const K = game.towns?.realm?.kingdoms[o.realm]; return `Isto pertence ao exército do Reino de ${K ? K.name : '?'}`; } const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
 TOWN.gateReason = (game, o, actor) => {
   if (o.town != null) return defOf(o).gate2 ? 'O portão é da guarda: abre de dia e fecha à noite' : game.eco?.doorReason?.(o, actor) || null; // (a bought / rented house: its holder's)
   if (!defOf(o).gate2 || game.creative) return null;

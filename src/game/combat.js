@@ -372,7 +372,7 @@ export function killMob(game, m, killer) {
     die.by = kp.pid;
     die.xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, kp.level) || undefined;
     if (m.onDeath) {
-      const r = m.onDeath(game, m);
+      const r = m.onDeath(game, m, killer); // (killer: game/warfare.js credits the player who felled a soldier)
       rows = r?.rows;
       if (r?.toast) die.toast = r.toast;
       if (r?.give) die.give = r.give; // (a fish caught by a shot goes straight to the shooter: livestock.js)
