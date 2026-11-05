@@ -1739,7 +1739,9 @@ WR1–WR10, VL1–VL10, EC1–EC8, SG1–SG6 e KG1–KG7 passam (BT9 falhou uma 
 ao perder soldados antes do relatório; corrigido: só se refaz quando cresce além do que começou). **A rodada inteira**
 (`run=all&soak=60`): 175 passam, 9 falham — S30 (tempo do corte), HO3, SG1, SG2, EC3, WR1, BT2 e BT4 (a dessincronia
 transitória de `towns` já anotada no §14; o digest final igual) passam **re-rodados sozinhos**; AR1 olhava o rótulo antigo
-do cartão ("Ordens do general" → "Ordem do general") e passa com o rótulo novo. S28 só na linha de comando.
+do cartão ("Ordens do general" → "Ordem do general") e passa com o rótulo novo. S28 só na linha de comando. Depois da fila
+de avisos: WR2, WR7, EC6 e AR1–AR10 de novo, passam; VL4 falhou uma vez logo depois do WR7 (os andarilhos à noite) e passa
+sozinho.
 
 ### Desempenho
 
