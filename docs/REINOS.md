@@ -929,7 +929,7 @@ seção.
 |---|---|---|---|
 | **3a — estratégia** | diplomacia, o dono de cada lugar, exércitos no mapa, marchas, batalhas e cercos **longe** dos jogadores (por números), conquista, mapa / minimapa / mural (informação) | `game/realms.js`, `game/mut/realms.js`, `game/content/war.js` (+ a camada de guerra do mapa) | `WR1…` |
 | **3b — campo de batalha** | soldados de verdade **perto** dos jogadores, batalha entre exércitos, a IA do cerco jogável (acampamento → máquinas → bombardeio → aríete / torres / brechas → assalto → tomada ou recuo), a guarda contra soldados | `game/warfare.js`, `game/soldier.js`, `game/siegeAI.js`, `game/content/soldiers.js` | `BT1…` |
-| **3c — o jogador no exército** (depois de 3a + 3b) | entrar pelo mural, ordens do general na tela, waypoints no mapa / minimapa, quem pode bater em quem, morrer na guerra sem perder reputação, pagamento | — | `AR1…` |
+| **3c — o jogador no exército** (depois de 3a + 3b) | entrar pelo mural, ordens do general na tela, waypoints no mapa / minimapa, quem pode bater em quem, morrer na guerra sem perder reputação, pagamento | `game/army.js`, `game/mut/army.js`, `game/content/army.js`, `ui/armyHud.js` (§15) | `AR1…` |
 
 ### O que 3a oferece (`game.realms`, em todos os pares; estado replicado, decidido no anfitrião)
 
@@ -971,6 +971,11 @@ seção.
     soma `d` à reputação do jogador no reino `k` (op `eco.rep`, com aviso). O lado que a 3b vê (quem bateu em quem) decide.
   - A carência do reino do início: **2 dias** do mundo (§13). `realm.rel` (depuração) ignora a carência mas nunca a regra
     das terras.
+  - **Acrescentado na 3c (§15)**: `settle(id, { n, outcome: 'won' | 'lost' | 'taken' | 'lifted', x, y })` (anfitrião) — a
+    3b chama em `finishForce` e a 3a retoma os números na hora (volta para casa, segura o lugar, segue); `capture(sid, k,
+    { army, n })` — a guarnição nova sai dos vencedores (metade, até o máximo; sem exército: 30 % do máximo); um exército
+    vivo que muda de estado é entregue de novo à 3b na forma nova (rematerializado); uma marcha viva **escoltada** por um
+    jogador alistado dela (`game.army.escorted`) mantém o relógio da 3a.
 
 ### O que 3b oferece (`game.warfare`, anfitrião; os soldados são criaturas no fluxo de entidades como o povo)
 
@@ -991,6 +996,10 @@ seção.
   tempo); fora isso soldado nenhum vai atrás de jogador. Ajudar dá **reputação** com o reino defendido (ou com o outro
   exército) e tira com o dos soldados. Regra exata, números e avisos: §14 "Jogadores" (`game/soldier.js playerMayHurt`).
   A 3c estende isso pelo exército (ordens, pagamento, morrer na guerra).
+- **Fase 3c (§15)**: um jogador **alistado** num exército de um reino em guerra também pode ferir a **guarda** dos lugares
+  inimigos (nunca civis), os guardas e soldados inimigos o tratam como inimigo, e jogadores membros de reinos em guerra
+  lutam entre si (PvP) — `game.army` (`npcWhy`, `townFoe`, `soldierFoe`, `pvpWhy`); os soldados de um exército deixam o
+  jogador alistado nele empurrar / operar as máquinas do exército.
 - `game.realms.rel(a, b)` é lido também (`'ally'`: um aliado do reino do jogador continua protegido). A devolução de um
   exército da 3a é sempre da 3a (`liveCheck`: ninguém a 150 tiles → `dematerialize`); a 3b só encerra sozinha as forças
   de depuração (`startSiege` / `startBattle` sem exército da 3a). O que ficou na junção: §14 "A passagem com a 3a".
@@ -1513,12 +1522,13 @@ debandada), `bt_general` (o general com o estandarte entre os arqueiros e a infa
 - **Jogadores × soldados**: a regra acima (membro em guerra; viajante ajudando quem está lutando — numa batalha campal
   o viajante pode escolher qualquer lado). Matar soldados dá XP (soldado ×1,2, general ×4) e a reputação acima; soldado
   morto não deixa corpo nem saque (cai e some em 8–24 s), como o povo.
-- Moradores e guardas continuam protegidos dos jogadores mesmo em guerra (a 3c decide o resto pela filiação).
+- Moradores e guardas continuam protegidos dos jogadores mesmo em guerra (a 3c decide o resto pela filiação — §15: a
+  guarda inimiga para quem está alistado; os civis sempre protegidos).
 - `dematerialize` desmonta o acampamento e as máquinas (os números da 3a guardam `eng`); um cerco retomado adota o que
   ainda estiver de pé (acampamento e máquinas do mesmo reino perto) e o que os números já fizeram aparece pronto.
 - **Sem aviso por morte** (decisão do dono): soldados, moradores e guardas caem sem mensagem; ficam os avisos da
   batalha (o acampamento, a brecha, o portão, a rampa, o recuo, a tomada) e o grito pela queda do general.
-- **Pendência da junção 3a × 3b**: quando a luta jogada perto acaba (tomada, recuo, batalha decidida) e o jogador
+- ~~**Pendência da junção 3a × 3b**~~ — **resolvida na 3c (§15: `game.realms.settle`, a guarnição dos vencedores)**: quando a luta jogada perto acaba (tomada, recuo, batalha decidida) e o jogador
   continua perto, o exército da 3a fica parado nos números (`live`) até ele se afastar 150 tiles — só então a 3a decide
   o destino (volta para casa / desiste / segue). Para resolver na hora, a 3a pode oferecer `game.realms.settle(id, {
   n, outcome: 'won' | 'lost' | 'taken' })` (o que `endBattle` / `goHome` / `hostCapture(..., army)` já fazem) e não
@@ -1537,3 +1547,210 @@ debandada), `bt_general` (o general com o estandarte entre os arqueiros e a infa
   cavalaria / general montado (docs/HORSE.md), o mapa-múndi mostrando as forças (3a), escadas de assalto.
 - Já existente, visto nos testes: `TOWN.note('gone')` guarda `at = worldTime` de cada par — por uma fração de segundo
   a linha `towns` de uma peça destruída pode diferir e a ressincronização a corrige (mut/towns.js; não é da 3b).
+
+## 15. Fase 3c — o jogador no exército
+
+Feito (parte 3c do §12, pedido do dono no §4: "o jogador com reputação suficiente entra num exército pelo mural →
+aparecem ordens do general na tela e waypoints no mapa e no minimapa"): o **alistamento** no mural, as **ordens do
+general** num cartão da tela com o **ponto** no chão, no radar e no mapa, que mudam com a campanha (3a) e com as fases da
+luta jogada perto (3b); **quem pode ferir quem** com o jogador alistado (a guarda e os soldados inimigos, o PvP entre
+membros de reinos em guerra, nunca civis nem o próprio lado); as **máquinas do exército** para os seus soldados; o
+**soldo** diário por posto, os **bônus** de vitória, a **deserção**; e a pendência da 3b (`game.realms.settle`). Código:
+`game/army.js` (as regras, as ordens, o anfitrião: quem segue qual exército, o soldo, o serviço, os bônus),
+`game/mut/army.js` (o registro por jogador: op `army.rec`, intents `army.join` / `army.leave`, linhas de snapshot / save /
+digest), `game/content/army.js` (os números), `ui/armyHud.js` (o cartão de ordens, o ponto, os avisos, quem é inimigo no
+PvP), `ui/muralWar.js` (o cartão "Alistamento" da aba Exército). Ganchos: `combat.js` (`npcBlock`, `pvpHit`,
+`attackable`, `killMob` → serviço), `mut/combat.js` (intent `pvp.hit`), `controller.js` (tocar / mirar um inimigo do
+PvP, Tab), `people.js` (tocar num guarda inimigo ataca; o perigo do lugar conta o alistado inimigo), `npc.js` (a guarda
+luta com ele: `hostile`, `guardTargets`, golpes e flechas por `hurtPlayer`), `towns.js` (portões fecham), `soldier.js`
+(`isFoe`), `warfare.js` (inimigos da força, `finishForce` → `settle`, a coluna que acompanha a 3a, bônus), `siegeAI.js`
+(a tomada com o exército, o aríete / a torre guardam o lugar do jogador), `mut/siege.js` / `siege.js` (máquinas do
+exército para os seus soldados, a pedra do exército), `projectiles.js` (flechas: PvP, guarda inimiga, flechas da guarda
+nos alistados inimigos), `realms.js` (`settle`, `capture` com o exército, a marcha viva escoltada, a rematerialização),
+`mut/eco.js` / `eco.js` (pid → uid em todos os pares: `E.pu`), `ui/radar.js` / `ui/minimap.js` / `ui/overlay.js` (o
+ponto da ordem, o inimigo do PvP em vermelho), `ui/mural.js` / `ui/muralEco.js` (textos), `net/snapshot.js` /
+`net/digest.js` (parte `army`), `systems.js`, `mut/index.js`.
+
+### Como se joga
+
+- **Alistar-se** (mural → **Exército** → cartão **Alistamento**): os requisitos com ✓ / ✕ e o motivo de cada um, a tabela
+  de postos e soldo, as regras, e o botão **"Alistar-se na milícia de Estrosa"** (vila) / "na guarnição de …" (castelo) /
+  "no exército de …" (cidade). Recusas, sempre em português e com o que falta: "Entre no Reino de Galéria primeiro (aba
+  Reino)", "Reputação Conhecido no Reino de Galéria: faltam 15", "Reputação Respeitado no Reino de Galéria: faltam 60",
+  "Você serve na milícia de Estrosa: dê baixa lá antes" (**um exército por vez**), "Desertor: o Reino de Galéria não
+  aceita você de volta até o dia 7", "Vá até o mural de …".
+- **Quem pode** — membro do reino dono do lugar (o registro da economia) com reputação:
+
+  | Exército | Reputação |
+  |---|---|
+  | **milícia da vila** | **Conhecido** (25) |
+  | **guarnição do castelo** / **exército da cidade** | **Respeitado** (100) |
+
+- **Postos** pelo serviço (pontos: +1 por dia servido, +1 por inimigo derrubado — até 4 por dia —, +3 pelo general
+  inimigo, +3 por batalha vencida, +5 por lugar tomado, +4 por cerco rechaçado), **soldo** a cada amanhecer (o dia da
+  economia), **×1,5 com o reino em guerra** (soldo de campanha):
+
+  | Posto | Serviço | Soldo / dia (paz · guerra) |
+  |---|---|---|
+  | Recruta | 0 | 20 · 30 |
+  | Soldado | 6 | 30 · 45 |
+  | Sargento | 18 | 45 · 68 |
+  | Capitão | 40 | 65 · 98 |
+
+  Promovido ao amanhecer, já recebe o soldo novo; aviso "Promovido a Sargento! · soldo de 45 moedas por dia". Junto do
+  soldo, **reputação pelo serviço** com o reino (`game.realms.reward`): +1 por dia em paz, +2 em guerra. Só recebe quem
+  está no mundo naquele amanhecer (como o imposto). Aviso: "Soldo do dia: +45 moedas (Soldado, em campanha ×1,5) · +2 de
+  reputação no Reino de Galéria".
+- **Bônus** (uma vez por luta, para quem estava lá — a até 90 tiles da batalha, ou do lugar + 90 no cerco):
+
+  | Desfecho | Moedas | Reputação | Serviço |
+  |---|---|---|---|
+  | batalha vencida | +40 | +6 | +3 |
+  | lugar tomado | +90 | +12 | +5 |
+  | cerco rechaçado (o lugar defendido) | +50 | +10 | +4 |
+
+  Avisos: "Vitória sobre o Reino de X! Bônus: +40 moedas e +6 de reputação…", "Silvança é nossa! Bônus…", "Estrosa
+  resistiu ao cerco! Bônus…". Equilíbrio com a economia (§10): um dia de soldo vale um trabalho do mural (30–90); um
+  bônus, uma viagem curta de comércio; um Capitão em guerra ganha ~100 por dia de 13 minutos — o comércio continua
+  pagando mais para quem só quer dinheiro, o exército paga a reputação e a guerra.
+- **As ordens do general** (`ui/armyHud.js`): um cartão no alto à esquerda, logo abaixo da bolsa e acima do rastreador
+  de trabalhos (o mesmo estilo; vermelho escuro em combate, verde na vitória): "ORDENS DO GENERAL · SARGENTO · ESTROSA",
+  a ordem, o detalhe, a distância em passos e uma seta para o ponto; o último **grito do general** da própria força
+  aparece no cartão ("«Firmes! Pelo Reino de Galéria!»"). Um toque minimiza (só o título e a seta), ✕ esconde até a
+  próxima ordem. Cada ordem nova chega com um aviso curto ("Ordem do general · …") e um som. As ordens saem do estado real
+  da guerra, iguais em todos os pares (`game.army.order()`):
+
+  | Situação | Ordem | Ponto |
+  |---|---|---|
+  | paz | "Em paz: a milícia de Estrosa treina" (o soldo do dia) | — |
+  | guerra, nenhuma campanha | "Guarde Estrosa" | — |
+  | a campanha se reúne | "Junte-se ao exército em X" / "Aguarde a reunião em X" | o exército |
+  | um contingente vai à reunião | "Alcance o contingente" / "Marche com o contingente até X" | o exército / o lugar |
+  | a campanha marcha | longe (> 60 tiles): "Alcance o exército" · junto: "Marche com o exército até Z" / "Socorra Z" (faltam N passos, ≈ H h) | o exército / o alvo |
+  | volta para casa | "Recuar! Volte com o exército para X" | o exército / a casa |
+  | cerco por números | "Vá ao cerco de Z" / "O exército cerca Z" | o acampamento |
+  | cerco jogado (3b) | "Marche até o acampamento diante de Z" → "Monte o acampamento…" → "Proteja os engenheiros" → "Proteja os trabucos!" (opere um: a pedra é do exército) → assalto: "Empurre o aríete até o portão!", "Empurre a torre até a muralha!", "Suba pela torre!", "Entre pela brecha!", "O portão caiu! Para dentro!", dentro dos muros "Tome a praça!" → "Z é nossa! Segure a praça" · "Recuar! Recuar!" | o exército, o acampamento, a oficina, o trabuco, o aríete, a torre, a brecha, o portão, a praça |
+  | batalha | por números: "Junte-se à batalha!" · jogada: "Forme na linha!" → "Avance com a linha!" → "Segure a linha! Ataque!" → "Vitória! Persiga os que fogem" / "Recuar! A linha caiu" | o exército, a linha, o inimigo |
+  | a casa cercada | "Às muralhas de Estrosa!" (lado do acampamento) → "Segure as muralhas!" → "Segure a brecha!" / "Segure o portão quebrado!" / "Defenda o portão: o aríete vem aí!" / "Defenda a muralha: a torre encostou!" → "Estrosa resistiu!"; longe: "Volte para defender Estrosa!" | a muralha do lado atacado, a brecha, o aríete, a torre |
+
+- **O ponto da ordem** (`game.army.wp`, local): uma **bandeira vermelha** balançando sobre o lugar, com o nome
+  ("Exército", "Acampamento", "Aríete", "Brecha", "Praça", o lugar); fora da tela, uma **seta vermelha na borda** com o
+  nome e a distância; no **radar** uma marca vermelha no anel; no **mapa** (M) e no minimapa a bandeira vermelha (presa na
+  borda do mapa). Convive com o ponto dourado dos trabalhos.
+- **Marchar junto**: a campanha que o jogador segue (a do seu lugar; senão a do reino mais perto da sua casa) fica **viva
+  em volta dele** (a coluna de soldados da 3b) e **continua marchando** pelo relógio da 3a — chega, se reúne, cerca,
+  encontra o inimigo — com a coluna acompanhando a posição dela; quando ele se afasta, volta aos números como sempre.
+- **Lutar** (a regra, igual no convidado que manda o golpe e no anfitrião que o aplica):
+
+  | Alvo | Pode? |
+  |---|---|
+  | soldado de um reino em guerra com o seu | sim (membro, alistado ou não — §14) |
+  | **guarda** de um lugar de um reino em guerra com o seu | **só alistado** num exército do seu reino |
+  | civil (morador, criança, ancião, ofícios) de qualquer reino | **nunca** |
+  | soldado / guarda do próprio reino ou de um aliado | nunca |
+  | **outro jogador** | **só membros de reinos em guerra** entre si (alistados ou não); nunca viajantes, o mesmo reino, aliados, reinos em paz |
+
+  Um guarda inimigo para o alistado: tocar nele ataca (não conversa), o Tab o escolhe, as flechas o acertam. **Os guardas
+  e os soldados inimigos tratam o alistado como inimigo** nas terras deles: o sino toca, os portões fecham, a guarda vai
+  atrás dele (golpes e flechas pelo `hurtPlayer`: o cliente dele rola esquiva / armadura / escudo), os soldados de um
+  reino em guerra perto o atacam. **PvP**: o golpe do atacante vai ao anfitrião (intent `pvp.hit`, que confere de novo a
+  guerra com os seus registros e a distância) e o cliente da vítima o recebe (`player.hurt`); o outro jogador inimigo
+  pode ser mirado / tocado (`e.pvp`), tem plaquinha vermelha "Nome · Reino de X · inimigo" e ponto vermelho no mapa. Fora
+  disso, o golpe não faz nada e diz por quê ("… é do seu reino", "… é viajante: jogadores só lutam entre si quando são
+  membros de reinos em guerra", "… é do Reino de X, que não está em guerra com o seu").
+- **Máquinas do exército**: quem serve num exército do reino da máquina **empurra o aríete / a torre** e **opera o
+  trabuco / a catapulta** — a pedra é do exército (nenhuma sai da mochila); um engenheiro no trabuco dá lugar ao jogador,
+  e um soldado da equipe do aríete / da torre também (a IA da 3b guarda os lugares dos jogadores e empurra com eles).
+  Viajantes e outros: "Aríete do exército do Reino de X: só quem serve nesse exército a usa" (a regra do dono para os
+  viajantes continua).
+- **Dar baixa**: na aba Exército, "Dar baixa" (dois toques). Fora de combate é livre, a reputação fica. **No meio de uma
+  batalha ou de um cerco** (do exército que segue, ou da sua casa) é **deserção**: −25 de reputação com o reino, e ele não
+  aceita o jogador de volta por **2 dias**; o botão fica vermelho e avisa antes. Sair do reino (aba Reino) também dá baixa
+  — deserção se for em combate.
+- **Morrer na guerra**: renasce como sempre (a cama, a vila), **sem perder reputação nem o posto**; aviso "Você caiu em
+  combate · Renasce como sempre — sem perder a reputação nem o posto…"; o cartão aponta de volta para o exército.
+- O lugar de onde serve é tomado: passa ao lugar mais perto do seu reino ("Estrosa foi tomada: você passa à milícia de
+  …"); um reino que cai desfaz o seu exército (baixa).
+
+### `game.realms.settle` — a pendência da 3b resolvida
+
+- `game.realms.settle(id, { n, outcome: 'won' | 'lost' | 'taken' | 'lifted', x, y })` (anfitrião), chamado pela 3b em
+  `finishForce` quando a luta jogada perto acaba: a 3a retoma os números **na hora**, com o jogador ainda perto — lugar
+  tomado: a guarnição já ficou, o resto volta para casa (ou some, com menos de 5); cerco abandonado: volta para casa com a
+  notícia "o cerco terminou"; batalha vencida: volta ao que fazia (com a notícia de vitória); perdida: volta para casa
+  com o que sobrou (ou some).
+- **A guarnição de uma tomada vem dos vencedores**: `capture(sid, k, { army, n })` — metade dos vencedores vivos, até o
+  máximo do lugar (antes: 30 % do máximo). Enquanto os vencedores seguram a praça (40 s), a 3a não mexe; o resto sai no
+  `settle`.
+- **Um exército vivo muda de forma**: a 3a confere a cada segundo; quando o estado de um exército vivo muda (chegou e
+  cerca, encontrou o inimigo, volta para casa depois de uma luta, cresceu com um contingente), ela o devolve aos números e
+  o entrega de novo à 3b na forma nova (`dematerialize` + `materialize`); as forças de exércitos que deixaram o campo
+  (fundidos na campanha, em casa) somem.
+- **Marcha escoltada**: um exército vivo marchando / voltando com um alistado dele a ≤ 120 tiles mantém o relógio da 3a
+  (`v > 0`): anda, chega, se reúne, encontra outros (as reuniões vivas partem também); a coluna da 3b segue a posição da
+  3a no ritmo dela. Sem escolta, como antes: parado nos números enquanto vivo.
+
+### Multijogador e saves
+
+Anfitrião autoritativo. Estado em `game.army` (todos os pares): `en` Map uid → `{ sid, k, rank, svc, since, paid, kills,
+a (o exército da 3a que segue), kd, kn }`, `des` Map uid → `[reino, até o dia]`. **Por jogador (uid)** como a economia:
+volta outro dia e continua no posto. Op única `army.rec { u, r | 0, ban, ev, by, give, toast }` (alistado, mudou, saiu;
+`give` = o soldo / o bônus na mochila do dono); intents `army.join { sid }`, `army.leave {}`, `pvp.hit { pid, amount,
+crit, ranged, ability, from }`. Snapshot / save `world.army { en, des }`, parte **`army`** do digest (exata). O
+anfitrião (sistema `armySystem`, a cada 0,5 s) decide quem segue qual exército (`a`), confere a filiação, paga ao
+amanhecer, junta o serviço das mortes (a cada 2 s) e os bônus. Para saber quem é quem numa luta, todo par conhece o uid
+de cada pid (`game.eco.pu`, da op `eco.who`; no snapshot da economia, fora do digest). As ordens, o ponto, os avisos e o
+`e.pvp` são locais (cosméticos), derivados do estado replicado.
+
+### Testes
+
+`tools/mp-test.js` **AR1–AR9** (as guerras pela op de depuração `realm.rel`, a IA pausada; o convidado vira membro e ganha
+reputação pelas ops do anfitrião): AR1 alistamento no mural (recusas: não membro, reputação da vila e do castelo; aceito
+pelo botão; o cartão de ordens; um exército por vez; baixa em paz sem custo) · AR2 as ordens seguem a campanha
+("Alcance o exército" com o ponto no exército e a marca no radar; junto dele: vivo **e marchando** — o relógio da 3a
+roda, a coluna acompanha —, "Marche com o exército até …" com o alvo como ponto; longe: números; o cerco por números; o
+cerco jogado e as ordens das suas fases; ≥ 4 ordens, cada uma com aviso) · AR3 as máquinas do exército (o viajante
+recusado; o soldado empurra o aríete — ele anda — e opera o trabuco sem pedra própria) · AR4 quem fere quem (membro não
+alistado não fere guarda; alistado fere guarda, nunca civil; a guarda o vê como inimigo, o sino, os portões, um guarda
+vai atrás dele; soldados inimigos o listam como inimigo e ele os fere; nunca o próprio lado) · AR5 PvP (viajantes,
+reinos em paz, o mesmo reino, aliados: nada; em guerra os dois golpes passam) · AR6 o soldo (paz +20, guerra ×1,5,
+promoção a Soldado com aviso, o bônus de cerco rechaçado +50 / +10) · AR7 morrer mantém posto e reputação; a deserção no
+cerco (−25, o banimento de 2 dias, o aviso; alistar de novo recusado) · AR8 `settle` (a tomada perto dos jogadores: a
+guarnição dos vencedores; o exército volta para casa na hora e vira coluna de novo) · AR9 save → load. Todos terminam com
+o digest igual.
+
+RESULTS_PLACEHOLDER
+
+### Desempenho
+
+Nada por quadro varre peças ou criaturas a mais: o anfitrião confere os registros (um por jogador) a cada 0,5 s; as
+ordens do jogador local são refeitas a cada 0,25 s (listas por tipo das peças do exército — tendas, máquinas —, as
+aberturas e o perímetro do lugar, já em cache); a guarda e o perigo de um lugar olham os jogadores (no máximo 4) só
+quando há alguém alistado; o `e.pvp` dos outros jogadores a cada 0,5 s. PERF_PLACEHOLDER
+
+### Prints
+
+SHOTS_PLACEHOLDER
+
+### Decisões (para o dono confirmar)
+
+- **Reputação para alistar**: milícia da vila com **Conhecido** (25); guarnição do castelo e exército da cidade com
+  **Respeitado** (100).
+- **Os civis continuam protegidos sempre**, mesmo de quem está alistado num reino em guerra (moradores, crianças,
+  anciãos, ofícios). Só a **guarda** de um lugar inimigo pode ser ferida, e só por quem está **alistado** (ser membro
+  basta para soldados e jogadores inimigos, não para a guarda).
+- **PvP só entre membros de reinos em guerra** (alistados ou não), decidido no anfitrião; nunca entre viajantes, do mesmo
+  reino, aliados ou reinos em paz. Morrer para outro jogador é como morrer em qualquer luta (os itens caem; a reputação
+  fica).
+- **Os inimigos tratam o alistado como inimigo nas terras deles** (o sino toca e os portões fecham quando ele entra);
+  um membro não alistado de um reino em guerra não aciona a guarda (é inimigo no comércio, não na rua).
+- **Soldo** 20 / 30 / 45 / 65 por dia (×1,5 em guerra) e **bônus** 40 / 90 / 50; reputação +1 / +2 por dia servido.
+- **Deserção** = dar baixa (ou sair do reino) com o exército em combate: −25 de reputação e 2 dias sem poder voltar
+  àquele reino. Afastar-se do exército não é deserção (as ordens só chamam de volta).
+- **Um exército por vez**; para trocar, dar baixa antes. A campanha que o jogador segue é a do seu lugar; sem ela, a do
+  reino mais perto da sua casa; com a casa cercada, a defesa dela.
+- **A pedra do trabuco do exército é do exército** (o soldado não gasta as suas).
+- **Marcha escoltada**: o exército vivo com um alistado junto continua marchando pelo relógio da 3a (sem escolta,
+  parado como na 3b).
+- Pendente / ideias: escoltar caravanas, ordens por papel (arqueiro na muralha, engenheiro nas obras), o jogador
+  general de uma campanha, medalhas, o soldo atrasado para quem estava fora.
