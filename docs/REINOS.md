@@ -476,6 +476,9 @@ agente dos moradores o expuser; senão, de uma lista de nomes (Bento, o lavrador
 
 | Faixa | Pontos | Nas trocas | |
 |---|---|---|---|
+| **Odiado** (fase 3a) | −100 ou menos | compra **+100 %**, venda **−60 %** | não entra no reino; não compra casa / terreno |
+| **Malvisto** (fase 3a) | −25 … −99 | compra **+50 %**, venda **−40 %** | idem |
+| **Desconfiado** (fase 3a) | −1 … −24 | compra **+20 %**, venda **−20 %** | idem |
 | Desconhecido | 0 | — | |
 | Conhecido | 25 | 1 % melhor | pode comprar casas e terrenos |
 | Respeitado | 100 | 2 % | |
@@ -487,6 +490,17 @@ negociadas, até 10 por dia por reino); cai ao abandonar (−3) ou perder (−2)
 propriedade (−15). Subir / descer de faixa: aviso no alto da tela ("Reputação: Conhecido — no Reino de Galéria · trocas
 1 % melhores · já pode comprar casas e terrenos"). O cartão da aba Reino mostra a faixa, a barra e a reputação nos outros
 reinos.
+
+**Reputação herdada (decisão do dono, fase 3a — §13):** ao **entrar** num reino o jogador **herda as relações dele** — a
+reputação com **cada outro reino** é **substituída** (aliado do reino: **+40**, já "Conhecido"; em guerra com ele: **−60**,
+"Malvisto"; em trégua — acabou de lutar com ele —: **−15**, "Desconfiado"; os outros, inclusive os de outras terras: **0**);
+a reputação com o próprio reino não muda. Cada vez que entra num reino isso acontece de novo (substituindo as anteriores).
+Ao **sair**, os valores herdados **ficam**: precisa melhorá-los sozinho (comércio, trabalhos). **Não se entra** num reino
+com reputação negativa nele ("Sua reputação com o Reino de X é negativa: melhore-a com comércio e trabalhos antes de
+entrar"). Reputação negativa **não é inimizade**: ninguém caça o jogador por isso, o comércio e os trabalhos continuam —
+só com os preços piores da tabela, e o Comércio diz por quê ("Reputação negativa com o Reino de X (Malvisto, −60): compra
+50 % mais cara e venda 40 % mais barata"). Inimigo declarado é só o membro de um reino em guerra com aquele (sem comércio,
+como antes). Assim sair do reino para negociar com o inimigo dele como viajante não compensa.
 
 ### Propriedades e imposto
 
@@ -1129,6 +1143,28 @@ Você perdeu a casa pequena e o terreno 8×8 (o que estava construído no terren
 fica sob cerco: "Y está sob cerco — Se cair, suas propriedades lá serão perdidas (…)", e o mural (Propriedades) marca o
 lugar "sob cerco: se cair, você a perde".
 
+### Reputação herdada (decisão do dono)
+
+"Ao jogador entrar em um reino, ele herda as relações do reino, fazendo com que se sair do reino, ele precise melhorar a
+reputação individualmente … relação negativa não quer dizer inimigo … só vira inimigo declarado caso faça parte de um
+reino inimigo, porém os preços seriam muito mais caros e muito mais baixos para venda … o jogador não pode entrar em um
+reino com relações / reputação negativa." Fecha o atalho "sair do reino → viajante → negociar com o inimigo dele".
+- **Entrar** (`realm.join`): o anfitrião calcula `inheritFor(k)` e a op `eco.member { inherit }` **substitui** a reputação
+  do jogador com **cada outro reino** (os caídos de fora): aliado do reino **+40** (já "Conhecido"), em **trégua** com ele
+  (acabou de lutar) **−15**, em **guerra** com ele **−60**, todos os outros (outras terras também) **0**; a reputação com
+  o reino em que entrou não muda. Toda vez que entra num reino, de novo. Aviso: "Você jurou lealdade ao Reino de X e herdou
+  as relações dele: 1 aliado te recebe bem (+40), 1 inimigo te vê mal". O cartão do Reino avisa antes de entrar quantas
+  reputações serão substituídas.
+- **Sair**: os valores ficam com o jogador (comércio e trabalhos os melhoram, como sempre).
+- **Faixas negativas**: Desconfiado (−1 … −24: compra +20 %, venda −20 %), Malvisto (−25 … −99: +50 % / −40 %), Odiado
+  (≤ −100: +100 % / −60 %); o limite continua −200. Com reputação negativa: **não entra no reino** ("Sua reputação com o
+  Reino de X é negativa: melhore-a com comércio e trabalhos antes de entrar"), não compra casa / terreno (como
+  "Desconhecido"), mas **negocia e trabalha** — o Comércio mostra "⚠ Reputação negativa com o Reino de X (Malvisto, −60):
+  compra 50 % mais cara e venda 40 % mais barata…", o cartão mostra a faixa em vermelho, a barra até a próxima faixa e "não
+  pode entrar". Subir de uma faixa negativa avisa; chegar a 0: "não é mais negativa: preços normais, já pode entrar".
+- **Não é inimizade**: nada caça o jogador por reputação negativa; inimigo declarado é só o membro de um reino em guerra
+  (sem comércio). Por jogador (uid), replicado (`eco.member`, `eco.rep`), no save e no digest (parte `eco`).
+
 ### Para a 3b (o contrato do §12, como ficou)
 
 - `live`: um exército (o seu cerco / a sua batalha) a ≤ 120 tiles de um jogador → `live = 1` e
@@ -1146,7 +1182,7 @@ lugar "sob cerco: se cair, você a perde".
 Anfitrião autoritativo. Ops (todas globais para o interesse): `realm.start {day0, k0, tens}` · `realm.day {day, gar, tens,
 weary}` (as guarnições e níveis de todos os lugares, ~3 KB por dia) · `realm.rel {a, b, rel, by, until, why, quiet}` ·
 `realm.army {a, del, gar, news, scar, wt}` · `realm.wall {sid, hit, gone}` · `realm.capture {sid, k, from, n}` ·
-`realm.fall {k, to}`; na economia `eco.lose {ids, why, k, by, give, toast, built}` e `eco.rep {u, k, d}`. As notícias
+`realm.fall {k, to}`; na economia `eco.lose {ids, why, k, by, give, toast, built}`, `eco.rep {u, k, d}` e `eco.member {…, inherit}` (a reputação herdada). As notícias
 nascem dentro das ops (mesma lista em todos os pares; dia / hora de cada par são cosméticos). Snapshot / save:
 `world.realms` (`realmRows`: dia, primeiro dia, reino do início, relações, tensões, guerras passadas, donos, caídos, todos
 os exércitos, cicatrizes de cerco, notícias). Digest: parte **`realms`** (exata; um exército marchando entra pela rota e
@@ -1175,7 +1211,11 @@ longe dos dois: muralha / portão quebrados no estado dos lugares, sem conserto 
 ao chegar · WR6 a tomada muda o dono em tudo (guarnição até o máximo, notícia, tabardos, `towns.at` / mural, mapa,
 comércio do membro, quadro de trabalhos) e a retomada · WR7 propriedades perdidas (casa e terreno de volta à venda nos
 dois, o muro do terreno some, o aviso do cerco e o da perda, e o save) · WR8 a queda de um reino · WR9 save → load
-igual. EC6 passou a conferir que o muro do terreno tomado por imposto some. Todos terminam com o digest igual.
+igual · WR10 a reputação herdada (entrar substitui: aliado +40, inimigo −60 no lugar do +30 que havia, os outros 0;
+sair mantém; viajante numa vila do inimigo negocia com preços ≥ 1,45× na compra e ≤ 0,65× na venda, o Comércio explica;
+não entra com reputação negativa; um trabalho e o comércio a levam a 0 e aí entra — e herda as relações do novo reino). EC6 passou a conferir que o muro do terreno tomado por imposto some; SG6 (fase 1) troca só o `atWar` do
+`game.realms` no teste e o devolve (antes apagava o objeto — agora ele é o estado dos reinos). Todos terminam com o digest
+igual.
 
 Prints (`shots/`, fora do git; sem o painel de depuração): `wr_map_wars` (o mapa: Valadestra × Rabelonia, fronteira em
 vermelho, exércitos, cerco e batalha), `wr_map_army_march` (um exército marchando na estrada, de perto), `wr_map_siege`
@@ -1199,6 +1239,8 @@ celular 915 × 412 toque: `wr_mural_reino_phone` / `_2`, `wr_mural_exercito_phon
   conquistador (mesmos nomes, tabardo novo).
 - **Propriedades**: perdidas com o lugar conquistado (pedido do dono); a reputação não cai por isso (não é culpa do
   jogador). Vender um terreno ao reino também desmonta o que foi construído nele (é o mesmo caminho).
+- **Reputação herdada** (pedido do dono): os números — aliado +40 (já pode comprar casa nele), trégua −15, guerra −60
+  ("Malvisto": compra 50 % mais cara); as faixas negativas e os preços da tabela do §10.
 - **Os níveis do §7b na força**: só +5 % por nível (nível 18 ≈ 1,85 × nível 1) — com +12 % os reinos longe do início eram
   3× mais fortes por soldado e esmagavam o reino do jogador logo depois da carência.
 - **Exércitos lentos de propósito** (1,1 tile/s, ~860 tiles por dia de jogo): uma marcha leva de minutos a horas reais, e
