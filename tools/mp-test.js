@@ -7467,9 +7467,11 @@ def('SG6', {
   MH.siege.siegeDebug(H.game).hostile.delete(walls[0]);
   const realmPiece = { building: true, id: 'realm:x', type: 'wall_stone', realm: 'r1' };
   t.check(!can(realmPiece, { realm: 'r2' }), 'a kingdom\'s structure while no kingdom is at war: no');
-  H.game.realms = { atWar: (a, b) => a !== b };
+  // (phase 3a exists now: its game.realms stays — only its atWar is swapped for this check and put back)
+  const R0 = H.game.realms, at0 = R0?.atWar;
+  if (R0) R0.atWar = (a, b) => a !== b; else H.game.realms = { atWar: (a, b) => a !== b };
   t.check(can(realmPiece, { realm: 'r2' }) && !can(realmPiece, { realm: 'r1' }) && !can(realmPiece, oH), 'with game.realms.atWar (phase 3): an enemy kingdom\'s yes, its own / a player\'s engine no');
-  delete H.game.realms;
+  if (R0) R0.atWar = at0; else delete H.game.realms;
   // the catapult throws onto the guest's own walls
   sgAmmo(G, 'cat_stone', 1);
   A.teleport(G, x0 - 0.5, y0 + 0.5);
