@@ -19,6 +19,13 @@ construções, somem ao amanhecer; no criativo não quebram nada nem são atraí
 | Trópicos úmidos (selva, savana) | **Esqueletos** | noites da estação seca |
 | Desertos quentes (zona quente / tropical, biomas áridos) | **Múmias + Múmia Gigante** | noites do inverno ameno / estação seca |
 
+**Ataques aos lugares no inverno** (dono, 5/11/2026): nas noites da estação ruim os monstros da região **atacam as vilas,
+cidades e castelos** — em número **um pouco menor que o de guardas** do lugar, para ser uma batalha de verdade —, sem
+força para destruir o lugar: os humanos quase sempre vencem, mas há uma chance **rara (~5 %)** de os monstros vencerem.
+Se vencerem, o lugar **não perde toda a população**; no dia seguinte o povo começa a **reconstruir**, como depois de um
+cerco — e ajuda a reconstruir as **casas alugadas** do jogador, mas **não** a propriedade **privada** dele (casa comprada,
+o que ele construiu no terreno): essa fica para o jogador consertar.
+
 Ao amanhecer: esqueleto vira ossos, múmia vira areia (o andarilho já vira neve). As estações são locais e invertidas
 no outro hemisfério (`seasonAt(game, x, y)` já dá isso).
 
