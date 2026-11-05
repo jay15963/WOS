@@ -21,34 +21,34 @@ export function npcPass(game, tx, ty) {
   return true;
 }
 // is a body of radius r at (x, y) blocked for a town person?
-export function npcBlocked(game, x, y, r) {
+export function npcBlocked(game, x, y, r, pass = npcPass) {
   const x0 = Math.floor(x - r), x1 = Math.floor(x + r), y0 = Math.floor(y - r), y1 = Math.floor(y + r);
   for (let ty = y0; ty <= y1; ty++) for (let tx = x0; tx <= x1; tx++) {
-    if (npcPass(game, tx, ty)) continue;
+    if (pass(game, tx, ty)) continue;
     const cx = Math.max(tx, Math.min(tx + 1, x)), cy = Math.max(ty, Math.min(ty + 1, y));
     if ((x - cx) * (x - cx) + (y - cy) * (y - cy) < r * r) return true;
   }
   return false;
 }
 // move a town person by (dx, dy) with axis sliding; true when it moved
-export function npcMove(game, m, dx, dy) {
+export function npcMove(game, m, dx, dy, pass = npcPass) {
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / 0.15));
   const sx = dx / steps, sy = dy / steps, r = m.r * 0.85;
   let moved = false;
   for (let k = 0; k < steps; k++) {
-    if (!npcBlocked(game, m.x + sx, m.y, r)) { m.x += sx; moved = true; }
-    if (!npcBlocked(game, m.x, m.y + sy, r)) { m.y += sy; moved = true; }
+    if (!npcBlocked(game, m.x + sx, m.y, r, pass)) { m.x += sx; moved = true; }
+    if (!npcBlocked(game, m.x, m.y + sy, r, pass)) { m.y += sy; moved = true; }
   }
   return moved;
 }
 // the nearest tile a person can stand on around (x, y) (rings up to R), as its centre; null = none
-export function nearPass(game, x, y, R = 3) {
+export function nearPass(game, x, y, R = 3, pass = npcPass) {
   const cx = Math.floor(x), cy = Math.floor(y);
-  if (npcPass(game, cx, cy)) return [cx + 0.5, cy + 0.5];
+  if (pass(game, cx, cy)) return [cx + 0.5, cy + 0.5];
   for (let r = 1; r <= R; r++) {
     let best = null, bd = 1e9;
     for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !npcPass(game, cx + dx, cy + dy)) continue;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) !== r || !pass(game, cx + dx, cy + dy)) continue;
       const d = (cx + dx + 0.5 - x) ** 2 + (cy + dy + 0.5 - y) ** 2;
       if (d < bd) { bd = d; best = [cx + dx + 0.5, cy + dy + 0.5]; }
     }
@@ -58,10 +58,10 @@ export function nearPass(game, x, y, R = 3) {
 }
 // a straight walk between two points over passable tiles (DDA over the centre line; r > 0: also both edges of a body that
 // wide — a doorway taken at a slant catches its shoulder on the door frame)
-export function lineClear(game, x0, y0, x1, y1, r = 0) {
+export function lineClear(game, x0, y0, x1, y1, r = 0, pass = npcPass) {
   if (r > 0) {
     const dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy) || 1, nx = (-dy / d) * r, ny = (dx / d) * r;
-    return lineClear(game, x0, y0, x1, y1) && lineClear(game, x0 + nx, y0 + ny, x1 + nx, y1 + ny) && lineClear(game, x0 - nx, y0 - ny, x1 - nx, y1 - ny);
+    return lineClear(game, x0, y0, x1, y1, 0, pass) && lineClear(game, x0 + nx, y0 + ny, x1 + nx, y1 + ny, 0, pass) && lineClear(game, x0 - nx, y0 - ny, x1 - nx, y1 - ny, 0, pass);
   }
   let tx = Math.floor(x0), ty = Math.floor(y0);
   const ex = Math.floor(x1), ey = Math.floor(y1), dx = x1 - x0, dy = y1 - y0;
@@ -71,7 +71,7 @@ export function lineClear(game, x0, y0, x1, y1, r = 0) {
   for (let n = 0; n < 80; n++) {
     if (tx === ex && ty === ey) return true;
     if (mx < my) { mx += ddx; tx += sx; } else { my += ddy; ty += sy; }
-    if (!npcPass(game, tx, ty)) return false;
+    if (!pass(game, tx, ty)) return false;
   }
   return true;
 }
@@ -79,9 +79,10 @@ export function lineClear(game, x0, y0, x1, y1, r = 0) {
 // ---------- A* over a settlement's box, with a path cache ----------
 const MAX_NODES = 9000, CACHE_MAX = 500, CACHE_LIFE = 180; // (s of game time a cached path is trusted)
 export class TownNav {
-  constructor(game, L) {
+  constructor(game, L, pass = npcPass) {
     const G = L.grid;
     this.game = game; this.x0 = G.x0; this.y0 = G.y0; this.w = G.w; this.h = G.h;
+    this.passFn = pass; // (who walks it: the town's people — npcPass — or the soldiers, game/soldier.js)
     const n = this.w * this.h;
     this.g = new Float32Array(n); this.par = new Int32Array(n); this.seen = new Int32Array(n); this.done = new Int32Array(n);
     this.pass = new Uint8Array(n); this.passV = -1; // (0 unknown, 1 open, 2 blocked: refilled lazily after build.v changes)
@@ -127,7 +128,7 @@ export class TownNav {
     const b = this.game.build.v;
     if (b !== this.passV) { this.pass.fill(0); this.passV = b; }
     let v = this.pass[n];
-    if (!v) { v = npcPass(this.game, this.x0 + (n % this.w), this.y0 + ((n / this.w) | 0)) ? 1 : 2; this.pass[n] = v; }
+    if (!v) { v = this.passFn(this.game, this.x0 + (n % this.w), this.y0 + ((n / this.w) | 0)) ? 1 : 2; this.pass[n] = v; }
     return v === 1;
   }
   _push(n, f) {
@@ -153,7 +154,7 @@ export class TownNav {
     this._label();
     if (this.compV < 0) return true; // (not labelled yet: assume so)
     const a = this.comp[(sy - this.y0) * this.w + (sx - this.x0)], b = this.comp[(gy - this.y0) * this.w + (gx - this.x0)];
-    if ((!a || !b) && this.compV !== this.game.build.v && npcPass(this.game, sx, sy) && npcPass(this.game, gx, gy)) return true; // (opened since the labelling: maybe)
+    if ((!a || !b) && this.compV !== this.game.build.v && this.passFn(this.game, sx, sy) && this.passFn(this.game, gx, gy)) return true; // (opened since the labelling: maybe)
     return !!a && a === b;
   }
   // a path of tile centres from (ax, ay) to (bx, by) (both ends snapped to open tiles), cached; null = no way
@@ -167,8 +168,8 @@ export class TownNav {
     this.cost = 0; // (0: answered from the cache / the region labels; 1: an A* ran — the callers' frame budget)
     if (c && now - c.t < CACHE_LIFE && c.ok(this)) { this.stats.hits++; return c.p; }
     const t0 = performance.now();
-    if (!npcPass(this.game, sx, sy)) { const q = nearPass(this.game, ax, ay, 2); if (q) { sx = Math.floor(q[0]); sy = Math.floor(q[1]); } }
-    if (!npcPass(this.game, gx, gy)) { const q = nearPass(this.game, bx, by, 3); if (!q) return null; gx = Math.floor(q[0]); gy = Math.floor(q[1]); }
+    if (!this.passFn(this.game, sx, sy)) { const q = nearPass(this.game, ax, ay, 2, this.passFn); if (q) { sx = Math.floor(q[0]); sy = Math.floor(q[1]); } }
+    if (!this.passFn(this.game, gx, gy)) { const q = nearPass(this.game, bx, by, 3, this.passFn); if (!q) return null; gx = Math.floor(q[0]); gy = Math.floor(q[1]); }
     // no way between the two regions (a house whose door is blocked inside, a pen without a gate…): at once
     this._label();
     const si = (sy - this.y0) * this.w + (sx - this.x0), gi = (gy - this.y0) * this.w + (gx - this.x0);

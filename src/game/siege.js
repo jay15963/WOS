@@ -62,6 +62,7 @@ export const towerN = (o) => clamp(o?.v | 0 || 1, 1, MAX_LV); // a siege tower's
 // the player entity of a pid on this peer (host: avatars; any peer: the local player)
 export function playerByPid(game, pid) {
   if (!pid) return null;
+  if (pid[0] === '~') return game.warfare?.crewEnt?.(pid) || null; // (a kingdom's soldier on the engine: '~<nid>', game/siegeAI.js)
   for (const q of allPlayers(game)) if ((q === game.player ? game.net.pid : q.pid) === pid) return q;
   return null;
 }
@@ -85,13 +86,14 @@ export function siegeCanDamage(game, attacker, target) {
     if (target === game.player || target.avatar || target.remote || (target.kind === 'pawn' && !target.isMob)) return false; // (players: never)
     if (!isMob(target)) return false;
     if (target.faction === 'friend' || target.owned || target.tame || target.tiedTo || target.saddle) return false; // (pets, the farm's animals, horses)
-    if (target.npc) { const ar = realmOf(attacker), tr = target.npcS?.s?.k; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
+    if (target.npc) { const ar = realmOf(attacker), tr = target.npcS ? game.realms?.owner?.(target.npcS.sid) ?? target.npcS.s?.k : null; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
+    if (target.soldier) { const ar = realmOf(attacker), tr = target.soldier.k; return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's soldiers: an enemy kingdom's engine — game/soldier.js)
     return true;
   }
   if (target.isProp) return !target.dummy && !target.broken; // (bandit camp crates; never a training dummy)
   if (target.building) {
     if (siegeDebug(game).hostile.has(target.id)) return true;
-    const tr = realmOf(target);
+    const tr = target.town != null ? game.realms?.owner?.(target.town) ?? game.towns?.realm?.settlements[target.town]?.k ?? null : realmOf(target); // (a settlement's piece: its owner now)
     if (tr != null) {
       const ar = realmOf(attacker);
       return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); // (phase 3: kingdoms at war)
@@ -507,13 +509,13 @@ export function siegeSystem() {
           o._rampK = rk + clamp(want - rk, -dt / PUSH.siege_tower.ramp, dt / PUSH.siege_tower.ramp);
           for (const pid of o.push || []) {
             if (!pid) continue;
-            const e = pid === me ? game.player : game.session?.players?.get(pid)?.ent;
+            const e = pid === me ? game.player : game.session?.players?.get(pid)?.ent || (pid[0] === '~' ? game.warfare?.crewEnt?.(pid) : null); // (+ a kingdom's soldiers: game/siegeAI.js)
             if (e && !e.dead) { e._opA = frontAng(o); OPS.push(e); }
           }
           continue;
         }
         if (o.user) {
-          const e = o.user === me ? game.player : game.session?.players?.get(o.user)?.ent;
+          const e = o.user === me ? game.player : game.session?.players?.get(o.user)?.ent || (o.user[0] === '~' ? game.warfare?.crewEnt?.(o.user) : null);
           if (e && !e.dead) { e._opA = Number.isFinite(o._aimD) ? o._aimD : aimOf(o); OPS.push(e); }
         }
         if (o === C.o) continue; // (the operator draws its own aim)

@@ -104,6 +104,13 @@ export const BUILDINGS = {
                    light: L(1, 0.74, 0.42, 4.2, 0.85, 0.08, 1.35), // (a warm lantern under its roof)
                    desc: 'O mural do lugar: o nome, o reino, a população; trabalhos, comércio, exército e terrenos.' },
 
+  // the kingdoms' war camps (docs/REINOS.md §14; game/siegeAI.js raises them, o.realm = the army's kingdom): never built by
+  // players (no category), drawn in the kingdom's colours (art/faces/camp.js)
+  war_tent:      { name: 'Tenda de campanha', g: 'f', emoji: '⛺', cat: [], cost: {}, size: [2, 3], time: 1, xp: 0, block: 'tile', kit: null,
+                   desc: 'Tenda de um exército em campanha, nas cores do reino.' },
+  war_banner:    { name: 'Estandarte de guerra', g: 'm', emoji: '🚩', cat: [], cost: {}, time: 1, xp: 0, block: 0.15, kit: null,
+                   desc: 'O estandarte de um exército em campanha: as cores e o brasão do reino.' },
+
   // ---------- defense ----------
   // ballista (ballista.js): one operator at a time (E / a tap mounts it), the bow turns slowly toward the aim, the
   // attack button fires a ballista bolt from the operator's backpack. 3D: art/faces/solidDefense.js

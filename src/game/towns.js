@@ -450,9 +450,10 @@ function hostTick(game) {
 }
 // hostile creatures inside the town land (raiders, wolves, the winter dead)
 function hostileInside(game, L) {
+  if (game.warfare?.siegeOn?.(L.sid)) return true; // (an army besieging the place: shut — game/warfare.js)
   const r2 = (L.r + 2) * (L.r + 2), w = game.world;
   for (const e of game.entities) {
-    if (e.dead || !e.isMob || e.proxy || e.temper !== 'hostile') continue;
+    if (e.dead || !e.isMob || e.proxy || (e.temper !== 'hostile' && !(e.soldier && game.warfare?.foeOfTown?.({ sid: L.sid }, e)))) continue; // (+ soldiers of a kingdom at war with it)
     const dx = w.dx(e.x, L.x), dy = e.y - L.y;
     if (dx * dx + dy * dy < r2) return true;
   }

@@ -77,7 +77,7 @@ defineOp('ballista.shot', {
   apply(game, a, ctx) {
     const o = game.world.objById.get(a.id), v = ang(a.a) ?? 0;
     if (isBallista(o)) { o.aim = v; o._reload = BALLISTA.reload; o.shake = 0.6; }
-    spawnBolt(game, { sid: String(a.sid || ''), x: num(a.x), y: num(a.y), a: v, by: a.by, lv: isBallista(o) ? o.lv | 0 : 0 }, !!game.net.auth); // (up a story: from that height)
+    spawnBolt(game, { sid: String(a.sid || ''), id: a.id, x: num(a.x), y: num(a.y), a: v, by: a.by, lv: isBallista(o) ? o.lv | 0 : 0 }, !!game.net.auth); // (up a story: from that height; id: whose side a crew's bolt is on — game/warfare.js)
     game.events?.emit('ballistashot', { x: num(a.x), y: num(a.y), a: v }); // (fx/giantfx.js: the thump, dust, sound)
     void ctx;
   },

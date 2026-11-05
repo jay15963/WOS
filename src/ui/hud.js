@@ -449,7 +449,7 @@ export function installHUD(game, { isNew } = {}) {
         const lvTxt = t.isProp ? '–' : String(t.level);
         if (C.tflv !== lvTxt + pl.level) { C.tflv = lvTxt + pl.level; R.tfLv.textContent = lvTxt; R.tfLv.style.color = t.isProp ? '' : levelColor(t.level, pl.level); }
         const st = t.dead ? 'morto' : t.stunT > 0 ? 'atordoado' : t.fearT > 0 ? 'assustado' : t.blocking ? 'bloqueando' : STATE_PT[t.state] || '';
-        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : t.npc ? t.npc.jobPt : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || ''; // (the settlements' people: their trade)
+        const kind = t.isProp ? (t.dummy ? 'Treino · não quebra' : 'Objeto · quebre para saquear') : t.faction === 'bandit' ? 'Saqueadores' : t.npc ? t.npc.jobPt : t.soldier ? `${t.soldier.roleName} · Reino de ${g.warfare?.crest?.(t.soldier.k)?.name || '?'}` : TEMPER_PT[t.temper || SPECIES[t.species]?.temper] || ''; // (the settlements' people: their trade)
         setText(R.tfSub, 'tfsub', kind + (st ? ' · ' + st : ''));
         // enemy cast bar (raider telegraphs: interrupt with Shield Bash / Shove / stuns)
         const ct = t.cast && !gone ? t.cast : null;

@@ -379,7 +379,7 @@ export class Game {
         // camera turned: what the camera sees of a creature — 8 views from its facing angle minus the yaw (art/facing.js
         // sets o._dv for a 3/4 view, o.facing becomes the nearest side), its head turn in view letters
         // (a ballista operator: 8 views at 0° too — it turns with the aim, game/ballista.js _opA)
-        const f0 = o.facing, h0 = o.headFacing, v8 = o.isEntity && f0 && (rot || o._opA != null || o._rideD || o.npc); // (a rider: one view for it and its horse, 8 views at 0° too; the settlements' people: 8 views at every angle)
+        const f0 = o.facing, h0 = o.headFacing, v8 = o.isEntity && f0 && (rot || o._opA != null || o._rideD || o.npc || o.soldier); // (a rider: one view for it and its horse, 8 views at 0° too; the settlements' people: 8 views at every angle)
         if (v8) { o.facing = viewFacing8(o, t, rot); if (h0) o.headFacing = viewFacing(h0, rc, rs); }
         const d = drawProxy(A, o); // substitutes missing contract sprites (e.g. bear, chest, bed)
         if (!o.isEntity) drawStatic(B, A, d, t);

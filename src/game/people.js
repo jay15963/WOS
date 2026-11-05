@@ -556,7 +556,7 @@ function dangerOf(game, rec) {
   foes.length = 0; inside.length = 0;
   for (const e of game.entities) {
     if (e.dead || !e.isMob || e.proxy || e.npc) continue;
-    if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile')) continue;
+    if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile' || (e.soldier && game.warfare?.foeOfTown?.(S, e)))) continue; // (+ the soldiers of a kingdom at war with it: game/warfare.js)
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
     if (dx * dx + dy * dy >= r2) continue;
     foes.push(e);
@@ -568,7 +568,7 @@ function dangerOf(game, rec) {
 // side, a guard dead / back
 function defenseTick(game, rec) {
   const S = rec.S, ops = openings(game, S), D = deadMap(game);
-  rec.threat = rec.danger ? threatOf(game, S, rec.foes || [], rec.threat) : null;
+  rec.threat = rec.danger ? game.warfare?.threatOn?.(S.sid) || threatOf(game, S, rec.foes || [], rec.threat) : null; // (an army besieging it: its side — game/warfare.js)
   let dk = 0;
   for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
   const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}`;
@@ -589,7 +589,7 @@ function defenseTick(game, rec) {
     if (k !== 'crew') pool.push([m, k === 'reserve' ? -1000 : k === 'gap' ? 40 : 0]);
   }
   for (const e of rec.inside) {
-    if (!hostile(e)) continue;
+    if (!hostile(e, S, game)) continue;
     pool.sort((a, b) => (Math.hypot(a[0].x - e.x, a[0].y - e.y) + a[1]) - (Math.hypot(b[0].x - e.x, b[0].y - e.y) + b[1]));
     let n = 0;
     for (const [m] of pool) { if (m.hunt) continue; m.hunt = e; if (++n >= N.def.hunters) break; }
@@ -620,7 +620,7 @@ export function peopleSystem() {
         for (const sid of near) {
           let rec = Pp.live.get(sid);
           if (!rec) { const S = peopleOf(game, sid); if (!S) continue; rec = { sid, S, ents: new Map(), danger: false, dangerT: 0, repair: null, defSig: '' }; S.def = null; Pp.live.set(sid, rec); }
-          const dg = dangerOf(game, rec);
+          const dg = dangerOf(game, rec) || !!game.warfare?.threatOn?.(sid); // (+ an army camped before it: the bell, the walls manned)
           if (dg) rec.dangerT = game.worldTime;
           const was = rec.danger;
           rec.danger = dg || (rec.danger && game.worldTime - rec.dangerT < 6); // (a few calm seconds before the all-clear)

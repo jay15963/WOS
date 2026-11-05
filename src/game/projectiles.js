@@ -40,7 +40,7 @@ export function fireArrow(game, o) {
     x: o.x + ux * 0.3, y: o.y + uy * 0.3 - 0.02, ox: o.x, oy: o.y, ux, uy, speed,
     d: 0, maxD, arcD, arcH: Math.min(0.9, 0.05 * arcD + 0.08), h1: o.target ? 0.5 * (o.target.scale || 1) : 0.35,
     lift: H0, rot: Math.atan2(uy, ux), vgx: ux, vgy: uy, vl: 0, stuck: false, t: 0, alpha: 1, onHit: o.onHit, onMiss: o.onMiss,
-    cosmetic: !!o.cosmetic, id: o.id || null,
+    cosmetic: !!o.cosmetic, id: o.id || null, canHit: o.canHit || null, // (canHit: who a town guard's / a soldier's arrow may hit — game/npc.js, game/soldier.js)
     z0: o.z0 ?? (o.src?.z || 0), z1: o.z1 ?? (o.target ? o.target.z || 0 : o.src?.z || 0), zL: L, pz: 0, // levels: heights
     g0: 0, g1: 0, gd: 0, // terrain height: the ground under the shooter / the aim point (every peer derives them)
   };
@@ -299,12 +299,27 @@ export function projectilesSystem() {
           // creatures / players (cosmetic copies hit nothing)
           let victim = null;
           if (pr.cosmetic) { /* no victims */ }
+          else if (pr.faction === 'army') {
+            // a kingdom's soldier's arrow (game/soldier.js): only its foes — the other side's soldiers, the guards of the place
+            // it besieges, a player who fought it
+            for (const e of E) {
+              if (e === pr.src || e.dead || e.proxy || !pr.canHit?.(e)) continue;
+              const dx = e.x - nx, dy = e.y - ny, rr = (e.r || 0.24) + 0.16;
+              if (dx * dx + dy * dy < rr * rr && Math.abs((e.z || 0) - pz - gd) < 0.75) { victim = e; break; }
+            }
+            if (!victim) for (const q of PL) {
+              if (q.dead || !pr.canHit?.(q)) continue;
+              const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
+              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd) < 0.75) { victim = q; break; }
+            }
+          }
           else if (pr.faction === 'player' || pr.faction === 'town') {
             // (a player's arrow flies past the settlements' people; a town guard's — game/npc.js — only hits hostile creatures)
             const town = pr.faction === 'town';
             for (const e of E) {
               if (e === pr.src || e === p || e.dead || e.npc || !(e.isMob || e.kind === 'animal')) continue;
-              if (town && (e.proxy || !(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'))) continue;
+              if (town && (e.proxy || !(pr.canHit ? pr.canHit(e) : e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'))) continue; // (canHit: + the soldiers of a kingdom at war with the town)
+              if (!town && e.soldier && game.warfare?.mayHurt?.(pr.src?.owner || pr.src || p, e)) continue; // (a player's arrow flies past the soldiers the rule protects)
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
               if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? groundOf(e) - tunGround(w, nx, ny, groundOf(e) + 0.5) : 0)) < 0.75) { victim = e; break; }
             }

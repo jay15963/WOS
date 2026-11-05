@@ -140,7 +140,7 @@ export function spawnBolt(game, a, auth) {
   const L = game.bolts || (game.bolts = []);
   const ux = Math.cos(a.a), uy = Math.sin(a.a);
   const lv = Math.max(0, a.lv | 0); // (the ballista's story: the bolt leaves at that height)
-  const b = { sid: a.sid, x: a.x, y: a.y, x0: a.x, y0: a.y, ux, uy, ang: a.a, d: 0, lv, z: lv, by: a.by, auth, src: auth ? playerByPid(game, a.by) : null, hit: new Set(), done: false, t: 0, endT: 0, stuck: false, end: null };
+  const b = { sid: a.sid, oid: a.id || null, x: a.x, y: a.y, x0: a.x, y0: a.y, ux, uy, ang: a.a, d: 0, lv, z: lv, by: a.by, auth, src: auth ? playerByPid(game, a.by) : null, hit: new Set(), done: false, t: 0, endT: 0, stuck: false, end: null };
   L.push(b);
   if (L.length > 24) L.splice(0, L.length - 24);
   return b;
@@ -155,6 +155,7 @@ function finish(game, b, stuck, quiet = false) {
   b.done = true; b.stuck = !!stuck; b.endT = 0;
   game.events.emit('boltland', { x: b.x, y: b.y, stuck: b.stuck, ux: b.ux, uy: b.uy }); // (fx/giantfx.js: splinters, dust, sound)
   if (b.auth && !quiet && game.session) game.net.emit('ballista.end', { sid: b.sid, x: +b.x.toFixed(2), y: +b.y.toFixed(2), stuck: b.stuck ? 1 : 0 });
+  if (b.auth && b.stuck && !quiet) game.warfare?.boltStruct?.(b); // (stuck in an enemy army's engine / camp piece: siege damage — game/warfare.js)
 }
 function stepBolt(game, b, dt) {
   let travel = BALLISTA.speed * dt;
@@ -168,6 +169,7 @@ function stepBolt(game, b, dt) {
     // creatures in the way (at the height it flies)
     for (const e of game.entities) {
       if (!isMob(e) || e.dead || b.hit.has(e) || e.faction === 'friend' || e.npc || !boltReaches(e, nz)) continue; // (never the settlements' people)
+      if (e.soldier && !game.warfare?.boltHits?.(b, e)) continue; // (a kingdom's soldier: a town crew's bolt if at war, a player's by the rule)
       const rr = (e.r || 0.3) + 0.2, dx = e.x - nx, dy = e.y - ny;
       if (dx * dx + dy * dy > rr * rr) continue;
       b.hit.add(e);
