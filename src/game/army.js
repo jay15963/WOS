@@ -195,6 +195,36 @@ function etaPt(game, a) {
   const h = e.s / ((game.env?.dayLength || 780) / 24);
   return ` · faltam ${Math.round(e.left)} passos, ≈ ${h < 1 ? 'menos de 1 h' : Math.round(h) + ' h'}`;
 }
+// a field battle played near the players (3b's public row): its phases
+function liveBattleOrder(game, live, id, M, EK) {
+  const O = live.foe ? game.warfare.forces.get(live.foe) : null, ph = live.phase;
+  if (ph === 'rout') return { key: `bt|${id}|rout`, code: 'rout', tone: 'retreat', title: 'Recuar! A linha caiu', sub: 'Saia do campo de batalha', wp: M ? wp(M.x, M.y, M.name) : null };
+  if (ph === 'won') return { key: `bt|${id}|won`, code: 'won', tone: 'good', title: 'Vitória! Persiga os que fogem', sub: `O exército do Reino de ${EK} debanda`, wp: O ? wp(O.x, O.y, 'Inimigo') : null };
+  if (ph === 'clash') return { key: `bt|${id}|clash`, code: 'clash', tone: 'fight', title: 'Segure a linha! Ataque!', sub: `Contra o Reino de ${EK} · ${live.n} × ${O?.n ?? '?'}`, wp: O ? wp(O.x, O.y, 'Inimigo') : wp(live.x, live.y, 'Linha') };
+  if (ph === 'advance') return { key: `bt|${id}|adv`, code: 'advance', tone: 'fight', title: 'Avance com a linha!', sub: `Os arqueiros atiram · contra o Reino de ${EK}`, wp: wp(live.x, live.y, 'Linha') };
+  return { key: `bt|${id}|form`, code: 'form', tone: 'fight', title: 'Forme na linha!', sub: `Batalha contra o Reino de ${EK} (${live.n} × ${O?.n ?? '?'})`, wp: wp(live.x, live.y, 'Linha') };
+}
+// a siege played near the players (3b's public row): its phases, the engines and openings on the ground
+function liveSiegeOrder(game, live, id, k, T, M, me) {
+  const per = game.townDefense?.perimeter?.(T.id), w = game.world;
+  const ph = live.phase, camp = campOf(game, k, T, live), campWp = camp ? wp(camp.x, camp.y, 'Acampamento') : wp(live.x, live.y, 'Exército');
+  if (ph === 'march') return { key: `sg|${id}|march`, code: 'tocamp', tone: 'march', title: `Marche até o acampamento diante de ${T.name}`, sub: 'Fora do alcance dos arqueiros das muralhas', wp: wp(live.x, live.y, 'Exército') };
+  if (ph === 'camp') return { key: `sg|${id}|camp`, code: 'camp', tone: 'march', title: `Monte o acampamento diante de ${T.name}`, sub: 'Os engenheiros erguem as tendas · fique fora do alcance das muralhas', wp: campWp };
+  if (ph === 'build') { const ws = armyThings(game, k, T, 'siege_workshop')[0]; return { key: `sg|${id}|build`, code: 'build', tone: 'march', title: 'Proteja os engenheiros', sub: 'As máquinas de cerco estão sendo construídas', wp: ws ? wp(mid(ws).x, mid(ws).y, 'Oficina de cerco') : campWp }; }
+  if (ph === 'held') { const L = game.towns.layout(T.id); return { key: `sg|${id}|held`, code: 'held', tone: 'good', title: `${T.name} é nossa! Segure a praça`, sub: 'A guarnição nova fica; o resto volta para casa', wp: L ? wp(L.plaza[0], L.plaza[1], 'Praça') : null }; }
+  if (ph === 'retreat') return { key: `sg|${id}|ret`, code: 'retreat', tone: 'retreat', title: 'Recuar! Recuar!', sub: `${T.name} resistiu · para longe das muralhas`, wp: M ? wp(M.x, M.y, M.name) : null };
+  if (ph === 'bombard') { const tr = nearestTo(game, armyThings(game, k, T, 'trebuchet'), me?.x ?? camp?.x, me?.y ?? camp?.y); return { key: `sg|${id}|bombard`, code: 'bombard', tone: 'fight', title: 'Proteja os trabucos!', sub: `O bombardeio de ${T.name} começou · opere um trabuco (E): a pedra é do exército`, wp: tr ? wp(mid(tr).x, mid(tr).y, 'Trabuco') : campWp }; }
+  // the assault
+  if (me && per?.inside?.(me.x, me.y, w)) { const L = game.towns.layout(T.id); return { key: `sg|${id}|plaza`, code: 'plaza', tone: 'fight', title: 'Tome a praça!', sub: `Segure o centro de ${T.name} sem defensores por perto`, wp: L ? wp(L.plaza[0], L.plaza[1], 'Praça') : null }; }
+  const ops = (game.townDefense?.openings?.(T.id) || []).slice().sort((p, q) => hyp(game, p.x, p.y, camp?.x ?? T.x, camp?.y ?? T.y) - hyp(game, q.x, q.y, camp?.x ?? T.x, camp?.y ?? T.y));
+  if (ops.length) { const op = ops[0]; return { key: `sg|${id}|in|${op.id}`, code: op.gate ? 'gatein' : 'breach', tone: 'fight', title: op.gate ? 'O portão caiu! Para dentro!' : 'Entre pela brecha!', sub: `Para a praça de ${T.name}`, wp: wp(op.x, op.y, op.gate ? 'Portão' : 'Brecha') }; }
+  const tw = armyThings(game, k, T, 'siege_tower')[0];
+  if (tw?.ramp) return { key: `sg|${id}|climb`, code: 'climb', tone: 'fight', title: 'Suba pela torre!', sub: 'A rampa desceu: a escada de trás leva ao adarve (E)', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
+  const ram = armyThings(game, k, T, 'battering_ram')[0];
+  if (ram) return { key: `sg|${id}|ram`, code: 'ram', tone: 'fight', title: 'Empurre o aríete até o portão!', sub: 'E pega · setas / WASD empurram · encostado no portão, ataque bate', wp: wp(mid(ram).x, mid(ram).y, 'Aríete') };
+  if (tw) return { key: `sg|${id}|tower`, code: 'tower', tone: 'fight', title: 'Empurre a torre até a muralha!', sub: 'Encostada na muralha, a rampa desce sozinha', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
+  return { key: `sg|${id}|assault`, code: 'assault', tone: 'fight', title: `Ao assalto de ${T.name}!`, sub: 'Procure uma entrada nas muralhas', wp: wp(T.x, T.y, T.name) };
+}
 export function orderFor(game, r, me) {
   const R = game.realms, realm = realmOf(game);
   if (!r || !R?.armies || !realm) return null;
@@ -228,6 +258,12 @@ export function orderFor(game, r, me) {
   // ---- the army it follows ----
   const a = r.a ? R.armies.get(r.a) : null;
   if (!a || a.k !== r.k || a.state === 'home') {
+    // (a fight of its kingdom's soldiers played near it — 3b's force, whoever's army: join it)
+    if (me) for (const F of game.warfare?.forces?.values() || []) {
+      if (F.k !== r.k || !F.phase || F.phase === 'end' || hyp(game, F.x, F.y, me.x, me.y) > 150) continue;
+      if (F.kind === 'siege' && F.sid != null) return liveSiegeOrder(game, F, F.id, r.k, realm.settlements[F.sid], home, me);
+      if (F.kind === 'battle') return liveBattleOrder(game, F, F.id, home, Kn(game, game.warfare.forces.get(F.foe)?.k ?? -1));
+    }
     const war = warOf(game, r.k);
     return war
       ? { key: `idle|war|${home.id}`, code: 'guard', tone: 'idle', title: `Guarde ${home.name}`, sub: `O Reino de ${K} está em guerra: aguarde a próxima campanha`, wp: null }
@@ -251,37 +287,11 @@ export function orderFor(game, r, me) {
   }
   if (a.state === 'battle') {
     const f = R.armies.get(a.foe), EK = Kn(game, f?.k ?? -1);
-    if (live && live.kind === 'battle') {
-      const O = live.foe ? game.warfare.forces.get(live.foe) : null, ph = live.phase;
-      if (ph === 'rout') return { key: `bt|${a.id}|rout`, code: 'rout', tone: 'retreat', title: 'Recuar! A linha caiu', sub: 'Saia do campo de batalha', wp: M ? wp(M.x, M.y, M.name) : null };
-      if (ph === 'won') return { key: `bt|${a.id}|won`, code: 'won', tone: 'good', title: 'Vitória! Persiga os que fogem', sub: `O exército do Reino de ${EK} debanda`, wp: O ? wp(O.x, O.y, 'Inimigo') : null };
-      if (ph === 'clash') return { key: `bt|${a.id}|clash`, code: 'clash', tone: 'fight', title: 'Segure a linha! Ataque!', sub: `Contra o Reino de ${EK} · ${live.n} × ${O?.n ?? '?'}`, wp: O ? wp(O.x, O.y, 'Inimigo') : wp(live.x, live.y, 'Linha') };
-      if (ph === 'advance') return { key: `bt|${a.id}|adv`, code: 'advance', tone: 'fight', title: 'Avance com a linha!', sub: `Os arqueiros atiram · contra o Reino de ${EK}`, wp: wp(live.x, live.y, 'Linha') };
-      return { key: `bt|${a.id}|form`, code: 'form', tone: 'fight', title: 'Forme na linha!', sub: `Batalha contra o Reino de ${EK} (${live.n} × ${O?.n ?? '?'})`, wp: wp(live.x, live.y, 'Linha') };
-    }
+    if (live && live.kind === 'battle') return liveBattleOrder(game, live, a.id, M, EK);
     return { key: `bt|${a.id}`, code: 'battle', tone: 'fight', title: far ? 'Junte-se à batalha!' : 'Lute ao lado do exército!', sub: `Contra o Reino de ${EK} · ${a.n} × ${f?.n ?? '?'}`, wp: armyWp };
   }
   if (a.state === 'siege' && T) {
-    const per = game.townDefense?.perimeter?.(T.id);
-    if (live && live.kind === 'siege') {
-      const ph = live.phase, camp = campOf(game, a.k, T, live), campWp = camp ? wp(camp.x, camp.y, 'Acampamento') : wp(live.x, live.y, 'Exército');
-      if (ph === 'march') return { key: `sg|${a.id}|march`, code: 'tocamp', tone: 'march', title: `Marche até o acampamento diante de ${T.name}`, sub: 'Fora do alcance dos arqueiros das muralhas', wp: wp(live.x, live.y, 'Exército') };
-      if (ph === 'camp') return { key: `sg|${a.id}|camp`, code: 'camp', tone: 'march', title: `Monte o acampamento diante de ${T.name}`, sub: 'Os engenheiros erguem as tendas · fique fora do alcance das muralhas', wp: campWp };
-      if (ph === 'build') { const ws = armyThings(game, a.k, T, 'siege_workshop')[0]; return { key: `sg|${a.id}|build`, code: 'build', tone: 'march', title: 'Proteja os engenheiros', sub: 'As máquinas de cerco estão sendo construídas', wp: ws ? wp(mid(ws).x, mid(ws).y, 'Oficina de cerco') : campWp }; }
-      if (ph === 'held') { const L = game.towns.layout(T.id); return { key: `sg|${a.id}|held`, code: 'held', tone: 'good', title: `${T.name} é nossa! Segure a praça`, sub: 'A guarnição nova fica; o resto volta para casa', wp: L ? wp(L.plaza[0], L.plaza[1], 'Praça') : null }; }
-      if (ph === 'retreat') return { key: `sg|${a.id}|ret`, code: 'retreat', tone: 'retreat', title: 'Recuar! Recuar!', sub: `${T.name} resistiu · para longe das muralhas`, wp: M ? wp(M.x, M.y, M.name) : null };
-      if (ph === 'bombard') { const tr = nearestTo(game, armyThings(game, a.k, T, 'trebuchet'), me?.x ?? camp?.x, me?.y ?? camp?.y); return { key: `sg|${a.id}|bombard`, code: 'bombard', tone: 'fight', title: 'Proteja os trabucos!', sub: `O bombardeio de ${T.name} começou · opere um trabuco (E): a pedra é do exército`, wp: tr ? wp(mid(tr).x, mid(tr).y, 'Trabuco') : campWp }; }
-      // the assault
-      if (me && per?.inside?.(me.x, me.y, w)) { const L = game.towns.layout(T.id); return { key: `sg|${a.id}|plaza`, code: 'plaza', tone: 'fight', title: 'Tome a praça!', sub: `Segure o centro de ${T.name} sem defensores por perto`, wp: L ? wp(L.plaza[0], L.plaza[1], 'Praça') : null }; }
-      const ops = (game.townDefense?.openings?.(T.id) || []).slice().sort((p, q) => hyp(game, p.x, p.y, camp?.x ?? T.x, camp?.y ?? T.y) - hyp(game, q.x, q.y, camp?.x ?? T.x, camp?.y ?? T.y));
-      if (ops.length) { const op = ops[0]; return { key: `sg|${a.id}|in|${op.id}`, code: op.gate ? 'gatein' : 'breach', tone: 'fight', title: op.gate ? 'O portão caiu! Para dentro!' : 'Entre pela brecha!', sub: `Para a praça de ${T.name}`, wp: wp(op.x, op.y, op.gate ? 'Portão' : 'Brecha') }; }
-      const tw = armyThings(game, a.k, T, 'siege_tower')[0];
-      if (tw?.ramp) return { key: `sg|${a.id}|climb`, code: 'climb', tone: 'fight', title: 'Suba pela torre!', sub: 'A rampa desceu: a escada de trás leva ao adarve (E)', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
-      const ram = armyThings(game, a.k, T, 'battering_ram')[0];
-      if (ram) return { key: `sg|${a.id}|ram`, code: 'ram', tone: 'fight', title: 'Empurre o aríete até o portão!', sub: 'E pega · setas / WASD empurram · encostado no portão, ataque bate', wp: wp(mid(ram).x, mid(ram).y, 'Aríete') };
-      if (tw) return { key: `sg|${a.id}|tower`, code: 'tower', tone: 'fight', title: 'Empurre a torre até a muralha!', sub: 'Encostada na muralha, a rampa desce sozinha', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
-      return { key: `sg|${a.id}|assault`, code: 'assault', tone: 'fight', title: `Ao assalto de ${T.name}!`, sub: 'Procure uma entrada nas muralhas', wp: wp(T.x, T.y, T.name) };
-    }
+    if (live && live.kind === 'siege') return liveSiegeOrder(game, live, a.id, a.k, T, M, me);
     return { key: `sg|${a.id}`, code: 'siege', tone: 'fight', title: far ? `Vá ao cerco de ${T.name}` : `O exército cerca ${T.name}`, sub: far ? `${Math.round(dA)} passos até o acampamento` : `Há ${Math.max(0, a.hrs | 0)} h de cerco · ${a.n} soldados`, wp: armyWp };
   }
   return { key: `camp|${a.id}`, code: 'camp', tone: 'march', title: far ? 'Alcance o exército' : 'Aguarde no acampamento', sub: `${a.n} soldados${far ? ` · ${Math.round(dA)} passos` : ''}`, wp: armyWp };
