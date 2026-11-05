@@ -1734,14 +1734,23 @@ o digest igual. **AR10** "Ir até o exército" (em terra livre: recusado; na vil
 ela, o botão no cartão; um toque — o convidado ao lado do exército nos dois pares, o exército vivo e marchando, o relógio
 do mundo sem salto; o exército cercando o alvo por números: da vila, para o acampamento, fora da terra do alvo).
 
-RESULTS_PLACEHOLDER
+**Resultados** (Chrome headless deste PC, perfil limpo): **AR1–AR10 passam** (10 / 10, rodados juntos no fim). BT1–BT10,
+WR1–WR10, VL1–VL10, EC1–EC8, SG1–SG6 e KG1–KG7 passam (BT9 falhou uma vez numa versão intermediária — a coluna era refeita
+ao perder soldados antes do relatório; corrigido: só se refaz quando cresce além do que começou). **A rodada inteira**
+(`run=all&soak=60`): 175 passam, 9 falham — S30 (tempo do corte), HO3, SG1, SG2, EC3, WR1, BT2 e BT4 (a dessincronia
+transitória de `towns` já anotada no §14; o digest final igual) passam **re-rodados sozinhos**; AR1 olhava o rótulo antigo
+do cartão ("Ordens do general" → "Ordem do general") e passa com o rótulo novo. S28 só na linha de comando.
 
 ### Desempenho
 
 Nada por quadro varre peças ou criaturas a mais: o anfitrião confere os registros (um por jogador) a cada 0,5 s; as
 ordens do jogador local são refeitas a cada 0,25 s (listas por tipo das peças do exército — tendas, máquinas —, as
 aberturas e o perímetro do lugar, já em cache); a guarda e o perigo de um lugar olham os jogadores (no máximo 4) só
-quando há alguém alistado; o `e.pvp` dos outros jogadores a cada 0,5 s. PERF_PLACEHOLDER
+quando há alguém alistado; o `e.pvp` dos outros jogadores a cada 0,5 s. Medido (Chrome headless, a vila do início com 410 criaturas e uma coluna viva): a ordem do jogador
+local **0,003 ms** por cálculo (4 por segundo), o tique do anfitrião **0,004 ms** (2 por segundo), a conferência da viagem
+**0,0015 ms**. Os avisos: no máximo **dois de cada vez** (`ui/notify.js`: os outros esperam numa fila curta, os importantes
+primeiro, e entram quando um sai ou depois de ~1,6 s); a ordem nova não vira aviso quando o próprio cartão a mostra (ele
+pisca e soa) — só quando um painel o cobre.
 
 ### Prints
 

@@ -86,6 +86,8 @@ então UI que ainda os usa já sai na paleta.
   ativos ou sem munição.
 - **Atalhos (PC)** `.hotbar`: ladrilhos chanfrados (`--n-tile*`), número da tecla em itálico, quantidade com contorno, o item
   equipado ganha moldura mostarda e tique brilhante.
+- **Avisos do topo** `ui/notify.js` (`.wos-note`): no máximo **dois** não fixos de cada vez — os outros esperam numa fila
+  curta (avisos importantes primeiro) e entram quando um sai ou depois de ~1,6 s (docs/REINOS.md §15).
 - **Mensagens**: `.err` itálico coral com contorno; `.banner` (subiu de nível) dourado com losangos e etiqueta; `.feed`
   fitas de tinta com barra de cor (`--fic`: loot mostarda, bom oliva, aviso laranja).
 - **Janelas** `.panel`: corpo de casca com grão, **faixa de título em pergaminho** (`.ph`, título em caixa alta, tecla em tinta),
