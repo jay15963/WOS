@@ -267,14 +267,17 @@ export function planOf(game, S, P, hour, danger, winter) {
   // outdoors at its own doorstep (chores, a chat with the neighbours, children playing in the street)
   const porch = (k = 'porch') => { p.k = k; p.in = false; p.b = H; p.x = H ? H.out[0] : S.plaza.x; p.y = H ? H.out[1] : S.plaza.y; p.key = k + ':' + P.home; return p; };
   const plaza = (k = 'plaza') => { p.k = k; p.in = false; p.x = S.plaza.x; p.y = S.plaza.y; p.key = k; return p; };
-  const city = S.kind === 'city', odd = city ? P.i % 2 === 0 : P.i % 3 === 0; // (a third of them go to the plaza — half in a city, its market —: the rest stay around their street)
+  // a third of them go to the plaza, the rest stay around their street. A city has ~240 people for one plaza: they take
+  // turns there (half an hour each, a quarter of them at a time — a sixth for the market morning), so it is busy but
+  // never packed, and people keep coming and going
+  const city = S.kind === 'city', turn = (n) => (P.i + Math.floor(hour * 2)) % n === 0, odd = city ? turn(4) : P.i % 3 === 0;
   if (jb === 'child') { if (hour >= 8 && hour < P.back - 0.4 && !winter && !(hour >= 12 && hour < 13.5)) return odd ? plaza('play') : porch('play'); return atHome('home'); }
   if (jb === 'elder') { if (hour >= 9 && hour < 12) return porch(); if (hour >= 14 && hour < 17.5) return odd ? plaza() : porch(); return atHome('home'); }
   if (hour < P.leave) return atHome('home');
   if (hour < P.end) {
     if (jb === 'homemaker') {
       if (hour < 9.4) return S.wells.length && P.i % 4 === 1 ? plaza('well') : porch();
-      if (city && hour < 12 && P.i % 3) return plaza(); // (the city's market morning)
+      if (city && hour < 12) return turn(6) ? plaza() : porch(); // (the city's market morning: in turns; the others at their door)
       if (hour < 12) return atHome('home');
       if (hour < 15) return porch();
       return atHome('home');
