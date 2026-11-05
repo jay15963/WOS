@@ -17,6 +17,7 @@ import { inAnyView, minPlayerDist } from './players.js';
 import { footprint } from './autotile.js';
 import { fertileAt } from '../world/soil.js';
 import { seasonAt } from './seasons.js';
+import { isFieldCropId } from '../world/realm/ground.js'; // (the settlements' field plants: not wild flora — the farmers replant them, game/fields.js)
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
@@ -46,7 +47,7 @@ export function initFlora(game) {
   const F = game.flora = { chunks: new Map(), keys: [], dyn: new Map(), t: 0, ci: 0, growing: new Set(), safetyT: 60, totals: {} };
   const loaded = [];
   for (let c = 0; c < NCH; c++) if (w.isLoaded(c)) loaded.push(c);
-  for (const c of loaded) w._forBucketsOf(c, (bk) => { for (const o of bk.objects) if (FLORA_SET.has(o.type) && w.inBounds(Math.floor(o.x), Math.floor(o.y - 0.05))) F.totals[o.type] = (F.totals[o.type] || 0) + 1; });
+  for (const c of loaded) w._forBucketsOf(c, (bk) => { for (const o of bk.objects) if (FLORA_SET.has(o.type) && !isFieldCropId(o.id) && w.inBounds(Math.floor(o.x), Math.floor(o.y - 0.05))) F.totals[o.type] = (F.totals[o.type] || 0) + 1; });
   for (const c of loaded) floraChunk(game, c);
   w.onLoad.push((c) => { if (game.flora === F) floraChunk(game, c); });
   w.onEvict.push((c) => {
@@ -69,7 +70,7 @@ function floraChunk(game, c) {
     const tmplKey = (i) => w.biome.get(i) * 16 + w.ground.get(i);
     const bk = w.bk[k];
     if (bk) for (const o of bk.objects) {
-      if (!FLORA_SET.has(o.type)) continue;
+      if (!FLORA_SET.has(o.type) || isFieldCropId(o.id)) continue; // (a field's plants: replanted by the place's farmers)
       const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
       if (!w.inBounds(tx, ty)) continue;
       ch.target[o.type] = (ch.target[o.type] || 0) + 1;
@@ -165,7 +166,7 @@ function trySpawn(game, k, kind) {
 function countChunk(c) {
   const n = {};
   for (const o of c.objects) {
-    if (!FLORA_SET.has(o.type) || o.stump || o.fall) continue;
+    if (!FLORA_SET.has(o.type) || o.stump || o.fall || isFieldCropId(o.id)) continue;
     n[o.type] = (n[o.type] || 0) + 1;
   }
   return n;

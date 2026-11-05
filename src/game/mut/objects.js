@@ -1,5 +1,5 @@
 // Natural world objects (worldgen ids 1..N) and host-created flora ('f…' ids): every shared change.
-// Ops: obj.add · obj.remove · obj.prog · tree.fell · tree.land · tree.stump · tree.solid
+// Ops: obj.add · obj.remove · obj.back · obj.prog · tree.fell · tree.land · tree.stump · tree.solid
 // Intent: gather.hit (tree / stump / boulder / pick / forage) — the host accumulates progress and completes.
 // Helpers used only inside appliers / snapshot apply: makeFloraObject, removeNatural, noGrowStamp, touch.
 
@@ -8,6 +8,7 @@ import { occAdd, occRemove } from '../nav.js';
 import { addLootRows } from './loot.js';
 import { lootRow, lootRows, ri, r3, lootPiles } from './roll.js';
 import { fertileAt } from '../../world/soil.js';
+import { isFieldCropId } from '../../world/realm/ground.js'; // (the settlements' field plants: replanted at dawn — game/fields.js)
 
 export const TREE_SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16 };
 export const SAPLING_GROW = 1440;  // s (2 in-game days) from sapling to full tree
@@ -41,6 +42,7 @@ export function removeNatural(game, o) {
   o.gone = true;
   if (o.flora) game.flora.dyn.delete(o.id);
   else game.touched.set(o.id, o);
+  if (isFieldCropId(o.id)) game.fieldV = (game.fieldV || 0) + 1; // (a settlement's field plant: game/fields.js counts)
   game.world.markDirtyAt(o.x, o.y);
   game.flora.growing.delete(o);
   game.stumps?.delete(o);
@@ -149,6 +151,24 @@ defineOp('obj.remove', {
       removeNatural(game, o);
     }
     addLootRows(game, a.drops);
+  },
+});
+
+defineOp('obj.back', {
+  doc: 'Worldgen objects removed earlier come back — the same id, spot and look (the settlements\' fields replanted at dawn by the host: game/fields.js). A peer that never saw them go has them already.',
+  args: { ids: '[objId]', sid: 'int? (the place)' },
+  apply(game, a) {
+    const w = game.world;
+    for (const id of Array.isArray(a.ids) ? a.ids.slice(0, 64) : []) {
+      const o = game.touched.get(id);
+      if (!o || !o.gone || o.flora || o.building) continue;
+      o.gone = false; o.prog = 0;
+      w.addObject(o);
+      if (o.solid && !o.stump) occAdd(game, o);
+      w.markDirtyAt(o.x, o.y);
+      if (isFieldCropId(o.id)) game.fieldV = (game.fieldV || 0) + 1;
+      game.events.emit('tile', { tx: Math.floor(o.x), ty: Math.floor(o.y) });
+    }
   },
 });
 

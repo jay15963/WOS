@@ -21,7 +21,7 @@
 // Owner: the bill (own message eco.collect) is paid from the coins in the BACKPACK (coins kept in chests never count).
 
 import { GOODS, NG, GI, PRICE, MARKET, SEASON_FOOD, SEASON_MEAT, CROP_FOODS, WARM_CLOTHES, EVENTS, RANKS, rankOf, REP, JOB_KINDS, JOB_MAX, BAD_RANKS, badRankOf, rankName, bandOf, INHERIT,
-  GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL } from './content/eco.js';
+  GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL, JOB_SITE } from './content/eco.js';
 import { ITEMS, BUILDINGS, SPECIES } from './data.js';
 import { baseHeight } from '../world/planet/chunk.js';
 import { canReach } from '../world/realm/realm.js';
@@ -30,6 +30,7 @@ import { YEAR_DAYS } from './calendar.js';
 import { findObj } from './mut/objects.js';
 import { dimsOf, TOWN } from './mut/structures.js';
 import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (docs/REINOS.md §13)
+import { cropFields, cropTotal, fieldsLeft, replantFields, survey, nearestPlant, nearestTarget, areaCount, inField, CROP_TYPE } from './fields.js'; // (jobs that can be done: docs/REINOS.md §10)
 
 export { GOODS, NG, GI, RANKS, rankOf, BAD_RANKS, badRankOf, rankName, bandOf };
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -456,11 +457,15 @@ export function boardOf(game, sid, day = ecoDay(game)) {
   const rnd = (k) => hf(R.seed | 0, sid, day, k);
   const want = s.kind === 'city' ? 6 : s.kind === 'castle' ? 3 : 5;
   const has = (k) => L.buildings.some((b) => b.key === k);
+  // only what can be done there (docs/REINOS.md §10 "Trabalhos possíveis"): a harvest when crops grow there this dawn (its
+  // fields were replanted — game/fields.js), wood / stone / game where the land around has them (the planet: survey)
+  const V = survey(game, s), dawn = placeSeason(game, s, day, 6);
   const kinds = [];
-  if (L.fields.length) kinds.push('harvest');
-  if (has('mine')) kinds.push('mine');
-  if (s.kind !== 'city' || has('sawmill')) kinds.push('chop');
-  kinds.push('bring', 'deliver', 'hunt');
+  if (L.fields.length && !dawn.hard) kinds.push('harvest');
+  if (has('mine') && (!V || V.boulders >= JOB_SITE.mineK * 8)) kinds.push('mine');
+  if ((s.kind !== 'city' || has('sawmill')) && (!V || V.trees >= JOB_SITE.chopMin)) kinds.push('chop');
+  kinds.push('bring', 'deliver');
+  if (!V || V.fauna >= JOB_SITE.huntFauna) kinds.push('hunt');
   if (s.kind !== 'castle') kinds.push('bring');
   const danger = nightDanger(game, s, day);
   if (danger) kinds.unshift('defend');
@@ -483,24 +488,38 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
   const id = `${s.id}.${day}.${n}`, R = realmOf(game), w = game.world;
   const base = { id, sid: s.id, k: ownerOf(game, s.id), t, day, exp: day + 2, got: 0 };
   const big = s.kind === 'city' ? 1.3 : 1;
+  const V = survey(game, s), nPt = s.kind === 'city' ? 'da cidade' : s.kind === 'castle' ? 'do castelo' : 'da vila';
   if (t === 'harvest') {
-    const crops = [...new Set(L.fields.map((f) => CROP_GOOD[f.crop]).filter(Boolean))];
+    // the crop of a field the place holds plenty of (its fields are full at dawn: replanted — game/fields.js); the waypoint
+    // is the biggest field of it (a real field: its middle), the tracker then leads plant by plant (jobTarget)
+    const S = placeSeason(game, s, day, 6);
+    if (S.hard) return null;
+    const need = 6 + Math.floor(r(2) * 7);
+    const crops = [...new Set(L.fields.map((f) => CROP_GOOD[f.crop]).filter(Boolean))].sort().filter((g) => cropTotal(L, g) >= need * JOB_SITE.harvestK);
     if (!crops.length) return null;
-    const g = crops[Math.floor(r(1) * crops.length)], need = 6 + Math.floor(r(2) * 7);
-    const fx = L.fields.filter((f) => CROP_GOOD[f.crop] === g), cx = fx.reduce((a, f) => a + (f.x0 + f.x1) / 2, 0) / fx.length, cy = fx.reduce((a, f) => a + (f.y0 + f.y1) / 2, 0) / fx.length;
-    return { ...base, n: need, crop: g, pay: Math.round((6 * need + 12) * big), rep: 4, x: cx, y: cy, giver: giverOf(game, s.id, n + day, 'Lavrador'),
-      title: `Colher ${need} ${CROP_PT[g]}`, text: `Os campos de ${s.name} estão maduros e falta gente. Colha ${need} pés de ${CROP_PT[g]} nos campos da vila (toque neles).` };
+    const g = crops[Math.floor(r(1) * crops.length)], F = cropFields(L, s, g)[0], dir = dirPt(F.x - s.x, F.y - s.y);
+    return { ...base, n: need, crop: g, pay: Math.round((6 * need + 12) * big), rep: 4, x: F.x, y: F.y, giver: giverOf(game, s.id, n + day, 'Lavrador'),
+      title: `Colher ${need} ${CROP_PT[g]}`,
+      text: S.id === 'autumn' ? `É tempo de colheita em ${s.name} e falta gente. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}.`
+        : `Os lavradores de ${s.name} precisam de ajuda. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}. Eles replantam de madrugada.` };
   }
   if (t === 'mine') {
+    // boulders (and rock, where there is) around the place: the waypoint is the stoniest side (the tracker then leads to
+    // the nearest boulder / rock)
     const b = work(L, 'mine'), need = 8 + Math.floor(r(1) * 8);
-    const x = b ? (b.box[0] + b.box[2]) / 2 : s.x, y = b ? (b.box[1] + b.box[3]) / 2 : s.y;
-    return { ...base, n: need, pay: Math.round((5 * need + 18) * big), rep: 5, x, y, r: s.ro + 60, giver: giverOf(game, s.id, n + day, 'Mineiro'),
-      title: `Minerar ${need} blocos`, text: `A mina de ${s.name} precisa de braços. Quebre ${need} blocos de rocha ou pedregulhos (pedra ou minério) perto da vila.` };
+    if (V && V.boulders < need * JOB_SITE.mineK) return null;
+    const p = V?.rocks || (b ? { x: (b.box[0] + b.box[2]) / 2, y: (b.box[1] + b.box[3]) / 2 } : s);
+    return { ...base, n: need, pay: Math.round((5 * need + 18) * big), rep: 5, x: p.x, y: p.y, r: s.ro + 60, giver: giverOf(game, s.id, n + day, 'Mineiro'),
+      title: `Minerar ${need} blocos`, text: `A mina de ${s.name} precisa de braços. Quebre ${need} pedregulhos ou blocos de rocha (pedra ou minério) nos arredores ${nPt}: há mais pedra a ${dirPt(p.x - s.x, p.y - s.y)}.` };
   }
   if (t === 'chop') {
+    // only where the land around has woods (the planet's biomes: survey); the waypoint is the nearest wooded side
     const need = 4 + Math.floor(r(1) * 4), b = work(L, 'sawmill');
-    return { ...base, n: need, pay: Math.round((10 * need + 12) * big), rep: 4, x: b ? (b.box[0] + b.box[2]) / 2 : s.x, y: b ? (b.box[1] + b.box[3]) / 2 : s.y, r: s.ro + 90,
-      giver: giverOf(game, s.id, n + day, b ? 'Lenhador' : 'Carpinteiro'), title: `Cortar ${need} árvores`, text: `${b ? 'A serraria' : 'A vila'} de ${s.name} precisa de toras. Derrube ${need} árvores nos arredores.` };
+    if (V && V.trees < Math.max(JOB_SITE.chopMin, need * JOB_SITE.chopK)) return null;
+    const p = V?.woods || (b ? { x: (b.box[0] + b.box[2]) / 2, y: (b.box[1] + b.box[3]) / 2 } : s);
+    return { ...base, n: need, pay: Math.round((10 * need + 12) * big), rep: 4, x: p.x, y: p.y, r: s.ro + 90,
+      giver: giverOf(game, s.id, n + day, b ? 'Lenhador' : 'Carpinteiro'), title: `Cortar ${need} árvores`,
+      text: `${b ? 'A serraria' : s.kind === 'castle' ? 'O castelo' : s.kind === 'city' ? 'A cidade' : 'A vila'} de ${s.name} precisa de toras. Derrube ${need} árvores nos arredores: a mata mais perto fica a ${dirPt(p.x - s.x, p.y - s.y)}.` };
   }
   if (t === 'bring') {
     const cand = [];
@@ -522,9 +541,12 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
       text: `Leve ${np > 1 ? `estas ${np} encomendas` : 'esta encomenda'} até o mural de ${q.name} (${q.kind === 'city' ? 'cidade' : q.kind === 'castle' ? 'castelo' : 'vila'} do Reino de ${R.kingdoms[ownerOf(game, q.id)].name}), a ${Math.round(d)} passos a ${dirPt(w.dx(q.x, s.x), q.y - s.y)}. Pagamento na entrega.` };
   }
   if (t === 'hunt') {
+    // where the land around has game (its biomes' wild animals: survey) — named in the text
     const need = 3 + Math.floor(r(1) * 3);
+    if (V && V.fauna < JOB_SITE.huntFauna) return null;
+    const names = V?.animals?.length ? V.animals.join(', ') : 'cervos, javalis, lobos';
     return { ...base, n: need, pay: Math.round((18 * need + 10) * big), rep: 5, giver: giverOf(game, s.id, n + day, 'Curtidor'),
-      title: `Caçar ${need} animais`, text: `O curtidor de ${s.name} precisa de peles. Cace ${need} animais selvagens (cervos, javalis, lobos…) e volte ao mural.` };
+      title: `Caçar ${need} animais`, text: `O curtidor de ${s.name} precisa de peles. Cace ${need} animais selvagens (${names}…) em qualquer lugar e volte ao mural.` };
   }
   if (t === 'defend') {
     if (!danger) return null;
@@ -545,15 +567,70 @@ export function jobState(game, j) {
   if (j.t === 'bring' || j.t === 'deliver') return 'carry';
   return (j.got | 0) >= j.n ? 'ready' : 'go';
 }
-// where the tracker points: the work area, the place to turn it in
+// where the tracker points: the work area, the place to turn it in. Near the work area (this peer's loaded world, cosmetic):
+// the exact target — the nearest plant of the crop on the place's fields, the nearest standing tree, the nearest boulder /
+// rock (exact: the arrow and the ground marker lead to it; game/fields.js)
 export function jobTarget(game, j) {
   const R = realmOf(game);
   if (!R) return null;
   if (j.t === 'deliver') { const q = R.settlements[j.dest], m = muralSpot(game, j.dest); return m ? { ...m, label: q.name } : { x: q.x, y: q.y, label: q.name }; }
   const s = R.settlements[j.sid];
   if (j.t === 'bring' || jobState(game, j) === 'ready') { const m = muralSpot(game, j.sid); return m ? { ...m, label: `mural de ${s.name}` } : { x: s.x, y: s.y, label: s.name }; }
-  if (Number.isFinite(j.x)) return { x: j.x, y: j.y, label: s.name, area: true };
+  if (Number.isFinite(j.x)) return exactTarget(game, j, s) || { x: j.x, y: j.y, label: s.name, area: true };
   return { x: s.x, y: s.y, label: s.name, anywhere: true }; // (a hunt: anywhere — no arrow)
+}
+// the area of a job (its progress counts there): within r of its point or of the place
+export function jobArea(game, j) {
+  const s = settlement(game, j.sid), w = game.world, r = j.r || (s.ro + 60), x = j.x ?? s.x, y = j.y ?? s.y;
+  const inA = (px, py) => Math.hypot(w.dx(px, x), py - y) <= r || Math.hypot(w.dx(px, s.x), py - s.y) <= r;
+  const dx = w.dx(x, s.x), dy = y - s.y, h = Math.hypot(dx, dy) / 2;
+  return { inA, r, cx: s.x + dx / 2, cy: s.y + dy / 2, R: r + h };
+}
+const EXACT = new Map(); // job id → { t, at: [px, py], q } (cosmetic: refreshed a few times a second)
+function exactTarget(game, j, s) {
+  const p = game.player;
+  if (!p || !(j.t === 'harvest' || j.t === 'chop' || j.t === 'mine')) return null;
+  const now = game.time || 0, c = EXACT.get(j.id);
+  if (c && now - c.t < 0.4 && now >= c.t && Math.abs(c.px - p.x) < 1 && Math.abs(c.py - p.y) < 1 && (!c.q?.o || !c.q.o.gone)) return c.q;
+  let q = null;
+  const w = game.world, nearPlace = Math.hypot(w.dx(p.x, s.x), p.y - s.y);
+  if (j.t === 'harvest') {
+    if (nearPlace < s.ro + 70) {
+      const o = nearestPlant(game, j.sid, j.crop, p.x, p.y);
+      if (o) q = { x: o.x, y: o.y - 0.25, label: `pé de ${CROP_PT[j.crop] || j.crop}`, area: true, exact: true, o };
+    }
+  } else {
+    const A = jobArea(game, j);
+    if (nearPlace < A.r + 40 || Math.hypot(w.dx(p.x, j.x), p.y - j.y) < A.r + 40) {
+      const o = nearestTarget(game, j.t, A.inA, p.x, p.y);
+      if (o) q = { x: o.x, y: o.y - (o.rock ? 0 : 0.25), label: j.t === 'chop' ? 'árvore' : o.rock ? 'rocha' : 'pedregulho', area: true, exact: true, o: o.o || null };
+    }
+  }
+  if (EXACT.size > 30) EXACT.clear();
+  EXACT.set(j.id, { t: now, px: p.x, py: p.y, q });
+  return q;
+}
+// Can this job be done right now (the host when it is taken; the board's hint — this peer's knowledge)? A reason (pt-BR)
+// or null: the place's fields of the crop harvested (they come back at dawn), the trees / stone around gone (counted where
+// every chunk of the area is loaded here)
+const REASON = new Map();
+export function jobReason(game, j, fresh = false) {
+  const s = settlement(game, j?.sid);
+  if (!s) return null;
+  const now = game.time || 0, c = REASON.get(j.id);
+  if (!fresh && c && now - c.t < 2 && now >= c.t) return c.why;
+  let why = null;
+  if (j.t === 'harvest') {
+    const q = fieldsLeft(game, j.sid, j.crop, fresh), pt = CROP_PT[j.crop] || j.crop;
+    if (q.total && q.left < j.n) why = q.left ? `Só restam ${q.left} pés de ${pt} nos campos de ${s.name}: volte depois que replantarem (de madrugada) ou escolha outro trabalho`
+      : `Os campos de ${pt} de ${s.name} já foram colhidos: volte depois que replantarem (de madrugada) ou escolha outro trabalho`;
+  } else if (j.t === 'chop' || j.t === 'mine') {
+    const A = jobArea(game, j), n = areaCount(game, j.t, A.cx, A.cy, A.R, A.inA, j.n);
+    if (n.full && n.n < j.n) why = j.t === 'chop' ? `Quase não há árvores em pé perto de ${s.name} (${n.n}): escolha outro trabalho` : `Quase não há pedra para quebrar perto de ${s.name} (${n.n}): escolha outro trabalho`;
+  }
+  if (REASON.size > 40) REASON.clear();
+  REASON.set(j.id, { t: now, why });
+  return why;
 }
 
 // ---------- properties: houses and plots of a place (from its plan) ----------
@@ -702,9 +779,10 @@ function nearJob(game, j, x, y) {
   const s = settlement(game, j.sid), w = game.world, r = j.r || (s.ro + 60);
   return Math.hypot(w.dx(x, j.x ?? s.x), y - (j.y ?? s.y)) <= r || Math.hypot(w.dx(x, s.x), y - s.y) <= r;
 }
-function inFields(game, j, x, y) {
-  const L = game.towns?.layout?.(j.sid);
-  return !!L && L.fields.some((f) => CROP_GOOD[f.crop] === j.crop && x >= f.x0 - 0.5 && x <= f.x1 + 0.5 && y >= f.y0 - 0.5 && y <= f.y1 + 0.5);
+// a plant of the job's crop standing on a field of the job's place (its tile inside the field: one beside it does not count)
+function inFields(game, j, o) {
+  const L = game.towns?.layout?.(j.sid), type = CROP_TYPE[j.crop];
+  return !!L && o.type === type && L.fields.some((f) => f.crop === type && inField(f, o));
 }
 export function onOp(game, name, a) {
   if (!game.eco?.pl.size || !a || a.by == null) return;
@@ -712,7 +790,7 @@ export function onOp(game, name, a) {
     for (const id of Array.isArray(a.ids) ? a.ids : []) {
       const o = findObj(game, id);
       if (!o) continue;
-      if (CROP_GOOD[o.type]) forJobs(game, a.by, (u, j) => { if (j.t === 'harvest' && CROP_GOOD[o.type] === j.crop && inFields(game, j, o.x, o.y)) bump(game, u, j); });
+      if (CROP_GOOD[o.type]) forJobs(game, a.by, (u, j) => { if (j.t === 'harvest' && CROP_GOOD[o.type] === j.crop && inFields(game, j, o)) bump(game, u, j); });
       else if (o.type === 'boulder') forJobs(game, a.by, (u, j) => { if (j.t === 'mine' && nearJob(game, j, o.x, o.y)) bump(game, u, j); });
     }
   } else if (name === 'tile.mine') {
@@ -780,6 +858,9 @@ function dayTick(game, day) {
   const roll = () => net.roll();
   const { mk, ev } = simulateDay(game, day, roll, [...onlineUids(game).values()].map((pid) => entOfPid(game, pid)).filter(Boolean).map((e) => [e.x, e.y]));
   net.emit('eco.day', { day, mk, ev });
+  // the fields replanted overnight by the places' farmers (not in a hard winter: crops do not grow — polar never): every
+  // field plant harvested before this dawn comes back, the same object (game/fields.js; the day's harvest jobs need them)
+  replantFields(game, (sid) => { const s = settlement(game, sid); return !!s && !placeSeason(game, s, day, 6).hard; });
   // expired jobs
   for (const [uid, r] of E.pl) for (const j of r.jobs.slice()) if (day > j.exp) net.emit('eco.job', { u: uid, fail: j.id, toast: undefined });
   // bills: tax (owned) and rent (rented) of the players in the world (a player away is not charged for those days)
@@ -903,6 +984,8 @@ function makeApi(game) {
     board: (sid) => boardOf(game, sid), props: (sid) => propsOf(game, sid), prop: (id) => propById(game, id), charge: (id) => chargeOf(game, id),
     rank: (k, u) => rankInfo(game, u ?? meUid(game), k), taxRate: (k) => taxRate(game, k), mine: () => propsOfUid(game, meUid(game)),
     atMural: (sid) => atMural(game, sid, game.player),
+    survey: (sid) => survey(game, settlement(game, sid)), fieldsLeft: (sid, good) => fieldsLeft(game, sid, good, true), jobReason: (j) => jobReason(game, j, true),
+    jobArea: (j) => jobArea(game, j),
   };
 }
 export { COIN, PARCEL, JOB_MAX, REP, PROP, RANKS as RANK_LIST };

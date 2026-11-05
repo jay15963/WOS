@@ -87,9 +87,10 @@ export function installEcoHud(game) {
       const ar0 = t ? arrowOf(t.x, t.y) : null;
       const ready = st === 'ready' || (j.t === 'bring' && got >= j.n) || (carry && got >= j.n && ar0 && ar0.d < 8); // (a delivery: ready at its destination)
       const ar = t && !(t.anywhere && !ready) ? ar0 : null;
-      const inArea = t?.area && !ready && ar && ar.d < (j.r || 40);
-      const where = ready ? `entregue: ${t?.label || ''}` : carry ? (got >= j.n ? `levar a ${t?.label || ''}` : `faltam ${j.n - got} encomendas`) : `${Math.min(got, j.n)}/${j.n}${inArea ? ' · você está no lugar' : ''}`;
-      rows.push({ id: j.id, ic: K.icon, title: j.title, sub: `${ready ? '<span class="g">Pronto!</span> ' : ''}${esc(where)}${ar && ar.d > 6 && !inArea ? ` · ${Math.round(ar.d)} passos` : ''}`, ar: inArea ? null : ar, on: E.track === j.id, ready, here: ready && ar && ar.d <= 3 });
+      // (an exact target — the nearest plant / tree / boulder, game/eco.js jobTarget: the arrow and the distance lead to it)
+      const inArea = t?.area && !t.exact && !ready && ar && ar.d < (j.r || 40);
+      const where = ready ? `entregue: ${t?.label || ''}` : carry ? (got >= j.n ? `levar a ${t?.label || ''}` : `faltam ${j.n - got} encomendas`) : `${Math.min(got, j.n)}/${j.n}${inArea ? ' · você está no lugar' : t?.exact ? ` · ${t.label}` : ''}`;
+      rows.push({ id: j.id, ic: K.icon, title: j.title, sub: `${ready ? '<span class="g">Pronto!</span> ' : ''}${esc(where)}${ar && (ar.d > 6 || t?.exact) && !inArea ? ` · ${Math.round(ar.d)} passos` : ''}`, ar: inArea ? null : ar, on: E.track === j.id, ready, here: ready && ar && ar.d <= 3 });
     }
     if (E.wp && E.wp.kind !== 'job') { const ar = arrowOf(E.wp.x, E.wp.y); rows.push({ id: 'wp', ic: '📍', title: E.wp.label, sub: `${Math.round(ar.d)} passos`, ar, on: true, wp: true }); }
     const key = rows.map((q) => `${q.id}|${q.sub}|${q.on}|${q.ready}|${q.ar ? Math.round(q.ar.a * 8) : ''}`).join('#');
@@ -187,7 +188,12 @@ export function installEcoHud(game) {
       // arriving at a house / plot waypoint: it goes
       if (E.wp && E.wp.kind !== 'job' && Math.hypot(g.world.dx(E.wp.x, p.x), E.wp.y - p.y) < 2.2) { E.wp = null; trackKey = null; }
       tT -= dt;
-      if (tT <= 0) { tT = 0.25; drawTracker(); }
+      if (tT <= 0) {
+        tT = 0.25;
+        // the followed job's waypoint follows its exact target (the nearest plant / tree / boulder near the work area)
+        if (E.track && E.wp?.kind === 'job') { const j = myRec(g)?.jobs.find((q) => q.id === E.track); if (j) E.wp = jobWaypoint(g, j); }
+        drawTracker();
+      }
     },
     render(g) {
       if (!ctx || !g.eco?.pr) return;

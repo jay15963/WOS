@@ -31,6 +31,7 @@ const each = (list, f) => (Array.isArray(list) ? list.slice(0, 64).map(f) : []);
 export const OP_AT = {
   'obj.add': (g, a) => each(a.list, (o) => P(o?.x, o?.y)),
   'obj.remove': (g, a) => each(a.ids, (id) => objP(g, id)),
+  'obj.back': (g, a) => each(a.ids, (id) => objP(g, id)), // (≤ 64 ids an op: game/fields.js replantFields)
   'obj.prog': (g, a) => [objP(g, a.id)],
   'tree.fell': (g, a) => [objP(g, a.id)],
   'tree.land': (g, a) => [objP(g, a.id)],
