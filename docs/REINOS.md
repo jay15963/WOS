@@ -1626,7 +1626,7 @@ ponto da ordem, o inimigo do PvP em vermelho), `ui/mural.js` / `ui/muralEco.js` 
   | guerra, nenhuma campanha | "Guarde Estrosa" | — |
   | a campanha se reúne | "Junte-se ao exército em X" / "Aguarde a reunião em X" | o exército |
   | um contingente vai à reunião | "Alcance o contingente" / "Marche com o contingente até X" | o exército / o lugar |
-  | a campanha marcha | longe (> 60 tiles): "Alcance o exército" · junto: "Marche com o exército até Z" / "Socorra Z" (faltam N passos, ≈ H h) | o exército / o alvo |
+  | a campanha marcha | fora da coluna (> 22 tiles): "Alcance o exército" (+ "Ir até o exército") · junto: "Marche com o exército até Z" / "Socorra Z" ("… chega em ~2 dias e meio de jogo") | o exército / o alvo |
   | volta para casa | "Recuar! Volte com o exército para X" | o exército / a casa |
   | cerco por números | "Vá ao cerco de Z" / "O exército cerca Z" | o acampamento |
   | cerco jogado (3b) | "Marche até o acampamento diante de Z" → "Monte o acampamento…" → "Proteja os engenheiros" → "Proteja os trabucos!" (opere um: a pedra é do exército) → assalto: "Empurre o aríete até o portão!", "Empurre a torre até a muralha!", "Suba pela torre!", "Entre pela brecha!", "O portão caiu! Para dentro!", dentro dos muros "Tome a praça!" → "Z é nossa! Segure a praça" · "Recuar! Recuar!" | o exército, o acampamento, a oficina, o trabuco, o aríete, a torre, a brecha, o portão, a praça |
@@ -1639,7 +1639,20 @@ ponto da ordem, o inimigo do PvP em vermelho), `ui/mural.js` / `ui/muralEco.js` 
   borda do mapa). Convive com o ponto dourado dos trabalhos.
 - **Marchar junto**: a campanha que o jogador segue (a do seu lugar; senão a do reino mais perto da sua casa) fica **viva
   em volta dele** (a coluna de soldados da 3b) e **continua marchando** pelo relógio da 3a — chega, se reúne, cerca,
-  encontra o inimigo — com a coluna acompanhando a posição dela; quando ele se afasta, volta aos números como sempre.
+  encontra o inimigo — com a coluna acompanhando a posição dela; quando ele se afasta, volta aos números como sempre. O
+  cartão diz quando o exército chega, legível: "40 soldados do Reino de Galéria · chega em ~2 dias e meio de jogo", e
+  **uma distância só** (até o ponto da ordem).
+- **Ir até o exército** (decisão do dono — "Viagem com o exército": uma marcha como Estrosa → Gralude, ~2 200 passos,
+  ≈ 62 horas de jogo ≈ meia hora real, é longa demais para seguir a pé): o jogador **pode** marchar junto, mas o cartão
+  ganha o botão **"Ir até o exército"** quando faz sentido — alistado, **longe** do exército (> 60 tiles do ponto de
+  chegada) e **num lugar do próprio reino** (na terra de uma vila, castelo ou cidade dele). Um toque leva o jogador **para
+  junto do exército**: marchando ou na reunião, ao lado da coluna; acampado no cerco, **no acampamento** (atrás das
+  tendas, fora da terra do alvo). **Não pula o tempo do mundo** e funciona no multijogador: só aquele jogador se move (o
+  próprio avatar), depois que o anfitrião confere (intent `army.travel`) e responde o lugar. Recusas: "Viaje a partir de
+  um lugar do Reino de X (a terra de uma vila, castelo ou cidade dele)", "Inimigos por perto: não dá para viajar no meio
+  de uma luta", "Solte a máquina de cerco antes de viajar", "X está sob cerco: não dá para sair agora", "O exército está
+  em batalha: vá até lá a pé", "Você já está perto do exército". Chegando: "Você viajou até o exército · Junto do
+  exército — siga as ordens do general"; com ele ali o exército fica vivo e marchando (escoltado).
 - **Lutar** (a regra, igual no convidado que manda o golpe e no anfitrião que o aplica):
 
   | Alvo | Pode? |
@@ -1717,7 +1730,9 @@ reinos em paz, o mesmo reino, aliados: nada; em guerra os dois golpes passam) ·
 promoção a Soldado com aviso, o bônus de cerco rechaçado +50 / +10) · AR7 morrer mantém posto e reputação; a deserção no
 cerco (−25, o banimento de 2 dias, o aviso; alistar de novo recusado) · AR8 `settle` (a tomada perto dos jogadores: a
 guarnição dos vencedores; o exército volta para casa na hora e vira coluna de novo) · AR9 save → load. Todos terminam com
-o digest igual.
+o digest igual. **AR10** "Ir até o exército" (em terra livre: recusado; na vila com uma coluna inimiga ao lado: recusado; sem
+ela, o botão no cartão; um toque — o convidado ao lado do exército nos dois pares, o exército vivo e marchando, o relógio
+do mundo sem salto; o exército cercando o alvo por números: da vila, para o acampamento, fora da terra do alvo).
 
 RESULTS_PLACEHOLDER
 
@@ -1743,7 +1758,9 @@ Estrosa"), `ar_siege_orders_phase` ("Proteja os engenheiros" com a seta para a O
 `ar_siege_camp_order_debug` ("Monte o acampamento…"), `ar_ram_push` / `ar_ram_push_2` / `ar_ram_gate` (o jogador
 empurrando o aríete com três soldados do seu exército até o portão — "Aríete · 4 pessoas" —, a guarda da vila atirando
 nele), `ar_assault_orders` ("Estrosa é nossa! Segure a praça", os vencedores em roda na praça, a bandeira "Praça");
-**soldo** — `ar_pay_promotion` ("Promovido a Sargento!", "+68 Moeda de ouro", "Soldo de campanha…"); **PvP** —
+**viagem** — `ar_travel_button` (na vila: "Alcance o exército · 395 passos" e o botão "Ir até o exército"),
+`ar_travel_arrived` / `ar_travel_marching` (um toque: ao lado da coluna em Torre de Cerverna, "Marche com o exército até
+Gralude · 40 soldados do Reino de Galéria · chega em ~2 dias e meio de jogo · 1 901 passos"); **soldo** — `ar_pay_promotion` ("Promovido a Sargento!", "+68 Moeda de ouro", "Soldo de campanha…"); **PvP** —
 `ar_pvp_1` / `_2` / `_3` (anfitrião e convidado lado a lado, membros de Galéria e de Arenudia em guerra, cada um vendo o
 outro com a plaquinha vermelha "Sobrevivente · Reino de … · inimigo", trocando golpes; os cartões de ordens dos dois).
 
@@ -1767,5 +1784,11 @@ outro com a plaquinha vermelha "Sobrevivente · Reino de … · inimigo", trocan
 - **A pedra do trabuco do exército é do exército** (o soldado não gasta as suas).
 - **Marcha escoltada**: o exército vivo com um alistado junto continua marchando pelo relógio da 3a (sem escolta,
   parado como na 3b).
+- **Viagem com o exército** (**decidido pelo dono**): marchas longas não precisam ser seguidas a pé — o botão "Ir até o
+  exército" leva o alistado, a partir de um lugar do seu reino, para junto do exército (ou do acampamento do cerco), sem
+  pular o tempo, conferido pelo anfitrião e recusado perto de inimigos, numa luta, com uma máquina de cerco nas mãos ou
+  com o lugar sob cerco.
+- A faixa do lugar ("Estrosa · Vila · Reino de Galéria") espera sob os painéis abertos (no celular ela cobria o título e
+  as abas do mural).
 - Pendente / ideias: escoltar caravanas, ordens por papel (arqueiro na muralha, engenheiro nas obras), o jogador
   general de uma campanha, medalhas, o soldo atrasado para quem estava fora.
