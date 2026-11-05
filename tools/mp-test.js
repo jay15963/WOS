@@ -10653,6 +10653,79 @@ def('AR9', {
   await t.checkDigest(H, G);
 });
 
+def('AR10', {
+  title: 'AR: "Ir até o exército" — from a place of its kingdom an enlisted player travels to its army (beside the column on the march, at the camp of a siege); refused outside the kingdom\'s places and near enemies; no time skipped',
+  src: 'village', timeout: 360000,
+  expected: 'The guest enlisted in the start kingdom\'s militia; at war, an army of the kingdom marches from a place far from the village. In free land: army.travel refused ("Viaje a partir de um lugar do Reino de …"). At the start village with a column of the enemy beside it: refused ("Inimigos por perto …"). With the enemy gone: the orders card shows "Ir até o exército"; a tap — the guest is beside the army on both peers (the host sees its avatar there), the army is live with it, the world clock did not jump. The players back home, the clock forward until the army besieges its target by numbers: from the village the guest travels to the camp (outside the target\'s land, near the army); digest equal',
+  api: 'game/army.js travelWhy / travelSpot, mut/army.js army.travel, ui/armyHud.js (the button, the move)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH), R = realmOf(H), RH = RZ(H);
+  const [k2] = btKingdoms(H, s);
+  t.need(k2 != null, 'an enemy kingdom on the landmass');
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 40);
+  await arEnlist(t, H, G, uid, s.id);
+  await warShim(t, H, G, [[s.k, k2]]);
+  const d2 = (q) => Math.min(...R.settlements.filter((e) => RH.owner(e.id) === k2).map((e) => Math.hypot(e.x - q.x, e.y - q.y)));
+  const from = R.settlements.filter((q) => RH.owner(q.id) === s.k && Math.hypot(q.x - s.x, q.y - s.y) > 220).sort((a, b) => d2(a) - d2(b))[0];
+  const T = from && R.settlements.filter((q) => RH.owner(q.id) === k2).sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0];
+  t.need(from && T && RH.dbg.route(from.id, T.id), 'a place of the kingdom far from the village with a way to an enemy place');
+  t.defer(() => btHeal(H, T.id));
+  t.defer(() => { if (RZ(H).owner(T.id) !== T.k) RZ(H).dbg.capture(T.id, T.k); H.game.net.flush(); });
+  H.game.net.emit('realm.army', { gar: [[from.id, 120]] }); H.game.net.flush();
+  const a0 = RH.dbg.launch(from.id, T.id, 40);
+  H.game.net.flush();
+  t.need(a0, 'an army launched');
+  t.defer(() => { if (H.game.warfare.forces.has(a0.id)) H.game.warfare.dematerialize(a0.id); H.game.net.emit('realm.army', { del: a0.id }); H.game.net.flush(); });
+  await t.waitFor(() => arRec(H, uid)?.a === a0.id && arRec(G, uid)?.a === a0.id, 6000 + RT(), 'the guest follows that army (record.a on both)');
+  const L = H.game.towns.layout(s.id);
+  // free land: refused
+  const fx = s.x + s.r + 30, fy = s.y;
+  await btFar(t, H, MH, G, MG, fx, fy);
+  t.need(!MG.realm.settlementAt(R, G.game.player.x, G.game.player.y, 6), 'the guest outside any town land');
+  const r1 = await ecoReq(G, 'army.travel', {});
+  t.check(!r1.ok && /Viaje a partir de um lugar do Reino de/.test(r1.why), 'outside the kingdom\'s places: refused', r1.why);
+  t.check(!G.doc.querySelector('#ordcard [data-go]'), 'and the card has no button there');
+  // in the village, an enemy column beside it: refused
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  const Fe = H.game.warfare.materialize({ id: 'ar-enemy-col', k: k2, home: R.kingdoms[k2].capital, n: 8, lv: 3, x: L.spawn[0] + 6, y: L.spawn[1] + 2, state: 'march', target: s.id, path: [[L.spawn[0] + 7, L.spawn[1] + 2]], eng: { treb: 0, cat: 0, ram: 0, tower: 0 }, live: true });
+  t.defer(() => { if (H.game.warfare.forces.has(Fe.id)) H.game.warfare.dematerialize(Fe.id); H.game.net.flush(); });
+  A.keepAlive(t, G);
+  await t.waitFor(() => soldiersOf(G, k2).some((e) => Math.hypot(e.x - G.game.player.x, e.y - G.game.player.y) < 14), 20000, 'enemy soldiers beside the guest (on its screen)');
+  const r2 = await ecoReq(G, 'army.travel', {});
+  t.check(!r2.ok && /Inimigos por perto/.test(r2.why), 'near enemies: refused', r2.why);
+  H.game.warfare.dematerialize(Fe.id); H.game.net.flush();
+  await t.waitFor(() => !soldiersOf(G, k2).length, 8000 + RT(), 'the enemy gone');
+  // the button, the travel
+  await t.waitFor(() => G.doc.querySelector('#ordcard [data-go]'), 4000, 'the orders card shows "Ir até o exército"', () => arCard(G));
+  const wt0 = H.game.worldTime, moved = [];
+  t.on(G, 'armytravel', (e) => moved.push(e));
+  G.doc.querySelector('#ordcard [data-go]').dispatchEvent(new G.win.PointerEvent('pointerdown', { bubbles: true }));
+  await t.waitFor(() => moved.length, RT() + 3000, 'the guest travels (the host\'s answer)');
+  const p = () => RH.dbg.pos(a0.id);
+  await t.waitFor(() => { const [x, y] = p(), q = G.game.player; return Math.hypot(H.game.world.dx(q.x, x), q.y - y) < 12; }, 3000, 'it stands beside the army (guest)', () => `${f2(G.game.player.x)},${f2(G.game.player.y)} / ${p().map(f2)}`);
+  await t.waitFor(() => { const [x, y] = p(), e = guestOnHost(H, G); return e && Math.hypot(H.game.world.dx(e.x, x), e.y - y) < 14; }, 6000 + RT(), 'the host sees it there');
+  t.check(H.game.worldTime - wt0 < 20, 'no time skipped (the world clock went on as usual)', `${f2(H.game.worldTime - wt0)} s`);
+  A.teleport(H, G.game.player.x + 1.5, G.game.player.y);
+  await t.waitFor(() => liveOn(H, a0.id) && RH.armies.get(a0.id).v > 0, 20000, 'with it there, the army is live and keeps marching (escorted)');
+  t.check(!G.doc.querySelector('#ordcard [data-go]'), 'beside the army: no button');
+  // the siege: from the village to the camp
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  await t.waitFor(() => !liveOn(H, a0.id), 20000, 'the players home: the army is numbers again');
+  for (let k = 0; k < 60 && RH.armies.get(a0.id)?.state !== 'siege'; k++) { wrSkip(H, 2); await t.sleep(RT() + 300); }
+  await t.waitFor(() => RH.armies.get(a0.id)?.state === 'siege', 4000, 'it besieges its target by numbers', () => `${RH.armies.get(a0.id)?.state}`);
+  const r3 = await ecoReq(G, 'army.travel', {});
+  t.check(r3.ok && /acampamento diante de/.test(r3.x?.label || ''), 'from the village: to the camp', JSON.stringify(r3.x || r3.why));
+  if (r3.ok) {
+    const c = RH.armies.get(a0.id), d = Math.hypot(H.game.world.dx(r3.x.x, c.x), r3.x.y - c.y), dT = Math.hypot(H.game.world.dx(r3.x.x, T.x), r3.x.y - T.y);
+    t.check(d < 16 && dT > T.r + 4, 'the camp spot: by the army, outside the target\'s land', `${f2(d)} from the camp · ${f2(dT)} from ${T.name} (land ${T.r})`);
+  }
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

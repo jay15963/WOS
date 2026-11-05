@@ -10,7 +10,7 @@
 
 import { defineIntent, defineOp } from '../../net/registry.js';
 import { ARMY, rankOfSvc } from '../content/army.js';
-import { joinReason, inAction, newRecord, desertToast, uidFor } from '../army.js';
+import { joinReason, inAction, newRecord, desertToast, uidFor, travelWhy, travelSpot } from '../army.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const int = (v, d = 0) => Math.floor(num(v, d));
@@ -90,6 +90,20 @@ defineIntent('army.join', {
     const r = newRecord(game, u, sid), s = realmOf(game).settlements[sid];
     net.emit('army.rec', { u, r, ban: 0, ev: 'join', by: actor.pid, toastKind: 'good',
       toast: `Você se alistou ${s.kind === 'village' ? 'na milícia' : s.kind === 'castle' ? 'na guarnição' : 'no exército'} de ${s.name} como ${ARMY.ranks[0].name}: siga as ordens do general` });
+  },
+});
+
+// "Ir até o exército" (owner's decision, docs/REINOS.md §15): no shared state changes — the host checks and answers the spot;
+// the owner moves its own avatar there (ui/armyHud.js), no time skipped
+defineIntent('army.travel', {
+  doc: 'An enlisted player in a place of its kingdom travels to the army it follows (beside the column on the march / at the gathering, at the camp of a siege): the host checks (not near enemies, not in a fight, not on a siege engine, far from the army) and answers { x, y, label }; the owner moves itself.',
+  args: {},
+  run(game, a, actor) {
+    const u = uidFor(game, actor.pid), r = u ? armyState(game).en.get(u) : null;
+    const why = travelWhy(game, r, actor.ent, actor.pid);
+    if (why) return why;
+    const to = travelSpot(game, r);
+    return { x: Math.round(to.x * 100) / 100, y: Math.round(to.y * 100) / 100, label: String(to.label).slice(0, 60) };
   },
 });
 

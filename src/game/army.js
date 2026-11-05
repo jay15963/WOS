@@ -26,6 +26,7 @@ import { meUid, recOf, memberOf, repOf, atMural, onlineUids, entOfPid, settlemen
 import { siegeIndex, ownerOf } from './mut/realms.js';
 import { structsOfType } from './mut/structures.js';
 import { WAR as WAR3A } from './content/war.js';
+import { settlementAt } from '../world/realm/realm.js';
 
 const realmOf = (game) => game.towns?.realm || null;
 const atWar = (game, a, b) => a >= 0 && b >= 0 && a !== b && !!game.realms?.atWar?.(a, b);
@@ -189,11 +190,17 @@ function campOf(game, k, s, F) {
 }
 const nearestTo = (game, list, x, y) => { let b = null, bd = 1e9; for (const o of list) { const m = mid(o), d = hyp(game, m.x, m.y, x, y); if (d < bd) { bd = d; b = o; } } return b; };
 const wp = (x, y, label) => (Number.isFinite(x) && Number.isFinite(y) ? { x, y, label } : null);
-function etaPt(game, a) {
+// when a march arrives, readable: "em menos de 1 hora", "em ~5 horas", "em ~1 dia", "em ~2 dias e meio" (of game time)
+export function inGameTime(game, s) {
+  const h = s / ((game.env?.dayLength || 780) / 24);
+  if (h < 1) return 'em menos de 1 hora de jogo';
+  if (h < 20) return `em ~${Math.round(h)} ${Math.round(h) === 1 ? 'hora' : 'horas'} de jogo`;
+  const d = Math.round((h / 24) * 2) / 2, n = Math.floor(d), half = d - n > 0;
+  return `em ~${n ? `${n} ${n === 1 ? 'dia' : 'dias'}${half ? ' e meio' : ''}` : 'meio dia'} de jogo`;
+}
+function etaPt(game, a, what = 'chega') {
   const e = game.realms.etaOf?.(a);
-  if (!e) return '';
-  const h = e.s / ((game.env?.dayLength || 780) / 24);
-  return ` · faltam ${Math.round(e.left)} passos, ≈ ${h < 1 ? 'menos de 1 h' : Math.round(h) + ' h'}`;
+  return e ? ` · ${what} ${inGameTime(game, e.s)}` : '';
 }
 // a field battle played near the players (3b's public row): its phases
 function liveBattleOrder(game, live, id, M, EK) {
@@ -284,8 +291,8 @@ export function orderFor(game, r, me) {
   }
   if (a.state === 'march' || a.state === 'retreat') {
     const far = !withIt; // (marching: not with the column — go to it first)
-    if (a.state === 'retreat' || a.mission === 'return') return { key: `ret|${a.id}`, code: 'retreat', tone: 'retreat', title: far ? `Recuar! O exército volta para ${M.name}` : `Recuar! Volte com o exército para ${M.name}`, sub: far ? `${Math.round(dA)} passos até ele` : etaPt(game, a).slice(3), wp: far ? armyWp : wp(M.x, M.y, M.name) };
-    if (a.mission === 'join') { const G0 = R.armies.get(a.grp), at = G0 ? realm.settlements[G0.home] : T; return { key: `join|${a.id}`, code: 'join', tone: 'march', title: far ? 'Alcance o contingente' : `Marche com o contingente até ${at?.name || ''}`, sub: far ? `${Math.round(dA)} passos · ele vai se juntar à campanha` : etaPt(game, a).slice(3), wp: far ? armyWp : at ? wp(at.x, at.y, at.name) : armyWp }; }
+    if (a.state === 'retreat' || a.mission === 'return') return { key: `ret|${a.id}`, code: 'retreat', tone: 'retreat', title: far ? `Recuar! O exército volta para ${M.name}` : `Recuar! Volte com o exército para ${M.name}`, sub: far ? `${Math.round(dA)} passos até ele` : `${a.n} soldados${etaPt(game, a, 'em casa')}`, wp: far ? armyWp : wp(M.x, M.y, M.name) };
+    if (a.mission === 'join') { const G0 = R.armies.get(a.grp), at = G0 ? realm.settlements[G0.home] : T; return { key: `join|${a.id}`, code: 'join', tone: 'march', title: far ? 'Alcance o contingente' : `Marche com o contingente até ${at?.name || ''}`, sub: far ? `${Math.round(dA)} passos · ele vai se juntar à campanha` : `${a.n} soldados${etaPt(game, a)}`, wp: far ? armyWp : at ? wp(at.x, at.y, at.name) : armyWp }; }
     return far ? { key: `march|${a.id}`, code: 'march', tone: 'march', title: 'Alcance o exército', sub: `${a.mission === 'relief' ? 'Ele vai socorrer' : 'Ele marcha sobre'} ${T?.name || ''} · ${Math.round(dA)} passos daqui`, wp: armyWp }
       : { key: `march|${a.id}`, code: 'march', tone: 'march', title: a.mission === 'relief' ? `Socorra ${T?.name || ''}: marche com o exército` : `Marche com o exército até ${T?.name || ''}`, sub: `${a.n} soldados do Reino de ${K}${etaPt(game, a)}`, wp: T ? wp(T.x, T.y, T.name) : armyWp };
   }
@@ -301,6 +308,51 @@ export function orderFor(game, r, me) {
   return { key: `camp|${a.id}`, code: 'camp', tone: 'march', title: far ? 'Alcance o exército' : 'Aguarde no acampamento', sub: `${a.n} soldados${far ? ` · ${Math.round(dA)} passos` : ''}`, wp: armyWp };
 }
 
+// ---------- "Ir até o exército" (owner's decision: a long march need not be walked) ----------
+// From a place of its kingdom (its town land), an enlisted player travels to the army it follows: beside the column on
+// the march / at the gathering, at the camp of a siege. No time skipped — only that player moves (its own avatar);
+// the host checks it (intent army.travel) and answers the spot. Refused near enemies, in a fight, on a siege engine.
+const TRAVEL_STATES = new Set(['march', 'retreat', 'camp', 'siege']);
+export function travelSpot(game, r) {
+  const R = game.realms, a = r?.a ? R?.armies?.get(r.a) : null;
+  if (!a || a.k !== r.k || !TRAVEL_STATES.has(a.state)) return null;
+  R.posOf(a);
+  const realm = realmOf(game), F = game.warfare?.forces?.get(a.id);
+  if (a.state === 'siege' && a.target >= 0) {
+    // the camp: its tents (3b) or the camp spot of the numbers — a few tiles behind it, away from the walls
+    const T = realm.settlements[a.target], c = campOf(game, a.k, T, F?.kind === 'siege' ? F : null) || { x: a.x, y: a.y };
+    const dx = game.world.dx(c.x, T.x), dy = c.y - T.y, d = Math.hypot(dx, dy) || 1;
+    return { x: c.x + (dx / d) * 9, y: c.y + (dy / d) * 9, label: `o acampamento diante de ${T.name}`, army: a.id };
+  }
+  const x = F?.kind === 'march' && Number.isFinite(F.x) ? F.x : a.x, y = F?.kind === 'march' && Number.isFinite(F.y) ? F.y : a.y, h = a._dir ?? 0;
+  return { x: x - Math.cos(h) * 3 + Math.sin(h) * 3, y: y - Math.sin(h) * 3 - Math.cos(h) * 3, label: a.state === 'camp' ? `a reunião em ${realm.settlements[a.home].name}` : 'o exército', army: a.id };
+}
+// why `ent` (an enlisted player, pid) may not travel now (null = it may) — the same on the host (which decides) and on
+// the owner (the card shows the button only then)
+export function travelWhy(game, r, ent, pid) {
+  if (!r) return 'Você não está em nenhum exército';
+  if (!ent || ent.dead) return 'Você está morto';
+  const R = game.realms, a = r.a ? R?.armies?.get(r.a) : null, K = Kn(game, r.k);
+  if (!a || a.k !== r.k || a.state === 'home') return 'Seu exército não está em campanha';
+  if (a.state === 'battle') return 'O exército está em batalha: vá até lá a pé';
+  const to = travelSpot(game, r);
+  if (!to) return 'Seu exército não está em campanha';
+  if (hyp(game, ent.x, ent.y, to.x, to.y) < ARMY.far) return 'Você já está perto do exército';
+  const s = settlementAt(realmOf(game), ent.x, ent.y, 6);
+  if (!s || ownerOf(game, s.id) !== r.k) return `Viaje a partir de um lugar do Reino de ${K} (a terra de uma vila, castelo ou cidade dele)`;
+  if (homeSiege(game, { sid: s.id, k: r.k })) return `${s.name} está sob cerco: não dá para sair agora`;
+  for (const o of structsOfType(game, 'battering_ram').concat(structsOfType(game, 'siege_tower'), structsOfType(game, 'trebuchet'), structsOfType(game, 'catapult'))) {
+    if (o.user === pid || (o.push || []).includes(pid)) return 'Solte a máquina de cerco antes de viajar';
+  }
+  for (const e of game.entities) { // (enemies near: a fight)
+    if (e.dead || !(e.isMob || e.remote)) continue;
+    if (Math.abs(e.x - ent.x) > 16 || Math.abs(e.y - ent.y) > 16 || Math.hypot(e.x - ent.x, e.y - ent.y) > 16) continue;
+    const foe = e.faction === 'walker' || e.faction === 'bandit' || (e.temper === 'hostile' && e.state === 'chase') || (e.soldier && atWar(game, r.k, e.soldier.k)) || (e.npc?.guard && atWar(game, r.k, ownerOf(game, e.npcS?.sid))) || e.pvp;
+    if (foe) return 'Inimigos por perto: não dá para viajar no meio de uma luta';
+  }
+  return null;
+}
+
 // ---------- install (every peer) ----------
 export function installArmy(game) {
   const A = armyState(game);
@@ -314,6 +366,8 @@ export function installArmy(game) {
     reqs: (u, sid) => joinReqs(game, u, sid),
     inAction: (r) => inAction(game, r),
     wage: (r) => wageOf(game, r),
+    travelWhy: (r, ent, pid) => travelWhy(game, r, ent, pid),
+    travelSpot: (r) => travelSpot(game, r),
     order: (u = meUid(game), me = null) => orderFor(game, recFor(game, u), me || (u === meUid(game) ? game.player : null)),
     npcWhy: (src, dst) => npcWhy(game, src, dst),
     pvpWhy: (a, b, name) => pvpWhy(game, a, b, name),

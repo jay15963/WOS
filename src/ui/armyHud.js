@@ -12,6 +12,7 @@ import { notify } from './notify.js';
 import { WAR_ICONS } from './warHud.js';
 import { ARMY } from '../game/content/army.js';
 import { meUid, kingdomOf, settlement, fmt } from '../game/eco.js';
+import { solNear } from '../game/soldier.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CSS = `
@@ -30,6 +31,8 @@ const CSS = `
 #ordcard .oc-b .d { color: #ffb59e; font-weight: 800; }
 #ordcard .oc-b i { display: block; margin-top: 3px; color: #ffe39a; font-style: italic; }
 #ordcard.min .oc-b { display: none; }
+#ordcard .oc-go { display: block; margin: 6px 0 0; padding: 5px 10px; border-radius: 8px; border: 1.5px solid #24160d; background: linear-gradient(180deg, #f0c24a, #c8922a); color: #24160d; font: 800 12.5px/1.1 var(--n-fd); letter-spacing: 0.4px; text-transform: uppercase; cursor: pointer; }
+#ordcard .oc-go:active { transform: translateY(1px); }
 #ordcard.tone-fight { border-color: #8e1f16; box-shadow: inset 0 0 0 1px rgba(255,120,90,0.35), 0 0 12px rgba(232,70,58,0.3); }
 #ordcard.tone-defend { border-color: #8e1f16; }
 #ordcard.tone-good { background: linear-gradient(180deg, rgba(34,52,24,0.93), rgba(18,28,12,0.93)); }
@@ -60,6 +63,7 @@ export function installArmyHud(game) {
   card.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     if (e.target.closest('.oc-x')) { ui.hideKey = ui.key; card.classList.add('hidden'); game.army.wp = null; return; }
+    if (e.target.closest('.oc-go')) { travel(); return; }
     ui.min = !ui.min; card.classList.toggle('min', ui.min); ui.last = '';
   });
   const me = () => meUid(game);
@@ -87,6 +91,28 @@ export function installArmyHud(game) {
     const s = settlement(game, r.sid);
     notify('Você caiu em combate', { sub: `Renasce como sempre — sem perder a reputação nem o posto no exército de ${s?.name || ''}. Volte às ordens do general.`, kind: 'info', icon: FLAG, ms: 7000, key: 'army-death' });
   });
+  // "Ir até o exército": the host says where (army.travel), the player goes there (its own avatar; the world streams in)
+  const travel = () => {
+    const g = game, p = g.player;
+    if (ui.goT && g.time - ui.goT < 2) return;
+    ui.goT = g.time;
+    g.net.request('army.travel', {}, {
+      onReject: (why) => why && g.events.emit('error', { text: why }),
+      onOk: (to) => {
+        if (!to || !Number.isFinite(to.x) || p.dead) return;
+        p.x = to.x; p.y = to.y; p.lv = 0; p.z = 0; p._fallV = 0; p._hop = null; p.moving = false; p.autoMove = null; p.work = null; p.action = null;
+        p.target = null; p.autoAttack = false; g.events.emit('target', { target: null });
+        if (g.ctl) g.ctl.goal = null;
+        if (p.nav) { p.nav.path = null; p.nav.fails = 0; }
+        g.cam.x = p.x; g.cam.y = p.y;
+        // (the chunks there load: then out of anything solid)
+        g.later(1.6, () => { const sp = solNear(g, p.x, p.y, 4); if (sp && Math.hypot(sp[0] - p.x, sp[1] - p.y) > 0.05) { p.x = sp[0]; p.y = sp[1]; } });
+        notify(`Você viajou até ${to.label}`, { sub: 'Junto do exército — siga as ordens do general', kind: 'good', icon: FLAG, ms: 5000, key: 'army-travel' });
+        g.events.emit('armytravel', { x: p.x, y: p.y, label: to.label });
+        ui.last = '';
+      },
+    });
+  };
   const arrowOf = (x, y) => {
     const p = game.player, dx = game.world.dx(x, p.x), dy = y - p.y, d = Math.hypot(dx, dy);
     const [vx, vy] = game.toViewDir ? game.toViewDir(dx, dy) : [dx, dy];
@@ -116,15 +142,16 @@ export function installArmyHud(game) {
     const K = kingdomOf(g, r.k), s = settlement(g, r.sid), col = K ? K.color.join(',') : '140,40,30';
     const ar = o.wp ? arrowOf(o.wp.x, o.wp.y) : null;
     const cry = ui.cry && g.time - ui.cryT < 7 ? ui.cry : '';
+    const go = !A.travelWhy(r, g.player, g.net.pid); // (far from the army, in a place of its kingdom, no enemy near: the button)
     const dist = ar && ar.d > 4 && !/passos/.test(o.sub) ? ` · <span class="d">${Math.round(ar.d)} passos</span>` : ''; // (the sub may tell the road's distance already)
-    const key = `${o.key}|${o.title}|${o.sub}|${ar ? Math.round(ar.a * 8) + ':' + Math.round(ar.d / 4) : ''}|${cry}|${ui.min}|${r.rank}`;
+    const key = `${o.key}|${o.title}|${o.sub}|${ar ? Math.round(ar.a * 8) + ':' + Math.round(ar.d / 4) : ''}|${cry}|${ui.min}|${r.rank}|${go}`;
     if (key === ui.last) return;
     ui.last = key;
     card.className = `tone-${o.tone}${ui.min ? ' min' : ''}`;
     card.innerHTML = `<div class="oc-h"><span class="oc-ic" style="background:rgb(${col})">${ICON_OF[o.tone] || FLAG}</span>
       <span><small class="oc-who">Ordem do general · ${esc(ARMY.ranks[r.rank].name)}</small><b class="oc-t">${esc(o.title)}</b></span>
       <span class="oc-ar">${ar && ar.d > 3 ? `<span style="display:inline-block;transform:rotate(${(ar.a * 180 / Math.PI).toFixed(0)}deg)">➜</span>` : ar ? '✓' : ''}</span><button class="oc-x" aria-label="Esconder">✕</button></div>
-      <div class="oc-b">${esc(o.sub)}${dist}${cry ? `<i>«${esc(cry)}»</i>` : ''}</div>`;
+      <div class="oc-b">${esc(o.sub)}${dist}${cry ? `<i>«${esc(cry)}»</i>` : ''}${go ? '<button class="oc-go" data-go>Ir até o exército</button>' : ''}</div>`;
   };
   // which remote players this one may fight (e.pvp: the target / tap / arrow rules; the host decides the hit)
   const pvpFlags = (g) => {
