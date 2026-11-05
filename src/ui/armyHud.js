@@ -89,7 +89,8 @@ export function installArmyHud(game) {
     const r = game.army?.mine?.();
     if (!r) return;
     const s = settlement(game, r.sid);
-    notify('Você caiu em combate', { sub: `Renasce como sempre — sem perder a reputação nem o posto no exército de ${s?.name || ''}. Volte às ordens do general.`, kind: 'info', icon: FLAG, ms: 7000, key: 'army-death' });
+    const war = game.army.inAction(r) || game.army.wage(r) > ARMY.ranks[r.rank].pay; // (the kingdom at war: campaign pay)
+    notify(war ? 'Você caiu em combate' : 'Você morreu', { sub: `Renasce como sempre — sem perder a reputação nem o posto no exército de ${s?.name || ''}.${war ? ' Volte às ordens do general.' : ''}`, kind: 'info', icon: FLAG, ms: 7000, key: 'army-death' });
   });
   // "Ir até o exército": the host says where (army.travel), the player goes there (its own avatar; the world streams in)
   const travel = () => {

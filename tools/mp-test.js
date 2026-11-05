@@ -10545,7 +10545,7 @@ def('AR7', {
   t.watch(() => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (!notes.includes(x)) notes.push(x); } }, 150);
   // dying
   MG.player.killPlayer(G.game);
-  await t.waitFor(() => notes.some((x) => /Você caiu em combate/.test(x)), 3000, 'the notice: renasce sem perder a reputação nem o posto');
+  await t.waitFor(() => notes.some((x) => /(Você caiu em combate|Você morreu).*sem perder a reputação nem o posto/.test(x)), 3000, 'the notice: renasce sem perder a reputação nem o posto');
   await t.sleep(800);
   MG.player.respawnPlayer(G.game);
   await t.waitFor(() => !G.game.player.dead, 4000, 'respawned');
