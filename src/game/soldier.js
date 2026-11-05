@@ -420,7 +420,13 @@ function follow(game, F, m, O, dt) {
   switch (O.k) {
     case 'slot': case 'hold': case 'go': {
       const d = Math.hypot(O.x - m.x, O.y - m.y);
-      if (d < 0.3) { m.moving = false; if (O.fx != null && !m.action) { m.facing = facingFrom(O.fx, O.fy, m.facing); } if (O.then && O.k === 'go') { m.order = O.then; } return; }
+      if (d < 0.3) {
+        m.moving = false;
+        if (O.fx != null && !m.action) { m.facing = facingFrom(O.fx, O.fy, m.facing); }
+        if (O.idle && !m.action && R01(m, 5) < dt * 0.35) m.action = { type: O.idle, t: 0, dur: O.idle === 'talk' ? 1.7 : 1.3 }; // (a camp's life: sharpening, a chat, a bite)
+        if (O.then && O.k === 'go') { m.order = O.then; }
+        return;
+      }
       const spd = O.run || d > 6 ? (F.phase === 'march' ? WAR.speed.walk * 1.4 : WAR.speed.run) : d > 2 ? WAR.speed.walk * 1.25 : WAR.speed.walk;
       const s = stepTo(game, m, O.x, O.y, O.spd || spd, dt, 0.25);
       if (s === 'stuck') { m._stk = (m._stk || 0) + 1; if (unstick(game, m, O.x, O.y) || m._stk > 4) m._stk = 0; }
@@ -459,6 +465,7 @@ function flee(game, F, m, O, dt) {
 }
 
 // separation: soldiers do not walk through each other (the ones moving step aside)
+export const SPACE = 0.66; // tiles between two soldiers' bodies (their sprites never stack)
 export function separate(game, list) {
   const n = list.length;
   for (let i = 0; i < n; i++) {
@@ -467,13 +474,16 @@ export function separate(game, list) {
     for (let j = i + 1; j < n; j++) {
       const b = list[j];
       if (b.dead || b.z > 0.5) continue;
-      const rr = (a.r + b.r) * 0.95, dx = b.x - a.x, dy = b.y - a.y;
+      const rr = SPACE, dx = b.x - a.x, dy = b.y - a.y;
       if (Math.abs(dx) > rr || Math.abs(dy) > rr) continue;
-      const am = a.moving || a.state === 'chase', bm = b.moving || b.state === 'chase';
-      if (!am && !bm) continue;
       const d = Math.hypot(dx, dy);
-      if (d < 1e-3 || d >= rr) continue;
-      const push = (rr - d) * 0.5, ux = dx / d, uy = dy / d, ka = am ? (bm ? 1 : 2) : 0, kb = bm ? (am ? 1 : 2) : 0;
+      if (d >= rr) continue;
+      const am = a.moving || a.state === 'chase', bm = b.moving || b.state === 'chase';
+      const busy = (q) => !!q.job && !q.job.camp; // (at an engine / a ladder: it holds its place)
+      // (two standing: both ease apart a little; a moving one steps aside from a standing one)
+      const ka = busy(a) ? 0 : am ? (bm ? 1 : 2) : bm ? 0 : 0.6, kb = busy(b) ? 0 : bm ? (am ? 1 : 2) : am ? 0 : 0.6;
+      if (!ka && !kb) continue;
+      const ux = d < 1e-3 ? Math.cos(a.id) : dx / (d || 1), uy = d < 1e-3 ? Math.sin(a.id) : dy / (d || 1), push = (rr - d) * 0.5;
       if (ka) npcMove(game, a, -ux * push * ka * 0.5, -uy * push * ka * 0.5, solPass);
       if (kb) npcMove(game, b, ux * push * kb * 0.5, uy * push * kb * 0.5, solPass);
     }

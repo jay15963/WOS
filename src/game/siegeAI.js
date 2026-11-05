@@ -253,13 +253,13 @@ export function siegeTick(game, F) {
       break;
     }
     case 'camp': {
-      formationAt(game, F, P.camp.x - P.A.x * 3, P.camp.y - P.A.y * 3, -P.A.x, -P.A.y, 0);
+      campLife(game, F, ents);
       raiseCamp(game, F, ents);
       if (G.campDone) setPhase(game, F, 'build');
       break;
     }
     case 'build': {
-      formationAt(game, F, P.camp.x - P.A.x * 3, P.camp.y - P.A.y * 3, -P.A.x, -P.A.y, 0);
+      campLife(game, F, ents);
       buildEngines(game, F, ents);
       const eng = G.jobs.filter((j) => j.role !== 'ws' && !j.failed);
       if (eng.some((j) => j.role === 'treb' && j.done)) setPhase(game, F, 'bombard', `Os trabucos do Reino de ${F.name} começam o bombardeio de ${P.s.name}`);
@@ -267,7 +267,7 @@ export function siegeTick(game, F) {
       break;
     }
     case 'bombard': {
-      formationAt(game, F, P.camp.x - P.A.x * 3, P.camp.y - P.A.y * 3, -P.A.x, -P.A.y, 0);
+      campLife(game, F, ents);
       buildEngines(game, F, ents);
       bombard(game, F, ents);
       const op = openingOnSide(game, F);
@@ -339,6 +339,37 @@ function formationAt(game, F, ax, ay, fx, fy, eng = 4, column = false, only = nu
   const ab = rows * B.rowD + 2;
   arch.sort((a, b) => a.soldier.i - b.soldier.i).forEach((m, j) => put(m, j % Wa, Math.floor(j / Wa), Wa, ab, column ? 0 : Math.max(eng, 6)));
   gen.forEach((m) => put(m, 0, 0, 1, Math.max(1.5, ab - 1.2), 3));
+}
+// a camp that looks like one: sentries at its edge facing the place, soldiers around the fires (a bite, a chat), others
+// among the tents sharpening their weapons and talking, the general before the banners — each its own spot (cached;
+// a free tile near it), never a line
+function campLife(game, F, ents) {
+  const G = F.sg, P = G.plan, c = P.camp, A = P.A, tx = -A.y, ty = A.x, cr = WAR.siege.campR;
+  const S = G.life || (G.life = new Map());
+  const fires = (G.spots || campSpots(P)).filter((q) => q[0] === 'campfire').map((q) => [q[1], q[2]]);
+  const free = ents.filter((m) => !m.job).sort((a, b) => a.soldier.i - b.soldier.i);
+  const inf = free.filter((m) => m.soldier.role === 'spear' || m.soldier.role === 'sword'), nS = Math.min(6, Math.max(2, Math.ceil(inf.length / 5)));
+  let sentry = 0, fire = 0, rest = 0;
+  for (const m of free) {
+    let q = S.get(m.soldier.i);
+    if (!q) {
+      const r = m.soldier.role;
+      let x, y, fx = -A.x, fy = -A.y, idle = null;
+      if (r === 'general') { x = c.x - A.x * (cr + 0.2); y = c.y - A.y * (cr + 0.2); }
+      else if ((r === 'spear' || r === 'sword') && sentry < nS) { const off = (sentry - (nS - 1) / 2) * 3.4; x = c.x - A.x * (cr + 3.5) + tx * off; y = c.y - A.y * (cr + 3.5) + ty * off; sentry++; }
+      else if (fires.length && fire < fires.length * 6) {
+        const f = fires[fire % fires.length], k = Math.floor(fire / fires.length), a = k * (Math.PI / 3) + (fire % fires.length) * 0.5;
+        x = f[0] + Math.cos(a) * 1.55; y = f[1] + Math.sin(a) * 1.55; fx = -Math.cos(a); fy = -Math.sin(a); idle = k % 3 === 0 ? 'eat' : k % 3 === 1 ? 'talk' : null; fire++;
+      } else {
+        const a = rest * 2.39996, rad = cr * 0.35 + (rest % 4) * 0.9;
+        x = c.x + Math.cos(a) * rad + A.x * 1.5; y = c.y + Math.sin(a) * rad + A.y * 1.5; fx = Math.cos(a + 1.6); fy = Math.sin(a + 1.6); idle = rest % 3 === 0 ? 'talk' : 'craft'; rest++;
+      }
+      const p = solNear(game, x, y, 2) || [x, y];
+      q = { k: 'slot', x: p[0], y: p[1], fx, fy, eng: 5, leash: 10, idle };
+      S.set(m.soldier.i, q);
+    }
+    if (m.order !== q) m.order = q;
+  }
 }
 function slotOf(F, u) {
   const P = F.sg.plan;
@@ -602,7 +633,7 @@ function assault(game, F, ents) {
   // everyone else: the archers to their line, the infantry through the openings (the flow field) or waiting at the
   // assembly point, the general rallying behind
   const [nx, ny] = P.side;
-  const waiting = [];
+  const waiting = [], inWay = [];
   for (const m of ents) {
     if (used.has(m) || m.job) continue;
     const r = m.soldier.role;
@@ -610,8 +641,29 @@ function assault(game, F, ents) {
     if (r === 'general') { m.order = { k: 'slot', x: P.assembly.x + nx * 4, y: P.assembly.y + ny * 4, fx: -nx, fy: -ny, eng: 3 }; continue; }
     if ((m.order?.k === 'flow' || m.order?.ring) && P.ff.dist(m.x, m.y) < 50) { m.order = ringOrder(game, P, m); continue; } // (at the plaza: around it, not in a heap)
     if (m.order?.k === 'flow' && P.ff.dist(m.x, m.y) < 65535) continue; // (already on its way in)
-    if (P.ff.dist(m.x, m.y) < 65535 && P.ff.d) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; continue; }
+    if (P.ff.dist(m.x, m.y) < 65535 && P.ff.d) { inWay.push(m); continue; }
     waiting.push(m);
+  }
+  // (outside the walls with a way in: by the nearest opening — the few nearest it go in, the others wait in a wedge of
+  // ranks before it and move up as the front ones get in)
+  const ops = game.townDefense?.openings(G.sid) || [], per = P.per, w = game.world, by = new Map();
+  for (const m of inWay) {
+    if (!ops.length || per.inside(m.x, m.y, w)) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; continue; }
+    let best = null, bd = 1e9;
+    for (const o of ops) { const d = Math.hypot(o.x - m.x, o.y - m.y); if (d < bd) { bd = d; best = o; } }
+    if (!by.has(best)) by.set(best, []);
+    by.get(best).push([bd, m]);
+  }
+  for (const [o, L] of by) {
+    L.sort((a, b) => a[0] - b[0]);
+    const go = 2 + Math.min(3, o.w | 0), ox = -o.fy, oy = o.fx;
+    L.forEach(([, m], j) => {
+      if (j < go) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; return; }
+      const q = j - go, r = Math.floor((Math.sqrt(8 * q + 1) - 1) / 2), c = q - (r * (r + 1)) / 2, back = 2.6 + r * 1.25, side = (c - r / 2) * 1.15;
+      const x = o.x + o.fx * back + ox * side, y = o.y + o.fy * back + oy * side;
+      if (m.order?.wedge && Math.hypot(m.order.x - x, m.order.y - y) < 0.4) return;
+      m.order = { k: 'slot', x, y, fx: -o.fx, fy: -o.fy, eng: 5, leash: 6, wedge: true };
+    });
   }
   // (the ones with no way in: in line at the assembly point, out of the archers' reach)
   waiting.sort((a, b) => a.soldier.i - b.soldier.i).forEach((m, j) => { const sp = spread(P.assembly, P.side, j, 1.15, 12); m.order = { k: 'slot', x: sp[0], y: sp[1], fx: -nx, fy: -ny, eng: 5, leash: 8 }; });
