@@ -246,9 +246,8 @@ export function orderFor(game, r, me) {
     const far = !withIt; // (marching: not with the column — go to it first)
     if (a.state === 'retreat' || a.mission === 'return') return { key: `ret|${a.id}`, code: 'retreat', tone: 'retreat', title: far ? `Recuar! O exército volta para ${M.name}` : `Recuar! Volte com o exército para ${M.name}`, sub: far ? `${Math.round(dA)} passos até ele` : etaPt(game, a).slice(3), wp: far ? armyWp : wp(M.x, M.y, M.name) };
     if (a.mission === 'join') { const G0 = R.armies.get(a.grp), at = G0 ? realm.settlements[G0.home] : T; return { key: `join|${a.id}`, code: 'join', tone: 'march', title: far ? 'Alcance o contingente' : `Marche com o contingente até ${at?.name || ''}`, sub: far ? `${Math.round(dA)} passos · ele vai se juntar à campanha` : etaPt(game, a).slice(3), wp: far ? armyWp : at ? wp(at.x, at.y, at.name) : armyWp }; }
-    const verb = a.mission === 'relief' ? 'Socorra' : 'Marche sobre';
     return far ? { key: `march|${a.id}`, code: 'march', tone: 'march', title: 'Alcance o exército', sub: `${a.mission === 'relief' ? 'Ele vai socorrer' : 'Ele marcha sobre'} ${T?.name || ''} · ${Math.round(dA)} passos daqui`, wp: armyWp }
-      : { key: `march|${a.id}`, code: 'march', tone: 'march', title: a.mission === 'relief' ? `Socorra ${T?.name || ''}: marche com o exército` : `Marche com o exército até ${T?.name || ''}`, sub: `${verb} ${T?.name || ''}${etaPt(game, a)}`, wp: T ? wp(T.x, T.y, T.name) : armyWp };
+      : { key: `march|${a.id}`, code: 'march', tone: 'march', title: a.mission === 'relief' ? `Socorra ${T?.name || ''}: marche com o exército` : `Marche com o exército até ${T?.name || ''}`, sub: `${a.n} soldados do Reino de ${K}${etaPt(game, a)}`, wp: T ? wp(T.x, T.y, T.name) : armyWp };
   }
   if (a.state === 'battle') {
     const f = R.armies.get(a.foe), EK = Kn(game, f?.k ?? -1);
@@ -404,7 +403,7 @@ function hostTick(game) {
       const rank = Math.max(r.rank, rankOfSvc(svc)), wage = Math.round(ARMY.ranks[rank].pay * (war ? ARMY.warPay : 1)); // (a day served: promoted at the dawn, paid as such)
       r = { ...r, paid: day, svc, rank };
       net.emit('army.rec', { u, r, ev: 'pay', by: pid, give: { coin: wage }, toastKind: 'good',
-        toast: `Soldo do dia: +${fmt(wage)} moedas (${ARMY.ranks[rank].name}${war ? ', em campanha ×1,5' : ''}) · +${rep} de reputação no Reino de ${Kn(game, r.k)}` });
+        toast: `${war ? 'Soldo de campanha' : 'Soldo do dia'}: +${fmt(wage)} moedas · +${rep} de reputação` });
       game.realms?.reward?.(pid, r.k, rep, '');
     }
   }

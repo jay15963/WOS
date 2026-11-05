@@ -22,7 +22,7 @@ const CSS = `
 #ordcard .oc-h { display: grid; grid-template-columns: 30px minmax(0, 1fr) 24px 20px; align-items: center; gap: 7px; width: 100%; padding: 6px 6px 6px 6px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; }
 #ordcard .oc-ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: #fff6e0; box-shadow: inset 0 0 0 1.5px rgba(0,0,0,0.35); }
 #ordcard .oc-ic svg { width: 18px; height: 18px; }
-#ordcard small.oc-who { display: block; font: 700 10.5px/1.1 system-ui, sans-serif; letter-spacing: 0.7px; text-transform: uppercase; color: #f0b9a2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ordcard small.oc-who { display: block; font: 700 10px/1.15 system-ui, sans-serif; letter-spacing: 0.5px; text-transform: uppercase; color: #f0b9a2; }
 #ordcard b.oc-t { display: block; font: 700 15px/1.12 var(--n-fd); letter-spacing: 0.3px; color: #fff1dc; margin-top: 1px; }
 #ordcard .oc-ar { width: 24px; height: 24px; display: grid; place-items: center; font: 800 18px/1 system-ui; color: #ff8a70; }
 #ordcard .oc-x { width: 20px; height: 20px; border: 0; border-radius: 6px; background: rgba(255,255,255,0.07); color: #e6d3ad; font-size: 12px; cursor: pointer; padding: 0; }
@@ -116,13 +116,13 @@ export function installArmyHud(game) {
     const K = kingdomOf(g, r.k), s = settlement(g, r.sid), col = K ? K.color.join(',') : '140,40,30';
     const ar = o.wp ? arrowOf(o.wp.x, o.wp.y) : null;
     const cry = ui.cry && g.time - ui.cryT < 7 ? ui.cry : '';
-    const dist = ar && ar.d > 4 ? ` <span class="d">${Math.round(ar.d)} passos</span>` : '';
+    const dist = ar && ar.d > 4 && !/passos/.test(o.sub) ? ` · <span class="d">${Math.round(ar.d)} passos</span>` : ''; // (the sub may tell the road's distance already)
     const key = `${o.key}|${o.title}|${o.sub}|${ar ? Math.round(ar.a * 8) + ':' + Math.round(ar.d / 4) : ''}|${cry}|${ui.min}|${r.rank}`;
     if (key === ui.last) return;
     ui.last = key;
     card.className = `tone-${o.tone}${ui.min ? ' min' : ''}`;
     card.innerHTML = `<div class="oc-h"><span class="oc-ic" style="background:rgb(${col})">${ICON_OF[o.tone] || FLAG}</span>
-      <span><small class="oc-who">Ordens do general · ${esc(ARMY.ranks[r.rank].name)} · ${esc(s?.name || '')}</small><b class="oc-t">${esc(o.title)}</b></span>
+      <span><small class="oc-who">Ordem do general · ${esc(ARMY.ranks[r.rank].name)}</small><b class="oc-t">${esc(o.title)}</b></span>
       <span class="oc-ar">${ar && ar.d > 3 ? `<span style="display:inline-block;transform:rotate(${(ar.a * 180 / Math.PI).toFixed(0)}deg)">➜</span>` : ar ? '✓' : ''}</span><button class="oc-x" aria-label="Esconder">✕</button></div>
       <div class="oc-b">${esc(o.sub)}${dist}${cry ? `<i>«${esc(cry)}»</i>` : ''}</div>`;
   };
@@ -149,7 +149,8 @@ export function installArmyHud(game) {
       const wp = g.army?.wp;
       if (!ctx || !wp) return;
       const W = cv.clientWidth, H = cv.clientHeight;
-      const [x, y] = g.worldToScreen(wp.x, wp.y, 1.9 + Math.sin(g.time * 3.2) * 0.14);
+      const p = g.player, dx = g.world.dx(wp.x, p.x), dy = wp.y - p.y, dd = Math.hypot(dx, dy);
+      const [x, y] = dd < 80 ? g.worldToScreen(wp.x, wp.y, 1.9 + Math.sin(g.time * 3.2) * 0.14) : [-1e4, -1e4]; // (far: only the edge arrow)
       ctx.save();
       if (x > 14 && y > 14 && x < W - 14 && y < H - 14) {
         // a red banner on a pole over the spot, with its label
@@ -160,15 +161,17 @@ export function installArmyHud(game) {
         ctx.font = '700 14px "Barlow Condensed", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3.5; ctx.strokeStyle = 'rgba(36,22,13,0.92)';
         ctx.strokeText(wp.label, 0, -22); ctx.fillStyle = '#ffd0c4'; ctx.fillText(wp.label, 0, -22);
       } else {
-        // off screen: an arrow at the edge toward it, with the distance
-        const cx = W / 2, cy = H / 2, a = Math.atan2(y - cy, x - cx), m = 30;
-        const k = Math.min((W / 2 - m) / Math.max(1e-3, Math.abs(Math.cos(a))), (H / 2 - m) / Math.max(1e-3, Math.abs(Math.sin(a))));
+        // off screen: an arrow at the edge toward it (the direction as the camera shows it), with the distance — kept off
+        // the HUD's corners (the radar, the action bar)
+        const [vx, vy] = g.toViewDir ? g.toViewDir(dx, dy) : [dx, dy], a = Math.atan2(vy, vx);
+        const L = 70, R = W - 70, T = Math.min(H * 0.32, 150), B = H - Math.min(H * 0.26, 140), cx = (L + R) / 2, cy = (T + B) / 2;
+        const k = Math.min((R - cx) / Math.max(1e-3, Math.abs(Math.cos(a))), (B - cy) / Math.max(1e-3, Math.abs(Math.sin(a))));
         const ex = cx + Math.cos(a) * k, ey = cy + Math.sin(a) * k;
         ctx.translate(ex, ey); ctx.rotate(a);
         ctx.fillStyle = '#e8463a'; ctx.strokeStyle = '#24160d'; ctx.lineWidth = 2.5;
         ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
         ctx.rotate(-a);
-        const p = g.player, d = Math.round(Math.hypot(g.world.dx(wp.x, p.x), wp.y - p.y));
+        const d = Math.round(dd);
         ctx.font = '700 13px "Barlow Condensed", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(36,22,13,0.92)';
         const ty = Math.sin(a) > 0.5 ? -18 : 26;
         ctx.strokeText(`${wp.label} · ${d}`, 0, ty); ctx.fillStyle = '#ffd0c4'; ctx.fillText(`${wp.label} · ${d}`, 0, ty);
