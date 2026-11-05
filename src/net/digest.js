@@ -17,8 +17,9 @@ import { townRows, gateRows } from '../game/mut/towns.js'; // settlements (docs/
 import { peopleDigestRows } from '../game/mut/people.js'; // settlements' people: the dead, the world's progress
 import { ecoDigestRows } from '../game/mut/eco.js'; // the economy of the kingdoms
 import { warDigestRows } from '../game/mut/warfare.js'; // the armies near the players (docs/REINOS.md §14)
+import { realmDigestRows } from '../game/mut/realms.js'; // the kingdoms' wars (docs/REINOS.md §13)
 
-export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats', 'towns', 'eco', 'war'];
+export const EXACT_PARTS = ['nat', 'dyn', 'structs', 'tiles', 'loot', 'crops', 'props', 'corpses', 'paths', 'boats', 'towns', 'eco', 'realms', 'war'];
 // fields that never take part in a comparison (cosmetic / derived); new runtime fields on shared objects
 // must be set in an op applier, serialized in snapshot.js and listed in the rows below, or listed here.
 export const COSMETIC_FIELDS = ['shake', 'flash', 'alpha', 'age', 'fall', 'workT', 'light', 'lift', 'vx', 'vy', 'vlift', 'ph', 't', 'rotten'];
@@ -79,6 +80,7 @@ export function dumpPart(game, part, ex = null) {
     case 'boats': return game.boats ? [...game.boats.map.values()].map((b) => [b.id, b.x.toFixed(2), b.y.toFixed(2), b.h.toFixed(2), b.seats.join('.'), b.pets.map((q) => q.join(':')).join('.')]).sort(cmp) : []; // (game/boats.js)
     case 'towns': return townRows(game, OK).concat(gateRows(game), peopleDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people)
     case 'eco': return ecoDigestRows(game); // (markets, players' reputation / jobs, properties, town chests: game/mut/eco.js)
+    case 'realms': return realmDigestRows(game); // (relations, owners, armies, news: game/mut/realms.js)
     case 'war': return warDigestRows(game, OK); // (the armies: forces' public rows, the structures of an army: game/mut/warfare.js)
     case 'env': return [['day', game.env.dayIndex], ['hour', +game.env.hour.toFixed(2)], ['weather', game.env.weather], ['wt', Math.round(game.worldTime)]];
     case 'ents': return game.net.entsApi?.debug?.() || null;

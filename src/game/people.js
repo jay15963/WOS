@@ -41,6 +41,7 @@ import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, i
 import { perimeterOf, openings, threatOf, assignDefense } from './defense.js';
 import { deadMap } from './mut/people.js';
 import { STORY_H } from './levels.js';
+import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (its guards wear its colours)
 
 const TAU = Math.PI * 2;
 export const CODE = /^p(\d+)\.(\d+)$/;
@@ -88,7 +89,7 @@ function lookOf(S, P, r) {
 export function buildPeople(game, sid) {
   const T = game.towns, R = T?.realm, s = R?.settlements[sid];
   if (!s) return null;
-  const L = T.layout(sid), K = R.kingdoms[s.k], B = K.banner;
+  const L = T.layout(sid), K = R.kingdoms[ownerOf(game, sid)], B = K.banner; // (a captured place: the conqueror's tabards)
   const S = { sid, s, L, K, kind: s.kind, name: s.name, seed: hash((s.seed | 0) ^ 0x51ed, sid), persons: [], homes: [], works: [] };
   const metal = METALS[B.m] || METALS.or;
   S.crest = { f: K.color.map((v) => v / 255), m: metal.map((v) => v / 255), fh: hex3(K.color), mh: hex3(metal), d: B.d || 'plain' };
@@ -314,6 +315,7 @@ export function installPeople(game) {
     forNear: (consider) => forNear(game, consider),
     label: (e) => labelOf(e),
     lines: (e) => talkLines(game, e),
+    fighting: npcFighting,
     alive: (sid, i) => !deadMap(game).has(`${sid}.${i}`),
     summary: (sid) => peopleSummary(game, sid),
     ents: () => game.entities.filter((e) => e.npc && !e.dead),
@@ -432,16 +434,20 @@ export function talkLines(game, e) {
 export function labelOf(e) { const P = e.npc; return P ? `${P.name} · ${P.jobPt}${P.guard ? '  ' + e.level : ''}` : null; }
 // "Conversar": a person near the local player (E) / a tap on one
 function talkIt(e) { return { kind: 'talk', o: e, x: e.x, y: e.y, reach: 1.9, verb: `Conversar com ${e.npc.first}`, icon: 'talk', prio: 2.5, talk: true }; }
-function tapIt(game, e) { return e && e.npc && !e.dead && !(e.z > 0.5) ? talkIt(e) : null; }
+// in a fight (chasing a foe / swinging, shooting): no "Conversar" — no button, a tap does nothing (the same on every peer:
+// the state and the action come with the creature stream)
+const FIGHT_ACTS = new Set(['attack', 'shoot', 'stab', 'slash', 'heavy', 'pierce']);
+export const npcFighting = (e) => !!e && (e.state === 'chase' || (!!e.action && FIGHT_ACTS.has(e.action.type)));
+function tapIt(game, e) { if (!e || !e.npc || e.dead || e.z > 0.5) return null; return npcFighting(e) ? false : talkIt(e); }
 function forNear(game, consider) {
   const p = game.player;
   for (const e of game.entities) {
-    if (!e.npc || e.dead || Math.abs(e.x - p.x) > 2.6 || Math.abs(e.y - p.y) > 2.6 || Math.abs((e.z || 0) - (p.z || 0)) > 0.5) continue;
+    if (!e.npc || e.dead || Math.abs(e.x - p.x) > 2.6 || Math.abs(e.y - p.y) > 2.6 || Math.abs((e.z || 0) - (p.z || 0)) > 0.5 || npcFighting(e)) continue;
     consider(talkIt(e));
   }
 }
 registerWork('talk', {
-  valid: (g, it) => !it.o.dead,
+  valid: (g, it) => !it.o.dead && !npcFighting(it.o),
   start(game, it) { game.events.emit('talk', { e: it.o }); return null; }, // (ui/talk.js opens the card; no work loop)
 });
 
@@ -568,7 +574,7 @@ function dangerOf(game, rec) {
 // side, a guard dead / back
 function defenseTick(game, rec) {
   const S = rec.S, ops = openings(game, S), D = deadMap(game);
-  rec.threat = rec.danger ? game.warfare?.threatOn?.(S.sid) || threatOf(game, S, rec.foes || [], rec.threat) : null; // (an army besieging it: its side — game/warfare.js)
+  rec.threat = rec.danger ? game.warfare?.threatOn?.(S.sid) || threatOf(game, S, rec.foes || [], rec.threat) || game.realms?.siegeThreat?.(S.sid, rec.threat) || null : null; // (an army besieging it: its side — the live siege, game/warfare.js; else the besiegers' camp by numbers, game/realms.js)
   let dk = 0;
   for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
   const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}`;
@@ -620,7 +626,7 @@ export function peopleSystem() {
         for (const sid of near) {
           let rec = Pp.live.get(sid);
           if (!rec) { const S = peopleOf(game, sid); if (!S) continue; rec = { sid, S, ents: new Map(), danger: false, dangerT: 0, repair: null, defSig: '' }; S.def = null; Pp.live.set(sid, rec); }
-          const dg = dangerOf(game, rec) || !!game.warfare?.threatOn?.(sid); // (+ an army camped before it: the bell, the walls manned)
+          const dg = dangerOf(game, rec) || !!game.warfare?.threatOn?.(sid) || !!game.realms?.besieged?.(sid); // (+ an army camped before it — live (game/warfare.js) or by numbers (phase 3a): the bell, home, the walls)
           if (dg) rec.dangerT = game.worldTime;
           const was = rec.danger;
           rec.danger = dg || (rec.danger && game.worldTime - rec.dangerT < 6); // (a few calm seconds before the all-clear)
@@ -704,7 +710,8 @@ export function peopleFxSystem() {
           if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30)) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
           else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30)) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
         });
-        // (no notice per death — the owner: a battle has many dead, a swarm of messages; the battle's own cries tell it)
+        // (no toast for each death — owner: in a battle there are many dead, a swarm of messages; the bell and the
+        //  all-clear tell the story)
       }
       // the bell: three strokes when it starts, then now and then while the danger lasts (heard near the place)
       if (bellSid >= 0) {

@@ -37,6 +37,7 @@ export function faceAngle(o, t) {
   if (o._opA != null) a = o._opA; // (on a ballista: the way it points, game/ballista.js)
   else if (seat && Number.isFinite(seat.ang)) a = seat.ang; // (a boat's bench: the bow's way, game/boats.js)
   else if (seat && LETTER[seat.face] !== undefined) a = LETTER[seat.face]; // (sitting: the chair's way, whatever it looks at)
+  else if (o._faceLockT > 0 && o._aimA != null && !o.isMob) a = o._aimA; // (an attack / ability aimed somewhere: game/combat.js faceTowards, abilities.js)
   else if (o.moving && !acting && vx * vx + vy * vy > 0.12) a = Math.atan2(vy, vx);
   else {
     const tg = o.target && !o.target.dead ? o.target : o.threat;

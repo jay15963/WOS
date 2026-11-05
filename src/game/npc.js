@@ -256,6 +256,7 @@ export function npcBrain(game, rec, m, dt) {
   if (m.hp < m.maxHp && m.state !== 'chase' && !rec.danger) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.02 * dt);
   if (P.guard) { if (guardFight(game, rec, m, dt)) return; }
   else if (flee(game, rec, m, dt)) return;
+  if (m.talkTo && talkHold(game, rec, m, dt)) return;
   if (m.repair && repairWork(game, rec, m, dt)) return;
   m.planT -= dt;
   if (m.planT <= 0 || !m.task) {
@@ -357,6 +358,20 @@ function runTask(game, rec, m, dt) {
     }
     default: m.task = null;
   }
+}
+
+// "Conversar" (intent npc.talk, game/mut/people.js): a player has this person's talk card open — it stops where it is
+// (its errand waits), faces them and gestures now and then. Over when the card closes, the player walks off (5 tiles),
+// 40 s go by without the card's refresh, or anything dangerous happens (the bell, a fight: those come first)
+function talkHold(game, rec, m, dt) {
+  const T = m.talkTo, q = T.ent;
+  if (game.worldTime > T.until || !q || q.dead || rec.danger || m.state === 'chase' || Math.hypot(game.world.dx(q.x, m.x), q.y - m.y) > 5 || Math.abs((q.z || 0) - (m.z || 0)) > 0.6) { m.talkTo = null; return false; }
+  m.moving = false;
+  if (m.action?.type === 'carry') m.action = null;
+  faceTowards(m, q);
+  T.g = (T.g ?? 0.6) - dt;
+  if (T.g <= 0) { T.g = 2.4 + R01(m) * 2.6; if (!m.action) m.action = { type: 'talk', t: 0, dur: ACT_DUR.talk }; }
+  return true;
 }
 
 // idle: look at a player standing by, at the street, at a partner (chats on the plaza: turns talking)
@@ -703,6 +718,7 @@ export function repairByNumbers(game, step = 0.2) {
     if (!(r.dmg > 0)) continue;
     const sid = +id.slice(1).split('.')[0];
     if (game.people.live.get(sid)?.ents.size) continue; // (a settlement with its people out: they do it by hand)
+    if (game.realms?.holdRepair?.(sid)) continue; // (under siege, or a siege just over: not mended by numbers yet — phase 3a)
     const o = game.world.objById.get(id), d = Math.max(0, r.dmg / 100 - step);
     game.net.emit(o?.sdmg ? 'siege.dmg' : 'struct.dmg', { id, d: +d.toFixed(4), x: r.x + 0.5, y: r.y + 0.5 });
   }

@@ -23,6 +23,7 @@ import { settlementLayout, layoutCached } from '../world/realm/layout.js';
 import { BUILDINGS } from './data.js';
 import { placeStructure, removeStructure, setDoorOpen, TOWN, defOf, setGeom, normRot } from './mut/structures.js';
 import { applyTownRows, defaultOpen, TOWN_ID } from './mut/towns.js';
+import { ownerOf, ownerAt } from './mut/realms.js'; // phase 3a: a place's kingdom now (captures — docs/REINOS.md §13)
 import { isNight, levelForDistance } from './mobs.js';
 import { allPlayers, minPlayerDist } from './players.js';
 import { spawnStock } from './livestock.js';
@@ -194,11 +195,15 @@ function placePiece(game, L, sid, k, rec) {
   if (st?.dmg) o.dmg = st.dmg / 100;
   // (cosmetic: the side a gate's leaves swing to — inside; the kingdom's colour on the mural)
   if (def.gate2) o._in = (rot & 1) ? (L.x < o.x ? 1 : -1) : (L.y > o.y - 0.5 ? 1 : -1);
-  if (type === 'town_mural') { const K = game.towns.realm.kingdoms[game.towns.realm.settlements[sid].k]; o._kc = K.color.map((v) => v / 255); o._kc2 = (METALS[K.banner.m] || METALS.or).map((v) => v / 255); rec.mural = o; }
+  if (type === 'town_mural') { muralColours(game, o, sid); rec.mural = o; }
   rec.objs.set(k, o);
   game.towns.stats.placed++;
   return o;
 }
+
+// the mural in its kingdom's colours (cosmetic; a captured place's in the new owner's: TOWN.recolor)
+function muralColours(game, o, sid) { const K = game.towns.realm.kingdoms[ownerOf(game, sid)]; o._kc = K.color.map((v) => v / 255); o._kc2 = (METALS[K.banner.m] || METALS.or).map((v) => v / 255); }
+TOWN.recolor = (game, sid) => { const m = game.towns?.live?.get(sid)?.mural; if (m && !m.removed) muralColours(game, m, sid); };
 
 // the chunk is dropped: its pieces go with it (not destroyed: TOWN.unloading), its animals too (host)
 function unloadChunk(game, c) {
@@ -302,16 +307,16 @@ export function realmNpcLevel(game, s) {
 function info(game, sid) {
   const realm = game.towns?.realm, s = realm?.settlements[sid];
   if (!s) return null;
-  const K = realm.kingdoms[s.k];
+  const K = realm.kingdoms[ownerOf(game, sid)]; // (its kingdom now: a captured place is the conqueror's)
   return { id: s.id, name: s.name, kind: s.kind, kindPt: KIND_PT[s.kind], pop: s.pop, x: s.x, y: s.y, r: s.r, walls: s.walls, kingdom: K,
-    capital: realm.settlements[K.capital], neighbours: K.neighbours.map((k) => realm.kingdoms[k]) };
+    capital: game.realms?.capitalOf?.(K.id) || realm.settlements[K.capital], neighbours: K.neighbours.map((k) => realm.kingdoms[k]), seedK: s.k };
 }
 // where a point is: { k (kingdom id | −1), kingdom, town (the settlement whose town land holds it) | null, district }
 const PLACE = { k: -1, kingdom: null, town: null, district: null };
 function placeAt(game, x, y) {
   const realm = game.towns?.realm;
   if (!realm) { PLACE.k = -1; PLACE.kingdom = PLACE.town = PLACE.district = null; return PLACE; }
-  const k = kingdomAt(realm, x, y);
+  const k = kingdomAt(realm, x, y) >= 0 ? ownerAt(game, x, y) : -1; // (the land of a captured place is its conqueror's)
   PLACE.k = k; PLACE.kingdom = k >= 0 ? realm.kingdoms[k] : null;
   PLACE.town = settlementAt(realm, x, y);
   PLACE.district = k >= 0 ? districtAt(realm, x, y) : null;
@@ -422,7 +427,7 @@ function hostTick(game) {
   for (const rec of T.live.values()) {
     const L = layoutCached(T.realm, rec.sid);
     if (!L) continue;
-    const want = !night && !hostileInside(game, L);
+    const want = !night && !hostileInside(game, L) && !game.realms?.besieged?.(rec.sid); // (an army camped outside: closed — phase 3a)
     for (const k of L.gates) {
       const o = rec.objs.get(k);
       if (!o || o.removed || !!o.open === want) continue;
@@ -443,6 +448,7 @@ function hostTick(game) {
   for (const [id, r] of T.state) {
     if (!r.gone || game.worldTime - r.at < RESTORE_AFTER * day) continue;
     if (minPlayerDist(game, r.x + 0.5, r.y + 0.5) < RESTORE_FAR) continue;
+    if (game.realms?.holdRepair?.(+id.slice(1).split('.')[0])) continue; // (a siege there, or just over: the breaches stay a while — phase 3a)
     ids.push(id);
     if (ids.length >= 200) break;
   }

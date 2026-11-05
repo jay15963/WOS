@@ -41,7 +41,7 @@ export function facingOk(e, t, min = -0.2) {
 }
 export const facingVec = (f) => (f === 'e' ? [1, 0] : f === 'w' ? [-1, 0] : f === 'n' ? [0, -1] : [0, 1]);
 
-export function faceTowards(e, t) { e.facing = facingFrom(t.x - e.x, t.y - e.y, e.facing); }
+export function faceTowards(e, t) { e.facing = facingFrom(t.x - e.x, t.y - e.y, e.facing); e._aimA = Math.atan2(t.y - e.y, t.x - e.x); } // (_aimA: the 8-view angle while the facing is locked, art/facing.js)
 
 // Line of sight for shots: rock and walls/doors block, trees/water don't (projectiles still collide with trunks).
 // levels: z0 / z1 = heights (stories) of both ends; the line runs half a story above them and a level-0 wall only

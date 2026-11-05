@@ -31,7 +31,7 @@ import {
 import { fireShot, ramBlow } from './mut/siege.js';
 import { placeReason, baseFor, dimsOf } from './mut/structures.js';
 import { solNear, solPass, stepTo, FlowField, surfAt, atWar, ownerOf, unstick } from './soldier.js';
-import { setPhase, shout, repelled } from './warfare.js';
+import { setPhase, shout, repelled, finishForce } from './warfare.js';
 import { allPlayers, inAnyView } from './players.js';
 import { BALLISTA } from './ballista.js';
 import { facingFrom } from './physics.js';
@@ -45,7 +45,8 @@ const ARCH_REACH = (lv) => 13 * (1 + 0.2 * (lv | 0)) + 1.5; // (npc.js: archerRa
 export function siegeSetup(game, F, spec) {
   const s = game.towns.realm.settlements[spec.sid];
   const at = spec.at || [s.x + s.r + 40, s.y];
-  F.sg = { sid: spec.sid, at, want: spec.eng || null, plan: null, tries: 0, t: 0, camp: [], jobs: [], made: 0, capT: 0, shots: 0, breach: null, gateDown: false, rampDown: false, climbed: 0, onWall: 0 };
+  // (have / ph / hrs0: a siege 3a hands over — what it built by numbers stands at once)
+  F.sg = { sid: spec.sid, at, want: spec.eng || null, have: spec.have ? { ...spec.have } : null, ph: spec.ph || null, hrs0: spec.hrs || 0, plan: null, tries: 0, t: 0, camp: [], jobs: [], made: 0, capT: 0, shots: 0, breach: null, gateDown: false, rampDown: false, climbed: 0, onWall: 0 };
   F.anchor = { x: at[0], y: at[1] };
   const dx = s.x - at[0], dy = s.y - at[1], d = Math.hypot(dx, dy) || 1;
   F.face = { x: dx / d, y: dy / d }; F.fx = F.face.x; F.fy = F.face.y;
@@ -288,14 +289,14 @@ export function siegeTick(game, F) {
         if (F.t > WAR.siege.holdT) { if (m.order?.k !== 'flee') m.order = { k: 'flee', x: P.plaza.x + ((m.soldier.i % 7) - 3), y: P.plaza.y + (((m.soldier.i / 7) | 0) % 3), fx: 0, fy: 1 }; }
         else m.order = P.ff.dist(m.x, m.y) < 50 || m.order?.ring ? ringOrder(game, P, m) : { k: 'flow', ff: P.ff, eng: 6, x: P.plaza.x, y: P.plaza.y };
       }
-      if (F.t > WAR.siege.holdT + 40 || (F.t > WAR.siege.holdT && !ents.length)) { F.phase = 'end'; game.warfare.dematerialize?.(F.id); }
+      if (F.t > WAR.siege.holdT + 40 || (F.t > WAR.siege.holdT && !ents.length)) finishForce(game, F);
       break;
     }
     case 'retreat': {
       const bx = (P ? P.camp.x : F.anchor.x) + (P ? P.A.x : -F.face.x) * 40, by = (P ? P.camp.y : F.anchor.y) + (P ? P.A.y : -F.face.y) * 40;
       for (const m of ents) { m.job = null; if (m.order?.k !== 'flee') m.order = { k: 'flee', x: bx + ((m.soldier.i % 9) - 4) * 2, y: by + (((m.soldier.i / 9) | 0) % 4) * 2, fx: -(P ? P.A.x : 0), fy: -(P ? P.A.y : 0) }; }
       releaseEngines(game, F);
-      if (F.t > 45 || !ents.length) { F.phase = 'end'; game.warfare.dematerialize?.(F.id); }
+      if (F.t > 45 || !ents.length) finishForce(game, F);
       break;
     }
   }
@@ -367,6 +368,11 @@ function raiseCamp(game, F, ents) {
   const spots = G.spots;
   const engs = ents.filter((m) => m.soldier.role === 'eng');
   if (G.made >= spots.length) { G.campDone = true; for (const m of engs) if (m.job?.camp) m.job = null; return; }
+  if (G.ph && G.ph !== 'camp') {
+    // (a siege 3a hands over in the middle: its camp has stood for hours)
+    for (; G.made < spots.length; G.made++) { const [ty, x, y] = spots[G.made], [fw, fh] = dimsOf(ty, 0), q = spotFor(game, ty, x - fw / 2, y - fh / 2, 0, 3); if (q) addStructures(game, F, [[ty, q.tx, q.ty, q.rot, 1]], G.camp); }
+    return;
+  }
   const [type, x, y] = spots[G.made];
   const m = engs[G.made % Math.max(1, engs.length)] || null;
   if (m && !(m.job?.camp && m.job.at === G.made)) m.job = campJob(x, y, G.made);
@@ -446,7 +452,10 @@ function buildEngines(game, F, ents) {
         j.fails = (j.fails || 0) + 1; if (j.fails > 10) { j.failed = true; if (j.role === 'ws') setPhase(game, F, 'retreat'); }
         continue;
       }
-      j.id = addStructures(game, F, [[j.type, j.tx, j.ty, j.rot, 0, j.v]], null)[0];
+      const key = j.role === 'ws' ? 'ws' : j.role, H = G.have;
+      const ready = !!H && (key === 'ws' ? Object.values(H).some((v) => v > 0) || (G.ph && G.ph !== 'camp') : H[key] > 0); // (3a built it already)
+      j.id = addStructures(game, F, [[j.type, j.tx, j.ty, j.rot, ready ? 1 : 0, j.v]], null)[0];
+      if (ready) { j.done = true; j.p = 1; if (key !== 'ws') H[key]--; }
       continue;
     }
     const o = game.world.objById.get(j.id);

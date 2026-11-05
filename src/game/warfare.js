@@ -138,10 +138,20 @@ export function shout(game, F, list, x = F.x, y = F.y) {
   const L = Array.isArray(list) ? list : [list], s = L[Math.floor(game.net.roll() * L.length) % L.length] || ''; // (the host picks the line: the text goes in the op)
   game.net.emit('war.cry', { id: F.id, k: F.k, text: s.replace(/\{reino\}/g, F.name), x: r2(x), y: r2(y) });
 }
+// the state 3a knows (game/realms.js: 'march' | 'camp' | 'siege' | 'battle' | 'retreat') for a force's phase
+const STATE3A = { march: 'march', camp: 'siege', build: 'siege', bombard: 'siege', assault: 'siege', held: 'siege', retreat: 'siege', deploy: 'battle', advance: 'battle', clash: 'battle', rout: 'battle', won: 'battle', end: 'battle' };
 function report(game, F) {
-  const eng = F.kind === 'siege' ? siegeReport(game, F) : F.eng;
-  game.realms?.report?.(F.id, { n: F.n, eng, state: F.phase, x: Math.round(F.x), y: Math.round(F.y), lost: F.dead, killed: F.killed, kind: F.kind, sid: F.sid });
+  const eng = F.kind === 'siege' ? siegeReport(game, F) : engObj(F.eng);
+  const r = { n: F.n, eng, state: F.kind === 'march' ? (F.army?.state === 'retreat' ? 'retreat' : F.army?.state === 'camp' ? 'camp' : 'march') : STATE3A[F.phase] || F.army?.state || 'march', x: Math.round(F.x), y: Math.round(F.y), lost: F.dead, killed: F.killed, kind: F.kind, sid: F.sid, phase: F.phase };
+  if (F.kind === 'battle') r.state = 'battle'; // (3a resolves the battle itself once it takes the armies back)
+  const W = game.warfare;
+  (W.reports || (W.reports = new Map())).set(F.id, r); // (tests / debug: the last report of each force, and a short log)
+  const RL = W.reportLog || (W.reportLog = []);
+  RL.push([F.id, r]); if (RL.length > 300) RL.splice(0, 100);
+  if (F.army) game.realms?.report?.(F.id, r); // (3a: only its own armies — a debug force has none)
 }
+// 3a's engines: [treb, cat, ram, tower] or { treb, cat, ram, tower }
+const engObj = (e) => (Array.isArray(e) ? { treb: e[0] | 0, cat: e[1] | 0, ram: e[2] | 0, tower: e[3] | 0 } : { treb: e?.treb | 0, cat: e?.cat | 0, ram: e?.ram | 0, tower: e?.tower | 0 });
 
 // ---------- the API ----------
 export function startSiege(game, spec) {
@@ -173,37 +183,69 @@ export function startBattle(game, a, b) {
   shout(game, FA, `Batalha! O Reino de ${FA.name} enfrenta o Reino de ${FB.name}`, cx, cy);
   return [FA, FB];
 }
-// 3a hands an army over (near a player): a siege where it besieges, a battle when it meets another army, else a column
+// 3a hands an army over (near a player — game/realms.js liveCheck): a siege where it besieges (what it has already built
+// by numbers stands at once: the camp, the engines), a battle when it meets the other army of its battle, else a column on
+// its road (marching / going home) or a camp (gathering)
 export function materialize(game, army) {
   if (!game.net.auth || !army || game.warfare.forces.has(army.id)) return game.warfare.forces.get(army?.id) || null;
-  const spec = { id: army.id, k: army.k, n: army.n, lv: army.lv, eng: army.eng, at: [army.x, army.y], sid: army.target, army };
-  if ((army.state === 'siege' || army.state === 'camp') && army.target != null) return startSiege(game, spec);
+  const eng = engObj(army.eng), spec = { id: army.id, k: army.k, n: army.n, lv: army.lv, at: [army.x, army.y], sid: army.target >= 0 ? army.target : null, army };
+  if (army.state === 'siege' && army.target >= 0) {
+    // (its engines by numbers: the trebuchets it has are the ones it wants; a ram and a tower as always)
+    return startSiege(game, { ...spec, eng: { treb: Math.max(1, eng.treb), ram: 1, tower: 1 }, have: eng, ph: army.phase || 'camp', hrs: army.hrs || 0 });
+  }
   if (army.state === 'battle') {
-    // the other army of the battle: one already live near it (3a materializes both)
+    // the other army of the battle (army.foe): 3a materializes both — the first one waits for the second
     for (const F of game.warfare.forces.values()) {
-      if (F.kind !== 'pending' || Math.hypot(F.x - army.x, F.y - army.y) > 160 || !atWar(game, F.k, army.k)) continue;
+      if (F.kind !== 'pending' || (army.foe ? F.id !== army.foe : Math.hypot(F.x - army.x, F.y - army.y) > 160 || !atWar(game, F.k, army.k))) continue;
       game.warfare.forces.delete(F.id);
       return startBattle(game, F.spec, spec);
     }
-    const F = { id: army.id, kind: 'pending', spec, x: army.x, y: army.y, k: army.k, phase: 'march', live: new Map(), units: [], n: army.n, foes: [] };
+    const F = { id: army.id, kind: 'pending', spec, x: army.x, y: army.y, k: army.k, phase: 'march', live: null, units: null, n: army.n, foes: [], army };
     game.warfare.forces.set(army.id, F);
     return F;
   }
   if (army.state === 'home') return null;
-  // a column on the march (toward its target, or home when retreating)
+  // a column on its road (3a's route: the points still ahead of it), or standing (a camp gathering the campaign)
   const F = newForce(game, spec, 'march');
-  const goal = army.path && army.path.length ? army.path[army.path.length - 1] : army.target != null ? [game.towns.realm.settlements[army.target].x, game.towns.realm.settlements[army.target].y] : [army.x, army.y];
-  F.goal = { x: goal[0], y: goal[1] };
-  F.path = (army.path || []).map((q) => ({ x: q[0], y: q[1] }));
+  F.path = army.state === 'march' || army.state === 'retreat' ? routeAhead(game, army) : [];
+  const last = F.path[F.path.length - 1];
+  F.goal = last ? { ...last } : { x: army.x, y: army.y };
   publish(game, F, true);
   return F;
 }
+// the points of an army's route ahead of where 3a froze it (game.realms.routeOf: pts / cum), the next ~200 tiles
+function routeAhead(game, a, far = 200) {
+  const g = game.realms?.routeOf?.(a);
+  if (!g?.pts || !g.cum) return [];
+  const w = game.world, d0 = Number.isFinite(a.d0) ? a.d0 : 0, out = [];
+  for (let k = 0; k + 1 < g.cum.length; k++) {
+    if (g.cum[k + 1] <= d0) continue;
+    if (g.cum[k] > d0 + far) break;
+    const x = g.pts[(k + 1) * 2], y = g.pts[(k + 1) * 2 + 1];
+    out.push({ x: w.near ? w.near(x, a.x) : x, y });
+  }
+  return out;
+}
+// 3a takes it back (nobody near): the soldiers become numbers again, the camp and the engines are struck, the numbers go on
+// from what was played here
+const PHASE3A = { march: 'camp', camp: 'camp', build: 'build', bombard: 'bombard', assault: 'assault', held: 'assault', retreat: 'bombard' };
 export function dematerialize(game, id) {
   const W = game.warfare, F = W.forces.get(id);
   if (!F) return null;
-  const out = { n: F.n, eng: F.kind === 'siege' ? siegeReport(game, F) : F.eng, siege: F.kind === 'siege' ? siegeStatus(game, F) : null, lost: F.dead, killed: F.killed, state: F.phase };
+  if (F.kind === 'pending') { W.forces.delete(id); return { n: F.n }; }
+  const out = { n: F.n, eng: F.kind === 'siege' ? siegeReport(game, F) : engObj(F.eng), lost: F.dead, killed: F.killed, state: STATE3A[F.phase] || F.phase, x: Math.round(F.x), y: Math.round(F.y) };
+  if (F.kind === 'siege') out.siege = { ...siegeStatus(game, F), phase: PHASE3A[F.phase] || 'bombard', hrs: (F.sg?.hrs0 || 0) + Math.floor(F.T / Math.max(1, (game.env?.dayLength || 780) / 24)), live: F.phase };
   endForce(game, F, true);
   return out;
+}
+// a force of 3a whose fight here is over (the battle won / lost, the place taken, the siege given up): its soldiers leave,
+// the camp is struck — but it stays known until 3a takes it back (dematerialize gives its numbers)
+export function finishForce(game, F) {
+  if (!F.army) { endForce(game, F); return; }
+  if (F.kind === 'siege') siegeEnd(game, F);
+  for (const m of [...(F.live?.values() || [])]) dropSoldier(game, F, m);
+  F.done = true;
+  if (F.phase !== 'end') { F.phase = 'end'; publish(game, F, true); }
 }
 function endForce(game, F, quiet = false) {
   const W = game.warfare;
@@ -306,7 +348,11 @@ function flushRep(game, F, all) {
     const gk = B.foeK, gn = gk >= 0 ? R.kingdoms[gk]?.name : null;
     const mk = memberOf(game, uid);
     const toast = gn ? `+${d} reputação com o Reino de ${gn} — ${place ? 'defendendo ' + place : 'na batalha contra ' + F.name}${mk !== F.k ? ` · −${d} com ${F.name}` : ''}` : `Você lutou contra o exército de ${F.name}`;
-    game.net.emit('war.rep', { u: uid, k: gk, d: gk >= 0 ? d : 0, k2: F.k, d2: mk === F.k ? 0 : -d, by: B.pid, toast });
+    if (game.realms?.reward) {
+      // (3a's reputation op: the side helped, with its notice; the attackers' kingdom quietly)
+      if (gk >= 0) game.realms.reward(B.pid, gk, d, place ? `defendendo ${place}` : `na batalha contra o Reino de ${F.name}`);
+      if (mk !== F.k) game.realms.reward(B.pid, F.k, -d, '');
+    } else game.net.emit('war.rep', { u: uid, k: gk, d: gk >= 0 ? d : 0, k2: F.k, d2: mk === F.k ? 0 : -d, by: B.pid, toast });
   }
 }
 export function repelled(game, F) {
@@ -365,7 +411,7 @@ export function warfareSystem() {
       if (tickT <= 0) {
         tickT = WAR.tick;
         for (const F of [...W.forces.values()]) {
-          if (F.kind === 'pending' || !F.units || W.forces.get(F.id) !== F) continue; // (one ended by another's tick meanwhile: a battle ends both)
+          if (F.kind === 'pending' || !F.units || F.done || W.forces.get(F.id) !== F) continue; // (one ended by another's tick meanwhile: a battle ends both)
           F.t += WAR.tick; F.T += WAR.tick;
           forceTick(game, F, players);
         }
@@ -492,7 +538,8 @@ function forceTick(game, F, players) {
   // nobody near any more (3a takes it back as numbers): a debug force simply ends
   let pd = 1e9;
   for (const q of players) pd = Math.min(pd, Math.hypot(game.world.dx(q.x, F.x), q.y - F.y));
-  if (pd > WAR.dropR) { if (F.army) { game.realms?.release?.(F.id, dematerialize(game, F.id)); } else endForce(game, F); return; }
+  if (F.done) return; // (its fight is over: 3a takes it back — dematerialize)
+  if (pd > WAR.dropR) { if (!F.army) endForce(game, F); return; } // (an army of 3a: 3a hands it back to the numbers when nobody is near)
   // the foes it may fight (a short list scanned by each soldier now and then: no scan of every creature per soldier)
   F.foes.length = 0;
   if (F.kind === 'battle' && F.foe) { const O = W.forces.get(F.foe); if (O) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); }
@@ -630,7 +677,7 @@ function endBattle(game, F) {
     flushRep(game, G, true);
     // the survivors leave the field: the losers already ran; the winners stand down (gone when nobody sees them)
     report(game, { ...G, phase: st });
-    endForce(game, G, true);
+    if (G.army) { G.n = Math.max(0, G.n); finishForce(game, G); } else endForce(game, G, true);
   }
 }
 

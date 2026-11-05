@@ -93,7 +93,7 @@ export function siegeCanDamage(game, attacker, target) {
   if (target.isProp) return !target.dummy && !target.broken; // (bandit camp crates; never a training dummy)
   if (target.building) {
     if (siegeDebug(game).hostile.has(target.id)) return true;
-    const tr = target.town != null ? game.realms?.owner?.(target.town) ?? game.towns?.realm?.settlements[target.town]?.k ?? null : realmOf(target); // (a settlement's piece: its owner now)
+    const tr = target.town != null ? game.realms?.owner?.(target.town) ?? game.towns?.realm?.settlements[target.town]?.k ?? null : realmOf(target); // (a settlement's piece: its kingdom now)
     if (tr != null) {
       const ar = realmOf(attacker);
       return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); // (phase 3: kingdoms at war)

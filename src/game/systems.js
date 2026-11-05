@@ -57,6 +57,8 @@ import { waterfallSystem } from '../fx/waterfalls.js'; // waterfalls: mist, spra
 import { installTowns, townsSystem, placeSystem } from './towns.js'; // kingdoms and settlements (docs/REINOS.md)
 import { installPeople, peopleSystem, peopleFxSystem } from './people.js'; // the settlements' citizens and guards (docs/REINOS.md "Fase 2")
 import { installEco, ecoSystem, ecoOwnerSystem } from './eco.js'; // the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia")
+import { installRealms, realmsSystem, realmsPosSystem } from './realms.js'; // diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
+import { installWarHud } from '../ui/warHud.js'; // the war's notices (docs/REINOS.md §13)
 import { installWarfare, warfareSystem, warfareFxSystem } from './warfare.js'; // the kingdoms' soldiers near the players: battles, the siege (docs/REINOS.md §14)
 import './mut/index.js';
 
@@ -100,6 +102,7 @@ export function installSystems(game) {
   installTowns(game);               // settlements: pieces made per chunk from the seed (before the camps: they keep away)
   installPeople(game);              // their people: identities from the seed (game.people, game.towns.people(sid))
   installEco(game);                 // markets, reputation, jobs, properties (before the save / snapshot loads them)
+  installRealms(game);              // the kingdoms' wars: relations, owners, armies (before the save / snapshot loads them)
   installWarfare(game);             // the armies near the players (game.warfare: before the save / snapshot loads the forces)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
@@ -169,12 +172,15 @@ export function installSystems(game) {
     warfareFxSystem(),              // the general's standard raised while it rallies (every peer)
     ecoSystem(),                    // host: the markets' day, bills, job progress (eco.js)
     ecoOwnerSystem(),               // the local player's economy identity known to the host
+    realmsSystem(),                 // host: diplomacy, campaigns, marches, battles and sieges by numbers (realms.js)
+    realmsPosSystem(),              // every peer: where the armies in the field are (derived from the clock)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);
   addSystem(game, installOverlay(game));
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installEcoHud(game)); // (after the overlay: it draws the plots / the waypoint on the overlay canvas)
+  addSystem(game, installWarHud(game)); // the war's notices for the local player (ui/warHud.js)
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
   addSystem(game, installSiegeUi(game)); // (siege engines: aim ring, scatter, reload, crew — ui/siegeUi.js)

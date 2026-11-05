@@ -54,6 +54,10 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
   cidadãos se visitam e comerciam entre as cidades e vilas.
 - **Sem navios ainda**: reinos que não se ligam por terra **não interagem** (nem guerra, nem comércio, nem visitas).
   A ligação é calculada pela massa de terra (continente) de cada reino.
+- **O reino do início** fica fora de guerras só nos **2 primeiros dias** do mundo (dono, fase 3).
+- **Avisos do reino do jogador** (dono, fase 3): quem é membro de um reino vê toda mudança de relação do reino dele com
+  outro — aliança formada / desfeita, tratado de paz, guerra declarada (por ele ou contra ele), fim da guerra, um lugar
+  dele cercado / tomado / retomado — no alto da tela e no histórico do reino. Cada jogador vê as do seu reino.
 
 ## 4. Guerra e cerco
 
@@ -62,6 +66,11 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
 - O jogador com reputação suficiente entra num exército pelo **mural** → aparecem **ordens do general** na tela e
   **waypoints** no mapa e no minimapa.
 - **Sem fogo amigo**: só dá para atacar gente (e estruturas) de reinos **inimigos**.
+- **Ajudar sem estar no exército** (dono, fase 3): o jogador **pode** atacar soldados inimigos mesmo sem entrar num
+  exército — membro de um reino: os soldados dos reinos em guerra com o dele; sem reino (viajante): os soldados que
+  estão atacando um lugar / exército perto dele. Isso **dá reputação** com o reino que ele ajudou a defender (e tira com
+  o atacado), e os soldados atacados revidam. Assim o jogador pode defender a sua vila / cidade / castelo sem estar num
+  exército. O povo e a guarda continuam protegidos (§11).
 - **Cerco** completo: acampamento fora do alcance → a IA mede muralhas / portão e constrói as máquinas (torres na
   altura certa) → bombardeio (brechas; muralha e portão com vida, dano persistente, defensores consertam) → assalto
   (aríete no portão, torres encostam e baixam a rampa, luta nas muralhas e ruas) → conquista (segurar o centro sem
@@ -104,6 +113,17 @@ inimigos (sem fogo amigo), monstros e bandidos.
   terreno. Fora dos territórios constrói-se livre.
 - **Imposto** diário por reino para quem tem propriedade: **cobrado automaticamente** das moedas do jogador, com aviso.
   Se não tiver na hora: aviso por 3 dias; depois o reino toma a propriedade.
+- **Relações herdadas** (dono, fase 3 — fecha o truque de sair do reino para negociar com o inimigo dele): ao **entrar**
+  num reino o jogador **herda** as relações dele — a sua reputação com cada outro reino passa a ser a do reino (aliado:
+  positiva, neutro: zero, hostil / em guerra: negativa), **substituindo** as antigas; ao **sair**, elas ficam com ele e
+  ele precisa melhorá-las sozinho (comércio e trabalhos). A reputação pode ser **negativa**: com ela o jogador **ainda
+  negocia, mas com preços muito piores** (compra bem mais cara, venda bem mais barata, pior quanto mais negativa) e
+  **não pode entrar** naquele reino até deixá-la neutra ou positiva. Negativa **não** é inimigo: ninguém o persegue; só é
+  inimigo declarado quem é membro de um reino em guerra com aquele (e aí não há comércio).
+- **Perder uma propriedade** (dono, fase 3): quando um lugar é **conquistado**, quem tem propriedade nele (casa comprada,
+  alugada, terreno) **perde** — perder a guerra do seu reino é um risco de verdade. Toda propriedade perdida (conquista,
+  imposto não pago) **volta para a lista de vendas** do lugar; se for um **terreno, tudo o que o jogador construiu nele
+  some** e o terreno volta à venda.
 
 ## 7. Multijogador
 
@@ -463,6 +483,9 @@ agente dos moradores o expuser; senão, de uma lista de nomes (Bento, o lavrador
 
 | Faixa | Pontos | Nas trocas | |
 |---|---|---|---|
+| **Odiado** (fase 3a) | −100 ou menos | compra **+100 %**, venda **−60 %** | não entra no reino; não compra casa / terreno |
+| **Malvisto** (fase 3a) | −25 … −99 | compra **+50 %**, venda **−40 %** | idem |
+| **Desconfiado** (fase 3a) | −1 … −24 | compra **+20 %**, venda **−20 %** | idem |
 | Desconhecido | 0 | — | |
 | Conhecido | 25 | 1 % melhor | pode comprar casas e terrenos |
 | Respeitado | 100 | 2 % | |
@@ -474,6 +497,17 @@ negociadas, até 10 por dia por reino); cai ao abandonar (−3) ou perder (−2)
 propriedade (−15). Subir / descer de faixa: aviso no alto da tela ("Reputação: Conhecido — no Reino de Galéria · trocas
 1 % melhores · já pode comprar casas e terrenos"). O cartão da aba Reino mostra a faixa, a barra e a reputação nos outros
 reinos.
+
+**Reputação herdada (decisão do dono, fase 3a — §13):** ao **entrar** num reino o jogador **herda as relações dele** — a
+reputação com **cada outro reino** é **substituída** (aliado do reino: **+40**, já "Conhecido"; em guerra com ele: **−60**,
+"Malvisto"; em trégua — acabou de lutar com ele —: **−15**, "Desconfiado"; os outros, inclusive os de outras terras: **0**);
+a reputação com o próprio reino não muda. Cada vez que entra num reino isso acontece de novo (substituindo as anteriores).
+Ao **sair**, os valores herdados **ficam**: precisa melhorá-los sozinho (comércio, trabalhos). **Não se entra** num reino
+com reputação negativa nele ("Sua reputação com o Reino de X é negativa: melhore-a com comércio e trabalhos antes de
+entrar"). Reputação negativa **não é inimizade**: ninguém caça o jogador por isso, o comércio e os trabalhos continuam —
+só com os preços piores da tabela, e o Comércio diz por quê ("Reputação negativa com o Reino de X (Malvisto, −60): compra
+50 % mais cara e venda 40 % mais barata"). Inimigo declarado é só o membro de um reino em guerra com aquele (sem comércio,
+como antes). Assim sair do reino para negociar com o inimigo dele como viajante não compensa.
 
 ### Propriedades e imposto
 
@@ -535,8 +569,10 @@ Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_lan
 
 - O imposto sai **só das moedas da mochila** (as dos baús não contam) e só nos dias em que o dono está no mundo.
 - Comprar casa ou terreno pede reputação **Conhecido** (25) no reino; alugar não pede nada.
-- Casa vendida, devolvida ou tomada: os baús dela são esvaziados (ficam para o reino). Terreno tomado: o que o jogador
-  construiu nele fica de pé (é estrutura dele; o próximo dono do terreno fica com o lugar como está).
+- Casa vendida, devolvida ou tomada: os baús dela são esvaziados (ficam para o reino). ~~Terreno tomado: o que o jogador
+  construiu nele fica de pé~~ — **mudado pelo dono na fase 3a (§13 "Propriedades")**: toda propriedade perdida (tomada por
+  imposto, perdida com o lugar conquistado numa guerra, devolvida / vendida ao reino) volta para a lista de venda / aluguel
+  do lugar, sem dívida, e **tudo o que o jogador construiu no terreno some** (um caminho só: `game/eco.js loseProps`).
 - Membro de um reino só negocia com reinos da mesma terra (e, na fase 3, que não estejam em guerra com o seu); viajante
   com todos. Ser membro ainda não dá vantagem (fase 3: exército) — o cartão explica.
 - As casas à venda / para alugar saem das moradias da planta; para o agente dos moradores: `game.eco.api.props(sid)`
@@ -777,7 +813,7 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   guardado (`game.towns.prog`, op `town.prog`, linha `wprog` no save / snapshot, nunca desce), até o nível dos lugares
   mais distantes. Civis: 2 níveis abaixo.
 - **Mortes**: monstros ferem e matam o povo; sem corpo e sem saque. Op `town.pop` (morto, hora) → linhas `tpop` no save /
-  snapshot e no digest; aviso "<Guarda> X caiu defendendo Y". **Repovoar**: cada morte é reposta 1,5 dia depois (um recém-chegado
+  snapshot e no digest; sem aviso por morte (dono: numa batalha há muitos mortos — seria um enxame de mensagens). **Repovoar**: cada morte é reposta 1,5 dia depois (um recém-chegado
   com a mesma identidade da semente).
 
 ### Consertos
@@ -800,6 +836,12 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   estação, o **mural** para quem nunca abriu um, uma do lugar / da estação, tchau); no perigo, "Para dentro!" / "Deixe
   com a guarda!". E / Espaço / toque seguem; Esc / "Tchau" / se afastar fecham. Local: nada vai pela rede.
 - Uma pessoa parada vira para o jogador que chega perto e às vezes gesticula.
+- **Parada na conversa** (dono): enquanto o cartão está aberto a pessoa **para** onde está (o que ela ia fazer espera),
+  vira para quem fala com ela e gesticula — intent `npc.talk` (abrir / a cada 8 s / fechar; o anfitrião solta sozinho
+  depois de 40 s sem notícia, se o jogador se afasta 5 tiles, com o sino ou numa luta). **Em luta não se conversa**
+  (dono): quem está brigando (perseguindo um inimigo ou golpeando / atirando — o estado e a ação vêm no fluxo, iguais nos
+  dois pares) não mostra o botão "Conversar", um toque nela não faz nada e o cartão não abre (e fecha se ela começa a
+  lutar). Teste VL10.
 - **Plaquinhas**: só a da pessoa com quem o E fala, a do alvo, a do mouse e a de um guarda ferido (com a barra de vida).
 - **Sem fogo amigo**: um golpe, flecha, atordoar, sangrar de um jogador num morador ou guarda não faz nada ("X é de Y: o
   povo do Reino de Z está sob a proteção do reino", no máximo a cada 4 s); o ataque automático nunca escolhe o povo (Tab
@@ -893,6 +935,8 @@ seção.
 
 - `rel(a, b)` → `'self' | 'ally' | 'neutral' | 'war'` (simétrico) e `atWar(a, b)` (o gancho que `siegeCanDamage`,
   `eco.js` e os soldados já consultam). Reinos que **não se ligam por terra** (`canReach`) são sempre `'neutral'`.
+  (Feito na 3a — §13: a trégua de um tratado de paz conta como `'neutral'`; o detalhe — desde quando, quem declarou, o
+  cansaço, a trégua, a tensão — em `relInfo(a, b)`; o estado das relações fica no `Map` `game.realms.rels`.)
 - `owner(sid)` → o reino **atual** de um lugar (começa em `s.k`; muda na conquista). Todo código que pergunta "de quem
   é este lugar" passa a usar isto (3a troca os usos de `s.k` como dono: economia, cores da guarda, mapa, faixa do lugar,
   mural). `alive(k)`: o reino ainda existe (tem cidade).
@@ -907,6 +951,26 @@ seção.
   devolve `{ n, eng, siege }` e a simulação por números continua dali. Sem 3b (`game.warfare` ausente), tudo é por
   números. Enquanto `live`, 3a não mexe nos números daquele exército — 3b reporta com `game.realms.report(id, { n, eng,
   state })`.
+- **Como ficou na 3a (§13 — leia lá os detalhes; nada do acima foi tirado, só acrescentado):**
+  - `armies` também guarda o **exército de casa** de cada lugar (`'g<sid>'`, `state 'home'`: a guarnição, `n` = soldados
+    em casa); os do campo são `'a<n>'`. Campos a mais: `n0`, `mission` (`'attack' | 'relief' | 'join' | 'return'`), `grp`
+    (a campanha: os contingentes `'join'` vão até o exército principal, que espera em `state 'camp'`, `phase 'muster'`, no
+    lugar de reunião), `path` (`{ f, r: [estrada, sentido, …] }` pelas estradas, ou `{ f, t, c: [células] }` pelo campo),
+    `t0`, `d0`, `v` (a marcha: a posição sai do relógio — `game.realms.posOf(a)` / `routeOf(a)`), `phase`, `hrs`, `bp`,
+    `dw`, `foe`, `since`. `eng` é `[trabuco, catapulta, aríete, torre]`; `report` / `dematerialize` aceitam o array ou o
+    objeto `{ treb, cat, ram, tower }`.
+  - Com `live`, a marcha fica parada nos números (`v = 0`); `report(id, { n, eng, state, x, y })` atualiza; ao voltar
+    (`dematerialize`), a marcha continua do ponto da rota mais perto de onde os soldados estavam; `siege` pode trazer
+    `{ hrs, dw, bp, phase }`.
+  - Quando o anfitrião não tem `game.warfare`, `live` nunca é marcado (os números seguem mesmo com um jogador perto; o
+    lugar cercado perto de um jogador toca o sino, o povo fica em casa e a guarda vai para o lado do acampamento).
+  - Eventos (`game.events`, em todos os pares): `capture { sid, from, to }`, `realms { type: 'rel' | 'army' | 'capture' |
+    'fall' | 'wall' | 'day' | 'start' | 'sync', … }`, `realmnews { row }` (a notícia: `game.realms.newsText(row)`),
+    `realmowner { sid, k }`.
+  - **Para a 3b (reputação por ajudar / atacar — decisão do dono)**: `game.realms.reward(pid, k, d, motivo)` (anfitrião)
+    soma `d` à reputação do jogador no reino `k` (op `eco.rep`, com aviso). O lado que a 3b vê (quem bateu em quem) decide.
+  - A carência do reino do início: **2 dias** do mundo (§13). `realm.rel` (depuração) ignora a carência mas nunca a regra
+    das terras.
 
 ### O que 3b oferece (`game.warfare`, anfitrião; os soldados são criaturas no fluxo de entidades como o povo)
 
@@ -935,11 +999,274 @@ seção.
 
 - Anfitrião autoritativo; o estado novo vai no snapshot, no save e no digest (partes próprias); tudo igual nos dois pares.
 - §7b vale para soldados e para a força dos exércitos nos números (`realmNpcLevel`).
-- O reino do início não entra em guerra nos primeiros dias do mundo (3a decide quantos e documenta); guerras não
+- O reino do início não entra em guerra nos **2 primeiros dias** do mundo (decisão do dono; §13); guerras não
   podem acabar com o mundo do jogador de repente — avisos claros antes ("O Reino de X declarou guerra ao Reino de Y",
   "Um exército de X marcha sobre Y").
 - Os reinos **não** cercam as bases dos jogadores (§4).
 - Cada parte escreve a sua seção de implementação aqui (como §9–§11) e deixa prints em `shots/` (fora do git).
+
+## 13. Fase 3a — diplomacia e exércitos
+
+Feito: os reinos têm **relações** (aliado / em paz / em guerra, com trégua depois de uma paz) que mudam sozinhas ao longo
+dos dias; cada lugar tem **dono** (o reino que o tem agora) e um **exército**; os reinos em guerra fazem **campanhas** — os
+contingentes se juntam num lugar de reunião e marcham **pelas estradas** do reino (ou pelo campo, quando não há estrada
+entre eles) —, se enfrentam em **batalhas**, **cercam** vilas, castelos e cidades, quebram muralhas e portões (o estrago
+fica), **tomam** lugares e um reino sem cidade **cai**. Longe dos jogadores tudo é por números; perto, a 3b joga (§12).
+Mapa, radar, mural (Reino e Exército), faixa do lugar, avisos e mercados conversam com isso.
+
+Código: `game/realms.js` (a API `game.realms`, a simulação no anfitrião: diplomacia, campanhas, marchas, batalhas, cercos,
+conquista; rotas pelas estradas / pelo campo; notícias; a passagem para a 3b), `game/mut/realms.js` (o estado e as ops:
+`realm.start` · `realm.day` · `realm.rel` · `realm.army` · `realm.wall` · `realm.capture` · `realm.fall`; linhas de
+snapshot / save / digest), `game/content/war.js` (os números), `ui/warMap.js` (a camada de guerra do mapa e do radar),
+`ui/warHud.js` (os avisos), `ui/muralWar.js` (Reino: relações e notícias; Exército). Ganchos de uma linha em `towns.js`
+(dono em `info` / `at`, cores do mural, portões fechados no cerco, nada é refeito durante / logo depois de um cerco),
+`people.js` (cores da guarda pelo dono; cerco = alarme com o lado do acampamento), `npc.js` (consertos por números
+seguram), `siege.js` (`siegeCanDamage` com o dono das peças / do povo), `eco.js` / `mut/eco.js` (dono em preços,
+reputação, imposto, trabalhos, entregas, filiação; notícias de guerra nos mercados; **o caminho único da propriedade
+perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito), `ui/mural.js`, `ui/muralEco.js`,
+`ui/ecoHud.js`, `ui/placebanner.js`, `ui/panels.js` (legenda e chave "Guerras e exércitos"), `systems.js`,
+`net/snapshot.js`, `net/digest.js`, `mut/index.js`.
+
+### Como se joga
+
+- **Avisos** (no alto da tela): quem é **membro** de um reino (mural · Reino · "Entrar no Reino de …") recebe **toda**
+  mudança do seu reino — guerra declarada por ele ou contra ele, paz (trégua), aliança feita ou desfeita, fim de trégua,
+  exércitos do reino marchando / socorrendo, cercos, batalhas vencidas ou perdidas, lugares tomados / retomados, um reino
+  que cai — um por vez, com o ícone (espadas, pomba, aperto de mãos, bandeira, castelo) e uma frase sobre o seu lado ("Seu
+  reino foi atacado: defenda suas terras", "Seu reino perdeu Y"). Quem não é membro só ouve o que é perto ou do reino onde
+  está e dos vizinhos dele, no máximo um aviso a cada 20 s (o mural guarda tudo). Cada par decide o que mostra ao seu
+  jogador (multijogador: cada um vê as notícias do seu reino).
+- **Mapa** (M): os territórios seguem os donos (um lugar tomado pinta a sua terra na cor do novo reino; um reino caído
+  some do mapa); **fronteiras em guerra em vermelho** pulsando; **exércitos** — disco na cor do reino com flâmula, maior com
+  mais soldados, seta para onde marcham (tracejado quando recuam), "Reino · N" de perto; **cercos** — anel vermelho
+  tracejado girando em volta do lugar, a tenda do acampamento, "Cerco · atacantes × defensores"; **batalhas** — espadas
+  cruzadas com brilho vermelho e "Batalha · N × M". Legenda e a chave **"Guerras e exércitos"** na janela do mapa. O
+  **radar** mostra os exércitos, cercos e batalhas por perto.
+- **Mural · Reino**: no alto, **Relações do Reino de X** — cada reino da mesma terra com ícone e etiqueta (EM GUERRA com
+  "Declarada por nós no dia N" / "Declarou guerra a nós" e a barra do cansaço da guerra; ALIADO desde o dia N; TRÉGUA até
+  o dia N; EM PAZ com "fronteira calma / alguma tensão / fronteira tensa" e as guerras passadas; "Rival distante (sem
+  fronteira)"; os reinos de outras terras: "sem navios, nenhuma relação"); o aviso da carência no reino do início;
+  **Notícias do reino** (as últimas 8, com dia e hora). Depois o cartão "Você e o reino" da fase 2 (agora diz que o membro
+  recebe as notícias e que perde as propriedades de um lugar tomado) e os lugares do reino **agora** (os tomados marcados
+  "(tomada)", os cercados com ⚔).
+- **Mural · Exército**: o exército do lugar (soldados e o máximo, nível, guarda da cidade, recrutas por dia, estado — em
+  casa / em campanha / sitiada —, muralha, se o reino está em guerra, a força do reino); num lugar cercado, o quadro
+  vermelho do cerco (quem, onde acampou, quantos, as máquinas, os defensores, há quanto tempo, peças da muralha
+  danificadas, a fase: acampando / construindo máquinas / bombardeando / atacando); **Campanhas do Reino** (cada exército:
+  de onde, quantos, nível, "reunindo os soldados em X para marchar sobre Y · faltam chegar N", "marchando sobre Y ·
+  faltam 324 passos, chega em ≈ 9 h", "cercando Y há 3 h · 1 aríete, 2 trabucos", "em batalha com…", "voltando para…");
+  **Inimigos a caminho**; e "Entrar no exército — **Em breve**" (3c).
+- **Faixa do lugar**: um lugar tomado mostra o reino novo ("Vila · Reino de Valadestra"), e "· sob cerco" quando há um
+  exército acampado; o mural do lugar troca as flâmulas para as cores do novo reino; a guarda veste o tabardo e o escudo
+  dele.
+- **Num lugar cercado perto de um jogador** (sem a 3b): o sino toca, o povo fica em casa, os portões fecham, a guarda vai
+  para o lado do acampamento (a defesa do §11 com a ameaça vinda do exército) e as peças quebradas pelo cerco somem /
+  racham na hora.
+- **Mercados** ("tudo se conversa"): cada dia de guerra traz notícias de **falta** nas praças da frente (flechas, espadas,
+  lanças, escudos, barras de ferro, arcos, armaduras de couro: preço ×2,1 por 3 dias) e de **comida** num lugar cercado
+  (pão, trigo, carne) — aparecem no Comércio como as outras notícias. Um membro não negocia com um reino em guerra com o
+  seu (agora vale de verdade, e segue o dono do lugar: um lugar tomado pelo inimigo fecha o comércio para ele); o quadro de
+  trabalhos, o imposto e a reputação de um lugar tomado são do reino novo; entregas nunca vão para um lugar inimigo.
+
+### Diplomacia (anfitrião, uma vez por dia às 6h30; números em `content/war.js`)
+
+- Pares com relações: os **vizinhos** (fronteira ou estrada entre eles) e, na mesma terra, os **rivais distantes** cujas
+  capitais estão a até 2 800 tiles (sem fronteira: a tensão cresce pela metade, os exércitos vão pelo campo). Nunca entre
+  terras diferentes (sem navios: `realm.rel` é ignorada mesmo forçada).
+- **Tensão** 0..100 por par: começa em 10..60 (hash do par: há velhos rivais); por dia +0,3..2,4 (atrito da fronteira, ×0,5
+  nos distantes), +1,4 se um é 1,4× mais forte, +0,9 por guerra passada (até 3), +2,5 se um tem um lugar que era do outro,
+  −3 entre aliados, −2,5 em trégua, −1 se um deles já está em guerra noutro lugar, ±1,5 de ruído; o resto cai 3 % ao dia.
+- **Guerra**: acima de 52 de tensão, chance de (tensão − 52) × 2,5 % ao dia (no máximo 60 %); quem declara é o mais forte.
+  No máximo ⌈reinos / 6⌉ guerras no mundo (16 reinos → 3) e 2 por reino. **Aliança defensiva**: os aliados do atacado
+  entram na guerra contra o atacante (se o alcançam por terra e não estão em carência / no limite).
+- **Carência**: o reino do início (o da vila do spawn) fica fora de qualquer guerra nos seus **2 primeiros dias** (decisão
+  do dono; dia do mundo `day0` e `day0 + 1`); o mundo inteiro fica em paz no 1º dia. Um mundo antigo, sem fase 3, começa a
+  contar quando é aberto.
+- **Cansaço da guerra** 0..100 de cada lado: +5 por dia, +1 a cada 14 soldados perdidos, +18 por lugar perdido, −8 por
+  lugar tomado. **Paz**: acima de 55, chance de (cansaço − 55) × 3 % ao dia, +15 % depois de 10 dias de guerra → **trégua de
+  5 dias** (sem guerra entre eles; depois "Terminou a trégua").
+- **Aliança**: vizinhos com tensão < 14, chance 7 % ao dia (×3 com um inimigo em comum), no máximo 2 aliados; desfeita com
+  tensão > 42 (12 % ao dia).
+
+### Exércitos
+
+- **Exército de casa** de cada lugar (a guarnição): máximo vila 8 + pop × 0,12 (~14), castelo 50 + pop (~80), cidade
+  60 + pop × 0,35 (~130); começa com 80 %; recruta 12 % do máximo por dia (×1,5 com o reino em guerra; nada sitiado);
+  **nunca acima do máximo** (a conquista deixa no máximo o máximo; o dia dispensa o excesso). Nível = `realmNpcLevel`
+  (§7b); força de um soldado = 1 + 0,05 × (nível − 1) (nível 18 ≈ 1,85 × nível 1). Defesa de um lugar = guarnição + guarda
+  da cidade (a conta do §11: vila 6 + 2, castelo 72 % do povo, cidade 15 %) × a muralha (cidade 2,6, castelo 2,2, paliçada
+  1,4, sem muralha 1).
+- **Campanha** (a cada ~2 horas de jogo, cada lado de cada guerra; uma por guerra e lado): o alvo é o lugar inimigo com
+  melhor nota (distância pela estrada — ou × 1,35 pelo campo —, defesa × 3, cidade +500, castelo +250, −400 se era nosso);
+  vai só com força ≥ 1,5 × a defesa e ≥ 12 soldados. Os lugares a até 1 100 tiles do alvo dão o que têm além do que fica
+  em casa (vila 50 %, castelo 35 %, cidade 40 %); o **lugar de reunião** é a guarnição mais forte entre as mais perto do
+  alvo; os contingentes a até 420 tiles dele (≥ 6 soldados, até 4) **marcham até ele e se juntam**; o exército espera até
+  12 horas e **sai como um só** ("Um exército do Reino de X (N soldados) marcha sobre Y"). Um contingente que chega depois
+  segue o exército até o cerco e se junta lá.
+- **Socorro**: um lugar cercado chama os exércitos do seu reino por perto (força ≥ 0,7 × os sitiantes) — "O Reino de X
+  manda N soldados socorrer Y" —; chegando, batem nos sitiantes.
+- **Marcha**: 1,1 tile / s (o relógio do mundo: ~860 tiles por dia de jogo; um vizinho fica a ~0,5–1,5 dia). A rota são as
+  estradas do reino (Dijkstra sobre os lugares) — ou, entre reinos da mesma terra sem estrada, um caminho pelo campo (A*
+  nas células do planeta, só terra, morros e montanhas custam mais), suavizado. A posição é **derivada do relógio** em todos
+  os pares (rota + `t0` / `d0` / velocidade): nenhuma op enquanto marcha. Um salto do relógio (dormir, `env.skip`) é
+  simulado em passos de 4 s, no máximo os últimos 3 dias.
+- **Batalha**: exércitos de reinos em guerra a ≤ 10 tiles (marchando, acampados ou cercando; quem recua é deixado ir)
+  param e lutam no meio do caminho; a cada 8 s de jogo cada lado perde força_do_outro × 6 % (× 0,7..1,3); quem cai abaixo
+  de 45 % do que tinha **recua** pelo caminho por onde veio (ou some se ficou com menos de 3); o vencedor segue. Uma
+  escaramuça de menos de 16 soldados não vira notícia.
+- **Cerco** (uma hora de jogo por vez): 2 h montando o **acampamento** na estrada, 14 tiles fora da terra do lugar; depois
+  **máquinas** — pontos por hora = soldados / 30; aríete 6, catapulta 5, trabuco 10, torre 12 (castelo: 1 aríete, 2
+  trabucos, 1 torre; cidade: 1 aríete, 3 trabucos, 2 torres; paliçada: 1 aríete, 1 catapulta; sem muralha: nada) —; o
+  **bombardeio**: cada trabuco acerta 55 % das horas (dano 0,5 × 0,7..1,3 numa peça — 70 % das vezes a mais rachada do
+  trecho de frente para o acampamento: a brecha), a catapulta na paliçada; o **aríete** vai ao portão mais perto (portão
+  de madeira: quebra em ~1 hora; de pedra: ~2), perdendo 2 soldados por hora. O estrago vai pela op `realm.wall` para o
+  **estado dos lugares** (rachaduras `dmg`, peças destruídas `gone`), carregado ou não: quem chega depois vê a muralha
+  quebrada. **Assalto** com brecha, portão quebrado, sem muralha ou com torres (depois de 8 horas), quando a força ≥ 1,3 × a
+  defesa (muralha × 0,6 com brecha, × 0,75 portão, × 0,8 torres): atacantes perdem defesa × 32 %, defensores ataque × 24 %;
+  fora do assalto, os arqueiros nas muralhas tiram defesa × 3,5 % × muralha por hora e as máquinas 1 % da força do ataque;
+  depois de 48 horas a fome tira 3 % dos defensores por hora. **Desistem** abaixo de 40 % do que eram, ou mais fracos que
+  0,9 × a defesa depois de 6 horas, ou depois de 4 dias, ou com a paz ("O cerco de Y terminou").
+- **Consertos**: durante o cerco e por **2 dias** depois dele as peças não são consertadas por números nem refeitas
+  (`holdRepair`); depois, as regras do §11 (o povo conserta de dia, peças destruídas voltam 2 dias depois sem ninguém perto).
+
+### Conquista e a queda de um reino
+
+- Defesa zerada → **tomada** (`realm.capture`): o lugar passa ao reino; metade dos atacantes fica de guarnição (até o
+  máximo do lugar), o resto volta para casa. Em todos os pares: dono, cores da guarda e do mural, faixa, mapa, comércio
+  (filiação), quadro de trabalhos, imposto; o povo é refeito da semente com o reino novo (os mesmos moradores; a guarda é a
+  do conquistador). "Y foi tomada pelo Reino de X" — ou "retomada" quando volta ao reino original. Um exército cuja casa foi
+  tomada volta para o lugar mais perto do seu reino.
+- **Um reino sem cidade cai** (`realm.fall`): os castelos e vilas que restam passam ao reino que tomou a sua última cidade
+  (decisão: eles juram lealdade ao conquistador — não ficam "sem dono"); as relações e tensões dele acabam; os exércitos
+  dele no campo se desfazem; os jogadores membros voltam a ser **viajantes** (a reputação fica); "O Reino de X caiu: suas
+  terras passam ao Reino de Y". A capital passa a ser a primeira cidade que ele tenha (um reino que tomou outra cidade
+  sobrevive à perda da sua).
+
+### Propriedades dos jogadores (decisão do dono)
+
+"Quando uma vila, cidade ou castelo for conquistado e o jogador possuir propriedade naquele lugar, o jogador perde elas …
+quando um jogador perde uma propriedade ela volta para lista de vendas, e caso seja um terreno, tudo que o jogador
+construiu no terreno some e o terreno volta para venda." Feito como **um caminho só** no anfitrião (`game/eco.js
+loseProps` → op `eco.lose` + `struct.remove` das peças do terreno), usado por:
+- a **conquista** do lugar (casas compradas, alugadas e terrenos de todos os jogadores ali);
+- o **imposto** não pago por 3 dias (−15 de reputação, como antes);
+- **vender / devolver** ao reino (o aviso diz que o construído no terreno foi desmontado).
+Efeitos: a linha da propriedade some (a dívida junto) e ela **volta à lista de venda / aluguel do lugar**, sob o reino
+que o tem agora (imposto dele); os baús de uma casa são esvaziados; num terreno **todas as peças que o jogador construiu**
+(blocos, plantas, baús…) são desmontadas em todos os pares — o anfitrião nunca descarta um chunk com construção, então
+estão todas lá; um convidado longe recebe com o chunk depois; o save guarda. O jogador afetado vê: "O Reino de X tomou Y —
+Você perdeu a casa pequena e o terreno 8×8 (o que estava construído no terreno foi destruído)…". **Antes**, quando o lugar
+fica sob cerco: "Y está sob cerco — Se cair, suas propriedades lá serão perdidas (…)", e o mural (Propriedades) marca o
+lugar "sob cerco: se cair, você a perde".
+
+### Reputação herdada (decisão do dono)
+
+"Ao jogador entrar em um reino, ele herda as relações do reino, fazendo com que se sair do reino, ele precise melhorar a
+reputação individualmente … relação negativa não quer dizer inimigo … só vira inimigo declarado caso faça parte de um
+reino inimigo, porém os preços seriam muito mais caros e muito mais baixos para venda … o jogador não pode entrar em um
+reino com relações / reputação negativa." Fecha o atalho "sair do reino → viajante → negociar com o inimigo dele".
+- **Entrar** (`realm.join`): o anfitrião calcula `inheritFor(k)` e a op `eco.member { inherit }` **substitui** a reputação
+  do jogador com **cada outro reino** (os caídos de fora): aliado do reino **+40** (já "Conhecido"), em **trégua** com ele
+  (acabou de lutar) **−15**, em **guerra** com ele **−60**, todos os outros (outras terras também) **0**; a reputação com
+  o reino em que entrou não muda. Toda vez que entra num reino, de novo. Aviso: "Você jurou lealdade ao Reino de X e herdou
+  as relações dele: 1 aliado te recebe bem (+40), 1 inimigo te vê mal". O cartão do Reino avisa antes de entrar quantas
+  reputações serão substituídas.
+- **Sair**: os valores ficam com o jogador (comércio e trabalhos os melhoram, como sempre).
+- **Faixas negativas**: Desconfiado (−1 … −24: compra +20 %, venda −20 %), Malvisto (−25 … −99: +50 % / −40 %), Odiado
+  (≤ −100: +100 % / −60 %); o limite continua −200. Com reputação negativa: **não entra no reino** ("Sua reputação com o
+  Reino de X é negativa: melhore-a com comércio e trabalhos antes de entrar"), não compra casa / terreno (como
+  "Desconhecido"), mas **negocia e trabalha** — o Comércio mostra "⚠ Reputação negativa com o Reino de X (Malvisto, −60):
+  compra 50 % mais cara e venda 40 % mais barata…", o cartão mostra a faixa em vermelho, a barra até a próxima faixa e "não
+  pode entrar". Subir de uma faixa negativa avisa; chegar a 0: "não é mais negativa: preços normais, já pode entrar".
+- **Não é inimizade**: nada caça o jogador por reputação negativa; inimigo declarado é só o membro de um reino em guerra
+  (sem comércio). Por jogador (uid), replicado (`eco.member`, `eco.rep`), no save e no digest (parte `eco`).
+
+### Para a 3b (o contrato do §12, como ficou)
+
+- `live`: um exército (o seu cerco / a sua batalha) a ≤ 120 tiles de um jogador → `live = 1` e
+  `game.warfare.materialize(army)`; ninguém a menos de 150 → `game.warfare.dematerialize(id)` → `{ n, eng, siege }` e os
+  números seguem. Enquanto `live`, a 3a não move, não cerca nem luta com aquele exército; `game.realms.report(id, {…})`.
+- **Sem `game.warfare`** (este ramo): `live` nunca é marcado e tudo segue por números.
+- `game.realms.capture(sid, k)` (anfitrião) → `true` quando tomou; faz tudo o que a tomada por números faz (guarnição,
+  propriedades, povo, queda do reino).
+- `game.realms.reward(pid, k, d, motivo)` (anfitrião): reputação para quem ajudou / atacou um reino (op `eco.rep`).
+- `game.realms.siegeOf(sid)` / `besieged(sid)` / `defense(sid)` / `siegeThreat(sid)`; `game.realms.armies.get('g' + sid)` é
+  a guarnição do lugar atacado.
+
+### Multijogador e saves
+
+Anfitrião autoritativo. Ops (todas globais para o interesse): `realm.start {day0, k0, tens}` · `realm.day {day, gar, tens,
+weary}` (as guarnições e níveis de todos os lugares, ~3 KB por dia) · `realm.rel {a, b, rel, by, until, why, quiet}` ·
+`realm.army {a, del, gar, news, scar, wt}` · `realm.wall {sid, hit, gone}` · `realm.capture {sid, k, from, n}` ·
+`realm.fall {k, to}`; na economia `eco.lose {ids, why, k, by, give, toast, built}`, `eco.rep {u, k, d}` e `eco.member {…, inherit}` (a reputação herdada). As notícias
+nascem dentro das ops (mesma lista em todos os pares; dia / hora de cada par são cosméticos). Snapshot / save:
+`world.realms` (`realmRows`: dia, primeiro dia, reino do início, relações, tensões, guerras passadas, donos, caídos, todos
+os exércitos, cicatrizes de cerco, notícias). Digest: parte **`realms`** (exata; um exército marchando entra pela rota e
+pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 3 ao abrir (com a carência).
+
+### Desempenho
+
+- Anfitrião: um tique a cada 0,5 s (os passos de 4 s do relógio desde o último): **~0,9 ms por tique** em média nos
+  testes com guerras, campanhas e cercos (~0,05 ms por quadro), o dia da diplomacia ~1–2 ms. O pico (7–27 ms, uma vez) é a
+  **planta** de um lugar sitiado longe que nunca foi carregado — feita na thread principal na primeira hora de bombardeio
+  (cidade ~25–55 ms; castelo / vila menos); depois fica guardada.
+- Todos os pares: as posições dos exércitos no campo a cada 0,25 s (poucos objetos); nada varre lugares ou peças por quadro.
+  O mapa repinta só os pixels que mudaram de dono numa tomada; as fronteiras em guerra são uma imagem pequena por guerra,
+  refeita quando as relações ou os donos mudam.
+
+### Testes e prints
+
+`tools/mp-test.js` **WR1–WR9** (`?run=WR1,…`; a IA dos reinos fica pausada em todo cenário — `act.js reset` — e os WR a
+dirigem): WR1 a mesma diplomacia nos dois pares, nunca guerra entre terras, a carência de 2 dias (6 dias de diplomacia
+com tensão 99 sem guerra; a partir do 3º dia, a guerra vem) · WR2 guerra forçada: o convidado membro vê a guerra, a
+aliança e a paz do seu reino (avisos e o mural Reino), uma campanha se reúne e marcha (mesmos exércitos nos dois, a
+notícia), o Exército mostra a campanha, notícias de guerra nos mercados, nenhuma guarnição acima do máximo · WR3 a marcha
+pela estrada: mesma posição nos dois (< 3 tiles), em cima da estrada (< 1 tile), anda velocidade × tempo, mapa e radar
+desenham · WR4 batalha por números (perdas iguais nos dois, o mais forte vence, o perdedor recua) · WR5 cerco por números
+longe dos dois: muralha / portão quebrados no estado dos lugares, sem conserto durante / depois, e os dois veem a brecha
+ao chegar · WR6 a tomada muda o dono em tudo (guarnição até o máximo, notícia, tabardos, `towns.at` / mural, mapa,
+comércio do membro, quadro de trabalhos) e a retomada · WR7 propriedades perdidas (casa e terreno de volta à venda nos
+dois, o muro do terreno some, o aviso do cerco e o da perda, e o save) · WR8 a queda de um reino · WR9 save → load
+igual · WR10 a reputação herdada (entrar substitui: aliado +40, inimigo −60 no lugar do +30 que havia, os outros 0;
+sair mantém; viajante numa vila do inimigo negocia com preços ≥ 1,45× na compra e ≤ 0,65× na venda, o Comércio explica;
+não entra com reputação negativa; um trabalho e o comércio a levam a 0 e aí entra — e herda as relações do novo reino). EC6 passou a conferir que o muro do terreno tomado por imposto some; SG6 (fase 1) troca só o `atWar` do
+`game.realms` no teste e o devolve (antes apagava o objeto — agora ele é o estado dos reinos). Todos terminam com o digest
+igual.
+
+Prints (`shots/`, fora do git; sem o painel de depuração): `wr_map_wars` (o mapa: Valadestra × Rabelonia, fronteira em
+vermelho, exércitos, cerco e batalha), `wr_map_army_march` (um exército marchando na estrada, de perto), `wr_map_siege`
+(o anel do cerco), `wr_siege_breach_1` / `_2` (o portão da paliçada de Silvança do Vau quebrado por um cerco por números,
+um guarda do novo reino segurando a abertura), `wr_castle_breach_1` / `_2` (o portão de pedra do Bastião de Arenelo
+quebrado), `wr_castle_siege_map`, `wr_mural_exercito_siege`, `wr_captured_banner` (a faixa "Silvança do Vau · Vila ·
+Reino de Valadestra" e as flâmulas do mural nas cores novas), `wr_captured_plaza` / `_2`, `wr_captured_castle_guards` (a
+guarda do castelo tomado com o tabardo de Valadestra), `wr_mural_reino_desktop` / `_2`, `wr_mural_exercito_desktop`,
+`wr_notice_war` (o aviso ao membro: "O Reino de Arenudia declarou guerra ao Reino de Galéria — Seu reino foi atacado"),
+celular 915 × 412 toque: `wr_mural_reino_phone` / `_2`, `wr_mural_exercito_phone` / `_2`, `wr_map_phone`; reputação herdada:
+`wr_rep_negative_trade` (o Comércio de uma vila do inimigo para quem saiu do reino: "Malvisto, −60 — compra 50 % mais cara e
+venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelho, a barra até "Desconfiado", não entra).
+
+### Decisões (para o dono confirmar)
+
+- **Carência de 2 dias** do reino do início (pedido do dono); além disso o mundo inteiro fica em paz no 1º dia.
+- **Rivais distantes**: reinos da mesma terra sem fronteira, com capitais a até 2 800 tiles, também têm tensão e podem
+  guerrear (marchando pelo campo, sem estrada). Sem isso, na semente 4242 o reino do início (Galéria, isolado por terra
+  livre) nunca teria uma guerra.
+- **Um reino que perde a última cidade cai** e os seus castelos e vilas passam ao conquistador dessa cidade (não ficam
+  independentes nem são divididos entre vizinhos).
+- **A conquista deixa a mesma gente**: os moradores ficam (são os mesmos da semente); a guarda passa a ser a do
+  conquistador (mesmos nomes, tabardo novo).
+- **Propriedades**: perdidas com o lugar conquistado (pedido do dono); a reputação não cai por isso (não é culpa do
+  jogador). Vender um terreno ao reino também desmonta o que foi construído nele (é o mesmo caminho).
+- **Reputação herdada** (pedido do dono): os números — aliado +40 (já pode comprar casa nele), trégua −15, guerra −60
+  ("Malvisto": compra 50 % mais cara); as faixas negativas e os preços da tabela do §10.
+- **Os níveis do §7b na força**: só +5 % por nível (nível 18 ≈ 1,85 × nível 1) — com +12 % os reinos longe do início eram
+  3× mais fortes por soldado e esmagavam o reino do jogador logo depois da carência.
+- **Exércitos lentos de propósito** (1,1 tile/s, ~860 tiles por dia de jogo): uma marcha leva de minutos a horas reais, e
+  quem está no caminho é avisado bem antes ("marcha sobre …").
+- **Sem a 3b, nada é jogado perto**: um cerco perto do jogador segue por números (o lugar reage: sino, povo em casa,
+  portões, guarda no muro, peças quebrando); a 3b troca isso por soldados de verdade.
+- Pendente / ideias: caravanas e exércitos visíveis andando no mundo (3b), mais de uma campanha por guerra, cercos de
+  reinos aliados juntos, resgate / troca de lugares no tratado de paz, o reino do jogador (fundar: futuro).
 
 ## 14. Fase 3b — campo de batalha e cerco
 

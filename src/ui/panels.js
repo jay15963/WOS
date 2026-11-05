@@ -21,7 +21,8 @@ import { Inventory } from '../game/inventory.js';
 import { uiScale } from './uiscale.js';
 import { pathCatalog, PATH_TAB } from './pathbar.js'; // painted terrain paths (agent M)
 import { TERRAIN_MODES, enterTerrainMode } from '../game/terrain.js'; // terrain height: the terrain tool (docs/TERRAIN-HEIGHT.md)
-import { radarTurns, setRadarTurns } from './minimap.js'; // camera yaw: the radar turns with the view (or stays north-up)
+import { radarTurns, setRadarTurns } from './minimap.js';
+import { warLegend } from './warMap.js'; // the wars on the map: legend and switch (phase 3a) // camera yaw: the radar turns with the view (or stays north-up)
 import { muralBody, muralBind } from './mural.js'; // the settlements' mural (docs/REINOS.md)
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -272,7 +273,7 @@ export class Panels {
       const r = muralBody(this);
       html = this.frame(r.title, svgIcon('map'), r.body, 'p-mural' + (r.cls ? ' ' + r.cls : '')); // (wide / mid: the economy tabs, ui/muralEco.js)
     } else if (name === 'map') {
-      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div><label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>${this.g.world.wrap ? '<div class="mm-zoom"><button class="n-btn" data-mmz="0.5">+</button><button class="n-btn" data-mmz="2">−</button><button class="n-btn" data-mmz="0">Centrar</button></div>' : ''}`, 'p-map');
+      html = this.frame('Mapa', svgIcon('map'), `<canvas class="bigmap"></canvas><div class="legend"><span><i style="background:#ec5a4c"></i>Hostil</span><span><i class="lg-gi"></i>Gigante</span><span><i style="background:#f0c24a"></i>Neutro</span><span><i style="background:#9cc45a"></i>Passivo</span><span><i style="background:#4cc2b4"></i>Jogadores</span><span><i style="background:#ffa040"></i>Fogo</span></div>${this.g.towns?.realm ? warLegend(this.g) : ''}<label class="mm-rot" data-tip="<b>Câmera girada</b><p>Ligado: o radar gira junto com a câmera (o que está à direita na tela está à direita no radar); a bússola mostra o norte.</p><p>Desligado: o radar fica sempre com o norte para cima.</p>"><input type="checkbox" data-mmrot${radarTurns() ? ' checked' : ''}> Radar gira com a câmera</label>${this.g.world.wrap ? '<div class="mm-zoom"><button class="n-btn" data-mmz="0.5">+</button><button class="n-btn" data-mmz="2">−</button><button class="n-btn" data-mmz="0">Centrar</button></div>' : ''}`, 'p-map');
     }
     this.el.innerHTML = html;
     this.el.querySelectorAll('[data-scroll]').forEach((n) => { const v = this.scroll[n.dataset.scroll]; if (v) n.scrollTop = v; });
@@ -460,6 +461,7 @@ export class Panels {
       this.drawMap();
     }));
     el.querySelector('[data-mmrot]')?.addEventListener('change', (e) => setRadarTurns(e.target.checked));
+    el.querySelector('[data-mmwar]')?.addEventListener('change', (e) => { g.ui.warLayer = !!e.target.checked; this.drawMap(); }); // (the wars on the map / radar: ui/warMap.js)
   }
 
   drawMap() {

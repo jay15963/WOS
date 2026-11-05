@@ -331,6 +331,7 @@ export function installController(game) {
     if (h.type === 'creature') {
       const e = h.e, temper = e.temper || SPECIES[e.species]?.temper;
       const tk = game.people?.tapIt?.(e); // the settlements' people (game/people.js): a tap / click talks to them
+      if (tk === false) return; // (one of the people in a fight: no talk, no attack)
       if (tk) { if (reachDist(p, tk) > tk.reach + TAP_SLACK) tooFar(e.x, e.y, 1.15 * (e.scale || 1), 0.75 * (e.scale || 1)); else ctl.interact(tk); return; }
       const st = game.stock?.tapIt?.(e); // farm animals (livestock.js): tie / release; a domesticated one is only targeted
       if (st?.targetOnly) { ctl.setTarget(e); return; }
