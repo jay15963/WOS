@@ -341,7 +341,7 @@ export function travelWhy(game, r, ent, pid) {
   const s = settlementAt(realmOf(game), ent.x, ent.y, 6);
   if (!s || ownerOf(game, s.id) !== r.k) return `Viaje a partir de um lugar do Reino de ${K} (a terra de uma vila, castelo ou cidade dele)`;
   if (homeSiege(game, { sid: s.id, k: r.k })) return `${s.name} está sob cerco: não dá para sair agora`;
-  for (const o of structsOfType(game, 'battering_ram').concat(structsOfType(game, 'siege_tower'), structsOfType(game, 'trebuchet'), structsOfType(game, 'catapult'))) {
+  for (const type of ['battering_ram', 'siege_tower', 'trebuchet', 'catapult']) for (const o of structsOfType(game, type)) { // (Sets by type)
     if (o.user === pid || (o.push || []).includes(pid)) return 'Solte a máquina de cerco antes de viajar';
   }
   for (const e of game.entities) { // (enemies near: a fight)
