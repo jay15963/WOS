@@ -46,7 +46,7 @@ export const dirPt = (dx, dy) => DIRS[(Math.round(Math.atan2(dy, dx) / (Math.PI 
 export function ecoState(game) {
   if (!game.eco) game.eco = {};
   const E = game.eco;
-  if (!E.mk) Object.assign(E, { day: -1, mk: new Map(), ev: [], pl: new Map(), pr: new Map(), st: new Map(), feat: new Map(), v: 0, who: new Map(), pend: new Map() });
+  if (!E.mk) Object.assign(E, { day: -1, mk: new Map(), ev: [], pl: new Map(), pr: new Map(), st: new Map(), feat: new Map(), v: 0, who: new Map(), pend: new Map(), pu: new Map() }); // (pu: session pid → uid on every peer — op eco.who; phase 3c: who is who in a fight)
   return E;
 }
 export const realmOf = (game) => game.towns?.realm || null;
@@ -856,7 +856,7 @@ export function ecoSystem() {
       if (E.day < 0) { ensureMarkets(game); game.net.emit('eco.start', { day: game.env.dayIndex, mk: [...E.mk].map(([sid, a]) => [sid, [...a]]) }); return; }
       if (!E.who.has(game.net.pid) || E.who.get(game.net.pid) !== meUid(game)) E.who.set(game.net.pid, meUid(game)); // sync-ok: host-only pid → uid map
       const mine = E.pl.get(meUid(game)), nm = (game.player.name || 'Jogador').slice(0, 18);
-      if (!mine || mine.name !== nm) game.net.emit('eco.who', { u: meUid(game), name: nm, by: game.net.pid }); // (the host itself: its record and name)
+      if (!mine || mine.name !== nm || E.pu?.get(game.net.pid) !== meUid(game)) game.net.emit('eco.who', { u: meUid(game), name: nm, by: game.net.pid }); // (the host itself: its record and name; its pid → uid known to every peer — phase 3c)
       // the places made here (their plan known): their real features for every peer's prices (a few a second)
       let n = 0;
       for (const sid of game.towns?.live?.keys() || []) {

@@ -70,6 +70,7 @@ export function ecoRows(game) {
     pr: [...E.pr].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([id, r]) => [id, r.u, r.name, r.mode, r.day, r.due, r.warn]),
     st: [...E.st].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([id, s]) => [id, s]),
     ft: [...(E.feat || [])].sort((a, b) => a[0] - b[0]).map(([sid, f]) => [sid, f]),
+    pu: [...(E.pu || [])].map(([pid, u]) => [pid, u]), // (session pid → uid: the snapshot only — not in the digest)
   };
 }
 const obj = (o) => { const out = {}; if (o && typeof o === 'object') for (const k in o) if (/^-?\d+$/.test(k)) out[k] = int(o[k]); return out; };
@@ -77,6 +78,7 @@ export function applyEcoRows(game, d, reconcile) {
   const E = ecoState(game);
   if (!d || typeof d !== 'object') { if (reconcile) { E.mk.clear(); E.pl.clear(); E.pr.clear(); E.st.clear(); E.feat.clear(); E.ev = []; E.day = -1; } return; }
   E.day = int(d.day, -1);
+  if (Array.isArray(d.pu)) { E.pu = E.pu || new Map(); for (const r of d.pu) if (Array.isArray(r) && typeof r[0] === 'string' && typeof r[1] === 'string') E.pu.set(r[0].slice(0, 40), r[1].slice(0, 40)); }
   E.feat.clear();
   for (const r of Array.isArray(d.ft) ? d.ft : []) { const f = Array.isArray(r) && cleanFeat(r[1]); if (f && settlement(game, int(r[0]))) E.feat.set(int(r[0]), f); }
   E.ev = cleanEv(d.ev);
@@ -162,6 +164,7 @@ defineOp('eco.who', {
     if (!u) return;
     rec(game, u, a.name);
     if (ctx.mine) E_(game).me = u; // (a second tab of the same browser: the host answers with another uid)
+    if (typeof a.by === 'string' && a.by) (E_(game).pu || (E_(game).pu = new Map())).set(a.by.slice(0, 40), u); // (every peer: whose pid is which uid — the players' fights, phase 3c)
     bump(game);
   },
 });

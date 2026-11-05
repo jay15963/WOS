@@ -304,7 +304,7 @@ export class Minimap {
         const X = toX(e.x), Y = toY(e.y);
         if (out(X, Y, 0)) continue;
         if (!full && !e.remote && Math.hypot(w.dx(e.x, p.x), e.y - p.y) > 40) continue;
-        ctx.fillStyle = e.remote ? TEAL : DOT.hostile;
+        ctx.fillStyle = e.remote ? (e.pvp ? DOT.hostile : TEAL) : DOT.hostile; // (a player of a kingdom at war with mine: red — docs/REINOS.md §15)
         ctx.beginPath(); ctx.arc(X, Y, e.remote ? dot + 1 : dot, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = e.remote ? CREAM : INK; ctx.lineWidth = 1; ctx.stroke();
         if (full && e.remote && e.name) { // (the map: who it is)
@@ -337,6 +337,18 @@ export class Minimap {
         ctx.fillStyle = '#f7d97a'; ctx.strokeStyle = INK; ctx.lineWidth = 1.6;
         ctx.beginPath(); ctx.moveTo(X, Y - 6); ctx.lineTo(X + 5, Y); ctx.lineTo(X, Y + 6); ctx.lineTo(X - 5, Y); ctx.closePath(); ctx.fill(); ctx.stroke();
         if (full && wp.label) { ctx.font = '700 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeText(wp.label, X, Y - 9); ctx.fillStyle = '#ffe39a'; ctx.fillText(wp.label, X, Y - 9); }
+      }
+    }
+    // the general's order (ui/armyHud.js): a red banner — the army, the rally point, the camp, the gate, the breach; on the
+    // map clamped to the edge
+    const ow = g.army?.wp;
+    if (ow) {
+      let X = toX(ow.x), Y = toY(ow.y);
+      if (full) { X = Math.max(8, Math.min(W - 8, X)); Y = Math.max(10, Math.min(H - 8, Y)); }
+      if (!out(X, Y, 0)) {
+        ctx.strokeStyle = INK; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(X - 3, Y + 6); ctx.lineTo(X - 3, Y - 7); ctx.stroke();
+        ctx.fillStyle = '#e8463a'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(X - 2.5, Y - 7); ctx.lineTo(X + 6, Y - 4); ctx.lineTo(X - 2.5, Y - 1); ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (full && ow.label) { ctx.font = '700 11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeText(ow.label, X, Y - 10); ctx.fillStyle = '#ffd0c4'; ctx.fillText(ow.label, X, Y - 10); }
       }
     }
     // spawn camp marker

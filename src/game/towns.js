@@ -463,6 +463,11 @@ function hostileInside(game, L) {
     const dx = w.dx(e.x, L.x), dy = e.y - L.y;
     if (dx * dx + dy * dy < r2) return true;
   }
+  if (game.army?.en?.size) for (const p of allPlayers(game)) { // (an enlisted player of a kingdom at war with it: shut — phase 3c)
+    if (p.dead || !game.army.townFoe({ sid: L.sid }, p)) continue;
+    const dx = w.dx(p.x, L.x), dy = p.y - L.y;
+    if (dx * dx + dy * dy < r2) return true;
+  }
   return false;
 }
 function passageBusy(game, o) {

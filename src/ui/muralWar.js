@@ -2,9 +2,12 @@
 // weary), allies, truces, at peace (and how tense the border is), the lands across the sea — and its news ("Notícias do
 // reino"); the Exército tab — this place's army (soldiers / most, level, recruits, the watch, its state: at home, besieged,
 // its contingents away), the kingdom's campaigns (where each army marches, how far, when it arrives, sieges with their
-// engines and the walls), the enemy armies coming, and "Entrar no exército" (soon: phase 3c). Information only.
+// engines and the walls), the enemy armies coming, and the enlistment (phase 3c, docs/REINOS.md §15: the requirements, the
+// pay by rank, "Alistar-se" / "Dar baixa" — intents army.join / army.leave, game/mut/army.js).
 import { WAR, capOf, ENG_PT, wallKind } from '../game/content/war.js';
 import { WAR_ICONS } from './warHud.js';
+import { ARMY } from '../game/content/army.js';
+import { meUid, atMural } from '../game/eco.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sw = (c) => `<i class="mu-sw" style="background:rgb(${c.join(',')})"></i>`;
@@ -51,6 +54,31 @@ function style() {
 .p-mural .wr-camp .d { font-size: 12.5px; color: rgba(246,234,208,0.8); }
 .p-mural .wr-camp.enemy { border-color: rgba(232,70,58,0.5); background: rgba(232,70,58,0.1); }
 @media (max-width: 700px) { .p-mural .wr-army { grid-template-columns: repeat(2, 1fr); } .p-mural .wr-bar { width: 80px; } }
+.p-mural .ar-card { margin: 10px 0 6px; padding: 10px 12px 12px; border-radius: 11px; background: linear-gradient(180deg, rgba(251,241,220,0.97), rgba(232,214,176,0.95)); color: var(--n-ink, #24160d); box-shadow: inset 0 0 0 2px rgba(60,36,18,0.3); }
+.p-mural .mu-body .ar-card b { color: #8a3a1c; }
+.p-mural .ar-card.on { box-shadow: inset 0 0 0 2px #8e1f16, 0 0 12px rgba(232,70,58,0.25); }
+.p-mural .ar-h { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
+.p-mural .ar-h .ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: #fff6e0; flex: none; box-shadow: inset 0 0 0 1.5px rgba(0,0,0,0.3); }
+.p-mural .ar-h .ic svg { width: 20px; height: 20px; }
+.p-mural .ar-h .t { font: 700 18px/1.1 var(--n-fd); text-transform: uppercase; letter-spacing: 0.6px; }
+.p-mural .ar-h small { display: block; font: 600 12.5px system-ui, sans-serif; color: #5c4026; }
+.p-mural .ar-req { list-style: none; padding: 0; margin: 4px 0 8px; display: flex; flex-direction: column; gap: 3px; }
+.p-mural .ar-req li { display: flex; gap: 7px; align-items: baseline; font-size: 13.5px; }
+.p-mural .ar-req li .m { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font: 800 12px/1 system-ui; flex: none; }
+.p-mural .ar-req li.ok .m { background: #4c8a3e; color: #fff; } .p-mural .ar-req li.no .m { background: #b8322a; color: #fff; }
+.p-mural .ar-req li small { color: #6c5236; }
+.p-mural .ar-ranks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 6px 0; }
+.p-mural .ar-ranks div { padding: 5px 4px; border-radius: 8px; text-align: center; background: rgba(60,36,18,0.08); font: 600 11.5px/1.2 system-ui, sans-serif; color: #5c4026; }
+.p-mural .ar-ranks div.cur { background: #8e1f16; color: #fff1dc; }
+.p-mural .ar-ranks div b { display: block; font: 700 14px/1.1 var(--n-fd); color: inherit; }
+.p-mural .mu-body .ar-ranks div.cur b { color: #fff1dc; }
+.p-mural .ar-card p { margin: 4px 0; font-size: 13.5px; color: #3c2a1e; }
+.p-mural .ar-card ul.ar-rules { margin: 4px 0 8px 18px; padding: 0; font-size: 13px; color: #3c2a1e; }
+.p-mural .ar-ord { margin: 6px 0; padding: 7px 9px; border-radius: 8px; background: rgba(142,31,22,0.1); border-left: 4px solid #8e1f16; font-size: 13.5px; color: #3c2a1e; }
+.p-mural .ar-act { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.p-mural .ar-act small { color: #8a2016; font-weight: 600; }
+.p-mural .ar-act .btn.danger { background: #b8322a; color: #fff; border-color: #6e1a12; }
+@media (max-width: 700px) { .p-mural .ar-ranks { grid-template-columns: repeat(2, 1fr); } }
 `;
   document.head.appendChild(s);
 }
@@ -130,6 +158,49 @@ export function armyTab(panels, I) {
   body += `<h4>Campanhas do Reino de ${esc(K.name)}</h4>${mine.length ? mine.map((a) => camp(a, false)).join('') : `<p class="mu-note">${war ? 'Nenhum exército em campanha agora: os soldados guardam as muralhas e se juntam para a próxima.' : 'O reino está em paz: os soldados ficam em casa.'}</p>`}`;
   if (foes.length) body += `<h4>Inimigos a caminho</h4>${foes.map((a) => camp(a, true)).join('')}`;
   body += `<p class="mu-note">Cada vila, castelo e cidade tem o seu exército: recruta com o tempo (mais nos castelos), sobe de nível com o mundo e se junta aos outros do reino nas campanhas. ${wallKind(s) === 'none' ? 'Sem muralha, a vila se defende na borda.' : 'Atrás da muralha, cada defensor vale por vários atacantes.'}</p>`;
-  body += `<div class="mu-soon"><div class="tag">Em breve</div><h4>Entrar no exército</h4><p>Com reputação no reino você poderá se alistar aqui, receber as ordens do general na tela, seguir os pontos de encontro no mapa e defender — ou tomar — castelos e cidades.</p></div>`;
-  return body;
+  return enlistCard(panels, I, s, K) + body;
+}
+
+// ---------- the enlistment (phase 3c) ----------
+const KIND_IN = { village: ['na milícia', 'da milícia', 'a milícia'], castle: ['na guarnição', 'da guarnição', 'a guarnição'], city: ['no exército', 'do exército', 'o exército'] };
+const UI = new WeakMap();
+const cap1 = (t) => t[0].toUpperCase() + t.slice(1);
+function enlistCard(panels, I, s, K) {
+  const g = panels.g, A = g.army;
+  if (!A?.en || !g.eco?.pl) return '';
+  const u = meUid(g), r = A.en.get(u), [na, , oa] = KIND_IN[s.kind] || KIND_IN.village, flag = WAR_ICONS.flag;
+  const ranks = (cur) => `<div class="ar-ranks">${ARMY.ranks.map((q, i) => `<div class="${i === cur ? 'cur' : ''}"><b>${q.name}</b>${q.pay} moedas/dia${q.svc ? `<br>${q.svc} de serviço` : '<br>ao entrar'}</div>`).join('')}</div>`;
+  const head = (sub, on) => `<div class="ar-card${on ? ' on' : ''}"><div class="ar-h"><span class="ic" style="background:rgb(${K.color.join(',')})">${flag}</span><div><div class="t">${on ? 'Você está no exército' : 'Alistamento'}</div><small>${sub}</small></div></div>`;
+  const ui = UI.get(panels) || {}, conf = ui.leave && performance.now() - ui.leaveT < 4000;
+  if (r && r.sid === I.id) {
+    const R = ARMY.ranks[r.rank], nx = ARMY.ranks[r.rank + 1], o = A.order(u, g.player), act = A.inAction(r);
+    return `${head(`${cap1(oa)} de ${esc(I.name)} · Reino de ${esc(K.name)}`, true)}
+      <p>Você serve ${na} de <b>${esc(I.name)}</b> como <b>${R.name}</b> desde o dia ${r.since}. ${nx ? `Serviço: <b>${r.svc}</b> (faltam ${nx.svc - r.svc} para ${nx.name}).` : `Serviço: <b>${r.svc}</b> — o posto mais alto.`} Inimigos derrubados: ${r.kills}.</p>
+      <p>Soldo: <b>${A.wage(r)} moedas por dia</b> a cada amanhecer${A.wage(r) > R.pay ? ' (em campanha: ×1,5)' : ''}, mais bônus por batalha vencida, lugar tomado e cerco rechaçado.</p>
+      ${o ? `<div class="ar-ord">Ordem agora: <b>${esc(o.title)}</b><br>${esc(o.sub)}</div>` : ''}
+      ${ranks(r.rank)}
+      <div class="ar-act"><button class="btn${act ? ' danger' : ''}" data-aleave>${conf ? (act ? 'Confirmar a deserção' : 'Confirmar a baixa') : 'Dar baixa'}</button>${act ? `<small>O exército está em combate: sair agora é deserção — ${ARMY.desert.rep} de reputação e o reino não aceita você de volta por ${ARMY.desert.banDays} dias.</small>` : '<small style="color:#5c4026">Fora de combate você sai quando quiser: a reputação fica com você.</small>'}</div></div>`;
+  }
+  if (r) {
+    const q = g.towns.realm.settlements[r.sid], act = A.inAction(r);
+    return `${head(`Você serve ${(KIND_IN[q.kind] || KIND_IN.village)[0]} de ${esc(q.name)}`, false)}<p>Um exército por vez: para servir aqui, dê baixa lá antes${act ? ' — mas ele está em combate agora: seria deserção' : ''}.</p>
+      <div class="ar-act"><button class="btn${act ? ' danger' : ''}" data-aleave>${conf ? 'Confirmar' : `Dar baixa em ${esc(q.name)}`}</button></div></div>`;
+  }
+  const reqs = A.reqs(u, I.id), why = A.joinReason(u, I.id, null), here = atMural(g, I.id, g.player);
+  return `${head(`${cap1(oa)} de ${esc(I.name)} · Reino de ${esc(K.name)}`, false)}
+    <ul class="ar-req">${reqs.map((q) => `<li class="${q.ok ? 'ok' : 'no'}"><span class="m">${q.ok ? '✓' : '✕'}</span><span>${esc(q.text)}${q.hint ? ` <small>· ${esc(q.hint)}</small>` : ''}</span></li>`).join('')}</ul>
+    <p>Alistado, você recebe as <b>ordens do general</b> na tela — para onde ir e o que fazer: marchar, montar o acampamento, empurrar o aríete, subir na torre, entrar pela brecha, segurar a praça — com o ponto no chão, no mapa e no radar, e um soldo diário pelo posto:</p>
+    ${ranks(-1)}
+    <ul class="ar-rules"><li>Em guerra você luta com os soldados e a <b>guarda</b> dos reinos inimigos, e com jogadores que sejam membros deles; o povo (civis) continua protegido, e ninguém do seu lado.</li><li>Os guardas e soldados inimigos tratam você como inimigo nas terras deles (e fecham os portões).</li><li>Morrer na guerra: renasce como sempre, sem perder reputação nem o posto.</li><li>Dar baixa fora de combate é livre; no meio de uma batalha ou de um cerco é <b>deserção</b> (${ARMY.desert.rep} de reputação).</li></ul>
+    <div class="ar-act"><button class="btn primary" data-ajoin ${why || !here ? 'disabled' : ''}>Alistar-se ${na} de ${esc(I.name)}</button>${why ? `<small>${esc(why)}</small>` : !here ? '<small>Chegue perto do mural</small>' : ''}</div></div>`;
+}
+export function armyBind(panels, el) {
+  const g = panels.g, sid = panels.data?.sid, err = (why) => why && g.events.emit('error', { text: why });
+  el.querySelector('[data-ajoin]')?.addEventListener('click', () => g.net.request('army.join', { sid }, { onReject: err }));
+  el.querySelectorAll('[data-aleave]').forEach((b) => b.addEventListener('click', () => {
+    const ui = UI.get(panels) || {};
+    if (ui.leave && performance.now() - ui.leaveT < 4000) { UI.set(panels, {}); g.net.request('army.leave', {}, { onReject: err }); }
+    else UI.set(panels, { leave: true, leaveT: performance.now() });
+    panels.render();
+  }));
 }

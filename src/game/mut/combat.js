@@ -8,6 +8,9 @@ import { defineIntent, defineOp } from '../../net/registry.js';
 import { dealDamage, addDot, stun, dist } from '../combat.js';
 import { aggro, startFlee } from '../ai.js';
 import { fireCosmetic } from '../projectiles.js';
+import { hurtPlayer } from '../players.js';
+// the body of a session pid on the host (the local player, a guest's avatar at its latest position)
+const entOfPid = (game, pid) => { if (pid === game.net.pid) return game.player; const pl = game.session?.players?.get?.(pid); return pl && pl.synced !== false ? pl.av || null : null; }; // sync-ok: an intent (authority) finding the victim's body, never an op applier
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const str = (v, n = 24) => (typeof v === 'string' ? v.slice(0, n) : undefined);
@@ -61,6 +64,24 @@ defineIntent('mob.hit', {
       });
     }
     if (a.eff && typeof a.eff === 'object' && !m.dead) applyMobEffect(game, m, a.eff, src);
+  },
+});
+
+// a player hits another player (docs/REINOS.md §15): only members of kingdoms at war (game/army.js pvpWhy — the host's own
+// uid map decides); the victim's client rolls dodge / armour / block (player.hurt), the host's own player takes it here
+defineIntent('pvp.hit', {
+  doc: 'A player hit another player with an amount rolled on its client — only between members of kingdoms at war (phase 3c); the victim takes it on its own client (player.hurt).',
+  args: { pid: 'victim pid', amount: 'number', crit: '0|1', ranged: '0|1', ability: 'string?', from: '[x, y]?' },
+  run(game, a, actor) {
+    const src = actor.ent, vpid = typeof a.pid === 'string' ? a.pid.slice(0, 40) : '';
+    const why = game.army?.pvpWhy ? game.army.pvpWhy(actor.pid, vpid) : 'Não';
+    if (why) return why;
+    const v = entOfPid(game, vpid);
+    if (!v || v.dead || !src || src.dead) return 'Alvo morto';
+    if (dist(src, v) > (a.ranged ? 20 : 6)) return 'Longe demais';
+    const amount = Math.max(0, Math.min(5000, num(a.amount)));
+    const from = Array.isArray(a.from) ? { x: num(a.from[0], src.x), y: num(a.from[1], src.y) } : src;
+    hurtPlayer(game, src, v, amount, { crit: !!a.crit, ranged: !!a.ranged, ability: str(a.ability), from });
   },
 });
 

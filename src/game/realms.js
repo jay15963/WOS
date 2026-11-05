@@ -4,13 +4,19 @@
 // game.realms (every peer; the state is replicated, decided on the host — game/mut/realms.js):
 //   rel(a, b) → 'self'|'ally'|'neutral'|'war' · atWar(a, b) · relInfo(a, b) · owner(sid) · ownerAt(x, y) · alive(k)
 //   armies (Map id → army: the home army 'g<sid>' of every place and the field armies 'a<n>') · fieldArmies()
-//   capture(sid, k) (host) · report(id, { n, eng, state, x, y, siege }) (host: 3b while an army is `live`)
+//   capture(sid, k, { army, n }) (host) · report(id, { n, eng, state, x, y, siege }) (host: 3b while an army is `live`)
+//   settle(id, { n, outcome: 'won' | 'lost' | 'taken' | 'lifted', x, y }) (host: 3b's fight near the players is over —
+//   the numbers resume at once: go home, hold the place taken, march on)
 //   besieged(sid) / siegeOf(sid) · holdRepair(sid) · placesOf(k) · capitalOf(k) · strength(k) · posOf(army) · etaOf(army)
 //   newsText(row) · reward(pid, k, d, why) (host: reputation for helping a kingdom — 3b) · marketNews(day, roll, ev) (host:
 //   eco.js) · siegeThreat(sid, prev) (host: people.js, the town defense faces the besiegers' camp) · dbg (tests)
 // The hand-off to phase 3b (§12): an army (its battle / its siege) within WAR.live tiles of a player is `live` →
 // game.warfare?.materialize(army); nobody within WAR.liveOut → game.warfare?.dematerialize(id) → { n, eng, siege } and the
 // numbers go on from there. Without game.warfare everything stays numeric (live is never set).
+// Phase 3c (docs/REINOS.md §15): a live army that is not fighting (marching, going home, gathering) with an enlisted player
+// of its own beside it (game.army.escorted) keeps its clock running — the column of soldiers follows 3a's position and the
+// march arrives, gathers, meets the enemy — and a live army whose state changes (it arrives and besieges, meets an army,
+// goes home after a fight: settle) is handed to 3b again in its new shape (rematerialized).
 //
 // Host simulation (realmsSystem, sync 'host'): the world clock is followed in steps of WAR.step seconds (a time skip — a
 // night slept, env.skip — is simulated for at most WAR.maxSkip days): marches (positions derived from the clock: the
@@ -282,7 +288,7 @@ export const newsKinds = (row) => [row[4], row[5]]; // (the kingdoms a news row 
 // ---------- install (every peer) ----------
 export function installRealms(game) {
   const R = realmsState(game);
-  const H = { acc: new Map(), lost: new Map(), placeLost: new Map(), planAt: new Map(), t: null, per: new Map(), stats: { ticks: 0, sum: 0, max: 0, steps: 0, maxSkip: 0, dayMs: 0 } }; // (host-only bookkeeping)
+  const H = { acc: new Map(), lost: new Map(), placeLost: new Map(), planAt: new Map(), t: null, per: new Map(), held: new Map(), stats: { ticks: 0, sum: 0, max: 0, steps: 0, maxSkip: 0, dayMs: 0, remat: 0, settled: 0 } }; // (host-only bookkeeping; held: army id → the garrison it left in a place taken near the players)
   Object.assign(R, {
     H,
     rel: (a, b) => relOf(game, a, b), // (§12: 'self' | 'ally' | 'neutral' | 'war')
@@ -307,8 +313,9 @@ export function installRealms(game) {
     etaOf: (a) => etaOf(game, a),
     newsText: (row) => newsText(game, row),
     newsFor: (k, n = 8) => R.news.filter((r) => r[4] === k || r[5] === k || (r[6] >= 0 && ownerOf(game, r[6]) === k)).slice(-n).reverse(),
-    capture: (sid, k) => { if (!game.net.auth) return false; return hostCapture(game, sid, k, null); },
+    capture: (sid, k, o = null) => { if (!game.net.auth) return false; const a = o?.army ? R.armies.get(o.army) : null; return hostCapture(game, sid, k, a, game.worldTime, a ? { live: true, n: o.n } : null); },
     report: (id, r) => hostReport(game, id, r),
+    settle: (id, r) => hostSettle(game, id, r),
     reward: (pid, k, d, why = '') => {
       if (!game.net.auth || !(k >= 0) || !d) return false;
       const u = uidOf(game, pid);
@@ -406,6 +413,7 @@ function arrive(game, a, t) {
       R.H.acc.delete(a.id);
       emitArmy(game, b);
       game.net.emit('realm.army', { del: a.id });
+      if (M.live && game.warfare?.forces?.get(M.id)?.kind === 'march') remat(game, R.armies.get(M.id)); // (live: its column with the newcomers at once — phase 3c)
       return;
     }
     const path = M && M.target >= 0 && M.state !== 'retreat' ? pathTo(game, dijkstra(realm, [M.target], WAR.maxRoute * 1.5), a.target, M.target) : null;
@@ -603,13 +611,16 @@ function siegeHour(game, a, t, roll) {
 }
 
 // ---------- host: conquest ----------
-function hostCapture(game, sid, k, army = null, t = game.worldTime) {
+function hostCapture(game, sid, k, army = null, t = game.worldTime, o = null) {
   const realm = realmOf(game), s = realm?.settlements[sid];
   if (!s || !realm.kingdoms[k] || fallen(game, k)) return false;
   const from = ownerOf(game, sid);
   if (from === k) return false;
   const H = game.realms.H;
-  const stay = army ? Math.max(1, Math.min(capOf(s), Math.round(army.n * WAR.siege.hold))) : Math.round(capOf(s) * 0.3);
+  // the new garrison: from the winners (half of them, up to the place's most) — 3b's live count when it took it near the
+  // players (o.n); a capture without an army (debug): 30 % of the place's most
+  const wn = o && Number.isFinite(o.n) ? Math.max(0, Math.round(o.n)) : army?.n;
+  const stay = army ? Math.max(1, Math.min(capOf(s), Math.round(wn * WAR.siege.hold))) : Math.round(capOf(s) * 0.3);
   game.net.emit('realm.capture', { sid, k, from, n: stay });
   H.placeLost.set(from, (H.placeLost.get(from) || 0) + 1);
   H.placeLost.set(k, (H.placeLost.get(k) || 0) - 1);
@@ -619,7 +630,8 @@ function hostCapture(game, sid, k, army = null, t = game.worldTime) {
   const rec = game.people?.live?.get(sid);
   if (rec) { for (const m of [...rec.ents.values()]) game.people._drop(rec, m); game.people.live.delete(sid); }
   H.per.delete(sid);
-  if (army) {
+  if (army && o?.live) { H.held.set(army.id, stay); } // (taken near the players: the victors hold the plaza a while — 3b settles the rest)
+  else if (army) {
     const left = army.n - stay;
     if (left >= 5) goHome(game, { ...copy(army), n: left, state: 'camp' }, t, { scar: sid, wt: Math.round(t) });
     else { H.acc.delete(army.id); game.net.emit('realm.army', { del: army.id, scar: sid, wt: Math.round(t) }); }
@@ -645,11 +657,84 @@ function hostReport(game, id, r) {
   return true;
 }
 
+// 3b → 3a: a fight played near the players is over (game/warfare.js finishForce) — the numbers resume at once, whoever
+// stays near: a place taken (its garrison already left there: the rest go home), a siege given up (home), a battle won
+// (back to what it was doing) or lost (home with what is left)
+function hostSettle(game, id, r = {}) {
+  if (!game.net.auth) return false;
+  const R = game.realms, a = R.armies.get(id), H = R.H;
+  if (!a || a.state === 'home') return false;
+  const t = game.worldTime, b = copy(a), out = r.outcome;
+  H.stats.settled++;
+  if (Number.isFinite(r.n)) b.n = Math.max(0, Math.round(r.n));
+  if (Number.isFinite(r.x) && Number.isFinite(r.y) && b.state !== 'march' && b.state !== 'retreat') { b.x = Math.round(r.x * 100) / 100; b.y = Math.round(r.y * 100) / 100; }
+  H.acc.delete(id);
+  const wt = Math.round(t), T = a.target;
+  if (out === 'taken') {
+    b.n = Math.max(0, b.n - (H.held.get(id) || 0)); H.held.delete(id);
+    if (b.n >= 5) goHome(game, { ...b, state: 'camp' }, t, { scar: T >= 0 ? T : undefined, wt });
+    else game.net.emit('realm.army', { del: id, scar: T >= 0 ? T : undefined, wt });
+    return true;
+  }
+  if (a.state === 'siege') { // (given up: home with what is left)
+    const news = T >= 0 ? ['lift', a.k, ownerOf(game, T), T, 0] : undefined;
+    if (b.n < WAR.battle.wipe) game.net.emit('realm.army', { del: id, news, scar: T >= 0 ? T : undefined, wt });
+    else goHome(game, b, t, { news, scar: T >= 0 ? T : undefined, wt });
+    return true;
+  }
+  if (a.state === 'battle') {
+    const f = R.armies.get(a.foe);
+    if (out === 'won') {
+      const w = resume(game, b, t);
+      emitArmy(game, w, { news: (a.bn || 0) + (f?.bn || 0) >= WAR.battle.newsMin ? ['won', a.k, f ? f.k : -1, nearSid(game, b.x, b.y), w.n] : undefined });
+    } else if (b.n < WAR.battle.wipe) game.net.emit('realm.army', { del: id });
+    else goHome(game, resume(game, b, t), t);
+    return true;
+  }
+  emitArmy(game, b);
+  return true;
+}
+
 // ---------- host: the hand-off to phase 3b (§12) ----------
+// the shape 3b plays an army in (warfare.js materialize) for its state now
+const shapeOf = (a) => (a.state === 'siege' ? 'siege' : a.state === 'battle' ? 'battle' : 'march');
+const shapeOfF = (F) => (F.kind === 'pending' ? 'battle' : F.kind);
+// a fight whose end 3b is playing out (the victors in the plaza, a rout, a retreat): 3b settles it — leave it be
+const finishing = (F) => !F.done && ((F.kind === 'siege' && (F.phase === 'held' || F.phase === 'retreat')) || (F.kind === 'battle' && (F.phase === 'rout' || F.phase === 'won')));
+function remat(game, a) {
+  const WF = game.warfare;
+  game.realms.H.stats.remat++;
+  try { WF.dematerialize?.(a.id); } catch (e) { console.error(e); }
+  try { WF.materialize?.(game.realms.armies.get(a.id)); } catch (e) { console.error(e); }
+}
+// a live army kept up to date: its clock (running with an escort, frozen without — marches only), its shape in 3b
+function maintain(game, a, t) {
+  const WF = game.warfare, R = game.realms;
+  let F = WF.forces.get(a.id);
+  if (a.state === 'march' || a.state === 'retreat') {
+    const esc = !!game.army?.escorted?.(a), g = routeOf(game, a);
+    if (esc && !(a.v > 0) && g) {
+      const b = copy(a), q = F && F.kind === 'march' && Number.isFinite(F.x) ? [F.x, F.y] : [a.x, a.y];
+      b.d0 = Math.round(Math.min(g.len, project(game, g, q[0], q[1])) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = WAR.march;
+      emitArmy(game, b);
+    } else if (!esc && a.v > 0) {
+      placeArmy(game, a, t);
+      const b = copy(a);
+      b.d0 = Math.round(distAt(a, t) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = 0; b.x = Math.round(a.x * 100) / 100; b.y = Math.round(a.y * 100) / 100;
+      emitArmy(game, b);
+    }
+    a = R.armies.get(a.id);
+  }
+  if (!F) { try { WF.materialize?.(a); } catch (e) { console.error(e); } return; }
+  if (finishing(F)) return;
+  if (F.done || shapeOfF(F) !== shapeOf(a) || (F.kind === 'march' && a.n > (F.n0 | 0) + 2)) remat(game, a); // (grown past what the column started with: a contingent joined)
+}
 function liveCheck(game, t) {
   const WF = game.warfare;
   if (!WF) return;
   const P = allPlayers(game).filter((p) => p && !p.dead), w = game.world;
+  // the soldiers of an army that is no more in the field (merged into its campaign, back home): gone
+  for (const F of [...WF.forces.values()]) { if (!F.army || !/^a\d+$/.test(F.id)) continue; const a = game.realms.armies.get(F.id); if (!a || a.state === 'home') { try { WF.dematerialize?.(F.id); } catch (e) { console.error(e); } } }
   for (const id of fieldIds(game.realms)) { const a = game.realms.armies.get(id); if (!a) continue;
     if (a.state === 'home') continue;
     if (a.state === 'march' || a.state === 'retreat') placeArmy(game, a, t);
@@ -658,9 +743,12 @@ function liveCheck(game, t) {
     if (a.state === 'siege') { const s = realmOf(game).settlements[a.target]; for (const p of P) d = Math.min(d, Math.hypot(w.dx(p.x, s.x), p.y - s.y)); }
     if (!a.live && d < WAR.live) {
       const b = copy(a);
-      if (b.state === 'march' || b.state === 'retreat') { b.d0 = Math.round(distAt(a, t) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = 0; b.x = Math.round(a.x * 100) / 100; b.y = Math.round(a.y * 100) / 100; }
+      // (a march freezes in the numbers while 3b plays it — unless an enlisted player of its own marches with it: phase 3c)
+      if ((b.state === 'march' || b.state === 'retreat') && !game.army?.escorted?.(a)) { b.d0 = Math.round(distAt(a, t) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = 0; b.x = Math.round(a.x * 100) / 100; b.y = Math.round(a.y * 100) / 100; }
       b.live = 1;
       emitArmy(game, b);
+      const F0 = WF.forces.get(a.id);
+      if (F0 && (F0.done || shapeOfF(F0) !== shapeOf(b)) && !finishing(F0)) { try { WF.dematerialize?.(a.id); } catch (e) { console.error(e); } } // (a fight over here: the army in its new shape)
       try { WF.materialize?.(game.realms.armies.get(a.id)); } catch (e) { console.error(e); }
     } else if (a.live && d > WAR.liveOut) {
       let r = null;
@@ -674,9 +762,10 @@ function liveCheck(game, t) {
         if (r.siege && typeof r.siege === 'object') for (const k of ['hrs', 'dw', 'bp']) if (Number.isFinite(r.siege[k])) b[k] = r.siege[k];
         if (r.siege?.phase) b.phase = String(r.siege.phase).slice(0, 10);
       }
+      if (game.realms.H.held.has(a.id)) { b.n = Math.max(0, b.n - game.realms.H.held.get(a.id)); game.realms.H.held.delete(a.id); } // (a place taken here: its garrison stays there)
       if (b.state === 'march' || b.state === 'retreat') { const g = routeOf(game, a); b.d0 = g ? Math.round(project(game, g, a.x, a.y) * 100) / 100 : b.d0; b.t0 = Math.round(t * 100) / 100; b.v = WAR.march; }
       if (b.n <= 0) { game.realms.H.acc.delete(a.id); game.net.emit('realm.army', { del: a.id }); } else emitArmy(game, b);
-    }
+    } else if (a.live) maintain(game, a, t);
   }
 }
 
@@ -917,14 +1006,14 @@ function simStep(game, t, dt) {
   // marches: positions now, arrivals
   for (const id of fieldIds(R)) {
     const a = R.armies.get(id);
-    if (!a || a.live || (a.state !== 'march' && a.state !== 'retreat')) continue;
+    if (!a || (a.live && !(a.v > 0)) || (a.state !== 'march' && a.state !== 'retreat')) continue; // (live: only an escorted march keeps going — phase 3c)
     const g = routeOf(game, a);
     if (!g) { mergeHome(game, a); continue; }
     placeArmy(game, a, t);
     if (distAt(a, t) >= stopAt(game, a, g)) arrive(game, a, t);
   }
   // meetings: field armies of kingdoms at war this close fight (a retreating army is let go)
-  const F = [...R.armies.values()].filter((a) => !a.live && (a.state === 'march' || a.state === 'siege' || a.state === 'camp'));
+  const F = [...R.armies.values()].filter((a) => (!a.live || (a.state === 'march' && a.v > 0)) && (a.state === 'march' || a.state === 'siege' || a.state === 'camp'));
   for (let i = 0; i < F.length; i++) for (let j = i + 1; j < F.length; j++) {
     const a = R.armies.get(F[i].id), b = R.armies.get(F[j].id);
     if (!a || !b || a.state === 'battle' || b.state === 'battle' || a.state === 'home' || b.state === 'home' || !atWar(game, a.k, b.k)) continue;
@@ -935,7 +1024,7 @@ function simStep(game, t, dt) {
   // musters: the main army sets out when its contingents have come (or after WAR.musterWait hours)
   for (const id of fieldIds(R)) {
     const a = R.armies.get(id);
-    if (!a || a.state !== 'camp' || a.phase !== 'muster' || a.live) continue;
+    if (!a || a.state !== 'camp' || a.phase !== 'muster') continue; // (live too: the gathering is not a fight — phase 3c)
     const waiting = [...R.armies.values()].some((q) => q.grp === a.id && q.mission === 'join' && q.state === 'march');
     if (!waiting || t - a.since > WAR.musterWait * HOURLEN(game)) depart(game, a, t);
   }

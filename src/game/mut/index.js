@@ -30,3 +30,4 @@ import './people.js';   // settlements' people: deaths / replacements, the world
 import './eco.js';      // the economy of the kingdoms: markets, reputation, jobs, properties, tax (docs/REINOS.md)
 import './realms.js';   // the kingdoms' diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
 import './warfare.js';  // the armies near the players: forces, the structures of an army, shouts, reputation for helping a side (docs/REINOS.md §14)
+import './army.js';     // the player in the army: enlisting, the pay, service, bonuses, desertion (docs/REINOS.md §15)

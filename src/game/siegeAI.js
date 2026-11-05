@@ -621,23 +621,27 @@ function assault(game, F, ents) {
       climbers(game, F, j, o, ents, used);
       continue;
     }
-    const want = j.role === 'ram' ? 4 : 3, crew = (j.crewI || []).map((i) => F.live.get(i)).filter((m) => m && !m.dead);
+    // (the players pushing it — enlisted in this army, phase 3c — keep their slots; the soldiers take the others)
+    const pl = (o.push || []).map((q) => (q && q[0] !== '~' ? q : 0)), nPl = pl.filter(Boolean).length;
+    const want = Math.max(0, (j.role === 'ram' ? 4 : 3) - nPl), crew = (j.crewI || []).map((i) => F.live.get(i)).filter((m) => m && !m.dead).slice(0, want);
     const cand = ents.filter((m) => !crew.includes(m) && !used.has(m) && !m.job?.op && !m.job?.push && !m.job?.climb && !m._climbed && m.z < 0.5 && m.soldier.role !== 'general' && m.soldier.role !== 'archer')
       .sort((a, b) => (a.soldier.role === 'eng' ? 0 : 1) - (b.soldier.role === 'eng' ? 0 : 1) || Math.hypot(a.x - o.x, a.y - o.y) - Math.hypot(b.x - o.x, b.y - o.y));
     while (crew.length < want && cand.length) crew.push(cand.shift());
     j.crewI = crew.map((m) => m.soldier.i);
-    crew.forEach((m, k) => { used.add(m); if (m.job?.push !== j) m.job = pushJob(j, k); });
-    const ids = [0, 0, 0, 0];
-    crew.forEach((m, k) => { if (m._atSlot) ids[k] = '~' + m.nid; });
+    const free = [0, 1, 2, 3].filter((k) => !pl[k]);
+    crew.forEach((m, k) => { used.add(m); const slot = free[k] ?? k; if (m.job?.push !== j || m.job.slot !== slot) m.job = pushJob(j, slot); });
+    const ids = pl.slice(0, 4);
+    while (ids.length < 4) ids.push(0);
+    crew.forEach((m, k) => { const slot = free[k] ?? k; if (m._atSlot) ids[slot] = '~' + m.nid; });
     const cur = (o.push || []).join('|'), nxt = ids.join('|');
     if (cur !== nxt && (ids.some(Boolean) || o.push)) game.net.emit('siege.set', { id: o.id, push: ids });
     const D = o._drive || (o._drive = new Map());
-    D.clear();
-    for (const q of ids) if (q) D.set(q, j.back ? (o.rot + 2) & 3 : o.rot & 3); // (everyone pushes toward its front — backing out: the other way)
+    for (const q of [...D.keys()]) if (q[0] === '~') D.delete(q); // (the players' own pushes stay: siege.drive)
+    for (const q of ids) if (q && q[0] === '~') D.set(q, j.back ? (o.rot + 2) & 3 : o.rot & 3); // (everyone pushes toward its front — backing out: the other way)
     // the ram at the gate: blows
     if (j.role === 'ram' && !j.back) {
       const touch = frontTiles(o).some(([x, y]) => { const q = game.build.grid.main.get(game.world.idx(x, y)); return q && isGate(game, q); });
-      if (touch && ids.filter(Boolean).length) { D.clear(); ramBlow(game, o); }
+      if (touch && ids.filter(Boolean).length) { for (const q of [...D.keys()]) if (q[0] === '~') D.delete(q); ramBlow(game, o); }
     }
   }
   // everyone else: the archers to their line, the infantry through the openings (the flow field) or waiting at the
@@ -726,7 +730,7 @@ function pushJob(j, k) {
     if (Math.hypot(sx - m.x, sy - m.y) > 2.5) m._atSlot = false;
     return true;
   };
-  f.push = j;
+  f.push = j; f.slot = k;
   return f;
 }
 // up the tower: to its ladder, up (0.55 s a story, like a player), onto the deck, across the ramp onto the wall walk;
@@ -824,8 +828,9 @@ function capture(game, F, ents) {
   if (G.capT >= WAR.siege.captureT) {
     const from = ownerOf(game, G.sid);
     G.captured = true;
-    game.realms?.capture?.(G.sid, F.k);
+    game.realms?.capture?.(G.sid, F.k, F.army ? { army: F.id, n: F.n } : null); // (3a: the new garrison from the winners — phase 3c)
     game.events.emit('wartaken', { sid: G.sid, from, to: F.k });
+    game.army?.onOutcome?.('taken', F); // (the winners' enlisted players there: the bonus — game/army.js)
     setPhase(game, F, 'held');
     shout(game, F, `${P.s.name} foi tomada pelo Reino de ${F.name}!`, P.plaza.x, P.plaza.y);
     releaseEngines(game, F);

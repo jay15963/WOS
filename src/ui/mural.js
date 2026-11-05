@@ -1,13 +1,14 @@
 // The mural of a settlement (docs/REINOS.md): the panel opened from the notice board on the plaza (E / a tap). Header with
 // the kingdom's banner, the place's name, kind, kingdom and population; tabs Lugar · Reino · Trabalhos · Comércio ·
 // Exército · Propriedades — Trabalhos / Comércio / Propriedades and the card "Você e o reino" (tab Reino) are the
-// economy of phase 2 (ui/muralEco.js, game/eco.js); Exército is phase 3 ("Em breve"). Opening one counts as "seen"
+// economy of phase 2 (ui/muralEco.js, game/eco.js); Exército is phase 3 (the place's army, the campaigns, the enlistment:
+// ui/muralWar.js). Opening one counts as "seen"
 // (the gold "!" over the murals goes: game/towns.js).
 import { bannerURL } from './heraldry.js';
 import { svgIcon } from './icons.js';
 import { DIVISIONS_PT, CHARGES_PT } from '../world/realm/names.js';
 import { ecoTabs, ecoBind, realmCard } from './muralEco.js';
-import { realmRelations, armyTab } from './muralWar.js'; // phase 3a: the kingdom's relations / news, the army (docs/REINOS.md §13)
+import { realmRelations, armyTab, armyBind } from './muralWar.js'; // phase 3a: the kingdom's relations / news, the army (docs/REINOS.md §13)
 
 export const MURAL_TABS = [['place', 'Lugar'], ['realm', 'Reino'], ['jobs', 'Trabalhos'], ['trade', 'Comércio'], ['army', 'Exército'], ['land', 'Propriedades']];
 const SOON = {};
@@ -26,6 +27,7 @@ function hook(panels) {
   g.events.on('eco', again);
   g.events.on('realms', () => { if (panels.muralTab === 'realm' || panels.muralTab === 'army' || panels.muralTab === 'place') again(); }); // (a war, a siege, a capture: phase 3a)
   g.events.on('inventory', () => { if (ECO_TABS.has(panels.muralTab) || panels.muralTab === 'realm') again(); });
+  g.events.on('army', () => { if (panels.muralTab === 'army') again(); }); // (enlisted, the pay, a promotion: phase 3c)
 }
 const KIND_ART = { city: 'à cidade', castle: 'ao castelo', village: 'à vila' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -126,6 +128,7 @@ export function muralBody(panels) {
 export function muralBind(panels, el) {
   el.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { if (panels.muralTab !== b.dataset.mtab) { const pb = el.querySelector('.pb'); if (pb) pb.scrollTop = 0; } panels.muralTab = b.dataset.mtab; panels.render(); }));
   ecoBind(panels, el); // (the economy tabs and the kingdom card: ui/muralEco.js)
+  armyBind(panels, el); // (the enlistment: ui/muralWar.js)
   const H = panels.g.ctl?.hinted;
   if (H && !H.mural) H.mural = true; // sync-ok: a local hint flag (the gold "!" over the murals goes)
 }

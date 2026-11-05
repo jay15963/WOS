@@ -86,6 +86,8 @@ então UI que ainda os usa já sai na paleta.
   ativos ou sem munição.
 - **Atalhos (PC)** `.hotbar`: ladrilhos chanfrados (`--n-tile*`), número da tecla em itálico, quantidade com contorno, o item
   equipado ganha moldura mostarda e tique brilhante.
+- **Avisos do topo** `ui/notify.js` (`.wos-note`): no máximo **dois** não fixos de cada vez — os outros esperam numa fila
+  curta (avisos importantes primeiro) e entram quando um sai ou depois de ~1,6 s (docs/REINOS.md §15).
 - **Mensagens**: `.err` itálico coral com contorno; `.banner` (subiu de nível) dourado com losangos e etiqueta; `.feed`
   fitas de tinta com barra de cor (`--fic`: loot mostarda, bom oliva, aviso laranja).
 - **Janelas** `.panel`: corpo de casca com grão, **faixa de título em pergaminho** (`.ph`, título em caixa alta, tecla em tinta),
@@ -93,6 +95,12 @@ então UI que ainda os usa já sai na paleta.
   espaços `.slot` em ladrilhos chanfrados (`.sel` mostarda), cartões `.bcard/.rcard` com contorno.
 - **Dica** `.rtip`: cartão de **pergaminho** com texto de tinta; era do item numa etiqueta escura.
 - **Ajuda** `.help`, **morte** `.death`, **barra de trabalho** `.workbar`, **chip de tarefas** `.jobchip` (pergaminho).
+- **Ordens do general** `#ordcard` (`ui/armyHud.js`, docs/REINOS.md §15): só para quem está alistado num exército; no `#status`
+  entre a bolsa e o rastreador de trabalhos, no mesmo estilo (`.jt-i`): emblema na cor do reino, "ORDENS DO GENERAL · posto ·
+  lugar", a ordem, o detalhe, a distância e a seta; `.tone-fight` / `.tone-defend` (borda coral), `.tone-good` (verde),
+  `.min` (só a linha de cima — um toque alterna), ✕ esconde até a próxima ordem; o grito do general em itálico. O ponto da
+  ordem (`game.army.wp`): bandeira vermelha no mundo (seta vermelha na borda quando fora da tela), gota `.rd-m.ord` no radar,
+  bandeira no mapa / minimapa.
 - **Mundo** (canvas): nomes e números de dano em Barlow Condensed (dano em itálico), contorno de tinta (`overlay.js`);
   balões de chat em pergaminho com contorno (`session.js`).
 
@@ -109,7 +117,7 @@ Elipse no canto superior direito (`.mm` 186×120 no PC, 140×90 no celular deita
 - **Gotas na borda** (até 10, apontam para fora na direção do alvo, menores quando longe), só para o que está **fora** do disco:
   hostis e saqueadores (coral, até ~66 tiles), neutros (mostarda, até ~40, no máximo 3), **outros jogadores** (verde-água, qualquer
   distância), **sua casa** = ponto de renascer (cama / fogueira / partida, laranja), **seu corpo** enquanto ainda guarda itens
-  (creme) e o **alvo atual** (branco brilhante). Dados: `game.entities`, `game.player.target`, `respawnPoint(game)`,
+  (creme), o **alvo atual** (branco brilhante), o **ponto do trabalho** (dourado) e o **ponto da ordem do general** (vermelho, §15). Dados: `game.entities`, `game.player.target`, `respawnPoint(game)`,
   `game.corpses.map.get(player._corpse)`.
 - **Faixa** embaixo: "DIA n" em pergaminho + clima com ícone (`env.weather`, "Noite" quando limpo à noite).
 

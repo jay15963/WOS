@@ -7797,9 +7797,9 @@ def('KG6', {
 });
 
 def('KG7', {
-  title: 'KG: the mural panel (Lugar / Reino / Trabalhos / Comércio / Exército "Em breve" / Propriedades) and the map data (territories, borders, names) match on both peers',
+  title: 'KG: the mural panel (Lugar / Reino / Trabalhos / Comércio / Exército / Propriedades) and the map data (territories, borders, names) match on both peers',
   src: 'village', timeout: 120000,
-  expected: 'The guest opens the mural of the start village (E): the panel shows the place\'s name, kind, kingdom ("Reino de …"), population and the kingdom\'s banner; the tabs Lugar, Reino, Trabalhos, Comércio, Exército, Propriedades — Trabalhos, Comércio and Propriedades hold the economy (EC scenarios), Exército says "Em breve"; opening it removes the gold "!" over the murals. The map: game.towns.at(x, y) gives the same kingdom / town / district on both peers along a line through the kingdom; the map window draws the territories without errors on both; the place banner said "Reino de …" / the village name',
+  expected: 'The guest opens the mural of the start village (E): the panel shows the place\'s name, kind, kingdom ("Reino de …"), population and the kingdom\'s banner; the tabs Lugar, Reino, Trabalhos, Comércio, Exército, Propriedades — Trabalhos, Comércio and Propriedades hold the economy (EC scenarios), Exército the army and its enlistment (phase 3c); opening it removes the gold "!" over the murals. The map: game.towns.at(x, y) gives the same kingdom / town / district on both peers along a line through the kingdom; the map window draws the territories without errors on both; the place banner said "Reino de …" / the village name',
   api: 'ui/mural.js (panel), ui/realmMap.js, ui/placebanner.js, game.towns.at / info',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -7814,11 +7814,11 @@ def('KG7', {
   t.check(txt().includes(s0.name) && txt().includes(`Reino de ${K.name}`) && /População/.test(txt()) && !!G.doc.querySelector('.p-mural .mu-ban'), 'name, kind, kingdom, population and banner', short(txt().replace(/\s+/g, ' '), 140));
   const tabs = [...G.doc.querySelectorAll('.p-mural [data-mtab]')].map((b) => b.textContent.replace(/[·\s]+$/g, '').trim());
   t.check(['Lugar', 'Reino', 'Trabalhos', 'Comércio', 'Exército', 'Propriedades'].every((n) => tabs.some((x) => x.startsWith(n))), 'the six tabs', tabs.join(' | '));
-  // phase 2 (the economy, EC scenarios): Trabalhos / Comércio / Propriedades are real; Exército stays "Em breve" (phase 3)
-  for (const [k, re] of [['jobs', /Quadro de/], ['trade', /Sua bolsa/], ['army', /Em breve/], ['land', /Casas à venda|não vende/]]) {
+  // phase 2 (the economy, EC scenarios): Trabalhos / Comércio / Propriedades are real; Exército: the army and the enlistment (phase 3c)
+  for (const [k, re] of [['jobs', /Quadro de/], ['trade', /Sua bolsa/], ['army', /Alistamento|Você está no exército/], ['land', /Casas à venda|não vende/]]) {
     G.doc.querySelector(`.p-mural [data-mtab=${k}]`)?.click();
     await t.sleep(120);
-    t.check(re.test(txt()) && (k === 'army' || !/Em breve/.test(txt())), `${k}: ${re}`);
+    t.check(re.test(txt()) && !/Em breve/.test(txt()), `${k}: ${re}`);
   }
   G.doc.querySelector('.p-mural [data-mtab=realm]')?.click();
   await t.sleep(80);
@@ -9158,7 +9158,7 @@ def('WR2', {
   // the Exército tab of a place of that kingdom
   muralTab(G, main.home, 'army');
   await t.sleep(300);
-  t.check(/Campanhas do Reino/.test(ecoTxt(G)) && /marchando sobre/.test(ecoTxt(G)) && /Em breve/.test(ecoTxt(G)), 'mural Exército: the place\'s army, the campaign (marchando sobre …) and "Entrar no exército: Em breve"', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Campanhas')), 200));
+  t.check(/Campanhas do Reino/.test(ecoTxt(G)) && /marchando sobre/.test(ecoTxt(G)) && /Alistamento|Você está no exército/.test(ecoTxt(G)), 'mural Exército: the place\'s army, the campaign (marchando sobre …) and the enlistment (phase 3c)', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Campanhas')), 200));
   G.game.ui.panels.close();
   // the markets: war news at the front
   await ecoReady(t, H, G);
@@ -10120,6 +10120,609 @@ def('BT10', {
   await t.waitFor(() => campIds.every((id) => !A.structOn(H, id)), RT() + 2000, 'its camp struck (host)', () => `${campIds.filter((id) => A.structOn(H, id)).length} still up`);
   const a1 = RH.armies.get(a0.id);
   t.check(a1 && a1.state === 'siege' && a1.n > 0 && RG.armies.get(a0.id)?.n === a1.n, 'the army besieges on by numbers with its soldiers counted (both peers)', `${a1?.state} n ${a1?.n}`);
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// AR — phase 3c: the player in the army (docs/REINOS.md §15: game/army.js, game/mut/army.js, ui/armyHud.js, ui/muralWar.js,
+// the hooks in combat.js / npc.js / soldier.js / warfare.js / siegeAI.js / mut/siege.js, game.realms.settle). The wars are
+// forced with 3a's debug op realm.rel (the AI paused); the guest is made a member / given reputation by the host's ops.
+// =====================================================================================================
+const arRec = (f, uid) => f.game.army?.en?.get(uid) || null;
+const arOrder = (f) => f.game.army?.order?.() || null;
+const arDay = (f) => (f.game.eco.day >= 0 ? f.game.eco.day : f.game.env.dayIndex);
+function arSetRep(H, uid, k, v) {
+  let cur = recOn(H, uid)?.rep[k] | 0;
+  for (let n = 0; n < 8 && cur !== v; n++) { const d = Math.max(-100, Math.min(100, v - cur)); H.game.net.emit('eco.rep', { u: uid, k, d }); cur = Math.max(-200, cur + d); }
+  H.game.net.flush();
+}
+async function arMember(t, H, G, uid, k, rep = null, pid = G.pid, f = G) {
+  H.game.net.emit('eco.member', { u: uid, k, name: recOn(H, uid)?.name || 'AR', by: pid }); H.game.net.flush();
+  if (rep != null) arSetRep(H, uid, k, rep);
+  await t.waitFor(() => recOn(f, uid)?.k === k && recOn(G, uid)?.k === k && (rep == null || (recOn(G, uid)?.rep[k] | 0) === rep), RT() + 2000, `${uid} a member of kingdom ${k}${rep != null ? ` (reputation ${rep})` : ''} on both peers`);
+}
+// enlisted straight by the host (op army.rec) in the army of place sid
+async function arEnlist(t, H, G, uid, sid, patch = {}) {
+  const k = RZ(H).owner(sid), d = Math.max(arDay(H), H.game.env.dayIndex | 0); // (the economy day may lag a skipped clock: not paid in the middle of a scenario)
+  H.game.net.emit('army.rec', { u: uid, r: { sid, k, rank: 0, svc: 0, since: d, paid: d, kills: 0, a: '', kd: -1, kn: 0, ...patch }, ban: 0, ev: 'debug' }); H.game.net.flush();
+  await t.waitFor(() => arRec(G, uid)?.sid === sid && arRec(H, uid)?.sid === sid, RT() + 2000, `enlisted in the army of ${realmOf(H).settlements[sid].name} (both peers)`);
+}
+// a clean slate: out of every army, no desertion, a traveller — now and at the end of the scenario
+async function arClean(t, H, G, uid, pid = G.pid) {
+  const out = () => { H.game.net.emit('army.rec', { u: uid, r: 0, ban: 0, ev: 'debug' }); H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || 'AR', by: pid }); H.game.net.flush(); };
+  out(); t.defer(out);
+  await t.waitFor(() => !arRec(G, uid) && recOn(G, uid)?.k === -1, RT() + 2000, `${uid} a traveller out of every army`);
+}
+const arCard = (f) => { const el = f.doc.querySelector('#ordcard'); return el && !el.classList.contains('hidden') ? el.textContent.replace(/\s+/g, ' ') : ''; };
+// a free spot for a structure of `type` near (x, y) (the player's placement rules)
+function arSpot(H, MS, type, x, y, rot = 0) { // eslint-disable-line max-params
+  for (let r = 0; r < 14; r++) for (let a = 0; a < 12; a++) {
+    const tx = Math.floor(x + Math.cos(a * 0.52) * r * 1.5), ty = Math.floor(y + Math.sin(a * 0.52) * r * 1.5);
+    if (!MS.placeReason(H.game, type, tx, ty, null, rot)) return [tx, ty];
+  }
+  return null;
+}
+// structures of kingdom k's army (complete) placed by the host: struct.add + war.mark (as game/siegeAI.js does)
+function arArmyStruct(t, H, k, type, tx, ty, rot = 0) {
+  const id = H.game.net.newId('s');
+  H.game.net.emit('struct.add', { list: [[id, type, tx, ty, 0, 1, Math.round(H.game.worldTime), rot, 1, 0, '', '']] });
+  H.game.net.emit('war.mark', { ids: [id], k });
+  H.game.net.flush();
+  t.defer(() => { if (H.game.world.objById.has(id)) { H.game.net.emit('struct.remove', { id, quiet: 1 }); H.game.net.flush(); } });
+  return id;
+}
+
+def('AR1', {
+  title: 'AR: enlisting at the mural — refused (not a member, not enough reputation, a castle asks for more), accepted, the orders card; one army at a time; leaving in peace costs nothing',
+  src: 'village', timeout: 150000,
+  expected: 'The guest at the start village\'s mural, Exército tab: "Alistamento" with the requirements (✕ member, ✕ reputation) and the button disabled; army.join refused "Entre no Reino de …". A member with 10 reputation: refused "Reputação Conhecido … faltam 15"; a castle of the kingdom asks for Respeitado ("faltam 90" with 10). With 30: accepted — the record (place, kingdom, Recruta) on both peers, the tab says "Você está no exército" with the pay by rank, the orders card on the guest\'s HUD (peace: "Em paz: a milícia de … treina"); a second join refused ("Você já serve"); "Dar baixa" (two taps) outside a fight: out of the army, the reputation unchanged, no ban; digest equal',
+  api: 'game/army.js joinReason / joinReqs, mut/army.js army.join / army.leave / army.rec, ui/muralWar.js enlistCard / armyBind, ui/armyHud.js',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH), R = realmOf(H), K = R.kingdoms[s.k];
+  await arClean(t, H, G, uid);
+  arSetRep(H, uid, s.k, 0);
+  await toMural(t, H, MH, G, MG, s.id);
+  muralTab(G, s.id, 'army');
+  await t.waitFor(() => /Alistamento/.test(ecoTxt(G)), 3000, 'the Exército tab shows the enlistment');
+  t.check(/Membro do Reino de/.test(ecoTxt(G)) && /Reputação Conhecido no Reino de/.test(ecoTxt(G)), 'the requirements are listed', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Alistamento')), 160));
+  t.check(G.doc.querySelector('[data-ajoin]')?.disabled === true, 'the button is disabled (not a member)');
+  const r1 = await ecoReq(G, 'army.join', { sid: s.id });
+  t.check(!r1.ok && /Entre no Reino de/.test(r1.why), 'refused: not a member', r1.why);
+  await arMember(t, H, G, uid, s.k, 10);
+  const r2 = await ecoReq(G, 'army.join', { sid: s.id });
+  t.check(!r2.ok && /Reputação Conhecido no Reino de .*faltam 15/.test(r2.why), 'refused: reputation (village militia: Conhecido)', r2.why);
+  const castle = R.settlements.find((q) => q.kind === 'castle' && RZ(H).owner(q.id) === s.k);
+  t.need(castle, 'a castle of the kingdom');
+  const why = G.game.army.joinReason(uid, castle.id, null);
+  t.check(/Reputação Respeitado no Reino de .*faltam 90/.test(why || ''), 'a castle\'s garrison asks for Respeitado', why);
+  arSetRep(H, uid, s.k, 30);
+  await t.waitFor(() => (recOn(G, uid)?.rep[s.k] | 0) === 30, RT() + 2000, 'reputation 30 on the guest');
+  muralTab(G, s.id, 'army');
+  t.check(G.doc.querySelector('[data-ajoin]')?.disabled === false, 'the button is enabled now');
+  G.doc.querySelector('[data-ajoin]').click();
+  await t.waitFor(() => arRec(G, uid)?.sid === s.id && arRec(H, uid)?.sid === s.id, RT() + 3000, 'accepted (the button): enlisted on both peers');
+  const rh = arRec(H, uid);
+  t.check(rh.k === s.k && rh.rank === 0 && rh.svc === 0, 'in the kingdom\'s army as a Recruta', JSON.stringify(rh));
+  await t.waitFor(() => /Você está no exército/.test(ecoTxt(G)) && /Recruta/.test(ecoTxt(G)), 3000, 'the tab says so (rank, pay)');
+  await t.waitFor(() => /Ordem do general/.test(arCard(G)), 4000, 'the orders card on the guest\'s HUD', () => arCard(G));
+  t.check(/Em paz/.test(arCard(G)) || /Guarde/.test(arCard(G)), 'a quiet order (no war)', arCard(G));
+  const r3 = await ecoReq(G, 'army.join', { sid: s.id });
+  t.check(!r3.ok && /já serve/.test(r3.why), 'one army at a time (refused again)', r3.why);
+  const repB = recOn(H, uid).rep[s.k] | 0;
+  muralTab(G, s.id, 'army');
+  G.doc.querySelector('[data-aleave]').click();
+  await t.sleep(200);
+  t.check(/Confirmar a baixa/.test(ecoTxt(G)), 'leaving asks to confirm (no fight: a plain discharge)');
+  G.doc.querySelector('[data-aleave]').click();
+  await t.waitFor(() => !arRec(G, uid) && !arRec(H, uid), RT() + 3000, 'out of the army on both peers');
+  t.check((recOn(H, uid).rep[s.k] | 0) === repB && !H.game.army.des.has(uid), 'leaving in peace: reputation unchanged, no ban', `${repB} → ${recOn(H, uid).rep[s.k] | 0}`);
+  await t.waitFor(() => !arCard(G), 3000, 'the card goes');
+  G.game.events.emit('closepanels', {});
+  await t.checkDigest(H, G);
+});
+
+def('AR2', {
+  title: 'AR: the general\'s orders follow the campaign — catch up with the army, march with it (it stays live and keeps marching), the siege by numbers, the camp of the playable siege; the waypoint on the guest',
+  src: 'village', timeout: 420000,
+  expected: 'The guest is enlisted in the start kingdom\'s militia; at war, an army of the kingdom (dbg.launch from its place nearest the enemy) marches on an enemy place: the host assigns it (record.a on both) and the guest\'s card says "Alcance o exército" with the waypoint on the army (game.army.wp ≈ its position) and a red mark on the radar ring. The players go to it and walk with it: it is live (3b\'s column) AND its clock keeps running (v > 0 — escorted), the column follows 3a\'s position, the order says "Marche com o exército até …" with the target as waypoint. They leave: numbers again (live 0). The clock forward: it besieges the place by numbers — "Vá ao cerco de …". The players come to it: the playable siege, and the orders of its phases (march to the camp / camp / build / bombard) with their waypoints; at least four different orders seen, each with a notice; digest equal',
+  api: 'game/army.js follow / orderFor / escorted, ui/armyHud.js (card, game.army.wp), ui/radar.js, game/realms.js liveCheck / maintain (escort), game/warfare.js marchTick (follow)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH), R = realmOf(H), RH = RZ(H), RG = RZ(G);
+  const [k2] = btKingdoms(H, s);
+  t.need(k2 != null, 'an enemy kingdom on the landmass');
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 40);
+  await arEnlist(t, H, G, uid, s.id);
+  await warShim(t, H, G, [[s.k, k2]]);
+  const from = frontOf(H, s.k, k2)[0];
+  const T = R.settlements.filter((q) => RH.owner(q.id) === k2).sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0];
+  t.need(from && T && RH.dbg.route(from.id, T.id), 'a way from the kingdom\'s front to an enemy place');
+  t.defer(() => btHeal(H, T.id));
+  t.defer(() => { if (RZ(H).owner(T.id) !== T.k) RZ(H).dbg.capture(T.id, T.k); H.game.net.flush(); });
+  H.game.net.emit('realm.army', { gar: [[from.id, 120]] }); H.game.net.flush();
+  const a0 = RH.dbg.launch(from.id, T.id, 50);
+  H.game.net.flush();
+  t.need(a0, 'an army launched');
+  t.defer(() => { if (H.game.warfare.forces.has(a0.id)) H.game.warfare.dematerialize(a0.id); H.game.net.emit('realm.army', { del: a0.id }); H.game.net.flush(); });
+  const codes = new Set(), notes = [];
+  t.watch(() => { const o = arOrder(G); if (o) codes.add(o.code); }, 200);
+  t.on(G, 'armyorder', (e) => notes.push(e.title)); // (ui/armyHud.js: each new order told with a notice)
+  await t.waitFor(() => arRec(H, uid)?.a === a0.id && arRec(G, uid)?.a === a0.id, 6000 + RT(), 'the host gives the guest that army to follow (record.a on both)', () => `${arRec(H, uid)?.a}`);
+  // far from it: catch up — the waypoint on the army (the players at a place 180–700 tiles from it)
+  const p0 = RH.dbg.pos(a0.id);
+  const farS = R.settlements.map((q) => [Math.hypot(H.game.world.dx(q.x, p0[0]), q.y - p0[1]), q]).filter(([d]) => d > 180 && d < 700).sort((a, b) => a[0] - b[0])[0]?.[1];
+  t.need(farS, 'a place 180–700 tiles from the army');
+  const away = A.freeSpot(H, MH, farS.x, farS.y + farS.r + 6, { rMin: 0, rMax: 6 }) || [farS.x, farS.y + farS.r + 6];
+  await btFar(t, H, MH, G, MG, away[0], away[1]);
+  await t.waitFor(() => arOrder(G)?.code === 'march' && /Alcance o exército/.test(arCard(G)), 5000, 'far from it: "Alcance o exército" on the guest\'s card', () => `${JSON.stringify(arOrder(G))} · ${arCard(G)}`);
+  { const wp = G.game.army.wp, p = RG.posOf(RG.armies.get(a0.id)); t.check(wp && Math.hypot(G.game.world.dx(wp.x, p.x), wp.y - p.y) < 4 && wp.label === 'Exército', 'the waypoint is the army (game.army.wp)', JSON.stringify(wp)); }
+  await t.waitFor(() => G.doc.querySelector('.rd-m.ord'), 3000, 'a red mark on the radar ring');
+  // with it: live, and its clock keeps running (escorted)
+  const near = () => { const p = RH.dbg.pos(a0.id); return [p[0] + 2.5, p[1] + 2.5]; };
+  { const [x, y] = near(); await btFar(t, H, MH, G, MG, x, y); }
+  await t.waitFor(() => liveOn(H, a0.id) && liveOn(G, a0.id) && H.game.warfare.forces.get(a0.id)?.kind === 'march', 20000, 'beside it the army is live (a column of soldiers)');
+  await t.waitFor(() => RH.armies.get(a0.id).v > 0 && RG.armies.get(a0.id).v > 0, 8000, 'with its enlisted player beside it the march keeps running (v > 0 on both)', () => `v ${RH.armies.get(a0.id).v}`);
+  const d0 = MH.realms.distAt(RH.armies.get(a0.id), H.game.worldTime);
+  for (let k = 0; k < 10; k++) { const [x, y] = near(); A.teleport(G, x, y); A.teleport(H, x - 1.5, y); await t.sleep(1000); }
+  const a1 = RH.armies.get(a0.id), d1 = MH.realms.distAt(a1, H.game.worldTime);
+  t.check(liveOn(H, a0.id) && d1 - d0 > 6, 'it marched on while live (3a\'s clock)', `${f2(d0)} → ${f2(d1)} tiles`);
+  { const F = H.game.warfare.forces.get(a0.id), p = RH.posOf(a1); t.check(F && Math.hypot(H.game.world.dx(F.anchor.x, p.x), F.anchor.y - p.y) < 8, 'the column of soldiers follows 3a\'s place on the road', F ? `${f2(Math.hypot(H.game.world.dx(F.anchor.x, p.x), F.anchor.y - p.y))} tiles` : 'no force'); }
+  await t.waitFor(() => new RegExp(`Marche com o exército até ${T.name}`).test(arCard(G)), 4000, 'with it: "Marche com o exército até …"', () => arCard(G));
+  t.check(G.game.army.wp?.label === T.name, 'the waypoint is the target now', JSON.stringify(G.game.army.wp));
+  // it leaves: numbers again
+  await btFar(t, H, MH, G, MG, away[0], away[1]);
+  await t.waitFor(() => !liveOn(H, a0.id) && !H.game.warfare.forces.has(a0.id), 20000, 'the players away: numbers again (dematerialize)');
+  // the clock forward until it besieges the place
+  for (let k = 0; k < 60 && RH.armies.get(a0.id)?.state !== 'siege'; k++) { wrSkip(H, 2); await t.sleep(RT() + 300); }
+  await t.waitFor(() => RH.armies.get(a0.id)?.state === 'siege' && RG.armies.get(a0.id)?.state === 'siege', 4000, 'it besieges the enemy place by numbers', () => `${RH.armies.get(a0.id)?.state} ${RH.armies.get(a0.id)?.phase}`);
+  await t.waitFor(() => arOrder(G)?.code === 'siege' && new RegExp(`cerco de ${T.name}`).test(arCard(G)), 5000, '"Vá ao cerco de …" on the card', () => arCard(G));
+  // to the siege: the playable siege's orders
+  const sg = RH.armies.get(a0.id);
+  G.game.towns.layout(T.id);
+  await btFar(t, H, MH, G, MG, sg.x - 6, sg.y + 3);
+  await t.waitFor(() => liveOn(H, a0.id) && H.game.warfare.forces.get(a0.id)?.kind === 'siege', 30000, 'near it: the playable siege (materialize)');
+  await t.waitFor(() => ['tocamp', 'camp', 'build', 'bombard'].includes(arOrder(G)?.code), 30000, 'the order of the siege\'s phase (march to the camp / camp / build / bombard)', () => JSON.stringify(arOrder(G)));
+  t.check(!!G.game.army.wp, 'with its waypoint', JSON.stringify(G.game.army.wp));
+  codes.add(arOrder(G)?.code); // (the last one: the watch samples every 0,2 s)
+  t.check(codes.size >= 4, 'at least four different orders as the campaign moved on', [...codes].join(', '));
+  await t.waitFor(() => notes.length >= 3, 3000, 'each change with a short notice ("Ordem do general")', () => notes.join(' | '));
+  t.check(true, 'each change with a short notice ("Ordem do general")', notes.join(' | '));
+  t.metric('orders', [...codes].join(','));
+  await t.checkDigest(H, G);
+});
+
+def('AR3', {
+  title: 'AR: the army\'s engines — a soldier player pushes its army\'s ram and operates its trebuchet (the army\'s stones); a traveller cannot',
+  src: 'village', timeout: 150000,
+  expected: 'A ram and a trebuchet of the start kingdom\'s army (o.realm, war.mark) outside the village. The host — a traveller — is refused on both ("… só quem serve nesse exército a usa"). The guest, enlisted in that kingdom\'s militia: siege.push accepted (o.push holds it on both), it pushes (siege.drive) and the ram moves a tile (siege.step on both); siege.use on the trebuchet accepted even with no trebuchet stones, and it throws (siege.shot on the guest) without taking any; digest equal',
+  api: 'mut/siege.js siege.use / siege.push (soldierOf), siege.js makeCtl.fire (army stones), game/army.js rec',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH);
+  const MS = await fimp(H, 'game/mut/structures.js');
+  await arClean(t, H, G, uid);
+  const hu = H.game.eco.api.me();
+  await arClean(t, H, H, hu, H.pid);
+  const x0 = s.x + s.r + 22, y0 = s.y + 4;
+  await btStand(t, H, MH, G, MG, x0, y0 - 6);
+  const ws = arSpot(H, MS, 'siege_workshop', x0 + 4, y0 - 7, 0), wsId = ws && arArmyStruct(t, H, s.k, 'siege_workshop', ws[0], ws[1], 0); // (the player's rule: engines within 16 tiles of a workshop)
+  t.need(wsId, 'room for the army\'s workshop');
+  const rs = arSpot(H, MS, 'battering_ram', x0, y0, 0), ram = rs && arArmyStruct(t, H, s.k, 'battering_ram', rs[0], rs[1], 0);
+  const ts = arSpot(H, MS, 'trebuchet', x0 + 9, y0 + 2, 0), treb = ts && arArmyStruct(t, H, s.k, 'trebuchet', ts[0], ts[1], 0);
+  t.need(ram && treb, 'room for a ram and a trebuchet');
+  await t.waitFor(() => A.structOn(G, ram)?.realm === s.k && A.structOn(G, treb)?.realm === s.k, RT() + 3000, 'the army\'s engines on both peers (o.realm)');
+  // the traveller (the host)
+  const h1 = await ecoReq(H, 'siege.push', { id: ram, on: 1 }), h2 = await ecoReq(H, 'siege.use', { id: treb, on: 1 });
+  t.check(!h1.ok && /só quem serve/.test(h1.why) && !h2.ok && /só quem serve/.test(h2.why), 'a traveller may neither push nor operate them', `${h1.why} · ${h2.why}`);
+  // the soldier (the guest)
+  await arMember(t, H, G, uid, s.k, 40);
+  await arEnlist(t, H, G, uid, s.id);
+  const o = A.structOn(G, ram), [cx, cy] = [o.tx + o.fw / 2, o.ty + o.fh / 2];
+  const sp = A.freeSpot(G, MG, cx, cy, { rMin: 1.6, rMax: 3 }) || [cx + 2, cy];
+  A.teleport(G, sp[0], sp[1]);
+  await A.hostSees(t, H, G, 4000 + RT());
+  const g1 = await ecoReq(G, 'siege.push', { id: ram, on: 1 });
+  t.check(g1.ok, 'the soldier grabs its army\'s ram', g1.why);
+  await t.waitFor(() => (A.structOn(H, ram)?.push || []).includes(G.pid) && (A.structOn(G, ram)?.push || []).includes(G.pid), RT() + 2000, 'it is pushing (o.push on both)');
+  const tx0 = A.structOn(H, ram).tx, ty0 = A.structOn(H, ram).ty, front = A.structOn(H, ram).rot & 3;
+  for (let k = 0; k < 16; k++) { await ecoReq(G, 'siege.drive', { id: ram, d: [front, (front + 2) & 3, 1, 3][Math.floor(k / 4)] }); await t.sleep(600); if (A.structOn(G, ram).tx !== tx0 || A.structOn(G, ram).ty !== ty0) break; } // (one pusher: 0,3 tile/s; the way it can go)
+  await t.waitFor(() => A.structOn(G, ram).tx !== tx0 || A.structOn(G, ram).ty !== ty0, 8000, 'the ram moves (siege.step on the guest)', () => `${A.structOn(H, ram).tx},${A.structOn(H, ram).ty} msg ${A.structOn(H, ram)._msg || ''}`);
+  await ecoReq(G, 'siege.push', { id: ram, on: 0 });
+  // the trebuchet: no stones of its own
+  setItem(G, 'treb_stone', 0);
+  const tr = A.structOn(G, treb), [px, py] = MG.siege.pivotOf(tr);
+  const sp2 = A.freeSpot(G, MG, px, py, { rMin: 1.4, rMax: 2.4 }) || [px + 2, py];
+  A.teleport(G, sp2[0], sp2[1]);
+  await A.hostSees(t, H, G, 4000 + RT());
+  const g2 = await ecoReq(G, 'siege.use', { id: treb, on: 1 });
+  t.check(g2.ok, 'the soldier operates its army\'s trebuchet', g2.why);
+  await t.waitFor(() => A.structOn(H, treb)?.user === G.pid && G.game.siege?.o?.id === treb, RT() + 3000, 'it is the operator (o.user on the host, the local controls on the guest)');
+  const shots = [];
+  t.on(G, 'siegeshot', (e) => shots.push(e));
+  G.game.siege.fire();
+  await t.waitFor(() => shots.length >= 1, RT() + 4000, 'it throws (siege.shot on the guest)');
+  t.check(G.game.player.inv.count('treb_stone') === 0, 'the army\'s stone: none taken from (or given to) the soldier', G.game.player.inv.count('treb_stone'));
+  await ecoReq(G, 'siege.use', { id: treb, on: 0 });
+  await t.checkDigest(H, G);
+});
+
+def('AR4', {
+  title: 'AR: who may hurt whom — an enlisted player hurts the enemy\'s guards and soldiers, never civilians nor its own side; the enemy\'s guards and soldiers take it as a foe (the bell, the gates)',
+  src: 'village', timeout: 240000,
+  expected: 'The start village\'s kingdom at war with k2. The guest a member of k2 (not enlisted): a guard of the village is still protected. Enlisted in k2\'s army: a guard takes the hit (host hp drops), a civilian never does; the village\'s guards see it as hostile (npc.js hostile on the host), the bell rings and the gates shut; a column of the village\'s kingdom near: its soldiers list the guest as a foe (isFoe) and the guest hurts one; a k2 column: the guest cannot hurt its own side (immune); a guard of k2\'s own (rule) is protected; digest equal',
+  api: 'game/army.js npcWhy / townFoe / soldierFoe, combat.js npcBlock / dealDamage, npc.js hostile / guardTargets, people.js dangerOf, towns.js hostileInside, soldier.js isFoe, warfare.js forceTick (foes)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const s = await btVillage(t, H, MH, G, MG), R = realmOf(H);
+  const [k2] = btKingdoms(H, s);
+  t.need(k2 != null, 'an enemy kingdom');
+  await arClean(t, H, G, uid);
+  await warShim(t, H, G, [[k2, s.k]]);
+  const S = await fimp(H, 'game/soldier.js');
+  const k2place = frontOf(H, k2, s.k)[0];
+  await arMember(t, H, G, uid, k2, 40);
+  const guardOf = () => G.game.entities.filter((e) => e.npc?.guard && !e.dead && e.npcS?.sid === s.id).sort((a, b) => Math.hypot(a.x - G.game.player.x, a.y - G.game.player.y) - Math.hypot(b.x - G.game.player.x, b.y - G.game.player.y))[0];
+  await t.waitFor(() => guardOf(), 20000, 'a guard of the village near the guest');
+  // a member, not enlisted: the guards stay protected
+  let gd = guardOf(), gm = H.game.entities.find((q) => q.nid === gd.nid), hp0 = gm.hp;
+  A.teleport(G, gd.x + 0.7, gd.y); await A.hostSees(t, H, G);
+  t.check(MG.combat.dealDamage(G.game, G.game.player, gd, 30) === 0, 'a member who is not enlisted cannot hurt a guard (immune)');
+  await t.sleep(RT() + 200);
+  t.check(gm.hp === hp0, 'its life unchanged on the host');
+  // enlisted
+  await arEnlist(t, H, G, uid, k2place.id);
+  A.keepAlive(t, G);
+  gd = guardOf(); gm = H.game.entities.find((q) => q.nid === gd.nid); hp0 = gm.hp;
+  A.teleport(G, gd.x + 0.7, gd.y); await A.hostSees(t, H, G);
+  MG.combat.dealDamage(G.game, G.game.player, gd, 30);
+  await t.waitFor(() => gm.hp < hp0, RT() + 2000, 'enlisted against the village: a guard takes the hit (host hp)', () => `${f2(hp0)} → ${f2(gm.hp)}`);
+  const cit = G.game.entities.find((e) => e.npc && !e.npc.guard && !e.dead);
+  if (cit) { const cm = H.game.entities.find((q) => q.nid === cit.nid), c0 = cm?.hp; t.check(MG.combat.dealDamage(G.game, G.game.player, cit, 30) === 0, 'a civilian never (immune)'); await t.sleep(RT() + 200); t.check(!cm || cm.hp === c0, 'its life unchanged on the host'); }
+  else t.note('no civilian near to try');
+  // the watch takes the guest as a foe: the bell, the gates
+  const av = guestOnHost(H, G), Sv = H.game.people.of(s.id);
+  t.check(MH.npc.hostile(av, Sv, H.game), 'the village\'s guards see the enlisted guest as hostile (npc.js hostile)');
+  await t.waitFor(() => H.game.people.debug(s.id).danger, 10000, 'the bell rings (an enemy soldier in the village)');
+  const L = H.game.towns.layout(s.id);
+  await t.waitFor(() => L.gates.every((k) => { const o = A.objOn(H, `t${s.id}.${k}`); return !o || !o.open; }), 12000, 'the gates shut on it');
+  await t.waitFor(() => H.game.entities.some((m) => m.npc?.guard && !m.dead && (m.foe === av || m.hunt === av)), 15000, 'a guard goes for the guest');
+  // a column of the village's kingdom (at war with k2): its soldiers take the guest as a foe; it may hurt them
+  const mx = s.x + s.r + 40, my = s.y - 20;
+  await btStand(t, H, MH, G, MG, mx, my + 6);
+  const F1 = H.game.warfare.materialize({ id: 'ar-army-1', k: s.k, home: R.kingdoms[s.k].capital, n: 10, lv: 3, x: mx - 6, y: my, state: 'march', target: k2place.id, path: [[mx + 60, my]], eng: { treb: 0, cat: 0, ram: 0, tower: 0 }, live: true });
+  t.defer(() => { if (H.game.warfare.forces.has(F1.id)) H.game.warfare.dematerialize(F1.id); H.game.net.flush(); });
+  await t.waitFor(() => soldiersOf(G, s.k).length >= 4, 20000, 'the guest sees the column');
+  const av2 = guestOnHost(H, G);
+  await t.waitFor(() => (F1.foes || []).includes(av2) && soldiersOf(H, s.k).some((m) => S.isFoe(H.game, m, av2)), 6000, 'its soldiers list the enlisted guest as a foe (warfare forceTick, soldier.js isFoe)');
+  const e1 = soldiersOf(G, s.k).find((e) => e.soldier.role !== 'general'), m1 = H.game.entities.find((q) => q.nid === e1.nid), sh0 = m1.hp;
+  A.teleport(G, e1.x + 0.6, e1.y); await A.hostSees(t, H, G);
+  MG.combat.dealDamage(G.game, G.game.player, e1, 30);
+  await t.waitFor(() => m1.hp < sh0, RT() + 2000, 'the guest hurts an enemy soldier');
+  H.game.warfare.dematerialize(F1.id); H.game.net.flush();
+  // its own side: a k2 column
+  const F2 = H.game.warfare.materialize({ id: 'ar-army-2', k: k2, home: R.kingdoms[k2].capital, n: 8, lv: 3, x: mx - 6, y: my, state: 'march', target: s.id, path: [[mx + 60, my]], eng: { treb: 0, cat: 0, ram: 0, tower: 0 }, live: true });
+  t.defer(() => { if (H.game.warfare.forces.has(F2.id)) H.game.warfare.dematerialize(F2.id); H.game.net.flush(); });
+  await t.waitFor(() => soldiersOf(G, k2).length >= 4, 20000, 'the guest sees a column of its own kingdom');
+  const e2 = soldiersOf(G, k2)[0], m2 = H.game.entities.find((q) => q.nid === e2.nid), s20 = m2.hp;
+  A.teleport(G, e2.x + 0.6, e2.y); await A.hostSees(t, H, G);
+  t.check(MG.combat.dealDamage(G.game, G.game.player, e2, 30) === 0, 'never its own side\'s soldiers (immune)');
+  await t.sleep(RT() + 200);
+  t.check(m2.hp === s20 && !soldiersOf(H, k2).some((m) => S.isFoe(H.game, m, guestOnHost(H, G))), 'unhurt, and they do not take the guest as a foe');
+  // a guard of its own kingdom (the rule): protected
+  t.check(!!G.game.army.npcWhy(G.game.player, { npc: { guard: true }, npcS: { sid: k2place.id } }), 'a guard of its own kingdom stays protected (the rule)');
+  await t.checkDigest(H, G);
+});
+
+def('AR5', {
+  title: 'AR: PvP only between members of kingdoms at war — the hit goes through the host to the victim\'s own client; never between travellers, the same kingdom, allies or kingdoms at peace',
+  src: 'village', timeout: 150000,
+  expected: 'Host and guest side by side. Both travellers: the guest\'s blow on the host does nothing ("… jogadores só lutam entre si quando são membros de reinos em guerra"); the host a member of the start kingdom, the guest of k2, at peace: nothing; same kingdom: nothing; allies: nothing. At war: the host\'s copy on the guest becomes attackable (e.pvp), the guest\'s blow lowers the host\'s life and the host\'s blow the guest\'s (intent pvp.hit → player.hurt on the victim); digest equal',
+  api: 'game/army.js pvpWhy, combat.js pvpHit / attackable, mut/combat.js pvp.hit, ui/armyHud.js (e.pvp)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), hu = H.game.eco.api.me(), s = startTownOf(H, MH);
+  const [k2] = btKingdoms(H, s);
+  await arClean(t, H, G, uid);
+  await arClean(t, H, H, hu, H.pid);
+  await t.waitFor(() => G.game.eco.pu?.get(H.pid) === hu, 6000, 'the guest knows the host\'s uid (eco.who: pid → uid)');
+  const L = H.game.towns.layout(s.id);
+  await btStand(t, H, MH, G, MG, L.spawn[0] + 30, L.spawn[1] + 30);
+  const hostOnG = () => G.game.entities.find((e) => e.remote && e.pid === H.pid);
+  const guestOnH = () => H.game.entities.find((e) => e.remote && e.pid === G.pid && !e.avatar);
+  await t.waitFor(() => hostOnG() && guestOnH(), 5000, 'each sees the other');
+  A.keepAlive(t, H, { hp: false }); A.keepAlive(t, G, { hp: false });
+  const tryHit = async (label, expect) => {
+    H.game.player.hp = H.game.player.maxHp; G.game.player.hp = G.game.player.maxHp;
+    await t.sleep(RT() + 300);
+    const h0 = H.game.player.hp, g0 = G.game.player.hp;
+    const a = MG.combat.dealDamage(G.game, G.game.player, hostOnG(), 20), b = MH.combat.dealDamage(H.game, H.game.player, guestOnH(), 20);
+    if (expect) {
+      // (the victim rolls its dodge: a few blows)
+      for (let k = 0; k < 4 && !(H.game.player.hp < h0 && G.game.player.hp < g0); k++) {
+        await t.sleep(RT() + 500);
+        if (!(H.game.player.hp < h0)) MG.combat.dealDamage(G.game, G.game.player, hostOnG(), 20);
+        if (!(G.game.player.hp < g0)) MH.combat.dealDamage(H.game, H.game.player, guestOnH(), 20);
+      }
+      await t.waitFor(() => H.game.player.hp < h0 && G.game.player.hp < g0, RT() + 3000, `${label}: both blows land`, () => `host ${f2(H.game.player.hp)} · guest ${f2(G.game.player.hp)}`);
+      t.check(a > 0 && b > 0, `${label}: both blows land (the host's word: pvp.hit → player.hurt)`, `host ${f2(h0)} → ${f2(H.game.player.hp)} · guest ${f2(g0)} → ${f2(G.game.player.hp)}`);
+    } else {
+      await t.sleep(RT() + 600);
+      t.check(a === 0 && b === 0 && H.game.player.hp === h0 && G.game.player.hp === g0, `${label}: nothing`, `${a}/${b} · host ${f2(h0)} → ${f2(H.game.player.hp)} · guest ${f2(g0)} → ${f2(G.game.player.hp)}`);
+    }
+  };
+  await tryHit('two travellers', false);
+  t.check(!MG.combat.attackable(hostOnG()), 'a traveller is not a target');
+  await arMember(t, H, G, hu, s.k, null, H.pid, H);
+  await arMember(t, H, G, uid, k2);
+  await tryHit('members of kingdoms at peace', false);
+  await warShim(t, H, G, [[k2, s.k]]);
+  await t.waitFor(() => hostOnG().pvp && guestOnH().pvp, 3000, 'at war each may target the other (e.pvp)');
+  t.check(MG.combat.attackable(hostOnG()), 'attackable now');
+  await tryHit('members of kingdoms at war', true);
+  await arMember(t, H, G, uid, s.k);
+  await t.waitFor(() => !hostOnG().pvp, 3000, 'the same kingdom: not a target');
+  await tryHit('the same kingdom', false);
+  H.game.net.emit('realm.rel', { a: k2, b: s.k, rel: 'ally', why: 'debug', quiet: 1 }); H.game.net.flush();
+  await arMember(t, H, G, uid, k2);
+  await t.waitFor(() => RZ(G).rel(k2, s.k) === 'ally', RT() + 2000, 'the two kingdoms allied');
+  await tryHit('allies', false);
+  H.game.player.hp = H.game.player.maxHp; G.game.player.hp = G.game.player.maxHp;
+  await t.checkDigest(H, G);
+});
+
+def('AR6', {
+  title: 'AR: the pay — a daily wage at the dawn by rank (×1,5 at war), service and a promotion, and the bonus for a siege repelled near the player',
+  src: 'village', timeout: 300000,
+  expected: 'The guest enlisted in the start village\'s militia with no coins. A day passes in peace: +20 coins (Recruta) in its backpack, the record paid that day on both, +1 reputation. At war: +30 (×1,5), +2 reputation. With 5 of service the next day makes 6: promoted to Soldado (a notice), the wage of a Soldado. A debug siege of the village by the enemy: 8 of its 12 soldiers fall — it retreats: the guest, there, gets the bonus (+50 coins, +10 reputation, service) with "… resistiu ao cerco! Bônus …"; digest equal',
+  api: 'game/army.js hostTick (pay), onOutcome, content/army.js ARMY.ranks / warPay / bonus, ui/armyHud.js (promotion)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 40);
+  await arEnlist(t, H, G, uid, s.id);
+  setCoins(G, 0);
+  const rep0 = recOn(H, uid).rep[s.k] | 0;
+  await ecoDay(t, H, G, 1);
+  await t.waitFor(() => arRec(H, uid)?.paid === arDay(H) && coinsOf(G) === 20, 6000 + RT(), 'a day in peace: +20 coins (Recruta) and the day paid on both', () => `${coinsOf(G)} coins · paid ${arRec(H, uid)?.paid} / day ${arDay(H)}`);
+  t.check(arRec(G, uid).paid === arDay(H) && (recOn(H, uid).rep[s.k] | 0) === rep0 + 1, '+1 reputation for the service', `${rep0} → ${recOn(H, uid).rep[s.k] | 0}`);
+  await warShim(t, H, G, [[k2, s.k]]);
+  H.game.army.dbg.set(uid, { svc: 5 }); H.game.net.flush();
+  await t.waitFor(() => arRec(G, uid)?.svc === 5, RT() + 2000, 'service 5 on the guest');
+  const notes = [], toasts = [];
+  t.on(G, 'toast', (x) => toasts.push(x.text));
+  t.watch(() => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (!notes.includes(x)) notes.push(x); } }, 150);
+  await ecoDay(t, H, G, 1);
+  await t.waitFor(() => coinsOf(G) === 20 + 45, 6000 + RT(), 'at war a Soldado gets 30 × 1,5 = 45', () => `${coinsOf(G)} coins · rank ${arRec(H, uid)?.rank}`);
+  t.check(arRec(H, uid).rank === 1 && arRec(G, uid).rank === 1 && arRec(H, uid).svc === 6, 'promoted to Soldado with 6 of service (both peers)', JSON.stringify(arRec(H, uid)));
+  await t.waitFor(() => notes.some((x) => /Promovido a Soldado/.test(x)), 3000, 'a notice of the promotion', () => notes.slice(-3).join(' | '));
+  t.check((recOn(H, uid).rep[s.k] | 0) === rep0 + 3, '+2 reputation at war', recOn(H, uid).rep[s.k] | 0);
+  // a siege repelled near the guest
+  await btFast(t, H);
+  const F = btSiege(t, H, s, k2, { n: 12, lv: 3, from: [1, 0] });
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 30000, 'the siege is planned');
+  const camp = btDbg(H, F).siege.camp;
+  await btStand(t, H, MH, G, MG, camp[0] - 4, camp[1] - 3);
+  A.keepAlive(t, G);
+  await t.waitFor(() => ['build', 'bombard', 'assault'].includes(btPhase(H, F)), 90000, 'the siege is on');
+  const c0 = coinsOf(G), r0 = recOn(H, uid).rep[s.k] | 0, sv0 = arRec(H, uid).svc;
+  for (let k = 0; k < 8; k++) { const m = soldiersOf(H, k2).find((q) => q.soldier.role !== 'general'); if (!m) break; MH.combat.killMob(H.game, m, null); await t.sleep(150); }
+  await t.waitFor(() => btPhase(H, F) === 'retreat' || btPhase(H, F) === 'gone', 15000, 'past its losses it retreats');
+  await t.waitFor(() => coinsOf(G) === c0 + 50, 6000 + RT(), 'the defender\'s bonus: +50 coins', () => `${c0} → ${coinsOf(G)}`);
+  await t.waitFor(() => (recOn(G, uid).rep[s.k] | 0) === r0 + 10 && arRec(G, uid).svc === sv0 + 4, RT() + 3000, '+10 reputation and +4 of service (both peers)', () => `${r0} → ${recOn(G, uid).rep[s.k] | 0} · svc ${arRec(G, uid).svc}`);
+  await t.waitFor(() => toasts.some((x) => /resistiu ao cerco! Bônus/.test(x)), 4000, 'the toast tells it ("… resistiu ao cerco! Bônus …")', () => toasts.slice(-3).join(' | '));
+  t.metric('coins', coinsOf(G));
+  await t.checkDigest(H, G);
+});
+
+def('AR7', {
+  title: 'AR: dying in war keeps the reputation and the post; leaving in the middle of a siege is desertion (reputation lost, no going back for 2 days)',
+  src: 'village', timeout: 240000,
+  expected: 'The guest enlisted in the start village\'s militia (reputation 60). It dies (killPlayer): the notice "Você caiu em combate …", and after the respawn the record and the reputation are the same on both. A debug siege of the village by the enemy: in action — the Exército tab warns "deserção"; leaving (two taps) is desertion: out of the army, the ban [kingdom, day + 2] on both, −25 reputation (35), the toast; enlisting again is refused ("Desertor: …"); digest equal',
+  api: 'game/army.js inAction / desertToast, mut/army.js army.leave (desert), ui/armyHud.js (death), ui/muralWar.js (the warning)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const s = await btVillage(t, H, MH, G, MG);
+  const [k2] = btKingdoms(H, s);
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 60);
+  await arEnlist(t, H, G, uid, s.id, { rank: 1, svc: 8 });
+  const notes = [], toasts = [];
+  t.on(G, 'toast', (x) => toasts.push(x.text));
+  t.watch(() => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (!notes.includes(x)) notes.push(x); } }, 150);
+  // dying
+  MG.player.killPlayer(G.game);
+  await t.waitFor(() => notes.some((x) => /(Você caiu em combate|Você morreu).*sem perder a reputação nem o posto/.test(x)), 3000, 'the notice: renasce sem perder a reputação nem o posto');
+  await t.sleep(800);
+  MG.player.respawnPlayer(G.game);
+  await t.waitFor(() => !G.game.player.dead, 4000, 'respawned');
+  await t.sleep(RT() + 600);
+  t.check(arRec(H, uid)?.rank === 1 && arRec(G, uid)?.svc === 8 && (recOn(H, uid).rep[s.k] | 0) === 60 && (recOn(G, uid).rep[s.k] | 0) === 60, 'the post and the reputation kept (both peers)', `${JSON.stringify(arRec(H, uid))} rep ${recOn(H, uid).rep[s.k] | 0}`);
+  // a siege: in action
+  await warShim(t, H, G, [[k2, s.k]]);
+  await btFast(t, H);
+  const F = btSiege(t, H, s, k2, { n: 14, lv: 2, from: [1, 0] });
+  await t.waitFor(() => btOn(G, F) && G.game.army.inAction(arRec(G, uid)), 30000, 'the village besieged: the army is in action (both peers know)');
+  await toMural(t, H, MH, G, MG, s.id);
+  muralTab(G, s.id, 'army');
+  await t.waitFor(() => /deserção/.test(ecoTxt(G)), 3000, 'the tab warns: leaving now is desertion');
+  G.doc.querySelector('[data-aleave]').click();
+  await t.sleep(200);
+  t.check(/Confirmar a deserção/.test(ecoTxt(G)), 'it asks to confirm');
+  G.doc.querySelector('[data-aleave]').click();
+  await t.waitFor(() => !arRec(G, uid) && !arRec(H, uid), RT() + 3000, 'out of the army');
+  const day = arDay(H);
+  await t.waitFor(() => (recOn(G, uid).rep[s.k] | 0) === 35 && (recOn(H, uid).rep[s.k] | 0) === 35, RT() + 2000, 'desertion: −25 reputation (both peers)', () => `${recOn(G, uid).rep[s.k] | 0}`);
+  t.check(JSON.stringify(H.game.army.des.get(uid)) === JSON.stringify([s.k, day + 2]) && JSON.stringify(G.game.army.des.get(uid)) === JSON.stringify([s.k, day + 2]), 'the ban until the day after tomorrow (both peers)', JSON.stringify(G.game.army.des.get(uid)));
+  await t.waitFor(() => toasts.some((x) => /desertou/.test(x)), 3000, 'the toast says so', () => toasts.slice(-2).join(' | '));
+  const r = await ecoReq(G, 'army.join', { sid: s.id });
+  t.check(!r.ok && /Desertor: o Reino de .* não aceita você de volta até o dia/.test(r.why), 'enlisting again is refused', r.why);
+  G.game.events.emit('closepanels', {});
+  await t.checkDigest(H, G);
+});
+
+def('AR8', {
+  title: 'AR: settle — a place taken near the players hands the army back to the numbers at once (home with the rest), and the new garrison comes from the winners',
+  src: 'village', timeout: 360000,
+  expected: 'An army of the enemy besieges the start village by numbers (dbg.launch, the clock forward); the players come: the playable siege. The capture (the centre held): game.realms.capture(sid, k, { army, n }) — the place is the enemy\'s on both peers and its garrison is min(cap, round(n × 0,5)) of the winners (not 30 % of the cap). When the victors leave the plaza (finishForce) 3b calls game.realms.settle: with the players STILL there, the army is at once going home (state retreat, or gone if few were left) on both, and live again as a column of soldiers (rematerialized) — never stuck as live; digest equal',
+  api: 'game/realms.js settle / hostCapture (army, live) / maintain / remat, game/warfare.js finishForce, game/siegeAI.js capture',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const s = startTownOf(H, MH), RH = RZ(H), RG = RZ(G);
+  const [k2] = btKingdoms(H, s);
+  await warShim(t, H, G, [[k2, s.k]]);
+  t.defer(() => btHeal(H, s.id));
+  t.defer(() => { if (RZ(H).owner(s.id) !== s.k) RZ(H).dbg.capture(s.id, s.k); H.game.net.flush(); });
+  const from = frontOf(H, k2, s.k)[0];
+  t.need(from && RH.dbg.route(from.id, s.id), 'a place of the enemy with a way to the start village');
+  await btFast(t, H, { holdT: 12 });
+  const away = [s.x + 420, s.y + 40];
+  await btFar(t, H, MH, G, MG, away[0], away[1]);
+  H.game.net.emit('realm.army', { gar: [[from.id, 160]] }); H.game.net.flush();
+  const a0 = RH.dbg.launch(from.id, s.id, 60);
+  H.game.net.flush();
+  t.need(a0, 'an army launched');
+  t.defer(() => { if (H.game.warfare.forces.has(a0.id)) H.game.warfare.dematerialize(a0.id); H.game.net.emit('realm.army', { del: a0.id }); H.game.net.flush(); });
+  for (let k = 0; k < 40 && RH.armies.get(a0.id)?.state !== 'siege'; k++) { wrSkip(H, 2); await t.sleep(RT() + 300); }
+  await t.waitFor(() => RH.armies.get(a0.id)?.state === 'siege', 4000, 'it besieges the village by numbers');
+  const L = H.game.towns.layout(s.id);
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => liveOn(H, a0.id) && H.game.warfare.forces.get(a0.id)?.kind === 'siege', 30000, 'the playable siege');
+  const F = H.game.warfare.forces.get(a0.id);
+  await t.waitFor(() => btDbg(H, F)?.siege?.planned, 40000, 'the siege is planned');
+  // the centre held (the capture's own path in siegeAI: assault phase, the hold timer full)
+  const n = F.n, cap = MH.war.capOf(s);
+  F.phase = 'assault'; F.sg.capT = 1e6;
+  await t.waitFor(() => RH.owner(s.id) === k2 && RG.owner(s.id) === k2, 15000, 'the place taken (game.realms.capture) on both', () => `phase ${btPhase(H, F)}`);
+  const want = Math.max(1, Math.min(cap, Math.round(n * 0.5))), gar = RH.armies.get('g' + s.id).n;
+  t.check(gar === want && RG.armies.get('g' + s.id).n === want, 'the new garrison comes from the winners (min(cap, n × 0,5))', `${gar} (winners ${n}, cap ${cap}; 30 % of the cap would be ${Math.round(cap * 0.3)})`);
+  t.check(liveOn(H, a0.id), 'the army still live while the victors hold the plaza');
+  await t.waitFor(() => { const a = RH.armies.get(a0.id); return !a || a.state === 'retreat'; }, 90000, 'the victors leave the plaza: settle — the army goes home at once (players still near)', () => `${RH.armies.get(a0.id)?.state} phase ${btPhase(H, F)} settled ${RH.H.stats.settled}`);
+  const a1 = RH.armies.get(a0.id);
+  t.check(RH.H.stats.settled >= 1, 'settle was called by 3b (finishForce)', RH.H.stats.settled);
+  if (a1) {
+    t.check(a1.n === n - want || a1.n <= n - want, 'it goes home with the rest (the garrison stayed)', `${a1.n} / ${n - want}`);
+    await t.waitFor(() => RG.armies.get(a0.id)?.state === 'retreat', RT() + 2000, 'the guest sees it going home');
+    await t.waitFor(() => liveOn(H, a0.id) && H.game.warfare.forces.get(a0.id)?.kind === 'march', 15000, 'near the players it is a column again (rematerialized), not stuck', () => `live ${liveOn(H, a0.id)} force ${H.game.warfare.forces.get(a0.id)?.kind || '-'}`);
+  } else t.check(true, 'few were left: it is gone');
+  await t.checkDigest(H, G);
+});
+
+def('AR9', {
+  title: 'AR: save → load keeps the enlistment (rank, service, the army followed, a deserter\'s ban)',
+  src: 'village', timeout: 120000,
+  expected: 'The guest enlisted (Sargento, 20 of service, 3 kills) and another player\'s desertion ban: the host\'s save (buildSaveData → JSON) carries world.army; loaded into a fresh game of the same seed, the records are exactly the same (armyDigestRows); digest equal on the pair',
+  api: 'net/snapshot.js serializeWorld / applyWorld (army), game/mut/army.js armyRows / applyArmyRows / armyDigestRows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH);
+  const MA = await fimp(H, 'game/mut/army.js');
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 120);
+  await arEnlist(t, H, G, uid, s.id, { rank: 2, svc: 20, kills: 3 });
+  H.game.net.emit('army.rec', { u: 'uAR9ghost', r: 0, ban: [s.k, arDay(H) + 2], ev: 'debug' }); H.game.net.flush();
+  t.defer(() => { H.game.net.emit('army.rec', { u: 'uAR9ghost', r: 0, ban: 0, ev: 'debug' }); H.game.net.flush(); });
+  await t.waitFor(() => G.game.army.des.has('uAR9ghost'), RT() + 2000, 'the ban on the guest');
+  const data = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game))), saved = JSON.stringify(MA.armyDigestRows(H.game));
+  t.check(data.world?.army?.en?.some((r) => r[0] === uid) && data.world.army.des.some((r) => r[0] === 'uAR9ghost'), 'the save carries the records and the ban');
+  const Sf = await bootSolo(t, '&start=village', 'solo');
+  const MS = await A.mods(Sf);
+  await t.waitFor(() => Sf.game.army?.en, 15000, 'the solo game');
+  const MSA = await fimp(Sf, 'game/mut/army.js');
+  let loaded = null;
+  Sf.game.net.withApply(() => { MS.snapshot.applyWorld(Sf.game, data.world, 'load'); loaded = JSON.stringify(MSA.armyDigestRows(Sf.game)); });
+  t.check(loaded === saved, 'loaded: the same records (rank, service, kills, place, kingdom, the ban)', loaded === saved ? `${saved.length} B` : `${saved} / ${loaded}`);
+  frames.close(Sf);
+  t.check(JSON.stringify(MA.armyDigestRows(G.game)) === saved, 'the guest has the same rows');
+  await t.checkDigest(H, G);
+});
+
+def('AR10', {
+  title: 'AR: "Ir até o exército" — from a place of its kingdom an enlisted player travels to its army (beside the column on the march, at the camp of a siege); refused outside the kingdom\'s places and near enemies; no time skipped',
+  src: 'village', timeout: 360000,
+  expected: 'The guest enlisted in the start kingdom\'s militia; at war, an army of the kingdom marches from a place far from the village. In free land: army.travel refused ("Viaje a partir de um lugar do Reino de …"). At the start village with a column of the enemy beside it: refused ("Inimigos por perto …"). With the enemy gone: the orders card shows "Ir até o exército"; a tap — the guest is beside the army on both peers (the host sees its avatar there), the army is live with it, the world clock did not jump. The players back home, the clock forward until the army besieges its target by numbers: from the village the guest travels to the camp (outside the target\'s land, near the army); digest equal',
+  api: 'game/army.js travelWhy / travelSpot, mut/army.js army.travel, ui/armyHud.js (the button, the move)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G), s = startTownOf(H, MH), R = realmOf(H), RH = RZ(H);
+  const [k2] = btKingdoms(H, s);
+  t.need(k2 != null, 'an enemy kingdom on the landmass');
+  await arClean(t, H, G, uid);
+  await arMember(t, H, G, uid, s.k, 40);
+  await arEnlist(t, H, G, uid, s.id);
+  await warShim(t, H, G, [[s.k, k2]]);
+  const d2 = (q) => Math.min(...R.settlements.filter((e) => RH.owner(e.id) === k2).map((e) => Math.hypot(e.x - q.x, e.y - q.y)));
+  const from = R.settlements.filter((q) => RH.owner(q.id) === s.k && Math.hypot(q.x - s.x, q.y - s.y) > 220).sort((a, b) => d2(a) - d2(b))[0];
+  const T = from && R.settlements.filter((q) => RH.owner(q.id) === k2).sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0];
+  t.need(from && T && RH.dbg.route(from.id, T.id), 'a place of the kingdom far from the village with a way to an enemy place');
+  t.defer(() => btHeal(H, T.id));
+  t.defer(() => { if (RZ(H).owner(T.id) !== T.k) RZ(H).dbg.capture(T.id, T.k); H.game.net.flush(); });
+  H.game.net.emit('realm.army', { gar: [[from.id, 120]] }); H.game.net.flush();
+  const a0 = RH.dbg.launch(from.id, T.id, 40);
+  H.game.net.flush();
+  t.need(a0, 'an army launched');
+  t.defer(() => { if (H.game.warfare.forces.has(a0.id)) H.game.warfare.dematerialize(a0.id); H.game.net.emit('realm.army', { del: a0.id }); H.game.net.flush(); });
+  await t.waitFor(() => arRec(H, uid)?.a === a0.id && arRec(G, uid)?.a === a0.id, 6000 + RT(), 'the guest follows that army (record.a on both)');
+  const L = H.game.towns.layout(s.id);
+  // free land: refused
+  const fx = s.x + s.r + 30, fy = s.y;
+  await btFar(t, H, MH, G, MG, fx, fy);
+  t.need(!MG.realm.settlementAt(R, G.game.player.x, G.game.player.y, 6), 'the guest outside any town land');
+  const r1 = await ecoReq(G, 'army.travel', {});
+  t.check(!r1.ok && /Viaje a partir de um lugar do Reino de/.test(r1.why), 'outside the kingdom\'s places: refused', r1.why);
+  t.check(!G.doc.querySelector('#ordcard [data-go]'), 'and the card has no button there');
+  // in the village, an enemy column beside it: refused
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  const Fe = H.game.warfare.materialize({ id: 'ar-enemy-col', k: k2, home: R.kingdoms[k2].capital, n: 8, lv: 3, x: L.spawn[0] + 6, y: L.spawn[1] + 2, state: 'march', target: s.id, path: [[L.spawn[0] + 7, L.spawn[1] + 2]], eng: { treb: 0, cat: 0, ram: 0, tower: 0 }, live: true });
+  t.defer(() => { if (H.game.warfare.forces.has(Fe.id)) H.game.warfare.dematerialize(Fe.id); H.game.net.flush(); });
+  A.keepAlive(t, G);
+  await t.waitFor(() => soldiersOf(G, k2).some((e) => Math.hypot(e.x - G.game.player.x, e.y - G.game.player.y) < 14), 20000, 'enemy soldiers beside the guest (on its screen)');
+  const r2 = await ecoReq(G, 'army.travel', {});
+  t.check(!r2.ok && /Inimigos por perto/.test(r2.why), 'near enemies: refused', r2.why);
+  H.game.warfare.dematerialize(Fe.id); H.game.net.flush();
+  await t.waitFor(() => !soldiersOf(G, k2).length, 8000 + RT(), 'the enemy gone');
+  // the button, the travel
+  await t.waitFor(() => G.doc.querySelector('#ordcard [data-go]'), 4000, 'the orders card shows "Ir até o exército"', () => arCard(G));
+  const wt0 = H.game.worldTime, moved = [];
+  t.on(G, 'armytravel', (e) => moved.push(e));
+  G.doc.querySelector('#ordcard [data-go]').dispatchEvent(new G.win.PointerEvent('pointerdown', { bubbles: true }));
+  await t.waitFor(() => moved.length, RT() + 3000, 'the guest travels (the host\'s answer)');
+  const p = () => RH.dbg.pos(a0.id);
+  await t.waitFor(() => { const [x, y] = p(), q = G.game.player; return Math.hypot(H.game.world.dx(q.x, x), q.y - y) < 12; }, 3000, 'it stands beside the army (guest)', () => `${f2(G.game.player.x)},${f2(G.game.player.y)} / ${p().map(f2)}`);
+  await t.waitFor(() => { const [x, y] = p(), e = guestOnHost(H, G); return e && Math.hypot(H.game.world.dx(e.x, x), e.y - y) < 14; }, 6000 + RT(), 'the host sees it there');
+  t.check(H.game.worldTime - wt0 < 20, 'no time skipped (the world clock went on as usual)', `${f2(H.game.worldTime - wt0)} s`);
+  A.teleport(H, G.game.player.x + 1.5, G.game.player.y);
+  await t.waitFor(() => liveOn(H, a0.id) && RH.armies.get(a0.id).v > 0, 20000, 'with it there, the army is live and keeps marching (escorted)');
+  t.check(!G.doc.querySelector('#ordcard [data-go]'), 'beside the army: no button');
+  // the siege: from the village to the camp
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  await t.waitFor(() => !liveOn(H, a0.id), 20000, 'the players home: the army is numbers again');
+  for (let k = 0; k < 60 && RH.armies.get(a0.id)?.state !== 'siege'; k++) { wrSkip(H, 2); await t.sleep(RT() + 300); }
+  await t.waitFor(() => RH.armies.get(a0.id)?.state === 'siege', 4000, 'it besieges its target by numbers', () => `${RH.armies.get(a0.id)?.state}`);
+  const r3 = await ecoReq(G, 'army.travel', {});
+  t.check(r3.ok && /acampamento diante de/.test(r3.x?.label || ''), 'from the village: to the camp', JSON.stringify(r3.x || r3.why));
+  if (r3.ok) {
+    const c = RH.armies.get(a0.id), d = Math.hypot(H.game.world.dx(r3.x.x, c.x), r3.x.y - c.y), dT = Math.hypot(H.game.world.dx(r3.x.x, T.x), r3.x.y - T.y);
+    t.check(d < 16 && dT > T.r + 4, 'the camp spot: by the army, outside the target\'s land', `${f2(d)} from the camp · ${f2(dT)} from ${T.name} (land ${T.r})`);
+  }
+  await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
   await t.checkDigest(H, G);
 });
 

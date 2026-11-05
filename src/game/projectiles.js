@@ -317,11 +317,19 @@ export function projectilesSystem() {
             // (a player's arrow flies past the settlements' people; a town guard's — game/npc.js — only hits hostile creatures)
             const town = pr.faction === 'town';
             for (const e of E) {
-              if (e === pr.src || e === p || e.dead || e.npc || !(e.isMob || e.kind === 'animal')) continue;
+              if (e === pr.src || e === p || e.dead) continue;
+              if (e.npc && (town || game.army?.npcWhy?.(pr.src?.owner || pr.src || p, e) !== null)) continue; // (the people: never — an enemy guard for an enlisted player's arrow: phase 3c)
+              if (!(e.isMob || e.kind === 'animal' || (!town && e.pvp && !e.avatar))) continue; // (e.pvp: a player of a kingdom at war with the shooter's — docs/REINOS.md §15)
               if (town && (e.proxy || !(pr.canHit ? pr.canHit(e) : e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'))) continue; // (canHit: + the soldiers of a kingdom at war with the town)
               if (!town && e.soldier && game.warfare?.mayHurt?.(pr.src?.owner || pr.src || p, e)) continue; // (a player's arrow flies past the soldiers the rule protects)
               const dx = e.x - nx, dy = e.y - ny, rr = e.r + 0.16;
               if (dx * dx + dy * dy < rr * rr && nl < 1.25 * (e.scale || 1) + 0.4 && Math.abs((e.z || 0) - pz - gd + (w.hasHeight ? groundOf(e) - tunGround(w, nx, ny, groundOf(e) + 0.5) : 0)) < 0.75) { victim = e; break; }
+            }
+            // (a town guard's arrow: an enlisted player of a kingdom at war with the town too — its canHit, phase 3c)
+            if (!victim && town && pr.canHit) for (const q of PL) {
+              if (q.dead || !pr.canHit(q)) continue;
+              const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
+              if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd) < 0.75) { victim = q; break; }
             }
           } else {
             for (const q of PL) {

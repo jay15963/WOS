@@ -60,6 +60,8 @@ import { installEco, ecoSystem, ecoOwnerSystem } from './eco.js'; // the economy
 import { installRealms, realmsSystem, realmsPosSystem } from './realms.js'; // diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
 import { installWarHud } from '../ui/warHud.js'; // the war's notices (docs/REINOS.md §13)
 import { installWarfare, warfareSystem, warfareFxSystem } from './warfare.js'; // the kingdoms' soldiers near the players: battles, the siege (docs/REINOS.md §14)
+import { installArmy, armySystem } from './army.js'; // the player in the army: orders, pay, who may hurt whom (docs/REINOS.md §15)
+import { installArmyHud } from '../ui/armyHud.js'; // the general's orders on the screen, their waypoint (docs/REINOS.md §15)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -104,6 +106,7 @@ export function installSystems(game) {
   installEco(game);                 // markets, reputation, jobs, properties (before the save / snapshot loads them)
   installRealms(game);              // the kingdoms' wars: relations, owners, armies (before the save / snapshot loads them)
   installWarfare(game);             // the armies near the players (game.warfare: before the save / snapshot loads the forces)
+  installArmy(game);                // the players in the armies (game.army: before the save / snapshot loads the records)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -174,6 +177,7 @@ export function installSystems(game) {
     ecoOwnerSystem(),               // the local player's economy identity known to the host
     realmsSystem(),                 // host: diplomacy, campaigns, marches, battles and sieges by numbers (realms.js)
     realmsPosSystem(),              // every peer: where the armies in the field are (derived from the clock)
+    armySystem(),                   // host: the players in the armies — who follows which army, the pay, service, bonuses (army.js)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);
@@ -181,6 +185,7 @@ export function installSystems(game) {
   addSystem(game, installHUD(game, { isNew }));
   addSystem(game, installEcoHud(game)); // (after the overlay: it draws the plots / the waypoint on the overlay canvas)
   addSystem(game, installWarHud(game)); // the war's notices for the local player (ui/warHud.js)
+  addSystem(game, installArmyHud(game)); // the general's orders, their waypoint, the pay / promotion notices (ui/armyHud.js)
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
   addSystem(game, installSiegeUi(game)); // (siege engines: aim ring, scatter, reload, crew — ui/siegeUi.js)
