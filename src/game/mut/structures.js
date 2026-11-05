@@ -632,6 +632,7 @@ defineIntent('build.hit', {
   run(game, a, actor, net) {
     const o = structById(game, a.id);
     if (!o || !o.blueprint) return 'Já foi construído';
+    if (o.realm != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao exército'; // (a kingdom's army builds its own engines: game/siegeAI.js)
     const def = defOf(o);
     if (a.start) {
       if (!o.paid && !a.pay) return 'Falta material';
