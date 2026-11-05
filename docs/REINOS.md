@@ -1482,7 +1482,7 @@ das forças, campo de fluxo):
 | Cena | soldados-criatura | média / p95 / pior por quadro (sistema) | quadro inteiro (CPU) média / p95 / pior |
 |---|---|---|---|
 | batalha 220 × 200 (80 criaturas, o resto em reserva), no choque | 80 (40 + 40) | 0,11 / 0,2 / 1,1 ms | 2,3 / 3,2 / 10,7 ms |
-| cerco de 44 com torre, do acampamento à tomada | 44 | 0,09 ms (pior 5,2 ms: o quadro do plano) | — |
+| cerco de 44 com torre, do acampamento à tomada | 44 | 0,09 ms (pior 5,2–5,9 ms: o quadro do plano) | — |
 
 O campo de fluxo do cerco da vila (≈ 110 × 110 tiles) custou 45 ms no total ao longo do cerco, em fatias de 0,8 ms.
 O plano (os quatro lados, as pistas, a oficina) roda um lado por tick (0,5 s), 2–5 ms cada.
