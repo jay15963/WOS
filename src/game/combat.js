@@ -154,7 +154,7 @@ export const npcBlock = (game, dst, src) => (game.army?.npcWhy ? !!game.army.npc
 // roll goes to the host (intent pvp.hit), the victim's own client takes it (dodge, armour, block: player.hurt)
 let pvpT = -9;
 export function pvpHit(game, src, dst, amount, opts = {}) {
-  const p = game.player, why = game.army?.pvpWhy?.(game.net.pid, dst.pid, dst.name) ?? 'Não';
+  const p = game.player, why = game.army?.pvpWhy ? game.army.pvpWhy(game.net.pid, dst.pid, dst.name) : 'Não';
   if (why) {
     game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
     if (p.target === dst) p.autoAttack = false;

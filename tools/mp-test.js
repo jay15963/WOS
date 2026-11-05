@@ -10309,6 +10309,8 @@ def('AR3', {
   await arClean(t, H, H, hu, H.pid);
   const x0 = s.x + s.r + 22, y0 = s.y + 4;
   await btStand(t, H, MH, G, MG, x0, y0 - 6);
+  const ws = arSpot(H, MS, 'siege_workshop', x0 + 4, y0 - 7, 0), wsId = ws && arArmyStruct(t, H, s.k, 'siege_workshop', ws[0], ws[1], 0); // (the player's rule: engines within 16 tiles of a workshop)
+  t.need(wsId, 'room for the army\'s workshop');
   const rs = arSpot(H, MS, 'battering_ram', x0, y0, 0), ram = rs && arArmyStruct(t, H, s.k, 'battering_ram', rs[0], rs[1], 0);
   const ts = arSpot(H, MS, 'trebuchet', x0 + 9, y0 + 2, 0), treb = ts && arArmyStruct(t, H, s.k, 'trebuchet', ts[0], ts[1], 0);
   t.need(ram && treb, 'room for a ram and a trebuchet');

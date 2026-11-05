@@ -74,7 +74,7 @@ defineIntent('pvp.hit', {
   args: { pid: 'victim pid', amount: 'number', crit: '0|1', ranged: '0|1', ability: 'string?', from: '[x, y]?' },
   run(game, a, actor) {
     const src = actor.ent, vpid = typeof a.pid === 'string' ? a.pid.slice(0, 40) : '';
-    const why = game.army?.pvpWhy?.(actor.pid, vpid) ?? 'Não';
+    const why = game.army?.pvpWhy ? game.army.pvpWhy(actor.pid, vpid) : 'Não';
     if (why) return why;
     const v = entOfPid(game, vpid);
     if (!v || v.dead || !src || src.dead) return 'Alvo morto';
