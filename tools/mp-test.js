@@ -9461,10 +9461,11 @@ def('WR10', {
   muralTab(G, fs.id, 'trade');
   await t.sleep(250);
   t.check(/Reputação negativa com o Reino de/.test(ecoTxt(G)) && /mais cara/.test(ecoTxt(G)), 'Comércio says why ("Reputação negativa com o Reino de … compra 50 % mais cara …")', short(ecoTxt(G).slice(Math.max(0, ecoTxt(G).indexOf('Reputação negativa')), 200), 200));
+  await t.sleep(RT() + 200); // (what is still on its way to the guest's purse lands first — then the purse is set)
   setCoins(G, 6000);
   const b1 = await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 5, max: qb.cost }, { refund: { coin: qb.cost } });
   t.check(b1.ok, 'it still trades there (negative is not enemy)', b1.why);
-  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins');
+  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins', () => `${coinsOf(G)} (quote ${qb.cost})`);
   // no joining with a negative reputation
   const j2 = await ecoReq(G, 'realm.join', { sid: fs.id });
   t.check(!j2.ok && /negativa/.test(j2.why || ''), 'it may not join that kingdom ("… é negativa: melhore-a com comércio e trabalhos …")', j2.why);
@@ -9663,7 +9664,7 @@ def('BT2', {
   const pre = `t${s.id}.`, hurt = () => [...H.game.towns.state].filter(([id, r]) => id.startsWith(pre) && (r.dmg > 0 || r.gone));
   await t.waitFor(() => hurt().length, 200000, 'a wall piece takes siege damage', () => `${shots.length} shots · phase ${btPhase(H, F)}`);
   const d0 = hurt()[0];
-  t.check(G.game.towns.state.get(d0[0]) && (G.game.towns.state.get(d0[0]).dmg > 0 || G.game.towns.state.get(d0[0]).gone), 'the damage is the town\'s state on the guest too (persistent)', `${d0[0]} ${JSON.stringify(d0[1])}`);
+  await t.waitFor(() => G.game.towns.state.get(d0[0]) && (G.game.towns.state.get(d0[0]).dmg > 0 || G.game.towns.state.get(d0[0]).gone), RT() + 2000, 'the damage is the town\'s state on the guest too (persistent)', () => `${d0[0]} host ${JSON.stringify(d0[1])} guest ${JSON.stringify(G.game.towns.state.get(d0[0]) || null)}`);
   const opOf = (f) => f.game.townDefense.openings(s.id)[0] || null;
   await t.waitFor(() => opOf(H) && opOf(G), 200000, 'a log breaks: an opening on both peers (a breach)', () => `${shots.length} shots · ${hurt().length} hurt pieces · phase ${btPhase(H, F)}`);
   const op = opOf(H);
