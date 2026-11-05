@@ -875,3 +875,59 @@ arqueiros no alto da paliçada, um guarda no trecho de frente).
 - O povo passa pelos portões fechados do próprio lugar (os monstros não): a guarda sai para lutar e os moradores do
   campo entram depois do anoitecer.
 - No modo criativo o povo existe e vive igual (os monstros do criativo não atacam ninguém).
+
+## 12. Fase 3 — guerra: o contrato entre as partes
+
+O dono deu o "prossiga" para a fase 3 (§8): diplomacia · exércitos no mapa · batalhas · IA do cerco completa · entrar
+num exército (ordens, waypoints). Ela é feita em três partes; as duas primeiras ao mesmo tempo, em ramos separados, e
+este contrato diz o que cada uma oferece à outra para que se juntem sem atrito. Quem mudar o contrato atualiza esta
+seção.
+
+| Parte | O quê | Arquivos novos (donos) | Testes |
+|---|---|---|---|
+| **3a — estratégia** | diplomacia, o dono de cada lugar, exércitos no mapa, marchas, batalhas e cercos **longe** dos jogadores (por números), conquista, mapa / minimapa / mural (informação) | `game/realms.js`, `game/mut/realms.js`, `game/content/war.js` (+ a camada de guerra do mapa) | `WR1…` |
+| **3b — campo de batalha** | soldados de verdade **perto** dos jogadores, batalha entre exércitos, a IA do cerco jogável (acampamento → máquinas → bombardeio → aríete / torres / brechas → assalto → tomada ou recuo), a guarda contra soldados | `game/warfare.js`, `game/soldier.js`, `game/siegeAI.js`, `game/content/soldiers.js` | `BT1…` |
+| **3c — o jogador no exército** (depois de 3a + 3b) | entrar pelo mural, ordens do general na tela, waypoints no mapa / minimapa, quem pode bater em quem, morrer na guerra sem perder reputação, pagamento | — | `AR1…` |
+
+### O que 3a oferece (`game.realms`, em todos os pares; estado replicado, decidido no anfitrião)
+
+- `rel(a, b)` → `'self' | 'ally' | 'neutral' | 'war'` (simétrico) e `atWar(a, b)` (o gancho que `siegeCanDamage`,
+  `eco.js` e os soldados já consultam). Reinos que **não se ligam por terra** (`canReach`) são sempre `'neutral'`.
+- `owner(sid)` → o reino **atual** de um lugar (começa em `s.k`; muda na conquista). Todo código que pergunta "de quem
+  é este lugar" passa a usar isto (3a troca os usos de `s.k` como dono: economia, cores da guarda, mapa, faixa do lugar,
+  mural). `alive(k)`: o reino ainda existe (tem cidade).
+- `armies` → `Map id → { id, k, home (sid), n (soldados), lv (§7b), x, y (tile), state 'home' | 'march' | 'camp' |
+  'siege' | 'battle' | 'retreat', target (sid | null), path, eng { treb, cat, ram, tower } (máquinas que leva / fez),
+  live (true = 3b está jogando ele perto de alguém) }`.
+- `capture(sid, k)` (anfitrião) → op: o lugar muda de reino em todos os pares (guarda, cores, mural, mapa, economia);
+  evento `capture { sid, from, to }`. Outros eventos: `war { a, b, on }`, `army { id, state }`, `battle { … }`.
+- Op de depuração / testes `realm.rel { a, b, rel }` (anfitrião): força uma relação (3b e 3c usam nos testes).
+- **A passagem para 3b**: quando um exército fica a ~120 tiles de um jogador (ou uma batalha / cerco dele), 3a marca
+  `live = true` e chama `game.warfare?.materialize(army)`; quando ninguém mais está perto, `game.warfare?.dematerialize(id)`
+  devolve `{ n, eng, siege }` e a simulação por números continua dali. Sem 3b (`game.warfare` ausente), tudo é por
+  números. Enquanto `live`, 3a não mexe nos números daquele exército — 3b reporta com `game.realms.report(id, { n, eng,
+  state })`.
+
+### O que 3b oferece (`game.warfare`, anfitrião; os soldados são criaturas no fluxo de entidades como o povo)
+
+- `materialize(army)` / `dematerialize(id)` (acima); `forces` (o que está vivo agora); `startSiege(spec)` e
+  `startBattle(a, b)` de depuração (testes sem a 3a: `spec = { k, sid alvo, n, lv, eng, at: [x, y] }`).
+- Quem é inimigo de quem: `atWar(game, a, b)` = `game.realms?.atWar?.(a, b)`. Nos testes de 3b, **antes** da 3a existir,
+  um calço só no código de teste (`tools/mp-test.js`) põe `game.realms = { atWar, owner }`; na junção os testes passam a
+  usar a op `realm.rel` da 3a. Nada de calço em `src/`.
+- O dono de um lugar: `ownerOf(game, sid)` = `game.realms?.owner?.(sid) ?? realm.settlements[sid].k`.
+- A defesa do lugar atacado é a de §11 (`game.townDefense.assign(sid, threat, true)` com a ameaça do lado do
+  exército, as aberturas, a reserva); 3b só a estende para lutar contra soldados (que são inimigos só em guerra).
+- A tomada: os atacantes seguram o centro (a praça / o torreão) sem defensores por um tempo → `game.realms?.capture?.(sid, k)`.
+- Jogadores, até a 3c: **neutros** — os soldados não atacam jogadores e os jogadores não ferem soldados (a mesma
+  proteção do povo, §11 "Sem fogo amigo"). A 3c muda isso pela filiação (membro de um reino em guerra).
+
+### Regras comuns
+
+- Anfitrião autoritativo; o estado novo vai no snapshot, no save e no digest (partes próprias); tudo igual nos dois pares.
+- §7b vale para soldados e para a força dos exércitos nos números (`realmNpcLevel`).
+- O reino do início não entra em guerra nos primeiros dias do mundo (3a decide quantos e documenta); guerras não
+  podem acabar com o mundo do jogador de repente — avisos claros antes ("O Reino de X declarou guerra ao Reino de Y",
+  "Um exército de X marcha sobre Y").
+- Os reinos **não** cercam as bases dos jogadores (§4).
+- Cada parte escreve a sua seção de implementação aqui (como §9–§11) e deixa prints em `shots/` (fora do git).
