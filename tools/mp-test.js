@@ -8257,6 +8257,58 @@ def('VL9', {
   await t.checkDigest(H, G);
 });
 
+def('VL10', {
+  title: 'VL: talking — the person a player talks with stands still facing them while the card is open; a person in a fight has no "Conversar" (no button, a tap does nothing, the card does not open)',
+  src: 'village', timeout: 170000,
+  expected: 'Start village by day. The guest walks up to a citizen on its way somewhere and opens its talk card: the host gets intent npc.talk — its creature stops (no step for 9 s, not moving on either peer), faces the guest, and the card\'s refresh keeps it (talkTo.until moves on); closing the card lets it go (talkTo cleared). A tough wolf on the plaza: a guard fighting it (state chase on both peers) is left out of the guest\'s "Conversar" list next to it, a tap on it does nothing (tapIt → false), and the card refuses to open; digest equal',
+  api: 'ui/talk.js (npc.talk on open / every 8 s / close), game/mut/people.js intent npc.talk, npc.js talkHold, people.js npcFighting / forNear / tapIt, controller tap',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const gp = G.game.player;
+  const pick = () => livePeople(H, s.id).filter((m) => !m.guard && !(m.z > 0.5) && m.task === 'go' && G.game.entities.some((e) => e.nid === m.nid && e.npc)).sort((a, b) => Math.hypot(a.x - gp.x, a.y - gp.y) - Math.hypot(b.x - gp.x, b.y - gp.y))[0];
+  const tg = await t.waitFor(pick, 30000, 'a citizen on its way somewhere, seen by both');
+  const hm = H.game.entities.find((e) => e.nid === tg.nid), gm = G.game.entities.find((e) => e.nid === tg.nid);
+  A.teleport(G, gm.x + 0.8, gm.y);
+  await t.sleep(RT() + 300); // (the host sees the guest next to it)
+  G.game.events.emit('talk', { e: gm });
+  await t.waitFor(() => G.doc.querySelector('#talkcard.on'), 1500, 'the talk card opens on the guest');
+  await t.waitFor(() => hm.talkTo && hm.talkTo.pid === G.game.net.pid, RT() + 2500, 'the host: the person stops for the talk (intent npc.talk)', () => { const av = H.game.net.session?.players?.get?.(G.game.net.pid)?.av; return `talkTo ${hm.talkTo ? hm.talkTo.pid : '-'} (guest ${G.game.net.pid}) · nid ${gm.nid}/${hm.nid} · host avatar ${av ? f2(Math.hypot(av.x - hm.x, av.y - hm.y)) + ' tiles' : 'none'} · rq ${G.game.net.stats.rq} rejects ${G.game.net.stats.rejects} · dead ${hm.dead} in ${H.game.entities.includes(hm)}`; });
+  const x0 = hm.x, y0 = hm.y, u0 = hm.talkTo.until;
+  await t.sleep(9000);
+  const moved = Math.hypot(hm.x - x0, hm.y - y0);
+  t.check(moved < 0.05 && !hm.moving, 'it stands still while the card is open (9 s)', `moved ${f2(moved)} moving ${!!hm.moving}`);
+  t.check(!gm.moving, 'the guest sees it standing too', `moving ${!!gm.moving}`);
+  const dx = gp.x - hm.x, dy = gp.y - hm.y, want = Math.abs(dx) > Math.abs(dy) * 0.8 ? (dx > 0 ? 'e' : 'w') : (dy > 0 ? 's' : 'n');
+  t.check(hm.facing === want, 'it faces the guest', `${hm.facing} (want ${want})`);
+  t.check(hm.talkTo && hm.talkTo.until > u0, 'the open card keeps it (refresh every 8 s)', hm.talkTo ? `${f2(u0)} → ${f2(hm.talkTo.until)}` : 'no talk');
+  G.game.ui.talkCard.close();
+  await t.waitFor(() => !hm.talkTo, RT() + 2500, 'closing the card lets it go');
+  // a fight: no "Conversar"
+  const ws = A.freeSpot(H, MH, L.spawn[0] + 3, L.spawn[1] + 2, { rMin: 0, rMax: 5, r: 0.36 });
+  t.need(ws, 'a free spot on the plaza for the wolf');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+  wolf.hp = wolf.maxHp = wolf.maxHp * 12;
+  t.defer(() => { wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  const fighter = () => { for (const m of livePeople(H, s.id)) { if (!m.guard || m.state !== 'chase' || m.z > 0.5) continue; const g = G.game.entities.find((e) => e.nid === m.nid && e.npc); if (g && g.state === 'chase') return g; } return null; };
+  const gg = await t.waitFor(fighter, 25000, 'a guard fighting the wolf (state chase on both peers)');
+  A.teleport(G, gg.x + 0.9, gg.y + 0.3);
+  await t.sleep(150);
+  const its = [];
+  G.game.people.forNear((it) => { if (it) its.push(it); });
+  t.check(MG.people.npcFighting(gg) && !its.some((it) => it.o === gg), 'no "Conversar" for a guard in a fight (left out of the list next to it)', `${its.length} talk items near`);
+  t.check(G.game.people.tapIt(gg) === false, 'a tap on it does nothing (tapIt → false: no talk, no attack)');
+  G.game.events.emit('talk', { e: gg });
+  await t.sleep(300);
+  t.check(!G.doc.querySelector('#talkcard.on'), 'the talk card does not open for a person in a fight');
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  await t.waitFor(() => !H.game.people.debug(s.id).danger, 15000, 'the all-clear');
+  await t.checkDigest(H, G);
+});
+
 // =====================================================================================================
 // EC — the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia", game/eco.js, game/mut/eco.js, ui/muralEco.js):
 // coins, markets (supply and demand), jobs, reputation, membership, houses / plots, the daily tax, saves.

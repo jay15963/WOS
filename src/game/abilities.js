@@ -282,7 +282,7 @@ export function fireAimed(game, id, wx, wy) {
   enterCombat(p, 3);
   // pose: face the shot and release (bow recoil / spear follow-through)
   p.weapon = p.equip?.main ?? p.weapon;
-  p.facing = facingFrom(dx, dy, p.facing); p._faceLockT = 0.5;
+  p.facing = facingFrom(dx, dy, p.facing); p._aimA = Math.atan2(dy, dx); p._faceLockT = 0.5;
   p._atkRootT = Math.max(p._atkRootT || 0, S.proj === 'spear' ? 0.38 : 0.3); // stand still for the release (like auto-attacks)
   p.action = ab.act === 'throw' ? { type: 'throw', t: 0.46, dur: 0.42 } : { type: 'shoot', t: 0.7, dur: 0.32 };
   p.swingT = Math.max(p.swingT || 0, 0.6); // no auto-shot right on top of it
@@ -400,7 +400,7 @@ function effect(game, id, ab, t) {
     case 'cleave': {
       act('cleave', 0.42);
       const dir = aimDir(p, t);
-      p.facing = facingFrom(dir[0], dir[1], p.facing);
+      p.facing = facingFrom(dir[0], dir[1], p.facing); p._aimA = Math.atan2(dir[1], dir[0]);
       game.audio?.play('swing', { x: p.x, y: p.y, volume: 1.1 });
       slashFx(game, p.x, p.y, dir, 3, 1.6, 1.2);
       const list = cone(game, dir, 2.4, 0.3);
@@ -421,7 +421,7 @@ function effect(game, id, ab, t) {
     case 'pierce': {
       act('pierce', 0.36);
       const dir = aimDir(p, t);
-      p.facing = facingFrom(dir[0], dir[1], p.facing);
+      p.facing = facingFrom(dir[0], dir[1], p.facing); p._aimA = Math.atan2(dir[1], dir[0]);
       game.audio?.play('swing', { x: p.x, y: p.y });
       const L = 3.6, hits = [];
       for (const e of areaTargets(game, p.x, p.y, L + 0.5)) {
@@ -526,7 +526,7 @@ function effect(game, id, ab, t) {
     case 'torch_swing': {
       act('torch_swing', 0.38);
       const dir = aimDir(p, t);
-      p.facing = facingFrom(dir[0], dir[1], p.facing);
+      p.facing = facingFrom(dir[0], dir[1], p.facing); p._aimA = Math.atan2(dir[1], dir[0]);
       game.audio?.play('fire', { x: p.x, y: p.y });
       flameFx(game, p, dir);
       cone(game, dir, 2.3, -0.05).forEach((e, n) => melee(game, e, 0.6, 1, { ability: id, dtype: 'fire', canMiss: false }, 0.12 + n * 0.03, (h) => {
@@ -654,7 +654,7 @@ export function abilitiesSystem() {
           const stopAt = reach(p, t) - 0.25;
           const step = Math.min(22 * dt, Math.max(0, d - stopAt));
           const moved = step > 0 && moveCircle(game.world, p, (dx / d) * step, (dy / d) * step);
-          p.facing = facingFrom(dx, dy, p.facing);
+          p.facing = facingFrom(dx, dy, p.facing); p._aimA = Math.atan2(dy, dx);
           p.moving = true; p.moveT += dt * 4;
           game.juice.trail(p);
           if (d - step <= stopAt + 0.05 || !moved || c.t > 0.8) {

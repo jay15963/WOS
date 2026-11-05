@@ -54,6 +54,10 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
   cidadãos se visitam e comerciam entre as cidades e vilas.
 - **Sem navios ainda**: reinos que não se ligam por terra **não interagem** (nem guerra, nem comércio, nem visitas).
   A ligação é calculada pela massa de terra (continente) de cada reino.
+- **O reino do início** fica fora de guerras só nos **2 primeiros dias** do mundo (dono, fase 3).
+- **Avisos do reino do jogador** (dono, fase 3): quem é membro de um reino vê toda mudança de relação do reino dele com
+  outro — aliança formada / desfeita, tratado de paz, guerra declarada (por ele ou contra ele), fim da guerra, um lugar
+  dele cercado / tomado / retomado — no alto da tela e no histórico do reino. Cada jogador vê as do seu reino.
 
 ## 4. Guerra e cerco
 
@@ -62,6 +66,11 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
 - O jogador com reputação suficiente entra num exército pelo **mural** → aparecem **ordens do general** na tela e
   **waypoints** no mapa e no minimapa.
 - **Sem fogo amigo**: só dá para atacar gente (e estruturas) de reinos **inimigos**.
+- **Ajudar sem estar no exército** (dono, fase 3): o jogador **pode** atacar soldados inimigos mesmo sem entrar num
+  exército — membro de um reino: os soldados dos reinos em guerra com o dele; sem reino (viajante): os soldados que
+  estão atacando um lugar / exército perto dele. Isso **dá reputação** com o reino que ele ajudou a defender (e tira com
+  o atacado), e os soldados atacados revidam. Assim o jogador pode defender a sua vila / cidade / castelo sem estar num
+  exército. O povo e a guarda continuam protegidos (§11).
 - **Cerco** completo: acampamento fora do alcance → a IA mede muralhas / portão e constrói as máquinas (torres na
   altura certa) → bombardeio (brechas; muralha e portão com vida, dano persistente, defensores consertam) → assalto
   (aríete no portão, torres encostam e baixam a rampa, luta nas muralhas e ruas) → conquista (segurar o centro sem
@@ -104,6 +113,10 @@ inimigos (sem fogo amigo), monstros e bandidos.
   terreno. Fora dos territórios constrói-se livre.
 - **Imposto** diário por reino para quem tem propriedade: **cobrado automaticamente** das moedas do jogador, com aviso.
   Se não tiver na hora: aviso por 3 dias; depois o reino toma a propriedade.
+- **Perder uma propriedade** (dono, fase 3): quando um lugar é **conquistado**, quem tem propriedade nele (casa comprada,
+  alugada, terreno) **perde** — perder a guerra do seu reino é um risco de verdade. Toda propriedade perdida (conquista,
+  imposto não pago) **volta para a lista de vendas** do lugar; se for um **terreno, tudo o que o jogador construiu nele
+  some** e o terreno volta à venda.
 
 ## 7. Multijogador
 
@@ -800,6 +813,12 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   estação, o **mural** para quem nunca abriu um, uma do lugar / da estação, tchau); no perigo, "Para dentro!" / "Deixe
   com a guarda!". E / Espaço / toque seguem; Esc / "Tchau" / se afastar fecham. Local: nada vai pela rede.
 - Uma pessoa parada vira para o jogador que chega perto e às vezes gesticula.
+- **Parada na conversa** (dono): enquanto o cartão está aberto a pessoa **para** onde está (o que ela ia fazer espera),
+  vira para quem fala com ela e gesticula — intent `npc.talk` (abrir / a cada 8 s / fechar; o anfitrião solta sozinho
+  depois de 40 s sem notícia, se o jogador se afasta 5 tiles, com o sino ou numa luta). **Em luta não se conversa**
+  (dono): quem está brigando (perseguindo um inimigo ou golpeando / atirando — o estado e a ação vêm no fluxo, iguais nos
+  dois pares) não mostra o botão "Conversar", um toque nela não faz nada e o cartão não abre (e fecha se ela começa a
+  lutar). Teste VL10.
 - **Plaquinhas**: só a da pessoa com quem o E fala, a do alvo, a do mouse e a de um guarda ferido (com a barra de vida).
 - **Sem fogo amigo**: um golpe, flecha, atordoar, sangrar de um jogador num morador ou guarda não faz nada ("X é de Y: o
   povo do Reino de Z está sob a proteção do reino", no máximo a cada 4 s); o ataque automático nunca escolhe o povo (Tab
