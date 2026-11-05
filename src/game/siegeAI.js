@@ -342,13 +342,15 @@ function formationAt(game, F, ax, ay, fx, fy, eng = 4, column = false, only = nu
   arch.sort((a, b) => a.soldier.i - b.soldier.i).forEach((m, j) => put(m, j % Wa, Math.floor(j / Wa), Wa, ab, column ? 0 : Math.max(eng, 6)));
   gen.forEach((m) => put(m, 0, 0, 1, Math.max(1.5, ab - 1.2), 3));
 }
+// spots by a tent (offset from its centre, facing, idle action): its sides, before its door
+const TENT_SPOTS = [[-1.9, 0.4, -1, 0.3, 'craft'], [1.9, 0.4, 1, 0.3, 'craft'], [-0.75, 2.5, 1, 0, 'talk'], [0.75, 2.5, -1, 0, 'talk'], [-1.9, -1.5, -1, 0, 'craft'], [1.9, -1.5, 1, 0, null]];
 // a camp that looks like one: sentries at its edge facing the place, soldiers around the fires (a bite, a chat), others
-// among the tents sharpening their weapons and talking, the general before the banners — each its own spot (cached;
+// by the tents sharpening their weapons and talking, the general before the banners — each its own spot (cached;
 // a free tile near it), never a line
 function campLife(game, F, ents) {
   const G = F.sg, P = G.plan, c = P.camp, A = P.A, tx = -A.y, ty = A.x, cr = WAR.siege.campR;
   const S = G.life || (G.life = new Map());
-  const fires = (G.spots || campSpots(P)).filter((q) => q[0] === 'campfire').map((q) => [q[1], q[2]]);
+  const spots = G.spots || campSpots(P), fires = spots.filter((q) => q[0] === 'campfire').map((q) => [q[1], q[2]]), tents = spots.filter((q) => q[0] === 'war_tent').map((q) => [q[1], q[2]]);
   const free = ents.filter((m) => !m.job).sort((a, b) => a.soldier.i - b.soldier.i);
   const inf = free.filter((m) => m.soldier.role === 'spear' || m.soldier.role === 'sword'), nS = Math.min(6, Math.max(2, Math.ceil(inf.length / 5)));
   let sentry = 0, fire = 0, rest = 0;
@@ -359,12 +361,18 @@ function campLife(game, F, ents) {
       let x, y, fx = -A.x, fy = -A.y, idle = null;
       if (r === 'general') { x = c.x - A.x * (cr + 0.2); y = c.y - A.y * (cr + 0.2); }
       else if ((r === 'spear' || r === 'sword') && sentry < nS) { const off = (sentry - (nS - 1) / 2) * 3.4; x = c.x - A.x * (cr + 3.5) + tx * off; y = c.y - A.y * (cr + 3.5) + ty * off; sentry++; }
-      else if (fires.length && fire < fires.length * 6) {
-        const f = fires[fire % fires.length], k = Math.floor(fire / fires.length), a = k * (Math.PI / 3) + (fire % fires.length) * 0.5;
-        x = f[0] + Math.cos(a) * 1.55; y = f[1] + Math.sin(a) * 1.55; fx = -Math.cos(a); fy = -Math.sin(a); idle = k % 3 === 0 ? 'eat' : k % 3 === 1 ? 'talk' : null; fire++;
+      else if (fires.length && fire < fires.length * 5) {
+        // (a ring round each fire: five each, 1.75 tiles out)
+        const f = fires[fire % fires.length], k = Math.floor(fire / fires.length), a = k * (Math.PI * 0.4) + (fire % fires.length) * 0.6;
+        x = f[0] + Math.cos(a) * 1.75; y = f[1] + Math.sin(a) * 1.75; fx = -Math.cos(a); fy = -Math.sin(a); idle = k % 3 === 0 ? 'eat' : k % 3 === 1 ? 'talk' : null; fire++;
+      } else if (tents.length && rest < tents.length * TENT_SPOTS.length) {
+        // (by the tents: at their sides sharpening, two before each door talking — a tent is 2 × 3, its door to the south)
+        const tt = tents[rest % tents.length], [ox, oy, ofx, ofy, act] = TENT_SPOTS[Math.floor(rest / tents.length)];
+        x = tt[0] + ox; y = tt[1] + oy; fx = ofx; fy = ofy; idle = act; rest++;
       } else {
-        const a = rest * 2.39996, rad = cr * 0.35 + (rest % 4) * 0.9;
-        x = c.x + Math.cos(a) * rad + A.x * 1.5; y = c.y + Math.sin(a) * rad + A.y * 1.5; fx = Math.cos(a + 1.6); fy = Math.sin(a + 1.6); idle = rest % 3 === 0 ? 'talk' : 'craft'; rest++;
+        // (the rest: a loose arc behind the tents)
+        const j = rest - tents.length * TENT_SPOTS.length, a = (j % 2 ? 1 : -1) * (0.25 + Math.floor(j / 2) * 0.32), ux = A.x * Math.cos(a) - A.y * Math.sin(a), uy = A.x * Math.sin(a) + A.y * Math.cos(a);
+        x = c.x + ux * (cr + 2.6); y = c.y + uy * (cr + 2.6); fx = -ux; fy = -uy; idle = j % 3 === 0 ? 'talk' : 'craft'; rest++;
       }
       const p = solNear(game, x, y, 2) || [x, y];
       q = { k: 'slot', x: p[0], y: p[1], fx, fy, eng: 5, leash: 10, idle };
@@ -658,22 +666,42 @@ function assault(game, F, ents) {
   }
   for (const [o, L] of by) {
     L.sort((a, b) => a[0] - b[0]);
-    const go = 2 + Math.min(3, o.w | 0), ox = -o.fy, oy = o.fx;
+    const go = 2 + Math.min(3, o.w | 0), spots = pressSpots(P, o, per, w);
     L.forEach(([, m], j) => {
       if (j < go) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; return; }
-      const q = j - go, r = Math.floor((Math.sqrt(8 * q + 1) - 1) / 2), c = q - (r * (r + 1)) / 2, back = 2.6 + r * 1.25, side = (c - r / 2) * 1.15;
-      const x = o.x + o.fx * back + ox * side, y = o.y + o.fy * back + oy * side;
+      const s = spots[j - go + 2]; // (the mouth itself left free for the ones going in)
+      if (!s) { m.order = { k: 'flow', ff: P.ff, eng: 8, x: P.plaza.x, y: P.plaza.y }; return; }
+      const [, x, y] = s;
       if (m.order?.wedge && Math.hypot(m.order.x - x, m.order.y - y) < 0.4) return;
-      m.order = { k: 'slot', x, y, fx: -o.fx, fy: -o.fy, eng: 5, leash: 6, wedge: true };
+      const fl = Math.hypot(o.x - x, o.y - y) || 1;
+      m.order = { k: 'slot', x, y, fx: (o.x - x) / fl, fy: (o.y - y) / fl, eng: 5, leash: 6, wedge: true };
     });
   }
   // (the ones with no way in: in line at the assembly point, out of the archers' reach)
   waiting.sort((a, b) => a.soldier.i - b.soldier.i).forEach((m, j) => { const sp = spread(P.assembly, P.side, j, 1.15, 12); m.order = { k: 'slot', x: sp[0], y: sp[1], fx: -nx, fy: -ny, eng: 5, leash: 8 }; });
 }
+// the free tiles outside before an opening where the ones waiting stand: a wedge — rank after rank, each a little wider
+// (ahead + 0.6 × aside) — on tiles with a way in that is not a long way round (a pen or a fenced field by the wall is no
+// place to stand, and does not make a queue of the wedge)
+function pressSpots(P, o, per, w) {
+  const out = [], cx = Math.floor(o.x), cy = Math.floor(o.y), D0 = P.ff.dist(o.x + o.fx * 0.6, o.y + o.fy * 0.6);
+  for (let dy = -9; dy <= 9; dy++) for (let dx = -9; dx <= 9; dx++) {
+    const x = cx + dx + 0.5, y = cy + dy + 0.5, ax = (x - o.x) * o.fx + (y - o.y) * o.fy, side = Math.abs((x - o.x) * o.fy - (y - o.y) * o.fx);
+    if (ax < 1.2 || per.inside(x, y, w)) continue; // (outside, before it)
+    const d = P.ff.dist(x, y);
+    if (!(d < 65535) || (D0 < 65535 && (d - D0) / 10 > Math.hypot(ax, side) * 1.6 + 2)) continue; // (no way in, or a long way round)
+    out.push([ax + side * 0.6, x, y]);
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  return out;
+}
 // a soldier that reached the plaza holds a spot of a ring around it (facing out), not the middle in a heap
 function ringOrder(game, P, m) {
   if (m.order?.ring) return m.order;
-  const r = Math.max(2.5, (P.L.plaza[2] || 4) * 0.85), a = (m.soldier.i * 2.39996) % (Math.PI * 2), rr = r * (0.7 + ((m.soldier.i * 7) % 5) * 0.09);
+  // (rings round the plaza, 1.3 tiles apart, ~1.15 tiles between two in a ring: soldier i takes the i-th place)
+  let r = Math.max(2.5, (P.L.plaza[2] || 4) * 0.85), j = m.soldier.i, k = 0, cap = Math.floor((2 * Math.PI * r) / 1.15);
+  while (j >= cap && k < 8) { j -= cap; k++; r += 1.3; cap = Math.floor((2 * Math.PI * r) / 1.15); }
+  const a = (j / cap) * Math.PI * 2 + k * 0.4, rr = r;
   const q = solNear(game, P.plaza.x + Math.cos(a) * rr, P.plaza.y + Math.sin(a) * rr, 2) || [P.plaza.x, P.plaza.y];
   return { k: 'slot', x: q[0], y: q[1], fx: Math.cos(a), fy: Math.sin(a), eng: 9, leash: 14, ring: true };
 }
