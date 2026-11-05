@@ -113,6 +113,13 @@ inimigos (sem fogo amigo), monstros e bandidos.
   terreno. Fora dos territórios constrói-se livre.
 - **Imposto** diário por reino para quem tem propriedade: **cobrado automaticamente** das moedas do jogador, com aviso.
   Se não tiver na hora: aviso por 3 dias; depois o reino toma a propriedade.
+- **Relações herdadas** (dono, fase 3 — fecha o truque de sair do reino para negociar com o inimigo dele): ao **entrar**
+  num reino o jogador **herda** as relações dele — a sua reputação com cada outro reino passa a ser a do reino (aliado:
+  positiva, neutro: zero, hostil / em guerra: negativa), **substituindo** as antigas; ao **sair**, elas ficam com ele e
+  ele precisa melhorá-las sozinho (comércio e trabalhos). A reputação pode ser **negativa**: com ela o jogador **ainda
+  negocia, mas com preços muito piores** (compra bem mais cara, venda bem mais barata, pior quanto mais negativa) e
+  **não pode entrar** naquele reino até deixá-la neutra ou positiva. Negativa **não** é inimigo: ninguém o persegue; só é
+  inimigo declarado quem é membro de um reino em guerra com aquele (e aí não há comércio).
 - **Perder uma propriedade** (dono, fase 3): quando um lugar é **conquistado**, quem tem propriedade nele (casa comprada,
   alugada, terreno) **perde** — perder a guerra do seu reino é um risco de verdade. Toda propriedade perdida (conquista,
   imposto não pago) **volta para a lista de vendas** do lugar; se for um **terreno, tudo o que o jogador construiu nele
