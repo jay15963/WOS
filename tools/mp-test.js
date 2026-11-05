@@ -9528,11 +9528,10 @@ def('WR10', {
   muralTab(G, fs.id, 'trade');
   await t.sleep(250);
   t.check(/Reputação negativa com o Reino de/.test(ecoTxt(G)) && /mais cara/.test(ecoTxt(G)), 'Comércio says why ("Reputação negativa com o Reino de … compra 50 % mais cara …")', short(ecoTxt(G).slice(Math.max(0, ecoTxt(G).indexOf('Reputação negativa')), 200), 200));
-  await t.sleep(RT() + 200); // (what is still on its way to the guest's purse lands first — then the purse is set)
   setCoins(G, 6000);
   const b1 = await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 5, max: qb.cost }, { refund: { coin: qb.cost } });
   t.check(b1.ok, 'it still trades there (negative is not enemy)', b1.why);
-  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins', () => `${coinsOf(G)} (quote ${qb.cost})`);
+  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins');
   // no joining with a negative reputation
   const j2 = await ecoReq(G, 'realm.join', { sid: fs.id });
   t.check(!j2.ok && /negativa/.test(j2.why || ''), 'it may not join that kingdom ("… é negativa: melhore-a com comércio e trabalhos …")', j2.why);
