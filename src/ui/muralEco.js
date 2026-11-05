@@ -9,12 +9,13 @@ import { itemIco } from './econIcons.js';
 import {
   GOODS, NG, GI, RANKS, profileOf, quoteBuy, quoteSell, maxAfford, landAverage, bestMarkets, meUid, myRec, rankInfo, taxRate, boardOf,
   jobState, jobTarget, jobWaypoint, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
-  JOB_MAX, PROP, REP, COIN, PARCEL,
+  JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor,
 } from '../game/eco.js';
 import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pct = (v) => (Math.round(v * 1000) / 10).toString().replace('.', ',') + '%';
+import { INHERIT as INHERIT_PT } from '../game/content/eco.js'; // (phase 3a: the reputation a member inherits)
 const KIND_PT = { city: 'cidade', castle: 'castelo', village: 'vila' };
 const coinIco = (A) => `<span class="ec-co">${itemIco(A, COIN)}</span>`;
 const money = (A, n, cls = '') => `<span class="ec-m ${cls}">${coinIco(A)}${fmt(n)}</span>`;
@@ -149,6 +150,7 @@ function style() {
 .ec-realm .rk { margin: 8px 0 2px; font-size: 13.5px; }
 .ec-realm .rk b { font: 700 16px var(--n-fd); text-transform: uppercase; }
 .ec-realm .ec-bar i { background: linear-gradient(180deg, #f7d97a, #c99a2c); }
+.ec-realm .ec-bar.neg i { background: linear-gradient(180deg, #f08a6e, #b8322a); }
 .ec-realm .ec-bar span { color: #3a2608; }
 .ec-realm ul { margin: 6px 0 2px 18px; padding: 0; font-size: 13px; color: #3a2614; }
 .ec-realm .ra { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; align-items: center; }
@@ -207,10 +209,11 @@ function tradeBody(panels, I) {
   const news = (g.eco.ev || []).filter((e) => { const s = settlement(g, e[0]); return s && kingdomOf(g, s.k)?.comp === K.comp; }).slice(0, 3)
     .map((e) => { const s = settlement(g, e[0]); return `${e[2] < 100 ? 'Sobra' : 'Falta'} de <b>${nm(e[1])}</b> em ${esc(s.name)}${e[0] === sid ? ' (aqui!)' : ''}`; });
   const head = `<div class="ec-top"><span class="lbl">Sua bolsa</span>${money(A, coins, 'big')}<span class="sep"></span>
-    <span class="ec-pill ${ri.i ? 'good' : ''}" title="Reputação no Reino de ${esc(K.name)}">${esc(ri.name)}${ri.disc ? ` · trocas ${pct(ri.disc)} melhores` : ''}</span>
+    <span class="ec-pill ${ri.bad >= 0 ? 'bad' : ri.i ? 'good' : ''}" title="Reputação no Reino de ${esc(K.name)}">${esc(ri.name)}${ri.disc ? ` · trocas ${pct(ri.disc)} melhores` : ''}</span>
     <span class="ec-pill">${KIND_PT[I.kind] === 'cidade' ? 'Mercado da cidade' : I.kind === 'castle' ? 'Intendência do castelo' : 'Feira da vila'}</span></div>
     ${cheap.length || dear.length ? `<div class="ec-hint">${cheap.length ? `<span><span class="c">Barato aqui:</span> <b>${cheap.map(([i]) => nm(i)).join(', ')}</b></span>` : ''}${dear.length ? `<span><span class="s">Vende bem aqui:</span> <b>${dear.map(([i]) => nm(i)).join(', ')}</b></span>` : ''}</div>` : ''}
-    ${news.length ? `<div class="ec-news">📜 Notícias: ${news.join(' · ')}</div>` : ''}`;
+    ${news.length ? `<div class="ec-news">📜 Notícias: ${news.join(' · ')}</div>` : ''}
+    ${ri.bad >= 0 ? `<div class="ec-news" style="color:#ffb08a">⚠ Reputação negativa com o Reino de ${esc(K.name)} (${esc(ri.name)}, ${ri.rep}): compra ${pct(ri.buy)} mais cara e venda ${pct(ri.sell)} mais barata. Melhore-a com trabalhos do mural e comércio aqui.</div>` : ''}`;
   let list = `<div class="ec-lh"><span></span><span>Mercadoria</span><span>Estoque</span><span>Compra</span><span>Venda</span><span>Você</span></div>`;
   for (const [cat, cname] of GOOD_CATS) {
     const items = goods.filter((i) => GOODS[i][2] === cat);
@@ -369,19 +372,23 @@ export function realmCard(panels, I) {
   const me = meUid(g), r = myRec(g), K = I.kingdom, ri = rankInfo(g, me, K.id), mk = r && r.k >= 0 ? r.k : -1, MK = kingdomOf(g, mk);
   const member = mk === K.id;
   const span = ri.need != null ? ri.need - ri.from : 1, into = ri.need != null ? ri.rep - ri.from : 1;
-  const reps = Object.entries(r?.rep || {}).filter(([, v]) => v > 0).map(([k, v]) => [kingdomOf(g, +k), v]).filter(([q]) => q).sort((a, b) => b[1] - a[1]);
+  const reps = Object.entries(r?.rep || {}).filter(([, v]) => v !== 0).map(([k, v]) => [kingdomOf(g, +k), v]).filter(([q]) => q && !g.realms?.fallen?.has(q.id)).sort((a, b) => b[1] - a[1]);
   const status = member ? `<span class="rs">Membro</span>` : mk >= 0 ? `<span class="rs">Membro de ${esc(MK.name)}</span>` : '<span class="rs trav">Viajante</span>';
   const why = dealReason(g, me, K.id);
+  // (phase 3a, owner's rule) negative reputation: worse prices, no joining; joining inherits the kingdom's relations
+  const neg = ri.bad >= 0, inh = !member ? inheritFor(g, K.id) : [], hurt = inh.filter(([k, v]) => v < 0 || (r?.rep[k] | 0) > v).length;
   return `<div class="ec ec-realm-wrap"><div class="ec-realm"><div class="rt"><b>Você e ${esc(K.name)}</b>${status}</div>
-    <div class="rk">Reputação: <b>${esc(ri.name)}</b> · ${ri.rep}${ri.need != null ? ` / ${ri.need} para ${esc(ri.next)}` : ' (o mais alto)'}${ri.disc ? ` · trocas ${pct(ri.disc)} melhores` : ''}</div>
-    <div class="ec-bar"><i style="width:${Math.max(0, Math.min(100, (100 * into) / span))}%"></i><span>${ri.need != null ? `${into} / ${span}` : 'Herói'}</span></div>
+    <div class="rk">Reputação: <b${neg ? ' style="color:#8a2016"' : ''}>${esc(ri.name)}</b> · ${ri.rep}${ri.need != null ? ` / ${ri.need} para ${esc(ri.next)}` : ' (o mais alto)'}${ri.disc ? ` · trocas ${pct(ri.disc)} melhores` : ''}${neg ? ` · compra ${pct(ri.buy)} mais cara, venda ${pct(ri.sell)} mais barata` : ''}</div>
+    <div class="ec-bar${neg ? ' neg' : ''}"><i style="width:${Math.max(0, Math.min(100, (100 * into) / span))}%"></i><span>${ri.need != null ? `${into} / ${span}` : 'Herói'}</span></div>
+    ${neg ? `<div class="rk" style="color:#8a2016">Reputação negativa não é inimizade: aqui você ainda negocia e trabalha, só com preços piores. Para entrar no reino, deixe-a em 0 ou mais (trabalhos do mural, comércio).</div>` : ''}
+    ${!member && inh.length ? `<div class="rk muted" style="color:#5c4026">Ao entrar você <b>herda as relações</b> do reino: a sua reputação com os outros reinos passa a ser a dele${inh.some((q) => q[1] > 0) ? ` (aliados: +${INHERIT_PT.ally})` : ''}${inh.some((q) => q[1] < 0) ? ` (em guerra com ele: ${INHERIT_PT.war}; trégua: ${INHERIT_PT.truce})` : ''}, os outros 0 — substitui o que você tinha${hurt ? ` em ${hurt} ${hurt === 1 ? 'reino' : 'reinos'}` : ''}. Se sair, ela fica com você.</div>` : ''}
     <div class="rk muted" style="color:#5c4026">Sobe com trabalhos do mural e com comércio aqui (1 ponto a cada ${REP.tradeCoins} moedas negociadas, até ${REP.tradeDayCap} por dia). Imposto do reino: ${pct(taxRate(g, K.id))} do valor das propriedades por dia.</div>
     ${why ? `<div class="rk" style="color:#8a2016">${esc(why)}</div>` : ''}
     <ul>${member ? '<li>Você é súdito deste reino: os inimigos dele serão seus inimigos. Toda mudança nas relações do reino (guerra, paz, aliança, cercos e conquistas) chega para você como aviso.</li><li>Comercia com os reinos da mesma terra que não estão em guerra com este.</li><li>Se um lugar onde você tem casa ou terreno for tomado numa guerra, você perde a propriedade.</li><li>Entrar no exército e seguir as ordens do general: em breve.</li>'
       : '<li><b>Viajante</b>: comercia e trabalha com todos os reinos, mesmo os que estão em guerra entre si.</li><li><b>Membro</b>: jura lealdade ao reino — os inimigos dele serão seus, e as notícias do reino chegam a você; em breve poderá entrar no exército. Dá para sair a qualquer momento, em qualquer mural.</li>'}</ul>
     <div class="ra">${member ? '<button class="btn" data-rleave>Sair do reino</button><small>Você volta a ser viajante.</small>'
-      : `<button class="btn primary" data-rjoin ${atMural(g, I.id, g.player) ? '' : 'disabled'}>${mk >= 0 ? `Trocar para ${esc(K.name)}` : `Entrar no Reino de ${esc(K.name)}`}</button>${mk >= 0 ? `<small>Você deixa o Reino de ${esc(MK.name)}.</small>` : ''}${mk >= 0 ? '<button class="btn" data-rleave>Ficar viajante</button>' : ''}`}</div>
-    ${reps.length ? `<div class="rk">Sua reputação nos reinos:</div><div class="ec-reps">${reps.map(([q, v]) => `<span class="ec-pill">${esc(q.name)}: ${esc(RANKS[rankInfo(g, me, q.id).i].name)} (${v})</span>`).join('')}</div>` : ''}
+      : `<button class="btn primary" data-rjoin ${atMural(g, I.id, g.player) && !neg ? '' : 'disabled'}>${mk >= 0 ? `Trocar para ${esc(K.name)}` : `Entrar no Reino de ${esc(K.name)}`}</button>${neg ? '<small style="color:#8a2016">Reputação negativa: não pode entrar.</small>' : ''}${mk >= 0 ? `<small>Você deixa o Reino de ${esc(MK.name)}.</small>` : ''}${mk >= 0 ? '<button class="btn" data-rleave>Ficar viajante</button>' : ''}`}</div>
+    ${reps.length ? `<div class="rk">Sua reputação nos reinos:</div><div class="ec-reps">${reps.map(([q, v]) => `<span class="ec-pill${v < 0 ? ' bad' : ''}">${esc(q.name)}: ${esc(rankInfo(g, me, q.id).name)} (${v})</span>`).join('')}</div>` : ''}
   </div></div>`;
 }
 

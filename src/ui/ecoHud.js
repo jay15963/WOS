@@ -114,12 +114,14 @@ export function installEcoHud(game) {
     if (!d || d.type === 'trade' || d.type === 'day' || d.type === 'sync') { trackKey = null; return; }
     trackKey = null;
     if (d.u != null && d.u !== me()) return;
-    if (d.type === 'rankup') {
+    if (d.type === 'rankup' && d.band < 0) { // (still negative, but better — phase 3a)
+      notify(`Reputação: ${d.name}`, { sub: `no Reino de ${K(d.k)?.name || ''} · ainda negativa (${d.rep}): os preços lá melhoram, continue com comércio e trabalhos`, kind: 'info', ms: 6000, key: 'rank' });
+    } else if (d.type === 'rankup') {
       const R = RANK_LIST[d.rank];
-      notify(`Reputação: ${R.name}`, { sub: `no Reino de ${K(d.k)?.name || ''}${R.disc ? ` · trocas ${Math.round(R.disc * 100)}% melhores` : ''}${d.rank === REP.buyRank ? ' · já pode comprar casas e terrenos' : ''}`, kind: 'good', ms: 6000, key: 'rank' });
+      notify(`Reputação: ${R.name}`, { sub: `no Reino de ${K(d.k)?.name || ''}${R.disc ? ` · trocas ${Math.round(R.disc * 100)}% melhores` : d.band === 0 ? ' · não é mais negativa: preços normais, já pode entrar no reino' : ''}${d.rank === REP.buyRank ? ' · já pode comprar casas e terrenos' : ''}`, kind: 'good', ms: 6000, key: 'rank' });
       game.audio?.play('levelup', {});
     } else if (d.type === 'rankdown') {
-      game.events.emit('toast', { text: `Sua reputação no Reino de ${K(d.k)?.name || ''} caiu: ${RANK_LIST[d.rank].name}`, kind: 'warn' });
+      game.events.emit('toast', { text: `Sua reputação no Reino de ${K(d.k)?.name || ''} caiu: ${d.name || RANK_LIST[d.rank].name}${d.band < 0 ? ' (negativa: preços piores lá)' : ''}`, kind: 'warn' });
     } else if (d.type === 'prog' && d.done) {
       const t = jobTarget(game, d.job);
       game.events.emit('toast', { text: `Pronto: ${d.job.title}. Entregue no ${t?.label || 'mural'}`, kind: 'good' });

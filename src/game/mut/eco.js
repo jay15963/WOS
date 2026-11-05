@@ -13,10 +13,10 @@ import { defineIntent, defineOp, defineOwn } from '../../net/registry.js';
 import { ITEMS } from '../data.js';
 import { TOWN } from './structures.js';
 import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs to now
-import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS } from '../content/eco.js';
+import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
-  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings,
+  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor,
 } from '../eco.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -34,10 +34,10 @@ function rec(game, u, name = '') {
 }
 function addRep(game, u, k, d) {
   if (!(k >= 0) || !d) return;
-  const r = rec(game, u), before = rankOf(r.rep[k] | 0);
+  const r = rec(game, u), before = bandOf(r.rep[k] | 0);
   r.rep[k] = Math.max(-200, (r.rep[k] | 0) + d);
-  const after = rankOf(r.rep[k]);
-  if (after !== before) game.events?.emit('eco', { type: after > before ? 'rankup' : 'rankdown', u, k, rank: after });
+  const after = bandOf(r.rep[k]);
+  if (after !== before) game.events?.emit('eco', { type: after > before ? 'rankup' : 'rankdown', u, k, rank: rankOf(r.rep[k]), band: after, name: rankName(r.rep[k]), rep: r.rep[k] });
 }
 const goodsRows = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && Array.isArray(r[1]));
 function setStocks(game, rows) {
@@ -189,11 +189,12 @@ defineOp('eco.trade', {
 });
 
 defineOp('eco.member', {
-  doc: 'A player joins a kingdom (k) or leaves it (k = −1: a traveller again).',
-  args: { u: 'uid', k: 'int', name: 'string', by: 'pid', toast: 'string?' },
+  doc: 'A player joins a kingdom (k) or leaves it (k = −1: a traveller again). Joining: `inherit` [[kingdom, reputation]] REPLACES the player\'s reputation with every other kingdom (the joined kingdom\'s relations — phase 3a, owner\'s rule); leaving keeps it.',
+  args: { u: 'uid', k: 'int', name: 'string', by: 'pid', toast: 'string?', inherit: '[[k, rep]]?' },
   apply(game, a) {
     const r = rec(game, str(a.u), a.name), k = int(a.k, -1);
     r.k = k >= 0 && kingdomOf(game, k) ? k : -1;
+    if (r.k >= 0 && Array.isArray(a.inherit)) for (const q of a.inherit.slice(0, 40)) if (Array.isArray(q) && kingdomOf(game, int(q[0], -1)) && int(q[0]) !== r.k) { const v = Math.max(-200, Math.min(200, int(q[1]))); if (v) r.rep[int(q[0])] = v; else delete r.rep[int(q[0])]; }
     bump(game);
     game.events?.emit('eco', { type: 'member', u: str(a.u), k: r.k });
   },
@@ -404,7 +405,12 @@ defineIntent('realm.join', {
     const ko = ownerOf(game, s.id);
     if (recOf(game, u)?.k === ko) return 'Você já é deste reino';
     const K = kingdomOf(game, ko);
-    net.emit('eco.member', { u, k: ko, name: recOf(game, u)?.name || '', by: actor.pid, toast: `Você jurou lealdade ao Reino de ${K.name}`, toastKind: 'good' });
+    // (phase 3a, owner's rule) never with a negative reputation there; joining inherits the kingdom's relations: the
+    // reputation with every other kingdom is replaced (ally +40, truce −15, war −60, the rest 0)
+    if ((recOf(game, u)?.rep[ko] | 0) < 0) return `Sua reputação com o Reino de ${K.name} é negativa: melhore-a com comércio e trabalhos antes de entrar`;
+    const inherit = inheritFor(game, ko), allies = inherit.filter((q) => q[1] > 0).length, foes = inherit.filter((q) => q[1] < 0).length;
+    net.emit('eco.member', { u, k: ko, name: recOf(game, u)?.name || '', by: actor.pid, inherit, toastKind: 'good',
+      toast: `Você jurou lealdade ao Reino de ${K.name} e herdou as relações dele${allies || foes ? `: ${allies ? `${allies} ${allies === 1 ? 'aliado te recebe' : 'aliados te recebem'} bem (+${INHERIT.ally})` : ''}${allies && foes ? ', ' : ''}${foes ? `${foes} ${foes === 1 ? 'inimigo te vê' : 'inimigos te veem'} mal` : ''}` : ''}` });
   },
 });
 

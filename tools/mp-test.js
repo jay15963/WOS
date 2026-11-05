@@ -9412,6 +9412,86 @@ def('WR9', {
   await t.checkDigest(H, G);
 });
 
+def('WR10', {
+  title: 'WR: joining a kingdom inherits its relations (reputation with the others replaced); leaving keeps them; negative reputation = worse prices, no joining, fixed by jobs / trade',
+  src: 'village', timeout: 200000,
+  expected: 'The start kingdom has an ally and an enemy. A traveller guest with +30 reputation with the enemy joins the start kingdom: on both peers its reputation becomes +40 with the ally, −60 with the enemy (replacing the +30), 0 with every other kingdom, the start kingdom\'s unchanged; it leaves: the values stay. As a traveller at an enemy village it still trades (no war for a traveller) but pays the "Malvisto" prices — buying ≥ 1.45 × and selling ≤ 0.65 × what a neutral player gets, the coins taken are that quote — and the Comércio tab says "Reputação negativa com o Reino de …"; it may not join that kingdom ("… é negativa: melhore-a …"); a job turned in and trade there bring it back to 0 and then joining works (and the new kingdom\'s relations are inherited in turn); digest equal',
+  api: 'game/eco.js inheritFor / penaltyOf / quoteBuy / quoteSell / rankInfo, mut/eco.js realm.join → eco.member {inherit}, eco.rep, content/eco.js BAD_RANKS / INHERIT, ui/muralEco.js (Comércio warning, Reino card)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const K0 = RH.owner(s0.id), others = R.kingdoms.filter((K) => K.id !== K0 && RH.alive(K.id) && K.comp === R.kingdoms[K0].comp);
+  t.need(others.length >= 2, 'two other kingdoms on the start kingdom\'s land');
+  const ally = others[0].id, foe = others[1].id;
+  H.game.net.emit('realm.rel', { a: K0, b: ally, rel: 'ally', why: 'debug' });
+  H.game.net.emit('realm.rel', { a: foe, b: K0, rel: 'war', by: foe, why: 'debug' });
+  // a traveller with some reputation here and there
+  const repOn = (f, k) => recOn(f, uid)?.rep[k] | 0;
+  const setRep = (k, v) => { const d = v - repOn(H, k); if (d) H.game.net.emit('eco.rep', { u: uid, k, d }); };
+  H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' });
+  setRep(foe, 30); setRep(ally, 0); if (repOn(H, K0) < 0) setRep(K0, 0);
+  const kOther = R.kingdoms.find((K) => K.id !== K0 && K.id !== ally && K.id !== foe && RH.alive(K.id));
+  if (kOther) setRep(kOther.id, 12);
+  H.game.net.flush();
+  t.defer(() => { try { H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' }); for (const K of R.kingdoms) { const d = -repOn(H, K.id); if (d) H.game.net.emit('eco.rep', { u: uid, k: K.id, d: Math.max(-100, Math.min(100, d)) }); } H.game.net.flush(); } catch { /* ignore */ } });
+  await t.waitFor(() => repOn(G, foe) === 30 && recOn(G, uid)?.k === -1, 2000 + RT(), 'the guest a traveller with +30 with the enemy kingdom (both)');
+  const k0rep = repOn(H, K0);
+  // join: the start kingdom's relations become the guest's
+  await toMural(t, H, MH, G, MG, s0.id);
+  const j = await ecoReq(G, 'realm.join', { sid: s0.id });
+  t.check(j.ok, 'the guest joins the start kingdom', j.why);
+  const want = (f) => R.kingdoms.filter((K) => K.id !== K0 && RH.alive(K.id)).every((K) => repOn(f, K.id) === (K.id === ally ? 40 : K.id === foe ? -60 : 0));
+  await t.waitFor(() => want(H) && want(G) && recOn(G, uid)?.k === K0, 2000 + RT(), 'inherited on both: ally +40, enemy −60 (the +30 replaced), every other kingdom 0', () => R.kingdoms.map((K) => `${K.id}:${repOn(G, K.id)}`).join(' '));
+  t.check(repOn(G, K0) === k0rep, 'its reputation with the start kingdom itself unchanged', `${k0rep} → ${repOn(G, K0)}`);
+  // leave: the values stay
+  const l = await ecoReq(G, 'realm.leave', {});
+  t.check(l.ok, 'it leaves (a traveller again)', l.why);
+  await t.waitFor(() => recOn(G, uid)?.k === -1 && recOn(H, uid)?.k === -1, 2000 + RT(), 'a traveller on both');
+  t.check(repOn(G, foe) === -60 && repOn(G, ally) === 40 && repOn(H, foe) === -60, 'leaving keeps the inherited reputation (−60 with the enemy)', `${repOn(G, foe)} / ${repOn(G, ally)}`);
+  // a traveller at an enemy village: it trades, at the "Malvisto" prices
+  const fs = R.settlements.filter((s) => RH.owner(s.id) === foe && s.kind === 'village').sort((a, b) => a.id - b.id)[0];
+  t.need(fs, 'a village of the enemy kingdom');
+  await toMural(t, H, MH, G, MG, fs.id);
+  const P = MG.eco.profileOf(G.game, fs.id), gid = ['wheat', 'potato', 'corn', 'bread', 'meat', 'wood', 'stone'].find((id) => P.deals[MG.eco.GI[id]] && (G.game.eco.mk.get(fs.id)[MG.eco.GI[id]] | 0) >= 12);
+  t.need(gid, 'a good with stock there');
+  const gi = MG.eco.GI[gid], qb = MG.eco.quoteBuy(G.game, fs.id, gi, 5, uid), nb = MG.eco.quoteBuy(G.game, fs.id, gi, 5, 'u-nobody'), qs = MG.eco.quoteSell(G.game, fs.id, gi, 5, uid), ns = MG.eco.quoteSell(G.game, fs.id, gi, 5, 'u-nobody');
+  t.check(qb.cost >= nb.cost * 1.45 && qs.gain <= ns.gain * 0.65 + 1, 'negative reputation: buying ≥ 1.45 × and selling ≤ 0.65 × a neutral player\'s prices', `buy 5 ${qb.cost} vs ${nb.cost} · sell 5 ${qs.gain} vs ${ns.gain}`);
+  muralTab(G, fs.id, 'trade');
+  await t.sleep(250);
+  t.check(/Reputação negativa com o Reino de/.test(ecoTxt(G)) && /mais cara/.test(ecoTxt(G)), 'Comércio says why ("Reputação negativa com o Reino de … compra 50 % mais cara …")', short(ecoTxt(G).slice(Math.max(0, ecoTxt(G).indexOf('Reputação negativa')), 200), 200));
+  setCoins(G, 6000);
+  const b1 = await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 5, max: qb.cost }, { refund: { coin: qb.cost } });
+  t.check(b1.ok, 'it still trades there (negative is not enemy)', b1.why);
+  await t.waitFor(() => coinsOf(G) === 6000 - qb.cost || coinsOf(G) === 6000, 2000 + RT(), 'the coins');
+  // no joining with a negative reputation
+  const j2 = await ecoReq(G, 'realm.join', { sid: fs.id });
+  t.check(!j2.ok && /negativa/.test(j2.why || ''), 'it may not join that kingdom ("… é negativa: melhore-a com comércio e trabalhos …")', j2.why);
+  muralTab(G, fs.id, 'realm');
+  await t.sleep(250);
+  t.check(/Malvisto/.test(ecoTxt(G)) && /não pode entrar/.test(ecoTxt(G)), 'the Reino card: "Malvisto", the worse prices, "não pode entrar"', short(ecoTxt(G).slice(Math.max(0, ecoTxt(G).indexOf('Você e')), 200), 200));
+  G.game.ui.panels.close();
+  // a job and trade there bring it back to 0 — then it may join
+  const r0 = repOn(H, foe);
+  giveRep(H, uid, foe, -10 - r0, fs.id); // (a job turned in: up to −10)
+  await t.waitFor(() => repOn(G, foe) === -10 && repOn(H, foe) === -10, 2000 + RT(), `a job turned in: ${r0} → −10 on both`, () => `${repOn(G, foe)}`);
+  for (let k = 0; k < 6 && repOn(H, foe) < 0; k++) {
+    const q = MG.eco.quoteBuy(G.game, fs.id, gi, 6, uid);
+    if (q.n < 6) break;
+    setCoins(G, 6000);
+    await ecoReq(G, 'trade.buy', { sid: fs.id, g: gid, n: 6, max: q.cost }, { refund: { coin: q.cost } });
+    await t.sleep(RT() + 120);
+  }
+  if (repOn(H, foe) < 0) setRep(foe, 0), H.game.net.flush(); // (the market ran dry: the rest as one more job)
+  await t.waitFor(() => repOn(G, foe) >= 0, 2000 + RT(), 'trade there raises it back to 0 on both', () => `${repOn(G, foe)}`);
+  const j3 = await ecoReq(G, 'realm.join', { sid: fs.id });
+  t.check(j3.ok, 'now it may join the (former enemy) kingdom', j3.why);
+  await t.waitFor(() => recOn(G, uid)?.k === foe && repOn(G, K0) === -60 && repOn(H, K0) === -60, 2000 + RT(), 'and inherits its relations in turn: −60 with the start kingdom (at war with it), on both', () => `${repOn(G, K0)}`);
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

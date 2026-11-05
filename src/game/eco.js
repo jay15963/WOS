@@ -20,7 +20,7 @@
 // trees felled, animals hunted, the night's dead killed near the town).
 // Owner: the bill (own message eco.collect) is paid from the coins in the BACKPACK (coins kept in chests never count).
 
-import { GOODS, NG, GI, PRICE, MARKET, SEASON_FOOD, SEASON_MEAT, CROP_FOODS, WARM_CLOTHES, EVENTS, RANKS, rankOf, REP, JOB_KINDS, JOB_MAX,
+import { GOODS, NG, GI, PRICE, MARKET, SEASON_FOOD, SEASON_MEAT, CROP_FOODS, WARM_CLOTHES, EVENTS, RANKS, rankOf, REP, JOB_KINDS, JOB_MAX, BAD_RANKS, badRankOf, rankName, bandOf, INHERIT,
   GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL } from './content/eco.js';
 import { ITEMS, BUILDINGS, SPECIES } from './data.js';
 import { baseHeight } from '../world/planet/chunk.js';
@@ -31,7 +31,7 @@ import { findObj } from './mut/objects.js';
 import { dimsOf, TOWN } from './mut/structures.js';
 import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (docs/REINOS.md §13)
 
-export { GOODS, NG, GI, RANKS, rankOf };
+export { GOODS, NG, GI, RANKS, rankOf, BAD_RANKS, badRankOf, rankName, bandOf };
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
 
 // ---------- small helpers ----------
@@ -241,6 +241,24 @@ export function balanceOf(game, sid, gi, day = null) {
   return m;
 }
 export const discountOf = (game, uid, k) => RANKS[rankOf(repOf(game, uid, k))].disc;
+// negative reputation with kingdom k (phase 3a, owner's rule): trade allowed at worse prices — { buy, sell, b (band | −1) }
+const NO_PEN = { buy: 0, sell: 0, b: -1 };
+export function penaltyOf(game, uid, k) {
+  const b = badRankOf(repOf(game, uid, k));
+  return b < 0 ? NO_PEN : { buy: BAD_RANKS[b].buy, sell: BAD_RANKS[b].sell, b };
+}
+// joining kingdom k: the player's reputation with every other kingdom becomes k's relation with it — ally +40, truce −15,
+// war −60, anyone else (other lands too) 0; k itself unchanged; fallen kingdoms left out. [[kingdom, reputation]]
+export function inheritFor(game, k) {
+  const R = realmOf(game), out = [];
+  if (!R) return out;
+  for (const K of R.kingdoms) {
+    if (K.id === k || game.realms?.fallen?.has(K.id)) continue;
+    const r = game.realms?.rels?.get(k < K.id ? `${k}.${K.id}` : `${K.id}.${k}`)?.r || 'neutral';
+    out.push([K.id, INHERIT[r] ?? 0]);
+  }
+  return out;
+}
 // the demand of a good there today: its reference stock × the season (winter: food and firewood wanted, furs much more;
 // the autumn harvest: food less) — keyed to the economy day (E.day, replicated: every peer prices the same)
 export function demandOf(game, sid, gi) {
@@ -257,7 +275,7 @@ export function demandOf(game, sid, gi) {
 // buying n of good gi at sid: total cost (coins, rounded up once), the unit price of the first one and after the last
 export function quoteBuy(game, sid, gi, n, uid) {
   const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
-  const k = 1 + PRICE.buyFee - discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
+  const ko = ownerOf(game, sid), k = (1 + PRICE.buyFee - discountOf(game, uid, ko)) * (1 + penaltyOf(game, uid, ko).buy), b = goodBase(gi); // (negative reputation: dearer)
   let sum = 0;
   const m = Math.min(n, S0);
   for (let i = 0; i < m; i++) sum += b * priceFactor(S0 - i, R) * k;
@@ -265,7 +283,7 @@ export function quoteBuy(game, sid, gi, n, uid) {
 }
 export function quoteSell(game, sid, gi, n, uid) {
   const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
-  const k = 1 - PRICE.sellFee + discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
+  const ko = ownerOf(game, sid), k = (1 - PRICE.sellFee + discountOf(game, uid, ko)) * (1 - penaltyOf(game, uid, ko).sell), b = goodBase(gi); // (negative reputation: cheaper)
   let sum = 0;
   for (let i = 0; i < n; i++) sum += b * priceFactor(S0 + i + 1, R) * k;
   return { n, gain: Math.floor(sum + 1e-9), unit: b * priceFactor(S0 + 1, R) * k, next: b * priceFactor(S0 + n + 1, R) * k, stock: S0 };
@@ -273,7 +291,7 @@ export function quoteSell(game, sid, gi, n, uid) {
 // how many can a purse of `coins` buy
 export function maxAfford(game, sid, gi, coins, uid) {
   const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
-  const k = 1 + PRICE.buyFee - discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
+  const ko = ownerOf(game, sid), k = (1 + PRICE.buyFee - discountOf(game, uid, ko)) * (1 + penaltyOf(game, uid, ko).buy), b = goodBase(gi);
   let sum = 0, n = 0;
   while (n < S0 && n < 9999) { const v = sum + b * priceFactor(S0 - n, R) * k; if (Math.ceil(v - 1e-9) > coins) break; sum = v; n++; }
   return n;
@@ -387,8 +405,10 @@ export function simulateDay(game, day, roll, near = []) {
 
 // ---------- reputation, ranks ----------
 export function rankInfo(game, uid, k) {
-  const rep = repOf(game, uid, k), i = rankOf(rep), nx = RANKS[i + 1];
-  return { rep, i, name: RANKS[i].name, next: nx ? nx.name : null, need: nx ? nx.min : null, from: RANKS[i].min, disc: RANKS[i].disc };
+  const rep = repOf(game, uid, k), i = rankOf(rep), nx = RANKS[i + 1], bad = badRankOf(rep);
+  // (negative — phase 3a: the band, how far to 0 "Desconhecido", the worse prices)
+  if (bad >= 0) { const B = BAD_RANKS[bad], up = BAD_RANKS[bad - 1]; return { rep, i, bad, name: B.name, next: up ? up.name : RANKS[0].name, need: up ? up.floor : 0, from: B.floor, disc: 0, buy: B.buy, sell: B.sell }; }
+  return { rep, i, bad: -1, name: RANKS[i].name, next: nx ? nx.name : null, need: nx ? nx.min : null, from: RANKS[i].min, disc: RANKS[i].disc, buy: 0, sell: 0 };
 }
 // tax rate of kingdom k (share of a property's value a day)
 export function taxRate(game, k) {
