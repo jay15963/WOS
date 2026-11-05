@@ -8311,6 +8311,69 @@ def('VL10', {
   await t.checkDigest(H, G);
 });
 
+// NB1 · the network bill: what a guest costs (docs/ARCHITECTURE.md "Multijogador"; the TURN relay is billed by bytes)
+def('NB1', {
+  title: 'NB: bandwidth — bytes and messages per second host → guest and guest → host in typical situations (a metric; S29 budget: 25 KB/s per guest)',
+  src: 'village', timeout: 320000,
+  expected: 'Both players in the start village, then the capital, the open country, a fight and the night: each situation is measured for ~20 s (payload bytes and messages sent per second by each side, JSON as sent). Every situation stays under the 25 KB/s per guest budget; the numbers are the notes / metrics (used for the TURN cost estimate); digest equal',
+  api: 'session.link.send (counted here), net.stats',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const count = (F) => { const L = F.game.net.session.link, c = { n: 0, b: 0 }, o = L.send; L.send = function (k, s) { c.n++; c.b += typeof s === 'string' ? s.length : 0; return o.apply(this, arguments); }; t.defer(() => { L.send = o; }); return c; };
+  const ch = count(H), cg = count(G);
+  const out = [];
+  const measure = async (label, ms = 20000) => {
+    const h0 = { ...ch }, g0 = { ...cg }, t0 = performance.now();
+    await t.sleep(ms);
+    const s = (performance.now() - t0) / 1000, r = { label, hB: (ch.b - h0.b) / s, hN: (ch.n - h0.n) / s, gB: (cg.b - g0.b) / s, gN: (cg.n - g0.n) / s };
+    out.push(r);
+    t.note(`${label}: host→guest ${(r.hB / 1024).toFixed(2)} KB/s in ${r.hN.toFixed(1)} msg/s · guest→host ${(r.gB / 1024).toFixed(2)} KB/s in ${r.gN.toFixed(1)} msg/s`);
+    t.metric(label + '.hKBs', +(r.hB / 1024).toFixed(2)); t.metric(label + '.hMsg', +r.hN.toFixed(1)); t.metric(label + '.gKBs', +(r.gB / 1024).toFixed(2)); t.metric(label + '.gMsg', +r.gN.toFixed(1));
+    return r;
+  };
+  const walk = (F, on) => { const I = F.game.input; if (!I._nbMove) I._nbMove = I.move; if (!on) { I.move = I._nbMove; return; } const t0 = performance.now(); I.move = () => { const a = (performance.now() - t0) / 4000 * Math.PI * 2; return [Math.cos(a), Math.sin(a)]; }; };
+  t.defer(() => { walk(H, false); walk(G, false); });
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.sleep(4000);
+  await measure('village_idle');
+  walk(G, true); await measure('village_guest_walks');
+  walk(H, true); await measure('village_both_walk');
+  walk(H, false); walk(G, false);
+  // the capital's market plaza (60 people near: the townsfolk cap)
+  const R = realmOf(H), c = R.settlements[R.kingdoms[s.k].capital], LC = H.game.towns.layout(c.id);
+  dayClock(t, H, 10.5, MH);
+  await visitTown(t, H, MH, G, MG, c.id, LC.spawn[0], LC.spawn[1], 90000);
+  await t.sleep(5000);
+  await measure('city_plaza_idle');
+  walk(G, true); walk(H, true); await measure('city_both_walk');
+  walk(H, false); walk(G, false);
+  // open country, far from any place (new chunks streaming around both)
+  const far = [L.spawn[0] + 260, L.spawn[1] + 40];
+  const fa = A.freeSpot(H, MH, far[0], far[1], { rMin: 0, rMax: 30 }) || far;
+  A.teleport(H, fa[0], fa[1]); A.teleport(G, fa[0] + 1.5, fa[1]);
+  await t.sleep(6000);
+  walk(G, true); walk(H, true); await measure('country_both_walk');
+  walk(H, false); walk(G, false);
+  // a fight: three wolves at the players
+  const ws = [];
+  for (let k = 0; k < 3; k++) { const q = A.freeSpot(H, MH, fa[0] + 4 + k, fa[1] + 2, { rMin: 0, rMax: 4, r: 0.36 }); if (q) ws.push(MH.mobs.spawnLoose(H.game, 'wolf', q[0], q[1])); }
+  for (const w of ws) { w.hp = w.maxHp = w.maxHp * 20; }
+  t.defer(() => { for (const w of ws) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); } });
+  await measure('country_wolf_fight', 15000);
+  for (const w of ws) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); }
+  // the village at night (the watch out, everyone in bed)
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  H.game.net.emit('env.skip', { hour: 22.5, day: H.game.env.dayIndex, wt: Math.round((H.game.worldTime + 5) * 100) / 100 }); H.game.net.flush();
+  await t.sleep(8000);
+  await measure('village_night_idle', 15000);
+  const worst = out.reduce((a, r) => Math.max(a, r.hB, r.gB), 0);
+  t.check(worst < 25 * 1024, 'every situation under 25 KB/s per guest', `worst ${(worst / 1024).toFixed(2)} KB/s`);
+  await t.checkDigest(H, G);
+});
+
 // =====================================================================================================
 // EC — the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia", game/eco.js, game/mut/eco.js, ui/muralEco.js):
 // coins, markets (supply and demand), jobs, reputation, membership, houses / plots, the daily tax, saves.
