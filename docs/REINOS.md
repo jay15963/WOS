@@ -85,6 +85,9 @@ Escala: até **30 reinos**; cada um com 1 cidade (capital), 2–4 castelos e 8�
   perto de um jogador é jogável dos dois lados.
 - Lugar conquistado muda de reino; reino sem nenhuma cidade some. Fundar o próprio reino: só no futuro.
 - Morrer na guerra: renasce como sempre, sem perder reputação.
+- **Marchas longas** (dono, fase 3c): o jogador alistado pode andar junto com o exército, mas o cartão de ordens tem
+  "Ir até o exército": de um lugar do seu reino ele vai até o exército (marchando: junto dele; acampado: no acampamento),
+  sem pular o tempo do mundo (vale no multijogador).
 - Os reinos **não** cercam as bases dos jogadores (por enquanto): elas só sofrem com monstros e bandidos.
 
 ## 5. Máquinas de guerra (novas; visual 3D, custam recursos, o jogador também constrói)
