@@ -221,7 +221,11 @@ function liveSiegeOrder(game, live, id, k, T, M, me) {
   const tw = armyThings(game, k, T, 'siege_tower')[0];
   if (tw?.ramp) return { key: `sg|${id}|climb`, code: 'climb', tone: 'fight', title: 'Suba pela torre!', sub: 'A rampa desceu: a escada de trás leva ao adarve (E)', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
   const ram = armyThings(game, k, T, 'battering_ram')[0];
-  if (ram) return { key: `sg|${id}|ram`, code: 'ram', tone: 'fight', title: 'Empurre o aríete até o portão!', sub: 'E pega · setas / WASD empurram · encostado no portão, ataque bate', wp: wp(mid(ram).x, mid(ram).y, 'Aríete') };
+  if (ram) {
+    const rm = mid(ram), atGate = !!per && [...per.pieces.values()].some((q) => q.gate && hyp(game, q.cx, q.cy, rm.x, rm.y) < 3.2);
+    return atGate ? { key: `sg|${id}|ramgate`, code: 'ramgate', tone: 'fight', title: 'Bata no portão!', sub: 'O aríete encostou: Espaço (ou o ataque) dá a pancada · só portões quebram', wp: wp(rm.x, rm.y, 'Aríete') }
+      : { key: `sg|${id}|ram`, code: 'ram', tone: 'fight', title: 'Empurre o aríete até o portão!', sub: 'E pega · setas / WASD empurram · encostado no portão, ataque bate', wp: wp(rm.x, rm.y, 'Aríete') };
+  }
   if (tw) return { key: `sg|${id}|tower`, code: 'tower', tone: 'fight', title: 'Empurre a torre até a muralha!', sub: 'Encostada na muralha, a rampa desce sozinha', wp: wp(mid(tw).x, mid(tw).y, 'Torre') };
   return { key: `sg|${id}|assault`, code: 'assault', tone: 'fight', title: `Ao assalto de ${T.name}!`, sub: 'Procure uma entrada nas muralhas', wp: wp(T.x, T.y, T.name) };
 }
