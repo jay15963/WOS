@@ -174,7 +174,7 @@ export function realmDigestRows(game) {
     const moving = a.state === 'march' || a.state === 'retreat';
     out.push(['a' + a.id, JSON.stringify({ ...a, x: moving ? 0 : Math.round(a.x * 10), y: moving ? 0 : Math.round(a.y * 10) })]);
   }
-  out.push(['news', JSON.stringify(D.news)]);
+  out.push(['news', JSON.stringify(D.news.map((r) => [r[0], r[3], r[4], r[5], r[6], r[7]]))]); // (the day / hour of a news row is each peer's clock: cosmetic)
   return out;
 }
 

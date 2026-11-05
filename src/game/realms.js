@@ -648,7 +648,7 @@ function liveCheck(game, t) {
   const WF = game.warfare;
   if (!WF) return;
   const P = allPlayers(game).filter((p) => p && !p.dead), w = game.world;
-  for (const a of [...game.realms.armies.values()]) {
+  for (const id of fieldIds(game.realms)) { const a = game.realms.armies.get(id); if (!a) continue;
     if (a.state === 'home') continue;
     if (a.state === 'march' || a.state === 'retreat') placeArmy(game, a, t);
     let d = Infinity;
@@ -906,12 +906,15 @@ function rebase(game, drop) {
     emitArmy(game, b);
   }
 }
+// (every loop below walks a list of ids and takes each army as it is NOW: an op replaces an army's object, and one army's
+// event — a battle's end, an arrival — changes others)
+const fieldIds = (R) => { const out = []; for (const [id, a] of R.armies) if (a.state !== 'home') out.push(id); return out; };
 function simStep(game, t, dt) {
   const R = game.realms, H = R.H, roll = () => game.net.roll();
-  const field = [...R.armies.values()].filter((a) => a.state !== 'home');
   // marches: positions now, arrivals
-  for (const a of field) {
-    if (a.live || (a.state !== 'march' && a.state !== 'retreat')) continue;
+  for (const id of fieldIds(R)) {
+    const a = R.armies.get(id);
+    if (!a || a.live || (a.state !== 'march' && a.state !== 'retreat')) continue;
     const g = routeOf(game, a);
     if (!g) { mergeHome(game, a); continue; }
     placeArmy(game, a, t);
@@ -927,14 +930,16 @@ function simStep(game, t, dt) {
     startBattle(game, a, b, t);
   }
   // musters: the main army sets out when its contingents have come (or after WAR.musterWait hours)
-  for (const a of [...R.armies.values()]) {
-    if (a.state !== 'camp' || a.phase !== 'muster' || a.live) continue;
+  for (const id of fieldIds(R)) {
+    const a = R.armies.get(id);
+    if (!a || a.state !== 'camp' || a.phase !== 'muster' || a.live) continue;
     const waiting = [...R.armies.values()].some((q) => q.grp === a.id && q.mission === 'join' && q.state === 'march');
     if (!waiting || t - a.since > WAR.musterWait * HOURLEN(game)) depart(game, a, t);
   }
   // battles: a round every WAR.battle.round seconds
-  for (const a of [...R.armies.values()]) {
-    if (a.state !== 'battle' || a.live) continue;
+  for (const id of fieldIds(R)) {
+    const a = R.armies.get(id);
+    if (!a || a.state !== 'battle' || a.live) continue;
     const b = R.armies.get(a.foe);
     if (!b || b.state !== 'battle') { const o = resume(game, copy(a), t); emitArmy(game, o); continue; }
     if (a.id > b.id || b.live) continue;
@@ -947,8 +952,9 @@ function simStep(game, t, dt) {
   }
   // sieges: an hour at a time
   const hr = HOURLEN(game);
-  for (const a of [...R.armies.values()]) {
-    if (a.state !== 'siege' || a.live) continue;
+  for (const id of fieldIds(R)) {
+    const a = R.armies.get(id);
+    if (!a || a.state !== 'siege' || a.live) continue;
     const acc = H.acc.get(a.id) || { b: 0, s: 0 };
     acc.s += dt;
     H.acc.set(a.id, acc);
@@ -969,6 +975,7 @@ export function realmsSystem() {
       if (tick > 0) return;
       tick = 0.5;
       if (R.day0 < 0) { startTick(game); return; }
+      if (R.H.frozen) { R.H.t = game.worldTime; return; }
       const now = game.worldTime, H = R.H, max = WAR.maxSkip * DAYLEN(game);
       if (H.t == null || now < H.t) H.t = now;
       if (now - H.t > max) { const drop = now - H.t - max; H.t = now - max; rebase(game, drop); }
@@ -1012,9 +1019,10 @@ function makeDebug(game) {
     pairs: () => neighbourPairs(game),
     garrison: (sid, n) => game.net.emit('realm.army', { gar: [[sid, n]] }),
     capture: (sid, k) => hostCapture(game, sid, k, null),
-    day: () => { const d = game.env.dayIndex | 0; dayTick(game, Math.max(d, R().day + 1), 1); },
+    day: () => dayTick(game, game.env.dayIndex | 0, 1), // (the diplomacy of today once more: the grace and the truces count the world's day)
     plan: () => { game.realms.H.planAt.clear(); plan(game, game.worldTime); },
     stop: (on = true) => { game.realms.H.noPlan = on; game.realms.H.noDiplo = on; },
+    freeze: (on = true) => { game.realms.H.frozen = on; }, // (tests: nothing moves — a synthetic setup)
     grace: (k) => inGrace(game, k),
     pos: (id) => { const a = R().armies.get(id); return a ? placeArmy(game, a, game.worldTime) && [a.x, a.y] : null; },
   };

@@ -8572,7 +8572,7 @@ def('EC5', {
 def('EC6', {
   title: 'EC: the daily tax is taken from the backpack with a notice; with no coins, 3 days of warning, then the kingdom takes the property',
   src: 'village', timeout: 200000,
-  expected: 'The guest holds a property (a plot); at the next economy day the host bills it and the guest pays the tax from its backpack (the coins drop by the tax; notice "Imposto e aluguel pagos"); with no coins in the backpack the next day the debt stays (due > 0, warning 0 on both peers; notice "Imposto atrasado … 3 dias"); the following days count the warning up (1, 2: "Último dia"); then the kingdom takes the property back (the row gone on both; notice "tomado"; reputation −15); digest equal',
+  expected: 'The guest holds a property (a plot); at the next economy day the host bills it and the guest pays the tax from its backpack (the coins drop by the tax; notice "Imposto e aluguel pagos"); with no coins in the backpack the next day the debt stays (due > 0, warning 0 on both peers; notice "Imposto atrasado … 3 dias"); the following days count the warning up (1, 2: "Último dia"); then the kingdom takes the property back (the row gone on both; notice "tomado"; reputation −15) and the wall the guest built on the plot is gone on both (phase 3a rule: a plot lost goes back on sale clean); digest equal',
   api: 'game/eco.js dayTick (eco.bill, toOwner eco.collect) / payBills, mut/eco.js eco.pay → eco.paid, ui/ecoHud.js notices (ui/notify.js)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -8588,6 +8588,15 @@ def('EC6', {
   const b = await ecoReq(G, 'prop.buy', { id: plot.id, paid: plot.price }, { refund: { coin: plot.price } });
   t.check(b.ok, 'the guest buys a plot', b.why);
   await t.waitFor(() => G.game.eco.pr.get(plot.id)?.u === uid, 2000 + RT(), 'the plot on both');
+  // a wall built on it (phase 3a rule, docs/REINOS.md §10: a plot taken back loses what was built on it)
+  A.teleport(G, plot.x0 + plot.w / 2, plot.y1 + 2.5);
+  await t.sleep(300);
+  let wt = null;
+  for (let y = plot.y0 + 1; y < plot.y1 && !wt; y++) for (let x = plot.x0 + 1; x < plot.x1 && !wt; x++) if (MG.building.placeReason(G.game, 'wall_wood', x, y, G.game.player, 0) === null) wt = [x, y];
+  if (wt) await ecoReq(G, 'build.place', { type: 'wall_wood', tiles: [wt], rot: 0 });
+  const onPlot = (f) => !!wt && f.game.build.structures.some((o) => o.tx === wt[0] && o.ty === wt[1] && o.town == null);
+  await t.waitFor(() => onPlot(H) && onPlot(G), 2000 + RT(), 'a wall on the plot on both');
+  await toMural(t, H, MH, G, MG, s0.id);
   const tax = MH.eco.chargeOf(H.game, plot.id);
   t.check(tax > 0, 'its daily tax', `${tax} coins (${(MH.eco.taxRate(H.game, s0.k) * 100).toFixed(1)}% of ${plot.price})`);
   const notes = (f) => [...f.doc.querySelectorAll('.wos-note')].map((n) => n.textContent.replace(/\s+/g, ' ')).join(' | ');
@@ -8609,6 +8618,7 @@ def('EC6', {
   await t.waitFor(() => G.game.eco.pr.get(plot.id)?.warn === 2 && /Último dia/.test(notes(G)), 2000 + RT(), 'day 3: warning 2 — "Último dia"', () => notes(G));
   await ecoDay(t, H, G);
   await t.waitFor(() => !H.game.eco.pr.has(plot.id) && !G.game.eco.pr.has(plot.id), 2000 + RT(), 'day 4: the kingdom took the plot back (gone on both)');
+  await t.waitFor(() => !onPlot(H) && !onPlot(G), 2000 + RT(), 'what was built on the plot is gone on both (the plot back on sale, clean)');
   await t.waitFor(() => /tomado/.test(notes(G)), 2000, 'notice: the plot was taken', () => notes(G));
   t.check((recOn(H, uid).rep[s0.k] | 0) === rep0 - 15 && (recOn(G, uid).rep[s0.k] | 0) === rep0 - 15, 'reputation −15 on both', `${rep0} → ${recOn(G, uid).rep[s0.k]}`);
   t.check(MG.building.placeReason(G.game, 'wall_wood', plot.x0 + 3, plot.y0 + 3, G.game.player, 0) !== null, 'no more building there');
@@ -8872,6 +8882,477 @@ def('FX3', {
   t.check(T.stats.maxMs < 30, 'settlement batches within their frame budget', `${f2(T.stats.maxMs)} ms`);
   t.check(gen <= 2, 'no chunk generated on the main thread because of a settlement piece', `${gen} synchronous chunks`);
   t.check(sprPlaza > 300 && sprPlaza < 9000, 'a sane sprite count at the market plaza', sprPlaza);
+});
+
+// =====================================================================================================
+// WR — phase 3a: diplomacy, who owns each place, armies on the map, field battles and sieges by numbers far from the
+// players, conquest, the fall of a kingdom, the players' properties lost with a place (docs/REINOS.md §12 / §13).
+// The kingdoms' AI is paused in every scenario (act.js reset); these drive it themselves (game.realms.dbg, op realm.rel).
+// Seed 4242: Valadestra (15) and Rabelonia (4) are neighbours joined by roads, far from the start (~2 500 tiles); the
+// start kingdom Galéria (9) has no border — its rivals of the same land mass (Arenudia, 11) are reached across country.
+// =====================================================================================================
+const RZ = (f) => f.game.realms;
+const fieldOn = (f) => [...f.game.realms.armies.values()].filter((a) => a.state !== 'home');
+const noteTxt = (f) => [...f.doc.querySelectorAll('.wos-note')].map((n) => n.textContent.replace(/\s+/g, ' ')).join(' | ');
+const newsOn = (f) => f.game.realms.news.map((r) => f.game.realms.newsText(r));
+const realmRowsOn = (f, M) => JSON.stringify(M.mrealms.realmDigestRows(f.game));
+const VAL = 15, RAB = 4; // (seed 4242)
+// a quiet start: the AI paused, no wars, no armies in the field, nothing frozen (both peers)
+async function wrQuiet(t, H, G) {
+  const R = RZ(H);
+  R.dbg.stop(true); R.dbg.freeze(false);
+  for (const [key] of [...R.rels]) { const [a, b] = key.split('.').map(Number); H.game.net.emit('realm.rel', { a, b, rel: 'neutral', quiet: 1 }); }
+  for (const a of fieldOn(H)) H.game.net.emit('realm.army', { del: a.id });
+  H.game.net.flush();
+  await t.waitFor(() => !fieldOn(G).length && !RZ(G).rels.size && !RZ(H).rels.size, 3000 + RT(), 'no wars and no armies in the field on both peers');
+}
+// the clock forward by game hours (env.skip on the host: every peer jumps; the host's simulation catches up in steps)
+function wrSkip(H, hours) {
+  const g = H.game, E = g.env, hl = (E.dayLength || 780) / 24;
+  let hour = E.hour + hours, day = E.dayIndex;
+  while (hour >= 24) { hour -= 24; day++; }
+  g.net.emit('env.skip', { hour: +hour.toFixed(3), day, wt: Math.round((g.worldTime + hours * hl) * 100) / 100 });
+  g.net.flush();
+}
+// the places of kingdom k nearest the places of kingdom e (its border with e)
+function frontOf(f, k, e, kind = null) {
+  const R = realmOf(f), mine = R.settlements.filter((s) => RZ(f).owner(s.id) === k && (!kind || s.kind === kind)), theirs = R.settlements.filter((s) => RZ(f).owner(s.id) === e);
+  const d = (s) => Math.min(...theirs.map((q) => Math.hypot(f.game.world.dx(q.x, s.x), q.y - s.y)));
+  return mine.sort((a, b) => d(a) - d(b) || a.id - b.id);
+}
+const hexC = (c) => c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+def('WR1', {
+  title: 'WR: the same diplomacy on both peers; never a war across the sea; the start kingdom\'s 2-day grace',
+  src: 'village', timeout: 120000,
+  expected: 'Both peers hold the same kingdoms\' state (relations, tensions, every place\'s home army, the start kingdom, its first day: digest part realms); realm.rel between kingdoms of different land masses is ignored on both (no ships); between neighbours of one land mass it takes on both and shows in rel / atWar; the start kingdom (the spawn village\'s) is in its grace on its first 2 days — the daily diplomacy never puts it at war then, even with the tension at 99 — and out of it from the third day, when the same tension makes the war come; digest equal',
+  api: 'game/realms.js (game.realms.rel / atWar / inGrace, dayTick), game/mut/realms.js (realm.rel, realm.day, realmDigestRows), content/war.js WAR.graceDays',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  t.need(RH?.dbg && RG?.armies, 'game.realms on both peers');
+  await t.waitFor(() => RH.day0 >= 0 && RG.day0 >= 0, 8000, 'the kingdoms\' wars started on both (realm.start)');
+  await wrQuiet(t, H, G);
+  t.check(RH.k0 === RG.k0 && RH.k0 === MH.realm.settlementAt(R, H.game.world.spawn.x, H.game.world.spawn.y).k, 'the start kingdom: the spawn village\'s, on both', `${RH.k0} (${R.kingdoms[RH.k0]?.name})`);
+  t.check(RG.armies.size === R.settlements.length && [...RG.armies.values()].every((a) => a.state === 'home'), 'every place has its home army on both', `${RH.armies.size} / ${RG.armies.size}`);
+  t.check(realmRowsOn(H, MH) === realmRowsOn(G, MG), 'the same kingdoms\' state on both peers', `${realmRowsOn(H, MH).length} B`);
+  // the sea: no relations across land masses
+  const k0 = R.kingdoms[0], far = R.kingdoms.find((K) => K.comp !== k0.comp);
+  t.need(far, 'two land masses');
+  H.game.net.emit('realm.rel', { a: k0.id, b: far.id, rel: 'war', by: k0.id, why: 'debug' }); H.game.net.flush();
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  await t.waitFor(() => RG.atWar(VAL, RAB) && RH.atWar(RAB, VAL), 2000 + RT(), 'neighbours of one land mass: at war on both (rel / atWar, symmetric)');
+  t.check(RH.rel(k0.id, far.id) === 'neutral' && RG.rel(k0.id, far.id) === 'neutral' && !RG.atWar(k0.id, far.id), 'kingdoms of different land masses: never at war (the op is ignored on both)', `${k0.name} × ${far.name}: ${RG.rel(k0.id, far.id)}`);
+  t.check(RG.rel(VAL, VAL) === 'self' && RG.relInfo(VAL, RAB).by === VAL, 'rel(k, k) = self; who declared it', RG.relInfo(VAL, RAB).by);
+  await wrQuiet(t, H, G);
+  // the grace: the start kingdom's rivals at tension 99 every day — never a war in its first 2 days
+  const K0 = RH.k0, rivals = RH.dbg.pairs().filter((p) => p[0] === K0 || p[1] === K0).map((p) => (p[0] === K0 ? p[1] : p[0]));
+  t.need(rivals.length, 'the start kingdom has relations with somebody');
+  const hot = () => { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 99]), weary: [] }); H.game.net.flush(); };
+  const day0 = RH.day0, d1 = H.game.env.dayIndex;
+  t.defer(() => { try { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 20]), weary: [] }); H.game.net.flush(); } catch { /* ignore */ } });
+  if (d1 < day0 + 2) {
+    t.check(RH.inGrace(K0) && RG.inGrace(K0), 'the start kingdom in its grace on both (day ' + d1 + ')');
+    RH.H.noDiplo = false;
+    for (let k = 0; k < 6; k++) { hot(); RH.dbg.day(); }
+    RH.H.noDiplo = true;
+    H.game.net.flush();
+    await t.sleep(RT() + 200);
+    t.check(!rivals.some((r) => RG.atWar(K0, r)), 'six days of diplomacy at tension 99: no war with the start kingdom in its grace', rivals.map((r) => RG.rel(K0, r)).join(','));
+  } else t.note(`the world is already on day ${d1} (first day ${day0}): the grace part was checked by its rule only`);
+  // out of the grace (day0 + 2): the same tension brings a war
+  const want = day0 + WAR_GRACE(MH);
+  if (H.game.env.dayIndex < want) { skipDays(H, want - H.game.env.dayIndex); await t.waitFor(() => G.game.env.dayIndex >= want, 3000 + RT(), 'the third day of the world on both'); }
+  t.check(!RH.inGrace(K0) && !RG.inGrace(K0), 'from day ' + want + ': the grace is over', H.game.env.dayIndex);
+  RH.H.noDiplo = false;
+  for (let k = 0; k < 8 && !rivals.some((r) => RH.atWar(K0, r)); k++) { hot(); RH.dbg.day(); }
+  RH.H.noDiplo = true;
+  H.game.net.flush();
+  await t.waitFor(() => rivals.some((r) => RG.atWar(K0, r)), 3000 + RT(), 'after the grace the start kingdom can be at war (seen on the guest)', () => rivals.map((r) => `${r}:${RG.rel(K0, r)}`).join(' '));
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+const WAR_GRACE = (M) => M.war.WAR.graceDays;
+
+def('WR2', {
+  title: 'WR: a forced war (realm.rel) → the member guest hears every change of its kingdom; a campaign gathers and marches; the markets feel it',
+  src: 'village', timeout: 200000,
+  expected: 'The guest joins the start kingdom at the Estrosa mural. The host forces war between it and its rival (op realm.rel): the guest sees "O Reino de X declarou guerra ao Reino de Y" (a notice), so do an alliance and a peace treaty of its kingdom (every diplomatic change of the player\'s kingdom reaches the member); the mural\'s Reino tab lists the relations (Em guerra / Aliado / Trégua) and "Notícias do reino"; with the AI on, a war between Valadestra and Rabelonia sends a campaign: an army forms (contingents gather at a muster place) and marches on an enemy place — the same armies on both peers, the news "Um exército … marcha sobre …"; the Exército tab lists the campaign; an economy day after the war began brings war news to the markets (weapons / iron wanted at the front, food in a besieged place); digest equal',
+  api: 'game/realms.js plan / sendForce / depart / marketNews, ui/warHud.js (notices), ui/muralWar.js (Reino / Exército), game/eco.js simulateDay (marketNews)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const K0 = RH.owner(s0.id), riv = RH.dbg.pairs().filter((p) => p[0] === K0 || p[1] === K0).map((p) => (p[0] === K0 ? p[1] : p[0]))[0];
+  t.need(riv != null, 'a rival of the start kingdom');
+  await toMural(t, H, MH, G, MG, s0.id);
+  if (recOn(H, uid)?.k !== K0) { const j = await ecoReq(G, 'realm.join', { sid: s0.id }); t.check(j.ok, 'the guest joins the start kingdom at the mural', j.why); }
+  await t.waitFor(() => recOn(G, uid)?.k === K0, 2000 + RT(), 'the guest is a member on both');
+  t.defer(() => { try { H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' }); H.game.net.flush(); } catch { /* ignore */ } });
+  // war, alliance, peace — each one a notice for the member
+  H.game.net.emit('realm.rel', { a: riv, b: K0, rel: 'war', by: riv, why: 'debug' }); H.game.net.flush();
+  await t.waitFor(() => /declarou guerra/.test(noteTxt(G)) && noteTxt(G).includes(R.kingdoms[K0].name), 9000, 'the member sees "… declarou guerra ao Reino de <seu reino>"', () => noteTxt(G));
+  const friend = R.kingdoms.find((K) => K.id !== K0 && K.id !== riv && K.comp === R.kingdoms[K0].comp);
+  if (friend) {
+    H.game.net.emit('realm.rel', { a: K0, b: friend.id, rel: 'ally', why: 'debug' }); H.game.net.flush();
+    await t.waitFor(() => /aliança/.test(noteTxt(G)), 9000, 'the member sees the alliance of its kingdom', () => noteTxt(G));
+  }
+  muralTab(G, s0.id, 'realm');
+  await t.sleep(300);
+  t.check(/Relações do Reino/.test(ecoTxt(G)) && /Em guerra/.test(ecoTxt(G)) && (!friend || /Aliado/.test(ecoTxt(G))) && /Notícias do reino/.test(ecoTxt(G)) && /declarou guerra/.test(ecoTxt(G)), 'mural Reino: the relations (Em guerra, Aliado) and the kingdom\'s news', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Relações')), 220));
+  H.game.net.emit('realm.rel', { a: riv, b: K0, rel: 'truce', until: H.game.env.dayIndex + 5, why: 'debug' }); H.game.net.flush();
+  await t.waitFor(() => /assinaram a paz/.test(noteTxt(G)), 9000, 'the member sees the peace treaty (trégua)', () => noteTxt(G));
+  await t.waitFor(() => /Trégua/.test(ecoTxt(G)), 3000, 'mural Reino: Trégua (the panel follows the news)');
+  G.game.ui.panels.close();
+  await wrQuiet(t, H, G);
+  // a campaign: Valadestra and Rabelonia at war, the AI plans
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  RH.H.noPlan = false; RH.dbg.plan();
+  t.defer(() => { RH.H.noPlan = true; });
+  await t.waitFor(() => fieldOn(H).some((a) => a.mission === 'attack'), 5000, 'the host forms a campaign (an army with an enemy target)');
+  await t.waitFor(() => JSON.stringify(fieldOn(G).map((a) => [a.id, a.k, a.target, a.n, a.state, a.mission, a.grp]).sort()) === JSON.stringify(fieldOn(H).map((a) => [a.id, a.k, a.target, a.n, a.state, a.mission, a.grp]).sort()), 3000 + RT(), 'the same armies on both peers (soldiers, target, state, muster group)');
+  const camp = fieldOn(H).find((a) => a.mission === 'attack');
+  t.check(R.settlements[camp.target] && RH.atWar(camp.k, RH.owner(camp.target)), 'its target: a place of the enemy', `${R.kingdoms[camp.k].name} → ${R.settlements[camp.target].name} (${R.kingdoms[RH.owner(camp.target)].name})`);
+  const joins = fieldOn(H).filter((a) => a.grp === camp.id && a.mission === 'join');
+  t.note(`campaign: ${camp.id} ${camp.state}/${camp.phase} ${camp.n} soldiers at ${R.settlements[camp.home].name}; ${joins.length} contingent(s) coming: ${joins.map((a) => a.n).join('+')}`);
+  const tName = R.settlements[camp.target].name, out = (f) => fieldOn(f).some((a) => a.id === camp.id && a.state !== 'camp');
+  for (let k = 0; k < 16 && !out(H); k++) { wrSkip(H, 1); await t.sleep(250); }
+  await t.waitFor(() => out(G) && newsOn(G).some((x) => x.includes('marcha sobre ' + tName)), 4000 + RT(), `the gathered army sets out: "Um exército … marcha sobre ${tName}" on both`, () => newsOn(G).slice(-3).join(' | '));
+  const main = fieldOn(H).find((a) => a.id === camp.id);
+  t.check(main.n >= camp.n && main.path && (main.path.r.length > 0 || main.path.c), 'it marches as one army (the contingents joined it)', `${camp.n} → ${main.n} soldiers, ${main.path.r.length / 2} roads${main.path.c ? ' / across country' : ''}`);
+  // the Exército tab of a place of that kingdom
+  muralTab(G, main.home, 'army');
+  await t.sleep(300);
+  t.check(/Campanhas do Reino/.test(ecoTxt(G)) && /marchando sobre/.test(ecoTxt(G)) && /Em breve/.test(ecoTxt(G)), 'mural Exército: the place\'s army, the campaign (marchando sobre …) and "Entrar no exército: Em breve"', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Campanhas')), 200));
+  G.game.ui.panels.close();
+  // the markets: war news at the front
+  await ecoReady(t, H, G);
+  await ecoDay(t, H, G);
+  const GOODS = MH.ecoc.GOODS, warGoods = new Set(['arrow', 'sword_iron', 'spear_iron', 'shield_iron', 'iron_bar', 'bow_wood', 'armor_leather', 'bread', 'wheat', 'meat']);
+  const front = H.game.eco.ev.filter((e) => [VAL, RAB].includes(RH.owner(e[0])) && warGoods.has(GOODS[e[1]][0]) && e[2] > 100);
+  if (front.length) t.check(true, 'war news in the markets: shortages at the front', front.map((e) => `${GOODS[e[1]][0]} em ${R.settlements[e[0]].name}`).join(', '));
+  else t.note('no war shortage drawn this day (the front places may not deal those goods)');
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
+def('WR3', {
+  title: 'WR: an army marches along the realm\'s roads — the same position on both peers, on the road, moving with the clock; the map and the radar draw it',
+  src: 'village', timeout: 120000,
+  expected: 'Valadestra at war with Rabelonia; one army leaves a Valadestra castle for a Rabelonia place (a route of realm roads, path.r); its row is the same on both peers (route, t0, d0, speed); its position — derived from the world clock on each peer — is within 3 tiles on host and guest, on the road polyline (< 1 tile from it), and moves forward ≈ speed × time (also across a time skip of 2 game hours); the map window (war layer: armies, borders at war) and the radar draw it on the guest without errors; ETA in the Exército tab; digest equal',
+  api: 'game/realms.js routeOf / geomOf / along / realmsPosSystem / etaOf, ui/warMap.js drawWar / drawWarBorders, ui/realmMap.js territories',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  const from = frontOf(H, VAL, RAB, 'castle')[0], T = frontOf(H, RAB, VAL).find((s) => RH.dbg.route(from.id, s.id)?.road && RH.dbg.route(from.id, s.id).len > 200);
+  t.need(from && T, 'a Valadestra castle and a Rabelonia place joined by road, 200+ tiles apart');
+  H.game.net.emit('realm.army', { gar: [[from.id, 120]] }); H.game.net.flush();
+  const a0 = RH.dbg.launch(from.id, T.id, 60);
+  H.game.net.flush();
+  t.check(a0 && a0.path.r.length > 0 && !a0.path.c, 'the army leaves along the realm\'s roads', a0 ? `${a0.id}: ${a0.path.r.length / 2} roads, ${f2(RH.routeOf(a0).len)} tiles to ${T.name}` : 'none');
+  await t.waitFor(() => RG.armies.get(a0.id)?.state === 'march', 2000 + RT(), 'the guest has the army marching');
+  const rowOf = (f) => { const a = RZ(f).armies.get(a0.id); return JSON.stringify([a.path, a.t0, a.d0, a.v, a.n, a.target]); };
+  t.check(rowOf(H) === rowOf(G), 'the same row on both (route, clock, speed, soldiers, target)', rowOf(G).slice(0, 120));
+  await t.sleep(1500);
+  const posOn = (f) => { const a = RZ(f).armies.get(a0.id); RZ(f).posOf(a); return [a.x, a.y]; };
+  const [hx, hy] = posOn(H), [gx, gy] = posOn(G);
+  t.check(Math.hypot(H.game.world.dx(hx, gx), hy - gy) < 3, 'the same position on both peers (derived from the clock)', `host ${f2(hx)},${f2(hy)} · guest ${f2(gx)},${f2(gy)}`);
+  // on the road: the nearest point of the route's road polylines
+  const roadD = (x, y) => { let d = Infinity; const a = RZ(G).armies.get(a0.id); for (let i = 0; i < a.path.r.length; i += 2) { const P = R.roads[a.path.r[i]].pts; for (let k = 0; k + 3 < P.length; k += 2) { const ax = P[k], ay = P[k + 1], bx = P[k + 2], by = P[k + 3], px = ax + G.game.world.dx(x, ax), L2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1, u = Math.max(0, Math.min(1, ((px - ax) * (bx - ax) + (y - ay) * (by - ay)) / L2)); d = Math.min(d, Math.hypot(px - ax - u * (bx - ax), y - ay - u * (by - ay))); } } return d; };
+  t.check(roadD(gx, gy) < 1, 'it walks on the road (distance to the road polyline)', f2(roadD(gx, gy)));
+  const d0 = RH.routeOf(RH.armies.get(a0.id)) && MH.realms.distAt(RH.armies.get(a0.id), H.game.worldTime);
+  wrSkip(H, 2);
+  await t.sleep(RT() + 600);
+  const [gx2, gy2] = posOn(G), d1 = MH.realms.distAt(RH.armies.get(a0.id), H.game.worldTime), hl = (H.game.env.dayLength || 780) / 24;
+  t.check(d1 - d0 > 2 * hl * 0.9 * RH.armies.get(a0.id).v && Math.hypot(G.game.world.dx(gx2, gx), gy2 - gy) > 40 && roadD(gx2, gy2) < 1, 'two game hours later it is ≈ speed × time farther along the road, on both', `${f2(d0)} → ${f2(d1)} tiles along (${f2(Math.hypot(G.game.world.dx(gx2, gx), gy2 - gy))} moved on the guest)`);
+  // the map and the radar draw it (and the border at war)
+  const P = G.game.ui.panels;
+  G.game.ui.minimap.view = { cx: gx2, cy: gy2, span: 900 };
+  let err = null;
+  try { P.show('map'); P.drawMap(); } catch (e) { err = e; }
+  t.check(!err && G.doc.querySelector('.bigmap') && /Exército/.test(G.doc.querySelector('.p-map')?.textContent || '') && /Fronteira em guerra/.test(G.doc.querySelector('.p-map')?.textContent || ''), 'the map window draws the war layer (legend: Exército, Cerco, Batalha, Fronteira em guerra)', err ? err.message : 'ok');
+  const T2 = MG.realmMap.territories(G.game), wl = T2 && MG.realmMap.TERR;
+  t.check(!!wl, 'the territories raster (owners by district)');
+  P.close(); G.game.ui.minimap.view = null;
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
+def('WR4', {
+  title: 'WR: a field battle by numbers — two armies of kingdoms at war meet on the road, fight in rounds, the loser retreats',
+  src: 'village', timeout: 120000,
+  expected: 'A Valadestra army and a Rabelonia army march toward each other on the same roads; when they meet (≤ 10 tiles) both are in battle on both peers (the same foe, frozen at the meeting point), the news "Batalha entre os exércitos …"; rounds every 8 s of game time cost both sides soldiers (more to the weaker); when one breaks (below 45 % of what it had) it retreats home (or is wiped out) and the winner goes on — "O exército do Reino de X venceu …"; the losses are the same on both peers; digest equal',
+  api: 'game/realms.js simStep (meetings) / startBattle / battleRound / endBattle / goHome, content/war.js WAR.battle',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  const A = frontOf(H, VAL, RAB, 'castle')[0];
+  const B = frontOf(H, RAB, VAL).find((s) => s.kind !== 'village' && RH.dbg.route(A.id, s.id)?.road) || frontOf(H, RAB, VAL).find((s) => RH.dbg.route(A.id, s.id)?.road);
+  t.need(A && B, 'two enemy places joined by road');
+  H.game.net.emit('realm.army', { gar: [[A.id, 150], [B.id, 150]] }); H.game.net.flush();
+  const n0 = RH.news.length;
+  const a = RH.dbg.launch(A.id, B.id, 90), b = RH.dbg.launch(B.id, A.id, 40);
+  H.game.net.flush();
+  t.need(a && b, 'both armies launched');
+  t.note(`${a.id} ${a.n} soldiers ${A.name} → ${B.name}; ${b.id} ${b.n} soldiers ${B.name} → ${A.name}; route ${f2(RH.routeOf(a).len)} tiles`);
+  let fought = false;
+  for (let k = 0; k < 40 && !fought; k++) {
+    wrSkip(H, 0.5);
+    await t.sleep(200);
+    fought = RH.news.slice(n0).some((r) => r[3] === 'battle');
+  }
+  t.check(fought, 'they met and fought (news "battle")', newsOn(H).slice(-3).join(' | '));
+  for (let k = 0; k < 20 && !RH.news.slice(n0).some((r) => r[3] === 'won'); k++) { wrSkip(H, 0.25); await t.sleep(200); }
+  await t.waitFor(() => RG.news.slice(n0).some((r) => r[3] === 'won'), 3000 + RT(), 'the battle ends: "O exército do Reino de X venceu o do Reino de Y" on both', () => newsOn(G).slice(-3).join(' | '));
+  const won = RG.news.slice(n0).find((r) => r[3] === 'won');
+  t.check(won[4] === VAL, 'the stronger side (90 × 40) won', MG.realms.newsText(G.game, won));
+  const sa = RH.armies.get(a.id), sb = RH.armies.get(b.id);
+  t.check(!sa || sa.n < 90, 'the winner lost soldiers too', sa ? `${sa.n}/90 (${sa.state})` : 'gone');
+  t.check(!sb || sb.state === 'retreat', 'the loser retreats home or was wiped out', sb ? `${sb.n} ${sb.state}` : 'wiped out');
+  await t.waitFor(() => JSON.stringify([RG.armies.get(a.id)?.n, RG.armies.get(b.id)?.n, RG.armies.get(a.id)?.state, RG.armies.get(b.id)?.state]) === JSON.stringify([RH.armies.get(a.id)?.n, RH.armies.get(b.id)?.n, RH.armies.get(a.id)?.state, RH.armies.get(b.id)?.state]), 2000 + RT(), 'the same soldiers and states on both peers');
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
+def('WR5', {
+  title: 'WR: a siege by numbers far from every player breaks the walls — the damage persists and both players see it when they arrive',
+  src: 'village', timeout: 260000,
+  expected: 'A big Valadestra army besieges a walled Rabelonia place ~2 500 tiles from both players: it camps on its road outside the walls (news "… está sob cerco"), builds engines (aríete, trabucos / catapulta), bombards the stretch of wall facing its camp and rams the gate: town-state rows on both peers (cracks: dmg; destroyed pieces: gone) although nobody has the place loaded; the walls are not mended while the siege lasts and for 2 days after (holdRepair); both players travel there: the destroyed pieces are missing and the cracked ones show their damage on both; digest equal',
+  api: 'game/realms.js siegeHour / facing / perimeter, game/mut/realms.js realm.wall (TOWN.noteAbsent / note), game/towns.js placePiece (state rows), npc.js repairByNumbers (hold)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  const A = frontOf(H, VAL, RAB, 'castle')[0];
+  const T = frontOf(H, RAB, VAL).find((s) => s.walls && RH.dbg.route(A.id, s.id)?.road && RH.owner(s.id) === RAB);
+  t.need(A && T, 'a walled Rabelonia place joined by road to a Valadestra castle');
+  const far = Math.min(Math.hypot(H.game.world.dx(T.x, H.game.player.x), T.y - H.game.player.y), Math.hypot(G.game.world.dx(T.x, G.game.player.x), T.y - G.game.player.y));
+  t.check(far > 600, 'the place is far from both players (numbers, no materialized pieces)', `${Math.round(far)} tiles, walls ${T.walls}`);
+  H.game.net.emit('realm.army', { gar: [[A.id, 260], [T.id, 30]] }); H.game.net.flush();
+  const a = RH.dbg.launch(A.id, T.id, 220);
+  H.game.net.flush();
+  const pre = `t${T.id}.`;
+  const rowsOf = (f) => [...f.game.towns.state].filter(([id, r]) => id.startsWith(pre) && (r.gone || r.dmg > 0)).map(([id, r]) => [id, r.gone, r.dmg]).sort().join(';');
+  for (let k = 0; k < 60 && !(RG.besieged(T.id) || RH.owner(T.id) !== RAB); k++) { wrSkip(H, 1); await t.sleep(150); }
+  await t.waitFor(() => RG.besieged(T.id) && newsOn(G).some((x) => x.startsWith(T.name + ' está sob cerco')), 3000 + RT(), `${T.name} besieged on both ("… está sob cerco")`, () => newsOn(G).slice(-2).join(' | '));
+  const sg = RH.siegeOf(T.id);
+  t.check(Math.hypot(H.game.world.dx(sg.x, T.x), sg.y - T.y) > T.r + 4, 'the camp stands outside the town land, on its road', `${f2(Math.hypot(H.game.world.dx(sg.x, T.x), sg.y - T.y))} tiles from the centre (town land ${T.r})`);
+  for (let k = 0; k < 40 && ![...H.game.towns.state].some(([id, r]) => id.startsWith(pre) && r.gone); k++) { wrSkip(H, 1); await t.sleep(200); }
+  await t.waitFor(() => rowsOf(G) && rowsOf(G) === rowsOf(H), 3000 + RT(), 'the wall damage (cracks / destroyed pieces) in the town state on both, the place loaded by nobody', () => `host ${rowsOf(H).slice(0, 120)} · guest ${rowsOf(G).slice(0, 120)}`);
+  const gone = [...H.game.towns.state].filter(([id, r]) => id.startsWith(pre) && r.gone).map(([id]) => id), hit = [...H.game.towns.state].filter(([id, r]) => id.startsWith(pre) && !r.gone && r.dmg > 0).map(([id]) => id);
+  t.check(gone.length > 0, 'pieces of the wall line destroyed (the gate / a breach)', `${gone.length} gone, ${hit.length} cracked; engines ${JSON.stringify(RH.siegeOf(T.id)?.eng || RH.armies.get(a.id)?.eng || [])}`);
+  t.check(RH.holdRepair(T.id) && RG.holdRepair(T.id), 'the walls are not mended while the siege lasts / just after (holdRepair)');
+  // the players arrive: the breach is there on both
+  RH.dbg.freeze(true); // (the siege waits while they look)
+  t.defer(() => RH.dbg.freeze(false));
+  const L = H.game.towns.layout(T.id), k0 = +gone[0].split('.')[1], row = L.structs[k0];
+  await visitTown(t, H, MH, G, MG, T.id, row[1] + 0.5 + (row[1] > L.x ? 9 : -9), row[2] + 0.5 + (row[2] > L.y ? 9 : -9), 60000);
+  const has = (f, id) => !!f.game.world.objById.get(id);
+  t.check(gone.every((id) => !has(H, id) && !has(G, id)), 'the destroyed pieces are missing on both (the breach)', gone.slice(0, 6).join(' '));
+  const placed = hit.filter((id) => has(H, id) && has(G, id));
+  t.check(!hit.length || (placed.length && placed.every((id) => H.game.world.objById.get(id).dmg > 0 && G.game.world.objById.get(id).dmg > 0)), 'the cracked pieces show their damage on both', `${placed.length}/${hit.length} placed here`);
+  t.check(gone.some((id) => { const r = L.structs[+id.split('.')[1]]; return MH.data.BUILDINGS[r[0]]?.connect === 'wall'; }), 'what broke is the wall line (walls / palisade / gate)', gone.slice(0, 4).map((id) => L.structs[+id.split('.')[1]][0]).join(', '));
+  await wrQuiet(t, H, G);
+  RH.dbg.freeze(false);
+  await t.checkDigest(H, G);
+});
+
+def('WR6', {
+  title: 'WR: a capture changes the owner everywhere — the guards\' colours, the mural, the map, the place banner, the economy\'s membership rules, the jobs, the tax',
+  src: 'village', timeout: 160000,
+  expected: 'With Valadestra and Rabelonia at war, a Rabelonia village is taken (game.realms.capture → op realm.capture): owner(sid) is Valadestra on both; its home army is the winners\' garrison; the news "… foi tomada pelo Reino de Valadestra"; its people are rebuilt with the new kingdom\'s colours (crest of the tabards / shields) on both; the mural says "… do Reino de Valadestra · tomada do Reino de Rabelonia"; the map\'s territory raster paints the village\'s land in Valadestra\'s colour on the guest; the place banner / towns.at give the new kingdom; a member of Rabelonia may not trade there any more (the place belongs to the enemy) and the job board / tax are Valadestra\'s; taken back, it is Rabelonia\'s again ("retomada"); digest equal',
+  api: 'game/realms.js hostCapture, game/mut/realms.js realm.capture / ownerOf / ownerAt, game/people.js buildPeople (owner), game/towns.js info / placeAt / TOWN.recolor, ui/realmMap.js territories (recolor), game/eco.js dealReason / boardOf / chargeOf (owner)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' }); H.game.net.flush();
+  const s = frontOf(H, RAB, VAL, 'village').find((q) => RH.owner(q.id) === RAB && q.k === RAB && !RH.besieged(q.id)); // (one of its own villages: never taken before)
+  t.need(s, 'a Rabelonia village');
+  // a member of Rabelonia may trade there now
+  H.game.net.emit('eco.member', { u: uid, k: RAB, name: recOn(H, uid)?.name || '' }); H.game.net.flush();
+  t.defer(() => { H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' }); H.game.net.flush(); });
+  await t.waitFor(() => recOn(G, uid)?.k === RAB, 2000 + RT(), 'the guest a member of Rabelonia on both');
+  t.check(MG.eco.dealReason(G.game, uid, RG.owner(s.id)) === null, 'before: the member trades at its own kingdom\'s village');
+  const T0 = MG.realmMap.territories(G.game), px = Math.floor(((s.x % 16384) + 16384) % 16384 / 8), py = Math.floor(s.y / 8);
+  // the pixels of the village's own land (its district) around it: how many are painted in Valadestra's colour
+  const own = []; for (let dy = -6; dy <= 6; dy++) for (let dx = -6; dx <= 6; dx++) { const i = (py + dy) * 2048 + px + dx; if (T0.dist[i] === s.id + 1) own.push(i); }
+  const pkAt = () => { const T1 = MG.realmMap.territories(G.game); return own.filter((i) => T1.pk[i] === VAL + 1).length; };
+  t.check(own.length > 20 && pkAt() === 0, 'the map: the village\'s land in Rabelonia\'s colour', `${pkAt()}/${own.length} px`);
+  const n0 = RH.news.length;
+  t.check(RH.capture(s.id, VAL), 'the host takes it (game.realms.capture)');
+  H.game.net.flush();
+  await t.waitFor(() => RG.owner(s.id) === VAL && RH.owner(s.id) === VAL, 2000 + RT(), 'owner(sid) = Valadestra on both');
+  t.check(RG.armies.get('g' + s.id).k === VAL && RG.armies.get('g' + s.id).n > 0, 'its home army: the winners\' garrison', RG.armies.get('g' + s.id).n);
+  t.check(RG.news.slice(n0).some((r) => r[3] === 'capture' && r[6] === s.id), `news: "${s.name} foi tomada pelo Reino de Valadestra"`, newsOn(G).slice(-1)[0]);
+  const KV = R.kingdoms[VAL], crest = (f) => f.game.people.of(s.id)?.crest?.fh;
+  t.check(crest(H) === hexC(KV.color) && crest(G) === hexC(KV.color), 'the guards\' tabards and shields in Valadestra\'s colours on both (rebuilt from the seed)', `${crest(H)} / ${crest(G)} (${hexC(KV.color)})`);
+  t.check(G.game.towns.at(s.x, s.y).kingdom?.id === VAL && G.game.towns.info(s.id).kingdom.id === VAL, 'towns.at / towns.info (the place banner, the mural): Valadestra');
+  muralTab(G, s.id, 'place');
+  await t.sleep(250);
+  t.check(/do Reino de Valadestra/.test(ecoTxt(G)) && /tomada do Reino de Rabelonia/.test(ecoTxt(G)), 'the mural: "… do Reino de Valadestra · tomada do Reino de Rabelonia"', short(ecoTxt(G), 160));
+  G.game.ui.panels.close();
+  t.check(pkAt() === own.length, 'the map paints the village\'s land in Valadestra\'s colour (territory raster, guest)', `${pkAt()}/${own.length} px`);
+  const why = MG.eco.dealReason(G.game, uid, RG.owner(s.id));
+  t.check(typeof why === 'string' && /guerra/.test(why), 'a member of Rabelonia may not trade there now (the place is the enemy\'s)', why);
+  const bd = MG.eco.boardOf(G.game, s.id);
+  t.check(bd.length && bd.every((j) => j.k === VAL), 'the job board is Valadestra\'s (reputation goes to the new owner)', bd.map((j) => j.k).join(','));
+  // taken back
+  t.check(RH.capture(s.id, RAB), 'Rabelonia takes it back');
+  H.game.net.flush();
+  await t.waitFor(() => RG.owner(s.id) === RAB && pkAt() === 0 && crest(G) === hexC(R.kingdoms[RAB].color), 2000 + RT(), 'retaken: Rabelonia\'s again everywhere (owner, map, colours)');
+  t.check(RG.news.slice(n0).some((r) => r[3] === 'retake' && r[6] === s.id), 'news: "… foi retomada pelo Reino de Rabelonia"');
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
+def('WR7', {
+  title: 'WR: a place taken in a war takes its players\' properties — the house and the plot back on sale, what was built on the plot gone (also after a save)',
+  src: 'village', timeout: 220000,
+  expected: 'The guest rents a house and buys a plot at the start village and builds a wall on the plot; the village is besieged — the guest is warned ("… está sob cerco: se cair, suas propriedades lá serão perdidas"); the village is taken by another kingdom: on both peers both properties are back on the place\'s lists (no rows), the wall on the plot is gone, the guest\'s notice "O Reino de X tomou … Você perdeu a casa … e o terreno … (o que estava construído no terreno foi destruído)"; the host\'s save loaded into a fresh game has no property rows and no wall there; the village goes back to its kingdom; digest equal',
+  api: 'game/eco.js loseProps / plotBuildings / E.loseAt (the one path of a property lost), game/mut/eco.js eco.lose, game/realms.js hostCapture, ui/ecoHud.js (notice), ui/warHud.js (siege warning)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  await wrQuiet(t, H, G);
+  const uid = await ecoReady(t, H, G);
+  const K0 = RH.owner(s0.id), foe = R.kingdoms.find((K) => K.id !== K0 && K.comp === R.kingdoms[K0].comp).id;
+  // a rented house and a bought plot with a wall
+  if ((recOn(H, uid)?.rep[K0] | 0) < 25) giveRep(H, uid, K0, 30, s0.id);
+  const P = MH.eco.propsOf(H.game, s0.id);
+  const house = P.houses.find((q) => q.mode === 'rent' && !H.game.eco.pr.has(q.id)) || P.houses.find((q) => !H.game.eco.pr.has(q.id));
+  const plot = P.plots.find((q) => !H.game.eco.pr.has(q.id));
+  t.need(house && plot, 'a free house and a free plot at the start village');
+  await toMural(t, H, MH, G, MG, s0.id);
+  setCoins(G, 9000);
+  const h = house.mode === 'rent' ? await ecoReq(G, 'prop.rent', { id: house.id, paid: house.rent }, { refund: { coin: house.rent } }) : await ecoReq(G, 'prop.buy', { id: house.id, paid: house.price }, { refund: { coin: house.price } });
+  const p = await ecoReq(G, 'prop.buy', { id: plot.id, paid: plot.price }, { refund: { coin: plot.price } });
+  t.check(h.ok && p.ok, 'the guest holds a house and a plot', `${h.why || ''} ${p.why || ''}`);
+  await t.waitFor(() => G.game.eco.pr.get(house.id)?.u === uid && G.game.eco.pr.get(plot.id)?.u === uid, 2000 + RT(), 'both properties the guest\'s on both peers');
+  A.teleport(G, plot.x0 + plot.w / 2, plot.y1 + 2.5);
+  await t.sleep(400);
+  let tile = null;
+  for (let y = plot.y0 + 1; y < plot.y1 && !tile; y++) for (let x = plot.x0 + 1; x < plot.x1 && !tile; x++) if (MG.building.placeReason(G.game, 'wall_wood', x, y, G.game.player, 0) === null) tile = [x, y];
+  t.need(tile, 'a free tile inside the plot');
+  const pl = await ecoReq(G, 'build.place', { type: 'wall_wood', tiles: [tile], rot: 0 });
+  t.check(pl.ok, 'a wall built on the plot', pl.why);
+  await t.waitFor(() => H.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null) && G.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null), 2000 + RT(), 'the wall on both');
+  const w0 = H.game.build.structures.find((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null);
+  H.game.net.emit('struct.complete', { id: w0.id, by: G.pid }); H.game.net.flush();
+  // besieged first: the warning
+  RH.dbg.freeze(true);
+  t.defer(() => RH.dbg.freeze(false));
+  H.game.net.emit('realm.rel', { a: foe, b: K0, rel: 'war', by: foe, why: 'debug' });
+  const sg = { id: 'a' + (RH.nid + 1), k: foe, home: R.kingdoms[foe].capital, n: 80, n0: 80, lv: 5, state: 'siege', target: s0.id, mission: 'attack', path: null, x: s0.x + s0.r + 14, y: s0.y, eng: [0, 0, 1, 0], phase: 'bombard' };
+  H.game.net.emit('realm.army', { a: sg, news: ['siege', foe, K0, s0.id, 80] }); H.game.net.flush();
+  await t.waitFor(() => /sob cerco/.test(noteTxt(G)) && /propriedades lá serão perdidas/.test(noteTxt(G)), 9000, 'the guest is warned: "… está sob cerco: se cair, suas propriedades lá serão perdidas"', () => noteTxt(G));
+  // taken
+  t.defer(() => { try { if (RH.owner(s0.id) !== s0.k) { RH.capture(s0.id, s0.k); H.game.net.flush(); } } catch { /* ignore */ } });
+  H.game.net.emit('realm.army', { del: sg.id });
+  t.check(RH.capture(s0.id, foe), `the village is taken by the Reino de ${R.kingdoms[foe].name}`);
+  H.game.net.flush();
+  await t.waitFor(() => !H.game.eco.pr.has(house.id) && !H.game.eco.pr.has(plot.id) && !G.game.eco.pr.has(house.id) && !G.game.eco.pr.has(plot.id), 2000 + RT(), 'both properties back on the place\'s lists on both peers (no rows)');
+  await t.waitFor(() => !H.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null) && !G.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null), 2000 + RT(), 'the wall on the plot is gone on both');
+  await t.waitFor(() => /tomou/.test(noteTxt(G)) && /perdeu/.test(noteTxt(G)) && /destruído/.test(noteTxt(G)), 5000, 'the guest\'s notice: "O Reino de X tomou …: Você perdeu a … e o terreno … (o que estava construído no terreno foi destruído)"', () => noteTxt(G));
+  t.check(MG.eco.propsOf(G.game, s0.id).plots.some((q) => q.id === plot.id) && MG.eco.chargeOf(G.game, plot.id, { mode: 'own' }) > 0, 'the plot is on the place\'s list again (taxed by the new kingdom when sold)');
+  // the save keeps it
+  const data = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game)));
+  const S = await bootSolo(t, '&start=village', 'solo');
+  const MS = await A.mods(S);
+  await t.waitFor(() => S.game.eco?.mk, 15000, 'the solo game\'s economy');
+  S.game.net.withApply(() => MS.snapshot.applyWorld(S.game, data.world, 'load'));
+  t.check(!S.game.eco.pr.has(house.id) && !S.game.eco.pr.has(plot.id) && !S.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null) && S.game.realms.owner(s0.id) === foe, 'loaded from the save: no property rows, no wall, the village the conqueror\'s');
+  frames.close(S);
+  await wrQuiet(t, H, G);
+  RH.capture(s0.id, s0.k); H.game.net.flush();
+  await t.waitFor(() => RG.owner(s0.id) === s0.k, 2000 + RT(), 'the start village back to its kingdom');
+  setCoins(G, 0);
+  await t.checkDigest(H, G);
+});
+
+def('WR8', {
+  title: 'WR: a kingdom that loses its last city falls — its castles and villages pass to the conqueror, its relations and armies end, its members become travellers',
+  src: 'village', timeout: 120000,
+  expected: 'Valadestra takes Rabelonia\'s capital (its only city): op realm.fall on both peers — Rabelonia is gone (alive false), every place it held is Valadestra\'s, its wars / alliances / tensions are over, its armies in the field are gone, a member of Rabelonia is a traveller again; the news "O Reino de Rabelonia caiu: suas terras passam ao Reino de Valadestra"; the map has no Rabelonia land any more (raster); digest equal',
+  api: 'game/realms.js hostCapture (last city → realm.fall), game/mut/realms.js realm.fall, game/eco.js E.dropKingdom (eco.member −1)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), RG = RZ(G), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  t.need(RH.alive(RAB) && RH.alive(VAL), 'Rabelonia and Valadestra alive');
+  const uid = await ecoReady(t, H, G);
+  H.game.net.emit('realm.rel', { a: VAL, b: RAB, rel: 'war', by: VAL, why: 'debug' });
+  const third = R.kingdoms.find((K) => K.id !== RAB && K.id !== VAL && R.kingdoms[RAB].neighbours.includes(K.id)) || R.kingdoms.find((K) => K.id !== RAB && K.id !== VAL && K.comp === R.kingdoms[RAB].comp);
+  if (third) H.game.net.emit('realm.rel', { a: RAB, b: third.id, rel: 'ally', why: 'debug' });
+  H.game.net.emit('eco.member', { u: uid, k: RAB, name: recOn(H, uid)?.name || '' });
+  H.game.net.flush();
+  const out = RH.dbg.launch(R.settlements.find((s) => RH.owner(s.id) === RAB && s.kind === 'castle').id, frontOf(H, VAL, RAB)[0].id, 10);
+  H.game.net.flush();
+  await t.waitFor(() => recOn(G, uid)?.k === RAB && (!out || RG.armies.has(out.id)), 2000 + RT(), 'setup on both (a member of Rabelonia, a Rabelonia army in the field)');
+  const held = R.settlements.filter((s) => RH.owner(s.id) === RAB).map((s) => s.id);
+  const cap = RH.capitalOf(RAB);
+  t.check(cap && cap.kind === 'city', 'Rabelonia\'s only city', cap?.name);
+  t.check(RH.capture(cap.id, VAL), 'Valadestra takes it');
+  H.game.net.flush();
+  await t.waitFor(() => !RG.alive(RAB) && !RH.alive(RAB), 2000 + RT(), 'Rabelonia has fallen on both (alive false)');
+  t.check(held.every((sid) => RG.owner(sid) === VAL), 'every place it held is Valadestra\'s now (on the guest)', `${held.length} places`);
+  t.check(![...RG.rels.keys()].some((k) => k.split('.').map(Number).includes(RAB)) && ![...RG.tens.keys()].some((k) => k.split('.').map(Number).includes(RAB)), 'its relations and tensions are over');
+  t.check(!fieldOn(G).some((a) => a.k === RAB), 'its armies in the field are gone');
+  await t.waitFor(() => recOn(G, uid)?.k === -1 && recOn(H, uid)?.k === -1, 2000 + RT(), 'its member is a traveller again (both)');
+  t.check(newsOn(G).some((x) => /O Reino de Rabelonia caiu: suas terras passam ao Reino de Valadestra/.test(x)), 'news: "O Reino de Rabelonia caiu …"', newsOn(G).slice(-1)[0]);
+  const T1 = MG.realmMap.territories(G.game);
+  let left = 0;
+  for (let i = 0; i < T1.pk.length; i++) if (T1.pk[i] === RAB + 1) left++;
+  t.check(left === 0, 'the map: no Rabelonia land left (territory raster)', `${left} px`);
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
+});
+
+def('WR9', {
+  title: 'WR: save → load gives the same kingdoms — relations, owners, the fallen, armies in the field (marching, besieging), the news',
+  src: 'village', timeout: 160000,
+  expected: 'With wars, an alliance, a truce, an army marching, a siege under way, a captured place and (from WR8) a fallen kingdom, the host\'s save (buildSaveData → JSON) carries world.realms; loaded into a fresh game of the same seed the kingdoms\' state is exactly the same (realmDigestRows equal: relations, tensions, past wars, owners, the fallen, every army\'s row — a marching army by its route and clock —, the siege scars, the news) and the marching army stands at the same place; digest equal on the pair',
+  api: 'net/snapshot.js serializeWorld / applyWorld (realms), game/mut/realms.js realmRows / applyRealmRows / realmDigestRows',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const RH = RZ(H), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  // something of everything
+  const ks = R.kingdoms.filter((K) => RH.alive(K.id)), pair = RH.dbg.pairs().filter(([a, b]) => RH.alive(a) && RH.alive(b));
+  t.need(pair.length >= 3, 'three pairs of living kingdoms');
+  const [p1, p2, p3] = pair;
+  H.game.net.emit('realm.rel', { a: p1[0], b: p1[1], rel: 'war', by: p1[0], why: 'debug' });
+  H.game.net.emit('realm.rel', { a: p2[0], b: p2[1], rel: 'ally', why: 'debug' });
+  H.game.net.emit('realm.rel', { a: p3[0], b: p3[1], rel: 'truce', until: H.game.env.dayIndex + 4, why: 'debug' });
+  const from = R.settlements.find((s) => RH.owner(s.id) === p1[0] && s.kind === 'castle'), to = R.settlements.filter((s) => RH.owner(s.id) === p1[1]).sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) - Math.hypot(b.x - from.x, b.y - from.y))[0];
+  H.game.net.emit('realm.army', { gar: [[from.id, 120]] });
+  const m = RH.dbg.launch(from.id, to.id, 50);
+  H.game.net.flush();
+  t.need(m, 'an army marching');
+  RH.dbg.freeze(true);
+  t.defer(() => RH.dbg.freeze(false));
+  await t.sleep(800);
+  t.note(`${ks.length} kingdoms alive; ${RH.rels.size} relations; ${fieldOn(H).length} armies in the field; ${RH.own.size} places taken; fallen: ${[...RH.fallen].join(',') || 'none'}`);
+  const data = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game))), saved = realmRowsOn(H, MH);
+  const hm = RH.armies.get(m.id); RH.posOf(hm); const hp = [hm.x, hm.y]; // (where it is at the moment of the save)
+  t.check(data.world?.realms?.armies?.length === RH.armies.size, 'the save carries the kingdoms (every army)', `${data.world?.realms?.armies?.length}`);
+  const S = await bootSolo(t, '&start=village', 'solo');
+  const MS = await A.mods(S);
+  await t.waitFor(() => S.game.realms?.armies?.size, 15000, 'the solo game\'s kingdoms');
+  let loaded = null, pos = null;
+  S.game.net.withApply(() => { MS.snapshot.applyWorld(S.game, data.world, 'load'); loaded = JSON.stringify(MS.mrealms.realmDigestRows(S.game)); const a = S.game.realms.armies.get(m.id); S.game.realms.posOf(a); pos = [a.x, a.y]; });
+  t.check(loaded === saved, 'loaded: the same kingdoms\' state (relations, owners, the fallen, armies, scars, news)', loaded === saved ? `${saved.length} B` : `saved ${saved.length} B · loaded ${loaded.length} B`);
+  t.check(pos && Math.hypot(pos[0] - hp[0], pos[1] - hp[1]) < 4, 'the marching army at the same place on its road (clock + route)', `${f2(pos?.[0])},${f2(pos?.[1])} / ${f2(hp[0])},${f2(hp[1])}`);
+  frames.close(S);
+  await wrQuiet(t, H, G);
+  await t.checkDigest(H, G);
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
