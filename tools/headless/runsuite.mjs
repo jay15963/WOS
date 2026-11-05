@@ -4,12 +4,14 @@
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 
 const url = process.argv[2];
 const out = process.argv[3];
 const port = +(process.argv[4] || 9341);
 const prof = join(tmpdir(), 'wos-chrome-prof-' + port);
+// a fresh profile every run: what earlier runs left in its storage (saved worlds, settings) must not change this one
+try { rmSync(prof, { recursive: true, force: true }); } catch { /* still locked: reused */ }
 mkdirSync(prof, { recursive: true });
 const chrome = 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const args = [

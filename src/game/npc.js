@@ -65,6 +65,9 @@ const ring = (cx, cy, r0, r1, u, v) => { const a = u * Math.PI * 2, d = r0 + (r1
 function walk(game, rec, m, gx, gy, spd, dt, arrive = 0.22) {
   const d0 = Math.hypot(gx - m.x, gy - m.y);
   if (d0 <= arrive) { m.moving = false; m.route = null; return 'here'; }
+  // no headway for 4 s a step from it (jostled by a housemate in a small room, rubbing a table): close enough — 'here'
+  if (m._wgx !== gx || m._wgy !== gy || d0 < m._wbd - 0.1) { m._wgx = gx; m._wgy = gy; m._wbd = d0; m._wbt = game.worldTime; }
+  else if (d0 < 1.5 && game.worldTime - m._wbt > 4) { m.moving = false; m.route = null; m._wgx = null; return 'here'; }
   let R = m.route;
   if (!R || R.gx !== gx || R.gy !== gy) {
     if (d0 < 0.6 || lineClear(game, m.x, m.y, gx, gy, 0.24)) R = m.route = { gx, gy, p: null, i: 0 };
@@ -135,22 +138,22 @@ function startPlan(game, rec, m, pl) {
   const H = S.homes[P.home] || null;
   // up on a wall / at a ballista and the duty is over: down the stairs (out of sight: a count again)
   if (m.z > 0.5 && pl.k !== 'wall' && pl.k !== 'crew') { m.task = { k: 'down' }; return; }
-  const indoor = (b, then) => {
+  const indoor = (b, then, stuck = null) => {
     // indoors: with a player by that building, go in and do it there; else to its door and back to being a count (and
     // the same when its inside cannot be reached from the street: a door blocked by the furniture)
     if (b && nearBuilding(game, b)) {
       const T = then();
       const from = inBox(b, m.x, m.y) ? [m.x, m.y] : b.out; // (already inside: from where it stands)
       if (T && T.k === 'go' && !T.bad && reachable(game, rec, from[0], from[1], T.x, T.y)) return T;
-      if (inBox(b, m.x, m.y)) return { k: 'stand', t: 8, indoor: true }; // (inside a room it cannot leave: it stays put)
+      if (inBox(b, m.x, m.y)) return (stuck && T && stuck(T)) || { k: 'stand', t: 8, indoor: true }; // (inside a room it cannot leave: it stays put)
     }
     return { k: 'vanish', x: b ? b.out[0] : m.x, y: b ? b.out[1] : m.y, b };
   };
   switch (pl.k) {
     case 'bed': m.task = indoor(H, () => {
       const o = objOf(game, S, P.bed), s = o && sideOf(game, o, H);
-      return s ? { k: 'go', x: s[0], y: s[1], then: { k: 'sleep', o } } : { k: 'go', ...pt(insideSpot(game, H, r)), then: { k: 'stand', t: 9 } };
-    }); break;
+      return s ? { k: 'go', x: s[0], y: s[1], then: { k: 'sleep', o, snap: s } } : { k: 'go', ...pt(insideSpot(game, H, r)), then: { k: 'stand', t: 4 } };
+    }, (T) => (T.then?.k === 'sleep' ? { k: 'sleep', o: T.then.o, snap: [T.x, T.y] } : null)); break; // (a bed its furniture cuts off from where it stands: into the bed anyway, as in a house whose door is blocked)
     case 'home': case 'off': case 'shelter': m.task = indoor(H, () => ({ k: 'go', ...pt(insideSpot(game, H, r)), then: { k: 'stand', t: 6 + r() * 8, indoor: true } })); break;
     case 'tavern': m.task = indoor(S.tavern, () => {
       const k = S.chairs[(P.i * 7) % Math.max(1, S.chairs.length)], o = objOf(game, S, k ?? -1), s = o && sideOf(game, o, S.tavern);
@@ -287,6 +290,7 @@ function runTask(game, rec, m, dt) {
       const s = walk(game, rec, m, T.x, T.y, spd, dt);
       if (s === 'here') { if (m.action?.type === 'carry') m.action = null; if (T.face) faceTowards(m, { x: T.face.x, y: T.face.cy ?? T.face.y }); m.task = T.then || null; }
       else if (s === 'fail' && unstick(game, m, T.x, T.y)) { /* teleported out of sight */ }
+      else if (s === 'fail' && (m._fails || 0) >= 3 && Math.hypot(game.world.dx(T.x, m.x), T.y - m.y) < 1.5 && npcPass(game, Math.floor(T.x), Math.floor(T.y))) { m.x = T.x; m.y = T.y; m.route = null; m._fails = 0; m.task = T.then || null; } // (stuck a step from it — a body rubbing a table / a housemate in a small room: the last step anyway, never stuck there for ever)
       else if (s === 'fail' && (m._fails || 0) >= 3) { m.task = { k: 'stand', t: 2 }; m._fails = 0; m.planKey = ''; }
       return;
     }
@@ -312,6 +316,7 @@ function runTask(game, rec, m, dt) {
     case 'sit': case 'sleep': {
       m.moving = false;
       if (!T.o || T.o.removed) { m.pose = null; m.task = null; return; }
+      if (T.snap) { m.x = T.snap[0]; m.y = T.snap[1]; m.route = null; T.snap = null; } // (by the bed it could not walk to)
       if (!m.pose) {
         m.pose = { type: T.k, id: T.o.id, o: T.o };
         if (T.k === 'sit' && T.o.face) m.facing = T.o.face;

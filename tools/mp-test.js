@@ -7902,7 +7902,7 @@ def('VL1', {
   const persons = H.game.people.of(s.id).persons;
   const fieldOf = (m) => L.fields[persons[m.i].field];
   await t.waitFor(() => livePeople(H, s.id).some((m) => m.job === 'farmer' && fieldOf(m) && m.x > fieldOf(m).x0 - 1 && m.x < fieldOf(m).x1 + 1 && m.y > fieldOf(m).y0 - 1 && m.y < fieldOf(m).y1 + 1 && ['dig', 'plant', 'harvest'].includes(m.act)), 60000,
-    'a farmer works its field (hoe / plant / harvest)', () => livePeople(H, s.id).filter((m) => m.job === 'farmer').map((m) => `${m.task}/${m.act}@${f2(m.x)},${f2(m.y)}`).join(' '));
+    'a farmer works its field (hoe / plant / harvest)', () => { const lp = livePeople(H, s.id); return `${lp.length} live · farmers: ` + lp.filter((m) => m.job === 'farmer').map((m) => `${m.task}/${m.act}@${f2(m.x)},${f2(m.y)}`).join(' ') + ' · all: ' + lp.slice(0, 14).map((m) => `${m.job}:${m.plan}:${m.task}`).join(' '); });
   await t.waitFor(() => livePeople(H, s.id).filter((m) => WORK_ACTS.has(m.act)).length >= 2, 30000, 'people at work (animations)');
   await t.waitFor(() => peopleOn(G).some((e) => e.action && WORK_ACTS.has(e.action.type)), 20000, 'the guest sees them work (the action streamed)');
   t.metric('liveVillage', livePeople(H, s.id).length);
@@ -7920,6 +7920,10 @@ def('VL2', {
   dayClock(t, H, 22);
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   A.keepAlive(t, H); A.keepAlive(t, G);
+  // a calm night: wild hostile creatures that wander near the village (wolves) ring the bell and send everyone to shelter
+  // (awake, standing: VL4 / VL9 test that) — this scenario is about going to bed, so they are taken away while it runs
+  const calm = () => { for (const e of H.game.entities) { if (!e.isMob || e.npc || e.dead || e.proxy || e.stock || (e.temper || '') !== 'hostile' || Math.hypot(e.x - s.x, e.y - s.y) > s.r + 40) continue; e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
+  calm(); const calmT = setInterval(calm, 700); t.defer(() => clearInterval(calmT));
   const civOut = () => livePeople(H, s.id).filter((m) => !m.guard && !/^(bed|home|off|shelter)/.test(m.plan || '') ).length;
   await t.waitFor(() => livePeople(H, s.id).length > 0 && livePeople(H, s.id).filter((m) => !m.guard).every((m) => /^(bed|home)/.test(m.plan || '')), 20000, 'at night every citizen plans to be at home / in bed', () => livePeople(H, s.id).filter((m) => !m.guard).map((m) => m.job + ':' + m.plan).join(' '));
   const outdoor = (m) => !H.game.people.debug(s.id).homes.some((h) => inBoxT(h.box, m.x, m.y));
@@ -7936,7 +7940,7 @@ def('VL2', {
   const at = A.freeSpot(G, MG, home.out[0], home.out[1], { rMin: 0, rMax: 2 }) || home.out;
   A.teleport(G, at[0], at[1]);
   const sleeper = () => livePeople(H, s.id).find((m) => m.i === owner);
-  await t.waitFor(() => sleeper()?.pose === 'sleep', 25000, `the bed owner (${persons[owner].name}) asleep in its bed on the host`, () => JSON.stringify(sleeper() || null));
+  await t.waitFor(() => sleeper()?.pose === 'sleep', 25000, `the bed owner (${persons[owner].name}) asleep in its bed on the host`, () => { const d = sleeper(), m = d && H.game.entities.find((e) => e.nid === d.nid), T = m?.task, bo = H.game.world.objById.get(bedId); const SP = H.game.people.of(s.id), PP = SP?.persons[owner], side = PP && MH.npc.bedSide(H.game, SP, PP), nav = H.game.people.navOf(s.id); return JSON.stringify({ d, task: T && JSON.parse(JSON.stringify(T, (k, v) => (k === 'o' || k === 'b' || k === 'mate' ? undefined : v))), planKey: m?.planKey, danger: H.game.people.debug(s.id).danger, foes: (H.game.people.live.get(s.id)?.foes || []).map((f) => `${f.species}@${Math.round(f.x)},${Math.round(f.y)}`).slice(0, 4), fled: m?._fled, fear: m?.fearT, side, reach: side && m ? !!nav?.connected(m.x, m.y, side[0], side[1]) : null, home: PP?.home, route: m?.route?.length ?? null, fails: m?._fails, box: home.box, out: home.out, guest: [+G.game.player.x.toFixed(2), +G.game.player.y.toFixed(2)], bed: bo ? [bo.tx, bo.ty, bo.fw, bo.fh] : null }); });
   const nid = sleeper().nid;
   await t.waitFor(() => { const e = G.game.entities.find((q) => q.nid === nid); return e?.pose?.type === 'sleep' && e.pose.o?.id === bedId; }, RT() + 3000, 'the guest sees it asleep in the same bed (pose streamed)');
   t.check(inBoxT(home.box, sleeper().x, sleeper().y), 'inside its house');
