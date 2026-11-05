@@ -1806,3 +1806,13 @@ outro com a plaquinha vermelha "Sobrevivente · Reino de … · inimigo", trocan
   as abas do mural).
 - Pendente / ideias: escoltar caravanas, ordens por papel (arqueiro na muralha, engenheiro nas obras), o jogador
   general de uma campanha, medalhas, o soldo atrasado para quem estava fora.
+
+### Decisões da fase 3 confirmadas pelo dono (5/11/2026)
+
+O dono aprovou ("Estão boas") as decisões da fase 3 que estavam "para o dono confirmar" em §13, §14 e §15, entre elas:
+os civis nunca podem ser feridos; só o alistado fere a guarda inimiga (soldados inimigos e PvP: basta ser membro de um
+reino em guerra); a guarda inimiga só persegue alistados; alistar-se pede Conhecido (milícia da vila) ou Respeitado
+(castelo / cidade); soldo 20 / 30 / 45 / 65 por dia (×1,5 em guerra), bônus e deserção (−25 de reputação e 2 dias sem
+entrar naquele reino); um exército por vez; o exército fornece as pedras do trabuco; rivais distantes na mesma terra
+(capitais até 2 800 tiles) podem guerrear; os lugares de um reino que cai vão para quem tomou a última cidade dele; num
+lugar tomado os moradores ficam e só a guarda troca de cor. Mudar qualquer uma delas pede o dono.
