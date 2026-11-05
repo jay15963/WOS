@@ -1487,16 +1487,19 @@ das forças, campo de fluxo):
 O campo de fluxo do cerco da vila (≈ 110 × 110 tiles) custou 45 ms no total ao longo do cerco, em fatias de 0,8 ms.
 O plano (os quatro lados, as pistas, a oficina) roda um lado por tick (0,5 s), 2–5 ms cada.
 
-**Prints** (`shots/`, fora do git): `bt_camp` (o acampamento: tendas, estandartes, fogueiras, as linhas e o general),
-`bt_build` (oficina pronta, trabuco e torre em obra, engenheiros martelando), `bt_trebuchet_shot` / `_shot2` (o trabuco
-atirando, o aro onde a pedra cai), `bt_tower_push` / `bt_tower_ramp` / `bt_tower_ramp_close` (a torre empurrada, a
-rampa no alto da paliçada, soldados atravessando e descendo para dentro, uma arqueira caída), `bt_breach_fight` /
-`_fight2` (a brecha do trabuco: os atacantes entrando em coluna, um guarda segurando a abertura), `bt_ram_push` /
-`bt_ram_gate` / `bt_ram_gate_close` / `bt_gate_broken` (o aríete empurrado até o portão, a pancada, o portão quebrado),
-`bt_archers_walls` (os arqueiros do exército em linha atirando, a guarda saindo pelo portão quebrado),
+**Prints** (`shots/`, fora do git; sem o painel de depuração): `bt_camp` / `bt_camp_close` (o acampamento vivo: as
+tendas, os estandartes, uma roda em cada fogueira, soldados ao lado das tendas, as sentinelas na beira virados para a
+vila, o general diante dos estandartes), `bt_build` (oficina pronta, trabuco e torre em obra, engenheiros martelando),
+`bt_trebuchet_shot` / `_shot2` (o trabuco que acabou de atirar e a pedra no ar a caminho do aro onde cai),
+`bt_tower_push` / `bt_tower_ramp` / `bt_tower_ramp_close` (a torre empurrada, a rampa no alto da paliçada, soldados no
+deque e descendo a escada para dentro, um guarda lutando com eles), `bt_breach_fight` (a brecha do trabuco: os guardas
+segurando a abertura, os atacantes apertados na frente — um cercado e roças ao pé do muro deixam só dois corredores),
+`bt_ram_push` / `bt_ram_gate` / `bt_ram_gate_close` / `bt_gate_broken` (o aríete empurrado até o portão, a pancada, o
+portão quebrado e a cunha entrando), `bt_archers_walls` (os arqueiros do exército em linha atirando, a guarda no muro),
 `bt_battle_lines` / `bt_battle_clash` / `bt_battle_rout` (a batalha campal: as linhas com os estandartes, o choque, a
-debandada com os caídos), `bt_general` (o general com o estandarte entre os arqueiros e a infantaria), `bt_plaza_fight`
-/ `bt_capture` (a praça tomada: "Estrosa foi tomada pelo Reino de Rabelonia!").
+debandada), `bt_general` (o general com o estandarte entre os arqueiros e a infantaria), `bt_plaza_fight` /
+`bt_capture` (a praça tomada: os vencedores em anéis pela praça, a faixa "Estrosa · Vila · Reino de Rabelonia" e o aviso
+"Estrosa foi tomada pelo Reino de Rabelonia").
 
 ### Decisões (para o dono confirmar) e pendências
 
