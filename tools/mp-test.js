@@ -10499,7 +10499,8 @@ def('AR6', {
   await warShim(t, H, G, [[k2, s.k]]);
   H.game.army.dbg.set(uid, { svc: 5 }); H.game.net.flush();
   await t.waitFor(() => arRec(G, uid)?.svc === 5, RT() + 2000, 'service 5 on the guest');
-  const notes = [];
+  const notes = [], toasts = [];
+  t.on(G, 'toast', (x) => toasts.push(x.text));
   t.watch(() => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (!notes.includes(x)) notes.push(x); } }, 150);
   await ecoDay(t, H, G, 1);
   await t.waitFor(() => coinsOf(G) === 20 + 45, 6000 + RT(), 'at war a Soldado gets 30 × 1,5 = 45', () => `${coinsOf(G)} coins · rank ${arRec(H, uid)?.rank}`);
@@ -10519,7 +10520,7 @@ def('AR6', {
   await t.waitFor(() => btPhase(H, F) === 'retreat' || btPhase(H, F) === 'gone', 15000, 'past its losses it retreats');
   await t.waitFor(() => coinsOf(G) === c0 + 50, 6000 + RT(), 'the defender\'s bonus: +50 coins', () => `${c0} → ${coinsOf(G)}`);
   await t.waitFor(() => (recOn(G, uid).rep[s.k] | 0) === r0 + 10 && arRec(G, uid).svc === sv0 + 4, RT() + 3000, '+10 reputation and +4 of service (both peers)', () => `${r0} → ${recOn(G, uid).rep[s.k] | 0} · svc ${arRec(G, uid).svc}`);
-  await t.waitFor(() => notes.some((x) => /resistiu ao cerco! Bônus/.test(x)), 4000, 'the toast tells it ("… resistiu ao cerco! Bônus …")', () => notes.slice(-3).join(' | '));
+  await t.waitFor(() => toasts.some((x) => /resistiu ao cerco! Bônus/.test(x)), 4000, 'the toast tells it ("… resistiu ao cerco! Bônus …")', () => toasts.slice(-3).join(' | '));
   t.metric('coins', coinsOf(G));
   await t.checkDigest(H, G);
 });
@@ -10538,7 +10539,8 @@ def('AR7', {
   await arClean(t, H, G, uid);
   await arMember(t, H, G, uid, s.k, 60);
   await arEnlist(t, H, G, uid, s.id, { rank: 1, svc: 8 });
-  const notes = [];
+  const notes = [], toasts = [];
+  t.on(G, 'toast', (x) => toasts.push(x.text));
   t.watch(() => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (!notes.includes(x)) notes.push(x); } }, 150);
   // dying
   MG.player.killPlayer(G.game);
@@ -10564,7 +10566,7 @@ def('AR7', {
   const day = arDay(H);
   await t.waitFor(() => (recOn(G, uid).rep[s.k] | 0) === 35 && (recOn(H, uid).rep[s.k] | 0) === 35, RT() + 2000, 'desertion: −25 reputation (both peers)', () => `${recOn(G, uid).rep[s.k] | 0}`);
   t.check(JSON.stringify(H.game.army.des.get(uid)) === JSON.stringify([s.k, day + 2]) && JSON.stringify(G.game.army.des.get(uid)) === JSON.stringify([s.k, day + 2]), 'the ban until the day after tomorrow (both peers)', JSON.stringify(G.game.army.des.get(uid)));
-  await t.waitFor(() => notes.some((x) => /desertou/.test(x)), 3000, 'the toast says so', () => notes.slice(-2).join(' | '));
+  await t.waitFor(() => toasts.some((x) => /desertou/.test(x)), 3000, 'the toast says so', () => toasts.slice(-2).join(' | '));
   const r = await ecoReq(G, 'army.join', { sid: s.id });
   t.check(!r.ok && /Desertor: o Reino de .* não aceita você de volta até o dia/.test(r.why), 'enlisting again is refused', r.why);
   G.game.events.emit('closepanels', {});
