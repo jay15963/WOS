@@ -104,7 +104,7 @@ export function pick(game, sx, sy) {
   const hid = (x, y, e) => !!game.roofs?.hidden?.(x, y, e); // inside a building whose roof covers it / in a tunnel not shown (not pickable)
   let best = null, bd = 1;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead || hid(e.x, e.y, e) || e._riddenBy) continue; // (a ridden horse: drawn with its rider)
+    if ((!isMob(e) && !e.pvp) || e.dead || hid(e.x, e.y, e) || e._riddenBy) continue; // (a ridden horse: drawn with its rider; e.pvp: a player of a kingdom at war with mine — docs/REINOS.md §15)
     const sc = e.scale || 1;
     // humanoid raiders are taller and thinner than animals
     const pawn = e.kind === 'pawn';
@@ -231,7 +231,7 @@ export function installController(game) {
     cycleTarget() {
       const p = game.player;
       const tmp = (e) => e.temper || SPECIES[e.species]?.temper;
-      const list = game.entities.filter((e) => attackable(e) && !e.npc && !(e.soldier && game.warfare?.mayHurt?.(p, e)) && dist(e, p) < 18).sort((a, b) => { // (never the settlements' people, nor a soldier the rule protects)
+      const list = game.entities.filter((e) => attackable(e) && !(e.npc && (!game.army?.npcWhy || game.army.npcWhy(p, e))) && !(e.soldier && game.warfare?.mayHurt?.(p, e)) && dist(e, p) < 18).sort((a, b) => { // (never the settlements' people — an enemy guard for an enlisted player: phase 3c —, nor a soldier the rule protects)
         const ka = (tmp(a) === 'passive' ? 6 : 0) + dist(a, p), kb = (tmp(b) === 'passive' ? 6 : 0) + dist(b, p);
         return ka - kb;
       });

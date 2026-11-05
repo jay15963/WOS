@@ -22,7 +22,7 @@ export const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // any creature / raider controlled by the sim
 export const isMob = (e) => !!(e && e.isEntity && (e.isMob || e.kind === 'animal'));
 // can the player target & hit it (mobs + breakable props like bandit crates)
-export const attackable = (e) => !!e && ((isMob(e) && !e.dead) || (e.isProp && !e.broken));
+export const attackable = (e) => !!e && ((isMob(e) && !e.dead) || (e.pvp && !e.dead) || (e.isProp && !e.broken)); // (e.pvp: a remote player of a kingdom at war with mine — ui/armyHud.js, docs/REINOS.md §15)
 // melee contact distance (center to center); a.reachX = weapon reach of the attacker.
 // levels: melee only on the same story (−1 = out of reach across levels, docs/LEVELS.md §6)
 export const reach = (a, b) => (Math.abs((a.z || 0) - (b.z || 0)) < 0.5 ? a.r + (b.r || 0.3) + (a.reachX ?? 0.62) : -1);
@@ -108,7 +108,8 @@ export function applyPlayerHit(game, target, roll, opts = {}) {
 // the local player missed `target` ("Errou" + aggro); a proxy's miss is shown by the host's echo
 export function playerMiss(game, target) {
   const p = game.player;
-  if (target?.npc) { npcImmune(game, target, p); return; } // (the settlements' people: no friendly fire)
+  if (target?.npc && npcBlock(game, target, p)) { npcImmune(game, target, p); return; } // (the settlements' people: no friendly fire — an enemy guard for an enlisted player: phase 3c)
+  if (target?.remote && target.pid && !target.avatar) { game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' }); return; } // (another player: a miss is only seen here)
   { const why = soldierBlock(game, target, p); if (why) { soldierImmune(game, target, p, why); return; } } // (a kingdom's soldier the rule protects: game/soldier.js)
   if (target?.proxy) { routeHit(game, p, target, 0, { miss: true }); return; }
   game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' });
@@ -131,7 +132,7 @@ export function routeHit(game, src, dst, amount, opts = {}) {
 
 // status effects of the local player's abilities on a creature: applied on the authority, routed on guests
 export function mobEffect(game, e, eff) {
-  if (!e || e.dead || e.isProp || e.npc || soldierBlock(game, e, game.player)) return; // (the settlements' people: no friendly fire; the soldiers the rule protects)
+  if (!e || e.dead || e.isProp || (e.npc && npcBlock(game, e, game.player)) || soldierBlock(game, e, game.player) || e.remote) return; // (the settlements' people: no friendly fire; the soldiers the rule protects; players: damage only)
   if (e.proxy) { game.net.request('mob.hit', { nid: e.nid, amount: 0, noDmg: 1, eff, skin: canSkin(game) ? 1 : 0 }); return; }
   applyMobEffect(game, e, eff, game.player);
 }
@@ -146,6 +147,29 @@ function frontal(e, from) {
 // Players never hurt a kingdom's citizens or guards (phase 3 — war — opens it for enemy kingdoms only): the hit does
 // nothing and says so (a short toast, not every swing). Monsters and raiders do hurt them.
 export const playerish = (game, s) => !!s && (s === game.player || !!s.avatar || !!(s.remote && s.pid) || !!(s.owner && (s.owner === game.player || s.owner.avatar)));
+// a townsman a player may NOT hurt: everyone, except a GUARD of a place of a kingdom at war with the army the player is
+// enlisted in (game/army.js npcWhy — docs/REINOS.md §15; civilians: never)
+export const npcBlock = (game, dst, src) => (game.army?.npcWhy ? !!game.army.npcWhy(src?.owner || src, dst) : true);
+// a player hits another player (docs/REINOS.md §15: members of kingdoms at war — the host checks it again): the hitter's
+// roll goes to the host (intent pvp.hit), the victim's own client takes it (dodge, armour, block: player.hurt)
+let pvpT = -9;
+export function pvpHit(game, src, dst, amount, opts = {}) {
+  const p = game.player, why = game.army?.pvpWhy?.(game.net.pid, dst.pid, dst.name) ?? 'Não';
+  if (why) {
+    game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
+    if (p.target === dst) p.autoAttack = false;
+    if (game.time - pvpT > 4) { pvpT = game.time; game.events.emit('toast', { text: why, kind: 'warn' }); }
+    return 0;
+  }
+  if (opts.dot) return 0;
+  enterCombat(p);
+  const f = opts.from, n = Math.max(1, Math.round(amount));
+  game.net.request('pvp.hit', { pid: dst.pid, amount: n, crit: opts.crit ? 1 : 0, ranged: opts.ranged ? 1 : 0, ability: opts.ability || undefined, from: f ? [+f.x.toFixed(2), +f.y.toFixed(2)] : undefined });
+  game.events.emit('damage', { target: dst, src, amount: n, crit: !!opts.crit, kind: 'hit', ability: opts.ability });
+  game.juice.hit(dst.x, dst.y, opts.crit, null);
+  game.audio?.play(opts.crit ? 'crit' : 'hit', { x: dst.x, y: dst.y });
+  return n;
+}
 let immuneT = -9;
 export function npcImmune(game, dst, src) {
   game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
@@ -177,7 +201,8 @@ export function soldierImmune(game, dst, src, why) {
 // opts: { crit, ability, dtype:'phys'|'bleed'|'poison'|'fire', dot, noDodge, noKnock, knock, from:{x,y}, ranged, pure }
 export function dealDamage(game, src, dst, amount, opts = {}) {
   if (!dst) return 0;
-  if (dst.npc && playerish(game, src)) return npcImmune(game, dst, src); // (no friendly fire: before a guest routes the hit)
+  if (dst.npc && playerish(game, src) && npcBlock(game, dst, src)) return npcImmune(game, dst, src); // (no friendly fire: before a guest routes the hit — an enemy guard for an enlisted player: phase 3c)
+  if (dst.remote && dst.pid && !dst.avatar) return playerish(game, src) ? pvpHit(game, src, dst, amount, opts) : 0; // (another player: only by the war's rule — docs/REINOS.md §15)
   if (dst.soldier) { const why = soldierBlock(game, dst, src); if (why) return soldierImmune(game, dst, src, why); } // (a soldier: only by the rule — game/soldier.js)
   if (dst.isProp) return damageProp(game, src, dst, amount, opts);
   if (dst.dead) return 0;
@@ -275,7 +300,8 @@ export function healEntity(game, e, amount) {
 // id: 'bleed' | 'poison' | 'burn'. dmg per tick (already scaled). Refreshes an existing dot of the same id.
 export function addDot(game, target, id, { dur = 6, tick = 1, dmg = 1, src = null } = {}) {
   if (!target || target.dead) return;
-  if (target.npc && (!src || playerish(game, src))) return; // (the settlements' people: no friendly fire)
+  if (target.npc && (!src || (playerish(game, src) && npcBlock(game, target, src)))) return; // (the settlements' people: no friendly fire)
+  if (target.remote && !target.avatar) return; // (another player: direct damage only)
   if (target.soldier && (!src || soldierBlock(game, target, src))) return; // (a soldier the rule protects)
   if (target.proxy) { mobEffect(game, target, { dot: { id, dur, tick, dmg } }); return; }
   const dtype = id === 'burn' ? 'fire' : id;
@@ -371,6 +397,7 @@ export function killMob(game, m, killer) {
   if (kp) {
     die.by = kp.pid;
     die.xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, kp.level) || undefined;
+    game.army?.onKill?.(kp.pid, m); // (an enlisted player felled an enemy soldier / guard: service — game/army.js)
     if (m.onDeath) {
       const r = m.onDeath(game, m, killer); // (killer: game/warfare.js credits the player who felled a soldier)
       rows = r?.rows;
@@ -547,7 +574,8 @@ export function combatSystem() {
 // stun a mob (interrupts casts); elites resist half. Proxies: routed to the host.
 export function stun(game, m, dur, src = game.player) {
   if (!m || m.dead || m.isProp) return;
-  if (m.npc && playerish(game, src)) return; // (the settlements' people: no friendly fire)
+  if (m.npc && playerish(game, src) && npcBlock(game, m, src)) return; // (the settlements' people: no friendly fire)
+  if (m.remote && !m.avatar) return; // (another player)
   if (soldierBlock(game, m, src)) return; // (a soldier the rule protects)
   if (m.proxy) { mobEffect(game, m, { stun: dur }); return; }
   const d = m.elite ? dur * 0.5 : dur;

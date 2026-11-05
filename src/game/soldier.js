@@ -293,6 +293,7 @@ export function isFoe(game, m, e) {
   if (e.soldier) return e.soldier.k !== m.soldier.k && atWar(game, e.soldier.k, m.soldier.k);
   if (e.npc) return !!e.npc.guard && atWar(game, m.soldier.k, ownerOf(game, e.npc.sid));
   if (m.pfoe && m.pfoe.e === e && m.pfoe.until > game.worldTime) return true;
+  if (isPlayerEnt(game, e) && game.army?.soldierFoe?.(m.soldier.k, e)) return true; // (an enlisted player of a kingdom at war with it — game/army.js, docs/REINOS.md §15)
   return false;
 }
 // what an army arrow may hit (projectiles.js canHit): a foe of its shooter (players only if they fought it)

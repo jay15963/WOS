@@ -676,12 +676,12 @@ function makeCtl(game) {
       if (!o || p.dead) return false;
       const err = (text) => { if (!C._eT || game.time - C._eT > 0.8) { C._eT = game.time; game.events.emit('error', { text }); } return false; };
       if (C.cd > 0 || o._reload > 0) return err(o.type === 'trebuchet' ? 'O trabuco ainda está sendo armado no guincho…' : 'Recarregando a catapulta…');
-      if (p.inv.count(S.ammo) < 1) return err(o.type === 'trebuchet' ? 'Sem pedras de trabuco (Oficina de cerco: 6 pedras = 1)' : 'Sem pedras de catapulta (Oficina de cerco: 3 pedras = 2)');
-      p.inv.remove(S.ammo, 1);
-      game.events.emit('inv', {});
+      const army = o.realm != null; // (an army's engine: the army's stones — a soldier player operating it, phase 3c)
+      if (!army && p.inv.count(S.ammo) < 1) return err(o.type === 'trebuchet' ? 'Sem pedras de trabuco (Oficina de cerco: 6 pedras = 1)' : 'Sem pedras de catapulta (Oficina de cerco: 3 pedras = 2)');
+      if (!army) { p.inv.remove(S.ammo, 1); game.events.emit('inv', {}); }
       C.cd = S.reload;
       game.net.request('siege.fire', { id: o.id, a: +C.aimL.toFixed(4), d: +C.distL.toFixed(2) }, {
-        refund: { [S.ammo]: 1 },
+        refund: army ? undefined : { [S.ammo]: 1 },
         onReject: (why) => { C.cd = 0; if (why) game.events.emit('error', { text: why }); },
       });
       return true;

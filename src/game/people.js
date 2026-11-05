@@ -438,11 +438,12 @@ function talkIt(e) { return { kind: 'talk', o: e, x: e.x, y: e.y, reach: 1.9, ve
 // the state and the action come with the creature stream)
 const FIGHT_ACTS = new Set(['attack', 'shoot', 'stab', 'slash', 'heavy', 'pierce']);
 export const npcFighting = (e) => !!e && (e.state === 'chase' || (!!e.action && FIGHT_ACTS.has(e.action.type)));
-function tapIt(game, e) { if (!e || !e.npc || e.dead || e.z > 0.5) return null; return npcFighting(e) ? false : talkIt(e); }
+function tapIt(game, e) { if (!e || !e.npc || e.dead || e.z > 0.5) return null; if (game.army?.npcWhy && !game.army.npcWhy(game.player, e)) return null; return npcFighting(e) ? false : talkIt(e); } // (an enemy guard for an enlisted player: a tap attacks — docs/REINOS.md §15)
 function forNear(game, consider) {
   const p = game.player;
   for (const e of game.entities) {
     if (!e.npc || e.dead || Math.abs(e.x - p.x) > 2.6 || Math.abs(e.y - p.y) > 2.6 || Math.abs((e.z || 0) - (p.z || 0)) > 0.5 || npcFighting(e)) continue;
+    if (game.army?.npcWhy && !game.army.npcWhy(p, e)) continue; // (no talking with an enemy guard when enlisted against it)
     consider(talkIt(e));
   }
 }
@@ -563,6 +564,14 @@ function dangerOf(game, rec) {
   for (const e of game.entities) {
     if (e.dead || !e.isMob || e.proxy || e.npc) continue;
     if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile' || (e.soldier && game.warfare?.foeOfTown?.(S, e)))) continue; // (+ the soldiers of a kingdom at war with it: game/warfare.js)
+    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
+    if (dx * dx + dy * dy >= r2) continue;
+    foes.push(e);
+    if (per.inside(e.x, e.y, w)) inside.push(e);
+  }
+  // (an enlisted player of a kingdom at war with the place: the bell, the gates, the watch — game/army.js, phase 3c)
+  if (game.army?.en?.size) for (const e of allPlayers(game)) {
+    if (e.dead || !game.army.townFoe(S, e)) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
     if (dx * dx + dy * dy >= r2) continue;
     foes.push(e);

@@ -20,7 +20,10 @@ const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const ang = (v) => { const a = num(v, NaN); return Number.isFinite(a) ? Math.atan2(Math.sin(a), Math.cos(a)) : null; };
 const pidList = (L) => (Array.isArray(L) ? L.slice(0, PUSH_SLOTS).map((q) => (typeof q === 'string' && q ? q.slice(0, 40) : 0)) : []);
 const LAST = new Map();  // host: engine id → worldTime of its last shot / blow
-const armyEngine = (game, o) => `${BUILDINGS[o.type].name} do exército do Reino de ${game.towns?.realm?.kingdoms[o.realm]?.name || '?'}: só os engenheiros dele a usam`;
+const armyEngine = (game, o) => `${BUILDINGS[o.type].name} do exército do Reino de ${game.towns?.realm?.kingdoms[o.realm]?.name || '?'}: só quem serve nesse exército a usa`;
+// phase 3c (docs/REINOS.md §15): a player enlisted in an army of the engine's kingdom pushes / operates it (travellers and
+// everyone else: never)
+const soldierOf = (game, actor, o) => game.army?.rec?.(game.army.uidOf(actor.pid))?.k === o.realm;
 
 // ---------- artillery ----------
 defineIntent('siege.use', {
@@ -29,7 +32,7 @@ defineIntent('siege.use', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isArtyObj(o)) return 'Máquina não encontrada';
-    if (o.realm != null && a.on) return armyEngine(game, o); // (a kingdom's army's: its engineers' — game/siegeAI.js)
+    if (o.realm != null && a.on && !soldierOf(game, actor, o)) return armyEngine(game, o); // (a kingdom's army's: its engineers' and its enlisted players' — game/siegeAI.js)
     const me = actor.pid, src = actor.ent, name = BUILDINGS[o.type].name.toLowerCase(), S = ARTY[o.type];
     if (!a.on) { if (o.user === me) net.emit('siege.set', { id: o.id, user: 0 }); return; }
     if (o.blueprint) return `${BUILDINGS[o.type].name}: ainda em construção`;
@@ -37,7 +40,7 @@ defineIntent('siege.use', {
     const [px, py] = pivotOf(o);
     if (Math.hypot(src.x - px, src.y - py) > S.reach + 0.6) return o.type === 'trebuchet' ? 'Chegue mais perto do trabuco' : 'Chegue mais perto da catapulta';
     if (Math.abs((src.z || 0) - (o.lv | 0)) > 0.6) return (o.lv | 0) > (src.z || 0) ? `Suba até a ${name}` : `Desça até a ${name}`;
-    if (o.user && o.user !== me) { const q = playerByPid(game, o.user); if (q && !q.dead) return 'Já tem alguém operando'; }
+    if (o.user && o.user !== me && o.user[0] !== '~') { const q = playerByPid(game, o.user); if (q && !q.dead) return 'Já tem alguém operando'; } // (an engineer of the army steps aside for a soldier player)
     for (const b of game.build.structures) {
       if (b === o) continue;
       if (ARTY[b.type] && b.user === me) net.emit('siege.set', { id: b.id, user: 0 }); // (one at a time per player)
@@ -90,7 +93,7 @@ defineIntent('siege.push', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isPushObj(o)) return 'Máquina não encontrada';
-    if (o.realm != null && a.on) return armyEngine(game, o);
+    if (o.realm != null && a.on && !soldierOf(game, actor, o)) return armyEngine(game, o);
     const me = actor.pid, src = actor.ent, L = pidList(o.push);
     while (L.length < PUSH_SLOTS) L.push(0);
     if (!a.on) {
@@ -104,6 +107,7 @@ defineIntent('siege.push', {
     if ((src.z || 0) > 0.5) return 'Desça para o chão para empurrar';
     if (footDist(o, src.x, src.y) > PUSH_REACH + 0.6) return 'Chegue mais perto';
     if (L.includes(me)) return;
+    if (L.indexOf(0) < 0 && o.realm != null) { const s = L.findIndex((q) => q && q[0] === '~'); if (s >= 0) L[s] = 0; } // (a soldier of the crew makes room for a player of its army)
     const k = L.indexOf(0);
     if (k < 0) return 'Já tem 4 pessoas empurrando';
     for (const b of game.build.structures) {

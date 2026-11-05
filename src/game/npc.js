@@ -10,7 +10,7 @@ import { hasLOS, dealDamage, faceTowards, reach } from './combat.js';
 import { fireArrow, hostProjId } from './projectiles.js';
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
-import { allPlayers, inAnyView } from './players.js';
+import { allPlayers, inAnyView, hurtPlayer } from './players.js';
 import { seasonAt } from './seasons.js';
 import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
@@ -419,12 +419,25 @@ function flee(game, rec, m, dt) {
 
 // ---------- guards ----------
 export const hostile = (e, S = null, game = null) => (!e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile')) // (one going home — evade — cannot be hurt: let it go)
-  || (!!S && !!game && !!e.soldier && !e.dead && !e.proxy && !!game.warfare?.foeOfTown?.(S, e)); // (+ the soldiers of a kingdom at war with the place: game/warfare.js)
+  || (!!S && !!game && !!e.soldier && !e.dead && !e.proxy && !!game.warfare?.foeOfTown?.(S, e)) // (+ the soldiers of a kingdom at war with the place: game/warfare.js)
+  || (!!S && !!game && !e.isMob && !e.npc && isPl(game, e) && !!game.army?.townFoe?.(S, e)); // (+ an enlisted player of a kingdom at war with it: game/army.js — docs/REINOS.md §15)
+const isPl = (game, e) => e === game.player || !!e.avatar;
+// a blow / an arrow of the watch: a player takes it on its own client (player.hurt), a creature here
+const hitIt = (game, m, f, amount, opts) => (isPl(game, f) ? hurtPlayer(game, m, f, Math.max(1, Math.round(amount)), opts) : dealDamage(game, m, f, amount, opts));
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
   let best = null, bd = rec.danger ? Math.max(sight + 10, S.s.r * 2 + 6) : sight; // (the bell: the whole watch hears it, across the town)
   for (const e of game.entities) {
+    if (!hostile(e, S, game)) continue;
+    const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
+    if (d >= bd) continue;
+    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
+    if (dx * dx + dy * dy > R2) continue;
+    if (d > 6 && !rec.danger && !hasLOS(w, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
+    best = e; bd = d;
+  }
+  if (game.army?.en?.size) for (const e of allPlayers(game)) { // (an enlisted enemy player in the town land — phase 3c)
     if (!hostile(e, S, game)) continue;
     const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
     if (d >= bd) continue;
@@ -484,7 +497,7 @@ function guardFight(game, rec, m, dt) {
     game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
     game.later(0.22, () => {
       if (m.dead || f.dead || Math.hypot(f.x - m.x, f.y - m.y) > rng + 0.6) return;
-      dealDamage(game, m, f, m.dmg * (heavy ? 1.6 : 1) * (0.85 + R01(m) * 0.3), { from: m, ability: heavy ? act : undefined });
+      hitIt(game, m, f, m.dmg * (heavy ? 1.6 : 1) * (0.85 + R01(m) * 0.3), { from: m, ability: heavy ? act : undefined });
     });
   }
   return true;
@@ -581,7 +594,7 @@ function shoot(game, m, f) {
   const dmg = Math.max(1, Math.round(m.dmg * (0.9 + R01(m) * 0.3)));
   fireArrow(game, {
     src: m, faction: 'town', x: m.x, y: m.y, tx: f.x, ty: f.y, range: N.archerRange * 1.6, kind: 'arrow', target: f, z1: f.z || 0, canHit: (e) => hostile(e, m.npcS, game),
-    onHit: (g, e, pr) => { dealDamage(g, m, e, dmg, { ranged: true, from: { x: pr.ox, y: pr.oy } }); },
+    onHit: (g, e, pr) => { hitIt(g, m, e, dmg, { ranged: true, from: { x: pr.ox, y: pr.oy } }); },
   });
   game.audio?.play('bow', { x: m.x, y: m.y, volume: 0.45 });
 }

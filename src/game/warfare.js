@@ -241,13 +241,16 @@ export function dematerialize(game, id) {
   return out;
 }
 // a force of 3a whose fight here is over (the battle won / lost, the place taken, the siege given up): its soldiers leave,
-// the camp is struck — but it stays known until 3a takes it back (dematerialize gives its numbers)
-export function finishForce(game, F) {
+// the camp is struck, and 3a takes the numbers back AT ONCE (game.realms.settle — phase 3c: the army goes home, holds the
+// place, marches on, whoever stays near; 3a hands it to 3b again in its new shape)
+export function finishForce(game, F, outcome = null) {
   if (!F.army) { endForce(game, F); return; }
   if (F.kind === 'siege') siegeEnd(game, F);
   for (const m of [...(F.live?.values() || [])]) dropSoldier(game, F, m);
   F.done = true;
   if (F.phase !== 'end') { F.phase = 'end'; publish(game, F, true); }
+  const out = outcome || (F.kind === 'siege' ? (F.sg?.captured ? 'taken' : 'lifted') : 'lost');
+  try { game.realms?.settle?.(F.id, { n: F.n, outcome: out, x: Math.round(F.x), y: Math.round(F.y) }); } catch (e) { console.error(e); }
 }
 function endForce(game, F, quiet = false) {
   const W = game.warfare;
@@ -361,6 +364,7 @@ export function repelled(game, F) {
   // the attackers gave up: whoever fought them gets the bonus of having defended the place
   for (const B of F.rep.values()) if (B.kills || B.hits >= 3) B.d += WAR.rep.repelled;
   flushRep(game, F, true);
+  game.army?.onOutcome?.('repelled', F); // (the defenders' enlisted players near the place: the bonus — game/army.js)
 }
 
 // ---------- the defense hooks (people.js / towns.js) ----------
@@ -547,6 +551,7 @@ function forceTick(game, F, players) {
   if (F.kind === 'battle' && F.foe) { const O = W.forces.get(F.foe); if (O) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); }
   if (F.kind === 'siege' && F.sid != null) { const rec = game.people?.live?.get(F.sid); if (rec) for (const m of rec.ents.values()) if (!m.dead && m.npc.guard) F.foes.push(m); }
   for (const O of W.forces.values()) if (O !== F && O.live && O.id !== F.foe && atWar(game, O.k, F.k) && Math.hypot(O.x - F.x, O.y - F.y) < 90) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); // (another army at war nearby: a relief force)
+  if (game.army?.en?.size) for (const q of players) if (Math.hypot(game.world.dx(q.x, F.x), q.y - F.y) < 70 && game.army.soldierFoe(F.k, q)) F.foes.push(q); // (an enlisted player of a kingdom at war with it — game/army.js)
   morale(game, F);
   if (F.kind === 'siege') siegeTick(game, F);
   else if (F.kind === 'battle') battleTick(game, F);
@@ -679,12 +684,27 @@ function endBattle(game, F) {
     flushRep(game, G, true);
     // the survivors leave the field: the losers already ran; the winners stand down (gone when nobody sees them)
     report(game, { ...G, phase: st });
-    if (G.army) { G.n = Math.max(0, G.n); finishForce(game, G); } else endForce(game, G, true);
+    if (st === 'won') game.army?.onOutcome?.('won', G); // (the winners' enlisted players near the field: the bonus — game/army.js)
+    if (G.army) { G.n = Math.max(0, G.n); finishForce(game, G, st === 'won' ? 'won' : 'lost'); } else endForce(game, G, true);
   }
 }
 
 // ---------- a column on the march ----------
 function marchTick(game, F) {
+  // marching WITH an enlisted player (phase 3c: 3a's clock runs — game/realms.js maintain): the column follows the army's
+  // place on its road, at most its own pace
+  const A = F.army ? game.realms?.armies?.get(F.id) : null;
+  if (A && A.live && A.v > 0 && (A.state === 'march' || A.state === 'retreat')) {
+    game.realms.posOf(A);
+    const dx = game.world.dx(A.x, F.anchor.x), dy = A.y - F.anchor.y, d = Math.hypot(dx, dy);
+    if (d > 0.5) { F.face = { x: dx / d, y: dy / d }; F.fx = F.face.x; F.fy = F.face.y; }
+    formation(game, F, true);
+    let far = 0, c = 0;
+    for (const m of F.live.values()) { if (m.dead || !m._slot) continue; c++; if (Math.hypot(m._slot[0] - m.x, m._slot[1] - m.y) > 3) far++; }
+    if (d > 0.4 && (!c || far / c < 0.4 || d > 14)) { const s = Math.min(d, WAR.speed.march * WAR.tick * (d > 14 ? 1.6 : 1)); F.anchor.x += F.face.x * s; F.anchor.y += F.face.y * s; }
+    orders(game, F, 'slot', { eng: 0, archerEng: 0 });
+    return;
+  }
   const goal = F.path?.length ? F.path[0] : F.goal;
   if (!goal) return;
   const dx = goal.x - F.anchor.x, dy = goal.y - F.anchor.y, d = Math.hypot(dx, dy);
