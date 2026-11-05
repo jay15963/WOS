@@ -1100,7 +1100,31 @@ adarve, a praça tomada → `capture` · BT4 aríete empurrado até o portão, p
 BT5 batalha campal: fases, flechas, baixas dos dois lados, debandada, relatórios · BT6 recuo por baixas: acampamento
 desmontado, `war.end` · BT7 jogadores: coluna em paz protegida e não ataca, membro em guerra pode, viajante ajuda a
 defender (revide, +reputação com o defensor, −com o atacante, aviso), moradores protegidos · BT8 teto de 80 criaturas,
-reservas entram, custo por quadro. Todos terminam com o digest igual.
+reservas entram, custo por quadro. Todos terminam com o digest igual. Os cenários de cerco usam a vila do início
+(Estrosa, semente 4242, paliçada) e aceleram só as obras e a tomada (`WAR.siege.buildK` 0,3, `captureT` 8 s) no
+anfitrião; o resto (recarga e mira do trabuco, empurrar, rampa, pancadas) é o de sempre.
+
+**Desempenho** (Chrome headless deste PC, 1264 × 625, `game.warfare.stats` = o sistema dos soldados: cérebros, ticks
+das forças, campo de fluxo):
+
+| Cena | soldados-criatura | média / p95 / pior por quadro (sistema) | quadro inteiro (CPU) média / p95 / pior |
+|---|---|---|---|
+| batalha 220 × 200 (80 criaturas, o resto em reserva), no choque | 80 (40 + 40) | 0,11 / 0,2 / 1,1 ms | 2,3 / 3,2 / 10,7 ms |
+| cerco de 44 com torre, do acampamento à tomada | 44 | 0,09 ms (pior 5,2 ms: o quadro do plano) | — |
+
+O campo de fluxo do cerco da vila (≈ 110 × 110 tiles) custou 45 ms no total ao longo do cerco, em fatias de 0,8 ms.
+O plano (os quatro lados, as pistas, a oficina) roda um lado por tick (0,5 s), 2–5 ms cada.
+
+**Prints** (`shots/`, fora do git): `bt_camp` (o acampamento: tendas, estandartes, fogueiras, as linhas e o general),
+`bt_build` (oficina pronta, trabuco e torre em obra, engenheiros martelando), `bt_trebuchet_shot` / `_shot2` (o trabuco
+atirando, o aro onde a pedra cai), `bt_tower_push` / `bt_tower_ramp` / `bt_tower_ramp_close` (a torre empurrada, a
+rampa no alto da paliçada, soldados atravessando e descendo para dentro, uma arqueira caída), `bt_breach_fight` /
+`_fight2` (a brecha do trabuco: os atacantes entrando em coluna, um guarda segurando a abertura), `bt_ram_push` /
+`bt_ram_gate` / `bt_ram_gate_close` / `bt_gate_broken` (o aríete empurrado até o portão, a pancada, o portão quebrado),
+`bt_archers_walls` (os arqueiros do exército em linha atirando, a guarda saindo pelo portão quebrado),
+`bt_battle_lines` / `bt_battle_clash` / `bt_battle_rout` (a batalha campal: as linhas com os estandartes, o choque, a
+debandada com os caídos), `bt_general` (o general com o estandarte entre os arqueiros e a infantaria), `bt_plaza_fight`
+/ `bt_capture` (a praça tomada: "Estrosa foi tomada pelo Reino de Rabelonia!").
 
 ### Decisões (para o dono confirmar) e pendências
 

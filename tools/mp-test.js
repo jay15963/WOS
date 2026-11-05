@@ -9300,7 +9300,7 @@ def('BT8', {
   const live = (F) => [...F.live.values()].filter((m) => !m.dead).length;
   let peak = 0;
   t.watch(() => { peak = Math.max(peak, soldiersOf(H).length); }, 50);
-  await t.waitFor(() => live(FA) >= 30 && live(FB) >= 30, 30000, 'both armies out', () => `${live(FA)} / ${live(FB)}`);
+  await t.waitFor(() => live(FA) >= Math.min(30, FA.cap) && live(FB) >= Math.min(30, FB.cap), 30000, 'both armies out (each up to its cap)', () => `${live(FA)}/${FA.cap} · ${live(FB)}/${FB.cap} · quality ${H.game.quality}`);
   await t.sleep(3000);
   t.check(soldiersOf(H).length <= cap.total && live(FA) <= FA.cap && live(FB) <= FB.cap, `at most ${cap.total} soldier creatures (each side within its cap)`, `${soldiersOf(H).length} (${live(FA)}/${FA.cap} · ${live(FB)}/${FB.cap})`);
   // reserves step in

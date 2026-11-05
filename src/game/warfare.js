@@ -244,7 +244,7 @@ function spawnSpot(game, F, u, want) {
 function fillRanks(game, F) {
   const W = game.warfare, low = game.quality === 'low' ? WAR.cap.low : 1;
   const nForces = [...W.forces.values()].filter((q) => q.live && q.kind !== 'pending' && q.phase !== 'end').length || 1;
-  F.cap = Math.max(4, Math.floor(Math.min(F.kind === 'siege' ? WAR.cap.siege : WAR.cap.side, (WAR.cap.total * low) / nForces) * low));
+  F.cap = Math.max(4, Math.floor(Math.min((F.kind === 'siege' ? WAR.cap.siege : WAR.cap.side) * low, (WAR.cap.total * low) / nForces))); // (a weak device: × low, once)
   if (F.phase === 'rout' || F.phase === 'retreat' || F.phase === 'end' || F.phase === 'held' && F.t > 10) return;
   let made = 0, total = liveTotal(game), alive = aliveIn(F);
   for (const i of F.order) {
