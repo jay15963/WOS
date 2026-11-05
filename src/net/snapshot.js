@@ -23,6 +23,7 @@
 //   stock:  [[species, x, y, variant, fed, bornAt, adultAt|0, breedAt, scale, level, hp]]  owned farm animals (save file only, livestock.js)
 //   boats:  [[id, x, y, h, v, at, seats|0, pets|0]]  boats (game/boats.js; a save drops the riders: 0)
 //   eco:    { day, ev, mk, pl, pr, st }  the economy of the kingdoms (game/mut/eco.js ecoRows: markets, players, properties, town chests)
+//   realms: { day, day0, k0, rel, tens, past, own, fallen, armies, scar, news }  the kingdoms' wars (game/mut/realms.js realmRows)
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
@@ -54,6 +55,7 @@ import { isEngine, PUSH_SLOTS } from '../game/content/siege.js'; // siege engine
 import { townRows, gateRows, applyTownRows, applyGateRows } from '../game/mut/towns.js'; // settlements' shared state, players' gates (docs/REINOS.md)
 import { popRows, applyPopRows, applyProg } from '../game/mut/people.js'; // settlements' people: the dead, the world's progress (game/people.js)
 import { ecoRows, applyEcoRows } from '../game/mut/eco.js'; // the economy of the kingdoms: markets, players, properties, the town chests
+import { realmRows, applyRealmRows } from '../game/mut/realms.js'; // the kingdoms' wars: relations, owners, armies (docs/REINOS.md §13)
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -96,6 +98,7 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     tpop: popRows(game), // (settlements' people killed, not yet replaced: mut/people.js)
     wprog: game.towns?.prog || 1, // (the world's progress: the highest player level seen here — the kingdoms' people level, §7b)
     eco: ecoRows(game) || undefined, // (the economy of the kingdoms: global — markets, players' reputation / jobs, properties, town chests)
+    realms: realmRows(game) || undefined, // (the kingdoms' wars: global — relations, owners, armies, the news)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
@@ -394,6 +397,7 @@ function applyInner(game, d, mode, scope = null) {
   if (reconcile || d.tpop) applyPopRows(game, d.tpop, reconcile);
   if (reconcile || d.wprog) applyProg(game, d.wprog, reconcile);
   if (reconcile || d.eco) applyEcoRows(game, d.eco, reconcile); // (the economy: game/mut/eco.js)
+  if (reconcile || d.realms) applyRealmRows(game, d.realms, reconcile); // (the kingdoms' wars: game/mut/realms.js)
 
   // ---- camp crates ----
   applyCampState(game, arr(d.props), reconcile);

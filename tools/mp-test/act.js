@@ -20,6 +20,7 @@ const PATHS = {
   towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
   people: 'game/people.js', mpeople: 'game/mut/people.js', npc: 'game/npc.js', cpeople: 'game/content/people.js', // (the settlements' people: VL scenarios)
   eco: 'game/eco.js', meco: 'game/mut/eco.js', ecoc: 'game/content/eco.js', // (the economy of the kingdoms: EC scenarios)
+  realms: 'game/realms.js', mrealms: 'game/mut/realms.js', war: 'game/content/war.js', realmMap: 'ui/realmMap.js', // (the kingdoms' wars: WR scenarios)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {
@@ -174,6 +175,9 @@ export async function reset(t, H, MH, G, MG) {
   // that would interrupt work and fights); scenarios about the night set their own clock and restore it
   const EH = H.game.env;
   if (EH.hour >= 17.5 || EH.hour < 6.5) EH.hour = 9;
+  // the kingdoms' AI paused in every scenario (no war of its own changes the world under a test — docs/REINOS.md §13);
+  // the WR scenarios drive diplomacy and campaigns themselves
+  try { H.game.realms?.dbg?.stop?.(true); H.game.realms?.dbg?.freeze?.(false); } catch { /* ignore */ }
   for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && !e.proxy && (e.faction === 'walker' || e.spawner?.hunt || e.spawner?.loose)) { e.noCorpse = true; try { MH.combat.killMob(H.game, e, null); } catch { /* ignore */ } } // (+ creatures made by earlier scenarios: ensureMobs)
   const sp = H.game.world.spawn;
   pacify(H, sp.x, sp.y, 24, 90); // the spawn ring holds only passive animals; strays from earlier scenarios calm down

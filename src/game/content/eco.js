@@ -53,6 +53,19 @@ export const RANKS = [
   { min: 700, name: 'Herói do Reino', disc: 0.05 },
 ];
 export const rankOf = (rep) => { let k = 0; for (let i = 0; i < RANKS.length; i++) if ((rep | 0) >= RANKS[i].min) k = i; return k; };
+// negative reputation (phase 3a, owner's rule — docs/REINOS.md §10 "Reputação herdada"): trade is still allowed, at worse
+// prices (buy × (1 + buy), sell × (1 − sell)); no joining the kingdom, no houses / plots there. Negative is not enemy.
+export const BAD_RANKS = [
+  { max: -1, floor: -24, name: 'Desconfiado', buy: 0.2, sell: 0.2 },
+  { max: -25, floor: -99, name: 'Malvisto', buy: 0.5, sell: 0.4 },
+  { max: -100, floor: -200, name: 'Odiado', buy: 1, sell: 0.6 },
+];
+export const badRankOf = (rep) => ((rep | 0) >= 0 ? -1 : (rep | 0) <= -100 ? 2 : (rep | 0) <= -25 ? 1 : 0);
+export const rankName = (rep) => { const b = badRankOf(rep); return b >= 0 ? BAD_RANKS[b].name : RANKS[rankOf(rep)].name; };
+// a band index that orders every band (negative ones below 0) — for "up / down a band" notices
+export const bandOf = (rep) => { const b = badRankOf(rep); return b >= 0 ? -1 - b : rankOf(rep); };
+// joining a kingdom: its relations become the player's reputation with every other kingdom (replacing the old values)
+export const INHERIT = { ally: 40, truce: -15, war: -60, neutral: 0 };
 export const REP = { tradeCoins: 60, tradeDayCap: 10, abandon: -3, fail: -2, seized: -15, buyRank: 1 };
 
 // ---------- jobs ----------

@@ -41,6 +41,7 @@ import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, i
 import { perimeterOf, openings, threatOf, assignDefense } from './defense.js';
 import { deadMap } from './mut/people.js';
 import { STORY_H } from './levels.js';
+import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (its guards wear its colours)
 
 const TAU = Math.PI * 2;
 export const CODE = /^p(\d+)\.(\d+)$/;
@@ -88,7 +89,7 @@ function lookOf(S, P, r) {
 export function buildPeople(game, sid) {
   const T = game.towns, R = T?.realm, s = R?.settlements[sid];
   if (!s) return null;
-  const L = T.layout(sid), K = R.kingdoms[s.k], B = K.banner;
+  const L = T.layout(sid), K = R.kingdoms[ownerOf(game, sid)], B = K.banner; // (a captured place: the conqueror's tabards)
   const S = { sid, s, L, K, kind: s.kind, name: s.name, seed: hash((s.seed | 0) ^ 0x51ed, sid), persons: [], homes: [], works: [] };
   const metal = METALS[B.m] || METALS.or;
   S.crest = { f: K.color.map((v) => v / 255), m: metal.map((v) => v / 255), fh: hex3(K.color), mh: hex3(metal), d: B.d || 'plain' };
@@ -573,7 +574,7 @@ function dangerOf(game, rec) {
 // side, a guard dead / back
 function defenseTick(game, rec) {
   const S = rec.S, ops = openings(game, S), D = deadMap(game);
-  rec.threat = rec.danger ? threatOf(game, S, rec.foes || [], rec.threat) : null;
+  rec.threat = rec.danger ? threatOf(game, S, rec.foes || [], rec.threat) || game.realms?.siegeThreat?.(S.sid, rec.threat) || null : null; // (the besiegers' camp side)
   let dk = 0;
   for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
   const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}`;
@@ -625,7 +626,7 @@ export function peopleSystem() {
         for (const sid of near) {
           let rec = Pp.live.get(sid);
           if (!rec) { const S = peopleOf(game, sid); if (!S) continue; rec = { sid, S, ents: new Map(), danger: false, dangerT: 0, repair: null, defSig: '' }; S.def = null; Pp.live.set(sid, rec); }
-          const dg = dangerOf(game, rec);
+          const dg = dangerOf(game, rec) || !!game.realms?.besieged?.(sid); // (phase 3a: an army besieging it — the bell, home, the walls)
           if (dg) rec.dangerT = game.worldTime;
           const was = rec.danger;
           rec.danger = dg || (rec.danger && game.worldTime - rec.dangerT < 6); // (a few calm seconds before the all-clear)

@@ -4,6 +4,7 @@
 //   span > 5000 tiles: kingdom names + capitals (dots) · 1600–5000: + castles, capital names · < 1600: everything named
 // The radar (small span) gets the borders, the roads and the settlements around the player.
 import { drawShield, bannerURL } from './heraldry.js';
+import { drawWar, drawWarBorders, warOn } from './warMap.js'; // the wars on the map: armies, sieges, battles, borders at war (phase 3a)
 
 const TPP = 8, RW = 16384 / TPP, RH = 8192 / TPP; // 2048 × 1024
 const INK = '#24160d', CREAM = '#f6ead0';
@@ -40,37 +41,73 @@ function mapColor0(col) {
   return [Math.round((R + m) * 255), Math.round((G + m) * 255), Math.round((B + m) * 255)];
 }
 
-// the territory raster: fill (kingdom colour, translucent) + a border line where the owner changes
-function territories(realm) {
-  if (CACHE && CACHE.realm === realm) return CACHE;
-  const own = new Uint8Array(RW * RH), MW = 512;
+// the territory raster: fill (kingdom colour, translucent) + a border line where the owner changes. Phase 3a (docs/
+// REINOS.md §13): each pixel keeps its district (the place whose land it is), so a captured place's land takes its new
+// kingdom's colour — only the pixels that changed are painted again (a capture costs a few ms, not a new raster)
+const kOfSids = (game, realm) => { const K = new Int16Array(realm.settlements.length + 1); for (const s of realm.settlements) K[s.id + 1] = (game.realms?.owner?.(s.id) ?? s.k) + 1; return K; };
+function paint(T, realm, x0, y0, x1, y1) {
+  const { pk, imF, imE } = T, d = imF.data, e = imE.data;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = y * RW + x, k = pk[i], o = i * 4;
+    if (!k) { d[o + 3] = 0; e[o + 3] = 0; continue; }
+    const col = mapColor(realm.kingdoms[k - 1].color);
+    const r = pk[y * RW + ((x + 1) % RW)], l = pk[y * RW + ((x + RW - 1) % RW)], up = y > 0 ? pk[i - RW] : k, dn = y < RH - 1 ? pk[i + RW] : k;
+    d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 165;
+    if (r !== k || l !== k || up !== k || dn !== k) { e[o] = col[0] * 0.45; e[o + 1] = col[1] * 0.45; e[o + 2] = col[2] * 0.45; e[o + 3] = 240; } else e[o + 3] = 0;
+  }
+}
+function centresOf(game, realm) {
+  const MW = 512, sum = realm.kingdoms.map(() => [0, 0, 0]), K = kOfSids(game, realm);
+  for (let i = 0; i < realm.owner.length; i++) { if (!realm.owner[i]) continue; const dd = realm.district[i], k = dd ? K[dd] : realm.owner[i]; if (!k) continue; const s = sum[k - 1]; s[0] += (i % MW) * 32 + 16; s[1] += Math.floor(i / MW) * 32 + 16; s[2]++; }
+  return sum.map((s, k) => (s[2] ? [s[0] / s[2], s[1] / s[2]] : [realm.settlements[realm.kingdoms[k].capital].x, realm.settlements[realm.kingdoms[k].capital].y]));
+}
+export function territories(game) {
+  const realm = game.towns.realm, ov = game.realms?.ov || 0;
+  if (CACHE && CACHE.realm === realm) {
+    if (CACHE.ov !== ov) recolor(game, CACHE);
+    return CACHE;
+  }
+  const own = new Uint8Array(RW * RH), dist = new Uint16Array(RW * RH), MW = 512;
   for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
     // jittered lookup (±0.7 cell): organic borders instead of 32-tile steps
     const u = (x + 0.5) / 4 + (vnoise(x / 9, y / 9) - 0.5) * 1.4, v = (y + 0.5) / 4 + (vnoise(x / 9 + 71, y / 9 + 13) - 0.5) * 1.4;
     const cx = ((Math.floor(u) % MW) + MW) % MW, cy = Math.max(0, Math.min(255, Math.floor(v)));
     own[y * RW + x] = realm.owner[cy * MW + cx];
+    dist[y * RW + x] = own[y * RW + x] ? realm.district[cy * MW + cx] : 0;
   }
+  const K = kOfSids(game, realm), pk = new Uint8Array(RW * RH);
+  for (let i = 0; i < pk.length; i++) pk[i] = dist[i] ? K[dist[i]] : own[i];
   // two layers drawn with their own strength (drawRealm): the fill (soft, all the land of the kingdom) and the border line
   const mk = () => { const c = document.createElement('canvas'); c.width = RW; c.height = RH; return c; };
   const fill = mk(), edges = mk();
-  const gf = fill.getContext('2d'), ge = edges.getContext('2d'), imF = gf.createImageData(RW, RH), imE = ge.createImageData(RW, RH), d = imF.data, e = imE.data;
-  for (let y = 0; y < RH; y++) for (let x = 0; x < RW; x++) {
-    const i = y * RW + x, k = own[i];
-    if (!k) continue;
-    const col = mapColor(realm.kingdoms[k - 1].color);
-    const r = own[y * RW + ((x + 1) % RW)], l = own[y * RW + ((x + RW - 1) % RW)], up = y > 0 ? own[i - RW] : k, dn = y < RH - 1 ? own[i + RW] : k;
-    const o = i * 4;
-    d[o] = col[0]; d[o + 1] = col[1]; d[o + 2] = col[2]; d[o + 3] = 165;
-    if (r !== k || l !== k || up !== k || dn !== k) { e[o] = col[0] * 0.45; e[o + 1] = col[1] * 0.45; e[o + 2] = col[2] * 0.45; e[o + 3] = 240; }
-  }
-  gf.putImageData(imF, 0, 0); ge.putImageData(imE, 0, 0);
+  const gf = fill.getContext('2d'), ge = edges.getContext('2d');
+  CACHE = { realm, fill, edges, gf, ge, imF: gf.createImageData(RW, RH), imE: ge.createImageData(RW, RH), own, dist, pk, ov, centres: null };
+  paint(CACHE, realm, 0, 0, RW - 1, RH - 1);
+  gf.putImageData(CACHE.imF, 0, 0); ge.putImageData(CACHE.imE, 0, 0);
   // where to write each kingdom's name: the mean of its cells (the capital's continent)
-  const sum = realm.kingdoms.map(() => [0, 0, 0]);
-  for (let i = 0; i < realm.owner.length; i++) { const k = realm.owner[i]; if (!k) continue; const s = sum[k - 1]; s[0] += (i % MW) * 32 + 16; s[1] += Math.floor(i / MW) * 32 + 16; s[2]++; }
-  const centres = sum.map((s, k) => (s[2] ? [s[0] / s[2], s[1] / s[2]] : [realm.settlements[realm.kingdoms[k].capital].x, realm.settlements[realm.kingdoms[k].capital].y]));
-  CACHE = { realm, fill, edges, centres };
+  CACHE.centres = centresOf(game, realm);
   return CACHE;
 }
+// places changed kingdoms: the pixels whose owner changed (and the ring of border around them) are painted again
+function recolor(game, T) {
+  const realm = T.realm, K = kOfSids(game, realm), { pk, own, dist } = T;
+  let x0 = RW, y0 = RH, x1 = -1, y1 = -1;
+  for (let i = 0; i < pk.length; i++) {
+    const k = dist[i] ? K[dist[i]] : own[i];
+    if (k === pk[i]) continue;
+    pk[i] = k;
+    const x = i % RW, y = (i - x) / RW;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  T.ov = game.realms?.ov || 0;
+  T.centres = centresOf(game, realm);
+  if (x1 < 0) return;
+  x0 = Math.max(0, x0 - 1); y0 = Math.max(0, y0 - 1); x1 = Math.min(RW - 1, x1 + 1); y1 = Math.min(RH - 1, y1 + 1);
+  paint(T, realm, x0, y0, x1, y1);
+  T.gf.putImageData(T.imF, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+  T.ge.putImageData(T.imE, 0, 0, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+}
+export const TERR = { RW, RH, TPP };
 
 // glyphs: a village (house), a castle (tower), a city (walls with towers); size s px
 function glyph(ctx, kind, X, Y, s, col) {
@@ -98,7 +135,7 @@ function shieldImg(K) {
 export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, H) {
   const realm = game.towns?.realm;
   if (!realm) return;
-  const T = territories(realm);
+  const T = territories(game);
   // territories (repeated across the seam like the planet picture)
   ctx.save();
   ctx.imageSmoothingEnabled = true;
@@ -117,6 +154,8 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
   layer(T.fill, !full ? 0.14 : sw > 4000 ? 1 : sw > 1500 ? 0.6 : 0.16);
   layer(T.edges, !full ? 0.6 : sw > 1500 ? 1 : 0.85);
   ctx.globalAlpha = 1;
+  // the borders of kingdoms at war: red (phase 3a, ui/warMap.js)
+  if (warOn(game)) drawWarBorders(ctx, game, T, sx, sy, sw, sh, kx, ky, full);
   // roads (zoomed in enough)
   if (sw < 6000) {
     const pad = 40, x0 = sx - pad, x1 = sx + sw + pad, y0 = sy - pad, y1 = sy + sh + pad, w = game.world;
@@ -143,6 +182,7 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
     if (!full || sw < 900) return;
     const w = game.world;
     for (const K of realm.kingdoms) {
+      if (game.realms?.fallen?.has(K.id)) continue; // (a fallen kingdom has no name on the map any more)
       const [cx, cy] = T.centres[K.id], X = toX(w.near(cx, sx + sw / 2)), Y = toY(cy);
       if (X < -80 || Y < -40 || X > W + 80 || Y > H + 40) continue;
       const fs = sw > 5000 ? 12 : sw > 1600 ? 15 : 18;
@@ -158,7 +198,7 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
     .filter(([, X, Y]) => X > -40 && Y > -40 && X < W + 40 && Y < H + 40).sort((a, b) => RANK[a[0].kind] - RANK[b[0].kind] || b[0].pop - a[0].pop);
   ctx.textAlign = 'center';
   for (const [s, X, Y] of list) {
-    const K = realm.kingdoms[s.k], col = `rgb(${mapColor(K.color).join(',')})`;
+    const K = realm.kingdoms[game.realms?.owner?.(s.id) ?? s.k], col = `rgb(${mapColor(K.color).join(',')})`; // (a captured place: its new kingdom's colour)
     const gs = s.kind === 'city' ? (full ? 13 : 10) : s.kind === 'castle' ? (full ? 10 : 8) : full ? 8 : 6;
     // the town land as a ring when zoomed in
     if (full && sw < 1200) { ctx.strokeStyle = 'rgba(246,234,208,0.6)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.arc(X, Y, s.r * kx, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
@@ -184,5 +224,7 @@ export function drawRealm(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, 
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  // armies, sieges and battles on top (phase 3a, ui/warMap.js)
+  if (warOn(game)) drawWar(ctx, game, sx, sy, sw, sh, kx, ky, full, toX, toY, W, H);
 }
 export { drawShield };
