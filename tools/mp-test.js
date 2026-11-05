@@ -8543,7 +8543,7 @@ def('EC2', {
 def('EC3', {
   title: 'EC: a harvest job — accepted on the mural, the crops harvested on the town\'s fields, turned in and paid, reputation up (both peers)',
   src: 'village', timeout: 240000,
-  expected: 'A village near the start has a "Colher N …" job on its board (Trabalhos); the guest accepts it (button Aceitar): the job is in its record on both peers, the HUD tracker shows it; it harvests the wild crops of that kind on the town\'s fields: the host counts each one (eco.prog) — the progress N/N on both; the tracker says "Pronto"; at the mural "Entregar" pays the coins and raises the reputation with that kingdom on both peers; the job is done (not on the list, in done); digest equal',
+  expected: 'A village near the start has a "Colher N …" job on its board (Trabalhos) whose waypoint lies on a real field of that crop (docs/REINOS.md §10 "Trabalhos possíveis"); the guest accepts it (button Aceitar): the job is in its record on both peers, the HUD tracker shows it; near the fields the marker (game.eco.wp) stands on a real plant of that crop on the place\'s fields and the tracker names it ("pé de …"); it harvests the wild crops of that kind on the town\'s fields: the host counts each one (eco.prog) — the progress N/N on both; the tracker says "Pronto"; at the mural "Entregar" pays the coins and raises the reputation with that kingdom on both peers; the job is done (not on the list, in done); digest equal',
   api: 'game/eco.js boardOf / onOp (net.js hook) / jobState, mut/eco.js job.take / job.done → eco.job / eco.prog, ui/ecoHud.js #jtrack',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -8554,6 +8554,8 @@ def('EC3', {
   for (const q of nearVillages(H, R, s0)) { const j = MH.eco.boardOf(H.game, q.id).find((x) => x.t === 'harvest' && x.n <= 10); if (j) { job = j; vil = q; break; } }
   t.need(job, 'a harvest job on a village board near the start');
   t.log(`job ${job.id} at ${vil.name}: ${job.title}`);
+  const L0 = H.game.towns.layout(vil.id);
+  t.check(L0.fields.some((f) => f.crop === 'wild_' + job.crop && job.x >= f.x0 && job.x <= f.x1 && job.y >= f.y0 && job.y <= f.y1), 'the job\'s waypoint lies on a field of that crop (not between the fields)', `${f2(job.x)},${f2(job.y)}`);
   await toMural(t, H, MH, G, MG, vil.id);
   muralTab(G, vil.id, 'jobs');
   const btn = await t.waitFor(() => G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`), 3000, 'the job on the board');
@@ -8567,6 +8569,13 @@ def('EC3', {
   const fields = L.fields.filter((f) => f.crop === type);
   const inF = (o) => fields.some((f) => o.x >= f.x0 && o.x <= f.x1 + 1 && o.y >= f.y0 && o.y <= f.y1 + 1);
   const centres = fields.map((f) => [(f.x0 + f.x1 + 1) / 2, (f.y0 + f.y1 + 1) / 2]);
+  // near the fields: the marker stands on a real plant of the crop (the nearest), the tracker names it
+  if (G.game.eco.track !== job.id) { G.game.eco.track = job.id; G.game.eco.wp = MG.eco.jobWaypoint(G.game, recOn(G, uid).jobs.find((j) => j.id === job.id)); }
+  const nf = A.freeSpot(G, MG, job.x, job.y + 9, { rMin: 0, rMax: 4 }) || [job.x, job.y + 9];
+  A.teleport(G, nf[0], nf[1]);
+  const onPlant = () => { const wp = G.game.eco.wp; return wp && A.shared(G, null, wp.x, wp.y + 0.25, 0.3, (q) => q.type === type && !q.gone && inF(q))[0]; };
+  await t.waitFor(onPlant, 4000, 'the marker stands on a real plant of the crop on the fields', () => JSON.stringify(G.game.eco.wp));
+  t.check(/pé de/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 'the tracker names the plant it leads to', short(G.doc.querySelector('#jtrack')?.textContent, 90));
   let done = 0;
   for (let tries = 0; tries < job.n + 8 && done < job.n; tries++) {
     let o = null;
