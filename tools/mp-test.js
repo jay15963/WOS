@@ -7797,9 +7797,9 @@ def('KG6', {
 });
 
 def('KG7', {
-  title: 'KG: the mural panel (Lugar / Reino / Trabalhos / Comércio / Exército "Em breve" / Propriedades) and the map data (territories, borders, names) match on both peers',
+  title: 'KG: the mural panel (Lugar / Reino / Trabalhos / Comércio / Exército / Propriedades) and the map data (territories, borders, names) match on both peers',
   src: 'village', timeout: 120000,
-  expected: 'The guest opens the mural of the start village (E): the panel shows the place\'s name, kind, kingdom ("Reino de …"), population and the kingdom\'s banner; the tabs Lugar, Reino, Trabalhos, Comércio, Exército, Propriedades — Trabalhos, Comércio and Propriedades hold the economy (EC scenarios), Exército says "Em breve"; opening it removes the gold "!" over the murals. The map: game.towns.at(x, y) gives the same kingdom / town / district on both peers along a line through the kingdom; the map window draws the territories without errors on both; the place banner said "Reino de …" / the village name',
+  expected: 'The guest opens the mural of the start village (E): the panel shows the place\'s name, kind, kingdom ("Reino de …"), population and the kingdom\'s banner; the tabs Lugar, Reino, Trabalhos, Comércio, Exército, Propriedades — Trabalhos, Comércio and Propriedades hold the economy (EC scenarios), Exército the army and its enlistment (phase 3c); opening it removes the gold "!" over the murals. The map: game.towns.at(x, y) gives the same kingdom / town / district on both peers along a line through the kingdom; the map window draws the territories without errors on both; the place banner said "Reino de …" / the village name',
   api: 'ui/mural.js (panel), ui/realmMap.js, ui/placebanner.js, game.towns.at / info',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -7814,11 +7814,11 @@ def('KG7', {
   t.check(txt().includes(s0.name) && txt().includes(`Reino de ${K.name}`) && /População/.test(txt()) && !!G.doc.querySelector('.p-mural .mu-ban'), 'name, kind, kingdom, population and banner', short(txt().replace(/\s+/g, ' '), 140));
   const tabs = [...G.doc.querySelectorAll('.p-mural [data-mtab]')].map((b) => b.textContent.replace(/[·\s]+$/g, '').trim());
   t.check(['Lugar', 'Reino', 'Trabalhos', 'Comércio', 'Exército', 'Propriedades'].every((n) => tabs.some((x) => x.startsWith(n))), 'the six tabs', tabs.join(' | '));
-  // phase 2 (the economy, EC scenarios): Trabalhos / Comércio / Propriedades are real; Exército stays "Em breve" (phase 3)
-  for (const [k, re] of [['jobs', /Quadro de/], ['trade', /Sua bolsa/], ['army', /Em breve/], ['land', /Casas à venda|não vende/]]) {
+  // phase 2 (the economy, EC scenarios): Trabalhos / Comércio / Propriedades are real; Exército: the army and the enlistment (phase 3c)
+  for (const [k, re] of [['jobs', /Quadro de/], ['trade', /Sua bolsa/], ['army', /Alistamento|Você está no exército/], ['land', /Casas à venda|não vende/]]) {
     G.doc.querySelector(`.p-mural [data-mtab=${k}]`)?.click();
     await t.sleep(120);
-    t.check(re.test(txt()) && (k === 'army' || !/Em breve/.test(txt())), `${k}: ${re}`);
+    t.check(re.test(txt()) && !/Em breve/.test(txt()), `${k}: ${re}`);
   }
   G.doc.querySelector('.p-mural [data-mtab=realm]')?.click();
   await t.sleep(80);
@@ -9158,7 +9158,7 @@ def('WR2', {
   // the Exército tab of a place of that kingdom
   muralTab(G, main.home, 'army');
   await t.sleep(300);
-  t.check(/Campanhas do Reino/.test(ecoTxt(G)) && /marchando sobre/.test(ecoTxt(G)) && /Em breve/.test(ecoTxt(G)), 'mural Exército: the place\'s army, the campaign (marchando sobre …) and "Entrar no exército: Em breve"', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Campanhas')), 200));
+  t.check(/Campanhas do Reino/.test(ecoTxt(G)) && /marchando sobre/.test(ecoTxt(G)) && /Alistamento|Você está no exército/.test(ecoTxt(G)), 'mural Exército: the place\'s army, the campaign (marchando sobre …) and the enlistment (phase 3c)', short(ecoTxt(G).slice(ecoTxt(G).indexOf('Campanhas')), 200));
   G.game.ui.panels.close();
   // the markets: war news at the front
   await ecoReady(t, H, G);

@@ -24,6 +24,7 @@
 //   boats:  [[id, x, y, h, v, at, seats|0, pets|0]]  boats (game/boats.js; a save drops the riders: 0)
 //   eco:    { day, ev, mk, pl, pr, st }  the economy of the kingdoms (game/mut/eco.js ecoRows: markets, players, properties, town chests)
 //   realms: { day, day0, k0, rel, tens, past, own, fallen, armies, scar, news }  the kingdoms' wars (game/mut/realms.js realmRows)
+//   army:   { en, des }  the players in the armies (game/mut/army.js armyRows: enlistment, rank, service, pay, deserters)
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
@@ -57,6 +58,7 @@ import { popRows, applyPopRows, applyProg } from '../game/mut/people.js'; // set
 import { ecoRows, applyEcoRows } from '../game/mut/eco.js'; // the economy of the kingdoms: markets, players, properties, the town chests
 import { realmRows, applyRealmRows } from '../game/mut/realms.js'; // the kingdoms' wars: relations, owners, armies (docs/REINOS.md §13)
 import { warRows, applyWarRows } from '../game/mut/warfare.js'; // the armies near the players: forces, the structures of an army (docs/REINOS.md §14)
+import { armyRows, applyArmyRows } from '../game/mut/army.js'; // the players in the armies (docs/REINOS.md §15)
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -100,6 +102,7 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     wprog: game.towns?.prog || 1, // (the world's progress: the highest player level seen here — the kingdoms' people level, §7b)
     eco: ecoRows(game) || undefined, // (the economy of the kingdoms: global — markets, players' reputation / jobs, properties, town chests)
     realms: realmRows(game) || undefined, // (the kingdoms' wars: global — relations, owners, armies, the news)
+    army: armyRows(game) || undefined, // (the players in the armies: global — enlistment, rank, service, pay, deserters)
     war: warRows(game, save) || undefined, // (the armies near the players: the forces' public rows, the structures of an army — o.realm)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
@@ -401,6 +404,7 @@ function applyInner(game, d, mode, scope = null) {
   if (reconcile || d.eco) applyEcoRows(game, d.eco, reconcile); // (the economy: game/mut/eco.js)
   if (reconcile || d.realms) applyRealmRows(game, d.realms, reconcile); // (the kingdoms' wars: game/mut/realms.js)
   if (reconcile || d.war || mode === 'load') applyWarRows(game, d.war, mode); // (the armies: game/mut/warfare.js)
+  if (reconcile || d.army) applyArmyRows(game, d.army, reconcile); // (the players in the armies: game/mut/army.js)
 
   // ---- camp crates ----
   applyCampState(game, arr(d.props), reconcile);
