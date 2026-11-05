@@ -21,7 +21,7 @@
 // Owner: the bill (own message eco.collect) is paid from the coins in the BACKPACK (coins kept in chests never count).
 
 import { GOODS, NG, GI, PRICE, MARKET, SEASON_FOOD, SEASON_MEAT, CROP_FOODS, WARM_CLOTHES, EVENTS, RANKS, rankOf, REP, JOB_KINDS, JOB_MAX, BAD_RANKS, badRankOf, rankName, bandOf, INHERIT,
-  GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL, JOB_SITE } from './content/eco.js';
+  GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL, TRADE, JOB_SITE } from './content/eco.js';
 import { ITEMS, BUILDINGS, SPECIES } from './data.js';
 import { baseHeight } from '../world/planet/chunk.js';
 import { canReach } from '../world/realm/realm.js';
@@ -162,14 +162,14 @@ function makeProfile(game, R, s, F) {
   if (kind === 'village') P('wood', 0.8); // (every village has woodcutters)
   // the workshops
   if (f.sawmill) { P('wood', 2.2); }
-  if (f.smithy) { P('iron_bar', 0.6); P('copper_bar', 0.5); P('axe_iron', 1); P('pickaxe_iron', 1); P('arrow', 0.8); C('coal', 1); C('iron_ore', 1); C('copper_ore', 0.6); }
+  if (f.smithy) { P('iron_bar', 0.6); P('copper_bar', 0.5); P('axe_iron', 1); P('pickaxe_iron', 1); P('arrow', 0.8); for (const id of ['knife_copper', 'axe_copper', 'pickaxe_copper', 'shovel_copper']) P(id, 0.6); C('coal', 1); C('iron_ore', 1); C('copper_ore', 0.6); }
   if (f.mine) { P('stone', 2); P('copper_ore', 1.2); P('iron_ore', 1); P('coal', 1.2); P('gold_ore', gems < 0.35 ? 1 : 0.3); if (gems < 0.25) P('jade', 1); C('pickaxe_iron', 1); C('rope', 0.6); C('meat', 0.3); }
   if (f.weaver) { P('cloth', 1.8); P('rope', 1.2); P('tunic_cloth', 1.2); C('cotton', 1.2); C('wool', 1.2); }
   if (f.tavern) { P('bread', 1.2); P('stew', 1.5); C('wheat', 0.6); C('meat', 0.5); C('potato', 0.4); }
   if (f.chapel) P('herb', 1.2);
   if (f.stable) { P('saddle', 0.8); P('leather', 0.5); C('wheat', 0.5); }
   if (f.granary) P('bread', 0.3);
-  if (f.barracks) { for (const [id, v] of [['arrow', 2], ['sword_iron', 1.5], ['spear_iron', 1.5], ['shield_iron', 1.2], ['armor_iron', 1], ['helmet_iron', 1], ['bow_wood', 1], ['armor_leather', 1], ['saddle', 0.6], ['bread', 0.5], ['meat', 0.5]]) C(id, v); }
+  if (f.barracks) { for (const [id, v] of [['arrow', 2], ['sword_iron', 1.5], ['spear_iron', 1.5], ['shield_iron', 1.2], ['armor_iron', 1], ['helmet_iron', 1], ['bow_wood', 1], ['armor_leather', 1], ['saddle', 0.6], ['bread', 0.5], ['meat', 0.5], ['spear_copper', 1], ['sword_copper', 1], ['shield_copper', 0.8], ['helmet_copper', 0.8], ['armor_copper', 0.6]]) C(id, v); }
   if (f.keep) { for (const [id, v] of [['gold_bar', 1], ['jade', 1], ['cloth', 0.8], ['steel_bar', 0.6], ['stew', 0.6]]) C(id, v); }
   // the kind of place
   if (kind === 'village') for (const [id, v] of [['rope', 0.5], ['cloth', 0.6], ['axe_iron', 0.6], ['pickaxe_iron', 0.5], ['tunic_cloth', 0.4], ['herb', 0.5], ['stone', 0.4], ['coal', 0.3], ['iron_bar', 0.4]]) C(id, v);
@@ -186,17 +186,18 @@ function makeProfile(game, R, s, F) {
   // reference stocks (demand) and what is traded there
   const scale = Math.max(0.4, (s.pop || 50) / 50) * (kind === 'castle' ? 1.2 : 1);
   const ref = new Float32Array(NG), deals = new Uint8Array(NG);
-  const BASIC_V = new Set(['wheat', 'potato', 'corn', 'meat', 'fish_raw', 'bread', 'wood', 'stone', 'cotton', 'wool', 'leather', 'herb', 'coal', 'rope', 'cloth', 'arrow', 'axe_iron', 'pickaxe_iron', 'tunic_cloth', 'coat_fur']);
   for (let i = 0; i < NG; i++) {
     const [id, , cat, vol] = GOODS[i];
     let r = vol * scale;
     if (f.granary && cat === 'food') r *= 1.3;
     if (f.storehouse) r *= 1.2;
     ref[i] = Math.max(1, Math.round(r * 10) / 10);
-    deals[i] = kind === 'city' || p[i] > 0.3 || c[i] > 0.9 || (kind === 'village' && BASIC_V.has(id)) || (kind === 'castle' && (cat === 'food' || cat === 'arms')) ? 1 : 0;
+    // (owner, Mount & Blade's logic — content/eco.js TRADE): a village the simple civil goods, a city everything civil, a
+    // castle the military goods, their materials and rations
+    deals[i] = kind === 'city' ? (cat !== 'arms' ? 1 : 0)
+      : kind === 'castle' ? (cat === 'arms' || TRADE.castleRations.has(id) ? 1 : 0)
+      : (TRADE.village.has(id) || (f.mine && TRADE.villageMine.has(id)) ? 1 : 0);
   }
-  if (cold) deals[GI.hat_fur] = 1;
-  if (!f.tavern && kind === 'village' && p[GI.stew] < 0.3) deals[GI.stew] = 0;
   return { sid: s.id, kind, f, crops, pens, fish, zone, T, p, c, ref, deals, feat: F };
 }
 

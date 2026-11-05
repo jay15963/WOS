@@ -8497,7 +8497,7 @@ def('EC1', {
 def('EC2', {
   title: 'EC: prices differ between a farm village and the city (supply and demand), buying in the city raises the price there, both peers agree',
   src: 'village', timeout: 180000,
-  expected: 'The farm village of the start kingdom that grows the most wheat sells wheat cheaper than the capital city (which eats it); the city sells a crafted good (iron bars) and arms (swords) cheaper than a castle of the kingdom, which buys them; the guest walks to the city\'s mural and buys 20 wheat: the stock there drops by 20 on both, each unit costs more than the one before (the quote of the 20th > the 1st); the farm village\'s stock is untouched; digest equal',
+  expected: 'The farm village of the start kingdom that grows the most wheat sells wheat cheaper than the capital city (which eats it); the city sells a crafted good (iron bars) cheaper than a castle of the kingdom, which buys them; what each kind of place trades (a village the simple civil goods, the city everything civil, a castle the arms); the guest walks to the city\'s mural and buys 20 wheat: the stock there drops by 20 on both, each unit costs more than the one before (the quote of the 20th > the 1st); the farm village\'s stock is untouched; digest equal',
   api: 'game/eco.js profileOf / balanceOf / priceFactor / quoteBuy, mut/eco.js trade.buy',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -8515,9 +8515,13 @@ def('EC2', {
   const castle = K.settlements.map((i) => R.settlements[i]).find((q) => q.kind === 'castle' && MH.eco.profileOf(H.game, q.id).deals[ii]);
   if (castle) {
     t.check(price(H, MH, city.id, ii) < price(H, MH, castle.id, ii), 'iron bars: cheaper in the city (it forges them) than in a castle (it buys them)', `${price(H, MH, city.id, ii).toFixed(1)} / ${price(H, MH, castle.id, ii).toFixed(1)}`);
-    const si = MH.eco.GI.sword_iron;
-    t.check(price(H, MH, city.id, si) < price(H, MH, castle.id, si), 'swords: cheaper in the city than in the castle (arms wanted there)', `${price(H, MH, city.id, si).toFixed(0)} / ${price(H, MH, castle.id, si).toFixed(0)}`);
   } else t.note('no castle of the kingdom trades iron bars');
+  // owner (Mount & Blade's logic): a village trades the simple civil goods, the city everything civil, a castle the arms
+  const D = (sid) => MH.eco.profileOf(H.game, sid).deals, GI = MH.eco.GI, dv = D(farm.id), dc = D(city.id);
+  const castle2 = K.settlements.map((i) => R.settlements[i]).find((q) => q.kind === 'castle'), dk = castle2 ? D(castle2.id) : null;
+  t.check(dv[GI.bread] && dv[GI.wood] && !dv[GI.axe_iron] && !dv[GI.tunic_cloth] && !dv[GI.stew] && !dv[GI.sword_iron] && !dv[GI.armor_copper], 'a village: bread, wood… — no tools, clothes, finer food or arms');
+  t.check(dc[GI.axe_copper] && dc[GI.pickaxe_iron] && dc[GI.tunic_cloth] && dc[GI.stew] && dc[GI.stone_block] && dc[GI.iron_bar] && !dc[GI.sword_iron] && !dc[GI.armor_copper], 'the city: tools (copper / iron), clothes, finer food, building — no arms');
+  t.check(!dk || (dk[GI.sword_iron] && dk[GI.armor_copper] && dk[GI.arrow] && !dk[GI.axe_copper] && !dk[GI.tunic_cloth] && !dk[GI.wheat]), 'a castle: arms and armour (copper / iron), arrows — no tools, clothes or grain', castle2?.name || 'no castle');
   // the guest goes to the city and buys 20 wheat
   await toMural(t, H, MH, G, MG, city.id);
   setCoins(G, 3000); setItem(G, 'wheat', 0);
@@ -8712,6 +8716,13 @@ def('EC5', {
     const no = await ecoReq(G, 'build.place', { type: 'wall_wood', tiles: [out], rot: 0 });
     t.check(!no.ok || !H.game.build.structures.some((o) => o.tx === out[0] && o.ty === out[1] && o.town == null), 'the host refuses it too', no.why);
   } else t.note('no tile next to the plot on the town land');
+  // selling the house back to the kingdom (owner: a property can be sold, at a discount): 60 % of its price, free again on both
+  if (H.game.eco.pr.get(house.id)?.u) {
+    const c0 = coinsOf(G), back = Math.round(house.price * MH.ecoc.PROP.sellBack) - (H.game.eco.pr.get(house.id).due | 0);
+    const sold = await ecoReq(G, 'prop.leave', { id: house.id });
+    t.check(sold.ok, 'the guest sells its house back to the kingdom', sold.why);
+    await t.waitFor(() => !H.game.eco.pr.has(house.id) && !G.game.eco.pr.has(house.id) && coinsOf(G) === c0 + back, 2000 + RT(), `sold: ${back} coins (60 % of ${house.price}) to the guest, the house for sale again on both`, () => `coins ${coinsOf(G) - c0} host row ${H.game.eco.pr.has(house.id)}`);
+  }
   await t.checkDigest(H, G);
 });
 

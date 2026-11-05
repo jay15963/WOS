@@ -434,11 +434,25 @@ de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui
 
 ### O mercado (oferta e procura)
 
-- 39 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 22, ensopado 55), matérias-primas
+- 48 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 24, ensopado 14), matérias-primas
   (madeira 6, pedra 5, algodão 9, lã 12, couro 24, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
-  ofícios (corda 12, tecido 34, bloco de pedra 14, barras: cobre 40, ferro 64, aço 120, ouro 180), armas e ferramentas
-  (flecha 3, machado / picareta de ferro 160, espada 260, lança 200, arco 70, escudo 220, armaduras de couro 140 / de
-  ferro 420, elmo 200, sela 120) e roupas (casaco de pele 150, gorro de pele 60, túnica 80). Preço = base × fator.
+  ofícios (corda 2, tecido 31, bloco de pedra 9, barras: cobre 40, ferro 55, aço 95, ouro 145), **ferramentas** (faca /
+  machado / picareta / pá de cobre 55 / 105 / 150 / 105; machado / picareta de ferro 140 / 205), **armas e armaduras**
+  (flecha 1, arco 30, lança de cobre 115 / de ferro 145, espada de cobre 220 / de ferro 290, escudo de cobre 200 / de ferro
+  330, elmo de cobre 210 / de ferro 345, armaduras de couro 170 / de cobre 420 / de ferro 690, sela 155) e roupas (casaco de
+  pele 145, gorro de pele 55, túnica 145). Preço = base × fator.
+  **Balanço pela raridade** (dono, 5/11/2026: "coletar arbusto dá muita fibra, por isso [a corda] deve valer pouco… uma
+  árvore dá até 4 madeiras… não é questão de tempo de fabricação e sim a raridade dos recursos"): o preço de algo fabricado ≈
+  1,15 × o valor de mercado do que a receita usa — o raro (minério, couro, barras) é caro, o comum (fibra, madeira, pedra) é
+  barato; nada vale menos que as próprias partes. Os itens de cobre entraram no mercado (dono: "falta a armadura de cobre e
+  ferramentas de cobre"), no fim da lista (os estoques salvos são guardados pela posição; um save antigo começa os novos no
+  volume de referência).
+- **Onde se negocia o quê** (dono, a lógica do Mount & Blade — "vilas não têm coisas avançadas"; `TRADE` em
+  `game/content/eco.js`): **vila** — o simples e civil (comida simples, pão, madeira, pedra, algodão, lã, couro, erva,
+  carvão, corda; os minérios da própria mina); **cidade** — tudo o que é civil (além do simples: comida mais elaborada,
+  roupas, construção, ferramentas, barras, gemas), nada de armas; **castelo** — o militar (armas, armaduras, flechas, sela),
+  os materiais das armas (barras, couro, madeira, pedra) e a ração da tropa (carne, pão). Assim o jogador viaja à cidade para
+  vender o que é mais avançado (e tem motivo para morar lá) e ao castelo para vender armas.
 - **Fator** (só + − × ÷: igual em todos os pares): `0,3 + 0,7·(R + K)/(S + K)`, `K = max(2, R/4)`, entre 0,3 e 3,2 —
   S o estoque, R a procura (estoque de referência: o volume da mercadoria × população/50; castelo ×1,2; celeiro ×1,3 na
   comida; armazém ×1,2). Comprar paga ×(1,05 − desconto); vender recebe ×(0,85 + desconto). Cada unidade é cobrada pelo

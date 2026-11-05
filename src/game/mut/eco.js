@@ -42,7 +42,8 @@ export function addRep(game, u, k, d) { // (exported: the reputation of a player
 const goodsRows = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && Array.isArray(r[1]));
 function setStocks(game, rows) {
   const E = E_(game);
-  for (const [sid, a] of goodsRows(rows)) { const out = new Int32Array(NG); for (let i = 0; i < NG; i++) out[i] = Math.max(0, int(a[i])); E.mk.set(sid, out); }
+  // (a save from before new goods were added: those start at the market's balance stock, not empty)
+  for (const [sid, a] of goodsRows(rows)) { const out = new Int32Array(NG); for (let i = 0; i < NG; i++) out[i] = i < a.length ? Math.max(0, int(a[i])) : GOODS[i][3]; E.mk.set(sid, out); } // (a new good: its reference volume — no plan of the place needed)
 }
 const cleanEv = (ev) => (Array.isArray(ev) ? ev : []).filter((e) => Array.isArray(e) && e.length >= 4).map((e) => [int(e[0]), int(e[1]), int(e[2]), int(e[3])]).slice(0, 40);
 function cleanJob(j) {
