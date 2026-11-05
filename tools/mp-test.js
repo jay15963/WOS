@@ -8368,6 +8368,19 @@ def('NB1', {
   t.defer(() => { for (const w of ws) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); } });
   await measure('country_wolf_fight', 15000);
   for (const w of ws) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); }
+  // a field battle near both players (phase 3b: ~80 soldiers live, the rest in reserve)
+  const [ka, kb] = btKingdoms(H, s);
+  if (ka != null && kb != null && H.game.warfare) {
+    await warShim(t, H, G, [[ka, kb]]);
+    const bx = s.x + s.r + 60, by = s.y + 8;
+    await btStand(t, H, MH, G, MG, bx, by + 9);
+    const [FA, FB] = H.game.warfare.startBattle({ k: ka, n: 120, lv: 5, at: [bx - 26, by] }, { k: kb, n: 120, lv: 5, at: [bx + 26, by] });
+    t.defer(() => { for (const F of [FA, FB]) if (H.game.warfare.forces.has(F.id)) H.game.warfare.dematerialize(F.id); H.game.net.flush(); });
+    await t.sleep(6000);
+    await measure('field_battle_240', 20000);
+    for (const F of [FA, FB]) if (H.game.warfare.forces.has(F.id)) H.game.warfare.dematerialize(F.id);
+    H.game.net.flush();
+  } else t.note('no two kingdoms for a battle: skipped');
   // the village at night (the watch out, everyone in bed)
   await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
   H.game.net.emit('env.skip', { hour: 22.5, day: H.game.env.dayIndex, wt: Math.round((H.game.worldTime + 5) * 100) / 100 }); H.game.net.flush();
