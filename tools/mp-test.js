@@ -10288,6 +10288,7 @@ def('AR2', {
   await t.waitFor(() => liveOn(H, a0.id) && H.game.warfare.forces.get(a0.id)?.kind === 'siege', 30000, 'near it: the playable siege (materialize)');
   await t.waitFor(() => ['tocamp', 'camp', 'build', 'bombard'].includes(arOrder(G)?.code), 30000, 'the order of the siege\'s phase (march to the camp / camp / build / bombard)', () => JSON.stringify(arOrder(G)));
   t.check(!!G.game.army.wp, 'with its waypoint', JSON.stringify(G.game.army.wp));
+  codes.add(arOrder(G)?.code); // (the last one: the watch samples every 0,2 s)
   t.check(codes.size >= 4, 'at least four different orders as the campaign moved on', [...codes].join(', '));
   t.check(notes.length >= 3, 'each change with a short notice ("Ordem do general")', notes.length);
   t.metric('orders', [...codes].join(','));
