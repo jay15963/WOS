@@ -638,7 +638,11 @@ export function describeStructure(game, o) {
   if (o.realm != null && (o.blueprint || def.siege)) return null; // (a kingdom's army's engines / camp: its engineers' — game/siegeAI.js)
   if (o.blueprint) return structIt(o, { kind: 'blueprint', verb: o.moveOf ? 'Mover' : 'Construir', icon: 'build', prio: canSupply(game, o) ? 3 : 0 });
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
-  if (o.door) return structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 });
+  // a cracked piece of the player's own property (his house in a town, what he built): "Consertar" — the town never mends
+  // private property (game/raids.js, docs/REINOS.md §16); a door keeps "Abrir" first and offers it as the second choice
+  const fix = o.dmg > 0 && game.raids?.mayRepair?.(o) ? { kind: 'repair', verb: 'Consertar', icon: 'build', prio: 2.6 } : null;
+  if (o.door) { const it = structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 }); if (fix) it.alt = structIt(o, fix); return it; }
+  if (fix) return structIt(o, fix);
   if (o.type === 'chest') return structIt(o, { kind: 'chest', verb: 'Abrir', icon: 'chest', prio: 3, use: true });
   if (def.feed) return structIt(o, { kind: 'feeder', verb: 'Abrir alimentador', icon: 'chest', prio: 3, use: true }); // (livestock.js)
   if (o.type === 'bed') return structIt(o, { kind: 'bed', verb: 'Renascer aqui', icon: 'bed', prio: 3, use: true });

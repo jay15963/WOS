@@ -15,6 +15,7 @@ import { chunkOfI } from '../world/store.js';
 import { campStateRows } from '../game/mut/camps.js';
 import { townRows, gateRows } from '../game/mut/towns.js'; // settlements (docs/REINOS.md)
 import { peopleDigestRows } from '../game/mut/people.js'; // settlements' people: the dead, the world's progress
+import { raidDigestRows } from '../game/mut/raids.js'; // the winter attacks on the settlements (docs/REINOS.md §16)
 import { ecoDigestRows } from '../game/mut/eco.js'; // the economy of the kingdoms
 import { warDigestRows } from '../game/mut/warfare.js'; // the armies near the players (docs/REINOS.md §14)
 import { realmDigestRows } from '../game/mut/realms.js'; // the kingdoms' wars (docs/REINOS.md §13)
@@ -79,7 +80,7 @@ export function dumpPart(game, part, ex = null) {
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'boats': return game.boats ? [...game.boats.map.values()].map((b) => [b.id, b.x.toFixed(2), b.y.toFixed(2), b.h.toFixed(2), b.seats.join('.'), b.pets.map((q) => q.join(':')).join('.')]).sort(cmp) : []; // (game/boats.js)
-    case 'towns': return townRows(game, OK).concat(gateRows(game), peopleDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people)
+    case 'towns': return townRows(game, OK).concat(gateRows(game), peopleDigestRows(game), raidDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people + the winter attacks)
     case 'eco': return ecoDigestRows(game); // (markets, players' reputation / jobs, properties, town chests: game/mut/eco.js)
     case 'realms': return realmDigestRows(game); // (relations, owners, armies, news: game/mut/realms.js)
     case 'army': return armyDigestRows(game); // (the players in the armies: game/mut/army.js)

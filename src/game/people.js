@@ -507,6 +507,7 @@ function spawnSpot(game, S, P, pl) {
 function manage(game, rec, players) {
   const S = rec.S, L = S.L, hour = game.env?.hour ?? 12, winter = winterAt(game, S), D = deadMap(game);
   const cap = Math.round((N.cap[S.kind] || 40) * (game.quality === 'low' ? 0.6 : 1)); // (a weak device: fewer people out)
+  const raid = !!game.raids?.H?.live?.has(S.sid); // (a winter attack played here: the whole watch out, wherever its post — game/raids.js)
   const want = [];
   for (const P of S.persons) {
     if (D.has(`${S.sid}.${P.i}`)) continue;
@@ -514,6 +515,7 @@ function manage(game, rec, players) {
     let d = 1e9;
     for (const q of players) { const dd = Math.hypot(game.world.dx(q.x, pl.x), q.y - pl.y); if (dd < d) d = dd; }
     const has = rec.ents.get(P.i);
+    if (raid && P.guard && !pl.in) d = Math.min(d, 1);
     // indoors: only when a player stands by that building (and its inside can be reached from its door); outdoors: near enough
     const ok = pl.in ? !!pl.b && d < N.indoorR + Math.max(pl.b.box[2] - pl.b.box[0], pl.b.box[3] - pl.b.box[1]) / 2 : d < (has ? N.dropR : N.matR);
     if (ok) want.push([d, P, pl.in, pl.k, pl.x, pl.y, pl.lv, pl.b]);
@@ -716,8 +718,9 @@ export function peopleFxSystem() {
         game.events.on('townalarm', ({ sid, on }) => {
           const s = game.towns.realm.settlements[sid];
           if (on) game.people.alarm.set(sid, true); else game.people.alarm.delete(sid);
-          if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30)) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
-          else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30)) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
+          const raid = !!game.raids?.on?.has(sid); // (a winter attack: its own notices tell the story — ui/raidHud.js)
+          if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30) && !raid) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
+          else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30) && !raid) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
         });
         // (no toast for each death — owner: in a battle there are many dead, a swarm of messages; the bell and the
         //  all-clear tell the story)

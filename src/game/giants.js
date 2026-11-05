@@ -97,6 +97,23 @@ function spawnGiant(game, x, y, group, home, species = 'giant') {
   return m;
 }
 
+// a winter attack's giant leading the wave (game/raids.js): in the wave's group, drawn to `home` (the place's middle)
+export function spawnRaidGiant(game, x, y, species, group, home) {
+  return spawnGiant(game, x, y, group, { x: home.x, y: home.y }, species);
+}
+
+// who the giant's blow / rock can hurt where it lands: the players, and the settlements' people / the kingdoms' soldiers
+// it is fighting (a winter attack on a place: the guards — game/raids.js); never another of the night's dead
+function victimsAt(game, m, x, y, r, sameZ = true) {
+  const out = [];
+  for (const q of allPlayers(game)) if (!q.dead && (!sameZ || Math.abs((q.z || 0) - (m.z || 0)) <= 0.5) && Math.hypot(q.x - x, q.y - y) <= r + (q.r || 0.24) * 0.5) out.push(q);
+  for (const e of game.entities) {
+    if (e.dead || e.proxy || !(e.npc || e.soldier) || (sameZ && Math.abs((e.z || 0) - (m.z || 0)) > 0.5)) continue;
+    if (Math.hypot(e.x - x, e.y - y) <= r + (e.r || 0.24) * 0.5) out.push(e);
+  }
+  return out;
+}
+
 // tests / debug (host): one giant at (x, y), roaming there (species: giant | skeleton_giant | mummy_giant)
 export function spawnGiantAt(game, x, y, species = 'giant') {
   const group = { id: 'g' + (++groupSeq).toString(36), x, y, members: [], fam: familyOf(species) };
@@ -185,8 +202,7 @@ function smash(game, m, t) {
       m.action = { type: 'smash', t: 0.42, dur: SMASH.recover };
       game.later(0.08, () => {
         if (m.dead) return;
-        for (const q of allPlayers(game)) {
-          if (q.dead || Math.abs((q.z || 0) - (m.z || 0)) > 0.5 || Math.hypot(q.x - ix, q.y - iy) > SMASH.r + (q.r || 0.24) * 0.5) continue;
+        for (const q of victimsAt(game, m, ix, iy, SMASH.r)) {
           const crit = Math.random() < 0.06;
           const dmg = Math.max(1, Math.round(m.dmg * SMASH.mult * (0.9 + Math.random() * 0.2) * (crit ? 1.4 : 1)));
           hurtPlayer(game, m, q, dmg, { crit, ability: 'giant_smash', from: { x: kx, y: ky }, knock: 0.5, curse: K.curse || 0 });
@@ -231,8 +247,7 @@ function throwRock(game, m, t, d) {
       const L = m.level;
       if (pr) pr.onLand = (g, p) => {
         if (p.blocked) return;
-        for (const q of allPlayers(g)) {
-          if (q.dead || Math.abs(q.z || 0) > 0.5 || Math.hypot(q.x - p.lx, q.y - p.ly) > ROCK.r + (q.r || 0.24) * 0.5) continue;
+        for (const q of victimsAt(g, { z: 0 }, p.lx, p.ly, ROCK.r)) {
           const dmg = Math.max(1, Math.round(walkerHit(L) * (0.85 + Math.random() * 0.3)));
           hurtPlayer(g, m, q, dmg, { ability: P, ranged: true, from: { x: p.x0, y: p.y0 }, dtype: 'phys', curse: P === 'giant_slab' ? 2 : 0 });
         }

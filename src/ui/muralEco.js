@@ -328,6 +328,9 @@ function landBody(panels, I) {
     const pr = q.pr, row = q.row, isH = pr.bi != null, ch = chargeOf(g, q.id, row), left = PROP.warnDays - row.warn;
     const chips = [`<span class="chip">${row.mode === 'rent' ? 'Alugada' : 'Própria'}</span>`, `<span class="chip gold">${coinIco(A)}${fmt(ch)} / dia</span>`];
     if (row.due > 0) chips.push(`<span class="chip bad">deve ${fmt(row.due)} · ${left <= 1 ? 'último dia!' : `${left} dias`}</span>`);
+    // the winter attacks (game/raids.js, docs/REINOS.md §16): what the dead broke — the owner mends it; a rented house the people do
+    const dm = g.raids?.damageOf?.(q.id);
+    if (dm && (dm.cracked || dm.gone)) chips.push(`<span class="chip bad">⚠ danificad${isH ? 'a' : 'o'}: ${[dm.cracked ? `${dm.cracked} ${dm.cracked === 1 ? 'peça rachada' : 'peças rachadas'}` : '', dm.gone ? `${dm.gone} ${dm.gone === 1 ? 'destruída' : 'destruídas'}` : ''].filter(Boolean).join(', ')} · ${row.mode === 'rent' ? 'o povo conserta' : 'conserte você mesmo (Consertar / Reconstruir, E)'}</span>`);
     const leave = ui.confirm === 'leave:' + q.id;
     const back = row.mode === 'own' ? Math.max(0, Math.round(pr.price * PROP.sellBack) - row.due) : 0;
     body += `<div class="ec-card${row.due > 0 ? ' warn' : ' taken'}"><div class="ck">${isH ? '🏠' : '📐'}</div><div><div class="ct">${esc(isH ? pr.name : `Terreno ${pr.w}×${pr.w}`)}</div>

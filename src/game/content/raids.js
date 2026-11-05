@@ -35,8 +35,8 @@ export const RAID = {
   liveCap: 24,               // wave creatures alive at once near the players (low quality: × 0.6) — the rest wait in the dark
   feedEvery: 1.4,            // s between two reserves walking in as the ones out fall
   spawnOut: 14,              // tiles past the town land where the wave appears (out of sight when it can)
-  liveR: 70,                 // tiles: a player this near the place when the wave comes → it is played live
-  liveOut: 150,              // tiles: nobody this near any more → the rest of the fight goes back to the numbers
+  liveR: 40,                 // tiles past the town land: a player this near when the wave comes (its people out) → played live
+  liveOut: 150,              // tiles: nobody this near any more (or its people back to counts) → the rest by numbers
   // ---------- what a lost night costs (both ways) ----------
   toll: {
     house: 0.5,              // each resident of a home the monsters broke into dies with this chance…

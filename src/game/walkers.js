@@ -96,6 +96,8 @@ function pickGoal(game, m) {
     if (d > 4 && !hasLOS(w, m.x, m.y, e.x, e.y, 0, 0, m._tn, e._tn)) continue;
     bd = d; goal = { x: e.x, y: e.y, kind: 'player', ref: e };
   }
+  // a winter attack's wave (game/raids.js): the place itself — its middle, through its wall — not the lights around it
+  if (!goal && m.raidAt) goal = { x: m.raidAt.x, y: m.raidAt.y, kind: 'raid' };
   if (!goal) {
     bd = LIGHT_R;
     eachLight(game, (o) => { // (the light pieces only: mut/structures.js)
@@ -185,7 +187,11 @@ function hitPiece(game, m, o) {
   if (game.creative) return; // (a swing already on its way when the world became creative)
   const inc = (m.swingDur * (m.siegeMul || 1)) / (SIEGE_S[o.type] || SIEGE_WOOD); // (an ice giant: siegeMul × faster, giants.js)
   const d = Math.min(1, (o.dmg || 0) + inc);
-  game.net.emit('struct.dmg', { id: o.id, d: +d.toFixed(4), x: +m.x.toFixed(2), y: +m.y.toFixed(2) });
+  // a player's structure on his plot inside a town land: its cracks never settle at dawn (the town does not mend private
+  // property — the owner does: game/raids.js, docs/REINOS.md §16) — the persistent cracks of a siege (o.sdmg)
+  const keep = o.town == null && !!game.raids?.privateStruct?.(o);
+  game.net.emit(keep ? 'siege.dmg' : 'struct.dmg', { id: o.id, d: +d.toFixed(4), x: +m.x.toFixed(2), y: +m.y.toFixed(2) });
+  game.raids?.onHit?.(m, o, d, d >= 1);
   if (d >= 1) game.net.emit('struct.remove', { id: o.id, fx: 'smash' });
 }
 
@@ -252,7 +258,7 @@ export function walkerBrain(game, m, dt) {
 function approach(game, m, goal, gx, gy, dt) {
   const sp = SPECIES[m.species] || SPECIES.walker, w = game.world;
   const dG = Math.hypot(gx - m.x, gy - m.y);
-  if (dG < (goal.kind === 'light' ? 2.6 : 1)) return handOff(m); // there: they hang around the light
+  if (dG < (goal.kind === 'light' ? 2.6 : goal.kind === 'raid' ? 3 : 1)) return handOff(m); // there: they hang around the light (a wave: the place's middle)
   const A = m.ap || (m.ap = { px: m.x, py: m.y, st: 0, path: null });
   m.state = 'hunt'; m.threat = null;
   const spd = sp.speed * 0.8;
@@ -369,6 +375,14 @@ function spawnGroup(game, fams) {
     return true;
   }
   return false;
+}
+
+// a winter attack's monster (game/raids.js): the night's dead of the place's family, in the wave's group, drawn to `home`
+// (the place's middle); the wave's fury is put on it by the raid
+export function spawnRaidMob(game, x, y, species, group, home) {
+  const m = spawnWalker(game, x, y, group, { x: home.x, y: home.y }, species);
+  m.stateT = 0; m.state = 'idle';
+  return m;
 }
 
 // tests / debug (host): one walker (or a skeleton / mummy: species) at (x, y), in a group of its own that roams there

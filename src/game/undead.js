@@ -30,7 +30,7 @@ export const isGiant = (e) => !!(e && SPECIES[e.species]?.giant);
 
 // hot deserts: the arid biomes (docs/PLANET.md §5); the region around a point decides (five samples R tiles apart: a
 // patch of dunes in the savanna is not a desert, an oasis in the desert is still one)
-const ARID = new Set(['desert_dunes', 'desert_rocky', 'badlands', 'salt_flat', 'cold_desert']);
+export const ARID = new Set(['desert_dunes', 'desert_rocky', 'badlands', 'salt_flat', 'cold_desert']);
 const DR = 7;
 const PTS = [[0, 0], [DR, 0], [-DR, 0], [0, DR], [0, -DR]];
 export function desertAt(w, x, y) {

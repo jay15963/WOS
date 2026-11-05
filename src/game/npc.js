@@ -16,6 +16,7 @@ import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
 import { perimeterOf } from './defense.js';
+import { TOWN } from './mut/structures.js'; // (TOWN.privatePiece: a house a player owns is never mended by the town — game/raids.js)
 
 const SPD = { walk: 1.55, slow: 1.15, patrol: 1.3, run: 3.3, kid: 2.5 };
 const R01 = (m, k = 0) => { const x = Math.sin((m.id + 1) * 12.9898 + (m._rc = (m._rc || 0) + 1) * 78.233 + k) * 43758.5453; return x - Math.floor(x); }; // (cosmetic variety: no shared state depends on it)
@@ -656,6 +657,8 @@ export function repairTick(game, rec, dt) {
     if (!id.startsWith(pre)) continue;
     const row = L.structs[+id.split('.')[1]];
     if (!row || row[1] !== r.x || row[2] !== r.y) continue; // (a row kept by an older plan: not this piece — towns.js stateOf)
+    if (!(r.dmg > 0) && !r.gone) continue;
+    if (TOWN.privatePiece?.(game, id)) continue; // (a house a player owns: never mended by the town — its owner does it; a rented one is the town's — game/raids.js)
     if (r.dmg > 0) jobs.push([id, r, 0]);
     else if (r.gone && game.worldTime - r.at > 20) jobs.push([id, r, 1]);
   }
@@ -736,6 +739,7 @@ export function repairByNumbers(game, step = 0.2) {
     if (!(r.dmg > 0)) continue;
     const sid = +id.slice(1).split('.')[0];
     if (game.people.live.get(sid)?.ents.size) continue; // (a settlement with its people out: they do it by hand)
+    if (TOWN.privatePiece?.(game, id)) continue; // (a house a player owns: his to mend — game/raids.js)
     if (game.realms?.holdRepair?.(sid)) continue; // (under siege, or a siege just over: not mended by numbers yet — phase 3a)
     const o = game.world.objById.get(id), d = Math.max(0, r.dmg / 100 - step);
     game.net.emit(o?.sdmg ? 'siege.dmg' : 'struct.dmg', { id, d: +d.toFixed(4), x: r.x + 0.5, y: r.y + 0.5 });
