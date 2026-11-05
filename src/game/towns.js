@@ -340,7 +340,7 @@ TOWN.landReason = (game, type, tx, ty, w, h, who = null) => {
   const r = game.eco?.plotReason?.(s, tx, ty, w, h, who);
   return r === undefined ? `Terra de ${s.name}: compre um terreno no mural` : r;
 };
-TOWN.refuse = (game, o) => { const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
+TOWN.refuse = (game, o) => { if (o.town == null && o.realm != null) { const K = game.towns?.realm?.kingdoms[o.realm]; return `Isto pertence ao exército do Reino de ${K ? K.name : '?'}`; } const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
 TOWN.gateReason = (game, o, actor) => {
   if (o.town != null) return defOf(o).gate2 ? 'O portão é da guarda: abre de dia e fecha à noite' : game.eco?.doorReason?.(o, actor) || null; // (a bought / rented house: its holder's)
   if (!defOf(o).gate2 || game.creative) return null;
@@ -456,9 +456,10 @@ function hostTick(game) {
 }
 // hostile creatures inside the town land (raiders, wolves, the winter dead)
 function hostileInside(game, L) {
+  if (game.warfare?.siegeOn?.(L.sid)) return true; // (an army besieging the place: shut — game/warfare.js)
   const r2 = (L.r + 2) * (L.r + 2), w = game.world;
   for (const e of game.entities) {
-    if (e.dead || !e.isMob || e.proxy || e.temper !== 'hostile') continue;
+    if (e.dead || !e.isMob || e.proxy || (e.temper !== 'hostile' && !(e.soldier && game.warfare?.foeOfTown?.({ sid: L.sid }, e)))) continue; // (+ soldiers of a kingdom at war with it)
     const dx = w.dx(e.x, L.x), dy = e.y - L.y;
     if (dx * dx + dy * dy < r2) return true;
   }

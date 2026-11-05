@@ -59,6 +59,7 @@ import { installPeople, peopleSystem, peopleFxSystem } from './people.js'; // th
 import { installEco, ecoSystem, ecoOwnerSystem } from './eco.js'; // the economy of the kingdoms (docs/REINOS.md "Fase 2 — economia")
 import { installRealms, realmsSystem, realmsPosSystem } from './realms.js'; // diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
 import { installWarHud } from '../ui/warHud.js'; // the war's notices (docs/REINOS.md §13)
+import { installWarfare, warfareSystem, warfareFxSystem } from './warfare.js'; // the kingdoms' soldiers near the players: battles, the siege (docs/REINOS.md §14)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -102,6 +103,7 @@ export function installSystems(game) {
   installPeople(game);              // their people: identities from the seed (game.people, game.towns.people(sid))
   installEco(game);                 // markets, reputation, jobs, properties (before the save / snapshot loads them)
   installRealms(game);              // the kingdoms' wars: relations, owners, armies (before the save / snapshot loads them)
+  installWarfare(game);             // the armies near the players (game.warfare: before the save / snapshot loads the forces)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -136,6 +138,7 @@ export function installSystems(game) {
     combatSystem(),
     mobsSystem(),
     peopleSystem(),                 // the settlements' people (host): who is out near the players, their routine, guards, repairs
+    warfareSystem(),                // the kingdoms' soldiers (host): forces near the players, field battles, the siege AI (docs/REINOS.md §14)
     projectilesSystem(),
     ballistaSystem(),               // bolts in flight, drawn aim, reload (+ host: operators gone)
     ballistaOwnerSystem(),          // the local operator (after abilities: it roots the player)
@@ -166,6 +169,7 @@ export function installSystems(game) {
     waterfallSystem(),              // waterfalls / rapids around the camera: mist, spray, sound (fx/waterfalls.js)
     placeSystem(),                  // the kingdom / settlement the player is in (the HUD banner)
     peopleFxSystem(),               // their doors swinging as they go through, the bell, the news (every peer)
+    warfareFxSystem(),              // the general's standard raised while it rallies (every peer)
     ecoSystem(),                    // host: the markets' day, bills, job progress (eco.js)
     ecoOwnerSystem(),               // the local player's economy identity known to the host
     realmsSystem(),                 // host: diplomacy, campaigns, marches, battles and sieges by numbers (realms.js)

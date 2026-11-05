@@ -418,13 +418,14 @@ function flee(game, rec, m, dt) {
 }
 
 // ---------- guards ----------
-export const hostile = (e) => !e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile'); // (one going home — evade — cannot be hurt: let it go)
+export const hostile = (e, S = null, game = null) => (!e.dead && e.isMob && !e.npc && !e.proxy && e.state !== 'evade' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile')) // (one going home — evade — cannot be hurt: let it go)
+  || (!!S && !!game && !!e.soldier && !e.dead && !e.proxy && !!game.warfare?.foeOfTown?.(S, e)); // (+ the soldiers of a kingdom at war with the place: game/warfare.js)
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
   let best = null, bd = rec.danger ? Math.max(sight + 10, S.s.r * 2 + 6) : sight; // (the bell: the whole watch hears it, across the town)
   for (const e of game.entities) {
-    if (!hostile(e)) continue;
+    if (!hostile(e, S, game)) continue;
     const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
     if (d >= bd) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
@@ -440,7 +441,7 @@ function guardFight(game, rec, m, dt) {
   if (m.scanT <= 0 || (m.foe && m.foe.dead)) {
     m.scanT = 0.3 + (m.id % 5) * 0.04;
     const duty = rec.danger ? rec.S.def?.posts.get(m.npc.i) : null; // (the bell rang: the defense posts — defense.js)
-    const f = duty ? postedFoe(game, rec, m, duty) : m.foe && !m.foe.dead && hostile(m.foe) && inReach(game, rec, m.foe) ? m.foe : guardTargets(game, rec, m);
+    const f = duty ? postedFoe(game, rec, m, duty) : m.foe && !m.foe.dead && hostile(m.foe, rec.S, game) && inReach(game, rec, m.foe) ? m.foe : guardTargets(game, rec, m);
     if (f && !m.foe) engage(game, m, f);
     m.foe = f; m.threat = f;
   }
@@ -491,17 +492,17 @@ function guardFight(game, rec, m, dt) {
 // a guard at its defense post: the foe it hunts inside the walls (people.js defenseTick), else what comes near its post
 // (the gap / gate / stretch it holds) — never one far from it: back to the post when the foe leaves
 function postedFoe(game, rec, m, d) {
-  if (m.hunt && hostile(m.hunt) && inReach(game, rec, m.hunt)) return m.hunt;
+  if (m.hunt && hostile(m.hunt, rec.S, game) && inReach(game, rec, m.hunt)) return m.hunt;
   const R = d.r || 0;
   if (R <= 0) return null; // (the reserve: only the foes inside)
   const w = game.world, near = (e, r) => { const dx = w.dx(e.x, d.x), dy = e.y - d.y; return dx * dx + dy * dy < r * r; };
   // (a guard on a stretch of an intact wall never walks out round by a gate: only what is inside — the gates and the
   // gaps are where the fight outside is met)
   const per = perimeterOf(rec.S), mine = (e) => !(d.k === 'stretch' && per.walled && !per.inside(e.x, e.y, w));
-  if (m.foe && hostile(m.foe) && near(m.foe, R + 3) && mine(m.foe)) return m.foe;
+  if (m.foe && hostile(m.foe, rec.S, game) && near(m.foe, R + 3) && mine(m.foe)) return m.foe;
   let best = null, bd = R * R;
   for (const e of rec.foes || []) {
-    if (!hostile(e) || !mine(e)) continue;
+    if (!hostile(e, rec.S, game) || !mine(e)) continue;
     const dx = w.dx(e.x, d.x), dy = e.y - d.y, dd = dx * dx + dy * dy;
     if (dd < bd) { bd = dd; best = e; }
   }
@@ -520,7 +521,7 @@ export function engage(game, m, foe) {
 // hurt by something (ai.js aggro → game.people.onHurt): guards fight back, civilians run
 export function npcHurt(game, m, src) {
   if (!m || m.dead || m.proxy || !src || src === m || src.npc) return;
-  if (m.npc.guard) { if (hostile(src) && m.state !== 'chase' && !(m.z > 0.5)) engage(game, m, src); }
+  if (m.npc.guard) { if (hostile(src, m.npcS, game) && m.state !== 'chase' && !(m.z > 0.5)) engage(game, m, src); }
   else m.fearT = 10;
 }
 
@@ -570,7 +571,7 @@ function focusFoe(game, rec, m, at) {
   let best = null, bd = 64;
   const rng = N.archerRange * 1.3;
   for (const e of rec.foes || []) {
-    if (!hostile(e) || Math.hypot(e.x - m.x, e.y - m.y) > rng) continue;
+    if (!hostile(e, rec.S, game) || Math.hypot(e.x - m.x, e.y - m.y) > rng) continue;
     const dd = (e.x - at.x) ** 2 + (e.y - at.y) ** 2;
     if (dd < bd) { bd = dd; best = e; }
   }
@@ -579,7 +580,7 @@ function focusFoe(game, rec, m, at) {
 function shoot(game, m, f) {
   const dmg = Math.max(1, Math.round(m.dmg * (0.9 + R01(m) * 0.3)));
   fireArrow(game, {
-    src: m, faction: 'town', x: m.x, y: m.y, tx: f.x, ty: f.y, range: N.archerRange * 1.6, kind: 'arrow', target: f, z1: f.z || 0,
+    src: m, faction: 'town', x: m.x, y: m.y, tx: f.x, ty: f.y, range: N.archerRange * 1.6, kind: 'arrow', target: f, z1: f.z || 0, canHit: (e) => hostile(e, m.npcS, game),
     onHit: (g, e, pr) => { dealDamage(g, m, e, dmg, { ranged: true, from: { x: pr.ox, y: pr.oy } }); },
   });
   game.audio?.play('bow', { x: m.x, y: m.y, volume: 0.45 });
@@ -595,11 +596,18 @@ function crewTask(game, rec, m, T, dt) {
     T.scan = 0.5;
     let best = null, bs = -1;
     for (const e of game.entities) {
-      if (!hostile(e)) continue;
+      if (!hostile(e, S, game)) continue;
       const d = Math.hypot(e.x - px, e.y - py);
       if (d > BALLISTA.range * 0.8 || d < 3) continue;
-      const sc = (SPECIES[e.species]?.giant ? 100 : 1) - d * 0.05;
+      const sc = (SPECIES[e.species]?.giant ? 100 : e.soldier?.role === 'general' ? 6 : 1) - d * 0.05;
       if (sc > bs && hasLOS(game.world, px, py, e.x, e.y, o.lv | 0, e.z || 0)) { bs = sc; best = e; }
+    }
+    // an enemy army's siege engines in reach (game/warfare.js): a big slow target, worth a bolt when no giant is near
+    for (const q of game.warfare?.engineTargets?.(S) || []) {
+      const d = Math.hypot(q.x - px, q.y - py);
+      if (d > BALLISTA.range * 0.95 || d < 3) continue;
+      const sc = 8 - d * 0.05;
+      if (sc > bs && hasLOS(game.world, px, py, q.x, q.y, o.lv | 0, 0)) { bs = sc; best = q; }
     }
     T.foe = best;
   }
@@ -628,7 +636,8 @@ export function repairTick(game, rec, dt) {
   rec.repT = (rec.repT || 0) - dt;
   if (rec.repT > 0) return;
   rec.repT = 2;
-  if (rec.danger || h < 7 || h > 18.6) { for (const m of rec.ents.values()) if (m.repair) { m.repair = null; m.action = null; } return; }
+  const quiet = rec.danger && !(rec.foes && rec.foes.length) && !!game.warfare?.siegeOn?.(rec.sid); // (a siege outside: the soldiers away at their camp — the watch mends the walls, by night too)
+  if ((rec.danger && !quiet) || (!quiet && (h < 7 || h > 18.6))) { for (const m of rec.ents.values()) if (m.repair) { m.repair = null; m.action = null; } return; }
   const pre = `t${rec.sid}.`, jobs = [], L = rec.S.L;
   for (const [id, r] of game.towns.state) {
     if (!id.startsWith(pre)) continue;
@@ -649,7 +658,7 @@ export function repairTick(game, rec, dt) {
     for (const m of rec.ents.values()) {
       const P = m.npc;
       if (m.dead || m.repair || !REPAIRERS.has(P.job) || m.state === 'chase' || m.z > 0.5 || m.task?.k === 'vanish') continue;
-      if (P.guard && m.task?.k !== 'patrol') continue;
+      if (P.guard && m.task?.k !== 'patrol' && !(quiet && m.task?.k === 'post' && (m.task.hold === 'stretch' || m.task.hold === 'reserve'))) continue;
       const d = Math.hypot(m.x - (r.x + 0.5), m.y - (r.y + 0.5));
       if (d < bd) { bd = d; best = m; }
     }

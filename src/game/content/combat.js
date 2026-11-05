@@ -66,6 +66,9 @@ export const SPECIES = {
   // the players (combat.js: no friendly fire), the guards fight the monsters on the town's side
   citizen: { name: 'Morador', temper: 'friendly', pawn: true, hp: 44, dmg: 2, swing: 2, speed: 3.4, aggro: 0, r: 0.24, scale: 1, xp: 0, noAuto: true, loot: [] },
   guard: { name: 'Guarda', temper: 'friendly', pawn: true, hp: 96, dmg: 6.5, swing: 1.8, speed: 4.05, aggro: 15, r: 0.24, scale: 1, xp: 0, noAuto: true, loot: [] },
+  // the kingdoms' soldiers (kind 'pawn', faction 'army') — see src/game/soldier.js: a player fights them only by the rule
+  // of docs/REINOS.md §14 "Jogadores" (combat.js soldierBlock); never auto-targeted unless one fights the player
+  soldier: { name: 'Soldado', temper: 'friendly', pawn: true, hp: 84, dmg: 6, swing: 1.8, speed: 4.05, aggro: 14, r: 0.24, scale: 1, xp: 1.2, noAuto: true, loot: [] },
   // humanoid raiders (kind 'pawn', faction 'bandit') — see src/game/bandits.js
   bandit: { name: 'Saqueador', temper: 'hostile', pawn: true, hp: 66, dmg: 5.5, swing: 1.9, speed: 4.1, aggro: 12, r: 0.24, scale: 1, xp: 1.8, social: true,
             loot: [] },

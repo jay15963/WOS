@@ -32,7 +32,7 @@ function rec(game, u, name = '') {
   else if (name) r.name = str(name, 18);
   return r;
 }
-function addRep(game, u, k, d) {
+export function addRep(game, u, k, d) { // (exported: the reputation of a player helping a side in a war — mut/warfare.js war.rep)
   if (!(k >= 0) || !d) return;
   const r = rec(game, u), before = bandOf(r.rep[k] | 0);
   r.rep[k] = Math.max(-200, (r.rep[k] | 0) + d);

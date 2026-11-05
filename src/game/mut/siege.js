@@ -20,6 +20,7 @@ const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const ang = (v) => { const a = num(v, NaN); return Number.isFinite(a) ? Math.atan2(Math.sin(a), Math.cos(a)) : null; };
 const pidList = (L) => (Array.isArray(L) ? L.slice(0, PUSH_SLOTS).map((q) => (typeof q === 'string' && q ? q.slice(0, 40) : 0)) : []);
 const LAST = new Map();  // host: engine id → worldTime of its last shot / blow
+const armyEngine = (game, o) => `${BUILDINGS[o.type].name} do exército do Reino de ${game.towns?.realm?.kingdoms[o.realm]?.name || '?'}: só os engenheiros dele a usam`;
 
 // ---------- artillery ----------
 defineIntent('siege.use', {
@@ -28,6 +29,7 @@ defineIntent('siege.use', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isArtyObj(o)) return 'Máquina não encontrada';
+    if (o.realm != null && a.on) return armyEngine(game, o); // (a kingdom's army's: its engineers' — game/siegeAI.js)
     const me = actor.pid, src = actor.ent, name = BUILDINGS[o.type].name.toLowerCase(), S = ARTY[o.type];
     if (!a.on) { if (o.user === me) net.emit('siege.set', { id: o.id, user: 0 }); return; }
     if (o.blueprint) return `${BUILDINGS[o.type].name}: ainda em construção`;
@@ -60,21 +62,26 @@ defineIntent('siege.aim', {
 defineIntent('siege.fire', {
   doc: 'The operator throws one stone (already taken from its backpack; refunded on a reject) at angle a, distance d. The host rolls the landing point (scatter).',
   args: { id: 'structId', a: 'radians', d: 'tiles' },
-  run(game, a, actor, net) {
+  run(game, a, actor) {
     const o = engineOf(game, a.id), v = ang(a.a);
     if (!o || !isArtyObj(o) || v == null) return 'Máquina não encontrada';
     if (o.user !== actor.pid) return 'Você não está operando esta máquina';
     if (!actor.ent || actor.ent.dead) return 'Você está morto';
-    const S = ARTY[o.type], last = LAST.get(o.id);
-    if (last != null && game.worldTime - last < S.reload * 0.85) return o.type === 'trebuchet' ? 'O trabuco ainda está sendo armado no guincho…' : 'Recarregando a catapulta…';
-    LAST.set(o.id, game.worldTime);
-    const d = Math.max(S.range[0], Math.min(S.range[1], num(a.d, S.range[1])));
-    const L = shotLanding(game, o, v, d), [x, y] = releaseOf(o, v);
-    const [dur, apex] = flightOf(S, Math.hypot(L.lx - x, L.ly - y));
-    net.emit('siege.shot', { id: o.id, type: o.type, sid: hostProjId(), x: +x.toFixed(3), y: +y.toFixed(3), lx: +L.lx.toFixed(3), ly: +L.ly.toFixed(3), tx: +L.tx.toFixed(2), ty: +L.ty.toFixed(2),
-      k: +L.k.toFixed(3), a: +v.toFixed(4), d: +d.toFixed(2), dur: +dur.toFixed(3), apex: +apex.toFixed(2), by: actor.pid });
+    return fireShot(game, o, v, a.d, actor.pid);
   },
 });
+// host: the shot of an operator (a player through siege.fire; a kingdom's engineer — '~<nid>', game/siegeAI.js — directly):
+// the same reload check, the scatter rolled here, op siege.shot. undefined = thrown, else why not
+export function fireShot(game, o, v, dist, by) {
+  const net = game.net, S = ARTY[o.type], last = LAST.get(o.id);
+  if (last != null && game.worldTime - last < S.reload * 0.85) return o.type === 'trebuchet' ? 'O trabuco ainda está sendo armado no guincho…' : 'Recarregando a catapulta…';
+  LAST.set(o.id, game.worldTime);
+  const d = Math.max(S.range[0], Math.min(S.range[1], num(dist, S.range[1])));
+  const L = shotLanding(game, o, v, d), [x, y] = releaseOf(o, v);
+  const [dur, apex] = flightOf(S, Math.hypot(L.lx - x, L.ly - y));
+  net.emit('siege.shot', { id: o.id, type: o.type, sid: hostProjId(), x: +x.toFixed(3), y: +y.toFixed(3), lx: +L.lx.toFixed(3), ly: +L.ly.toFixed(3), tx: +L.tx.toFixed(2), ty: +L.ty.toFixed(2),
+    k: +L.k.toFixed(3), a: +v.toFixed(4), d: +d.toFixed(2), dur: +dur.toFixed(3), apex: +apex.toFixed(2), by });
+}
 
 // ---------- pushed engines ----------
 defineIntent('siege.push', {
@@ -83,6 +90,7 @@ defineIntent('siege.push', {
   run(game, a, actor, net) {
     const o = engineOf(game, a.id);
     if (!o || !isPushObj(o)) return 'Máquina não encontrada';
+    if (o.realm != null && a.on) return armyEngine(game, o);
     const me = actor.pid, src = actor.ent, L = pidList(o.push);
     while (L.length < PUSH_SLOTS) L.push(0);
     if (!a.on) {
@@ -135,10 +143,18 @@ defineIntent('siege.drive', {
 defineIntent('siege.ram', {
   doc: 'A pusher of a battering ram swings it: only a GATE in front of it takes damage (and only an enemy\'s).',
   args: { id: 'structId' },
-  run(game, a, actor, net) {
+  run(game, a, actor) {
     const o = engineOf(game, a.id);
     if (!o || o.type !== 'battering_ram') return 'Aríete não encontrado';
     if (!(o.push || []).includes(actor.pid)) return 'Pegue o aríete antes (E)';
+    return ramBlow(game, o);
+  },
+});
+// host: a blow of the ram (a player's siege.ram; a kingdom's crew — game/siegeAI.js — directly): undefined = it struck a
+// gate, false = still swinging, else why nothing broke
+export function ramBlow(game, o) {
+  const net = game.net;
+  {
     const n = crewOf(o), last = LAST.get(o.id);
     if (last != null && game.worldTime - last < ramCooldown(n) * 0.9) return false; // (still swinging: silent)
     LAST.set(o.id, game.worldTime);
@@ -157,8 +173,8 @@ defineIntent('siege.ram', {
     for (const q of hits) damageStructure(game, q, PUSH.battering_ram.ram, o.tx + o.fw / 2, o.ty + o.fh / 2);
     if (!any) return 'Encoste o aríete num portão';
     if (!hits.length) return isGate(game, any) ? 'Este portão não é de um inimigo' : 'O aríete só quebra portões';
-  },
-});
+  }
+}
 
 // ---------- ops ----------
 defineOp('siege.set', {

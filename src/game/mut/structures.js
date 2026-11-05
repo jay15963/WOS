@@ -612,7 +612,7 @@ defineIntent('build.move', {
   run(game, a, actor, net) {
     const src = structById(game, a.id);
     if (!src || src.blueprint || src.moveOf) return 'Não dá para mover isto';
-    if (src.town != null) return TOWN.refuse?.(game, src) || 'Isto pertence ao lugar';
+    if (src.town != null || src.realm != null) return TOWN.refuse?.(game, src) || 'Isto pertence ao lugar'; // (+ an army's engine / camp piece: game/warfare.js)
     const def = defOf(src);
     if (!def.move) return 'Isto não pode ser movido';
     const tx = num(a.tx) | 0, ty = num(a.ty) | 0, rot = normRot(src.type, num(a.rot));
@@ -632,6 +632,7 @@ defineIntent('build.hit', {
   run(game, a, actor, net) {
     const o = structById(game, a.id);
     if (!o || !o.blueprint) return 'Já foi construído';
+    if (o.realm != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao exército'; // (a kingdom's army builds its own engines: game/siegeAI.js)
     const def = defOf(o);
     if (a.start) {
       if (!o.paid && !a.pay) return 'Falta material';
@@ -693,7 +694,7 @@ defineIntent('build.decon', {
     for (const id of ids) {
       const o = structById(game, id);
       if (!o) continue;
-      if (o.town != null) { townNo ||= TOWN.refuse?.(game, o) || 'Isto pertence ao lugar'; continue; } // (a settlement's piece)
+      if (o.town != null || o.realm != null) { townNo ||= TOWN.refuse?.(game, o) || 'Isto pertence ao lugar'; continue; } // (a settlement's piece; an army's)
       if (o.blueprint) {
         if (a.on === 0) continue;
         const def = defOf(o);
@@ -724,7 +725,7 @@ defineIntent('decon.hit', {
   run(game, a, actor, net) {
     const o = structById(game, a.id);
     if (!o || !game.build.decon.has(o)) return 'Não está marcada para desmontar';
-    if (o.town != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
+    if (o.town != null || o.realm != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
     const def = defOf(o);
     if (def.deck && game.decks?.busy(o)) return 'Desmonte antes o que está em cima'; // (piers / bridges, decks.js)
     const back = {};
@@ -746,7 +747,7 @@ defineIntent('struct.raze', {
     if (!o) return 'Não existe mais';
     const def = defOf(o);
     if (!def.raze || o.blueprint) return 'Não dá para arrasar isto';
-    if (o.town != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
+    if (o.town != null || o.realm != null) return TOWN.refuse?.(game, o) || 'Isto pertence ao lugar';
     if (!near(actor.ent, o, 2.6)) return 'Chegue mais perto';
     const back = {};
     if (def.cost.pebble) back.pebble = Math.floor(def.cost.pebble * 0.5);

@@ -112,7 +112,7 @@ export class EntityServer {
   }
   _static(m) {
     return [m.nid, m.kind === 'pawn' ? 'p' : 'a', m.species, m.name, m.level, m.elite ? 1 : 0, m.temper || 0, m.faction || 0,
-      +(m.scale || 1).toFixed(3), Math.round(m.maxHp), m.variant | 0, m.npc ? 0 : m.look || 0, m.weapon || 0, m.offhand || 0,
+      +(m.scale || 1).toFixed(3), Math.round(m.maxHp), m.variant | 0, m.npc || m.soldier ? 0 : m.look || 0, m.weapon || 0, m.offhand || 0,
       m.armor?.body || 0, m.armor?.head || 0, m.camp || 0];
   }
 
@@ -224,6 +224,7 @@ export class EntityClient {
       armor: { body: str(r[14], 32) || null, head: str(r[15], 32) || null }, camp: str(r[16], 16) || undefined, r: sp.r || 0.3,
     });
     if (e.faction === 'town') this.game.people?.decorate?.(e); // (the settlements' people: who they are, from the seed)
+    else if (e.faction === 'army') this.game.warfare?.decorate?.(e); // (the kingdoms' soldiers: who they are, from camp + the seed — game/soldier.js)
     this._dyn(e, r.slice(17), ht, true);
   }
 

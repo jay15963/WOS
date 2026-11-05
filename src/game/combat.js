@@ -109,6 +109,7 @@ export function applyPlayerHit(game, target, roll, opts = {}) {
 export function playerMiss(game, target) {
   const p = game.player;
   if (target?.npc) { npcImmune(game, target, p); return; } // (the settlements' people: no friendly fire)
+  { const why = soldierBlock(game, target, p); if (why) { soldierImmune(game, target, p, why); return; } } // (a kingdom's soldier the rule protects: game/soldier.js)
   if (target?.proxy) { routeHit(game, p, target, 0, { miss: true }); return; }
   game.events.emit('damage', { target, src: p, amount: 0, kind: 'miss' });
   if (isMob(target)) aggro(game, target, p);
@@ -130,7 +131,7 @@ export function routeHit(game, src, dst, amount, opts = {}) {
 
 // status effects of the local player's abilities on a creature: applied on the authority, routed on guests
 export function mobEffect(game, e, eff) {
-  if (!e || e.dead || e.isProp || e.npc) return; // (the settlements' people: no friendly fire)
+  if (!e || e.dead || e.isProp || e.npc || soldierBlock(game, e, game.player)) return; // (the settlements' people: no friendly fire; the soldiers the rule protects)
   if (e.proxy) { game.net.request('mob.hit', { nid: e.nid, amount: 0, noDmg: 1, eff, skin: canSkin(game) ? 1 : 0 }); return; }
   applyMobEffect(game, e, eff, game.player);
 }
@@ -159,11 +160,25 @@ export function npcImmune(game, dst, src) {
   return 0;
 }
 
+// a kingdom's soldier (game/soldier.js, docs/REINOS.md §14 "Jogadores"): a player may fight it when its kingdom is at war
+// with the player's, or while it attacks a place / another army (helping a side) — else the reason it is protected
+export const soldierBlock = (game, dst, src) => (dst?.soldier && playerish(game, src) ? game.warfare?.mayHurt?.(src.owner || src, dst) || null : null);
+let soldierT = -9;
+export function soldierImmune(game, dst, src, why) {
+  game.events.emit('damage', { target: dst, src, amount: 0, kind: 'immune' });
+  if (src === game.player || src?.owner === game.player) {
+    if (game.player.target === dst) game.player.autoAttack = false;
+    if (game.time - soldierT > 4) { soldierT = game.time; game.events.emit('toast', { text: why, kind: 'warn' }); }
+  }
+  return 0;
+}
+
 // ---------- damage pipeline ----------
 // opts: { crit, ability, dtype:'phys'|'bleed'|'poison'|'fire', dot, noDodge, noKnock, knock, from:{x,y}, ranged, pure }
 export function dealDamage(game, src, dst, amount, opts = {}) {
   if (!dst) return 0;
   if (dst.npc && playerish(game, src)) return npcImmune(game, dst, src); // (no friendly fire: before a guest routes the hit)
+  if (dst.soldier) { const why = soldierBlock(game, dst, src); if (why) return soldierImmune(game, dst, src, why); } // (a soldier: only by the rule — game/soldier.js)
   if (dst.isProp) return damageProp(game, src, dst, amount, opts);
   if (dst.dead) return 0;
   if (dst.proxy) return opts.dot ? 0 : routeHit(game, src, dst, amount, opts);
@@ -261,6 +276,7 @@ export function healEntity(game, e, amount) {
 export function addDot(game, target, id, { dur = 6, tick = 1, dmg = 1, src = null } = {}) {
   if (!target || target.dead) return;
   if (target.npc && (!src || playerish(game, src))) return; // (the settlements' people: no friendly fire)
+  if (target.soldier && (!src || soldierBlock(game, target, src))) return; // (a soldier the rule protects)
   if (target.proxy) { mobEffect(game, target, { dot: { id, dur, tick, dmg } }); return; }
   const dtype = id === 'burn' ? 'fire' : id;
   const p = game.player;
@@ -356,7 +372,7 @@ export function killMob(game, m, killer) {
     die.by = kp.pid;
     die.xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, kp.level) || undefined;
     if (m.onDeath) {
-      const r = m.onDeath(game, m);
+      const r = m.onDeath(game, m, killer); // (killer: game/warfare.js credits the player who felled a soldier)
       rows = r?.rows;
       if (r?.toast) die.toast = r.toast;
       if (r?.give) die.give = r.give; // (a fish caught by a shot goes straight to the shooter: livestock.js)
@@ -433,7 +449,7 @@ export function bestFoe(game, maxD, prefer = null) {
   let best = null, bs = 1e9;
   for (const e of game.entities) {
     if (!attackable(e) || !isMob(e)) continue;
-    if ((e.tame || SPECIES[e.species]?.noAuto || e.fmode & 2) && e !== prefer) continue; // (fish, the farm's animals, wild fauna hidden in wait: only when marked)
+    if ((e.tame || SPECIES[e.species]?.noAuto || e.fmode & 2) && e !== prefer && !(e.soldier && e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid))) continue; // (fish, the farm's animals, wild fauna hidden in wait: only when marked; a soldier: only one fighting me)
     const d = dist(p, e);
     if (d > maxD) continue;
     const tmp = e.temper || SPECIES[e.species]?.temper;
@@ -532,6 +548,7 @@ export function combatSystem() {
 export function stun(game, m, dur, src = game.player) {
   if (!m || m.dead || m.isProp) return;
   if (m.npc && playerish(game, src)) return; // (the settlements' people: no friendly fire)
+  if (soldierBlock(game, m, src)) return; // (a soldier the rule protects)
   if (m.proxy) { mobEffect(game, m, { stun: dur }); return; }
   const d = m.elite ? dur * 0.5 : dur;
   m.stunT = Math.max(m.stunT || 0, d);

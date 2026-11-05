@@ -231,7 +231,7 @@ export function installController(game) {
     cycleTarget() {
       const p = game.player;
       const tmp = (e) => e.temper || SPECIES[e.species]?.temper;
-      const list = game.entities.filter((e) => attackable(e) && !e.npc && dist(e, p) < 18).sort((a, b) => { // (never the settlements' people)
+      const list = game.entities.filter((e) => attackable(e) && !e.npc && !(e.soldier && game.warfare?.mayHurt?.(p, e)) && dist(e, p) < 18).sort((a, b) => { // (never the settlements' people, nor a soldier the rule protects)
         const ka = (tmp(a) === 'passive' ? 6 : 0) + dist(a, p), kb = (tmp(b) === 'passive' ? 6 : 0) + dist(b, p);
         return ka - kb;
       });
