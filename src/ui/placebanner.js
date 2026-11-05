@@ -36,7 +36,7 @@ export function installPlaceBanner(game, root) {
     // the first one (the arrival in a new / loaded world) waits for the loading screen to fade
     if (d.first) { setTimeout(() => game.events.emit('place', { ...d, first: false }), 1600); return; }
     const K = d.kingdom, town = d.town, k = K ? K.id : -1;
-    if (town && town.id !== lastTown) show(town.name, `${KIND[town.kind]} · Reino de ${K ? K.name : '—'}`, K?.banner);
+    if (town && (town.id !== lastTown || k !== lastK)) show(town.name, `${KIND[town.kind]} · Reino de ${K ? K.name : '—'}${game.realms?.besieged?.(town.id) ? ' · sob cerco' : ''}`, K?.banner); // (its kingdom now: a captured place's conqueror — game/towns.js placeAt)
     else if (!town && k !== lastK) {
       if (K) show(`Reino de ${K.name}`, d.district ? `${KIND[d.district.kind]} ${d.district.name}` : 'Terras do reino', K.banner);
       else if (lastK != null && lastK >= 0) show('Terras livres', 'Fora de qualquer reino', null);

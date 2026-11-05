@@ -7,11 +7,10 @@ import { bannerURL } from './heraldry.js';
 import { svgIcon } from './icons.js';
 import { DIVISIONS_PT, CHARGES_PT } from '../world/realm/names.js';
 import { ecoTabs, ecoBind, realmCard } from './muralEco.js';
+import { realmRelations, armyTab } from './muralWar.js'; // phase 3a: the kingdom's relations / news, the army (docs/REINOS.md §13)
 
 export const MURAL_TABS = [['place', 'Lugar'], ['realm', 'Reino'], ['jobs', 'Trabalhos'], ['trade', 'Comércio'], ['army', 'Exército'], ['land', 'Propriedades']];
-const SOON = {
-  army: ['Exército', 'Com reputação no reino você poderá entrar no exército daqui, seguir as ordens do general e defender (ou tomar) castelos e cidades.'],
-};
+const SOON = {};
 const ECO_TABS = new Set(['jobs', 'trade', 'land']);
 // the economy changes under an open mural (a trade, a job's progress, the coins in the backpack): re-render, coalesced
 const HOOKED = new WeakSet();
@@ -25,6 +24,7 @@ function hook(panels) {
     t = setTimeout(() => { t = 0; if (panels.open === 'mural') panels.render(); }, 60);
   };
   g.events.on('eco', again);
+  g.events.on('realms', () => { if (panels.muralTab === 'realm' || panels.muralTab === 'army' || panels.muralTab === 'place') again(); }); // (a war, a siege, a capture: phase 3a)
   g.events.on('inventory', () => { if (ECO_TABS.has(panels.muralTab) || panels.muralTab === 'realm') again(); });
 }
 const KIND_ART = { city: 'à cidade', castle: 'ao castelo', village: 'à vila' };
@@ -83,7 +83,7 @@ export function muralBody(panels) {
   const eco = ECO_TABS.has(tab) ? ecoTabs(panels, I, tab) : null;
   const head = `<div class="mu-head${eco ? ' small' : ''}"><img class="mu-ban" src="${bannerURL(B, 56, 84)}" alt="">
     <div><div class="mu-name">${esc(I.name)}</div>
-    <div class="mu-sub">${I.kindPt}${I.kind === 'city' ? ' · capital' : ''} do Reino de ${esc(K.name)}</div>
+    <div class="mu-sub">${I.kindPt}${I.kind === 'city' && I.capital?.id === I.id ? ' · capital' : ''} do Reino de ${esc(K.name)}${I.seedK != null && I.seedK !== K.id ? ` · tomada do Reino de ${esc(realm.kingdoms[I.seedK].name)}` : ''}${g.realms?.besieged?.(I.id) ? ' · <b style="color:#b8322a">sob cerco</b>' : ''}</div>
     <div class="mu-pills"><span class="mu-pill">População <b>${I.pop}</b></span><span class="mu-pill">${L ? L.buildings.length : 0} construções</span>${I.walls ? `<span class="mu-pill">${I.walls === 'stone' ? 'Muralha de pedra' : 'Paliçada'}</span>` : '<span class="mu-pill">Sem muralha</span>'}</div></div></div>`;
   let body = '';
   if (tab === 'place') {
@@ -101,12 +101,12 @@ export function muralBody(panels) {
       <h4>Construções</h4><div class="mu-list">${builds || '<span class="muted">—</span>'}</div>
       <h4>Regras do lugar</h4><p class="mu-note">${I.kind === 'castle' ? 'Dentro do castelo não se constrói.' : `Dentro da terra de ${esc(I.name)} só se constrói num terreno comprado (aba Propriedades); fora dela, à vontade.`} Os portões abrem de dia e fecham à noite e quando há inimigos dentro.</p>`;
   } else if (tab === 'realm') {
-    const ss = K.settlements.map((sid) => realm.settlements[sid]);
-    const chip = (s) => `<span class="mu-chip${s.id === I.id ? ' here' : ''}">${esc(s.name)}</span>`;
+    const ss = g.realms?.placesOf ? g.realms.placesOf(K.id) : K.settlements.map((sid) => realm.settlements[sid]); // (its places now: the captured ones too)
+    const chip = (s) => `<span class="mu-chip${s.id === I.id ? ' here' : ''}">${esc(s.name)}${s.k !== K.id ? ' <small>(tomada)</small>' : ''}${g.realms?.besieged?.(s.id) ? ' ⚔' : ''}</span>`;
     const by = (k) => ss.filter((s) => s.kind === k);
     const nbs = K.neighbours.map((k) => realm.kingdoms[k]);
     const sw = (c) => `<i class="mu-sw" style="background:rgb(${c.join(',')})"></i>`;
-    body = `${realmCard(panels, I)}<p>O <b>Reino de ${esc(K.name)}</b> ${sw(K.color)} tem ${ss.length} lugares: a capital, ${by('castle').length} castelos e ${by('village').length} vilas.</p>
+    body = `${realmCard(panels, I)}${realmRelations(panels, I)}<p>O <b>Reino de ${esc(K.name)}</b> ${sw(K.color)} tem ${ss.length} lugares: ${by('city').length === 1 ? 'a capital' : `${by('city').length} cidades`}, ${by('castle').length} castelos e ${by('village').length} vilas.</p>
       <h4>Brasão</h4><p>${sw(B.f)}campo ${DIVISIONS_PT[B.d] || ''}${B.c !== 'none' ? `, ${CHARGES_PT[B.c]} de ${B.m === 'or' ? 'ouro' : 'prata'}` : ''}.</p>
       <h4>Capital</h4><div class="mu-list">${by('city').map(chip).join('')}</div>
       <h4>Castelos</h4><div class="mu-list">${by('castle').map(chip).join('')}</div>
@@ -114,8 +114,10 @@ export function muralBody(panels) {
       <h4>Vizinhos</h4><div class="mu-list">${nbs.length ? nbs.map((n) => `<span class="mu-chip">${sw(n.color)}${esc(n.name)}${T.canReach(K.id, n.id) ? '' : ' (outro continente)'}</span>`).join('') : '<span class="muted">Nenhum reino vizinho por terra.</span>'}</div>`;
   } else if (eco) {
     body = eco.body;
+  } else if (tab === 'army') {
+    body = armyTab(panels, I);
   } else {
-    const [h, txt] = SOON[tab] || SOON.army;
+    const [h, txt] = SOON[tab] || ['', ''];
     body = `<div class="mu-soon"><div class="tag">Em breve</div><h4>${h}</h4><p>${txt}</p></div>`;
   }
   return { title: `Mural · ${esc(I.name)}`, cls: eco?.cls || '', body: `<div class="tabs" data-scrollx="mtabs">${tabs}</div>${head}<div class="mu-body" data-scroll="mu-${tab}">${body}</div>` };

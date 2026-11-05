@@ -139,13 +139,20 @@ export function installEcoHud(game) {
     } else if (d.type === 'owed') {
       const worst = d.list.slice().sort((a, b) => b[2] - a[2])[0], pr = propById(game, worst[0]), s = pr && settlement(game, pr.sid);
       const left = PROP.warnDays - worst[2], total = d.list.reduce((a, b) => a + b[1], 0);
-      notify(`Imposto atrasado: ${fmt(total)} moedas`, { sub: `${left <= 1 ? 'Último dia!' : `${left} dias para pagar`} (mural · Propriedades), ou o Reino de ${K(s?.k)?.name || ''} toma ${pr?.bi != null ? `a ${pr.name.toLowerCase()}` : 'o terreno'} em ${s?.name || ''}. Só as moedas da mochila contam.`, kind: 'warn', ms: 12000, key: 'tax' });
+      notify(`Imposto atrasado: ${fmt(total)} moedas`, { sub: `${left <= 1 ? 'Último dia!' : `${left} dias para pagar`} (mural · Propriedades), ou o Reino de ${K(game.realms?.owner?.(pr?.sid) ?? s?.k)?.name || ''} toma ${pr?.bi != null ? `a ${pr.name.toLowerCase()}` : 'o terreno'} em ${s?.name || ''}. Só as moedas da mochila contam.`, kind: 'warn', ms: 12000, key: 'tax' });
       game.audio?.play('ui', { volume: 0.4 });
+    } else if (d.type === 'proplost' && d.why === 'captured') {
+      // the place was taken in a war (docs/REINOS.md §13): every house / plot there lost, the plots' buildings down
+      const prs = (d.ids || [d.id]).map((id) => propById(game, id)).filter(Boolean), s = prs[0] && settlement(game, prs[0].sid);
+      const what = prs.map((pr) => (pr.bi != null ? `a ${pr.name.toLowerCase()}` : `o terreno ${pr.w}×${pr.w}`));
+      const list = what.length > 1 ? `${what.slice(0, -1).join(', ')} e ${what[what.length - 1]}` : what[0] || 'suas propriedades';
+      notify(`O Reino de ${K(d.k)?.name || ''} tomou ${s?.name || ''}`, { sub: `Você perdeu ${list}${d.built ? ' (o que estava construído no terreno foi destruído)' : ''}. Voltaram à venda pelo novo reino; o que estava nos baús ficou para ele.`, kind: 'warn', sticky: true, key: 'captured' });
+      for (const id of d.ids || [d.id]) dropRespawn(id);
     } else if (d.type === 'proplost' && d.why !== 'left') {
       const pr = propById(game, d.id), s = pr && settlement(game, pr.sid);
-      notify(`${pr?.bi != null ? 'Sua casa foi tomada' : 'Seu terreno foi tomado'}`, { sub: `O Reino de ${K(s?.k)?.name || ''} tomou ${pr?.bi != null ? `a ${pr.name.toLowerCase()}` : 'o terreno'} em ${s?.name || ''}: imposto não pago por 3 dias (${REP.seized} de reputação). O que estava nos baús ficou para o reino.`, kind: 'warn', sticky: true, key: 'seized' });
-      dropRespawn(d.id);
-    } else if (d.type === 'proplost') dropRespawn(d.id);
+      notify(`${pr?.bi != null ? 'Sua casa foi tomada' : 'Seu terreno foi tomado'}`, { sub: `O Reino de ${K(game.realms?.owner?.(pr?.sid) ?? s?.k)?.name || ''} tomou ${pr?.bi != null ? `a ${pr.name.toLowerCase()}` : 'o terreno'} em ${s?.name || ''}: imposto não pago por 3 dias (${REP.seized} de reputação). ${pr?.bi != null ? 'O que estava nos baús ficou para o reino.' : `O que você construiu nele foi desmontado${d.built ? ` (${d.built} ${d.built === 1 ? 'peça' : 'peças'})` : ''}.`}`, kind: 'warn', sticky: true, key: 'seized' });
+      for (const id of d.ids || [d.id]) dropRespawn(id);
+    } else if (d.type === 'proplost') for (const id of d.ids || [d.id]) dropRespawn(id);
   });
   // a lost house: its bed is no longer a respawn point (owner state)
   const dropRespawn = (id) => {

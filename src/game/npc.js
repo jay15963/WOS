@@ -694,6 +694,7 @@ export function repairByNumbers(game, step = 0.2) {
     if (!(r.dmg > 0)) continue;
     const sid = +id.slice(1).split('.')[0];
     if (game.people.live.get(sid)?.ents.size) continue; // (a settlement with its people out: they do it by hand)
+    if (game.realms?.holdRepair?.(sid)) continue; // (under siege, or a siege just over: not mended by numbers yet — phase 3a)
     const o = game.world.objById.get(id), d = Math.max(0, r.dmg / 100 - step);
     game.net.emit(o?.sdmg ? 'siege.dmg' : 'struct.dmg', { id, d: +d.toFixed(4), x: r.x + 0.5, y: r.y + 0.5 });
   }

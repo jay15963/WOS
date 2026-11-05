@@ -85,13 +85,13 @@ export function siegeCanDamage(game, attacker, target) {
     if (target === game.player || target.avatar || target.remote || (target.kind === 'pawn' && !target.isMob)) return false; // (players: never)
     if (!isMob(target)) return false;
     if (target.faction === 'friend' || target.owned || target.tame || target.tiedTo || target.saddle) return false; // (pets, the farm's animals, horses)
-    if (target.npc) { const ar = realmOf(attacker), tr = target.npcS?.s?.k; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
+    if (target.npc) { const ar = realmOf(attacker), tr = target.npcS ? game.realms?.owner?.(target.npcS.sid) ?? target.npcS.s?.k : null; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
     return true;
   }
   if (target.isProp) return !target.dummy && !target.broken; // (bandit camp crates; never a training dummy)
   if (target.building) {
     if (siegeDebug(game).hostile.has(target.id)) return true;
-    const tr = realmOf(target);
+    const tr = target.town != null ? game.realms?.owner?.(target.town) ?? game.towns?.realm?.settlements[target.town]?.k ?? null : realmOf(target); // (a settlement's piece: its kingdom now)
     if (tr != null) {
       const ar = realmOf(attacker);
       return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); // (phase 3: kingdoms at war)

@@ -12,10 +12,11 @@
 import { defineIntent, defineOp, defineOwn } from '../../net/registry.js';
 import { ITEMS } from '../data.js';
 import { TOWN } from './structures.js';
+import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs to now
 import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
-  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests,
+  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings,
 } from '../eco.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -173,7 +174,7 @@ defineOp('eco.trade', {
     if (m && g >= 0 && g < NG) m[g] = Math.max(0, m[g] + int(a.d));
     const s = settlement(game, int(a.sid)), u = str(a.u);
     if (s && u) {
-      const r = rec(game, u), k = s.k;
+      const r = rec(game, u), k = ownerOf(game, s.id);
       r.vol[k] = (r.vol[k] | 0) + Math.max(0, int(a.coins));
       while ((r.vol[k] | 0) >= REP.tradeCoins) {
         r.vol[k] -= REP.tradeCoins;
@@ -250,19 +251,10 @@ defineOp('eco.prop', {
 });
 
 defineOp('eco.bill', {
-  doc: 'The day\'s bill of a player (host): each property\'s tax / rent added to what it owes; a debt from the day before counts a day of warning; after 3 the kingdom takes it back (seize, −15 reputation).',
-  args: { u: 'uid', list: '[[propId, coins]]', seize: '[propId]' },
+  doc: 'The day\'s bill of a player (host): each property\'s tax / rent added to what it owes; a debt from the day before counts a day of warning (after 3 the host takes the property back first: eco.lose).',
+  args: { u: 'uid', list: '[[propId, coins]]' },
   apply(game, a) {
     const E = E_(game), u = str(a.u);
-    for (const id of Array.isArray(a.seize) ? a.seize : []) {
-      const row = E.pr.get(id);
-      if (!row || row.u !== u) continue;
-      E.pr.delete(id);
-      const pr = propById(game, id);
-      emptyChests(game, pr);
-      if (pr) addRep(game, u, settlement(game, pr.sid)?.k ?? -1, REP.seized);
-      game.events?.emit('eco', { type: 'proplost', u, id, why: 'seized' });
-    }
     for (const r of Array.isArray(a.list) ? a.list : []) {
       if (!Array.isArray(r)) continue;
       const row = E.pr.get(r[0]);
@@ -272,6 +264,41 @@ defineOp('eco.bill', {
     }
     bump(game);
     game.events?.emit('eco', { type: 'bill', u });
+  },
+});
+
+// THE path of a property lost (game/eco.js loseProps, host): taken for unpaid tax (−15 reputation), lost with a captured
+// place, given back to the kingdom — the row (and its debt) goes: back on the place's list; a house's chests are emptied;
+// the buildings on a plot are taken down by the struct.remove ops that follow
+defineOp('eco.lose', {
+  doc: 'Properties lost (host): seized (3 days unpaid, −15 reputation), captured (the place was taken), left (given back to the kingdom) — back on the place\'s sale / rent list, chests emptied, debts gone; `built` = how many buildings on the plots come down.',
+  args: { ids: '[propId]', why: "'seized'|'captured'|'left'", k: 'int?', by: 'pid?', give: '{coin: n}?', toast: 'string?', built: 'int?' },
+  apply(game, a) {
+    const E = E_(game), why = ['seized', 'captured', 'left'].includes(a.why) ? a.why : 'seized', per = new Map();
+    for (const id of Array.isArray(a.ids) ? a.ids.slice(0, 60) : []) {
+      const row = E.pr.get(id);
+      if (!row) continue;
+      E.pr.delete(id);
+      const pr = propById(game, id);
+      emptyChests(game, pr);
+      if (why === 'seized' && pr) addRep(game, row.u, ownerOf(game, pr.sid), REP.seized);
+      if (!per.has(row.u)) per.set(row.u, []);
+      per.get(row.u).push([id, row.mode]);
+    }
+    bump(game);
+    for (const [u, list] of per) game.events?.emit('eco', { type: 'proplost', u, ids: list.map((q) => q[0]), modes: list.map((q) => q[1]), id: list[0][0], why, k: int(a.k, -1), built: int(a.built) });
+  },
+});
+
+defineOp('eco.rep', {
+  doc: 'Reputation with a kingdom changes (host; phase 3: a player who helped / fought a kingdom\'s soldiers — game.realms.reward).',
+  args: { u: 'uid', k: 'int', d: 'int', by: 'pid?', toast: 'string?' },
+  apply(game, a) {
+    const u = str(a.u);
+    if (!u) return;
+    addRep(game, u, int(a.k, -1), Math.max(-100, Math.min(100, int(a.d))));
+    bump(game);
+    game.events?.emit('eco', { type: 'rep', u, k: int(a.k, -1) });
   },
 });
 
@@ -303,7 +330,7 @@ function placeCheck(game, actor, sid, u) {
   if (!s) return [null, 'Lugar desconhecido'];
   if (game.eco?.day < 0) return [null, 'O mercado ainda está abrindo'];
   if (!atMural(game, s.id, actor.ent)) return [null, `Vá até o mural de ${s.name}`];
-  const why = dealReason(game, u, s.k);
+  const why = dealReason(game, u, ownerOf(game, s.id));
   if (why) return [null, why];
   return [s, null];
 }
@@ -374,9 +401,10 @@ defineIntent('realm.join', {
     const s = settlement(game, int(a.sid));
     if (!s) return 'Lugar desconhecido';
     if (!atMural(game, s.id, actor.ent)) return `Vá até o mural de ${s.name}`;
-    if (recOf(game, u)?.k === s.k) return 'Você já é deste reino';
-    const K = kingdomOf(game, s.k);
-    net.emit('eco.member', { u, k: s.k, name: recOf(game, u)?.name || '', by: actor.pid, toast: `Você jurou lealdade ao Reino de ${K.name}`, toastKind: 'good' });
+    const ko = ownerOf(game, s.id);
+    if (recOf(game, u)?.k === ko) return 'Você já é deste reino';
+    const K = kingdomOf(game, ko);
+    net.emit('eco.member', { u, k: ko, name: recOf(game, u)?.name || '', by: actor.pid, toast: `Você jurou lealdade ao Reino de ${K.name}`, toastKind: 'good' });
   },
 });
 
@@ -444,7 +472,7 @@ defineIntent('prop.buy', {
     const [s, why] = placeCheck(game, actor, pr.sid, u);
     if (why) return why;
     if (game.eco.pr.has(pr.id)) return 'Já foi vendido';
-    const ri = rankInfo(game, u, s.k);
+    const ri = rankInfo(game, u, ownerOf(game, s.id));
     if (ri.i < REP.buyRank) return `Só vende a quem é ${RANKS[REP.buyRank].name} no reino (você: ${ri.name}, ${ri.rep}/${RANKS[REP.buyRank].min})`;
     if (int(a.paid) < pr.price) return `Custa ${fmt(pr.price)} moedas`;
     const name = recOf(game, u)?.name || '';
@@ -477,8 +505,10 @@ defineIntent('prop.leave', {
     const u = who(game, actor), row = game.eco?.pr.get(a.id), pr = propById(game, a.id);
     if (!row || !pr || row.u !== u) return 'Não é sua';
     const back = row.mode === 'own' ? Math.max(0, Math.round(pr.price * PROP.sellBack) - row.due) : 0;
-    net.emit('eco.prop', { id: pr.id, gone: 1, why: 'left', by: actor.pid, give: back ? { [COIN]: back } : undefined,
-      toast: row.mode === 'own' ? `Vendida ao reino por ${fmt(back)} moedas` : 'Aluguel encerrado', toastKind: 'info' });
+    const built = plotBuildings(game, pr).length;
+    loseProps(game, [pr.id], 'left', { by: actor.pid, give: back ? { [COIN]: back } : undefined, // (the one path of a property lost: game/eco.js)
+      toast: row.mode === 'own' ? `Vendida ao reino por ${fmt(back)} moedas${built ? ' (o que estava construído no terreno foi desmontado)' : ''}` : 'Aluguel encerrado' });
+    void net;
   },
 });
 

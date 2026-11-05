@@ -29,6 +29,7 @@ import { zoneSeason, slotClock, seasonClock } from './seasons.js';
 import { YEAR_DAYS } from './calendar.js';
 import { findObj } from './mut/objects.js';
 import { dimsOf, TOWN } from './mut/structures.js';
+import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (docs/REINOS.md §13)
 
 export { GOODS, NG, GI, RANKS, rankOf };
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -255,24 +256,24 @@ export function demandOf(game, sid, gi) {
 }
 // buying n of good gi at sid: total cost (coins, rounded up once), the unit price of the first one and after the last
 export function quoteBuy(game, sid, gi, n, uid) {
-  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi), s = settlement(game, sid);
-  const k = 1 + PRICE.buyFee - discountOf(game, uid, s.k), b = goodBase(gi);
+  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
+  const k = 1 + PRICE.buyFee - discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
   let sum = 0;
   const m = Math.min(n, S0);
   for (let i = 0; i < m; i++) sum += b * priceFactor(S0 - i, R) * k;
   return { n: m, cost: Math.ceil(sum - 1e-9), unit: b * priceFactor(S0, R) * k, next: b * priceFactor(S0 - m, R) * k, stock: S0 };
 }
 export function quoteSell(game, sid, gi, n, uid) {
-  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi), s = settlement(game, sid);
-  const k = 1 - PRICE.sellFee + discountOf(game, uid, s.k), b = goodBase(gi);
+  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
+  const k = 1 - PRICE.sellFee + discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
   let sum = 0;
   for (let i = 0; i < n; i++) sum += b * priceFactor(S0 + i + 1, R) * k;
   return { n, gain: Math.floor(sum + 1e-9), unit: b * priceFactor(S0 + 1, R) * k, next: b * priceFactor(S0 + n + 1, R) * k, stock: S0 };
 }
 // how many can a purse of `coins` buy
 export function maxAfford(game, sid, gi, coins, uid) {
-  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi), s = settlement(game, sid);
-  const k = 1 + PRICE.buyFee - discountOf(game, uid, s.k), b = goodBase(gi);
+  const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
+  const k = 1 + PRICE.buyFee - discountOf(game, uid, ownerOf(game, sid)), b = goodBase(gi);
   let sum = 0, n = 0;
   while (n < S0 && n < 9999) { const v = sum + b * priceFactor(S0 - n, R) * k; if (Math.ceil(v - 1e-9) > coins) break; sum = v; n++; }
   return n;
@@ -349,6 +350,7 @@ export function simulateDay(game, day, roll, near = []) {
     const glut = roll() < 0.5, days = EVENTS.days[0] + Math.floor(roll() * (EVENTS.days[1] - EVENTS.days[0] + 1));
     ev.push([s.id, gi, Math.round((glut ? EVENTS.glut : EVENTS.short) * 100), day + days]);
   }
+  for (const e of game.realms?.marketNews?.(day, roll, ev) || []) ev.push(e); // (the wars: weapons and iron wanted at the front, food in a besieged place — game/realms.js)
   E.ev = ev; // sync-ok: host-side preview of the news for balanceOf below (the op eco.day sets the same on every peer)
   const next = new Map();
   for (const s of R.settlements) {
@@ -424,7 +426,7 @@ function giverOf(game, sid, salt, role) {
 export const ecoDay = (game) => (game.eco?.day >= 0 ? game.eco.day : game.env.dayIndex);
 const LPROF = new WeakMap(); // plan → the profile made from its own features (boards: never the replicated E.feat)
 export function boardOf(game, sid, day = ecoDay(game)) {
-  const key = sid * 100000 + day;
+  const key = `${sid}|${day}|${ownerOf(game, sid)}`; // (a captured place: its new kingdom's jobs)
   if (BOARDS.has(key)) return BOARDS.get(key);
   const R = realmOf(game), s = R?.settlements[sid];
   if (!s) return [];
@@ -459,7 +461,7 @@ export function boardOf(game, sid, day = ecoDay(game)) {
 const work = (L, key) => L.buildings.find((b) => b.key === key);
 function makeJob(game, s, L, P, t, day, n, r, danger) {
   const id = `${s.id}.${day}.${n}`, R = realmOf(game), w = game.world;
-  const base = { id, sid: s.id, k: s.k, t, day, exp: day + 2, got: 0 };
+  const base = { id, sid: s.id, k: ownerOf(game, s.id), t, day, exp: day + 2, got: 0 };
   const big = s.kind === 'city' ? 1.3 : 1;
   if (t === 'harvest') {
     const crops = [...new Set(L.fields.map((f) => CROP_GOOD[f.crop]).filter(Boolean))];
@@ -490,14 +492,14 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
       title: `Trazer ${need} ${ITEMS[gid].name.toLowerCase()}`, text: `Precisam de ${need} ${ITEMS[gid].name.toLowerCase()} aqui em ${s.name}. Traga e entregue neste mural: paga bem acima do mercado.` };
   }
   if (t === 'deliver') {
-    const K = R.kingdoms[s.k];
+    const ko = ownerOf(game, s.id), K = R.kingdoms[ko];
     const cand = R.settlements.filter((q) => q.id !== s.id && R.kingdoms[q.k].comp === K.comp).map((q) => [q, Math.hypot(w.dx(q.x, s.x), q.y - s.y)])
-      .filter(([q, d]) => d > 120 && d < 1500 && (q.k === s.k || K.neighbours.includes(q.k))).sort((a, b) => a[1] - b[1]);
+      .filter(([q, d]) => { const kq = ownerOf(game, q.id); return d > 120 && d < 1500 && (kq === ko || K.neighbours.includes(kq)) && !game.realms?.atWar?.(ko, kq); }).sort((a, b) => a[1] - b[1]);
     if (!cand.length) return null;
     const [q, d] = cand[Math.floor(r(1) * Math.min(cand.length, 8))], np = 1 + Math.floor(r(2) * 3);
     return { ...base, n: np, dest: q.id, exp: day + 3, pay: Math.round(20 + d * 0.09 + 8 * np), rep: d > 700 ? 10 : d > 350 ? 8 : 6, giver: giverOf(game, s.id, n + day, 'Mercador'),
       title: `Levar ${np} ${np > 1 ? 'encomendas' : 'encomenda'} a ${q.name}`,
-      text: `Leve ${np > 1 ? `estas ${np} encomendas` : 'esta encomenda'} até o mural de ${q.name} (${q.kind === 'city' ? 'cidade' : q.kind === 'castle' ? 'castelo' : 'vila'} do Reino de ${R.kingdoms[q.k].name}), a ${Math.round(d)} passos a ${dirPt(w.dx(q.x, s.x), q.y - s.y)}. Pagamento na entrega.` };
+      text: `Leve ${np > 1 ? `estas ${np} encomendas` : 'esta encomenda'} até o mural de ${q.name} (${q.kind === 'city' ? 'cidade' : q.kind === 'castle' ? 'castelo' : 'vila'} do Reino de ${R.kingdoms[ownerOf(game, q.id)].name}), a ${Math.round(d)} passos a ${dirPt(w.dx(q.x, s.x), q.y - s.y)}. Pagamento na entrega.` };
   }
   if (t === 'hunt') {
     const need = 3 + Math.floor(r(1) * 3);
@@ -615,7 +617,7 @@ export function chargeOf(game, id, row = game.eco?.pr.get(id)) {
   const pr = propById(game, id);
   if (!pr || !row) return 0;
   if (row.mode === 'rent') return pr.rent;
-  return Math.max(1, Math.round(pr.price * taxRate(game, settlement(game, pr.sid).k)));
+  return Math.max(1, Math.round(pr.price * taxRate(game, ownerOf(game, pr.sid)))); // (a captured place: the new kingdom's tax)
 }
 // the property a settlement piece belongs to (a house's door / chest / bed)
 export function pieceProp(game, pieceId, sid) {
@@ -766,10 +768,32 @@ function dayTick(game, day) {
   }
   for (const [uid, b] of bills) {
     const seize = b.list.filter(([id]) => { const r = E.pr.get(id); return r.due > 0 && r.warn + 1 >= PROP.warnDays; }).map(([id]) => id);
-    net.emit('eco.bill', { u: uid, list: b.list, seize });
+    if (seize.length) loseProps(game, seize, 'seized'); // (3 days unpaid: the kingdom takes it back — the one path of a property lost)
+    net.emit('eco.bill', { u: uid, list: b.list.filter(([id]) => E.pr.has(id)) });
     const left = [...E.pr].filter(([, r]) => r.u === uid && r.due > 0).map(([id, r]) => [id, r.due, r.warn]);
     if (left.length) net.toOwner(b.pid, 'eco.collect', { day, bills: left });
   }
+}
+
+// ---------- a property lost (host): THE path for every way a player loses one (docs/REINOS.md §10 / §13) ----------
+// a capture of the place, three days of unpaid tax, a house / plot given back to the kingdom: the row goes (and its
+// debt: back on the place's sale / rent list, under the kingdom that holds the place now), a house's chests are emptied
+// and everything the player built on a PLOT is taken down (struct.remove on every peer: a chunk holding a building is
+// never dropped by the host, so they are all here — a far guest gets it with the chunk later; the save keeps it)
+export function plotBuildings(game, pr) {
+  if (!pr || pr.bi != null) return [];
+  const out = [];
+  for (const o of game.build.structures) if (o.town == null && o.tx <= pr.x1 && o.tx + (o.fw || 1) - 1 >= pr.x0 && o.ty <= pr.y1 && o.ty + (o.fh || 1) - 1 >= pr.y0) out.push(o.id);
+  return out;
+}
+export function loseProps(game, ids, why, { k = -1, by = undefined, give = undefined, toast = undefined } = {}) {
+  const E = game.eco, list = (ids || []).filter((id) => E?.pr.has(id));
+  if (!list.length || !game.net.auth) return 0;
+  const down = [];
+  for (const id of list) down.push(...plotBuildings(game, propById(game, id)));
+  game.net.emit('eco.lose', { ids: list, why, k, by, give, toast, built: down.length });
+  for (const id of down) game.net.emit('struct.remove', { id, quiet: 1, fx: 'raze' });
+  return list.length;
 }
 
 // ---------- the system ----------
@@ -784,6 +808,9 @@ export function installEco(game) {
     if (!row || game.creative || row.u === uidOf(game, actor?.pid)) return null;
     return `Casa de ${row.name || 'outro jogador'}: só quem mora aqui abre`;
   };
+  // phase 3a (game/realms.js): a captured place takes its players' houses and plots; a fallen kingdom's members are travellers
+  E.loseAt = (sid, why, k = -1) => loseProps(game, [...E.pr.keys()].filter((id) => propById(game, id)?.sid === sid), why, { k });
+  E.dropKingdom = (k) => { for (const [u, r] of E.pl) if (r.k === k) game.net.emit('eco.member', { u, k: -1, name: r.name }); };
   E.api = makeApi(game);
   return E;
 }

@@ -328,7 +328,7 @@ function landBody(panels, I) {
     const leave = ui.confirm === 'leave:' + q.id;
     const back = row.mode === 'own' ? Math.max(0, Math.round(pr.price * PROP.sellBack) - row.due) : 0;
     body += `<div class="ec-card${row.due > 0 ? ' warn' : ' taken'}"><div class="ck">${isH ? '🏠' : '📐'}</div><div><div class="ct">${esc(isH ? pr.name : `Terreno ${pr.w}×${pr.w}`)}</div>
-      <div class="cg">${esc(q.s.name)} · Reino de ${esc(kingdomOf(g, q.s.k)?.name || '')}</div>
+      <div class="cg">${esc(q.s.name)} · Reino de ${esc(kingdomOf(g, g.realms?.owner?.(q.s.id) ?? q.s.k)?.name || '')}${g.realms?.besieged?.(q.s.id) ? ' · <b style="color:#ffb08a">sob cerco: se cair, você a perde</b>' : ''}</div>
       <p>${isH ? `${pr.beds.length} ${pr.beds.length === 1 ? 'cama' : 'camas'}, ${pr.chests.length} ${pr.chests.length === 1 ? 'baú' : 'baús'}: só você abre as portas e os baús; durma para renascer aqui.` : 'Construa à vontade dentro da divisa (Construir · B).'}</p>
       <div class="chips">${chips.join('')}</div></div>
       <div class="ca"><button class="btn" data-pview="${q.id}">Ver</button><button class="btn ghost" data-pleave="${q.id}">${leave ? (row.mode === 'own' ? `Vender por ${fmt(back)}?` : 'Devolver?') : row.mode === 'own' ? 'Vender' : 'Devolver'}</button></div></div>`;
@@ -377,8 +377,8 @@ export function realmCard(panels, I) {
     <div class="ec-bar"><i style="width:${Math.max(0, Math.min(100, (100 * into) / span))}%"></i><span>${ri.need != null ? `${into} / ${span}` : 'Herói'}</span></div>
     <div class="rk muted" style="color:#5c4026">Sobe com trabalhos do mural e com comércio aqui (1 ponto a cada ${REP.tradeCoins} moedas negociadas, até ${REP.tradeDayCap} por dia). Imposto do reino: ${pct(taxRate(g, K.id))} do valor das propriedades por dia.</div>
     ${why ? `<div class="rk" style="color:#8a2016">${esc(why)}</div>` : ''}
-    <ul>${member ? '<li>Você é súdito deste reino: os inimigos dele serão seus inimigos.</li><li>Em breve (fase 3): entrar no exército, ordens do general e as guerras do reino.</li><li>Comercia com os reinos da mesma terra que não estão em guerra com este.</li>'
-      : '<li><b>Viajante</b>: comercia e trabalha com todos os reinos, mesmo os que estão em guerra entre si.</li><li><b>Membro</b>: jura lealdade ao reino — os inimigos dele serão seus; em breve (fase 3) poderá entrar no exército. Dá para sair a qualquer momento, em qualquer mural.</li>'}</ul>
+    <ul>${member ? '<li>Você é súdito deste reino: os inimigos dele serão seus inimigos. Toda mudança nas relações do reino (guerra, paz, aliança, cercos e conquistas) chega para você como aviso.</li><li>Comercia com os reinos da mesma terra que não estão em guerra com este.</li><li>Se um lugar onde você tem casa ou terreno for tomado numa guerra, você perde a propriedade.</li><li>Entrar no exército e seguir as ordens do general: em breve.</li>'
+      : '<li><b>Viajante</b>: comercia e trabalha com todos os reinos, mesmo os que estão em guerra entre si.</li><li><b>Membro</b>: jura lealdade ao reino — os inimigos dele serão seus, e as notícias do reino chegam a você; em breve poderá entrar no exército. Dá para sair a qualquer momento, em qualquer mural.</li>'}</ul>
     <div class="ra">${member ? '<button class="btn" data-rleave>Sair do reino</button><small>Você volta a ser viajante.</small>'
       : `<button class="btn primary" data-rjoin ${atMural(g, I.id, g.player) ? '' : 'disabled'}>${mk >= 0 ? `Trocar para ${esc(K.name)}` : `Entrar no Reino de ${esc(K.name)}`}</button>${mk >= 0 ? `<small>Você deixa o Reino de ${esc(MK.name)}.</small>` : ''}${mk >= 0 ? '<button class="btn" data-rleave>Ficar viajante</button>' : ''}`}</div>
     ${reps.length ? `<div class="rk">Sua reputação nos reinos:</div><div class="ec-reps">${reps.map(([q, v]) => `<span class="ec-pill">${esc(q.name)}: ${esc(RANKS[rankInfo(g, me, q.id).i].name)} (${v})</span>`).join('')}</div>` : ''}

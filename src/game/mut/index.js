@@ -28,3 +28,4 @@ import './siege.js';    // siege engines: operator, aim, shots, pushing, the ram
 import './towns.js';    // settlements: their shared state, the gates (docs/REINOS.md)
 import './people.js';   // settlements' people: deaths / replacements, the world's progress, the bell (game/people.js)
 import './eco.js';      // the economy of the kingdoms: markets, reputation, jobs, properties, tax (docs/REINOS.md)
+import './realms.js';   // the kingdoms' diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
