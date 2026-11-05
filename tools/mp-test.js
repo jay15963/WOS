@@ -8564,8 +8564,9 @@ def('EC3', {
   muralTab(G, vil.id, 'jobs');
   const btn = await t.waitFor(() => G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`), 3000, 'the job on the board');
   t.check(/Quadro de/.test(ecoTxt(G)) && ecoTxt(G).includes(job.title), 'Trabalhos: the board with the job', short(ecoTxt(G), 120));
-  btn.click();
-  await t.waitFor(() => recOn(H, uid)?.jobs.some((j) => j.id === job.id) && recOn(G, uid)?.jobs.some((j) => j.id === job.id), 2000 + RT(), 'the job taken on both peers');
+  t.check(!btn.disabled, '"Aceitar" enabled (the fields hold the plants)', short(btn.closest('.ec-card')?.textContent, 160));
+  (G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`) || btn).click();
+  await t.waitFor(() => recOn(H, uid)?.jobs.some((j) => j.id === job.id) && recOn(G, uid)?.jobs.some((j) => j.id === job.id), 3000 + RT(), 'the job taken on both peers', () => `ui: ${G.lastUi(3)} · host jobs ${recOn(H, uid)?.jobs.map((j) => j.id)}`);
   G.game.events.emit('closepanels', {});
   await t.waitFor(() => (G.doc.querySelector('#jtrack')?.textContent || '').includes(job.title), 2000, 'the HUD tracker shows the job');
   // harvest the crops on the fields
@@ -10746,6 +10747,285 @@ def('AR10', {
     t.check(d < 16 && dT > T.r + 4, 'the camp spot: by the army, outside the target\'s land', `${f2(d)} from the camp · ${f2(dT)} from ${T.name} (land ${T.r})`);
   }
   await btFar(t, H, MH, G, MG, L.spawn[0], L.spawn[1]);
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
+// JB — jobs that can be done (docs/REINOS.md §10 "Trabalhos possíveis", game/fields.js): the places' fields replanted at
+// dawn (op obj.back), the board only with what the place can give (survey of the land around), exact waypoints (a real
+// field, the wooded / stony side; near the work the marker on the nearest plant / tree), the host's refusal when the
+// fields were harvested.
+// =====================================================================================================
+// the plants of a field on a frame (its tiles: game/fields.js inField)
+const jbPlants = (f, M, fld) => f.game.world.query((fld.x0 + fld.x1) / 2, (fld.y0 + fld.y1) / 2, Math.hypot(fld.x1 - fld.x0, fld.y1 - fld.y0) / 2 + 1, (o) => o.type === fld.crop && !o.gone && M.fields.inField(fld, o));
+const jbGrows = (f, M, s, d) => !M.eco.placeSeason(f.game, s, d, 6).hard;
+// the public part of a job (the giver's name comes from the townsfolk where a peer has them)
+const jbRow = (j) => [j.id, j.t, j.n, j.crop || '', j.good || '', j.dest ?? '', j.x ?? '', j.y ?? '', j.r ?? '', j.pay, j.rep, j.exp, j.title, j.text].join('|');
+
+def('JB1', {
+  title: 'JB: the fields are worked — harvested field plants come back at the next dawn on both peers (the same objects), after a save → load too; never in a hard winter',
+  src: 'village', timeout: 300000,
+  expected: 'The biggest field of the start village is full on both peers (its plan\'s plant count); the guest harvests a plant, the host takes the rest off: gone on both, the place\'s count drops the same on both; the host\'s save lists them as gone; at the next dawn where crops grow (game/eco.js dayTick → game/fields.js replantFields → op obj.back) every plant is back on both peers with the same id, spot and look, and no field plant of the place is missing; the save loaded into a fresh game: the plants still gone there, back at its next dawn; in a hard winter a harvested field stays bare (and the board has no harvest job) until crops grow again; digest equal',
+  api: 'game/fields.js fieldSize / fieldsLeft / replantFields, mut/objects.js obj.back, game/eco.js dayTick / boardOf, net/snapshot.js (gone), game/save.js buildSaveData',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  await ecoReady(t, H, G);
+  const L = H.game.towns.layout(s0.id), F = MH.fields;
+  const fld = L.fields.slice().sort((a, b) => F.fieldSize(b) - F.fieldSize(a))[0], good = MH.ecoc.CROP_GOOD[fld.crop], N = F.fieldSize(fld);
+  const cx = (fld.x0 + fld.x1) / 2, cy = (fld.y0 + fld.y1) / 2;
+  const a = A.freeSpot(G, MG, cx, fld.y1 + 2, { rMin: 0, rMax: 5 }) || [cx, fld.y1 + 2];
+  A.teleport(G, a[0], a[1]);
+  const b = A.freeSpot(H, MH, a[0] + 2, a[1], { rMin: 0, rMax: 5 }) || [a[0] + 2, a[1]];
+  A.teleport(H, b[0], b[1]);
+  // (a dawn first if an earlier scenario left the field harvested)
+  if (jbPlants(H, MH, fld).length < N && jbGrows(H, MH, s0, H.game.env.dayIndex + 1)) await ecoDay(t, H, G, 1);
+  await t.waitFor(() => jbPlants(H, MH, fld).length === N && jbPlants(G, MG, fld).length === N, 10000 + RT(), `${s0.name}: the ${good} field full on both peers (${N} plants, the plan's count)`, () => `${jbPlants(H, MH, fld).length} / ${jbPlants(G, MG, fld).length}`);
+  const list = jbPlants(H, MH, fld), ids = list.map((o) => o.id).sort((x, y) => x - y), look = new Map(list.map((o) => [o.id, [o.x, o.y, o.v | 0, o.f]]));
+  t.check(ids.every((id) => MH.fields.fieldOf(H.game, A.objOn(H, id))?.sid === s0.id), 'every plant is a field plant of the place (its worldgen id names the field)');
+  const left0 = MH.fields.fieldsLeft(H.game, s0.id, good, true);
+  // harvested: one by the guest (the forage intent), the rest by the host
+  const one = A.objOn(G, ids[0]);
+  await A.gather(t, G, MG, one);
+  H.game.net.emit('obj.remove', { ids: ids.slice(1), fx: 'forage' }); H.game.net.flush();
+  await t.waitFor(() => ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), 5000 + RT(), 'the field harvested on both peers');
+  const lH = MH.fields.fieldsLeft(H.game, s0.id, good, true), lG = MG.fields.fieldsLeft(G.game, s0.id, good, true);
+  t.check(lH.left === left0.left - N && lG.left === lH.left, `the place's ${good} plants: −${N} on both`, `${left0.left} → host ${lH.left} · guest ${lG.left} (of ${lH.total})`);
+  // the save keeps them gone
+  const data = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game)));
+  t.check(ids.every((id) => data.world.gone.includes(id)), 'the host\'s save lists them as gone', `${ids.filter((id) => data.world.gone.includes(id)).length}/${N}`);
+  // a hard winter on the way: the field stays bare, no harvest job there
+  let hard = 0;
+  for (let k = 0; k < 12 && !jbGrows(H, MH, s0, H.game.env.dayIndex + 1); k++) {
+    await ecoDay(t, H, G, 1);
+    hard++;
+    t.check(ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), `day ${H.game.eco.day} (hard winter): the field stays bare`);
+    t.check(!MH.eco.boardOf(H.game, s0.id).some((j) => j.t === 'harvest'), `day ${H.game.eco.day} (hard winter): no harvest job on the board`);
+  }
+  // the dawn
+  await ecoDay(t, H, G, 1);
+  await t.waitFor(() => ids.every((id) => { const h = A.objOn(H, id), g = A.objOn(G, id); return h && g && !h.gone && !g.gone; }), 5000 + RT(), `dawn of day ${H.game.eco.day}: every plant back on both peers`,
+    () => `host ${ids.filter((id) => A.objOn(H, id)).length} · guest ${ids.filter((id) => A.objOn(G, id)).length} of ${N}`);
+  t.check(ids.every((id) => { const o = A.objOn(G, id), p = look.get(id); return o && o.x === p[0] && o.y === p[1] && (o.v | 0) === p[2] && o.f === p[3]; }), 'the same objects: same id, spot and look (guest)');
+  t.check(MH.fields.fieldsLeft(H.game, s0.id, good, true).gone === 0 && MG.fields.fieldsLeft(G.game, s0.id, good, true).gone === 0, `no ${good} plant of the place missing (both peers)`);
+  t.check(jbPlants(G, MG, fld).length === N, 'the guest\'s field full again', `${jbPlants(G, MG, fld).length}/${N}`);
+  await t.checkDigest(H, G);
+  // the hard winter (if none came on the way): to the next hard day, harvest, a hard dawn — still bare, no harvest job
+  if (!hard) {
+    let D = H.game.env.dayIndex + 1;
+    while (D < H.game.env.dayIndex + 30 && jbGrows(H, MH, s0, D)) D++;
+    if (!jbGrows(H, MH, s0, D) && !jbGrows(H, MH, s0, D + 1)) {
+      await ecoDay(t, H, G, D - H.game.env.dayIndex);
+      H.game.net.emit('obj.remove', { ids, fx: 'forage' }); H.game.net.flush();
+      await t.waitFor(() => ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), 5000 + RT(), `day ${D} (hard winter): the field harvested again`);
+      await ecoDay(t, H, G, 1);
+      hard++;
+      t.check(ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), `dawn of day ${H.game.eco.day} (hard winter): the field stays bare on both peers`);
+      t.check(!MH.eco.boardOf(H.game, s0.id).some((j) => j.t === 'harvest') && !MG.eco.boardOf(G.game, s0.id).some((j) => j.t === 'harvest'), `day ${H.game.eco.day} (hard winter): no harvest job on the board (both peers)`);
+      for (let k = 0; k < 12 && !jbGrows(H, MH, s0, H.game.env.dayIndex + 1); k++) await ecoDay(t, H, G, 1);
+      await ecoDay(t, H, G, 1);
+      await t.waitFor(() => ids.every((id) => A.objOn(H, id) && A.objOn(G, id)), 5000 + RT(), `the first dawn where crops grow again (day ${H.game.eco.day}): back on both peers`);
+      await t.checkDigest(H, G);
+    } else t.note('no hard winter at this place within 30 days');
+  }
+  // the save loaded into a fresh game: still gone there, back at its next dawn
+  const S = await bootSolo(t, '&start=village', 'solo');
+  const MS = await A.mods(S);
+  await t.waitFor(() => S.game.eco?.mk && S.game.eco.day >= 0, 20000, 'the solo game\'s economy');
+  S.game.net.withApply(() => MS.snapshot.applyWorld(S.game, data.world, 'load'));
+  A.teleport(S, a[0], a[1]);
+  await t.sleep(1500);
+  t.check(ids.every((id) => !A.objOn(S, id) && S.game.touched.get(id)?.gone), 'loaded: the harvested plants are gone there', `${ids.filter((id) => A.objOn(S, id)).length} present`);
+  for (let k = 0; k < 12 && !jbGrows(S, MS, s0, S.game.env.dayIndex + 1); k++) skipDays(S, 1);
+  const want = S.game.env.dayIndex + 1, E = S.game.env;
+  if (E.hour < 7 || E.hour > 16) E.hour = 9;
+  skipDays(S, 1);
+  await t.waitFor(() => S.game.eco.day >= want && ids.every((id) => A.objOn(S, id)), 12000, 'loaded: back at its next dawn', () => `eco day ${S.game.eco.day}/${want} · ${ids.filter((id) => A.objOn(S, id)).length}/${N}`);
+  frames.close(S);
+  t.check(hard > 0, 'a hard winter was seen with the field bare', `${hard} day(s)`);
+});
+
+def('JB2', {
+  title: 'JB: a place whose fields were harvested refuses its harvest job — the mural says why — and after the dawn it can be taken; a plant beside the field does not count',
+  src: 'village', timeout: 300000,
+  expected: 'A village near the start offers "Colher N …"; the host takes the crop off its fields but N − 1 plants: the mural card says "Só restam N − 1 pés de … volte depois que replantarem" with Aceitar disabled, job.take is refused with that reason; with none left: "já foram colhidos"; at the next dawn the fields are full on both peers and the same job would be possible (jobReason null on both); a harvest job of the new board is taken, a plant of that crop just beside a field (not on it) harvested by the guest does not count, one on the field counts (+1 on both); digest equal',
+  api: 'game/eco.js jobReason / boardOf, mut/eco.js job.take, game/fields.js fieldsLeft, ui/muralEco.js (the card), game/eco.js onOp (inFields)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  const uid = await ecoReady(t, H, G);
+  for (const j of recOn(H, uid)?.jobs || []) await ecoReq(G, 'job.drop', { id: j.id });
+  const findJob = () => { for (const q of nearVillages(H, R, s0, 8)) { const j = MH.eco.boardOf(H.game, q.id).find((x) => x.t === 'harvest' && !recOn(H, uid)?.done.includes(x.id)); if (j) return [j, q]; } return [null, null]; };
+  let [job, vil] = findJob();
+  for (let k = 0; k < 10 && !job; k++) { await ecoDay(t, H, G, 1); [job, vil] = findJob(); }
+  t.need(job, 'a harvest job on a village board near the start');
+  t.log(`job ${job.id} at ${vil.name}: ${job.title}`);
+  await toMural(t, H, MH, G, MG, vil.id);
+  const L = H.game.towns.layout(vil.id), type = 'wild_' + job.crop, fl = L.fields.filter((f) => f.crop === type), total = MH.fields.cropTotal(L, job.crop);
+  const all = (f, M) => fl.flatMap((q) => jbPlants(f, M, q));
+  await t.waitFor(() => all(H, MH).length === total, 10000 + RT(), `the host sees the ${total} ${job.crop} plants of ${vil.name}`, () => `${all(H, MH).length}/${total}`);
+  t.check(!MH.eco.jobReason(H.game, job, true), 'the fields full: the job is possible', MH.eco.jobReason(H.game, job, true));
+  const ids = all(H, MH).map((o) => o.id).sort((x, y) => x - y);
+  // all but N − 1 harvested
+  H.game.net.emit('obj.remove', { ids: ids.slice(job.n - 1), fx: 'forage' }); H.game.net.flush();
+  await t.waitFor(() => ids.slice(job.n - 1).every((id) => !A.objOn(G, id)), 5000 + RT(), 'the guest sees them harvested');
+  muralTab(G, vil.id, 'jobs');
+  const card = () => G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`)?.closest('.ec-card');
+  await t.waitFor(() => { G.game.ui.panels.render(); return /Só restam/.test(card()?.textContent || ''); }, 6000, 'the mural card says how many are left', () => short(card()?.textContent, 160));
+  t.check(G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`)?.disabled, '"Aceitar" disabled', short(card()?.textContent, 200));
+  const r1 = await ecoReq(G, 'job.take', { sid: vil.id, id: job.id });
+  t.check(!r1.ok && /Só restam \d+ pés/.test(r1.why || '') && /replantarem/.test(r1.why || ''), 'the host refuses: only N − 1 left', r1.why);
+  // none left
+  H.game.net.emit('obj.remove', { ids: ids.slice(0, job.n - 1), fx: 'forage' }); H.game.net.flush();
+  await t.waitFor(() => ids.every((id) => !A.objOn(G, id)), 5000 + RT(), 'the fields bare on the guest');
+  G.game.ui.panels.render();
+  await t.waitFor(() => { G.game.ui.panels.render(); return /já foram colhidos/.test(card()?.textContent || ''); }, 5000, 'the card: "os campos … já foram colhidos"', () => short(card()?.textContent, 160));
+  const r2 = await ecoReq(G, 'job.take', { sid: vil.id, id: job.id });
+  t.check(!r2.ok && /já foram colhidos/.test(r2.why || ''), 'the host refuses: the fields were harvested', r2.why);
+  t.check(!recOn(H, uid)?.jobs.some((j) => j.id === job.id) && !recOn(G, uid)?.jobs.some((j) => j.id === job.id), 'not taken on either peer');
+  G.game.events.emit('closepanels', {});
+  // the dawn (one where crops grow)
+  for (let k = 0; k < 12 && !jbGrows(H, MH, vil, H.game.env.dayIndex + 1); k++) await ecoDay(t, H, G, 1);
+  await ecoDay(t, H, G, 1);
+  await t.waitFor(() => ids.every((id) => A.objOn(H, id) && A.objOn(G, id)), 6000 + RT(), `dawn: the ${total} plants back on both peers`);
+  t.check(!MH.eco.jobReason(H.game, job, true) && !MG.eco.jobReason(G.game, job, true), 'the same job would be possible again (both peers)');
+  // a job of the new board: a plant beside the field does not count, one on it does
+  const j2 = MH.eco.boardOf(H.game, vil.id).find((x) => x.t === 'harvest');
+  if (!j2) { t.note(`no harvest job on ${vil.name}'s board of day ${H.game.eco.day}`); await t.checkDigest(H, G); return; }
+  await toMural(t, H, MH, G, MG, vil.id);
+  const tk = await ecoReq(G, 'job.take', { sid: vil.id, id: j2.id });
+  t.check(tk.ok, `the new harvest job taken (${j2.title})`, tk.why);
+  const L2 = L.fields.filter((f) => f.crop === 'wild_' + j2.crop), ff = L2[0];
+  const free = (x, y) => !L.fields.some((f) => x >= f.x0 && x < f.x1 && y >= f.y0 && y < f.y1) && !H.game.world.query(x + 0.5, y + 0.6, 0.9).length;
+  let spot = null;
+  for (const [x, y] of [[ff.x1, ff.y0], [ff.x1, ff.y0 + 1], [ff.x0 - 1, ff.y0], [ff.x0 - 1, ff.y0 + 1], [ff.x0, ff.y0 - 1], [ff.x0 + 1, ff.y0 - 1]]) if (free(x, y)) { spot = [x, y]; break; }
+  if (spot) {
+    const fid = H.game.net.newId('f');
+    H.game.net.emit('obj.add', { list: [{ id: fid, type: 'wild_' + j2.crop, x: spot[0] + 0.5, y: spot[1] + 0.6, v: 0, s: 1, f: 1 }] }); H.game.net.flush();
+    await t.waitFor(() => A.objOn(G, fid), 3000 + RT(), 'a wild plant of the crop just beside the field (guest)');
+    const s1 = A.freeSpot(G, MG, spot[0] + 0.5, spot[1] + 1.4, { rMin: 0, rMax: 2 }); if (s1) A.teleport(G, s1[0], s1[1]);
+    await A.gather(t, G, MG, A.objOn(G, fid));
+    await t.sleep(RT() + 600);
+    t.check((recOn(H, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0) === 0, 'harvested beside the field: no progress', `${recOn(H, uid)?.jobs.find((j) => j.id === j2.id)?.got}`);
+  } else t.note('no free tile beside the field for the off-field plant');
+  const on = jbPlants(G, MG, ff)[0];
+  const s2 = A.freeSpot(G, MG, on.x, on.y + 0.9, { rMin: 0, rMax: 2 }); if (s2) A.teleport(G, s2[0], s2[1]);
+  await A.gather(t, G, MG, on);
+  await t.waitFor(() => (recOn(H, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0) === 1 && (recOn(G, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0) === 1, 3000 + RT(), 'harvested on the field: +1 on both peers');
+  await ecoReq(G, 'job.drop', { id: j2.id });
+  await t.checkDigest(H, G);
+});
+
+def('JB3', {
+  title: 'JB: exact waypoints — every harvest job on a real field of its crop, wood / stone on the wooded / stony side; near a wood job the marker stands on a real tree; the boards the same on both peers',
+  src: 'village', timeout: 240000,
+  expected: 'For the 14 places nearest the start and the next 7 days, the boards are the same on host and guest (ids, kinds, waypoints, pay, texts); every harvest job\'s waypoint lies on a field of its crop, its text never says "maduros" (autumn: "tempo de colheita"); every wood / mine job\'s waypoint lies in the ring around the place (not its middle) and the land there has the trees / stones (survey: ≥ JOB_SITE); the guest takes a wood job, follows it, walks to its waypoint: the marker (game.eco.wp) stands on a real standing tree inside the job\'s area and the tracker names it ("árvore"); digest equal',
+  api: 'game/eco.js boardOf / makeJob / jobTarget / jobArea / survey, game/fields.js nearestTarget, ui/ecoHud.js (wp follows the exact target)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn;
+  const uid = await ecoReady(t, H, G);
+  for (const j of recOn(H, uid)?.jobs || []) await ecoReq(G, 'job.drop', { id: j.id });
+  const places = R.settlements.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 14);
+  const day0 = H.game.eco.day, JS = MH.ecoc.JOB_SITE, bad = [], cnt = { harvest: 0, chop: 0, mine: 0, hunt: 0 };
+  let woodJob = null;
+  for (const s of places) {
+    const L = H.game.towns.layout(s.id), V = MH.fields.survey(H.game, s);
+    for (let d = day0; d < day0 + 7; d++) {
+      const bh = MH.eco.boardOf(H.game, s.id, d), bg = MG.eco.boardOf(G.game, s.id, d);
+      if (bh.map(jbRow).join('#') !== bg.map(jbRow).join('#')) bad.push(`${s.name} d${d}: boards differ`);
+      for (const j of bh) {
+        if (cnt[j.t] != null) cnt[j.t]++;
+        if (j.t === 'harvest') {
+          if (!L.fields.some((f) => f.crop === 'wild_' + j.crop && j.x >= f.x0 && j.x <= f.x1 && j.y >= f.y0 && j.y <= f.y1)) bad.push(`${s.name} d${d}: harvest waypoint off the fields`);
+          if (/maduros/.test(j.text)) bad.push(`${s.name} d${d}: "maduros"`);
+          if (MH.eco.placeSeason(H.game, s, d, 6).hard) bad.push(`${s.name} d${d}: harvest in a hard winter`);
+        }
+        if (j.t === 'chop' || j.t === 'mine') {
+          const dd = Math.hypot(H.game.world.dx(j.x, s.x), j.y - s.y);
+          if (dd < s.r * 0.8 || dd > s.ro + 90) bad.push(`${s.name} d${d}: ${j.t} waypoint ${dd.toFixed(0)} from the place`);
+          if (j.t === 'chop' && (V.trees < JS.chopMin || V.trees < j.n * JS.chopK)) bad.push(`${s.name} d${d}: chop with ${V.trees} trees`);
+          if (j.t === 'mine' && V.boulders < j.n * JS.mineK) bad.push(`${s.name} d${d}: mine with ${V.boulders} stones`);
+          if (j.t === 'chop' && d === day0 && !woodJob && !recOn(H, uid)?.done.includes(j.id)) woodJob = [j, s];
+        }
+        if (j.t === 'hunt' && V.fauna < JS.huntFauna) bad.push(`${s.name} d${d}: hunt with fauna ${V.fauna}`);
+      }
+    }
+  }
+  t.check(!bad.length, `${places.length} places × 7 days: boards equal on both peers, every waypoint / rule right`, bad.slice(0, 6).join(' · ') || JSON.stringify(cnt));
+  t.check(cnt.harvest > 0 && cnt.hunt > 0, 'harvest and hunt jobs exist', JSON.stringify(cnt));
+  if (!woodJob) { t.note('no wood job today near the start'); await t.checkDigest(H, G); return; }
+  const [job, ws] = woodJob;
+  t.log(`wood job ${job.id} at ${ws.name}: ${job.title} → ${f2(job.x)},${f2(job.y)}`);
+  await toMural(t, H, MH, G, MG, ws.id);
+  const tk = await ecoReq(G, 'job.take', { sid: ws.id, id: job.id });
+  t.check(tk.ok, 'the wood job taken', tk.why);
+  await t.waitFor(() => recOn(G, uid)?.jobs.some((j) => j.id === job.id), 2000 + RT(), 'the job in the guest\'s record');
+  G.game.eco.track = job.id; G.game.eco.wp = MG.eco.jobWaypoint(G.game, recOn(G, uid).jobs.find((j) => j.id === job.id));
+  const at = A.freeSpot(G, MG, job.x, job.y, { rMin: 0, rMax: 8 }) || [job.x, job.y];
+  A.teleport(G, at[0], at[1]);
+  const b = A.freeSpot(H, MH, at[0] + 2, at[1], { rMin: 0, rMax: 5 }) || [at[0] + 2, at[1]];
+  A.teleport(H, b[0], b[1]);
+  const area = MG.eco.jobArea(G.game, job);
+  const onTree = () => { const wp = G.game.eco.wp, q = G.game.player; return wp && Math.hypot(wp.x - q.x, wp.y - q.y) < 44 && A.shared(G, null, wp.x, wp.y + 0.25, 0.3, A.standingTree)[0]; };
+  await t.waitFor(onTree, 8000, 'at the wooded side: the marker stands on a real standing tree (the nearest, within 44 tiles)', () => `${JSON.stringify(G.game.eco.wp)} · player ${f2(G.game.player.x)},${f2(G.game.player.y)}`);
+  const tr = onTree();
+  t.check(area.inA(tr.x, tr.y), 'the tree is inside the job\'s area (its felling counts)', `${f2(tr.x)},${f2(tr.y)}`);
+  t.check(Math.hypot(tr.x - G.game.player.x, tr.y - G.game.player.y) < 44, 'the nearest tree to the player', f2(Math.hypot(tr.x - G.game.player.x, tr.y - G.game.player.y)));
+  await t.waitFor(() => /árvore/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 2000, 'the tracker names it ("árvore")', () => short(G.doc.querySelector('#jtrack')?.textContent, 90));
+  await ecoReq(G, 'job.drop', { id: job.id });
+  await t.checkDigest(H, G);
+});
+
+def('JB4', {
+  title: 'JB: wood / stone / game only where the land has them — the boards of the world against the survey, the survey against generated chunks; the treeless places get no wood job',
+  src: 'village', timeout: 300000,
+  expected: 'Over the places of the start\'s land (the 40 nearest and every place with few trees) and 7 days: no wood job where the survey expects fewer than JOB_SITE.chopMin trees (or fewer than chopK × the trees asked), no mine job without the stones (mineK × asked), no hunt without game, no harvest in a hard winter or without the plants (harvestK × asked), every harvest waypoint on a field of its crop; there are places with no wood job (steppe / desert); counted on the generated chunks (the planet\'s own objects), the places that offer wood have ≥ chopK × 7 trees around and the ones that offer a mine ≥ mineK × 15 boulders; the economy digest part equal on both peers',
+  api: 'game/fields.js survey / TREE_K, game/eco.js boardOf, content/eco.js JOB_SITE, world/planetSource.js chunk (generated objects)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, JS = MH.ecoc.JOB_SITE, g = H.game;
+  await ecoReady(t, H, G);
+  const k0 = R.kingdoms[MH.realm.settlementAt(R, sp.x, sp.y).k].comp;
+  const land = R.settlements.filter((s) => R.kingdoms[s.k].comp === k0);
+  const near = land.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 40);
+  const sparse = R.settlements.filter((s) => MH.fields.survey(g, s).trees < JS.chopMin);
+  const places = [...new Set([...near, ...sparse])];
+  t.check(sparse.length > 0, 'some places have few trees around (no wood job there)', sparse.slice(0, 6).map((s) => `${s.name} ${MH.fields.survey(g, s).trees}`).join(', '));
+  const day0 = g.eco.day, bad = [], withChop = new Map(), withMine = new Map();
+  for (const s of places) {
+    const L = g.towns.layout(s.id), V = MH.fields.survey(g, s);
+    for (let d = day0; d < day0 + 7; d++) for (const j of MH.eco.boardOf(g, s.id, d)) {
+      if (j.t === 'chop') { if (V.trees < JS.chopMin || V.trees < JS.chopK * j.n) bad.push(`${s.name}: chop (${V.trees} trees)`); withChop.set(s.id, s); }
+      if (j.t === 'mine') { if (V.boulders < JS.mineK * j.n) bad.push(`${s.name}: mine (${V.boulders})`); withMine.set(s.id, s); }
+      if (j.t === 'hunt' && V.fauna < JS.huntFauna) bad.push(`${s.name}: hunt (${V.fauna})`);
+      if (j.t === 'harvest') {
+        if (MH.eco.placeSeason(g, s, d, 6).hard) bad.push(`${s.name} d${d}: harvest in a hard winter`);
+        if (MH.fields.cropTotal(L, j.crop) < JS.harvestK * j.n) bad.push(`${s.name}: harvest of ${j.n} with ${MH.fields.cropTotal(L, j.crop)} plants`);
+        if (!L.fields.some((f) => f.crop === 'wild_' + j.crop && j.x >= f.x0 && j.x <= f.x1 && j.y >= f.y0 && j.y <= f.y1)) bad.push(`${s.name}: harvest waypoint off the fields`);
+      }
+    }
+    if (V.trees < JS.chopMin && withChop.has(s.id)) bad.push(`${s.name}: few trees and a wood job`);
+  }
+  t.check(!bad.length, `${places.length} places × 7 days: every job possible by the survey`, bad.slice(0, 6).join(' · ') || `wood at ${withChop.size}, mine at ${withMine.size}`);
+  // the survey against the planet's own objects (generated chunks: what a player finds before anyone felled a tree)
+  const count = (s, kind, R0, R1) => {
+    let n = 0;
+    for (let cy = Math.floor((s.y - R1) / 64); cy <= Math.floor((s.y + R1) / 64); cy++) for (let cx = Math.floor((s.x - R1) / 64); cx <= Math.floor((s.x + R1) / 64); cx++) {
+      const ch = g.world.source.chunk(((cx % 256) + 256) % 256, cy, { decor: false });
+      for (const o of ch.objects) { const d = Math.hypot(o.x - s.x, o.y - s.y); if (d >= R0 && d <= R1 && (kind === 'tree' ? o.type.startsWith('tree_') : o.type === 'boulder')) n++; }
+    }
+    return n;
+  };
+  const chk = [...withChop.values()].sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 3);
+  const rows = [];
+  for (const s of chk) { await t.sleep(200); const n = count(s, 'tree', s.r + 2, s.ro + 90); rows.push(`${s.name} ${n} (survey ${MH.fields.survey(g, s).trees})`); t.check(n >= JS.chopK * 7, `${s.name} offers wood: ${n} trees around (generated)`, `≥ ${JS.chopK * 7}`); }
+  for (const s of [...withMine.values()].slice(0, 2)) { const n = count(s, 'boulder', 0, s.ro + 60); t.check(n >= JS.mineK * 15, `${s.name} offers a mine: ${n} boulders around (generated)`, `survey ${MH.fields.survey(g, s).boulders}`); }
+  if (!withMine.size) t.note('no mine job near the start');
+  const few = sparse.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
+  if (few) t.note(`fewest trees near the start: ${few.name} — ${count(few, 'tree', few.r + 2, few.ro + 90)} generated in the ring (survey ${MH.fields.survey(g, few).trees}): no wood job`);
+  t.log(rows.join(' · '));
+  t.check(JSON.stringify(MH.meco.ecoDigestRows(H.game)) === JSON.stringify(MG.meco.ecoDigestRows(G.game)), 'the economy digest part equal on both peers');
   await t.checkDigest(H, G);
 });
 

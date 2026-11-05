@@ -71,8 +71,9 @@ export function fieldOf(game, o) {
 
 // the gone field plants this peer knows: Map sid → Map plant type → [objects] (cached: recounted when a field plant goes /
 // comes back, at most once a second otherwise — a snapshot's reconcile puts plants back without telling)
+const clock = () => (typeof performance !== 'undefined' ? performance.now() / 1000 : 0); // (local caches: real time)
 export function fieldsGone(game, fresh = false) {
-  const key = `${game.touched?.size | 0}|${game.fieldV | 0}`, t = game.time || 0, C = game._fieldsGone;
+  const key = `${game.touched?.size | 0}|${game.fieldV | 0}`, t = clock(), C = game._fieldsGone;
   if (!fresh && C && C.key === key && t - C.t < 1 && t >= C.t) return C.map;
   const map = new Map();
   for (const o of game.touched?.values() || []) {

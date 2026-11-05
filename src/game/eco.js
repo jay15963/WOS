@@ -587,11 +587,12 @@ export function jobArea(game, j) {
   const dx = w.dx(x, s.x), dy = y - s.y, h = Math.hypot(dx, dy) / 2;
   return { inA, r, cx: s.x + dx / 2, cy: s.y + dy / 2, R: r + h };
 }
-const EXACT = new Map(); // job id → { t, at: [px, py], q } (cosmetic: refreshed a few times a second)
+const EXACT = new Map(); // job id → { t, px, py, q } (cosmetic: refreshed a few times a second)
+const clock = () => (typeof performance !== 'undefined' ? performance.now() / 1000 : 0); // (local caches: real time)
 function exactTarget(game, j, s) {
   const p = game.player;
   if (!p || !(j.t === 'harvest' || j.t === 'chop' || j.t === 'mine')) return null;
-  const now = game.time || 0, c = EXACT.get(j.id);
+  const now = clock(), c = EXACT.get(j.id);
   if (c && now - c.t < 0.4 && now >= c.t && Math.abs(c.px - p.x) < 1 && Math.abs(c.py - p.y) < 1 && (!c.q?.o || !c.q.o.gone)) return c.q;
   let q = null;
   const w = game.world, nearPlace = Math.hypot(w.dx(p.x, s.x), p.y - s.y);
@@ -618,8 +619,8 @@ const REASON = new Map();
 export function jobReason(game, j, fresh = false) {
   const s = settlement(game, j?.sid);
   if (!s) return null;
-  const now = game.time || 0, c = REASON.get(j.id);
-  if (!fresh && c && now - c.t < 2 && now >= c.t) return c.why;
+  const now = clock(), c = REASON.get(j.id), key = `${game.touched?.size | 0}|${game.fieldV | 0}`;
+  if (!fresh && c && c.key === key && now - c.t < 2 && now >= c.t) return c.why;
   let why = null;
   if (j.t === 'harvest') {
     const q = fieldsLeft(game, j.sid, j.crop, fresh), pt = CROP_PT[j.crop] || j.crop;
@@ -630,7 +631,7 @@ export function jobReason(game, j, fresh = false) {
     if (n.full && n.n < j.n) why = j.t === 'chop' ? `Quase não há árvores em pé perto de ${s.name} (${n.n}): escolha outro trabalho` : `Quase não há pedra para quebrar perto de ${s.name} (${n.n}): escolha outro trabalho`;
   }
   if (REASON.size > 40) REASON.clear();
-  REASON.set(j.id, { t: now, why });
+  REASON.set(j.id, { t: now, key, why });
   return why;
 }
 

@@ -484,24 +484,90 @@ de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui
 
 ### Trabalhos
 
-O quadro de cada lugar é determinístico (lugar + o dia da economia, que vira no amanhecer do anfitrião, e só a planta do
-lugar: anfitrião e convidado veem o mesmo; o anfitrião confere ao
-aceitar). Vila 5, cidade 6, castelo 3 pedidos por dia, dos tipos que o lugar tem. O anfitrião vê as ações (`net.js` →
-`eco.onOp`, antes de aplicar a op) e manda o progresso (`eco.prog`).
+O quadro de cada lugar é determinístico (lugar + o dia da economia, que vira no amanhecer do anfitrião, a planta do
+lugar, a estação dele e o planeta em volta: anfitrião e convidado veem o mesmo; o anfitrião confere ao
+aceitar). Vila 5, cidade 6, castelo 3 pedidos por dia, **só dos tipos que dá para fazer ali** (abaixo, "Trabalhos
+possíveis"). O anfitrião vê as ações (`net.js` → `eco.onOp`, antes de aplicar a op) e manda o progresso (`eco.prog`).
 
 | Tipo | Quando aparece | Pedido | Pagamento | Reputação | Prazo |
 |---|---|---|---|---|---|
-| Colheita | o lugar tem campos | colher 6–12 pés da lavoura pedida **nos campos do lugar** | 6·N + 12 | +4 | 2 dias |
-| Mina | tem mina | 8–15 blocos de rocha / pedregulhos perto (terra externa + 60) | 5·N + 18 | +5 | 2 dias |
-| Lenha | vila / castelo / cidade com serraria | derrubar 4–7 árvores nos arredores | 10·N + 12 | +4 | 2 dias |
+| Colheita | o lugar tem campos, a estação deixa crescer (não no inverno rigoroso) e a lavoura tem ≥ 1,5 × N pés na planta | colher 6–12 pés da lavoura pedida **nos campos do lugar** (o pé dentro do campo; ao lado não conta) | 6·N + 12 | +4 | 2 dias |
+| Mina | tem mina e pedra em volta (≥ 2 × N pedregulhos esperados) | 8–15 pedregulhos / blocos de rocha perto (terra externa + 60) | 5·N + 18 | +5 | 2 dias |
+| Lenha | vila / castelo / cidade com serraria, com mata em volta (≥ 60 árvores esperadas e ≥ 6 × N) | derrubar 4–7 árvores nos arredores | 10·N + 12 | +4 | 2 dias |
 | Encomenda | sempre | trazer N de algo que o lugar consome e não produz (~150–270 moedas de valor) | valor × 1,45 + 10 | +4 | 2 dias |
 | Entrega | sempre (destino na mesma terra, 120–1 500 passos, do reino ou vizinho) | levar 1–3 **encomendas** (item) ao mural do destino | 20 + 0,09·distância + 8 por encomenda | +6 / +8 / +10 | 3 dias |
-| Caça | sempre | caçar 3–5 animais selvagens (qualquer lugar) | 18·N + 10 | +5 | 2 dias |
+| Caça | há caça nos biomas em volta (os bichos selvagens deles, nomeados no pedido) | caçar 3–5 animais selvagens (qualquer lugar) | 18·N + 10 | +5 | 2 dias |
 | Defesa | só nas noites perigosas do lugar (inverno; inverno ameno / estação seca) | derrotar 4–8 mortos da noite perto da vila | 15·N + 40 | +10 | até amanhã |
 
 Na cidade, colheita, mina, lenha e caça pagam ×1,3. Até 3 trabalhos ao mesmo tempo; abandonar: −3 de reputação (a
 entrega devolve as encomendas); vencer o prazo: −2. Os nomes de quem pede vêm de `game.towns.people(sid)` quando o
 agente dos moradores o expuser; senão, de uma lista de nomes (Bento, o lavrador; Dulce, curtidor; Helena, mercador…).
+
+### Trabalhos possíveis (campos replantados, quadro só com o que dá, waypoints exatos)
+
+O dono (5/11/2026): "um trabalho de colher batata em um campo, o waypoint não estava corretamente indicando no lugar exato
+e não tinha batata para colher — tem que dar uma atenção nos trabalhos se são possíveis de realizar". Código:
+`game/fields.js` (campos, arredores, alvos locais), `game/eco.js` (`boardOf` / `makeJob`, `jobReason`, `jobTarget`,
+`jobArea`, o amanhecer em `dayTick`), op `obj.back` (`mut/objects.js`), `content/eco.js` `JOB_SITE`.
+
+**O que estava errado (confirmado):**
+- **Os campos esvaziavam ao carregar.** `flora.js clearUnderStructures` (feito para tirar plantas de baixo das construções
+  de um save antigo) rodava uma vez a cada carga e tratava os canteiros (`farm_plot`) dos campos do próprio lugar como
+  "construção": tirava todos os pés plantados pelo gerador (`ground.js`) dos lugares já feitos naquela hora — a vila do
+  início (Estrosa) começava **sem nenhum pé** em mundo novo (medido: 0 de 21–28 em cada campo, 816 pés das 8 vilas em
+  volta se rodasse de novo), e cada save carregado esvaziava os campos de onde o jogador estava. Agora pula as peças do
+  lugar (`o.town`).
+- **Nada replantava.** Pé colhido some para sempre: a regeneração da flora não planta em terra de lugar (`growWeight`) e
+  nem sabia dos canteiros.
+- **O waypoint da colheita era a média dos centros de todos os campos da lavoura** — com campos dos dois lados da vila,
+  caía na rua / no meio da vila. O da lenha e o da mina eram a serraria / a mina (dentro da vila: árvore e pedra não há).
+- **Nada conferia o que o lugar tem**: lenha no meio da estepe, "cervos, javalis, lobos" no deserto, "os campos estão
+  maduros" no inverno.
+
+**Os campos são trabalhados (replantio).** Os pés dos campos são objetos do gerador (`ground.js`: um por tile do campo,
+cada terceira fileira vazia — os sulcos; ids `(cy·256 + cx)·16384 + 13000 + k`, `isFieldCropId`). Colhido, o pé fica
+"gone" (`game.touched`; o save o lista em `gone`). **No amanhecer da economia** (6h, `dayTick` no anfitrião) os
+lavradores replantam: todo pé de campo colhido antes daquele amanhecer volta — **o mesmo objeto** (id, lugar, aparência)
+pela op `obj.back` (até 64 ids por op, localizada: um convidado longe recebe com o pedaço do mapa depois; quem nunca viu o
+pé sumir já o tem) — se a estação do lugar deixa crescer: **não no inverno rigoroso** (com neve; polar: nunca), sim no
+inverno ameno e na estação seca. Não volta onde alguém construiu por cima (peça de jogador / de exército). Sem varrer nada
+por quadro: uma passada por dia no `game.touched` do anfitrião. Save → load: os colhidos continuam colhidos (lista
+`gone`), voltam no amanhecer seguinte do jogo carregado. Os pés dos campos ficam fora dos alvos da regeneração da flora
+(não "renascem" como mato fora do campo). A colheita animada dos lavradores (`npc.js`) continua só cosmética.
+
+**O quadro só oferece o que dá para fazer** (determinístico — semente, planta, estação, planeta: igual em todos os pares;
+a parte `eco` do digest não muda):
+- **Colheita**: só se no amanhecer daquele dia a estação do lugar deixa crescer (aí os campos estão cheios: foram
+  replantados) e se a lavoura pedida tem na planta ≥ 1,5 × os pés pedidos. Texto honesto: no outono "É tempo de colheita em
+  X…", nas outras estações "Os lavradores de X precisam de ajuda… Eles replantam de madrugada", com o lado do maior campo.
+- **Lenha / mina / caça**: pela **vistoria dos arredores** (`fields.js survey`, das células do planeta — 32 × 32 tiles,
+  sem carregar nada): árvores esperadas no anel entre a terra do lugar e a terra externa + 90 = densidade de árvores do
+  bioma × 0,28 (`TREE_K`, medido em pedaços gerados: 16 lugares de 8 biomas, 0,23–0,48 × a densidade; nas estepes e
+  desertos frios a conta fica abaixo do real — 29 esperadas × 38 reais em Estrosa — e é de propósito: lá não há
+  lenha); pedregulhos até a terra externa + 60 (0,0012 por tile de terra, mais no cascalho / pedra e nos biomas rochosos —
+  medido 0,0014–0,0058); caça: a soma das densidades dos bichos selvagens dos biomas em volta (sem os rebanhos de fazenda
+  e os peixes). Números em `content/eco.js JOB_SITE`: lenha ≥ 60 árvores e ≥ 6 × as pedidas, mina ≥ 2 × as pedidas, caça
+  ≥ 0,6. Semente 4242: 7 dos 242 lugares sem lenha (Estrosa, Nevães, Galerna, Venalaval, Torre de Dorilde, Torre de
+  Cerverna, Ribim da Serra — estepe / deserto frio); caça em todos. A caça nomeia os bichos dos biomas ("coelhos, cavalos
+  selvagens, lobos…", "camelos, escorpiões…").
+- **Encomenda / entrega / defesa**: como antes (a encomenda segue o que o lugar negocia — `TRADE`).
+
+**O anfitrião confere ao aceitar** (`jobReason`, `job.take`): colheita — os pés da lavoura que restam nos campos do lugar
+(a conta da planta − os colhidos que ele conhece) ≥ os pedidos, senão "Os campos de batata de X já foram colhidos: volte
+depois que replantarem (de madrugada) ou escolha outro trabalho" / "Só restam N pés de batata nos campos de X: …";
+lenha / mina — árvores em pé / pedregulhos e rocha na área do trabalho, contados onde todos os pedaços da área estão
+carregados ("Quase não há árvores em pé perto de X (N): escolha outro trabalho"). O mural mostra o mesmo motivo no cartão
+(do que este par vê) e deixa "Aceitar" apagado; os outros pedidos continuam lá.
+
+**Waypoints exatos.** Colheita: o meio do **maior campo** da lavoura (um campo de verdade). Lenha / mina: o lado do anel
+com mais mata / pedra (o centro de massa do setor de 45° mais rico, puxado para perto). Perto do trabalho, o rastreador
+(seta e distância), o marcador dourado no chão, o radar e o mapa levam ao **alvo exato mais perto** — o pé da lavoura nos
+campos do lugar, a árvore em pé na área, o pedregulho / a rocha — e o rastreador diz qual ("pé de batata", "árvore",
+"pedregulho"); colhido / derrubado, passa ao seguinte (local e cosmético: o mundo carregado deste par, refeito 4 × por
+segundo). Longe, o waypoint fixo do trabalho. Caça: sem waypoint (qualquer lugar).
+
+**Progresso**: colheita conta o pé da lavoura do trabalho cujo **tile** está num campo do lugar (antes valia meio tile
+fora); lenha / mina na área do trabalho (raio em volta do waypoint ou do lugar); entrega, pagamento e reputação iguais.
 
 ### Reputação
 
@@ -581,12 +647,21 @@ como antes). Assim sair do reino para negociar com o inimigo dele como viajante 
 e moedas mudam nos dois; a bolsa do HUD); EC2 vila agrícola × capital (trigo mais barato na vila; barras de ferro e
 espadas mais baratas na cidade que no castelo), comprar 20 na cidade sobe o preço, longe do mural recusa; EC3 colheita:
 aceita no mural, colhe nos campos da vila, o anfitrião conta, "Pronto" no rastreador, entrega, paga, reputação sobe nos
-dois; EC4 entrega para um lugar alcançável por terra (encomendas na mochila, recusada na origem, paga no destino); EC5
+dois (e o waypoint num campo da lavoura; perto dos campos o marcador num pé de verdade); EC4 entrega para um lugar alcançável por terra (encomendas na mochila, recusada na origem, paga no destino); EC5
 casa (recusa sem reputação; compra; o baú abre para o dono e não para o outro; a porta recusa o outro) e terreno (muro
 dentro pode, ao lado não); EC6 imposto (pago da mochila com aviso; sem moedas: dívida, avisos de 3 / 2 / último dia; no
 quarto dia o reino toma; −15); EC7 entrar / sair do reino pela aba Reino; membro recusado em reino de outra terra,
 viajante compra; EC8 o save (JSON) carregado num jogo novo dá a mesma economia (linhas do digest iguais) e os mesmos
 preços. Todos terminam com o digest igual. KG7 passou a conferir as abas novas (só Exército diz "Em breve").
+**JB1–JB4** (trabalhos possíveis): JB1 o maior campo de Estrosa cheio nos dois (a conta da planta), colhido (um pelo
+convidado, o resto pelo anfitrião), sumido nos dois e no save; no amanhecer seguinte em que cresce todos os pés voltam nos
+dois — os mesmos objetos —; no inverno rigoroso ficam sem nada (e sem colheita no quadro); o save carregado num jogo novo:
+ainda colhidos, de volta no amanhecer dele. JB2 campos colhidos: o cartão diz "Só restam N pés…" / "já foram colhidos",
+"Aceitar" apagado, o anfitrião recusa com o motivo; no amanhecer, possível de novo; um pé ao lado do campo não conta, no
+campo conta. JB3 os quadros de 14 lugares × 7 dias iguais nos dois pares, cada colheita num campo da lavoura, nenhum
+"maduros", lenha / mina no anel e com mata / pedra; aceito um trabalho de lenha, no lado da mata o marcador fica numa
+árvore em pé da área. JB4 os quadros da terra do início (e dos lugares sem mata) contra a vistoria; contando nos pedaços
+gerados, quem oferece lenha tem ≥ 42 árvores em volta.
 
 Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_land_desktop`, `ec_realm_desktop`,
 `ec_trade_phone`, `ec_jobs_phone`, `ec_land_phone`, `ec_realm_phone` (915 × 412, toque), `ec_*_portrait` (430 × 932),
@@ -604,6 +679,18 @@ Prints em `shots/` (fora do git): `ec_trade_desktop`, `ec_jobs_desktop`, `ec_lan
   com todos. Ser membro ainda não dá vantagem (fase 3: exército) — o cartão explica.
 - As casas à venda / para alugar saem das moradias da planta; para o agente dos moradores: `game.eco.api.props(sid)`
   lista quais são, e `game.eco.pr` diz quem mora nelas — morador nenhum dorme numa casa comprada (feito no §11).
+- **Trabalhos possíveis** (5/11/2026, pedido do dono — "Trabalhos possíveis" acima), para confirmar:
+  - os campos são **replantados no amanhecer seguinte** à colheita (tudo o que foi colhido antes das 6h volta), não "um ou
+    dois dias": simples, e o quadro de cada dia pode contar com os campos cheios. Se ficar generoso demais (cada pé dá 1–2
+    batatas e sementes, todo dia), dá para trocar por "dois amanheceres" guardando o dia da colheita de cada pé;
+  - **no inverno rigoroso** (com neve; polar sempre) nada é replantado e **não há colheita no quadro**; no inverno ameno e
+    na estação seca, sim;
+  - **sem lenha onde quase não há mata** (estepe, desertos): na semente 4242 a vila do início e as vizinhas da estepe
+    (Estrosa, Nevães, Galerna, Venalaval…) não pedem lenha; quem pede tem ≥ 60 árvores esperadas em volta;
+  - a mina conta **pedregulhos** (e rocha): em volta das vilas medidas não há rocha exposta no raio da mina (0 em 16
+    lugares), só pedregulhos (36–174) — o texto diz "pedregulhos ou blocos de rocha";
+  - o aviso no cartão do mural ("já foram colhidos", "Quase não há árvores…") é o que **este** par vê; quem decide é o
+    anfitrião ao aceitar.
 - Pendente / ideias: caravanas de verdade no mapa (hoje o espalhar de preços é abstrato), o ouro dos mercados (hoje
   infinito), mais tipos de trabalho quando houver moradores (escoltar, guarda), o imposto pago do baú da própria casa.
 
