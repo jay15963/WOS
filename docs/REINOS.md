@@ -1225,7 +1225,9 @@ quebrado), `wr_castle_siege_map`, `wr_mural_exercito_siege`, `wr_captured_banner
 Reino de Valadestra" e as flâmulas do mural nas cores novas), `wr_captured_plaza` / `_2`, `wr_captured_castle_guards` (a
 guarda do castelo tomado com o tabardo de Valadestra), `wr_mural_reino_desktop` / `_2`, `wr_mural_exercito_desktop`,
 `wr_notice_war` (o aviso ao membro: "O Reino de Arenudia declarou guerra ao Reino de Galéria — Seu reino foi atacado"),
-celular 915 × 412 toque: `wr_mural_reino_phone` / `_2`, `wr_mural_exercito_phone` / `_2`, `wr_map_phone`.
+celular 915 × 412 toque: `wr_mural_reino_phone` / `_2`, `wr_mural_exercito_phone` / `_2`, `wr_map_phone`; reputação herdada:
+`wr_rep_negative_trade` (o Comércio de uma vila do inimigo para quem saiu do reino: "Malvisto, −60 — compra 50 % mais cara e
+venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelho, a barra até "Desconfiado", não entra).
 
 ### Decisões (para o dono confirmar)
 
