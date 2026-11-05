@@ -600,6 +600,7 @@ function exactTarget(game, j, s) {
     if (nearPlace < s.ro + 70) {
       const o = nearestPlant(game, j.sid, j.crop, p.x, p.y);
       if (o) q = { x: o.x, y: o.y - 0.25, label: `pé de ${CROP_PT[j.crop] || j.crop}`, area: true, exact: true, o };
+      else if (fieldsLeft(game, j.sid, j.crop).left === 0) q = { x: j.x, y: j.y, label: `${s.name}: campos colhidos`, note: 'campos colhidos: replantam de madrugada', area: true }; // (nothing left here)
     }
   } else {
     const A = jobArea(game, j);

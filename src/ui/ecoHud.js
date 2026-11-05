@@ -89,7 +89,7 @@ export function installEcoHud(game) {
       const ar = t && !(t.anywhere && !ready) ? ar0 : null;
       // (an exact target — the nearest plant / tree / boulder, game/eco.js jobTarget: the arrow and the distance lead to it)
       const inArea = t?.area && !t.exact && !ready && ar && ar.d < (j.r || 40);
-      const where = ready ? `entregue: ${t?.label || ''}` : carry ? (got >= j.n ? `levar a ${t?.label || ''}` : `faltam ${j.n - got} encomendas`) : `${Math.min(got, j.n)}/${j.n}${inArea ? ' · você está no lugar' : t?.exact ? ` · ${t.label}` : ''}`;
+      const where = ready ? `entregue: ${t?.label || ''}` : carry ? (got >= j.n ? `levar a ${t?.label || ''}` : `faltam ${j.n - got} encomendas`) : `${Math.min(got, j.n)}/${j.n}${inArea ? ` · ${t.note || 'você está no lugar'}` : t?.exact ? ` · ${t.label}` : ''}`;
       rows.push({ id: j.id, ic: K.icon, title: j.title, sub: `${ready ? '<span class="g">Pronto!</span> ' : ''}${esc(where)}${ar && (ar.d > 6 || t?.exact) && !inArea ? ` · ${Math.round(ar.d)} passos` : ''}`, ar: inArea ? null : ar, on: E.track === j.id, ready, here: ready && ar && ar.d <= 3 });
     }
     if (E.wp && E.wp.kind !== 'job') { const ar = arrowOf(E.wp.x, E.wp.y); rows.push({ id: 'wp', ic: '📍', title: E.wp.label, sub: `${Math.round(ar.d)} passos`, ar, on: true, wp: true }); }
