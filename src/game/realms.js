@@ -413,6 +413,7 @@ function arrive(game, a, t) {
       R.H.acc.delete(a.id);
       emitArmy(game, b);
       game.net.emit('realm.army', { del: a.id });
+      if (M.live && game.warfare?.forces?.get(M.id)?.kind === 'march') remat(game, R.armies.get(M.id)); // (live: its column with the newcomers at once — phase 3c)
       return;
     }
     const path = M && M.target >= 0 && M.state !== 'retreat' ? pathTo(game, dijkstra(realm, [M.target], WAR.maxRoute * 1.5), a.target, M.target) : null;
@@ -726,7 +727,7 @@ function maintain(game, a, t) {
   }
   if (!F) { try { WF.materialize?.(a); } catch (e) { console.error(e); } return; }
   if (finishing(F)) return;
-  if (F.done || shapeOfF(F) !== shapeOf(a) || (F.kind === 'march' && a.n > (F.n | 0) + 2)) remat(game, a);
+  if (F.done || shapeOfF(F) !== shapeOf(a) || (F.kind === 'march' && a.n > (F.n0 | 0) + 2)) remat(game, a); // (grown past what the column started with: a contingent joined)
 }
 function liveCheck(game, t) {
   const WF = game.warfare;

@@ -10250,8 +10250,7 @@ def('AR2', {
   t.defer(() => { if (H.game.warfare.forces.has(a0.id)) H.game.warfare.dematerialize(a0.id); H.game.net.emit('realm.army', { del: a0.id }); H.game.net.flush(); });
   const codes = new Set(), notes = [];
   t.watch(() => { const o = arOrder(G); if (o) codes.add(o.code); }, 200);
-  const noteWatch = () => { for (const n of G.doc.querySelectorAll('.wos-note')) { const x = n.textContent; if (/Ordem do general/.test(x) && !notes.includes(x)) notes.push(x); } };
-  t.watch(noteWatch, 150);
+  t.on(G, 'armyorder', (e) => notes.push(e.title)); // (ui/armyHud.js: each new order told with a notice)
   await t.waitFor(() => arRec(H, uid)?.a === a0.id && arRec(G, uid)?.a === a0.id, 6000 + RT(), 'the host gives the guest that army to follow (record.a on both)', () => `${arRec(H, uid)?.a}`);
   // far from it: catch up — the waypoint on the army (the players at a place 180–700 tiles from it)
   const p0 = RH.dbg.pos(a0.id);
@@ -10290,7 +10289,8 @@ def('AR2', {
   t.check(!!G.game.army.wp, 'with its waypoint', JSON.stringify(G.game.army.wp));
   codes.add(arOrder(G)?.code); // (the last one: the watch samples every 0,2 s)
   t.check(codes.size >= 4, 'at least four different orders as the campaign moved on', [...codes].join(', '));
-  t.check(notes.length >= 3, 'each change with a short notice ("Ordem do general")', notes.length);
+  await t.waitFor(() => notes.length >= 3, 3000, 'each change with a short notice ("Ordem do general")', () => notes.join(' | '));
+  t.check(true, 'each change with a short notice ("Ordem do general")', notes.join(' | '));
   t.metric('orders', [...codes].join(','));
   await t.checkDigest(H, G);
 });

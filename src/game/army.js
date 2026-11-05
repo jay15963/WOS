@@ -243,6 +243,7 @@ export function orderFor(game, r, me) {
       : { key: `muster|${a.id}`, code: 'muster', tone: 'march', title: `Junte-se ao exército em ${M.name}`, sub: `Reunião para marchar sobre ${T?.name || ''} · ${Math.round(dA)} passos`, wp: armyWp };
   }
   if (a.state === 'march' || a.state === 'retreat') {
+    const far = !withIt; // (marching: not with the column — go to it first)
     if (a.state === 'retreat' || a.mission === 'return') return { key: `ret|${a.id}`, code: 'retreat', tone: 'retreat', title: far ? `Recuar! O exército volta para ${M.name}` : `Recuar! Volte com o exército para ${M.name}`, sub: far ? `${Math.round(dA)} passos até ele` : etaPt(game, a).slice(3), wp: far ? armyWp : wp(M.x, M.y, M.name) };
     if (a.mission === 'join') { const G0 = R.armies.get(a.grp), at = G0 ? realm.settlements[G0.home] : T; return { key: `join|${a.id}`, code: 'join', tone: 'march', title: far ? 'Alcance o contingente' : `Marche com o contingente até ${at?.name || ''}`, sub: far ? `${Math.round(dA)} passos · ele vai se juntar à campanha` : etaPt(game, a).slice(3), wp: far ? armyWp : at ? wp(at.x, at.y, at.name) : armyWp }; }
     const verb = a.mission === 'relief' ? 'Socorra' : 'Marche sobre';

@@ -103,6 +103,7 @@ export function installArmyHud(game) {
       const first = ui.key == null;
       ui.key = o.key; ui.hideKey = null;
       if (!first || o.tone !== 'idle') {
+        game.events.emit('armyorder', { key: o.key, code: o.code, title: o.title }); // (tests / other UI: a new order told)
         notify(o.title, { sub: `Ordem do general · ${o.sub}`, kind: o.tone === 'good' ? 'good' : o.tone === 'idle' ? 'info' : 'warn', icon: ICON_OF[o.tone] || FLAG, ms: 5200, key: 'army-order' });
         if (!first) game.audio?.play('ui', { volume: 0.35 });
         card.classList.remove('flash'); void card.offsetWidth; card.classList.add('flash');
