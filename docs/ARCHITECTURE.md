@@ -313,6 +313,12 @@ Arquivos: `src/game/content/roofs.js` (catálogo: `ROOF_GEOM`, `ROOF_STYLES`, `R
   **código manual** (`ManualLink`). STUN: Google + Cloudflare. **TURN da Cloudflare** como fallback automático: o jogo busca
   credenciais temporárias no Worker `server/turn` (`TURN_ENDPOINT_DEFAULT` em `rtc.js`); o navegador só usa o repetidor quando a
   conexão direta falha. Modo de teste `wos.forceRelay=1`. TURN manual de outro provedor ainda é possível (`wos.turn`).
+- **Banda por convidado** (teste `NB1`, 2026-11, com reinos, moradores, economia e guerra por números; JSON enviado, sem os
+  cabeçalhos do WebRTC): anfitrião → convidado 6,7–15,6 KB/s em 22–32 mensagens/s (vila ~8,7; capital com 60 moradores
+  13–15,6; campo aberto ~7,8; luta ~6,7); convidado → anfitrião ~1,6 KB/s em ~12 mensagens/s. Com ~110 B de cabeçalhos por
+  mensagem (UDP / DTLS / SCTP / TURN, estimativa) um convidado pelo TURN gasta ~45–80 MB por hora (vila ~53, capital ~67–79);
+  orçamento S29: 25 KB/s. A cota grátis do TURN da Cloudflare (1 000 GB/mês, depois US$ 0,05/GB) dá ~12–22 mil horas de
+  convidado pelo repetidor por mês.
 - **Sessão** (`session.js`): o anfitrião é a autoridade do mundo; mensagens `hello/welcome/reject/ready/snap/st/sts/lk/chat/ping/
   pong/left/bye/rq/ack/ops/own/ents/fx/dg/dgx/dgr`, máx. 4 jogadores, presença a 12 Hz interpolada no relógio do remetente.
   `hello` leva protocolo, `BUILD_ID` e o digest do atlas: versões / gráficos diferentes são recusados com mensagem clara.
