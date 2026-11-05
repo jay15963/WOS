@@ -101,7 +101,7 @@ export function armyTab(panels, I) {
   if (siege) state = 'Sitiada';
   else if ([...R.armies.values()].some((a) => a.home === I.id && a.state !== 'home')) state = 'Em campanha';
   let body = `<p class="mu-lead">O exército de <b>${esc(I.name)}</b> (${s.kind === 'castle' ? 'a guarnição do castelo' : s.kind === 'city' ? 'a guarnição da capital' : 'a milícia da vila'}), do Reino de ${esc(K.name)}${sw(K.color)}.</p>
-    <div class="wr-army">${stat(`${home?.n ?? 0}/${cap}`, 'Soldados (máx.)')}${stat(home?.lv ?? 1, 'Nível')}${stat(watch ?? '—', 'Guarda da cidade')}${stat(`+${recruit}`, 'Recrutas por dia')}${stat(state, 'Estado')}${stat(I.walls === 'stone' ? 'Pedra' : I.walls === 'palisade' ? 'Paliçada' : 'Nenhuma', 'Muralha')}${stat(war ? 'Sim' : 'Não', 'Reino em guerra')}${stat(R.strength(K.id) ? Math.round(R.strength(K.id)) : 0, 'Força do reino')}</div>`;
+    <div class="wr-army">${stat(home?.n ?? 0, `Soldados · máx. ${cap}`)}${stat(home?.lv ?? 1, 'Nível')}${stat(watch ?? '—', 'Guarda da cidade')}${stat(`+${recruit}`, 'Recrutas por dia')}${stat(state, 'Estado')}${stat(I.walls === 'stone' ? 'Pedra' : I.walls === 'palisade' ? 'Paliçada' : 'Nenhuma', 'Muralha')}${stat(war ? 'Sim' : 'Não', 'Reino em guerra')}${stat(R.strength(K.id) ? Math.round(R.strength(K.id)) : 0, 'Força do reino')}</div>`;
   if (siege) {
     const D = R.defense(I.id);
     const broken = [...(g.towns.state || [])].filter(([id, r]) => id.startsWith(`t${I.id}.`) && (r.gone || r.dmg > 0)).length;
@@ -122,6 +122,7 @@ export function armyTab(panels, I) {
       what = a.state === 'retreat' || a.mission === 'return' ? `voltando para ${esc(from.name)}${eta ? ` · ${Math.round(eta.left)} passos, ≈ ${hoursPt(eta.s / hr)}` : ''}` : `${a.mission === 'relief' ? 'socorrendo' : 'marchando sobre'} ${esc(T?.name || '')}${eta ? ` · faltam ${Math.round(eta.left)} passos, chega em ≈ ${hoursPt(eta.s / hr)}` : ''}`;
     } else if (a.state === 'siege') what = `cercando ${esc(T?.name || '')} há ${hoursPt(a.hrs)}${engPt(a.eng) ? ` · ${engPt(a.eng)}` : ' · montando o acampamento'}`;
     else if (a.state === 'battle') { const f = R.armies.get(a.foe); what = `em batalha${f ? ` com o Reino de ${esc(realm.kingdoms[f.k]?.name || '')} (${f.n} soldados)` : ''}`; }
+    else if (a.phase === 'muster') { const n = [...R.armies.values()].filter((q) => q.grp === a.id && q.mission === 'join' && q.state === 'march').reduce((s, q) => s + q.n, 0); what = `reunindo os soldados em ${esc(from.name)} para marchar sobre ${esc(T?.name || '')}${n ? ` · faltam chegar ${n}` : ''}`; }
     else what = 'acampado';
     const icon = a.state === 'battle' ? WAR_ICONS.swords : a.state === 'siege' ? WAR_ICONS.castle : WAR_ICONS.flag;
     return `<div class="wr-camp${enemy ? ' enemy' : ''}"><span class="ic" style="background:rgb(${AK.color.join(',')})">${icon}</span><span><span class="t">${enemy ? `Reino de ${esc(AK.name)}` : `Exército de ${esc(from.name)}`} · ${a.n} soldados · nível ${a.lv}</span><br><span class="d">${what}</span></span></div>`;

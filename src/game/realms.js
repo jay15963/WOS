@@ -282,7 +282,7 @@ export const newsKinds = (row) => [row[4], row[5]]; // (the kingdoms a news row 
 // ---------- install (every peer) ----------
 export function installRealms(game) {
   const R = realmsState(game);
-  const H = { acc: new Map(), lost: new Map(), placeLost: new Map(), planAt: new Map(), t: null, per: new Map() }; // (host-only bookkeeping)
+  const H = { acc: new Map(), lost: new Map(), placeLost: new Map(), planAt: new Map(), t: null, per: new Map(), stats: { ticks: 0, sum: 0, max: 0, steps: 0, maxSkip: 0, dayMs: 0 } }; // (host-only bookkeeping)
   Object.assign(R, {
     H,
     rel: (a, b) => relOf(game, a, b), // (§12: 'self' | 'ally' | 'neutral' | 'war')
@@ -390,7 +390,7 @@ function mergeHome(game, a, extra = {}) {
     home = own.length ? own.sort((p, q) => Math.hypot(game.world.dx(p.x, s0.x), p.y - s0.y) - Math.hypot(game.world.dx(q.x, s0.x), q.y - s0.y))[0].id : -1;
   }
   const g = home >= 0 ? homeOf(game, home) : null;
-  const gar = g ? [[home, Math.min(Math.round(capOf(realm.settlements[home]) * 1.5), g.n + a.n)]] : undefined;
+  const gar = g ? [[home, Math.max(g.n, Math.min(capOf(realm.settlements[home]), g.n + a.n))]] : undefined;
   game.realms.H.acc.delete(a.id);
   game.net.emit('realm.army', { del: a.id, gar, ...extra });
 }
@@ -421,13 +421,13 @@ function arrive(game, a, t) {
     const S = siegeIndex(game).get(T);
     if (S && atWar(game, a.k, S.k) && S.state === 'siege') { startBattle(game, { ...copy(a), x: here[0], y: here[1] }, S, t, T); return; }
     // no siege any more: part of it stays to strengthen the place, the rest goes home
-    const hg = homeOf(game, T), room = Math.max(0, Math.round(capOf(s) * 1.2) - (hg?.n || 0)), stay = own === a.k ? Math.min(room, a.n) : 0;
+    const hg = homeOf(game, T), room = Math.max(0, capOf(s) - (hg?.n || 0)), stay = own === a.k ? Math.min(room, a.n) : 0;
     if (stay >= a.n) { R.H.acc.delete(a.id); game.net.emit('realm.army', { del: a.id, gar: [[T, hg.n + stay]] }); return; }
     goHome(game, { ...copy(a), n: a.n - stay, x: here[0], y: here[1], state: 'camp' }, t, stay ? { gar: [[T, hg.n + stay]] } : {});
     return;
   }
   // an attack
-  if (own === a.k) { const hg = homeOf(game, T); R.H.acc.delete(a.id); game.net.emit('realm.army', { del: a.id, gar: [[T, Math.min(Math.round(capOf(s) * 1.5), (hg?.n || 0) + a.n)]] }); return; }
+  if (own === a.k) { const hg = homeOf(game, T); R.H.acc.delete(a.id); game.net.emit('realm.army', { del: a.id, gar: [[T, Math.max(hg?.n || 0, Math.min(capOf(s), (hg?.n || 0) + a.n))]] }); return; }
   if (!atWar(game, a.k, own)) { goHome(game, a, t); return; }
   const S = siegeIndex(game).get(T);
   if (S && S.k === a.k) { // (joins the siege already there)
@@ -496,7 +496,7 @@ function endBattle(game, W, L, t) {
   // the winner: back to what it was doing (a relief that broke a siege: some stay to guard the place, the rest go home)
   const w = resume(game, { ...W }, t);
   if (W.mission === 'relief' && lostSiege) {
-    const T = L.target, realm = realmOf(game), hg = homeOf(game, T), room = Math.max(0, Math.round(capOf(realm.settlements[T]) * 1.2) - (hg?.n || 0));
+    const T = L.target, realm = realmOf(game), hg = homeOf(game, T), room = Math.max(0, capOf(realm.settlements[T]) - (hg?.n || 0));
     const stay = ownerOf(game, T) === W.k ? Math.min(room, w.n) : 0;
     if (stay >= w.n) game.net.emit('realm.army', { del: w.id, gar: [[T, hg.n + stay]], news: ['lift', L.k, W.k, T, 0] });
     else goHome(game, { ...w, n: w.n - stay, state: 'camp' }, t, { gar: stay ? [[T, hg.n + stay]] : undefined, news: ['lift', L.k, W.k, T, 0] });
@@ -526,7 +526,7 @@ function facing(game, sid, a, gate = false) {
   for (const q of P.pieces.values()) {
     if (!!q.gate !== gate) continue;
     if (pieceState(game, sid, q.k)?.gone) continue;
-    if ((q.fx * fx + q.fy * fy) / fl < (gate ? -0.2 : 0.35)) continue;
+    if (!gate && (q.fx * fx + q.fy * fy) / fl < 0.35) continue; // (the walls facing the camp; the ram goes round to the nearest gate)
     out.push([Math.hypot(w.dx(q.cx, a.x), q.cy - a.y), q]);
   }
   out.sort((p, q) => p[0] - q[0] || p[1].k - q[1].k);
@@ -568,7 +568,9 @@ function siegeHour(game, a, t, roll) {
       const shots = [...Array(b.eng[0]).fill(S.treb), ...Array(stone ? 0 : b.eng[1]).fill(S.cat)];
       for (const sh of shots) {
         if (!F.length || roll() > sh.hit) continue;
-        const q = F[Math.min(F.length - 1, Math.floor(roll() * Math.min(5, F.length)))];
+        // the crews keep hitting the stretch already cracked (a breach), now and then another piece near it
+        const near = F.slice(0, 6), worst = near.reduce((m, q) => ((pending.get(q.k) ?? dmgOf(q)) > (pending.get(m.k) ?? dmgOf(m)) ? q : m), near[0]);
+        const q = roll() < 0.7 ? worst : near[Math.min(near.length - 1, Math.floor(roll() * near.length))];
         strike(q, sh.dmg * (0.7 + 0.6 * roll()));
       }
       if (b.eng[2] > 0) {
@@ -579,7 +581,7 @@ function siegeHour(game, a, t, roll) {
   }
   for (const [k, d] of pending) { if (d >= 1) gone.push(k); else hit.push([k, Math.round(d * 1e4) / 1e4]); }
   // the fighting this hour
-  const br = breached(game, T), towers = stone && b.eng[3] > 0;
+  const br = breached(game, T), towers = stone && b.eng[3] > 0 && b.hrs >= 8; // (towers at the wall: after the bombardment had its time)
   for (const k of gone) { const q = perimeter(game, T)?.pieces.get(k); if (q?.gate) br.gate = true; else if (q) br.open = true; }
   const W = S.wallK[wk] * (br.open ? S.breachK : br.gate ? S.gateK : towers ? S.towerK : 1);
   const watch = Math.max(0, watchOf(s) - b.dw), D = gn + watch, lv = g?.lv || 1;
@@ -607,7 +609,7 @@ function hostCapture(game, sid, k, army = null, t = game.worldTime) {
   const from = ownerOf(game, sid);
   if (from === k) return false;
   const H = game.realms.H;
-  const stay = army ? Math.max(1, Math.min(Math.round(capOf(s) * 1.2), Math.round(army.n * WAR.siege.hold))) : Math.round(capOf(s) * 0.3);
+  const stay = army ? Math.max(1, Math.min(capOf(s), Math.round(army.n * WAR.siege.hold))) : Math.round(capOf(s) * 0.3);
   game.net.emit('realm.capture', { sid, k, from, n: stay });
   H.placeLost.set(from, (H.placeLost.get(from) || 0) + 1);
   H.placeLost.set(k, (H.placeLost.get(k) || 0) - 1);
@@ -792,6 +794,7 @@ function dayTick(game, day, mult) {
     const cap = capOf(s), war = enemiesOf(game, g.k).length > 0;
     let n = g.n;
     if (!siegeIndex(game).has(s.id) && n < cap) n = Math.min(cap, n + Math.ceil(cap * WAR.recruit * (war ? WAR.recruitWar : 1) * mult));
+    else if (n > cap) n = cap; // (never more than its maximum: the extra men go home — a garrison over it after a return / a test)
     gar.push([s.id, n, realmNpcLevel(game, s)]);
   }
   // tensions
@@ -979,11 +982,15 @@ export function realmsSystem() {
       const now = game.worldTime, H = R.H, max = WAR.maxSkip * DAYLEN(game);
       if (H.t == null || now < H.t) H.t = now;
       if (now - H.t > max) { const drop = now - H.t - max; H.t = now - max; rebase(game, drop); }
+      const t0 = performance.now();
       let n = 0;
       while (H.t < now && n < 4000) { const st = Math.min(WAR.step, now - H.t); H.t += st; simStep(game, H.t, st); n++; }
       if ((posT -= 0.5) <= 0) { posT = 1; liveCheck(game, now); }
-      const day = game.env.dayIndex | 0;
-      if (day > R.day && (game.env.hour >= 6.5 || day > R.day + 1)) dayTick(game, day, Math.min(WAR.maxSkip, Math.max(1, day - R.day)));
+      const day = game.env.dayIndex | 0, t1 = performance.now();
+      if (day > R.day && (game.env.hour >= 6.5 || day > R.day + 1)) { dayTick(game, day, Math.min(WAR.maxSkip, Math.max(1, day - R.day))); H.stats.dayMs = Math.round((performance.now() - t1) * 100) / 100; }
+      // (cost: a tick every 0.5 s — the steps of the clock since the last one; the daily diplomacy apart)
+      const ms = t1 - t0, S = H.stats;
+      S.ticks++; S.sum += ms; S.max = Math.max(S.max, ms); S.steps = n; if (n > 1) S.maxSkip = Math.max(S.maxSkip, ms);
     },
   };
 }

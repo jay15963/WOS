@@ -106,7 +106,7 @@ export function muralBody(panels) {
     const by = (k) => ss.filter((s) => s.kind === k);
     const nbs = K.neighbours.map((k) => realm.kingdoms[k]);
     const sw = (c) => `<i class="mu-sw" style="background:rgb(${c.join(',')})"></i>`;
-    body = `${realmCard(panels, I)}${realmRelations(panels, I)}<p>O <b>Reino de ${esc(K.name)}</b> ${sw(K.color)} tem ${ss.length} lugares: ${by('city').length === 1 ? 'a capital' : `${by('city').length} cidades`}, ${by('castle').length} castelos e ${by('village').length} vilas.</p>
+    body = `${realmRelations(panels, I)}${realmCard(panels, I)}<p>O <b>Reino de ${esc(K.name)}</b> ${sw(K.color)} tem ${ss.length} lugares: ${by('city').length === 1 ? 'a capital' : `${by('city').length} cidades`}, ${by('castle').length} castelos e ${by('village').length} vilas.</p>
       <h4>Brasão</h4><p>${sw(B.f)}campo ${DIVISIONS_PT[B.d] || ''}${B.c !== 'none' ? `, ${CHARGES_PT[B.c]} de ${B.m === 'or' ? 'ouro' : 'prata'}` : ''}.</p>
       <h4>Capital</h4><div class="mu-list">${by('city').map(chip).join('')}</div>
       <h4>Castelos</h4><div class="mu-list">${by('castle').map(chip).join('')}</div>

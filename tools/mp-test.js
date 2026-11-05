@@ -9033,6 +9033,9 @@ def('WR2', {
   const front = H.game.eco.ev.filter((e) => [VAL, RAB].includes(RH.owner(e[0])) && warGoods.has(GOODS[e[1]][0]) && e[2] > 100);
   if (front.length) t.check(true, 'war news in the markets: shortages at the front', front.map((e) => `${GOODS[e[1]][0]} em ${R.settlements[e[0]].name}`).join(', '));
   else t.note('no war shortage drawn this day (the front places may not deal those goods)');
+  // a day of recruits: never more soldiers at home than the place's maximum (the Exército tab: "Soldados · máx. N")
+  const over = (f, M) => [...RZ(f).armies.values()].filter((a) => a.state === 'home' && a.n > M.war.capOf(R.settlements[a.home]));
+  t.check(!over(H, MH).length && !over(G, MG).length, 'every home army within its maximum on both peers', over(G, MG).slice(0, 4).map((a) => `${R.settlements[a.home].name} ${a.n}/${MG.war.capOf(R.settlements[a.home])}`).join(', ') || `${R.settlements.length} places`);
   await wrQuiet(t, H, G);
   await t.checkDigest(H, G);
 });
@@ -9190,7 +9193,7 @@ def('WR6', {
   t.check(RH.capture(s.id, VAL), 'the host takes it (game.realms.capture)');
   H.game.net.flush();
   await t.waitFor(() => RG.owner(s.id) === VAL && RH.owner(s.id) === VAL, 2000 + RT(), 'owner(sid) = Valadestra on both');
-  t.check(RG.armies.get('g' + s.id).k === VAL && RG.armies.get('g' + s.id).n > 0, 'its home army: the winners\' garrison', RG.armies.get('g' + s.id).n);
+  t.check(RG.armies.get('g' + s.id).k === VAL && RG.armies.get('g' + s.id).n > 0 && RG.armies.get('g' + s.id).n <= MG.war.capOf(s), 'its home army: the winners\' garrison, within the place\'s maximum', `${RG.armies.get('g' + s.id).n} / máx. ${MG.war.capOf(s)}`);
   t.check(RG.news.slice(n0).some((r) => r[3] === 'capture' && r[6] === s.id), `news: "${s.name} foi tomada pelo Reino de Valadestra"`, newsOn(G).slice(-1)[0]);
   const KV = R.kingdoms[VAL], crest = (f) => f.game.people.of(s.id)?.crest?.fh;
   t.check(crest(H) === hexC(KV.color) && crest(G) === hexC(KV.color), 'the guards\' tabards and shields in Valadestra\'s colours on both (rebuilt from the seed)', `${crest(H)} / ${crest(G)} (${hexC(KV.color)})`);
