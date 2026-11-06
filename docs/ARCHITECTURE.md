@@ -330,6 +330,8 @@ Arquivos: `src/game/content/roofs.js` (catálogo: `ROOF_GEOM`, `ROOF_STYLES`, `R
 - **Logs** (`netlog.js`): cada passo (sinalização, candidatos ICE, rota escolhida, falhas explicadas, erros da biblioteca) com
   horário, salvos nas últimas sessões (`wos.netlog`). **Copiar relatório** gera texto com IPs públicos mascarados.
   `rtc.js`: `tracePC` (explica falhas: sem candidatos remotos, UDP bloqueado, NAT incompatível) e `probeNetwork` (tipo de NAT).
+- **Escaramuça** (`docs/SKIRMISH.md`): botão do menu → uma arena descartável (nunca salva) com lobby (sozinho ou sala), batalha em
+  campo / cerco / defesa contra monstros com as forças da 3b — `game/skirmish.js`, `game/mut/skirmish.js`, `ui/skirmish.js`.
 - Mundo compartilhado (coleta / construção / mineração / plantações / saque / acampamentos) e criaturas / combate
   sincronizados pelo anfitrião: ver a seção abaixo e `docs/SYNC.md`.
 
