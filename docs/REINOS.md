@@ -817,6 +817,22 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     segurá-la (no alarme: 2, ou 3 se larga / portão; o primeiro **na** abertura, os outros logo por dentro, lado a lado;
     lutam com o que chega a 5 tiles); os arqueiros do muro perto dela (12 tiles) atiram primeiro no que vem até ela. **Sem
     alarme**, uma abertura ainda fica com **um** guarda logo por dentro até ser refeita (os consertos de dia a refazem).
+  - **O alarme dura até a ameaça ser neutralizada** (apontamento do dono, 5/11/2026: "os arqueiros saem das muralhas
+    depois de um tempo mesmo estando em confronto com um monstro … o alerta de monstro funciona apenas por 5 segundos ao
+    invés de sumir apenas quando a ameaça estar neutralizada"): antes o sino parava 6 s depois de o hostil sair do anel do
+    alarme (a terra + 6 tiles) — um monstro que recuava uns passos, que batia na muralha de fora ou que ficava parado
+    longe derrubava o alarme e a guarda largava os postos (os arqueiros desciam) e voltava logo depois. Agora um hostil que
+    entrou no anel **ou ataca o lugar** (quebra uma peça dele, luta com alguém do lugar, uma onda de ataque — §16) continua
+    inimigo enquanto **vive** dentro da terra + **30** tiles e chegou perto / atacou nos últimos **40 s** (`people.js
+    dangerOf`, `rec.seen`; `PEOPLE.alarmHold` / `alarmMemory`); os poucos segundos de calma vêm só depois que todos
+    morreram ou foram embora. Enquanto isso todos ficam nos postos.
+  - **Arqueiros que não alcançam** (o mesmo apontamento: "fica parado em um lugar apenas e não consegue chegar no range de
+    ataque do arco"): o arqueiro no alto da muralha com um inimigo fora do alcance / sem linha de tiro **anda pelo alto da
+    muralha** (o adarve: as peças da linha e o tile logo por dentro, `levels.surf` no andar 1 / 2, e os postos das torres e
+    escadas) até o ponto mais perto que tem alcance e linha de tiro — um caminho pelo adarve, nunca descendo; fora da vista
+    ele já está lá — e, passada a luta, volta ao posto (`npc.js wallWalk / wallSpot / walkPath / walkWall`). No chão, sem
+    progresso em 3 s (um muro no caminho, gente, um inimigo que não se alcança), ele procura outro ponto em volta do
+    inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL11**.
   - **Barato**: os postos só são refeitos quando algo muda — o alarme começa / acaba, uma abertura aparece / some, o lado
     do ataque muda (8 setores, com folga para não ficar trocando), um guarda morre / volta — a cada meio segundo só se
     compara uma assinatura; quem caça quem dentro dos muros é refeito no mesmo meio segundo (poucos inimigos × poucos

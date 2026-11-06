@@ -11164,7 +11164,7 @@ def('VL11', {
   const D = () => H.game.people.debug(s.id), archers = () => D().live.filter((m) => m.job === 'archer'), melee = () => D().live.filter((m) => m.job === 'guard');
   await t.waitFor(() => archers().length >= 1 && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 45000, 'the archers up on the palisade', () => archers().map((m) => `${m.task}^${f2(m.z)} ${m.duty?.k || '-'}`).join(' '));
   // from now on: the alarm, the archers on the wall, who shoots, who walks along the wall
-  const bad = [], hitBy = new Set(), post = new Map(archers().map((m) => [m.nid, [m.x, m.y]])), moved = new Map();
+  const bad = [], hitBy = new Set(), post = new Map(archers().map((m) => [m.nid, [m.x, m.y]])), moved = new Map(), offSince = new Map();
   let alarmOffG = 0;
   t.on(G, 'townalarm', (e) => { if (e.sid === s.id && !e.on) alarmOffG++; });
   t.on(H, 'damage', (e) => { if (e.kind === 'hit' && e.target === wolf && e.src?.npc?.job === 'archer') hitBy.add(e.src.nid); });
@@ -11176,7 +11176,8 @@ def('VL11', {
       const p0 = post.get(m.nid);
       if (p0) moved.set(m.nid, Math.max(moved.get(m.nid) || 0, Math.hypot(m.x - p0[0], m.y - p0[1])));
     }
-    for (const m of melee()) if (!(m.duty && ['gate', 'stretch', 'gap'].includes(m.duty.k) && (m.state === 'chase' || Math.hypot(m.x - m.duty.x, m.y - m.duty.y) < 3))) { if (!m.repair) bad.push(`melee ${m.nid} off its post (${m.duty?.k || '-'} ${m.task}/${m.state})`); }
+    // (a melee guard may walk to a new post when the defense moves it — off its post for more than 10 s at a time is a fault)
+    for (const m of melee()) { const ok = m.duty && ['gate', 'stretch', 'gap'].includes(m.duty.k) && (m.state === 'chase' || Math.hypot(m.x - m.duty.x, m.y - m.duty.y) < 3); if (ok) offSince.delete(m.nid); else { if (!offSince.has(m.nid)) offSince.set(m.nid, H.game.worldTime); if (H.game.worldTime - offSince.get(m.nid) > 10) bad.push(`melee ${m.nid} off its post > 10 s (${m.duty?.k || '-'} ${m.task}/${m.state})`); } }
   }, 500);
   t.defer(() => clearInterval(watch));
   await t.sleep(20000);
