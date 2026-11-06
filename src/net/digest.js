@@ -80,7 +80,7 @@ export function dumpPart(game, part, ex = null) {
       c.owner || 0, c.store ? JSON.stringify(c.store.toJSON()) : 0]).sort(cmp) : [];
     case 'paths': return pathRows(game); // [chunk, hash(world.path), hash(world.pathPlan)] of chunks with paths
     case 'boats': return game.boats ? [...game.boats.map.values()].map((b) => [b.id, b.x.toFixed(2), b.y.toFixed(2), b.h.toFixed(2), b.seats.join('.'), b.pets.map((q) => q.join(':')).join('.')]).sort(cmp) : []; // (game/boats.js)
-    case 'towns': return townRows(game, OK).concat(gateRows(game), peopleDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people)
+    case 'towns': return townRows(game, OK).map((r) => [r[0], r[1], r[2], r[3], r[5], r[6]]).concat(gateRows(game), peopleDigestRows(game)); // (settlements' destroyed pieces / doors / damage + players' gates + people; not `at` — each peer stamps its own clock when a piece breaks and only the host reads it: the old transient towns desync, docs/REINOS.md §14)
     case 'eco': return ecoDigestRows(game); // (markets, players' reputation / jobs, properties, town chests: game/mut/eco.js)
     case 'realms': return realmDigestRows(game); // (relations, owners, armies, news: game/mut/realms.js)
     case 'army': return armyDigestRows(game); // (the players in the armies: game/mut/army.js)

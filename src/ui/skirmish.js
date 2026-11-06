@@ -174,10 +174,11 @@ export function installSkirmishUI(game) {
   // ---------- the scoreboard ----------
   function boardHtml(st) {
     const M = st.match, sc = st.score || { a: [M.nA, M.nA], b: [M.nB, M.nB] }, mon = M.mode === 'monsters', roles = ROLE_PT[M.mode];
+    const duel = !M.nA && !M.nB; // (no soldiers: a duel — the side's kills toward the target)
     const side = (s) => {
-      const k = s === 'a' ? M.ka : M.kb, v = sc[s] || [0, 0], k0 = Math.max(1, v[1]);
+      const k = s === 'a' ? M.ka : M.kb, v = duel ? [sc.pvp?.[s === 'a' ? 0 : 1] || 0, MATCH.pvpKills] : sc[s] || [0, 0], k0 = Math.max(1, v[1]);
       const head = mon && s === 'a' ? `${svg(M.fam, 'crest')}` : shieldImg(k, 26, 30);
-      return `<div class="sb-side s-${s}" style="--kc:${mon && s === 'a' ? '#8fd0ff' : hex(K(k)?.color)}">${head}<span class="sb-t"><small>${esc(mon && s === 'a' ? FAMS[M.fam].pt : roles[s])}</small><b>${v[0]}<em>/${v[1]}</em></b></span><i class="sb-bar"><u style="width:${(v[0] / k0) * 100}%"></u></i></div>`;
+      return `<div class="sb-side s-${s}" style="--kc:${mon && s === 'a' ? '#8fd0ff' : hex(K(k)?.color)}">${head}<span class="sb-t"><small>${esc(mon && s === 'a' ? FAMS[M.fam].pt : roles[s])}${duel ? ' · abates' : ''}</small><b>${v[0]}<em>/${v[1]}</em></b></span><i class="sb-bar"><u style="width:${(v[0] / k0) * 100}%"></u></i></div>`;
     };
     const mine = game.skirmish.sideOf(me());
     const k = sc.kills?.[me()] || 0;
@@ -263,7 +264,7 @@ export function installSkirmishUI(game) {
       if (fightFlash && ui.lastCount !== 0) { ui.lastCount = 0; count.querySelector('b').textContent = st.match.mode === 'monsters' ? 'Defendam!' : 'Lutem!'; count.querySelector('small').textContent = ''; count.classList.remove('pop'); void count.offsetWidth; count.classList.add('pop'); }
       if (st.phase === 'lobby') ui.lastCount = -1;
       // the results come up after the last blows
-      if (st.phase === 'end' && st.res && res.classList.contains('hidden') && g.time - ui.banner > MATCH.endShow - 0.5) { show(res, true); requestAnimationFrame(() => res.classList.add('in')); }
+      if (st.phase === 'end' && st.res && res.classList.contains('hidden') && g.time - ui.banner > MATCH.endShow - 0.5) { show(res, true); requestAnimationFrame(() => res.classList.add('in')); setTimeout(() => res.classList.add('in'), 80); }
       // a fallen player: back by itself at its side's rear (no button: the count shows)
       const p = g.player, inM = !!g.skirmish.sideOf(me()) && st.phase !== 'lobby';
       const btn = document.getElementById('btn-respawn'), sub = document.getElementById('death-sub');

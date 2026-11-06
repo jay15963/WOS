@@ -54,7 +54,7 @@ export function installSkirmish(game, { quality = game.quality } = {}) {
     pvpWhy: (a, b, name) => pvpWhy(game, a, b, name),
     respawnAt: () => respawnAt(game),
     respawnLeft: () => respawnLeft(game),
-    keepKit: () => inMatch(game, game.net.pid),
+    keepKit: () => true, // (the arena never leaves a body: nothing is lost here)
     onKill: (pid, m) => onKill(game, pid, m),
     pvpHit: (a, v) => { if (inFight(game)) H.lastHit.set(v, [a, game.worldTime]); },
     host: { set: (p) => hostSet(game, p), pick: (pid, a) => hostPick(game, pid, a), start: () => hostStart(game), lobby: () => hostLobby(game) },
@@ -763,6 +763,8 @@ function localTick(game, dt) {
     if (p.buffs?.length) for (const id of SURVIVAL_BAD) if (p.buffs.some((b) => b.id === id)) removeBuff(p, id);
   }
   const me = game.net.pid, M = st.match, side = sideOf(game, me);
+  // in the lobby / waiting for a match nobody gets hurt (the night's wolves, a stray arrow): only the match fights
+  if (!p.dead && (!side || st.phase === 'lobby' || st.phase === 'prep')) p.hp = p.maxHp;
   // a phase change: where the player stands, its kit
   const key = `${st.phase}|${M?.id || ''}`;
   if (key !== L.phase) {

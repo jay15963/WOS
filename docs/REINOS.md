@@ -1574,6 +1574,8 @@ debandada), `bt_general` (o general com o estandarte entre os arqueiros e a infa
   cavalaria / general montado (docs/HORSE.md), o mapa-múndi mostrando as forças (3a), escadas de assalto.
 - Já existente, visto nos testes: `TOWN.note('gone')` guarda `at = worldTime` de cada par — por uma fração de segundo
   a linha `towns` de uma peça destruída pode diferir e a ressincronização a corrige (mut/towns.js; não é da 3b).
+  **Resolvido** (escaramuça, docs/SKIRMISH.md): o digest da parte `towns` não compara mais o `at` (só o anfitrião o lê:
+  refazer / consertar as peças); o snapshot continua levando o do anfitrião.
 
 ## 15. Fase 3c — o jogador no exército
 
