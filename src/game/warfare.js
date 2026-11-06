@@ -54,6 +54,7 @@ export function installWarfare(game) {
     decorate: (e) => decorateSoldier(game, e),
     label: (e) => soldierLabel(game, e),
     mayHurt: (pl, e) => (game.creative ? 'Modo criativo' : playerMayHurt(game, pl, e)),
+    mayHurtStruct: (pl, o) => playerMayHurtStruct(game, pl, o), // (a player's engine on an army's engines / camp: game/siege.js siegeCanDamage)
     forceOfEnt: (e) => (e?.soldier ? W.forces.get(e.soldier.f) || W.forces.get(W.tagOf.get(e.soldier.tag)) || null : null),
     crewEnt: (id) => crewEnt(game, id),
     onHurt: (m, src) => onHurt(game, m, src),
@@ -203,8 +204,8 @@ export function materialize(game, army) {
   if (!game.net.auth || !army || game.warfare.forces.has(army.id)) return game.warfare.forces.get(army?.id) || null;
   const eng = engObj(army.eng), spec = { id: army.id, k: army.k, n: army.n, lv: army.lv, at: [army.x, army.y], sid: army.target >= 0 ? army.target : null, army };
   if (army.state === 'siege' && army.target >= 0) {
-    // (its engines by numbers: the trebuchets it has are the ones it wants; a ram and a tower as always)
-    return startSiege(game, { ...spec, eng: { treb: Math.max(1, eng.treb), ram: 1, tower: 1 }, have: eng, ph: army.phase || 'camp', hrs: army.hrs || 0 });
+    // (its engines by numbers: the trebuchets it has are the ones it wants; a ram and two towers as always)
+    return startSiege(game, { ...spec, eng: { treb: Math.max(1, eng.treb), ram: 1, tower: 2 }, have: eng, ph: army.phase || 'camp', hrs: army.hrs || 0 });
   }
   if (army.state === 'battle') {
     // the other army of the battle (army.foe): 3a materializes both — the first one waits for the second
@@ -287,7 +288,11 @@ function dropSoldier(game, F, m) {
 function crewEnt(game, id) {
   if (typeof id !== 'string' || id[0] !== '~') return null;
   const nid = id.slice(1);
-  return game.net.auth ? game.warfare.byNid.get(nid) || null : game.net.entsApi?.byNid?.(nid) || null;
+  if (!game.net.auth) return game.net.entsApi?.byNid?.(nid) || null;
+  const m = game.warfare.byNid.get(nid);
+  if (m) return m;
+  for (const e of game.entities) if (e.npc && String(e.nid) === nid) return e; // (a town's catapult crew — npc.js catapultTask)
+  return null;
 }
 const aliveIn = (F) => { let n = 0; if (F.live) for (const m of F.live.values()) if (!m.dead) n++; return n; };
 const liveTotal = (game) => { let n = 0; for (const F of game.warfare.forces.values()) n += aliveIn(F); return n; }; // (the bodies on the ground do not count: they do not think)
@@ -401,20 +406,43 @@ function engineTargets(game, S) {
   const F = siegeOn(game, S.sid);
   if (!F || !F.sg?.jobs) return [];
   const out = [];
-  for (const j of F.sg.jobs) { const o = j.id ? game.world.objById.get(j.id) : null; if (isEngineObj(o) && !o.blueprint && j.role !== 'ws') out.push({ x: o.tx + o.fw / 2, y: o.ty + o.fh / 2, dead: false, o, z: 0 }); }
+  for (const j of F.sg.jobs) { const o = j.id ? game.world.objById.get(j.id) : null; if (isEngineObj(o) && !o.blueprint && j.role !== 'ws') out.push({ x: o.tx + o.fw / 2, y: o.ty + o.fh / 2, dead: false, o, z: 0, role: j.role }); }
   return out;
 }
-// a bolt stuck in a structure of an army at war with the crew's town: siege damage (an engine, a tent)
+// a bolt stuck in a structure of an army (an engine, a tent): siege damage — a town's ballista (whoever shoots it) when its
+// place is at war with that army; a player's own ballista when the player may hurt that army (playerMayHurtStruct)
 const BOLT_SDMG = 240;
 function boltStruct(game, b) {
-  if (b.by !== 'npc') return;
   const w = game.world, x = b.x + b.ux * 0.5, y = b.y + b.uy * 0.5, tx = Math.floor(x), ty = Math.floor(y);
   if (!w.inBounds(tx, ty)) return;
   const o = game.build.grid.main.get(w.idx(tx, ty));
   if (!o || o.realm == null || o.removed || o.blueprint) return;
   const crew = game.world.objById.get(b.oid), k = crew?.town != null ? ownerOf(game, crew.town) : crew?.realm ?? null;
-  if (k == null || !atWar(game, k, o.realm)) return;
+  if (k != null) { if (!atWar(game, k, o.realm)) return; }
+  else { const pl = b.by && b.by !== 'npc' ? playerOfPid(game, b.by) : null; if (!pl || playerMayHurtStruct(game, pl, o)) return; }
   damageStructure(game, o, BOLT_SDMG, b.x, b.y);
+}
+const playerOfPid = (game, pid) => { for (const q of allPlayers(game)) if ((q === game.player ? game.net.pid : q.pid) === pid) return q; return null; };
+// the force a structure of an army belongs to (its engines, the pieces of its camp)
+function forceOfStruct(game, o) {
+  for (const F of game.warfare.forces.values()) if (F.sg && (F.sg.jobs?.some((j) => j.id === o.id) || F.sg.camp?.includes(o.id))) return F;
+  return null;
+}
+// may player pl damage the army structure o (its siege engines, its camp) with an engine of its own (a catapult's stone, a
+// ballista's bolt — game/siege.js siegeCanDamage)? null = yes, else why not — the soldiers' rule (soldier.js
+// playerMayHurt): a skirmish's other side; never its own kingdom's or an ally's; a kingdom at war with it; a traveller
+// while the army is attacking a place (owner: "as torres de cerco podem receber dano de catapultas")
+export function playerMayHurtStruct(game, pl, o) {
+  const k = o?.realm;
+  if (k == null) return 'Não é de um exército';
+  if (game.creative) return 'Modo criativo';
+  if (game.skirmish?.on) { const sk = game.skirmish.kOf?.(pl); if (sk != null) return sk < 0 ? 'Fora da partida' : sk === k ? 'É do seu lado' : null; }
+  const pid = pl === game.player ? game.net.pid : pl?.pid || null, mk = memberOf(game, uidOf(game, pid));
+  if (mk === k) return 'É do seu próprio reino';
+  if (mk >= 0 && atWar(game, mk, k)) return null;
+  if (mk >= 0 && game.realms?.rel?.(mk, k) === 'ally') return 'É de um reino aliado';
+  const F = forceOfStruct(game, o);
+  return F && FIGHTING.has(F.phase) ? null : 'Só se danifica o exército de um reino em guerra com o seu, ou que esteja atacando um lugar';
 }
 
 // ---------- the host system ----------

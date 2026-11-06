@@ -16,7 +16,10 @@ import { seasonAt } from './seasons.js';
 import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
-import { perimeterOf, wallWalk, standOn } from './defense.js';
+import { isArtyObj, pivotOf as artyPivot, aimOf as artyAim, seatSpot as artySeat } from './siege.js';
+import { fireShot } from './mut/siege.js';
+import { ARTY, flightOf } from './content/siege.js';
+import { perimeterOf, wallWalk, standOn, walkPath } from './defense.js';
 import { TOWN } from './mut/structures.js'; // (TOWN.privatePiece: a house a player owns is never mended by the town — game/raids.js)
 
 const SPD = { walk: 1.55, slow: 1.15, patrol: 1.3, run: 3.3, kid: 2.5 };
@@ -578,25 +581,7 @@ export function npcHurt(game, m, src) {
 // no range de ataque do arco"): an archer up on the wall whose foe is out of reach / out of its line of fire walks along the
 // top of the wall line to the nearest spot that has both (and back to its post when the fight is over), never down ----------
 // (the walk itself: defense.js wallWalk)
-// a way along the walk (8 neighbours, the same story) from (x, y) to the spot: tile centres; null when the walk is cut
-function walkPath(W, x, y, to) {
-  let a = W.at.get(Math.floor(x) + ',' + Math.floor(y));
-  if (!a) { let bd = 2.3; for (const s of W.list) { const dd = Math.hypot(s.x - x, s.y - y); if (s.lv === to.lv && dd < bd) { bd = dd; a = s; } } }
-  if (!a) return null;
-  const prev = new Map([[a.k, null]]), q = [a];
-  for (let i = 0; i < q.length && q.length < 900; i++) {
-    const c = q[i];
-    if (c === to) break;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-      const n = W.at.get((c.tx + dx) + ',' + (c.ty + dy));
-      if (n && n.lv === c.lv && !prev.has(n.k)) { prev.set(n.k, c); q.push(n); }
-    }
-  }
-  if (!prev.has(to.k)) return null;
-  const out = [];
-  for (let c = to; c; c = prev.get(c.k)) out.push([c.x, c.y]);
-  return out.reverse();
-}
+// (a way along the walk: defense.js walkPath)
 // the spot of the walk nearest the archer from where foe f is in bow reach with a line of fire (another archer's spot left
 // alone); none in reach: the one nearest the foe when it gets the archer closer
 function wallSpot(game, rec, m, f) {
@@ -641,6 +626,13 @@ function upTask(game, rec, m, T, dt) {
     // up on the wall but posted elsewhere (the defense moved it): along the walk when nobody sees, else down at the foot
     // of the wall (inside) and up again by the new spot
     if (!inAnyView(game, m.x, m.y, 1, 2) && !inAnyView(game, d.x, d.y, 1, 2) && (d.lv | 0) > 0) { m.x = d.x; m.y = d.y; m.lv = d.lv; m.z = d.lv; return; }
+    // seen: along the walk to the new post when it is on the same walk (the watch follows the attack along the wall — owner:
+    // "os arqueiros também devem focar o lado principal da invasão")
+    if (!T.walkTried) {
+      T.walkTried = true;
+      const W = wallWalk(game, S), to = W.at.get(Math.floor(d.x) + ',' + Math.floor(d.y)), path = to && to.lv === (m.lv | 0) && walkPath(W, m.x, m.y, to);
+      if (path) { T.walkTo = { path, i: 0 }; return; }
+    }
     const dx = S.s.x - m.x, dy = S.s.y - m.y, dd = Math.hypot(dx, dy) || 1, q = nearPass(game, m.x + (dx / dd) * 2, m.y + (dy / dd) * 2, 3);
     if (q) { m.x = q[0]; m.y = q[1]; m.z = 0; m.lv = 0; m.route = null; }
     return;
@@ -770,6 +762,7 @@ function shoot(game, m, f) {
 // same as a player's, by 'npc'); never while a player operates it
 function crewTask(game, rec, m, T, dt) {
   const S = rec.S, o = objOf(game, S, T.duty.s);
+  if (isArtyObj(o) && !o.user) { catapultTask(game, rec, m, T, dt, o); return; }
   if (!isBallista(o) || o.user) { lookAround(game, rec, m, T, dt); return; }
   const [px, py] = pivotOf(o);
   T.scan = (T.scan || 0) - dt;
@@ -807,6 +800,73 @@ function crewTask(game, rec, m, T, dt) {
     T.fireT = BALLISTA.reload * 1.6;
     const [mx, my] = muzzleOf(o, cur);
     game.net.emit('ballista.shot', { id: o.id, sid: hostProjId(), x: +mx.toFixed(3), y: +my.toFixed(3), a: +cur.toFixed(4), by: 'npc' });
+  }
+}
+
+// a catapult crew (the castles' and cities' towers — world/realm/layout.js catapultsOn; owner: "as torres de cerco podem
+// receber dano de catapultas"): the siege engines of an army besieging the place in its reach first (a siege tower, then a
+// ram, then the rest — game/warfare.js engineTargets; the most damaged first), the stone thrown where a moving one will be
+// when it lands; else a knot of enemy soldiers (3+ within 2 tiles) — never the monsters. The same shot as a player's (mut/siege.js fireShot, its reload and
+// scatter: ops siege.set aim / siege.shot), by '~<nid>' (the hits are the crew's); never while a player operates it
+const CAT_SCORE = { tower: 12, ram: 10, treb: 6, cat: 6, ws: 4 };
+function catapultTask(game, rec, m, T, dt, o) {
+  const S = rec.S, A = ARTY[o.type], [px, py] = artyPivot(o), lo = A.range[0] + 0.5, hi = A.range[1] - 0.5;
+  T.scan = (T.scan || 0) - dt;
+  if (T.scan <= 0) {
+    T.scan = 0.6;
+    let best = null, bs = -1;
+    for (const q of game.warfare?.engineTargets?.(S) || []) {
+      const d = Math.hypot(q.x - px, q.y - py);
+      if (d < lo || d > hi) continue;
+      const sc = (CAT_SCORE[q.role] || 4) + (q.o?.dmg || 0) * 8 - d * 0.05; // (the most damaged one first: the crews finish it off together)
+      if (sc > bs) { bs = sc; best = { x: q.x, y: q.y, o: q.o }; }
+    }
+    if (!best) {
+      // a knot of enemy soldiers (the stone's blast: A.area) — the war only: the monsters of a night / a winter attack are
+      // the ballistas' and the watch's, as before (a catapult kills a giant in two stones)
+      const L = [];
+      for (const e of game.entities) { if (e.dead || !e.soldier || !hostile(e, S, game)) continue; const d = Math.hypot(e.x - px, e.y - py); if (d >= lo && d <= hi) L.push(e); }
+      for (const e of L) {
+        let n = 0;
+        for (const q of L) if (Math.hypot(q.x - e.x, q.y - e.y) < 2) n++;
+        const sc = (n >= 3 ? n : 0) - Math.hypot(e.x - px, e.y - py) * 0.02;
+        if (sc > 0 && sc > bs) { bs = sc; best = { x: e.x, y: e.y, e }; }
+      }
+    }
+    if (best?.o && T.foe?.o === best.o && T.foeT != null) {
+      // its way since the last look (a tower pushed to the wall): where it will be when the stone lands
+      const dtt = game.worldTime - T.foeT;
+      if (dtt > 0.05) { best.vx = (best.x - T.foe.x0) / dtt; best.vy = (best.y - T.foe.y0) / dtt; }
+    }
+    if (best) { best.x0 = best.x; best.y0 = best.y; }
+    T.foe = best; T.foeT = game.worldTime;
+  }
+  const f = T.foe;
+  // at the winch behind it, facing where it points
+  const seat = artySeat(game, o, artyAim(o)) || [px, py];
+  if (Math.hypot(seat[0] - m.x, seat[1] - m.y) > 0.4 && !inAnyView(game, m.x, m.y, 1, 2)) { m.x = seat[0]; m.y = seat[1]; }
+  if (!f || f.e?.dead) { lookAround(game, rec, m, T, dt); return; }
+  let tx = f.e ? f.e.x : f.x, ty = f.e ? f.e.y : f.y;
+  if (f.vx != null) {
+    const v = Math.hypot(f.vx, f.vy);
+    if (v > 0.05 && v < 3) { const fl = flightOf(A, Math.hypot(tx - px, ty - py))[0] + A.swing; tx += f.vx * fl; ty += f.vy * fl; }
+  }
+  const want = Math.atan2(ty - py, tx - px), dist = Math.max(A.range[0], Math.min(A.range[1], Math.hypot(tx - px, ty - py)));
+  const cur = artyAim(o), diff = angDiff(want, cur);
+  m.facing = facingFrom(Math.cos(cur), Math.sin(cur), m.facing);
+  // the frame turns at its speed (siege.set aim, the distance with it — a moving tower: only the angle has to be right, the
+  // stone flies the distance it is given), then the shot
+  T.aimT = (T.aimT || 0) - dt;
+  if ((Math.abs(diff) > 0.012 || Math.abs((o.dist || 0) - dist) > 1) && T.aimT <= 0) {
+    T.aimT = 0.25;
+    const na = cur + Math.max(-A.turn * 0.25, Math.min(A.turn * 0.25, diff));
+    game.net.emit('siege.set', { id: o.id, aim: +na.toFixed(4), dist: +dist.toFixed(2) });
+  }
+  T.fireT = (T.fireT || 0) - dt;
+  if (Math.abs(diff) <= 0.03 && T.fireT <= 0) {
+    const r = fireShot(game, o, cur, dist, '~' + m.nid);
+    if (r === undefined) { T.fireT = A.reload * N.catReloadK; m.action = { type: 'build', t: 0, dur: 0.6 }; }
+    else T.fireT = 0.5;
   }
 }
 

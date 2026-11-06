@@ -100,6 +100,82 @@ export function threatOf(game, S, foes, prev = null) {
   return { fx: Math.cos(sa), fy: Math.sin(sa), sector, n };
 }
 
+// ---------- the fronts: the sides the attacks come from, and how big each one is ----------
+// (owner: "os arqueiros também devem focar o lado principal da invasão, o único momento em que os soldados e arqueiros se
+// dividem é caso uma segunda invasão aconteça em algum outro lado da muralha, mas a divisão tem que ser proporcional ao
+// tamanho da invasão daquele lado") — the foes outside the line by the 8 sectors around the place (a giant / a heavy one
+// weighs 3, any other 1), neighbouring sectors one front (at most 3 sectors wide: a longer run is split at its weakest
+// sector); an army besieging it (anchor: game/warfare.js threatOn, game/realms.js siegeThreat) weighs its whole number at
+// the side it attacks (its soldiers are not counted where they stand), with the point it hits (anchor.hit). The biggest
+// is the main front (fronts[0], the old `threat`: the side only changes when it moved well past its sector's edge); the
+// others get a share of the watch proportional to their weight (shareOut). [{ fx, fy, sector, w, q (its share of 20),
+// hit { x, y } }]
+const SEC = Math.PI / 4;
+const secOf = (dx, dy) => ((Math.round(Math.atan2(dy, dx) / SEC) % 8) + 8) % 8;
+const weightOf = (e) => (e.species === 'giant' || e.heavy ? 3 : 1);
+export function frontsOf(game, S, foes, anchor = null, prev = null) {
+  const per = perimeterOf(S), w = game.world, bins = new Float64Array(8), bx = new Float64Array(8), by = new Float64Array(8);
+  let armyN = 0;
+  for (const e of foes) {
+    if (!e || e.dead) continue;
+    if (anchor?.army != null && e.soldier && game.warfare?.forceOfEnt?.(e)?.id === anchor.army) { armyN++; continue; } // (counted at its side)
+    if (per.inside(e.x, e.y, w)) continue; // (inside: the reserve and the hunters)
+    const dx = w.dx(e.x, per.cx), dy = e.y - per.cy, d = Math.hypot(dx, dy) || 1, k = secOf(dx, dy), q = weightOf(e);
+    bins[k] += q; bx[k] += (dx / d) * q; by[k] += (dy / d) * q;
+  }
+  let ak = -1;
+  if (anchor) { ak = anchor.sector; const q = Math.max(1, armyN, anchor.n || 0); bins[ak] += q; bx[ak] += anchor.fx * q; by[ak] += anchor.fy * q; }
+  // runs of neighbouring sectors with foes (around the circle), at most 3 sectors each
+  const runs = [];
+  if (bins.some((b) => b > 0)) {
+    let s0 = 0, low = Infinity;
+    for (let k = 0; k < 8; k++) if (bins[k] < low) { low = bins[k]; s0 = k; } // (start past the emptiest sector)
+    let run = [];
+    for (let j = 1; j <= 8; j++) { const k = (s0 + j) % 8; if (bins[k] > 0) run.push(k); else if (run.length) { runs.push(run); run = []; } }
+    if (run.length) runs.push(run);
+  }
+  const split = (r) => {
+    if (r.length <= 3) return [r];
+    let mi = 1;
+    for (let i = 2; i < r.length - 1; i++) if (bins[r[i]] < bins[r[mi]]) mi = i;
+    return [...split(r.slice(0, mi)), ...split(r.slice(mi))];
+  };
+  const out = [];
+  for (const r of runs.flatMap(split)) {
+    let W = 0, sx = 0, sy = 0;
+    for (const k of r) { W += bins[k]; sx += bx[k]; sy += by[k]; }
+    if (r.includes(ak)) { out.push({ fx: anchor.fx, fy: anchor.fy, sector: ak, w: W, hit: anchor.hit || null, siege: true }); continue; } // (the besiegers' side)
+    const L = Math.hypot(sx, sy);
+    if (L < 0.05 * W) continue; // (foes on opposite sides of one run: no side)
+    out.push({ fx: sx / L, fy: sy / L, sector: secOf(sx, sy), w: W, hit: null });
+  }
+  out.sort((a, b) => b.w - a.w);
+  const M = out[0];
+  if (M && !M.siege && prev?.[0] && !prev[0].siege) {
+    // the main side only changes when it moved well past its sector's edge
+    const a = Math.atan2(M.fy, M.fx), pa = prev[0].sector * SEC, dd = Math.abs(Math.atan2(Math.sin(a - pa), Math.cos(a - pa)));
+    if (dd < SEC / 2 + 0.35) M.sector = prev[0].sector;
+  }
+  if (M && !M.siege) { const sa = M.sector * SEC; M.fx = Math.cos(sa); M.fy = Math.sin(sa); }
+  const T = out.reduce((a, f) => a + f.w, 0) || 1;
+  for (const f of out) {
+    f.q = Math.round((20 * f.w) / T);
+    if (!f.hit) { const R = per.walled ? per.A : per.A - 1; f.hit = { x: per.cx + f.fx * R, y: per.cy + f.fy * R }; }
+  }
+  return out.filter((f, i) => i === 0 || f.q > 0); // (a side too small for a share of the watch: none — the main one's)
+}
+// n defenders over the fronts: each other front its share (proportional to its weight, rounded), the main one the rest
+export function shareOut(n, fronts) {
+  const out = fronts.map(() => 0);
+  if (!fronts.length) return out;
+  const T = fronts.reduce((a, f) => a + f.w, 0) || 1;
+  let left = n;
+  for (let i = 1; i < fronts.length; i++) { const k = Math.min(left, Math.round((n * fronts[i].w) / T)); out[i] = k; left -= k; }
+  out[0] = left;
+  return out;
+}
+export const frontsSig = (fronts) => fronts.map((f) => f.sector + ':' + f.q).join(';');
+
 // ---------- where each guard stands ----------
 // a spot of a gap: the first holder in the gap itself (an alarm), the others just inside it, side by side
 function gapSpot(game, o, j, danger) {
@@ -121,9 +197,13 @@ function besideOnWall(game, d, k) {
 
 // the posts of the watch now: Map person index → duty { k: 'gap' | 'gate' | 'stretch' | 'reserve' | 'wall' | 'crew', x, y,
 // fx, fy (facing out), lv, r (how far from it a foe is fought; 0: only the foes inside it hunts), op (the opening held),
-// focus (archers: the gap they cover) }. danger false: only the gaps are held (one guard each, just inside).
-// rec (optional): the creatures out now — the nearest ones are picked by where they stand
-export function assignDefense(game, S, rec, ops, th, danger) {
+// focus (archers: the gap they cover), front (the index of its front) }. danger false: only the gaps are held (one guard
+// each, just inside). rec (optional): the creatures out now — the nearest ones are picked by where they stand. fronts
+// (frontsOf; th = fronts[0], the main one): the stretch of wall and the archers go to the main side, a share of them to
+// each other front (shareOut); without fronts, th alone
+export function assignDefense(game, S, rec, ops, th, danger, fronts = null) {
+  const FR = fronts && fronts.length ? fronts : th ? [{ ...th, w: 1, q: 20, hit: th.hit || null }] : [];
+  if (FR.length) th = FR[0];
   const D = deadMap(game), alive = (P) => !D.has(`${S.sid}.${P.i}`), per = perimeterOf(S);
   const posts = new Map();
   const melee = S.persons.filter((P) => P.job === 'guard' && alive(P)), archers = S.persons.filter((P) => P.job === 'archer' && alive(P));
@@ -150,11 +230,12 @@ export function assignDefense(game, S, rec, ops, th, danger) {
     });
   }
   // 3. the gates (inside each one): with the attack from one side (owner: "os soldados não estão focados apenas em uma parte
-  // da muralha que é de onde estão vindo o inimigo") the gates facing it get two guards; the others keep one only when the
-  // watch is big enough for it (else they stand on the side under attack — the gates are shut and the dead are not there)
+  // da muralha que é de onde estão vindo o inimigo") the gates facing it get two guards, a gate facing another front one;
+  // the others none (they are shut: the watch stands on the sides under attack — "o único momento em que os soldados e
+  // arqueiros se dividem é caso uma segunda invasão aconteça em algum outro lado")
   const G = S.posts.gates.slice().sort((a, b) => al(b.fx, b.fy) - al(a.fx, a.fy));
-  const backGates = !th || melee.length >= 2 * G.length + 3;
-  for (const g of G) { if (!free.size) break; if (th && al(g.fx, g.fy) < N.front && !backGates) continue; take(g.x, g.y, 1).forEach((P) => posts.set(P.i, { k: 'gate', x: g.x, y: g.y, fx: g.fx, fy: g.fy, lv: 0, r: HR.gate })); }
+  const facing = (g) => FR.some((f) => g.fx * f.fx + g.fy * f.fy >= N.front);
+  for (const g of G) { if (!free.size) break; if (th && !facing(g)) continue; take(g.x, g.y, 1).forEach((P) => posts.set(P.i, { k: 'gate', x: g.x, y: g.y, fx: g.fx, fy: g.fy, lv: 0, r: HR.gate })); }
   for (const g of G) {
     if (!free.size || !th || al(g.fx, g.fy) < 0.5) continue;
     const q = spot(game, g.x - g.fy * 1.1, g.y + g.fx * 1.1, 2);
@@ -175,43 +256,59 @@ export function assignDefense(game, S, rec, ops, th, danger) {
   const crews = S.posts.crews.slice().sort((a, b) => dirOf(b) - dirOf(a));
   const nc = Math.min(crews.length, Math.max(crews.length ? 1 : 0, Math.floor(melee.length * N.crews)));
   for (let k = 0; k < nc && free.size; k++) take(crews[k].x, crews[k].y, 1).forEach((P) => posts.set(P.i, { ...crews[k] }));
-  // 5. the stretch of wall the attackers come at (walled: just inside the line; an open village: its edge) — the others
+  // 5. the stretch of wall the attackers come at (walled: just inside the line; an open village: its edge) — the others;
+  // a second front gets its share (the guards nearest it), the main one the rest
+  const stretchAt = (pts, n, fi) => {
+    for (let j = 0; free.size && pts.length && (n == null || j < n); j++) {
+      const p = pts[j % pts.length];
+      take(p.x, p.y, 1).forEach((P) => { const q = j < pts.length ? [p.x, p.y] : spot(game, p.x - p.fy * 0.9 * Math.ceil(j / pts.length), p.y + p.fx * 0.9 * Math.ceil(j / pts.length), 2); posts.set(P.i, { k: 'stretch', x: q[0], y: q[1], fx: p.fx, fy: p.fy, lv: 0, r: HR.stretch, front: fi }); });
+    }
+  };
+  if (FR.length > 1) { const sh = shareOut(free.size, FR); for (let fi = 1; fi < FR.length; fi++) if (sh[fi]) stretchAt(stretchPoints(game, S, per, FR[fi]), sh[fi], fi); }
   const pts = stretchPoints(game, S, per, th);
-  for (let j = 0; free.size && pts.length; j++) {
-    const p = pts[j % pts.length];
-    take(p.x, p.y, 1).forEach((P) => { const q = j < pts.length ? [p.x, p.y] : spot(game, p.x - p.fy * 0.9 * Math.ceil(j / pts.length), p.y + p.fx * 0.9 * Math.ceil(j / pts.length), 2); posts.set(P.i, { k: 'stretch', x: q[0], y: q[1], fx: p.fx, fy: p.fy, lv: 0, r: HR.stretch }); });
-  }
+  stretchAt(pts, null, 0);
   // archers: with the attack from one side, all of them along the wall walk around where it hits (spread a few tiles
-  // apart, the nearest to it first — the walk: wallWalk); else the wall tops facing the attackers (the spots by a gap
-  // first); an open village: behind its line
+  // apart, the nearest to it first — the walk: wallWalk), a second front its share (the archers nearest it); else the
+  // wall tops facing the attackers (the spots by a gap first); an open village: behind its line
   const W = S.posts.walls.filter((w) => !ops.some((o) => Math.hypot(o.x - w.x, o.y - w.y) < 1 + o.w / 2)); // (never on a piece that is gone)
-  const hit = th && per.walled ? { x: per.cx + th.fx * per.A, y: per.cy + th.fy * per.A } : null;
-  const front = hit ? frontSpots(game, S, per, th, hit, archers.length, ops) : [];
-  if (front.length) {
-    const gapBy = (w) => ops.find((o) => Math.hypot(o.x - w.x, o.y - w.y) < 12) || null;
-    archers.forEach((P, k) => { const c = front[k % front.length], o = gapBy(c); posts.set(P.i, { k: 'wall', x: c.x, y: c.y, fx: c.fx, fy: c.fy, lv: c.lv, focus: o ? { x: o.x, y: o.y } : { x: hit.x, y: hit.y } }); });
-  } else if (W.length) {
-    const gapBy = (w) => ops.find((o) => Math.hypot(o.x - w.x, o.y - w.y) < 12) || null;
+  const gapBy = (w) => ops.find((o) => Math.hypot(o.x - w.x, o.y - w.y) < 12) || null;
+  const freeA = new Set(archers);
+  const nearest = (n, x, y) => { const L = [...freeA].sort((a, b) => dist(where(a), x, y) - dist(where(b), x, y)).slice(0, n); for (const P of L) freeA.delete(P); return L; };
+  if (per.walled && FR.length) {
+    const sh = shareOut(archers.length, FR);
+    for (let j = 1; j <= FR.length; j++) {
+      const fi = j % FR.length, f = FR[fi], n = fi ? sh[fi] : freeA.size; // (the other fronts first, the main one last)
+      const sp = n ? frontSpots(game, S, per, f, f.hit, n, ops) : [];
+      if (!sp.length) continue;
+      nearest(n, f.hit.x, f.hit.y).forEach((P, k) => { const c = sp[k % sp.length], o = gapBy(c); posts.set(P.i, { k: 'wall', x: c.x, y: c.y, fx: c.fx, fy: c.fy, lv: c.lv, focus: o ? { x: o.x, y: o.y } : { x: f.hit.x, y: f.hit.y }, front: fi }); });
+    }
+  }
+  if (freeA.size && W.length) {
     const sc = (w) => al(w.fx, w.fy) + (gapBy(w) ? 2 : 0);
     const order = W.slice().sort((a, b) => sc(b) - sc(a)), seen = new Map();
-    archers.forEach((P, k) => {
+    [...freeA].forEach((P, k) => {
       const w0 = order[k % order.length], n = seen.get(w0) || 0;
       seen.set(w0, n + 1);
       const w = besideOnWall(game, w0, n), o = gapBy(w0);
       posts.set(P.i, { ...w, k: 'wall', focus: o ? { x: o.x, y: o.y } : null });
     });
-  } else {
-    archers.forEach((P, k) => {
-      const p = pts[k % Math.max(1, pts.length)] || { x: S.plaza.x, y: S.plaza.y, fx: 0, fy: 1 };
-      const q = spot(game, p.x - p.fx * 2.5 + p.fy * (k & 1 ? 1 : -1), p.y - p.fy * 2.5 - p.fx * (k & 1 ? 1 : -1), 3);
-      posts.set(P.i, { k: 'stretch', x: q[0], y: q[1], fx: p.fx, fy: p.fy, lv: 0, r: HR.stretch + 4 });
-    });
+  } else if (freeA.size) {
+    // an open village: behind its line, each front its share
+    const groups = FR.length ? FR.map((f, fi) => [fi, stretchPoints(game, S, per, f)]) : [[0, pts]], sh = FR.length ? shareOut(freeA.size, FR) : [freeA.size];
+    for (let j = 1; j <= groups.length; j++) {
+      const [fi, ps] = groups[j % groups.length], n = j % groups.length ? sh[fi] : freeA.size, c0 = ps[0] || { x: S.plaza.x, y: S.plaza.y };
+      nearest(n, c0.x, c0.y).forEach((P, k) => {
+        const p = ps[k % Math.max(1, ps.length)] || { x: S.plaza.x, y: S.plaza.y, fx: 0, fy: 1 };
+        const q = spot(game, p.x - p.fx * 2.5 + p.fy * (k & 1 ? 1 : -1), p.y - p.fy * 2.5 - p.fx * (k & 1 ? 1 : -1), 3);
+        posts.set(P.i, { k: 'stretch', x: q[0], y: q[1], fx: p.fx, fy: p.fy, lv: 0, r: HR.stretch + 4, front: fi });
+      });
+    }
   }
-  return { posts, ops, th, danger: true };
+  return { posts, ops, th, fronts: FR, danger: true };
 }
 // the line where the melee guards stand along the walls: walled — the patrol loop just inside the walls, the side of the
 // attackers first (the back half left out when they come from one side); open — points of the edge around the threat
-function stretchPoints(game, S, per, th) {
+export function stretchPoints(game, S, per, th) {
   const out = [], P = S.posts.patrol;
   if (per.walled || !th) {
     for (const [x, y] of P) { const dx = x - per.cx, dy = y - per.cy, d = Math.hypot(dx, dy) || 1; out.push({ x, y, fx: dx / d, fy: dy / d }); }
@@ -249,23 +346,43 @@ export function wallWalk(game, S) {
     }
   }
   for (const p of S.posts.walls) if ((p.lv | 0) > 0) add(Math.floor(p.x), Math.floor(p.y), p.lv | 0);
+  for (const c of S.posts.crews || []) { const q = at.get(Math.floor(c.x) + ',' + Math.floor(c.y)); if (q) q.art = true; } // (a ballista / catapult stands there: a way through, no post)
   S._walk = { at, list }; S._walkV = v;
   return S._walk;
+}
+// a way along the walk (8 neighbours, the same story) from (x, y) to the spot: tile centres; null when the walk is cut
+export function walkPath(W, x, y, to) {
+  let a = W.at.get(Math.floor(x) + ',' + Math.floor(y));
+  if (!a) { let bd = 2.3; for (const s of W.list) { const dd = Math.hypot(s.x - x, s.y - y); if (s.lv === to.lv && dd < bd) { bd = dd; a = s; } } }
+  if (!a) return null;
+  const prev = new Map([[a.k, null]]), q = [a];
+  for (let i = 0; i < q.length && q.length < 900; i++) {
+    const c = q[i];
+    if (c === to) break;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const n = W.at.get((c.tx + dx) + ',' + (c.ty + dy));
+      if (n && n.lv === c.lv && !prev.has(n.k)) { prev.set(n.k, c); q.push(n); }
+    }
+  }
+  if (!prev.has(to.k)) return null;
+  const out = [];
+  for (let c = to; c; c = prev.get(c.k)) out.push([c.x, c.y]);
+  return out.reverse();
 }
 // the n spots of the wall walk nearest where a siege tower's ramp comes down (T: warfare.js towersOn) — its piece, the ones
 // beside it along the wall and the tile just inside (not the piece itself first: the soldiers step onto it from the ramp)
 export function towerSpots(game, S, T, n) {
   if (!n) return [];
-  const near = wallWalk(game, S).list.filter((c) => Math.hypot(c.x - T.x, c.y - T.y) < 3.3), top = near.filter((c) => c.lv === T.lv);
+  const near = wallWalk(game, S).list.filter((c) => !c.art && Math.hypot(c.x - T.x, c.y - T.y) < 3.3), top = near.filter((c) => c.lv === T.lv);
   const L = top.length ? top : near; // (the walk at the tower's deck height: where the soldiers come across)
   const sc = (c) => Math.hypot(c.x - T.x, c.y - T.y) + (Math.floor(c.x) === Math.floor(T.x) && Math.floor(c.y) === Math.floor(T.y) ? 1.6 : 0);
   return L.sort((a, b) => sc(a) - sc(b)).slice(0, n);
 }
 // n spots of the wall walk on the side under attack, around where it hits (the nearest first), ~2.5 tiles apart (closer
 // when the side is short of them)
-function frontSpots(game, S, per, th, hit, n, ops) {
+export function frontSpots(game, S, per, th, hit, n, ops) {
   if (!n) return [];
-  const W = wallWalk(game, S).list.filter((c) => c.fx * th.fx + c.fy * th.fy > N.front && !ops.some((o) => Math.hypot(o.x - c.x, o.y - c.y) < 0.8 + o.w / 2));
+  const W = wallWalk(game, S).list.filter((c) => !c.art && c.fx * th.fx + c.fy * th.fy > N.front && !ops.some((o) => Math.hypot(o.x - c.x, o.y - c.y) < 0.8 + o.w / 2));
   W.sort((a, b) => Math.hypot(a.x - hit.x, a.y - hit.y) - Math.hypot(b.x - hit.x, b.y - hit.y));
   for (const gapT of [2.5, 1.5, 0.9]) {
     const out = [];

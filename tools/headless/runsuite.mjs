@@ -48,6 +48,7 @@ try {
     writeFileSync(out, txt);
     if (done || Date.now() - t0 > 3 * 3600e3) break;
   }
+  try { writeFileSync(out + '.full.txt', (await evalJs('window.mpReport ? window.mpReport({ withPasses: true }) : ""')) || ''); } catch { /* (the full report: every check and metric) */ }
   console.log('DONE');
 } catch (e) {
   console.error('runner error', e);

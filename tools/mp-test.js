@@ -12275,6 +12275,124 @@ def('CB6', {
   await t.checkDigest(H, G);
 });
 
+def('CB7', {
+  title: 'CB: the defense follows the side the siege attacks — every archer on that wall; a few wolves behind the castle get a share proportional to their number, then all back; two siege towers; the castle\'s catapults throw at them',
+  timeout: 600000,
+  expected: 'Siege of the castle, 160 soldiers at 50 % (both players defend). The siege plans two siege towers on the side it attacks, ≥ 6 tiles apart. game.warfare.threatOn is that side (the plan\'s, not where the army came from) with the point it hits on it; the main front of the town\'s watch and of the garrison (defense.js frontsOf) is that side, and every archer of both is posted along the wall walk of that side (the garrison\'s get up there). Four wolves held behind the castle make a second front, small next to the army: the archers behind are exactly their proportional share (round(n × weight / total)), a few melee too, the rest stays on the siege\'s side. The wolves dead: the second front is gone and every archer is posted on the siege\'s side again. The castle has catapults on its towers (story 2); a catapult crew throws at a siege tower (a stone of a town catapult, thrown by ~<nid>, landing by a tower) and the tower takes siege damage; digest equal',
+  api: 'defense.js frontsOf / shareOut / assignDefense (fronts), siegeAI.js siegeThreat (plan side, hit) / plan (two towers), people.js defenseTick (rec.fronts), skirmish.js garrisonTick / garrisonPosts (fronts, hostile creatures), soldier.js isFoe (m.holds), layout.js catapultsOn, npc.js catapultTask, warfare.js engineTargets (role), siege.js siegeImpact',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  await skLobby(t, P, { mode: 'siege', place: 'castle', total: 160, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'archer' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 120000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const M = skSt(H).match, sid = M.sid, MH = await A.mods(H);
+  const FS = () => H.game.warfare.forces.get(skDbg(H).forces.siege?.id), GF = () => H.game.warfare.forces.get(skDbg(H).forces.garrison?.id);
+  await t.waitFor(() => FS()?.sg?.plan, 60000, 'the siege is planned');
+  const Pl = FS().sg.plan, [nx, ny] = Pl.side, per = H.game.townDefense.perimeter(sid), C = { x: per.cx, y: per.cy };
+  // two towers, on the side it attacks
+  const TJ = FS().sg.jobs.filter((j) => j.role === 'tower'), tp = TJ.map((j) => per.pieces.get(+String(j.target).split('.')[1]));
+  t.check(TJ.length === 2, 'two siege towers planned', `${TJ.length} · side ${nx},${ny} · ${H.game.warfare.planWhy().slice(-6).join(' | ')}`);
+  t.check(tp.length === 2 && tp.every((p) => p && p.fx === nx && p.fy === ny) && Math.hypot(tp[0].cx - tp[1].cx, tp[0].cy - tp[1].cy) >= 6, 'both against the wall of that side, ≥ 6 tiles apart', JSON.stringify(tp.map((p) => p && [p.cx, p.cy, p.fx, p.fy])));
+  // the main front: that side
+  const sideK = (x, y) => { const dx = x - C.x, dy = y - C.y, d = Math.hypot(dx, dy) || 1; return (dx * nx + dy * ny) / d; };
+  const th = H.game.warfare.threatOn(sid);
+  t.check(th && th.fx === nx && th.fy === ny && th.hit && sideK(th.hit.x, th.hit.y) > 0.6, 'the threat: the side its engines go for (the plan\'s), with the point it hits there', JSON.stringify(th));
+  const isMain = (f) => !!f && Math.abs(f.fx - nx) < 1e-6 && Math.abs(f.fy - ny) < 1e-6;
+  await t.waitFor(() => isMain(H.game.townDefense.fronts(sid)[0]) && isMain(GF()?.gar?.fronts?.[0]), 20000, 'the main front of the town\'s watch and of the garrison is that side', () => JSON.stringify([H.game.townDefense.fronts(sid), GF()?.gar?.fronts]));
+  const tArch = () => (H.game.people.debug(sid).def?.posts || []).filter((d) => d.k === 'wall' && !d.melee);
+  const gArchM = () => soldiersOf(H, M.kb).filter((m) => m.soldier.role === 'archer');
+  const gArch = () => gArchM().map((m) => GF().gar.posts.get(m.soldier.i)).filter(Boolean);
+  await t.waitFor(() => tArch().length >= 3 && gArch().length >= 6, 30000, 'archers posted (the town\'s and the garrison\'s)', () => `${tArch().length} · ${gArch().length}`);
+  t.check(tArch().every((d) => sideK(d.x, d.y) > 0.3), 'every archer of the town\'s watch along the wall of that side', tArch().map((d) => f2(sideK(d.x, d.y))).join(' '));
+  t.check(gArch().every((p) => sideK(p.x, p.y) > 0.3 && p.lv > 0), 'every archer of the garrison on the walk of that side', gArch().map((p) => `${f2(sideK(p.x, p.y))}^${p.lv}`).join(' '));
+  await t.waitFor(() => { const L = gArchM(); return L.filter((m) => m.z > 0.5 && sideK(m.x, m.y) > 0.3).length >= Math.max(4, L.length * 0.6); }, 90000, 'the garrison\'s archers up there', () => gArchM().map((m) => `${f2(sideK(m.x, m.y))}^${f2(m.z)}`).join(' '));
+  // a second front: four wolves held behind the castle
+  const back = { x: C.x - nx * (per.A + 9), y: C.y - ny * (per.A + 9) }, wolves = [];
+  for (let j = 0; j < 4; j++) {
+    const ws = A.freeSpot(H, MH, back.x - ny * (j - 1.5) * 2.2, back.y + nx * (j - 1.5) * 2.2, { rMin: 0, rMax: 3, r: 0.36 });
+    if (!ws) continue;
+    const w = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+    w.hp = w.maxHp = 100000; wolves.push([w, ws]);
+  }
+  t.need(wolves.length >= 3, 'room for the wolves behind the castle');
+  const hold = setInterval(() => { for (const [w, ws] of wolves) if (!w.dead) { w.stunT = 30; w.hp = Math.max(w.hp, 50000); w.x = ws[0]; w.y = ws[1]; w.vx = w.vy = 0; } }, 200);
+  t.defer(() => { clearInterval(hold); for (const [w] of wolves) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); } });
+  const isBack = (f) => !!f && f.fx * -nx + f.fy * -ny > 0.6;
+  await t.waitFor(() => H.game.townDefense.fronts(sid).some(isBack) && GF().gar.fronts.some(isBack), 20000, 'a second front behind the castle (the wolves), for the town\'s watch and the garrison', () => JSON.stringify([H.game.townDefense.fronts(sid), GF().gar.fronts]));
+  await t.sleep(2500);
+  const tf = H.game.townDefense.fronts(sid), gf = GF().gar.fronts;
+  t.check(isMain(tf[0]) && isMain(gf[0]), 'the main front stays the siege\'s side', JSON.stringify([tf[0], gf[0]]));
+  const tw2 = tf.find(isBack), tW = tf.reduce((a, f) => a + f.w, 0), gw2 = gf.find(isBack), gW = gf.reduce((a, f) => a + f.w, 0);
+  t.check(tw2 && gw2 && gw2.w / gW < 0.15 && tw2.w / tW < 0.15, 'the wolves\' front is small next to the army', `garrison ${f2(gw2?.w)}/${f2(gW)} · town ${f2(tw2?.w)}/${f2(tW)}`);
+  const gA = gArch(), gB = gA.filter((p) => sideK(p.x, p.y) < -0.3).length, gWant = Math.round((gA.length * gw2.w) / gW);
+  t.check(gB === gWant && gA.length - gB >= gA.length * 0.85, 'the garrison\'s archers behind: their proportional share, the rest still on the siege\'s side', `${gB} behind of ${gA.length} (share ${gWant})`);
+  const tA = tArch(), tB = tA.filter((d) => sideK(d.x, d.y) < -0.3).length, tWant = Math.round((tA.length * tw2.w) / tW);
+  t.check(tB === tWant && tA.length - tB >= tA.length * 0.8, 'the town\'s archers too', `${tB} behind of ${tA.length} (share ${tWant})`);
+  const gMel = soldiersOf(H, M.kb).filter((m) => m.soldier.role !== 'archer').map((m) => GF().gar.posts.get(m.soldier.i)).filter(Boolean), gMB = gMel.filter((p) => sideK(p.x, p.y) < -0.3).length;
+  t.check(gMB >= 1 && gMB <= Math.max(3, Math.ceil(gMel.length * 0.15)), 'a few of the garrison\'s melee behind (their share), not half', `${gMB} of ${gMel.length}`);
+  // the wolves dead: all back to the siege's side
+  clearInterval(hold);
+  for (const [w] of wolves) { w.noCorpse = true; if (!w.dead) MH.combat.killMob(H.game, w, null); }
+  await t.waitFor(() => !H.game.townDefense.fronts(sid).some(isBack) && !GF().gar.fronts.some(isBack), 20000, 'the wolves dead: the second front is gone', () => JSON.stringify([H.game.townDefense.fronts(sid), GF().gar.fronts]));
+  await t.sleep(1500);
+  t.check(gArch().every((p) => sideK(p.x, p.y) > 0.3) && tArch().every((d) => sideK(d.x, d.y) > 0.3), 'every archer posted on the siege\'s side again', `${gArch().filter((p) => sideK(p.x, p.y) <= 0.3).length} + ${tArch().filter((d) => sideK(d.x, d.y) <= 0.3).length} elsewhere`);
+  // the castle's catapults on a siege tower
+  const S = H.game.people.of(sid), cats = S.L.hooks.artillery.filter((k) => S.L.structs[k]?.[0] === 'catapult').map((k) => H.game.world.objById.get(`t${sid}.${k}`)).filter(Boolean);
+  t.check(cats.length >= 3 && cats.every((o) => (o.lv | 0) === 2) && cats.every((o) => G.game.world.objById.get(o.id)), 'the castle has catapults on its towers (story 2, on both peers)', cats.map((o) => `${o.tx},${o.ty}^${o.lv}`).join(' '));
+  const near = [], stones = new Set();
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) {
+      if (!pr.lob || pr.cosmetic || pr.kind !== 'cat_stone' || !String(pr.owner || '').startsWith('~') || stones.has(pr)) continue;
+      stones.add(pr);
+      for (const j of FS()?.sg?.jobs || []) { const o = j.role === 'tower' && j.id ? H.game.world.objById.get(j.id) : null; if (o && !o.blueprint && Math.hypot(pr.lx - (o.tx + o.fw / 2), pr.ly - (o.ty + o.fh / 2)) < 3) near.push(j.id); }
+    }
+  }, 60);
+  const tdmg = () => Math.max(0, ...(FS()?.sg?.jobs || []).filter((j) => j.role === 'tower' && j.id).map((j) => H.game.world.objById.get(j.id)?.dmg || 0));
+  await t.waitFor(() => near.length >= 1, 300000, 'a catapult crew throws at a siege tower (a town catapult\'s stone lands by it)', () => `${stones.size} catapult stones · towers ${JSON.stringify(H.game.warfare.towersOn(sid))} · phase ${FS()?.phase}`);
+  await t.waitFor(() => tdmg() > 0, 60000, 'the tower takes siege damage', () => `${near.length} stones by a tower · dmg ${f2(tdmg())}`);
+  t.metric('fronts', { towers: TJ.length, gArch: gA.length, gBehind: gB, tArch: tA.length, tBehind: tB, gMelBehind: gMB, catStones: stones.size, byTower: near.length, towerDmg: +tdmg().toFixed(3) });
+  await t.checkDigest(H, G);
+});
+
+def('CB8', {
+  title: 'CB: a siege tower can be destroyed — the castle\'s catapult stones (never on the town\'s own walls) break it; the defense lets go of it; a defending player\'s own engine may hit it, one outside the match not',
+  timeout: 420000,
+  expected: 'Siege of the castle, 120 soldiers at 50 % (both players defend). Once a siege tower stands: siegeCanDamage lets a stone of one of the castle\'s catapults (the place\'s kingdom, at war with the army) hurt it, and a defending player\'s own engine (no kingdom: the soldiers\' rule — the other side of the match), not a player outside the match; a stone of that catapult on the town\'s own wall does nothing; its stones on the tower (siegeImpact) crack it on both peers (siege.dmg) and break it (struct.remove on both); game.warfare.towersOn no longer lists it and the town\'s melee wall posts by it are gone; digest equal',
+  api: 'siege.js siegeImpact (the attacker: a town engine\'s kingdom / a player) / siegeCanDamage, warfare.js playerMayHurtStruct (mayHurtStruct), siegeAI.js siegeTowers, defense.js assignDefense',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  await skLobby(t, P, { mode: 'siege', place: 'castle', total: 120, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'archer' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 120000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const M = skSt(H).match, sid = M.sid, MH = await A.mods(H);
+  await t.waitFor(() => (H.game.warfare.towersOn(sid) || []).length > 0, 300000, 'a siege tower stands', () => `phase ${H.game.warfare.forces.get(skDbg(H).forces.siege?.id)?.phase}`);
+  const T = H.game.warfare.towersOn(sid)[0], o = H.game.world.objById.get(T.id);
+  const S = H.game.people.of(sid), cat = S.L.hooks.artillery.filter((k) => S.L.structs[k]?.[0] === 'catapult').map((k) => H.game.world.objById.get(`t${sid}.${k}`)).find(Boolean);
+  t.need(cat && o, 'a catapult of the castle and the tower');
+  const can = MH.siege.siegeCanDamage, own = (q) => ({ realm: null, pid: q.game.net.pid, building: false });
+  t.check(can(H.game, { realm: H.game.realms.owner(sid), building: false }, o), 'the castle\'s kingdom (its catapult) may hurt the army\'s tower');
+  t.check(can(H.game, own(H), o) && can(H.game, own(G), o), 'a defending player\'s own engine may (the soldiers\' rule: the other side of the match)');
+  t.check(!can(H.game, { realm: null, pid: 'nobody', building: false }, o), 'a player outside the match may not');
+  // a stone on the town's own wall: nothing
+  const wallP = [...H.game.townDefense.perimeter(sid).pieces.values()].find((p) => !p.gate && H.game.world.objById.get(p.id)), wo = H.game.world.objById.get(wallP.id), wd0 = wo.dmg || 0;
+  MH.siege.siegeImpact(H.game, { type: 'catapult', o: cat, by: '~test', x: wallP.cx, y: wallP.cy });
+  await t.sleep(300);
+  t.check((wo.dmg || 0) === wd0, 'a stone of the castle\'s catapult on its own wall: no damage', f2(wo.dmg || 0));
+  // its stones on the tower: cracks, then it breaks
+  const cx = o.tx + o.fw / 2, cy = o.ty + o.fh / 2, oG = () => G.game.world.objById.get(T.id);
+  MH.siege.siegeImpact(H.game, { type: 'catapult', o: cat, by: '~test', x: cx, y: cy });
+  await t.waitFor(() => (o.dmg || 0) > 0 && (oG()?.dmg || 0) > 0, RT() + 3000, 'it cracks on both peers (siege.dmg)', () => `host ${f2(o.dmg || 0)} · guest ${f2(oG()?.dmg || 0)}`);
+  for (let k = 0; k < 30 && !o.removed && H.game.world.objById.get(T.id); k++) { MH.siege.siegeImpact(H.game, { type: 'catapult', o: cat, by: '~test', x: cx, y: cy }); await t.sleep(40); }
+  await t.waitFor(() => !H.game.world.objById.get(T.id) && !oG(), RT() + 4000, 'the tower breaks apart (struct.remove on both peers)');
+  await t.waitFor(() => !(H.game.warfare.towersOn(sid) || []).some((q) => q.id === T.id), 3000, 'towersOn no longer lists it');
+  await t.waitFor(() => !(H.game.people.debug(sid).def?.posts || []).some((d) => d.melee && d.k === 'wall' && Math.hypot(d.x - T.x, d.y - T.y) < 3.5 && !(H.game.warfare.towersOn(sid) || []).some((q) => Math.hypot(q.x - d.x, q.y - d.y) < 3.5)), 15000, 'the town\'s melee posts by it are gone');
+  await t.checkDigest(H, G);
+});
+
 def('SK7', {
   title: 'SK: the soldiers\' Tiro Longo — the attackers\' archers lob over the palisade (the guest sees the arcs), a long shot hurts the foe and never its own side',
   timeout: 300000,

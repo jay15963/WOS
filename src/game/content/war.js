@@ -67,7 +67,7 @@ export const WAR = {
     campHours: 2,        // setting up the camp
     buildPer: 1 / 30,    // engine points an hour per soldier
     cost: { ram: 6, tower: 12, treb: 10, cat: 5 },
-    want: { stone: { ram: 1, tower: 1, treb: 2 }, city: { ram: 1, tower: 2, treb: 3 }, palisade: { ram: 1, cat: 1 }, none: {} },
+    want: { stone: { ram: 1, tower: 2, treb: 2 }, city: { ram: 1, tower: 2, treb: 3 }, palisade: { ram: 1, cat: 1 }, none: {} },
     treb: { hit: 0.55, dmg: 0.5 },   // a trebuchet: chance an hour to hit the wall, damage to one piece (stone 1500 hp: ~650 a stone)
     cat: { hit: 0.6, dmg: 0.5 },     // a catapult on a palisade
     ram: { stone: 0.5, wood: 1 },    // a ram's damage an hour on a stone / wooden gate (1 = broken)

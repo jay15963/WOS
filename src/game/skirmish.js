@@ -33,7 +33,7 @@ import { applyLevel, removeBuff, respawnPlayer } from './player.js';
 import { mobStats } from './stats.js';
 import { SPECIES } from './data.js';
 import { siegeThreat, siegeTowers } from './siegeAI.js';
-import { towerSpots } from './defense.js';
+import { towerSpots, frontsOf, frontsSig, shareOut, frontSpots, stretchPoints, wallWalk, walkPath } from './defense.js';
 import { facingFrom } from './physics.js';
 import { entOfPid } from './eco.js';
 import { npcPass } from './townnav.js';
@@ -442,7 +442,7 @@ function makeForces(game) {
   const s = game.towns.realm.settlements[M.sid], dir = approachDir(game, s), reach = s.r + 90;
   M.dir = [r2(dir.x), r2(dir.y)];
   if (M.mode === 'siege') {
-    const want = s.kind === 'village' ? (s.walls ? { treb: 1, ram: 1, tower: 1 } : {}) : { treb: 2, ram: 1, tower: 1 };
+    const want = s.kind === 'village' ? (s.walls ? { treb: 1, ram: 1, tower: 2 } : {}) : { treb: 2, ram: 1, tower: 2 }; // (two siege towers — siegeAI.js plan)
     const F = W.startSiege({ ...base, k: M.ka, sid: M.sid, n: M.nA, at: [s.x + dir.x * (s.r + 42), s.y + dir.y * (s.r + 42)], eng: want, have: { ...want }, ph: 'build', reach });
     if (F) { H.forces.push(F.id); H.fs = F.id; }
   }
@@ -454,7 +454,7 @@ function makeForces(game) {
       const S = game.people?.of?.(M.sid), plaza = S?.plaza || { x: s.x, y: s.y };
       G.anchor = { x: plaza.x, y: plaza.y }; G.face = { x: dir.x, y: dir.y }; G.fx = dir.x; G.fy = dir.y;
       G.rear = () => [plaza.x, plaza.y];
-      G.onSpawn = (g, F, m) => { m.passFn = npcPass; }; // (the defenders pass their own gates and doors, like the guards)
+      G.onSpawn = (g, F, m) => { m.passFn = npcPass; m.holds = M.sid; }; // (the defenders pass their own gates and doors, like the guards; the creatures attacking the place are their foes — soldier.js isFoe)
       G.slotOf = (u) => { const p = G.gar.posts.get(u.i); return p ? [p.x, p.y] : [plaza.x + ((u.i % 5) - 2), plaza.y + ((u.i / 5 | 0) % 3)]; };
       H.forces.push(G.id); H.gar = G.id;
     }
@@ -498,19 +498,35 @@ function garrisonTick(game, F) {
   const H = game.skirmish.H, s = S.s, w = game.world;
   // the monsters near the place are its foes too (3b lists soldiers, guards and players)
   if (G.mon) for (const m of H.mobs) if (!m.dead && hyp(m.x, m.y, s.x, s.y) < s.r + 45) F.foes.push(m);
-  // the threat: the siege's side, else the wave's
-  const FS = forceOf(game, H.fs), th = FS ? siegeThreat(game, FS) : { fx: F.face.x, fy: F.face.y, sector: 0 };
+  // (+ any hostile creature at the place — wolves, bandits, the dead: like the town's watch, the garrison fights them and
+  // they make a front of their own, its share of the defenders proportional to its size)
+  const had = new Set(F.foes);
+  for (const e of game.entities) if (e.isMob && !e.dead && !e.proxy && !e.npc && !e.soldier && !had.has(e) && !e.tame && !e.owned && e.faction !== 'friend' && (e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile') && hyp(e.x, e.y, s.x, s.y) < s.r + 45) F.foes.push(e);
+  // the fronts (defense.js frontsOf, like the town's watch): the siege's side weighing the whole army, the other foes
+  // outside by side (a wave, enemy players) — the main one gets the defenders, a smaller one a proportional share; with no
+  // foe outside yet, the side the attack comes from
+  const FS = forceOf(game, H.fs), sth = FS ? siegeThreat(game, FS) : null;
+  G.fronts = frontsOf(game, S, F.foes, sth, G.fronts);
+  if (!G.fronts.length) { const fx = F.face.x, fy = F.face.y, sector = ((Math.round(Math.atan2(fy, fx) / (Math.PI / 4)) % 8) + 8) % 8; G.fronts = [{ fx, fy, sector, w: 1, q: 20, hit: { x: per.cx + fx * per.A, y: per.cy + fy * per.A } }]; }
   const ops = game.townDefense.openings(sid);
   const ents = [...F.live.values()].filter((m) => !m.dead);
   let inside = 0;
   for (const e of F.foes) if (!e.dead && per.inside(e.x, e.y, w)) inside++;
   const tw = FS ? siegeTowers(game, FS) : []; // (a siege tower standing: some of the melee up on the walk where it comes)
-  const sig = `${ops.map((o) => o.id).join(',')}|${th.sector}|${ents.length}|${inside > 0 ? 1 : 0}|${tw.map((q) => q.id).join(',')}`;
-  if (sig !== G.sig) { G.sig = sig; G.posts = garrisonPosts(game, F, S, per, ops, th, ents, inside > 0, tw); }
+  const sig = `${ops.map((o) => o.id).join(',')}|${frontsSig(G.fronts)}|${ents.length}|${inside > 0 ? 1 : 0}|${tw.map((q) => q.id).join(',')}`;
+  if (sig !== G.sig) { G.sig = sig; G.posts = garrisonPosts(game, F, S, per, ops, G.fronts, ents, inside > 0, tw); }
   for (const m of ents) {
     const p = G.posts.get(m.soldier.i);
     if (!p) continue;
-    if (p.lv > 0) { if (!(m.z > 0.5)) { if (!m.job?.wall) m.job = climbJob(p); } else { m.job = null; m.order = p.melee ? { k: 'wall', x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: p.eng, leash: p.leash } : { k: 'wall', x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: WAR.archer.range * 1.25, rangeK: 1 }; } continue; }
+    if (p.lv > 0) {
+      if (!(m.z > 0.5)) { if (!m.job?.wall) m.job = climbJob(p); continue; }
+      m.job = null;
+      if (m.order?.k === 'wall' && m.order.key === p.key) continue;
+      // up there already, posted elsewhere on the walk: along it (the defense follows the attack along the wall)
+      const W = wallWalk(game, S), to = W.at.get(Math.floor(p.x) + ',' + Math.floor(p.y)), path = to && to.lv === (m.lv | 0) && hyp(m.x, m.y, p.x, p.y) > 2.5 ? walkPath(W, m.x, m.y, to) : null;
+      m.order = p.melee ? { k: 'wall', key: p.key, x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: p.eng, leash: p.leash, path, pi: 0 } : { k: 'wall', key: p.key, x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: WAR.archer.range * 1.25, rangeK: 1, path, pi: 0 };
+      continue;
+    }
     if (m.job?.wall) m.job = null;
     if (m.z > 0.5) { const q = solNear(game, m.x - (p.fx || 0) * 2, m.y - (p.fy || 0) * 2, 3); if (q) { m.x = q[0]; m.y = q[1]; m.z = 0; m.lv = 0; } }
     const O = m.order && m.order.k === 'hold' && m.order.key === p.key ? m.order : (m.order = { k: 'hold', key: p.key });
@@ -534,14 +550,17 @@ function climbJob(p) {
   f.wall = true; f.eng = 0;
   return f;
 }
-// the posts (recomputed when something changes): archers on the wall tops facing the threat (an open village: behind
-// its edge), the breaches held by the nearest, a few melee up on the wall walk where each siege tower comes (owner: "os
-// soldados corpo a corpo devem ficar um pouco na muralha também caso tenha torre de cerco" — they meet the soldiers coming
-// across; the spearmen throw down at the ones below), two at each gate facing the threat and one at the others, a reserve
-// on the plaza, the rest along the stretch facing the attackers; with foes inside the walls the reserve and the stretch
-// hunt them
-function garrisonPosts(game, F, S, per, ops, th, ents, inside, towers = []) {
-  const out = new Map(), al = (fx, fy) => fx * th.fx + fy * th.fy, plaza = S.plaza;
+// the posts (recomputed when something changes): the archers along the wall walk around where the main front hits (an open
+// village: behind its edge), the breaches held by the nearest, a few melee up on the wall walk where each siege tower comes
+// (owner: "os soldados corpo a corpo devem ficar um pouco na muralha também caso tenha torre de cerco" — they meet the
+// soldiers coming across; the spearmen throw down at the ones below), two at each gate facing the main front and one at a
+// gate facing another front, a reserve on the plaza, the rest along the stretch facing the attackers; a second front
+// (fronts: defense.js frontsOf) gets a share of the archers and of the stretch proportional to its size (owner: "o único
+// momento em que os soldados e arqueiros se dividem é caso uma segunda invasão aconteça em algum outro lado da muralha, mas
+// a divisão tem que ser proporcional ao tamanho da invasão daquele lado"); with foes inside the walls the reserve and the
+// stretch hunt them
+function garrisonPosts(game, F, S, per, ops, fronts, ents, inside, towers = []) {
+  const th = fronts[0], out = new Map(), al = (fx, fy) => fx * th.fx + fy * th.fy, plaza = S.plaza;
   const arch = ents.filter((m) => m.soldier.role === 'archer'), mel = ents.filter((m) => m.soldier.role !== 'archer');
   const free = new Set(mel);
   const take = (x, y, n) => { const L = [...free].sort((a, b) => hyp(a.x, a.y, x, y) - hyp(b.x, b.y, x, y)).slice(0, n); for (const m of L) free.delete(m); return L; };
@@ -560,27 +579,47 @@ function garrisonPosts(game, F, S, per, ops, th, ents, inside, towers = []) {
   }
   // the reserve on the plaza (15 %): what got inside
   take(plaza.x, plaza.y, Math.max(1, Math.round(mel.length * 0.15))).forEach((m, j) => { const q = spot(plaza.x + ((j % 4) - 1.5) * 1.2, plaza.y + ((j / 4 | 0) % 3) * 1.2); set(m, q[0], q[1], th.fx, th.fy, inside ? 40 : 14, 'res' + j); });
-  // the gates
+  // the gates: two at the ones facing the main front, one at a gate facing another front, none at the others (shut)
   const gates = S.posts.gates.slice().sort((a, b) => al(b.fx, b.fy) - al(a.fx, a.fy));
-  for (const g of gates) { if (!free.size) break; take(g.x, g.y, al(g.fx, g.fy) > 0.5 ? 2 : 1).forEach((m, j) => { const q = spot(g.x - g.fy * j * 1.1, g.y + g.fx * j * 1.1); set(m, q[0], q[1], g.fx, g.fy, 8, 'gate' + g.x + ',' + g.y + j); }); }
-  // the stretch facing the threat (walled: the patrol loop just inside; open: points of the edge)
-  let pts;
+  for (const g of gates) {
+    if (!free.size) break;
+    const n = al(g.fx, g.fy) > 0.5 ? 2 : fronts.some((f) => g.fx * f.fx + g.fy * f.fy >= 0.45) ? 1 : 0;
+    take(g.x, g.y, n).forEach((m, j) => { const q = spot(g.x - g.fy * j * 1.1, g.y + g.fx * j * 1.1); set(m, q[0], q[1], g.fx, g.fy, 8, 'gate' + g.x + ',' + g.y + j); });
+  }
+  // the stretch facing each front (walled: the patrol loop just inside — defense.js stretchPoints; open: points of the
+  // edge), the other fronts their share first, the main one the rest
+  const ptsOf = (f) => {
+    let pts;
+    if (per.walled) pts = stretchPoints(game, S, per, f);
+    else { const a0 = Math.atan2(f.fy, f.fx), R = per.A - 1; pts = [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.2, -1.2].map((da) => { const fx = Math.cos(a0 + da), fy = Math.sin(a0 + da); return { x: per.cx + fx * R, y: per.cy + fy * R, fx, fy }; }); }
+    return pts.length ? pts : [{ x: plaza.x + f.fx * 6, y: plaza.y + f.fy * 6, fx: f.fx, fy: f.fy }];
+  };
+  const shM = shareOut(free.size, fronts);
+  for (let k = 1; k <= fronts.length; k++) {
+    const fi = k % fronts.length, f = fronts[fi], pts = ptsOf(f), n = fi ? shM[fi] : free.size;
+    for (let j = 0; j < n && free.size; j++) {
+      const p = pts[j % pts.length], row = Math.floor(j / pts.length);
+      const [m] = take(p.x, p.y, 1), q = spot(p.x - p.fx * row * 1.2 + -p.fy * (row & 1 ? 0.8 : 0), p.y - p.fy * row * 1.2 + p.fx * (row & 1 ? 0.8 : 0));
+      set(m, q[0], q[1], p.fx, p.fy, inside ? 22 : 9, 'st' + fi + '.' + j);
+    }
+  }
+  // archers: along the wall walk around where each front hits (defense.js frontSpots: spread a few tiles apart, the nearest
+  // to it first), never on a piece that is gone; the other fronts their share (the archers nearest them) first
+  const freeA = new Set(arch);
+  const nearestA = (n, x, y) => { const L = [...freeA].sort((a, b) => hyp(a.x, a.y, x, y) - hyp(b.x, b.y, x, y)).slice(0, n); for (const m of L) freeA.delete(m); return L; };
   if (per.walled) {
-    pts = S.posts.patrol.map(([x, y]) => { const dx = x - per.cx, dy = y - per.cy, d = Math.hypot(dx, dy) || 1; return { x, y, fx: dx / d, fy: dy / d }; }).filter((p) => al(p.fx, p.fy) > -0.2).sort((a, b) => al(b.fx, b.fy) - al(a.fx, a.fy));
-  } else {
-    const a0 = Math.atan2(th.fy, th.fx), R = per.A - 1;
-    pts = [0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.2, -1.2].map((da) => { const fx = Math.cos(a0 + da), fy = Math.sin(a0 + da); return { x: per.cx + fx * R, y: per.cy + fy * R, fx, fy }; });
+    const shA = shareOut(arch.length, fronts);
+    for (let k = 1; k <= fronts.length; k++) {
+      const fi = k % fronts.length, f = fronts[fi], n = fi ? shA[fi] : freeA.size;
+      const sp = n ? frontSpots(game, S, per, f, f.hit, n, ops) : [];
+      if (!sp.length) continue;
+      nearestA(n, f.hit.x, f.hit.y).forEach((m, j) => { const c = sp[j % sp.length]; set(m, c.x, c.y, c.fx, c.fy, WAR.archer.range * 1.2, 'w' + fi + '.' + c.k + '.' + Math.floor(j / sp.length), c.lv | 0); });
+    }
   }
-  if (!pts.length) pts = [{ x: plaza.x + th.fx * 6, y: plaza.y + th.fy * 6, fx: th.fx, fy: th.fy }];
-  let j = 0;
-  for (const m of [...free]) {
-    const p = pts[j % pts.length], row = Math.floor(j / pts.length), q = spot(p.x - p.fx * row * 1.2 + -p.fy * (row & 1 ? 0.8 : 0), p.y - p.fy * row * 1.2 + p.fx * (row & 1 ? 0.8 : 0));
-    set(m, q[0], q[1], p.fx, p.fy, inside ? 22 : 9, 'st' + j); j++;
-  }
-  // archers: the wall tops facing the threat (beside each other along the walk), never on a piece that is gone
+  // (no walk: the wall tops facing the main front; an open village: behind its edge)
   const W = S.posts.walls.filter((w) => !ops.some((o) => hyp(o.x, o.y, w.x, w.y) < 1 + o.w / 2)).sort((a, b) => al(b.fx, b.fy) - al(a.fx, a.fy));
-  const used = new Set();
-  arch.forEach((m, k) => {
+  const used = new Set(), pts0 = ptsOf(th);
+  [...freeA].forEach((m, k) => {
     if (W.length) {
       for (let tries = 0; tries < W.length * 4; tries++) {
         const w0 = W[(k + tries) % W.length], n = Math.floor((k + tries) / W.length), off = (n & 1 ? 1 : -1) * Math.ceil(n / 2), tx = Math.round(-w0.fy), ty = Math.round(w0.fx);
@@ -590,7 +629,7 @@ function garrisonPosts(game, F, S, per, ops, th, ents, inside, towers = []) {
         return;
       }
     }
-    const p = pts[k % pts.length], q = spot(p.x - p.fx * 3, p.y - p.fy * 3);
+    const p = pts0[k % pts0.length], q = spot(p.x - p.fx * 3, p.y - p.fy * 3);
     set(m, q[0], q[1], p.fx, p.fy, WAR.archer.range, 'ar' + k);
   });
   return out;

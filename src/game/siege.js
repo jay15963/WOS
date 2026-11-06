@@ -87,7 +87,11 @@ export function siegeCanDamage(game, attacker, target) {
     if (!isMob(target)) return false;
     if (target.faction === 'friend' || target.owned || target.tame || target.tiedTo || target.saddle) return false; // (pets, the farm's animals, horses)
     if (target.npc) { const ar = realmOf(attacker), tr = target.npcS ? game.realms?.owner?.(target.npcS.sid) ?? target.npcS.s?.k : null; return !!(ar != null && tr != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's people: only at war — phase 3)
-    if (target.soldier) { const ar = realmOf(attacker), tr = target.soldier.k; return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); } // (a kingdom's soldiers: an enemy kingdom's engine — game/soldier.js)
+    if (target.soldier) {
+      const ar = realmOf(attacker), tr = target.soldier.k;
+      if (ar == null && attacker.pid) { const pl = playerByPid(game, attacker.pid); return !!pl && !game.warfare?.mayHurt?.(pl, target); } // (a player's own engine: the soldiers' rule — game/soldier.js playerMayHurt)
+      return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); // (a kingdom's soldiers: an enemy kingdom's engine — game/soldier.js)
+    }
     return true;
   }
   if (target.isProp) return !target.dummy && !target.broken; // (bandit camp crates; never a training dummy)
@@ -96,6 +100,7 @@ export function siegeCanDamage(game, attacker, target) {
     const tr = target.town != null ? game.realms?.owner?.(target.town) ?? game.towns?.realm?.settlements[target.town]?.k ?? null : realmOf(target); // (a settlement's piece: its kingdom now)
     if (tr != null) {
       const ar = realmOf(attacker);
+      if (ar == null && attacker.pid && target.town == null) { const pl = playerByPid(game, attacker.pid); return !!pl && !game.warfare?.mayHurtStruct?.(pl, target); } // (a player's own engine on an army's engines / camp: the soldiers' rule — game/warfare.js playerMayHurtStruct)
       return !!(ar != null && ar !== tr && game.realms?.atWar?.(ar, tr)); // (phase 3: kingdoms at war)
     }
     if (target.camp || target.bandit) return true; // (a bandit camp's own structures, if any)
@@ -348,7 +353,10 @@ function climbStep(game, C, dt) {
 export function siegeImpact(game, sh) {
   const S = ARTY[sh.type];
   if (!S || !game.net.auth) return;
-  const x = sh.x, y = sh.y, att = sh.o || { realm: null };
+  // who throws: the engine's kingdom (an army's: o.realm; a town's — its catapults: the place's owner now), else the player
+  // on its own engine (the soldiers' rule: siegeCanDamage)
+  const eo = sh.o, er = eo ? (eo.town != null ? game.realms?.owner?.(eo.town) ?? game.towns?.realm?.settlements[eo.town]?.k ?? null : realmOf(eo)) : null;
+  const x = sh.x, y = sh.y, att = { realm: er, pid: er == null && sh.by && sh.by[0] !== '~' && sh.by !== 'npc' ? sh.by : null, building: false };
   const zi = wallTopStory(game, Math.floor(x), Math.floor(y)); // (it hit a wall: on its top)
   const src = playerByPid(game, sh.by);
   // creatures in the blast (the catapult: the ballista's damage; the trebuchet: weak)

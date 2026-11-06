@@ -633,6 +633,22 @@ function buildLayout(planet, realm, s) {
   };
 }
 
+// catapults on n more towers of the wall (one facing each side, a tower without a ballista): the watch's crews throw at the
+// siege engines that come at the walls (owner: "as torres de cerco podem receber dano de catapultas" — game/npc.js crewTask)
+function catapultsOn(P, art, n) {
+  const sides = new Set();
+  let k = 0;
+  for (const [x, y] of P.towers) {
+    if (k >= n) break;
+    if (art.has(x * 100003 + y)) continue;
+    const ox = x - P.cx, oy = y - P.cy, out = Math.abs(ox) > Math.abs(oy) ? (ox > 0 ? 3 : 1) : oy > 0 ? 0 : 2; // (rot = front S, W, N, E: facing out)
+    if (sides.has(out)) continue;
+    sides.add(out); art.add(x * 100003 + y);
+    P.hooks.artillery.push(P.put('catapult', x, y, out, 2, '', ''));
+    k++;
+  }
+}
+
 // ---------- castle and city (castle.js-like modules in this file) ----------
 // The castle: a square stone ward (two-story curtain with battlements, towers on the corners, a gatehouse toward the main
 // road, stairs up to the wall walk), the keep, barracks, stores, a stable and a well in a paved courtyard; outside, a
@@ -676,7 +692,9 @@ function planCastle(P) {
   for (const k of [-1, 1]) P.put('brazier', P.cx + gnx * (A - 2) + lx * 3 * k, P.cy + gny * (A - 2) + ly * 3 * k, 0, 0, '', '');
   // ballistas on two towers
   let nb = 0;
-  for (const [x, y] of P.towers) { if (nb >= 2) break; if ((x - P.cx) * gnx + (y - P.cy) * gny > A - 2 && P.towers.length) { P.hooks.artillery.push(P.put('ballista', x, y, main === 0 ? 2 : main === 1 ? 3 : main === 2 ? 0 : 1, 2, '', '')); nb++; } }
+  const art = new Set();
+  for (const [x, y] of P.towers) { if (nb >= 2) break; if ((x - P.cx) * gnx + (y - P.cy) * gny > A - 2 && P.towers.length) { P.hooks.artillery.push(P.put('ballista', x, y, main === 0 ? 2 : main === 1 ? 3 : main === 2 ? 0 : 1, 2, '', '')); art.add(x * 100003 + y); nb++; } }
+  catapultsOn(P, art, 4);
   // the annex outside the gate: farmhouses, fields and pens
   const road = s.exits[0] || [P.cx + gnx * (s.ro - 4), P.cy + gny * (s.ro - 4)];
   const gx = P.cx + gnx * A + 0.5, gy = P.cy + gny * A + 0.5;
@@ -780,14 +798,17 @@ function planCity(P) {
   // the city walls: two stories, towers, gates on the roads; ballistas on the towers by the gates and the corners
   const gs = buildWalls(P, A, C, 'stone', gates, { style: 'rough' });
   let nb = 0;
+  const art = new Set();
   for (const [x, y] of P.towers) {
     if (nb >= 8) break;
     const nearGate = gs.some((g) => Math.abs(g.x - x) <= 4 && Math.abs(g.y - y) <= 4);
     if (!nearGate && nb >= 4) continue;
     const ox = x - P.cx, oy = y - P.cy, out = Math.abs(ox) > Math.abs(oy) ? (ox > 0 ? 3 : 1) : oy > 0 ? 0 : 2; // (rot = front S, W, N, E: facing out)
     P.hooks.artillery.push(P.put('ballista', x, y, out, 2, '', ''));
+    art.add(x * 100003 + y);
     nb++;
   }
+  catapultsOn(P, art, 4);
   P.towers.push(...innerTowers);
   farmland(P, A + 3, roads, P.s.crops || [1, 2, 3], 3, 22);
   clearCore(P, A + 2);

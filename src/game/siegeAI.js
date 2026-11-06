@@ -72,13 +72,13 @@ function plan(game, F) {
     const pieces = [...per.pieces.values()].filter((p) => game.world.objById.has(p.id));
     const reach = [];
     for (const w of S.posts.walls) reach.push([w.x, w.y, ARCH_REACH(w.lv)]);
-    for (const c of S.posts.crews) reach.push([c.x, c.y, BALLISTA.range + 1]);
+    for (const c of S.posts.crews) { const t = S.L.structs[c.s]?.[0]; reach.push([c.x, c.y, (ARTY[t] ? ARTY[t].range[1] : BALLISTA.range) + 1]); } // (the ballistas' bolts, the catapults' stones)
     const wallLv = Math.max(1, ...S.posts.walls.map((w) => w.lv | 0));
     const sides = SIDES.map(([sx, sy]) => [sx, sy]).sort((p, q) => (q[0] * A.x + q[1] * A.y) - (p[0] * A.x + p[1] * A.y));
     G.pp = Q = { S, per, C, A, pieces, reach, laneL: Math.max(12, Math.ceil(ARCH_REACH(wallLv)) + 2), sides, k: 0, cands: [] };
     return null;
   }
-  const { S, per, C, A, pieces, reach } = Q, want = { treb: 1, ram: 1, tower: 1, ...(G.want || {}) };
+  const { S, per, C, A, pieces, reach } = Q, want = { treb: 1, ram: 1, tower: 2, ...(G.want || {}) }; // (two siege towers — owner: "no cerco devem ter 2 torres de cerco")
   if (Q.k < Q.sides.length) {
     // one side a tick
     const side = Q.sides[Q.k++], [nx, ny] = side, tx = -ny, ty = nx;
@@ -86,19 +86,27 @@ function plan(game, F) {
     if (onSide.length < 4 && per.walled) { why('lado ' + side, onSide.length + ' peças'); return null; }
     const proj = (p) => (p.cx - C.x) * tx + (p.cy - C.y) * ty;
     const gates = onSide.filter((p) => p.gate), walls = onSide.filter((p) => !p.gate && gates.every((g) => Math.hypot(g.cx - p.cx, g.cy - p.cy) > 4.5));
-    let ram = null, tower = null;
+    let ram = null;
+    const towers = [];
     if (want.ram && gates.length) for (const g of gates.slice().sort((a, b) => Math.abs(proj(a)) - Math.abs(proj(b)))) { ram = laneFor(game, 'battering_ram', g, side, s, Q.laneL); if (ram) { ram.gate = g; break; } }
     if (want.tower && per.walled) {
+      // the towers ~8 tiles from the ram's gate (one on each side of it when they fit), ≥ 6 tiles apart from each other
       const ref = ram ? proj(ram.gate) : 0;
       const cand = walls.filter((p) => !ram || (Math.abs(proj(p) - ref) > 5 && Math.abs(proj(p) - ref) < 16)).sort((a, b) => Math.abs(Math.abs(proj(a) - ref) - (ram ? 8 : 0)) - Math.abs(Math.abs(proj(b) - ref) - (ram ? 8 : 0)));
-      for (const p of cand.slice(0, 16)) { tower = laneFor(game, 'siege_tower', p, side, s, Q.laneL); if (tower) { tower.wall = p; break; } }
+      for (const p of cand.slice(0, 24)) {
+        if (towers.length >= (want.tower | 0)) break;
+        if (towers.some((q) => Math.abs(proj(q.wall) - proj(p)) < 6)) continue;
+        const t = laneFor(game, 'siege_tower', p, side, s, Q.laneL);
+        if (t) { t.wall = p; towers.push(t); }
+      }
     }
+    const tower = towers[0] || null;
     // the trebuchets' targets: near the lanes (one workshop serves them all), apart from each other
-    const lanes = [ram, tower].filter(Boolean), mid = lanes.length ? lanes.reduce((a, q) => a + ((q.tx + q.fw / 2 - C.x) * tx + (q.ty + q.fh / 2 - C.y) * ty), 0) / lanes.length : 0;
+    const lanes = [ram, ...towers].filter(Boolean), mid = lanes.length ? lanes.reduce((a, q) => a + ((q.tx + q.fw / 2 - C.x) * tx + (q.ty + q.fh / 2 - C.y) * ty), 0) / lanes.length : 0;
     const trebs = [];
     for (const p of walls.slice().sort((a, b) => Math.abs(proj(a) - mid) - Math.abs(proj(b) - mid))) {
       if (trebs.length >= Math.max(0, Math.min(3, want.treb | 0))) break;
-      if (Math.abs(proj(p) - mid) > 12 || trebs.some((q) => Math.abs(proj(q.target) - proj(p)) < 5) || (tower && Math.abs(proj(tower.wall) - proj(p)) < 3)) continue;
+      if (Math.abs(proj(p) - mid) > 12 || trebs.some((q) => Math.abs(proj(q.target) - proj(p)) < 5) || towers.some((t) => Math.abs(proj(t.wall) - proj(p)) < 3)) continue;
       let got = null;
       for (let D = WAR.siege.trebD[0]; D <= WAR.siege.trebD[1] && !got; D += 2) {
         const q = spotFor(game, 'trebuchet', p.cx + nx * D - 1.5, p.cy + ny * D - 1.5, rotFacing(-nx, -ny), 2);
@@ -107,14 +115,15 @@ function plan(game, F) {
       if (got) trebs.push({ target: p, ...got });
     }
     const face = nx * A.x + ny * A.y;
-    Q.cands.push({ side, onSide, ram, tower, trebs, score: face * 1.2 + (ram ? 1.1 : 0) + (tower ? 1 : 0) + (trebs.length ? 0.9 : 0) });
+    Q.cands.push({ side, onSide, ram, towers, trebs, score: face * 1.2 + (ram ? 1.1 : 0) + (tower ? 1 : 0) + (towers.length > 1 ? 0.35 : 0) + (trebs.length ? 0.9 : 0) });
     return null;
   }
   // the best side
   const best = Q.cands.slice().sort((a, b) => b.score - a.score)[0];
   if (!best) { G.pp = null; return null; }
   const { side, onSide, trebs } = best, [nx, ny] = side, tx = -ny, ty = nx;
-  let { ram, tower } = best;
+  let { ram } = best;
+  const towers = best.towers;
   const pad = WAR.siege.pad, cr = WAR.siege.campR;
   const outOfReach = (x, y, extra = 0) => reach.every(([rx, ry, r]) => Math.hypot(x - rx, y - ry) >= r + extra) && Math.hypot(x - C.x, y - C.y) >= s.r + 12 + extra;
   // the camp: out of everything's reach on that side, toward the army
@@ -131,7 +140,7 @@ function plan(game, F) {
   }
   if (!camp) { G.pp = null; G.tries += 10; return null; }
   // the workshop: in the middle of the engines' spots (a little further out), every engine within 15.5 tiles of it
-  const eng = [ram, tower, ...trebs].filter(Boolean);
+  const eng = [ram, ...towers, ...trebs].filter(Boolean);
   const wsRot = nx ? 1 : 0;
   let ws = null, wsC = null;
   if (eng.length) {
@@ -148,7 +157,7 @@ function plan(game, F) {
   const jobs = [{ type: 'siege_workshop', tx: ws.tx, ty: ws.ty, rot: wsRot, v: 0, p: 0, id: null, role: 'ws' }];
   for (const q of trebs) if (nearWs(q)) jobs.push({ type: 'trebuchet', tx: q.tx, ty: q.ty, rot: q.rot, v: 0, p: 0, id: null, role: 'treb', target: q.target.id, tgt: [q.target.cx, q.target.cy] });
   if (nearWs(ram)) jobs.push({ type: 'battering_ram', tx: ram.tx, ty: ram.ty, rot: ram.rot, v: 0, p: 0, id: null, role: 'ram', target: ram.gate.id, end: ram.end, steps: ram.steps }); else ram = null;
-  if (nearWs(tower)) jobs.push({ type: 'siege_tower', tx: tower.tx, ty: tower.ty, rot: tower.rot, v: tower.v, p: 0, id: null, role: 'tower', target: tower.wall.id, end: tower.end, steps: tower.steps }); else tower = null;
+  for (const tower of towers) if (nearWs(tower)) jobs.push({ type: 'siege_tower', tx: tower.tx, ty: tower.ty, rot: tower.rot, v: tower.v, p: 0, id: null, role: 'tower', target: tower.wall.id, end: tower.end, steps: tower.steps });
   // the infantry waits out of the archers' reach in front of the side; the archers' line is within reach of the walls
   const wallD = Math.max(...onSide.map((p) => (p.cx - C.x) * nx + (p.cy - C.y) * ny), per.A);
   const engProj = eng.length ? eng.reduce((a, q) => a + ((q.tx + q.fw / 2 - C.x) * tx + (q.ty + q.fh / 2 - C.y) * ty), 0) / eng.length : 0;
@@ -617,7 +626,7 @@ function assault(game, F, ents) {
       if ((o.tx === j.back[0] && o.ty === j.back[1]) || j.backT > 20) { game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); j.over = true; for (const i of j.crewI || []) { const m = F.live.get(i); if (m?.job?.push === j) { m.job = null; m._atSlot = false; } } continue; }
     }
     if (j.role === 'tower' && o.ramp) {
-      if (!G.rampDown) { G.rampDown = true; shout(game, F, CRIES.tower, o.tx, o.ty); game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); }
+      if (!j.docked) { j.docked = true; if (!G.rampDown) { G.rampDown = true; shout(game, F, CRIES.tower, o.tx, o.ty); } game.net.emit('siege.set', { id: o.id, push: [] }); o._drive?.clear(); } // (each tower: its crew lets go)
       climbers(game, F, j, o, ents, used);
       continue;
     }
@@ -874,10 +883,25 @@ export function siegeTowers(game, F) {
   }
   return out;
 }
-// the side the army comes from (game.townDefense threat: the defense takes the walls of that side)
+// the side the army attacks (game.townDefense: the main front — the defense takes the walls of that side): once planned, the
+// side of the wall its engines go for (not where the army came from: the plan may take the side beside it — owner: "os
+// arqueiros ficam em uma parte da muralha enquanto a invasão está acontecendo do outro lado") and where it hits (hit: the
+// middle of the pieces its ram, towers and trebuchets go for and of the breaches on that side); before, where it comes from
 export function siegeThreat(game, F) {
-  const P = F.sg?.plan;
-  const ax = P ? P.A.x : F.sg ? F.sg.at[0] - game.towns.realm.settlements[F.sg.sid].x : 0, ay = P ? P.A.y : F.sg ? F.sg.at[1] - game.towns.realm.settlements[F.sg.sid].y : 1;
+  const G = F.sg, P = G?.plan;
+  if (P) {
+    const [nx, ny] = P.side, sector = ((Math.round(Math.atan2(ny, nx) / (Math.PI / 4)) % 8) + 8) % 8;
+    let sx = 0, sy = 0, c = 0;
+    for (const j of G.jobs) {
+      if (!j.target || j.failed || j.role === 'ws') continue;
+      const p = P.per.pieces.get(+String(j.target).split('.')[1]);
+      if (p) { sx += p.cx; sy += p.cy; c++; }
+    }
+    for (const o of game.townDefense?.openings(G.sid) || []) if (o.fx * nx + o.fy * ny > 0.5) { sx += o.x; sy += o.y; c++; }
+    const hit = c ? { x: r2(sx / c), y: r2(sy / c) } : { x: r2(P.C.x + nx * P.wallD), y: r2(P.C.y + ny * P.wallD) };
+    return { fx: nx, fy: ny, sector, n: F.n, army: F.id, hit };
+  }
+  const ax = G ? G.at[0] - game.towns.realm.settlements[G.sid].x : 0, ay = G ? G.at[1] - game.towns.realm.settlements[G.sid].y : 1;
   const a = Math.atan2(ay, ax), sector = ((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8, sa = sector * (Math.PI / 4);
   return { fx: Math.cos(sa), fy: Math.sin(sa), sector, n: F.n, army: F.id };
 }

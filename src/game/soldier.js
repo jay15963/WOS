@@ -342,6 +342,7 @@ export function isFoe(game, m, e) {
   if (e.soldier) return e.soldier.k !== m.soldier.k && atWar(game, e.soldier.k, m.soldier.k);
   if (e.faction === 'walker' && e.isMob) return true; // (the night's dead: every soldier's foe — a skirmish's monster defense, the raids)
   if (e.npc) return !!e.npc.guard && atWar(game, m.soldier.k, ownerOf(game, e.npc.sid));
+  if (m.holds != null && e.isMob && !e.proxy && !e.tame && !e.owned && e.faction !== 'friend' && (e.faction === 'bandit' || e.temper === 'hostile')) return true; // (a garrison holding a place: the creatures that come at it — skirmish.js)
   if (m.pfoe && m.pfoe.e === e && m.pfoe.until > game.worldTime) return true;
   if (isPlayerEnt(game, e) && game.army?.soldierFoe?.(m.soldier.k, e)) return true; // (an enlisted player of a kingdom at war with it — game/army.js, docs/REINOS.md §15)
   return false;
@@ -515,7 +516,12 @@ function follow(game, F, m, O, dt) {
       m.moving = false;
       return;
     }
-    case 'wall': { // (up on a wall walk: along it toward the spot, else stand)
+    case 'wall': { // (up on a wall walk: along it toward the spot — a way along the walk when it is far: O.path —, else stand)
+      if (O.path && O.pi < O.path.length) {
+        const [px, py] = O.path[O.pi], s = stepTo(game, m, px, py, WAR.speed.run, dt, 0.35);
+        if (s === 'here' || s === 'stuck') O.pi++;
+        return;
+      }
       if (O.x != null) { const s = stepTo(game, m, O.x, O.y, WAR.speed.walk, dt, 0.3); if (s === 'here' && O.then) m.order = O.then; return; }
       m.moving = false;
       return;

@@ -38,7 +38,7 @@ import { realmNpcLevel } from './towns.js';
 import { registerWork } from './gathering.js';
 import { TownNav, nearPass } from './townnav.js';
 import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, insideAt, hostile } from './npc.js';
-import { perimeterOf, openings, threatOf, assignDefense } from './defense.js';
+import { perimeterOf, openings, frontsOf, frontsSig, assignDefense } from './defense.js';
 import { deadMap } from './mut/people.js';
 import { STORY_H } from './levels.js';
 import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (its guards wear its colours)
@@ -328,7 +328,7 @@ export function installPeople(game) {
       return {
         danger: !!rec?.danger,
         live: rec ? [...rec.ents.values()].map((m) => { const d = S?.def?.posts.get(m.npc.i); return { nid: m.nid, i: m.npc.i, job: m.npc.job, guard: m.npc.guard, plan: m.planKey, task: m.task?.k || null, state: m.state, threat: m.threat?.nid || null, x: m.x, y: m.y, z: m.z || 0, pose: m.pose?.type || null, act: m.action?.type || null, hp: m.hp, repair: m.repair?.id || null, duty: d ? { k: d.k, x: d.x, y: d.y, lv: d.lv || 0, op: d.op || null } : null, hunt: m.hunt?.nid || null }; }) : [],
-        def: S?.def ? { danger: S.def.danger, th: S.def.th, ops: S.def.ops.map((o) => o.id), posts: [...S.def.posts].map(([i, d]) => ({ i, k: d.k, x: d.x, y: d.y, lv: d.lv || 0, op: d.op || null })) } : null,
+        def: S?.def ? { danger: S.def.danger, th: S.def.th, fronts: S.def.fronts || [], ops: S.def.ops.map((o) => o.id), posts: [...S.def.posts].map(([i, d]) => ({ i, k: d.k, x: d.x, y: d.y, lv: d.lv || 0, op: d.op || null, front: d.front ?? null, melee: !!d.melee })) } : null,
         homes: S ? S.homes.map((h) => ({ b: h.b, beds: h.beds.slice(), out: h.out, box: h.box, sealed: rec ? sealed(game, rec, h) : null, people: S.persons.filter((P) => S.homes[P.home] === h).map((P) => P.i) })) : [],
       };
     },
@@ -341,6 +341,7 @@ export function installPeople(game) {
     perimeter: (sid) => { const S = peopleOf(game, sid); return S ? perimeterOf(S) : null; },
     openings: (sid) => { const S = peopleOf(game, sid); return S ? openings(game, S) : []; },
     threat: (sid) => Pp.live.get(sid)?.threat || null,
+    fronts: (sid) => Pp.live.get(sid)?.fronts || [], // (defense.js frontsOf: [main, the others] — tests / debug)
     posts: (sid) => peopleOf(game, sid)?.def?.posts || null,
     assign: (sid, th = null, danger = true) => { const S = peopleOf(game, sid); return S ? assignDefense(game, S, Pp.live.get(sid) || null, openings(game, S), th, danger) : null; },
   };
@@ -597,14 +598,19 @@ function dangerOf(game, rec) {
 // side, a guard dead / back
 function defenseTick(game, rec) {
   const S = rec.S, ops = openings(game, S), D = deadMap(game);
-  rec.threat = rec.danger ? game.warfare?.threatOn?.(S.sid) || threatOf(game, S, rec.foes || [], rec.threat) || game.realms?.siegeThreat?.(S.sid, rec.threat) || null : null; // (an army besieging it: its side — the live siege, game/warfare.js; else the besiegers' camp by numbers, game/realms.js)
+  // the fronts (defense.js frontsOf): the foes outside by side, an army besieging it weighing its whole number at the side
+  // it attacks (the live siege: game/warfare.js; else the besiegers' camp by numbers: game/realms.js); the main one is the
+  // threat, a smaller one gets a share of the watch proportional to its size
+  const anchor = rec.danger ? game.warfare?.threatOn?.(S.sid) || game.realms?.siegeThreat?.(S.sid, null) || null : null;
+  rec.fronts = rec.danger ? frontsOf(game, S, rec.foes || [], anchor, rec.fronts) : [];
+  rec.threat = rec.fronts[0] || null;
   let dk = 0;
   for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
   const tw = rec.danger ? game.warfare?.towersOn?.(S.sid) || [] : []; // (a siege tower standing: a few melee guards up on the walk where it comes — defense.js)
-  const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}|${tw.map((q) => q.id).join(',')}`;
+  const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${frontsSig(rec.fronts)}|${dk}|${tw.map((q) => q.id).join(',')}`;
   if (sig !== rec.defSig) {
     rec.defSig = sig;
-    S.def = rec.danger || ops.length ? assignDefense(game, S, rec, ops, rec.threat, rec.danger) : null;
+    S.def = rec.danger || ops.length ? assignDefense(game, S, rec, ops, rec.threat, rec.danger, rec.fronts) : null;
     game.people.stats.defs = (game.people.stats.defs || 0) + 1;
     for (const m of rec.ents.values()) if (m.npc.guard) m.planT = 0; // (to their new posts now)
   }

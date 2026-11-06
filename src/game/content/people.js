@@ -27,6 +27,7 @@ export const PEOPLE = {
   // each foe already inside the walls, the most ballista crews (share of the melee guards)
   // front: the alignment with the attack's side above which a gate / a stretch / a wall-walk spot is "the side under attack"
   spearMin: 4.5, // tiles: a spear guard throws its spear (npcLob.js, up to 8) only at a foe at least this far (game/npc.js)
+  catReloadK: 1.2, // × the catapult's reload between two stones of a town's catapult crew (game/npc.js catapultTask)
   def: { front: 0.45, holdR: { gate: 7, stretch: 8, gap: 5, reserve: 0 }, gap: 2, gapWide: 3, gapCalm: 1, reserve: { city: 0.15, castle: 0.12 }, hunters: 2, crews: 0.34,
          towerK: 0.2, towerMin: 2, towerMax: 4 }, // (towerK: the share of the melee guards up on the walk where a siege tower comes, between towerMin and towerMax — defense.js)
 };

@@ -206,6 +206,14 @@ K1, EC1) passam sozinhas. SK1–SK7 e CB1–CB3 passam na rodada inteira; SK6: 1
   (`skirmish.js garrisonPosts` com `siegeAI.js siegeTowers`; `defense.js towerSpots`; `npc.js wallFight`). Os arqueiros
   da guarda de castelo / cidade ficam em cima da muralha de pedra (andar 2), não mais dentro dela. Teste CB6 (cerco ao
   castelo).
+- **A defesa segue o lado atacado** (REINOS §11 "As frentes"): a frente principal é o lado que o cerco ataca (o lado do
+  plano, não de onde o exército chegou), e todos os arqueiros da guarnição e da guarda vão para o adarve daquele lado,
+  em volta de onde as máquinas batem; os que já estão no alto andam pelo adarve até lá. Uma segunda invasão em outro lado
+  (lobos, mortos, jogadores atacantes) recebe só a sua parte proporcional dos arqueiros e do corpo a corpo; a guarnição
+  agora também combate as criaturas hostis no lugar. Teste CB7.
+- **Duas torres de cerco** por cerco, e os **castelos e cidades têm catapultas** nas torres da muralha: a equipe atira
+  nas máquinas do cerco (a torre primeiro, mirando onde ela vai estar) — ~13 pedras derrubam uma torre. A catapulta /
+  balista de um jogador defensor também danifica as máquinas do exército. Testes CB7 e CB8.
 
 ## Prints
 

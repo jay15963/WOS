@@ -905,7 +905,8 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   até a abertura"): **toda** a guarda (os dois turnos) vai para o **perímetro**, não para a praça:
   - **arqueiros no alto da muralha / paliçada** (`hooks.archers`), os do lado de onde vem o ataque primeiro, atirando
     para fora; quem está no chão corre até o pé do muro e sobe em ~1 s mesmo à vista (sem caminho até o pé: sobe em 8 s);
-  - **corpo a corpo**: um em cada portão (por dentro; dois nos portões do lado do ataque), o resto no **trecho da muralha**
+  - **corpo a corpo**: nos portões (por dentro; dois nos do lado do ataque, um num portão virado para outra frente, um em
+    cada um quando não se sabe o lado), o resto no **trecho da muralha**
     de onde vem o ataque (os pontos da ronda logo por dentro do muro, só a metade da frente); o guarda de um trecho de
     muro inteiro só luta com o que está **dentro** (não sai dando a volta pelo portão); o do portão enfrenta o que chega a
     7 tiles dele (sai pelo portão), o do trecho a 8;
@@ -943,10 +944,31 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   - **A guarda no lado atacado** (apontamento do dono, 5/11/2026: "os soldados não estão focados apenas em uma parte da
     muralha que é de onde estão vindo o inimigo"): com o ataque vindo de um lado, **todos os arqueiros** vão para o adarve
     **daquele lado**, espalhados ~2,5 tiles em volta de onde o ataque bate (`defense.js frontSpots` sobre `wallWalk`); os
-    portões virados para ele ganham dois guardas e os dos fundos só ficam com um se a guarda for grande (2 por portão + 3);
-    o trecho de corpo a corpo é o arco de ~120° do lado do ataque (`PEOPLE.def.front` 0,45), mais largo só quando ali há
-    poucos pontos; a reserva (cidade / castelo) fica no torreão. Quando o lado muda (8 setores), os postos mudam. Vale para
-    os ataques do inverno, os monstros perto dos lugares e os cercos (a 3b usa o mesmo `townDefense.assign`).
+    portões virados para ele ganham dois guardas e os outros nenhum (estão fechados); o trecho de corpo a corpo é o arco de
+    ~120° do lado do ataque (`PEOPLE.def.front` 0,45), mais largo só quando ali há poucos pontos; a reserva (cidade /
+    castelo) fica no torreão. Quando o lado muda (8 setores), os postos mudam — e quem já está no alto **anda pelo adarve**
+    até o novo posto (`walkPath`), em vez de descer e subir de novo. Vale para os ataques do inverno, os monstros perto
+    dos lugares e os cercos.
+  - **As frentes: dividir só proporcionalmente** (apontamento do dono, 6/11/2026: "os arqueiros ficam em uma parte da
+    muralha enquanto a invasão está acontecendo do outro lado … o único momento em que os soldados e arqueiros se dividem é
+    caso uma segunda invasão aconteça em algum outro lado da muralha, mas a divisão tem que ser proporcional ao tamanho da
+    invasão daquele lado, por exemplo … alguns lobos decidem aparecer de um lado, não é para dividir ao meio o exército
+    defensor"): a defesa vê **frentes** (`defense.js frontsOf`) — os inimigos fora da muralha pelos 8 setores em volta do
+    lugar (um gigante / pesado pesa 3, os outros 1), setores vizinhos numa frente só (no máximo 3 setores; uma fileira
+    mais longa é cortada no setor mais fraco); um **exército de cerco** pesa o número inteiro dele no **lado que ataca**
+    (os soldados dele não contam onde estão). A maior é a **frente principal** (`th`, a "ameaça" de antes, com a mesma
+    folga para trocar de lado); cada outra frente recebe **a sua parte, proporcional ao peso** (`shareOut`:
+    `round(n × peso / total)`) dos arqueiros (os mais perto dela, no adarve daquele lado), do trecho de corpo a corpo e um
+    guarda no portão virado para ela; a principal fica com o resto. Uma frente pequena demais para uma parte (menos de
+    1/40 do total) não leva ninguém. Ex.: um cerco de 80 e 4 lobos atrás do castelo → de 24 arqueiros, 1 vai para trás; os
+    lobos mortos, ele volta. A assinatura da defesa inclui as frentes e a parte de cada uma (de 20). Vale para a guarda do
+    lugar (`people.js defenseTick`, `game.townDefense.fronts(sid)`) e para a guarnição da escaramuça (`skirmish.js
+    garrisonPosts`, que agora também enxerga e combate as criaturas hostis no lugar — `soldier.js isFoe`, `m.holds`).
+  - **O lado do cerco é o que ele ataca** (o mesmo apontamento): a ameaça do cerco era a direção **de onde o exército
+    chegou**; o plano dele escolhe um dos 4 lados da muralha (o que tem portão para o aríete, lugar para as torres, para
+    os trabucos), que pode ser o lado vizinho — e a defesa ficava no lado errado. Agora `siegeAI.js siegeThreat` é o
+    **lado do plano**, com o ponto onde ele bate (`hit`: o meio das peças que o aríete, as torres e os trabucos atacam e
+    das brechas daquele lado), e os arqueiros se espalham em volta desse ponto. Teste **CB7**.
   - **A torre de cerco** (apontamento do dono, 6/11/2026: "os soldados corpo a corpo devem ficar um pouco na muralha também
     caso tenha torre de cerco para fazer uma defesa contra os soldados que vão desembarcar na muralha"): enquanto uma
     torre do exército de cerco estiver de pé (pronta, não queimada — `siegeAI.js siegeTowers`, `game.warfare.towersOn`:
@@ -958,6 +980,28 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     sobe a escada dela) e, passada a luta, voltam ao posto. Torre derrubada ou fim do cerco: os postos voltam ao normal (a
     assinatura da defesa inclui as torres). A guarnição da escaramuça faz o mesmo com os soldados (3 a 5 por torre, nunca o
     general — `skirmish.js garrisonPosts`). Teste **CB6**.
+  - **Duas torres de cerco** (apontamento do dono, 6/11/2026: "no cerco devem ter 2 torres de cerco"): o plano do cerco
+    (`siegeAI.js plan`, `want.tower` 2) põe até duas torres no lado que ataca, a ~8 tiles do portão do aríete (uma de cada
+    lado quando cabem) e a ≥ 6 tiles uma da outra; cada uma com a equipe que empurra, os que sobem (10 cada) e os
+    defensores que esperam no adarve. A 3a (por números) quer 2 torres para castelos e cidades.
+  - **As torres de cerco levam dano de catapultas** (o mesmo apontamento: "elas podem receber dano de catapultas (não sei
+    se ela já recebem, pois não vi uma torre ser destruída ainda)"): antes só as balistas da guarda (240 por virote) as
+    feriam — nenhuma catapulta dos defensores existia, e a pedra / o virote de um jogador nunca feria máquina de exército.
+    Agora:
+    - **castelos e cidades têm catapultas** em 4 torres da muralha (uma virada para cada lado, onde não há balista —
+      `world/realm/layout.js catapultsOn`, andar 2), guarnecidas como as balistas (`hooks.artillery`, as do lado do ataque
+      primeiro). A equipe (`npc.js catapultTask`) atira nas máquinas do cerco ao alcance (5–26 tiles): **a torre primeiro**,
+      depois o aríete, os trabucos; a pedra vai onde a torre empurrada **vai estar** quando cair (a velocidade medida entre
+      duas olhadas × o voo; a torre mais danificada primeiro); sem máquina ao alcance, num grupo de 3+ soldados inimigos —
+      nunca nos monstros (uma pedra é o dano da balista: dois matariam um gigante — as ondas do inverno seguem como eram). O tiro é o de um jogador
+      (`mut/siege.js fireShot`: recarga, dispersão, ops `siege.set` / `siege.shot`) por `~<nid>` — o golpe é do guarda;
+      160 por pedra (a torre tem 2000: ~13 pedras), nunca nas peças do próprio lugar nem nos seus;
+    - o impacto sabe **de quem é o tiro** (`siege.js siegeImpact`): a máquina de um lugar é do reino dono dele; a de um
+      exército, do reino dele; a de um jogador (sem reino) segue **a regra dos soldados** (`warfare.js
+      playerMayHurtStruct`, `mayHurtStruct`): o outro lado da escaramuça, um reino em guerra com o dele, ou um viajante
+      contra um exército que está atacando um lugar — então a catapulta / o trabuco / a balista de um jogador também
+      quebram as máquinas e o acampamento de um exército que cerca um lugar, e as pedras dele ferem os soldados dele;
+    - a torre quebrada some (`struct.remove`), quem está nela cai, e a defesa larga os postos do adarve dela. Teste **CB8**.
   - **Os mortos da noite dividem a atenção** (o mesmo apontamento: "os inimigos estão focando mais no jogador do que nos
     soldados … focar no jogador apenas se for atacado, se estiver mais perto que outro soldado, ou se decidirem atacar o
     jogador mesmo assim"): andarilhos, esqueletos, múmias e gigantes escolhem entre **todos** os corpos que veem / sentem
@@ -971,8 +1015,9 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     compara uma assinatura; quem caça quem dentro dos muros é refeito no mesmo meio segundo (poucos inimigos × poucos
     guardas). Nada por quadro.
   - **Fase 3** usa o mesmo: `game.townDefense.perimeter(sid)` (a linha: peças, `inside(x, y)`), `.openings(sid)`,
-    `.threat(sid)` (o lado do ataque: `{ fx, fy, sector }`), `.posts(sid)` (os postos agora, anfitrião), `.assign(sid,
-    threat, danger)` (os postos para uma ameaça dada — um exército chegando por um lado).
+    `.threat(sid)` (o lado do ataque: `{ fx, fy, sector }`), `.fronts(sid)` (as frentes: `[principal, outras]`, `{ fx,
+    fy, sector, w, q, hit }`), `.posts(sid)` (os postos agora, anfitrião), `.assign(sid, threat, danger)` (os postos para
+    uma ameaça dada — um exército chegando por um lado).
 - **Nível** (§7b): `realmNpcLevel` = o maior entre o nível pela distância e o **progresso do mundo** — agora um recorde
   guardado (`game.towns.prog`, op `town.prog`, linha `wprog` no save / snapshot, nunca desce), até o nível dos lugares
   mais distantes. Civis: 2 níveis abaixo.
