@@ -339,7 +339,7 @@ function buildingOf(game, sid, k) {
 
 // ---------- the dead by numbers ----------
 function pickGuards(game, s, place, gDead, rnd) {
-  const g = place.g, D = deadMap(game), at = Math.round(game.worldTime), out = [];
+  const g = place.g0, D = deadMap(game), at = Math.round(game.worldTime), out = [];
   const pool = (lo, hi) => { const L = []; for (let i = lo; i < hi; i++) if (!D.has(`${s.id}.${i}`)) L.push(i); return L; };
   for (const [lo, hi, n] of [[g.archers, g.n, gDead.melee], [0, g.archers, gDead.archers]]) {
     const L = pool(lo, hi);

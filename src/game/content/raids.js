@@ -26,7 +26,7 @@ export const RAID = {
   // harder — the same count (never more monsters than guards), each one stronger (hp and damage × k); a giant comes
   // more often. Calibrated with game/raidsim.js (tools/raid-calib.mjs; on the real realm game.raids.dbg.calibrate and
   // WA3): ~5 % of the attacks are lost — a horde breaks the defense ~3 times in 4, a normal wave about once in 200
-  horde: { p: 0.06, k: { village: 1.35, castle: 1.65, city: 1.6 }, size: [0.82, 0.9] },
+  horde: { p: 0.072, k: { village: 1.35, castle: 1.65, city: 1.6 }, size: [0.82, 0.9] },
   // ---------- the fight (game/raidsim.js) ----------
   // the defense collapses (the attack is LOST) when this share of the melee guards is left (at most 1 in a village) and
   // at least `lostMin` monsters still stand

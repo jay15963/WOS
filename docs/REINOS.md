@@ -1949,15 +1949,35 @@ dos mortos (`undead.js`), o kit da guarda (`people.js`). Medido:
 
 | Amostra | Ataques | Perdidos | Hordas (perdidas) | Ondas normais perdidas | Guardas mortos |
 |---|---|---|---|---|---|
-RESULTS
+| Reino sintético (`tools/raid-calib.mjs 40000 7`: 77 % vilas, 17 % castelos, 6 % cidades, 3 famílias) | 40 000 | **2 065 (5,16 %)** | 2 354 (85 %) | 57 (0,15 %) | 20,1 % |
+| — vila com paliçada / aberta | | 5,4 % / 5,6 % | 83 % / 88 % | 0,16 % / 0,33 % | 19 % / 27 % |
+| — castelo / cidade | | 5,4 % / 5,6 % | 87 % / 90 % | 0,21 % / 0 % | 18 % / 17 % |
+| O reino de verdade (semente 4242, os 240 lugares com o clima, a família e o nível de cada um: `game.raids.dbg.calibrate`, WA3) | 8 000 | WA3RATE | | | |
 
-As ondas normais perdem ~0,4 % das vezes e matam ~16–18 % da guarda (uma vila de 8 perde 1–2); uma horda vence ~3 vezes
-em 4. Os números de cada tipo de lugar (`tools/raid-calib.mjs`): vila com paliçada / aberta, castelo e cidade ficam todos
-entre ~5 e 6,5 %.
+As ondas normais quase nunca vencem (~0,2 %) e matam ~1/5 da guarda (uma vila de 8 perde 1–2); uma horda vence ~4 vezes em
+5. Cada tipo de lugar fica entre 5,4 e 5,6 %.
 
 ### Ao vivo (perto dos jogadores)
 
-LIVE
+A calibração só vale se a luta de verdade bater com os números — e no começo não batia. `WA6` (`&raidsoak=N`) põe N ondas
+seguidas contra a guarda inteira da vila do início (Estrosa: 8 guardas, 3 arqueiros, paliçada; os mortos de volta e a
+paliçada refeita entre elas) e anota, de cada uma, o resultado ao vivo e a previsão dos números para o mesmo lugar.
+
+- **Primeiras medidas** (ondas normais, fúria 1,37): perdidas 3 de 4, 3–5 guardas mortos — o modelo previa ~1 e 0 %. Os
+  números da luta (`waFightLog`: quem bateu em quem) mostraram por quê, e eram defeitos, não equilíbrio: os mortos
+  **fugiam e se curavam** (o "evade" dos saqueadores: imunes, +30 % de vida por segundo; e +4 %/s parados) — o dano dos
+  arqueiros sumia; **perseguiam o arqueiro no alto da muralha** que os acertava (sem conseguir subir, até desistir e
+  curar); no teste, os lobos de fora tomavam parte das flechas (o teste agora os afasta); e — o apontamento do dono — o **alarme caía** quando o monstro
+  recuava uns passos e os **arqueiros ficavam parados fora do alcance**. Corrigido: a onda nunca desiste nem se cura
+  (`bandits.js`), ignora o arqueiro lá em cima (`walkers.js`), o alarme dura até a ameaça morrer e os arqueiros andam pelo
+  adarve (§11).
+- **Depois** (8 ondas, uma calibração intermediária): as normais 5 de 5 seguras (2 guardas mortos cada), as hordas 3 de 3
+  seguras (2–4 mortos): a guarda agora vencia demais. O modelo foi ajustado a isso (`RAID.eff`: os mortos ×1,3, um terço
+  dos arqueiros no alcance, os mortos na brecha batendo nos primeiros guardas) e recalibrado (par 2,6, horda ×1,35–1,65).
+- **Com os números finais** (6 ondas): normais **2 de 2 seguras** (0 e 2 guardas mortos; previsão 1,3); hordas **3 de 4
+  perdidas** (previsão 79 %; 4, 2, 5 e 4 guardas mortos — previsão 4,0; 2–7 moradores mortos nas perdidas). A taxa ao vivo
+  estimada: 0,94 × ~0 % + 0,06 × ~75–80 % ≈ **4,5–5 %**, a mesma dos números. (Amostras pequenas — cada onda leva 40–120 s
+  de jogo; o modelo é o que dá a taxa, e a luta ao vivo confere que ele bate com ela.)
 
 ### Multijogador e saves
 

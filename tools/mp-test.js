@@ -10887,10 +10887,13 @@ def('WA2', {
   const civ0 = S.persons.filter((q) => !q.guard && !D0.has(`${s0.id}.${q.i}`)).length, all0 = S.persons.filter((q) => !D0.has(`${s0.id}.${q.i}`)).length;
   const dead0 = new Set([...D0.keys()]);
   const side = sectorOf(sale.box[0] - s0.x, sale.box[1] - s0.y);
+  // (the purchase / the day's bill left notices up on the guest: closed, so the attack's own come in at once)
+  for (const b of G.doc.querySelectorAll('.wos-note .nx')) b.click();
+  await t.tryWait(() => !G.doc.querySelector('.wos-note'), 8000);
   const r = H.game.raids.dbg.force(s0.id, { side, lose: true, horde: true, homes: [sale.bi, rent.bi, home.b] });
   t.check(r?.live && r.horde, 'a horde comes (forced: the defense will break)', JSON.stringify(r));
-  await t.waitFor(() => G.game.raids.on.get(s0.id)?.fell, 8000 + RT(), 'the defense breaks (raid.fall on both)');
-  await t.waitFor(() => [...notes].some((x) => /A defesa de .* caiu/.test(x)), 5000, 'the guest: "A defesa de … caiu!"', () => [...notes].join(' | '));
+  await t.waitFor(() => G.game.raids.on.get(s0.id)?.fell && H.game.raids.on.get(s0.id)?.fell, 8000 + RT(), 'the defense breaks (raid.fall on both)', () => JSON.stringify({ host: H.game.raids.on.get(s0.id), guest: G.game.raids.on.get(s0.id), live: H.game.raids.dbg.live(s0.id) && { ...H.game.raids.dbg.live(s0.id), ents: undefined }, log: H.game.raids.log.slice(-2) }));
+  await t.waitFor(() => [...notes].some((x) => /A defesa de .* caiu/.test(x)), 12000, 'the guest: "A defesa de … caiu!"', () => [...notes].join(' | '));
   await waveDown(t, H, MH, s0.id, 40000);
   await t.waitFor(() => raidLog(G, s0.id)?.[2] === 2 && !G.game.raids.on.has(s0.id), RT() + 2000, 'raid.end LOST on both');
   const lh = raidLog(H, s0.id);
