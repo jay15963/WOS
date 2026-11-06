@@ -10817,6 +10817,18 @@ def('AR10', {
 // the plants of a field on a frame (its tiles: game/fields.js inField)
 const jbPlants = (f, M, fld) => f.game.world.query((fld.x0 + fld.x1) / 2, (fld.y0 + fld.y1) / 2, Math.hypot(fld.x1 - fld.x0, fld.y1 - fld.y0) / 2 + 1, (o) => o.type === fld.crop && !o.gone && M.fields.inField(fld, o));
 const jbGrows = (f, M, s, d) => !M.eco.placeSeason(f.game, s, d, 6).hard;
+// the economy caught up with the clock on both peers (a dawn asked by an earlier scenario may still be on its way)
+async function jbSettle(t, H, G) {
+  await t.waitFor(() => (H.game.env.hour < 6 || H.game.eco.day >= H.game.env.dayIndex) && G.game.eco.day === H.game.eco.day, 20000 + RT(), 'the economy\'s day caught up on both peers', () => `env ${H.game.env.dayIndex} ${f2(H.game.env.hour)}h · host ${H.game.eco.day} · guest ${G.game.eco.day}`);
+}
+// whole days (ecoDay with a longer wait: the test frames run on the harness pump)
+async function jbDay(t, H, G, days = 1) {
+  const want = H.game.env.dayIndex + days, E = H.game.env;
+  if (E.hour < 7 || E.hour > 16) E.hour = 9;
+  skipDays(H, days);
+  await t.waitFor(() => H.game.eco.day >= want && G.game.eco.day >= want, 20000 + RT(), `the economy's day ${want} on both peers`);
+  await t.sleep(RT() + 250);
+}
 // the public part of a job (the giver's name comes from the townsfolk where a peer has them)
 const jbRow = (j) => [j.id, j.t, j.n, j.crop || '', j.good || '', j.dest ?? '', j.x ?? '', j.y ?? '', j.r ?? '', j.pay, j.rep, j.exp, j.title, j.text].join('|');
 
@@ -10829,6 +10841,7 @@ def('JB1', {
   const { H, G, MH, MG } = await pairCtx(t);
   const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
   await ecoReady(t, H, G);
+  await jbSettle(t, H, G);
   const L = H.game.towns.layout(s0.id), F = MH.fields;
   const fld = L.fields.slice().sort((a, b) => F.fieldSize(b) - F.fieldSize(a))[0], good = MH.ecoc.CROP_GOOD[fld.crop], N = F.fieldSize(fld);
   const cx = (fld.x0 + fld.x1) / 2, cy = (fld.y0 + fld.y1) / 2;
@@ -10837,7 +10850,7 @@ def('JB1', {
   const b = A.freeSpot(H, MH, a[0] + 2, a[1], { rMin: 0, rMax: 5 }) || [a[0] + 2, a[1]];
   A.teleport(H, b[0], b[1]);
   // (a dawn first if an earlier scenario left the field harvested)
-  if (jbPlants(H, MH, fld).length < N && jbGrows(H, MH, s0, H.game.env.dayIndex + 1)) await ecoDay(t, H, G, 1);
+  if (jbPlants(H, MH, fld).length < N && jbGrows(H, MH, s0, H.game.env.dayIndex + 1)) await jbDay(t, H, G, 1);
   await t.waitFor(() => jbPlants(H, MH, fld).length === N && jbPlants(G, MG, fld).length === N, 10000 + RT(), `${s0.name}: the ${good} field full on both peers (${N} plants, the plan's count)`, () => `${jbPlants(H, MH, fld).length} / ${jbPlants(G, MG, fld).length}`);
   const list = jbPlants(H, MH, fld), ids = list.map((o) => o.id).sort((x, y) => x - y), look = new Map(list.map((o) => [o.id, [o.x, o.y, o.v | 0, o.f]]));
   t.check(ids.every((id) => MH.fields.fieldOf(H.game, A.objOn(H, id))?.sid === s0.id), 'every plant is a field plant of the place (its worldgen id names the field)');
@@ -10855,13 +10868,13 @@ def('JB1', {
   // a hard winter on the way: the field stays bare, no harvest job there
   let hard = 0;
   for (let k = 0; k < 12 && !jbGrows(H, MH, s0, H.game.env.dayIndex + 1); k++) {
-    await ecoDay(t, H, G, 1);
+    await jbDay(t, H, G, 1);
     hard++;
     t.check(ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), `day ${H.game.eco.day} (hard winter): the field stays bare`);
     t.check(!MH.eco.boardOf(H.game, s0.id).some((j) => j.t === 'harvest'), `day ${H.game.eco.day} (hard winter): no harvest job on the board`);
   }
   // the dawn
-  await ecoDay(t, H, G, 1);
+  await jbDay(t, H, G, 1);
   await t.waitFor(() => ids.every((id) => { const h = A.objOn(H, id), g = A.objOn(G, id); return h && g && !h.gone && !g.gone; }), 5000 + RT(), `dawn of day ${H.game.eco.day}: every plant back on both peers`,
     () => `host ${ids.filter((id) => A.objOn(H, id)).length} · guest ${ids.filter((id) => A.objOn(G, id)).length} of ${N}`);
   t.check(ids.every((id) => { const o = A.objOn(G, id), p = look.get(id); return o && o.x === p[0] && o.y === p[1] && (o.v | 0) === p[2] && o.f === p[3]; }), 'the same objects: same id, spot and look (guest)');
@@ -10873,15 +10886,15 @@ def('JB1', {
     let D = H.game.env.dayIndex + 1;
     while (D < H.game.env.dayIndex + 30 && jbGrows(H, MH, s0, D)) D++;
     if (!jbGrows(H, MH, s0, D) && !jbGrows(H, MH, s0, D + 1)) {
-      await ecoDay(t, H, G, D - H.game.env.dayIndex);
+      await jbDay(t, H, G, D - H.game.env.dayIndex);
       H.game.net.emit('obj.remove', { ids, fx: 'forage' }); H.game.net.flush();
       await t.waitFor(() => ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), 5000 + RT(), `day ${D} (hard winter): the field harvested again`);
-      await ecoDay(t, H, G, 1);
+      await jbDay(t, H, G, 1);
       hard++;
       t.check(ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), `dawn of day ${H.game.eco.day} (hard winter): the field stays bare on both peers`);
       t.check(!MH.eco.boardOf(H.game, s0.id).some((j) => j.t === 'harvest') && !MG.eco.boardOf(G.game, s0.id).some((j) => j.t === 'harvest'), `day ${H.game.eco.day} (hard winter): no harvest job on the board (both peers)`);
-      for (let k = 0; k < 12 && !jbGrows(H, MH, s0, H.game.env.dayIndex + 1); k++) await ecoDay(t, H, G, 1);
-      await ecoDay(t, H, G, 1);
+      for (let k = 0; k < 12 && !jbGrows(H, MH, s0, H.game.env.dayIndex + 1); k++) await jbDay(t, H, G, 1);
+      await jbDay(t, H, G, 1);
       await t.waitFor(() => ids.every((id) => A.objOn(H, id) && A.objOn(G, id)), 5000 + RT(), `the first dawn where crops grow again (day ${H.game.eco.day}): back on both peers`);
       await t.checkDigest(H, G);
     } else t.note('no hard winter at this place within 30 days');
@@ -10898,7 +10911,7 @@ def('JB1', {
   const want = S.game.env.dayIndex + 1, E = S.game.env;
   if (E.hour < 7 || E.hour > 16) E.hour = 9;
   skipDays(S, 1);
-  await t.waitFor(() => S.game.eco.day >= want && ids.every((id) => A.objOn(S, id)), 12000, 'loaded: back at its next dawn', () => `eco day ${S.game.eco.day}/${want} · ${ids.filter((id) => A.objOn(S, id)).length}/${N}`);
+  await t.waitFor(() => S.game.eco.day >= want && ids.every((id) => A.objOn(S, id)), 25000, 'loaded: back at its next dawn', () => `eco day ${S.game.eco.day}/${want} · ${ids.filter((id) => A.objOn(S, id)).length}/${N}`);
   frames.close(S);
   t.check(hard > 0, 'a hard winter was seen with the field bare', `${hard} day(s)`);
 });
@@ -10912,10 +10925,11 @@ def('JB2', {
   const { H, G, MH, MG } = await pairCtx(t);
   const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
   const uid = await ecoReady(t, H, G);
+  await jbSettle(t, H, G);
   for (const j of recOn(H, uid)?.jobs || []) await ecoReq(G, 'job.drop', { id: j.id });
   const findJob = () => { for (const q of nearVillages(H, R, s0, 8)) { const j = MH.eco.boardOf(H.game, q.id).find((x) => x.t === 'harvest' && !recOn(H, uid)?.done.includes(x.id)); if (j) return [j, q]; } return [null, null]; };
   let [job, vil] = findJob();
-  for (let k = 0; k < 10 && !job; k++) { await ecoDay(t, H, G, 1); [job, vil] = findJob(); }
+  for (let k = 0; k < 10 && !job; k++) { await jbDay(t, H, G, 1); [job, vil] = findJob(); }
   t.need(job, 'a harvest job on a village board near the start');
   t.log(`job ${job.id} at ${vil.name}: ${job.title}`);
   await toMural(t, H, MH, G, MG, vil.id);
@@ -10943,8 +10957,8 @@ def('JB2', {
   t.check(!recOn(H, uid)?.jobs.some((j) => j.id === job.id) && !recOn(G, uid)?.jobs.some((j) => j.id === job.id), 'not taken on either peer');
   G.game.events.emit('closepanels', {});
   // the dawn (one where crops grow)
-  for (let k = 0; k < 12 && !jbGrows(H, MH, vil, H.game.env.dayIndex + 1); k++) await ecoDay(t, H, G, 1);
-  await ecoDay(t, H, G, 1);
+  for (let k = 0; k < 12 && !jbGrows(H, MH, vil, H.game.env.dayIndex + 1); k++) await jbDay(t, H, G, 1);
+  await jbDay(t, H, G, 1);
   await t.waitFor(() => ids.every((id) => A.objOn(H, id) && A.objOn(G, id)), 6000 + RT(), `dawn: the ${total} plants back on both peers`);
   t.check(!MH.eco.jobReason(H.game, job, true) && !MG.eco.jobReason(G.game, job, true), 'the same job would be possible again (both peers)');
   // a job of the new board: a plant beside the field does not count, one on it does
@@ -10983,6 +10997,7 @@ def('JB3', {
   const { H, G, MH, MG } = await pairCtx(t);
   const R = realmOf(H), sp = H.game.world.spawn;
   const uid = await ecoReady(t, H, G);
+  await jbSettle(t, H, G);
   for (const j of recOn(H, uid)?.jobs || []) await ecoReq(G, 'job.drop', { id: j.id });
   const places = R.settlements.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 14);
   const day0 = H.game.eco.day, JS = MH.ecoc.JOB_SITE, bad = [], cnt = { harvest: 0, chop: 0, mine: 0, hunt: 0 };
@@ -11044,6 +11059,7 @@ def('JB4', {
   const { H, G, MH, MG } = await pairCtx(t);
   const R = realmOf(H), sp = H.game.world.spawn, JS = MH.ecoc.JOB_SITE, g = H.game;
   await ecoReady(t, H, G);
+  await jbSettle(t, H, G);
   const k0 = R.kingdoms[MH.realm.settlementAt(R, sp.x, sp.y).k].comp;
   const land = R.settlements.filter((s) => R.kingdoms[s.k].comp === k0);
   const near = land.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 40);
@@ -11083,7 +11099,8 @@ def('JB4', {
   const few = sparse.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y))[0];
   if (few) t.note(`fewest trees near the start: ${few.name} — ${count(few, 'tree', few.r + 2, few.ro + 90)} generated in the ring (survey ${MH.fields.survey(g, few).trees}): no wood job`);
   t.log(rows.join(' · '));
-  t.check(JSON.stringify(MH.meco.ecoDigestRows(H.game)) === JSON.stringify(MG.meco.ecoDigestRows(G.game)), 'the economy digest part equal on both peers');
+  H.game.net.flush();
+  await t.waitFor(() => JSON.stringify(MH.meco.ecoDigestRows(H.game)) === JSON.stringify(MG.meco.ecoDigestRows(G.game)), 8000 + RT(), 'the economy digest part equal on both peers (the boards made on both changed nothing shared)');
   await t.checkDigest(H, G);
 });
 
