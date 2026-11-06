@@ -8315,6 +8315,64 @@ def('VL10', {
   await t.checkDigest(H, G);
 });
 
+def('VL11', {
+  title: 'VL: the guest alone in a village far from the host sees its people (and keeps seeing them)',
+  src: 'village', timeout: 200000,
+  expected: 'The host stays at the start village; the guest goes alone to another village ≥ 250 tiles away, 10 h. The host makes that village\'s people creatures near the guest (≥ 8) and the guest sees them as proxies of that place (camp p<sid>.<i>, decorated: npc), steadily — sampled for 20 s, never dropping to zero after they appeared; digest equal',
+  api: 'people.js peopleSystem / manage (players = every player), net/entities.js (interest around the guest, decorate)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s0 = startTownOf(H, MH), L0 = H.game.towns.layout(s0.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s0.id, L0.spawn[0], L0.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const v = nearestTown(H, (q) => q.kind === 'village' && q.id !== s0.id && Math.hypot(H.game.world.dx(q.x, s0.x), q.y - s0.y) > 250);
+  t.need(v, 'another village ≥ 250 tiles away');
+  const Lv = H.game.towns.layout(v.id);
+  const a = A.freeSpot(G, MG, Lv.spawn[0], Lv.spawn[1], { rMin: 0, rMax: 4 }) || Lv.spawn;
+  A.teleport(G, a[0], a[1]);
+  const hostLive = () => H.game.people.live.get(v.id)?.ents.size || 0;
+  const guestSees = () => G.game.entities.filter((e) => e.npc && e.npc.sid === v.id && !e.dead).length;
+  await t.waitFor(() => hostLive() >= 8, 45000, `the host makes ${v.name}'s people near the guest`, () => `host live ${hostLive()} · guest sees ${guestSees()}`);
+  await t.waitFor(() => guestSees() >= 8, 20000 + RT(), 'the guest sees them', () => `host live ${hostLive()} · guest sees ${guestSees()}`);
+  let lo = 1e9, loH = 1e9;
+  for (let k = 0; k < 40; k++) { await t.sleep(500); lo = Math.min(lo, guestSees()); loH = Math.min(loH, hostLive()); }
+  t.check(lo >= 5, 'the guest keeps seeing them (sampled 20 s)', `lowest ${lo} (host lowest ${loH})`);
+  await t.checkDigest(H, G);
+});
+
+def('VL12', {
+  title: 'VL: a guest joins a host already in a village — the people stay out on the host (they do not vanish when someone joins), all at once, and the guest sees them',
+  src: 'village', timeout: 260000,
+  expected: 'A host alone on its start village plaza at 10 h with the people out (≥ 12 creatures, made all at once when the place came alive — owner: "todos deveriam aparecer de uma vez"); a guest joins later: for 30 s after the join the host keeps its people out (never below half of what it had) and the guest sees them as proxies (≥ 8, steadily); no alarm in the village; the host knows the guest screen size; digest equal',
+  api: 'session._onReady (snapshot, interest reset, _rebuildAll), people.js peopleSystem / manage / dangerOf, net/entities.js, session st.v',
+}, async (t) => {
+  const room = 'VL12' + Math.random().toString(36).slice(2, 7).toUpperCase();
+  const H = await bootHost(t, room, { extra: '&start=village', label: 'host-alone' });
+  const MH = await A.mods(H);
+  const sp = H.game.world.spawn, s = MH.realm.settlementAt(H.game.towns.realm, sp.x, sp.y);
+  t.need(s, 'the host starts in a village');
+  H.game.net.emit('env.skip', { hour: 10, day: H.game.env.dayIndex + (H.game.env.hour > 10 ? 1 : 0), wt: Math.round((H.game.worldTime + 5) * 100) / 100 }); H.game.net.flush();
+  const live = () => H.game.people.live.get(s.id)?.ents.size || 0;
+  await t.waitFor(() => live() >= 12, 40000, 'the host alone: its village people out', () => `${live()}`);
+  await t.sleep(3000);
+  const before = live();
+  let alarm = false;
+  const offA = H.game.events.on('townalarm', (d) => { if (d.sid === s.id && d.on) alarm = true; });
+  t.defer(() => offA?.());
+  const G = await bootGuest(t, room, H, { label: 'guest-late' });
+  t.log(`guest joined (host had ${before} people out)`);
+  const sees = () => G.game.entities.filter((e) => e.npc && e.npc.sid === s.id && !e.dead).length;
+  let loH = 1e9, loG = 1e9, seen = false;
+  for (let k = 0; k < 60; k++) { await t.sleep(500); loH = Math.min(loH, live()); if (sees() >= 8) seen = true; if (seen) loG = Math.min(loG, sees()); }
+  t.check(loH >= Math.floor(before / 2), 'the host keeps its people out after the join (30 s)', `before ${before} · lowest after ${loH} · now ${live()}`);
+  t.check(seen && loG >= 5, 'the guest sees them, steadily', `seen ${seen} · lowest ${loG === 1e9 ? '-' : loG} · now ${sees()}`);
+  t.check(!alarm && !H.game.people.debug(s.id).danger, 'no alarm in the village because of the join', `alarm ${alarm} danger ${H.game.people.debug(s.id).danger}`);
+  const av = H.game.session.players.get(G.pid)?.av;
+  t.check(av && av._vw > 0 && av._vh > 0, 'the host knows the guest screen size (half width / height in tiles: nobody made or dropped in its view)', av ? `${av._vw} x ${av._vh}` : 'no avatar');
+  await t.checkDigest(H, G);
+});
+
 // NB1 · the network bill: what a guest costs (docs/ARCHITECTURE.md "Multijogador"; the TURN relay is billed by bytes)
 def('NB1', {
   title: 'NB: bandwidth — bytes and messages per second host → guest and guest → host in typical situations (a metric; S29 budget: 25 KB/s per guest)',
