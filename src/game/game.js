@@ -50,6 +50,18 @@ function restDepth(B, o, m0, e0, lz) {
   B.emissive.depthOf(e0, B.emissive.n, x, y, h, 0, 0.1 + (o._zb || 0));
 }
 
+// a system threw (owner: "o jogo congela" — one error used to stop the whole frame loop, the world frozen on the screen): the
+// frame goes on without it; the error is logged and thrown again outside the frame (at most once every 5 s per system) so
+// the console and the test harness (uncaught exceptions) still see it
+function systemFault(game, s, e) {
+  const k = s._pk || (s._pk = String(s.update).slice(0, 80).replace(/\s+/g, ' ')), F = game._faults || (game._faults = new Map()), now = game.time;
+  game.faults = (game.faults || 0) + 1;
+  if (now - (F.get(k) ?? -9) < 5) return;
+  F.set(k, now);
+  console.error('[system]', k, e);
+  setTimeout(() => { throw e; }, 0);
+}
+
 export class Game {
   constructor({ renderer, atlas, world, env, input, particles }) {
     this.R = renderer;
@@ -194,8 +206,8 @@ export class Game {
     }
 
     if (this._prof) { // (dev: the slowest systems — game._prof = new Map() then read it)
-      for (const s of this.systems) { const t0 = performance.now(); s.update?.(this, dt); const ms = performance.now() - t0, k = s.name || s._pk || (s._pk = this.systems.indexOf(s) + ':' + String(s.update).slice(0, 120).replace(/\s+/g, ' ')); if (ms > (this._prof.get(k) || 0)) this._prof.set(k, +ms.toFixed(2)); }
-    } else for (const s of this.systems) s.update?.(this, dt);
+      for (const s of this.systems) { const t0 = performance.now(); try { s.update?.(this, dt); } catch (e) { systemFault(this, s, e); } const ms = performance.now() - t0, k = s.name || s._pk || (s._pk = this.systems.indexOf(s) + ':' + String(s.update).slice(0, 120).replace(/\s+/g, ' ')); if (ms > (this._prof.get(k) || 0)) this._prof.set(k, +ms.toFixed(2)); }
+    } else for (const s of this.systems) { try { s.update?.(this, dt); } catch (e) { systemFault(this, s, e); } } // (one system that throws never stops the others: systemFault)
 
     // zoom: input moves a target, the camera eases toward it (persisted as a factor of the default zoom)
     this.stepZoom(dt, inp.zoom);

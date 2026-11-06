@@ -49,7 +49,7 @@ export function installOverlay(game) {
   };
 
   const ev = game.events;
-  const QUIET = new Set(['hit', 'miss', 'dodge', 'immune', 'heal']);
+  const QUIET = new Set(['hit', 'miss', 'dodge', 'immune', 'heal', 'wall']);
   ev.on('damage', (d) => {
     const p = game.player, e = d.target;
     if (!e) return;
@@ -72,6 +72,7 @@ export function installOverlay(game) {
       case 'miss': add(e, 'Errou', '#bdbdbd', { size: 13 }); break;
       case 'dodge': add(e, self ? 'Esquiva' : 'Esquivou', '#e6e6e6', { size: 13 }); break;
       case 'immune': add(e, 'Evadiu', '#bdbdbd', { size: 13 }); break;
+      case 'wall': add(e, 'Atrás da parede', '#bdbdbd', { size: 12 }); break;
       case 'stun': add(e, 'Atordoado!', '#ffd84a', { size: 14, life: 1.2 }); break;
       case 'interrupt': add(e, 'Interrompido!', '#ffd84a', { size: 14, life: 1.2 }); break;
       case 'status': add(e, d.text || '', DT_OUT[dt] || '#ffd84a', { size: 13, life: 1.2 }); break;

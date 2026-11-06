@@ -25,12 +25,12 @@ import { SPECIES } from './data.js';
 import { mobStats } from './stats.js';
 import { allocMob } from './mobs.js';
 import { weaponProfile, offhandProfile, equipArmor } from './content/weapons.js';
-import { dealDamage, faceTowards, reach, hasLOS } from './combat.js';
+import { dealDamage, faceTowards, reach, hasLOS, meleeWall } from './combat.js';
 import { fireArrow } from './projectiles.js';
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
 import { hurtPlayer, allPlayers, inAnyView } from './players.js';
-import { npcMove, nearPass, lineClear } from './townnav.js';
+import { npcMove, nearPass, lineClear, TownNav } from './townnav.js';
 import { heightK, STORY_H } from './levels.js';
 import { uidOf, memberOf } from './eco.js';
 
@@ -247,24 +247,68 @@ export class FlowField {
   }
 }
 
+// ---------- around what stands in the way (owner: "eles estão dando de cara muito em estruturas e perdendo muito tempo
+// ali") ----------
+// a straight walk while the line is clear; when a house, a palisade, a closed gate, an engine or a tent stands between, a
+// tile A* (townnav.js TownNav) over a box of the ground around (96 × 96 tiles on a 48-tile lattice, its passable grid
+// refilled when the structures change), followed waypoint by waypoint (the next one skipped as soon as it can be seen).
+// At most NAV.perFrame searches a frame for every soldier together; a goal found unreachable is not searched again for a
+// while (the soldier walks straight and slides). m.passFn: what it may walk through (the defenders of a place: their own
+// gates and doors, like its guards — townnav.js npcPass; everyone else: solPass).
+const NAV = { cell: 48, box: 96, max: 16, perFrame: 3, life: 3, failT: 1.5, look: 0.45 };
+function navAt(game, x, y, pass) {
+  const W = game.warfare || game, M = W._navs || (W._navs = new Map());
+  const bx = Math.floor(x / NAV.cell), by = Math.floor(y / NAV.cell), key = `${bx},${by},${pass === solPass ? 's' : 't'}`;
+  let n = M.get(key);
+  if (n) { M.delete(key); M.set(key, n); return n; } // (most recently used last)
+  if (M.size >= NAV.max) M.delete(M.keys().next().value);
+  n = new TownNav(game, { grid: { x0: bx * NAV.cell - (NAV.box - NAV.cell) / 2, y0: by * NAV.cell - (NAV.box - NAV.cell) / 2, w: NAV.box, h: NAV.box } }, pass);
+  M.set(key, n);
+  return n;
+}
+// the waypoint toward (gx, gy) — null: go straight
+function routeStep(game, m, gx, gy) {
+  const pass = m.passFn || solPass, R = m._route, now = game.worldTime;
+  if (R && !R.fail && now - R.t < NAV.life && Math.abs(R.g[0] - gx) + Math.abs(R.g[1] - gy) < 1.5) {
+    while (R.i < R.p.length - 1 && (Math.hypot(R.p[R.i][0] - m.x, R.p[R.i][1] - m.y) < 0.45 || lineClear(game, m.x, m.y, R.p[R.i + 1][0], R.p[R.i + 1][1], 0.2, pass))) R.i++;
+    return R.i < R.p.length ? R.p[R.i] : null;
+  }
+  if (R?.fail && now - R.t < NAV.failT && Math.abs(R.g[0] - gx) + Math.abs(R.g[1] - gy) < 3) return null;
+  // (the line: looked at every NAV.look s, not every frame)
+  if (m._lineT > now && m._lineG && Math.abs(m._lineG[0] - gx) + Math.abs(m._lineG[1] - gy) < 1) return null;
+  if (lineClear(game, m.x, m.y, gx, gy, 0.2, pass)) { m._route = null; m._lineT = now + NAV.look; m._lineG = [gx, gy]; return null; }
+  const F = game.time;
+  if (game._solNavF !== F) { game._solNavF = F; game._solNavN = 0; }
+  if (game._solNavN >= NAV.perFrame) return null; // (the frame's searches are spent: straight this frame, a path the next)
+  const nav = navAt(game, (m.x + gx) / 2, (m.y + gy) / 2, pass);
+  if (!nav.inBox(Math.floor(m.x), Math.floor(m.y)) || !nav.inBox(Math.floor(gx), Math.floor(gy))) { m._route = { fail: true, t: now, g: [gx, gy] }; return null; }
+  game._solNavN++;
+  const p = nav.path(m.x, m.y, gx, gy);
+  if (!p || !p.length) { m._route = { fail: true, t: now, g: [gx, gy] }; return null; }
+  m._route = { p, i: 0, g: [gx, gy], t: now };
+  return p[0];
+}
+
 // ---------- moving (host) ----------
-// toward (gx, gy): straight with sliding; 'here' | 'walk' | 'stuck'
+// toward (gx, gy): straight with sliding, around what stands in the way (routeStep); 'here' | 'walk' | 'stuck'
 export function stepTo(game, m, gx, gy, spd, dt, arrive = 0.25) {
   const dx0 = gx - m.x, dy0 = gy - m.y, d = Math.hypot(dx0, dy0);
   if (d <= arrive) { m.moving = false; m._stuckT = 0; return 'here'; }
+  const wp = d > 1.2 && !(m.z > 0.5) ? routeStep(game, m, gx, gy) : null;
+  if (wp) { const ex = wp[0] - m.x, ey = wp[1] - m.y, L = Math.hypot(ex, ey) || 1; return stepDir(game, m, ex / L, ey / L, Math.min(spd * dt, L + 0.05), dt); }
   return stepDir(game, m, dx0 / d, dy0 / d, Math.min(spd * dt, d), dt);
 }
 export function stepDir(game, m, ux, uy, step, dt) {
   const x0 = m.x, y0 = m.y;
   if (m.z > 0.5) wallMove(game, m, ux * step, uy * step);
-  else npcMove(game, m, ux * step, uy * step, solPass);
+  else npcMove(game, m, ux * step, uy * step, m.passFn || solPass);
   const moved = Math.hypot(m.x - x0, m.y - y0);
   m.facing = facingFrom(ux, uy, m.facing);
   m.moving = moved > 1e-4;
   stepGait(m, moved);
   if (moved < step * 0.25) {
     m._stuckT = (m._stuckT || 0) + dt;
-    if (m._stuckT > 1.4) { m._stuckT = 0; return 'stuck'; }
+    if (m._stuckT > 0.8) { m._stuckT = 0; m._route = null; m._lineT = 0; return 'stuck'; } // (no headway: a new way at once)
   } else m._stuckT = 0;
   return 'walk';
 }
@@ -312,11 +356,11 @@ export function hitFoe(game, m, f, amount, opts = {}) {
 }
 // melee: up to it (from its own side around it), then the swing timer; true while fighting
 export function melee(game, m, f, dt, spd = WAR.speed.run) {
-  const d = Math.hypot(f.x - m.x, f.y - m.y), rng = reach(m, f);
-  if (rng < 0 || d > rng) {
+  const d = Math.hypot(f.x - m.x, f.y - m.y), rng = reach(m, f), wall = rng >= 0 && d <= rng + 0.6 && meleeWall(game, m, f); // (a wall between: go around)
+  if (rng < 0 || d > rng || wall) {
     if (rng < 0) return false; // (another story: out of its reach)
     const a = Math.atan2(m.y - f.y, m.x - f.x) + ((m.id % 5) - 2) * 0.4, k = Math.max(0.45, rng * 0.75);
-    const gx = d > 3 ? f.x : f.x + Math.cos(a) * k, gy = d > 3 ? f.y : f.y + Math.sin(a) * k;
+    const gx = d > 3 || wall ? f.x : f.x + Math.cos(a) * k, gy = d > 3 || wall ? f.y : f.y + Math.sin(a) * k;
     const s = stepTo(game, m, gx, gy, spd, dt, d > 3 ? rng * 0.8 : 0.15);
     if (s === 'stuck') unstick(game, m, gx, gy);
     return true;
@@ -331,7 +375,7 @@ export function melee(game, m, f, dt, spd = WAR.speed.run) {
     m.action = { type: act, t: 0, dur: heavy ? 0.45 : 0.36 };
     game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.45 });
     game.later(0.22, () => {
-      if (m.dead || f.dead || Math.hypot(f.x - m.x, f.y - m.y) > rng + 0.6) return;
+      if (m.dead || f.dead || Math.hypot(f.x - m.x, f.y - m.y) > rng + 0.6 || meleeWall(game, m, f)) return;
       hitFoe(game, m, f, m.dmg * (heavy ? 1.6 : 1) * (0.85 + R01(m) * 0.3), { from: m, ability: heavy ? act : undefined });
     });
   }

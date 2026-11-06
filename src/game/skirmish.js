@@ -35,6 +35,7 @@ import { SPECIES } from './data.js';
 import { siegeThreat } from './siegeAI.js';
 import { facingFrom } from './physics.js';
 import { entOfPid } from './eco.js';
+import { npcPass } from './townnav.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -452,6 +453,7 @@ function makeForces(game) {
       const S = game.people?.of?.(M.sid), plaza = S?.plaza || { x: s.x, y: s.y };
       G.anchor = { x: plaza.x, y: plaza.y }; G.face = { x: dir.x, y: dir.y }; G.fx = dir.x; G.fy = dir.y;
       G.rear = () => [plaza.x, plaza.y];
+      G.onSpawn = (g, F, m) => { m.passFn = npcPass; }; // (the defenders pass their own gates and doors, like the guards)
       G.slotOf = (u) => { const p = G.gar.posts.get(u.i); return p ? [p.x, p.y] : [plaza.x + ((u.i % 5) - 2), plaza.y + ((u.i / 5 | 0) % 3)]; };
       H.forces.push(G.id); H.gar = G.id;
     }

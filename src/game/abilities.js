@@ -8,7 +8,7 @@ import { moveCircle, facingFrom, collides } from './physics.js';
 import { addBuff, removeBuff, enterCombat } from './player.js';
 import {
   rollPlayerHit, applyPlayerHit, healEntity, reach, dist, attackable, isMob, faceTowards, facingVec,
-  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect, canSkin, beatsDummy,
+  hasLOS, addDot, stun, useAmmo, noAmmo, playerShot, mobEffect, canSkin, beatsDummy, aimClass, meleeWall,
 } from './combat.js';
 import { aggro } from './ai.js';
 import { heightK } from './levels.js';
@@ -38,12 +38,13 @@ export function nearestEnemy(game, maxD = 12, filter) {
   const p = game.player;
   let best = null, bd = 1e9;
   for (const e of game.entities) {
-    if (!isMob(e) || e.dead || (filter && !filter(e))) continue;
-    if (e.tame || e.water) continue; // (the farm's animals and fish: never by chance)
+    if (!(isMob(e) || e.pvp) || e.dead || (filter && !filter(e))) continue;
+    const c = aimClass(game, e); // (combat.js: hostiles first, neutral / passive animals last, friends never)
+    if (c < 0) continue;
     let d = dist(p, e);
     if (d > maxD) continue;
+    if (c === 1) d += 1000;
     if (e.state === 'chase' && e.threat === p) d -= 4;
-    else if (e.temper === 'passive') d += 3;
     if (d < bd) { bd = d; best = e; }
   }
   return best;
@@ -56,11 +57,11 @@ export function areaTargets(game, x, y, r) {
     if (!isMob(e) || e.dead || e._riddenBy || e.rider) continue; // (a ridden horse: never by its rider's sweep / thrust)
     if (Math.abs((e.z || 0) - (game.player.z || 0)) >= 0.5) continue; // levels: area hits stay on the caster's story
     if (Math.abs(e.x - x) > r + 1 || Math.abs(e.y - y) > r + 1) continue;
-    if (Math.hypot(e.x - x, e.y - y) <= r + e.r) out.push(e);
+    if (Math.hypot(e.x - x, e.y - y) <= r + e.r && !meleeWall(game, { x, y, z: game.player.z || 0 }, e)) out.push(e); // (a sweep stops at the walls)
   }
   for (const o of game.props || []) {
     if (o.broken) continue;
-    if (Math.hypot(o.x - x, o.y - y) <= r + o.r) out.push(o);
+    if (Math.hypot(o.x - x, o.y - y) <= r + o.r && !meleeWall(game, { x, y }, o)) out.push(o);
   }
   return out;
 }
@@ -72,7 +73,7 @@ function rangeOk(game, ab, t) {
   if (!ab.range) return 'ok';
   if (!t) return 'notarget';
   const d = dist(p, t);
-  if (ab.range === 'melee') return d <= reach(p, t) + 0.15 ? 'ok' : 'far';
+  if (ab.range === 'melee') return d > reach(p, t) + 0.15 ? 'far' : meleeWall(game, p, t) ? 'los' : 'ok'; // (a blade does not pass through a wall)
   if (d < ab.range[0]) return 'near';
   if (d > ab.range[1] * (ab.ammo ? heightK(p, t) : 1) + (t.r || 0.3)) return 'far'; // (bow abilities: height bonus)
   if (ab.ammo && !hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn)) return 'los'; // levels: heights
@@ -88,13 +89,13 @@ function abilityFoe(game, ab, prefer = null) {
   const p = game.player, R = (Math.max(rangeMax(ab), 3) + 1) * (ab.ammo ? heightK(p, null) : 1);
   let best = null, bs = 1e9;
   for (const e of game.entities) {
-    if (!isMob(e) || !attackable(e) || dist(p, e) > R) continue;
+    if (!(isMob(e) || e.pvp) || !attackable(e) || dist(p, e) > R) continue;
+    const c = aimClass(game, e); // (combat.js: hostiles first, neutral / passive animals last, friends never)
+    if (c < 0 && e !== prefer) continue;
     if (rangeOk(game, ab, e) !== 'ok') continue;
-    const tmp = e.temper || SPECIES[e.species]?.temper;
-    let s = dist(p, e);
+    let s = dist(p, e) + (c === 1 ? 1000 : 0);
     if (e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid)) s -= 6;
-    else if (tmp === 'hostile') s -= 1.5;
-    else if (tmp === 'passive') s += 8;
+    else if (c === 0) s -= 1.5;
     if (e === prefer) s -= 1;
     if (s < bs) { bs = s; best = e; }
   }

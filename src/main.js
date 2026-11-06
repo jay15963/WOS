@@ -263,8 +263,9 @@ function startLoop(game, renderer, input, syncing) {
       // single player pauses while the in-game menu is open; multiplayer keeps running
       const paused = game.ui?.pause && !(game.session && game.session.state !== 'closed');
       const ft0 = performance.now();
-      if (!paused) game.update(dt);
-      game.render();
+      // (a frame that throws never ends the loop: the world goes on, the error is reported — owner: "o jogo congela")
+      try { if (!paused) game.update(dt); } catch (e) { loopFault(e); }
+      try { game.render(); } catch (e) { loopFault(e); }
       frameCpu(game, performance.now() - ft0); // (main-thread time per frame: hitches, docs/STREAMING.md)
       input.endFrame();
       // menu background: a small snapshot of the world, taken right after rendering
@@ -295,6 +296,14 @@ function startLoop(game, renderer, input, syncing) {
   } catch (e) { console.warn('[boot] background clock unavailable', e); }
 }
 
+let faultT = -1e9;
+function loopFault(e) {
+  const now = performance.now();
+  if (now - faultT < 5000) return;
+  faultT = now;
+  console.error('[loop]', e);
+  setTimeout(() => { throw e; }, 0);
+}
 // main-thread CPU time of the frames (update + render): game.frameStats(reset) → { n, avg, p95, max, over8, over16 }
 function frameCpu(game, ms) {
   const F = game._fcpu || (game._fcpu = { a: new Float32Array(1200), n: 0 });

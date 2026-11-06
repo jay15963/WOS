@@ -197,10 +197,49 @@ export function soldierImmune(game, dst, src, why) {
   return 0;
 }
 
+// ---------- melee needs a clear line (owner: "os ataques corpo a corpo estão atravessando estruturas") ----------
+// a blow (not an arrow, a bolt, a stone, a damage over time) from `a` (or the point it lands from) on `b` within arm's
+// reach is stopped by a wall, a palisade, a closed gate / door, rock or a ridge between them — the same line test as the
+// bows (hasLOS). Far sources (an engine's splash, a thrown rock) are not blows: left alone.
+export function meleeWall(game, a, b) {
+  if (!a || !b || a === b || typeof a.x !== 'number' || typeof b.x !== 'number') return false;
+  const w = game.world, dx = w.dx ? w.dx(b.x, a.x) : b.x - a.x;
+  if (Math.abs(dx) > 4 || Math.abs(b.y - a.y) > 4) return false;
+  if (Math.floor(a.x) === Math.floor(b.x) && Math.floor(a.y) === Math.floor(b.y)) return false;
+  return !hasLOS(w, a.x, a.y, a.x + dx, b.y, a.z || 0, b.z || 0, a._tn, b._tn);
+}
+const wallBlocked = (game, src, dst) => { game.events.emit('damage', { target: dst, src, amount: 0, kind: 'wall' }); return 0; };
+
+// ---------- the auto-aim's queue (owner): hostiles first, neutral / passive animals last, friends never ----------
+// 0 = a hostile (a monster, a raider, a hostile beast, an enemy soldier / guard the rules let me hurt, a player at war, any
+// creature fighting me) · 1 = a neutral / passive animal (only when no hostile is in reach) · −1 = never by itself (own-side
+// or protected soldiers, the settlements' people, tamed / farm animals, ridden horses, fish, players not at war). The same
+// for the auto attack, the abilities' targets, Tab and the aim assist of the long shot — normal game and skirmish alike.
+export function aimClass(game, e) {
+  const p = game.player;
+  if (!e || e.dead || e === p) return -1;
+  if (e.pvp) return 0; // (a player at war with mine: ui/armyHud.js)
+  if (e.isProp) return e.broken ? -1 : 1;
+  if (!isMob(e) || e._riddenBy || e.rider || e.water || e.fmode & 2) return -1;
+  const mine = e.state === 'chase' && (e.threat === p || (e.threat?.pid != null && e.threat.pid === game.net?.pid));
+  if (e.npc) return npcBlock(game, e, p) ? -1 : 0; // (an enemy guard: only for an enlisted player / a skirmish's side)
+  if (e.soldier) {
+    if (soldierBlock(game, e, p)) return -1;
+    const k = game.army?.kOf?.(p) ?? -1;
+    return mine || (k >= 0 && k !== e.soldier.k && !!game.realms?.atWar?.(k, e.soldier.k)) ? 0 : -1; // (a traveller's aim never picks a soldier by itself: §14)
+  }
+  if (e.tame || e.faction === 'friend' || SPECIES[e.species]?.noAuto) return mine ? 0 : -1;
+  const tmp = e.temper || SPECIES[e.species]?.temper;
+  if (mine || tmp === 'hostile' || e.faction === 'walker' || e.faction === 'bandit') return 0;
+  if (tmp === 'friendly') return -1;
+  return 1;
+}
+
 // ---------- damage pipeline ----------
 // opts: { crit, ability, dtype:'phys'|'bleed'|'poison'|'fire', dot, noDodge, noKnock, knock, from:{x,y}, ranged, pure }
 export function dealDamage(game, src, dst, amount, opts = {}) {
   if (!dst) return 0;
+  if (!opts.ranged && !opts.dot && !opts.pure && src && src !== dst && !src.building && meleeWall(game, opts.from || src, dst)) return wallBlocked(game, src, dst); // (a blow through a wall: nothing)
   if (dst.npc && playerish(game, src) && npcBlock(game, dst, src)) return npcImmune(game, dst, src); // (no friendly fire: before a guest routes the hit — an enemy guard for an enlisted player: phase 3c)
   if (dst.remote && dst.pid && !dst.avatar) return playerish(game, src) ? pvpHit(game, src, dst, amount, opts) : 0; // (another player: only by the war's rule — docs/REINOS.md §15)
   if (dst.soldier) { const why = soldierBlock(game, dst, src); if (why) return soldierImmune(game, dst, src, why); } // (a soldier: only by the rule — game/soldier.js)
@@ -459,9 +498,8 @@ export function playerShot(game, t, mult = 1, flat = 0, opts = {}) {
 // can the local player hit t from where it stands now (range, and a line of fire for a bow)?
 export function canHitNow(game, p, t) {
   if (!attackable(t)) return false;
-  const prof = p.wprof || weaponProfile(p.equip?.main || null);
   if (dist(p, t) > attackRange(p, t)) return false;
-  return !prof.ranged || hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn);
+  return hasLOS(game.world, p.x, p.y, t.x, t.y, p.z || 0, t.z || 0, p._tn, t._tn); // (a bow's line of fire; a blade's reach — no wall between)
 }
 // a creature worth leaving a training dummy for (owner: the dummy is the last choice of everything): anything but a
 // calm passive animal (green) — those don't pull the player away from training
@@ -476,15 +514,14 @@ export function bestFoe(game, maxD, prefer = null) {
   const p = game.player;
   let best = null, bs = 1e9;
   for (const e of game.entities) {
-    if (!attackable(e) || !isMob(e)) continue;
-    if ((e.tame || SPECIES[e.species]?.noAuto || e.fmode & 2) && e !== prefer && !(e.soldier && e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid))) continue; // (fish, the farm's animals, wild fauna hidden in wait: only when marked; a soldier: only one fighting me)
+    if (!attackable(e) || !(isMob(e) || e.pvp)) continue;
+    const c = aimClass(game, e);
+    if (c < 0 && e !== prefer) continue; // (friends never; the marked one stays: fish, a farm animal the player chose)
     const d = dist(p, e);
     if (d > maxD) continue;
-    const tmp = e.temper || SPECIES[e.species]?.temper;
-    let s = d;
+    let s = d + (c === 1 ? 1000 : 0); // (strict queue: any hostile in reach before any neutral / passive animal)
     if (e.state === 'chase' && (e.threat === p || e.threat?.pid === game.net?.pid)) s -= 6;
-    else if (tmp === 'hostile') s -= 1.5;
-    else if (tmp === 'passive') s += 8;
+    else if (c === 0) s -= 1.5;
     if (!canHitNow(game, p, e)) s += 5;
     if (e === prefer) s -= 1;
     if (s < bs) { bs = s; best = e; }

@@ -21,7 +21,7 @@ import { ABILITIES } from '../game/data.js';
 import { aimCheck, aimSpec, aimDefault, fireAimed } from '../game/abilities.js';
 import { lobScatter, lobFlight } from '../game/content/weapons.js';
 import { facingFrom } from '../game/physics.js';
-import { isMob } from '../game/combat.js';
+import { isMob, aimClass } from '../game/combat.js';
 import { assistParams, aimAssistMode, stepLock } from './aimAssist.js';
 
 const TAP_MS = 260;   // press shorter than this without dragging = quick tap
@@ -271,6 +271,7 @@ export function installAim(game) {
     cands.length = 0;
     for (const e of game.entities) {
       if (!isMob(e) || e.dead || e.faction === 'friend' || e.isProp || game.roofs?.hidden?.(e.x, e.y, e)) continue; // not inside roofed buildings
+      if (aimClass(game, e) < 0) continue; // (never a friend: own-side soldiers, the settlements' people, tamed animals — combat.js)
       if (Math.abs(e.x - p.x) > lim || Math.abs(e.y - p.y) > lim) continue;
       cands.push(e);
     }
