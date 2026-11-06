@@ -36,11 +36,17 @@ export function installRaidHud(game) {
       }
       // his property hit (anywhere): the owned house / the plot are his to mend; a rented one the people mend
       const me = meUid(game), mine = (e.own || []).filter((q) => q[0] === me);
-      for (const [, kind] of mine.slice(0, 3)) {
-        if (kind === 'house') notify(`Os monstros danificaram sua casa em ${s.name}: conserte-a você mesmo`, { sub: 'O povo não conserta propriedade privada. Perto de uma parede rachada: Consertar (E); uma peça destruída: Reconstruir (com o material dela). Mural · Propriedades mostra o estrago.', kind: 'warn', icon: WAR_ICONS.castle, sticky: true, key: 'raidown' + e.sid + kind });
-        else if (kind === 'plot') notify(`Os monstros danificaram o que você construiu no seu terreno em ${s.name}`, { sub: 'Conserte você mesmo: perto de uma peça rachada, Consertar (E). As rachaduras não somem ao amanhecer.', kind: 'warn', icon: WAR_ICONS.castle, sticky: true, key: 'raidown' + e.sid + kind });
-        else notify(`Os monstros danificaram a casa que você aluga em ${s.name}`, { sub: 'O povo conserta as casas alugadas a partir de amanhã.', kind: 'info', icon: WAR_ICONS.castle, ms: 7000, key: 'raidown' + e.sid + kind });
-      }
+      // one notice for all of it (no spam): the private property first — his to mend (it stays up until closed) —, the
+      // rented house the people mend
+      const house = mine.some((q) => q[1] === 'house'), plot = mine.some((q) => q[1] === 'plot'), rent = mine.some((q) => q[1] === 'rent');
+      const rentLine = rent ? ' A casa que você aluga o povo conserta a partir de amanhã.' : '';
+      if (house || plot) {
+        const what = house && plot ? 'sua casa e o que você construiu no seu terreno' : house ? 'sua casa' : 'o que você construiu no seu terreno';
+        notify(`Os monstros danificaram ${what} em ${s.name}: ${house && !plot ? 'conserte-a' : 'conserte'} você mesmo`, {
+          sub: `O povo não conserta propriedade privada. Perto de uma peça rachada: Consertar (E)${house ? '; uma peça destruída da casa: Reconstruir (com o material dela)' : ''}. As rachaduras não somem ao amanhecer; Mural · Propriedades mostra o estrago.${rentLine}`,
+          kind: 'warn', icon: WAR_ICONS.castle, sticky: true, key: 'raidown' + e.sid,
+        });
+      } else if (rent) notify(`Os monstros danificaram a casa que você aluga em ${s.name}`, { sub: 'O povo conserta as casas alugadas a partir de amanhã.', kind: 'info', icon: WAR_ICONS.castle, ms: 7000, key: 'raidown' + e.sid });
     }
   });
   return { sync: 'cosmetic', update() {} };

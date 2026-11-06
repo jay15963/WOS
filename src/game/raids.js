@@ -31,7 +31,7 @@ import { guardsOf, planWave, fight, FAMILY_MOB, FAMILY_GIANT, unitStats } from '
 import { raidsState, FIX_STEP } from './mut/raids.js';
 import { deadMap } from './mut/people.js';
 import { TOWN } from './mut/structures.js';
-import { BUILDINGS, SPECIES } from './data.js';
+import { BUILDINGS, SPECIES, ITEMS } from './data.js';
 import { nightFamilyAt, mildBad, ARID } from './undead.js';
 import { ZONES, nightK } from './seasons.js';
 import { realmNpcLevel } from './towns.js';
@@ -508,7 +508,7 @@ function forNear(game, consider) {
       if (!r.gone || !id.startsWith(pre) || r.x < h.box[0] || r.x > h.box[2] || r.y < h.box[1] || r.y > h.box[3]) continue;
       const k = +id.slice(pre.length), L = game.towns.layout(town.id), type = L?.structs[k]?.[0], def = BUILDINGS[type];
       if (!def || (L.structs[k][4] | 0) !== Math.round(p.z || 0)) continue;
-      const cost = Object.entries(def.cost || {}).map(([it, n]) => `${n} ${it === 'wood' ? 'madeira' : it === 'stone' ? 'pedra' : it}`).join(', ');
+      const cost = Object.entries(def.cost || {}).map(([it, n]) => `${n} ${(ITEMS[it]?.name || it).toLowerCase()}`).join(', ');
       consider({ kind: 'prop_rebuild', id, type, tile: true, tx: r.x, ty: r.y, w: 1, h: 1, x: r.x + 0.5, y: r.y + 0.5, reach: 0.9, verb: `Reconstruir ${def.name.toLowerCase()}${cost ? ` (${cost})` : ''}`, icon: 'build', prio: 2.5 });
     }
   }
@@ -519,7 +519,7 @@ registerWork('prop_rebuild', {
   start(game, it) {
     const def = BUILDINGS[it.type], p = game.player;
     if (!def) return null;
-    if (!p.inv.has(def.cost || {})) { game.events.emit('error', { text: `Falta material: ${Object.entries(def.cost || {}).map(([k, n]) => `${Math.max(0, n - p.inv.count(k))} ${k}`).join(', ')}` }); return null; }
+    if (!p.inv.has(def.cost || {})) { game.events.emit('error', { text: `Falta material: ${Object.entries(def.cost || {}).filter(([k, n]) => p.inv.count(k) < n).map(([k, n]) => `${n - p.inv.count(k)} ${(ITEMS[k]?.name || k).toLowerCase()}`).join(', ')}` }); return null; }
     const { need, cycle } = hitsFor((def.time || 2) * 0.8, 2);
     return { type: 'build', cycle, need, label: `Reconstruindo ${def.name.toLowerCase()}` };
   },

@@ -10910,8 +10910,8 @@ def('WA2', {
     t.check(wallsOf(h, H).length >= 2 && wallsOf(h, G).length === wallsOf(h, H).length, `the ${what} house damaged (door down, walls cracked — the same on both)`, `${wallsOf(h, H).length} pieces`);
   }
   await t.waitFor(() => A.objOn(G, wall.id)?.dmg > 0 && A.objOn(G, wall.id)?.sdmg && A.objOn(H, wall.id)?.sdmg, 2000 + RT(), 'the wall on his plot cracked, a crack that stays (sdmg, both)');
-  await t.waitFor(() => [...notes].some((x) => /danificaram sua casa em .*conserte-a você mesmo/.test(x)) && [...notes].some((x) => /seu terreno em/.test(x)), 5000, 'the guest: "Os monstros danificaram sua casa em …: conserte-a você mesmo" (and his plot)', () => [...notes].join(' | '));
-  t.check([...notes].some((x) => /casa que você aluga/.test(x)), 'and the rented one ("o povo conserta")');
+  await t.waitFor(() => [...notes].some((x) => /danificaram sua casa e o que você construiu no seu terreno em .*conserte você mesmo/.test(x)), 5000, 'the guest, one notice: "Os monstros danificaram sua casa e o que você construiu no seu terreno em …: conserte você mesmo"', () => [...notes].join(' | '));
+  t.check([...notes].some((x) => /danificaram sua casa/.test(x) && /casa que você aluga o povo conserta/.test(x)), 'the same notice tells him the rented one is the people\'s to mend');
   muralTab(G, s0.id, 'land');
   await t.sleep(300);
   t.check(/danificad/.test(ecoTxt(G)) && /conserte você mesmo/.test(ecoTxt(G)) && /o povo conserta/.test(ecoTxt(G)), 'the mural (Propriedades) shows the damage: his to mend / the people\'s', short(ecoTxt(G).match(/⚠[^⚠]{0,80}/g)?.join(' | ') || '', 220));

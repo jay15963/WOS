@@ -18,7 +18,7 @@ for (let i = 0; i < 400; i++) {
   const near = R() < 0.08, glv = near ? 1 + Math.floor(R() * 6) : 18, mlv = near ? Math.min(18, 3 + Math.floor(R() * 4)) : 18;
   const fam = ['ice', 'ice', 'bone', 'sand'][Math.floor(R() * 4)];
   const s = { kind, walls, pop };
-  places.push({ kind, walls, pop, fam, giantOk: true, glv, mlv, guards: guardsOf(s), dark: (2.6 + R() * 5) * 32.5 });
+  places.push({ kind, walls, pop, fam, giantOk: true, glv, mlv, guards: guardsOf(s), dark: (2.6 + R() * 5) * (300 / 11) }); // (the dark left when it comes: 2.6–7.6 game hours of night, 27.3 s each)
 }
 const res = lossRate(places, N, R);
 console.log(`attacks ${res.n} · lost ${res.lost} (${(res.rate * 100).toFixed(2)} %) · hordes ${res.horde} (lost ${res.hordeLost}, ${(100 * res.hordeLost / Math.max(1, res.horde)).toFixed(1)} %) · normal lost ${res.lost - res.hordeLost} (${(100 * (res.lost - res.hordeLost) / Math.max(1, res.n - res.horde)).toFixed(2)} %)`);
