@@ -823,6 +823,7 @@ function capture(game, F, ents) {
   let def = 0;
   const rec = game.people?.live?.get(G.sid);
   if (rec) for (const m of rec.ents.values()) if (!m.dead && m.npc.guard && Math.hypot(m.x - P.plaza.x, m.y - P.plaza.y) < dR) def++;
+  for (const e of F.foes || []) if (!e.npc && !e.dead && !(e.z > 0.5) && Math.hypot(e.x - P.plaza.x, e.y - P.plaza.y) < dR) def++; // (+ the defenders' soldiers / players: a skirmish's garrison)
   G.capAt = at; G.capDef = def;
   if (at >= 2 && !def) G.capT += WAR.tick; else G.capT = Math.max(0, G.capT - WAR.tick * (def ? 2 : 1));
   if (G.capT >= WAR.siege.captureT) {

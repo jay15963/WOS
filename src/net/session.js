@@ -589,6 +589,7 @@ export class Session {
       hour: env.hour, day: env.dayIndex, weather: env.weather, wt: Math.round(g.worldTime * 100) / 100,
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
       ...(g.world.hills ? { hills: 1 } : {}), // (dev showcase of the terrain height: the guest sculpts the same world, world/hills.js)
+      ...(g.skirmish ? { sk: 1 } : {}), // (a skirmish arena: the guest boots one too — never saved, docs/SKIRMISH.md)
       // the planet's start (its spawn zone and the camps' distance rule depend on it: the guest's source uses the same one)
       ...(g.world.source?.kind === 'planet' && g.world.source.spawn ? { sp: [g.world.source.spawn.x, g.world.source.spawn.y] } : {}),
     });
@@ -616,7 +617,7 @@ export class Session {
     hp.host = true; hp.key = key;
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
-      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1,
+      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1, sk: m.sk === 1,
       src: ['classic', 'synth', 'planet'].includes(m.src) ? m.src : 'classic', // the host's world source: the guest generates the same chunks
       sp: Array.isArray(m.sp) && m.sp.length === 2 && m.sp.every((v) => Number.isFinite(v) && v >= 0 && v < 1e6) ? [m.sp[0], m.sp[1]] : null, // (the planet's start)
     };

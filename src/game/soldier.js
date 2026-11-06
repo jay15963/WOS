@@ -107,7 +107,10 @@ export function spawnSoldier(game, F, u, x, y) {
   const role = u.role, R = ROLES[role], A = armourOf(F.lv), sp = SPECIES.soldier;
   const id = identity(game, F.k, F.tag, LETTER[role], u.i, A.t);
   if (!id) return null;
-  const st = mobStats(sp, F.lv), weapon = R.weapon[A.t], wp = weaponProfile(weapon);
+  // the gear: by the level (§7b) — or the force's own kit (a skirmish: copper for every soldier, game/skirmish.js); the body
+  // armour is worn under the tabard (protection only: the kingdom's colours read)
+  const K = F.kit, sh = K ? K.shield?.[role] || null : R.shield ? 'shield_iron' : null;
+  const st = mobStats(sp, F.lv), weapon = K?.weapon?.[role] || R.weapon[A.t], wp = weaponProfile(weapon);
   const wf = 0.7 + 0.4 * (((wp.min + wp.max) / 2) / 8);
   const ids = allocMob(game);
   const m = {
@@ -115,9 +118,9 @@ export function spawnSoldier(game, F, u, x, y) {
     name: id.name, level: F.lv, elite: role === 'general', temper: 'friendly', camp: codeOf(F.k, F.tag, role, u.i), role: role === 'archer' ? 'archer' : 'melee',
     x, y, r: 0.24, scale: role === 'general' ? 1.06 : 1, facing: 's', moving: false, moveT: (id.seed % 1000) / 100, action: null, flash: 0, dead: false, deadT: 0,
     hp: Math.round(st.maxHp * R.hp), dmg: st.dmg * wf * R.dmg, state: 'idle', stateT: 0, swingT: 0, stunT: 0,
-    look: id.look, weapon, offhand: R.shield ? 'shield_guard' : null, armor: { body: null, head: role === 'archer' ? 'hood_leather' : role === 'eng' ? (A.t ? 'helmet_copper' : null) : A.head },
-    wprof: wp, shield: R.shield ? offhandProfile('shield_iron') : null, reachX: wp.reach, swingDur: wp.swing * 1.08,
-    armorV: equipArmor({ body: role === 'archer' || role === 'eng' ? 'armor_leather' : A.body, head: A.head, off: R.shield ? 'shield_iron' : null }) + 4,
+    look: id.look, weapon, offhand: sh ? (K ? K.shieldLook || sh : 'shield_guard') : null, armor: { body: null, head: K ? K.head : role === 'archer' ? 'hood_leather' : role === 'eng' ? (A.t ? 'helmet_copper' : null) : A.head },
+    wprof: wp, shield: sh ? offhandProfile(sh) : null, reachX: wp.reach, swingDur: wp.swing * 1.08,
+    armorV: equipArmor(K ? { body: K.body, head: K.head, off: sh } : { body: role === 'archer' || role === 'eng' ? 'armor_leather' : A.body, head: A.head, off: sh }) + 4,
     aggroR: WAR.sight, specialT: 3, blockT: 4, throwT: 2, xpMul: role === 'general' ? 4 : sp.xp, noCorpse: true, crest: id.crest,
     soldier: { k: F.k, f: F.id, tag: F.tag, role, i: u.i, first: id.first, roleName: id.roleName, female: id.female },
     lv: 0, z: 0, order: null, foe: null, scanT: R01({ id: ids.id }) * 0.4, pfoe: null, _acc: 0,
@@ -149,6 +152,7 @@ export const FIGHTING = new Set(['camp', 'build', 'bombard', 'assault', 'held', 
 export function playerMayHurt(game, pl, e) {
   const S = e?.soldier;
   if (!S) return null;
+  const sk = game.skirmish?.mayHurt?.(pl, e); if (sk !== undefined) return sk; // (a skirmish: the sides decide — game/skirmish.js)
   const R = game.towns?.realm, K = R?.kingdoms[S.k], kn = K ? K.name : '?';
   const pid = pl === game.player ? game.net.pid : pl?.pid || null;
   const mk = memberOf(game, uidOf(game, pid));
@@ -291,6 +295,7 @@ export function unstick(game, m, gx, gy) {
 export function isFoe(game, m, e) {
   if (!e || e.dead || e === m) return false;
   if (e.soldier) return e.soldier.k !== m.soldier.k && atWar(game, e.soldier.k, m.soldier.k);
+  if (e.faction === 'walker' && e.isMob) return true; // (the night's dead: every soldier's foe — a skirmish's monster defense, the raids)
   if (e.npc) return !!e.npc.guard && atWar(game, m.soldier.k, ownerOf(game, e.npc.sid));
   if (m.pfoe && m.pfoe.e === e && m.pfoe.until > game.worldTime) return true;
   if (isPlayerEnt(game, e) && game.army?.soldierFoe?.(m.soldier.k, e)) return true; // (an enlisted player of a kingdom at war with it — game/army.js, docs/REINOS.md §15)

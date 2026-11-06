@@ -50,6 +50,7 @@ export function installWarfare(game) {
     dematerialize: (id) => dematerialize(game, id),
     startSiege: (spec) => startSiege(game, spec),
     startBattle: (a, b) => startBattle(game, a, b),
+    startForce: (spec, kind, tick) => startForce(game, spec, kind, tick), // (a force with its own tick: a skirmish's garrison — game/skirmish.js)
     decorate: (e) => decorateSoldier(game, e),
     label: (e) => soldierLabel(game, e),
     mayHurt: (pl, e) => (game.creative ? 'Modo criativo' : playerMayHurt(game, pl, e)),
@@ -100,7 +101,7 @@ function newForce(game, spec, kind) {
   const W = game.warfare, net = game.net;
   const fid = net.newId('W'), id = spec.id || fid, tag = fid.slice(1);
   const R = game.towns.realm, k = spec.k | 0;
-  const n0 = Math.max(4, Math.min(600, spec.n | 0 || 30));
+  const n0 = Math.max(spec.min ?? 4, Math.min(600, spec.n | 0 || 30)); // (min: a skirmish's small sides — game/skirmish.js)
   const lv = Math.max(1, spec.lv | 0 || realmLevelOf(game, k));
   const units = rolesOf(n0, kind === 'siege', hash(game.world.seed | 0, hash(k, +tag || 1)));
   const [x, y] = spec.at || [game.player.x, game.player.y];
@@ -109,6 +110,9 @@ function newForce(game, spec, kind) {
     units, order: spawnOrder(units), live: new Map(), dead: 0, killed: 0, morale: WAR.morale.start, rallyB: 0, rallyT: 0, genDead: false,
     t: 0, T: 0, foes: [], army: spec.army || null, eng: { treb: 0, cat: 0, ram: 0, tower: 0, ...(spec.eng || {}) }, pubT: -9, pubSig: '', rep: new Map(), name: R.kingdoms[k]?.name || '?',
     anchor: { x, y }, face: { x: 0, y: 1 }, cap: WAR.cap.side, spawnT: 0,
+    // a skirmish (game/skirmish.js): keep = never ends for want of players near, kit = the gear of every soldier, hold = the
+    // lines wait for the start, reach = how far it looks for the forces it fights, sk = the match
+    keep: !!spec.keep, kit: spec.kit || null, hold: !!spec.hold, reach: spec.reach || 0, sk: spec.sk || null,
   };
   W.forces.set(id, F);
   W.tagOf.set(tag, id);
@@ -160,6 +164,14 @@ export function startSiege(game, spec) {
   if (!s) return null;
   const F = newForce(game, { ...spec, k: spec.k ?? s.k }, 'siege');
   siegeSetup(game, F, spec);
+  publish(game, F, true);
+  return F;
+}
+// a force with its own tick (kind: its name, tick(game, F) every 0.5 s after its foes are listed) — a skirmish's garrison
+export function startForce(game, spec, kind, tick) {
+  if (!game.net.auth || !game.towns?.realm) return null;
+  const F = newForce(game, spec, kind);
+  F.kindTick = tick;
   publish(game, F, true);
   return F;
 }
@@ -463,7 +475,7 @@ export function warfareFxSystem() {
         lookT = 1;
         const p = game.player;
         for (const F of game.warfare.forces.values()) {
-          if (!F.pub || seen.has(F.id) || p.dead || Math.hypot(game.world.dx(F.x, p.x), F.y - p.y) > 75) continue;
+          if (!F.pub || seen.has(F.id) || p.dead || game.skirmish?.on || Math.hypot(game.world.dx(F.x, p.x), F.y - p.y) > 75) continue; // (a skirmish tells its own story: ui/skirmish.js)
           seen.add(F.id);
           game.events.emit('toast', { text: announce(game, F), kind: 'info' });
         }
@@ -545,17 +557,18 @@ function forceTick(game, F, players) {
   let pd = 1e9;
   for (const q of players) pd = Math.min(pd, Math.hypot(game.world.dx(q.x, F.x), q.y - F.y));
   if (F.done) return; // (its fight is over: 3a takes it back — dematerialize)
-  if (pd > WAR.dropR) { if (!F.army) endForce(game, F); return; } // (an army of 3a: 3a hands it back to the numbers when nobody is near)
+  if (pd > WAR.dropR && !F.keep) { if (!F.army) endForce(game, F); return; } // (an army of 3a: 3a hands it back to the numbers when nobody is near; a skirmish's: kept)
   // the foes it may fight (a short list scanned by each soldier now and then: no scan of every creature per soldier)
   F.foes.length = 0;
   if (F.kind === 'battle' && F.foe) { const O = W.forces.get(F.foe); if (O) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); }
   if (F.kind === 'siege' && F.sid != null) { const rec = game.people?.live?.get(F.sid); if (rec) for (const m of rec.ents.values()) if (!m.dead && m.npc.guard) F.foes.push(m); }
-  for (const O of W.forces.values()) if (O !== F && O.live && O.id !== F.foe && atWar(game, O.k, F.k) && Math.hypot(O.x - F.x, O.y - F.y) < 90) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); // (another army at war nearby: a relief force)
-  if (game.army?.en?.size) for (const q of players) if (Math.hypot(game.world.dx(q.x, F.x), q.y - F.y) < 70 && game.army.soldierFoe(F.k, q)) F.foes.push(q); // (an enlisted player of a kingdom at war with it — game/army.js)
+  for (const O of W.forces.values()) if (O !== F && O.live && O.id !== F.foe && atWar(game, O.k, F.k) && Math.hypot(O.x - F.x, O.y - F.y) < Math.max(90, F.reach, O.reach || 0)) for (const m of O.live.values()) if (!m.dead) F.foes.push(m); // (another army at war nearby: a relief force; a skirmish's garrison)
+  if (game.army?.en?.size || game.skirmish?.on) for (const q of players) if (Math.hypot(game.world.dx(q.x, F.x), q.y - F.y) < Math.max(70, F.reach) && game.army.soldierFoe(F.k, q)) F.foes.push(q); // (an enlisted player of a kingdom at war with it — game/army.js; a skirmish's side)
   morale(game, F);
   if (F.kind === 'siege') siegeTick(game, F);
   else if (F.kind === 'battle') battleTick(game, F);
   else if (F.kind === 'march') marchTick(game, F);
+  else if (F.kindTick) F.kindTick(game, F); // (startForce: a skirmish's garrison)
   if (W.forces.get(F.id) !== F) return; // (it ended in its own tick: nothing more to publish)
   fillRanks(game, F);
   flushRep(game, F, false);
@@ -622,7 +635,7 @@ function battleTick(game, F) {
       orders(game, F, 'slot', { eng: 4 });
       const ready = lag() < 0.2 || F.t > 12;
       F.ready = ready;
-      if (ready && (!O || O.ready || O.phase === 'advance' || O.phase === 'clash') && F.t > 3) setPhase(game, F, 'advance', CRIES.charge);
+      if (ready && !F.hold && (!O || O.ready || O.phase === 'advance' || O.phase === 'clash') && F.t > 3) setPhase(game, F, 'advance', CRIES.charge); // (hold: a skirmish's countdown)
       break;
     }
     case 'advance': {

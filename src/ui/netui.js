@@ -160,7 +160,7 @@ function makePause(game) {
         <button class="mbtn" data-a="test">Testar minha rede</button>
         <button class="mbtn" data-a="diag">Diagnóstico de rede</button>
         <button class="mbtn" data-a="settings">Configurações</button>
-        <button class="mbtn" data-a="exit">Salvar e sair<small>para o menu principal</small></button>
+        <button class="mbtn" data-a="exit">${game.skirmish ? 'Sair da escaramuça' : 'Salvar e sair'}<small>para o menu principal</small></button>
       </div>`;
     const on = (a, fn) => { const b = body.querySelector(`[data-a=${a}]`); if (b) b.onclick = fn; };
     on('resume', () => api.close());

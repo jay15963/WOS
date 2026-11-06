@@ -53,6 +53,7 @@ export function initCorpses(game) {
 // ---------- local player death: everything carried goes into the body ----------
 function onLocalDeath(game) {
   const p = game.player;
+  if (game.skirmish?.keepKit?.()) return; // (a skirmish: the kit stays on the player — game/skirmish.js)
   const slots = [];
   const gear = [p.equip.main || null, p.equip.off || null, p.equip.body || null, p.equip.head || null];
   for (const k of SLOTS) if (p.equip[k]) { slots.push([p.equip[k], 1]); p.equip[k] = null; }

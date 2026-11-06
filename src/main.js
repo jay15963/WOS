@@ -6,6 +6,8 @@
 // Test flags (automated two-client harness, docs/SYNC.md §4.6): ?mp=host&sala=CODE hosts directly,
 // ?sala=CODE&autojoin=1 joins directly, ?nosave=1, ?link=bc (BroadcastChannel), ?pid=ID, and on localhost
 // ?fakebuild=X / ?fakeart=<sprite|ph:sprite> / ?fakepaintfail=1; window.wosDebug.setHidden(bool).
+// Skirmish (docs/SKIRMISH.md): the menu's "Escaramuça" (or ?skirmish=1, with ?mp=host&sala=CODE for a room) boots the
+// throwaway arena world (never saved); a guest whose host runs one learns it from the welcome (sk).
 
 import { Renderer } from './engine/renderer.js';
 import { Input } from './engine/input.js';
@@ -33,6 +35,7 @@ import { Session, playerName, normalizeCode, newRoomCode, GRAPHICS_BROKEN } from
 import { netlog, runtime } from './net/netlog.js';
 import { installNetDebug } from './net/digest.js';
 import { applyLook } from './fx/look.js';
+import { SEED as SKIRMISH_SEED } from './game/content/skirmish.js';
 
 const $ = (s) => document.querySelector(s);
 // Yield so the screen can paint; the timeout keeps boot going in background tabs (no rAF there).
@@ -59,6 +62,7 @@ const FLAGS = {
   fakeArt: DEV ? QS.get('fakeart') : null,  // localhost: delete a sprite / mark it as a placeholder ('ph:<name>')
   paintFail: DEV && QS.has('fakepaintfail'), // localhost: one painter group throws
   hills: DEV && QS.has('hills'),            // localhost: sculpt a terrain-height showcase around the spawn (world/hills.js)
+  skirmish: QS.has('skirmish'),             // the skirmish arena (docs/SKIRMISH.md) directly (tests: with ?mp=host&sala=CODE)
 };
 // tests: simulate a hidden tab for the background clock (iframes are never document.hidden)
 const wosDebug = window.wosDebug = { hidden: false, setHidden(b) { this.hidden = !!b; } };
@@ -126,13 +130,13 @@ async function boot() {
     const assets = loadAssets();
     let choice;
     if (FLAGS.mpHost) {
-      choice = { mode: 'host', seed: parseInt(QS.get('seed'), 10) || 4242, code: FLAGS.code || newRoomCode(), direct: true };
+      choice = { mode: 'host', seed: parseInt(QS.get('seed'), 10) || 4242, code: FLAGS.code || newRoomCode(), direct: true, skirmish: FLAGS.skirmish };
     } else if (FLAGS.autojoin && FLAGS.code.length === 6) {
       status(`Entrando na sala ${FLAGS.code}…`, 0.1);
       const session = new Session();
       try { choice = { mode: 'join', session, welcome: await session.join(FLAGS.code) }; } catch (e) { fail(e.message); return; }
-    } else if (QS.has('seed') || PLANET) {
-      choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || 1 };
+    } else if (QS.has('seed') || PLANET || FLAGS.skirmish) {
+      choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || (FLAGS.skirmish ? SKIRMISH_SEED : 1), skirmish: FLAGS.skirmish };
     } else {
       // the loading screen stays until EVERYTHING the menu needs is ready (graphics painted, live background
       // drawn once): painting the atlas under a visible menu made it freeze on slow phones
@@ -144,7 +148,9 @@ async function boot() {
         onShown: () => $('#loading').classList.add('hidden') });
       $('#loading').classList.remove('hidden');
     }
+    if (choice.mode === 'skirmish') choice = { mode: 'single', seed: SKIRMISH_SEED, skirmish: true }; // (the menu's "Escaramuça": a throwaway arena)
     const guest = choice.mode === 'join';
+    const skirmish = !!choice.skirmish || (guest && !!choice.welcome.sk); // (docs/SKIRMISH.md: never saved, nothing touches the survival worlds)
     const seed = guest ? choice.welcome.seed : choice.seed;
     // the world source (docs/STREAMING.md): the host's for a guest; ?source= (dev / tests: classic, synth); the planet (every
     // world now — a save of another source is an old world: ui/worlds.js keeps it out of reach). A planet starts now (its
@@ -158,7 +164,7 @@ async function boot() {
     const { renderer, atlas } = await assets.promise;
 
     // a world of the list (ui/worlds.js): it goes to the top; worlds without an id (dev ?seed=) save by seed as before
-    if (!guest && !FLAGS.noSave) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
+    if (!guest && !FLAGS.noSave && !skirmish) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
     const worldT0 = performance.now(); // (the world part of the boot: source + chunks + systems, without the graphics)
@@ -173,7 +179,7 @@ async function boot() {
     const env = new Environment(seed);
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
-    game.noSave = FLAGS.noSave;
+    game.noSave = FLAGS.noSave || skirmish;
     const spw = world.source?.kind === 'planet' && (world.spawn || world.source.spawn);
     if (spw) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, spw.x, spw.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {
@@ -192,6 +198,13 @@ async function boot() {
     }
     installAmbient(game);
     installSystems(game);
+    if (skirmish) { // the skirmish arena: its state, systems and screens (game/skirmish.js, ui/skirmish.js)
+      const [SKM, SKU] = await Promise.all([import('./game/skirmish.js'), import('./ui/skirmish.js')]);
+      SKM.installSkirmish(game);
+      addSystem(game, SKM.skirmishHostSystem());
+      addSystem(game, SKM.skirmishLocalSystem());
+      addSystem(game, SKU.installSkirmishUI(game));
+    }
     addSystem(game, streamerSystem(allPlayers)); // chunk loading around the players / camera (docs/STREAMING.md)
     installNetDebug(game);
     game.player.name = playerName();
