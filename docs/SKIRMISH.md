@@ -195,8 +195,9 @@ K1, EC1) passam sozinhas. SK1–SK7 e CB1–CB3 passam na rodada inteira; SK6: 1
 - **Os arqueiros NPC usam o Tiro Longo** (`game/npcLob.js`, o mesmo voo / dispersão / dano × 1,3 + 2 do jogador, só os
   inimigos de quem atirou): no cerco os atacantes atiram por cima da paliçada / muralha e os defensores nos que chegam de
   longe; recarga de 3 s cada. Os soldados da escaramuça têm arco simples (tiro longo 18 tiles) e atiram simples até 19:
-  em campo aberto quase só o tiro simples, o tiro longo aparece quando não há linha de tiro. Testes SK7 (escaramuça) e
-  CB3 (jogo normal, saqueador).
+  o tiro longo vem a partir de ~10,5 tiles (`WAR.archer.lobK` 0,55 — um a cada recarga, entre as flechas simples) e
+  sempre que não há linha de tiro. Os arqueiros da guarda (vila, castelo, cidade) também o usam (`npc.js lobAt`). Testes
+  SK7 (escaramuça), CB3 (jogo normal, saqueador) e CB4 (o arqueiro da paliçada).
 
 ## Prints
 

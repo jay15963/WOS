@@ -8,6 +8,7 @@ import { planOf } from './people.js';
 import { npcMove, nearPass, npcPass, lineClear } from './townnav.js';
 import { hasLOS, dealDamage, faceTowards, reach, meleeWall } from './combat.js';
 import { fireArrow, hostProjId } from './projectiles.js';
+import { npcLongShot } from './npcLob.js';
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
 import { allPlayers, inAnyView, hurtPlayer } from './players.js';
@@ -425,6 +426,9 @@ export const hostile = (e, S = null, game = null) => (!e.dead && e.isMob && !e.n
 const isPl = (game, e) => e === game.player || !!e.avatar;
 // a blow / an arrow of the watch: a player takes it on its own client (player.hurt), a creature here
 const hitIt = (game, m, f, amount, opts) => (isPl(game, f) ? hurtPlayer(game, m, f, Math.max(1, Math.round(amount)), opts) : dealDamage(game, m, f, amount, opts));
+// the watch's archers' Tiro Longo (npcLob.js: the player's — farther than the plain shot, and over a palisade / a wall),
+// now and then (its 3 s cool-down); the landing hurts only the place's foes, never its people
+const lobAt = (game, m, f, direct) => npcLongShot(game, m, f, { direct, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'town', canHit: (e) => hostile(e, m.npcS, game), onHit: (g, e, amount, o) => hitIt(g, m, e, amount, o) });
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
@@ -472,6 +476,7 @@ function guardFight(game, rec, m, dt) {
     // a foe it cannot reach): another spot around the foe that has both
     const see = hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, m._tn, f._tn);
     if (d > N.archerRange * 0.85 || !see) {
+      if (lobAt(game, m, f, N.archerRange * 0.85)) return true; // (the long shot while it closes in: beyond its plain shot, or over the palisade)
       const now = game.worldTime, A = m._ap && m._ap.foe === f ? m._ap : (m._ap = { foe: f, d, t: now, alt: null, altT: 0 });
       if (d < A.d - 0.6) { A.d = d; A.t = now; }
       else if (now - A.t > 3 && (!A.alt || now - A.altT > 6)) { A.alt = archerSpot(game, rec, m, f, A.alt); A.altT = now; A.t = now; A.d = d; }
@@ -663,6 +668,7 @@ function upTask(game, rec, m, T, dt) {
   const rng = N.archerRange * heightK(m, f), dd = Math.hypot(f.x - m.x, f.y - m.y);
   faceTowards(m, f);
   const los = dd <= rng && hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, null, f._tn);
+  if (!los && lobAt(game, m, f, rng)) return; // (the long shot: a foe beyond its plain shot, or out of its line — over the battlement)
   // engaged but out of reach / no line of fire: along the walk to a spot that has both (every 1.5 s at most)
   if (!los && d.k === 'wall' && rec.danger) {
     T.reT = (T.reT || 0) - dt;

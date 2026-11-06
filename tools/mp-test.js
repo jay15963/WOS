@@ -12098,6 +12098,88 @@ def('CB3', {
   await t.checkDigest(H, G);
 });
 
+def('CB4', {
+  title: 'CB: the town archers\' Tiro Longo — an archer up on the palisade lobs at a wolf 18 tiles away (out of its plain shot); the guest sees the arc; only the foe is hit',
+  src: 'village', timeout: 200000,
+  expected: 'A village with a palisade near the start, 10 h, both players on its plaza. A wolf (tough, stunned, held) a few tiles outside the palisade rings the bell and the archers go up on the walk (story 1). Then the wolf is moved 18 tiles from one of those archers (held at its spot): past its plain shot (13 × 1,2 a story up = 15,6) and inside its wood bow\'s long shot (18 × 1,2 = 21,6). The archer lobs (a lob projectile on the host, faction town, from it, the shoot animation); the guest sees the same arc (cosmetic, the host\'s id, no owner); a long shot hits the wolf (damage on the host, ability long_shot); one lob per cool-down (≥ 2,6 s) from that archer; no long shot of the town hurts anyone but the wolf (its people, the players); digest equal',
+  api: 'npc.js upTask / guardFight → lobAt → game/npcLob.js npcLongShot (lobSpec, fireLob, fx proj lob / pend); people.js debug',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const per = H.game.townDefense.perimeter(s.id);
+  t.need(per?.walled, 'the palisade line of the village');
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3 && livePeople(H, s.id).some((m) => m.job === 'archer'), 25000, 'the watch is out (an archer among them)');
+  // the bell: a wolf 6.5 tiles outside the palisade log nearest the plaza, away from the gates (as VL9; tough, stunned,
+  // held where we put it)
+  const pc = { x: L.spawn[0], y: L.spawn[1] }, all = [...per.pieces.values()], gates = all.filter((p) => p.gate);
+  const logs = all.filter((p) => !p.gate && Math.abs(p.fx) + Math.abs(p.fy) < 1.01 && gates.every((g) => Math.hypot(g.x - p.x, g.y - p.y) > 6))
+    .sort((a, b) => Math.hypot(a.x - pc.x, a.y - pc.y) - Math.hypot(b.x - pc.x, b.y - pc.y));
+  t.need(logs.length, 'a palisade log away from the gates');
+  const log = logs[0];
+  const ws = A.freeSpot(H, MH, log.cx + log.fx * 6.5, log.cy + log.fy * 6.5, { rMin: 0, rMax: 2, r: 0.36 });
+  t.need(ws, 'room for the wolf outside the palisade');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+  wolf.hp = wolf.maxHp = 100000;
+  let at = ws;
+  const hold = setInterval(() => { if (!wolf.dead) { wolf.stunT = 30; wolf.hp = Math.max(wolf.hp, 50000); wolf.x = at[0]; wolf.y = at[1]; wolf.vx = wolf.vy = 0; } }, 50);
+  t.defer(() => { clearInterval(hold); wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  await t.waitFor(() => H.game.people.debug(s.id).danger, 10000, 'the bell rings (danger)', () => `wolf @${f2(wolf.x)},${f2(wolf.y)} in ${H.game.entities.includes(wolf)} · log ${f2(log.cx)},${f2(log.cy)} f ${log.fx},${log.fy}`);
+  const D = () => H.game.people.debug(s.id), up = () => D().live.filter((m) => m.job === 'archer' && m.duty?.k === 'wall' && m.z > 0.9);
+  await t.waitFor(() => up().length >= 1, 45000, 'an archer up on the palisade', () => D().live.filter((m) => m.job === 'archer').map((m) => `${m.task}^${f2(m.z)} ${m.duty?.k || '-'}`).join(' '));
+  // the archer and a spot 18 tiles from it, inside the place's land (its watch scans there), no roof over the archer
+  const ent = (nid) => H.game.entities.find((e) => e.nid === nid), w = H.game.world;
+  let ar = null, spot = null;
+  for (const q of up()) {
+    const e = ent(q.nid);
+    if (!e || w.roofAtPoint(e.x, e.y)) continue;
+    const S = e.npcS, R = S.s.r + 8;
+    for (let k = 0; k < 36 && !spot; k++) {
+      const a = (k / 36) * Math.PI * 2, c = A.freeSpot(H, MH, e.x + Math.cos(a) * 18, e.y + Math.sin(a) * 18, { rMin: 0, rMax: 0.6, r: 0.36 });
+      if (!c) continue;
+      const d = Math.hypot(c[0] - e.x, c[1] - e.y);
+      if (d > 17.4 && d < 19 && Math.hypot(w.dx(c[0], S.s.x), c[1] - S.s.y) < R) spot = c;
+    }
+    if (spot) { ar = e; break; }
+  }
+  t.need(ar && spot, 'a spot 18 tiles from a wall archer, inside the village land');
+  t.check(ar.weapon === 'bow_wood', 'a village archer carries a wood bow', ar.weapon);
+  at = spot; wolf.x = spot[0]; wolf.y = spot[1];
+  const home = [ar.x, ar.y], z0 = ar.z;
+  const holdA = setInterval(() => { if (!ar.dead) { ar.x = home[0]; ar.y = home[1]; ar.hp = ar.maxHp; } }, 50);
+  t.defer(() => clearInterval(holdA));
+  const lobsH = [], seenG = new Set(), wolfHits = [], bad = [], acts = [];
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) if (pr.lob && !pr.cosmetic && pr.id && pr.faction === 'town' && !lobsH.some((l) => l.id === pr.id)) lobsH.push({ id: pr.id, t: H.game.worldTime, mine: pr.src === ar, d: Math.hypot(pr.src.x - wolf.x, pr.src.y - wolf.y) });
+    for (const pr of G.game.projectiles || []) if (pr.lob && pr.cosmetic && pr.id && !pr.owner) seenG.add(pr.id);
+    if (ar.action?.type) acts.push(ar.action.type);
+  }, 30);
+  t.on(H, 'damage', (d) => {
+    if (d.ability !== 'long_shot' || !(d.amount > 0)) return;
+    if (d.target === wolf) wolfHits.push({ amount: d.amount, mine: d.src === ar });
+    else if (d.src?.faction === 'town' || d.target === H.game.player) bad.push(`${d.target?.species || d.target?.name || '?'} by ${d.src?.faction || '?'}`);
+  });
+  t.on(G, 'damage', (d) => { if (d.target === G.game.player && d.ability === 'long_shot' && d.amount > 0) bad.push('the guest'); });
+  const mine = () => lobsH.filter((l) => l.mine);
+  await t.waitFor(() => mine().length >= 1, 15000, 'the wall archer lobs at the wolf 18 tiles away (a lob projectile on the host, faction town)',
+    () => `archer ${ar.task?.k || '-'}^${f2(ar.z)} swingT ${f2(ar.swingT)} foe ${ar.task?.foe?.species || '-'} d ${f2(Math.hypot(ar.x - wolf.x, ar.y - wolf.y))} · town lobs ${lobsH.length}`);
+  t.check(mine()[0].d > 15.6 && acts.includes('shoot') && ar.z >= z0 - 0.1, 'from the archer up on the walk, past its plain shot, with the shoot animation', `${f2(mine()[0].d)} tiles · ${[...new Set(acts)].join(',')} · z ${f2(ar.z)}`);
+  await t.waitFor(() => seenG.has(mine()[0].id), RT() + 3000, 'the guest sees the same arc (cosmetic lob, the host\'s id, no owner)');
+  await t.waitFor(() => wolfHits.some((h) => h.mine), 30000, 'a long shot of the archer lands on the wolf', () => `${mine().length} lobs of the archer · ${lobsH.length} of the town · ${wolfHits.length} hits`);
+  const gaps = mine().slice(1).map((l, i) => l.t - mine()[i].t);
+  t.check(gaps.every((g) => g >= 2.6), 'one lob per cool-down (≈ 3 s) from that archer', gaps.map(f2).join(' ') || 'one lob');
+  t.check(!bad.length, 'no long shot of the town hurt its people or a player', bad.join(' · '));
+  t.metric('townLob', { lobs: mine().length, town: lobsH.length, hits: wolfHits.length, dmg: wolfHits.slice(0, 4).map((h) => h.amount) });
+  clearInterval(holdA); clearInterval(hold);
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  await t.waitFor(() => !H.game.people.debug(s.id).danger, 60000, 'the all-clear');
+  await t.checkDigest(H, G);
+});
+
 def('SK7', {
   title: 'SK: the soldiers\' Tiro Longo — the attackers\' archers lob over the palisade (the guest sees the arcs), a long shot hurts the foe and never its own side',
   timeout: 300000,

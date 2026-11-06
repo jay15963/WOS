@@ -1661,10 +1661,14 @@ cada fase e a cada 6 s. Sem `game.realms` nada entra em guerra.
   mesmo `canHit` das flechas dele: nunca o próprio lado); caindo numa muralha / rocha / telhado não acerta ninguém.
   Ligado nos soldados (`soldier.js`: batalhas, cercos, exércitos, a escaramuça — `pickFoe` aceita o inimigo atrás do muro
   dentro do alcance do tiro longo; sem linha, o arqueiro espera o próximo tiro longo em vez de cravar flecha na paliçada)
-  e nos saqueadores / esqueletos arqueiros (`bandits.js archer()`: tiro simples até 9 tiles). Os arqueiros das vilas
-  (`npc.js`) usam o mesmo `npcLongShot` (API no cabeçalho do módulo). Os soldados atiram simples até 19 tiles
-  (`WAR.archer.range`), mais que o tiro longo do arco simples: o deles aparece por cima de muros e, com arco composto, de
-  19 a 22 tiles. `projectiles.js` guarda no máximo 80 projéteis e agora descarta primeiro os cravados — num cerco grande
+  e nos saqueadores / esqueletos arqueiros (`bandits.js archer()`: tiro simples até 9 tiles). **Os arqueiros da guarda
+  das vilas, castelos e cidades** (`npc.js lobAt`) também: lá de cima da paliçada / muralha (`upTask`) no inimigo além do
+  tiro simples (13 tiles × `heightK`: 15,6 na paliçada) ou sem linha de tiro, e no chão (`guardFight`) enquanto se
+  aproximam (além de 11 tiles, ou por cima da paliçada); a vila tem arco simples (18 × altura), castelo e cidade arco
+  composto (22 × altura); na queda só os inimigos do lugar (`hostile`), nunca o povo nem um jogador. Os soldados atiram
+  simples até 19 tiles (`WAR.archer.range`), mais que o tiro longo do arco simples (18): para que o tiro longo apareça
+  também em campo aberto, eles o usam a partir de 55 % do tiro simples (`WAR.archer.lobK` = 0,55, ~10,5 tiles; um a
+  cada recarga, entre as flechas simples). Teste CB4 (o arqueiro da paliçada num lobo a 18 tiles). `projectiles.js` guarda no máximo 80 projéteis e agora descarta primeiro os cravados — num cerco grande
   um tiro longo no ar não some antes de cair.
 - **Textos de combate só de quem joga** (`ui/overlay.js`): acerto, erro, esquiva, imune, cura e "Atrás da parede" só
   aparecem quando o jogador local está envolvido (ele, o bicho dele, o projétil dele) — numa batalha de 200 soldados a tela

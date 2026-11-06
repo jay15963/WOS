@@ -459,8 +459,10 @@ export function soldierBrain(game, F, m, dt) {
     if (O.leash && Math.hypot(m.x - O.x, m.y - O.y) > O.leash && Math.hypot(f.x - O.x, f.y - O.y) > O.leash) { m.foe = null; m.state = 'idle'; }
     else if (archer) {
       const d = Math.hypot(f.x - m.x, f.y - m.y), rng = WAR.archer.range * heightK(m, f) * (O.rangeK || 1);
-      // the Tiro Longo (npcLob.js): a foe beyond its plain shot, or one behind a wall / a palisade — only its foes are hit
-      if (npcLongShot(game, m, f, { direct: rng, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'army', canHit: arrowHits(game, m), onHit: (g, e, amount, o) => hitFoe(g, m, e, amount, o) })) return;
+      // the Tiro Longo (npcLob.js): now and then (3 s) at a foe past ~55 % of its plain shot — its plain arrows reach 19 tiles,
+      // past a wood bow's lob (18): so it is the field's long shot too, not only over walls —, or one behind a wall / a
+      // palisade; only its foes are hit
+      if (npcLongShot(game, m, f, { direct: rng * WAR.archer.lobK, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'army', canHit: arrowHits(game, m), onHit: (g, e, amount, o) => hitFoe(g, m, e, amount, o) })) return;
       const lr = d >= 4 ? lobReach(game, m, f) : 0;
       if (lr >= d && d <= rng && !lineOfFire(game, m, f)) { faceTowards(m, f); m.moving = false; return; } // (behind a wall: the next long shot, not an arrow into the logs)
       if (d > rng || d < 1.2) {

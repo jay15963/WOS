@@ -16,7 +16,7 @@ export const WAR = {
   speed: { march: 1.55, walk: 1.7, run: 3.4, charge: 3.9, retreat: 3.0 },
   // melee / archers
   sight: 14,           // tiles: a soldier sees a foe this far (archers: their range)
-  archer: { range: 19, min: 3, volleyK: 0.92, wallBonus: 1.25 },
+  archer: { range: 19, min: 3, volleyK: 0.92, wallBonus: 1.25, lobK: 0.55 }, // (lobK: the long shot from this share of the plain range — soldier.js)
   leash: 26,           // tiles from its anchor a soldier chases a foe in a battle line
   pfoeT: 22,           // s: a player who hurt a soldier is its foe this long (refreshed by every hit)
   // the general's rally and the morale (0..100): losses (% of the side's men) and the general falling lower it; the
