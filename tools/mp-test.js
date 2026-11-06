@@ -10982,14 +10982,14 @@ def('SK4', {
 def('SK5', {
   title: 'SK: "Escaramuça" on the main menu opens the lobby (one player); a castle siege with the player as a defender starts and shows the board',
   timeout: 240000,
-  expected: 'The main menu has the "Escaramuça" button next to "Multijogador"; a click boots the arena (game.skirmish, game.noSave) and shows its lobby with the player alone and "Abrir para amigos"; the solo player sets a siege of a castle (side B, the archer) and starts: the castle is made, the siege force and the garrison are up, the board shows both sides; then back to the lobby',
+  expected: 'The main menu has the "Escaramuça" button next to "Multijogador"; a click boots the arena (game.skirmish, game.noSave) and shows its lobby with the player alone and "Abrir para amigos" — which opens a room right there (the code in the lobby, the pick kept under the new id of the host); the player sets a siege of a castle (side B, the archer) and starts: the castle is made, the siege force and the garrison are up, the board shows both sides; then back to the lobby',
   api: 'ui/menu.js [data-a=skirmish], main.js choice mode skirmish, ui/skirmish.js',
 }, async (t) => {
   if (SKP.pair) { frames.close(SKP.pair.G); frames.close(SKP.pair.H); SKP.pair = null; } // (one game at a time: RAM)
   env.closePair();
   const pid = 's' + rand(7);
   presetPid(pid);
-  const S = t.open('sk-solo', `pid=${pid}`, pid);
+  const S = t.open('sk-solo', `pid=${pid}${CFG.link}`, pid);
   const btn = await t.waitFor(() => S.doc?.querySelector('#menu [data-a=skirmish]'), CFG.bootMs, 'the main menu with "Escaramuça"');
   t.check(/Escaramuça/.test(btn.textContent) && btn.previousElementSibling?.dataset.a === 'mp', '"Escaramuça" next to "Multijogador"');
   btn.click();
@@ -10997,6 +10997,11 @@ def('SK5', {
   S.hookUi();
   t.check(S.game.noSave, 'the arena is never saved');
   await t.waitFor(() => S.doc.querySelector('#sk .sk-lobby:not(.hidden) [data-a=open]'), 15000, 'its lobby, with "Abrir para amigos"');
+  t.check(S.game.skirmish.st.picks.length === 1 && S.game.skirmish.st.picks[0][0] === S.game.net.pid, 'the player alone in the lobby');
+  // "Abrir para amigos": the room opens from the lobby, the player keeps its pick under its new id
+  S.doc.querySelector('#sk [data-a=open]').click();
+  await t.waitFor(() => S.session?.role === 'host' && S.doc.querySelector('#sk .sk-code b')?.textContent === S.session.code, 8000, 'the room is open: its code in the lobby');
+  await t.waitFor(() => S.game.skirmish.st.picks.length === 1 && S.game.skirmish.st.picks[0][0] === S.game.net.pid && S.game.net.pid === S.session.pid, 3000, 'the pick follows the new id of the host');
   S.game.net.request('sk.set', { mode: 'siege', place: 'castle', total: 80, pa: 50 });
   S.game.net.request('sk.pick', { side: 'b', cls: 'archer' });
   await t.waitFor(() => S.game.skirmish.st.set.place === 'castle' && S.game.skirmish.st.picks[0][2] === 'b', 4000, 'a castle siege, the player defends');

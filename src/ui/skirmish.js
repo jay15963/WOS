@@ -119,6 +119,7 @@ export function installSkirmishUI(game) {
             <div class="sk-cols">${sideCol('a')}${sideCol('b')}</div>
             <h3>Sua classe</h3>
             <div class="sk-cards c3 cls">${CLASS_LIST.map((c) => `<button class="sk-card cl${my?.[3] === c ? ' on' : ''}" data-g="cls" data-v="${c}" aria-pressed="${my?.[3] === c}"><span class="sk-cls">${itemImg(CLASSES[c].main)}</span><span><b>${CLASSES[c].pt}</b><small>${esc(CLASSES[c].kitPt)}</small></span></button>`).join('')}</div>
+            <div class="sk-how"><b>Como se vence</b><p>${esc(MODES[mode].how)}</p><p>Quem cai renasce em ${MATCH.respawn} s na retaguarda do seu lado, com todo o equipamento. Sem frio e sem fome: só a luta fere.</p></div>
             ${st.res ? `<p class="sk-last">Última partida: <b>${esc(winText(st.res))}</b> — ${esc(st.res.why)}</p>` : ''}
           </section>
         </div>

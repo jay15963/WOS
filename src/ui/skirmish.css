@@ -84,6 +84,9 @@
 .sk-share b { font: 800 italic 20px var(--n-fd); color: var(--n-mustard-hi); }
 .sk-share em { font-style: normal; color: #bfe6ff; }
 .sk-rule, .sk-last { margin: 8px 0 0; font: 500 12.5px/1.35 var(--n-fd); color: #a89070; }
+.sk-how { margin: 12px 0 0; padding: 8px 11px; border-radius: 5px; border: 1px dashed rgba(242, 228, 196, .22); background: rgba(20, 12, 6, .3); }
+.sk-how b { display: block; font: 700 13px var(--n-fd); letter-spacing: 1.2px; text-transform: uppercase; color: var(--n-mustard-hi); }
+.sk-how p { margin: 4px 0 0; font: 500 13.5px/1.35 var(--n-fd); color: #d9c7a4; }
 .sk-last b { color: var(--n-cream); }
 
 /* the two sides */
@@ -188,6 +191,18 @@
 .rs-table .n { text-align: right; font: 800 italic 18px var(--n-fd); font-variant-numeric: tabular-nums; }
 .rs-table tr.me td { background: rgba(247, 217, 122, .12); }
 
+/* ---------- a short window (a laptop): compact cards so the sliders show without scrolling ---------- */
+@media (max-height: 780px) and (min-height: 521px) {
+  .sk-set h3, .sk-sides h3 { margin: 9px 0 5px; }
+  .sk-card { min-height: 50px; padding: 6px 9px; }
+  .sk-cards.c4 .sk-card small { display: none; }
+  .sk-card small { font-size: 11.5px; }
+  .sk-where { margin-top: 6px; padding: 5px 9px; }
+  .sk-range { height: 26px; }
+  .sk-head { padding: 7px 14px; }
+  .sk-foot { padding: 7px 14px; }
+}
+
 /* ---------- phone (915 × 412 and smaller heights): the whole screen, compact ---------- */
 @media (max-height: 520px), (max-width: 760px) {
   .sk-lobby { padding: 0; }
@@ -214,6 +229,9 @@
   .sk-share { font-size: 14px; margin-top: 3px; }
   .sk-share b { font-size: 17px; }
   .sk-rule, .sk-last { font-size: 11px; margin-top: 4px; }
+  .sk-how { margin-top: 7px; padding: 5px 8px; }
+  .sk-how p { font-size: 12px; }
+  .sk-how p + p { display: none; }
   .sk-sidehead { padding: 4px 7px; }
   .sk-sidehead b { font-size: 14.5px; }
   .sk-sidehead small { font-size: 11px; }

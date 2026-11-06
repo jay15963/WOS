@@ -7,9 +7,12 @@ export const SEED = 4242;
 
 // ---------- the settings of a match (the lobby; the host sets them) ----------
 export const MODES = {
-  field:    { pt: 'Batalha em campo', sub: 'Dois exércitos em campo aberto: linhas, flechas, o choque.' },
-  siege:    { pt: 'Cerco', sub: 'Atacantes com acampamento e máquinas contra um lugar com muralhas e guarda.' },
-  monsters: { pt: 'Defesa contra monstros', sub: 'Uma noite de inverno: a onda de monstros contra os defensores.' },
+  field:    { pt: 'Batalha em campo', sub: 'Dois exércitos em campo aberto: linhas, flechas, o choque.',
+              how: 'Vence o lado que fizer o outro debandar — a moral cai com as baixas e com a morte do general. Sem soldados, um duelo: o primeiro lado a 10 abates.' },
+  siege:    { pt: 'Cerco', sub: 'Atacantes com acampamento e máquinas contra um lugar com muralhas e guarda.',
+              how: 'O acampamento já está montado e as máquinas prontas (os atacantes podem empurrar o aríete e a torre e operar os trabucos). Atacantes: tomem a praça. Defensores: resistam até o exército recuar.' },
+  monsters: { pt: 'Defesa contra monstros', sub: 'Uma noite de inverno: a onda de monstros contra os defensores.',
+              how: 'Todos defendem. A noite dura a partida inteira: destruam a onda. Se os monstros tomarem a praça ou caírem todos os defensores, o lugar cai.' },
 };
 export const MODE_LIST = ['field', 'siege', 'monsters'];
 // the place of a siege / a monster defense: a real settlement of the realm (the nearest of that kind to the start)

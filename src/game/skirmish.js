@@ -69,6 +69,9 @@ export function installSkirmish(game, { quality = game.quality } = {}) {
   Object.assign(WAR.cap, { total: C.total, side: C.side, siege: C.siege, low: 1 });
   SK.cap = C;
   if (game.net.auth) {
+    // a still world: the kingdoms' AI paused (no war breaks out by itself), clear skies
+    game.realms?.dbg?.stop?.(true);
+    game.env.setWeather?.('clear'); game.env.weatherT = 1e9;
     H.st = { v: 0, phase: 'lobby', set: { ...DEFAULTS }, picks: [], host: game.net.pid, arena: null, match: null, score: null, res: null };
     H.st.arena = arenaPub(arenaFor(game, H.st.set));
     flush(game, true);
