@@ -10959,10 +10959,10 @@ def('WA3', {
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const R = realmOf(H), sp = H.game.world.spawn;
-  const c = H.game.raids.dbg.calibrate(8000, 4242);
+  const tc = H.win.performance.now(), c = H.game.raids.dbg.calibrate(8000, 4242), calibMs = H.win.performance.now() - tc;
   t.check(c.rate >= 0.03 && c.rate <= 0.075, `the monsters win ~5 % of the attacks by numbers (${c.lost} of ${c.n} = ${(c.rate * 100).toFixed(2)} %)`, `hordes ${c.horde} (lost ${c.hordeLost}) · guards dead ${(c.guardsDead * 100).toFixed(1)} % · ${JSON.stringify(c.byKind)}`);
   t.check(c.hordeLost > (c.lost - c.hordeLost), 'most of the losses come from a horde', `${c.hordeLost} / ${c.lost}`);
-  t.metric('lossRate', +(c.rate * 100).toFixed(2)); t.metric('attacks', c.n);
+  t.metric('lossRate', +(c.rate * 100).toFixed(2)); t.metric('attacks', c.n); t.metric('msPerFight', +(calibMs / c.n).toFixed(3)); t.metric('byKind', JSON.stringify(c.byKind));
   const uid = await ecoReady(t, H, G);
   const far = R.settlements.filter((s) => s.kind === 'village' && s.walls === 'palisade' && Math.hypot(s.x - sp.x, s.y - sp.y) > 300 && Math.hypot(s.x - sp.x, s.y - sp.y) < 1500).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
   t.need(far.length >= 2, 'two far villages with a palisade');
@@ -10994,6 +10994,7 @@ def('WA3', {
   const o2 = H.game.raids.dbg.force(v2.id, { live: false, side: 0 });
   t.check(o2?.far?.args && raidLog(H, v2.id), `an attack by numbers on ${v2.name}: ${o2.far.args.out === 1 ? 'held' : 'lost'}`, JSON.stringify({ n: o2.far.W.n, g: o2.far.args.gd, F: o2.far.F.out }));
   t.check(o2.far.args.gd <= MH.raidsim.guardsOf(v2).n, 'its guards dead ≤ its guards');
+  { const st = H.game.raids.dbg.stats(); t.metric('farMs', +(st.farMs / Math.max(1, st.far)).toFixed(2)); }
   await t.waitFor(() => raidLog(G, v2.id), RT() + 2000, 'its log row on the guest');
   // the next morning: rebuilt by numbers (not the guest's house)
   nightClock(H, 10);
@@ -11115,7 +11116,7 @@ def('WA6', {
   };
   for (let k = 0; k < N; k++) {
     await fresh();
-    const horde = k >= N - Math.max(1, Math.round(N / 3));
+    const horde = k >= N - (Q.get('raidhorde') != null ? +Q.get('raidhorde') : Math.max(1, Math.round(N / 3))); // (&raidhorde=K: the last K are hordes)
     const pred = H.game.raids.dbg.model(s.id, { horde }, 2000);
     const fl = waFightLog(t, H, s.id), t0 = H.game.worldTime;
     const r = H.game.raids.dbg.force(s.id, { side: 6, horde });

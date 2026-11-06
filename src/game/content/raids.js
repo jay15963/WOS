@@ -20,20 +20,21 @@ export const RAID = {
   // fifth of a guard there. A wave's fury puts each monster at 1 / par of a melee guard of the place (power = hp × dps
   // against each other's armour, game/raidsim.js unitStats) — the same balance near the start and at the edge of the world.
   // By kind: the stone walls of castles and cities hold the dead longer under more archers (and a giant comes with them)
-  par: { village: 3.5, castle: 3.4, city: 3.6 }, // a melee guard ≈ par × a monster of a normal wave (in the round model)
+  par: { village: 2.6, castle: 2.6, city: 2.6 }, // a melee guard ≈ par × a monster of a normal wave (in the round model)
   furyMin: 0.75, furyMax: 3.2,
   // the rare horde (owner: "um pouco de chance … de os humanos perderem, mas raro, 5 %"): the night's oldest dead, much
   // harder — the same count (never more monsters than guards), each one stronger (hp and damage × k); a giant comes
   // more often. Calibrated with game/raidsim.js (tools/raid-calib.mjs; on the real realm game.raids.dbg.calibrate and
   // WA3): ~5 % of the attacks are lost — a horde breaks the defense ~3 times in 4, a normal wave about once in 200
-  horde: { p: 0.058, k: { village: 1.35, castle: 1.95, city: 2.0 }, size: [0.82, 0.9] },
+  horde: { p: 0.06, k: { village: 1.35, castle: 1.65, city: 1.6 }, size: [0.82, 0.9] },
   // ---------- the fight (game/raidsim.js) ----------
   // the defense collapses (the attack is LOST) when this share of the melee guards is left (at most 1 in a village) and
   // at least `lostMin` monsters still stand
   lost: { melee: 0.25, lostMin: 2 },
   // how well the live AI fights, against the round model (the live fight measured — WA6, docs/REINOS.md §16): the
   // guards' melee, the monsters' blows, the share of the archers with the wave in reach
-  eff: { g: 1, m: 2.3, a: 0.7 },
+  eff: { g: 1, m: 1.3, a: 0.35 },
+  focus: 5,                  // the monsters at the gap gang up on the first holders (a fifth of them at a time: the live fight)
   // ---------- near the players (game/raids.js) ----------
   liveCap: 24,               // wave creatures alive at once near the players (low quality: × 0.6) — the rest wait in the dark
   feedEvery: 1.4,            // s between two reserves walking in as the ones out fall

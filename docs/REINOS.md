@@ -1879,12 +1879,15 @@ o sino não repete o aviso), `npc.js` / `towns.js` (o povo não conserta nem ref
   portão na linha (as regras dos andarilhos: brecha), entra e luta com a guarda.
 - **A força** (o equilíbrio do §7b): por números puros a guarda é muito mais forte que os mortos da noite do mesmo nível
   (×1,6 de vida, ×1,5 de dano, armas de ferro, escudo, elmo — longe do início um andarilho vale ~1/5 de um guarda). Por
-  isso cada monstro da onda tem uma **fúria** (vida e dano ×) que o deixa em **1/1,5 de um guarda corpo a corpo** do lugar
-  (castelo / cidade: 1/1,6) — calculada com os números do próprio jogo (vida, dano, ritmo da arma, armadura de cada um
-  contra o nível do outro). Assim a batalha é igual perto do início e na borda do mundo: a guarda vence, mas perde gente.
+  isso cada monstro da onda tem uma **fúria** (vida e dano ×, entre 0,75 e 3,2) calculada com os números do próprio jogo
+  (vida, dano, ritmo da arma e golpes especiais, armadura de cada um contra o nível do outro) para que, **na luta ao vivo
+  medida**, um monstro valha ~2/3 de um guarda corpo a corpo do lugar. Assim a batalha é igual perto do início e na borda
+  do mundo: a guarda vence, mas perde gente (uma vila de 8 guardas perde 1–2). Os números: no modelo de rodadas um guarda
+  vale `par` = 3,5 (vila) / 3,4 (castelo) / 3,6 (cidade) monstros, e os mortos batem ×2,3 o que esse modelo previa
+  (`RAID.eff`, medido ao vivo — abaixo).
 - **A horda** (o raro): em **5,8 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
-  guarda, nunca mais que ela), cada um mais forte (vila ×1,27, castelo / cidade ×1,7), o gigante vem mais vezes. O aviso
-  diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
+  guarda, nunca mais que ela), cada um mais forte (vida e dano: vila ×1,35, castelo ×1,95, cidade ×2), o gigante vem mais
+  vezes. O aviso diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
 - **A defesa cai** (op `raid.fall`) quando sobra 1/4 dos guardas de corpo a corpo (vila: 1) e ainda há 2+ monstros de pé:
   "A defesa de X caiu! Os mortos invadem as ruas". A noite está perdida; os mortos andam pelas ruas até morrerem ou o dia
   nascer.
@@ -1971,7 +1974,7 @@ PERF
 
 ### Testes
 
-`tools/mp-test.js` **WA1–WA5** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
+`tools/mp-test.js` **WA1–WA6** e **VL11** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
 `game.raids.dbg.force`; os outros mortos da noite ficam de fora enquanto o cenário roda): WA1 noite de inverno na vila do
 início com os dois jogadores — a onda (70–90 % dos guardas, andarilhos, do norte, todos do lado certo fora da terra), o
 sino, a ameaça do lado certo, os arqueiros na paliçada, o corpo a corpo nos portões / trecho, a paliçada atingida do lado
@@ -1983,7 +1986,12 @@ refaz a porta (Reconstruir); os mortos voltam 1,5 dia depois · WA3 por números
 (8 000 ataques), uma noite perdida longe (mortes, brecha do lado certo, rachaduras, a casa do convidado arrombada e o
 aviso a ele), uma que resistiu, a reconstrução por números no dia seguinte (menos a casa dele) · WA4 o castelo: o gigante
 na frente (conta como 4), o teto de criaturas, a guarda inteira para fora, o golpe do gigante fere a guarda, o custo ·
-WA5 save → load (o ataque acontecendo e o log), o plano da noite igual. Todos terminam com o digest igual.
+WA5 save → load (o ataque acontecendo e o log), o plano da noite igual · **WA6** (só com `&raidsoak=N`: uma calibração
+longa) N ondas seguidas na vila do início contra a guarda inteira (os mortos de volta, a paliçada refeita entre elas), o
+resultado ao vivo ao lado da previsão dos números para o mesmo lugar · **VL11** o alarme até a ameaça ser neutralizada
+(apontamento do dono, §11): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra do lugar e voltando, por
+65 s — o sino nunca para, nenhum arqueiro desce da muralha e todos acertam o lobo (andando pelo adarve até ter alcance), o
+corpo a corpo nos postos; o "tudo calmo" só depois que ele morre. Todos terminam com o digest igual.
 
 TESTS
 

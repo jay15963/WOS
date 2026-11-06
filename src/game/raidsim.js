@@ -156,7 +156,7 @@ export function fight(place, wave, R, o = {}) {
     inT += dt;
     const cap = (walled ? (gate ? 4 : 3) : 99) + Math.floor(inT / 8);
     const front = ms.filter((m) => !m.ranged).slice(0, cap), engG = Math.min(alive(mel), front.length + 2);
-    const kG = Math.max(1, Math.ceil(front.length / 2)), kM = Math.max(1, Math.ceil(engG / 2));
+    const kG = Math.max(1, Math.ceil(front.length / (RAID.focus ?? 2))), kM = Math.max(1, Math.ceil(engG / 2));
     for (const m of front) {
       if (!alive(mel) && !alive(arch)) break;
       const tg = alive(mel) ? mel : arch, U = tg === mel ? G : A;
