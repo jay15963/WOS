@@ -2009,7 +2009,7 @@ guarda inteira sai durante o ataque; o alarme dura até a ameaça ser neutraliza
   vale `par` = 2,6 monstros, com o modelo ajustado ao que a luta ao vivo mostrou (`RAID.eff`: os mortos batem ×1,3, um
   terço dos arqueiros tem a onda no alcance, os mortos na brecha batem nos primeiros guardas — `RAID.focus`; medido em WA6,
   abaixo).
-- **A horda** (o raro): em **6 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
+- **A horda** (o raro): em **7,2 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
   guarda, nunca mais que ela), cada um mais forte (vida e dano: vila ×1,35, castelo ×1,65, cidade ×1,6), o gigante vem
   mais vezes. O aviso diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
 - **A defesa cai** (op `raid.fall`) quando sobra 1/4 dos guardas de corpo a corpo (vila: 1) e ainda há 2+ monstros de pé:
@@ -2072,13 +2072,14 @@ dos mortos (`undead.js`), o kit da guarda (`people.js`). Medido:
 
 | Amostra | Ataques | Perdidos | Hordas (perdidas) | Ondas normais perdidas | Guardas mortos |
 |---|---|---|---|---|---|
-| Reino sintético (`tools/raid-calib.mjs 40000 7`: 77 % vilas, 17 % castelos, 6 % cidades, 3 famílias) | 40 000 | **2 065 (5,16 %)** | 2 354 (85 %) | 57 (0,15 %) | 20,1 % |
-| — vila com paliçada / aberta | | 5,4 % / 5,6 % | 83 % / 88 % | 0,16 % / 0,33 % | 19 % / 27 % |
-| — castelo / cidade | | 5,4 % / 5,6 % | 87 % / 90 % | 0,21 % / 0 % | 18 % / 17 % |
 | O reino de verdade (semente 4242, os 240 lugares com o clima, a família e o nível de cada um: `game.raids.dbg.calibrate`, WA3) | 8 000 | **406 (5,08 %)** | 603 (386: 64 %) | 0,3 % | 21 % |
+| Reino sintético (`tools/raid-calib.mjs 40000 7`: 77 % vilas, 17 % castelos, 6 % cidades, 3 famílias, níveis sorteados) | 40 000 | 2 527 (6,32 %) | 2 913 (2 454: 84 %) | 73 (0,20 %) | 20,2 % |
+| — vila com paliçada / aberta | | 6,1 % / 6,5 % | 84 % / 88 % | 0,11 % / 0,32 % | 19 % / 27 % |
+| — castelo / cidade | | 6,3 % / 5,4 % | 86 % / 71 % | 0,11 % / 0 % | 18 % / 17 % |
 
-As ondas normais quase nunca vencem (~0,2 %) e matam ~1/5 da guarda (uma vila de 8 perde 1–2); uma horda vence ~4 vezes em
-5. Cada tipo de lugar fica entre 5,4 e 5,6 %.
+A taxa vale pelo reino de verdade (a chance da horda, 7,2 %, foi acertada nele: com 6 % dava 4,1 %); a amostra sintética,
+com níveis sorteados, fica um pouco acima (6,3 %). As ondas normais quase nunca vencem (~0,2 %) e matam ~1/5 da guarda
+(uma vila de 8 perde 1–2); uma horda vence 2 a 4 vezes em 5 conforme o lugar.
 
 ### Ao vivo (perto dos jogadores)
 
@@ -2099,7 +2100,7 @@ paliçada refeita entre elas) e anota, de cada uma, o resultado ao vivo e a prev
   dos arqueiros no alcance, os mortos na brecha batendo nos primeiros guardas) e recalibrado (par 2,6, horda ×1,35–1,65).
 - **Com os números finais** (6 ondas): normais **2 de 2 seguras** (0 e 2 guardas mortos; previsão 1,3); hordas **3 de 4
   perdidas** (previsão 79 %; 4, 2, 5 e 4 guardas mortos — previsão 4,0; 2–7 moradores mortos nas perdidas). A taxa ao vivo
-  estimada: 0,94 × ~0 % + 0,06 × ~75–80 % ≈ **4,5–5 %**, a mesma dos números. (Amostras pequenas — cada onda leva 40–120 s
+  estimada: 0,928 × ~0,2 % + 0,072 × 64–79 % ≈ **5–6 %**, a mesma dos números. (Amostras pequenas — cada onda leva 40–120 s
   de jogo; o modelo é o que dá a taxa, e a luta ao vivo confere que ele bate com ela.)
 
 ### Multijogador e saves
