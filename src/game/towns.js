@@ -41,6 +41,7 @@ export function installTowns(game) {
   Object.assign(T, { realm, live: new Map(), jobs: [], penQ: [], wait: new Map(), v: T.v || 0, stats: { placed: 0, ms: 0, maxMs: 0, jobs: 0, unloaded: 0 } });
   if (!game.gates) game.gates = new Map();
   T.layout = (sid) => (realm ? settlementLayout(realm._planet || w.source.planet, realm, sid) : null);
+  T.layoutCached = (sid) => (realm ? layoutCached(realm, sid) : null); // (only when this peer planned it already: game/raids.js)
   T.info = (sid) => info(game, sid);
   T.at = (x, y) => placeAt(game, x, y);
   T.canReach = (a, b) => canReach(realm, a, b);
@@ -449,6 +450,7 @@ function hostTick(game) {
     if (!r.gone || game.worldTime - r.at < RESTORE_AFTER * day) continue;
     if (minPlayerDist(game, r.x + 0.5, r.y + 0.5) < RESTORE_FAR) continue;
     if (game.realms?.holdRepair?.(+id.slice(1).split('.')[0])) continue; // (a siege there, or just over: the breaches stay a while — phase 3a)
+    if (TOWN.privatePiece?.(game, id)) continue; // (a house a player owns: his to rebuild — game/raids.js, docs/REINOS.md §16)
     ids.push(id);
     if (ids.length >= 200) break;
   }

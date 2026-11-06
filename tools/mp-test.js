@@ -9152,10 +9152,10 @@ function frontOf(f, k, e, kind = null) {
 const hexC = (c) => c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 
 def('WR1', {
-  title: 'WR: the same diplomacy on both peers; never a war across the sea; the start kingdom\'s 2-day grace',
+  title: 'WR: the same diplomacy on both peers; never a war across the sea; no grace for the start kingdom (only the world\'s calm first day)',
   src: 'village', timeout: 120000,
-  expected: 'Both peers hold the same kingdoms\' state (relations, tensions, every place\'s home army, the start kingdom, its first day: digest part realms); realm.rel between kingdoms of different land masses is ignored on both (no ships); between neighbours of one land mass it takes on both and shows in rel / atWar; the start kingdom (the spawn village\'s) is in its grace on its first 2 days — the daily diplomacy never puts it at war then, even with the tension at 99 — and out of it from the third day, when the same tension makes the war come; digest equal',
-  api: 'game/realms.js (game.realms.rel / atWar / inGrace, dayTick), game/mut/realms.js (realm.rel, realm.day, realmDigestRows), content/war.js WAR.graceDays',
+  expected: 'Both peers hold the same kingdoms\' state (relations, tensions, every place\'s home army, the start kingdom, its first day: digest part realms); realm.rel between kingdoms of different land masses is ignored on both (no ships); between neighbours of one land mass it takes on both and shows in rel / atWar; the start kingdom (the spawn village\'s) has no grace of its own (owner: removed): on the world\'s first day every kingdom is calm — the daily diplomacy puts nobody at war then, even with the tension at 99 — and from the second day the same tension makes the war come to the start kingdom too; digest equal',
+  api: 'game/realms.js (game.realms.rel / atWar / inGrace, dayTick), game/mut/realms.js (realm.rel, realm.day, realmDigestRows), content/war.js WAR.quietDays',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const RH = RZ(H), RG = RZ(G), R = realmOf(H);
@@ -9174,34 +9174,34 @@ def('WR1', {
   t.check(RH.rel(k0.id, far.id) === 'neutral' && RG.rel(k0.id, far.id) === 'neutral' && !RG.atWar(k0.id, far.id), 'kingdoms of different land masses: never at war (the op is ignored on both)', `${k0.name} × ${far.name}: ${RG.rel(k0.id, far.id)}`);
   t.check(RG.rel(VAL, VAL) === 'self' && RG.relInfo(VAL, RAB).by === VAL, 'rel(k, k) = self; who declared it', RG.relInfo(VAL, RAB).by);
   await wrQuiet(t, H, G);
-  // the grace: the start kingdom's rivals at tension 99 every day — never a war in its first 2 days
+  // no grace of its own for the start kingdom (owner, 2026-11-06): only the world's first day is calm, for every kingdom
   const K0 = RH.k0, rivals = RH.dbg.pairs().filter((p) => p[0] === K0 || p[1] === K0).map((p) => (p[0] === K0 ? p[1] : p[0]));
   t.need(rivals.length, 'the start kingdom has relations with somebody');
   const hot = () => { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 99]), weary: [] }); H.game.net.flush(); };
-  const day0 = RH.day0, d1 = H.game.env.dayIndex;
+  const day0 = RH.day0, d1 = H.game.env.dayIndex, want = day0 + WAR_QUIET(MH);
   t.defer(() => { try { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 20]), weary: [] }); H.game.net.flush(); } catch { /* ignore */ } });
-  if (d1 < day0 + 2) {
-    t.check(RH.inGrace(K0) && RG.inGrace(K0), 'the start kingdom in its grace on both (day ' + d1 + ')');
+  t.check(MH.war.WAR.graceDays === undefined, 'the start kingdom has no grace of its own (WAR.graceDays is gone)');
+  if (d1 < want) {
+    t.check(RH.inGrace(K0) && RG.inGrace(K0) && RG.inGrace(rivals[0]), 'the world\'s first day: calm for every kingdom on both (day ' + d1 + ')');
     RH.H.noDiplo = false;
     for (let k = 0; k < 6; k++) { hot(); RH.dbg.day(); }
     RH.H.noDiplo = true;
     H.game.net.flush();
     await t.sleep(RT() + 200);
-    t.check(!rivals.some((r) => RG.atWar(K0, r)), 'six days of diplomacy at tension 99: no war with the start kingdom in its grace', rivals.map((r) => RG.rel(K0, r)).join(','));
-  } else t.note(`the world is already on day ${d1} (first day ${day0}): the grace part was checked by its rule only`);
-  // out of the grace (day0 + 2): the same tension brings a war
-  const want = day0 + WAR_GRACE(MH);
-  if (H.game.env.dayIndex < want) { skipDays(H, want - H.game.env.dayIndex); await t.waitFor(() => G.game.env.dayIndex >= want, 3000 + RT(), 'the third day of the world on both'); }
-  t.check(!RH.inGrace(K0) && !RG.inGrace(K0), 'from day ' + want + ': the grace is over', H.game.env.dayIndex);
+    t.check(!rivals.some((r) => RG.atWar(K0, r)), 'six rounds of diplomacy at tension 99 on the first day: no war yet', rivals.map((r) => RG.rel(K0, r)).join(','));
+  } else t.note(`the world is already on day ${d1} (first day ${day0}): the calm first day was checked by its rule only`);
+  // from the second day: the same tension brings a war to the start kingdom too
+  if (H.game.env.dayIndex < want) { skipDays(H, want - H.game.env.dayIndex); await t.waitFor(() => G.game.env.dayIndex >= want, 3000 + RT(), 'the second day of the world on both'); }
+  t.check(!RH.inGrace(K0) && !RG.inGrace(K0), 'from day ' + want + ' (the second day): the start kingdom is not protected', H.game.env.dayIndex);
   RH.H.noDiplo = false;
   for (let k = 0; k < 8 && !rivals.some((r) => RH.atWar(K0, r)); k++) { hot(); RH.dbg.day(); }
   RH.H.noDiplo = true;
   H.game.net.flush();
-  await t.waitFor(() => rivals.some((r) => RG.atWar(K0, r)), 3000 + RT(), 'after the grace the start kingdom can be at war (seen on the guest)', () => rivals.map((r) => `${r}:${RG.rel(K0, r)}`).join(' '));
+  await t.waitFor(() => rivals.some((r) => RG.atWar(K0, r)), 3000 + RT(), 'from the second day the start kingdom can be at war (seen on the guest)', () => rivals.map((r) => `${r}:${RG.rel(K0, r)}`).join(' '));
   await wrQuiet(t, H, G);
   await t.checkDigest(H, G);
 });
-const WAR_GRACE = (M) => M.war.WAR.graceDays;
+const WAR_QUIET = (M) => M.war.WAR.quietDays;
 
 def('WR2', {
   title: 'WR: a forced war (realm.rel) → the member guest hears every change of its kingdom; a campaign gathers and marches; the markets feel it',
@@ -10822,6 +10822,504 @@ def('AR10', {
 });
 
 // =====================================================================================================
+// WA1–WA5 · the winter attacks on the settlements (docs/REINOS.md §16, game/raids.js, game/raidsim.js, game/mut/raids.js,
+// ui/raidHud.js): a wave of the region's dead a bit smaller than the place's guards on a bad-season night; the defense
+// plays out (§11); the rare loss (~5 %, calibrated by numbers); the rebuilding the next day (rented yes, private no); far
+// from the players by numbers. The raids are paused in every scenario (act.js reset); these force them (dbg.force).
+const RAIDS = (f) => f.game.raids;
+const raidLog = (f, sid) => RAIDS(f).log.filter((r) => r[1] === sid).slice(-1)[0] || null;
+const raidRowsOn = (f, M) => JSON.stringify(M.mraids.raidDigestRows(f.game));
+// a bad-season night (the walkers' winter) at the place, at `hour`; back to a spring morning afterwards. false: no hard
+// winter there on any of the next days (the scenario is skipped)
+async function waNight(t, H, MH, s, hour = 21.6) {
+  const SE = MH.seasons, d0 = H.game.env.dayIndex;
+  let wd = -1;
+  for (let k = 1; k < 60 && wd < 0; k++) if (SE.seasonIdAt(SE.seasonClock(d0 + k, hour)) === 'winter') wd = d0 + k;
+  if (wd < 0) return false;
+  H.game.net.emit('env.skip', { hour, day: wd, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush();
+  // (the night's other dead held off while the scenario runs: only the attack's wave comes — walkers.js / giants.js timers)
+  // (and the wild hostiles near the place — the winter's wolf packs —: the watch fights the wave, not them)
+  // (a scenario's own creatures — _waKeep — are spared)
+  const calm = () => { for (const e of H.game.entities) { if (!e.isMob || e.npc || e.dead || e.proxy || e.raid != null || e.stock || e._waKeep || (e.temper || '') !== 'hostile' || Math.hypot(H.game.world.dx(e.x, s.x), e.y - s.y) > s.r + 60) continue; e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
+  const hold = setInterval(() => { H.game._walkT = 1e9; H.game._giantT = 1e9; calm(); }, 500);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  t.defer(() => { clearInterval(hold); H.game._walkT = 4; H.game._giantT = null; });
+  t.defer(() => { const E = H.game.env; let sd = E.dayIndex; for (let k = 1; k < 60; k++) if (SE.seasonIdAt(SE.seasonClock(E.dayIndex + k, 9)) === 'spring') { sd = E.dayIndex + k; break; } H.game.net.emit('env.skip', { hour: 9, day: sd, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush(); });
+  await t.sleep(1200);
+  return !!MH.seasons.hardWinterAt(H.game, s.x, s.y);
+}
+// the place as new (host): its dead back, its broken pieces rebuilt, its cracks gone — what earlier scenarios in the same
+// page left there (a siege's breaches: BT / AR) does not keep the townsfolk busy
+async function waFresh(t, H, s) {
+  for (const k of [...H.game.towns.dead.keys()]) if (k.startsWith(s.id + '.')) H.game.net.emit('town.pop', { sid: s.id, i: +k.split('.')[1], dead: 0 });
+  const gone = [...H.game.towns.state].filter(([id, r]) => id.startsWith(`t${s.id}.`) && r.gone).map(([id]) => id);
+  if (gone.length) H.game.net.emit('town.restore', { ids: gone });
+  for (const [id, r] of [...H.game.towns.state]) if (id.startsWith(`t${s.id}.`) && r.dmg > 0) H.game.net.emit(A.objOn(H, id)?.sdmg ? 'siege.dmg' : 'struct.dmg', { id, d: 0, x: r.x, y: r.y });
+  H.game.net.flush();
+  await t.sleep(600);
+}
+// every wave creature of a live attack (host)
+const waveOf = (H, sid) => H.game.raids.dbg.live(sid)?.ents || [];
+// put an attack down (host): kill its creatures as they come, until it is over
+async function waveDown(t, H, MH, sid, ms = 30000) {
+  const kill = () => { for (const e of H.game.entities) if (e.raid === sid && !e.dead && !e.proxy) { e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
+  const it = setInterval(kill, 250);
+  try { await t.waitFor(() => !H.game.raids.on.has(sid), ms, 'the attack is over (its dead all down)', () => JSON.stringify(H.game.raids.dbg.live(sid) && { ...H.game.raids.dbg.live(sid), ents: undefined })); }
+  finally { clearInterval(it); }
+}
+// the notices seen on a peer while a scenario runs (polled: they come and go)
+function noteLog(t, f) {
+  const seen = new Set();
+  const it = setInterval(() => { for (const n of f.doc.querySelectorAll('.wos-note')) seen.add(n.textContent.replace(/\s+/g, ' ').trim()); }, 250);
+  t.defer(() => clearInterval(it));
+  return seen;
+}
+// the fight in numbers (host 'damage' events): who hit whom, how much, the abilities — a metric updated as it goes (the
+// live fight measured against game/raidsim.js — docs/REINOS.md §16)
+function waFightLog(t, H, sid) {
+  const D = {}, t0 = H.game.worldTime, kind = (e) => (!e ? '?' : e.npc ? (e.npc.job === 'archer' ? 'archer' : e.npc.guard ? 'guard' : 'civ') : e.raid === sid ? (e.giant ? 'giant' : 'mob') : e === H.game.player || e.avatar ? 'player' : e.faction || '?');
+  t.on(H, 'damage', (d) => {
+    if (d.kind !== 'hit' || d.dot) return;
+    const k = `${kind(d.src)}>${kind(d.target)}`, q = D[k] || (D[k] = { n: 0, dmg: 0, ab: {} });
+    q.n++; q.dmg += d.amount || 0;
+    if (d.ability) q.ab[d.ability] = (q.ab[d.ability] || 0) + 1;
+  });
+  const it = setInterval(() => t.metric('fight', `t${Math.round(H.game.worldTime - t0)} ` + Object.entries(D).map(([k, q]) => `${k}:${q.n}/${Math.round(q.dmg)}${Object.keys(q.ab).length ? '(' + Object.entries(q.ab).map(([a, n]) => a + n).join(',') + ')' : ''}`).join(' ')), 1000);
+  t.defer(() => clearInterval(it));
+  return D;
+}
+const sectorOf = (dx, dy) => (((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8);
+const sectorGap = (a, b) => Math.min((a - b + 8) % 8, (b - a + 8) % 8);
+
+def('WA1', {
+  title: 'WA: a winter night near both players — a wave of the region\'s dead a bit smaller than the village\'s guards comes from one side; the bell, the archers on the palisade, the melee at the gate / the stretch; the defense holds',
+  src: 'village', timeout: 260000,
+  expected: 'The start village (palisade) on a winter night (21.6 h), both players on its plaza. An attack comes (dbg.force, the night\'s plan paused): op raid.start on both — the wave is 70–90 % of the village\'s live guards (archers included, so fewer monsters than guards), the region\'s family (Andarilhos do Gelo in the temperate winter), from one side: every monster appears on that side, outside the town land. The bell rings, the defense\'s threat is that side (± 1 sector), every archer out stands on the palisade (story 1), the melee guards at the gates / the stretch / the gaps; the dead hit the wall on their side (a palisade piece cracked or broken); the attack ends (raid.end) with the place HELD (the usual outcome), logged the same on both (guards dead counted), no notice for any single death — the guest saw the attack\'s notice ("… atacam Estrosa pelo …") and its end ("… resistiu ao ataque"); the guards that fell are replaced later like any death; digest equal',
+  api: 'game/raids.js (startLive / feedLive / tickLive / endLive, dbg.force / live), game/walkers.js (raid goal, hitPiece), game/people.js manage (the whole watch out), game/defense.js, mut/raids.js raid.start / raid.end, ui/raidHud.js',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  t.need(s.walls === 'palisade', 'the start village has a palisade', s.walls);
+  if (!await waNight(t, H, MH, s)) { t.note('no hard winter at the start village: skipped'); await t.checkDigest(H, G); return; }
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  await waFresh(t, H, s);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const notes = noteLog(t, G);
+  const dead0 = new Set([...H.game.towns.dead.keys()].filter((k) => k.startsWith(s.id + '.')));
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3, 25000, 'the night watch is out');
+  t.check(H.game.raids.familyOf(s.id) === 'ice' && G.game.raids.familyOf(s.id) === 'ice', 'tonight the start village is in its bad season: the walkers\' winter (both peers)');
+  const side = 6; // (the north)
+  const r = H.game.raids.dbg.force(s.id, { side, horde: false });
+  t.check(r?.live, 'the attack is played live (both players are there)', JSON.stringify(r));
+  t.check(r.n >= Math.round(0.7 * r.g) && r.n <= Math.round(0.9 * r.g) && r.n < r.g && !r.giant, `a wave a bit smaller than the guards: ${r.n} ${r.species} against ${r.g} guards (70–90 %)`, `fury ${r.fury?.toFixed(2)}`);
+  const fl = waFightLog(t, H, s.id);
+  await t.waitFor(() => G.game.raids.on.get(s.id)?.n === r.n && G.game.raids.on.get(s.id)?.g === r.g && G.game.raids.on.get(s.id)?.side === side, RT() + 2000, 'the guest has the attack (raid.start: the same wave, guards, side)');
+  await t.waitFor(() => waveOf(H, s.id).length >= Math.min(r.n, 4), 6000, 'the wave comes out of the dark');
+  const per = H.game.townDefense.perimeter(s.id), fx = Math.cos(side * Math.PI / 4), fy = Math.sin(side * Math.PI / 4);
+  const ws = waveOf(H, s.id);
+  t.check(ws.every((m) => { const dx = H.game.world.dx(m.x, per.cx), dy = m.y - per.cy, d = Math.hypot(dx, dy); return (dx * fx + dy * fy) > 0.6 * d && d > s.r; }), 'every monster on that side, outside the town land', ws.map((m) => `${f2(m.x - per.cx)},${f2(m.y - per.cy)}`).join(' '));
+  t.check(ws.every((m) => m.species === 'walker' && Math.abs(m.maxHp - Math.round(MH.stats.mobStats(MH.data.SPECIES.walker, m.level).maxHp * r.fury)) <= 2), 'the region\'s dead (walkers), with the wave\'s fury on their hp', ws.map((m) => `lv${m.level} ${m.maxHp}`).join(' '));
+  await t.waitFor(() => H.game.people.debug(s.id).danger && G.game.people.alarm.get(s.id), 30000, 'the bell rings (both)');
+  await t.waitFor(() => H.game.people.debug(s.id).def?.th, 8000, 'the defense knows the side');
+  const th = H.game.people.debug(s.id).def.th;
+  t.check(sectorGap(th.sector, side) <= 1, 'the defense faces the attack\'s side', `threat sector ${th.sector} · attack ${side}`);
+  const D = () => H.game.people.debug(s.id), archers = () => D().live.filter((m) => m.job === 'archer'), melee = () => D().live.filter((m) => m.job === 'guard');
+  await t.waitFor(() => archers().length >= 1 && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 40000, 'the archers up on the palisade', () => archers().map((m) => `${m.task}^${f2(m.z)} ${m.duty?.k || '-'}`).join(' '));
+  t.check(melee().length && melee().every((m) => m.duty && ['gate', 'stretch', 'gap', 'reserve'].includes(m.duty.k)), 'the melee guards at the gates / the stretch / the gaps', melee().map((m) => m.duty?.k || '-').join(' '));
+  // (owner: "os soldados não estão focados apenas em uma parte da muralha que é de onde estão vindo o inimigo") the watch on
+  // the side under attack: every archer post on the wall walk of that side, most melee posts there too
+  const alg = (p) => { const dx = p.x - per.cx, dy = p.y - per.cy, d = Math.hypot(dx, dy) || 1; return (dx * Math.cos(side * Math.PI / 4) + dy * Math.sin(side * Math.PI / 4)) / d; };
+  const posts = D().def.posts, ap = posts.filter((p) => p.k === 'wall'), mp = posts.filter((p) => p.k !== 'wall' && p.k !== 'reserve');
+  t.check(ap.length && ap.every((p) => alg(p) > 0.4), 'every archer on the wall walk of the side under attack', ap.map((p) => f2(alg(p))).join(' '));
+  t.check(mp.length && mp.filter((p) => alg(p) > 0.3).length >= Math.ceil(mp.length * 0.7), 'most melee posts on that side too (≥ 70 %)', mp.map((p) => `${p.k}:${f2(alg(p))}`).join(' '));
+  // the wall on their side hit
+  const sideIds = new Set([...per.pieces.values()].filter((q) => q.fx * fx + q.fy * fy > 0.3).map((q) => q.id));
+  await t.waitFor(() => [...sideIds].some((id) => { const st = H.game.towns.state.get(id); return st && (st.gone || st.dmg > 0); }), 90000, 'the dead hit the palisade on their side (a piece cracked / broken)',
+    () => waveOf(H, s.id).map((m) => `${m.state}@${f2(m.x - per.cx)},${f2(m.y - per.cy)} hp${Math.round(m.hp)}`).join(' '));
+  t.metric('wallHit', [...sideIds].filter((id) => H.game.towns.state.get(id)).length);
+  // the end
+  await t.waitFor(() => !H.game.raids.on.has(s.id), 170000, 'the attack is over', () => JSON.stringify({ ...H.game.raids.dbg.live(s.id), ents: undefined }) + ' · guards ' + melee().map((m) => `${m.state}/${m.duty?.k || '-'} hp${Math.round(m.hp)}`).join(' '));
+  await t.waitFor(() => raidLog(G, s.id) && !G.game.raids.on.has(s.id), RT() + 2000, 'the guest has its end (raid.end)');
+  const lh = raidLog(H, s.id), lg = raidLog(G, s.id);
+  t.check(JSON.stringify(lh) === JSON.stringify(lg), 'the same log row on both', JSON.stringify(lh));
+  t.check(lh[2] === 1, 'the place HELD (the usual outcome)', JSON.stringify(lh));
+  const deadNow = [...H.game.towns.dead.keys()].filter((k) => k.startsWith(s.id + '.') && !dead0.has(k));
+  t.check(lh[4] === deadNow.filter((k) => +k.split('.')[1] < MH.raidsim.guardsOf(s).n).length, 'its guards dead counted (the town.pop rows of the night)', `${lh[4]} guards · ${deadNow.length} dead`);
+  t.metric('guardsDead', lh[4]); t.metric('wave', `${r.n}/${r.g}`);
+  // (owner: "os inimigos estão focando mais no jogador do que nos soldados") the dead hit the watch more than the two players
+  const onP = (fl['mob>player']?.n || 0), onW = (fl['mob>guard']?.n || 0) + (fl['mob>archer']?.n || 0);
+  t.check(onW >= onP, 'the dead fought the watch more than the players standing there', `on the watch ${onW} · on the players ${onP}`);
+  await t.waitFor(() => [...notes].some((x) => /resistiu ao ataque|com perdas/.test(x)), 4000, 'the guest saw the end ("… resistiu ao ataque")', () => [...notes].join(' | '));
+  t.check([...notes].some((x) => new RegExp(`atacam ${s.name} pelo norte`).test(x)), 'the guest saw the attack coming ("Andarilhos do Gelo atacam … pelo norte!")', [...notes].join(' | '));
+  t.check(![...notes].some((x) => /morreu|foi morto|caiu em combate/.test(x)), 'no notice for a single death (owner\'s rule)');
+  await t.checkDigest(H, G);
+});
+
+def('WA2', {
+  title: 'WA: the rare loss (forced) — the defense breaks, the place is damaged but its people live; the next day the people rebuild: the guest\'s rented house yes, his bought house and his plot no (his notice; "Consertar" / "Reconstruir")',
+  src: 'village', timeout: 360000,
+  expected: 'At the start village the guest buys a house, rents another and buys a plot with a wall on it. A winter night: a forced lost attack (dbg.force lose: the defense broken — op raid.fall, "A defesa de … caiu!" on the guest) breaks into the bought house, the rented one and a home with people (the night\'s toll by numbers); the dead put down: raid.end LOST on both — some townsfolk may die, never more than 22 % of them and the place keeps its people (≥ 3/4 alive, guards alive); on both peers the doors of the bought and the rented house are destroyed and their walls cracked, the wall on the plot cracked with a persistent crack (sdmg); the guest is told in one notice "Os monstros danificaram sua casa e o que você construiu no seu terreno em …: conserte você mesmo" (the rented one: the people mend it); the mural shows the damage. At dawn the plot\'s crack stays. Next morning the townsfolk rebuild the rented house\'s door (town.restore) but never the bought house\'s nor touch the plot; the guest mends the plot\'s wall ("Consertar": prop.fix steps → crack 0 on both) and rebuilds his house\'s door ("Reconstruir": its wood paid → back on both); the dead come back 1.5 days later; digest equal',
+  api: 'game/raids.js (endLive, nightToll, privatePiece / privateStruct, forNear, mayRepair, damageOf), npc.js repairTick (private skipped), walkers.js hitPiece (siege.dmg on private), mut/raids.js raid.fall / raid.end / prop.fix, building.js describeStructure (Consertar), ui/raidHud.js, ui/muralEco.js',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y), L = H.game.towns.layout(s0.id);
+  const uid = await ecoReady(t, H, G), K0 = H.game.realms.owner(s0.id);
+  if ((recOn(H, uid)?.rep[K0] | 0) < 25) giveRep(H, uid, K0, 30, s0.id);
+  const P = MH.eco.propsOf(H.game, s0.id), free = (q) => !H.game.eco.pr.has(q.id);
+  const sale = P.houses.find((q) => q.mode === 'sale' && free(q)), rent = P.houses.find((q) => q.mode === 'rent' && free(q)), plot = P.plots.find(free);
+  t.need(sale && rent && plot, 'a house for sale, one for rent and a plot free at the start village');
+  await toMural(t, H, MH, G, MG, s0.id);
+  setCoins(G, 20000);
+  t.defer(() => { for (const id of [sale.id, rent.id, plot.id]) if (H.game.eco.pr.get(id)?.u === uid) MH.eco.loseProps(H.game, [id], 'left'); H.game.net.flush(); setCoins(G, 0); });
+  const b1 = await ecoReq(G, 'prop.buy', { id: sale.id, paid: sale.price }, { refund: { coin: sale.price } });
+  const rentNow = MH.eco.rentOf(H.game, rent), b2 = await ecoReq(G, 'prop.rent', { id: rent.id, paid: rentNow }, { refund: { coin: rentNow } });
+  const b3 = await ecoReq(G, 'prop.buy', { id: plot.id, paid: plot.price }, { refund: { coin: plot.price } });
+  t.check(b1.ok && b2.ok && b3.ok, 'the guest bought a house, rented one and bought a plot', [b1.why, b2.why, b3.why].filter(Boolean).join(' · '));
+  await t.waitFor(() => [sale, rent, plot].every((q) => G.game.eco.pr.get(q.id)?.u === uid), 2000 + RT(), 'his properties on both peers');
+  A.teleport(G, plot.x0 + plot.w / 2, plot.y1 + 2.5);
+  await t.sleep(400);
+  let tile = null;
+  for (let y = plot.y0 + 1; y < plot.y1 && !tile; y++) for (let x = plot.x0 + 1; x < plot.x1 && !tile; x++) if (MG.building.placeReason(G.game, 'wall_wood', x, y, G.game.player, 0) === null) tile = [x, y];
+  t.need(tile, 'a free tile inside the plot');
+  const pl = await ecoReq(G, 'build.place', { type: 'wall_wood', tiles: [tile], rot: 0 });
+  t.check(pl.ok, 'a wall built on his plot', pl.why);
+  await t.waitFor(() => H.game.build.structures.some((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null), 2000 + RT(), 'the wall (host)');
+  const wall = H.game.build.structures.find((o) => o.tx === tile[0] && o.ty === tile[1] && o.town == null);
+  H.game.net.emit('struct.complete', { id: wall.id, by: G.pid }); H.game.net.flush();
+  t.defer(() => { if (A.objOn(H, wall.id)) { H.game.net.emit('struct.remove', { id: wall.id, quiet: 1 }); H.game.net.flush(); } });
+  // the night
+  if (!await waNight(t, H, MH, s0)) { t.note('no hard winter at the start village: skipped'); await t.checkDigest(H, G); return; }
+  await visitTown(t, H, MH, G, MG, s0.id, L.spawn[0], L.spawn[1]);
+  await waFresh(t, H, s0);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const notes = noteLog(t, G);
+  // a home with people (the most residents), the bought and the rented house: the homes the dead break into
+  const S = H.game.people.of(s0.id), D0 = H.game.towns.dead;
+  const res = (h) => S.persons.filter((q) => !q.guard && S.homes[q.home] === h && !D0.has(`${s0.id}.${q.i}`)).length;
+  const home = S.homes.filter((h) => !h.guard && !h.prop).sort((a, b) => res(b) - res(a))[0];
+  t.need(home && res(home) >= 2, 'a home with people');
+  const civ0 = S.persons.filter((q) => !q.guard && !D0.has(`${s0.id}.${q.i}`)).length, all0 = S.persons.filter((q) => !D0.has(`${s0.id}.${q.i}`)).length;
+  const dead0 = new Set([...D0.keys()]);
+  const side = sectorOf(sale.box[0] - s0.x, sale.box[1] - s0.y);
+  // (the purchase / the day's bill left notices up on the guest: closed, so the attack's own come in at once)
+  for (const b of G.doc.querySelectorAll('.wos-note .nx')) b.click();
+  await t.tryWait(() => !G.doc.querySelector('.wos-note'), 8000);
+  const r = H.game.raids.dbg.force(s0.id, { side, lose: true, horde: true, homes: [sale.bi, rent.bi, home.b] });
+  t.check(r?.live && r.horde, 'a horde comes (forced: the defense will break)', JSON.stringify(r));
+  await t.waitFor(() => G.game.raids.on.get(s0.id)?.fell && H.game.raids.on.get(s0.id)?.fell, 8000 + RT(), 'the defense breaks (raid.fall on both)', () => JSON.stringify({ host: H.game.raids.on.get(s0.id), guest: G.game.raids.on.get(s0.id), live: H.game.raids.dbg.live(s0.id) && { ...H.game.raids.dbg.live(s0.id), ents: undefined }, log: H.game.raids.log.slice(-2) }));
+  await t.waitFor(() => [...notes].some((x) => /A defesa de .* caiu/.test(x)), 12000, 'the guest: "A defesa de … caiu!"', () => [...notes].join(' | '));
+  await waveDown(t, H, MH, s0.id, 40000);
+  await t.waitFor(() => raidLog(G, s0.id)?.[2] === 2 && !G.game.raids.on.has(s0.id), RT() + 2000, 'raid.end LOST on both');
+  const lh = raidLog(H, s0.id);
+  t.check(JSON.stringify(lh) === JSON.stringify(raidLog(G, s0.id)), 'the same log row on both', JSON.stringify(lh));
+  const deadNew = [...H.game.towns.dead.keys()].filter((k) => k.startsWith(s0.id + '.') && !dead0.has(k));
+  const civNow = S.persons.filter((q) => !q.guard && !H.game.towns.dead.has(`${s0.id}.${q.i}`)).length, allNow = S.persons.filter((q) => !H.game.towns.dead.has(`${s0.id}.${q.i}`)).length;
+  t.check(civNow >= Math.ceil(civ0 * 0.78) && allNow >= Math.ceil(all0 * 0.7) && S.persons.some((q) => q.guard && !H.game.towns.dead.has(`${s0.id}.${q.i}`)), 'the place keeps its people (≤ 22 % of the townsfolk die, guards alive)', `townsfolk ${civNow}/${civ0} · all ${allNow}/${all0} · toll ${lh[5]} · ${deadNew.length} new dead`);
+  t.check(deadNew.every((k) => G.game.towns.dead.has(k)), 'the dead on both (and they come back 1.5 days later)', `${deadNew.length}`);
+  t.metric('toll', `${lh[5]} townsfolk · ${lh[4]} guards`);
+  // the damage: the bought house, the rented house, the plot
+  const doorOf = (h) => `t${s0.id}.${h.doors[0]}`, wallsOf = (h, f) => [...f.game.towns.state].filter(([id, q]) => id.startsWith(`t${s0.id}.`) && q.x >= h.box[0] && q.x <= h.box[2] && q.y >= h.box[1] && q.y <= h.box[3] && (q.dmg > 0 || q.gone));
+  for (const [h, what] of [[sale, 'bought'], [rent, 'rented']]) {
+    await t.waitFor(() => H.game.towns.state.get(doorOf(h))?.gone && G.game.towns.state.get(doorOf(h))?.gone, 2000 + RT(), `the ${what} house's door broken (both peers)`);
+    t.check(wallsOf(h, H).length >= 2 && wallsOf(h, G).length === wallsOf(h, H).length, `the ${what} house damaged (door down, walls cracked — the same on both)`, `${wallsOf(h, H).length} pieces`);
+  }
+  await t.waitFor(() => A.objOn(G, wall.id)?.dmg > 0 && A.objOn(G, wall.id)?.sdmg && A.objOn(H, wall.id)?.sdmg, 2000 + RT(), 'the wall on his plot cracked, a crack that stays (sdmg, both)');
+  await t.waitFor(() => [...notes].some((x) => /danificaram sua casa e o que você construiu no seu terreno em .*conserte você mesmo/.test(x)), 5000, 'the guest, one notice: "Os monstros danificaram sua casa e o que você construiu no seu terreno em …: conserte você mesmo"', () => [...notes].join(' | '));
+  t.check([...notes].some((x) => /danificaram sua casa/.test(x) && /casa que você aluga o povo conserta/.test(x)), 'the same notice tells him the rented one is the people\'s to mend');
+  muralTab(G, s0.id, 'land');
+  await t.sleep(300);
+  t.check(/danificad/.test(ecoTxt(G)) && /conserte você mesmo/.test(ecoTxt(G)) && /o povo conserta/.test(ecoTxt(G)), 'the mural (Propriedades) shows the damage: his to mend / the people\'s', short(ecoTxt(G).match(/⚠[^⚠]{0,80}/g)?.join(' | ') || '', 220));
+  G.game.events.emit('closepanels', {});
+  // dawn: the plot's crack stays
+  nightClock(H, 7.2);
+  await t.sleep(3000);
+  t.check(A.objOn(H, wall.id)?.dmg > 0 && A.objOn(G, wall.id)?.dmg > 0, 'dawn: the crack on his plot stays (the walkers\' cracks settle — not the private property\'s)');
+  // next morning: the people rebuild the rented house, never the bought one
+  nightClock(H, 10);
+  const rc = [(rent.box[0] + rent.box[2]) / 2, rent.box[3] + 2.5];
+  A.teleport(H, rc[0], rc[1]); A.teleport(G, rc[0] + 1.5, rc[1]);
+  await t.waitFor(() => !H.game.towns.state.get(doorOf(rent))?.gone && !G.game.towns.state.get(doorOf(rent))?.gone, 150000, 'the townsfolk rebuild the rented house\'s door (town.restore, both)',
+    () => `door ${doorOf(rent)} ${JSON.stringify(H.game.towns.state.get(doorOf(rent)))} · ` + ([...(H.game.people.live.get(s0.id)?.ents.values() || [])].filter((m) => m.repair).map((m) => `${m.npc?.job}:${m.repair.id}${m.repair.gone ? '(gone)' : ''} ${m._rw || ''} t ${(m.repair.t || 0).toFixed(1)} @${m.x.toFixed(1)},${m.y.toFixed(1)} spot ${m.repair.spot || '-'} trail ${(m._trail || []).join(' ')}`).join(' | ') || 'nobody on a repair')
+      + ` · danger ${!!H.game.people.debug(s0.id)?.danger} h ${H.game.env.hour.toFixed(1)}`);
+  await t.sleep(25000);
+  t.check(H.game.towns.state.get(doorOf(sale))?.gone && G.game.towns.state.get(doorOf(sale))?.gone, 'the bought house\'s door still broken (the town never mends private property)');
+  t.check(!livePeople(H, s0.id).some((m) => m.repair && wallsOf(sale, H).some(([id]) => id === m.repair)), 'nobody of the town works on the bought house');
+  t.check(A.objOn(H, wall.id)?.dmg > 0, 'nor on his plot');
+  // he mends it himself
+  A.teleport(G, wall.x + 0.5, wall.y + 1.2);
+  await t.sleep(400);
+  const itW = MG.building.describeStructure(G.game, A.objOn(G, wall.id));
+  t.check(itW?.kind === 'repair' && /Consertar/.test(itW.verb), '"Consertar" on his cracked wall', itW?.verb);
+  for (let k = 0; k < 6 && (A.objOn(H, wall.id)?.dmg || 0) > 0; k++) { const q = await ecoReq(G, 'prop.fix', { id: wall.id }); t.check(q.ok, 'a mending step accepted', q.why); await t.sleep(RT() + 120); }
+  await t.waitFor(() => !(A.objOn(H, wall.id)?.dmg > 0) && !(A.objOn(G, wall.id)?.dmg > 0) && !A.objOn(G, wall.id)?.sdmg, 2000 + RT(), 'his wall mended on both');
+  const dId = doorOf(sale), drow = L.structs[sale.doors[0]];
+  A.teleport(G, drow[1] + 0.5, drow[2] + 1.5);
+  await t.sleep(400);
+  let near = null;
+  G.game.raids.forNear((it) => { if (it?.id === dId) near = it; });
+  t.check(near && /Reconstruir/.test(near.verb), '"Reconstruir" by his house\'s broken door', near?.verb);
+  const cost = MG.data.BUILDINGS[drow[0]].cost || {};
+  for (const [it, n] of Object.entries(cost)) setItem(G, it, n);
+  G.game.player.inv.pay(cost); G.game.events.emit('inventory', {});
+  const q = await ecoReq(G, 'prop.fix', { id: dId, paid: cost }, { refund: cost });
+  t.check(q.ok, 'rebuilt with its material (prop.fix → town.restore)', q.why);
+  await t.waitFor(() => !G.game.towns.state.get(dId)?.gone && A.objOn(G, dId) && A.objOn(H, dId), 4000 + RT(), 'his door back on both');
+  // the dead come back
+  if (deadNew.length) { skipDays(H, 1.6); await t.waitFor(() => deadNew.every((k) => !H.game.towns.dead.has(k) && !G.game.towns.dead.has(k)), 15000 + CFG.budget, 'the dead replaced 1.5 days later (both)'); }
+  await t.checkDigest(H, G);
+});
+
+def('WA3', {
+  title: 'WA: far from every player the attacks are fought by numbers — the measured loss rate (~5 %) over thousands of attacks on the real realm; a lost one far away applies its deaths and damage on both peers; the next day it is rebuilt by numbers, but not a player\'s house',
+  src: 'village', timeout: 200000,
+  expected: 'game.raids.dbg.calibrate over 8 000 attacks on the world\'s places (their kinds, walls, sizes, levels, families): the monsters win 3–7.5 % of them (most to a horde); the guards lose some of theirs in the held ones. A far village with a palisade (≥ 300 tiles away): a forced LOST attack by numbers (raid.end live 0) — on both peers the log row, the dead (some guards, some townsfolk; ≥ 3/4 of the people alive), the palisade broken on the attacked side and cracked around, homes broken into; the guest\'s house there (given before) broken into and he is told so; a held attack by numbers on another far place: log row, guards dead ≤ its guards. The next morning the rebuilding by numbers puts the destroyed pieces back (town.restore) except the guest\'s house; digest equal',
+  api: 'game/raidsim.js (fight, planWave, lossRate), game/raids.js (resolveFar, wallDamage, nightToll, rebuildByNumbers, dbg.calibrate), mut/raids.js raid.end (rows without the plan)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn;
+  const tc = H.win.performance.now(), c = H.game.raids.dbg.calibrate(8000, 4242), calibMs = H.win.performance.now() - tc;
+  t.check(c.rate >= 0.03 && c.rate <= 0.075, `the monsters win ~5 % of the attacks by numbers (${c.lost} of ${c.n} = ${(c.rate * 100).toFixed(2)} %)`, `hordes ${c.horde} (lost ${c.hordeLost}) · guards dead ${(c.guardsDead * 100).toFixed(1)} % · ${JSON.stringify(c.byKind)}`);
+  t.check(c.hordeLost > (c.lost - c.hordeLost), 'most of the losses come from a horde', `${c.hordeLost} / ${c.lost}`);
+  t.metric('lossRate', +(c.rate * 100).toFixed(2)); t.metric('attacks', c.n); t.metric('msPerFight', +(calibMs / c.n).toFixed(3)); t.metric('byKind', JSON.stringify(c.byKind));
+  const uid = await ecoReady(t, H, G);
+  const far = R.settlements.filter((s) => s.kind === 'village' && s.walls === 'palisade' && Math.hypot(s.x - sp.x, s.y - sp.y) > 300 && Math.hypot(s.x - sp.x, s.y - sp.y) < 1500).sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  t.need(far.length >= 2, 'two far villages with a palisade');
+  const [v, v2] = far;
+  G.game.towns.layout(v.id); // (the guest knows the plan too, as a player who visited it)
+  const house = MH.eco.propsOf(H.game, v.id).houses.find((q) => !H.game.eco.pr.has(q.id));
+  t.need(house, 'a house at the far village');
+  H.game.net.emit('eco.prop', { id: house.id, u: uid, name: recOn(H, uid)?.name || '', mode: 'own', day: H.game.env.dayIndex }); H.game.net.flush();
+  t.defer(() => { MH.eco.loseProps(H.game, [house.id], 'left'); H.game.net.flush(); });
+  await t.waitFor(() => G.game.eco.pr.get(house.id)?.u === uid, 2000 + RT(), 'the guest owns a house there');
+  const notes = noteLog(t, G);
+  const S = H.game.people.of(v.id), all0 = S.persons.filter((q) => !H.game.towns.dead.has(`${v.id}.${q.i}`)).length;
+  const out = H.game.raids.dbg.force(v.id, { live: false, force: 'lost', side: 2, homes: [house.bi] });
+  t.check(out?.far?.args?.out === 2, `a lost attack on ${v.name} by numbers`, JSON.stringify({ dead: out?.far?.args?.dead?.length, gone: out?.far?.args?.gone?.length, hit: out?.far?.args?.hit?.length }));
+  const a = out.far.args;
+  await t.waitFor(() => raidLog(G, v.id)?.[2] === 2, RT() + 2000, 'its log row on the guest');
+  t.check(JSON.stringify(raidLog(H, v.id)) === JSON.stringify(raidLog(G, v.id)) && raidLog(H, v.id)[6] === 0, 'the same row on both (by numbers: live 0)');
+  t.check(a.dead.length >= 1 && a.dead.every(([i]) => G.game.towns.dead.has(`${v.id}.${i}`)), 'its dead on both (guards and townsfolk)', `${a.dead.length}`);
+  const allNow = S.persons.filter((q) => !H.game.towns.dead.has(`${v.id}.${q.i}`)).length;
+  t.check(allNow >= Math.ceil(all0 * 0.7), 'the place keeps its people', `${allNow}/${all0}`);
+  t.check(a.gone.length >= 1 && a.gone.every(([id]) => H.game.towns.state.get(id)?.gone && G.game.towns.state.get(id)?.gone), 'the breach (pieces destroyed) on both, loaded or not', `${a.gone.length} gone`);
+  t.check(a.hit.length >= 1 && a.hit.every(([id]) => (G.game.towns.state.get(id)?.dmg || 0) > 0 || G.game.towns.state.get(id)?.gone), 'the cracks on both', `${a.hit.length} cracked`);
+  const per = H.game.townDefense.perimeter(v.id), wallGone = a.gone.filter(([id]) => [...per.pieces.values()].some((q) => q.id === id));
+  t.check(wallGone.length >= 1 && wallGone.every(([id]) => { const q = [...per.pieces.values()].find((p) => p.id === id); return q.fy > 0.3; }), 'the palisade broken on the attacked side (the south)', wallGone.map(([id]) => id).join(' '));
+  const hDoor = `t${v.id}.${house.doors[0]}`;
+  t.check(H.game.towns.state.get(hDoor)?.gone, 'the guest\'s house there broken into (its door)');
+  await t.waitFor(() => [...notes].some((x) => new RegExp(`danificaram sua casa em ${v.name}`).test(x)), 4000, 'he is told, far away ("Os monstros danificaram sua casa em …")', () => [...notes].join(' | '));
+  // a held one
+  const o2 = H.game.raids.dbg.force(v2.id, { live: false, side: 0 });
+  t.check(o2?.far?.args && raidLog(H, v2.id), `an attack by numbers on ${v2.name}: ${o2.far.args.out === 1 ? 'held' : 'lost'}`, JSON.stringify({ n: o2.far.W.n, g: o2.far.args.gd, F: o2.far.F.out }));
+  t.check(o2.far.args.gd <= MH.raidsim.guardsOf(v2).n, 'its guards dead ≤ its guards');
+  { const st = H.game.raids.dbg.stats(); t.metric('farMs', +(st.farMs / Math.max(1, st.far)).toFixed(2)); }
+  await t.waitFor(() => raidLog(G, v2.id), RT() + 2000, 'its log row on the guest');
+  // the next morning: rebuilt by numbers (not the guest's house)
+  nightClock(H, 10);
+  await t.sleep(400);
+  skipDays(H, 1);
+  await t.sleep(RT() + 400);
+  H.game.raids.dbg.rebuild(); H.game.net.flush();
+  const back = a.gone.filter(([id]) => id !== hDoor);
+  await t.waitFor(() => back.every(([id]) => !H.game.towns.state.get(id)?.gone && !G.game.towns.state.get(id)?.gone), 3000 + RT(), 'the next day the destroyed pieces are rebuilt by numbers (both)', () => back.filter(([id]) => H.game.towns.state.get(id)?.gone).map(([id]) => id).join(' '));
+  t.check(H.game.towns.state.get(hDoor)?.gone && G.game.towns.state.get(hDoor)?.gone, 'but not the guest\'s house (his to rebuild)');
+  await t.checkDigest(H, G);
+});
+
+def('WA4', {
+  title: 'WA: a castle on a winter night — a giant leads the wave (counted as several), the whole watch out, the live cap, the giant\'s blows hurt the guards, the cost per frame',
+  src: 'village', timeout: 260000,
+  expected: 'The castle nearest the start (stone walls) on a winter night, both players inside. A forced attack with a giant: the wave is 70–90 % of the castle\'s guards with the Gigante de Gelo counted as 4; the giant comes first; never more than the live cap of wave creatures at once (the rest walk in as they fall); every live guard of the castle is a creature (the whole watch out, within the people cap); the giant\'s smash / rock hurts the guards (creature targets), the ballista crews aim at it; the raids system costs < 0.5 ms a tick on average and the people system stays < 2 ms a frame; the wave put down: raid.end on both; digest equal',
+  api: 'game/raids.js (feedLive cap, startLive giant), game/giants.js (victimsAt: the people hurt), game/people.js manage (raid: the whole watch), game/raidsim.js planWave',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const c = nearestTown(H, (q) => q.kind === 'castle' && q.walls === 'stone'), L = H.game.towns.layout(c.id);
+  t.need(c, 'a castle');
+  if (!await waNight(t, H, MH, c)) { t.note('no hard winter at the castle: skipped'); await t.checkDigest(H, G); return; }
+  await visitTown(t, H, MH, G, MG, c.id, L.spawn[0], L.spawn[1], 90000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  t.check(H.game.raids.familyOf(c.id) === 'ice', 'the walkers\' winter at the castle');
+  await t.waitFor(() => livePeople(H, c.id).filter((m) => m.guard).length >= 4, 30000, 'the night watch is out');
+  const hurt = [];
+  t.on(H, 'damage', (d) => { if (d.kind === 'hit' && d.src?.giant && d.target?.npc) hurt.push(d.amount); });
+  const St = H.game.raids.H.stats, Sp = H.game.people.stats;
+  const r = H.game.raids.dbg.force(c.id, { side: 2, giant: true, horde: false });
+  t.check(r?.live && r.giant === 'giant', 'a wave led by the Gigante de Gelo', JSON.stringify(r));
+  const GK = MH.craids.RAID.giantK;
+  t.check(r.n >= Math.round(0.7 * r.g) && r.n <= Math.round(0.9 * r.g) && r.total === r.n - GK + 1, `${r.n} monsters' worth against ${r.g} guards — the giant counted as ${GK} (${r.total} creatures)`);
+  await t.waitFor(() => waveOf(H, c.id).length, 5000, 'the wave out');
+  t.check(waveOf(H, c.id)[0].giant, 'the giant comes first');
+  const cap = MH.craids.RAID.liveCap;
+  let peak = 0, guardsOut = 0;
+  const g0 = MH.raidsim.guardsOf(c).n, aliveG = () => { let n = 0; for (let i = 0; i < g0; i++) if (!H.game.towns.dead.has(`${c.id}.${i}`)) n++; return n; };
+  St.ms = 0; St.ticks = 0; Sp.msSum = 0; Sp.frames = 0;
+  const it = setInterval(() => { peak = Math.max(peak, waveOf(H, c.id).length); guardsOut = Math.max(guardsOut, livePeople(H, c.id).filter((m) => m.guard).length); }, 300);
+  t.defer(() => clearInterval(it));
+  await t.waitFor(() => livePeople(H, c.id).filter((m) => m.guard).length >= Math.min(aliveG(), MH.cpeople.PEOPLE.cap.castle) - 1, 30000, 'the whole watch out as creatures', () => `${livePeople(H, c.id).filter((m) => m.guard).length} / ${aliveG()}`);
+  await t.waitFor(() => hurt.length > 0, 120000, 'the giant\'s blows hurt the guards', () => waveOf(H, c.id).filter((m) => m.giant).map((m) => `${m.state} hp${Math.round(m.hp)} @${f2(m.x)},${f2(m.y)}`).join(' '));
+  t.check(peak <= cap, `never more than ${cap} wave creatures at once`, `${peak}`);
+  t.metric('wavePeak', peak); t.metric('guardsOut', guardsOut); t.metric('giantHits', hurt.length);
+  const avg = St.ms / Math.max(1, St.ticks), pavg = Sp.msSum / Math.max(1, Sp.frames);
+  t.check(avg < 0.5 && pavg < 2, 'the cost: raids < 0.5 ms a tick, people < 2 ms a frame', `raids ${avg.toFixed(3)} ms (max ${St.maxMs.toFixed(2)}) · people ${pavg.toFixed(3)} ms`);
+  t.metric('raidsMs', +avg.toFixed(3)); t.metric('peopleMs', +pavg.toFixed(3));
+  await waveDown(t, H, MH, c.id, 60000);
+  await t.waitFor(() => raidLog(G, c.id) && !G.game.raids.on.has(c.id), RT() + 2000, 'raid.end on both');
+  await t.checkDigest(H, G);
+});
+
+def('WA5', {
+  title: 'WA: save → load keeps the attacks (the one going on and the log); the night\'s plan is the same after a reload; the dead of an attack are saved',
+  src: 'village', timeout: 200000,
+  expected: 'A live attack going on at the start village: the host\'s save (buildSaveData → JSON) carries world.raids (the attack going on, the log of the earlier ones) and the deaths (tpop); loaded into a fresh game of the same seed, raidDigestRows are the same; put down, the log row is saved too. The night\'s plan is a pure function of the world, the place and the night (planNow twice: the same places, hours, sides, hordes); digest equal',
+  api: 'net/snapshot.js serializeWorld / applyWorld (raids), game/mut/raids.js raidRows / applyRaidRows / raidDigestRows, game/raids.js planNight (hash)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  if (!await waNight(t, H, MH, s)) { t.note('no hard winter at the start village: skipped'); await t.checkDigest(H, G); return; }
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  // the plan: the same twice
+  const p1 = H.game.raids.dbg.planNow(), a1 = JSON.stringify(H.game.raids.dbg.plan().map((P) => [P.sid, P.hour.toFixed(3), P.side, P.horde, P.fam])), p2 = H.game.raids.dbg.planNow(), a2 = JSON.stringify(H.game.raids.dbg.plan().map((P) => [P.sid, P.hour.toFixed(3), P.side, P.horde, P.fam]));
+  t.check(p1 === p2 && a1 === a2 && p1 > 0, `the night's plan is the same every time (${p1} places attacked tonight)`);
+  H.game.raids.dbg.pause(true);
+  const r = H.game.raids.dbg.force(s.id, { side: 4 });
+  t.check(r?.live, 'an attack going on');
+  await t.waitFor(() => G.game.raids.on.has(s.id), RT() + 2000, 'on the guest');
+  const save1 = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game)));
+  t.check(save1.world?.raids?.on?.some((q) => q[0] === s.id), 'the save carries the attack going on', JSON.stringify(save1.world?.raids?.on));
+  const S1 = await bootSolo(t, '&start=village', 'solo');
+  const MS = await A.mods(S1);
+  await t.waitFor(() => S1.game.raids && S1.game.towns?.realm, 15000, 'the solo game');
+  S1.game.net.withApply(() => MS.snapshot.applyWorld(S1.game, save1.world, 'load'));
+  t.check(raidRowsOn(S1, MS) === raidRowsOn(H, MH), 'loaded: the same attacks (raidDigestRows)', raidRowsOn(S1, MS));
+  frames.close(S1);
+  await waveDown(t, H, MH, s.id, 40000);
+  await t.waitFor(() => raidLog(G, s.id), RT() + 2000, 'over on both');
+  const save2 = JSON.parse(JSON.stringify(MH.save.buildSaveData(H.game)));
+  t.check(save2.world?.raids?.log?.some((q) => q[1] === s.id) && !save2.world.raids.on.some((q) => q[0] === s.id), 'the save carries its log row (and nothing going on)');
+  const S2 = await bootSolo(t, '&start=village', 'solo2');
+  const MS2 = await A.mods(S2);
+  await t.waitFor(() => S2.game.raids && S2.game.towns?.realm, 15000, 'the second solo game');
+  S2.game.net.withApply(() => MS2.snapshot.applyWorld(S2.game, save2.world, 'load'));
+  t.check(raidRowsOn(S2, MS2) === raidRowsOn(H, MH), 'loaded: the same log', raidRowsOn(S2, MS2));
+  frames.close(S2);
+  await t.checkDigest(H, G);
+});
+
+def('WA6', {
+  title: 'WA: live calibration (opt-in: &raidsoak=N) — N waves in a row at the start village, each against a full watch; the live outcomes beside the numbers\' prediction for the same place',
+  src: 'village', timeout: 3600000,
+  expected: 'Only with &raidsoak=N (a long soak, SKIP otherwise). On a winter night at the start village, N attacks one after the other (the last third hordes), each one against the full watch (the dead brought back, the palisade rebuilt, the clock back to 21.6 h between them): for each, the outcome, the monsters, the guards dead and the time — and the numbers\' prediction for the same place (game/raidsim.js over 2 000 fights: the chance it is lost, the guards dead on average). Metrics only (the docs §16 report them); digest equal',
+  api: 'game/raids.js (dbg.force, dbg.model), game/raidsim.js',
+}, async (t) => {
+  const N = +(Q.get('raidsoak') || 0);
+  t.need(N > 0, 'the live calibration soak runs only with &raidsoak=N');
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  if (!await waNight(t, H, MH, s)) { t.note('no hard winter at the start village: skipped'); return; }
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  // (the players out of the way, at the south of the village: the waves come from the north — the watch alone)
+  const south = A.freeSpot(H, MH, s.x, s.y + s.r * 0.55, { rMin: 0, rMax: 5 }) || [s.x, s.y + 4];
+  A.teleport(H, south[0], south[1]); A.teleport(G, south[0] + 1.5, south[1]);
+  const day = H.game.env.dayIndex, g0 = MH.raidsim.guardsOf(s).n, res = [];
+  const fresh = async () => {
+    for (const k of [...H.game.towns.dead.keys()]) if (k.startsWith(s.id + '.')) H.game.net.emit('town.pop', { sid: s.id, i: +k.split('.')[1], dead: 0 });
+    const gone = [...H.game.towns.state].filter(([id, r]) => id.startsWith(`t${s.id}.`) && r.gone).map(([id]) => id);
+    if (gone.length) H.game.net.emit('town.restore', { ids: gone });
+    for (const [id, r] of [...H.game.towns.state]) if (id.startsWith(`t${s.id}.`) && r.dmg > 0) H.game.net.emit('struct.dmg', { id, d: 0 });
+    H.game.net.emit('env.skip', { hour: 21.6, day, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush();
+    await t.sleep(1500);
+    await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= Math.min(4, g0), 30000, 'the watch out again');
+  };
+  for (let k = 0; k < N; k++) {
+    await fresh();
+    const horde = k >= N - (Q.get('raidhorde') != null ? +Q.get('raidhorde') : Math.max(1, Math.round(N / 3))); // (&raidhorde=K: the last K are hordes)
+    const pred = H.game.raids.dbg.model(s.id, { horde }, 2000);
+    const fl = waFightLog(t, H, s.id), t0 = H.game.worldTime;
+    const r = H.game.raids.dbg.force(s.id, { side: 6, horde });
+    await t.waitFor(() => !H.game.raids.on.has(s.id), 260000, `wave ${k + 1} over`, () => JSON.stringify({ ...H.game.raids.dbg.live(s.id), ents: undefined }));
+    const lr = raidLog(H, s.id);
+    const row = { k: k + 1, horde, n: r.n, g: r.g, fury: +r.fury.toFixed(2), out: lr[2] === 2 ? 'lost' : 'held', gd: lr[4], cd: lr[5], s: Math.round(H.game.worldTime - t0), predLost: +(pred.rate * 100).toFixed(1), predGd: +pred.gd.toFixed(2), hits: Object.fromEntries(Object.entries(fl).map(([a, q]) => [a, `${q.n}/${Math.round(q.dmg)}`])) };
+    res.push(row);
+    t.note(JSON.stringify(row));
+    t.metric('live', res.map((q) => `${q.horde ? 'H' : 'n'}${q.n}/${q.g}:${q.out}:gd${q.gd}:${q.s}s(pred ${q.predLost}% gd${q.predGd})`).join(' '));
+  }
+  const nn = res.filter((q) => !q.horde), hh = res.filter((q) => q.horde);
+  t.metric('normalLost', `${nn.filter((q) => q.out === 'lost').length}/${nn.length}`); t.metric('hordeLost', `${hh.filter((q) => q.out === 'lost').length}/${hh.length}`);
+  t.metric('normalGd', +(nn.reduce((a, q) => a + q.gd, 0) / Math.max(1, nn.length)).toFixed(2)); t.metric('normalGdPred', +(nn.reduce((a, q) => a + q.predGd, 0) / Math.max(1, nn.length)).toFixed(2));
+  await fresh();
+  await t.checkDigest(H, G);
+});
+
+def('VL13', {
+  title: 'VL: the alarm lasts until the threat is neutralized — a tough monster outside the palisade for 60+ s, stepping back out of the alarm ring and coming again: the bell never stops, every archer stays on the wall and walks along it to shoot, the melee hold their posts; the all-clear only after it dies',
+  src: 'village', timeout: 240000,
+  expected: 'A village with a palisade near the start, 10 h, both players on its plaza. A tough wolf (held in place, stunned) 6 tiles outside a stretch of the palisade: the bell rings, the archers go up on the palisade, the melee to their posts. After 20 s it is moved back 9 tiles past the town land — out of the old alarm ring — and held there 20 s, then 6 tiles from the wall again for 25 s: during all of it the alarm never stops (host and guest), no archer ever comes down from the wall (z ≥ 0.9 once up), the archers posted away from it walk along the wall walk to a spot in reach and shoot it (each archer hits it; at least one moved > 2 tiles along the walk), the melee guards stay at the gates / the stretch (or fight it); it dies → the all-clear comes (within ~12 s), never before; digest equal',
+  api: 'game/people.js dangerOf (rec.seen: the alarm held while the threat lives — N.alarmHold / alarmMemory), game/npc.js upTask (wallWalk / wallSpot / walkPath / walkWall: along the wall walk), guardFight (ground archers: archerSpot when no headway)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3, 25000, 'the watch is out');
+  const per = H.game.townDefense.perimeter(s.id);
+  // a straight stretch (an axis side) away from the gates: the wolf outside its middle
+  const sides = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([fx, fy]) => ({ fx, fy, gates: [...per.pieces.values()].filter((q) => q.gate && q.fx * fx + q.fy * fy > 0.9).length }));
+  const sd = sides.sort((a, b) => a.gates - b.gates)[0];
+  const wall = { x: per.cx + sd.fx * per.A, y: per.cy + sd.fy * per.A };
+  const at = (k) => A.freeSpot(H, MH, wall.x + sd.fx * k, wall.y + sd.fy * k, { rMin: 0, rMax: 3, r: 0.36 });
+  const near = at(6), back = A.freeSpot(H, MH, per.cx + sd.fx * (s.r + 9), per.cy + sd.fy * (s.r + 9), { rMin: 0, rMax: 3, r: 0.36 });
+  t.need(near && back, 'room for the wolf outside the palisade');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', near[0], near[1]);
+  wolf.hp = wolf.maxHp = 200000;
+  let spot = near;
+  const hold = setInterval(() => { if (!wolf.dead) { wolf.stunT = 30; wolf.hp = Math.max(wolf.hp, 100000); wolf.x = spot[0]; wolf.y = spot[1]; wolf.vx = wolf.vy = 0; } }, 150);
+  t.defer(() => { clearInterval(hold); wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  await t.waitFor(() => H.game.people.debug(s.id).danger && G.game.people.alarm.get(s.id), 8000 + RT(), 'the bell rings (both)');
+  const D = () => H.game.people.debug(s.id), archers = () => D().live.filter((m) => m.job === 'archer'), melee = () => D().live.filter((m) => m.job === 'guard');
+  await t.waitFor(() => archers().length >= 1 && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 45000, 'the archers up on the palisade', () => archers().map((m) => `${m.task}^${f2(m.z)} ${m.duty?.k || '-'}`).join(' '));
+  // from now on: the alarm, the archers on the wall, who shoots, who walks along the wall
+  const bad = [], hitBy = new Set(), post = new Map(archers().map((m) => [m.nid, [m.x, m.y]])), moved = new Map(), offSince = new Map();
+  let alarmOffG = 0;
+  t.on(G, 'townalarm', (e) => { if (e.sid === s.id && !e.on) alarmOffG++; });
+  t.on(H, 'damage', (e) => { if (e.kind === 'hit' && e.target === wolf && e.src?.npc?.job === 'archer') hitBy.add(e.src.nid); });
+  const watch = setInterval(() => {
+    if (wolf.dead) return;
+    if (!D().danger) bad.push(`alarm off at ${f2(H.game.worldTime)}`);
+    for (const m of archers()) {
+      if (m.duty?.k === 'wall' && !(m.z > 0.9) && post.has(m.nid)) bad.push(`archer ${m.nid} down (z ${f2(m.z)})`);
+      const p0 = post.get(m.nid);
+      if (p0) moved.set(m.nid, Math.max(moved.get(m.nid) || 0, Math.hypot(m.x - p0[0], m.y - p0[1])));
+    }
+    // (a melee guard may walk to a new post when the defense moves it — off its post for more than 10 s at a time is a fault)
+    for (const m of melee()) { const ok = m.duty && ['gate', 'stretch', 'gap'].includes(m.duty.k) && (m.state === 'chase' || Math.hypot(m.x - m.duty.x, m.y - m.duty.y) < 3); if (ok) offSince.delete(m.nid); else { if (!offSince.has(m.nid)) offSince.set(m.nid, H.game.worldTime); if (H.game.worldTime - offSince.get(m.nid) > 10) bad.push(`melee ${m.nid} off its post > 10 s (${m.duty?.k || '-'} ${m.task}/${m.state})`); } }
+  }, 500);
+  t.defer(() => clearInterval(watch));
+  await t.sleep(20000);
+  spot = back; // (it steps back: out of the old alarm ring — 9 tiles past the town land)
+  await t.sleep(20000);
+  t.check(D().danger && G.game.people.alarm.get(s.id), 'stepped back out of the alarm ring: the bell keeps ringing (the threat lives)');
+  spot = near;
+  await t.sleep(25000);
+  clearInterval(watch);
+  const uniq = [...new Set(bad)];
+  t.check(!uniq.length, 'for 65 s: the alarm never stopped, no archer came down from the wall, the melee held their posts', uniq.slice(0, 6).join(' · '));
+  t.check(alarmOffG === 0, 'the guest never heard the all-clear meanwhile');
+  const ids = [...post.keys()];
+  t.check(ids.length && ids.every((id) => hitBy.has(id)), 'every archer on the wall shot it (each got in reach)', `${[...hitBy].length}/${ids.length} · moved ${[...moved.values()].map(f2).join(' ')}`);
+  t.metric('archerMoved', [...moved.values()].map(f2).join(' '));
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  const tk = H.game.worldTime;
+  await t.waitFor(() => !D().danger && !G.game.people.alarm.get(s.id), 14000 + RT(), 'it died: the all-clear (both)');
+  t.metric('allClearS', +(H.game.worldTime - tk).toFixed(1));
+  await t.checkDigest(H, G);
+});
+
+// =====================================================================================================
 // JB — jobs that can be done (docs/REINOS.md §10 "Trabalhos possíveis", game/fields.js): the places' fields replanted at
 // dawn (op obj.back), the board only with what the place can give (survey of the land around), exact waypoints (a real
 // field, the wooded / stony side; near the work the marker on the nearest plant / tree), the host's refusal when the
@@ -11260,7 +11758,7 @@ def('SK2', {
   }
   const r = await skResults(t, P, 'the field battle');
   t.check(r.win === 'a' && /debandou|caiu/.test(r.why), 'side A wins: side B broke', r.why);
-  t.check(r.lost[1] > 60 && r.n0[0] === 60 && r.n0[1] === 140, 'the losses of each side in the results', `${r.lost} / ${r.n0}`);
+  t.check(r.lost[1] >= 30 && r.n0[0] === 60 && r.n0[1] === 140, 'the losses of each side in the results', `${r.lost} / ${r.n0}`); // (the rout may come at ~40 % losses once the general falls: WAR.morale)
   t.check(r.players.length === 2 && r.players.every((p) => p[2] === 'a'), 'the two players in the results (side A)');
   await t.checkDigest(H, G);
 });
@@ -11504,7 +12002,7 @@ def('CB2', {
 def('SK6', {
   title: 'SK: a wave inside a castle — 40 monsters in its streets for 30 s: the frames stay sane, no system stops',
   timeout: 240000,
-  expected: 'One player, monster defense of a castle (300 at 70 % monsters: 210 with giants, 90 defenders); once the wave is up ≥ 30 monsters are put inside the walls around the plaza (as if they had broken in): for 30 s the game keeps running (the world clock goes on: ≥ 25 s), no frame over 1.5 s of main-thread time, the 95th percentile under 40 ms (headless Chrome), no system fault (game.faults 0, no uncaught exception) and the defenders fight them (monsters fall)',
+  expected: 'One player, monster defense of a castle (300 at 70 % monsters: 210 with giants, 90 defenders); once the wave is up 40 monsters (at most the live cap: 30 on a slowed-down run) are put inside the walls around the plaza (as if they had broken in): for 30 s the game keeps running (the world clock goes on: ≥ 25 s), no frame over 1.5 s of main-thread time, the 95th percentile under 40 ms (headless Chrome), no system fault (game.faults 0, no uncaught exception) and the defenders fight them (monsters fall)',
   api: 'game/skirmish.js, game.js systemFault, main.js loopFault, soldier.js routeStep, npc.js / people.js defense, walkers.js',
 }, async (t) => {
   if (SKP.pair) { frames.close(SKP.pair.G); frames.close(SKP.pair.H); SKP.pair = null; } // (one game at a time: RAM)
@@ -11523,17 +12021,18 @@ def('SK6', {
   g.net.request('sk.start', {});
   await t.waitFor(() => g.skirmish.st.phase === 'fight', 120000, 'the defense starts', () => `${g.skirmish.st.phase} prep ${g.skirmish.debug().prepT}`);
   A.keepAlive(t, S);
-  await t.waitFor(() => g.skirmish.debug().mobs >= 40, 60000, 'the wave is up', () => `${g.skirmish.debug().mobs}`);
+  const want = Math.min(40, g.skirmish.cap.monsters); // (the live cap follows the graphics quality: 30 on a slowed-down run)
+  await t.waitFor(() => g.skirmish.debug().mobs >= want, 60000, 'the wave is up', () => `${g.skirmish.debug().mobs} / ${want}`);
   const sid = g.skirmish.st.match.sid, pl = g.people.of(sid).plaza, per = g.townDefense.perimeter(sid);
   let k = 0;
   for (const m of g.skirmish.H.mobs) {
-    if (m.dead || k >= 40) continue;
+    if (m.dead || k >= want) continue;
     const a = k * 0.7, r = 3 + (k % 6), q = A.freeSpot(S, M, pl.x + Math.cos(a) * r, pl.y + Math.sin(a) * r, { rMin: 0, rMax: 3, r: m.r || 0.3 });
     if (q) { m.x = q[0]; m.y = q[1]; k++; }
   }
   await t.sleep(300);
   const inside = [...g.skirmish.H.mobs].filter((m) => !m.dead && per.inside(m.x, m.y, g.world)).length;
-  t.check(k >= 30 && inside >= 30, 'the monsters are inside the castle', `${k} put · ${inside} inside`);
+  t.check(k >= want * 0.75 && inside >= want * 0.75, 'the monsters are inside the castle', `${k} put · ${inside} inside (cap ${g.skirmish.cap.monsters})`);
   const w0 = g.worldTime, d0 = g.skirmish.debug(), fell0 = d0.wave.made - d0.mobs, f0 = g.faults || 0;
   g.frameStats(true);
   await t.sleep(30000);
@@ -11653,6 +12152,54 @@ def('SK7', {
   t.metric('soldierLobs', { lobs: lobs.size, over: overIds.length, seenG: seenG.size, hits: dmg.length, forced: { fired, hits: mine.length } });
   clearInterval(hold);
   for (const m of [foe, own]) m.stunT = 0;
+  await t.checkDigest(H, G);
+});
+
+def('WA7', {
+  title: 'WA: the night\'s dead spread their attention over the defenders — the guards first, a player only when it attacks them, is the nearest or by chance; never all on one',
+  src: 'village', timeout: 200000,
+  expected: 'The normal game (no attack: night monsters near a place). The start village on a winter night, both players standing 6 tiles inside its north gate, the gate guards between them and the gate. Six Andarilhos do Gelo come at the gate from outside: over 30 s, looking every half second at whom each one goes for (the one it chases, else its goal), the settlements\' people get more of their attention than the two players, and at the busiest moment they are on at least two different defenders (the crowd spreads); then the host player shoots one of them: within a few seconds that one is after him (whoever attacks them comes first); digest equal',
+  api: 'game/walkers.js pickBody (distance × crowd × the one that hit it × players only when attacking / nearest / by chance), walkerBrain (the attention moves), combat.js dealDamage (_hitBy)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  if (!await waNight(t, H, MH, s)) { t.note('no hard winter at the start village: skipped'); await t.checkDigest(H, G); return; }
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3, 25000, 'the night watch is out');
+  const per = H.game.townDefense.perimeter(s.id), gate = [...per.pieces.values()].filter((q) => q.gate).sort((a, b) => a.fy - b.fy)[0];
+  t.need(gate && gate.fy < -0.5, 'a north gate');
+  const inP = A.freeSpot(H, MH, gate.cx, gate.cy + 6, { rMin: 0, rMax: 3 }), inG = A.freeSpot(G, MG, gate.cx + 1.5, gate.cy + 6, { rMin: 0, rMax: 3 });
+  A.teleport(H, inP[0], inP[1]); A.teleport(G, inG[0], inG[1]);
+  await t.sleep(1500);
+  const ws = [];
+  for (let k = 0; k < 6; k++) { const q = A.freeSpot(H, MH, gate.cx + (k - 2.5) * 1.2, gate.cy - 9, { rMin: 0, rMax: 3, r: 0.3 }); if (q) { const m = MH.walkers.spawnWalkerAt(H.game, q[0], q[1]); m.hp = m.maxHp = m.maxHp * 6; m._waKeep = true; ws.push(m); } }
+  t.need(ws.length >= 4, 'room for the walkers outside the gate');
+  t.defer(() => { for (const m of ws) { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); } });
+  const players = new Set([H.game.player, guestOnHost(H, G)].filter(Boolean));
+  let onP = 0, onN = 0, spread = 0;
+  const tgt = (m) => (m.state === 'chase' ? m.threat : m.goal?.ref) || null;
+  const it = setInterval(() => {
+    const seen = new Set();
+    for (const m of ws) { if (m.dead) continue; const q = tgt(m); if (!q) continue; if (players.has(q) || q.avatar) onP++; else if (q.npc || q.soldier) { onN++; seen.add(q); } }
+    spread = Math.max(spread, seen.size);
+  }, 500);
+  t.defer(() => clearInterval(it));
+  await t.sleep(30000);
+  clearInterval(it);
+  t.check(onN > onP, 'the settlements\' people get more of their attention than the players', `on the people ${onN} · on the players ${onP} (samples)`);
+  t.check(spread >= 2, 'they spread over at least two defenders', `${spread}`);
+  t.metric('attention', `people ${onN} · players ${onP} · spread ${spread}`);
+  // whoever attacks them comes first
+  // (one in the fight — not one going home after a chase it could not finish: 'evade', it cannot be hurt then)
+  await t.tryWait(() => ws.some((q) => !q.dead && q.state !== 'evade' && !players.has(tgt(q))), 15000);
+  const m = ws.filter((q) => !q.dead && q.state !== 'evade' && !players.has(tgt(q))).sort((a, b) => Math.hypot(a.x - H.game.player.x, a.y - H.game.player.y) - Math.hypot(b.x - H.game.player.x, b.y - H.game.player.y))[0];
+  if (m) {
+    const hp0 = m.hp;
+    MH.combat.dealDamage(H.game, H.game.player, m, 5, {});
+    t.check(m.hp < hp0, 'the host\'s hit lands', `${m.state} ${hp0} → ${m.hp}`);
+    await t.waitFor(() => tgt(m) === H.game.player || m.dead, 6000, 'the one the host hit goes for him', () => `${m.state} → ${tgt(m)?.name || tgt(m)?.npc?.name || '-'}`);
+  } else t.note('every walker already down / on a player');
   await t.checkDigest(H, G);
 });
 

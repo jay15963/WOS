@@ -31,4 +31,5 @@ import './eco.js';      // the economy of the kingdoms: markets, reputation, job
 import './realms.js';   // the kingdoms' diplomacy, owners, armies, sieges by numbers (docs/REINOS.md §13)
 import './warfare.js';  // the armies near the players: forces, the structures of an army, shouts, reputation for helping a side (docs/REINOS.md §14)
 import './army.js';     // the player in the army: enlisting, the pay, service, bonuses, desertion (docs/REINOS.md §15)
+import './raids.js';    // the winter attacks on the settlements: the waves, the end, a player mending his property (docs/REINOS.md §16)
 import './skirmish.js'; // a skirmish arena: the lobby, the match, the results (docs/SKIRMISH.md)

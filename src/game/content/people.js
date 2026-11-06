@@ -18,11 +18,15 @@ export const PEOPLE = {
   regrowDays: 1.5, // a dead person is replaced after this many days
   // guards
   guardSight: 15, guardLeash: 12, archerRange: 13, alarmR: 6, // (alarmR: tiles past the town land a hostile still counts)
+  // the bell keeps ringing while a hostile that came that close (or attacks the place) is alive within the town land + alarmHold
+  // tiles and was close / attacking in the last alarmMemory seconds — the threat neutralized, not just out of sight (owner)
+  alarmHold: 30, alarmMemory: 40,
   repairStep: { wood: 0.12, stone: 0.07, siege: 0.03 }, repairEvery: 2.2, rebuildS: 9,
   // the defense when the bell rings (game/defense.js): how far from its post a guard goes after a foe (tiles), how many
   // hold a gap in the walls, the reserve by the keep (share of the melee guards: cities / castles), the guards that hunt
   // each foe already inside the walls, the most ballista crews (share of the melee guards)
-  def: { holdR: { gate: 7, stretch: 8, gap: 5, reserve: 0 }, gap: 2, gapWide: 3, gapCalm: 1, reserve: { city: 0.15, castle: 0.12 }, hunters: 2, crews: 0.34 },
+  // front: the alignment with the attack's side above which a gate / a stretch / a wall-walk spot is "the side under attack"
+  def: { front: 0.45, holdR: { gate: 7, stretch: 8, gap: 5, reserve: 0 }, gap: 2, gapWide: 3, gapCalm: 1, reserve: { city: 0.15, castle: 0.12 }, hunters: 2, crews: 0.34 },
 };
 
 // ---------- trades ----------

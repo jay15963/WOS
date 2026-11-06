@@ -176,6 +176,7 @@ export function nearestInteractable(game) {
   game.people?.forNear?.(consider); // the settlements' people: "Conversar" (game/people.js)
   consider(game.fishing?.near?.()); // fishing: cast / pull (fishing.js)
   game.boats?.forNear?.(consider); // boats: get in / out (boats.js)
+  game.raids?.forNear?.(consider); // a destroyed piece of the player's own house: "Reconstruir" (game/raids.js)
   const tx = Math.floor(p.x), ty = Math.floor(p.y);
   for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
     if (!dx && !dy) continue;

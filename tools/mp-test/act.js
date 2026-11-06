@@ -19,6 +19,7 @@ const PATHS = {
   siege: 'game/siege.js', siegec: 'game/content/siege.js', // siege engines (docs/REINOS.md)
   towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
   people: 'game/people.js', mpeople: 'game/mut/people.js', npc: 'game/npc.js', cpeople: 'game/content/people.js', // (the settlements' people: VL scenarios)
+  raids: 'game/raids.js', raidsim: 'game/raidsim.js', craids: 'game/content/raids.js', mraids: 'game/mut/raids.js', // (the winter attacks: WA scenarios)
   eco: 'game/eco.js', meco: 'game/mut/eco.js', ecoc: 'game/content/eco.js', // (the economy of the kingdoms: EC scenarios)
   fields: 'game/fields.js', // (the settlements' fields and surroundings: jobs that can be done — JB scenarios)
   realms: 'game/realms.js', mrealms: 'game/mut/realms.js', war: 'game/content/war.js', realmMap: 'ui/realmMap.js', // (the kingdoms' wars: WR scenarios)
@@ -179,6 +180,7 @@ export async function reset(t, H, MH, G, MG) {
   // the kingdoms' AI paused in every scenario (no war of its own changes the world under a test — docs/REINOS.md §13);
   // the WR scenarios drive diplomacy and campaigns themselves
   try { H.game.realms?.dbg?.stop?.(true); H.game.realms?.dbg?.freeze?.(false); } catch { /* ignore */ }
+  try { H.game.raids?.dbg?.pause?.(true); } catch { /* ignore */ } // (the winter attacks on the settlements paused too: the WA scenarios drive them — docs/REINOS.md §16)
   for (const e of H.game.entities.slice()) if (e.isMob && !e.dead && !e.proxy && (e.faction === 'walker' || e.spawner?.hunt || e.spawner?.loose)) { e.noCorpse = true; try { MH.combat.killMob(H.game, e, null); } catch { /* ignore */ } } // (+ creatures made by earlier scenarios: ensureMobs)
   const sp = H.game.world.spawn;
   pacify(H, sp.x, sp.y, 24, 90); // the spawn ring holds only passive animals; strays from earlier scenarios calm down

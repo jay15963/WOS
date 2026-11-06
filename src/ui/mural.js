@@ -9,6 +9,7 @@ import { svgIcon } from './icons.js';
 import { DIVISIONS_PT, CHARGES_PT } from '../world/realm/names.js';
 import { ecoTabs, ecoBind, realmCard } from './muralEco.js';
 import { realmRelations, armyTab, armyBind } from './muralWar.js'; // phase 3a: the kingdom's relations / news, the army (docs/REINOS.md §13)
+import { nightDangerOf } from '../game/undead.js'; // the dead of the place's nights (its winter attacks: docs/REINOS.md §16)
 
 export const MURAL_TABS = [['place', 'Lugar'], ['realm', 'Reino'], ['jobs', 'Trabalhos'], ['trade', 'Comércio'], ['army', 'Exército'], ['land', 'Propriedades']];
 const SOON = {};
@@ -28,6 +29,7 @@ function hook(panels) {
   g.events.on('realms', () => { if (panels.muralTab === 'realm' || panels.muralTab === 'army' || panels.muralTab === 'place') again(); }); // (a war, a siege, a capture: phase 3a)
   g.events.on('inventory', () => { if (ECO_TABS.has(panels.muralTab) || panels.muralTab === 'realm') again(); });
   g.events.on('army', () => { if (panels.muralTab === 'army') again(); }); // (enlisted, the pay, a promotion: phase 3c)
+  g.events.on('raid', () => { if (panels.muralTab === 'place' || panels.muralTab === 'land') again(); }); // (a winter attack: begun, broken, over — game/raids.js)
 }
 const KIND_ART = { city: 'à cidade', castle: 'ao castelo', village: 'à vila' };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -35,6 +37,18 @@ const dirPt = (dx, dy) => {
   const a = Math.atan2(dy, dx), k = (Math.round(a / (Math.PI / 4)) + 8) % 8;
   return ['leste', 'sudeste', 'sul', 'sudoeste', 'oeste', 'noroeste', 'norte', 'nordeste'][k];
 };
+
+// the place's winter nights (game/raids.js, docs/REINOS.md §16): who comes, how often, the last attack
+const FAMN = { ice: 'andarilhos', bone: 'esqueletos', sand: 'múmias' };
+function nightsLine(g, I) {
+  if (!g.raids) return '';
+  const danger = nightDangerOf(g, I.x, I.y), last = g.raids.lastOf?.(I.id), on = g.raids.on?.get(I.id);
+  const when = I.walls ? 'a guarda sobe nas muralhas e segura os portões' : 'a guarda forma na beira do lugar';
+  let txt = `Nas noites da estação ruim, ${esc(danger)} atacam ${I.kind === 'village' ? 'a vila' : I.kind === 'castle' ? 'o castelo' : 'a cidade'} em cerca de 6 de cada 10 noites: ${when}, os arqueiros atiram do alto e o povo fica em casa. De vez em quando vem uma horda.`;
+  if (on) txt += ` <b style="color:#b8322a">Sob ataque agora: ${on.n} ${FAMN[on.fam] || 'mortos'} contra ${on.g} guardas${on.fell ? ' — a defesa caiu!' : ''}.</b>`;
+  else if (last) txt += ` Último ataque: noite do dia ${last[0]} — ${last[2] === 2 ? '<b style="color:#b8322a">a defesa caiu</b>' : 'resistiu'} · ${last[3]} ${FAMN[last[9]] || 'mortos'}${last[7] ? ' (uma horda)' : ''} · ${last[4] === 1 ? '1 guarda caiu' : `${last[4]} guardas caíram`}${last[5] ? ` · ${last[5]} ${last[5] === 1 ? 'morador morto' : 'moradores mortos'}` : ''}.`;
+  return `<h4>Noites de inverno</h4><p class="mu-note">${txt}</p>`;
+}
 
 let styled = false;
 function style() {
@@ -85,7 +99,7 @@ export function muralBody(panels) {
   const eco = ECO_TABS.has(tab) ? ecoTabs(panels, I, tab) : null;
   const head = `<div class="mu-head${eco ? ' small' : ''}"><img class="mu-ban" src="${bannerURL(B, 56, 84)}" alt="">
     <div><div class="mu-name">${esc(I.name)}</div>
-    <div class="mu-sub">${I.kindPt}${I.kind === 'city' && I.capital?.id === I.id ? ' · capital' : ''} do Reino de ${esc(K.name)}${I.seedK != null && I.seedK !== K.id ? ` · tomada do Reino de ${esc(realm.kingdoms[I.seedK].name)}` : ''}${g.realms?.besieged?.(I.id) ? ' · <b style="color:#b8322a">sob cerco</b>' : ''}</div>
+    <div class="mu-sub">${I.kindPt}${I.kind === 'city' && I.capital?.id === I.id ? ' · capital' : ''} do Reino de ${esc(K.name)}${I.seedK != null && I.seedK !== K.id ? ` · tomada do Reino de ${esc(realm.kingdoms[I.seedK].name)}` : ''}${g.realms?.besieged?.(I.id) ? ' · <b style="color:#b8322a">sob cerco</b>' : ''}${g.raids?.on?.has(I.id) ? ' · <b style="color:#b8322a">sob ataque</b>' : ''}</div>
     <div class="mu-pills"><span class="mu-pill">População <b>${I.pop}</b></span><span class="mu-pill">${L ? L.buildings.length : 0} construções</span>${I.walls ? `<span class="mu-pill">${I.walls === 'stone' ? 'Muralha de pedra' : 'Paliçada'}</span>` : '<span class="mu-pill">Sem muralha</span>'}</div></div></div>`;
   let body = '';
   if (tab === 'place') {
@@ -101,7 +115,7 @@ export function muralBody(panels) {
     body = `<p class="mu-lead">Bem-vindo ${KIND_ART[I.kind]} de <b>${esc(I.name)}</b>. ${capLine}</p>
       <div class="mu-stats">${stat(I.pop, 'Moradores')}${stat(homes, homes === 1 ? 'Casa' : 'Casas')}${stat(beds, 'Camas')}${stat(gates, gates === 1 ? 'Portão' : 'Portões')}${stat(guards, 'Postos da guarda')}${stat(fields, 'Campos')}${stat(pens, 'Cercados')}${stat(L?.buildings.length || 0, 'Construções')}</div>
       <h4>Construções</h4><div class="mu-list">${builds || '<span class="muted">—</span>'}</div>
-      <h4>Regras do lugar</h4><p class="mu-note">${I.kind === 'castle' ? 'Dentro do castelo não se constrói.' : `Dentro da terra de ${esc(I.name)} só se constrói num terreno comprado (aba Propriedades); fora dela, à vontade.`} Os portões abrem de dia e fecham à noite e quando há inimigos dentro.</p>`;
+      <h4>Regras do lugar</h4><p class="mu-note">${I.kind === 'castle' ? 'Dentro do castelo não se constrói.' : `Dentro da terra de ${esc(I.name)} só se constrói num terreno comprado (aba Propriedades); fora dela, à vontade.`} Os portões abrem de dia e fecham à noite e quando há inimigos dentro.</p>${nightsLine(g, I)}`;
   } else if (tab === 'realm') {
     const ss = g.realms?.placesOf ? g.realms.placesOf(K.id) : K.settlements.map((sid) => realm.settlements[sid]); // (its places now: the captured ones too)
     const chip = (s) => `<span class="mu-chip${s.id === I.id ? ' here' : ''}">${esc(s.name)}${s.k !== K.id ? ' <small>(tomada)</small>' : ''}${g.realms?.besieged?.(s.id) ? ' ⚔' : ''}</span>`;

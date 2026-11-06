@@ -25,6 +25,7 @@
 //   eco:    { day, ev, mk, pl, pr, st }  the economy of the kingdoms (game/mut/eco.js ecoRows: markets, players, properties, town chests)
 //   realms: { day, day0, k0, rel, tens, past, own, fallen, armies, scar, news }  the kingdoms' wars (game/mut/realms.js realmRows)
 //   army:   { en, des }  the players in the armies (game/mut/army.js armyRows: enlistment, rank, service, pay, deserters)
+//   raids:  { on, log }  the winter attacks on the settlements (game/mut/raids.js raidRows: going on, the last ones)
 // }
 // applyWorld(game, data, mode): mode 'load' (save file on a fresh world) or 'net' (join and RESYNC:
 // reconcile — remove what is not in the snapshot, add what is missing, overwrite the rest; never un-mine).
@@ -59,6 +60,7 @@ import { ecoRows, applyEcoRows } from '../game/mut/eco.js'; // the economy of th
 import { realmRows, applyRealmRows } from '../game/mut/realms.js'; // the kingdoms' wars: relations, owners, armies (docs/REINOS.md §13)
 import { warRows, applyWarRows } from '../game/mut/warfare.js'; // the armies near the players: forces, the structures of an army (docs/REINOS.md §14)
 import { armyRows, applyArmyRows } from '../game/mut/army.js'; // the players in the armies (docs/REINOS.md §15)
+import { raidRows, applyRaidRows } from '../game/mut/raids.js'; // the winter attacks on the settlements (docs/REINOS.md §16)
 import { skRows, applySkRows } from '../game/mut/skirmish.js'; // a skirmish arena: the lobby and the match (docs/SKIRMISH.md)
 
 export const SNAP_V = 1;
@@ -104,6 +106,7 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     eco: ecoRows(game) || undefined, // (the economy of the kingdoms: global — markets, players' reputation / jobs, properties, town chests)
     realms: realmRows(game) || undefined, // (the kingdoms' wars: global — relations, owners, armies, the news)
     army: armyRows(game) || undefined, // (the players in the armies: global — enlistment, rank, service, pay, deserters)
+    raids: raidRows(game) || undefined, // (the winter attacks on the settlements: global — going on, the log)
     war: warRows(game, save) || undefined, // (the armies near the players: the forces' public rows, the structures of an army — o.realm)
     sk: skRows(game) || undefined, // (a skirmish arena: the lobby and the match — never saved: game.noSave)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
@@ -407,6 +410,7 @@ function applyInner(game, d, mode, scope = null) {
   if (reconcile || d.realms) applyRealmRows(game, d.realms, reconcile); // (the kingdoms' wars: game/mut/realms.js)
   if (reconcile || d.war || mode === 'load') applyWarRows(game, d.war, mode); // (the armies: game/mut/warfare.js)
   if (reconcile || d.army) applyArmyRows(game, d.army, reconcile); // (the players in the armies: game/mut/army.js)
+  if (reconcile || d.raids) applyRaidRows(game, d.raids, reconcile); // (the winter attacks: game/mut/raids.js)
   if (d.sk) applySkRows(game, d.sk); // (a skirmish arena: game/mut/skirmish.js)
 
   // ---- camp crates ----

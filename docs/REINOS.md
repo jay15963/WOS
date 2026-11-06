@@ -25,6 +25,8 @@ força para destruir o lugar: os humanos quase sempre vencem, mas há uma chance
 Se vencerem, o lugar **não perde toda a população**; no dia seguinte o povo começa a **reconstruir**, como depois de um
 cerco — e ajuda a reconstruir as **casas alugadas** do jogador, mas **não** a propriedade **privada** dele (casa comprada,
 o que ele construiu no terreno): essa fica para o jogador consertar.
+**Feito**: [§16](#16-ataques-de-monstros-aos-lugares) — as ondas, a calibração dos ~5 %, a reconstrução, "Consertar" /
+"Reconstruir", por números longe dos jogadores, testes WA1–WA6.
 
 Ao amanhecer: esqueleto vira ossos, múmia vira areia (o andarilho já vira neve). As estações são locais e invertidas
 no outro hemisfério (`seasonAt(game, x, y)` já dá isso).
@@ -920,6 +922,37 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     segurá-la (no alarme: 2, ou 3 se larga / portão; o primeiro **na** abertura, os outros logo por dentro, lado a lado;
     lutam com o que chega a 5 tiles); os arqueiros do muro perto dela (12 tiles) atiram primeiro no que vem até ela. **Sem
     alarme**, uma abertura ainda fica com **um** guarda logo por dentro até ser refeita (os consertos de dia a refazem).
+  - **O alarme dura até a ameaça ser neutralizada** (apontamento do dono, 5/11/2026: "os arqueiros saem das muralhas
+    depois de um tempo mesmo estando em confronto com um monstro … o alerta de monstro funciona apenas por 5 segundos ao
+    invés de sumir apenas quando a ameaça estar neutralizada"): antes o sino parava 6 s depois de o hostil sair do anel do
+    alarme (a terra + 6 tiles) — um monstro que recuava uns passos, que batia na muralha de fora ou que ficava parado
+    longe derrubava o alarme e a guarda largava os postos (os arqueiros desciam) e voltava logo depois. Agora um hostil que
+    entrou no anel **ou ataca o lugar** (quebra uma peça dele, luta com alguém do lugar, uma onda de ataque — §16) continua
+    inimigo enquanto **vive** dentro da terra + **30** tiles e chegou perto / atacou nos últimos **40 s** (`people.js
+    dangerOf`, `rec.seen`; `PEOPLE.alarmHold` / `alarmMemory`); os poucos segundos de calma vêm só depois que todos
+    morreram ou foram embora. Enquanto isso todos ficam nos postos.
+  - **Arqueiros que não alcançam** (o mesmo apontamento: "fica parado em um lugar apenas e não consegue chegar no range de
+    ataque do arco"): o arqueiro no alto da muralha com um inimigo fora do alcance / sem linha de tiro **anda pelo alto da
+    muralha** (o adarve: as peças da linha e o tile logo por dentro, `levels.surf` no andar 1 / 2, e os postos das torres e
+    escadas) até o ponto mais perto que tem alcance e linha de tiro — um caminho pelo adarve, nunca descendo; fora da vista
+    ele já está lá — e, passada a luta, volta ao posto (`npc.js wallWalk / wallSpot / walkPath / walkWall`). No chão, sem
+    progresso em 3 s (um muro no caminho, gente, um inimigo que não se alcança), ele procura outro ponto em volta do
+    inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL13**.
+  - **A guarda no lado atacado** (apontamento do dono, 5/11/2026: "os soldados não estão focados apenas em uma parte da
+    muralha que é de onde estão vindo o inimigo"): com o ataque vindo de um lado, **todos os arqueiros** vão para o adarve
+    **daquele lado**, espalhados ~2,5 tiles em volta de onde o ataque bate (`defense.js frontSpots` sobre `wallWalk`); os
+    portões virados para ele ganham dois guardas e os dos fundos só ficam com um se a guarda for grande (2 por portão + 3);
+    o trecho de corpo a corpo é o arco de ~120° do lado do ataque (`PEOPLE.def.front` 0,45), mais largo só quando ali há
+    poucos pontos; a reserva (cidade / castelo) fica no torreão. Quando o lado muda (8 setores), os postos mudam. Vale para
+    os ataques do inverno, os monstros perto dos lugares e os cercos (a 3b usa o mesmo `townDefense.assign`).
+  - **Os mortos da noite dividem a atenção** (o mesmo apontamento: "os inimigos estão focando mais no jogador do que nos
+    soldados … focar no jogador apenas se for atacado, se estiver mais perto que outro soldado, ou se decidirem atacar o
+    jogador mesmo assim"): andarilhos, esqueletos, múmias e gigantes escolhem entre **todos** os corpos que veem / sentem
+    perto — jogadores, o povo na rua, soldados — pela distância × (1 + 0,55 por outro morto já em cima dele: a luta se
+    espalha), **quem os atacou nos últimos 8 s primeiro** (× 0,5), e um jogador vale × 1,8 a não ser que os tenha atacado,
+    seja o mais perto de todos ou que aquele morto seja dos poucos (~1 em 7) que vão atrás dos jogadores de todo jeito
+    (`walkers.js pickBody`; a atenção é revista a cada ~1 s, também no meio de uma luta com o povo). Antes eles sentiam o
+    jogador através das paredes e o povo só com linha de visão. Teste **WA7**.
   - **Barato**: os postos só são refeitos quando algo muda — o alarme começa / acaba, uma abertura aparece / some, o lado
     do ataque muda (8 setores, com folga para não ficar trocando), um guarda morre / volta — a cada meio segundo só se
     compara uma assinatura; quem caça quem dentro dos muros é refeito no mesmo meio segundo (poucos inimigos × poucos
@@ -942,6 +975,10 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   `siege.dmg`. Até 3 consertos ao mesmo tempo, os andares de baixo primeiro. Uma peça **destruída** há mais de 20 s é
   **refeita** pelos trabalhadores (9 s de martelo, ninguém no lugar → op `town.restore`; a peça volta na hora mesmo com o
   chunk carregado — corrigido em `towns.js resyncPieces`).
+  Quem refaz não conta como "alguém no lugar" (do lado da peça ele fica a ~0,7 do meio do tile: esperava por si mesmo
+  para sempre — §16, WA2). Um caminho até a peça que não dá certo (buscas falhando com um jogador olhando, sem o passo
+  fora da vista) ou que não termina em 60 s faz a pessoa largar aquela peça por 20 s; outra tenta (`npc.js repairWork`).
+  A propriedade **privada** de um jogador nunca é consertada nem refeita (§16).
 - **Longe dos jogadores**: por números, cada hora do jogo de dia −20 % de rachadura. Peças destruídas longe: a regra da
   fase 1 (2 dias sem ninguém a 40 tiles).
 - A regra antiga "os andarilhos de dia limpam o dano" **não vale mais para as peças dos lugares** (só para as dos
@@ -1002,7 +1039,9 @@ longe = só contagem · VL8 uma morte por monstro (sem corpo / saque), salva, re
 só sobe e é salvo · VL9 **a defesa**: um lobo (preso no lugar) fora da paliçada de dia — o sino, a ameaça do lado dele,
 todo arqueiro na rua sobe na paliçada (superfície do andar 1, nenhum no mural), os de corpo a corpo nos portões / no
 trecho de frente (nenhum no mural); um tronco desse trecho é destruído → abertura nos dois pares e um guarda de corpo a
-corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela.
+corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela. **VL13** (apontamento do dono, 5/11/2026): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra
+do lugar e voltando, por 65 s — o sino nunca para, nenhum arqueiro desce da muralha, todos acertam o lobo (andando pelo
+adarve até ter alcance), o corpo a corpo nos postos; o "tudo calmo" só quando ele morre.
 Prints em `shots/vl_*.png` (não vão para o git): `vl_village_day_a` / `vl_village_day_b` (vila de dia, 0° e 45°), `vl_work_field` / `vl_work_pen` (lavrador plantando,
 pastor no curral), `vl_work_smith` (ferreiro martelando na bigorna), `vl_work_carry` / `vl_city_market_morning` /
 `vl_city_plaza` / `vl_city_plaza_45` (a praça da capital: feira da manhã, gente indo ao chafariz), `vl_evening` (a vila
@@ -1087,8 +1126,8 @@ seção.
     `realmowner { sid, k }`.
   - **Para a 3b (reputação por ajudar / atacar — decisão do dono)**: `game.realms.reward(pid, k, d, motivo)` (anfitrião)
     soma `d` à reputação do jogador no reino `k` (op `eco.rep`, com aviso). O lado que a 3b vê (quem bateu em quem) decide.
-  - A carência do reino do início: **2 dias** do mundo (§13). `realm.rel` (depuração) ignora a carência mas nunca a regra
-    das terras.
+  - Sem carência para o reino do início (tirada pelo dono em 2026-11-06): só o 1º dia do mundo é calmo, para todos os
+    reinos (§13). `realm.rel` (depuração) ignora o dia calmo mas nunca a regra das terras.
   - **Acrescentado na 3c (§15)**: `settle(id, { n, outcome: 'won' | 'lost' | 'taken' | 'lifted', x, y })` (anfitrião) — a
     3b chama em `finishForce` e a 3a retoma os números na hora (volta para casa, segura o lugar, segue); `capture(sid, k,
     { army, n })` — a guarnição nova sai dos vencedores (metade, até o máximo; sem exército: 30 % do máximo); um exército
@@ -1172,7 +1211,8 @@ perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito)
 - **Mural · Reino**: no alto, **Relações do Reino de X** — cada reino da mesma terra com ícone e etiqueta (EM GUERRA com
   "Declarada por nós no dia N" / "Declarou guerra a nós" e a barra do cansaço da guerra; ALIADO desde o dia N; TRÉGUA até
   o dia N; EM PAZ com "fronteira calma / alguma tensão / fronteira tensa" e as guerras passadas; "Rival distante (sem
-  fronteira)"; os reinos de outras terras: "sem navios, nenhuma relação"); o aviso da carência no reino do início;
+  fronteira)"; os reinos de outras terras: "sem navios, nenhuma relação"); no 1º dia do mundo, o aviso "Nenhum reino declara guerra no
+  primeiro dia do mundo";
   **Notícias do reino** (as últimas 8, com dia e hora). Depois o cartão "Você e o reino" da fase 2 (agora diz que o membro
   recebe as notícias e que perde as propriedades de um lugar tomado) e os lugares do reino **agora** (os tomados marcados
   "(tomada)", os cercados com ⚔).
@@ -1205,10 +1245,10 @@ perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito)
   −3 entre aliados, −2,5 em trégua, −1 se um deles já está em guerra noutro lugar, ±1,5 de ruído; o resto cai 3 % ao dia.
 - **Guerra**: acima de 52 de tensão, chance de (tensão − 52) × 2,5 % ao dia (no máximo 60 %); quem declara é o mais forte.
   No máximo ⌈reinos / 6⌉ guerras no mundo (16 reinos → 3) e 2 por reino. **Aliança defensiva**: os aliados do atacado
-  entram na guerra contra o atacante (se o alcançam por terra e não estão em carência / no limite).
-- **Carência**: o reino do início (o da vila do spawn) fica fora de qualquer guerra nos seus **2 primeiros dias** (decisão
-  do dono; dia do mundo `day0` e `day0 + 1`); o mundo inteiro fica em paz no 1º dia. Um mundo antigo, sem fase 3, começa a
-  contar quando é aberto.
+  entram na guerra contra o atacante (se o alcançam por terra e não estão no dia calmo / no limite).
+- **Sem carência** para o reino do início (o da vila do spawn): o dono tirou a proteção de 2 dias (2026-11-06) — ele pode
+  entrar em guerra a partir do 2º dia, como qualquer outro. O mundo inteiro fica em paz só no 1º dia (`day0`,
+  `WAR.quietDays`). Um mundo antigo, sem fase 3, começa a contar quando é aberto.
 - **Cansaço da guerra** 0..100 de cada lado: +5 por dia, +1 a cada 14 soldados perdidos, +18 por lugar perdido, −8 por
   lugar tomado. **Paz**: acima de 55, chance de (cansaço − 55) × 3 % ao dia, +15 % depois de 10 dias de guerra → **trégua de
   5 dias** (sem guerra entre eles; depois "Terminou a trégua").
@@ -1329,7 +1369,7 @@ weary}` (as guarnições e níveis de todos os lugares, ~3 KB por dia) · `realm
 nascem dentro das ops (mesma lista em todos os pares; dia / hora de cada par são cosméticos). Snapshot / save:
 `world.realms` (`realmRows`: dia, primeiro dia, reino do início, relações, tensões, guerras passadas, donos, caídos, todos
 os exércitos, cicatrizes de cerco, notícias). Digest: parte **`realms`** (exata; um exército marchando entra pela rota e
-pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 3 ao abrir (com a carência).
+pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 3 ao abrir (com o dia calmo).
 
 ### Desempenho
 
@@ -1344,8 +1384,8 @@ pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 
 ### Testes e prints
 
 `tools/mp-test.js` **WR1–WR9** (`?run=WR1,…`; a IA dos reinos fica pausada em todo cenário — `act.js reset` — e os WR a
-dirigem): WR1 a mesma diplomacia nos dois pares, nunca guerra entre terras, a carência de 2 dias (6 dias de diplomacia
-com tensão 99 sem guerra; a partir do 3º dia, a guerra vem) · WR2 guerra forçada: o convidado membro vê a guerra, a
+dirigem): WR1 a mesma diplomacia nos dois pares, nunca guerra entre terras, sem carência para o reino do início (no 1º dia
+do mundo, 6 rodadas de diplomacia com tensão 99 sem guerra; a partir do 2º dia, a guerra vem também para ele) · WR2 guerra forçada: o convidado membro vê a guerra, a
 aliança e a paz do seu reino (avisos e o mural Reino), uma campanha se reúne e marcha (mesmos exércitos nos dois, a
 notícia), o Exército mostra a campanha, notícias de guerra nos mercados, nenhuma guarnição acima do máximo · WR3 a marcha
 pela estrada: mesma posição nos dois (< 3 tiles), em cima da estrada (< 1 tile), anda velocidade × tempo, mapa e radar
@@ -1374,7 +1414,7 @@ venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelh
 
 ### Decisões (para o dono confirmar)
 
-- **Carência de 2 dias** do reino do início (pedido do dono); além disso o mundo inteiro fica em paz no 1º dia.
+- ~~Carência de 2 dias do reino do início~~ — tirada pelo dono (2026-11-06); fica só o 1º dia do mundo em paz para todos.
 - **Rivais distantes**: reinos da mesma terra sem fronteira, com capitais a até 2 800 tiles, também têm tensão e podem
   guerrear (marchando pelo campo, sem estrada). Sem isso, na semente 4242 o reino do início (Galéria, isolado por terra
   livre) nunca teria uma guerra.
@@ -1387,7 +1427,7 @@ venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelh
 - **Reputação herdada** (pedido do dono): os números — aliado +40 (já pode comprar casa nele), trégua −15, guerra −60
   ("Malvisto": compra 50 % mais cara); as faixas negativas e os preços da tabela do §10.
 - **Os níveis do §7b na força**: só +5 % por nível (nível 18 ≈ 1,85 × nível 1) — com +12 % os reinos longe do início eram
-  3× mais fortes por soldado e esmagavam o reino do jogador logo depois da carência.
+  3× mais fortes por soldado e esmagavam o reino do jogador logo nos primeiros dias.
 - **Exércitos lentos de propósito** (1,1 tile/s, ~860 tiles por dia de jogo): uma marcha leva de minutos a horas reais, e
   quem está no caminho é avisado bem antes ("marcha sobre …").
 - **Sem a 3b, nada é jogado perto**: um cerco perto do jogador segue por números (o lugar reage: sino, povo em casa,
@@ -1986,6 +2026,240 @@ reino em guerra); a guarda inimiga só persegue alistados; alistar-se pede Conhe
 entrar naquele reino); um exército por vez; o exército fornece as pedras do trabuco; rivais distantes na mesma terra
 (capitais até 2 800 tiles) podem guerrear; os lugares de um reino que cai vão para quem tomou a última cidade dele; num
 lugar tomado os moradores ficam e só a guarda troca de cor. Mudar qualquer uma delas pede o dono.
+
+## 16. Ataques de monstros aos lugares
+
+Feito (pedido do dono no §1, "Ataques aos lugares no inverno"): nas noites da estação ruim de cada região os mortos dela
+**atacam as vilas, castelos e cidades** — uma onda **um pouco menor que a guarda** do lugar, vinda de um lado, contra a
+muralha / o portão / a paliçada / a beira de uma vila aberta —, e a defesa do §11 acontece de verdade: o sino, os arqueiros
+nas muralhas, o corpo a corpo nos portões e no trecho atacado, as brechas seguradas, os civis em casa. Os humanos quase
+sempre vencem; **raramente (~5 %, medido)** a defesa cai — a noite custa guardas e moradores e o lugar fica danificado,
+**nunca todo o povo**; no dia seguinte o povo reconstrói, inclusive a casa que o jogador **aluga**, mas **nunca** a
+propriedade **privada** dele (a casa comprada e o que ele construiu no terreno: ele conserta). Longe dos jogadores tudo
+isso acontece **por números**, com a mesma taxa. Código: `game/raids.js` (o plano da noite, a onda ao vivo, os números
+longe, a reconstrução, a propriedade privada, "Consertar" / "Reconstruir"), `game/raidsim.js` (a luta por números, pura:
+roda no node), `game/content/raids.js` (os números), `game/mut/raids.js` (estado, ops, linhas), `ui/raidHud.js` (avisos),
+`tools/raid-calib.mjs` (calibração). Ganchos de uma linha em `walkers.js` (o alvo da onda, rachaduras persistentes na
+propriedade privada, o registro do que ela quebra), `giants.js` (o golpe e a pedra do gigante ferem a guarda — antes só
+feriam jogadores), `mobs.js` (a onda não dorme longe dos jogadores), `bandits.js` (a onda nunca desiste nem se cura), `people.js` (a
+guarda inteira sai durante o ataque; o alarme dura até a ameaça ser neutralizada; o sino não repete o aviso), `npc.js`
+(os arqueiros andam pelo adarve até ter alcance; o povo não conserta propriedade privada), `towns.js` (nem a refaz), `building.js`
+("Consertar"), `controller.js` ("Reconstruir"), `ui/muralEco.js` (o estrago na aba Propriedades), `ui/mural.js` (o
+último ataque), `net/snapshot.js`, `net/digest.js`, `systems.js`, `mut/index.js`, `tools/mp-test/act.js`.
+
+### Como se joga
+
+- **Quando**: a cada noite de estação ruim de um lugar (a mesma regra dos mortos da noite: o inverno dos andarilhos no
+  temperado / subpolar, toda noite no polar, o inverno ameno da zona quente, a estação seca dos trópicos; deserto: múmias),
+  ele é atacado com **60 %** de chance (polar: **35 %** — lá toda noite é de inverno), numa hora sorteada do escuro
+  (21h20 – 2h25) e de um lado sorteado (8 direções). Decisão: nem todo lugar toda noite — o inverno fica perigoso e o
+  jogador nunca sabe se é a noite dele —, mas a maioria das noites de inverno de uma vila tem ataque. O plano da noite é
+  um *hash* do mundo, do lugar e da noite: o mesmo depois de recarregar.
+- **A onda**: **70–90 % dos guardas vivos** do lugar (arqueiros incluídos: sempre menos monstros que guardas), da família
+  da região (Andarilhos do Gelo / Esqueletos / Múmias); em castelos (45 %) e cidades (60 %) um **gigante** da família a
+  lidera (onde a família tem gigante) e **conta como 4**. Aparece fora da terra do lugar, do seu lado (fora da vista
+  quando dá), vai para o meio do lugar **através da muralha** (não atrás das luzes de fora), quebra o tronco / a pedra / o
+  portão na linha (as regras dos andarilhos: brecha), entra e luta com a guarda.
+- **A força** (o equilíbrio do §7b): por números puros a guarda é muito mais forte que os mortos da noite do mesmo nível
+  (×1,6 de vida, ×1,5 de dano, armas de ferro, escudo, elmo — longe do início um andarilho vale ~1/5 de um guarda). Por
+  isso cada monstro da onda tem uma **fúria** (vida e dano ×, entre 0,75 e 3,2) calculada com os números do próprio jogo
+  (vida, dano, ritmo da arma e golpes especiais, armadura de cada um contra o nível do outro) para que, **na luta ao vivo
+  medida**, um monstro valha ~2/3 de um guarda corpo a corpo do lugar. Assim a batalha é igual perto do início e na borda
+  do mundo: a guarda vence, mas perde gente (uma vila de 8 guardas perde 1–2). Os números: no modelo de rodadas um guarda
+  vale `par` = 2,6 monstros, com o modelo ajustado ao que a luta ao vivo mostrou (`RAID.eff`: os mortos batem ×1,3, um
+  terço dos arqueiros tem a onda no alcance, os mortos na brecha batem nos primeiros guardas — `RAID.focus`; medido em WA6,
+  abaixo).
+- **A horda** (o raro): em **7,2 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
+  guarda, nunca mais que ela), cada um mais forte (vida e dano: vila ×1,35, castelo ×1,65, cidade ×1,6), o gigante vem
+  mais vezes. O aviso diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
+- **A defesa cai** (op `raid.fall`) quando sobra 1/4 dos guardas de corpo a corpo (vila: 1) e ainda há 2+ monstros de pé:
+  "A defesa de X caiu! Os mortos invadem as ruas". A noite está perdida; os mortos andam pelas ruas até morrerem ou o dia
+  nascer.
+- **O fim**: todos caídos, o amanhecer (eles desmancham) ou — os jogadores se afastaram — o resto da luta por números de
+  onde parou. **Perdida**: os mortos arrombaram casas — as que quebraram ao vivo e outras perto de onde entraram (2–5 por
+  números) —, cada morador delas morre com 50 % (**nunca mais que 22 % dos moradores**); por números as portas dessas
+  casas caem e paredes racham. Os mortos são repostos em **1,5 dia** como qualquer morte (§11). **Sem aviso por morte**
+  (regra do dono): o sino, a luta e o aviso do fim contam a história.
+- **Avisos** (perto do lugar: a terra + 90 tiles): "Andarilhos do Gelo atacam Estrosa pelo norte! · 7 contra 8 guardas —
+  o sino toca: o povo corre para casa, os arqueiros sobem nas muralhas e a guarda vai para o norte" (a horda: "Uma horda
+  de …"; com gigante: "… e o Gigante de Gelo atacam …"); "A defesa de Estrosa caiu!"; no fim "Estrosa resistiu ao
+  ataque · 7 andarilhos derrotados · 1 guarda caiu" ou "Estrosa sobreviveu à noite, com perdas · 3 moradores mortos, 4
+  guardas caíram, casas arrombadas e a muralha aberta. A partir de amanhã o povo reconstrói a vila". O aviso genérico do
+  sino ("Alarme em X…") não se repete durante um ataque.
+- **Mural · Lugar**: as noites do lugar ("Nas noites de inverno os Andarilhos do Gelo atacam…") e o último ataque ("noite
+  do dia 12: resistiu · 7 andarilhos · 1 guarda caiu"); "· sob ataque" no título enquanto dura.
+
+### A propriedade do jogador (regra do dono)
+
+- **Alugada**: é do lugar — o povo a conserta e a refaz como o resto (aviso: "Os monstros danificaram a casa que você
+  aluga em X — o povo conserta a partir de amanhã").
+- **Comprada** e **o terreno**: privadas. O povo **nunca** as conserta nem refaz (os consertos do §11 de dia, os por
+  números, a reconstrução depois de 2 dias e a de um ataque — `TOWN.privatePiece`), e o que os mortos fazem nelas
+  **fica**: as peças da casa no estado do lugar (salvo, igual nos pares); as estruturas do terreno com a rachadura
+  **persistente** do cerco (`siege.dmg` / `o.sdmg`: não somem ao amanhecer, vão no save). Aviso ao dono, onde ele estiver
+  (fixo até fechar): "Os monstros danificaram sua casa em X: conserte-a você mesmo · O povo não conserta propriedade
+  privada. Perto de uma parede rachada: Consertar (E); uma peça destruída: Reconstruir (com o material dela)…" / "…o que
+  você construiu no seu terreno em X". O mural (Propriedades) mostra "⚠ danificada: 2 peças rachadas, 1 destruída ·
+  conserte você mesmo".
+- **Consertar** (E / o botão de ação): numa peça rachada da casa que é sua (comprada ou alugada) ou de algo seu onde você
+  pode construir — golpes de martelo, cada um um passo (madeira −34 %, pedra −20 % da rachadura; intent `prop.fix`, o
+  anfitrião confere dono e distância). Numa porta, "Abrir" continua primeiro e "Consertar" é a segunda escolha.
+  **Reconstruir**: ao lado de uma peça destruída da sua casa, com o material dela na mochila (pago na hora, devolvido se
+  o anfitrião recusar) → `town.restore`.
+
+### Por números (longe de todos os jogadores)
+
+- Quando chega a hora de um lugar sem jogador perto (a terra + 40 tiles), a luta é feita **na hora** por `raidsim.js
+  fight`: a onda anda até o muro sob as flechas, quebra a peça (os mesmos segundos-de-andarilho de `walkers.js`: madeira
+  105, pedra 350; até 4 batendo; o gigante ×8), depois a luta na brecha (poucos de cada vez, mais conforme entram; os dois
+  lados batem em quem está na frente), os arqueiros atirando o tempo todo, até a onda morrer, a defesa cair ou o dia
+  nascer. Os mortos (guardas e moradores) e o estrago vão na op `raid.end` para o estado do lugar como o cerco por
+  números: a muralha do lado do ataque rachada (1–3 peças; com brecha às vezes uma cai), perdida: a brecha (1–2 peças),
+  o portão daquele lado (40 %), casas arrombadas — carregado ou não; as linhas levam o tile e o tipo da peça (nenhum par
+  precisa da planta para gravá-las).
+- **Barato**: o plano da noite olha cada lugar uma vez ao anoitecer (a família pelo clima do planeta e o bioma da célula,
+  sem carregar nada); no máximo 3 lutas por números por meio segundo, ~0,05–0,3 ms cada. As peças só quando a planta do
+  lugar já foi feita neste par, ou numa noite perdida / num lugar com propriedade de jogador (planejado uma vez: 7–55 ms);
+  uma vila longe que resistiu fica só com as mortes.
+- **No dia seguinte**: de manhã (7 h – 18h36), a cada hora do jogo, até 6 peças destruídas por lugar atacado nos últimos
+  dias são refeitas por números (`town.restore`) — longe dos jogadores (perto, o povo faz à mão: `npc.js repairTick`) e
+  nunca uma casa comprada.
+
+### A calibração (o ~5 % do dono)
+
+`raidsim.js` usa as tabelas do próprio jogo: as criaturas (`SPECIES`, `mobStats`), as armas, a armadura e o escudo, os kits
+dos mortos (`undead.js`), o kit da guarda (`people.js`). Medido:
+
+| Amostra | Ataques | Perdidos | Hordas (perdidas) | Ondas normais perdidas | Guardas mortos |
+|---|---|---|---|---|---|
+| O reino de verdade (semente 4242, os 240 lugares com o clima, a família e o nível de cada um: `game.raids.dbg.calibrate`, WA3) | 8 000 | **406 (5,08 %)** | 603 (386: 64 %) | 0,3 % | 21 % |
+| Reino sintético (`tools/raid-calib.mjs 40000 7`: 77 % vilas, 17 % castelos, 6 % cidades, 3 famílias, níveis sorteados) | 40 000 | 2 527 (6,32 %) | 2 913 (2 454: 84 %) | 73 (0,20 %) | 20,2 % |
+| — vila com paliçada / aberta | | 6,1 % / 6,5 % | 84 % / 88 % | 0,11 % / 0,32 % | 19 % / 27 % |
+| — castelo / cidade | | 6,3 % / 5,4 % | 86 % / 71 % | 0,11 % / 0 % | 18 % / 17 % |
+
+A taxa vale pelo reino de verdade (a chance da horda, 7,2 %, foi acertada nele: com 6 % dava 4,1 %); a amostra sintética,
+com níveis sorteados, fica um pouco acima (6,3 %). As ondas normais quase nunca vencem (~0,2 %) e matam ~1/5 da guarda
+(uma vila de 8 perde 1–2); uma horda vence 2 a 4 vezes em 5 conforme o lugar.
+
+### Ao vivo (perto dos jogadores)
+
+A calibração só vale se a luta de verdade bater com os números — e no começo não batia. `WA6` (`&raidsoak=N`) põe N ondas
+seguidas contra a guarda inteira da vila do início (Estrosa: 8 guardas, 3 arqueiros, paliçada; os mortos de volta e a
+paliçada refeita entre elas) e anota, de cada uma, o resultado ao vivo e a previsão dos números para o mesmo lugar.
+
+- **Primeiras medidas** (ondas normais, fúria 1,37): perdidas 3 de 4, 3–5 guardas mortos — o modelo previa ~1 e 0 %. Os
+  números da luta (`waFightLog`: quem bateu em quem) mostraram por quê, e eram defeitos, não equilíbrio: os mortos
+  **fugiam e se curavam** (o "evade" dos saqueadores: imunes, +30 % de vida por segundo; e +4 %/s parados) — o dano dos
+  arqueiros sumia; **perseguiam o arqueiro no alto da muralha** que os acertava (sem conseguir subir, até desistir e
+  curar); no teste, os lobos de fora tomavam parte das flechas (o teste agora os afasta); e — o apontamento do dono — o **alarme caía** quando o monstro
+  recuava uns passos e os **arqueiros ficavam parados fora do alcance**. Corrigido: a onda nunca desiste nem se cura
+  (`bandits.js`), ignora o arqueiro lá em cima (`walkers.js`), o alarme dura até a ameaça morrer e os arqueiros andam pelo
+  adarve (§11).
+- **Depois** (8 ondas, uma calibração intermediária): as normais 5 de 5 seguras (2 guardas mortos cada), as hordas 3 de 3
+  seguras (2–4 mortos): a guarda agora vencia demais. O modelo foi ajustado a isso (`RAID.eff`: os mortos ×1,3, um terço
+  dos arqueiros no alcance, os mortos na brecha batendo nos primeiros guardas) e recalibrado (par 2,6, horda ×1,35–1,65).
+- **Com os números finais** (6 ondas): normais **2 de 2 seguras** (0 e 2 guardas mortos; previsão 1,3); hordas **3 de 4
+  perdidas** (previsão 79 %; 4, 2, 5 e 4 guardas mortos — previsão 4,0; 2–7 moradores mortos nas perdidas). A taxa ao vivo
+  estimada: 0,928 × ~0,2 % + 0,072 × 64–79 % ≈ **5–6 %**, a mesma dos números. (Amostras pequenas — cada onda leva 40–120 s
+  de jogo; o modelo é o que dá a taxa, e a luta ao vivo confere que ele bate com ela.)
+
+### Multijogador e saves
+
+Anfitrião autoritativo. Estado em `game.raids` (todos os pares): `on` (os ataques acontecendo: lugar, noite, família,
+monstros, guardas, gigante, horda, lado, hora, ao vivo, defesa caída) e `log` (os últimos 80: noite, lugar, resultado,
+monstros, guardas e moradores mortos, ao vivo, horda, hora, família). Ops `raid.start` · `raid.fall` · `raid.end` (as
+mortes, as peças por números, as rachaduras das estruturas privadas, quem teve propriedade atingida); intent `prop.fix`.
+As criaturas da onda vão no fluxo de entidades como os andarilhos (o convidado vê as mesmas). Snapshot / save:
+`world.raids` (`raidRows`); digest: linhas `raid:` e `rlog:` na parte `towns`. O plano da noite fica só no anfitrião (é
+um hash: o mesmo depois de carregar). Os avisos são locais (cada par decide o que mostra ao seu jogador).
+
+### Desempenho
+
+Medido (Chrome headless deste PC, WA3 / WA4):
+
+- **O sistema dos ataques** (anfitrião, a cada 0,5 s): **0,012 ms** por tique em média durante o ataque ao castelo (pior
+  5,7 ms: o tique que faz a primeira leva da onda — 8 criaturas e o gigante); o **povo** no mesmo ataque, com a guarda
+  inteira para fora (17 guardas-criatura): **0,18 ms** por quadro.
+- **Por números**: uma luta 0,12 ms (8 000 em ~1 s, `dbg.calibrate`); um ataque longe inteiro (a luta, as mortes, as
+  peças da muralha e das casas, a op) **~1,2 ms**; no máximo 3 por meio segundo. O plano da noite: uma vez ao anoitecer,
+  ~240 lugares (o clima de cada um guardado: `climateAt` uma vez por lugar).
+- **Teto ao vivo**: 24 criaturas da onda de uma vez (qualidade baixa: 60 %), o resto entra a cada 1,4 s conforme caem; a
+  guarda inteira vira criatura durante o ataque (o teto do povo do lugar continua valendo: 40 / 30 / 60). Nada varre peças
+  por quadro: o que a onda quebra chega pelo gancho de `walkers.js hitPiece`; o adarve dos arqueiros é guardado por mudança
+  do estado do lugar.
+
+### Testes
+
+`tools/mp-test.js` **WA1–WA7** e **VL13** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
+`game.raids.dbg.force`; os outros mortos da noite ficam de fora enquanto o cenário roda): WA1 noite de inverno na vila do
+início com os dois jogadores — a onda (70–90 % dos guardas, andarilhos, do norte, todos do lado certo fora da terra), o
+sino, a ameaça do lado certo, os arqueiros na paliçada, o corpo a corpo nos portões / trecho, a paliçada atingida do lado
+do ataque, o fim com o lugar de pé, a mesma linha do log nos dois, sem aviso por morte · WA2 a derrota forçada (horda,
+`lose`): "A defesa … caiu", o fim perdido, o povo vivo (≥ 78 % dos moradores), as casas comprada e alugada arrombadas e a
+parede do terreno rachada (persistente) nos dois, os avisos do dono, o mural; ao amanhecer a rachadura fica; de manhã o
+povo refaz a porta da casa alugada e não toca na comprada nem no terreno; o convidado conserta a parede (Consertar) e
+refaz a porta (Reconstruir); os mortos voltam 1,5 dia depois · WA3 por números — a taxa medida no reino de verdade
+(8 000 ataques), uma noite perdida longe (mortes, brecha do lado certo, rachaduras, a casa do convidado arrombada e o
+aviso a ele), uma que resistiu, a reconstrução por números no dia seguinte (menos a casa dele) · WA4 o castelo: o gigante
+na frente (conta como 4), o teto de criaturas, a guarda inteira para fora, o golpe do gigante fere a guarda, o custo ·
+WA5 save → load (o ataque acontecendo e o log), o plano da noite igual · **WA6** (só com `&raidsoak=N`: uma calibração
+longa) N ondas seguidas na vila do início contra a guarda inteira (os mortos de volta, a paliçada refeita entre elas), o
+resultado ao vivo ao lado da previsão dos números para o mesmo lugar · **VL13** o alarme até a ameaça ser neutralizada
+(apontamento do dono, §11): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra do lugar e voltando, por
+65 s — o sino nunca para, nenhum arqueiro desce da muralha e todos acertam o lobo (andando pelo adarve até ter alcance), o
+corpo a corpo nos postos; o "tudo calmo" só depois que ele morre · **WA7** a atenção dos mortos (§11, jogo normal, sem
+ataque): seis andarilhos no portão norte da vila do início numa noite de inverno, os dois jogadores 6 tiles por dentro —
+em 30 s o povo do lugar recebe mais da atenção deles que os jogadores e eles se espalham por pelo menos dois defensores;
+o jogador acerta um e ele vem atrás dele. Todos terminam com o digest igual.
+
+**Resultados** (Chrome headless deste PC, perfil limpo). A rodada inteira no fim (`run=all&soak=60`, 204 cenários,
+~62 min): **196 passam, 6 falham, 2 pulados** (S28 só pela linha de comando, WA6 só com `&raidsoak`) — WA1, WA3–WA5, WA7,
+VL1–VL13, SK1–SK5 (a escaramuça da main, que usa a mesma defesa e a mesma atenção dos mortos), NM, EC, WR e BT todos
+passam. As 6: **WA2** (a porta da casa alugada nunca voltava: quem a refazia esperava por si mesmo — §11 Consertos;
+corrigido depois da rodada), **AR2** (as ordens do general: 3 de 4 vistas — falha igual desde antes deste trabalho, na
+parte dos exércitos), **K1**, **HO1**, **HO3** e **S9** (da ordem da rodada: HO1 / HO3 falhavam igual na primeira rodada
+inteira). Depois do conserto, WA1, WA2, K1, S9, HO1 e HO3 rodados juntos: **6 / 6 passam**. A primeira rodada inteira,
+antes dos consertos de IA e da junção com a main: 180 / 10 / 2. Pelo caminho: WA1 falhava (a onda normal derrubava a
+defesa) até os consertos de IA acima; WA2 conferia os avisos do convidado com dois avisos fixos na frente (o teste agora
+os fecha antes; os da propriedade viraram um aviso só); WA3 pegava a guarda pelo nome errado do campo (`place.g0`); WA7
+via os seus andarilhos mortos pela limpeza dos hostis do próprio teste; o teste do alarme era VL11, o mesmo nome de um da
+main (agora VL13).
+
+### Prints
+
+`shots/` (fora do git; sem o painel de depuração; 1264 × 625): `wa_village_wave_palisade` / `wa_village_wave_2…5` (uma
+onda de Andarilhos do Gelo no portão norte da paliçada de Estrosa numa noite de inverno, os arqueiros no alto da paliçada,
+os guardas segurando o portão), `wa_village_held_notice` ("Estrosa resistiu ao ataque · 6 andarilhos derrotados · 2
+guardas caíram"), `wa_castle_giant_wave` / `wa_castle_giant_fight` / `_2` (a Torre de Dorilde: o Gigante de Gelo e 11
+andarilhos no portão norte, os arqueiros nas torres, a guarda no portão), `wa_loss_horde_notice` ("Uma horda de
+Andarilhos do Gelo ataca Estrosa pelo norte! · 7 contra 8 guardas…" e "A defesa de Estrosa caiu!"), `wa_loss_streets` /
+`_2` (a horda rompendo o portão norte), `wa_loss_end_notices` ("Estrosa sobreviveu à noite, com perdas · 3 moradores
+mortos, 2 guardas caíram…" e o aviso fixo ao dono "Os monstros danificaram sua casa em Estrosa: conserte-a você mesmo"),
+`wa_own_house_damaged` (de manhã, a casa comprada ainda arrombada, o botão "Consertar" ao lado da parede rachada),
+`wa_mural_damage` (Propriedades: a casa "⚠ danificada … conserte você mesmo"), `wa_mural_nights` (o mural do lugar),
+`wa_rebuild_morning` / `_2` (de manhã o lavrador refazendo a porta de uma casa arrombada).
+
+### Decisões (para o dono confirmar)
+
+- **Frequência**: 60 % das noites ruins de cada lugar (polar 35 %), hora e lado sorteados — o inverno fica perigoso sem
+  ser toda noite em todo lugar.
+- **A fúria**: os mortos de uma onda têm vida e dano ajustados ao lugar (× 0,75–3,2): perto do início um pouco menos que os
+  soltos, longe ~1,4× — senão a guarda (×1,6 vida, ×1,5 dano, ferro) esmagaria qualquer onda menor que ela sem perder
+  ninguém. Um jogador que luta com a onda sente isso.
+- **A horda** é o "raro" do dono: 7,2 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
+- **O alarme até a ameaça ser neutralizada** (apontamento do dono): 30 tiles além da terra do lugar e 40 s de memória
+  depois do último ataque / aproximação de cada monstro; os arqueiros andam pelo adarve atrás de alcance (§11).
+- **A guarda no lado atacado e a atenção dos mortos** (apontamentos do dono na escaramuça, valem para o jogo todo — §11):
+  os arqueiros todos no adarve do lado do ataque, os portões dos fundos sem guarda numa guarda pequena; os mortos dividem a
+  atenção entre os defensores e só preferem o jogador quando ele os ataca, é o mais perto ou por sorteio (~1 em 7).
+- **Uma noite perdida** mata no máximo 22 % dos moradores e arromba 2–5 casas; a guarda pode cair quase toda (volta em
+  1,5 dia); ninguém perde a casa por isso.
+- **Propriedade privada** = a casa comprada e as estruturas no terreno; a alugada é do lugar. As rachaduras de ataque nas
+  estruturas do terreno não somem ao amanhecer (como as de cerco). "Consertar" é de graça (tempo); "Reconstruir" custa o
+  material da peça.
+- Um lugar sitiado por um exército não é atacado pelos mortos naquela noite.
+- Pendente / ideias: o mapa marcar os lugares atacados na noite; um trabalho "defender a vila" que pague mais numa noite
+  de horda; o jogador pagar o povo para consertar a casa dele.
 
 ## Ideias para o futuro (anotadas a pedido do dono, 5/11/2026)
 

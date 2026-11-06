@@ -314,7 +314,7 @@ export function updateBandit(game, m, dt) {
         if (!dir || m.stateT <= 0) { m.state = 'idle'; m.stateT = m.patrol ? 0.5 + Math.random() : 3 + Math.random() * 6; m.moving = false; }
         else go(game, m, dir, spd, dt);
       }
-      if (m.hp < m.maxHp) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.04 * dt);
+      if (m.hp < m.maxHp && m.raid == null) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * 0.04 * dt); // (a winter attack's wave does not heal: game/raids.js)
       break;
     }
 
@@ -325,7 +325,10 @@ export function updateBandit(game, m, dt) {
     case 'chase': {
       const t = m.threat;
       const homeD = Math.hypot(m.x - camp.x, m.y - camp.y);
-      if (!t || t.dead || t.gone || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 4)) { evade(m, homeD > LEASH ? 3 : 8); break; }
+      if (!t || t.dead || t.gone || homeD > LEASH || game.worldTime - (m.lastCombatT || 0) > BORED || (m.nav && m.nav.fails > 4)) {
+        if (m.raid != null) { m.state = 'idle'; m.stateT = 0.3; m.threat = null; m.action = null; m.goalT = 0; break; } // (a winter attack's wave never gives up: back to the place — walkers.js)
+        evade(m, homeD > LEASH ? 3 : 8); break;
+      }
       if (t === game.player) enterCombat(t, 1);
       if (m.role === 'chief') {
         if (!m.enraged && m.hp < m.maxHp * 0.3) {

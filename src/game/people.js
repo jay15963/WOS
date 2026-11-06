@@ -507,6 +507,7 @@ function spawnSpot(game, S, P, pl) {
 function manage(game, rec, players) {
   const S = rec.S, L = S.L, hour = game.env?.hour ?? 12, winter = winterAt(game, S), D = deadMap(game);
   const cap = Math.round((N.cap[S.kind] || 40) * (game.quality === 'low' ? 0.6 : 1)); // (a weak device: fewer people out)
+  const raid = !!game.raids?.H?.live?.has(S.sid); // (a winter attack played here: the whole watch out, wherever its post — game/raids.js)
   const want = [];
   for (const P of S.persons) {
     if (D.has(`${S.sid}.${P.i}`)) continue;
@@ -514,6 +515,7 @@ function manage(game, rec, players) {
     let d = 1e9;
     for (const q of players) { const dd = Math.hypot(game.world.dx(q.x, pl.x), q.y - pl.y); if (dd < d) d = dd; }
     const has = rec.ents.get(P.i);
+    if (raid && P.guard && !pl.in) d = Math.min(d, 1);
     // indoors: only when a player stands by that building (and its inside can be reached from its door); outdoors: near enough
     const ok = pl.in ? !!pl.b && d < N.indoorR + Math.max(pl.b.box[2] - pl.b.box[0], pl.b.box[3] - pl.b.box[1]) / 2 : d < (has ? N.dropR : N.matR);
     if (ok) want.push([d, P, pl.in, pl.k, pl.x, pl.y, pl.lv, pl.b]);
@@ -559,19 +561,28 @@ function sealed(game, rec, b) {
   return b._sealed;
 }
 // hostile creatures in the town land (+ a margin): the danger of a settlement — rec.foes (all of them), rec.inside (the
-// ones within its wall line / edge)
+// ones within its wall line / edge). The alarm ends only when the threat is NEUTRALIZED (owner: "o alerta … sumir apenas
+// quando a ameaça estar neutralizada"): a hostile that came into the alarm ring, or is attacking the place — breaking a
+// piece of it, fighting one of its people, a winter attack's wave (game/raids.js) — stays a foe while it is alive within
+// the hold ring (the town land + N.alarmHold tiles) and attacked / came close within the last N.alarmMemory seconds: one
+// that backs off a few steps, kites or stands hitting the wall from outside keeps the bell ringing and the watch on its
+// posts; the calm grace (a few seconds) only starts once every one of them is dead or gone
+const attacking = (e, S) => e.raid === S.sid || e.siege?.o?.town === S.sid || (!!e.threat?.npc && e.threat.npc.sid === S.sid && e.state === 'chase');
 function dangerOf(game, rec) {
-  const S = rec.S, r = S.s.r + N.alarmR, r2 = r * r, w = game.world, per = perimeterOf(S);
-  const foes = rec.foes || (rec.foes = []), inside = rec.inside || (rec.inside = []);
+  const S = rec.S, r = S.s.r + N.alarmR, r2 = r * r, R = S.s.r + N.alarmHold, R2 = R * R, w = game.world, per = perimeterOf(S), now = game.worldTime;
+  const foes = rec.foes || (rec.foes = []), inside = rec.inside || (rec.inside = []), seen = rec.seen || (rec.seen = new Map());
   foes.length = 0; inside.length = 0;
   for (const e of game.entities) {
     if (e.dead || !e.isMob || e.proxy || e.npc) continue;
     if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile' || (e.soldier && game.warfare?.foeOfTown?.(S, e)))) continue; // (+ the soldiers of a kingdom at war with it: game/warfare.js)
-    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
-    if (dx * dx + dy * dy >= r2) continue;
+    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y, d2 = dx * dx + dy * dy;
+    if (d2 >= R2) continue;
+    if (d2 < r2 || attacking(e, S)) seen.set(e, now);
+    else if (!(rec.danger && now - (seen.get(e) ?? -1e9) < N.alarmMemory)) continue;
     foes.push(e);
     if (per.inside(e.x, e.y, w)) inside.push(e);
   }
+  if (seen.size) for (const [e, t] of seen) if (e.dead || now - t > N.alarmMemory) seen.delete(e);
   // (an enlisted player of a kingdom at war with the place: the bell, the gates, the watch — game/army.js, phase 3c)
   if (game.army?.en?.size || game.skirmish?.on) for (const e of allPlayers(game)) { // (+ a skirmish's side)
     if (e.dead || !game.army.townFoe(S, e)) continue;
@@ -719,8 +730,9 @@ export function peopleFxSystem() {
         game.events.on('townalarm', ({ sid, on }) => {
           const s = game.towns.realm.settlements[sid];
           if (on) game.people.alarm.set(sid, true); else game.people.alarm.delete(sid);
-          if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30)) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
-          else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30)) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
+          const raid = !!game.raids?.on?.has(sid); // (a winter attack: its own notices tell the story — ui/raidHud.js)
+          if (on) { bellSid = sid; bellN = 0; bellT = 0; if (near(game, sid, 30) && !raid) game.events.emit('toast', { text: `Alarme em ${s.name}! Monstros na ${s.kind === 'castle' ? 'fortaleza' : s.kind === 'city' ? 'cidade' : 'vila'} — o povo corre para casa e a guarda vai lutar`, kind: 'warn' }); }
+          else { if (bellSid === sid) bellSid = -1; if (near(game, sid, 30) && !raid) game.events.emit('toast', { text: `${s.name}: tudo calmo de novo`, kind: 'info' }); }
         });
         // (no toast for each death — owner: in a battle there are many dead, a swarm of messages; the bell and the
         //  all-clear tell the story)

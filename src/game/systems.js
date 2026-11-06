@@ -62,6 +62,8 @@ import { installWarHud } from '../ui/warHud.js'; // the war's notices (docs/REIN
 import { installWarfare, warfareSystem, warfareFxSystem } from './warfare.js'; // the kingdoms' soldiers near the players: battles, the siege (docs/REINOS.md §14)
 import { installArmy, armySystem } from './army.js'; // the player in the army: orders, pay, who may hurt whom (docs/REINOS.md §15)
 import { installArmyHud } from '../ui/armyHud.js'; // the general's orders on the screen, their waypoint (docs/REINOS.md §15)
+import { installRaids, raidsSystem } from './raids.js'; // the winter attacks on the settlements (docs/REINOS.md §16)
+import { installRaidHud } from '../ui/raidHud.js'; // their notices for the local player (docs/REINOS.md §16)
 import './mut/index.js';
 
 const SYNC_TAGS = new Set(['host', 'owner', 'all', 'cosmetic']);
@@ -107,6 +109,7 @@ export function installSystems(game) {
   installRealms(game);              // the kingdoms' wars: relations, owners, armies (before the save / snapshot loads them)
   installWarfare(game);             // the armies near the players (game.warfare: before the save / snapshot loads the forces)
   installArmy(game);                // the players in the armies (game.army: before the save / snapshot loads the records)
+  installRaids(game);               // the winter attacks on the settlements (game.raids: before the save / snapshot loads them)
   installCamps(game);               // deterministic camp layout: every client, before any save / snapshot
   const controller = installController(game);
   const isNew = !loadGame(game);    // guest: its player only (the world comes from the host's snapshot)
@@ -178,6 +181,7 @@ export function installSystems(game) {
     realmsSystem(),                 // host: diplomacy, campaigns, marches, battles and sieges by numbers (realms.js)
     realmsPosSystem(),              // every peer: where the armies in the field are (derived from the clock)
     armySystem(),                   // host: the players in the armies — who follows which army, the pay, service, bonuses (army.js)
+    raidsSystem(),                  // host: the winter attacks on the settlements — the night's plan, the waves, by numbers far away (raids.js)
     juice,
     saveSystem(game),
   ]) addSystem(game, s);
@@ -186,6 +190,7 @@ export function installSystems(game) {
   addSystem(game, installEcoHud(game)); // (after the overlay: it draws the plots / the waypoint on the overlay canvas)
   addSystem(game, installWarHud(game)); // the war's notices for the local player (ui/warHud.js)
   addSystem(game, installArmyHud(game)); // the general's orders, their waypoint, the pay / promotion notices (ui/armyHud.js)
+  addSystem(game, installRaidHud(game)); // the winter attacks: the wave coming, the defense broken, the night's end, your property hit (ui/raidHud.js)
   addSystem(game, installAim(game)); // after equipment visuals: it may empty the hand of a thrown spear
   addSystem(game, installBallistaUi(game)); // (after the aim: the ballista leans the camera along its aim)
   addSystem(game, installSiegeUi(game)); // (siege engines: aim ring, scatter, reload, crew — ui/siegeUi.js)

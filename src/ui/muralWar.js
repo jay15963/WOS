@@ -107,7 +107,7 @@ export function realmRelations(panels, I) {
   }
   const far = realm.kingdoms.filter((Q) => Q.id !== K.id && !R.fallen.has(Q.id) && !R.relInfo(K.id, Q.id).reach).length;
   rows.sort((a, b) => a[0] - b[0]);
-  const grace = R.inGrace?.(K.id) && K.id === R.k0 ? `<p class="mu-note">O reino do início do mundo fica fora das guerras nos primeiros ${WAR.graceDays} dias (até o dia ${R.day0 + WAR.graceDays}).</p>` : '';
+  const grace = R.inGrace?.(K.id) ? '<p class="mu-note">Nenhum reino declara guerra no primeiro dia do mundo.</p>' : '';
   const news = R.newsFor(K.id, 8).map((r) => `<div><small>Dia ${r[1]}, ${Math.floor(r[2] / 10)}h</small>${esc(R.newsText(r))}</div>`).join('');
   return `<h4>Relações do Reino de ${esc(K.name)}</h4>${grace}<div class="wr-rels">${rows.map((r) => r[1]).join('') || '<span class="muted">Nenhum reino vizinho por terra.</span>'}</div>
     ${far ? `<p class="mu-note">${far} ${far === 1 ? 'reino' : 'reinos'} em outras terras: sem navios, nenhuma relação (nem guerra, nem comércio).</p>` : ''}
