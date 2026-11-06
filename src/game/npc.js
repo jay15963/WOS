@@ -8,7 +8,7 @@ import { planOf } from './people.js';
 import { npcMove, nearPass, npcPass, lineClear } from './townnav.js';
 import { hasLOS, dealDamage, faceTowards, reach, meleeWall } from './combat.js';
 import { fireArrow, hostProjId } from './projectiles.js';
-import { npcLongShot } from './npcLob.js';
+import { npcLongShot, npcThrowSpear } from './npcLob.js';
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
 import { allPlayers, inAnyView, hurtPlayer } from './players.js';
@@ -16,7 +16,7 @@ import { seasonAt } from './seasons.js';
 import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
-import { perimeterOf, wallWalk } from './defense.js';
+import { perimeterOf, wallWalk, standOn } from './defense.js';
 import { TOWN } from './mut/structures.js'; // (TOWN.privatePiece: a house a player owns is never mended by the town — game/raids.js)
 
 const SPD = { walk: 1.55, slow: 1.15, patrol: 1.3, run: 3.3, kid: 2.5 };
@@ -429,6 +429,9 @@ const hitIt = (game, m, f, amount, opts) => (isPl(game, f) ? hurtPlayer(game, m,
 // the watch's archers' Tiro Longo (npcLob.js: the player's — farther than the plain shot, and over a palisade / a wall),
 // now and then (its 3 s cool-down); the landing hurts only the place's foes, never its people
 const lobAt = (game, m, f, direct) => npcLongShot(game, m, f, { direct, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'town', canHit: (e) => hostile(e, m.npcS, game), onHit: (g, e, amount, o) => hitIt(g, m, e, amount, o) });
+// a spear guard's throw (npcLob.js: the player's "Lançar Lança" — up to 8 tiles, a 10 s cool-down) at a foe out of its reach
+// with a clear line; the landing hurts only the place's foes
+const spearAt = (game, m, f, minD = N.spearMin) => m.wprof?.type === 'spear' && npcThrowSpear(game, m, f, { minD, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'town', canHit: (e) => hostile(e, m.npcS, game), onHit: (g, e, amount, o) => hitIt(g, m, e, amount, o) });
 // the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
@@ -495,6 +498,7 @@ function guardFight(game, rec, m, dt) {
   // it, not all on one tile —, then the swing timer
   const rng = reach(m, f), wall = rng >= 0 && d <= rng + 0.6 && meleeWall(game, m, f); // (a wall / a closed gate between: a blow does nothing — combat.js — so round it, through the town's own gate)
   if (rng < 0 || d > rng || wall) {
+    if (spearAt(game, m, f)) return true; // (a spear: thrown at it now and then while it closes in — not right before the blows)
     const a = Math.atan2(m.y - f.y, m.x - f.x) + ((m.id % 5) - 2) * 0.45, k = Math.max(0.5, (rng > 0 ? rng : 0.9) * 0.7);
     let gx = f.x + Math.cos(a) * k, gy = f.y + Math.sin(a) * k;
     if (d > 4 || wall) { gx = fx; gy = fy; } // (far, or behind a wall: to its tile; the side when close)
@@ -504,20 +508,23 @@ function guardFight(game, rec, m, dt) {
     return true;
   }
   m.moving = false; faceTowards(m, f);
-  if (m.swingT <= 0) {
-    m.swingT = m.swingDur * (0.9 + R01(m) * 0.2);
-    m.specialT = (m.specialT || 0) - m.swingT;
-    const heavy = m.specialT <= 0;
-    if (heavy) m.specialT = 6 + R01(m) * 4;
-    const act = m.wprof?.type === 'spear' ? (heavy ? 'pierce' : 'stab') : heavy ? 'cleave' : 'slash';
-    m.action = { type: act, t: 0, dur: heavy ? 0.45 : 0.36 };
-    game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
-    game.later(0.22, () => {
-      if (m.dead || f.dead || Math.hypot(f.x - m.x, f.y - m.y) > rng + 0.6) return;
-      hitIt(game, m, f, m.dmg * (heavy ? 1.6 : 1) * (0.85 + R01(m) * 0.3), { from: m, ability: heavy ? act : undefined });
-    });
-  }
+  swingAt(game, m, f, rng);
   return true;
+}
+// a melee guard's blow (on its swing timer; every fourth or so a heavy one)
+function swingAt(game, m, f, rng) {
+  if (m.swingT > 0) return;
+  m.swingT = m.swingDur * (0.9 + R01(m) * 0.2);
+  m.specialT = (m.specialT || 0) - m.swingT;
+  const heavy = m.specialT <= 0;
+  if (heavy) m.specialT = 6 + R01(m) * 4;
+  const act = m.wprof?.type === 'spear' ? (heavy ? 'pierce' : 'stab') : heavy ? 'cleave' : 'slash';
+  m.action = { type: act, t: 0, dur: heavy ? 0.45 : 0.36 };
+  game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
+  game.later(0.22, () => {
+    if (m.dead || f.dead || Math.hypot(f.x - m.x, f.y - m.y) > rng + 0.6) return;
+    hitIt(game, m, f, m.dmg * (heavy ? 1.6 : 1) * (0.85 + R01(m) * 0.3), { from: m, ability: heavy ? act : undefined });
+  });
 }
 // a spot for a ground archer: around the foe at ~0.7 of the bow's reach, a free tile it can walk to with a line of fire
 // (the angles nearest its own first; not the one that failed last)
@@ -654,6 +661,7 @@ function upTask(game, rec, m, T, dt) {
   }
   m.moving = false;
   if (d.k === 'crew') { crewTask(game, rec, m, T, dt); return; }
+  if (d.melee) { wallFight(game, rec, m, T, dt); return; } // (a melee guard where a siege tower comes: defense.js towerSpots)
   // archers: shoot what comes near (+20 % range a story up) — the ones covering a gap (defense.js focus) what comes at it
   // first
   T.scan = (T.scan || 0) - dt;
@@ -683,6 +691,61 @@ function upTask(game, rec, m, T, dt) {
   m.swingT = (m.swingDur || 1.6) * (0.95 + R01(m) * 0.3);
   m.action = { type: 'shoot', t: 0, dur: 0.6 };
   game.later(0.34, () => { if (!m.dead && !f.dead) shoot(game, m, f); });
+}
+// a melee guard up on the wall walk where a siege tower's ramp comes down (defense.js 3b; owner: "os soldados corpo a corpo
+// devem ficar um pouco na muralha também caso tenha torre de cerco"): it meets the soldiers coming across — the foes on its
+// own story near its post —, throws its spear down at the ones below (the tower's crew, the climbers at its ladder) and goes
+// back to its post along the walk when the fight is over
+function wallFight(game, rec, m, T, dt) {
+  const d = T.duty, lv = m.lv | 0;
+  T.scan = (T.scan || 0) - dt;
+  if (T.scan <= 0) {
+    T.scan = 0.3;
+    let best = null, bd = 81, low = null, ld = 1e9;
+    const see = (e) => {
+      if (e.dead || !hostile(e, rec.S, game)) return;
+      const dd = (e.x - m.x) ** 2 + (e.y - m.y) ** 2;
+      if (Math.abs((e.z || 0) - lv) < 0.6) { if ((e.x - d.x) ** 2 + (e.y - d.y) ** 2 < 100 && dd < bd) { bd = dd; best = e; } } // (on the walk, near its post)
+      else if (!(e.z > 0.5) && dd < ld) { ld = dd; low = e; }
+    };
+    for (const e of rec.foes || []) see(e);
+    if (game.army?.en?.size || game.skirmish?.on) for (const e of allPlayers(game)) see(e); // (an enemy player coming across too — a skirmish's attacker, an enlisted one)
+    T.foe = best; T.low = low;
+  }
+  const f = T.foe;
+  if (f && !f.dead) {
+    m.state = 'chase'; m.threat = f; m.lastCombatT = game.worldTime; T.walkTo = null;
+    const dd = Math.hypot(f.x - m.x, f.y - m.y), rng = reach(m, f);
+    if (rng < 0) { T.foe = null; return; }
+    if (dd > rng) { T.away = true; wallStep(game, m, (f.x - m.x) / dd, (f.y - m.y) / dd, Math.min(SPD.run * dt, dd - rng * 0.8)); return; }
+    m.moving = false; faceTowards(m, f);
+    swingAt(game, m, f, rng);
+    return;
+  }
+  if (m.state === 'chase') { m.state = 'idle'; m.threat = null; }
+  if (T.low && !T.low.dead && spearAt(game, m, T.low, 2.6)) return; // (down from the wall: the tower's crew at its foot too)
+  // back to its post along the walk, then it watches the tower
+  if (T.away && Math.hypot(m.x - d.x, m.y - d.y) > 0.6) {
+    const W = wallWalk(game, rec.S), to = W.at.get(Math.floor(d.x) + ',' + Math.floor(d.y)), path = to && walkPath(W, m.x, m.y, to);
+    if (path) T.walkTo = { path, i: 0 };
+    else { const dd = Math.hypot(d.x - m.x, d.y - m.y); wallStep(game, m, (d.x - m.x) / dd, (d.y - m.y) / dd, Math.min(SPD.walk * dt, dd)); }
+    return;
+  }
+  T.away = false;
+  lookAround(game, rec, m, T.look || (T.look = { fx: d.fx, fy: d.fy }), dt);
+}
+// a step along the floor of its story (a wall walk): only onto tiles it can stand on
+function wallStep(game, m, ux, uy, step) {
+  const L = game.levels?.sync?.(), w = game.world, lv = m.lv | 0, n = Math.max(1, Math.ceil(step / 0.15)), x0 = m.x, y0 = m.y;
+  const ok = (x, y) => standOn(L, lv, w.idx(Math.floor(x), Math.floor(y)));
+  for (let k = 0; k < n; k++) {
+    const sx = (ux * step) / n, sy = (uy * step) / n;
+    if (ok(m.x + sx, m.y)) m.x += sx;
+    if (ok(m.x, m.y + sy)) m.y += sy;
+  }
+  const moved = Math.hypot(m.x - x0, m.y - y0);
+  m.facing = facingFrom(ux, uy, m.facing); m.moving = moved > 1e-4; stepGait(m, moved);
+  return moved;
 }
 // the foe nearest a gap (within 8 tiles of it) that this archer can reach from up there
 function focusFoe(game, rec, m, at) {

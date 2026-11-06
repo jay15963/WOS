@@ -855,6 +855,25 @@ export function siegeEnd(game, F) {
   releaseEngines(game, F);
   for (const id of [...(G.camp || []), ...G.jobs.map((j) => j.id).filter(Boolean)]) if (game.world.objById.has(id)) game.net.emit('struct.remove', { id, quiet: 1, fx: 'decon' });
 }
+// the siege towers standing (built, not burnt) and where their ramps come down: the wall piece each one goes for (its
+// stories = the wall's) — the defense keeps a few melee defenders up on the walk there to meet the soldiers coming across
+// (owner: "os soldados corpo a corpo devem ficar um pouco na muralha também caso tenha torre de cerco"; defense.js, the
+// skirmish's garrison): [{ id, x, y, fx, fy (outward), lv, docked (its ramp is down) }]
+export function siegeTowers(game, F) {
+  const G = F.sg, out = [];
+  if (!G?.plan) return out;
+  const per = game.townDefense?.perimeter?.(G.sid);
+  if (!per) return out;
+  for (const j of G.jobs || []) {
+    if (j.role !== 'tower' || !j.done || !j.id || !j.target) continue;
+    const o = game.world.objById.get(j.id);
+    if (!isEngineObj(o) || o.blueprint) continue;
+    let p = null;
+    for (const q of per.pieces.values()) if (q.id === j.target) { p = q; break; }
+    if (p) out.push({ id: j.id, x: p.cx, y: p.cy, fx: p.fx, fy: p.fy, lv: towerN(o), docked: !!o.ramp });
+  }
+  return out;
+}
 // the side the army comes from (game.townDefense threat: the defense takes the walls of that side)
 export function siegeThreat(game, F) {
   const P = F.sg?.plan;

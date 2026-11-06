@@ -198,6 +198,14 @@ K1, EC1) passam sozinhas. SK1–SK7 e CB1–CB3 passam na rodada inteira; SK6: 1
   o tiro longo vem a partir de ~10,5 tiles (`WAR.archer.lobK` 0,55 — um a cada recarga, entre as flechas simples) e
   sempre que não há linha de tiro. Os arqueiros da guarda (vila, castelo, cidade) também o usam (`npc.js lobAt`). Testes
   SK7 (escaramuça), CB3 (jogo normal, saqueador) e CB4 (o arqueiro da paliçada).
+- **Os lanceiros arremessam a lança** (o "Lançar Lança" do jogador, `npcLob.js npcThrowSpear`: até 8 tiles, recarga de
+  10 s, dano × 2,4 + 6): soldados a partir de 4,5 tiles do inimigo (uma saraivada antes do choque das linhas) e, do alto
+  da muralha, nos de baixo; os guardas de lança do lugar também. Teste CB5 (batalha em campo).
+- **A torre de cerco**: enquanto ela estiver de pé, 3 a 5 soldados de corpo a corpo da guarnição (nunca o general) e 2 a 4
+  guardas do lugar sobem ao adarve onde a rampa vai descer, enfrentam quem atravessa e arremessam lanças nos de baixo
+  (`skirmish.js garrisonPosts` com `siegeAI.js siegeTowers`; `defense.js towerSpots`; `npc.js wallFight`). Os arqueiros
+  da guarda de castelo / cidade ficam em cima da muralha de pedra (andar 2), não mais dentro dela. Teste CB6 (cerco ao
+  castelo).
 
 ## Prints
 

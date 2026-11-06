@@ -77,6 +77,7 @@ export const MATCH = {
   pvpKills: 10,      // a field battle with no soldiers (players only): the first side to this many kills
   overrunT: 15,      // s: monsters holding the plaza with no defender around → the place falls
   plazaR: 7, defR: 13,
+  towerK: 0.1, towerMin: 3, towerMax: 5, // the garrison's melee up on the wall walk where a siege tower comes: this share, between min and max (skirmish.js garrisonPosts)
   endShow: 3,        // s after the end before the results come up (the last blows, the shout)
   hour: { day: 10, night: 22 },
   scoreEvery: 1,     // s: the scoreboard on every peer at most this often

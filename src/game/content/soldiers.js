@@ -17,6 +17,7 @@ export const WAR = {
   // melee / archers
   sight: 14,           // tiles: a soldier sees a foe this far (archers: their range)
   archer: { range: 19, min: 3, volleyK: 0.92, wallBonus: 1.25, lobK: 0.55 }, // (lobK: the long shot from this share of the plain range — soldier.js)
+  spearMin: 4.5, // tiles: a spearman throws its spear (npcLob.js Lançar Lança, up to 8) only at a foe at least this far — closer it closes in for the blows
   leash: 26,           // tiles from its anchor a soldier chases a foe in a battle line
   pfoeT: 22,           // s: a player who hurt a soldier is its foe this long (refreshed by every hit)
   // the general's rally and the morale (0..100): losses (% of the side's men) and the general falling lower it; the

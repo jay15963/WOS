@@ -32,7 +32,8 @@ import { equipChanged } from './equipment.js';
 import { applyLevel, removeBuff, respawnPlayer } from './player.js';
 import { mobStats } from './stats.js';
 import { SPECIES } from './data.js';
-import { siegeThreat } from './siegeAI.js';
+import { siegeThreat, siegeTowers } from './siegeAI.js';
+import { towerSpots } from './defense.js';
 import { facingFrom } from './physics.js';
 import { entOfPid } from './eco.js';
 import { npcPass } from './townnav.js';
@@ -503,19 +504,21 @@ function garrisonTick(game, F) {
   const ents = [...F.live.values()].filter((m) => !m.dead);
   let inside = 0;
   for (const e of F.foes) if (!e.dead && per.inside(e.x, e.y, w)) inside++;
-  const sig = `${ops.map((o) => o.id).join(',')}|${th.sector}|${ents.length}|${inside > 0 ? 1 : 0}`;
-  if (sig !== G.sig) { G.sig = sig; G.posts = garrisonPosts(game, F, S, per, ops, th, ents, inside > 0); }
+  const tw = FS ? siegeTowers(game, FS) : []; // (a siege tower standing: some of the melee up on the walk where it comes)
+  const sig = `${ops.map((o) => o.id).join(',')}|${th.sector}|${ents.length}|${inside > 0 ? 1 : 0}|${tw.map((q) => q.id).join(',')}`;
+  if (sig !== G.sig) { G.sig = sig; G.posts = garrisonPosts(game, F, S, per, ops, th, ents, inside > 0, tw); }
   for (const m of ents) {
     const p = G.posts.get(m.soldier.i);
     if (!p) continue;
-    if (p.lv > 0) { if (!(m.z > 0.5)) { if (!m.job?.wall) m.job = climbJob(p); } else { m.job = null; m.order = { k: 'wall', x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: WAR.archer.range * 1.25, rangeK: 1 }; } continue; }
+    if (p.lv > 0) { if (!(m.z > 0.5)) { if (!m.job?.wall) m.job = climbJob(p); } else { m.job = null; m.order = p.melee ? { k: 'wall', x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: p.eng, leash: p.leash } : { k: 'wall', x: p.x, y: p.y, fx: p.fx, fy: p.fy, eng: WAR.archer.range * 1.25, rangeK: 1 }; } continue; }
     if (m.job?.wall) m.job = null;
     if (m.z > 0.5) { const q = solNear(game, m.x - (p.fx || 0) * 2, m.y - (p.fy || 0) * 2, 3); if (q) { m.x = q[0]; m.y = q[1]; m.z = 0; m.lv = 0; } }
     const O = m.order && m.order.k === 'hold' && m.order.key === p.key ? m.order : (m.order = { k: 'hold', key: p.key });
     O.x = p.x; O.y = p.y; O.fx = p.fx; O.fy = p.fy; O.eng = p.eng; O.leash = p.leash; O.run = true;
   }
 }
-// archers: to the foot of the wall below the spot, a moment, and up (like the guards: game/npc.js upTask)
+// to the foot of the wall below the spot, a moment, and up (like the guards: game/npc.js upTask) — the archers, and the melee
+// who wait where a siege tower comes
 function climbJob(p) {
   const f = (game, F, m, dt) => {
     const T = m._wclimb || (m._wclimb = { foot: null, t: 0 });
@@ -532,9 +535,12 @@ function climbJob(p) {
   return f;
 }
 // the posts (recomputed when something changes): archers on the wall tops facing the threat (an open village: behind
-// its edge), the breaches held by the nearest, two at each gate facing the threat and one at the others, a reserve on the
-// plaza, the rest along the stretch facing the attackers; with foes inside the walls the reserve and the stretch hunt them
-function garrisonPosts(game, F, S, per, ops, th, ents, inside) {
+// its edge), the breaches held by the nearest, a few melee up on the wall walk where each siege tower comes (owner: "os
+// soldados corpo a corpo devem ficar um pouco na muralha também caso tenha torre de cerco" — they meet the soldiers coming
+// across; the spearmen throw down at the ones below), two at each gate facing the threat and one at the others, a reserve
+// on the plaza, the rest along the stretch facing the attackers; with foes inside the walls the reserve and the stretch
+// hunt them
+function garrisonPosts(game, F, S, per, ops, th, ents, inside, towers = []) {
   const out = new Map(), al = (fx, fy) => fx * th.fx + fy * th.fy, plaza = S.plaza;
   const arch = ents.filter((m) => m.soldier.role === 'archer'), mel = ents.filter((m) => m.soldier.role !== 'archer');
   const free = new Set(mel);
@@ -544,6 +550,13 @@ function garrisonPosts(game, F, S, per, ops, th, ents, inside) {
   // the breaches
   for (const o of ops.slice().sort((a, b) => al(b.fx, b.fy) - al(a.fx, a.fy))) {
     take(o.x, o.y, o.w >= 3 || o.gate ? 4 : 3).forEach((m, j) => { const q = spot(o.x - o.fx * (j ? 1.2 : 0.2) + -o.fy * (j - 1) * 0.9, o.y - o.fy * (j ? 1.2 : 0.2) + o.fx * (j - 1) * 0.9); set(m, q[0], q[1], o.fx, o.fy, 6, 'gap' + o.id); });
+  }
+  // the siege towers: on the walk around where the ramp comes down (defense.js towerSpots), the nearest melee
+  for (const T of towers) {
+    const sp = towerSpots(game, S, T, Math.min(MATCH.towerMax, Math.max(MATCH.towerMin, Math.round(mel.length * MATCH.towerK))));
+    const L = [...free].filter((m) => m.soldier.role !== 'general').sort((a, b) => hyp(a.x, a.y, T.x, T.y) - hyp(b.x, b.y, T.x, T.y)).slice(0, sp.length); // (not the general: it stays with the line)
+    for (const m of L) free.delete(m);
+    L.forEach((m, j) => { const c = sp[j]; out.set(m.soldier.i, { x: c.x, y: c.y, fx: c.fx, fy: c.fy, eng: 9, leash: 12, key: 'tw' + T.id + j, lv: c.lv, melee: true }); });
   }
   // the reserve on the plaza (15 %): what got inside
   take(plaza.x, plaza.y, Math.max(1, Math.round(mel.length * 0.15))).forEach((m, j) => { const q = spot(plaza.x + ((j % 4) - 1.5) * 1.2, plaza.y + ((j / 4 | 0) % 3) * 1.2); set(m, q[0], q[1], th.fx, th.fy, inside ? 40 : 14, 'res' + j); });

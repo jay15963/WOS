@@ -116,8 +116,7 @@ function besideOnWall(game, d, k) {
   if (!k) return d;
   const lev = game.levels?.sync?.(), tx = -d.fy, ty = d.fx, off = (k & 1 ? 1 : -1) * Math.ceil(k / 2);
   const x = d.x + Math.round(tx) * off, y = d.y + Math.round(ty) * off;
-  const ok = lev?.surf?.[d.lv]?.get(game.world.idx(Math.floor(x), Math.floor(y))) === 1;
-  return ok ? { ...d, x, y } : d;
+  return standOn(lev, d.lv, game.world.idx(Math.floor(x), Math.floor(y))) ? { ...d, x, y } : d;
 }
 
 // the posts of the watch now: Map person index → duty { k: 'gap' | 'gate' | 'stretch' | 'reserve' | 'wall' | 'crew', x, y,
@@ -160,6 +159,16 @@ export function assignDefense(game, S, rec, ops, th, danger) {
     if (!free.size || !th || al(g.fx, g.fy) < 0.5) continue;
     const q = spot(game, g.x - g.fy * 1.1, g.y + g.fx * 1.1, 2);
     take(g.x, g.y, 1).forEach((P) => posts.set(P.i, { k: 'gate', x: q[0], y: q[1], fx: g.fx, fy: g.fy, lv: 0, r: HR.gate }));
+  }
+  // 3b. a siege tower standing (owner: "os soldados corpo a corpo devem ficar um pouco na muralha também caso tenha torre de
+  // cerco"): a few melee guards up on the wall walk where its ramp comes down (game/warfare.js towersOn) — they meet the
+  // soldiers coming across and throw their spears down at the ones below (game/npc.js wallFight)
+  const towers = game.warfare?.towersOn?.(S.sid) || [];
+  for (const T of towers) {
+    if (!free.size) break;
+    const sp = towerSpots(game, S, T, Math.min(N.towerMax, Math.max(N.towerMin, Math.round(melee.length * N.towerK))));
+    if (!sp.length) continue;
+    take(T.x, T.y, sp.length).forEach((P, j) => { const c = sp[j]; posts.set(P.i, { k: 'wall', melee: true, x: c.x, y: c.y, fx: c.fx, fy: c.fy, lv: c.lv, r: 0, tower: T.id }); });
   }
   // 4. the ballistas (facing the attackers first), at most a share of the melee guards
   const dirOf = (c) => { const dx = c.x - per.cx, dy = c.y - per.cy, d = Math.hypot(dx, dy) || 1; return al(dx / d, dy / d); };
@@ -221,6 +230,9 @@ function stretchPoints(game, S, per, th) {
 const xy = (q) => ({ x: q[0], y: q[1] });
 
 // ---------- the wall walk ----------
+// a floor one can stand on at story lv: a surface with nothing built on it at that story (a stone wall two stories high
+// has the top of its lower piece at story 1 under its upper piece — inside the stone; its walk is at story 2)
+export const standOn = (lev, lv, i) => lev?.surf?.[lv]?.get(i) === 1 && !lev.blk?.[lv]?.get(i);
 // the walkable tops of a place's wall line (levels.surf at story 1 — a palisade — or 2 — the stone walk): the pieces of the
 // line and the tile just inside each, and the archer posts (tower tops, stair heads); cached per change of the town state
 // (a piece gone cuts the walk) and of the levels map. The archers stand anywhere on it (game/npc.js walks them along it)
@@ -233,12 +245,21 @@ export function wallWalk(game, S) {
     const n = q.gate ? 2 : 1, vert = q.gate && Math.abs(q.fx) > 0.5;
     for (let j = 0; j < n; j++) {
       const x0 = q.x + (vert ? 0 : j), y0 = q.y + (vert ? j : 0);
-      for (const [x, y] of [[x0, y0], [x0 - Math.round(q.fx), y0 - Math.round(q.fy)]]) for (const lv of [1, 2]) if (lev.surf[lv]?.get(w.idx(x, y)) === 1) { add(x, y, lv); break; }
+      for (const [x, y] of [[x0, y0], [x0 - Math.round(q.fx), y0 - Math.round(q.fy)]]) for (const lv of [1, 2]) if (standOn(lev, lv, w.idx(x, y))) { add(x, y, lv); break; }
     }
   }
   for (const p of S.posts.walls) if ((p.lv | 0) > 0) add(Math.floor(p.x), Math.floor(p.y), p.lv | 0);
   S._walk = { at, list }; S._walkV = v;
   return S._walk;
+}
+// the n spots of the wall walk nearest where a siege tower's ramp comes down (T: warfare.js towersOn) — its piece, the ones
+// beside it along the wall and the tile just inside (not the piece itself first: the soldiers step onto it from the ramp)
+export function towerSpots(game, S, T, n) {
+  if (!n) return [];
+  const near = wallWalk(game, S).list.filter((c) => Math.hypot(c.x - T.x, c.y - T.y) < 3.3), top = near.filter((c) => c.lv === T.lv);
+  const L = top.length ? top : near; // (the walk at the tower's deck height: where the soldiers come across)
+  const sc = (c) => Math.hypot(c.x - T.x, c.y - T.y) + (Math.floor(c.x) === Math.floor(T.x) && Math.floor(c.y) === Math.floor(T.y) ? 1.6 : 0);
+  return L.sort((a, b) => sc(a) - sc(b)).slice(0, n);
 }
 // n spots of the wall walk on the side under attack, around where it hits (the nearest first), ~2.5 tiles apart (closer
 // when the side is short of them)

@@ -600,7 +600,8 @@ function defenseTick(game, rec) {
   rec.threat = rec.danger ? game.warfare?.threatOn?.(S.sid) || threatOf(game, S, rec.foes || [], rec.threat) || game.realms?.siegeThreat?.(S.sid, rec.threat) || null : null; // (an army besieging it: its side — the live siege, game/warfare.js; else the besiegers' camp by numbers, game/realms.js)
   let dk = 0;
   for (const P of S.persons) if (P.guard && D.has(`${S.sid}.${P.i}`)) dk = (Math.imul(dk, 31) + P.i + 1) | 0;
-  const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}`;
+  const tw = rec.danger ? game.warfare?.towersOn?.(S.sid) || [] : []; // (a siege tower standing: a few melee guards up on the walk where it comes — defense.js)
+  const sig = `${rec.danger ? 1 : 0}|${ops.map((o) => o.id + ':' + o.w).join(',')}|${rec.threat ? rec.threat.sector : '-'}|${dk}|${tw.map((q) => q.id).join(',')}`;
   if (sig !== rec.defSig) {
     rec.defSig = sig;
     S.def = rec.danger || ops.length ? assignDefense(game, S, rec, ops, rec.threat, rec.danger) : null;
@@ -615,7 +616,7 @@ function defenseTick(game, rec) {
   for (const m of rec.ents.values()) {
     if (m.dead || m.npc.job !== 'guard' || m.z > 0.5) continue;
     const k = S.def?.posts.get(m.npc.i)?.k;
-    if (k !== 'crew') pool.push([m, k === 'reserve' ? -1000 : k === 'gap' ? 40 : 0]);
+    if (k !== 'crew' && k !== 'wall') pool.push([m, k === 'reserve' ? -1000 : k === 'gap' ? 40 : 0]); // (not the ones going up to meet a siege tower)
   }
   for (const e of rec.inside) {
     if (!hostile(e, S, game)) continue;

@@ -27,7 +27,7 @@ import { allocMob } from './mobs.js';
 import { weaponProfile, offhandProfile, equipArmor } from './content/weapons.js';
 import { dealDamage, faceTowards, reach, hasLOS, meleeWall } from './combat.js';
 import { fireArrow } from './projectiles.js';
-import { npcLongShot, lobReach, lineOfFire } from './npcLob.js'; // (the archers' Tiro Longo)
+import { npcLongShot, npcThrowSpear, lobReach, lineOfFire, lobbable, spearReach } from './npcLob.js'; // (the archers' Tiro Longo, the spearmen's Lançar Lança)
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
 import { hurtPlayer, allPlayers, inAnyView } from './players.js';
@@ -382,6 +382,12 @@ export function melee(game, m, f, dt, spd = WAR.speed.run) {
   }
   return true;
 }
+// a spearman out of reach of its foe throws its spear now and then (npcLob.js npcThrowSpear: the player's "Lançar Lança",
+// up to 8 tiles, a 10 s cool-down; owner: "lanceiros npc também podem usar o tiro longo") — only its foes are hit
+function spearOut(game, m, f, minD) {
+  if (m.wprof?.type !== 'spear' || (m.job && !m.job.wall)) return false;
+  return npcThrowSpear(game, m, f, { minD, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'army', canHit: arrowHits(game, m), onHit: (g, e, amount, o) => hitFoe(g, m, e, amount, o) });
+}
 // an archer's shot (the arrow hits only its foes: projectiles.js faction 'army' + canHit)
 export function shoot(game, m, f, rangeK = 1) {
   if (m.swingT > 0) return false;
@@ -418,7 +424,7 @@ export function pickFoe(game, m, list, r, archer = false, sameSide = null, lobR 
   };
   for (const e of list) consider(e);
   if (m.pfoe && m.pfoe.until > game.worldTime) consider(m.pfoe.e);
-  if (best && archer && !hasLOS(game.world, m.x, m.y, best.x, best.y, z, best.z || 0, m._tn, best._tn)) return lobR > 0 && bd <= lobR * lobR ? best : null;
+  if (best && archer && !hasLOS(game.world, m.x, m.y, best.x, best.y, z, best.z || 0, m._tn, best._tn)) return lobR > 0 && bd <= lobR * lobR && lobbable(game, best) ? best : null; // (a lob never hits one on a wall top)
   return best;
 }
 // hurt by something (ai.js aggro → game.warfare.onHurt): a player who may hurt it becomes its foe for a while; a soldier
@@ -453,6 +459,8 @@ export function soldierBrain(game, F, m, dt) {
     if (f && eng <= 0 && Math.hypot(f.x - m.x, f.y - m.y) > 2.2 && !(m.pfoe && m.pfoe.e === f)) f = null;
     m.foe = f; m.threat = f;
     m.state = f ? 'chase' : 'idle';
+    // a spearman up on a wall with nobody to fight up there: a foe below within its throw (the tower's crew, the climbers)
+    m._down = !f && m.z > 0.5 && eng > 0 && !m.job && m.wprof?.type === 'spear' ? pickFoe(game, m, F.foes || EMPTY, spearReach(game, m), true) : null;
   }
   const f = m.foe;
   if (f && !f.dead) {
@@ -463,14 +471,15 @@ export function soldierBrain(game, F, m, dt) {
       // past a wood bow's lob (18): so it is the field's long shot too, not only over walls —, or one behind a wall / a
       // palisade; only its foes are hit
       if (npcLongShot(game, m, f, { direct: rng * WAR.archer.lobK, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'army', canHit: arrowHits(game, m), onHit: (g, e, amount, o) => hitFoe(g, m, e, amount, o) })) return;
-      const lr = d >= 4 ? lobReach(game, m, f) : 0;
+      const lr = d >= 4 && lobbable(game, f) ? lobReach(game, m, f) : 0; // (not at one on a wall top: the lob comes down on the stones)
       if (lr >= d && d <= rng && !lineOfFire(game, m, f)) { faceTowards(m, f); m.moving = false; return; } // (behind a wall: the next long shot, not an arrow into the logs)
       if (d > rng || d < 1.2) {
         if (O.k === 'wall' || O.k === 'hold' || O.k === 'slot') { if (d > Math.max(rng * 1.15, lr)) { m.foe = null; } else { faceTowards(m, f); m.moving = false; return; } }
         else { const s = stepTo(game, m, f.x, f.y, WAR.speed.walk, dt, rng * 0.85); if (s === 'stuck') unstick(game, m, f.x, f.y); return; }
       } else { m.moving = false; shoot(game, m, f, O.rangeK || 1); return; }
-    } else if (melee(game, m, f, dt)) return;
+    } else if (spearOut(game, m, f, WAR.spearMin) || melee(game, m, f, dt)) return;
   }
+  else if (m._down && !m._down.dead && spearOut(game, m, m._down, 2.6)) return;
   if (m.job && m.job(game, F, m, dt) !== false) return;
   follow(game, F, m, O, dt);
 }

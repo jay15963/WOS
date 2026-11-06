@@ -27,8 +27,19 @@
 //   It does nothing (false) when: not the host, no bow, a roof over the shooter (needs open sky), the foe out of the lob
 //   range or too near, its own cool-down (ABILITIES.long_shot.cd = 3 s, × 0,9–1,2), mid-swing / stunned, or (no force)
 //   the foe within `direct` with a clear line.
+//   It does not lob at a foe standing on a wall top / a rock either (lobbable): the arrow would come down on the stones.
+//
+// npcThrowSpear(game, thrower, foe, opts) → true when the throw started — the spear's "Lançar Lança" (owner: "lanceiros
+//   npc também podem usar o tiro longo"; ABILITIES.throw_spear: up to 8 tiles × heightK, 10 s cool-down × 0,9–1,2, the hit
+//   dmg × 2,4 + 6, a hard knock), the same flight as the player's (lobSpec spear: a low arc). The throw pose is held past
+//   the release until the spear comes down (the hand stays empty: art/compose.js 'throw' hides it after k 0,55), then it is
+//   back in the hand. opts as npcLongShot's (weapon a spear, faction, canHit, onHit, dmg, rangeK) + minD (default 2,6: closer
+//   it stabs). It needs a clear line (a spear does not go over a wall) and a foe on open ground (lobbable); no "direct" rule
+//   — its caller decides when (a melee fighter out of reach of its foe).
 // lobReach(game, shooter, foe?, weapon?, rangeK?) → the lob range in tiles now (0: it cannot lob — no bow, a roof overhead)
 // lineOfFire(game, shooter, foe) → a clear line for a plain arrow (hasLOS, cached 0,4 s per shooter)
+// lobbable(game, foe) → a lob coming down on the foe's tile may hit it (not a wall top, a rock, a solid tile)
+// spearReach(game, thrower, foe?) → the throw's range in tiles now (0: no spear in the hand)
 // The landing (on the host): nothing on a wall / rock / a roof (projectiles.js landLob → pr.blocked); else the nearest
 // creature or player within the bow's hitR + its body that canHit allows; no one → the arrow stays in the ground.
 
@@ -40,7 +51,8 @@ import { allPlayers, hurtPlayer } from './players.js';
 import { heightK } from './levels.js';
 import { SPECIES } from './data.js';
 
-const AB = ABILITIES.long_shot;
+const AB = ABILITIES.long_shot, AS = ABILITIES.throw_spear;
+const SPEAR_REL = 0.28;          // s from the wind-up to the release (the throw pose: k 0,56 of 0,5 s)
 const RELEASE = 0.34;            // s from the draw to the release (the soldiers' / raiders' plain shot)
 const NEXT = new WeakMap();      // shooter → worldTime it may lob again
 const LOF = new WeakMap();       // shooter → { f, t, ok } (line of fire, cached)
@@ -52,6 +64,18 @@ export function lobReach(game, m, f = null, weapon = null, rangeK = 1) {
   const S = lobSpec(weapon || m?.weapon);
   if (!S || S.type !== 'bow' || (S.open && game.world.roofAtPoint(m.x, m.y))) return 0;
   return S.range * heightK(m, f) * rangeK;
+}
+
+export function lobbable(game, f) {
+  const w = game.world, tx = Math.floor(f.x), ty = Math.floor(f.y);
+  if (!w.inBounds(tx, ty)) return false;
+  const i = w.idx(tx, ty);
+  return !w.rock.get(i) && !w.solid.get(i);
+}
+
+export function spearReach(game, m, f = null) {
+  const S = lobSpec(m?.weapon);
+  return S && S.type === 'spear' ? S.range * heightK(m, f) : 0;
 }
 
 export function lineOfFire(game, m, f) {
@@ -72,7 +96,7 @@ export function npcLongShot(game, m, f, o = {}) {
   if (S.open && w.roofAtPoint(m.x, m.y)) return false; // (open sky: never from under a roof / a cave ceiling)
   const dx = w.dx ? w.dx(f.x, m.x) : f.x - m.x, dy = f.y - m.y, d = Math.hypot(dx, dy);
   const hk = heightK(m, f), R = S.range * hk * (o.rangeK || 1);
-  if (d > R || d < (o.minD ?? 4)) return false;
+  if (d > R || d < (o.minD ?? 4) || !lobbable(game, f)) return false;
   if (!o.force) {
     const direct = o.direct ?? (weaponProfile(wid).range || 9) * hk;
     if (d <= direct && lineOfFire(game, m, f)) return false; // (a plain shot does it)
@@ -86,6 +110,27 @@ export function npcLongShot(game, m, f, o = {}) {
   game.later(RELEASE, () => release(game, m, f, S, R, amount, o));
   return true;
 }
+
+export function npcThrowSpear(game, m, f, o = {}) {
+  if (!m || !f || m.dead || f.dead || m.proxy || m.ride || (game.net && game.net.auth === false)) return false;
+  const t = game.worldTime;
+  if ((NEXT_SP.get(m) ?? -1) > t || m.swingT > 0 || m.stunT > 0 || m.cast) return false;
+  const S = lobSpec(o.weapon || m.weapon);
+  if (!S || S.type !== 'spear') return false;
+  const w = game.world, dx = w.dx ? w.dx(f.x, m.x) : f.x - m.x, dy = f.y - m.y, d = Math.hypot(dx, dy);
+  const R = S.range * heightK(m, f) * (o.rangeK || 1);
+  if (d > R || d < (o.minD ?? 2.6) || !lobbable(game, f) || !lineOfFire(game, m, f)) return false;
+  NEXT_SP.set(m, t + (AS.cd || 10) * (0.9 + Math.random() * 0.3));
+  faceTowards(m, f);
+  m.moving = false;
+  m.action = { type: AS.act || 'throw', t: 0, dur: 0.5 };
+  if (m.swingDur) m.swingT = Math.max(m.swingT || 0, SPEAR_REL + 0.3);
+  const amount = Math.max(1, Math.round((o.dmg ?? m.dmg ?? 1) * (AS.mult ?? 2.4) + (AS.flat ?? 6)));
+  game.later(SPEAR_REL, () => release(game, m, f, S, R, amount, { ...o, spear: true }));
+  game.audio?.play('swing', { x: m.x, y: m.y, volume: 0.5 });
+  return true;
+}
+const NEXT_SP = new WeakMap();   // thrower → worldTime it may throw again
 
 // a moving foe's velocity (tiles / s): its estimate (avatars, knocked creatures), else its facing while it walks
 function velOf(e) {
@@ -114,8 +159,12 @@ function release(game, m, f, S, R, amount, o) {
   const { dur, apex } = lobFlight(S, L);
   const id = hostProjId();
   fireLob(game, { id, proj: S.proj, faction: o.faction || 'army', x: ox, y: oy, lx, ly, dur, apex, src: m, onLand: (g, pr) => land(g, pr, m, S, amount, o, ox, oy) });
-  game.net?.entsApi?.fx?.(['proj', id, 'lob', r3(ox), r3(oy), lx, ly, r3(dur), r3(apex)], ox, oy);
-  game.audio?.play('bow', { x: ox, y: oy, volume: 0.45 });
+  game.net?.entsApi?.fx?.(['proj', id, S.proj === 'spear' ? 'lobs' : 'lob', r3(ox), r3(oy), lx, ly, r3(dur), r3(apex)], ox, oy);
+  if (o.spear) {
+    // the hand stays empty while it flies: the rest of the throw pose (past k 0,56) spans the flight, then it is back
+    m.action = { type: AS.act || 'throw', t: 0.56, dur: (dur + 0.12) / 0.44 };
+    if (m.swingDur) m.swingT = Math.max(m.swingT || 0, dur + 0.15);
+  } else game.audio?.play('bow', { x: ox, y: oy, volume: 0.45 });
 }
 
 // host, on landing: the nearest of the shooter's foes near the point (nothing on a wall / rock / a roof)
@@ -131,10 +180,15 @@ function land(game, pr, m, S, amount, o, ox, oy) {
   for (const e of game.entities) if (!e.proxy && typeof e.x === 'number') test(e);
   for (const q of allPlayers(game)) test(q);
   if (!best) return;
-  const opts = { ranged: true, ability: 'long_shot', from: { x: ox, y: oy }, knock: S.knock };
+  const opts = { ranged: true, ability: S.ability || 'long_shot', from: { x: ox, y: oy }, knock: S.knock };
   if (o.onHit) o.onHit(game, best, amount, opts);
   else hurtPlayer(game, m, best, amount, opts);
   game.juice?.chips(best.x, best.y, [0.85, 0.75, 0.55], 4, 0.4);
+  if (pr.kind === 'spear') { // (like the player's: it stays where it struck — mut/bow.js resolve)
+    pr.x = pr.lx = best.x; pr.y = pr.ly = best.y; pr.stuck = true; pr.ground = true; pr.lift = 0.04;
+    game.net?.entsApi?.fx?.(['pend', pr.id, r3(best.x), r3(best.y), 1, 1], best.x, best.y);
+    return;
+  }
   pr.alpha = 0;
   game.net?.entsApi?.fx?.(['pend', pr.id, r3(x), r3(y), 0, 1], x, y);
 }

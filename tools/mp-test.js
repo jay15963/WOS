@@ -12180,6 +12180,101 @@ def('CB4', {
   await t.checkDigest(H, G);
 });
 
+def('CB5', {
+  title: 'CB: the soldiers\' spearmen throw their spears (Lançar Lança) as the lines close — the guest sees the arcs, the hand stays empty while it flies, only the other side is hurt, one throw per cool-down',
+  timeout: 240000,
+  expected: 'A field battle, 60 soldiers at 50 % (both players on side B). As the lines close, the spearmen throw (npcThrowSpear: a spear lob from a spearman, faction army, at a foe 4,5 to 8 tiles away): the host flies them and the guest sees the same arcs (cosmetic spear lobs with the host\'s id, no owner); while a spear flies its thrower holds the throw pose past its release (the hand empty: k > 0,55), on the host and on the guest; the throw_spear hits land on soldiers of the other side, never on the thrower\'s own; a spearman throws again only after its cool-down (≥ 9 s); digest equal',
+  api: 'game/npcLob.js npcThrowSpear (lobSpec spear, fireLob, fx proj lobs / pend), soldier.js soldierBrain spearOut (WAR.spearMin), net/entities.js actions',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  await skLobby(t, P, { mode: 'field', total: 60, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'archer' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 90000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const throws = new Map(), seenG = new Set(), dmg = [], pose = { h: [0, 0], g: [0, 0] };
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) {
+      if (!pr.lob || pr.cosmetic || pr.kind !== 'spear' || !pr.id) continue;
+      if (!throws.has(pr.id)) throws.set(pr.id, { src: pr.src, t: H.game.worldTime, d: Math.hypot(pr.lx - pr.x0, pr.ly - pr.y0), faction: pr.faction, role: pr.src?.soldier?.role || null });
+      // mid-flight: the thrower's hand empty (the throw pose past its release), here and on the guest (its proxy)
+      const m = pr.src;
+      if (!m || m.dead || pr.stuck || pr.t < pr.dur * 0.25 || pr.t > pr.dur * 0.75) continue;
+      pose.h[m.action?.type === 'throw' && m.action.t > 0.55 ? 0 : 1]++;
+      const e = G.game.entities.find((q) => q.nid === m.nid && !q.dead);
+      if (e) pose.g[e.action?.type === 'throw' && e.action.t > 0.55 ? 0 : 1]++;
+    }
+    for (const pr of G.game.projectiles || []) if (pr.lob && pr.cosmetic && pr.kind === 'spear' && pr.id && !pr.owner) seenG.add(pr.id);
+  }, 40);
+  t.on(H, 'damage', (d) => { if (d.ability === 'throw_spear' && d.src?.soldier && d.amount > 0) dmg.push({ k: d.src.soldier.k, tk: d.target?.soldier?.k ?? null }); });
+  await t.waitFor(() => throws.size >= 4, 90000, 'the spearmen throw as the lines close (spear lobs on the host)', () => `${throws.size} throws · alive ${soldiersOf(H).length}`);
+  const L = [...throws.values()];
+  t.check(L.every((q) => q.role === 'spear' && q.faction === 'army'), 'thrown by spearmen, flown as army shots', [...new Set(L.map((q) => q.role + '/' + q.faction))].join(','));
+  t.check(L.every((q) => q.d >= 3.2 && q.d <= 9.6), 'from about 4,5 tiles out, never past the spear\'s 8 (+ scatter)', L.map((q) => f2(q.d)).join(' '));
+  await t.waitFor(() => [...throws.keys()].some((id) => seenG.has(id)), RT() + 8000, 'the guest sees the same arcs (cosmetic spear lobs, the host\'s id, no owner)', () => `${throws.size} thrown · guest saw ${seenG.size}`);
+  await t.waitFor(() => dmg.length >= 1, 30000, 'a spear lands on a soldier (throw_spear damage)', () => `${throws.size} throws`);
+  await t.sleep(12000); // (a second throw of the same spearmen, if any, after its cool-down)
+  t.check(!dmg.some((d) => d.tk != null && d.tk === d.k), 'never on the thrower\'s own side', `${dmg.length} hits · ${dmg.map((d) => d.k + '>' + d.tk).slice(0, 12).join(' ')}`);
+  const by = new Map();
+  for (const q of throws.values()) { if (!by.has(q.src)) by.set(q.src, []); by.get(q.src).push(q.t); }
+  const gaps = [];
+  for (const ts of by.values()) for (let i = 1; i < ts.length; i++) gaps.push(ts[i] - ts[i - 1]);
+  t.check(gaps.every((g) => g >= 8.9), 'one throw per cool-down (≈ 10 s) for each spearman', gaps.map(f2).join(' ') || 'one throw each');
+  t.check(pose.h[0] >= 3 && pose.h[0] >= 4 * pose.h[1], 'the thrower\'s hand empty while its spear flies (the throw pose past its release) on the host', `${pose.h[0]} empty · ${pose.h[1]} not`);
+  t.check(pose.g[0] >= 2, 'and on the guest (the proxy\'s action)', `${pose.g[0]} empty · ${pose.g[1]} not (the guest shows actions a moment later)`);
+  t.metric('spearThrows', { throws: throws.size, throwers: by.size, hits: dmg.length, seenG: seenG.size, pose, gaps: gaps.map((g) => +g.toFixed(1)).slice(0, 8) });
+  await t.checkDigest(H, G);
+});
+
+def('CB6', {
+  title: 'CB: a siege tower on a castle — melee defenders wait on the wall walk where its ramp comes down, fight the soldiers coming across and throw spears down; the town\'s archers stand on top of the stone wall',
+  timeout: 480000,
+  expected: 'Siege of the castle, 160 soldiers at 50 % (both players defend). The town\'s archers up on the stone wall stand on its walk (a floor with nothing built on it at their story: story 2, not inside the upper stones at story 1). Once the attackers\' siege tower stands, game.warfare.towersOn lists it (the wall piece it goes for, the deck\'s story) and the defense posts melee there: town guards with a melee wall post by the landing at the tower\'s story, and the garrison\'s melee soldiers (never the general) up on the walk within 3,5 tiles of it. Its ramp comes down and the attackers coming across meet them: blows between the two sides up on the wall; a spearman or spear guard up there throws its spear down at a foe below (never at one of its own); digest equal',
+  api: 'siegeAI.js siegeTowers, warfare.js towersOn, defense.js wallWalk / standOn / towerSpots / assignDefense 3b, npc.js upTask wallFight / wallStep / spearAt, skirmish.js garrisonPosts (towers), soldier.js soldierBrain (_down → spearOut)',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  await skLobby(t, P, { mode: 'siege', place: 'castle', total: 160, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'archer' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 120000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const M = skSt(H).match, sid = M.sid, W = H.game.world;
+  const stand = (e) => { const L = H.game.levels.sync(), i = W.idx(Math.floor(e.x), Math.floor(e.y)), lv = Math.round(e.z || 0); return !!L.surf[lv]?.get(i) && !L.blk?.[lv]?.get(i); };
+  const def = (e) => (e.soldier ? e.soldier.k === M.kb : !!e.npc), att = (e) => !!e.soldier && e.soldier.k === M.ka;
+  const blows = [], downs = [], spearHits = [];
+  t.on(H, 'damage', (d) => {
+    const a = d.src, b = d.target;
+    if (!a || !b || !(d.amount > 0)) return;
+    if (a.z > 0.5 && b.z > 0.5 && ((def(a) && att(b)) || (att(a) && def(b)))) blows.push(def(a) ? 'def>att' : 'att>def');
+    if (d.ability === 'throw_spear' && def(a)) spearHits.push(def(b) ? 'OWN' : 'foe');
+  });
+  t.watch(() => { for (const pr of H.game.projectiles || []) if (pr.lob && !pr.cosmetic && pr.kind === 'spear' && pr.id && pr.src && pr.src.z > 0.5 && def(pr.src) && !downs.includes(pr.id)) downs.push(pr.id); }, 50);
+  // the town's archers on top of the stone wall
+  const upA = () => H.game.entities.filter((e) => !e.dead && e.npc?.job === 'archer' && e.z > 0.5);
+  await t.waitFor(() => upA().length >= 3, 60000, 'the town\'s archers up on the wall', () => `${upA().length} up`);
+  await t.sleep(1500);
+  const bad = upA().filter((e) => !stand(e));
+  t.check(!bad.length, 'every one stands on the walk (its story\'s floor, nothing built there — not inside the stones)', `${upA().length} up · stories ${[...new Set(upA().map((e) => e.z))].join(',')} · ${bad.length} inside`);
+  // the tower
+  await t.waitFor(() => (H.game.warfare.towersOn(sid) || []).length > 0, 240000, 'the attackers\' siege tower stands (towersOn lists it)', () => JSON.stringify((H.game.warfare.forces.get(skDbg(H).forces.siege?.id)?.sg?.jobs || []).map((j) => [j.role, j.done ? 1 : 0])));
+  const T = H.game.warfare.towersOn(sid)[0];
+  t.check(T.lv >= 1 && Number.isFinite(T.x) && Number.isFinite(T.fx), 'where its ramp comes down: the wall piece it goes for, the deck\'s story', JSON.stringify(T));
+  const tposts = () => [...(H.game.townDefense.posts(sid)?.values() || [])].filter((d) => d.melee && d.tower === T.id);
+  await t.waitFor(() => tposts().length >= 1, 15000, 'town guards posted on the walk by the landing (melee wall posts)');
+  t.check(tposts().every((d) => d.lv === T.lv && Math.hypot(d.x - T.x, d.y - T.y) < 3.5 && d.k === 'wall'), 'at the tower\'s story, within 3,5 tiles of it', JSON.stringify(tposts().map((d) => [f2(d.x), f2(d.y), d.lv])));
+  const melUp = () => soldiersOf(H, M.kb).filter((m) => m.soldier.role !== 'archer' && m.z > 0.5 && Math.hypot(m.x - T.x, m.y - T.y) < 3.5);
+  await t.waitFor(() => melUp().length >= 2, 60000, 'the garrison\'s melee soldiers up on the walk where it comes', () => `${melUp().length} up · melee of the garrison up anywhere: ${soldiersOf(H, M.kb).filter((m) => m.soldier.role !== 'archer' && m.z > 0.5).length}`);
+  t.check(!soldiersOf(H, M.kb).some((m) => m.soldier.role === 'general' && m.z > 0.5), 'never the general (it stays with the line)');
+  t.check(melUp().every(stand), 'standing on the walk', melUp().map((m) => f2(m.z)).join(','));
+  // the ramp down: the fight up on the wall
+  await t.waitFor(() => H.game.warfare.towersOn(sid).some((q) => q.id === T.id && q.docked), 240000, 'the tower reaches the wall and its ramp comes down', () => `towers ${JSON.stringify(H.game.warfare.towersOn(sid))} · phase ${skSt(H).phase}`);
+  await t.waitFor(() => blows.includes('def>att'), 60000, 'the defenders on the walk strike the soldiers coming across', () => `${blows.length} blows up there: ${[...new Set(blows)].join(',')}`);
+  await t.waitFor(() => downs.length >= 1, 60000, 'a spear thrown down from the wall at a foe below', () => `${downs.length}`);
+  t.check(!spearHits.includes('OWN'), 'never at one of its own', spearHits.join(','));
+  t.metric('towerDefense', { tower: T, blows: blows.length, kinds: [...new Set(blows)], downs: downs.length, spearHits: spearHits.length, guardsPosted: tposts().length });
+  await t.checkDigest(H, G);
+});
+
 def('SK7', {
   title: 'SK: the soldiers\' Tiro Longo — the attackers\' archers lob over the palisade (the guest sees the arcs), a long shot hurts the foe and never its own side',
   timeout: 300000,

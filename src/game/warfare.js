@@ -7,7 +7,7 @@
 //   forces                  Map id → force (host: the whole force; guests: its public row — op war.force)
 //   startSiege(spec)        debug / tests: spec = { k, sid (the target), n, lv, eng { treb, ram, tower }, at: [x, y] }
 //   startBattle(a, b)       debug / tests: a / b = { k, n, lv, at: [x, y] } (or armies of 3a)
-//   decorate(e), label(e), mayHurt(player, e), forceOfEnt(e), threatOn(sid), siegeOn(sid), debug(id)
+//   decorate(e), label(e), mayHurt(player, e), forceOfEnt(e), threatOn(sid), towersOn(sid), siegeOn(sid), debug(id)
 // Who is at war: game.realms.atWar(a, b) (3a); the owner of a place: game.realms.owner(sid) ?? the settlement's k.
 // Reports go back with game.realms.report(id, { n, eng, state, x, y, lost, killed }).
 //
@@ -26,7 +26,7 @@ import {
   spawnSoldier, decorateSoldier, soldierLabel, soldierBrain, separate, playerMayHurt, soldierHurt, crestOf, atWar, ownerOf, solNear,
   FIGHTING, isPlayer,
 } from './soldier.js';
-import { siegeTick, siegeSetup, siegeEnd, siegeThreat, siegeStatus, siegeReport, siegeLoad, planWhy } from './siegeAI.js';
+import { siegeTick, siegeSetup, siegeEnd, siegeThreat, siegeTowers, siegeStatus, siegeReport, siegeLoad, planWhy } from './siegeAI.js';
 import { allPlayers, inAnyView } from './players.js';
 import { uidOf, memberOf } from './eco.js';
 import { damageStructure, isEngineObj } from './siege.js';
@@ -59,6 +59,7 @@ export function installWarfare(game) {
     onHurt: (m, src) => onHurt(game, m, src),
     onKilled: (m, killer) => onKilled(game, m, killer),
     threatOn: (sid) => threatOn(game, sid),
+    towersOn: (sid) => { const F = siegeOn(game, sid); return F && F.phase !== 'retreat' ? siegeTowers(game, F) : []; }, // (the siege towers standing: where the defense waits on the wall walk)
     siegeOn: (sid) => siegeOn(game, sid),
     foeOfTown: (S, e) => !!e?.soldier && !e.dead && atWar(game, e.soldier.k, ownerOf(game, S.sid)),
     boltHits: (b, e) => boltHits(game, b, e),

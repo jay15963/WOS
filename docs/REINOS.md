@@ -933,8 +933,10 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     morreram ou foram embora. Enquanto isso todos ficam nos postos.
   - **Arqueiros que não alcançam** (o mesmo apontamento: "fica parado em um lugar apenas e não consegue chegar no range de
     ataque do arco"): o arqueiro no alto da muralha com um inimigo fora do alcance / sem linha de tiro **anda pelo alto da
-    muralha** (o adarve: as peças da linha e o tile logo por dentro, `levels.surf` no andar 1 / 2, e os postos das torres e
-    escadas) até o ponto mais perto que tem alcance e linha de tiro — um caminho pelo adarve, nunca descendo; fora da vista
+    muralha** (o adarve: as peças da linha e o tile logo por dentro, um piso **onde dá para ficar em pé** no andar 1 / 2 —
+    `levels.surf` sem nada construído naquele andar, `defense.js standOn`: a muralha de pedra tem 2 andares e o topo da
+    peça de baixo, no andar 1, fica dentro da pedra de cima; antes os arqueiros da guarda de castelo / cidade iam para lá e
+    só a ponta da cabeça aparecia — apontamento do dono, 6/11/2026 —, e os postos das torres e escadas) até o ponto mais perto que tem alcance e linha de tiro — um caminho pelo adarve, nunca descendo; fora da vista
     ele já está lá — e, passada a luta, volta ao posto (`npc.js wallWalk / wallSpot / walkPath / walkWall`). No chão, sem
     progresso em 3 s (um muro no caminho, gente, um inimigo que não se alcança), ele procura outro ponto em volta do
     inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL13**.
@@ -945,6 +947,17 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     o trecho de corpo a corpo é o arco de ~120° do lado do ataque (`PEOPLE.def.front` 0,45), mais largo só quando ali há
     poucos pontos; a reserva (cidade / castelo) fica no torreão. Quando o lado muda (8 setores), os postos mudam. Vale para
     os ataques do inverno, os monstros perto dos lugares e os cercos (a 3b usa o mesmo `townDefense.assign`).
+  - **A torre de cerco** (apontamento do dono, 6/11/2026: "os soldados corpo a corpo devem ficar um pouco na muralha também
+    caso tenha torre de cerco para fazer uma defesa contra os soldados que vão desembarcar na muralha"): enquanto uma
+    torre do exército de cerco estiver de pé (pronta, não queimada — `siegeAI.js siegeTowers`, `game.warfare.towersOn`:
+    a peça da muralha para onde ela vai e o andar do deque), uma parte dos guardas de corpo a corpo (20 %, de 2 a 4 por
+    torre: `PEOPLE.def.towerK / towerMin / towerMax`) sobe ao adarve **onde a rampa vai descer** (`defense.js towerSpots`:
+    os pontos do adarve no andar da torre a até 3,3 tiles da peça, os do lado e o de dentro primeiro). Lá em cima
+    (`npc.js wallFight`) eles enfrentam quem atravessa a rampa — os inimigos no mesmo andar a até 10 tiles do posto, andando
+    pelo adarve até eles (`wallStep`) —, os de lança arremessam a lança nos de baixo (a equipe que empurra a torre, quem
+    sobe a escada dela) e, passada a luta, voltam ao posto. Torre derrubada ou fim do cerco: os postos voltam ao normal (a
+    assinatura da defesa inclui as torres). A guarnição da escaramuça faz o mesmo com os soldados (3 a 5 por torre, nunca o
+    general — `skirmish.js garrisonPosts`). Teste **CB6**.
   - **Os mortos da noite dividem a atenção** (o mesmo apontamento: "os inimigos estão focando mais no jogador do que nos
     soldados … focar no jogador apenas se for atacado, se estiver mais perto que outro soldado, ou se decidirem atacar o
     jogador mesmo assim"): andarilhos, esqueletos, múmias e gigantes escolhem entre **todos** os corpos que veem / sentem
@@ -1669,7 +1682,20 @@ cada fase e a cada 6 s. Sem `game.realms` nada entra em guerra.
   simples até 19 tiles (`WAR.archer.range`), mais que o tiro longo do arco simples (18): para que o tiro longo apareça
   também em campo aberto, eles o usam a partir de 55 % do tiro simples (`WAR.archer.lobK` = 0,55, ~10,5 tiles; um a
   cada recarga, entre as flechas simples). Teste CB4 (o arqueiro da paliçada num lobo a 18 tiles). `projectiles.js` guarda no máximo 80 projéteis e agora descarta primeiro os cravados — num cerco grande
-  um tiro longo no ar não some antes de cair.
+  um tiro longo no ar não some antes de cair. O tiro longo não vai num inimigo em cima de uma muralha / rocha
+  (`npcLob.js lobbable`: a flecha cairia nas pedras e não acertaria ninguém) — nele vai a flecha simples.
+- **Os lanceiros NPC arremessam a lança** (pedido do dono, 6/11/2026: "lanceiros npc também podem usar o tiro longo"; o
+  "tiro longo" da lança é o **Lançar Lança** do jogador — `npcLob.js npcThrowSpear`, só no anfitrião): o mesmo voo baixo e
+  a mesma dispersão do jogador (`lobSpec` da lança), até **8 tiles** × `heightK`, recarga de **10 s** (× 0,9–1,2), dano =
+  o golpe simples × 2,4 + 6, empurrão forte; precisa de linha livre (lança não passa por cima de muro) e de um inimigo em
+  chão aberto. A mão fica vazia enquanto ela voa (a pose de arremesso segue até ela cair; `art/compose.js` esconde a lança
+  depois de k 0,55) e ela volta para a mão; acertando, fica cravada onde bateu, como a do jogador. O convidado vê pelo fx
+  `['proj', id, 'lobs', …]`. **Quem**: os lanceiros dos exércitos (`soldier.js spearOut`: no inimigo a partir de
+  **4,5 tiles** — `WAR.spearMin`; mais perto ele fecha para os golpes —, numa batalha uma saraivada de lanças antes do
+  choque das linhas; lá de cima de uma muralha, sem ninguém para enfrentar no adarve, nos inimigos de baixo) e os guardas
+  de lança das vilas, castelos e cidades (`npc.js spearAt`: no chão a partir de 4,5 tiles — `PEOPLE.spearMin` —, e do
+  adarve na torre de cerco nos de baixo). Só os inimigos de quem arremessou são atingidos. Os saqueadores / esqueletos de
+  lança continuam com o arremesso reto deles (`bandits.js special`). Teste **CB5**.
 - **Textos de combate só de quem joga** (`ui/overlay.js`): acerto, erro, esquiva, imune, cura e "Atrás da parede" só
   aparecem quando o jogador local está envolvido (ele, o bicho dele, o projétil dele) — numa batalha de 200 soldados a tela
   não se enche de "Bloqueado".
