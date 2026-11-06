@@ -512,6 +512,11 @@ export class Session {
       case 'ops': if (fromHost && this.game) this.game.net.onOps(m); return;
       case 'own': if (fromHost && this.game) this.game.net.onOwn(m); return;
       case 'ents': if (fromHost && this.ents) this.ents.onEnts(m); return;
+      case 'entneed': { // a guest asks again for creatures it never got in full (net/entities.js)
+        const pid = this.keyToPid.get(key);
+        if (this.role === 'host' && pid && this.ents?.onNeed && Array.isArray(m.nids)) this.ents.onNeed(pid, m.nids.slice(0, 64).filter((s) => typeof s === 'string' && s.length < 24));
+        return;
+      }
       case 'fx': if (fromHost && this.ents) this.ents.onFx(m); return;
       case 'dg': if (fromHost && this.digest) this.digest.onDigest(m); return;
       case 'dgr': if (fromHost && this.digest) this.digest.onRows(m); return;

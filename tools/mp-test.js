@@ -7901,6 +7901,9 @@ def('VL1', {
   // at work by day
   const persons = H.game.people.of(s.id).persons;
   const fieldOf = (m) => L.fields[persons[m.i].field];
+  // (the fields lie in the outer ring, often beyond the plaza's reach: stand by a worked field so its farmer is a creature)
+  { const fi = persons.filter((P) => P.job === 'farmer' && P.field >= 0 && L.fields[P.field]).map((P) => P.field), f = fi.length ? L.fields[fi[0]] : null;
+    if (f) { const fx = (f.x0 + f.x1) / 2, fy = (f.y0 + f.y1) / 2, a = A.freeSpot(H, MH, fx, f.y0 - 2, { rMin: 0, rMax: 6 }) || [fx, fy]; A.teleport(H, a[0], a[1]); A.teleport(G, a[0] + 1.5, a[1]); await t.sleep(1500); } }
   await t.waitFor(() => livePeople(H, s.id).some((m) => m.job === 'farmer' && fieldOf(m) && m.x > fieldOf(m).x0 - 1 && m.x < fieldOf(m).x1 + 1 && m.y > fieldOf(m).y0 - 1 && m.y < fieldOf(m).y1 + 1 && ['dig', 'plant', 'harvest'].includes(m.act)), 60000,
     'a farmer works its field (hoe / plant / harvest)', () => { const lp = livePeople(H, s.id); return `${lp.length} live · farmers: ` + lp.filter((m) => m.job === 'farmer').map((m) => `${m.task}/${m.act}@${f2(m.x)},${f2(m.y)}`).join(' ') + ' · all: ' + lp.slice(0, 14).map((m) => `${m.job}:${m.plan}:${m.task}`).join(' '); });
   await t.waitFor(() => livePeople(H, s.id).filter((m) => WORK_ACTS.has(m.act)).length >= 2, 30000, 'people at work (animations)');
@@ -8368,6 +8371,16 @@ def('VL12', {
   t.check(loH >= Math.floor(before / 2), 'the host keeps its people out after the join (30 s)', `before ${before} · lowest after ${loH} · now ${live()}`);
   t.check(seen && loG >= 5, 'the guest sees them, steadily', `seen ${seen} · lowest ${loG === 1e9 ? '-' : loG} · now ${sees()}`);
   t.check(!alarm && !H.game.people.debug(s.id).danger, 'no alarm in the village because of the join', `alarm ${alarm} danger ${H.game.people.debug(s.id).danger}`);
+  // a row lost on the way (a creature the guest never got in full): its next update makes the guest ask again (entneed)
+  const EG = G.game.net.entsApi, lost = G.game.entities.find((e) => e.npc && e.npc.sid === s.id && !e.dead);
+  t.need(lost, 'a townsperson on the guest');
+  const lnid = lost.nid, n0 = EG.needN;
+  EG._del(lnid);
+  await t.waitFor(() => G.game.entities.some((e) => e.nid === lnid && e.npc), 8000 + RT(), 'a lost townsperson comes back (the guest asked the host again)', () => `asked ${EG.needN - n0} · back ${G.game.entities.some((e) => e.nid === lnid)}`);
+  t.check(EG.needN > n0, 'the guest asked for it (entneed)', `${EG.needN - n0}`);
+  // an identity that could not be rebuilt when it arrived: tried again
+  const bare = G.game.entities.find((e) => e.npc && e.npc.sid === s.id && !e.dead && e.nid !== lnid);
+  if (bare) { bare.npc = undefined; await t.waitFor(() => !!bare.npc, 8000, 'a townsperson without its identity gets it back (decorate again)'); }
   const av = H.game.session.players.get(G.pid)?.av;
   t.check(av && av._vw > 0 && av._vh > 0, 'the host knows the guest screen size (half width / height in tiles: nobody made or dropped in its view)', av ? `${av._vw} x ${av._vh}` : 'no avatar');
   await t.checkDigest(H, G);

@@ -350,8 +350,8 @@ export function peopleOf(game, sid) {
   const M = game.people?.S;
   if (!M) return null;
   let S = M.get(sid);
-  if (S === undefined) { const t0 = performance.now(); S = buildPeople(game, sid); M.set(sid, S); const st = game.people.stats; st.buildMs = Math.max(st.buildMs || 0, performance.now() - t0); }
-  return S;
+  if (S === undefined) { const t0 = performance.now(); S = buildPeople(game, sid); if (S) M.set(sid, S); const st = game.people.stats; st.buildMs = Math.max(st.buildMs || 0, performance.now() - t0); } // (a place not ready yet: tried again later — never cached as empty)
+  return S || null;
 }
 function navOf(game, sid) {
   const M = game.people.nav;

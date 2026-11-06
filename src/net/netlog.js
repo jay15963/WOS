@@ -194,6 +194,7 @@ class NetLog {
     lines.push(`Gerado em: ${new Date().toLocaleString('pt-BR')} · jogo ${BUILD_DATE} · build ${BUILD} · arte ${ART_ID} · atlas ${runtime.atlasDigest || '?'}${runtime.atlasOk === false ? ' (INCOMPLETO)' : ''} · protocolo ${PROTO}`);
     lines.push(`Navegador: ${browserName()} · ${nav.platform || '?'} · online: ${nav.onLine ? 'sim' : 'NÃO'} · ${conn}`);
     lines.push(`Página: ${location.host}${location.pathname}`);
+    try { if (typeof this.extra === 'function') lines.push(...this.extra()); } catch { /* the game is not up */ }
     lines.push('');
     const dump = (s, title, limit) => {
       lines.push(`--- ${title} (id ${s.id}, iniciada ${new Date(s.started).toLocaleString('pt-BR')}) ---`);
