@@ -11117,6 +11117,283 @@ def('JB4', {
   await t.checkDigest(H, G);
 });
 
+
+// SK — Skirmish ("Escaramuça", docs/SKIRMISH.md: game/skirmish.js, game/mut/skirmish.js, ui/skirmish.js): the lobby of a
+// skirmish room (sides, classes, ready, the host's settings), the match on both peers (a field battle, a siege, PvP, the
+// monster defense), the end and the results, "Jogar de novo", nothing written to the survival saves. The pair is a
+// skirmish room of its own (booted WITHOUT ?nosave: the skirmish itself never saves), shared by the SK scenarios.
+// =====================================================================================================
+const SKP = { pair: null };
+const skSt = (f) => f.game?.skirmish?.st || null;
+const skDbg = (f) => f.game.skirmish.debug();
+const SAVE_KEYS = () => { const o = {}; try { for (const k of Object.keys(localStorage)) if (/^wos\.(save\.|seed$|worlds?$|snap$)/.test(k)) o[k] = localStorage.getItem(k).length; } catch { /* ignore */ } return o; };
+async function skPair(t, { fresh = false } = {}) {
+  const P = SKP.pair;
+  if (!fresh && P && P.H.alive && P.G.alive && isSynced(P.G) && P.H.session?.state !== 'closed' && skSt(P.G)) return P;
+  if (P) { frames.close(P.G); frames.close(P.H); SKP.pair = null; }
+  env.closePair(); // (one game pair at a time: RAM)
+  const room = newRoom(), hp = 'h' + rand(7), gp = 'g' + rand(7), keys0 = SAVE_KEYS();
+  presetPid(hp);
+  const H = frames.open('sk-host', `seed=${CFG.seed}&skirmish=1&mp=host&sala=${room}${CFG.link}&pid=${hp}`, hp);
+  await t.waitFor(() => H.game?.skirmish?.st || H.bootError, CFG.bootMs, 'the skirmish host boots (window.game.skirmish)', () => `loading: "${H.loadingText}"`);
+  if (H.bootError) throw new Fail('skirmish host boot failed: ' + H.bootError);
+  H.hookUi();
+  await t.waitFor(() => H.session?.role === 'host', 15000, 'the host opened the room');
+  presetPid(gp);
+  const G = frames.open('sk-guest', `sala=${room}${CFG.link}&autojoin=1&pid=${gp}`, gp);
+  await waitGuestSynced(t, G, H, 'sk-guest');
+  await t.waitFor(() => skSt(G), 10000, 'the guest has the skirmish state (snapshot sk)');
+  SKP.pair = { H, G, room, keys0 };
+  return SKP.pair;
+}
+// both back in the lobby (the host's "Jogar de novo"), the settings given
+async function skLobby(t, P, set = null) {
+  const { H, G } = P;
+  if (skSt(H).phase !== 'lobby') H.game.net.request('sk.lobby', {});
+  await t.waitFor(() => skSt(H).phase === 'lobby' && skSt(G).phase === 'lobby', 20000, 'both in the lobby');
+  if (set) {
+    H.game.net.request('sk.set', set);
+    await t.waitFor(() => Object.entries(set).every(([k, v]) => skSt(G).set[k] === v), 5000 + RT(), 'the guest sees the host\'s settings', () => JSON.stringify(skSt(G).set));
+  }
+}
+async function skPick(t, P, f, a) {
+  f.game.net.request('sk.pick', a);
+  await t.waitFor(() => { const p = skSt(P.G).picks.find((q) => q[0] === f.pid); return p && (a.side == null || p[2] === a.side) && (a.cls == null || p[3] === a.cls) && (a.ready == null || !!p[4] === !!a.ready); }, 4000 + RT(), `${f.label} picks ${JSON.stringify(a)} (seen on the guest)`);
+}
+async function skStart(t, P, ms = 70000) {
+  const { H, G } = P;
+  const r = await new Promise((res) => H.game.net.request('sk.start', {}, { onOk: () => res(true), onReject: (why) => res(why || 'recusado') }));
+  t.assert(r === true, 'the host starts the match', r === true ? '' : String(r));
+  await t.waitFor(() => skSt(H).phase === 'fight' && skSt(G).phase === 'fight', ms, 'the match is on for both (prep → count → fight)', () => `${skSt(H).phase} / ${skSt(G).phase} · ${JSON.stringify(skDbg(H).forces)}`);
+}
+const COPPER = new Set(['spear_copper', 'sword_copper', 'bow_wood', 'axe_copper']);
+// the results on both peers (the state and the screen)
+async function skResults(t, P, label) {
+  const { H, G } = P;
+  await t.waitFor(() => skSt(H).phase === 'end' && skSt(G).phase === 'end' && skSt(G).res, 30000, `${label}: the end on both`);
+  await t.waitFor(() => [H, G].every((f) => { const el = f.doc.querySelector('#sk .sk-res'); return el && !el.classList.contains('hidden') && /Abates/.test(el.textContent); }), 8000, `${label}: the results screen on both`);
+  const r = skSt(G).res;
+  t.check(JSON.stringify(r) === JSON.stringify(skSt(H).res), `${label}: the same results on both`, `${r.win} · ${r.why} · perdas ${r.lost.join('/')} de ${r.n0.join('/')} · ${r.t} s`);
+  return r;
+}
+
+def('SK1', {
+  title: 'SK: the skirmish lobby — two players in a skirmish room: sides, classes, ready, the host\'s settings on both; nothing saved',
+  timeout: 240000,
+  expected: 'A skirmish room booted WITHOUT ?nosave (the skirmish never saves): the host\'s lobby, the guest joins and lands in the lobby (the welcome says sk: game.noSave on the guest too). Both see the lobby screen with the two players; the guest picks side B, the archer and "ready" — the host sees it; the host sets a siege of a castle, 200 soldiers, 40 % — the guest sees the same settings, the place (a castle of the realm) and the live numbers (80 / 120); the guest\'s own settings change is refused (only the host); "Iniciar partida" waits for the guest to be ready; monsters mode puts everyone on the defenders\' side (side A refused); after 25 s nothing new in wos.save.* / wos.seed / wos.worlds / wos.snap; digest equal',
+  api: 'main.js ?skirmish=1, session welcome sk, game/skirmish.js host.set / host.pick / startWhy, mut/skirmish.js sk.st / sk.pick / sk.set, ui/skirmish.js .sk-lobby',
+}, async (t) => {
+  const P = await skPair(t, { fresh: true }), { H, G } = P;
+  t.check(H.game.noSave && G.game.noSave, 'the arena is never saved (game.noSave on both, no ?nosave in the URL)');
+  await skLobby(t, P);
+  const lob = (f) => f.doc.querySelector('#sk .sk-lobby');
+  await t.waitFor(() => [H, G].every((f) => lob(f) && !lob(f).classList.contains('hidden') && lob(f).querySelectorAll('.sk-side li:not(.empty)').length === 2), 8000, 'the lobby screen on both, with the two players');
+  await skPick(t, P, G, { side: 'b', cls: 'archer' });
+  await t.waitFor(() => lob(H).textContent.includes('Arqueiro'), 3000, 'the host\'s lobby shows the guest as an archer');
+  await skLobby(t, P, { mode: 'siege', place: 'castle', total: 200, pa: 40 });
+  const ar = skSt(G).arena, R = realmOf(H);
+  t.check(ar && ar.sid >= 0 && R.settlements[ar.sid]?.kind === 'castle' && ar.ka !== ar.kb, 'the place: a castle of the realm, two kingdoms', JSON.stringify(ar));
+  await t.waitFor(() => /80/.test(lob(G).querySelector('.sk-share')?.textContent || '') && /120/.test(lob(G).querySelector('.sk-share')?.textContent || ''), 4000, 'the guest\'s lobby shows the numbers of each side (80 attackers · 120 defenders)', () => lob(G).querySelector('.sk-share')?.textContent);
+  t.check(lob(G).querySelector('.sk-card.on[data-v=castle]'), 'the guest sees the castle chosen');
+  const g = await new Promise((res) => G.game.net.request('sk.set', { total: 10 }, { onOk: () => res('ok'), onReject: (w) => res(w) }));
+  t.check(g !== 'ok' && /anfitrião/.test(g), 'the guest cannot change the match', g);
+  const why = (f) => f.doc.querySelector('#sk .sk-why')?.textContent || '';
+  t.check(/Aguardando/.test(why(H)) && lob(H).querySelector('[data-a=start]')?.disabled, '"Iniciar partida" waits for the guest', why(H));
+  await skPick(t, P, G, { ready: 1 });
+  await t.waitFor(() => !lob(H).querySelector('[data-a=start]')?.disabled, 4000, 'everyone ready: the host may start');
+  await skLobby(t, P, { mode: 'monsters' });
+  t.check(skSt(G).picks.every((p) => p[2] === 'b'), 'monster defense: everyone defends');
+  const r = await new Promise((res) => G.game.net.request('sk.pick', { side: 'a' }, { onOk: () => res('ok'), onReject: (w) => res(w) }));
+  t.check(r !== 'ok', 'the monsters\' side cannot be picked', r);
+  await skLobby(t, P, { mode: 'field', total: 120, pa: 50 });
+  await t.sleep(Math.max(0, 25000 - t.elapsed));
+  const k1 = SAVE_KEYS(), changed = Object.keys({ ...P.keys0, ...k1 }).filter((k) => P.keys0[k] !== k1[k]);
+  t.check(!changed.length, 'nothing written to the survival saves (wos.save.* / wos.seed / wos.worlds / wos.snap)', changed.join(', ') || `${Object.keys(k1).length} keys as before`);
+  await t.checkDigest(H, G);
+});
+
+def('SK2', {
+  title: 'SK: a field battle — the slider\'s proportion, players in iron and steel by class, the soldiers in copper, no cold / hunger; one side routs → the results on both',
+  timeout: 300000,
+  expected: 'Field battle, 200 soldiers at 30 % → 60 / 140 (two 3b battle forces of the two kingdoms with those numbers, held until the countdown ends). Both players on side A: the host a swordsman (sword_steel, shield_iron, armor_iron, helmet_iron), the guest an archer (bow_composite and arrows, armor_iron, helmet_iron) at level 12, teleported behind their army; every live soldier on both peers carries copper weapons / the simple bow and a copper helmet; the guest\'s hunger and body heat set low come back full at once (no cold, no hunger in a skirmish); side B\'s soldiers may be hurt by the guest, side A\'s not; the scoreboard on both; when side B breaks (rout) side A wins: the same results on both (the losses of each side, the players), the results screen; digest equal',
+  api: 'game/skirmish.js makeForces / scoreOf / endOf / giveKit / localTick, warfare.js startBattle (kit, hold, keep, min), soldier.js spawnSoldier (F.kit), ui/skirmish.js .sk-board / .sk-res',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  const MH = await A.mods(H);
+  await skLobby(t, P, { mode: 'field', total: 200, pa: 30 });
+  await skPick(t, P, H, { side: 'a', cls: 'sword' });
+  await skPick(t, P, G, { side: 'a', cls: 'archer', ready: 1 });
+  await skStart(t, P);
+  const M = skSt(G).match, d = skDbg(H);
+  t.check(M.nA === 60 && M.nB === 140 && d.forces.a?.n0 === 60 && d.forces.b?.n0 === 140, 'the proportion: 60 / 140 soldiers (two 3b forces)', `${M.nA}/${M.nB} · ${d.forces.a?.n0}/${d.forces.b?.n0}`);
+  t.check(G.game.warfare.forces.get(d.forces.a.id)?.n0 === 60 && G.game.warfare.forces.get(d.forces.b.id)?.n0 === 140, 'the guest knows both forces (war.force)');
+  const eq = (f) => f.game.player.equip;
+  t.check(eq(H).main === 'sword_steel' && eq(H).off === 'shield_iron' && eq(H).body === 'armor_iron' && eq(H).head === 'helmet_iron', 'the host: a swordsman in iron and steel', JSON.stringify(eq(H)));
+  t.check(eq(G).main === 'bow_composite' && eq(G).body === 'armor_iron' && eq(G).head === 'helmet_iron' && G.game.player.inv.count('arrow') > 0 && G.game.player.level === 12, 'the guest: an archer with the composite bow, arrows, iron', `${JSON.stringify(eq(G))} · ${G.game.player.inv.count('arrow')} flechas · nível ${G.game.player.level}`);
+  const sp = M.spots.a;
+  t.check([H, G].every((f) => Math.hypot(f.game.player.x - sp[0], f.game.player.y - sp[1]) < 6), 'both at their side\'s spot (behind side A\'s lines)');
+  await t.waitFor(() => soldiersOf(G).length >= 30, 20000, 'the guest sees the soldiers');
+  const badH = soldiersOf(H).filter((m) => !COPPER.has(m.weapon) || m.armor?.head !== 'helmet_copper'), badG = soldiersOf(G).filter((m) => !COPPER.has(m.weapon) || m.armor?.head !== 'helmet_copper');
+  t.check(!badH.length && !badG.length, 'every soldier in copper (weapons, the simple bow, copper helmets) on both', `${soldiersOf(H).length} / ${soldiersOf(G).length} · bad ${badH.slice(0, 3).map((m) => m.weapon).join(',')}`);
+  const inf = soldiersOf(H).filter((m) => m.soldier.role === 'spear' || m.soldier.role === 'sword');
+  t.check(inf.length && inf.every((m) => m.offhand === 'shield_guard' && m.shield?.id === 'shield_copper'), 'the spear and sword soldiers carry the kingdom shield (a copper shield protection)', `${inf.length} infantry`);
+  // the owner's rule: no cold, no hunger in a skirmish
+  const gp = G.game.player;
+  gp.hunger = 5; gp.bodyHeat = 4;
+  await t.sleep(300);
+  t.check(gp.hunger >= gp.maxHunger - 0.01 && gp.bodyHeat >= 99.9, 'no hunger, no cold in a skirmish (the bars come back full)', `fome ${f2(gp.hunger)} · calor ${f2(gp.bodyHeat)}`);
+  t.check(!gp.buffs.some((b) => /cold|hypothermia|hungry|starving|chilled/.test(b.id)), 'no cold / hunger debuffs');
+  // who may hurt whom (the guest: side A)
+  // (the host applies the hits: the guest's avatar there against a soldier of each side)
+  const gav = A.authAvatarOn(H, G.pid), foeB = soldiersOf(H, M.kb)[0], ownA = soldiersOf(H, M.ka)[0];
+  t.check(gav && foeB && H.game.warfare.mayHurt(gav, foeB) === null, 'an enemy soldier (side B) may be hurt by the guest');
+  t.check(gav && ownA && /seu lado/.test(H.game.warfare.mayHurt(gav, ownA) || ''), 'an own soldier is protected ("… é do seu lado")', H.game.warfare.mayHurt(gav, ownA));
+  t.check(H.game.army.soldierFoe(M.kb, gav) && !H.game.army.soldierFoe(M.ka, gav), 'side B soldiers fight the guest, side A soldiers do not');
+  await t.waitFor(() => [H, G].every((f) => f.doc.querySelector('#sk .sk-board:not(.hidden)')), 4000, 'the scoreboard on both');
+  // side B breaks: most of its soldiers fall (the test kills them on the host)
+  await t.sleep(4000);
+  for (let k = 0; k < 40 && skSt(H).phase === 'fight'; k++) {
+    for (const m of soldiersOf(H, M.kb).slice(0, 8)) MH.combat.killMob(H.game, m, null);
+    await t.sleep(500);
+  }
+  const r = await skResults(t, P, 'the field battle');
+  t.check(r.win === 'a' && /debandou|caiu/.test(r.why), 'side A wins: side B broke', r.why);
+  t.check(r.lost[1] > 60 && r.n0[0] === 60 && r.n0[1] === 140, 'the losses of each side in the results', `${r.lost} / ${r.n0}`);
+  t.check(r.players.length === 2 && r.players.every((p) => p[2] === 'a'), 'the two players in the results (side A)');
+  await t.checkDigest(H, G);
+});
+
+def('SK3', {
+  title: 'SK: a siege of a palisade village with PvP — attackers\' camp and engines ready, a garrison on the walls, the two players on opposite sides; the siege repelled',
+  timeout: 300000,
+  expected: 'Siege of the palisade village (the start), 100 soldiers at 50 %: a 3b siege force of 50 (its camp raised at once, its engines ready: o.realm = the attackers\' kingdom on both peers) and a garrison of 50 soldiers of the place\'s kingdom (archers up on the palisade, z > 0.5); the host attacks (side A, at the camp), the guest defends (side B, inside): each may hurt the other (pvp.hit → player.hurt, e.pvp on both), the guest is a foe of the attacking soldiers and the host of the town\'s guards; the guest felled by the host counts as the host\'s kill and the guest\'s death, and the guest comes back by itself at the plaza with its kit (no body); most attackers fall → the siege is repelled: side B wins, the results on both; digest equal',
+  api: 'game/skirmish.js garrisonTick / pvpWhy / kOf / deaths / respawnAt, siegeAI.js (have / ph), army.js kOfEnt / pvpWhy hooks, npc.js / warfare.js gates, mut/combat.js pvp.hit',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  const MH = await A.mods(H);
+  await skLobby(t, P, { mode: 'siege', place: 'palisade', total: 100, pa: 50 });
+  await skPick(t, P, H, { side: 'a', cls: 'spear' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 90000);
+  const M = skSt(H).match, d = skDbg(H), he = H.game.player.equip;
+  t.check(he.main === 'spear_steel' && he.off === 'shield_iron' && he.body === 'armor_iron' && he.head === 'helmet_iron', 'the host: a spearman with a steel spear and an iron shield, armour and helmet', JSON.stringify(he));
+  t.check(d.forces.siege?.n0 === 50 && d.forces.garrison?.n0 === 50, 'a siege force of 50 and a garrison of 50', JSON.stringify(d.forces));
+  await t.waitFor(() => H.game.warfare.forces.get(d.forces.siege.id)?.sg?.camp?.length >= 6, 20000, 'the camp is up at once');
+  await t.waitFor(() => (H.game.warfare.forces.get(d.forces.siege.id)?.sg?.jobs || []).some((j) => j.done && j.role !== 'ws'), 60000, 'an engine stands ready (the engineers raise it at once)');
+  const eng = H.game.warfare.forces.get(d.forces.siege.id).sg.jobs.find((j) => j.done && j.role !== 'ws');
+  await t.waitFor(() => A.structOn(G, eng.id)?.realm === M.ka, RT() + 3000, 'the engine is the attackers\' army\'s on the guest too (o.realm)');
+  const gar = H.game.warfare.forces.get(d.forces.garrison.id);
+  await t.waitFor(() => [...gar.live.values()].some((m) => m.soldier.role === 'archer' && m.z > 0.5), 30000, 'the garrison\'s archers up on the palisade');
+  // PvP: opposite sides
+  const hostOnG = () => G.game.entities.find((e) => e.remote && e.pid === H.pid), guestOnH = () => H.game.entities.find((e) => e.remote && e.pid === G.pid && !e.avatar);
+  t.check(G.game.army.pvpWhy(G.pid, H.pid) === null && H.game.army.pvpWhy(H.pid, G.pid) === null, 'opposite sides may fight (pvpWhy on both)');
+  const gav = A.authAvatarOn(H, G.pid);
+  t.check(gav && H.game.army.soldierFoe(M.ka, gav) && !H.game.army.soldierFoe(M.kb, gav), 'the guest (a defender) is a foe of the attacking soldiers, not of its own');
+  t.check(H.game.army.townFoe({ sid: M.sid }, H.game.player) && !H.game.army.townFoe({ sid: M.sid }, gav), 'the host (an attacker) is a foe of the town\'s guards; the guest is not');
+  // the host fells the guest (beside each other)
+  A.keepAlive(t, H, { hp: true });
+  A.teleport(H, G.game.player.x + 1.2, G.game.player.y);
+  await t.waitFor(() => hostOnG() && guestOnH() && Math.hypot(guestOnH().x - H.game.player.x, guestOnH().y - H.game.player.y) < 3, 6000, 'side by side');
+  await t.waitFor(() => guestOnH()?.pvp, 3000, 'the guest is an enemy target on the host (e.pvp)');
+  for (let k = 0; k < 30 && !G.game.player.dead; k++) { MH.combat.dealDamage(H.game, H.game.player, guestOnH(), 400); await t.sleep(RT() + 200); }
+  await t.waitFor(() => G.game.player.dead, 4000, 'the host fells the guest (pvp.hit → player.hurt)');
+  t.check(G.game.player.equip.main === 'sword_steel', 'no body takes the kit (it stays on the player)', G.game.player.equip.main);
+  await t.waitFor(() => (skSt(G).score?.kills?.[H.pid] || 0) >= 1 && (skSt(G).score?.deaths?.[G.pid] || 0) >= 1, 6000, 'the host\'s kill and the guest\'s death on the scoreboard', () => JSON.stringify(skSt(G).score));
+  await t.waitFor(() => !G.game.player.dead, 14000, 'the guest comes back by itself (respawn)', () => `dead ${G.game.player.dead} · L ${JSON.stringify(G.game.skirmish.L)} · wt ${f2(G.game.worldTime)} · phase ${skSt(G).phase} · side ${G.game.skirmish.sideOf(G.pid)} · left ${f2(G.game.skirmish.respawnLeft())}`);
+  const rb = skSt(G).match.spots.rb;
+  await t.tryWait(() => G.game.player.hp === G.game.player.maxHp, 1500);
+  t.check(Math.hypot(G.game.player.x - rb[0], G.game.player.y - rb[1]) < 6 && G.game.player.equip.main === 'sword_steel' && G.game.player.hp === G.game.player.maxHp, 'at the plaza, with its kit and full life', `${f2(G.game.player.x)},${f2(G.game.player.y)} · ${G.game.player.equip.main}`);
+  // the siege repelled: most attackers fall
+  for (let k = 0; k < 40 && skSt(H).phase === 'fight'; k++) {
+    for (const m of soldiersOf(H, M.ka).filter((q) => q.soldier.role !== 'general').slice(0, 6)) MH.combat.killMob(H.game, m, null);
+    await t.sleep(600);
+  }
+  const r = await skResults(t, P, 'the siege');
+  t.check(r.win === 'b' && /resistiu/.test(r.why), 'the defenders win: the place resisted', r.why);
+  t.check(r.players.find((p) => p[0] === H.pid)?.[4] >= 1 && r.players.find((p) => p[0] === G.pid)?.[5] >= 1, 'the results: the host\'s kill, the guest\'s death');
+  await t.checkDigest(H, G);
+});
+
+def('SK4', {
+  title: 'SK: the monster defense — the family chosen, giants by the number, only defenders; the wave destroyed; "Jogar de novo" clears the field',
+  timeout: 300000,
+  expected: 'Monster defense of the palisade village, mummies, 200 at 40 % defenders → 80 defenders (a garrison) and 120 monsters with 4 giants (one per 25, from 20: giantsFor 10 → 0, 20 → 1, 100 → 4, 300 → 12 max); both players on the defenders\' side; night on both; the wave spawns mummies and mummy giants only (proxies on the guest), at most the live cap at once, awake far from the players and marching on the place; they never crumble; all of them felled → the wave is destroyed: the defenders win, the results on both. "Jogar de novo": both back in the lobby with the same settings, the forces and monsters gone; digest equal',
+  api: 'content/skirmish.js giantsFor / sidesOf, game/skirmish.js waveTick / tuneMob / endOf / hostLobby / clearField, walkers.js m.lure, mobs.js m.awake',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  const MH = await A.mods(H);
+  const SKC = await fimp(H, 'game/content/skirmish.js');
+  t.check([[10, 0], [20, 1], [49, 1], [50, 2], [100, 4], [120, 4], [300, 12]].every(([n, g]) => SKC.giantsFor(n) === g), 'the giants rule: one per 25 monsters, from 20, at most 12', [10, 20, 50, 100, 300].map((n) => `${n}→${SKC.giantsFor(n)}`).join(' '));
+  await skLobby(t, P, { mode: 'monsters', place: 'palisade', fam: 'sand', total: 200, pa: 60 });
+  await skPick(t, P, G, { ready: 1 });
+  t.check(skSt(G).picks.every((p) => p[2] === 'b'), 'both players defend');
+  await skStart(t, P);
+  const M = skSt(G).match;
+  t.check(M.nA === 120 && M.nB === 80 && M.giants === 4 && M.players.every((p) => p[1] === 'b'), '120 monsters with 4 giants against 80 defenders', `${M.nA}/${M.nB} · ${M.giants} gigantes`);
+  t.check(Math.abs(H.game.env.hour - 22) < 0.2 && Math.abs(G.game.env.hour - 22) < 0.2, 'night on both');
+  await t.waitFor(() => skDbg(H).mobs >= 20, 20000, 'the wave comes');
+  await t.waitFor(() => A.mobs(G, (e) => e.proxy && (e.species === 'mummy' || e.species === 'mummy_giant')).length >= 5, 30000, 'the guest sees the mummies (proxies)');
+  const sp = new Set([...H.game.skirmish.H.mobs].map((m) => m.species));
+  t.check([...sp].every((s) => s === 'mummy' || s === 'mummy_giant'), 'only the chosen family (mummies and their giants)', [...sp].join(','));
+  t.check(skDbg(H).mobs <= H.game.skirmish.cap.monsters, 'never more than the live cap at once', `${skDbg(H).mobs} / ${H.game.skirmish.cap.monsters}`);
+  await t.sleep(8000);
+  const s = realmOf(H).settlements[M.sid], near = [...H.game.skirmish.H.mobs].filter((m) => !m.dead && Math.hypot(m.x - s.x, m.y - s.y) < s.r + 14);
+  t.check(near.length > 0 && [...H.game.skirmish.H.mobs].every((m) => m.awake && m.crumbleAt === Infinity), 'they march on the place (awake, never crumbling)', `${near.length} near its walls`);
+  // fell the whole wave (the host's player: the kills count)
+  let giants = 0;
+  for (let k = 0; k < 80 && skSt(H).phase === 'fight'; k++) {
+    for (const m of [...H.game.skirmish.H.mobs]) if (!m.dead) { if (m.giant) giants++; MH.combat.killMob(H.game, m, H.game.player); }
+    await t.sleep(400);
+  }
+  t.check(giants === 4, 'the 4 giants came with the wave', giants);
+  const r = await skResults(t, P, 'the defense');
+  t.check(r.win === 'b' && /destruída/.test(r.why) && r.lost[0] === 120, 'the wave destroyed: the defenders win', `${r.why} · ${r.lost}`);
+  t.check(r.players.find((p) => p[0] === H.pid)?.[4] >= 100, 'the host\'s kills in the results', r.players.map((p) => p.join(':')).join(' '));
+  // "Jogar de novo"
+  H.doc.querySelector('#sk .sk-res [data-a=again]')?.click();
+  await t.waitFor(() => skSt(H).phase === 'lobby' && skSt(G).phase === 'lobby', 10000, '"Jogar de novo": both back in the lobby');
+  t.check(skSt(G).set.mode === 'monsters' && skSt(G).set.fam === 'sand' && skSt(G).set.total === 200, 'with the same settings');
+  await t.waitFor(() => !H.game.warfare.forces.size && !G.game.warfare.forces.size && !skDbg(H).mobs, 10000, 'the field cleared (no forces, no monsters) on both');
+  await t.waitFor(() => G.doc.querySelector('#sk .sk-lobby:not(.hidden)'), 4000, 'the lobby screen again on the guest');
+  await t.checkDigest(H, G);
+});
+
+def('SK5', {
+  title: 'SK: "Escaramuça" on the main menu opens the lobby (one player); a castle siege with the player as a defender starts and shows the board',
+  timeout: 240000,
+  expected: 'The main menu has the "Escaramuça" button next to "Multijogador"; a click boots the arena (game.skirmish, game.noSave) and shows its lobby with the player alone and "Abrir para amigos" — which opens a room right there (the code in the lobby, the pick kept under the new id of the host); the player sets a siege of a castle (side B, the archer) and starts: the castle is made, the siege force and the garrison are up, the board shows both sides; then back to the lobby',
+  api: 'ui/menu.js [data-a=skirmish], main.js choice mode skirmish, ui/skirmish.js',
+}, async (t) => {
+  if (SKP.pair) { frames.close(SKP.pair.G); frames.close(SKP.pair.H); SKP.pair = null; } // (one game at a time: RAM)
+  env.closePair();
+  const pid = 's' + rand(7);
+  presetPid(pid);
+  const S = t.open('sk-solo', `pid=${pid}${CFG.link}`, pid);
+  const btn = await t.waitFor(() => S.doc?.querySelector('#menu [data-a=skirmish]'), CFG.bootMs, 'the main menu with "Escaramuça"');
+  t.check(/Escaramuça/.test(btn.textContent) && btn.previousElementSibling?.dataset.a === 'mp', '"Escaramuça" next to "Multijogador"');
+  btn.click();
+  await t.waitFor(() => S.game?.skirmish?.st, CFG.bootMs, 'the arena boots');
+  S.hookUi();
+  t.check(S.game.noSave, 'the arena is never saved');
+  await t.waitFor(() => S.doc.querySelector('#sk .sk-lobby:not(.hidden) [data-a=open]'), 15000, 'its lobby, with "Abrir para amigos"');
+  t.check(S.game.skirmish.st.picks.length === 1 && S.game.skirmish.st.picks[0][0] === S.game.net.pid, 'the player alone in the lobby');
+  // "Abrir para amigos": the room opens from the lobby, the player keeps its pick under its new id
+  S.doc.querySelector('#sk [data-a=open]').click();
+  await t.waitFor(() => S.session?.role === 'host' && S.doc.querySelector('#sk .sk-code b')?.textContent === S.session.code, 8000, 'the room is open: its code in the lobby');
+  await t.waitFor(() => S.game.skirmish.st.picks.length === 1 && S.game.skirmish.st.picks[0][0] === S.game.net.pid && S.game.net.pid === S.session.pid, 3000, 'the pick follows the new id of the host');
+  S.game.net.request('sk.set', { mode: 'siege', place: 'castle', total: 80, pa: 50 });
+  S.game.net.request('sk.pick', { side: 'b', cls: 'archer' });
+  await t.waitFor(() => S.game.skirmish.st.set.place === 'castle' && S.game.skirmish.st.picks[0][2] === 'b', 4000, 'a castle siege, the player defends');
+  S.game.net.request('sk.start', {});
+  await t.waitFor(() => S.game.skirmish.st.phase === 'fight', 120000, 'the castle is made, the match starts', () => JSON.stringify(S.game.skirmish.debug().forces) + ' prep ' + S.game.skirmish.debug().prepT);
+  const d = S.game.skirmish.debug();
+  t.check(d.forces.siege?.n0 === 40 && d.forces.garrison?.n0 === 40, 'the siege force and the garrison', JSON.stringify(d.forces));
+  await t.waitFor(() => S.doc.querySelector('#sk .sk-board:not(.hidden) .sb-side.s-b'), 5000, 'the scoreboard');
+  t.metric('skirmishHostMs', d.stats);
+  S.game.net.request('sk.lobby', {});
+  await t.waitFor(() => S.game.skirmish.st.phase === 'lobby' && !S.game.warfare.forces.size, 15000, 'back to the lobby, the field cleared');
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

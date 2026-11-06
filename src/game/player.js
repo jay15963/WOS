@@ -124,6 +124,7 @@ export function killPlayer(game) {
 
 export function respawnPoint(game) {
   const p = game.player;
+  const sk = game.skirmish?.respawnAt?.(); if (sk) return sk; // (a skirmish: its side's rear — game/skirmish.js)
   const S = game.build?.structures || [];
   const done = (o) => (o.progress ?? 1) >= 1; // blueprints don't count
   const bed = p.respawn && S.find((o) => o.id === p.respawn && done(o));

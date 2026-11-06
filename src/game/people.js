@@ -573,7 +573,7 @@ function dangerOf(game, rec) {
     if (per.inside(e.x, e.y, w)) inside.push(e);
   }
   // (an enlisted player of a kingdom at war with the place: the bell, the gates, the watch — game/army.js, phase 3c)
-  if (game.army?.en?.size) for (const e of allPlayers(game)) {
+  if (game.army?.en?.size || game.skirmish?.on) for (const e of allPlayers(game)) { // (+ a skirmish's side)
     if (e.dead || !game.army.townFoe(S, e)) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
     if (dx * dx + dy * dy >= r2) continue;

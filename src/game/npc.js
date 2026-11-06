@@ -437,7 +437,7 @@ export function guardTargets(game, rec, m, sight = N.guardSight) {
     if (d > 6 && !rec.danger && !hasLOS(w, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
     best = e; bd = d;
   }
-  if (game.army?.en?.size) for (const e of allPlayers(game)) { // (an enlisted enemy player in the town land — phase 3c)
+  if (game.army?.en?.size || game.skirmish?.on) for (const e of allPlayers(game)) { // (an enlisted enemy player in the town land — phase 3c; a skirmish's side)
     if (!hostile(e, S, game)) continue;
     const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
     if (d >= bd) continue;

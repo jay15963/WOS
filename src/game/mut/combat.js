@@ -82,6 +82,7 @@ defineIntent('pvp.hit', {
     const amount = Math.max(0, Math.min(5000, num(a.amount)));
     const from = Array.isArray(a.from) ? { x: num(a.from[0], src.x), y: num(a.from[1], src.y) } : src;
     hurtPlayer(game, src, v, amount, { crit: !!a.crit, ranged: !!a.ranged, ability: str(a.ability), from });
+    game.skirmish?.pvpHit?.(actor.pid, vpid); // (a skirmish credits the kill: game/skirmish.js)
   },
 });
 

@@ -23,7 +23,7 @@ const LAST = new Map();  // host: engine id → worldTime of its last shot / blo
 const armyEngine = (game, o) => `${BUILDINGS[o.type].name} do exército do Reino de ${game.towns?.realm?.kingdoms[o.realm]?.name || '?'}: só quem serve nesse exército a usa`;
 // phase 3c (docs/REINOS.md §15): a player enlisted in an army of the engine's kingdom pushes / operates it (travellers and
 // everyone else: never)
-const soldierOf = (game, actor, o) => game.army?.rec?.(game.army.uidOf(actor.pid))?.k === o.realm;
+const soldierOf = (game, actor, o) => game.army?.rec?.(game.army.uidOf(actor.pid))?.k === o.realm || (game.skirmish?.kOfPid?.(actor.pid) ?? -1) === o.realm; // (+ a skirmish's side: game/skirmish.js)
 
 // ---------- artillery ----------
 defineIntent('siege.use', {

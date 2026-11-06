@@ -79,7 +79,7 @@ function guideSystem() {
       if (t > 0) return;
       t = 2.5;
       const p = game.player;
-      if (p.dead) return;
+      if (p.dead || game.noTips) return; // (a skirmish arena: no survival guide — main.js)
       const axe = tierOf(p, 'chop'), pick = tierOf(p, 'mine');
       if (once(game, 'start', 'Você começa sem nada: pegue pedrinhas, gravetos e fibras no chão')) return;
       if (axe < 0 && p.inv.count('pebble') >= 2 && p.inv.count('fiber') >= 2 && p.inv.count('stick') >= 1 && once(game, 'craft', 'Abra Criar (C) e faça um machado primitivo', 'good')) return;
