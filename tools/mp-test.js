@@ -7987,7 +7987,7 @@ def('VL3', {
 
 def('VL4', {
   title: 'VL: danger — a wolf in the village by day: the bell, civilians run home, guards kill it; winter night walkers at the gate: the watch fights them',
-  src: 'village', timeout: 240000,
+  src: 'village', timeout: 330000,
   expected: 'Start village at 10 h with its people out. A hostile wolf (a tough one, ×12 hp) appears on the plaza: the host rings the bell (op town.alarm on; the guest gets it too), the civilians run home (most of them are gone from the street within ~15 s), guards engage it (state chase, threat = the wolf) and kill it; then the all-clear (alarm off on both) and the people come back out. A winter night (temperate winter, 22 h): two walkers come at the village from outside the gate — guards / archers fight them (they take damage from the town\'s side) and they die; no friendly damage between the people; digest equal',
   api: 'people.js dangerOf / town.alarm, npc.js flee / guardFight (bandits.updateBandit on the town\'s side) / upTask, players.hurtPlayer (creature vs creature), walkers.js pickGoal (the people draw them), projectiles faction town',
 }, async (t) => {
@@ -8034,7 +8034,9 @@ def('VL4', {
   t.need(ws2.length, 'room for the walkers outside the gate');
   for (const m of ws2) { m.home = { x: L.x, y: L.y }; t.defer(() => { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); }); }
   await t.waitFor(() => hurtBy.size > 0, 45000, 'the watch fights the walkers (damage from the town\'s side)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)}`).join(' '));
-  await t.waitFor(() => ws2.some((m) => m.dead) && ws2.every((m) => m.dead || m.state === 'evade'), 60000, 'the walkers die (or one gives up and runs)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)} @${f2(m.x)},${f2(m.y)}^${f2(m.z || 0)} lv${m.lv | 0} siege ${m.siege?.o?.id || '-'}`).join(' ') + ' · guards ' + livePeople(H, s.id).filter((m) => m.guard).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z} foe ${e?.foe?.nid || '-'} rng ${e?.foe ? f2(MH.combat.reach(e, e.foe)) : '-'} d ${e?.foe ? f2(Math.hypot(e.foe.x - e.x, e.foe.y - e.y)) : '-'} act ${e?.action?.type || '-'} sw ${f2(e?.swingT)} f${e?._fails || 0} r${e?.route ? (e.route.p ? 'p' : 'd') : '-'} mv ${e?.moving}`; }).join(' '));
+  // (a blow does not pass the closed gate — combat.js meleeWall: the guards go out by their own gate, the archers walk the wall top
+  // to a spot above them — defense.js wallWalk —; that takes about a minute)
+  await t.waitFor(() => ws2.some((m) => m.dead) && ws2.every((m) => m.dead || m.state === 'evade'), 150000, 'the walkers die (or one gives up and runs)', () => ws2.map((m) => `${m.state} hp${Math.round(m.hp)} @${f2(m.x)},${f2(m.y)}^${f2(m.z || 0)} lv${m.lv | 0} siege ${m.siege?.o?.id || '-'}`).join(' ') + ' · guards ' + livePeople(H, s.id).filter((m) => m.guard).map((m) => { const e = H.game.entities.find((q) => q.nid === m.nid); return `${m.job}:${m.state}/${m.task}@${f2(m.x)},${f2(m.y)}^${m.z} foe ${e?.foe?.nid || '-'} rng ${e?.foe ? f2(MH.combat.reach(e, e.foe)) : '-'} d ${e?.foe ? f2(Math.hypot(e.foe.x - e.x, e.foe.y - e.y)) : '-'} act ${e?.action?.type || '-'} sw ${f2(e?.swingT)} f${e?._fails || 0} r${e?.route ? (e.route.p ? 'p' : 'd') : '-'} mv ${e?.moving}`; }).join(' '));
   t.check(!hurtBy.has('FRIENDLY'), 'no damage between the town\'s people', [...hurtBy].join(','));
   t.metric('fightersVsWalkers', [...hurtBy].join(','));
   await t.checkDigest(H, G);

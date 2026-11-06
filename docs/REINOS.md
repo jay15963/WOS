@@ -1636,7 +1636,10 @@ cada fase e a cada 6 s. Sem `game.realms` nada entra em guerra.
   os dois não faz nada (o mesmo teste das flechas, `hasLOS`). Vale para todos: o jogador (ataque automático, habilidades, a
   varredura `areaTargets`, `rangeOk` diz "sem linha"), as criaturas e os monstros, os guardas e os soldados. Na tela
   "Atrás da parede", só para o jogador envolvido; `canHitNow` pede a linha também no corpo a corpo (o automático não fica
-  batendo na parede). O soldado que tem uma parede entre ele e o inimigo vai até o inimigo em vez de golpear.
+  batendo na parede). O soldado que tem uma parede entre ele e o inimigo vai até o inimigo em vez de golpear; o guarda da
+  vila também (`npc.js guardFight`: sai pelo portão do próprio lugar até o monstro que bate no portão / na paliçada). Antes
+  os guardas matavam o morto da noite através do portão fechado; agora quem o derruba lá fora são os guardas que saem e os
+  arqueiros que andam pelo alto da muralha até ele (o VL4 espera até 150 s por isso).
 - **Soldados contornam o que está no caminho** (`soldier.js routeStep`): com a linha reta até o destino bloqueada, um A*
   local (`TownNav` numa caixa de 96 tiles, caixas em cache por uma grade de 48, no máximo 16, até 3 buscas por quadro)
   dá a rota, pulando os pontos que a linha livre (`lineClear`) já alcança; sem avanço por 0,8 s → rota nova; a guarnição

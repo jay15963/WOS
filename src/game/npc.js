@@ -6,7 +6,7 @@
 import { PEOPLE as N, JOBS } from './content/people.js';
 import { planOf } from './people.js';
 import { npcMove, nearPass, npcPass, lineClear } from './townnav.js';
-import { hasLOS, dealDamage, faceTowards, reach } from './combat.js';
+import { hasLOS, dealDamage, faceTowards, reach, meleeWall } from './combat.js';
 import { fireArrow, hostProjId } from './projectiles.js';
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
@@ -488,11 +488,11 @@ function guardFight(game, rec, m, dt) {
   }
   // spears and swords: up to it (through the town's own gates: their people pass them) — each from its own side around
   // it, not all on one tile —, then the swing timer
-  const rng = reach(m, f);
-  if (rng < 0 || d > rng) {
+  const rng = reach(m, f), wall = rng >= 0 && d <= rng + 0.6 && meleeWall(game, m, f); // (a wall / a closed gate between: a blow does nothing — combat.js — so round it, through the town's own gate)
+  if (rng < 0 || d > rng || wall) {
     const a = Math.atan2(m.y - f.y, m.x - f.x) + ((m.id % 5) - 2) * 0.45, k = Math.max(0.5, (rng > 0 ? rng : 0.9) * 0.7);
     let gx = f.x + Math.cos(a) * k, gy = f.y + Math.sin(a) * k;
-    if (d > 4) { gx = fx; gy = fy; } // (far: to its tile; the side when close)
+    if (d > 4 || wall) { gx = fx; gy = fy; } // (far, or behind a wall: to its tile; the side when close)
     const s = walk(game, rec, m, Math.floor(gx * 2) / 2 + 0.25, Math.floor(gy * 2) / 2 + 0.25, sp.speed, dt, d > 4 ? Math.max(0.3, (rng > 0 ? rng : 0.8) * 0.8) : 0.2);
     if (s === 'fail') unstick(game, m, fx, fy, rec);
     else if (s === 'here' && d > rng) { m.route = null; npcMove(game, m, (f.x - m.x) / d * 0.04, (f.y - m.y) / d * 0.04); }
