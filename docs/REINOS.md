@@ -1126,8 +1126,8 @@ seção.
     `realmowner { sid, k }`.
   - **Para a 3b (reputação por ajudar / atacar — decisão do dono)**: `game.realms.reward(pid, k, d, motivo)` (anfitrião)
     soma `d` à reputação do jogador no reino `k` (op `eco.rep`, com aviso). O lado que a 3b vê (quem bateu em quem) decide.
-  - A carência do reino do início: **2 dias** do mundo (§13). `realm.rel` (depuração) ignora a carência mas nunca a regra
-    das terras.
+  - Sem carência para o reino do início (tirada pelo dono em 2026-11-06): só o 1º dia do mundo é calmo, para todos os
+    reinos (§13). `realm.rel` (depuração) ignora o dia calmo mas nunca a regra das terras.
   - **Acrescentado na 3c (§15)**: `settle(id, { n, outcome: 'won' | 'lost' | 'taken' | 'lifted', x, y })` (anfitrião) — a
     3b chama em `finishForce` e a 3a retoma os números na hora (volta para casa, segura o lugar, segue); `capture(sid, k,
     { army, n })` — a guarnição nova sai dos vencedores (metade, até o máximo; sem exército: 30 % do máximo); um exército
@@ -1211,7 +1211,8 @@ perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito)
 - **Mural · Reino**: no alto, **Relações do Reino de X** — cada reino da mesma terra com ícone e etiqueta (EM GUERRA com
   "Declarada por nós no dia N" / "Declarou guerra a nós" e a barra do cansaço da guerra; ALIADO desde o dia N; TRÉGUA até
   o dia N; EM PAZ com "fronteira calma / alguma tensão / fronteira tensa" e as guerras passadas; "Rival distante (sem
-  fronteira)"; os reinos de outras terras: "sem navios, nenhuma relação"); o aviso da carência no reino do início;
+  fronteira)"; os reinos de outras terras: "sem navios, nenhuma relação"); no 1º dia do mundo, o aviso "Nenhum reino declara guerra no
+  primeiro dia do mundo";
   **Notícias do reino** (as últimas 8, com dia e hora). Depois o cartão "Você e o reino" da fase 2 (agora diz que o membro
   recebe as notícias e que perde as propriedades de um lugar tomado) e os lugares do reino **agora** (os tomados marcados
   "(tomada)", os cercados com ⚔).
@@ -1244,10 +1245,10 @@ perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito)
   −3 entre aliados, −2,5 em trégua, −1 se um deles já está em guerra noutro lugar, ±1,5 de ruído; o resto cai 3 % ao dia.
 - **Guerra**: acima de 52 de tensão, chance de (tensão − 52) × 2,5 % ao dia (no máximo 60 %); quem declara é o mais forte.
   No máximo ⌈reinos / 6⌉ guerras no mundo (16 reinos → 3) e 2 por reino. **Aliança defensiva**: os aliados do atacado
-  entram na guerra contra o atacante (se o alcançam por terra e não estão em carência / no limite).
-- **Carência**: o reino do início (o da vila do spawn) fica fora de qualquer guerra nos seus **2 primeiros dias** (decisão
-  do dono; dia do mundo `day0` e `day0 + 1`); o mundo inteiro fica em paz no 1º dia. Um mundo antigo, sem fase 3, começa a
-  contar quando é aberto.
+  entram na guerra contra o atacante (se o alcançam por terra e não estão no dia calmo / no limite).
+- **Sem carência** para o reino do início (o da vila do spawn): o dono tirou a proteção de 2 dias (2026-11-06) — ele pode
+  entrar em guerra a partir do 2º dia, como qualquer outro. O mundo inteiro fica em paz só no 1º dia (`day0`,
+  `WAR.quietDays`). Um mundo antigo, sem fase 3, começa a contar quando é aberto.
 - **Cansaço da guerra** 0..100 de cada lado: +5 por dia, +1 a cada 14 soldados perdidos, +18 por lugar perdido, −8 por
   lugar tomado. **Paz**: acima de 55, chance de (cansaço − 55) × 3 % ao dia, +15 % depois de 10 dias de guerra → **trégua de
   5 dias** (sem guerra entre eles; depois "Terminou a trégua").
@@ -1368,7 +1369,7 @@ weary}` (as guarnições e níveis de todos os lugares, ~3 KB por dia) · `realm
 nascem dentro das ops (mesma lista em todos os pares; dia / hora de cada par são cosméticos). Snapshot / save:
 `world.realms` (`realmRows`: dia, primeiro dia, reino do início, relações, tensões, guerras passadas, donos, caídos, todos
 os exércitos, cicatrizes de cerco, notícias). Digest: parte **`realms`** (exata; um exército marchando entra pela rota e
-pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 3 ao abrir (com a carência).
+pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 3 ao abrir (com o dia calmo).
 
 ### Desempenho
 
@@ -1383,8 +1384,8 @@ pelo relógio, não pela posição). Um save antigo sem `realms` começa a fase 
 ### Testes e prints
 
 `tools/mp-test.js` **WR1–WR9** (`?run=WR1,…`; a IA dos reinos fica pausada em todo cenário — `act.js reset` — e os WR a
-dirigem): WR1 a mesma diplomacia nos dois pares, nunca guerra entre terras, a carência de 2 dias (6 dias de diplomacia
-com tensão 99 sem guerra; a partir do 3º dia, a guerra vem) · WR2 guerra forçada: o convidado membro vê a guerra, a
+dirigem): WR1 a mesma diplomacia nos dois pares, nunca guerra entre terras, sem carência para o reino do início (no 1º dia
+do mundo, 6 rodadas de diplomacia com tensão 99 sem guerra; a partir do 2º dia, a guerra vem também para ele) · WR2 guerra forçada: o convidado membro vê a guerra, a
 aliança e a paz do seu reino (avisos e o mural Reino), uma campanha se reúne e marcha (mesmos exércitos nos dois, a
 notícia), o Exército mostra a campanha, notícias de guerra nos mercados, nenhuma guarnição acima do máximo · WR3 a marcha
 pela estrada: mesma posição nos dois (< 3 tiles), em cima da estrada (< 1 tile), anda velocidade × tempo, mapa e radar
@@ -1413,7 +1414,7 @@ venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelh
 
 ### Decisões (para o dono confirmar)
 
-- **Carência de 2 dias** do reino do início (pedido do dono); além disso o mundo inteiro fica em paz no 1º dia.
+- ~~Carência de 2 dias do reino do início~~ — tirada pelo dono (2026-11-06); fica só o 1º dia do mundo em paz para todos.
 - **Rivais distantes**: reinos da mesma terra sem fronteira, com capitais a até 2 800 tiles, também têm tensão e podem
   guerrear (marchando pelo campo, sem estrada). Sem isso, na semente 4242 o reino do início (Galéria, isolado por terra
   livre) nunca teria uma guerra.
@@ -1426,7 +1427,7 @@ venda 40 % mais barata"), `wr_rep_negative_reino` (o cartão: a faixa em vermelh
 - **Reputação herdada** (pedido do dono): os números — aliado +40 (já pode comprar casa nele), trégua −15, guerra −60
   ("Malvisto": compra 50 % mais cara); as faixas negativas e os preços da tabela do §10.
 - **Os níveis do §7b na força**: só +5 % por nível (nível 18 ≈ 1,85 × nível 1) — com +12 % os reinos longe do início eram
-  3× mais fortes por soldado e esmagavam o reino do jogador logo depois da carência.
+  3× mais fortes por soldado e esmagavam o reino do jogador logo nos primeiros dias.
 - **Exércitos lentos de propósito** (1,1 tile/s, ~860 tiles por dia de jogo): uma marcha leva de minutos a horas reais, e
   quem está no caminho é avisado bem antes ("marcha sobre …").
 - **Sem a 3b, nada é jogado perto**: um cerco perto do jogador segue por números (o lugar reage: sino, povo em casa,

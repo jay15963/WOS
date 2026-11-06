@@ -9152,10 +9152,10 @@ function frontOf(f, k, e, kind = null) {
 const hexC = (c) => c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
 
 def('WR1', {
-  title: 'WR: the same diplomacy on both peers; never a war across the sea; the start kingdom\'s 2-day grace',
+  title: 'WR: the same diplomacy on both peers; never a war across the sea; no grace for the start kingdom (only the world\'s calm first day)',
   src: 'village', timeout: 120000,
-  expected: 'Both peers hold the same kingdoms\' state (relations, tensions, every place\'s home army, the start kingdom, its first day: digest part realms); realm.rel between kingdoms of different land masses is ignored on both (no ships); between neighbours of one land mass it takes on both and shows in rel / atWar; the start kingdom (the spawn village\'s) is in its grace on its first 2 days — the daily diplomacy never puts it at war then, even with the tension at 99 — and out of it from the third day, when the same tension makes the war come; digest equal',
-  api: 'game/realms.js (game.realms.rel / atWar / inGrace, dayTick), game/mut/realms.js (realm.rel, realm.day, realmDigestRows), content/war.js WAR.graceDays',
+  expected: 'Both peers hold the same kingdoms\' state (relations, tensions, every place\'s home army, the start kingdom, its first day: digest part realms); realm.rel between kingdoms of different land masses is ignored on both (no ships); between neighbours of one land mass it takes on both and shows in rel / atWar; the start kingdom (the spawn village\'s) has no grace of its own (owner: removed): on the world\'s first day every kingdom is calm — the daily diplomacy puts nobody at war then, even with the tension at 99 — and from the second day the same tension makes the war come to the start kingdom too; digest equal',
+  api: 'game/realms.js (game.realms.rel / atWar / inGrace, dayTick), game/mut/realms.js (realm.rel, realm.day, realmDigestRows), content/war.js WAR.quietDays',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const RH = RZ(H), RG = RZ(G), R = realmOf(H);
@@ -9174,34 +9174,34 @@ def('WR1', {
   t.check(RH.rel(k0.id, far.id) === 'neutral' && RG.rel(k0.id, far.id) === 'neutral' && !RG.atWar(k0.id, far.id), 'kingdoms of different land masses: never at war (the op is ignored on both)', `${k0.name} × ${far.name}: ${RG.rel(k0.id, far.id)}`);
   t.check(RG.rel(VAL, VAL) === 'self' && RG.relInfo(VAL, RAB).by === VAL, 'rel(k, k) = self; who declared it', RG.relInfo(VAL, RAB).by);
   await wrQuiet(t, H, G);
-  // the grace: the start kingdom's rivals at tension 99 every day — never a war in its first 2 days
+  // no grace of its own for the start kingdom (owner, 2026-11-06): only the world's first day is calm, for every kingdom
   const K0 = RH.k0, rivals = RH.dbg.pairs().filter((p) => p[0] === K0 || p[1] === K0).map((p) => (p[0] === K0 ? p[1] : p[0]));
   t.need(rivals.length, 'the start kingdom has relations with somebody');
   const hot = () => { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 99]), weary: [] }); H.game.net.flush(); };
-  const day0 = RH.day0, d1 = H.game.env.dayIndex;
+  const day0 = RH.day0, d1 = H.game.env.dayIndex, want = day0 + WAR_QUIET(MH);
   t.defer(() => { try { H.game.net.emit('realm.day', { day: RH.day, gar: [], tens: rivals.map((r) => [MH.mrealms.relKey(K0, r), 20]), weary: [] }); H.game.net.flush(); } catch { /* ignore */ } });
-  if (d1 < day0 + 2) {
-    t.check(RH.inGrace(K0) && RG.inGrace(K0), 'the start kingdom in its grace on both (day ' + d1 + ')');
+  t.check(MH.war.WAR.graceDays === undefined, 'the start kingdom has no grace of its own (WAR.graceDays is gone)');
+  if (d1 < want) {
+    t.check(RH.inGrace(K0) && RG.inGrace(K0) && RG.inGrace(rivals[0]), 'the world\'s first day: calm for every kingdom on both (day ' + d1 + ')');
     RH.H.noDiplo = false;
     for (let k = 0; k < 6; k++) { hot(); RH.dbg.day(); }
     RH.H.noDiplo = true;
     H.game.net.flush();
     await t.sleep(RT() + 200);
-    t.check(!rivals.some((r) => RG.atWar(K0, r)), 'six days of diplomacy at tension 99: no war with the start kingdom in its grace', rivals.map((r) => RG.rel(K0, r)).join(','));
-  } else t.note(`the world is already on day ${d1} (first day ${day0}): the grace part was checked by its rule only`);
-  // out of the grace (day0 + 2): the same tension brings a war
-  const want = day0 + WAR_GRACE(MH);
-  if (H.game.env.dayIndex < want) { skipDays(H, want - H.game.env.dayIndex); await t.waitFor(() => G.game.env.dayIndex >= want, 3000 + RT(), 'the third day of the world on both'); }
-  t.check(!RH.inGrace(K0) && !RG.inGrace(K0), 'from day ' + want + ': the grace is over', H.game.env.dayIndex);
+    t.check(!rivals.some((r) => RG.atWar(K0, r)), 'six rounds of diplomacy at tension 99 on the first day: no war yet', rivals.map((r) => RG.rel(K0, r)).join(','));
+  } else t.note(`the world is already on day ${d1} (first day ${day0}): the calm first day was checked by its rule only`);
+  // from the second day: the same tension brings a war to the start kingdom too
+  if (H.game.env.dayIndex < want) { skipDays(H, want - H.game.env.dayIndex); await t.waitFor(() => G.game.env.dayIndex >= want, 3000 + RT(), 'the second day of the world on both'); }
+  t.check(!RH.inGrace(K0) && !RG.inGrace(K0), 'from day ' + want + ' (the second day): the start kingdom is not protected', H.game.env.dayIndex);
   RH.H.noDiplo = false;
   for (let k = 0; k < 8 && !rivals.some((r) => RH.atWar(K0, r)); k++) { hot(); RH.dbg.day(); }
   RH.H.noDiplo = true;
   H.game.net.flush();
-  await t.waitFor(() => rivals.some((r) => RG.atWar(K0, r)), 3000 + RT(), 'after the grace the start kingdom can be at war (seen on the guest)', () => rivals.map((r) => `${r}:${RG.rel(K0, r)}`).join(' '));
+  await t.waitFor(() => rivals.some((r) => RG.atWar(K0, r)), 3000 + RT(), 'from the second day the start kingdom can be at war (seen on the guest)', () => rivals.map((r) => `${r}:${RG.rel(K0, r)}`).join(' '));
   await wrQuiet(t, H, G);
   await t.checkDigest(H, G);
 });
-const WAR_GRACE = (M) => M.war.WAR.graceDays;
+const WAR_QUIET = (M) => M.war.WAR.quietDays;
 
 def('WR2', {
   title: 'WR: a forced war (realm.rel) → the member guest hears every change of its kingdom; a campaign gathers and marches; the markets feel it',
