@@ -20,6 +20,7 @@ const PATHS = {
   towns: 'game/towns.js', mtowns: 'game/mut/towns.js', realm: 'world/realm/realm.js', snapshot: 'net/snapshot.js', // (the kingdoms: KG scenarios)
   people: 'game/people.js', mpeople: 'game/mut/people.js', npc: 'game/npc.js', cpeople: 'game/content/people.js', // (the settlements' people: VL scenarios)
   eco: 'game/eco.js', meco: 'game/mut/eco.js', ecoc: 'game/content/eco.js', // (the economy of the kingdoms: EC scenarios)
+  fields: 'game/fields.js', // (the settlements' fields and surroundings: jobs that can be done — JB scenarios)
   realms: 'game/realms.js', mrealms: 'game/mut/realms.js', war: 'game/content/war.js', realmMap: 'ui/realmMap.js', // (the kingdoms' wars: WR scenarios)
 };
 const CACHE = new WeakMap();

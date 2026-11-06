@@ -23,6 +23,7 @@ import { stepGait } from '../game/anim.js';
 import { enterCombat } from '../game/player.js';
 import { fireCosmetic, endCosmetic } from '../game/projectiles.js';
 import { propById } from '../game/mut/camps.js';
+import { netlog } from './netlog.js';
 const SWING_ACTS = new Set(['attack', 'shoot', 'stab', 'slash', 'heavy', 'pierce']); // creature actions with a swing sound
 
 const IN_X = 40, IN_Y = 30, OUT_X = 46, OUT_Y = 36;
@@ -51,6 +52,7 @@ export class EntityServer {
     this.game = game;
     this.s = session;
     this.acc = 0;
+    netlog.extra = () => this._report(); // (the network report: what each guest was sent)
     this.guests = new Map(); // pid -> { known: Map<nid, { dyn, t, st }> }
     this.fxq = [];           // [entry, x, y, exceptPid]
     game.net.entsApi = this;
@@ -58,6 +60,23 @@ export class EntityServer {
   }
 
   resetGuest(pid) { this.guests.set(pid, { known: new Map() }); }
+  // a guest got an update of a creature it never received in full (its 'add' was lost on the way): forget that we sent
+  // it, so the next tick sends its whole row again (message entneed)
+  onNeed(pid, nids) {
+    const G = this.guests.get(pid);
+    if (!G) return;
+    for (const nid of nids) if (typeof nid === 'string') G.known.delete(nid);
+    this.needs = (this.needs || 0) + nids.length;
+  }
+  _report() {
+    const mobs = this.game.entities.filter((e) => e.isMob && e.nid && !e.proxy), town = mobs.filter((e) => e.npc).length, army = mobs.filter((e) => e.soldier).length;
+    const out = [`--- criaturas (anfitrião) ---`, `criaturas: ${mobs.length} · moradores: ${town} · soldados: ${army} · pedidos de reenvio dos convidados: ${this.needs || 0}`];
+    for (const [pid, G] of this.guests) {
+      let t = 0; for (const nid of G.known.keys()) { const m = this.byNid?.(nid); if (m?.npc) t++; }
+      out.push(`convidado ${pid}: conhece ${G.known.size} criaturas (${t} moradores)`);
+    }
+    return out;
+  }
   dropGuest(pid) { this.guests.delete(pid); }
   byNid(nid) { for (const e of this.game.entities) if (e.nid === nid) return e; return null; }
 
@@ -180,6 +199,8 @@ export class EntityClient {
     this.game = game;
     this.s = session;
     this.map = new Map();   // nid -> proxy
+    this.need = new Set(); this.needT = 0; this.needN = 0; this.lastEnts = 0;
+    netlog.extra = () => this._report(); // (the network report: what this guest got)
     this.clock = new ClockSync();
     game.net.entsApi = this;
   }
@@ -201,8 +222,22 @@ export class EntityClient {
     const ht = num(m.ht);
     if (ht) this.clock.sample(ht);
     if (Array.isArray(m.add)) for (const r of m.add) if (Array.isArray(r)) this._add(r, ht);
-    if (Array.isArray(m.up)) for (const r of m.up) if (Array.isArray(r)) { const e = this.map.get(r[0]); if (e) this._dyn(e, r.slice(1), ht); }
-    if (Array.isArray(m.del)) for (const nid of m.del) this._del(nid);
+    if (Array.isArray(m.up)) for (const r of m.up) if (Array.isArray(r)) { const e = this.map.get(r[0]); if (e) this._dyn(e, r.slice(1), ht); else if (typeof r[0] === 'string') this.need.add(r[0]); }
+    if (Array.isArray(m.del)) for (const nid of m.del) { this._del(nid); this.need.delete(nid); }
+    this.lastEnts = performance.now();
+    // an update of a creature never received in full (its row was lost on the way): ask the host for it again
+    const now = performance.now();
+    if (this.need.size && now - this.needT > 500) {
+      this.needT = now;
+      const nids = [...this.need].slice(0, 64);
+      this.need.clear(); this.needN += nids.length;
+      this.s.sendHost({ t: 'entneed', nids });
+    }
+  }
+  _report() {
+    const P = [...this.map.values()], town = P.filter((e) => e.faction === 'town'), bare = town.filter((e) => !e.npc).length;
+    return [`--- criaturas (convidado) ---`, `criaturas recebidas: ${P.length} · moradores: ${town.length} (sem identidade: ${bare}) · soldados: ${P.filter((e) => e.faction === 'army').length}`,
+      `pedidos de reenvio: ${this.needN} · última mensagem de criaturas há ${this.lastEnts ? Math.round((performance.now() - this.lastEnts) / 100) / 10 + ' s' : 'nunca'}`];
   }
 
   _add(r, ht) {
@@ -229,6 +264,10 @@ export class EntityClient {
   }
 
   _dyn(e, d, ht, fresh = false) {
+    // (a townsperson / soldier whose identity could not be rebuilt when it arrived — the place not ready yet: again)
+    if (!fresh && e.camp && !e.npc && !e.soldier && (e.faction === 'town' || e.faction === 'army') && (e._decT = (e._decT || 0) + 1) % 10 === 1) {
+      if (e.faction === 'town') this.game.people?.decorate?.(e); else this.game.warfare?.decorate?.(e);
+    }
     const x = num(d[0]) / 100, y = num(d[1]) / 100, bits = num(d[2]) | 0;
     const z = Math.max(0, Math.min(3, num(d[12]) / 100)); // levels: height in stories
     const B = e._buf, prev = B[B.length - 1];

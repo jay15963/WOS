@@ -306,8 +306,11 @@ function fillRanks(game, F) {
   F.cap = Math.max(4, Math.floor(Math.min((F.kind === 'siege' ? WAR.cap.siege : WAR.cap.side) * low, (WAR.cap.total * low) / nForces))); // (a weak device: × low, once)
   if (F.phase === 'rout' || F.phase === 'retreat' || F.phase === 'end' || F.phase === 'held' && F.t > 10) return;
   let made = 0, total = liveTotal(game), alive = aliveIn(F);
+  // (owner: "todos deveriam aparecer de uma vez" — a force that has nobody out yet comes out whole, at once; then the
+  //  reserves step in as soldiers fall, a few a tick)
+  const per = alive === 0 ? F.cap : WAR.spawnPerTick;
   for (const i of F.order) {
-    if (alive >= F.cap || total >= WAR.cap.total * low || made >= WAR.spawnPerTick) break;
+    if (alive >= F.cap || total >= WAR.cap.total * low || made >= per) break;
     const u = F.units[i];
     if (u.dead || F.live.has(i)) continue;
     const at = spawnSpot(game, F, u, F.slotOf ? F.slotOf(u) : null);

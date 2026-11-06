@@ -96,6 +96,11 @@ export const JOB_KINDS = {
   hunt: { name: 'Caça', icon: '🏹' },
   defend: { name: 'Defesa', icon: '🛡️' },
 };
+// what makes a job possible (docs/REINOS.md §10 "Trabalhos possíveis", game/fields.js survey): a harvest needs the fields of
+// the crop to hold harvestK × the plants asked (they are full at dawn: the farmers replant); wood needs at least chopMin
+// trees expected around (and chopK × the trees asked); a mine mineK × the stones asked (boulders / rock); a hunt game around
+// (the biomes' wild animals: groups per chunk, summed)
+export const JOB_SITE = { harvestK: 1.5, chopMin: 60, chopK: 6, mineK: 2, huntFauna: 0.6 };
 // first names of the job givers (when the townsfolk agent has no game.towns.people yet)
 export const GIVER_NAMES = ['Ana', 'Bento', 'Clara', 'Duarte', 'Elvira', 'Fausto', 'Graça', 'Horácio', 'Inês', 'Joaquim', 'Leonor', 'Matias',
   'Nuno', 'Olga', 'Paulo', 'Quitéria', 'Rui', 'Sancha', 'Tomé', 'Úrsula', 'Vasco', 'Zulmira', 'Afonso', 'Brites', 'Caetano', 'Dulce',

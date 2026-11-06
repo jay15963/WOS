@@ -480,6 +480,9 @@ export class Session {
       case 'st': {
         const pid = this.keyToPid.get(key);
         if (pid && this.role === 'host') this._applyState(pid, m.s, num(m.ts, 0, 1e9, 0));
+        // (the guest's screen, half width / height in tiles: what it sees, for the host's "in someone's view" — people.js
+        //  never makes or drops a person in front of it)
+        if (pid && this.role === 'host' && Array.isArray(m.v)) { const av = this.players.get(pid)?.av; if (av) { av._vw = num(m.v[0], 4, 60, 12); av._vh = num(m.v[1], 3, 40, 7); } }
         return;
       }
       case 'sts': {
@@ -509,6 +512,11 @@ export class Session {
       case 'ops': if (fromHost && this.game) this.game.net.onOps(m); return;
       case 'own': if (fromHost && this.game) this.game.net.onOwn(m); return;
       case 'ents': if (fromHost && this.ents) this.ents.onEnts(m); return;
+      case 'entneed': { // a guest asks again for creatures it never got in full (net/entities.js)
+        const pid = this.keyToPid.get(key);
+        if (this.role === 'host' && pid && this.ents?.onNeed && Array.isArray(m.nids)) this.ents.onNeed(pid, m.nids.slice(0, 64).filter((s) => typeof s === 'string' && s.length < 24));
+        return;
+      }
       case 'fx': if (fromHost && this.ents) this.ents.onFx(m); return;
       case 'dg': if (fromHost && this.digest) this.digest.onDigest(m); return;
       case 'dgr': if (fromHost && this.digest) this.digest.onRows(m); return;
@@ -872,7 +880,9 @@ export class Session {
       this.sendAcc = 0;
       const s = packState(p);
       if (this.role === 'guest' && this.hostKey) {
-        this._sendTo(this.hostKey, { t: 'st', s, ts: +now.toFixed(3) });
+        const st = { t: 'st', s, ts: +now.toFixed(3) }, v = game.view?.();
+        if (v) { const hw = Math.round((v.x1 - v.x0) / 2), hh = Math.round((v.y1 - v.y0) / 2); if (hw !== this._vw || hh !== this._vh || now - (this._vT || 0) > 3) { this._vw = hw; this._vh = hh; this._vT = now; st.v = [hw, hh]; } }
+        this._sendTo(this.hostKey, st);
         if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: packLook(p.look) }); }
       } else if (this.role === 'host' && this.players.size) {
         const withLook = this.lookAcc > 5;

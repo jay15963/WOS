@@ -350,8 +350,8 @@ export function peopleOf(game, sid) {
   const M = game.people?.S;
   if (!M) return null;
   let S = M.get(sid);
-  if (S === undefined) { const t0 = performance.now(); S = buildPeople(game, sid); M.set(sid, S); const st = game.people.stats; st.buildMs = Math.max(st.buildMs || 0, performance.now() - t0); }
-  return S;
+  if (S === undefined) { const t0 = performance.now(); S = buildPeople(game, sid); if (S) M.set(sid, S); const st = game.people.stats; st.buildMs = Math.max(st.buildMs || 0, performance.now() - t0); } // (a place not ready yet: tried again later — never cached as empty)
+  return S || null;
 }
 function navOf(game, sid) {
   const M = game.people.nav;
@@ -530,7 +530,10 @@ function manage(game, rec, players) {
   }
   // new creatures (a few a tick)
   let made = 0;
-  for (let k = 0; k < want.length && k < cap && made < N.spawnPerTick; k++) {
+  // (owner: "todos deveriam aparecer de uma vez" — a place with nobody out yet (a player just arrived, joined) shows its
+  //  people all at once: a city's 60 in one tick, ~23 ms once; then a few a tick, those coming out of their doors)
+  const per = rec.ents.size === 0 ? cap : N.spawnPerTick;
+  for (let k = 0; k < want.length && k < cap && made < per; k++) {
     const [, P, , , px, py, plv, pb] = want[k];
     if (rec.ents.has(P.i)) continue;
     if (rec.ents.size >= cap) break; // (the cap counts everyone still out: the unwanted ones going home included)

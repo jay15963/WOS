@@ -203,6 +203,7 @@ fertile river banks are the last ones — so the ids of older saves keep pointin
 | Stump decay after 3 days, off-screen | gathering.js:313-325 | H | op `obj.remove` |
 | Flora regrowth spawn (`makeFloraObject`, `addObject`, `dyn.set`, `occAdd`, `growing.add`) | flora.js:123-154, 159-178, 252-272 | H | op `obj.add` |
 | Starter safety net | flora.js:198-231, 274-275; economy.js:34 | H | op `obj.add` |
+| Settlements' fields replanted at dawn (gone field plants back: same worldgen object, id, spot) | fields.js replantFields; eco.js dayTick | H | op `obj.back` (located, ≤ 64 ids; a stale guest reconciles with the chunk diff) |
 | Sapling age `o.age` (from `born`, `worldTime`) | flora.js:240-250 | H decides solid; age C | age: computed locally from replicated `born` + synced `worldTime`; solid: op `tree.solid` |
 | Sapling solid flip + `occAdd` | flora.js:247 | H | op `tree.solid` |
 | `initFlora` targets/jitter (`Math.random`) | flora.js:33-69 | H | — (host only uses them) |
