@@ -53,17 +53,17 @@ export function sidesOf(total, pa) {
 // rule (5/11/2026): no new items, the existing ones
 export const CLASSES = {
   archer: { pt: 'Arqueiro', kitPt: 'Arco composto · armadura e elmo de ferro', main: 'bow_composite', off: null, body: 'armor_iron', head: 'helmet_iron' },
-  spear:  { pt: 'Lanceiro', kitPt: 'Lança de aço · armadura e elmo de ferro', main: 'spear_steel', off: null, body: 'armor_iron', head: 'helmet_iron' },
+  spear:  { pt: 'Lanceiro', kitPt: 'Lança de aço · escudo, armadura e elmo de ferro', main: 'spear_steel', off: 'shield_iron', body: 'armor_iron', head: 'helmet_iron' }, // (the spear is one-handed: a shield too — owner)
   sword:  { pt: 'Espadachim', kitPt: 'Espada de aço · escudo, armadura e elmo de ferro', main: 'sword_steel', off: 'shield_iron', body: 'armor_iron', head: 'helmet_iron' },
 };
 export const CLASS_LIST = ['archer', 'spear', 'sword'];
 export const BAG = { arrow: 99, arrowLow: 40, herb: 4 }; // (arrows topped up while it lasts: the archer never runs dry)
 // the NPC soldiers of both sides: COPPER armour and weapons (owner), the archers the simple bow; the armour is worn under
-// the kingdom's tabard (only the helmet shows — the sides read by their colours), the sword ones carry the kingdom's
-// shield with a copper shield's protection
+// the kingdom's tabard (only the helmet shows — the sides read by their colours), the spear and sword ones carry the
+// kingdom's shield with a copper shield's protection
 export const NPC_KIT = {
   weapon: { spear: 'spear_copper', sword: 'sword_copper', archer: 'bow_wood', eng: 'axe_copper', general: 'sword_copper' },
-  body: 'armor_copper', head: 'helmet_copper', shield: { sword: 'shield_copper' }, shieldLook: 'shield_guard',
+  body: 'armor_copper', head: 'helmet_copper', shield: { sword: 'shield_copper', spear: 'shield_copper' }, shieldLook: 'shield_guard',
 };
 // levels during a match (the arena is a throwaway world: the players' own levels never change)
 export const LEVEL = { player: 12, soldier: 10, monster: 10, giant: 12, guards: 10 };

@@ -10858,7 +10858,8 @@ def('SK2', {
   await t.waitFor(() => soldiersOf(G).length >= 30, 20000, 'the guest sees the soldiers');
   const badH = soldiersOf(H).filter((m) => !COPPER.has(m.weapon) || m.armor?.head !== 'helmet_copper'), badG = soldiersOf(G).filter((m) => !COPPER.has(m.weapon) || m.armor?.head !== 'helmet_copper');
   t.check(!badH.length && !badG.length, 'every soldier in copper (weapons, the simple bow, copper helmets) on both', `${soldiersOf(H).length} / ${soldiersOf(G).length} · bad ${badH.slice(0, 3).map((m) => m.weapon).join(',')}`);
-  t.check(soldiersOf(H).some((m) => m.offhand === 'shield_guard' && m.shield?.id === 'shield_copper'), 'the swordsmen carry the kingdom\'s shield (a copper shield\'s protection)');
+  const inf = soldiersOf(H).filter((m) => m.soldier.role === 'spear' || m.soldier.role === 'sword');
+  t.check(inf.length && inf.every((m) => m.offhand === 'shield_guard' && m.shield?.id === 'shield_copper'), 'the spear and sword soldiers carry the kingdom shield (a copper shield protection)', `${inf.length} infantry`);
   // the owner's rule: no cold, no hunger in a skirmish
   const gp = G.game.player;
   gp.hunger = 5; gp.bodyHeat = 4;
@@ -10897,7 +10898,8 @@ def('SK3', {
   await skPick(t, P, H, { side: 'a', cls: 'spear' });
   await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
   await skStart(t, P, 90000);
-  const M = skSt(H).match, d = skDbg(H);
+  const M = skSt(H).match, d = skDbg(H), he = H.game.player.equip;
+  t.check(he.main === 'spear_steel' && he.off === 'shield_iron' && he.body === 'armor_iron' && he.head === 'helmet_iron', 'the host: a spearman with a steel spear and an iron shield, armour and helmet', JSON.stringify(he));
   t.check(d.forces.siege?.n0 === 50 && d.forces.garrison?.n0 === 50, 'a siege force of 50 and a garrison of 50', JSON.stringify(d.forces));
   await t.waitFor(() => H.game.warfare.forces.get(d.forces.siege.id)?.sg?.camp?.length >= 6, 20000, 'the camp is up at once');
   await t.waitFor(() => (H.game.warfare.forces.get(d.forces.siege.id)?.sg?.jobs || []).some((j) => j.done && j.role !== 'ws'), 60000, 'an engine stands ready (the engineers raise it at once)');

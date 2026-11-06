@@ -49,16 +49,21 @@ export function installOverlay(game) {
   };
 
   const ev = game.events;
+  const QUIET = new Set(['hit', 'miss', 'dodge', 'immune', 'heal']);
   ev.on('damage', (d) => {
     const p = game.player, e = d.target;
     if (!e) return;
     const self = e === p;
+    // only what the local player is part of (dealt or taken): in a battle of dozens, the soldiers' / monsters' own blows,
+    // blocks and misses would cover the field (a heal on another player still shows)
+    const src = d.src, mine = !!src && (src === p || src.owner === p || src.src === p);
+    if (!self && !mine && QUIET.has(d.kind) && !(d.kind === 'heal' && e.remote)) return; // (telegraphs — a status, a stun — still show)
     const dt = d.dtype || 'phys';
     switch (d.kind) {
       case 'hit':
         if (d.blocked) add(e, self ? `Bloqueado! -${d.amount}` : `Bloqueado ${d.amount}`, '#8fd0ff', { size: self ? 14 : 13 });
         else if (self) add(e, `-${d.amount}`, DT_IN[dt] || DT_IN.phys, { size: d.dot ? 12 : d.crit ? 18 : 14, big: d.crit });
-        else if (d.src === p || d.dot) {
+        else {
           const col = d.crit ? '#ffe14a' : dt !== 'phys' ? DT_OUT[dt] : d.ability ? '#ffffff' : DT_OUT.phys;
           add(e, d.crit ? `${d.amount}!` : `${d.amount}`, col, { size: d.dot ? 13 : d.crit ? 24 : d.ability ? 18 : 15, big: d.crit });
         }
