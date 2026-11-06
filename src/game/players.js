@@ -43,7 +43,7 @@ export function inAnyView(game, x, y, mx = 2, my = 3) {
   const L = allPlayers(game);
   for (let i = 1; i < L.length; i++) {
     const p = L[i];
-    if (Math.abs(w.dx(x, p.x)) < 12 + mx && Math.abs(y - p.y) < 7 + my) return true;
+    if (Math.abs(w.dx(x, p.x)) < (p._vw || 12) + mx && Math.abs(y - p.y) < (p._vh || 7) + my) return true; // (a guest's real screen when it sent it: net/session.js 'st' v)
   }
   return false;
 }
