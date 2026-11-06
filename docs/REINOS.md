@@ -1859,8 +1859,9 @@ longe, a reconstrução, a propriedade privada, "Consertar" / "Reconstruir"), `g
 roda no node), `game/content/raids.js` (os números), `game/mut/raids.js` (estado, ops, linhas), `ui/raidHud.js` (avisos),
 `tools/raid-calib.mjs` (calibração). Ganchos de uma linha em `walkers.js` (o alvo da onda, rachaduras persistentes na
 propriedade privada, o registro do que ela quebra), `giants.js` (o golpe e a pedra do gigante ferem a guarda — antes só
-feriam jogadores), `mobs.js` (a onda não dorme longe dos jogadores), `people.js` (a guarda inteira sai durante o ataque;
-o sino não repete o aviso), `npc.js` / `towns.js` (o povo não conserta nem refaz propriedade privada), `building.js`
+feriam jogadores), `mobs.js` (a onda não dorme longe dos jogadores), `bandits.js` (a onda nunca desiste nem se cura), `people.js` (a
+guarda inteira sai durante o ataque; o alarme dura até a ameaça ser neutralizada; o sino não repete o aviso), `npc.js`
+(os arqueiros andam pelo adarve até ter alcance; o povo não conserta propriedade privada), `towns.js` (nem a refaz), `building.js`
 ("Consertar"), `controller.js` ("Reconstruir"), `ui/muralEco.js` (o estrago na aba Propriedades), `ui/mural.js` (o
 último ataque), `net/snapshot.js`, `net/digest.js`, `systems.js`, `mut/index.js`, `tools/mp-test/act.js`.
 
@@ -1952,7 +1953,7 @@ dos mortos (`undead.js`), o kit da guarda (`people.js`). Medido:
 | Reino sintético (`tools/raid-calib.mjs 40000 7`: 77 % vilas, 17 % castelos, 6 % cidades, 3 famílias) | 40 000 | **2 065 (5,16 %)** | 2 354 (85 %) | 57 (0,15 %) | 20,1 % |
 | — vila com paliçada / aberta | | 5,4 % / 5,6 % | 83 % / 88 % | 0,16 % / 0,33 % | 19 % / 27 % |
 | — castelo / cidade | | 5,4 % / 5,6 % | 87 % / 90 % | 0,21 % / 0 % | 18 % / 17 % |
-| O reino de verdade (semente 4242, os 240 lugares com o clima, a família e o nível de cada um: `game.raids.dbg.calibrate`, WA3) | 8 000 | WA3RATE | | | |
+| O reino de verdade (semente 4242, os 240 lugares com o clima, a família e o nível de cada um: `game.raids.dbg.calibrate`, WA3) | 8 000 | **406 (5,08 %)** | 603 (386: 64 %) | 0,3 % | 21 % |
 
 As ondas normais quase nunca vencem (~0,2 %) e matam ~1/5 da guarda (uma vila de 8 perde 1–2); uma horda vence ~4 vezes em
 5. Cada tipo de lugar fica entre 5,4 e 5,6 %.
@@ -1991,7 +1992,18 @@ um hash: o mesmo depois de carregar). Os avisos são locais (cada par decide o q
 
 ### Desempenho
 
-PERF
+Medido (Chrome headless deste PC, WA3 / WA4):
+
+- **O sistema dos ataques** (anfitrião, a cada 0,5 s): **0,012 ms** por tique em média durante o ataque ao castelo (pior
+  5,7 ms: o tique que faz a primeira leva da onda — 8 criaturas e o gigante); o **povo** no mesmo ataque, com a guarda
+  inteira para fora (17 guardas-criatura): **0,18 ms** por quadro.
+- **Por números**: uma luta 0,12 ms (8 000 em ~1 s, `dbg.calibrate`); um ataque longe inteiro (a luta, as mortes, as
+  peças da muralha e das casas, a op) **~1,2 ms**; no máximo 3 por meio segundo. O plano da noite: uma vez ao anoitecer,
+  ~240 lugares (o clima de cada um guardado: `climateAt` uma vez por lugar).
+- **Teto ao vivo**: 24 criaturas da onda de uma vez (qualidade baixa: 60 %), o resto entra a cada 1,4 s conforme caem; a
+  guarda inteira vira criatura durante o ataque (o teto do povo do lugar continua valendo: 40 / 30 / 60). Nada varre peças
+  por quadro: o que a onda quebra chega pelo gancho de `walkers.js hitPiece`; o adarve dos arqueiros é guardado por mudança
+  do estado do lugar.
 
 ### Testes
 
@@ -2018,7 +2030,17 @@ TESTS
 
 ### Prints
 
-PRINTS
+`shots/` (fora do git; sem o painel de depuração; 1264 × 625): `wa_village_wave_palisade` / `wa_village_wave_2…5` (uma
+onda de Andarilhos do Gelo no portão norte da paliçada de Estrosa numa noite de inverno, os arqueiros no alto da paliçada,
+os guardas segurando o portão), `wa_village_held_notice` ("Estrosa resistiu ao ataque · 6 andarilhos derrotados · 2
+guardas caíram"), `wa_castle_giant_wave` / `wa_castle_giant_fight` / `_2` (a Torre de Dorilde: o Gigante de Gelo e 11
+andarilhos no portão norte, os arqueiros nas torres, a guarda no portão), `wa_loss_horde_notice` ("Uma horda de
+Andarilhos do Gelo ataca Estrosa pelo norte! · 7 contra 8 guardas…" e "A defesa de Estrosa caiu!"), `wa_loss_streets` /
+`_2` (a horda rompendo o portão norte), `wa_loss_end_notices` ("Estrosa sobreviveu à noite, com perdas · 3 moradores
+mortos, 2 guardas caíram…" e o aviso fixo ao dono "Os monstros danificaram sua casa em Estrosa: conserte-a você mesmo"),
+`wa_own_house_damaged` (de manhã, a casa comprada ainda arrombada, o botão "Consertar" ao lado da parede rachada),
+`wa_mural_damage` (Propriedades: a casa "⚠ danificada … conserte você mesmo"), `wa_mural_nights` (o mural do lugar),
+`wa_rebuild_morning` / `_2` (de manhã o lavrador refazendo a porta de uma casa arrombada).
 
 ### Decisões (para o dono confirmar)
 

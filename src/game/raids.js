@@ -157,6 +157,7 @@ function planNight(game, key) {
   const R = game.raids, H = R.H, realm = realmOf(game), E = game.env, seed = game.world.seed | 0;
   H.plan.clear();
   H.planned = key;
+  if (game.creative) return; // (a creative world: the night's dead hunt nobody and break nothing — no attacks either)
   const done = new Set(R.log.filter((r) => r[0] === key).map((r) => r[1]));
   for (const s of realm.settlements) {
     if (done.has(s.id) || R.on.has(s.id)) continue;
