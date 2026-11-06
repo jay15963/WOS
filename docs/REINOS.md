@@ -975,6 +975,10 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   `siege.dmg`. Até 3 consertos ao mesmo tempo, os andares de baixo primeiro. Uma peça **destruída** há mais de 20 s é
   **refeita** pelos trabalhadores (9 s de martelo, ninguém no lugar → op `town.restore`; a peça volta na hora mesmo com o
   chunk carregado — corrigido em `towns.js resyncPieces`).
+  Quem refaz não conta como "alguém no lugar" (do lado da peça ele fica a ~0,7 do meio do tile: esperava por si mesmo
+  para sempre — §16, WA2). Um caminho até a peça que não dá certo (buscas falhando com um jogador olhando, sem o passo
+  fora da vista) ou que não termina em 60 s faz a pessoa largar aquela peça por 20 s; outra tenta (`npc.js repairWork`).
+  A propriedade **privada** de um jogador nunca é consertada nem refeita (§16).
 - **Longe dos jogadores**: por números, cada hora do jogo de dia −20 % de rachadura. Peças destruídas longe: a regra da
   fase 1 (2 dias sem ninguém a 40 tiles).
 - A regra antiga "os andarilhos de dia limpam o dano" **não vale mais para as peças dos lugares** (só para as dos
@@ -2152,10 +2156,18 @@ ataque): seis andarilhos no portão norte da vila do início numa noite de inver
 em 30 s o povo do lugar recebe mais da atenção deles que os jogadores e eles se espalham por pelo menos dois defensores;
 o jogador acerta um e ele vem atrás dele. Todos terminam com o digest igual.
 
-**Resultados** (Chrome headless deste PC, perfil limpo): WA1–WA5, VL1–VL11 e NM1–NM6 rodados juntos no fim: **22 / 22
-passam**. Pelo caminho: WA1 falhava (a onda normal derrubava a defesa) até os consertos de IA acima; WA2 conferia os avisos
-do convidado com dois avisos fixos na frente (o teste agora os fecha antes; os da propriedade viraram um aviso só); WA3
-pegava a guarda pelo nome errado do campo (`place.g0`). A rodada inteira: FULLRUN
+**Resultados** (Chrome headless deste PC, perfil limpo). A rodada inteira no fim (`run=all&soak=60`, 204 cenários,
+~62 min): **196 passam, 6 falham, 2 pulados** (S28 só pela linha de comando, WA6 só com `&raidsoak`) — WA1, WA3–WA5, WA7,
+VL1–VL13, SK1–SK5 (a escaramuça da main, que usa a mesma defesa e a mesma atenção dos mortos), NM, EC, WR e BT todos
+passam. As 6: **WA2** (a porta da casa alugada nunca voltava: quem a refazia esperava por si mesmo — §11 Consertos;
+corrigido depois da rodada), **AR2** (as ordens do general: 3 de 4 vistas — falha igual desde antes deste trabalho, na
+parte dos exércitos), **K1**, **HO1**, **HO3** e **S9** (da ordem da rodada: HO1 / HO3 falhavam igual na primeira rodada
+inteira). Depois do conserto, WA1, WA2, K1, S9, HO1 e HO3 rodados juntos: **6 / 6 passam**. A primeira rodada inteira,
+antes dos consertos de IA e da junção com a main: 180 / 10 / 2. Pelo caminho: WA1 falhava (a onda normal derrubava a
+defesa) até os consertos de IA acima; WA2 conferia os avisos do convidado com dois avisos fixos na frente (o teste agora
+os fecha antes; os da propriedade viraram um aviso só); WA3 pegava a guarda pelo nome errado do campo (`place.g0`); WA7
+via os seus andarilhos mortos pela limpeza dos hostis do próprio teste; o teste do alarme era VL11, o mesmo nome de um da
+main (agora VL13).
 
 ### Prints
 
