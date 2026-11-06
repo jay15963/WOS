@@ -62,6 +62,8 @@ export function installSkirmish(game, { quality = game.quality } = {}) {
     arenaOf: (set) => arenaFor(game, set || SK.st?.set || DEFAULTS),
   };
   game.skirmish = SK;
+  // back in a match: whole again at once (no "weak" debuff, full life)
+  game.events.on('respawn', () => { if (inMatch(game, game.net.pid)) game.later(0, () => heal(game)); });
   // more live soldiers at once than in the survival game (docs/SKIRMISH.md "Desempenho"): by the device's quality
   const C = CAPS[quality] || CAPS.medium;
   Object.assign(WAR.cap, { total: C.total, side: C.side, siege: C.siege, low: 1 });
@@ -591,7 +593,7 @@ function waveTick(game) {
     const m = giant ? spawnGiantAt(game, at[0], at[1], sp) : spawnWalkerAt(game, at[0], at[1], sp);
     if (!m) break;
     tuneMob(m, sp, giant ? LEVEL.giant : LEVEL.monster);
-    m.lure = V.lure; m.crumbleAt = Infinity; m.sk = game.skirmish.H.st.match?.id || 1;
+    m.lure = V.lure; m.crumbleAt = Infinity; m.awake = true; m.sk = game.skirmish.H.st.match?.id || 1; // (awake: far from every player it still marches — mobs.js)
     if (m.campRef) { m.campRef.x = V.lure[0]; m.campRef.y = V.lure[1]; }
     H.mobs.add(m);
     if (giant) { V.giants--; V.nextGiant += V.every; } else V.left--;

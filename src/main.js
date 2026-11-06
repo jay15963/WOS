@@ -180,6 +180,7 @@ async function boot() {
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
     game.noSave = FLAGS.noSave || skirmish;
+    game.noTips = skirmish; // (no survival tips in the arena: ui/hud.js, game/economy.js)
     const spw = world.source?.kind === 'planet' && (world.spawn || world.source.spawn);
     if (spw) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, spw.x, spw.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {

@@ -83,7 +83,7 @@ export function installSkirmishUI(game) {
     const where = ar ? (ar.sid >= 0 ? `${esc(ar.name)} · Reino de ${esc(kName(kb))}${ar.far > 30 ? ` · ${ar.far} passos do início` : ''}` : `${esc(ar.name)}`) : 'Nenhum lugar assim neste mundo';
     const giants = mon ? giantsFor(nA) : 0;
     const shareTxt = mon ? `<b>${nB}</b> defensores · <b>${nA}</b> monstros${giants ? ` <em>(${giants} ${giants === 1 ? 'gigante' : 'gigantes'})</em>` : ''}`
-      : `<b>${nA}</b> ${esc(roles.a.toLowerCase())} · <b>${nB}</b> ${esc(roles.b.toLowerCase())}`;
+      : `<b>${nA}</b> ${esc(roles.a)} · <b>${nB}</b> ${esc(roles.b)}`;
     const sideCol = (side) => {
       const k = side === 'a' ? ka : kb, players = st.picks.filter((p) => p[2] === side), n = side === 'a' ? nA : nB;
       const head = mon && side === 'a' ? `<div class="sk-sidehead mon">${svg(S.fam)}<span><b>${esc(FAMS[S.fam].pt)}</b><small>${n} monstros${giants ? ` · ${giants} ${giants === 1 ? 'gigante' : 'gigantes'}` : ''}</small></span></div>`
@@ -167,7 +167,7 @@ export function installSkirmishUI(game) {
     const o = lobby.querySelector('h3 output'); if (o) o.textContent = S.total;
     const bar = lobby.querySelector('.sk-split i'); if (bar) bar.style.width = `${S.total ? ((mon ? nB : nA) / S.total) * 100 : 50}%`;
     const sh = lobby.querySelector('.sk-share');
-    if (sh) sh.innerHTML = S.total ? (mon ? `<b>${nB}</b> defensores · <b>${nA}</b> monstros${g ? ` <em>(${g} ${g === 1 ? 'gigante' : 'gigantes'})</em>` : ''}` : `<b>${nA}</b> ${esc(roles.a.toLowerCase())} · <b>${nB}</b> ${esc(roles.b.toLowerCase())}`) : 'Só os jogadores: um duelo (PvP) até 10 abates';
+    if (sh) sh.innerHTML = S.total ? (mon ? `<b>${nB}</b> defensores · <b>${nA}</b> monstros${g ? ` <em>(${g} ${g === 1 ? 'gigante' : 'gigantes'})</em>` : ''}` : `<b>${nA}</b> ${esc(roles.a)} · <b>${nB}</b> ${esc(roles.b)}`) : 'Só os jogadores: um duelo (PvP) até 10 abates';
   }
   function flash(b, t) { const s = b.querySelector('span') || b; const o = s.textContent; s.textContent = t; setTimeout(() => { s.textContent = o; }, 1500); }
 
@@ -236,7 +236,7 @@ export function installSkirmishUI(game) {
     if (prev && prev.phase !== st.phase) phaseSound(st);
   });
   function phaseSound(st) {
-    if (st.phase === 'fight') { game.audio?.play('horn', {}); game.events.emit('toast', { text: st.match.mode === 'monsters' ? 'A noite caiu: defendam o lugar!' : 'Lutem!', kind: 'warn' }); }
+    if (st.phase === 'fight') game.audio?.play('horn', {}); // (the big "Lutem!" says it: no toast)
     if (st.phase === 'end' && st.res) {
       const mine = st.res.players.find((p) => p[0] === me());
       game.audio?.play(mine && st.res.win === mine[2] ? 'levelup' : 'ui_click', {});
