@@ -235,7 +235,7 @@ export function strength(game, k) { let p = 0; for (const a of game.realms?.armi
 const warsOf = (game, k) => { let n = 0; for (const [key, r] of game.realms.rels) if (r.r === 'war') { const [x, y] = key.split('.').map(Number); if (x === k || y === k) n++; } return n; };
 const alliesOf = (game, k) => { const out = []; for (const [key, r] of game.realms.rels) if (r.r === 'ally') { const [x, y] = key.split('.').map(Number); if (x === k) out.push(y); else if (y === k) out.push(x); } return out; };
 const enemiesOf = (game, k) => { const out = []; for (const [key, r] of game.realms.rels) if (r.r === 'war') { const [x, y] = key.split('.').map(Number); if (x === k) out.push(y); else if (y === k) out.push(x); } return out; };
-export const inGrace = (game, k, day = game.env?.dayIndex | 0) => { const R = game.realms; return R.day0 >= 0 && ((k === R.k0 && day < R.day0 + WAR.graceDays) || day < R.day0 + WAR.quietDays); };
+export const inGrace = (game, k, day = game.env?.dayIndex | 0) => { const R = game.realms; return R.day0 >= 0 && day < R.day0 + WAR.quietDays; }; // (the world's calm first day, the same for every kingdom: k kept for the callers)
 export function defenseOf(game, sid) {
   const s = realmOf(game).settlements[sid], g = homeOf(game, sid), sg = siegeIndex(game).get(sid);
   const n = (g?.n || 0) + Math.max(0, watchOf(s) - (sg?.dw || 0));

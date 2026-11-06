@@ -4,8 +4,8 @@
 
 export const WAR = {
   // ---------- diplomacy (the daily tick, host) ----------
-  graceDays: 2,          // the start kingdom (the spawn village's) stays out of wars for its first 2 days (owner's rule)
-  quietDays: 1,          // nowhere a war on the world's first day (the start of a world is calm)
+  quietDays: 1,          // nowhere a war on the world's first day (the start of a world is calm); the start kingdom has no
+                         // grace of its own any more (owner, 2026-11-06: it can be at war from the second day like any other)
   tension: {
     init: [10, 60],      // a pair's tension when the world starts: 10..60 (a hash of the pair: some neighbours are old rivals)
     base: [0.3, 2.4],    // tension added a day, by pair (border friction)
