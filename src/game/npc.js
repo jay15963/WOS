@@ -15,7 +15,7 @@ import { seasonAt } from './seasons.js';
 import { SPECIES, BUILDINGS } from './data.js';
 import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
-import { perimeterOf } from './defense.js';
+import { perimeterOf, wallWalk } from './defense.js';
 import { TOWN } from './mut/structures.js'; // (TOWN.privatePiece: a house a player owns is never mended by the town — game/raids.js)
 
 const SPD = { walk: 1.55, slow: 1.15, patrol: 1.3, run: 3.3, kid: 2.5 };
@@ -565,25 +565,7 @@ export function npcHurt(game, m, src) {
 // ---------- the wall walk (owner: "os arqueiros saem das muralhas … fica parado em um lugar apenas e não consegue chegar
 // no range de ataque do arco"): an archer up on the wall whose foe is out of reach / out of its line of fire walks along the
 // top of the wall line to the nearest spot that has both (and back to its post when the fight is over), never down ----------
-// the walkable tops of a place's wall line (levels.surf at story 1 — a palisade — or 2 — the stone walk): the pieces of the
-// line and the tile just inside each (the walk), and the archer posts (tower tops, stair heads); cached per change of the
-// town state (a piece gone cuts the walk) and of the levels map
-function wallWalk(game, S) {
-  const lev = game.levels?.sync?.(), v = (game.towns?.v || 0) + ':' + (game.levels?.v || 0);
-  if (S._walk && S._walkV === v) return S._walk;
-  const per = perimeterOf(S), w = game.world, at = new Map(), list = [];
-  const add = (x, y, lv) => { const k = x + ',' + y; if (at.has(k)) return; const s = { x: x + 0.5, y: y + 0.5, lv, tx: x, ty: y, k }; at.set(k, s); list.push(s); };
-  if (lev && per.walled) for (const q of per.pieces.values()) {
-    const n = q.gate ? 2 : 1, vert = q.gate && Math.abs(q.fx) > 0.5;
-    for (let j = 0; j < n; j++) {
-      const x0 = q.x + (vert ? 0 : j), y0 = q.y + (vert ? j : 0);
-      for (const [x, y] of [[x0, y0], [x0 - Math.round(q.fx), y0 - Math.round(q.fy)]]) for (const lv of [1, 2]) if (lev.surf[lv]?.get(w.idx(x, y)) === 1) { add(x, y, lv); break; }
-    }
-  }
-  for (const p of S.posts.walls) if ((p.lv | 0) > 0) add(Math.floor(p.x), Math.floor(p.y), p.lv | 0);
-  S._walk = { at, list }; S._walkV = v;
-  return S._walk;
-}
+// (the walk itself: defense.js wallWalk)
 // a way along the walk (8 neighbours, the same story) from (x, y) to the spot: tile centres; null when the walk is cut
 function walkPath(W, x, y, to) {
   let a = W.at.get(Math.floor(x) + ',' + Math.floor(y));

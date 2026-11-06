@@ -76,26 +76,61 @@ const handTorch = (q) => q.offhand === 'torch_hand' || q.equip?.off === 'torch_h
 const creativeOff = (game) => !!game.creative; // (creative worlds: nobody is hunted)
 const openTile = (w, x, y) => w.inBounds(x, y) && !w.blocked(x, y) && w.solid.get(w.idx(x, y)) !== 2; // (doors stop them)
 
-// what it wants now: a living player it sees / feels, else the nearest light; shut = inside a room it is not in
-function pickGoal(game, m) {
-  const w = game.world;
-  let goal = null, bd = 1e9;
-  for (const q of allPlayers(game)) {
-    if (q.dead || (q.lv | 0) > 0) continue;
+// how many of the night's dead go after each body now (Map ref → n), once a frame (the crowd the choice below spreads)
+function targetCounts(game) {
+  const C = game._wTgt;
+  if (C && C.t === game.worldTime) return C.c;
+  const c = new Map();
+  for (const e of game.entities) {
+    if (e.faction !== 'walker' || e.dead || e.proxy) continue;
+    const r = e.state === 'chase' ? e.threat : e.goal?.ref;
+    if (r) c.set(r, (c.get(r) || 0) + 1);
+  }
+  game._wTgt = { t: game.worldTime, c };
+  return c;
+}
+// the attention of the dead (owner: "os inimigos estão focando mais no jogador do que nos soldados … focar no jogador apenas
+// se for atacado, se estiver mais perto que outro soldado, ou se decidirem atacar o jogador mesmo assim … dar mais atenção
+// aos soldados npc para dispersar a luta"): every living body near it it can see / feel — players, the settlements' people
+// on the street, the kingdoms' soldiers — weighed by distance, × (1 + 0.55 per other dead already on it: they spread over
+// the defenders), the one that hit it in the last 8 s first (× 0.5); a player × 1.8 unless it attacked this one, is the
+// nearest of them all, or this one is of the few (~1 in 7) that go for the players anyway. Never one up on a wall (they
+// shoot from there)
+const PLAYER_K = 1.8, CROWD_K = 0.55, HIT_K = 0.5, HIT_S = 8;
+const keenOnPlayers = (m) => ((Math.imul((m.id | 0) + 0x9e37, 0x85ebca6b) >>> 0) % 100) < 15;
+function pickBody(game, m) {
+  const w = game.world, now = game.worldTime, C = targetCounts(game), hitBy = m._hitBy && now - (m._hitT || -1e9) < HIT_S ? m._hitBy : null;
+  const L = [];
+  const consider = (q, isPlayer) => {
     const d = Math.hypot(q.x - m.x, q.y - m.y);
-    if (d >= bd || d > aggroRadius(m, q)) continue;
-    if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) continue;
-    bd = d; goal = { x: q.x, y: q.y, kind: 'player', ref: q };
-  }
-  // the settlements' people out in the dark (game/people.js): the living draw them too — a guard on the street, a late
-  // villager; never one up on a wall (they shoot from there)
+    if (d > aggroRadius(m, q)) return;
+    if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) return;
+    L.push([q, d, isPlayer]);
+  };
+  for (const q of allPlayers(game)) if (!q.dead && !((q.lv | 0) > 0)) consider(q, true);
   if (!creativeOff(game)) for (const e of game.entities) {
-    if (!e.npc || e.dead || e.proxy || e.z > 0.5) continue;
-    const d = Math.hypot(e.x - m.x, e.y - m.y);
-    if (d >= bd || d > aggroRadius(m, e)) continue;
-    if (d > 4 && !hasLOS(w, m.x, m.y, e.x, e.y, 0, 0, m._tn, e._tn)) continue;
-    bd = d; goal = { x: e.x, y: e.y, kind: 'player', ref: e };
+    if (e.dead || e.proxy || e.z > 0.5 || !(e.npc || e.soldier)) continue;
+    if (Math.abs(e.x - m.x) > 24 || Math.abs(e.y - m.y) > 24) continue;
+    consider(e, false);
   }
+  if (!L.length) return null;
+  let near = L[0];
+  for (const c of L) if (c[1] < near[1]) near = c;
+  let best = null, bs = 1e9;
+  for (const [q, d, isPlayer] of L) {
+    const mine = m.state === 'chase' && m.threat === q ? 1 : 0;
+    let sc = d * (1 + CROWD_K * Math.max(0, (C.get(q) || 0) - mine));
+    if (q === hitBy) sc *= HIT_K;
+    else if (isPlayer && near[0] !== q && !keenOnPlayers(m)) sc *= PLAYER_K;
+    if (sc < bs) { bs = sc; best = q; }
+  }
+  return best;
+}
+// what it wants now: a living body it sees / feels (pickBody), else the nearest light; shut = inside a room it is not in
+function pickGoal(game, m) {
+  let goal = null, bd = 1e9;
+  const q0 = pickBody(game, m);
+  if (q0) goal = { x: q0.x, y: q0.y, kind: 'player', ref: q0 };
   // a winter attack's wave (game/raids.js): the place itself — its middle, through its wall — not the lights around it
   if (!goal && m.raidAt) goal = { x: m.raidAt.x, y: m.raidAt.y, kind: 'raid' };
   if (!goal) {
@@ -223,7 +258,18 @@ export function walkerBrain(game, m, dt) {
   if (game.creative) { m.goal = null; return handOff(m); }
   // fighting one of the settlements' people (a guard hit it): the raiders' brain fights on (game/npc.js)
   if (m.state === 'chase' && m.threat?.npc && m.raid != null && (m.threat.z || 0) > 0.5) { m.state = 'idle'; m.threat = null; m.stateT = 0.3; } // (a winter attack's wave: an archer up on the wall is out of reach — the wall first, game/raids.js)
-  if (m.state === 'chase' && m.threat?.npc && !m.threat.dead && dist(m, m.threat) < 14) { if (m.siege) { m.siege = null; resetNav(m); } m.ap = null; return false; }
+  // (its attention still moves now and then — pickBody: the crowd on one defender spreads, the one hitting it first)
+  if (m.state === 'chase' && (m.threat?.npc || m.threat?.soldier) && !m.threat.dead && dist(m, m.threat) < 14) {
+    if (m.siege) { m.siege = null; resetNav(m); }
+    m.ap = null;
+    m.goalT = (m.goalT || 0) - dt;
+    if (m.goalT <= 0) {
+      m.goalT = 0.8 + Math.random() * 0.5;
+      const q = pickBody(game, m), busy = m._hitBy === m.threat && game.worldTime - (m._hitT || -1e9) < 4;
+      if (q && q !== m.threat && !busy && hasLOS(game.world, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) { m.threat = q; m.goal = { x: q.x, y: q.y, kind: 'player', ref: q }; }
+    }
+    return false;
+  }
   m.goalT = (m.goalT || 0) - dt;
   if (m.goalT <= 0) {
     m.goalT = 0.8 + Math.random() * 0.5;
@@ -244,6 +290,7 @@ export function walkerBrain(game, m, dt) {
     if (m.siege) { m.siege = null; resetNav(m); }
     m.ap = null;
     if (m.state !== 'chase' && m.state !== 'evade') aggro(game, m, t);
+    else if (m.state === 'chase' && m.threat !== t && !(m.threat && !m.threat.dead && m._hitBy === m.threat && game.worldTime - (m._hitT || -1e9) < 4)) m.threat = t; // (its attention moved: pickBody)
     return false;
   }
   if (m.siege && (m.siege.o.removed || !breakable(m.siege.o))) { m.siege = null; resetNav(m); }

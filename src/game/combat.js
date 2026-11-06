@@ -271,7 +271,7 @@ export function dealDamage(game, src, dst, amount, opts = {}) {
     }
     dst.lastCombatT = game.worldTime;
     if (dst.hp <= 0) killMob(game, dst, src);
-    else if (src && src !== dst) aggro(game, dst, src);
+    else if (src && src !== dst) { dst._hitBy = src; dst._hitT = game.worldTime; aggro(game, dst, src); } // (_hitBy: walkers.js pickGoal — whoever attacks it)
   }
   return amount;
 }

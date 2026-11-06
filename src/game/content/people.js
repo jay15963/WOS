@@ -25,7 +25,8 @@ export const PEOPLE = {
   // the defense when the bell rings (game/defense.js): how far from its post a guard goes after a foe (tiles), how many
   // hold a gap in the walls, the reserve by the keep (share of the melee guards: cities / castles), the guards that hunt
   // each foe already inside the walls, the most ballista crews (share of the melee guards)
-  def: { holdR: { gate: 7, stretch: 8, gap: 5, reserve: 0 }, gap: 2, gapWide: 3, gapCalm: 1, reserve: { city: 0.15, castle: 0.12 }, hunters: 2, crews: 0.34 },
+  // front: the alignment with the attack's side above which a gate / a stretch / a wall-walk spot is "the side under attack"
+  def: { front: 0.45, holdR: { gate: 7, stretch: 8, gap: 5, reserve: 0 }, gap: 2, gapWide: 3, gapCalm: 1, reserve: { city: 0.15, castle: 0.12 }, hunters: 2, crews: 0.34 },
 };
 
 // ---------- trades ----------
