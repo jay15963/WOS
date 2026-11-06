@@ -42,6 +42,7 @@
 .sk-set h3, .sk-sides h3 { margin: 12px 0 6px; font: 700 14px/1 var(--n-fd); letter-spacing: 1.4px; text-transform: uppercase; color: var(--n-text-2); display: flex; align-items: baseline; gap: 8px; }
 .sk-set h3 output { font: 800 italic 24px/1 var(--n-fd); color: var(--n-mustard-hi); letter-spacing: .5px; text-shadow: var(--n-ts-soft); }
 .sk-set h3 small { font: 600 12px var(--n-fd); letter-spacing: .5px; text-transform: none; color: #9e8a68; }
+.sk-set h3 small.sk-at { color: var(--n-cream); font-size: 13px; letter-spacing: .3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sk-note { margin: 6px 0 0; font: 600 13px var(--n-fd); color: var(--n-mustard-hi); }
 
 .sk-cards { display: grid; gap: 8px; }

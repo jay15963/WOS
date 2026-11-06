@@ -104,8 +104,7 @@ export function installSkirmishUI(game) {
             ${host ? '' : '<p class="sk-note">O anfitrião escolhe a partida.</p>'}
             <h3>Modo</h3>
             <div class="sk-cards c3">${MODE_LIST.map((m) => card('mode', m, m, MODES[m].pt, MODES[m].sub, mode === m, !host)).join('')}</div>
-            ${mode !== 'field' ? `<h3>Lugar</h3><div class="sk-cards c4">${PLACE_LIST.map((p) => card('place', p, p, PLACES[p].pt, PLACES[p].sub, S.place === p, !host)).join('')}</div>` : ''}
-            <p class="sk-where">${svg(mode === 'field' ? 'field' : S.place)}<span>${where}</span></p>
+            ${mode !== 'field' ? `<h3>Lugar <small class="sk-at">${where}</small></h3><div class="sk-cards c4">${PLACE_LIST.map((p) => card('place', p, p, PLACES[p].pt, PLACES[p].sub, S.place === p, !host)).join('')}</div>` : `<p class="sk-where">${svg('field')}<span>${where}</span></p>`}
             ${mon ? `<h3>Monstros do inverno</h3><div class="sk-cards c3">${FAM_LIST.map((f) => card('fam', f, f, FAMS[f].pt, `e ${FAMS[f].giantPt}`, S.fam === f, !host)).join('')}</div>` : ''}
             <h3>Soldados na batalha <output>${S.total}</output></h3>
             <input class="sk-range" type="range" data-k="total" min="${mode === 'field' ? TOTAL.min : TOTAL.minNpc}" max="${TOTAL.max}" step="${TOTAL.step}" value="${S.total}" ${host ? '' : 'disabled'} aria-label="Soldados na batalha">
