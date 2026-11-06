@@ -61,6 +61,7 @@ import { realmRows, applyRealmRows } from '../game/mut/realms.js'; // the kingdo
 import { warRows, applyWarRows } from '../game/mut/warfare.js'; // the armies near the players: forces, the structures of an army (docs/REINOS.md §14)
 import { armyRows, applyArmyRows } from '../game/mut/army.js'; // the players in the armies (docs/REINOS.md §15)
 import { raidRows, applyRaidRows } from '../game/mut/raids.js'; // the winter attacks on the settlements (docs/REINOS.md §16)
+import { skRows, applySkRows } from '../game/mut/skirmish.js'; // a skirmish arena: the lobby and the match (docs/SKIRMISH.md)
 
 export const SNAP_V = 1;
 const r2 = (v) => Math.round((v || 0) * 100) / 100;
@@ -107,6 +108,7 @@ export function serializeWorld(game, { save = false, keep = null, skipped = null
     army: armyRows(game) || undefined, // (the players in the armies: global — enlistment, rank, service, pay, deserters)
     raids: raidRows(game) || undefined, // (the winter attacks on the settlements: global — going on, the log)
     war: warRows(game, save) || undefined, // (the armies near the players: the forces' public rows, the structures of an army — o.realm)
+    sk: skRows(game) || undefined, // (a skirmish arena: the lobby and the match — never saved: game.noSave)
     corpses: game.corpses ? [...game.corpses.map.values()].map((c) => corpseRow(c)) : [],
     paths: serializePaths(game),
     mode: game.creative ? 'creative' : undefined, // world game mode (creative.js): the host's world decides for everyone
@@ -409,6 +411,7 @@ function applyInner(game, d, mode, scope = null) {
   if (reconcile || d.war || mode === 'load') applyWarRows(game, d.war, mode); // (the armies: game/mut/warfare.js)
   if (reconcile || d.army) applyArmyRows(game, d.army, reconcile); // (the players in the armies: game/mut/army.js)
   if (reconcile || d.raids) applyRaidRows(game, d.raids, reconcile); // (the winter attacks: game/mut/raids.js)
+  if (d.sk) applySkRows(game, d.sk); // (a skirmish arena: game/mut/skirmish.js)
 
   // ---- camp crates ----
   applyCampState(game, arr(d.props), reconcile);

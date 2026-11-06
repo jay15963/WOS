@@ -398,6 +398,7 @@ export function killMob(game, m, killer) {
     die.by = kp.pid;
     die.xp = mobXp({ xp: m.xpMul ?? sp.xp }, m.level, kp.level) || undefined;
     game.army?.onKill?.(kp.pid, m); // (an enlisted player felled an enemy soldier / guard: service — game/army.js)
+    game.skirmish?.onKill?.(kp.pid, m); // (a skirmish's tally: game/skirmish.js)
     if (m.onDeath) {
       const r = m.onDeath(game, m, killer); // (killer: game/warfare.js credits the player who felled a soldier)
       rows = r?.rows;

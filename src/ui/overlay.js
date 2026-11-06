@@ -49,16 +49,21 @@ export function installOverlay(game) {
   };
 
   const ev = game.events;
+  const QUIET = new Set(['hit', 'miss', 'dodge', 'immune', 'heal']);
   ev.on('damage', (d) => {
     const p = game.player, e = d.target;
     if (!e) return;
     const self = e === p;
+    // only what the local player is part of (dealt or taken): in a battle of dozens, the soldiers' / monsters' own blows,
+    // blocks and misses would cover the field (a heal on another player still shows)
+    const src = d.src, mine = !!src && (src === p || src.owner === p || src.src === p);
+    if (!self && !mine && QUIET.has(d.kind) && !(d.kind === 'heal' && e.remote)) return; // (telegraphs — a status, a stun — still show)
     const dt = d.dtype || 'phys';
     switch (d.kind) {
       case 'hit':
         if (d.blocked) add(e, self ? `Bloqueado! -${d.amount}` : `Bloqueado ${d.amount}`, '#8fd0ff', { size: self ? 14 : 13 });
         else if (self) add(e, `-${d.amount}`, DT_IN[dt] || DT_IN.phys, { size: d.dot ? 12 : d.crit ? 18 : 14, big: d.crit });
-        else if (d.src === p || d.dot) {
+        else {
           const col = d.crit ? '#ffe14a' : dt !== 'phys' ? DT_OUT[dt] : d.ability ? '#ffffff' : DT_OUT.phys;
           add(e, d.crit ? `${d.amount}!` : `${d.amount}`, col, { size: d.dot ? 13 : d.crit ? 24 : d.ability ? 18 : 15, big: d.crit });
         }
@@ -129,6 +134,7 @@ export function installOverlay(game) {
         // mouse, or a guard fighting / hurt (a crowd of plates is noise)
         if (e.npc && !isT && g.ctl?.near?.o !== e && g.ctl?.hoverPick?.e !== e && !(e.npc.guard && e.hp < e.maxHp * 0.98)) continue; // (a wounded guard: its health bar)
         if (e.soldier && !isT && !fighting && g.ctl?.hoverPick?.e !== e && !(e.soldier.role === 'general' && d < 18)) continue; // (a soldier: the one aimed at / under the mouse / fighting me, and the general)
+        if (g.skirmish && e.faction === 'walker' && !isT && !fighting && !SPECIES[e.species]?.giant && g.ctl?.hoverPick?.e !== e) continue; // (a skirmish's wave: dozens at once — the aimed / fighting / hovered ones and the giants)
         if (!isT && !fighting && d > 12) continue;
         const a = isT || fighting || e.npc || e.soldier ? 1 : Math.max(0, Math.min(1, (12 - d) / 4));
         if (a <= 0.02) continue;

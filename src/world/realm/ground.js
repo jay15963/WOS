@@ -11,8 +11,12 @@ import { realmIndex, BLEND } from './realm.js';
 import { settlementLayout, F_CLEAR, F_DRY, F_FIELD, CROPS } from './layout.js';
 
 const S = 64, N1 = 65;
-const ID_PER_CHUNK = 16384, CROP_ID0 = 13000; // (crop object ids: (cy·256 + cx)·16384 + 13000 + k)
+const ID_PER_CHUNK = 16384, CROP_ID0 = 13000, CROP_MAX = 3000; // (crop object ids: (cy·256 + cx)·16384 + 13000 + k)
 const PW = 16384;
+// a settlement's field plant (its worldgen id: the planet's own objects of a chunk take 1..4096 — game/fields.js)
+export const isFieldCropId = (id) => typeof id === 'number' && id >= 0 && id % ID_PER_CHUNK >= CROP_ID0 && id % ID_PER_CHUNK < CROP_ID0 + CROP_MAX;
+// the planted rows of a field (world tile row ty): every third row stays bare (the furrows)
+export const fieldRow = (ty) => ((ty % 3) + 3) % 3 !== 2;
 
 export function applyRealm(planet, p, cx, cy) {
   const realm = planet?.realm;
@@ -61,7 +65,7 @@ export function applyRealm(planet, p, cx, cy) {
           clear[l] = 1;
           const c = f >> 4;
           // crops in rows (every tile of the field, a gap row every third: the furrows)
-          if (c && ((Y0 + y) % 3) !== 2) crops.push([CROPS[c], x, y]);
+          if (c && fieldRow(Y0 + y)) crops.push([CROPS[c], x, y]);
         }
       }
     }
@@ -106,7 +110,7 @@ export function applyRealm(planet, p, cx, cy) {
   if (p.decor) p.decor = p.decor.filter((d) => { const x = Math.floor(d.x), y = Math.floor(d.y); return !(x >= 0 && y >= 0 && x < S && y < S && (clear[y * S + x] || (road && road[y * S + x]))); });
   if (crops.length && p.objects) {
     const base = (cy * 256 + cx) * ID_PER_CHUNK + CROP_ID0;
-    crops.forEach(([type, x, y], k) => { if (k < 3000) p.objects.push({ id: base + k, type, v: (x * 7 + y * 13) & 3, x: x + 0.5, y: y + 0.85, s: 1, f: (x + y) & 1 ? 1 : -1 }); });
+    crops.forEach(([type, x, y], k) => { if (k < CROP_MAX) p.objects.push({ id: base + k, type, v: (x * 7 + y * 13) & 3, x: x + 0.5, y: y + 0.85, s: 1, f: (x + y) & 1 ? 1 : -1 }); });
   }
   return road;
 }

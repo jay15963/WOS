@@ -369,7 +369,7 @@ export function installHUD(game, { isNew } = {}) {
   });
 
   // ---------- intro tips ----------
-  if (isNew) {
+  if (isNew && !game.noTips) { // (a skirmish arena teaches its own: game.noTips — main.js)
     const tips = [
       [1.2, 'Bem-vindo, Sobrevivente!', 'good'],
       [4, game.input.isTouch ? 'Arraste à esquerda para andar · toque nas coisas perto de você para usar · pinça = zoom' : 'WASD anda · Espaço ataca · E interage · Shift corre · Tab mochila · 1–0 barra · H atalhos', 'info'],

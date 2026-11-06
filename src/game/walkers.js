@@ -113,6 +113,7 @@ function pickGoal(game, m) {
       if (d < bd && d < LIGHT_HAND) { bd = d; goal = { x: q.x, y: q.y, kind: 'player', ref: q }; }
     }
   }
+  if (!goal && m.lure) goal = { x: m.lure[0], y: m.lure[1], kind: 'light' }; // (a place it marches on when nothing nearer draws it: a skirmish's wave — game/skirmish.js)
   if (!goal) return null;
   const tx = Math.floor(goal.x), ty = Math.floor(goal.y), key = tx + ',' + ty + ',' + game.build.v;
   let room = null;

@@ -16,7 +16,7 @@ import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs 
 import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
-  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf,
+  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf, jobReason,
 } from '../eco.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -42,7 +42,8 @@ export function addRep(game, u, k, d) { // (exported: the reputation of a player
 const goodsRows = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => Array.isArray(r) && Number.isInteger(r[0]) && Array.isArray(r[1]));
 function setStocks(game, rows) {
   const E = E_(game);
-  for (const [sid, a] of goodsRows(rows)) { const out = new Int32Array(NG); for (let i = 0; i < NG; i++) out[i] = Math.max(0, int(a[i])); E.mk.set(sid, out); }
+  // (a save from before new goods were added: those start at the market's balance stock, not empty)
+  for (const [sid, a] of goodsRows(rows)) { const out = new Int32Array(NG); for (let i = 0; i < NG; i++) out[i] = i < a.length ? Math.max(0, int(a[i])) : GOODS[i][3]; E.mk.set(sid, out); } // (a new good: its reference volume — no plan of the place needed)
 }
 const cleanEv = (ev) => (Array.isArray(ev) ? ev : []).filter((e) => Array.isArray(e) && e.length >= 4).map((e) => [int(e[0]), int(e[1]), int(e[2]), int(e[3])]).slice(0, 40);
 function cleanJob(j) {
@@ -442,6 +443,8 @@ defineIntent('job.take', {
     if (r?.jobs.some((q) => q.id === j.id)) return 'Você já aceitou este trabalho';
     if (r?.done.includes(j.id)) return 'Você já fez este trabalho';
     if ((r?.jobs.length || 0) >= JOB_MAX) return `No máximo ${JOB_MAX} trabalhos ao mesmo tempo`;
+    const cant = jobReason(game, j, true); // (the fields harvested, the trees / stone around gone: game/eco.js)
+    if (cant) return cant;
     net.emit('eco.job', { u, add: j, by: actor.pid, give: j.t === 'deliver' ? { [PARCEL]: j.n } : undefined, toast: `Trabalho aceito: ${j.title}`, toastKind: 'info' });
   },
 });

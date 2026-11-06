@@ -1,5 +1,6 @@
 // Main menu (title screen). Shown before any world exists; resolves with the player's choice:
 //   { mode: 'single' | 'host', worldId, seed, gameMode: 'survival' | 'creative', fresh? } | { mode: 'join', session, welcome }
+//   | { mode: 'skirmish' } (the "Escaramuça" arena: docs/SKIRMISH.md)
 // Worlds: up to 10 saved worlds in this browser (ui/worlds.js) — "Continuar" (the last one), "Mundos" (list: play,
 // delete, create with name / seed / mode); hosting a room picks one of them or creates one.
 // Background: a painted fallback while the graphics load, then the live engine showcase (showcase.js).
@@ -43,6 +44,7 @@ const I = {
   install: '<path d="M12 3.5v11M7 10l5 5 5-5"/><path d="M4.5 16.5V20h15v-3.5"/>',
   update: '<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
   arrow: '<path d="M9 6l6 6-6 6"/>',
+  swords: '<path d="M4 4l10 10M4 4h3.2L18 14.8M4 4v3.2L14.8 18"/><path d="M20 4L10 14M20 4h-3.2L6 14.8M20 4v3.2L9.2 18"/><path d="M15.6 18.4l2 2M18.4 15.6l2 2M8.4 18.4l-2 2M5.6 15.6l-2 2"/>',
 };
 const svg = (k, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[k]}</svg>`;
 const btn = (a, icon, label, sub, cls = '', i = 0) => `<button class="mbtn ${cls}" data-a="${a}" style="--i:${i}"><span class="mi">${svg(icon)}</span><span class="mt"><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</span><span class="ma">${svg('arrow')}</span></button>`;
@@ -127,6 +129,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
           ${last ? btn('continue', 'play', 'Continuar', `${esc(last.name)} · ${info ? `${info.age.toLowerCase()} · nível ${info.level}` : 'novo'}${last.mode === 'creative' ? ' · criativo' : ''}`, 'primary', n++) : ''}
           ${btn('worlds', 'new', 'Mundos', nWorlds ? `${nWorlds} de ${MAX_WORLDS} · escolha ou crie um mundo` : 'Crie seu primeiro mundo', last ? '' : 'primary', n++)}
           ${btn('mp', 'mp', 'Multijogador', 'Criar sala ou entrar com código', '', n++)}
+          ${btn('skirmish', 'swords', 'Escaramuça', 'Batalhas, cercos e monstros · sozinho ou com amigos', '', n++)}
           ${btn('settings', 'gear', 'Configurações', 'Nome, som, qualidade', '', n++)}
         </nav>
         <div class="menu-row2" style="--i:${n++}">
@@ -302,6 +305,7 @@ export function showMainMenu({ presetCode = '', progress = null, assets = null, 
     root.querySelector('[data-a=continue]')?.addEventListener('click', () => play(last));
     root.querySelector('[data-a=worlds]').onclick = () => open(nWorlds ? worldsPanel('single') : newWorld('single'));
     root.querySelector('[data-a=mp]').onclick = () => open(mpPanel);
+    root.querySelector('[data-a=skirmish]').onclick = () => finish({ mode: 'skirmish' }); // (docs/SKIRMISH.md: the arena boots, its lobby opens)
     root.querySelector('[data-a=settings]').onclick = () => open((el) => settingsPanel(el, { onName: () => { nameInp.value = playerName(); } }));
     root.querySelector('[data-a=install]')?.addEventListener('click', () => openInstallGuide({ title: 'Instalar o jogo' }));
 

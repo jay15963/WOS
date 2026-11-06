@@ -47,6 +47,7 @@ const pidOfEnt = (game, e) => (!e ? null : e === game.player ? game.net.pid : e.
 export const recFor = (game, uid) => (uid ? game.army?.en?.get(uid) || null : null);
 // the kingdom of an ENLISTED player (an avatar, the local player, a remote copy, an arrow's owner) or −1
 export function kOfEnt(game, e) {
+  const sk = game.skirmish?.kOf?.(e); if (sk != null) return sk; // (a skirmish: everyone on a side counts as enlisted in its kingdom — game/skirmish.js)
   const r = recFor(game, uidFor(game, pidOfEnt(game, e)));
   return r ? r.k : -1;
 }
@@ -121,6 +122,7 @@ export function npcWhy(game, src, dst) {
 // two players: members of kingdoms at war (host-authoritative: the host checks it again with its own uid map)
 export function pvpWhy(game, aPid, bPid, name = 'Este jogador') {
   if (!aPid || !bPid || aPid === bPid) return 'Não';
+  const sk = game.skirmish?.pvpWhy?.(aPid, bPid, name); if (sk !== undefined) return sk; // (a skirmish: opposite sides fight — game/skirmish.js)
   const ka = memberOf(game, uidFor(game, aPid)), kb = memberOf(game, uidFor(game, bPid));
   if (ka < 0) return `${name} não é seu inimigo: jogadores só lutam entre si quando são membros de reinos em guerra (você é viajante)`;
   if (kb < 0) return `${name} é viajante: jogadores só lutam entre si quando são membros de reinos em guerra`;
@@ -405,7 +407,7 @@ const OUT_PT = {
 // get the bonus (coins, reputation, service) once per force
 function onOutcome(game, kind, F) {
   const A = game.army;
-  if (!game.net.auth || !A?.en?.size || !F || !ARMY.bonus[kind]) return 0;
+  if (!game.net.auth || !A?.en?.size || !F || !ARMY.bonus[kind] || game.skirmish?.on) return 0; // (a skirmish pays nothing: game/skirmish.js)
   const k = kind === 'repelled' ? ownerOf(game, F.sid) : F.k, s = F.sid != null ? settlement(game, F.sid) : null;
   const at = kind === 'won' || !s ? { x: F.x, y: F.y } : { x: s.x, y: s.y }, R = kind === 'won' ? ARMY.near : (s?.r || 20) + ARMY.near;
   const on = onlineUids(game), [coins, rep] = ARMY.bonus[kind];

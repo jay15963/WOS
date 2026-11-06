@@ -480,6 +480,9 @@ export class Session {
       case 'st': {
         const pid = this.keyToPid.get(key);
         if (pid && this.role === 'host') this._applyState(pid, m.s, num(m.ts, 0, 1e9, 0));
+        // (the guest's screen, half width / height in tiles: what it sees, for the host's "in someone's view" — people.js
+        //  never makes or drops a person in front of it)
+        if (pid && this.role === 'host' && Array.isArray(m.v)) { const av = this.players.get(pid)?.av; if (av) { av._vw = num(m.v[0], 4, 60, 12); av._vh = num(m.v[1], 3, 40, 7); } }
         return;
       }
       case 'sts': {
@@ -509,6 +512,11 @@ export class Session {
       case 'ops': if (fromHost && this.game) this.game.net.onOps(m); return;
       case 'own': if (fromHost && this.game) this.game.net.onOwn(m); return;
       case 'ents': if (fromHost && this.ents) this.ents.onEnts(m); return;
+      case 'entneed': { // a guest asks again for creatures it never got in full (net/entities.js)
+        const pid = this.keyToPid.get(key);
+        if (this.role === 'host' && pid && this.ents?.onNeed && Array.isArray(m.nids)) this.ents.onNeed(pid, m.nids.slice(0, 64).filter((s) => typeof s === 'string' && s.length < 24));
+        return;
+      }
       case 'fx': if (fromHost && this.ents) this.ents.onFx(m); return;
       case 'dg': if (fromHost && this.digest) this.digest.onDigest(m); return;
       case 'dgr': if (fromHost && this.digest) this.digest.onRows(m); return;
@@ -589,6 +597,7 @@ export class Session {
       hour: env.hour, day: env.dayIndex, weather: env.weather, wt: Math.round(g.worldTime * 100) / 100,
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
       ...(g.world.hills ? { hills: 1 } : {}), // (dev showcase of the terrain height: the guest sculpts the same world, world/hills.js)
+      ...(g.skirmish ? { sk: 1 } : {}), // (a skirmish arena: the guest boots one too — never saved, docs/SKIRMISH.md)
       // the planet's start (its spawn zone and the camps' distance rule depend on it: the guest's source uses the same one)
       ...(g.world.source?.kind === 'planet' && g.world.source.spawn ? { sp: [g.world.source.spawn.x, g.world.source.spawn.y] } : {}),
     });
@@ -616,7 +625,7 @@ export class Session {
     hp.host = true; hp.key = key;
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
-      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1,
+      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1, sk: m.sk === 1,
       src: ['classic', 'synth', 'planet'].includes(m.src) ? m.src : 'classic', // the host's world source: the guest generates the same chunks
       sp: Array.isArray(m.sp) && m.sp.length === 2 && m.sp.every((v) => Number.isFinite(v) && v >= 0 && v < 1e6) ? [m.sp[0], m.sp[1]] : null, // (the planet's start)
     };
@@ -871,7 +880,9 @@ export class Session {
       this.sendAcc = 0;
       const s = packState(p);
       if (this.role === 'guest' && this.hostKey) {
-        this._sendTo(this.hostKey, { t: 'st', s, ts: +now.toFixed(3) });
+        const st = { t: 'st', s, ts: +now.toFixed(3) }, v = game.view?.();
+        if (v) { const hw = Math.round((v.x1 - v.x0) / 2), hh = Math.round((v.y1 - v.y0) / 2); if (hw !== this._vw || hh !== this._vh || now - (this._vT || 0) > 3) { this._vw = hw; this._vh = hh; this._vT = now; st.v = [hw, hh]; } }
+        this._sendTo(this.hostKey, st);
         if (this.lookAcc > 5) { this.lookAcc = 0; this._sendTo(this.hostKey, { t: 'lk', look: packLook(p.look) }); }
       } else if (this.role === 'host' && this.players.size) {
         const withLook = this.lookAcc > 5;

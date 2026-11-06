@@ -8,7 +8,7 @@ import { ITEMS } from '../game/data.js';
 import { itemIco } from './econIcons.js';
 import {
   GOODS, NG, GI, RANKS, profileOf, quoteBuy, quoteSell, maxAfford, landAverage, bestMarkets, meUid, myRec, rankInfo, taxRate, boardOf,
-  jobState, jobTarget, jobWaypoint, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
+  jobState, jobTarget, jobWaypoint, jobReason, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
   JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor, rentOf,
 } from '../game/eco.js';
 import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
@@ -122,6 +122,7 @@ function style() {
 .ec-card.ready { box-shadow: inset 0 0 0 2.5px #7fae46, 0 0 12px rgba(147,176,76,0.45); }
 .ec-card.warn { box-shadow: inset 0 0 0 2.5px #e5574a; }
 .ec-card.off { opacity: 0.6; }
+.ec-card .ec-cant { margin: -2px 0 6px; color: #8a2a1c; font-weight: 700; }
 .ec-card .ck { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; background: radial-gradient(circle, #fff8e8, #e3cea2); box-shadow: 0 0 0 2px var(--n-ink); }
 .ec-card .ck .spri { width: 32px; height: 32px; }
 .ec-card .ct { font: 700 17px/1.15 var(--n-fd); text-transform: uppercase; letter-spacing: 0.3px; }
@@ -294,11 +295,17 @@ function jobCard(panels, j, mine, here) {
     const r = myRec(g), taken = r?.jobs.some((q) => q.id === j.id), done = r?.done.includes(j.id);
     if (done) { cls = ' off'; acts = '<span class="chip rep">Feito ✓</span>'; }
     else if (taken) { cls = ' taken'; acts = '<span class="chip teal">Aceito</span>'; }
-    else acts = `<button class="btn primary" data-jtake="${j.id}" ${(r?.jobs.length || 0) >= JOB_MAX || !here ? 'disabled' : ''}>Aceitar</button>`;
+    else {
+      // (not possible right now — the fields of the crop harvested, the trees / stone around gone: this peer's view, the host
+      // checks the same when it is taken — game/eco.js jobReason)
+      const cant = jobReason(g, j);
+      if (cant) { cls = ' off'; prog = `<div class="cg ec-cant">${esc(cant)}</div>`; }
+      acts = `<button class="btn primary" data-jtake="${j.id}" ${(r?.jobs.length || 0) >= JOB_MAX || !here || cant ? 'disabled' : ''}>Aceitar</button>`;
+    }
   }
   return `<div class="ec-card${cls}"><div class="ck">${K.icon}</div><div><div class="ct">${esc(j.title)}</div>
     <div class="cg">${j.giver ? `${esc(j.giver.name)}, ${esc(String(j.giver.role || '').toLowerCase())}` : ''}${mine && j.sid !== panels.data?.sid ? ` · ${esc(s.name)}` : ''}</div>
-    ${mine ? prog : `<p>${esc(j.text)}</p>`}<div class="chips">${chips.join('')}</div></div><div class="ca">${acts}</div></div>`;
+    ${mine ? prog : `<p>${esc(j.text)}</p>${prog}`}<div class="chips">${chips.join('')}</div></div><div class="ca">${acts}</div></div>`;
 }
 function jobsBody(panels, I) {
   const g = panels.g, A = g.A, me = meUid(g), r = myRec(g), board = boardOf(g, I.id), K = I.kingdom;
