@@ -938,6 +938,21 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     ele já está lá — e, passada a luta, volta ao posto (`npc.js wallWalk / wallSpot / walkPath / walkWall`). No chão, sem
     progresso em 3 s (um muro no caminho, gente, um inimigo que não se alcança), ele procura outro ponto em volta do
     inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL11**.
+  - **A guarda no lado atacado** (apontamento do dono, 5/11/2026: "os soldados não estão focados apenas em uma parte da
+    muralha que é de onde estão vindo o inimigo"): com o ataque vindo de um lado, **todos os arqueiros** vão para o adarve
+    **daquele lado**, espalhados ~2,5 tiles em volta de onde o ataque bate (`defense.js frontSpots` sobre `wallWalk`); os
+    portões virados para ele ganham dois guardas e os dos fundos só ficam com um se a guarda for grande (2 por portão + 3);
+    o trecho de corpo a corpo é o arco de ~120° do lado do ataque (`PEOPLE.def.front` 0,45), mais largo só quando ali há
+    poucos pontos; a reserva (cidade / castelo) fica no torreão. Quando o lado muda (8 setores), os postos mudam. Vale para
+    os ataques do inverno, os monstros perto dos lugares e os cercos (a 3b usa o mesmo `townDefense.assign`).
+  - **Os mortos da noite dividem a atenção** (o mesmo apontamento: "os inimigos estão focando mais no jogador do que nos
+    soldados … focar no jogador apenas se for atacado, se estiver mais perto que outro soldado, ou se decidirem atacar o
+    jogador mesmo assim"): andarilhos, esqueletos, múmias e gigantes escolhem entre **todos** os corpos que veem / sentem
+    perto — jogadores, o povo na rua, soldados — pela distância × (1 + 0,55 por outro morto já em cima dele: a luta se
+    espalha), **quem os atacou nos últimos 8 s primeiro** (× 0,5), e um jogador vale × 1,8 a não ser que os tenha atacado,
+    seja o mais perto de todos ou que aquele morto seja dos poucos (~1 em 7) que vão atrás dos jogadores de todo jeito
+    (`walkers.js pickBody`; a atenção é revista a cada ~1 s, também no meio de uma luta com o povo). Antes eles sentiam o
+    jogador através das paredes e o povo só com linha de visão. Teste **WA7**.
   - **Barato**: os postos só são refeitos quando algo muda — o alarme começa / acaba, uma abertura aparece / some, o lado
     do ataque muda (8 setores, com folga para não ficar trocando), um guarda morre / volta — a cada meio segundo só se
     compara uma assinatura; quem caça quem dentro dos muros é refeito no mesmo meio segundo (poucos inimigos × poucos
@@ -2162,6 +2177,9 @@ mortos, 2 guardas caíram…" e o aviso fixo ao dono "Os monstros danificaram su
 - **A horda** é o "raro" do dono: 6 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
 - **O alarme até a ameaça ser neutralizada** (apontamento do dono): 30 tiles além da terra do lugar e 40 s de memória
   depois do último ataque / aproximação de cada monstro; os arqueiros andam pelo adarve atrás de alcance (§11).
+- **A guarda no lado atacado e a atenção dos mortos** (apontamentos do dono na escaramuça, valem para o jogo todo — §11):
+  os arqueiros todos no adarve do lado do ataque, os portões dos fundos sem guarda numa guarda pequena; os mortos dividem a
+  atenção entre os defensores e só preferem o jogador quando ele os ataca, é o mais perto ou por sorteio (~1 em 7).
 - **Uma noite perdida** mata no máximo 22 % dos moradores e arromba 2–5 casas; a guarda pode cair quase toda (volta em
   1,5 dia); ninguém perde a casa por isso.
 - **Propriedade privada** = a casa comprada e as estruturas no terreno; a alugada é do lugar. As rachaduras de ataque nas
