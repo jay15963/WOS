@@ -11,7 +11,7 @@ import {
   jobState, jobTarget, jobWaypoint, jobReason, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
   JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor, rentOf,
 } from '../game/eco.js';
-import { GOOD_CATS, JOB_KINDS, jobGood } from '../game/content/eco.js';
+import { GOOD_CATS, JOB_KINDS, jobGood, JOB_PL } from '../game/content/eco.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pct = (v) => (Math.round(v * 1000) / 10).toString().replace('.', ',') + '%';
@@ -283,9 +283,10 @@ function jobCard(panels, j, mine, here) {
     let got = j.got | 0, need = j.n, unit = '';
     if (j.t === 'bring') { got = p.inv.count(j.good); unit = ` ${esc(ITEMS[j.good]?.name.toLowerCase() || '')} na mochila`; }
     if (j.t === 'deliver') { got = p.inv.count(PARCEL); unit = ' encomendas na mochila'; }
-    const jg = jobGood(j), have = jg ? p.inv.count(jg) : 0;
+    const jg = jobGood(j), have = jg ? p.inv.count(jg) : 0; // (a gathering job: the goods collected for it, then exactly that many handed in)
+    if (jg) unit = ` ${esc(JOB_PL[jg] || '')} ${j.t === 'harvest' ? 'colhidos' : 'recolhidas'}`;
     const ready = (st === 'ready' && (!jg || have >= need)) || ((j.t === 'bring' || j.t === 'deliver') && got >= need);
-    if (jg && st === 'ready' && have < need) unit = ` · traga ${need} ${esc(ITEMS[jg]?.name.toLowerCase() || '')} (tem ${have})`;
+    if (jg && st === 'ready' && have < need) unit = ` · traga ${need} ${esc(JOB_PL[jg] || '')} (tem ${have})`;
     const at = j.t === 'deliver' ? j.dest : j.sid, there = settlement(g, at), atHere = atMural(g, at, p);
     cls = ready ? ' ready' : ' taken';
     prog = `<div class="ec-bar"><i style="width:${Math.min(100, (100 * got) / need)}%"></i><span>${Math.min(got, need)} / ${need}${unit}</span></div>

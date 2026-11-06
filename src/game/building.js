@@ -634,7 +634,13 @@ export function describeStructure(game, o) {
   // are the townsfolk's (phase 2: inns, property)
   if (o.type === 'town_mural') return structIt(o, { kind: 'mural', verb: 'Ver mural', icon: 'info', prio: 4, use: true, reach: 1.6 });
   if (o.town != null && def.feed) return null;
-  if (o.town != null && def.gate2 && TOWN.gateReason?.(game, o, { pid: game.net.pid, ent: game.player })) return null; // (a town's gate: the guards' — but a member of its kingdom opens it at night: game/towns.js)
+  if (o.town != null && (def.gate2 || o.door)) {
+    // a town's gate: the guards' — but a member of its kingdom opens it at night; its houses' doors: their holders' (game/towns.js,
+    // game/eco.js doorReason). A closed town gate the player may not open says why ("Portão fechado" → the reason), never mute
+    // (owner: "não estou conseguindo interagir com o portão da vila")
+    const why = TOWN.gateReason?.(game, o, { pid: game.net.pid, ent: game.player });
+    if (why) return def.gate2 && !o.open ? structIt(o, { kind: 'locked', verb: 'Portão fechado', icon: 'door', prio: 1, use: true, reach: 1.6, why }) : null;
+  }
   if (o.town != null && o.type === 'bed' && !game.eco?.mayUse?.(o)) return null; // (a bought / rented house's beds: its holder's — game/eco.js)
   if (o.town != null && (o.type === 'chest' || def.station) && !game.eco?.owns?.(o)) return null; // (the place's chests and work stations are the townsfolk's — a bought house's are its owner's; the player builds his own: game/eco.js ownsPiece)
   if (o.realm != null && (o.blueprint || def.siege)) return null; // (a kingdom's army's engines / camp: its engineers' — game/siegeAI.js)
@@ -643,7 +649,7 @@ export function describeStructure(game, o) {
   // a cracked piece of the player's own property (his house in a town, what he built): "Consertar" — the town never mends
   // private property (game/raids.js, docs/REINOS.md §16); a door keeps "Abrir" first and offers it as the second choice
   const fix = o.dmg > 0 && game.raids?.mayRepair?.(o) ? { kind: 'repair', verb: 'Consertar', icon: 'build', prio: 2.6 } : null;
-  if (o.door) { const it = structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: 3, use: true, reach: 1.1 }); if (fix) it.alt = structIt(o, fix); return it; }
+  if (o.door) { const it = structIt(o, { kind: 'door', verb: o.open ? 'Fechar' : 'Abrir', icon: 'door', prio: def.gate2 ? 3.4 : 3, use: true, reach: def.gate2 ? 1.6 : 1.1 }); if (fix) it.alt = structIt(o, fix); return it; } // (a 2-tile gate: a longer reach, before a guard standing by it)
   if (fix) return structIt(o, fix);
   if (o.type === 'chest') return structIt(o, { kind: 'chest', verb: 'Abrir', icon: 'chest', prio: 3, use: true });
   if (def.feed) return structIt(o, { kind: 'feeder', verb: 'Abrir alimentador', icon: 'chest', prio: 3, use: true }); // (livestock.js)
@@ -660,6 +666,9 @@ export function useStructure(game, it) {
   switch (it.kind) {
     case 'door':
       toggleDoor(game, o);
+      return;
+    case 'locked': // (a town gate the player may not open: why — game/towns.js TOWN.gateReason)
+      game.events.emit('error', { text: it.why || 'Portão fechado' });
       return;
     case 'mural': // the place's panel (ui/mural.js)
       game.events.emit('open', { panel: 'mural', sid: o.town });

@@ -8657,7 +8657,7 @@ def('EC2', {
 def('EC3', {
   title: 'EC: a harvest job — accepted on the mural, the crops harvested on the town\'s fields, turned in and paid, reputation up (both peers)',
   src: 'village', timeout: 240000,
-  expected: 'A village near the start has a "Colher N …" job on its board (Trabalhos) whose waypoint lies on a real field of that crop (docs/REINOS.md §10 "Trabalhos possíveis"); the guest accepts it (button Aceitar): the job is in its record on both peers, the HUD tracker shows it; near the fields the marker (game.eco.wp) stands on a real plant of that crop on the place\'s fields and the tracker names it ("pé de …"); it harvests the wild crops of that kind on the town\'s fields: the host counts each one (eco.prog) — the progress N/N on both; the tracker says "Pronto"; at the mural "Entregar" pays the coins and raises the reputation with that kingdom on both peers; the job is done (not on the list, in done); digest equal',
+  expected: 'A village near the start has a "Colher N …" job on its board (Trabalhos) whose waypoint lies on a real field of that crop (docs/REINOS.md §10 "Trabalhos possíveis"); the guest accepts it (button Aceitar): the job is in its record on both peers, the HUD tracker shows it; near the fields the marker (game.eco.wp) stands on a real plant of that crop on the place\'s fields and the tracker names it ("pé de …"); it harvests the crop on the town\'s fields: each plant gives its crop straight into the backpack (no seeds, nothing on the ground) and the host counts that crop (eco.prog) — the progress N/N on both, exactly N of the crop gained (owner: "colher/coletar x coisa naquele local … para que seja removido exatamente do inventário"); one more plant of the field: refused ("já colheu"); the tracker says "Pronto"; at the mural "Entregar" pays the coins and raises the reputation with that kingdom on both peers; the job is done (not on the list, in done); digest equal',
   api: 'game/eco.js boardOf / onOp (net.js hook) / jobState, mut/eco.js job.take / job.done → eco.job / eco.prog, ui/ecoHud.js #jtrack',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -8692,16 +8692,29 @@ def('EC3', {
   await t.waitFor(onPlant, 4000, 'the marker stands on a real plant of the crop on the fields', () => JSON.stringify(G.game.eco.wp));
   t.check(/pé de/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 'the tracker names the plant it leads to', short(G.doc.querySelector('#jtrack')?.textContent, 90));
   let done = 0;
-  for (let tries = 0; tries < job.n + 8 && done < job.n; tries++) {
+  const gotH = () => recOn(H, uid)?.jobs.find((j) => j.id === job.id)?.got | 0, gp0 = G.game.player, cc0 = gp0.inv.count(job.crop), sd0 = gp0.inv.count('seed_' + job.crop);
+  for (let tries = 0; tries < job.n + 8 && gotH() < job.n; tries++) {
     let o = null;
     for (const [fx, fy] of centres) { o = A.shared(G, H, fx, fy, 8, (q) => q.type === type && !q.gone && inF(q))[0]; if (o) break; }
     if (!o) { for (const [fx, fy] of centres) { A.teleport(G, fx, fy + 4); await t.sleep(700); } continue; }
     const s = A.freeSpot(G, MG, o.x, o.y + 0.9, { rMin: 0, rMax: 2 }); if (s) A.teleport(G, s[0], s[1]);
+    const g0 = gotH();
     await A.gather(t, G, MG, o);
+    await t.waitFor(() => gotH() > g0 && (recOn(G, uid)?.jobs.find((j) => j.id === job.id)?.got | 0) === gotH(), 2000 + RT(), 'the plant counted (both peers)');
     done++;
   }
   await t.waitFor(() => (recOn(H, uid)?.jobs.find((j) => j.id === job.id)?.got | 0) >= job.n && (recOn(G, uid)?.jobs.find((j) => j.id === job.id)?.got | 0) >= job.n, 3000 + RT(), `the progress ${job.n}/${job.n} on both peers`,
     () => `host ${recOn(H, uid)?.jobs.find((j) => j.id === job.id)?.got} guest ${recOn(G, uid)?.jobs.find((j) => j.id === job.id)?.got} (harvested ${done})`);
+  await t.sleep(RT() + 300);
+  t.check(gp0.inv.count(job.crop) - cc0 === job.n, `exactly ${job.n} ${job.crop} came out of the fields (${done} plants)`, `${gp0.inv.count(job.crop) - cc0}`);
+  t.check(gp0.inv.count('seed_' + job.crop) === sd0, 'no seeds (the place\'s)', `${gp0.inv.count('seed_' + job.crop) - sd0}`);
+  t.check(!G.game.loot.some((it) => (it.item === job.crop || it.item === 'seed_' + job.crop) && centres.some(([fx, fy]) => Math.hypot(it.x - fx, it.y - fy) < 14)), 'nothing on the ground by the fields');
+  const more = A.shared(G, H, G.game.player.x, G.game.player.y, 12, (q) => q.type === type && !q.gone && inF(q))[0];
+  if (more) {
+    t.check(/já colheu/.test(MG.eco.harvestWhy(G.game, more) || '') && !MG.gathering.describeObject(G.game, more), 'one more plant of the field: no "Colher" ("já colheu")', MG.eco.harvestWhy(G.game, more));
+    const r = await ecoReq(G, 'gather.hit', { id: more.id, kind: 'forage', inc: 1, final: true });
+    t.check(!r.ok && /já colheu/.test(r.why || ''), 'and the host refuses it', r.why);
+  } else t.note('no plant of the crop left near the guest');
   await t.waitFor(() => /Pronto/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 2000, 'the tracker: "Pronto"');
   // turn it in at the mural: the crop itself is handed in (content/eco.js jobGood — owner: "quando um trabalho envolve entregar
   // itens, eles deveriam sumir do inventário do jogador, como coletar batata")
@@ -9064,12 +9077,13 @@ def('EC10', {
   title: 'EC: buying the raw good and selling what it makes never pays — wheat at least half the bread it makes (ores the bars, cotton the cloth, wood the coal…); bread and wheat worth less than meat and leather',
   src: 'village', timeout: 60000,
   expected: 'Every market of the start land: where both are traded, what a raw good makes never sells there for more than buying the raw good it takes (game/eco.js madeCap: bread ≤ 2 wheat, a bar ≤ 2 ores, cloth ≤ 3 cotton, coal ≤ 3 wood, a block ≤ 1,5 stone) — on both peers alike; the base prices: bread and wheat below meat and leather; maxAfford agrees with quoteBuy; digest equal',
-  api: 'game/eco.js quoteBuy / quoteSell / maxAfford / madeCap, content/eco.js GOODS (wheat 5, bread 11)',
+  api: 'game/eco.js quoteBuy / quoteSell / maxAfford / madeCap, content/eco.js GOODS (wheat 8, bread 20 · meat 24, leather 30)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
   const uid = await ecoReady(t, H, G);
   const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y), GI = MH.eco.GI, base = (id) => MH.eco.goodBase(GI[id]);
   t.check(base('bread') < base('meat') && base('bread') < base('leather') && base('wheat') < base('meat') && base('wheat') < base('leather'), 'bread and wheat worth less than meat and leather (base prices)', `wheat ${base('wheat')} bread ${base('bread')} meat ${base('meat')} leather ${base('leather')}`);
+  t.check(base('potato') <= base('wheat') && base('corn') <= base('wheat') && base('bread') > 2 * base('potato'), 'potato and corn worth no more than wheat, bread more than 2 potatoes (owner: "a batata tá valendo mais a pena ser vendida que o trigo e o pão")', `potato ${base('potato')} corn ${base('corn')} wheat ${base('wheat')} bread ${base('bread')}`);
   const pairs = [['wheat', 'bread', 2], ['copper_ore', 'copper_bar', 2], ['iron_ore', 'iron_bar', 2], ['cotton', 'cloth', 3], ['wood', 'coal', 3], ['stone', 'stone_block', 1.5]];
   let n = 0;
   const bad = [];
@@ -9968,6 +9982,58 @@ def('WR12', {
   t.metric('wars', { pairs: ever.size, k0First: first, most, cap });
   await t.sleep(RT() + 200);
   t.check(realmRowsOn(H, MH) === realmRowsOn(G, await A.mods(G)), 'the same kingdoms\' state on both peers');
+  await t.checkDigest(H, G);
+});
+
+
+def('WR13', {
+  title: 'WR: a war across a neutral kingdom — the army crosses it; when the kingdom between them (at war with the same enemy) takes its target first, it goes on to the next place of the enemy, not home',
+  src: 'village', timeout: 200000,
+  expected: 'Kingdoms A and C of one land mass with no border, B a neighbour of both (the owner\'s map: green at war with cyan, red between them and at war with cyan too). A route from a place of A to a place T of C exists across B (dbg.route: by road or across country — B is not at war with A). An army of A sets out for T; B takes T meanwhile (hostCapture). When the army gets there it does not turn home: it marches on to another place of C (mission attack, target owned by C, the news "march"; with the clock 3 hours at a time it may be besieging it already) — game/realms.js arrive → retarget; the same army on the guest; digest equal',
+  api: 'game/realms.js arrive / retarget / pathTo / overland / passFor, dbg.launch / capture / route',
+}, async (t) => {
+  const { H, G, MH } = await pairCtx(t);
+  const RH = RZ(H), R = realmOf(H), g = H.game, S = R.settlements, own = (sid) => RH.owner(sid);
+  await wrQuiet(t, H, G);
+  t.defer(() => { RH.dbg.stop(true); for (const [key] of [...RH.rels]) { const [x, y] = key.split('.').map(Number); g.net.emit('realm.rel', { a: x, b: y, rel: 'neutral', quiet: 1 }); } for (const q of fieldOn(H)) g.net.emit('realm.army', { del: q.id }); g.net.flush(); });
+  // a trio: A and C apart, B between them; a place T of C that an army of A can reach
+  const K = R.kingdoms, d2 = (p, q) => Math.hypot(g.world.dx(p.x, q.x), p.y - q.y);
+  let pick = null;
+  for (const A of K) {
+    for (const C of K) {
+      if (A.id === C.id || A.neighbours.includes(C.id) || A.comp !== C.comp) continue;
+      const B = K.find((q) => q.id !== A.id && q.id !== C.id && q.neighbours.includes(A.id) && q.neighbours.includes(C.id));
+      if (!B) continue;
+      const mine = S.filter((s) => own(s.id) === A.id), theirs = S.filter((s) => own(s.id) === C.id && s.kind === 'village');
+      const pairs = [];
+      for (const q of theirs) for (const p of mine) pairs.push([d2(p, q), p, q]);
+      pairs.sort((x, y) => x[0] - y[0]);
+      for (const [, p, q] of pairs.slice(0, 12)) if (RH.dbg.route(p.id, q.id)) { pick = { a: A.id, b: B.id, c: C.id, from: p, T: q }; break; }
+      if (pick) break;
+    }
+    if (pick) break;
+  }
+  t.need(pick, 'two kingdoms apart with one between them, and a way from one to the other');
+  const { a, b, c, from, T } = pick;
+  t.log(`${K[a].name} → ${K[c].name} across ${K[b].name}: ${from.name} → ${T.name}`);
+  RH.dbg.war(b, c); RH.dbg.war(a, c); g.net.flush();
+  RH.dbg.stop(true); // (no other campaign: only this army moves)
+  RH.dbg.garrison(from.id, 400); g.net.flush();
+  const A0 = RH.dbg.launch(from.id, T.id, 320, 'attack');
+  g.net.flush();
+  t.need(A0, 'the army of A sets out for T');
+  t.check(A0.state === 'march', `an army of ${K[a].name} marches on ${T.name} (${A0.path?.c?.length ? 'across country' : 'by road'}, across ${K[b].name})`, A0.state);
+  RH.dbg.capture(T.id, b); g.net.flush();
+  await t.waitFor(() => own(T.id) === b && RZ(G).owner(T.id) === b, 2000 + RT(), `${K[b].name} takes ${T.name} first (both peers)`);
+  let x = null;
+  for (let k = 0; k < 60; k++) {
+    wrSkip(H, 3);
+    await t.sleep(300);
+    x = RH.armies.get(A0.id);
+    if (!x || x.target !== T.id || x.state !== 'march') break;
+  }
+  t.check(!!x && ['march', 'siege', 'battle'].includes(x.state) && x.mission === 'attack' && x.target !== T.id && own(x.target) === c, `at ${T.name}: on to another place of ${K[c].name} (marching on it or besieging it already), not home`, x ? `${x.state} ${x.mission} → ${S[x.target]?.name || x.target} (${K[own(x.target)]?.name || '-'})` : 'gone (merged home)');
+  if (x) await t.waitFor(() => RZ(G).armies.get(A0.id)?.target === x.target, 2000 + RT(), 'the same army on the guest');
   await t.checkDigest(H, G);
 });
 
@@ -11641,12 +11707,25 @@ def('VL15', {
   const o = A.objOn(H, gid), gp = [...H.game.townDefense.perimeter(s.id).pieces.values()].find((q) => q.id === gid);
   const out = A.freeSpot(G, MG, gp.cx + gp.fx * 2.4, gp.cy + gp.fy * 2.4, { rMin: 0, rMax: 1.2 }) || [gp.cx + gp.fx * 2.4, gp.cy + gp.fy * 2.4];
   A.teleport(G, out[0], out[1]); await t.sleep(RT() + 300);
-  t.check(!MG.building.describeStructure(G.game, A.objOn(G, gid)), 'a traveller: no "Abrir" at the town gate at night');
+  const dq = MG.building.describeStructure(G.game, A.objOn(G, gid));
+  t.check(dq?.kind === 'locked' && dq.verb !== 'Abrir' && /só quem é do reino/.test(dq.why || ''), 'a traveller: no "Abrir" at the town gate at night — "Portão fechado" says why (never mute)', JSON.stringify({ kind: dq?.kind, verb: dq?.verb, why: dq?.why }));
+  if (dq) { MG.building.useStructure(G.game, dq); t.check(/só quem é do reino/.test(G.lastUi(1)), 'using it: the reason on the screen', G.lastUi(1)); }
   const no = await ecoReq(G, 'door.toggle', { id: gid, open: 1 });
   t.check(!no.ok && /só quem é do reino/.test(no.why || ''), 'and the host refuses it', no.why);
   H.game.net.emit('eco.member', { u: uid, k: K0, name: recOn(H, uid)?.name || '' }); H.game.net.flush();
   await t.waitFor(() => recOn(G, uid)?.k === K0, 2000 + RT(), 'the guest a member of the place\'s kingdom');
   await t.waitFor(() => MG.building.describeStructure(G.game, A.objOn(G, gid))?.verb === 'Abrir', 3000, 'a member: "Abrir" at the gate');
+  // the reach: 1.6 tiles from the gate (owner: "o raio de interação deve estar muito pequeno ou ruim"), before a guard by it
+  {
+    const far = [gp.cx + gp.fx * 2.3, gp.cy + gp.fy * 2.3], g0 = [G.game.player.x, G.game.player.y];
+    if (!MG.physics.collides(G.game.world, far[0], far[1], 0.27, null, true)) {
+      A.teleport(G, far[0], far[1]);
+      const it = MG.controller.nearestInteractable(G.game);
+      t.check(it?.o?.id === gid && it.verb === 'Abrir', '2.3 tiles out from the gate: "Abrir" is the nearest action', `${it?.verb || '-'} ${it?.o?.id || ''}`);
+      t.check(MG.gathering.reachDist(G.game.player, it) <= it.reach, 'and it is used from there (no step closer: reach 1.6 for a gate)', `${f2(MG.gathering.reachDist(G.game.player, it))} ≤ ${it.reach}`);
+      A.teleport(G, g0[0], g0[1]);
+    } else t.note('no free spot 2.3 tiles out from the gate');
+  }
   const yes = await ecoReq(G, 'door.toggle', { id: gid, open: 1 });
   t.check(yes.ok, 'the host opens it for the member', yes.why);
   await t.waitFor(() => A.objOn(H, gid).open && A.objOn(G, gid).open, 2000 + RT(), 'open on both');
@@ -11660,6 +11739,72 @@ def('VL15', {
   const dt = H.game.worldTime - t0;
   t.check(dt >= 1.2 && dt <= 3.8, 'about 2 s after the way is clear', f2(dt));
   await t.waitFor(() => !A.objOn(G, gid).open, 2000 + RT(), 'shut on the guest too');
+  await t.checkDigest(H, G);
+});
+
+
+def('VL16', {
+  title: 'VL: the doors of a place\'s houses are their holders\' — a traveller opens neither a villager\'s door nor one of a house for rent; renting the house, its door opens; a door of nobody\'s house left open shuts itself',
+  src: 'village', timeout: 180000,
+  expected: 'The start village by day. The guest (no house there) at the door of a villager\'s building (not on the mural) and at the door of a house for rent: no "Abrir" on either, door.toggle refused by the host ("… só os moradores abrem" / "Casa para alugar: alugue no mural…") — owner: "eu não posso abrir portas das casas da vila, apenas das casas alugadas por mim ou construídas por mim". The guest rents that house (prop.rent): "Abrir" shows and the host opens it for the guest (door.set on both). The villager\'s door opened by the host (door.set, as one a player opened before this rule) shuts by itself within a few seconds once its way is clear (game/towns.js hostTick: every ~4 s), on both; the rented one stays open; digest equal',
+  api: 'game/eco.js E.doorReason / E.heldDoor, game/towns.js TOWN.gateReason / hostTick, game/building.js describeStructure, mut/structures.js door.toggle',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s0 = startTownOf(H, MH), L = H.game.towns.layout(s0.id);
+  dayClock(t, H, 10, MH);
+  const uid = await ecoReady(t, H, G);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const P = MH.eco.propsOf(H.game, s0.id), house = P.houses.find((q) => q.mode === 'rent' && q.doors.length);
+  t.need(house, 'a house for rent with a door at the start village');
+  if (H.game.eco.pr.has(house.id)) { MH.eco.loseProps(H.game, [house.id], 'left'); H.game.net.flush(); await t.waitFor(() => !H.game.eco.pr.has(house.id) && !G.game.eco.pr.has(house.id), 2000 + RT(), 'the house free again (an earlier scenario rented it)'); }
+  const listed = new Set(P.houses.flatMap((h) => h.doors));
+  const isDoor = (r) => MH.data.BUILDINGS[r[0]]?.block === 'door' && !MH.data.BUILDINGS[r[0]]?.gate2 && !(r[4] > 0);
+  const hd = house.doors.find((k) => isDoor(L.structs[k])) ?? house.doors[0];
+  const hr = L.structs[hd];
+  const vk = L.structs.map((r, i) => [r, i]).filter(([r, i]) => !listed.has(i) && isDoor(r)).sort((a, b) => Math.hypot(a[0][1] - hr[1], a[0][2] - hr[2]) - Math.hypot(b[0][1] - hr[1], b[0][2] - hr[2]))[0]?.[1];
+  t.need(vk != null, 'a villager\'s door (a building not on the mural)');
+  const vid = `t${s0.id}.${vk}`, hid = `t${s0.id}.${hd}`;
+  const goTo = async (k, id) => {
+    const r = L.structs[k];
+    const a = A.freeSpot(G, MG, r[1] + 0.5, r[2] + 0.5, { rMin: 0.9, rMax: 1.8 }) || [r[1] + 0.5, r[2] + 1.6];
+    A.teleport(G, a[0], a[1]);
+    const b = A.freeSpot(H, MH, a[0] + 1.6, a[1] + 1.2, { rMin: 0, rMax: 3 }) || [a[0] + 1.6, a[1] + 1.2];
+    A.teleport(H, b[0], b[1]);
+    await t.waitFor(() => A.objOn(G, id) && A.objOn(H, id), 15000, `the door ${id} placed on both`);
+    await A.hostSees(t, H, G, 6000);
+    await t.sleep(200);
+  };
+  const verb = (id) => MG.building.describeStructure(G.game, A.objOn(G, id))?.verb || null;
+  await goTo(vk, vid);
+  t.check(!verb(vid), 'a villager\'s door: no "Abrir"', JSON.stringify(verb(vid)));
+  const v1 = await ecoReq(G, 'door.toggle', { id: vid, open: 1 });
+  t.check(!v1.ok && /só os moradores abrem/.test(v1.why || ''), 'and the host refuses it', v1.why);
+  await goTo(hd, hid);
+  t.check(!verb(hid), 'the door of a house for rent: no "Abrir"', JSON.stringify(verb(hid)));
+  const h1 = await ecoReq(G, 'door.toggle', { id: hid, open: 1 });
+  t.check(!h1.ok && /para alugar/.test(h1.why || ''), 'refused: "Casa para alugar…"', h1.why);
+  // rented: the door is its holder's
+  if ((recOn(H, uid)?.rep[s0.k] | 0) < 25) { giveRep(H, uid, s0.k, 30, s0.id); await t.waitFor(() => (recOn(G, uid)?.rep[s0.k] | 0) >= 25, 2000 + RT(), 'the guest is Conhecido'); }
+  await toMural(t, H, MH, G, MG, s0.id);
+  const rent = MH.eco.rentOf(H.game, house);
+  setCoins(G, 1000);
+  const rr = await ecoReq(G, 'prop.rent', { id: house.id, paid: rent }, { refund: { coin: rent } });
+  t.check(rr.ok, 'the guest rents the house', rr.why);
+  t.defer(() => { if (H.game.eco.pr.get(house.id)?.u === uid) MH.eco.loseProps(H.game, [house.id], 'left'); H.game.net.flush(); });
+  await t.waitFor(() => G.game.eco.pr.get(house.id)?.u === uid, 2000 + RT(), 'rented on both peers');
+  await goTo(hd, hid);
+  t.check(verb(hid) === 'Abrir', 'its door: "Abrir" for its holder', JSON.stringify(verb(hid)));
+  const h2 = await ecoReq(G, 'door.toggle', { id: hid, open: 1 });
+  t.check(h2.ok, 'the host opens it for the holder', h2.why);
+  await t.waitFor(() => A.objOn(H, hid)?.open && A.objOn(G, hid)?.open, 2000 + RT(), 'open on both');
+  // the villager's door left open (as one a player opened before this rule): it shuts by itself; the rented one stays open
+  await t.waitFor(() => A.objOn(H, vid) && A.objOn(G, vid), 8000, 'the villager\'s door still placed on both');
+  H.game.net.emit('door.set', { id: vid, open: 1, by: 'test' }); H.game.net.flush();
+  await t.waitFor(() => A.objOn(G, vid)?.open, 2000 + RT(), 'the villager\'s door open on the guest');
+  const t0 = H.game.worldTime;
+  await t.waitFor(() => !A.objOn(H, vid)?.open && !A.objOn(G, vid)?.open, 9000 + RT(), 'it shuts by itself (both peers)');
+  t.check(H.game.worldTime - t0 <= 9, 'within a few seconds (a check every ~4 s)', f2(H.game.worldTime - t0));
+  t.check(A.objOn(H, hid)?.open && A.objOn(G, hid)?.open, 'the rented house\'s door stays open (its holder\'s)');
   await t.checkDigest(H, G);
 });
 
@@ -11787,7 +11932,7 @@ def('JB1', {
 def('JB2', {
   title: 'JB: a place whose fields were harvested refuses its harvest job — the mural says why — and after the dawn it can be taken; a plant beside the field does not count',
   src: 'village', timeout: 300000,
-  expected: 'A village near the start offers "Colher N …"; the host takes the crop off its fields but N − 1 plants: the mural card says "Só restam N − 1 pés de … volte depois que replantarem" with Aceitar disabled, job.take is refused with that reason; with none left: "já foram colhidos"; at the next dawn the fields are full on both peers and the same job would be possible (jobReason null on both); a harvest job of the new board is taken, a plant of that crop just beside a field (not on it) harvested by the guest does not count, one on the field counts (+1 on both); digest equal',
+  expected: 'A village near the start offers "Colher N …"; the host takes the crop off its fields but K − 1 plants (K = the plants N of the crop take, content/eco.js plantsFor): the mural card says "Só restam K − 1 pés de … volte depois que replantarem" with Aceitar disabled, job.take is refused with that reason; with none left: "já foram colhidos"; at the next dawn the fields are full on both peers and the same job would be possible (jobReason null on both); a harvest job of the new board is taken, a plant of that crop just beside a field (not on it) harvested by the guest does not count, one on the field counts (+ the crop it gave, on both); digest equal',
   api: 'game/eco.js jobReason / boardOf, mut/eco.js job.take, game/fields.js fieldsLeft, ui/muralEco.js (the card), game/eco.js onOp (inFields)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -11806,17 +11951,18 @@ def('JB2', {
   await t.waitFor(() => all(H, MH).length === total, 10000 + RT(), `the host sees the ${total} ${job.crop} plants of ${vil.name}`, () => `${all(H, MH).length}/${total}`);
   t.check(!MH.eco.jobReason(H.game, job, true), 'the fields full: the job is possible', MH.eco.jobReason(H.game, job, true));
   const ids = all(H, MH).map((o) => o.id).sort((x, y) => x - y);
-  // all but N − 1 harvested
-  H.game.net.emit('obj.remove', { ids: ids.slice(job.n - 1), fx: 'forage' }); H.game.net.flush();
-  await t.waitFor(() => ids.slice(job.n - 1).every((id) => !A.objOn(G, id)), 5000 + RT(), 'the guest sees them harvested');
+  // all but K − 1 harvested (K: the plants N of the crop take)
+  const K1 = MH.ecoc.plantsFor(job.crop, job.n) - 1;
+  H.game.net.emit('obj.remove', { ids: ids.slice(K1), fx: 'forage' }); H.game.net.flush();
+  await t.waitFor(() => ids.slice(K1).every((id) => !A.objOn(G, id)), 5000 + RT(), 'the guest sees them harvested');
   muralTab(G, vil.id, 'jobs');
   const card = () => G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`)?.closest('.ec-card');
   await t.waitFor(() => { G.game.ui.panels.render(); return /Só restam/.test(card()?.textContent || ''); }, 6000, 'the mural card says how many are left', () => short(card()?.textContent, 160));
   t.check(G.doc.querySelector(`.p-mural [data-jtake="${job.id}"]`)?.disabled, '"Aceitar" disabled', short(card()?.textContent, 200));
   const r1 = await ecoReq(G, 'job.take', { sid: vil.id, id: job.id });
-  t.check(!r1.ok && /Só restam \d+ pés/.test(r1.why || '') && /replantarem/.test(r1.why || ''), 'the host refuses: only N − 1 left', r1.why);
+  t.check(!r1.ok && new RegExp(`Só restam ${K1} pés`).test(r1.why || '') && /replantarem/.test(r1.why || ''), 'the host refuses: only K − 1 left', r1.why);
   // none left
-  H.game.net.emit('obj.remove', { ids: ids.slice(0, job.n - 1), fx: 'forage' }); H.game.net.flush();
+  H.game.net.emit('obj.remove', { ids: ids.slice(0, K1), fx: 'forage' }); H.game.net.flush();
   await t.waitFor(() => ids.every((id) => !A.objOn(G, id)), 5000 + RT(), 'the fields bare on the guest');
   G.game.ui.panels.render();
   await t.waitFor(() => { G.game.ui.panels.render(); return /já foram colhidos/.test(card()?.textContent || ''); }, 5000, 'the card: "os campos … já foram colhidos"', () => short(card()?.textContent, 160));
@@ -11850,8 +11996,10 @@ def('JB2', {
   } else t.note('no free tile beside the field for the off-field plant');
   const on = jbPlants(G, MG, ff)[0];
   const s2 = A.freeSpot(G, MG, on.x, on.y + 0.9, { rMin: 0, rMax: 2 }); if (s2) A.teleport(G, s2[0], s2[1]);
+  const cc = G.game.player.inv.count(j2.crop);
   await A.gather(t, G, MG, on);
-  await t.waitFor(() => (recOn(H, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0) === 1 && (recOn(G, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0) === 1, 3000 + RT(), 'harvested on the field: +1 on both peers');
+  const g2 = (f) => recOn(f, uid)?.jobs.find((j) => j.id === j2.id)?.got | 0;
+  await t.waitFor(() => g2(H) >= 1 && g2(G) === g2(H) && G.game.player.inv.count(j2.crop) - cc === g2(H), 3000 + RT(), 'harvested on the field: + the crop it gave, on both peers', () => `host ${g2(H)} guest ${g2(G)} · +${G.game.player.inv.count(j2.crop) - cc} ${j2.crop}`);
   await ecoReq(G, 'job.drop', { id: j2.id });
   await t.checkDigest(H, G);
 });
@@ -11885,8 +12033,8 @@ def('JB3', {
         if (j.t === 'chop' || j.t === 'mine') {
           const dd = Math.hypot(H.game.world.dx(j.x, s.x), j.y - s.y);
           if (dd < s.r * 0.8 || dd > s.ro + 90) bad.push(`${s.name} d${d}: ${j.t} waypoint ${dd.toFixed(0)} from the place`);
-          if (j.t === 'chop' && (V.trees < JS.chopMin || V.trees < j.n * JS.chopK)) bad.push(`${s.name} d${d}: chop with ${V.trees} trees`);
-          if (j.t === 'mine' && V.boulders < j.n * JS.mineK) bad.push(`${s.name} d${d}: mine with ${V.boulders} stones`);
+          if (j.t === 'chop' && (V.trees < JS.chopMin || V.trees < Math.ceil(j.n / 4) * JS.chopK)) bad.push(`${s.name} d${d}: chop with ${V.trees} trees`); // (n: the wood, ~4 a tree)
+          if (j.t === 'mine' && V.boulders < Math.ceil(j.n / 3) * JS.mineK) bad.push(`${s.name} d${d}: mine with ${V.boulders} stones`); // (n: the stone, ~3 a boulder)
           if (j.t === 'chop' && d === day0 && !woodJob && !recOn(H, uid)?.done.includes(j.id)) woodJob = [j, s];
         }
         if (j.t === 'hunt' && V.fauna < JS.huntFauna) bad.push(`${s.name} d${d}: hunt with fauna ${V.fauna}`);
@@ -11921,7 +12069,7 @@ def('JB3', {
 def('JB4', {
   title: 'JB: wood / stone / game only where the land has them — the boards of the world against the survey, the survey against generated chunks; the treeless places get no wood job',
   src: 'village', timeout: 300000,
-  expected: 'Over the places of the start\'s land (the 40 nearest and every place with few trees) and 7 days: no wood job where the survey expects fewer than JOB_SITE.chopMin trees (or fewer than chopK × the trees asked), no mine job without the stones (mineK × asked), no hunt without game, no harvest in a hard winter or without the plants (harvestK × asked), every harvest waypoint on a field of its crop; there are places with no wood job (steppe / desert); counted on the generated chunks (the planet\'s own objects), the places that offer wood have ≥ chopK × 7 trees around and the ones that offer a mine ≥ mineK × 15 boulders; the economy digest part equal on both peers',
+  expected: 'Over the places of the start\'s land (the 40 nearest and every place with few trees) and 7 days: no wood job where the survey expects fewer than JOB_SITE.chopMin trees (or fewer than chopK × the trees the wood asked takes, ~4 a tree), no mine job without the stones (mineK × the boulders the stone asked takes, ~3 each), no hunt without game, no harvest in a hard winter or without the plants (harvestK × the plants the crop asked takes), every harvest waypoint on a field of its crop; there are places with no wood job (steppe / desert); counted on the generated chunks (the planet\'s own objects), the places that offer wood have ≥ chopK × 7 trees around and the ones that offer a mine ≥ mineK × 15 boulders; the economy digest part equal on both peers',
   api: 'game/fields.js survey / TREE_K, game/eco.js boardOf, content/eco.js JOB_SITE, world/planetSource.js chunk (generated objects)',
 }, async (t) => {
   const { H, G, MH, MG } = await pairCtx(t);
@@ -11938,12 +12086,12 @@ def('JB4', {
   for (const s of places) {
     const L = g.towns.layout(s.id), V = MH.fields.survey(g, s);
     for (let d = day0; d < day0 + 7; d++) for (const j of MH.eco.boardOf(g, s.id, d)) {
-      if (j.t === 'chop') { if (V.trees < JS.chopMin || V.trees < JS.chopK * j.n) bad.push(`${s.name}: chop (${V.trees} trees)`); withChop.set(s.id, s); }
-      if (j.t === 'mine') { if (V.boulders < JS.mineK * j.n) bad.push(`${s.name}: mine (${V.boulders})`); withMine.set(s.id, s); }
+      if (j.t === 'chop') { if (V.trees < JS.chopMin || V.trees < JS.chopK * Math.ceil(j.n / 4)) bad.push(`${s.name}: chop (${V.trees} trees)`); withChop.set(s.id, s); } // (n: the wood, ~4 a tree)
+      if (j.t === 'mine') { if (V.boulders < JS.mineK * Math.ceil(j.n / 3)) bad.push(`${s.name}: mine (${V.boulders})`); withMine.set(s.id, s); } // (n: the stone, ~3 a boulder)
       if (j.t === 'hunt' && V.fauna < JS.huntFauna) bad.push(`${s.name}: hunt (${V.fauna})`);
       if (j.t === 'harvest') {
         if (MH.eco.placeSeason(g, s, d, 6).hard) bad.push(`${s.name} d${d}: harvest in a hard winter`);
-        if (MH.fields.cropTotal(L, j.crop) < JS.harvestK * j.n) bad.push(`${s.name}: harvest of ${j.n} with ${MH.fields.cropTotal(L, j.crop)} plants`);
+        if (MH.fields.cropTotal(L, j.crop) < JS.harvestK * MH.ecoc.plantsFor(j.crop, j.n)) bad.push(`${s.name}: harvest of ${j.n} with ${MH.fields.cropTotal(L, j.crop)} plants`);
         if (!L.fields.some((f) => f.crop === 'wild_' + j.crop && j.x >= f.x0 && j.x <= f.x1 && j.y >= f.y0 && j.y <= f.y1)) bad.push(`${s.name}: harvest waypoint off the fields`);
       }
     }
@@ -12031,6 +12179,71 @@ async function skResults(t, P, label) {
   t.check(JSON.stringify(r) === JSON.stringify(skSt(H).res), `${label}: the same results on both`, `${r.win} · ${r.why} · perdas ${r.lost.join('/')} de ${r.n0.join('/')} · ${r.t} s`);
   return r;
 }
+
+
+def('JB5', {
+  title: 'JB: a wood job asks for the wood itself — the wood picked up from the trees felled around the place counts (never wood a player drops), exactly N handed in at the mural',
+  src: 'village', timeout: 240000,
+  expected: 'A wood job on a board near the start: "Coletar N madeiras … recolha N madeiras do chão e entregue" (owner: "coletar x madeira e entregar, para que seja removido exatamente do inventário"). Taken by the guest; in the job\'s area 3 wood land from a felled tree (op tree.land, as the falling loop sends it): the guest picks them up — 3/N on both peers; 2 of them dropped by the guest and picked up again: still 3 (a player\'s own wood never counts); N − 1 more from a tree: N/N on both (never past N), "Pronto"; at the mural "Entregar" pays the job and takes exactly N wood from the backpack (the 2 over stay); digest equal',
+  api: 'game/eco.js onOp (tagDrops on tree.land / stump / boulder / tile.mine, loot.take → once), content/eco.js jobGood (chop → wood, mine → stone), mut/eco.js job.done, ui/muralEco.js turnIn',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn;
+  const uid = await ecoReady(t, H, G);
+  await jbSettle(t, H, G);
+  for (const j of recOn(H, uid)?.jobs || []) await ecoReq(G, 'job.drop', { id: j.id });
+  const places = R.settlements.slice().sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y)).slice(0, 14);
+  let job = null, ws = null;
+  for (let k = 0; k < 6 && !job; k++) {
+    for (const s of places) { const j = MH.eco.boardOf(H.game, s.id).find((x) => x.t === 'chop' && !recOn(H, uid)?.done.includes(x.id) && !MH.eco.jobReason(H.game, x, true)); if (j) { job = j; ws = s; break; } }
+    if (!job) await jbDay(t, H, G, 1);
+  }
+  t.need(job, 'a wood job near the start');
+  t.log(`wood job ${job.id} at ${ws.name}: ${job.title}`);
+  t.check(/^Coletar \d+ madeiras$/.test(job.title) && new RegExp(`recolha ${job.n} madeiras`).test(job.text) && !/Derrube|árvores neste/.test(job.text), 'the job asks for the wood itself ("Coletar N madeiras … recolha N madeiras")', `${job.title} · ${short(job.text, 140)}`);
+  await toMural(t, H, MH, G, MG, ws.id);
+  const tk = await ecoReq(G, 'job.take', { sid: ws.id, id: job.id });
+  t.check(tk.ok, 'the wood job taken', tk.why);
+  t.defer(async () => { if (recOn(H, uid)?.jobs.some((j) => j.id === job.id)) await ecoReq(G, 'job.drop', { id: job.id }); });
+  await t.waitFor(() => recOn(G, uid)?.jobs.some((j) => j.id === job.id), 2000 + RT(), 'the job in the guest\'s record');
+  const gotOn = (f) => recOn(f, uid)?.jobs.find((j) => j.id === job.id)?.got | 0, gp = G.game.player;
+  // into the job's area
+  const at = A.freeSpot(G, MG, job.x, job.y, { rMin: 0, rMax: 8 }) || [job.x, job.y];
+  A.teleport(G, at[0], at[1]);
+  const b = A.freeSpot(H, MH, at[0] + 7, at[1], { rMin: 0, rMax: 4 }) || [at[0] + 7, at[1]]; // (out of the host's own loot magnet: 2.3 tiles)
+  A.teleport(H, b[0], b[1]);
+  await A.hostSees(t, H, G, 6000);
+  A.keepAlive(t, G);
+  setItem(G, 'wood', 0);
+  const rows = (n, x, y) => Array.from({ length: n }, (_, k) => [H.game.net.newId('L'), 'wood', 1, +(x + 0.25 * (k % 4)).toFixed(3), +(y + 0.25 * Math.floor(k / 4)).toFixed(3), 0, 0, 0, 1]);
+  H.game.net.emit('tree.land', { id: 'jb5.tree1', drops: rows(3, gp.x + 0.3, gp.y) }); H.game.net.flush();
+  await t.waitFor(() => gotOn(H) === 3 && gotOn(G) === 3, 6000 + RT(), 'the 3 wood of a felled tree picked up: 3 on both peers', () => `host ${gotOn(H)} guest ${gotOn(G)} · wood ${gp.inv.count('wood')}`);
+  t.check(gp.inv.count('wood') === 3, 'the 3 wood in the backpack', String(gp.inv.count('wood')));
+  // the guest's own wood dropped and picked up again: no progress
+  gp.inv.remove('wood', 2); G.game.events.emit('inventory', {});
+  G.game.net.request('loot.drop', { item: 'wood', qty: 2, x: gp.x + 0.4, y: gp.y, spread: 0.2, split: 1 }, { refund: { wood: 2 } });
+  await t.waitFor(() => gp.inv.count('wood') === 3, 8000 + RT(), 'the guest picks its own wood up again');
+  await t.sleep(RT() + 400);
+  t.check(gotOn(H) === 3 && gotOn(G) === 3, 'a player\'s own wood, dropped and picked up: it does not count', `host ${gotOn(H)} guest ${gotOn(G)}`);
+  // the rest from another tree (one more than needed: never past N)
+  H.game.net.emit('tree.land', { id: 'jb5.tree2', drops: rows(job.n - 2, gp.x + 0.3, gp.y + 0.3) }); H.game.net.flush();
+  await t.waitFor(() => gotOn(H) === job.n && gotOn(G) === job.n && gp.inv.count('wood') === job.n + 1, 8000 + RT(), `${job.n}/${job.n} on both peers`, () => `host ${gotOn(H)} guest ${gotOn(G)} · wood ${gp.inv.count('wood')}`);
+  await t.sleep(RT() + 300);
+  t.check(gotOn(H) === job.n, 'never past N', String(gotOn(H)));
+  await t.waitFor(() => /Pronto/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 3000, 'the tracker: "Pronto"');
+  // turned in: exactly N wood leave the backpack
+  setItem(G, 'wood', job.n + 2);
+  const c0 = coinsOf(G);
+  await toMural(t, H, MH, G, MG, ws.id);
+  muralTab(G, ws.id, 'jobs');
+  const done$ = await t.waitFor(() => G.doc.querySelector(`.p-mural [data-jdone="${job.id}"]:not([disabled])`), 3000, '"Entregar" enabled at the mural');
+  done$.click();
+  await t.waitFor(() => coinsOf(G) === c0 + job.pay, 2000 + RT(), `paid: +${job.pay} coins`);
+  t.check(gp.inv.count('wood') === 2, `exactly ${job.n} wood left the backpack (2 stay)`, String(gp.inv.count('wood')));
+  t.check(!recOn(H, uid).jobs.some((j) => j.id === job.id) && recOn(G, uid).done.includes(job.id), 'the job is done');
+  G.game.events.emit('closepanels', {});
+  await t.checkDigest(H, G);
+});
 
 def('SK1', {
   title: 'SK: the skirmish lobby — two players in a skirmish room: sides, classes, ready, the host\'s settings on both; nothing saved',

@@ -9,6 +9,7 @@ import { addLootRows } from './loot.js';
 import { lootRow, lootRows, ri, r3, lootPiles } from './roll.js';
 import { fertileAt } from '../../world/soil.js';
 import { isFieldCropId } from '../../world/realm/ground.js'; // (the settlements' field plants: replanted at dawn — game/fields.js)
+import { CROP_YIELD } from '../content/eco.js'; // (a harvest job's plant: its yield)
 
 export const TREE_SOLID = { tree_oak: 0.2, tree_pine: 0.18, tree_birch: 0.16, tree_dead: 0.16 };
 export const SAPLING_GROW = 1440;  // s (2 in-game days) from sapling to full tree
@@ -311,9 +312,16 @@ defineIntent('gather.hit', {
         net.emit('obj.remove', { ids: [o.id], fx: 'pick', by, xp: 1, give: { [PICK_ITEM[o.type]]: n }, giveAt: [r3(o.x), r3(o.y)] });
         break;
       }
-      case 'forage':
-        net.emit('obj.remove', { ids: [o.id], drops: forageDrops(net, o, !!a.fibre), fx: 'forage', by, xp: 2 });
+      case 'forage': {
+        // a place's field plant harvested for a harvest job: its crop straight into the backpack, no more than the job still
+        // needs and no seeds (game/eco.js fieldTake — owner: exactly the job's goods come out of the fields, all handed in)
+        const take = game.eco?.fieldTake?.(o, by);
+        if (take) {
+          const [y0, y1] = CROP_YIELD[take.item] || [1, 2];
+          net.emit('obj.remove', { ids: [o.id], fx: 'forage', by, xp: 2, give: { [take.item]: Math.min(take.left, ri(net, y0, y1)) }, giveAt: [r3(o.x), r3(o.y - 0.2)] });
+        } else net.emit('obj.remove', { ids: [o.id], drops: forageDrops(net, o, !!a.fibre), fx: 'forage', by, xp: 2 });
         break;
+      }
     }
   },
 });

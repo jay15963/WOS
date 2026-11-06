@@ -439,13 +439,13 @@ de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui
 
 ### O mercado (oferta e procura)
 
-- 48 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 12, peixe 10, pão 24, ensopado 14), matérias-primas
-  (madeira 6, pedra 5, algodão 9, lã 12, couro 24, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
+- 48 mercadorias (`GOODS`): comida (trigo 8, batata 6, milho 6, carne 24, peixe 10, pão 20, ensopado 21), matérias-primas
+  (madeira 6, pedra 5, algodão 9, lã 12, couro 30, erva 14, carvão 12), minérios (cobre 14, ferro 22, ouro 60, jade 140),
   ofícios (corda 2, tecido 31, bloco de pedra 9, barras: cobre 40, ferro 55, aço 95, ouro 145), **ferramentas** (faca /
   machado / picareta / pá de cobre 55 / 105 / 150 / 105; machado / picareta de ferro 140 / 205), **armas e armaduras**
-  (flecha 1, arco 30, lança de cobre 115 / de ferro 145, espada de cobre 220 / de ferro 290, escudo de cobre 200 / de ferro
-  330, elmo de cobre 210 / de ferro 345, armaduras de couro 170 / de cobre 420 / de ferro 690, sela 155) e roupas (casaco de
-  pele 145, gorro de pele 55, túnica 145). Preço = base × fator.
+  (flecha 1, arco 30, lança de cobre 115 / de ferro 145, espada de cobre 225 / de ferro 295, escudo de cobre 200 / de ferro
+  330, elmo de cobre 220 / de ferro 350, armaduras de couro 210 / de cobre 435 / de ferro 700, sela 190) e roupas (casaco de
+  pele 180, gorro de pele 70, túnica 145). Preço = base × fator.
   **Balanço pela raridade** (dono, 5/11/2026: "coletar arbusto dá muita fibra, por isso [a corda] deve valer pouco… uma
   árvore dá até 4 madeiras… não é questão de tempo de fabricação e sim a raridade dos recursos"): o preço de algo fabricado ≈
   1,15 × o valor de mercado do que a receita usa — o raro (minério, couro, barras) é caro, o comum (fibra, madeira, pedra) é
@@ -626,6 +626,13 @@ como antes). Assim sair do reino para negociar com o inimigo dele como viajante 
     **comprada**: `eco.js ownsPiece`);
   - os **baús** do lugar só se abrem numa casa **comprada**, pelo dono (`TOWN.mayUse` → `ownsPiece`; o anfitrião recusa
     `chest.take` / `chest.put`); a casa **alugada** fica com a porta e as camas (`mayUsePiece`), não com os baús;
+  - as **portas** dos prédios do lugar (não os portões) só abrem para quem tem a casa — comprada ou alugada no mural
+    (apontamento do dono, 6/11/2026: "eu não posso abrir portas das casas da vila, apenas das casas alugadas por mim ou
+    construídas por mim"): a casa de um morador, a oficina, a casa à venda / para alugar não dão "Abrir" e o anfitrião
+    recusa `door.toggle` ("Casa pequena de X: só os moradores abrem", "Casa para alugar: alugue no mural de X"; `eco.js
+    E.doorReason` por `TOWN.gateReason`). Uma porta dessas que ficou aberta (de quem deixou a casa, de antes desta regra)
+    o anfitrião fecha sozinho a cada ~4 s, com a passagem livre (`towns.js hostTick`, `E.heldDoor`). O que o jogador
+    constrói continua dele. Teste **VL16**;
   - as **plantações** dos campos do lugar (`fields.js fieldOf`) não dão "Colher" e o anfitrião recusa a colheita
     (`eco.js harvestWhy`, `gather.hit`), a não ser para quem tem um **trabalho de colheita daquele produto ali**, ainda
     não completo — e só nos campos daquele lugar. Plantas silvestres continuam livres. Testes **EC9**, **JB1**.
@@ -634,19 +641,33 @@ como antes). Assim sair do reino para negociar com o inimigo dele como viajante 
     fogueira); comprada — também estruturas de produção ('prod') e móveis ('furn': baú, cama, mesa…); a casa de outro,
     nada. Perdida a casa
     (aluguel vencido, lugar tomado), o que o jogador pôs dentro sai junto, como num terreno (`plotBuildings`).
-- **Entregar o que se colheu** (apontamento do dono, 6/11/2026: "quando um trabalho envolve entregar itens, eles deveriam
-  sumir do inventário do jogador, como coletar batata"): a **colheita** entrega no mural os N do produto (ex.: 6 pés
-  colhidos → 6 batatas) e a **lenha** N madeiras (`content/eco.js jobGood`); saem da mochila ao entregar (o anfitrião
-  recusa sem eles: "Entregue N batatas"; o cartão mostra "traga N … (tem X)"). Mina e caça continuam contando o trabalho.
-  Teste **EC3**.
+- **Os trabalhos de coleta pedem a coisa, não o trabalho** (apontamentos do dono, 6/11/2026: "quando um trabalho envolve
+  entregar itens, eles deveriam sumir do inventário do jogador" e "os trabalhos de coleta não devem ser cortar x árvores
+  ou colher x trigo/batata/milho, e sim colher/coletar x coisa naquele local ou coletar x madeira e entregar, para que seja
+  removido exatamente do inventário, pois eu estou conseguindo colher milho e ficando com eles para mim"):
+  - **Colheita** — "Colher N milho" (8–16 do produto): cada pé do campo do trabalho dá o produto **direto na mochila**
+    (1–2; algodão 2–3), nunca mais do que o trabalho ainda pede, e **sem sementes** — tudo é do lugar (`mut/objects.js
+    gather.hit` → `eco.js fieldTake`, `content/eco.js CROP_YIELD`). O progresso conta o produto; quando chega a N o campo
+    fecha para o jogador ("Você já colheu N milho do trabalho: o resto da plantação é da vila"). Saem dos campos
+    exatamente N, e exatamente N saem da mochila ao entregar.
+  - **Lenha / mina** — "Coletar N madeiras" (12–21) / "Coletar N pedras" (10–19): conta a madeira / pedra **recolhida do
+    chão** que caiu de uma árvore cortada (`tree.land`, toco) ou de pedra quebrada (pedregulho, rocha: `obj.remove`,
+    `tile.mine`) perto do lugar — o anfitrião marca esses itens (`eco.js tagDrops`) e soma no `loot.take`. Madeira ou pedra
+    comprada ou largada por um jogador não conta. Ao entregar saem exatamente N.
+  - Entregar sem os N na mochila: o anfitrião recusa ("Entregue N …"); o cartão e o rastreador mostram "traga N … (tem
+    X)". Caça e defesa continuam contando o trabalho. Os pedidos do quadro olham a terra em plantas / árvores / pedras
+    que o produto pede (`plantsFor`, ~4 madeiras por árvore, ~3 pedras por pedregulho). Testes **EC3**, **JB2**, **JB5**.
 - **Comprar a matéria-prima e vender o que ela faz nunca dá lucro** (apontamentos do dono, 6/11/2026: "o jogador pode
   comprar trigo e fazer pão e vender o pão que é caro … faça com que a compra seja metade do preço da venda do pão" e "o pão
   e o trigo não deveriam ter um valor de venda maior que a carne e o couro"): num mercado que compra e vende os dois, o produto
   feito de uma só matéria-prima nunca é vendido por mais do que custa comprar ali a matéria-prima que ele gasta (`eco.js
   madeCap`, das receitas: pão ≤ 2 trigos, barra ≤ 2 minérios, pano ≤ 3 algodões, carvão ≤ 3 madeiras, bloco ≤ 1,5 pedra) — a
   curva de venda inteira desce o que for preciso (cada unidade vendida continua baixando o preço); a matéria-prima guarda o
-  preço do mercado dela (oferta e procura). E os preços de base: trigo 8 → **5**, pão 24 → **11** (≈ 1,15 × 2 trigos + o
-  combustível), abaixo da carne (12) e do couro (24). Teste **EC10**.
+  preço do mercado dela (oferta e procura). E os preços de base (dono, depois: "a batata tá valendo mais a pena ser vendida que o trigo e
+  o pão … deveria apenas ter aumentado o valor da carne e o couro e não ter diminuído do trigo e do pão"): trigo **8**
+  (acima da batata e do milho, 6), pão **20** (≈ 1,15 × 2 trigos + o combustível; era 24), e carne 12 → **24**, couro
+  24 → **30**, acima deles — o que é feito de couro / carne acompanha (ensopado 21, armadura de couro 210, sela 190, casaco
+  de pele 180…). Teste **EC10**.
 - **Imposto**: cada reino tem o seu, de 1,0 % a 2,4 % do valor por dia (Galéria: 1,9 % → casa pequena 13 / dia, terreno
   8 / dia); quem aluga paga o aluguel e não o imposto. **Cobrado automaticamente** a cada amanhecer (o dia do mercado),
   **só das moedas da mochila** (moedas guardadas em baús não contam: é a bolsa de quem está andando), das dívidas menores
@@ -1080,6 +1101,13 @@ guarda a hora (`TOWN.gateOpened` → `memberGates`); enquanto alguém está no v
 ficar livre ele fecha sozinho (`townsSystem`). Um viajante: "O portão é da guarda: à noite só quem é do reino abre". Teste
 **VL15**.
 
+O alcance (apontamento do dono: "não estou conseguindo interagir com o portão da vila, o raio de interação deve estar muito
+pequeno ou ruim"): o portão de 2 tiles se usa a até **1,6 tile** dele (a porta comum, 1,1) e vem antes de uma pessoa parada
+ao lado (prioridade 3,4 contra 2,5 do "Conversar"); o clique / toque pega o portão na altura toda do desenho (1,45 tile acima
+do chão; a porta, 1 — eram 0,55, só a metade de baixo); e o portão fechado que o jogador não pode abrir não fica mudo:
+"Portão fechado" e, ao usar, o motivo na tela (`building.js` kind `locked`).
+
+
 ### Os animais mortos perto do lugar
 
 Apontamento do dono (6/11/2026): "os lobos que são mortos pelos guardas são praticamente carne e couro de graça para o
@@ -1312,6 +1340,15 @@ um lugar de um reino **em guerra** com o exército como beco sem saída (chega-s
 outra estrada, a marcha vai pelo campo, e o caminho pelo campo (`overland`) também contorna esses lugares (as células a até
 a terra do lugar + 22 tiles ficam de fora). Vale para a reunião, a partida, os contingentes e o planejamento dos alvos.
 Teste **WR11** (246 casos no mundo de teste em que a estrada mais curta cruzava um lugar inimigo: todos contornam).
+
+**Guerra com um reino do outro lado de um terceiro** (apontamento do dono, 6/11/2026: "o reino verde está em guerra com o
+reino azul ciano, porém não consegue chegar as tropas até lá por ter o reino vermelho no meio, que inclusive o reino
+vermelho está em guerra com o azul ciano"): o reino do meio, neutro para quem marcha, não barra o caminho (estrada ou campo:
+`passFor` só barra os lugares de quem está em guerra com o exército). O que travava: o reino do meio, mais perto, quase
+sempre toma ou cerca o alvo antes; o exército chegava depois de dias de marcha e voltava para casa sem lutar. Agora, ao
+chegar a um alvo que outro reino tomou ou cerca, ele **segue** dali para o lugar mais próximo de um reino em guerra com ele
+que tenha força para cercar (sem cerco, até `WAR.muster` de distância; `realms.js arrive` → `retarget`); só sem nenhum volta
+para casa. Teste **WR13** (falha sem a correção: "voltou para casa").
 
 Código: `game/realms.js` (a API `game.realms`, a simulação no anfitrião: diplomacia, campanhas, marchas, batalhas, cercos,
 conquista; rotas pelas estradas / pelo campo; notícias; a passagem para a 3b), `game/mut/realms.js` (o estado e as ops:

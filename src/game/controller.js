@@ -62,7 +62,7 @@ function objHit(o, wx, wy, tol) {
   if (o.building) {
     const def = BUILDINGS[o.type];
     const sw = o.fw || def?.size[0] || 1, sh = o.fh || def?.size[1] || 1;
-    const top = def?.flat ? 0 : def?.block === 'tile' || def?.block === 'door' ? 0.55 : 0.9;
+    const top = def?.flat ? 0 : def?.gate2 ? 1.45 : def?.block === 'door' ? 1 : def?.block === 'tile' ? 0.55 : 0.9; // (a door / gate: its whole height on the screen — a 2-tile gate stands 1.3 stories)
     if (!VR.s && VR.c === 1) return wx >= o.tx - tol && wx < o.tx + sw + tol && wy > o.ty - top && wy < o.ty + sh + tol * 0.5;
     // turned: the footprint, or a point of the body up to `top` above it (the click moved down the screen onto the ground)
     const ux = -VR.s, uy = VR.c; // world direction of "down the screen"

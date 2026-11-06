@@ -453,7 +453,7 @@ function arrive(game, a, t) {
   }
   // an attack
   if (own === a.k) { const hg = homeOf(game, T); R.H.acc.delete(a.id); game.net.emit('realm.army', { del: a.id, gar: [[T, Math.max(hg?.n || 0, Math.min(capOf(s), (hg?.n || 0) + a.n))]] }); return; }
-  if (!atWar(game, a.k, own)) { goHome(game, a, t); return; }
+  if (!atWar(game, a.k, own)) { if (!retarget(game, a, t)) goHome(game, a, t); return; } // (taken by another kingdom first: on to the next)
   const S = siegeIndex(game).get(T);
   if (S && S.k === a.k) { // (joins the siege already there)
     const b = copy(S); b.n += a.n; b.n0 += a.n; for (let i = 0; i < 4; i++) b.eng[i] += a.eng[i];
@@ -462,10 +462,37 @@ function arrive(game, a, t) {
     game.net.emit('realm.army', { del: a.id });
     return;
   }
-  if (S) { goHome(game, a, t); return; } // (another kingdom besieges it: not ours to join)
+  if (S) { if (!retarget(game, a, t)) goHome(game, a, t); return; } // (another kingdom besieges it: not ours to join — on to the next)
   const b = copy(a);
   Object.assign(b, { state: 'siege', phase: 'camp', hrs: 0, dw: 0, dn: defenseOf(game, T).n, x: Math.round(here[0] * 100) / 100, y: Math.round(here[1] * 100) / 100, since: Math.round(t * 100) / 100, v: 0, d0: Math.round(stopAt(game, a, g) * 100) / 100, t0: Math.round(t * 100) / 100, bp: 0 });
   emitArmy(game, b, { news: ['siege', a.k, own, T, b.n], scar: T, wt: Math.round(t) });
+}
+
+// an attack whose target another kingdom took or besieged first — most often one at war with the same enemy and nearer to it,
+// the kingdom between them (owner: "o reino verde está em guerra com o azul ciano, porém não consegue chegar as tropas até lá
+// por ter o reino vermelho no meio, que inclusive está em guerra com o azul ciano"): instead of marching all the way home it
+// goes on, from where it stands, to the nearest place of a kingdom at war with it that it is strong enough to besiege (not
+// besieged, ≤ WAR.muster away by road or across country). True when it went
+function retarget(game, a, t) {
+  const realm = realmOf(game), from = a.target, s0 = realm.settlements[from], foes = enemiesOf(game, a.k);
+  if (!s0 || !foes.length || a.n < WAR.minArmy) return false;
+  const pass = passFor(game, a.k), D = dijkstra(realm, [from], WAR.muster, pass), pw = powerOf(a.n, a.lv), cand = [];
+  for (const q of realm.settlements) {
+    if (q.id === from || !foes.includes(ownerOf(game, q.id)) || siegeIndex(game).has(q.id)) continue;
+    const d = D.dist[q.id] < Infinity ? D.dist[q.id] : Math.hypot(game.world.dx(q.x, s0.x), q.y - s0.y) * WAR.overlandK;
+    if (!(d <= WAR.muster) || defenseOf(game, q.id).pow * WAR.force > pw) continue;
+    cand.push([d, q.id]);
+  }
+  cand.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  for (const [, T2] of cand.slice(0, 4)) {
+    const path = pathTo(game, dijkstra(realm, [T2], WAR.maxRoute * 1.5, pass), from, T2);
+    if (!path) continue;
+    const b = copy(a), T0 = Math.round(t * 100) / 100;
+    Object.assign(b, { state: 'march', phase: '', mission: 'attack', target: T2, path, t0: T0, d0: 0, v: WAR.march, since: T0 });
+    emitArmy(game, b, { news: ['march', a.k, ownerOf(game, T2), T2, a.n] });
+    return true;
+  }
+  return false;
 }
 
 // ---------- host: field battles ----------

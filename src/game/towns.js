@@ -455,6 +455,12 @@ function hostTick(game) {
       net.emit('door.set', { id: o.id, open: want ? 1 : 0, by: 'town' });
     }
   }
+  // a door of a place's building left open (by the holder who left the house, by a player before the doors were the
+  // holders' — game/eco.js doorReason): it shuts once its way is clear, unless a player holds that house
+  if ((T._doorT = (T._doorT | 0) + 1) % 4 === 0 && !game.creative && game.eco?.heldDoor) for (const rec of T.live.values()) for (const o of rec.objs.values()) { // sync-ok: host-only cadence (every 4 s)
+    if (!o || !o.door || !o.open || o.removed || o.blueprint || defOf(o).gate2 || game.eco.heldDoor(o) || passageBusy(game, o, false)) continue;
+    net.emit('door.set', { id: o.id, open: 0, by: 'town' });
+  }
   // players' gates on automatic
   for (const [id, g] of game.gates) {
     if (!g.auto) continue;
@@ -491,11 +497,12 @@ function hostileInside(game, L) {
   }
   return false;
 }
-function passageBusy(game, o) {
+// folk false: the place's own people do not count (they pass its doors shut or not — a house door may close on one)
+function passageBusy(game, o, folk = true) {
   const x0 = o.tx, y0 = o.ty, x1 = o.tx + (o.fw || 1), y1 = o.ty + (o.fh || 1);
   const inside = (e) => e && !e.dead && e.x + 0.2 > x0 && e.x - 0.2 < x1 && e.y + 0.2 > y0 && e.y - 0.2 < y1;
   for (const p of allPlayers(game)) if (inside(p)) return true;
-  for (const e of game.entities) if (e.isMob && !e.proxy && inside(e)) return true;
+  for (const e of game.entities) if (e.isMob && !e.proxy && (folk || !e.npc) && inside(e)) return true;
   return false;
 }
 

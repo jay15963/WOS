@@ -13,26 +13,27 @@ export const PARCEL = 'parcel';    // a delivery job's parcel (content/items.js)
 // arbusto dá muita fibra, por isso [a corda] deve valer pouco … uma árvore dá até 4 madeiras … não é questão de tempo de
 // fabricação e sim a raridade dos recursos"): a made good ≈ 1.15 × the market value of its recipe. Categories: what kind of
 // place trades it (TRADE below). New goods go at the END (the markets' saved stocks are kept by index).
-// (owner, 6/11/2026: "o pão está com valor de venda mais alto que a carne e o couro, sendo que para carne e couro precisa
-// caçar … o pão e o trigo não deveria ter um valor de venda maior que a carne e o couro": wheat 8 → 5, bread 24 → 11 —
-// ≈ 1.15 × its 2 wheat + the fuel, below meat 12 and leather 24; and what a raw good makes never sells for more than buying
-// that raw good costs there: game/eco.js madeCap)
+// (owner, 6/11/2026: "o pão e o trigo não deveria ter um valor de venda maior que a carne e o couro" and then "a batata tá
+// valendo mais a pena ser vendida que o trigo e o pão … deveria apenas ter aumentado o valor da carne e o couro e não ter
+// diminuído do trigo e do pão": wheat 8 (above potato / corn 6), bread 20 (≈ 1.15 × its 2 wheat + the fuel; it was 24),
+// meat 12 → 24 and leather 24 → 30 above them — what is made of leather / meat follows (≈ 1.15 × its recipe); and what a
+// raw good makes never sells for more than buying that raw good costs there: game/eco.js madeCap)
 export const GOODS = [
-  ['wheat', 5, 'food', 60], ['potato', 6, 'food', 50], ['corn', 6, 'food', 50], ['meat', 12, 'food', 40], ['fish_raw', 10, 'food', 30],
-  ['bread', 11, 'food', 30], ['stew', 14, 'food', 12],
-  ['wood', 6, 'raw', 80], ['stone', 5, 'raw', 80], ['cotton', 9, 'raw', 30], ['wool', 12, 'raw', 30], ['leather', 24, 'raw', 20],
+  ['wheat', 8, 'food', 60], ['potato', 6, 'food', 50], ['corn', 6, 'food', 50], ['meat', 24, 'food', 40], ['fish_raw', 10, 'food', 30],
+  ['bread', 20, 'food', 30], ['stew', 21, 'food', 12],
+  ['wood', 6, 'raw', 80], ['stone', 5, 'raw', 80], ['cotton', 9, 'raw', 30], ['wool', 12, 'raw', 30], ['leather', 30, 'raw', 20],
   ['herb', 14, 'raw', 16], ['coal', 12, 'raw', 30],
   ['copper_ore', 14, 'ore', 30], ['iron_ore', 22, 'ore', 30], ['gold_ore', 60, 'ore', 8], ['jade', 140, 'ore', 4],
   ['rope', 2, 'craft', 24], ['cloth', 31, 'craft', 18], ['stone_block', 9, 'craft', 30], ['copper_bar', 40, 'craft', 14],
   ['iron_bar', 55, 'craft', 14], ['steel_bar', 95, 'craft', 6], ['gold_bar', 145, 'craft', 4],
-  ['arrow', 1, 'arms', 120], ['axe_iron', 140, 'tools', 3], ['pickaxe_iron', 205, 'tools', 3], ['sword_iron', 290, 'arms', 3],
-  ['spear_iron', 145, 'arms', 3], ['bow_wood', 30, 'arms', 4], ['shield_iron', 330, 'arms', 2], ['armor_leather', 170, 'arms', 3],
-  ['armor_iron', 690, 'arms', 2], ['helmet_iron', 345, 'arms', 2], ['saddle', 155, 'arms', 2],
-  ['coat_fur', 145, 'cloth', 3], ['hat_fur', 55, 'cloth', 4], ['tunic_cloth', 145, 'cloth', 4],
+  ['arrow', 1, 'arms', 120], ['axe_iron', 140, 'tools', 3], ['pickaxe_iron', 205, 'tools', 3], ['sword_iron', 295, 'arms', 3],
+  ['spear_iron', 145, 'arms', 3], ['bow_wood', 30, 'arms', 4], ['shield_iron', 330, 'arms', 2], ['armor_leather', 210, 'arms', 3],
+  ['armor_iron', 700, 'arms', 2], ['helmet_iron', 350, 'arms', 2], ['saddle', 190, 'arms', 2],
+  ['coat_fur', 180, 'cloth', 3], ['hat_fur', 70, 'cloth', 4], ['tunic_cloth', 145, 'cloth', 4],
   // copper (owner: "falta também a armadura de cobre e ferramentas de cobre")
   ['knife_copper', 55, 'tools', 3], ['axe_copper', 105, 'tools', 3], ['pickaxe_copper', 150, 'tools', 3], ['shovel_copper', 105, 'tools', 3],
-  ['spear_copper', 115, 'arms', 3], ['sword_copper', 220, 'arms', 3], ['shield_copper', 200, 'arms', 2], ['helmet_copper', 210, 'arms', 2],
-  ['armor_copper', 420, 'arms', 2],
+  ['spear_copper', 115, 'arms', 3], ['sword_copper', 225, 'arms', 3], ['shield_copper', 200, 'arms', 2], ['helmet_copper', 220, 'arms', 2],
+  ['armor_copper', 435, 'arms', 2],
 ];
 export const NG = GOODS.length;
 export const GI = Object.fromEntries(GOODS.map((g, i) => [g[0], i])); // item id → good index
@@ -91,10 +92,18 @@ export const REP = { tradeCoins: 60, tradeDayCap: 10, abandon: -3, fail: -2, sei
 
 // ---------- jobs ----------
 export const JOB_MAX = 3; // active jobs per player
-// what a work job hands in at the mural (owner: "quando um trabalho envolve entregar itens, eles deveriam sumir do inventário
-// do jogador, como coletar batata"): a harvest its crop, a wood job its wood — n of them leave the backpack when it is turned
-// in (the plants / trees give at least that); mining and hunting count the work only
-export const jobGood = (j) => (j?.t === 'harvest' ? j.crop : j?.t === 'chop' ? 'wood' : null);
+// what a gathering job is about and hands in at the mural (owner: "os trabalhos de coleta não devem ser cortar x árvores ou
+// colher x trigo/batata/milho, e sim colher/coletar x coisa naquele local ou coletar x madeira e entregar, para que seja
+// removido exatamente do inventário"): the job counts the goods themselves — a harvest its crop (only that many come out of
+// the place's fields for it: game/mut/objects.js gather.hit), a wood / stone job the wood / stone picked up from the trees
+// felled and the stone broken around the place (game/eco.js onOp) — and exactly n of them leave the backpack when it is
+// turned in; hunting and defence count the work only
+export const jobGood = (j) => (j?.t === 'harvest' ? j.crop : j?.t === 'chop' ? 'wood' : j?.t === 'mine' ? 'stone' : null);
+// a field plant's yield of its crop for a harvest job (clipped to what the job still needs); plants needed for n of the crop
+export const CROP_YIELD = { wheat: [1, 2], potato: [1, 2], corn: [1, 2], cotton: [2, 3] };
+export const plantsFor = (crop, n) => { const [a, b] = CROP_YIELD[crop] || [1, 2]; return Math.ceil(n / ((a + b) / 2)); };
+// the goods of a gathering job in its texts (a count before them)
+export const JOB_PL = { wheat: 'trigo', potato: 'batatas', corn: 'milho', cotton: 'algodão', wood: 'madeiras', stone: 'pedras' };
 export const JOB_KINDS = {
   harvest: { name: 'Colheita', icon: '🌾' },
   mine: { name: 'Mina', icon: '⛏️' },
