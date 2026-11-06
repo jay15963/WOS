@@ -17,6 +17,7 @@ import { dist, faceTowards, hasLOS, reach, lootable, facingVec } from './combat.
 import { aggro, aggroRadius, evade, go, fleeDir, tickStatus, pickWander, pickTarget } from './ai.js';
 import { enterCombat } from './player.js';
 import { fireArrow } from './projectiles.js';
+import { npcLongShot } from './npcLob.js'; // (the archers' Tiro Longo)
 import { allocMob, levelForDistance } from './mobs.js';
 import { walkerBrain } from './walkers.js';
 import { giantChase } from './giants.js'; // ice giants: their own fight (smash / thrown rocks)
@@ -395,6 +396,9 @@ function archer(game, m, p, d, dt) {
     return;
   }
   if (d > 9 || !see) {
+    // the Tiro Longo (npcLob.js): a player out of its plain shot or behind a wall, within the bow's lob range — the same
+    // victims as its arrows (players, the settlements' people); the town's own archers are npc.js'
+    if (m.faction !== 'town' && npcLongShot(game, m, p, { direct: 9, dmg: m.dmg * (0.85 + Math.random() * 0.3), faction: 'bandit', canHit: (e) => e === game.player || !!e.avatar || !!(e.remote && e.pid) || !!e.npc, onHit: (g, e, amount, o) => hurtPlayer(g, m, e, amount, o) })) return;
     const dir = steer(game, m, p.x, p.y, dt, sp.speed, 4.5);
     go(game, m, dir, sp.speed, dt);
     return;

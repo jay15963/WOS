@@ -26,6 +26,15 @@ const STEP = 0.22;          // collision sub-step (tiles)
 const STUCK_LIFE = 5;       // seconds a stuck arrow stays visible
 const H0 = 0.8;             // release height (bow / shoulder)
 
+// at most MAXP in the air / on the ground: the oldest stuck ones go first, so a shot still flying keeps flying (a lob
+// resolves its hit when it lands — a big battle's arrows must not drop it in mid-air)
+const MAXP = 80;
+function trim(P) {
+  if (P.length <= MAXP) return;
+  for (let i = 0; i < P.length && P.length > MAXP;) { if (P[i].stuck) P.splice(i, 1); else i++; }
+  if (P.length > MAXP) P.splice(0, P.length - MAXP);
+}
+
 export function fireArrow(game, o) {
   const P = game.projectiles || (game.projectiles = []);
   let ux = o.tx - o.x, uy = o.ty - o.y;
@@ -47,7 +56,7 @@ export function fireArrow(game, o) {
   if (game.world.hasHeight) { pr.g0 = o.src?._tn != null ? o.src._tn : game.world.heightAt(o.x, o.y); pr.g1 = o.target?._tn != null ? o.target._tn : game.world.heightAt(o.tx, o.ty); } // (tunnels: a body's floor)
   pr.pz = pr.z0;
   P.push(pr);
-  if (P.length > 80) P.splice(0, P.length - 80);
+  trim(P);
   if (!pr.cosmetic) {
     const net = game.net, args = [pr.kind, +o.x.toFixed(2), +o.y.toFixed(2), +o.tx.toFixed(2), +o.ty.toFixed(2), +(o.angle || 0).toFixed(3), speed, maxD, pr.faction, +pr.h1.toFixed(2)];
     if (pr.z0 || pr.z1) args.push(Math.round(pr.z0 * 100), Math.round(pr.z1 * 100)); // levels: heights (trailing, ×100)
@@ -86,7 +95,7 @@ export function fireLob(game, o) {
     g0: game.world.hasHeight ? game.world.heightAt(o.x, o.y) : 0, gd: 0, // terrain height: from the ground under the thrower
   };
   P.push(pr);
-  if (P.length > 80) P.splice(0, P.length - 80);
+  trim(P);
   return pr;
 }
 

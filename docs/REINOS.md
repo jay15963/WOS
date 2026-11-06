@@ -1607,13 +1607,32 @@ cada fase e a cada 6 s. Sem `game.realms` nada entra em guerra.
   O laço principal (`main.js loopFault`) faz o mesmo com `update` / `render`. (O "congelou uns 4 s com os monstros dentro
   do castelo" do dono não se repetiu no Chrome headless — 38 monstros na praça, quadros de 6–7 ms; a hipótese é um erro
   que derrubava o laço, agora isolado; o SK6 vigia.)
+- **Os arqueiros NPC também usam o Tiro Longo** (pedido do dono; `game/npcLob.js npcLongShot`, só no anfitrião): o mesmo
+  voo e a mesma dispersão do jogador (`content/weapons.js lobSpec / lobScatter / lobFlight`, o ponto de queda sorteado no
+  anfitrião, o alvo em movimento adiantado pelo tempo de voo); o convidado vê o arco pelo fx de sempre (`['proj', id,
+  'lob', …]`, sem dono; `['pend', …]` quando acerta). **Quando**: o inimigo além do tiro simples do arqueiro e dentro do
+  alcance do tiro longo (arco simples 18 tiles, arco composto 22, × `heightK` lá de cima de uma muralha) **ou** sem linha
+  de tiro (por cima de uma paliçada / muralha num cerco: os atacantes por cima dos muros, os defensores nos que chegam de
+  longe). **Condições**: céu aberto sobre o arqueiro (`roofAtPoint`), a recarga de cada um = a do jogador (3 s, × 0,9–1,2),
+  a animação de atirar. **Dano** = o da flecha simples × 1,3 + 2. **Na queda** acerta só os inimigos de quem atirou (o
+  mesmo `canHit` das flechas dele: nunca o próprio lado); caindo numa muralha / rocha / telhado não acerta ninguém.
+  Ligado nos soldados (`soldier.js`: batalhas, cercos, exércitos, a escaramuça — `pickFoe` aceita o inimigo atrás do muro
+  dentro do alcance do tiro longo; sem linha, o arqueiro espera o próximo tiro longo em vez de cravar flecha na paliçada)
+  e nos saqueadores / esqueletos arqueiros (`bandits.js archer()`: tiro simples até 9 tiles). Os arqueiros das vilas
+  (`npc.js`) usam o mesmo `npcLongShot` (API no cabeçalho do módulo). Os soldados atiram simples até 19 tiles
+  (`WAR.archer.range`), mais que o tiro longo do arco simples: o deles aparece por cima de muros e, com arco composto, de
+  19 a 22 tiles. `projectiles.js` guarda no máximo 80 projéteis e agora descarta primeiro os cravados — num cerco grande
+  um tiro longo no ar não some antes de cair.
 - **Textos de combate só de quem joga** (`ui/overlay.js`): acerto, erro, esquiva, imune, cura e "Atrás da parede" só
   aparecem quando o jogador local está envolvido (ele, o bicho dele, o projétil dele) — numa batalha de 200 soldados a tela
   não se enche de "Bloqueado".
 - **Testes**: CB1 (a fila no jogo normal: lobo antes do cervo mais perto, o cervo quando não há hostil, nunca guarda ou
   morador; o mesmo no convidado), CB2 (golpe do jogador, mordida do lobo e golpe do convidado através da paliçada não
-  fazem nada; lado a lado acertam), SK2 (soldado do outro lado na fila, do próprio lado nunca), SK6 (40 monstros dentro de
-  um castelo por 30 s: o relógio segue, p95 < 40 ms, sem falha de sistema).
+  fazem nada; lado a lado acertam), CB3 (um saqueador arqueiro com o convidado a 15 tiles em campo aberto: o tiro longo
+  no anfitrião, o arco no convidado, o convidado ferido, um por recarga), SK2 (soldado do outro lado na fila, do próprio
+  lado nunca), SK6 (40 monstros dentro de um castelo por 30 s: o relógio segue, p95 < 40 ms, sem falha de sistema), SK7
+  (cerco da paliçada: os arqueiros atacantes atiram por cima dela, o convidado vê os arcos, o tiro longo fere o inimigo
+  e nunca o soldado do próprio lado ao lado dele).
 
 ### Testes e prints
 

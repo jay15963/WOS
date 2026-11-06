@@ -11549,6 +11549,113 @@ def('SK6', {
   frames.close(S);
 });
 
+// the NPC long shot (game/npcLob.js — the player's Tiro Longo for the creatures' archers): a raider archer in the open
+def('CB3', {
+  title: 'CB: a raider archer\'s Tiro Longo — the guest 15 tiles away in the open (out of its plain shot): a lob on the host, the arc on the guest, the guest hurt',
+  src: 'village', timeout: 150000,
+  expected: 'A bandit camp\'s archer (a wood bow: plain shots up to 9 tiles, the lob up to 18) held at its post, angry with the guest standing 15 tiles away in the open with a clear line (the host far away): the archer lobs (the host flies a lob projectile, faction bandit, from the archer, the shoot animation), the guest sees the same arc (a cosmetic lob with the host\'s id, no owner), one of the lobs lands on the guest (damage on the guest\'s own client, ability long_shot), the next one only after its cool-down (≥ 2,7 s); never on the host; digest equal',
+  api: 'game/npcLob.js npcLongShot (lobSpec / lobScatter / lobFlight, fireLob, fx proj lob / pend), bandits.js archer()',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const archers = [];
+  for (const c of H.game.camps || []) for (const m of c.members || []) if (m.role === 'archer' && !m.dead && m.weapon === 'bow_wood') archers.push(m);
+  const sp = spawnOf(H);
+  archers.sort((a, b) => Math.hypot(a.x - sp.x, a.y - sp.y) - Math.hypot(b.x - sp.x, b.y - sp.y));
+  t.need(archers.length, 'a bandit archer with a wood bow');
+  const ar = archers[0];
+  let spot = null;
+  for (let k = 0; k < 24 && !spot; k++) {
+    const a = (k / 24) * Math.PI * 2, s = A.freeSpot(G, MG, ar.x + Math.cos(a) * 15, ar.y + Math.sin(a) * 15, { rMin: 0, rMax: 0.8 });
+    if (s && Math.abs(Math.hypot(s[0] - ar.x, s[1] - ar.y) - 15) < 1 && MG.combat.hasLOS(G.game.world, s[0], s[1], ar.x, ar.y) && !G.game.world.roofAtPoint(ar.x, ar.y)) spot = s;
+  }
+  t.need(spot, 'open ground 15 tiles from the archer with a clear line');
+  const away = A.freeSpot(H, MH, ar.x - 45, ar.y, { rMin: 0, rMax: 6 }) || [ar.x - 45, ar.y];
+  A.teleport(H, away[0], away[1]);
+  A.teleport(G, spot[0], spot[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => A.authAvatarOn(H, G.pid) && Math.hypot(A.authAvatarOn(H, G.pid).x - spot[0], A.authAvatarOn(H, G.pid).y - spot[1]) < 1, RT() + 4000, 'the host sees the guest there');
+  // the archer at its post, angry with the guest (it would walk up to its plain range between lobs: held here)
+  const home = [ar.x, ar.y], gav = () => A.authAvatarOn(H, G.pid);
+  const hold = setInterval(() => { if (ar.dead) return; ar.x = home[0]; ar.y = home[1]; ar.state = 'chase'; ar.threat = gav(); ar.lastCombatT = H.game.worldTime; ar.kiting = 0; ar.specialT = 99; ar.hp = ar.maxHp; }, 50);
+  t.defer(() => { clearInterval(hold); ar.state = 'idle'; ar.threat = null; });
+  const lobsH = [], seenG = new Set(), hitG = [], hitH = [], acts = [];
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) if (pr.lob && !pr.cosmetic && pr.src === ar && pr.id && !lobsH.some((l) => l.id === pr.id)) lobsH.push({ id: pr.id, t: H.game.worldTime, d: Math.hypot(pr.lx - spot[0], pr.ly - spot[1]), faction: pr.faction });
+    for (const pr of G.game.projectiles || []) if (pr.lob && pr.cosmetic && pr.id && !pr.owner) seenG.add(pr.id);
+    if (ar.action?.type) acts.push(ar.action.type);
+  }, 30);
+  t.on(G, 'damage', (d) => { if (d.target === G.game.player && d.amount > 0 && d.ability === 'long_shot') hitG.push(d.amount); });
+  t.on(H, 'damage', (d) => { if (d.target === H.game.player && d.amount > 0) hitH.push(d.amount); });
+  await t.waitFor(() => lobsH.length >= 1, 10000, 'the archer lobs at the guest 15 tiles away (a lob projectile on the host)', () => `state ${ar.state} · d ${f2(Math.hypot(ar.x - gav()?.x, ar.y - gav()?.y))} · swingT ${f2(ar.swingT)}`);
+  t.check(lobsH[0].faction === 'bandit' && acts.includes('shoot'), 'from the archer, with the shoot animation', `${lobsH[0].faction} · ${[...new Set(acts)].join(',')}`);
+  await t.waitFor(() => seenG.has(lobsH[0].id), RT() + 3000, 'the guest sees the same arc (cosmetic lob, the host\'s id, no owner)');
+  await t.waitFor(() => hitG.length >= 1, 25000, 'a long shot lands on the guest (damage on its own client)', () => `${lobsH.length} lobs · landed ${lobsH.map((l) => f2(l.d)).join(' ')} tiles from the guest`);
+  const gaps = lobsH.slice(1).map((l, i) => l.t - lobsH[i].t);
+  t.check(gaps.every((g) => g >= 2.6), 'one lob per cool-down (≈ 3 s)', gaps.map(f2).join(' ') || 'one lob');
+  t.check(!hitH.length, 'nothing on the host');
+  t.metric('raiderLob', { lobs: lobsH.length, hits: hitG.length, dmg: hitG.slice(0, 4), landed: lobsH.map((l) => +l.d.toFixed(2)) });
+  await t.checkDigest(H, G);
+});
+
+def('SK7', {
+  title: 'SK: the soldiers\' Tiro Longo — the attackers\' archers lob over the palisade (the guest sees the arcs), a long shot hurts the foe and never its own side',
+  timeout: 300000,
+  expected: 'Siege of the palisade village, 160 soldiers at 50 % (both players defend). The attackers\' archers, outside with the defenders behind the logs (no line of fire), lob over the palisade: a lob from outside the wall line landing inside, flown by the host (faction army) and seen on the guest (a cosmetic lob with the same id, no owner). Out in the open beside the camp, an attacker archer and, 15 tiles from it, a defender with a soldier of the archer\'s own side right next to it (all held still): six long shots (npcLongShot) — the defender is hurt (ability long_shot), the archer\'s own soldier never; over the whole fight no long shot of a soldier hurts its own side; digest equal',
+  api: 'game/npcLob.js npcLongShot / lobReach / lineOfFire, soldier.js soldierBrain (archer) / pickFoe (lobR) / arrowHits / hitFoe, projectiles.js fireLob, fx proj lob / pend',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  const MH = await A.mods(H);
+  const NL = await fimp(H, 'game/npcLob.js'), SO = await fimp(H, 'game/soldier.js');
+  await skLobby(t, P, { mode: 'siege', place: 'palisade', total: 160, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'archer' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 90000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const M = skSt(H).match, s = realmOf(H).settlements[M.sid], W = H.game.world, per = H.game.townDefense.perimeter(M.sid);
+  // the guest just inside the wall on the attackers' side (the arcs come down near it: in its interest)
+  { const q = A.freeSpot(G, await A.mods(G), s.x + M.dir[0] * (per.A - 4), s.y + M.dir[1] * (per.A - 4), { rMin: 0, rMax: 4 }); if (q) A.teleport(G, q[0], q[1]); }
+  const lobs = new Map(), seenG = new Set(), dmg = [];
+  t.watch(() => {
+    for (const pr of H.game.projectiles || []) if (pr.lob && !pr.cosmetic && pr.src?.soldier && pr.id && !lobs.has(pr.id)) lobs.set(pr.id, { k: pr.src.soldier.k, faction: pr.faction, over: !per.inside(pr.x0, pr.y0, W) && per.inside(pr.lx, pr.ly, W) });
+    for (const pr of G.game.projectiles || []) if (pr.lob && pr.cosmetic && pr.id && !pr.owner) seenG.add(pr.id);
+  }, 40);
+  t.on(H, 'damage', (d) => { if (d.ability === 'long_shot' && d.src?.soldier && d.amount > 0) dmg.push({ src: d.src, tgt: d.target, k: d.src.soldier.k, tk: d.target?.soldier?.k ?? null }); });
+  await t.waitFor(() => [...lobs.values()].some((l) => l.k === M.ka && l.over), 150000, 'an attacker\'s archer lobs over the palisade (from outside the wall line to inside)', () => `${lobs.size} soldier lobs · ${H.game.warfare.forces.get(skDbg(H).forces.siege?.id)?.phase}`);
+  const overIds = [...lobs.entries()].filter(([, l]) => l.k === M.ka && l.over).map(([id]) => id);
+  t.check([...lobs.values()].every((l) => l.faction === 'army'), 'flown by the host as army shots', [...new Set([...lobs.values()].map((l) => l.faction))].join(','));
+  await t.waitFor(() => [...lobs.entries()].some(([id, l]) => l.k === M.ka && l.over && seenG.has(id)), RT() + 20000, 'the guest sees an arc over the palisade (cosmetic lob, the same id, no owner)', () => `${overIds.length} over · guest saw ${seenG.size}`);
+  // the own side: an attacker archer, 15 tiles from it a defender with an attacker right next to it (held still, open ground)
+  const ar = soldiersOf(H, M.ka).find((m) => m.soldier.role === 'archer' && m.weapon && m.z < 0.5);
+  const foe = soldiersOf(H, M.kb).find((m) => m.soldier.role !== 'archer' && m.soldier.role !== 'general' && m.z < 0.5);
+  const own = soldiersOf(H, M.ka).find((m) => m !== ar && m.soldier.role !== 'archer' && m.soldier.role !== 'general' && m.soldier.role !== 'eng' && m.z < 0.5 && !m.job);
+  t.need(ar && foe && own, 'an attacker archer, a defender and another attacker');
+  const ox = s.x + M.dir[0] * (s.r + 46), oy = s.y + M.dir[1] * (s.r + 46), nx = -M.dir[1], ny = M.dir[0];
+  const a0 = A.freeSpot(H, MH, ox, oy, { rMin: 0, rMax: 6, r: 0.36 });
+  const b0 = a0 && A.freeSpot(H, MH, a0[0] + nx * 15, a0[1] + ny * 15, { rMin: 0, rMax: 2, r: 0.36 });
+  t.need(a0 && b0 && MH.combat.hasLOS(W, a0[0], a0[1], b0[0], b0[1]) && !W.roofAtPoint(a0[0], a0[1]), 'open ground beside the camp (15 tiles, a clear line)');
+  const at = new Map([[ar, a0], [foe, b0], [own, [b0[0] + 0.32, b0[1] + 0.1]]]);
+  const hold = setInterval(() => { for (const [m, q] of at) if (!m.dead) { m.x = q[0]; m.y = q[1]; m.vx = m.vy = 0; m.moving = false; if (m !== ar) { m.stunT = 5; m.hp = Math.max(m.hp, m.maxHp * 0.9); } } }, 40);
+  t.defer(() => clearInterval(hold));
+  foe.maxHp = Math.max(foe.maxHp, 5000); own.maxHp = Math.max(own.maxHp, 5000);
+  await t.sleep(300);
+  const d0 = dmg.length;
+  let fired = 0;
+  for (let k = 0; k < 400 && fired < 6; k++) {
+    if (NL.npcLongShot(H.game, ar, foe, { force: true, dmg: Math.max(4, ar.dmg), canHit: SO.arrowHits(H.game, ar), onHit: (g, e, amount, o) => SO.hitFoe(g, ar, e, amount, o) })) fired++;
+    await t.sleep(100);
+  }
+  await t.sleep(2500); // (the last one lands)
+  const mine = dmg.slice(d0).filter((d) => d.src === ar);
+  t.check(fired >= 6, 'six long shots at the defender 15 tiles away', fired);
+  t.check(mine.some((d) => d.tgt === foe), 'the defender is hurt by them (ability long_shot)', `${mine.length} hits · ${mine.map((d) => (d.tgt === foe ? 'foe' : d.tgt === own ? 'OWN' : d.tgt?.name || '?')).join(',')}`);
+  t.check(!mine.some((d) => d.tgt === own), 'never the archer\'s own soldier right beside it');
+  t.check(!dmg.some((d) => d.tk != null && d.tk === d.k), 'over the whole fight no long shot of a soldier hurt its own side', `${dmg.length} long-shot hits`);
+  t.metric('soldierLobs', { lobs: lobs.size, over: overIds.length, seenG: seenG.size, hits: dmg.length, forced: { fired, hits: mine.length } });
+  clearInterval(hold);
+  for (const m of [foe, own]) m.stunT = 0;
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

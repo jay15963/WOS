@@ -152,7 +152,7 @@ escolher a arena no lobby (a planta do lugar, uma vez). Uma onda de monstros nun
 
 ## Testes
 
-`tools/mp-test.js` **SK1–SK6** (`?run=SK1,SK2,SK3,SK4,SK5,SK6`; o par é uma sala de escaramuça própria, sem `?nosave`):
+`tools/mp-test.js` **SK1–SK7** (`?run=SK1,SK2,SK3,SK4,SK5,SK6,SK7`; o par é uma sala de escaramuça própria, sem `?nosave`):
 SK1 o lobby com dois jogadores (lados, classes, pronto, as configurações do anfitrião nos dois, o convidado não muda a
 partida, "Iniciar partida" espera todos, na defesa todos defendem) e nada escrito nos saves de sobrevivência · SK2
 batalha em campo 200 a 30 % (60 / 140 nas duas forças), o espadachim e o arqueiro com o equipamento certo e nível 12, os
@@ -165,8 +165,10 @@ de vivos, marcham sobre o lugar sem se desfazer; a onda destruída → o resulta
 botão no menu abre a arena e o lobby, "Abrir para amigos" abre a sala ali (a escolha segue o novo id), um cerco de
 castelo começa (força de cerco + guarnição, o placar) e volta ao lobby · SK6 defesa de um castelo (300 a 70 %) com 40
 monstros postos dentro dos muros em volta da praça por 30 s: o relógio do mundo segue, nenhum quadro acima de 1,5 s, p95
-abaixo de 40 ms, nenhuma falha de sistema nem erro solto, os defensores derrubam monstros. Todos terminam com o digest
-igual. As regras gerais pedidas no teste do dono têm testes no jogo normal: **CB1** (a fila da mira) e **CB2** (golpe
+abaixo de 40 ms, nenhuma falha de sistema nem erro solto, os defensores derrubam monstros · SK7 cerco da paliçada (160 a
+50 %): um arqueiro atacante atira o tiro longo de fora para dentro da paliçada, o convidado vê o arco; seis tiros longos
+num defensor a 15 tiles com um soldado do próprio lado do arqueiro colado nele — o defensor ferido, o do próprio lado
+nunca, nem em toda a luta. Todos terminam com o digest igual. As regras gerais pedidas no teste do dono têm testes no jogo normal: **CB1** (a fila da mira) e **CB2** (golpe
 através da paliçada) — docs/REINOS.md §14 "Mira automática, golpes e paredes, caminhos".
 
 ## Depois do teste do dono (valem para o jogo todo — docs/REINOS.md §14)
@@ -184,6 +186,11 @@ através da paliçada) — docs/REINOS.md §14 "Mira automática, golpes e pared
   o foco da defesa ficam com o trabalho dos ataques de inverno.
 - **Textos flutuantes** (acerto, erro, imune, cura, "Bloqueado"…) só quando o jogador local está envolvido; as plaquinhas
   da onda só do alvo, de quem luta comigo, do mouse e dos gigantes.
+- **Os arqueiros NPC usam o Tiro Longo** (`game/npcLob.js`, o mesmo voo / dispersão / dano × 1,3 + 2 do jogador, só os
+  inimigos de quem atirou): no cerco os atacantes atiram por cima da paliçada / muralha e os defensores nos que chegam de
+  longe; recarga de 3 s cada. Os soldados da escaramuça têm arco simples (tiro longo 18 tiles) e atiram simples até 19:
+  em campo aberto quase só o tiro simples, o tiro longo aparece quando não há linha de tiro. Testes SK7 (escaramuça) e
+  CB3 (jogo normal, saqueador).
 
 ## Prints
 

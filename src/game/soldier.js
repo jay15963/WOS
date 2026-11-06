@@ -27,6 +27,7 @@ import { allocMob } from './mobs.js';
 import { weaponProfile, offhandProfile, equipArmor } from './content/weapons.js';
 import { dealDamage, faceTowards, reach, hasLOS, meleeWall } from './combat.js';
 import { fireArrow } from './projectiles.js';
+import { npcLongShot, lobReach, lineOfFire } from './npcLob.js'; // (the archers' Tiro Longo)
 import { facingFrom } from './physics.js';
 import { stepGait } from './anim.js';
 import { hurtPlayer, allPlayers, inAnyView } from './players.js';
@@ -401,8 +402,9 @@ export function shoot(game, m, f, rangeK = 1) {
   return true;
 }
 // the foe a soldier fights now among `list` (+ the players it is angry with): the nearest within r, on its own story
-// for melee; an archer: within its range with a line of fire (checked when picked)
-export function pickFoe(game, m, list, r, archer = false, sameSide = null) {
+// for melee; an archer: within its range with a line of fire (checked when picked) — or, behind a wall / a palisade,
+// within `lobR` (its long shot goes over: npcLob.js)
+export function pickFoe(game, m, list, r, archer = false, sameSide = null, lobR = 0) {
   let best = null, bd = r * r;
   const z = m.z || 0;
   const consider = (e) => {
@@ -416,7 +418,7 @@ export function pickFoe(game, m, list, r, archer = false, sameSide = null) {
   };
   for (const e of list) consider(e);
   if (m.pfoe && m.pfoe.until > game.worldTime) consider(m.pfoe.e);
-  if (best && archer && !hasLOS(game.world, m.x, m.y, best.x, best.y, z, best.z || 0, m._tn, best._tn)) return null;
+  if (best && archer && !hasLOS(game.world, m.x, m.y, best.x, best.y, z, best.z || 0, m._tn, best._tn)) return lobR > 0 && bd <= lobR * lobR ? best : null;
   return best;
 }
 // hurt by something (ai.js aggro → game.warfare.onHurt): a player who may hurt it becomes its foe for a while; a soldier
@@ -444,8 +446,9 @@ export function soldierBrain(game, F, m, dt) {
   const eng = m.job ? m.job.eng ?? 0 : O.eng ?? (O.k === 'slot' || O.k === 'hold' ? (archer ? WAR.archer.range : 5) : O.k === 'flow' ? 8 : O.k === 'hunt' ? 40 : O.k === 'wall' ? 7 : 0); // (busy with an engine / a climb: only what is right on it)
   if (m.scanT <= 0 || (m.foe && m.foe.dead)) {
     m.scanT = 0.32 + (m.id % 5) * 0.04;
-    let f = m.foe && !m.foe.dead && isFoe(game, m, m.foe) && Math.hypot(m.foe.x - m.x, m.foe.y - m.y) < Math.max(eng, 3) + 3 ? m.foe : null;
-    if (!f && (eng > 0 || m.pfoe)) f = pickFoe(game, m, F.foes || EMPTY, Math.max(eng, m.pfoe ? 9 : 0), archer, O.side || null);
+    const lr = archer && eng > 0 ? lobReach(game, m) : 0; // (an archer's long shot: farther, and over walls — npcLob.js)
+    let f = m.foe && !m.foe.dead && isFoe(game, m, m.foe) && Math.hypot(m.foe.x - m.x, m.foe.y - m.y) < Math.max(eng, lr, 3) + 3 ? m.foe : null;
+    if (!f && (eng > 0 || m.pfoe)) f = pickFoe(game, m, F.foes || EMPTY, Math.max(eng, lr, m.pfoe ? 9 : 0), archer, O.side || null, lr);
     // (busy with an engine / a climb: only fights back what is right on it)
     if (f && eng <= 0 && Math.hypot(f.x - m.x, f.y - m.y) > 2.2 && !(m.pfoe && m.pfoe.e === f)) f = null;
     m.foe = f; m.threat = f;
@@ -456,8 +459,12 @@ export function soldierBrain(game, F, m, dt) {
     if (O.leash && Math.hypot(m.x - O.x, m.y - O.y) > O.leash && Math.hypot(f.x - O.x, f.y - O.y) > O.leash) { m.foe = null; m.state = 'idle'; }
     else if (archer) {
       const d = Math.hypot(f.x - m.x, f.y - m.y), rng = WAR.archer.range * heightK(m, f) * (O.rangeK || 1);
+      // the Tiro Longo (npcLob.js): a foe beyond its plain shot, or one behind a wall / a palisade — only its foes are hit
+      if (npcLongShot(game, m, f, { direct: rng, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'army', canHit: arrowHits(game, m), onHit: (g, e, amount, o) => hitFoe(g, m, e, amount, o) })) return;
+      const lr = d >= 4 ? lobReach(game, m, f) : 0;
+      if (lr >= d && d <= rng && !lineOfFire(game, m, f)) { faceTowards(m, f); m.moving = false; return; } // (behind a wall: the next long shot, not an arrow into the logs)
       if (d > rng || d < 1.2) {
-        if (O.k === 'wall' || O.k === 'hold' || O.k === 'slot') { if (d > rng * 1.15) { m.foe = null; } else { faceTowards(m, f); m.moving = false; return; } }
+        if (O.k === 'wall' || O.k === 'hold' || O.k === 'slot') { if (d > Math.max(rng * 1.15, lr)) { m.foe = null; } else { faceTowards(m, f); m.moving = false; return; } }
         else { const s = stepTo(game, m, f.x, f.y, WAR.speed.walk, dt, rng * 0.85); if (s === 'stuck') unstick(game, m, f.x, f.y); return; }
       } else { m.moving = false; shoot(game, m, f, O.rangeK || 1); return; }
     } else if (melee(game, m, f, dt)) return;
