@@ -16,7 +16,7 @@ import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs 
 import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
-  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf,
+  rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf, jobReason,
 } from '../eco.js';
 
 const num = (v, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -443,6 +443,8 @@ defineIntent('job.take', {
     if (r?.jobs.some((q) => q.id === j.id)) return 'Você já aceitou este trabalho';
     if (r?.done.includes(j.id)) return 'Você já fez este trabalho';
     if ((r?.jobs.length || 0) >= JOB_MAX) return `No máximo ${JOB_MAX} trabalhos ao mesmo tempo`;
+    const cant = jobReason(game, j, true); // (the fields harvested, the trees / stone around gone: game/eco.js)
+    if (cant) return cant;
     net.emit('eco.job', { u, add: j, by: actor.pid, give: j.t === 'deliver' ? { [PARCEL]: j.n } : undefined, toast: `Trabalho aceito: ${j.title}`, toastKind: 'info' });
   },
 });

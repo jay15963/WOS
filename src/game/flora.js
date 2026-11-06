@@ -17,6 +17,7 @@ import { inAnyView, minPlayerDist } from './players.js';
 import { footprint } from './autotile.js';
 import { fertileAt } from '../world/soil.js';
 import { seasonAt } from './seasons.js';
+import { isFieldCropId } from '../world/realm/ground.js'; // (the settlements' field plants: not wild flora — the farmers replant them, game/fields.js)
 
 export { removeNatural, makeFloraObject, noGrowStamp } from './mut/objects.js';
 export { TREE_SOLID, SAPLING_GROW, NOGROW_R };
@@ -46,7 +47,7 @@ export function initFlora(game) {
   const F = game.flora = { chunks: new Map(), keys: [], dyn: new Map(), t: 0, ci: 0, growing: new Set(), safetyT: 60, totals: {} };
   const loaded = [];
   for (let c = 0; c < NCH; c++) if (w.isLoaded(c)) loaded.push(c);
-  for (const c of loaded) w._forBucketsOf(c, (bk) => { for (const o of bk.objects) if (FLORA_SET.has(o.type) && w.inBounds(Math.floor(o.x), Math.floor(o.y - 0.05))) F.totals[o.type] = (F.totals[o.type] || 0) + 1; });
+  for (const c of loaded) w._forBucketsOf(c, (bk) => { for (const o of bk.objects) if (FLORA_SET.has(o.type) && !isFieldCropId(o.id) && w.inBounds(Math.floor(o.x), Math.floor(o.y - 0.05))) F.totals[o.type] = (F.totals[o.type] || 0) + 1; });
   for (const c of loaded) floraChunk(game, c);
   w.onLoad.push((c) => { if (game.flora === F) floraChunk(game, c); });
   w.onEvict.push((c) => {
@@ -69,7 +70,7 @@ function floraChunk(game, c) {
     const tmplKey = (i) => w.biome.get(i) * 16 + w.ground.get(i);
     const bk = w.bk[k];
     if (bk) for (const o of bk.objects) {
-      if (!FLORA_SET.has(o.type)) continue;
+      if (!FLORA_SET.has(o.type) || isFieldCropId(o.id)) continue; // (a field's plants: replanted by the place's farmers)
       const tx = Math.floor(o.x), ty = Math.floor(o.y - 0.05);
       if (!w.inBounds(tx, ty)) continue;
       ch.target[o.type] = (ch.target[o.type] || 0) + 1;
@@ -165,7 +166,7 @@ function trySpawn(game, k, kind) {
 function countChunk(c) {
   const n = {};
   for (const o of c.objects) {
-    if (!FLORA_SET.has(o.type) || o.stump || o.fall) continue;
+    if (!FLORA_SET.has(o.type) || o.stump || o.fall || isFieldCropId(o.id)) continue;
     n[o.type] = (n[o.type] || 0) + 1;
   }
   return n;
@@ -221,11 +222,15 @@ export function ensureStarter(game, offscreen = false) {
 
 // Natural objects standing on a player structure's footprint (a newer world generator may grow a plant where
 // an old save has a building): removed once after load by the authority (one obj.remove op, 'clear' fx).
+// Never a settlement's own pieces (o.town): they come from the seed together with their ground — the crops planted on the
+// fields' farm plots are meant to be there (world/realm/ground.js; this used to empty the fields of every place made at
+// load: the start village's harvest jobs had nothing to harvest — docs/REINOS.md §10 "Trabalhos possíveis")
 export function clearUnderStructures(game) {
   const S = game.build?.structures;
   if (!S || !S.length) return 0;
   const w = game.world, ids = new Set();
   for (const s of S) {
+    if (s.town != null) continue;
     const tiles = footprint(s);
     if (!tiles.length) continue;
     const key = new Set(tiles.map(([x, y]) => x + ',' + y));
