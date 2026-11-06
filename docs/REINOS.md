@@ -1883,11 +1883,12 @@ o sino não repete o aviso), `npc.js` / `towns.js` (o povo não conserta nem ref
   (vida, dano, ritmo da arma e golpes especiais, armadura de cada um contra o nível do outro) para que, **na luta ao vivo
   medida**, um monstro valha ~2/3 de um guarda corpo a corpo do lugar. Assim a batalha é igual perto do início e na borda
   do mundo: a guarda vence, mas perde gente (uma vila de 8 guardas perde 1–2). Os números: no modelo de rodadas um guarda
-  vale `par` = 3,5 (vila) / 3,4 (castelo) / 3,6 (cidade) monstros, e os mortos batem ×2,3 o que esse modelo previa
-  (`RAID.eff`, medido ao vivo — abaixo).
-- **A horda** (o raro): em **5,8 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
-  guarda, nunca mais que ela), cada um mais forte (vida e dano: vila ×1,35, castelo ×1,95, cidade ×2), o gigante vem mais
-  vezes. O aviso diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
+  vale `par` = 2,6 monstros, com o modelo ajustado ao que a luta ao vivo mostrou (`RAID.eff`: os mortos batem ×1,3, um
+  terço dos arqueiros tem a onda no alcance, os mortos na brecha batem nos primeiros guardas — `RAID.focus`; medido em WA6,
+  abaixo).
+- **A horda** (o raro): em **6 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
+  guarda, nunca mais que ela), cada um mais forte (vida e dano: vila ×1,35, castelo ×1,65, cidade ×1,6), o gigante vem
+  mais vezes. O aviso diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
 - **A defesa cai** (op `raid.fall`) quando sobra 1/4 dos guardas de corpo a corpo (vila: 1) e ainda há 2+ monstros de pé:
   "A defesa de X caiu! Os mortos invadem as ruas". A noite está perdida; os mortos andam pelas ruas até morrerem ou o dia
   nascer.
@@ -2003,10 +2004,12 @@ PRINTS
 
 - **Frequência**: 60 % das noites ruins de cada lugar (polar 35 %), hora e lado sorteados — o inverno fica perigoso sem
   ser toda noite em todo lugar.
-- **A fúria**: os mortos de uma onda são mais fortes que os soltos (vida e dano × 0,75–3,2, para valerem 1/1,5 de um
-  guarda do lugar). Sem isso a guarda (×1,6 vida, ×1,5 dano, ferro) esmagaria qualquer onda menor que ela sem perder
+- **A fúria**: os mortos de uma onda têm vida e dano ajustados ao lugar (× 0,75–3,2): perto do início um pouco menos que os
+  soltos, longe ~1,4× — senão a guarda (×1,6 vida, ×1,5 dano, ferro) esmagaria qualquer onda menor que ela sem perder
   ninguém. Um jogador que luta com a onda sente isso.
-- **A horda** é o "raro" do dono: 5,8 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
+- **A horda** é o "raro" do dono: 6 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
+- **O alarme até a ameaça ser neutralizada** (apontamento do dono): 30 tiles além da terra do lugar e 40 s de memória
+  depois do último ataque / aproximação de cada monstro; os arqueiros andam pelo adarve atrás de alcance (§11).
 - **Uma noite perdida** mata no máximo 22 % dos moradores e arromba 2–5 casas; a guarda pode cair quase toda (volta em
   1,5 dia); ninguém perde a casa por isso.
 - **Propriedade privada** = a casa comprada e as estruturas no terreno; a alugada é do lugar. As rachaduras de ataque nas
