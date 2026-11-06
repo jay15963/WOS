@@ -211,6 +211,8 @@ K1, EC1) passam sozinhas. SK1–SK7 e CB1–CB3 passam na rodada inteira; SK6: 1
   em volta de onde as máquinas batem; os que já estão no alto andam pelo adarve até lá. Uma segunda invasão em outro lado
   (lobos, mortos, jogadores atacantes) recebe só a sua parte proporcional dos arqueiros e do corpo a corpo; a guarnição
   agora também combate as criaturas hostis no lugar. Teste CB7.
+- **O soldado dá atenção ao jogador colado nele**: no meio do combate, um soldado ocupado com outro vira para o jogador
+  inimigo ao alcance do golpe (o que acabou de feri-lo primeiro) e revida ali, sem sair da formação atrás dele. Teste CB9.
 - **Duas torres de cerco** por cerco, e os **castelos e cidades têm catapultas** nas torres da muralha: a equipe atira
   nas máquinas do cerco (a torre primeiro, mirando onde ela vai estar) — ~13 pedras derrubam uma torre. A catapulta /
   balista de um jogador defensor também danifica as máquinas do exército. Testes CB7 e CB8.

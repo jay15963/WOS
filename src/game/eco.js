@@ -23,6 +23,7 @@
 import { GOODS, NG, GI, PRICE, MARKET, SEASON_FOOD, SEASON_MEAT, CROP_FOODS, WARM_CLOTHES, EVENTS, RANKS, rankOf, REP, JOB_KINDS, JOB_MAX, BAD_RANKS, badRankOf, rankName, bandOf, INHERIT,
   GIVER_NAMES, HOME_KEYS, PROP, CROP_GOOD, CROP_PT, SPECIES_GOODS, COIN, PARCEL, TRADE, JOB_SITE } from './content/eco.js';
 import { ITEMS, BUILDINGS, SPECIES } from './data.js';
+import { RECIPES } from './content/recipes.js'; // (the goods made from one market good: madeCap)
 import { baseHeight } from '../world/planet/chunk.js';
 import { canReach } from '../world/realm/realm.js';
 import { zoneSeason, slotClock, seasonClock } from './seasons.js';
@@ -30,7 +31,7 @@ import { YEAR_DAYS } from './calendar.js';
 import { findObj } from './mut/objects.js';
 import { dimsOf, TOWN } from './mut/structures.js';
 import { ownerOf } from './mut/realms.js'; // phase 3a: the kingdom a place belongs to now (docs/REINOS.md §13)
-import { cropFields, cropTotal, fieldsLeft, replantFields, survey, nearestPlant, nearestTarget, areaCount, inField, CROP_TYPE } from './fields.js'; // (jobs that can be done: docs/REINOS.md §10)
+import { cropFields, cropTotal, fieldsLeft, replantFields, survey, nearestPlant, nearestTarget, areaCount, inField, CROP_TYPE, fieldOf } from './fields.js'; // (jobs that can be done: docs/REINOS.md §10)
 
 export { GOODS, NG, GI, RANKS, rankOf, BAD_RANKS, badRankOf, rankName, bandOf };
 const DEV = typeof location !== 'undefined' && /^(localhost|127\.|\[::1\])/.test(location.hostname);
@@ -274,6 +275,30 @@ export function demandOf(game, sid, gi) {
   if (warm) return R * (z < 2 ? 0.7 : win ? 1.8 : S.id === 'autumn' ? 1.3 : S.id === 'summer' ? 0.7 : 1);
   return R * (z >= 2 && win ? 1.3 : 1); // (firewood)
 }
+// the goods made from a single market good (content/recipes.js — n of it, + fuel at most): output gi → [[raw gi, units of
+// output per unit of raw]] (bread: 2 wheat → ½; a bar: 2 ore; cloth: 3 cotton; coal: 3 wood; stone blocks: 3 → 2)
+const MADE = (() => {
+  const M = new Map();
+  for (const r of Object.values(RECIPES)) {
+    const ks = Object.keys(r.in || {}), go = GI[r.out];
+    if (go == null || ks.length !== 1 || GI[ks[0]] == null) continue;
+    if (!M.has(go)) M.set(go, []);
+    M.get(go).push([GI[ks[0]], (r.qty || 1) / r.in[ks[0]]]);
+  }
+  return M;
+})();
+// the most a unit of good gi, made from one raw good, sells for at sid: what buying that raw good there costs, per unit of it
+// (owner, 6/11/2026: "o jogador pode comprar trigo e fazer pão e vender o pão que é caro … faça com que a compra seja metade do
+// preço da venda do pão, pois precisa de 2 trigo para fazer um pão"): buying the raw good and selling what it makes never pays
+// — the raw goods keep their own market price (supply and demand), the made one's sale is capped (Infinity: no cap there)
+function madeCap(game, sid, gi, uid) {
+  const L = MADE.get(gi);
+  if (!L) return Infinity;
+  const P = profileOf(game, sid);
+  let c = Infinity;
+  for (const [graw, per] of L) if (P.deals[graw]) c = Math.min(c, quoteBuy(game, sid, graw, 1, uid).unit / per);
+  return c;
+}
 // buying n of good gi at sid: total cost (coins, rounded up once), the unit price of the first one and after the last
 export function quoteBuy(game, sid, gi, n, uid) {
   const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
@@ -286,9 +311,12 @@ export function quoteBuy(game, sid, gi, n, uid) {
 export function quoteSell(game, sid, gi, n, uid) {
   const S0 = game.eco?.mk.get(sid)?.[gi] | 0, R = demandOf(game, sid, gi);
   const ko = ownerOf(game, sid), k = (1 - PRICE.sellFee + discountOf(game, uid, ko)) * (1 - penaltyOf(game, uid, ko).sell), b = goodBase(gi); // (negative reputation: cheaper)
+  // (a made good: the whole curve lowered so that its first unit is no dearer than its raw good bought there — madeCap; the
+  // others less still: each one sold lowers it, as always)
+  const cap = madeCap(game, sid, gi, uid), sh = Math.max(0, b * priceFactor(S0 + 1, R) * k - cap), u = (s) => Math.max(0, b * priceFactor(s, R) * k - sh);
   let sum = 0;
-  for (let i = 0; i < n; i++) sum += b * priceFactor(S0 + i + 1, R) * k;
-  return { n, gain: Math.floor(sum + 1e-9), unit: b * priceFactor(S0 + 1, R) * k, next: b * priceFactor(S0 + n + 1, R) * k, stock: S0 };
+  for (let i = 0; i < n; i++) sum += u(S0 + i + 1);
+  return { n, gain: Math.floor(sum + 1e-9), unit: u(S0 + 1), next: u(S0 + n + 1), stock: S0 };
 }
 // how many can a purse of `coins` buy
 export function maxAfford(game, sid, gi, coins, uid) {
@@ -501,8 +529,8 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
     const g = crops[Math.floor(r(1) * crops.length)], F = cropFields(L, s, g)[0], dir = dirPt(F.x - s.x, F.y - s.y);
     return { ...base, n: need, crop: g, pay: Math.round((6 * need + 12) * big), rep: 4, x: F.x, y: F.y, giver: giverOf(game, s.id, n + day, 'Lavrador'),
       title: `Colher ${need} ${CROP_PT[g]}`,
-      text: S.id === 'autumn' ? `É tempo de colheita em ${s.name} e falta gente. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}.`
-        : `Os lavradores de ${s.name} precisam de ajuda. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}. Eles replantam de madrugada.` };
+      text: S.id === 'autumn' ? `É tempo de colheita em ${s.name} e falta gente. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}. Depois entregue ${need} ${CROP_PT[g]} neste mural.`
+        : `Os lavradores de ${s.name} precisam de ajuda. Colha ${need} pés de ${CROP_PT[g]} nos campos ${nPt} (toque neles): o maior fica a ${dir}. Eles replantam de madrugada. Depois entregue ${need} ${CROP_PT[g]} neste mural.` };
   }
   if (t === 'mine') {
     // boulders (and rock, where there is) around the place: the waypoint is the stoniest side (the tracker then leads to
@@ -520,7 +548,7 @@ function makeJob(game, s, L, P, t, day, n, r, danger) {
     const p = V?.woods || (b ? { x: (b.box[0] + b.box[2]) / 2, y: (b.box[1] + b.box[3]) / 2 } : s);
     return { ...base, n: need, pay: Math.round((10 * need + 12) * big), rep: 4, x: p.x, y: p.y, r: s.ro + 90,
       giver: giverOf(game, s.id, n + day, b ? 'Lenhador' : 'Carpinteiro'), title: `Cortar ${need} árvores`,
-      text: `${b ? 'A serraria' : s.kind === 'castle' ? 'O castelo' : s.kind === 'city' ? 'A cidade' : 'A vila'} de ${s.name} precisa de toras. Derrube ${need} árvores nos arredores: a mata mais perto fica a ${dirPt(p.x - s.x, p.y - s.y)}.` };
+      text: `${b ? 'A serraria' : s.kind === 'castle' ? 'O castelo' : s.kind === 'city' ? 'A cidade' : 'A vila'} de ${s.name} precisa de toras. Derrube ${need} árvores nos arredores (a mata mais perto fica a ${dirPt(p.x - s.x, p.y - s.y)}) e entregue ${need} madeiras neste mural.` };
   }
   if (t === 'bring') {
     const cand = [];
@@ -738,6 +766,40 @@ export function mayUsePiece(game, o, pid) {
   const row = game.eco?.pr.get(id);
   return !!row && row.u === uidOf(game, pid0);
 }
+// a piece of a house the player OWNS (bought — not rented): its chests and its work stations are its (owner: "o jogador não
+// deveria poder usar estruturas de produção da vila também, nem mesmo baús, o jogador precisa construir essas coisas por
+// conta própria") — a rented house's door and beds are its holder's (mayUsePiece), not its chests nor its stations
+export function ownsPiece(game, o, pid) {
+  const pid0 = pid ?? game.net.pid, id = pieceProp(game, o.id, o.town);
+  const row = id ? game.eco?.pr.get(id) : null;
+  return !!row && row.mode !== 'rent' && row.u === uidOf(game, pid0);
+}
+// why the player may not harvest this plant (null: it may): a plant of a place's field (game/fields.js fieldOf) is the
+// place's — only a player with a harvest job of that crop there, not done yet, harvests it (owner: "não seja possível colher
+// das plantações da vila/cidade/castelo … apenas quando o jogador estiver com um trabalho que exige colher algo o jogador
+// vai poder colher apenas aquilo no campo específico do trabalho"); a wild plant: anyone
+export function harvestWhy(game, o, pid) {
+  if (game.creative) return null;
+  const fo = fieldOf(game, o);
+  if (!fo) return null;
+  const uid = uidOf(game, pid ?? game.net.pid), r = recOf(game, uid), good = CROP_GOOD[o.type];
+  const j = r?.jobs.find((q) => q.t === 'harvest' && q.sid === fo.sid && q.crop === good);
+  if (j && (j.got | 0) + (game.eco?.pend?.get(uid + '|' + j.id) || 0) < j.n) return null;
+  const s = settlement(game, fo.sid);
+  return j ? `Você já colheu os ${j.n} pés do trabalho` : `Plantação ${s?.kind === 'city' ? 'da cidade' : s?.kind === 'castle' ? 'do castelo' : 'da vila'}${s ? ' de ' + s.name : ''}: só com um trabalho de colheita (mural)`;
+}
+// the building rule inside a house of a place (game/towns.js TOWN.landReason): undefined = not inside one. Only its holder
+// builds there, and only what goes inside a home (owner: "apenas luz pode ser construída em casa alugada"): a rented house —
+// lights only (BUILDINGS cat 'light'); a bought one — work stations and furniture too (chests, beds, tables…)
+export function houseReason(game, s, type, tx, ty, w, h, who) {
+  const H = propsOf(game, s.id).houses.find((q) => q.box && tx >= q.box[0] && ty >= q.box[1] && tx + w - 1 <= q.box[2] && ty + h - 1 <= q.box[3]);
+  if (!H) return undefined;
+  const row = game.eco?.pr.get(H.id);
+  if (!row || row.u !== uidOf(game, pidOfEnt(game, who))) return row ? `Casa de ${row.name || 'outro jogador'}` : `Casa ${H.mode === 'sale' ? 'à venda' : 'para alugar'}: veja no mural de ${s.name}`;
+  const cat = BUILDINGS[type]?.cat || [], rent = row.mode === 'rent';
+  if (cat.includes('light') || (!rent && (cat.includes('prod') || cat.includes('furn')))) return null;
+  return rent ? 'Casa alugada: só estruturas de luz' : 'Na casa: só móveis, estruturas de produção e de luz';
+}
 // the building rule inside a town land (game/towns.js TOWN.landReason): undefined = not on a plot → the default refusal
 export function plotReason(game, s, tx, ty, w, h, who) {
   const P = propsOf(game, s.id);
@@ -892,9 +954,10 @@ function dayTick(game, day) {
 // and everything the player built on a PLOT is taken down (struct.remove on every peer: a chunk holding a building is
 // never dropped by the host, so they are all here — a far guest gets it with the chunk later; the save keeps it)
 export function plotBuildings(game, pr) {
-  if (!pr || pr.bi != null) return [];
+  if (!pr) return [];
+  const [x0, y0, x1, y1] = pr.bi != null ? pr.box || [1, 1, 0, 0] : [pr.x0, pr.y0, pr.x1, pr.y1]; // (a house: what its holder put inside — houseReason)
   const out = [];
-  for (const o of game.build.structures) if (o.town == null && o.tx <= pr.x1 && o.tx + (o.fw || 1) - 1 >= pr.x0 && o.ty <= pr.y1 && o.ty + (o.fh || 1) - 1 >= pr.y0) out.push(o.id);
+  for (const o of game.build.structures) if (o.town == null && o.realm == null && o.tx <= x1 && o.tx + (o.fw || 1) - 1 >= x0 && o.ty <= y1 && o.ty + (o.fh || 1) - 1 >= y0) out.push(o.id);
   return out;
 }
 export function loseProps(game, ids, why, { k = -1, by = undefined, give = undefined, toast = undefined } = {}) {
@@ -912,7 +975,11 @@ export function installEco(game) {
   const E = ecoState(game);
   E.onOp = (name, a) => { try { onOp(game, name, a); } catch (e) { if (DEV) console.error(e); } };
   E.plotReason = (s, tx, ty, w, h, who) => plotReason(game, s, tx, ty, w, h, who);
+  E.houseReason = (s, type, tx, ty, w, h, who) => houseReason(game, s, type, tx, ty, w, h, who);
   E.mayUse = (o, pid) => mayUsePiece(game, o, pid);
+  E.owns = (o, pid) => ownsPiece(game, o, pid); // (a bought house's chests and work stations)
+  E.memberOfPid = (pid) => memberOf(game, uidOf(game, pid)); // (the kingdom a player belongs to, −1: a town gate at night — game/towns.js)
+  E.harvestWhy = (o, pid) => harvestWhy(game, o, pid); // (a place's field crops: only with a harvest job of them there)
   E.bedSpot = (id) => bedSpot(game, id);
   E.doorReason = (o, actor) => {
     const id = pieceProp(game, o.id, o.town), row = id && E.pr.get(id);
@@ -925,7 +992,7 @@ export function installEco(game) {
   E.api = makeApi(game);
   return E;
 }
-TOWN.mayUse = (game, o, pid) => mayUsePiece(game, o, pid);
+TOWN.mayUse = (game, o, pid) => ownsPiece(game, o, pid); // (mut/structures.js chestOf: a town chest — only a bought house's, for its owner)
 // host: the daily tick, job progress; everyone: the local uid known to the host (eco.hello)
 export function ecoSystem() {
   let t = 0;

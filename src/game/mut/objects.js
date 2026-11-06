@@ -281,7 +281,7 @@ defineIntent('gather.hit', {
       case 'stump': if (!o.stump) return 'Não é um toco'; break;
       case 'boulder': if (o.type !== 'boulder') return 'Não é um pedregulho'; break;
       case 'pick': if (!PICK_ITEM[o.type]) return 'Nada para pegar'; break;
-      case 'forage': if (!FORAGE_KINDS.has(o.type)) return 'Nada para colher'; break;
+      case 'forage': { if (!FORAGE_KINDS.has(o.type)) return 'Nada para colher'; const why = game.eco?.harvestWhy?.(o, actor.pid); if (why) return why; break; } // (a place's field crop: only with a harvest job of it there)
       default: return 'Tipo inválido';
     }
     if (!a.final) {

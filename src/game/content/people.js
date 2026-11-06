@@ -22,6 +22,11 @@ export const PEOPLE = {
   // tiles and was close / attacking in the last alarmMemory seconds — the threat neutralized, not just out of sight (owner)
   alarmHold: 30, alarmMemory: 40,
   repairStep: { wood: 0.12, stone: 0.07, siege: 0.03 }, repairEvery: 2.2, rebuildS: 9,
+  // the animals killed near a place (a wolf the guards felled at night): by day its workers go and collect them — meat and
+  // hides for the place (game/npc.js scavTick; owner: "faça com que a população colete os lobos também, fazendo com que o
+  // amanhecer seja uma corrida") — age: s dead before they go (the one who killed it has that long to collect it himself),
+  // r: tiles past the town land, max: at once, hours: when they go out for it
+  scav: { age: 30, r: 14, max: 3, hours: [5.8, 19] },
   // the defense when the bell rings (game/defense.js): how far from its post a guard goes after a foe (tiles), how many
   // hold a gap in the walls, the reserve by the keep (share of the melee guards: cities / castles), the guards that hunt
   // each foe already inside the walls, the most ballista crews (share of the melee guards)

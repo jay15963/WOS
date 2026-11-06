@@ -26,14 +26,17 @@ export function nearestStation(game, r) {
   const types = stationsOf(r);
   const p = game.player;
   let best = null, bd = 1e9;
-  for (const o of structuresNear(game, p.x, p.y, STATION_RANGE, (s) => types.includes(s.type))) {
+  for (const o of structuresNear(game, p.x, p.y, STATION_RANGE, (s) => types.includes(s.type) && mine(game, s))) {
     const d = Math.hypot(o.x - p.x, o.y - p.y);
     if (d < bd) { bd = d; best = o; }
   }
   return best;
 }
 
-const anyBuilt = (game, types) => game.build.structures.some((o) => !o.blueprint && types.includes(o.type));
+const anyBuilt = (game, types) => game.build.structures.some((o) => !o.blueprint && types.includes(o.type) && mine(game, o));
+// a work station the player may use: one it built (any), never a settlement's — but a bought house's (game/eco.js ownsPiece;
+// owner: "o jogador não deveria poder usar estruturas de produção da vila … precisa construir essas coisas por conta própria")
+const mine = (game, o) => o.town == null || !!game.eco?.owns?.(o);
 
 function fuelAvailable(game) {
   const inv = game.player.inv;

@@ -258,7 +258,10 @@ export function walkerBrain(game, m, dt) {
   // creative (creative.js): not drawn by light, never breaks anything, hunts nobody — they just roam
   if (game.creative) { m.goal = null; return handOff(m); }
   // fighting one of the settlements' people (a guard hit it): the raiders' brain fights on (game/npc.js)
-  if (m.state === 'chase' && m.threat?.npc && m.raid != null && (m.threat.z || 0) > 0.5) { m.state = 'idle'; m.threat = null; m.stateT = 0.3; } // (a winter attack's wave: an archer up on the wall is out of reach — the wall first, game/raids.js)
+  // one that hit it from where it cannot be reached — up on a wall / a palisade (an archer, a player), or behind a wall with no
+  // line between them — is let go: the wall it was breaking first (owner: "os andarilhos param de atacar o muro se um
+  // soldado atacar eles"; it used to stand under the archer doing nothing — only a winter attack's wave knew better)
+  if (m.state === 'chase' && m.threat && !m.threat.dead && !(m.z > 0.5) && ((m.threat.z || 0) > 0.5 || (m.threat.lv | 0) > 0 || (m.goal?.kind !== 'player' || m.goal.ref !== m.threat) && dist(m, m.threat) > 2.5 && !hasLOS(game.world, m.x, m.y, m.threat.x, m.threat.y, 0, 0, m._tn, m.threat._tn))) { m.state = 'idle'; m.threat = null; m.stateT = 0.3; }
   // (its attention still moves now and then — pickBody: the crowd on one defender spreads, the one hitting it first)
   if (m.state === 'chase' && (m.threat?.npc || m.threat?.soldier) && !m.threat.dead && dist(m, m.threat) < 14) {
     if (m.siege) { m.siege = null; resetNav(m); }
@@ -288,6 +291,17 @@ export function walkerBrain(game, m, dt) {
   // a player in sight and not shut away: fight (the raiders' brain)
   const t = goal.kind === 'player' ? goal.ref : null;
   if (t && !t.dead && !goal.shut && dist(m, t) < aggroRadius(m, t) && hasLOS(game.world, m.x, m.y, t.x, t.y, 0, 0, m._tn, t._tn)) {
+    // a big body (an ice giant) that sees its prey through an opening too narrow for it and gets no nearer: it breaks the
+    // pieces beside it (breachBeside) until it fits, then chases on
+    if (m.siege?.widen) { if (m.siege.o.removed || !breakable(m.siege.o)) { m.siege = null; resetNav(m); } else return siegeStep(game, m, dt); }
+    if ((m.r || 0.3) > 0.45 && dist(m, t) > (m.reachX || 1) + (m.r || 0.3) + 1.2) {
+      const S0 = m._chSt || (m._chSt = { px: m.x, py: m.y, st: 0 });
+      if (stalled(S0, m, dt)) {
+        S0.st = 0;
+        const b = breachBeside(game, m, t.x, t.y, m.badBreach);
+        if (b) { startSiege(m, b, false); m.siege.widen = true; return siegeStep(game, m, dt); }
+      }
+    } else m._chSt = null;
     if (m.siege) { m.siege = null; resetNav(m); }
     m.ap = null;
     if (m.state !== 'chase' && m.state !== 'evade') aggro(game, m, t);
@@ -329,10 +343,29 @@ function approach(game, m, goal, gx, gy, dt) {
   }
   if (blocked) {
     A.st = 0; A.px = m.x; A.py = m.y;
-    const b = breachToward(game, m, gx, gy, m.badBreach);
+    let b = breachToward(game, m, gx, gy, m.badBreach);
+    if (!b && (m.r || 0.3) > 0.45) b = breachBeside(game, m, gx, gy, m.badBreach); // (a big body stuck in a gap its tiles say is open)
     if (b) startSiege(m, b, false);
   }
   return true;
+}
+// a big body (an ice giant) stuck in an opening one tile wide — open for the tiles, too narrow for it (owner: "o gigante não
+// consegue entrar em uma abertura de uma grid … faça com que quebre o suficiente para ele conseguir entrar"): the breakable
+// piece right beside it, toward where it goes, is broken next (again and again until it fits)
+function breachBeside(game, m, gx, gy, skip) {
+  const w = game.world, G = game.build.grid.main, R = Math.ceil((m.r || 0.3) + 1.6), cx = Math.floor(m.x), cy = Math.floor(m.y);
+  const dl = Math.hypot(gx - m.x, gy - m.y) || 1, ux = (gx - m.x) / dl, uy = (gy - m.y) / dl;
+  let best = null, bs = 1e9;
+  for (let y = cy - R; y <= cy + R; y++) for (let x = cx - R; x <= cx + R; x++) {
+    if (!w.inBounds(x, y)) continue;
+    const o = G.get(w.idx(x, y));
+    if (!breakable(o) || skip?.has(o.id)) continue;
+    const vx = x + 0.5 - m.x, vy = y + 0.5 - m.y, d = Math.hypot(vx, vy);
+    if (d > (m.r || 0.3) + 1.6) continue;
+    const sc = d - 0.5 * ((vx * ux + vy * uy) / (d || 1)); // (the nearest, the ones ahead first)
+    if (sc < bs) { bs = sc; best = o; }
+  }
+  return best ? { o: best, stand: [m.x, m.y] } : null;
 }
 
 // walk to the spot next to the piece, then hit it until it breaks

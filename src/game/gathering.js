@@ -66,7 +66,7 @@ export function describeObject(game, o) {
   }
   if (PICK[t]) return { kind: 'pick', o, x: o.x, y: o.y, verb: PICK[t].verb, icon: 'hand', prio: 5, reach: 0.7 };
   const F = FORAGE[t];
-  if (F) return { kind: 'forage', o, x: o.x, y: o.y, verb: F.verb, icon: 'gather', prio: F.prio, reach: 0.9 };
+  if (F) return game.eco?.harvestWhy?.(o) ? null : { kind: 'forage', o, x: o.x, y: o.y, verb: F.verb, icon: 'gather', prio: F.prio, reach: 0.9 }; // (a place's field crop: only with a harvest job of it — game/eco.js harvestWhy)
   if (t === 'boulder') {
     const pick = !!bestTool(p, 'mine');
     return { kind: 'boulder', o, x: o.x, y: o.y, verb: 'Quebrar', icon: 'pickaxe', prio: pick ? 2 : -1, reach: 0.75 + o.s * 0.4 };

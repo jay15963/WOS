@@ -38,7 +38,11 @@ export class Input {
 
     addEventListener('keydown', (e) => {
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT')) return;
-      if (e.code === 'Tab' || e.code === 'F1' || (e.code === 'Space' && e.target === document.body)) e.preventDefault();
+      if (e.code === 'Tab' || e.code === 'F1') e.preventDefault();
+      // Space is the attack (with the left button), never a click on the button that has the focus — a hotbar slot clicked
+      // with the mouse kept it, and Space toggled that equipment on and off (owner: "o espaço está selecionando e
+      // desselecionando o equipamento … remova isso, pois o espaço é o auto ataque"): no default, the focus let go
+      else if (e.code === 'Space') { e.preventDefault(); const a = document.activeElement; if (a && a !== document.body && !a.isContentEditable && a.blur) a.blur(); }
       // a remapped key that the browser would also use (quick find, menu bar…): the game keeps it (never with Ctrl / ⌘)
       else if (this.bind && !e.ctrlKey && !e.metaKey && /^(Slash|Quote|Backquote|AltLeft|AltRight|F\d+)$/.test(e.code) && Object.values(this.bind).some((l) => l.includes(e.code))) e.preventDefault();
       if (!this.keys.has(e.code)) {
@@ -49,7 +53,10 @@ export class Input {
       }
       this.keys.add(e.code);
     });
-    addEventListener('keyup', (e) => this.keys.delete(e.code));
+    addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.code === 'Space' && !(e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName))) e.preventDefault(); // (a button fires on Space's keyup: not here)
+    });
     addEventListener('blur', () => { this.keys.clear(); this._endJoy(); this.pointers.clear(); this._gesture(); });
 
     canvas.addEventListener('pointerdown', (e) => this._down(e));

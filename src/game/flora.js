@@ -26,10 +26,14 @@ const TREES = ['tree_oak', 'tree_pine', 'tree_birch', 'tree_dead'];
 export const FLORA_KINDS = [...TREES, 'bush', 'berrybush', 'herbbush', 'fibergrass', 'pebble', 'stick', 'wild_potato', 'wild_cotton', 'wild_corn', 'wild_wheat'];
 const FLORA_SET = new Set(FLORA_KINDS);
 
+// kinds whose regrowth target is at least the synthesized density even where the generator placed some (the generator's
+// own count stays its numbering — a denser generator would shift the ids of everything after it in a chunk and spoil the
+// saves): the flora tops them up over the first minutes and keeps them there
+const SYNTH_FLOOR = new Set(['wild_wheat', 'pebble']);
 // synthesized densities (per tile, by biome) for kinds the world generator did not place at all
 const B = Object.fromEntries(BIOMES.map((n, i) => [n, i]));
 const SYNTH = {
-  pebble:      { meadow: 0.012, forest: 0.008, pine: 0.01, birch: 0.008, marsh: 0.004, shore: 0.02, rocky: 0.03 },
+  pebble:      { meadow: 0.02, forest: 0.015, pine: 0.017, birch: 0.015, marsh: 0.008, shore: 0.03, rocky: 0.045, mountain: 0.02 }, // (owner: "pedrinha está muito chato de achar, deixe mais comum" — a floor under what the generator placed: SYNTH_FLOOR)
   stick:       { meadow: 0.004, forest: 0.016, pine: 0.016, birch: 0.014, marsh: 0.006, rocky: 0.002 },
   fibergrass:  { meadow: 0.016, forest: 0.006, pine: 0.004, birch: 0.01, marsh: 0.016, shore: 0.006 },
   wild_potato: { meadow: 0.0075, forest: 0.006, birch: 0.006, pine: 0.002 }, // (3x: food to stock before the winter)
@@ -79,7 +83,7 @@ function floraChunk(game, c) {
     // kinds absent from the generated world: synthesize targets from the biome mix of each bucket (wild wheat: the
     // generator seeds a few patches, the fertile buckets without one still get a regrowth target)
     for (const kind in SYNTH) {
-      if (F.totals[kind] && kind !== 'wild_wheat') continue;
+      if (F.totals[kind] && !SYNTH_FLOOR.has(kind)) continue;
       const dens = SYNTH[kind];
       let sum = 0;
       for (let y = y0; y < y0 + CHUNK; y++) for (let x = x0; x < x0 + CHUNK; x++) {

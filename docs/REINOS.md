@@ -423,7 +423,10 @@ de uma casa é global), `ui/mural.js`, `ui/panels.js` (Dar a outro jogador), `ui
 - **Propriedades**: mural → **Propriedades**: as suas (de qualquer lugar: o que custa por dia, a dívida e os dias de
   aviso, "Pagar", "Ver", "Vender" / "Devolver"), casas à venda, casas para alugar e terrenos. "Ver" fecha o mural e põe o
   waypoint na porta da casa / no meio do terreno, e desenha as **divisas dos terrenos** no chão por um tempo (dourado
-  tracejado = à venda, verde-água = seu, cinza = de outro). Comprar uma casa: as portas, os baús e as camas dela passam a
+  tracejado = à venda, verde-água = seu, cinza = de outro; 40 s, com o botão "Terrenos à mostra ✕" para ocultar antes); no
+  modo construção dentro de uma vila elas também aparecem. Antes ficavam acesas para sempre na vila onde o jogador tinha um
+  terreno (apontamento do dono, 6/11/2026: "está aparecendo a demarcação dos terrenos mas não está aparecendo para fechar
+  essa visão, aconteceu após eu comprar um terreno"). Comprar uma casa: as portas, os baús e as camas dela passam a
   ser seus (só você abre; "Renascer aqui"). Comprar um terreno: dentro da terra da vila / cidade só se constrói num
   terreno seu — dentro da divisa pode, ao lado não ("Terra de <Vila>: compre um terreno no mural", "Terreno de
   <nome>", "Passa da divisa do terreno"). No modo construir, dentro da vila, as divisas aparecem sozinhas.
@@ -614,6 +617,36 @@ como antes). Assim sair do reino para negociar com o inimigo dele como viajante 
   construções): primeiro 8 × 8 (vila 400, cidade 900), depois 6 × 6 no que sobra (230 / 510); até 6 na vila e 10 na cidade
   (a vila do início, Estrosa, tem 3 + 3).
 - Comprar exige ser **Conhecido** no reino; alugar não exige nada.
+- **O que é da vila não é do jogador** (apontamentos do dono, 6/11/2026: "o jogador não deveria poder usar estruturas de
+  produção da vila também, nem mesmo baús, o jogador precisa construir essas coisas por conta própria" e "não seja
+  possível colher das plantações da vila/cidade/castelo … apenas quando o jogador estiver com um trabalho que exige colher
+  algo o jogador vai poder colher apenas aquilo no campo específico do trabalho"):
+  - as **estações de produção** do lugar (bancada, mesa de cantaria, fornalha, bigorna, tear, caldeirão, fogueira…) não
+    dão "Criar" e não contam como estação para as receitas (`crafting.js` só vê as do jogador — e as de uma casa
+    **comprada**: `eco.js ownsPiece`);
+  - os **baús** do lugar só se abrem numa casa **comprada**, pelo dono (`TOWN.mayUse` → `ownsPiece`; o anfitrião recusa
+    `chest.take` / `chest.put`); a casa **alugada** fica com a porta e as camas (`mayUsePiece`), não com os baús;
+  - as **plantações** dos campos do lugar (`fields.js fieldOf`) não dão "Colher" e o anfitrião recusa a colheita
+    (`eco.js harvestWhy`, `gather.hit`), a não ser para quem tem um **trabalho de colheita daquele produto ali**, ainda
+    não completo — e só nos campos daquele lugar. Plantas silvestres continuam livres. Testes **EC9**, **JB1**.
+  - **dentro da casa** que o jogador tem (`eco.js houseReason`, por `TOWN.landReason`; apontamento do dono: "apenas luz
+    pode ser construída em casa alugada"): alugada — só estruturas de luz (`cat` 'light': tocha, braseiro, poste,
+    fogueira); comprada — também estruturas de produção ('prod') e móveis ('furn': baú, cama, mesa…); a casa de outro,
+    nada. Perdida a casa
+    (aluguel vencido, lugar tomado), o que o jogador pôs dentro sai junto, como num terreno (`plotBuildings`).
+- **Entregar o que se colheu** (apontamento do dono, 6/11/2026: "quando um trabalho envolve entregar itens, eles deveriam
+  sumir do inventário do jogador, como coletar batata"): a **colheita** entrega no mural os N do produto (ex.: 6 pés
+  colhidos → 6 batatas) e a **lenha** N madeiras (`content/eco.js jobGood`); saem da mochila ao entregar (o anfitrião
+  recusa sem eles: "Entregue N batatas"; o cartão mostra "traga N … (tem X)"). Mina e caça continuam contando o trabalho.
+  Teste **EC3**.
+- **Comprar a matéria-prima e vender o que ela faz nunca dá lucro** (apontamentos do dono, 6/11/2026: "o jogador pode
+  comprar trigo e fazer pão e vender o pão que é caro … faça com que a compra seja metade do preço da venda do pão" e "o pão
+  e o trigo não deveriam ter um valor de venda maior que a carne e o couro"): num mercado que compra e vende os dois, o produto
+  feito de uma só matéria-prima nunca é vendido por mais do que custa comprar ali a matéria-prima que ele gasta (`eco.js
+  madeCap`, das receitas: pão ≤ 2 trigos, barra ≤ 2 minérios, pano ≤ 3 algodões, carvão ≤ 3 madeiras, bloco ≤ 1,5 pedra) — a
+  curva de venda inteira desce o que for preciso (cada unidade vendida continua baixando o preço); a matéria-prima guarda o
+  preço do mercado dela (oferta e procura). E os preços de base: trigo 8 → **5**, pão 24 → **11** (≈ 1,15 × 2 trigos + o
+  combustível), abaixo da carne (12) e do couro (24). Teste **EC10**.
 - **Imposto**: cada reino tem o seu, de 1,0 % a 2,4 % do valor por dia (Galéria: 1,9 % → casa pequena 13 / dia, terreno
   8 / dia); quem aluga paga o aluguel e não o imposto. **Cobrado automaticamente** a cada amanhecer (o dia do mercado),
   **só das moedas da mochila** (moedas guardadas em baús não contam: é a bolsa de quem está andando), das dívidas menores
@@ -1025,6 +1058,40 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
   snapshot e no digest; sem aviso por morte (dono: numa batalha há muitos mortos — seria um enxame de mensagens). **Repovoar**: cada morte é reposta 1,5 dia depois (um recém-chegado
   com a mesma identidade da semente).
 
+### Quem a guarda enfrenta primeiro
+
+Apontamento do dono (6/11/2026): "os soldados estão atacando lobos ao invés de andarilhos, os andarilhos devem ter prioridade
+já que eles destroem estruturas". A guarda (`npc.js guardTargets`, `postedFoe`, `focusFoe`) pesa a distância de cada inimigo
+por `prioK`: os mortos da noite, um gigante, os saqueadores, os soldados de um exército, quem está quebrando uma peça ou faz
+parte de um ataque ao lugar contam **0,4** da distância; um lobo (que só ronda) conta a distância inteira. Um guarda ocupado
+com um lobo troca para um desses quando ele aparece; ocupado com um deles, segue nele. Do outro lado, **o andarilho não larga
+o muro** por quem não alcança (o mesmo apontamento: "os andarilhos param de atacar o muro se um soldado atacar eles"): ferido
+por um arqueiro no alto da paliçada / muralha (ou por quem está atrás de um muro, sem linha entre eles), ele o deixa e volta à
+peça que quebrava (`walkers.js walkerBrain`; antes só os de uma onda de ataque faziam isso — os da noite ficavam parados
+debaixo do arqueiro). Teste **WA8**.
+
+### O portão à noite
+
+Apontamento do dono (6/11/2026): "tem que permitir o jogador abrir o portão à noite se fizer parte do reino, o portão fecha
+automaticamente após 2 segundos se não tiver ninguém no meio do portão". O portão de um lugar é da guarda (abre de dia, fecha
+à noite e no perigo), mas um **membro do reino dono do lugar** abre à noite quando nada ameaça o lugar (nenhum hostil dentro,
+nenhum exército diante dele): "Abrir" aparece para ele, o anfitrião aceita o `door.toggle` (`towns.js TOWN.gateReason`) e
+guarda a hora (`TOWN.gateOpened` → `memberGates`); enquanto alguém está no vão o portão fica aberto, e **2 s** depois de o vão
+ficar livre ele fecha sozinho (`townsSystem`). Um viajante: "O portão é da guarda: à noite só quem é do reino abre". Teste
+**VL15**.
+
+### Os animais mortos perto do lugar
+
+Apontamento do dono (6/11/2026): "os lobos que são mortos pelos guardas são praticamente carne e couro de graça para o
+jogador, faça com que a população colete os lobos também, fazendo com que o amanhecer seja uma corrida para conseguir carne
+e couro de 'graça'". De dia (`PEOPLE.scav.hours` 5,8–19 h, sem alarme), o corpo **fresco** de um animal (primeiro dia, ainda
+não coletado, ninguém arrastando) na terra do lugar + 14 tiles, morto há **30 s** ou mais (quem o matou tem esse tempo para
+coletar), chama o trabalhador livre mais perto (lavrador, pastor, carregador, lenhador, ferreiro, mineiro, cavalariço,
+morador, taverneiro, tecelão — adulto, fora de luta e de conserto; até 3 de uma vez): ele vai às pressas, "coleta" no tempo
+do tamanho (2,4 / 3,6 / 5,4 s) e o corpo vira carcaça para todos (op `corpse.butcher` por `npc`: a carne e o couro são do
+lugar — ninguém recebe). À noite o povo está em casa: os lobos que a guarda derrubou esperam o amanhecer, e aí é uma corrida
+entre o jogador e o povo (`npc.js scavTick / scavWork`). Teste **VL14**.
+
 ### Consertos
 
 - **De dia** (7–18,6 h, sem perigo), com o povo do lugar na rua: um trabalhador (lenhador, ferreiro, carregador,
@@ -1238,6 +1305,14 @@ entre eles) —, se enfrentam em **batalhas**, **cercam** vilas, castelos e cida
 fica), **tomam** lugares e um reino sem cidade **cai**. Longe dos jogadores tudo é por números; perto, a 3b joga (§12).
 Mapa, radar, mural (Reino e Exército), faixa do lugar, avisos e mercados conversam com isso.
 
+**Nunca por dentro de um lugar inimigo** (apontamento do dono, 6/11/2026: "exércitos estão conseguindo passar por dentro de
+cidades do reino inimigo … o exército vermelho passou por dentro de Outeiro"): as estradas ligam os lugares, então a rota
+passava pelos lugares do caminho, os do inimigo também. Agora a busca de rota (`realms.js dijkstra` com `passFor(k)`) trata
+um lugar de um reino **em guerra** com o exército como beco sem saída (chega-se a ele — o alvo —, não se passa por ele); sem
+outra estrada, a marcha vai pelo campo, e o caminho pelo campo (`overland`) também contorna esses lugares (as células a até
+a terra do lugar + 22 tiles ficam de fora). Vale para a reunião, a partida, os contingentes e o planejamento dos alvos.
+Teste **WR11** (246 casos no mundo de teste em que a estrada mais curta cruzava um lugar inimigo: todos contornam).
+
 Código: `game/realms.js` (a API `game.realms`, a simulação no anfitrião: diplomacia, campanhas, marchas, batalhas, cercos,
 conquista; rotas pelas estradas / pelo campo; notícias; a passagem para a 3b), `game/mut/realms.js` (o estado e as ops:
 `realm.start` · `realm.day` · `realm.rel` · `realm.army` · `realm.wall` · `realm.capture` · `realm.fall`; linhas de
@@ -1298,11 +1373,18 @@ perdida**; `eco.rep`), `ui/realmMap.js` (território pelo dono de cada distrito)
 - Pares com relações: os **vizinhos** (fronteira ou estrada entre eles) e, na mesma terra, os **rivais distantes** cujas
   capitais estão a até 2 800 tiles (sem fronteira: a tensão cresce pela metade, os exércitos vão pelo campo). Nunca entre
   terras diferentes (sem navios: `realm.rel` é ignorada mesmo forçada).
-- **Tensão** 0..100 por par: começa em 10..60 (hash do par: há velhos rivais); por dia +0,3..2,4 (atrito da fronteira, ×0,5
+- **Tensão** 0..100 por par: começa em 10..60 (hash do par: há velhos rivais); por dia +0,6..2,7 (atrito da fronteira, ×0,5
   nos distantes), +1,4 se um é 1,4× mais forte, +0,9 por guerra passada (até 3), +2,5 se um tem um lugar que era do outro,
-  −3 entre aliados, −2,5 em trégua, −1 se um deles já está em guerra noutro lugar, ±1,5 de ruído; o resto cai 3 % ao dia.
-- **Guerra**: acima de 52 de tensão, chance de (tensão − 52) × 2,5 % ao dia (no máximo 60 %); quem declara é o mais forte.
-  No máximo ⌈reinos / 6⌉ guerras no mundo (16 reinos → 3) e 2 por reino. **Aliança defensiva**: os aliados do atacado
+  **+3,2 nos pares do reino dos jogadores** (o do início, `R.k0`, e os de que algum jogador é membro — `homeKingdoms`),
+  −3 entre aliados, −2,5 em trégua, −1 se um deles já está em guerra noutro lugar (nunca nos pares do reino dos jogadores),
+  ±1,5 de ruído; o resto cai 3 % ao dia.
+- **Guerra**: acima de **44** de tensão, chance de (tensão − 44) × 3,5 % ao dia (no máximo 60 %); quem declara é o mais forte.
+  No máximo ⌈reinos / **4**⌉ guerras no mundo (16 reinos → 4) e 2 por reino. O reino dos jogadores: a partir de **34**, com
+  a chance dobrada, e a guerra dele pode passar o limite do mundo em uma (apontamento do dono, 6/11/2026: "no mundo estou
+  vendo apenas dois reinos entrando em guerra e já se passou uma semana, nem mesmo o reino do jogador entrou em guerra, isso
+  ficou chato, sendo que a guerra é a parte divertida do jogo"; antes: +0,3..2,4 ao dia, guerra acima de 52, ⌈reinos / 6⌉ —
+  o equilíbrio da maioria dos pares ficava abaixo de 52). No mundo de teste: 6–7 pares em guerra em 30 dias, o reino do
+  início entre o 7º e o 10º dia (teste **WR12**). **Aliança defensiva**: os aliados do atacado
   entram na guerra contra o atacante (se o alcançam por terra e não estão no dia calmo / no limite).
 - **Sem carência** para o reino do início (o da vila do spawn): o dono tirou a proteção de 2 dias (2026-11-06) — ele pode
   entrar em guerra a partir do 2º dia, como qualquer outro. O mundo inteiro fica em paz só no 1º dia (`day0`,
@@ -1617,6 +1699,14 @@ convidado e no anfitrião):
 - **Revide**: o soldado ferido por um jogador passa a tê-lo como inimigo por 22 s (renovado a cada golpe: espada,
   flecha); fora disso **soldado nenhum vai atrás de um jogador**. O ataque automático nunca escolhe um soldado sozinho —
   só o marcado ou um que esteja lutando comigo.
+- **O jogador colado no soldado vem primeiro** (apontamento do dono, 6/11/2026: "quando o jogador está no meio da muvuca
+  entre os soldados se matando poucos soldados focam no jogador, o jogador bate em um soldado mas ele não dá atenção …
+  pelo menos o soldado deveria dar mais atenção para o jogador caso esteja muito perto, sem se mover tanto, mas bater mais
+  no jogador estando no range de ataque corpo a corpo dele"): um soldado de corpo a corpo ocupado com outro soldado vira
+  para um jogador inimigo **ao alcance do golpe** (`WAR.closeR` 2,4 tiles, o mesmo andar — `soldier.js closePlayer`; o
+  que acabou de feri-lo primeiro) e bate nele ali; ferido por um jogador colado nele, troca de alvo na hora
+  (`soldierHurt`). Isso não aumenta a perseguição: o jogador se afasta e o "puxão" acaba — vale a escolha de sempre (a
+  formação se mantém). Teste **CB9**.
 - **Reputação** (anfitrião, pela `game.realms.reward(pid, k, d, motivo)` da 3a — op `eco.rep`; sem a 3a, a op própria
   `war.rep`): matar um atacante dá **+2** com o reino defendido (engenheiro +3, general +10), cada 6 golpes +1, e o
   mesmo **−** com o reino dos soldados (sem aviso; não para quem é membro dele); um cerco rechaçado dá **+10** a quem

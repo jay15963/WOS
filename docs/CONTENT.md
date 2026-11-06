@@ -167,6 +167,11 @@ Sprites: `pebble_0..3`, `stick_0..2`, `fibergrass_0..2`, `wild_potato_0`, `wild_
 
 **Regras de coleta e renascimento (economia):**
 - Arbustos, frutas, capim, pedrinhas, gravetos, plantas silvestres e pedregulhos **somem** ao serem coletados.
+- **Pedrinhas mais comuns** (apontamento do dono, 6/11/2026: "pedrinha está muito chato de achar, deixe mais comum"): a
+  rebrota (`game/flora.js`, `SYNTH_FLOOR`) mantém em cada área de 16 × 16 pelo menos 2 % dos tiles de campo com uma pedrinha
+  (mata 1,5 %, pinheiral 1,7 %, praia 3 %, pedregal 4,5 %, montanha 2 %) — umas 2–3× o que o gerador põe —, completando nos
+  primeiros minutos fora da vista. O gerador não muda (a numeração dos objetos de cada pedaço do mundo fica a mesma: os
+  saves continuam valendo).
 - Árvore cortada vira toco; cortar o toco de novo (machado, 2 golpes) remove-o (+1 madeira). Tocos somem sozinhos após alguns dias.
 - Flora renasce aos poucos por chunk até a densidade original (árvores nascem como muda e crescem), sempre em chão adequado
   ao bioma, **nunca** a ≤ 3 tiles de qualquer construção/piso/canteiro do jogador, nem em túneis minerados, nem à vista do jogador.

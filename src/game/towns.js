@@ -338,12 +338,24 @@ TOWN.landReason = (game, type, tx, ty, w, h, who = null) => {
   const s = townLandAt(game, tx, ty, w, h);
   if (!s) return null;
   if (s.kind === 'castle') return `${s.name}: não se constrói no castelo`;
+  const hr = game.eco?.houseReason?.(s, type, tx, ty, w, h, who); // (inside a house the builder holds: work stations and lights — game/eco.js)
+  if (hr !== undefined) return hr;
   const r = game.eco?.plotReason?.(s, tx, ty, w, h, who);
   return r === undefined ? `Terra de ${s.name}: compre um terreno no mural` : r;
 };
+// a town gate a member opened at night (door.toggle → TOWN.gateOpened): the world time its way was last busy
+TOWN.gateOpened = (game, o) => { if (o.town != null && defOf(o).gate2 && game.net.auth) (game.towns.memberGates ||= new Map()).set(o.id, game.worldTime); };
 TOWN.refuse = (game, o) => { if (o.town == null && o.realm != null) { const K = game.towns?.realm?.kingdoms[o.realm]; return `Isto pertence ao exército do Reino de ${K ? K.name : '?'}`; } const s = game.towns?.realm?.settlements[o.town]; return s ? `Isto pertence a ${s.name}` : 'Isto pertence ao lugar'; };
 TOWN.gateReason = (game, o, actor) => {
-  if (o.town != null) return defOf(o).gate2 ? 'O portão é da guarda: abre de dia e fecha à noite' : game.eco?.doorReason?.(o, actor) || null; // (a bought / rented house: its holder's)
+  if (o.town != null) {
+    if (!defOf(o).gate2) return game.eco?.doorReason?.(o, actor) || null; // (a bought / rented house: its holder's)
+    // a member of the place's kingdom opens it at night when nothing threatens the place (no hostile inside, no army
+    // before it); it shuts itself 2 s after its way is clear (memberGates) — owner: "tem que permitir o jogador abrir o
+    // portão à noite se fizer parte do reino, o portão fecha automaticamente após 2 segundos se não tiver ninguém no meio"
+    const k = ownerOf(game, o.town), L = layoutCached(game.towns.realm, o.town);
+    if (k >= 0 && actor && game.eco?.memberOfPid?.(actor.pid) === k && isNight(game) && !(L && hostileInside(game, L)) && !game.realms?.besieged?.(o.town)) return null;
+    return isNight(game) ? 'O portão é da guarda: à noite só quem é do reino abre' : 'O portão é da guarda: abre de dia e fecha à noite';
+  }
   if (!defOf(o).gate2 || game.creative) return null;
   const g = game.gates?.get(o.id);
   if (g?.owner && g.owner !== actor.pid) return 'Só o dono abre e fecha este portão';
@@ -389,6 +401,13 @@ export function townsSystem() {
     update(game, dt) {
       const T = game.towns;
       if (!T?.realm) return;
+      // host: a gate a member opened at night shuts 2 s after its way is clear (unless it should stand open now: the day)
+      if (T.memberGates?.size && game.net.auth) for (const [id, ts] of T.memberGates) {
+        const o = game.world.objById.get(id);
+        if (!o || o.removed || !o.open || !isNight(game)) { T.memberGates.delete(id); continue; }
+        if (passageBusy(game, o)) { T.memberGates.set(id, game.worldTime); continue; }
+        if (game.worldTime - ts >= 2) { T.memberGates.delete(id); game.net.emit('door.set', { id, open: 0, by: 'town' }); }
+      }
       if (T.jobs.length) {
         const p = game.player, pc = game.world.chunkIndex(p.x, p.y), pcx = pc & 255, pcy = pc >>> 8;
         const dist = (c) => { let dx = Math.abs((c & 255) - pcx); if (dx > 128) dx = 256 - dx; return Math.max(dx, Math.abs((c >>> 8) - pcy)); };
@@ -431,7 +450,7 @@ function hostTick(game) {
     const want = !night && !hostileInside(game, L) && !game.realms?.besieged?.(rec.sid); // (an army camped outside: closed — phase 3a)
     for (const k of L.gates) {
       const o = rec.objs.get(k);
-      if (!o || o.removed || !!o.open === want) continue;
+      if (!o || o.removed || !!o.open === want || (!want && T.memberGates?.has(o.id))) continue; // (one a member opened: its own 2 s — above)
       if (!want && passageBusy(game, o)) continue;
       net.emit('door.set', { id: o.id, open: want ? 1 : 0, by: 'town' });
     }

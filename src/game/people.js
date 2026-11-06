@@ -37,7 +37,7 @@ import { seasonAt } from './seasons.js';
 import { realmNpcLevel } from './towns.js';
 import { registerWork } from './gathering.js';
 import { TownNav, nearPass } from './townnav.js';
-import { npcBrain, npcSeparate, repairTick, repairByNumbers, npcHurt, bedSide, insideAt, hostile } from './npc.js';
+import { npcBrain, npcSeparate, repairTick, scavTick, repairByNumbers, npcHurt, bedSide, insideAt, hostile } from './npc.js';
 import { perimeterOf, openings, frontsOf, frontsSig, assignDefense } from './defense.js';
 import { deadMap } from './mut/people.js';
 import { STORY_H } from './levels.js';
@@ -664,6 +664,7 @@ export function peopleSystem() {
           defenseTick(game, rec);
           manage(game, rec, players);
           repairTick(game, rec, N.tick);
+          scavTick(game, rec, N.tick);
         }
       }
       // the brains (far ones every few frames)

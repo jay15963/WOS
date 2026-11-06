@@ -13,7 +13,7 @@ import { defineIntent, defineOp, defineOwn } from '../../net/registry.js';
 import { ITEMS } from '../data.js';
 import { TOWN } from './structures.js';
 import { ownerOf } from './realms.js'; // phase 3a: the kingdom a place belongs to now
-import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT } from '../content/eco.js';
+import { GOODS, NG, GI, REP, JOB_MAX, PROP, COIN, PARCEL, rankOf, RANKS, bandOf, rankName, INHERIT, jobGood } from '../content/eco.js';
 import {
   ecoState, uidOf, recOf, settlement, kingdomOf, realmOf, dealReason, profileOf, quoteBuy, quoteSell, atMural, boardOf, propById, chargeOf,
   rankInfo, payBills, fmt, entOfPid, playerName, emptyChests, loseProps, plotBuildings, inheritFor, rentOf, jobReason,
@@ -450,7 +450,7 @@ defineIntent('job.take', {
 });
 
 defineIntent('job.done', {
-  doc: 'Turn a job in at the right mural (delivery: the destination); bring / deliver: `paid` items / parcels were taken from the actor (refunded on a reject).',
+  doc: 'Turn a job in at the right mural (delivery: the destination); bring / deliver / harvest / wood: `paid` items (the good, the parcels, the crop, the wood) were taken from the actor (refunded on a reject).',
   args: { id: 'jobId', paid: 'int?' },
   run(game, a, actor, net) {
     const u = who(game, actor), r = recOf(game, u), j = r?.jobs.find((q) => q.id === a.id);
@@ -459,6 +459,7 @@ defineIntent('job.done', {
     if (!atMural(game, at, actor.ent)) return `Entregue no mural de ${s?.name || '—'}`;
     if (j.t === 'bring' || j.t === 'deliver') { if (int(a.paid) < j.n) return `Faltam ${j.n - int(a.paid)}`; }
     else if ((j.got | 0) < j.n) return `Ainda falta: ${j.got | 0}/${j.n}`;
+    else if (jobGood(j) && int(a.paid) < j.n) return `Entregue ${j.n} ${(ITEMS[jobGood(j)]?.name || '').toLowerCase()}`; // (a harvest / wood job: the goods themselves — content/eco.js jobGood)
     net.emit('eco.job', { u, done: j.id, by: actor.pid, give: { [COIN]: j.pay }, toast: `Trabalho concluído: +${fmt(j.pay)} moedas, +${j.rep} de reputação`, toastKind: 'good' });
   },
 });

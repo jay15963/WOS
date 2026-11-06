@@ -26,7 +26,7 @@ import { registerWork, hitsFor } from './gathering.js';
 import { initGrids, computeMask, structureAt, wallBehind, DIRS4 } from './autotile.js';
 import * as CW from '../art/composeWorld.js';
 import { faceKindOf } from '../art/faces/index.js'; // camera turned: ghosts drawn like the finished piece (faces)
-import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT, baseFor, ownStructs } from './mut/structures.js';
+import { placeReason, objectsOnTile, CLEARABLE, defOf, REFUND, MAX_TILES, MAX_ROOF_TILES, rotCount, normRot, dimsOf, setGeom, cleanStyle, NO_SUPPORT, baseFor, ownStructs, TOWN } from './mut/structures.js';
 import { roofSupported, roofsLostWithout, enclosedRoom, roofPick, roofHeightAt, roofTileFace, liftedPoint } from './roofs.js';
 import { ROOF_STYLES, ROOF_TYPE_STYLES, ROOF_GEOM, roofEaveH } from './content/roofs.js';
 import { hasKit, normStyle, cleanDet, decodeKit } from './content/kits.js';
@@ -633,8 +633,10 @@ export function describeStructure(game, o) {
   // a settlement's pieces (game/towns.js): the mural opens its panel; its gates belong to the guards; its chests and beds
   // are the townsfolk's (phase 2: inns, property)
   if (o.type === 'town_mural') return structIt(o, { kind: 'mural', verb: 'Ver mural', icon: 'info', prio: 4, use: true, reach: 1.6 });
-  if (o.town != null && (def.gate2 || def.feed)) return null;
-  if (o.town != null && (o.type === 'chest' || o.type === 'bed') && !game.eco?.mayUse?.(o)) return null; // (a bought / rented house's chests and beds: its holder's — game/eco.js)
+  if (o.town != null && def.feed) return null;
+  if (o.town != null && def.gate2 && TOWN.gateReason?.(game, o, { pid: game.net.pid, ent: game.player })) return null; // (a town's gate: the guards' — but a member of its kingdom opens it at night: game/towns.js)
+  if (o.town != null && o.type === 'bed' && !game.eco?.mayUse?.(o)) return null; // (a bought / rented house's beds: its holder's — game/eco.js)
+  if (o.town != null && (o.type === 'chest' || def.station) && !game.eco?.owns?.(o)) return null; // (the place's chests and work stations are the townsfolk's — a bought house's are its owner's; the player builds his own: game/eco.js ownsPiece)
   if (o.realm != null && (o.blueprint || def.siege)) return null; // (a kingdom's army's engines / camp: its engineers' — game/siegeAI.js)
   if (o.blueprint) return structIt(o, { kind: 'blueprint', verb: o.moveOf ? 'Mover' : 'Construir', icon: 'build', prio: canSupply(game, o) ? 3 : 0 });
   if (game.build.decon.has(o)) return structIt(o, { kind: 'decon', verb: 'Desmontar', icon: 'build', prio: 1 });
@@ -913,8 +915,12 @@ export function buildingSystem() {
       const Zg = game.R?.depth, bzG = game.world.hasHeight && !(m.lv > 0) && m.tiles.length ? baseFor(game, m.type, m.tiles.map((g) => [g.tx, g.ty, m.rot])) : null;
       if (bzG != null && tile && B.faces) ghostFoundation(game, B, tile, m, bzG, pulse);
       if (Zg && bzG != null) Zg.g = bzG;
+      const HGt = game.world.height?.any ? game.world.height : null;
       for (const g of m.tiles) {
         const [fw, fh] = dimsOf(m.type, m.rot);
+        // (a piece with no pad of its own — a workbench, a torch, a chest — stands on the ground under it, as the finished one
+        // does (game.js: Z.g = the terrain height at it); left at 0 it showed sunk into raised ground — owner: "as construções
+        // não estão se encaixando bem, pelo menos não o preview, dá de ver que está debaixo da terra")
         const [r, gg, b] = g.ok ? [0.42, 0.72, 1] : [1, 0.35, 0.3];
         const glv = m.lv | 0, gl = glv ? glv * (game.levels?.STORY ?? 1) : 0; // levels: ghost on the chosen story
         if (tile && gl && B.faces) { for (let y = g.ty; y < g.ty + fh; y++) for (let x = g.tx; x < g.tx + fw; x++) B.faces.quad4(x, y, gl, tile.u0, tile.v0, x + 1, y, gl, tile.u1, tile.v0, x + 1, y + 1, gl, tile.u1, tile.v1, x, y + 1, gl, tile.u0, tile.v1, r, gg, b, 0.7 * pulse); } // levels, camera turned: flat on its story
@@ -924,6 +930,7 @@ export function buildingSystem() {
         G0.style = m.style || ''; G0.det = m.det || ''; G0._k = G0.style || G0.det ? decodeKit(m.type, G0.style, G0.det) : null; // sync-ok: scratch ghost
         G0._cm = G0._k?.on.carpet ? g.mask : 0;
         setGeom(G0);
+        if (Zg && bzG == null) Zg.g = HGt && Number.isFinite(G0.x) && Number.isFinite(G0.y) ? HGt.heightAt(G0.x, G0.y) : 0;
         G0._mount = BUILDINGS[m.type].edge ? wallBehind(game, g.tx, g.ty, m.rot, glv) : false;
         G0._ghost = g.ok ? 1 : 2; G0.alpha = 0.85 * pulse; G0.lv = glv; // sync-ok: scratch ghost
         const fk = faceKindOf(G0); // the ghost is drawn as the finished piece is (faces)

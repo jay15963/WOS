@@ -18,6 +18,7 @@ import { heightK } from './levels.js';
 import { BALLISTA, isBallista, pivotOf, seatSpot, angDiff, muzzleOf } from './ballista.js';
 import { isArtyObj, pivotOf as artyPivot, aimOf as artyAim, seatSpot as artySeat } from './siege.js';
 import { fireShot } from './mut/siege.js';
+import { stageOf, SIZE_OF } from './mut/corpses.js'; // (the animals killed near the place: scavTick)
 import { ARTY, flightOf } from './content/siege.js';
 import { perimeterOf, wallWalk, standOn, walkPath } from './defense.js';
 import { TOWN } from './mut/structures.js'; // (TOWN.privatePiece: a house a player owns is never mended by the town — game/raids.js)
@@ -266,6 +267,7 @@ export function npcBrain(game, rec, m, dt) {
   else if (flee(game, rec, m, dt)) return;
   if (m.talkTo && talkHold(game, rec, m, dt)) return;
   if (m.repair && repairWork(game, rec, m, dt)) return;
+  if (m.scav && scavWork(game, rec, m, dt)) return;
   m.planT -= dt;
   if (m.planT <= 0 || !m.task) {
     m.planT = 0.9 + (m.id % 7) * 0.08;
@@ -435,23 +437,29 @@ const lobAt = (game, m, f, direct) => npcLongShot(game, m, f, { direct, dmg: m.d
 // a spear guard's throw (npcLob.js: the player's "Lançar Lança" — up to 8 tiles, a 10 s cool-down) at a foe out of its reach
 // with a clear line; the landing hurts only the place's foes
 const spearAt = (game, m, f, minD = N.spearMin) => m.wprof?.type === 'spear' && npcThrowSpear(game, m, f, { minD, dmg: m.dmg * (0.9 + R01(m) * 0.3), faction: 'town', canHit: (e) => hostile(e, m.npcS, game), onHit: (g, e, amount, o) => hitIt(g, m, e, amount, o) });
-// the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin
+// how much nearer a foe counts for the watch (× its distance): the dead of the night, a giant, raiders, an army's soldiers, one
+// breaking a piece of the place or of its attack — what destroys the place — before a wolf that only prowls (owner: "os
+// soldados estão atacando lobos ao invés de andarilhos, os andarilhos devem ter prioridade já que eles destroem estruturas")
+export const prioK = (e, S = null) => (e.faction === 'walker' || e.faction === 'bandit' || e.species === 'giant' || !!e.soldier || !!e.siege || (!!S && e.raid === S.sid) ? 0.4 : 1);
+// the nearest hostile a guard sees (or hears of: the bell) inside its town land + a margin — the ones that destroy first
+// (prioK)
 export function guardTargets(game, rec, m, sight = N.guardSight) {
   const S = rec.S, w = game.world, R = S.s.r + N.guardLeash, R2 = R * R;
-  let best = null, bd = rec.danger ? Math.max(sight + 10, S.s.r * 2 + 6) : sight; // (the bell: the whole watch hears it, across the town)
+  const lim = rec.danger ? Math.max(sight + 10, S.s.r * 2 + 6) : sight; // (the bell: the whole watch hears it, across the town)
+  let best = null, bd = Infinity;
   for (const e of game.entities) {
     if (!hostile(e, S, game)) continue;
-    const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
-    if (d >= bd) continue;
+    const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y), sc = d * prioK(e, S);
+    if (d >= lim || sc >= bd) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
     if (dx * dx + dy * dy > R2) continue;
     if (d > 6 && !rec.danger && !hasLOS(w, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
-    best = e; bd = d;
+    best = e; bd = sc;
   }
   if (game.army?.en?.size || game.skirmish?.on) for (const e of allPlayers(game)) { // (an enlisted enemy player in the town land — phase 3c; a skirmish's side)
     if (!hostile(e, S, game)) continue;
     const d = Math.hypot(w.dx(e.x, m.x), e.y - m.y);
-    if (d >= bd) continue;
+    if (d >= lim || d >= bd) continue;
     const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
     if (dx * dx + dy * dy > R2) continue;
     if (d > 6 && !rec.danger && !hasLOS(w, m.x, m.y, e.x, e.y, m.z || 0, e.z || 0, m._tn, e._tn)) continue;
@@ -465,7 +473,8 @@ function guardFight(game, rec, m, dt) {
   if (m.scanT <= 0 || (m.foe && m.foe.dead)) {
     m.scanT = 0.3 + (m.id % 5) * 0.04;
     const duty = rec.danger ? rec.S.def?.posts.get(m.npc.i) : null; // (the bell rang: the defense posts — defense.js)
-    const f = duty ? postedFoe(game, rec, m, duty) : m.foe && !m.foe.dead && hostile(m.foe, rec.S, game) && inReach(game, rec, m.foe) ? m.foe : guardTargets(game, rec, m);
+    const cur = m.foe && !m.foe.dead && hostile(m.foe, rec.S, game) && inReach(game, rec, m.foe) ? m.foe : null;
+    const f = duty ? postedFoe(game, rec, m, duty) : cur && prioK(cur, rec.S) < 1 ? cur : guardTargets(game, rec, m) || cur; // (a wolf it fights: kept, unless one that destroys the place comes — prioK)
     if (f && !m.foe) engage(game, m, f);
     m.foe = f; m.threat = f;
   }
@@ -551,14 +560,15 @@ function postedFoe(game, rec, m, d) {
   // (a guard on a stretch of an intact wall never walks out round by a gate: only what is inside — the gates and the
   // gaps are where the fight outside is met)
   const per = perimeterOf(rec.S), mine = (e) => !(d.k === 'stretch' && per.walled && !per.inside(e.x, e.y, w));
-  if (m.foe && hostile(m.foe, rec.S, game) && near(m.foe, R + 3) && mine(m.foe)) return m.foe;
-  let best = null, bd = R * R;
+  const keep = m.foe && hostile(m.foe, rec.S, game) && near(m.foe, R + 3) && mine(m.foe) ? m.foe : null;
+  if (keep && prioK(keep, rec.S) < 1) return keep;
+  let best = null, bd = Infinity;
   for (const e of rec.foes || []) {
     if (!hostile(e, rec.S, game) || !mine(e)) continue;
-    const dx = w.dx(e.x, d.x), dy = e.y - d.y, dd = dx * dx + dy * dy;
-    if (dd < bd) { bd = dd; best = e; }
+    const dx = w.dx(e.x, d.x), dy = e.y - d.y, dd = dx * dx + dy * dy, k = prioK(e, rec.S);
+    if (dd < R * R && dd * k * k < bd) { bd = dd * k * k; best = e; }
   }
-  return best;
+  return keep && (!best || prioK(best, rec.S) >= 1) ? keep : best; // (a wolf it fights: kept, unless one that destroys the place is near)
 }
 // a foe still worth chasing: in the town land (+ the leash)
 function inReach(game, rec, e) {
@@ -745,8 +755,8 @@ function focusFoe(game, rec, m, at) {
   const rng = N.archerRange * 1.3;
   for (const e of rec.foes || []) {
     if (!hostile(e, rec.S, game) || Math.hypot(e.x - m.x, e.y - m.y) > rng) continue;
-    const dd = (e.x - at.x) ** 2 + (e.y - at.y) ** 2;
-    if (dd < bd) { bd = dd; best = e; }
+    const k = prioK(e, rec.S), dd = (e.x - at.x) ** 2 + (e.y - at.y) ** 2;
+    if (dd < 64 && dd * k * k < bd) { bd = dd * k * k; best = e; }
   }
   return best;
 }
@@ -872,6 +882,64 @@ function catapultTask(game, rec, m, T, dt, o) {
 
 // ---------- repairs by day: a worker / a guard off its post fixes the town's walls and gates ----------
 const REPAIRERS = new Set(['woodcutter', 'smith', 'porter', 'farmer', 'miner', 'groom', 'guard']);
+
+// ---------- the animals killed near the place: collected by its workers by day (owner: "os lobos que são mortos pelos
+// guardas são praticamente carne e couro de graça para o jogador, faça com que a população colete os lobos também, fazendo
+// com que o amanhecer seja uma corrida para conseguir carne e couro de 'graça'") — a fresh body of an animal (its first day,
+// not collected yet) in the town land + N.scav.r, dead N.scav.age s or more: the nearest free worker goes ("Coletar", the
+// size's time) and collects it (op corpse.butcher, by 'npc': nobody gets the meat — it is the place's); at night they are
+// home, so the night's kills wait for the dawn ----------
+const SCAVENGERS = new Set(['woodcutter', 'smith', 'porter', 'farmer', 'herder', 'miner', 'groom', 'homemaker', 'innkeeper', 'weaver']);
+const SCAV_T = { s: 2.4, m: 3.6, l: 5.4 };
+export function scavTick(game, rec, dt) {
+  rec.scavT = (rec.scavT || 0) - dt;
+  if (rec.scavT > 0) return;
+  rec.scavT = 1.5;
+  const h = game.env?.hour ?? 12, C = N.scav, S = rec.S;
+  if (rec.danger || h < C.hours[0] || h > C.hours[1] || !game.corpses) { for (const m of rec.ents.values()) if (m.scav) { m.scav = null; m.action = null; } return; }
+  const R = S.s.r + C.r, want = [];
+  for (const c of game.corpses.map.values()) {
+    if (c.of === 'pawn' || c.butchered || c.dragBy || !SPECIES[c.of] || game.worldTime - c.deathT < C.age || stageOf(game, c) !== 'fresh') continue;
+    if (Math.hypot(game.world.dx(c.x, S.s.x), c.y - S.s.y) > R) continue;
+    want.push(c);
+  }
+  for (const m of rec.ents.values()) if (m.scav && !want.some((c) => c.id === m.scav.id)) { m.scav = null; m.action = null; m.task = null; m.planKey = ''; }
+  if (!want.length) return;
+  const busy = new Set([...rec.ents.values()].filter((m) => m.scav).map((m) => m.scav.id));
+  for (const c of want) {
+    if (busy.has(c.id) || busy.size >= C.max || rec.noScav?.get(c.id) > game.worldTime - 30) continue;
+    let best = null, bd = R * 2.5;
+    for (const m of rec.ents.values()) {
+      const P = m.npc;
+      if (m.dead || m.repair || m.scav || !SCAVENGERS.has(P.job) || P.age !== 'adult' || m.state === 'chase' || m.z > 0.5 || m.task?.k === 'vanish' || m.talkTo) continue;
+      const d = Math.hypot(m.x - c.x, m.y - c.y);
+      if (d < bd) { bd = d; best = m; }
+    }
+    if (!best) continue;
+    best.scav = { id: c.id, t: 0, wT: 0 };
+    best.task = null; best.pose = null; best.route = null;
+    busy.add(c.id);
+  }
+}
+function scavWork(game, rec, m, dt) {
+  const J = m.scav, c = game.corpses?.map.get(J.id);
+  const done = () => { m.scav = null; m.action = null; m.planKey = ''; m.task = null; return false; };
+  if (!c || c.butchered || c.dragBy || stageOf(game, c) !== 'fresh') return done();
+  if (!J.spot) { J.spot = nearPass(game, c.x, c.y + 0.5, 2) || [c.x, c.y + 0.5]; }
+  const s = walk(game, rec, m, J.spot[0], J.spot[1], SPD.walk * 1.6, dt, 0.5); // (in a hurry: the meat is anyone's who gets there first)
+  if (s !== 'here') {
+    J.wT += dt;
+    if ((s === 'fail' && !unstick(game, m, J.spot[0], J.spot[1], rec) && (J.nf = (J.nf || 0) + 1) >= 4) || J.wT > 60) { (rec.noScav || (rec.noScav = new Map())).set(J.id, game.worldTime); m.route = null; return done(); }
+    return true;
+  }
+  m.moving = false;
+  faceTowards(m, c);
+  if (!m.action) m.action = { type: 'gather', t: 0, dur: 0.9 };
+  J.t += dt;
+  if (J.t < (SCAV_T[SIZE_OF[c.of] || SPECIES[c.of]?.size] || SCAV_T.m)) return true;
+  game.net.emit('corpse.butcher', { id: c.id, by: 'npc', give: {}, xp: 0 }); // (the place's: nobody's backpack)
+  return done();
+}
 export function repairTick(game, rec, dt) {
   const h = game.env?.hour ?? 12;
   rec.repT = (rec.repT || 0) - dt;

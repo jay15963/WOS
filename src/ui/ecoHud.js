@@ -57,6 +57,13 @@ export function installEcoHud(game) {
   track.id = 'jtrack';
   status.prepend(track);
   status.prepend(purse);
+  // the plots shown from the mural ("Ver"): a chip to hide them before their time is up
+  const plotsX = document.createElement('button');
+  plotsX.id = 'plotsx'; plotsX.className = 'jt-i'; plotsX.style.display = 'none';
+  plotsX.innerHTML = '<span class="ic">📐</span><span><b>Terrenos à mostra</b><small>Toque para ocultar</small></span><span class="ar x">✕</span>';
+  plotsX.addEventListener('pointerdown', (e) => { e.stopPropagation(); if (game.eco) game.eco.showPlotsT = 0; plotsX.style.display = 'none'; });
+  track.after(plotsX);
+  let plotsOn = false;
   const pb = purse.querySelector('b');
   purse.addEventListener('pointerdown', (e) => { e.stopPropagation(); game.ui?.panels?.toggle('inv'); });
   let coins = -1, invV = -1;
@@ -168,9 +175,10 @@ export function installEcoHud(game) {
     const E = game.eco, here = game.towns?.here?.town ?? -1;
     if (E.showPlotsT > 0 && E.showPlots != null) return E.showPlots;
     if (here < 0) return -1;
-    if (game.build?.mode) return here;
-    const s = settlement(game, here);
-    return s && propsOf(game, here).plots.some((pl) => E.pr.get(pl.id)?.u === me()) ? here : -1;
+    // building in a town: its plots; else only when asked for from the mural ("Ver", for a while, with a ✕ to close) — they
+    // used to stay on for good in a town where the player had bought a plot (owner: "está aparecendo a demarcação dos
+    // terrenos mas não está aparecendo para fechar essa visão, aconteceu após eu comprar um terreno")
+    return game.build?.mode ? here : -1;
   };
   const corner = (x, y) => game.worldToScreen(x, y, 0.02);
   return {
@@ -179,6 +187,7 @@ export function installEcoHud(game) {
       const E = g.eco;
       if (!E) return;
       if (E.showPlotsT > 0) E.showPlotsT -= dt;
+      { const on = E.showPlotsT > 0 && E.showPlots != null && !g.build?.mode; if (on !== plotsOn) { plotsOn = on; plotsX.style.display = on ? '' : 'none'; } }
       const p = g.player;
       if (p.inv.version !== invV) {
         invV = p.inv.version;

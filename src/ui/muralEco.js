@@ -11,7 +11,7 @@ import {
   jobState, jobTarget, jobWaypoint, jobReason, ecoDay, propsOf, propById, chargeOf, propsOfUid, payBills, dealReason, atMural, fmt, dirPt, kingdomOf, settlement, priceFactor, goodBase, demandOf,
   JOB_MAX, PROP, REP, COIN, PARCEL, inheritFor, rentOf,
 } from '../game/eco.js';
-import { GOOD_CATS, JOB_KINDS } from '../game/content/eco.js';
+import { GOOD_CATS, JOB_KINDS, jobGood } from '../game/content/eco.js';
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const pct = (v) => (Math.round(v * 1000) / 10).toString().replace('.', ',') + '%';
@@ -283,7 +283,9 @@ function jobCard(panels, j, mine, here) {
     let got = j.got | 0, need = j.n, unit = '';
     if (j.t === 'bring') { got = p.inv.count(j.good); unit = ` ${esc(ITEMS[j.good]?.name.toLowerCase() || '')} na mochila`; }
     if (j.t === 'deliver') { got = p.inv.count(PARCEL); unit = ' encomendas na mochila'; }
-    const ready = st === 'ready' || ((j.t === 'bring' || j.t === 'deliver') && got >= need);
+    const jg = jobGood(j), have = jg ? p.inv.count(jg) : 0;
+    const ready = (st === 'ready' && (!jg || have >= need)) || ((j.t === 'bring' || j.t === 'deliver') && got >= need);
+    if (jg && st === 'ready' && have < need) unit = ` · traga ${need} ${esc(ITEMS[jg]?.name.toLowerCase() || '')} (tem ${have})`;
     const at = j.t === 'deliver' ? j.dest : j.sid, there = settlement(g, at), atHere = atMural(g, at, p);
     cls = ready ? ' ready' : ' taken';
     prog = `<div class="ec-bar"><i style="width:${Math.min(100, (100 * got) / need)}%"></i><span>${Math.min(got, need)} / ${need}${unit}</span></div>
@@ -425,8 +427,8 @@ function sellGood(g, sid, id, n) {
 }
 function turnIn(g, j) {
   const p = g.player;
-  if (j.t === 'bring' || j.t === 'deliver') {
-    const item = j.t === 'bring' ? j.good : PARCEL;
+  if (j.t === 'bring' || j.t === 'deliver' || jobGood(j)) {
+    const item = j.t === 'bring' ? j.good : j.t === 'deliver' ? PARCEL : jobGood(j); // (a harvest / wood job: its goods leave the backpack too)
     if (p.inv.count(item) < j.n) return err(g)(`Faltam ${j.n - p.inv.count(item)}`);
     p.inv.remove(item, j.n);
     g.events.emit('inventory', {});

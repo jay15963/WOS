@@ -60,9 +60,11 @@ function graphOf(realm) {
   GRAPH.set(realm, G);
   return G;
 }
-// Dijkstra from `src` (sids) over the roads (≤ maxD): dist, the previous node and the road taken to reach each node
-function dijkstra(realm, src, maxD = Infinity) {
-  const G = graphOf(realm), n = realm.settlements.length;
+// Dijkstra from `src` (sids) over the roads (≤ maxD): dist, the previous node and the road taken to reach each node.
+// pass(sid) false: a place no route goes THROUGH (reached, a dead end — an army never marches through a place of a kingdom
+// at war with it: passFor; owner: "exércitos estão conseguindo passar por dentro de cidades do reino inimigo")
+function dijkstra(realm, src, maxD = Infinity, pass = null) {
+  const G = graphOf(realm), n = realm.settlements.length, isSrc = new Set(src);
   const dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), via = new Int32Array(n).fill(-1), vdir = new Int8Array(n);
   const open = [];
   for (const s of src) { dist[s] = 0; open.push(s); }
@@ -73,14 +75,17 @@ function dijkstra(realm, src, maxD = Infinity) {
     const u = open[bi]; open[bi] = open[open.length - 1]; open.pop();
     if (done[u]) continue;
     done[u] = 1;
+    if (pass && !isSrc.has(u) && !pass(u)) continue; // (an enemy place on the way: not through it)
     for (const [v, rid, dir] of G.adj[u]) {
       const nd = dist[u] + G.len[rid];
       if (nd > maxD || nd >= dist[v]) continue;
       dist[v] = nd; prev[v] = u; via[v] = rid; vdir[v] = dir; open.push(v);
     }
   }
-  return { dist, prev, via, vdir };
+  return { dist, prev, via, vdir, pass };
 }
+// the places an army of kingdom k may march through: its own and those of kingdoms not at war with it
+const passFor = (game, k) => (u) => { const o = ownerOf(game, u); return o === k || !atWar(game, k, o); };
 // the route from place `from` to the source of a Dijkstra run made FROM the target (follow the previous nodes): roads
 // from → … → target, each with the direction it is walked in
 function routeFrom(D, from) {
@@ -91,11 +96,23 @@ function routeFrom(D, from) {
 // two places of one land mass with no road between them (kingdoms apart across free land): the army goes across country —
 // A* over the planet's macro cells (land only; hills and mountains cost more), host only; the cells travel in the op
 // (path.c) and every peer makes the same polyline from them
-export function overland(game, from, to) {
+export function overland(game, from, to, pass = null) {
   const P = game.world.source?.planet, realm = realmOf(game);
   if (!P?.water || !realm) return null;
   const MW = 512, MH = 256, S = realm.settlements, cellOf = (s) => Math.max(0, Math.min(MH - 1, Math.floor(s.y / 32))) * MW + ((Math.floor(s.x / 32) % MW) + MW) % MW;
   const a = cellOf(S[from]), b = cellOf(S[to]), land = (i) => !P.water[i] && !P.ocean[i] && !P.lakeId[i];
+  // (the cells of the places it may not march through — a kingdom at war with it: dijkstra's pass — the target aside)
+  const block = new Set();
+  if (pass) for (const s of S) {
+    if (s.id === from || s.id === to || pass(s.id)) continue;
+    const c = cellOf(s), cx = c % MW, cy = (c - cx) / MW, rr = Math.ceil(((s.ro || s.r || 20) + 6) / 32);
+    for (let dy = -rr; dy <= rr; dy++) for (let dx = -rr; dx <= rr; dx++) {
+      const x = cx + dx, y = cy + dy;
+      if (y < 0 || y >= MH || Math.hypot((x + 0.5) * 32 - s.x, (y + 0.5) * 32 - s.y) > (s.ro || s.r || 20) + 22) continue;
+      const j = y * MW + ((x % MW) + MW) % MW;
+      if (j !== a && j !== b) block.add(j);
+    }
+  }
   if (P.comp[a] !== P.comp[b]) return null;
   const DX = [1, -1, 0, 0, 1, 1, -1, -1], DY = [0, 0, 1, -1, 1, -1, 1, -1], DL = [1, 1, 1, 1, Math.SQRT2, Math.SQRT2, Math.SQRT2, Math.SQRT2];
   const hd = (i) => { let dx = Math.abs((i % MW) - (b % MW)); if (dx > MW / 2) dx = MW - dx; return Math.hypot(dx, Math.floor(i / MW) - Math.floor(b / MW)); };
@@ -111,7 +128,7 @@ export function overland(game, from, to) {
       const yy = y + DY[q];
       if (yy < 0 || yy >= MH) continue;
       const j = yy * MW + (((x + DX[q]) % MW) + MW) % MW;
-      if (j !== b && !land(j)) continue;
+      if (j !== b && (!land(j) || block.has(j))) continue;
       const c = DL[q] * (1 + 3 * (P.relief?.[j] || 0) + 10 * (P.mtn?.[j] || 0) + (P.rkind?.[j] === 1 ? 1.5 : 0));
       const ng = gi + c;
       if (ng < (G.get(j) ?? Infinity)) { G.set(j, ng); from_.set(j, i); H.push(ng + hd(j), j); }
@@ -350,7 +367,7 @@ function lost(game, k, n) { const H = game.realms.H; H.lost.set(k, (H.lost.get(k
 // the way from place `from` to place T: by the roads (D: a Dijkstra run from T), else across country (same land mass)
 function pathTo(game, D, from, T) {
   if (D && D.dist[from] < Infinity) { const r = routeFrom(D, from); return r.length ? { f: from, r } : null; }
-  return overland(game, from, T);
+  return overland(game, from, T, D?.pass || null);
 }
 // a new army leaves `from` toward `target` (host); muster: it waits there for the other contingents first (no path yet)
 function launch(game, k, from, target, n, mission, D, news = null, t = game.worldTime, { grp = '', muster = false } = {}) {
@@ -370,7 +387,7 @@ function launch(game, k, from, target, n, mission, D, news = null, t = game.worl
 function depart(game, a, t) {
   const realm = realmOf(game), T = a.target, own = T >= 0 ? ownerOf(game, T) : -1;
   const goes = a.mission === 'relief' ? own === a.k && siegeIndex(game).has(T) : T >= 0 && atWar(game, a.k, own);
-  const path = goes ? pathTo(game, dijkstra(realm, [T], WAR.maxRoute * 1.5), a.home, T) : null;
+  const path = goes ? pathTo(game, dijkstra(realm, [T], WAR.maxRoute * 1.5, passFor(game, a.k)), a.home, T) : null;
   if (!path) { mergeHome(game, a); return; } // (the war is over, the siege lifted, no way there: back to the garrison)
   const b = copy(a), T0 = Math.round(t * 100) / 100;
   Object.assign(b, { state: 'march', phase: '', path, t0: T0, d0: 0, v: WAR.march, since: T0, n0: a.n });
@@ -416,7 +433,7 @@ function arrive(game, a, t) {
       if (M.live && game.warfare?.forces?.get(M.id)?.kind === 'march') remat(game, R.armies.get(M.id)); // (live: its column with the newcomers at once — phase 3c)
       return;
     }
-    const path = M && M.target >= 0 && M.state !== 'retreat' ? pathTo(game, dijkstra(realm, [M.target], WAR.maxRoute * 1.5), a.target, M.target) : null;
+    const path = M && M.target >= 0 && M.state !== 'retreat' ? pathTo(game, dijkstra(realm, [M.target], WAR.maxRoute * 1.5, passFor(game, a.k)), a.target, M.target) : null;
     if (!path) { mergeHome(game, a); return; }
     const b = copy(a), T0 = Math.round(t * 100) / 100;
     Object.assign(b, { mission: M.mission, target: M.target, path, t0: T0, d0: 0, v: WAR.march, since: T0 });
@@ -790,7 +807,7 @@ function plan(game, t) {
       if ([...R.armies.values()].some((q) => q.k === s && q.mission === 'attack' && q.target >= 0 && ownerOf(game, q.target) === e)) continue;
       const mine = placesOf(game, s).map((q) => q.id);
       if (!mine.length) continue;
-      const D = dijkstra(realm, mine, WAR.maxRoute);
+      const D = dijkstra(realm, mine, WAR.maxRoute, passFor(game, s));
       const cand = [];
       for (const q of realm.settlements) {
         if (ownerOf(game, q.id) !== e || siegeIndex(game).has(q.id)) continue;
@@ -807,7 +824,7 @@ function plan(game, t) {
 }
 // gather the soldiers of kingdom k's places near target T until `need` power: one army per contingent (≤ WAR.contingents)
 function sendForce(game, k, T, need, mission, news, t) {
-  const realm = realmOf(game), D = dijkstra(realm, [T], WAR.muster), sT = realm.settlements[T];
+  const realm = realmOf(game), D = dijkstra(realm, [T], WAR.muster, passFor(game, k)), sT = realm.settlements[T];
   const pool = [], byRoad = placesOf(game, k).some((q) => q.id !== T && D.dist[q.id] < Infinity);
   for (const q of placesOf(game, k)) {
     if (q.id === T || siegeIndex(game).has(q.id)) continue;
@@ -827,7 +844,7 @@ function sendForce(game, k, T, need, mission, news, t) {
   const near = pool.filter((p) => p[0] <= pool[0][0] + 400).sort((p, q) => powerOf(q[2], q[3]) - powerOf(p[2], p[3]) || p[0] - q[0]);
   const [, msid, mn, mlv] = near.find((p) => pathTo(game, D, p[1], T)) || [];
   if (msid == null) return false;
-  const Dm = dijkstra(realm, [msid], WAR.joinRange);
+  const Dm = dijkstra(realm, [msid], WAR.joinRange, passFor(game, k));
   let pow = powerOf(mn, mlv);
   const go = [];
   for (const [, sid, n, lv] of pool) {
@@ -890,7 +907,7 @@ function dayTick(game, day, mult) {
   const pow = new Map();
   const P = (k) => { if (!pow.has(k)) pow.set(k, strength(game, k)); return pow.get(k); };
   const pairs = neighbourPairs(game).filter(([a, b]) => !fallen(game, a) && !fallen(game, b));
-  const tens = [];
+  const tens = [], home = homeKingdoms(game);
   for (const [a, b, far] of pairs) {
     const key = relKey(a, b), r = R.rels.get(key);
     let t = R.tens.get(key) ?? T.init[0];
@@ -899,9 +916,10 @@ function dayTick(game, day, mult) {
     if (pa > pb * 1.4 || pb > pa * 1.4) d += T.rival;
     d += T.grudge * Math.min(3, R.past.get(key) || 0);
     if (placesOf(game, a).some((q) => q.k === b) || placesOf(game, b).some((q) => q.k === a)) d += T.lostLand;
+    if (home.has(a) || home.has(b)) d += T.home; // (the players' kingdom: the war comes to them too)
     if (r?.r === 'ally') d += T.ally;
     if (r?.r === 'truce') d += T.truce;
-    if ((r?.r !== 'war') && (warsOf(game, a) || warsOf(game, b))) d += T.busy;
+    if ((r?.r !== 'war') && (warsOf(game, a) || warsOf(game, b)) && !home.has(a) && !home.has(b)) d += T.busy;
     d += (roll() - 0.5) * T.noise;
     t = clamp(t * T.keep + d * mult, 0, 100);
     tens.push([key, Math.round(t * 10) / 10]);
@@ -941,10 +959,12 @@ function dayTick(game, day, mult) {
   const wars = () => [...R.rels.values()].filter((r) => r.r === 'war').length;
   const cand = pairs.map(([a, b]) => [R.tens.get(relKey(a, b)) ?? 0, a, b]).sort((p, q) => q[0] - p[0] || p[1] - q[1] || p[2] - q[2]);
   for (const [t, a, b] of cand) {
-    if (t < WAR.declareAt || wars() >= cap) break;
+    if (t < WAR.declareAt - WAR.homeDeclare) break;
+    const hm = home.has(a) || home.has(b), at = WAR.declareAt - (hm ? WAR.homeDeclare : 0); // (the players' kingdom: a lower bar, a double chance, one past the cap)
+    if (t < at || wars() >= cap + (hm ? 1 : 0)) continue;
     if (R.rels.get(relKey(a, b)) || inGrace(game, a, day) || inGrace(game, b, day)) continue;
     if (warsOf(game, a) >= WAR.maxWarsPer || warsOf(game, b) >= WAR.maxWarsPer) continue;
-    if (roll() >= Math.min(0.6, (t - WAR.declareAt) * WAR.declareP)) continue;
+    if (roll() >= Math.min(0.6, (t - at) * WAR.declareP * (hm ? 2 : 1))) continue;
     const by = P(a) >= P(b) ? a : b, vs = by === a ? b : a;
     net.emit('realm.rel', { a: by, b: vs, rel: 'war', by, why: 'declare' });
     // a defensive pact: the victim's allies join against the aggressor
@@ -953,6 +973,15 @@ function dayTick(game, day, mult) {
       net.emit('realm.rel', { a: x, b: by, rel: 'war', by: x, why: 'pact' });
     }
   }
+}
+
+// the players' kingdoms: where the world started (R.k0) and the ones a player belongs to (game/eco.js members) — the daily
+// diplomacy pulls them into the wars (WAR.tension.home)
+function homeKingdoms(game) {
+  const R = game.realms, out = new Set();
+  if (R?.k0 != null && R.k0 >= 0) out.add(R.k0);
+  for (const r of game.eco?.pl?.values() || []) if (r.k >= 0) out.add(r.k);
+  return out;
 }
 
 // ---------- host: war and the markets ("tudo se conversa") ----------
@@ -1110,8 +1139,8 @@ function makeDebug(game) {
     // a campaign of kingdom k on place T now (its contingents from the places near it): true when it went
     attack: (k, T, need = 0) => sendForce(game, k, T, need || defenseOf(game, T).pow * WAR.force, 'attack', ['march', k, ownerOf(game, T), T, 0], game.worldTime),
     // one army of n soldiers from place `from` to place T (mission attack / relief)
-    launch: (from, T, n, mission = 'attack') => { const k = ownerOf(game, from), D = dijkstra(realmOf(game), [T], Infinity); return launch(game, k, from, T, n, mission, D, mission === 'attack' ? ['march', k, ownerOf(game, T), T, n] : ['relief', k, -1, T, n]); },
-    route: (from, T) => { const D = dijkstra(realmOf(game), [T], Infinity); const p = pathTo(game, D, from, T); return p ? { ...p, len: geomOf(game, p).len, road: D.dist[from] < Infinity } : null; },
+    launch: (from, T, n, mission = 'attack') => { const k = ownerOf(game, from), D = dijkstra(realmOf(game), [T], Infinity, passFor(game, k)); return launch(game, k, from, T, n, mission, D, mission === 'attack' ? ['march', k, ownerOf(game, T), T, n] : ['relief', k, -1, T, n]); },
+    route: (from, T) => { const D = dijkstra(realmOf(game), [T], Infinity, passFor(game, ownerOf(game, from))); const p = pathTo(game, D, from, T); return p ? { ...p, len: geomOf(game, p).len, road: D.dist[from] < Infinity } : null; },
     pairs: () => neighbourPairs(game),
     garrison: (sid, n) => game.net.emit('realm.army', { gar: [[sid, n]] }),
     capture: (sid, k) => hostCapture(game, sid, k, null),

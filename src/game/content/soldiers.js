@@ -20,6 +20,7 @@ export const WAR = {
   spearMin: 4.5, // tiles: a spearman throws its spear (npcLob.js Lançar Lança, up to 8) only at a foe at least this far — closer it closes in for the blows
   leash: 26,           // tiles from its anchor a soldier chases a foe in a battle line
   pfoeT: 22,           // s: a player who hurt a soldier is its foe this long (refreshed by every hit)
+  closeR: 2.4,         // tiles: a player this close (in reach of its blow) is fought first, even in the middle of another fight — more so the one who just hit it (soldier.js closePlayer)
   // the general's rally and the morale (0..100): losses (% of the side's men) and the general falling lower it; the
   // general shouts and raises it now and then; below rout the side breaks and runs
   morale: { start: 100, perLoss: 1.1, outnumbered: 18, general: 30, rally: 14, rallyEvery: 9, rout: 26, routSiege: 22 },

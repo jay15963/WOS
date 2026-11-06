@@ -779,6 +779,7 @@ defineIntent('door.toggle', {
     if (want === !!o.open) return;
     if (!want && doorBusy(game, o)) return 'Tem alguém na passagem';
     net.emit('door.set', { id: o.id, open: want ? 1 : 0, by: actor.pid });
+    if (want) TOWN.gateOpened?.(game, o); // (a town gate a member opened at night: it shuts itself — game/towns.js)
   },
 });
 

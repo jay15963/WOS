@@ -8,7 +8,11 @@ export const WAR = {
                          // grace of its own any more (owner, 2026-11-06: it can be at war from the second day like any other)
   tension: {
     init: [10, 60],      // a pair's tension when the world starts: 10..60 (a hash of the pair: some neighbours are old rivals)
-    base: [0.3, 2.4],    // tension added a day, by pair (border friction)
+    base: [0.6, 2.7],    // tension added a day, by pair (border friction) — (owner, 6/11/2026: "no mundo estou vendo apenas dois reinos
+                         // entrando em guerra e já se passou uma semana, nem mesmo o reino do jogador entrou em guerra … a guerra é a parte
+                         // divertida do jogo": more friction, a lower bar to declare, more wars at once, the player's kingdom pulled in)
+    home: 3.2,           // + a day for the pairs of the player's kingdom (where the players started / the ones they belong to; never
+                         // cooled by `busy`, and its war may go one past the world's cap — game/realms.js dayTick)
     rival: 1.4,          // + a day when one side is ≥ 1.4× stronger (the strong covet the weak)
     grudge: 0.9,         // + a day per past war between them (at most 3)
     lostLand: 2.5,       // + a day when one holds a place that was the other's (revanche)
@@ -18,9 +22,10 @@ export const WAR = {
     noise: 3,            // ± a day / 2
     keep: 0.97,          // the rest decays a little each day
   },
-  declareAt: 52,         // tension above which a war may be declared
-  declareP: 0.025,       // chance a day per point above it (at most 0.6)
-  maxWarsK: 6,           // the world holds at most ⌈kingdoms / 6⌉ wars at once (16 kingdoms → 3)
+  declareAt: 44,         // tension above which a war may be declared
+  homeDeclare: 10,       // the players' kingdom: 10 lower (34), its chance a day doubled
+  declareP: 0.035,       // chance a day per point above it (at most 0.6)
+  maxWarsK: 4,           // the world holds at most ⌈kingdoms / 4⌉ wars at once (16 kingdoms → 4)
   maxWarsPer: 2,         // per kingdom (a defensive alliance may drag it into a second one)
   allyBelow: 14,         // tension below which two neighbours may ally
   allyP: 0.07,           // a day (more with a common enemy)

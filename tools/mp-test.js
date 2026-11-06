@@ -2676,6 +2676,43 @@ def('IG2', {
   env.history.push('IG2');
 });
 
+def('IG3', {
+  title: 'Ice giants: one stuck in an opening one tile wide (open for the tiles, too narrow for its body) breaks the pieces beside it until it gets through',
+  timeout: 150000,
+  expected: 'Winter night; the guest inside a 7×7 ring of wooden walls with a gap one tile wide in the middle of its east side; a giant spawned outside, in line with the gap and the guest. Its way runs through the gap but its body (radius 0.8) does not fit: it breaks a piece of the ring beside the gap (walkers.js breachBeside — the ray to its goal crosses the open gap and finds nothing to break), on both peers, and comes in (inside the ring); digest equal',
+  api: 'walkers.js approach (blocked → breachToward / breachBeside), siegeStep, giants.js spawnGiantAt (r 0.8, siegeMul)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const EH = H.game.env, gp = G.game.player;
+  const day0 = EH.dayIndex, hour0 = EH.hour;
+  A.keepAlive(t, G);
+  const site = A.findSite([H, G], [MH, MG], 'wall_wood', (x, y) => { const L = []; for (let i = 0; i < 16; i++) for (let j = 0; j < 7; j++) L.push([x + i, y + j]); return L; }, gp.x, gp.y, { rMin: 3, rMax: 16 });
+  t.assert(site, 'found a free 16×7 site');
+  const { x0, y0 } = site, ring = [], gap = [x0 + 6, y0 + 3];
+  for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) if ((i === 0 || j === 0 || i === 6 || j === 6) && !(i === gap[0] - x0 && j === gap[1] - y0)) ring.push(['wall_wood', x0 + i, y0 + j]);
+  const ids = hostBuild(H, ring);
+  siegeCleanup(t, H, MH, day0, hour0, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 1500, 'the guest has the ring (a gap one tile wide on its east side)');
+  A.teleport(G, x0 + 3.5, y0 + 3.5);
+  await A.hostSees(t, H, G);
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  H.game.net.emit('env.skip', { hour: 22, day: 5, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => H.game.season?.id === 'winter' && G.game.season?.id === 'winter', 3000 + CFG.budget, 'winter night on both');
+  H.game._walkT = 1e9; H.game._giantT = 1e9;
+  const m = MH.giants.spawnGiantAt(H.game, x0 + 12.5, y0 + 3.5);
+  m.hp = m.maxHp = m.maxHp * 20;
+  t.defer(() => { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); });
+  t.check((m.r || 0) > 0.5, 'the giant\'s body is wider than the gap', f2(m.r));
+  const flank = ids.filter((id) => { const o = H.game.world.objById.get(id); return o && Math.abs(o.tx - gap[0]) <= 1 && Math.abs(o.ty - gap[1]) <= 2; });
+  const broken = () => flank.filter((id) => { const o = H.game.world.objById.get(id); return !o || o.removed || (o.dmg || 0) > 0; });
+  await t.waitFor(() => broken().length >= 1, 60000, 'it hits a piece beside the gap', () => `giant ${m.state} at ${f2(m.x)},${f2(m.y)} · siege ${m.siege?.o?.id || '-'}`);
+  for (const id of broken()) { const o = H.game.world.objById.get(id); if (o && !o.removed) o.dmg = Math.max(o.dmg || 0, 0.95); } // (the next blow breaks it: test shortcut)
+  await t.waitFor(() => flank.some((id) => !H.game.world.objById.get(id) && !A.structOn(G, id)), 30000 + RT(), 'a piece beside the gap falls on both (the opening grows)');
+  const inside = () => m.x > x0 + 0.6 && m.x < x0 + 6.4 && m.y > y0 + 0.6 && m.y < y0 + 6.4;
+  await t.waitFor(inside, 60000, 'the giant comes in through the wider opening', () => `giant ${m.state} at ${f2(m.x)},${f2(m.y)} · siege ${m.siege?.o?.id || '-'} · flank left ${flank.filter((id) => H.game.world.objById.get(id)).length}`);
+  await t.checkDigest(H, G);
+});
+
 def('BA1', {
   title: 'Ballista: the guest mounts it, turns it slowly (the host sees it turn), fires 2 bolts and kills an ice giant on both', timeout: 120000,
   expected: 'A finished ballista next to the guest; the guest has 4 ballista bolts and gets on it (intent ballista.use → op ballista.set: user = guest on both, the guest rooted at the seat); it aims at a giant 11 tiles away: the top turns slowly (after 0.3 s the host\'s aim is between the start and the target), then points there on both (op ballista.set aim); the first bolt (intent ballista.fire → op ballista.shot) takes 55% of the giant\'s life on the host, the proxy\'s life on the guest follows; a shot during the reload is refused and refunded; after the reload the second bolt kills it: dead on both, XP to the guest only, 2 bolts left; digest equal',
@@ -8666,13 +8703,23 @@ def('EC3', {
   await t.waitFor(() => (recOn(H, uid)?.jobs.find((j) => j.id === job.id)?.got | 0) >= job.n && (recOn(G, uid)?.jobs.find((j) => j.id === job.id)?.got | 0) >= job.n, 3000 + RT(), `the progress ${job.n}/${job.n} on both peers`,
     () => `host ${recOn(H, uid)?.jobs.find((j) => j.id === job.id)?.got} guest ${recOn(G, uid)?.jobs.find((j) => j.id === job.id)?.got} (harvested ${done})`);
   await t.waitFor(() => /Pronto/.test(G.doc.querySelector('#jtrack')?.textContent || ''), 2000, 'the tracker: "Pronto"');
-  // turn it in at the mural
-  const rep0 = recOn(H, uid).rep[vil.k] | 0, c0 = coinsOf(G);
+  // turn it in at the mural: the crop itself is handed in (content/eco.js jobGood — owner: "quando um trabalho envolve entregar
+  // itens, eles deveriam sumir do inventário do jogador, como coletar batata")
+  const rep0 = recOn(H, uid).rep[vil.k] | 0, c0 = coinsOf(G), gp = G.game.player, crop = job.crop;
   await toMural(t, H, MH, G, MG, vil.id);
+  muralTab(G, vil.id, 'jobs');
+  if (gp.inv.count(crop) >= job.n) { const k = gp.inv.count(crop); gp.inv.remove(crop, k); gp.inv.add(crop, job.n - 1); G.game.events.emit('inventory', {}); }
+  else { gp.inv.add(crop, job.n - 1 - gp.inv.count(crop)); G.game.events.emit('inventory', {}); } // (one short: the button waits for them)
+  muralTab(G, vil.id, 'jobs');
+  await t.waitFor(() => G.doc.querySelector(`.p-mural [data-jdone="${job.id}"]`) == null && new RegExp(`traga ${job.n} `).test(ecoTxt(G)), 3000, `one ${crop} short: no "Entregar" yet, the card asks for the ${job.n}`, () => short(ecoTxt(G), 200));
+  const bare = await ecoReq(G, 'job.done', { id: job.id, paid: 0 });
+  t.check(!bare.ok && /Entregue/.test(bare.why || ''), 'turned in without the crop: refused (the host)', bare.why);
+  gp.inv.add(crop, 1); G.game.events.emit('inventory', {});
   muralTab(G, vil.id, 'jobs');
   const done$ = await t.waitFor(() => G.doc.querySelector(`.p-mural [data-jdone="${job.id}"]:not([disabled])`), 3000, '"Entregar" enabled at the mural');
   done$.click();
   await t.waitFor(() => coinsOf(G) === c0 + job.pay, 2000 + RT(), `paid: +${job.pay} coins`);
+  t.check(gp.inv.count(crop) === 0, `the ${job.n} ${crop} left the backpack`, String(gp.inv.count(crop)));
   t.check((recOn(H, uid).rep[vil.k] | 0) === rep0 + job.rep && (recOn(G, uid).rep[vil.k] | 0) === rep0 + job.rep, `reputation +${job.rep} with the kingdom on both peers`, `${rep0} → ${recOn(G, uid).rep[vil.k]}`);
   t.check(!recOn(H, uid).jobs.some((j) => j.id === job.id) && recOn(G, uid).done.includes(job.id), 'the job is done (off the list, in done)');
   G.game.events.emit('closepanels', {});
@@ -8948,6 +8995,102 @@ async function townReady(t, f, M, sid, x, y, ms = 60000) {
   await t.sleep(800);
 }
 const nearestOf = (R, kind, x, y, pred = () => true) => R.settlements.filter((s) => s.kind === kind && pred(s)).sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))[0] || null;
+
+def('EC9', {
+  title: 'EC: the place\'s work stations and chests are not the player\'s — no "Criar" at a town station (crafting asks for one of its own), no "Abrir" at a rented house\'s chest (the host refuses it too); the renter keeps the bed',
+  src: 'village', timeout: 180000,
+  expected: 'A work station of a place near the start (a workbench, a furnace, an anvil, a loom…, the town\'s): by it the guest gets no "Criar" and a recipe of that station is not craftable there (game/crafting.js: "Precisa de …" — only the player\'s own stations, or a bought house\'s). The guest rents a house with a chest at the start village: inside it a torch or a brazier may be built (lights only), a workbench, a chest or a wall not, and the host (not its house) builds nothing there (game/eco.js houseReason); no "Abrir" at its chest and the host refuses chest.take / chest.put on it (game/eco.js ownsPiece: a bought house\'s chests only); its bed still offers "Renascer aqui" (mayUsePiece); digest equal',
+  api: 'game/eco.js ownsPiece / mayUsePiece (E.owns, TOWN.mayUse) / houseReason (TOWN.landReason), game/building.js describeStructure, game/crafting.js nearestStation / recipeState, mut/structures.js chestOf',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  const uid = await ecoReady(t, H, G);
+  const B = MG.data.BUILDINGS;
+  // a town work station
+  let st = null;
+  for (const q of [s0, ...nearVillages(H, R, s0)]) {
+    const L = H.game.towns.layout(q.id), k = L.structs.findIndex((r) => B[r[0]]?.station && r[0] !== 'campfire' && (r[4] | 0) === 0);
+    if (k >= 0) { st = { sid: q.id, k, r: L.structs[k] }; break; }
+  }
+  t.need(st, 'a work station in a place near the start');
+  const id = `t${st.sid}.${st.k}`, type = st.r[0];
+  A.teleport(G, st.r[1] + 0.5, st.r[2] + 1.8);
+  await t.waitFor(() => A.objOn(G, id), 15000, `the place's ${type} placed on the guest`);
+  await t.sleep(400);
+  t.check(!MG.building.describeStructure(G.game, A.objOn(G, id)), `no "Criar" at the place's ${type}`, JSON.stringify(MG.building.describeStructure(G.game, A.objOn(G, id))?.verb || null));
+  const rid = Object.keys(MG.recipes.RECIPES).find((k) => { const r = MG.recipes.RECIPES[k]; return r.station !== 'hand' && MG.recipes.stationsOf(r).length === 1 && MG.recipes.stationsOf(r)[0] === type; });
+  if (rid) {
+    const rs = MG.crafting.recipeState(G.game, rid);
+    t.check(!rs.stationOk && /Precisa de/.test(rs.reason || ''), `a recipe of the ${type} (${rid}): not craftable at the place's one — "Precisa de …"`, rs.reason);
+  } else t.note(`no recipe made only at a ${type}`);
+  // a rented house with a chest
+  if ((recOn(H, uid)?.rep[s0.k] | 0) < 25) { giveRep(H, uid, s0.k, 30, s0.id); await t.waitFor(() => (recOn(G, uid)?.rep[s0.k] | 0) >= 25, 2000 + RT(), 'the guest is Conhecido'); }
+  const P = MH.eco.propsOf(H.game, s0.id), house = P.houses.find((q) => q.mode === 'rent' && q.chests?.length);
+  t.need(house, 'a house for rent with a chest at the start village');
+  if (H.game.eco.pr.has(house.id)) { MH.eco.loseProps(H.game, [house.id], 'left'); H.game.net.flush(); await t.waitFor(() => !H.game.eco.pr.has(house.id) && !G.game.eco.pr.has(house.id), 2000 + RT(), 'the house free again (an earlier scenario rented it)'); }
+  await toMural(t, H, MH, G, MG, s0.id);
+  const rent = MH.eco.rentOf(H.game, house);
+  setCoins(G, 1000);
+  const rr = await ecoReq(G, 'prop.rent', { id: house.id, paid: rent }, { refund: { coin: rent } });
+  t.check(rr.ok, 'the guest rents the house', rr.why);
+  t.defer(() => { if (H.game.eco.pr.get(house.id)?.u === uid) MH.eco.loseProps(H.game, [house.id], 'left'); H.game.net.flush(); });
+  await t.waitFor(() => G.game.eco.pr.get(house.id)?.u === uid, 2000 + RT(), 'rented on both peers');
+  // building inside it (game/eco.js houseReason — owner: "apenas luz pode ser construída em casa alugada")
+  const bx = Math.round((house.box[0] + house.box[2]) / 2), by = Math.round((house.box[1] + house.box[3]) / 2), sG = G.game.towns.realm.settlements[s0.id], sH = H.game.towns.realm.settlements[s0.id];
+  const hrG = (type) => G.game.eco.houseReason(sG, type, bx, by, 1, 1, G.game.player);
+  t.check(hrG('torch') === null && hrG('brazier') === null, 'in the rented house: a torch, a brazier may go (lights)', `${hrG('torch')} · ${hrG('brazier')}`);
+  t.check(['workbench', 'chest', 'wall_wood'].every((ty) => /só estruturas de luz/.test(hrG(ty) || '')), 'a workbench, a chest, a wall may not (owner: "apenas luz pode ser construída em casa alugada")', ['workbench', 'chest', 'wall_wood'].map(hrG).join(' · '));
+  t.check(/^Casa /.test(H.game.eco.houseReason(sH, 'workbench', bx, by, 1, 1, H.game.player) || ''), 'the host (not its house) may not build there', H.game.eco.houseReason(sH, 'workbench', bx, by, 1, 1, H.game.player));
+  const cid = `t${s0.id}.${house.chests[0]}`, [, hx, hy] = H.game.towns.layout(s0.id).structs[house.chests[0]];
+  A.teleport(G, hx + 0.5, hy + 1.4);
+  await t.waitFor(() => A.objOn(G, cid) && A.objOn(H, cid), 15000, 'the chest placed on both');
+  await t.sleep(RT() + 200);
+  t.check(!MG.building.describeStructure(G.game, A.objOn(G, cid)), 'no "Abrir" at the rented house\'s chest');
+  const take = await ecoReq(G, 'chest.take', { id: cid, slot: 0, qty: 1 });
+  setItem(G, 'wood', 3);
+  const put = await ecoReq(G, 'chest.put', { id: cid, item: 'wood', qty: 1 });
+  t.check(!take.ok && !put.ok, 'the host refuses chest.take / chest.put on it', `${take.why} · ${put.why}`);
+  const bedK = house.beds?.[0];
+  if (bedK != null) {
+    const bid = `t${s0.id}.${bedK}`, br = H.game.towns.layout(s0.id).structs[bedK];
+    A.teleport(G, br[1] + 0.5, br[2] + 1.6);
+    await t.waitFor(() => A.objOn(G, bid), 10000, 'the bed placed on the guest');
+    t.check(MG.building.describeStructure(G.game, A.objOn(G, bid))?.kind === 'bed', 'its bed is still the renter\'s ("Renascer aqui")');
+  } else t.note('the house has no bed listed');
+  await t.checkDigest(H, G);
+});
+
+def('EC10', {
+  title: 'EC: buying the raw good and selling what it makes never pays — wheat at least half the bread it makes (ores the bars, cotton the cloth, wood the coal…); bread and wheat worth less than meat and leather',
+  src: 'village', timeout: 60000,
+  expected: 'Every market of the start land: where both are traded, what a raw good makes never sells there for more than buying the raw good it takes (game/eco.js madeCap: bread ≤ 2 wheat, a bar ≤ 2 ores, cloth ≤ 3 cotton, coal ≤ 3 wood, a block ≤ 1,5 stone) — on both peers alike; the base prices: bread and wheat below meat and leather; maxAfford agrees with quoteBuy; digest equal',
+  api: 'game/eco.js quoteBuy / quoteSell / maxAfford / madeCap, content/eco.js GOODS (wheat 5, bread 11)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const uid = await ecoReady(t, H, G);
+  const R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y), GI = MH.eco.GI, base = (id) => MH.eco.goodBase(GI[id]);
+  t.check(base('bread') < base('meat') && base('bread') < base('leather') && base('wheat') < base('meat') && base('wheat') < base('leather'), 'bread and wheat worth less than meat and leather (base prices)', `wheat ${base('wheat')} bread ${base('bread')} meat ${base('meat')} leather ${base('leather')}`);
+  const pairs = [['wheat', 'bread', 2], ['copper_ore', 'copper_bar', 2], ['iron_ore', 'iron_bar', 2], ['cotton', 'cloth', 3], ['wood', 'coal', 3], ['stone', 'stone_block', 1.5]];
+  let n = 0;
+  const bad = [];
+  for (const q of R.settlements.filter((x) => R.kingdoms[x.k].comp === R.kingdoms[s0.k].comp).slice(0, 60)) {
+    const P = MH.eco.profileOf(H.game, q.id);
+    for (const [raw, made, per] of pairs) {
+      if (!P.deals[GI[raw]] || !P.deals[GI[made]]) continue;
+      const b = MH.eco.quoteBuy(H.game, q.id, GI[raw], 1, uid), sl = MH.eco.quoteSell(H.game, q.id, GI[made], 1, uid);
+      if (!b.n) continue;
+      n++;
+      if (b.unit * per + 1e-6 < sl.unit) bad.push(`${q.name}: ${raw} ${b.unit.toFixed(2)} × ${per} < ${made} ${sl.unit.toFixed(2)}`);
+      const sG = MG.eco.quoteSell(G.game, q.id, GI[made], 1, uid);
+      if (Math.abs(sG.unit - sl.unit) > 1e-9) bad.push(`${q.name}: ${made} differs on the guest`);
+      const af = MH.eco.maxAfford(H.game, q.id, GI[raw], b.cost, uid);
+      if (af < 1) bad.push(`${q.name}: maxAfford(${b.cost}) = ${af}`);
+    }
+  }
+  t.check(n >= 3, 'markets trading a raw good and what it makes', `${n} pairs`);
+  t.check(!bad.length, 'what it makes never sells for more than buying the raw good it takes, the same on both peers', bad.slice(0, 4).join(' | '));
+  await t.checkDigest(H, G);
+});
 
 def('FX1', {
   title: 'FX: every settlement door is free inside and outside, and the game\'s own pathfinding reaches every bed, workplace and chest; every wall walk is reached by its stairs (validator, two seeds)',
@@ -9742,6 +9885,91 @@ async function btVillage(t, H, MH, G, MG) {
   A.keepAlive(t, H); A.keepAlive(t, G);
   return s;
 }
+
+def('WR11', {
+  title: 'WR: an army never marches through a place of a kingdom at war with it — where the shortest road runs through one, its route goes round it (or across country)',
+  src: 'village', timeout: 90000,
+  expected: 'Every pair of neighbouring kingdoms of the start land put at war in turn: for each place of one and each place of the other within the march range, the shortest road (a plain Dijkstra over realm.roads) is computed; where it runs THROUGH another place of the target\'s kingdom, game.realms.route (the armies\' routing: dijkstra with passFor) goes another way — no place of a kingdom at war with the army on it but the target — or across country (overland); at least one such case is found; digest equal',
+  api: 'game/realms.js dijkstra (pass) / passFor / dbg.route / pathTo (overland)',
+}, async (t) => {
+  const { H, G, MH } = await pairCtx(t);
+  const RH = RZ(H), R = realmOf(H), sp = H.game.world.spawn, s0 = MH.realm.settlementAt(R, sp.x, sp.y);
+  await wrQuiet(t, H, G);
+  t.defer(() => { for (const [key] of [...RH.rels]) { const [a, b] = key.split('.').map(Number); H.game.net.emit('realm.rel', { a, b, rel: 'neutral', quiet: 1 }); } H.game.net.flush(); });
+  const W = H.game.world.W || 16384, S = R.settlements, n = S.length;
+  // a plain shortest road (no rule): adjacency from realm.roads
+  const adj = Array.from({ length: n }, () => []);
+  for (const rd of R.roads) {
+    let L = 0;
+    for (let i = 2; i < rd.pts.length; i += 2) { let dx = rd.pts[i] - rd.pts[i - 2]; if (dx > W / 2) dx -= W; else if (dx < -W / 2) dx += W; L += Math.hypot(dx, rd.pts[i + 1] - rd.pts[i - 1]); }
+    adj[rd.a].push([rd.b, L]); adj[rd.b].push([rd.a, L]);
+  }
+  const plain = (T) => { const d = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), done = new Uint8Array(n); d[T] = 0; for (;;) { let u = -1; for (let i = 0; i < n; i++) if (!done[i] && d[i] < Infinity && (u < 0 || d[i] < d[u])) u = i; if (u < 0) break; done[u] = 1; for (const [v, L] of adj[u]) if (d[u] + L < d[v]) { d[v] = d[u] + L; prev[v] = u; } } return { d, prev }; };
+  const nodesOf = (p) => { const out = [p.f]; let u = p.f; for (let i = 0; i + 1 < p.r.length; i += 2) { const rd = R.roads[p.r[i]]; u = p.r[i + 1] ? rd.b : rd.a; out.push(u); } return out; };
+  const K0 = RH.owner(s0.id), land = R.kingdoms.filter((K) => K.comp === R.kingdoms[K0].comp && RH.alive(K.id)).map((K) => K.id);
+  let cases = 0, roundRoad = 0, overland = 0, bad = [];
+  for (const a of land) for (const b of land) {
+    if (a >= b || cases >= 12) continue;
+    H.game.net.emit('realm.rel', { a, b, rel: 'war', by: a, why: 'debug', quiet: 1 }); H.game.net.flush();
+    for (const T of S.filter((q) => RH.owner(q.id) === b).map((q) => q.id)) {
+      const P = plain(T);
+      for (const q of S) {
+        if (RH.owner(q.id) !== a || !(P.d[q.id] < 2500)) continue;
+        const via = []; for (let u = P.prev[q.id]; u >= 0 && u !== T; u = P.prev[u]) via.push(u);
+        if (!via.some((u) => RH.owner(u) === b)) continue; // (the plain road does not cross a place of b)
+        cases++;
+        const r = RH.dbg.route(q.id, T);
+        if (!r) continue;
+        if (!r.road) {
+          overland++;
+          const hit = (r.c || []).map((i) => [(i % 512) * 32 + 16, Math.floor(i / 512) * 32 + 16]).find(([x, y]) => S.some((s) => s.id !== T && RH.owner(s.id) === b && Math.hypot(H.game.world.dx(x, s.x), y - s.y) < (s.r || 20)));
+          if (hit) bad.push(`${S[q.id].name}→${S[T].name} across country by ${f2(hit[0])},${f2(hit[1])}`);
+          continue;
+        }
+        roundRoad++;
+        const mid = nodesOf(r).slice(1, -1).filter((u) => RH.owner(u) === b);
+        if (mid.length) bad.push(`${S[q.id].name}→${S[T].name} via ${mid.map((u) => S[u].name).join(',')}`);
+      }
+    }
+    H.game.net.emit('realm.rel', { a, b, rel: 'neutral', quiet: 1 }); H.game.net.flush();
+  }
+  t.check(cases >= 1, 'pairs whose shortest road runs through another place of the target\'s kingdom', `${cases} (round by road ${roundRoad} · across country ${overland})`);
+  t.check(!bad.length, 'the army\'s route never goes through a place of the kingdom at war with it (but the target)', bad.slice(0, 4).join(' | '));
+  t.metric('routes', { cases, roundRoad, overland });
+  await t.checkDigest(H, G);
+});
+
+def('WR12', {
+  title: 'WR: wars break out — over a few weeks of the daily diplomacy several pairs of kingdoms go to war, the players\' kingdom among them',
+  src: 'village', timeout: 150000,
+  expected: 'From a calm world (every relation neutral, the tensions as they are), 30 days of the daily diplomacy (dbg.day, the world\'s day advancing): at least 3 different pairs of kingdoms go to war, and the start kingdom (R.k0 — the players\') is in one of them within those days (WAR.tension.home, homeDeclare: a lower bar, never cooled by another war, one past the cap); never more wars at once than the cap + 1; the same kingdoms\' state on both peers; digest equal',
+  api: 'game/realms.js dayTick (tensions, homeKingdoms, the declarations), content/war.js WAR.tension.home / declareAt / homeDeclare / maxWarsK',
+}, async (t) => {
+  const { H, G, MH } = await pairCtx(t);
+  const RH = RZ(H), R = realmOf(H);
+  await wrQuiet(t, H, G);
+  t.defer(() => { RH.dbg.stop(true); for (const [key] of [...RH.rels]) { const [a, b] = key.split('.').map(Number); H.game.net.emit('realm.rel', { a, b, rel: 'neutral', quiet: 1 }); } for (const a of fieldOn(H)) H.game.net.emit('realm.army', { del: a.id }); H.game.net.flush(); });
+  RH.dbg.stop(false); RH.H.noPlan = true; // (the diplomacy only: no campaigns marching)
+  const k0 = RH.k0, alive = R.kingdoms.filter((K) => RH.alive(K.id)).length, cap = Math.ceil(alive / MH.war.WAR.maxWarsK);
+  const ever = new Set();
+  let first = -1, most = 0;
+  for (let d = 0; d < 30; d++) {
+    H.game.net.emit('env.skip', { hour: H.game.env.hour, day: (H.game.env.dayIndex | 0) + 1, wt: H.game.worldTime + 0.01, by: H.game.net.pid }); // (the day on both peers)
+    RH.dbg.day(); H.game.net.flush();
+    await t.sleep(60);
+    const wars = [...RH.rels.entries()].filter(([, r]) => r.r === 'war').map(([k]) => k);
+    for (const k of wars) ever.add(k);
+    most = Math.max(most, wars.length);
+    if (first < 0 && wars.some((k) => k.split('.').map(Number).includes(k0))) first = d + 1;
+  }
+  t.check(ever.size >= 3, 'several pairs of kingdoms go to war', `${ever.size}: ${[...ever].join(' ')}`);
+  t.check(first > 0, 'the players\' kingdom goes to war within 30 days', `k0 ${k0} · first on day ${first}`);
+  t.check(most <= cap + 1, 'never more wars at once than the cap + 1', `${most} (cap ${cap})`);
+  t.metric('wars', { pairs: ever.size, k0First: first, most, cap });
+  await t.sleep(RT() + 200);
+  t.check(realmRowsOn(H, MH) === realmRowsOn(G, await A.mods(G)), 'the same kingdoms\' state on both peers');
+  await t.checkDigest(H, G);
+});
 
 def('BT1', {
   title: 'BT: a debug siege of the start village — soldiers in the kingdom\'s colours on both peers, the camp out of the defenders\' reach, the bell and the watch on the threatened side',
@@ -10893,6 +11121,53 @@ function waFightLog(t, H, sid) {
 const sectorOf = (dx, dy) => (((Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) % 8) + 8) % 8);
 const sectorGap = (a, b) => Math.min((a - b + 8) % 8, (b - a + 8) % 8);
 
+def('WA8', {
+  title: 'WA: a walker hit by an archer up on the wall goes on breaking the wall (no standing under it); the watch takes the dead before a wolf',
+  src: 'village', timeout: 120000,
+  expected: 'The start village by day. A walker outside a palisade log, its way in through the wall, is hit by a town archer standing up on the palisade (combat aggro: chase, threat the archer): within a second it lets the archer go (out of its reach — walkers.js) and does not chase it again (it goes back to the wall). The watch\'s order: game/npc.js prioK — a walker, a giant, a raider, a soldier count 0,4 of their distance, a wolf 1; a guard with a wolf 3 tiles away and a walker 5 tiles away picks the walker (guardTargets); digest equal',
+  api: 'walkers.js walkerBrain (an unreachable threat let go), npc.js prioK / guardTargets / postedFoe / focusFoe',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const per = H.game.townDefense.perimeter(s.id);
+  const log = [...per.pieces.values()].filter((p) => !p.gate && A.objOn(H, p.id) && Math.abs(p.fx) + Math.abs(p.fy) < 1.01).sort((a, b) => Math.hypot(a.cx - L.spawn[0], a.cy - L.spawn[1]) - Math.hypot(b.cx - L.spawn[0], b.cy - L.spawn[1]))[0];
+  t.need(log, 'a palisade log');
+  const lo = A.objOn(H, log.id), ws = A.freeSpot(H, MH, log.cx + log.fx * 1.4, log.cy + log.fy * 1.4, { rMin: 0, rMax: 1.5, r: 0.3 });
+  t.need(ws, 'room for the walker outside the log');
+  const m = MH.walkers.spawnWalkerAt(H.game, ws[0], ws[1]);
+  m.hp = m.maxHp = m.maxHp * 30; m.crumbleAt = Infinity; m._waKeep = true; // (by day: it would crumble)
+  t.defer(() => { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); });
+  m.raidAt = { x: L.plaza[0], y: L.plaza[1] }; m.raid = null;
+  await t.sleep(1500);
+  // an archer of the town up on the palisade hits it
+  const arch = H.game.entities.find((e) => e.npc?.job === 'archer' && !e.dead) || H.game.entities.find((e) => e.npc?.guard && !e.dead);
+  t.need(arch, 'a guard of the town');
+  const z0 = arch.z, lv0 = arch.lv;
+  arch.z = 1; arch.lv = 1; t.defer(() => { arch.z = z0; arch.lv = lv0; });
+  m.state = 'chase'; m.threat = arch; m._hitBy = arch; m._hitT = H.game.worldTime;
+  await t.waitFor(() => m.state !== 'chase' || m.threat !== arch, 1500, 'it lets the archer up on the wall go (out of its reach)', () => `${m.state} threat ${m.threat?.npc?.job}`);
+  let back = 0;
+  const watch = setInterval(() => { if (m.threat === arch && m.state === 'chase') back++; }, 100);
+  await t.sleep(4000); clearInterval(watch);
+  t.check(back <= 2, 'and does not stand under it (no chase of the archer up there)', `${back} looks`);
+  // the watch's order
+  const MN = await A.mods(H);
+  t.check(MN.npc.prioK(m) < MN.npc.prioK({ species: 'wolf', temper: 'hostile' }), 'the dead count nearer than a wolf (prioK)', `${MN.npc.prioK(m)} vs ${MN.npc.prioK({ species: 'wolf' })}`);
+  const rec = H.game.people.live.get(s.id), guard = [...rec.ents.values()].find((e) => e.npc.guard && !e.dead && !(e.z > 0.5) && e !== arch);
+  t.need(guard, 'a guard on the ground');
+  const wq = A.freeSpot(H, MH, guard.x + 3, guard.y, { rMin: 0, rMax: 1.5, r: 0.3 }), wk = A.freeSpot(H, MH, guard.x - 5, guard.y, { rMin: 0, rMax: 1.5, r: 0.3 });
+  t.need(wq && wk, 'room around the guard');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', wq[0], wq[1]), w2 = MH.walkers.spawnWalkerAt(H.game, wk[0], wk[1]);
+  t.defer(() => { for (const q of [wolf, w2]) { q.noCorpse = true; if (!q.dead) MH.combat.killMob(H.game, q, null); } });
+  for (const q of [wolf, w2]) { q.stunT = 30; q.hp = q.maxHp = 50000; q.crumbleAt = Infinity; q._waKeep = true; }
+  const pick = MN.npc.guardTargets(H.game, rec, guard, 20);
+  t.check(pick && pick !== wolf && pick.faction === 'walker', 'a guard with a wolf 3 tiles away and a walker 5 tiles away picks the walker (not the wolf)', pick === wolf ? 'the wolf' : pick ? pick.species : 'none');
+  await t.checkDigest(H, G);
+});
+
 def('WA1', {
   title: 'WA: a winter night near both players — a wave of the region\'s dead a bit smaller than the village\'s guards comes from one side; the bell, the archers on the palisade, the melee at the gate / the stretch; the defense holds',
   src: 'village', timeout: 260000,
@@ -11345,6 +11620,82 @@ async function jbDay(t, H, G, days = 1) {
 // the public part of a job (the giver's name comes from the townsfolk where a peer has them)
 const jbRow = (j) => [j.id, j.t, j.n, j.crop || '', j.good || '', j.dest ?? '', j.x ?? '', j.y ?? '', j.r ?? '', j.pay, j.rep, j.exp, j.title, j.text].join('|');
 
+def('VL15', {
+  title: 'VL: a member of the kingdom opens the town gate at night — it shuts itself 2 s after its way is clear; a traveller cannot',
+  src: 'village', timeout: 120000,
+  expected: 'The start village at night (23 h, no danger): the guest, a traveller, gets no "Abrir" at its closed gate and the host refuses door.toggle ("à noite só quem é do reino abre"). Made a member of the place\'s kingdom (eco.member): "Abrir" shows and door.toggle opens it (door.set on both); with the guest standing in the gateway it stays open; once the guest steps away it closes by itself 2 s later (± a frame), on both; digest equal',
+  api: 'game/towns.js TOWN.gateReason / gateOpened / memberGates (townsSystem), mut/structures.js door.toggle, game/building.js describeStructure, game/eco.js memberOfPid',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  const uid = await ecoReady(t, H, G);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const K0 = H.game.realms.owner(s.id);
+  t.defer(() => { H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' }); H.game.net.flush(); });
+  if (recOn(H, uid)?.k === K0) { H.game.net.emit('eco.member', { u: uid, k: -1, name: recOn(H, uid)?.name || '' }); H.game.net.flush(); await t.waitFor(() => recOn(G, uid)?.k !== K0, 2000 + RT(), 'the guest a traveller'); }
+  H.game.net.emit('env.skip', { hour: 23, day: H.game.env.dayIndex | 0, wt: H.game.worldTime + 1, by: H.game.net.pid });
+  await t.waitFor(() => H.game.env.hour >= 22.9 || H.game.env.hour < 4, 3000 + RT(), 'night');
+  const gid = `t${s.id}.${L.gates[0]}`;
+  await t.waitFor(() => A.objOn(H, gid) && !A.objOn(H, gid).open && A.objOn(G, gid) && !A.objOn(G, gid).open, 15000 + RT(), 'the gate shut for the night (both)');
+  const o = A.objOn(H, gid), gp = [...H.game.townDefense.perimeter(s.id).pieces.values()].find((q) => q.id === gid);
+  const out = A.freeSpot(G, MG, gp.cx + gp.fx * 2.4, gp.cy + gp.fy * 2.4, { rMin: 0, rMax: 1.2 }) || [gp.cx + gp.fx * 2.4, gp.cy + gp.fy * 2.4];
+  A.teleport(G, out[0], out[1]); await t.sleep(RT() + 300);
+  t.check(!MG.building.describeStructure(G.game, A.objOn(G, gid)), 'a traveller: no "Abrir" at the town gate at night');
+  const no = await ecoReq(G, 'door.toggle', { id: gid, open: 1 });
+  t.check(!no.ok && /só quem é do reino/.test(no.why || ''), 'and the host refuses it', no.why);
+  H.game.net.emit('eco.member', { u: uid, k: K0, name: recOn(H, uid)?.name || '' }); H.game.net.flush();
+  await t.waitFor(() => recOn(G, uid)?.k === K0, 2000 + RT(), 'the guest a member of the place\'s kingdom');
+  await t.waitFor(() => MG.building.describeStructure(G.game, A.objOn(G, gid))?.verb === 'Abrir', 3000, 'a member: "Abrir" at the gate');
+  const yes = await ecoReq(G, 'door.toggle', { id: gid, open: 1 });
+  t.check(yes.ok, 'the host opens it for the member', yes.why);
+  await t.waitFor(() => A.objOn(H, gid).open && A.objOn(G, gid).open, 2000 + RT(), 'open on both');
+  // standing in the gateway: it stays open
+  A.teleport(G, gp.cx, gp.cy); await t.sleep(3500);
+  t.check(A.objOn(H, gid).open, 'someone in the gateway: it stays open (3,5 s)');
+  // the way clear: it shuts 2 s later
+  A.teleport(G, out[0], out[1]);
+  const t0 = H.game.worldTime;
+  await t.waitFor(() => !A.objOn(H, gid).open, 6000, 'the way clear: it shuts by itself');
+  const dt = H.game.worldTime - t0;
+  t.check(dt >= 1.2 && dt <= 3.8, 'about 2 s after the way is clear', f2(dt));
+  await t.waitFor(() => !A.objOn(G, gid).open, 2000 + RT(), 'shut on the guest too');
+  await t.checkDigest(H, G);
+});
+
+def('VL14', {
+  title: 'VL: the animals killed near a place are collected by its workers by day — a wolf dead on the plaza is the player\'s to take for 30 s, then a worker goes and collects it (nobody gets the meat)',
+  src: 'village', timeout: 160000,
+  expected: 'Start village at 10 h, its people out. A wolf killed on the plaza leaves its body: for its first 30 s nobody of the place goes for it (the one who killed it may collect it); then the nearest free worker (game/npc.js scavTick: farmer, porter, woodcutter…) walks to it and collects it (op corpse.butcher by npc: the body butchered on both peers, standing at it); neither player got meat; digest equal',
+  api: 'game/npc.js scavTick / scavWork, mut/corpses.js corpse.butcher (by npc), content/people.js PEOPLE.scav, game/people.js peopleSystem',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH), L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const ents = () => [...(H.game.people.live.get(s.id)?.ents.values() || [])];
+  await t.waitFor(() => ents().filter((m) => !m.npc.guard && m.npc.age === 'adult').length >= 4, 25000, 'the people out by day');
+  const ws = A.freeSpot(H, MH, L.spawn[0] + 3, L.spawn[1] + 2, { rMin: 0, rMax: 5, r: 0.36 });
+  t.need(ws, 'a free spot on the plaza');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', ws[0], ws[1]);
+  MH.combat.killMob(H.game, wolf, null);
+  const body = () => [...H.game.corpses.map.values()].find((c) => c.of === 'wolf' && !c.butchered && Math.hypot(c.x - ws[0], c.y - ws[1]) < 3);
+  await t.waitFor(body, 6000, 'the wolf\'s body on the plaza');
+  const c = body(), cG = () => G.game.corpses.map.get(c.id);
+  t.defer(() => { if (H.game.corpses.map.has(c.id)) { H.game.net.emit('corpse.remove', { ids: [c.id], quiet: 1 }); H.game.net.flush(); } });
+  const meat0 = [H, G].map((f) => f.game.player.inv.count('meat'));
+  await t.sleep(22000);
+  t.check(!c.butchered && !ents().some((m) => m.scav?.id === c.id), 'for its first 30 s nobody of the place goes for it (the one who killed it may)');
+  await t.waitFor(() => ents().some((m) => m.scav?.id === c.id), 30000, 'then a worker goes for it', () => `age ${f2(H.game.worldTime - c.deathT)} s · hour ${f2(H.game.env.hour)} · danger ${H.game.people.debug(s.id).danger}`);
+  const who = ents().find((m) => m.scav?.id === c.id);
+  t.log(`${who.name} (${who.npc.job}) goes for it from ${f2(Math.hypot(who.x - c.x, who.y - c.y))} tiles`);
+  await t.waitFor(() => c.butchered && cG()?.butchered, 45000 + RT(), 'collected: the body butchered on both peers', () => `${who.npc.job} ${f2(Math.hypot(who.x - c.x, who.y - c.y))} from it · act ${who.action?.type} · scav ${!!who.scav}`);
+  t.check(Math.hypot(who.x - c.x, who.y - c.y) < 2.4, 'by the worker standing at it', f2(Math.hypot(who.x - c.x, who.y - c.y)));
+  t.check([H, G].every((f, i) => f.game.player.inv.count('meat') === meat0[i]), 'neither player got its meat (it is the place\'s)');
+  await t.checkDigest(H, G);
+});
+
 def('JB1', {
   title: 'JB: the fields are worked — harvested field plants come back at the next dawn on both peers (the same objects), after a save → load too; never in a hard winter',
   src: 'village', timeout: 300000,
@@ -11368,10 +11719,14 @@ def('JB1', {
   const list = jbPlants(H, MH, fld), ids = list.map((o) => o.id).sort((x, y) => x - y), look = new Map(list.map((o) => [o.id, [o.x, o.y, o.v | 0, o.f]]));
   t.check(ids.every((id) => MH.fields.fieldOf(H.game, A.objOn(H, id))?.sid === s0.id), 'every plant is a field plant of the place (its worldgen id names the field)');
   const left0 = MH.fields.fieldsLeft(H.game, s0.id, good, true);
-  // harvested: one by the guest (the forage intent), the rest by the host
+  // harvested by the host (the place's crop: a player without a harvest job of it there may not — game/eco.js harvestWhy;
+  // owner: "não seja possível colher das plantações da vila … apenas quando o jogador estiver com um trabalho")
   const one = A.objOn(G, ids[0]);
-  await A.gather(t, G, MG, one);
-  H.game.net.emit('obj.remove', { ids: ids.slice(1), fx: 'forage' }); H.game.net.flush();
+  t.check(!!MG.eco.harvestWhy(G.game, one) && !MG.gathering.describeObject(G.game, one), 'the guest (no harvest job of it) gets no "Colher" on the crop of the place', MG.eco.harvestWhy(G.game, one));
+  { const s1 = A.freeSpot(G, MG, one.x, one.y + 0.9, { rMin: 0, rMax: 2 }) || [one.x, one.y + 0.9]; A.teleport(G, s1[0], s1[1]); await t.sleep(RT() + 300); }
+  const refused = await ecoReq(G, 'gather.hit', { id: ids[0], kind: 'forage', inc: 1, final: true });
+  t.check(!refused.ok && /trabalho de colheita/.test(refused.why || ''), 'and the host refuses its harvest', refused.why);
+  H.game.net.emit('obj.remove', { ids, fx: 'forage' }); H.game.net.flush();
   await t.waitFor(() => ids.every((id) => !A.objOn(H, id) && !A.objOn(G, id)), 5000 + RT(), 'the field harvested on both peers');
   const lH = MH.fields.fieldsLeft(H.game, s0.id, good, true), lG = MG.fields.fieldsLeft(G.game, s0.id, good, true);
   t.check(lH.left === left0.left - N && lG.left === lH.left, `the place's ${good} plants: −${N} on both`, `${left0.left} → host ${lH.left} · guest ${lG.left} (of ${lH.total})`);
@@ -12390,6 +12745,61 @@ def('CB8', {
   await t.waitFor(() => !H.game.world.objById.get(T.id) && !oG(), RT() + 4000, 'the tower breaks apart (struct.remove on both peers)');
   await t.waitFor(() => !(H.game.warfare.towersOn(sid) || []).some((q) => q.id === T.id), 3000, 'towersOn no longer lists it');
   await t.waitFor(() => !(H.game.people.debug(sid).def?.posts || []).some((d) => d.melee && d.k === 'wall' && Math.hypot(d.x - T.x, d.y - T.y) < 3.5 && !(H.game.warfare.towersOn(sid) || []).some((q) => Math.hypot(q.x - d.x, q.y - d.y) < 3.5)), 15000, 'the town\'s melee posts by it are gone');
+  await t.checkDigest(H, G);
+});
+
+def('CB9', {
+  title: 'CB: in the middle of the clash a soldier turns to the player right by it — the one fighting another soldier faces a player that steps up to it, the one the player hits fights back at once, and the player takes its blows; no chase farther',
+  timeout: 240000,
+  expected: 'A field battle, 60 soldiers at 50 % (both players on side B). In the clash: an enemy melee soldier busy with a soldier of side B, the host stepping right by it (1,2 tiles, the same story): within a scan it makes the host its foe (soldier.js closePlayer: a player in reach of its blow comes first). Another one busy with a soldier, hit by the host from right by it (game.warfare.onHurt): its foe is the host at once (soldierHurt). The host takes blows from those soldiers while it stands there. The host steps 6 tiles away: the pull of being right by it ends (the usual choice of foe again — no chase for that); digest equal',
+  api: 'soldier.js closePlayer / soldierHurt / soldierBrain (scan), content/soldiers.js WAR.closeR',
+}, async (t) => {
+  const P = await skPair(t), { H, G } = P;
+  await skLobby(t, P, { mode: 'field', total: 60, pa: 50 });
+  await skPick(t, P, H, { side: 'b', cls: 'sword' });
+  await skPick(t, P, G, { side: 'b', cls: 'sword', ready: 1 });
+  await skStart(t, P, 90000);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  const M = skSt(H).match, me = H.game.player;
+  const hits = new Map();
+  t.on(H, 'damage', (d) => { if (d.target === me && d.amount > 0 && d.src?.soldier) hits.set(d.src, (hits.get(d.src) || 0) + 1); });
+  // a melee soldier of side A busy with a soldier of side B
+  const busy = (skip) => soldiersOf(H, M.ka).filter((m) => m.soldier.role !== 'archer' && m.soldier.role !== 'general' && !(m.z > 0.5) && m.foe?.soldier && !m.foe.dead && Math.hypot(m.foe.x - m.x, m.foe.y - m.y) < 2.6 && !skip.includes(m));
+  await t.waitFor(() => busy([]).length >= 2, 120000, 'the clash: enemy soldiers fighting soldiers of side B', () => `${soldiersOf(H, M.ka).filter((m) => m.foe?.soldier).length} with a soldier foe`);
+  const stand = (m) => { // (the host right by it, on the side away from its foe)
+    const f = m.foe, dx = m.x - f.x, dy = m.y - f.y, d = Math.hypot(dx, dy) || 1;
+    for (const a of [Math.PI / 2, -Math.PI / 2, 0, Math.PI * 0.75, -Math.PI * 0.75]) {
+      const c = Math.cos(a), s = Math.sin(a), ux = (dx / d) * c - (dy / d) * s, uy = (dx / d) * s + (dy / d) * c;
+      const x = m.x + ux * 1.2, y = m.y + uy * 1.2;
+      if (MH0.soldier.solPass(H.game, Math.floor(x), Math.floor(y))) { me.x = x; me.y = y; me.z = 0; me.lv = 0; return true; }
+    }
+    return false;
+  };
+  const MH0 = await A.mods(H);
+  // 1. stepping right by one
+  const a = busy([])[0], a0 = { x: a.x, y: a.y };
+  t.need(stand(a), 'room right by the soldier');
+  const pin = setInterval(() => { if (!a.dead && Math.hypot(me.x - a.x, me.y - a.y) > 1.6) stand(a); }, 120);
+  await t.waitFor(() => a.dead || a.foe === me, 2500, 'the soldier fighting another one turns to the player right by it', () => `foe ${a.foe?.soldier ? 'soldier' : a.foe === me ? 'host' : '-'} · d ${f2(Math.hypot(me.x - a.x, me.y - a.y))}`);
+  await t.waitFor(() => a.dead || (hits.get(a) || 0) >= 1, 8000, 'and strikes it (the host takes its blows)', () => `${hits.get(a) || 0} blows · act ${a.action?.type}`);
+  clearInterval(pin);
+  // 2. hit by the player from right by it
+  await t.waitFor(() => busy([a]).length >= 1, 30000, 'another enemy soldier busy with a soldier');
+  const b = busy([a])[0];
+  t.need(stand(b), 'room right by the second soldier');
+  H.game.warfare.onHurt(b, me);
+  t.check(b.foe === me, 'hit by the player right by it: the player is its foe at once', b.foe?.soldier ? 'still the soldier' : String(!!b.foe));
+  const pin2 = setInterval(() => { if (!b.dead && Math.hypot(me.x - b.x, me.y - b.y) > 1.6) stand(b); }, 120);
+  await t.waitFor(() => b.dead || (hits.get(b) || 0) >= 1, 8000, 'it fights back at once (the host takes its blows)', () => `${hits.get(b) || 0} blows · foe ${b.foe === me ? 'host' : b.foe?.soldier ? 'soldier' : '-'}`);
+  clearInterval(pin2);
+  // 3. the player steps away: no chase farther than its fight
+  const b0 = { x: b.x, y: b.y }, away = MH0.soldier.solNear(H.game, me.x + (me.x - b.x) * 5, me.y + (me.y - b.y) * 5, 3) || [me.x + 6, me.y];
+  me.x = away[0]; me.y = away[1];
+  await t.sleep(3000);
+  const moved = (m, p) => (m.dead ? 0 : Math.hypot(m.x - p.x, m.y - p.y));
+  const chasing = (m) => !m.dead && m.foe === me && m._close == null && Math.hypot(me.x - m.x, me.y - m.y) < 4;
+  t.check(!chasing(a) && !chasing(b) && (a.dead || a._close !== me) && (b.dead || b._close !== me) && !(a.dead && b.dead), 'the player 6 tiles away: the pull of being right by it is gone — they keep to their fight (the usual choice: no chase for that)', `${f2(moved(a, a0))} · ${f2(moved(b, b0))} moved · ${[a, b].map((m) => (m.dead ? 'dead' : m.foe === me ? 'foe host' : m.foe?.soldier ? 'foe soldier' : '-')).join(',')}`);
+  t.metric('closePlayer', { blows: [...hits.values()].reduce((x, y) => x + y, 0), by: hits.size });
   await t.checkDigest(H, G);
 });
 

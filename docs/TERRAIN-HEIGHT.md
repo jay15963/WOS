@@ -350,3 +350,20 @@ Pedido do dono: cavar para **dentro** de penhascos, planaltos e montanhas, com o
   dois, mesmas edições, mesma superfície, grama escondida nos dois; digest igual.
 - **TR4** — o convidado pula um degrau de ~0,9 andar (arco, sem dano), o anfitrião o vê embaixo, empurrando de volta não
   sobe; o A* planeja a descida e não a subida; um lobo perseguindo o convidado pula também; digest igual.
+
+## A pré-visualização de construção no relevo
+
+O fantasma de uma peça sem base própria (bancada, tocha, baú, fogueira… — `ON_PAD` falso) era desenhado com a altura do chão
+0 (`Z.g` só recebia a base das peças que ganham pad), então em terreno alto ele aparecia afundado / deslocado para baixo,
+enquanto a peça posicionada (planta) ficava no lugar certo (apontamento do dono, 6/11/2026: "as construções não estão se
+encaixando bem, pelo menos não o preview, dá de ver que está debaixo da terra"). Agora `building.js` dá a ele a altura do
+terreno no seu ponto (`world.height.heightAt(x, y)`), a mesma que `game.js` usa para a peça pronta.
+
+## Rios que chegam a um lago
+
+O trecho do spline de um rio que segue lago adentro (até o nó da célula do lago) escavava um canal fundo e levantava as
+margens até o nível do rio + um pouco — faixas de areia em pé no meio do lago (apontamento do dono, 6/11/2026: "rios com
+águas profundas e contornados por terra mesmo estando desse jeito sem sentido ter terra ao redor"). Agora
+(`world/planet/chunk.js`, passo 4) um tile cujo chão já está abaixo do nível de um lago (não seco) por perto não recebe o
+rio nem as margens: o lago o enche no passo 5, e o rio termina na margem.
+

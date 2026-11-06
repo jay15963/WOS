@@ -428,11 +428,34 @@ export function pickFoe(game, m, list, r, archer = false, sameSide = null, lobR 
   if (best && archer && !hasLOS(game.world, m.x, m.y, best.x, best.y, z, best.z || 0, m._tn, best._tn)) return lobR > 0 && bd <= lobR * lobR && lobbable(game, best) ? best : null; // (a lob never hits one on a wall top)
   return best;
 }
-// hurt by something (ai.js aggro → game.warfare.onHurt): a player who may hurt it becomes its foe for a while; a soldier
-// / guard that hits it is fought back
+// a player right by a melee soldier (in reach of its blow: WAR.closeR, the same story) that it may fight — the one who hit it
+// lately first, else the nearest (owner: "o jogador bate em um soldado mas ele não dá atenção para o jogador … pelo menos o
+// soldado deveria dar mais atenção para o jogador caso esteja muito perto, sem se mover tanto, mas bater mais no jogador
+// estando no range de ataque corpo a corpo dele"): it turns to it from the soldier it was fighting, without chasing farther
+function closePlayer(game, m, list) {
+  const z = m.z || 0, R2 = WAR.closeR * WAR.closeR, ang = m.pfoe && m.pfoe.until > game.worldTime ? m.pfoe.e : null;
+  let best = null, bs = Infinity;
+  const consider = (e) => {
+    if (!e || e.dead || !isPlayerEnt(game, e) || Math.abs((e.z || 0) - z) > 0.5) return;
+    const dd = (e.x - m.x) ** 2 + (e.y - m.y) ** 2;
+    if (dd >= R2 || !isFoe(game, m, e)) return;
+    const sc = dd * (e === ang ? 0.3 : 1);
+    if (sc < bs) { bs = sc; best = e; }
+  };
+  for (const e of list) consider(e);
+  if (ang) consider(ang);
+  return best;
+}
+// hurt by something (ai.js aggro → game.warfare.onHurt): a player who may hurt it becomes its foe for a while — at once when
+// it is right by it (closePlayer), else when it has no other; a soldier / guard that hits it is fought back
 export function soldierHurt(game, m, src) {
   if (!m || m.dead || m.proxy || !src || src === m) return;
-  if (isPlayerEnt(game, src)) { m.pfoe = { e: src, until: game.worldTime + WAR.pfoeT }; if (!m.foe || m.foe.dead) { m.foe = src; m.scanT = 0.3; } return; }
+  if (isPlayerEnt(game, src)) {
+    m.pfoe = { e: src, until: game.worldTime + WAR.pfoeT };
+    const near = m.soldier.role !== 'archer' && Math.abs((src.z || 0) - (m.z || 0)) < 0.5 && Math.hypot(src.x - m.x, src.y - m.y) < WAR.closeR + 0.4;
+    if (!m.foe || m.foe.dead || (near && m.foe !== src)) { m.foe = src; m.threat = src; m.state = 'chase'; m.scanT = Math.max(m.scanT || 0, 0.6); if (near) m._close = src; }
+    return;
+  }
   if (isFoe(game, m, src) && (!m.foe || m.foe.dead)) { m.foe = src; m.scanT = 0.5; }
 }
 
@@ -455,9 +478,13 @@ export function soldierBrain(game, F, m, dt) {
     m.scanT = 0.32 + (m.id % 5) * 0.04;
     const lr = archer && eng > 0 ? lobReach(game, m) : 0; // (an archer's long shot: farther, and over walls — npcLob.js)
     let f = m.foe && !m.foe.dead && isFoe(game, m, m.foe) && Math.hypot(m.foe.x - m.x, m.foe.y - m.y) < Math.max(eng, lr, 3) + 3 ? m.foe : null;
+    if (f && m._close === f && Math.hypot(f.x - m.x, f.y - m.y) > WAR.closeR + 1.2) f = null; // (the player it turned to for being right by it stepped away: the usual choice again — it keeps to its fight, no chase for that)
+    if (m._close && m._close !== f) m._close = null;
     if (!f && (eng > 0 || m.pfoe)) f = pickFoe(game, m, F.foes || EMPTY, Math.max(eng, lr, m.pfoe ? 9 : 0), archer, O.side || null, lr);
     // (busy with an engine / a climb: only fights back what is right on it)
     if (f && eng <= 0 && Math.hypot(f.x - m.x, f.y - m.y) > 2.2 && !(m.pfoe && m.pfoe.e === f)) f = null;
+    // (a melee soldier busy with another foe: a player right by it comes first — closePlayer)
+    if (!archer && (!f || !isPlayerEnt(game, f))) { const p = closePlayer(game, m, F.foes || EMPTY); if (p) { f = p; m._close = p; } }
     m.foe = f; m.threat = f;
     m.state = f ? 'chase' : 'idle';
     // a spearman up on a wall with nobody to fight up there: a foe below within its throw (the tower's crew, the climbers)

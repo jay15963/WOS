@@ -454,10 +454,24 @@ export function generateChunk(p, cx, cy, opts = {}) {
   // ---------- 4. carve rivers ----------
   const water = new Uint8Array(NW), wlevel = new Float32Array(NW), wkind = new Uint8Array(NW); // wkind 1 sea 2 lake 3 river 4 pond 5 lagoon
   const flowX = new Float32Array(NW), flowY = new Float32Array(NW);
+  // a river reaching a lake stops at its shore: the stretch of its spline that runs on into the lake (to the lake cell's
+  // node) used to carve a deep channel there and raise its banks to the river's level + a little — strips of sand
+  // standing out of the lake around it (owner: "rios com águas profundas e contornados por terra mesmo estando desse jeito,
+  // sem sentido ter terra ao redor"). Under a lake's level the river leaves the ground as it is: the lake fills it (step 5)
+  let lakeNear = false;
+  for (let ccy = Math.max(0, Math.floor(Y0 / CELL) - 1); ccy <= Math.min(MH - 1, Math.floor((Y0 + WW) / CELL) + 1) && !lakeNear; ccy++) {
+    for (let ccx = Math.floor(X0 / CELL) - 1; ccx <= Math.floor((X0 + WW) / CELL) + 1; ccx++) { const lv = p.lakeLevel[cellIdx(ccx, ccy)]; if (lv === lv) { lakeNear = true; break; } }
+  }
+  const underLake = (i, h0) => {
+    const lv = lakeLevelNear(p, X0 + (i % WW) + 0.5, Y0 + ((i - (i % WW)) / WW) + 0.5);
+    if (lv !== lv || p.lakes[_lakeId - 1]?.dry) return false;
+    return h0 < metersToStories(lv);
+  };
   for (let i = 0; i < NW; i++) {
     const k = rK[i];
     if (!k) continue;
     if (sea0[i]) { rK[i] = 0; continue; } // (the open sea is already water; a fjord only cuts into the land)
+    if (lakeNear && k !== RK_FJORD && underLake(i, hS[i])) { rK[i] = 0; continue; } // (inside a lake: no channel, no banks)
     const d = rD[i], hw = rHW[i], L = rL[i];
     const can = rCan[i], flat = rFlat[i];
     if (k === RK_FJORD) {

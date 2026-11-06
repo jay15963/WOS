@@ -23,6 +23,8 @@ const PATHS = {
   eco: 'game/eco.js', meco: 'game/mut/eco.js', ecoc: 'game/content/eco.js', // (the economy of the kingdoms: EC scenarios)
   fields: 'game/fields.js', // (the settlements' fields and surroundings: jobs that can be done — JB scenarios)
   realms: 'game/realms.js', mrealms: 'game/mut/realms.js', war: 'game/content/war.js', realmMap: 'ui/realmMap.js', // (the kingdoms' wars: WR scenarios)
+  soldier: 'game/soldier.js', // (the soldiers' brain: CB scenarios)
+  crafting: 'game/crafting.js', recipes: 'game/content/recipes.js', // (the stations a player may craft at: EC9)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

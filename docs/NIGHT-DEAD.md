@@ -113,3 +113,13 @@ de balista. LZ3 ajustado: a seca tropical tem seus esqueletos.
   para limitar o nível dos mortos da noite.
 - Esqueletos nos trópicos úmidos não trazem gigante (como decidido); dá para ligar um gigante raro lá também.
 - A farinha de ossos acelera a plantação mas não muda a regra do solo seco / do inverno.
+
+## O gigante numa abertura estreita
+
+Apontamento do dono (6/11/2026): "o gigante não consegue entrar em uma abertura de uma grid, se ele ficar assim, faça com que
+quebre o suficiente para ele conseguir entrar". O caminho é por tiles — um vão de 1 tile está aberto —, mas o corpo do gigante
+(raio 0,8) não passa: ele parava ali (perseguindo quem via pelo vão, só arremessando pedras). Agora um corpo grande (`m.r` >
+0,45) que não chega mais perto do alvo em 2,5 s quebra a peça quebrável ao lado dele, do lado para onde vai
+(`walkers.js breachBeside`), e repete até caber — tanto andando até o alvo (`approach`) quanto perseguindo (`m.siege.widen`).
+Teste **IG3**.
+

@@ -13,9 +13,13 @@ export const PARCEL = 'parcel';    // a delivery job's parcel (content/items.js)
 // arbusto dá muita fibra, por isso [a corda] deve valer pouco … uma árvore dá até 4 madeiras … não é questão de tempo de
 // fabricação e sim a raridade dos recursos"): a made good ≈ 1.15 × the market value of its recipe. Categories: what kind of
 // place trades it (TRADE below). New goods go at the END (the markets' saved stocks are kept by index).
+// (owner, 6/11/2026: "o pão está com valor de venda mais alto que a carne e o couro, sendo que para carne e couro precisa
+// caçar … o pão e o trigo não deveria ter um valor de venda maior que a carne e o couro": wheat 8 → 5, bread 24 → 11 —
+// ≈ 1.15 × its 2 wheat + the fuel, below meat 12 and leather 24; and what a raw good makes never sells for more than buying
+// that raw good costs there: game/eco.js madeCap)
 export const GOODS = [
-  ['wheat', 8, 'food', 60], ['potato', 6, 'food', 50], ['corn', 6, 'food', 50], ['meat', 12, 'food', 40], ['fish_raw', 10, 'food', 30],
-  ['bread', 24, 'food', 30], ['stew', 14, 'food', 12],
+  ['wheat', 5, 'food', 60], ['potato', 6, 'food', 50], ['corn', 6, 'food', 50], ['meat', 12, 'food', 40], ['fish_raw', 10, 'food', 30],
+  ['bread', 11, 'food', 30], ['stew', 14, 'food', 12],
   ['wood', 6, 'raw', 80], ['stone', 5, 'raw', 80], ['cotton', 9, 'raw', 30], ['wool', 12, 'raw', 30], ['leather', 24, 'raw', 20],
   ['herb', 14, 'raw', 16], ['coal', 12, 'raw', 30],
   ['copper_ore', 14, 'ore', 30], ['iron_ore', 22, 'ore', 30], ['gold_ore', 60, 'ore', 8], ['jade', 140, 'ore', 4],
@@ -87,6 +91,10 @@ export const REP = { tradeCoins: 60, tradeDayCap: 10, abandon: -3, fail: -2, sei
 
 // ---------- jobs ----------
 export const JOB_MAX = 3; // active jobs per player
+// what a work job hands in at the mural (owner: "quando um trabalho envolve entregar itens, eles deveriam sumir do inventário
+// do jogador, como coletar batata"): a harvest its crop, a wood job its wood — n of them leave the backpack when it is turned
+// in (the plants / trees give at least that); mining and hunting count the work only
+export const jobGood = (j) => (j?.t === 'harvest' ? j.crop : j?.t === 'chop' ? 'wood' : null);
 export const JOB_KINDS = {
   harvest: { name: 'Colheita', icon: '🌾' },
   mine: { name: 'Mina', icon: '⛏️' },
