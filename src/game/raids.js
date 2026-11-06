@@ -204,6 +204,7 @@ export function raidsSystem() {
         far++;
       }
       for (const rec of [...H.live.values()]) tickLive(game, rec, night);
+      for (const [sid, r] of R.on) if (!H.live.has(sid) && game.worldTime - (H.loaded ?? (H.loaded = game.worldTime)) > 3) game.net.emit('raid.end', { sid, day: r.day, out: r.fell ? 2 : 1, n: r.n, gd: 0, cd: 0, live: 0, horde: r.horde, fam: r.fam, at: Math.round(game.worldTime) }); // (a save / reload in the middle of one: its wave is gone)
       // the next day: the pieces destroyed by an attack rebuilt by numbers far from the players
       H.rebT -= 0.5;
       if (H.rebT <= 0) { H.rebT = dayHourS(game); rebuildByNumbers(game); }

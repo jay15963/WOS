@@ -915,7 +915,9 @@ longe = só contagem · VL8 uma morte por monstro (sem corpo / saque), salva, re
 só sobe e é salvo · VL9 **a defesa**: um lobo (preso no lugar) fora da paliçada de dia — o sino, a ameaça do lado dele,
 todo arqueiro na rua sobe na paliçada (superfície do andar 1, nenhum no mural), os de corpo a corpo nos portões / no
 trecho de frente (nenhum no mural); um tronco desse trecho é destruído → abertura nos dois pares e um guarda de corpo a
-corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela.
+corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela. **VL11** (apontamento do dono, 5/11/2026): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra
+do lugar e voltando, por 65 s — o sino nunca para, nenhum arqueiro desce da muralha, todos acertam o lobo (andando pelo
+adarve até ter alcance), o corpo a corpo nos postos; o "tudo calmo" só quando ele morre.
 Prints em `shots/vl_*.png` (não vão para o git): `vl_village_day_a` / `vl_village_day_b` (vila de dia, 0° e 45°), `vl_work_field` / `vl_work_pen` (lavrador plantando,
 pastor no curral), `vl_work_smith` (ferreiro martelando na bigorna), `vl_work_carry` / `vl_city_market_morning` /
 `vl_city_plaza` / `vl_city_plaza_45` (a praça da capital: feira da manhã, gente indo ao chafariz), `vl_evening` (a vila
@@ -2026,7 +2028,10 @@ resultado ao vivo ao lado da previsão dos números para o mesmo lugar · **VL11
 65 s — o sino nunca para, nenhum arqueiro desce da muralha e todos acertam o lobo (andando pelo adarve até ter alcance), o
 corpo a corpo nos postos; o "tudo calmo" só depois que ele morre. Todos terminam com o digest igual.
 
-TESTS
+**Resultados** (Chrome headless deste PC, perfil limpo): WA1–WA5, VL1–VL11 e NM1–NM6 rodados juntos no fim: **22 / 22
+passam**. Pelo caminho: WA1 falhava (a onda normal derrubava a defesa) até os consertos de IA acima; WA2 conferia os avisos
+do convidado com dois avisos fixos na frente (o teste agora os fecha antes; os da propriedade viraram um aviso só); WA3
+pegava a guarda pelo nome errado do campo (`place.g0`). A rodada inteira: FULLRUN
 
 ### Prints
 
