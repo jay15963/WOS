@@ -937,7 +937,7 @@ primeiros segundos numa cidade alguns aparecem com o boneco base nas mesmas core
     escadas) até o ponto mais perto que tem alcance e linha de tiro — um caminho pelo adarve, nunca descendo; fora da vista
     ele já está lá — e, passada a luta, volta ao posto (`npc.js wallWalk / wallSpot / walkPath / walkWall`). No chão, sem
     progresso em 3 s (um muro no caminho, gente, um inimigo que não se alcança), ele procura outro ponto em volta do
-    inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL11**.
+    inimigo, a ~70 % do alcance, que ele alcança andando e de onde vê o alvo (`archerSpot`). Teste **VL13**.
   - **A guarda no lado atacado** (apontamento do dono, 5/11/2026: "os soldados não estão focados apenas em uma parte da
     muralha que é de onde estão vindo o inimigo"): com o ataque vindo de um lado, **todos os arqueiros** vão para o adarve
     **daquele lado**, espalhados ~2,5 tiles em volta de onde o ataque bate (`defense.js frontSpots` sobre `wallWalk`); os
@@ -1035,7 +1035,7 @@ longe = só contagem · VL8 uma morte por monstro (sem corpo / saque), salva, re
 só sobe e é salvo · VL9 **a defesa**: um lobo (preso no lugar) fora da paliçada de dia — o sino, a ameaça do lado dele,
 todo arqueiro na rua sobe na paliçada (superfície do andar 1, nenhum no mural), os de corpo a corpo nos portões / no
 trecho de frente (nenhum no mural); um tronco desse trecho é destruído → abertura nos dois pares e um guarda de corpo a
-corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela. **VL11** (apontamento do dono, 5/11/2026): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra
+corpo vai segurá-la (na abertura / logo por dentro); depois do "tudo calmo", um guarda continua nela. **VL13** (apontamento do dono, 5/11/2026): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra
 do lugar e voltando, por 65 s — o sino nunca para, nenhum arqueiro desce da muralha, todos acertam o lobo (andando pelo
 adarve até ter alcance), o corpo a corpo nos postos; o "tudo calmo" só quando ele morre.
 Prints em `shots/vl_*.png` (não vão para o git): `vl_village_day_a` / `vl_village_day_b` (vila de dia, 0° e 45°), `vl_work_field` / `vl_work_pen` (lavrador plantando,
@@ -2129,7 +2129,7 @@ Medido (Chrome headless deste PC, WA3 / WA4):
 
 ### Testes
 
-`tools/mp-test.js` **WA1–WA6** e **VL11** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
+`tools/mp-test.js` **WA1–WA7** e **VL13** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
 `game.raids.dbg.force`; os outros mortos da noite ficam de fora enquanto o cenário roda): WA1 noite de inverno na vila do
 início com os dois jogadores — a onda (70–90 % dos guardas, andarilhos, do norte, todos do lado certo fora da terra), o
 sino, a ameaça do lado certo, os arqueiros na paliçada, o corpo a corpo nos portões / trecho, a paliçada atingida do lado
@@ -2143,10 +2143,13 @@ aviso a ele), uma que resistiu, a reconstrução por números no dia seguinte (m
 na frente (conta como 4), o teto de criaturas, a guarda inteira para fora, o golpe do gigante fere a guarda, o custo ·
 WA5 save → load (o ataque acontecendo e o log), o plano da noite igual · **WA6** (só com `&raidsoak=N`: uma calibração
 longa) N ondas seguidas na vila do início contra a guarda inteira (os mortos de volta, a paliçada refeita entre elas), o
-resultado ao vivo ao lado da previsão dos números para o mesmo lugar · **VL11** o alarme até a ameaça ser neutralizada
+resultado ao vivo ao lado da previsão dos números para o mesmo lugar · **VL13** o alarme até a ameaça ser neutralizada
 (apontamento do dono, §11): um lobo forte 6 tiles fora da paliçada, recuando 9 tiles além da terra do lugar e voltando, por
 65 s — o sino nunca para, nenhum arqueiro desce da muralha e todos acertam o lobo (andando pelo adarve até ter alcance), o
-corpo a corpo nos postos; o "tudo calmo" só depois que ele morre. Todos terminam com o digest igual.
+corpo a corpo nos postos; o "tudo calmo" só depois que ele morre · **WA7** a atenção dos mortos (§11, jogo normal, sem
+ataque): seis andarilhos no portão norte da vila do início numa noite de inverno, os dois jogadores 6 tiles por dentro —
+em 30 s o povo do lugar recebe mais da atenção deles que os jogadores e eles se espalham por pelo menos dois defensores;
+o jogador acerta um e ele vem atrás dele. Todos terminam com o digest igual.
 
 **Resultados** (Chrome headless deste PC, perfil limpo): WA1–WA5, VL1–VL11 e NM1–NM6 rodados juntos no fim: **22 / 22
 passam**. Pelo caminho: WA1 falhava (a onda normal derrubava a defesa) até os consertos de IA acima; WA2 conferia os avisos
@@ -2174,7 +2177,7 @@ mortos, 2 guardas caíram…" e o aviso fixo ao dono "Os monstros danificaram su
 - **A fúria**: os mortos de uma onda têm vida e dano ajustados ao lugar (× 0,75–3,2): perto do início um pouco menos que os
   soltos, longe ~1,4× — senão a guarda (×1,6 vida, ×1,5 dano, ferro) esmagaria qualquer onda menor que ela sem perder
   ninguém. Um jogador que luta com a onda sente isso.
-- **A horda** é o "raro" do dono: 6 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
+- **A horda** é o "raro" do dono: 7,2 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
 - **O alarme até a ameaça ser neutralizada** (apontamento do dono): 30 tiles além da terra do lugar e 40 s de memória
   depois do último ataque / aproximação de cada monstro; os arqueiros andam pelo adarve atrás de alcance (§11).
 - **A guarda no lado atacado e a atenção dos mortos** (apontamentos do dono na escaramuça, valem para o jogo todo — §11):

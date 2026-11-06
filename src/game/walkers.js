@@ -117,8 +117,9 @@ function pickBody(game, m) {
   let near = L[0];
   for (const c of L) if (c[1] < near[1]) near = c;
   let best = null, bs = 1e9;
+  const own = m.state === 'chase' ? m.threat : m.goal?.ref; // (itself, counted in targetCounts the same way)
   for (const [q, d, isPlayer] of L) {
-    const mine = m.state === 'chase' && m.threat === q ? 1 : 0;
+    const mine = own === q ? 1 : 0;
     let sc = d * (1 + CROWD_K * Math.max(0, (C.get(q) || 0) - mine));
     if (q === hitBy) sc *= HIT_K;
     else if (isPlayer && near[0] !== q && !keenOnPlayers(m)) sc *= PLAYER_K;

@@ -803,7 +803,13 @@ function repairWork(game, rec, m, dt) {
   const s = walk(game, rec, m, J.spot[0], J.spot[1], SPD.walk * 1.5, dt, 0.3); // (in a hurry: a hole in the wall)
   m._rw = s;
   if (!(m._trT > game.worldTime)) { m._trT = game.worldTime + 1; (m._trail || (m._trail = [])).push(m.x.toFixed(1) + ',' + m.y.toFixed(1)); if (m._trail.length > 6) m._trail.shift(); }
-  if (s !== 'here') { if (s === 'fail' && !unstick(game, m, J.spot[0], J.spot[1], rec) && (m._fails || 0) >= 3) { (rec.noRepair || (rec.noRepair = new Map())).set(J.id, game.worldTime); m.repair = null; } return true; }
+  if (s !== 'here') {
+    // (a way that does not work — failed searches with a player watching, so no quiet step out of sight; or one that never
+    // ends: someone in it, a door — gives the piece up for a while: someone else, or this one later, tries again)
+    J.wT = (J.wT || 0) + dt;
+    if ((s === 'fail' && !unstick(game, m, J.spot[0], J.spot[1], rec) && (J.nf = (J.nf || 0) + 1) >= 4) || J.wT > 60) { (rec.noRepair || (rec.noRepair = new Map())).set(J.id, game.worldTime); m.repair = null; m.action = null; m.route = null; }
+    return true;
+  }
   m.moving = false;
   faceTowards(m, { x: J.x + 0.5, y: J.y + 0.5 });
   if (!m.action) { m.action = { type: 'build', t: 0, dur: 0.8 }; game.later(0.3, () => { if (!m.dead && m.action?.type === 'build') game.audio?.play('build_hit', { x: m.x, y: m.y, volume: 0.45 }); }); }

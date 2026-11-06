@@ -10839,7 +10839,8 @@ async function waNight(t, H, MH, s, hour = 21.6) {
   H.game.net.emit('env.skip', { hour, day: wd, wt: Math.round((H.game.worldTime + 1) * 100) / 100 }); H.game.net.flush();
   // (the night's other dead held off while the scenario runs: only the attack's wave comes — walkers.js / giants.js timers)
   // (and the wild hostiles near the place — the winter's wolf packs —: the watch fights the wave, not them)
-  const calm = () => { for (const e of H.game.entities) { if (!e.isMob || e.npc || e.dead || e.proxy || e.raid != null || e.stock || (e.temper || '') !== 'hostile' || Math.hypot(H.game.world.dx(e.x, s.x), e.y - s.y) > s.r + 60) continue; e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
+  // (a scenario's own creatures — _waKeep — are spared)
+  const calm = () => { for (const e of H.game.entities) { if (!e.isMob || e.npc || e.dead || e.proxy || e.raid != null || e.stock || e._waKeep || (e.temper || '') !== 'hostile' || Math.hypot(H.game.world.dx(e.x, s.x), e.y - s.y) > s.r + 60) continue; e.noCorpse = true; MH.combat.killMob(H.game, e, null); } };
   const hold = setInterval(() => { H.game._walkT = 1e9; H.game._giantT = 1e9; calm(); }, 500);
   H.game._walkT = 1e9; H.game._giantT = 1e9;
   t.defer(() => { clearInterval(hold); H.game._walkT = 4; H.game._giantT = null; });
@@ -11038,7 +11039,8 @@ def('WA2', {
   const rc = [(rent.box[0] + rent.box[2]) / 2, rent.box[3] + 2.5];
   A.teleport(H, rc[0], rc[1]); A.teleport(G, rc[0] + 1.5, rc[1]);
   await t.waitFor(() => !H.game.towns.state.get(doorOf(rent))?.gone && !G.game.towns.state.get(doorOf(rent))?.gone, 150000, 'the townsfolk rebuild the rented house\'s door (town.restore, both)',
-    () => livePeople(H, s0.id).filter((m) => m.repair).map((m) => `${m.job}:${m.repair}`).join(' ') || 'nobody on a repair');
+    () => `door ${doorOf(rent)} ${JSON.stringify(H.game.towns.state.get(doorOf(rent)))} · ` + (livePeople(H, s0.id).filter((m) => m.repair).map((m) => `${m.npc?.job}:${m.repair.id}${m.repair.gone ? '(gone)' : ''} ${m._rw || ''} @${m.x.toFixed(1)},${m.y.toFixed(1)} spot ${m.repair.spot || '-'} trail ${(m._trail || []).join(' ')}`).join(' | ') || 'nobody on a repair')
+      + ` · danger ${!!H.game.people.debug(s0.id)?.danger} h ${H.game.env.hour.toFixed(1)}`);
   await t.sleep(25000);
   t.check(H.game.towns.state.get(doorOf(sale))?.gone && G.game.towns.state.get(doorOf(sale))?.gone, 'the bought house\'s door still broken (the town never mends private property)');
   t.check(!livePeople(H, s0.id).some((m) => m.repair && wallsOf(sale, H).some(([id]) => id === m.repair)), 'nobody of the town works on the bought house');
@@ -11250,7 +11252,7 @@ def('WA6', {
   await t.checkDigest(H, G);
 });
 
-def('VL11', {
+def('VL13', {
   title: 'VL: the alarm lasts until the threat is neutralized — a tough monster outside the palisade for 60+ s, stepping back out of the alarm ring and coming again: the bell never stops, every archer stays on the wall and walks along it to shoot, the melee hold their posts; the all-clear only after it dies',
   src: 'village', timeout: 240000,
   expected: 'A village with a palisade near the start, 10 h, both players on its plaza. A tough wolf (held in place, stunned) 6 tiles outside a stretch of the palisade: the bell rings, the archers go up on the palisade, the melee to their posts. After 20 s it is moved back 9 tiles past the town land — out of the old alarm ring — and held there 20 s, then 6 tiles from the wall again for 25 s: during all of it the alarm never stops (host and guest), no archer ever comes down from the wall (z ≥ 0.9 once up), the archers posted away from it walk along the wall walk to a spot in reach and shoot it (each archer hits it; at least one moved > 2 tiles along the walk), the melee guards stay at the gates / the stretch (or fight it); it dies → the all-clear comes (within ~12 s), never before; digest equal',
@@ -11908,7 +11910,7 @@ def('WA7', {
   A.teleport(H, inP[0], inP[1]); A.teleport(G, inG[0], inG[1]);
   await t.sleep(1500);
   const ws = [];
-  for (let k = 0; k < 6; k++) { const q = A.freeSpot(H, MH, gate.cx + (k - 2.5) * 1.2, gate.cy - 9, { rMin: 0, rMax: 3, r: 0.3 }); if (q) { const m = MH.walkers.spawnWalkerAt(H.game, q[0], q[1]); m.home = { x: s.x, y: s.y }; m.hp = m.maxHp = m.maxHp * 6; ws.push(m); } }
+  for (let k = 0; k < 6; k++) { const q = A.freeSpot(H, MH, gate.cx + (k - 2.5) * 1.2, gate.cy - 9, { rMin: 0, rMax: 3, r: 0.3 }); if (q) { const m = MH.walkers.spawnWalkerAt(H.game, q[0], q[1]); m.hp = m.maxHp = m.maxHp * 6; m._waKeep = true; ws.push(m); } }
   t.need(ws.length >= 4, 'room for the walkers outside the gate');
   t.defer(() => { for (const m of ws) { m.noCorpse = true; if (!m.dead) MH.combat.killMob(H.game, m, null); } });
   const players = new Set([H.game.player, guestOnHost(H, G)].filter(Boolean));
@@ -11926,9 +11928,13 @@ def('WA7', {
   t.check(spread >= 2, 'they spread over at least two defenders', `${spread}`);
   t.metric('attention', `people ${onN} · players ${onP} · spread ${spread}`);
   // whoever attacks them comes first
-  const m = ws.filter((q) => !q.dead && !players.has(tgt(q))).sort((a, b) => Math.hypot(a.x - H.game.player.x, a.y - H.game.player.y) - Math.hypot(b.x - H.game.player.x, b.y - H.game.player.y))[0];
+  // (one in the fight — not one going home after a chase it could not finish: 'evade', it cannot be hurt then)
+  await t.tryWait(() => ws.some((q) => !q.dead && q.state !== 'evade' && !players.has(tgt(q))), 15000);
+  const m = ws.filter((q) => !q.dead && q.state !== 'evade' && !players.has(tgt(q))).sort((a, b) => Math.hypot(a.x - H.game.player.x, a.y - H.game.player.y) - Math.hypot(b.x - H.game.player.x, b.y - H.game.player.y))[0];
   if (m) {
+    const hp0 = m.hp;
     MH.combat.dealDamage(H.game, H.game.player, m, 5, {});
+    t.check(m.hp < hp0, 'the host\'s hit lands', `${m.state} ${hp0} → ${m.hp}`);
     await t.waitFor(() => tgt(m) === H.game.player || m.dead, 6000, 'the one the host hit goes for him', () => `${m.state} → ${tgt(m)?.name || tgt(m)?.npc?.name || '-'}`);
   } else t.note('every walker already down / on a player');
   await t.checkDigest(H, G);
