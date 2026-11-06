@@ -11249,6 +11249,8 @@ def('SK2', {
   t.check(gav && foeB && H.game.warfare.mayHurt(gav, foeB) === null, 'an enemy soldier (side B) may be hurt by the guest');
   t.check(gav && ownA && /seu lado/.test(H.game.warfare.mayHurt(gav, ownA) || ''), 'an own soldier is protected ("… é do seu lado")', H.game.warfare.mayHurt(gav, ownA));
   t.check(H.game.army.soldierFoe(M.kb, gav) && !H.game.army.soldierFoe(M.ka, gav), 'side B soldiers fight the guest, side A soldiers do not');
+  // the auto-aim (the host: side A) — an enemy soldier is a hostile of the queue, an own soldier never (combat.js aimClass)
+  t.check(foeB && ownA && MH.combat.aimClass(H.game, foeB) === 0 && MH.combat.aimClass(H.game, ownA) === -1, 'the auto-aim: side B soldiers first, side A soldiers never', `${MH.combat.aimClass(H.game, foeB)} / ${MH.combat.aimClass(H.game, ownA)}`);
   await t.waitFor(() => [H, G].every((f) => f.doc.querySelector('#sk .sk-board:not(.hidden)')), 4000, 'the scoreboard on both');
   // side B breaks: most of its soldiers fall (the test kills them on the host)
   await t.sleep(4000);
@@ -11392,6 +11394,159 @@ def('SK5', {
   t.metric('skirmishHostMs', d.stats);
   S.game.net.request('sk.lobby', {});
   await t.waitFor(() => S.game.skirmish.st.phase === 'lobby' && !S.game.warfare.forces.size, 15000, 'back to the lobby, the field cleared');
+});
+
+// =====================================================================================================
+// CB — combat rules of the whole game asked by the owner after playing the skirmish (docs/REINOS.md §14 "Mira automática,
+// golpes e paredes"): the auto-aim's queue (hostiles first, neutral / passive animals last, friends never) and blows
+// that do not pass through walls. The normal survival world (its villages), not a skirmish.
+// =====================================================================================================
+// a creature held still where the test wants it (tough, stunned, put back every 200 ms — the village's guards may come)
+function cbHold(t, H, M, sp, at) {
+  const m = M.mobs.spawnLoose(H.game, sp, at[0], at[1]);
+  m.hp = m.maxHp = 100000;
+  const hold = setInterval(() => { if (!m.dead) { m.stunT = 30; m.hp = Math.max(m.hp, 50000); m.x = at[0]; m.y = at[1]; m.vx = m.vy = 0; } }, 200);
+  t.defer(() => { clearInterval(hold); m.noCorpse = true; if (!m.dead) M.combat.killMob(H.game, m, null); H.game.net.flush(); });
+  m.x = at[0]; m.y = at[1];
+  return m;
+}
+const cbClear = (H, M, x, y, r = 16) => { for (const m of [...H.game.entities]) if (m.isMob && !m.proxy && !m.dead && !m.npc && !m.soldier && !m.tame && !m.remote && Math.hypot(m.x - x, m.y - y) < r) { m.noCorpse = true; M.combat.killMob(H.game, m, null); } };
+
+def('CB1', {
+  title: 'CB: the auto-aim queue — hostiles first, a neutral / passive animal only when no hostile is near, never a guard or a townsman',
+  src: 'village', timeout: 150000,
+  expected: 'The host by the start village (a traveller): with a wolf and a nearer deer in reach the auto attack (bestFoe), an ability without a target (nearestEnemy) and the aim class pick the wolf (a hostile, class 0) before the deer (class 1); with the wolf gone, the deer; on the plaza among the guards and the townsfolk, none of them (class −1: never by itself); the guest gets the same answer on its own copies (proxies); digest equal',
+  api: 'combat.js aimClass / bestFoe, abilities.js nearestEnemy / abilityFoe, ui/aim.js candidates',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = startTownOf(H, MH);
+  t.need(s, 'the start village');
+  dayClock(t, H, 10, MH);
+  const L = H.game.towns.layout(s.id);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  // the plaza first: the guards and the townsfolk never by themselves
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => Math.hypot(m.x - H.game.player.x, m.y - H.game.player.y) < 11).length >= 3, 25000, 'people of the village near the host');
+  const near = H.game.entities.filter((e) => e.npc && !e.dead && Math.hypot(e.x - H.game.player.x, e.y - H.game.player.y) < 11);
+  const b0 = MH.combat.bestFoe(H.game, 12), n0 = MH.abilities.nearestEnemy(H.game, 12);
+  t.check(near.every((e) => MH.combat.aimClass(H.game, e) === -1) && (!b0 || !b0.npc) && (!n0 || !n0.npc), 'never a guard or a townsman (class −1)', `${near.length} people (${near.filter((e) => e.guard).length} guards) · ${b0?.name || '-'} / ${n0?.name || '-'}`);
+  // out in the fields: a wolf a little farther than a deer
+  const a = A.freeSpot(H, MH, s.x + s.r + 18, s.y + 2, { rMin: 0, rMax: 8, r: 0.36 });
+  t.need(a, 'room out in the fields');
+  A.teleport(H, a[0], a[1]);
+  A.teleport(G, a[0], a[1] + 1);
+  await t.sleep(400);
+  cbClear(H, MH, a[0], a[1]);
+  const deer = cbHold(t, H, MH, 'deer', [a[0] + 2.2, a[1]]), wolf = cbHold(t, H, MH, 'wolf', [a[0] + 4.5, a[1] + 0.6]);
+  await t.sleep(400);
+  t.check(MH.combat.aimClass(H.game, wolf) === 0 && MH.combat.aimClass(H.game, deer) === 1, 'the wolf is a hostile (0), the deer an animal of the end of the queue (1)', `${MH.combat.aimClass(H.game, wolf)} / ${MH.combat.aimClass(H.game, deer)}`);
+  t.check(MH.combat.bestFoe(H.game, 12) === wolf, 'the auto attack picks the wolf before the nearer deer', MH.combat.bestFoe(H.game, 12)?.species);
+  t.check(MH.abilities.nearestEnemy(H.game, 12) === wolf, 'an ability without a target: the wolf too', MH.abilities.nearestEnemy(H.game, 12)?.species);
+  // the guest: the same rule on its own copies
+  await t.waitFor(() => A.proxyOf(G, wolf) && A.proxyOf(G, deer), RT() + 6000, 'the guest sees the two creatures');
+  t.check(MG.combat.bestFoe(G.game, 12) === A.proxyOf(G, wolf) && MG.abilities.nearestEnemy(G.game, 12) === A.proxyOf(G, wolf), 'the guest\'s auto attack and abilities: the wolf first', MG.combat.bestFoe(G.game, 12)?.species);
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  await t.sleep(300);
+  t.check(MH.combat.bestFoe(H.game, 12) === deer && MH.abilities.nearestEnemy(H.game, 12) === deer, 'no hostile near: then the deer (neutral / passive animals last, but allowed)', MH.combat.bestFoe(H.game, 12)?.species);
+  await t.checkDigest(H, G);
+});
+
+def('CB2', {
+  title: 'CB: a blow does not pass through a wall — the player\'s and a creature\'s melee across a palisade do nothing; side by side they land',
+  src: 'village', timeout: 150000,
+  expected: 'The host inside a village palisade, a wolf (held still) right outside the same log (2.2 tiles: within arm\'s reach): the host\'s blow (applyPlayerHit → dealDamage) does nothing and says why ("Atrás da parede": the damage event kind wall), the wolf\'s bite on the host does nothing, the guest\'s blow on its copy of the wolf is not even sent (no hit from the guest on the host); the wolf moved to the host\'s side of the palisade: the bite and the blow land; digest equal',
+  api: 'combat.js meleeWall / dealDamage (one rule for every blow: players, creatures, soldiers), abilities.js areaTargets / rangeOk, soldier.js melee (goes around)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  // a log of an axis side, standing on both peers, with logs beside it and free ground on both of its sides
+  const W = H.game.world, solid = (x, y) => W.solid.get(W.idx(Math.floor(x), Math.floor(y))) === 1 || !!W.rock.get(W.idx(Math.floor(x), Math.floor(y)));
+  const per = H.game.townDefense.perimeter(s.id), gates = [...per.pieces.values()].filter((p) => p.gate);
+  const cand = [...per.pieces.values()].filter((p) => !p.gate && Math.abs(p.fx) + Math.abs(p.fy) === 1 && gates.every((g) => Math.hypot(g.x - p.x, g.y - p.y) > 6) && A.objOn(H, p.id) && A.objOn(G, p.id)
+    && [-1, 0, 1].every((k) => W.solid.get(W.idx(p.x - p.fy * k, p.y + p.fx * k)) === 1)
+    && [[-1.1, 0], [1.1, 0], [-1.1, 1.4], [-1.1, -0.9]].every(([n, q]) => !solid(p.x + 0.5 + p.fx * n - p.fy * q, p.y + 0.5 + p.fy * n + p.fx * q)))
+    .sort((a, b) => Math.hypot(a.x - L.spawn[0], a.y - L.spawn[1]) - Math.hypot(b.x - L.spawn[0], b.y - L.spawn[1]));
+  t.need(cand.length, 'a palisade log with free ground on both sides');
+  const P = cand[0], at = (n, q) => [P.x + 0.5 + P.fx * n - P.fy * q, P.y + 0.5 + P.fy * n + P.fx * q];
+  const inside = at(-1.1, 0), outside = at(1.1, 0), gin = at(-1.1, 1.4);
+  A.teleport(H, inside[0], inside[1]);
+  A.teleport(G, gin[0], gin[1]);
+  A.equip(H, 'sword_copper');
+  const spot = [...outside], wolf = cbHold(t, H, MH, 'wolf', spot);
+  const hits = [], walls = [];
+  t.on(H, 'damage', (d) => { if (d.target === wolf && d.amount > 0 && (d.src === H.game.player || d.src?.pid === G.pid)) hits.push(d); if (d.kind === 'wall') walls.push(d); });
+  await t.sleep(500);
+  const dw = Math.hypot(wolf.x - H.game.player.x, wolf.y - H.game.player.y);
+  t.check(MH.combat.meleeWall(H.game, H.game.player, wolf) && dw < 2.6, 'the palisade between them, within arm\'s reach', `${f2(dw)} tiles`);
+  const r1 = A.hit(H, MH, wolf, 40);
+  t.check(!r1 && !hits.length && walls.some((d) => d.target === wolf && d.src === H.game.player), 'the host\'s blow through the palisade does nothing ("Atrás da parede")', `${r1} · ${hits.length} hits · ${walls.length} wall`);
+  const ph0 = H.game.player.hp, r2 = MH.combat.dealDamage(H.game, wolf, H.game.player, 30, { noDodge: true });
+  t.check(!r2 && H.game.player.hp === ph0, 'the wolf\'s bite through it does nothing', r2);
+  await t.waitFor(() => A.proxyOf(G, wolf), RT() + 6000, 'the guest sees the wolf');
+  const r3 = MG.combat.dealDamage(G.game, G.game.player, A.proxyOf(G, wolf), 40, {});
+  await t.sleep(RT() + 400);
+  t.check(!r3 && !hits.length, 'the guest\'s blow through it is not even sent (no hit from the guest on the host)', `${r3} · ${hits.length} hits`);
+  // side by side: the blows land
+  const side = at(-1.1, -0.9);
+  spot[0] = side[0]; spot[1] = side[1];
+  await t.sleep(500);
+  t.check(!MH.combat.meleeWall(H.game, H.game.player, wolf), 'the wolf beside the host: nothing between them');
+  const r5 = MH.combat.dealDamage(H.game, wolf, H.game.player, 30, { noDodge: true }), r4 = A.hit(H, MH, wolf, 10);
+  t.check(r4 > 0 && r5 > 0 && hits.length === 1, 'side by side the bite and the blow land', `${r5} / ${r4}`);
+  await t.checkDigest(H, G);
+});
+
+def('SK6', {
+  title: 'SK: a wave inside a castle — 40 monsters in its streets for 30 s: the frames stay sane, no system stops',
+  timeout: 240000,
+  expected: 'One player, monster defense of a castle (300 at 70 % monsters: 210 with giants, 90 defenders); once the wave is up ≥ 30 monsters are put inside the walls around the plaza (as if they had broken in): for 30 s the game keeps running (the world clock goes on: ≥ 25 s), no frame over 1.5 s of main-thread time, the 95th percentile under 40 ms (headless Chrome), no system fault (game.faults 0, no uncaught exception) and the defenders fight them (monsters fall)',
+  api: 'game/skirmish.js, game.js systemFault, main.js loopFault, soldier.js routeStep, npc.js / people.js defense, walkers.js',
+}, async (t) => {
+  if (SKP.pair) { frames.close(SKP.pair.G); frames.close(SKP.pair.H); SKP.pair = null; } // (one game at a time: RAM)
+  env.closePair();
+  const pid = 's' + rand(7);
+  presetPid(pid);
+  const S = t.open('sk-castle', `seed=${CFG.seed}&skirmish=1&pid=${pid}${CFG.link}`, pid);
+  await t.waitFor(() => S.game?.skirmish?.st, CFG.bootMs, 'the arena boots');
+  S.hookUi();
+  const g = S.game, M = await A.mods(S);
+  const errs = [];
+  S.win.addEventListener('error', (e) => errs.push(String(e.message || e.error)));
+  g.net.request('sk.set', { mode: 'monsters', place: 'castle', fam: 'ice', total: 300, pa: 70 });
+  g.net.request('sk.pick', { side: 'b', cls: 'archer' });
+  await t.waitFor(() => g.skirmish.st.set.place === 'castle' && g.skirmish.st.set.mode === 'monsters', 5000, 'a castle defense chosen');
+  g.net.request('sk.start', {});
+  await t.waitFor(() => g.skirmish.st.phase === 'fight', 120000, 'the defense starts', () => `${g.skirmish.st.phase} prep ${g.skirmish.debug().prepT}`);
+  A.keepAlive(t, S);
+  await t.waitFor(() => g.skirmish.debug().mobs >= 40, 60000, 'the wave is up', () => `${g.skirmish.debug().mobs}`);
+  const sid = g.skirmish.st.match.sid, pl = g.people.of(sid).plaza, per = g.townDefense.perimeter(sid);
+  let k = 0;
+  for (const m of g.skirmish.H.mobs) {
+    if (m.dead || k >= 40) continue;
+    const a = k * 0.7, r = 3 + (k % 6), q = A.freeSpot(S, M, pl.x + Math.cos(a) * r, pl.y + Math.sin(a) * r, { rMin: 0, rMax: 3, r: m.r || 0.3 });
+    if (q) { m.x = q[0]; m.y = q[1]; k++; }
+  }
+  await t.sleep(300);
+  const inside = [...g.skirmish.H.mobs].filter((m) => !m.dead && per.inside(m.x, m.y, g.world)).length;
+  t.check(k >= 30 && inside >= 30, 'the monsters are inside the castle', `${k} put · ${inside} inside`);
+  const w0 = g.worldTime, d0 = g.skirmish.debug(), fell0 = d0.wave.made - d0.mobs, f0 = g.faults || 0;
+  g.frameStats(true);
+  await t.sleep(30000);
+  const fs = g.frameStats(), d1 = g.skirmish.debug(), dw = g.worldTime - w0, fell = (d1.wave.made - d1.mobs) - fell0;
+  t.log(`castle wave 30 s: ${fs.n} frames · avg ${fs.avg} · p95 ${fs.p95} · max ${fs.max} ms · world +${f2(dw)} s · ${fell} monsters fell · ${d1.mobs} up`);
+  t.metric('castleWave', { n: fs.n, avg: fs.avg, p95: fs.p95, max: fs.max, dw: f2(dw), fell, faults: (g.faults || 0) - f0 });
+  t.check(dw >= 25, 'the game kept running (the world clock went on)', `${f2(dw)} s`);
+  t.check(fs.max < 1500 && fs.p95 < 40, 'the frames stayed sane', `p95 ${fs.p95} · max ${fs.max} ms`);
+  t.check(!((g.faults || 0) - f0) && !errs.length, 'no system fault, no uncaught exception', `${(g.faults || 0) - f0} · ${errs.slice(0, 2).join(' | ')}`);
+  t.check(fell > 0, 'the defenders fight them (monsters fell)', fell);
+  g.net.request('sk.lobby', {});
+  await t.waitFor(() => g.skirmish.st.phase === 'lobby', 15000, 'back to the lobby');
+  frames.close(S);
 });
 
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',

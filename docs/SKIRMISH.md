@@ -152,7 +152,7 @@ escolher a arena no lobby (a planta do lugar, uma vez). Uma onda de monstros nun
 
 ## Testes
 
-`tools/mp-test.js` **SK1–SK5** (`?run=SK1,SK2,SK3,SK4,SK5`; o par é uma sala de escaramuça própria, sem `?nosave`):
+`tools/mp-test.js` **SK1–SK6** (`?run=SK1,SK2,SK3,SK4,SK5,SK6`; o par é uma sala de escaramuça própria, sem `?nosave`):
 SK1 o lobby com dois jogadores (lados, classes, pronto, as configurações do anfitrião nos dois, o convidado não muda a
 partida, "Iniciar partida" espera todos, na defesa todos defendem) e nada escrito nos saves de sobrevivência · SK2
 batalha em campo 200 a 30 % (60 / 140 nas duas forças), o espadachim e o arqueiro com o equipamento certo e nível 12, os
@@ -163,7 +163,27 @@ o abate, a morte, nenhum corpo, renasce sozinho na praça inteiro —, o cerco r
 múmias 200 a 40 % (80 defensores × 120 monstros com 4 gigantes, a regra dos gigantes), noite nos dois, só múmias, o teto
 de vivos, marcham sobre o lugar sem se desfazer; a onda destruída → o resultado; "Jogar de novo" limpa o campo · SK5 o
 botão no menu abre a arena e o lobby, "Abrir para amigos" abre a sala ali (a escolha segue o novo id), um cerco de
-castelo começa (força de cerco + guarnição, o placar) e volta ao lobby. Todos terminam com o digest igual.
+castelo começa (força de cerco + guarnição, o placar) e volta ao lobby · SK6 defesa de um castelo (300 a 70 %) com 40
+monstros postos dentro dos muros em volta da praça por 30 s: o relógio do mundo segue, nenhum quadro acima de 1,5 s, p95
+abaixo de 40 ms, nenhuma falha de sistema nem erro solto, os defensores derrubam monstros. Todos terminam com o digest
+igual. As regras gerais pedidas no teste do dono têm testes no jogo normal: **CB1** (a fila da mira) e **CB2** (golpe
+através da paliçada) — docs/REINOS.md §14 "Mira automática, golpes e paredes, caminhos".
+
+## Depois do teste do dono (valem para o jogo todo — docs/REINOS.md §14)
+
+- **"Congelou uns 4 s quando os monstros invadiram o castelo"**: não se repetiu no Chrome headless (castelo, 38–40
+  monstros na praça, quadros de 4–8 ms, sem quadro longo, sem erro). A causa mais provável é um erro lançado por um
+  sistema, que parava o laço do jogo inteiro; agora cada sistema roda isolado (`game.js systemFault`: perde só aquele
+  quadro, o erro é relatado, `game.faults` conta) e o laço principal também (`main.js loopFault`). O SK6 vigia o caso.
+- **Mira automática**: hostis primeiro, animais neutros / passivos por último, amigos nunca (soldados do próprio lado,
+  guarda, povo, animais domados, cavalos) — ataque, habilidades, Tab, mira assistida (`combat.js aimClass`).
+- **Golpes não atravessam** muralha, paliçada, portão ou rocha — jogador, criaturas, guardas e soldados
+  (`combat.js meleeWall` em `dealDamage`); "Atrás da parede" só para quem bateu.
+- **Soldados contornam** o que está no caminho: A* local quando a linha reta está bloqueada, rota nova depois de 0,8 s
+  sem avançar, a guarnição passa pelos portões do próprio lugar (`soldier.js routeStep`). A escolha de alvo dos monstros e
+  o foco da defesa ficam com o trabalho dos ataques de inverno.
+- **Textos flutuantes** (acerto, erro, imune, cura, "Bloqueado"…) só quando o jogador local está envolvido; as plaquinhas
+  da onda só do alvo, de quem luta comigo, do mouse e dos gigantes.
 
 ## Prints
 

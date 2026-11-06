@@ -1581,6 +1581,40 @@ cada fase e a cada 6 s. Sem `game.realms` nada entra em guerra.
   números com as baixas jogadas (o lugar já é do vencedor → o exército volta para casa; baixas demais → desiste do
   cerco). Enquanto o jogador continua perto, aquele exército fica parado nos números (ver pendências).
 
+### Mira automática, golpes e paredes, caminhos (pedido do dono depois de jogar a escaramuça — vale para o jogo todo)
+
+- **A fila da mira automática** (`combat.js aimClass`): **0** os hostis (monstros, saqueadores, bichos hostis, o soldado
+  inimigo que a regra deixa ferir, o jogador em guerra com o meu, qualquer criatura que esteja lutando comigo) · **1** os
+  animais neutros / passivos — só quando nenhum hostil está ao alcance · **−1** nunca sozinha: soldados do próprio lado ou
+  protegidos, moradores e guardas, animais domados / de criação, o cavalo montado, peixes, jogadores sem guerra. A mesma
+  fila para o ataque automático (`bestFoe`), as habilidades sem alvo (`abilities.js nearestEnemy` / `abilityFoe`), o Tab e
+  a mira assistida do tiro longo (`ui/aim.js`). O alvo que o jogador marcou continua valendo (um animal de criação de
+  propósito, por exemplo). Um viajante nunca mira um soldado sozinho (a regra do §14 acima); quem está alistado mira os do
+  reino inimigo.
+- **Golpe precisa de linha livre** (`combat.js meleeWall`, no começo de `dealDamage`): um golpe — não uma flecha, um
+  virote, uma pedra ou um dano contínuo — a até 4 tiles com muralha, paliçada, portão / porta fechada, rocha ou crista entre
+  os dois não faz nada (o mesmo teste das flechas, `hasLOS`). Vale para todos: o jogador (ataque automático, habilidades, a
+  varredura `areaTargets`, `rangeOk` diz "sem linha"), as criaturas e os monstros, os guardas e os soldados. Na tela
+  "Atrás da parede", só para o jogador envolvido; `canHitNow` pede a linha também no corpo a corpo (o automático não fica
+  batendo na parede). O soldado que tem uma parede entre ele e o inimigo vai até o inimigo em vez de golpear.
+- **Soldados contornam o que está no caminho** (`soldier.js routeStep`): com a linha reta até o destino bloqueada, um A*
+  local (`TownNav` numa caixa de 96 tiles, caixas em cache por uma grade de 48, no máximo 16, até 3 buscas por quadro)
+  dá a rota, pulando os pontos que a linha livre (`lineClear`) já alcança; sem avanço por 0,8 s → rota nova; a guarnição
+  de um lugar passa pelos portões dele (`npcPass`). Os campos de fluxo do cerco continuam como estavam. A escolha de alvo
+  dos monstros e o foco da defesa das vilas são do trabalho dos ataques de inverno (§1), não daqui.
+- **Um sistema com erro não congela o jogo** (`game.js systemFault`): o sistema perde aquele quadro, os outros seguem; o
+  erro vai ao console (uma vez a cada 5 s por sistema) e é relançado fora do laço para os relatórios; `game.faults` conta.
+  O laço principal (`main.js loopFault`) faz o mesmo com `update` / `render`. (O "congelou uns 4 s com os monstros dentro
+  do castelo" do dono não se repetiu no Chrome headless — 38 monstros na praça, quadros de 6–7 ms; a hipótese é um erro
+  que derrubava o laço, agora isolado; o SK6 vigia.)
+- **Textos de combate só de quem joga** (`ui/overlay.js`): acerto, erro, esquiva, imune, cura e "Atrás da parede" só
+  aparecem quando o jogador local está envolvido (ele, o bicho dele, o projétil dele) — numa batalha de 200 soldados a tela
+  não se enche de "Bloqueado".
+- **Testes**: CB1 (a fila no jogo normal: lobo antes do cervo mais perto, o cervo quando não há hostil, nunca guarda ou
+  morador; o mesmo no convidado), CB2 (golpe do jogador, mordida do lobo e golpe do convidado através da paliçada não
+  fazem nada; lado a lado acertam), SK2 (soldado do outro lado na fila, do próprio lado nunca), SK6 (40 monstros dentro de
+  um castelo por 30 s: o relógio segue, p95 < 40 ms, sem falha de sistema).
+
 ### Testes e prints
 
 `tools/mp-test.js` **BT1–BT10** (as guerras pela op de depuração `realm.rel` da 3a, com a IA dos reinos pausada; a tomada
