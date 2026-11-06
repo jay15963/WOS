@@ -171,6 +171,12 @@ num defensor a 15 tiles com um soldado do próprio lado do arqueiro colado nele 
 nunca, nem em toda a luta. Todos terminam com o digest igual. As regras gerais pedidas no teste do dono têm testes no jogo normal: **CB1** (a fila da mira) e **CB2** (golpe
 através da paliçada) — docs/REINOS.md §14 "Mira automática, golpes e paredes, caminhos".
 
+**Resultados** (depois de juntar a main com os ataques de monstros aos lugares): a rodada inteira (`run=all&soak=60`)
+deu 200 passam / 7 falham / 2 de fora (S28 só na linha de comando, WA6 só com `&raidsoak`); as 7 (S60, WR1, WA4, WA7, HO3,
+K1, EC1) passam sozinhas. SK1–SK7 e CB1–CB3 passam na rodada inteira; SK6: 1 200 quadros, média 6,1 / p95 8,6 / pior
+18 ms, 40 monstros derrubados, nenhuma falha de sistema. NB1, batalha campal de 240: 22,6 KB/s do anfitrião ao convidado
+(antes 23,2 — o tiro longo dos NPC não pesa na banda).
+
 ## Depois do teste do dono (valem para o jogo todo — docs/REINOS.md §14)
 
 - **"Congelou uns 4 s quando os monstros invadiram o castelo"**: não se repetiu no Chrome headless (castelo, 38–40
