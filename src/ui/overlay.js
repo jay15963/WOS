@@ -129,6 +129,7 @@ export function installOverlay(game) {
         // mouse, or a guard fighting / hurt (a crowd of plates is noise)
         if (e.npc && !isT && g.ctl?.near?.o !== e && g.ctl?.hoverPick?.e !== e && !(e.npc.guard && e.hp < e.maxHp * 0.98)) continue; // (a wounded guard: its health bar)
         if (e.soldier && !isT && !fighting && g.ctl?.hoverPick?.e !== e && !(e.soldier.role === 'general' && d < 18)) continue; // (a soldier: the one aimed at / under the mouse / fighting me, and the general)
+        if (g.skirmish && e.faction === 'walker' && !isT && !fighting && !e.giant && g.ctl?.hoverPick?.e !== e) continue; // (a skirmish's wave: dozens at once — the aimed / fighting / hovered ones and the giants)
         if (!isT && !fighting && d > 12) continue;
         const a = isT || fighting || e.npc || e.soldier ? 1 : Math.max(0, Math.min(1, (12 - d) / 4));
         if (a <= 0.02) continue;
