@@ -558,19 +558,28 @@ function sealed(game, rec, b) {
   return b._sealed;
 }
 // hostile creatures in the town land (+ a margin): the danger of a settlement — rec.foes (all of them), rec.inside (the
-// ones within its wall line / edge)
+// ones within its wall line / edge). The alarm ends only when the threat is NEUTRALIZED (owner: "o alerta … sumir apenas
+// quando a ameaça estar neutralizada"): a hostile that came into the alarm ring, or is attacking the place — breaking a
+// piece of it, fighting one of its people, a winter attack's wave (game/raids.js) — stays a foe while it is alive within
+// the hold ring (the town land + N.alarmHold tiles) and attacked / came close within the last N.alarmMemory seconds: one
+// that backs off a few steps, kites or stands hitting the wall from outside keeps the bell ringing and the watch on its
+// posts; the calm grace (a few seconds) only starts once every one of them is dead or gone
+const attacking = (e, S) => e.raid === S.sid || e.siege?.o?.town === S.sid || (!!e.threat?.npc && e.threat.npc.sid === S.sid && e.state === 'chase');
 function dangerOf(game, rec) {
-  const S = rec.S, r = S.s.r + N.alarmR, r2 = r * r, w = game.world, per = perimeterOf(S);
-  const foes = rec.foes || (rec.foes = []), inside = rec.inside || (rec.inside = []);
+  const S = rec.S, r = S.s.r + N.alarmR, r2 = r * r, R = S.s.r + N.alarmHold, R2 = R * R, w = game.world, per = perimeterOf(S), now = game.worldTime;
+  const foes = rec.foes || (rec.foes = []), inside = rec.inside || (rec.inside = []), seen = rec.seen || (rec.seen = new Map());
   foes.length = 0; inside.length = 0;
   for (const e of game.entities) {
     if (e.dead || !e.isMob || e.proxy || e.npc) continue;
     if (!(e.faction === 'walker' || e.faction === 'bandit' || e.temper === 'hostile' || (e.soldier && game.warfare?.foeOfTown?.(S, e)))) continue; // (+ the soldiers of a kingdom at war with it: game/warfare.js)
-    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y;
-    if (dx * dx + dy * dy >= r2) continue;
+    const dx = w.dx(e.x, S.s.x), dy = e.y - S.s.y, d2 = dx * dx + dy * dy;
+    if (d2 >= R2) continue;
+    if (d2 < r2 || attacking(e, S)) seen.set(e, now);
+    else if (!(rec.danger && now - (seen.get(e) ?? -1e9) < N.alarmMemory)) continue;
     foes.push(e);
     if (per.inside(e.x, e.y, w)) inside.push(e);
   }
+  if (seen.size) for (const [e, t] of seen) if (e.dead || now - t > N.alarmMemory) seen.delete(e);
   // (an enlisted player of a kingdom at war with the place: the bell, the gates, the watch — game/army.js, phase 3c)
   if (game.army?.en?.size) for (const e of allPlayers(game)) {
     if (e.dead || !game.army.townFoe(S, e)) continue;

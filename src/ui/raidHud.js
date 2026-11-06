@@ -36,7 +36,7 @@ export function installRaidHud(game) {
       }
       // his property hit (anywhere): the owned house / the plot are his to mend; a rented one the people mend
       const me = meUid(game), mine = (e.own || []).filter((q) => q[0] === me);
-      for (const [, kind] of mine.slice(0, 2)) {
+      for (const [, kind] of mine.slice(0, 3)) {
         if (kind === 'house') notify(`Os monstros danificaram sua casa em ${s.name}: conserte-a você mesmo`, { sub: 'O povo não conserta propriedade privada. Perto de uma parede rachada: Consertar (E); uma peça destruída: Reconstruir (com o material dela). Mural · Propriedades mostra o estrago.', kind: 'warn', icon: WAR_ICONS.castle, sticky: true, key: 'raidown' + e.sid + kind });
         else if (kind === 'plot') notify(`Os monstros danificaram o que você construiu no seu terreno em ${s.name}`, { sub: 'Conserte você mesmo: perto de uma peça rachada, Consertar (E). As rachaduras não somem ao amanhecer.', kind: 'warn', icon: WAR_ICONS.castle, sticky: true, key: 'raidown' + e.sid + kind });
         else notify(`Os monstros danificaram a casa que você aluga em ${s.name}`, { sub: 'O povo conserta as casas alugadas a partir de amanhã.', kind: 'info', icon: WAR_ICONS.castle, ms: 7000, key: 'raidown' + e.sid + kind });

@@ -90,7 +90,7 @@ function placeOf(game, s, fam, hour) {
   const w = game.world, sp = w.spawn;
   return {
     sid: s.id, kind: s.kind, walls: s.walls || null, pop: s.pop, fam, giantOk: giantOk(game, s, fam),
-    glv: realmNpcLevel(game, s), mlv: Math.max(2, levelForDistance(Math.hypot(w.dx(s.x, sp.x), s.y - sp.y), 2)),
+    glv: realmNpcLevel(game, s), mlv: Math.max(2, levelForDistance(Math.hypot(w.dx(s.x, sp.x), s.y - sp.y) + s.r + RAID.spawnOut, 2)), // (where the wave comes from: walkers.js levels it there)
     guards: { n: archers + melee, melee, archers }, g0: g, dark: darkLeft(game, hour),
   };
 }

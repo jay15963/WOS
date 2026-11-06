@@ -11133,6 +11133,72 @@ def('WA6', {
   await t.checkDigest(H, G);
 });
 
+def('VL11', {
+  title: 'VL: the alarm lasts until the threat is neutralized — a tough monster outside the palisade for 60+ s, stepping back out of the alarm ring and coming again: the bell never stops, every archer stays on the wall and walks along it to shoot, the melee hold their posts; the all-clear only after it dies',
+  src: 'village', timeout: 240000,
+  expected: 'A village with a palisade near the start, 10 h, both players on its plaza. A tough wolf (held in place, stunned) 6 tiles outside a stretch of the palisade: the bell rings, the archers go up on the palisade, the melee to their posts. After 20 s it is moved back 9 tiles past the town land — out of the old alarm ring — and held there 20 s, then 6 tiles from the wall again for 25 s: during all of it the alarm never stops (host and guest), no archer ever comes down from the wall (z ≥ 0.9 once up), the archers posted away from it walk along the wall walk to a spot in reach and shoot it (each archer hits it; at least one moved > 2 tiles along the walk), the melee guards stay at the gates / the stretch (or fight it); it dies → the all-clear comes (within ~12 s), never before; digest equal',
+  api: 'game/people.js dangerOf (rec.seen: the alarm held while the threat lives — N.alarmHold / alarmMemory), game/npc.js upTask (wallWalk / wallSpot / walkPath / walkWall: along the wall walk), guardFight (ground archers: archerSpot when no headway)',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const s = nearestTown(H, (q) => q.kind === 'village' && q.walls === 'palisade');
+  t.need(s, 'a village with a palisade');
+  const L = H.game.towns.layout(s.id);
+  dayClock(t, H, 10, MH);
+  await visitTown(t, H, MH, G, MG, s.id, L.spawn[0], L.spawn[1]);
+  A.keepAlive(t, H); A.keepAlive(t, G);
+  await t.waitFor(() => livePeople(H, s.id).filter((m) => m.guard).length >= 3, 25000, 'the watch is out');
+  const per = H.game.townDefense.perimeter(s.id);
+  // a straight stretch (an axis side) away from the gates: the wolf outside its middle
+  const sides = [[0, -1], [1, 0], [0, 1], [-1, 0]].map(([fx, fy]) => ({ fx, fy, gates: [...per.pieces.values()].filter((q) => q.gate && q.fx * fx + q.fy * fy > 0.9).length }));
+  const sd = sides.sort((a, b) => a.gates - b.gates)[0];
+  const wall = { x: per.cx + sd.fx * per.A, y: per.cy + sd.fy * per.A };
+  const at = (k) => A.freeSpot(H, MH, wall.x + sd.fx * k, wall.y + sd.fy * k, { rMin: 0, rMax: 3, r: 0.36 });
+  const near = at(6), back = A.freeSpot(H, MH, per.cx + sd.fx * (s.r + 9), per.cy + sd.fy * (s.r + 9), { rMin: 0, rMax: 3, r: 0.36 });
+  t.need(near && back, 'room for the wolf outside the palisade');
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', near[0], near[1]);
+  wolf.hp = wolf.maxHp = 200000;
+  let spot = near;
+  const hold = setInterval(() => { if (!wolf.dead) { wolf.stunT = 30; wolf.hp = Math.max(wolf.hp, 100000); wolf.x = spot[0]; wolf.y = spot[1]; wolf.vx = wolf.vy = 0; } }, 150);
+  t.defer(() => { clearInterval(hold); wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  await t.waitFor(() => H.game.people.debug(s.id).danger && G.game.people.alarm.get(s.id), 8000 + RT(), 'the bell rings (both)');
+  const D = () => H.game.people.debug(s.id), archers = () => D().live.filter((m) => m.job === 'archer'), melee = () => D().live.filter((m) => m.job === 'guard');
+  await t.waitFor(() => archers().length >= 1 && archers().every((m) => m.duty?.k === 'wall' && m.z > 0.9), 45000, 'the archers up on the palisade', () => archers().map((m) => `${m.task}^${f2(m.z)} ${m.duty?.k || '-'}`).join(' '));
+  // from now on: the alarm, the archers on the wall, who shoots, who walks along the wall
+  const bad = [], hitBy = new Set(), post = new Map(archers().map((m) => [m.nid, [m.x, m.y]])), moved = new Map();
+  let alarmOffG = 0;
+  t.on(G, 'townalarm', (e) => { if (e.sid === s.id && !e.on) alarmOffG++; });
+  t.on(H, 'damage', (e) => { if (e.kind === 'hit' && e.target === wolf && e.src?.npc?.job === 'archer') hitBy.add(e.src.nid); });
+  const watch = setInterval(() => {
+    if (wolf.dead) return;
+    if (!D().danger) bad.push(`alarm off at ${f2(H.game.worldTime)}`);
+    for (const m of archers()) {
+      if (m.duty?.k === 'wall' && !(m.z > 0.9) && post.has(m.nid)) bad.push(`archer ${m.nid} down (z ${f2(m.z)})`);
+      const p0 = post.get(m.nid);
+      if (p0) moved.set(m.nid, Math.max(moved.get(m.nid) || 0, Math.hypot(m.x - p0[0], m.y - p0[1])));
+    }
+    for (const m of melee()) if (!(m.duty && ['gate', 'stretch', 'gap'].includes(m.duty.k) && (m.state === 'chase' || Math.hypot(m.x - m.duty.x, m.y - m.duty.y) < 3))) { if (!m.repair) bad.push(`melee ${m.nid} off its post (${m.duty?.k || '-'} ${m.task}/${m.state})`); }
+  }, 500);
+  t.defer(() => clearInterval(watch));
+  await t.sleep(20000);
+  spot = back; // (it steps back: out of the old alarm ring — 9 tiles past the town land)
+  await t.sleep(20000);
+  t.check(D().danger && G.game.people.alarm.get(s.id), 'stepped back out of the alarm ring: the bell keeps ringing (the threat lives)');
+  spot = near;
+  await t.sleep(25000);
+  clearInterval(watch);
+  const uniq = [...new Set(bad)];
+  t.check(!uniq.length, 'for 65 s: the alarm never stopped, no archer came down from the wall, the melee held their posts', uniq.slice(0, 6).join(' · '));
+  t.check(alarmOffG === 0, 'the guest never heard the all-clear meanwhile');
+  const ids = [...post.keys()];
+  t.check(ids.length && ids.every((id) => hitBy.has(id)), 'every archer on the wall shot it (each got in reach)', `${[...hitBy].length}/${ids.length} · moved ${[...moved.values()].map(f2).join(' ')}`);
+  t.metric('archerMoved', [...moved.values()].map(f2).join(' '));
+  wolf.noCorpse = true; MH.combat.killMob(H.game, wolf, null);
+  const tk = H.game.worldTime;
+  await t.waitFor(() => !D().danger && !G.game.people.alarm.get(s.id), 14000 + RT(), 'it died: the all-clear (both)');
+  t.metric('allClearS', +(H.game.worldTime - tk).toFixed(1));
+  await t.checkDigest(H, G);
+});
+
 const ORDER = ['S2', 'S3', 'S4', 'S28', 'S30', 'S24', 'S1', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15',
   'S16', 'S17', 'S18', 'S19', 'S20', 'S21', 'S22', 'S25', 'S27', 'S23', 'S26', 'S41', 'S29'];
 const BY = Object.fromEntries(S.map((s) => [s.id, s]));

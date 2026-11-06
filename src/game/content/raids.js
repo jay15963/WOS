@@ -31,6 +31,9 @@ export const RAID = {
   // the defense collapses (the attack is LOST) when this share of the melee guards is left (at most 1 in a village) and
   // at least `lostMin` monsters still stand
   lost: { melee: 0.25, lostMin: 2 },
+  // how well the live AI fights, against the round model (the live fight measured — WA6, docs/REINOS.md §16): the
+  // guards' melee, the monsters' blows, the share of the archers with the wave in reach
+  eff: { g: 1, m: 1, a: 0.7 },
   // ---------- near the players (game/raids.js) ----------
   liveCap: 24,               // wave creatures alive at once near the players (low quality: × 0.6) — the rest wait in the dark
   feedEvery: 1.4,            // s between two reserves walking in as the ones out fall

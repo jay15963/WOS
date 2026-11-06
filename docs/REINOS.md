@@ -25,6 +25,8 @@ força para destruir o lugar: os humanos quase sempre vencem, mas há uma chance
 Se vencerem, o lugar **não perde toda a população**; no dia seguinte o povo começa a **reconstruir**, como depois de um
 cerco — e ajuda a reconstruir as **casas alugadas** do jogador, mas **não** a propriedade **privada** dele (casa comprada,
 o que ele construiu no terreno): essa fica para o jogador consertar.
+**Feito**: [§16](#16-ataques-de-monstros-aos-lugares) — as ondas, a calibração dos ~5 %, a reconstrução, "Consertar" /
+"Reconstruir", por números longe dos jogadores, testes WA1–WA6.
 
 Ao amanhecer: esqueleto vira ossos, múmia vira areia (o andarilho já vira neve). As estações são locais e invertidas
 no outro hemisfério (`seasonAt(game, x, y)` já dá isso).
@@ -1826,6 +1828,169 @@ reino em guerra); a guarda inimiga só persegue alistados; alistar-se pede Conhe
 entrar naquele reino); um exército por vez; o exército fornece as pedras do trabuco; rivais distantes na mesma terra
 (capitais até 2 800 tiles) podem guerrear; os lugares de um reino que cai vão para quem tomou a última cidade dele; num
 lugar tomado os moradores ficam e só a guarda troca de cor. Mudar qualquer uma delas pede o dono.
+
+## 16. Ataques de monstros aos lugares
+
+Feito (pedido do dono no §1, "Ataques aos lugares no inverno"): nas noites da estação ruim de cada região os mortos dela
+**atacam as vilas, castelos e cidades** — uma onda **um pouco menor que a guarda** do lugar, vinda de um lado, contra a
+muralha / o portão / a paliçada / a beira de uma vila aberta —, e a defesa do §11 acontece de verdade: o sino, os arqueiros
+nas muralhas, o corpo a corpo nos portões e no trecho atacado, as brechas seguradas, os civis em casa. Os humanos quase
+sempre vencem; **raramente (~5 %, medido)** a defesa cai — a noite custa guardas e moradores e o lugar fica danificado,
+**nunca todo o povo**; no dia seguinte o povo reconstrói, inclusive a casa que o jogador **aluga**, mas **nunca** a
+propriedade **privada** dele (a casa comprada e o que ele construiu no terreno: ele conserta). Longe dos jogadores tudo
+isso acontece **por números**, com a mesma taxa. Código: `game/raids.js` (o plano da noite, a onda ao vivo, os números
+longe, a reconstrução, a propriedade privada, "Consertar" / "Reconstruir"), `game/raidsim.js` (a luta por números, pura:
+roda no node), `game/content/raids.js` (os números), `game/mut/raids.js` (estado, ops, linhas), `ui/raidHud.js` (avisos),
+`tools/raid-calib.mjs` (calibração). Ganchos de uma linha em `walkers.js` (o alvo da onda, rachaduras persistentes na
+propriedade privada, o registro do que ela quebra), `giants.js` (o golpe e a pedra do gigante ferem a guarda — antes só
+feriam jogadores), `mobs.js` (a onda não dorme longe dos jogadores), `people.js` (a guarda inteira sai durante o ataque;
+o sino não repete o aviso), `npc.js` / `towns.js` (o povo não conserta nem refaz propriedade privada), `building.js`
+("Consertar"), `controller.js` ("Reconstruir"), `ui/muralEco.js` (o estrago na aba Propriedades), `ui/mural.js` (o
+último ataque), `net/snapshot.js`, `net/digest.js`, `systems.js`, `mut/index.js`, `tools/mp-test/act.js`.
+
+### Como se joga
+
+- **Quando**: a cada noite de estação ruim de um lugar (a mesma regra dos mortos da noite: o inverno dos andarilhos no
+  temperado / subpolar, toda noite no polar, o inverno ameno da zona quente, a estação seca dos trópicos; deserto: múmias),
+  ele é atacado com **60 %** de chance (polar: **35 %** — lá toda noite é de inverno), numa hora sorteada do escuro
+  (21h20 – 2h25) e de um lado sorteado (8 direções). Decisão: nem todo lugar toda noite — o inverno fica perigoso e o
+  jogador nunca sabe se é a noite dele —, mas a maioria das noites de inverno de uma vila tem ataque. O plano da noite é
+  um *hash* do mundo, do lugar e da noite: o mesmo depois de recarregar.
+- **A onda**: **70–90 % dos guardas vivos** do lugar (arqueiros incluídos: sempre menos monstros que guardas), da família
+  da região (Andarilhos do Gelo / Esqueletos / Múmias); em castelos (45 %) e cidades (60 %) um **gigante** da família a
+  lidera (onde a família tem gigante) e **conta como 4**. Aparece fora da terra do lugar, do seu lado (fora da vista
+  quando dá), vai para o meio do lugar **através da muralha** (não atrás das luzes de fora), quebra o tronco / a pedra / o
+  portão na linha (as regras dos andarilhos: brecha), entra e luta com a guarda.
+- **A força** (o equilíbrio do §7b): por números puros a guarda é muito mais forte que os mortos da noite do mesmo nível
+  (×1,6 de vida, ×1,5 de dano, armas de ferro, escudo, elmo — longe do início um andarilho vale ~1/5 de um guarda). Por
+  isso cada monstro da onda tem uma **fúria** (vida e dano ×) que o deixa em **1/1,5 de um guarda corpo a corpo** do lugar
+  (castelo / cidade: 1/1,6) — calculada com os números do próprio jogo (vida, dano, ritmo da arma, armadura de cada um
+  contra o nível do outro). Assim a batalha é igual perto do início e na borda do mundo: a guarda vence, mas perde gente.
+- **A horda** (o raro): em **5,8 %** dos ataques vem uma horda — os mortos mais antigos: a mesma contagem (82–90 % da
+  guarda, nunca mais que ela), cada um mais forte (vila ×1,27, castelo / cidade ×1,7), o gigante vem mais vezes. O aviso
+  diz que é uma horda ("a guarda vai precisar de ajuda") — o jogador pode virar a noite.
+- **A defesa cai** (op `raid.fall`) quando sobra 1/4 dos guardas de corpo a corpo (vila: 1) e ainda há 2+ monstros de pé:
+  "A defesa de X caiu! Os mortos invadem as ruas". A noite está perdida; os mortos andam pelas ruas até morrerem ou o dia
+  nascer.
+- **O fim**: todos caídos, o amanhecer (eles desmancham) ou — os jogadores se afastaram — o resto da luta por números de
+  onde parou. **Perdida**: os mortos arrombaram casas — as que quebraram ao vivo e outras perto de onde entraram (2–5 por
+  números) —, cada morador delas morre com 50 % (**nunca mais que 22 % dos moradores**); por números as portas dessas
+  casas caem e paredes racham. Os mortos são repostos em **1,5 dia** como qualquer morte (§11). **Sem aviso por morte**
+  (regra do dono): o sino, a luta e o aviso do fim contam a história.
+- **Avisos** (perto do lugar: a terra + 90 tiles): "Andarilhos do Gelo atacam Estrosa pelo norte! · 7 contra 8 guardas —
+  o sino toca: o povo corre para casa, os arqueiros sobem nas muralhas e a guarda vai para o norte" (a horda: "Uma horda
+  de …"; com gigante: "… e o Gigante de Gelo atacam …"); "A defesa de Estrosa caiu!"; no fim "Estrosa resistiu ao
+  ataque · 7 andarilhos derrotados · 1 guarda caiu" ou "Estrosa sobreviveu à noite, com perdas · 3 moradores mortos, 4
+  guardas caíram, casas arrombadas e a muralha aberta. A partir de amanhã o povo reconstrói a vila". O aviso genérico do
+  sino ("Alarme em X…") não se repete durante um ataque.
+- **Mural · Lugar**: as noites do lugar ("Nas noites de inverno os Andarilhos do Gelo atacam…") e o último ataque ("noite
+  do dia 12: resistiu · 7 andarilhos · 1 guarda caiu"); "· sob ataque" no título enquanto dura.
+
+### A propriedade do jogador (regra do dono)
+
+- **Alugada**: é do lugar — o povo a conserta e a refaz como o resto (aviso: "Os monstros danificaram a casa que você
+  aluga em X — o povo conserta a partir de amanhã").
+- **Comprada** e **o terreno**: privadas. O povo **nunca** as conserta nem refaz (os consertos do §11 de dia, os por
+  números, a reconstrução depois de 2 dias e a de um ataque — `TOWN.privatePiece`), e o que os mortos fazem nelas
+  **fica**: as peças da casa no estado do lugar (salvo, igual nos pares); as estruturas do terreno com a rachadura
+  **persistente** do cerco (`siege.dmg` / `o.sdmg`: não somem ao amanhecer, vão no save). Aviso ao dono, onde ele estiver
+  (fixo até fechar): "Os monstros danificaram sua casa em X: conserte-a você mesmo · O povo não conserta propriedade
+  privada. Perto de uma parede rachada: Consertar (E); uma peça destruída: Reconstruir (com o material dela)…" / "…o que
+  você construiu no seu terreno em X". O mural (Propriedades) mostra "⚠ danificada: 2 peças rachadas, 1 destruída ·
+  conserte você mesmo".
+- **Consertar** (E / o botão de ação): numa peça rachada da casa que é sua (comprada ou alugada) ou de algo seu onde você
+  pode construir — golpes de martelo, cada um um passo (madeira −34 %, pedra −20 % da rachadura; intent `prop.fix`, o
+  anfitrião confere dono e distância). Numa porta, "Abrir" continua primeiro e "Consertar" é a segunda escolha.
+  **Reconstruir**: ao lado de uma peça destruída da sua casa, com o material dela na mochila (pago na hora, devolvido se
+  o anfitrião recusar) → `town.restore`.
+
+### Por números (longe de todos os jogadores)
+
+- Quando chega a hora de um lugar sem jogador perto (a terra + 40 tiles), a luta é feita **na hora** por `raidsim.js
+  fight`: a onda anda até o muro sob as flechas, quebra a peça (os mesmos segundos-de-andarilho de `walkers.js`: madeira
+  105, pedra 350; até 4 batendo; o gigante ×8), depois a luta na brecha (poucos de cada vez, mais conforme entram; os dois
+  lados batem em quem está na frente), os arqueiros atirando o tempo todo, até a onda morrer, a defesa cair ou o dia
+  nascer. Os mortos (guardas e moradores) e o estrago vão na op `raid.end` para o estado do lugar como o cerco por
+  números: a muralha do lado do ataque rachada (1–3 peças; com brecha às vezes uma cai), perdida: a brecha (1–2 peças),
+  o portão daquele lado (40 %), casas arrombadas — carregado ou não; as linhas levam o tile e o tipo da peça (nenhum par
+  precisa da planta para gravá-las).
+- **Barato**: o plano da noite olha cada lugar uma vez ao anoitecer (a família pelo clima do planeta e o bioma da célula,
+  sem carregar nada); no máximo 3 lutas por números por meio segundo, ~0,05–0,3 ms cada. As peças só quando a planta do
+  lugar já foi feita neste par, ou numa noite perdida / num lugar com propriedade de jogador (planejado uma vez: 7–55 ms);
+  uma vila longe que resistiu fica só com as mortes.
+- **No dia seguinte**: de manhã (7 h – 18h36), a cada hora do jogo, até 6 peças destruídas por lugar atacado nos últimos
+  dias são refeitas por números (`town.restore`) — longe dos jogadores (perto, o povo faz à mão: `npc.js repairTick`) e
+  nunca uma casa comprada.
+
+### A calibração (o ~5 % do dono)
+
+`raidsim.js` usa as tabelas do próprio jogo: as criaturas (`SPECIES`, `mobStats`), as armas, a armadura e o escudo, os kits
+dos mortos (`undead.js`), o kit da guarda (`people.js`). Medido:
+
+| Amostra | Ataques | Perdidos | Hordas (perdidas) | Ondas normais perdidas | Guardas mortos |
+|---|---|---|---|---|---|
+RESULTS
+
+As ondas normais perdem ~0,4 % das vezes e matam ~16–18 % da guarda (uma vila de 8 perde 1–2); uma horda vence ~3 vezes
+em 4. Os números de cada tipo de lugar (`tools/raid-calib.mjs`): vila com paliçada / aberta, castelo e cidade ficam todos
+entre ~5 e 6,5 %.
+
+### Ao vivo (perto dos jogadores)
+
+LIVE
+
+### Multijogador e saves
+
+Anfitrião autoritativo. Estado em `game.raids` (todos os pares): `on` (os ataques acontecendo: lugar, noite, família,
+monstros, guardas, gigante, horda, lado, hora, ao vivo, defesa caída) e `log` (os últimos 80: noite, lugar, resultado,
+monstros, guardas e moradores mortos, ao vivo, horda, hora, família). Ops `raid.start` · `raid.fall` · `raid.end` (as
+mortes, as peças por números, as rachaduras das estruturas privadas, quem teve propriedade atingida); intent `prop.fix`.
+As criaturas da onda vão no fluxo de entidades como os andarilhos (o convidado vê as mesmas). Snapshot / save:
+`world.raids` (`raidRows`); digest: linhas `raid:` e `rlog:` na parte `towns`. O plano da noite fica só no anfitrião (é
+um hash: o mesmo depois de carregar). Os avisos são locais (cada par decide o que mostra ao seu jogador).
+
+### Desempenho
+
+PERF
+
+### Testes
+
+`tools/mp-test.js` **WA1–WA5** (os ataques ficam pausados em todo cenário — `act.js reset` — e os WA os forçam com
+`game.raids.dbg.force`; os outros mortos da noite ficam de fora enquanto o cenário roda): WA1 noite de inverno na vila do
+início com os dois jogadores — a onda (70–90 % dos guardas, andarilhos, do norte, todos do lado certo fora da terra), o
+sino, a ameaça do lado certo, os arqueiros na paliçada, o corpo a corpo nos portões / trecho, a paliçada atingida do lado
+do ataque, o fim com o lugar de pé, a mesma linha do log nos dois, sem aviso por morte · WA2 a derrota forçada (horda,
+`lose`): "A defesa … caiu", o fim perdido, o povo vivo (≥ 78 % dos moradores), as casas comprada e alugada arrombadas e a
+parede do terreno rachada (persistente) nos dois, os avisos do dono, o mural; ao amanhecer a rachadura fica; de manhã o
+povo refaz a porta da casa alugada e não toca na comprada nem no terreno; o convidado conserta a parede (Consertar) e
+refaz a porta (Reconstruir); os mortos voltam 1,5 dia depois · WA3 por números — a taxa medida no reino de verdade
+(8 000 ataques), uma noite perdida longe (mortes, brecha do lado certo, rachaduras, a casa do convidado arrombada e o
+aviso a ele), uma que resistiu, a reconstrução por números no dia seguinte (menos a casa dele) · WA4 o castelo: o gigante
+na frente (conta como 4), o teto de criaturas, a guarda inteira para fora, o golpe do gigante fere a guarda, o custo ·
+WA5 save → load (o ataque acontecendo e o log), o plano da noite igual. Todos terminam com o digest igual.
+
+TESTS
+
+### Prints
+
+PRINTS
+
+### Decisões (para o dono confirmar)
+
+- **Frequência**: 60 % das noites ruins de cada lugar (polar 35 %), hora e lado sorteados — o inverno fica perigoso sem
+  ser toda noite em todo lugar.
+- **A fúria**: os mortos de uma onda são mais fortes que os soltos (vida e dano × 0,75–3,2, para valerem 1/1,5 de um
+  guarda do lugar). Sem isso a guarda (×1,6 vida, ×1,5 dano, ferro) esmagaria qualquer onda menor que ela sem perder
+  ninguém. Um jogador que luta com a onda sente isso.
+- **A horda** é o "raro" do dono: 5,8 % das ondas, a mesma contagem, mais fortes — o aviso diz que é uma horda.
+- **Uma noite perdida** mata no máximo 22 % dos moradores e arromba 2–5 casas; a guarda pode cair quase toda (volta em
+  1,5 dia); ninguém perde a casa por isso.
+- **Propriedade privada** = a casa comprada e as estruturas no terreno; a alugada é do lugar. As rachaduras de ataque nas
+  estruturas do terreno não somem ao amanhecer (como as de cerco). "Consertar" é de graça (tempo); "Reconstruir" custa o
+  material da peça.
+- Um lugar sitiado por um exército não é atacado pelos mortos naquela noite.
+- Pendente / ideias: o mapa marcar os lugares atacados na noite; um trabalho "defender a vila" que pague mais numa noite
+  de horda; o jogador pagar o povo para consertar a casa dele.
 
 ## Ideias para o futuro (anotadas a pedido do dono, 5/11/2026)
 

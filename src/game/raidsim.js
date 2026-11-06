@@ -26,6 +26,9 @@ export const FAMILY_MOB = { ice: 'walker', bone: 'skeleton', sand: 'mummy' };
 export const FAMILY_GIANT = { ice: 'giant', bone: 'skeleton_giant', sand: 'mummy_giant' };
 // the walkers' breaking of walls (walkers.js SIEGE_S / SIEGE_WOOD: walker-seconds of hitting for one piece; giants ×8)
 const SIEGE = { wood: 105, stone: 350 }, GIANT_SIEGE = 8;
+// the raiders' brain (bandits.js special): a strike × 1.7 / a pierce × 1.6 every 7–11 s — about a quarter of a monster's
+// blows near the walls (measured in WA6)
+const SPECIAL = 1 + 0.25 * 0.65;
 
 // ---------- the watch of a place (people.js buildPeople) ----------
 export function guardsOf(s) {
@@ -72,7 +75,7 @@ export function unitStats(role, lv, o = {}) {
       const swing = swing0 ?? wp.swing * swK, d = (st.dmg * wf * fury) / swing;
       if (ranged) { rshare += p; rdps += d; } else dps += p * d;
     }
-    U = { role, lv, hp: Math.round(st.maxHp * fury), dps: dps / Math.max(0.01, 1 - rshare), rdps, rshare, armor: role === 'skeleton' ? 2 : role === 'mummy' ? 6 : 4, block: 0, ranged: false, giant: false,
+    U = { role, lv, hp: Math.round(st.maxHp * fury), dps: (dps / Math.max(0.01, 1 - rshare)) * SPECIAL, rdps, rshare, armor: role === 'skeleton' ? 2 : role === 'mummy' ? 6 : 4, block: 0, ranged: false, giant: false,
       siege: 1, pierceK: role === 'skeleton' ? 0.7 : 1 };
   }
   MEMO.set(key, U);
@@ -110,7 +113,7 @@ export function planWave(place, R, o = {}) {
 const pick = (R, a) => a[Math.floor(R() * a.length) % a.length];
 // o: { dt (s a round), eff { g, m, a } (how well the live AI fights: measured — docs/REINOS.md §16) }
 export function fight(place, wave, R, o = {}) {
-  const dt = o.dt || 2, eff = { g: 1, m: 1, a: 0.7, ...(o.eff || {}) };
+  const dt = o.dt || 2, eff = { ...RAID.eff, ...(o.eff || {}) };
   const G = unitStats('guard', place.glv, { kind: place.kind }), A = unitStats('archer', place.glv, { kind: place.kind });
   const M = unitStats(wave.species, wave.mlv, { fury: wave.fury }), GI = wave.giant ? unitStats(wave.giant, wave.mlv, { fury: wave.fury }) : null;
   const mel = Array.from({ length: place.guards.melee }, () => G.hp), arch = Array.from({ length: place.guards.archers }, () => A.hp);

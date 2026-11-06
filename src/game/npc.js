@@ -468,9 +468,20 @@ function guardFight(game, rec, m, dt) {
   const P = m.npc, sp = SPECIES.guard, d = Math.hypot(f.x - m.x, f.y - m.y);
   const fx = Math.floor(f.x) + 0.5, fy = Math.floor(f.y) + 0.5; // (the foe's tile: a new way only when it changes tiles)
   if (P.job === 'archer') {
-    // archers on the ground: close in to a good range with a line of fire, then shoot
+    // archers on the ground: close in to a good range with a line of fire, then shoot — no headway for 3 s (a wall, a crowd,
+    // a foe it cannot reach): another spot around the foe that has both
     const see = hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, m._tn, f._tn);
-    if (d > N.archerRange * 0.85 || !see) { const s = walk(game, rec, m, fx, fy, sp.speed, dt, 3); if (s === 'fail') unstick(game, m, fx, fy, rec); return true; }
+    if (d > N.archerRange * 0.85 || !see) {
+      const now = game.worldTime, A = m._ap && m._ap.foe === f ? m._ap : (m._ap = { foe: f, d, t: now, alt: null, altT: 0 });
+      if (d < A.d - 0.6) { A.d = d; A.t = now; }
+      else if (now - A.t > 3 && (!A.alt || now - A.altT > 6)) { A.alt = archerSpot(game, rec, m, f, A.alt); A.altT = now; A.t = now; A.d = d; }
+      const g = A.alt || [fx, fy];
+      const s = walk(game, rec, m, g[0], g[1], sp.speed, dt, A.alt ? 0.4 : 3);
+      if (A.alt && s === 'here') A.alt = null;
+      if (s === 'fail') { unstick(game, m, g[0], g[1], rec); A.alt = archerSpot(game, rec, m, f, A.alt); A.altT = now; }
+      return true;
+    }
+    m._ap = null;
     m.moving = false; faceTowards(m, f);
     if (m.swingT <= 0) { m.swingT = (m.swingDur || 1.6) * (0.95 + R01(m) * 0.25); m.action = { type: 'shoot', t: 0, dur: 0.6 }; game.later(0.34, () => { if (!m.dead && !f.dead) shoot(game, m, f); }); }
     return true;
@@ -502,6 +513,18 @@ function guardFight(game, rec, m, dt) {
     });
   }
   return true;
+}
+// a spot for a ground archer: around the foe at ~0.7 of the bow's reach, a free tile it can walk to with a line of fire
+// (the angles nearest its own first; not the one that failed last)
+function archerSpot(game, rec, m, f, last = null) {
+  const a0 = Math.atan2(m.y - f.y, m.x - f.x), r = N.archerRange * 0.7;
+  for (const da of [0.6, -0.6, 1.2, -1.2, 1.9, -1.9, 2.6, -2.6, 0]) {
+    const q = nearPass(game, f.x + Math.cos(a0 + da) * r, f.y + Math.sin(a0 + da) * r, 2);
+    if (!q || (last && Math.hypot(q[0] - last[0], q[1] - last[1]) < 1.5)) continue;
+    if (!reachable(game, rec, m.x, m.y, q[0], q[1]) || !hasLOS(game.world, q[0], q[1], f.x, f.y, 0, f.z || 0, null, f._tn)) continue;
+    return q;
+  }
+  return null;
 }
 // a guard at its defense post: the foe it hunts inside the walls (people.js defenseTick), else what comes near its post
 // (the gap / gate / stretch it holds) — never one far from it: back to the post when the foe leaves
@@ -539,10 +562,88 @@ export function npcHurt(game, m, src) {
   else m.fearT = 10;
 }
 
+// ---------- the wall walk (owner: "os arqueiros saem das muralhas … fica parado em um lugar apenas e não consegue chegar
+// no range de ataque do arco"): an archer up on the wall whose foe is out of reach / out of its line of fire walks along the
+// top of the wall line to the nearest spot that has both (and back to its post when the fight is over), never down ----------
+// the walkable tops of a place's wall line (levels.surf at story 1 — a palisade — or 2 — the stone walk): the pieces of the
+// line and the tile just inside each (the walk), and the archer posts (tower tops, stair heads); cached per change of the
+// town state (a piece gone cuts the walk) and of the levels map
+function wallWalk(game, S) {
+  const lev = game.levels?.sync?.(), v = (game.towns?.v || 0) + ':' + (game.levels?.v || 0);
+  if (S._walk && S._walkV === v) return S._walk;
+  const per = perimeterOf(S), w = game.world, at = new Map(), list = [];
+  const add = (x, y, lv) => { const k = x + ',' + y; if (at.has(k)) return; const s = { x: x + 0.5, y: y + 0.5, lv, tx: x, ty: y, k }; at.set(k, s); list.push(s); };
+  if (lev && per.walled) for (const q of per.pieces.values()) {
+    const n = q.gate ? 2 : 1, vert = q.gate && Math.abs(q.fx) > 0.5;
+    for (let j = 0; j < n; j++) {
+      const x0 = q.x + (vert ? 0 : j), y0 = q.y + (vert ? j : 0);
+      for (const [x, y] of [[x0, y0], [x0 - Math.round(q.fx), y0 - Math.round(q.fy)]]) for (const lv of [1, 2]) if (lev.surf[lv]?.get(w.idx(x, y)) === 1) { add(x, y, lv); break; }
+    }
+  }
+  for (const p of S.posts.walls) if ((p.lv | 0) > 0) add(Math.floor(p.x), Math.floor(p.y), p.lv | 0);
+  S._walk = { at, list }; S._walkV = v;
+  return S._walk;
+}
+// a way along the walk (8 neighbours, the same story) from (x, y) to the spot: tile centres; null when the walk is cut
+function walkPath(W, x, y, to) {
+  let a = W.at.get(Math.floor(x) + ',' + Math.floor(y));
+  if (!a) { let bd = 2.3; for (const s of W.list) { const dd = Math.hypot(s.x - x, s.y - y); if (s.lv === to.lv && dd < bd) { bd = dd; a = s; } } }
+  if (!a) return null;
+  const prev = new Map([[a.k, null]]), q = [a];
+  for (let i = 0; i < q.length && q.length < 900; i++) {
+    const c = q[i];
+    if (c === to) break;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const n = W.at.get((c.tx + dx) + ',' + (c.ty + dy));
+      if (n && n.lv === c.lv && !prev.has(n.k)) { prev.set(n.k, c); q.push(n); }
+    }
+  }
+  if (!prev.has(to.k)) return null;
+  const out = [];
+  for (let c = to; c; c = prev.get(c.k)) out.push([c.x, c.y]);
+  return out.reverse();
+}
+// the spot of the walk nearest the archer from where foe f is in bow reach with a line of fire (another archer's spot left
+// alone); none in reach: the one nearest the foe when it gets the archer closer
+function wallSpot(game, rec, m, f) {
+  const W = wallWalk(game, rec.S), w = game.world;
+  let best = null, bs = 1e9, near = null, nd = Math.hypot(f.x - m.x, f.y - m.y) - 2;
+  for (const c of W.list) {
+    if (c.lv !== (m.lv | 0)) continue;
+    const dm = Math.hypot(c.x - m.x, c.y - m.y);
+    if (dm > 70) continue;
+    const df = Math.hypot(c.x - f.x, c.y - f.y);
+    if (df < nd) { nd = df; near = c; }
+    if (df > N.archerRange * (1 + 0.2 * c.lv) - 0.6 || dm >= bs) continue;
+    let taken = false;
+    for (const o of rec.ents.values()) if (o !== m && !o.dead && o.z > 0.5 && Math.abs(o.x - c.x) < 0.8 && Math.abs(o.y - c.y) < 0.8) { taken = true; break; }
+    if (taken || !hasLOS(w, c.x, c.y, f.x, f.y, c.lv, f.z || 0, null, f._tn)) continue;
+    best = c; bs = dm;
+  }
+  return best || near;
+}
+// along the walk toward T.walkTo (out of sight: there at once); true while it walks
+function walkWall(game, rec, m, T, dt) {
+  const G = T.walkTo, end = G.path[G.path.length - 1];
+  if (!inAnyView(game, m.x, m.y, 1, 2) && !inAnyView(game, end[0], end[1], 1, 2)) { m.x = end[0]; m.y = end[1]; G.i = G.path.length; }
+  let step = SPD.run * dt;
+  while (G.i < G.path.length && step > 0) {
+    const [px, py] = G.path[G.i], dx = px - m.x, dy = py - m.y, L = Math.hypot(dx, dy);
+    if (L <= step) { m.x = px; m.y = py; step -= L; G.i++; continue; }
+    m.x += (dx / L) * step; m.y += (dy / L) * step; m.facing = facingFrom(dx, dy, m.facing); stepGait(m, step); step = 0;
+  }
+  m.moving = G.i < G.path.length;
+  if (m.moving) return true;
+  T.walkTo = null;
+  T.away = Math.hypot(m.x - T.duty.x, m.y - T.duty.y) > 0.9;
+  return false;
+}
+
 // up on the walls (archers) / at a ballista (crews): there when nobody sees (they climbed), then they watch and shoot
 function upTask(game, rec, m, T, dt) {
   const d = T.duty, S = rec.S;
-  if (d.k === 'wall' && m.z > 0.5 && Math.hypot(m.x - d.x, m.y - d.y) > 0.9) {
+  if (d.k === 'wall' && m.z > 0.5 && T.walkTo && walkWall(game, rec, m, T, dt)) return; // (along the wall walk: reach on the foe / back to its post)
+  if (d.k === 'wall' && m.z > 0.5 && !T.away && Math.hypot(m.x - d.x, m.y - d.y) > 0.9) {
     // up on the wall but posted elsewhere (the defense moved it): along the walk when nobody sees, else down at the foot
     // of the wall (inside) and up again by the new spot
     if (!inAnyView(game, m.x, m.y, 1, 2) && !inAnyView(game, d.x, d.y, 1, 2) && (d.lv | 0) > 0) { m.x = d.x; m.y = d.y; m.lv = d.lv; m.z = d.lv; return; }
@@ -571,11 +672,26 @@ function upTask(game, rec, m, T, dt) {
   T.scan = (T.scan || 0) - dt;
   if (T.scan <= 0) { T.scan = 0.35; T.foe = (rec.danger && d.focus && focusFoe(game, rec, m, d.focus)) || guardTargets(game, rec, m, N.archerRange * 1.5); }
   const f = T.foe;
+  // off its post on the walk and the fight over (no foe for a few seconds): back to its post along the walk
+  if (T.away && d.k === 'wall' && (!f || f.dead || !rec.danger)) {
+    T.idleT = (T.idleT || 0) + dt;
+    if (T.idleT > 4) { const W = wallWalk(game, S), to = W.at.get(Math.floor(d.x) + ',' + Math.floor(d.y)), path = to && walkPath(W, m.x, m.y, to); if (path) T.walkTo = { path, i: 0 }; else T.away = false; T.idleT = 0; }
+  } else T.idleT = 0;
   if (!f || f.dead) { T.foe = null; lookAround(game, rec, m, T.look || (T.look = { fx: d.fx, fy: d.fy }), dt); return; }
   const rng = N.archerRange * heightK(m, f), dd = Math.hypot(f.x - m.x, f.y - m.y);
   faceTowards(m, f);
-  if (dd > rng || m.swingT > 0) return;
-  if (!hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, null, f._tn)) return;
+  const los = dd <= rng && hasLOS(game.world, m.x, m.y, f.x, f.y, m.z || 0, f.z || 0, null, f._tn);
+  // engaged but out of reach / no line of fire: along the walk to a spot that has both (every 1.5 s at most)
+  if (!los && d.k === 'wall' && rec.danger) {
+    T.reT = (T.reT || 0) - dt;
+    if (T.reT <= 0) {
+      T.reT = 1.5;
+      const W = wallWalk(game, S), c = wallSpot(game, rec, m, f), path = c && Math.hypot(c.x - m.x, c.y - m.y) > 0.6 ? walkPath(W, m.x, m.y, c) : null;
+      if (path) { T.walkTo = { path, i: 0 }; walkWall(game, rec, m, T, dt); }
+    }
+    return;
+  }
+  if (!los || m.swingT > 0) return;
   m.swingT = (m.swingDur || 1.6) * (0.95 + R01(m) * 0.3);
   m.action = { type: 'shoot', t: 0, dur: 0.6 };
   game.later(0.34, () => { if (!m.dead && !f.dead) shoot(game, m, f); });
