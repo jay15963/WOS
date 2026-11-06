@@ -828,7 +828,9 @@ function repairWork(game, rec, m, dt) {
   }
   // a destroyed piece: built again (nobody standing in its place)
   if (J.t < N.rebuildS) return true;
-  const busy = allPlayers(game).concat(game.entities).some((e) => !e.dead && Math.abs(e.x - (J.x + 0.5)) < 0.75 && Math.abs(e.y - (J.y + 0.5)) < 0.75);
+  // (not the builder itself: from its spot beside the piece it can stand ~0.7 from the middle of the tile — it used to
+  // wait for itself forever)
+  const busy = allPlayers(game).concat(game.entities).some((e) => e !== m && !e.dead && Math.abs(e.x - (J.x + 0.5)) < 0.75 && Math.abs(e.y - (J.y + 0.5)) < 0.75);
   if (busy) { J.t = N.rebuildS * 0.7; return true; }
   game.net.emit('town.restore', { ids: [J.id] });
   game.juice?.puff?.(J.x + 0.5, J.y + 0.5, 10, [0.72, 0.64, 0.52], 0.8);

@@ -11039,7 +11039,7 @@ def('WA2', {
   const rc = [(rent.box[0] + rent.box[2]) / 2, rent.box[3] + 2.5];
   A.teleport(H, rc[0], rc[1]); A.teleport(G, rc[0] + 1.5, rc[1]);
   await t.waitFor(() => !H.game.towns.state.get(doorOf(rent))?.gone && !G.game.towns.state.get(doorOf(rent))?.gone, 150000, 'the townsfolk rebuild the rented house\'s door (town.restore, both)',
-    () => `door ${doorOf(rent)} ${JSON.stringify(H.game.towns.state.get(doorOf(rent)))} · ` + (livePeople(H, s0.id).filter((m) => m.repair).map((m) => `${m.npc?.job}:${m.repair.id}${m.repair.gone ? '(gone)' : ''} ${m._rw || ''} @${m.x.toFixed(1)},${m.y.toFixed(1)} spot ${m.repair.spot || '-'} trail ${(m._trail || []).join(' ')}`).join(' | ') || 'nobody on a repair')
+    () => `door ${doorOf(rent)} ${JSON.stringify(H.game.towns.state.get(doorOf(rent)))} · ` + ([...(H.game.people.live.get(s0.id)?.ents.values() || [])].filter((m) => m.repair).map((m) => `${m.npc?.job}:${m.repair.id}${m.repair.gone ? '(gone)' : ''} ${m._rw || ''} t ${(m.repair.t || 0).toFixed(1)} @${m.x.toFixed(1)},${m.y.toFixed(1)} spot ${m.repair.spot || '-'} trail ${(m._trail || []).join(' ')}`).join(' | ') || 'nobody on a repair')
       + ` · danger ${!!H.game.people.debug(s0.id)?.danger} h ${H.game.env.hour.toFixed(1)}`);
   await t.sleep(25000);
   t.check(H.game.towns.state.get(doorOf(sale))?.gone && G.game.towns.state.get(doorOf(sale))?.gone, 'the bought house\'s door still broken (the town never mends private property)');
