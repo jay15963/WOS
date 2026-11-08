@@ -222,9 +222,14 @@ onde vão).
 - **Torre de cerco** (empurrada): mesma regra de empurrar (1: 0,2 · 2: 0,75 · 3: 0,9 · 4: 1 tile/s). Planejada **de
   frente para uma muralha**, sai da altura dela; longe de muralhas escolha 1–3 andares (T / botão "Andares"). Empurrada
   até encostar numa muralha **da mesma altura**, a rampa desce sozinha (1,2 s) no topo da muralha; aí o deck vira piso
-  do andar (levels.js) e quem está atrás usa "Subir na torre" (E: sobe a escada de trás, 0,55 s por andar) e atravessa
-  a rampa para o topo da muralha. Lá em cima: "Descer da torre". Muralha de outra altura: "Esta muralha tem N andares; a
-  torre tem M". Empurrar para longe sobe a rampa (nunca com gente no deck).
+  do andar (levels.js) e quem está atrás sobe a escada de trás (0,55 s por andar) e atravessa a rampa para o topo da
+  muralha. Subir é **automático** (apontamento do dono, 8/11/2026: "não entendi como subir na torre de cerco, faça com que
+  suba automático ao encostar nela pela parte que sobe nela que é atrás, pois vi que era uma escada vertical"): quem anda
+  contra a escada de trás (0,15 s encostado, até 0,75 tile dela) sobe sozinho, e quem empurra a torre e continua
+  empurrando depois que a rampa desce (0,3 s) solta e sobe (`siege.js autoClimb`, `push`); "Subir na torre" (E) continua.
+  Com a rampa ainda levantada, encostar na escada avisa: "A escada leva ao topo quando a rampa desce". Lá em cima: "Descer
+  da torre". Muralha de outra altura: "Esta muralha tem N andares; a torre tem M". Empurrar para longe sobe a rampa (nunca
+  com gente no deck). Teste **SG7**.
 
 Todas: a primeira vez que se usa cada máquina aparece uma dica; a faixa no alto da tela diz o que está acontecendo
 (alvo, dispersão, quantas pessoas empurram e a velocidade, portão à frente, rampa); a ajuda (H) tem a seção "Máquinas

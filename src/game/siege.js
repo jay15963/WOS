@@ -285,7 +285,7 @@ const HINT = {
   trebuchet: ['Trabuco: mire com o mouse (longe = mais força), Espaço ou clique atira · a mira é ruim: atirando no mesmo alvo ela melhora · E sai', 'Trabuco: arraste o botão de ataque para mirar (direção e distância), solte para atirar · a mira melhora no mesmo alvo'],
   catapult: ['Catapulta: mire com o mouse, Espaço ou clique atira (dano em área) · E sai', 'Catapulta: arraste o botão de ataque para mirar (direção e distância), solte para atirar'],
   battering_ram: ['Aríete: empurre com as setas / WASD (2 ou mais pessoas: velocidade normal) · encostado num portão inimigo, Espaço dá a pancada · E solta', 'Aríete: empurre com o direcional (2+ pessoas: velocidade normal) · encostado num portão inimigo, o ataque dá a pancada'],
-  siege_tower: ['Torre de cerco: empurre até encostar na muralha (2+ pessoas); a rampa desce sozinha e a escada de trás leva ao topo (E) · E solta', 'Torre de cerco: empurre até encostar na muralha (2+ pessoas); a rampa desce sozinha e a escada de trás leva ao topo'],
+  siege_tower: ['Torre de cerco: empurre até encostar na muralha (2+ pessoas); a rampa desce sozinha e quem continua empurrando — ou anda contra a escada de trás — sobe ao topo · E solta', 'Torre de cerco: empurre até encostar na muralha (2+ pessoas); a rampa desce sozinha e quem continua empurrando — ou anda contra a escada de trás — sobe ao topo'],
 };
 function hintOnce(game, type) {
   const h = game.ctl?.hinted;
@@ -313,6 +313,34 @@ export function useSiege(game, it) {
 }
 
 // ---------- the tower's ladder (owner side: an animated climb, then the deck / the ground) ----------
+// walking into the tower's back, at its ladder (a vertical one), climbs it by itself — E / "Subir na torre" still does
+// (owner: "não entendi como subir na torre de cerco, faça com que suba automático ao encostar nela pela parte que sobe nela
+// que é atrás, pois vi que era uma escada vertical"); with its ramp still up it says why, now and then
+const CLIMB_LEAN = 0.15; // s leaning on the ladder before the climb starts (a brush in passing does not)
+function autoClimb(game, C, p, dt) {
+  C.hintT = Math.max(0, (C.hintT || 0) - dt);
+  let [mx, my] = game.input?.move ? game.input.move() : [0, 0];
+  if (p.dead || p.mount || p._boat || (p.z || 0) > 0.3 || (p.lv | 0) || Math.hypot(mx, my) < 0.3) { C.leanT = 0; return; }
+  [mx, my] = game.toWorldDir(mx, my);
+  const m = Math.hypot(mx, my);
+  for (const o of enginesOf(game)) {
+    if (o.type !== 'siege_tower' || o.removed || o.blueprint) continue;
+    const [lx, ly] = toWorld(o, ...ladderLocal(o), false);
+    if (Math.hypot(lx - p.x, ly - p.y) > 0.75) continue;
+    const f = frontAng(o);
+    if ((mx * Math.cos(f) + my * Math.sin(f)) / m < 0.5) continue; // (walking into its back: toward its front)
+    C.leanT = (C.leanT || 0) + dt;
+    if (C.leanT < CLIMB_LEAN) return;
+    C.leanT = 0;
+    if (!o.ramp) {
+      if (!C.hintT) { C.hintT = 4; game.events.emit('toast', { text: 'A escada leva ao topo quando a rampa desce: empurre a torre até encostar na muralha', kind: 'info' }); }
+      return;
+    }
+    climbStart(game, o, true);
+    return;
+  }
+  C.leanT = 0;
+}
 function climbStart(game, o, up) {
   const p = game.player, C = siegeCtl(game);
   if (C.climb) return;
@@ -570,6 +598,7 @@ export function siegeOwnerSystem() {
       C.o = o; C.push = q;
       if (!o && !q) {
         if (C.was) { C.was = null; C.pending = null; C.stickOn = false; C.lastD = -2; game.events.emit('siege', { on: false }); }
+        autoClimb(game, C, p, dt);
         return;
       }
       const cur = o || q;
@@ -633,6 +662,12 @@ function push(game, C, o, p, dt) {
     if (along >= 0) d = ((o.rot & 3) + along) & 3;
     else d = Math.abs(mx) > Math.abs(my) ? (mx > 0 ? 3 : 1) : (my > 0 ? 0 : 2);
   }
+  // a tower at the wall (its ramp down): pushing on toward the wall lets go and climbs its ladder (owner: "faça com que suba
+  // automático ao encostar nela")
+  if (o.type === 'siege_tower' && o.ramp && d === (o.rot & 3)) {
+    C.leanT = (C.leanT || 0) + dt;
+    if (C.leanT >= CLIMB_LEAN * 2) { C.leanT = 0; game.net.request('siege.push', { id: o.id, on: 0 }); climbStart(game, o, true); return; }
+  } else C.leanT = 0;
   C.sendT -= dt;
   if (d !== C.lastD || (d >= 0 && C.sendT <= 0)) { C.lastD = d; C.sendT = 1; game.net.request('siege.drive', { id: o.id, d }); }
   C.dir = d;

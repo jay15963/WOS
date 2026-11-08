@@ -7554,6 +7554,68 @@ async function visitTown(t, H, MH, G, MG, sid, x, y, ms = 45000) {
 const pieceIds = (f, sid, pred = () => true) => [...(townOf(f, sid)?.objs.values() || [])].filter((o) => !o.removed && pred(o)).map((o) => o.id).sort();
 const nightClock = (H, hour) => { const g = H.game, E = g.env; g.net.emit('env.skip', { hour, day: E.dayIndex + (hour < E.hour ? 1 : 0), wt: Math.round((g.worldTime + 5) * 100) / 100 }); g.net.flush(); };
 
+def('SG7', {
+  title: 'Siege tower: it is climbed by walking into its back ladder — and a pusher who keeps pushing once the ramp is down climbs it by itself',
+  timeout: 150000,
+  expected: 'A 2-story stone wall and a finished 2-story tower facing it, 5 tiles away (owner: "não entendi como subir na torre de cerco, faça com que suba automático ao encostar nela pela parte que sobe nela que é atrás, pois vi que era uma escada vertical"). The guest walks north into the tower\'s back at its ladder before the ramp is down: it stays on the ground and a notice says the ladder leads up once the ramp drops. Host and guest push it to the wall and keep pushing after the ramp drops: they let go by themselves and climb to the deck (lv 2, z 2, not pushers any more on both). The guest, back on the ground behind the tower, walks north into the back ladder (no E): it climbs to the deck (lv 2); the host sees it up there; digest equal',
+  api: 'siege.js siegeOwnerSystem → autoClimb (not pushing: walking into the ladder), push (ramp down + pushing on → siege.push off + climbStart), climbStep',
+}, async (t) => {
+  const { H, G, MH, MG } = await pairCtx(t);
+  const gp = G.game.player, hp = H.game.player;
+  A.keepAlive(t, G); A.keepAlive(t, H);
+  const site = sgSite(H, MH, G, MG, 8, 10);
+  t.assert(site, 'found a free 8×10 site');
+  const x0 = site.x0 + 1, y0 = site.y0 + 1;
+  const row = [0, 1, 2].map((i) => ['wall_stone', x0 + i, y0]);
+  const ids = [...hostBuild(H, row), ...hostBuildLv(H, row, 1)];
+  const [shop] = hostBuild(H, [['siege_workshop', x0 + 3, y0 + 7, 0]]);
+  ids.push(shop);
+  sgCleanup(t, H, G, ids);
+  await t.waitFor(() => ids.every((id) => A.structOn(G, id)), RT() + 2000, 'the guest has the wall and the workshop');
+  A.teleport(G, x0 + 3.5, y0 + 3.5);
+  await A.hostSees(t, H, G);
+  const tw = await sgPlace(t, G, MG, 'siege_tower', x0, y0 + 5, 2);
+  ids.push(tw.id);
+  await t.waitFor(() => A.structOn(H, tw.id), RT() + 1500, 'the host has the tower plan');
+  H.game.net.emit('struct.complete', { id: tw.id, by: H.pid, xp: 0, toast: '' });
+  await t.waitFor(() => !A.structOn(G, tw.id).blueprint, RT() + 1500, 'the tower is finished');
+  const oH = A.structOn(H, tw.id), oG = A.structOn(G, tw.id);
+  A.pacify(H, x0 + 1, y0 + 5, 30, 900);
+  // the ramp still up: walking into the ladder does not climb, a notice says why
+  const [lx, ly] = MG.siege.toWorld(oG, ...MG.siege.ladderLocal(oG), false);
+  A.teleport(G, lx, ly + 1.2);
+  await A.hostSees(t, H, G);
+  let rel = A.holdMove(G, 0, -1);
+  t.defer(() => rel());
+  await t.sleep(1200);
+  rel();
+  t.check((gp.lv | 0) === 0 && (gp.z || 0) < 0.1, 'the ramp still up: it stays on the ground', lvOf(gp));
+  t.check(/rampa desce/.test(G.lastUi(3)), 'a notice: the ladder leads up once the ramp drops', G.lastUi(3));
+  // pushed to the wall; the host keeps pushing
+  A.teleport(G, x0 + 0.5, y0 + 7.6); A.teleport(H, x0 + 1.5, y0 + 7.6);
+  await A.hostSees(t, H, G);
+  MG.siege.useSiege(G.game, { kind: 'siege_push', o: oG });
+  MH.siege.useSiege(H.game, { kind: 'siege_push', o: oH });
+  await t.waitFor(() => (oH.push || []).filter(Boolean).length === 2, RT() + 1500, 'both grab the tower');
+  const relG = A.holdMove(G, 0, -1), relH = A.holdMove(H, 0, -1);
+  t.defer(relG); t.defer(relH);
+  await t.waitFor(() => oH.ty === y0 + 1, 14000 + RT(), 'pushed up to the wall', () => `ty ${oH.ty}`);
+  await t.waitFor(() => oH.ramp && oG.ramp, 4000 + RT(), 'the ramp drops (on both)');
+  await t.waitFor(() => [hp, gp].every((q) => (q.lv | 0) === 2 && Math.abs((q.z || 0) - 2) < 0.05), 6000, 'both, pushing on, let go and climb to the deck by themselves', () => `host ${lvOf(hp)} guest ${lvOf(gp)} push ${JSON.stringify(oH.push)}`);
+  relG(); relH();
+  await t.waitFor(() => !(oH.push || []).some(Boolean) && !(oG.push || []).some(Boolean), RT() + 1500, 'nobody pushes it any more (both peers)');
+  // the guest, back on the ground behind the tower, walks into the back ladder: up, no E
+  const [lx2, ly2] = MG.siege.toWorld(oG, ...MG.siege.ladderLocal(oG), false);
+  A.teleport(G, lx2, ly2 + 1.2);
+  await A.hostSees(t, H, G);
+  rel = A.holdMove(G, 0, -1);
+  await t.waitFor(() => (gp.lv | 0) === 2 && Math.abs((gp.z || 0) - 2) < 0.05, 5000, 'the guest walks into the ladder and climbs to the deck (no E)', () => `${lvOf(gp)} at ${f2(gp.x)},${f2(gp.y)}`);
+  rel();
+  await t.waitFor(() => { const av = guestOnHost(H, G); return av && Math.abs((av.z || 0) - 2) < 0.1; }, RT() + 2000, 'the host sees the guest up on the tower');
+  A.teleport(G, x0 + 3.5, y0 + 4.5); A.teleport(H, x0 + 4.5, y0 + 4.5);
+  await t.checkDigest(H, G);
+});
+
 def('KG1', {
   title: 'KG: both peers make the same realm (kingdoms, settlements, roads, territories); a new world starts on a temperate village plaza in front of its mural',
   src: 'village', timeout: 150000,
