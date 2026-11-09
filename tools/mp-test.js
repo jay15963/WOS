@@ -11730,6 +11730,211 @@ def('VL13', {
 // field, the wooded / stony side; near the work the marker on the nearest plant / tree), the host's refusal when the
 // fields were harvested.
 // =====================================================================================================
+// SM — Simulation ("Simulação", docs/SIMULACAO.md: game/sim.js, ui/simUi.js): a throwaway world watched by spectators at 1x–100x,
+// any person possessed (its body, its gear, ≥ 5 breads), the host's speed (above 5x only on the world map, never with someone in
+// a body). The pair is a simulation room of its own (?sim=1), shared by the SM scenarios.
+// =====================================================================================================
+const SMP = { pair: null };
+const smS = (f) => f.game?.sim || null;
+async function smPair(t, { fresh = false } = {}) {
+  const P = SMP.pair;
+  if (!fresh && P && P.H.alive && P.G.alive && isSynced(P.G) && P.H.session?.state !== 'closed' && smS(P.G)) return P;
+  if (P) { frames.close(P.G); frames.close(P.H); SMP.pair = null; }
+  env.closePair(); // (one game pair at a time: RAM)
+  const room = newRoom(), hp = 'h' + rand(7), gp = 'g' + rand(7);
+  presetPid(hp);
+  const H = frames.open('sm-host', `seed=${CFG.seed}&sim=1&mp=host&sala=${room}${CFG.link}&pid=${hp}`, hp);
+  await t.waitFor(() => H.game?.sim?.on || H.bootError, CFG.bootMs, 'the simulation host boots (window.game.sim)', () => `loading: "${H.loadingText}"`);
+  if (H.bootError) throw new Fail('simulation host boot failed: ' + H.bootError);
+  H.hookUi();
+  await t.waitFor(() => H.session?.role === 'host', 15000, 'the host opened the room');
+  presetPid(gp);
+  const G = frames.open('sm-guest', `sala=${room}${CFG.link}&autojoin=1&pid=${gp}`, gp);
+  await waitGuestSynced(t, G, H, 'sm-guest');
+  await t.waitFor(() => smS(G)?.on, 10000, 'the guest boots a simulation too (welcome sim)');
+  G.hookUi();
+  SMP.pair = { H, G, room };
+  return SMP.pair;
+}
+// the speed set by the host, seen by both
+async function smSpeed(t, P, s) {
+  const { H, G } = P;
+  if (smS(H).speed !== s) H.game.sim.setSpeed(s);
+  await t.waitFor(() => smS(H).speed === s && smS(G).speed === s, 3000 + RT(), `${s}x on both`);
+}
+// both spectators again, at 1x
+async function smReset(t, P) {
+  const { H, G } = P;
+  for (const f of [H, G]) if (!f.game.player.ghost) f.game.sim.leave();
+  await t.waitFor(() => !smS(H).who.size && !smS(G).who.size && H.game.player.ghost && G.game.player.ghost, 4000 + RT(), 'both spectators (nobody in a body)');
+  await smSpeed(t, P, 1);
+}
+// a spectator into the gameplay view at (x, y) (the map zoomed in there)
+async function smPlay(t, f, x, y) {
+  const S = smS(f);
+  if (S.view !== 'play') {
+    f.game.ui.minimap.view = { cx: x, cy: y, span: (f.game.R.cssW || 800) / 22 * 1.13 };
+    const cv = f.doc.getElementById('simmap'), b = cv.getBoundingClientRect();
+    cv.dispatchEvent(new f.win.WheelEvent('wheel', { deltaY: -100, clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, bubbles: true, cancelable: true }));
+  }
+  await t.waitFor(() => S.view === 'play', 2000, `${f.label}: the gameplay view`);
+  const p = f.game.player;
+  p.x = x; p.y = y; f.game.cam.x = x; f.game.cam.y = y;
+}
+// the clock's pace: game seconds per real second over ms
+async function smPace(f, ms) {
+  const g = f.game, w0 = g.worldTime, r0 = performance.now();
+  await new Promise((r) => setTimeout(r, ms));
+  return (g.worldTime - w0) / ((performance.now() - r0) / 1000);
+}
+
+def('SM1', {
+  title: 'SM: the simulation — both peers spectators on the world map (no body: unseen, nobody\'s target, never hurt); the map zoomed in goes to the gameplay view, zoomed out past it back to the map',
+  timeout: 240000,
+  expected: 'A ?sim=1 room: host and guest boot a simulation (the welcome sim), speed 1x, the world map view on both (body.sim-map, the #simmap canvas, nothing drawn under it), both spectators (p.ghost): the other peer\'s copy of each is a ghost (not drawn: state gh), a hostile creature next to a spectator does not pick it (game/ai.js pickTarget: a far stand-in), dealDamage on a spectator does nothing; the whole planet revealed (no fog); the guest zooms the map in (the wheel on #simmap): the gameplay view at the farthest gameplay zoom (cam.zoom = 22); WASD flies it (no collision); zooming out past that zoom (the wheel) takes it back to the map',
+  api: 'main.js ?sim=1, session welcome sim / packState gh, game/sim.js installSim / simSystem / zoomReq, ui/simUi.js (#simmap, #simbar), game/game.js tick / stepZoom, game/ai.js pickTarget, combat.js dealDamage',
+}, async (t) => {
+  const P = await smPair(t);
+  const { H, G } = P;
+  await smReset(t, P);
+  const MH = await A.mods(H), MG = await A.mods(G);
+  for (const f of [H, G]) {
+    t.check(smS(f).on && smS(f).speed === 1, `${f.label}: a simulation at 1x`, JSON.stringify(smS(f).debug()));
+    t.check(f.game.player.ghost === true, `${f.label}: a spectator (no body)`);
+    t.check(f.game.noSave === true, `${f.label}: never saved`);
+    t.check(f.game.explored && f.game.explored.every((v) => v === 1), `${f.label}: the whole planet on the map (no fog)`);
+  }
+  if (smS(G).view !== 'map') { smS(G).setView('map'); }
+  await t.waitFor(() => G.doc.body.classList.contains('sim-map') && smS(G).noRender, 2000, 'the guest on the world map (nothing drawn under it)');
+  t.check(!!G.doc.querySelector('#simbar') && /SIMULAÇÃO/.test(G.doc.querySelector('#simbar').textContent), 'the simulation bar on top', short(G.doc.querySelector('#simbar')?.textContent, 120));
+  // each spectator is a ghost on the other peer: not drawn, nobody's target
+  await t.waitFor(() => { const e = guestOnHost(H, G); return e && e.ghost; }, 3000 + RT(), 'the host\'s copy of the guest is a ghost (state gh)');
+  const sp = H.game.world.spawn;
+  await smPlay(t, H, sp.x, sp.y);
+  const wolf = MH.mobs.spawnLoose(H.game, 'wolf', H.game.player.x + 2, H.game.player.y);
+  t.defer(() => { wolf.noCorpse = true; if (!wolf.dead) MH.combat.killMob(H.game, wolf, null); });
+  wolf.temper = 'hostile';
+  const tgt = MH.ai.pickTarget(H.game, wolf);
+  t.check(tgt && tgt !== H.game.player && tgt.dead && tgt.ghost, 'a hostile wolf beside the spectator does not pick it (a far stand-in)', tgt === H.game.player ? 'the spectator' : JSON.stringify({ dead: tgt?.dead, x: tgt?.x }));
+  const hp0 = H.game.player.hp, dmg = MH.combat.dealDamage(H.game, wolf, H.game.player, 50, {});
+  t.check(!dmg && H.game.player.hp === hp0, 'a spectator takes no damage', `${dmg}`);
+  // the map zoomed in → the gameplay view; zoomed out past it → the map
+  await smPlay(t, G, sp.x + 4, sp.y + 4);
+  t.check(Math.abs(G.game.cam.zoom - 22) < 1 && !G.doc.body.classList.contains('sim-map') && !smS(G).noRender, 'the guest in the gameplay view at its farthest zoom', `zoom ${f2(G.game.cam.zoom)}`);
+  const x0 = G.game.player.x, rel = A.holdMove(G, 1, 0);
+  await t.sleep(600);
+  rel();
+  t.check(G.game.player.x > x0 + 2, 'WASD flies the spectator', `${f2(x0)} → ${f2(G.game.player.x)}`);
+  for (let k = 0; k < 12 && smS(G).view === 'play'; k++) { G.game.input.zoom = -0.25; await t.sleep(60); }
+  t.check(smS(G).view === 'map' && G.doc.body.classList.contains('sim-map'), 'zoomed out past the farthest gameplay zoom: the world map again', smS(G).view);
+  await t.checkDigest(H, G);
+});
+
+def('SM2', {
+  title: 'SM: the speed — only the host sets it; 1x–5x every system runs that many steps, above 5x the world map only and the clock jumps; a day passes in seconds at 100x',
+  timeout: 240000,
+  expected: 'The guest asks for 3x: refused ("Só o anfitrião muda a velocidade"). The host sets 3x: both peers at 3x and the world clock runs ~3× the real time (2.3–3.7); 100x: both at 100x, both on the world map (a peer in the gameplay view is taken to it), the clock runs ≥ 40× (a day of 780 s passes within ~20 s) and the kingdoms\' simulation follows it (realms H.t near the clock); the guest\'s clock stays with the host\'s (within 6 s); back to 1x',
+  api: 'game/sim.js intent sim.speed / op sim.state / ff, game/game.js tick, ui/simUi.js',
+}, async (t) => {
+  const P = await smPair(t);
+  const { H, G } = P;
+  await smReset(t, P);
+  const r = await ecoReq(G, 'sim.speed', { s: 3 });
+  t.check(!r.ok && /Só o anfitrião/.test(r.why || ''), 'the guest asks for 3x: refused', r.why);
+  await smSpeed(t, P, 3);
+  const pace3 = await smPace(H, 3000);
+  t.check(pace3 > 2.3 && pace3 < 3.7, 'at 3x the world clock runs ~3× the real time', f2(pace3));
+  const sp = H.game.world.spawn;
+  await smPlay(t, G, sp.x, sp.y);
+  await smSpeed(t, P, 100);
+  await t.waitFor(() => smS(G).view === 'map' && smS(H).view === 'map', 2000, 'at 100x both on the world map (the guest taken out of the gameplay view)');
+  const d0 = H.game.env.dayIndex, pace100 = await smPace(H, 4000);
+  t.check(pace100 > 40, 'at 100x the clock runs ≥ 40× the real time', f2(pace100));
+  await t.waitFor(() => H.game.env.dayIndex > d0, 20000, 'a day passes in seconds', () => `day ${H.game.env.dayIndex} hour ${f2(H.game.env.hour)}`);
+  const RH = RZ(H);
+  t.check(Math.abs((RH.H.t ?? H.game.worldTime) - H.game.worldTime) < 60, 'the kingdoms\' simulation keeps up with the clock', `${f2(RH.H.t)} vs ${f2(H.game.worldTime)}`);
+  t.check(Math.abs(G.game.worldTime - H.game.worldTime) < 30, 'the guest\'s clock with the host\'s', `${f2(G.game.worldTime)} vs ${f2(H.game.worldTime)}`);
+  const tp = smS(G).setView('play');
+  void tp;
+  t.check(smS(G).view === 'map', 'above 5x the gameplay view stays closed', smS(G).view);
+  await smSpeed(t, P, 1);
+  await t.sleep(RT() + 300);
+  await t.checkDigest(H, G);
+});
+
+def('SM3', {
+  title: 'SM: possessing — the guest takes a guard\'s body (its gear, its level, ≥ 5 breads, tools by its level); the host may not go above 5x then; leaving it, a spectator again',
+  timeout: 240000,
+  expected: 'At the start village (1x, the gameplay view) the guest, a spectator, possesses the nearest guard (intent sim.possess with its nid): the guard leaves the world on the host (not among the entities, and nobody spawns it again for 4 s); the guest stands where it stood with its body: not a spectator, its level, its weapon in the hand (its shield, its armour), at least 5 breads, a tool of its level\'s material and a few basic things; the host sees the guest\'s copy with a body (no gh) and its weapon; who: the guest on both. The host asks for 10x: refused ("no máximo 5x"); the guest leaves the body ("Sair do corpo"): a spectator again, its backpack empty, who empty on both; now 10x goes and the guest is on the world map; digest equal',
+  api: 'game/sim.js intent sim.possess / sim.leave / own sim.body / kitOf / takeOut, game/people.js taken, ui/simUi.js "Sair do corpo"',
+}, async (t) => {
+  const P = await smPair(t);
+  const { H, G } = P;
+  await smReset(t, P);
+  const MH = await A.mods(H);
+  const s0 = startTownOf(H, MH), L = H.game.towns.layout(s0.id);
+  await smPlay(t, H, L.spawn[0], L.spawn[1]);
+  await smPlay(t, G, L.spawn[0] + 1, L.spawn[1]);
+  await t.waitFor(() => H.game.entities.some((e) => e.species === 'guard' && !e.dead), 20000, 'a guard of the start village is out');
+  const gp = G.game.player;
+  const guard = H.game.entities.filter((e) => e.species === 'guard' && !e.dead).sort((a, b) => Math.hypot(a.x - gp.x, a.y - gp.y) - Math.hypot(b.x - gp.x, b.y - gp.y))[0];
+  const want = { weapon: guard.weapon, level: guard.level | 0, nid: guard.nid, x: guard.x, y: guard.y, name: guard.npc.first, key: `${guard.npcS?.sid}.${guard.npc.i}` };
+  t.log(`guard ${want.name} lv ${want.level} ${want.weapon}`);
+  const r = await ecoReq(G, 'sim.possess', { nid: want.nid });
+  t.check(r.ok, 'the guest possesses the guard', r.why);
+  await t.waitFor(() => !gp.ghost, 3000 + RT(), 'the guest has a body');
+  t.check(!H.game.entities.some((e) => e.nid === want.nid), 'the guard left the world on the host');
+  t.check(Math.hypot(gp.x - want.x, gp.y - want.y) < 0.5, 'the guest stands where the guard stood', `${f2(gp.x)},${f2(gp.y)} vs ${f2(want.x)},${f2(want.y)}`);
+  t.check((gp.level | 0) === Math.max(1, want.level), 'its level', `${gp.level} vs ${want.level}`);
+  t.check(!want.weapon || gp.equip.main === want.weapon, 'its weapon in the hand', `${gp.equip.main} vs ${want.weapon}`);
+  t.check(!!gp.equip.body, 'its armour on', JSON.stringify(gp.equip));
+  t.check(gp.inv.count('bread') >= 5, 'at least 5 breads', String(gp.inv.count('bread')));
+  const tools = gp.inv.slots.filter(Boolean).map((s) => s.id).filter((id) => /^(knife|axe|pickaxe|shovel)_/.test(id));
+  t.check(tools.length > 0, 'a tool of its level\'s material', tools.join(', '));
+  t.check(gp.inv.slots.filter(Boolean).length >= 4, 'and a few basic things', gp.inv.slots.filter(Boolean).map((s) => s.id).join(', '));
+  await t.waitFor(() => { const e = guestOnHost(H, G), d = A.avatarOn(H, G.pid); return e && !e.ghost && d && !d.ghost && d.weapon === gp.equip.main; }, 3000 + RT(), 'the host sees the guest with a body and the guard\'s weapon');
+  await t.waitFor(() => smS(H).who.has(G.pid) && smS(G).who.has(G.pid), 2000 + RT(), 'who: the guest, on both');
+  await t.sleep(4000);
+  t.check(!H.game.entities.some((e) => e.npc && `${e.npcS?.sid}.${e.npc.i}` === want.key && !e.dead), 'nobody spawns the guard again while the guest is it');
+  const r10 = await ecoReq(H, 'sim.speed', { s: 10 });
+  t.check(!r10.ok && /no máximo 5x/.test(r10.why || ''), 'someone in a body: the host may not go above 5x', r10.why);
+  G.doc.querySelector('#simbar [data-a=leave]')?.click();
+  await t.waitFor(() => gp.ghost, 2000, 'the guest leaves the body ("Sair do corpo")');
+  t.check(gp.inv.slots.every((s) => !s) && !gp.equip.main, 'a spectator again: its backpack empty');
+  await t.waitFor(() => !smS(H).who.size && !smS(G).who.size, 2000 + RT(), 'nobody in a body (both peers)');
+  await smSpeed(t, P, 10);
+  await t.waitFor(() => smS(G).view === 'map', 2000, 'at 10x the guest is on the world map');
+  await smSpeed(t, P, 1);
+  await t.checkDigest(H, G);
+});
+
+def('SM4', {
+  title: 'SM: the kit of a person by its level — a soldier\'s weapon and armour, a townsperson\'s bread and tools; only people may be possessed',
+  timeout: 120000,
+  expected: 'game/sim.js kitOf: a soldier of level 10 with an iron sword and a shield (its tabard\'s armour not in e.armor) → the sword in the hand, a shield, an iron body armour, ≥ 5 breads, at least one iron tool; an archer → the bow and arrows; a townsperson of level 2 → no weapon, 5 breads, a stone tool; a level-15 one → steel tools. isHuman: a citizen, a guard, a soldier, a raider yes; a wolf, a walker, a skeleton no. The spectator\'s click on a wolf: "Só dá para possuir uma pessoa"',
+  api: 'game/sim.js kitOf / isHuman / ghostTap',
+}, async (t) => {
+  const P = await smPair(t);
+  const { G } = P;
+  const M = await A.mods(G), sim = M.sim;
+  t.need(sim, 'the sim module');
+  const seq = (() => { let k = 0; return () => ((k++ * 0.61803) % 1); })();
+  const sol = sim.kitOf({ kind: 'pawn', species: 'soldier', level: 10, weapon: 'sword_iron', shield: { type: 'shield' }, offhand: 'shield_guard', armor: { head: 'helmet_iron', body: null }, role: 'melee', soldier: { role: 'sword' } }, seq);
+  t.check(sol.equip.main === 'sword_iron' && /^shield_/.test(sol.equip.off || '') && sol.equip.body === 'armor_iron' && sol.equip.head === 'helmet_iron', 'a level-10 soldier: its sword, a shield, iron armour and helmet', JSON.stringify(sol.equip));
+  const items = (k) => Object.fromEntries(k.items);
+  t.check((items(sol).bread || 0) >= 5 && Object.keys(items(sol)).some((id) => /_iron$/.test(id) && /^(knife|axe|pickaxe|shovel)_/.test(id)), 'and ≥ 5 breads, an iron tool', JSON.stringify(items(sol)));
+  const arc = sim.kitOf({ kind: 'pawn', species: 'soldier', level: 6, weapon: 'bow_wood', armor: { head: 'hood_leather' }, role: 'archer', soldier: { role: 'archer' } }, seq);
+  t.check(arc.equip.main === 'bow_wood' && (items(arc).arrow || 0) >= 20 && arc.equip.body === 'armor_leather', 'an archer: the bow, arrows, leather armour', JSON.stringify({ e: arc.equip, a: items(arc).arrow }));
+  const cit = sim.kitOf({ kind: 'pawn', species: 'citizen', level: 2, weapon: null, armor: {} }, seq);
+  t.check(!cit.equip.main && (items(cit).bread || 0) >= 5 && Object.keys(items(cit)).some((id) => /_stone$/.test(id)), 'a level-2 townsperson: no weapon, 5 breads, a stone tool', JSON.stringify(items(cit)));
+  const hi = sim.kitOf({ kind: 'pawn', species: 'citizen', level: 15, armor: {} }, seq);
+  t.check(Object.keys(items(hi)).some((id) => /_steel$/.test(id)), 'a level-15 one: steel tools', JSON.stringify(items(hi)));
+  const H2 = (sp, extra = {}) => sim.isHuman({ kind: 'pawn', species: sp, dead: false, ...extra });
+  t.check(H2('citizen') && H2('guard') && H2('soldier') && H2('bandit'), 'people may be possessed');
+  t.check(!sim.isHuman({ kind: 'animal', species: 'wolf' }) && !H2('walker') && !H2('skeleton') && !H2('citizen', { dead: true }), 'a wolf, a walker, a skeleton, the dead may not');
+});
+
+// =====================================================================================================
 // the plants of a field on a frame (its tiles: game/fields.js inField)
 const jbPlants = (f, M, fld) => f.game.world.query((fld.x0 + fld.x1) / 2, (fld.y0 + fld.y1) / 2, Math.hypot(fld.x1 - fld.x0, fld.y1 - fld.y0) / 2 + 1, (o) => o.type === fld.crop && !o.gone && M.fields.inField(fld, o));
 const jbGrows = (f, M, s, d) => !M.eco.placeSeason(f.game, s, d, 6).hard;

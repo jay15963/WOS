@@ -25,6 +25,7 @@ const PATHS = {
   realms: 'game/realms.js', mrealms: 'game/mut/realms.js', war: 'game/content/war.js', realmMap: 'ui/realmMap.js', // (the kingdoms' wars: WR scenarios)
   soldier: 'game/soldier.js', // (the soldiers' brain: CB scenarios)
   crafting: 'game/crafting.js', recipes: 'game/content/recipes.js', // (the stations a player may craft at: EC9)
+  sim: 'game/sim.js', // (the simulation: SM scenarios)
 };
 const CACHE = new WeakMap();
 export async function mods(f) {

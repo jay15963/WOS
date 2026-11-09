@@ -8,6 +8,8 @@
 // ?fakebuild=X / ?fakeart=<sprite|ph:sprite> / ?fakepaintfail=1; window.wosDebug.setHidden(bool).
 // Skirmish (docs/SKIRMISH.md): the menu's "Escaramuça" (or ?skirmish=1, with ?mp=host&sala=CODE for a room) boots the
 // throwaway arena world (never saved); a guest whose host runs one learns it from the welcome (sk).
+// Simulation (docs/SIMULACAO.md): the menu's "Simulação" (or ?sim=1[&seed=N], with ?mp=host&sala=CODE for a room) boots a
+// throwaway world watched by spectators at 1x–100x (never saved); a guest learns it from the welcome (sim).
 
 import { Renderer } from './engine/renderer.js';
 import { Input } from './engine/input.js';
@@ -38,6 +40,7 @@ import { applyLook } from './fx/look.js';
 import { SEED as SKIRMISH_SEED } from './game/content/skirmish.js';
 
 const $ = (s) => document.querySelector(s);
+const randomSeed = () => 1 + Math.floor(Math.random() * 999998); // (a new simulation's planet)
 // Yield so the screen can paint; the timeout keeps boot going in background tabs (no rAF there).
 const nextFrame = () => new Promise((r) => {
   let done = false;
@@ -63,6 +66,7 @@ const FLAGS = {
   paintFail: DEV && QS.has('fakepaintfail'), // localhost: one painter group throws
   hills: DEV && QS.has('hills'),            // localhost: sculpt a terrain-height showcase around the spawn (world/hills.js)
   skirmish: QS.has('skirmish'),             // the skirmish arena (docs/SKIRMISH.md) directly (tests: with ?mp=host&sala=CODE)
+  sim: QS.has('sim'),                       // the simulation (docs/SIMULACAO.md) directly (tests: with ?mp=host&sala=CODE)
 };
 // tests: simulate a hidden tab for the background clock (iframes are never document.hidden)
 const wosDebug = window.wosDebug = { hidden: false, setHidden(b) { this.hidden = !!b; } };
@@ -130,13 +134,13 @@ async function boot() {
     const assets = loadAssets();
     let choice;
     if (FLAGS.mpHost) {
-      choice = { mode: 'host', seed: parseInt(QS.get('seed'), 10) || 4242, code: FLAGS.code || newRoomCode(), direct: true, skirmish: FLAGS.skirmish };
+      choice = { mode: 'host', seed: parseInt(QS.get('seed'), 10) || 4242, code: FLAGS.code || newRoomCode(), direct: true, skirmish: FLAGS.skirmish, sim: FLAGS.sim };
     } else if (FLAGS.autojoin && FLAGS.code.length === 6) {
       status(`Entrando na sala ${FLAGS.code}…`, 0.1);
       const session = new Session();
       try { choice = { mode: 'join', session, welcome: await session.join(FLAGS.code) }; } catch (e) { fail(e.message); return; }
-    } else if (QS.has('seed') || PLANET || FLAGS.skirmish) {
-      choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || (FLAGS.skirmish ? SKIRMISH_SEED : 1), skirmish: FLAGS.skirmish };
+    } else if (QS.has('seed') || PLANET || FLAGS.skirmish || FLAGS.sim) {
+      choice = { mode: 'single', seed: parseInt(QS.get('seed'), 10) || (FLAGS.skirmish ? SKIRMISH_SEED : FLAGS.sim ? randomSeed() : 1), skirmish: FLAGS.skirmish, sim: FLAGS.sim };
     } else {
       // the loading screen stays until EVERYTHING the menu needs is ready (graphics painted, live background
       // drawn once): painting the atlas under a visible menu made it freeze on slow phones
@@ -149,8 +153,10 @@ async function boot() {
       $('#loading').classList.remove('hidden');
     }
     if (choice.mode === 'skirmish') choice = { mode: 'single', seed: SKIRMISH_SEED, skirmish: true }; // (the menu's "Escaramuça": a throwaway arena)
+    if (choice.mode === 'sim') choice = { mode: 'single', seed: choice.seed || randomSeed(), sim: true }; // (the menu's "Simulação": a throwaway world to watch)
     const guest = choice.mode === 'join';
     const skirmish = !!choice.skirmish || (guest && !!choice.welcome.sk); // (docs/SKIRMISH.md: never saved, nothing touches the survival worlds)
+    const sim = !skirmish && (!!choice.sim || (guest && !!choice.welcome.sim)); // (docs/SIMULACAO.md: never saved either)
     const seed = guest ? choice.welcome.seed : choice.seed;
     // the world source (docs/STREAMING.md): the host's for a guest; ?source= (dev / tests: classic, synth); the planet (every
     // world now — a save of another source is an old world: ui/worlds.js keeps it out of reach). A planet starts now (its
@@ -164,7 +170,7 @@ async function boot() {
     const { renderer, atlas } = await assets.promise;
 
     // a world of the list (ui/worlds.js): it goes to the top; worlds without an id (dev ?seed=) save by seed as before
-    if (!guest && !FLAGS.noSave && !skirmish) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
+    if (!guest && !FLAGS.noSave && !skirmish && !sim) { if (choice.worldId) touchWorld(choice.worldId); else try { localStorage.setItem('wos.seed', String(seed)); } catch { /* ignore */ } }
 
     status(guest ? `Gerando o mundo de ${choice.welcome.hostName}…` : 'Moldando montanhas e rios…', 0.55); await nextFrame();
     const worldT0 = performance.now(); // (the world part of the boot: source + chunks + systems, without the graphics)
@@ -179,8 +185,8 @@ async function boot() {
     const env = new Environment(seed);
     const particles = new Particles();
     const game = new Game({ renderer, atlas, world, env, input, particles });
-    game.noSave = FLAGS.noSave || skirmish;
-    game.noTips = skirmish; // (no survival tips in the arena: ui/hud.js, game/economy.js)
+    game.noSave = FLAGS.noSave || skirmish || sim;
+    game.noTips = skirmish || sim; // (no survival tips in the arena / the simulation: ui/hud.js, game/economy.js)
     const spw = world.source?.kind === 'planet' && (world.spawn || world.source.spawn);
     if (spw) console.info('[planet] flora prewarm', (await import('./art/composeWorld.js')).prewarmPlanetFlora(atlas, world, spw.x, spw.y)); // (lazy art: no pop-in at the arrival)
     if (!guest) {
@@ -205,6 +211,12 @@ async function boot() {
       addSystem(game, SKM.skirmishHostSystem());
       addSystem(game, SKM.skirmishLocalSystem());
       addSystem(game, SKU.installSkirmishUI(game));
+    }
+    if (sim) { // the simulation: its state, systems and screens (game/sim.js, ui/simUi.js)
+      const [SM, SU] = await Promise.all([import('./game/sim.js'), import('./ui/simUi.js')]);
+      SM.installSim(game);
+      addSystem(game, SM.simSystem());
+      addSystem(game, SU.installSimUI(game));
     }
     addSystem(game, streamerSystem(allPlayers)); // chunk loading around the players / camera (docs/STREAMING.md)
     installNetDebug(game);
@@ -264,8 +276,8 @@ function startLoop(game, renderer, input, syncing) {
       const paused = game.ui?.pause && !(game.session && game.session.state !== 'closed');
       const ft0 = performance.now();
       // (a frame that throws never ends the loop: the world goes on, the error is reported — owner: "o jogo congela")
-      try { if (!paused) game.update(dt); } catch (e) { loopFault(e); }
-      try { game.render(); } catch (e) { loopFault(e); }
+      try { if (!paused) game.tick(dt); } catch (e) { loopFault(e); } // (game.tick: the simulation's speed — game/sim.js)
+      try { if (!game.sim?.noRender) game.render(); } catch (e) { loopFault(e); } // (the simulation's world map covers the screen: nothing to draw under it)
       frameCpu(game, performance.now() - ft0); // (main-thread time per frame: hitches, docs/STREAMING.md)
       input.endFrame();
       // menu background: a small snapshot of the world, taken right after rendering

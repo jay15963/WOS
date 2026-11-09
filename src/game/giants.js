@@ -106,7 +106,7 @@ export function spawnRaidGiant(game, x, y, species, group, home) {
 // it is fighting (a winter attack on a place: the guards — game/raids.js); never another of the night's dead
 function victimsAt(game, m, x, y, r, sameZ = true) {
   const out = [];
-  for (const q of allPlayers(game)) if (!q.dead && (!sameZ || Math.abs((q.z || 0) - (m.z || 0)) <= 0.5) && Math.hypot(q.x - x, q.y - y) <= r + (q.r || 0.24) * 0.5) out.push(q);
+  for (const q of allPlayers(game)) if (!q.dead && !q.ghost && (!sameZ || Math.abs((q.z || 0) - (m.z || 0)) <= 0.5) && Math.hypot(q.x - x, q.y - y) <= r + (q.r || 0.24) * 0.5) out.push(q);
   for (const e of game.entities) {
     if (e.dead || e.proxy || !(e.npc || e.soldier) || (sameZ && Math.abs((e.z || 0) - (m.z || 0)) > 0.5)) continue;
     if (Math.hypot(e.x - x, e.y - y) <= r + (e.r || 0.24) * 0.5) out.push(e);

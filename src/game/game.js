@@ -19,7 +19,7 @@ import { drawStock } from '../art/livestockDraw.js'; // farm animals and fish (d
 import { drawFauna, ridePose, rideDraw } from '../art/faunaDraw.js'; // wild animals of the biomes (docs/FAUNA.md)
 artHooks.ridePose = ridePose; artHooks.rideDraw = rideDraw; // a ridden horse is drawn by its rider's pawn (docs/HORSE.md)
 
-const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
+export const ZOOM_MIN = 22, ZOOM_MAX = 110; // css px per tile
 // interiors (game.indoors from src/game/roofs.js): under a roof the camera eases to a fixed, closer zoom (a reduced
 // field of view; never farther than the player's own zoom) and zoom input is ignored; leaving eases back to the
 // player's zoom. The blend (indoors.zoomK) is a ~1 s smoothstep both ways.
@@ -96,7 +96,7 @@ export class Game {
 
   // smooth, clamped zoom; the chosen factor (relative to the screen's default) survives reloads
   stepZoom(dt, req) {
-    const c = this.cam, I = this.indoors;
+    const c = this.cam, I = this.player.ghost ? null : this.indoors; // (the simulation's spectator flies over the roofs: never "inside")
     if (I && I.zoomK > 0.001) req = 0; // inside: the view is fixed
     if (c.zoomK == null) {
       let k = 1;
@@ -104,6 +104,7 @@ export class Game {
       c.zoomK = clamp(k, 0.45, 2.6);
       c.zoom = clamp(this.defaultZoom() * c.zoomK, ZOOM_MIN, ZOOM_MAX);
     }
+    if (req && this.sim?.on) this.sim.zoomReq(req, this.defaultZoom() * c.zoomK <= ZOOM_MIN + 0.5); // (simulation: past the farthest zoom → the world map, game/sim.js)
     if (req) {
       const z = clamp(this.defaultZoom() * c.zoomK * Math.exp(req), ZOOM_MIN, ZOOM_MAX);
       c.zoomK = z / this.defaultZoom();
@@ -148,6 +149,20 @@ export class Game {
     return [vx * z + this.R.cssW / 2, (vy - h - (this.tunnels?.k.size ? this.tunnels.viewH(wx, wy) : this.world.heightAt(wx, wy))) * z + this.R.cssH / 2];
   }
 
+  // a frame of the game: the simulation's speed (game/sim.js) — up to 5x every system runs that many steps (the input's edges
+  // only in the first); above it (the world map only) one step and the world's clock jumps the rest
+  tick(dt) {
+    const S = this.sim?.on ? this.sim.speed : 1;
+    if (S <= 5) {
+      for (let k = 0; k < S; k++) { this._subK = k; if (k) this.input.endFrame(); this.update(dt); }
+      this._subK = 0;
+      return;
+    }
+    this._subK = 0;
+    this.update(dt);
+    this.sim.ff((S - 1) * dt);
+  }
+
   update(dt) {
     this._dt = dt;
     this.time += dt;
@@ -172,6 +187,10 @@ export class Game {
     let [mx, my] = inp.move();
     if (mx || my) [mx, my] = this.toWorldDir(mx, my); // the stick / keys move relative to the screen
     if (!mx && !my && p.autoMove) { mx = p.autoMove[0]; my = p.autoMove[1]; }
+    if (p.ghost) { // (the simulation's spectator: flies over everything, faster zoomed out; its own pace at any sim speed — game/sim.js)
+      if ((mx || my) && !this._subK) { const gs = Math.max(8, 620 / Math.max(1, this.cam.zoom)) * (dt > 0 ? 1 : 0), W1 = this.world; p.x = W1.wrap ? W1.wrapPos(p.x + mx * gs * dt) : clamp(p.x + mx * gs * dt, 1, W1.W - 2); p.y = clamp(p.y + my * gs * dt, 1, W1.H - 2); }
+      mx = my = 0;
+    }
     if (p.rooted || p._atkRootT > 0 || p._hop) mx = my = 0; // (levels: no steering mid-hop)
     const spd = p.speed * (this.levels ? this.levels.speedAt(p) : this.world.speedAt(p.x, p.y, p._ud)); // levels: stairs slower
     const spdK = this.world.hasHeight ? slopeSpeed(this, p, mx, my) : 1; // terrain height: slower uphill
@@ -266,7 +285,7 @@ export class Game {
   // while alive; off when dead or in a menu showcase.
   cutout(cam, rc, rs) {
     const p = this.player, C = this._cut || (this._cut = { x: 0, y: 0, r: 1, k: 0, yP: 0, hP: 0 });
-    const want = p && !p.dead && !this.noCut ? 1 : 0;
+    const want = p && !p.dead && !this.noCut && !p.ghost ? 1 : 0; // (the simulation's spectator has no body)
     C.k += (want - C.k) * Math.min(1, (this._dt || 0.016) * 6);
     if (C.k < 0.01 || !p) { C.k = want ? C.k : 0; return C; }
     const hP = (p.z > 0 ? p.z * STORY_H : 0) + (p._dh || 0) + groundOf(p), dx = p.x - cam.x, dy = p.y - cam.y; // (+ the terrain under it: a tunnel's floor inside one)
@@ -313,7 +332,7 @@ export class Game {
         list.push(o);
       }
     });
-    for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId) && !e._riddenBy) list.push(e); } // a body on the ground replaces the dead (corpses.js); a ridden horse is drawn with its rider (horses.js)
+    for (const e of this.entities) { if (seam) sh(e); if (e.x > mx0 && e.x < mx1 && e.y > my0 && e.y < my1 && !(e.dead && e._corpseId) && !e._riddenBy && !e.ghost) list.push(e); } // a body on the ground replaces the dead (corpses.js); a ridden horse is drawn with its rider (horses.js)
     // systems may contribute depth-sorted drawables (projectiles, camp props...): objects with o.draw(B, A, t)
     for (const s of this.systems) s.collect?.(this, list, v);
     // _sy: depth override (pawn lying in a bed / on a chair, stairs); levels: + one tile of depth per story up

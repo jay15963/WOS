@@ -43,9 +43,13 @@ export function fastMover(game, q) {
   return Math.hypot(q.vx || 0, q.vy || 0) > 5.2;
 }
 
+const FAR = { isEntity: false, x: 0, y: 0, dead: true, ghost: true, hp: 0, maxHp: 1, r: 0.24, z: 0, lv: 0 };
+const farAway = (m) => { FAR.x = m.x + 1e5; FAR.y = m.y; return FAR; };
 // who this creature cares about: its threat while chasing, else the nearest player
 export function pickTarget(game, m) {
-  if (m.state === 'chase' && m.threat && !m.threat.gone) return m.threat;
+  if (m.state === 'chase' && m.threat && !m.threat.gone && !m.threat.ghost) return m.threat;
+  // (the simulation's spectators are nobody's target: with only them around, a far dead stand-in — game/sim.js)
+  if (game.sim?.on) return nearestPlayer(game, m.x, m.y, 60, { alive: false, body: true }) || (game.player.ghost ? farAway(m) : game.player);
   return nearestPlayer(game, m.x, m.y, 60, { alive: false }) || game.player;
 }
 

@@ -538,7 +538,7 @@ function manage(game, rec, players) {
   const per = rec.ents.size === 0 ? cap : N.spawnPerTick;
   for (let k = 0; k < want.length && k < cap && made < per; k++) {
     const [, P, , , px, py, plv, pb] = want[k];
-    if (rec.ents.has(P.i)) continue;
+    if (rec.ents.has(P.i) || game.people.taken?.has(`${rec.sid}.${P.i}`)) continue; // (taken: a player is this person now — the simulation, game/sim.js)
     if (rec.ents.size >= cap) break; // (the cap counts everyone still out: the unwanted ones going home included)
     const pl = { k: want[k][3], in: want[k][2], x: px, y: py, lv: plv, b: pb };
     const at = spawnSpot(game, S, P, pl);

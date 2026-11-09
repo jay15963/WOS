@@ -17,11 +17,11 @@ export function allPlayers(game) {
   return l;
 }
 
-export function nearestPlayer(game, x, y, maxD = 1e9, { alive = true } = {}) {
+export function nearestPlayer(game, x, y, maxD = 1e9, { alive = true, body = false } = {}) {
   let best = null, bd = maxD;
   const w = game.world;
   for (const p of allPlayers(game)) {
-    if (alive && p.dead) continue;
+    if ((alive && p.dead) || (body && p.ghost)) continue; // (body: not the simulation's spectators — game/sim.js)
     const d = Math.hypot(w.dx(p.x, x), p.y - y); // (the planet wraps: docs/STREAMING.md)
     if (d < bd) { bd = d; best = p; }
   }

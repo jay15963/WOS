@@ -667,6 +667,9 @@ export function useStructure(game, it) {
     case 'door':
       toggleDoor(game, o);
       return;
+    case 'possess': // (the simulation's spectator takes this person's body — game/sim.js)
+      game.sim?.possess?.(o);
+      return;
     case 'locked': // (a town gate the player may not open: why — game/towns.js TOWN.gateReason)
       game.events.emit('error', { text: it.why || 'Portão fechado' });
       return;

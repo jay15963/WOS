@@ -153,6 +153,7 @@ export function pick(game, sx, sy) {
 
 export function nearestInteractable(game) {
   const p = game.player;
+  if (p.ghost) return game.sim?.nearIt?.() || null; // (the simulation's spectator: only "Possuir" a person nearby — game/sim.js)
   if (p.mount && game.horses) return game.horses.dismountIt(); // (on horseback: only getting off, docs/HORSE.md)
   let best = null, bs = 1e9;
   const [fx, fy] = { s: [0, 1], n: [0, -1], e: [1, 0], w: [-1, 0] }[p.facing] || [0, 1];
@@ -197,7 +198,7 @@ export function installController(game) {
     },
     engage(t) {
       const p = game.player;
-      if (!attackable(t) || p.dead) return;
+      if (!attackable(t) || p.dead || p.ghost) return; // (ghost: the simulation's spectator never fights)
       ctl.setTarget(t);
       p.autoAttack = true;
       if (p.work) { p.work = null; p.action = null; }
@@ -325,6 +326,7 @@ export function installController(game) {
     if (game.ui?.modal) { game.events.emit('closepanels', {}); return; }
     if (game.ballista?.onTap?.(tap)) return; // (on a ballista: a click fires it, taps do nothing — ballista.js)
     if (game.siege?.onTap?.(tap)) return; // (on a siege engine: a click throws, taps do nothing — siege.js)
+    if (p.ghost && game.sim?.tap) { game.sim.tap(tap, pick); return; } // (the simulation's spectator: a click possesses a person, nothing else — game/sim.js)
     const isMouse = tap.mouse;
     const [wx, wy] = game.screenToWorld(tap.x, tap.y);
     if (game.build.mode) { if (!isMouse) buildTap(game, wx, wy); return; }

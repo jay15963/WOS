@@ -67,6 +67,17 @@ export function installWarfare(game) {
     boltStruct: (b) => boltStruct(game, b),
     engineTargets: (S) => engineTargets(game, S),
     ents: () => game.entities.filter((e) => e.soldier && !e.dead),
+    // a soldier a player took (the simulation, game/sim.js): out of its force without a death — the army counts it lost
+    desert: (e) => {
+      const F = W.forceOfEnt(e);
+      if (!F) return false;
+      const u = F.units[e.soldier.i];
+      if (u && !u.dead) { u.dead = true; F.dead++; F.n = Math.max(0, F.n - 1); }
+      if (e.soldier.role === 'general') F.genDead = true;
+      publish(game, F);
+      dropSoldier(game, F, e);
+      return true;
+    },
     debug: (id) => debugForce(game, id),
     crest: (k) => crestOf(game, k),
     planWhy: () => planWhy(),

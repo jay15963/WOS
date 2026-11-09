@@ -261,7 +261,7 @@ export function fishBrain(game, m, dt) {
   if (hk) { swimTo(game, m, hk.x, hk.y, 1.6, dt); return; }
   if (m.state === 'flee' && m.stateT > 0 && m.wp) { if (!swimTo(game, m, m.wp[0], m.wp[1], 3.2, dt)) m.stateT = 0; return; }
   // someone in the water next to it, or a splash (fishing.js / projectiles land): dart away
-  if (!m._scare && m.state !== 'flee') for (const q of allPlayers(game)) if (!q.dead && Math.abs(q.x - m.x) < 1.6 && Math.abs(q.y - m.y) < 1.6 && Math.hypot(q.x - m.x, q.y - m.y) < 1.4) m._scare = { x: q.x, y: q.y, t: game.worldTime };
+  if (!m._scare && m.state !== 'flee') for (const q of allPlayers(game)) if (!q.dead && !q.ghost && Math.abs(q.x - m.x) < 1.6 && Math.abs(q.y - m.y) < 1.6 && Math.hypot(q.x - m.x, q.y - m.y) < 1.4) m._scare = { x: q.x, y: q.y, t: game.worldTime };
   const scare = m._scare;
   if (scare && scare.t > game.worldTime - 0.5) {
     m._scare = null;

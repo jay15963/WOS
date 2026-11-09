@@ -107,7 +107,7 @@ function pickBody(game, m) {
     if (d > SENSE && !hasLOS(w, m.x, m.y, q.x, q.y, 0, 0, m._tn, q._tn)) return;
     L.push([q, d, isPlayer]);
   };
-  for (const q of allPlayers(game)) if (!q.dead && !((q.lv | 0) > 0)) consider(q, true);
+  for (const q of allPlayers(game)) if (!q.dead && !q.ghost && !((q.lv | 0) > 0)) consider(q, true);
   if (!creativeOff(game)) for (const e of game.entities) {
     if (e.dead || e.proxy || e.z > 0.5 || !(e.npc || e.soldier)) continue;
     if (Math.abs(e.x - m.x) > 24 || Math.abs(e.y - m.y) > 24) continue;

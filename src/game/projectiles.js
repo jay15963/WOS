@@ -317,7 +317,7 @@ export function projectilesSystem() {
               if (dx * dx + dy * dy < rr * rr && Math.abs((e.z || 0) - pz - gd) < 0.75) { victim = e; break; }
             }
             if (!victim) for (const q of PL) {
-              if (q.dead || !pr.canHit?.(q)) continue;
+              if (q.dead || q.ghost || !pr.canHit?.(q)) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
               if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd) < 0.75) { victim = q; break; }
             }
@@ -336,13 +336,13 @@ export function projectilesSystem() {
             }
             // (a town guard's arrow: an enlisted player of a kingdom at war with the town too — its canHit, phase 3c)
             if (!victim && town && pr.canHit) for (const q of PL) {
-              if (q.dead || !pr.canHit(q)) continue;
+              if (q.dead || q.ghost || !pr.canHit(q)) continue;
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
               if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd) < 0.75) { victim = q; break; }
             }
           } else {
             for (const q of PL) {
-              if (q.dead) continue;
+              if (q.dead || q.ghost) continue; // (ghost: the simulation's spectator, game/sim.js)
               const dx = q.x - nx, dy = q.y - ny, rr = (q.r || 0.24) + 0.14;
               if (dx * dx + dy * dy < rr * rr && Math.abs((q.z || 0) - pz - gd + (w.hasHeight ? groundOf(q) - tunGround(w, nx, ny, groundOf(q) + 0.5) : 0)) < 0.75) { victim = q; break; }
             }

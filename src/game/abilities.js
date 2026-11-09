@@ -158,7 +158,7 @@ export function holdAbility(game, id) {
 export function useAbility(game, id) {
   const p = game.player, ab = ABILITIES[id];
   const err = (text) => { game.events.emit('error', { text }); return false; };
-  if (!ab || ab.auto || p.dead) return false;
+  if (!ab || ab.auto || p.dead || p.ghost) return false; // (ghost: the simulation's spectator)
   if (game.ballista?.mounted && id !== 'heal') return err('Saia da balista primeiro'); // (ballista.js)
   if (game.siege?.mounted && id !== 'heal') return err(game.siege.operating ? 'Saia da máquina primeiro (E)' : 'Solte a máquina primeiro (E)'); // (siege.js)
   if (p.mount && !mountedOk(p, id)) return err(id === 'sprint' ? 'Montado: o cavalo já galopa' : 'Montado: só a lança'); // (docs/HORSE.md)

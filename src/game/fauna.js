@@ -171,7 +171,7 @@ const swimming = (game, q) => !q.dead && !q._boat && !(q.z > 0) && game.world.li
 function seePlayer(game, m, r, pred = null) {
   let best = null, bd = r;
   for (const q of allPlayers(game)) {
-    if (q.dead || (pred && !pred(q))) continue;
+    if (q.dead || q.ghost || (pred && !pred(q))) continue; // (ghost: the simulation's spectator)
     const d = Math.hypot(q.x - m.x, q.y - m.y);
     if (d >= bd) continue;
     if (d > SMELL && !hasLOS(game.world, m.x, m.y, q.x, q.y, m.z || 0, q.z || 0, m._tn, q._tn)) continue;

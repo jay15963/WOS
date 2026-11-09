@@ -90,6 +90,7 @@ function packState(p) {
     ty: p.typing ? 1 : undefined, // chat box open: others see a "typing…" bubble (cosmetic)
     z: p.z > 0 ? +p.z.toFixed(2) : undefined, // levels: height in stories (omitted on the ground)
     tn: p._tn != null ? Math.round(p._tn * 100) : undefined, // in a tunnel: its floor ×100 (physics.js tunTrack; a copy that snaps in learns it)
+    gh: p.ghost ? 1 : undefined, // the simulation's spectator: no body — unseen, nobody's target (game/sim.js)
   };
 }
 // a copy placed by a snap (join, teleport) takes the owner's tunnel level (tn: floor ×100 | undefined); continuity
@@ -598,6 +599,7 @@ export class Session {
       players: [...this.players.values()].filter((p) => p.pid !== pid).map((p) => ({ pid: p.pid, name: p.name })),
       ...(g.world.hills ? { hills: 1 } : {}), // (dev showcase of the terrain height: the guest sculpts the same world, world/hills.js)
       ...(g.skirmish ? { sk: 1 } : {}), // (a skirmish arena: the guest boots one too — never saved, docs/SKIRMISH.md)
+      ...(g.sim?.on ? { sim: 1 } : {}), // (a simulation: the guest boots one too — a spectator, never saved, docs/SIMULACAO.md)
       // the planet's start (its spawn zone and the camps' distance rule depend on it: the guest's source uses the same one)
       ...(g.world.source?.kind === 'planet' && g.world.source.spawn ? { sp: [g.world.source.spawn.x, g.world.source.spawn.y] } : {}),
     });
@@ -625,7 +627,7 @@ export class Session {
     hp.host = true; hp.key = key;
     const welcome = {
       seed: num(m.seed, -2147483648, 4294967295, 1) | 0, hour: num(m.hour, 0, 24, 8), day: num(m.day, 1, 1e6, 1) | 0,
-      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1, sk: m.sk === 1,
+      weather: str(m.weather, 12) || 'clear', wt: num(m.wt, 0, 1e9, 0), hostName, hills: m.hills === 1, sk: m.sk === 1, sim: m.sim === 1,
       src: ['classic', 'synth', 'planet'].includes(m.src) ? m.src : 'classic', // the host's world source: the guest generates the same chunks
       sp: Array.isArray(m.sp) && m.sp.length === 2 && m.sp.every((v) => Number.isFinite(v) && v >= 0 && v < 1e6) ? [m.sp[0], m.sp[1]] : null, // (the planet's start)
     };
@@ -822,6 +824,7 @@ export class Session {
     e.blocking = !!s.bl;
     e.level = num(s.lv, 1, 999, 1) | 0;
     e.name = pl.name;
+    e.ghost = s.gh === 1; // (the simulation's spectator: not drawn, nobody's target — game/sim.js)
     const av = pl.av;
     if (av) {
       const dt = av._t != null ? t - av._t : 0;
@@ -831,7 +834,7 @@ export class Session {
       av.x = x; av.y = y; av.facing = FACINGS.has(s.f) ? s.f : e.facing; av.moving = !!s.mv; av.dead = e.dead; av.hp = e.hp; av.maxHp = e.maxHp;
       av.z = z; av.lv = Math.round(z); // levels: the host's AI / hit checks use the latest story
       tunSnap(W, av, s.tn); // (tunnels: the owner's word on its level — the host's intents read av._tn)
-      av.level = e.level; av.blocking = e.blocking; av.name = pl.name;
+      av.level = e.level; av.blocking = e.blocking; av.name = pl.name; av.ghost = e.ghost;
     }
   }
 

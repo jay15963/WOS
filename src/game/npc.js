@@ -393,7 +393,7 @@ function lookAround(game, rec, m, T, dt) {
   T.lt = 0.8 + R01(m) * 1.5;
   // a player standing close: turn to them
   for (const q of allPlayers(game)) {
-    if (q.dead || Math.abs(q.x - m.x) > 2.6 || Math.abs(q.y - m.y) > 2.6 || q.moving) continue;
+    if (q.dead || q.ghost || Math.abs(q.x - m.x) > 2.6 || Math.abs(q.y - m.y) > 2.6 || q.moving) continue; // (ghost: the simulation's spectator, game/sim.js)
     faceTowards(m, q);
     if (!m.action && R01(m) < 0.35) m.action = { type: 'talk', t: 0, dur: ACT_DUR.talk };
     return;
@@ -1027,7 +1027,7 @@ function repairWork(game, rec, m, dt) {
   if (J.t < N.rebuildS) return true;
   // (not the builder itself: from its spot beside the piece it can stand ~0.7 from the middle of the tile — it used to
   // wait for itself forever)
-  const busy = allPlayers(game).concat(game.entities).some((e) => e !== m && !e.dead && Math.abs(e.x - (J.x + 0.5)) < 0.75 && Math.abs(e.y - (J.y + 0.5)) < 0.75);
+  const busy = allPlayers(game).concat(game.entities).some((e) => e !== m && !e.dead && !e.ghost && Math.abs(e.x - (J.x + 0.5)) < 0.75 && Math.abs(e.y - (J.y + 0.5)) < 0.75);
   if (busy) { J.t = N.rebuildS * 0.7; return true; }
   game.net.emit('town.restore', { ids: [J.id] });
   game.juice?.puff?.(J.x + 0.5, J.y + 0.5, 10, [0.72, 0.64, 0.52], 0.8);
@@ -1059,6 +1059,7 @@ export function npcSeparate(game, rec) {
   for (const m of L) {
     if (m.pose || m._pd > 2) continue;
     for (const q of PL) {
+      if (q.ghost) continue; // (the simulation's spectator has no body)
       const dx = m.x - q.x, dy = m.y - q.y, rr = m.r + (q.r || 0.24);
       if (q.dead || Math.abs(dx) > rr || Math.abs(dy) > rr || Math.abs((q.z || 0) - (m.z || 0)) > 0.5) continue;
       const d = Math.hypot(dx, dy) || 0.01;
