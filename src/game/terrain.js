@@ -215,13 +215,18 @@ export function reliefShade(game, x, y, h, env) {
 }
 
 // ---------- walking uphill is slower (owner: the player; host: creatures — ai.js go) ----------
+// A mountain is hard going (owner: "dificuldade de passar por um terreno assim"): 0.2 stories per tile up → 72 % of the
+// speed, 0.4 → 57 %, the walkable limit (0.75) → 41 %; down a gentle slope a little faster (≤ +6 %), down a steep one
+// careful steps again (0.75 → 83 %)
 const _g = [0, 0];
 export function slopeSpeed(game, e, mx, my) {
   const L = game.world.height;
   if (!L.any || !(mx || my) || e.lv > 0 || e._tn != null) return 1; // (in a tunnel: its floor is flat)
   L.gradAt(e.x, e.y, _g);
   const l = Math.hypot(mx, my), up = (_g[0] * mx + _g[1] * my) / l; // stories gained per tile along the move
-  return up > 0 ? Math.max(0.62, 1 - up * 0.55) : Math.min(1.06, 1 - up * 0.08);
+  if (up > 0) return Math.max(0.4, 1 / (1 + up * 1.9));
+  const dn = -up;
+  return dn < 0.3 ? 1 + dn * 0.2 : Math.max(0.8, 1.06 - (dn - 0.3) * 0.5);
 }
 
 export function terrainSystem() {

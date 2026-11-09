@@ -44,7 +44,8 @@ Uma só função (em `consts.js`) transforma elevação física (metros) em altu
 piso construído = 1 tile para cima na tela, `game/levels.js STORY_H`):
 
 ```
-stories = 2,89 · (√(1 + m/150) − 1)        (ímpar: o fundo do mar espelha para baixo de 0)
+stories = 2,89 · (√(1 + m/150) − 1)                      (ímpar: o fundo do mar espelha para baixo de 0)
+        + 0,0082 · d² / (d + 700),  d = m − 900 > 0      (as terras altas: 9/11/2026, pedido do dono)
 ```
 
 | metros | andares | |
@@ -52,14 +53,20 @@ stories = 2,89 · (√(1 + m/150) − 1)        (ímpar: o fundo do mar espelha 
 | 0 | 0 | nível do mar |
 | 100 | 0,85 | planície costeira |
 | 280 | 2,0 | fim das baixadas |
-| 1000 | 5,1 | colinas / planalto |
-| 3000 | 10,3 | montanhas |
-| 6000 | 15,6 | grandes cordilheiras |
-| 8800 | 19,5 | os picos mais altos |
+| 1000 | 5,2 | colinas / planalto |
+| 1500 | 9,0 | serras |
+| 2000 | 13,6 | montanhas |
+| 3000 | 23,3 | montanhas altas |
+| 6000 | 52 | grandes cordilheiras |
+| 8800 | 79 | os picos mais altos |
 
-Inversa: `storiesToMeters(s)`; inclinação: `metersPerStory(m)`. Só `+ − × ÷ √` (bits iguais em todo navegador).
-Para mudar a escala, mexa em `STORY_A` / `STORY_B`. **O relevo fino é somado já em andares** (colinas,
-cristas, dunas, mesas, falésias, cânions — §4), então o formato local não depende da curva.
+Até 900 m é a raiz quadrada de antes (planícies, vilas, estradas iguais); acima disso cada metro rende ~0,0082 andar a
+mais (sem quina: a inclinação extra começa em zero), para as cordilheiras do mapa-múndi serem altas de verdade no jogo
+(o dono: "terrenos mais elevados devem ser realmente mais elevados"). Rios, lagos, cachoeiras e o gradiente de
+temperatura passam todos por esta curva: continuam coerentes. Inversa: `storiesToMeters(s)` (Newton com 8 passos acima
+de 900 m); inclinação: `metersPerStory(m)`. Só `+ − × ÷ √` (bits iguais em todo navegador). Para mudar a escala, mexa
+em `STORY_A` / `STORY_B` / `HI_M0` / `HI_D` / `HI_K`. **O relevo fino é somado já em andares** (colinas, cristas,
+dunas, mesas, falésias, cânions — §4), então o formato local não depende da curva.
 
 ---
 
@@ -144,7 +151,10 @@ repetição). Etapas:
 
 1. elevação macro **bicúbica** (separável, sem ultrapassar os vizinhos) + cones exatos + ruído em andares:
    colinas, **cristas e vales** nas montanhas (ridged 256 + 64 tiles), **dunas** transversais no erg, **mesas e
-   buttes** em degraus nas terras áridas, enseadas / cabos / ilhotas na linha da costa;
+   buttes** em degraus nas terras áridas, enseadas / cabos / ilhotas na linha da costa; nas **cordilheiras de verdade**
+   (`mountainK(mtn)`: 0 abaixo de mtn 0,15, 1 a partir de 0,7) maciços (512 tiles, 12 andares), cristas (ridged 192,
+   20 andares) e **faixas de penhasco** em degraus que seguem as curvas de nível, com brechas e passagens
+   (docs/TERRAIN-HEIGHT.md §16);
 2. mar onde a altura < 0 perto de célula oceânica (depressões interiores não viram mar);
 3. **costas** pelo tipo: praia achatada (3–9 tiles) e água rasa larga; dunas atrás da praia; **restinga** de areia
    paralela à costa fechando uma **laguna**, cortada por barras; costa rochosa; **falésias** de 0,4–6 andares que
@@ -153,7 +163,8 @@ repetição). Etapas:
 4. **rios**: spline Catmull-Rom pelas células do rio (nós com deslocamento estável), **meandros** (largos na
    várzea, encaixados no cânion), largura pela vazão (córrego 1 tile … rio grande até 40), afluentes chegando no
    nó do rio principal, saída de lagos. Perfil: canal (raso nas bordas, fundo no meio), **várzea** plana, vale em
-   V nas montanhas, **cânion** com fundo plano, tálus e paredes em **camadas** (degrau + patamar, 2–4 estratos,
+   V nas montanhas (nas cordilheiras de verdade o vale se abre 2,4 tiles por andar acima do rio, até 40 tiles: a
+   passagem pela serra), **cânion** com fundo plano, tálus e paredes em **camadas** (degrau + patamar, 2–4 estratos,
    rocha arenito / calcário alternada), **fiorde**: braço de mar sinuoso, mais largo na foz e estreitando para o
    interior, fundo em U (borda rasa, meio fundo — classe 2, nunca abissal), soleira rasa na boca, paredes íngremes,
    e no fim o vale com o rio (muitas vezes uma cachoeira). Rio "suspenso" acima do chão local desce até ele;

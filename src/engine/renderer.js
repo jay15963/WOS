@@ -276,7 +276,8 @@ export class Renderer {
       for (let y = 0; y < th; y++) for (let x = 0; x < tw; x++) out[y * tw + x] = L.cornerH(x0 + x, y0 + y);
     } });
     // per tile: R steepness for the rock blend (slope × 48), G a building pad on / next to it (its steep sides are masonry),
-    // B dug / filled by players (its steep sides are earth, not rock), A the highest water level within 3 tiles (/ 40 × 255)
+    // B dug / filled by players (its steep sides are earth, not rock), A the highest water level within 3 tiles (/ 80 × 255:
+    // the lakes and rivers high in the ranges too; ±0.16 story, under the 0.2 the shader allows)
     const R = 3, wl = new Float32Array((CSZ + 2 * R) * (CSZ + 2 * R)), wr = new Float32Array((CSZ + 2 * R) * CSZ);
     win.add('hgtK', { scale: 1, comps: 4, fill: (x0, y0, tw, th, out) => {
       if (!L.any) return;
@@ -299,7 +300,7 @@ export class Renderer {
         out[k + 2] = L.edits.size && (ed(X, Y) || ed(X + 1, Y) || ed(X, Y + 1) || ed(X + 1, Y + 1)) ? 255 : 0;
         let m = -1;
         for (let d = 0; d <= 2 * R; d++) { const v = wr[(y + d) * tw + x]; if (v > m) m = v; }
-        out[k + 3] = m < 0 ? 0 : Math.min(255, Math.round((m / 40) * 255));
+        out[k + 3] = m < 0 ? 0 : Math.min(255, Math.round((m / 80) * 255));
       }
     } });
     this.hgtTex = win.tex.hgt; this.hgtGTex = win.tex.hgtG; this.hgtCTex = win.tex.hgtC; this.hgtKTex = win.tex.hgtK;

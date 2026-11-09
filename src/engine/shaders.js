@@ -1645,7 +1645,7 @@ void main(){
     vec4 KW = texture(uHgtK, wp / uWorld);
     gW = texture(uHgtG, (wp * 4.0 + 0.5) / uHgtSz).rg;
     ktW = KW.r * 5.33;
-    float sw = length(gW), above = smoothstep(0.2, 0.6, hT - KW.a * 40.0);
+    float sw = length(gW), above = smoothstep(0.2, 0.6, hT - KW.a * 80.0);
     float inW = smoothstep(0.3, 0.52, wl) * (1.0 - above);
     fallK = inW * smoothstep(0.42, 0.75, max(sw, ktW * 0.9));
     rapK = inW * smoothstep(0.06, 0.3, sw) * (1.0 - fallK);

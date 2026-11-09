@@ -74,6 +74,27 @@ export function macroAt(p, x, y, o) {
   return o;
 }
 
+// Mountains (docs/TERRAIN-HEIGHT.md "Montanhas de verdade"): crest relief in stories over the macro elevation, and
+// cliff bands — the slope of a range broken into terraces (a steep riser, then a bench that keeps a little of the slope),
+// band height (2.4..4) × (1 + mk / 2) stories with its contour wandering (noise phase). The bands fade out in patches (the passes: the
+// plain slope, steep but walkable) and have gaps along them (ramps every few dozen tiles), so a range is crossed by
+// zig-zagging between the bands, never straight up. A riser is a cliff only where the slope under it is steep enough
+// (riser ≈ 3.3× the slope): broad gentle valleys keep their benches walkable.
+const MT_MASSIF = 12, MT_RIDGE = 20, MT_SPUR = 3, MT_RISER = 0.28;
+// how much of a real range a place is (0 in the foothills, 1 in the high ranges) from the macro mountain field
+export const mountainK = (mtn) => smoothstep(0.15, 0.7, mtn);
+// mountain rivers run in V valleys a little gentler than the walkable limit (the valley is the pass): the valley reaches
+// up to MT_VALLEY tiles from the bank, MT_VALLEY_K tiles per story above the river
+const MT_VALLEY = 40, MT_VALLEY_K = 2.4, MT_FJORD = 18;
+function mountainRelief(h, mk, x, y, sd) {
+  const T = (2.4 + 1.6 * u01(fbm(x, y, sd + 13, 512, 2))) * (1 + 0.5 * mk);
+  const ph = 0.6 * fbm(x, y, sd + 14, 256, 3) + 0.4 * fbm(x, y, sd + 20, 64, 2) + 0.25 * fbm(x, y, sd + 17, 32, 2);
+  const s = mk * clamp(0.45 + 2.2 * fbm(x, y, sd + 15, 256, 3), 0, 1) * smoothstep(-0.3, -0.12, fbm(x, y, sd + 16, 128, 2));
+  if (s <= 0) return h;
+  const u = h / T + ph, f = u - Math.floor(u), st = smooth01((f - (1 - MT_RISER)) / MT_RISER);
+  return h + s * 0.92 * (st - f) * T;
+}
+
 // Tile-scale height (stories) at tile point (x, y) before coasts / rivers / lakes: macro elevation + cones +
 // hills + ridged mountains + dunes + mesas. o = macroAt result (filled by this call too).
 export function baseHeight(p, x, y, o) {
@@ -94,6 +115,14 @@ export function baseHeight(p, x, y, o) {
       const r = ridged(x, y, sd + 3, 256, 5), r2 = ridged(x, y, sd + 10, 64, 3);
       o.ridge = r;
       h += o.mtn * (10 * (r - 0.52) + 2.6 * (r2 - 0.55));
+      // real mountains (owner: "senso de montanha de verdade, com dificuldade de passar por um terreno assim"): in the
+      // ranges the crests stand high over their valleys and the slopes break into cliff bands; mk = 0 in the foothills
+      // (mtn < 0.15; the roads stay below 0.13 and the towns' sites below 0.25 — realm/realm.js: they barely change)
+      const mk = mountainK(o.mtn);
+      if (mk > 0) {
+        const rr = ridged(x, y, sd + 18, 192, 3), ms = u01(fbm(x, y, sd + 19, 512, 2));
+        h = mountainRelief(h + mk * (MT_MASSIF * (ms - 0.4) + MT_RIDGE * (rr - 0.35) + MT_SPUR * (r2 - 0.5)), mk, x, y, sd);
+      }
     } else o.ridge = 0;
     h += 0.07 * fbm(x, y, sd + 4, 16, 2) * land;
     // coves, headlands and islets along the shore
@@ -211,14 +240,15 @@ export function riverSegments(p, x0, y0, x1, y1) {
     if (kd === 1 && p.mouthD[c] && p.mouthD[c] <= 2 && !(p.flags[c] & FLAG.DELTA)) { hw1 *= p.ocean[d] ? 2.2 : 1.4; if (p.mouthD[c] === 1) hw0 *= 1.4; }
     let L0 = outlet ? levelOf(c) : p.rlevel[c], L1 = levelOf(d);
     if (kd === 3) { L0 = 0; L1 = p.ocean[d] ? 1 : 0; } // (fjords: sea level; L carries the mouth-sill ramp)
-    const span = Math.max(hw0, hw1) + 30;
+    const mk0 = mountainK(p.mtn[c]), mk1 = p.ocean[d] ? 0 : mountainK(p.mtn[d]);
+    const span = Math.max(hw0, hw1) + 30 + (MT_VALLEY + 4) * Math.max(mk0, mk1);
     const bx0 = Math.min(P1[0], P2[0]) - span, bx1 = Math.max(P1[0], P2[0]) + span;
     const by0 = Math.min(P1[1], P2[1]) - span, by1 = Math.max(P1[1], P2[1]) + span;
     if (bx1 < x0 || bx0 > x1 || by1 < y0 || by0 > y1) continue;
     out.push({
       c, d, P: [P0[0], P0[1], P1[0], P1[1], P2[0], P2[1], P3[0], P3[1]], hw0, hw1, L0, L1, kind: kd,
       can0: kd === 2 && p.drain[c] < 20 ? 0 : p.canyon[c], can1: kd === 2 && p.drain[c] < 20 ? 0 : p.rkind[d] ? p.canyon[d] : p.canyon[c], fall: p.fall[c], tf: 0.35 + hash01(c, 7, p.seed) * 0.3,
-      flat: clamp(1 - p.relief[c] * 3, 0, 1) * smoothstep(900, 100, p.elev[c]), toSea: !!p.ocean[d], spring: (kind === 1 || kind === 4) && um < 0 && !hasLakeIn(p, c),
+      flat: clamp(1 - p.relief[c] * 3, 0, 1) * smoothstep(900, 100, p.elev[c]), mk0, mk1, toSea: !!p.ocean[d], spring: (kind === 1 || kind === 4) && um < 0 && !hasLakeIn(p, c),
     });
   }
   return out;
@@ -394,10 +424,10 @@ export function generateChunk(p, cx, cy, opts = {}) {
   }
   // ---------- 3. rivers ----------
   const rD = new Float32Array(NW).fill(1e9), rHW = new Float32Array(NW), rL = new Float32Array(NW), rDX = new Float32Array(NW), rDY = new Float32Array(NW);
-  const rK = new Uint8Array(NW), rCan = new Float32Array(NW), rFlat = new Float32Array(NW);
+  const rK = new Uint8Array(NW), rCan = new Float32Array(NW), rFlat = new Float32Array(NW), rMk = new Float32Array(NW);
   const features = [];
   const segs = riverSegments(p, X0, Y0, X0 + WW, Y0 + WW);
-  const stampCapsule = (ax, ay, bx, by, hwA, hwB, LA, LB, dx, dy, can, kind, flat, reach) => {
+  const stampCapsule = (ax, ay, bx, by, hwA, hwB, LA, LB, dx, dy, can, kind, flat, reach, mkv = 0) => {
     const R = Math.max(hwA, hwB) + reach;
     const minx = Math.max(0, Math.floor(Math.min(ax, bx) - R - X0)), maxx = Math.min(WW - 1, Math.ceil(Math.max(ax, bx) + R - X0));
     const miny = Math.max(0, Math.floor(Math.min(ay, by) - R - Y0)), maxy = Math.min(WW - 1, Math.ceil(Math.max(ay, by) + R - Y0));
@@ -409,15 +439,16 @@ export function generateChunk(p, cx, cy, opts = {}) {
       const qx = px - vx * t, qy = py - vy * t, d = Math.sqrt(qx * qx + qy * qy);
       const hw = hwA + (hwB - hwA) * t;
       const i = wy * WW + wx;
-      if (d - hw < rD[i] - rHW[i]) { rD[i] = d; rHW[i] = hw; rL[i] = LA + (LB - LA) * t; rDX[i] = dx; rDY[i] = dy; rK[i] = kind; rCan[i] = can; rFlat[i] = flat; }
+      if (d - hw < rD[i] - rHW[i]) { rD[i] = d; rHW[i] = hw; rL[i] = LA + (LB - LA) * t; rDX[i] = dx; rDY[i] = dy; rK[i] = kind; rCan[i] = can; rFlat[i] = flat; rMk[i] = mkv; }
     }
   };
   for (const sg of segs) {
     const pts = sampleSegment(p, sg);
-    const reach = sg.kind === RK_FJORD ? 12 : sg.kind === RK_CREEK ? 3 : 4 + sg.flat * 18 + 34 * Math.max(sg.can0, sg.can1);
+    const mkS = Math.max(sg.mk0, sg.mk1);
+    const reach = sg.kind === RK_FJORD ? 12 + (MT_FJORD + 2) * mkS : (sg.kind === RK_CREEK ? 3 : 4 + sg.flat * 18 + 34 * Math.max(sg.can0, sg.can1)) + (MT_VALLEY + 2) * mkS;
     for (let k = 8; k < pts.length; k += 8) {
       const a = k - 8;
-      stampCapsule(pts[a], pts[a + 1], pts[k], pts[k + 1], pts[a + 2], pts[k + 2], pts[a + 3], pts[k + 3], pts[k + 4], pts[k + 5], pts[k + 6], sg.kind, sg.flat, reach);
+      stampCapsule(pts[a], pts[a + 1], pts[k], pts[k + 1], pts[a + 2], pts[k + 2], pts[a + 3], pts[k + 3], pts[k + 4], pts[k + 5], pts[k + 6], sg.kind, sg.flat, reach, mkS ? sg.mk0 + (sg.mk1 - sg.mk0) * pts[a + 7] : 0);
     }
     // features inside this chunk
     const inChunk = (x, y) => x >= X0 + M && x < X0 + M + S && y >= Y0 + M && y < Y0 + M + S;
@@ -482,7 +513,7 @@ export function generateChunk(p, cx, cy, opts = {}) {
         let bed = -0.15 - (1.0 + 0.16 * hw) * smooth01((hw - d) / (0.5 * hw));
         bed += (-0.28 - bed) * sill;
         hS[i] = Math.min(hS[i], bed); sea0[i] = 1;
-      } else if (d < hw + 10) hS[i] = Math.min(hS[i], 0.3 + (d - hw) * 1.9);
+      } else if (d < hw + 10 + MT_FJORD * rMk[i]) hS[i] = Math.min(hS[i], 0.3 + (d - hw) * 1.9); // (in the ranges the walls rise on to the high ground)
       continue;
     }
     const depth = k === RK_WASH ? -0.05 : k === RK_DELTA || k === RK_CREEK ? 0.3 : clamp(0.3 + 0.12 * hw, 0.3, 2.4);
@@ -513,8 +544,8 @@ export function generateChunk(p, cx, cy, opts = {}) {
         hS[i] = Math.min(hS[i], L + 0.12 + D * clamp(prof, 0, 1));
       }
     } else {
-      const V = 2 + hw * 1.2 + flat * 16;
       const target = L + 0.18 + 0.02 * e;
+      const V = Math.max(2 + hw * 1.2 + flat * 16, rMk[i] * Math.min(MT_VALLEY, (hS[i] - target) * MT_VALLEY_K));
       if (hS[i] > target) hS[i] = target + (hS[i] - target) * smooth01(e / V);
     }
     if (e < 1.5 && hS[i] < L + 0.12) hS[i] = Math.min(L + 0.12, h0 + 0.3);

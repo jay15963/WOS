@@ -61,9 +61,11 @@ arco por altura vale para os dois, e as escadas / rampas ligam terreno e andares
 
 **A escala do relevo é a do gerador do planeta** (escolha do dono: a primeira vitrine, com penhascos de 4–6 andares e um
 pico de 17, ficou "muito exagerada"; o relevo do planeta é o alvo): `metersToStories` (`src/world/planet/consts.js`) dá
-280 m → 2, 1000 m → 5,1, 6000 m → 15,6, 8800 m → 19,5 andares, e o relevo local fica moderado — morros de 1–2 andares,
-penhascos / paredes de cânion / falésias de 1–3, planaltos de 2–3, cordilheiras de 8–15 acima dos vales mas com encostas
-largas. A vitrine `?hills=1` foi refeita nessa escala.
+280 m → 2, 1000 m → 5,2 andares, e o relevo das terras baixas fica moderado — morros de 1–2 andares, penhascos / paredes
+de cânion / falésias de 1–3, planaltos de 2–3. A vitrine `?hills=1` foi refeita nessa escala. **As montanhas mudaram em
+9/11/2026** (o dono: "o terreno está muito baixo, mal dando de notar a elevação … terrenos mais elevados devem ser
+realmente mais elevados", "senso de montanha de verdade, com dificuldade de passar"): acima de 900 m a curva sobe muito
+mais (2000 m → 13,6, 3000 m → 23, 6000 m → 52) e as cordilheiras ganham cristas e faixas de penhasco — §16.
 
 | Feição (alvo) | Altura (andares) | Inclinação |
 |---|---|---|
@@ -71,13 +73,14 @@ largas. A vitrine `?hills=1` foi refeita nessa escala.
 | encosta caminhável | — | ≤ 0,75 / tile (acima disso vira cascalho, depois rocha) |
 | penhasco / falésia / parede de cânion | 1–3 de uma vez | ≥ 1 / tile (a face toma ~1–2 tiles) |
 | planalto | 2–3 acima do redor | borda íngreme, rampa ≤ 0,5 / tile |
-| montanha | 8–15 acima da planície, base larga (25–40 tiles) | média ≤ 0,6 / tile, coroa íngreme |
+| montanha (cordilheira do mapa-múndi) | 20–45 acima da planície, 15–30 numa tela | média 0,35–0,4 / tile, faixas de penhasco de 2,5–6 andares (§16) |
 | neve | no `?hills=1` acima de 9 (`SNOW_LINE`); no planeta, o chão de neve / gelo do próprio clima (`planetGround`) | — |
 
 A projeção é oblíqua (a câmera olha a 45°): uma encosta **virada para a câmera** aparece esticada (dá para ver a face do
 penhasco), uma **virada para longe** fica achatada e, passando de 45°, some atrás do topo — como a face norte de uma parede.
-Girando a câmera (`game.cam.rot`) o jogador vê os outros lados. O desenho aguenta ~25 andares sem mudança (a grade cresce
-na direção da câmera pelo mais alto do terreno em volta).
+Girando a câmera (`game.cam.rot`) o jogador vê os outros lados. O desenho aguenta as montanhas novas (até ~80 andares; a
+grade cresce na direção da câmera pelo mais alto do terreno em volta: ~27 mil células finas no alto da serra contra ~16
+mil antes, no zoom padrão).
 
 ## 3. Desenho
 
@@ -140,9 +143,10 @@ anéis de 512 tiles em volta da câmera, docs/STREAMING.md §5).
 
 ## 4. Regras de jogo
 
-- **Andar**: penhascos bloqueiam como rocha (física, criaturas, A*: `world.blocked` / `tileBlocked`). Subindo é mais
-  lento (até −38 % numa encosta no limite), descendo um pouco mais rápido (`terrain.js slopeSpeed`: o jogador e as
-  criaturas — `ai.js go`). **Pular barranco**: descer um degrau de até ~1 andar empurrando a borda (§13); nunca subir.
+- **Andar**: penhascos bloqueiam como rocha (física, criaturas, A*: `world.blocked` / `tileBlocked`). Subindo é bem mais
+  lento — `1 / (1 + 1,9 · subida)`: 0,2 andar por tile → 72 % da velocidade, 0,4 → 57 %, no limite (0,75) → 41 % —;
+  descendo uma encosta suave um pouco mais rápido (até +6 %), uma íngreme com cuidado de novo (0,75 → 83 %)
+  (`terrain.js slopeSpeed`: o jogador, a cavalo também, e as criaturas — `ai.js go`). **Pular barranco**: descer um degrau de até ~1 andar empurrando a borda (§13); nunca subir.
 - **Profundidade**: quem está atrás de um morro some atrás dele; o recorte abre o morro em volta do jogador local.
 - **Linha de visão** (`combat.hasLOS` → `terrainLOS`): a linha entre os peitos fica acima do chão; um morro ou a borda de um
   penhasco entre os dois bloqueia ataques à distância e aggro por visão.
@@ -223,9 +227,9 @@ recorte abre), `ridgecanyon` (90° / 270°: a parede do cânion entre a câmera 
 - Já ligado: com `?planet=1` o `World` lê `gen.heightStories` (`(W + 1) × (H + 1)`, andares) e `gen.wlevel` (nível da
   superfície da água por tile): lagos e rios em altitude ficam no nível deles. Tudo o mais (superfície fina, penhascos,
   desenho, regras) sai daí. A engine de streaming pode entregar o mesmo array por pedaço.
-- **O que se viu** (semente 4242, janelas de 256): alturas 0–14,5 por janela, encostas suaves, paredes de cânion e
-  falésias de 1 tile (degraus de 1–1,5 andar; o maior degrau achado: 1,3 na janela das montanhas, 1,4 nas falésias). O
-  dono prefere esta escala: **manter `metersToStories` como está**. Com relevo, os tiles de rocha (`rock = 1`) do planeta
+- **O que se viu** (semente 4242, janelas de 256, antes de 9/11/2026): alturas 0–14,5 por janela, encostas suaves, paredes
+  de cânion e falésias de 1 tile (degraus de 1–1,5 andar; o maior degrau achado: 1,3 na janela das montanhas, 1,4 nas
+  falésias). Depois o dono pediu montanhas altas de verdade: §16 (a curva mudou só acima de 900 m). Com relevo, os tiles de rocha (`rock = 1`) do planeta
   são desenhados como a rocha do relevo (sem os decalques de minério / cascalho do mundo plano); continuam não
   caminháveis — para montanhas que se escalam, rocha só nos afloramentos / faces e chão de pedra / cascalho nas encostas.
 - **Chão do planeta**: `planetGround` CINZA (10) vira basalto / cinza escuros; NEVE (8) / GELO (9) viram neve (o clima
@@ -367,3 +371,49 @@ margens até o nível do rio + um pouco — faixas de areia em pé no meio do la
 (`world/planet/chunk.js`, passo 4) um tile cujo chão já está abaixo do nível de um lago (não seco) por perto não recebe o
 rio nem as margens: o lago o enche no passo 5, e o rio termina na margem.
 
+
+## 16. Montanhas de verdade (9/11/2026)
+
+Pedido do dono: "o terreno está muito baixo, mal dando de notar a elevação do terreno, dá de ver uma comparação no mapa
+mundi, terrenos mais elevados devem ser realmente mais elevados" e "principalmente para dar um senso de montanha de
+verdade, com dificuldade de passar por um terreno assim". Antes, numa cordilheira do mapa-múndi, um chunk inteiro
+(64 tiles) subia 4–11 andares com inclinação média ~0,1 por tile: uma tela de morrinhos verdes.
+
+- **Curva** (`planet/consts.js metersToStories`): até 900 m igual a antes (planícies, vilas, estradas não mudam); acima
+  disso +0,0082 andar por metro (sem quina): 1500 m → 9, 2000 m → 13,6, 3000 m → 23, 6000 m → 52. Rios, lagos,
+  cachoeiras e o gradiente de temperatura passam pela mesma curva (níveis coerentes; mais cachoeiras e maiores na serra:
+  a de 10269, 2279 foi de 1,5 para 5,3 andares). O mapa-múndi continua igual (só um pouco mais de contraste nas serras).
+- **Relevo das cordilheiras** (`planet/chunk.js baseHeight` / `mountainRelief`): `mk = mountainK(mtn)` — 0 abaixo de
+  mtn 0,15 (os contrafortes: as vilas ficam em mtn ≤ 0,25 e as estradas em ≤ 0,13), 1 a partir de 0,7. Soma maciços
+  (fbm 512 tiles, 12 andares), cristas (ridged 192, 20 andares) e esporões (ridged 64, 3 andares) às cristas de antes.
+- **Faixas de penhasco**: a encosta vira degraus que seguem as curvas de nível — banda de (2,4–4) × (1 + 0,5·mk)
+  andares (até 6), o degrau ocupa 28 % da banda (≈ 3,3× a inclinação de baixo: só é penhasco onde a encosta já é
+  íngreme, ≳ 0,23 por tile; num vale largo o degrau é só uma rampa), o patamar guarda 8 % da inclinação. A fase das
+  bandas tem ruído (256 / 64 / 32 tiles): as faixas serpenteiam. A força tem ruído: áreas inteiras sem degraus (ruído
+  256: as passagens, ~20 % da serra) e brechas ao longo das faixas (ruído 128: rampas de cascalho a cada algumas dezenas
+  de tiles). Atravessar a serra é ziguezaguear entre as faixas, subindo devagar (§4).
+- **Vales dos rios de montanha**: o vale abre 2,4 tiles por andar acima do rio, até 40 tiles (`MT_VALLEY`; o alcance do
+  carimbo e o recorte dos segmentos crescem junto, `mk0 / mk1` no segmento): inclinação máxima ~0,6 — o rio é a
+  passagem pela serra. Fiorde numa serra: a parede de 1,9 / tile sobe até 18 tiles a mais (`MT_FJORD`) para encontrar o
+  alto sem um degrau vertical.
+- **Números** (semente 4242, janelas de 256 tiles, antes → depois): alturas 3–15 → 3–45 andares; inclinação média
+  0,08–0,15 → 0,25–0,41 por tile; penhascos 0–0,8 % → 2–14 % da terra; caminhável 85–96 % da terra, 97–100 % dela num
+  pedaço só (os bolsões: topos cercados por um anel de penhasco — mesas — e poucas baixadas fechadas). Geração do chunk
+  igual (50–80 ms no node). Costuras: `tools/planet-seams.mjs` com 0 diferenças, também em chunks de serra com rio.
+- **O que depende da altura**: as 242 vilas / cidades / castelos da semente 4242 ficaram iguais (2 mudaram ±0,2 andar,
+  nenhuma faixa de penhasco nova dentro delas); estradas e o spawn (≤ 650 m) não passam pelas serras; os exércitos pelo
+  campo já contornam as montanhas (`realms.js overland`: 1 + 10·mtn por célula).
+- **Água alta no shader**: `uHgtK.a` (o nível d'água mais alto em 3 tiles) vai agora até 80 andares (/ 80 × 255, ±0,16
+  andar: dentro dos 0,2 que o shader tolera); com / 40 um lago ou rio acima de 40 andares sumia do desenho.
+- **Desenho**: a grade fina cresce pela altura máxima em volta: ~27 mil células no alto da serra contra ~16 mil antes
+  (zoom padrão), GPU igual no SwiftShader.
+- **Testes**: TR1 e TR4 usavam pontos que ficaram na serra e mudaram: TR1 em (10256, 2268) — margem de um riacho, a parede
+  a oeste 1,1 andar acima do chão —, TR4 em (10273,7, 2263,5) — degrau de ~1 andar para leste. TR2 / TR3 (10464, 1598,
+  547 m) não mudaram.
+- **Capturas** (antes / depois, mesmo lugar e ângulo): `shots/mountains_flank_*.png` (encosta em degraus, 15148, 5775,
+  giro 90°), `shots/mountains_alpine_*.png` (serra nevada, 15372, 6909, giro 270°), `shots/mountains_forest_*.png` (serra
+  de floresta, 15100, 5720, giro 90°), `shots/mountains_map_*.png` (o relevo de cima de uma janela de 256 tiles:
+  penhascos em vermelho, curvas a cada 5 andares).
+- **Falta**: vistas de cima as faixas são regulares demais num trecho íngreme (paralelas, como arrozais); a grade fina
+  poderia começar abaixo do topo da tela pelo chão mais baixo em volta (hoje conta como se fosse 0); uma baixada fechada
+  por penhascos onde se pula para dentro (degrau ≤ 1,3) só se deixa com pá / picareta.

@@ -24,23 +24,36 @@ export const wrapCX = (cx) => ((cx % MW) + MW) % MW;
 
 // ---------- vertical scale ----------
 // ONE place to tune how physical elevation (metres) becomes game height (stories; 1 story = one built floor
-// = 1 tile up the screen, game/levels.js STORY_H). Square-root curve: lowlands 0..2 (0..280 m),
-// hills 2..5 (280..1000 m), mountains 10 (3000 m) .. 15.6 (6000 m) .. 19.5 (8800 m). Odd: the sea floor
-// mirrors it below 0. Only + - * / sqrt: bit-identical on every browser.
+// = 1 tile up the screen, game/levels.js STORY_H). Square-root curve for the low ground: lowlands 0..2 (0..280 m),
+// hills 2..5 (280..1000 m); above HI_M0 the high ground gains HI_K stories per metre more (smoothly: no extra slope at
+// HI_M0, the full HI_K well above it), so the ranges of the world map stand high in the game (owner: "terrenos mais
+// elevados devem ser realmente mais elevados"): 1500 m 9, 2000 m 13.6, 3000 m 23, 4000 m 33, 6000 m 52, 8800 m 79.
+// Rivers, lakes, waterfalls and the lapse rate all go through this pair (one curve: they stay consistent). Odd: the
+// sea floor mirrors the square-root part below 0. Only + - * / sqrt: bit-identical on every browser.
 export const STORY_A = 2.89;
 export const STORY_B = 150;
+export const HI_M0 = 900, HI_D = 700, HI_K = 0.0082;
 export function metersToStories(m) {
-  return m >= 0 ? STORY_A * (Math.sqrt(1 + m / STORY_B) - 1) : -STORY_A * (Math.sqrt(1 - m / STORY_B) - 1);
+  if (m < 0) return -STORY_A * (Math.sqrt(1 - m / STORY_B) - 1);
+  const d = m - HI_M0;
+  return STORY_A * (Math.sqrt(1 + m / STORY_B) - 1) + (d > 0 ? HI_K * d * d / (d + HI_D) : 0);
+}
+// stories gained per metre at an elevation m >= 0 (the curve's slope)
+function dStories(m) {
+  const d = m - HI_M0;
+  return STORY_A / (2 * STORY_B * Math.sqrt(1 + m / STORY_B)) + (d > 0 ? HI_K * d * (d + 2 * HI_D) / ((d + HI_D) * (d + HI_D)) : 0);
 }
 export function storiesToMeters(s) {
   const a = (s >= 0 ? s : -s) / STORY_A + 1;
-  const m = STORY_B * (a * a - 1);
-  return s >= 0 ? m : -m;
+  let m = STORY_B * (a * a - 1);
+  if (s < 0) return -m;
+  // the square-root inverse is exact up to HI_M0; above it, Newton from there (a fixed count: the same bits everywhere)
+  if (m > HI_M0) { m = m < 2 * HI_M0 ? m : HI_M0 + (m - HI_M0) * 0.3; for (let k = 0; k < 8; k++) { const f = metersToStories(m) - s; m -= f / dStories(m); if (m < HI_M0) m = HI_M0; } }
+  return m;
 }
 // metres per story around an elevation m (slope of the curve)
 export function metersPerStory(m) {
-  const a = m >= 0 ? m : -m;
-  return (2 * STORY_B / STORY_A) * Math.sqrt(1 + a / STORY_B);
+  return 1 / dStories(m >= 0 ? m : -m);
 }
 
 // ---------- latitude ----------
