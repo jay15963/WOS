@@ -5780,7 +5780,7 @@ def('FA3', {
 // =====================================================================================================
 // TR · terrain relief (docs/TERRAIN-HEIGHT.md): tunnels, waterfalls, the shovel, jumping down. A host on the real planet
 // (seed 4242) at a mountain cliff, the guest generating the same chunks (ST2).
-const RELIEF_AT = [10267, 2281]; // (seed 4242: open ground at the foot of a cliff face, west of it a relief ≥ 1 story high)
+const RELIEF_AT = [10256, 2268]; // (seed 4242: open ground at the foot of a cliff face, west of it a relief ≥ 1 story high — a stream bank in the range)
 async function reliefPair(t, at = RELIEF_AT) {
   const room = newRoom();
   const H = await bootHost(t, room, { extra: `&source=planet&px=${at[0]}&py=${at[1]}` });
@@ -5917,8 +5917,8 @@ def('TR4', {
   expected: 'Planet seed 4242 at a cliff edge ~0.9 story high: the guest pushing east at the top hops down (a short arc: e._hop, the hop lift _jh > 0.2) and lands on the lower ground without damage; the host sees it below; pushing west at the foot it does not climb back (the cliff still blocks); A* from the top to the foot plans the one-way drop (a 2-tile step over the face) and none back up; a creature on the host chasing the guest below runs over the edge and hops down too; digest equal',
   api: 'game/terrain.js dropAhead / startHop / hopStep / DROP_MAX; levels.js hopUpdate; nav.js findPath (drops); ai.js go',
 }, async (t) => {
-  const TOP = [10281.7, 2274.5];
-  const { H, G, MH } = await reliefPair(t, [10281, 2274]);
+  const TOP = [10273.7, 2263.5];
+  const { H, G, MH } = await reliefPair(t, [10273, 2263]);
   const hw = H.game.world, gw = G.game.world, gp = G.game.player;
   await t.waitFor(() => gw.isLoaded(gw.chunkIndex(TOP[0], TOP[1])) && hw.isLoaded(hw.chunkIndex(TOP[0], TOP[1])), 15000, 'both loaded the cliff');
   A.teleport(G, TOP[0], TOP[1]);
@@ -5948,7 +5948,7 @@ def('TR4', {
   const jump = down?.path?.some((q, k) => { const a = k ? down.path[k - 1] : [Math.floor(TOP[0]) + 0.5, Math.floor(TOP[1]) + 0.5]; return Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) > 1.5 && hw.isCliff(Math.floor((q[0] + a[0]) / 2), Math.floor((q[1] + a[1]) / 2)); });
   t.check(down?.complete && jump, 'A* plans the drop from the top to the foot (a 2-tile step over the face)', down ? `${down.path.length} steps, complete ${down.complete}` : 'no path');
   const up = MN.findPath(H.game, Math.floor(gp.x), Math.floor(gp.y), Math.floor(TOP[0]), Math.floor(TOP[1]), 600);
-  const upJump = up?.path?.some((q, k) => { const a = k ? up.path[k - 1] : [Math.floor(gp.x) + 0.5, Math.floor(gp.y) + 0.5]; return Math.abs(q[0] - a[0]) + Math.abs(q[1] - a[1]) > 1.5; });
+  const upJump = up?.path?.some((q, k) => { const a = k ? up.path[k - 1] : [Math.floor(gp.x) + 0.5, Math.floor(gp.y) + 0.5]; return Math.max(Math.abs(q[0] - a[0]), Math.abs(q[1] - a[1])) > 1.5; }); // (a drop is a 2-tile straight step; a diagonal step is not one)
   t.check(!upJump, 'and never back up over it', up ? `${up.path.length} steps (complete ${up.complete})` : 'no short path up');
   // a creature pushing into the same edge (its chase / path runs over it: ai.js go) hops down too
   const [m] = await faunaGroup(H, MH, 'wolf', TOP[0] - 0.4, TOP[1]);
@@ -11932,6 +11932,99 @@ def('SM4', {
   const H2 = (sp, extra = {}) => sim.isHuman({ kind: 'pawn', species: sp, dead: false, ...extra });
   t.check(H2('citizen') && H2('guard') && H2('soldier') && H2('bandit'), 'people may be possessed');
   t.check(!sim.isHuman({ kind: 'animal', species: 'wolf' }) && !H2('walker') && !H2('skeleton') && !H2('citizen', { dead: true }), 'a wolf, a walker, a skeleton, the dead may not');
+});
+
+// two places of kingdoms at war near the start: the start village s0 and the nearest other place with a way to it, made a
+// place of another kingdom k (hostCapture) — the host a spectator watching (gameplay view), the clock at 5x, no other campaign
+async function smWar(t, P) {
+  const { H, G } = P;
+  const MH = await A.mods(H), RH = RZ(H), R = realmOf(H), S = R.settlements, g = H.game;
+  await wrQuiet(t, H, G);
+  RH.dbg.stop(true);
+  t.defer(() => { RH.dbg.stop(true); for (const [key] of [...RH.rels]) { const [x, y] = key.split('.').map(Number); g.net.emit('realm.rel', { a: x, b: y, rel: 'neutral', quiet: 1 }); } for (const q of fieldOn(H)) g.net.emit('realm.army', { del: q.id }); g.net.flush(); });
+  const s0 = startTownOf(H, MH), K0 = RH.owner(s0.id);
+  const near = S.filter((s) => s.id !== s0.id).map((s) => [Math.hypot(g.world.dx(s.x, s0.x), s.y - s0.y), s]).sort((a, b) => a[0] - b[0]);
+  // (a place joined to it by one road, no place between: both ways take that road — they cross head-on)
+  const nb = new Set(R.roads.filter((r) => r.a === s0.id || r.b === s0.id).map((r) => (r.a === s0.id ? r.b : r.a)));
+  let from = null;
+  for (const [d, s] of near.filter(([, s]) => nb.has(s.id)).slice(0, 10)) if (d > 160 && RH.dbg.route(s.id, s0.id)) { from = s; break; }
+  for (const [d, s] of near.slice(0, 10)) if (!from && d > 160 && RH.dbg.route(s.id, s0.id)) { from = s; break; }
+  t.need(from, 'a place with a way to the start village');
+  const k = (R.kingdoms[K0].neighbours || []).find((q) => RH.alive(q)) ?? R.kingdoms.find((q) => q.id !== K0 && q.comp === R.kingdoms[K0].comp && RH.alive(q.id))?.id; // (one land mass: else no war)
+  if (RH.owner(from.id) === K0) { RH.dbg.capture(from.id, k); g.net.flush(); }
+  const kf = RH.owner(from.id);
+  RH.dbg.war(kf, K0); g.net.flush();
+  await t.waitFor(() => RZ(G).owner(from.id) === kf && RZ(G).atWar(kf, K0) && RH.atWar(kf, K0), 3000 + RT(), 'at war on both peers', () => `${kf} × ${K0}: ${RH.rel(kf, K0)}`);
+  return { s0, from, K0, kf, RH, g };
+}
+
+def('SM5', {
+  title: 'SM: an army near a spectator goes on — live (its soldiers on the ground) it keeps marching, reaches the village and lays siege to it',
+  timeout: 300000,
+  expected: 'The simulation at 5x; the host, a spectator, watches the start village (gameplay view). An army of a kingdom at war with it sets out from the nearest place of that kingdom (dbg.launch, 200 soldiers). Within 120 tiles of the spectator it goes live (3b: soldiers on the ground) and its march keeps running (v > 0 — never frozen: owner, "esses dois exércitos ficaram travados", "um exército chegou em uma vila e não começou o cerco"); it reaches the village and its state becomes the siege; digest equal',
+  api: 'game/realms.js liveCheck / maintain (keepsMarching: the simulation), arrive, warfare.js marchTick',
+}, async (t) => {
+  const P = await smPair(t);
+  await smReset(t, P);
+  const { s0, from, RH, g } = await smWar(t, P);
+  const L = g.towns.layout(s0.id);
+  await smPlay(t, P.H, L.spawn[0], L.spawn[1]);
+  await smSpeed(t, P, 5);
+  RH.dbg.garrison(from.id, 400); g.net.flush();
+  const a0 = RH.dbg.launch(from.id, s0.id, 200, 'attack'); g.net.flush();
+  t.need(a0, 'the army sets out');
+  t.log(`${a0.id}: ${from.name} → ${s0.name}`);
+  const st = () => { const a = RH.armies.get(a0.id); return a ? `${a.state} live ${a.live | 0} v ${a.v} at ${f2(a.x)},${f2(a.y)} · ${f2(Math.hypot(a.x - g.player.x, a.y - g.player.y))} from the spectator` : 'gone'; };
+  await t.waitFor(() => RH.armies.get(a0.id)?.live, 150000, 'near the spectator it goes live (its soldiers on the ground)', st);
+  const a1 = RH.armies.get(a0.id);
+  t.check(a1.state === 'siege' || (a1.state === 'march' && a1.v > 0), 'live, its march keeps running (not frozen)', st());
+  const p0 = [a1.x, a1.y];
+  await t.waitFor(() => RH.armies.get(a0.id)?.state === 'siege', 120000, 'it reaches the village and lays siege to it', st);
+  t.check(Math.hypot(p0[0] - RH.armies.get(a0.id).x, p0[1] - RH.armies.get(a0.id).y) > 1 || a1.state === 'siege', 'it moved on while live', st());
+  await smSpeed(t, P, 1);
+  await t.checkDigest(P.H, P.G);
+});
+
+def('SM6', {
+  title: 'SM: an army marching past a siege camp of its enemy turns on it — near a spectator, live, the battle starts at the camp',
+  timeout: 300000,
+  expected: 'The simulation at 5x; the host, a spectator, watches the start village. An army of a kingdom at war with it (dbg.launch, 200) comes and lays siege to it (live: its camp on the ground). Then an army of the village\'s kingdom (160) sets out from the village toward the enemy\'s place, marching past the camp (within WAR.meetSiege = 45 tiles): the two fight — a battle between them, at the camp (owner: "o exército que estava passando ao invés de entrar no cerco defendendo a vila apenas passou reto", "dois exércitos simplesmente passaram entre eles e não aconteceu nada"); digest equal',
+  api: 'game/realms.js simStep (meetings: a march near an enemy siege — WAR.meetSiege; a live siege counts), startBattle, liveCheck / maintain (keepsMarching)',
+}, async (t) => {
+  const P = await smPair(t);
+  await smReset(t, P);
+  const { s0, from, RH, g } = await smWar(t, P);
+  RH.dbg.garrison(from.id, 400); RH.dbg.garrison(s0.id, 400); g.net.flush();
+  const L = g.towns.layout(s0.id);
+  await smPlay(t, P.H, L.spawn[0], L.spawn[1]);
+  await smSpeed(t, P, 5);
+  const a = RH.dbg.launch(from.id, s0.id, 200, 'attack');
+  g.net.flush();
+  t.need(a, 'the enemy army sets out');
+  const st = (q) => { const x = RH.armies.get(q.id); return x ? `${q.id} ${x.state}${x.live ? '*' : ''} v ${x.v} foe ${x.foe || '-'} at ${f2(x.x)},${f2(x.y)} n${x.n}` : `${q.id} gone`; };
+  await t.waitFor(() => RH.armies.get(a.id)?.state === 'siege', 150000, 'the enemy lays siege to the village (near the spectator)', () => st(a));
+  const camp = RH.armies.get(a.id);
+  t.check(!!camp.live, 'the siege is live (its camp on the ground)', st(a));
+  // the village's army sets out past the camp
+  const b = RH.dbg.launch(s0.id, from.id, 160, 'attack');
+  g.net.flush();
+  t.need(b, 'the village\'s army sets out');
+  const log = [], seen = { battle: null }, last = {};
+  const iv = setInterval(() => {
+    for (const q of [a, b]) {
+      const x = RH.armies.get(q.id), k = x ? `${x.state}${x.live ? '*' : ''}${x.foe ? '>' + x.foe : ''}` : 'gone';
+      if (last[q.id] !== k) { last[q.id] = k; log.push(`${q.id} ${k} @${x ? f2(x.x) + ',' + f2(x.y) : '-'} n${x?.n ?? '-'}`); }
+      if (x?.state === 'battle' && !seen.battle) seen.battle = { id: q.id, foe: x.foe, x: x.x, y: x.y };
+    }
+  }, 40);
+  t.defer(() => clearInterval(iv));
+  await t.waitFor(() => seen.battle || [a, b].every((q) => !RH.armies.get(q.id)), 60000, 'the march past the camp turns on it (a battle)', () => `${st(a)} | ${st(b)} · ${log.slice(-8).join(' | ')}`);
+  clearInterval(iv);
+  t.note(log.slice(0, 12).join(' | '));
+  t.check(!!seen.battle && [a.id, b.id].includes(seen.battle.id) && [a.id, b.id].includes(seen.battle.foe), 'the two fight each other', log.slice(-10).join(' | '));
+  t.check(!!seen.battle && Math.hypot(seen.battle.x - camp.x, seen.battle.y - camp.y) < 2, 'at the camp', JSON.stringify(seen.battle));
+  await smSpeed(t, P, 1);
+  await t.checkDigest(P.H, P.G);
 });
 
 // =====================================================================================================

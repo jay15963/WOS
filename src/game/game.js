@@ -172,7 +172,7 @@ export class Game {
     // movement (systems may set p.autoMove / p.rooted)
     if (p._faceLockT > 0) p._faceLockT -= dt;
     if (p._atkRootT > 0) p._atkRootT -= dt; // standing still during an auto-attack swing / draw
-    p.swimming = !p.dead && !(p.z > 0) && !p._boat && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y), p._ud) === 2; // deep water: slow + cold (survival.js); not on ice / a deck (under a bridge: p._ud) / in a boat
+    p.swimming = !p.dead && !p.ghost && !(p.z > 0) && !p._boat && this.world.liquidAt(Math.floor(p.x), Math.floor(p.y), p._ud) === 2; // deep water: slow + cold (survival.js); not on ice / a deck (under a bridge: p._ud) / in a boat
     // camera yaw: middle-mouse drag / two-finger twist (input.rotate), double middle click = north again
     const C = this.cam;
     if (inp.rotReset || this.camRotReset) { this.camRotReset = false; C.rotTo = Math.round(C.rot / (Math.PI * 2)) * Math.PI * 2; }

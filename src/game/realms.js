@@ -752,11 +752,19 @@ function remat(game, a) {
   try { WF.materialize?.(game.realms.armies.get(a.id)); } catch (e) { console.error(e); }
 }
 // a live army kept up to date: its clock (running with an escort, frozen without — marches only), its shape in 3b
+// does army a's march keep running while 3b plays it near a player? With an enlisted follower of its own beside it (phase 3c)
+// — and always in the simulation (game/sim.js): its spectators only watch, the world goes on in front of them (owner: "esses
+// dois exércitos ficaram travados", "dois exércitos passaram entre eles e não aconteceu nada", "um exército chegou em uma vila
+// e não começou o cerco": a frozen live march never arrived nor met anyone)
+const keepsMarching = (game, a) => !!game.sim?.on || !!game.army?.escorted?.(a);
+// the players that make the armies near them live (3b): in the simulation above 5x nobody (the world map only: the local world
+// runs at 1x while the clock races — everything stays in the numbers)
+const presentPlayers = (game) => allPlayers(game).filter((p) => p && !p.dead && !(p.ghost && game.sim?.on && game.sim.speed > 5));
 function maintain(game, a, t) {
   const WF = game.warfare, R = game.realms;
   let F = WF.forces.get(a.id);
   if (a.state === 'march' || a.state === 'retreat') {
-    const esc = !!game.army?.escorted?.(a), g = routeOf(game, a);
+    const esc = keepsMarching(game, a), g = routeOf(game, a);
     if (esc && !(a.v > 0) && g) {
       const b = copy(a), q = F && F.kind === 'march' && Number.isFinite(F.x) ? [F.x, F.y] : [a.x, a.y];
       b.d0 = Math.round(Math.min(g.len, project(game, g, q[0], q[1])) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = WAR.march;
@@ -776,7 +784,7 @@ function maintain(game, a, t) {
 function liveCheck(game, t) {
   const WF = game.warfare;
   if (!WF) return;
-  const P = allPlayers(game).filter((p) => p && !p.dead), w = game.world;
+  const P = presentPlayers(game), w = game.world;
   // the soldiers of an army that is no more in the field (merged into its campaign, back home): gone
   for (const F of [...WF.forces.values()]) { if (!F.army || !/^a\d+$/.test(F.id)) continue; const a = game.realms.armies.get(F.id); if (!a || a.state === 'home') { try { WF.dematerialize?.(F.id); } catch (e) { console.error(e); } } }
   for (const id of fieldIds(game.realms)) { const a = game.realms.armies.get(id); if (!a) continue;
@@ -788,7 +796,7 @@ function liveCheck(game, t) {
     if (!a.live && d < WAR.live) {
       const b = copy(a);
       // (a march freezes in the numbers while 3b plays it — unless an enlisted player of its own marches with it: phase 3c)
-      if ((b.state === 'march' || b.state === 'retreat') && !game.army?.escorted?.(a)) { b.d0 = Math.round(distAt(a, t) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = 0; b.x = Math.round(a.x * 100) / 100; b.y = Math.round(a.y * 100) / 100; }
+      if ((b.state === 'march' || b.state === 'retreat') && !keepsMarching(game, a)) { b.d0 = Math.round(distAt(a, t) * 100) / 100; b.t0 = Math.round(t * 100) / 100; b.v = 0; b.x = Math.round(a.x * 100) / 100; b.y = Math.round(a.y * 100) / 100; }
       b.live = 1;
       emitArmy(game, b);
       const F0 = WF.forces.get(a.id);
@@ -1069,13 +1077,17 @@ function simStep(game, t, dt) {
     if (distAt(a, t) >= stopAt(game, a, g)) arrive(game, a, t);
   }
   // meetings: field armies of kingdoms at war this close fight (a retreating army is let go)
-  const F = [...R.armies.values()].filter((a) => (!a.live || (a.state === 'march' && a.v > 0)) && (a.state === 'march' || a.state === 'siege' || a.state === 'camp'));
+  const F = [...R.armies.values()].filter((a) => (!a.live || a.state === 'siege' || (a.state === 'march' && a.v > 0)) && (a.state === 'march' || a.state === 'siege' || a.state === 'camp')); // (a live siege too: an enemy march passing it turns on it)
   for (let i = 0; i < F.length; i++) for (let j = i + 1; j < F.length; j++) {
     const a = R.armies.get(F[i].id), b = R.armies.get(F[j].id);
     if (!a || !b || a.state === 'battle' || b.state === 'battle' || a.state === 'home' || b.state === 'home' || !atWar(game, a.k, b.k)) continue;
     if (a.state === 'siege' && b.state === 'siege') continue;
-    if (Math.hypot(game.world.dx(a.x, b.x), a.y - b.y) > WAR.meet) continue;
-    startBattle(game, a, b, t);
+    // a march passing a siege camp of its enemy turns on it (the camp spreads around the place: a wider reach); the battle is
+    // at the camp, about the besieged place
+    const S = a.state === 'siege' ? a : b.state === 'siege' ? b : null, M = S === a ? b : a;
+    if (Math.hypot(game.world.dx(a.x, b.x), a.y - b.y) > (S && M.state === 'march' ? WAR.meetSiege : WAR.meet)) continue;
+    if (S) startBattle(game, { ...M, x: S.x, y: S.y }, S, t, S.target);
+    else startBattle(game, a, b, t);
   }
   // musters: the main army sets out when its contingents have come (or after WAR.musterWait hours)
   for (const id of fieldIds(R)) {

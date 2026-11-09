@@ -213,7 +213,7 @@ export function raidsSystem() {
     },
   };
 }
-const nearPlayer = (game, s, r) => { const w = game.world; for (const q of allPlayers(game)) if (!q.dead && Math.hypot(w.dx(q.x, s.x), q.y - s.y) < s.r + r) return true; return false; };
+const nearPlayer = (game, s, r) => { const w = game.world; for (const q of allPlayers(game)) if (!q.dead && !(q.ghost && game.sim?.on && game.sim.speed > 5) && Math.hypot(w.dx(q.x, s.x), q.y - s.y) < s.r + r) return true; return false; };
 // the place is made here (its pieces, its people): a live wave needs its walls
 const placeReadyLive = (game, s) => !!game.towns.live?.get(s.id) && !!game.people?.live?.has(s.id);
 

@@ -55,6 +55,7 @@ export const WAR = {
   reliefK: 0.7,          // a relief force goes with ≥ 0.7 × the besiegers
   planEvery: 2,          // game hours between campaign plans of a kingdom
   meet: 10,              // tiles: field armies of kingdoms at war this close fight
+  meetSiege: 45,         // tiles: an army marching this near the siege camp of a kingdom at war with it joins the fight (owner: "o exército que estava passando ao invés de entrar no cerco defendendo a vila apenas passou reto")
   stopOut: 14,           // tiles outside the town land where a besieging army camps (on its road)
   live: 120,             // tiles: a player this near → 3b plays the army (game.warfare.materialize)
   liveOut: 150,          // tiles: nobody this near → back to numbers (dematerialize)

@@ -56,7 +56,23 @@
 - **O espectador** (`p.ghost`, que vai na rede no estado do jogador: `gh`): não é desenhado nem recorta as construções; a IA o
   ignora (`ai.js pickTarget`: com só espectadores por perto, um "alvo" morto e longe; fauna, gigantes, andarilhos, moradores
   que olham ou desviam, projéteis, o gado), `dealDamage` não o fere; o zoom nunca trava "dentro de casa".
+- **Os exércitos perto do espectador** (apontamentos do dono: "esses dois exércitos ficaram travados", "dois exércitos
+  simplesmente passaram entre eles e não aconteceu nada", "um exército chegou em uma vila e não começou o cerco", "a fonte de
+  verdade tem que começar no mundo de verdade e não no mapa mundi", "o exército que estava passando ao invés de entrar no
+  cerco defendendo a vila apenas passou reto"). Perto de um jogador o exército vira soldados de verdade (3b); no jogo normal
+  a marcha dele parava no mapa enquanto isso (só seguia com um alistado junto) — o espectador, que conta como jogador para o
+  que está perto, congelava todo exército que passava perto da câmera: o mapa parado, os soldados andando sozinhos, nunca
+  chegavam (nada de cerco) nem se encontravam (nada de batalha). Na simulação a marcha **continua** (`realms.js
+  keepsMarching`): a coluna de soldados acompanha o exército na estrada, a chegada abre o cerco e o encontro abre a batalha —
+  o mapa e o chão andam juntos, e a luta (mortes, o lugar tomado) é dos soldados de verdade e volta ao mapa. **Acima de 5x**
+  o espectador não deixa nada "vivo" (`presentPlayers`, ataques da noite): tudo nos números, que acompanham o relógio.
+  E em todo o jogo: um exército que **marcha perto do acampamento de um cerco** de um reino em guerra com ele (até
+  `WAR.meetSiege` = 45 tiles; o cerco "vivo" também conta) **entra na luta**: batalha no acampamento.
+- O espectador nunca molha, passa frio ou fome (`survival.js` pula o espectador — a chuva o "molhava" e o sistema o secava a
+  cada quadro: "Você está ficando molhado" centenas de vezes por segundo).
 - Testes **SM1** (os dois espectadores, o mapa e a ida e volta da visão do jogo, nada o mira nem o fere), **SM2** (só o
   anfitrião muda; 3x ≈ 3× o tempo real; 100x: os dois no mapa, ≥ 40× e um dia em segundos, os reinos acompanham), **SM3**
   (o convidado possui um guarda: o lugar, o nível, a arma, a armadura, ≥ 5 pães, ferramenta; o anfitrião não passa de 5x;
-  "Sair do corpo"; depois 10x leva o convidado ao mapa), **SM4** (o kit pelo nível: soldado, arqueiro, morador; só gente).
+  "Sair do corpo"; depois 10x leva o convidado ao mapa), **SM4** (o kit pelo nível: soldado, arqueiro, morador; só gente), **SM5** (um exército perto do espectador segue
+  marchando vivo, chega e cerca a vila), **SM6** (um exército que sai marchando ao lado do acampamento inimigo entra em
+  batalha, no acampamento).

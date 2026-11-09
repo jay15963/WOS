@@ -289,6 +289,9 @@ export function survivalSystem() {
       if (p.bodyHeat == null) p.bodyHeat = 100;
       updateFeel(p, dt);
       if (p.dead) { starveT = hypoT = starveAcc = hypoAcc = 0; p.wetT = 0; return; } // (a respawn starts the damage clocks afresh)
+      // the simulation's spectator (game/sim.js): no body — never wet, cold or hungry (soaking here then drying it every frame
+      // flooded the screen with "Você está ficando molhado")
+      if (p.ghost) { starveT = hypoT = starveAcc = hypoAcc = 0; p.wetT = 0; if (hasBuff(p, 'wet')) removeBuff(p, 'wet'); return; }
       if (p.warmFoodT > 0) p.warmFoodT -= dt;
 
       // felt temperature (shelter flood fill 2 Hz)

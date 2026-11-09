@@ -1346,6 +1346,12 @@ outra estrada, a marcha vai pelo campo, e o caminho pelo campo (`overland`) tamb
 a terra do lugar + 22 tiles ficam de fora). Vale para a reunião, a partida, os contingentes e o planejamento dos alvos.
 Teste **WR11** (246 casos no mundo de teste em que a estrada mais curta cruzava um lugar inimigo: todos contornam).
 
+**Passar perto de um cerco inimigo é lutar** (apontamento do dono, 9/11/2026: "o exército criou o acampamento de cerco e o
+exército que estava passando ao invés de entrar no cerco defendendo a vila apenas passou reto"): um exército que marcha a até
+`WAR.meetSiege` (45 tiles) do acampamento de um cerco de um reino em guerra com ele vira-se contra ele — batalha no
+acampamento, pelo lugar cercado (`realms.js simStep`; os encontros comuns continuam a 10 tiles; um cerco "vivo" — com
+jogadores perto — também conta). Teste **SM6**.
+
 **Guerra com um reino do outro lado de um terceiro** (apontamento do dono, 6/11/2026: "o reino verde está em guerra com o
 reino azul ciano, porém não consegue chegar as tropas até lá por ter o reino vermelho no meio, que inclusive o reino
 vermelho está em guerra com o azul ciano"): o reino do meio, neutro para quem marcha, não barra o caminho (estrada ou campo:
