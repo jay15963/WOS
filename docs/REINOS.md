@@ -1346,6 +1346,14 @@ outra estrada, a marcha vai pelo campo, e o caminho pelo campo (`overland`) tamb
 a terra do lugar + 22 tiles ficam de fora). Vale para a reunião, a partida, os contingentes e o planejamento dos alvos.
 Teste **WR11** (246 casos no mundo de teste em que a estrada mais curta cruzava um lugar inimigo: todos contornam).
 
+**A batalha em duas linhas** (apontamento do dono, 9/11/2026: "as batalhas apenas juntam todos os soldados em um único ponto
+agora, ao invés de ser igual o modo escaramuça onde tudo é posicionado corretamente"): quando dois exércitos se encontram
+(ou um passa perto de um cerco) o cálculo do mapa punha os dois exatamente no mesmo ponto; a batalha no chão (3b) arma os dois
+lados ao longo da reta de um ao outro — sem reta, os dois lados no mesmo lugar, todos num monte. Agora cada exército fica um
+passo (1,5 tile) do seu lado do ponto da batalha, do lado de onde veio (ou, se chegaram ao mesmo ponto, pelo rumo da marcha):
+no chão os dois lados se armam separados, de frente um para o outro, como na escaramuça (`realms.js startBattle`). Teste
+**SM6** (falha sem a correção).
+
 **Passar perto de um cerco inimigo é lutar** (apontamento do dono, 9/11/2026: "o exército criou o acampamento de cerco e o
 exército que estava passando ao invés de entrar no cerco defendendo a vila apenas passou reto"): um exército que marcha a até
 `WAR.meetSiege` (45 tiles) do acampamento de um cerco de um reino em guerra com ele vira-se contra ele — batalha no

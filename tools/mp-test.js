@@ -11822,9 +11822,9 @@ def('SM1', {
   await smPlay(t, G, sp.x + 4, sp.y + 4);
   t.check(Math.abs(G.game.cam.zoom - 22) < 1 && !G.doc.body.classList.contains('sim-map') && !smS(G).noRender, 'the guest in the gameplay view at its farthest zoom', `zoom ${f2(G.game.cam.zoom)}`);
   const x0 = G.game.player.x, rel = A.holdMove(G, 1, 0);
-  await t.sleep(600);
+  t.defer(rel);
+  await t.waitFor(() => G.game.player.x > x0 + 2, 4000, 'WASD flies the spectator', () => `${f2(x0)} → ${f2(G.game.player.x)}`);
   rel();
-  t.check(G.game.player.x > x0 + 2, 'WASD flies the spectator', `${f2(x0)} → ${f2(G.game.player.x)}`);
   for (let k = 0; k < 12 && smS(G).view === 'play'; k++) { G.game.input.zoom = -0.25; await t.sleep(60); }
   t.check(smS(G).view === 'map' && G.doc.body.classList.contains('sim-map'), 'zoomed out past the farthest gameplay zoom: the world map again', smS(G).view);
   await t.checkDigest(H, G);
@@ -12022,7 +12022,16 @@ def('SM6', {
   clearInterval(iv);
   t.note(log.slice(0, 12).join(' | '));
   t.check(!!seen.battle && [a.id, b.id].includes(seen.battle.id) && [a.id, b.id].includes(seen.battle.foe), 'the two fight each other', log.slice(-10).join(' | '));
-  t.check(!!seen.battle && Math.hypot(seen.battle.x - camp.x, seen.battle.y - camp.y) < 2, 'at the camp', JSON.stringify(seen.battle));
+  t.check(!!seen.battle && Math.hypot(seen.battle.x - camp.x, seen.battle.y - camp.y) < 4, 'at the camp', JSON.stringify(seen.battle));
+  // live, the two sides deploy apart facing each other (owner: "as batalhas apenas juntam todos os soldados em um único ponto")
+  const W = P.H.game.warfare, FF = () => [W.forces.get(a.id), W.forces.get(b.id)];
+  await t.waitFor(() => FF().every((F) => F?.kind === 'battle' && F.deploy && F.live?.size), 10000, 'the battle live on the ground (3b: both sides)', () => FF().map((F) => `${F?.id} ${F?.kind} live ${F?.live?.size ?? '-'}`).join(' | '));
+  const [FA, FB] = FF(), dd = Math.hypot(FA.deploy.x - FB.deploy.x, FA.deploy.y - FB.deploy.y), dot = FA.face.x * FB.face.x + FA.face.y * FB.face.y;
+  t.check(dd > 10 && dot < -0.9, 'the two sides deploy apart, facing each other (not one heap)', `apart ${f2(dd)} · facing ${f2(dot)}`);
+  await t.sleep(2500);
+  const mid = (F) => { let x = 0, y = 0, n = 0; for (const m of F.live.values()) if (!m.dead) { x += m.x; y += m.y; n++; } return n ? [x / n, y / n] : null; };
+  const ca = mid(FA), cb = mid(FB);
+  t.check(ca && cb && Math.hypot(ca[0] - cb[0], ca[1] - cb[1]) > 6, 'their soldiers stand as two bodies apart', ca && cb ? f2(Math.hypot(ca[0] - cb[0], ca[1] - cb[1])) : 'none');
   await smSpeed(t, P, 1);
   await t.checkDigest(P.H, P.G);
 });

@@ -502,17 +502,29 @@ function nearSid(game, x, y) {
   for (const s of realm.settlements) { const d = Math.hypot(game.world.dx(s.x, x), s.y - y); if (d < bd) { bd = d; best = s.id; } }
   return best;
 }
-function startBattle(game, a, b, t, sid = -1) {
+const BSIDE = 1.5; // tiles: each army from the battle's point, on its own side (the direction 3b deploys along)
+// a's heading on its road now (radians), or null
+function headingOf(game, a, t) {
+  const g = (a.state === 'march' || a.state === 'retreat') ? routeOf(game, a) : null;
+  return g && g.len > 0 ? along(game, g, Math.min(distAt(a, t), g.len))[2] : null;
+}
+// at: where the battle is (a siege camp) — else half-way between them. Each army stands a little on its own side of it (the
+// line from one to the other: 3b deploys the two sides along it, facing each other — both on one point, every soldier of
+// both came out in one heap; owner: "as batalhas apenas juntam todos os soldados em um único ponto")
+function startBattle(game, a, b, t, sid = -1, at = null) {
   const H = game.realms.H;
-  const A = copy(a), B = copy(b), mx = b.x + game.world.dx(a.x, b.x) / 2, my = (a.y + b.y) / 2;
+  const A = copy(a), B = copy(b), mx = at ? at[0] : b.x + game.world.dx(a.x, b.x) / 2, my = at ? at[1] : (a.y + b.y) / 2;
+  let ux = game.world.dx(b.x, a.x), uy = b.y - a.y, ud = Math.hypot(ux, uy);
+  if (ud < 0.5) { const h = headingOf(game, a, t) ?? headingOf(game, b, t), s = headingOf(game, a, t) != null ? 1 : -1; ux = h != null ? Math.cos(h) * s : 1; uy = h != null ? Math.sin(h) * s : 0; ud = Math.hypot(ux, uy) || 1; }
+  ux /= ud; uy /= ud;
   for (const [o, f] of [[A, B], [B, A]]) {
     const g = routeOf(game, o === A ? a : b);
     const d = (o.state === 'march' || o.state === 'retreat') && g ? Math.min(distAt(o, t), g.len) : o.d0;
     o.phase = (o.state + '/' + (o.phase || '')).slice(0, 16);
     Object.assign(o, { state: 'battle', foe: f.id, bn: o.n, d0: Math.round(d * 100) / 100, t0: Math.round(t * 100) / 100, v: 0 });
   }
-  A.x = Math.round(mx * 100) / 100; A.y = Math.round(my * 100) / 100; // (they meet half-way: the battle is there)
-  B.x = A.x; B.y = A.y;
+  A.x = Math.round((mx - ux * BSIDE) * 100) / 100; A.y = Math.round((my - uy * BSIDE) * 100) / 100; // (they meet half-way: the battle is there,
+  B.x = Math.round((mx + ux * BSIDE) * 100) / 100; B.y = Math.round((my + uy * BSIDE) * 100) / 100; //  each a step on its own side)
   H.acc.set(A.id, { b: 0, s: 0 }); H.acc.set(B.id, { b: 0, s: 0 });
   const where = sid >= 0 ? sid : nearSid(game, mx, my);
   emitArmy(game, A);
@@ -1086,7 +1098,7 @@ function simStep(game, t, dt) {
     // at the camp, about the besieged place
     const S = a.state === 'siege' ? a : b.state === 'siege' ? b : null, M = S === a ? b : a;
     if (Math.hypot(game.world.dx(a.x, b.x), a.y - b.y) > (S && M.state === 'march' ? WAR.meetSiege : WAR.meet)) continue;
-    if (S) startBattle(game, { ...M, x: S.x, y: S.y }, S, t, S.target);
+    if (S) startBattle(game, M, S, t, S.target, [S.x, S.y]);
     else startBattle(game, a, b, t);
   }
   // musters: the main army sets out when its contingents have come (or after WAR.musterWait hours)
